@@ -31,6 +31,8 @@ import {
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { SegmentedComponent } from '../../../shared/components/segmented/segmented.component';
 import { FINANZAS_TABS } from '../../finanzas/finanzas-tabs';
+import { ThemeService } from '../../../core/services/theme.service';
+import { egresChartOptions } from './egresos-chart-opts';
 
 /**
  * GX v2 — Egresos contables (pólizas gastos + compras) con desglose jerárquico
@@ -62,28 +64,31 @@ import { FINANZAS_TABS } from '../../finanzas/finanzas-tabs';
                 class="p-button-sm p-button-outlined" (click)="exportCsv()" [disabled]="!report()"></button>
       </header>
 
-      <!-- Filtros -->
+      <!-- Filtros — Sucursales es común a todas las vistas; el resto solo aplica a los
+           reportes de egresos (árbol/tabla/tendencia). Proveedores/Hallazgos no los usan. -->
       <div class="ex-filters card-premium card-flat">
-        <div class="ex-field"><label>Rango</label>
-          <p-datePicker [(ngModel)]="rangeDates" selectionMode="range" dateFormat="dd/mm/yy" [showIcon]="true" appendTo="body" (onClose)="load()" /></div>
         <div class="ex-field"><label>Sucursales</label>
-          <p-multiSelect [options]="sucursales()" [(ngModel)]="sucursal" optionLabel="label" optionValue="code" placeholder="Todas" [showClear]="true" appendTo="body" styleClass="w-full" (onPanelHide)="load()" /></div>
-        <div class="ex-field"><label>Tipo</label>
-          <app-segmented [options]="familiaOpts" [value]="familia()" (valueChange)="setStr(familia, $event)" ariaLabel="Tipo de egreso" /></div>
-        <div class="ex-field"><label>Tipo doc</label>
-          <p-select [options]="docTipoOpts()" [(ngModel)]="docTipo" [showClear]="true" placeholder="Todos" appendTo="body" (onChange)="load()" styleClass="w-full" /></div>
-        <div class="ex-field"><label>Área</label>
-          <p-select [options]="areaOpts()" [(ngModel)]="area" [showClear]="true" placeholder="Todas" appendTo="body" (onChange)="load()" styleClass="w-full" [filter]="true" /></div>
-        <div class="ex-field"><label>Beneficiario</label>
-          <input pInputText [(ngModel)]="beneficiario" placeholder="Buscar…" (keyup.enter)="load()" (blur)="load()" /></div>
-        <div class="ex-field ex-narrow"><label>Monto ≥</label>
-          <p-inputNumber [(ngModel)]="minImporte" mode="currency" currency="MXN" [min]="0" (onBlur)="load()" /></div>
-        <div class="ex-field ex-toggle"><label>Comparar</label>
-          <p-toggleSwitch [(ngModel)]="compare" (ngModelChange)="load()" /></div>
+          <p-multiSelect [options]="sucursales()" [(ngModel)]="sucursal" optionLabel="label" optionValue="code" placeholder="Todas" [showClear]="true" appendTo="body" styleClass="w-full" (onPanelHide)="queueFilter()" /></div>
+        @if (isReportView()) {
+          <div class="ex-field"><label>Rango</label>
+            <p-datePicker [(ngModel)]="rangeDates" selectionMode="range" dateFormat="dd/mm/yy" [showIcon]="true" appendTo="body" (onClose)="queueFilter()" /></div>
+          <div class="ex-field"><label>Tipo</label>
+            <app-segmented [options]="familiaOpts" [value]="familia()" (valueChange)="setStr(familia, $event)" ariaLabel="Tipo de egreso" /></div>
+          <div class="ex-field"><label>Tipo doc</label>
+            <p-select [options]="docTipoOpts()" [(ngModel)]="docTipo" [showClear]="true" placeholder="Todos" appendTo="body" (onChange)="queueFilter()" styleClass="w-full" /></div>
+          <div class="ex-field"><label>Área</label>
+            <p-select [options]="areaOpts()" [(ngModel)]="area" [showClear]="true" placeholder="Todas" appendTo="body" (onChange)="queueFilter()" styleClass="w-full" [filter]="true" /></div>
+          <div class="ex-field"><label>Beneficiario</label>
+            <input pInputText [(ngModel)]="beneficiario" placeholder="Buscar…" (keyup.enter)="applyFilters()" (blur)="queueFilter()" /></div>
+          <div class="ex-field ex-narrow"><label>Monto ≥</label>
+            <p-inputNumber [(ngModel)]="minImporte" mode="currency" currency="MXN" [min]="0" (onBlur)="queueFilter()" /></div>
+          <div class="ex-field ex-toggle"><label>Comparar</label>
+            <p-toggleSwitch [(ngModel)]="compare" (ngModelChange)="queueFilter()" /></div>
+        }
       </div>
 
-      <!-- KPIs -->
-      @if (report(); as r) {
+      <!-- KPIs (solo del reporte de egresos — no aplican a Proveedores/Hallazgos) -->
+      @if (isReportView() && report(); as r) {
         <div class="ex-kpis">
           <div class="ex-kpi">
             <span class="ex-kpi-label">Egreso total</span>
@@ -121,7 +126,11 @@ import { FINANZAS_TABS } from '../../finanzas/finanzas-tabs';
               <tr><th>Concepto</th><th class="ta-r" style="width:8rem">Movs</th><th class="ta-r" style="width:12rem">Importe</th><th class="ta-r" style="width:7rem">%</th></tr>
             </ng-template>
             <ng-template pTemplate="body" let-rowNode let-rowData="rowData">
-              <tr [ttRow]="rowNode" [class.ex-clickable]="rowData.level === 'cuenta'" (click)="rowData.level === 'cuenta' && openCuenta(rowData.key, rowData.label)">
+              <tr [ttRow]="rowNode" [class.ex-clickable]="rowData.level === 'cuenta'"
+                  [attr.tabindex]="rowData.level === 'cuenta' ? 0 : null"
+                  [attr.role]="rowData.level === 'cuenta' ? 'button' : null"
+                  (click)="rowData.level === 'cuenta' && openCuenta(rowData.key, rowData.label)"
+                  (keydown.enter)="rowData.level === 'cuenta' && openCuenta(rowData.key, rowData.label)">
                 <td>
                   <p-treeTableToggler [rowNode]="rowNode" />
                   <span [class.strong]="rowData.level === 'familia'" [class.muted]="rowData.level === 'cuenta'">{{ rowData.label }}</span>
@@ -151,7 +160,8 @@ import { FINANZAS_TABS } from '../../finanzas/finanzas-tabs';
               </tr>
             </ng-template>
             <ng-template pTemplate="body" let-row>
-              <tr class="ex-clickable" (click)="drillRow(row)">
+              <tr class="ex-clickable" tabindex="0" role="button" [attr.aria-label]="'Ver detalle de ' + row.label"
+                  (click)="drillRow(row)" (keydown.enter)="drillRow(row)" (keydown.space)="$event.preventDefault(); drillRow(row)">
                 <td>
                   {{ row.label }}
                   @if (row.familia === '5') { <span class="ex-tag fam5">Compra</span> }
@@ -175,7 +185,7 @@ import { FINANZAS_TABS } from '../../finanzas/finanzas-tabs';
         <!-- TENDENCIA -->
         @if (view() === 'tendencia') {
           <div class="card-premium card-flat ex-chart">
-            <p-chart type="bar" [data]="chartData()" [options]="chartOpts" height="360px"></p-chart>
+            <p-chart type="bar" [data]="chartData()" [options]="chartOpts()" height="360px"></p-chart>
           </div>
         }
       }
@@ -271,7 +281,11 @@ import { FINANZAS_TABS } from '../../finanzas/finanzas-tabs';
     .ex-field { display: flex; flex-direction: column; gap: .35rem; }
     .ex-field label { font-size: .72rem; font-weight: 600; color: var(--text-muted, #78716c); text-transform: uppercase; letter-spacing: .03em; }
     .ex-narrow { max-width: 10rem; }
-    .ex-toggle { align-items: center; }
+    /* El p-inputNumber no encoge solo → se desbordaba sobre "Comparar". Lo fijo al ancho del campo. */
+    :host ::ng-deep .ex-narrow .p-inputnumber { width: 100%; }
+    :host ::ng-deep .ex-narrow .p-inputnumber input { width: 100%; min-width: 0; }
+    /* "Comparar": label arriba + toggle abajo, alineado como el resto (no centrado). */
+    .ex-toggle { align-items: flex-start; justify-content: flex-end; min-width: 6rem; }
     .ex-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: .75rem; margin-bottom: 1rem; }
     .ex-kpi { border: 1px solid var(--border, #e7e5e4); border-radius: var(--radius-md, 10px); padding: .85rem 1rem; background: var(--card-bg, #fff); }
     .ex-kpi-label { display: block; font-size: .72rem; font-weight: 600; color: var(--text-muted, #78716c); text-transform: uppercase; letter-spacing: .03em; }
@@ -290,6 +304,7 @@ import { FINANZAS_TABS } from '../../finanzas/finanzas-tabs';
     .up { color: var(--bad-fg); font-weight: 600; }
     .down { color: var(--ok-fg); font-weight: 600; }
     .ex-clickable { cursor: pointer; }
+    .ex-clickable:focus-visible { outline: 2px solid var(--action); outline-offset: -2px; }
     .ex-tag { display: inline-block; font-size: .68rem; font-weight: 600; padding: .05rem .4rem; border-radius: 999px; margin-left: .5rem; border: 1px solid var(--border, #e7e5e4); }
     .ex-tag.fam5 { color: var(--chip-brand-fg); border-color: var(--chip-brand-border); background: var(--chip-brand-bg); }
     .ex-tag.fam6 { color: var(--chip-competition-fg); border-color: var(--chip-competition-border); background: var(--chip-competition-bg); }
@@ -322,6 +337,7 @@ export class ComercialEgresosComponent {
   private readonly toast = inject(MessageService);
   private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly theme = inject(ThemeService);
 
   readonly reportTabs = FINANZAS_TABS;
   readonly familiaOpts = [{ label: 'Todo', value: '' }, { label: 'Compras', value: '5' }, { label: 'Gastos', value: '6' }];
@@ -362,6 +378,11 @@ export class ComercialEgresosComponent {
   minImporte: number | null = null;
   rangeDates: Date[] = [(() => { const d = new Date(); d.setDate(d.getDate() - 90); return d; })(), new Date()];
 
+  /** Árbol/Tabla/Tendencia = renders del reporte de egresos. Proveedores/Hallazgos = otros datasets. */
+  readonly isReportView = computed(() => {
+    const v = this.view();
+    return v === 'arbol' || v === 'tabla' || v === 'tendencia';
+  });
   readonly treeNodes = computed<TreeNode[]>(() => (this.tree()?.tree || []).map((n) => this.toNode(n, true)));
   readonly groupByLabel = computed(() => this.groupByOpts.find((o) => o.value === this.groupBy())?.label || 'Concepto');
   readonly chartData = computed(() => {
@@ -374,18 +395,15 @@ export class ComercialEgresosComponent {
       ],
     };
   });
-  readonly chartOpts = {
-    responsive: true, maintainAspectRatio: false,
-    plugins: { legend: { position: 'bottom' } },
-    scales: { x: { stacked: true }, y: { stacked: true, ticks: { callback: (v: any) => '$' + Number(v).toLocaleString('es-MX') } } },
-  };
+  // Theme-aware (ver egresos-chart-opts): sin esto los ejes/leyenda son ilegibles en dark.
+  readonly chartOpts = computed(() => egresChartOptions(this.theme.isMonochrome()));
 
   constructor() {
     this.svc.expensesSucursales().pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((rows) => this.sucursales.set(rows.map((s) => ({ code: s.code, label: s.name ? `${s.code} · ${s.name}` : s.code }))));
     this.svc.expensesFilters().pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((f) => { this.docTipoOpts.set(f.doc_tipos); this.areaOpts.set(f.areas); });
-    this.load();
+    this.showView();
   }
 
   private params(extra: Partial<ExpensesParams> = {}): ExpensesParams {
@@ -403,29 +421,55 @@ export class ComercialEgresosComponent {
     };
   }
 
-  setStr(sig: { set: (v: string) => void }, v: string) { sig.set(v || ''); this.load(); }
-  setView(v: string) { this.view.set(v as any); this.load(); }
-  setGroupBy(v: string) { this.groupBy.set(v as ExpenseGroupBy); this.load(); }
+  // Caché por frescura: cambiar de VISTA no re-consulta (usa lo cargado); cambiar
+  // FILTROS invalida y recarga solo la vista activa (con debounce).
+  private fresh = { report: false, tree: false, providers: false, findings: false };
+  private filterTimer: ReturnType<typeof setTimeout> | null = null;
+
+  setStr(sig: { set: (v: string) => void }, v: string) { sig.set(v || ''); this.applyFilters(); }
+  setView(v: string) { this.view.set(v as any); this.showView(); }
+  // groupBy solo reagrupa las filas del reporte (tabla) → recarga solo el reporte.
+  setGroupBy(v: string) { this.groupBy.set(v as ExpenseGroupBy); this.fresh.report = false; this.showView(); }
+
+  /** Cambio de filtro con debounce: agrupa varios cambios seguidos en una sola request. */
+  queueFilter() {
+    if (this.filterTimer) clearTimeout(this.filterTimer);
+    this.filterTimer = setTimeout(() => this.applyFilters(), 300);
+  }
+  /** Aplica filtros ya: invalida la caché y recarga la vista activa. */
+  applyFilters() {
+    if (this.filterTimer) { clearTimeout(this.filterTimer); this.filterTimer = null; }
+    this.fresh = { report: false, tree: false, providers: false, findings: false };
+    this.showView();
+  }
+
+  /** Carga SOLO lo que la vista activa necesita y que no esté ya fresco. */
+  showView() {
+    const v = this.view();
+    if (v === 'proveedores') { if (!this.fresh.providers) this.loadProviders(); return; }
+    if (v === 'hallazgos') { if (!this.fresh.findings) this.loadFindings(this.findingTipo()); return; }
+    if (!this.fresh.report) this.loadReport();
+    if (v === 'arbol' && !this.fresh.tree) this.loadTree();
+  }
 
   private reportSub?: Subscription;
   private treeSub?: Subscription;
 
-  load() {
+  private loadReport() {
     this.loading.set(true);
     this.reportSub?.unsubscribe(); // cancela la request anterior: sin esto una respuesta lenta vieja pisa a la nueva
     this.reportSub = this.svc.expenses(this.params({ group_by: this.groupBy(), compare: this.compare() }))
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: (r) => { this.report.set(r); this.loading.set(false); },
+        next: (r) => { this.report.set(r); this.fresh.report = true; this.loading.set(false); },
         error: () => { this.loading.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo cargar egresos' }); },
       });
-    if (this.view() === 'arbol') {
-      this.treeSub?.unsubscribe();
-      this.treeSub = this.svc.expensesTree(this.params()).pipe(takeUntilDestroyed(this.destroyRef))
-        .subscribe({ next: (t) => this.tree.set(t), error: () => {} });
-    }
-    if (this.view() === 'proveedores') this.loadProviders();
-    if (this.view() === 'hallazgos') this.loadFindings(this.findingTipo());
+  }
+
+  private loadTree() {
+    this.treeSub?.unsubscribe();
+    this.treeSub = this.svc.expensesTree(this.params()).pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({ next: (t) => { this.tree.set(t); this.fresh.tree = true; }, error: () => {} });
   }
 
   private providersSub?: Subscription;
@@ -435,7 +479,7 @@ export class ComercialEgresosComponent {
     this.providersSub?.unsubscribe();
     this.providersSub = this.svc.apProviders({ search: this.providerSearch, sucursal: this.sucursal, limit: 200 })
       .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({ next: (r) => this.providers.set(r), error: () => this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudieron cargar proveedores' }) });
+      .subscribe({ next: (r) => { this.providers.set(r); this.fresh.providers = true; }, error: () => this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudieron cargar proveedores' }) });
   }
 
   loadFindings(tipo: string) {
@@ -443,7 +487,7 @@ export class ComercialEgresosComponent {
     this.findingsSub?.unsubscribe();
     this.findingsSub = this.svc.expenseFindings({ tipo: tipo || undefined, sucursal: this.sucursal, limit: 1000 })
       .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({ next: (r) => this.findings.set(r), error: () => this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudieron cargar hallazgos' }) });
+      .subscribe({ next: (r) => { this.findings.set(r); this.fresh.findings = true; }, error: () => this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudieron cargar hallazgos' }) });
   }
 
   readonly findingMeta = (t: string) => this.findingLabels[t] || { label: t, sev: 'warn', hint: '' };

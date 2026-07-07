@@ -12,4 +12,10 @@ export const FINANZAS_TABS: PageTab[] = [
     icon: 'pi pi-wallet',
     permission: Permission.FINANCE_EXPENSES_VER,
   },
+  {
+    label: 'Pregúntale a Maat',
+    route: '/finanzas/maat',
+    icon: 'pi pi-sparkles',
+    permission: Permission.FINANCE_AI_CHAT,
+  },
 ];

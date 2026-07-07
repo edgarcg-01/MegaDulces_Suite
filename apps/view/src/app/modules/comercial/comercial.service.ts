@@ -1692,10 +1692,24 @@ export interface ExpenseProductLine {
   costo_unitario: number | null;
   importe: number;
 }
+// GX.4.3b — cadena de aprovisionamiento (orden→recepción→factura→pago); null hasta que exista el feed
+export interface ExpenseDocChain {
+  orden_folio: string | null;
+  orden_fecha: string | null;
+  recepcion_folio: string | null;
+  recepcion_fecha: string | null;
+  factura_folio: string | null;
+  factura_fecha: string | null;
+  pago_folio: string | null;
+  pago_fecha: string | null;
+  lead_days: number | null;
+  pago_days: number | null;
+}
 export interface ExpenseDocumentDetail {
   header: ExpenseDocHeader | null;
   postings: ExpensePosting[];
   lines: ExpenseProductLine[];
+  chain?: ExpenseDocChain | null;
 }
 // GX v3 — proveedores (201) + hallazgos
 export interface ApProvider {

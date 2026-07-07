@@ -212,6 +212,11 @@ export const routes: Routes = [
         loadComponent: () => import('./modules/comercial/pages/comercial-egreso-detalle.component').then(m => m.ComercialEgresoDetalleComponent),
         canActivate: [permissionGuard(Permission.FINANCE_EXPENSES_VER)]
       },
+      {
+        path: 'maat',
+        loadComponent: () => import('./modules/finanzas/pages/finanzas-maat-chat.component').then(m => m.FinanzasMaatChatComponent),
+        canActivate: [permissionGuard(Permission.FINANCE_AI_CHAT)]
+      },
     ]
   },
   // ── Proyecto Almacén ────────────────────────────────────────────────

@@ -6,3 +6,4 @@
 
 export * from './lib/maat/finance-maat.module';
 export * from './lib/maat/maat-knowledge.service';
+export * from './lib/maat/maat-chat.service';

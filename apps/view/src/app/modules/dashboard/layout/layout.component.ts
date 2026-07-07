@@ -371,6 +371,7 @@ export class LayoutComponent implements OnInit, OnDestroy {
   // Finanzas (egresos contables, CxP). Crece aquí lo contable — no en Ventas.
   private finanzasNavItems: NavItem[] = [
     { label: 'Egresos contables', icon: 'pi pi-wallet', route: '/finanzas/egresos', permission: Permission.FINANCE_EXPENSES_VER },
+    { label: 'Pregúntale a Maat', icon: 'pi pi-sparkles', route: '/finanzas/maat', permission: Permission.FINANCE_AI_CHAT },
   ];
 
   // Almacén: existencias, conteo físico, FEFO, ABC/cíclico, pasillos. Operación
@@ -407,6 +408,11 @@ export class LayoutComponent implements OnInit, OnDestroy {
     // Reparto: superficie de personal de tienda; nav propio, sin depender del dashboard completo.
     if (this.currentProject() === 'reparto') {
       return this.dedupeByRoute(this.repartoNavItems);
+    }
+    // Finanzas: superficie contable con nav propio, sin depender del dashboard completo
+    // (un usuario de finanzas puede no tener REPORTES_VER_*). El route-guard ya gatea acceso.
+    if (this.currentProject() === 'finanzas') {
+      return this.dedupeByRoute(this.finanzasNavItems);
     }
     // Colaborador restringido (sin reportes de equipo/global): solo captura diaria.
     const legacy = user.permissions;
@@ -452,6 +458,9 @@ export class LayoutComponent implements OnInit, OnDestroy {
     if (!user) return [];
     if (this.currentProject() === 'reparto') {
       return [{ title: 'Reparto', items: this.dedupeByRoute(this.repartoNavItems) }];
+    }
+    if (this.currentProject() === 'finanzas') {
+      return [{ title: 'Finanzas', items: this.dedupeByRoute(this.finanzasNavItems) }];
     }
     if (this.currentProject() === 'comercial') {
       return this.comercialNavGroups
@@ -534,9 +543,11 @@ export class LayoutComponent implements OnInit, OnDestroy {
    * usuarios con permisos válidos (p.ej. VER_SEGUIMIENTO).
    */
   isRestricted = computed(() => {
-    return (
-      this.navItems().length + this.adminItems().length <= 1
-    );
+    // Modo "kiosco" (oculta el chrome) SOLO para el colaborador de Trade con acceso
+    // a una sola pantalla (Captura). Las superficies dedicadas (finanzas, reparto,
+    // tienda, etc.) tienen su propio nav aunque sea de 1 item → nunca se restringen.
+    if (this.currentProject() !== 'trademk') return false;
+    return this.navItems().length + this.adminItems().length <= 1;
   });
 
   /**

@@ -165,6 +165,7 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
         route: '/finanzas',
         modules: [
           { id: 'egresos', label: 'Egresos contables', route: '/finanzas/egresos', view: [Permission.FINANCE_EXPENSES_VER], manage: [] },
+          { id: 'maat', label: 'Pregúntale a Maat', route: '/finanzas/maat', view: [Permission.FINANCE_AI_CHAT], manage: [Permission.FINANCE_FINDINGS_GESTIONAR] },
         ],
       },
     ],
