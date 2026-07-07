@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
 import { MaatActionsService } from './maat-actions.service';
+import { MaatKnowledgeVectorService } from './maat-knowledge-vector.service';
 
 /**
  * MAAT.3 — Tool registry del chat de Maat (ADR-028, patrón Thot Chat/ADR-026).
@@ -74,6 +75,7 @@ export class MaatToolsService {
     private readonly tk: TenantKnexService,
     private readonly tenantCtx: TenantContextService,
     private readonly actions: MaatActionsService,
+    private readonly kbVector: MaatKnowledgeVectorService,
   ) {}
 
   // ── System prompt: identidad + reglas duras + TODO el conocimiento activo ──
@@ -1019,29 +1021,45 @@ Tienes acceso a: **balanza de comprobación completa** (familias 1-9, cargos/abo
   }
 
   private async conocimiento(q: any) {
+    const query = String(q.q || '').trim();
+    // RAG: si hay query y el índice vectorial está disponible, búsqueda semántica.
+    if (query && this.kbVector.available()) {
+      const tenantId = this.tenantCtx.requireTenantId();
+      const hits = await this.kbVector.search(tenantId, query, q.kind, 8);
+      if (hits.length) {
+        return { rows: hits.map((h) => ({ kind: h.kind, title: h.title, body: h.body, source: h.source, score: h.score })), via: 'semantico' };
+      }
+    }
+    // Fallback determinista (sin query, sin índice, o índice vacío): ILIKE.
     return this.tk.run(async (trx) => {
       const b = trx('finance.knowledge').where('status', 'active');
       if (q.kind) b.where('kind', q.kind);
-      if (q.q?.trim()) b.whereRaw('(title ILIKE ? OR body ILIKE ?)', [`%${q.q.trim()}%`, `%${q.q.trim()}%`]);
+      if (query) b.whereRaw('(title ILIKE ? OR body ILIKE ?)', [`%${query}%`, `%${query}%`]);
       const rows = await b.select('kind', 'title', 'body', 'source').orderBy(['kind', 'title']).limit(20);
-      return rows.length ? { rows } : { rows: [], nota: 'Sin resultados en la base de conocimiento.' };
+      return rows.length ? { rows, via: 'texto' } : { rows: [], nota: 'Sin resultados en la base de conocimiento.' };
     });
   }
 
   private async guardarConocimiento(q: any, scope: MaatScope) {
     if (!q?.title?.trim() || !q?.body?.trim() || !q?.kind) return { error: 'kind, title y body son requeridos.' };
-    return this.tk.run(async (trx) => {
-      const [row] = await trx('finance.knowledge')
+    const kind = q.kind;
+    const title = String(q.title).trim().slice(0, 200);
+    const body = String(q.body).trim().slice(0, 2000);
+    const tenantId = this.tenantCtx.requireTenantId();
+    const row = await this.tk.run(async (trx) => {
+      const [r] = await trx('finance.knowledge')
         .insert({
           tenant_id: trx.raw('public.current_tenant_id()'),
-          kind: q.kind, title: String(q.title).trim().slice(0, 200), body: String(q.body).trim().slice(0, 2000),
-          source: 'chat', created_by: scope.userName || 'maat-chat',
+          kind, title, body, source: 'chat', created_by: scope.userName || 'maat-chat',
         })
         .onConflict(['tenant_id', 'kind', 'title'])
-        .merge({ body: String(q.body).trim().slice(0, 2000), status: 'active', updated_at: trx.fn.now() })
+        .merge({ body, status: 'active', updated_at: trx.fn.now() })
         .returning(['kind', 'title']);
-      this.logger.log(`knowledge guardado vía chat: [${row.kind}] ${row.title} (por ${scope.userName || '?'})`);
-      return { guardado: true, kind: row.kind, title: row.title };
+      this.logger.log(`knowledge guardado vía chat: [${r.kind}] ${r.title} (por ${scope.userName || '?'})`);
+      return r;
     });
+    // RAG: embdebe la entrada al vuelo (best-effort, no bloquea la respuesta).
+    await this.kbVector.upsert(tenantId, { kind, title, body, source: 'chat' });
+    return { guardado: true, kind: row.kind, title: row.title };
   }
 }

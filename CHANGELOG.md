@@ -10,6 +10,12 @@
 
 ## [Unreleased]
 
+### Added — Maat RAG: retrieval semántico de conocimiento (MAAT.9) (2026-07-07)
+- El tool `maat_conocimiento` ahora busca por **similitud coseno** (Voyage voyage-3 + pgvector) en vez de ILIKE → entiende parafraseo/sinónimos ("centro de costos por departamento" encuentra la entrada aunque no compartan palabras).
+- **No agrega tecnología nueva**: reusa `EmbeddingsService` + la DB vector dedicada de Fase K (`VECTOR_DATABASE_URL`), ambos en `platform-core`. Nuevo `MaatKnowledgeVectorService` (tabla `maat_knowledge_embeddings`, HNSW coseno, PK `(tenant_id,kind,title)`). **Degrada solo**: sin vector DB / VOYAGE_API_KEY / ante error → fallback a ILIKE (el chat nunca se rompe).
+- **Sync automático**: guardar/retirar conocimiento (chat REST) embebe/quita la entrada al vuelo. Backfill vía `POST /finance/maat/knowledge/reindex` o script on-prem `database/scripts/embed-maat-knowledge.js`.
+- **Verificado contra la DB RAG de prod**: 28/28 entradas embebidas; queries parafraseadas devuelven la entrada correcta (señal 0.44–0.59 vs ruido 0.33–0.40, umbral 0.42). Corpus-RAG de documentos contables (PDFs) diferido — no hay corpus cargado.
+
 ### Added — Geocercas indexadas para tracking GPS de campo (Track GPS.B) (2026-07-03)
 - **Contexto:** análisis de la arquitectura de tracking GPS del vendedor (foreground service nativo + Dexie batching + REST-batch + WS live-map) confirmó que está ~90% construida. **Única brecha técnica real: sin índice espacial** — las geocercas ("¿entró a la tienda?", clientes cercanos) se calculaban con haversine en JS/SQL sin índice.
 - **Decisión:** PostGIS **NO disponible** en la instancia (`postgres_platform`, PG 18.4 — ni instalada ni en `pg_available_extensions`). `cube` + `earthdistance` **sí** → alternativa liviana elegida (misma capacidad de radio indexado con GiST, sin instalar paquetes de OS). Documentado como plan B en el análisis previo.

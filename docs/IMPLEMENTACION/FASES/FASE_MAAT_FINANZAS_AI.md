@@ -319,7 +319,14 @@ MAAT.7 (2.0, base: render_response + loop) ──▶ MAAT.8 (push) ──▶ MAA
 | CrewAI / LangGraph (MAS framework) | El agente único + sub-agente in-process demuestra ser insuficiente en amplitud |
 | BullMQ / RabbitMQ (cola) | Fase F (decisión de proyecto) o webhooks reales del ERP |
 | Neo4j / GraphRAG | Ingesta de representante legal + cuenta bancaria + dirección, y el CTE recursivo se queda corto |
-| pgvector en `finance.knowledge` | knowledge > ~100 entradas (hoy 27; ILIKE alcanza) |
+| ~~pgvector en `finance.knowledge`~~ | ✅ **CRUZADO 2026-07-07 (MAAT.9)** — Edgar pidió vectorizar; reusa infra Fase K (Voyage + DB vector dedicada). Ver abajo. |
+
+### MAAT.9 (RAG) — Retrieval semántico de conocimiento ✅ 2026-07-07
+Reemplaza el ILIKE del tool `maat_conocimiento` por búsqueda por similitud coseno (entiende parafraseo/sinónimos). **Reusa infra existente** (no agrega tecnología nueva): `EmbeddingsService` (Voyage voyage-3, 1024d) + `KNEX_VECTOR_DB` (la DB vector dedicada de Fase K, `VECTOR_DATABASE_URL`), ambos ya en `platform-core` (boundary finance→platform OK).
+- **`MaatKnowledgeVectorService`** (`libs/finance/.../maat/`): tabla `maat_knowledge_embeddings` (PK `(tenant_id, kind, title)` espeja la unique key de `finance.knowledge`), índice HNSW coseno, `search`/`upsert`/`remove`/`reindex`. Degrada solo: sin `VECTOR_DATABASE_URL`/`VOYAGE_API_KEY` o ante error → el tool cae a ILIKE.
+- **Sync automático**: `maat_guardar_conocimiento` (chat) y `MaatKnowledgeService.upsert/setStatus` (REST) embeben/quitan la entrada al vuelo (best-effort, no bloquea).
+- **Backfill**: endpoint `POST /finance/maat/knowledge/reindex` + script on-prem `database/scripts/embed-maat-knowledge.js`.
+- **Verificado** contra la DB RAG de prod: 28/28 embebidas; queries parafraseadas devuelven la entrada correcta (0.44–0.59 señal vs 0.33–0.40 ruido; umbral 0.42). Corpus-RAG de documentos (PDFs contables) queda diferido — no hay corpus cargado.
 
 ---
 

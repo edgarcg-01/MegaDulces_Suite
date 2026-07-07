@@ -1,6 +1,7 @@
 import { Injectable, BadRequestException, Logger } from '@nestjs/common';
 import { TenantKnexService } from '@megadulces/platform-core';
 import { TenantContextService } from '@megadulces/platform-core';
+import { MaatKnowledgeVectorService } from './maat-knowledge-vector.service';
 
 /**
  * MAAT.0 — Base de conocimiento de Maat (`finance.knowledge`).
@@ -31,6 +32,7 @@ export class MaatKnowledgeService {
   constructor(
     private readonly tk: TenantKnexService,
     private readonly tenantCtx: TenantContextService,
+    private readonly kbVector: MaatKnowledgeVectorService,
   ) {}
 
   /** Listado filtrable — es lo que consume el system prompt del chat. */
@@ -66,7 +68,7 @@ export class MaatKnowledgeService {
     const tenantId = this.tenantCtx.requireTenantId();
     if (!entry?.title?.trim() || !entry?.body?.trim()) throw new BadRequestException('title y body son requeridos');
     if (!KINDS.includes(entry.kind)) throw new BadRequestException(`kind inválido (${KINDS.join('|')})`);
-    return this.tk.run(async (trx) => {
+    const result = await this.tk.run(async (trx) => {
       const [row] = await trx('finance.knowledge')
         .insert({
           tenant_id: tenantId,
@@ -82,19 +84,41 @@ export class MaatKnowledgeService {
       this.logger.log(`knowledge upsert: [${row.kind}] ${row.title}`);
       return row;
     });
+    // RAG: mantiene el índice vectorial en sync (best-effort).
+    await this.kbVector.upsert(tenantId, { kind: entry.kind, title: entry.title.trim(), body: entry.body.trim(), source: entry.source || 'finanzas' });
+    return result;
+  }
+
+  /** Re-embebe TODO el conocimiento activo en el índice vectorial (backfill RAG). */
+  async reindexVectors() {
+    const tenantId = this.tenantCtx.requireTenantId();
+    if (!this.kbVector.available()) {
+      return { indexed: 0, nota: 'Índice vectorial no disponible (falta VECTOR_DATABASE_URL o VOYAGE_API_KEY).' };
+    }
+    const entries = await this.tk.run(async (trx) =>
+      trx('finance.knowledge').where('status', 'active').select('kind', 'title', 'body', 'source'),
+    );
+    const res = await this.kbVector.reindex(tenantId, entries);
+    this.logger.log(`RAG reindex: ${res.indexed} entradas embebidas.`);
+    return res;
   }
 
   /** Retirar/reactivar una entrada (soft — el conocimiento no se borra). */
   async setStatus(id: string, status: 'active' | 'retired') {
     this.tenantCtx.requireTenantId();
     if (!['active', 'retired'].includes(status)) throw new BadRequestException('status inválido (active|retired)');
-    return this.tk.run(async (trx) => {
-      const [row] = await trx('finance.knowledge')
+    const tenantId = this.tenantCtx.requireTenantId();
+    const row = await this.tk.run(async (trx) => {
+      const [r] = await trx('finance.knowledge')
         .where('id', id)
         .update({ status, updated_at: trx.fn.now() })
-        .returning(['id', 'kind', 'title', 'status']);
-      if (!row) throw new BadRequestException('entrada no encontrada');
-      return row;
+        .returning(['id', 'kind', 'title', 'body', 'status']);
+      if (!r) throw new BadRequestException('entrada no encontrada');
+      return r;
     });
+    // RAG: retirar saca del índice; reactivar lo re-embebe.
+    if (status === 'retired') await this.kbVector.remove(tenantId, row.kind, row.title);
+    else await this.kbVector.upsert(tenantId, { kind: row.kind, title: row.title, body: row.body, source: 'finanzas' });
+    return { id: row.id, kind: row.kind, title: row.title, status: row.status };
   }
 }

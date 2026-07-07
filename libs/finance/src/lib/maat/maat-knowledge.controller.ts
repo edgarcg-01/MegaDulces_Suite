@@ -38,6 +38,13 @@ export class MaatKnowledgeController {
     return this.knowledge.upsert({ ...body, source: body.source || 'finanzas', created_by: req?.user?.username || null });
   }
 
+  @Post('knowledge/reindex')
+  @RequirePermissions(Permission.FINANCE_FINDINGS_GESTIONAR)
+  @ApiOperation({ summary: 'MAAT.9 (RAG) — Re-embebe todo el conocimiento activo en el índice vectorial (Voyage + pgvector).' })
+  reindex() {
+    return this.knowledge.reindexVectors();
+  }
+
   @Patch('knowledge/:id/status')
   @RequirePermissions(Permission.FINANCE_FINDINGS_GESTIONAR)
   @ApiOperation({ summary: 'MAAT.0 — Retirar/reactivar una entrada (status=active|retired).' })
