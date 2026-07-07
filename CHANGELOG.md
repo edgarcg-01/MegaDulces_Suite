@@ -10,6 +10,10 @@
 
 ## [Unreleased]
 
+### Fixed — Maat chat: "No pude generar una respuesta" en respuestas largas (2026-07-07)
+- **Causa** (reproducida contra la API): `MAX_TOKENS=1500` cortaba las respuestas detalladas (análisis por sucursal, tablas) → el tool-call `render_response` quedaba truncado (`stop_reason=max_tokens`) y `narrative` volvía vacío. Solo pasaba en respuestas largas → intermitente.
+- **Fix en 3 niveles**: (1) `MAX_TOKENS` 1500→4096 cubre respuestas ricas; (2) `retryConcise` reintenta una vez con nudge de concisión + 8192 tokens si aún trunca (recuperó 6959 chars en la prueba); (3) mensaje accionable ("acota la pregunta…") en vez del genérico. `THINK_MAX_TOKENS` 4096→8192. Commit `9382918`.
+
 ### Added — Maat: grafo de colusión de proveedores en Neo4j (MAAT.10) (2026-07-07)
 - `maat_red_proveedores` ahora prefiere un **grafo Neo4j** para el recorrido multi-hop de la red de proveedores (anillos de colusión), con **fallback automático al CTE recursivo en Postgres** si Neo4j no está configurado. Cero cambio de comportamiento en prod hasta provisionar la instancia.
 - **`Neo4jModule`** en platform-core (token `NEO4J_DRIVER`, `@Global`, degrada a `null` sin `NEO4J_URI`) + **`MaatProviderGraphService`** en libs/finance: modelo bipartito `(:Beneficiario)-[:USA_RFC]->(:Rfc)` (fan-in/fan-out/anillos), `sync`/`network`/`rings`. Aristas forenses futuras (cuenta bancaria / rep legal / domicilio) ya modeladas, pendientes de ingesta (el 201 de Kepler es plano).
