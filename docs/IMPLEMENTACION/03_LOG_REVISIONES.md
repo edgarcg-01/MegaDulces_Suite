@@ -6,6 +6,14 @@
 
 ---
 
+## 2026-07-07 — Maat: dimensión Departamento (centro de costos)
+
+**Contexto:** otra ventana agregó al reporte `/finanzas/egresos` la dimensión **departamento** = centro de costos de Kepler (póliza c13, nombre en `md.kdc3`, formato `1-XX-XX-XX`). La capa de datos ya estaba lista: `analytics.expense_entries.dpto` + `dpto_nombre` (migración `20260707120000`, aplicada local+Railway, importer poblándolas). Este cambio la cablea en Maat.
+
+**Cambio (`maat-tools.service.ts`):** `EGRESO_DIMS.dpto` (group by código+nombre) → `maat_egresos` lo acepta en `group_by`. Filtro `dpto` en `baseEgresos` tolerante a código exacto O nombre ILIKE (`(e.dpto = ? OR e.dpto_nombre ILIKE ?)`) → cubre `maat_egresos` y `maat_serie_mensual` (param expuesto en ambos). `describeStep` con caso departamento. Description de `maat_egresos` menciona dpto=centro de costos. +1 entrada de conocimiento (`seed-maat-knowledge.js`, ahora 28): "Departamento = centro de costos, distinto de área (c48); se captura casi solo en CEDIS; S/A=sin asignar".
+
+**Red:** smoke `http-maat-chat-test.js` **45/45** (+sección 11b): "egresos por departamento del último mes" → `group_by=dpto` ($59.6M jun, tabla con nombres); "¿cuánto gastó CANINDO?" → filtro por nombre ILIKE ($2,813,573.93). Build api verde. Datos locales ya poblados (MORELIA ABASTOS, CANINDO, PADRE HIDALGO PISO…). No confunde dpto con area (campos distintos).
+
 ## 2026-07-07 — MAAT 3.0: CFO virtual (5 pilares) sobre el ReAct 2.0
 
 **Contexto:** tras endurecer el loop (MAAT.7, commit cb5c200), Edgar aprobó llevar Maat a "3.0" con los 5 pilares, en su **forma factible para el stack** (sin CrewAI/Neo4j/BullMQ — ver plan §7.bis del FASE_MAAT). Todo entregado + smoke 42/42.

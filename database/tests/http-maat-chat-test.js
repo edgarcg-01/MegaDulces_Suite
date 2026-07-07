@@ -43,10 +43,10 @@ function check(name, cond, det) {
   console.log('\n── 1. Base de conocimiento (MAAT.0) ──');
   const kn = await req('GET', '/finance/maat/knowledge?limit=100', token);
   check('knowledge 200', kn.status === 200, `status=${kn.status}`);
-  check('knowledge 27 entries activas', Array.isArray(kn.body) && kn.body.length === 27, `n=${kn.body?.length}`);
+  check('knowledge 28 entries activas', Array.isArray(kn.body) && kn.body.length === 28, `n=${kn.body?.length}`);
   const st = await req('GET', '/finance/maat/knowledge/stats', token);
   const kinds = Object.fromEntries((st.body?.by_kind || []).map((r) => [r.kind, r.num]));
-  check('stats 4 kinds (7/7/6/7)', kinds.definicion === 7 && kinds.hecho === 7 && kinds.regla_negocio === 6 && kinds.issue_conocido === 7, JSON.stringify(kinds));
+  check('stats 4 kinds (8/7/6/7)', kinds.definicion === 8 && kinds.hecho === 7 && kinds.regla_negocio === 6 && kinds.issue_conocido === 7, JSON.stringify(kinds));
 
   console.log('\n── 2. Chat turno 1 (LLM + tools) ──');
   const t0 = Date.now();
@@ -195,6 +195,20 @@ function check(name, cond, det) {
     check('aprobar → executed', appr.body?.estado === 'executed', JSON.stringify(appr.body));
     const pend2 = await req('GET', '/finance/maat/actions', token);
     check('ejecutada sale de pendientes', !(pend2.body || []).some((a) => a.id === prop.body.id));
+  }
+
+  // ── 11b. Dimensión Departamento (centro de costos) vía chat ──
+  if (hasKey) {
+    console.log('\n── 11b. Departamento (centro de costos) ──');
+    const dp = await req('POST', '/finance/maat/chat', token, { history: [], message: 'Dame los egresos por departamento del último mes.' });
+    const dpTools = (dp.body?.tools_used || []);
+    const grpDpto = dpTools.some((t) => t.name === 'maat_egresos' && t.input?.group_by === 'dpto');
+    check('egresos group_by=dpto', grpDpto, dpTools.map((t) => `${t.name}(${t.input?.group_by || ''})`).join(','));
+    console.log(`    → "${(dp.body?.answer || '').slice(0, 150).replace(/\n/g, ' ')}…"`);
+    const dp2 = await req('POST', '/finance/maat/chat', token, { history: [], message: '¿Cuánto gastó el departamento de CANINDO?' });
+    const filtDpto = (dp2.body?.tools_used || []).some((t) => t.name === 'maat_egresos' && /canindo/i.test(String(t.input?.dpto || '')));
+    check('filtro dpto por nombre (CANINDO)', filtDpto, (dp2.body?.tools_used || []).map((t) => `${t.name}[${t.input?.dpto || ''}]`).join(','));
+    console.log(`    → "${(dp2.body?.answer || '').slice(0, 150).replace(/\n/g, ' ')}…"`);
   }
 
   // ── 12. MAAT.7/3.0 — tools nuevas vía chat (what-if / grafo / sub-agente auditor) ──

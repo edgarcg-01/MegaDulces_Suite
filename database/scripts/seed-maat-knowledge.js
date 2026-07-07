@@ -35,6 +35,11 @@ const ENTRIES = [
   },
   {
     kind: 'definicion',
+    title: 'Departamento = centro de costos (distinto de área)',
+    body: 'El DEPARTAMENTO es el centro de costos de Kepler (póliza c13, nombre en el catálogo kdc3), formato "1-XX-XX-XX" (ej. 1-03-50-51 = CANINDO RD). Se captura casi solo en CEDIS (sucursal 00), donde vive el gasto de áreas corporativas: FINANZAS, CAPITAL HUMANO, SISTEMAS, CONTABILIDAD, DIRECCION GENERAL, LOGISTICA GENERAL, PADRE HIDALGO PISO, TLMKT PH. Código especial S/A = "SIN ASIGNAR". NO confundir con "área" (kdm1.c48, texto libre): son campos distintos. En el resto de sucursales el dpto suele venir vacío → el bucket "(sin depto)" es esperado, no es error. En Maat: maat_egresos(group_by:"dpto") o el filtro dpto (acepta código o nombre ILIKE).',
+  },
+  {
+    kind: 'definicion',
     title: 'Las 7 familias de cuenta',
     body: 'Familia = primer dígito de la cuenta. 1=Activo (102 bancos, 107 anticipos, 114 inventario, 115 clientes, 116 traspasos, 122 IVA acreditable), 2=Pasivo (201 proveedores, 203 provisiones, 210 préstamos dirección), 4=Ingresos (401 ventas, 403 devoluciones), 5=Costos (509/516 inventario inicial/final, 511 compras, 513 descuentos, 515 traspaso interno), 6=Gastos operación (601 nómina, 609 dirección, 111 subcuentas), 7=Otros gastos/impuestos (702 financiero, 761 ISR, 762 SUA), 9=Presupuestos (999, muerta desde ene-2026).',
   },

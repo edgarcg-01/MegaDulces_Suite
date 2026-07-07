@@ -36,6 +36,7 @@ const EGRESO_DIMS: Record<string, { group: string; key: string; label: string }>
   beneficiario: { group: 'e.beneficiario', key: "COALESCE(e.beneficiario,'(sin beneficiario)')", label: "COALESCE(e.beneficiario,'(sin beneficiario)')" },
   sucursal: { group: 'e.sucursal', key: 'e.sucursal', label: 'e.sucursal' },
   area: { group: 'e.area', key: "COALESCE(e.area,'(sin área)')", label: "COALESCE(e.area,'(sin área)')" },
+  dpto: { group: 'e.dpto, e.dpto_nombre', key: "COALESCE(e.dpto,'(sin depto)')", label: "COALESCE(e.dpto_nombre, e.dpto, '(sin depto)')" },
   doc_tipo: { group: 'e.doc_tipo', key: 'e.doc_tipo', label: 'e.doc_tipo' },
   mes: { group: "to_char(e.fecha,'YYYY-MM')", key: "to_char(e.fecha,'YYYY-MM')", label: "to_char(e.fecha,'YYYY-MM')" },
 };
@@ -151,12 +152,12 @@ Tienes acceso a: **balanza de comprobación completa** (familias 1-9, cargos/abo
     const DIM: Record<string, string> = {
       proveedor: 'por proveedor', beneficiario: 'por beneficiario', cuenta: 'por cuenta',
       cuenta_mayor: 'por cuenta mayor', sucursal: 'por sucursal', area: 'por área',
-      doc_tipo: 'por tipo de documento', familia: 'por familia', mes: 'mes a mes',
+      dpto: 'por departamento', doc_tipo: 'por tipo de documento', familia: 'por familia', mes: 'mes a mes',
     };
     const dim = DIM[i.group_by] ? ` ${DIM[i.group_by]}` : '';
     switch (name) {
       case 'maat_egresos': {
-        const who = i.beneficiario ? ` de ${i.beneficiario}` : (i.cuenta ? ` de la cuenta ${i.cuenta}` : '');
+        const who = i.dpto ? ` del departamento ${i.dpto}` : i.beneficiario ? ` de ${i.beneficiario}` : (i.cuenta ? ` de la cuenta ${i.cuenta}` : '');
         return `Analizando los egresos${dim}${who}${inSuc}…`;
       }
       case 'maat_balanza': {
@@ -195,7 +196,7 @@ Tienes acceso a: **balanza de comprobación completa** (familias 1-9, cargos/abo
       {
         name: 'maat_egresos',
         description:
-          'Egresos contables (compras 511 + gastos 6xx/7xx) agregados por una dimensión. Para "cuánto gastamos", "en qué se va el dinero", top proveedores/cuentas/áreas de un período. Devuelve total + desglose con share %.',
+          'Egresos contables (compras 511 + gastos 6xx/7xx) agregados por una dimensión (cuenta, cuenta_mayor, beneficiario, sucursal, area, dpto, doc_tipo, mes). Para "cuánto gastamos", "en qué se va el dinero", top proveedores/cuentas/departamentos de un período. `dpto` = DEPARTAMENTO / centro de costos de Kepler (c13, nombre en kdc3; ej. "SISTEMAS", "CANINDO RD") — se captura casi solo en CEDIS. Devuelve total + desglose con share %.',
         input_schema: {
           type: 'object',
           properties: {
@@ -206,6 +207,7 @@ Tienes acceso a: **balanza de comprobación completa** (familias 1-9, cargos/abo
             cuenta_mayor: { type: 'string', description: "Cuenta mayor ('601'). Opcional." },
             beneficiario: { type: 'string', description: 'Filtro ILIKE por beneficiario/proveedor. Opcional.' },
             sucursal: { type: 'string', description: "Código de sucursal ('00'=CEDIS, '01'..'05'). Opcional." },
+            dpto: { type: 'string', description: 'Departamento / centro de costos. Acepta código (1-03-50-51) o parte del nombre (CANINDO, SISTEMAS) — match por nombre es ILIKE. Opcional.' },
             limit: { type: 'number', description: 'Default 25, máx 100.' },
           },
           required: ['group_by'],
@@ -275,7 +277,7 @@ Tienes acceso a: **balanza de comprobación completa** (familias 1-9, cargos/abo
         description: 'Serie mensual de egresos: compras (511) vs gastos (6xx/7xx) por mes. Para tendencias y comparaciones mes a mes. Acepta los mismos filtros que maat_egresos.',
         input_schema: {
           type: 'object',
-          properties: { ...dateRange, cuenta_mayor: { type: 'string' }, beneficiario: { type: 'string' }, sucursal: { type: 'string' } },
+          properties: { ...dateRange, cuenta_mayor: { type: 'string' }, beneficiario: { type: 'string' }, sucursal: { type: 'string' }, dpto: { type: 'string', description: 'Departamento/centro de costos (código o parte del nombre).' } },
         },
       },
       {
@@ -501,6 +503,8 @@ Tienes acceso a: **balanza de comprobación completa** (familias 1-9, cargos/abo
     if (q.cuenta_mayor) b.where('e.cuenta_mayor', q.cuenta_mayor);
     if (q.beneficiario) b.whereRaw('e.beneficiario ILIKE ?', [`%${q.beneficiario}%`]);
     if (q.sucursal) b.where('e.sucursal', String(q.sucursal));
+    // Departamento (centro de costos): tolerante a código exacto o parte del nombre.
+    if (q.dpto) b.whereRaw('(e.dpto = ? OR e.dpto_nombre ILIKE ?)', [String(q.dpto), `%${q.dpto}%`]);
     return b;
   }
 
