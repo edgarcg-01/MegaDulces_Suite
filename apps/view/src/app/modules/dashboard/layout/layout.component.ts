@@ -388,6 +388,7 @@ export class LayoutComponent implements OnInit, OnDestroy {
     { label: 'Por vencer',      icon: 'pi pi-calendar-times', route: '/almacen/inventory/expiring', permission: Permission.COMMERCIAL_INVENTORY_VER, exact: true },
     { label: 'Stock muerto',    icon: 'pi pi-exclamation-triangle', route: '/almacen/dead-stock',   permission: Permission.COMMERCIAL_ANALYTICS_VER },
     { label: 'Salud inv.',      icon: 'pi pi-heart',          route: '/almacen/inventory-health',   permission: Permission.COMMERCIAL_ANALYTICS_VER },
+    { label: 'Cuadre',          icon: 'pi pi-check-square',   route: '/almacen/cuadre',             permission: Permission.RECONCILIATION_VER },
   ];
 
   // Reparto (entrega a domicilio, personal de tienda). El repartoGuard ya controla
