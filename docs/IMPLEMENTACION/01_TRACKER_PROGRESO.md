@@ -580,7 +580,7 @@ Plan: [`FASES/FASE_SM_SUPERVISOR_MOVIMIENTOS.md`](FASES/FASE_SM_SUPERVISOR_MOVIM
 - [x] **[SM.1]** 🔨 Feed caja `import-cash-cuts.js` (kdpv_folio_caja → `analytics.cash_cuts`, mig `20260707180000`) — dry-run verificado LAN (2163 cortes, 164 con |diff|≥$50, $334,974). Detector P2 (`caja_descuadre` + `cajero_faltante_recurrente`) + bandeja `ReconciliationFindingsService` (L2 + causa) + controller `/reconciliation/*`. **Falta verificación E2E: aplicar migs + importer `--apply` + scan** (deploy) (2026-07-07).
 - [ ] **[SM.2]** ⬜ Feed kardex `import-kardex.js` (kdij → `analytics.stock_ledger`) + detector P1 (merma vs conteo, completitud Σ mov = Δ existencia).
 - [ ] **[SM.3]** ⬜ Cruces P3 (venta↔inventario↔caja).
-- [ ] **[SM.4]** ⬜ Frontend `/almacen/cuadre` (KPIs + bandeja densa + evidencia + HITL).
+- [x] **[SM.4]** 🔨 Frontend `/almacen/cuadre` — `CuadreService` + `AlmacenCuadreComponent` (KPIs + filtros plano/estado + tabla densa triage confirmar/descartar + causa + evidencia + salud de reglas). Ruta gateada `RECONCILIATION_VER` + tab "Cuadre". Build view OK. Falta verificación visual (2026-07-07).
 - [ ] **[SM.5]** ⬜ Cron nocturno + L2 + alerta WS crítica (`FINANCE_NOTIFIER_PORT`).
 
 ---
