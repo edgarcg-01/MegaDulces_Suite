@@ -6,6 +6,18 @@
 
 ---
 
+## 2026-07-06 — MAAT.3 (adelantado): chat "Pregúntale a Maat" con diseño de /thot-chat
+
+**Contexto:** tras cerrar MAAT.0, Edgar pidió el chat primero ("para el front repliquemos el diseño de /thot-chat") — se adelantó MAAT.3 sobre la data existente (egresos/proveedores/hallazgos/conocimiento); la balanza y la cadena (MAAT.1) se sumarán como tools nuevas sin tocar el loop.
+
+**Cambio:**
+- **Backend (`libs/finance`)**: `MaatToolsService` — 7 tools deterministas tenant-scoped (`maat_egresos` agregado flexible con dims whitelist, `maat_serie_mensual`, `maat_proveedor` con top productos, `maat_documento`, `maat_hallazgos`, `maat_conocimiento`, `maat_guardar_conocimiento` = L0 write con atribución). `buildSystemPrompt()` **inyecta las 27 entries de conocimiento en vivo** + reglas duras ("nunca inventes un número"). `MaatChatService` — port del loop tool-use de Thot Chat (Haiku default, Sonnet+extended-thinking en modo Think, deep search 12 iter, Claude vision para fotos de facturas); frontera limpia: finance NO importa commercial. Endpoints `POST /finance/maat/chat` (throttle long 15/min) + `/chat/feedback`. **Audit completo**: `finance.chat_sessions` (turnos) + `chat_messages` (tool_calls + tokens + feedback) — el 👍/👎 es el colector del aprendizaje L2.
+- **Frontend**: `/finanzas/maat` (`modules/finanzas/pages/finanzas-maat-chat.component.ts`) — **réplica fiel del diseño /thot-chat**: thread con blur-rise, avatar ember pensando, bloques de datos por tool (tablas inteligentes con mini-barras / KPI strip para 1 fila), markdown seguro escape-first con tablas, sugerencias financieras, acciones copiar/regenerar **+ 👍/👎**. Composer `ThotAiInputComponent` REUSADO (think/deep/imagen/dictado por voz). `MaatService` http. Tab en FINANZAS_TABS + nav layout + authz-tree + ruta con `permissionGuard(FINANCE_AI_CHAT)`.
+
+**Red:** smoke E2E **17/17** (`database/tests/http-maat-chat-test.js`, API efímera :3335 desde dist): knowledge 27 + stats, chat real 2 turnos (5 iter, 6 tools; 2º turno usa `maat_proveedor` en la misma sesión), feedback persistido, audit verificado en DB. Comportamiento clave observado: ante dato ausente en DB local (ap_provider sin feed) **respondió "no tengo ese dato" en vez de inventar**. Lint finance + builds api/view verdes.
+
+**Pendiente operacional (prod):** migraciones 20260706190000/191000 + seed conocimiento + `ANTHROPIC_API_KEY` en Railway + re-login (permisos al JWT). Feed `import-ap-findings.js` correr también contra la DB donde viva Maat.
+
 ## 2026-07-06 — MAAT.0: fundación de la AI de Finanzas (ADR-028 aceptado)
 
 **Contexto:** Edgar pidió "una AI entrenada con toda la información de finanzas, con chat, que aprenda a encontrar patrones buenos y malos". ADR-028: **NO fine-tuning** — conocimiento curado + chat tool-use (patrón Thot Chat, cero números del LLM) + motor determinista de patrones + aprendizaje Horus-L (colector primero). Plan completo en `FASES/FASE_MAAT_FINANZAS_AI.md` (7 sprints).
