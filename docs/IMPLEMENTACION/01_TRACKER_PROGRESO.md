@@ -572,6 +572,19 @@ _(vacío)_
 
 ---
 
+## Fase SM — Supervisor de Movimientos (Cuadre) — ADR-029
+
+Plan: [`FASES/FASE_SM_SUPERVISOR_MOVIMIENTOS.md`](FASES/FASE_SM_SUPERVISOR_MOVIMIENTOS.md). Motor de reconciliación caja/inventario/cruce; bandeja HITL; L2. Reusa Maat.2.
+
+- [x] **[SM.0]** 🔨 Schema `reconciliation.*` (rule_registry + discrepancies + discrepancy_feedback, RLS forzado + grants) — mig `20260707170000_reconciliation_schema.js`. Falta: lib skeleton `libs/reconciliation` + perms `RECONCILIATION_VER/_GESTIONAR` (2026-07-07).
+- [ ] **[SM.1]** ⬜ Feed caja `import-cash-cuts.js` (kdpv_folio_caja → `analytics.cash_cuts`) + detector P2 (|diff|≥umbral, faltantes recurrentes por cajero) + bandeja mínima.
+- [ ] **[SM.2]** ⬜ Feed kardex `import-kardex.js` (kdij → `analytics.stock_ledger`) + detector P1 (merma vs conteo, completitud Σ mov = Δ existencia).
+- [ ] **[SM.3]** ⬜ Cruces P3 (venta↔inventario↔caja).
+- [ ] **[SM.4]** ⬜ Frontend `/almacen/cuadre` (KPIs + bandeja densa + evidencia + HITL).
+- [ ] **[SM.5]** ⬜ Cron nocturno + L2 + alerta WS crítica (`FINANCE_NOTIFIER_PORT`).
+
+---
+
 ## 📋 BACKLOG — Fases E, F, G, H, I
 
 _(Items detallados se agregan al iniciar cada fase. Plan macro está en cada `FASES/FASE_X_*.md`)_

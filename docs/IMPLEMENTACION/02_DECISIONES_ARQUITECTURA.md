@@ -844,6 +844,30 @@ Capas:
 
 ---
 
+## ADR-029 — **Supervisor de Movimientos** (cuadre / reconciliación caja-inventario)
+
+**Fecha:** 2026-07-07 · **Estado:** Aceptado (OK de Edgar 2026-07-07)
+
+**Contexto:** Pedido de Edgar: "un supervisor que analice los movimientos de cajas (ventas de tienda), movimientos de CEDIS, etc., y que todo cuadre en base al inventario". El almacén ya es maduro en operación (conteo físico, IRA, ABC, FEFO) pero todo es **descriptivo/reactivo** — no hay un motor que cruce las identidades de cuadre y detecte descuadres (merma, robo, error de captura, faltantes de caja). Hallazgo clave 2026-07-07: el **arqueo de caja de tienda SÍ existe** en Kepler `md.kdpv_folio_caja` (esperado/contado/diferencia ya calculados) y el **kardex transaccional** en `md.kdij` — ambos habilitan cuadre a nivel transacción, no solo agregado.
+
+**Decisión:** Motor determinista de reconciliación en 3 planos — **inventario** (Σ movimientos = Δ existencia vs conteo), **caja** (esperado vs arqueo por caja/cajero), **cruce** (venta↔inventario↔caja) — que escribe descuadres a `reconciliation.discrepancies` con evidencia + dedup_key, bandeja HITL (confirmar + asignar causa) y aprendizaje L2 (precisión por regla → auto-supresión). Vive en **`libs/reconciliation`** (nueva lib, frontera limpia). Hereda ADR-016/028: el motor calcula el cuadre, el humano confirma la causa, el LLM fuera del cálculo. Reusa andamiaje de Maat.2 (detector + findings + scanner + cron + L2) y `FINANCE_NOTIFIER_PORT` para alertas críticas.
+
+**Alternativas:**
+- Capturar arqueo de tienda desde cero — rechazada: ya existe en `kdpv_folio_caja`, es un importer más.
+- Neo4j / grafo — rechazada: el cuadre es estadístico/series de tiempo, no de redes.
+- Meterlo en `libs/commercial` — evaluado; lib propia por ser supervisor cross-cutting (hermano de Maat/Horus).
+
+**Consecuencias:**
+- ✅ 2 de 3 planos construibles YA sin captura nueva (caja de `kdpv_folio_caja`, inventario de `kdij`+conteos).
+- ✅ Señal de prevención de pérdida inmediata (md_02: 90 cortes con descuadre ≥$50, faltante de $10k detectado).
+- ✅ Reusa patrón Maat.2 completo (motor/bandeja/HITL/L2/cron).
+- ⚠️ Bug `kdil.c4=0` → existencia teórica del kardex; conteo físico = verdad periódica.
+- ⚠️ Feeds corren on-prem (LAN Kepler); umbral de caja para no ahogarse en centavos.
+
+**Plan:** [`FASES/FASE_SM_SUPERVISOR_MOVIMIENTOS.md`](FASES/FASE_SM_SUPERVISOR_MOVIMIENTOS.md).
+
+---
+
 ## Cómo agregar un ADR nuevo
 
 1. Copiar `ADR-000` (la plantilla) renombrando al siguiente número correlativo.
