@@ -1,0 +1,206 @@
+import { Injectable, Logger } from '@nestjs/common';
+import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
+
+/**
+ * SM.1 — Motor de reconciliación del Supervisor de Movimientos (ADR-029).
+ *
+ * Detectores DETERMINISTAS (SQL, sin LLM) que leen data curada (analytics.*) y
+ * producen descuadres idempotentes (UPSERT por dedup_key) en
+ * `reconciliation.discrepancies`. `ensureRules` sincroniza el catálogo desde el
+ * código PRESERVANDO la calibración humana (params/enabled/pinned/precision). El
+ * aprendizaje L2 (auto-supresión por precisión) lo aplica ReconciliationFindingsService.
+ *
+ * SM.1 = Plano CAJA (2 reglas). SM.2/SM.3 agregan inventario y cruces.
+ * analytics.cash_cuts NO tiene RLS → filtro tenant_id EXPLÍCITO.
+ */
+
+interface RuleMeta {
+  rule_key: string;
+  nombre: string;
+  descripcion: string;
+  plano: 'inventario' | 'caja' | 'cruce';
+  params: Record<string, any>;
+}
+
+interface RawDiscrepancy {
+  rule_key: string;
+  plano: 'inventario' | 'caja' | 'cruce';
+  severity: 'info' | 'warn' | 'critical';
+  score: number;
+  titulo: string;
+  resumen: string;
+  entity: Record<string, any>;
+  periodo: string | null;
+  esperado: number | null;
+  observado: number | null;
+  diferencia: number | null;
+  importe: number;
+  causa_probable: string | null;
+  evidencia: Record<string, any>;
+  dedup_key: string;
+}
+
+const RULES: RuleMeta[] = [
+  {
+    rule_key: 'caja_descuadre', plano: 'caja',
+    nombre: 'Descuadre de caja', descripcion: 'Corte de caja con diferencia entre efectivo esperado y contado (arqueo) por encima del umbral.',
+    params: { umbral: 50, critico: 5000 },
+  },
+  {
+    rule_key: 'cajero_faltante_recurrente', plano: 'caja',
+    nombre: 'Faltantes recurrentes por cajero', descripcion: 'Un cajero acumula varios cortes con faltante en una ventana — patrón, no evento aislado.',
+    params: { ventana_dias: 30, min_eventos: 3, min_falta: 50, critico_suma: 10000 },
+  },
+];
+
+const money = (n: number) => Number(n || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 });
+
+@Injectable()
+export class MovementReconcileService {
+  private readonly logger = new Logger(MovementReconcileService.name);
+
+  constructor(
+    private readonly tk: TenantKnexService,
+    private readonly tenantCtx: TenantContextService,
+  ) {}
+
+  private async ensureRules(trx: any, tenantId: string) {
+    for (const r of RULES) {
+      await trx('reconciliation.rule_registry')
+        .insert({ tenant_id: tenantId, rule_key: r.rule_key, nombre: r.nombre, descripcion: r.descripcion, plano: r.plano, params: JSON.stringify(r.params) })
+        .onConflict(['tenant_id', 'rule_key'])
+        .merge({ nombre: r.nombre, descripcion: r.descripcion, plano: r.plano, updated_at: trx.fn.now() });
+    }
+  }
+
+  /** Corre los detectores habilitados y no suprimidos; UPSERT idempotente por dedup_key. */
+  async scanAll(source = 'manual') {
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      await this.ensureRules(trx, tenantId);
+      const rules = await trx('reconciliation.rule_registry')
+        .where({ tenant_id: tenantId, enabled: true, suppressed_auto: false })
+        .select('rule_key', 'plano', 'params');
+
+      const summary: { rule_key: string; nuevos: number; total: number }[] = [];
+      const nuevosCriticos: { rule_key: string; titulo: string; importe: number }[] = [];
+      let totalNuevos = 0;
+
+      for (const rule of rules) {
+        const params = typeof rule.params === 'string' ? JSON.parse(rule.params) : (rule.params || {});
+        let found: RawDiscrepancy[] = [];
+        try {
+          found = await this.runDetector(rule.rule_key, trx, tenantId, params);
+        } catch (e: any) {
+          this.logger.warn(`Detector ${rule.rule_key} falló: ${e?.message || e}`);
+          continue;
+        }
+        let nuevos = 0;
+        for (const d of found) {
+          const res = await trx.raw(
+            `INSERT INTO reconciliation.discrepancies
+               (tenant_id, rule_key, plano, severity, status, score, titulo, resumen, entity, periodo,
+                esperado, observado, diferencia, importe, causa_probable, evidencia, dedup_key,
+                first_seen, last_seen, created_at, updated_at)
+             VALUES (?, ?, ?, ?, 'nuevo', ?, ?, ?, ?::jsonb, ?, ?, ?, ?, ?, ?, ?::jsonb, ?, now(), now(), now(), now())
+             ON CONFLICT (tenant_id, dedup_key) DO UPDATE
+               SET last_seen = now(), importe = EXCLUDED.importe, resumen = EXCLUDED.resumen,
+                   severity = EXCLUDED.severity, esperado = EXCLUDED.esperado, observado = EXCLUDED.observado,
+                   diferencia = EXCLUDED.diferencia, evidencia = EXCLUDED.evidencia, score = EXCLUDED.score, updated_at = now()
+             RETURNING (xmax = 0) AS is_insert`,
+            [tenantId, d.rule_key, d.plano, d.severity, d.score, d.titulo, d.resumen, JSON.stringify(d.entity),
+              d.periodo, d.esperado, d.observado, d.diferencia, d.importe, d.causa_probable, JSON.stringify(d.evidencia), d.dedup_key],
+          );
+          if (res.rows?.[0]?.is_insert) {
+            nuevos++;
+            if (d.severity === 'critical') nuevosCriticos.push({ rule_key: d.rule_key, titulo: d.titulo, importe: d.importe });
+          }
+        }
+        const total = Number((await trx('reconciliation.discrepancies').where({ tenant_id: tenantId, rule_key: rule.rule_key }).count('* as c').first())?.c || 0);
+        summary.push({ rule_key: rule.rule_key, nuevos, total });
+        totalNuevos += nuevos;
+      }
+      this.logger.log(`scan (${source}): ${totalNuevos} nuevos descuadres`);
+      return { source, total_nuevos: totalNuevos, nuevos_criticos: nuevosCriticos, por_regla: summary };
+    });
+  }
+
+  private async runDetector(ruleKey: string, trx: any, tenantId: string, params: any): Promise<RawDiscrepancy[]> {
+    switch (ruleKey) {
+      case 'caja_descuadre': return this.detCajaDescuadre(trx, tenantId, params);
+      case 'cajero_faltante_recurrente': return this.detCajeroRecurrente(trx, tenantId, params);
+      default: return [];
+    }
+  }
+
+  /** Cada corte con |efectivo_diff| ≥ umbral. + faltante / − sobrante. */
+  private async detCajaDescuadre(trx: any, tenantId: string, params: any): Promise<RawDiscrepancy[]> {
+    const umbral = Number(params.umbral) || 50;
+    const critico = Number(params.critico) || 5000;
+    const rows = await trx('analytics.cash_cuts')
+      .where('tenant_id', tenantId)
+      .whereRaw('abs(efectivo_diff) >= ?', [umbral])
+      .select('warehouse_code', 'warehouse_name', 'caja', 'folio', 'business_date',
+        'cajero_cierre', 'efectivo_esperado', 'efectivo_contado', 'efectivo_diff')
+      .orderByRaw('abs(efectivo_diff) DESC')
+      .limit(1000);
+    return rows.map((r: any) => {
+      const diff = Number(r.efectivo_diff);
+      const abs = Math.abs(diff);
+      const faltante = diff > 0; // esperado − contado > 0 = falta dinero
+      const fecha = r.business_date instanceof Date ? r.business_date.toISOString().slice(0, 10) : String(r.business_date).slice(0, 10);
+      return {
+        rule_key: 'caja_descuadre', plano: 'caja' as const,
+        severity: abs >= critico ? 'critical' as const : 'warn' as const,
+        score: Math.min(1, abs / (critico * 2)),
+        titulo: `${faltante ? 'Faltante' : 'Sobrante'} de caja ${money(abs)} — suc ${r.warehouse_code} caja ${r.caja}`,
+        resumen: `Corte ${fecha} (cajero ${r.cajero_cierre || '?'}): esperado ${money(Number(r.efectivo_esperado))} vs contado ${money(Number(r.efectivo_contado))}.`,
+        entity: { sucursal: r.warehouse_code, sucursal_nombre: r.warehouse_name, caja: r.caja, cajero: r.cajero_cierre, folio: r.folio, fecha },
+        periodo: fecha,
+        esperado: Number(r.efectivo_esperado), observado: Number(r.efectivo_contado), diferencia: diff,
+        importe: abs,
+        causa_probable: faltante ? 'faltante_caja' : 'sobrante_caja',
+        evidencia: { params: { umbral, critico }, corte: { folio: r.folio, esperado: Number(r.efectivo_esperado), contado: Number(r.efectivo_contado), diff } },
+        dedup_key: `caja_descuadre:${r.warehouse_code}:${r.caja}:${fecha}:${r.folio}`,
+      };
+    });
+  }
+
+  /** Cajero con ≥min_eventos cortes con faltante ≥min_falta en la ventana. */
+  private async detCajeroRecurrente(trx: any, tenantId: string, params: any): Promise<RawDiscrepancy[]> {
+    const ventana = Number(params.ventana_dias) || 30;
+    const minEventos = Number(params.min_eventos) || 3;
+    const minFalta = Number(params.min_falta) || 50;
+    const criticoSuma = Number(params.critico_suma) || 10000;
+    const rows = await trx('analytics.cash_cuts')
+      .where('tenant_id', tenantId)
+      .whereNotNull('cajero_cierre')
+      .whereRaw('business_date >= (CURRENT_DATE - (? || \' days\')::interval)', [ventana])
+      .whereRaw('efectivo_diff >= ?', [minFalta]) // solo faltantes
+      .groupBy('warehouse_code', 'cajero_cierre')
+      .havingRaw('count(*) >= ?', [minEventos])
+      .select('warehouse_code', 'cajero_cierre',
+        trx.raw('count(*)::int AS eventos'),
+        trx.raw('ROUND(SUM(efectivo_diff)::numeric,2) AS suma_falta'),
+        trx.raw('ROUND(MAX(efectivo_diff)::numeric,2) AS max_falta'));
+    const periodo = (new Date().toISOString().slice(0, 7));
+    return rows.map((r: any) => {
+      const suma = Number(r.suma_falta);
+      const eventos = Number(r.eventos);
+      return {
+        rule_key: 'cajero_faltante_recurrente', plano: 'caja' as const,
+        severity: suma >= criticoSuma ? 'critical' as const : 'warn' as const,
+        score: Math.min(1, suma / (criticoSuma * 2)),
+        titulo: `Faltantes recurrentes: cajero ${r.cajero_cierre} (suc ${r.warehouse_code}) — ${eventos} cortes, ${money(suma)}`,
+        resumen: `${eventos} cortes con faltante en ${ventana} días (mayor ${money(Number(r.max_falta))}). Patrón a revisar.`,
+        entity: { sucursal: r.warehouse_code, cajero: r.cajero_cierre, eventos },
+        periodo,
+        esperado: null, observado: null, diferencia: suma,
+        importe: suma,
+        causa_probable: 'faltante_recurrente',
+        evidencia: { params: { ventana, minEventos, minFalta }, eventos, suma_falta: suma, max_falta: Number(r.max_falta) },
+        dedup_key: `cajero_faltante_recurrente:${r.warehouse_code}:${r.cajero_cierre}:${periodo}`,
+      };
+    });
+  }
+}

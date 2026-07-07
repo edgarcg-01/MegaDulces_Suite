@@ -20,6 +20,7 @@
       "@megadulces/finance": ["libs/finance/src/index.ts"],
       "@megadulces/logistics": ["libs/logistics/src/index.ts"],
       "@megadulces/platform-core": ["libs/platform-core/src/index.ts"],
+      "@megadulces/reconciliation": ["libs/reconciliation/src/index.ts"],
       "@megadulces/shared-auth": ["libs/shared-auth/index.ts"],
       "@megadulces/shared-auth/core": ["libs/shared-auth/core/index.ts"],
       "@megadulces/shared-auth/ui": ["libs/shared-auth/ui/index.ts"],

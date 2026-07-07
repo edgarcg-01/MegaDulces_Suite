@@ -29,13 +29,15 @@ module.exports = [
             { sourceTag: 'type:util', onlyDependOnLibsWithTags: ['type:util'] },
             // ── dominios (scope:*) ──
             // la app api compone todos los dominios
-            { sourceTag: 'scope:api', onlyDependOnLibsWithTags: ['scope:platform', 'scope:shared', 'scope:commercial', 'scope:logistics', 'scope:trade', 'scope:intake', 'scope:finance'] },
+            { sourceTag: 'scope:api', onlyDependOnLibsWithTags: ['scope:platform', 'scope:shared', 'scope:commercial', 'scope:logistics', 'scope:trade', 'scope:intake', 'scope:finance', 'scope:reconciliation'] },
             // cada dominio: él mismo + platform + shared(contracts) SOLAMENTE
             { sourceTag: 'scope:commercial', onlyDependOnLibsWithTags: ['scope:commercial', 'scope:platform', 'scope:shared'] },
             { sourceTag: 'scope:logistics', onlyDependOnLibsWithTags: ['scope:logistics', 'scope:platform', 'scope:shared'] },
             { sourceTag: 'scope:trade', onlyDependOnLibsWithTags: ['scope:trade', 'scope:platform', 'scope:shared'] },
             // MAAT (ADR-028): finanzas NO importa commercial/trade — query-service propio
             { sourceTag: 'scope:finance', onlyDependOnLibsWithTags: ['scope:finance', 'scope:platform', 'scope:shared'] },
+            // Supervisor de Movimientos (ADR-029): lee analytics.* vía platform, escribe reconciliation.* — no importa dominios
+            { sourceTag: 'scope:reconciliation', onlyDependOnLibsWithTags: ['scope:reconciliation', 'scope:platform', 'scope:shared'] },
             { sourceTag: 'scope:intake', onlyDependOnLibsWithTags: ['scope:intake', 'scope:platform', 'scope:shared', 'scope:commercial'] },
             // platform es infra leaf: sin deps de dominio
             { sourceTag: 'scope:platform', onlyDependOnLibsWithTags: ['scope:platform', 'scope:shared'] },

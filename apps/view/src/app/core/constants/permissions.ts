@@ -129,4 +129,8 @@ export enum Permission {
   // MAAT (ADR-028) — chat AI de finanzas + gestión de hallazgos/conocimiento
   FINANCE_AI_CHAT = 'FINANCE_AI_CHAT',
   FINANCE_FINDINGS_GESTIONAR = 'FINANCE_FINDINGS_GESTIONAR',
+
+  // ── Supervisor de Movimientos (cuadre / reconciliación) — ADR-029 ─────
+  RECONCILIATION_VER = 'RECONCILIATION_VER',
+  RECONCILIATION_GESTIONAR = 'RECONCILIATION_GESTIONAR',
 }

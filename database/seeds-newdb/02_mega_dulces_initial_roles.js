@@ -102,6 +102,9 @@ exports.seed = async function (knex) {
     // MAAT (ADR-028) — chat AI de finanzas + gestión de hallazgos
     FINANCE_AI_CHAT: true,
     FINANCE_FINDINGS_GESTIONAR: true,
+    // Supervisor de Movimientos (ADR-029) — cuadre caja/inventario
+    RECONCILIATION_VER: true,
+    RECONCILIATION_GESTIONAR: true,
   };
 
   const NO_PERMS = Object.fromEntries(Object.keys(ALL_PERMS).map((k) => [k, false]));
@@ -131,6 +134,9 @@ exports.seed = async function (knex) {
       // MAAT — heredan FINANCE_EXPENSES_VER (igual que la migración 20260706191000)
       FINANCE_AI_CHAT: internal && !!perms.COMMERCIAL_ORDERS_VER,
       FINANCE_FINDINGS_GESTIONAR: internal && !!perms.COMMERCIAL_ORDERS_VER,
+      // Supervisor de Movimientos (ADR-029) — igual que backfill 20260707190000
+      RECONCILIATION_VER: internal && !!perms.COMMERCIAL_INVENTORY_VER,
+      RECONCILIATION_GESTIONAR: internal && !!perms.COMMERCIAL_INVENTORY_SUPERVISAR,
     };
   };
 
