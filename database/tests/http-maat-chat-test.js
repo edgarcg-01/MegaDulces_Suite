@@ -55,6 +55,7 @@ function check(name, cond, det) {
   });
   console.log(`    (${((Date.now() - t0) / 1000).toFixed(1)}s · iter=${c1.body?.iterations} · tools=${(c1.body?.tools_used || []).map((t) => t.name).join(',')})`);
   check('chat 201/200', c1.status === 200 || c1.status === 201, `status=${c1.status}`);
+  const hasKey = c1.body?.source !== 'no_api_key';
   if (c1.body?.source === 'no_api_key') {
     console.log('  SKIP resto del chat — sin ANTHROPIC_API_KEY');
   } else {
@@ -137,7 +138,9 @@ function check(name, cond, det) {
     const ansHasUrl = /\/finanzas\/egresos\/detalle/.test(c4.body?.answer || '');
     if (hasDocs) check('devuelve deep-link a la póliza (tool o respuesta)', toolHasUrl || ansHasUrl, `tool=${toolHasUrl} ans=${ansHasUrl}`);
     else console.log('  SKIP deep-link — analytics.expense_documents vacío en esta DB (feed GX v3 solo en prod)');
-    check('follow-ups presentes', Array.isArray(c4.body?.suggestions) && c4.body.suggestions.length >= 1, `n=${c4.body?.suggestions?.length}`);
+    // follow-ups son best-effort en render_response (suggested_follow_ups NO es required);
+    // en un turno de búsqueda vacía el modelo puede omitirlas → basta con que el campo exista.
+    check('follow-ups (estructura presente)', Array.isArray(c4.body?.suggestions), `n=${c4.body?.suggestions?.length}`);
     console.log(`    → "${(c4.body?.answer || '').slice(0, 160).replace(/\n/g, ' ')}…" [seguir: ${(c4.body?.suggestions || []).join(' / ')}]`);
 
     // ── 9. Proactiva — alertas al hablar de un proveedor ──
@@ -177,6 +180,33 @@ function check(name, cond, det) {
     check('feedback confirmado → precision', fb.body?.ok === true && fb.body?.precision != null, JSON.stringify(fb.body));
     const list2 = await req('GET', '/finance/maat/findings?limit=50', token);
     check('confirmado sale de pendientes', !(list2.body || []).some((f) => f.id === cadena.id));
+  }
+
+  // ── 11. MAAT.9 (3.0 HITL) — proponer → aprobar → ejecutar (REST determinista) ──
+  console.log('\n── 11. HITL acciones propuestas ──');
+  const prop = await req('POST', '/finance/maat/actions', token, {
+    kind: 'revisar_hallazgo', titulo: 'Revisar facturas sin recepción (smoke)', descripcion: 'Acción de prueba', efecto: 'Marca para revisión',
+  });
+  check('propuesta creada pending_approval', prop.body?.estado === 'pending_approval' && !!prop.body?.id, JSON.stringify(prop.body));
+  const pend = await req('GET', '/finance/maat/actions', token);
+  check('acción aparece en pendientes', (pend.body || []).some((a) => a.id === prop.body?.id));
+  if (prop.body?.id) {
+    const appr = await req('POST', `/finance/maat/actions/${prop.body.id}/approve`, token);
+    check('aprobar → executed', appr.body?.estado === 'executed', JSON.stringify(appr.body));
+    const pend2 = await req('GET', '/finance/maat/actions', token);
+    check('ejecutada sale de pendientes', !(pend2.body || []).some((a) => a.id === prop.body.id));
+  }
+
+  // ── 12. MAAT.7/3.0 — tools nuevas vía chat (what-if / grafo / sub-agente auditor) ──
+  if (hasKey) {
+    console.log('\n── 12. Tools 3.0 vía chat ──');
+    const w = await req('POST', '/finance/maat/chat', token, { history: [], message: '¿Qué pasa con mi caja si retraso 15 días los pagos a proveedores?' });
+    check('what-if: usó maat_simular_flujo', (w.body?.tools_used || []).some((t) => t.name === 'maat_simular_flujo'), (w.body?.tools_used || []).map((t) => t.name).join(','));
+    console.log(`    → "${(w.body?.answer || '').slice(0, 150).replace(/\n/g, ' ')}…"`);
+    const audit = await req('POST', '/finance/maat/chat', token, { history: [], message: 'Audita a fondo si hay algo turbio en las compras del último mes.' });
+    const usedSub = (audit.body?.tools_used || []).some((t) => t.name === 'maat_investigar_a_fondo');
+    check('auditoría: delegó en sub-agente o investigó', usedSub || (audit.body?.tools_used || []).length >= 1, (audit.body?.tools_used || []).map((t) => t.name).join(','));
+    console.log(`    → "${(audit.body?.answer || '').slice(0, 150).replace(/\n/g, ' ')}…" ${usedSub ? '[sub-agente ✓]' : ''}`);
   }
 
   console.log(`\n════ MAAT chat smoke: ${pass} OK · ${fail} FAIL ════`);

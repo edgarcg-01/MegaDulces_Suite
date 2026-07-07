@@ -36,3 +36,4 @@ export * from './lib/commercial-push/commercial-push.service';
 // Servicios expuestos para el composition root (binding modules de los Ports).
 export * from './lib/commercial-orders/commercial-orders.service';
 export * from './lib/commercial-customers/commercial-customers.service';
+export * from './lib/commercial-alerts/alerts.service';
