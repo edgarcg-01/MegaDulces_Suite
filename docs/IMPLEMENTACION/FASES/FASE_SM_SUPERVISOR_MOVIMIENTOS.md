@@ -66,7 +66,7 @@ Aprendizaje **L2**: `rule_registry.precision_score` por feedback → auto-supres
 | **SM.0** | Schema `reconciliation.*` + lib skeleton + perms + rule_registry | 🔨 schema hecho | — |
 | **SM.1** | F1 caja (`import-cash-cuts`) + detector P2 + bandeja mínima (máx señal, rápido) | ⬜ | SM.0 |
 | **SM.2** | F2 kardex (`import-kardex`) → `stock_ledger` + detector P1 (merma + completitud) | ⬜ | SM.0 |
-| **SM.3** | Cruces P3 (venta↔inventario↔caja) | ⬜ | SM.1, SM.2 |
+| **SM.3** | Cruces P3 (venta↔inventario↔caja) | ⏸️ DIFERIDO — sin señal limpia (Kepler calcula venta/inv/caja juntos = tautológico; descuento-línea no existe). Reabre con fuente independiente. | SM.1, SM.2 |
 | **SM.4** | Frontend `/almacen/cuadre` (KPIs + bandeja densa + evidencia + HITL) | ⬜ | SM.1+ |
 | **SM.5** | Cron nocturno + L2 + alerta WS crítica | ⬜ | SM.3 |
 
