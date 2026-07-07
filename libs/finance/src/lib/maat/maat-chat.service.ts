@@ -19,7 +19,7 @@ const CLAUDE_ENDPOINT = 'https://api.anthropic.com/v1/messages';
 const CLAUDE_MODEL = process.env.MAAT_CHAT_MODEL || 'claude-haiku-4-5-20251001';
 const CLAUDE_THINK_MODEL = process.env.MAAT_CHAT_THINK_MODEL || 'claude-sonnet-4-6';
 const TIMEOUT_MS = 30_000;
-const MAX_ITERATIONS = 6;
+const MAX_ITERATIONS = 8;
 const MAX_TOKENS = 1500;
 const THINK_BUDGET = 1536;
 const THINK_MAX_TOKENS = 4096;
@@ -77,6 +77,7 @@ export class MaatChatService {
   async ask(
     scope: MaatScope,
     input: { history: MaatChatTurn[]; think?: boolean; deepSearch?: boolean; image?: { mediaType: string; data: string } },
+    onStep?: (step: { label: string; tool?: string }) => void,
   ): Promise<MaatChatResult> {
     const think = !!input.think;
     const deep = !!input.deepSearch;
@@ -133,7 +134,20 @@ export class MaatChatService {
       const content = Array.isArray(resp.content) ? resp.content : [];
       const toolUses = content.filter((b: any) => b.type === 'tool_use');
 
+      // MAAT.7 — respuesta final ESTRUCTURADA: si el modelo llama render_response,
+      // ese es el turno terminal (narrative + follow-ups tipados, sin hack de texto).
+      const render = toolUses.find((b: any) => b.name === 'render_response');
+      if (render) {
+        const inp = render.input || {};
+        const sugg = Array.isArray(inp.suggested_follow_ups) ? inp.suggested_follow_ups.map((s: any) => String(s)).filter(Boolean).slice(0, 3) : [];
+        return {
+          answer: String(inp.narrative || '').trim() || 'No pude generar una respuesta.',
+          source: 'llm', tools_used: traces, iterations, tokens_in: tokensIn, tokens_out: tokensOut, suggestions: sugg,
+        };
+      }
+
       if (resp.stop_reason !== 'tool_use' || toolUses.length === 0) {
+        // Fallback: el modelo respondió en texto plano (sin render_response). Aún soporta [[SEGUIR]] legacy.
         const raw = content.filter((b: any) => b.type === 'text').map((b: any) => b.text).join('').trim();
         const { text, suggestions } = splitSuggestions(raw);
         return {
@@ -143,13 +157,16 @@ export class MaatChatService {
       }
 
       messages.push({ role: 'assistant', content });
-      const toolResults: any[] = [];
-      for (const tu of toolUses) {
-        const result = await this.tools.execute(tu.name, tu.input, scope);
+      // MAAT.7 — el modelo puede pedir VARIAS tools por turno: ejecútalas en PARALELO
+      // (antes secuencial). Los pasos de progreso se emiten antes del batch.
+      for (const tu of toolUses) onStep?.({ label: this.tools.describeStep(tu.name, tu.input), tool: tu.name });
+      const settled = await Promise.all(toolUses.map(async (tu: any) => ({ tu, result: await this.tools.execute(tu.name, tu.input, scope) })));
+      const toolResults = settled.map(({ tu, result }) => {
         traces.push({ name: tu.name, input: tu.input, result });
-        toolResults.push({ type: 'tool_result', tool_use_id: tu.id, content: JSON.stringify(result) });
-      }
+        return { type: 'tool_result', tool_use_id: tu.id, content: JSON.stringify(result) };
+      });
       messages.push({ role: 'user', content: toolResults });
+      onStep?.({ label: 'Cruzando los resultados…' });
     }
 
     return {

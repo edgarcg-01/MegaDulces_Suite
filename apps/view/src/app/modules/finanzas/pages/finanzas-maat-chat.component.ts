@@ -7,7 +7,7 @@ import { FormsModule } from '@angular/forms';
 import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 import { ButtonModule } from 'primeng/button';
 import { ChartModule } from 'primeng/chart';
-import { MaatService, MaatChatTurn, MaatToolTrace, MaatBriefing } from '../maat.service';
+import { MaatService, MaatChatTurn, MaatToolTrace, MaatBriefing, MaatChatResult } from '../maat.service';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { FINANZAS_TABS } from '../finanzas-tabs';
 import { ThotAiInputComponent, ThotAsk, ThotImage } from '../../comercial/components/thot-ai-input.component';
@@ -55,6 +55,7 @@ const SUGGESTIONS = [
   '¿Qué le compramos a DE LA ROSA?',
 ];
 
+
 /**
  * MAAT.3 (ADR-028) — "Pregúntale a Maat": chat financiero conversacional.
  * Réplica fiel del diseño de /thot-chat (misma anatomía tc-*): el backend
@@ -87,6 +88,12 @@ const SUGGESTIONS = [
       ]),
       transition(':leave', [
         animate('160ms ease', style({ opacity: 0, transform: 'translateX(-50%) translateY(6px) scale(0.85)' })),
+      ]),
+    ]),
+    trigger('thinkText', [
+      transition('* => *', [
+        style({ opacity: 0, transform: 'translateY(4px)' }),
+        animate('280ms cubic-bezier(0.22, 1, 0.36, 1)', style({ opacity: 1, transform: 'none' })),
       ]),
     ]),
   ],
@@ -144,7 +151,7 @@ const SUGGESTIONS = [
               @if (m.pending) {
                 <span class="tc-thinking">
                   <span class="tc-typing"><i></i><i></i><i></i></span>
-                  <span class="tc-thinking-txt">Consultando los libros…</span>
+                  <span class="tc-thinking-txt" [@thinkText]="thinkingLabel()">{{ thinkingLabel() }}</span>
                 </span>
               } @else {
                 @if (m.role === 'assistant') {
@@ -549,6 +556,9 @@ export class FinanzasMaatChatComponent implements OnInit {
   atBottom = signal(true);
   draft = '';
 
+  /** Estado "pensando": label del paso REAL emitido por el backend (SSE). */
+  readonly thinkingLabel = signal('Analizando tu pregunta…');
+
   readonly reduce = typeof window !== 'undefined'
     && !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 
@@ -593,43 +603,60 @@ export class FinanzasMaatChatComponent implements OnInit {
     this.lastOpts = opts;
     this.messages.update((ms) => [...ms, { role: 'assistant', content: '', pending: true }]);
     this.loading.set(true);
+    this.thinkingLabel.set('Analizando tu pregunta…');
     this.scroll();
 
-    this.svc.chat(histForApi, q, { ...opts, sessionId: this.sessionId })
+    // Stream SSE: los pasos de "pensando" son los REALES (la tool que corre).
+    this.svc.chatStream(histForApi, q, { ...opts, sessionId: this.sessionId })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: (res) => {
-          this.sessionId = res.session_id || this.sessionId;
-          const blocks = (res.tools_used || []).map((t) => this.toBlock(t)).filter((b): b is DataBlock => !!b);
-          const isErr = res.source === 'error';
-          // Sin animación (reduced-motion) / error / vacío: mostrar completo de una.
-          if (this.reduce || isErr || !res.answer) {
-            this.replacePending({
-              role: 'assistant', content: res.answer, blocks,
-              error: isErr, messageId: res.message_id, vote: null, suggestions: res.suggestions || [],
-            });
-            this.loading.set(false);
-            this.scroll();
-            return;
-          }
-          // Reveal progresivo del texto (estilo ChatGPT/Gemini); las tablas aparecen al terminar.
-          this.replacePending({ role: 'assistant', content: '', streaming: true });
-          this.scroll();
-          this.streamReveal(res.answer, () => {
-            this.messages.update((ms) => ms.map((m) =>
-              m.streaming
-                ? { ...m, content: res.answer, streaming: false, blocks, error: false, messageId: res.message_id, vote: null, suggestions: res.suggestions || [] }
-                : m));
-            this.loading.set(false);
-            this.scroll();
-          });
+        next: (ev) => {
+          if (ev.type === 'step') { if (ev.label) this.thinkingLabel.set(ev.label); }
+          else if (ev.type === 'done') this.onResult(ev.result);
+          else if (ev.type === 'error') this.showError();
         },
-        error: () => {
-          this.replacePending({ role: 'assistant', content: 'No pude responder en este momento. Intenta de nuevo.', error: true });
-          this.loading.set(false);
-          this.scroll();
-        },
+        // Si el stream falla de raíz, degradar al endpoint no-streaming.
+        error: () => this.fallbackAsk(histForApi, q, opts),
       });
+  }
+
+  /** Procesa el resultado final: reveal progresivo del texto + tablas al terminar. */
+  private onResult(res: MaatChatResult) {
+    this.sessionId = res.session_id || this.sessionId;
+    const blocks = (res.tools_used || []).map((t) => this.toBlock(t)).filter((b): b is DataBlock => !!b);
+    const isErr = res.source === 'error';
+    if (this.reduce || isErr || !res.answer) {
+      this.replacePending({
+        role: 'assistant', content: res.answer, blocks,
+        error: isErr, messageId: res.message_id, vote: null, suggestions: res.suggestions || [],
+      });
+      this.loading.set(false);
+      this.scroll();
+      return;
+    }
+    this.replacePending({ role: 'assistant', content: '', streaming: true });
+    this.scroll();
+    this.streamReveal(res.answer, () => {
+      this.messages.update((ms) => ms.map((m) =>
+        m.streaming
+          ? { ...m, content: res.answer, streaming: false, blocks, error: false, messageId: res.message_id, vote: null, suggestions: res.suggestions || [] }
+          : m));
+      this.loading.set(false);
+      this.scroll();
+    });
+  }
+
+  private showError() {
+    this.replacePending({ role: 'assistant', content: 'No pude responder en este momento. Intenta de nuevo.', error: true });
+    this.loading.set(false);
+    this.scroll();
+  }
+
+  /** Fallback al endpoint clásico (sin streaming) si el SSE no está disponible. */
+  private fallbackAsk(hist: MaatChatTurn[], q: string, opts: { think: boolean; deepSearch: boolean; image?: ThotImage | null }) {
+    this.svc.chat(hist, q, { ...opts, sessionId: this.sessionId })
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({ next: (res) => this.onResult(res), error: () => this.showError() });
   }
 
   copy(idx: number, content: string) {
@@ -806,10 +833,22 @@ export class FinanzasMaatChatComponent implements OnInit {
     return 'pi pi-table';
   }
 
+  /** MAAT.7 — re-expande el formato columnar {columns,data} del token-diet a objetos. */
+  private expandColumnar(v: any): Record<string, any>[] | null {
+    if (v && !Array.isArray(v) && Array.isArray(v.columns) && Array.isArray(v.data)) {
+      return v.data.map((row: any[]) => Object.fromEntries(v.columns.map((c: string, i: number) => [c, row[i]])));
+    }
+    return null;
+  }
+
   private extractRows(result: any): Record<string, any>[] {
     if (Array.isArray(result)) return result.filter((r) => r && typeof r === 'object');
+    const colTop = this.expandColumnar(result);
+    if (colTop) return colTop;
     if (result && typeof result === 'object') {
       for (const k of ['rows', 'proveedores', 'top_productos', 'resumen', 'posturas', 'lineas', 'items', 'data']) {
+        const col = this.expandColumnar(result[k]);
+        if (col && col.length) return col;
         if (Array.isArray(result[k]) && result[k].length) return result[k].filter((r: any) => r && typeof r === 'object');
       }
       // Objeto plano con métricas (ej. proveedor único) → KPI de 1 fila.

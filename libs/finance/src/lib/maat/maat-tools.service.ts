@@ -42,6 +42,18 @@ const EGRESO_DIMS: Record<string, { group: string; key: string; label: string }>
 const num = (v: any) => (v == null ? null : Number(v));
 
 /**
+ * MAAT.7 — Token diet: convierte un arreglo de objetos a formato columnar
+ * { columns, data:[[...]] }. Las llaves repetidas por fila devoran la ventana de
+ * contexto del LLM; columnar reduce ~a la mitad los tokens de tablas grandes. El
+ * modelo lo entiende igual y el frontend lo re-expande (extractRows).
+ */
+const col = (rows: Record<string, any>[]) => {
+  if (!Array.isArray(rows) || !rows.length) return { columns: [], data: [] as any[][] };
+  const columns = Object.keys(rows[0]);
+  return { columns, data: rows.map((r) => columns.map((c) => r[c])) };
+};
+
+/**
  * Catálogo sucursal código→nombre. La contabilidad usa códigos ('03'); el usuario
  * piensa en nombres ('Padre Hidalgo'). warehouses.name viene vacío para estos
  * códigos, así que se mantiene aquí (override por env MAAT_SUCURSALES si cambia).
@@ -106,7 +118,8 @@ Hoy es ${ctx.today} (México).${scope.userName ? ` Hablas con ${scope.userName}.
 8. **SÍ puedes dar links a las pólizas** — no al ERP Kepler (es on-prem sin web), sino a NUESTRA interfaz de egresos. Las tools maat_documento y maat_buscar_documentos devuelven un campo \`ui_url\`: SIEMPRE que menciones un documento concreto, ponlo como link markdown, ej. \`[XA2001-0000754](ui_url)\`. NUNCA digas "no puedo darte links".
 9. **Buscar sin folio**: si el usuario pide "desglosa/muéstrame una póliza de \<proveedor\>" sin darte folio, usa maat_buscar_documentos (NO le pidas el folio). Traduce nombres de sucursal a código con el catálogo de abajo.
 10. **Proactividad**: cuando hables de un proveedor o el usuario pida "revisa", corre maat_alertas y menciona señales relevantes (duplicados, saltos de precio, sin recepción). No lo fuerces si no hay señales.
-11. **Preguntas de seguimiento**: termina SIEMPRE tu respuesta con una línea final exactamente así: \`[[SEGUIR]] pregunta 1 | pregunta 2 | pregunta 3\` (2-3 repreguntas útiles y específicas que el usuario podría querer a continuación). Esta línea NO se muestra como texto: se convierte en botones. No la comentes.
+11. **INVESTIGA COMO ANALISTA, no como buscador.** Ante un "¿por qué…?", "¿cómo va…?" o cualquier síntoma, NO te quedes con la primera tool: encadena hasta la CAUSA RAÍZ. Ej. "¿por qué bajó la rentabilidad?" → maat_pnl (ves gastos↑) → maat_egresos(group_by cuenta_mayor, familia 6) (ves qué cuenta subió) → maat_alertas de ese proveedor/cuenta (duplicados/saltos). Puedes pedir VARIAS tools en un mismo turno cuando son independientes. Usa maat_tomar_nota para no perder hallazgos intermedios en investigaciones largas.
+12. **RESPUESTA FINAL OBLIGATORIA vía render_response.** Cuando ya tengas todo, NO respondas en texto plano: llama a la tool \`render_response\` con \`narrative\` (tu respuesta en Markdown) y \`suggested_follow_ups\` (2-3 repreguntas útiles). El frontend renderiza los botones desde ese arreglo tipado. Es tu único canal de respuesta al usuario.
 
 ## SUCURSALES (código contable → nombre; el usuario usa nombres, la contabilidad usa códigos)
 ${Object.entries(SUCURSAL_CAT).map(([c, n]) => `${c} = ${n}`).join(' · ')}
@@ -122,6 +135,48 @@ Tienes acceso a: **balanza de comprobación completa** (familias 1-9, cargos/abo
 - "desglosa una póliza de La Rosa" → maat_buscar_documentos(beneficiario:'LA ROSA') → responde con 2-3 opciones, cada una como link markdown usando su ui_url. NO pidas el folio. Cierra con \`[[SEGUIR]] Ver el detalle de la factura más grande | ¿Cuánto le compramos a La Rosa este año? | ¿Hay facturas duplicadas de este proveedor?\`
 - "¿cuánto le debemos a Bimbo?" → maat_proveedor(search:'BIMBO') para el saldo, y como habla de un proveedor corre también maat_alertas(beneficiario:'BIMBO'); si hay señales, menciónalas. \`[[SEGUIR]] ...\`
 - "¿cómo vamos de resultados?" → maat_pnl() → da el resultado del último mes limpio y ADVIERTE los caveats (2025 presupuesto, COGS cortado desde may-2026). \`[[SEGUIR]] ...\``;
+  }
+
+  /**
+   * Frase descriptiva de un paso REAL (la tool que el modelo eligió + sus args)
+   * para el estado "pensando" del chat. No es una lista fija: refleja qué está
+   * haciendo Maat de verdad en cada llamada.
+   */
+  describeStep(name: string, input: any): string {
+    const i = input || {};
+    const suc = i.sucursal ? (SUCURSAL_CAT[i.sucursal] || `sucursal ${i.sucursal}`) : '';
+    const inSuc = suc ? ` en ${suc}` : '';
+    const DIM: Record<string, string> = {
+      proveedor: 'por proveedor', beneficiario: 'por beneficiario', cuenta: 'por cuenta',
+      cuenta_mayor: 'por cuenta mayor', sucursal: 'por sucursal', area: 'por área',
+      doc_tipo: 'por tipo de documento', familia: 'por familia', mes: 'mes a mes',
+    };
+    const dim = DIM[i.group_by] ? ` ${DIM[i.group_by]}` : '';
+    switch (name) {
+      case 'maat_egresos': {
+        const who = i.beneficiario ? ` de ${i.beneficiario}` : (i.cuenta ? ` de la cuenta ${i.cuenta}` : '');
+        return `Analizando los egresos${dim}${who}${inSuc}…`;
+      }
+      case 'maat_balanza': {
+        const fam = i.familia ? ` (familia ${i.familia})` : (i.cuenta ? ` de la cuenta ${i.cuenta}` : '');
+        return `Revisando la balanza${dim}${fam}${inSuc}…`;
+      }
+      case 'maat_pnl': return `Calculando el estado de resultados${inSuc}…`;
+      case 'maat_cadena':
+        return i.factura_folio ? `Trazando la cadena de la factura ${i.factura_folio}…`
+          : i.solo_incompletas ? 'Buscando facturas sin recepción…'
+          : `Trazando la cadena de aprovisionamiento${i.beneficiario ? ` de ${i.beneficiario}` : ''}…`;
+      case 'maat_serie_mensual': return `Construyendo la serie mensual${i.beneficiario ? ` de ${i.beneficiario}` : ''}${inSuc}…`;
+      case 'maat_proveedor': return i.search ? `Revisando al proveedor ${i.search}…` : 'Revisando los principales proveedores…';
+      case 'maat_documento': return `Abriendo el documento ${i.folio || ''}${inSuc}…`;
+      case 'maat_buscar_documentos': return `Buscando pólizas${i.beneficiario ? ` de ${i.beneficiario}` : ''}${inSuc}…`;
+      case 'maat_alertas': return `Buscando anomalías${i.beneficiario ? ` en ${i.beneficiario}` : ''}${inSuc}…`;
+      case 'maat_hallazgos': return i.tipo ? `Revisando hallazgos (${i.tipo})…` : 'Revisando los hallazgos contables…';
+      case 'maat_conocimiento': return 'Consultando la base de conocimiento…';
+      case 'maat_guardar_conocimiento': return 'Guardando el conocimiento validado…';
+      case 'maat_tomar_nota': return 'Anotando un hallazgo…';
+      default: return `Consultando ${name.replace(/^maat_/, '').replace(/_/g, ' ')}…`;
+    }
   }
 
   // ── Schema para Claude ───────────────────────────────────────────────
@@ -297,6 +352,29 @@ Tienes acceso a: **balanza de comprobación completa** (familias 1-9, cargos/abo
           required: ['kind', 'title', 'body'],
         },
       },
+      {
+        name: 'maat_tomar_nota',
+        description:
+          'Scratchpad de la investigación: guarda un hallazgo/observación intermedia para no perderla ni saturar el contexto en investigaciones largas (varios drill-downs). Úsala tras cada paso relevante; las notas te quedan visibles para la conclusión.',
+        input_schema: {
+          type: 'object',
+          properties: { nota: { type: 'string', description: 'Observación concisa (1-2 líneas): qué encontraste y su cifra clave.' } },
+          required: ['nota'],
+        },
+      },
+      {
+        name: 'render_response',
+        description:
+          'TOOL OBLIGATORIA para entregar tu respuesta final al usuario. NO respondas en texto plano — llama a esta tool cuando ya tengas la conclusión. El frontend renderiza `narrative` (Markdown) y convierte `suggested_follow_ups` en botones.',
+        input_schema: {
+          type: 'object',
+          properties: {
+            narrative: { type: 'string', description: 'La respuesta final en Markdown (con cifras, tablas si aplica, links de póliza).' },
+            suggested_follow_ups: { type: 'array', items: { type: 'string' }, description: '2-3 repreguntas útiles y específicas que el usuario podría querer a continuación.' },
+          },
+          required: ['narrative'],
+        },
+      },
     ];
   }
 
@@ -304,6 +382,9 @@ Tienes acceso a: **balanza de comprobación completa** (familias 1-9, cargos/abo
   async execute(name: string, input: any, scope: MaatScope): Promise<any> {
     try {
       switch (name) {
+        // render_response lo intercepta el loop (control-flow, no data); inerte si llega aquí.
+        case 'render_response': return { ok: true };
+        case 'maat_tomar_nota': return { ok: true, nota: String(input?.nota || '').slice(0, 500) };
         case 'maat_egresos': return await this.egresos(input);
         case 'maat_balanza': return await this.balanza(input);
         case 'maat_pnl': return await this.pnl(input);
@@ -376,10 +457,10 @@ Tienes acceso a: **balanza de comprobación completa** (familias 1-9, cargos/abo
         .limit(limit);
       return {
         from, to, total: +total.toFixed(2), movimientos: Number(totalRow?.movs || 0),
-        rows: rows.map((r) => ({
+        rows: col(rows.map((r) => ({
           [q.group_by]: r.label, importe: Number(r.importe), movs: Number(r.movs),
           share_pct: total ? +((Number(r.importe) / total) * 100).toFixed(1) : 0,
-        })),
+        }))),
       };
     });
   }
@@ -432,7 +513,7 @@ Tienes acceso a: **balanza de comprobación completa** (familias 1-9, cargos/abo
       const rows: any[] = await b;
       return {
         from_mes, to_mes,
-        rows: rows.map((r) => ({ [q.group_by]: r.key, cargos: Number(r.cargos), abonos: Number(r.abonos), neto: Number(r.neto), movs: Number(r.movs) })),
+        rows: col(rows.map((r) => ({ [q.group_by]: r.key, cargos: Number(r.cargos), abonos: Number(r.abonos), neto: Number(r.neto), movs: Number(r.movs) }))),
       };
     });
   }
@@ -512,7 +593,7 @@ Tienes acceso a: **balanza de comprobación completa** (familias 1-9, cargos/abo
           trx.raw("ROUND(COALESCE(SUM(importe) FILTER (WHERE e.familia IN ('6','7')),0)::numeric,2) AS gastos"),
           trx.raw('ROUND(SUM(importe)::numeric,2) AS total'))
         .orderBy('mes');
-      return { from, to, rows: rows.map((r) => ({ mes: r.mes, compras: Number(r.compras), gastos: Number(r.gastos), total: Number(r.total) })) };
+      return { from, to, rows: col(rows.map((r) => ({ mes: r.mes, compras: Number(r.compras), gastos: Number(r.gastos), total: Number(r.total) }))) };
     });
   }
 
@@ -614,11 +695,11 @@ Tienes acceso a: **balanza de comprobación completa** (familias 1-9, cargos/abo
       if (!rows.length) return { rows: [], nota: 'Sin documentos para ese criterio. Prueba con otro nombre de proveedor o amplía el período.' };
       return {
         from, to,
-        rows: rows.map((r: any) => ({
+        rows: col(rows.map((r: any) => ({
           sucursal: r.sucursal, doc_tipo: r.doc_tipo, folio: r.doc_folio, fecha: r.fecha,
           beneficiario: r.beneficiario, concepto: r.concepto, importe: Number(r.importe),
           ui_url: this.docUrl(r.sucursal, r.doc_tipo, r.doc_folio, r.beneficiario),
-        })),
+        }))),
       };
     });
   }
@@ -660,6 +741,9 @@ Tienes acceso a: **balanza de comprobación completa** (familias 1-9, cargos/abo
 
       // 2) Salto de precio por SKU: costo_unitario reciente > 1.3× su promedio histórico del proveedor
       if (benef) {
+        // MAAT.7 — anomalía ESTADÍSTICA (z-score) en vez de heurística 1.3×avg:
+        // el costo máximo se desvía ≥2σ de la media del SKU (stddev poblacional).
+        // Menos falsos positivos y captura saltos reales que un umbral fijo ignora.
         const jumps = await trx('analytics.expense_document_lines as l')
           .join('analytics.expense_documents as d', function (this: any) {
             this.on('d.tenant_id', 'l.tenant_id').andOn('d.sucursal', 'l.sucursal')
@@ -668,16 +752,18 @@ Tienes acceso a: **balanza de comprobación completa** (familias 1-9, cargos/abo
           .where('l.tenant_id', tenantId).whereRaw('d.beneficiario ILIKE ?', [`%${benef}%`])
           .whereRaw('l.costo_unitario > 0')
           .groupBy('l.sku')
-          .havingRaw('max(l.costo_unitario) > 1.3 * avg(l.costo_unitario)')
-          .havingRaw('count(*) >= 3')
+          .havingRaw('count(*) >= 4')
+          .havingRaw('stddev_pop(l.costo_unitario) > 0')
+          .havingRaw('max(l.costo_unitario) - avg(l.costo_unitario) >= 2 * stddev_pop(l.costo_unitario)')
           .select('l.sku', trx.raw('MAX(l.producto) AS producto'),
-            trx.raw('ROUND(MIN(l.costo_unitario)::numeric,2) AS min_costo'),
-            trx.raw('ROUND(MAX(l.costo_unitario)::numeric,2) AS max_costo'))
-          .orderByRaw('max(l.costo_unitario) / nullif(avg(l.costo_unitario),0) DESC')
+            trx.raw('ROUND(AVG(l.costo_unitario)::numeric,2) AS avg_costo'),
+            trx.raw('ROUND(MAX(l.costo_unitario)::numeric,2) AS max_costo'),
+            trx.raw('ROUND(((max(l.costo_unitario) - avg(l.costo_unitario)) / nullif(stddev_pop(l.costo_unitario),0))::numeric, 1) AS z'))
+          .orderByRaw('(max(l.costo_unitario) - avg(l.costo_unitario)) / nullif(stddev_pop(l.costo_unitario),0) DESC')
           .limit(5);
         for (const j of jumps) signals.push({
-          tipo: 'salto_precio', severidad: 'media',
-          detalle: `SKU ${j.sku} (${j.producto || '?'}): costo entre ${Number(j.min_costo).toLocaleString('es-MX', { style: 'currency', currency: 'MXN' })} y ${Number(j.max_costo).toLocaleString('es-MX', { style: 'currency', currency: 'MXN' })} — variación >30%.`,
+          tipo: 'salto_precio', severidad: Number(j.z) >= 3 ? 'alta' : 'media',
+          detalle: `SKU ${j.sku} (${j.producto || '?'}): un costo de ${Number(j.max_costo).toLocaleString('es-MX', { style: 'currency', currency: 'MXN' })} se desvía ${Number(j.z)}σ de su promedio ${Number(j.avg_costo).toLocaleString('es-MX', { style: 'currency', currency: 'MXN' })} (anomalía estadística).`,
         });
       }
 
@@ -738,12 +824,12 @@ Tienes acceso a: **balanza de comprobación completa** (familias 1-9, cargos/abo
 
       return {
         resumen: summary.map((s) => ({ clase: s.clase, num: Number(s.num), total: Number(s.total) })),
-        rows: rows.map((r: any) => ({
+        rows: col(rows.map((r: any) => ({
           regla: r.regla || r.rule_key, clase: r.clase, severidad: r.severity,
           titulo: r.titulo, resumen: r.resumen, importe: Number(r.importe),
           // deep-link a la póliza si el hallazgo apunta a un documento
-          ui_url: r.entity?.doc_folio ? this.docUrl(r.entity.sucursal, r.entity.doc_tipo || 'XA2001', r.entity.doc_folio, r.entity.beneficiario) : undefined,
-        })),
+          ui_url: r.entity?.doc_folio ? this.docUrl(r.entity.sucursal, r.entity.doc_tipo || 'XA2001', r.entity.doc_folio, r.entity.beneficiario) : null,
+        }))),
       };
     });
   }

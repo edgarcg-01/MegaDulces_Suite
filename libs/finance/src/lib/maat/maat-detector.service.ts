@@ -43,7 +43,7 @@ const RULES: RuleMeta[] = [
   { rule_key: 'cadena_incompleta', clase: 'riesgo', nombre: 'Factura sin recepción', descripcion: 'Facturas de compra (XA2001) pagadas/registradas sin recepción (XA3701) correlacionada — pagar sin comprobante de recibido.', params: { min_monto: 5000, critico_monto: 100000 } },
   { rule_key: 'posible_duplicado', clase: 'riesgo', nombre: 'Posible factura duplicada', descripcion: 'Dos facturas del mismo proveedor con importe casi idéntico en una ventana corta.', params: { tolerancia_pct: 0.5, ventana_dias: 7, min_monto: 500 } },
   { rule_key: 'gasto_atipico', clase: 'riesgo', nombre: 'Gasto mensual atípico', descripcion: 'Gasto de una cuenta mayor en un mes se desvía ≥3σ de su historia (cuenta×sucursal).', params: { z: 3, min_meses: 6, min_monto: 20000 } },
-  { rule_key: 'salto_precio_sku', clase: 'riesgo', nombre: 'Salto de precio en SKU', descripcion: 'Costo unitario de un SKU a un proveedor supera 1.3× su promedio histórico.', params: { factor: 1.3, min_compras: 3 } },
+  { rule_key: 'salto_precio_sku', clase: 'riesgo', nombre: 'Salto de precio en SKU', descripcion: 'Costo unitario de un SKU a un proveedor se desvía ≥2σ (z-score) de su promedio histórico.', params: { z: 2, min_compras: 4 } },
   { rule_key: 'dpo_largo', clase: 'riesgo', nombre: 'DPO / saldo alto de proveedor', descripcion: 'Proveedor con saldo por pagar y días de pago (DPO) por encima del umbral.', params: { dpo_max: 60, min_saldo: 10000 } },
   { rule_key: 'proveedor_nuevo_grande', clase: 'riesgo', nombre: 'Proveedor nuevo de monto alto', descripcion: 'Proveedor sin historial previo que entra directo con una compra grande.', params: { antiguedad_dias: 60, min_monto: 50000 } },
   { rule_key: 'iva_capitalizado', clase: 'error_captura', nombre: 'IVA capitalizado (bug XD5501)', descripcion: 'IVA acreditable huérfano por el bug de descuentos XD5501 (partida doble descuadrada).', params: {} },
@@ -235,8 +235,10 @@ export class MaatDetectorService {
 
   // ── riesgo: salto de precio por SKU (proveedor×sku) ──
   private async detSaltoPrecio(trx: any, tenantId: string, p: any): Promise<RawFinding[]> {
-    const factor = Number(p.factor) || 1.3;
-    const minC = Number(p.min_compras) || 3;
+    // MAAT.7 — z-score (stddev poblacional) en vez de factor×avg: el máximo se desvía
+    // ≥ z·σ de la media del (proveedor×SKU). Estadístico, no heurístico.
+    const z = Number(p.z) || 2;
+    const minC = Number(p.min_compras) || 4;
     const rows = await trx('analytics.expense_document_lines as l')
       .join('analytics.expense_documents as d', function (this: any) {
         this.on('d.tenant_id', 'l.tenant_id').andOn('d.sucursal', 'l.sucursal')
@@ -245,18 +247,20 @@ export class MaatDetectorService {
       .where('l.tenant_id', tenantId).whereRaw('l.costo_unitario > 0').whereNotNull('d.beneficiario')
       .groupBy('d.beneficiario', 'l.sku')
       .havingRaw('count(*) >= ?', [minC])
-      .havingRaw('max(l.costo_unitario) >= ? * avg(l.costo_unitario)', [factor])
+      .havingRaw('stddev_pop(l.costo_unitario) > 0')
+      .havingRaw('max(l.costo_unitario) - avg(l.costo_unitario) >= ? * stddev_pop(l.costo_unitario)', [z])
       .select('d.beneficiario', 'l.sku', trx.raw('MAX(l.producto) AS producto'),
         trx.raw('ROUND(MIN(l.costo_unitario)::numeric,2) AS min_c'), trx.raw('ROUND(MAX(l.costo_unitario)::numeric,2) AS max_c'),
-        trx.raw('ROUND(AVG(l.costo_unitario)::numeric,2) AS avg_c'), trx.raw('count(*)::int AS n'))
-      .orderByRaw('max(l.costo_unitario)/nullif(avg(l.costo_unitario),0) DESC').limit(100);
+        trx.raw('ROUND(AVG(l.costo_unitario)::numeric,2) AS avg_c'), trx.raw('count(*)::int AS n'),
+        trx.raw('ROUND(((max(l.costo_unitario) - avg(l.costo_unitario)) / nullif(stddev_pop(l.costo_unitario),0))::numeric,1) AS zscore'))
+      .orderByRaw('(max(l.costo_unitario) - avg(l.costo_unitario)) / nullif(stddev_pop(l.costo_unitario),0) DESC').limit(100);
     return rows.map((r: any) => ({
-      rule_key: 'salto_precio_sku', severity: 'warn', score: Math.min(1, Number(r.max_c) / (Number(r.avg_c) || 1) / 3),
+      rule_key: 'salto_precio_sku', severity: Number(r.zscore) >= 3 ? 'critical' : 'warn', score: Math.min(1, Number(r.zscore) / 4),
       titulo: `Salto de precio — SKU ${r.sku} (${r.beneficiario})`,
-      resumen: `${r.producto || 'SKU ' + r.sku} de ${r.beneficiario}: costo entre ${money(Number(r.min_c))} y ${money(Number(r.max_c))} (prom ${money(Number(r.avg_c))}, ${r.n} compras).`,
+      resumen: `${r.producto || 'SKU ' + r.sku} de ${r.beneficiario}: costo máx ${money(Number(r.max_c))} se desvía ${Number(r.zscore)}σ del promedio ${money(Number(r.avg_c))} (${r.n} compras).`,
       entity: { beneficiario: r.beneficiario, sku: r.sku },
       periodo: null, importe: Number(r.max_c) - Number(r.avg_c),
-      evidencia: { min: Number(r.min_c), max: Number(r.max_c), avg: Number(r.avg_c), compras: r.n },
+      evidencia: { min: Number(r.min_c), max: Number(r.max_c), avg: Number(r.avg_c), z: Number(r.zscore), compras: r.n },
       dedup_key: `salto_precio_sku|${norm(r.beneficiario)}|${r.sku}`,
     }));
   }

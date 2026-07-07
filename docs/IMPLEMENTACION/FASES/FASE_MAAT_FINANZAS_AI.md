@@ -269,6 +269,60 @@ Sí, ambos — cada técnica donde gana:
 
 ---
 
+## 7.bis Roadmap evolutivo: Maat 2.0 (ReAct) → 3.0 (CFO virtual)
+
+> Plan integrado (2026-07-07, propuesta de Edgar). Principio rector: **valor por unidad de complejidad para ESTE contexto** (distribuidora de dulces, single-tenant beta, 1 dev, Kepler on-prem read-only). Tier-1 ≠ apilar tecnología; es entregar cada capacidad en la forma que funciona en nuestro stack sin cargar deuda de infra.
+
+### Estado base (ya shippeado, local)
+| | Capacidad | Estado |
+|---|---|---|
+| 1.0 | Chat tool-use + conocimiento + balanza/cadena + navegable/proactiva/visual/confiable + motor de 10 detectores + bandeja + aprendizaje L2 | ✅ MAAT.0/1/2/3/3.1 (commits 0ee4b64…cce2435) |
+
+**Corrección de diagnóstico:** el "Maat 1.0 = enrutador semántico de 1 tool" NO aplica — `MaatChatService.ask()` ya es un **bucle ReAct** (`while`, multi-tool, feedback al modelo; evidencia en smoke: `iter=5`, encadena `maat_proveedor`→`maat_alertas`). El salto a 2.0 es **endurecer** ese loop, no crearlo.
+
+### Maat 2.0 — Endurecimiento ReAct (MAAT.7) · 🔨 EN CURSO
+Cambios sobre el loop que ya existe:
+1. **Ejecución paralela** de tools por turno (`Promise.all`) — antes secuencial. ✅ aplicado.
+2. **`render_response`** (Structured Output): tool obligatoria de respuesta final con `narrative` + `suggested_follow_ups[]` tipados. Reemplaza el hack `[[SEGUIR]]` (regex frágil). Fallback a texto plano + `[[SEGUIR]]` legacy si el modelo no la usa. ✅ aplicado (backend); FE ya consume `suggestions`.
+3. **Prompt de causa-raíz**: directiva de investigar como analista (encadenar hasta la causa, pedir varias tools por turno), +iteraciones (6→8). ✅ aplicado.
+4. **Token diet columnar** `{columns,data}` en tools de lista (egresos/balanza/serie/buscar/hallazgos) — ~½ tokens. ✅ backend; **falta** `extractRows` del FE re-expandir.
+5. **Z-score estadístico** (`stddev_pop`) en `salto_precio` (reemplaza `1.3×avg`) — menos falsos positivos. **Falta** (tool `maat_alertas` + detector).
+6. **`maat_tomar_nota`** (scratchpad): guarda observaciones intermedias en investigaciones largas. ✅ aplicado.
+- **Cierre:** completar 4/5/FE + smoke (caso causa-raíz multi-tool) + build. **~0.5 sesión restante.**
+
+### Maat 3.0 — CFO virtual (5 pilares, forma factible)
+Cada pilar entrega su **valor central** en la forma correcta para NestJS/Postgres. Lo que se difiere se marca con gate explícito.
+
+| # | Pilar (visión Edgar) | Implementación factible (lo que haremos) | Se DIFIERE (con gate) | Sprint |
+|---|---|---|---|---|
+| **P2** | Proactividad event-driven (BullMQ + push) | El cron de MAAT.2 (@3AM) ya escanea → al aparecer un hallazgo **crítico nuevo**, emite alerta `AlertsGateway` (Socket.IO) + Web Push (`commercial-push`) al gerente. Reusa infra existente. | Cola BullMQ/RabbitMQ (proyecto ya decidió "no queue hasta Fase F"); webhooks reales del ERP (Kepler on-prem sin push — llega por import) | **MAAT.8** |
+| **P3** | HITL / escritura en ERP | `finance.proposed_actions` + tool `maat_proponer_accion` → estado `pending_approval` (ADR-013) → botón "Aprobar" → ejecuta efecto **en NUESTRAS tablas** + audit. Maat pasa de avisar a proponer trabajo rastreable. | **Escribir pólizas en Kepler** (read-only/on-prem/ofuscado — inseguro y no sancionado); la corrección contable real la hace un humano en Kepler | **MAAT.9** |
+| **P4** | Prescriptiva / What-if | Tool `maat_simular_flujo`: proyección **determinista** de flujo de caja a 3 escenarios (optimista/realista/pesimista) desde `ap_provider`+`expense_doc_chain` (ej. "retrasar pagos 15 días"). | Monte Carlo estocástico (overkill v1; el determinista da el 80%) | **MAAT.10** |
+| **P1** | Multi-agente (CrewAI/LangGraph) | Sub-agente **in-process**: tool `maat_investigar_a_fondo(tema)` corre un sub-loop ReAct con persona "Auditor" + toolset acotado y devuelve hallazgo estructurado. Delegación real sin framework. | CrewAI (es **Python**, no corre en runtime NestJS); LangGraph-JS (dep pesada). Gate: si el agente único + sub-agente se queda corto | **MAAT.11a** |
+| **P5** | GraphRAG / Neo4j (colusión) | Tool `maat_red_proveedores`: grafo de proveedores con **CTE recursivo en Postgres** sobre la data que SÍ tenemos (RFC/nombre near-dup/patrones de beneficiario). | **Neo4j + GraphRAG**: el caso estrella (representante legal / cuenta bancaria / dirección compartida) exige data que NO ingerimos (201 es "plana"). Gate: cuando ingiramos esa data forense Y el SQL recursivo se quede corto | **MAAT.11b** |
+
+### Secuencia y dependencias
+```
+MAAT.7 (2.0, base: render_response + loop) ──▶ MAAT.8 (push) ──▶ MAAT.9 (HITL) ──▶ MAAT.10 (what-if) ──▶ MAAT.11 (sub-agente + grafo)
+        │                                          │                  │
+        └ habilita structured output               └ reusa MAAT.2     └ reusa render_response para proponer acciones
+```
+- **P2/P4** son independientes entre sí y del resto (se pueden reordenar).
+- **P3** se apoya en `render_response` (2.0) para proponer acciones tipadas → va después de 2.0.
+- **P1** reusa `ask()` como sub-loop → va después de 2.0.
+- **P5** necesita una auditoría previa de "qué aristas tenemos" (30 min) antes de codificar.
+- Ritmo estimado: **~0.5–1 sesión por sprint** (5–6 sesiones para todo 3.0), commit + smoke por pilar.
+
+### Gates de infra pesada (NO se hacen sin cruzar el gate)
+| Tecnología | Gate para adoptarla |
+|---|---|
+| CrewAI / LangGraph (MAS framework) | El agente único + sub-agente in-process demuestra ser insuficiente en amplitud |
+| BullMQ / RabbitMQ (cola) | Fase F (decisión de proyecto) o webhooks reales del ERP |
+| Neo4j / GraphRAG | Ingesta de representante legal + cuenta bancaria + dirección, y el CTE recursivo se queda corto |
+| pgvector en `finance.knowledge` | knowledge > ~100 entradas (hoy 27; ILIKE alcanza) |
+
+---
+
 ## 8. Decisiones abiertas (necesitan OK de Edgar/negocio)
 
 1. **Privacidad:** cada turno de chat envía filas financieras (las que devuelven las tools) a la API de Anthropic. Es la misma postura que Thot Chat y el OCR ya en producción — la API no entrena con datos de clientes — pero finanzas es más sensible: **confirmar explícitamente**.
