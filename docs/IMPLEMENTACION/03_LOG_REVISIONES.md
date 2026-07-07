@@ -6,6 +6,22 @@
 
 ---
 
+## 2026-07-07 — MAAT 3.0: CFO virtual (5 pilares) sobre el ReAct 2.0
+
+**Contexto:** tras endurecer el loop (MAAT.7, commit cb5c200), Edgar aprobó llevar Maat a "3.0" con los 5 pilares, en su **forma factible para el stack** (sin CrewAI/Neo4j/BullMQ — ver plan §7.bis del FASE_MAAT). Todo entregado + smoke 42/42.
+
+**P4 — What-if (`maat_simular_flujo`):** proyección DETERMINISTA de flujo de caja (no Monte Carlo): saldo por pagar (201) + run-rate mensual de pagos (cargos 201 en la balanza) → impacto de retrasar pagos N días en 3 escenarios (0%/1.5%/4% de costo). Supuestos explícitos. En vivo: "retrasar 15d libera $9.4-9.8M, costo $0-392k".
+
+**P5 — Grafo de proveedores (`maat_red_proveedores`):** forense/colusión con **CTE recursivo en Postgres** (no Neo4j). Con foco: recorrido multi-salto (≤4) sobre aristas "comparte RFC". Sin foco: clusters globales (RFC→múltiples razones sociales = fragmentación; nombre→múltiples RFC = shell/typo). Nota: aristas ricas (rep. legal/banco/dirección) requieren ingerir esa data — gate documentado.
+
+**P1 — Multi-agente (`maat_investigar_a_fondo`):** sub-agente "Auditor" **in-process** (no framework): sub-loop ReAct acotado (≤5 iter) con persona forense + toolset reducido (anomalías/cadena/red/hallazgos), devuelve dictamen al agente principal. El chat lo intercepta (como render_response), sin recursión. En vivo delegó y devolvió veredicto de auditoría.
+
+**P3 — HITL (`maat_proponer_accion` + bandeja):** migración `20260707160000` `finance.proposed_actions` (RLS forzado). Maat propone → `pending_approval` (ADR-013) → humano Aprueba/Rechaza → al aprobar EJECUTA el efecto **sobre nuestras tablas** (ej. finding→en_revision) con audit; NUNCA escribe en Kepler (read-only). `MaatActionsService` + controller `/finance/maat/actions*` + panel FE en `/finanzas/hallazgos` (Aprobar/Rechazar). Smoke: propose→approve→executed.
+
+**P2 — Proactividad event-driven (sin cola):** `FINANCE_NOTIFIER_PORT` (contracts) inyectado @Optional en `MaatScannerService`; el cron nocturno, al insertar hallazgos CRÍTICOS nuevos, los notifica. Binding `FinanceNotifierBindingModule` (@Global, composition root) → `AlertsService` de commercial (WS, room por tenant). Respeta fronteras (finance no importa commercial). `scanAll` devuelve `nuevos_criticos`. Push a app móvil = extensión futura (target de usuario). Cola BullMQ diferida (Fase F).
+
+**Verificación:** smoke `http-maat-chat-test.js` **42/42** (+secciones HITL REST y tools 3.0 vía chat). Migración local Batch 141. Builds api+view verdes. `AlertsService` expuesto en el barrel de commercial (como `CommercialOrdersService`, para el binding).
+
 ## 2026-07-07 — MAAT.2: motor de patrones (10 detectores) + bandeja de hallazgos + aprendizaje L2
 
 **Contexto:** cierra el "encuentra patrones buenos y malos" de forma sistemática — formaliza el detector-lite de MAAT.3.1 (`maat_alertas`, on-the-fly) en detectores persistidos con feedback que entrena.

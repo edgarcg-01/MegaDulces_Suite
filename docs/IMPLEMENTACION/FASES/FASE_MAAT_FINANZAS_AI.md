@@ -290,8 +290,8 @@ Cambios sobre el loop que ya existe:
 6. **`maat_tomar_nota`** (scratchpad): guarda observaciones intermedias en investigaciones largas. ✅ aplicado.
 - **Cierre:** completar 4/5/FE + smoke (caso causa-raíz multi-tool) + build. **~0.5 sesión restante.**
 
-### Maat 3.0 — CFO virtual (5 pilares, forma factible)
-Cada pilar entrega su **valor central** en la forma correcta para NestJS/Postgres. Lo que se difiere se marca con gate explícito.
+### Maat 3.0 — CFO virtual (5 pilares, forma factible) · ✅ IMPLEMENTADO 2026-07-07 (smoke 42/42)
+Cada pilar entrega su **valor central** en la forma correcta para NestJS/Postgres. Lo que se difiere se marca con gate explícito. **Estado:** MAAT.7 (2.0) + P1/P2/P3/P4/P5 ✅ en código local, verificados por smoke; pendiente prod (misma tanda acumulada + `ANTHROPIC_API_KEY`).
 
 | # | Pilar (visión Edgar) | Implementación factible (lo que haremos) | Se DIFIERE (con gate) | Sprint |
 |---|---|---|---|---|
