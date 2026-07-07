@@ -6,6 +6,21 @@
 
 ---
 
+## 2026-07-06 — MAAT.0: fundación de la AI de Finanzas (ADR-028 aceptado)
+
+**Contexto:** Edgar pidió "una AI entrenada con toda la información de finanzas, con chat, que aprenda a encontrar patrones buenos y malos". ADR-028: **NO fine-tuning** — conocimiento curado + chat tool-use (patrón Thot Chat, cero números del LLM) + motor determinista de patrones + aprendizaje Horus-L (colector primero). Plan completo en `FASES/FASE_MAAT_FINANZAS_AI.md` (7 sprints).
+
+**Cambio (MAAT.0):**
+- **`libs/finance`** nueva lib Nx (`scope:finance` en eslint boundaries: solo platform+shared — NO importa commercial/trade). Módulo `FinanceMaatModule` wireado en AppModule bajo `ENABLE_MULTITENANT`.
+- **Migración `20260706190000`**: schema `finance.*` con 7 tablas (knowledge, baselines, rule_registry, findings, finding_feedback, chat_sessions, chat_messages), todas tenant_id + **RLS forzado** (`current_tenant_id()`) + grants `app_runtime`. FKs compuestas `(tenant_id, id)`.
+- **Migración `20260706191000`**: permisos `FINANCE_AI_CHAT` + `FINANCE_FINDINGS_GESTIONAR` backfilleados heredando `FINANCE_EXPENSES_VER` (15 roles local, customer_b2b fuera). Enum backend/frontend + permission-meta + seed de roles alineados (seed == migración).
+- **Seed de conocimiento** `database/scripts/seed-maat-knowledge.js` (dry-run default): **27 entries** destiladas de `KEPLER_CONTABILIDAD_MODELO.md` — 7 definiciones (schema kdc2/kdm1/kdm2, familias, COGS periódico, ciclo de compra con lineage c39), 7 hechos con cifras ancla (venta real $671M, compras $685.6M, margen 17-24%, cutover dic-2025), 6 reglas de negocio (capa única de compras, pagos XD2601/XD2501, no usar fam 7 para IMSS), 7 issues conocidos (iva_bug, 203, 107, cierre inventario cortado, IVA en 511, partes relacionadas, sin depreciación).
+- **Endpoints** `GET/POST /finance/maat/knowledge` + `/stats` + `PATCH :id/status` (upsert idempotente por kind+title).
+
+**Red:** migración local Batch 139 · RLS smoke **0/27/0** (app_runtime sin/con/fake tenant) · `nx lint finance` verde · builds api+view verdes.
+
+**Pendiente operacional:** aplicar migraciones+seed a **prod** (requiere autorización) + **re-login** para que los permisos entren al JWT. Sigue **MAAT.1** (balanza familias 1-9 + cadena de aprovisionamiento — el lineage kdm1 c39 quedó descifrado y verificado hoy).
+
 ## 2026-06-18 — CV.5: promoción activa como señal de empuje en Thot (CIERRE del sprint CV)
 
 **Contexto:** última fase del sprint CV = **"cohesión empuje↔promos"**. Hallazgo: las promociones (palanca de **precio**, aplicada en `orders.recalcOrderTotals`) y el empuje dirigido / Thot (palanca de **visibilidad**) estaban **siloed** — un producto en promo no era empujado ni señalado por el motor de sugerencias, aunque ambas palancas comparten el permiso `COMMERCIAL_PROMOTIONS_GESTIONAR`.

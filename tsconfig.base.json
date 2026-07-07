@@ -17,6 +17,7 @@
     "paths": {
       "@megadulces/commercial": ["libs/commercial/src/index.ts"],
       "@megadulces/contracts": ["libs/contracts/src/index.ts"],
+      "@megadulces/finance": ["libs/finance/src/index.ts"],
       "@megadulces/logistics": ["libs/logistics/src/index.ts"],
       "@megadulces/platform-core": ["libs/platform-core/src/index.ts"],
       "@megadulces/shared-auth": ["libs/shared-auth/index.ts"],

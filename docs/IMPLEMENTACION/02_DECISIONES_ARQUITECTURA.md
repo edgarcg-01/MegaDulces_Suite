@@ -821,6 +821,29 @@ Capas:
 
 ---
 
+## ADR-028 — **Maat**: AI de Finanzas (conocimiento + chat + patrones), sin fine-tuning
+
+**Fecha:** 2026-07-06 · **Estado:** Aceptado (OK de Edgar 2026-07-06, incluye postura de privacidad igual a Thot/OCR)
+
+**Contexto:** Pedido de Edgar: "una AI entrenada con toda la información de finanzas, con chat, que vaya aprendiendo cómo funciona para encontrar patrones buenos y malos". La Fase GX ya construyó la base de datos financiera (expense_entries/documents/lines, ap_provider, findings v1 con $26M+ en anomalías detectadas a mano) y el modelo contable Kepler está descifrado y documentado en `KEPLER_CONTABILIDAD_MODELO.md`.
+
+**Decisión:** **NO fine-tunear un LLM** (caro, alucina cifras, inauditable, congela el conocimiento). "Entrenamiento" = 4 mecanismos auditables: (1) conocimiento curado (`finance.knowledge`, seed del modelo contable descifrado), (2) acceso total en vivo vía tools parametrizadas read-only (patrón Thot Chat/ADR-026 — cero números del LLM), (3) motor de patrones determinista (~14 detectores estadísticos → `finance.findings` con evidencia reproducible; clases riesgo/error_captura/oportunidad), (4) feedback loop con taxonomía Horus (ADR-021): L0 memorias validadas → L1 baselines nocturnos → L2 auto-supresión de reglas ruidosas por precisión. Colector de feedback shipea antes que el learner. Vive en **`libs/finance`** (nueva lib, frontera limpia — no importa de commercial ni trade), endpoints `/finance/maat/*`. Hereda ADR-016: el motor detecta, el agente explica, el LLM fuera del camino del dinero.
+
+**Alternativas:**
+- Fine-tuning / RAG sobre dumps contables — rechazada: números alucinados e historial congelado; en finanzas es descalificante.
+- Extender Thot con tools financieras — rechazada: Finanzas y Ventas son proyectos separados (decisión previa de Edgar); dominios, permisos y usuarios distintos.
+
+**Consecuencias:**
+- ✅ Números siempre correctos (salen de SQL determinista); cada respuesta trae su evidencia (tool calls logueadas en `finance.chat_messages`).
+- ✅ Reusa infra probada: patrón chat TC, learning Horus L, feeds GX, `ANTHROPIC_API_KEY` Fase K.
+- ✅ El conocimiento crece sin deploys (tabla knowledge + umbrales en `rule_registry.params`).
+- ⚠️ Filas financieras viajan a la API de Anthropic en cada turno de chat (misma postura que Thot/OCR ya en prod) — requiere OK explícito de negocio.
+- ⚠️ Requiere 2 feeds nuevos: balanza completa `analytics.ledger_monthly` (familias 1-9) + cadena de aprovisionamiento `analytics.expense_doc_chain` (lineage kdm1 c39 descifrado 2026-07-06; absorbe GX.4.3b).
+
+**Plan:** [`FASES/FASE_MAAT_FINANZAS_AI.md`](FASES/FASE_MAAT_FINANZAS_AI.md).
+
+---
+
 ## Cómo agregar un ADR nuevo
 
 1. Copiar `ADR-000` (la plantilla) renombrando al siguiente número correlativo.

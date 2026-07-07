@@ -126,4 +126,7 @@ export enum Permission {
 
   // ── Proyecto Finanzas (egresos contables, CxP, hallazgos) ─────────────
   FINANCE_EXPENSES_VER = 'FINANCE_EXPENSES_VER',
+  // MAAT (ADR-028) — chat AI de finanzas + gestión de hallazgos/conocimiento
+  FINANCE_AI_CHAT = 'FINANCE_AI_CHAT',
+  FINANCE_FINDINGS_GESTIONAR = 'FINANCE_FINDINGS_GESTIONAR',
 }

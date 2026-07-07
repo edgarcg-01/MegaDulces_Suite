@@ -115,6 +115,8 @@ export const PERMISSION_META: Record<string, PermissionMetaEntry> = {
 
   // ── Proyecto Finanzas ──────────────────────────────────────────────────
   [Permission.FINANCE_EXPENSES_VER]: { label: 'Ver Egresos Contables', description: 'Proyecto Finanzas: egresos contables (pólizas de gastos 6xx y compras 5xx), desglose por cuenta/beneficiario y drill a documentos.', category: 'Finanzas' },
+  [Permission.FINANCE_AI_CHAT]: { label: 'Chat AI de Finanzas (Maat)', description: 'Conversar con Maat: consultas sobre balanza, egresos, proveedores y hallazgos. Solo lectura de datos.', category: 'Finanzas' },
+  [Permission.FINANCE_FINDINGS_GESTIONAR]: { label: 'Gestionar Hallazgos y Conocimiento', description: 'Confirmar/descartar hallazgos del motor de patrones y curar la base de conocimiento de Maat.', category: 'Finanzas' },
 };
 
 /**

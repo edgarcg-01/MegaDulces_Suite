@@ -99,6 +99,9 @@ exports.seed = async function (knex) {
     SUPERVISOR_AI_APROBAR: true,
     // Proyecto Finanzas — egresos contables
     FINANCE_EXPENSES_VER: true,
+    // MAAT (ADR-028) — chat AI de finanzas + gestión de hallazgos
+    FINANCE_AI_CHAT: true,
+    FINANCE_FINDINGS_GESTIONAR: true,
   };
 
   const NO_PERMS = Object.fromEntries(Object.keys(ALL_PERMS).map((k) => [k, false]));
@@ -125,6 +128,9 @@ exports.seed = async function (knex) {
       PORTAL_B2B_ACCESS: roleName === 'customer_b2b',
       // Finanzas — igual que la migración 20260706170000 (seed == migración)
       FINANCE_EXPENSES_VER: internal && !!perms.COMMERCIAL_ORDERS_VER,
+      // MAAT — heredan FINANCE_EXPENSES_VER (igual que la migración 20260706191000)
+      FINANCE_AI_CHAT: internal && !!perms.COMMERCIAL_ORDERS_VER,
+      FINANCE_FINDINGS_GESTIONAR: internal && !!perms.COMMERCIAL_ORDERS_VER,
     };
   };
 
