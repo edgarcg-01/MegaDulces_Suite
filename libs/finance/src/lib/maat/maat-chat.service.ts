@@ -20,9 +20,14 @@ const CLAUDE_MODEL = process.env.MAAT_CHAT_MODEL || 'claude-haiku-4-5-20251001';
 const CLAUDE_THINK_MODEL = process.env.MAAT_CHAT_THINK_MODEL || 'claude-sonnet-4-6';
 const TIMEOUT_MS = 30_000;
 const MAX_ITERATIONS = 8;
-const MAX_TOKENS = 1500;
+// max_tokens de la respuesta final. 1500 truncaba las respuestas detalladas
+// (análisis por sucursal, tablas) → render_response quedaba cortado y narrative
+// volvía vacío ("No pude generar una respuesta"). 4096 cubre respuestas ricas.
+const MAX_TOKENS = 4096;
+// Reintento cuando aún así se corta por longitud (respuesta excepcional).
+const RETRY_MAX_TOKENS = 8192;
 const THINK_BUDGET = 1536;
-const THINK_MAX_TOKENS = 4096;
+const THINK_MAX_TOKENS = 8192;
 const THINK_TIMEOUT_MS = 60_000;
 const DEEP_ITERATIONS = 12;
 const DEEP_DIRECTIVE =
@@ -139,9 +144,18 @@ export class MaatChatService {
       const render = toolUses.find((b: any) => b.name === 'render_response');
       if (render) {
         const inp = render.input || {};
-        const sugg = Array.isArray(inp.suggested_follow_ups) ? inp.suggested_follow_ups.map((s: any) => String(s)).filter(Boolean).slice(0, 3) : [];
+        let narrative = String(inp.narrative || '').trim();
+        let sugg = Array.isArray(inp.suggested_follow_ups) ? inp.suggested_follow_ups.map((s: any) => String(s)).filter(Boolean).slice(0, 3) : [];
+        // La respuesta se cortó por longitud (max_tokens) → render_response quedó
+        // truncado y narrative vino vacío. Reintenta UNA vez pidiendo concisión
+        // y con techo de tokens más alto, en vez de rendirse con "No pude…".
+        if (!narrative && resp.stop_reason === 'max_tokens') {
+          const recovered = await this.retryConcise(system, messages, toolDefs, think);
+          narrative = recovered.narrative;
+          if (recovered.suggestions.length) sugg = recovered.suggestions;
+        }
         return {
-          answer: String(inp.narrative || '').trim() || 'No pude generar una respuesta.',
+          answer: narrative || 'La respuesta salió demasiado extensa y se cortó. Acota la pregunta (un período o una sola sucursal) y lo intento de nuevo.',
           source: 'llm', tools_used: traces, iterations, tokens_in: tokensIn, tokens_out: tokensOut, suggestions: sugg,
         };
       }
@@ -149,9 +163,14 @@ export class MaatChatService {
       if (resp.stop_reason !== 'tool_use' || toolUses.length === 0) {
         // Fallback: el modelo respondió en texto plano (sin render_response). Aún soporta [[SEGUIR]] legacy.
         const raw = content.filter((b: any) => b.type === 'text').map((b: any) => b.text).join('').trim();
-        const { text, suggestions } = splitSuggestions(raw);
+        let { text, suggestions } = splitSuggestions(raw);
+        if (!text && resp.stop_reason === 'max_tokens') {
+          const recovered = await this.retryConcise(system, messages, toolDefs, think);
+          text = recovered.narrative;
+          if (recovered.suggestions.length) suggestions = recovered.suggestions;
+        }
         return {
-          answer: text || 'No pude generar una respuesta.',
+          answer: text || 'La respuesta salió demasiado extensa y se cortó. Acota la pregunta (un período o una sola sucursal) y lo intento de nuevo.',
           source: 'llm', tools_used: traces, iterations, tokens_in: tokensIn, tokens_out: tokensOut, suggestions,
         };
       }
@@ -281,13 +300,37 @@ export class MaatChatService {
     return { ok: true };
   }
 
-  private async callClaude(system: string, messages: any[], tools: any[], think = false): Promise<any> {
+  /**
+   * Recuperación de truncamiento: la respuesta previa se cortó por max_tokens.
+   * Reintenta UNA vez con techo de tokens más alto + instrucción de concisión,
+   * y extrae narrative (de render_response o texto plano). Best-effort.
+   */
+  private async retryConcise(system: string, messages: any[], tools: any[], think: boolean): Promise<{ narrative: string; suggestions: string[] }> {
+    try {
+      const nudged = system + '\n\nIMPORTANTE: tu respuesta anterior se cortó por longitud. Responde de nuevo vía render_response pero MÁS CONCISO (máximo ~450 palabras en narrative): prioriza las cifras y conclusiones esenciales, sin relleno.';
+      const resp = await this.callClaude(nudged, messages, tools, think, RETRY_MAX_TOKENS);
+      const content = Array.isArray(resp.content) ? resp.content : [];
+      const render = content.find((b: any) => b.type === 'tool_use' && b.name === 'render_response');
+      if (render?.input) {
+        const sugg = Array.isArray(render.input.suggested_follow_ups) ? render.input.suggested_follow_ups.map((s: any) => String(s)).filter(Boolean).slice(0, 3) : [];
+        return { narrative: String(render.input.narrative || '').trim(), suggestions: sugg };
+      }
+      const raw = content.filter((b: any) => b.type === 'text').map((b: any) => b.text).join('').trim();
+      const { text, suggestions } = splitSuggestions(raw);
+      return { narrative: text, suggestions };
+    } catch (e: any) {
+      this.logger.warn(`retryConcise falló: ${e?.message || e}`);
+      return { narrative: '', suggestions: [] };
+    }
+  }
+
+  private async callClaude(system: string, messages: any[], tools: any[], think = false, maxTokensOverride?: number): Promise<any> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), think ? THINK_TIMEOUT_MS : TIMEOUT_MS);
     try {
       const body: any = {
         model: think ? CLAUDE_THINK_MODEL : CLAUDE_MODEL,
-        max_tokens: think ? THINK_MAX_TOKENS : MAX_TOKENS,
+        max_tokens: maxTokensOverride || (think ? THINK_MAX_TOKENS : MAX_TOKENS),
         system, tools, messages,
       };
       if (think) body.thinking = { type: 'enabled', budget_tokens: THINK_BUDGET };
