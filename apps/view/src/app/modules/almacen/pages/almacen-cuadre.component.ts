@@ -47,12 +47,22 @@ type Tab = 'resumen' | 'cortes' | 'movimientos' | 'descuadres';
         @if (ov(); as o) {
           <div class="cd-kpis">
             <div class="cd-kpi"><span class="cd-kpi-val">{{ o.caja.cortes | number }}</span><span class="cd-kpi-lbl">Cortes de caja</span></div>
-            <div class="cd-kpi" [class.bad]="o.caja.con_descuadre > 0"><span class="cd-kpi-val">{{ o.caja.con_descuadre | number }}</span><span class="cd-kpi-lbl">Con descuadre</span></div>
+            <div class="cd-kpi"><span class="cd-kpi-val">{{ money(o.caja.venta) }}</span><span class="cd-kpi-lbl">Venta total (3 formas)</span></div>
+            <div class="cd-kpi" [class.bad]="o.caja.con_descuadre > 0"><span class="cd-kpi-val">{{ o.caja.con_descuadre | number }}</span><span class="cd-kpi-lbl">Descuadre efectivo</span></div>
+            <div class="cd-kpi" [class.bad]="o.caja.descuadre_no_efectivo > 0"><span class="cd-kpi-val">{{ o.caja.descuadre_no_efectivo | number }}</span><span class="cd-kpi-lbl">Descuadre tarjeta/transf</span></div>
             <div class="cd-kpi"><span class="cd-kpi-val bad">{{ money(o.caja.faltante) }}</span><span class="cd-kpi-lbl">Faltante caja</span></div>
             <div class="cd-kpi"><span class="cd-kpi-val">{{ money(o.caja.sobrante) }}</span><span class="cd-kpi-lbl">Sobrante caja</span></div>
+            <div class="cd-kpi" [class.bad]="o.caja.pct_exacto >= 90" [class.warn]="o.caja.pct_exacto >= 70 && o.caja.pct_exacto < 90">
+              <span class="cd-kpi-val">{{ o.caja.pct_exacto }}%</span><span class="cd-kpi-lbl">Cuadre exacto (arqueo no ciego)</span></div>
             <div class="cd-kpi"><span class="cd-kpi-val bad">{{ money(o.inventario.monto_merma) }}</span><span class="cd-kpi-lbl">Merma ({{ o.inventario.mermas | number }})</span></div>
             <div class="cd-kpi" [class.bad]="o.descuadres.criticos > 0"><span class="cd-kpi-val">{{ o.descuadres.pendientes | number }}</span><span class="cd-kpi-lbl">Descuadres pend. ({{ o.descuadres.criticos }} crít.)</span></div>
           </div>
+          @if (o.caja.pct_exacto >= 70 && o.caja.cortes_monto_alto > 0) {
+            <div class="cd-note">
+              <i class="pi pi-exclamation-triangle"></i>
+              <span><strong>{{ o.caja.cuadre_exacto | number }} de {{ o.caja.cortes_monto_alto | number }}</strong> cortes con monto alto cerraron con el efectivo contado <strong>idéntico al esperado, al centavo</strong>. En un conteo físico real eso es casi imposible — el arqueo probablemente no se hace a ciegas, así que un descuadre bajo no garantiza que la caja esté sana. La regla <em>Arqueo no ciego</em> lo señala en Descuadres.</span>
+            </div>
+          }
 
           <div class="cd-2col">
             <div class="card-premium card-flat cd-panel">
@@ -88,28 +98,64 @@ type Tab = 'resumen' | 'cortes' | 'movimientos' | 'descuadres';
         <div class="cd-filters">
           <input class="cd-input" type="text" placeholder="Cajero…" [(ngModel)]="fCajero" (keyup.enter)="loadCortes()">
           <input class="cd-input cd-input-sm" type="text" placeholder="Suc" [(ngModel)]="fSucCaja" (keyup.enter)="loadCortes()">
+          <label class="cd-lbl">Desde <input class="cd-input cd-input-date" type="date" [(ngModel)]="fFrom" (change)="loadCortes()"></label>
+          <label class="cd-lbl">Hasta <input class="cd-input cd-input-date" type="date" [(ngModel)]="fTo" (change)="loadCortes()"></label>
           <label class="cd-check"><input type="checkbox" [(ngModel)]="fSoloDesc" (change)="loadCortes()"> Solo descuadres</label>
           <button pButton type="button" icon="pi pi-search" label="Filtrar" class="p-button-sm p-button-text" (click)="loadCortes()"></button>
+          <span class="cd-count muted">{{ cortes().length }} cortes</span>
         </div>
         <div class="card-premium card-flat">
-          <p-table [value]="cortes()" styleClass="p-datatable-sm cd-table" [rowHover]="true" [loading]="loading()" [scrollable]="true" scrollHeight="600px" [paginator]="cortes().length > 100" [rows]="100">
+          <p-table [value]="cortes()" styleClass="p-datatable-sm cd-table" [rowHover]="true" [loading]="loading()" dataKey="id"
+                   [expandedRowKeys]="expandedCortes()" [scrollable]="true" scrollHeight="600px" [paginator]="cortes().length > 100" [rows]="100">
             <ng-template pTemplate="header">
-              <tr><th>Fecha</th><th>Suc</th><th>Caja</th><th>Cajero</th><th class="ta-r">Efvo esperado</th><th class="ta-r">Contado</th><th class="ta-r">Diferencia</th><th class="ta-r">Tarjeta</th><th class="ta-r">Venta</th></tr>
+              <tr><th style="width:2.5rem"></th><th>Fecha</th><th>Sucursal</th><th>Caja</th><th>Cajero</th><th class="ta-r">Efvo esperado</th><th class="ta-r">Contado</th><th class="ta-r">Diferencia</th><th class="ta-r">Tarjeta</th><th class="ta-r">Transf.</th><th class="ta-r">Venta total</th></tr>
             </ng-template>
-            <ng-template pTemplate="body" let-c>
-              <tr [class.cd-row-bad]="abs(c.efectivo_diff) >= 50">
+            <ng-template pTemplate="body" let-c let-expanded="expanded">
+              <tr [class.cd-row-bad]="abs(c.efectivo_diff) >= 50 || abs(c.tarjeta_diff) >= 50 || abs(c.transfer_diff) >= 50">
+                <td><button pButton type="button" [icon]="expanded ? 'pi pi-chevron-down' : 'pi pi-chevron-right'" class="p-button-text p-button-sm" (click)="toggleCorte(c)"></button></td>
                 <td>{{ c.business_date | date:'dd/MM/yy' }}</td>
-                <td>{{ c.warehouse_code }}</td>
+                <td>{{ c.warehouse_name || c.warehouse_code }}</td>
                 <td>{{ c.caja }}</td>
                 <td>{{ c.cajero_cierre || '—' }}</td>
                 <td class="ta-r">{{ money(c.efectivo_esperado) }}</td>
-                <td class="ta-r">{{ money(c.efectivo_contado) }}</td>
+                <td class="ta-r">{{ money(c.efectivo_contado) }}
+                  @if (c.cuadre_exacto) { <i class="pi pi-eye-slash cd-flag" title="Cuadre exacto: contado idéntico al esperado — conteo posiblemente no ciego"></i> }
+                </td>
                 <td class="ta-r strong" [class.bad]="c.efectivo_diff > 0" [class.ok]="c.efectivo_diff < 0">{{ signed(c.efectivo_diff) }}</td>
-                <td class="ta-r muted">{{ money(c.tarjeta_esperado) }}</td>
-                <td class="ta-r muted">{{ money(c.total_venta) }}</td>
+                <td class="ta-r" [class.bad]="abs(c.tarjeta_diff) >= 50">{{ money(c.tarjeta_esperado) }}<span class="cd-mini" *ngIf="abs(c.tarjeta_diff) >= 50"> Δ{{ signed(c.tarjeta_diff) }}</span></td>
+                <td class="ta-r" [class.bad]="abs(c.transfer_diff) >= 50">{{ money(c.transfer_esperado) }}<span class="cd-mini" *ngIf="abs(c.transfer_diff) >= 50"> Δ{{ signed(c.transfer_diff) }}</span></td>
+                <td class="ta-r strong">{{ money(c.venta_total) }}</td>
               </tr>
             </ng-template>
-            <ng-template pTemplate="emptymessage"><tr><td colspan="9" class="cd-empty">{{ loading() ? 'Cargando…' : 'Sin cortes. ¿Corriste import-cash-cuts?' }}</td></tr></ng-template>
+            <ng-template pTemplate="rowexpansion" let-c>
+              <tr><td colspan="11" class="cd-ev">
+                <div class="cd-corte-grid">
+                  <div class="cd-corte-block">
+                    <h4>Formas de pago</h4>
+                    <table class="cd-mini-table">
+                      <tr><th></th><th class="ta-r">Esperado</th><th class="ta-r">Contado</th><th class="ta-r">Diferencia</th></tr>
+                      <tr><td>Efectivo</td><td class="ta-r">{{ money(c.efectivo_esperado) }}</td><td class="ta-r">{{ money(c.efectivo_contado) }}</td><td class="ta-r strong" [class.bad]="c.efectivo_diff>0" [class.ok]="c.efectivo_diff<0">{{ signed(c.efectivo_diff) }}</td></tr>
+                      <tr><td>Tarjeta</td><td class="ta-r">{{ money(c.tarjeta_esperado) }}</td><td class="ta-r">{{ money(c.tarjeta_contado) }}</td><td class="ta-r strong" [class.bad]="c.tarjeta_diff>0" [class.ok]="c.tarjeta_diff<0">{{ signed(c.tarjeta_diff) }}</td></tr>
+                      <tr><td>Transferencia</td><td class="ta-r">{{ money(c.transfer_esperado) }}</td><td class="ta-r">{{ money(c.transfer_contado) }}</td><td class="ta-r strong" [class.bad]="c.transfer_diff>0" [class.ok]="c.transfer_diff<0">{{ signed(c.transfer_diff) }}</td></tr>
+                      <tr class="cd-total-row"><td>Venta total</td><td class="ta-r strong" colspan="3">{{ money(c.venta_total) }}</td></tr>
+                    </table>
+                  </div>
+                  <div class="cd-corte-block">
+                    <h4>Desglose del arqueo (contado físico)</h4>
+                    <div class="cd-ev-grid">
+                      <div><span class="cd-ev-k">Billetes</span><span class="cd-ev-v">{{ money(c.arqueo_billetes) }}</span></div>
+                      <div><span class="cd-ev-k">Monedas</span><span class="cd-ev-v">{{ money(c.arqueo_monedas) }}</span></div>
+                      <div><span class="cd-ev-k">Otros / vales</span><span class="cd-ev-v">{{ money(c.arqueo_otros) }}</span></div>
+                      <div><span class="cd-ev-k">Efvo. retirado</span><span class="cd-ev-v">{{ money(c.efectivo_retirado) }}</span></div>
+                      <div><span class="cd-ev-k">Turno</span><span class="cd-ev-v">{{ c.turno || '—' }}</span></div>
+                      <div><span class="cd-ev-k">Folio</span><span class="cd-ev-v mono">{{ c.folio }}</span></div>
+                    </div>
+                    @if (c.cuadre_exacto) { <p class="cd-flag-note"><i class="pi pi-eye-slash"></i> Contado idéntico al esperado al centavo — conteo posiblemente no a ciegas.</p> }
+                  </div>
+                </div>
+              </td></tr>
+            </ng-template>
+            <ng-template pTemplate="emptymessage"><tr><td colspan="11" class="cd-empty">{{ loading() ? 'Cargando…' : 'Sin cortes. ¿Corriste import-cash-cuts?' }}</td></tr></ng-template>
           </p-table>
         </div>
       }
@@ -124,20 +170,23 @@ type Tab = 'resumen' | 'cortes' | 'movimientos' | 'descuadres';
             <button [class.active]="fClase() === 'ajuste_salida'" (click)="setClase('ajuste_salida')">Ajuste</button>
             <button [class.active]="fClase() === 'inv_fisico'" (click)="setClase('inv_fisico')">Inv. físico</button>
           </div>
-          <input class="cd-input cd-input-sm" type="text" placeholder="SKU" [(ngModel)]="fSku" (keyup.enter)="loadMovs()">
+          <input class="cd-input" type="text" placeholder="SKU o producto…" [(ngModel)]="fSku" (keyup.enter)="loadMovs()">
           <input class="cd-input cd-input-sm" type="text" placeholder="Suc" [(ngModel)]="fSucMov" (keyup.enter)="loadMovs()">
+          <label class="cd-lbl">Desde <input class="cd-input cd-input-date" type="date" [(ngModel)]="fMovFrom" (change)="loadMovs()"></label>
+          <label class="cd-lbl">Hasta <input class="cd-input cd-input-date" type="date" [(ngModel)]="fMovTo" (change)="loadMovs()"></label>
           <button pButton type="button" icon="pi pi-search" label="Filtrar" class="p-button-sm p-button-text" (click)="loadMovs()"></button>
+          <span class="cd-count muted">{{ movs().length }} movs</span>
         </div>
         <div class="card-premium card-flat">
           <p-table [value]="movs()" styleClass="p-datatable-sm cd-table" [rowHover]="true" [loading]="loading()" [scrollable]="true" scrollHeight="600px" [paginator]="movs().length > 100" [rows]="100">
             <ng-template pTemplate="header">
-              <tr><th>Fecha</th><th>Suc</th><th>SKU</th><th>Tipo</th><th>Folio</th><th class="ta-r">Unidades</th><th class="ta-r">Importe</th></tr>
+              <tr><th>Fecha</th><th>Suc</th><th>Producto</th><th>Tipo</th><th>Folio</th><th class="ta-r">Unidades</th><th class="ta-r">Importe</th></tr>
             </ng-template>
             <ng-template pTemplate="body" let-m>
               <tr [class.cd-row-bad]="m.clase_mov === 'merma'">
                 <td>{{ m.fecha | date:'dd/MM/yy' }}</td>
                 <td>{{ m.warehouse_code }}</td>
-                <td>{{ m.sku }}</td>
+                <td><span class="cd-prod">{{ m.producto || m.sku }}</span><span class="cd-sku muted">{{ m.sku }}</span></td>
                 <td><span class="cd-tag" [ngClass]="'mv-' + m.clase_mov">{{ claseMovLabel(m.clase_mov) }}</span></td>
                 <td class="muted">{{ m.folio }}</td>
                 <td class="ta-r">{{ m.unidades | number }} <span class="muted">{{ m.unidad }}</span></td>
@@ -243,6 +292,23 @@ type Tab = 'resumen' | 'cortes' | 'movimientos' | 'descuadres';
     .cd-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: .75rem; margin-bottom: 1rem; }
     .cd-kpi { border: 1px solid var(--border-color, #e7e5e4); border-radius: var(--r-md, 10px); padding: .75rem 1rem; background: var(--card-bg, #fff); }
     .cd-kpi.bad { border-color: color-mix(in srgb, var(--bad-fg, #dc2626) 40%, var(--border-color, #e7e5e4)); }
+    .cd-kpi.warn { border-color: color-mix(in srgb, #d97706 45%, var(--border-color, #e7e5e4)); }
+    .cd-note { display: flex; gap: .6rem; align-items: flex-start; background: color-mix(in srgb, #d97706 8%, transparent); border: 1px solid color-mix(in srgb, #d97706 30%, transparent); border-radius: var(--r-md, 10px); padding: .7rem .9rem; font-size: .82rem; line-height: 1.45; margin-bottom: 1rem; }
+    .cd-note i { color: #b45309; margin-top: .15rem; }
+    .cd-lbl { display: inline-flex; align-items: center; gap: .3rem; font-size: .76rem; color: var(--text-muted, #57534e); }
+    .cd-input-date { padding: .28rem .45rem; }
+    .cd-count { font-size: .76rem; margin-left: auto; }
+    .cd-flag { color: #b45309; font-size: .72rem; margin-left: .3rem; }
+    .cd-mini { font-size: .7rem; color: var(--bad-fg, #dc2626); }
+    .cd-corte-grid { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 1.5rem; }
+    @media (max-width: 800px) { .cd-corte-grid { grid-template-columns: 1fr; } }
+    .cd-corte-block h4 { margin: 0 0 .5rem; font-size: .72rem; text-transform: uppercase; letter-spacing: .03em; color: var(--text-muted, #78716c); }
+    .cd-mini-table { width: 100%; border-collapse: collapse; font-size: .82rem; font-variant-numeric: tabular-nums; }
+    .cd-mini-table th { font-size: .66rem; text-transform: uppercase; color: var(--text-muted, #78716c); font-weight: 600; padding: .2rem .4rem; text-align: left; }
+    .cd-mini-table td { padding: .25rem .4rem; border-top: 1px solid var(--border-color, #eee); }
+    .cd-total-row td { border-top: 2px solid var(--border-color, #ddd); font-weight: 700; }
+    .cd-flag-note { font-size: .76rem; color: #b45309; margin: .6rem 0 0; display: flex; align-items: center; gap: .35rem; }
+    .cd-prod { display: block; font-weight: 500; } .cd-sku { display: block; font-size: .7rem; }
     .cd-kpi-val { display: block; font-size: 1.25rem; font-weight: 800; font-variant-numeric: tabular-nums; }
     .cd-kpi-lbl { display: block; font-size: .68rem; text-transform: uppercase; letter-spacing: .03em; color: var(--text-muted, #78716c); }
     .cd-2col { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
@@ -303,11 +369,12 @@ export class AlmacenCuadreComponent implements OnInit {
   readonly ov = signal<CuadreOverview | null>(null);
   // cortes
   readonly cortes = signal<CashCut[]>([]);
-  fCajero = ''; fSucCaja = ''; fSoloDesc = false;
+  readonly expandedCortes = signal<Record<string, boolean>>({});
+  fCajero = ''; fSucCaja = ''; fSoloDesc = false; fFrom = ''; fTo = '';
   // movimientos
   readonly movs = signal<StockMovement[]>([]);
   readonly fClase = signal<string | null>(null);
-  fSku = ''; fSucMov = '';
+  fSku = ''; fSucMov = ''; fMovFrom = ''; fMovTo = '';
   // descuadres
   readonly items = signal<Discrepancy[]>([]);
   readonly stats = signal<DiscStats | null>(null);
@@ -333,14 +400,15 @@ export class AlmacenCuadreComponent implements OnInit {
   }
   loadCortes() {
     this.loading.set(true);
-    this.svc.cashCuts({ cajero: this.fCajero || undefined, sucursal: this.fSucCaja || undefined, solo_descuadres: this.fSoloDesc, limit: 400 })
+    this.svc.cashCuts({ cajero: this.fCajero || undefined, sucursal: this.fSucCaja || undefined, from: this.fFrom || undefined, to: this.fTo || undefined, solo_descuadres: this.fSoloDesc, limit: 400 })
       .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (r) => { this.cortes.set(r); this.loading.set(false); }, error: () => this.loading.set(false) });
   }
   loadMovs() {
     this.loading.set(true);
-    this.svc.movements({ clase_mov: this.fClase() || undefined, sku: this.fSku || undefined, sucursal: this.fSucMov || undefined, limit: 400 })
+    this.svc.movements({ clase_mov: this.fClase() || undefined, sku: this.fSku || undefined, sucursal: this.fSucMov || undefined, from: this.fMovFrom || undefined, to: this.fMovTo || undefined, limit: 400 })
       .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (r) => { this.movs.set(r); this.loading.set(false); }, error: () => this.loading.set(false) });
   }
+  toggleCorte(c: CashCut) { this.expandedCortes.update((e) => { const n = { ...e }; if (n[c.id]) delete n[c.id]; else n[c.id] = true; return n; }); }
   setClase(c: string | null) { this.fClase.set(c); this.loadMovs(); }
 
   private reloadDisc() {

@@ -54,7 +54,11 @@ export interface RuleHealth {
 }
 
 export interface CuadreOverview {
-  caja: { cortes: number; con_descuadre: number; faltante: number; sobrante: number; venta: number };
+  caja: {
+    cortes: number; con_descuadre: number; descuadre_no_efectivo: number;
+    cuadre_exacto: number; cortes_monto_alto: number; pct_exacto: number;
+    faltante: number; sobrante: number; venta: number;
+  };
   inventario: { mermas: number; monto_merma: number };
   descuadres: { pendientes: number; criticos: number };
   top_cajeros: { sucursal: string; cajero: string; eventos: number; faltante: number }[];
@@ -65,11 +69,15 @@ export interface CashCut {
   id: string; warehouse_code: string; warehouse_name: string | null; caja: string; folio: string;
   business_date: string; cajero_cierre: string | null; turno: string | null;
   efectivo_esperado: number; efectivo_contado: number; efectivo_diff: number;
-  tarjeta_esperado: number; transfer_esperado: number; total_venta: number;
+  tarjeta_esperado: number; tarjeta_contado: number; tarjeta_diff: number;
+  transfer_esperado: number; transfer_contado: number; transfer_diff: number;
+  arqueo_billetes: number; arqueo_monedas: number; arqueo_otros: number;
+  efectivo_retirado: number; venta_total: number; total_venta: number;
+  cuadre_exacto: boolean;
 }
 
 export interface StockMovement {
-  id: string; warehouse_code: string; almacen: string | null; sku: string; clase_mov: string;
+  id: string; warehouse_code: string; almacen: string | null; sku: string; producto: string | null; clase_mov: string;
   grupo: string | null; folio: string; unidad: string | null; unidades: number; importe: number; fecha: string;
 }
 

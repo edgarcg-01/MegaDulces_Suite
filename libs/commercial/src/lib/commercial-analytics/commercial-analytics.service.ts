@@ -1369,7 +1369,7 @@ export class CommercialAnalyticsService {
   private expenseDim(gb?: string) {
     switch (gb) {
       case 'cuenta_mayor':
-        return { key: 'cuenta_mayor', groupSql: 'e.cuenta_mayor, e.cuenta_mayor_nombre', keySql: "COALESCE(e.cuenta_mayor,'-')", labelSql: 'COALESCE(e.cuenta_mayor_nombre, e.cuenta_mayor)', familia: false };
+        return { key: 'cuenta_mayor', groupSql: 'e.cuenta_mayor, e.cuenta_mayor_nombre', keySql: "COALESCE(e.cuenta_mayor,'-')", labelSql: "CASE WHEN COALESCE(e.cuenta_mayor_nombre,'')<>'' THEN e.cuenta_mayor||' · '||e.cuenta_mayor_nombre ELSE COALESCE(e.cuenta_mayor,'-') END", familia: false };
       case 'beneficiario':
         return { key: 'beneficiario', groupSql: 'e.beneficiario', keySql: "COALESCE(e.beneficiario,'(sin beneficiario)')", labelSql: "COALESCE(e.beneficiario,'(sin beneficiario)')", familia: false };
       case 'sucursal':
@@ -1386,7 +1386,7 @@ export class CommercialAnalyticsService {
         return { key: 'mes', groupSql: "to_char(e.fecha,'YYYY-MM')", keySql: "to_char(e.fecha,'YYYY-MM')", labelSql: "to_char(e.fecha,'YYYY-MM')", familia: false };
       case 'cuenta':
       default:
-        return { key: 'cuenta', groupSql: 'e.cuenta, e.cuenta_nombre, e.familia', keySql: 'e.cuenta', labelSql: 'COALESCE(e.cuenta_nombre, e.cuenta)', familia: true };
+        return { key: 'cuenta', groupSql: 'e.cuenta, e.cuenta_nombre, e.familia', keySql: 'e.cuenta', labelSql: "CASE WHEN COALESCE(e.cuenta_nombre,'')<>'' THEN e.cuenta||' · '||e.cuenta_nombre ELSE e.cuenta END", familia: true };
     }
   }
 
@@ -1479,8 +1479,8 @@ export class CommercialAnalyticsService {
     const { from, to } = this.expenseRange(q);
     return this.tk.run(async (trx) => {
       const rows: any[] = await this.expenseQuery(trx, tenantId, from, to, q)
-        .groupBy('e.familia', 'e.cuenta_mayor', 'e.cuenta_mayor_nombre', 'e.cuenta', 'e.cuenta_nombre', 'e.concepto_nombre')
-        .select('e.familia', 'e.cuenta_mayor', 'e.cuenta_mayor_nombre', 'e.cuenta', 'e.cuenta_nombre', 'e.concepto_nombre',
+        .groupBy('e.familia', 'e.cuenta_mayor', 'e.cuenta_mayor_nombre', 'e.cuenta', 'e.cuenta_nombre', 'e.concepto', 'e.concepto_nombre')
+        .select('e.familia', 'e.cuenta_mayor', 'e.cuenta_mayor_nombre', 'e.cuenta', 'e.cuenta_nombre', 'e.concepto', 'e.concepto_nombre',
           trx.raw('ROUND(SUM(importe)::numeric,2) AS total'), trx.raw('COUNT(*)::int AS movs'));
 
       const total = rows.reduce((a, r) => a + Number(r.total), 0);
@@ -1492,18 +1492,22 @@ export class CommercialAnalyticsService {
         const F = fam.get(fk);
         F.total += Number(r.total); F.movs += Number(r.movs);
         const mk = r.cuenta_mayor || '?';
-        if (!F.children.has(mk)) F.children.set(mk, { key: mk, label: r.cuenta_mayor_nombre || r.cuenta_mayor || '?', total: 0, movs: 0, children: new Map() });
+        // Siempre CÓDIGO · nombre para identificación precisa (ej. '601 · SUELDOS Y SALARIOS').
+        const mkLabel = r.cuenta_mayor ? (r.cuenta_mayor_nombre ? `${r.cuenta_mayor} · ${r.cuenta_mayor_nombre}` : r.cuenta_mayor) : '?';
+        if (!F.children.has(mk)) F.children.set(mk, { key: mk, label: mkLabel, total: 0, movs: 0, children: new Map() });
         const Mn = F.children.get(mk);
         Mn.total += Number(r.total); Mn.movs += Number(r.movs);
         const sk = r.cuenta;
-        if (!Mn.children.has(sk)) Mn.children.set(sk, { key: sk, label: r.cuenta_nombre || r.cuenta, total: 0, movs: 0, children: new Map() });
+        const skLabel = r.cuenta_nombre ? `${r.cuenta} · ${r.cuenta_nombre}` : r.cuenta;
+        if (!Mn.children.has(sk)) Mn.children.set(sk, { key: sk, label: skLabel, total: 0, movs: 0, children: new Map() });
         const Sc = Mn.children.get(sk);
         Sc.total += Number(r.total); Sc.movs += Number(r.movs);
         // Concepto = 4º nivel, SOLO gastos (fam 6/7); compras (5) no llevan concepto.
         if (fk === '6' || fk === '7') {
-          const ck = r.concepto_nombre || '(sin concepto)';
-          if (!Sc.children.has(ck)) Sc.children.set(ck, { key: `${sk}|${ck}`, label: ck, total: 0, movs: 0 });
-          const C = Sc.children.get(ck);
+          const cnombre = r.concepto_nombre || '(sin concepto)';
+          const clabel = r.concepto ? `${r.concepto} · ${cnombre}` : cnombre;
+          if (!Sc.children.has(cnombre)) Sc.children.set(cnombre, { key: `${sk}|${cnombre}`, label: clabel, total: 0, movs: 0 });
+          const C = Sc.children.get(cnombre);
           C.total += Number(r.total); C.movs += Number(r.movs);
         }
       }

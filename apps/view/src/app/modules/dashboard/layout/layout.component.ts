@@ -371,6 +371,7 @@ export class LayoutComponent implements OnInit, OnDestroy {
   // Finanzas (egresos contables, CxP). Crece aquí lo contable — no en Ventas.
   private finanzasNavItems: NavItem[] = [
     { label: 'Egresos contables', icon: 'pi pi-wallet', route: '/finanzas/egresos', permission: Permission.FINANCE_EXPENSES_VER },
+    { label: 'Solicitudes de gasto', icon: 'pi pi-file-edit', route: '/finanzas/solicitudes', permission: Permission.FINANCE_EXPENSES_VER },
     { label: 'Hallazgos', icon: 'pi pi-flag', route: '/finanzas/hallazgos', permission: Permission.FINANCE_AI_CHAT },
     { label: 'Pregúntale a Maat', icon: 'pi pi-sparkles', route: '/finanzas/maat', permission: Permission.FINANCE_AI_CHAT },
   ];
@@ -566,10 +567,10 @@ export class LayoutComponent implements OnInit, OnDestroy {
 
   hasOverflowItems = computed(() => {
     if (!this.useBottomNav()) return false;
-    return (
-      this.navItems().length > 4 ||
-      this.adminItems().length > 0
-    );
+    // Siempre ofrecer "Más" en móvil: abre el drawer con TODAS las secciones y el
+    // footer (Proyectos / Tema / Cerrar sesión). Sin esto, proyectos con ≤4 items
+    // (ej. Finanzas) quedaban sin hamburguesa NI "Más" → el menú lateral no se abría.
+    return true;
   });
 
   // ── Page title (reactivo a NavigationEnd) ──────────────────────────

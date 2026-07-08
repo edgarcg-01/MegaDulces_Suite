@@ -8,7 +8,9 @@
  *   c1=suc c2=caja c3=folio c5=fecha_apertura c6=hora_ap c7=cajero_ap c8=cajero_cierre
  *   c10=fecha_cierre c11=hora_cierre c13=turno
  *   c15=efectivo ESPERADO  c25=efectivo CONTADO  c35=DIFERENCIA(=c15−c25)
- *   c16/c26=tarjeta esp/cont  c17/c27=transf esp/cont  c49=total venta
+ *   c16/c26/c36=tarjeta esp/cont/DIFF  c17/c27/c37=transf esp/cont/DIFF
+ *   c43/c44/c45=arqueo billetes/monedas/otros  c48=efectivo retirado  c49≈c15 (NO venta total)
+ *   venta_total real = c15+c16+c17 (efectivo+tarjeta+transf esperados).
  * Corte ABIERTO: c10='1800-01-01', montos en 0 → se ignora (solo cerrados: c25<>0 OR c35<>0).
  *
  * Uso (desde database/):
@@ -46,28 +48,36 @@ async function readBranch(b) {
               c5 AS opened_at, NULLIF(c10,'1800-01-01')::timestamptz AS closed_at,
               c7 AS cajero_ap, c8 AS cajero_cierre, c13 AS turno,
               c15::numeric AS ef_esp, c25::numeric AS ef_cont, c35::numeric AS ef_diff,
-              c16::numeric AS tj_esp, c26::numeric AS tj_cont, c17::numeric AS tr_esp, c27::numeric AS tr_cont,
-              c49::numeric AS total
+              c16::numeric AS tj_esp, c26::numeric AS tj_cont, c36::numeric AS tj_diff,
+              c17::numeric AS tr_esp, c27::numeric AS tr_cont, c37::numeric AS tr_diff,
+              c43::numeric AS arq_bil, c44::numeric AS arq_mon, c45::numeric AS arq_otros,
+              c48::numeric AS retirado, c49::numeric AS total
        FROM md.kdpv_folio_caja
        WHERE c1 = $1 AND (c25::numeric <> 0 OR c35::numeric <> 0)`,
       [b.code],
     );
-    return r.rows.map((x) => ({
-      warehouse_code: b.code,
-      warehouse_name: b.name,
-      caja: String(x.caja),
-      folio: String(x.folio),
-      business_date: x.fecha,
-      opened_at: x.opened_at,
-      closed_at: x.closed_at,
-      cajero_apertura: x.cajero_ap ? String(x.cajero_ap).trim() : null,
-      cajero_cierre: x.cajero_cierre ? String(x.cajero_cierre).trim() : null,
-      turno: x.turno ? String(x.turno).trim() : null,
-      efectivo_esperado: num(x.ef_esp), efectivo_contado: num(x.ef_cont), efectivo_diff: num(x.ef_diff),
-      tarjeta_esperado: num(x.tj_esp), tarjeta_contado: num(x.tj_cont),
-      transfer_esperado: num(x.tr_esp), transfer_contado: num(x.tr_cont),
-      total_venta: num(x.total),
-    }));
+    return r.rows.map((x) => {
+      const efEsp = num(x.ef_esp), tjEsp = num(x.tj_esp), trEsp = num(x.tr_esp);
+      return {
+        warehouse_code: b.code,
+        warehouse_name: b.name,
+        caja: String(x.caja),
+        folio: String(x.folio),
+        business_date: x.fecha,
+        opened_at: x.opened_at,
+        closed_at: x.closed_at,
+        cajero_apertura: x.cajero_ap ? String(x.cajero_ap).trim() : null,
+        cajero_cierre: x.cajero_cierre ? String(x.cajero_cierre).trim() : null,
+        turno: x.turno ? String(x.turno).trim() : null,
+        efectivo_esperado: efEsp, efectivo_contado: num(x.ef_cont), efectivo_diff: num(x.ef_diff),
+        tarjeta_esperado: tjEsp, tarjeta_contado: num(x.tj_cont), tarjeta_diff: num(x.tj_diff),
+        transfer_esperado: trEsp, transfer_contado: num(x.tr_cont), transfer_diff: num(x.tr_diff),
+        arqueo_billetes: num(x.arq_bil), arqueo_monedas: num(x.arq_mon), arqueo_otros: num(x.arq_otros),
+        efectivo_retirado: num(x.retirado),
+        total_venta: num(x.total),
+        venta_total: Math.round((efEsp + tjEsp + trEsp) * 100) / 100,
+      };
+    });
   } finally {
     await c.end();
   }
@@ -81,10 +91,11 @@ async function upsert(db, rows) {
       .onConflict(['tenant_id', 'warehouse_code', 'caja', 'business_date', 'folio'])
       .merge({
         efectivo_esperado: r.efectivo_esperado, efectivo_contado: r.efectivo_contado, efectivo_diff: r.efectivo_diff,
-        tarjeta_esperado: r.tarjeta_esperado, tarjeta_contado: r.tarjeta_contado,
-        transfer_esperado: r.transfer_esperado, transfer_contado: r.transfer_contado,
-        total_venta: r.total_venta, cajero_cierre: r.cajero_cierre, closed_at: r.closed_at,
-        updated_at: db.fn.now(),
+        tarjeta_esperado: r.tarjeta_esperado, tarjeta_contado: r.tarjeta_contado, tarjeta_diff: r.tarjeta_diff,
+        transfer_esperado: r.transfer_esperado, transfer_contado: r.transfer_contado, transfer_diff: r.transfer_diff,
+        arqueo_billetes: r.arqueo_billetes, arqueo_monedas: r.arqueo_monedas, arqueo_otros: r.arqueo_otros,
+        efectivo_retirado: r.efectivo_retirado, total_venta: r.total_venta, venta_total: r.venta_total,
+        cajero_cierre: r.cajero_cierre, closed_at: r.closed_at, updated_at: db.fn.now(),
       });
     n++;
   }

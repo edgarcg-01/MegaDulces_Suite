@@ -52,6 +52,16 @@ const RULES: RuleMeta[] = [
     params: { ventana_dias: 30, min_eventos: 3, min_falta: 50, critico_suma: 10000 },
   },
   {
+    rule_key: 'descuadre_no_efectivo', plano: 'caja',
+    nombre: 'Descuadre tarjeta / transferencia', descripcion: 'Corte con diferencia entre esperado y contado en tarjeta o transferencia por encima del umbral — descuadre que no es de efectivo y hoy pasaría inadvertido.',
+    params: { umbral: 50, critico: 2000 },
+  },
+  {
+    rule_key: 'arqueo_no_ciego', plano: 'caja',
+    nombre: 'Arqueo no ciego (cuadre exacto sospechoso)', descripcion: 'Un cajero/sucursal cierra la mayoría de sus cortes con contado idéntico al esperado al centavo sobre montos altos — señal de que el conteo no es a ciegas y el "cuadre" no verifica nada.',
+    params: { min_monto: 3000, min_cortes: 5, pct_exacto: 0.9 },
+  },
+  {
     rule_key: 'merma_inventario', plano: 'inventario',
     nombre: 'Merma / ajuste de salida alto', descripcion: 'Salidas por ajuste/destrucción (merma) del kardex acumuladas por SKU×sucursal×mes por encima del umbral — inventario que sale sin venta.',
     params: { min_monto: 5000, critico: 100000 },
@@ -134,6 +144,8 @@ export class MovementReconcileService {
     switch (ruleKey) {
       case 'caja_descuadre': return this.detCajaDescuadre(trx, tenantId, params);
       case 'cajero_faltante_recurrente': return this.detCajeroRecurrente(trx, tenantId, params);
+      case 'descuadre_no_efectivo': return this.detDescuadreNoEfectivo(trx, tenantId, params);
+      case 'arqueo_no_ciego': return this.detArqueoNoCiego(trx, tenantId, params);
       case 'merma_inventario': return this.detMermaInventario(trx, tenantId, params);
       default: return [];
     }
@@ -206,6 +218,85 @@ export class MovementReconcileService {
         causa_probable: 'faltante_recurrente',
         evidencia: { params: { ventana, minEventos, minFalta }, eventos, suma_falta: suma, max_falta: Number(r.max_falta) },
         dedup_key: `cajero_faltante_recurrente:${r.warehouse_code}:${r.cajero_cierre}:${periodo}`,
+      };
+    });
+  }
+
+  /** Corte con descuadre de tarjeta o transferencia ≥ umbral (una fila por forma que descuadra). */
+  private async detDescuadreNoEfectivo(trx: any, tenantId: string, params: any): Promise<RawDiscrepancy[]> {
+    const umbral = Number(params.umbral) || 50;
+    const critico = Number(params.critico) || 2000;
+    const rows = await trx('analytics.cash_cuts')
+      .where('tenant_id', tenantId)
+      .whereRaw('(abs(tarjeta_diff) >= ? OR abs(transfer_diff) >= ?)', [umbral, umbral])
+      .select('warehouse_code', 'warehouse_name', 'caja', 'folio', 'business_date', 'cajero_cierre',
+        'tarjeta_esperado', 'tarjeta_contado', 'tarjeta_diff', 'transfer_esperado', 'transfer_contado', 'transfer_diff')
+      .orderByRaw('greatest(abs(tarjeta_diff), abs(transfer_diff)) DESC')
+      .limit(1000);
+    const out: RawDiscrepancy[] = [];
+    for (const r of rows) {
+      const fecha = r.business_date instanceof Date ? r.business_date.toISOString().slice(0, 10) : String(r.business_date).slice(0, 10);
+      for (const forma of ['tarjeta', 'transfer'] as const) {
+        const diff = Number(r[`${forma}_diff`]);
+        const abs = Math.abs(diff);
+        if (abs < umbral) continue;
+        const label = forma === 'tarjeta' ? 'Tarjeta' : 'Transferencia';
+        const faltante = diff > 0;
+        out.push({
+          rule_key: 'descuadre_no_efectivo', plano: 'caja',
+          severity: abs >= critico ? 'critical' : 'warn',
+          score: Math.min(1, abs / (critico * 2)),
+          titulo: `${label}: ${faltante ? 'faltante' : 'sobrante'} ${money(abs)} — suc ${r.warehouse_code} caja ${r.caja}`,
+          resumen: `Corte ${fecha} (cajero ${r.cajero_cierre || '?'}): ${label.toLowerCase()} esperado ${money(Number(r[`${forma}_esperado`]))} vs contado ${money(Number(r[`${forma}_contado`]))}.`,
+          entity: { sucursal: r.warehouse_code, sucursal_nombre: r.warehouse_name, caja: r.caja, cajero: r.cajero_cierre, folio: r.folio, fecha, forma },
+          periodo: fecha,
+          esperado: Number(r[`${forma}_esperado`]), observado: Number(r[`${forma}_contado`]), diferencia: diff,
+          importe: abs,
+          causa_probable: `descuadre_${forma}`,
+          evidencia: { params: { umbral, critico }, forma, esperado: Number(r[`${forma}_esperado`]), contado: Number(r[`${forma}_contado`]), diff },
+          dedup_key: `descuadre_no_efectivo:${r.warehouse_code}:${r.caja}:${fecha}:${r.folio}:${forma}`,
+        });
+      }
+    }
+    return out;
+  }
+
+  /** Cajero×sucursal×mes que cierra ≥pct de sus cortes con contado==esperado exacto sobre montos altos. */
+  private async detArqueoNoCiego(trx: any, tenantId: string, params: any): Promise<RawDiscrepancy[]> {
+    const minMonto = Number(params.min_monto) || 3000;
+    const minCortes = Number(params.min_cortes) || 5;
+    const pct = Number(params.pct_exacto) || 0.9;
+    const rows = await trx('analytics.cash_cuts')
+      .where('tenant_id', tenantId)
+      .whereNotNull('cajero_cierre')
+      .whereRaw('efectivo_esperado >= ?', [minMonto])
+      .groupBy('warehouse_code', 'cajero_cierre')
+      .groupByRaw("to_char(business_date,'YYYY-MM')")
+      .havingRaw('count(*) >= ?', [minCortes])
+      .havingRaw('avg((efectivo_diff = 0)::int) >= ?', [pct])
+      .select('warehouse_code', 'cajero_cierre',
+        trx.raw("to_char(business_date,'YYYY-MM') AS periodo"),
+        trx.raw('count(*)::int AS cortes'),
+        trx.raw('count(*) FILTER (WHERE efectivo_diff = 0)::int AS exactos'),
+        trx.raw('ROUND(AVG(efectivo_esperado)::numeric,2) AS monto_prom'));
+    return rows.map((r: any) => {
+      const cortes = Number(r.cortes);
+      const exactos = Number(r.exactos);
+      const ratio = cortes ? exactos / cortes : 0;
+      const montoProm = Number(r.monto_prom);
+      return {
+        rule_key: 'arqueo_no_ciego', plano: 'caja' as const,
+        severity: ratio >= 0.98 ? 'critical' as const : 'warn' as const,
+        score: ratio,
+        titulo: `Arqueo no ciego: cajero ${r.cajero_cierre} (suc ${r.warehouse_code}) — ${exactos}/${cortes} cortes cuadran exacto`,
+        resumen: `En ${r.periodo}, ${Math.round(ratio * 100)}% de los cortes (monto prom. ${money(montoProm)}) cerraron con contado idéntico al esperado al centavo. El conteo no parece a ciegas — el "cuadre" no está verificando el efectivo.`,
+        entity: { sucursal: r.warehouse_code, cajero: r.cajero_cierre, cortes, exactos },
+        periodo: r.periodo,
+        esperado: null, observado: null, diferencia: null,
+        importe: 0,
+        causa_probable: 'arqueo_no_ciego',
+        evidencia: { params: { min_monto: minMonto, min_cortes: minCortes, pct_exacto: pct }, cortes, exactos, ratio: Math.round(ratio * 100) / 100, monto_promedio: montoProm },
+        dedup_key: `arqueo_no_ciego:${r.warehouse_code}:${r.cajero_cierre}:${r.periodo}`,
       };
     });
   }

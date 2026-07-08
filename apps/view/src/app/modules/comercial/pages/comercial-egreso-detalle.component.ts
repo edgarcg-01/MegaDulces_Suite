@@ -189,7 +189,7 @@ interface Constraint { type: SliceType; key: string; label: string; }
                 <td>{{ d.fecha | date:'dd/MM/yy' }}</td>
                 <td class="mono">{{ d.doc_tipo }}-{{ d.doc_folio }}</td>
                 <td>{{ d.sucursal_nombre || d.sucursal }}</td>
-                <td>{{ d.cuenta_nombre || d.cuenta }}</td>
+                <td><span class="mono">{{ d.cuenta }}</span>{{ d.cuenta_nombre ? ' · ' + d.cuenta_nombre : '' }}</td>
                 <td>{{ d.concepto_nombre || '—' }}</td>
                 <td>{{ d.beneficiario_doc || d.beneficiario || '—' }}</td>
                 <td class="muted">{{ d.comentario || '—' }}</td>
