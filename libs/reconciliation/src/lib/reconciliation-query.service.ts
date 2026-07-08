@@ -78,6 +78,59 @@ export class ReconciliationQueryService {
     });
   }
 
+  /** P4 — Focos: ranking de cajas o cajeros por riesgo compuesto + acción recomendada. */
+  async focos(q: { scope?: 'caja' | 'cajero'; limit?: number }) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const scope = q.scope === 'cajero' ? 'cajero' : 'caja';
+    const limit = Math.min(50, Math.max(1, Number(q.limit) || 15));
+    return this.tk.run(async (trx) => {
+      const groupCols = scope === 'cajero' ? ['cc.warehouse_code', 'cc.cajero_cierre'] : ['cc.warehouse_code', 'cc.caja'];
+      const b = trx('analytics.cash_cuts as cc').where('cc.tenant_id', tenantId);
+      if (scope === 'cajero') {
+        b.whereNotNull('cc.cajero_cierre')
+          .leftJoin('analytics.pos_cashiers as pc', (j: any) => j.on('pc.tenant_id', '=', 'cc.tenant_id').andOn('pc.warehouse_code', '=', 'cc.warehouse_code').andOn('pc.cajero_code', '=', 'cc.cajero_cierre'));
+      }
+      const rows = await b
+        .groupBy(...(scope === 'cajero' ? [...groupCols, 'pc.nombre'] : groupCols))
+        .select(
+          'cc.warehouse_code',
+          ...(scope === 'cajero' ? ['cc.cajero_cierre', trx.raw('pc.nombre AS cajero_nombre')] : ['cc.caja']),
+          trx.raw('COUNT(*)::int AS cortes'),
+          trx.raw('ROUND(SUM(GREATEST(efectivo_diff,0))::numeric,2) AS faltante'),
+          trx.raw('COUNT(*) FILTER (WHERE abs(efectivo_diff) >= 50)::int AS descuadres'),
+          trx.raw('COUNT(*) FILTER (WHERE efectivo_diff = 0 AND efectivo_esperado >= 3000)::int AS exacto_alto'),
+          trx.raw('COUNT(*) FILTER (WHERE efectivo_esperado >= 3000)::int AS alto'),
+          trx.raw('COUNT(*) FILTER (WHERE cajero_apertura IS DISTINCT FROM cajero_cierre)::int AS handoffs'),
+          trx.raw('COUNT(*) FILTER (WHERE duracion_horas >= 10)::int AS turnos_largos'),
+        )
+        .havingRaw('SUM(GREATEST(efectivo_diff,0)) > 0')
+        .orderByRaw('SUM(GREATEST(efectivo_diff,0)) DESC')
+        .limit(limit);
+      return rows.map((r: any) => {
+        const cortes = Number(r.cortes);
+        const alto = Number(r.alto);
+        const pctExacto = alto ? Math.round((Number(r.exacto_alto) / alto) * 100) : 0;
+        const pctHandoff = cortes ? Math.round((Number(r.handoffs) / cortes) * 100) : 0;
+        const turnosLargos = Number(r.turnos_largos);
+        const faltante = Number(r.faltante);
+        // Acción recomendada: la palanca que ataca la señal dominante.
+        let accion = 'Supervisión dirigida (rotación / doble arqueo)';
+        if (pctExacto >= 80) accion = 'Arqueo ciego (P1) — el cuadre no verifica';
+        else if (pctHandoff >= 70) accion = 'Arqueo de relevo (P2) — cambio de manos';
+        else if (turnosLargos >= 5) accion = 'Limitar jornada (P3) — fatiga';
+        return {
+          sucursal: r.warehouse_code,
+          caja: scope === 'caja' ? r.caja : undefined,
+          cajero: scope === 'cajero' ? r.cajero_cierre : undefined,
+          cajero_nombre: scope === 'cajero' ? (r.cajero_nombre || null) : undefined,
+          cortes, faltante, descuadres: Number(r.descuadres),
+          pct_exacto: pctExacto, pct_handoff: pctHandoff, turnos_largos: turnosLargos,
+          accion,
+        };
+      });
+    });
+  }
+
   /** Cortes de caja (data cruda) — tab Cortes. */
   async cashCuts(q: { sucursal?: string; cajero?: string; from?: string; to?: string; min_diff?: number; solo_descuadres?: boolean; limit?: number }) {
     const tenantId = this.tenantCtx.requireTenantId();

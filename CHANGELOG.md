@@ -10,6 +10,9 @@
 
 ## [Unreleased]
 
+### Added — Supervisor de Movimientos: focos (SM.8 / P4) (2026-07-08)
+- **Priorización dirigida.** `GET /reconciliation/focos?scope=caja|cajero`: ranking por faltante + señales (%exacto, %handoff, turnos≥10h) con la **palanca recomendada** derivada de la señal dominante. Consola: tab **Focos** con toggle caja/cajero. Data real: suc05-caja4 $70,781 → Arqueo ciego; suc02-caja2 $43,041 → Arqueo de relevo. El supervisor ataca de arriba hacia abajo sabiendo QUÉ hacer.
+
 ### Added — Supervisor de Movimientos: límite de jornada (SM.8 / P3) (2026-07-08)
 - **Regla `turno_largo`**: cajero×sucursal×mes con ≥5 jornadas ≥10h (el turno largo dobla el descuadre: 12% vs 6%) → señal RH. KPI "Turnos ≥10h" en Resumen. Data real: 16 cajero×mes; destapa la correlación fatiga↔pérdida en persona (TANIA SÁNCHEZ suc05: 20 turnos ≥10h en junio, $17,432 faltante).
 

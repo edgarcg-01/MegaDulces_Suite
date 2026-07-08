@@ -146,6 +146,12 @@ Causa raíz encadenada: **arqueo no ciego** (habilita) → **handoff sin arqueo 
 - Regla **`turno_largo`**: cajero×sucursal×mes con ≥5 cortes de jornada ≥10h (el turno largo dobla la tasa de descuadre: 12% vs 6%). Señal de política/RH. KPI "Turnos ≥10h" en el Resumen.
 - Data real: **16 cajero×mes**. Destapa la correlación fatiga↔pérdida en persona: TANIA YAZMIN SÁNCHEZ LEAL (suc05) — 20 turnos ≥10h en junio, $17,432 faltante (la misma con mayor faltante de la red).
 
+### P4 — Focos (priorización dirigida) ✅ (implementado 2026-07-08)
+
+- `ReconciliationQueryService.focos(scope: caja|cajero)` + `GET /reconciliation/focos`: ranking por faltante + señales (%exacto, %handoff, turnos≥10h) con la **palanca recomendada** derivada de la señal dominante (arqueo ciego / relevo / limitar jornada / supervisión).
+- Consola: tab **Focos** con toggle caja/cajero. Data real (por caja): suc05-caja4 $70,781 (%exacto 84, %handoff 90) → Arqueo ciego; suc02-caja2 $43,041 (%handoff 87) → Arqueo de relevo. La acción se adapta a la causa.
+- Con esto el supervisor ataca de arriba hacia abajo y sabe QUÉ hacer en cada foco, no solo dónde.
+
 **Ruta crítica:** SM.0 → SM.1 (caja) entrega valor en la primera rebanada (detecta faltantes por cajero con data real — 90 cortes ≥$50 en md_02 sola).
 
 ## Gotchas (bakeados)

@@ -26,6 +26,13 @@ export class ReconciliationController {
   @ApiOperation({ summary: 'SM.6 — KPIs + rankings de la consola (caja, inventario, descuadres, top cajeros/sucursales).' })
   overview() { return this.query.overview(); }
 
+  @Get('focos')
+  @RequirePermissions(Permission.RECONCILIATION_VER)
+  @ApiOperation({ summary: 'SM.8/P4 — Ranking de focos (caja|cajero) por riesgo compuesto + acción recomendada.' })
+  focos(@Query('scope') scope?: string, @Query('limit') limit?: string) {
+    return this.query.focos({ scope: scope === 'cajero' ? 'cajero' : 'caja', limit: limit ? Number(limit) : undefined });
+  }
+
   @Get('cash-cuts')
   @RequirePermissions(Permission.RECONCILIATION_VER)
   @ApiOperation({ summary: 'SM.6 — Cortes de caja (data cruda). Filtros: sucursal, cajero, from, to, min_diff, solo_descuadres, limit.' })

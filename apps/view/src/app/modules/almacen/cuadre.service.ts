@@ -82,6 +82,12 @@ export interface StockMovement {
   grupo: string | null; folio: string; unidad: string | null; unidades: number; importe: number; fecha: string;
 }
 
+export interface Foco {
+  sucursal: string; caja?: string; cajero?: string; cajero_nombre?: string | null;
+  cortes: number; faltante: number; descuadres: number;
+  pct_exacto: number; pct_handoff: number; turnos_largos: number; accion: string;
+}
+
 export type BlindTipo = 'cierre' | 'relevo';
 export interface BlindCountDto {
   warehouse_code: string; caja: string; business_date: string; turno?: string;
@@ -133,6 +139,7 @@ export class CuadreService {
   }
 
   overview(): Observable<CuadreOverview> { return this.http.get<CuadreOverview>(`${this.base}/overview`); }
+  focos(scope: 'caja' | 'cajero'): Observable<Foco[]> { return this.http.get<Foco[]>(`${this.base}/focos?scope=${scope}`); }
 
   cashCuts(q?: { sucursal?: string; cajero?: string; from?: string; to?: string; min_diff?: number; solo_descuadres?: boolean; limit?: number }): Observable<CashCut[]> {
     const p = new URLSearchParams();

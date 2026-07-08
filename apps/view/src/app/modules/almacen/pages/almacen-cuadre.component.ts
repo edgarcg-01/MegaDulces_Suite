@@ -6,9 +6,9 @@ import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
 import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
-import { CuadreService, Discrepancy, DiscStats, RuleHealth, DiscPlano, CuadreOverview, CashCut, StockMovement, BlindCountResult, BlindCountRow } from '../cuadre.service';
+import { CuadreService, Discrepancy, DiscStats, RuleHealth, DiscPlano, CuadreOverview, CashCut, StockMovement, BlindCountResult, BlindCountRow, Foco } from '../cuadre.service';
 
-type Tab = 'resumen' | 'cortes' | 'movimientos' | 'arqueo' | 'descuadres';
+type Tab = 'resumen' | 'focos' | 'cortes' | 'movimientos' | 'arqueo' | 'descuadres';
 
 /**
  * SM.6 — Consola del Supervisor de Movimientos. 4 tabs: RESUMEN (KPIs + rankings),
@@ -37,6 +37,7 @@ type Tab = 'resumen' | 'cortes' | 'movimientos' | 'arqueo' | 'descuadres';
       <!-- Tabs -->
       <div class="cd-tabs">
         <button [class.active]="tab() === 'resumen'" (click)="go('resumen')"><i class="pi pi-chart-bar"></i> Resumen</button>
+        <button [class.active]="tab() === 'focos'" (click)="go('focos')"><i class="pi pi-bullseye"></i> Focos</button>
         <button [class.active]="tab() === 'cortes'" (click)="go('cortes')"><i class="pi pi-wallet"></i> Cortes de caja</button>
         <button [class.active]="tab() === 'movimientos'" (click)="go('movimientos')"><i class="pi pi-box"></i> Movimientos</button>
         <button [class.active]="tab() === 'arqueo'" (click)="go('arqueo')"><i class="pi pi-eye-slash"></i> Arqueo ciego</button>
@@ -93,6 +94,43 @@ type Tab = 'resumen' | 'cortes' | 'movimientos' | 'arqueo' | 'descuadres';
             </div>
           </div>
         } @else { <p class="cd-empty">{{ loading() ? 'Cargando…' : 'Sin datos. Corre los importers + "Escanear ahora".' }}</p> }
+      }
+
+      <!-- ══ FOCOS (P4) ══ -->
+      @if (tab() === 'focos') {
+        <div class="cd-note">
+          <i class="pi pi-bullseye"></i>
+          <span>Dónde apuntar primero. Ranking por faltante + señales de riesgo, con la <strong>palanca recomendada</strong> para cada foco. Atacá de arriba hacia abajo.</span>
+        </div>
+        <div class="cd-filters">
+          <div class="cd-seg">
+            <button [class.active]="focoScope() === 'caja'" (click)="setFocoScope('caja')">Por caja</button>
+            <button [class.active]="focoScope() === 'cajero'" (click)="setFocoScope('cajero')">Por cajero</button>
+          </div>
+        </div>
+        <div class="card-premium card-flat">
+          <p-table [value]="focos()" styleClass="p-datatable-sm cd-table" [rowHover]="true" [loading]="loading()">
+            <ng-template pTemplate="header">
+              <tr><th style="width:2rem">#</th><th>{{ focoScope() === 'cajero' ? 'Cajero' : 'Caja' }}</th><th class="ta-r">Faltante</th><th class="ta-r">Descuadres</th><th class="ta-r">% exacto</th><th class="ta-r">% handoff</th><th class="ta-r">Turnos ≥10h</th><th>Acción recomendada</th></tr>
+            </ng-template>
+            <ng-template pTemplate="body" let-f let-i="rowIndex">
+              <tr>
+                <td class="muted">{{ i + 1 }}</td>
+                <td>
+                  @if (focoScope() === 'cajero') { <span class="cd-prod">{{ f.cajero_nombre || f.cajero }}</span><span class="cd-sku muted">suc {{ f.sucursal }} · {{ f.cajero }}</span> }
+                  @else { suc {{ f.sucursal }} · caja {{ f.caja }} }
+                </td>
+                <td class="ta-r strong bad">{{ money(f.faltante) }}</td>
+                <td class="ta-r">{{ f.descuadres }}<span class="muted">/{{ f.cortes }}</span></td>
+                <td class="ta-r" [class.bad]="f.pct_exacto >= 80">{{ f.pct_exacto }}%</td>
+                <td class="ta-r" [class.bad]="f.pct_handoff >= 70">{{ f.pct_handoff }}%</td>
+                <td class="ta-r" [class.bad]="f.turnos_largos >= 5">{{ f.turnos_largos }}</td>
+                <td><span class="cd-accion">{{ f.accion }}</span></td>
+              </tr>
+            </ng-template>
+            <ng-template pTemplate="emptymessage"><tr><td colspan="8" class="cd-empty">{{ loading() ? 'Cargando…' : 'Sin focos (sin faltante registrado).' }}</td></tr></ng-template>
+          </p-table>
+        </div>
       }
 
       <!-- ══ CORTES DE CAJA ══ -->
@@ -388,6 +426,7 @@ type Tab = 'resumen' | 'cortes' | 'movimientos' | 'arqueo' | 'descuadres';
     .cd-prod { display: block; font-weight: 500; } .cd-sku { display: block; font-size: .7rem; }
     .cd-code { font-size: .68rem; font-family: var(--font-mono, ui-monospace, monospace); }
     .cd-flag-inline { color: #b45309; font-size: .78rem; }
+    .cd-accion { font-size: .8rem; font-weight: 600; color: var(--action, #FB923C); }
     .cd-arq-head { display: flex; gap: .8rem; flex-wrap: wrap; margin-bottom: .8rem; }
     .cd-denoms { width: 100%; border-collapse: collapse; font-size: .84rem; font-variant-numeric: tabular-nums; }
     .cd-denoms th { font-size: .66rem; text-transform: uppercase; color: var(--text-muted, #78716c); font-weight: 600; padding: .25rem .4rem; text-align: left; }
@@ -455,6 +494,9 @@ export class AlmacenCuadreComponent implements OnInit {
 
   // resumen
   readonly ov = signal<CuadreOverview | null>(null);
+  // focos
+  readonly focos = signal<Foco[]>([]);
+  readonly focoScope = signal<'caja' | 'cajero'>('caja');
   // cortes
   readonly cortes = signal<CashCut[]>([]);
   readonly expandedCortes = signal<Record<string, boolean>>({});
@@ -486,11 +528,18 @@ export class AlmacenCuadreComponent implements OnInit {
   go(t: Tab) {
     this.tab.set(t);
     if (t === 'resumen' && !this.ov()) this.loadOverview();
+    if (t === 'focos' && !this.focos().length) this.loadFocos();
     if (t === 'cortes' && !this.cortes().length) this.loadCortes();
     if (t === 'movimientos' && !this.movs().length) this.loadMovs();
     if (t === 'arqueo') this.loadBlind();
     if (t === 'descuadres') this.reloadDisc();
   }
+
+  private loadFocos() {
+    this.loading.set(true);
+    this.svc.focos(this.focoScope()).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (r) => { this.focos.set(r); this.loading.set(false); }, error: () => this.loading.set(false) });
+  }
+  setFocoScope(s: 'caja' | 'cajero') { this.focoScope.set(s); this.loadFocos(); }
 
   recalc() { this.arqTotal.set(this.denoms.reduce((s, d) => s + (Number(this.denomCount[d]) || 0) * d, 0)); }
 
