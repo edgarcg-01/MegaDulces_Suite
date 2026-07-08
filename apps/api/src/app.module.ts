@@ -45,6 +45,7 @@ import { CommercialCustomersModule } from '@megadulces/commercial';
 import { CommercialWarehousesModule } from '@megadulces/commercial';
 import { CommercialPricingModule } from '@megadulces/commercial';
 import { CommercialInventoryModule } from '@megadulces/commercial';
+import { CommercialReplenishmentModule } from '@megadulces/commercial';
 import { CommercialOrdersModule } from '@megadulces/commercial';
 // Fase LM.1 — cobros sobre pedidos (multi-método)
 import { CommercialPaymentsModule } from '@megadulces/commercial';
@@ -122,6 +123,7 @@ const multitenantModules = process.env.ENABLE_MULTITENANT === 'true'
       CommercialRiderLiquidationModule,
       CommercialCargaModule,
       CommercialAnalyticsModule,
+      CommercialReplenishmentModule,
       CommercialAlertsModule,
       CommercialRecommendationsModule,
       CommercialIntelligenceModule,

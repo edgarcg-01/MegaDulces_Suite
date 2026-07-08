@@ -44,6 +44,7 @@ export type AppSubject =
   | 'logistics_cartaporte'
   | 'capture_ticket'
   | 'route_ticket'
-  | 'vendor_app';
+  | 'vendor_app'
+  | 'compras';
 
 export type AppAbility = MongoAbility<[Action, AppSubject]>;

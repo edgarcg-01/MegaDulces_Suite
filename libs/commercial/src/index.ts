@@ -15,6 +15,7 @@ export * from './lib/commercial-home-delivery/commercial-home-delivery.module';
 export * from './lib/commercial-rider-liquidation/commercial-rider-liquidation.module';
 export * from './lib/commercial-carga/commercial-carga.module';
 export * from './lib/commercial-analytics/commercial-analytics.module';
+export * from './lib/commercial-replenishment/commercial-replenishment.module';
 export * from './lib/commercial-alerts/commercial-alerts.module';
 export * from './lib/commercial-recommendations/commercial-recommendations.module';
 export * from './lib/commercial-intelligence/commercial-intelligence.module';

@@ -45,6 +45,8 @@ const STEPS = {
     path.join(K, 'import-sales-fact.js'),    // KV.1 fact (lee consolidado; cost usa markup)
     path.join(K, 'import-sales-stats.js'),   // KV.2 ABC/share (lee prod sales_daily) — tras sales-fact
     path.join(K, 'import-inventory-health.js'), // KV.5 días cobertura/status (stock × sales_daily)
+    path.join(K, 'import-reorder-policy.js'),   // RA.2 umbrales reorden Kepler (kdii.c33/34/35 → reorder_policy source=kepler)
+    path.join(K, 'import-computed-reorder.js'), // RA.3 reorden computado por demanda (rellena huecos, no pisa kepler/manual) — tras inventory-health
     path.join(K, 'import-erp-promos.js'),    // KV.6 promos vigentes (lee sucursal)
     path.join(K, 'import-erp-customers.js'), // KV.3 dim clientes (lee 6 sucursales)
     path.join(K, 'import-customer-sales.js'),// KV.3 historial por cliente (lee consolidado)

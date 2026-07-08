@@ -229,6 +229,32 @@ export const routes: Routes = [
       },
     ]
   },
+  // ── Proyecto Compras (Fase RA — ADR-030) ────────────────────────────
+  // Reabastecimiento: existencia crítica, punto de reorden, sugerido de compra
+  // y requisiciones (HITL). Reusa LayoutComponent; nav por URL prefix.
+  {
+    path: 'compras',
+    canActivate: [authGuard],
+    component: LayoutComponent,
+    children: [
+      { path: '', redirectTo: 'existencia-critica', pathMatch: 'full' },
+      {
+        path: 'existencia-critica',
+        loadComponent: () => import('./modules/compras/pages/compras-existencia-critica.component').then(m => m.ComprasExistenciaCriticaComponent),
+        canActivate: [permissionGuard(Permission.COMPRAS_VER)]
+      },
+      {
+        path: 'requisiciones',
+        loadComponent: () => import('./modules/compras/pages/compras-requisiciones.component').then(m => m.ComprasRequisicionesComponent),
+        canActivate: [permissionGuard(Permission.COMPRAS_VER)]
+      },
+      {
+        path: 'requisiciones/:id',
+        loadComponent: () => import('./modules/compras/pages/compras-requisicion-detalle.component').then(m => m.ComprasRequisicionDetalleComponent),
+        canActivate: [permissionGuard(Permission.COMPRAS_VER)]
+      },
+    ]
+  },
   // ── Proyecto Almacén ────────────────────────────────────────────────
   // Existencias, conteo físico (ciego/doble), FEFO, ABC/cíclico, pasillos.
   // Operación de almacén, no de venta. Reusa permisos COMMERCIAL_INVENTORY_*.

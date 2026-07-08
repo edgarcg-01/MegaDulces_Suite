@@ -121,6 +121,10 @@ export const PERMISSION_META: Record<string, PermissionMetaEntry> = {
   // ── Supervisor de Movimientos (cuadre) — ADR-029 ──────────────────────
   [Permission.RECONCILIATION_VER]: { label: 'Ver Cuadre de Movimientos', description: 'Bandeja de descuadres del supervisor: caja (arqueos), inventario y cruces. Solo lectura.', category: 'Almacén' },
   [Permission.RECONCILIATION_GESTIONAR]: { label: 'Gestionar Descuadres', description: 'Confirmar/descartar descuadres, asignar causa (merma/robo/error) y correr el escaneo de cuadre.', category: 'Almacén' },
+
+  // ── Compras / Reabastecimiento (Fase RA — ADR-030) ────────────────────
+  [Permission.COMPRAS_VER]: { label: 'Ver Compras', description: 'Existencia crítica, punto de reorden y sugerido de compra. Solo lectura.', category: 'Compras' },
+  [Permission.COMPRAS_GESTIONAR]: { label: 'Gestionar Compras', description: 'Generar y aprobar requisiciones de compra a proveedor desde el sugerido de reabastecimiento.', category: 'Compras' },
 };
 
 /**

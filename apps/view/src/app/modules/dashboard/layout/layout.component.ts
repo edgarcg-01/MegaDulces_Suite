@@ -337,7 +337,7 @@ export class LayoutComponent implements OnInit, OnDestroy {
    * Detecta proyecto activo según prefix del URL. Default = trade marketing.
    * /admin tiene prefix más específico que comercial/dashboard, chequearlo primero.
    */
-  private currentProject = computed<'trademk' | 'comercial' | 'admin' | 'logistica' | 'tienda' | 'reparto' | 'finanzas' | 'almacen'>(() => {
+  private currentProject = computed<'trademk' | 'comercial' | 'admin' | 'logistica' | 'tienda' | 'reparto' | 'finanzas' | 'almacen' | 'compras'>(() => {
     const url = this.currentUrl();
     if (url.startsWith('/admin')) return 'admin';
     if (url.startsWith('/comercial')) return 'comercial';
@@ -346,6 +346,7 @@ export class LayoutComponent implements OnInit, OnDestroy {
     if (url.startsWith('/reparto')) return 'reparto';
     if (url.startsWith('/finanzas')) return 'finanzas';
     if (url.startsWith('/almacen')) return 'almacen';
+    if (url.startsWith('/compras')) return 'compras';
     return 'trademk';
   });
 
@@ -357,6 +358,7 @@ export class LayoutComponent implements OnInit, OnDestroy {
       case 'reparto':    return 'Reparto';
       case 'finanzas':   return 'Finanzas';
       case 'almacen':    return 'Almacén';
+      case 'compras':    return 'Compras';
       case 'admin':      return 'Administración';
       default:           return 'Trade Marketing';
     }
@@ -374,6 +376,13 @@ export class LayoutComponent implements OnInit, OnDestroy {
     { label: 'Solicitudes de gasto', icon: 'pi pi-file-edit', route: '/finanzas/solicitudes', permission: Permission.FINANCE_EXPENSES_VER },
     { label: 'Hallazgos', icon: 'pi pi-flag', route: '/finanzas/hallazgos', permission: Permission.FINANCE_AI_CHAT },
     { label: 'Pregúntale a Maat', icon: 'pi pi-sparkles', route: '/finanzas/maat', permission: Permission.FINANCE_AI_CHAT },
+  ];
+
+  // Compras / Reabastecimiento (Fase RA — ADR-030). Existencia crítica → sugerido →
+  // requisición (HITL). Proyecto propio; nav gateado por COMPRAS_VER.
+  private comprasNavItems: NavItem[] = [
+    { label: 'Existencia crítica', icon: 'pi pi-exclamation-triangle', route: '/compras/existencia-critica', permission: Permission.COMPRAS_VER },
+    { label: 'Requisiciones',      icon: 'pi pi-file-edit',            route: '/compras/requisiciones',      permission: Permission.COMPRAS_VER },
   ];
 
   // Almacén: existencias, conteo físico, FEFO, ABC/cíclico, pasillos. Operación
@@ -416,6 +425,10 @@ export class LayoutComponent implements OnInit, OnDestroy {
     // (un usuario de finanzas puede no tener REPORTES_VER_*). El route-guard ya gatea acceso.
     if (this.currentProject() === 'finanzas') {
       return this.dedupeByRoute(this.finanzasNavItems);
+    }
+    // Compras: superficie propia con nav propio (un comprador puede no tener REPORTES_VER_*).
+    if (this.currentProject() === 'compras') {
+      return this.dedupeByRoute(this.comprasNavItems);
     }
     // Colaborador restringido (sin reportes de equipo/global): solo captura diaria.
     const legacy = user.permissions;
@@ -464,6 +477,9 @@ export class LayoutComponent implements OnInit, OnDestroy {
     }
     if (this.currentProject() === 'finanzas') {
       return [{ title: 'Finanzas', items: this.dedupeByRoute(this.finanzasNavItems) }];
+    }
+    if (this.currentProject() === 'compras') {
+      return [{ title: 'Compras', items: this.dedupeByRoute(this.comprasNavItems) }];
     }
     if (this.currentProject() === 'comercial') {
       return this.comercialNavGroups

@@ -868,6 +868,30 @@ Capas:
 
 ---
 
+## ADR-030 — **Compras / Reabastecimiento** (punto de reorden · existencia crítica · sugerido de compra)
+
+**Fecha:** 2026-07-08 · **Estado:** Aceptado (OK de Edgar 2026-07-08) · **Implementado (local)**
+
+**Contexto:** La plataforma no sabía cuándo ni cuánto pedir — el low-stock era un umbral hardcodeado (10/50/20). Mega Dulces YA opera el reabastecimiento en Kepler (reporte "Existencia Crítica" → orden de compra sugerida). Decode verificado 2026-07-08 contra el form `invcatprdpag.kpl` + datos vivos: `kdii.c33`=mínimo, `c34`=punto de reorden, `c35`=máximo (piezas, NO precios; la doc del repo estaba mal → corregida). Cobertura por sucursal 0–18% (CEDIS=0), unidad = piezas, Kepler sin lead time.
+
+**Decisión:** Portar el reabastecimiento como **proyecto propio "Compras"** (no una página en Almacén). Motor determinista (aritmética auditable), humano aprueba la requisición, LLM fuera del dinero (hereda ADR-016). Tabla dedicada `commercial.reorder_policy` (grano producto×almacén, `source` kepler/computed/manual — el `manual` nunca lo pisa el importer). Kepler manda donde existe; el cómputo por demanda (`analytics.inventory_health`) cubre el ~82% restante. `sugerido = max(0, objetivo − existencia − en_tránsito)`, objetivo configurable (min/reorder/max). Requisiciones = HITL sobre tablas propias (`purchase_requisitions`), **nunca write-back a Kepler** (diferido). El importer reusa el mismo `STOCK_BRANCH_MAP` que el stock → reorden y existencia en el mismo almacén.
+
+**Alternativas:**
+- Columnas de reorden en `commercial.stock` — rechazada: mezcla config lenta con saldo caliente; tabla dedicada trackea `source`/lead_time/auditoría.
+- UI en `/almacen` — rechazada por Edgar: Compras es proyecto de primer nivel (semilla del futuro módulo de Compras: recepción/CxP).
+- Usar `commerce_signals` para la señal de reorden — descartada: esa tabla exige `customer_id` (es CRM); el reorden se surface por reporte + finding.
+
+**Consecuencias:**
+- ✅ Umbrales reales del negocio reemplazan el hardcode; existencia crítica + sugerido operativos.
+- ✅ CEDIS (compra central) sin config Kepler → el cómputo (RA.3) es crítico, no opcional.
+- ⚠️ Naming de almacenes mixto (KEPLER-0X/MD-XX) → el importer reusa `STOCK_BRANCH_MAP`, no hardcodea.
+- ⚠️ Bug `kdil.c4=0` afecta la existencia de ~2–10% de SKUs (ya `GREATEST(...,0)` en stock).
+- ⏸️ Diferido: OC a recibir (RA.5), cron nightly + hallazgos + alertas (RA.8), write-back a Kepler.
+
+**Plan:** [`FASES/FASE_RA_REABASTECIMIENTO.md`](FASES/FASE_RA_REABASTECIMIENTO.md).
+
+---
+
 ## Cómo agregar un ADR nuevo
 
 1. Copiar `ADR-000` (la plantilla) renombrando al siguiente número correlativo.

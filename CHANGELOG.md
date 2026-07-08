@@ -10,6 +10,14 @@
 
 ## [Unreleased]
 
+### Added — Proyecto Compras / Reabastecimiento (Fase RA, ADR-030) (2026-07-08)
+- **Trae a la plataforma el reabastecimiento que Kepler ya opera.** Decode verificado: `kdii.c33`=mínimo, `c34`=punto de reorden, `c35`=máximo (piezas, NO precios — la doc estaba mal, corregida). Motor decide / humano aprueba / LLM fuera (ADR-016).
+- **Nuevo proyecto de primer nivel "Compras"** (`/compras`): tile en projects + nav propio + permisos `COMPRAS_VER`/`COMPRAS_GESTIONAR`. Página **Existencia crítica** (existencia vs mín/reorden/máx + sugerido, filtros por almacén/bucket/proveedor/objetivo) y **Requisiciones** (bandeja + detalle con aprobar/rechazar, HITL).
+- **Schema** (mig `20260708120000`): `commercial.reorder_policy` (grano producto×almacén, `source` kepler/computed/manual), `purchase_requisitions`/`_lines`, `requisition_sequences` (folio `RQ-YYYY-NNNNN` atómico), `catalog.suppliers.lead_time_days`. RLS forzado. Backfill de permisos (mig `20260708120100`).
+- **Importers** (BULK, on-prem → Railway, reusan `STOCK_BRANCH_MAP`): `import-reorder-policy.js` (Kepler → reorder_policy, preserva `manual`) — 3924 políticas en local; `import-computed-reorder.js` (reorden por demanda desde `inventory_health` para el ~82% sin config Kepler; CEDIS=0 → 100% computado). Wired en `run-prod-feeds nightly`.
+- **Backend** `commercial-replenishment`: `GET critical-stock` (buckets agotado/bajo_minimo/bajo_reorden/sano/sobrestock + `sugerido = max(0, objetivo − existencia − en_tránsito)`), `summary`, `filters`, `requisitions` CRUD + approve/reject. Validado vs data real: 449 agotado / 447 bajo mín / 83 bajo reorden, sugerido $1.1M.
+- Diferido: RA.5 (OC a recibir/tránsito), RA.8 (cron nightly + hallazgos + alertas). **Pendiente prod:** migs a Railway + re-login + agendar importers + redeploy.
+
 ### Added — Supervisor de Movimientos: focos (SM.8 / P4) (2026-07-08)
 - **Priorización dirigida.** `GET /reconciliation/focos?scope=caja|cajero`: ranking por faltante + señales (%exacto, %handoff, turnos≥10h) con la **palanca recomendada** derivada de la señal dominante. Consola: tab **Focos** con toggle caja/cajero. Data real: suc05-caja4 $70,781 → Arqueo ciego; suc02-caja2 $43,041 → Arqueo de relevo. El supervisor ataca de arriba hacia abajo sabiendo QUÉ hacer.
 

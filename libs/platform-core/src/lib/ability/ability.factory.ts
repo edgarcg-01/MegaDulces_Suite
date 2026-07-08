@@ -72,6 +72,8 @@ export const permissionToSubject: Record<string, AppSubject> = {
   [Permission.ROUTE_TICKET_CAPTURE]: 'route_ticket',
   [Permission.ROUTE_CONTROL_VER]: 'route_ticket',
   [Permission.VENDOR_APP_ACCESS]: 'vendor_app',
+  [Permission.COMPRAS_VER]: 'compras',
+  [Permission.COMPRAS_GESTIONAR]: 'compras',
 };
 
 const permissionToAction: Record<string, Action | Action[]> = {
@@ -144,6 +146,8 @@ const permissionToAction: Record<string, Action | Action[]> = {
   [Permission.ROUTE_TICKET_CAPTURE]: ['read', 'create', 'update'],
   [Permission.ROUTE_CONTROL_VER]: 'read',
   [Permission.VENDOR_APP_ACCESS]: 'read',
+  [Permission.COMPRAS_VER]: 'read',
+  [Permission.COMPRAS_GESTIONAR]: ['read', 'create', 'update', 'delete'],
 };
 
 /**

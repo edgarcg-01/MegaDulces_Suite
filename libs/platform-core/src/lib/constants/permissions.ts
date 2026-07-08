@@ -151,4 +151,8 @@ export enum Permission {
   // ── Supervisor de Movimientos (cuadre / reconciliación) — ADR-029 ─────
   RECONCILIATION_VER = 'RECONCILIATION_VER',
   RECONCILIATION_GESTIONAR = 'RECONCILIATION_GESTIONAR',
+
+  // ── Compras / Reabastecimiento (Fase RA — ADR-030) ────────────────────
+  COMPRAS_VER = 'COMPRAS_VER',
+  COMPRAS_GESTIONAR = 'COMPRAS_GESTIONAR',
 }

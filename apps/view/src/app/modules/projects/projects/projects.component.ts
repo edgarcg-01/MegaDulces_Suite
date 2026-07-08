@@ -87,6 +87,15 @@ export class ProjectsComponent implements OnInit {
       ],
     },
     {
+      id: 'compras',
+      name: 'Compras',
+      description: 'Reabastecimiento: existencia crítica, punto de reorden y sugerido de compra; requisiciones a proveedor.',
+      icon: 'pi pi-shopping-bag',
+      route: '/compras',
+      status: 'Activo',
+      anyOf: [Permission.COMPRAS_VER],
+    },
+    {
       id: 'televenta',
       name: 'Televenta',
       description: 'Call center B2B: cola priorizada de clientes, perfil + recomendaciones, pedidos a su nombre y registro de llamadas.',

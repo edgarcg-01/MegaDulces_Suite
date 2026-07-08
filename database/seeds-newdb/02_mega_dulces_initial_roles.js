@@ -105,6 +105,9 @@ exports.seed = async function (knex) {
     // Supervisor de Movimientos (ADR-029) — cuadre caja/inventario
     RECONCILIATION_VER: true,
     RECONCILIATION_GESTIONAR: true,
+    // Compras / Reabastecimiento (Fase RA — ADR-030)
+    COMPRAS_VER: true,
+    COMPRAS_GESTIONAR: true,
   };
 
   const NO_PERMS = Object.fromEntries(Object.keys(ALL_PERMS).map((k) => [k, false]));
@@ -137,6 +140,9 @@ exports.seed = async function (knex) {
       // Supervisor de Movimientos (ADR-029) — igual que backfill 20260707190000
       RECONCILIATION_VER: internal && !!perms.COMMERCIAL_INVENTORY_VER,
       RECONCILIATION_GESTIONAR: internal && !!perms.COMMERCIAL_INVENTORY_SUPERVISAR,
+      // Compras / Reabastecimiento (Fase RA — ADR-030) — igual que backfill 20260708120100
+      COMPRAS_VER: internal && !!perms.COMMERCIAL_INVENTORY_VER,
+      COMPRAS_GESTIONAR: internal && !!perms.COMMERCIAL_INVENTORY_SUPERVISAR,
     };
   };
 
