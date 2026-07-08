@@ -88,6 +88,19 @@ export interface Foco {
   pct_exacto: number; pct_handoff: number; turnos_largos: number; accion: string;
 }
 
+export type ActionPalanca = 'arqueo_ciego' | 'arqueo_relevo' | 'limitar_jornada' | 'supervision' | 'otro';
+export type ActionStatus = 'propuesta' | 'aceptada' | 'en_curso' | 'hecha' | 'descartada';
+export interface ActionDto {
+  discrepancy_id?: string; palanca: ActionPalanca; titulo: string; detalle?: string;
+  warehouse_code?: string; caja?: string; cajero_code?: string; fecha_intervencion: string; responsable?: string;
+}
+export interface ReconAction {
+  id: string; palanca: ActionPalanca; titulo: string; detalle: string | null;
+  sucursal: string | null; caja: string | null; cajero: string | null;
+  fecha_intervencion: string; responsable: string | null; status: ActionStatus;
+  efectividad: { faltante_antes: number; faltante_despues: number; delta: number; red_delta: number; diff_in_diff: number; mejoro: boolean; dias_post: string };
+}
+
 export type BlindTipo = 'cierre' | 'relevo';
 export interface BlindCountDto {
   warehouse_code: string; caja: string; business_date: string; turno?: string;
@@ -140,6 +153,9 @@ export class CuadreService {
 
   overview(): Observable<CuadreOverview> { return this.http.get<CuadreOverview>(`${this.base}/overview`); }
   focos(scope: 'caja' | 'cajero'): Observable<Foco[]> { return this.http.get<Foco[]>(`${this.base}/focos?scope=${scope}`); }
+  createAction(dto: ActionDto): Observable<{ id: string; baseline_faltante: number }> { return this.http.post<{ id: string; baseline_faltante: number }>(`${this.base}/actions`, dto); }
+  listActions(status?: string): Observable<ReconAction[]> { return this.http.get<ReconAction[]>(`${this.base}/actions${status ? '?status=' + status : ''}`); }
+  setActionStatus(id: string, status: ActionStatus): Observable<any> { return this.http.patch(`${this.base}/actions/${id}/status`, { status }); }
 
   cashCuts(q?: { sucursal?: string; cajero?: string; from?: string; to?: string; min_diff?: number; solo_descuadres?: boolean; limit?: number }): Observable<CashCut[]> {
     const p = new URLSearchParams();

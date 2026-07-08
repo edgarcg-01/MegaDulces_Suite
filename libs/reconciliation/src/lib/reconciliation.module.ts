@@ -4,6 +4,7 @@ import { ReconciliationFindingsService } from './reconciliation-findings.service
 import { ReconciliationQueryService } from './reconciliation-query.service';
 import { ReconciliationScannerService } from './reconciliation-scanner.service';
 import { BlindCountService } from './blind-count.service';
+import { ReconciliationActionsService } from './reconciliation-actions.service';
 import { ReconciliationController } from './reconciliation.controller';
 
 /**
@@ -12,7 +13,7 @@ import { ReconciliationController } from './reconciliation.controller';
  */
 @Module({
   controllers: [ReconciliationController],
-  providers: [MovementReconcileService, ReconciliationFindingsService, ReconciliationQueryService, ReconciliationScannerService, BlindCountService],
+  providers: [MovementReconcileService, ReconciliationFindingsService, ReconciliationQueryService, ReconciliationScannerService, BlindCountService, ReconciliationActionsService],
   exports: [MovementReconcileService, ReconciliationFindingsService],
 })
 export class ReconciliationModule {}

@@ -18,6 +18,10 @@
 - **Backend** `commercial-replenishment`: `GET critical-stock` (buckets agotado/bajo_minimo/bajo_reorden/sano/sobrestock + `sugerido = max(0, objetivo − existencia − en_tránsito)`), `summary`, `filters`, `requisitions` CRUD + approve/reject. Validado vs data real: 449 agotado / 447 bajo mín / 83 bajo reorden, sugerido $1.1M.
 - Diferido: RA.5 (OC a recibir/tránsito), RA.8 (cron nightly + hallazgos + alertas). **Pendiente prod:** migs a Railway + re-login + agendar importers + redeploy.
 
+### Added — Supervisor de Movimientos: cerrar el loop (SM.8 / P5) (2026-07-08)
+- **Detectar → priorizar → intervenir → medir.** `reconciliation.actions` (mig `20260708220000`, RLS) + `ReconciliationActionsService`: propone una palanca anclada a un foco + fecha + responsable (HITL, ADR-013), snapshotea baseline. Endpoints `POST/GET /actions` + `PATCH /actions/:id/status`.
+- **Efectividad diff-in-diff** (Horus-L L3): faltante 30d antes vs después en el alcance, menos el cambio de la red (control). Consola: botón **Crear acción** en Focos + tab **Acciones** con antes/después/DiD. Smoke: DiD calculado correcto.
+
 ### Added — Supervisor de Movimientos: focos (SM.8 / P4) (2026-07-08)
 - **Priorización dirigida.** `GET /reconciliation/focos?scope=caja|cajero`: ranking por faltante + señales (%exacto, %handoff, turnos≥10h) con la **palanca recomendada** derivada de la señal dominante. Consola: tab **Focos** con toggle caja/cajero. Data real: suc05-caja4 $70,781 → Arqueo ciego; suc02-caja2 $43,041 → Arqueo de relevo. El supervisor ataca de arriba hacia abajo sabiendo QUÉ hacer.
 

@@ -6,9 +6,9 @@ import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
 import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
-import { CuadreService, Discrepancy, DiscStats, RuleHealth, DiscPlano, CuadreOverview, CashCut, StockMovement, BlindCountResult, BlindCountRow, Foco } from '../cuadre.service';
+import { CuadreService, Discrepancy, DiscStats, RuleHealth, DiscPlano, CuadreOverview, CashCut, StockMovement, BlindCountResult, BlindCountRow, Foco, ReconAction, ActionPalanca } from '../cuadre.service';
 
-type Tab = 'resumen' | 'focos' | 'cortes' | 'movimientos' | 'arqueo' | 'descuadres';
+type Tab = 'resumen' | 'focos' | 'cortes' | 'movimientos' | 'arqueo' | 'acciones' | 'descuadres';
 
 /**
  * SM.6 — Consola del Supervisor de Movimientos. 4 tabs: RESUMEN (KPIs + rankings),
@@ -41,6 +41,7 @@ type Tab = 'resumen' | 'focos' | 'cortes' | 'movimientos' | 'arqueo' | 'descuadr
         <button [class.active]="tab() === 'cortes'" (click)="go('cortes')"><i class="pi pi-wallet"></i> Cortes de caja</button>
         <button [class.active]="tab() === 'movimientos'" (click)="go('movimientos')"><i class="pi pi-box"></i> Movimientos</button>
         <button [class.active]="tab() === 'arqueo'" (click)="go('arqueo')"><i class="pi pi-eye-slash"></i> Arqueo ciego</button>
+        <button [class.active]="tab() === 'acciones'" (click)="go('acciones')"><i class="pi pi-check-circle"></i> Acciones</button>
         <button [class.active]="tab() === 'descuadres'" (click)="go('descuadres')"><i class="pi pi-flag"></i> Descuadres @if (stats()?.pendientes) { <span class="cd-badge">{{ stats()?.pendientes }}</span> }</button>
       </div>
 
@@ -125,7 +126,7 @@ type Tab = 'resumen' | 'focos' | 'cortes' | 'movimientos' | 'arqueo' | 'descuadr
                 <td class="ta-r" [class.bad]="f.pct_exacto >= 80">{{ f.pct_exacto }}%</td>
                 <td class="ta-r" [class.bad]="f.pct_handoff >= 70">{{ f.pct_handoff }}%</td>
                 <td class="ta-r" [class.bad]="f.turnos_largos >= 5">{{ f.turnos_largos }}</td>
-                <td><span class="cd-accion">{{ f.accion }}</span></td>
+                <td><span class="cd-accion">{{ f.accion }}</span> <button pButton type="button" icon="pi pi-plus" label="Acción" class="p-button-text p-button-sm" (click)="crearAccionDesdeFoco(f)"></button></td>
               </tr>
             </ng-template>
             <ng-template pTemplate="emptymessage"><tr><td colspan="8" class="cd-empty">{{ loading() ? 'Cargando…' : 'Sin focos (sin faltante registrado).' }}</td></tr></ng-template>
@@ -313,6 +314,39 @@ type Tab = 'resumen' | 'focos' | 'cortes' | 'movimientos' | 'arqueo' | 'descuadr
         </div>
       }
 
+      <!-- ══ ACCIONES (P5) ══ -->
+      @if (tab() === 'acciones') {
+        <div class="cd-note">
+          <i class="pi pi-check-circle"></i>
+          <span>Las palancas aplicadas y si <strong>funcionaron</strong>. Efectividad = faltante 30 días antes vs 30 después en el alcance, menos el cambio de la red (diff-in-diff) para descontar la tendencia general.</span>
+        </div>
+        <div class="card-premium card-flat">
+          <p-table [value]="acciones()" styleClass="p-datatable-sm cd-table" [rowHover]="true" [loading]="loading()">
+            <ng-template pTemplate="header">
+              <tr><th>Fecha</th><th>Palanca</th><th>Alcance</th><th>Título</th><th class="ta-r">Antes</th><th class="ta-r">Después</th><th class="ta-r">Efecto (DiD)</th><th>Estado</th></tr>
+            </ng-template>
+            <ng-template pTemplate="body" let-a>
+              <tr>
+                <td>{{ a.fecha_intervencion | date:'dd/MM/yy' }}</td>
+                <td><span class="cd-tag">{{ palancaLabel(a.palanca) }}</span></td>
+                <td class="muted">{{ a.sucursal }}{{ a.caja ? '/'+a.caja : '' }}{{ a.cajero ? ' · '+a.cajero : '' }}</td>
+                <td>{{ a.titulo }}</td>
+                <td class="ta-r">{{ money(a.efectividad.faltante_antes) }}</td>
+                <td class="ta-r">{{ money(a.efectividad.faltante_despues) }}</td>
+                <td class="ta-r strong" [class.ok]="a.efectividad.diff_in_diff < 0" [class.bad]="a.efectividad.diff_in_diff > 0">{{ signed(a.efectividad.diff_in_diff) }}</td>
+                <td>
+                  <select class="cd-input cd-input-sm" [ngModel]="a.status" (ngModelChange)="cambiarEstadoAccion(a, $event)">
+                    <option value="propuesta">Propuesta</option><option value="aceptada">Aceptada</option>
+                    <option value="en_curso">En curso</option><option value="hecha">Hecha</option><option value="descartada">Descartada</option>
+                  </select>
+                </td>
+              </tr>
+            </ng-template>
+            <ng-template pTemplate="emptymessage"><tr><td colspan="8" class="cd-empty">{{ loading() ? 'Cargando…' : 'Sin acciones. Creá una desde Focos.' }}</td></tr></ng-template>
+          </p-table>
+        </div>
+      }
+
       <!-- ══ DESCUADRES (bandeja HITL) ══ -->
       @if (tab() === 'descuadres') {
         @if (stats(); as s) {
@@ -497,6 +531,8 @@ export class AlmacenCuadreComponent implements OnInit {
   // focos
   readonly focos = signal<Foco[]>([]);
   readonly focoScope = signal<'caja' | 'cajero'>('caja');
+  // acciones
+  readonly acciones = signal<ReconAction[]>([]);
   // cortes
   readonly cortes = signal<CashCut[]>([]);
   readonly expandedCortes = signal<Record<string, boolean>>({});
@@ -529,6 +565,7 @@ export class AlmacenCuadreComponent implements OnInit {
     this.tab.set(t);
     if (t === 'resumen' && !this.ov()) this.loadOverview();
     if (t === 'focos' && !this.focos().length) this.loadFocos();
+    if (t === 'acciones') this.loadAcciones();
     if (t === 'cortes' && !this.cortes().length) this.loadCortes();
     if (t === 'movimientos' && !this.movs().length) this.loadMovs();
     if (t === 'arqueo') this.loadBlind();
@@ -540,6 +577,36 @@ export class AlmacenCuadreComponent implements OnInit {
     this.svc.focos(this.focoScope()).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (r) => { this.focos.set(r); this.loading.set(false); }, error: () => this.loading.set(false) });
   }
   setFocoScope(s: 'caja' | 'cajero') { this.focoScope.set(s); this.loadFocos(); }
+
+  private loadAcciones() {
+    this.loading.set(true);
+    this.svc.listActions().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (r) => { this.acciones.set(r); this.loading.set(false); }, error: () => this.loading.set(false) });
+  }
+  private palancaFromAccion(accion: string): ActionPalanca {
+    if (accion.includes('ciego')) return 'arqueo_ciego';
+    if (accion.includes('relevo')) return 'arqueo_relevo';
+    if (accion.includes('jornada')) return 'limitar_jornada';
+    return 'supervision';
+  }
+  crearAccionDesdeFoco(f: Foco) {
+    const hoy = new Date().toISOString().slice(0, 10);
+    const palanca = this.palancaFromAccion(f.accion);
+    const alcance = f.cajero ? `cajero ${f.cajero_nombre || f.cajero}` : `caja ${f.caja}`;
+    this.svc.createAction({
+      palanca, titulo: `${this.palancaLabel(palanca)} — suc ${f.sucursal} ${alcance}`,
+      warehouse_code: f.sucursal, caja: f.caja, cajero_code: f.cajero, fecha_intervencion: hoy,
+    }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => { this.toast.add({ severity: 'success', summary: 'Acción creada', detail: `Baseline ${this.money(r.baseline_faltante)}. Se medirá el efecto a 30 días.` }); this.loadAcciones(); },
+      error: (e) => this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudo crear.' }),
+    });
+  }
+  cambiarEstadoAccion(a: ReconAction, status: any) {
+    this.svc.setActionStatus(a.id, status).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: () => { a.status = status; }, error: () => {} });
+  }
+  palancaLabel(p: string): string {
+    const m: Record<string, string> = { arqueo_ciego: 'Arqueo ciego', arqueo_relevo: 'Arqueo relevo', limitar_jornada: 'Limitar jornada', supervision: 'Supervisión', otro: 'Otro' };
+    return m[p] || p;
+  }
 
   recalc() { this.arqTotal.set(this.denoms.reduce((s, d) => s + (Number(this.denomCount[d]) || 0) * d, 0)); }
 

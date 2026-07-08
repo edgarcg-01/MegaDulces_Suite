@@ -6,6 +6,7 @@ import { ReconciliationFindingsService } from './reconciliation-findings.service
 import { ReconciliationQueryService } from './reconciliation-query.service';
 import { MovementReconcileService } from './movement-reconcile.service';
 import { BlindCountService, BlindCountDto } from './blind-count.service';
+import { ReconciliationActionsService, ActionDto } from './reconciliation-actions.service';
 
 interface AuthedRequest { user?: { username?: string }; }
 
@@ -19,6 +20,7 @@ export class ReconciliationController {
     private readonly engine: MovementReconcileService,
     private readonly query: ReconciliationQueryService,
     private readonly blind: BlindCountService,
+    private readonly actions: ReconciliationActionsService,
   ) {}
 
   @Get('overview')
@@ -129,5 +131,26 @@ export class ReconciliationController {
     @Query('limit') limit?: string,
   ) {
     return this.blind.list({ from, to, warehouse_code: warehouseCode, limit: limit ? Number(limit) : undefined });
+  }
+
+  @Post('actions')
+  @RequirePermissions(Permission.RECONCILIATION_GESTIONAR)
+  @ApiOperation({ summary: 'SM.8/P5 — Propone una acción (palanca) anclada a un foco + fecha. Snapshotea baseline.' })
+  createAction(@Body() body: ActionDto, @Req() req: AuthedRequest) {
+    return this.actions.create(body, req?.user?.username);
+  }
+
+  @Get('actions')
+  @RequirePermissions(Permission.RECONCILIATION_VER)
+  @ApiOperation({ summary: 'SM.8/P5 — Acciones con efectividad (before/after + diff-in-diff vs red). Filtro: status, limit.' })
+  listActions(@Query('status') status?: string, @Query('limit') limit?: string) {
+    return this.actions.list({ status, limit: limit ? Number(limit) : undefined });
+  }
+
+  @Patch('actions/:id/status')
+  @RequirePermissions(Permission.RECONCILIATION_GESTIONAR)
+  @ApiOperation({ summary: 'SM.8/P5 — Cambia estado (propuesta|aceptada|en_curso|hecha|descartada).' })
+  setActionStatus(@Param('id') id: string, @Body('status') status: string, @Req() req: AuthedRequest) {
+    return this.actions.setStatus(id, status, req?.user?.username);
   }
 }

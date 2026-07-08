@@ -152,6 +152,21 @@ Causa raíz encadenada: **arqueo no ciego** (habilita) → **handoff sin arqueo 
 - Consola: tab **Focos** con toggle caja/cajero. Data real (por caja): suc05-caja4 $70,781 (%exacto 84, %handoff 90) → Arqueo ciego; suc02-caja2 $43,041 (%handoff 87) → Arqueo de relevo. La acción se adapta a la causa.
 - Con esto el supervisor ataca de arriba hacia abajo y sabe QUÉ hacer en cada foco, no solo dónde.
 
+### P5 — Cerrar el loop: acciones + efectividad ✅ (implementado 2026-07-08)
+
+- `reconciliation.actions` (mig `20260708220000`, RLS) + `ReconciliationActionsService`: propone una palanca anclada a un foco (sucursal/caja/cajero) + fecha de intervención + responsable; snapshotea `baseline_faltante` (30d antes). Estados propuesta→aceptada→en_curso→hecha/descartada (HITL, ADR-013).
+- **Efectividad diff-in-diff** (Horus-L L3): faltante 30d antes vs 30d después en el alcance, **menos** el cambio de la red (control) → descuenta la tendencia general. `mejoro` = el alcance bajó.
+- Endpoints `POST /actions`, `GET /actions` (con efectividad), `PATCH /actions/:id/status`.
+- Consola: botón **Crear acción** en cada foco (pre-llena palanca según la señal dominante) + tab **Acciones** con antes/después/DiD y cambio de estado inline.
+- Smoke: baseline + DiD calculados correctos (suc05-caja4 fecha simulada: alcance +$13,050 vs red −$16,320 → DiD +$29,370 = sin mejora, como se espera sin intervención real).
+- **Loop completo:** detectar (9 reglas) → priorizar (focos) → intervenir (acción/palanca) → medir (DiD). Confirma o descarta que la palanca sirvió, con data.
+
+## Estado del plan
+
+P0 habilitado · **P1–P5 ✅** implementados y verificados contra data real · P6 (cruce independiente vs tickets POS) diferido (ataca manipulación del *esperado*, no solo del contado; techo del sistema).
+
+**Pendiente prod (Railway):** migs `20260708120000/140000/160000/180000/200000/220000` + importers `import-cash-cuts`/`import-pos-cashiers` `--apply` + `Escanear ahora` + re-login. Local (5433) al día (batch 150).
+
 **Ruta crítica:** SM.0 → SM.1 (caja) entrega valor en la primera rebanada (detecta faltantes por cajero con data real — 90 cortes ≥$50 en md_02 sola).
 
 ## Gotchas (bakeados)
