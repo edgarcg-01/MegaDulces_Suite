@@ -39,6 +39,7 @@ export const PERMISSION_META: Record<string, PermissionMetaEntry> = {
   [Permission.PLANOGRAMAS_GESTIONAR]: { label: 'Gestionar Planogramas', description: 'Creación de marcas y jerarquías de productos.', category: 'Configuración' },
   [Permission.TIENDAS_VER]: { label: 'Ver Tiendas', description: 'Acceso al módulo de tiendas y sus detalles.', category: 'Configuración' },
   [Permission.TIENDAS_CREAR]: { label: 'Crear Tiendas', description: 'Permite registrar nuevas tiendas desde la captura de visitas.', category: 'Configuración' },
+  [Permission.STORE_LIVE_VER]: { label: 'Monitor Tienda en Vivo', description: 'Acceder al monitor de tickets y cajas en tiempo real (Proyecto TDA).', category: 'Tienda' },
   [Permission.ROLES_CONFIGURAR]: { label: 'Configurar Roles y Funciones', description: 'ACCESO CRÍTICO: edita este panel de permisos para cualquier rol.', category: 'Configuración' },
   [Permission.SCORING_CONFIG_VER]: { label: 'Ver Config. Puntuación', description: 'Visualizar la configuración y parámetros de scoring.', category: 'Configuración' },
   [Permission.SCORING_CONFIG_GESTIONAR]: { label: 'Gestionar Config. Puntuación', description: 'Editar parámetros, versiones y puntuaciones del scoring.', category: 'Configuración' },
@@ -146,6 +147,7 @@ export const PERMISSION_CATEGORY_ORDER: readonly string[] = [
   'Televenta',
   'Logística',
   'Finanzas',
+  'Tienda',
   'Portal B2B',
   'Otros',
 ];
