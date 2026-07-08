@@ -145,6 +145,10 @@ export class CommercialReplenishmentService {
           trx.raw(`GREATEST(0, ${target} - ${oh} - ${it}) AS suggested_qty`),
           trx.raw(`ROUND(GREATEST(0, ${target} - ${oh} - ${it}) * COALESCE(pr.cost_base,0), 2) AS suggested_cost`),
         )
+        // Dinero primero: el sugerido valorizado ($) manda. Sin esto, los 3k+
+        // agotados (muchos SKUs admin/insumo con costo 0) acaparan 60+ páginas
+        // con existencia 0 y la vista "parece" rota.
+        .orderByRaw(`GREATEST(0, ${target} - ${oh} - ${it}) * COALESCE(pr.cost_base, 0) DESC`)
         .orderByRaw(`CASE ${this.bucketExpr()}
             WHEN 'agotado' THEN 0 WHEN 'bajo_minimo' THEN 1 WHEN 'bajo_reorden' THEN 2 WHEN 'sobrestock' THEN 4 ELSE 3 END`)
         .orderByRaw(`GREATEST(0, ${target} - ${oh} - ${it}) DESC`)
