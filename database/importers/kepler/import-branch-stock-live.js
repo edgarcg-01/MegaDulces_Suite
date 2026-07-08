@@ -50,13 +50,21 @@ const MAP = process.env.STOCK_BRANCH_MAP
       const whr = (await db.query(`SELECT id FROM commercial.warehouses WHERE tenant_id=$1 AND code=$2`, [M, m.code])).rows;
       if (!whr.length) { console.log(`  ⚠ warehouse ${m.code} no existe — skip`); continue; }
 
-      const src = new Client({ connectionString: m.url });
-      await src.connect();
+      let src;
+      try {
+        src = new Client({ connectionString: m.url });
+        await src.connect();
+      } catch (e) { console.log(`  ⚠ ${m.code}: sin conexión (${e.message}) — skip`); continue; }
       let matched = 0, unmatched = 0;
       try {
         // Existencia Kepler = inicial(c4) + entradas(c8) − salidas(c9). NO c9 solo
         // (son salidas). Sin floor per-fila: el total por producto se pisa a 0 abajo.
-        const stock = (await src.query(`SELECT c3 AS sku, (c4+c8-c9)::numeric AS qty FROM md.kdil WHERE c3 IS NOT NULL`)).rows;
+        // GOTCHA: kdil arrastra RÉPLICAS de otras sucursales (md_03 trae filas c1='02')
+        // → filtrar SIEMPRE por la sucursal propia (derivada del dbname md_XX). Sin
+        // esto, la existencia suma réplicas y sale inflada (02693: 2185 vs 969 real).
+        const suc = (m.url.match(/md_(\d{2})\b/) || [])[1];
+        if (!suc) { console.log(`  ⚠ ${m.code}: no pude derivar sucursal de la URL — skip`); continue; }
+        const stock = (await src.query(`SELECT c3 AS sku, (c4+c8-c9)::numeric AS qty FROM md.kdil WHERE c3 IS NOT NULL AND c1 = $1`, [suc])).rows;
         const rows = [];
         for (const r of stock) {
           const pid = skuToId.get(r.sku);

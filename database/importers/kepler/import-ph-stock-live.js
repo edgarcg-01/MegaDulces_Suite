@@ -34,8 +34,11 @@ const APPLY = process.argv.includes('--apply');
 
     // Existencia Kepler = inicial(c4) + entradas(c8) − salidas(c9), clamp a 0.
     // (c9 solo = salidas, NO existencia — era el bug.)
+    // GOTCHA réplicas: kdil puede traer filas de otras sucursales → filtrar la propia.
+    const suc = (SRC.match(/md_(\d{2})\b/) || [])[1] || '01';
     const { rows: stock } = await src.query(
-      `SELECT c3 AS sku, GREATEST(c4+c8-c9, 0)::numeric AS qty FROM md.kdil WHERE c3 IS NOT NULL`,
+      `SELECT c3 AS sku, GREATEST(c4+c8-c9, 0)::numeric AS qty FROM md.kdil WHERE c3 IS NOT NULL AND c1 = $1`,
+      [suc],
     );
     console.log(`SKUs en PH (kdil): ${stock.length}`);
 
