@@ -1352,6 +1352,10 @@ export class CommercialAnalyticsService {
     else if (q.area) b.where('e.area', q.area);
     if (q.dpto_null) b.whereNull('e.dpto');
     else if (q.dpto) b.where('e.dpto', q.dpto);
+    // concepto = 3er nivel contable (nómina bancos, arrendamiento…); se filtra por nombre
+    // porque el código c20 se repite entre subcuentas.
+    if (q.concepto_null) b.whereNull('e.concepto_nombre');
+    else if (q.concepto) b.where('e.concepto_nombre', q.concepto);
     // *_null = drill del bucket "(sin …)"; *_eq = drill exacto desde una fila; beneficiario solo = búsqueda libre (ILIKE)
     if (q.beneficiario_null) b.whereNull('e.beneficiario');
     else if (q.beneficiario_eq) b.where('e.beneficiario', q.beneficiario_eq);
@@ -1376,6 +1380,8 @@ export class CommercialAnalyticsService {
         return { key: 'area', groupSql: 'e.area', keySql: "COALESCE(e.area,'(sin área)')", labelSql: "COALESCE(e.area,'(sin área)')", familia: false };
       case 'dpto':
         return { key: 'dpto', groupSql: 'e.dpto, e.dpto_nombre', keySql: "COALESCE(e.dpto,'(sin depto)')", labelSql: "COALESCE(e.dpto_nombre, e.dpto, '(sin depto)')", familia: false };
+      case 'concepto':
+        return { key: 'concepto', groupSql: 'e.concepto_nombre', keySql: "COALESCE(e.concepto_nombre,'(sin concepto)')", labelSql: "COALESCE(e.concepto_nombre,'(sin concepto)')", familia: false };
       case 'mes':
         return { key: 'mes', groupSql: "to_char(e.fecha,'YYYY-MM')", keySql: "to_char(e.fecha,'YYYY-MM')", labelSql: "to_char(e.fecha,'YYYY-MM')", familia: false };
       case 'cuenta':
@@ -1473,8 +1479,8 @@ export class CommercialAnalyticsService {
     const { from, to } = this.expenseRange(q);
     return this.tk.run(async (trx) => {
       const rows: any[] = await this.expenseQuery(trx, tenantId, from, to, q)
-        .groupBy('e.familia', 'e.cuenta_mayor', 'e.cuenta_mayor_nombre', 'e.cuenta', 'e.cuenta_nombre')
-        .select('e.familia', 'e.cuenta_mayor', 'e.cuenta_mayor_nombre', 'e.cuenta', 'e.cuenta_nombre',
+        .groupBy('e.familia', 'e.cuenta_mayor', 'e.cuenta_mayor_nombre', 'e.cuenta', 'e.cuenta_nombre', 'e.concepto_nombre')
+        .select('e.familia', 'e.cuenta_mayor', 'e.cuenta_mayor_nombre', 'e.cuenta', 'e.cuenta_nombre', 'e.concepto_nombre',
           trx.raw('ROUND(SUM(importe)::numeric,2) AS total'), trx.raw('COUNT(*)::int AS movs'));
 
       const total = rows.reduce((a, r) => a + Number(r.total), 0);
@@ -1486,20 +1492,33 @@ export class CommercialAnalyticsService {
         const F = fam.get(fk);
         F.total += Number(r.total); F.movs += Number(r.movs);
         const mk = r.cuenta_mayor || '?';
-        if (!F.children.has(mk)) F.children.set(mk, { key: mk, label: r.cuenta_mayor_nombre || r.cuenta_mayor || '?', total: 0, movs: 0, children: [] });
+        if (!F.children.has(mk)) F.children.set(mk, { key: mk, label: r.cuenta_mayor_nombre || r.cuenta_mayor || '?', total: 0, movs: 0, children: new Map() });
         const Mn = F.children.get(mk);
         Mn.total += Number(r.total); Mn.movs += Number(r.movs);
-        Mn.children.push({ key: r.cuenta, label: r.cuenta_nombre || r.cuenta, total: Number(r.total), movs: Number(r.movs) });
+        const sk = r.cuenta;
+        if (!Mn.children.has(sk)) Mn.children.set(sk, { key: sk, label: r.cuenta_nombre || r.cuenta, total: 0, movs: 0, children: new Map() });
+        const Sc = Mn.children.get(sk);
+        Sc.total += Number(r.total); Sc.movs += Number(r.movs);
+        // Concepto = 4º nivel, SOLO gastos (fam 6/7); compras (5) no llevan concepto.
+        if (fk === '6' || fk === '7') {
+          const ck = r.concepto_nombre || '(sin concepto)';
+          if (!Sc.children.has(ck)) Sc.children.set(ck, { key: `${sk}|${ck}`, label: ck, total: 0, movs: 0 });
+          const C = Sc.children.get(ck);
+          C.total += Number(r.total); C.movs += Number(r.movs);
+        }
       }
       const share = (v: number) => (total ? +((v / total) * 100).toFixed(1) : 0);
       const tree = [...fam.values()]
         .sort((a, b) => b.total - a.total)
         .map((F) => ({
           key: F.key, label: F.label, level: 'familia', total: F.total, movs: F.movs, share_pct: share(F.total),
-          children: [...F.children.values()].sort((a, b) => b.total - a.total).map((Mn: any) => ({
+          children: [...F.children.values()].sort((a: any, b: any) => b.total - a.total).map((Mn: any) => ({
             key: Mn.key, label: Mn.label, level: 'mayor', total: Mn.total, movs: Mn.movs, share_pct: share(Mn.total),
-            children: Mn.children.sort((a: any, b: any) => b.total - a.total)
-              .map((S: any) => ({ ...S, level: 'cuenta', share_pct: share(S.total) })),
+            children: [...Mn.children.values()].sort((a: any, b: any) => b.total - a.total).map((Sc: any) => ({
+              key: Sc.key, label: Sc.label, level: 'cuenta', total: Sc.total, movs: Sc.movs, share_pct: share(Sc.total),
+              children: [...Sc.children.values()].sort((a: any, b: any) => b.total - a.total)
+                .map((C: any) => ({ ...C, level: 'concepto', share_pct: share(C.total) })),
+            })),
           })),
         }));
       return { from, to, total: +total.toFixed(2), tree };
@@ -1516,7 +1535,8 @@ export class CommercialAnalyticsService {
           this.on('w.tenant_id', 'e.tenant_id').andOn('w.code', 'e.sucursal');
         })
         .select('e.fecha', 'e.sucursal', 'w.name as sucursal_nombre', 'e.doc_tipo', 'e.doc_folio',
-          'e.beneficiario', 'e.cuenta', 'e.cuenta_nombre', 'e.area', trx.raw('e.importe::numeric AS importe'))
+          'e.beneficiario', 'e.beneficiario_doc', 'e.cuenta', 'e.cuenta_nombre', 'e.concepto_nombre',
+          'e.comentario', 'e.area', trx.raw('e.importe::numeric AS importe'))
         .orderBy('e.fecha', 'desc')
         .limit(3000);
       return items.map((r: any) => ({ ...r, importe: Number(r.importe) }));
@@ -1545,12 +1565,13 @@ export class CommercialAnalyticsService {
         .select('d.sucursal', 'w.name as sucursal_nombre', 'd.doc_tipo', 'd.doc_folio',
           'd.fecha', 'd.fecha_doc', 'd.beneficiario', 'd.rfc', 'd.concepto', 'd.area',
           trx.raw('d.importe::numeric AS importe'), trx.raw('d.iva::numeric AS iva'),
-          'd.usuario', 'd.clase')
+          'd.usuario', 'd.clase', 'd.solicitud_tipo', 'd.solicitud_folio')
         .first();
 
       const postings = await trx('analytics.expense_entries')
         .where(key)
         .select('linea', 'cuenta', 'cuenta_nombre', 'cuenta_mayor', 'familia',
+          'concepto_nombre', 'comentario', 'beneficiario_doc',
           trx.raw('importe::numeric AS importe'))
         .orderBy('linea');
 
@@ -1734,15 +1755,17 @@ export class CommercialAnalyticsService {
     const tenantId = this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
       const base = () => trx('analytics.expense_entries').where('tenant_id', tenantId);
-      const [doc_tipos, areas, mayores, dptos] = await Promise.all([
+      const [doc_tipos, areas, mayores, dptos, conceptos] = await Promise.all([
         base().distinct('doc_tipo').whereNotNull('doc_tipo').orderBy('doc_tipo').then((r) => r.map((x: any) => x.doc_tipo)),
         base().distinct('area').whereNotNull('area').orderBy('area').then((r) => r.map((x: any) => x.area)),
         base().distinct('cuenta_mayor', 'cuenta_mayor_nombre').whereNotNull('cuenta_mayor').orderBy('cuenta_mayor')
           .then((r) => r.map((x: any) => ({ code: x.cuenta_mayor, nombre: x.cuenta_mayor_nombre }))),
         base().distinct('dpto', 'dpto_nombre').whereNotNull('dpto').orderBy('dpto')
           .then((r) => r.map((x: any) => ({ code: x.dpto, nombre: x.dpto_nombre }))),
+        base().distinct('concepto_nombre').whereNotNull('concepto_nombre').orderBy('concepto_nombre')
+          .then((r) => r.map((x: any) => x.concepto_nombre)),
       ]);
-      return { doc_tipos, areas, mayores, dptos };
+      return { doc_tipos, areas, mayores, dptos, conceptos };
     });
   }
 

@@ -1127,6 +1127,8 @@ export class ComercialService {
     if (p.area_null) params = params.set('area_null', 'true');
     if (p.dpto) params = params.set('dpto', p.dpto);
     if (p.dpto_null) params = params.set('dpto_null', 'true');
+    if (p.concepto) params = params.set('concepto', p.concepto);
+    if (p.concepto_null) params = params.set('concepto_null', 'true');
     if (p.beneficiario?.trim()) params = params.set('beneficiario', p.beneficiario.trim());
     if (p.beneficiario_eq) params = params.set('beneficiario_eq', p.beneficiario_eq);
     if (p.beneficiario_null) params = params.set('beneficiario_null', 'true');
@@ -1605,6 +1607,8 @@ export interface ExpensesParams {
   area_null?: boolean;
   dpto?: string;
   dpto_null?: boolean;
+  concepto?: string;
+  concepto_null?: boolean;
   beneficiario?: string;
   beneficiario_eq?: string;
   beneficiario_null?: boolean;
@@ -1652,8 +1656,11 @@ export interface ExpenseDocRow {
   doc_tipo: string;
   doc_folio: string;
   beneficiario: string | null;
+  beneficiario_doc: string | null;
   cuenta: string;
   cuenta_nombre: string | null;
+  concepto_nombre: string | null;
+  comentario: string | null;
   area: string | null;
   importe: number;
 }
@@ -1662,6 +1669,7 @@ export interface ExpensesFilters {
   areas: string[];
   mayores: { code: string; nombre: string | null }[];
   dptos: { code: string; nombre: string | null }[];
+  conceptos: string[];
 }
 // GX v3 — drill al documento fuente
 export interface ExpenseDocHeader {
@@ -1679,6 +1687,8 @@ export interface ExpenseDocHeader {
   iva: number;
   usuario: string | null;
   clase: string | null;
+  solicitud_tipo: string | null;
+  solicitud_folio: string | null;
 }
 export interface ExpensePosting {
   linea: number;
@@ -1686,6 +1696,9 @@ export interface ExpensePosting {
   cuenta_nombre: string | null;
   cuenta_mayor: string | null;
   familia: string | null;
+  concepto_nombre: string | null;
+  comentario: string | null;
+  beneficiario_doc: string | null;
   importe: number;
 }
 export interface ExpenseProductLine {

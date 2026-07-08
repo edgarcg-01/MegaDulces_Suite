@@ -112,7 +112,7 @@ function normArea(raw) {
       sucursal text, doc_tipo text, doc_folio text, linea int, fecha date,
       cuenta text, cuenta_nombre text, cuenta_mayor text, cuenta_mayor_nombre text,
       familia text, cargo_abono text, beneficiario text, area text, importe numeric,
-      dpto text, dpto_nombre text) ON COMMIT DROP`);
+      dpto text, dpto_nombre text, concepto text, concepto_nombre text, comentario text, beneficiario_doc text) ON COMMIT DROP`);
     // GX v3 — documentos fuente (kdm1) + líneas de detalle (kdm2, solo compras) para el drill.
     await db.query(`CREATE TEMP TABLE stg_doc (
       sucursal text, doc_tipo text, doc_folio text, fecha date, fecha_doc date,
@@ -149,6 +149,24 @@ function normArea(raw) {
             if (code) dep.set(code, r.nombre ? String(r.nombre).trim() : null);
           }
         } catch { /* sucursal sin catálogo kdc3 */ }
+        // Plan de cuentas (kdc126, fallback kdc125): código → nombre de mayor/subcuenta.
+        // kdco es catálogo de CONCEPTOS (N nombres por subcuenta) → no sirve para el
+        // nombre de la cuenta; kdc126 sí trae '601'=SUELDOS Y SALARIOS y '601-001'=SUELDOS.
+        const accName = new Map();
+        for (const tbl of ['kdc125', 'kdc126']) { // kdc126 último → pisa a kdc125 (más reciente)
+          try {
+            for (const r of (await src.query(`SELECT c1 AS code, c2 AS nombre FROM md.${tbl} WHERE c1 IS NOT NULL`)).rows) {
+              const code = String(r.code).trim();
+              if (code && r.nombre) accName.set(code, String(r.nombre).trim());
+            }
+          } catch { /* sucursal sin ese catálogo */ }
+        }
+        // Conceptos (kdco): llave (subcuenta c3, concepto c1) → nombre. Distinto de `acc`
+        // (por c3) porque una subcuenta tiene N conceptos.
+        const conceptoMap = new Map();
+        for (const r of (await src.query(`SELECT c3, c1, c2 FROM md.kdco WHERE c3 IS NOT NULL AND c1 IS NOT NULL`)).rows) {
+          if (r.c2) conceptoMap.set(`${String(r.c3).trim()}|${String(r.c1).trim()}`, String(r.c2).trim());
+        }
         // Cabeceras de documento (kdm1): área para las pólizas (docArea) + campos ricos
         // para el drill al documento (docHdr, solo XA2001 compras / XA1001 gastos).
         const docArea = new Map();
@@ -177,7 +195,7 @@ function normArea(raw) {
                     c19 AS doc_folio, c10::int AS linea, c2::date AS fecha,
                     c3 AS cuenta, left(c3,1) AS familia, c4 AS cargo_abono,
                     NULLIF(btrim(c6),'') AS beneficiario, c5::numeric AS importe,
-                    NULLIF(btrim(c13),'') AS dpto
+                    NULLIF(btrim(c13),'') AS dpto, NULLIF(btrim(c20),'') AS concepto_cod
                FROM md.${t.tbl}
               WHERE c4='C' AND (c3='511' OR c3 LIKE '6%')
                 AND COALESCE(c5,0) <> 0`,   /* dropea las ~609 líneas $0 'BAJA -'/canceladas (ruido). c19 folio-vacío = '' (no NULL) → se conserva la capa de diario/presupuesto; la distingue Fix#1. */
@@ -187,12 +205,20 @@ function normArea(raw) {
           for (const r of rows) {
             const mayor = String(r.cuenta).split('-')[0];
             const dpto = r.dpto || null;
+            const dk = `${r.doc_tipo}-${r.doc_folio}`;
+            const hdr = docHdr.get(dk);
+            const conceptoCod = r.concepto_cod || null;
+            // Nombre de concepto: canónico por (subcuenta, código) desde kdco; si no,
+            // para gastos (fam 6/7) cae al texto de la línea (c6, que YA es el concepto).
+            const conceptoNombre = (conceptoCod && conceptoMap.get(`${r.cuenta}|${conceptoCod}`))
+              || ((r.familia === '6' || r.familia === '7') ? r.beneficiario : null);
             staged.push([
               r.sucursal || b.code, r.doc_tipo, r.doc_folio, r.linea, r.fecha,
-              r.cuenta, acc.get(r.cuenta) || null, mayor, acc.get(mayor) || null,
+              r.cuenta, accName.get(r.cuenta) || acc.get(r.cuenta) || null, mayor, accName.get(mayor) || acc.get(mayor) || null,
               r.familia, r.cargo_abono, r.beneficiario,
-              docArea.get(`${r.doc_tipo}-${r.doc_folio}`) || null, Number(r.importe) || 0,
+              docArea.get(dk) || null, Number(r.importe) || 0,
               dpto, dpto ? (dep.get(dpto) || null) : null,
+              conceptoCod, conceptoNombre, hdr?.concepto || null, hdr?.beneficiario || null,
             ]);
             movs++; monto += Number(r.importe) || 0;
             // acumula el documento fuente (solo pólizas con folio real)
@@ -203,7 +229,7 @@ function normArea(raw) {
               if (mayor === '511') compraFolios.add(fol);
             }
           }
-          const NCOL = 16;
+          const NCOL = 20;
           for (let i = 0; i < staged.length; i += BATCH) {
             const chunk = staged.slice(i, i + BATCH);
             const vals = [], params = [];
@@ -212,7 +238,7 @@ function normArea(raw) {
               params.push(...row);
             });
             await db.query(
-              `INSERT INTO stg_exp (sucursal,doc_tipo,doc_folio,linea,fecha,cuenta,cuenta_nombre,cuenta_mayor,cuenta_mayor_nombre,familia,cargo_abono,beneficiario,area,importe,dpto,dpto_nombre)
+              `INSERT INTO stg_exp (sucursal,doc_tipo,doc_folio,linea,fecha,cuenta,cuenta_nombre,cuenta_mayor,cuenta_mayor_nombre,familia,cargo_abono,beneficiario,area,importe,dpto,dpto_nombre,concepto,concepto_nombre,comentario,beneficiario_doc)
                VALUES ${vals.join(',')}`, params);
           }
         }
@@ -350,8 +376,8 @@ function normArea(raw) {
       [M, sucursales, from, to]);
     const up = await db.query(
       `INSERT INTO analytics.expense_entries
-         (id,tenant_id,sucursal,doc_tipo,doc_folio,linea,fecha,cuenta,cuenta_nombre,cuenta_mayor,cuenta_mayor_nombre,familia,cargo_abono,beneficiario,area,importe,dpto,dpto_nombre,computed_at)
-       SELECT gen_random_uuid(),$1,sucursal,doc_tipo,doc_folio,linea,fecha,cuenta,cuenta_nombre,cuenta_mayor,cuenta_mayor_nombre,familia,cargo_abono,beneficiario,area,importe,dpto,dpto_nombre,now()
+         (id,tenant_id,sucursal,doc_tipo,doc_folio,linea,fecha,cuenta,cuenta_nombre,cuenta_mayor,cuenta_mayor_nombre,familia,cargo_abono,beneficiario,area,importe,dpto,dpto_nombre,concepto,concepto_nombre,comentario,beneficiario_doc,computed_at)
+       SELECT gen_random_uuid(),$1,sucursal,doc_tipo,doc_folio,linea,fecha,cuenta,cuenta_nombre,cuenta_mayor,cuenta_mayor_nombre,familia,cargo_abono,beneficiario,area,importe,dpto,dpto_nombre,concepto,concepto_nombre,comentario,beneficiario_doc,now()
          FROM stg_exp`,
       [M]);
 

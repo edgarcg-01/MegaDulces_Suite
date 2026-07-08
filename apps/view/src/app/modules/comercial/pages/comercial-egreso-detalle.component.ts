@@ -181,7 +181,7 @@ interface Constraint { type: SliceType; key: string; label: string; }
           <p-table [value]="docs()" styleClass="p-datatable-sm ed-table" [rowHover]="true" [scrollable]="true" scrollHeight="480px"
                    [paginator]="docs().length > 100" [rows]="100">
             <ng-template pTemplate="header">
-              <tr><th style="width:6rem">Fecha</th><th>Documento</th><th>Sucursal</th><th>Cuenta</th><th>Beneficiario</th><th class="ta-r" style="width:9rem">Importe</th><th style="width:2.5rem"></th></tr>
+              <tr><th style="width:6rem">Fecha</th><th>Documento</th><th>Sucursal</th><th>Cuenta</th><th>Concepto</th><th>Beneficiario</th><th>Comentario</th><th class="ta-r" style="width:9rem">Importe</th><th style="width:2.5rem"></th></tr>
             </ng-template>
             <ng-template pTemplate="body" let-d>
               <tr class="ed-clickable" tabindex="0" role="button" [attr.aria-label]="'Ver documento ' + d.doc_tipo + '-' + d.doc_folio"
@@ -190,12 +190,14 @@ interface Constraint { type: SliceType; key: string; label: string; }
                 <td class="mono">{{ d.doc_tipo }}-{{ d.doc_folio }}</td>
                 <td>{{ d.sucursal_nombre || d.sucursal }}</td>
                 <td>{{ d.cuenta_nombre || d.cuenta }}</td>
-                <td>{{ d.beneficiario || '—' }}</td>
+                <td>{{ d.concepto_nombre || '—' }}</td>
+                <td>{{ d.beneficiario_doc || d.beneficiario || '—' }}</td>
+                <td class="muted">{{ d.comentario || '—' }}</td>
                 <td class="ta-r strong">{{ money(d.importe) }}</td>
                 <td class="ta-r"><i class="pi pi-angle-right muted"></i></td>
               </tr>
             </ng-template>
-            <ng-template pTemplate="emptymessage"><tr><td colspan="7" class="ed-empty">Sin documentos.</td></tr></ng-template>
+            <ng-template pTemplate="emptymessage"><tr><td colspan="9" class="ed-empty">Sin documentos.</td></tr></ng-template>
           </p-table>
         </div>
         } @else {
@@ -218,6 +220,9 @@ interface Constraint { type: SliceType; key: string; label: string; }
               <div><span class="ed-dl">Área</span><span class="ed-dv">{{ h.area || '—' }}</span></div>
               <div><span class="ed-dl">Fecha</span><span class="ed-dv">{{ (h.fecha_doc || h.fecha) | date:'dd/MM/yyyy' }}</span></div>
               <div><span class="ed-dl">Sucursal</span><span class="ed-dv">{{ h.sucursal_nombre || h.sucursal }}</span></div>
+              @if (h.solicitud_folio) {
+                <div><span class="ed-dl">Referencia</span><span class="ed-dv mono">{{ h.solicitud_tipo }}-{{ h.solicitud_folio }}</span></div>
+              }
               <div><span class="ed-dl">Total</span><span class="ed-dv strong">{{ money(h.importe) }}</span></div>
               <div><span class="ed-dl">IVA</span><span class="ed-dv">{{ money(h.iva) }}</span></div>
             </div>
