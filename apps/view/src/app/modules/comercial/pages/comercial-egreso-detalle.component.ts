@@ -217,7 +217,7 @@ interface Constraint { type: SliceType; key: string; label: string; }
               <div><span class="ed-dl">Beneficiario</span><span class="ed-dv">{{ h.beneficiario || '—' }}</span></div>
               <div><span class="ed-dl">RFC</span><span class="ed-dv mono">{{ h.rfc || '—' }}</span></div>
               <div><span class="ed-dl">Concepto</span><span class="ed-dv">{{ h.concepto || '—' }}</span></div>
-              <div><span class="ed-dl">Área</span><span class="ed-dv">{{ h.area || '—' }}</span></div>
+              <div><span class="ed-dl">Solicitante</span><span class="ed-dv">{{ h.area || '—' }}</span></div>
               <div><span class="ed-dl">Fecha</span><span class="ed-dv">{{ (h.fecha_doc || h.fecha) | date:'dd/MM/yyyy' }}</span></div>
               <div><span class="ed-dl">Sucursal</span><span class="ed-dv">{{ h.sucursal_nombre || h.sucursal }}</span></div>
               @if (h.solicitud_folio) {
@@ -254,6 +254,33 @@ interface Constraint { type: SliceType; key: string; label: string; }
                 @if (ch.pago_days != null) { <span><b>{{ ch.pago_days }}</b> d factura→pago</span> }
               </div>
             }
+          }
+          <!-- GX.6 — Cadena de gasto: solicitud (XA1501) → gasto aplicado (XA1001) -->
+          @if (dd.request; as rq) {
+            <h4 class="ed-dsec">Cadena de gasto</h4>
+            <div class="ed-chain">
+              <div class="ed-stage done">
+                <div class="ed-stage-ico"><i class="pi pi-file-edit"></i></div>
+                <div class="ed-stage-body">
+                  <span class="ed-stage-name">Solicitud</span>
+                  <span class="ed-stage-folio mono">{{ rq.folio }}</span>
+                  <span class="ed-stage-date">{{ rq.fecha | date:'dd/MM/yy' }}</span>
+                </div>
+              </div>
+              <div class="ed-stage done">
+                <div class="ed-stage-ico"><i class="pi pi-check-circle"></i></div>
+                <div class="ed-stage-body">
+                  <span class="ed-stage-name">Gasto aplicado</span>
+                  <span class="ed-stage-folio mono">{{ dd.header?.doc_folio }}</span>
+                  <span class="ed-stage-date">{{ (dd.header?.fecha_doc || dd.header?.fecha) | date:'dd/MM/yy' }}</span>
+                </div>
+              </div>
+            </div>
+            <div class="ed-chain-metrics">
+              <span>Solicitó: <b>{{ rq.solicitante || '—' }}</b></span>
+              @if (rq.lead_days != null) { <span><b>{{ rq.lead_days }}</b> d solicitud→gasto</span> }
+              <span>Estado: <b>{{ estadoLabel(rq.estado) }}</b></span>
+            </div>
           }
           @if (dd.lines.length) {
             <h4 class="ed-dsec">Productos ({{ dd.lines.length }})</h4>
@@ -383,11 +410,11 @@ export class ComercialEgresoDetalleComponent {
 
   private readonly DIM_ORDER: SliceType[] = ['beneficiario', 'cuenta', 'cuenta_mayor', 'area', 'sucursal', 'doc_tipo'];
   private readonly DIM_SHORT: Record<SliceType, string> = {
-    cuenta: 'Cuenta', cuenta_mayor: 'Mayor', beneficiario: 'Beneficiario', area: 'Área', sucursal: 'Sucursal', doc_tipo: 'Tipo doc',
+    cuenta: 'Cuenta', cuenta_mayor: 'Mayor', beneficiario: 'Beneficiario', area: 'Solicitante', sucursal: 'Sucursal', doc_tipo: 'Tipo doc',
   };
   private readonly DIM_FULL: Record<SliceType, string> = {
     cuenta: 'Cuenta contable', cuenta_mayor: 'Cuenta mayor', beneficiario: 'Beneficiario / proveedor',
-    area: 'Área / departamento', sucursal: 'Sucursal', doc_tipo: 'Tipo de documento',
+    area: 'Solicitante', sucursal: 'Sucursal', doc_tipo: 'Tipo de documento',
   };
 
   readonly providerConstraint = computed(() => this.chain().find((c) => c.type === 'beneficiario' && c.key !== '(sin beneficiario)') || null);
@@ -604,6 +631,11 @@ export class ComercialEgresoDetalleComponent {
       { key: 'factura', name: 'Factura', icon: 'pi-receipt', folio: ch.factura_folio, fecha: ch.factura_fecha },
       { key: 'pago', name: 'Pago', icon: 'pi-wallet', folio: ch.pago_folio, fecha: ch.pago_fecha },
     ];
+  }
+
+  /** Estado de la solicitud (kdm1.c43). */
+  estadoLabel(e: string | null): string {
+    return ({ F: 'Finalizada', A: 'Autorizada', C: 'Cancelada', N: 'Nueva' } as Record<string, string>)[e || ''] || (e || '—');
   }
 
   money(v: number): string { return (v || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 }); }

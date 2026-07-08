@@ -1376,8 +1376,8 @@ export class CommercialAnalyticsService {
         return { key: 'sucursal', groupSql: 'e.sucursal', keySql: 'e.sucursal', labelSql: 'e.sucursal', familia: false };
       case 'doc_tipo':
         return { key: 'doc_tipo', groupSql: 'e.doc_tipo', keySql: 'e.doc_tipo', labelSql: 'e.doc_tipo', familia: false };
-      case 'area':
-        return { key: 'area', groupSql: 'e.area', keySql: "COALESCE(e.area,'(sin área)')", labelSql: "COALESCE(e.area,'(sin área)')", familia: false };
+      case 'area': // e.area = kdm1.c48 = SOLICITANTE (persona que pide el egreso); key '(sin área)' se mantiene para el drill
+        return { key: 'area', groupSql: 'e.area', keySql: "COALESCE(e.area,'(sin área)')", labelSql: "COALESCE(e.area,'(sin solicitante)')", familia: false };
       case 'dpto':
         return { key: 'dpto', groupSql: 'e.dpto, e.dpto_nombre', keySql: "COALESCE(e.dpto,'(sin depto)')", labelSql: "COALESCE(e.dpto_nombre, e.dpto, '(sin depto)')", familia: false };
       case 'concepto':
@@ -1594,10 +1594,24 @@ export class CommercialAnalyticsService {
         if (ch) chain = { ...ch, lead_days: ch.lead_days != null ? Number(ch.lead_days) : null, pago_days: ch.pago_days != null ? Number(ch.pago_days) : null };
       }
 
+      // GX.6 — cadena de gasto: la solicitud (XA1501) que originó este gasto (XA1001).
+      let request = null;
+      if (doc_tipo === 'XA1001' && header?.solicitud_folio) {
+        const rq = await trx('analytics.expense_requests')
+          .where({ tenant_id: tenantId, sucursal, folio: header.solicitud_folio })
+          .select('folio', 'fecha', trx.raw('importe::numeric AS importe'), 'solicitante', 'beneficiario', 'concepto', 'estado', 'usuario', 'aplicada')
+          .first();
+        if (rq) {
+          const lead = header.fecha && rq.fecha ? Math.round((Date.parse(String(header.fecha)) - Date.parse(String(rq.fecha))) / 86400000) : null;
+          request = { ...rq, importe: Number(rq.importe), lead_days: Number.isFinite(lead) ? lead : null };
+        }
+      }
+
       return {
         header: header
           ? { ...header, importe: Number(header.importe), iva: Number(header.iva) }
           : null,
+        request,
         postings: postings.map((r: any) => ({ ...r, importe: Number(r.importe) })),
         lines: lines.map((r: any) => ({
           ...r,

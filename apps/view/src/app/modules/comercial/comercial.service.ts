@@ -1723,11 +1723,25 @@ export interface ExpenseDocChain {
   lead_days: number | null;
   pago_days: number | null;
 }
+/** GX.6 — solicitud (XA1501) que originó un gasto (XA1001). */
+export interface ExpenseRequest {
+  folio: string;
+  fecha: string | null;
+  importe: number;
+  solicitante: string | null;
+  beneficiario: string | null;
+  concepto: string | null;
+  estado: string | null;
+  usuario: string | null;
+  aplicada: boolean;
+  lead_days: number | null;
+}
 export interface ExpenseDocumentDetail {
   header: ExpenseDocHeader | null;
   postings: ExpensePosting[];
   lines: ExpenseProductLine[];
   chain?: ExpenseDocChain | null;
+  request?: ExpenseRequest | null;
 }
 // GX v3 — proveedores (201) + hallazgos
 export interface ApProvider {

@@ -70,14 +70,16 @@ import { egresChartOptions } from './egresos-chart-opts';
         <div class="ex-field"><label>Sucursales</label>
           <p-multiSelect [options]="sucursales()" [(ngModel)]="sucursal" optionLabel="label" optionValue="code" placeholder="Todas" [showClear]="true" appendTo="body" styleClass="w-full" (onPanelHide)="queueFilter()" /></div>
         @if (isReportView()) {
+          <div class="ex-field"><label>Mes</label>
+            <p-select [options]="mesOpts" [(ngModel)]="mesSel" optionLabel="label" optionValue="value" [showClear]="true" placeholder="—" appendTo="body" (onChange)="pickMes($event.value)" styleClass="w-full" [filter]="true" /></div>
           <div class="ex-field"><label>Rango</label>
-            <p-datePicker [(ngModel)]="rangeDates" selectionMode="range" dateFormat="dd/mm/yy" [showIcon]="true" appendTo="body" (onClose)="queueFilter()" /></div>
+            <p-datePicker [(ngModel)]="rangeDates" selectionMode="range" dateFormat="dd/mm/yy" [showIcon]="true" appendTo="body" (onClose)="onRangeChange()" /></div>
           <div class="ex-field"><label>Tipo</label>
             <app-segmented [options]="familiaOpts" [value]="familia()" (valueChange)="setStr(familia, $event)" ariaLabel="Tipo de egreso" /></div>
           <div class="ex-field"><label>Tipo doc</label>
             <p-select [options]="docTipoOpts()" [(ngModel)]="docTipo" [showClear]="true" placeholder="Todos" appendTo="body" (onChange)="queueFilter()" styleClass="w-full" /></div>
-          <div class="ex-field"><label>Área</label>
-            <p-select [options]="areaOpts()" [(ngModel)]="area" [showClear]="true" placeholder="Todas" appendTo="body" (onChange)="queueFilter()" styleClass="w-full" [filter]="true" /></div>
+          <div class="ex-field"><label>Solicitante</label>
+            <p-select [options]="areaOpts()" [(ngModel)]="area" [showClear]="true" placeholder="Todos" appendTo="body" (onChange)="queueFilter()" styleClass="w-full" [filter]="true" /></div>
           <div class="ex-field"><label>Departamento</label>
             <p-select [options]="dptoOpts()" [(ngModel)]="dpto" optionLabel="label" optionValue="value" [showClear]="true" placeholder="Todos" appendTo="body" (onChange)="queueFilter()" styleClass="w-full" [filter]="true" /></div>
           <div class="ex-field"><label>Concepto</label>
@@ -353,11 +355,12 @@ export class ComercialEgresosComponent {
     iva_bug: { label: 'IVA acreditable huérfano', sev: 'bad', hint: 'XD5501 con abono a 122-001 sin cargo espejo (descuadra el libro)' },
     prov_203: { label: 'Provisiones 203 sin descargar', sev: 'warn', hint: 'Nómina/IMSS/SAT provisionados a 203 que nunca se cargan' },
     anticipo_107: { label: 'Anticipos 107 sin aplicar', sev: 'warn', hint: 'Anticipos a proveedor (cargo 107) nunca cruzados contra factura' },
+    solicitud_sin_aplicar: { label: 'Solicitudes sin aplicar', sev: 'warn', hint: 'Solicitudes de gasto (XA1501) vencidas que nunca se volvieron gasto (XA1001) — dinero pedido/aprobado no ejecutado' },
   };
   readonly groupByOpts = [
     { label: 'Cuenta', value: 'cuenta' }, { label: 'Cuenta mayor', value: 'cuenta_mayor' },
     { label: 'Beneficiario', value: 'beneficiario' }, { label: 'Sucursal', value: 'sucursal' },
-    { label: 'Tipo de documento', value: 'doc_tipo' }, { label: 'Área', value: 'area' },
+    { label: 'Tipo de documento', value: 'doc_tipo' }, { label: 'Solicitante', value: 'area' },
     { label: 'Departamento', value: 'dpto' }, { label: 'Concepto', value: 'concepto' }, { label: 'Mes', value: 'mes' },
   ];
 
@@ -386,6 +389,19 @@ export class ComercialEgresosComponent {
   beneficiario = '';
   minImporte: number | null = null;
   rangeDates: Date[] = [(() => { const d = new Date(); d.setDate(d.getDate() - 90); return d; })(), new Date()];
+  mesSel: string | null = null;
+  /** Últimos 18 meses (YYYY-MM) para el selector rápido de mes. */
+  readonly mesOpts = (() => {
+    const out: { label: string; value: string }[] = [];
+    const d = new Date();
+    for (let i = 0; i < 18; i++) {
+      const val = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      const lbl = d.toLocaleDateString('es-MX', { month: 'long', year: 'numeric' });
+      out.push({ label: lbl.charAt(0).toUpperCase() + lbl.slice(1), value: val });
+      d.setMonth(d.getMonth() - 1);
+    }
+    return out;
+  })();
 
   /** Árbol/Tabla/Tendencia = renders del reporte de egresos. Proveedores/Hallazgos = otros datasets. */
   readonly isReportView = computed(() => {
@@ -445,6 +461,18 @@ export class ComercialEgresosComponent {
   setView(v: string) { this.view.set(v as any); this.showView(); }
   // groupBy solo reagrupa las filas del reporte (tabla) → recarga solo el reporte.
   setGroupBy(v: string) { this.groupBy.set(v as ExpenseGroupBy); this.fresh.report = false; this.showView(); }
+
+  /** Selector rápido de mes: acota el rango a ese mes (o lo limpia y deja el rango). */
+  pickMes(v: string | null) {
+    this.mesSel = v || null;
+    if (v) {
+      const [y, m] = v.split('-').map(Number);
+      this.rangeDates = [new Date(y, m - 1, 1), new Date(y, m, 0)];
+    }
+    this.applyFilters();
+  }
+  /** Cambio manual del rango → limpia el selector de mes (evita estado incoherente). */
+  onRangeChange() { this.mesSel = null; this.queueFilter(); }
 
   /** Cambio de filtro con debounce: agrupa varios cambios seguidos en una sola request. */
   queueFilter() {

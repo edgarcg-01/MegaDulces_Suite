@@ -183,8 +183,10 @@ async function bulkInsert(db, table, cols, rows) {
       ['tenant_id', 'sucursal', 'proveedor_norm', 'proveedor', 'compra_12m', 'pagos_12m', 'saldo', 'num_facturas', 'ultima_compra', 'dpo_dias'],
       apRows.map((r) => [M, ...r]));
 
-    // findings: DELETE por sucursal+ventana + INSERT
-    await db.query(`DELETE FROM analytics.expense_findings WHERE tenant_id=$1 AND sucursal = ANY($2) AND fecha >= $3::date AND fecha <= $4::date`, [M, okCodes, from, to]);
+    // findings: DELETE por sucursal+ventana + INSERT.
+    // Excluye 'solicitud_sin_aplicar' (lo maneja import-expense-requests.js; si no,
+    // este delete lo borraría al correr después en el mismo nightly).
+    await db.query(`DELETE FROM analytics.expense_findings WHERE tenant_id=$1 AND sucursal = ANY($2) AND fecha >= $3::date AND fecha <= $4::date AND tipo <> 'solicitud_sin_aplicar'`, [M, okCodes, from, to]);
     await bulkInsert(db, 'analytics.expense_findings',
       ['tenant_id', 'tipo', 'sucursal', 'fecha', 'doc_tipo', 'doc_folio', 'beneficiario', 'cuenta', 'importe', 'nota'],
       findingRows.map((r) => [M, ...r]));
