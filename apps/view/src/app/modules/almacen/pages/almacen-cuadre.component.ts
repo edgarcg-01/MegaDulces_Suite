@@ -70,7 +70,7 @@ type Tab = 'resumen' | 'cortes' | 'movimientos' | 'descuadres';
               @if (o.top_cajeros.length) {
                 @for (c of o.top_cajeros; track c.cajero + c.sucursal) {
                   <div class="cd-bar-row">
-                    <span class="cd-bar-lbl">{{ c.cajero }} <span class="muted">· suc {{ c.sucursal }} · {{ c.eventos }}×</span></span>
+                    <span class="cd-bar-lbl">{{ c.cajero_nombre || c.cajero }} <span class="muted">· suc {{ c.sucursal }} · {{ c.eventos }}×</span></span>
                     <div class="cd-bar"><div class="cd-bar-fill" [style.width.%]="barPct(c.faltante, o.top_cajeros[0].faltante)"></div></div>
                     <span class="cd-bar-val">{{ money(c.faltante) }}</span>
                   </div>
@@ -116,7 +116,7 @@ type Tab = 'resumen' | 'cortes' | 'movimientos' | 'descuadres';
                 <td>{{ c.business_date | date:'dd/MM/yy' }}</td>
                 <td>{{ c.warehouse_name || c.warehouse_code }}</td>
                 <td>{{ c.caja }}</td>
-                <td>{{ c.cajero_cierre || '—' }}</td>
+                <td>@if (c.cajero_nombre) { {{ c.cajero_nombre }} <span class="cd-code muted">{{ c.cajero_cierre }}</span> } @else { {{ c.cajero_cierre || '—' }} }</td>
                 <td class="ta-r">{{ money(c.efectivo_esperado) }}</td>
                 <td class="ta-r">{{ money(c.efectivo_contado) }}
                   @if (c.cuadre_exacto) { <i class="pi pi-eye-slash cd-flag" title="Cuadre exacto: contado idéntico al esperado — conteo posiblemente no ciego"></i> }
@@ -309,6 +309,7 @@ type Tab = 'resumen' | 'cortes' | 'movimientos' | 'descuadres';
     .cd-total-row td { border-top: 2px solid var(--border-color, #ddd); font-weight: 700; }
     .cd-flag-note { font-size: .76rem; color: #b45309; margin: .6rem 0 0; display: flex; align-items: center; gap: .35rem; }
     .cd-prod { display: block; font-weight: 500; } .cd-sku { display: block; font-size: .7rem; }
+    .cd-code { font-size: .68rem; font-family: var(--font-mono, ui-monospace, monospace); }
     .cd-kpi-val { display: block; font-size: 1.25rem; font-weight: 800; font-variant-numeric: tabular-nums; }
     .cd-kpi-lbl { display: block; font-size: .68rem; text-transform: uppercase; letter-spacing: .03em; color: var(--text-muted, #78716c); }
     .cd-2col { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }

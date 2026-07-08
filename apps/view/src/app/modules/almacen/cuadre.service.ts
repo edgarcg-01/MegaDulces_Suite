@@ -61,13 +61,13 @@ export interface CuadreOverview {
   };
   inventario: { mermas: number; monto_merma: number };
   descuadres: { pendientes: number; criticos: number };
-  top_cajeros: { sucursal: string; cajero: string; eventos: number; faltante: number }[];
+  top_cajeros: { sucursal: string; cajero: string; cajero_nombre: string | null; eventos: number; faltante: number }[];
   por_sucursal: { sucursal: string; cortes: number; faltante_caja: number; merma: number }[];
 }
 
 export interface CashCut {
   id: string; warehouse_code: string; warehouse_name: string | null; caja: string; folio: string;
-  business_date: string; cajero_cierre: string | null; turno: string | null;
+  business_date: string; cajero_cierre: string | null; cajero_nombre: string | null; turno: string | null;
   efectivo_esperado: number; efectivo_contado: number; efectivo_diff: number;
   tarjeta_esperado: number; tarjeta_contado: number; tarjeta_diff: number;
   transfer_esperado: number; transfer_contado: number; transfer_diff: number;

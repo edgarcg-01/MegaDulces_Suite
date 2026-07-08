@@ -155,25 +155,27 @@ export class MovementReconcileService {
   private async detCajaDescuadre(trx: any, tenantId: string, params: any): Promise<RawDiscrepancy[]> {
     const umbral = Number(params.umbral) || 50;
     const critico = Number(params.critico) || 5000;
-    const rows = await trx('analytics.cash_cuts')
-      .where('tenant_id', tenantId)
-      .whereRaw('abs(efectivo_diff) >= ?', [umbral])
-      .select('warehouse_code', 'warehouse_name', 'caja', 'folio', 'business_date',
-        'cajero_cierre', 'efectivo_esperado', 'efectivo_contado', 'efectivo_diff')
-      .orderByRaw('abs(efectivo_diff) DESC')
+    const rows = await trx('analytics.cash_cuts as cc')
+      .where('cc.tenant_id', tenantId)
+      .leftJoin('analytics.pos_cashiers as pc', (j: any) => j.on('pc.tenant_id', '=', 'cc.tenant_id').andOn('pc.warehouse_code', '=', 'cc.warehouse_code').andOn('pc.cajero_code', '=', 'cc.cajero_cierre'))
+      .whereRaw('abs(cc.efectivo_diff) >= ?', [umbral])
+      .select('cc.warehouse_code', 'cc.warehouse_name', 'cc.caja', 'cc.folio', 'cc.business_date',
+        'cc.cajero_cierre', trx.raw('pc.nombre AS cajero_nombre'), 'cc.efectivo_esperado', 'cc.efectivo_contado', 'cc.efectivo_diff')
+      .orderByRaw('abs(cc.efectivo_diff) DESC')
       .limit(1000);
     return rows.map((r: any) => {
       const diff = Number(r.efectivo_diff);
       const abs = Math.abs(diff);
       const faltante = diff > 0; // esperado − contado > 0 = falta dinero
+      const cajero = r.cajero_nombre || r.cajero_cierre || '?';
       const fecha = r.business_date instanceof Date ? r.business_date.toISOString().slice(0, 10) : String(r.business_date).slice(0, 10);
       return {
         rule_key: 'caja_descuadre', plano: 'caja' as const,
         severity: abs >= critico ? 'critical' as const : 'warn' as const,
         score: Math.min(1, abs / (critico * 2)),
         titulo: `${faltante ? 'Faltante' : 'Sobrante'} de caja ${money(abs)} — suc ${r.warehouse_code} caja ${r.caja}`,
-        resumen: `Corte ${fecha} (cajero ${r.cajero_cierre || '?'}): esperado ${money(Number(r.efectivo_esperado))} vs contado ${money(Number(r.efectivo_contado))}.`,
-        entity: { sucursal: r.warehouse_code, sucursal_nombre: r.warehouse_name, caja: r.caja, cajero: r.cajero_cierre, folio: r.folio, fecha },
+        resumen: `Corte ${fecha} (cajero ${cajero}): esperado ${money(Number(r.efectivo_esperado))} vs contado ${money(Number(r.efectivo_contado))}.`,
+        entity: { sucursal: r.warehouse_code, sucursal_nombre: r.warehouse_name, caja: r.caja, cajero: r.cajero_cierre, cajero_nombre: r.cajero_nombre, folio: r.folio, fecha },
         periodo: fecha,
         esperado: Number(r.efectivo_esperado), observado: Number(r.efectivo_contado), diferencia: diff,
         importe: abs,
@@ -190,28 +192,30 @@ export class MovementReconcileService {
     const minEventos = Number(params.min_eventos) || 3;
     const minFalta = Number(params.min_falta) || 50;
     const criticoSuma = Number(params.critico_suma) || 10000;
-    const rows = await trx('analytics.cash_cuts')
-      .where('tenant_id', tenantId)
-      .whereNotNull('cajero_cierre')
-      .whereRaw('business_date >= (CURRENT_DATE - (? || \' days\')::interval)', [ventana])
-      .whereRaw('efectivo_diff >= ?', [minFalta]) // solo faltantes
-      .groupBy('warehouse_code', 'cajero_cierre')
+    const rows = await trx('analytics.cash_cuts as cc')
+      .where('cc.tenant_id', tenantId)
+      .leftJoin('analytics.pos_cashiers as pc', (j: any) => j.on('pc.tenant_id', '=', 'cc.tenant_id').andOn('pc.warehouse_code', '=', 'cc.warehouse_code').andOn('pc.cajero_code', '=', 'cc.cajero_cierre'))
+      .whereNotNull('cc.cajero_cierre')
+      .whereRaw('cc.business_date >= (CURRENT_DATE - (? || \' days\')::interval)', [ventana])
+      .whereRaw('cc.efectivo_diff >= ?', [minFalta]) // solo faltantes
+      .groupBy('cc.warehouse_code', 'cc.cajero_cierre', 'pc.nombre')
       .havingRaw('count(*) >= ?', [minEventos])
-      .select('warehouse_code', 'cajero_cierre',
+      .select('cc.warehouse_code', 'cc.cajero_cierre', trx.raw('pc.nombre AS cajero_nombre'),
         trx.raw('count(*)::int AS eventos'),
-        trx.raw('ROUND(SUM(efectivo_diff)::numeric,2) AS suma_falta'),
-        trx.raw('ROUND(MAX(efectivo_diff)::numeric,2) AS max_falta'));
+        trx.raw('ROUND(SUM(cc.efectivo_diff)::numeric,2) AS suma_falta'),
+        trx.raw('ROUND(MAX(cc.efectivo_diff)::numeric,2) AS max_falta'));
     const periodo = (new Date().toISOString().slice(0, 7));
     return rows.map((r: any) => {
       const suma = Number(r.suma_falta);
       const eventos = Number(r.eventos);
+      const cajero = r.cajero_nombre || r.cajero_cierre;
       return {
         rule_key: 'cajero_faltante_recurrente', plano: 'caja' as const,
         severity: suma >= criticoSuma ? 'critical' as const : 'warn' as const,
         score: Math.min(1, suma / (criticoSuma * 2)),
-        titulo: `Faltantes recurrentes: cajero ${r.cajero_cierre} (suc ${r.warehouse_code}) — ${eventos} cortes, ${money(suma)}`,
+        titulo: `Faltantes recurrentes: cajero ${cajero} (suc ${r.warehouse_code}) — ${eventos} cortes, ${money(suma)}`,
         resumen: `${eventos} cortes con faltante en ${ventana} días (mayor ${money(Number(r.max_falta))}). Patrón a revisar.`,
-        entity: { sucursal: r.warehouse_code, cajero: r.cajero_cierre, eventos },
+        entity: { sucursal: r.warehouse_code, cajero: r.cajero_cierre, cajero_nombre: r.cajero_nombre, eventos },
         periodo,
         esperado: null, observado: null, diferencia: suma,
         importe: suma,
@@ -226,15 +230,17 @@ export class MovementReconcileService {
   private async detDescuadreNoEfectivo(trx: any, tenantId: string, params: any): Promise<RawDiscrepancy[]> {
     const umbral = Number(params.umbral) || 50;
     const critico = Number(params.critico) || 2000;
-    const rows = await trx('analytics.cash_cuts')
-      .where('tenant_id', tenantId)
-      .whereRaw('(abs(tarjeta_diff) >= ? OR abs(transfer_diff) >= ?)', [umbral, umbral])
-      .select('warehouse_code', 'warehouse_name', 'caja', 'folio', 'business_date', 'cajero_cierre',
-        'tarjeta_esperado', 'tarjeta_contado', 'tarjeta_diff', 'transfer_esperado', 'transfer_contado', 'transfer_diff')
-      .orderByRaw('greatest(abs(tarjeta_diff), abs(transfer_diff)) DESC')
+    const rows = await trx('analytics.cash_cuts as cc')
+      .where('cc.tenant_id', tenantId)
+      .leftJoin('analytics.pos_cashiers as pc', (j: any) => j.on('pc.tenant_id', '=', 'cc.tenant_id').andOn('pc.warehouse_code', '=', 'cc.warehouse_code').andOn('pc.cajero_code', '=', 'cc.cajero_cierre'))
+      .whereRaw('(abs(cc.tarjeta_diff) >= ? OR abs(cc.transfer_diff) >= ?)', [umbral, umbral])
+      .select('cc.warehouse_code', 'cc.warehouse_name', 'cc.caja', 'cc.folio', 'cc.business_date', 'cc.cajero_cierre', trx.raw('pc.nombre AS cajero_nombre'),
+        'cc.tarjeta_esperado', 'cc.tarjeta_contado', 'cc.tarjeta_diff', 'cc.transfer_esperado', 'cc.transfer_contado', 'cc.transfer_diff')
+      .orderByRaw('greatest(abs(cc.tarjeta_diff), abs(cc.transfer_diff)) DESC')
       .limit(1000);
     const out: RawDiscrepancy[] = [];
     for (const r of rows) {
+      const cajero = r.cajero_nombre || r.cajero_cierre || '?';
       const fecha = r.business_date instanceof Date ? r.business_date.toISOString().slice(0, 10) : String(r.business_date).slice(0, 10);
       for (const forma of ['tarjeta', 'transfer'] as const) {
         const diff = Number(r[`${forma}_diff`]);
@@ -247,8 +253,8 @@ export class MovementReconcileService {
           severity: abs >= critico ? 'critical' : 'warn',
           score: Math.min(1, abs / (critico * 2)),
           titulo: `${label}: ${faltante ? 'faltante' : 'sobrante'} ${money(abs)} — suc ${r.warehouse_code} caja ${r.caja}`,
-          resumen: `Corte ${fecha} (cajero ${r.cajero_cierre || '?'}): ${label.toLowerCase()} esperado ${money(Number(r[`${forma}_esperado`]))} vs contado ${money(Number(r[`${forma}_contado`]))}.`,
-          entity: { sucursal: r.warehouse_code, sucursal_nombre: r.warehouse_name, caja: r.caja, cajero: r.cajero_cierre, folio: r.folio, fecha, forma },
+          resumen: `Corte ${fecha} (cajero ${cajero}): ${label.toLowerCase()} esperado ${money(Number(r[`${forma}_esperado`]))} vs contado ${money(Number(r[`${forma}_contado`]))}.`,
+          entity: { sucursal: r.warehouse_code, sucursal_nombre: r.warehouse_name, caja: r.caja, cajero: r.cajero_cierre, cajero_nombre: r.cajero_nombre, folio: r.folio, fecha, forma },
           periodo: fecha,
           esperado: Number(r[`${forma}_esperado`]), observado: Number(r[`${forma}_contado`]), diferencia: diff,
           importe: abs,
@@ -266,31 +272,33 @@ export class MovementReconcileService {
     const minMonto = Number(params.min_monto) || 3000;
     const minCortes = Number(params.min_cortes) || 5;
     const pct = Number(params.pct_exacto) || 0.9;
-    const rows = await trx('analytics.cash_cuts')
-      .where('tenant_id', tenantId)
-      .whereNotNull('cajero_cierre')
-      .whereRaw('efectivo_esperado >= ?', [minMonto])
-      .groupBy('warehouse_code', 'cajero_cierre')
-      .groupByRaw("to_char(business_date,'YYYY-MM')")
+    const rows = await trx('analytics.cash_cuts as cc')
+      .where('cc.tenant_id', tenantId)
+      .leftJoin('analytics.pos_cashiers as pc', (j: any) => j.on('pc.tenant_id', '=', 'cc.tenant_id').andOn('pc.warehouse_code', '=', 'cc.warehouse_code').andOn('pc.cajero_code', '=', 'cc.cajero_cierre'))
+      .whereNotNull('cc.cajero_cierre')
+      .whereRaw('cc.efectivo_esperado >= ?', [minMonto])
+      .groupBy('cc.warehouse_code', 'cc.cajero_cierre', 'pc.nombre')
+      .groupByRaw("to_char(cc.business_date,'YYYY-MM')")
       .havingRaw('count(*) >= ?', [minCortes])
-      .havingRaw('avg((efectivo_diff = 0)::int) >= ?', [pct])
-      .select('warehouse_code', 'cajero_cierre',
-        trx.raw("to_char(business_date,'YYYY-MM') AS periodo"),
+      .havingRaw('avg((cc.efectivo_diff = 0)::int) >= ?', [pct])
+      .select('cc.warehouse_code', 'cc.cajero_cierre', trx.raw('pc.nombre AS cajero_nombre'),
+        trx.raw("to_char(cc.business_date,'YYYY-MM') AS periodo"),
         trx.raw('count(*)::int AS cortes'),
-        trx.raw('count(*) FILTER (WHERE efectivo_diff = 0)::int AS exactos'),
-        trx.raw('ROUND(AVG(efectivo_esperado)::numeric,2) AS monto_prom'));
+        trx.raw('count(*) FILTER (WHERE cc.efectivo_diff = 0)::int AS exactos'),
+        trx.raw('ROUND(AVG(cc.efectivo_esperado)::numeric,2) AS monto_prom'));
     return rows.map((r: any) => {
       const cortes = Number(r.cortes);
       const exactos = Number(r.exactos);
       const ratio = cortes ? exactos / cortes : 0;
       const montoProm = Number(r.monto_prom);
+      const cajero = r.cajero_nombre || r.cajero_cierre;
       return {
         rule_key: 'arqueo_no_ciego', plano: 'caja' as const,
         severity: ratio >= 0.98 ? 'critical' as const : 'warn' as const,
         score: ratio,
-        titulo: `Arqueo no ciego: cajero ${r.cajero_cierre} (suc ${r.warehouse_code}) — ${exactos}/${cortes} cortes cuadran exacto`,
+        titulo: `Arqueo no ciego: cajero ${cajero} (suc ${r.warehouse_code}) — ${exactos}/${cortes} cortes cuadran exacto`,
         resumen: `En ${r.periodo}, ${Math.round(ratio * 100)}% de los cortes (monto prom. ${money(montoProm)}) cerraron con contado idéntico al esperado al centavo. El conteo no parece a ciegas — el "cuadre" no está verificando el efectivo.`,
-        entity: { sucursal: r.warehouse_code, cajero: r.cajero_cierre, cortes, exactos },
+        entity: { sucursal: r.warehouse_code, cajero: r.cajero_cierre, cajero_nombre: r.cajero_nombre, cortes, exactos },
         periodo: r.periodo,
         esperado: null, observado: null, diferencia: null,
         importe: 0,

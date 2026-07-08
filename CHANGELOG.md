@@ -10,6 +10,9 @@
 
 ## [Unreleased]
 
+### Added — Supervisor de Movimientos: nombres de cajero (SM.7) (2026-07-08)
+- Catálogo `analytics.pos_cashiers` + importer `import-pos-cashiers` (une Kepler `kdpv_gerentes` códigos prefijados + `kdpv_kdku` cortos, escopeado por sucursal): **742 cajeros, 100% de cortes resueltos**. Los códigos (`54TYSL`, `40VMC`) ahora muestran nombre en cortes, resumen y en los 4 detectores de caja → los hallazgos nombran al culpable (ej. TANIA YAZMIN SÁNCHEZ LEAL, $57k faltante en 9 cortes). Codes basura caen a fallback.
+
 ### Added — Supervisor de Movimientos: desglose completo del corte (SM.7) (2026-07-08)
 - **Por qué cuadra o no un corte**, descifrado en vivo de `md.kdpv_folio_caja` (2178 cortes red completa). Un corte = **esperado (sistema) vs contado (arqueo)** por forma de pago (efectivo/tarjeta/transferencia) + desglose del arqueo (billetes/monedas/otros) + efectivo retirado.
 - **Regla `arqueo_no_ciego`** (nueva): 1456 de 1993 cortes de monto alto (**73%**) cierran con contado idéntico al esperado al centavo — imposible en conteo físico real. El descuadre bajo NO garantiza caja sana; el arqueo no es ciego. Detecta cajero×mes ≥90% exacto (**49 hallazgos** en data real).

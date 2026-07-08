@@ -88,9 +88,9 @@ Desciframiento en vivo de `md.kdpv_folio_caja` (686 cortes md_03 + 2178 red comp
 - Query service: cortes con desglose + flag `cuadre_exacto`; overview con `pct_exacto`/`descuadre_no_efectivo`/venta real; movimientos con **nombre de producto** (join `public.products`); nombre de **sucursal** ya presente.
 - Consola: Resumen con KPI arqueo-no-ciego + nota; Cortes master-detail (formas de pago + desglose arqueo) + filtros de fecha; Movimientos con producto + filtros de fecha.
 
-**Pendiente cajero por nombre:** no hay catálogo de cajeros en nuestra DB (códigos `40VMC`/`54TYSL`). Requiere feed nuevo desde Kepler `kdpv_kdku`+`kdpv_gerentes` → `analytics.pos_cashiers` (diferido).
+**Cajero por nombre ✅:** `analytics.pos_cashiers` (mig `20260708140000`) + importer `import-pos-cashiers` une `kdpv_gerentes` (códigos prefijados `40VMC`/`54TYSL`) + `kdpv_kdku` (cortos `02`/`01JZICO`), escopeado por sucursal. **742 cajeros, 100% de cortes resueltos.** Join en cortes/overview/4 detectores → los hallazgos nombran al culpable (ej. TANIA YAZMIN SÁNCHEZ LEAL $57k). Acentos con mojibake WIN1252 del ERP (cosmético). Codes basura (`123`) caen a fallback = código.
 
-**Pendiente prod (Railway):** aplicar mig `20260708120000` + re-correr `import-cash-cuts --apply` (backfill columnas) + `Escanear ahora`. Las tablas base SM ya están en prod; local (5433) quedó al día en esta sesión (batch 144).
+**Pendiente prod (Railway):** aplicar migs `20260708120000` + `20260708140000` + re-correr `import-cash-cuts --apply` + `import-pos-cashiers --apply` + `Escanear ahora`. Las tablas base SM ya están en prod; local (5433) quedó al día en esta sesión (batch 145).
 
 **Ruta crítica:** SM.0 → SM.1 (caja) entrega valor en la primera rebanada (detecta faltantes por cajero con data real — 90 cortes ≥$50 en md_02 sola).
 

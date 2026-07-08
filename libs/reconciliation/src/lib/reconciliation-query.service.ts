@@ -35,13 +35,16 @@ export class ReconciliationQueryService {
         .where('tenant_id', trx.raw('public.current_tenant_id()')).whereIn('status', ['nuevo', 'en_revision'])
         .select(trx.raw('COUNT(*)::int AS pendientes'), trx.raw("COUNT(*) FILTER (WHERE severity='critical')::int AS criticos")).first();
 
-      const topCajeros = await trx('analytics.cash_cuts').where('tenant_id', tenantId)
-        .whereRaw('efectivo_diff >= 50').whereNotNull('cajero_cierre')
-        .groupBy('warehouse_code', 'cajero_cierre')
-        .select('warehouse_code', 'cajero_cierre',
+      const topCajeros = await trx('analytics.cash_cuts as cc').where('cc.tenant_id', tenantId)
+        .leftJoin('analytics.pos_cashiers as pc', function (this: any) {
+          this.on('pc.tenant_id', '=', 'cc.tenant_id').andOn('pc.warehouse_code', '=', 'cc.warehouse_code').andOn('pc.cajero_code', '=', 'cc.cajero_cierre');
+        })
+        .whereRaw('cc.efectivo_diff >= 50').whereNotNull('cc.cajero_cierre')
+        .groupBy('cc.warehouse_code', 'cc.cajero_cierre', 'pc.nombre')
+        .select('cc.warehouse_code', 'cc.cajero_cierre', trx.raw('pc.nombre AS cajero_nombre'),
           trx.raw('COUNT(*)::int AS eventos'),
-          trx.raw('ROUND(SUM(efectivo_diff)::numeric, 2) AS faltante'))
-        .orderByRaw('SUM(efectivo_diff) DESC').limit(10);
+          trx.raw('ROUND(SUM(cc.efectivo_diff)::numeric, 2) AS faltante'))
+        .orderByRaw('SUM(cc.efectivo_diff) DESC').limit(10);
 
       const porSucursal = await trx('analytics.cash_cuts').where('tenant_id', tenantId)
         .groupBy('warehouse_code')
@@ -67,7 +70,7 @@ export class ReconciliationQueryService {
         },
         inventario: { mermas: Number(merma?.movs || 0), monto_merma: Number(merma?.monto || 0) },
         descuadres: { pendientes: Number(disc?.pendientes || 0), criticos: Number(disc?.criticos || 0) },
-        top_cajeros: topCajeros.map((r: any) => ({ sucursal: r.warehouse_code, cajero: r.cajero_cierre, eventos: Number(r.eventos), faltante: Number(r.faltante) })),
+        top_cajeros: topCajeros.map((r: any) => ({ sucursal: r.warehouse_code, cajero: r.cajero_cierre, cajero_nombre: r.cajero_nombre || null, eventos: Number(r.eventos), faltante: Number(r.faltante) })),
         por_sucursal: porSucursal.map((r: any) => ({ sucursal: r.warehouse_code, cortes: Number(r.cortes), faltante_caja: Number(r.faltante), merma: mermaMap[r.warehouse_code] || 0 })),
       };
     });
@@ -78,9 +81,12 @@ export class ReconciliationQueryService {
     const tenantId = this.tenantCtx.requireTenantId();
     const limit = Math.min(1000, Math.max(1, Number(q.limit) || 300));
     return this.tk.run(async (trx) => {
-      const b = trx('analytics.cash_cuts').where('tenant_id', tenantId)
-        .select('id', 'warehouse_code', 'warehouse_name', 'caja', 'folio', 'business_date',
-          'cajero_cierre', 'turno',
+      const b = trx('analytics.cash_cuts as cc').where('cc.tenant_id', tenantId)
+        .leftJoin('analytics.pos_cashiers as pc', function (this: any) {
+          this.on('pc.tenant_id', '=', 'cc.tenant_id').andOn('pc.warehouse_code', '=', 'cc.warehouse_code').andOn('pc.cajero_code', '=', 'cc.cajero_cierre');
+        })
+        .select('cc.id', 'cc.warehouse_code', 'cc.warehouse_name', 'cc.caja', 'cc.folio', 'cc.business_date',
+          'cc.cajero_cierre', trx.raw('pc.nombre AS cajero_nombre'), 'cc.turno',
           trx.raw('efectivo_esperado::numeric AS efectivo_esperado'), trx.raw('efectivo_contado::numeric AS efectivo_contado'),
           trx.raw('efectivo_diff::numeric AS efectivo_diff'),
           trx.raw('tarjeta_esperado::numeric AS tarjeta_esperado'), trx.raw('tarjeta_contado::numeric AS tarjeta_contado'), trx.raw('tarjeta_diff::numeric AS tarjeta_diff'),
@@ -89,11 +95,11 @@ export class ReconciliationQueryService {
           trx.raw('efectivo_retirado::numeric AS efectivo_retirado'),
           trx.raw('venta_total::numeric AS venta_total'), trx.raw('total_venta::numeric AS total_venta'),
           trx.raw('(efectivo_diff = 0 AND efectivo_esperado >= 3000) AS cuadre_exacto'))
-        .orderBy('business_date', 'desc').orderByRaw('abs(efectivo_diff) DESC').limit(limit);
-      if (q.sucursal) b.where('warehouse_code', q.sucursal);
-      if (q.cajero) b.whereRaw('cajero_cierre ILIKE ?', [`%${q.cajero}%`]);
-      if (q.from) b.where('business_date', '>=', q.from);
-      if (q.to) b.where('business_date', '<=', q.to);
+        .orderBy('cc.business_date', 'desc').orderByRaw('abs(efectivo_diff) DESC').limit(limit);
+      if (q.sucursal) b.where('cc.warehouse_code', q.sucursal);
+      if (q.cajero) b.whereRaw('(cc.cajero_cierre ILIKE ? OR pc.nombre ILIKE ?)', [`%${q.cajero}%`, `%${q.cajero}%`]);
+      if (q.from) b.where('cc.business_date', '>=', q.from);
+      if (q.to) b.where('cc.business_date', '<=', q.to);
       if (q.solo_descuadres) b.whereRaw('(abs(efectivo_diff) >= ? OR abs(tarjeta_diff) >= ? OR abs(transfer_diff) >= ?)', [Number(q.min_diff) || 50, Number(q.min_diff) || 50, Number(q.min_diff) || 50]);
       else if (q.min_diff) b.whereRaw('abs(efectivo_diff) >= ?', [Number(q.min_diff)]);
       const rows = await b;
