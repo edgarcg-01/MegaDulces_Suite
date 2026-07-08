@@ -121,7 +121,8 @@ async function upsert(db, rows) {
 
   if (!APPLY) { console.log('\n(dry-run — usar --apply para escribir a analytics.cash_cuts)'); return; }
   if (!process.env.DATABASE_URL_NEW) { console.error('ERROR: --apply requiere DATABASE_URL_NEW'); process.exit(1); }
-  const db = knexLib({ client: 'pg', connection: { connectionString: process.env.DATABASE_URL_NEW, ssl: { rejectUnauthorized: false } }, pool: { min: 0, max: 2 } });
+  const isLocal = /@(localhost|127\.0\.0\.1|192\.168\.)/.test(process.env.DATABASE_URL_NEW || '');
+  const db = knexLib({ client: 'pg', connection: { connectionString: process.env.DATABASE_URL_NEW, ssl: isLocal ? false : { rejectUnauthorized: false } }, pool: { min: 0, max: 2 } });
   const n = await upsert(db, all);
   console.log(`✅ UPSERT ${n} cortes a analytics.cash_cuts`);
   await db.destroy();

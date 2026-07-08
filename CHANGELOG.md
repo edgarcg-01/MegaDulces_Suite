@@ -10,6 +10,15 @@
 
 ## [Unreleased]
 
+### Added — Supervisor de Movimientos: desglose completo del corte (SM.7) (2026-07-08)
+- **Por qué cuadra o no un corte**, descifrado en vivo de `md.kdpv_folio_caja` (2178 cortes red completa). Un corte = **esperado (sistema) vs contado (arqueo)** por forma de pago (efectivo/tarjeta/transferencia) + desglose del arqueo (billetes/monedas/otros) + efectivo retirado.
+- **Regla `arqueo_no_ciego`** (nueva): 1456 de 1993 cortes de monto alto (**73%**) cierran con contado idéntico al esperado al centavo — imposible en conteo físico real. El descuadre bajo NO garantiza caja sana; el arqueo no es ciego. Detecta cajero×mes ≥90% exacto (**49 hallazgos** en data real).
+- **Regla `descuadre_no_efectivo`** (nueva): descuadres de tarjeta/transferencia (c36/c37), antes 100% invisibles — **73 cortes** afectados.
+- **Consola** `/almacen/cuadre`: Resumen con KPI arqueo-no-ciego + nota; Cortes master-detail (3 formas de pago esperado/contado/diff + desglose arqueo) con filtros de fecha; Movimientos con **nombre de producto** (join `public.products`) + filtros de fecha; nombre de sucursal.
+
+### Fixed — Corte: `total_venta` subestimaba la venta (2026-07-08)
+- `total_venta` mapeaba `c49` (≈ solo efectivo). La venta real del turno = efectivo+tarjeta+transferencia esperados. Nueva columna `venta_total`: **$61.3M** real vs $54.2M viejo (−$7.1M). Migración `20260708120000_cash_cuts_desglose` (+7 columnas idempotentes + backfill). Importer `import-cash-cuts` lee c36/c37/c43/c44/c45/c48 y SSL condicional por host.
+
 ### Fixed — Maat chat: "No pude generar una respuesta" en respuestas largas (2026-07-07)
 - **Causa** (reproducida contra la API): `MAX_TOKENS=1500` cortaba las respuestas detalladas (análisis por sucursal, tablas) → el tool-call `render_response` quedaba truncado (`stop_reason=max_tokens`) y `narrative` volvía vacío. Solo pasaba en respuestas largas → intermitente.
 - **Fix en 3 niveles**: (1) `MAX_TOKENS` 1500→4096 cubre respuestas ricas; (2) `retryConcise` reintenta una vez con nudge de concisión + 8192 tokens si aún trunca (recuperó 6959 chars en la prueba); (3) mensaje accionable ("acota la pregunta…") en vez del genérico. `THINK_MAX_TOKENS` 4096→8192. Commit `9382918`.

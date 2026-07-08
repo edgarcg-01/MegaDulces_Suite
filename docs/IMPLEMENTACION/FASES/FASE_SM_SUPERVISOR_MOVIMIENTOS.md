@@ -69,6 +69,28 @@ Aprendizaje **L2**: `rule_registry.precision_score` por feedback → auto-supres
 | **SM.3** | Cruces P3 (venta↔inventario↔caja) | ⏸️ DIFERIDO — sin señal limpia (Kepler calcula venta/inv/caja juntos = tautológico; descuento-línea no existe). Reabre con fuente independiente. | SM.1, SM.2 |
 | **SM.4** | Frontend `/almacen/cuadre` (KPIs + bandeja densa + evidencia + HITL) | ⬜ | SM.1+ |
 | **SM.5** | Cron nocturno + L2 + alerta WS crítica | ⬜ | SM.3 |
+| **SM.6** | Consola read-all: tabs Resumen/Cortes/Movimientos/Descuadres (data cruda + KPIs) | ✅ 2026-07-08 | SM.4 |
+| **SM.7** | Desglose completo del corte + nombres + filtros | ✅ 2026-07-08 | SM.6 |
+
+## SM.7 — Anatomía del corte (por qué cuadra o no) — ✅ 2026-07-08
+
+Desciframiento en vivo de `md.kdpv_folio_caja` (686 cortes md_03 + 2178 red completa). Un corte enfrenta **esperado (sistema) vs contado (arqueo)** por forma de pago: efectivo `c15/c25/c35`, tarjeta `c16/c26/c36`, transferencia `c17/c27/c37`. Además `c43/c44/c45` = desglose del arqueo (billetes/monedas/otros), `c48` = efectivo retirado, `c49` ≈ efectivo esperado (**NO** venta total).
+
+**Hallazgos que reencuadran el módulo:**
+1. **Arqueo no ciego (crítico):** 1456 de 1993 cortes de monto alto (**73%**) cierran con contado idéntico al esperado **al centavo** — imposible en un conteo físico real. El descuadre bajo NO significa caja sana; significa que el arqueo no se hace a ciegas. → regla `arqueo_no_ciego` (cajero×mes ≥90% exacto): **49 hallazgos**.
+2. **Descuadre no-efectivo invisible:** tarjeta/transferencia también descuadran y no se miraba. → regla `descuadre_no_efectivo` (c36/c37): **73 cortes**.
+3. **Bug de venta:** `total_venta` mapeaba c49 (≈solo efectivo). Venta real = c15+c16+c17. Corregido en `venta_total`: **$61.3M** real vs $54.2M viejo (−$7.1M subestimado).
+
+**Integrado:**
+- Migración `20260708120000_cash_cuts_desglose` (+7 columnas idempotentes + backfill `venta_total`).
+- Importer `import-cash-cuts` lee c36/c37/c43/c44/c45/c48 + calcula `venta_total`; SSL condicional por host (local sin SSL).
+- 2 reglas nuevas en `MovementReconcileService` (`descuadre_no_efectivo`, `arqueo_no_ciego`).
+- Query service: cortes con desglose + flag `cuadre_exacto`; overview con `pct_exacto`/`descuadre_no_efectivo`/venta real; movimientos con **nombre de producto** (join `public.products`); nombre de **sucursal** ya presente.
+- Consola: Resumen con KPI arqueo-no-ciego + nota; Cortes master-detail (formas de pago + desglose arqueo) + filtros de fecha; Movimientos con producto + filtros de fecha.
+
+**Pendiente cajero por nombre:** no hay catálogo de cajeros en nuestra DB (códigos `40VMC`/`54TYSL`). Requiere feed nuevo desde Kepler `kdpv_kdku`+`kdpv_gerentes` → `analytics.pos_cashiers` (diferido).
+
+**Pendiente prod (Railway):** aplicar mig `20260708120000` + re-correr `import-cash-cuts --apply` (backfill columnas) + `Escanear ahora`. Las tablas base SM ya están en prod; local (5433) quedó al día en esta sesión (batch 144).
 
 **Ruta crítica:** SM.0 → SM.1 (caja) entrega valor en la primera rebanada (detecta faltantes por cajero con data real — 90 cortes ≥$50 en md_02 sola).
 
