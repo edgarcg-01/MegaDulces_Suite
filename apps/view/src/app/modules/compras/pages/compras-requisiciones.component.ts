@@ -107,7 +107,7 @@ export class ComprasRequisicionesComponent implements OnInit {
 
   open(r: RequisitionRow): void { this.router.navigate(['/compras/requisiciones', r.id]); }
 
-  money(v: number) { return (v || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 }); }
+  money(v: number | string | null | undefined) { return (Number(v ?? 0) || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 }); }
   estadoLabel(e: RequisitionEstado) { return ({ draft: 'Borrador', pending_approval: 'Pendiente', approved: 'Aprobada', ordered: 'Ordenada', cancelled: 'Cancelada' } as Record<RequisitionEstado, string>)[e]; }
   estadoSev(e: RequisitionEstado): Sev { return ({ draft: 'secondary', pending_approval: 'warn', approved: 'success', ordered: 'info', cancelled: 'danger' } as Record<RequisitionEstado, Sev>)[e]; }
 }

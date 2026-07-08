@@ -203,13 +203,16 @@ export class ComprasExistenciaCriticaComponent implements OnInit {
     { label: 'Hasta el mínimo', value: 'min' },
   ];
 
-  // Selección (dentro de un solo almacén) → requisición
+  // Selección (dentro de un solo almacén) → requisición. El tamaño vive en un
+  // signal: computed() solo reacciona a signals — sobre el Map crudo quedaba
+  // cacheado en false y el botón jamás se habilitaba.
   private selected = new Map<string, CriticalStockRow>();
+  private selCount = signal(0);
   dialogOpen = false;
   notes = '';
   draft = signal<(CreateRequisitionLine & { sku: string; nombre: string })[]>([]);
 
-  canRequire = computed(() => !!this.fWarehouse && this.selected.size > 0);
+  canRequire = computed(() => !!this.fWarehouse && this.selCount() > 0);
 
   ngOnInit(): void {
     this.api.filters().pipe(takeUntilDestroyed(this.destroyRef)).subscribe((f) => {
@@ -222,6 +225,7 @@ export class ComprasExistenciaCriticaComponent implements OnInit {
 
   reload(): void {
     this.selected.clear();
+    this.selCount.set(0);
     this.page.set(1);
     this.load();
     this.loadSummary();
@@ -255,12 +259,17 @@ export class ComprasExistenciaCriticaComponent implements OnInit {
   // Selección
   private key(r: CriticalStockRow) { return r.product_id; }
   isSelected(r: CriticalStockRow) { return this.selected.has(this.key(r)); }
-  toggle(r: CriticalStockRow) { const k = this.key(r); this.selected.has(k) ? this.selected.delete(k) : this.selected.set(k, r); }
+  toggle(r: CriticalStockRow) {
+    const k = this.key(r);
+    this.selected.has(k) ? this.selected.delete(k) : this.selected.set(k, r);
+    this.selCount.set(this.selected.size);
+  }
   allSelected() { return this.rows().length > 0 && this.rows().every((r) => this.selected.has(this.key(r))); }
   toggleAll(e: Event) {
     const on = (e.target as HTMLInputElement).checked;
     if (on) this.rows().forEach((r) => this.selected.set(this.key(r), r));
     else this.rows().forEach((r) => this.selected.delete(this.key(r)));
+    this.selCount.set(this.selected.size);
   }
 
   openDialog(): void {
@@ -292,7 +301,8 @@ export class ComprasExistenciaCriticaComponent implements OnInit {
   }
 
   // Helpers
-  money(v: number) { return (v || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 }); }
+  /** Postgres numeric llega como STRING por JSON; sin Number() el toLocaleString de string ignora el formato de moneda. */
+  money(v: number | string | null | undefined) { return (Number(v ?? 0) || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 }); }
   warehouseLabel() { return this.warehouseNames.get(this.fWarehouse) || ''; }
   basisLabel(b: string) { return this.basisOpts.find((o) => o.value === b)?.label || b; }
   bucketLabel(b: Bucket) { return ({ agotado: 'Agotado', bajo_minimo: 'Bajo mínimo', bajo_reorden: 'Bajo reorden', sobrestock: 'Sobrestock', sano: 'Sano' } as Record<Bucket, string>)[b]; }
