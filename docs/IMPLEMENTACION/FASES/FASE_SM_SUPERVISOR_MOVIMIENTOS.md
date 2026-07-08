@@ -141,6 +141,11 @@ Causa raíz encadenada: **arqueo no ciego** (habilita) → **handoff sin arqueo 
 - Consola: toggle **Cierre / Relevo** en el tab Arqueo ciego (+ campo cajero entrante); la tabla de recientes etiqueta el tipo y el traspaso saliente→entrante.
 - Smoke: 34 caja×mes flaggeadas + relevo insert/dedup OK.
 
+### P3 — Límite de jornada (fatiga) ✅ (implementado 2026-07-08)
+
+- Regla **`turno_largo`**: cajero×sucursal×mes con ≥5 cortes de jornada ≥10h (el turno largo dobla la tasa de descuadre: 12% vs 6%). Señal de política/RH. KPI "Turnos ≥10h" en el Resumen.
+- Data real: **16 cajero×mes**. Destapa la correlación fatiga↔pérdida en persona: TANIA YAZMIN SÁNCHEZ LEAL (suc05) — 20 turnos ≥10h en junio, $17,432 faltante (la misma con mayor faltante de la red).
+
 **Ruta crítica:** SM.0 → SM.1 (caja) entrega valor en la primera rebanada (detecta faltantes por cajero con data real — 90 cortes ≥$50 en md_02 sola).
 
 ## Gotchas (bakeados)

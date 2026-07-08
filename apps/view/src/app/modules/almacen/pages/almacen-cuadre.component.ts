@@ -55,6 +55,7 @@ type Tab = 'resumen' | 'cortes' | 'movimientos' | 'arqueo' | 'descuadres';
             <div class="cd-kpi"><span class="cd-kpi-val">{{ money(o.caja.sobrante) }}</span><span class="cd-kpi-lbl">Sobrante caja</span></div>
             <div class="cd-kpi" [class.bad]="o.caja.pct_exacto >= 90" [class.warn]="o.caja.pct_exacto >= 70 && o.caja.pct_exacto < 90">
               <span class="cd-kpi-val">{{ o.caja.pct_exacto }}%</span><span class="cd-kpi-lbl">Cuadre exacto (arqueo no ciego)</span></div>
+            <div class="cd-kpi" [class.warn]="o.caja.turnos_largos > 0"><span class="cd-kpi-val">{{ o.caja.turnos_largos | number }}</span><span class="cd-kpi-lbl">Turnos ≥10h (fatiga)</span></div>
             <div class="cd-kpi"><span class="cd-kpi-val bad">{{ money(o.inventario.monto_merma) }}</span><span class="cd-kpi-lbl">Merma ({{ o.inventario.mermas | number }})</span></div>
             <div class="cd-kpi" [class.bad]="o.descuadres.criticos > 0"><span class="cd-kpi-val">{{ o.descuadres.pendientes | number }}</span><span class="cd-kpi-lbl">Descuadres pend. ({{ o.descuadres.criticos }} crít.)</span></div>
           </div>

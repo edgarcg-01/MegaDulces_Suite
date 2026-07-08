@@ -10,6 +10,9 @@
 
 ## [Unreleased]
 
+### Added — Supervisor de Movimientos: límite de jornada (SM.8 / P3) (2026-07-08)
+- **Regla `turno_largo`**: cajero×sucursal×mes con ≥5 jornadas ≥10h (el turno largo dobla el descuadre: 12% vs 6%) → señal RH. KPI "Turnos ≥10h" en Resumen. Data real: 16 cajero×mes; destapa la correlación fatiga↔pérdida en persona (TANIA SÁNCHEZ suc05: 20 turnos ≥10h en junio, $17,432 faltante).
+
 ### Added — Supervisor de Movimientos: arqueo de relevo (SM.8 / P2) (2026-07-08)
 - **Ataca los $320k que viven en cambios de turno.** `blind_counts` extendida (mig `20260708200000`): `tipo` cierre/relevo + `cajero_entrante`. El relevo sella cuánto entregó el cajero saliente al entrante en el handoff → responsabilidad por persona.
 - **Regla `handoff_sin_relevo`**: caja×mes con ≥3 cambios de cajero + faltante ≥$2k sin arqueo de relevo → **34 caja×mes** en data real (suc05-caja4 abr: 23 handoffs, $32k). Consola: toggle Cierre/Relevo + cajero entrante en el tab Arqueo ciego.

@@ -67,6 +67,11 @@ const RULES: RuleMeta[] = [
     params: { min_monto: 5000, shift_largo_h: 10 },
   },
   {
+    rule_key: 'turno_largo', plano: 'caja',
+    nombre: 'Turnos largos recurrentes (fatiga)', descripcion: 'Cajero×sucursal×mes con varios cortes de jornada larga (≥umbral h) — la data muestra que el turno >10h descuadra el doble (12% vs 6%). Señal de política/RH: acotar la jornada.',
+    params: { min_horas: 10, min_turnos: 5, min_faltante: 1000 },
+  },
+  {
     rule_key: 'handoff_sin_relevo', plano: 'caja',
     nombre: 'Cambio de turno sin arqueo de relevo', descripcion: 'Caja×mes con cambios de cajero (abre≠cierra) sin arqueo de relevo capturado y con faltante material — la responsabilidad se diluye entre saliente y entrante. Instala el arqueo de relevo (P2).',
     params: { min_cortes: 3, min_faltante: 2000, cobertura_min: 0.5 },
@@ -164,6 +169,7 @@ export class MovementReconcileService {
       case 'corte_riesgo_circunstancia': return this.detCorteRiesgoCircunstancia(trx, tenantId, params);
       case 'arqueo_ciego_divergente': return this.detArqueoCiegoDivergente(trx, tenantId, params);
       case 'handoff_sin_relevo': return this.detHandoffSinRelevo(trx, tenantId, params);
+      case 'turno_largo': return this.detTurnoLargo(trx, tenantId, params);
       case 'merma_inventario': return this.detMermaInventario(trx, tenantId, params);
       default: return [];
     }
@@ -366,6 +372,46 @@ export class MovementReconcileService {
         causa_probable: 'arqueo_no_ciego',
         evidencia: { params: { min_monto: minMonto, shift_largo_h: shiftLargo }, hora_cierre: r.hora_cierre, duracion_horas: dur, factores },
         dedup_key: `corte_riesgo_circunstancia:${r.warehouse_code}:${r.caja}:${fecha}:${r.folio}`,
+      };
+    });
+  }
+
+  /** Cajero×sucursal×mes con varios cortes de jornada larga (≥umbral h) — fatiga. */
+  private async detTurnoLargo(trx: any, tenantId: string, params: any): Promise<RawDiscrepancy[]> {
+    const minHoras = Number(params.min_horas) || 10;
+    const minTurnos = Number(params.min_turnos) || 5;
+    const minFaltante = Number(params.min_faltante) || 1000;
+    const rows = await trx('analytics.cash_cuts as cc')
+      .where('cc.tenant_id', tenantId)
+      .whereNotNull('cc.cajero_cierre')
+      .whereRaw('cc.duracion_horas >= ?', [minHoras])
+      .leftJoin('analytics.pos_cashiers as pc', (j: any) => j.on('pc.tenant_id', '=', 'cc.tenant_id').andOn('pc.warehouse_code', '=', 'cc.warehouse_code').andOn('pc.cajero_code', '=', 'cc.cajero_cierre'))
+      .groupBy('cc.warehouse_code', 'cc.cajero_cierre', 'pc.nombre')
+      .groupByRaw("to_char(cc.business_date,'YYYY-MM')")
+      .havingRaw('count(*) >= ?', [minTurnos])
+      .select('cc.warehouse_code', 'cc.cajero_cierre', trx.raw('pc.nombre AS cajero_nombre'),
+        trx.raw("to_char(cc.business_date,'YYYY-MM') AS periodo"),
+        trx.raw('count(*)::int AS turnos'),
+        trx.raw('ROUND(MAX(cc.duracion_horas)::numeric,1) AS max_h'),
+        trx.raw('ROUND(AVG(cc.duracion_horas)::numeric,1) AS avg_h'),
+        trx.raw('ROUND(SUM(GREATEST(cc.efectivo_diff,0))::numeric,2) AS faltante'));
+    return rows.map((r: any) => {
+      const turnos = Number(r.turnos);
+      const faltante = Number(r.faltante);
+      const cajero = r.cajero_nombre || r.cajero_cierre;
+      return {
+        rule_key: 'turno_largo', plano: 'caja' as const,
+        severity: faltante >= minFaltante * 5 ? 'critical' as const : 'warn' as const,
+        score: Math.min(1, turnos / (minTurnos * 3)),
+        titulo: `Turnos largos: ${cajero} (suc ${r.warehouse_code}) — ${turnos} jornadas ≥${minHoras}h (${r.periodo})`,
+        resumen: `${turnos} cortes con jornada de ${Number(r.avg_h)}h prom. (máx ${Number(r.max_h)}h) y ${money(faltante)} de faltante. El turno largo dobla la tasa de descuadre — acotar la jornada.`,
+        entity: { sucursal: r.warehouse_code, cajero: r.cajero_cierre, cajero_nombre: r.cajero_nombre, turnos, max_horas: Number(r.max_h) },
+        periodo: r.periodo,
+        esperado: null, observado: null, diferencia: faltante,
+        importe: faltante,
+        causa_probable: 'fatiga_turno_largo',
+        evidencia: { params: { min_horas: minHoras, min_turnos: minTurnos }, turnos, avg_horas: Number(r.avg_h), max_horas: Number(r.max_h), faltante },
+        dedup_key: `turno_largo:${r.warehouse_code}:${r.cajero_cierre}:${r.periodo}`,
       };
     });
   }

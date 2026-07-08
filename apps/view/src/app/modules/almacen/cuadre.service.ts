@@ -56,7 +56,7 @@ export interface RuleHealth {
 export interface CuadreOverview {
   caja: {
     cortes: number; con_descuadre: number; descuadre_no_efectivo: number;
-    cuadre_exacto: number; cortes_monto_alto: number; pct_exacto: number;
+    cuadre_exacto: number; cortes_monto_alto: number; pct_exacto: number; turnos_largos: number;
     faltante: number; sobrante: number; venta: number;
   };
   inventario: { mermas: number; monto_merma: number };
