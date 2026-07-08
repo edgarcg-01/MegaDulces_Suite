@@ -10,6 +10,10 @@
 
 ## [Unreleased]
 
+### Added — Supervisor de Movimientos: cruce independiente (SM.8 / P6) — plan de prevención CERRADO (2026-07-08)
+- **El techo del sistema.** `analytics.pos_ticket_sales` (mig `20260708240000`) + importer `import-pos-ticket-sales` agrega tickets POS crudos (`kdm1` U/D/10) por sucursal×cajero×día (capa atómica). Regla **`venta_vs_tickets`** (plano `cruce`): compara vs el total del corte (capa agregada) → detecta tickets cancelados/editados tras el cierre o corte inventado, algo que la cuadre propia de Kepler no ve. 672/683 reconcilian a ±$100; 76 corte×día divergen ≥$500 (51 sin tickets — ej. 09-ene suc03 corte $50k+ sin un solo ticket).
+- **SM.8 (P1–P6) completo:** el motor corre **10 reglas** en 3 planos; consola de 7 tabs; ciclo detectar→priorizar→intervenir→medir cerrado.
+
 ### Added — Proyecto Compras / Reabastecimiento (Fase RA, ADR-030) (2026-07-08)
 - **Trae a la plataforma el reabastecimiento que Kepler ya opera.** Decode verificado: `kdii.c33`=mínimo, `c34`=punto de reorden, `c35`=máximo (piezas, NO precios — la doc estaba mal, corregida). Motor decide / humano aprueba / LLM fuera (ADR-016).
 - **Nuevo proyecto de primer nivel "Compras"** (`/compras`): tile en projects + nav propio + permisos `COMPRAS_VER`/`COMPRAS_GESTIONAR`. Página **Existencia crítica** (existencia vs mín/reorden/máx + sugerido, filtros por almacén/bucket/proveedor/objetivo) y **Requisiciones** (bandeja + detalle con aprobar/rechazar, HITL).

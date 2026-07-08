@@ -161,11 +161,20 @@ Causa raíz encadenada: **arqueo no ciego** (habilita) → **handoff sin arqueo 
 - Smoke: baseline + DiD calculados correctos (suc05-caja4 fecha simulada: alcance +$13,050 vs red −$16,320 → DiD +$29,370 = sin mejora, como se espera sin intervención real).
 - **Loop completo:** detectar (9 reglas) → priorizar (focos) → intervenir (acción/palanca) → medir (DiD). Confirma o descarta que la palanca sirvió, con data.
 
+### P6 — Cruce independiente: venta atómica vs corte ✅ (implementado 2026-07-08)
+
+- El **techo**: P1 verifica el *contado*, P6 el *esperado*. `analytics.pos_ticket_sales` (mig `20260708240000`) + importer `import-pos-ticket-sales` agrega `md.kdm1` (venta real U/D/10) por sucursal×cajero(c67)×día → capa atómica. Regla **`venta_vs_tickets`** (plano `cruce`): compara vs el total del corte (capa agregada). |diff| ≥ $500 o **sin tickets** → flag. Ataca tickets cancelados/editados tras el cierre o corte inventado — algo que la cuadre propia de Kepler NO ve.
+- Verificado: 672/683 reconcilian a ±$100 (no tautológico); **76 corte×día divergen ≥$500** (51 sin tickets — ej. todo el 09-ene suc03 con corte $50k+ y cero tickets). Descubierto: hallazgo `kdm1.c67`=cajero liga tickets al corte; `c10/c32`='CONTADO' NO separa efectivo/tarjeta (ese split solo vive en el corte) → P6 reconcilia venta TOTAL, no efectivo.
+- Caveat: el match `c67` (ticket) vs `c8` (corte) puede diferir por sucursal (suc02 tiene "sin tickets" que son artefacto de mapeo) → calibra por feedback L2.
+- `import-pos-ticket-sales`: $61.4M en tickets ≈ $61.3M venta_total del corte (reconcilian en agregado).
+
 ## Estado del plan
 
-P0 habilitado · **P1–P5 ✅** implementados y verificados contra data real · P6 (cruce independiente vs tickets POS) diferido (ataca manipulación del *esperado*, no solo del contado; techo del sistema).
+P0 habilitado · **P1–P6 ✅** implementados y verificados contra data real. **SM.8 (prevención) CERRADA.**
 
-**Pendiente prod (Railway):** migs `20260708120000/140000/160000/180000/200000/220000` + importers `import-cash-cuts`/`import-pos-cashiers` `--apply` + `Escanear ahora` + re-login. Local (5433) al día (batch 150).
+El motor corre **10 reglas** (caja_descuadre, cajero_faltante_recurrente, descuadre_no_efectivo, arqueo_no_ciego, corte_riesgo_circunstancia, arqueo_ciego_divergente, handoff_sin_relevo, turno_largo, venta_vs_tickets, merma_inventario) en 3 planos (caja/cruce/inventario). Consola `/almacen/cuadre` con 7 tabs. Ciclo completo: **detectar → priorizar (focos) → intervenir (acciones) → medir (diff-in-diff)**.
+
+**Pendiente prod (Railway):** migs `120000/140000/160000/180000/200000/220000/240000` + importers `import-cash-cuts`/`import-pos-cashiers`/`import-pos-ticket-sales` `--apply` + `Escanear ahora` + re-login. Migs/seeds base ya aplicados por el usuario 2026-07-08. Local (5433) al día (batch 151).
 
 **Ruta crítica:** SM.0 → SM.1 (caja) entrega valor en la primera rebanada (detecta faltantes por cajero con data real — 90 cortes ≥$50 en md_02 sola).
 
