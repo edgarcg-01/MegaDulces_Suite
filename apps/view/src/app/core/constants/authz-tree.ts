@@ -99,7 +99,6 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
           { id: 'commercial-map', label: 'Mapa comercial y prospección', route: '/dashboard/commercial-map', view: [Permission.COMMERCIAL_MAP_VER, Permission.COMMERCIAL_MAP_PROSPECTS_VER], manage: [Permission.COMMERCIAL_MAP_PROSPECTS_GESTIONAR] },
           { id: 'supervisor-ai', label: 'Supervisor AI (Horus)', route: '/dashboard/supervisor-ai', view: [Permission.SUPERVISOR_AI_VER], manage: [Permission.SUPERVISOR_AI_APROBAR] },
           { id: 'stores', label: 'Tiendas', route: '/dashboard/stores', view: [Permission.TIENDAS_VER], manage: [Permission.TIENDAS_CREAR] },
-          { id: 'store-live', label: 'Tienda en Vivo', route: '/tienda/live', view: [Permission.STORE_LIVE_VER], manage: [] },
           { id: 'catalogs', label: 'Catálogos de captura', route: '/dashboard/admin/catalogs', view: [], manage: [Permission.CATALOGO_GESTIONAR] },
           { id: 'scoring', label: 'Scoring', route: '/dashboard/admin/scoring', view: [Permission.SCORING_CONFIG_VER], manage: [Permission.SCORING_CONFIG_GESTIONAR] },
           { id: 'planograma', label: 'Planogramas', route: '/dashboard/admin/planograma', view: [], manage: [Permission.PLANOGRAMAS_GESTIONAR] },
@@ -148,6 +147,15 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
           { id: 'cartaporte', label: 'Carta Porte', route: '/logistica/shipments', view: [Permission.LOGISTICS_CARTAPORTE_VER], manage: [Permission.LOGISTICS_CARTAPORTE_GESTIONAR] },
           { id: 'transfers', label: 'Traspasos', route: '/logistica/traspasos', view: [Permission.LOGISTICS_TRANSFERS_VER], manage: [] },
           { id: 'config', label: 'Configuración', route: '/logistica/config', view: [], manage: [Permission.LOGISTICS_CONFIG_GESTIONAR] },
+        ],
+      },
+      {
+        id: 'pdv',
+        label: 'Punto de Venta',
+        icon: 'pi pi-shop',
+        route: '/tienda',
+        modules: [
+          { id: 'store-live', label: 'Tienda en Vivo', route: '/tienda/live', view: [Permission.STORE_LIVE_VER], manage: [] },
         ],
       },
       {
