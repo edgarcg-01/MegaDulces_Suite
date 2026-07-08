@@ -19,6 +19,12 @@ export const FINANZAS_TABS: PageTab[] = [
     permission: Permission.FINANCE_AI_CHAT,
   },
   {
+    label: 'Solicitudes de gasto',
+    route: '/finanzas/solicitudes',
+    icon: 'pi pi-file-edit',
+    permission: Permission.FINANCE_EXPENSES_VER,
+  },
+  {
     label: 'Pregúntale a Maat',
     route: '/finanzas/maat',
     icon: 'pi pi-sparkles',

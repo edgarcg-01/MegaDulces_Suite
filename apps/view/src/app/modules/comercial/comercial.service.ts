@@ -1089,6 +1089,18 @@ export class ComercialService {
   expensesSucursales() {
     return this.http.get<{ code: string; name: string | null }[]>(`${this.base}/analytics/expenses/sucursales`);
   }
+  /** GX.6 — Solicitudes de gasto (XA1501) con estado + aplicada/pendiente + KPIs. */
+  expenseRequests(p: ExpenseRequestsParams) {
+    let params = new HttpParams();
+    if (p.from) params = params.set('from', p.from);
+    if (p.to) params = params.set('to', p.to);
+    if (p.sucursal?.length) params = params.set('sucursal', p.sucursal.join(','));
+    if (p.estado) params = params.set('estado', p.estado);
+    if (p.solicitante?.trim()) params = params.set('solicitante', p.solicitante.trim());
+    if (p.aplicada != null) params = params.set('aplicada', String(p.aplicada));
+    if (p.search?.trim()) params = params.set('search', p.search.trim());
+    return this.http.get<ExpenseRequestsReport>(`${this.base}/analytics/expenses/requests`, { params });
+  }
   expenseDocument(sucursal: string, doc_tipo: string, folio: string) {
     const params = new HttpParams().set('sucursal', sucursal).set('doc_tipo', doc_tipo).set('folio', folio);
     return this.http.get<ExpenseDocumentDetail>(`${this.base}/analytics/expenses/document`, { params });
@@ -1722,6 +1734,29 @@ export interface ExpenseDocChain {
   pago_fecha: string | null;
   lead_days: number | null;
   pago_days: number | null;
+}
+export interface ExpenseRequestsParams {
+  from?: string; to?: string; sucursal?: string[]; estado?: string;
+  solicitante?: string; aplicada?: boolean; search?: string;
+}
+export interface ExpenseRequestRow {
+  folio: string;
+  sucursal: string;
+  sucursal_nombre: string | null;
+  fecha: string | null;
+  importe: number;
+  solicitante: string | null;
+  beneficiario: string | null;
+  concepto: string | null;
+  estado: string | null;
+  aplicada: boolean;
+  gasto_folio: string | null;
+  gasto_fecha: string | null;
+  lead_days: number | null;
+}
+export interface ExpenseRequestsReport {
+  kpis: { total: number; importe: number; pendientes: number; pendientes_importe: number; aplicadas: number };
+  rows: ExpenseRequestRow[];
 }
 /** GX.6 — solicitud (XA1501) que originó un gasto (XA1001). */
 export interface ExpenseRequest {

@@ -400,6 +400,31 @@ export class CommercialAnalyticsController {
     });
   }
 
+  @Get('expenses/requests')
+  @RequirePermissions(Permission.FINANCE_EXPENSES_VER)
+  @ApiOperation({ summary: 'GX.6 — Solicitudes de gasto (XA1501) con estado y aplicada/pendiente + KPIs. Filtros: from,to, sucursal=csv, estado=F|A|C|N, solicitante, aplicada=true|false, search.' })
+  expenseRequests(
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('sucursal') sucursal?: string,
+    @Query('estado') estado?: string,
+    @Query('solicitante') solicitante?: string,
+    @Query('aplicada') aplicada?: string,
+    @Query('search') search?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.service.expenseRequests({
+      from,
+      to,
+      sucursal: sucursal ? sucursal.split(',').map((s) => s.trim()).filter(Boolean) : undefined,
+      estado,
+      solicitante,
+      aplicada: aplicada === 'true' ? true : aplicada === 'false' ? false : undefined,
+      search,
+      limit: limit ? Number(limit) : undefined,
+    });
+  }
+
   @Get('expenses/filters')
   @RequirePermissions(Permission.FINANCE_EXPENSES_VER)
   @ApiOperation({ summary: 'GX — Valores para los filtros del reporte (tipos doc, áreas, cuentas mayores).' })

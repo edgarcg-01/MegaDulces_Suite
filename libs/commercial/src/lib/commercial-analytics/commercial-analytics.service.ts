@@ -1625,6 +1625,67 @@ export class CommercialAnalyticsService {
   }
 
   /**
+   * GX.6 — Solicitudes de gasto (XA1501) con su estado y si ya se aplicaron (gasto
+   * XA1001). KPIs + filas para la página "Solicitudes de gasto". Filtros: from/to,
+   * sucursal[], estado (F/A/C/N), solicitante (ILIKE), aplicada (bool), search.
+   */
+  async expenseRequests(q: {
+    from?: string; to?: string; sucursal?: string[]; estado?: string;
+    solicitante?: string; aplicada?: boolean; search?: string; limit?: number;
+  }) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const limit = Math.min(5000, Math.max(1, Number(q.limit) || 2000));
+    return this.tk.run(async (trx) => {
+      const applyFilters = (b: any) => {
+        b.where('r.tenant_id', tenantId);
+        if (q.from) b.andWhere('r.fecha', '>=', q.from);
+        if (q.to) b.andWhere('r.fecha', '<=', q.to);
+        if (q.sucursal?.length) b.whereIn('r.sucursal', q.sucursal);
+        if (q.estado) b.where('r.estado', q.estado);
+        if (q.solicitante?.trim()) b.whereRaw('r.solicitante ILIKE ?', [`%${q.solicitante.trim()}%`]);
+        if (q.aplicada != null) b.where('r.aplicada', q.aplicada);
+        if (q.search?.trim()) {
+          const s = `%${q.search.trim()}%`;
+          b.andWhere((w: any) => w.whereRaw('r.folio ILIKE ?', [s]).orWhereRaw('r.beneficiario ILIKE ?', [s]).orWhereRaw('r.concepto ILIKE ?', [s]));
+        }
+        return b;
+      };
+
+      const k: any = await applyFilters(trx('analytics.expense_requests as r'))
+        .select(
+          trx.raw('COUNT(*)::int AS total'),
+          trx.raw('COALESCE(SUM(r.importe),0)::numeric AS importe'),
+          trx.raw("COUNT(*) FILTER (WHERE NOT r.aplicada AND r.estado <> 'C')::int AS pendientes"),
+          trx.raw("COALESCE(SUM(r.importe) FILTER (WHERE NOT r.aplicada AND r.estado <> 'C'),0)::numeric AS pendientes_importe"),
+          trx.raw('COUNT(*) FILTER (WHERE r.aplicada)::int AS aplicadas'),
+        ).first();
+
+      const rows = await applyFilters(trx('analytics.expense_requests as r'))
+        .leftJoin('commercial.warehouses as w', function () { this.on('w.tenant_id', 'r.tenant_id').andOn('w.code', 'r.sucursal'); })
+        .leftJoin('analytics.expense_documents as g', function () {
+          this.on('g.tenant_id', 'r.tenant_id').andOn('g.sucursal', 'r.sucursal').andOn('g.solicitud_folio', 'r.folio').andOnVal('g.doc_tipo', 'XA1001');
+        })
+        .select('r.folio', 'r.sucursal', 'w.name as sucursal_nombre', 'r.fecha',
+          trx.raw('r.importe::numeric AS importe'), 'r.solicitante', 'r.beneficiario', 'r.concepto',
+          'r.estado', 'r.aplicada', 'g.doc_folio as gasto_folio', 'g.fecha as gasto_fecha',
+          trx.raw('(g.fecha - r.fecha) AS lead_days'))
+        .orderBy('r.fecha', 'desc')
+        .limit(limit);
+
+      return {
+        kpis: {
+          total: Number(k?.total || 0),
+          importe: Number(k?.importe || 0),
+          pendientes: Number(k?.pendientes || 0),
+          pendientes_importe: Number(k?.pendientes_importe || 0),
+          aplicadas: Number(k?.aplicadas || 0),
+        },
+        rows: rows.map((x: any) => ({ ...x, importe: Number(x.importe), lead_days: x.lead_days != null ? Number(x.lead_days) : null })),
+      };
+    });
+  }
+
+  /**
    * GX v3 — Auxiliar de proveedores (cuenta 201): compra, pagos, saldo, #facturas,
    * última compra y DPO (días de pago aprox). Agregado por proveedor a través de
    * las sucursales. Filtros: search (ILIKE), sucursal[], limit.
