@@ -364,6 +364,7 @@ type Tab = 'resumen' | 'focos' | 'cortes' | 'movimientos' | 'arqueo' | 'acciones
             <button [class.active]="plano() === null" (click)="setPlano(null)">Todos</button>
             <button [class.active]="plano() === 'caja'" (click)="setPlano('caja')">Caja</button>
             <button [class.active]="plano() === 'inventario'" (click)="setPlano('inventario')">Inventario</button>
+            <button [class.active]="plano() === 'cruce'" (click)="setPlano('cruce')">Cruce</button>
           </div>
           <div class="cd-seg">
             <button [class.active]="dStatus() === 'pendientes'" (click)="setStatus('pendientes')">Pendientes</button>
@@ -501,6 +502,7 @@ type Tab = 'resumen' | 'focos' | 'cortes' | 'movimientos' | 'arqueo' | 'acciones
     .cd-tag { display: inline-block; padding: .08rem .5rem; border-radius: 999px; font-size: .68rem; font-weight: 600; }
     .pl-caja, .mv-merma { background: color-mix(in srgb, var(--bad-fg, #dc2626) 12%, transparent); color: var(--bad-fg, #dc2626); }
     .pl-inventario { background: color-mix(in srgb, #0ea5e9 14%, transparent); color: #0369a1; }
+    .pl-cruce { background: color-mix(in srgb, #0d9488 14%, transparent); color: #0f766e; }
     .mv-traspaso_salida, .mv-traspaso_entrada { background: color-mix(in srgb, #0ea5e9 12%, transparent); color: #0369a1; }
     .mv-ajuste_salida, .mv-ajuste_entrada { background: color-mix(in srgb, #d97706 14%, transparent); color: #b45309; }
     .mv-inv_fisico, .mv-otro { background: var(--surface-hover-bg, #f5f5f4); color: var(--text-muted, #57534e); }

@@ -82,6 +82,11 @@ const RULES: RuleMeta[] = [
     params: { umbral: 50, critico: 1000 },
   },
   {
+    rule_key: 'venta_vs_tickets', plano: 'cruce',
+    nombre: 'Venta del corte vs tickets', descripcion: 'La venta total del corte (capa agregada de Kepler) no reconcilia con la suma de tickets POS del turno (capa atómica) por encima del umbral — tickets cancelados/editados tras el cierre o corte manipulado. Cruce independiente que la cuadre propia no ve.',
+    params: { umbral: 500, critico: 5000 },
+  },
+  {
     rule_key: 'merma_inventario', plano: 'inventario',
     nombre: 'Merma / ajuste de salida alto', descripcion: 'Salidas por ajuste/destrucción (merma) del kardex acumuladas por SKU×sucursal×mes por encima del umbral — inventario que sale sin venta.',
     params: { min_monto: 5000, critico: 100000 },
@@ -170,6 +175,7 @@ export class MovementReconcileService {
       case 'arqueo_ciego_divergente': return this.detArqueoCiegoDivergente(trx, tenantId, params);
       case 'handoff_sin_relevo': return this.detHandoffSinRelevo(trx, tenantId, params);
       case 'turno_largo': return this.detTurnoLargo(trx, tenantId, params);
+      case 'venta_vs_tickets': return this.detVentaVsTickets(trx, tenantId, params);
       case 'merma_inventario': return this.detMermaInventario(trx, tenantId, params);
       default: return [];
     }
@@ -509,6 +515,63 @@ export class MovementReconcileService {
         causa_probable: enmascaro ? 'arqueo_no_ciego' : (faltante ? 'faltante_caja' : 'sobrante_caja'),
         evidencia: { params: { umbral, critico }, contado_ciego: contadoCiego, esperado, kepler_diff: keplerDiff, kepler_enmascaro: enmascaro },
         dedup_key: `arqueo_ciego_divergente:${r.warehouse_code}:${r.caja}:${fecha}:${r.folio}`,
+      };
+    });
+  }
+
+  /** P6 — Venta del corte (agregado) vs suma de tickets POS (atómico), por cajero×día. */
+  private async detVentaVsTickets(trx: any, tenantId: string, params: any): Promise<RawDiscrepancy[]> {
+    const umbral = Number(params.umbral) || 500;
+    const critico = Number(params.critico) || 5000;
+    // Corte agregado por sucursal×cajero×día (venta_total = ef+tj+tr esperado).
+    const rows = await trx
+      .with('cortes', (qb: any) => {
+        qb.from('analytics.cash_cuts').where('tenant_id', tenantId).whereNotNull('cajero_cierre')
+          .groupBy('warehouse_code', 'cajero_cierre', 'business_date')
+          .select('warehouse_code', 'cajero_cierre', 'business_date',
+            trx.raw('ROUND(SUM(venta_total)::numeric,2) AS venta_corte'),
+            trx.raw('SUM(1)::int AS cortes'));
+      })
+      .select('co.warehouse_code', 'co.cajero_cierre', 'co.business_date',
+        trx.raw('co.venta_corte'),
+        trx.raw('COALESCE(ts.ticket_total,0)::numeric AS venta_tickets'),
+        trx.raw('COALESCE(ts.ticket_count,0)::int AS tickets'),
+        trx.raw('pc.nombre AS cajero_nombre'))
+      .from('cortes as co')
+      .leftJoin('analytics.pos_ticket_sales as ts', function (this: any) {
+        this.on('ts.tenant_id', '=', trx.raw('?', [tenantId])).andOn('ts.warehouse_code', '=', 'co.warehouse_code')
+          .andOn('ts.cajero_code', '=', 'co.cajero_cierre').andOn('ts.business_date', '=', 'co.business_date');
+      })
+      .leftJoin('analytics.pos_cashiers as pc', function (this: any) {
+        this.on('pc.tenant_id', '=', trx.raw('?', [tenantId])).andOn('pc.warehouse_code', '=', 'co.warehouse_code').andOn('pc.cajero_code', '=', 'co.cajero_cierre');
+      })
+      .whereRaw('abs(co.venta_corte - COALESCE(ts.ticket_total,0)) >= ?', [umbral])
+      .orderByRaw('abs(co.venta_corte - COALESCE(ts.ticket_total,0)) DESC')
+      .limit(1000);
+    return rows.map((r: any) => {
+      const ventaCorte = Number(r.venta_corte);
+      const ventaTickets = Number(r.venta_tickets);
+      const diff = Math.round((ventaCorte - ventaTickets) * 100) / 100;
+      const abs = Math.abs(diff);
+      const tickets = Number(r.tickets);
+      const cajero = r.cajero_nombre || r.cajero_cierre;
+      const fecha = r.business_date instanceof Date ? r.business_date.toISOString().slice(0, 10) : String(r.business_date).slice(0, 10);
+      const sinTickets = tickets === 0;
+      return {
+        rule_key: 'venta_vs_tickets', plano: 'cruce' as const,
+        severity: (sinTickets || abs >= critico) ? 'critical' as const : 'warn' as const,
+        score: Math.min(1, abs / (critico * 2)),
+        titulo: `Venta no reconcilia ${money(abs)} — ${cajero} suc ${r.warehouse_code} (${fecha})${sinTickets ? ' · SIN tickets' : ''}`,
+        resumen: sinTickets
+          ? `El corte reporta ${money(ventaCorte)} de venta pero NO hay tickets POS ligados ese día. Tickets faltantes/purgados o corte inventado.`
+          : `Corte reporta ${money(ventaCorte)} vs ${money(ventaTickets)} en ${tickets} tickets = ${money(abs)} ${diff > 0 ? 'de más en el corte' : 'de venta en tickets fuera del corte'}. Revisar cancelaciones/edición.`,
+        entity: { sucursal: r.warehouse_code, cajero: r.cajero_cierre, cajero_nombre: r.cajero_nombre, fecha, tickets },
+        periodo: fecha,
+        esperado: ventaCorte, observado: ventaTickets, diferencia: diff,
+        importe: abs,
+        causa_probable: sinTickets ? 'tickets_faltantes' : 'venta_no_reconcilia',
+        evidencia: { params: { umbral, critico }, venta_corte: ventaCorte, venta_tickets: ventaTickets, tickets, diff },
+        dedup_key: `venta_vs_tickets:${r.warehouse_code}:${r.cajero_cierre}:${fecha}`,
       };
     });
   }
