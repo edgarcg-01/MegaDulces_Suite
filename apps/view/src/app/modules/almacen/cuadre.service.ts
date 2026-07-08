@@ -67,7 +67,8 @@ export interface CuadreOverview {
 
 export interface CashCut {
   id: string; warehouse_code: string; warehouse_name: string | null; caja: string; folio: string;
-  business_date: string; cajero_cierre: string | null; cajero_nombre: string | null; turno: string | null;
+  business_date: string; cajero_cierre: string | null; cajero_nombre: string | null; cajero_apertura: string | null; turno: string | null;
+  hora_apertura: string | null; hora_cierre: string | null; duracion_horas: number | null; handoff: boolean;
   efectivo_esperado: number; efectivo_contado: number; efectivo_diff: number;
   tarjeta_esperado: number; tarjeta_contado: number; tarjeta_diff: number;
   transfer_esperado: number; transfer_contado: number; transfer_diff: number;

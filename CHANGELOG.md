@@ -10,6 +10,11 @@
 
 ## [Unreleased]
 
+### Added — Supervisor de Movimientos: cuándo/circunstancia + plan de prevención (SM.7b/SM.8) (2026-07-08)
+- **Deducción sobre 2178 cortes:** el descuadre no es aleatorio — máximo riesgo en **lunes/sábado, turno >10h (12% vs 6%), cierre en cambio de turno (15/18h), caja que cambió de manos** (82% de cortes, $320k de $379k del faltante). Cajas calientes suc02-caja1/2, suc05-caja4/5. Tendencia al alza en 2026.
+- **Ingesta horaria:** `hora_apertura`/`hora_cierre`/`duracion_horas`/`handoff` en `cash_cuts` (mig `20260708160000` + importer lee c6/c11). Regla `corte_riesgo_circunstancia` (cambio de cajero + turno ≥10h + cuadre exacto + ≥$5k → **154 cortes** de $50-65k a auditar). Detalle del corte muestra horario + circunstancia.
+- **Plan de prevención (SM.8)** en el doc de fase: P0 confirmar (piloto arqueo ciego) → P1 forzar arqueo ciego en nuestra capa (palanca #1) → P2 arqueo de relevo → P3 límite de jornada → P4 foco puntos calientes → P5 loop HITL + diff-in-diff → P6 cruce independiente vs tickets POS.
+
 ### Added — Supervisor de Movimientos: nombres de cajero (SM.7) (2026-07-08)
 - Catálogo `analytics.pos_cashiers` + importer `import-pos-cashiers` (une Kepler `kdpv_gerentes` códigos prefijados + `kdpv_kdku` cortos, escopeado por sucursal): **742 cajeros, 100% de cortes resueltos**. Los códigos (`54TYSL`, `40VMC`) ahora muestran nombre en cortes, resumen y en los 4 detectores de caja → los hallazgos nombran al culpable (ej. TANIA YAZMIN SÁNCHEZ LEAL, $57k faltante en 9 cortes). Codes basura caen a fallback.
 

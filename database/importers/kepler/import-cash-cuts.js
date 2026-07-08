@@ -46,6 +46,7 @@ async function readBranch(b) {
     const r = await c.query(
       `SELECT c1 AS suc, c2 AS caja, c3 AS folio, c5::date AS fecha,
               c5 AS opened_at, NULLIF(c10,'1800-01-01')::timestamptz AS closed_at,
+              c6 AS hora_ap, c11 AS hora_ci,
               c7 AS cajero_ap, c8 AS cajero_cierre, c13 AS turno,
               c15::numeric AS ef_esp, c25::numeric AS ef_cont, c35::numeric AS ef_diff,
               c16::numeric AS tj_esp, c26::numeric AS tj_cont, c36::numeric AS tj_diff,
@@ -56,8 +57,12 @@ async function readBranch(b) {
        WHERE c1 = $1 AND (c25::numeric <> 0 OR c35::numeric <> 0)`,
       [b.code],
     );
+    const hh = (v) => { const m = /^(\d{1,2})/.exec(String(v || '').trim()); return m ? parseInt(m[1], 10) : null; };
     return r.rows.map((x) => {
       const efEsp = num(x.ef_esp), tjEsp = num(x.tj_esp), trEsp = num(x.tr_esp);
+      const hap = hh(x.hora_ap), hci = hh(x.hora_ci);
+      let dur = null;
+      if (hap != null && hci != null) { dur = hci - hap; if (dur < 0) dur += 24; }
       return {
         warehouse_code: b.code,
         warehouse_name: b.name,
@@ -69,6 +74,9 @@ async function readBranch(b) {
         cajero_apertura: x.cajero_ap ? String(x.cajero_ap).trim() : null,
         cajero_cierre: x.cajero_cierre ? String(x.cajero_cierre).trim() : null,
         turno: x.turno ? String(x.turno).trim() : null,
+        hora_apertura: x.hora_ap ? String(x.hora_ap).trim() : null,
+        hora_cierre: x.hora_ci ? String(x.hora_ci).trim() : null,
+        duracion_horas: dur,
         efectivo_esperado: efEsp, efectivo_contado: num(x.ef_cont), efectivo_diff: num(x.ef_diff),
         tarjeta_esperado: tjEsp, tarjeta_contado: num(x.tj_cont), tarjeta_diff: num(x.tj_diff),
         transfer_esperado: trEsp, transfer_contado: num(x.tr_cont), transfer_diff: num(x.tr_diff),
@@ -95,7 +103,9 @@ async function upsert(db, rows) {
         transfer_esperado: r.transfer_esperado, transfer_contado: r.transfer_contado, transfer_diff: r.transfer_diff,
         arqueo_billetes: r.arqueo_billetes, arqueo_monedas: r.arqueo_monedas, arqueo_otros: r.arqueo_otros,
         efectivo_retirado: r.efectivo_retirado, total_venta: r.total_venta, venta_total: r.venta_total,
-        cajero_cierre: r.cajero_cierre, closed_at: r.closed_at, updated_at: db.fn.now(),
+        cajero_cierre: r.cajero_cierre, closed_at: r.closed_at,
+        hora_apertura: r.hora_apertura, hora_cierre: r.hora_cierre, duracion_horas: r.duracion_horas,
+        updated_at: db.fn.now(),
       });
     n++;
   }

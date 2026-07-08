@@ -62,6 +62,11 @@ const RULES: RuleMeta[] = [
     params: { min_monto: 3000, min_cortes: 5, pct_exacto: 0.9 },
   },
   {
+    rule_key: 'corte_riesgo_circunstancia', plano: 'caja',
+    nombre: 'Corte de riesgo por circunstancia', descripcion: 'Corte que cuadró exacto (posible enmascaramiento) en la circunstancia de mayor riesgo medida: cambio de cajero (abre≠cierra) + turno largo (≥umbral h, donde el descuadre real dobla al normal). Lista corta para auditar a mano — el diff $0 no lo garantiza.',
+    params: { min_monto: 5000, shift_largo_h: 10 },
+  },
+  {
     rule_key: 'merma_inventario', plano: 'inventario',
     nombre: 'Merma / ajuste de salida alto', descripcion: 'Salidas por ajuste/destrucción (merma) del kardex acumuladas por SKU×sucursal×mes por encima del umbral — inventario que sale sin venta.',
     params: { min_monto: 5000, critico: 100000 },
@@ -146,6 +151,7 @@ export class MovementReconcileService {
       case 'cajero_faltante_recurrente': return this.detCajeroRecurrente(trx, tenantId, params);
       case 'descuadre_no_efectivo': return this.detDescuadreNoEfectivo(trx, tenantId, params);
       case 'arqueo_no_ciego': return this.detArqueoNoCiego(trx, tenantId, params);
+      case 'corte_riesgo_circunstancia': return this.detCorteRiesgoCircunstancia(trx, tenantId, params);
       case 'merma_inventario': return this.detMermaInventario(trx, tenantId, params);
       default: return [];
     }
@@ -305,6 +311,49 @@ export class MovementReconcileService {
         causa_probable: 'arqueo_no_ciego',
         evidencia: { params: { min_monto: minMonto, min_cortes: minCortes, pct_exacto: pct }, cortes, exactos, ratio: Math.round(ratio * 100) / 100, monto_promedio: montoProm },
         dedup_key: `arqueo_no_ciego:${r.warehouse_code}:${r.cajero_cierre}:${r.periodo}`,
+      };
+    });
+  }
+
+  /** Corte cuadrado-exacto en circunstancia de riesgo (cambio cajero + turno largo o cierre en cambio de turno). */
+  private async detCorteRiesgoCircunstancia(trx: any, tenantId: string, params: any): Promise<RawDiscrepancy[]> {
+    const minMonto = Number(params.min_monto) || 5000;
+    const shiftLargo = Number(params.shift_largo_h) || 10;
+    const rows = await trx('analytics.cash_cuts as cc')
+      .where('cc.tenant_id', tenantId)
+      .leftJoin('analytics.pos_cashiers as pc', (j: any) => j.on('pc.tenant_id', '=', 'cc.tenant_id').andOn('pc.warehouse_code', '=', 'cc.warehouse_code').andOn('pc.cajero_code', '=', 'cc.cajero_cierre'))
+      .whereRaw('cc.efectivo_diff = 0')                       // cuadró exacto (posible enmascaramiento)
+      .whereRaw('cc.efectivo_esperado >= ?', [minMonto])
+      .whereRaw('cc.cajero_apertura IS DISTINCT FROM cc.cajero_cierre')  // cambio de cajero
+      .whereRaw('cc.duracion_horas >= ?', [shiftLargo])        // turno largo (driver medido)
+      .select('cc.warehouse_code', 'cc.warehouse_name', 'cc.caja', 'cc.folio', 'cc.business_date', 'cc.cajero_apertura',
+        'cc.cajero_cierre', trx.raw('pc.nombre AS cajero_nombre'), 'cc.efectivo_esperado', 'cc.hora_cierre', 'cc.duracion_horas')
+      .orderBy('cc.efectivo_esperado', 'desc')
+      .limit(300);
+    return rows.map((r: any) => {
+      const monto = Number(r.efectivo_esperado);
+      const dur = r.duracion_horas != null ? Number(r.duracion_horas) : null;
+      const cajero = r.cajero_nombre || r.cajero_cierre || '?';
+      const fecha = r.business_date instanceof Date ? r.business_date.toISOString().slice(0, 10) : String(r.business_date).slice(0, 10);
+      const factores = [
+        'cuadre exacto',
+        'cambio de cajero',
+        ...(dur != null && dur >= shiftLargo ? [`turno ${dur}h`] : []),
+        ...(r.hora_cierre ? [`cierre ${String(r.hora_cierre).slice(0, 5)}`] : []),
+      ];
+      return {
+        rule_key: 'corte_riesgo_circunstancia', plano: 'caja' as const,
+        severity: 'warn' as const,
+        score: Math.min(1, monto / 100000),
+        titulo: `Corte a auditar ${money(monto)} — suc ${r.warehouse_code} caja ${r.caja} (${fecha})`,
+        resumen: `Cerró exacto (${cajero}) en circunstancia de riesgo: ${factores.join(' · ')}. El diff $0 no lo garantiza — auditar arqueo real.`,
+        entity: { sucursal: r.warehouse_code, sucursal_nombre: r.warehouse_name, caja: r.caja, cajero: r.cajero_cierre, cajero_nombre: r.cajero_nombre, abrio: r.cajero_apertura, folio: r.folio, fecha },
+        periodo: fecha,
+        esperado: monto, observado: monto, diferencia: 0,
+        importe: monto,
+        causa_probable: 'arqueo_no_ciego',
+        evidencia: { params: { min_monto: minMonto, shift_largo_h: shiftLargo }, hora_cierre: r.hora_cierre, duracion_horas: dur, factores },
+        dedup_key: `corte_riesgo_circunstancia:${r.warehouse_code}:${r.caja}:${fecha}:${r.folio}`,
       };
     });
   }

@@ -149,8 +149,11 @@ type Tab = 'resumen' | 'cortes' | 'movimientos' | 'descuadres';
                       <div><span class="cd-ev-k">Efvo. retirado</span><span class="cd-ev-v">{{ money(c.efectivo_retirado) }}</span></div>
                       <div><span class="cd-ev-k">Turno</span><span class="cd-ev-v">{{ c.turno || '—' }}</span></div>
                       <div><span class="cd-ev-k">Folio</span><span class="cd-ev-v mono">{{ c.folio }}</span></div>
+                      <div><span class="cd-ev-k">Horario</span><span class="cd-ev-v">{{ (c.hora_apertura || '?') | slice:0:5 }}–{{ (c.hora_cierre || '?') | slice:0:5 }}@if (c.duracion_horas != null) { <span class="muted"> ({{ c.duracion_horas }}h)</span> }</span></div>
+                      <div><span class="cd-ev-k">Cajeros</span><span class="cd-ev-v">@if (c.handoff) { <span class="cd-flag-inline">cambio {{ c.cajero_apertura }}→{{ c.cajero_cierre }}</span> } @else { mismo }</span></div>
                     </div>
                     @if (c.cuadre_exacto) { <p class="cd-flag-note"><i class="pi pi-eye-slash"></i> Contado idéntico al esperado al centavo — conteo posiblemente no a ciegas.</p> }
+                    @if (c.handoff && (c.duracion_horas || 0) >= 10) { <p class="cd-flag-note"><i class="pi pi-clock"></i> Circunstancia de riesgo: cambio de cajero + turno largo ({{ c.duracion_horas }}h).</p> }
                   </div>
                 </div>
               </td></tr>
@@ -310,6 +313,7 @@ type Tab = 'resumen' | 'cortes' | 'movimientos' | 'descuadres';
     .cd-flag-note { font-size: .76rem; color: #b45309; margin: .6rem 0 0; display: flex; align-items: center; gap: .35rem; }
     .cd-prod { display: block; font-weight: 500; } .cd-sku { display: block; font-size: .7rem; }
     .cd-code { font-size: .68rem; font-family: var(--font-mono, ui-monospace, monospace); }
+    .cd-flag-inline { color: #b45309; font-size: .78rem; }
     .cd-kpi-val { display: block; font-size: 1.25rem; font-weight: 800; font-variant-numeric: tabular-nums; }
     .cd-kpi-lbl { display: block; font-size: .68rem; text-transform: uppercase; letter-spacing: .03em; color: var(--text-muted, #78716c); }
     .cd-2col { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }

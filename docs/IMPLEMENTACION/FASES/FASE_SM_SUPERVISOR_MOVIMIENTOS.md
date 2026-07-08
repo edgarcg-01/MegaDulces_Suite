@@ -90,7 +90,38 @@ Desciframiento en vivo de `md.kdpv_folio_caja` (686 cortes md_03 + 2178 red comp
 
 **Cajero por nombre ✅:** `analytics.pos_cashiers` (mig `20260708140000`) + importer `import-pos-cashiers` une `kdpv_gerentes` (códigos prefijados `40VMC`/`54TYSL`) + `kdpv_kdku` (cortos `02`/`01JZICO`), escopeado por sucursal. **742 cajeros, 100% de cortes resueltos.** Join en cortes/overview/4 detectores → los hallazgos nombran al culpable (ej. TANIA YAZMIN SÁNCHEZ LEAL $57k). Acentos con mojibake WIN1252 del ERP (cosmético). Codes basura (`123`) caen a fallback = código.
 
-**Pendiente prod (Railway):** aplicar migs `20260708120000` + `20260708140000` + re-correr `import-cash-cuts --apply` + `import-pos-cashiers --apply` + `Escanear ahora`. Las tablas base SM ya están en prod; local (5433) quedó al día en esta sesión (batch 145).
+**Pendiente prod (Railway):** aplicar migs `20260708120000` + `20260708140000` + `20260708160000` + re-correr `import-cash-cuts --apply` + `import-pos-cashiers --apply` + `Escanear ahora`. Las tablas base SM ya están en prod; local (5433) quedó al día en esta sesión (batch 146).
+
+## SM.7b — ¿Cuándo y en qué circunstancia? (deducción sobre 2178 cortes) — ✅ 2026-07-08
+
+Perfil de riesgo del descuadre (7.5% de cortes con |diff|≥$50, hora sacada de Kepler c6/c11):
+
+- **Día:** lunes (11.4%) y sábado (8.5%) — extremos de la semana concentran el faltante ($83k / $88k). Mié-vie sanos (~5%).
+- **Hora de cierre:** el $ del faltante se concentra en el cierre de **15:00 ($133k)** y **18:00 ($52k)** — cambios de turno.
+- **Duración del turno:** **>10h → 12%** de descuadre vs **6%** normal. Driver medido más limpio.
+- **Cambio de cajero (abre≠cierra):** **82%** de cortes, **$320k de $379k** del faltante. Circunstancia dominante.
+- **Cajas calientes:** suc02-caja2 (17.9%), suc02-caja1 (16%), suc05-caja4/5 (12%+).
+- **Tendencia:** al alza en 2026 (~$70k faltante/mes abr-jun). Sin efecto quincena.
+
+**Deducción:** máximo riesgo = **lunes/sábado, turno >10h, cierre en cambio de turno (15/18h), caja que cambió de manos**, en las cajas calientes. **Caveat:** es la punta del iceberg — el 73% cuadra exacto (arqueo no ciego), así que el descuadre visible aflora donde cuadrar artificialmente fue más difícil.
+
+**Integrado:** ingesta de `hora_apertura`/`hora_cierre`/`duracion_horas`/`handoff` (mig `20260708160000` + importer) + regla `corte_riesgo_circunstancia` (cambio de cajero + turno ≥10h + cuadre exacto + monto ≥$5k → **154 cortes** de $50-65k a auditar a mano). Detalle del corte en la consola muestra horario + circunstancia.
+
+## SM.8 — Plan de prevención (cómo evitar que siga pasando)
+
+Causa raíz encadenada: **arqueo no ciego** (habilita) → **handoff sin arqueo de relevo** (difumina responsabilidad) → **turnos largos** (fatiga) → **sin loop de accountability** (no se corrige). Plan por fases, cada una medible:
+
+| Fase | Acción | Ataca | Cómo se mide |
+|---|---|---|---|
+| **P0 — Confirmar** | Correr scan + poblar bandeja. Piloto de **arqueo ciego** en 1 sucursal (contar ANTES de ver el esperado) 2-4 sem. | Valida que el 73% exacto enmascara. | Tasa de descuadre real del piloto vs 7.5% base. Si sube → confirmado. |
+| **P1 — Arqueo ciego** (palanca #1) | Kepler no lo fuerza → forzarlo en NUESTRA capa: captura de arqueo (desglose de billetes + foto, sellada con timestamp) **antes** de mostrar el esperado; supervisor compara vs c25. | El habilitador. | `arqueo_no_ciego` baja de 49 hallazgos; % cuadre-exacto cae. |
+| **P2 — Arqueo de relevo** | Corte intermedio obligatorio en cambio de turno → responsabilidad limpia por persona. | El 82% / $320k de handoff. | `corte_riesgo_circunstancia` baja; faltante por handoff cae. |
+| **P3 — Límite de jornada** | Alertar/limitar turnos >10h (política RH + flag automático). | El +6pp de fatiga. | % cortes >10h; su tasa de descuadre. |
+| **P4 — Foco puntos calientes** | Supervisión dirigida (rotación, doble arqueo, cámara) a suc02-caja1/2, suc05-caja4/5 y top cajeros. | La concentración. | Tasa por caja/cajero intervenido. |
+| **P5 — Cerrar el loop** | Bandeja HITL → acción propuesta (ADR-013 `proposed_actions`) → responsable → seguimiento. Ritual semanal. Efectividad **diff-in-diff** (Horus-L L3): caja intervenida vs control. | La tendencia creciente. | ¿Baja la tasa en las cajas intervenidas vs no? |
+| **P6 — Cruce independiente** (reabre SM.3) | Reconstruir venta-efectivo del turno desde tickets POS (`kdm1.c10` forma de pago) como fuente **independiente** del esperado de Kepler. | Fraude que manipula el **esperado**, no solo el conteo. | Diferencia esperado-Kepler vs venta-efectivo reconstruida. |
+
+**Secuencia crítica:** P0 confirma → P1 (arqueo ciego) es la de mayor impacto y sin ella P4/P5 miden ruido. P6 es el techo (ataca manipulación del esperado, no solo del contado).
 
 **Ruta crítica:** SM.0 → SM.1 (caja) entrega valor en la primera rebanada (detecta faltantes por cajero con data real — 90 cortes ≥$50 en md_02 sola).
 

@@ -86,7 +86,9 @@ export class ReconciliationQueryService {
           this.on('pc.tenant_id', '=', 'cc.tenant_id').andOn('pc.warehouse_code', '=', 'cc.warehouse_code').andOn('pc.cajero_code', '=', 'cc.cajero_cierre');
         })
         .select('cc.id', 'cc.warehouse_code', 'cc.warehouse_name', 'cc.caja', 'cc.folio', 'cc.business_date',
-          'cc.cajero_cierre', trx.raw('pc.nombre AS cajero_nombre'), 'cc.turno',
+          'cc.cajero_cierre', trx.raw('pc.nombre AS cajero_nombre'), 'cc.cajero_apertura', 'cc.turno',
+          'cc.hora_apertura', 'cc.hora_cierre', trx.raw('cc.duracion_horas::numeric AS duracion_horas'),
+          trx.raw('(cc.cajero_apertura IS DISTINCT FROM cc.cajero_cierre) AS handoff'),
           trx.raw('efectivo_esperado::numeric AS efectivo_esperado'), trx.raw('efectivo_contado::numeric AS efectivo_contado'),
           trx.raw('efectivo_diff::numeric AS efectivo_diff'),
           trx.raw('tarjeta_esperado::numeric AS tarjeta_esperado'), trx.raw('tarjeta_contado::numeric AS tarjeta_contado'), trx.raw('tarjeta_diff::numeric AS tarjeta_diff'),
@@ -111,6 +113,7 @@ export class ReconciliationQueryService {
         transfer_esperado: n(r.transfer_esperado), transfer_contado: n(r.transfer_contado), transfer_diff: n(r.transfer_diff),
         arqueo_billetes: n(r.arqueo_billetes), arqueo_monedas: n(r.arqueo_monedas), arqueo_otros: n(r.arqueo_otros),
         efectivo_retirado: n(r.efectivo_retirado), venta_total: n(r.venta_total), total_venta: n(r.total_venta),
+        duracion_horas: r.duracion_horas != null ? Number(r.duracion_horas) : null,
       }));
     });
   }
