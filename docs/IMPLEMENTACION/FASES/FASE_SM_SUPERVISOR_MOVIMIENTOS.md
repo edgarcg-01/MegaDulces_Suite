@@ -123,6 +123,17 @@ Causa raíz encadenada: **arqueo no ciego** (habilita) → **handoff sin arqueo 
 
 **Secuencia crítica:** P0 confirma → P1 (arqueo ciego) es la de mayor impacto y sin ella P4/P5 miden ruido. P6 es el techo (ataca manipulación del esperado, no solo del contado).
 
+### P1 — Arqueo ciego ✅ (implementado 2026-07-08)
+
+- `reconciliation.blind_counts` (mig `20260708180000`, RLS forzado): captura del conteo físico por denominación (MXN 1000…0.5) + total server-computed + timestamp sellado + captured_by.
+- `BlindCountService.submit()`: guarda y **recién ahí revela** la comparación vs el esperado de Kepler (flujo ciego por diseño). `.list()` = historial con comparación.
+- Endpoints: `POST /reconciliation/blind-counts` (GESTIONAR), `GET /reconciliation/blind-counts` (VER).
+- Regla **`arqueo_ciego_divergente`**: `|esperado − contado_ciego| ≥ umbral`. **Crítico** cuando Kepler reportó el corte cuadrado (`|c35|<50`) → **enmascaramiento confirmado**.
+- Consola: tab **Arqueo ciego** — pad de denominaciones (no muestra el esperado hasta guardar) + revelación de la diferencia real + historial.
+- Smoke E2E: corte real exacto de Kepler ($121,961, diff 0) + arqueo ciego −$800 → la regla destapa faltante real $800 con `ENMASCARÓ=true`.
+- **Uso P0 (piloto):** capturar el arqueo ciego en 1 sucursal durante 2-4 sem y comparar la tasa real vs el 7.5% base. Si sube → confirma que el 73% exacto enmascara.
+- Pendiente prod: mig `20260708180000` + seed de la regla (la crea `ensureRules` en el primer scan).
+
 **Ruta crítica:** SM.0 → SM.1 (caja) entrega valor en la primera rebanada (detecta faltantes por cajero con data real — 90 cortes ≥$50 en md_02 sola).
 
 ## Gotchas (bakeados)

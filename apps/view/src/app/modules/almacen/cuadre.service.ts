@@ -82,6 +82,22 @@ export interface StockMovement {
   grupo: string | null; folio: string; unidad: string | null; unidades: number; importe: number; fecha: string;
 }
 
+export interface BlindCountDto {
+  warehouse_code: string; caja: string; business_date: string; turno?: string; cajero_code?: string;
+  denominations: Record<string, number>; nota?: string;
+}
+export interface BlindCountResult {
+  total_contado: number; matched: boolean; folio?: string;
+  esperado: number | null; kepler_contado: number | null; kepler_diff: number | null;
+  diff_real: number | null; kepler_enmascaro: boolean;
+}
+export interface BlindCountRow {
+  id: string; warehouse_code: string; caja: string; business_date: string; turno: string | null;
+  cajero_code: string | null; cajero_nombre: string | null; total_contado: number;
+  captured_by: string | null; captured_at: string; nota: string | null;
+  esperado: number | null; kepler_diff: number | null; diff_real: number | null; kepler_enmascaro: boolean;
+}
+
 @Injectable({ providedIn: 'root' })
 export class CuadreService {
   private readonly http = inject(HttpClient);
@@ -127,6 +143,19 @@ export class CuadreService {
     if (q?.limit) p.set('limit', String(q.limit));
     const qs = p.toString();
     return this.http.get<CashCut[]>(`${this.base}/cash-cuts${qs ? '?' + qs : ''}`);
+  }
+
+  submitBlindCount(dto: BlindCountDto): Observable<BlindCountResult> {
+    return this.http.post<BlindCountResult>(`${this.base}/blind-counts`, dto);
+  }
+  listBlindCounts(q?: { from?: string; to?: string; warehouse_code?: string; limit?: number }): Observable<BlindCountRow[]> {
+    const p = new URLSearchParams();
+    if (q?.from) p.set('from', q.from);
+    if (q?.to) p.set('to', q.to);
+    if (q?.warehouse_code) p.set('warehouse_code', q.warehouse_code);
+    if (q?.limit) p.set('limit', String(q.limit));
+    const qs = p.toString();
+    return this.http.get<BlindCountRow[]>(`${this.base}/blind-counts${qs ? '?' + qs : ''}`);
   }
 
   movements(q?: { clase_mov?: string; sucursal?: string; sku?: string; from?: string; to?: string; limit?: number }): Observable<StockMovement[]> {

@@ -5,6 +5,7 @@ import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform
 import { ReconciliationFindingsService } from './reconciliation-findings.service';
 import { ReconciliationQueryService } from './reconciliation-query.service';
 import { MovementReconcileService } from './movement-reconcile.service';
+import { BlindCountService, BlindCountDto } from './blind-count.service';
 
 interface AuthedRequest { user?: { username?: string }; }
 
@@ -17,6 +18,7 @@ export class ReconciliationController {
     private readonly findings: ReconciliationFindingsService,
     private readonly engine: MovementReconcileService,
     private readonly query: ReconciliationQueryService,
+    private readonly blind: BlindCountService,
   ) {}
 
   @Get('overview')
@@ -102,4 +104,23 @@ export class ReconciliationController {
   @Throttle({ long: { limit: 4, ttl: 60_000 } })
   @ApiOperation({ summary: 'SM.1 — Corre el motor de cuadre ahora (manual). Idempotente (UPSERT por dedup_key).' })
   scan() { return this.engine.scanAll('manual'); }
+
+  @Post('blind-counts')
+  @RequirePermissions(Permission.RECONCILIATION_GESTIONAR)
+  @ApiOperation({ summary: 'SM.8/P1 — Captura de arqueo CIEGO (denominaciones). Devuelve la diferencia real vs el esperado de Kepler.' })
+  submitBlindCount(@Body() body: BlindCountDto, @Req() req: AuthedRequest) {
+    return this.blind.submit(body, req?.user?.username);
+  }
+
+  @Get('blind-counts')
+  @RequirePermissions(Permission.RECONCILIATION_VER)
+  @ApiOperation({ summary: 'SM.8/P1 — Arqueos ciegos capturados con su comparación vs Kepler. Filtros: from, to, warehouse_code, limit.' })
+  listBlindCounts(
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('warehouse_code') warehouseCode?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.blind.list({ from, to, warehouse_code: warehouseCode, limit: limit ? Number(limit) : undefined });
+  }
 }

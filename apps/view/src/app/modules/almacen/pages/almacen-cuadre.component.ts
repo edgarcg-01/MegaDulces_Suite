@@ -6,9 +6,9 @@ import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
 import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
-import { CuadreService, Discrepancy, DiscStats, RuleHealth, DiscPlano, CuadreOverview, CashCut, StockMovement } from '../cuadre.service';
+import { CuadreService, Discrepancy, DiscStats, RuleHealth, DiscPlano, CuadreOverview, CashCut, StockMovement, BlindCountResult, BlindCountRow } from '../cuadre.service';
 
-type Tab = 'resumen' | 'cortes' | 'movimientos' | 'descuadres';
+type Tab = 'resumen' | 'cortes' | 'movimientos' | 'arqueo' | 'descuadres';
 
 /**
  * SM.6 — Consola del Supervisor de Movimientos. 4 tabs: RESUMEN (KPIs + rankings),
@@ -39,6 +39,7 @@ type Tab = 'resumen' | 'cortes' | 'movimientos' | 'descuadres';
         <button [class.active]="tab() === 'resumen'" (click)="go('resumen')"><i class="pi pi-chart-bar"></i> Resumen</button>
         <button [class.active]="tab() === 'cortes'" (click)="go('cortes')"><i class="pi pi-wallet"></i> Cortes de caja</button>
         <button [class.active]="tab() === 'movimientos'" (click)="go('movimientos')"><i class="pi pi-box"></i> Movimientos</button>
+        <button [class.active]="tab() === 'arqueo'" (click)="go('arqueo')"><i class="pi pi-eye-slash"></i> Arqueo ciego</button>
         <button [class.active]="tab() === 'descuadres'" (click)="go('descuadres')"><i class="pi pi-flag"></i> Descuadres @if (stats()?.pendientes) { <span class="cd-badge">{{ stats()?.pendientes }}</span> }</button>
       </div>
 
@@ -201,6 +202,70 @@ type Tab = 'resumen' | 'cortes' | 'movimientos' | 'descuadres';
         </div>
       }
 
+      <!-- ══ ARQUEO CIEGO (P1) ══ -->
+      @if (tab() === 'arqueo') {
+        <div class="cd-note">
+          <i class="pi pi-eye-slash"></i>
+          <span>Contá el efectivo físico por denominación <strong>sin ver el esperado</strong>. Al guardar, el sistema revela la diferencia <strong>real</strong> — que el arqueo de Kepler (73% cuadra exacto) suele ocultar.</span>
+        </div>
+        <div class="cd-2col">
+          <div class="card-premium card-flat cd-panel">
+            <h3 class="cd-card-title">Nuevo arqueo ciego</h3>
+            <div class="cd-arq-head">
+              <label class="cd-lbl">Sucursal <input class="cd-input cd-input-sm" [(ngModel)]="aSuc" placeholder="03"></label>
+              <label class="cd-lbl">Caja <input class="cd-input cd-input-sm" [(ngModel)]="aCaja" placeholder="2"></label>
+              <label class="cd-lbl">Fecha <input class="cd-input cd-input-date" type="date" [(ngModel)]="aDate"></label>
+              <label class="cd-lbl">Cajero <input class="cd-input cd-input-sm" [(ngModel)]="aCajero" placeholder="40VMC"></label>
+            </div>
+            <table class="cd-denoms">
+              <tr><th>Denominación</th><th class="ta-r">Cantidad</th><th class="ta-r">Subtotal</th></tr>
+              @for (d of denoms; track d) {
+                <tr>
+                  <td>{{ d >= 1 ? '$' + d : (d*100) + '¢' }}</td>
+                  <td class="ta-r"><input class="cd-input cd-input-xs" type="number" min="0" [(ngModel)]="denomCount[d]" (ngModelChange)="recalc()"></td>
+                  <td class="ta-r muted">{{ money((denomCount[d] || 0) * d) }}</td>
+                </tr>
+              }
+              <tr class="cd-total-row"><td>Total contado</td><td></td><td class="ta-r strong">{{ money(arqTotal()) }}</td></tr>
+            </table>
+            <label class="cd-lbl cd-block">Nota <input class="cd-input" [(ngModel)]="aNota" placeholder="opcional"></label>
+            <button pButton type="button" label="Guardar y revelar diferencia" icon="pi pi-lock-open" class="p-button-sm" [disabled]="!aSuc || !aCaja || !aDate || arqTotal()===0" [loading]="arqSaving()" (click)="submitArqueo()"></button>
+            @if (arqResult(); as r) {
+              <div class="cd-arq-result" [class.bad]="r.kepler_enmascaro">
+                @if (!r.matched) {
+                  <p class="muted">Guardado. No hay corte de Kepler para esa caja/fecha aún — la comparación aparecerá cuando se importe.</p>
+                } @else {
+                  <div class="cd-arq-cmp">
+                    <div><span class="cd-ev-k">Contado ciego</span><span class="cd-ev-v strong">{{ money(r.total_contado) }}</span></div>
+                    <div><span class="cd-ev-k">Esperado (Kepler)</span><span class="cd-ev-v">{{ money(r.esperado || 0) }}</span></div>
+                    <div><span class="cd-ev-k">Diferencia REAL</span><span class="cd-ev-v strong" [class.bad]="(r.diff_real||0)>0" [class.ok]="(r.diff_real||0)<0">{{ signed(r.diff_real || 0) }}</span></div>
+                    <div><span class="cd-ev-k">Kepler reportó</span><span class="cd-ev-v">{{ signed(r.kepler_diff || 0) }}</span></div>
+                  </div>
+                  @if (r.kepler_enmascaro) { <p class="cd-flag-note"><i class="pi pi-exclamation-triangle"></i> Kepler dio este corte por cuadrado, pero el arqueo ciego destapa {{ money(abs(r.diff_real||0)) }}. Enmascaramiento confirmado.</p> }
+                }
+              </div>
+            }
+          </div>
+
+          <div class="card-premium card-flat cd-panel">
+            <h3 class="cd-card-title">Arqueos ciegos recientes</h3>
+            <p-table [value]="blindRows()" styleClass="p-datatable-sm cd-table" [rowHover]="true" [loading]="loading()">
+              <ng-template pTemplate="header"><tr><th>Fecha</th><th>Suc/Caja</th><th>Cajero</th><th class="ta-r">Ciego</th><th class="ta-r">Real</th></tr></ng-template>
+              <ng-template pTemplate="body" let-b>
+                <tr [class.cd-row-bad]="b.kepler_enmascaro">
+                  <td>{{ b.business_date | date:'dd/MM/yy' }}</td>
+                  <td>{{ b.warehouse_code }}/{{ b.caja }}</td>
+                  <td>{{ b.cajero_nombre || b.cajero_code || '—' }}</td>
+                  <td class="ta-r">{{ money(b.total_contado) }}</td>
+                  <td class="ta-r strong" [class.bad]="(b.diff_real||0)>0" [class.ok]="(b.diff_real||0)<0">{{ b.diff_real != null ? signed(b.diff_real) : '—' }}@if (b.kepler_enmascaro) { <i class="pi pi-eye-slash cd-flag"></i> }</td>
+                </tr>
+              </ng-template>
+              <ng-template pTemplate="emptymessage"><tr><td colspan="5" class="cd-empty">Sin arqueos ciegos aún.</td></tr></ng-template>
+            </p-table>
+          </div>
+        </div>
+      }
+
       <!-- ══ DESCUADRES (bandeja HITL) ══ -->
       @if (tab() === 'descuadres') {
         @if (stats(); as s) {
@@ -314,6 +379,15 @@ type Tab = 'resumen' | 'cortes' | 'movimientos' | 'descuadres';
     .cd-prod { display: block; font-weight: 500; } .cd-sku { display: block; font-size: .7rem; }
     .cd-code { font-size: .68rem; font-family: var(--font-mono, ui-monospace, monospace); }
     .cd-flag-inline { color: #b45309; font-size: .78rem; }
+    .cd-arq-head { display: flex; gap: .8rem; flex-wrap: wrap; margin-bottom: .8rem; }
+    .cd-denoms { width: 100%; border-collapse: collapse; font-size: .84rem; font-variant-numeric: tabular-nums; }
+    .cd-denoms th { font-size: .66rem; text-transform: uppercase; color: var(--text-muted, #78716c); font-weight: 600; padding: .25rem .4rem; text-align: left; }
+    .cd-denoms td { padding: .2rem .4rem; border-top: 1px solid var(--border-color, #eee); }
+    .cd-input-xs { width: 4.5rem; padding: .2rem .4rem; text-align: right; }
+    .cd-block { display: block; margin: .8rem 0; }
+    .cd-arq-result { margin-top: 1rem; padding: .9rem; border-radius: var(--r-md, 10px); border: 1px solid var(--border-color, #e7e5e4); background: var(--surface-hover-bg, #fafaf9); }
+    .cd-arq-result.bad { border-color: color-mix(in srgb, var(--bad-fg, #dc2626) 40%, transparent); background: color-mix(in srgb, var(--bad-fg, #dc2626) 5%, transparent); }
+    .cd-arq-cmp { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: .6rem 1rem; }
     .cd-kpi-val { display: block; font-size: 1.25rem; font-weight: 800; font-variant-numeric: tabular-nums; }
     .cd-kpi-lbl { display: block; font-size: .68rem; text-transform: uppercase; letter-spacing: .03em; color: var(--text-muted, #78716c); }
     .cd-2col { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
@@ -380,6 +454,14 @@ export class AlmacenCuadreComponent implements OnInit {
   readonly movs = signal<StockMovement[]>([]);
   readonly fClase = signal<string | null>(null);
   fSku = ''; fSucMov = ''; fMovFrom = ''; fMovTo = '';
+  // arqueo ciego
+  readonly denoms = [1000, 500, 200, 100, 50, 20, 10, 5, 2, 1, 0.5];
+  denomCount: Record<number, number> = {};
+  aSuc = ''; aCaja = ''; aDate = ''; aCajero = ''; aNota = '';
+  readonly arqTotal = signal(0);
+  readonly arqSaving = signal(false);
+  readonly arqResult = signal<BlindCountResult | null>(null);
+  readonly blindRows = signal<BlindCountRow[]>([]);
   // descuadres
   readonly items = signal<Discrepancy[]>([]);
   readonly stats = signal<DiscStats | null>(null);
@@ -396,7 +478,29 @@ export class AlmacenCuadreComponent implements OnInit {
     if (t === 'resumen' && !this.ov()) this.loadOverview();
     if (t === 'cortes' && !this.cortes().length) this.loadCortes();
     if (t === 'movimientos' && !this.movs().length) this.loadMovs();
+    if (t === 'arqueo') this.loadBlind();
     if (t === 'descuadres') this.reloadDisc();
+  }
+
+  recalc() { this.arqTotal.set(this.denoms.reduce((s, d) => s + (Number(this.denomCount[d]) || 0) * d, 0)); }
+
+  submitArqueo() {
+    this.arqSaving.set(true);
+    const denominations: Record<string, number> = {};
+    for (const d of this.denoms) { const n = Number(this.denomCount[d]) || 0; if (n > 0) denominations[String(d)] = n; }
+    this.svc.submitBlindCount({ warehouse_code: this.aSuc.trim(), caja: this.aCaja.trim(), business_date: this.aDate, cajero_code: this.aCajero.trim() || undefined, denominations, nota: this.aNota.trim() || undefined })
+      .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+        next: (r) => {
+          this.arqSaving.set(false); this.arqResult.set(r);
+          this.toast.add({ severity: r.kepler_enmascaro ? 'warn' : 'success', summary: 'Arqueo guardado', detail: r.matched ? `Diferencia real ${this.signed(r.diff_real || 0)}` : 'Guardado (sin corte para comparar aún).' });
+          this.loadBlind();
+        },
+        error: (e) => { this.arqSaving.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudo guardar.' }); },
+      });
+  }
+  private loadBlind() {
+    this.loading.set(true);
+    this.svc.listBlindCounts({ limit: 100 }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (r) => { this.blindRows.set(r); this.loading.set(false); }, error: () => this.loading.set(false) });
   }
 
   private loadOverview() {

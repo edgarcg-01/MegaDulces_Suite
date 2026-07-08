@@ -10,6 +10,11 @@
 
 ## [Unreleased]
 
+### Added — Supervisor de Movimientos: arqueo ciego (SM.8 / P1) (2026-07-08)
+- **La palanca #1 contra el descuadre enmascarado.** `reconciliation.blind_counts` (mig `20260708180000`, RLS) + `BlindCountService`: el cajero/supervisor captura el conteo físico por denominación (MXN) **sin ver el esperado**; al guardar el sistema revela la diferencia **real** vs el esperado de Kepler. Endpoints `POST/GET /reconciliation/blind-counts`.
+- **Regla `arqueo_ciego_divergente`**: `|esperado − contado_ciego| ≥ umbral`, **crítico** cuando Kepler dio el corte por cuadrado (`|c35|<50`) = enmascaramiento confirmado. Consola: tab **Arqueo ciego** (pad de denominaciones ciego + revelación + historial).
+- Smoke E2E: corte real de Kepler $121,961 (diff 0) + arqueo ciego −$800 → destapa faltante real $800 con `ENMASCARÓ=true`. Habilita el piloto P0 (medir tasa real vs 7.5% base).
+
 ### Added — Supervisor de Movimientos: cuándo/circunstancia + plan de prevención (SM.7b/SM.8) (2026-07-08)
 - **Deducción sobre 2178 cortes:** el descuadre no es aleatorio — máximo riesgo en **lunes/sábado, turno >10h (12% vs 6%), cierre en cambio de turno (15/18h), caja que cambió de manos** (82% de cortes, $320k de $379k del faltante). Cajas calientes suc02-caja1/2, suc05-caja4/5. Tendencia al alza en 2026.
 - **Ingesta horaria:** `hora_apertura`/`hora_cierre`/`duracion_horas`/`handoff` en `cash_cuts` (mig `20260708160000` + importer lee c6/c11). Regla `corte_riesgo_circunstancia` (cambio de cajero + turno ≥10h + cuadre exacto + ≥$5k → **154 cortes** de $50-65k a auditar). Detalle del corte muestra horario + circunstancia.

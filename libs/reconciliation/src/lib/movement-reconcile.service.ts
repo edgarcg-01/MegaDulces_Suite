@@ -67,6 +67,11 @@ const RULES: RuleMeta[] = [
     params: { min_monto: 5000, shift_largo_h: 10 },
   },
   {
+    rule_key: 'arqueo_ciego_divergente', plano: 'caja',
+    nombre: 'Arqueo ciego divergente', descripcion: 'El conteo físico capturado a ciegas difiere del efectivo esperado por encima del umbral — el descuadre REAL, independiente del contado de Kepler. Crítico cuando Kepler reportó el corte como cuadrado (enmascaramiento confirmado).',
+    params: { umbral: 50, critico: 1000 },
+  },
+  {
     rule_key: 'merma_inventario', plano: 'inventario',
     nombre: 'Merma / ajuste de salida alto', descripcion: 'Salidas por ajuste/destrucción (merma) del kardex acumuladas por SKU×sucursal×mes por encima del umbral — inventario que sale sin venta.',
     params: { min_monto: 5000, critico: 100000 },
@@ -152,6 +157,7 @@ export class MovementReconcileService {
       case 'descuadre_no_efectivo': return this.detDescuadreNoEfectivo(trx, tenantId, params);
       case 'arqueo_no_ciego': return this.detArqueoNoCiego(trx, tenantId, params);
       case 'corte_riesgo_circunstancia': return this.detCorteRiesgoCircunstancia(trx, tenantId, params);
+      case 'arqueo_ciego_divergente': return this.detArqueoCiegoDivergente(trx, tenantId, params);
       case 'merma_inventario': return this.detMermaInventario(trx, tenantId, params);
       default: return [];
     }
@@ -354,6 +360,51 @@ export class MovementReconcileService {
         causa_probable: 'arqueo_no_ciego',
         evidencia: { params: { min_monto: minMonto, shift_largo_h: shiftLargo }, hora_cierre: r.hora_cierre, duracion_horas: dur, factores },
         dedup_key: `corte_riesgo_circunstancia:${r.warehouse_code}:${r.caja}:${fecha}:${r.folio}`,
+      };
+    });
+  }
+
+  /** Arqueo ciego vs esperado de Kepler: el descuadre REAL. Crítico si Kepler lo reportó cuadrado. */
+  private async detArqueoCiegoDivergente(trx: any, tenantId: string, params: any): Promise<RawDiscrepancy[]> {
+    const umbral = Number(params.umbral) || 50;
+    const critico = Number(params.critico) || 1000;
+    const rows = await trx('reconciliation.blind_counts as bc')
+      .join('analytics.cash_cuts as cc', function (this: any) {
+        this.on('cc.tenant_id', '=', 'bc.tenant_id').andOn('cc.warehouse_code', '=', 'bc.warehouse_code')
+          .andOn('cc.caja', '=', 'bc.caja').andOn('cc.business_date', '=', 'bc.business_date')
+          .andOn(trx.raw('cc.cajero_cierre IS NOT DISTINCT FROM bc.cajero_code'));
+      })
+      .leftJoin('analytics.pos_cashiers as pc', function (this: any) {
+        this.on('pc.tenant_id', '=', 'bc.tenant_id').andOn('pc.warehouse_code', '=', 'bc.warehouse_code').andOn('pc.cajero_code', '=', 'bc.cajero_code');
+      })
+      .whereRaw('abs(cc.efectivo_esperado - bc.total_contado) >= ?', [umbral])
+      .select('bc.warehouse_code', 'cc.warehouse_name', 'bc.caja', 'cc.folio', 'bc.business_date', 'bc.cajero_code',
+        trx.raw('pc.nombre AS cajero_nombre'), trx.raw('bc.total_contado::numeric AS contado_ciego'),
+        trx.raw('cc.efectivo_esperado::numeric AS esperado'), trx.raw('cc.efectivo_diff::numeric AS kepler_diff'))
+      .limit(1000);
+    return rows.map((r: any) => {
+      const esperado = Number(r.esperado);
+      const contadoCiego = Number(r.contado_ciego);
+      const diffReal = Math.round((esperado - contadoCiego) * 100) / 100;
+      const abs = Math.abs(diffReal);
+      const keplerDiff = Number(r.kepler_diff);
+      const enmascaro = Math.abs(keplerDiff) < umbral;   // Kepler dijo cuadrado
+      const faltante = diffReal > 0;
+      const cajero = r.cajero_nombre || r.cajero_code || '?';
+      const fecha = r.business_date instanceof Date ? r.business_date.toISOString().slice(0, 10) : String(r.business_date).slice(0, 10);
+      return {
+        rule_key: 'arqueo_ciego_divergente', plano: 'caja' as const,
+        severity: (enmascaro || abs >= critico) ? 'critical' as const : 'warn' as const,
+        score: Math.min(1, abs / (critico * 2)),
+        titulo: `Arqueo ciego: ${faltante ? 'faltan' : 'sobran'} ${money(abs)} — suc ${r.warehouse_code} caja ${r.caja}${enmascaro ? ' (Kepler lo dio por cuadrado)' : ''}`,
+        resumen: `Corte ${fecha} (${cajero}): conteo ciego ${money(contadoCiego)} vs esperado ${money(esperado)} = ${faltante ? 'faltante' : 'sobrante'} real ${money(abs)}.${enmascaro ? ` Kepler reportó diff ${money(keplerDiff)} — el arqueo ciego destapa lo que el corte ocultó.` : ''}`,
+        entity: { sucursal: r.warehouse_code, sucursal_nombre: r.warehouse_name, caja: r.caja, cajero: r.cajero_code, cajero_nombre: r.cajero_nombre, folio: r.folio, fecha },
+        periodo: fecha,
+        esperado, observado: contadoCiego, diferencia: diffReal,
+        importe: abs,
+        causa_probable: enmascaro ? 'arqueo_no_ciego' : (faltante ? 'faltante_caja' : 'sobrante_caja'),
+        evidencia: { params: { umbral, critico }, contado_ciego: contadoCiego, esperado, kepler_diff: keplerDiff, kepler_enmascaro: enmascaro },
+        dedup_key: `arqueo_ciego_divergente:${r.warehouse_code}:${r.caja}:${fecha}:${r.folio}`,
       };
     });
   }
