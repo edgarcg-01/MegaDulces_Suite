@@ -82,18 +82,20 @@ export interface StockMovement {
   grupo: string | null; folio: string; unidad: string | null; unidades: number; importe: number; fecha: string;
 }
 
+export type BlindTipo = 'cierre' | 'relevo';
 export interface BlindCountDto {
-  warehouse_code: string; caja: string; business_date: string; turno?: string; cajero_code?: string;
+  warehouse_code: string; caja: string; business_date: string; turno?: string;
+  cajero_code?: string; cajero_entrante?: string; tipo?: BlindTipo;
   denominations: Record<string, number>; nota?: string;
 }
 export interface BlindCountResult {
-  total_contado: number; matched: boolean; folio?: string;
+  tipo: BlindTipo; total_contado: number; matched: boolean; folio?: string;
   esperado: number | null; kepler_contado: number | null; kepler_diff: number | null;
   diff_real: number | null; kepler_enmascaro: boolean;
 }
 export interface BlindCountRow {
-  id: string; warehouse_code: string; caja: string; business_date: string; turno: string | null;
-  cajero_code: string | null; cajero_nombre: string | null; total_contado: number;
+  id: string; tipo: BlindTipo; warehouse_code: string; caja: string; business_date: string; turno: string | null;
+  cajero_code: string | null; cajero_entrante: string | null; cajero_nombre: string | null; total_contado: number;
   captured_by: string | null; captured_at: string; nota: string | null;
   esperado: number | null; kepler_diff: number | null; diff_real: number | null; kepler_enmascaro: boolean;
 }

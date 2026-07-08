@@ -211,11 +211,16 @@ type Tab = 'resumen' | 'cortes' | 'movimientos' | 'arqueo' | 'descuadres';
         <div class="cd-2col">
           <div class="card-premium card-flat cd-panel">
             <h3 class="cd-card-title">Nuevo arqueo ciego</h3>
+            <div class="cd-seg" style="margin-bottom:.7rem">
+              <button [class.active]="aTipo() === 'cierre'" (click)="aTipo.set('cierre')">Cierre de día</button>
+              <button [class.active]="aTipo() === 'relevo'" (click)="aTipo.set('relevo')">Relevo (cambio de turno)</button>
+            </div>
             <div class="cd-arq-head">
               <label class="cd-lbl">Sucursal <input class="cd-input cd-input-sm" [(ngModel)]="aSuc" placeholder="03"></label>
               <label class="cd-lbl">Caja <input class="cd-input cd-input-sm" [(ngModel)]="aCaja" placeholder="2"></label>
               <label class="cd-lbl">Fecha <input class="cd-input cd-input-date" type="date" [(ngModel)]="aDate"></label>
-              <label class="cd-lbl">Cajero <input class="cd-input cd-input-sm" [(ngModel)]="aCajero" placeholder="40VMC"></label>
+              <label class="cd-lbl">{{ aTipo() === 'relevo' ? 'Cajero saliente' : 'Cajero' }} <input class="cd-input cd-input-sm" [(ngModel)]="aCajero" placeholder="40VMC"></label>
+              @if (aTipo() === 'relevo') { <label class="cd-lbl">Cajero entrante <input class="cd-input cd-input-sm" [(ngModel)]="aEntrante" placeholder="40RMH"></label> }
             </div>
             <table class="cd-denoms">
               <tr><th>Denominación</th><th class="ta-r">Cantidad</th><th class="ta-r">Subtotal</th></tr>
@@ -229,10 +234,12 @@ type Tab = 'resumen' | 'cortes' | 'movimientos' | 'arqueo' | 'descuadres';
               <tr class="cd-total-row"><td>Total contado</td><td></td><td class="ta-r strong">{{ money(arqTotal()) }}</td></tr>
             </table>
             <label class="cd-lbl cd-block">Nota <input class="cd-input" [(ngModel)]="aNota" placeholder="opcional"></label>
-            <button pButton type="button" label="Guardar y revelar diferencia" icon="pi pi-lock-open" class="p-button-sm" [disabled]="!aSuc || !aCaja || !aDate || arqTotal()===0" [loading]="arqSaving()" (click)="submitArqueo()"></button>
+            <button pButton type="button" [label]="aTipo() === 'relevo' ? 'Sellar relevo' : 'Guardar y revelar diferencia'" icon="pi pi-lock-open" class="p-button-sm" [disabled]="!aSuc || !aCaja || !aDate || arqTotal()===0" [loading]="arqSaving()" (click)="submitArqueo()"></button>
             @if (arqResult(); as r) {
               <div class="cd-arq-result" [class.bad]="r.kepler_enmascaro">
-                @if (!r.matched) {
+                @if (r.tipo === 'relevo') {
+                  <p class="muted">Relevo sellado: {{ money(r.total_contado) }} entregados de {{ aCajero }} → {{ aEntrante }}. Responsabilidad fijada al saliente.</p>
+                } @else if (!r.matched) {
                   <p class="muted">Guardado. No hay corte de Kepler para esa caja/fecha aún — la comparación aparecerá cuando se importe.</p>
                 } @else {
                   <div class="cd-arq-cmp">
@@ -250,17 +257,18 @@ type Tab = 'resumen' | 'cortes' | 'movimientos' | 'arqueo' | 'descuadres';
           <div class="card-premium card-flat cd-panel">
             <h3 class="cd-card-title">Arqueos ciegos recientes</h3>
             <p-table [value]="blindRows()" styleClass="p-datatable-sm cd-table" [rowHover]="true" [loading]="loading()">
-              <ng-template pTemplate="header"><tr><th>Fecha</th><th>Suc/Caja</th><th>Cajero</th><th class="ta-r">Ciego</th><th class="ta-r">Real</th></tr></ng-template>
+              <ng-template pTemplate="header"><tr><th>Fecha</th><th>Tipo</th><th>Suc/Caja</th><th>Cajero</th><th class="ta-r">Ciego</th><th class="ta-r">Real</th></tr></ng-template>
               <ng-template pTemplate="body" let-b>
                 <tr [class.cd-row-bad]="b.kepler_enmascaro">
                   <td>{{ b.business_date | date:'dd/MM/yy' }}</td>
+                  <td><span class="cd-tag">{{ b.tipo === 'relevo' ? 'Relevo' : 'Cierre' }}</span></td>
                   <td>{{ b.warehouse_code }}/{{ b.caja }}</td>
-                  <td>{{ b.cajero_nombre || b.cajero_code || '—' }}</td>
+                  <td>{{ b.cajero_nombre || b.cajero_code || '—' }}@if (b.tipo === 'relevo' && b.cajero_entrante) { <span class="muted"> → {{ b.cajero_entrante }}</span> }</td>
                   <td class="ta-r">{{ money(b.total_contado) }}</td>
                   <td class="ta-r strong" [class.bad]="(b.diff_real||0)>0" [class.ok]="(b.diff_real||0)<0">{{ b.diff_real != null ? signed(b.diff_real) : '—' }}@if (b.kepler_enmascaro) { <i class="pi pi-eye-slash cd-flag"></i> }</td>
                 </tr>
               </ng-template>
-              <ng-template pTemplate="emptymessage"><tr><td colspan="5" class="cd-empty">Sin arqueos ciegos aún.</td></tr></ng-template>
+              <ng-template pTemplate="emptymessage"><tr><td colspan="6" class="cd-empty">Sin arqueos ciegos aún.</td></tr></ng-template>
             </p-table>
           </div>
         </div>
@@ -457,7 +465,8 @@ export class AlmacenCuadreComponent implements OnInit {
   // arqueo ciego
   readonly denoms = [1000, 500, 200, 100, 50, 20, 10, 5, 2, 1, 0.5];
   denomCount: Record<number, number> = {};
-  aSuc = ''; aCaja = ''; aDate = ''; aCajero = ''; aNota = '';
+  readonly aTipo = signal<'cierre' | 'relevo'>('cierre');
+  aSuc = ''; aCaja = ''; aDate = ''; aCajero = ''; aEntrante = ''; aNota = '';
   readonly arqTotal = signal(0);
   readonly arqSaving = signal(false);
   readonly arqResult = signal<BlindCountResult | null>(null);
@@ -488,11 +497,12 @@ export class AlmacenCuadreComponent implements OnInit {
     this.arqSaving.set(true);
     const denominations: Record<string, number> = {};
     for (const d of this.denoms) { const n = Number(this.denomCount[d]) || 0; if (n > 0) denominations[String(d)] = n; }
-    this.svc.submitBlindCount({ warehouse_code: this.aSuc.trim(), caja: this.aCaja.trim(), business_date: this.aDate, cajero_code: this.aCajero.trim() || undefined, denominations, nota: this.aNota.trim() || undefined })
+    this.svc.submitBlindCount({ warehouse_code: this.aSuc.trim(), caja: this.aCaja.trim(), business_date: this.aDate, tipo: this.aTipo(), cajero_code: this.aCajero.trim() || undefined, cajero_entrante: this.aTipo() === 'relevo' ? (this.aEntrante.trim() || undefined) : undefined, denominations, nota: this.aNota.trim() || undefined })
       .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
         next: (r) => {
           this.arqSaving.set(false); this.arqResult.set(r);
-          this.toast.add({ severity: r.kepler_enmascaro ? 'warn' : 'success', summary: 'Arqueo guardado', detail: r.matched ? `Diferencia real ${this.signed(r.diff_real || 0)}` : 'Guardado (sin corte para comparar aún).' });
+          const detail = r.tipo === 'relevo' ? `Relevo sellado (${this.money(r.total_contado)}).` : (r.matched ? `Diferencia real ${this.signed(r.diff_real || 0)}` : 'Guardado (sin corte para comparar aún).');
+          this.toast.add({ severity: r.kepler_enmascaro ? 'warn' : 'success', summary: r.tipo === 'relevo' ? 'Relevo guardado' : 'Arqueo guardado', detail });
           this.loadBlind();
         },
         error: (e) => { this.arqSaving.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudo guardar.' }); },

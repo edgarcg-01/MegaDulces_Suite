@@ -67,6 +67,11 @@ const RULES: RuleMeta[] = [
     params: { min_monto: 5000, shift_largo_h: 10 },
   },
   {
+    rule_key: 'handoff_sin_relevo', plano: 'caja',
+    nombre: 'Cambio de turno sin arqueo de relevo', descripcion: 'Caja×mes con cambios de cajero (abre≠cierra) sin arqueo de relevo capturado y con faltante material — la responsabilidad se diluye entre saliente y entrante. Instala el arqueo de relevo (P2).',
+    params: { min_cortes: 3, min_faltante: 2000, cobertura_min: 0.5 },
+  },
+  {
     rule_key: 'arqueo_ciego_divergente', plano: 'caja',
     nombre: 'Arqueo ciego divergente', descripcion: 'El conteo físico capturado a ciegas difiere del efectivo esperado por encima del umbral — el descuadre REAL, independiente del contado de Kepler. Crítico cuando Kepler reportó el corte como cuadrado (enmascaramiento confirmado).',
     params: { umbral: 50, critico: 1000 },
@@ -158,6 +163,7 @@ export class MovementReconcileService {
       case 'arqueo_no_ciego': return this.detArqueoNoCiego(trx, tenantId, params);
       case 'corte_riesgo_circunstancia': return this.detCorteRiesgoCircunstancia(trx, tenantId, params);
       case 'arqueo_ciego_divergente': return this.detArqueoCiegoDivergente(trx, tenantId, params);
+      case 'handoff_sin_relevo': return this.detHandoffSinRelevo(trx, tenantId, params);
       case 'merma_inventario': return this.detMermaInventario(trx, tenantId, params);
       default: return [];
     }
@@ -364,6 +370,57 @@ export class MovementReconcileService {
     });
   }
 
+  /** Caja×mes con cambios de cajero sin arqueo de relevo y con faltante material. */
+  private async detHandoffSinRelevo(trx: any, tenantId: string, params: any): Promise<RawDiscrepancy[]> {
+    const minCortes = Number(params.min_cortes) || 3;
+    const minFaltante = Number(params.min_faltante) || 2000;
+    const coberturaMin = Number(params.cobertura_min) || 0.5;
+    // Cortes con cambio de cajero + faltante, por caja×mes.
+    const cortes = await trx('analytics.cash_cuts')
+      .where('tenant_id', tenantId)
+      .whereRaw('cajero_apertura IS DISTINCT FROM cajero_cierre')
+      .groupBy('warehouse_code', 'caja')
+      .groupByRaw("to_char(business_date,'YYYY-MM')")
+      .havingRaw('count(*) >= ?', [minCortes])
+      .havingRaw('sum(GREATEST(efectivo_diff,0)) >= ?', [minFaltante])
+      .select('warehouse_code', 'caja',
+        trx.raw("to_char(business_date,'YYYY-MM') AS periodo"),
+        trx.raw('count(*)::int AS cortes_handoff'),
+        trx.raw('ROUND(SUM(GREATEST(efectivo_diff,0))::numeric,2) AS faltante'));
+    if (!cortes.length) return [];
+    // Relevos capturados por caja×mes (RLS: current_tenant_id vía tk.run).
+    const relevos = await trx('reconciliation.blind_counts')
+      .where('tenant_id', trx.raw('current_tenant_id()')).where('tipo', 'relevo')
+      .groupBy('warehouse_code', 'caja')
+      .groupByRaw("to_char(business_date,'YYYY-MM')")
+      .select('warehouse_code', 'caja', trx.raw("to_char(business_date,'YYYY-MM') AS periodo"), trx.raw('count(*)::int AS relevos'));
+    const relMap = new Map(relevos.map((r: any) => [`${r.warehouse_code}:${r.caja}:${r.periodo}`, Number(r.relevos)]));
+    const out: RawDiscrepancy[] = [];
+    for (const r of cortes) {
+      const key = `${r.warehouse_code}:${r.caja}:${r.periodo}`;
+      const nRelevos = Number(relMap.get(key) || 0);
+      const cortesHandoff = Number(r.cortes_handoff);
+      const cobertura = cortesHandoff ? nRelevos / cortesHandoff : 0;
+      if (cobertura >= coberturaMin) continue;   // ya hay relevo suficiente
+      const faltante = Number(r.faltante);
+      out.push({
+        rule_key: 'handoff_sin_relevo', plano: 'caja',
+        severity: faltante >= minFaltante * 5 ? 'critical' : 'warn',
+        score: Math.min(1, faltante / (minFaltante * 10)),
+        titulo: `Cambios de turno sin relevo — suc ${r.warehouse_code} caja ${r.caja} (${r.periodo})`,
+        resumen: `${cortesHandoff} cortes cambiaron de cajero con ${money(faltante)} de faltante y solo ${nRelevos} arqueo(s) de relevo. La responsabilidad se diluye — instalar arqueo de relevo en el handoff.`,
+        entity: { sucursal: r.warehouse_code, caja: r.caja, cortes_handoff: cortesHandoff, relevos: nRelevos },
+        periodo: r.periodo,
+        esperado: null, observado: null, diferencia: faltante,
+        importe: faltante,
+        causa_probable: 'faltante_recurrente',
+        evidencia: { params: { minCortes, minFaltante, coberturaMin }, cortes_handoff: cortesHandoff, relevos: nRelevos, cobertura: Math.round(cobertura * 100) / 100, faltante },
+        dedup_key: `handoff_sin_relevo:${r.warehouse_code}:${r.caja}:${r.periodo}`,
+      });
+    }
+    return out;
+  }
+
   /** Arqueo ciego vs esperado de Kepler: el descuadre REAL. Crítico si Kepler lo reportó cuadrado. */
   private async detArqueoCiegoDivergente(trx: any, tenantId: string, params: any): Promise<RawDiscrepancy[]> {
     const umbral = Number(params.umbral) || 50;
@@ -377,6 +434,7 @@ export class MovementReconcileService {
       .leftJoin('analytics.pos_cashiers as pc', function (this: any) {
         this.on('pc.tenant_id', '=', 'bc.tenant_id').andOn('pc.warehouse_code', '=', 'bc.warehouse_code').andOn('pc.cajero_code', '=', 'bc.cajero_code');
       })
+      .where('bc.tipo', 'cierre')
       .whereRaw('abs(cc.efectivo_esperado - bc.total_contado) >= ?', [umbral])
       .select('bc.warehouse_code', 'cc.warehouse_name', 'bc.caja', 'cc.folio', 'bc.business_date', 'bc.cajero_code',
         trx.raw('pc.nombre AS cajero_nombre'), trx.raw('bc.total_contado::numeric AS contado_ciego'),

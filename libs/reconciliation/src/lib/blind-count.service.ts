@@ -17,7 +17,9 @@ export interface BlindCountDto {
   caja: string;
   business_date: string;          // 'YYYY-MM-DD'
   turno?: string;
-  cajero_code?: string;
+  cajero_code?: string;           // cierre: cajero que cierra · relevo: cajero SALIENTE
+  cajero_entrante?: string;       // solo relevo: quién recibe la caja
+  tipo?: 'cierre' | 'relevo';     // default 'cierre'
   denominations: Record<string, number>;  // {"1000":2,"0.5":10,…}
   nota?: string;
   photo_url?: string;
@@ -50,21 +52,27 @@ export class BlindCountService {
     }
     const tenantId = this.tenantCtx.requireTenantId();
     const total = this.computeTotal(dto.denominations || {});
+    const tipo = dto.tipo === 'relevo' ? 'relevo' : 'cierre';
     return this.tk.run(async (trx) => {
       const row = {
-        tenant_id: tenantId,
+        tenant_id: tenantId, tipo,
         warehouse_code: dto.warehouse_code, caja: dto.caja, business_date: dto.business_date,
-        turno: dto.turno || null, cajero_code: dto.cajero_code || null,
+        turno: dto.turno || null, cajero_code: dto.cajero_code || null, cajero_entrante: dto.cajero_entrante || null,
         denominations: JSON.stringify(dto.denominations || {}), total_contado: total,
         nota: dto.nota || null, photo_url: dto.photo_url || null, captured_by: username || null,
       };
       await trx('reconciliation.blind_counts')
         .insert(row)
-        .onConflict(trx.raw("(tenant_id, warehouse_code, caja, business_date, COALESCE(cajero_code,''))"))
-        .merge({ denominations: row.denominations, total_contado: total, nota: row.nota, photo_url: row.photo_url, captured_by: row.captured_by, captured_at: trx.fn.now() });
+        .onConflict(trx.raw("(tenant_id, warehouse_code, caja, business_date, COALESCE(cajero_code,''), tipo)"))
+        .merge({ denominations: row.denominations, total_contado: total, cajero_entrante: row.cajero_entrante, nota: row.nota, photo_url: row.photo_url, captured_by: row.captured_by, captured_at: trx.fn.now() });
+      // El relevo no se compara contra el corte del día (es intra-turno): solo sella el traspaso.
+      if (tipo === 'relevo') {
+        this.logger.log(`arqueo relevo suc${dto.warehouse_code} caja${dto.caja} ${dto.business_date}: ${dto.cajero_code || '?'}→${dto.cajero_entrante || '?'} entregó ${total}`);
+        return { tipo, total_contado: total, matched: false, esperado: null, kepler_contado: null, kepler_diff: null, diff_real: null, kepler_enmascaro: false };
+      }
       const cmp = await this.compare(trx, tenantId, dto, total);
-      this.logger.log(`arqueo ciego suc${dto.warehouse_code} caja${dto.caja} ${dto.business_date}: contado ${total} vs esperado ${cmp.esperado ?? '?'}`);
-      return { total_contado: total, ...cmp };
+      this.logger.log(`arqueo cierre suc${dto.warehouse_code} caja${dto.caja} ${dto.business_date}: contado ${total} vs esperado ${cmp.esperado ?? '?'}`);
+      return { tipo, total_contado: total, ...cmp };
     });
   }
 
@@ -98,7 +106,7 @@ export class BlindCountService {
         .leftJoin('analytics.pos_cashiers as pc', function (this: any) {
           this.on('pc.tenant_id', '=', 'bc.tenant_id').andOn('pc.warehouse_code', '=', 'bc.warehouse_code').andOn('pc.cajero_code', '=', 'bc.cajero_code');
         })
-        .select('bc.id', 'bc.warehouse_code', 'bc.caja', 'bc.business_date', 'bc.turno', 'bc.cajero_code',
+        .select('bc.id', 'bc.tipo', 'bc.warehouse_code', 'bc.caja', 'bc.business_date', 'bc.turno', 'bc.cajero_code', 'bc.cajero_entrante',
           trx.raw('pc.nombre AS cajero_nombre'), trx.raw('bc.total_contado::numeric AS total_contado'),
           'bc.captured_by', 'bc.captured_at', 'bc.nota',
           trx.raw('cc.efectivo_esperado::numeric AS esperado'), trx.raw('cc.efectivo_diff::numeric AS kepler_diff'))
@@ -108,13 +116,14 @@ export class BlindCountService {
       if (q.to) b.where('bc.business_date', '<=', q.to);
       const rows = await b;
       return rows.map((r: any) => {
-        const esperado = r.esperado != null ? Number(r.esperado) : null;
         const total = Number(r.total_contado);
+        // El relevo es intra-turno: no compara contra el corte del día.
+        const esperado = r.tipo === 'relevo' ? null : (r.esperado != null ? Number(r.esperado) : null);
         const diffReal = esperado != null ? Math.round((esperado - total) * 100) / 100 : null;
-        const keplerDiff = r.kepler_diff != null ? Number(r.kepler_diff) : null;
+        const keplerDiff = r.tipo === 'relevo' ? null : (r.kepler_diff != null ? Number(r.kepler_diff) : null);
         return {
-          id: r.id, warehouse_code: r.warehouse_code, caja: r.caja, business_date: r.business_date, turno: r.turno,
-          cajero_code: r.cajero_code, cajero_nombre: r.cajero_nombre || null, total_contado: total,
+          id: r.id, tipo: r.tipo, warehouse_code: r.warehouse_code, caja: r.caja, business_date: r.business_date, turno: r.turno,
+          cajero_code: r.cajero_code, cajero_entrante: r.cajero_entrante || null, cajero_nombre: r.cajero_nombre || null, total_contado: total,
           captured_by: r.captured_by, captured_at: r.captured_at, nota: r.nota,
           esperado, kepler_diff: keplerDiff, diff_real: diffReal,
           kepler_enmascaro: keplerDiff != null && diffReal != null && Math.abs(keplerDiff) < 50 && Math.abs(diffReal) >= 50,

@@ -134,6 +134,13 @@ Causa raíz encadenada: **arqueo no ciego** (habilita) → **handoff sin arqueo 
 - **Uso P0 (piloto):** capturar el arqueo ciego en 1 sucursal durante 2-4 sem y comparar la tasa real vs el 7.5% base. Si sube → confirma que el 73% exacto enmascara.
 - Pendiente prod: mig `20260708180000` + seed de la regla (la crea `ensureRules` en el primer scan).
 
+### P2 — Arqueo de relevo en cambio de turno ✅ (implementado 2026-07-08)
+
+- `blind_counts` extendida (mig `20260708200000`): `tipo` ('cierre'|'relevo') + `cajero_entrante`. El relevo sella cuánto entregó el saliente al entrante (no compara vs el corte del día — es intra-turno). Índice único ahora incluye `tipo` (cierre y relevo coexisten).
+- Regla **`handoff_sin_relevo`**: caja×mes con ≥3 cambios de cajero + faltante ≥$2k y sin arqueo de relevo (cobertura <50%) → **34 caja×mes** en la data real (suc05-caja4 abr: 23 handoffs, $32k). Ataca directamente los $320k que viven en handoffs.
+- Consola: toggle **Cierre / Relevo** en el tab Arqueo ciego (+ campo cajero entrante); la tabla de recientes etiqueta el tipo y el traspaso saliente→entrante.
+- Smoke: 34 caja×mes flaggeadas + relevo insert/dedup OK.
+
 **Ruta crítica:** SM.0 → SM.1 (caja) entrega valor en la primera rebanada (detecta faltantes por cajero con data real — 90 cortes ≥$50 en md_02 sola).
 
 ## Gotchas (bakeados)

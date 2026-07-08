@@ -10,6 +10,10 @@
 
 ## [Unreleased]
 
+### Added — Supervisor de Movimientos: arqueo de relevo (SM.8 / P2) (2026-07-08)
+- **Ataca los $320k que viven en cambios de turno.** `blind_counts` extendida (mig `20260708200000`): `tipo` cierre/relevo + `cajero_entrante`. El relevo sella cuánto entregó el cajero saliente al entrante en el handoff → responsabilidad por persona.
+- **Regla `handoff_sin_relevo`**: caja×mes con ≥3 cambios de cajero + faltante ≥$2k sin arqueo de relevo → **34 caja×mes** en data real (suc05-caja4 abr: 23 handoffs, $32k). Consola: toggle Cierre/Relevo + cajero entrante en el tab Arqueo ciego.
+
 ### Added — Supervisor de Movimientos: arqueo ciego (SM.8 / P1) (2026-07-08)
 - **La palanca #1 contra el descuadre enmascarado.** `reconciliation.blind_counts` (mig `20260708180000`, RLS) + `BlindCountService`: el cajero/supervisor captura el conteo físico por denominación (MXN) **sin ver el esperado**; al guardar el sistema revela la diferencia **real** vs el esperado de Kepler. Endpoints `POST/GET /reconciliation/blind-counts`.
 - **Regla `arqueo_ciego_divergente`**: `|esperado − contado_ciego| ≥ umbral`, **crítico** cuando Kepler dio el corte por cuadrado (`|c35|<50`) = enmascaramiento confirmado. Consola: tab **Arqueo ciego** (pad de denominaciones ciego + revelación + historial).
