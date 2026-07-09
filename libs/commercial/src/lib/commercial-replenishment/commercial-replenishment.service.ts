@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
+import { ReplenishmentScannerService } from './replenishment-scanner.service';
 
 /**
  * RA.4/RA.7 — Fase Reabastecimiento (ADR-030). Proyecto Compras.
@@ -70,6 +71,7 @@ export class CommercialReplenishmentService {
   constructor(
     private readonly tk: TenantKnexService,
     private readonly tenantCtx: TenantContextService,
+    private readonly scanner: ReplenishmentScannerService,
   ) {}
 
   private basis(v?: string): TargetBasis {
@@ -375,6 +377,40 @@ export class CommercialReplenishmentService {
       this.logger.log(`Requisición ${req.folio} recibida por ${userId ?? 'system'}`);
       return { id, estado: 'received' };
     });
+  }
+
+  // ── RA.8 — Hallazgos de reabastecimiento (bandeja) ────────────────────
+  async listFindings(q: { status?: string; kind?: string; warehouse_id?: string; page?: number; pageSize?: number }) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const page = Math.max(1, Number(q.page) || 1);
+    const pageSize = Math.min(500, Math.max(1, Number(q.pageSize) || 100));
+    const status = q.status && ['open', 'resolved'].includes(q.status) ? q.status : 'open';
+    return this.tk.run(async (trx) => {
+      const base = trx('commercial.replenishment_findings as f')
+        .join('catalog.products as pr', (j) => j.on('pr.tenant_id', 'f.tenant_id').andOn('pr.id', 'f.product_id'))
+        .leftJoin('commercial.warehouses as w', (j) => j.on('w.tenant_id', 'f.tenant_id').andOn('w.id', 'f.warehouse_id'))
+        .leftJoin('catalog.suppliers as sup', (j) => j.on('sup.tenant_id', 'pr.tenant_id').andOn('sup.id', 'pr.supplier_id'))
+        .where('f.tenant_id', tenantId).andWhere('f.status', status);
+      if (q.kind && ['agotado_abc', 'bajo_reorden'].includes(q.kind)) base.andWhere('f.kind', q.kind);
+      if (q.warehouse_id && UUID_RX.test(q.warehouse_id)) base.andWhere('f.warehouse_id', q.warehouse_id);
+      const totalRow: any = await base.clone().clearSelect().clearOrder().count('* as c').first();
+      const rows = await base.clone()
+        .select('f.id', 'f.kind', 'f.severity', 'f.status', 'f.abc_class', 'f.on_hand', 'f.reorder_point',
+          'f.in_transit', 'f.suggested_qty', 'f.suggested_cost', 'f.first_seen_at', 'f.last_seen_at',
+          trx.raw('pr.sku AS sku'), trx.raw('pr.nombre AS nombre'),
+          trx.raw('w.code AS warehouse_code'), trx.raw('sup.name AS supplier_name'))
+        .orderByRaw(`CASE f.severity WHEN 'critica' THEN 0 WHEN 'alta' THEN 1 ELSE 2 END`)
+        .orderBy('f.suggested_cost', 'desc')
+        .limit(pageSize).offset((page - 1) * pageSize);
+      return { total: Number(totalRow?.c || 0), page, pageSize, status, rows };
+    });
+  }
+
+  /** RA.8 — dispara el scan del tenant actual (manual). El cron lo corre nocturno. */
+  async scanNow() {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const findings = await this.scanner.scanTenant(tenantId);
+    return { findings };
   }
 
   /** RA.13a — captura manual del pedido mínimo del proveedor EN CAJAS. */

@@ -384,6 +384,7 @@ export class LayoutComponent implements OnInit, OnDestroy {
   private comprasNavItems: NavItem[] = [
     { label: 'Existencia crítica', icon: 'pi pi-exclamation-triangle', route: '/compras/existencia-critica', permission: Permission.COMPRAS_VER },
     { label: 'Requisiciones',      icon: 'pi pi-file-edit',            route: '/compras/requisiciones',      permission: Permission.COMPRAS_VER },
+    { label: 'Hallazgos',          icon: 'pi pi-flag',                 route: '/compras/hallazgos',          permission: Permission.COMPRAS_VER },
   ];
 
   // Almacén: existencias, conteo físico, FEFO, ABC/cíclico, pasillos. Operación

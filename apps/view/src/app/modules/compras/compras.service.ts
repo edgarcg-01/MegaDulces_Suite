@@ -128,6 +128,27 @@ export interface CreateRequisitionDto {
 }
 export interface ReceiveLine { line_id: string; received_qty: number; }
 
+export type FindingKind = 'agotado_abc' | 'bajo_reorden';
+export type FindingSeverity = 'critica' | 'alta' | 'media';
+export interface ReplenishmentFinding {
+  id: string;
+  kind: FindingKind;
+  severity: FindingSeverity;
+  status: 'open' | 'resolved';
+  abc_class: string | null;
+  on_hand: number;
+  reorder_point: number;
+  in_transit: number;
+  suggested_qty: number;
+  suggested_cost: number;
+  first_seen_at: string;
+  last_seen_at: string;
+  sku: string;
+  nombre: string;
+  warehouse_code: string | null;
+  supplier_name: string | null;
+}
+
 @Injectable({ providedIn: 'root' })
 export class ComprasService {
   private readonly http = inject(HttpClient);
@@ -197,5 +218,20 @@ export class ComprasService {
   /** RA.13a — captura del pedido mínimo del proveedor en cajas. */
   setSupplierMinBoxes(supplierId: string, boxes: number | null): Observable<{ id: string; min_order_boxes: number | null }> {
     return this.http.post<{ id: string; min_order_boxes: number | null }>(`${this.base}/suppliers/${supplierId}/min-boxes`, { boxes });
+  }
+
+  /** RA.8 — bandeja de hallazgos de reabastecimiento. */
+  findings(q?: { status?: string; kind?: string; warehouse_id?: string; page?: number; pageSize?: number }): Observable<{ total: number; page: number; pageSize: number; status: string; rows: ReplenishmentFinding[] }> {
+    const p = new URLSearchParams();
+    if (q?.status) p.set('status', q.status);
+    if (q?.kind) p.set('kind', q.kind);
+    if (q?.warehouse_id) p.set('warehouse_id', q.warehouse_id);
+    if (q?.page) p.set('page', String(q.page));
+    if (q?.pageSize) p.set('pageSize', String(q.pageSize));
+    const qs = p.toString();
+    return this.http.get<{ total: number; page: number; pageSize: number; status: string; rows: ReplenishmentFinding[] }>(`${this.base}/findings${qs ? '?' + qs : ''}`);
+  }
+  scanNow(): Observable<{ findings: number }> {
+    return this.http.post<{ findings: number }>(`${this.base}/scan-now`, {});
   }
 }

@@ -92,6 +92,24 @@ export class CommercialReplenishmentController {
   @ApiOperation({ summary: 'RA.14 — marca recibida (ordered → received) + captura cantidades recibidas por línea (fill rate).' })
   markReceived(@Param('id') id: string, @Body() dto?: ReceiveRequisitionDto) { return this.svc.markReceived(id, dto); }
 
+  @Get('findings')
+  @RequirePermissions(Permission.COMPRAS_VER)
+  @ApiOperation({ summary: 'RA.8 — bandeja de hallazgos de reabastecimiento. Filtros: status(open|resolved), kind(agotado_abc|bajo_reorden), warehouse_id.' })
+  listFindings(
+    @Query('status') status?: string,
+    @Query('kind') kind?: string,
+    @Query('warehouse_id') warehouse_id?: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+  ) {
+    return this.svc.listFindings({ status, kind, warehouse_id, page: page ? Number(page) : undefined, pageSize: pageSize ? Number(pageSize) : undefined });
+  }
+
+  @Post('scan-now')
+  @RequirePermissions(Permission.COMPRAS_GESTIONAR)
+  @ApiOperation({ summary: 'RA.8 — corre el scanner de reabastecimiento para el tenant actual (el cron lo corre nocturno).' })
+  scanNow() { return this.svc.scanNow(); }
+
   @Post('suppliers/:id/min-boxes')
   @RequirePermissions(Permission.COMPRAS_GESTIONAR)
   @ApiOperation({ summary: 'RA.13a — pedido mínimo del proveedor EN CAJAS (captura manual; body { boxes }).' })

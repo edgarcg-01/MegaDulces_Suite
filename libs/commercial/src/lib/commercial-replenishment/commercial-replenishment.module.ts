@@ -1,15 +1,17 @@
 import { Module } from '@nestjs/common';
 import { CommercialReplenishmentService } from './commercial-replenishment.service';
 import { CommercialReplenishmentController } from './commercial-replenishment.controller';
+import { ReplenishmentScannerService } from './replenishment-scanner.service';
 
 /**
  * Proyecto Compras / Reabastecimiento (Fase RA — ADR-030).
- * Existencia crítica + sugerido de compra (RA.4) + requisiciones HITL (RA.7).
+ * Existencia crítica + sugerido de compra (RA.4) + requisiciones HITL (RA.7) +
+ * OC en tránsito (RA.5) + scanner nocturno de hallazgos (RA.8).
  * TenantKnexService/TenantContextService vienen del módulo global de platform-core.
  */
 @Module({
   controllers: [CommercialReplenishmentController],
-  providers: [CommercialReplenishmentService],
+  providers: [CommercialReplenishmentService, ReplenishmentScannerService],
   exports: [CommercialReplenishmentService],
 })
 export class CommercialReplenishmentModule {}
