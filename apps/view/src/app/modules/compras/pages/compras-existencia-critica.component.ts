@@ -108,6 +108,7 @@ interface DraftLine {
             <th class="ec-r">Mín</th>
             <th class="ec-r">Reorden</th>
             <th class="ec-r">Máx</th>
+            <th class="ec-r">OC a recibir</th>
             <th class="ec-r">Sugerido</th>
             <th>Estado</th>
             <th>Proveedor</th>
@@ -125,6 +126,7 @@ interface DraftLine {
             <td class="ec-r ec-muted">{{ r.min_stock | number:'1.0-0' }}</td>
             <td class="ec-r ec-muted">{{ r.reorder_point | number:'1.0-0' }}</td>
             <td class="ec-r ec-muted">{{ r.max_stock | number:'1.0-0' }}</td>
+            <td class="ec-r" [class.ec-transit]="r.in_transit > 0">{{ r.in_transit > 0 ? (r.in_transit | number:'1.0-0') : '—' }}</td>
             <td class="ec-r ec-strong">{{ r.suggested_qty | number:'1.0-0' }}</td>
             <td><p-tag [value]="bucketLabel(r.bucket)" [severity]="bucketSev(r.bucket)"></p-tag></td>
             <td class="ec-muted">{{ r.supplier_name || '—' }}</td>
@@ -133,7 +135,7 @@ interface DraftLine {
           </tr>
         </ng-template>
         <ng-template pTemplate="emptymessage">
-          <tr><td colspan="13" class="ec-empty">Sin productos que reponer con estos filtros.</td></tr>
+          <tr><td colspan="14" class="ec-empty">Sin productos que reponer con estos filtros.</td></tr>
         </ng-template>
       </p-table>
     </div>
@@ -194,6 +196,7 @@ interface DraftLine {
     .ec-sel-row { background: var(--surface-hover, #f6f5f3); }
     .ec-src { font-size: .68rem; text-transform: uppercase; letter-spacing: .03em; color: var(--text-muted, #8a8580); }
     .ec-src-kepler { color: var(--action, #c2410c); }
+    .ec-transit { font-weight: 600; }
     .ec-empty { color: var(--text-muted, #8a8580); padding: 1rem; text-align: center; }
     .ec-dlg-sub { color: var(--text-muted, #8a8580); font-size: .85rem; margin-bottom: .5rem; }
     .ec-dlg-note { color: var(--action, #c2410c); }

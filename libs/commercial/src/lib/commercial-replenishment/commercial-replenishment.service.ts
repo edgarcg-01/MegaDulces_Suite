@@ -86,7 +86,7 @@ export class CommercialReplenishmentService {
 
   /** Expresiones SQL compartidas (existencia disponible, en tránsito, bucket). */
   private onHand() { return '(COALESCE(s.quantity,0) - COALESCE(s.reserved_quantity,0))'; }
-  private inTransit() { return '0::numeric'; } // RA.5: analytics.purchase_in_transit
+  private inTransit() { return 'COALESCE(pit.qty_in_transit, 0)'; } // RA.5 analytics.purchase_in_transit (OC a recibir)
   private bucketExpr() {
     const oh = this.onHand();
     return `CASE
@@ -116,6 +116,9 @@ export class CommercialReplenishmentService {
         .leftJoin('catalog.suppliers as sup', (j) => j.on('sup.tenant_id', 'rp.tenant_id').andOn('sup.id', 'pr.supplier_id'))
         .leftJoin('commercial.abc_classification as abc', (j) =>
           j.on('abc.tenant_id', 'rp.tenant_id').andOn('abc.warehouse_id', 'rp.warehouse_id').andOn('abc.product_id', 'rp.product_id'))
+        // RA.5 — analytics.purchase_in_transit (sin RLS → tenant_id explícito en el ON)
+        .leftJoin('analytics.purchase_in_transit as pit', (j) =>
+          j.on('pit.tenant_id', 'rp.tenant_id').andOn('pit.warehouse_id', 'rp.warehouse_id').andOn('pit.product_id', 'rp.product_id'))
         .where('rp.tenant_id', tenantId);
 
       const whIds = this.whIds(q);
@@ -185,6 +188,8 @@ export class CommercialReplenishmentService {
         .leftJoin('commercial.stock as s', (j) =>
           j.on('s.tenant_id', 'rp.tenant_id').andOn('s.warehouse_id', 'rp.warehouse_id').andOn('s.product_id', 'rp.product_id'))
         .join('catalog.products as pr', (j) => j.on('pr.tenant_id', 'rp.tenant_id').andOn('pr.id', 'rp.product_id'))
+        .leftJoin('analytics.purchase_in_transit as pit', (j) =>
+          j.on('pit.tenant_id', 'rp.tenant_id').andOn('pit.warehouse_id', 'rp.warehouse_id').andOn('pit.product_id', 'rp.product_id'))
         .where('rp.tenant_id', tenantId);
       const whIds = this.whIds(q);
       if (whIds.length) base.whereIn('rp.warehouse_id', whIds);
