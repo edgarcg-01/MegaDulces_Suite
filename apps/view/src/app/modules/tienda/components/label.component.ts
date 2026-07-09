@@ -60,7 +60,7 @@ export interface LabelModel {
     .etq-head-txt{ display:block; max-width:100%; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
     .etq-red{ color:var(--red); font-weight:800; }
     .etq-body{ flex:1; min-height:0; display:flex; padding:1mm 2mm 1.2mm 2mm; gap:2mm; }
-    .etq-left{ width:60mm; display:flex; flex-direction:column; }
+    .etq-left{ width:54mm; display:flex; flex-direction:column; }
     .etq-meta{ display:flex; align-items:baseline; gap:1.6mm; font-weight:800; font-size:4mm; margin-bottom:1mm; }
     .etq-meta .sep{ color:var(--green); opacity:.5; }
     .etq-pricebox{ flex:1; position:relative; background:var(--yellow); border-radius:2.4mm; display:flex;
@@ -73,17 +73,17 @@ export interface LabelModel {
     .etq-price .cur{ font-size:.5em; vertical-align:.6em; margin-right:.3mm; }
     .etq-price .dot{ font-size:.78em; }
     .etq-pieza{ position:absolute; left:0; right:0; bottom:0; background:var(--green); color:#fff; height:5.2mm;
-      display:flex; align-items:center; justify-content:center; gap:2mm; font-weight:800; font-size:3.2mm; border-radius:0 0 2mm 2mm; }
-    .etq-pieza::before,.etq-pieza::after{ content:""; width:14mm; height:.9mm;
+      display:flex; align-items:center; justify-content:center; gap:1.6mm; font-weight:800; font-size:3.2mm; white-space:nowrap; border-radius:0 0 2mm 2mm; }
+    .etq-pieza::before,.etq-pieza::after{ content:""; width:7mm; height:.9mm; flex:none;
       background:repeating-linear-gradient(90deg, var(--yellow) 0 2.8mm, transparent 2.8mm 4.6mm); }
-    .etq-right{ width:49mm; min-height:0; display:flex; flex-direction:column; }
-    .etq-tier{ position:relative; display:flex; align-items:baseline; gap:1.4mm; padding:.3mm 0; flex:1; min-height:0; }
+    .etq-right{ width:55mm; min-height:0; display:flex; flex-direction:column; }
+    .etq-tier{ position:relative; display:flex; align-items:baseline; gap:1mm; padding:.3mm 0; flex:1; min-height:0; }
     .etq-tier::before{ content:""; position:absolute; top:0; left:0; right:0; height:.28mm;
       background:repeating-linear-gradient(90deg, var(--green) 0 .32mm, transparent .32mm .6mm); }
     .etq-tier:first-child::before{ display:none; }
-    .etq-tier .txt{ flex:1; font-size:2.9mm; font-weight:700; line-height:1.05; }
-    .etq-tier .amt{ font-family:var(--font-num); font-weight:400; font-size:4.6mm; white-space:nowrap; letter-spacing:.2px; text-align:right; min-width:22mm; }
-    .etq-tier .amt small{ font-family:var(--font); font-size:1.9mm; font-weight:600; }
+    .etq-tier .txt{ flex:1; font-size:2.4mm; font-weight:700; line-height:1.05; }
+    .etq-tier .amt{ font-family:var(--font-num); font-weight:400; font-size:4.6mm; white-space:nowrap; letter-spacing:.2px; text-align:right; width:15mm; }
+    .etq-tier .unit{ width:4mm; font-family:var(--font); font-size:1.9mm; font-weight:600; text-align:left; }
     .etq-barcode{ margin-top:.3mm; display:flex; justify-content:flex-end; }
     .etq-barcode svg{ display:block; width:85%; height:5.4mm; }
   `],
@@ -106,25 +106,29 @@ export interface LabelModel {
           @if (show.mayoreoPza) {
             <div class="etq-tier">
               <div class="txt">Mayoreo desde <span class="etq-red">{{ mayoreoMin }}</span> pzas:</div>
-              <div class="amt">\${{ (model.wholesale_piece_price ?? 0) | number:'1.2-2' }} <small>c/u</small></div>
+              <div class="amt">\${{ (model.wholesale_piece_price ?? 0) | number:'1.2-2' }}</div>
+              <div class="unit">c/u</div>
             </div>
           }
           @if (show.paquete) {
             <div class="etq-tier">
               <div class="txt">Paquete (<span class="etq-red">{{ model.pack_size }}</span> pzas):</div>
               <div class="amt">\${{ (model.pack_price ?? 0) | number:'1.2-2' }}</div>
+              <div class="unit"></div>
             </div>
           }
           @if (show.mayoreoPaq) {
             <div class="etq-tier">
               <div class="txt">Mayoreo desde <span class="etq-red">{{ mayoreoMin }}</span> paquetes:</div>
-              <div class="amt">\${{ (model.wholesale_pack_price ?? 0) | number:'1.2-2' }} <small>c/u</small></div>
+              <div class="amt">\${{ (model.wholesale_pack_price ?? 0) | number:'1.2-2' }}</div>
+              <div class="unit">c/u</div>
             </div>
           }
           @if (show.caja) {
             <div class="etq-tier">
               <div class="txt">Caja (<span class="etq-red">{{ model.box_size }}</span> pzas):</div>
               <div class="amt">\${{ (model.box_price ?? 0) | number:'1.2-2' }}</div>
+              <div class="unit"></div>
             </div>
           }
           @if (show.barcode) {

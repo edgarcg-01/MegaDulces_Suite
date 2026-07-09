@@ -32,7 +32,7 @@
   .body{ flex:1; min-height:0; display:flex; padding:1mm 2mm 1.2mm 2mm; gap:2mm; }
 
   /* Izquierda: precio pieza */
-  .left{ width:60mm; display:flex; flex-direction:column; }
+  .left{ width:54mm; display:flex; flex-direction:column; }
   .meta{ display:flex; align-items:baseline; gap:1.6mm; font-weight:800; font-size:4mm; margin-bottom:1mm; }
   .meta .sep{ color:var(--green); opacity:.5; }
   .red{ color:var(--red); font-weight:800; }
@@ -46,19 +46,19 @@
   .price .cur{ font-size:.5em; vertical-align:.6em; margin-right:.3mm; }
   .price .dot{ font-size:.78em; }
   .pieza{ position:absolute; left:0; right:0; bottom:0; background:var(--green); color:#fff; height:5.2mm;
-    display:flex; align-items:center; justify-content:center; gap:2mm; font-weight:800; font-size:3.2mm; border-radius:0 0 2mm 2mm; }
-  .pieza::before,.pieza::after{ content:""; width:14mm; height:.9mm;
+    display:flex; align-items:center; justify-content:center; gap:1.6mm; font-weight:800; font-size:3.2mm; white-space:nowrap; border-radius:0 0 2mm 2mm; }
+  .pieza::before,.pieza::after{ content:""; width:7mm; height:.9mm; flex:none;
     background:repeating-linear-gradient(90deg, var(--yellow) 0 2.8mm, transparent 2.8mm 4.6mm); }
 
   /* Derecha: tiers (sin iconos, letra grande) */
-  .right{ width:49mm; min-height:0; display:flex; flex-direction:column; }
-  .tier{ position:relative; display:flex; align-items:baseline; gap:1.4mm; padding:.3mm 0; flex:1; min-height:0; }
+  .right{ width:55mm; min-height:0; display:flex; flex-direction:column; }
+  .tier{ position:relative; display:flex; align-items:baseline; gap:1mm; padding:.3mm 0; flex:1; min-height:0; }
   .tier::before{ content:""; position:absolute; top:0; left:0; right:0; height:.28mm;
     background:repeating-linear-gradient(90deg, var(--green) 0 .32mm, transparent .32mm .6mm); }
   .tier:first-child::before{ display:none; }
-  .tier .txt{ flex:1; font-size:2.9mm; font-weight:700; line-height:1.05; }
-  .tier .amt{ font-family:var(--font-num); font-weight:400; font-size:4.6mm; white-space:nowrap; letter-spacing:.2px; text-align:right; min-width:22mm; }
-  .tier .amt small{ font-family:var(--font); font-size:1.9mm; font-weight:600; }
+  .tier .txt{ flex:1; font-size:2.4mm; font-weight:700; line-height:1.05; }
+  .tier .amt{ font-family:var(--font-num); font-weight:400; font-size:4.6mm; white-space:nowrap; letter-spacing:.2px; text-align:right; width:15mm; }
+  .tier .unit{ width:4mm; font-family:var(--font); font-size:1.9mm; font-weight:600; text-align:left; }
 
   .barcode{ margin-top:.3mm; display:flex; justify-content:flex-end; }
   .barcode svg{ display:block; width:85%; height:5.4mm; }
@@ -88,19 +88,19 @@
       <div class="right">
         <div class="tier">
           <div class="txt">Mayoreo desde <span class="red">3</span> pzas:</div>
-          <div class="amt">$7.68 <small>c/u</small></div>
+          <div class="amt">$7.68</div><div class="unit">c/u</div>
         </div>
         <div class="tier">
           <div class="txt">Paquete (<span class="red">8</span> pzas):</div>
-          <div class="amt">$66.06</div>
+          <div class="amt">$66.06</div><div class="unit"></div>
         </div>
         <div class="tier">
           <div class="txt">Mayoreo desde <span class="red">3</span> paquetes:</div>
-          <div class="amt">$61.47 <small>c/u</small></div>
+          <div class="amt">$61.47</div><div class="unit">c/u</div>
         </div>
         <div class="tier">
           <div class="txt">Caja (<span class="red">112</span> pzas):</div>
-          <div class="amt">$860.60</div>
+          <div class="amt">$860.60</div><div class="unit"></div>
         </div>
         <div class="barcode"><svg id="bc"></svg></div>
       </div>
