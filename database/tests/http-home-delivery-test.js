@@ -209,6 +209,25 @@ function skipStep(name, why) { console.log(`  SKIP ${name} — ${why}`); skip++;
   check('cierra corte', close.status === 200 || close.status === 201, `status=${close.status}`);
   check('cash_difference 0 (arqueo cuadra)', Number(close.body?.cash_difference) === 0, `diff=${close.body?.cash_difference} expected=${expected}`);
 
+  console.log('\n── 10. arqueo CIEGO del repartidor (LM.11) ──');
+  // Fecha distinta (ayer) para no chocar con el corte del encargado de hoy.
+  // El repartidor cierra SU corte a ciegas; sin pagos ese día ⇒ esperado 0.
+  const yday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+  const blind = await req('POST', '/commercial/rider-liquidations/my/blind-close', {
+    business_date: yday, cash_breakdown: {},
+  }, riderToken);
+  check('blind-close cierra (auto-scoped por JWT)', blind.status === 200 || blind.status === 201, `status=${blind.status} body=${JSON.stringify(blind.body).slice(0,120)}`);
+  check('marca is_blind', blind.body?.is_blind === true, `is_blind=${blind.body?.is_blind}`);
+  check('revela diferencia (esperado 0 ese día)', Number(blind.body?.cash_difference) === 0, `diff=${blind.body?.cash_difference}`);
+  // Reset idempotencia del corte ciego de ayer (para re-correr).
+  try {
+    const _db = getDb();
+    if (blind.body?.id) {
+      await _db('commercial.payments').where({ liquidation_id: blind.body.id }).update({ liquidation_id: null });
+      await _db('commercial.rider_liquidations').where({ id: blind.body.id }).del();
+    }
+  } catch (e) { /* noop */ }
+
   finish();
 })();
 

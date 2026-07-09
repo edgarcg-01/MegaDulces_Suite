@@ -1,8 +1,10 @@
 # FASE LM — Última Milla (Entrega a Domicilio Local en moto)
 
-> Estado: **🧪 EN CÓDIGO + SMOKE VERDE** — LM.0–LM.8 + LM-K.0–K.4 en código; smoke HTTP LM-K **20/20** (2026-07-03).
+> Estado: **🧪 EN CÓDIGO + SMOKE VERDE** — LM.0–LM.8 + LM-K.0–K.4 + LM.10 (mapa/ruta) + LM.11 (flujo guiado) en código; smoke HTTP LM-K **20/20** (2026-07-03).
 > Propone **ADR-027**. Orquesta `commercial.*` + `logistics.*` + un **PaymentsService** nuevo.
 > Origen: SOP "Servicio de Entrega a Domicilio Local — Mega Dulces de los Altos".
+>
+> **LM.11 (2026-07-08) — Flujo guiado del repartidor + reglas de negocio.** Desacople Reparto↔Logística: la entrega vive en `commercial.home_deliveries` (tabla propia, `rider_user_id` = usuario repartidor; mig `20260703140000`), NO en la flota. Reglas: **precio fijo del ticket** (repartidor no decide monto), **firma obligatoria** (canvas real). Componente guiado `rider-route-run` (pendientes→mapa→iniciar→navegar→geocerca 40m→entregar→siguiente→**arqueo ciego**). `GeofenceService` (watchPosition+haversine+radio configurable+"Ya llegué"). Arqueo ciego: `POST /rider-liquidations/my/blind-close` (revela diferencia) + `:id/reconcile` (encargado); mig `20260708150000` (`is_blind`+`reconciled_by/at`). Notificaciones in-app WS (seam WhatsApp Fase F). Tracking tienda `/reparto/seguimiento` + `GET .../dispatched`. Builds api+vendor verdes (prod). **Pendiente: migs `20260703140000`/`20260708130000`/`20260708150000` a Railway + smoke blind-close + validación GPS en device.**
 >
 > **Smoke E2E LM-K ✅ 20/20 (2026-07-03)** — `database/tests/http-home-delivery-test.js`: allowlist (sucursal no habilitada rechazada) → ticket-lookup Kepler (líneas + COD sugerido en CREDITO) → dispatch-from-kepler (EMB+GUIA + anti-doble 409) → my-deliveries (parada + `items_snapshot` + cobro COD) → outcome (entrega + pago, cambio $49.50) → arqueo (preview + cierre `diff=0`). Fixes de cierre: (1) `myDeliveries` resuelve **todos** los drivers del user (`pluck+whereIn`, no `.first()`) — un user puede tener >1 fila de driver; (2) idempotencia del smoke: reset del corte del día + cierre con `cash_expected` real del preview (arqueo acumula todos los cobros cash del rider en el día). Vendedor y repartidor **separados** (shells/guards/rutas propios: `/vendor` vs `/rider`).
 

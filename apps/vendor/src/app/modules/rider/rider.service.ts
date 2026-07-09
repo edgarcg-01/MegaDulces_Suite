@@ -91,6 +91,22 @@ export interface RiderRoute {
   unlocated: RiderRouteStop[];
 }
 
+/** Resultado del arqueo (ciego): la diferencia se revela al cerrar. */
+export interface RiderLiquidationResult {
+  id: string;
+  folio: string;
+  business_date: string;
+  deliveries_count: number;
+  cash_expected: number | string;
+  cash_counted: number | string;
+  cash_difference: number | string;
+  transfer_total: number | string;
+  card_total: number | string;
+  incidents_count: number;
+  is_blind: boolean;
+  status: string;
+}
+
 @Injectable({ providedIn: 'root' })
 export class RiderService {
   private readonly http = inject(HttpClient);
@@ -106,6 +122,14 @@ export class RiderService {
     let url = `${this.apiRoot}/commercial/home-delivery/my-route`;
     if (date) url += `?date=${encodeURIComponent(date)}`;
     return this.http.get<RiderRoute>(url);
+  }
+
+  /** Arqueo CIEGO de fin de día: cuenta sin ver lo esperado; la respuesta revela la diferencia. */
+  blindCloseOwn(cashBreakdown: Record<string, number>, notes?: string): Observable<RiderLiquidationResult> {
+    return this.http.post<RiderLiquidationResult>(
+      `${this.apiRoot}/commercial/rider-liquidations/my/blind-close`,
+      { cash_breakdown: cashBreakdown, notes },
+    );
   }
 
   /** Cierra la parada: entrega (evidencia + cobro) o incidencia tipificada. */

@@ -209,6 +209,107 @@ export class CommercialRiderLiquidationService {
     });
   }
 
+  /**
+   * Fase LM.11 — ARQUEO CIEGO del repartidor. El repartidor (por JWT) cuenta su
+   * efectivo al final del día sin ver lo esperado; el servidor calcula la
+   * diferencia y la REVELA en la respuesta. Marca `is_blind`. El encargado
+   * reconcilia después (reconcile()).
+   *
+   * Abre-o-reusa el corte del día del repartidor y lo cierra en un paso. El
+   * repartidor solo cierra el SUYO (rider_user_id = usuario del JWT).
+   */
+  async blindCloseOwn(dto: { business_date?: string; cash_breakdown: Record<string, number>; notes?: string }) {
+    const riderUserId = this.requireUserId();
+    const businessDate = dto?.business_date || new Date().toISOString().slice(0, 10);
+    if (!DATE_RE.test(businessDate)) throw new BadRequestException('business_date debe ser YYYY-MM-DD');
+    if (!dto?.cash_breakdown || typeof dto.cash_breakdown !== 'object')
+      throw new BadRequestException('cash_breakdown (arqueo) requerido');
+
+    const cashCounted = this.countedFromBreakdown(dto.cash_breakdown);
+
+    return this.tk.run(async (trx) => {
+      let liq = await trx('commercial.rider_liquidations')
+        .where({ rider_user_id: riderUserId, business_date: businessDate })
+        .whereNull('deleted_at')
+        .forUpdate()
+        .first();
+
+      if (liq && liq.status !== 'open')
+        throw new ConflictException(`El corte del día ya está ${liq.status}`);
+
+      if (!liq) {
+        const folio = await this.nextFolio(trx);
+        [liq] = await trx('commercial.rider_liquidations')
+          .insert({
+            tenant_id: trx.raw('public.current_tenant_id()'),
+            rider_user_id: riderUserId,
+            business_date: businessDate,
+            folio,
+            status: 'open',
+            created_by: riderUserId,
+          })
+          .returning('*');
+      }
+
+      const totals = await this.computeTotals(trx, riderUserId, businessDate);
+      const cashDifference = Math.round((cashCounted - totals.cash_expected) * 100) / 100;
+
+      await trx('commercial.payments')
+        .whereRaw('received_at::date = ?', [businessDate])
+        .andWhere({ received_by: riderUserId })
+        .whereNull('liquidation_id')
+        .update({ liquidation_id: liq.id });
+
+      const [updated] = await trx('commercial.rider_liquidations')
+        .where({ id: liq.id })
+        .update({
+          deliveries_count: totals.deliveries_count,
+          cash_expected: totals.cash_expected,
+          cash_counted: cashCounted,
+          cash_breakdown: JSON.stringify(dto.cash_breakdown),
+          cash_difference: cashDifference,
+          transfer_total: totals.transfer_total,
+          card_total: totals.card_total,
+          incidents_count: totals.incidents_count,
+          status: 'closed',
+          is_blind: true,
+          closed_by: riderUserId,
+          closed_at: trx.fn.now(),
+          notes: dto.notes || null,
+          updated_at: trx.fn.now(),
+          updated_by: riderUserId,
+        })
+        .returning('*');
+
+      // Se revela la diferencia AL ENVIAR (el conteo fue ciego).
+      return updated;
+    });
+  }
+
+  /** Fase LM.11 — el encargado reconcilia un corte ciego ya cerrado por el repartidor. */
+  async reconcile(liquidationId: string, notes?: string) {
+    if (!UUID_RE.test(liquidationId)) throw new BadRequestException('liquidationId inválido');
+    const userId = this.requireUserId();
+    return this.tk.run(async (trx) => {
+      const liq = await trx('commercial.rider_liquidations').where({ id: liquidationId }).forUpdate().first();
+      if (!liq) throw new NotFoundException('Corte no encontrado');
+      if (liq.status !== 'closed')
+        throw new ConflictException(`Solo se reconcilia un corte cerrado (status=${liq.status})`);
+      const [updated] = await trx('commercial.rider_liquidations')
+        .where({ id: liquidationId })
+        .update({
+          status: 'reconciled',
+          reconciled_by: userId,
+          reconciled_at: trx.fn.now(),
+          notes: notes || liq.notes || null,
+          updated_at: trx.fn.now(),
+          updated_by: userId,
+        })
+        .returning('*');
+      return updated;
+    });
+  }
+
   /** Lista cortes (opcional filtro por sucursal/fecha) — cierre por sucursal. */
   async list(query: { branch_store_id?: string; business_date?: string; status?: string } = {}) {
     return this.tk.run(async (trx) => {

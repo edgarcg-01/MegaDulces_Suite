@@ -126,6 +126,13 @@ export const appRoutes: Routes = [
         loadComponent: () =>
           import('./modules/rider/pages/rider-route.component').then((m) => m.RiderRouteComponent),
       },
+      {
+        // Flujo guiado "Llevar pedidos": mapa → iniciar → navegar → geocerca →
+        // entregar (monto fijo + firma) → siguiente → arqueo ciego (LM.11).
+        path: 'run',
+        loadComponent: () =>
+          import('./modules/rider/pages/rider-route-run.component').then((m) => m.RiderRouteRunComponent),
+      },
     ],
   },
   { path: '', redirectTo: 'vendor', pathMatch: 'full' },

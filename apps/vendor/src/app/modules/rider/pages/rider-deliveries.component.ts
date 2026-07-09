@@ -1,6 +1,7 @@
-import { Component, ElementRef, inject, signal, OnInit, ViewChild } from '@angular/core';
+import { Component, ElementRef, computed, inject, signal, OnInit, ViewChild } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { Router } from '@angular/router';
 import {
   DeliveryOutcome,
   RecordDeliveryOutcome,
@@ -25,6 +26,12 @@ type Mode = 'deliver' | 'incident';
         <h1>Mis entregas</h1>
         <button class="ghost" (click)="load()" [disabled]="loading()">↻</button>
       </header>
+
+      @if (pendingCount() > 0) {
+        <button class="carry" (click)="goRun()">
+          🛵 Llevar pedidos ({{ pendingCount() }})
+        </button>
+      }
 
       @if (loading()) {
         <p class="muted">Cargando…</p>
@@ -131,6 +138,7 @@ type Mode = 'deliver' | 'incident';
   styles: [`
     .deliveries { padding: 1rem; max-width: 640px; margin: 0 auto; }
     .head { display: flex; justify-content: space-between; align-items: center; }
+    .carry { width: 100%; margin: .6rem 0 .2rem; padding: .9rem; border: none; border-radius: 12px; background: var(--action, #ea580c); color: #fff; font: inherit; font-weight: 700; font-size: 1.05rem; cursor: pointer; }
     h1 { font-size: 1.25rem; margin: 0; }
     .muted { color: var(--text-muted, #888); }
     .list { list-style: none; padding: 0; margin: .75rem 0 0; display: grid; gap: .6rem; }
@@ -172,6 +180,13 @@ type Mode = 'deliver' | 'incident';
 })
 export class RiderDeliveriesComponent implements OnInit {
   private readonly rider = inject(RiderService);
+  private readonly router = inject(Router);
+
+  readonly pendingCount = computed(
+    () => this.items().filter((d) => d.status === 'pendiente' || d.status === 'no_entregado').length,
+  );
+
+  goRun(): void { this.router.navigateByUrl('/rider/run'); }
 
   readonly items = signal<RiderDelivery[]>([]);
   readonly loading = signal(false);

@@ -51,4 +51,24 @@ export class CommercialRiderLiquidationController {
   close(@Param('id') id: string, @Body() dto: CloseLiquidationDto) {
     return this.service.close(id, dto);
   }
+
+  /**
+   * Fase LM.11 — ARQUEO CIEGO: el repartidor cierra SU corte del día contando el
+   * efectivo sin ver lo esperado; la diferencia se revela en la respuesta.
+   * Auto-scoped por JWT (no recibe rider_user_id).
+   */
+  @Post('my/blind-close')
+  @RequirePermissions(Permission.COMMERCIAL_PAYMENTS_REGISTRAR)
+  @ApiOperation({ summary: 'Arqueo ciego del repartidor (cuenta sin ver lo esperado; revela diferencia).' })
+  blindCloseOwn(@Body() dto: { business_date?: string; cash_breakdown: Record<string, number>; notes?: string }) {
+    return this.service.blindCloseOwn(dto);
+  }
+
+  /** Fase LM.11 — el encargado reconcilia un corte ciego ya cerrado. */
+  @Post(':id/reconcile')
+  @RequirePermissions(Permission.COMMERCIAL_RIDER_LIQUIDATION_GESTIONAR)
+  @ApiOperation({ summary: 'Reconcilia (valida) un corte ciego cerrado por el repartidor.' })
+  reconcile(@Param('id') id: string, @Body() dto: { notes?: string }) {
+    return this.service.reconcile(id, dto?.notes);
+  }
 }

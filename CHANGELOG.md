@@ -10,6 +10,19 @@
 
 ## [Unreleased]
 
+### Added — Repartidor: flujo GUIADO de entrega + reglas de negocio (Fase LM.11) (2026-07-08)
+- **"Llevar pedidos" — una secuencia guiada de principio a fin.** Nuevo componente `rider-route-run`: ve sus pendientes → botón **"Llevar pedidos (N)"** → mapa con las paradas en el orden óptimo → **"Iniciar ruta"** → por parada: navega (Waze/Google Maps) y, al **acercarse al domicilio** (geocerca ~40 m, o botón "Ya llegué"), se habilita **"Entregar pedido"** → monto + cobro + **firma del cliente** → **auto-avanza a la siguiente** → al terminar, **arqueo ciego**.
+- **Geocerca de llegada** (`GeofenceService`): `watchPosition` + distancia haversine en vivo + precisión GPS. Radio configurable (default 40 m — 10 m no es fiable en GPS de celular) con override manual "Ya llegué".
+- **Arqueo CIEGO de fin de día:** el repartidor cuenta su efectivo por denominación **sin ver lo esperado**; el sistema calcula y **revela la diferencia al cerrar**. `POST /commercial/rider-liquidations/my/blind-close` (auto-scoped por JWT) + `:id/reconcile` (el encargado valida después). Migración `20260708150000` (`is_blind` + `reconciled_by/at`).
+
+### Changed — Reparto: el repartidor NO decide precio ni evidencia (reglas de negocio) (2026-07-08)
+- **Precio fijo del ticket.** El repartidor ya no teclea el monto: se cobra exactamente `amount_to_collect` de la parada (backend ignora cualquier monto enviado). La app muestra "Cobrar $X" bloqueado y solo captura el efectivo recibido para el cambio.
+- **Firma obligatoria.** La entrega exige la firma del cliente (`signature_url`); el backend la rechaza sin ella. La app reemplaza el checkbox auto-declarado por un **canvas de firma real**.
+- **Notificaciones in-app** al asignar (repartidor) y al entregar (tienda) vía WebSocket `/alerts` (`delivery_assigned`/`delivery_delivered`), con *seam* listo para WhatsApp (cliente/repartidor/tienda) cuando se elija BSP (Fase F).
+- **Tracking de tienda:** `GET /commercial/home-delivery/dispatched` + vista `/reparto/seguimiento` (estado, repartidor, hora de despacho/entrega).
+- **Desacople Reparto ↔ Logística:** la entrega vive en `commercial.home_deliveries` (tabla propia) asignada a un **usuario repartidor** (`rider_user_id`), no a un chofer de flota (mig `20260703140000`). El dropdown de asignación lista usuarios con rol `repartidor` (`GET /commercial/home-delivery/riders`).
+- **Pendiente prod:** migs `20260703140000`, `20260708130000`, `20260708150000` a Railway + re-login + smoke blind-close + validación GPS en device.
+
 ### Added — Reparto: mapa + ubicación en mapa + ruta óptima del repartidor (Fase LM.10) (2026-07-08)
 - **Ver a dónde va el pedido y dónde está el repartidor.** `/reparto/seguimiento` ahora tiene mapa (átomo `app-map`) con dos capas conmutables: **destinos** (pin por entrega del día, color por estado) y **repartidores en vivo** (capa persistente; seed HTTP `GET /commercial/home-delivery/rider-positions` + upsert por WS `route_ping`, refresco ~15 s).
 - **Elegir el domicilio en el mapa.** `/reparto/asignar` incorpora un picker: botón "Ubicar dirección" (geocoding directo Mapbox, sesgo MX/La Piedad) + click/arrastre del pin para ajustar (con geocoding inverso que rellena la calle). Fija `delivery_address.lat/lng` en el despacho. `app-map` extendido con `pickable` + `mapClick` + pin arrastrable (no-breaking).
