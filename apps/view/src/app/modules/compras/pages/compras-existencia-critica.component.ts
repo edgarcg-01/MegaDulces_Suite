@@ -214,7 +214,14 @@ export class ComprasExistenciaCriticaComponent implements OnInit {
   notes = '';
   draft = signal<(CreateRequisitionLine & { sku: string; nombre: string })[]>([]);
 
-  canRequire = computed(() => !!this.fWarehouse && this.selCount() > 0);
+  // Leer el signal SIEMPRE primero: con `!!fWarehouse && selCount()` el `&&`
+  // corta el circuito cuando fWarehouse está vacío al init → selCount() nunca se
+  // lee → el computed queda sin dependencias y jamás se recalcula (el botón nunca
+  // se habilitaba). selCount() incondicional garantiza la reactividad.
+  canRequire = computed(() => {
+    const n = this.selCount();
+    return n > 0 && !!this.fWarehouse;
+  });
 
   ngOnInit(): void {
     this.api.filters().pipe(takeUntilDestroyed(this.destroyRef)).subscribe((f) => {
