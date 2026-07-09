@@ -117,8 +117,10 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
       }
     </div>
 
-    <!-- Dialog: generar requisición -->
-    <p-dialog [(visible)]="dialogOpen" [modal]="true" [style]="{ width: '46rem', maxWidth: '95vw' }" header="Generar requisición" [dismissableMask]="true">
+    <!-- Dialog: generar requisición. appendTo=body: la página vive en un contenedor
+         con overflow/transform → sin esto el modal se renderiza pero queda clipeado
+         detrás (el clic "no hace nada" a la vista). -->
+    <p-dialog [(visible)]="dialogOpen" [modal]="true" appendTo="body" [style]="{ width: '46rem', maxWidth: '95vw' }" header="Generar requisición" [dismissableMask]="true">
       <div class="ec-dlg">
         <p class="ec-dlg-sub">{{ draft().length }} producto(s) · almacén <strong>{{ warehouseLabel() }}</strong> · objetivo <strong>{{ basisLabel(fBasis) }}</strong></p>
         <div class="ec-dlg-lines">
