@@ -88,6 +88,10 @@ interface DraftLine {
                   optionLabel="label" optionValue="value" placeholder="Objetivo" styleClass="ec-sel"></p-select>
         <p-select [options]="supplierOpts()" [(ngModel)]="fSupplier" (onChange)="reload()"
                   optionLabel="label" optionValue="value" placeholder="Todos los proveedores" [showClear]="true" styleClass="ec-sel-wide"></p-select>
+        <p-select [options]="abcOpts" [(ngModel)]="fAbc" (onChange)="reload()"
+                  optionLabel="label" optionValue="value" placeholder="ABC" [showClear]="true" styleClass="ec-sel-sm"></p-select>
+        <p-select [options]="xyzOpts" [(ngModel)]="fXyz" (onChange)="reload()"
+                  optionLabel="label" optionValue="value" placeholder="XYZ" [showClear]="true" styleClass="ec-sel-sm"></p-select>
         <span class="p-input-icon-left ec-search">
           <input pInputText type="text" [(ngModel)]="fSearch" (keyup.enter)="reload()" placeholder="SKU o nombre…" />
         </span>
@@ -104,10 +108,12 @@ interface DraftLine {
             <th>SKU</th>
             <th>Producto</th>
             <th>Almacén</th>
+            <th>Clase</th>
             <th class="ec-r">Existencia</th>
             <th class="ec-r">Mín</th>
             <th class="ec-r">Reorden</th>
             <th class="ec-r">Máx</th>
+            <th class="ec-r">Colchón</th>
             <th class="ec-r">OC a recibir</th>
             <th class="ec-r">Sugerido</th>
             <th>Estado</th>
@@ -122,10 +128,16 @@ interface DraftLine {
             <td class="ec-mono">{{ r.sku }}</td>
             <td>{{ r.nombre }}</td>
             <td class="ec-muted">{{ r.warehouse_code }}</td>
+            <td class="ec-class">
+              @if (r.abc_class) { <span class="ec-cls ec-abc-{{ r.abc_class }}">{{ r.abc_class }}</span> }
+              @if (r.xyz_class) { <span class="ec-cls ec-xyz-{{ r.xyz_class }}" [title]="xyzTitle(r)">{{ r.xyz_class }}</span> }
+              @if (!r.abc_class && !r.xyz_class) { <span class="ec-muted">—</span> }
+            </td>
             <td class="ec-r">{{ r.on_hand | number:'1.0-0' }}</td>
             <td class="ec-r ec-muted">{{ r.min_stock | number:'1.0-0' }}</td>
             <td class="ec-r ec-muted">{{ r.reorder_point | number:'1.0-0' }}</td>
             <td class="ec-r ec-muted">{{ r.max_stock | number:'1.0-0' }}</td>
+            <td class="ec-r" [title]="safetyTitle(r)">{{ r.safety_stock != null ? (r.safety_stock | number:'1.0-0') : '—' }}@if (r.service_level) {<span class="ec-svc">{{ (r.service_level * 100) | number:'1.0-0' }}%</span>}</td>
             <td class="ec-r" [class.ec-transit]="r.in_transit > 0">{{ r.in_transit > 0 ? (r.in_transit | number:'1.0-0') : '—' }}</td>
             <td class="ec-r ec-strong">{{ r.suggested_qty | number:'1.0-0' }}</td>
             <td><p-tag [value]="bucketLabel(r.bucket)" [severity]="bucketSev(r.bucket)"></p-tag></td>
@@ -135,7 +147,7 @@ interface DraftLine {
           </tr>
         </ng-template>
         <ng-template pTemplate="emptymessage">
-          <tr><td colspan="14" class="ec-empty">Sin productos que reponer con estos filtros.</td></tr>
+          <tr><td colspan="16" class="ec-empty">Sin productos que reponer con estos filtros.</td></tr>
         </ng-template>
       </p-table>
     </div>
@@ -187,7 +199,12 @@ interface DraftLine {
     .ec-kpi.bad .ec-kpi-val { color: var(--red-600, #dc2626); }
     .ec-kpi.warn .ec-kpi-val { color: var(--amber-600, #d97706); }
     .ec-filters { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; margin-bottom: .75rem; }
-    .ec-sel { min-width: 12rem; } .ec-sel-wide { min-width: 15rem; } .ec-search input { min-width: 12rem; }
+    .ec-sel { min-width: 12rem; } .ec-sel-wide { min-width: 15rem; } .ec-sel-sm { min-width: 6.5rem; } .ec-search input { min-width: 12rem; }
+    .ec-class { white-space: nowrap; }
+    .ec-cls { display: inline-block; min-width: 1.1rem; text-align: center; font-size: .68rem; font-weight: 700; font-family: var(--font-mono, ui-monospace, monospace); padding: 0 .2rem; color: var(--text-muted, #8a8580); }
+    .ec-abc-A { color: var(--text-strong, #1c1917); } /* alto valor: un poco más de peso */
+    .ec-xyz-Z { color: var(--action, #c2410c); }       /* errático: difícil de pronosticar (señal) */
+    .ec-svc { display: block; font-size: .62rem; color: var(--text-muted, #8a8580); font-variant-numeric: tabular-nums; }
     .ec-table { font-size: .82rem; }
     .ec-r { text-align: right; font-variant-numeric: tabular-nums; }
     .ec-mono { font-family: var(--font-mono, ui-monospace, monospace); font-size: .78rem; }
@@ -231,7 +248,20 @@ export class ComprasExistenciaCriticaComponent implements OnInit {
   fBucket = '';
   fBasis: TargetBasis = 'max';
   fSupplier = '';
+  fAbc = '';
+  fXyz = '';
   fSearch = '';
+
+  abcOpts = [
+    { label: 'A (alto valor)', value: 'A' },
+    { label: 'B (medio)', value: 'B' },
+    { label: 'C (cola larga)', value: 'C' },
+  ];
+  xyzOpts = [
+    { label: 'X estable', value: 'X' },
+    { label: 'Y variable', value: 'Y' },
+    { label: 'Z errático', value: 'Z' },
+  ];
 
   bucketOpts = [
     { label: 'Agotado', value: 'agotado' },
@@ -287,6 +317,7 @@ export class ComprasExistenciaCriticaComponent implements OnInit {
     const bucket = this.fBucket && this.fBucket !== '__all' ? this.fBucket : undefined;
     this.api.criticalStock({
       warehouse_ids: this.fWarehouses.length ? this.fWarehouses : undefined, supplier_id: this.fSupplier || undefined,
+      abc: this.fAbc || undefined, xyz: this.fXyz || undefined,
       bucket, scope, target_basis: this.fBasis, search: this.fSearch || undefined,
       page: this.page(), pageSize: this.pageSize,
     }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
@@ -406,4 +437,17 @@ export class ComprasExistenciaCriticaComponent implements OnInit {
   bucketLabel(b: Bucket) { return ({ agotado: 'Agotado', bajo_minimo: 'Bajo mínimo', bajo_reorden: 'Bajo reorden', sobrestock: 'Sobrestock', sano: 'Sano' } as Record<Bucket, string>)[b]; }
   bucketSev(b: Bucket): Sev { return ({ agotado: 'danger', bajo_minimo: 'danger', bajo_reorden: 'warn', sobrestock: 'secondary', sano: 'success' } as Record<Bucket, Sev>)[b]; }
   sourceLabel(s: string) { return s === 'kepler' ? 'Kepler' : s === 'computed' ? 'Computado' : 'Manual'; }
+
+  // RA-PRO.2 — tooltips de segmentación y colchón.
+  xyzTitle(r: CriticalStockRow) {
+    const cv = r.demand_cv != null ? Number(r.demand_cv).toFixed(2) : '—';
+    const lbl = r.xyz_class === 'X' ? 'estable' : r.xyz_class === 'Y' ? 'variable' : 'errático';
+    return `Demanda ${lbl} · CV=${cv}`;
+  }
+  safetyTitle(r: CriticalStockRow) {
+    if (r.policy_method !== 'service_level') return 'Colchón por días de cobertura (legacy)';
+    const svc = r.service_level != null ? (r.service_level * 100).toFixed(0) + '%' : '—';
+    const lt = r.lead_time_days ?? '—';
+    return `Safety stock por nivel de servicio ${svc} (Z×σ×√lead). Lead ${lt}d.`;
+  }
 }

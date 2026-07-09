@@ -25,6 +25,7 @@ export interface CriticalStockQuery {
   warehouse_ids?: string; // RA.12 — CSV de almacenes (multi-sucursal); tiene prioridad sobre warehouse_id
   supplier_id?: string;
   abc?: string;
+  xyz?: string; // RA-PRO.2 — filtro por clase de variabilidad de demanda
   bucket?: string;
   source?: string;
   search?: string;
@@ -121,13 +122,17 @@ export class CommercialReplenishmentService {
         // RA.5 — analytics.purchase_in_transit (sin RLS → tenant_id explícito en el ON)
         .leftJoin('analytics.purchase_in_transit as pit', (j) =>
           j.on('pit.tenant_id', 'rp.tenant_id').andOn('pit.warehouse_id', 'rp.warehouse_id').andOn('pit.product_id', 'rp.product_id'))
+        // RA-PRO.2 — analytics.inventory_health (avg diario para mostrar cobertura; sin RLS)
+        .leftJoin('analytics.inventory_health as ih', (j) =>
+          j.on('ih.tenant_id', 'rp.tenant_id').andOn('ih.warehouse_id', 'rp.warehouse_id').andOn('ih.product_id', 'rp.product_id'))
         .where('rp.tenant_id', tenantId);
 
       const whIds = this.whIds(q);
       if (whIds.length) base.whereIn('rp.warehouse_id', whIds);
       if (q.supplier_id && UUID_RX.test(q.supplier_id)) base.andWhere('pr.supplier_id', q.supplier_id);
       if (q.source && ['kepler', 'computed', 'manual'].includes(q.source)) base.andWhere('rp.source', q.source);
-      if (q.abc && ['A', 'B', 'C'].includes(q.abc.toUpperCase())) base.andWhere('abc.abc_class', q.abc.toUpperCase());
+      if (q.abc && ['A', 'B', 'C'].includes(q.abc.toUpperCase())) base.andWhere((b) => b.where('abc.abc_class', q.abc!.toUpperCase()).orWhere('rp.abc_class', q.abc!.toUpperCase()));
+      if (q.xyz && ['X', 'Y', 'Z'].includes(q.xyz.toUpperCase())) base.andWhere('rp.xyz_class', q.xyz.toUpperCase());
       if (q.search && q.search.trim()) {
         const s = `%${q.search.trim()}%`;
         base.andWhere((b) => b.whereILike('pr.sku', s).orWhereILike('pr.nombre', s));
@@ -155,11 +160,19 @@ export class CommercialReplenishmentService {
           'rp.reorder_point',
           'rp.max_stock',
           'rp.source',
+          // RA-PRO.1/2 — política profesional: safety stock por nivel de servicio + segmentación XYZ
+          trx.raw('rp.safety_stock AS safety_stock'),
+          trx.raw('rp.service_level AS service_level'),
+          trx.raw('rp.xyz_class AS xyz_class'),
+          trx.raw('rp.demand_cv AS demand_cv'),
+          trx.raw('rp.policy_method AS policy_method'),
+          trx.raw('rp.lead_time_days AS lead_time_days'),
+          trx.raw('ih.avg_daily_units AS avg_daily_units'),
           trx.raw('sup.id AS supplier_id'),
           trx.raw('sup.name AS supplier_name'),
           trx.raw('sup.min_order_boxes AS supplier_min_boxes'),
           trx.raw('pr.factor_purchase AS factor_purchase'),
-          trx.raw('abc.abc_class AS abc_class'),
+          trx.raw('COALESCE(abc.abc_class, rp.abc_class) AS abc_class'),
           trx.raw('pr.cost_base AS unit_cost'),
           trx.raw(`${this.bucketExpr()} AS bucket`),
           trx.raw(`GREATEST(0, ${target} - ${oh} - ${it}) AS suggested_qty`),

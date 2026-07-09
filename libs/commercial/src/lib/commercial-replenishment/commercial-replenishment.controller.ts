@@ -22,6 +22,7 @@ export class CommercialReplenishmentController {
     @Query('warehouse_ids') warehouse_ids?: string,
     @Query('supplier_id') supplier_id?: string,
     @Query('abc') abc?: string,
+    @Query('xyz') xyz?: string,
     @Query('bucket') bucket?: string,
     @Query('source') source?: string,
     @Query('search') search?: string,
@@ -30,7 +31,7 @@ export class CommercialReplenishmentController {
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
   ) {
-    return this.svc.criticalStock({ warehouse_id, warehouse_ids, supplier_id, abc, bucket, source, search, target_basis, scope, page: page ? Number(page) : undefined, pageSize: pageSize ? Number(pageSize) : undefined });
+    return this.svc.criticalStock({ warehouse_id, warehouse_ids, supplier_id, abc, xyz, bucket, source, search, target_basis, scope, page: page ? Number(page) : undefined, pageSize: pageSize ? Number(pageSize) : undefined });
   }
 
   @Get('critical-stock/summary')

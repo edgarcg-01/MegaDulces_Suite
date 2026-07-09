@@ -28,6 +28,14 @@ export interface CriticalStockRow {
   supplier_min_boxes: number | null; // RA.13a — pedido mínimo del proveedor en cajas
   factor_purchase: number | null;    // piezas por caja (para convertir piezas→cajas)
   abc_class: string | null;
+  // RA-PRO.1/2 — política profesional (safety stock por nivel de servicio + XYZ)
+  xyz_class: string | null;          // X estable · Y variable · Z errático
+  safety_stock: number | null;
+  service_level: number | null;      // 0..1
+  demand_cv: number | null;          // coeficiente de variación de demanda
+  policy_method: string | null;      // 'service_level' | 'days_cover'
+  lead_time_days: number | null;
+  avg_daily_units: number | null;
   unit_cost: number | null;
   bucket: Bucket;
   suggested_qty: number;
@@ -57,6 +65,7 @@ export interface CriticalStockQuery {
   warehouse_ids?: string[]; // RA.12 — multi-sucursal
   supplier_id?: string;
   abc?: string;
+  xyz?: string; // RA-PRO.2
   bucket?: string;
   source?: string;
   search?: string;
@@ -160,6 +169,7 @@ export class ComprasService {
     else if (q.warehouse_id) p.set('warehouse_id', q.warehouse_id);
     if (q.supplier_id) p.set('supplier_id', q.supplier_id);
     if (q.abc) p.set('abc', q.abc);
+    if (q.xyz) p.set('xyz', q.xyz);
     if (q.bucket) p.set('bucket', q.bucket);
     if (q.source) p.set('source', q.source);
     if (q.search) p.set('search', q.search);
