@@ -10,6 +10,13 @@
 
 ## [Unreleased]
 
+### Added — Reparto: mapa + ubicación en mapa + ruta óptima del repartidor (Fase LM.10) (2026-07-08)
+- **Ver a dónde va el pedido y dónde está el repartidor.** `/reparto/seguimiento` ahora tiene mapa (átomo `app-map`) con dos capas conmutables: **destinos** (pin por entrega del día, color por estado) y **repartidores en vivo** (capa persistente; seed HTTP `GET /commercial/home-delivery/rider-positions` + upsert por WS `route_ping`, refresco ~15 s).
+- **Elegir el domicilio en el mapa.** `/reparto/asignar` incorpora un picker: botón "Ubicar dirección" (geocoding directo Mapbox, sesgo MX/La Piedad) + click/arrastre del pin para ajustar (con geocoding inverso que rellena la calle). Fija `delivery_address.lat/lng` en el despacho. `app-map` extendido con `pickable` + `mapClick` + pin arrastrable (no-breaking).
+- **Ruta óptima del repartidor.** Nueva pestaña **Ruta** en la app del repartidor: paradas pendientes del día en el mejor orden de visita (solver open-route NN + 2-opt, haversine) sobre imagen estática Mapbox con pines numerados + **navegación real por parada** (deep-links Waze / Google Maps). Origen resuelto: GPS fresco del repartidor → coord de sucursal → centroide. El repartidor ahora **emite GPS en vivo** (`RoutePingService` enganchado en `rider-shell`), lo que alimenta el mapa de tienda.
+- **Backend:** geocoding en `MapboxService` (`geocodeForward`/`reverseGeocode`) + endpoints `GET /reports/geocode` y `/reverse-geocode`. `GET /commercial/home-delivery/my-route` (repartidor) persiste `sequence_order`; `GET .../rider-positions` (tienda). Migración `20260708130000`: `home_deliveries.sequence_order/route_eta_min/route_computed_at` + `home_delivery_warehouses.lat/lng`. Builds view/vendor/api OK; smoke DB (schema + queries) OK.
+- **Pendiente prod:** mig `20260708130000` a Railway + coords de sucursal opcionales para mejor origen. Interactivo Leaflet en la app repartidor: diferido (MVP = imagen + deep-links).
+
 ### Added — Supervisor de Movimientos: cruce independiente (SM.8 / P6) — plan de prevención CERRADO (2026-07-08)
 - **El techo del sistema.** `analytics.pos_ticket_sales` (mig `20260708240000`) + importer `import-pos-ticket-sales` agrega tickets POS crudos (`kdm1` U/D/10) por sucursal×cajero×día (capa atómica). Regla **`venta_vs_tickets`** (plano `cruce`): compara vs el total del corte (capa agregada) → detecta tickets cancelados/editados tras el cierre o corte inventado, algo que la cuadre propia de Kepler no ve. 672/683 reconcilian a ±$100; 76 corte×día divergen ≥$500 (51 sin tickets — ej. 09-ene suc03 corte $50k+ sin un solo ticket).
 - **SM.8 (P1–P6) completo:** el motor corre **10 reglas** en 3 planos; consola de 7 tabs; ciclo detectar→priorizar→intervenir→medir cerrado.

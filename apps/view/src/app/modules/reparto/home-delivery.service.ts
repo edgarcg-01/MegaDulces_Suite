@@ -98,4 +98,39 @@ export class HomeDeliveryService {
       params: new HttpParams().set('active', 'true'),
     });
   }
+
+  /** Última posición conocida de cada repartidor (seed del mapa de tienda). */
+  riderPositions(sinceMin?: number): Observable<{ positions: RiderPosition[]; server_now: string }> {
+    let p = new HttpParams();
+    if (sinceMin) p = p.set('since_min', String(sinceMin));
+    return this.http.get<{ positions: RiderPosition[]; server_now: string }>(
+      `${this.api}/commercial/home-delivery/rider-positions`, { params: p });
+  }
+
+  /** Geocoding directo: texto de dirección → candidatos con coords (Mapbox, sesgo MX). */
+  geocode(q: string): Observable<{ results: GeocodeResult[] }> {
+    return this.http.get<{ results: GeocodeResult[] }>(`${this.api}/reports/geocode`, {
+      params: new HttpParams().set('q', q),
+    });
+  }
+
+  /** Geocoding inverso: coord → dirección legible (para rellenar la calle al soltar el pin). */
+  reverseGeocode(lat: number, lng: number): Observable<{ place_name: string } | null> {
+    return this.http.get<{ place_name: string } | null>(`${this.api}/reports/reverse-geocode`, {
+      params: new HttpParams().set('lat', String(lat)).set('lng', String(lng)),
+    });
+  }
+}
+
+export interface GeocodeResult { lat: number; lng: number; place_name: string; relevance: number; }
+
+export interface RiderPosition {
+  rider_user_id: string;
+  username: string;
+  full_name: string;
+  lat: number | string;
+  lng: number | string;
+  captured_at: string;
+  speed_mps?: number | null;
+  accuracy_m?: number | null;
 }

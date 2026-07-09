@@ -484,6 +484,25 @@ de la tienda YA ingesta el día en `analytics.store_live_tickets` (llave `(tenan
 **Diferido:** reconciliar el efectivo COD de vuelta a Kepler (feed posterior); detección automática
 de "ticket es domicilio" (hoy la persona de tienda elige el folio manualmente).
 
+### LM.10 — Mapa + ubicación en mapa + ruta óptima del repartidor 🧪 (2026-07-08)
+
+| Item | Qué | Estado |
+|---|---|---|
+| **LM.10.1** | Geocoding Mapbox (`MapboxService.geocodeForward`/`reverseGeocode`) + endpoints `GET /reports/geocode`, `/reverse-geocode` (auth-only, sesgo MX/La Piedad). | ✅ build api |
+| **LM.10.2** | Migración `20260708130000`: `home_deliveries.sequence_order/route_eta_min/route_computed_at` + `home_delivery_warehouses.lat/lng`. | ✅ Batch 152 local + smoke |
+| **LM.10.3** | Solver open-route en `commercial` (copia pura NN+2-opt+haversine, no cruza frontera Nx) + `HomeDispatchService.myRoute` (persiste `sequence_order`, origen = GPS fresco→sucursal→centroide) + `riderPositions`. Endpoints `GET /commercial/home-delivery/my-route` (rider, `LOGISTICS_SHIPMENTS_VER`) y `/rider-positions` (tienda, `LOGISTICS_HOME_DISPATCH`). | ✅ build api |
+| **LM.10.4** | `app-map` extendido: `pickable` + `mapClick` + pin arrastrable (no-breaking). | ✅ build view |
+| **LM.10.5** | Picker en `/reparto/asignar`: geocode de la calle + click/arrastre → `delivery_address.lat/lng` en el despacho. | ✅ build view |
+| **LM.10.6** | Mapa en `/reparto/seguimiento`: capa **destinos** (pin por estado) + **repartidores en vivo** (persistent, seed `rider-positions` @15s + WS `route_ping`). | ✅ build view |
+| **LM.10.7** | App repartidor: `RoutePingService` enganchado en `rider-shell` (emite GPS) + pestaña **Ruta** (imagen estática Mapbox con pines numerados + orden + deep-links Waze/Google Maps). Token Mapbox agregado a `apps/vendor/environment`. | ✅ build vendor |
+
+**Decisión (2026-07-08):** el "vendedor" que ve la ruta es el **repartidor** (todo dentro del dominio Reparto).
+Mapa del repartidor = **MVP imagen estática + navegación real por deep-link** (no se agregó Leaflet a `apps/vendor`);
+el vivo de la posición del repartidor se seedea por HTTP (poll 15s) porque el room WS puede no alcanzar al usuario de tienda.
+
+**Diferido LM.10:** mapa interactivo Leaflet en la app repartidor (mover `MapComponent` a lib compartida); ETA con
+tráfico por tramo (Mapbox Directions); coords reales de sucursal para mejor origen. **Pendiente prod:** mig `20260708130000` a Railway + re-login.
+
 **Housekeeping:** colisión de timestamp `20260702180000` entre `_analytics_store_live_tickets`
 (thread Tienda) y `_lm_orders_home_delivery` (LM.0). No rompe (Knex usa filename completo) pero
 renumerar la de LM (aún sin aplicar) al arrancar LM-K.

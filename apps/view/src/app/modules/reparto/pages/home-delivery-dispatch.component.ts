@@ -11,11 +11,13 @@ import { TagModule } from 'primeng/tag';
 import { ButtonModule } from 'primeng/button';
 import {
   DispatchFromKeplerPayload,
+  GeocodeResult,
   Rider,
   FleetVehicle,
   HomeDeliveryService,
   KeplerTicket,
 } from '../home-delivery.service';
+import { MapComponent } from '../../../shared/components/map/map.component';
 
 /**
  * LM-K.4 — Persona de tienda: captura folio Kepler → ve el pedido → captura
@@ -28,6 +30,7 @@ import {
   imports: [
     CommonModule, FormsModule, SelectModule, InputTextModule, InputNumberModule,
     DatePickerModule, ToggleSwitchModule, TableModule, TagModule, ButtonModule,
+    MapComponent,
   ],
   template: `
     <div class="surf-page in rd">
@@ -131,6 +134,28 @@ import {
           <div class="rd-field rd-mt">
             <label for="rf">Referencias</label>
             <input id="rf" pInputText class="rd-in" [(ngModel)]="references" placeholder="entre calles, color de casa…" />
+          </div>
+
+          <!-- Ubicación en mapa (opcional pero recomendada: habilita la mejor ruta) -->
+          <div class="rd-field rd-mt">
+            <label>Ubicación en el mapa <span class="rd-hint">· mejora el orden de reparto</span></label>
+            <div class="rd-geo">
+              <button pButton type="button" size="small" severity="secondary" [outlined]="true"
+                      icon="pi pi-search-plus" [label]="geocoding() ? 'Buscando…' : 'Ubicar dirección'"
+                      [loading]="geocoding()" [disabled]="!street.trim()" (click)="locate()"></button>
+              @if (picked(); as p) {
+                <span class="rd-geo-ok"><i class="pi pi-check-circle"></i> Ubicado ({{ p.lat | number:'1.4-4' }}, {{ p.lng | number:'1.4-4' }})</span>
+              } @else {
+                <span class="rd-geo-hint">Buscá la dirección o tocá el mapa para fijar el punto.</span>
+              }
+            </div>
+            @if (geoResults().length > 1) {
+              <p-select [options]="geoResults()" [(ngModel)]="chosenGeo" optionLabel="place_name"
+                        appendTo="body" styleClass="rd-full" placeholder="Elegí el match correcto"
+                        (onChange)="chooseGeo($event.value)" />
+            }
+            <app-map [pickable]="true" [pickedPoint]="picked()" (mapClick)="onPick($event)"
+                     height="240px" [autoFit]="'off'" [showBasemapToggle]="false" />
           </div>
 
           <h2 class="rd-sectitle">Asignación</h2>
@@ -288,6 +313,10 @@ import {
     .rd-advisory.warn { background:var(--warn-soft-bg); color:var(--warn-soft-fg); border:1px solid var(--warn-border); }
     .rd-advisory.info { background:var(--layout-bg); color:var(--text-muted); border:1px solid var(--border); }
 
+    .rd-geo { display:flex; align-items:center; gap:.7rem; flex-wrap:wrap; margin-bottom:.6rem; }
+    .rd-geo-ok { font-size:.82rem; color:var(--ok-fg); display:inline-flex; align-items:center; gap:.35rem; font-variant-numeric:tabular-nums; }
+    .rd-geo-hint { font-size:.82rem; color:var(--text-faint); }
+
     .rd-cod { display:flex; align-items:center; gap:.65rem; margin:1rem 0 .25rem; }
     .rd-cod-label { font-size:.9rem; color:var(--text-main); }
     .rd-cod-amount { margin-top:.6rem; max-width:280px; }
@@ -318,6 +347,12 @@ export class HomeDeliveryDispatchComponent implements OnInit {
   readonly result = signal<any | null>(null);
 
   readonly step = computed(() => (this.result() ? 2 : this.ticket() ? 1 : 0));
+
+  // Picker de ubicación (geocoding + click/arrastre en mapa).
+  readonly picked = signal<{ lat: number; lng: number } | null>(null);
+  readonly geocoding = signal(false);
+  readonly geoResults = signal<GeocodeResult[]>([]);
+  chosenGeo: GeocodeResult | null = null;
 
   readonly warehouseOpts = [
     { label: 'Padre Hidalgo', value: '01' },
@@ -378,6 +413,37 @@ export class HomeDeliveryDispatchComponent implements OnInit {
     });
   }
 
+  /** Geocodifica la calle escrita y fija el pin en el mejor match. */
+  locate(): void {
+    const q = [this.street.trim(), this.references.trim()].filter(Boolean).join(', ');
+    if (!q) return;
+    this.geocoding.set(true);
+    this.geoResults.set([]);
+    this.svc.geocode(q).subscribe({
+      next: (r) => {
+        const results = r?.results || [];
+        this.geoResults.set(results);
+        if (results.length) this.chooseGeo(results[0]);
+        this.geocoding.set(false);
+      },
+      error: () => { this.geocoding.set(false); },
+    });
+  }
+
+  chooseGeo(g: GeocodeResult): void {
+    this.chosenGeo = g;
+    this.picked.set({ lat: g.lat, lng: g.lng });
+  }
+
+  /** Click/arrastre en el mapa: fija el punto y trae la dirección legible. */
+  onPick(p: { lat: number; lng: number }): void {
+    this.picked.set(p);
+    this.svc.reverseGeocode(p.lat, p.lng).subscribe({
+      next: (r) => { if (r?.place_name && !this.street.trim()) this.street = r.place_name; },
+      error: () => {},
+    });
+  }
+
   dispatch(): void {
     const t = this.ticket();
     if (!t) return;
@@ -398,6 +464,8 @@ export class HomeDeliveryDispatchComponent implements OnInit {
         phone: this.phone.trim() || undefined,
         street: this.street.trim(),
         references: this.references.trim() || undefined,
+        lat: this.picked()?.lat,
+        lng: this.picked()?.lng,
       },
       collect_on_delivery: this.collect,
       amount_to_collect: this.collect ? Number(this.amount) : undefined,
@@ -423,5 +491,8 @@ export class HomeDeliveryDispatchComponent implements OnInit {
     this.collect = false;
     this.amount = 0;
     this.shipmentDate = new Date();
+    this.picked.set(null);
+    this.geoResults.set([]);
+    this.chosenGeo = null;
   }
 }

@@ -7,8 +7,32 @@ import {
 } from '@nestjs/common';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
 import { AlertsService } from '../commercial-alerts/alerts.service';
+import { solveOpenRoute, centroid, GeoPoint } from './route-solver';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Parse tolerante de JSONB serializado (nunca lanza). */
+function safeJson(s: string): any {
+  try {
+    return JSON.parse(s);
+  } catch {
+    return null;
+  }
+}
+
+/** Valor más frecuente de un arreglo (moda), o null si vacío. */
+function mode(arr: string[]): string | null {
+  if (!arr.length) return null;
+  const counts = new Map<string, number>();
+  let best: string | null = null;
+  let bestN = 0;
+  for (const v of arr) {
+    const n = (counts.get(v) || 0) + 1;
+    counts.set(v, n);
+    if (n > bestN) { bestN = n; best = v; }
+  }
+  return best;
+}
 
 export interface DispatchOrderDto {
   rider_user_id: string; // usuario con rol repartidor (dominio Reparto)
@@ -406,6 +430,171 @@ export class HomeDispatchService {
           'o.code as order_code',
         )
         .orderBy('d.dispatched_at', 'desc');
+    });
+  }
+
+  /** Extrae lat/lng del delivery_address JSONB (string u objeto). */
+  private addrCoords(delivery_address: any): { lat: number; lng: number } | null {
+    if (!delivery_address) return null;
+    const a = typeof delivery_address === 'string' ? safeJson(delivery_address) : delivery_address;
+    const lat = Number(a?.lat);
+    const lng = Number(a?.lng);
+    return Number.isFinite(lat) && Number.isFinite(lng) ? { lat, lng } : null;
+  }
+
+  /**
+   * LM.10 — Ruta óptima del repartidor autenticado para una fecha (hoy default).
+   *
+   * Toma sus paradas pendientes con coordenadas, resuelve el mejor orden de
+   * visita (open-route NN + 2-opt) y PERSISTE `sequence_order` para que la app y
+   * el tracking de tienda coincidan. Las paradas sin coordenada se devuelven
+   * aparte (`unlocated`) para que el repartidor las vea igual (navega por texto).
+   *
+   * Origen de la ruta, por prioridad:
+   *   1) GPS fresco del repartidor (último ping < 30 min),
+   *   2) coord de la sucursal (kepler_warehouse_code más común),
+   *   3) centroide de las paradas.
+   */
+  async myRoute(opts: { date?: string } = {}) {
+    const userId = this.tenantCtx.get()?.userId;
+    if (!userId) throw new BadRequestException('Sin user_id en contexto');
+    const date = opts.date || new Date().toISOString().slice(0, 10);
+
+    return this.tk.run(async (trx) => {
+      const tenantId = this.tenantCtx.requireTenantId();
+
+      const rows = await trx('commercial.home_deliveries')
+        .where('rider_user_id', userId)
+        .andWhere('status', 'pendiente')
+        .andWhere('shipment_date', date)
+        .whereNull('deleted_at')
+        .select(
+          'id',
+          'folio',
+          'customer_name',
+          'phone',
+          'delivery_address',
+          'kepler_warehouse_code',
+          'value',
+          'units',
+          'collect_on_delivery',
+          'amount_to_collect',
+          'sequence_order',
+        );
+
+      const located: (GeoPoint & { row: any })[] = [];
+      const unlocated: any[] = [];
+      for (const r of rows) {
+        const c = this.addrCoords(r.delivery_address);
+        if (c) located.push({ id: r.id, lat: c.lat, lng: c.lng, row: r });
+        else unlocated.push(r);
+      }
+
+      // Origen: GPS fresco del repartidor → sucursal → centroide.
+      let origin: { lat: number; lng: number } | null = null;
+      const ping = await trx('public.route_location_pings')
+        .where({ tenant_id: tenantId, user_id: userId })
+        .whereRaw(`captured_at > now() - interval '30 minutes'`)
+        .orderBy('captured_at', 'desc')
+        .first();
+      if (ping && Number.isFinite(Number(ping.lat)) && Number.isFinite(Number(ping.lng))) {
+        origin = { lat: Number(ping.lat), lng: Number(ping.lng) };
+      }
+      if (!origin && located.length) {
+        const codes = located.map((l) => l.row.kepler_warehouse_code).filter(Boolean);
+        const topCode = mode(codes);
+        if (topCode) {
+          const wh = await trx('logistics.home_delivery_warehouses')
+            .where({ tenant_id: tenantId, warehouse_code: topCode })
+            .first();
+          if (wh && Number.isFinite(Number(wh.lat)) && Number.isFinite(Number(wh.lng))) {
+            origin = { lat: Number(wh.lat), lng: Number(wh.lng) };
+          }
+        }
+      }
+      if (!origin) origin = centroid(located.map((l) => ({ lat: l.lat, lng: l.lng })));
+
+      let ordered: any[] = [];
+      let totalKm = 0;
+      if (located.length && origin) {
+        const solved = solveOpenRoute(origin, located.map((l) => ({ id: l.id, lat: l.lat, lng: l.lng })));
+        totalKm = solved.total_km;
+        const byId = new Map(located.map((l) => [l.id, l]));
+        ordered = solved.order.map((id, i) => {
+          const l = byId.get(id)!;
+          return this.mapStop(l.row, i + 1, l.lat, l.lng);
+        });
+
+        // Persistir sequence_order para que el tracking de tienda coincida.
+        const now = trx.fn.now();
+        for (let i = 0; i < solved.order.length; i++) {
+          await trx('commercial.home_deliveries')
+            .where('id', solved.order[i])
+            .update({ sequence_order: i + 1, route_computed_at: now });
+        }
+      }
+
+      return {
+        date,
+        origin,
+        total_km: totalKm,
+        stops_count: ordered.length,
+        stops: ordered,
+        unlocated: unlocated.map((r) => this.mapStop(r, null, null, null)),
+      };
+    });
+  }
+
+  private mapStop(r: any, seq: number | null, lat: number | null, lng: number | null) {
+    const a = typeof r.delivery_address === 'string' ? safeJson(r.delivery_address) : r.delivery_address;
+    return {
+      delivery_id: r.id,
+      folio: r.folio,
+      sequence_order: seq,
+      customer_name: r.customer_name,
+      phone: r.phone,
+      street: a?.street || null,
+      references: a?.references || null,
+      lat,
+      lng,
+      value: Number(r.value) || 0,
+      units: r.units,
+      collect_on_delivery: r.collect_on_delivery,
+      amount_to_collect: r.amount_to_collect != null ? Number(r.amount_to_collect) : null,
+    };
+  }
+
+  /**
+   * LM.10 — Última posición conocida de cada repartidor (para el mapa de tienda).
+   * Lee public.route_location_pings (sin RLS → tenant explícito) y toma el ping
+   * más reciente por repartidor dentro de una ventana. El vivo real llega por WS
+   * `route_ping`; esto es el seed inicial.
+   */
+  async riderPositions(opts: { sinceMin?: number } = {}) {
+    const sinceMin = Math.min(Math.max(Number(opts.sinceMin) || 30, 1), 240);
+    return this.tk.run(async (trx) => {
+      const tenantId = this.tenantCtx.requireTenantId();
+      const rows = await trx('public.route_location_pings as p')
+        .join('identity.users as u', 'u.id', 'p.user_id')
+        .where('p.tenant_id', tenantId)
+        .andWhere('u.role_name', 'repartidor')
+        .whereNull('u.deleted_at')
+        .whereRaw(`p.captured_at > now() - (? || ' minutes')::interval`, [sinceMin])
+        .select(
+          trx.raw('DISTINCT ON (p.user_id) p.user_id as rider_user_id'),
+          'u.username',
+          'u.nombre as full_name',
+          'p.lat',
+          'p.lng',
+          'p.captured_at',
+          'p.speed_mps',
+          'p.accuracy_m',
+        )
+        .orderBy([
+          { column: 'p.user_id' },
+          { column: 'p.captured_at', order: 'desc' },
+        ]);
+      return { positions: rows, server_now: new Date().toISOString() };
     });
   }
 

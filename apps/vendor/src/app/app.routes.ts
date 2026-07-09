@@ -121,6 +121,11 @@ export const appRoutes: Routes = [
         loadComponent: () =>
           import('./modules/rider/pages/rider-deliveries.component').then((m) => m.RiderDeliveriesComponent),
       },
+      {
+        path: 'route',
+        loadComponent: () =>
+          import('./modules/rider/pages/rider-route.component').then((m) => m.RiderRouteComponent),
+      },
     ],
   },
   { path: '', redirectTo: 'vendor', pathMatch: 'full' },

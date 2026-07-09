@@ -1,8 +1,9 @@
-import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, OnDestroy, OnInit, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Router, RouterModule, RouterOutlet } from '@angular/router';
 import { AuthService } from '../../core/services/auth.service';
 import { ThemeService } from '../../core/services/theme.service';
+import { RoutePingService } from '../../core/services/route-ping.service';
 
 /**
  * Shell del REPARTIDOR — app propia (separada del vendedor). Header + outlet +
@@ -43,6 +44,10 @@ import { ThemeService } from '../../core/services/theme.service';
           <i class="pi pi-home"></i>
           <span>Entregas</span>
         </a>
+        <a routerLink="route" routerLinkActive="active">
+          <i class="pi pi-map"></i>
+          <span>Ruta</span>
+        </a>
       </nav>
     </div>
   `,
@@ -63,13 +68,25 @@ import { ThemeService } from '../../core/services/theme.service';
     .set-row.danger { color: #dc2626; border-top: 1px solid var(--border-color, #eee); }
   `],
 })
-export class RiderShellComponent {
+export class RiderShellComponent implements OnInit, OnDestroy {
   private readonly auth = inject(AuthService);
   private readonly router = inject(Router);
   readonly theme = inject(ThemeService);
+  /** Tracking GPS en vivo del repartidor (mismo servicio que el vendedor). */
+  private readonly ping = inject(RoutePingService);
   readonly settingsOpen = signal(false);
 
+  ngOnInit(): void {
+    // Abre la jornada del repartidor → empieza a emitir posición para el mapa de tienda.
+    this.ping.startShift();
+  }
+
+  ngOnDestroy(): void {
+    this.ping.endShift();
+  }
+
   logout(): void {
+    this.ping.endShift();
     this.auth.logout();
     this.router.navigateByUrl('/login');
   }

@@ -227,6 +227,18 @@ export class ReportsController {
     return this.reportsService.optimizeRoute(body?.stops || []);
   }
 
+  @Get('geocode')
+  @ApiOperation({ summary: 'Geocoding directo: texto → coordenadas (Mapbox, sesgo MX/La Piedad)' })
+  geocode(@Query('q') q: string) {
+    return this.reportsService.geocode(q);
+  }
+
+  @Get('reverse-geocode')
+  @ApiOperation({ summary: 'Geocoding inverso: coordenada → dirección legible (Mapbox)' })
+  reverseGeocode(@Query('lat') lat: string, @Query('lng') lng: string) {
+    return this.reportsService.reverseGeocode(+lat, +lng);
+  }
+
   @Get('vendor-day')
   @RequirePermissions(Permission.RUTAS_VER)
   @ApiOperation({

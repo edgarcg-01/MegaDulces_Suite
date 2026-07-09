@@ -1,11 +1,15 @@
-import { ChangeDetectionStrategy, Component, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { TableModule } from 'primeng/table';
 import { TagModule } from 'primeng/tag';
 import { ButtonModule } from 'primeng/button';
 import { SelectButtonModule } from 'primeng/selectbutton';
-import { DispatchedDelivery, HomeDeliveryService } from '../home-delivery.service';
+import { DispatchedDelivery, HomeDeliveryService, RiderPosition } from '../home-delivery.service';
+import { MapComponent, MapLayer, MapMarker } from '../../../shared/components/map/map.component';
+import { MapLegendComponent, LegendLayer } from '../../../shared/components/map-legend/map-legend.component';
+import { WebSocketService } from '../../../core/services/websocket.service';
 
 /**
  * Reparto — SEGUIMIENTO para el personal de tienda: dónde va cada pedido
@@ -16,7 +20,7 @@ import { DispatchedDelivery, HomeDeliveryService } from '../home-delivery.servic
 @Component({
   selector: 'app-home-delivery-tracking',
   standalone: true,
-  imports: [CommonModule, FormsModule, TableModule, TagModule, ButtonModule, SelectButtonModule],
+  imports: [CommonModule, FormsModule, TableModule, TagModule, ButtonModule, SelectButtonModule, MapComponent, MapLegendComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="trk">
@@ -38,6 +42,14 @@ import { DispatchedDelivery, HomeDeliveryService } from '../home-delivery.servic
         <div class="kpi"><span>En camino</span><b class="pend">{{ countBy('pendiente') }}</b></div>
         <div class="kpi"><span>Entregadas</span><b class="ok">{{ countBy('entregado') }}</b></div>
         <div class="kpi"><span>Incidencias</span><b class="bad">{{ incidents() }}</b></div>
+      </div>
+
+      <div class="map-wrap">
+        <app-map [layers]="mapLayers()" height="360px" [autoFit]="'once'" />
+        <app-map-legend [layers]="legend()" (toggle)="toggleLayer($event)" />
+        <div class="map-note">
+          <i class="pi pi-circle-fill live" aria-hidden="true"></i> Repartidor en vivo · posición cada ~15 s
+        </div>
       </div>
 
       <p-table [value]="rows()" [loading]="loading()" styleClass="p-datatable-sm" [scrollable]="true"
@@ -86,6 +98,9 @@ import { DispatchedDelivery, HomeDeliveryService } from '../home-delivery.servic
     .kpi span { display: block; font-size: .72rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: .03em; }
     .kpi b { font-size: 1.3rem; font-variant-numeric: tabular-nums; }
     .kpi b.pend { color: #b45309; } .kpi b.ok { color: #16a34a; } .kpi b.bad { color: #dc2626; }
+    .map-wrap { margin: 0 0 1rem; }
+    .map-note { font-size: .78rem; color: var(--text-muted); margin-top: .4rem; display: flex; align-items: center; gap: .35rem; }
+    .map-note .live { color: #16a34a; font-size: .6rem; }
     .mono { font-variant-numeric: tabular-nums; }
     .num { text-align: right; }
     .addr { max-width: 240px; }
@@ -96,9 +111,18 @@ import { DispatchedDelivery, HomeDeliveryService } from '../home-delivery.servic
 })
 export class HomeDeliveryTrackingComponent implements OnInit, OnDestroy {
   private readonly svc = inject(HomeDeliveryService);
+  private readonly ws = inject(WebSocketService);
+  private readonly destroyRef = inject(DestroyRef);
 
   readonly rows = signal<DispatchedDelivery[]>([]);
   readonly loading = signal(false);
+  /** posiciones de repartidores por user_id (seed HTTP + upsert por WS). */
+  readonly riders = signal<Map<string, RiderPosition>>(new Map());
+  /** visibilidad de capas (toggle de leyenda). */
+  readonly vis = signal<{ destinos: boolean; repartidores: boolean }>({ destinos: true, repartidores: true });
+  /** ticker para recalcular frescura del pin del repartidor. */
+  readonly now = signal(Date.now());
+
   statusFilter: '' | 'pendiente' | 'entregado' = '';
   readonly filters = [
     { label: 'Todas', value: '' },
@@ -107,16 +131,101 @@ export class HomeDeliveryTrackingComponent implements OnInit, OnDestroy {
   ];
 
   private timer: any = null;
+  private posTimer: any = null;
+  private tick: any = null;
 
   readonly incidents = computed(() => this.rows().filter((r) => !!r.incident_type).length);
 
+  /** Pin de destino por entrega (con coords). Color por estado. */
+  private destinoMarkers(): MapMarker[] {
+    return this.rows()
+      .map((d) => {
+        const a = d.delivery_address as any;
+        const lat = Number(a?.lat), lng = Number(a?.lng);
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+        const color = d.status === 'entregado' ? '#16a34a'
+          : d.status === 'pendiente' ? 'var(--action, #F05A28)' : '#dc2626';
+        return {
+          id: 'd:' + d.delivery_id, lat, lng, kind: 'pin' as const, color,
+          title: `<b>${d.folio}</b><br>${d.customer_name}<br>${a?.street || ''}`,
+        };
+      })
+      .filter((m): m is MapMarker => !!m);
+  }
+
+  /** Pin en vivo por repartidor (persistent). Ring verde si fresco (<3 min). */
+  private riderMarkers(): MapMarker[] {
+    const now = this.now();
+    return [...this.riders().values()]
+      .map((p) => {
+        const lat = Number(p.lat), lng = Number(p.lng);
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+        const ageMin = (now - new Date(p.captured_at).getTime()) / 60000;
+        const color = ageMin < 3 ? '#16a34a' : ageMin < 10 ? '#b45309' : '#78716c';
+        return {
+          id: 'r:' + p.rider_user_id, lat, lng, kind: 'user' as const, color, ring: ageMin < 3,
+          title: `<b>${p.full_name || p.username}</b><br>${this.relAge(ageMin)}`,
+        };
+      })
+      .filter((m): m is MapMarker => !!m);
+  }
+
+  readonly mapLayers = computed<MapLayer[]>(() => [
+    { id: 'destinos', label: 'Destinos', markers: this.destinoMarkers(), visible: this.vis().destinos },
+    { id: 'repartidores', label: 'Repartidores', markers: this.riderMarkers(), visible: this.vis().repartidores, persistent: true },
+  ]);
+
+  readonly legend = computed<LegendLayer[]>(() => [
+    { id: 'destinos', label: 'Destinos', color: 'var(--action, #F05A28)', count: this.destinoMarkers().length, visible: this.vis().destinos },
+    { id: 'repartidores', label: 'Repartidores', color: '#16a34a', count: this.riders().size, visible: this.vis().repartidores },
+  ]);
+
   ngOnInit(): void {
     this.load();
-    this.timer = setInterval(() => this.load(), 30000); // auto-refresh liviano
+    this.loadPositions();
+    this.timer = setInterval(() => this.load(), 30000); // entregas
+    this.posTimer = setInterval(() => this.loadPositions(), 15000); // posiciones repartidor
+    this.tick = setInterval(() => this.now.set(Date.now()), 15000); // frescura
+
+    // Vivo por WS (bonus; el poll garantiza el dato aunque el room no aplique).
+    this.ws.routePing.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((p: any) => {
+      if (!p?.userId) return;
+      const m = new Map(this.riders());
+      const prev = m.get(p.userId);
+      // Solo actualiza a repartidores ya conocidos (seed HTTP filtra por rol).
+      if (!prev) return;
+      m.set(p.userId, { ...prev, lat: p.lat, lng: p.lng, captured_at: p.capturedAt, speed_mps: p.speedMps, accuracy_m: p.accuracyM });
+      this.riders.set(m);
+    });
   }
 
   ngOnDestroy(): void {
     if (this.timer) clearInterval(this.timer);
+    if (this.posTimer) clearInterval(this.posTimer);
+    if (this.tick) clearInterval(this.tick);
+  }
+
+  toggleLayer(id: string): void {
+    const v = this.vis();
+    if (id === 'destinos') this.vis.set({ ...v, destinos: !v.destinos });
+    if (id === 'repartidores') this.vis.set({ ...v, repartidores: !v.repartidores });
+  }
+
+  private relAge(min: number): string {
+    if (min < 1) return 'hace segundos';
+    if (min < 60) return `hace ${Math.round(min)} min`;
+    return `hace ${Math.round(min / 60)} h`;
+  }
+
+  loadPositions(): void {
+    this.svc.riderPositions(60).subscribe({
+      next: (r) => {
+        const m = new Map<string, RiderPosition>();
+        for (const p of r?.positions || []) m.set(p.rider_user_id, p);
+        this.riders.set(m);
+      },
+      error: () => {},
+    });
   }
 
   load(): void {

@@ -112,6 +112,17 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   /** emite al hacer click en un marcador (para master-detail en el padre). */
   readonly markerClick = output<MapMarker>();
 
+  /**
+   * Modo picker (selección de punto): habilita click en el mapa + un pin
+   * arrastrable. Cada click o arrastre emite `mapClick` con la coordenada.
+   * No afecta capas ni marcadores legacy.
+   */
+  readonly pickable = input<boolean>(false);
+  /** Punto seleccionado (controlado por el padre; ej. resultado de geocoding). */
+  readonly pickedPoint = input<{ lat: number; lng: number } | null>(null);
+  /** emite al hacer click en el mapa o arrastrar el pin (modo picker). */
+  readonly mapClick = output<{ lat: number; lng: number }>();
+
   private map: L.Map | null = null;
   private layer: L.LayerGroup | null = null; // capa legacy (markers/path/tracks)
   private groups = new Map<string, { group: L.LayerGroup; markers: Map<string | number, L.Marker> }>();
@@ -128,6 +139,7 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   readonly basemapMode = signal<'map' | 'satellite'>('map');
   private baseTile?: L.TileLayer;
   private appliedStyle = '';
+  private pickMarker: L.Marker | null = null;
 
   constructor() {
     effect(() => {
@@ -136,6 +148,11 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       this.tracks();
       this.layers();
       if (this.ready()) this.render();
+    });
+    // Picker: refleja el punto controlado por el padre (geocoding) en el pin.
+    effect(() => {
+      const p = this.pickedPoint();
+      if (this.ready() && this.pickable() && p) this.placePickMarker(p.lat, p.lng, true);
     });
     // Basemap reactivo: cambia con el tema (claro/oscuro) y el modo (mapa/satélite).
     effect(() => {
@@ -153,8 +170,35 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     });
     this.setBaseLayer();
     this.layer = L.layerGroup().addTo(this.map);
+    if (this.pickable()) {
+      this.map.on('click', (e: L.LeafletMouseEvent) => {
+        this.placePickMarker(e.latlng.lat, e.latlng.lng, false);
+        this.mapClick.emit({ lat: e.latlng.lat, lng: e.latlng.lng });
+      });
+      const p = this.pickedPoint();
+      if (p) this.placePickMarker(p.lat, p.lng, true);
+    }
     this.ready.set(true);
     setTimeout(() => this.map?.invalidateSize(), 0);
+  }
+
+  /** Coloca/mueve el pin arrastrable del picker. `pan`=centra el mapa en él. */
+  private placePickMarker(lat: number, lng: number, pan: boolean): void {
+    if (!this.map || !Number.isFinite(lat) || !Number.isFinite(lng)) return;
+    const icon = L.divIcon({
+      html: `<span style="display:flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);background:var(--action,#F05A28);color:#fff;box-shadow:0 2px 7px rgba(0,0,0,.45);border:2.5px solid #fff"><i class="pi pi-map-marker" style="transform:rotate(45deg)"></i></span>`,
+      className: '', iconSize: [26, 26], iconAnchor: [13, 26],
+    });
+    if (this.pickMarker) {
+      this.pickMarker.setLatLng([lat, lng]);
+    } else {
+      this.pickMarker = L.marker([lat, lng], { icon, draggable: true, zIndexOffset: 1200 }).addTo(this.map);
+      this.pickMarker.on('dragend', () => {
+        const ll = this.pickMarker!.getLatLng();
+        this.mapClick.emit({ lat: ll.lat, lng: ll.lng });
+      });
+    }
+    if (pan) this.map.setView([lat, lng], Math.max(this.map.getZoom(), 16));
   }
 
   /** Re-encuadra el mapa para mostrar todos los datos visibles. Público (botón "Centrar"). */

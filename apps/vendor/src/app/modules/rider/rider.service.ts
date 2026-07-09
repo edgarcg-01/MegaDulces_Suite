@@ -64,6 +64,33 @@ export interface RecordDeliveryOutcome {
   attempted_at?: string;
 }
 
+/** Una parada dentro de la ruta óptima del repartidor. */
+export interface RiderRouteStop {
+  delivery_id: string;
+  folio: string;
+  sequence_order: number | null;
+  customer_name: string;
+  phone?: string | null;
+  street?: string | null;
+  references?: string | null;
+  lat: number | null;
+  lng: number | null;
+  value: number;
+  units: number;
+  collect_on_delivery?: boolean | null;
+  amount_to_collect?: number | null;
+}
+
+/** Ruta óptima del día (paradas ubicadas ordenadas + las sin coordenada). */
+export interface RiderRoute {
+  date: string;
+  origin: { lat: number; lng: number } | null;
+  total_km: number;
+  stops_count: number;
+  stops: RiderRouteStop[];
+  unlocated: RiderRouteStop[];
+}
+
 @Injectable({ providedIn: 'root' })
 export class RiderService {
   private readonly http = inject(HttpClient);
@@ -72,6 +99,13 @@ export class RiderService {
   /** Paradas a domicilio asignadas al repartidor (resuelto por driver.user_id). */
   myDeliveries(): Observable<RiderDelivery[]> {
     return this.http.get<RiderDelivery[]>(`${this.apiRoot}/commercial/home-delivery/my-deliveries`);
+  }
+
+  /** Ruta óptima del día: paradas ordenadas + km + origen (LM.10). */
+  myRoute(date?: string): Observable<RiderRoute> {
+    let url = `${this.apiRoot}/commercial/home-delivery/my-route`;
+    if (date) url += `?date=${encodeURIComponent(date)}`;
+    return this.http.get<RiderRoute>(url);
   }
 
   /** Cierra la parada: entrega (evidencia + cobro) o incidencia tipificada. */

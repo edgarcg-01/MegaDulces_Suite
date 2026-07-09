@@ -62,6 +62,22 @@ export class CommercialHomeDeliveryController {
     return this.dispatch.dispatchFromKepler(dto);
   }
 
+  /** LM.10 — Ruta óptima del repartidor autenticado (orden de visita + km + origen). */
+  @Get('my-route')
+  @RequirePermissions(Permission.LOGISTICS_SHIPMENTS_VER)
+  @ApiOperation({ summary: 'Ruta óptima del repartidor: paradas pendientes ordenadas + km + origen.' })
+  myRoute(@Query('date') date?: string) {
+    return this.dispatch.myRoute({ date });
+  }
+
+  /** LM.10 — Última posición conocida de cada repartidor (seed del mapa de tienda). */
+  @Get('rider-positions')
+  @RequirePermissions(Permission.LOGISTICS_HOME_DISPATCH)
+  @ApiOperation({ summary: 'Última posición por repartidor (seed; el vivo llega por WS route_ping).' })
+  riderPositions(@Query('since_min') sinceMin?: string) {
+    return this.dispatch.riderPositions({ sinceMin: sinceMin ? +sinceMin : undefined });
+  }
+
   /** Tracking para tienda: dónde va cada pedido despachado (estado + repartidor + hora). */
   @Get('dispatched')
   @RequirePermissions(Permission.LOGISTICS_HOME_DISPATCH)

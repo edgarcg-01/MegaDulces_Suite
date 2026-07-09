@@ -2204,6 +2204,17 @@ export class ReportsService {
     return { duration_min: Math.round(r.duration_s / 60), distance_km: Math.round(r.distance_m / 100) / 10 };
   }
 
+  /** Geocoding directo (texto → coords). Delega a Mapbox; results vacío si no aplica. */
+  async geocode(q: string) {
+    const r = await this.mapbox.geocodeForward(q);
+    return { results: r || [] };
+  }
+
+  /** Geocoding inverso (coords → dirección legible). Delega a Mapbox. */
+  async reverseGeocode(lat: number, lng: number) {
+    return this.mapbox.reverseGeocode(lat, lng);
+  }
+
   /**
    * Orden óptimo de visita (TSP con tráfico). Mapbox Optimization ≤12 puntos;
    * el primero se asume el inicio. Devuelve el orden (índices) o null si no

@@ -19,6 +19,12 @@ export const environment = {
   production: isProduction,
   apiUrl: isNative ? NATIVE_API_URL : isLocalDev ? 'http://localhost:3334/api' : '/api',
   envName: isNative ? 'native' : isLocalDev ? 'local' : isProduction ? 'production' : 'preview',
+  // Token PÚBLICO de Mapbox (pk.) — seguro en el bundle; restringido por URL en el panel.
+  // Se usa solo para la imagen estática de la ruta del repartidor (Static Images API).
+  mapbox: {
+    token:
+      'pk.eyJ1IjoiZWRnYXJjb3J0ZXMiLCJhIjoiY21xcXozZGZmMG83ajJxb3J3dm9peGV2MiJ9.TIuARDs-fthAXVg-NZxuOQ',
+  },
 };
 
 console.log('[Environment] Debug info:', {

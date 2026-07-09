@@ -71,6 +71,62 @@ export class MapboxService {
   }
 
   /**
+   * Geocoding directo (texto → coordenada). Sesga a México y a la región de La
+   * Piedad para que "Av. Juárez 123" resuelva local sin estado/país. Devuelve el
+   * mejor match con su nombre normalizado, o null.
+   */
+  async geocodeForward(
+    query: string,
+    opts?: { proximity?: LngLat; limit?: number },
+  ): Promise<{ lat: number; lng: number; place_name: string; relevance: number }[] | null> {
+    const q = (query || '').trim();
+    if (!this.token || q.length < 3) return null;
+    const limit = Math.min(Math.max(opts?.limit ?? 5, 1), 10);
+    const prox = opts?.proximity
+      ? `&proximity=${opts.proximity[0]},${opts.proximity[1]}`
+      : '&proximity=-102.0389,20.3487'; // La Piedad, Mich. por default
+    const url =
+      `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(q)}.json` +
+      `?country=mx&language=es&limit=${limit}&autocomplete=true${prox}&access_token=${this.token}`;
+    try {
+      const res = await fetch(url);
+      if (!res.ok) return null;
+      const j: any = await res.json();
+      const feats = Array.isArray(j?.features) ? j.features : [];
+      return feats
+        .filter((f: any) => Array.isArray(f?.center) && f.center.length === 2)
+        .map((f: any) => ({
+          lng: f.center[0],
+          lat: f.center[1],
+          place_name: f.place_name || f.text || '',
+          relevance: Number(f.relevance) || 0,
+        }));
+    } catch (e: any) {
+      this.logger.warn(`geocodeForward error: ${e?.message || e}`);
+      return null;
+    }
+  }
+
+  /** Geocoding inverso (coordenada → dirección legible). Devuelve place_name o null. */
+  async reverseGeocode(lat: number, lng: number): Promise<{ place_name: string } | null> {
+    if (!this.token || !Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+    const url =
+      `https://api.mapbox.com/geocoding/v5/mapbox.places/${lng},${lat}.json` +
+      `?language=es&limit=1&types=address,poi&access_token=${this.token}`;
+    try {
+      const res = await fetch(url);
+      if (!res.ok) return null;
+      const j: any = await res.json();
+      const f = j?.features?.[0];
+      if (!f) return null;
+      return { place_name: f.place_name || f.text || '' };
+    } catch (e: any) {
+      this.logger.warn(`reverseGeocode error: ${e?.message || e}`);
+      return null;
+    }
+  }
+
+  /**
    * URL de imagen estática (Static Images API) con el recorrido como polyline.
    * No hace fetch: devuelve una URL que el PDF/WhatsApp/cliente carga directo.
    * Codifica la geometría en polyline5 (compacto, evita el límite de URL).
@@ -92,6 +148,34 @@ export class MapboxService {
     return (
       `https://api.mapbox.com/styles/v1/mapbox/streets-v12/static/` +
       `path-4+${color}-0.85(${poly})/auto/${w}x${h}@2x?access_token=${this.token}`
+    );
+  }
+
+  /**
+   * URL de imagen estática con paradas numeradas + (opcional) origen. Para la
+   * vista de ruta del repartidor: un pin `pin-s-<n>` por parada en orden de
+   * visita. Mapbox limita los overlays por URL, así que se cap a 20 paradas
+   * (suficiente para un reparto; más allá el orden se ve igual en la lista).
+   */
+  staticStopsImageUrl(
+    stops: { lat: number; lng: number; label?: string }[],
+    opts?: { origin?: LngLat; width?: number; height?: number },
+  ): string | null {
+    if (!this.token || !stops?.length) return null;
+    const w = opts?.width ?? 640;
+    const h = opts?.height ?? 420;
+    const capped = stops.slice(0, 20);
+    const overlays: string[] = [];
+    if (opts?.origin) overlays.push(`pin-l-warehouse+2563eb(${opts.origin[0]},${opts.origin[1]})`);
+    capped.forEach((s, i) => {
+      if (!Number.isFinite(s.lat) || !Number.isFinite(s.lng)) return;
+      const label = s.label ?? String(i + 1);
+      overlays.push(`pin-s-${encodeURIComponent(label)}+f05a28(${s.lng},${s.lat})`);
+    });
+    if (!overlays.length) return null;
+    return (
+      `https://api.mapbox.com/styles/v1/mapbox/streets-v12/static/` +
+      `${overlays.join(',')}/auto/${w}x${h}@2x?access_token=${this.token}`
     );
   }
 
