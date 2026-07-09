@@ -1,0 +1,19 @@
+{
+  "runs": [
+    {
+      "date": "2026-07-09T19:54:02.333618+00:00",
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "files": 787
+    },
+    {
+      "date": "2026-07-09T20:11:49.885670+00:00",
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "files": 54,
+      "scope": "kepler"
+    }
+  ],
+  "total_input_tokens": 0,
+  "total_output_tokens": 0
+}

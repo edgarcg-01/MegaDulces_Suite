@@ -1,0 +1,654 @@
+{
+  "communities": {
+    "0": [
+      "docs_implementacion_fases_fase_b_integracion_kepler_deferred",
+      "docs_implementacion_fases_fase_b_integracion_kepler_postgres_fdw",
+      "docs_implementacion_fases_fase_b_integracion_kepler_sync_nocturno",
+      "docs_implementacion_fases_fase_kv_explotacion_kepler_import_sales_fact",
+      "docs_implementacion_fases_fase_kv_explotacion_kepler_inventory_health",
+      "docs_implementacion_fases_fase_kv_explotacion_kepler_kdpord",
+      "docs_implementacion_fases_fase_kv_explotacion_kepler_kdpv_prod_util",
+      "docs_implementacion_fases_fase_kv_explotacion_kepler_mart_ventas_enriched",
+      "docs_implementacion_fases_fase_kv_explotacion_kepler_plan",
+      "docs_implementacion_fases_fase_kv_explotacion_kepler_sales_daily",
+      "docs_implementacion_kepler_contabilidad_modelo_doctypes",
+      "docs_implementacion_kepler_contabilidad_modelo_kdco",
+      "docs_implementacion_kepler_contabilidad_modelo_kdm1_kdm2",
+      "docs_implementacion_kepler_contabilidad_modelo_poliza",
+      "docs_implementacion_runbooks_kepler_consolidado_prod_docker_kepler_consolidado",
+      "docs_implementacion_runbooks_kepler_consolidado_prod_import_branch_stock_live",
+      "docs_implementacion_runbooks_kepler_consolidado_prod_import_catalog_bulk",
+      "docs_implementacion_runbooks_kepler_consolidado_prod_pipeline",
+      "docs_implementacion_runbooks_kepler_consolidado_prod_run_prod_feeds",
+      "docs_implementacion_runbooks_kepler_consolidado_prod_top_sellers_live",
+      "docs_implementacion_runbooks_kp_concentrada_branch_dbs",
+      "docs_implementacion_runbooks_kp_concentrada_concentrate_kepler",
+      "docs_implementacion_runbooks_kp_concentrada_ods",
+      "docs_implementacion_runbooks_kp_concentrada_watermark"
+    ],
+    "1": [
+      "database_importers_mega_dulces_sync",
+      "database_importers_mega_dulces_sync_buildsourceknex",
+      "database_importers_mega_dulces_sync_buildtargetknex",
+      "database_importers_mega_dulces_sync_clean",
+      "database_importers_mega_dulces_sync_knexlib",
+      "database_importers_mega_dulces_sync_main",
+      "database_importers_mega_dulces_sync_md_warehouse_codes",
+      "database_importers_mega_dulces_sync_parseargs",
+      "database_importers_mega_dulces_sync_price_lists",
+      "database_importers_mega_dulces_sync_printhelp",
+      "database_importers_mega_dulces_sync_resolvetenantid",
+      "database_importers_mega_dulces_sync_syncbrands",
+      "database_importers_mega_dulces_sync_synccategories",
+      "database_importers_mega_dulces_sync_syncpricelists",
+      "database_importers_mega_dulces_sync_syncprices",
+      "database_importers_mega_dulces_sync_syncproducts",
+      "database_importers_mega_dulces_sync_syncstock",
+      "database_importers_mega_dulces_sync_syncvendedores",
+      "database_importers_mega_dulces_sync_syncwarehouses",
+      "database_importers_mega_dulces_sync_warehouse_column_map",
+      "database_importers_mega_dulces_sync_withtenanttx"
+    ],
+    "2": [
+      "docs_implementacion_erp_kepler_schema_importer_stock",
+      "docs_implementacion_erp_kepler_schema_sku_mapping",
+      "docs_implementacion_kepler_tablas_completo_existencia_concepto",
+      "docs_implementacion_kepler_tablas_completo_existencia_kdik_formula",
+      "docs_implementacion_kepler_tablas_completo_existencia_kdil_formula",
+      "docs_implementacion_kepler_tablas_completo_kdid",
+      "docs_implementacion_kepler_tablas_completo_kdie",
+      "docs_implementacion_kepler_tablas_completo_kdif",
+      "docs_implementacion_kepler_tablas_completo_kdig",
+      "docs_implementacion_kepler_tablas_completo_kdii",
+      "docs_implementacion_kepler_tablas_completo_kdii_reorder_cols",
+      "docs_implementacion_kepler_tablas_completo_kdik",
+      "docs_implementacion_kepler_tablas_completo_kdil",
+      "docs_implementacion_kepler_tablas_completo_kdpv_bitacora_precios",
+      "docs_implementacion_kepler_tablas_completo_kdpv_descuxq",
+      "docs_implementacion_kepler_tablas_completo_kdpv_gratisxq",
+      "docs_implementacion_kepler_tablas_completo_kdpv_prod_util",
+      "docs_implementacion_kepler_tablas_completo_kdpv_prov_prod"
+    ],
+    "3": [
+      "docs_implementacion_erp_kepler_schema_writeback_fisico",
+      "docs_implementacion_kepler_catalogo_tablas_doctype",
+      "docs_implementacion_kepler_catalogo_tablas_doctype_codigo",
+      "docs_implementacion_kepler_catalogo_tablas_genero_x_n",
+      "docs_implementacion_kepler_catalogo_tablas_invin",
+      "docs_implementacion_kepler_catalogo_tablas_invout",
+      "docs_implementacion_kepler_catalogo_tablas_invtrsf",
+      "docs_implementacion_kepler_catalogo_tablas_kdco",
+      "docs_implementacion_kepler_catalogo_tablas_physinv",
+      "docs_implementacion_kepler_tablas_completo_kdc125_kdc126",
+      "docs_implementacion_kepler_tablas_completo_kdc22xx",
+      "docs_implementacion_kepler_tablas_completo_kdij",
+      "docs_implementacion_kepler_tablas_completo_kdm1",
+      "docs_implementacion_kepler_tablas_completo_kdm2",
+      "docs_implementacion_kepler_tablas_completo_kdmm",
+      "docs_implementacion_kepler_tablas_completo_kdpv_folio_caja",
+      "docs_implementacion_kepler_tablas_completo_venta_real"
+    ],
+    "4": [
+      "database_importers_kepler_concentrate_kepler",
+      "database_importers_kepler_concentrate_kepler_apply",
+      "database_importers_kepler_concentrate_kepler_client",
+      "database_importers_kepler_concentrate_kepler_columns",
+      "database_importers_kepler_concentrate_kepler_copyrows",
+      "database_importers_kepler_concentrate_kepler_create_db",
+      "database_importers_kepler_concentrate_kepler_ensurebase",
+      "database_importers_kepler_concentrate_kepler_ensuredatabase",
+      "database_importers_kepler_concentrate_kepler_ensuredesttable",
+      "database_importers_kepler_concentrate_kepler_exclude",
+      "database_importers_kepler_concentrate_kepler_full",
+      "database_importers_kepler_concentrate_kepler_iststype",
+      "database_importers_kepler_concentrate_kepler_listtables",
+      "database_importers_kepler_concentrate_kepler_maptype",
+      "database_importers_kepler_concentrate_kepler_picktscol",
+      "database_importers_kepler_concentrate_kepler_qid"
+    ],
+    "5": [
+      "database_importers_kepler_import_ledger_chain",
+      "database_importers_kepler_import_ledger_chain_apply",
+      "database_importers_kepler_import_ledger_chain_arg",
+      "database_importers_kepler_import_ledger_chain_bulkinsert",
+      "database_importers_kepler_import_ledger_chain_client",
+      "database_importers_kepler_import_ledger_chain_daysbetween",
+      "database_importers_kepler_import_ledger_chain_months",
+      "database_importers_kepler_import_ledger_chain_monthwindow",
+      "database_importers_kepler_import_ledger_chain_normbenef",
+      "database_importers_kepler_import_ledger_chain_sametotal"
+    ],
+    "6": [
+      "database_importers_kepler_install_service",
+      "database_importers_kepler_install_service_cfg",
+      "database_importers_kepler_install_service_env_path",
+      "database_importers_kepler_install_service_fs",
+      "database_importers_kepler_install_service_log_dir",
+      "database_importers_kepler_install_service_path",
+      "database_importers_kepler_install_service_problems",
+      "database_importers_kepler_install_service_script",
+      "database_importers_kepler_install_service_service",
+      "database_importers_kepler_install_service_svc"
+    ],
+    "7": [
+      "database_importers_kepler_import_expenses_polizas",
+      "database_importers_kepler_import_expenses_polizas_apply",
+      "database_importers_kepler_import_expenses_polizas_area_aliases",
+      "database_importers_kepler_import_expenses_polizas_arg",
+      "database_importers_kepler_import_expenses_polizas_bulkinsert",
+      "database_importers_kepler_import_expenses_polizas_client",
+      "database_importers_kepler_import_expenses_polizas_months",
+      "database_importers_kepler_import_expenses_polizas_monthwindow",
+      "database_importers_kepler_import_expenses_polizas_normarea"
+    ],
+    "8": [
+      "database_importers_kepler_live_tickets_poller",
+      "database_importers_kepler_live_tickets_poller_client",
+      "database_importers_kepler_live_tickets_poller_dry",
+      "database_importers_kepler_live_tickets_poller_pad",
+      "database_importers_kepler_live_tickets_poller_pollbranch",
+      "database_importers_kepler_live_tickets_poller_push",
+      "database_importers_kepler_live_tickets_poller_sincelocalmx",
+      "database_importers_kepler_live_tickets_poller_startoftodaymx",
+      "database_importers_kepler_live_tickets_poller_tick"
+    ],
+    "9": [
+      "database_importers_kepler_run_prod_feeds",
+      "database_importers_kepler_run_prod_feeds_apply",
+      "database_importers_kepler_run_prod_feeds_dir",
+      "database_importers_kepler_run_prod_feeds_k",
+      "database_importers_kepler_run_prod_feeds_path",
+      "database_importers_kepler_run_prod_feeds_run",
+      "database_importers_kepler_run_prod_feeds_spawn",
+      "database_importers_kepler_run_prod_feeds_steps",
+      "database_importers_kepler_run_prod_feeds_usage"
+    ],
+    "10": [
+      "database_importers_kepler_import_ap_findings",
+      "database_importers_kepler_import_ap_findings_apply",
+      "database_importers_kepler_import_ap_findings_arg",
+      "database_importers_kepler_import_ap_findings_bulkinsert",
+      "database_importers_kepler_import_ap_findings_client",
+      "database_importers_kepler_import_ap_findings_months",
+      "database_importers_kepler_import_ap_findings_monthwindow",
+      "database_importers_kepler_import_ap_findings_normprov"
+    ],
+    "11": [
+      "database_importers_kepler_import_kardex",
+      "database_importers_kepler_import_kardex_apply",
+      "database_importers_kepler_import_kardex_clasemov",
+      "database_importers_kepler_import_kardex_client",
+      "database_importers_kepler_import_kardex_knexlib",
+      "database_importers_kepler_import_kardex_num",
+      "database_importers_kepler_import_kardex_readbranch",
+      "database_importers_kepler_import_kardex_upsert"
+    ],
+    "12": [
+      "docs_implementacion_fases_fase_kv_explotacion_kepler_kdud",
+      "docs_implementacion_kepler_contabilidad_modelo_ciclo_compra",
+      "docs_implementacion_kepler_contabilidad_modelo_ciclo_inventario",
+      "docs_implementacion_kepler_contabilidad_modelo_cuenta_201_proveedores",
+      "docs_implementacion_kepler_contabilidad_modelo_cuenta_401_ventas",
+      "docs_implementacion_kepler_contabilidad_modelo_cuenta_511_compras",
+      "docs_implementacion_kepler_contabilidad_modelo_cuenta_999_presupuestos",
+      "docs_implementacion_kepler_contabilidad_modelo_import_expenses_polizas"
+    ],
+    "13": [
+      "database_importers_kepler_import_cash_cuts",
+      "database_importers_kepler_import_cash_cuts_apply",
+      "database_importers_kepler_import_cash_cuts_client",
+      "database_importers_kepler_import_cash_cuts_knexlib",
+      "database_importers_kepler_import_cash_cuts_num",
+      "database_importers_kepler_import_cash_cuts_readbranch",
+      "database_importers_kepler_import_cash_cuts_upsert"
+    ],
+    "14": [
+      "database_importers_kepler_import_kepler_warehouse_stock",
+      "database_importers_kepler_import_kepler_warehouse_stock_apply",
+      "database_importers_kepler_import_kepler_warehouse_stock_arg",
+      "database_importers_kepler_import_kepler_warehouse_stock_branch",
+      "database_importers_kepler_import_kepler_warehouse_stock_client",
+      "database_importers_kepler_import_kepler_warehouse_stock_dst_url",
+      "database_importers_kepler_import_kepler_warehouse_stock_warehouse"
+    ],
+    "15": [
+      "database_importers_kepler_import_label_data",
+      "database_importers_kepler_import_label_data_apply",
+      "database_importers_kepler_import_label_data_barcodeformat",
+      "database_importers_kepler_import_label_data_client",
+      "database_importers_kepler_import_label_data_int",
+      "database_importers_kepler_import_label_data_num",
+      "database_importers_kepler_import_label_data_parsegramaje"
+    ],
+    "16": [
+      "database_importers_kepler_import_pos_cashiers",
+      "database_importers_kepler_import_pos_cashiers_apply",
+      "database_importers_kepler_import_pos_cashiers_clean",
+      "database_importers_kepler_import_pos_cashiers_client",
+      "database_importers_kepler_import_pos_cashiers_knexlib",
+      "database_importers_kepler_import_pos_cashiers_readbranch",
+      "database_importers_kepler_import_pos_cashiers_upsert"
+    ],
+    "17": [
+      "database_importers_import_catalog_bulk",
+      "database_importers_import_catalog_bulk_apply",
+      "database_importers_import_catalog_bulk_clean",
+      "database_importers_import_catalog_bulk_client",
+      "database_importers_import_catalog_bulk_cols",
+      "database_importers_import_catalog_bulk_numor"
+    ],
+    "18": [
+      "database_importers_kepler_import_computed_reorder",
+      "database_importers_kepler_import_computed_reorder_apply",
+      "database_importers_kepler_import_computed_reorder_client",
+      "database_importers_kepler_import_computed_reorder_cycle_days",
+      "database_importers_kepler_import_computed_reorder_lead_default",
+      "database_importers_kepler_import_computed_reorder_safety_days"
+    ],
+    "19": [
+      "database_importers_kepler_import_expense_requests",
+      "database_importers_kepler_import_expense_requests_apply",
+      "database_importers_kepler_import_expense_requests_bulkinsert",
+      "database_importers_kepler_import_expense_requests_client",
+      "database_importers_kepler_import_expense_requests_norm",
+      "database_importers_kepler_import_expense_requests_today"
+    ],
+    "20": [
+      "database_importers_kepler_import_kepler_stock",
+      "database_importers_kepler_import_kepler_stock_apply",
+      "database_importers_kepler_import_kepler_stock_arg",
+      "database_importers_kepler_import_kepler_stock_branch",
+      "database_importers_kepler_import_kepler_stock_client",
+      "database_importers_kepler_import_kepler_stock_warehouse"
+    ],
+    "21": [
+      "database_importers_kepler_import_pos_ticket_sales",
+      "database_importers_kepler_import_pos_ticket_sales_apply",
+      "database_importers_kepler_import_pos_ticket_sales_client",
+      "database_importers_kepler_import_pos_ticket_sales_knexlib",
+      "database_importers_kepler_import_pos_ticket_sales_readbranch",
+      "database_importers_kepler_import_pos_ticket_sales_upsert"
+    ],
+    "22": [
+      "database_importers_railway_product_prices_by_sku",
+      "database_importers_railway_product_prices_by_sku_fs",
+      "database_importers_railway_product_prices_by_sku_knexlib",
+      "database_importers_railway_product_prices_by_sku_main",
+      "database_importers_railway_product_prices_by_sku_parseargs",
+      "database_importers_railway_product_prices_by_sku_parsecsv"
+    ],
+    "23": [
+      "database_importers_railway_stock_by_sku",
+      "database_importers_railway_stock_by_sku_fs",
+      "database_importers_railway_stock_by_sku_knexlib",
+      "database_importers_railway_stock_by_sku_main",
+      "database_importers_railway_stock_by_sku_parseargs",
+      "database_importers_railway_stock_by_sku_parsecsv"
+    ],
+    "24": [
+      "database_importers_kepler_import_kepler_prices",
+      "database_importers_kepler_import_kepler_prices_apply",
+      "database_importers_kepler_import_kepler_prices_client",
+      "database_importers_kepler_import_kepler_prices_list_order",
+      "database_importers_kepler_import_kepler_prices_present_pref"
+    ],
+    "25": [
+      "database_importers_kepler_import_kepler_rotation",
+      "database_importers_kepler_import_kepler_rotation_apply",
+      "database_importers_kepler_import_kepler_rotation_bi",
+      "database_importers_kepler_import_kepler_rotation_client",
+      "database_importers_kepler_import_kepler_rotation_percentile"
+    ],
+    "26": [
+      "database_importers_kepler_import_transfers_monthly",
+      "database_importers_kepler_import_transfers_monthly_apply",
+      "database_importers_kepler_import_transfers_monthly_client",
+      "database_importers_kepler_import_transfers_monthly_reset",
+      "database_importers_kepler_import_transfers_monthly_yi"
+    ],
+    "27": [
+      "docs_implementacion_kepler_tablas_completo_kdud",
+      "docs_implementacion_kepler_tablas_completo_kdue",
+      "docs_implementacion_kepler_tablas_completo_kduj",
+      "docs_implementacion_kepler_tablas_completo_kduk",
+      "docs_implementacion_kepler_tablas_completo_kduv"
+    ],
+    "28": [
+      "database_importers_import_prices_bulk",
+      "database_importers_import_prices_bulk_apply",
+      "database_importers_import_prices_bulk_client",
+      "database_importers_import_prices_bulk_pls"
+    ],
+    "29": [
+      "database_importers_kepler_import_erp_customers",
+      "database_importers_kepler_import_erp_customers_apply",
+      "database_importers_kepler_import_erp_customers_client",
+      "database_importers_kepler_import_erp_customers_norm"
+    ],
+    "30": [
+      "database_importers_kepler_import_erp_promos",
+      "database_importers_kepler_import_erp_promos_apply",
+      "database_importers_kepler_import_erp_promos_client",
+      "database_importers_kepler_import_erp_promos_srcs"
+    ],
+    "31": [
+      "database_importers_kepler_import_erp_shipments",
+      "database_importers_kepler_import_erp_shipments_apply",
+      "database_importers_kepler_import_erp_shipments_client",
+      "database_importers_kepler_import_erp_shipments_date_col"
+    ],
+    "32": [
+      "database_importers_kepler_import_kepler_suppliers",
+      "database_importers_kepler_import_kepler_suppliers_apply",
+      "database_importers_kepler_import_kepler_suppliers_client",
+      "database_importers_kepler_import_kepler_suppliers_stage"
+    ],
+    "33": [
+      "database_importers_kepler_import_product_sales_daily",
+      "database_importers_kepler_import_product_sales_daily_apply",
+      "database_importers_kepler_import_product_sales_daily_client",
+      "database_importers_kepler_import_product_sales_daily_di"
+    ],
+    "34": [
+      "database_importers_kepler_import_product_sales_monthly",
+      "database_importers_kepler_import_product_sales_monthly_apply",
+      "database_importers_kepler_import_product_sales_monthly_client",
+      "database_importers_kepler_import_product_sales_monthly_yi"
+    ],
+    "35": [
+      "database_importers_kepler_import_rotation_from_consolidado",
+      "database_importers_kepler_import_rotation_from_consolidado_apply",
+      "database_importers_kepler_import_rotation_from_consolidado_client",
+      "database_importers_kepler_import_rotation_from_consolidado_percentile"
+    ],
+    "36": [
+      "database_importers_kepler_import_sales_by_route_monthly",
+      "database_importers_kepler_import_sales_by_route_monthly_apply",
+      "database_importers_kepler_import_sales_by_route_monthly_client",
+      "database_importers_kepler_import_sales_by_route_monthly_yi"
+    ],
+    "37": [
+      "database_importers_kepler_uninstall_service",
+      "database_importers_kepler_uninstall_service_path",
+      "database_importers_kepler_uninstall_service_service",
+      "database_importers_kepler_uninstall_service_svc"
+    ],
+    "38": [
+      "database_importers_sync_inventory_from_erp",
+      "database_importers_sync_inventory_from_erp_knexlib",
+      "database_importers_sync_inventory_from_erp_main",
+      "database_importers_sync_inventory_from_erp_parseargs"
+    ],
+    "39": [
+      "docs_implementacion_kepler_tablas_completo_kdm_chofer",
+      "docs_implementacion_kepler_tablas_completo_kdm_rutas",
+      "docs_implementacion_kepler_tablas_completo_kdm_transporte",
+      "docs_implementacion_kepler_tablas_completo_kdpord"
+    ],
+    "40": [
+      "database_importers_kepler_import_branch_stock_live",
+      "database_importers_kepler_import_branch_stock_live_apply",
+      "database_importers_kepler_import_branch_stock_live_client"
+    ],
+    "41": [
+      "database_importers_kepler_import_brands_lineas",
+      "database_importers_kepler_import_brands_lineas_apply",
+      "database_importers_kepler_import_brands_lineas_client"
+    ],
+    "42": [
+      "database_importers_kepler_import_customer_sales",
+      "database_importers_kepler_import_customer_sales_apply",
+      "database_importers_kepler_import_customer_sales_client"
+    ],
+    "43": [
+      "database_importers_kepler_import_inventory_health",
+      "database_importers_kepler_import_inventory_health_apply",
+      "database_importers_kepler_import_inventory_health_client"
+    ],
+    "44": [
+      "database_importers_kepler_import_kepler_uom_categories",
+      "database_importers_kepler_import_kepler_uom_categories_apply",
+      "database_importers_kepler_import_kepler_uom_categories_client"
+    ],
+    "45": [
+      "database_importers_kepler_import_logistics_dims",
+      "database_importers_kepler_import_logistics_dims_apply",
+      "database_importers_kepler_import_logistics_dims_client"
+    ],
+    "46": [
+      "database_importers_kepler_import_margin",
+      "database_importers_kepler_import_margin_apply",
+      "database_importers_kepler_import_margin_client"
+    ],
+    "47": [
+      "database_importers_kepler_import_ph_stock_live",
+      "database_importers_kepler_import_ph_stock_live_apply",
+      "database_importers_kepler_import_ph_stock_live_client"
+    ],
+    "48": [
+      "database_importers_kepler_import_reorder_policy",
+      "database_importers_kepler_import_reorder_policy_apply",
+      "database_importers_kepler_import_reorder_policy_client"
+    ],
+    "49": [
+      "database_importers_kepler_import_sales_fact",
+      "database_importers_kepler_import_sales_fact_apply",
+      "database_importers_kepler_import_sales_fact_client"
+    ],
+    "50": [
+      "database_importers_kepler_import_sales_stats",
+      "database_importers_kepler_import_sales_stats_apply",
+      "database_importers_kepler_import_sales_stats_client"
+    ],
+    "51": [
+      "database_importers_kepler_import_top_sellers_from_consolidado",
+      "database_importers_kepler_import_top_sellers_from_consolidado_apply",
+      "database_importers_kepler_import_top_sellers_from_consolidado_client"
+    ],
+    "52": [
+      "docs_implementacion_erp_kepler_schema_backup_dump",
+      "docs_implementacion_erp_kepler_schema_replicas_sucursal"
+    ],
+    "53": [
+      "docs_implementacion_kepler_catalogo_tablas_purordr",
+      "docs_implementacion_kepler_tablas_completo_kdxd"
+    ],
+    "54": [
+      "docs_implementacion_kepler_tablas_completo_kdfe33m1",
+      "docs_implementacion_kepler_tablas_completo_kdmx"
+    ]
+  },
+  "cohesion": {
+    "0": 0.11231884057971014,
+    "1": 0.23333333333333334,
+    "2": 0.1503267973856209,
+    "3": 0.16176470588235295,
+    "4": 0.18333333333333332,
+    "5": 0.2,
+    "6": 0.2,
+    "7": 0.2222222222222222,
+    "8": 0.4166666666666667,
+    "9": 0.2222222222222222,
+    "10": 0.25,
+    "11": 0.32142857142857145,
+    "12": 0.2857142857142857,
+    "13": 0.3333333333333333,
+    "14": 0.2857142857142857,
+    "15": 0.2857142857142857,
+    "16": 0.3333333333333333,
+    "17": 0.3333333333333333,
+    "18": 0.3333333333333333,
+    "19": 0.3333333333333333,
+    "20": 0.3333333333333333,
+    "21": 0.3333333333333333,
+    "22": 0.5333333333333333,
+    "23": 0.5333333333333333,
+    "24": 0.4,
+    "25": 0.4,
+    "26": 0.4,
+    "27": 0.4,
+    "28": 0.5,
+    "29": 0.5,
+    "30": 0.5,
+    "31": 0.5,
+    "32": 0.5,
+    "33": 0.5,
+    "34": 0.5,
+    "35": 0.5,
+    "36": 0.5,
+    "37": 0.5,
+    "38": 0.8333333333333334,
+    "39": 0.5,
+    "40": 0.6666666666666666,
+    "41": 0.6666666666666666,
+    "42": 0.6666666666666666,
+    "43": 0.6666666666666666,
+    "44": 0.6666666666666666,
+    "45": 0.6666666666666666,
+    "46": 0.6666666666666666,
+    "47": 0.6666666666666666,
+    "48": 0.6666666666666666,
+    "49": 0.6666666666666666,
+    "50": 0.6666666666666666,
+    "51": 0.6666666666666666,
+    "52": 1.0,
+    "53": 1.0,
+    "54": 1.0
+  },
+  "gods": [
+    {
+      "id": "database_importers_mega_dulces_sync_main",
+      "label": "main()",
+      "degree": 14
+    },
+    {
+      "id": "docs_implementacion_kepler_tablas_completo_kdii",
+      "label": "kdii (maestro de productos)",
+      "degree": 12
+    },
+    {
+      "id": "database_importers_mega_dulces_sync_withtenanttx",
+      "label": "withTenantTx()",
+      "degree": 9
+    },
+    {
+      "id": "docs_implementacion_kepler_catalogo_tablas_doctype",
+      "label": "doctype (taxonomía maestra de documentos)",
+      "degree": 9
+    },
+    {
+      "id": "database_importers_mega_dulces_sync_clean",
+      "label": "clean()",
+      "degree": 7
+    },
+    {
+      "id": "docs_implementacion_runbooks_kepler_consolidado_prod_docker_kepler_consolidado",
+      "label": "Docker kepler_consolidado (localhost:5433, mart.ventas FDW)",
+      "degree": 6
+    },
+    {
+      "id": "database_importers_kepler_concentrate_kepler_qid",
+      "label": "qid()",
+      "degree": 5
+    },
+    {
+      "id": "database_importers_kepler_live_tickets_poller_tick",
+      "label": "tick()",
+      "degree": 5
+    },
+    {
+      "id": "docs_implementacion_kepler_tablas_completo_kdil",
+      "label": "kdil (existencia por sucursal×almacén)",
+      "degree": 5
+    },
+    {
+      "id": "docs_implementacion_kepler_tablas_completo_kdik",
+      "label": "kdik (valuación y costo por sucursal×SKU)",
+      "degree": 5
+    }
+  ],
+  "surprises": [
+    {
+      "source": "Sync nocturno BullMQ + tablas espejo",
+      "target": "run-prod-feeds.js (orquestador de feeds a prod)",
+      "source_files": [
+        "docs/IMPLEMENTACION/FASES/FASE_B_INTEGRACION_KEPLER.md",
+        "docs/IMPLEMENTACION/RUNBOOKS/KEPLER_CONSOLIDADO_PROD.md"
+      ],
+      "confidence": "INFERRED",
+      "relation": "semantically_similar_to",
+      "why": "inferred connection - not explicitly stated in source; semantically similar concepts with no structural link; peripheral node `Sync nocturno BullMQ + tablas espejo` unexpectedly reaches hub `run-prod-feeds.js (orquestador de feeds a prod)`"
+    },
+    {
+      "source": "kdmm (tipos de movimiento/documento)",
+      "target": "doctype (taxonomía maestra de documentos)",
+      "source_files": [
+        "docs/IMPLEMENTACION/KEPLER_TABLAS_COMPLETO.md",
+        "docs/IMPLEMENTACION/KEPLER_CATALOGO_TABLAS.md"
+      ],
+      "confidence": "INFERRED",
+      "relation": "conceptually_related_to",
+      "why": "inferred connection - not explicitly stated in source; peripheral node `kdmm (tipos de movimiento/documento)` unexpectedly reaches hub `doctype (taxonomía maestra de documentos)`"
+    },
+    {
+      "source": "postgres_fdw (Foreign Data Wrapper)",
+      "target": "KP_CONCENTRADA (ODS concentrado kp.*)",
+      "source_files": [
+        "docs/IMPLEMENTACION/FASES/FASE_B_INTEGRACION_KEPLER.md",
+        "docs/IMPLEMENTACION/RUNBOOKS/KP_CONCENTRADA.md"
+      ],
+      "confidence": "INFERRED",
+      "relation": "semantically_similar_to",
+      "why": "inferred connection - not explicitly stated in source; semantically similar concepts with no structural link"
+    },
+    {
+      "source": "Mapeo kdii.c1 == public.products.sku",
+      "target": "kdii (maestro de productos)",
+      "source_files": [
+        "docs/IMPLEMENTACION/ERP_KEPLER_SCHEMA.md",
+        "docs/IMPLEMENTACION/KEPLER_TABLAS_COMPLETO.md"
+      ],
+      "confidence": "EXTRACTED",
+      "relation": "references",
+      "why": "peripheral node `Mapeo kdii.c1 == public.products.sku` unexpectedly reaches hub `kdii (maestro de productos)`"
+    },
+    {
+      "source": "import-kepler-stock.js (importer de stock)",
+      "target": "kdil (existencia por sucursal×almacén)",
+      "source_files": [
+        "docs/IMPLEMENTACION/ERP_KEPLER_SCHEMA.md",
+        "docs/IMPLEMENTACION/KEPLER_TABLAS_COMPLETO.md"
+      ],
+      "confidence": "EXTRACTED",
+      "relation": "references",
+      "why": "peripheral node `import-kepler-stock.js (importer de stock)` unexpectedly reaches hub `kdil (existencia por sucursal×almacén)`"
+    }
+  ],
+  "questions": [
+    {
+      "type": "bridge_node",
+      "question": "Why does `Póliza contable (kdc2YYMM)` connect `Community 0` to `Community 12`?",
+      "why": "High betweenness centrality (0.004) - this node is a cross-community bridge."
+    },
+    {
+      "type": "bridge_node",
+      "question": "Why does `import-expenses-polizas.js (importer egresos)` connect `Community 12` to `Community 0`?",
+      "why": "High betweenness centrality (0.003) - this node is a cross-community bridge."
+    },
+    {
+      "type": "verify_inferred",
+      "question": "Are the 10 inferred relationships involving `kdii (maestro de productos)` (e.g. with `kdid (catálogo de unidades de medida)` and `kdie (catálogo de departamentos/giros)`) actually correct?",
+      "why": "`kdii (maestro de productos)` has 10 INFERRED edges - model-reasoned connections that need verification."
+    },
+    {
+      "type": "isolated_nodes",
+      "question": "What connects `{ Client }`, `APPLY`, `FULL` to the rest of the system?",
+      "why": "162 weakly-connected nodes found - possible documentation gaps or missing edges."
+    },
+    {
+      "type": "low_cohesion",
+      "question": "Should `Community 0` be split into smaller, more focused modules?",
+      "why": "Cohesion score 0.11231884057971014 - nodes in this community are weakly interconnected."
+    }
+  ]
+}

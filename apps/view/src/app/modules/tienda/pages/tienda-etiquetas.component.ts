@@ -45,8 +45,8 @@ interface QueueItem { model: LabelModel; copies: number; }
     .etqp-msg{ padding:.6rem .8rem; border-radius:8px; background:#fff4e5; border:1px solid #f0c891; color:#8a4b00; font-size:.85rem; }
     .etqp-grid{ display:grid; grid-template-columns:repeat(auto-fill, 220px); gap:1.4rem 1rem; }
     .etqp-card{ display:flex; flex-direction:column; gap:.4rem; }
-    .etqp-scale{ width:200px; height:80px; overflow:hidden; border:1px solid var(--border,#eee); border-radius:6px; }
-    .etqp-scale app-label{ display:block; transform:scale(0.5305); transform-origin:top left; }
+    .etqp-scale{ width:200px; height:71px; overflow:hidden; border:1px solid var(--border,#eee); border-radius:6px; }
+    .etqp-scale app-label{ display:block; transform:scale(0.46); transform-origin:top left; }
     .etqp-row{ display:flex; align-items:center; gap:.5rem; font-size:.8rem; }
     .etqp-row .nm{ flex:1; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
     .etqp-step{ display:flex; align-items:center; gap:.3rem; }
@@ -55,7 +55,7 @@ interface QueueItem { model: LabelModel; copies: number; }
 
     /* Hoja fuente: fuera de pantalla PERO con layout (para auto-fit del nombre + barcodes).
        No se imprime desde aquí; se clona a un iframe aislado. */
-    .etqp-print{ position:fixed; left:-100000px; top:0; width:100mm; }
+    .etqp-print{ position:fixed; left:-100000px; top:0; width:115mm; }
   `],
   template: `
     <div class="etqp-screen">
@@ -257,11 +257,11 @@ export class TiendaEtiquetasComponent {
     doc.open();
     doc.write(`<!doctype html><html><head><meta charset="utf-8">${styles}
       <style>
-        @page { size:100mm 40mm; margin:0; }
+        @page { size:letter; margin:8mm; }
         html,body{ margin:0; padding:0; background:#fff; }
         *{ -webkit-print-color-adjust:exact !important; print-color-adjust:exact !important; }
-        app-label{ display:block; break-after:page; page-break-after:always; }
-        app-label:last-child{ break-after:auto; page-break-after:avoid; }
+        /* Etiquetas 115×40mm en columna sobre hoja Carta; se paginan solas y no se parten. */
+        app-label{ display:block; break-inside:avoid; page-break-inside:avoid; margin:0 auto 4mm; }
       </style></head><body>${sheet.innerHTML}</body></html>`);
     doc.close();
 

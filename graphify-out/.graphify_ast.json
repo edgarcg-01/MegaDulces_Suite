@@ -1,0 +1,5240 @@
+{
+  "nodes": [
+    {
+      "id": "database_importers_kepler_concentrate_kepler",
+      "label": "concentrate-kepler.js",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/concentrate-kepler.js",
+      "source_location": "L1",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_concentrate_kepler_client",
+      "label": "{ Client }",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/concentrate-kepler.js",
+      "source_location": "L37",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_concentrate_kepler_apply",
+      "label": "APPLY",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/concentrate-kepler.js",
+      "source_location": "L40",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_concentrate_kepler_full",
+      "label": "FULL",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/concentrate-kepler.js",
+      "source_location": "L41",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_concentrate_kepler_create_db",
+      "label": "CREATE_DB",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/concentrate-kepler.js",
+      "source_location": "L42",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_concentrate_kepler_exclude",
+      "label": "EXCLUDE",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/concentrate-kepler.js",
+      "source_location": "L46",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_concentrate_kepler_maptype",
+      "label": "mapType()",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/concentrate-kepler.js",
+      "source_location": "L61",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_concentrate_kepler_iststype",
+      "label": "isTsType()",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/concentrate-kepler.js",
+      "source_location": "L76",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_concentrate_kepler_qid",
+      "label": "qid()",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/concentrate-kepler.js",
+      "source_location": "L77",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_concentrate_kepler_ensuredatabase",
+      "label": "ensureDatabase()",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/concentrate-kepler.js",
+      "source_location": "L79",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_concentrate_kepler_ensurebase",
+      "label": "ensureBase()",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/concentrate-kepler.js",
+      "source_location": "L94",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_concentrate_kepler_listtables",
+      "label": "listTables()",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/concentrate-kepler.js",
+      "source_location": "L111",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_concentrate_kepler_columns",
+      "label": "columns()",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/concentrate-kepler.js",
+      "source_location": "L119",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_concentrate_kepler_ensuredesttable",
+      "label": "ensureDestTable()",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/concentrate-kepler.js",
+      "source_location": "L127",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_concentrate_kepler_picktscol",
+      "label": "pickTsCol()",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/concentrate-kepler.js",
+      "source_location": "L146",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_concentrate_kepler_copyrows",
+      "label": "copyRows()",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/concentrate-kepler.js",
+      "source_location": "L162",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_ap_findings",
+      "label": "import-ap-findings.js",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-ap-findings.js",
+      "source_location": "L1",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_ap_findings_client",
+      "label": "{ Client }",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-ap-findings.js",
+      "source_location": "L17",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_ap_findings_apply",
+      "label": "APPLY",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-ap-findings.js",
+      "source_location": "L21",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_ap_findings_arg",
+      "label": "arg()",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-ap-findings.js",
+      "source_location": "L24",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_ap_findings_months",
+      "label": "MONTHS",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-ap-findings.js",
+      "source_location": "L28",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_ap_findings_monthwindow",
+      "label": "monthWindow()",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-ap-findings.js",
+      "source_location": "L41",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_ap_findings_normprov",
+      "label": "normProv()",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-ap-findings.js",
+      "source_location": "L58",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_ap_findings_bulkinsert",
+      "label": "bulkInsert()",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-ap-findings.js",
+      "source_location": "L64",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_branch_stock_live",
+      "label": "import-branch-stock-live.js",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-branch-stock-live.js",
+      "source_location": "L1",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_branch_stock_live_client",
+      "label": "{ Client }",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-branch-stock-live.js",
+      "source_location": "L17",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_branch_stock_live_apply",
+      "label": "APPLY",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-branch-stock-live.js",
+      "source_location": "L21",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_brands_lineas",
+      "label": "import-brands-lineas.js",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-brands-lineas.js",
+      "source_location": "L1",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_brands_lineas_client",
+      "label": "{ Client }",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-brands-lineas.js",
+      "source_location": "L22",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_brands_lineas_apply",
+      "label": "APPLY",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-brands-lineas.js",
+      "source_location": "L26",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_cash_cuts",
+      "label": "import-cash-cuts.js",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-cash-cuts.js",
+      "source_location": "L1",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_cash_cuts_knexlib",
+      "label": "knexLib",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-cash-cuts.js",
+      "source_location": "L21",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_cash_cuts_client",
+      "label": "{ Client }",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-cash-cuts.js",
+      "source_location": "L22",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_cash_cuts_apply",
+      "label": "APPLY",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-cash-cuts.js",
+      "source_location": "L24",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_cash_cuts_num",
+      "label": "num()",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-cash-cuts.js",
+      "source_location": "L38",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_cash_cuts_readbranch",
+      "label": "readBranch()",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-cash-cuts.js",
+      "source_location": "L40",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_cash_cuts_upsert",
+      "label": "upsert()",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-cash-cuts.js",
+      "source_location": "L94",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_computed_reorder",
+      "label": "import-computed-reorder.js",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-computed-reorder.js",
+      "source_location": "L1",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_computed_reorder_client",
+      "label": "{ Client }",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-computed-reorder.js",
+      "source_location": "L22",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_computed_reorder_apply",
+      "label": "APPLY",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-computed-reorder.js",
+      "source_location": "L26",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_computed_reorder_lead_default",
+      "label": "LEAD_DEFAULT",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-computed-reorder.js",
+      "source_location": "L27",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_computed_reorder_safety_days",
+      "label": "SAFETY_DAYS",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-computed-reorder.js",
+      "source_location": "L28",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_computed_reorder_cycle_days",
+      "label": "CYCLE_DAYS",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-computed-reorder.js",
+      "source_location": "L29",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_customer_sales",
+      "label": "import-customer-sales.js",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-customer-sales.js",
+      "source_location": "L1",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_customer_sales_client",
+      "label": "{ Client }",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-customer-sales.js",
+      "source_location": "L13",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_customer_sales_apply",
+      "label": "APPLY",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-customer-sales.js",
+      "source_location": "L18",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_erp_customers",
+      "label": "import-erp-customers.js",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-erp-customers.js",
+      "source_location": "L1",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_erp_customers_client",
+      "label": "{ Client }",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-erp-customers.js",
+      "source_location": "L14",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_erp_customers_apply",
+      "label": "APPLY",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-erp-customers.js",
+      "source_location": "L18",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_erp_customers_norm",
+      "label": "norm()",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-erp-customers.js",
+      "source_location": "L30",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_erp_promos",
+      "label": "import-erp-promos.js",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-erp-promos.js",
+      "source_location": "L1",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_erp_promos_client",
+      "label": "{ Client }",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-erp-promos.js",
+      "source_location": "L12",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_erp_promos_apply",
+      "label": "APPLY",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-erp-promos.js",
+      "source_location": "L17",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_erp_promos_srcs",
+      "label": "SRCS",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-erp-promos.js",
+      "source_location": "L20",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_erp_shipments",
+      "label": "import-erp-shipments.js",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-erp-shipments.js",
+      "source_location": "L1",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_erp_shipments_client",
+      "label": "{ Client }",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-erp-shipments.js",
+      "source_location": "L26",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_erp_shipments_apply",
+      "label": "APPLY",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-erp-shipments.js",
+      "source_location": "L30",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_erp_shipments_date_col",
+      "label": "DATE_COL",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-erp-shipments.js",
+      "source_location": "L33",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_expense_requests",
+      "label": "import-expense-requests.js",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-expense-requests.js",
+      "source_location": "L1",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_expense_requests_client",
+      "label": "{ Client }",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-expense-requests.js",
+      "source_location": "L21",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_expense_requests_apply",
+      "label": "APPLY",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-expense-requests.js",
+      "source_location": "L25",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_expense_requests_today",
+      "label": "TODAY",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-expense-requests.js",
+      "source_location": "L28",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_expense_requests_norm",
+      "label": "norm()",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-expense-requests.js",
+      "source_location": "L41",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_expense_requests_bulkinsert",
+      "label": "bulkInsert()",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-expense-requests.js",
+      "source_location": "L43",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_expenses_polizas",
+      "label": "import-expenses-polizas.js",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-expenses-polizas.js",
+      "source_location": "L1",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_expenses_polizas_client",
+      "label": "{ Client }",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-expenses-polizas.js",
+      "source_location": "L25",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_expenses_polizas_apply",
+      "label": "APPLY",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-expenses-polizas.js",
+      "source_location": "L29",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_expenses_polizas_bulkinsert",
+      "label": "bulkInsert()",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-expenses-polizas.js",
+      "source_location": "L33",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_expenses_polizas_arg",
+      "label": "arg()",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-expenses-polizas.js",
+      "source_location": "L46",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_expenses_polizas_months",
+      "label": "MONTHS",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-expenses-polizas.js",
+      "source_location": "L50",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_expenses_polizas_monthwindow",
+      "label": "monthWindow()",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-expenses-polizas.js",
+      "source_location": "L64",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_expenses_polizas_area_aliases",
+      "label": "AREA_ALIASES",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-expenses-polizas.js",
+      "source_location": "L82",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_expenses_polizas_normarea",
+      "label": "normArea()",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-expenses-polizas.js",
+      "source_location": "L94",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_inventory_health",
+      "label": "import-inventory-health.js",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-inventory-health.js",
+      "source_location": "L1",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_inventory_health_client",
+      "label": "{ Client }",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-inventory-health.js",
+      "source_location": "L18",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_inventory_health_apply",
+      "label": "APPLY",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-inventory-health.js",
+      "source_location": "L22",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_kardex",
+      "label": "import-kardex.js",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-kardex.js",
+      "source_location": "L1",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_kardex_knexlib",
+      "label": "knexLib",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-kardex.js",
+      "source_location": "L16",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_kardex_client",
+      "label": "{ Client }",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-kardex.js",
+      "source_location": "L17",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_kardex_apply",
+      "label": "APPLY",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-kardex.js",
+      "source_location": "L19",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_kardex_num",
+      "label": "num()",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-kardex.js",
+      "source_location": "L33",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_kardex_clasemov",
+      "label": "claseMov()",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-kardex.js",
+      "source_location": "L35",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_kardex_readbranch",
+      "label": "readBranch()",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-kardex.js",
+      "source_location": "L51",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_kardex_upsert",
+      "label": "upsert()",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-kardex.js",
+      "source_location": "L79",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_kepler_prices",
+      "label": "import-kepler-prices.js",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-kepler-prices.js",
+      "source_location": "L1",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_kepler_prices_client",
+      "label": "{ Client }",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-kepler-prices.js",
+      "source_location": "L23",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_kepler_prices_apply",
+      "label": "APPLY",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-kepler-prices.js",
+      "source_location": "L28",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_kepler_prices_present_pref",
+      "label": "PRESENT_PREF",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-kepler-prices.js",
+      "source_location": "L30",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_kepler_prices_list_order",
+      "label": "LIST_ORDER",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-kepler-prices.js",
+      "source_location": "L31",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_kepler_rotation",
+      "label": "import-kepler-rotation.js",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-kepler-rotation.js",
+      "source_location": "L1",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_kepler_rotation_client",
+      "label": "{ Client }",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-kepler-rotation.js",
+      "source_location": "L21",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_kepler_rotation_apply",
+      "label": "APPLY",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-kepler-rotation.js",
+      "source_location": "L26",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_kepler_rotation_bi",
+      "label": "bi",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-kepler-rotation.js",
+      "source_location": "L27",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_kepler_rotation_percentile",
+      "label": "percentile()",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-kepler-rotation.js",
+      "source_location": "L32",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_kepler_stock",
+      "label": "import-kepler-stock.js",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-kepler-stock.js",
+      "source_location": "L1",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_kepler_stock_client",
+      "label": "{ Client }",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-kepler-stock.js",
+      "source_location": "L27",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_kepler_stock_arg",
+      "label": "arg()",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-kepler-stock.js",
+      "source_location": "L31",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_kepler_stock_apply",
+      "label": "APPLY",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-kepler-stock.js",
+      "source_location": "L38",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_kepler_stock_branch",
+      "label": "BRANCH",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-kepler-stock.js",
+      "source_location": "L39",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_kepler_stock_warehouse",
+      "label": "WAREHOUSE",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-kepler-stock.js",
+      "source_location": "L40",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_kepler_suppliers",
+      "label": "import-kepler-suppliers.js",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-kepler-suppliers.js",
+      "source_location": "L1",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_kepler_suppliers_client",
+      "label": "{ Client }",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-kepler-suppliers.js",
+      "source_location": "L18",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_kepler_suppliers_apply",
+      "label": "APPLY",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-kepler-suppliers.js",
+      "source_location": "L23",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_kepler_suppliers_stage",
+      "label": "stage()",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-kepler-suppliers.js",
+      "source_location": "L26",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_kepler_uom_categories",
+      "label": "import-kepler-uom-categories.js",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-kepler-uom-categories.js",
+      "source_location": "L1",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_kepler_uom_categories_client",
+      "label": "{ Client }",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-kepler-uom-categories.js",
+      "source_location": "L19",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_kepler_uom_categories_apply",
+      "label": "APPLY",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-kepler-uom-categories.js",
+      "source_location": "L24",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_kepler_warehouse_stock",
+      "label": "import-kepler-warehouse-stock.js",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-kepler-warehouse-stock.js",
+      "source_location": "L1",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_kepler_warehouse_stock_client",
+      "label": "{ Client }",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-kepler-warehouse-stock.js",
+      "source_location": "L18",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_kepler_warehouse_stock_arg",
+      "label": "arg()",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-kepler-warehouse-stock.js",
+      "source_location": "L23",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_kepler_warehouse_stock_branch",
+      "label": "BRANCH",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-kepler-warehouse-stock.js",
+      "source_location": "L27",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_kepler_warehouse_stock_warehouse",
+      "label": "WAREHOUSE",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-kepler-warehouse-stock.js",
+      "source_location": "L28",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_kepler_warehouse_stock_dst_url",
+      "label": "DST_URL",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-kepler-warehouse-stock.js",
+      "source_location": "L29",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_kepler_warehouse_stock_apply",
+      "label": "APPLY",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-kepler-warehouse-stock.js",
+      "source_location": "L30",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_label_data",
+      "label": "import-label-data.js",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-label-data.js",
+      "source_location": "L1",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_label_data_client",
+      "label": "{ Client }",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-label-data.js",
+      "source_location": "L20",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_label_data_apply",
+      "label": "APPLY",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-label-data.js",
+      "source_location": "L25",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_label_data_parsegramaje",
+      "label": "parseGramaje()",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-label-data.js",
+      "source_location": "L29",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_label_data_barcodeformat",
+      "label": "barcodeFormat()",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-label-data.js",
+      "source_location": "L43",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_label_data_num",
+      "label": "num()",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-label-data.js",
+      "source_location": "L51",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_label_data_int",
+      "label": "int()",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-label-data.js",
+      "source_location": "L52",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_ledger_chain",
+      "label": "import-ledger-chain.js",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-ledger-chain.js",
+      "source_location": "L1",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_ledger_chain_client",
+      "label": "{ Client }",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-ledger-chain.js",
+      "source_location": "L24",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_ledger_chain_apply",
+      "label": "APPLY",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-ledger-chain.js",
+      "source_location": "L28",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_ledger_chain_arg",
+      "label": "arg()",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-ledger-chain.js",
+      "source_location": "L31",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_ledger_chain_months",
+      "label": "MONTHS",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-ledger-chain.js",
+      "source_location": "L35",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_ledger_chain_bulkinsert",
+      "label": "bulkInsert()",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-ledger-chain.js",
+      "source_location": "L48",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_ledger_chain_monthwindow",
+      "label": "monthWindow()",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-ledger-chain.js",
+      "source_location": "L61",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_ledger_chain_normbenef",
+      "label": "normBenef()",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-ledger-chain.js",
+      "source_location": "L72",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_ledger_chain_sametotal",
+      "label": "sameTotal()",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-ledger-chain.js",
+      "source_location": "L73",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_ledger_chain_daysbetween",
+      "label": "daysBetween()",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-ledger-chain.js",
+      "source_location": "L75",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_logistics_dims",
+      "label": "import-logistics-dims.js",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-logistics-dims.js",
+      "source_location": "L1",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_logistics_dims_client",
+      "label": "{ Client }",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-logistics-dims.js",
+      "source_location": "L21",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_logistics_dims_apply",
+      "label": "APPLY",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-logistics-dims.js",
+      "source_location": "L26",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_margin",
+      "label": "import-margin.js",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-margin.js",
+      "source_location": "L1",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_margin_client",
+      "label": "{ Client }",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-margin.js",
+      "source_location": "L14",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_margin_apply",
+      "label": "APPLY",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-margin.js",
+      "source_location": "L19",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_ph_stock_live",
+      "label": "import-ph-stock-live.js",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-ph-stock-live.js",
+      "source_location": "L1",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_ph_stock_live_client",
+      "label": "{ Client }",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-ph-stock-live.js",
+      "source_location": "L17",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_ph_stock_live_apply",
+      "label": "APPLY",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-ph-stock-live.js",
+      "source_location": "L24",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_pos_cashiers",
+      "label": "import-pos-cashiers.js",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-pos-cashiers.js",
+      "source_location": "L1",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_pos_cashiers_knexlib",
+      "label": "knexLib",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-pos-cashiers.js",
+      "source_location": "L15",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_pos_cashiers_client",
+      "label": "{ Client }",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-pos-cashiers.js",
+      "source_location": "L16",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_pos_cashiers_apply",
+      "label": "APPLY",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-pos-cashiers.js",
+      "source_location": "L18",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_pos_cashiers_clean",
+      "label": "clean()",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-pos-cashiers.js",
+      "source_location": "L32",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_pos_cashiers_readbranch",
+      "label": "readBranch()",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-pos-cashiers.js",
+      "source_location": "L34",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_pos_cashiers_upsert",
+      "label": "upsert()",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-pos-cashiers.js",
+      "source_location": "L55",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_pos_ticket_sales",
+      "label": "import-pos-ticket-sales.js",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-pos-ticket-sales.js",
+      "source_location": "L1",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_pos_ticket_sales_knexlib",
+      "label": "knexLib",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-pos-ticket-sales.js",
+      "source_location": "L12",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_pos_ticket_sales_client",
+      "label": "{ Client }",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-pos-ticket-sales.js",
+      "source_location": "L13",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_pos_ticket_sales_apply",
+      "label": "APPLY",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-pos-ticket-sales.js",
+      "source_location": "L15",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_pos_ticket_sales_readbranch",
+      "label": "readBranch()",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-pos-ticket-sales.js",
+      "source_location": "L29",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_pos_ticket_sales_upsert",
+      "label": "upsert()",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-pos-ticket-sales.js",
+      "source_location": "L51",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_product_sales_daily",
+      "label": "import-product-sales-daily.js",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-product-sales-daily.js",
+      "source_location": "L1",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_product_sales_daily_client",
+      "label": "{ Client }",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-product-sales-daily.js",
+      "source_location": "L21",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_product_sales_daily_apply",
+      "label": "APPLY",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-product-sales-daily.js",
+      "source_location": "L25",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_product_sales_daily_di",
+      "label": "di",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-product-sales-daily.js",
+      "source_location": "L26",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_product_sales_monthly",
+      "label": "import-product-sales-monthly.js",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-product-sales-monthly.js",
+      "source_location": "L1",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_product_sales_monthly_client",
+      "label": "{ Client }",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-product-sales-monthly.js",
+      "source_location": "L16",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_product_sales_monthly_apply",
+      "label": "APPLY",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-product-sales-monthly.js",
+      "source_location": "L20",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_product_sales_monthly_yi",
+      "label": "yi",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-product-sales-monthly.js",
+      "source_location": "L21",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_reorder_policy",
+      "label": "import-reorder-policy.js",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-reorder-policy.js",
+      "source_location": "L1",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_reorder_policy_client",
+      "label": "{ Client }",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-reorder-policy.js",
+      "source_location": "L19",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_reorder_policy_apply",
+      "label": "APPLY",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-reorder-policy.js",
+      "source_location": "L23",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_rotation_from_consolidado",
+      "label": "import-rotation-from-consolidado.js",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-rotation-from-consolidado.js",
+      "source_location": "L1",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_rotation_from_consolidado_client",
+      "label": "{ Client }",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-rotation-from-consolidado.js",
+      "source_location": "L20",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_rotation_from_consolidado_apply",
+      "label": "APPLY",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-rotation-from-consolidado.js",
+      "source_location": "L29",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_rotation_from_consolidado_percentile",
+      "label": "percentile()",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-rotation-from-consolidado.js",
+      "source_location": "L31",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_sales_by_route_monthly",
+      "label": "import-sales-by-route-monthly.js",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-sales-by-route-monthly.js",
+      "source_location": "L1",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_sales_by_route_monthly_client",
+      "label": "{ Client }",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-sales-by-route-monthly.js",
+      "source_location": "L20",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_sales_by_route_monthly_apply",
+      "label": "APPLY",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-sales-by-route-monthly.js",
+      "source_location": "L24",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_sales_by_route_monthly_yi",
+      "label": "yi",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-sales-by-route-monthly.js",
+      "source_location": "L25",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_sales_fact",
+      "label": "import-sales-fact.js",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-sales-fact.js",
+      "source_location": "L1",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_sales_fact_client",
+      "label": "{ Client }",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-sales-fact.js",
+      "source_location": "L15",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_sales_fact_apply",
+      "label": "APPLY",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-sales-fact.js",
+      "source_location": "L20",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_sales_stats",
+      "label": "import-sales-stats.js",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-sales-stats.js",
+      "source_location": "L1",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_sales_stats_client",
+      "label": "{ Client }",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-sales-stats.js",
+      "source_location": "L14",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_sales_stats_apply",
+      "label": "APPLY",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-sales-stats.js",
+      "source_location": "L18",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_top_sellers_from_consolidado",
+      "label": "import-top-sellers-from-consolidado.js",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-top-sellers-from-consolidado.js",
+      "source_location": "L1",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_top_sellers_from_consolidado_client",
+      "label": "{ Client }",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-top-sellers-from-consolidado.js",
+      "source_location": "L17",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_top_sellers_from_consolidado_apply",
+      "label": "APPLY",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-top-sellers-from-consolidado.js",
+      "source_location": "L23",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_transfers_monthly",
+      "label": "import-transfers-monthly.js",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-transfers-monthly.js",
+      "source_location": "L1",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_transfers_monthly_client",
+      "label": "{ Client }",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-transfers-monthly.js",
+      "source_location": "L26",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_transfers_monthly_apply",
+      "label": "APPLY",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-transfers-monthly.js",
+      "source_location": "L30",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_transfers_monthly_reset",
+      "label": "RESET",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-transfers-monthly.js",
+      "source_location": "L33",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_import_transfers_monthly_yi",
+      "label": "yi",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/import-transfers-monthly.js",
+      "source_location": "L34",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_install_service",
+      "label": "install-service.js",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/install-service.js",
+      "source_location": "L1",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_install_service_path",
+      "label": "path",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/install-service.js",
+      "source_location": "L21",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_install_service_fs",
+      "label": "fs",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/install-service.js",
+      "source_location": "L22",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_install_service_service",
+      "label": "{ Service }",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/install-service.js",
+      "source_location": "L23",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_install_service_env_path",
+      "label": "ENV_PATH",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/install-service.js",
+      "source_location": "L26",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_install_service_script",
+      "label": "SCRIPT",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/install-service.js",
+      "source_location": "L27",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_install_service_log_dir",
+      "label": "LOG_DIR",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/install-service.js",
+      "source_location": "L28",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_install_service_cfg",
+      "label": "cfg",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/install-service.js",
+      "source_location": "L37",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_install_service_problems",
+      "label": "problems",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/install-service.js",
+      "source_location": "L44",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_install_service_svc",
+      "label": "svc",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/install-service.js",
+      "source_location": "L62",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_live_tickets_poller",
+      "label": "live-tickets-poller.js",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/live-tickets-poller.js",
+      "source_location": "L1",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_live_tickets_poller_client",
+      "label": "{ Client }",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/live-tickets-poller.js",
+      "source_location": "L18",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_live_tickets_poller_dry",
+      "label": "DRY",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/live-tickets-poller.js",
+      "source_location": "L25",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_live_tickets_poller_pad",
+      "label": "pad()",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/live-tickets-poller.js",
+      "source_location": "L38",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_live_tickets_poller_sincelocalmx",
+      "label": "sinceLocalMX()",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/live-tickets-poller.js",
+      "source_location": "L40",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_live_tickets_poller_startoftodaymx",
+      "label": "startOfTodayMX()",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/live-tickets-poller.js",
+      "source_location": "L45",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_live_tickets_poller_pollbranch",
+      "label": "pollBranch()",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/live-tickets-poller.js",
+      "source_location": "L50",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_live_tickets_poller_push",
+      "label": "push()",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/live-tickets-poller.js",
+      "source_location": "L86",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_live_tickets_poller_tick",
+      "label": "tick()",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/live-tickets-poller.js",
+      "source_location": "L109",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_run_prod_feeds",
+      "label": "run-prod-feeds.js",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/run-prod-feeds.js",
+      "source_location": "L1",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_run_prod_feeds_spawn",
+      "label": "{ spawn }",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/run-prod-feeds.js",
+      "source_location": "L24",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_run_prod_feeds_path",
+      "label": "path",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/run-prod-feeds.js",
+      "source_location": "L25",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_run_prod_feeds_apply",
+      "label": "APPLY",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/run-prod-feeds.js",
+      "source_location": "L28",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_run_prod_feeds_dir",
+      "label": "DIR",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/run-prod-feeds.js",
+      "source_location": "L29",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_run_prod_feeds_k",
+      "label": "K",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/run-prod-feeds.js",
+      "source_location": "L30",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_run_prod_feeds_steps",
+      "label": "STEPS",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/run-prod-feeds.js",
+      "source_location": "L32",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_run_prod_feeds_usage",
+      "label": "usage()",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/run-prod-feeds.js",
+      "source_location": "L76",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_run_prod_feeds_run",
+      "label": "run()",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/run-prod-feeds.js",
+      "source_location": "L81",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_uninstall_service",
+      "label": "uninstall-service.js",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/uninstall-service.js",
+      "source_location": "L1",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_uninstall_service_path",
+      "label": "path",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/uninstall-service.js",
+      "source_location": "L7",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_uninstall_service_service",
+      "label": "{ Service }",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/uninstall-service.js",
+      "source_location": "L8",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_kepler_uninstall_service_svc",
+      "label": "svc",
+      "file_type": "code",
+      "source_file": "database/importers/kepler/uninstall-service.js",
+      "source_location": "L10",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_mega_dulces_sync",
+      "label": "mega_dulces_sync.js",
+      "file_type": "code",
+      "source_file": "database/importers/mega_dulces_sync.js",
+      "source_location": "L1",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_mega_dulces_sync_knexlib",
+      "label": "knexLib",
+      "file_type": "code",
+      "source_file": "database/importers/mega_dulces_sync.js",
+      "source_location": "L36",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_mega_dulces_sync_parseargs",
+      "label": "parseArgs()",
+      "file_type": "code",
+      "source_file": "database/importers/mega_dulces_sync.js",
+      "source_location": "L40",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_mega_dulces_sync_printhelp",
+      "label": "printHelp()",
+      "file_type": "code",
+      "source_file": "database/importers/mega_dulces_sync.js",
+      "source_location": "L53",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_mega_dulces_sync_buildsourceknex",
+      "label": "buildSourceKnex()",
+      "file_type": "code",
+      "source_file": "database/importers/mega_dulces_sync.js",
+      "source_location": "L82",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_mega_dulces_sync_buildtargetknex",
+      "label": "buildTargetKnex()",
+      "file_type": "code",
+      "source_file": "database/importers/mega_dulces_sync.js",
+      "source_location": "L97",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_mega_dulces_sync_md_warehouse_codes",
+      "label": "MD_WAREHOUSE_CODES",
+      "file_type": "code",
+      "source_file": "database/importers/mega_dulces_sync.js",
+      "source_location": "L110",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_mega_dulces_sync_warehouse_column_map",
+      "label": "WAREHOUSE_COLUMN_MAP",
+      "file_type": "code",
+      "source_file": "database/importers/mega_dulces_sync.js",
+      "source_location": "L113",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_mega_dulces_sync_price_lists",
+      "label": "PRICE_LISTS",
+      "file_type": "code",
+      "source_file": "database/importers/mega_dulces_sync.js",
+      "source_location": "L130",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_mega_dulces_sync_clean",
+      "label": "clean()",
+      "file_type": "code",
+      "source_file": "database/importers/mega_dulces_sync.js",
+      "source_location": "L139",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_mega_dulces_sync_resolvetenantid",
+      "label": "resolveTenantId()",
+      "file_type": "code",
+      "source_file": "database/importers/mega_dulces_sync.js",
+      "source_location": "L145",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_mega_dulces_sync_withtenanttx",
+      "label": "withTenantTx()",
+      "file_type": "code",
+      "source_file": "database/importers/mega_dulces_sync.js",
+      "source_location": "L151",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_mega_dulces_sync_synccategories",
+      "label": "syncCategories()",
+      "file_type": "code",
+      "source_file": "database/importers/mega_dulces_sync.js",
+      "source_location": "L160",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_mega_dulces_sync_syncbrands",
+      "label": "syncBrands()",
+      "file_type": "code",
+      "source_file": "database/importers/mega_dulces_sync.js",
+      "source_location": "L201",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_mega_dulces_sync_syncwarehouses",
+      "label": "syncWarehouses()",
+      "file_type": "code",
+      "source_file": "database/importers/mega_dulces_sync.js",
+      "source_location": "L253",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_mega_dulces_sync_syncpricelists",
+      "label": "syncPriceLists()",
+      "file_type": "code",
+      "source_file": "database/importers/mega_dulces_sync.js",
+      "source_location": "L308",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_mega_dulces_sync_syncproducts",
+      "label": "syncProducts()",
+      "file_type": "code",
+      "source_file": "database/importers/mega_dulces_sync.js",
+      "source_location": "L345",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_mega_dulces_sync_syncprices",
+      "label": "syncPrices()",
+      "file_type": "code",
+      "source_file": "database/importers/mega_dulces_sync.js",
+      "source_location": "L488",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_mega_dulces_sync_syncvendedores",
+      "label": "syncVendedores()",
+      "file_type": "code",
+      "source_file": "database/importers/mega_dulces_sync.js",
+      "source_location": "L587",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_mega_dulces_sync_syncstock",
+      "label": "syncStock()",
+      "file_type": "code",
+      "source_file": "database/importers/mega_dulces_sync.js",
+      "source_location": "L625",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_mega_dulces_sync_main",
+      "label": "main()",
+      "file_type": "code",
+      "source_file": "database/importers/mega_dulces_sync.js",
+      "source_location": "L706",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_sync_inventory_from_erp",
+      "label": "sync-inventory-from-erp.js",
+      "file_type": "code",
+      "source_file": "database/importers/sync-inventory-from-erp.js",
+      "source_location": "L1",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_sync_inventory_from_erp_knexlib",
+      "label": "knexLib",
+      "file_type": "code",
+      "source_file": "database/importers/sync-inventory-from-erp.js",
+      "source_location": "L28",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_sync_inventory_from_erp_parseargs",
+      "label": "parseArgs()",
+      "file_type": "code",
+      "source_file": "database/importers/sync-inventory-from-erp.js",
+      "source_location": "L30",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_sync_inventory_from_erp_main",
+      "label": "main()",
+      "file_type": "code",
+      "source_file": "database/importers/sync-inventory-from-erp.js",
+      "source_location": "L38",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_railway_stock_by_sku",
+      "label": "railway-stock-by-sku.js",
+      "file_type": "code",
+      "source_file": "database/importers/railway-stock-by-sku.js",
+      "source_location": "L1",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_railway_stock_by_sku_fs",
+      "label": "fs",
+      "file_type": "code",
+      "source_file": "database/importers/railway-stock-by-sku.js",
+      "source_location": "L23",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_railway_stock_by_sku_knexlib",
+      "label": "knexLib",
+      "file_type": "code",
+      "source_file": "database/importers/railway-stock-by-sku.js",
+      "source_location": "L24",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_railway_stock_by_sku_parseargs",
+      "label": "parseArgs()",
+      "file_type": "code",
+      "source_file": "database/importers/railway-stock-by-sku.js",
+      "source_location": "L26",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_railway_stock_by_sku_parsecsv",
+      "label": "parseCsv()",
+      "file_type": "code",
+      "source_file": "database/importers/railway-stock-by-sku.js",
+      "source_location": "L36",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_railway_stock_by_sku_main",
+      "label": "main()",
+      "file_type": "code",
+      "source_file": "database/importers/railway-stock-by-sku.js",
+      "source_location": "L49",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_railway_product_prices_by_sku",
+      "label": "railway-product-prices-by-sku.js",
+      "file_type": "code",
+      "source_file": "database/importers/railway-product-prices-by-sku.js",
+      "source_location": "L1",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_railway_product_prices_by_sku_fs",
+      "label": "fs",
+      "file_type": "code",
+      "source_file": "database/importers/railway-product-prices-by-sku.js",
+      "source_location": "L27",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_railway_product_prices_by_sku_knexlib",
+      "label": "knexLib",
+      "file_type": "code",
+      "source_file": "database/importers/railway-product-prices-by-sku.js",
+      "source_location": "L28",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_railway_product_prices_by_sku_parseargs",
+      "label": "parseArgs()",
+      "file_type": "code",
+      "source_file": "database/importers/railway-product-prices-by-sku.js",
+      "source_location": "L30",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_railway_product_prices_by_sku_parsecsv",
+      "label": "parseCsv()",
+      "file_type": "code",
+      "source_file": "database/importers/railway-product-prices-by-sku.js",
+      "source_location": "L42",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_railway_product_prices_by_sku_main",
+      "label": "main()",
+      "file_type": "code",
+      "source_file": "database/importers/railway-product-prices-by-sku.js",
+      "source_location": "L55",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_import_catalog_bulk",
+      "label": "import-catalog-bulk.js",
+      "file_type": "code",
+      "source_file": "database/importers/import-catalog-bulk.js",
+      "source_location": "L1",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_import_catalog_bulk_client",
+      "label": "{ Client }",
+      "file_type": "code",
+      "source_file": "database/importers/import-catalog-bulk.js",
+      "source_location": "L21",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_import_catalog_bulk_apply",
+      "label": "APPLY",
+      "file_type": "code",
+      "source_file": "database/importers/import-catalog-bulk.js",
+      "source_location": "L26",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_import_catalog_bulk_clean",
+      "label": "clean()",
+      "file_type": "code",
+      "source_file": "database/importers/import-catalog-bulk.js",
+      "source_location": "L29",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_import_catalog_bulk_numor",
+      "label": "numOr()",
+      "file_type": "code",
+      "source_file": "database/importers/import-catalog-bulk.js",
+      "source_location": "L30",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_import_catalog_bulk_cols",
+      "label": "COLS",
+      "file_type": "code",
+      "source_file": "database/importers/import-catalog-bulk.js",
+      "source_location": "L41",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_import_prices_bulk",
+      "label": "import-prices-bulk.js",
+      "file_type": "code",
+      "source_file": "database/importers/import-prices-bulk.js",
+      "source_location": "L1",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_import_prices_bulk_client",
+      "label": "{ Client }",
+      "file_type": "code",
+      "source_file": "database/importers/import-prices-bulk.js",
+      "source_location": "L14",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_import_prices_bulk_apply",
+      "label": "APPLY",
+      "file_type": "code",
+      "source_file": "database/importers/import-prices-bulk.js",
+      "source_location": "L19",
+      "_origin": "ast"
+    },
+    {
+      "id": "database_importers_import_prices_bulk_pls",
+      "label": "PLS",
+      "file_type": "code",
+      "source_file": "database/importers/import-prices-bulk.js",
+      "source_location": "L21",
+      "_origin": "ast"
+    }
+  ],
+  "edges": [
+    {
+      "source": "database_importers_kepler_concentrate_kepler",
+      "target": "ref_pg",
+      "relation": "imports_from",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/concentrate-kepler.js",
+      "source_location": "L37",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_concentrate_kepler",
+      "target": "database_importers_kepler_concentrate_kepler_client",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/concentrate-kepler.js",
+      "source_location": "L37",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_concentrate_kepler",
+      "target": "database_importers_kepler_concentrate_kepler_apply",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/concentrate-kepler.js",
+      "source_location": "L40",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_concentrate_kepler",
+      "target": "database_importers_kepler_concentrate_kepler_full",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/concentrate-kepler.js",
+      "source_location": "L41",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_concentrate_kepler",
+      "target": "database_importers_kepler_concentrate_kepler_create_db",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/concentrate-kepler.js",
+      "source_location": "L42",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_concentrate_kepler",
+      "target": "database_importers_kepler_concentrate_kepler_exclude",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/concentrate-kepler.js",
+      "source_location": "L46",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_concentrate_kepler",
+      "target": "database_importers_kepler_concentrate_kepler_maptype",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/concentrate-kepler.js",
+      "source_location": "L61",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_concentrate_kepler",
+      "target": "database_importers_kepler_concentrate_kepler_iststype",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/concentrate-kepler.js",
+      "source_location": "L76",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_concentrate_kepler",
+      "target": "database_importers_kepler_concentrate_kepler_qid",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/concentrate-kepler.js",
+      "source_location": "L77",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_concentrate_kepler",
+      "target": "database_importers_kepler_concentrate_kepler_ensuredatabase",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/concentrate-kepler.js",
+      "source_location": "L79",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_concentrate_kepler",
+      "target": "database_importers_kepler_concentrate_kepler_ensurebase",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/concentrate-kepler.js",
+      "source_location": "L94",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_concentrate_kepler",
+      "target": "database_importers_kepler_concentrate_kepler_listtables",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/concentrate-kepler.js",
+      "source_location": "L111",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_concentrate_kepler",
+      "target": "database_importers_kepler_concentrate_kepler_columns",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/concentrate-kepler.js",
+      "source_location": "L119",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_concentrate_kepler",
+      "target": "database_importers_kepler_concentrate_kepler_ensuredesttable",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/concentrate-kepler.js",
+      "source_location": "L127",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_concentrate_kepler",
+      "target": "database_importers_kepler_concentrate_kepler_picktscol",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/concentrate-kepler.js",
+      "source_location": "L146",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_concentrate_kepler",
+      "target": "database_importers_kepler_concentrate_kepler_copyrows",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/concentrate-kepler.js",
+      "source_location": "L162",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_concentrate_kepler_ensuredatabase",
+      "target": "database_importers_kepler_concentrate_kepler_qid",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/concentrate-kepler.js",
+      "source_location": "L89",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_concentrate_kepler_ensuredesttable",
+      "target": "database_importers_kepler_concentrate_kepler_qid",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/concentrate-kepler.js",
+      "source_location": "L130",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_concentrate_kepler_ensuredesttable",
+      "target": "database_importers_kepler_concentrate_kepler_maptype",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/concentrate-kepler.js",
+      "source_location": "L130",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_concentrate_kepler_picktscol",
+      "target": "database_importers_kepler_concentrate_kepler_iststype",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/concentrate-kepler.js",
+      "source_location": "L147",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_concentrate_kepler_picktscol",
+      "target": "database_importers_kepler_concentrate_kepler_qid",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/concentrate-kepler.js",
+      "source_location": "L153",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_concentrate_kepler_copyrows",
+      "target": "database_importers_kepler_concentrate_kepler_qid",
+      "relation": "indirect_call",
+      "context": "argument",
+      "confidence": "INFERRED",
+      "source_file": "database/importers/kepler/concentrate-kepler.js",
+      "source_location": "L164",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_concentrate_kepler_copyrows",
+      "target": "database_importers_kepler_concentrate_kepler_qid",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/concentrate-kepler.js",
+      "source_location": "L174",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_ap_findings",
+      "target": "ref_pg",
+      "relation": "imports_from",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-ap-findings.js",
+      "source_location": "L17",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_ap_findings",
+      "target": "database_importers_kepler_import_ap_findings_client",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-ap-findings.js",
+      "source_location": "L17",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_ap_findings",
+      "target": "database_importers_kepler_import_ap_findings_apply",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-ap-findings.js",
+      "source_location": "L21",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_ap_findings",
+      "target": "database_importers_kepler_import_ap_findings_arg",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-ap-findings.js",
+      "source_location": "L24",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_ap_findings",
+      "target": "database_importers_kepler_import_ap_findings_months",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-ap-findings.js",
+      "source_location": "L28",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_ap_findings",
+      "target": "database_importers_kepler_import_ap_findings_monthwindow",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-ap-findings.js",
+      "source_location": "L41",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_ap_findings",
+      "target": "database_importers_kepler_import_ap_findings_normprov",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-ap-findings.js",
+      "source_location": "L58",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_ap_findings",
+      "target": "database_importers_kepler_import_ap_findings_bulkinsert",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-ap-findings.js",
+      "source_location": "L64",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_branch_stock_live",
+      "target": "ref_pg",
+      "relation": "imports_from",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-branch-stock-live.js",
+      "source_location": "L17",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_branch_stock_live",
+      "target": "database_importers_kepler_import_branch_stock_live_client",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-branch-stock-live.js",
+      "source_location": "L17",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_branch_stock_live",
+      "target": "database_importers_kepler_import_branch_stock_live_apply",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-branch-stock-live.js",
+      "source_location": "L21",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_brands_lineas",
+      "target": "ref_pg",
+      "relation": "imports_from",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-brands-lineas.js",
+      "source_location": "L22",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_brands_lineas",
+      "target": "database_importers_kepler_import_brands_lineas_client",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-brands-lineas.js",
+      "source_location": "L22",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_brands_lineas",
+      "target": "database_importers_kepler_import_brands_lineas_apply",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-brands-lineas.js",
+      "source_location": "L26",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_cash_cuts",
+      "target": "ref_knex",
+      "relation": "imports_from",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-cash-cuts.js",
+      "source_location": "L21",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_cash_cuts",
+      "target": "database_importers_kepler_import_cash_cuts_knexlib",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-cash-cuts.js",
+      "source_location": "L21",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_cash_cuts",
+      "target": "ref_pg",
+      "relation": "imports_from",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-cash-cuts.js",
+      "source_location": "L22",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_cash_cuts",
+      "target": "database_importers_kepler_import_cash_cuts_client",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-cash-cuts.js",
+      "source_location": "L22",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_cash_cuts",
+      "target": "database_importers_kepler_import_cash_cuts_apply",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-cash-cuts.js",
+      "source_location": "L24",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_cash_cuts",
+      "target": "database_importers_kepler_import_cash_cuts_num",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-cash-cuts.js",
+      "source_location": "L38",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_cash_cuts",
+      "target": "database_importers_kepler_import_cash_cuts_readbranch",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-cash-cuts.js",
+      "source_location": "L40",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_cash_cuts",
+      "target": "database_importers_kepler_import_cash_cuts_upsert",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-cash-cuts.js",
+      "source_location": "L94",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_cash_cuts_readbranch",
+      "target": "database_importers_kepler_import_cash_cuts_num",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-cash-cuts.js",
+      "source_location": "L62",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_computed_reorder",
+      "target": "ref_pg",
+      "relation": "imports_from",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-computed-reorder.js",
+      "source_location": "L22",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_computed_reorder",
+      "target": "database_importers_kepler_import_computed_reorder_client",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-computed-reorder.js",
+      "source_location": "L22",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_computed_reorder",
+      "target": "database_importers_kepler_import_computed_reorder_apply",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-computed-reorder.js",
+      "source_location": "L26",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_computed_reorder",
+      "target": "database_importers_kepler_import_computed_reorder_lead_default",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-computed-reorder.js",
+      "source_location": "L27",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_computed_reorder",
+      "target": "database_importers_kepler_import_computed_reorder_safety_days",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-computed-reorder.js",
+      "source_location": "L28",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_computed_reorder",
+      "target": "database_importers_kepler_import_computed_reorder_cycle_days",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-computed-reorder.js",
+      "source_location": "L29",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_customer_sales",
+      "target": "ref_pg",
+      "relation": "imports_from",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-customer-sales.js",
+      "source_location": "L13",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_customer_sales",
+      "target": "database_importers_kepler_import_customer_sales_client",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-customer-sales.js",
+      "source_location": "L13",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_customer_sales",
+      "target": "database_importers_kepler_import_customer_sales_apply",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-customer-sales.js",
+      "source_location": "L18",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_erp_customers",
+      "target": "ref_pg",
+      "relation": "imports_from",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-erp-customers.js",
+      "source_location": "L14",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_erp_customers",
+      "target": "database_importers_kepler_import_erp_customers_client",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-erp-customers.js",
+      "source_location": "L14",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_erp_customers",
+      "target": "database_importers_kepler_import_erp_customers_apply",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-erp-customers.js",
+      "source_location": "L18",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_erp_customers",
+      "target": "database_importers_kepler_import_erp_customers_norm",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-erp-customers.js",
+      "source_location": "L30",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_erp_promos",
+      "target": "ref_pg",
+      "relation": "imports_from",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-erp-promos.js",
+      "source_location": "L12",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_erp_promos",
+      "target": "database_importers_kepler_import_erp_promos_client",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-erp-promos.js",
+      "source_location": "L12",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_erp_promos",
+      "target": "database_importers_kepler_import_erp_promos_apply",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-erp-promos.js",
+      "source_location": "L17",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_erp_promos",
+      "target": "database_importers_kepler_import_erp_promos_srcs",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-erp-promos.js",
+      "source_location": "L20",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_erp_shipments",
+      "target": "ref_pg",
+      "relation": "imports_from",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-erp-shipments.js",
+      "source_location": "L26",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_erp_shipments",
+      "target": "database_importers_kepler_import_erp_shipments_client",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-erp-shipments.js",
+      "source_location": "L26",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_erp_shipments",
+      "target": "database_importers_kepler_import_erp_shipments_apply",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-erp-shipments.js",
+      "source_location": "L30",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_erp_shipments",
+      "target": "database_importers_kepler_import_erp_shipments_date_col",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-erp-shipments.js",
+      "source_location": "L33",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_expense_requests",
+      "target": "ref_pg",
+      "relation": "imports_from",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-expense-requests.js",
+      "source_location": "L21",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_expense_requests",
+      "target": "database_importers_kepler_import_expense_requests_client",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-expense-requests.js",
+      "source_location": "L21",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_expense_requests",
+      "target": "database_importers_kepler_import_expense_requests_apply",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-expense-requests.js",
+      "source_location": "L25",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_expense_requests",
+      "target": "database_importers_kepler_import_expense_requests_today",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-expense-requests.js",
+      "source_location": "L28",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_expense_requests",
+      "target": "database_importers_kepler_import_expense_requests_norm",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-expense-requests.js",
+      "source_location": "L41",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_expense_requests",
+      "target": "database_importers_kepler_import_expense_requests_bulkinsert",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-expense-requests.js",
+      "source_location": "L43",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_expenses_polizas",
+      "target": "ref_pg",
+      "relation": "imports_from",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-expenses-polizas.js",
+      "source_location": "L25",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_expenses_polizas",
+      "target": "database_importers_kepler_import_expenses_polizas_client",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-expenses-polizas.js",
+      "source_location": "L25",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_expenses_polizas",
+      "target": "database_importers_kepler_import_expenses_polizas_apply",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-expenses-polizas.js",
+      "source_location": "L29",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_expenses_polizas",
+      "target": "database_importers_kepler_import_expenses_polizas_bulkinsert",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-expenses-polizas.js",
+      "source_location": "L33",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_expenses_polizas",
+      "target": "database_importers_kepler_import_expenses_polizas_arg",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-expenses-polizas.js",
+      "source_location": "L46",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_expenses_polizas",
+      "target": "database_importers_kepler_import_expenses_polizas_months",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-expenses-polizas.js",
+      "source_location": "L50",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_expenses_polizas",
+      "target": "database_importers_kepler_import_expenses_polizas_monthwindow",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-expenses-polizas.js",
+      "source_location": "L64",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_expenses_polizas",
+      "target": "database_importers_kepler_import_expenses_polizas_area_aliases",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-expenses-polizas.js",
+      "source_location": "L82",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_expenses_polizas",
+      "target": "database_importers_kepler_import_expenses_polizas_normarea",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-expenses-polizas.js",
+      "source_location": "L94",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_inventory_health",
+      "target": "ref_pg",
+      "relation": "imports_from",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-inventory-health.js",
+      "source_location": "L18",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_inventory_health",
+      "target": "database_importers_kepler_import_inventory_health_client",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-inventory-health.js",
+      "source_location": "L18",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_inventory_health",
+      "target": "database_importers_kepler_import_inventory_health_apply",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-inventory-health.js",
+      "source_location": "L22",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_kardex",
+      "target": "ref_knex",
+      "relation": "imports_from",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-kardex.js",
+      "source_location": "L16",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_kardex",
+      "target": "database_importers_kepler_import_kardex_knexlib",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-kardex.js",
+      "source_location": "L16",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_kardex",
+      "target": "ref_pg",
+      "relation": "imports_from",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-kardex.js",
+      "source_location": "L17",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_kardex",
+      "target": "database_importers_kepler_import_kardex_client",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-kardex.js",
+      "source_location": "L17",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_kardex",
+      "target": "database_importers_kepler_import_kardex_apply",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-kardex.js",
+      "source_location": "L19",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_kardex",
+      "target": "database_importers_kepler_import_kardex_num",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-kardex.js",
+      "source_location": "L33",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_kardex",
+      "target": "database_importers_kepler_import_kardex_clasemov",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-kardex.js",
+      "source_location": "L35",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_kardex",
+      "target": "database_importers_kepler_import_kardex_readbranch",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-kardex.js",
+      "source_location": "L51",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_kardex",
+      "target": "database_importers_kepler_import_kardex_upsert",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-kardex.js",
+      "source_location": "L79",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_kardex_readbranch",
+      "target": "database_importers_kepler_import_kardex_clasemov",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-kardex.js",
+      "source_location": "L69",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_kardex_readbranch",
+      "target": "database_importers_kepler_import_kardex_num",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-kardex.js",
+      "source_location": "L71",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_kepler_prices",
+      "target": "ref_pg",
+      "relation": "imports_from",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-kepler-prices.js",
+      "source_location": "L23",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_kepler_prices",
+      "target": "database_importers_kepler_import_kepler_prices_client",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-kepler-prices.js",
+      "source_location": "L23",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_kepler_prices",
+      "target": "database_importers_kepler_import_kepler_prices_apply",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-kepler-prices.js",
+      "source_location": "L28",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_kepler_prices",
+      "target": "database_importers_kepler_import_kepler_prices_present_pref",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-kepler-prices.js",
+      "source_location": "L30",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_kepler_prices",
+      "target": "database_importers_kepler_import_kepler_prices_list_order",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-kepler-prices.js",
+      "source_location": "L31",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_kepler_rotation",
+      "target": "ref_pg",
+      "relation": "imports_from",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-kepler-rotation.js",
+      "source_location": "L21",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_kepler_rotation",
+      "target": "database_importers_kepler_import_kepler_rotation_client",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-kepler-rotation.js",
+      "source_location": "L21",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_kepler_rotation",
+      "target": "database_importers_kepler_import_kepler_rotation_apply",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-kepler-rotation.js",
+      "source_location": "L26",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_kepler_rotation",
+      "target": "database_importers_kepler_import_kepler_rotation_bi",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-kepler-rotation.js",
+      "source_location": "L27",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_kepler_rotation",
+      "target": "database_importers_kepler_import_kepler_rotation_percentile",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-kepler-rotation.js",
+      "source_location": "L32",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_kepler_stock",
+      "target": "ref_pg",
+      "relation": "imports_from",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-kepler-stock.js",
+      "source_location": "L27",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_kepler_stock",
+      "target": "database_importers_kepler_import_kepler_stock_client",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-kepler-stock.js",
+      "source_location": "L27",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_kepler_stock",
+      "target": "database_importers_kepler_import_kepler_stock_arg",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-kepler-stock.js",
+      "source_location": "L31",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_kepler_stock",
+      "target": "database_importers_kepler_import_kepler_stock_apply",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-kepler-stock.js",
+      "source_location": "L38",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_kepler_stock",
+      "target": "database_importers_kepler_import_kepler_stock_branch",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-kepler-stock.js",
+      "source_location": "L39",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_kepler_stock",
+      "target": "database_importers_kepler_import_kepler_stock_warehouse",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-kepler-stock.js",
+      "source_location": "L40",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_kepler_suppliers",
+      "target": "ref_pg",
+      "relation": "imports_from",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-kepler-suppliers.js",
+      "source_location": "L18",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_kepler_suppliers",
+      "target": "database_importers_kepler_import_kepler_suppliers_client",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-kepler-suppliers.js",
+      "source_location": "L18",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_kepler_suppliers",
+      "target": "database_importers_kepler_import_kepler_suppliers_apply",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-kepler-suppliers.js",
+      "source_location": "L23",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_kepler_suppliers",
+      "target": "database_importers_kepler_import_kepler_suppliers_stage",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-kepler-suppliers.js",
+      "source_location": "L26",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_kepler_uom_categories",
+      "target": "ref_pg",
+      "relation": "imports_from",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-kepler-uom-categories.js",
+      "source_location": "L19",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_kepler_uom_categories",
+      "target": "database_importers_kepler_import_kepler_uom_categories_client",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-kepler-uom-categories.js",
+      "source_location": "L19",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_kepler_uom_categories",
+      "target": "database_importers_kepler_import_kepler_uom_categories_apply",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-kepler-uom-categories.js",
+      "source_location": "L24",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_kepler_warehouse_stock",
+      "target": "ref_pg",
+      "relation": "imports_from",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-kepler-warehouse-stock.js",
+      "source_location": "L18",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_kepler_warehouse_stock",
+      "target": "database_importers_kepler_import_kepler_warehouse_stock_client",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-kepler-warehouse-stock.js",
+      "source_location": "L18",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_kepler_warehouse_stock",
+      "target": "database_importers_kepler_import_kepler_warehouse_stock_arg",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-kepler-warehouse-stock.js",
+      "source_location": "L23",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_kepler_warehouse_stock",
+      "target": "database_importers_kepler_import_kepler_warehouse_stock_branch",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-kepler-warehouse-stock.js",
+      "source_location": "L27",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_kepler_warehouse_stock",
+      "target": "database_importers_kepler_import_kepler_warehouse_stock_warehouse",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-kepler-warehouse-stock.js",
+      "source_location": "L28",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_kepler_warehouse_stock",
+      "target": "database_importers_kepler_import_kepler_warehouse_stock_dst_url",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-kepler-warehouse-stock.js",
+      "source_location": "L29",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_kepler_warehouse_stock",
+      "target": "database_importers_kepler_import_kepler_warehouse_stock_apply",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-kepler-warehouse-stock.js",
+      "source_location": "L30",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_label_data",
+      "target": "ref_pg",
+      "relation": "imports_from",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-label-data.js",
+      "source_location": "L20",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_label_data",
+      "target": "database_importers_kepler_import_label_data_client",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-label-data.js",
+      "source_location": "L20",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_label_data",
+      "target": "database_importers_kepler_import_label_data_apply",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-label-data.js",
+      "source_location": "L25",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_label_data",
+      "target": "database_importers_kepler_import_label_data_parsegramaje",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-label-data.js",
+      "source_location": "L29",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_label_data",
+      "target": "database_importers_kepler_import_label_data_barcodeformat",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-label-data.js",
+      "source_location": "L43",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_label_data",
+      "target": "database_importers_kepler_import_label_data_num",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-label-data.js",
+      "source_location": "L51",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_label_data",
+      "target": "database_importers_kepler_import_label_data_int",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-label-data.js",
+      "source_location": "L52",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_ledger_chain",
+      "target": "ref_pg",
+      "relation": "imports_from",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-ledger-chain.js",
+      "source_location": "L24",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_ledger_chain",
+      "target": "database_importers_kepler_import_ledger_chain_client",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-ledger-chain.js",
+      "source_location": "L24",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_ledger_chain",
+      "target": "database_importers_kepler_import_ledger_chain_apply",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-ledger-chain.js",
+      "source_location": "L28",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_ledger_chain",
+      "target": "database_importers_kepler_import_ledger_chain_arg",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-ledger-chain.js",
+      "source_location": "L31",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_ledger_chain",
+      "target": "database_importers_kepler_import_ledger_chain_months",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-ledger-chain.js",
+      "source_location": "L35",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_ledger_chain",
+      "target": "database_importers_kepler_import_ledger_chain_bulkinsert",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-ledger-chain.js",
+      "source_location": "L48",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_ledger_chain",
+      "target": "database_importers_kepler_import_ledger_chain_monthwindow",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-ledger-chain.js",
+      "source_location": "L61",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_ledger_chain",
+      "target": "database_importers_kepler_import_ledger_chain_normbenef",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-ledger-chain.js",
+      "source_location": "L72",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_ledger_chain",
+      "target": "database_importers_kepler_import_ledger_chain_sametotal",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-ledger-chain.js",
+      "source_location": "L73",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_ledger_chain",
+      "target": "database_importers_kepler_import_ledger_chain_daysbetween",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-ledger-chain.js",
+      "source_location": "L75",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_logistics_dims",
+      "target": "ref_pg",
+      "relation": "imports_from",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-logistics-dims.js",
+      "source_location": "L21",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_logistics_dims",
+      "target": "database_importers_kepler_import_logistics_dims_client",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-logistics-dims.js",
+      "source_location": "L21",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_logistics_dims",
+      "target": "database_importers_kepler_import_logistics_dims_apply",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-logistics-dims.js",
+      "source_location": "L26",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_margin",
+      "target": "ref_pg",
+      "relation": "imports_from",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-margin.js",
+      "source_location": "L14",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_margin",
+      "target": "database_importers_kepler_import_margin_client",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-margin.js",
+      "source_location": "L14",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_margin",
+      "target": "database_importers_kepler_import_margin_apply",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-margin.js",
+      "source_location": "L19",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_ph_stock_live",
+      "target": "ref_pg",
+      "relation": "imports_from",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-ph-stock-live.js",
+      "source_location": "L17",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_ph_stock_live",
+      "target": "database_importers_kepler_import_ph_stock_live_client",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-ph-stock-live.js",
+      "source_location": "L17",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_ph_stock_live",
+      "target": "database_importers_kepler_import_ph_stock_live_apply",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-ph-stock-live.js",
+      "source_location": "L24",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_pos_cashiers",
+      "target": "ref_knex",
+      "relation": "imports_from",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-pos-cashiers.js",
+      "source_location": "L15",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_pos_cashiers",
+      "target": "database_importers_kepler_import_pos_cashiers_knexlib",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-pos-cashiers.js",
+      "source_location": "L15",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_pos_cashiers",
+      "target": "ref_pg",
+      "relation": "imports_from",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-pos-cashiers.js",
+      "source_location": "L16",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_pos_cashiers",
+      "target": "database_importers_kepler_import_pos_cashiers_client",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-pos-cashiers.js",
+      "source_location": "L16",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_pos_cashiers",
+      "target": "database_importers_kepler_import_pos_cashiers_apply",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-pos-cashiers.js",
+      "source_location": "L18",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_pos_cashiers",
+      "target": "database_importers_kepler_import_pos_cashiers_clean",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-pos-cashiers.js",
+      "source_location": "L32",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_pos_cashiers",
+      "target": "database_importers_kepler_import_pos_cashiers_readbranch",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-pos-cashiers.js",
+      "source_location": "L34",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_pos_cashiers",
+      "target": "database_importers_kepler_import_pos_cashiers_upsert",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-pos-cashiers.js",
+      "source_location": "L55",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_pos_cashiers_readbranch",
+      "target": "database_importers_kepler_import_pos_cashiers_clean",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-pos-cashiers.js",
+      "source_location": "L42",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_pos_ticket_sales",
+      "target": "ref_knex",
+      "relation": "imports_from",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-pos-ticket-sales.js",
+      "source_location": "L12",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_pos_ticket_sales",
+      "target": "database_importers_kepler_import_pos_ticket_sales_knexlib",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-pos-ticket-sales.js",
+      "source_location": "L12",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_pos_ticket_sales",
+      "target": "ref_pg",
+      "relation": "imports_from",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-pos-ticket-sales.js",
+      "source_location": "L13",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_pos_ticket_sales",
+      "target": "database_importers_kepler_import_pos_ticket_sales_client",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-pos-ticket-sales.js",
+      "source_location": "L13",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_pos_ticket_sales",
+      "target": "database_importers_kepler_import_pos_ticket_sales_apply",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-pos-ticket-sales.js",
+      "source_location": "L15",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_pos_ticket_sales",
+      "target": "database_importers_kepler_import_pos_ticket_sales_readbranch",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-pos-ticket-sales.js",
+      "source_location": "L29",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_pos_ticket_sales",
+      "target": "database_importers_kepler_import_pos_ticket_sales_upsert",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-pos-ticket-sales.js",
+      "source_location": "L51",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_product_sales_daily",
+      "target": "ref_pg",
+      "relation": "imports_from",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-product-sales-daily.js",
+      "source_location": "L21",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_product_sales_daily",
+      "target": "database_importers_kepler_import_product_sales_daily_client",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-product-sales-daily.js",
+      "source_location": "L21",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_product_sales_daily",
+      "target": "database_importers_kepler_import_product_sales_daily_apply",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-product-sales-daily.js",
+      "source_location": "L25",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_product_sales_daily",
+      "target": "database_importers_kepler_import_product_sales_daily_di",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-product-sales-daily.js",
+      "source_location": "L26",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_product_sales_monthly",
+      "target": "ref_pg",
+      "relation": "imports_from",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-product-sales-monthly.js",
+      "source_location": "L16",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_product_sales_monthly",
+      "target": "database_importers_kepler_import_product_sales_monthly_client",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-product-sales-monthly.js",
+      "source_location": "L16",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_product_sales_monthly",
+      "target": "database_importers_kepler_import_product_sales_monthly_apply",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-product-sales-monthly.js",
+      "source_location": "L20",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_product_sales_monthly",
+      "target": "database_importers_kepler_import_product_sales_monthly_yi",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-product-sales-monthly.js",
+      "source_location": "L21",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_reorder_policy",
+      "target": "ref_pg",
+      "relation": "imports_from",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-reorder-policy.js",
+      "source_location": "L19",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_reorder_policy",
+      "target": "database_importers_kepler_import_reorder_policy_client",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-reorder-policy.js",
+      "source_location": "L19",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_reorder_policy",
+      "target": "database_importers_kepler_import_reorder_policy_apply",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-reorder-policy.js",
+      "source_location": "L23",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_rotation_from_consolidado",
+      "target": "ref_pg",
+      "relation": "imports_from",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-rotation-from-consolidado.js",
+      "source_location": "L20",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_rotation_from_consolidado",
+      "target": "database_importers_kepler_import_rotation_from_consolidado_client",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-rotation-from-consolidado.js",
+      "source_location": "L20",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_rotation_from_consolidado",
+      "target": "database_importers_kepler_import_rotation_from_consolidado_apply",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-rotation-from-consolidado.js",
+      "source_location": "L29",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_rotation_from_consolidado",
+      "target": "database_importers_kepler_import_rotation_from_consolidado_percentile",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-rotation-from-consolidado.js",
+      "source_location": "L31",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_sales_by_route_monthly",
+      "target": "ref_pg",
+      "relation": "imports_from",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-sales-by-route-monthly.js",
+      "source_location": "L20",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_sales_by_route_monthly",
+      "target": "database_importers_kepler_import_sales_by_route_monthly_client",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-sales-by-route-monthly.js",
+      "source_location": "L20",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_sales_by_route_monthly",
+      "target": "database_importers_kepler_import_sales_by_route_monthly_apply",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-sales-by-route-monthly.js",
+      "source_location": "L24",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_sales_by_route_monthly",
+      "target": "database_importers_kepler_import_sales_by_route_monthly_yi",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-sales-by-route-monthly.js",
+      "source_location": "L25",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_sales_fact",
+      "target": "ref_pg",
+      "relation": "imports_from",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-sales-fact.js",
+      "source_location": "L15",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_sales_fact",
+      "target": "database_importers_kepler_import_sales_fact_client",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-sales-fact.js",
+      "source_location": "L15",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_sales_fact",
+      "target": "database_importers_kepler_import_sales_fact_apply",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-sales-fact.js",
+      "source_location": "L20",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_sales_stats",
+      "target": "ref_pg",
+      "relation": "imports_from",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-sales-stats.js",
+      "source_location": "L14",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_sales_stats",
+      "target": "database_importers_kepler_import_sales_stats_client",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-sales-stats.js",
+      "source_location": "L14",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_sales_stats",
+      "target": "database_importers_kepler_import_sales_stats_apply",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-sales-stats.js",
+      "source_location": "L18",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_top_sellers_from_consolidado",
+      "target": "ref_pg",
+      "relation": "imports_from",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-top-sellers-from-consolidado.js",
+      "source_location": "L17",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_top_sellers_from_consolidado",
+      "target": "database_importers_kepler_import_top_sellers_from_consolidado_client",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-top-sellers-from-consolidado.js",
+      "source_location": "L17",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_top_sellers_from_consolidado",
+      "target": "database_importers_kepler_import_top_sellers_from_consolidado_apply",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-top-sellers-from-consolidado.js",
+      "source_location": "L23",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_transfers_monthly",
+      "target": "ref_pg",
+      "relation": "imports_from",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-transfers-monthly.js",
+      "source_location": "L26",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_transfers_monthly",
+      "target": "database_importers_kepler_import_transfers_monthly_client",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-transfers-monthly.js",
+      "source_location": "L26",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_transfers_monthly",
+      "target": "database_importers_kepler_import_transfers_monthly_apply",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-transfers-monthly.js",
+      "source_location": "L30",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_transfers_monthly",
+      "target": "database_importers_kepler_import_transfers_monthly_reset",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-transfers-monthly.js",
+      "source_location": "L33",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_import_transfers_monthly",
+      "target": "database_importers_kepler_import_transfers_monthly_yi",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/import-transfers-monthly.js",
+      "source_location": "L34",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_install_service",
+      "target": "ref_path",
+      "relation": "imports_from",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/install-service.js",
+      "source_location": "L21",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_install_service",
+      "target": "database_importers_kepler_install_service_path",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/install-service.js",
+      "source_location": "L21",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_install_service",
+      "target": "ref_fs",
+      "relation": "imports_from",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/install-service.js",
+      "source_location": "L22",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_install_service",
+      "target": "database_importers_kepler_install_service_fs",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/install-service.js",
+      "source_location": "L22",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_install_service",
+      "target": "ref_node_windows",
+      "relation": "imports_from",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/install-service.js",
+      "source_location": "L23",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_install_service",
+      "target": "database_importers_kepler_install_service_service",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/install-service.js",
+      "source_location": "L23",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_install_service",
+      "target": "database_importers_kepler_install_service_env_path",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/install-service.js",
+      "source_location": "L26",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_install_service",
+      "target": "database_importers_kepler_install_service_script",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/install-service.js",
+      "source_location": "L27",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_install_service",
+      "target": "database_importers_kepler_install_service_log_dir",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/install-service.js",
+      "source_location": "L28",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_install_service",
+      "target": "database_importers_kepler_install_service_cfg",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/install-service.js",
+      "source_location": "L37",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_install_service",
+      "target": "database_importers_kepler_install_service_problems",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/install-service.js",
+      "source_location": "L44",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_install_service",
+      "target": "database_importers_kepler_install_service_svc",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/install-service.js",
+      "source_location": "L62",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_live_tickets_poller",
+      "target": "ref_pg",
+      "relation": "imports_from",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/live-tickets-poller.js",
+      "source_location": "L18",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_live_tickets_poller",
+      "target": "database_importers_kepler_live_tickets_poller_client",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/live-tickets-poller.js",
+      "source_location": "L18",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_live_tickets_poller",
+      "target": "database_importers_kepler_live_tickets_poller_dry",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/live-tickets-poller.js",
+      "source_location": "L25",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_live_tickets_poller",
+      "target": "database_importers_kepler_live_tickets_poller_pad",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/live-tickets-poller.js",
+      "source_location": "L38",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_live_tickets_poller",
+      "target": "database_importers_kepler_live_tickets_poller_sincelocalmx",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/live-tickets-poller.js",
+      "source_location": "L40",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_live_tickets_poller",
+      "target": "database_importers_kepler_live_tickets_poller_startoftodaymx",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/live-tickets-poller.js",
+      "source_location": "L45",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_live_tickets_poller",
+      "target": "database_importers_kepler_live_tickets_poller_pollbranch",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/live-tickets-poller.js",
+      "source_location": "L50",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_live_tickets_poller",
+      "target": "database_importers_kepler_live_tickets_poller_push",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/live-tickets-poller.js",
+      "source_location": "L86",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_live_tickets_poller",
+      "target": "database_importers_kepler_live_tickets_poller_tick",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/live-tickets-poller.js",
+      "source_location": "L109",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_live_tickets_poller_sincelocalmx",
+      "target": "database_importers_kepler_live_tickets_poller_pad",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/live-tickets-poller.js",
+      "source_location": "L42",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_live_tickets_poller_startoftodaymx",
+      "target": "database_importers_kepler_live_tickets_poller_pad",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/live-tickets-poller.js",
+      "source_location": "L47",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_live_tickets_poller_pollbranch",
+      "target": "database_importers_kepler_live_tickets_poller_push",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/live-tickets-poller.js",
+      "source_location": "L79",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_live_tickets_poller_tick",
+      "target": "database_importers_kepler_live_tickets_poller_startoftodaymx",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/live-tickets-poller.js",
+      "source_location": "L113",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_live_tickets_poller_tick",
+      "target": "database_importers_kepler_live_tickets_poller_sincelocalmx",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/live-tickets-poller.js",
+      "source_location": "L113",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_live_tickets_poller_tick",
+      "target": "database_importers_kepler_live_tickets_poller_pollbranch",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/live-tickets-poller.js",
+      "source_location": "L117",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_live_tickets_poller_tick",
+      "target": "database_importers_kepler_live_tickets_poller_push",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/live-tickets-poller.js",
+      "source_location": "L119",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_live_tickets_poller",
+      "target": "database_importers_kepler_live_tickets_poller_tick",
+      "relation": "indirect_call",
+      "context": "argument",
+      "confidence": "INFERRED",
+      "source_file": "database/importers/kepler/live-tickets-poller.js",
+      "source_location": "L135",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_run_prod_feeds",
+      "target": "ref_node_child_process",
+      "relation": "imports_from",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/run-prod-feeds.js",
+      "source_location": "L24",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_run_prod_feeds",
+      "target": "database_importers_kepler_run_prod_feeds_spawn",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/run-prod-feeds.js",
+      "source_location": "L24",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_run_prod_feeds",
+      "target": "ref_node_path",
+      "relation": "imports_from",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/run-prod-feeds.js",
+      "source_location": "L25",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_run_prod_feeds",
+      "target": "database_importers_kepler_run_prod_feeds_path",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/run-prod-feeds.js",
+      "source_location": "L25",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_run_prod_feeds",
+      "target": "database_importers_kepler_run_prod_feeds_apply",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/run-prod-feeds.js",
+      "source_location": "L28",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_run_prod_feeds",
+      "target": "database_importers_kepler_run_prod_feeds_dir",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/run-prod-feeds.js",
+      "source_location": "L29",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_run_prod_feeds",
+      "target": "database_importers_kepler_run_prod_feeds_k",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/run-prod-feeds.js",
+      "source_location": "L30",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_run_prod_feeds",
+      "target": "database_importers_kepler_run_prod_feeds_steps",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/run-prod-feeds.js",
+      "source_location": "L32",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_run_prod_feeds",
+      "target": "database_importers_kepler_run_prod_feeds_usage",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/run-prod-feeds.js",
+      "source_location": "L76",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_run_prod_feeds",
+      "target": "database_importers_kepler_run_prod_feeds_run",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/run-prod-feeds.js",
+      "source_location": "L81",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_uninstall_service",
+      "target": "ref_path",
+      "relation": "imports_from",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/uninstall-service.js",
+      "source_location": "L7",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_uninstall_service",
+      "target": "database_importers_kepler_uninstall_service_path",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/uninstall-service.js",
+      "source_location": "L7",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_uninstall_service",
+      "target": "ref_node_windows",
+      "relation": "imports_from",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/uninstall-service.js",
+      "source_location": "L8",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_uninstall_service",
+      "target": "database_importers_kepler_uninstall_service_service",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/uninstall-service.js",
+      "source_location": "L8",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_uninstall_service",
+      "target": "database_importers_kepler_uninstall_service_svc",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/kepler/uninstall-service.js",
+      "source_location": "L10",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_mega_dulces_sync",
+      "target": "ref_knex",
+      "relation": "imports_from",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/mega_dulces_sync.js",
+      "source_location": "L36",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_mega_dulces_sync",
+      "target": "database_importers_mega_dulces_sync_knexlib",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/mega_dulces_sync.js",
+      "source_location": "L36",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_mega_dulces_sync",
+      "target": "database_importers_mega_dulces_sync_parseargs",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/mega_dulces_sync.js",
+      "source_location": "L40",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_mega_dulces_sync",
+      "target": "database_importers_mega_dulces_sync_printhelp",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/mega_dulces_sync.js",
+      "source_location": "L53",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_mega_dulces_sync",
+      "target": "database_importers_mega_dulces_sync_buildsourceknex",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/mega_dulces_sync.js",
+      "source_location": "L82",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_mega_dulces_sync",
+      "target": "database_importers_mega_dulces_sync_buildtargetknex",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/mega_dulces_sync.js",
+      "source_location": "L97",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_mega_dulces_sync",
+      "target": "database_importers_mega_dulces_sync_md_warehouse_codes",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/mega_dulces_sync.js",
+      "source_location": "L110",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_mega_dulces_sync",
+      "target": "database_importers_mega_dulces_sync_warehouse_column_map",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/mega_dulces_sync.js",
+      "source_location": "L113",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_mega_dulces_sync",
+      "target": "database_importers_mega_dulces_sync_price_lists",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/mega_dulces_sync.js",
+      "source_location": "L130",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_mega_dulces_sync",
+      "target": "database_importers_mega_dulces_sync_clean",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/mega_dulces_sync.js",
+      "source_location": "L139",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_mega_dulces_sync",
+      "target": "database_importers_mega_dulces_sync_resolvetenantid",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/mega_dulces_sync.js",
+      "source_location": "L145",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_mega_dulces_sync",
+      "target": "database_importers_mega_dulces_sync_withtenanttx",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/mega_dulces_sync.js",
+      "source_location": "L151",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_mega_dulces_sync",
+      "target": "database_importers_mega_dulces_sync_synccategories",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/mega_dulces_sync.js",
+      "source_location": "L160",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_mega_dulces_sync",
+      "target": "database_importers_mega_dulces_sync_syncbrands",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/mega_dulces_sync.js",
+      "source_location": "L201",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_mega_dulces_sync",
+      "target": "database_importers_mega_dulces_sync_syncwarehouses",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/mega_dulces_sync.js",
+      "source_location": "L253",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_mega_dulces_sync",
+      "target": "database_importers_mega_dulces_sync_syncpricelists",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/mega_dulces_sync.js",
+      "source_location": "L308",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_mega_dulces_sync",
+      "target": "database_importers_mega_dulces_sync_syncproducts",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/mega_dulces_sync.js",
+      "source_location": "L345",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_mega_dulces_sync",
+      "target": "database_importers_mega_dulces_sync_syncprices",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/mega_dulces_sync.js",
+      "source_location": "L488",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_mega_dulces_sync",
+      "target": "database_importers_mega_dulces_sync_syncvendedores",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/mega_dulces_sync.js",
+      "source_location": "L587",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_mega_dulces_sync",
+      "target": "database_importers_mega_dulces_sync_syncstock",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/mega_dulces_sync.js",
+      "source_location": "L625",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_mega_dulces_sync",
+      "target": "database_importers_mega_dulces_sync_main",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/mega_dulces_sync.js",
+      "source_location": "L706",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_mega_dulces_sync_buildsourceknex",
+      "target": "database_importers_mega_dulces_sync_knexlib",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/mega_dulces_sync.js",
+      "source_location": "L84",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_mega_dulces_sync_buildtargetknex",
+      "target": "database_importers_mega_dulces_sync_knexlib",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/mega_dulces_sync.js",
+      "source_location": "L101",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_mega_dulces_sync_synccategories",
+      "target": "database_importers_mega_dulces_sync_withtenanttx",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/mega_dulces_sync.js",
+      "source_location": "L180",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_mega_dulces_sync_synccategories",
+      "target": "database_importers_mega_dulces_sync_clean",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/mega_dulces_sync.js",
+      "source_location": "L182",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_mega_dulces_sync_syncbrands",
+      "target": "database_importers_mega_dulces_sync_withtenanttx",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/mega_dulces_sync.js",
+      "source_location": "L220",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_mega_dulces_sync_syncbrands",
+      "target": "database_importers_mega_dulces_sync_clean",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/mega_dulces_sync.js",
+      "source_location": "L222",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_mega_dulces_sync_syncwarehouses",
+      "target": "database_importers_mega_dulces_sync_withtenanttx",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/mega_dulces_sync.js",
+      "source_location": "L272",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_mega_dulces_sync_syncpricelists",
+      "target": "database_importers_mega_dulces_sync_withtenanttx",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/mega_dulces_sync.js",
+      "source_location": "L316",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_mega_dulces_sync_syncproducts",
+      "target": "database_importers_mega_dulces_sync_withtenanttx",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/mega_dulces_sync.js",
+      "source_location": "L392",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_mega_dulces_sync_syncproducts",
+      "target": "database_importers_mega_dulces_sync_clean",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/mega_dulces_sync.js",
+      "source_location": "L408",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_mega_dulces_sync_syncprices",
+      "target": "database_importers_mega_dulces_sync_withtenanttx",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/mega_dulces_sync.js",
+      "source_location": "L514",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_mega_dulces_sync_syncprices",
+      "target": "database_importers_mega_dulces_sync_clean",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/mega_dulces_sync.js",
+      "source_location": "L529",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_mega_dulces_sync_syncvendedores",
+      "target": "database_importers_mega_dulces_sync_withtenanttx",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/mega_dulces_sync.js",
+      "source_location": "L600",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_mega_dulces_sync_syncvendedores",
+      "target": "database_importers_mega_dulces_sync_clean",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/mega_dulces_sync.js",
+      "source_location": "L602",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_mega_dulces_sync_syncstock",
+      "target": "database_importers_mega_dulces_sync_withtenanttx",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/mega_dulces_sync.js",
+      "source_location": "L647",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_mega_dulces_sync_syncstock",
+      "target": "database_importers_mega_dulces_sync_clean",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/mega_dulces_sync.js",
+      "source_location": "L662",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_mega_dulces_sync_main",
+      "target": "database_importers_mega_dulces_sync_parseargs",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/mega_dulces_sync.js",
+      "source_location": "L707",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_mega_dulces_sync_main",
+      "target": "database_importers_mega_dulces_sync_printhelp",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/mega_dulces_sync.js",
+      "source_location": "L708",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_mega_dulces_sync_main",
+      "target": "database_importers_mega_dulces_sync_buildsourceknex",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/mega_dulces_sync.js",
+      "source_location": "L720",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_mega_dulces_sync_main",
+      "target": "database_importers_mega_dulces_sync_buildtargetknex",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/mega_dulces_sync.js",
+      "source_location": "L721",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_mega_dulces_sync_main",
+      "target": "database_importers_mega_dulces_sync_resolvetenantid",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/mega_dulces_sync.js",
+      "source_location": "L725",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_mega_dulces_sync_main",
+      "target": "database_importers_mega_dulces_sync_synccategories",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/mega_dulces_sync.js",
+      "source_location": "L744",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_mega_dulces_sync_main",
+      "target": "database_importers_mega_dulces_sync_syncbrands",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/mega_dulces_sync.js",
+      "source_location": "L745",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_mega_dulces_sync_main",
+      "target": "database_importers_mega_dulces_sync_syncwarehouses",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/mega_dulces_sync.js",
+      "source_location": "L746",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_mega_dulces_sync_main",
+      "target": "database_importers_mega_dulces_sync_syncpricelists",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/mega_dulces_sync.js",
+      "source_location": "L747",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_mega_dulces_sync_main",
+      "target": "database_importers_mega_dulces_sync_syncvendedores",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/mega_dulces_sync.js",
+      "source_location": "L748",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_mega_dulces_sync_main",
+      "target": "database_importers_mega_dulces_sync_syncproducts",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/mega_dulces_sync.js",
+      "source_location": "L749",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_mega_dulces_sync_main",
+      "target": "database_importers_mega_dulces_sync_syncprices",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/mega_dulces_sync.js",
+      "source_location": "L750",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_mega_dulces_sync_main",
+      "target": "database_importers_mega_dulces_sync_syncstock",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/mega_dulces_sync.js",
+      "source_location": "L751",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_mega_dulces_sync",
+      "target": "database_importers_mega_dulces_sync_main",
+      "relation": "indirect_call",
+      "context": "collection",
+      "confidence": "INFERRED",
+      "source_file": "database/importers/mega_dulces_sync.js",
+      "source_location": "L778",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_sync_inventory_from_erp",
+      "target": "ref_knex",
+      "relation": "imports_from",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/sync-inventory-from-erp.js",
+      "source_location": "L28",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_sync_inventory_from_erp",
+      "target": "database_importers_sync_inventory_from_erp_knexlib",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/sync-inventory-from-erp.js",
+      "source_location": "L28",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_sync_inventory_from_erp",
+      "target": "database_importers_sync_inventory_from_erp_parseargs",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/sync-inventory-from-erp.js",
+      "source_location": "L30",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_sync_inventory_from_erp",
+      "target": "database_importers_sync_inventory_from_erp_main",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/sync-inventory-from-erp.js",
+      "source_location": "L38",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_sync_inventory_from_erp_main",
+      "target": "database_importers_sync_inventory_from_erp_parseargs",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/sync-inventory-from-erp.js",
+      "source_location": "L39",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_sync_inventory_from_erp_main",
+      "target": "database_importers_sync_inventory_from_erp_knexlib",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/sync-inventory-from-erp.js",
+      "source_location": "L57",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_railway_stock_by_sku",
+      "target": "ref_fs",
+      "relation": "imports_from",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/railway-stock-by-sku.js",
+      "source_location": "L23",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_railway_stock_by_sku",
+      "target": "database_importers_railway_stock_by_sku_fs",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/railway-stock-by-sku.js",
+      "source_location": "L23",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_railway_stock_by_sku",
+      "target": "ref_knex",
+      "relation": "imports_from",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/railway-stock-by-sku.js",
+      "source_location": "L24",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_railway_stock_by_sku",
+      "target": "database_importers_railway_stock_by_sku_knexlib",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/railway-stock-by-sku.js",
+      "source_location": "L24",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_railway_stock_by_sku",
+      "target": "database_importers_railway_stock_by_sku_parseargs",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/railway-stock-by-sku.js",
+      "source_location": "L26",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_railway_stock_by_sku",
+      "target": "database_importers_railway_stock_by_sku_parsecsv",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/railway-stock-by-sku.js",
+      "source_location": "L36",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_railway_stock_by_sku",
+      "target": "database_importers_railway_stock_by_sku_main",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/railway-stock-by-sku.js",
+      "source_location": "L49",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_railway_stock_by_sku_main",
+      "target": "database_importers_railway_stock_by_sku_parseargs",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/railway-stock-by-sku.js",
+      "source_location": "L50",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_railway_stock_by_sku_main",
+      "target": "database_importers_railway_stock_by_sku_parsecsv",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/railway-stock-by-sku.js",
+      "source_location": "L56",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_railway_stock_by_sku_main",
+      "target": "database_importers_railway_stock_by_sku_knexlib",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/railway-stock-by-sku.js",
+      "source_location": "L75",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_railway_product_prices_by_sku",
+      "target": "ref_fs",
+      "relation": "imports_from",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/railway-product-prices-by-sku.js",
+      "source_location": "L27",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_railway_product_prices_by_sku",
+      "target": "database_importers_railway_product_prices_by_sku_fs",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/railway-product-prices-by-sku.js",
+      "source_location": "L27",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_railway_product_prices_by_sku",
+      "target": "ref_knex",
+      "relation": "imports_from",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/railway-product-prices-by-sku.js",
+      "source_location": "L28",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_railway_product_prices_by_sku",
+      "target": "database_importers_railway_product_prices_by_sku_knexlib",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/railway-product-prices-by-sku.js",
+      "source_location": "L28",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_railway_product_prices_by_sku",
+      "target": "database_importers_railway_product_prices_by_sku_parseargs",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/railway-product-prices-by-sku.js",
+      "source_location": "L30",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_railway_product_prices_by_sku",
+      "target": "database_importers_railway_product_prices_by_sku_parsecsv",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/railway-product-prices-by-sku.js",
+      "source_location": "L42",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_railway_product_prices_by_sku",
+      "target": "database_importers_railway_product_prices_by_sku_main",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/railway-product-prices-by-sku.js",
+      "source_location": "L55",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_railway_product_prices_by_sku_main",
+      "target": "database_importers_railway_product_prices_by_sku_parseargs",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/railway-product-prices-by-sku.js",
+      "source_location": "L56",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_railway_product_prices_by_sku_main",
+      "target": "database_importers_railway_product_prices_by_sku_parsecsv",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/railway-product-prices-by-sku.js",
+      "source_location": "L66",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_railway_product_prices_by_sku_main",
+      "target": "database_importers_railway_product_prices_by_sku_knexlib",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/railway-product-prices-by-sku.js",
+      "source_location": "L85",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_import_catalog_bulk",
+      "target": "ref_pg",
+      "relation": "imports_from",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/import-catalog-bulk.js",
+      "source_location": "L21",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_import_catalog_bulk",
+      "target": "database_importers_import_catalog_bulk_client",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/import-catalog-bulk.js",
+      "source_location": "L21",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_import_catalog_bulk",
+      "target": "database_importers_import_catalog_bulk_apply",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/import-catalog-bulk.js",
+      "source_location": "L26",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_import_catalog_bulk",
+      "target": "database_importers_import_catalog_bulk_clean",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/import-catalog-bulk.js",
+      "source_location": "L29",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_import_catalog_bulk",
+      "target": "database_importers_import_catalog_bulk_numor",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/import-catalog-bulk.js",
+      "source_location": "L30",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_import_catalog_bulk",
+      "target": "database_importers_import_catalog_bulk_cols",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/import-catalog-bulk.js",
+      "source_location": "L41",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_import_prices_bulk",
+      "target": "ref_pg",
+      "relation": "imports_from",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/import-prices-bulk.js",
+      "source_location": "L14",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_import_prices_bulk",
+      "target": "database_importers_import_prices_bulk_client",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/import-prices-bulk.js",
+      "source_location": "L14",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_import_prices_bulk",
+      "target": "database_importers_import_prices_bulk_apply",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/import-prices-bulk.js",
+      "source_location": "L19",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_import_prices_bulk",
+      "target": "database_importers_import_prices_bulk_pls",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "database/importers/import-prices-bulk.js",
+      "source_location": "L21",
+      "weight": 1.0
+    },
+    {
+      "source": "database_importers_kepler_concentrate_kepler_listtables",
+      "target": "database_importers_kepler_concentrate_kepler_exclude",
+      "relation": "references",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "database/importers/kepler/concentrate-kepler.js",
+      "source_location": "L116",
+      "weight": 1.0
+    }
+  ],
+  "input_tokens": 0,
+  "output_tokens": 0
+}
