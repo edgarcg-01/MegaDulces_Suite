@@ -1,6 +1,6 @@
 # Fase RA — Reabastecimiento (Punto de Reorden · Existencia Crítica · Sugerido de Compra)
 
-> **Estado:** 🧪 IMPLEMENTADO (local) — 2026-07-08. RA.0–RA.4 + RA.6 + RA.7 en código y verificados local. Falta prod (migs + feeds + redeploy + re-login) y RA.5/RA.8 (diferidos).
+> **Estado:** 🟢 CERRADA (beta) — 2026-07-09. RA.0–RA.9 + RA.11–RA.14 en código y verificados. **Desplegada a prod**: 5 migraciones aplicadas a Railway (batch previo + batch 96), código en origin/main, permisos `COMPRAS_*` en prod. Smoke dedicado `test-newdb-replenishment.js` (18/18) en la regression suite (RA.9). **Diferidos** (bajo valor / bloqueados): RA.10 forecast (requiere backfill multi-año), RA.13b fill rate histórico (~100% artificial), RA.14 auto-received (matching frágil), write-back Kepler. Operacional: el runner nightly puebla `purchase_in_transit` + hallazgos.
 >
 > **Implementación (2026-07-08):**
 > - **RA.1** ✅ Migración `20260708120000_commercial_reorder_policy` (reorder_policy + requisitions/lines + requisition_sequences + `suppliers.lead_time_days`, RLS forzado) + `20260708120100_compras_perms_backfill` (COMPRAS_VER/GESTIONAR). Permisos en 6 lugares (enum backend+frontend, ability.factory subject+action, AppSubject, permission-meta, seed). Aplicado local (Batch 149, 15 roles).

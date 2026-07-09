@@ -20,6 +20,7 @@ const TESTS = [
   { file: 'test-newdb-orders-flow.js', label: 'B.2 orders state machine', needsApi: false },
   { file: 'test-newdb-orders-with-testdata.js', label: 'B.3.2 multi-line order', needsApi: false },
   { file: 'test-newdb-inventory-count.js', label: 'I.1 inventario físico (folio+snapshot+conteo ciego+coverage+freeze+reconcile)', needsApi: false },
+  { file: 'test-newdb-replenishment.js', label: 'RA Compras (schema+sugerido−tránsito+requisición state machine+traspaso guard+min cajas+scanner idempotente)', needsApi: false },
   // HTTP E2E (requieren API)
   { file: 'http-inventory-count-test.js', label: 'I.5 conteo correctness (A1 freeze guard + A2 no-revierte + A4 segregación count_3)', needsApi: true },
   { file: 'http-inventory-abc-test.js', label: 'I.6 clasificación ABC (refresh + shape + filtro por clase)', needsApi: true },
