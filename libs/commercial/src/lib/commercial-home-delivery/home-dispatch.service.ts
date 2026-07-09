@@ -184,9 +184,10 @@ export class HomeDispatchService {
         value: Number(order.total) || 0,
         units: totalUnits,
         capacity,
-        // Intake propio: el cobro se maneja por el flujo commercial (balance_due).
-        collect_on_delivery: Number(order.balance_due) > 0,
-        amount_to_collect: Number(order.balance_due) > 0 ? Number(order.balance_due) : null,
+        // Todo pedido a domicilio es CONTRA-ENTREGA: se cobra al entregar. Nada
+        // llega "ya pagado". Monto = saldo del pedido (o total si no hay saldo).
+        collect_on_delivery: true,
+        amount_to_collect: Number(order.balance_due) || Number(order.total) || 0,
       });
     });
   }
@@ -233,10 +234,11 @@ export class HomeDispatchService {
       const capacity = vehicle?.capacity_boxes != null ? Number(vehicle.capacity_boxes) : null;
       const total = Number(ticket.total) || 0;
 
-      // COD: explícito o derivado de forma_pago (CONTADO = ya pagado en tienda).
-      const alreadyPaid = String(ticket.forma_pago || '').toUpperCase() === 'CONTADO';
-      const collect = dto.collect_on_delivery ?? !alreadyPaid;
-      const amountToCollect = collect ? (dto.amount_to_collect ?? total) : null;
+      // Todos los pedidos a domicilio son CONTRA-ENTREGA: el cliente paga en
+      // efectivo al recibir. Nada llega "ya pagado" (aunque el ticket Kepler
+      // diga CONTADO — eso es la venta en tienda, no la entrega a domicilio).
+      const collect = true;
+      const amountToCollect = dto.amount_to_collect ?? total;
 
       return this.createDelivery(trx, {
         shipment_date: dto.shipment_date,

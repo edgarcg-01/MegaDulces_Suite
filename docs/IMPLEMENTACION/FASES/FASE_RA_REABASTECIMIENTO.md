@@ -352,6 +352,63 @@ La UI es un **proyecto de primer nivel** (como Ventas/Almacén/Finanzas), no una
 
 ---
 
+## RA.10 — Reorden inteligente (forecast de demanda) 🔨 DISEÑADO 2026-07-09
+
+Evoluciona el cómputo plano de RA.3 (`avg_daily × lead`) a un **forecast por demanda estacional**. Motor determinista (estadística); el LLM solo **explica**, nunca produce el número (ADR-016).
+
+### Fórmula
+Base robusta (estándar pedido por Edgar) + capas multiplicativas sobre la demanda del **mes objetivo**:
+```
+base_mensual = trimmed_mean( ventas mensuales SIN el mes mínimo ni el máximo )   -- por producto×almacén
+demanda_proyectada = base_mensual × estacional × tendencia × evento × clima
+Mínimo  = demanda_proyectada × 0.33     (multiplicadores configurables)
+Reorden = demanda_proyectada × 0.66
+Máximo  = demanda_proyectada × 0.99
+Sugerido = max(0, Máximo − existencia − en_tránsito)
+```
+
+### Capas
+| Capa | Cómo se mide | Fuente |
+|---|---|---|
+| **Base** | trimmed mean mensual (quita min y máx mes) | `analytics.product_sales_monthly` |
+| **Estacional** | venta(mes calendario objetivo, multi-año) ÷ venta(promedio mes); fallback a categoría/marca si el SKU tiene poca historia | histórico multi-año |
+| **Tendencia YoY** | venta(últ. 3m) ÷ venta(mismos 3m año anterior), clamp 0.5–2.0 | histórico multi-año |
+| **Eventos MX** | uplift por categoría/marca si la ventana de cobertura cae en Reyes/S.Valentín/Día del Niño/Muertos/Navidad/regreso a clases/Semana Santa | tabla `commercial.demand_events` |
+| **Clima** *(avanzado)* | temperatura pronosticada × sensibilidad de categoría (bebidas/paletas/chocolate) | API meteo externa (Open-Meteo) por ciudad de almacén |
+
+### ⚠️ Bloqueante de datos
+`analytics.product_sales_monthly` en prod hoy = **solo 7 meses (ene–jul 2026)**. Sin backfill NO hay estacionalidad ni YoY. Kepler SÍ tiene la historia (kdm1/kdm2 + particiones kdmx por año) → **RA.10.0 backfill multi-año es prerequisito**.
+
+### Sprints
+| Sprint | Qué | Bloqueante | Esf. |
+|---|---|---|---|
+| **RA.10.0** | Backfill multi-año (24–36 meses) del feed mensual desde Kepler; verificar profundidad real en kdmx | 🔒 | M |
+| **RA.10.1** | Base robusta (trimmed mean) → `analytics.demand_forecast`; reemplaza `avg_daily×lead` | — | M |
+| **RA.10.2** | Estacionalidad (índice por mes; fallback categoría/marca) | — | M |
+| **RA.10.3** | Tendencia YoY | — | S |
+| **RA.10.4** | Calendario de eventos MX (`commercial.demand_events` + uplift por categoría) — mayor impacto en dulcería | — | M |
+| **RA.10.5** | Clima (Open-Meteo + correlación) — avanzado/opcional, solo categorías sensibles | — | L |
+| **RA.10.6** | Ensamblado → umbrales `.33/.66/.99` → `reorder_policy` (`source='forecast'`, respeta `manual`) | — | M |
+| **RA.10.7** | Explicación del sugerido (breakdown de factores; LLM narra, no calcula) | — | S |
+| **RA.10.8** | UI: breakdown en la fila (base/estacional/tendencia/evento) + Origen "Forecast" | — | M |
+| **RA.10.9** | Cron nocturno + cierre/docs | — | S |
+
+**MVP con valor = RA.10.0 → .1 → .2 → .4 → .6.**
+
+### Decisiones abiertas (pendientes de Edgar)
+1. ¿Forecast reemplaza a Kepler donde ya hay config, o Kepler manda? (propuesto: forecast default; `manual` humano gana; Kepler solo referencia).
+2. Multiplicadores `.33/.66/.99` — ¿ciclo mensual fijo o por proveedor (lead time)?
+3. Clima — ¿fase 2 y solo bebidas/paletas/chocolate? (para dulces el calendario pesa más).
+4. CEDIS — vende poco (surte). Su demanda real = **salidas/traspasos**, no ventas → ¿modelo aparte?
+5. SKUs nuevos sin historia → fallback a promedio de categoría/marca.
+
+### Caveats
+- Sin RA.10.0 (backfill) no hay estacionalidad ni YoY — es el cimiento.
+- Clima = API externa + correlación real: esfuerzo alto, valor incierto para dulces (no sobrevender).
+- Sigue siendo motor determinista; el "deep research" con IA es capa de explicación/priorización, fuera del cálculo del pedido.
+
+---
+
 ## Anexo — referencias de código a clonar
 - Importer: `database/importers/kepler/import-branch-stock-live.js` (BULK multi-sucursal), orquestador `run-prod-feeds.js`.
 - Schema/RLS: `database/migrations-newdb/20260619140000_commercial_warehouse_aisles.js` (tabla nueva + col a existente), `20260707170000_reconciliation_schema.js` (helper `createTenantRls`).

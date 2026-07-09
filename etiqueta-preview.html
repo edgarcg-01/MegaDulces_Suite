@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Etiqueta preview 100×40mm — SKU 20186</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;600;700;800&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
+<style>
+  :root{
+    --green-head:hsl(141, 76%, 16%);
+    --green-dark:hsl(141, 76%, 16%);
+    --yellow:#f6c400;
+    --cream:#f8f6ea;
+    --font:'Baloo 2',system-ui,sans-serif;
+    --font-num:'Impact','Haettenschweiler','Anton','Arial Narrow',sans-serif;
+  }
+  *{ box-sizing:border-box; margin:0; padding:0; }
+
+  /* ── Tamaño físico exacto de la etiqueta ── */
+  @page{ size:100mm 40mm; margin:0; }
+
+  html,body{ background:#3a3a3a; }
+
+  .label{
+    width:100mm; height:40mm;
+    background:var(--cream);
+    border-radius:3mm;
+    overflow:hidden;
+    font-family:var(--font);
+    color:var(--green-dark);
+    display:flex; flex-direction:column;
+    -webkit-print-color-adjust:exact; print-color-adjust:exact;
+  }
+
+  /* Header verde con nombre */
+  .head{
+    background:var(--green-head);
+    color:#fff;
+    height:7.4mm; min-height:7.4mm;
+    display:flex; align-items:center;
+    padding:0 3mm;
+    font-weight:800; font-size:3.7mm; letter-spacing:.2px;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+    text-transform:uppercase;
+  }
+
+  .body{ flex:1; min-height:0; display:flex; padding:1mm 2mm 1.2mm 2mm; gap:2mm; }
+
+  /* ── Columna izquierda: precio pieza ── */
+  .left{ width:56mm; display:flex; flex-direction:column; }
+  .meta{ display:flex; align-items:center; gap:1.6mm; font-weight:800; font-size:3.4mm; margin-bottom:1mm; }
+  .meta svg{ width:4mm; height:4mm; }
+  .meta .sep{ color:var(--green-head); }
+
+  .pricebox{
+    flex:1; position:relative;
+    background:var(--yellow);
+    border-radius:2.4mm;
+    display:flex; align-items:center; justify-content:center;
+    padding:1.5mm 1.5mm 6mm;
+    overflow:hidden;
+  }
+  /* Marco punteado tipo margen, por dentro del amarillo y sin tocar el verde */
+  .pricebox::before{
+    content:""; position:absolute; inset:1mm 1mm 6mm 1mm;
+    border:.28mm dashed var(--green-dark);
+    border-bottom:0;
+    border-radius:1.8mm 1.8mm 0 0; pointer-events:none;
+  }
+  .sprout{ position:absolute; top:1mm; left:2mm; width:5.4mm; height:5.4mm; }
+  .price{ font-family:var(--font-num); font-weight:400; font-size:19mm; line-height:.82; letter-spacing:0; transform:scaleX(1.1); transform-origin:center; }
+  .price .cur{ font-size:.5em; vertical-align:.6em; margin-right:.3mm; }
+  .price .dot{ font-size:.78em; }
+  .pieza{
+    position:absolute; left:0; right:0; bottom:0;
+    background:var(--green-dark); color:#fff;
+    height:5.2mm; display:flex; align-items:center; justify-content:center; gap:2mm;
+    font-weight:800; font-size:3mm;
+    border-radius:0 0 2mm 2mm;
+  }
+  .pieza::before,.pieza::after{
+    content:""; width:13mm; height:.9mm;
+    background:repeating-linear-gradient(90deg, var(--yellow) 0 2.8mm, transparent 2.8mm 4.6mm);
+  }
+
+  /* ── Columna derecha: tiers ── */
+  .right{ width:42mm; min-height:0; display:flex; flex-direction:column; }
+  .tier{
+    position:relative;
+    display:flex; align-items:center; gap:1mm;
+    padding:.3mm 0; flex:1; min-height:0;
+  }
+  .tier::before{
+    content:""; position:absolute; top:0; left:0; right:0; height:.28mm;
+    background:repeating-linear-gradient(90deg, var(--green-head) 0 .32mm, transparent .32mm .6mm);
+  }
+  .tier:first-child::before{ display:none; }
+  .pill{
+    background:var(--green-dark); color:#fff;
+    width:7.4mm; min-width:7.4mm; height:4.7mm;
+    border-radius:1.3mm;
+    display:flex; flex-direction:column; align-items:center; justify-content:flex-start;
+    padding-top:.75mm; gap:.15mm;
+  }
+  .pill svg{ width:2.8mm; height:2.2mm; }
+  .pill span{ font-size:1.2mm; font-weight:800; letter-spacing:.1px; }
+  .tier .txt{ flex:1; font-size:1.85mm; font-weight:600; line-height:1.04; }
+  .tier .amt{ font-family:var(--font-num); font-weight:400; font-size:3.9mm; white-space:nowrap; letter-spacing:.2px; }
+  .tier .amt small{ font-family:var(--font); font-size:1.5mm; font-weight:400; }
+
+  .barcode{ margin-top:.3mm; display:flex; justify-content:flex-end; }
+  .barcode svg{ display:block; width:85%; height:5.2mm; }
+
+  /* ── Vista en pantalla (ampliada) ── */
+  @media screen{
+    body{ display:flex; flex-direction:column; align-items:center; gap:16px; padding:32px; }
+    .hint{ color:#eee; font:14px/1.5 system-ui,sans-serif; max-width:600px; text-align:center; }
+    .hint code{ background:#000; padding:2px 6px; border-radius:4px; }
+    .stage{ transform:scale(2.7); transform-origin:top center; margin-bottom:260px; box-shadow:0 8px 40px rgba(0,0,0,.5); }
+  }
+  @media print{
+    html,body{ background:#fff; }
+    .hint{ display:none; }
+    .stage{ transform:none; box-shadow:none; }
+  }
+</style>
+</head>
+<body>
+  <div class="hint">
+    Prueba de etiqueta <b>100×40&nbsp;mm</b> (SKU 20186, datos reales de Kepler).<br>
+    Imprime con <code>Ctrl+P</code> → elige la <b>BSC</b> → tamaño de papel <b>100×40&nbsp;mm</b>, márgenes <b>Ninguno</b>, escala <b>100%</b>, activa <b>gráficos de fondo</b>.
+  </div>
+
+  <div class="stage">
+  <div class="label">
+    <div class="head">CANELS GOMITAS MINIJARRITO SOUR</div>
+    <div class="body">
+      <!-- IZQUIERDA -->
+      <div class="left">
+        <div class="meta">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="5" r="3"/><path d="M6.5 8a2 2 0 0 0-1.9 1.46L2.1 18.5A2 2 0 0 0 4 21h16a2 2 0 0 0 1.9-2.54L19.4 9.5A2 2 0 0 0 17.5 8Z"/></svg>
+          <span>50 g</span>
+          <span class="sep">|</span>
+          <span>Código: 20186</span>
+        </div>
+        <div class="pricebox">
+          <svg class="sprout" viewBox="0 0 40 40" fill="hsl(141, 60%, 38%)"><path transform="translate(12,15) rotate(120)" d="M0 -11 C4.5 -5 5.5 0 4 4.5 C2.8 7.5 -2.8 7.5 -4 4.5 C-5.5 0 -4.5 -5 0 -11 Z"/><path transform="translate(22,10) rotate(150) scale(0.7)" d="M0 -11 C4.5 -5 5.5 0 4 4.5 C2.8 7.5 -2.8 7.5 -4 4.5 C-5.5 0 -4.5 -5 0 -11 Z"/></svg>
+          <div class="price"><span class="cur">$</span>8<span class="dot">.</span>66</div>
+          <div class="pieza">Precio por pieza</div>
+        </div>
+      </div>
+      <!-- DERECHA -->
+      <div class="right">
+        <div class="tier">
+          <div class="pill"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M11 21.7a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73z"/><path d="M12 22V12"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="m7.5 4.27 9 5.15"/></svg><span>MAYOREO</span></div>
+          <div class="txt">Mayoreo desde 3 pzas:</div>
+          <div class="amt">$7.68 <small>c/u</small></div>
+        </div>
+        <div class="tier">
+          <div class="pill"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.97 12.92A2 2 0 0 0 2 14.63v3.24a2 2 0 0 0 .97 1.71l3 1.8a2 2 0 0 0 2.06 0L12 19v-5.5l-5-3z"/><path d="m7 16.5-4.74-2.85"/><path d="m7 16.5 5-3"/><path d="M7 16.5v5.17"/><path d="M12 13.5V19l3.97 2.38a2 2 0 0 0 2.06 0l3-1.8a2 2 0 0 0 .97-1.71v-3.24a2 2 0 0 0-.97-1.71L17 10.5z"/><path d="m17 16.5-5-3"/><path d="m17 16.5 4.74-2.85"/><path d="M17 16.5v5.17"/><path d="M7.97 4.42A2 2 0 0 0 7 6.13v4.37l5 3 5-3V6.13a2 2 0 0 0-.97-1.71l-3-1.8a2 2 0 0 0-2.06 0z"/><path d="M12 8 7.26 5.15"/><path d="m12 8 4.74-2.85"/><path d="M12 13.5V8"/></svg><span>PAQUETE</span></div>
+          <div class="txt">Paquete (8 pzas):</div>
+          <div class="amt">$66.06</div>
+        </div>
+        <div class="tier">
+          <div class="pill"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M11 21.7a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73z"/><path d="M12 22V12"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="m7.5 4.27 9 5.15"/></svg><span>MAYOREO</span></div>
+          <div class="txt">Mayoreo desde 3 paquetes:</div>
+          <div class="amt">$61.47 <small>c/u</small></div>
+        </div>
+        <div class="tier">
+          <div class="pill"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9h18v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="m3 9 2.45-4.9A2 2 0 0 1 7.24 3h9.52a2 2 0 0 1 1.8 1.1L21 9"/><path d="M12 3v6"/></svg><span>CAJA</span></div>
+          <div class="txt">Caja (112 pzas):</div>
+          <div class="amt">$860.60</div>
+        </div>
+        <div class="barcode"><svg id="bc"></svg></div>
+      </div>
+    </div>
+  </div>
+  </div>
+
+<script>
+  // Simbología según longitud del número (igual que Kepler): 13→EAN13, 12→UPC-A, 8→EAN8, resto→CODE128.
+  function pickFormat(code){
+    if (/^\d{13}$/.test(code)) return 'EAN13';
+    if (/^\d{12}$/.test(code)) return 'UPC';
+    if (/^\d{8}$/.test(code))  return 'EAN8';
+    return 'CODE128';
+  }
+  window.addEventListener('load', function () {
+    try {
+      var code = '018804701641';               // kdii.c7 (pieza) del SKU 20186
+      var el = document.getElementById('bc');
+      JsBarcode(el, code, { format: pickFormat(code), displayValue:false, margin:0, width:2, height:66 });
+      var w = el.getAttribute('width'), h = el.getAttribute('height');
+      if (w && h) {
+        el.setAttribute('viewBox', '0 0 ' + w + ' ' + h);
+        el.setAttribute('preserveAspectRatio', 'none');
+        el.removeAttribute('width'); el.removeAttribute('height');
+      }
+    } catch (e) { console.error('barcode', e); }
+  });
+</script>
+</body>
+</html>

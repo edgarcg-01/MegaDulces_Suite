@@ -82,11 +82,7 @@ import { MapComponent } from '../../../shared/components/map/map.component';
               <div class="rd-ticket-title">{{ t.warehouse_name }} · Folio {{ t.folio }}</div>
               <div class="rd-ticket-total">{{ money(t.total) }}</div>
             </div>
-            @if (t.already_paid) {
-              <p-tag severity="success" value="Pagado en tienda" icon="pi pi-check" />
-            } @else {
-              <p-tag severity="warn" [value]="'Cobrar · ' + t.forma_pago" icon="pi pi-wallet" />
-            }
+            <p-tag severity="warn" value="Contra-entrega" icon="pi pi-wallet" />
           </div>
 
           <p-table [value]="t.items" styleClass="p-datatable-sm surf-table rd-lines">
@@ -217,24 +213,10 @@ import { MapComponent } from '../../../shared/components/map/map.component';
             </div>
           </div>
 
-          @if (!t.already_paid) {
-            <div class="rd-cod">
-              <p-toggleSwitch inputId="cod" [(ngModel)]="collect" />
-              <label for="cod" class="rd-cod-label">El repartidor cobra al entregar (COD)</label>
-            </div>
-            @if (collect) {
-              <div class="rd-field rd-cod-amount">
-                <label for="amt">Monto a cobrar <span class="rd-hint">· total del ticket {{ money(t.total) }}</span></label>
-                <p-inputNumber inputId="amt" [(ngModel)]="amount" mode="currency" currency="MXN" locale="es-MX"
-                               [min]="0" styleClass="rd-full" />
-              </div>
-            }
-          } @else {
-            <div class="rd-advisory info">
-              <i class="pi pi-check-circle" aria-hidden="true"></i>
-              <span>Ya pagado en tienda — el repartidor no cobra.</span>
-            </div>
-          }
+          <div class="rd-advisory info">
+            <i class="pi pi-wallet" aria-hidden="true"></i>
+            <span>Contra-entrega — el repartidor cobra <b>{{ money(t.total) }}</b> en efectivo al entregar. El monto es fijo del ticket.</span>
+          </div>
 
           @if (dispatchError()) { <p class="rd-err"><i class="pi pi-exclamation-circle"></i> {{ dispatchError() }}</p> }
           <div class="rd-actions">
@@ -405,7 +387,8 @@ export class HomeDeliveryDispatchComponent implements OnInit {
     this.svc.ticketLookup(this.folio.trim(), this.warehouse, this.serie.trim() || undefined).subscribe({
       next: (t) => {
         this.ticket.set(t);
-        this.collect = t.collect_on_delivery_suggested && !t.already_paid;
+        // Todo a domicilio es contra-entrega: siempre se cobra el total del ticket.
+        this.collect = true;
         this.amount = t.total;
         this.loading.set(false);
       },

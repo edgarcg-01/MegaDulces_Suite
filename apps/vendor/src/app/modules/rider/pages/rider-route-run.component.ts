@@ -2,9 +2,9 @@ import { ChangeDetectionStrategy, Component, ElementRef, OnDestroy, OnInit, View
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
-import { environment } from '../../../../environments/environment';
 import { RiderRoute, RiderRouteStop, RiderService } from '../rider.service';
 import { GeofenceService } from '../geofence.service';
+import { RiderMapComponent, RiderMapPoint } from '../rider-map.component';
 
 type Phase = 'preview' | 'navigating' | 'delivering' | 'done' | 'arqueo' | 'arqueo_done';
 
@@ -24,14 +24,22 @@ const DENOMS = [1000, 500, 200, 100, 50, 20, 10, 5, 2, 1, 0.5];
 @Component({
   selector: 'app-rider-route-run',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, RiderMapComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="run">
       <!-- PREVIEW: mapa + secuencia + iniciar -->
       @if (phase() === 'preview') {
-        <header class="run-head"><h1>Llevar pedidos</h1></header>
-        @if (loading()) { <p class="muted">Cargando ruta…</p> }
+        <header class="run-head">
+          <h1>Llevar pedidos</h1>
+          <button class="link refresh" (click)="load()" [disabled]="loading()" aria-label="Recalcular ruta">
+            {{ loading() ? 'Actualizando…' : '↻ Recalcular' }}
+          </button>
+        </header>
+        @if (routeUpdated()) {
+          <div class="updated-note">🔄 Ruta actualizada — se agregó un pedido y se recalculó el orden.</div>
+        }
+        @if (loading() && allStops().length === 0) { <p class="muted">Cargando ruta…</p> }
         @else if (allStops().length === 0) {
           <div class="empty"><i class="pi pi-check-circle"></i><p>No tienes pedidos pendientes.</p></div>
         } @else {
@@ -40,7 +48,7 @@ const DENOMS = [1000, 500, 200, 100, 50, 20, 10, 5, 2, 1, 0.5];
             <div><b>{{ money(totalToCollect()) }}</b><span>a cobrar</span></div>
             @if (route()?.total_km) { <div><b>{{ route()?.total_km }}</b><span>km aprox.</span></div> }
           </div>
-          @if (mapUrl(); as url) { <img class="map" [src]="url" alt="Mapa de la ruta" /> }
+          <app-rider-map class="map-block" [stops]="previewPoints()" [origin]="route()?.origin ?? null" height="320px" />
           <ol class="stops">
             @for (s of allStops(); track s.delivery_id; let i = $index) {
               <li>
@@ -63,7 +71,7 @@ const DENOMS = [1000, 500, 200, 100, 50, 20, 10, 5, 2, 1, 0.5];
         <header class="run-head">
           <span class="progress">Parada {{ currentIndex() + 1 }} de {{ allStops().length }}</span>
         </header>
-        @if (legMapUrl(); as url) { <img class="map" [src]="url" alt="Mapa de la parada" /> }
+        <app-rider-map class="map-block" [stops]="legPoints()" [live]="geo.lastFix()" height="260px" />
         <div class="stop-card">
           <div class="name lg">{{ s.customer_name }}</div>
           <div class="addr">{{ s.street || 'Sin calle' }}</div>
@@ -190,7 +198,9 @@ const DENOMS = [1000, 500, 200, 100, 50, 20, 10, 5, 2, 1, 0.5];
     .summary > div { flex: 1; background: var(--card-bg, #fff); border: 1px solid var(--border-color, #e5e5e5); border-radius: 12px; padding: .6rem; text-align: center; }
     .summary b { display: block; font-size: 1.25rem; font-variant-numeric: tabular-nums; }
     .summary span { font-size: .72rem; color: var(--text-muted, #888); }
-    .map { width: 100%; border-radius: 14px; border: 1px solid var(--border-color, #e5e5e5); display: block; margin-bottom: 1rem; }
+    .map-block { display: block; margin-bottom: 1rem; }
+    .refresh { width: auto; margin: 0; font-size: .85rem; }
+    .updated-note { background: #dcfce7; color: #166534; border-radius: 10px; padding: .6rem .8rem; font-size: .85rem; margin-bottom: .8rem; }
     .stops { list-style: none; padding: 0; margin: 0 0 1rem; display: flex; flex-direction: column; gap: .5rem; }
     .stops li { display: flex; align-items: center; gap: .7rem; background: var(--card-bg, #fff); border: 1px solid var(--border-color, #e5e5e5); border-radius: 12px; padding: .55rem .7rem; }
     .seq { flex-shrink: 0; width: 28px; height: 28px; border-radius: 50%; background: var(--action, #ea580c); color: #fff; display: grid; place-items: center; font-weight: 700; font-size: .85rem; }
@@ -261,6 +271,8 @@ export class RiderRouteRunComponent implements OnInit, OnDestroy {
   readonly currentIndex = signal(0);
   readonly manualArrived = signal(false);
   readonly result = signal<any>(null);
+  readonly routeUpdated = signal(false); // aviso "ruta recalculada" en el preview
+  private previewPoll: any = null;
 
   readonly denoms = DENOMS;
   counts: Record<number, number> = {};
@@ -291,21 +303,65 @@ export class RiderRouteRunComponent implements OnInit, OnDestroy {
     return this.geo.arrived() || this.manualArrived();
   });
 
-  readonly mapUrl = computed(() => this.buildRouteMap(this.route()));
-  readonly legMapUrl = computed(() => this.buildLegMap(this.current()));
+  /** Puntos del mapa en preview: todas las paradas ubicadas, numeradas. */
+  readonly previewPoints = computed<RiderMapPoint[]>(() =>
+    this.allStops()
+      .filter((s) => s.lat != null && s.lng != null)
+      .map((s, i) => ({ lat: s.lat as number, lng: s.lng as number, label: String(s.sequence_order ?? i + 1), title: s.customer_name })),
+  );
+  /** Punto del mapa en navegación: solo la parada actual (resaltada). */
+  readonly legPoints = computed<RiderMapPoint[]>(() => {
+    const s = this.current();
+    if (!s || s.lat == null || s.lng == null) return [];
+    return [{ lat: s.lat, lng: s.lng, label: String(s.sequence_order ?? this.currentIndex() + 1), title: s.customer_name, current: true }];
+  });
 
-  ngOnInit(): void { this.load(); }
-  ngOnDestroy(): void { this.geo.stop(); }
+  ngOnInit(): void {
+    this.load();
+    // Antes de iniciar ruta, un pedido nuevo (despachado por la tienda) debe
+    // entrar y RE-OPTIMIZAR la secuencia. myRoute recomputa NN+2-opt en cada
+    // llamada, así que basta con re-consultar mientras estamos en el preview.
+    this.previewPoll = setInterval(() => {
+      if (this.phase() === 'preview' && !this.loading()) this.reloadPreview();
+    }, 20000);
+  }
+
+  ngOnDestroy(): void {
+    this.geo.stop();
+    if (this.previewPoll) clearInterval(this.previewPoll);
+  }
 
   load(): void {
     this.loading.set(true);
+    this.routeUpdated.set(false);
     this.svc.myRoute().subscribe({
       next: (r) => { this.route.set(r); this.loading.set(false); },
       error: () => { this.route.set(null); this.loading.set(false); },
     });
   }
 
+  /** Refresco silencioso del preview: si cambió el set de paradas, recalcula y avisa. */
+  private reloadPreview(): void {
+    const before = this.stopSignature();
+    this.svc.myRoute().subscribe({
+      next: (r) => {
+        this.route.set(r);
+        if (this.stopSignature() !== before) {
+          this.routeUpdated.set(true);
+          setTimeout(() => this.routeUpdated.set(false), 8000);
+        }
+      },
+      error: () => {},
+    });
+  }
+
+  /** Huella del set de paradas (ids ordenados) para detectar altas/bajas/re-orden. */
+  private stopSignature(): string {
+    return this.allStops().map((s) => `${s.delivery_id}:${s.sequence_order}`).join('|');
+  }
+
   start(): void {
+    if (this.previewPoll) { clearInterval(this.previewPoll); this.previewPoll = null; }
     this.currentIndex.set(0);
     this.beginStop();
   }
@@ -414,23 +470,4 @@ export class RiderRouteRunComponent implements OnInit, OnDestroy {
   }
   sigEnd(): void { this.drawing = false; }
   clearSig(): void { const c = this.sigRef?.nativeElement, g = this.ctx(); if (c && g) g.clearRect(0, 0, c.width, c.height); this.signed = false; }
-
-  // ── mapas estáticos Mapbox ──
-  private buildRouteMap(r: RiderRoute | null): string | null {
-    const token = environment.mapbox?.token;
-    if (!token || !r?.stops?.length) return null;
-    const ov: string[] = [];
-    if (r.origin) ov.push(`pin-l-shop+2563eb(${r.origin.lng},${r.origin.lat})`);
-    r.stops.slice(0, 20).forEach((s, i) => {
-      if (s.lat != null && s.lng != null) ov.push(`pin-s-${s.sequence_order ?? i + 1}+f05a28(${s.lng},${s.lat})`);
-    });
-    if (!ov.length) return null;
-    return `https://api.mapbox.com/styles/v1/mapbox/streets-v12/static/${ov.join(',')}/auto/640x360@2x?access_token=${token}`;
-  }
-  private buildLegMap(s: RiderRouteStop | null): string | null {
-    const token = environment.mapbox?.token;
-    if (!token || !s || s.lat == null || s.lng == null) return null;
-    const pin = `pin-l-embassy+f05a28(${s.lng},${s.lat})`;
-    return `https://api.mapbox.com/styles/v1/mapbox/streets-v12/static/${pin}/${s.lng},${s.lat},15,0/640x280@2x?access_token=${token}`;
-  }
 }

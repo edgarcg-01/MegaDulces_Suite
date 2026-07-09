@@ -21,6 +21,8 @@
 - **Notificaciones in-app** al asignar (repartidor) y al entregar (tienda) vía WebSocket `/alerts` (`delivery_assigned`/`delivery_delivered`), con *seam* listo para WhatsApp (cliente/repartidor/tienda) cuando se elija BSP (Fase F).
 - **Tracking de tienda:** `GET /commercial/home-delivery/dispatched` + vista `/reparto/seguimiento` (estado, repartidor, hora de despacho/entrega).
 - **Desacople Reparto ↔ Logística:** la entrega vive en `commercial.home_deliveries` (tabla propia) asignada a un **usuario repartidor** (`rider_user_id`), no a un chofer de flota (mig `20260703140000`). El dropdown de asignación lista usuarios con rol `repartidor` (`GET /commercial/home-delivery/riders`).
+- **Todo a domicilio es CONTRA-ENTREGA** (2026-07-09): el despacho fuerza `collect_on_delivery=true` + `amount = total del ticket`; nada llega "ya pagado" (aunque el ticket Kepler diga CONTADO — eso es la venta en tienda). La UI de tienda muestra "Contra-entrega — cobra $X en efectivo al entregar, monto fijo".
+- **Mapa del repartidor INTERACTIVO** (2026-07-09): la ruta guiada usa un mapa Leaflet (`rider-map`) con **posición en vivo** + ruta + paradas, en lugar de la imagen estática. La navegación por voz sigue en **Waze/Google Maps** (deep-link) — es la mejor opción para el manejo; el turn-by-turn embebido (Mapbox Nav SDK) se descarta por costo/nativo y menor valor en última milla.
 - **Pendiente prod:** migs `20260703140000`, `20260708130000`, `20260708150000` a Railway + re-login + smoke blind-close + validación GPS en device.
 
 ### Added — Reparto: mapa + ubicación en mapa + ruta óptima del repartidor (Fase LM.10) (2026-07-08)

@@ -23,6 +23,7 @@
         ],
         "styles": ["apps/vendor/src/styles.css"],
         "scripts": [],
+        "allowedCommonJsDependencies": ["leaflet"],
         "serviceWorker": "apps/vendor/ngsw-config.json"
       },
       "configurations": {

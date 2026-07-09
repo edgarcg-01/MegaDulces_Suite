@@ -364,6 +364,11 @@ export const routes: Routes = [
         loadComponent: () => import('./modules/tienda/pages/tienda-pace.component').then(m => m.TiendaPaceComponent),
         canActivate: [permissionGuard(Permission.STORE_LIVE_VER)]
       },
+      {
+        path: 'etiquetas',
+        loadComponent: () => import('./modules/tienda/pages/tienda-etiquetas.component').then(m => m.TiendaEtiquetasComponent),
+        canActivate: [permissionGuard(Permission.STORE_LIVE_VER)]
+      },
     ]
   },
   {
