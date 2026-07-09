@@ -63,6 +63,7 @@ const STEPS = {
     path.join(K, 'import-brands-lineas.js'), // líneas kdig → brands nuevas (si falta la línea, el producto se descarta abajo)
     path.join(DIR, 'import-catalog-bulk.js'),
     path.join(DIR, 'import-prices-bulk.js'),
+    path.join(K, 'import-kepler-suppliers.js'), // RA — proveedores kdig + products.supplier_id (filtro/sugerido de compras)
   ],
   // KV.8 — logística sola (on-demand): dims + embarques.
   logistics: [
