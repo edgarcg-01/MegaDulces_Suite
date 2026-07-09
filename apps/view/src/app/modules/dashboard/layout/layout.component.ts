@@ -321,12 +321,19 @@ export class LayoutComponent implements OnInit, OnDestroy {
   };
 
   /**
-   * Chequeo combinado: CASL rules (subjectMap) + fallback al record legacy
-   * `user.permissions[X] === true`. Necesario porque las perms commercial
-   * no están mapeadas a subjects CASL todavía, pero sí se sirven en el JWT
-   * legacy permission record.
+   * Chequeo combinado: god-mode (manage:all) + CASL rules (subjectMap) +
+   * fallback al record legacy `user.permissions[X] === true`.
+   *
+   * El god-mode va PRIMERO: un superadmin debe ver TODO el nav sin depender de
+   * que cada permiso nuevo esté mapeado en `permToSubject` ni backfilleado como
+   * clave literal en su JSONB (+ re-login). Sin esto, cada item nuevo (ej.
+   * Etiquetas / STORE_LABELS_VER) quedaba invisible para el superadmin hasta
+   * backfillear la clave — el mismo trap que ya resuelven `permissionGuard` y
+   * `projects.component`. Las perms commercial siguen sin subject CASL, por eso
+   * el fallback al record legacy se mantiene.
    */
   private hasPermFor(item: NavItem): boolean {
+    if (this.perms.can('manage', 'all')) return true;
     const subject = this.permToSubject[item.permission];
     if (subject && this.perms.can('read', subject as any)) return true;
     const legacy = this.user()?.permissions;
