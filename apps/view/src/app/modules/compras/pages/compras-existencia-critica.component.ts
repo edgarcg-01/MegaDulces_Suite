@@ -120,7 +120,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
     <!-- Dialog: generar requisición. appendTo=body: la página vive en un contenedor
          con overflow/transform → sin esto el modal se renderiza pero queda clipeado
          detrás (el clic "no hace nada" a la vista). -->
-    <p-dialog [(visible)]="dialogOpen" [modal]="true" appendTo="body" [style]="{ width: '46rem', maxWidth: '95vw' }" header="Generar requisición" [dismissableMask]="true">
+    <p-dialog [visible]="dialogOpen()" (visibleChange)="dialogOpen.set($event)" [modal]="true" appendTo="body" [style]="{ width: '46rem', maxWidth: '95vw' }" header="Generar requisición" [dismissableMask]="true">
       <div class="ec-dlg">
         <p class="ec-dlg-sub">{{ draft().length }} producto(s) · almacén <strong>{{ warehouseLabel() }}</strong> · objetivo <strong>{{ basisLabel(fBasis) }}</strong></p>
         <div class="ec-dlg-lines">
@@ -134,7 +134,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
         <input pInputText type="text" [(ngModel)]="notes" placeholder="Nota (opcional)" class="ec-dlg-notes" />
       </div>
       <ng-template pTemplate="footer">
-        <button pButton type="button" label="Cancelar" class="p-button-text p-button-sm" (click)="dialogOpen=false"></button>
+        <button pButton type="button" label="Cancelar" class="p-button-text p-button-sm" (click)="dialogOpen.set(false)"></button>
         <button pButton type="button" label="Crear requisición" icon="pi pi-check" class="p-button-sm" [loading]="saving()" (click)="create()"></button>
       </ng-template>
     </p-dialog>
@@ -210,7 +210,7 @@ export class ComprasExistenciaCriticaComponent implements OnInit {
   // cacheado en false y el botón jamás se habilitaba.
   private selected = new Map<string, CriticalStockRow>();
   private selCount = signal(0);
-  dialogOpen = false;
+  dialogOpen = signal(false);
   notes = '';
   draft = signal<(CreateRequisitionLine & { sku: string; nombre: string })[]>([]);
 
@@ -282,7 +282,7 @@ export class ComprasExistenciaCriticaComponent implements OnInit {
       sku: r.sku, nombre: r.nombre,
     })));
     this.notes = '';
-    this.dialogOpen = true;
+    this.dialogOpen.set(true);
   }
 
   create(): void {
@@ -294,11 +294,11 @@ export class ComprasExistenciaCriticaComponent implements OnInit {
       lines: lines.map(({ sku, nombre, ...l }) => l),
     }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (res) => {
-        this.saving.set(false); this.dialogOpen = false;
+        this.saving.set(false); this.dialogOpen.set(false);
         this.toast.add({ severity: 'success', summary: 'Requisición creada', detail: res.folio });
         this.router.navigate(['/compras/requisiciones', res.id]);
       },
-      error: () => { this.saving.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo crear la requisición.' }); },
+      error: (e) => { this.saving.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudo crear la requisición.' }); },
     });
   }
 
