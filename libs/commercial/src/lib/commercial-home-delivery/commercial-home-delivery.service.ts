@@ -19,6 +19,21 @@ import {
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const CHANNELS = ['phone', 'whatsapp', 'social', 'walk_in'];
 
+/** Radio de validación de entrega (m). El repartidor debe estar en el domicilio. */
+const GEOFENCE_RADIUS_M = 20;
+
+/** Distancia haversine en metros entre dos coords. */
+function haversineM(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 6371000;
+  const toRad = (d: number) => (d * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const h =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
+}
+
 /**
  * Fase LM.2 — intake de pedidos a domicilio (recepción por tel/WhatsApp/redes).
  *
@@ -105,6 +120,25 @@ export class CommercialHomeDeliveryService {
       if (!dto.signature_url)
         throw new BadRequestException('Entrega requiere la firma del cliente');
 
+      // VALIDACIÓN DE UBICACIÓN (autoritativa en servidor). Si la parada tiene
+      // coordenadas, el repartidor DEBE estar en el domicilio: distancia − precisión
+      // ≤ 20 m (tolerancia por margen de error GPS, capada a 100 m). Sin ubicación
+      // no se entrega. Paradas sin coordenada no se pueden geo-validar → se permite
+      // solo con override manual explícito (arrived_manual).
+      const target = this.parseCoords(recipient.delivery_address);
+      if (target) {
+        if (dto.gps_lat == null || dto.gps_lng == null)
+          throw new BadRequestException('Se requiere tu ubicación GPS para validar la entrega.');
+        const dist = haversineM(dto.gps_lat, dto.gps_lng, target.lat, target.lng);
+        const tol = Math.min(Math.max(Number(dto.gps_accuracy) || 0, 0), 100);
+        if (dist - tol > GEOFENCE_RADIUS_M)
+          throw new BadRequestException(
+            `Debes estar en el domicilio para entregar (estás a ~${Math.round(dist)} m).`,
+          );
+      } else if (!dto.arrived_manual) {
+        throw new BadRequestException('Confirma que llegaste al domicilio (parada sin ubicación en mapa).');
+      }
+
       // El MONTO lo fija el ticket, no el repartidor: se cobra exactamente
       // `amount_to_collect` de la parada. El repartidor solo captura método y
       // efectivo recibido (para el cambio); cualquier `amount` que mande se ignora.
@@ -190,6 +224,15 @@ export class CommercialHomeDeliveryService {
       incident_type: dto.outcome,
       order_cancelled: rejected && !!orderId,
     };
+  }
+
+  /** Extrae {lat,lng} del delivery_address (JSONB o string). null si no hay coords válidas. */
+  private parseCoords(deliveryAddress: any): { lat: number; lng: number } | null {
+    if (!deliveryAddress) return null;
+    const a = typeof deliveryAddress === 'string' ? JSON.parse(deliveryAddress) : deliveryAddress;
+    const lat = Number(a?.lat);
+    const lng = Number(a?.lng);
+    return Number.isFinite(lat) && Number.isFinite(lng) ? { lat, lng } : null;
   }
 
   /** Cliente de cartera (customer_id) o casual: reusa por teléfono, o alta rápida. */

@@ -69,6 +69,10 @@ export interface RecordDeliveryOutcomeDto {
   whatsapp_confirmed?: boolean;
   gps_lat?: number;
   gps_lng?: number;
+  /** Precisión del fix GPS (m) — para la tolerancia de la validación de geocerca. */
+  gps_accuracy?: number;
+  /** Override manual de llegada SOLO para paradas sin coordenada (no geo-validables). */
+  arrived_manual?: boolean;
   /** Cobro en la entrega (omitir si prepago). */
   payment?: OutcomePaymentDto;
   // ── incidencia ──

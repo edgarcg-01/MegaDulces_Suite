@@ -96,15 +96,16 @@ const DENOMS = [1000, 500, 200, 100, 50, 20, 10, 5, 2, 1, 0.5];
             <a class="btn gmaps" [href]="gmapsUrl(s)" target="_blank" rel="noopener">Google Maps</a>
           </div>
         } @else {
-          <div class="geo"><span>Sin ubicación en mapa — navega por dirección.</span></div>
+          <div class="geo"><span>Sin ubicación en mapa — navega por dirección y confirma tu llegada.</span></div>
           <a class="btn gmaps full" [href]="gmapsSearchUrl(s)" target="_blank" rel="noopener">Buscar en Maps</a>
         }
 
         <button class="primary big" [disabled]="!canDeliver()" (click)="openDeliver()">
-          {{ canDeliver() ? 'Entregar pedido' : 'Acércate al domicilio…' }}
+          {{ canDeliver() ? 'Entregar pedido' : (s.lat != null ? 'Acércate al domicilio (≤20 m)…' : 'Confirma tu llegada') }}
         </button>
-        @if (s.lat != null && !geo.arrived() && !manualArrived()) {
-          <button class="link" (click)="manualArrived.set(true)">Ya llegué (habilitar entrega)</button>
+        <!-- Override manual SOLO para paradas sin coordenada (no geo-validables). -->
+        @if (s.lat == null && !manualArrived()) {
+          <button class="link" (click)="manualArrived.set(true)">Ya llegué al domicilio</button>
         }
       }
 
@@ -295,12 +296,16 @@ export class RiderRouteRunComponent implements OnInit, OnDestroy {
   readonly totalToCollect = computed(() =>
     this.allStops().reduce((s, x) => s + (x.collect_on_delivery ? Number(x.amount_to_collect || 0) : 0), 0),
   );
-  /** Habilita entregar: dentro del radio, override manual, o parada sin coords. */
+  /**
+   * Habilita entregar: con coordenadas manda la GEOCERCA (≤20 m + tolerancia,
+   * validada además en servidor) — sin escape manual. Sin coordenadas, solo con
+   * confirmación manual explícita ("Ya llegué"), ya que no se puede geo-validar.
+   */
   readonly canDeliver = computed(() => {
     const s = this.current();
     if (!s) return false;
-    if (s.lat == null) return true;
-    return this.geo.arrived() || this.manualArrived();
+    if (s.lat == null) return this.manualArrived();
+    return this.geo.arrived();
   });
 
   /** Puntos del mapa en preview: todas las paradas ubicadas, numeradas. */
@@ -395,6 +400,10 @@ export class RiderRouteRunComponent implements OnInit, OnDestroy {
     if (!this.signed) { this.error.set('Falta la firma del cliente.'); return; }
     const signature_url = this.sigRef?.nativeElement.toDataURL('image/png');
     const dto: any = { outcome: 'delivered', delivered_to: s.customer_name, signature_url };
+    // Ubicación del repartidor (el servidor la valida contra el domicilio).
+    const fix = this.geo.lastFix();
+    if (fix) { dto.gps_lat = fix.lat; dto.gps_lng = fix.lng; dto.gps_accuracy = this.geo.accuracyM() ?? undefined; }
+    if (s.lat == null) dto.arrived_manual = this.manualArrived(); // parada sin coords
     if (this.collect(s)) {
       dto.payment = { method: this.method, amount: this.collectAmount(s) };
       if (this.method === 'cash' && this.cashReceived != null) dto.payment.cash_received = Number(this.cashReceived);

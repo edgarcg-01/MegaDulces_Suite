@@ -14,8 +14,14 @@ import { Injectable, signal } from '@angular/core';
  */
 @Injectable({ providedIn: 'root' })
 export class GeofenceService {
-  /** Radio de llegada en metros (ajustable). */
-  readonly radiusM = signal(40);
+  /** Radio de llegada en metros (validación de entrega). */
+  readonly radiusM = signal(20);
+  /**
+   * Tope de tolerancia por precisión GPS (m). "Llegó" si `distancia − precisión
+   * ≤ radio`, pero la precisión aplicada se capa a este valor para que un fix
+   * absurdamente impreciso (o manipulado) no habilite entregar desde lejos.
+   */
+  readonly accuracyToleranceCapM = 100;
   /** Distancia actual al destino (m) o null si aún no hay fix. */
   readonly distanceM = signal<number | null>(null);
   /** Precisión reportada por el GPS (m) o null. */
@@ -78,7 +84,11 @@ export class GeofenceService {
     this.accuracyM.set(pos.coords.accuracy != null ? Math.round(pos.coords.accuracy) : null);
     const d = GeofenceService.distanceMeters(here, this.target);
     this.distanceM.set(Math.round(d));
-    this.arrived.set(d <= this.radiusM());
+    // "Llegó" con tolerancia de precisión: pudo estar dentro del radio dado el
+    // margen de error del GPS. La tolerancia se capa para evitar bypass con un
+    // fix absurdamente impreciso. Misma regla que valida el servidor.
+    const tol = Math.min(pos.coords.accuracy || 0, this.accuracyToleranceCapM);
+    this.arrived.set(d - tol <= this.radiusM());
     this.geoError.set(null);
   }
 

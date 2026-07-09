@@ -54,6 +54,8 @@ export interface RecordDeliveryOutcome {
   whatsapp_confirmed?: boolean;
   gps_lat?: number;
   gps_lng?: number;
+  gps_accuracy?: number;
+  arrived_manual?: boolean;
   payment?: {
     method: 'cash' | 'transfer' | 'card' | 'prepaid';
     amount: number;

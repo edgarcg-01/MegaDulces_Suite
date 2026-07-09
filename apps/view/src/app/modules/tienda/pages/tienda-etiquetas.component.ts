@@ -44,15 +44,24 @@ interface QueueItem { model: LabelModel; copies: number; }
     .etqp-warn{ color:#b45309; font-size:.82rem; }
     .etqp-empty{ color:var(--text-muted,#888); padding:2rem; text-align:center; border:1px dashed var(--border,#ddd); border-radius:10px; }
     .etqp-msg{ padding:.6rem .8rem; border-radius:8px; background:#fff4e5; border:1px solid #f0c891; color:#8a4b00; font-size:.85rem; }
-    .etqp-grid{ display:grid; grid-template-columns:repeat(auto-fill, 220px); gap:1.4rem 1rem; }
-    .etqp-card{ display:flex; flex-direction:column; gap:.4rem; }
-    .etqp-scale{ width:200px; height:71px; overflow:hidden; border:1px solid var(--border,#eee); border-radius:6px; }
-    .etqp-scale app-label{ display:block; transform:scale(0.46); transform-origin:top left; }
-    .etqp-row{ display:flex; align-items:center; gap:.5rem; font-size:.8rem; }
-    .etqp-row .nm{ flex:1; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .etqp-work{ display:flex; gap:1.5rem; align-items:flex-start; flex-wrap:wrap; }
+    .etqp-list{ flex:1; min-width:320px; display:flex; flex-direction:column; gap:.4rem; }
+    .etqp-qrow{ display:flex; align-items:center; gap:.7rem; padding:.4rem .6rem; border:1px solid var(--border,#eee); border-radius:8px; font-size:.85rem; }
+    .etqp-qrow .nm{ flex:1; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .etqp-qrow .sku{ font-family:ui-monospace,monospace; font-size:.75rem; opacity:.6; }
     .etqp-step{ display:flex; align-items:center; gap:.3rem; }
     .etqp-step button{ width:24px; height:24px; border:1px solid var(--border,#ddd); background:#fff; border-radius:6px; cursor:pointer; font-weight:700; }
+    .etqp-step input{ width:44px; text-align:center; border:1px solid var(--border,#ddd); border-radius:6px; padding:.2rem; }
     .etqp-x{ border:0; background:transparent; color:#c00; cursor:pointer; font-size:1rem; }
+
+    /* Simulación de hoja Carta con líneas de recorte por etiqueta */
+    .etqp-sheetpanel{ display:flex; flex-direction:column; gap:.5rem; }
+    .etqp-sheethead{ font-size:.8rem; font-weight:700; color:var(--text-muted,#666); }
+    .etqp-cuthint{ font-size:.72rem; color:#999; }
+    .etqp-sheetbox{ width:432px; height:558px; overflow:hidden; border:1px solid var(--border,#ddd); border-radius:4px; background:#fff; box-shadow:0 6px 22px rgba(0,0,0,.14); }
+    .etqp-sheet{ width:216mm; height:279mm; padding:8mm; box-sizing:border-box; background:#fff; transform:scale(0.5296); transform-origin:top left; }
+    .etqp-sheet app-label{ display:block; margin:0 auto 5mm; }
+    .etqp-sheet app-label .etq-label{ border-radius:0 !important; outline:.3mm dashed #888; }
 
     /* Hoja fuente: fuera de pantalla PERO con layout (para auto-fit del nombre + barcodes).
        No se imprime desde aquí; se clona a un iframe aislado. */
@@ -102,24 +111,32 @@ interface QueueItem { model: LabelModel; copies: number; }
       </div>
 
       @if (queue().length) {
-        <div class="etqp-grid">
-          @for (it of queue(); track it.model.product_id; let i = $index) {
-            <div class="etqp-card">
-              <div class="etqp-scale"><app-label [model]="it.model" [show]="showMap()"></app-label></div>
-              <div class="etqp-row">
+        <div class="etqp-work">
+          <div class="etqp-list">
+            @for (it of queue(); track it.model.product_id; let i = $index) {
+              <div class="etqp-qrow">
                 <span class="nm" [title]="it.model.name">{{ it.model.name }}</span>
-                <button class="etqp-x" (click)="remove(i)" title="Quitar">✕</button>
-              </div>
-              <div class="etqp-row">
-                <span class="sku" style="opacity:.6">{{ it.model.sku }}</span>
+                <span class="sku">{{ it.model.sku }}</span>
                 <div class="etqp-step">
                   <button (click)="setCopies(i, it.copies - 1)">−</button>
-                  <input type="number" min="1" style="width:44px; text-align:center" [ngModel]="it.copies" (ngModelChange)="setCopies(i, $event)">
+                  <input type="number" min="1" [ngModel]="it.copies" (ngModelChange)="setCopies(i, $event)">
                   <button (click)="setCopies(i, it.copies + 1)">+</button>
                 </div>
+                <button class="etqp-x" (click)="remove(i)" title="Quitar">✕</button>
+              </div>
+            }
+          </div>
+          <div class="etqp-sheetpanel">
+            <div class="etqp-sheethead">Vista de hoja (Carta) · Hoja 1 de {{ totalSheets() }} · {{ totalLabels() }} etiqueta{{ totalLabels() === 1 ? '' : 's' }}</div>
+            <div class="etqp-sheetbox">
+              <div class="etqp-sheet">
+                @for (m of sheetLabels(); track $index) {
+                  <app-label [model]="m" [show]="showMap()"></app-label>
+                }
               </div>
             </div>
-          }
+            <div class="etqp-cuthint">- - - línea de recorte por etiqueta (así saldrá impreso)</div>
+          </div>
         </div>
       } @else {
         <div class="etqp-empty">Busca un producto o pega una lista de códigos para armar las etiquetas.</div>
@@ -167,6 +184,17 @@ export class TiendaEtiquetasComponent {
       caja: s.includes('caja'),
       barcode: s.includes('barcode'),
     };
+  });
+
+  // Hoja Carta: área útil ~263mm / (40mm etiqueta + 5mm recorte) ≈ 5 etiquetas por hoja.
+  private readonly PER_SHEET = 5;
+  totalSheets = computed(() => Math.max(1, Math.ceil(this.totalLabels() / this.PER_SHEET)));
+  sheetLabels = computed<LabelModel[]>(() => {
+    const out: LabelModel[] = [];
+    for (const it of this.queue()) {
+      for (let i = 0; i < it.copies; i++) { out.push(it.model); if (out.length >= this.PER_SHEET) return out; }
+    }
+    return out;
   });
 
   private search$ = new Subject<string>();
@@ -286,7 +314,9 @@ export class TiendaEtiquetasComponent {
         html,body{ margin:0; padding:0; background:#fff; }
         *{ -webkit-print-color-adjust:exact !important; print-color-adjust:exact !important; }
         /* Etiquetas 115×40mm en columna sobre hoja Carta; se paginan solas y no se parten. */
-        app-label{ display:block; break-inside:avoid; page-break-inside:avoid; margin:0 auto 4mm; }
+        app-label{ display:block; break-inside:avoid; page-break-inside:avoid; margin:0 auto 5mm; }
+        /* Esquinas rectas + línea de recorte punteada por etiqueta. */
+        app-label .etq-label{ border-radius:0 !important; outline:.3mm dashed #888; }
       </style></head><body>${sheet.innerHTML}</body></html>`);
     doc.close();
 

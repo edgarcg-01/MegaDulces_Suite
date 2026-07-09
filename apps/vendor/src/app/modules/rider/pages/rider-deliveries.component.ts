@@ -1,7 +1,8 @@
-import { Component, ElementRef, computed, inject, signal, OnInit, ViewChild } from '@angular/core';
+import { Component, ElementRef, computed, inject, signal, OnInit, OnDestroy, ViewChild } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
+import { GeofenceService } from '../geofence.service';
 import {
   DeliveryOutcome,
   RecordDeliveryOutcome,
@@ -104,6 +105,21 @@ type Mode = 'deliver' | 'incident';
                 <div class="collect-fixed paid"><span>Ya pagado en tienda</span><strong>No se cobra</strong></div>
               }
 
+              <!-- Validación de ubicación: sin estar en el domicilio no se entrega. -->
+              @if (hasCoords(d)) {
+                <div class="geo" [class.near]="geo.arrived()">
+                  @if (geo.geoError()) { <span>{{ geo.geoError() }}</span> }
+                  @else if (geo.distanceM() == null) { <span>📍 Buscando señal GPS…</span> }
+                  @else if (geo.arrived()) { <span>✅ Estás en el domicilio</span> }
+                  @else { <span>Acércate al domicilio · a <b>{{ geo.distanceM() }} m</b><span class="acc" *ngIf="geo.accuracyM()"> ±{{ geo.accuracyM() }} m</span></span> }
+                </div>
+              } @else {
+                <label class="chk">
+                  <input type="checkbox" [(ngModel)]="arrivedManual" />
+                  Confirmo que llegué al domicilio (parada sin ubicación en mapa)
+                </label>
+              }
+
               <label>Firma del cliente <span class="req">(obligatoria)</span></label>
               <canvas #sig class="sigpad"
                       (pointerdown)="sigStart($event)" (pointermove)="sigMove($event)"
@@ -126,8 +142,8 @@ type Mode = 'deliver' | 'incident';
 
             <div class="modal-actions">
               <button class="ghost" (click)="close()" [disabled]="saving()">Cancelar</button>
-              <button class="primary" (click)="submit()" [disabled]="saving()">
-                {{ saving() ? 'Guardando…' : 'Confirmar' }}
+              <button class="primary" (click)="submit()" [disabled]="saving() || !canConfirm(d)">
+                {{ saving() ? 'Guardando…' : (canConfirm(d) ? 'Confirmar' : 'Acércate al domicilio') }}
               </button>
             </div>
           </div>
@@ -176,11 +192,17 @@ type Mode = 'deliver' | 'incident';
     .change { margin: .3rem 0 0; font-size: .85rem; color: #16a34a; font-weight: 600; }
     .sigpad { width: 100%; height: 160px; border: 1px dashed var(--border, #bbb); border-radius: 10px; background: #fff; touch-action: none; cursor: crosshair; }
     .sig-clear { margin-top: .4rem; font-size: .8rem; padding: .3rem .7rem; }
+    .geo { margin-top: .8rem; padding: .6rem .7rem; border-radius: 10px; background: var(--layout-bg, #f5f5f4); font-size: .9rem; text-align: center; }
+    .geo.near { background: #dcfce7; color: #166534; font-weight: 600; }
+    .geo .acc { color: var(--text-muted, #999); font-size: .78rem; }
   `],
 })
-export class RiderDeliveriesComponent implements OnInit {
+export class RiderDeliveriesComponent implements OnInit, OnDestroy {
   private readonly rider = inject(RiderService);
   private readonly router = inject(Router);
+  readonly geo = inject(GeofenceService);
+
+  arrivedManual = false;
 
   readonly pendingCount = computed(
     () => this.items().filter((d) => d.status === 'pendiente' || d.status === 'no_entregado').length,
@@ -210,6 +232,10 @@ export class RiderDeliveriesComponent implements OnInit {
 
   ngOnInit(): void {
     this.load();
+  }
+
+  ngOnDestroy(): void {
+    this.geo.stop();
   }
 
   load(): void {
@@ -247,6 +273,20 @@ export class RiderDeliveriesComponent implements OnInit {
     return { pendiente: 'Pendiente', no_entregado: 'No entregado', rechazado: 'Rechazado', entregado: 'Entregado' }[s] || s;
   }
 
+  /** Coordenadas del domicilio de la parada (o null si la tienda no las capturó). */
+  coordsOf(d: RiderDelivery): { lat: number; lng: number } | null {
+    const a: any = d.delivery_address;
+    const lat = Number(a?.lat), lng = Number(a?.lng);
+    return Number.isFinite(lat) && Number.isFinite(lng) ? { lat, lng } : null;
+  }
+  hasCoords(d: RiderDelivery): boolean { return !!this.coordsOf(d); }
+
+  /** Se puede confirmar la entrega: con coords → geocerca; sin coords → confirma manual. */
+  canConfirm(d: RiderDelivery): boolean {
+    if (this.mode() !== 'deliver') return true; // incidencia no exige ubicación
+    return this.hasCoords(d) ? this.geo.arrived() : this.arrivedManual;
+  }
+
   openDeliver(d: RiderDelivery): void {
     this.error.set(null);
     this.mode.set('deliver');
@@ -254,6 +294,10 @@ export class RiderDeliveriesComponent implements OnInit {
     this.cashReceived = null;
     this.reference = '';
     this.signed = false;
+    this.arrivedManual = false;
+    // Ubicación es validación primordial: vigila la llegada al domicilio.
+    const c = this.coordsOf(d);
+    if (c) this.geo.watch(c); else this.geo.stop();
     this.active.set(d);
   }
 
@@ -298,10 +342,12 @@ export class RiderDeliveriesComponent implements OnInit {
     this.mode.set('incident');
     this.incidentType = 'not_located';
     this.incidentNotes = '';
+    this.geo.stop(); // la incidencia no exige ubicación
     this.active.set(d);
   }
 
   close(): void {
+    this.geo.stop();
     this.active.set(null);
     this.error.set(null);
   }
@@ -317,6 +363,10 @@ export class RiderDeliveriesComponent implements OnInit {
       if (!this.signed) { this.error.set('Falta la firma del cliente.'); return; }
       const signature_url = this.sigRef?.nativeElement.toDataURL('image/png');
       dto = { outcome: 'delivered', delivered_to: d.customer_name, signature_url };
+      // Ubicación (el servidor la valida contra el domicilio; ≤20 m + tolerancia).
+      const fix = this.geo.lastFix();
+      if (fix) { dto.gps_lat = fix.lat; dto.gps_lng = fix.lng; dto.gps_accuracy = this.geo.accuracyM() ?? undefined; }
+      if (!this.hasCoords(d)) dto.arrived_manual = this.arrivedManual;
       // El MONTO lo fija el ticket (backend lo bloquea). El repartidor NO lo decide:
       // solo elige método y, en efectivo, cuánto recibió (para el cambio).
       if (this.mustCollect(d)) {
