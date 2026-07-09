@@ -1,7 +1,7 @@
 import { ChangeDetectionStrategy, Component, ViewEncapsulation, computed, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { Subject, debounceTime, distinctUntilChanged, switchMap } from 'rxjs';
+import { Subject, catchError, debounceTime, distinctUntilChanged, of, switchMap } from 'rxjs';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { LabelComponent, LabelModel } from '../components/label.component';
 import { EtiquetasService, SearchHit } from '../etiquetas.service';
@@ -11,6 +11,10 @@ interface QueueItem { model: LabelModel; copies: number; }
 /**
  * Etiquetera (proyecto Tienda). Arma una cola de etiquetas (buscar en catálogo o pegar lista
  * de códigos) e imprime en la térmica a color, tamaño físico 100×40 mm.
+ *
+ * Impresión: se renderiza la hoja fuera de pantalla (para que auto-ajuste el nombre y dibuje
+ * los barcodes), luego se clona a un IFRAME aislado con su propio `@page` de 100×40mm y color
+ * forzado. Chrome no respeta `@page` de estilos inyectados por Angular en runtime; el iframe sí.
  */
 @Component({
   selector: 'app-tienda-etiquetas',
@@ -38,6 +42,7 @@ interface QueueItem { model: LabelModel; copies: number; }
     .etqp-head h1{ margin:0; font-size:1.25rem; font-weight:800; }
     .etqp-warn{ color:#b45309; font-size:.82rem; }
     .etqp-empty{ color:var(--text-muted,#888); padding:2rem; text-align:center; border:1px dashed var(--border,#ddd); border-radius:10px; }
+    .etqp-msg{ padding:.6rem .8rem; border-radius:8px; background:#fff4e5; border:1px solid #f0c891; color:#8a4b00; font-size:.85rem; }
     .etqp-grid{ display:grid; grid-template-columns:repeat(auto-fill, 220px); gap:1.4rem 1rem; }
     .etqp-card{ display:flex; flex-direction:column; gap:.4rem; }
     .etqp-scale{ width:200px; height:80px; overflow:hidden; border:1px solid var(--border,#eee); border-radius:6px; }
@@ -48,24 +53,21 @@ interface QueueItem { model: LabelModel; copies: number; }
     .etqp-step button{ width:24px; height:24px; border:1px solid var(--border,#ddd); background:#fff; border-radius:6px; cursor:pointer; font-weight:700; }
     .etqp-x{ border:0; background:transparent; color:#c00; cursor:pointer; font-size:1rem; }
 
-    /* Hoja de impresión: solo visible al imprimir, tamaño físico exacto. */
-    .etqp-print{ display:none; }
-    @media print {
-      @page { size:100mm 40mm; margin:0; }
-      body { visibility:hidden; }
-      .etqp-print, .etqp-print * { visibility:visible; }
-      .etqp-print{ display:block; position:absolute; left:0; top:0; }
-      .etqp-print app-label{ display:block; break-after:page; page-break-after:always; }
-    }
+    /* Hoja fuente: fuera de pantalla PERO con layout (para auto-fit del nombre + barcodes).
+       No se imprime desde aquí; se clona a un iframe aislado. */
+    .etqp-print{ position:fixed; left:-100000px; top:0; width:100mm; }
   `],
   template: `
     <div class="etqp-screen">
       <div class="etqp-head">
         <h1>Etiquetas de anaquel</h1>
-        <button class="etqp-btn" [disabled]="!totalLabels()" (click)="print()">
-          <i class="pi pi-print"></i> Imprimir {{ totalLabels() }} etiqueta{{ totalLabels() === 1 ? '' : 's' }}
+        <button class="etqp-btn" [disabled]="!totalLabels() || printing()" (click)="print()">
+          <i class="pi" [class.pi-print]="!printing()" [class.pi-spin]="printing()" [class.pi-spinner]="printing()"></i>
+          {{ printing() ? 'Preparando…' : 'Imprimir ' + totalLabels() + ' etiqueta' + (totalLabels() === 1 ? '' : 's') }}
         </button>
       </div>
+
+      @if (msg()) { <div class="etqp-msg">{{ msg() }}</div> }
 
       <div class="etqp-tools">
         <div class="etqp-tool">
@@ -119,12 +121,10 @@ interface QueueItem { model: LabelModel; copies: number; }
       }
     </div>
 
-    <!-- Hoja de impresión (tamaño físico, 1 etiqueta por página × copias) -->
-    <div class="etqp-print">
-      @for (it of queue(); track it.model.product_id) {
-        @for (c of copiesArray(it.copies); track c) {
-          <app-label [model]="it.model"></app-label>
-        }
+    <!-- Hoja fuente (fuera de pantalla): se renderiza aquí y se clona al iframe de impresión. -->
+    <div class="etqp-print" #printSheet>
+      @for (m of printLabels(); track $index) {
+        <app-label [model]="m"></app-label>
       }
     </div>
   `,
@@ -138,6 +138,9 @@ export class TiendaEtiquetasComponent {
   queue = signal<QueueItem[]>([]);
   notFound = signal<string[]>([]);
   loading = signal(false);
+  msg = signal<string>('');
+  printLabels = signal<LabelModel[]>([]);
+  printing = signal(false);
 
   totalLabels = computed(() => this.queue().reduce((s, it) => s + (it.copies || 0), 0));
 
@@ -145,8 +148,20 @@ export class TiendaEtiquetasComponent {
 
   constructor() {
     this.search$
-      .pipe(debounceTime(250), distinctUntilChanged(), switchMap((q) => this.svc.search(q)), takeUntilDestroyed())
+      .pipe(
+        debounceTime(250),
+        distinctUntilChanged(),
+        switchMap((q) => this.svc.search(q).pipe(catchError((e) => { this.msg.set(this.httpMsg('Búsqueda', e)); return of([] as SearchHit[]); }))),
+        takeUntilDestroyed(),
+      )
       .subscribe((hits) => this.results.set(hits || []));
+  }
+
+  private httpMsg(what: string, e: any): string {
+    const s = e?.status;
+    if (s === 404) return `${what}: el endpoint /store/labels no existe en el servidor (¿API sin reiniciar/desplegar?).`;
+    if (s === 401 || s === 403) return `${what}: sin permiso (STORE_LIVE_VER) o sesión vencida.`;
+    return `${what}: error ${s || ''} — ${e?.error?.message || e?.message || 'desconocido'}`;
   }
 
   onQuery(q: string): void {
@@ -159,18 +174,32 @@ export class TiendaEtiquetasComponent {
   addFromSearch(h: SearchHit): void {
     this.results.set([]);
     this.query.set('');
+    this.msg.set('');
     const code = h.sku || h.barcode;
-    if (!code) return;
-    this.svc.resolve([code]).subscribe((r) => this.pushLabels(r.labels));
+    if (!code) { this.msg.set('El producto no tiene SKU ni código de barras.'); return; }
+    this.svc.resolve([code]).subscribe({
+      next: (r) => {
+        this.pushLabels(r.labels);
+        if (!r.labels.length) this.msg.set(`No se pudo agregar "${h.name}" (sin datos de etiqueta).`);
+      },
+      error: (e) => this.msg.set(this.httpMsg('Agregar', e)),
+    });
   }
 
   addBulk(): void {
     const codes = this.bulk().split(/[\s,;]+/).map((c) => c.trim()).filter(Boolean);
     if (!codes.length) return;
     this.loading.set(true);
+    this.msg.set('');
     this.svc.resolve(codes).subscribe({
-      next: (r) => { this.pushLabels(r.labels); this.notFound.set(r.not_found || []); this.bulk.set(''); this.loading.set(false); },
-      error: () => this.loading.set(false),
+      next: (r) => {
+        this.pushLabels(r.labels);
+        this.notFound.set(r.not_found || []);
+        this.msg.set(`Agregados ${r.labels.length} · no encontrados ${r.not_found?.length || 0}`);
+        this.bulk.set('');
+        this.loading.set(false);
+      },
+      error: (e) => { this.msg.set(this.httpMsg('Carga masiva', e)); this.loading.set(false); },
     });
   }
 
@@ -190,7 +219,65 @@ export class TiendaEtiquetasComponent {
     this.queue.set(q);
   }
   remove(i: number): void { this.queue.set(this.queue().filter((_, idx) => idx !== i)); }
-  copiesArray(n: number): number[] { return Array.from({ length: Math.max(1, n) }, (_, i) => i); }
 
-  print(): void { setTimeout(() => window.print(), 50); }
+  /** Expande la cola a una etiqueta por copia. */
+  private expanded(): LabelModel[] {
+    const out: LabelModel[] = [];
+    for (const it of this.queue()) for (let i = 0; i < it.copies; i++) out.push(it.model);
+    return out;
+  }
+
+  /** Renderiza la hoja fuera de pantalla, luego imprime en un iframe aislado (100×40 mm). */
+  print(): void {
+    const all = this.expanded();
+    if (!all.length || this.printing()) return;
+    this.msg.set('');
+    this.printing.set(true);
+    this.printLabels.set(all);
+    // Espera a que Angular renderice, se auto-ajusten los nombres y se dibujen los barcodes.
+    setTimeout(() => this.printIsolated(), 500);
+  }
+
+  private printIsolated(): void {
+    const sheet = document.querySelector('.etqp-print') as HTMLElement | null;
+    if (!sheet || !sheet.innerHTML.trim()) { this.finishPrint(); return; }
+
+    // Clona TODOS los estilos del documento (incluye los estilos del componente etiqueta + fuente Baloo).
+    const styles = Array.from(document.querySelectorAll('head style, head link[rel="stylesheet"]'))
+      .map((n) => n.outerHTML).join('\n');
+
+    const iframe = document.createElement('iframe');
+    iframe.setAttribute('aria-hidden', 'true');
+    iframe.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;';
+    document.body.appendChild(iframe);
+    const doc = iframe.contentDocument;
+    const win = iframe.contentWindow;
+    if (!doc || !win) { iframe.remove(); this.finishPrint(); return; }
+
+    doc.open();
+    doc.write(`<!doctype html><html><head><meta charset="utf-8">${styles}
+      <style>
+        @page { size:100mm 40mm; margin:0; }
+        html,body{ margin:0; padding:0; background:#fff; }
+        *{ -webkit-print-color-adjust:exact !important; print-color-adjust:exact !important; }
+        app-label{ display:block; break-after:page; page-break-after:always; }
+        app-label:last-child{ break-after:auto; page-break-after:avoid; }
+      </style></head><body>${sheet.innerHTML}</body></html>`);
+    doc.close();
+
+    let done = false;
+    const finish = () => { if (done) return; done = true; iframe.remove(); this.finishPrint(); };
+    win.addEventListener('afterprint', finish);
+    const fire = () => { try { win.focus(); win.print(); } catch { finish(); } };
+    const fonts = (doc as any).fonts;
+    if (fonts?.ready) fonts.ready.then(() => setTimeout(fire, 150)).catch(() => setTimeout(fire, 300));
+    else setTimeout(fire, 450);
+    // Fallback de limpieza si nunca llega afterprint (ej. usuario deja el diálogo abierto).
+    setTimeout(finish, 120000);
+  }
+
+  private finishPrint(): void {
+    this.printing.set(false);
+    this.printLabels.set([]);
+  }
 }

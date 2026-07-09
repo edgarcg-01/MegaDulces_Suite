@@ -45,8 +45,8 @@ export interface LabelModel {
     }
     .etq-label *{ box-sizing:border-box; margin:0; padding:0; }
     .etq-head{ background:var(--green); color:#fff; height:7.4mm; min-height:7.4mm; display:flex; align-items:center;
-      padding:0 3mm; font-weight:800; font-size:3.7mm; letter-spacing:.2px; white-space:nowrap; overflow:hidden;
-      text-overflow:ellipsis; text-transform:uppercase; }
+      padding:0 3mm; font-weight:800; font-size:3.7mm; letter-spacing:.2px; text-transform:uppercase; overflow:hidden; }
+    .etq-head-txt{ display:block; max-width:100%; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
     .etq-body{ flex:1; min-height:0; display:flex; padding:1mm 2mm 1.2mm 2mm; gap:2mm; }
     .etq-left{ width:56mm; display:flex; flex-direction:column; }
     .etq-meta{ display:flex; align-items:center; gap:1.6mm; font-weight:800; font-size:3.4mm; margin-bottom:1mm; }
@@ -83,7 +83,7 @@ export interface LabelModel {
   `],
   template: `
     <div class="etq-label">
-      <div class="etq-head">{{ headName }}</div>
+      <div class="etq-head" #head><span class="etq-head-txt" #headtxt>{{ headName }}</span></div>
       <div class="etq-body">
         <div class="etq-left">
           <div class="etq-meta">
@@ -127,6 +127,8 @@ export interface LabelModel {
 export class LabelComponent implements AfterViewInit, OnChanges {
   @Input({ required: true }) model!: LabelModel;
   @ViewChild('bc') bc?: ElementRef<SVGElement>;
+  @ViewChild('head') head?: ElementRef<HTMLElement>;
+  @ViewChild('headtxt') headtxt?: ElementRef<HTMLElement>;
 
   get headName(): string {
     // El nombre en Kepler a veces trae el gramaje/pack ("…50G/8 CANELS"); lo dejamos tal cual
@@ -138,8 +140,27 @@ export class LabelComponent implements AfterViewInit, OnChanges {
   get pieceInt(): string { return this.pieceStr.split('.')[0]; }
   get pieceDec(): string { return this.pieceStr.split('.')[1] ?? '00'; }
 
-  ngAfterViewInit(): void { this.renderBarcode(); }
-  ngOnChanges(): void { queueMicrotask(() => this.renderBarcode()); }
+  ngAfterViewInit(): void { this.render(); (document as any).fonts?.ready?.then(() => this.fitHead()); }
+  ngOnChanges(): void { queueMicrotask(() => this.render()); }
+
+  private render(): void { this.renderBarcode(); this.fitHead(); }
+
+  /**
+   * Auto-ajuste: reduce la fuente del nombre hasta que quepa en el header (una línea),
+   * con un mínimo de 2.2mm. Si aún así rebasa, la elipsis del CSS lo corta.
+   */
+  private fitHead(): void {
+    const head = this.head?.nativeElement;
+    const txt = this.headtxt?.nativeElement;
+    if (!head || !txt) return;
+    let size = 3.7;
+    head.style.fontSize = size + 'mm';
+    let guard = 0;
+    while (txt.scrollWidth > txt.clientWidth && size > 2.2 && guard++ < 40) {
+      size -= 0.12;
+      head.style.fontSize = size + 'mm';
+    }
+  }
 
   private renderBarcode(): void {
     const el = this.bc?.nativeElement;
