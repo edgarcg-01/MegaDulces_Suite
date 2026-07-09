@@ -10,6 +10,15 @@
 
 ## [Unreleased]
 
+### Added — Compras: origen proveedor/sucursal, multi-sucursal, compra segura y flujo de recepción (Fase RA.11–RA.14) (2026-07-09)
+- **Investigación: cadena de compras real de Kepler (verificada vivo).** El folio `xa3701-0007556` = **Vale de entrada** (doctype custom `X-A-37`). Cadena completa: Requisición `X-A-30` (opcional) → Orden de compra `X-A-35` → Vale de entrada `X-A-37` → **Orden de entrada `X-A-40` (aquí entra al inventario)** → Aplica/CxP `X-A-20`. **Compra a proveedor (género X) ≠ traspaso desde CEDIS (género N: `N-A-6`/`N-D-6`).** Kepler NO guarda mínimo de pedido ni lead time. Detalle en `docs/IMPLEMENTACION/FASES/FASE_RA_REABASTECIMIENTO.md` §2.5.
+- **Origen de surtido por línea (RA.11):** cada línea de la requisición puede ser **compra a proveedor** o **traspaso interno desde otra sucursal** (`source_type`+`source_warehouse_id`; MVP solo clasifica, no mueve inventario). Selector de origen en el dialog de "Generar requisición".
+- **Selector multi-sucursal (RA.12):** el reporte de existencia crítica ahora surte **varias sucursales a la vez** (`p-multiSelect`); la selección se agrupa y crea **una requisición por almacén de destino**.
+- **Compra segura — mínimo en cajas (RA.13a):** `catalog.suppliers.min_order_boxes` (captura manual, Kepler no lo trae). El dialog **avisa** cuando el pedido a un proveedor no alcanza su mínimo de cajas (Σ `final_qty / factor_purchase`).
+- **Flujo post-aprobación (RA.14):** state machine `approved → ordered → received` espejo de la cadena Kepler. Botones **"Marcar ordenada"** / **"Marcar recibida"** en el detalle; la recepción captura `received_qty` por línea → base del **fill rate** (recibido/pedido).
+- **Backend:** `commercial-replenishment` — `warehouse_ids` (CSV) en critical-stock/summary, `source_type`/`source_warehouse_id` en el DTO+insert, `markOrdered`/`markReceived`, `setSupplierMinBoxes`. Migración `20260709120000_ra_purchasing_flow` (idempotente): columnas de origen/recepción + `estado` CHECK += `received` + `suppliers.min_order_boxes`.
+- **Pendiente:** RA.13b (fill rate histórico) + RA.14 auto-received desde Kepler dependen de RA.5 (OC en tránsito). Prod: migs Railway + re-login + redeploy api+view.
+
 ### Added — Repartidor: flujo GUIADO de entrega + reglas de negocio (Fase LM.11) (2026-07-08)
 - **"Llevar pedidos" — una secuencia guiada de principio a fin.** Nuevo componente `rider-route-run`: ve sus pendientes → botón **"Llevar pedidos (N)"** → mapa con las paradas en el orden óptimo → **"Iniciar ruta"** → por parada: navega (Waze/Google Maps) y, al **acercarse al domicilio** (geocerca ~40 m, o botón "Ya llegué"), se habilita **"Entregar pedido"** → monto + cobro + **firma del cliente** → **auto-avanza a la siguiente** → al terminar, **arqueo ciego**.
 - **Geocerca de llegada** (`GeofenceService`): `watchPosition` + distancia haversine en vivo + precisión GPS. Radio configurable (default 40 m — 10 m no es fiable en GPS de celular) con override manual "Ya llegué".

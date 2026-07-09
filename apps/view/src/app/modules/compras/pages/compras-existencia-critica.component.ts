@@ -3,26 +3,52 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
+import { forkJoin } from 'rxjs';
 import { ButtonModule } from 'primeng/button';
 import { TableModule, TableLazyLoadEvent } from 'primeng/table';
 import { ToastModule } from 'primeng/toast';
 import { SelectModule } from 'primeng/select';
+import { MultiSelectModule } from 'primeng/multiselect';
 import { DialogModule } from 'primeng/dialog';
 import { TagModule } from 'primeng/tag';
 import { InputTextModule } from 'primeng/inputtext';
 import { MessageService } from 'primeng/api';
-import { ComprasService, CriticalStockRow, ReplenishmentSummary, Bucket, TargetBasis, CreateRequisitionLine } from '../compras.service';
+import { ComprasService, CriticalStockRow, ReplenishmentSummary, Bucket, TargetBasis, SourceType, CreateRequisitionDto } from '../compras.service';
 
 type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
+
+/** Línea del borrador de requisición: sugerido + origen (proveedor/sucursal) + datos para el aviso de mínimo. */
+interface DraftLine {
+  product_id: string;
+  warehouse_id: string;
+  warehouse_code: string;
+  sku: string;
+  nombre: string;
+  supplier_id: string | null;
+  supplier_name: string | null;
+  supplier_min_boxes: number | null;
+  factor_purchase: number | null;
+  source_type: SourceType;
+  source_warehouse_id: string | null;
+  on_hand: number;
+  in_transit: number;
+  min_stock: number;
+  reorder_point: number;
+  max_stock: number;
+  suggested_qty: number;
+  final_qty: number;
+  unit_cost: number;
+}
 
 /**
  * Fase RA (ADR-030) — Existencia Crítica. Existencia vs mín/reorden/máx + sugerido de
  * compra; selección → requisición (HITL). Superficie Operations (PrimeNG denso).
+ * RA.11 origen proveedor/sucursal · RA.12 multi-sucursal · RA.13a aviso de mínimo en cajas.
  */
 @Component({
   selector: 'app-compras-existencia-critica',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, TableModule, ToastModule, SelectModule, DialogModule, TagModule, InputTextModule],
+  imports: [CommonModule, FormsModule, ButtonModule, TableModule, ToastModule, SelectModule, MultiSelectModule, DialogModule, TagModule, InputTextModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
@@ -34,7 +60,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
           <p class="surf-page-sub">Existencia contra punto de reorden por almacén. El motor sugiere cuánto pedir; tú generas la requisición.</p>
         </div>
         <div class="ec-head-actions">
-          <button pButton type="button" label="Generar requisición" icon="pi pi-file-edit"
+          <button pButton type="button" [label]="'Generar requisición' + (selCount() ? ' (' + selCount() + ')' : '')" icon="pi pi-file-edit"
                   class="p-button-sm" [disabled]="!canRequire()" (click)="openDialog()"></button>
         </div>
       </header>
@@ -53,8 +79,9 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
 
       <!-- Filtros -->
       <div class="ec-filters">
-        <p-select [options]="warehouseOpts()" [(ngModel)]="fWarehouse" (onChange)="reload()"
-                  optionLabel="label" optionValue="value" placeholder="Todos los almacenes" [showClear]="true" styleClass="ec-sel"></p-select>
+        <p-multiSelect [options]="warehouseOpts()" [(ngModel)]="fWarehouses" (onChange)="reload()"
+                       optionLabel="label" optionValue="value" placeholder="Todos los almacenes" [showClear]="true"
+                       [maxSelectedLabels]="2" selectedItemsLabel="{0} almacenes" styleClass="ec-sel"></p-multiSelect>
         <p-select [options]="bucketOpts" [(ngModel)]="fBucket" (onChange)="reload()"
                   optionLabel="label" optionValue="value" placeholder="Críticos (≤ reorden)" [showClear]="true" styleClass="ec-sel"></p-select>
         <p-select [options]="basisOpts" [(ngModel)]="fBasis" (onChange)="reload()"
@@ -73,11 +100,10 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
                styleClass="p-datatable-sm ec-table" [rowsPerPageOptions]="[50, 100, 200]">
         <ng-template pTemplate="header">
           <tr>
-            <th style="width:2.5rem">
-              @if (fWarehouse) { <input type="checkbox" [checked]="allSelected()" (change)="toggleAll($event)" /> }
-            </th>
+            <th style="width:2.5rem"><input type="checkbox" [checked]="allSelected()" (change)="toggleAll($event)" /></th>
             <th>SKU</th>
             <th>Producto</th>
+            <th>Almacén</th>
             <th class="ec-r">Existencia</th>
             <th class="ec-r">Mín</th>
             <th class="ec-r">Reorden</th>
@@ -91,11 +117,10 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
         </ng-template>
         <ng-template pTemplate="body" let-r>
           <tr [class.ec-sel-row]="isSelected(r)">
-            <td>
-              @if (fWarehouse) { <input type="checkbox" [checked]="isSelected(r)" (change)="toggle(r)" /> }
-            </td>
+            <td><input type="checkbox" [checked]="isSelected(r)" (change)="toggle(r)" /></td>
             <td class="ec-mono">{{ r.sku }}</td>
             <td>{{ r.nombre }}</td>
+            <td class="ec-muted">{{ r.warehouse_code }}</td>
             <td class="ec-r">{{ r.on_hand | number:'1.0-0' }}</td>
             <td class="ec-r ec-muted">{{ r.min_stock | number:'1.0-0' }}</td>
             <td class="ec-r ec-muted">{{ r.reorder_point | number:'1.0-0' }}</td>
@@ -108,25 +133,36 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
           </tr>
         </ng-template>
         <ng-template pTemplate="emptymessage">
-          <tr><td colspan="12" class="ec-empty">Sin productos que reponer con estos filtros.</td></tr>
+          <tr><td colspan="13" class="ec-empty">Sin productos que reponer con estos filtros.</td></tr>
         </ng-template>
       </p-table>
-
-      @if (!fWarehouse) {
-        <p class="ec-hint"><i class="pi pi-info-circle"></i> Elige un almacén para poder seleccionar productos y generar una requisición.</p>
-      }
     </div>
 
     <!-- Dialog: generar requisición. appendTo=body: la página vive en un contenedor
          con overflow/transform → sin esto el modal se renderiza pero queda clipeado
          detrás (el clic "no hace nada" a la vista). -->
-    <p-dialog [visible]="dialogOpen()" (visibleChange)="dialogOpen.set($event)" [modal]="true" appendTo="body" [style]="{ width: '46rem', maxWidth: '95vw' }" header="Generar requisición" [dismissableMask]="true">
+    <p-dialog [visible]="dialogOpen()" (visibleChange)="dialogOpen.set($event)" [modal]="true" appendTo="body" [style]="{ width: '52rem', maxWidth: '96vw' }" header="Generar requisición" [dismissableMask]="true">
       <div class="ec-dlg">
-        <p class="ec-dlg-sub">{{ draft().length }} producto(s) · almacén <strong>{{ warehouseLabel() }}</strong> · objetivo <strong>{{ basisLabel(fBasis) }}</strong></p>
+        <p class="ec-dlg-sub">{{ draft().length }} producto(s) · {{ draftWarehouses().length }} almacén(es) · objetivo <strong>{{ basisLabel(fBasis) }}</strong>
+          @if (draftWarehouses().length > 1) { <span class="ec-dlg-note">— se crearán {{ draftWarehouses().length }} requisiciones (una por almacén)</span> }
+        </p>
+
+        <!-- Aviso de compra mínima (RA.13a): proveedores que no alcanzan su mínimo en cajas -->
+        @for (w of minBoxesWarn(); track w.supplier_id) {
+          <div class="ec-warn"><i class="pi pi-exclamation-triangle"></i>
+            <strong>{{ w.supplier_name }}</strong>: {{ w.have | number:'1.0-1' }} de {{ w.need | number:'1.0-1' }} cajas mínimas. Faltan {{ (w.need - w.have) | number:'1.0-1' }}.
+          </div>
+        }
+
         <div class="ec-dlg-lines">
-          @for (l of draft(); track l.product_id) {
+          @for (l of draft(); track l.product_id + '|' + l.warehouse_id) {
             <div class="ec-dlg-line">
-              <span class="ec-dlg-name"><span class="ec-mono">{{ l.sku }}</span> {{ l.nombre }}</span>
+              <span class="ec-dlg-name"><span class="ec-mono">{{ l.sku }}</span> {{ l.nombre }} <span class="ec-muted">· {{ l.warehouse_code }}</span></span>
+              <p-select [options]="originOpts" [(ngModel)]="l.source_type" optionLabel="label" optionValue="value" styleClass="ec-dlg-origin" appendTo="body"></p-select>
+              @if (l.source_type === 'branch') {
+                <p-select [options]="warehouseOpts()" [(ngModel)]="l.source_warehouse_id" optionLabel="label" optionValue="value"
+                          placeholder="Almacén origen" styleClass="ec-dlg-srcwh" appendTo="body"></p-select>
+              }
               <input pInputText type="number" min="0" [(ngModel)]="l.final_qty" class="ec-dlg-qty" />
             </div>
           }
@@ -158,13 +194,15 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
     .ec-sel-row { background: var(--surface-hover, #f6f5f3); }
     .ec-src { font-size: .68rem; text-transform: uppercase; letter-spacing: .03em; color: var(--text-muted, #8a8580); }
     .ec-src-kepler { color: var(--action, #c2410c); }
-    .ec-empty, .ec-hint { color: var(--text-muted, #8a8580); padding: 1rem; text-align: center; }
-    .ec-hint { display: flex; gap: .4rem; align-items: center; justify-content: center; }
+    .ec-empty { color: var(--text-muted, #8a8580); padding: 1rem; text-align: center; }
     .ec-dlg-sub { color: var(--text-muted, #8a8580); font-size: .85rem; margin-bottom: .5rem; }
-    .ec-dlg-lines { max-height: 22rem; overflow-y: auto; display: flex; flex-direction: column; gap: .35rem; }
-    .ec-dlg-line { display: flex; gap: .5rem; align-items: center; justify-content: space-between; }
-    .ec-dlg-name { font-size: .82rem; flex: 1; }
-    .ec-dlg-qty { width: 6rem; text-align: right; }
+    .ec-dlg-note { color: var(--action, #c2410c); }
+    .ec-warn { display: flex; gap: .45rem; align-items: center; font-size: .8rem; color: var(--amber-700, #b45309); background: var(--amber-50, #fffbeb); border: 1px solid var(--amber-200, #fde68a); border-radius: var(--radius-sm, 8px); padding: .45rem .6rem; margin-bottom: .4rem; }
+    .ec-dlg-lines { max-height: 24rem; overflow-y: auto; display: flex; flex-direction: column; gap: .35rem; }
+    .ec-dlg-line { display: flex; gap: .5rem; align-items: center; }
+    .ec-dlg-name { font-size: .82rem; flex: 1; min-width: 0; }
+    .ec-dlg-origin { min-width: 8rem; } .ec-dlg-srcwh { min-width: 10rem; }
+    .ec-dlg-qty { width: 5.5rem; text-align: right; }
     .ec-dlg-notes { width: 100%; margin-top: .6rem; }
   `],
 })
@@ -186,7 +224,7 @@ export class ComprasExistenciaCriticaComponent implements OnInit {
   supplierOpts = signal<{ label: string; value: string }[]>([]);
   private warehouseNames = new Map<string, string>();
 
-  fWarehouse = '';
+  fWarehouses: string[] = [];
   fBucket = '';
   fBasis: TargetBasis = 'max';
   fSupplier = '';
@@ -204,24 +242,24 @@ export class ComprasExistenciaCriticaComponent implements OnInit {
     { label: 'Hasta reorden', value: 'reorder' },
     { label: 'Hasta el mínimo', value: 'min' },
   ];
+  originOpts = [
+    { label: 'Proveedor', value: 'supplier' as SourceType },
+    { label: 'Sucursal', value: 'branch' as SourceType },
+  ];
 
-  // Selección (dentro de un solo almacén) → requisición. El tamaño vive en un
-  // signal: computed() solo reacciona a signals — sobre el Map crudo quedaba
-  // cacheado en false y el botón jamás se habilitaba.
+  // Selección → requisición. La key incluye el almacén: el MISMO SKU puede aparecer
+  // en varias sucursales (multi-select) y colisionaría con sólo product_id.
+  // El tamaño vive en un signal porque computed() sólo reacciona a signals.
   private selected = new Map<string, CriticalStockRow>();
-  private selCount = signal(0);
+  selCount = signal(0);
   dialogOpen = signal(false);
   notes = '';
-  draft = signal<(CreateRequisitionLine & { sku: string; nombre: string })[]>([]);
+  draft = signal<DraftLine[]>([]);
 
-  // Leer el signal SIEMPRE primero: con `!!fWarehouse && selCount()` el `&&`
-  // corta el circuito cuando fWarehouse está vacío al init → selCount() nunca se
-  // lee → el computed queda sin dependencias y jamás se recalcula (el botón nunca
-  // se habilitaba). selCount() incondicional garantiza la reactividad.
-  canRequire = computed(() => {
-    const n = this.selCount();
-    return n > 0 && !!this.fWarehouse;
-  });
+  // Leer el signal SIEMPRE primero e incondicional: detrás de un `&&` que corta al
+  // init, el computed queda sin dependencias y jamás recalcula (el botón nunca se
+  // habilitaría). Ver [[feedback_vendor_ux_best_practices]].
+  canRequire = computed(() => this.selCount() > 0);
 
   ngOnInit(): void {
     this.api.filters().pipe(takeUntilDestroyed(this.destroyRef)).subscribe((f) => {
@@ -245,7 +283,7 @@ export class ComprasExistenciaCriticaComponent implements OnInit {
     const scope = this.fBucket === '__all' ? 'all' : undefined;
     const bucket = this.fBucket && this.fBucket !== '__all' ? this.fBucket : undefined;
     this.api.criticalStock({
-      warehouse_id: this.fWarehouse || undefined, supplier_id: this.fSupplier || undefined,
+      warehouse_ids: this.fWarehouses.length ? this.fWarehouses : undefined, supplier_id: this.fSupplier || undefined,
       bucket, scope, target_basis: this.fBasis, search: this.fSearch || undefined,
       page: this.page(), pageSize: this.pageSize,
     }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
@@ -255,7 +293,7 @@ export class ComprasExistenciaCriticaComponent implements OnInit {
   }
 
   private loadSummary(): void {
-    this.api.summary({ warehouse_id: this.fWarehouse || undefined, supplier_id: this.fSupplier || undefined, target_basis: this.fBasis })
+    this.api.summary({ warehouse_ids: this.fWarehouses.length ? this.fWarehouses : undefined, supplier_id: this.fSupplier || undefined, target_basis: this.fBasis })
       .pipe(takeUntilDestroyed(this.destroyRef)).subscribe((s) => this.summary.set(s));
   }
 
@@ -265,8 +303,8 @@ export class ComprasExistenciaCriticaComponent implements OnInit {
     this.load();
   }
 
-  // Selección
-  private key(r: CriticalStockRow) { return r.product_id; }
+  // Selección — key = producto|almacén.
+  private key(r: CriticalStockRow) { return `${r.product_id}|${r.warehouse_id}`; }
   isSelected(r: CriticalStockRow) { return this.selected.has(this.key(r)); }
   toggle(r: CriticalStockRow) {
     const k = this.key(r);
@@ -283,27 +321,76 @@ export class ComprasExistenciaCriticaComponent implements OnInit {
 
   openDialog(): void {
     this.draft.set([...this.selected.values()].map((r) => ({
-      product_id: r.product_id, supplier_id: r.supplier_id, on_hand: r.on_hand, in_transit: r.in_transit,
+      product_id: r.product_id, warehouse_id: r.warehouse_id, warehouse_code: r.warehouse_code,
+      sku: r.sku, nombre: r.nombre,
+      supplier_id: r.supplier_id, supplier_name: r.supplier_name,
+      supplier_min_boxes: r.supplier_min_boxes, factor_purchase: r.factor_purchase,
+      source_type: 'supplier' as SourceType, source_warehouse_id: null,
+      on_hand: r.on_hand, in_transit: r.in_transit,
       min_stock: r.min_stock, reorder_point: r.reorder_point, max_stock: r.max_stock,
       suggested_qty: r.suggested_qty, final_qty: Math.round(r.suggested_qty), unit_cost: r.unit_cost || 0,
-      sku: r.sku, nombre: r.nombre,
     })));
     this.notes = '';
     this.dialogOpen.set(true);
   }
 
+  /** Almacenes distintos en el borrador (para el aviso "N requisiciones"). */
+  draftWarehouses(): string[] { return [...new Set(this.draft().map((l) => l.warehouse_id))]; }
+
+  /**
+   * RA.13a — proveedores del borrador que NO alcanzan su pedido mínimo en cajas.
+   * cajas = Σ (final_qty / factor_purchase) por proveedor, sólo líneas source_type='supplier'.
+   * Método (no computed): final_qty se edita por ngModel sobre objeto plano; el CD del
+   * diálogo lo recorre en cada cambio.
+   */
+  minBoxesWarn(): { supplier_id: string; supplier_name: string; need: number; have: number }[] {
+    const bySup = new Map<string, { name: string; min: number; boxes: number }>();
+    for (const l of this.draft()) {
+      if (l.source_type !== 'supplier' || !l.supplier_id || !l.supplier_min_boxes || l.supplier_min_boxes <= 0) continue;
+      const factor = Number(l.factor_purchase) > 0 ? Number(l.factor_purchase) : 1;
+      const boxes = Number(l.final_qty || 0) / factor;
+      const cur = bySup.get(l.supplier_id) || { name: l.supplier_name || '—', min: Number(l.supplier_min_boxes), boxes: 0 };
+      cur.boxes += boxes;
+      bySup.set(l.supplier_id, cur);
+    }
+    return [...bySup.entries()]
+      .filter(([, v]) => v.boxes < v.min)
+      .map(([supplier_id, v]) => ({ supplier_id, supplier_name: v.name, need: v.min, have: v.boxes }));
+  }
+
   create(): void {
-    const lines = this.draft().filter((l) => Number(l.final_qty) > 0);
-    if (!lines.length) { this.toast.add({ severity: 'warn', summary: 'Sin líneas', detail: 'Ajusta las cantidades (> 0).' }); return; }
+    const all = this.draft().filter((l) => Number(l.final_qty) > 0);
+    if (!all.length) { this.toast.add({ severity: 'warn', summary: 'Sin líneas', detail: 'Ajusta las cantidades (> 0).' }); return; }
+    // Validar que las líneas de traspaso tengan almacén origen.
+    if (all.some((l) => l.source_type === 'branch' && !l.source_warehouse_id)) {
+      this.toast.add({ severity: 'warn', summary: 'Falta almacén origen', detail: 'Elige la sucursal origen de las líneas por traspaso.' }); return;
+    }
+    // RA.12 — una requisición por almacén de destino.
+    const byWh = new Map<string, DraftLine[]>();
+    for (const l of all) { const g = byWh.get(l.warehouse_id) || []; g.push(l); byWh.set(l.warehouse_id, g); }
+
+    const dtos: CreateRequisitionDto[] = [...byWh.entries()].map(([warehouse_id, lines]) => ({
+      warehouse_id, target_basis: this.fBasis, notes: this.notes || undefined,
+      lines: lines.map((l) => ({
+        product_id: l.product_id, supplier_id: l.supplier_id,
+        source_type: l.source_type, source_warehouse_id: l.source_type === 'branch' ? l.source_warehouse_id : null,
+        on_hand: l.on_hand, in_transit: l.in_transit,
+        min_stock: l.min_stock, reorder_point: l.reorder_point, max_stock: l.max_stock,
+        suggested_qty: l.suggested_qty, final_qty: Number(l.final_qty), unit_cost: l.unit_cost,
+      })),
+    }));
+
     this.saving.set(true);
-    this.api.createRequisition({
-      warehouse_id: this.fWarehouse, target_basis: this.fBasis, notes: this.notes || undefined,
-      lines: lines.map(({ sku, nombre, ...l }) => l),
-    }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+    forkJoin(dtos.map((d) => this.api.createRequisition(d))).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (res) => {
         this.saving.set(false); this.dialogOpen.set(false);
-        this.toast.add({ severity: 'success', summary: 'Requisición creada', detail: res.folio });
-        this.router.navigate(['/compras/requisiciones', res.id]);
+        if (res.length === 1) {
+          this.toast.add({ severity: 'success', summary: 'Requisición creada', detail: res[0].folio });
+          this.router.navigate(['/compras/requisiciones', res[0].id]);
+        } else {
+          this.toast.add({ severity: 'success', summary: `${res.length} requisiciones creadas`, detail: res.map((r) => r.folio).join(', ') });
+          this.router.navigate(['/compras/requisiciones']);
+        }
       },
       error: (e) => { this.saving.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudo crear la requisición.' }); },
     });
@@ -312,7 +399,6 @@ export class ComprasExistenciaCriticaComponent implements OnInit {
   // Helpers
   /** Postgres numeric llega como STRING por JSON; sin Number() el toLocaleString de string ignora el formato de moneda. */
   money(v: number | string | null | undefined) { return (Number(v ?? 0) || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 }); }
-  warehouseLabel() { return this.warehouseNames.get(this.fWarehouse) || ''; }
   basisLabel(b: string) { return this.basisOpts.find((o) => o.value === b)?.label || b; }
   bucketLabel(b: Bucket) { return ({ agotado: 'Agotado', bajo_minimo: 'Bajo mínimo', bajo_reorden: 'Bajo reorden', sobrestock: 'Sobrestock', sano: 'Sano' } as Record<Bucket, string>)[b]; }
   bucketSev(b: Bucket): Sev { return ({ agotado: 'danger', bajo_minimo: 'danger', bajo_reorden: 'warn', sobrestock: 'secondary', sano: 'success' } as Record<Bucket, Sev>)[b]; }

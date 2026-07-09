@@ -85,6 +85,7 @@ export class ComprasRequisicionesComponent implements OnInit {
     { label: 'Pendiente de aprobar', value: 'pending_approval' },
     { label: 'Aprobada', value: 'approved' },
     { label: 'Ordenada', value: 'ordered' },
+    { label: 'Recibida', value: 'received' },
     { label: 'Cancelada', value: 'cancelled' },
   ];
 
@@ -108,6 +109,6 @@ export class ComprasRequisicionesComponent implements OnInit {
   open(r: RequisitionRow): void { this.router.navigate(['/compras/requisiciones', r.id]); }
 
   money(v: number | string | null | undefined) { return (Number(v ?? 0) || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 }); }
-  estadoLabel(e: RequisitionEstado) { return ({ draft: 'Borrador', pending_approval: 'Pendiente', approved: 'Aprobada', ordered: 'Ordenada', cancelled: 'Cancelada' } as Record<RequisitionEstado, string>)[e]; }
-  estadoSev(e: RequisitionEstado): Sev { return ({ draft: 'secondary', pending_approval: 'warn', approved: 'success', ordered: 'info', cancelled: 'danger' } as Record<RequisitionEstado, Sev>)[e]; }
+  estadoLabel(e: RequisitionEstado) { return ({ draft: 'Borrador', pending_approval: 'Pendiente', approved: 'Aprobada', ordered: 'Ordenada', received: 'Recibida', cancelled: 'Cancelada' } as Record<RequisitionEstado, string>)[e]; }
+  estadoSev(e: RequisitionEstado): Sev { return ({ draft: 'secondary', pending_approval: 'warn', approved: 'success', ordered: 'info', received: 'success', cancelled: 'danger' } as Record<RequisitionEstado, Sev>)[e]; }
 }

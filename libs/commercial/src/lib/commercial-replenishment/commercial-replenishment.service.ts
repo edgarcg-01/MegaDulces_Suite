@@ -21,6 +21,7 @@ type Bucket = 'agotado' | 'bajo_minimo' | 'bajo_reorden' | 'sano' | 'sobrestock'
 
 export interface CriticalStockQuery {
   warehouse_id?: string;
+  warehouse_ids?: string; // RA.12 — CSV de almacenes (multi-sucursal); tiene prioridad sobre warehouse_id
   supplier_id?: string;
   abc?: string;
   bucket?: string;
@@ -35,6 +36,8 @@ export interface CriticalStockQuery {
 interface RequisitionLineDto {
   product_id: string;
   supplier_id?: string | null;
+  source_type?: string;               // RA.11 — 'supplier' (default) | 'branch' (traspaso)
+  source_warehouse_id?: string | null; // RA.11 — almacén origen si source_type='branch'
   on_hand?: number;
   in_transit?: number;
   min_stock?: number;
@@ -47,10 +50,14 @@ interface RequisitionLineDto {
 export interface CreateRequisitionDto {
   warehouse_id: string;
   supplier_id?: string | null;
+  source_type?: string;               // RA.11 — origen a nivel requisición (default supplier)
+  source_warehouse_id?: string | null;
   target_basis?: string;
   notes?: string;
   lines: RequisitionLineDto[];
 }
+interface ReceiveLineDto { line_id: string; received_qty: number; }
+export interface ReceiveRequisitionDto { lines?: ReceiveLineDto[]; }
 
 const BASES: TargetBasis[] = ['min', 'reorder', 'max'];
 const BUCKETS: Bucket[] = ['agotado', 'bajo_minimo', 'bajo_reorden', 'sano', 'sobrestock'];
@@ -70,6 +77,11 @@ export class CommercialReplenishmentService {
   }
   private targetCol(b: TargetBasis): string {
     return b === 'min' ? 'rp.min_stock' : b === 'reorder' ? 'rp.reorder_point' : 'rp.max_stock';
+  }
+  /** RA.12 — parsea warehouse_ids (CSV) → UUIDs válidos; fallback a warehouse_id. */
+  private whIds(q: { warehouse_ids?: string; warehouse_id?: string }): string[] {
+    const raw = (q.warehouse_ids || q.warehouse_id || '').split(',').map((s) => s.trim());
+    return raw.filter((s) => UUID_RX.test(s));
   }
 
   /** Expresiones SQL compartidas (existencia disponible, en tránsito, bucket). */
@@ -106,7 +118,8 @@ export class CommercialReplenishmentService {
           j.on('abc.tenant_id', 'rp.tenant_id').andOn('abc.warehouse_id', 'rp.warehouse_id').andOn('abc.product_id', 'rp.product_id'))
         .where('rp.tenant_id', tenantId);
 
-      if (q.warehouse_id && UUID_RX.test(q.warehouse_id)) base.andWhere('rp.warehouse_id', q.warehouse_id);
+      const whIds = this.whIds(q);
+      if (whIds.length) base.whereIn('rp.warehouse_id', whIds);
       if (q.supplier_id && UUID_RX.test(q.supplier_id)) base.andWhere('pr.supplier_id', q.supplier_id);
       if (q.source && ['kepler', 'computed', 'manual'].includes(q.source)) base.andWhere('rp.source', q.source);
       if (q.abc && ['A', 'B', 'C'].includes(q.abc.toUpperCase())) base.andWhere('abc.abc_class', q.abc.toUpperCase());
@@ -139,6 +152,8 @@ export class CommercialReplenishmentService {
           'rp.source',
           trx.raw('sup.id AS supplier_id'),
           trx.raw('sup.name AS supplier_name'),
+          trx.raw('sup.min_order_boxes AS supplier_min_boxes'),
+          trx.raw('pr.factor_purchase AS factor_purchase'),
           trx.raw('abc.abc_class AS abc_class'),
           trx.raw('pr.cost_base AS unit_cost'),
           trx.raw(`${this.bucketExpr()} AS bucket`),
@@ -171,7 +186,8 @@ export class CommercialReplenishmentService {
           j.on('s.tenant_id', 'rp.tenant_id').andOn('s.warehouse_id', 'rp.warehouse_id').andOn('s.product_id', 'rp.product_id'))
         .join('catalog.products as pr', (j) => j.on('pr.tenant_id', 'rp.tenant_id').andOn('pr.id', 'rp.product_id'))
         .where('rp.tenant_id', tenantId);
-      if (q.warehouse_id && UUID_RX.test(q.warehouse_id)) base.andWhere('rp.warehouse_id', q.warehouse_id);
+      const whIds = this.whIds(q);
+      if (whIds.length) base.whereIn('rp.warehouse_id', whIds);
       if (q.supplier_id && UUID_RX.test(q.supplier_id)) base.andWhere('pr.supplier_id', q.supplier_id);
 
       const r: any = await base
@@ -199,7 +215,7 @@ export class CommercialReplenishmentService {
         .join('catalog.products as pr', (j) => j.on('pr.tenant_id', 'rp.tenant_id').andOn('pr.id', 'rp.product_id'))
         .join('catalog.suppliers as sup', (j) => j.on('sup.tenant_id', 'rp.tenant_id').andOn('sup.id', 'pr.supplier_id'))
         .where('rp.tenant_id', tenantId)
-        .distinct('sup.id as id', 'sup.name as name').orderBy('sup.name');
+        .distinct('sup.id as id', 'sup.name as name', 'sup.min_order_boxes as min_order_boxes').orderBy('sup.name');
       return { warehouses, suppliers };
     });
   }
@@ -212,6 +228,14 @@ export class CommercialReplenishmentService {
     const basis = this.basis(dto.target_basis);
     const lines = (dto.lines || []).filter((l) => l && UUID_RX.test(l.product_id) && Number(l.final_qty) > 0);
     if (!lines.length) throw new BadRequestException('La requisición no tiene líneas con cantidad > 0');
+    // RA.11 — un traspaso (source_type='branch') exige almacén origen.
+    for (const l of lines) {
+      if (l.source_type === 'branch' && !(l.source_warehouse_id && UUID_RX.test(l.source_warehouse_id)))
+        throw new BadRequestException('Una línea de traspaso requiere almacén origen');
+    }
+    const hdrBranch = dto.source_type === 'branch';
+    const hdrSrcWh = hdrBranch && dto.source_warehouse_id && UUID_RX.test(dto.source_warehouse_id) ? dto.source_warehouse_id : null;
+    if (hdrBranch && !hdrSrcWh) throw new BadRequestException('El traspaso requiere almacén origen');
 
     return this.tk.run(async (trx) => {
       const year = new Date().getFullYear();
@@ -229,6 +253,7 @@ export class CommercialReplenishmentService {
         .insert({
           tenant_id: tenantId, warehouse_id: dto.warehouse_id,
           supplier_id: dto.supplier_id && UUID_RX.test(dto.supplier_id) ? dto.supplier_id : null,
+          source_type: hdrBranch ? 'branch' : 'supplier', source_warehouse_id: hdrSrcWh,
           folio, estado: 'pending_approval', target_basis: basis,
           total_lines: lines.length, total_units: totalUnits, total_cost: Number(totalCost.toFixed(4)),
           notes: dto.notes ?? null, created_by: userId,
@@ -238,6 +263,8 @@ export class CommercialReplenishmentService {
       await trx('commercial.purchase_requisition_lines').insert(lines.map((l) => ({
         tenant_id: tenantId, requisition_id: req.id, product_id: l.product_id,
         supplier_id: l.supplier_id && UUID_RX.test(l.supplier_id) ? l.supplier_id : null,
+        source_type: l.source_type === 'branch' ? 'branch' : 'supplier',
+        source_warehouse_id: l.source_type === 'branch' && l.source_warehouse_id && UUID_RX.test(l.source_warehouse_id) ? l.source_warehouse_id : null,
         on_hand: Number(l.on_hand || 0), in_transit: Number(l.in_transit || 0),
         min_stock: Number(l.min_stock || 0), reorder_point: Number(l.reorder_point || 0), max_stock: Number(l.max_stock || 0),
         suggested_qty: Number(l.suggested_qty || 0), final_qty: Number(l.final_qty),
@@ -298,6 +325,8 @@ export class CommercialReplenishmentService {
     return this.tk.run(async (trx) => {
       const patch: any = { estado: to, updated_at: trx.fn.now() };
       if (to === 'approved') { patch.approved_by = userId; patch.approved_at = trx.fn.now(); }
+      if (to === 'ordered') { patch.ordered_by = userId; patch.ordered_at = trx.fn.now(); }
+      if (to === 'received') { patch.received_by = userId; patch.received_at = trx.fn.now(); }
       const n = await trx('commercial.purchase_requisitions')
         .where({ tenant_id: tenantId, id, estado: from }).update(patch);
       if (!n) throw new BadRequestException(`La requisición no está en estado '${from}'`);
@@ -306,4 +335,54 @@ export class CommercialReplenishmentService {
   }
   approve(id: string) { return this.setEstado(id, 'pending_approval', 'approved'); }
   reject(id: string) { return this.setEstado(id, 'pending_approval', 'cancelled'); }
+  /** RA.14 — approved → ordered (OC emitida / exportada al proveedor). */
+  markOrdered(id: string) { return this.setEstado(id, 'approved', 'ordered'); }
+
+  /**
+   * RA.14 — ordered → received (mercancía entró; espejo de la orden de entrada
+   * X-A-40 de Kepler). Captura received_qty por línea (default = final_qty, recepción
+   * completa) → base del fill rate (received/final).
+   */
+  async markReceived(id: string, dto?: ReceiveRequisitionDto) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const userId = this.tenantCtx.get()?.userId ?? null;
+    if (!UUID_RX.test(id)) throw new BadRequestException('id inválido');
+    return this.tk.run(async (trx) => {
+      const req: any = await trx('commercial.purchase_requisitions')
+        .where({ tenant_id: tenantId, id }).first();
+      if (!req) throw new NotFoundException('Requisición no encontrada');
+      if (req.estado !== 'ordered') throw new BadRequestException(`La requisición no está en estado 'ordered'`);
+
+      const recv = new Map<string, number>();
+      for (const l of dto?.lines || []) { if (UUID_RX.test(l.line_id)) recv.set(l.line_id, Math.max(0, Number(l.received_qty) || 0)); }
+
+      const lines = await trx('commercial.purchase_requisition_lines')
+        .where({ tenant_id: tenantId, requisition_id: id }).select('id', 'final_qty');
+      for (const l of lines) {
+        const q = recv.has(l.id) ? recv.get(l.id)! : Number(l.final_qty);
+        await trx('commercial.purchase_requisition_lines')
+          .where({ tenant_id: tenantId, id: l.id })
+          .update({ received_qty: q, received_at: trx.fn.now() });
+      }
+      await trx('commercial.purchase_requisitions')
+        .where({ tenant_id: tenantId, id })
+        .update({ estado: 'received', received_by: userId, received_at: trx.fn.now(), updated_at: trx.fn.now() });
+      this.logger.log(`Requisición ${req.folio} recibida por ${userId ?? 'system'}`);
+      return { id, estado: 'received' };
+    });
+  }
+
+  /** RA.13a — captura manual del pedido mínimo del proveedor EN CAJAS. */
+  async setSupplierMinBoxes(supplierId: string, boxes: number | null) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    if (!UUID_RX.test(supplierId)) throw new BadRequestException('supplier_id inválido');
+    const val = boxes == null || Number.isNaN(Number(boxes)) ? null : Math.max(0, Number(boxes));
+    return this.tk.run(async (trx) => {
+      const n = await trx('catalog.suppliers')
+        .where({ tenant_id: tenantId, id: supplierId })
+        .update({ min_order_boxes: val, updated_at: trx.fn.now() });
+      if (!n) throw new NotFoundException('Proveedor no encontrado');
+      return { id: supplierId, min_order_boxes: val };
+    });
+  }
 }

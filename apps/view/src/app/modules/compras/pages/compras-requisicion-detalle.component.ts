@@ -33,10 +33,16 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
           }
         </div>
         @if (req(); as r) {
-          @if (r.estado === 'pending_approval' && canManage) {
+          @if (canManage) {
             <div class="rd-actions">
-              <button pButton type="button" label="Rechazar" icon="pi pi-times" class="p-button-sm p-button-outlined p-button-danger" [loading]="busy()" (click)="reject()"></button>
-              <button pButton type="button" label="Aprobar" icon="pi pi-check" class="p-button-sm" [loading]="busy()" (click)="approve()"></button>
+              @if (r.estado === 'pending_approval') {
+                <button pButton type="button" label="Rechazar" icon="pi pi-times" class="p-button-sm p-button-outlined p-button-danger" [loading]="busy()" (click)="reject()"></button>
+                <button pButton type="button" label="Aprobar" icon="pi pi-check" class="p-button-sm" [loading]="busy()" (click)="approve()"></button>
+              } @else if (r.estado === 'approved') {
+                <button pButton type="button" label="Marcar ordenada" icon="pi pi-send" class="p-button-sm" [loading]="busy()" (click)="markOrdered()"></button>
+              } @else if (r.estado === 'ordered') {
+                <button pButton type="button" label="Marcar recibida" icon="pi pi-inbox" class="p-button-sm" [loading]="busy()" (click)="markReceived()"></button>
+              }
             </div>
           }
         }
@@ -53,20 +59,30 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
         <p-table [value]="r.lines" styleClass="p-datatable-sm rd-table">
           <ng-template pTemplate="header">
             <tr>
-              <th>SKU</th><th>Producto</th><th>Proveedor</th>
+              <th>SKU</th><th>Producto</th><th>Origen</th>
               <th class="rd-r">Existencia</th><th class="rd-r">Reorden</th><th class="rd-r">Sugerido</th>
-              <th class="rd-r">Pedir</th><th class="rd-r">Costo unit.</th><th class="rd-r">Importe</th>
+              <th class="rd-r">Pedir</th>
+              @if (showRecibido()) { <th class="rd-r">Recibido</th> }
+              <th class="rd-r">Costo unit.</th><th class="rd-r">Importe</th>
             </tr>
           </ng-template>
           <ng-template pTemplate="body" let-l>
             <tr>
               <td class="rd-mono">{{ l.sku }}</td>
               <td>{{ l.nombre }}</td>
-              <td class="rd-muted">{{ l.supplier_name || '—' }}</td>
+              <td class="rd-muted">
+                @if (l.source_type === 'branch') { <span class="rd-src-branch">Traspaso</span> }
+                @else { {{ l.supplier_name || 'Proveedor' }} }
+              </td>
               <td class="rd-r rd-muted">{{ l.on_hand | number:'1.0-0' }}</td>
               <td class="rd-r rd-muted">{{ l.reorder_point | number:'1.0-0' }}</td>
               <td class="rd-r rd-muted">{{ l.suggested_qty | number:'1.0-0' }}</td>
               <td class="rd-r rd-strong">{{ l.final_qty | number:'1.0-0' }}</td>
+              @if (showRecibido()) {
+                <td class="rd-r">{{ l.received_qty != null ? (l.received_qty | number:'1.0-0') : '—' }}
+                  @if (l.received_qty != null && l.final_qty > 0) { <span class="rd-fill">{{ (l.received_qty / l.final_qty) | percent:'1.0-0' }}</span> }
+                </td>
+              }
               <td class="rd-r">{{ money(l.unit_cost) }}</td>
               <td class="rd-r">{{ money(l.line_cost) }}</td>
             </tr>
@@ -91,6 +107,8 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
     .rd-r { text-align: right; font-variant-numeric: tabular-nums; }
     .rd-mono { font-family: var(--font-mono, ui-monospace, monospace); font-size: .8rem; }
     .rd-muted { color: var(--text-muted, #8a8580); } .rd-strong { font-weight: 700; }
+    .rd-src-branch { color: var(--action, #c2410c); font-weight: 600; }
+    .rd-fill { margin-left: .35rem; font-size: .72rem; color: var(--text-muted, #8a8580); }
     .rd-empty { color: var(--text-muted, #8a8580); padding: 2rem; text-align: center; }
   `],
 })
@@ -136,10 +154,27 @@ export class ComprasRequisicionDetalleComponent implements OnInit {
       error: () => { this.busy.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo rechazar.' }); },
     });
   }
+  markOrdered(): void {
+    this.busy.set(true);
+    this.api.markOrdered(this.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: () => { this.busy.set(false); this.toast.add({ severity: 'success', summary: 'Ordenada', detail: 'En tránsito con el proveedor.' }); this.load(); },
+      error: (e) => { this.busy.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudo ordenar.' }); },
+    });
+  }
+  markReceived(): void {
+    this.busy.set(true);
+    this.api.markReceived(this.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: () => { this.busy.set(false); this.toast.add({ severity: 'success', summary: 'Recibida', detail: 'Mercancía recibida.' }); this.load(); },
+      error: (e) => { this.busy.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudo recibir.' }); },
+    });
+  }
+
+  /** Muestra la columna Recibido cuando la requisición ya está en recepción o recibida. */
+  showRecibido(): boolean { const e = this.req()?.estado; return e === 'ordered' || e === 'received'; }
 
   back(): void { this.router.navigate(['/compras/requisiciones']); }
   money(v: number | string | null | undefined) { return (Number(v ?? 0) || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 }); }
   basisLabel(b: string) { return ({ min: 'mínimo', reorder: 'reorden', max: 'máximo' } as Record<string, string>)[b] || b; }
-  estadoLabel(e: RequisitionEstado) { return ({ draft: 'Borrador', pending_approval: 'Pendiente', approved: 'Aprobada', ordered: 'Ordenada', cancelled: 'Cancelada' } as Record<RequisitionEstado, string>)[e]; }
-  estadoSev(e: RequisitionEstado): Sev { return ({ draft: 'secondary', pending_approval: 'warn', approved: 'success', ordered: 'info', cancelled: 'danger' } as Record<RequisitionEstado, Sev>)[e]; }
+  estadoLabel(e: RequisitionEstado) { return ({ draft: 'Borrador', pending_approval: 'Pendiente', approved: 'Aprobada', ordered: 'Ordenada', received: 'Recibida', cancelled: 'Cancelada' } as Record<RequisitionEstado, string>)[e]; }
+  estadoSev(e: RequisitionEstado): Sev { return ({ draft: 'secondary', pending_approval: 'warn', approved: 'success', ordered: 'info', received: 'success', cancelled: 'danger' } as Record<RequisitionEstado, Sev>)[e]; }
 }

@@ -10,6 +10,7 @@
 > - **RA.6** ✅ Proyecto **Compras** (`/compras`): tile en projects, nav en layout (`comprasNavItems`), rutas, `compras.service.ts`, página **Existencia Crítica** (KPIs+filtros+tabla+generar requisición). `nx build view` OK.
 > - **RA.7** ✅ Requisiciones HITL: backend (create folio atómico / approve / reject) + bandeja + detalle (aprobar/rechazar). Smoke DB OK (folio 1→2, insert FK). `nx build api` OK.
 > - **RA.5** ⏸️ OC a recibir (en tránsito) — diferido. **RA.8** ⏸️ cron nightly + hallazgos + alertas — diferido.
+> - **RA.11 + RA.13a + RA.14** 🧪 IMPLEMENTADO local 2026-07-09 (mig `20260709120000_ra_purchasing_flow`, Batch 155): **RA.11** origen proveedor/sucursal por línea (`source_type`+`source_warehouse_id`, MVP solo clasifica) · **RA.13a** mínimo de pedido EN CAJAS (`suppliers.min_order_boxes`, aviso en el dialog) · **RA.14** flujo `approved→ordered→received` (markOrdered/markReceived + received_qty → fill rate). **RA.12** selector multi-sucursal (p-multiSelect, key `product_id|warehouse_id`, N requisiciones por almacén). Backend (service+controller) + frontend (existencia-crítica reescrita + detalle con botones/columnas + bandeja). Builds api+view OK; smoke SQL OK (branch CHECK, estados, fill 20/24, min_boxes). **Pendiente:** RA.13b fill rate histórico + RA.14 auto-received (dependen de RA.5), y prod (migs Railway + re-login + redeploy).
 > - **Pendiente prod:** aplicar migs 20260708120000/120100 a Railway + `re-login` (permisos) + agendar `import-reorder-policy`/`import-computed-reorder` en el runner + redeploy api+view.
 > **Tesis:** portar a la plataforma la lógica de reabastecimiento que Mega Dulces ya opera en Kepler (reporte "Existencia Crítica" → orden de compra sugerida), reusando la infraestructura de inventario (Fase I/ABC/FEFO), analytics (inventory_health) y el patrón HITL (Maat/SM). El **motor decide** (umbrales + demanda), el **humano aprueba** (bandeja de requisiciones), el **LLM fuera del camino** (ADR-016).
 > **Fuente de la investigación:** decode del ERP Kepler + verificación contra datos vivos (2026-07-08). Ver §2.
@@ -73,6 +74,45 @@ Reporte **"Reporte de Existencia Crítica"** (`invconpanecrrep.kpl`):
 | 05 · Zamora | md_05 | `MD-30` o `MD-50` (TBD) | — | 600 / 9345 (6%) |
 
 Naming **mixto** (`KEPLER-0X` vs `MD-XX`) por historia de importers. **Regla de oro:** el importer de reorden **reusa el mismo `STOCK_BRANCH_MAP`** que el stock → misma clave `code` → reorden y existencia siempre en el mismo `warehouse_id`. Cobertura total ≈ 0–18% ⇒ el cómputo (RA.3) cubre el grueso, especialmente CEDIS.
+
+### 2.5 Cadena de compras real en Kepler (decode verificado end-to-end, 2026-07-09)
+
+Investigación contra `md_03` vivo (`platform_ro`), catálogos `md.doctype`/`md.kdmm`, kardex `md.kdij` y las formas custom de Mega Dulces (`Z:\Kepler\K95_Dev\temp\MD_*.kpl`). **El folio `xa3701-0007556` = Vale de entrada** (doctype custom `X-A-37`).
+
+**Codificación de documentos:** todo doc = `{género}{naturaleza}{grupo}{tipo}` en `md.kdm1` (encabezado) + `md.kdm2` (líneas). Compras = **género `X`**. Columnas clave `kdm1`: `c1`=sucursal, `c2`=género, `c3`=naturaleza, `c4`=grupo, `c5`=tipo, `c6`=folio, `c9`=fecha, `c10`=proveedor, `c16`=total, `c24`=almacén destino, `c32`=nombre proveedor, `c63`=prefijo folio. **Enlace entre eslabones = back-pointer `c36`(nat)/`c37`(grupo)/`c38`(tipo)/`c39`(folio) → apunta al documento PADRE.** Líneas `kdm2`: `c8`=sku, `c9`=qty, `c11`=unidad, `c12`=precio, `c13`=importe.
+
+**La cadena (verificada ≈1:1:1:1 en la columna vertebral, branch 03):**
+
+| # | Documento | doctype | tabla | enlace `c37/c39`→ | ¿mueve inventario? |
+|---|---|---|---|---|---|
+| 1 | Requisición de compra | `X-A-30` (XA3001) | kdm1/kdm2 | raíz (**opcional**) | NO |
+| 2 | Orden de compra | `X-A-35` (XA3501) | kdm1/kdm2 | → req(30) | NO |
+| 3 | **Vale de entrada** | `X-A-37` (XA3701) | kdm1/kdm2 | → OC(35) | NO |
+| 4 | **Orden de entrada** | `X-A-40` (XA4001) | kdm1/kdm2 + **kdij** | → vale(37) | **SÍ (suma existencia)** |
+| 5 | Aplica orden de entrada | `X-A-20` (XA2001) | kdm1 | → entrada(40) | NO (genera CxP: deb 511 / hab 201) |
+
+Luego pago: `X-D-10` solicitud → `X-D-20/23/24` pago → `X-D-25/26` cheque/transferencia. Devoluciones `X-D-30/35/40`.
+
+**Hallazgos duros:**
+- **La mercancía entra al inventario en el paso 4 (Orden de entrada `X-A-40`), no antes.** De toda la cadena X, solo `X-A-40` aparece en el kardex `kdij` (14,022 movs / +543k uds en branch 03). Requisición, OC y vale NO tocan existencia.
+- **La requisición es OPCIONAL:** ~⅔ de las OC nacen directas sin requisición (544 sin padre vs 280 con). El resto de la cadena (OC→vale→entrada→aplica) es ~1:1:1:1.
+- **`X-A-37` (vale) es personalización de Mega Dulces** — Kepler base solo trae 30/35/40. Formas custom: `MD_req.kpl`, `MD_oc.kpl`, `Md_Ent.kpl`, `MD_OE.kpl`, `MD_AOE.kpl`.
+
+**Compra a proveedor (género `X`) ≠ traspaso/surtido desde CEDIS (género `N`):**
+- **Compra** = la cadena de arriba; hay proveedor (`c10`) y genera CxP (`X-A-20`).
+- **Traspaso inter-sucursal** = género `N`, sin proveedor ni CxP: `N-D-6` "Salida Traspaso Sucursal" (origen, deb 114-006/hab 114-001) + `N-A-6` "Entrada Traspaso sucursal" (receptor). Ya lo captura `import-transfers-monthly.js`. **El reabasto desde CEDIS NO pasa por `X-A-3x`.** → base del Feature "origen sucursal vs proveedor" (RA.11).
+
+**Compra mínima / fill rate en Kepler:**
+- **Compra mínima por proveedor: NO existe.** `md.kdig` solo clave/nombre; `md.kdpv_prov_prod` trae `c4`=costo, `c8`=flete, `c9`=costo neto — sin cantidad mínima ni lead time. → **se captura manual en la plataforma** (RA.13a).
+- **Fill rate (pedido vs recibido): derivable** cruzando qty `X-A-35` (OC) vs `X-A-40` (orden de entrada) por la cadena `c39`. Medición viva branch 03: 13,368 pares, 99.4% exactos. **⚠️ Caveat:** Mega Dulces captura toda la cadena de golpe (mismo minuto/usuario) → fill rate ~100% artificial. Solo tiene señal genuina en **OCs abiertas** (sin orden de entrada aguas abajo >1 día) = verdadero "en tránsito".
+
+**Cómo se integra (solo lectura, patrón BULK, nunca write-back — ADR-016):**
+- **OC en tránsito (RA.5):** OCs `X-A-35` **sin** orden de entrada `X-A-40` descendiente → `analytics.purchase_in_transit`.
+- **Auto-"surtida":** una requisición está surtida cuando existe su `X-A-40` aguas abajo (seguir back-pointer `c39`).
+- **Fill rate:** `sum(qty X-A-40) / sum(qty X-A-35)` por sku, matcheado por cadena (usar solo OCs abiertas por el caveat).
+- Clonar `import-erp-shipments.js` (lee `kdm1`/`kdm2` por sucursal, filtro `c1`=sucursal propia por réplicas, staging temp + merge).
+
+**Incógnitas menores** (no bloquean): unidad caja-vs-pieza en `X-A-40` (`kdm2.c11` vs `kdij`); prefijo `ORC-` en 12 OCs custom; mapear la cadena de traspaso `N` documento-a-documento (`MD_tras_suc.kpl`).
 
 ---
 
@@ -406,6 +446,109 @@ Sugerido = max(0, Máximo − existencia − en_tránsito)
 - Sin RA.10.0 (backfill) no hay estacionalidad ni YoY — es el cimiento.
 - Clima = API externa + correlación real: esfuerzo alto, valor incierto para dulces (no sobrevender).
 - Sigue siendo motor determinista; el "deep research" con IA es capa de explicación/priorización, fuera del cálculo del pedido.
+
+---
+
+## RA.11 — Origen de surtido: proveedor vs sucursal (traspaso interno) 🔨 DISEÑADO 2026-07-09
+
+**Motivación (Edgar):** la mayoría de las requisiciones son **a proveedor**, pero parte del reabasto se surte por **traspaso desde otra sucursal** (típicamente CEDIS). En Kepler son **dos cadenas distintas** (compra género `X` vs traspaso género `N`, ver §2.5) → nuestra requisición debe distinguirlas.
+
+**Schema** (nueva migración, guard `hasColumn`):
+- `commercial.purchase_requisitions` **y** `..._lines`:
+  - `source_type varchar(8) NOT NULL DEFAULT 'supplier' CHECK (source_type IN ('supplier','branch'))`.
+  - `source_warehouse_id uuid` (nullable; FK compuesta `(tenant_id, source_warehouse_id)→commercial.warehouses`, `ON DELETE RESTRICT`).
+  - CHECK: `source_type='branch' ⇒ source_warehouse_id IS NOT NULL`.
+
+**Backend** (`commercial-replenishment.service.ts`):
+- DTOs `RequisitionLineDto`/`CreateRequisitionDto` (`:35-53`): `+ source_type?, source_warehouse_id?`.
+- Insert header+líneas (`:228-245`): persistir ambos (misma validación UUID que el resto).
+- Selects `getRequisition`/`list` (`:264-289`): incluir campos + join nombre del almacén origen.
+
+**Frontend** (`compras-existencia-critica.component.ts`):
+- Dialog (`:126-135`): por línea del draft, `p-select` **Origen** (Proveedor / Sucursal); si "Sucursal" → `p-select` de almacén origen (reusa `warehouseOpts()`). Ajustar `draft` signal (`:215`).
+- Detalle (`compras-requisicion-detalle.component.ts:53-73`): columna **Origen**.
+
+**Gotchas / alcance MVP:**
+- Costo de línea para traspaso ≠ `cost_base` (es costo de transferencia interna); decidir si `total_cost` distingue. MVP: usar `cost_base` y marcarlo.
+- No se valida existencia en el almacén origen (no hay lookup hoy) → MVP **solo clasifica** el origen; **no genera** la salida/entrada de traspaso real (diferido).
+- FK `RESTRICT` (no `SET NULL`) para no perder trazabilidad del traspaso.
+
+---
+
+## RA.12 — Selector multi-sucursal (surtir varias a la vez) 🔨 DISEÑADO 2026-07-09
+
+**Motivación (Edgar):** hoy se elige UN almacén; el comprador quiere elegir **varias sucursales** a surtir a la vez.
+
+**Frontend** (`compras-existencia-critica.component.ts`):
+- `fWarehouse: string` → `fWarehouses: string[]`; `p-select` (`:56`) → `p-multiSelect` (importar `MultiSelectModule`).
+- Reemplazar `@if (fWarehouse)` / `@if (!fWarehouse)` (`:77,:95,:115`) por `.length` / `!.length`.
+- **`key()` de selección = `product_id + '|' + warehouse_id`** (hoy solo `product_id`, `:269` → el MISMO SKU en 2 almacenes colisiona). Ajustar `allSelected`/`toggleAll` (`:276-282`).
+- **Gotcha signals**: `canRequire` (`:221-224`) DEBE leer `selCount()` **incondicional primero** (short-circuit del `&&` mata la dependencia — ya documentado). `onChange` del multiSelect debe seguir llamando `reload()`.
+
+**Backend:**
+- Controller (`:21,:39`): aceptar `warehouse_ids` (CSV).
+- Service `criticalStock`/`summary` (`:109,:174`): `andWhere(...)` → `whereIn('rp.warehouse_id', ids)`.
+- Service frontend (`compras.service.ts:124-138`): serializar array (CSV).
+
+**Creación (decisión de diseño):** un DTO = un `warehouse_id` + un folio. Con multi-sucursal, `create()` **agrupa el draft por `warehouse_id` y crea N requisiciones (una por almacén)** — más limpio para el comprador y para mapear a las cadenas Kepler (cada sucursal tiene su propio folio `X-A-3x`). *(Alternativa descartada: un DTO multi-almacén = cambio mayor en folio/estado.)*
+
+---
+
+## RA.13 — Compra segura (mínimo de pedido + fill rate) 🔨 DISEÑADO 2026-07-09
+
+### 13a — Mínimo de pedido del proveedor (captura manual)
+Kepler **no** guarda mínimo de pedido (§2.5) → se captura en la plataforma.
+- **Schema:** `catalog.suppliers.min_order_value numeric(14,4)` (monto) y/o `min_order_units numeric` (piezas). Nueva migración, guard `hasColumn`. (El plan ya lo anticipaba en §3.3 como opcional.)
+- **Backend:** exponer `min_order_value` en `filters()`/`critical-stock` (`:140-146,:198-203`); endpoint de edición de proveedor (no existe en este controller).
+- **Frontend:** captura con `p-inputNumber` mode currency; al armar el draft, **sumar por proveedor y avisar/bloquear** si el total no alcanza el mínimo.
+
+### 13b — Safe fill rate (pedido vs recibido → decidir pedir de más)
+Cuánto pedimos vs cuánto llegó, para compensar faltantes crónicos del proveedor.
+- **Registro interno:** `purchase_requisition_lines.received_qty` + `received_at` (ver RA.14) → `fill_rate = received_qty / final_qty`.
+- **Fact histórico desde Kepler (RA.5):** qty `X-A-35` (OC) vs `X-A-40` (orden de entrada) por proveedor×sku → `analytics.supplier_fill_rate` (sin RLS → filtro `tenant_id` explícito). **⚠️ Caveat §2.5:** cadena capturada de golpe → usar solo **OCs abiertas** para señal real; documentar que el fill rate "cerrado" es ~100% artificial.
+- **Uso:** "safety multiplier" **opt-in** sobre el sugerido cuando el fill rate histórico < 1 (pide de más para cubrir el faltante). MVP: **mostrar** el fill rate; el multiplicador automático es fase 2.
+
+**Gotcha:** `numeric` de Postgres llega como string en JSON → `Number()` antes de dividir (patrón `money()` ya existente).
+
+---
+
+## RA.14 — Flujo post-aprobación (state machine espejo de la cadena Kepler) 🔨 DISEÑADO 2026-07-09
+
+**Motivación (Edgar):** hoy `approve()` deja `approved` y **nada más**. Después de aprobar debe haber un flujo: ordenar → recibir. Espejamos la cadena real de Kepler (§2.5).
+
+| Estado plataforma | Equivale en Kepler | Qué dispara |
+|---|---|---|
+| `pending_approval` | (requisición interna) | HITL — aprobar/rechazar |
+| `approved` | Requisición `X-A-30` lista | el comprador puede ordenar |
+| **`ordered`** | Orden de compra `X-A-35` emitida | export a proveedor (PDF/CSV) + queda "en tránsito" |
+| **`received`** | Orden de entrada `X-A-40` (mercancía entró) | captura `received_qty` → fill rate; suma a `commercial.stock` (fase 2) |
+| `cancelled` | — | — |
+
+**Schema:** ampliar CHECK de `estado` con `'received'` (`'ordered'` ya existe) vía `DROP/ADD CONSTRAINT`; columnas `ordered_at/ordered_by`, `received_at/received_by` en header (hoy solo `approved_by/at`); `received_qty/received_at` en líneas.
+
+**Backend** (`commercial-replenishment.service.ts`):
+- `markOrdered` (`approved→ordered`) y `markReceived` (`ordered→received`, captura recibidos) reusando `setEstado` (`:294-306`). **Gotcha:** `setEstado` hoy solo agrega campos extra para `to==='approved'` → generalizar el `patch` para ordered/received o los timestamps no se guardan.
+- Endpoints en controller junto a `:73-81`, gate `COMPRAS_GESTIONAR`.
+
+**Frontend** (`compras-requisicion-detalle.component.ts:36-42`): botones por estado (`approved`→"Ordenar", `ordered`→"Recibir"); `RequisitionEstado` (`compras.service.ts:11`) suma `'received'` (labels/severidades ya existen para todos).
+
+**Reconciliación automática con Kepler (lectura, RA.5+):** importer que cruza nuestras requisiciones `ordered` contra OC/órdenes de entrada de Kepler para auto-marcar `received` cuando aparezca el `X-A-40` (matcheo aproximado por sku+almacén+fecha — **no hay folio compartido** porque no hay write-back). Diferido; requiere heurística de matching.
+
+### Decisiones RA.11–RA.14 (✅ cerradas por Edgar 2026-07-09)
+1. **Multi-sucursal** → ✅ **N requisiciones separadas** (una por almacén).
+2. **Traspaso interno** → ✅ **MVP solo clasifica el origen** (`source_type`/`source_warehouse_id`); NO genera la salida/entrada de traspaso real (diferido).
+3. **Fill rate** → ✅ **solo mostrar** primero; multiplicador automático del sugerido = fase 2 (opt-in).
+4. **Auto-received desde Kepler** → ✅ **matching heurístico** (sku+almacén+fecha) que cruza requisiciones `ordered` vs órdenes de entrada `X-A-40`; sin folio compartido (no hay write-back). Requiere importer nuevo (depende de RA.5 leyendo `kdm1/kdm2`).
+5. **Mínimo de pedido** → ✅ **en CAJAS** (unidad de compra), NO en monto ni piezas. Schema: `catalog.suppliers.min_order_boxes numeric`. Se suma por proveedor: `Σ (final_qty_línea / factor_purchase_producto)` y **solo avisa** si no alcanza (no bloquea). `catalog.products.factor_purchase` = piezas por caja.
+
+### Priorización RA.11–RA.14
+| Sprint | Valor | Esfuerzo | Notas |
+|---|---|---|---|
+| RA.14 | alto | M | flujo ordered/received = cierra el ciclo del comprador |
+| RA.11 | alto | M | origen proveedor/sucursal (schema + UI dialog) |
+| RA.12 | medio | M | multi-sucursal (key de selección + N requisiciones) |
+| RA.13a | medio | S | mínimo de pedido (1 columna + aviso) |
+| RA.13b | medio | L | fill rate (requiere RA.5 + recepción) |
 
 ---
 

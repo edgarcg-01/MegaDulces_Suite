@@ -1,7 +1,7 @@
 import { Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
-import { CommercialReplenishmentService, CreateRequisitionDto } from './commercial-replenishment.service';
+import { CommercialReplenishmentService, CreateRequisitionDto, ReceiveRequisitionDto } from './commercial-replenishment.service';
 
 /**
  * RA.4/RA.7 — Proyecto Compras (ADR-030). Existencia crítica + sugerido + requisiciones.
@@ -16,9 +16,10 @@ export class CommercialReplenishmentController {
 
   @Get('critical-stock')
   @RequirePermissions(Permission.COMPRAS_VER)
-  @ApiOperation({ summary: 'Existencia crítica: existencia vs mín/reorden/máx + sugerido. Filtros: warehouse_id, supplier_id, abc, bucket, source, search, target_basis(min|reorder|max), scope(all).' })
+  @ApiOperation({ summary: 'Existencia crítica: existencia vs mín/reorden/máx + sugerido. Filtros: warehouse_id, warehouse_ids(CSV), supplier_id, abc, bucket, source, search, target_basis(min|reorder|max), scope(all).' })
   criticalStock(
     @Query('warehouse_id') warehouse_id?: string,
+    @Query('warehouse_ids') warehouse_ids?: string,
     @Query('supplier_id') supplier_id?: string,
     @Query('abc') abc?: string,
     @Query('bucket') bucket?: string,
@@ -29,7 +30,7 @@ export class CommercialReplenishmentController {
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
   ) {
-    return this.svc.criticalStock({ warehouse_id, supplier_id, abc, bucket, source, search, target_basis, scope, page: page ? Number(page) : undefined, pageSize: pageSize ? Number(pageSize) : undefined });
+    return this.svc.criticalStock({ warehouse_id, warehouse_ids, supplier_id, abc, bucket, source, search, target_basis, scope, page: page ? Number(page) : undefined, pageSize: pageSize ? Number(pageSize) : undefined });
   }
 
   @Get('critical-stock/summary')
@@ -37,10 +38,11 @@ export class CommercialReplenishmentController {
   @ApiOperation({ summary: 'KPIs por bucket (agotado/bajo mínimo/bajo reorden/sobrestock) + costo sugerido.' })
   summary(
     @Query('warehouse_id') warehouse_id?: string,
+    @Query('warehouse_ids') warehouse_ids?: string,
     @Query('supplier_id') supplier_id?: string,
     @Query('target_basis') target_basis?: string,
   ) {
-    return this.svc.summary({ warehouse_id, supplier_id, target_basis });
+    return this.svc.summary({ warehouse_id, warehouse_ids, supplier_id, target_basis });
   }
 
   @Get('filters')
@@ -79,4 +81,21 @@ export class CommercialReplenishmentController {
   @RequirePermissions(Permission.COMPRAS_GESTIONAR)
   @ApiOperation({ summary: 'Rechaza una requisición (pending_approval → cancelled).' })
   reject(@Param('id') id: string) { return this.svc.reject(id); }
+
+  @Post('requisitions/:id/order')
+  @RequirePermissions(Permission.COMPRAS_GESTIONAR)
+  @ApiOperation({ summary: 'RA.14 — marca la requisición como ordenada/en tránsito (approved → ordered).' })
+  markOrdered(@Param('id') id: string) { return this.svc.markOrdered(id); }
+
+  @Post('requisitions/:id/receive')
+  @RequirePermissions(Permission.COMPRAS_GESTIONAR)
+  @ApiOperation({ summary: 'RA.14 — marca recibida (ordered → received) + captura cantidades recibidas por línea (fill rate).' })
+  markReceived(@Param('id') id: string, @Body() dto?: ReceiveRequisitionDto) { return this.svc.markReceived(id, dto); }
+
+  @Post('suppliers/:id/min-boxes')
+  @RequirePermissions(Permission.COMPRAS_GESTIONAR)
+  @ApiOperation({ summary: 'RA.13a — pedido mínimo del proveedor EN CAJAS (captura manual; body { boxes }).' })
+  setSupplierMinBoxes(@Param('id') id: string, @Body() body: { boxes: number | null }) {
+    return this.svc.setSupplierMinBoxes(id, body?.boxes ?? null);
+  }
 }
