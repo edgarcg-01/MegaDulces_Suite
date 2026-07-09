@@ -10,6 +10,14 @@
 
 ## [Unreleased]
 
+### Added — Etiquetera de anaquel (proyecto Tienda) (2026-07-09)
+- **Nueva feature `/tienda/etiquetas`** (permiso `STORE_LIVE_VER`): imprime etiquetas de anaquel con precio escalonado (pieza/mayoreo/paquete/caja), diseño 1:1 del arte Mega Dulces. Buscar en catálogo o pegar lista de códigos + copias por producto.
+- **Tabla `commercial.product_label_prices`** (mig `20260709120000_commercial_product_label_prices`): 1 fila/producto — gramaje, barcode validado, matriz de 5 precios + factores; RLS forzado. **Columna `unit_base`** (mig `20260709120000_commercial_product_label_unit_base`, `kdii.c11`): el **precio grande "Precio por ___"** es dinámico — PZA→pieza (c90) · PAQ→paquete (c91, ~76% del catálogo) · KG→kg ($/kg, granel) · CJA→caja (c92).
+- **Decode Kepler:** `kdii` (c1/c2/c7/c11/c81/c84/c90/c91/c92) + `kdpv_prod_util` (mayoreo). Barcode se genera del número (Kepler no guarda imagen); simbología por longitud. Gramaje parseado del nombre (cubre `50G/8`, `5K`, `KGS`, `OZ`, `ML`, `LT`).
+- **Backend** `libs/commercial/commercial-labels`: `GET /store/labels/search` + `POST /store/labels/resolve` (batch, `TenantKnexService`/RLS). **Importer** `import-label-data.js` (idempotente, no pisa `source='manual'`).
+- **Frontend:** `LabelComponent` (115×40 mm, sin iconos, rojo en SKU + nº de piezas, JsBarcode) + página con multiselect de secciones y **simulación de hoja Carta**. Impresión en **hoja Carta horizontal, 2 etiquetas/fila (~8/hoja)** con líneas de recorte, vía iframe aislado (color forzado, `@page` confiable).
+- **Prod (Railway):** tablas creadas (`migrate:up`, sin arrastrar migraciones RA) + **8,013 filas cargadas** (SKU 20186 verificado). Detalle en `docs/IMPLEMENTACION/FASES/FASE_ETIQUETAS_ANAQUEL.md`. **Pendiente:** redeploy `view` + re-import on-prem contra Kepler vivo.
+
 ### Added — Compras: origen proveedor/sucursal, multi-sucursal, compra segura y flujo de recepción (Fase RA.11–RA.14) (2026-07-09)
 - **Investigación: cadena de compras real de Kepler (verificada vivo).** El folio `xa3701-0007556` = **Vale de entrada** (doctype custom `X-A-37`). Cadena completa: Requisición `X-A-30` (opcional) → Orden de compra `X-A-35` → Vale de entrada `X-A-37` → **Orden de entrada `X-A-40` (aquí entra al inventario)** → Aplica/CxP `X-A-20`. **Compra a proveedor (género X) ≠ traspaso desde CEDIS (género N: `N-A-6`/`N-D-6`).** Kepler NO guarda mínimo de pedido ni lead time. Detalle en `docs/IMPLEMENTACION/FASES/FASE_RA_REABASTECIMIENTO.md` §2.5.
 - **Origen de surtido por línea (RA.11):** cada línea de la requisición puede ser **compra a proveedor** o **traspaso interno desde otra sucursal** (`source_type`+`source_warehouse_id`; MVP solo clasifica, no mueve inventario). Selector de origen en el dialog de "Generar requisición".

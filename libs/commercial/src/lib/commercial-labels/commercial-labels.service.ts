@@ -17,6 +17,7 @@ export interface LabelModel {
   wholesale_pack_price: number | null;
   box_size: number | null;
   box_price: number | null;
+  unit_base: string | null;
 }
 
 const n = (v: unknown): number | null => {
@@ -70,7 +71,7 @@ export class CommercialLabelsService {
           'p.id as product_id', 'p.sku', 'p.barcode as product_barcode', 'p.nombre as name',
           'l.content', 'l.barcode', 'l.barcode_format', 'l.piece_price',
           'l.wholesale_piece_min_qty', 'l.wholesale_piece_price', 'l.pack_size', 'l.pack_price',
-          'l.wholesale_pack_price', 'l.box_size', 'l.box_price',
+          'l.wholesale_pack_price', 'l.box_size', 'l.box_price', 'l.unit_base',
         );
 
       // Índice por sku y por barcode del producto, para remapear al código pedido.
@@ -107,6 +108,7 @@ export class CommercialLabelsService {
           wholesale_pack_price: n(r.wholesale_pack_price),
           box_size: r.box_size ?? null,
           box_price: n(r.box_price),
+          unit_base: r.unit_base ?? null,
         });
       }
       return { labels, not_found };

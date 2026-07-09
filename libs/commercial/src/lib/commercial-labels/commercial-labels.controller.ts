@@ -16,7 +16,7 @@ export class CommercialLabelsController {
   constructor(private readonly svc: CommercialLabelsService) {}
 
   @Get('search')
-  @RequirePermissions(Permission.STORE_LIVE_VER)
+  @RequirePermissions(Permission.STORE_LABELS_VER)
   @ApiQuery({ name: 'q', required: true, description: 'Texto: nombre / SKU / barcode (mín 2 chars).' })
   @ApiOperation({ summary: 'Etiquetera — búsqueda de catálogo para agregar productos a la cola de impresión.' })
   search(@Query('q') q: string) {
@@ -24,7 +24,7 @@ export class CommercialLabelsController {
   }
 
   @Post('resolve')
-  @RequirePermissions(Permission.STORE_LIVE_VER)
+  @RequirePermissions(Permission.STORE_LABELS_VER)
   @ApiOperation({ summary: 'Etiquetera — resuelve una lista de códigos (SKU o barcode) al modelo de la etiqueta de anaquel.' })
   resolve(@Body() body: { codes: string[] }) {
     return this.svc.resolveForLabels(body?.codes || []);

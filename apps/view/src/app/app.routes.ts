@@ -7,6 +7,7 @@ import { permissionGuard, anyPermissionGuard, colaboradorGuard } from './core/gu
 import { Permission } from './core/constants/permissions';
 import { televentaGuard } from './modules/televenta/televenta.guard';
 import { repartoGuard } from './modules/reparto/reparto.guard';
+import { storeLiveMatch } from './modules/tienda/tienda.guards';
 import { countFocusGuard } from './core/guards/count-focus.guard';
 
 export const routes: Routes = [
@@ -353,7 +354,10 @@ export const routes: Routes = [
     canActivate: [authGuard],
     component: LayoutComponent,
     children: [
-      { path: '', redirectTo: 'live', pathMatch: 'full' },
+      // Redirect condicional: monitor en vivo si tiene STORE_LIVE_VER; si solo tiene
+      // etiquetas (rol etiquetas_tienda), cae en /tienda/etiquetas.
+      { path: '', pathMatch: 'full', canMatch: [storeLiveMatch], redirectTo: 'live' },
+      { path: '', pathMatch: 'full', redirectTo: 'etiquetas' },
       {
         path: 'live',
         loadComponent: () => import('./modules/tienda/pages/tienda-live.component').then(m => m.TiendaLiveComponent),
@@ -372,7 +376,7 @@ export const routes: Routes = [
       {
         path: 'etiquetas',
         loadComponent: () => import('./modules/tienda/pages/tienda-etiquetas.component').then(m => m.TiendaEtiquetasComponent),
-        canActivate: [permissionGuard(Permission.STORE_LIVE_VER)]
+        canActivate: [permissionGuard(Permission.STORE_LABELS_VER)]
       },
     ]
   },

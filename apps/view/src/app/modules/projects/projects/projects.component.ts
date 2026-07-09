@@ -128,7 +128,7 @@ export class ProjectsComponent implements OnInit {
       icon: 'pi pi-bolt',
       route: '/tienda',
       status: 'Activo',
-      anyOf: [Permission.STORE_LIVE_VER],
+      anyOf: [Permission.STORE_LIVE_VER, Permission.STORE_LABELS_VER],
     },
     {
       id: 'reparto',

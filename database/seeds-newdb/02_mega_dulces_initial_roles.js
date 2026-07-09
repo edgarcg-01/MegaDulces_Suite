@@ -365,7 +365,8 @@ exports.seed = async function (knex) {
       role_name: 'jefe_de_tienda',
       permissions: {
         ...NO_PERMS,
-        STORE_LIVE_VER: true, // monitor de tickets de su tienda
+        STORE_LIVE_VER: true,
+        STORE_LABELS_VER: true, // monitor de tickets de su tienda
         COMMERCIAL_CUSTOMERS_VER: true,
         COMMERCIAL_ORDERS_VER: true,
         LOGISTICS_FLEET_VER: true,
@@ -384,12 +385,21 @@ exports.seed = async function (knex) {
       permissions: {
         ...NO_PERMS,
         STORE_LIVE_VER: true,
+        STORE_LABELS_VER: true,
         COMMERCIAL_CUSTOMERS_VER: true,
         COMMERCIAL_ORDERS_VER: true,
         LOGISTICS_SHIPMENTS_VER: true,
         LOGISTICS_GUIDES_VER: true,
         LOGISTICS_GUIDES_GESTIONAR: true,
         LOGISTICS_HOME_DISPATCH: true,
+      },
+    },
+    {
+      // Proyecto Tienda — rol acotado: SOLO etiquetas de anaquel (ej. rodrigo_ortiz).
+      role_name: 'etiquetas_tienda',
+      permissions: {
+        ...NO_PERMS,
+        STORE_LABELS_VER: true,
       },
     },
     {
@@ -402,6 +412,7 @@ exports.seed = async function (knex) {
         REPORTES_VER_EQUIPO: true,
         REPORTES_EXPORTAR: true,
         STORE_LIVE_VER: true,
+        STORE_LABELS_VER: true,
         COMMERCIAL_CUSTOMERS_VER: true,
         COMMERCIAL_ORDERS_VER: true,
         LOGISTICS_FLEET_VER: true,

@@ -25,16 +25,23 @@ const SRC = process.env.KEPLER_URL || 'postgresql://postgres:superoot@localhost:
 const APPLY = process.argv.includes('--apply');
 const BATCH = 1000;
 
-/** "…50G/8" → "50 g"; "500ML" → "500 ml"; sin match → null. */
+/**
+ * Extrae gramaje del nombre Kepler. Cubre convenciones vistas en el catálogo:
+ *   "50G/8"→"50 g", "5K"→"5 kg" (K sola = kilo), "5KGS"→"5 kg", "2OZ"→"2 oz",
+ *   "500ML"→"500 ml", "1LT"→"1 l". Lookahead (?![a-z0-9]) evita cazar la 1ª letra
+ *   de otra palabra ("1 LUCAS", "1 GLASS"). sin match → null.
+ */
 function parseGramaje(name) {
   if (!name) return null;
-  const m = String(name).match(/(\d+(?:[.,]\d+)?)\s*(kg|kilos?|g|gr|grs|gramos?|ml|mls|lt?s?|l)\b/i);
+  const m = String(name).match(/(\d+(?:[.,]\d+)?)\s*(kgs?|kilos?|grs?|gramos?|mls?|lts?|oz|k|g|l)(?![a-z0-9])/i);
   if (!m) return null;
   const num = m[1].replace(',', '.');
-  let u = m[2].toLowerCase();
-  if (/^k/.test(u)) u = 'kg';
-  else if (/^g/.test(u)) u = 'g';
-  else if (/^ml/.test(u)) u = 'ml';
+  const raw = m[2].toLowerCase();
+  let u;
+  if (raw === 'oz') u = 'oz';
+  else if (raw[0] === 'k') u = 'kg';
+  else if (raw.startsWith('ml')) u = 'ml';
+  else if (raw[0] === 'g') u = 'g';
   else u = 'l';
   return `${num} ${u}`;
 }
@@ -76,7 +83,7 @@ const int = (v) => { const n = parseInt(v, 10); return Number.isFinite(n) ? n : 
 
     // Maestro kdii (precios base + factores + barcode + nombre)
     const kdii = (await src.query(`
-      SELECT c1 AS sku, c2 AS name, c7 AS barcode,
+      SELECT c1 AS sku, c2 AS name, c7 AS barcode, c11 AS unit_base,
              c81 AS pack_size, c84 AS box_size,
              c90 AS piece_price, c91 AS pack_price, c92 AS box_price
         FROM md.kdii WHERE btrim(coalesce(c1,''))<>''`)).rows;
@@ -121,6 +128,7 @@ const int = (v) => { const n = parseInt(v, 10); return Number.isFinite(n) ? n : 
         w.packPrice != null ? w.packPrice : null,
         int(r.box_size),
         num(r.box_price),
+        (r.unit_base || '').trim().toUpperCase() || null,
       ]);
       matched++;
     }
@@ -136,13 +144,13 @@ const int = (v) => { const n = parseInt(v, 10); return Number.isFinite(n) ? n : 
       product_id uuid, content text, barcode text, barcode_format text,
       piece_price numeric, wholesale_piece_min_qty int, wholesale_piece_price numeric,
       pack_size int, pack_price numeric, wholesale_pack_price numeric,
-      box_size int, box_price numeric) ON COMMIT DROP`);
+      box_size int, box_price numeric, unit_base text) ON COMMIT DROP`);
     for (let i = 0; i < staged.length; i += BATCH) {
       const chunk = staged.slice(i, i + BATCH);
       const vals = [], params = [];
       chunk.forEach((row, ri) => {
-        const b = ri * 12;
-        vals.push(`($${b+1},$${b+2},$${b+3},$${b+4},$${b+5},$${b+6},$${b+7},$${b+8},$${b+9},$${b+10},$${b+11},$${b+12})`);
+        const b = ri * 13;
+        vals.push(`($${b+1},$${b+2},$${b+3},$${b+4},$${b+5},$${b+6},$${b+7},$${b+8},$${b+9},$${b+10},$${b+11},$${b+12},$${b+13})`);
         params.push(...row);
       });
       await db.query(`INSERT INTO stg_label VALUES ${vals.join(',')}`, params);
@@ -151,17 +159,18 @@ const int = (v) => { const n = parseInt(v, 10); return Number.isFinite(n) ? n : 
       INSERT INTO commercial.product_label_prices
         (id, tenant_id, product_id, content, barcode, barcode_format, piece_price,
          wholesale_piece_min_qty, wholesale_piece_price, pack_size, pack_price,
-         wholesale_pack_price, box_size, box_price, source, computed_at, updated_at)
+         wholesale_pack_price, box_size, box_price, unit_base, source, computed_at, updated_at)
       SELECT gen_random_uuid(), $1, s.product_id, s.content, s.barcode, s.barcode_format, s.piece_price,
              s.wholesale_piece_min_qty, s.wholesale_piece_price, s.pack_size, s.pack_price,
-             s.wholesale_pack_price, s.box_size, s.box_price, 'kepler', now(), now()
+             s.wholesale_pack_price, s.box_size, s.box_price, s.unit_base, 'kepler', now(), now()
       FROM stg_label s
       ON CONFLICT (tenant_id, product_id) DO UPDATE SET
         content=EXCLUDED.content, barcode=EXCLUDED.barcode, barcode_format=EXCLUDED.barcode_format,
         piece_price=EXCLUDED.piece_price, wholesale_piece_min_qty=EXCLUDED.wholesale_piece_min_qty,
         wholesale_piece_price=EXCLUDED.wholesale_piece_price, pack_size=EXCLUDED.pack_size,
         pack_price=EXCLUDED.pack_price, wholesale_pack_price=EXCLUDED.wholesale_pack_price,
-        box_size=EXCLUDED.box_size, box_price=EXCLUDED.box_price, source='kepler', computed_at=now(), updated_at=now()
+        box_size=EXCLUDED.box_size, box_price=EXCLUDED.box_price, unit_base=EXCLUDED.unit_base,
+        source='kepler', computed_at=now(), updated_at=now()
       WHERE commercial.product_label_prices.source <> 'manual'`, [M]);
     await db.query('COMMIT');
     console.log(`\n[APPLY] COMMIT — ${up.rowCount} filas de etiqueta upserted.`);

@@ -58,9 +58,9 @@ interface QueueItem { model: LabelModel; copies: number; }
     .etqp-sheetpanel{ display:flex; flex-direction:column; gap:.5rem; }
     .etqp-sheethead{ font-size:.8rem; font-weight:700; color:var(--text-muted,#666); }
     .etqp-cuthint{ font-size:.72rem; color:#999; }
-    .etqp-sheetbox{ width:432px; height:558px; overflow:hidden; border:1px solid var(--border,#ddd); border-radius:4px; background:#fff; box-shadow:0 6px 22px rgba(0,0,0,.14); }
-    .etqp-sheet{ width:216mm; height:279mm; padding:8mm; box-sizing:border-box; background:#fff; transform:scale(0.5296); transform-origin:top left; }
-    .etqp-sheet app-label{ display:block; margin:0 auto 5mm; }
+    .etqp-sheetbox{ width:500px; height:387px; overflow:hidden; border:1px solid var(--border,#ddd); border-radius:4px; background:#fff; box-shadow:0 6px 22px rgba(0,0,0,.14); }
+    .etqp-sheet{ width:279mm; height:216mm; padding:8mm; box-sizing:border-box; background:#fff; transform:scale(0.474); transform-origin:top left; text-align:center; font-size:0; }
+    .etqp-sheet app-label{ display:inline-block; vertical-align:top; margin:2.5mm; }
     .etqp-sheet app-label .etq-label{ border-radius:0 !important; outline:.3mm dashed #888; }
 
     /* Hoja fuente: fuera de pantalla PERO con layout (para auto-fit del nombre + barcodes).
@@ -186,8 +186,8 @@ export class TiendaEtiquetasComponent {
     };
   });
 
-  // Hoja Carta: área útil ~263mm / (40mm etiqueta + 5mm recorte) ≈ 5 etiquetas por hoja.
-  private readonly PER_SHEET = 5;
+  // Carta horizontal (263×200mm útil): 2 columnas × 4 filas ≈ 8 etiquetas por hoja.
+  private readonly PER_SHEET = 8;
   totalSheets = computed(() => Math.max(1, Math.ceil(this.totalLabels() / this.PER_SHEET)));
   sheetLabels = computed<LabelModel[]>(() => {
     const out: LabelModel[] = [];
@@ -310,11 +310,12 @@ export class TiendaEtiquetasComponent {
     doc.open();
     doc.write(`<!doctype html><html><head><meta charset="utf-8">${styles}
       <style>
-        @page { size:letter; margin:8mm; }
+        @page { size:letter landscape; margin:8mm; }
         html,body{ margin:0; padding:0; background:#fff; }
         *{ -webkit-print-color-adjust:exact !important; print-color-adjust:exact !important; }
-        /* Etiquetas 115×40mm en columna sobre hoja Carta; se paginan solas y no se parten. */
-        app-label{ display:block; break-inside:avoid; page-break-inside:avoid; margin:0 auto 5mm; }
+        /* Carta horizontal: 2 etiquetas por fila (aprovecha el ancho); se paginan solas y no se parten. */
+        body{ text-align:center; font-size:0; }
+        app-label{ display:inline-block; vertical-align:top; break-inside:avoid; page-break-inside:avoid; margin:2.5mm; }
         /* Esquinas rectas + línea de recorte punteada por etiqueta. */
         app-label .etq-label{ border-radius:0 !important; outline:.3mm dashed #888; }
       </style></head><body>${sheet.innerHTML}</body></html>`);

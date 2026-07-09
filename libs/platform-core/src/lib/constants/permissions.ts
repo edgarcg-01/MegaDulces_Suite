@@ -45,6 +45,8 @@ export enum Permission {
 
   // Módulo: Tienda — monitor de tickets de venta en vivo (proyecto TDA)
   STORE_LIVE_VER = 'STORE_LIVE_VER',
+  // Módulo: Tienda — etiquetera de anaquel (impresión de etiquetas)
+  STORE_LABELS_VER = 'STORE_LABELS_VER',
 
   // Módulo: Comercial — Clientes B2B (Fase B)
   COMMERCIAL_CUSTOMERS_VER = 'COMMERCIAL_CUSTOMERS_VER',

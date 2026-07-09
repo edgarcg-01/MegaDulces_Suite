@@ -30,6 +30,7 @@ export interface LabelModel {
   wholesale_pack_price: number | null;
   box_size: number | null;
   box_price: number | null;
+  unit_base: string | null;
 }
 
 /**
@@ -76,12 +77,12 @@ export interface LabelModel {
     .etq-pieza::before,.etq-pieza::after{ content:""; width:14mm; height:.9mm;
       background:repeating-linear-gradient(90deg, var(--yellow) 0 2.8mm, transparent 2.8mm 4.6mm); }
     .etq-right{ width:49mm; min-height:0; display:flex; flex-direction:column; }
-    .etq-tier{ position:relative; display:flex; align-items:center; gap:1.4mm; padding:.3mm 0; flex:1; min-height:0; }
+    .etq-tier{ position:relative; display:flex; align-items:baseline; gap:1.4mm; padding:.3mm 0; flex:1; min-height:0; }
     .etq-tier::before{ content:""; position:absolute; top:0; left:0; right:0; height:.28mm;
       background:repeating-linear-gradient(90deg, var(--green) 0 .32mm, transparent .32mm .6mm); }
     .etq-tier:first-child::before{ display:none; }
     .etq-tier .txt{ flex:1; font-size:2.9mm; font-weight:700; line-height:1.05; }
-    .etq-tier .amt{ font-family:var(--font-num); font-weight:400; font-size:4.6mm; white-space:nowrap; letter-spacing:.2px; }
+    .etq-tier .amt{ font-family:var(--font-num); font-weight:400; font-size:4.6mm; white-space:nowrap; letter-spacing:.2px; text-align:right; min-width:22mm; }
     .etq-tier .amt small{ font-family:var(--font); font-size:1.9mm; font-weight:600; }
     .etq-barcode{ margin-top:.3mm; display:flex; justify-content:flex-end; }
     .etq-barcode svg{ display:block; width:85%; height:5.4mm; }
@@ -97,8 +98,8 @@ export interface LabelModel {
           </div>
           <div class="etq-pricebox">
             <svg class="etq-sprout" viewBox="0 0 40 40" fill="hsl(141, 60%, 38%)"><path transform="translate(12,15) rotate(120)" d="M0 -11 C4.5 -5 5.5 0 4 4.5 C2.8 7.5 -2.8 7.5 -4 4.5 C-5.5 0 -4.5 -5 0 -11 Z"/><path transform="translate(22,10) rotate(150) scale(0.7)" d="M0 -11 C4.5 -5 5.5 0 4 4.5 C2.8 7.5 -2.8 7.5 -4 4.5 C-5.5 0 -4.5 -5 0 -11 Z"/></svg>
-            <div class="etq-price"><span class="cur">$</span>{{ pieceInt }}<span class="dot">.</span>{{ pieceDec }}</div>
-            <div class="etq-pieza">Precio por pieza</div>
+            <div class="etq-price"><span class="cur">$</span>{{ bigInt }}<span class="dot">.</span>{{ bigDec }}</div>
+            <div class="etq-pieza">Precio por {{ bigUnit.word }}</div>
           </div>
         </div>
         <div class="etq-right">
@@ -145,9 +146,21 @@ export class LabelComponent implements AfterViewInit, OnChanges {
     return (this.model?.name || '').replace(/\s+\d+(?:[.,]\d+)?\s*(?:kg|g|gr|grs|ml|l)\s*\/?\s*\d*\s*$/i, '').trim() || this.model?.name || '';
   }
   get mayoreoMin(): number { return this.model?.wholesale_piece_min_qty || 3; }
-  private get pieceStr(): string { return (this.model?.piece_price ?? 0).toFixed(2); }
-  get pieceInt(): string { return this.pieceStr.split('.')[0]; }
-  get pieceDec(): string { return this.pieceStr.split('.')[1] ?? '00'; }
+
+  /** Precio grande + título según la unidad base de venta (Kepler kdii.c11). */
+  get bigUnit(): { word: string; value: number } {
+    const u = (this.model?.unit_base || '').toUpperCase();
+    const m = this.model;
+    if (u === 'PAQ') return { word: 'paquete', value: m.pack_price ?? 0 };
+    if (u === 'KG') return { word: 'kg', value: m.piece_price ?? 0 };      // c90 = $/kg en granel
+    if (u === 'CJA') return { word: 'caja', value: m.box_price ?? 0 };
+    if (u === 'BTO') return { word: 'bote', value: m.piece_price ?? 0 };
+    if (u === 'CUB') return { word: 'cubeta', value: m.piece_price ?? 0 };
+    return { word: 'pieza', value: m.piece_price ?? 0 };                    // PZA + default/anomalías
+  }
+  private get bigStr(): string { return (this.bigUnit.value ?? 0).toFixed(2); }
+  get bigInt(): string { return this.bigStr.split('.')[0]; }
+  get bigDec(): string { return this.bigStr.split('.')[1] ?? '00'; }
 
   ngAfterViewInit(): void { this.render(); (document as any).fonts?.ready?.then(() => this.fitHead()); }
   ngOnChanges(): void { queueMicrotask(() => this.render()); }
