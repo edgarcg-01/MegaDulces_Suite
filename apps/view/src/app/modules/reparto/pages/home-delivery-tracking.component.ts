@@ -139,35 +139,35 @@ export class HomeDeliveryTrackingComponent implements OnInit, OnDestroy {
   /** Pin de destino por entrega (con coords). Color por estado. */
   private destinoMarkers(): MapMarker[] {
     return this.rows()
-      .map((d) => {
+      .map((d): MapMarker | null => {
         const a = d.delivery_address as any;
         const lat = Number(a?.lat), lng = Number(a?.lng);
         if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
         const color = d.status === 'entregado' ? '#16a34a'
           : d.status === 'pendiente' ? 'var(--action, #F05A28)' : '#dc2626';
         return {
-          id: 'd:' + d.delivery_id, lat, lng, kind: 'pin' as const, color,
+          id: 'd:' + d.delivery_id, lat, lng, kind: 'pin', color,
           title: `<b>${d.folio}</b><br>${d.customer_name}<br>${a?.street || ''}`,
         };
       })
-      .filter((m): m is MapMarker => !!m);
+      .filter((m): m is MapMarker => m !== null);
   }
 
   /** Pin en vivo por repartidor (persistent). Ring verde si fresco (<3 min). */
   private riderMarkers(): MapMarker[] {
     const now = this.now();
     return [...this.riders().values()]
-      .map((p) => {
+      .map((p): MapMarker | null => {
         const lat = Number(p.lat), lng = Number(p.lng);
         if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
         const ageMin = (now - new Date(p.captured_at).getTime()) / 60000;
         const color = ageMin < 3 ? '#16a34a' : ageMin < 10 ? '#b45309' : '#78716c';
         return {
-          id: 'r:' + p.rider_user_id, lat, lng, kind: 'user' as const, color, ring: ageMin < 3,
+          id: 'r:' + p.rider_user_id, lat, lng, kind: 'user', color, ring: ageMin < 3,
           title: `<b>${p.full_name || p.username}</b><br>${this.relAge(ageMin)}`,
         };
       })
-      .filter((m): m is MapMarker => !!m);
+      .filter((m): m is MapMarker => m !== null);
   }
 
   readonly mapLayers = computed<MapLayer[]>(() => [
