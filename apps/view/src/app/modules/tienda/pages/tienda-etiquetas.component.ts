@@ -3,7 +3,8 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Subject, catchError, debounceTime, distinctUntilChanged, of, switchMap } from 'rxjs';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { LabelComponent, LabelModel } from '../components/label.component';
+import { MultiSelectModule } from 'primeng/multiselect';
+import { LabelComponent, LabelModel, LabelSections } from '../components/label.component';
 import { EtiquetasService, SearchHit } from '../etiquetas.service';
 
 interface QueueItem { model: LabelModel; copies: number; }
@@ -19,7 +20,7 @@ interface QueueItem { model: LabelModel; copies: number; }
 @Component({
   selector: 'app-tienda-etiquetas',
   standalone: true,
-  imports: [CommonModule, FormsModule, LabelComponent],
+  imports: [CommonModule, FormsModule, MultiSelectModule, LabelComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   encapsulation: ViewEncapsulation.None,
   styles: [`
@@ -61,6 +62,10 @@ interface QueueItem { model: LabelModel; copies: number; }
     <div class="etqp-screen">
       <div class="etqp-head">
         <h1>Etiquetas de anaquel</h1>
+        <p-multiSelect [options]="sectionOptions" [ngModel]="sections()" (ngModelChange)="sections.set($event)"
+          optionLabel="label" optionValue="value" [showToggleAll]="true" [filter]="false"
+          placeholder="Secciones a mostrar" selectedItemsLabel="{0} secciones" styleClass="etqp-ms"
+          [style]="{ minWidth: '15rem' }"></p-multiSelect>
         <button class="etqp-btn" [disabled]="!totalLabels() || printing()" (click)="print()">
           <i class="pi" [class.pi-print]="!printing()" [class.pi-spin]="printing()" [class.pi-spinner]="printing()"></i>
           {{ printing() ? 'Preparando…' : 'Imprimir ' + totalLabels() + ' etiqueta' + (totalLabels() === 1 ? '' : 's') }}
@@ -100,7 +105,7 @@ interface QueueItem { model: LabelModel; copies: number; }
         <div class="etqp-grid">
           @for (it of queue(); track it.model.product_id; let i = $index) {
             <div class="etqp-card">
-              <div class="etqp-scale"><app-label [model]="it.model"></app-label></div>
+              <div class="etqp-scale"><app-label [model]="it.model" [show]="showMap()"></app-label></div>
               <div class="etqp-row">
                 <span class="nm" [title]="it.model.name">{{ it.model.name }}</span>
                 <button class="etqp-x" (click)="remove(i)" title="Quitar">✕</button>
@@ -124,7 +129,7 @@ interface QueueItem { model: LabelModel; copies: number; }
     <!-- Hoja fuente (fuera de pantalla): se renderiza aquí y se clona al iframe de impresión. -->
     <div class="etqp-print" #printSheet>
       @for (m of printLabels(); track $index) {
-        <app-label [model]="m"></app-label>
+        <app-label [model]="m" [show]="showMap()"></app-label>
       }
     </div>
   `,
@@ -143,6 +148,26 @@ export class TiendaEtiquetasComponent {
   printing = signal(false);
 
   totalLabels = computed(() => this.queue().reduce((s, it) => s + (it.copies || 0), 0));
+
+  // Secciones visibles de la etiqueta (multiselect). Default: todas.
+  sectionOptions = [
+    { label: 'Mayoreo por pieza', value: 'mayoreoPza' },
+    { label: 'Paquete', value: 'paquete' },
+    { label: 'Mayoreo por paquete', value: 'mayoreoPaq' },
+    { label: 'Caja', value: 'caja' },
+    { label: 'Código de barras', value: 'barcode' },
+  ];
+  sections = signal<string[]>(['mayoreoPza', 'paquete', 'mayoreoPaq', 'caja', 'barcode']);
+  showMap = computed<LabelSections>(() => {
+    const s = this.sections();
+    return {
+      mayoreoPza: s.includes('mayoreoPza'),
+      paquete: s.includes('paquete'),
+      mayoreoPaq: s.includes('mayoreoPaq'),
+      caja: s.includes('caja'),
+      barcode: s.includes('barcode'),
+    };
+  });
 
   private search$ = new Subject<string>();
 

@@ -42,7 +42,7 @@
   .pricebox::before{ content:""; position:absolute; inset:1mm 1mm 6mm 1mm; border:.28mm dashed var(--green);
     border-bottom:0; border-radius:1.8mm 1.8mm 0 0; pointer-events:none; }
   .sprout{ position:absolute; top:1mm; left:2mm; width:5.4mm; height:5.4mm; }
-  .price{ font-family:var(--font-num); font-weight:400; font-size:20mm; line-height:.82; transform:scaleX(1.1); transform-origin:center; }
+  .price{ font-family:var(--font-num); font-weight:400; font-size:16mm; line-height:.82; transform:scaleX(1.1); transform-origin:center; }
   .price .cur{ font-size:.5em; vertical-align:.6em; margin-right:.3mm; }
   .price .dot{ font-size:.78em; }
   .pieza{ position:absolute; left:0; right:0; bottom:0; background:var(--green); color:#fff; height:5.2mm;
@@ -56,9 +56,7 @@
   .tier::before{ content:""; position:absolute; top:0; left:0; right:0; height:.28mm;
     background:repeating-linear-gradient(90deg, var(--green) 0 .32mm, transparent .32mm .6mm); }
   .tier:first-child::before{ display:none; }
-  .pill{ background:var(--green); color:#fff; padding:.5mm 1.8mm; border-radius:1.4mm; font-weight:800;
-    font-size:2mm; letter-spacing:.3px; white-space:nowrap; text-align:center; min-width:15mm; }
-  .tier .txt{ flex:1; font-size:2.5mm; font-weight:700; line-height:1.05; }
+  .tier .txt{ flex:1; font-size:2.9mm; font-weight:700; line-height:1.05; }
   .tier .amt{ font-family:var(--font-num); font-weight:400; font-size:4.6mm; white-space:nowrap; letter-spacing:.2px; }
   .tier .amt small{ font-family:var(--font); font-size:1.9mm; font-weight:600; }
 
@@ -89,22 +87,18 @@
       </div>
       <div class="right">
         <div class="tier">
-          <div class="pill">MAYOREO</div>
           <div class="txt">Mayoreo desde <span class="red">3</span> pzas:</div>
           <div class="amt">$7.68 <small>c/u</small></div>
         </div>
         <div class="tier">
-          <div class="pill">PAQUETE</div>
           <div class="txt">Paquete (<span class="red">8</span> pzas):</div>
           <div class="amt">$66.06</div>
         </div>
         <div class="tier">
-          <div class="pill">MAYOREO</div>
           <div class="txt">Mayoreo desde <span class="red">3</span> paquetes:</div>
           <div class="amt">$61.47 <small>c/u</small></div>
         </div>
         <div class="tier">
-          <div class="pill">CAJA</div>
           <div class="txt">Caja (<span class="red">112</span> pzas):</div>
           <div class="amt">$860.60</div>
         </div>

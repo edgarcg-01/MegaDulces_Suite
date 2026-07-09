@@ -5,6 +5,15 @@ import {
 import { CommonModule } from '@angular/common';
 import JsBarcode from 'jsbarcode';
 
+export interface LabelSections {
+  mayoreoPza: boolean;
+  paquete: boolean;
+  mayoreoPaq: boolean;
+  caja: boolean;
+  barcode: boolean;
+}
+export const ALL_SECTIONS: LabelSections = { mayoreoPza: true, paquete: true, mayoreoPaq: true, caja: true, barcode: true };
+
 export interface LabelModel {
   code?: string;
   product_id: string;
@@ -58,7 +67,7 @@ export interface LabelModel {
     .etq-pricebox::before{ content:""; position:absolute; inset:1mm 1mm 6mm 1mm; border:.28mm dashed var(--green);
       border-bottom:0; border-radius:1.8mm 1.8mm 0 0; pointer-events:none; }
     .etq-sprout{ position:absolute; top:1mm; left:2mm; width:5.4mm; height:5.4mm; }
-    .etq-price{ font-family:var(--font-num); font-weight:400; font-size:20mm; line-height:.82; letter-spacing:0;
+    .etq-price{ font-family:var(--font-num); font-weight:400; font-size:16mm; line-height:.82; letter-spacing:0;
       transform:scaleX(1.1); transform-origin:center; }
     .etq-price .cur{ font-size:.5em; vertical-align:.6em; margin-right:.3mm; }
     .etq-price .dot{ font-size:.78em; }
@@ -71,9 +80,7 @@ export interface LabelModel {
     .etq-tier::before{ content:""; position:absolute; top:0; left:0; right:0; height:.28mm;
       background:repeating-linear-gradient(90deg, var(--green) 0 .32mm, transparent .32mm .6mm); }
     .etq-tier:first-child::before{ display:none; }
-    .etq-pill{ background:var(--green); color:#fff; padding:.5mm 1.8mm; border-radius:1.4mm; font-weight:800;
-      font-size:2mm; letter-spacing:.3px; white-space:nowrap; text-align:center; min-width:15mm; }
-    .etq-tier .txt{ flex:1; font-size:2.5mm; font-weight:700; line-height:1.05; }
+    .etq-tier .txt{ flex:1; font-size:2.9mm; font-weight:700; line-height:1.05; }
     .etq-tier .amt{ font-family:var(--font-num); font-weight:400; font-size:4.6mm; white-space:nowrap; letter-spacing:.2px; }
     .etq-tier .amt small{ font-family:var(--font); font-size:1.9mm; font-weight:600; }
     .etq-barcode{ margin-top:.3mm; display:flex; justify-content:flex-end; }
@@ -95,27 +102,33 @@ export interface LabelModel {
           </div>
         </div>
         <div class="etq-right">
-          <div class="etq-tier">
-            <div class="etq-pill">MAYOREO</div>
-            <div class="txt">Mayoreo desde <span class="etq-red">{{ mayoreoMin }}</span> pzas:</div>
-            <div class="amt">\${{ (model.wholesale_piece_price ?? 0) | number:'1.2-2' }} <small>c/u</small></div>
-          </div>
-          <div class="etq-tier">
-            <div class="etq-pill">PAQUETE</div>
-            <div class="txt">Paquete (<span class="etq-red">{{ model.pack_size }}</span> pzas):</div>
-            <div class="amt">\${{ (model.pack_price ?? 0) | number:'1.2-2' }}</div>
-          </div>
-          <div class="etq-tier">
-            <div class="etq-pill">MAYOREO</div>
-            <div class="txt">Mayoreo desde <span class="etq-red">{{ mayoreoMin }}</span> paquetes:</div>
-            <div class="amt">\${{ (model.wholesale_pack_price ?? 0) | number:'1.2-2' }} <small>c/u</small></div>
-          </div>
-          <div class="etq-tier">
-            <div class="etq-pill">CAJA</div>
-            <div class="txt">Caja (<span class="etq-red">{{ model.box_size }}</span> pzas):</div>
-            <div class="amt">\${{ (model.box_price ?? 0) | number:'1.2-2' }}</div>
-          </div>
-          <div class="etq-barcode" [class.empty]="!model.barcode_format"><svg #bc></svg></div>
+          @if (show.mayoreoPza) {
+            <div class="etq-tier">
+              <div class="txt">Mayoreo desde <span class="etq-red">{{ mayoreoMin }}</span> pzas:</div>
+              <div class="amt">\${{ (model.wholesale_piece_price ?? 0) | number:'1.2-2' }} <small>c/u</small></div>
+            </div>
+          }
+          @if (show.paquete) {
+            <div class="etq-tier">
+              <div class="txt">Paquete (<span class="etq-red">{{ model.pack_size }}</span> pzas):</div>
+              <div class="amt">\${{ (model.pack_price ?? 0) | number:'1.2-2' }}</div>
+            </div>
+          }
+          @if (show.mayoreoPaq) {
+            <div class="etq-tier">
+              <div class="txt">Mayoreo desde <span class="etq-red">{{ mayoreoMin }}</span> paquetes:</div>
+              <div class="amt">\${{ (model.wholesale_pack_price ?? 0) | number:'1.2-2' }} <small>c/u</small></div>
+            </div>
+          }
+          @if (show.caja) {
+            <div class="etq-tier">
+              <div class="txt">Caja (<span class="etq-red">{{ model.box_size }}</span> pzas):</div>
+              <div class="amt">\${{ (model.box_price ?? 0) | number:'1.2-2' }}</div>
+            </div>
+          }
+          @if (show.barcode) {
+            <div class="etq-barcode" [class.empty]="!model.barcode_format"><svg #bc></svg></div>
+          }
         </div>
       </div>
     </div>
@@ -123,6 +136,7 @@ export interface LabelModel {
 })
 export class LabelComponent implements AfterViewInit, OnChanges {
   @Input({ required: true }) model!: LabelModel;
+  @Input() show: LabelSections = ALL_SECTIONS;
   @ViewChild('bc') bc?: ElementRef<SVGElement>;
   @ViewChild('head') head?: ElementRef<HTMLElement>;
   @ViewChild('headtxt') headtxt?: ElementRef<HTMLElement>;
