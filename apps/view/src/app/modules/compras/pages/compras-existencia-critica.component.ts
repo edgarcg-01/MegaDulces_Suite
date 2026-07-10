@@ -158,7 +158,7 @@ interface DraftLine {
     <p-dialog [visible]="dialogOpen()" (visibleChange)="dialogOpen.set($event)" [modal]="true" appendTo="body" [style]="{ width: '52rem', maxWidth: '96vw' }" header="Generar requisición" [dismissableMask]="true">
       <div class="ec-dlg">
         <p class="ec-dlg-sub">{{ draft().length }} producto(s) · {{ draftWarehouses().length }} almacén(es) · objetivo <strong>{{ basisLabel(fBasis) }}</strong>
-          @if (draftWarehouses().length > 1) { <span class="ec-dlg-note">— se crearán {{ draftWarehouses().length }} requisiciones (una por almacén)</span> }
+          @if (draftReqCount() > 1) { <span class="ec-dlg-note">— se crearán {{ draftReqCount() }} requisiciones (compra: una por proveedor · traspaso: una por sucursal origen)</span> }
         </p>
 
         <!-- Aviso de compra mínima (RA.13a): proveedores que no alcanzan su mínimo en cajas -->
@@ -371,6 +371,18 @@ export class ComprasExistenciaCriticaComponent implements OnInit {
   /** Almacenes distintos en el borrador (para el aviso "N requisiciones"). */
   draftWarehouses(): string[] { return [...new Set(this.draft().map((l) => l.warehouse_id))]; }
 
+  /** Clave de agrupación de requisición: compra → (almacén, proveedor);
+   * traspaso → (almacén, sucursal origen). Compra y traspaso nunca se mezclan. */
+  private reqGroupKey(l: DraftLine): string {
+    const branch = l.source_type === 'branch';
+    const sub = branch ? (l.source_warehouse_id || 'SIN-ORIGEN') : (l.supplier_id || 'SIN-PROV');
+    return `${l.warehouse_id}||${branch ? 'branch' : 'supplier'}||${sub}`;
+  }
+  /** Cuántas requisiciones se crearán (una por grupo compra/traspaso × origen). */
+  draftReqCount(): number {
+    return new Set(this.draft().filter((l) => Number(l.final_qty) > 0).map((l) => this.reqGroupKey(l))).size;
+  }
+
   /**
    * RA.13a — proveedores del borrador que NO alcanzan su pedido mínimo en cajas.
    * cajas = Σ (final_qty / factor_purchase) por proveedor, sólo líneas source_type='supplier'.
@@ -399,20 +411,30 @@ export class ComprasExistenciaCriticaComponent implements OnInit {
     if (all.some((l) => l.source_type === 'branch' && !l.source_warehouse_id)) {
       this.toast.add({ severity: 'warn', summary: 'Falta almacén origen', detail: 'Elige la sucursal origen de las líneas por traspaso.' }); return;
     }
-    // RA.12 — una requisición por almacén de destino.
-    const byWh = new Map<string, DraftLine[]>();
-    for (const l of all) { const g = byWh.get(l.warehouse_id) || []; g.push(l); byWh.set(l.warehouse_id, g); }
+    // Compra y traspaso NUNCA van juntos, y la compra es UNA requisición por
+    // proveedor. Grano = almacén destino × origen: compra → (almacén, proveedor);
+    // traspaso → (almacén, sucursal origen).
+    const groups = new Map<string, DraftLine[]>();
+    for (const l of all) { const k = this.reqGroupKey(l); (groups.get(k) ?? groups.set(k, []).get(k)!).push(l); }
 
-    const dtos: CreateRequisitionDto[] = [...byWh.entries()].map(([warehouse_id, lines]) => ({
-      warehouse_id, target_basis: this.fBasis, notes: this.notes || undefined,
-      lines: lines.map((l) => ({
-        product_id: l.product_id, supplier_id: l.supplier_id,
-        source_type: l.source_type, source_warehouse_id: l.source_type === 'branch' ? l.source_warehouse_id : null,
-        on_hand: l.on_hand, in_transit: l.in_transit,
-        min_stock: l.min_stock, reorder_point: l.reorder_point, max_stock: l.max_stock,
-        suggested_qty: l.suggested_qty, final_qty: Number(l.final_qty), unit_cost: l.unit_cost,
-      })),
-    }));
+    const dtos: CreateRequisitionDto[] = [...groups.values()].map((lines) => {
+      const f = lines[0];
+      const isBranch = f.source_type === 'branch';
+      return {
+        warehouse_id: f.warehouse_id,
+        supplier_id: isBranch ? null : (f.supplier_id ?? null),
+        source_type: isBranch ? 'branch' : 'supplier',
+        source_warehouse_id: isBranch ? f.source_warehouse_id : null,
+        target_basis: this.fBasis, notes: this.notes || undefined,
+        lines: lines.map((l) => ({
+          product_id: l.product_id, supplier_id: l.supplier_id,
+          source_type: l.source_type, source_warehouse_id: l.source_type === 'branch' ? l.source_warehouse_id : null,
+          on_hand: l.on_hand, in_transit: l.in_transit,
+          min_stock: l.min_stock, reorder_point: l.reorder_point, max_stock: l.max_stock,
+          suggested_qty: l.suggested_qty, final_qty: Number(l.final_qty), unit_cost: l.unit_cost,
+        })),
+      };
+    });
 
     this.saving.set(true);
     forkJoin(dtos.map((d) => this.api.createRequisition(d))).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({

@@ -253,6 +253,18 @@ export class CommercialReplenishmentService {
       if (l.source_type === 'branch' && !(l.source_warehouse_id && UUID_RX.test(l.source_warehouse_id)))
         throw new BadRequestException('Una línea de traspaso requiere almacén origen');
     }
+    // Regla de negocio: compra (proveedor) y traspaso (sucursal) NO se mezclan en
+    // la misma requisición; y la compra es UNA requisición por proveedor (el frontend
+    // ya parte el borrador — esto es la red de seguridad server-side).
+    const srcTypes = new Set(lines.map((l) => (l.source_type === 'branch' ? 'branch' : 'supplier')));
+    if (srcTypes.size > 1) throw new BadRequestException('Una requisición no puede mezclar compra (proveedor) y traspaso (sucursal) — sepáralas.');
+    if (srcTypes.has('supplier')) {
+      const sups = new Set(lines.map((l) => l.supplier_id || 'none'));
+      if (sups.size > 1) throw new BadRequestException('Una requisición de compra debe ser de un solo proveedor.');
+    } else {
+      const origins = new Set(lines.map((l) => l.source_warehouse_id || 'none'));
+      if (origins.size > 1) throw new BadRequestException('Una requisición de traspaso debe ser de una sola sucursal origen.');
+    }
     const hdrBranch = dto.source_type === 'branch';
     const hdrSrcWh = hdrBranch && dto.source_warehouse_id && UUID_RX.test(dto.source_warehouse_id) ? dto.source_warehouse_id : null;
     if (hdrBranch && !hdrSrcWh) throw new BadRequestException('El traspaso requiere almacén origen');
