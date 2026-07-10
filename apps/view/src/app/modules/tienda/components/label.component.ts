@@ -1,6 +1,6 @@
 import {
   AfterViewInit, ChangeDetectionStrategy, Component, ElementRef, Input,
-  OnChanges, ViewChild, ViewEncapsulation,
+  OnChanges, QueryList, ViewChild, ViewChildren, ViewEncapsulation,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import JsBarcode from 'jsbarcode';
@@ -103,37 +103,37 @@ export interface LabelModel {
           </div>
           <div class="etq-pricebox">
             <svg class="etq-sprout" viewBox="0 0 40 40" fill="hsl(141, 60%, 38%)"><path transform="translate(12,15) rotate(120)" d="M0 -11 C4.5 -5 5.5 0 4 4.5 C2.8 7.5 -2.8 7.5 -4 4.5 C-5.5 0 -4.5 -5 0 -11 Z"/><path transform="translate(22,10) rotate(150) scale(0.7)" d="M0 -11 C4.5 -5 5.5 0 4 4.5 C2.8 7.5 -2.8 7.5 -4 4.5 C-5.5 0 -4.5 -5 0 -11 Z"/></svg>
-            <div class="etq-price"><span class="cur">$</span>{{ bigInt }}<span class="dot">.</span>{{ bigDec }}</div>
+            <div class="etq-price" #priceEl><span class="cur">$</span>{{ bigInt }}<span class="dot">.</span>{{ bigDec }}</div>
             <div class="etq-pieza">Precio por {{ bigUnit.word }}</div>
           </div>
         </div>
         <div class="etq-right">
-          @if (show.mayoreoPza) {
+          @if (hasMayoreoPza) {
             <div class="etq-tier">
               <div class="txt">Mayoreo desde <span class="etq-red">{{ mayoreoMin }}</span> pzas:</div>
-              <div class="pricecell"><span class="amt">\${{ (model.wholesale_piece_price ?? 0) | number:'1.2-2' }}</span><span class="unit">c/u</span></div>
+              <div class="pricecell"><span class="amt" #amtEl>\${{ model.wholesale_piece_price | number:'1.2-2' }}</span><span class="unit">c/u</span></div>
             </div>
           }
-          @if (show.paquete) {
+          @if (hasPaquete) {
             <div class="etq-tier">
               <div class="txt">Paquete (<span class="etq-red">{{ model.pack_size }}</span> pzas):</div>
-              <div class="pricecell"><span class="amt">\${{ (model.pack_price ?? 0) | number:'1.2-2' }}</span></div>
+              <div class="pricecell"><span class="amt" #amtEl>\${{ model.pack_price | number:'1.2-2' }}</span></div>
             </div>
           }
-          @if (show.mayoreoPaq) {
+          @if (hasMayoreoPaq) {
             <div class="etq-tier">
               <div class="txt">Mayoreo desde <span class="etq-red">{{ mayoreoMin }}</span> paquetes:</div>
-              <div class="pricecell"><span class="amt">\${{ (model.wholesale_pack_price ?? 0) | number:'1.2-2' }}</span><span class="unit">c/u</span></div>
+              <div class="pricecell"><span class="amt" #amtEl>\${{ model.wholesale_pack_price | number:'1.2-2' }}</span><span class="unit">c/u</span></div>
             </div>
           }
-          @if (show.caja) {
+          @if (hasCaja) {
             <div class="etq-tier">
               <div class="txt">Caja (<span class="etq-red">{{ model.box_size }}</span> pzas):</div>
-              <div class="pricecell"><span class="amt">\${{ (model.box_price ?? 0) | number:'1.2-2' }}</span></div>
+              <div class="pricecell"><span class="amt" #amtEl>\${{ model.box_price | number:'1.2-2' }}</span></div>
             </div>
           }
-          @if (show.barcode) {
-            <div class="etq-barcode" [class.empty]="!model.barcode_format"><svg #bc></svg></div>
+          @if (hasBarcode) {
+            <div class="etq-barcode"><svg #bc></svg></div>
           }
         </div>
       </div>
@@ -146,33 +146,62 @@ export class LabelComponent implements AfterViewInit, OnChanges {
   @ViewChild('bc') bc?: ElementRef<SVGElement>;
   @ViewChild('head') head?: ElementRef<HTMLElement>;
   @ViewChild('headtxt') headtxt?: ElementRef<HTMLElement>;
+  @ViewChild('priceEl') priceEl?: ElementRef<HTMLElement>;
+  @ViewChildren('amtEl') amtEls?: QueryList<ElementRef<HTMLElement>>;
+
+  private num(v: number | null | undefined): number { return typeof v === 'number' && isFinite(v) ? v : 0; }
 
   get headName(): string {
     return (this.model?.name || '').replace(/\s+\d+(?:[.,]\d+)?\s*(?:kg|g|gr|grs|ml|l)\s*\/?\s*\d*\s*$/i, '').trim() || this.model?.name || '';
   }
   get mayoreoMin(): number { return this.model?.wholesale_piece_min_qty || 3; }
 
-  /** Precio grande + título según la unidad base de venta (Kepler kdii.c11). */
+  // ── F1: visibilidad data-driven — un tier solo se muestra si el multiselect lo
+  //    pide Y hay dato real (precio > 0 y, donde aplica, tamaño > 0). Mata los $0.00 y (0 pzas).
+  get hasMayoreoPza(): boolean { return !!this.show.mayoreoPza && this.num(this.model?.wholesale_piece_price) > 0; }
+  get hasPaquete(): boolean { return !!this.show.paquete && this.num(this.model?.pack_price) > 0 && this.num(this.model?.pack_size) > 0; }
+  get hasMayoreoPaq(): boolean { return !!this.show.mayoreoPaq && this.num(this.model?.wholesale_pack_price) > 0; }
+  get hasCaja(): boolean { return !!this.show.caja && this.num(this.model?.box_price) > 0 && this.num(this.model?.box_size) > 0; }
+  get hasBarcode(): boolean { return !!this.show.barcode && !!this.model?.barcode && !!this.model?.barcode_format; }
+
+  /**
+   * F8/F2: el precio grande es el PRECIO DE PIEZA (legible en anaquel). Si no hay precio de
+   * pieza (>0), cae al primer precio disponible (paquete → caja) para no imprimir $0.00.
+   * KG (granel): piece_price es $/kg → palabra "kg".
+   */
   get bigUnit(): { word: string; value: number } {
-    const u = (this.model?.unit_base || '').toUpperCase();
     const m = this.model;
-    if (u === 'PAQ') return { word: 'paquete', value: m.pack_price ?? 0 };
-    if (u === 'KG') return { word: 'kg', value: m.piece_price ?? 0 };      // c90 = $/kg en granel
-    if (u === 'CJA') return { word: 'caja', value: m.box_price ?? 0 };
-    if (u === 'BTO') return { word: 'bote', value: m.piece_price ?? 0 };
-    if (u === 'CUB') return { word: 'cubeta', value: m.piece_price ?? 0 };
-    return { word: 'pieza', value: m.piece_price ?? 0 };                    // PZA + default/anomalías
+    const kg = (m?.unit_base || '').toUpperCase() === 'KG';
+    const piece = this.num(m?.piece_price);
+    if (piece > 0) return { word: kg ? 'kg' : 'pieza', value: piece };
+    if (this.num(m?.pack_price) > 0) return { word: 'paquete', value: this.num(m?.pack_price) };
+    if (this.num(m?.box_price) > 0) return { word: 'caja', value: this.num(m?.box_price) };
+    return { word: kg ? 'kg' : 'pieza', value: 0 };
   }
-  private get bigStr(): string { return (this.bigUnit.value ?? 0).toFixed(2); }
+  private get bigStr(): string { return this.bigUnit.value.toFixed(2); }
   get bigInt(): string { return this.bigStr.split('.')[0]; }
   get bigDec(): string { return this.bigStr.split('.')[1] ?? '00'; }
 
-  ngAfterViewInit(): void { this.render(); (document as any).fonts?.ready?.then(() => this.fitHead()); }
+  ngAfterViewInit(): void { this.render(); (document as any).fonts?.ready?.then(() => this.layout()); }
   ngOnChanges(): void { queueMicrotask(() => this.render()); }
 
-  private render(): void { this.renderBarcode(); this.fitHead(); }
+  private render(): void { this.renderBarcode(); this.layout(); }
 
-  /** Auto-ajuste: reduce la fuente del nombre hasta que quepa en el header (una línea), mín 2.6mm. */
+  /** Corre todos los auto-ajustes (nombre + precio grande + montos de tier). */
+  private layout(): void { this.fitHead(); this.fitPrice(); this.fitAmts(); }
+
+  /** Reduce la fuente hasta que `el` (contenido) quepa en su contenedor, con piso mínimo. */
+  private shrinkToFit(el: HTMLElement, container: HTMLElement, startMm: number, minMm: number, stepMm = 0.2): void {
+    let size = startMm;
+    el.style.fontSize = size + 'mm';
+    let guard = 0;
+    while (container.scrollWidth > container.clientWidth && size > minMm && guard++ < 120) {
+      size -= stepMm;
+      el.style.fontSize = size + 'mm';
+    }
+  }
+
+  /** Auto-ajuste del nombre (una línea en el header). */
   private fitHead(): void {
     const head = this.head?.nativeElement;
     const txt = this.headtxt?.nativeElement;
@@ -184,6 +213,35 @@ export class LabelComponent implements AfterViewInit, OnChanges {
       size -= 0.14;
       head.style.fontSize = size + 'mm';
     }
+  }
+
+  /**
+   * F3: el precio grande se encoge hasta caber en la caja amarilla (nunca desborda).
+   * Usa `offsetWidth` (layout, agnóstico al scale del sheet-sim) y multiplica ×1.12 para
+   * compensar el `scaleX(1.1)` visual del precio + un margen; así no spillea ni en pantalla ni impreso.
+   */
+  private fitPrice(): void {
+    const el = this.priceEl?.nativeElement;
+    const box = el?.parentElement; // .etq-pricebox
+    if (!el || !box) return;
+    const cs = getComputedStyle(box);
+    const avail = box.clientWidth - parseFloat(cs.paddingLeft || '0') - parseFloat(cs.paddingRight || '0');
+    let size = 16;
+    el.style.fontSize = size + 'mm';
+    let guard = 0;
+    while (el.offsetWidth * 1.12 > avail && size > 6 && guard++ < 120) {
+      size -= 0.3;
+      el.style.fontSize = size + 'mm';
+    }
+  }
+
+  /** F3: cada monto de tier se encoge hasta caber en su celda (20mm), preservando el c/u. */
+  private fitAmts(): void {
+    this.amtEls?.forEach((ref) => {
+      const amt = ref.nativeElement;
+      const cell = amt.parentElement; // .pricecell
+      if (cell) this.shrinkToFit(amt, cell, 5, 3, 0.2);
+    });
   }
 
   private renderBarcode(): void {

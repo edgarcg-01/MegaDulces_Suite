@@ -2,17 +2,20 @@ import { ChangeDetectionStrategy, Component, OnDestroy, OnInit, computed, inject
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { SelectModule } from 'primeng/select';
+import { MetricCardComponent } from '../../../shared/components/metric-card/metric-card.component';
 import { TiendaStateService } from '../tienda-state.service';
 
 /** Proyecto Tienda — RITMO del día: curva horaria total + comparativa por sucursal. */
 @Component({
   selector: 'app-tienda-pace',
   standalone: true,
-  imports: [CommonModule, FormsModule, SelectModule],
+  imports: [CommonModule, FormsModule, SelectModule, MetricCardComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   styleUrls: ['../tienda-shared.css'],
   styles: [`
     :host { display:block; }
+
+    .pace-kpis { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:.75rem; margin:1rem 0; }
 
     /* Curva horaria grande — barras neutras, pico en sunset (quiet-luxury dataviz). */
     .hrs.big { height:220px; gap:.35rem; }
@@ -53,11 +56,15 @@ import { TiendaStateService } from '../tienda-state.service';
         </div>
       </header>
 
-      <div class="tda-kpis">
-        <div class="tda-kpi"><span class="l">Hora pico</span><span class="v">{{ peak().hora >= 0 ? peak().hora + ':00' : '—' }}</span></div>
-        <div class="tda-kpi"><span class="l">Venta hora pico</span><span class="v">{{ peak().venta | currency:'MXN':'symbol-narrow':'1.0-0' }}</span></div>
-        <div class="tda-kpi"><span class="l">Tickets hora pico</span><span class="v">{{ peak().tickets | number }}</span></div>
-        <div class="tda-kpi"><span class="l">Venta del día</span><span class="v">{{ s.ventaHoy() | currency:'MXN':'symbol-narrow':'1.0-0' }}</span></div>
+      <div class="pace-kpis">
+        <app-metric-card label="Hora pico" format="text"
+          [valueText]="peak().hora >= 0 ? peak().hora + ':00' : '—'" sub="hora de mayor venta"></app-metric-card>
+        <app-metric-card label="Venta hora pico" [value]="peak().venta" format="currency"
+          variant="progress" [goal]="s.ventaHoy()" sub="respecto al día"></app-metric-card>
+        <app-metric-card label="Tickets hora pico" [value]="peak().tickets" format="number"
+          sub="en la hora más alta"></app-metric-card>
+        <app-metric-card label="Venta del día" [value]="s.ventaHoy()" format="currency"
+          variant="sparkline" [series]="hourVenta()" [seriesLabels]="hourLabels()" tone="brand"></app-metric-card>
       </div>
 
       <section class="tda-card">
@@ -108,6 +115,9 @@ export class TiendaPaceComponent implements OnInit, OnDestroy {
     { label: 'Todas las sucursales', value: '' },
     ...this.s.branchList.map((b) => ({ label: b.name, value: b.code })),
   ];
+
+  readonly hourVenta = computed(() => this.s.hourBars().map((h) => h.venta));
+  readonly hourLabels = computed(() => this.s.hourBars().map((h) => h.hora + ':00'));
 
   readonly peak = computed(() => {
     let best = { hora: -1, venta: 0, tickets: 0 };

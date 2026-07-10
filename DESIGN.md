@@ -38,6 +38,8 @@
 
 **7. Datos densos** (Operations): [elevación = borde 1px *o* sombra, nunca ambas](#reglas-canónicas-de-datos-densos-crm--inventario--binding); fila tokenizada (`--row-h-*`); optimistic UI sin spinner; skeleton-filas; header sticky + 1ª columna congelada; side-peek para detalle; inline-edit 1 campo; **nada de zebra**.
 
+**7b. Cards — cero `p-card` plana / stat-card suelta.** Toda card se construye con un arquetipo del **repertorio** ([`FASE_J16_CARD_REPERTOIRE.md`](docs/IMPLEMENTACION/FASES/FASE_J16_CARD_REPERTOIRE.md)): KPIs → `MetricCard` (`shared/components/cards/`), y para entidad/alerta/checklist/insight/donut/mini-table/timeline los componentes del mismo dir. Base compartida (hairline + stripe 3px + spotlight), cifras Geist mono con **count-up**, [dinamismo = dato, no decoración](#motion-de-kpi-cards-binding) (`DESIGN_MOTION_KPI_CARDS.md`), **variedad por tipo de dato** (nunca 4 cards idénticas), 0 hex. Evolución en diseño (cards vivas: odómetro/flash, bullet/heat-strip, drill): [`FASE_J17_CARD_SYSTEM_2.0.md`](docs/IMPLEMENTACION/FASES/FASE_J17_CARD_SYSTEM_2.0.md).
+
 **8. Motion con techo** (150/250/**350ms máx**, ease-out): **solo `transform`+`opacity`**; `prefers-reduced-motion`; `NgZone.runOutsideAngular` para callbacks de alta frecuencia; limpiar en `DestroyRef`. GSAP **no** es dependencia hoy. → [Ingeniería de UI §4](#ingeniería-de-ui--contrato-de-implementación-binding).
 
 **9. Reutilizable = `libs/` + container queries.** Componente que se embebe en varios anchos reacciona a `@container`, no a viewport. → [§5](#ingeniería-de-ui--contrato-de-implementación-binding).

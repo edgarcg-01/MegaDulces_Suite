@@ -1,5 +1,7 @@
 # Fase J16 — Repertorio de cards (catálogo de patrones)
 
+> **Evolución →** [`FASE_J17_CARD_SYSTEM_2.0.md`](FASE_J17_CARD_SYSTEM_2.0.md): dinamismo sobre dato vivo (odómetro/flash), nuevos micro-viz (bullet, heat-strip, dot-grid) y progressive disclosure. J16 es el catálogo; J17 lo hace vivo.
+
 > **Qué:** biblioteca de **arquetipos de card** dinámicas/interactivas para reemplazar sistemáticamente las cards básicas (`p-card` planas, stat-cards sueltas) de **todo el proyecto**. Extiende el sistema `MetricCard` (J14/J15) a todos los tipos de card, no solo KPIs.
 > **Galería visual interactiva:** artifact "Repertorio de Cards" (hover/spotlight/sparkline/count-up vivos).
 > **Norma:** DS Mercado — Stone + sunset, Geist mono en cifras, hairline 1px, spotlight al hover, count-up, `prefers-reduced-motion`, techos de motion ≤350ms.
