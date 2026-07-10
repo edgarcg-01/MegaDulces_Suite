@@ -35,6 +35,17 @@ else
   echo "[start] Migraciones delegadas a preDeployCommand (migrate.sh) — skip en boot."
 fi
 
+# ── Cap del heap de V8 ───────────────────────────────────────────────────────
+# Sin --max-old-space-size, V8 fija el old-space según la RAM que "ve" en el
+# host (el nodo de Railway, no el límite del container) y es perezoso con el GC
+# mientras cree que hay memoria libre → el RSS trepa a 2-4GB en reposo aunque el
+# trabajo real sea chico. Al capar el heap, Node recolecta al acercarse al techo
+# en vez de acumular. 1024MB deja margen para PDFs (puppeteer/chromium corre en
+# proceso aparte), analytics y embeddings; bajar a 768 si se mantiene estable.
+# Override vía NODE_MAX_OLD_SPACE_MB en Railway sin tocar la imagen.
+export NODE_OPTIONS="${NODE_OPTIONS:-} --max-old-space-size=${NODE_MAX_OLD_SPACE_MB:-1024}"
+echo "[start] NODE_OPTIONS=${NODE_OPTIONS}"
+
 echo "[start] Starting NestJS API on port ${API_PORT}..."
 NODE_ENV=production node dist/apps/api/main.js &
 API_PID=$!

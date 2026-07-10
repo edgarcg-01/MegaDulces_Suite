@@ -1,13 +1,17 @@
 import { ChangeDetectionStrategy, Component, ViewEncapsulation, computed, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { Subject, catchError, debounceTime, distinctUntilChanged, of, switchMap } from 'rxjs';
-import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { catchError, of } from 'rxjs';
 import { MultiSelectModule } from 'primeng/multiselect';
+import { AutoCompleteModule, AutoCompleteCompleteEvent, AutoCompleteSelectEvent } from 'primeng/autocomplete';
+import { InputNumberModule } from 'primeng/inputnumber';
+import { ButtonModule } from 'primeng/button';
+import { TableModule } from 'primeng/table';
 import { LabelComponent, LabelModel, LabelSections } from '../components/label.component';
 import { EtiquetasService, SearchHit } from '../etiquetas.service';
 
 interface QueueItem { model: LabelModel; copies: number; }
+type Msg = { text: string; kind: 'info' | 'ok' | 'error' | 'warn' };
 
 /**
  * Etiquetera (proyecto Tienda). Arma una cola de etiquetas (buscar en catálogo o pegar lista
@@ -16,95 +20,152 @@ interface QueueItem { model: LabelModel; copies: number; }
  * Impresión: se renderiza la hoja fuera de pantalla (para que auto-ajuste el nombre y dibuje
  * los barcodes), luego se clona a un IFRAME aislado con su propio `@page` de 100×40mm y color
  * forzado. Chrome no respeta `@page` de estilos inyectados por Angular en runtime; el iframe sí.
+ *
+ * UI sobre el design system "Mercado" (surface Operations): PrimeNG + tokens, quiet-luxury.
+ * `ViewEncapsulation.None` es intencional — el clon de estilos al iframe necesita los estilos
+ * globales del `<app-label>`; las clases van con prefijo `.etqp-*` para evitar colisiones.
  */
 @Component({
   selector: 'app-tienda-etiquetas',
   standalone: true,
-  imports: [CommonModule, FormsModule, MultiSelectModule, LabelComponent],
+  imports: [CommonModule, FormsModule, MultiSelectModule, AutoCompleteModule, InputNumberModule, ButtonModule, TableModule, LabelComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   encapsulation: ViewEncapsulation.None,
   styles: [`
-    .etqp-screen{ padding:1rem 1.25rem; display:flex; flex-direction:column; gap:1rem; }
-    .etqp-tools{ display:flex; gap:1.5rem; flex-wrap:wrap; align-items:flex-start; }
-    .etqp-tool{ flex:1; min-width:280px; }
-    .etqp-tool h3{ font-size:.8rem; font-weight:700; margin:0 0 .4rem; color:var(--text-muted,#666); text-transform:uppercase; letter-spacing:.3px; }
-    .etqp-search{ position:relative; }
-    .etqp-search input, .etqp-bulk textarea{ width:100%; padding:.55rem .7rem; border:1px solid var(--border,#ddd); border-radius:8px; font:inherit; }
-    .etqp-bulk textarea{ min-height:84px; resize:vertical; font-family:ui-monospace,monospace; font-size:.85rem; }
-    .etqp-results{ position:absolute; z-index:20; left:0; right:0; background:#fff; border:1px solid var(--border,#ddd);
-      border-radius:8px; margin-top:4px; max-height:280px; overflow:auto; box-shadow:0 8px 24px rgba(0,0,0,.12); }
-    .etqp-hit{ padding:.5rem .7rem; cursor:pointer; display:flex; justify-content:space-between; gap:1rem; }
-    .etqp-hit:hover{ background:var(--action,#b45309); color:#fff; }
-    .etqp-hit .sku{ font-family:ui-monospace,monospace; font-size:.78rem; opacity:.7; }
-    .etqp-btn{ padding:.5rem .9rem; border:0; border-radius:8px; background:var(--action,#b45309); color:#fff; font:inherit; font-weight:700; cursor:pointer; }
-    .etqp-btn:disabled{ opacity:.5; cursor:not-allowed; }
-    .etqp-btn.ghost{ background:transparent; color:var(--text,#333); border:1px solid var(--border,#ddd); }
-    .etqp-head{ display:flex; align-items:baseline; justify-content:space-between; gap:1rem; flex-wrap:wrap; }
-    .etqp-head h1{ margin:0; font-size:1.25rem; font-weight:800; }
-    .etqp-warn{ color:#b45309; font-size:.82rem; }
-    .etqp-empty{ color:var(--text-muted,#888); padding:2rem; text-align:center; border:1px dashed var(--border,#ddd); border-radius:10px; }
-    .etqp-msg{ padding:.6rem .8rem; border-radius:8px; background:#fff4e5; border:1px solid #f0c891; color:#8a4b00; font-size:.85rem; }
-    .etqp-work{ display:flex; gap:1.5rem; align-items:flex-start; flex-wrap:wrap; }
-    .etqp-list{ flex:1; min-width:320px; display:flex; flex-direction:column; gap:.4rem; }
-    .etqp-qrow{ display:flex; align-items:center; gap:.7rem; padding:.4rem .6rem; border:1px solid var(--border,#eee); border-radius:8px; font-size:.85rem; }
-    .etqp-qrow .nm{ flex:1; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-    .etqp-qrow .sku{ font-family:ui-monospace,monospace; font-size:.75rem; opacity:.6; }
-    .etqp-step{ display:flex; align-items:center; gap:.3rem; }
-    .etqp-step button{ width:24px; height:24px; border:1px solid var(--border,#ddd); background:#fff; border-radius:6px; cursor:pointer; font-weight:700; }
-    .etqp-step input{ width:44px; text-align:center; border:1px solid var(--border,#ddd); border-radius:6px; padding:.2rem; }
-    .etqp-x{ border:0; background:transparent; color:#c00; cursor:pointer; font-size:1rem; }
+    app-tienda-etiquetas { display: block; }
+
+    .etqp-screen{ padding: var(--sp-5) var(--sp-6); display:flex; flex-direction:column; gap: var(--sp-5);
+      color: var(--text-main); }
+
+    /* ── Page head ─────────────────────────────────────────── */
+    .etqp-head{ display:flex; align-items:center; gap: var(--sp-4); flex-wrap:wrap; }
+    .etqp-title{ margin:0; margin-right:auto; }
+    .etqp-title h1{ margin:0; font-size:1.125rem; font-weight:700; letter-spacing:-0.01em; line-height:1.2; }
+    .etqp-title p{ margin:.1rem 0 0; font-size: var(--fs-xs,.72rem); color: var(--text-faint); }
+    .etqp-head .p-multiselect{ min-width: 15rem; }
+
+    /* ── Mensaje / banner ──────────────────────────────────── */
+    .etqp-msg{ display:flex; align-items:center; gap:.6rem; padding:.6rem .75rem; border-radius: var(--r-sm);
+      font-size: var(--fs-sm,.85rem); border:1px solid var(--info-soft-bg); background: var(--info-soft-bg); color: var(--info-soft-fg); }
+    .etqp-msg.is-ok{ border-color: var(--ok-soft-bg); background: var(--ok-soft-bg); color: var(--ok-soft-fg); }
+    .etqp-msg.is-warn{ border-color: var(--warn-soft-bg); background: var(--warn-soft-bg); color: var(--warn-soft-fg); }
+    .etqp-msg.is-error{ border-color: var(--bad-soft-bg); background: var(--bad-soft-bg); color: var(--bad-soft-fg); }
+    .etqp-msg > span{ flex:1; }
+    .etqp-msg-x{ border:0; background:transparent; color:inherit; opacity:.6; cursor:pointer; padding:.15rem; border-radius: var(--r-sm);
+      display:inline-flex; transition: opacity .12s ease; }
+    .etqp-msg-x:hover{ opacity:1; }
+
+    /* ── Entrada (dos formas de agregar, hermanas) ─────────── */
+    .etqp-inputs{ display:grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: var(--sp-4); }
+    .etqp-card{ border:1px solid var(--border-color); border-radius: var(--r-md); background: var(--card-bg); padding: var(--sp-4); }
+    .etqp-card > label{ display:block; font-size: var(--fs-xs,.72rem); font-weight:500; text-transform:uppercase; letter-spacing:.06em;
+      color: var(--text-faint); margin-bottom:.5rem; }
+    .etqp-ac{ display:block; width:100%; }
+    .etqp-hit{ display:flex; align-items:center; justify-content:space-between; gap:1rem; padding:.1rem 0; }
+    .etqp-hit .nm{ font-size: var(--fs-sm,.85rem); color: var(--text-main); }
+    .etqp-hit .sku{ font-family: var(--font-mono); font-size: var(--fs-xs,.72rem); color: var(--text-faint); }
+    .etqp-empty-hit{ padding:.5rem .25rem; color: var(--text-muted); font-size: var(--fs-sm,.85rem); }
+
+    .etqp-ta{ width:100%; min-height:84px; resize:vertical; padding:.55rem .7rem; border:1px solid var(--border-color);
+      border-radius: var(--r-sm); background: var(--card-bg); color: var(--text-main);
+      font-family: var(--font-mono); font-size: var(--fs-sm,.85rem); transition: border-color .12s ease, box-shadow .12s ease; }
+    .etqp-ta:focus{ outline:none; border-color: var(--action); box-shadow: 0 0 0 3px var(--action-ring); }
+    .etqp-bulk-actions{ margin-top:.6rem; display:flex; gap:.6rem; align-items:center; flex-wrap:wrap; }
+    .etqp-warn{ color: var(--warn-soft-fg); font-size: var(--fs-xs,.72rem); }
+
+    /* ── Workspace: cola (tabla) + preview sticky ──────────── */
+    .etqp-work{ display:grid; grid-template-columns: minmax(0,1fr) auto; gap: var(--sp-5); align-items:start; }
+    @media (max-width: 900px){ .etqp-work{ grid-template-columns: 1fr; } }
+
+    .etqp-tablewrap{ min-width:0; }
+    .etqp-tcap{ display:flex; align-items:center; gap:.6rem; }
+    .etqp-tcap .lbl{ font-size: var(--fs-sm,.85rem); font-weight:600; color: var(--text-main); }
+    .etqp-tcap .count{ font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: var(--fs-xs,.72rem);
+      color: var(--text-faint); margin-right:auto; }
+    .etqp-qname{ display:flex; flex-direction:column; gap:.1rem; min-width:0; }
+    .etqp-qname .nm{ font-size: var(--fs-sm,.85rem); color: var(--text-main); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .etqp-qname .sku{ font-family: var(--font-mono); font-size: var(--fs-xs,.72rem); color: var(--text-faint); }
+    .etqp-num{ font-variant-numeric: tabular-nums; }
+    td.etqp-cnum, th.etqp-cnum{ text-align:right; white-space:nowrap; }
+    td.etqp-cact, th.etqp-cact{ text-align:right; width:2.5rem; }
+    .etqp-del{ border:0; background:transparent; color: var(--text-faint); cursor:pointer; width:28px; height:28px;
+      border-radius: var(--r-sm); display:inline-flex; align-items:center; justify-content:center;
+      transition: color .12s ease, background-color .12s ease; }
+    .etqp-del:hover{ color: var(--bad-soft-fg); background: var(--bad-soft-bg); }
+    .etqp-del:focus-visible{ outline:2px solid var(--focus-ring, var(--action-ring)); outline-offset:1px; }
 
     /* Simulación de hoja Carta con líneas de recorte por etiqueta */
-    .etqp-sheetpanel{ display:flex; flex-direction:column; gap:.5rem; }
-    .etqp-sheethead{ font-size:.8rem; font-weight:700; color:var(--text-muted,#666); }
-    .etqp-cuthint{ font-size:.72rem; color:#999; }
-    .etqp-sheetbox{ width:500px; height:387px; overflow:hidden; border:1px solid var(--border,#ddd); border-radius:4px; background:#fff; box-shadow:0 6px 22px rgba(0,0,0,.14); }
-    .etqp-sheet{ width:279mm; height:216mm; padding:8mm; box-sizing:border-box; background:#fff; transform:scale(0.474); transform-origin:top left; text-align:center; font-size:0; }
+    .etqp-sheetpanel{ position:sticky; top: var(--sp-4); display:flex; flex-direction:column; gap:.5rem; }
+    .etqp-sheethead{ font-size: var(--fs-xs,.72rem); font-weight:600; text-transform:uppercase; letter-spacing:.06em;
+      color: var(--text-faint); font-variant-numeric: tabular-nums; }
+    .etqp-cuthint{ font-size: var(--fs-xs,.72rem); color: var(--text-faint); }
+    .etqp-sheetbox{ width:500px; max-width:100%; height:387px; overflow:hidden; border:1px solid var(--border-color);
+      border-radius: var(--r-sm); background:#fff; }
+    .etqp-sheet{ width:279mm; height:216mm; padding:8mm; box-sizing:border-box; background:#fff;
+      transform:scale(0.474); transform-origin:top left; text-align:center; font-size:0; }
     .etqp-sheet app-label{ display:inline-block; vertical-align:top; margin:2.5mm; }
     .etqp-sheet app-label .etq-label{ border-radius:0 !important; outline:.3mm dashed #888; }
+
+    /* ── Empty state (Operations) ──────────────────────────── */
+    .etqp-empty{ display:flex; flex-direction:column; align-items:center; text-align:center; gap:.4rem;
+      padding: var(--sp-8) var(--sp-6); border:1px dashed var(--border-color); border-radius: var(--r-md); color: var(--text-muted); }
+    .etqp-empty i{ font-size:1.75rem; color: var(--text-faint); margin-bottom:.25rem; }
+    .etqp-empty h2{ margin:0; font-size: var(--fs-md,.9375rem); font-weight:600; color: var(--text-main); }
+    .etqp-empty p{ margin:0; font-size: var(--fs-sm,.85rem); max-width:42ch; }
 
     /* Hoja fuente: fuera de pantalla PERO con layout (para auto-fit del nombre + barcodes).
        No se imprime desde aquí; se clona a un iframe aislado. */
     .etqp-print{ position:fixed; left:-100000px; top:0; width:115mm; }
+
+    @media (prefers-reduced-motion: reduce){
+      .etqp-msg-x, .etqp-ta, .etqp-del{ transition:none; }
+    }
   `],
   template: `
     <div class="etqp-screen">
       <div class="etqp-head">
-        <h1>Etiquetas de anaquel</h1>
+        <div class="etqp-title">
+          <h1>Etiquetas de anaquel</h1>
+          <p>Arma la cola e imprime en hoja Carta · etiqueta 100×40&nbsp;mm</p>
+        </div>
         <p-multiSelect [options]="sectionOptions" [ngModel]="sections()" (ngModelChange)="sections.set($event)"
           optionLabel="label" optionValue="value" [showToggleAll]="true" [filter]="false"
-          placeholder="Secciones a mostrar" selectedItemsLabel="{0} secciones" styleClass="etqp-ms"
-          [style]="{ minWidth: '15rem' }"></p-multiSelect>
-        <button class="etqp-btn" [disabled]="!totalLabels() || printing()" (click)="print()">
-          <i class="pi" [class.pi-print]="!printing()" [class.pi-spin]="printing()" [class.pi-spinner]="printing()"></i>
-          {{ printing() ? 'Preparando…' : 'Imprimir ' + totalLabels() + ' etiqueta' + (totalLabels() === 1 ? '' : 's') }}
-        </button>
+          placeholder="Secciones a mostrar" selectedItemsLabel="{0} secciones"
+          ariaLabel="Secciones visibles de la etiqueta" [style]="{ minWidth: '15rem' }"></p-multiSelect>
+        <p-button [label]="printBtnLabel()" icon="pi pi-print" [loading]="printing()"
+          [disabled]="!totalLabels()" (onClick)="print()"></p-button>
       </div>
 
-      @if (msg()) { <div class="etqp-msg">{{ msg() }}</div> }
-
-      <div class="etqp-tools">
-        <div class="etqp-tool">
-          <h3>Buscar en catálogo</h3>
-          <div class="etqp-search">
-            <input type="text" placeholder="Nombre, SKU o código de barras…" [ngModel]="query()"
-                   (ngModelChange)="onQuery($event)" (blur)="closeSoon()">
-            @if (results().length) {
-              <div class="etqp-results">
-                @for (h of results(); track h.product_id) {
-                  <div class="etqp-hit" (mousedown)="addFromSearch(h)">
-                    <span>{{ h.name }}</span><span class="sku">{{ h.sku }}</span>
-                  </div>
-                }
-              </div>
-            }
-          </div>
+      @if (msg(); as m) {
+        <div class="etqp-msg" role="alert"
+             [class.is-ok]="m.kind === 'ok'" [class.is-warn]="m.kind === 'warn'" [class.is-error]="m.kind === 'error'">
+          <i class="pi" [ngClass]="msgIcon(m.kind)"></i>
+          <span>{{ m.text }}</span>
+          <button class="etqp-msg-x" type="button" (click)="msg.set(null)" aria-label="Cerrar aviso"><i class="pi pi-times"></i></button>
         </div>
-        <div class="etqp-tool etqp-bulk">
-          <h3>Carga masiva (SKU o código de barras, uno por línea)</h3>
-          <textarea [ngModel]="bulk()" (ngModelChange)="bulk.set($event)" placeholder="20186&#10;20187&#10;018804701641"></textarea>
-          <div style="margin-top:.5rem; display:flex; gap:.6rem; align-items:center;">
-            <button class="etqp-btn ghost" [disabled]="loading()" (click)="addBulk()">Agregar lista</button>
+      }
+
+      <div class="etqp-inputs">
+        <div class="etqp-card">
+          <label for="etqp-search">Buscar en catálogo</label>
+          <p-autoComplete inputId="etqp-search" styleClass="etqp-ac" [(ngModel)]="acSelected"
+            [suggestions]="results()" (completeMethod)="searchAc($event)" (onSelect)="onPick($event)"
+            optionLabel="name" [delay]="250" [minLength]="2" [showClear]="true" appendTo="body"
+            placeholder="Nombre, SKU o código de barras…">
+            <ng-template let-h pTemplate="item">
+              <div class="etqp-hit"><span class="nm">{{ h.name }}</span><span class="sku">{{ h.sku }}</span></div>
+            </ng-template>
+            <ng-template pTemplate="empty"><div class="etqp-empty-hit">Sin coincidencias</div></ng-template>
+          </p-autoComplete>
+        </div>
+
+        <div class="etqp-card">
+          <label for="etqp-bulk">Carga masiva — un código por línea (SKU o código de barras)</label>
+          <textarea id="etqp-bulk" class="etqp-ta" [ngModel]="bulk()" (ngModelChange)="bulk.set($event)"
+            placeholder="20186&#10;20187&#10;018804701641"></textarea>
+          <div class="etqp-bulk-actions">
+            <p-button label="Agregar lista" icon="pi pi-plus" [text]="true" [loading]="loading()"
+              [disabled]="!bulk().trim()" (onClick)="addBulk()"></p-button>
             @if (notFound().length) { <span class="etqp-warn">No encontrados: {{ notFound().join(', ') }}</span> }
           </div>
         </div>
@@ -112,20 +173,46 @@ interface QueueItem { model: LabelModel; copies: number; }
 
       @if (queue().length) {
         <div class="etqp-work">
-          <div class="etqp-list">
-            @for (it of queue(); track it.model.product_id; let i = $index) {
-              <div class="etqp-qrow">
-                <span class="nm" [title]="it.model.name">{{ it.model.name }}</span>
-                <span class="sku">{{ it.model.sku }}</span>
-                <div class="etqp-step">
-                  <button (click)="setCopies(i, it.copies - 1)">−</button>
-                  <input type="number" min="1" [ngModel]="it.copies" (ngModelChange)="setCopies(i, $event)">
-                  <button (click)="setCopies(i, it.copies + 1)">+</button>
+          <div class="etqp-tablewrap">
+            <p-table [value]="queue()" styleClass="p-datatable-sm" [scrollable]="true" scrollHeight="440px" dataKey="model.product_id">
+              <ng-template pTemplate="caption">
+                <div class="etqp-tcap">
+                  <span class="lbl">Cola</span>
+                  <span class="count">{{ queue().length }} producto{{ queue().length === 1 ? '' : 's' }} · {{ totalLabels() }} etiqueta{{ totalLabels() === 1 ? '' : 's' }}</span>
+                  <p-button label="Vaciar" icon="pi pi-trash" [text]="true" severity="secondary" size="small" (onClick)="clearQueue()"></p-button>
                 </div>
-                <button class="etqp-x" (click)="remove(i)" title="Quitar">✕</button>
-              </div>
-            }
+              </ng-template>
+              <ng-template pTemplate="header">
+                <tr>
+                  <th>Producto</th>
+                  <th class="etqp-cnum">Copias</th>
+                  <th class="etqp-cact"></th>
+                </tr>
+              </ng-template>
+              <ng-template pTemplate="body" let-it let-i="rowIndex">
+                <tr>
+                  <td>
+                    <div class="etqp-qname">
+                      <span class="nm" [title]="it.model.name">{{ it.model.name }}</span>
+                      <span class="sku">{{ it.model.sku }}</span>
+                    </div>
+                  </td>
+                  <td class="etqp-cnum">
+                    <p-inputNumber styleClass="etqp-num" [ngModel]="it.copies" (ngModelChange)="setCopies(i, $event)"
+                      [showButtons]="true" buttonLayout="horizontal" [min]="1" [step]="1" [inputStyle]="{ width: '3rem', textAlign: 'center' }"
+                      incrementButtonIcon="pi pi-plus" decrementButtonIcon="pi pi-minus"
+                      [ariaLabel]="'Copias de ' + it.model.name"></p-inputNumber>
+                  </td>
+                  <td class="etqp-cact">
+                    <button class="etqp-del" type="button" (click)="remove(i)" [attr.aria-label]="'Quitar ' + it.model.name">
+                      <i class="pi pi-times"></i>
+                    </button>
+                  </td>
+                </tr>
+              </ng-template>
+            </p-table>
           </div>
+
           <div class="etqp-sheetpanel">
             <div class="etqp-sheethead">Vista de hoja (Carta) · Hoja 1 de {{ totalSheets() }} · {{ totalLabels() }} etiqueta{{ totalLabels() === 1 ? '' : 's' }}</div>
             <div class="etqp-sheetbox">
@@ -135,11 +222,15 @@ interface QueueItem { model: LabelModel; copies: number; }
                 }
               </div>
             </div>
-            <div class="etqp-cuthint">- - - línea de recorte por etiqueta (así saldrá impreso)</div>
+            <div class="etqp-cuthint">– – – línea de recorte por etiqueta (así saldrá impreso)</div>
           </div>
         </div>
       } @else {
-        <div class="etqp-empty">Busca un producto o pega una lista de códigos para armar las etiquetas.</div>
+        <div class="etqp-empty">
+          <i class="pi pi-tags"></i>
+          <h2>Sin etiquetas en la cola</h2>
+          <p>Busca un producto en el catálogo o pega una lista de códigos para empezar a armar la hoja.</p>
+        </div>
       }
     </div>
 
@@ -154,17 +245,22 @@ interface QueueItem { model: LabelModel; copies: number; }
 export class TiendaEtiquetasComponent {
   private readonly svc = inject(EtiquetasService);
 
-  query = signal('');
   results = signal<SearchHit[]>([]);
+  acSelected: SearchHit | string | null = null;
   bulk = signal('');
   queue = signal<QueueItem[]>([]);
   notFound = signal<string[]>([]);
   loading = signal(false);
-  msg = signal<string>('');
+  msg = signal<Msg | null>(null);
   printLabels = signal<LabelModel[]>([]);
   printing = signal(false);
 
   totalLabels = computed(() => this.queue().reduce((s, it) => s + (it.copies || 0), 0));
+  printBtnLabel = computed(() => {
+    if (this.printing()) return 'Preparando…';
+    const n = this.totalLabels();
+    return `Imprimir ${n} etiqueta${n === 1 ? '' : 's'}`;
+  });
 
   // Secciones visibles de la etiqueta (multiselect). Default: todas.
   sectionOptions = [
@@ -197,17 +293,11 @@ export class TiendaEtiquetasComponent {
     return out;
   });
 
-  private search$ = new Subject<string>();
-
-  constructor() {
-    this.search$
-      .pipe(
-        debounceTime(250),
-        distinctUntilChanged(),
-        switchMap((q) => this.svc.search(q).pipe(catchError((e) => { this.msg.set(this.httpMsg('Búsqueda', e)); return of([] as SearchHit[]); }))),
-        takeUntilDestroyed(),
-      )
-      .subscribe((hits) => this.results.set(hits || []));
+  msgIcon(kind: Msg['kind']): string {
+    return kind === 'error' ? 'pi-exclamation-triangle'
+      : kind === 'warn' ? 'pi-exclamation-circle'
+      : kind === 'ok' ? 'pi-check-circle'
+      : 'pi-info-circle';
   }
 
   private httpMsg(what: string, e: any): string {
@@ -217,25 +307,25 @@ export class TiendaEtiquetasComponent {
     return `${what}: error ${s || ''} — ${e?.error?.message || e?.message || 'desconocido'}`;
   }
 
-  onQuery(q: string): void {
-    this.query.set(q);
-    if (q.trim().length >= 2) this.search$.next(q.trim());
-    else this.results.set([]);
+  searchAc(e: AutoCompleteCompleteEvent): void {
+    this.svc.search(e.query)
+      .pipe(catchError((err) => { this.msg.set({ text: this.httpMsg('Búsqueda', err), kind: 'error' }); return of([] as SearchHit[]); }))
+      .subscribe((hits) => this.results.set(hits || []));
   }
-  closeSoon(): void { setTimeout(() => this.results.set([]), 150); }
 
-  addFromSearch(h: SearchHit): void {
+  onPick(e: AutoCompleteSelectEvent): void {
+    const h = e.value as SearchHit;
+    this.acSelected = null;
     this.results.set([]);
-    this.query.set('');
-    this.msg.set('');
+    this.msg.set(null);
     const code = h.sku || h.barcode;
-    if (!code) { this.msg.set('El producto no tiene SKU ni código de barras.'); return; }
+    if (!code) { this.msg.set({ text: 'El producto no tiene SKU ni código de barras.', kind: 'warn' }); return; }
     this.svc.resolve([code]).subscribe({
       next: (r) => {
         this.pushLabels(r.labels);
-        if (!r.labels.length) this.msg.set(`No se pudo agregar "${h.name}" (sin datos de etiqueta).`);
+        if (!r.labels.length) this.msg.set({ text: `No se pudo agregar "${h.name}" (sin datos de etiqueta).`, kind: 'warn' });
       },
-      error: (e) => this.msg.set(this.httpMsg('Agregar', e)),
+      error: (err) => this.msg.set({ text: this.httpMsg('Agregar', err), kind: 'error' }),
     });
   }
 
@@ -243,16 +333,17 @@ export class TiendaEtiquetasComponent {
     const codes = this.bulk().split(/[\s,;]+/).map((c) => c.trim()).filter(Boolean);
     if (!codes.length) return;
     this.loading.set(true);
-    this.msg.set('');
+    this.msg.set(null);
     this.svc.resolve(codes).subscribe({
       next: (r) => {
         this.pushLabels(r.labels);
         this.notFound.set(r.not_found || []);
-        this.msg.set(`Agregados ${r.labels.length} · no encontrados ${r.not_found?.length || 0}`);
+        const nf = r.not_found?.length || 0;
+        this.msg.set({ text: `Agregados ${r.labels.length} · no encontrados ${nf}`, kind: nf ? 'warn' : 'ok' });
         this.bulk.set('');
         this.loading.set(false);
       },
-      error: (e) => { this.msg.set(this.httpMsg('Carga masiva', e)); this.loading.set(false); },
+      error: (e) => { this.msg.set({ text: this.httpMsg('Carga masiva', e), kind: 'error' }); this.loading.set(false); },
     });
   }
 
@@ -272,6 +363,7 @@ export class TiendaEtiquetasComponent {
     this.queue.set(q);
   }
   remove(i: number): void { this.queue.set(this.queue().filter((_, idx) => idx !== i)); }
+  clearQueue(): void { this.queue.set([]); this.notFound.set([]); this.msg.set(null); }
 
   /** Expande la cola a una etiqueta por copia. */
   private expanded(): LabelModel[] {
@@ -284,7 +376,7 @@ export class TiendaEtiquetasComponent {
   print(): void {
     const all = this.expanded();
     if (!all.length || this.printing()) return;
-    this.msg.set('');
+    this.msg.set(null);
     this.printing.set(true);
     this.printLabels.set(all);
     // Espera a que Angular renderice, se auto-ajusten los nombres y se dibujen los barcodes.

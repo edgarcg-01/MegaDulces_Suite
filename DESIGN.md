@@ -8,12 +8,47 @@
 
 > **Estado de implementación (2026-06-16):** la migración Operations (Hanken/Stone/sunset/ember en `:root`) **ya está aplicada** en `tokens.css` — la nota histórica "pendiente de aprobación" más abajo quedó vieja. El dark de Operations es **zinc neutro `#111111`** (decisión "esto es serio"), NO el espresso `#16130F` que describen las tablas históricas; el espresso quedó scopeado solo a `/portal`.
 
+> **Contrato de ingeniería de UI (2026-07-10):** el *cómo se construye* (fundamento cognitivo, matriz de estados, a11y AA+APCA, presupuesto de motion + limpieza de ciclo de vida, container queries, error boundaries, formateo de dominio, XSS, estado-en-URL) está codificado como BINDING en la sección [Ingeniería de UI](#ingeniería-de-ui--contrato-de-implementación-binding). Se verifica en review.
+
 > **Norte de estilo — directiva "quiet luxury" (2026-06-23):** el surface Operations toma como referencia absoluta a **Linear · Stripe · Vercel (Geist)**: minimalismo técnico, herramienta profesional, máxima densidad sin sacrificar claridad. Reglas que **mandan** (refuerzan/afinan lo de abajo):
 > 1. **Estructura casi monocromática.** El color de marca (sunset `--action`) se reserva para **CTAs, enlaces activos y el estado seleccionado** — nada de decorar con color. Semánticos (ok/warn/bad) **desaturados y controlados**, solo en badges de estado.
 >    - **Excepción confirmada (decisión Edgar 2026-06-23):** los **accents de color por card** en `MetricCard` y las gráficas (sparkline/bars/gauge/donut) **se conservan** — ahí el color **codifica dato**, no decora (igual que los charts de Linear/Stripe). No atenuar a monocromo. La regla "casi monocromático" aplica a la **estructura/chrome** (tablas, paneles, navegación, formularios), no a la capa de data-viz.
 > 2. **Separadores apenas perceptibles:** borde 1px (`--border-color`/`--c-divider`); profundidad con sombras mínimas (`shadow-sm`) o ring 1px, **nunca** sombras difusas/pesadas. Radios discretos (`md`/`lg`); pill solo para badges.
 > 3. **Densidad Stripe:** `--fs-sm` base, `--fs-xs` para metadatos; jerarquía por **contraste de texto** (`c-text-1` principal / `c-text-2`/`c-text-3` secundario).
 > 4. **Tablas:** padding compacto, números/estados a la derecha, texto a la izquierda, **filas separadas por divisor inferior 1px fino**. ⛔ **NADA de zebra striping** (se ve anticuado) — `surf-table--zebra` quedó **neutralizado (no-op)**. Detalle en [`docs/DESIGN_TABLES.md`](docs/DESIGN_TABLES.md).
+
+---
+
+## ✈️ Checklist pre-vuelo (LEER ANTES DE TOCAR FRONTEND)
+
+> **Regla dura:** antes de crear o editar cualquier archivo frontend (componente Angular, HTML, SCSS/CSS, token), se lee esta sección + [`tokens.css`](apps/view/src/styles/tokens.css). No es opcional.
+> Cada punto enlaza a su detalle binding abajo. Si algo aquí choca con el requerimiento, se expone el conflicto y decide Edgar — no se resuelve en silencio.
+
+**1. Ubicá tu surface.** [Storefront](#surfaces--dos-modes-del-mismo-sistema) (`/portal/*`, editorial, Poppins, comfortable) o [Operations](#mercado--operations--surface-interno) (`/dashboard` · `/comercial` · `/logistica` · `/admin` · `/vendor` · `/televenta`; denso, sin Fraunces/Poppins display, quiet-luxury). Las reglas cambian por surface.
+
+**2. Cero hex crudo.** Referenciá un [rol/token de 3 tiers](#arquitectura-de-tokens-3-tiers--interacción--densidad-por-puntero); si no existe, agregá el token, no un literal. Estados de superficie = alpha-overlays sobre `--ink-rgb`, no hex por interacción.
+
+**3. PrimeNG-first.** Lo que PrimeNG cubra, con PrimeNG (`p-table`, `p-tag`, `p-dialog`), no HTML crudo. Overrides vía theming/token, sin `!important`.
+
+**4. Tipografía por rol.** Body = Hanken Grotesk · data/cifras/SKU/folio = Geist Mono con **`tabular-nums` obligatorio** · display Poppins **solo** en Storefront. Nunca Fraunces (retirada) ni `system-ui` como display.
+
+**5. Color disciplinado (quiet-luxury).** Marca (sunset `--action`) solo en CTA / activo / seleccionado / foco. IA = **ember** (mata morado `#8b5cf6` y azul `#2563EB`). Semánticos vía `p-tag [severity]`, nunca hex inline. Color nunca es único portador de significado (+ icono/texto). Excepción: data-viz (`--chart-*`) y accent por `MetricCard` codifican dato.
+
+**6. Matriz de estados completa** (el happy path no basta): `hover` · `focus-visible` (ring tokenizado, jamás `outline:none`) · `active` (crítico en touch) · `disabled`; `loading` (skeleton dimensionado, CLS 0) · `empty` (con CTA + microcopy de dominio) · `error` (`catchError` + banner + reintento) · `overflow` (texto 10×). **Empty ≠ error de red.** → [Ingeniería de UI §2](#ingeniería-de-ui--contrato-de-implementación-binding).
+
+**7. Datos densos** (Operations): [elevación = borde 1px *o* sombra, nunca ambas](#reglas-canónicas-de-datos-densos-crm--inventario--binding); fila tokenizada (`--row-h-*`); optimistic UI sin spinner; skeleton-filas; header sticky + 1ª columna congelada; side-peek para detalle; inline-edit 1 campo; **nada de zebra**.
+
+**8. Motion con techo** (150/250/**350ms máx**, ease-out): **solo `transform`+`opacity`**; `prefers-reduced-motion`; `NgZone.runOutsideAngular` para callbacks de alta frecuencia; limpiar en `DestroyRef`. GSAP **no** es dependencia hoy. → [Ingeniería de UI §4](#ingeniería-de-ui--contrato-de-implementación-binding).
+
+**9. Reutilizable = `libs/` + container queries.** Componente que se embebe en varios anchos reacciona a `@container`, no a viewport. → [§5](#ingeniería-de-ui--contrato-de-implementación-binding).
+
+**10. Dominio + seguridad.** Divisa/fecha vía `Intl`/pipes es-MX (`registerLocaleData`); TZ ya normalizada en backend, no re-convertir con `new Date()`. Cero `[innerHTML]` sin `DomSanitizer`; jamás `bypassSecurityTrustHtml` sobre input de usuario. Estado de filtros/selección en URL. → [§7–§9](#ingeniería-de-ui--contrato-de-implementación-binding).
+
+**11. a11y AA piso** (APCA guía en texto chico): `aria-label` en icon-buttons, foco al abrir/retorno al cerrar dialogs, targets ≥44px en touch (`pointer: coarse`). → [§3](#ingeniería-de-ui--contrato-de-implementación-binding).
+
+**12. Verificá.** Build prod `nx build <p> --skip-nx-cache` de lo tocado; probar vivo (endpoint nuevo → o avisar que falta restart); QA con datos reales extremos, light+dark+móvil.
+
+---
 
 ## Arquitectura de tokens (3 tiers + interacción + densidad por puntero)
 
@@ -246,6 +281,8 @@ Derivados de la investigación (`docs/IMPLEMENTACION/INVESTIGACION_UX_PORTAL_VEN
 
 ## Hallazgos del portal actual (auditoría 2026-06-04)
 
+> 🗄️ **HISTÓRICO — mayormente resuelto.** Los 🔴/🟡 (morado IA→ember, Inter→Hanken, amarillo→sunset, Zinc→Stone, dark espresso) ya se aplicaron; se conserva por trazabilidad, no es checklist operativo. Lo vigente está en el [checklist pre-vuelo](#️-checklist-pre-vuelo-leer-antes-de-tocar-frontend).
+
 Prioridad: 🔴 alto impacto · 🟡 medio · 🟢 pulido.
 
 1. 🔴 **AI-slop morado.** `--ai-accent: #8b5cf6` (chips "Sugeridos IA" en `portal-catalog`) es exactamente el morado al que toda la industria convergió. La IA — tu diferenciador #1 — está pintada del color más genérico posible. **Fix:** reemplazar por `--ember-grad`. Bajo esfuerzo, máximo payoff.
@@ -262,6 +299,8 @@ Prioridad: 🔴 alto impacto · 🟡 medio · 🟢 pulido.
 ---
 
 ## Plan de migración (cuando se implemente — no tocar código aún)
+
+> 🗄️ **HISTÓRICO — APLICADO.** La migración del portal (fonts, Stone, `--action`, ember, dark espresso, regla display) ya está en código. Se conserva como registro del alcance ejecutado.
 
 Casi todo es **swap de tokens** en `tokens.css`, por eso el costo real es bajo:
 1. Cargar fonts nuevas en `index.html` (Fraunces + Hanken Grotesk + Geist Mono).
@@ -390,7 +429,9 @@ Regla: siempre `p-tag` con `[severity]` mapeado a token semántico. Nunca hex in
 
 ### Plan de migración Operations (tokens-only, sin tocar componentes)
 
-Costo bajo: casi todo es swap de tokens en `tokens.css`. **NO aplicado todavía — pendiente de aprobación del diff.**
+> 🗄️ **HISTÓRICO — APLICADO (2026-06-16).** La migración Operations (Hanken/Stone/sunset/ember en `:root`) ya está en `tokens.css`; el dark de Operations quedó en **zinc neutro `#111111`** (no espresso — ver nota de estado del encabezado). Se conserva como registro. *(La nota "NO aplicado todavía" quedó obsoleta.)*
+
+Costo bajo: casi todo es swap de tokens en `tokens.css`.
 
 1. `--font-body` → Hanken Grotesk globalmente en `:root` (hoy `Inter`).
 2. `--font-mono` → Geist Mono globalmente (hoy `JetBrains Mono`).
@@ -418,6 +459,73 @@ QA tras migrar:
 - Hex inline en color de pin Leaflet u otros componentes compartidos.
 - Centered everything en empties.
 - Empty state "No items found." sin contexto ni CTA.
+
+---
+
+## Ingeniería de UI — contrato de implementación (BINDING)
+
+> Alcance: **toda** superficie (Storefront + Operations + apps instalables). Añadido 2026-07-10.
+> Complementa lo visual con el *cómo se construye*: por qué una composición funciona a nivel cerebral, cómo no se rompe con datos/errores reales, y cómo el motion no janquea ni fuga memoria. Base teórica: [`docs/DESIGN_FOUNDATIONS.md`](docs/DESIGN_FOUNDATIONS.md). Estas reglas se **verifican en review**, no son aspiracionales.
+
+### 1. Fundamento cognitivo obligatorio (el *por qué*, no la etiqueta)
+Toda decisión de layout se justifica por su **mecanismo perceptual**, no citando la ley suelta:
+- **Gestalt (proximidad/similitud/continuidad)** = agrupación que baja el parsing visual de *n* elementos a *k* grupos. Un grupo se forma con **espaciado** (escala 4px), no con cajas/bordes por default — el borde es el último recurso, no el primero.
+- **Hick** = recortar decisiones *simultáneas*. En toolbars densas y menús: curaduría + progressive disclosure antes que listar 20 acciones planas (→ `⌘K` cuando hay 20+ destinos, regla ya binding en datos densos §12).
+- **Fitts** = target = f(distancia, tamaño). CTA primario grande y en zona alcanzable; en touch, `≥44px` (ya tokenizado por `pointer: coarse`). **Conflicto densidad↔Fitts:** en Operations `fine` gana la densidad (32–40px); en `coarse` gana Fitts (44px). No se promedia — lo decide el puntero.
+- **Carga cognitiva** = la composición elegida debe *reducir esfuerzo mental*; si un layout necesita una leyenda para entenderse, falló. Jerarquía por **contraste de texto y peso**, no por más color.
+- Patrón de lectura **Z** (pantallas de marketing/storefront) vs **F** (tablas/listas densas Operations): el CTA/acción principal cae donde el patrón deposita el ojo, no centrado por estética.
+
+### 2. Matriz de estados por componente (el happy path es la fila 1, no la entrega)
+Ningún componente se considera terminado sin sus estados. Cada entrega los declara:
+- **Interacción:** `hover` · `focus-visible` (ring tokenizado, **nunca** `outline:none` a secas) · `active` · `disabled`. En touch, `active` (feedback ≤100ms) es el estado crítico — **nada** puede depender solo de `hover`.
+- **Datos:** `loading` (skeleton dimensionado al contenido real → CLS 0; shimmer, no spinner de bloque — ya binding §4 datos densos) · `empty` (con acción de recuperación y microcopy de dominio, ver §7) · `error` (`catchError` + banner + reintento aislado — regla del repo "nunca fallar callado") · `overflow` (texto 10× — `truncate`+`title` o `line-clamp` justificado; números de 8 dígitos que no rompan columna).
+- **Empty ≠ error de red:** son pantallas distintas. Nunca mostrar "no hay datos" cuando fue un fetch fallido (bug vivo documentado en PWA §5).
+
+### 3. a11y técnica — AA piso duro, APCA como guía perceptual
+- **Contraste:** WCAG **AA** es el requisito formal/legal (piso innegociable); **APCA** es el mejor predictor perceptual y manda cuando difieren, sobre todo en texto ≤14px de celdas densas (buscar Lc≥75 para body chico). Justificar el par de color con ambas métricas cuando no coincidan. Tokens en OKLCH (`FOUNDATIONS`).
+- **Semántica + ARIA:** roles correctos; `aria-label` en todo icon-button; `aria-current` en selección master; labels `for/id` en inputs. El color **nunca** es único portador de significado (+ icono/texto — ya binding).
+- **Foco:** navegación por teclado fluida; al abrir `p-dialog`/side-peek → mover foco dentro + **retornarlo al trigger** al cerrar; foco no obstruido por headers sticky. PrimeNG trae base ARIA pero **no es gratis** — se verifica, no se asume.
+
+### 4. Presupuesto de motion + ciclo de vida (60fps o no se anima)
+> Extiende el techo de motion ya binding (§11 datos densos, §Motion KPI). **GSAP no es dependencia del monorepo hoy** — estas reglas rigen CSS/Web Animations API por default y GSAP *si/cuando* se introduzca (evaluar bundle + lazy).
+- **Solo propiedades de compositor:** `transform` + `opacity`. Prohibido animar `width/height/top/left/margin/padding/box-shadow` (layout thrashing/reflow). Si un efecto "lo necesita", se rediseña con `scale`/`clip-path`/crossfade de capas.
+- **`will-change` quirúrgico y temporal**, nunca permanente (cada capa promovida come VRAM).
+- **Zone.js:** toda animación con callbacks de alta frecuencia (`onUpdate`, ScrollTrigger, rAF) corre en `NgZone.runOutsideAngular()`; solo re-entrar (`zone.run()`) si un callback debe mutar estado de app. El jank suele venir de change detection por tick, no del compositor.
+- **Limpieza (memory leaks):** escopar al host y limpiar en `DestroyRef`. Con GSAP: `gsap.context(...)` + `destroyRef.onDestroy(() => ctx.revert())` — `revert()` sobre `kill()` porque además **restaura estilos inline** (crítico si el componente se re-instancia por navegación). ScrollTriggers viven dentro del context y mueren con él.
+- **`prefers-reduced-motion`** gatea todo (`gsap.matchMedia()` o media query CSS) — ya patrón en el repo (`motion-safe`).
+
+### 5. Container queries sobre media queries en componentes reutilizables (Nx)
+- Un componente que vive en `libs/` y se embebe en distintos anchos (tabla de inventario en Operations *y* en `/portal`) **no** decide su layout interno por viewport (`md:`/`lg:`/`@media`) sino por el espacio que le da el padre: `@container` de Tailwind sobre un wrapper con `container-type: inline-size`.
+- **Trampa:** `container-type` establece contención de tamaño y **rompe elementos que se desbordan a propósito** (overlays PrimeNG, `p-overlay`, tooltips). Regla: container query en el *wrapper de layout*, no en el nodo que ancla overlays.
+- Componente reutilizable cross-app = vive en `libs/`, no en `apps/view`.
+
+### 6. Error boundaries por sección + degradación elegante
+- Angular **no** tiene error boundaries nativos — se construyen. Dos capas: `ErrorHandler` global para lo no capturado + por sección el patrón `catchError` con estado local y reintento aislado (reintenta *esa* query, no recarga la vista).
+- Si una sección revienta (datos o render), el error se **contiene en ese nodo**; header, nav y demás secciones siguen operativas. Nada de pantalla en blanco.
+
+### 7. Rigor de dominio (divisas, cantidades, fechas, TZ)
+- La UI **nunca** renderiza número/fecha crudos. Divisa vía `Intl.NumberFormat('es-MX', {currency:'MXN'})` o `CurrencyPipe`; fechas con locale MX explícito.
+- **`tabular-nums` innegociable** en toda columna numérica/dinero/qty/fecha (ya binding) — sin él los montos "bailan" y la tabla densa se ve rota. Números a la derecha, texto a la izquierda (jerarquía de lectura, no estética).
+- **TZ:** backend ya normaliza en `America/Mexico_City` (`apps/api/src/shared/date/mx-date.ts`). Frontend: **no** re-convertir con `new Date()` ingenuo del navegador (descuadra el pedido de las 11:50 PM). Renderizar la fecha ya normalizada sin doble conversión.
+- **i18n gotcha:** los pipes con locale `es-MX` requieren `registerLocaleData(localeEsMx)` en bootstrap, o `CurrencyPipe`/`DatePipe` caen a `en-US` en silencio. Verificar una vez a nivel app.
+- **Microcopy = capa de diseño.** Empty/error/confirmaciones en español operativo de Mega Dulces con acción de recuperación ("No hay pedidos hoy" + CTA), nunca "No data found" placeholder.
+
+### 8. Sanitización del render (XSS) — cero confianza en datos inyectados
+- La data la teclean vendedores y captura de campo (nombres de producto, notas de visita): el vector es real en el backoffice.
+- Default: interpolación `{{ }}` (Angular ya escapa). `[innerHTML]` **solo** con directiva de negocio explícita y pasando por `DomSanitizer.sanitize(SecurityContext.HTML, …)`.
+- ⛔ **Nunca** `bypassSecurityTrustHtml` sobre input de usuario (ése es exactamente el agujero). Rich text real → allowlist de tags, no saneo ad-hoc.
+
+### 9. Estado en la URL + optimistic UI
+- **URL como fuente de verdad** en Operations con filtros/master-detail: filtro activo, fila seleccionada, tab y rango de fechas viven en query params, no solo en signals. Si no, F5 pierde contexto y no se puede compartir "este pedido filtrado".
+- **Optimistic UI** en toda mutación de 1 registro (confirmar pedido, aprobar requisición, editar inline): pintar resultado optimista → reconciliar con server → rollback **visible** en error, sin spinner (ya binding §3 datos densos). Es decisión de UX por acción.
+
+### 10. Verificación (definition of done)
+- **Se prueba vivo, no se promete.** Con Chrome DevTools/Playwright MCP: screenshot en light/dark/móvil, trace de performance real. Endpoint nuevo → probar vivo o avisar que falta restart (regla del repo).
+- Build de prod `nx build <p> --skip-nx-cache` de **todo** lo tocado (dev/caché tapa errores).
+- QA visual contra **datos reales extremos** (nombres 80c, RFC raro, tablas 4k filas → virtual scroll, montos 8 dígitos), no lorem ipsum.
+
+### 11. Gobernanza
+Cuando un requerimiento choque con `DESIGN.md`, **no se resuelve en silencio**: se expone el conflicto y decide el usuario. "No desviarse del DS sin aprobación."
 
 ---
 
@@ -477,6 +585,7 @@ Una app instalada **promete capacidades nativas**: arranca offline, se ve como a
 ## Decisions Log
 | Fecha | Decisión | Razón |
 |------|----------|-------|
+| 2026-07-10 | **Contrato de ingeniería de UI BINDING** (fundamento cognitivo, matriz de estados, a11y AA+APCA, presupuesto de motion + ciclo de vida/Zone.js/`ctx.revert`, container queries en `libs/`, error boundaries por sección, formateo `Intl`+TZ+`tabular-nums`, XSS/`DomSanitizer`, estado-en-URL, optimistic UI, i18n locale) | Codifica el *cómo se construye* que faltaba: el DS visual no garantiza que la UI no se rompa con datos reales/errores ni que el motion no janquee/fugue memoria. GSAP aún no es dependencia — reglas rigen CSS/WAAPI hoy y GSAP si/cuando entre. |
 | 2026-06-24 | **Display Storefront: Fraunces serif → Poppins** (sans geométrica). *Supersede la decisión 2026-06-04 de conservar Fraunces.* | El usuario quiere la identidad tipográfica tipo Rappi (delivery app), no editorial-serif. Poppins es el análogo libre más cercano a "Rappi Sans". Body sigue Hanken Grotesk. Operations no cambia. |
 | 2026-06-24 | Firma de botones «Confite» (pill + gloss + lip + press) + portal monocromático con acento de marca | Darle al portal una identidad táctil propia (la "esencia" tipo Rappi) sin perder el quiet-luxury. Una sola acción en color; thumbnails/chrome neutros. Implementado en `.portal-btn-*` + util de placeholders. |
 | 2026-06-24 | Patrones P0/P1 aplicados al portal (reorden-primero, promo nativa, CTA sticky, cross-sell, upsell de mínimo, tab bar 4+búsqueda) | Traducción de la investigación UX (Baymard/NN-g/Polaris/M3/Instacart) a código. Ver `docs/IMPLEMENTACION/INVESTIGACION_UX_PORTAL_VENTA.md`. |
@@ -528,6 +637,8 @@ Antes de inventar interacciones, respetar:
 ---
 
 ## Auditoría del portal vs. estos principios (2026-06-04)
+
+> 🗄️ **HISTÓRICO.** Auditoría de origen; la capa de botón «Confite» y varios targets 44px ya se aplicaron (ver estado del sprint Atomic abajo). Referencia, no checklist operativo.
 
 🔴 alto · 🟡 medio · 🟢 pulido
 
