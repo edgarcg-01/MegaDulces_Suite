@@ -71,6 +71,33 @@ export const anyPermissionGuard = (...requiredPermissions: Permission[]): CanAct
   };
 };
 
+/**
+ * Landing de `/comercial`: elige la primera superficie que el usuario puede ver,
+ * en orden de prioridad. Antes el índice redirigía SIEMPRE a command-center, que
+ * exige COMMERCIAL_ANALYTICS_VER — un rol acotado (p.ej. solo Sell-Out) quedaba
+ * rebotado a /dashboard/captures y sin forma de llegar a su única página.
+ * Devuelve un UrlTree (redirección) siempre; no renderiza componente.
+ */
+export const comercialHomeGuard: CanActivateFn = () => {
+  const authService = inject(AuthService);
+  const perms = inject(PermissionsService);
+  const router = inject(Router);
+
+  if (!authService.isAuthenticated) return router.parseUrl('/login');
+
+  const p = authService.user()?.permissions || {};
+  const god = perms.can('manage', 'all');
+  const has = (k: Permission) => god || p[k] === true;
+
+  if (has(Permission.COMMERCIAL_ANALYTICS_VER)) return router.parseUrl('/comercial/command-center');
+  if (has(Permission.COMMERCIAL_ORDERS_VER)) return router.parseUrl('/comercial/orders');
+  if (has(Permission.COMMERCIAL_CUSTOMERS_VER)) return router.parseUrl('/comercial/customers');
+  if (has(Permission.COMMERCIAL_PRICING_VER)) return router.parseUrl('/comercial/pricing');
+  if (has(Permission.COMMERCIAL_SELLOUT_VER)) return router.parseUrl('/comercial/sell-out');
+  // Sin superficie comercial concreta: command-center + su permissionGuard decide el fallback.
+  return router.parseUrl('/comercial/command-center');
+};
+
 export const colaboradorGuard: CanActivateFn = (route, state) => {
   const authService = inject(AuthService);
   const perms = inject(PermissionsService);

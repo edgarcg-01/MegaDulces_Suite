@@ -103,7 +103,8 @@ export const PERMISSION_META: Record<string, PermissionMetaEntry> = {
 
   // ── Fase AZ — permisos jerárquicos nuevos ─────────────────────────────
   [Permission.ROLES_VER]: { label: 'Ver Roles', description: 'Consultar roles y sus permisos (solo lectura).', category: 'Configuración' },
-  [Permission.COMMERCIAL_ANALYTICS_VER]: { label: 'Ver Analítica Comercial', description: 'Command center, sell-out, salidas, ventas por ruta, dead-stock, salud de inventario, cliente 360 e histórico de venta.', category: 'Comercial · Analítica' },
+  [Permission.COMMERCIAL_ANALYTICS_VER]: { label: 'Ver Analítica Comercial', description: 'Command center, salidas, ventas por ruta, dead-stock, salud de inventario, cliente 360 e histórico de venta. (Sell-Out tiene su propio permiso.)', category: 'Comercial · Analítica' },
+  [Permission.COMMERCIAL_SELLOUT_VER]: { label: 'Ver Sell-Out por empresa', description: 'Solo el reporte Sell-Out por empresa (RS): matriz producto × sucursal con cajas y monto, + XLSX/PDF. No abre el resto de la analítica.', category: 'Comercial · Analítica' },
   [Permission.COMMERCIAL_CARTERA_VER]: { label: 'Ver Cartera', description: 'Consultar la cartera de ventas y la asignación de rutas a vendedores.', category: 'Comercial · Cartera' },
   [Permission.COMMERCIAL_CARTERA_GESTIONAR]: { label: 'Gestionar Cartera', description: 'Asignar rutas y orden de visita a los vendedores.', category: 'Comercial · Cartera' },
   [Permission.COMMERCIAL_PRODUCTS_VER]: { label: 'Ver Productos', description: 'Consultar el catálogo comercial de productos.', category: 'Comercial' },

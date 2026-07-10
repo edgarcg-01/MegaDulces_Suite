@@ -498,21 +498,21 @@ export class CommercialAnalyticsController {
   // ─────────── Fase RS — Generador Sell-Out por empresa ───────────
 
   @Get('sell-out/brands')
-  @RequirePermissions(Permission.COMMERCIAL_ANALYTICS_VER)
+  @RequirePermissions(Permission.COMMERCIAL_SELLOUT_VER)
   @ApiOperation({ summary: 'RS — Empresas/proveedores (marcas con productos) para el selector de reporte.' })
   sellOutBrands(@Query('search') search?: string) {
     return this.service.sellOutBrands(search);
   }
 
   @Get('sell-out/warehouses')
-  @RequirePermissions(Permission.COMMERCIAL_ANALYTICS_VER)
+  @RequirePermissions(Permission.COMMERCIAL_SELLOUT_VER)
   @ApiOperation({ summary: 'RS — Almacenes/sucursales con venta (para el selector del reporte).' })
   sellOutWarehouses() {
     return this.service.sellOutWarehouses();
   }
 
   @Get('sell-out')
-  @RequirePermissions(Permission.COMMERCIAL_ANALYTICS_VER)
+  @RequirePermissions(Permission.COMMERCIAL_SELLOUT_VER)
   @ApiOperation({
     summary:
       'RS — Reporte Sell-Out: matriz Producto × (Sucursal[×Canal]) con cajas + monto. Fuente = analytics.sales_daily. Params: brand_id, from, to, group_by=branch|branch_channel, channels=csv, warehouses=csv (códigos), include_zeros=true.',
@@ -533,7 +533,7 @@ export class CommercialAnalyticsController {
   }
 
   @Get('sell-out.xlsx')
-  @RequirePermissions(Permission.COMMERCIAL_ANALYTICS_VER)
+  @RequirePermissions(Permission.COMMERCIAL_SELLOUT_VER)
   @ApiOperation({ summary: 'RS — Descarga XLSX del reporte Sell-Out (mismos params que /sell-out).' })
   async sellOutXlsx(
     @Res() res: Response,
@@ -555,7 +555,7 @@ export class CommercialAnalyticsController {
   }
 
   @Get('sell-out.pdf')
-  @RequirePermissions(Permission.COMMERCIAL_ANALYTICS_VER)
+  @RequirePermissions(Permission.COMMERCIAL_SELLOUT_VER)
   @ApiOperation({ summary: 'RS — Descarga PDF del reporte Sell-Out (mismos params que /sell-out).' })
   async sellOutPdf(
     @Res() res: Response,

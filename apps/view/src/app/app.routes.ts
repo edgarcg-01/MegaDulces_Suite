@@ -3,7 +3,7 @@ import { LoginComponent } from './modules/auth/login/login.component';
 import { ProjectsComponent } from './modules/projects/projects/projects.component';
 import { LayoutComponent } from './modules/dashboard/layout/layout.component';
 import { authGuard } from './core/guards/auth.guard';
-import { permissionGuard, anyPermissionGuard, colaboradorGuard } from './core/guards/permission.guard';
+import { permissionGuard, anyPermissionGuard, colaboradorGuard, comercialHomeGuard } from './core/guards/permission.guard';
 import { Permission } from './core/constants/permissions';
 import { televentaGuard } from './modules/televenta/televenta.guard';
 import { repartoGuard } from './modules/reparto/reparto.guard';
@@ -72,7 +72,15 @@ export const routes: Routes = [
     canActivate: [authGuard],
     component: LayoutComponent,
     children: [
-      { path: '', redirectTo: 'command-center', pathMatch: 'full' },
+      // Landing dinámico: comercialHomeGuard devuelve un UrlTree a la primera
+      // superficie accesible del rol (command-center, orders, …, sell-out). El
+      // loadComponent nunca corre porque el guard siempre redirige.
+      {
+        path: '',
+        pathMatch: 'full',
+        canActivate: [comercialHomeGuard],
+        loadComponent: () => import('./modules/dashboard/command-center/command-center.component').then(m => m.CommandCenterComponent),
+      },
       {
         path: 'command-center',
         loadComponent: () => import('./modules/dashboard/command-center/command-center.component').then(m => m.CommandCenterComponent),
@@ -125,7 +133,7 @@ export const routes: Routes = [
       {
         path: 'sell-out',
         loadComponent: () => import('./modules/comercial/pages/comercial-sell-out.component').then(m => m.ComercialSellOutComponent),
-        canActivate: [permissionGuard(Permission.COMMERCIAL_ANALYTICS_VER)]
+        canActivate: [permissionGuard(Permission.COMMERCIAL_SELLOUT_VER)]
       },
       {
         path: 'salidas',

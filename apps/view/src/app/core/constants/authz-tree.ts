@@ -113,6 +113,7 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
         modules: [
           { id: 'orders', label: 'Pedidos', route: '/comercial/orders', view: [Permission.COMMERCIAL_ORDERS_VER], manage: [Permission.COMMERCIAL_ORDERS_CREAR, Permission.COMMERCIAL_ORDERS_CONFIRMAR, Permission.COMMERCIAL_ORDERS_CANCELAR, Permission.COMMERCIAL_ORDERS_FULFILL, Permission.COMMERCIAL_PAYMENTS_REGISTRAR, Permission.COMMERCIAL_PAYMENTS_VERIFICAR, Permission.COMMERCIAL_PAYMENTS_REVERSAR, Permission.COMMERCIAL_RIDER_LIQUIDATION_GESTIONAR] },
           { id: 'analytics', label: 'Analítica comercial', route: '/comercial/command-center', view: [Permission.COMMERCIAL_ANALYTICS_VER], manage: [] },
+          { id: 'sellout', label: 'Sell-Out por empresa', route: '/comercial/sell-out', view: [Permission.COMMERCIAL_SELLOUT_VER], manage: [] },
           { id: 'customers', label: 'Clientes', route: '/comercial/customers', view: [Permission.COMMERCIAL_CUSTOMERS_VER], manage: [Permission.COMMERCIAL_CUSTOMERS_GESTIONAR] },
           { id: 'cartera', label: 'Cartera / asignación', route: '/comercial/cartera', view: [Permission.COMMERCIAL_CARTERA_VER], manage: [Permission.COMMERCIAL_CARTERA_GESTIONAR] },
           { id: 'pricing', label: 'Precios', route: '/comercial/pricing', view: [Permission.COMMERCIAL_PRICING_VER], manage: [Permission.COMMERCIAL_PRICING_GESTIONAR] },

@@ -31,6 +31,7 @@ export type AppSubject =
   | 'commercial_warehouses'
   | 'commercial_pricing'
   | 'commercial_inventory'
+  | 'commercial_sellout'
   | 'commercial_orders'
   | 'commercial_payments'
   | 'commercial_promotions'
