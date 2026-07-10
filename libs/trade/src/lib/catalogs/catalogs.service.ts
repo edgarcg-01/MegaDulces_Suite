@@ -111,13 +111,19 @@ export class CatalogsService {
       // Enriquecido para la vista de roles: incluye el JSONB de permisos
       // (para la barra de cobertura + desglose por módulo), el conteo de
       // usuarios asignados y la fecha de última modificación.
+      // tenant_id EXPLÍCITO: KNEX_CONNECTION no es RLS-scoped, y el mismo
+      // role_name existe en cada tenant (UNIQUE tenant_id, role_name). Sin el
+      // filtro devolvería roles de TODOS los tenants (cross-tenant leak).
+      const tenantId = this.tenantCtx.requireTenantId();
       const userCounts = this.knex('users')
+        .where('tenant_id', tenantId)
         .select('role_name')
         .count('* as user_count')
         .groupBy('role_name')
         .as('uc');
 
       const roles = await this.knex('role_permissions as rp')
+        .where('rp.tenant_id', tenantId)
         .leftJoin(userCounts, 'uc.role_name', 'rp.role_name')
         .orderBy('rp.role_name', 'asc')
         .select(
@@ -303,7 +309,13 @@ export class CatalogsService {
     }
 
     if (type === 'roles') {
-      const existing = await this.knex('role_permissions').where({ id }).first();
+      // tenant_id EXPLÍCITO: KNEX_CONNECTION no es RLS-scoped. El lookup por PK
+      // UUID no colisiona entre tenants, pero el conteo de usuarios por
+      // role_name SÍ cuenta usuarios de otros tenants → bloqueo/permiso erróneo.
+      const tenantId = this.tenantCtx.requireTenantId();
+      const existing = await this.knex('role_permissions')
+        .where({ id, tenant_id: tenantId })
+        .first();
       if (!existing) {
         throw new NotFoundException('Rol no encontrado');
       }
@@ -315,7 +327,7 @@ export class CatalogsService {
       }
 
       const usersWithRole = await this.knex('users')
-        .where({ role_name: existing.role_name })
+        .where({ role_name: existing.role_name, tenant_id: tenantId })
         .select('username');
 
       if (usersWithRole.length > 0) {
@@ -330,7 +342,7 @@ export class CatalogsService {
         );
       }
 
-      await this.knex('role_permissions').where({ id }).del();
+      await this.knex('role_permissions').where({ id, tenant_id: tenantId }).del();
       return { success: true };
     }
 
@@ -601,7 +613,11 @@ export class CatalogsService {
         throw new BadRequestException('El nombre del rol no puede estar vacío');
       }
 
-      const existing = await this.knex('role_permissions').where({ id }).first();
+      // tenant_id EXPLÍCITO: KNEX_CONNECTION no es RLS-scoped (ver delete/update).
+      const tenantId = this.tenantCtx.requireTenantId();
+      const existing = await this.knex('role_permissions')
+        .where({ id, tenant_id: tenantId })
+        .first();
       if (!existing) {
         throw new NotFoundException('Rol no encontrado para actualizar');
       }
@@ -621,7 +637,7 @@ export class CatalogsService {
       }
 
       const usersWithRole = await this.knex('users')
-        .where({ role_name: existing.role_name })
+        .where({ role_name: existing.role_name, tenant_id: tenantId })
         .select('username');
 
       if (usersWithRole.length > 0) {
@@ -638,9 +654,13 @@ export class CatalogsService {
 
       try {
         const [item] = await this.knex('role_permissions')
-          .where({ id })
+          .where({ id, tenant_id: tenantId })
           .update({ role_name: newName })
           .returning(['id', 'role_name as value']);
+        // Renombrar el rol deja usuarios con el role_name viejo huérfanos de
+        // permisos; hoy sólo se permite con 0 usuarios asignados, así que no hay
+        // cache que invalidar por usuarios activos. Se invalida por prolijidad.
+        this.permsCache.invalidate(existing.role_name, tenantId);
         return { ...item, is_system: isSystemRole(item.value) };
       } catch (error: any) {
         if (error.code === '23505') {
@@ -756,9 +776,15 @@ export class CatalogsService {
    * lanza 404. Los roles se crean explícitamente vía `create('roles', ...)`.
    */
   async getRolePermissions(roleName: string) {
+    // tenant_id EXPLÍCITO: sin él, `.first()` sobre el mismo role_name en
+    // varios tenants es no-determinista (UNIQUE tenant_id, role_name) → un
+    // tenant podía leer/editar los permisos de otro. KNEX_CONNECTION no aplica
+    // RLS. Mismo blindaje que PermissionsCacheService (incidente 2026-06-16).
+    const tenantId = this.tenantCtx.requireTenantId();
     const role = await this.knex('role_permissions as rp')
       .leftJoin('users as u', 'u.id', 'rp.updated_by')
       .where('rp.role_name', roleName)
+      .where('rp.tenant_id', tenantId)
       .select('rp.*', 'u.username as updated_by_username')
       .first();
     if (!role) {
@@ -789,8 +815,12 @@ export class CatalogsService {
       permissions?: Record<string, boolean>;
     },
   ) {
+    // tenant_id EXPLÍCITO en TODAS las queries: KNEX_CONNECTION no es RLS-scoped
+    // y el mismo role_name existe por tenant. Sin esto un editor podía leer y
+    // sobrescribir el rol homónimo de otro tenant.
+    const tenantId = this.tenantCtx.requireTenantId();
     const existing = await this.knex('role_permissions')
-      .where({ role_name: roleName })
+      .where({ role_name: roleName, tenant_id: tenantId })
       .first();
     if (!existing) {
       throw new NotFoundException(`Rol "${roleName}" no encontrado.`);
@@ -849,7 +879,7 @@ export class CatalogsService {
     }
 
     const [role] = await this.knex('role_permissions')
-      .where({ role_name: roleName })
+      .where({ role_name: roleName, tenant_id: tenantId })
       .update({
         permissions: sanitized,
         updated_by: requester?.sub,
@@ -859,7 +889,7 @@ export class CatalogsService {
 
     // Invalida el cache para que el cambio se vea en el SIGUIENTE request
     // de cualquier usuario con este rol — sin requerir logout/login.
-    this.permsCache.invalidate(roleName);
+    this.permsCache.invalidate(roleName, tenantId);
 
     this.logger.log(
       `Permissions updated for role "${roleName}" by ${requester?.sub ?? 'unknown'}`,

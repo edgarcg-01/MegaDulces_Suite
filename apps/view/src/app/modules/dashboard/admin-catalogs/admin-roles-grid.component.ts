@@ -9,7 +9,6 @@ import {
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { TooltipModule } from 'primeng/tooltip';
-import { Permission } from '../../../core/constants/permissions';
 import {
   PERMISSION_CATEGORY_ORDER,
   PERMISSION_META,
@@ -56,6 +55,15 @@ interface BreakdownGroup {
 }
 
 const MAX_CHIPS = 4;
+
+/**
+ * Roles de plataforma con god-mode (`manage:all`) en el backend. El acceso total
+ * se deriva del NOMBRE del rol (ver ability.factory `isPlatformAdminRole`), NO de
+ * un permiso de negocio. Antes el grid usaba `REPORTES_VER_GLOBAL` como proxy: un
+ * rol custom con ese flag mostraba "Acceso total" siendo falso, y admin/superadmin
+ * lo mostraban en NO. Mantener sincronizado con el backend.
+ */
+const PLATFORM_ADMIN_ROLES: readonly string[] = ['superadmin', 'admin'];
 
 @Component({
   selector: 'app-admin-roles-grid',
@@ -309,12 +317,19 @@ export class AdminRolesGridComponent {
     );
 
     const total = TOTAL_PERMISSIONS;
+    const isPlatformAdmin = PLATFORM_ADMIN_ROLES.includes(
+      (role.value || '').toLowerCase(),
+    );
     return {
       ...role,
-      enabledCount,
+      enabledCount: isPlatformAdmin ? total : enabledCount,
       total,
-      pct: total ? Math.round((enabledCount / total) * 100) : 0,
-      fullAccess: perms[Permission.REPORTES_VER_GLOBAL] === true,
+      pct: isPlatformAdmin
+        ? 100
+        : total
+          ? Math.round((enabledCount / total) * 100)
+          : 0,
+      fullAccess: isPlatformAdmin,
       modules,
       shownModules: modules.slice(0, MAX_CHIPS),
       extraModules: Math.max(0, modules.length - MAX_CHIPS),
