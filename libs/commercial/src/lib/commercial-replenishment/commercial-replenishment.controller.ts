@@ -117,4 +117,16 @@ export class CommercialReplenishmentController {
   setSupplierMinBoxes(@Param('id') id: string, @Body() body: { boxes: number | null }) {
     return this.svc.setSupplierMinBoxes(id, body?.boxes ?? null);
   }
+
+  @Get('suppliers')
+  @RequirePermissions(Permission.COMPRAS_VER)
+  @ApiOperation({ summary: 'RA-PRO.3 — proveedores con parámetros de compra (lead time + mínimo en cajas + # productos).' })
+  listSuppliers(@Query('search') search?: string) { return this.svc.listSuppliers({ search }); }
+
+  @Post('suppliers/:id/lead-time')
+  @RequirePermissions(Permission.COMPRAS_GESTIONAR)
+  @ApiOperation({ summary: 'RA-PRO.3 — lead time del proveedor en DÍAS (captura manual; Kepler no lo trae; body { days }).' })
+  setSupplierLeadTime(@Param('id') id: string, @Body() body: { days: number | null }) {
+    return this.svc.setSupplierLeadTime(id, body?.days ?? null);
+  }
 }

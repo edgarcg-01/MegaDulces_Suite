@@ -439,4 +439,39 @@ export class CommercialReplenishmentService {
       return { id: supplierId, min_order_boxes: val };
     });
   }
+
+  // ── RA-PRO.3 — Parámetros de compra por proveedor (lead time + mínimo) ─
+  // Kepler NO codifica lead time real (verificado: 73% de OC→entrada mismo día,
+  // promedio negativo → las fechas son artefacto de captura). Se captura manual;
+  // alimenta el punto de reorden (avg×lead) y el safety stock (Z×σ×√lead).
+  async listSuppliers(q?: { search?: string }) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      const base = trx('catalog.suppliers as sup')
+        .leftJoin('catalog.products as pr', (j) => j.on('pr.tenant_id', 'sup.tenant_id').andOn('pr.supplier_id', 'sup.id'))
+        .where('sup.tenant_id', tenantId);
+      if (q?.search && q.search.trim()) base.andWhereILike('sup.name', `%${q.search.trim()}%`);
+      return base
+        .groupBy('sup.id', 'sup.name', 'sup.lead_time_days', 'sup.min_order_boxes')
+        .select('sup.id', 'sup.name',
+          trx.raw('sup.lead_time_days AS lead_time_days'),
+          trx.raw('sup.min_order_boxes AS min_order_boxes'),
+          trx.raw('COUNT(pr.id)::int AS product_count'))
+        .orderBy('sup.name');
+    });
+  }
+
+  /** RA-PRO.3 — captura manual del lead time del proveedor (días). */
+  async setSupplierLeadTime(supplierId: string, days: number | null) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    if (!UUID_RX.test(supplierId)) throw new BadRequestException('supplier_id inválido');
+    const val = days == null || Number.isNaN(Number(days)) ? null : Math.min(365, Math.max(0, Math.round(Number(days))));
+    return this.tk.run(async (trx) => {
+      const n = await trx('catalog.suppliers')
+        .where({ tenant_id: tenantId, id: supplierId })
+        .update({ lead_time_days: val, updated_at: trx.fn.now() });
+      if (!n) throw new NotFoundException('Proveedor no encontrado');
+      return { id: supplierId, lead_time_days: val };
+    });
+  }
 }

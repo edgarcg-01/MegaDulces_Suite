@@ -137,6 +137,14 @@ export interface CreateRequisitionDto {
 }
 export interface ReceiveLine { line_id: string; received_qty: number; }
 
+export interface SupplierParam {
+  id: string;
+  name: string;
+  lead_time_days: number | null;
+  min_order_boxes: number | null;
+  product_count: number;
+}
+
 export type FindingKind = 'agotado_abc' | 'bajo_reorden';
 export type FindingSeverity = 'critica' | 'alta' | 'media';
 export interface ReplenishmentFinding {
@@ -228,6 +236,15 @@ export class ComprasService {
   /** RA.13a — captura del pedido mínimo del proveedor en cajas. */
   setSupplierMinBoxes(supplierId: string, boxes: number | null): Observable<{ id: string; min_order_boxes: number | null }> {
     return this.http.post<{ id: string; min_order_boxes: number | null }>(`${this.base}/suppliers/${supplierId}/min-boxes`, { boxes });
+  }
+
+  /** RA-PRO.3 — parámetros de compra por proveedor. */
+  listSuppliers(search?: string): Observable<SupplierParam[]> {
+    const qs = search ? `?search=${encodeURIComponent(search)}` : '';
+    return this.http.get<SupplierParam[]>(`${this.base}/suppliers${qs}`);
+  }
+  setSupplierLeadTime(supplierId: string, days: number | null): Observable<{ id: string; lead_time_days: number | null }> {
+    return this.http.post<{ id: string; lead_time_days: number | null }>(`${this.base}/suppliers/${supplierId}/lead-time`, { days });
   }
 
   /** RA.8 — bandeja de hallazgos de reabastecimiento. */
