@@ -70,7 +70,7 @@ El título y valor del precio grande **"Precio por ___"** siguen la unidad base:
 | CJA | Precio por **caja** | `box_price` (c92) |
 | BTO/CUB/otras/anomalías | bote/cubeta/pieza | c90 |
 
-**Gramaje:** parseado del nombre (`kdii.c2`); el regex cubre `50G/8`, `5K`/`20K` (K=kg), `5KGS`, `2OZ`, `500ML`, `1LT`. ~4,110 productos con gramaje; el resto son sin peso real (servilletas, vasos, conteos `/12`, granel sin número, promos).
+**Gramaje:** parseado del nombre (`kdii.c2`); el regex cubre `50G/8`, `5K`/`20K` (K=kg), `5KGS`, `2OZ`, `500ML`, `1LT`, **`5 LITROS`/`1LITRO`** (alternativas largas antes que las de 1 letra para que `LITROS`/`KILOGRAMOS` ganen sobre `l`/`k`). **4,148 productos (51.8%) con gramaje; 0 misses recuperables** (verificado 2026-07-09 vs data prod: todo nombre con peso parseable lo tiene). El resto (~48%) es sin peso real: dulces por pieza/conteo (`/6 /24 /30`), promos ("X = GRATIS Y"), artículos de fiesta (velas, bolsas, palitos, pelotas). El label oculta `content` cuando está vacío. Refresco directo contra prod (recompute desde `catalog.products.nombre`, respeta `source='manual'`).
 
 ---
 

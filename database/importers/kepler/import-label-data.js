@@ -28,19 +28,21 @@ const BATCH = 1000;
 /**
  * Extrae gramaje del nombre Kepler. Cubre convenciones vistas en el catálogo:
  *   "50G/8"→"50 g", "5K"→"5 kg" (K sola = kilo), "5KGS"→"5 kg", "2OZ"→"2 oz",
- *   "500ML"→"500 ml", "1LT"→"1 l". Lookahead (?![a-z0-9]) evita cazar la 1ª letra
- *   de otra palabra ("1 LUCAS", "1 GLASS"). sin match → null.
+ *   "500ML"→"500 ml", "1LT"→"1 l", "5 LITROS"→"5 l", "1LITRO"→"1 l". Alternativas
+ *   largas ANTES que las de 1 letra para que "LITROS"/"KILOGRAMOS" ganen sobre `l`/`k`
+ *   (esas se bloqueaban con el lookahead al chocar con la 2ª letra de la palabra).
+ *   Lookahead (?![a-z0-9]) evita cazar la 1ª letra de otra palabra ("1 LUCAS"). sin match → null.
  */
 function parseGramaje(name) {
   if (!name) return null;
-  const m = String(name).match(/(\d+(?:[.,]\d+)?)\s*(kgs?|kilos?|grs?|gramos?|mls?|lts?|oz|k|g|l)(?![a-z0-9])/i);
+  const m = String(name).match(/(\d+(?:[.,]\d+)?)\s*(kilogramos?|kgs?|kilos?|gramos?|grs?|mililitros?|mls?|litros?|lts?|oz|kg|gr|ml|lt|k|g|l)(?![a-z0-9])/i);
   if (!m) return null;
   const num = m[1].replace(',', '.');
   const raw = m[2].toLowerCase();
   let u;
   if (raw === 'oz') u = 'oz';
   else if (raw[0] === 'k') u = 'kg';
-  else if (raw.startsWith('ml')) u = 'ml';
+  else if (raw.startsWith('ml') || raw.startsWith('mili')) u = 'ml';
   else if (raw[0] === 'g') u = 'g';
   else u = 'l';
   return `${num} ${u}`;
