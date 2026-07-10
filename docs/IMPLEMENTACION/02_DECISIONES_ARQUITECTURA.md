@@ -892,6 +892,32 @@ Capas:
 
 ---
 
+## ADR-031 — **Cadena de compra real** (RA.15): Requisición → Orden de Compra → Orden de Entrada (la OE mueve stock)
+
+**Fecha:** 2026-07-10 · **Estado:** Aceptado (OK de Edgar 2026-07-10) · **Implementado (local)** · Extiende ADR-030.
+
+**Contexto:** El flujo de compras aplastaba toda la cadena en flags de estado sobre una sola tabla (`purchase_requisitions.estado`: approved→ordered→received) — "cada paso sólo cambiaba un botón". Re-verificación contra Kepler vivo (`md_03`, 2026-07-10) confirmó que la compra son **documentos distintos** con folio/fecha/líneas/costo propios: `X-A-30` requisición (opcional; 504/781 OCs nacen directas) → `X-A-35` OC → `X-A-37` vale → `X-A-40` orden de entrada (**única que toca el kardex `kdij`**) → `X-A-20` aplica/CxP. La mercancía entra al inventario **sólo en la orden de entrada**.
+
+**Decisión:** Modelar los 2 eslabones con valor operativo propio, sobre tablas nuevas en `commercial.*` (nunca write-back a Kepler): **OC** (`purchase_orders` + `_lines`, folio `OC-YYYY-NNNNN`, lo que se manda al proveedor, estado `open→partial→received`) y **OE** (`goods_receipts` + `_lines`, folio `OE-YYYY-NNNNN`, recepción que admite **parciales** — varias OE contra una OC — con costo real por línea). La requisición (RQ) sigue siendo la necesidad + aprobación HITL (nuestro valor; Kepler ni la exige). Al aprobar se genera la OC (RQ→ordered); al completar la recepción, RQ→received (traza). **La OE mueve `commercial.stock`** vía un movimiento `in` (mismo contrato que `CommercialInventoryService`, lock pesimista) al almacén destino; traspaso (branch) además descuenta el origen best-effort (clamp a disponible).
+
+**Reconciliación (clave):** el feed de stock de Kepler es un **snapshot absoluto** (`ON CONFLICT DO UPDATE SET quantity=EXCLUDED.quantity`, nightly). La OE es un **overlay optimista**: sube existencia al instante para visibilidad; el snapshot nocturno re-sincroniza a la verdad de Kepler (que ya trae su `X-A-40` porque MD captura la cadena "de golpe"). Auto-sanante, sin doble-conteo permanente → Kepler = verdad del inventario, nosotros = planeación + recepción.
+
+**Alternativas:**
+- OC/OE sin mover stock (sólo trazar) — rechazada por Edgar: quería el movimiento real.
+- Reservar `commercial.stock` como WMS autoritativo (feed aditivo, no snapshot) — rechazada: rompe la simplicidad del feed y duplica la verdad; Kepler ya es el WMS.
+- Seguir con flags sobre `purchase_requisitions` — rechazada: es el problema que originó el ADR (poco valor por paso).
+
+**Consecuencias:**
+- ✅ Cada paso es un documento con datos propios (folio, costo real, parciales, fill rate real por línea).
+- ✅ Recepción visible al instante en existencia; se auto-reconcilia con Kepler cada noche.
+- ⚠️ Ventana intra-día de posible sobre-conteo si Kepler ya procesó el `X-A-40` el mismo día → se corrige en el snapshot nocturno (aceptado para herramienta de planeación).
+- ⚠️ Traspaso (género `N`) es cadena distinta en Kepler; MVP mueve +destino/−origen en nuestras tablas sin espejar `N-D-6`/`N-A-6` documento-a-documento (diferido).
+- ⏸️ Diferido: `X-A-37` vale + `X-A-20` CxP (PaymentsService, Fase LM); auto-received por matching heurístico contra `X-A-40` de Kepler.
+
+**Plan:** [`FASES/FASE_RA_REABASTECIMIENTO.md`](FASES/FASE_RA_REABASTECIMIENTO.md) §RA.15.
+
+---
+
 ## Cómo agregar un ADR nuevo
 
 1. Copiar `ADR-000` (la plantilla) renombrando al siguiente número correlativo.

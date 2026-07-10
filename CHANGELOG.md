@@ -10,6 +10,14 @@
 
 ## [Unreleased]
 
+### Added — Cadena de compra real: Requisición → OC → OE que mueve stock (RA.15, ADR-031) (2026-07-10)
+- **Motivación (Edgar):** el flujo de compras aplastaba la cadena de Kepler en flags de estado ("cada paso sólo cambia un botón"). Re-verificado contra Kepler vivo (`md_03`): la compra son **documentos distintos** — `X-A-30` requisición (opcional) → `X-A-35` OC → `X-A-37` vale → `X-A-40` orden de entrada (**única que toca el kardex `kdij`**) → `X-A-20` aplica/CxP. Conteos 6-12m (br03): 279 req / 781 OC / 765 entrada; 504 OCs directas.
+- **Schema** (mig `20260710180000`, batch 164 local): `commercial.purchase_orders`+`_lines` (OC, folio `OC-YYYY-NNNNN`, estado `open→partial→received→cancelled`), `commercial.goods_receipts`+`_lines` (OE, folio `OE-YYYY-NNNNN`, **parciales**), `commercial.purchase_doc_sequences`. RLS forzado + FK compuestas `(tenant_id, id)`.
+- **Backend** `CommercialPurchaseOrdersService` (`/commercial/purchase-orders`): generar OC desde requisición aprobada (RQ→ordered), OC directa, lista/detalle, cancelar, y **recepción (OE) que MUEVE `commercial.stock`** (`in` al destino; traspaso además `out` al origen con clamp). Overlay optimista — el snapshot nocturno de Kepler reconcilia (sin doble-conteo permanente). Al completar: OC→received + RQ→received (traza). Fill rate = recibido/pedido.
+- **Frontend** `/compras/ordenes` (lista con avance) + `/compras/ordenes/:id` (detalle + diálogo de recepción parcial con costo real). Botón "Generar orden de compra" en la requisición aprobada. Nav "Órdenes de compra".
+- **Verificación:** smoke `test-newdb-purchase-chain.js` **21/21** (en la regression); builds api+view OK.
+- **Diferido:** vale `X-A-37` + CxP `X-A-20` (→ PaymentsService, Fase LM); auto-received por matching contra `X-A-40`; espejar traspaso género `N`. **Pendiente prod:** aplicar mig a Railway + redeploy api+view + re-login.
+
 ### Added — Diario de movimientos: mejora del reporte Kepler (feed + API + página) (2026-07-10)
 - **Fase DM** — reemplaza/mejora el reporte Kepler "Almacenes → Reportes → Existencia → Movimientos" (que lee `md.kdm1`⋈`md.kdm2`). Diseño rector: **agregación primero, folio a folio bajo demanda**.
 - **DM.0 feed** `analytics.stock_movements` (mig `20260710160000`, line-level, windowed) + importer `database/importers/kepler/import-stock-movements.js` (BULK, reusa `STOCK_BRANCH_MAP`). Qué mueve inventario lo decide el catálogo **autoritativo** `md.doctype` (`k_binv=1`, 14 tipos); el signo sale de la naturaleza (`c3`: `A`=entrada +, `D`=salida −). La factura `U/D/10` NO mueve stock → se excluye. **Validado** reconciliando Σ signed vs `md.kdil` existencia (48≈47 / 98≈84 / 18≈15). Dry-run md_03: 7,792 líneas.

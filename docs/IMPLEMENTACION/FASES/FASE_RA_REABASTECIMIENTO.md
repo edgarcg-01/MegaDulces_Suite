@@ -553,6 +553,29 @@ Cuánto pedimos vs cuánto llegó, para compensar faltantes crónicos del provee
 
 ---
 
+## RA.15 — Cadena de compra real: Requisición → OC → OE (la OE mueve stock) ✅ COMPLETADO (local) 2026-07-10
+
+**Motivación (Edgar):** el flujo colapsaba la cadena en flags de estado sobre una tabla — "cada paso sólo cambia un botón". Re-verificación contra Kepler vivo (`md_03`) confirmó documentos distintos (§2.5): `X-A-30` requisición (opcional) → `X-A-35` OC → `X-A-37` vale → `X-A-40` orden de entrada (**única que toca `kdij`**) → `X-A-20` aplica/CxP. Conteos vivos 6-12m (br03): 279 req / 781 OC / 774 vale / 765 entrada / 763 aplica; 504 OCs directas sin requisición.
+
+**Modelo (ADR-031):** 2 eslabones con valor propio sobre `commercial.*`:
+- **OC** `purchase_orders` + `purchase_order_lines` (folio `OC-YYYY-NNNNN`, proveedor/origen, fecha esperada, estado `open→partial→received→cancelled`, `requisition_id` nullable). Lo que se manda al proveedor.
+- **OE** `goods_receipts` + `goods_receipt_lines` (folio `OE-YYYY-NNNNN`, contra una OC, **parciales**: varias OE por OC, costo real por línea). **Mueve `commercial.stock`** (`in` al destino; traspaso además `out` al origen, clamp a disponible).
+- `purchase_doc_sequences` (folios atómicos OC/OE por tenant×año×tipo).
+
+**Flujo:** RQ aprobada → **Generar OC** (RQ→ordered, se enlaza) → **Registrar recepción** (OE, permite parcial) → al completar OC→received y RQ→received (traza). Fill rate = recibido/pedido por línea y total.
+
+**Reconciliación con Kepler:** el feed de stock es **snapshot absoluto** nightly. La OE es un **overlay optimista** (visibilidad inmediata); el snapshot re-sincroniza a la verdad de Kepler → sin doble-conteo permanente. Kepler = inventario, nosotros = planeación + recepción.
+
+**Backend:** `CommercialPurchaseOrdersService` + `...Controller` (`/commercial/purchase-orders`): `createPurchaseOrder` (directa), `createFromRequisition`, `list`, `get` (header+líneas+recepciones), `cancel`, `createReceipt` (OE atómica que mueve stock). `getRequisition` ahora expone la OC vinculada.
+
+**Frontend:** `/compras/ordenes` (lista con avance recibido/pedido) + `/compras/ordenes/:id` (detalle + diálogo de recepción). Botón "Generar orden de compra" en el detalle de requisición aprobada. Nav "Órdenes de compra".
+
+**Verificación:** smoke `test-newdb-purchase-chain.js` **21/21** (schema+RLS, folios OC/OE, RQ→OC→ordered, recepción parcial mueve stock +30, OC→partial, recepción final OC→received + RQ→received, fill 100%, 2 OE por OC, traspaso +dst/−src + clamp). Builds api+view OK. Migración `20260710180000_ra_purchase_orders_receipts.js` (batch 164 local).
+
+**Diferido:** vale `X-A-37` + CxP `X-A-20` (→ PaymentsService, Fase LM); auto-received por matching heurístico contra `X-A-40` de Kepler; espejar traspaso género `N` documento-a-documento. **Pendiente prod:** aplicar migración a Railway + redeploy api+view + re-login.
+
+---
+
 ## Anexo — referencias de código a clonar
 - Importer: `database/importers/kepler/import-branch-stock-live.js` (BULK multi-sucursal), orquestador `run-prod-feeds.js`.
 - Schema/RLS: `database/migrations-newdb/20260619140000_commercial_warehouse_aisles.js` (tabla nueva + col a existente), `20260707170000_reconciliation_schema.js` (helper `createTenantRls`).
