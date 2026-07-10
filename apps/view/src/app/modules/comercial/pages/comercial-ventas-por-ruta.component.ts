@@ -136,7 +136,7 @@ const MES: Record<string, string> = {
     .rr-year { max-width:110px; } .rr-wh { min-width:240px; flex:1 1 240px; }
     .rr-actions { margin-left:auto; }
     .rr-kpis { display:flex; flex-wrap:wrap; gap:.75rem; margin-bottom:1rem; }
-    .rr-kpi { flex:1 1 160px; border:1px solid var(--border); border-radius:var(--radius-md); padding:.6rem .85rem; background:var(--card-bg); }
+    .rr-kpi { flex:1 1 160px; border:1px solid var(--border-color); border-radius:var(--r-md); padding:.6rem .85rem; background:var(--card-bg); }
     .rr-kpi-l { display:block; font-size:.68rem; font-weight:600; text-transform:uppercase; letter-spacing:.04em; color:var(--text-muted); }
     .rr-kpi-v { display:block; font-size:1.25rem; font-weight:700; margin-top:.15rem; font-variant-numeric:tabular-nums; }
     .so-actions-bar { display:flex; align-items:center; justify-content:space-between; gap:1rem; margin-bottom:1rem; }

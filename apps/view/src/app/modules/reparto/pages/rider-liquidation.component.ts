@@ -178,7 +178,7 @@ const DENOMS = [1000, 500, 200, 100, 50, 20, 10, 5, 2, 1, 0.5];
     :host { display:block; }
 
     .liq-kpis { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:.75rem; margin-bottom:1rem; }
-    .liq-kpi { border:1px solid var(--border); border-radius:var(--radius-md); padding:.7rem .85rem; background:var(--card-bg); }
+    .liq-kpi { border:1px solid var(--border-color); border-radius:var(--r-md); padding:.7rem .85rem; background:var(--card-bg); }
     .liq-kpi span { display:block; font-size:.68rem; font-weight:600; text-transform:uppercase; letter-spacing:.04em; color:var(--text-muted); }
     .liq-kpi b { display:block; font-size:1.15rem; font-weight:700; margin-top:.15rem; color:var(--text-main); font-variant-numeric:tabular-nums; }
     .liq-kpi b.bad { color:var(--bad-fg); }

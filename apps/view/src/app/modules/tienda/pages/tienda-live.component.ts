@@ -144,7 +144,6 @@ import { TiendaStateService } from '../tienda-state.service';
 export class TiendaLiveComponent implements OnInit, OnDestroy {
   readonly s = inject(TiendaStateService);
 
-  readonly hourVenta = computed(() => this.s.hourBars().map((h) => h.venta));
   readonly hourTickets = computed(() => this.s.hourBars().map((h) => h.tickets));
   readonly hourLabels = computed(() => this.s.hourBars().map((h) => h.hora + ':00'));
   readonly peakHour = computed(() => {

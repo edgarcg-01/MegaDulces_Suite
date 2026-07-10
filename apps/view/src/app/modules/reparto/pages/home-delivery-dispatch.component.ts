@@ -250,7 +250,7 @@ import { MapComponent } from '../../../shared/components/map/map.component';
 
     .rd-steps { display:flex; gap:.5rem; list-style:none; padding:0; margin:0 0 1.25rem; flex-wrap:wrap; }
     .rd-steps li { display:inline-flex; align-items:center; gap:.45rem; font-size:.82rem; font-weight:600;
-      color:var(--text-faint); padding:.4rem .8rem; border:1px solid var(--border); border-radius:var(--r-pill); }
+      color:var(--text-faint); padding:.4rem .8rem; border:1px solid var(--border-color); border-radius:var(--r-pill); }
     .rd-steps .rd-num { display:inline-grid; place-items:center; width:20px; height:20px; border-radius:50%;
       background:var(--layout-bg); color:var(--text-muted); font-size:.72rem; }
     .rd-steps li.on { color:var(--text-main); border-color:var(--text-muted); }
@@ -293,7 +293,7 @@ import { MapComponent } from '../../../shared/components/map/map.component';
       font-size:.85rem; margin-top:.75rem; line-height:1.4; }
     .rd-advisory i { margin-top:.1rem; }
     .rd-advisory.warn { background:var(--warn-soft-bg); color:var(--warn-soft-fg); border:1px solid var(--warn-border); }
-    .rd-advisory.info { background:var(--layout-bg); color:var(--text-muted); border:1px solid var(--border); }
+    .rd-advisory.info { background:var(--layout-bg); color:var(--text-muted); border:1px solid var(--border-color); }
 
     .rd-geo { display:flex; align-items:center; gap:.7rem; flex-wrap:wrap; margin-bottom:.6rem; }
     .rd-geo-ok { font-size:.82rem; color:var(--ok-fg); display:inline-flex; align-items:center; gap:.35rem; font-variant-numeric:tabular-nums; }

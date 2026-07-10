@@ -21,7 +21,7 @@ export interface SegOption { label: string; value: string; }
     </div>
   `,
   styles: [`
-    .seg { display:inline-flex; align-items:stretch; background:var(--layout-bg); border:1px solid var(--border); border-radius:var(--r-sm,8px); padding:2px; gap:2px; }
+    .seg { display:inline-flex; align-items:stretch; background:var(--layout-bg); border:1px solid var(--border-color); border-radius:var(--r-sm,8px); padding:2px; gap:2px; }
     .seg-btn { border:0; background:transparent; padding:.4rem .7rem; font-size:var(--fs-xs,.8rem); font-weight:600; color:var(--text-muted); cursor:pointer; border-radius:6px; white-space:nowrap; transition:color 120ms var(--ease-standard), background 120ms var(--ease-standard); }
     .seg-btn:hover { color:var(--text-main); }
     .seg-btn.on { background:var(--card-bg); color:var(--text-main); box-shadow:0 1px 2px rgba(0,0,0,.08); }

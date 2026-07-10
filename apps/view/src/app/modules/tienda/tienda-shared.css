@@ -14,11 +14,6 @@
 @keyframes pulse { 0%{box-shadow:0 0 0 0 color-mix(in srgb, var(--ok-fg) 53%, transparent)} 70%{box-shadow:0 0 0 .5rem transparent} 100%{box-shadow:0 0 0 0 transparent} }
 @media (prefers-reduced-motion: reduce){ .tda-live.on .dot{ animation:none; } }
 
-.tda-kpis { display:flex; flex-wrap:wrap; gap:.75rem; margin:1rem 0; }
-.tda-kpi { flex:1 1 170px; border:1px solid var(--border-color); border-radius:var(--r-md); padding:.7rem 1rem; background:var(--card-bg); }
-.tda-kpi .l { display:block; font-size:.68rem; text-transform:uppercase; letter-spacing:.05em; color:var(--text-muted); font-weight:600; }
-.tda-kpi .v { display:block; font-size:1.6rem; font-weight:800; margin-top:.15rem; font-variant-numeric:tabular-nums; }
-
 .tda-branches { display:flex; flex-wrap:wrap; gap:.6rem; margin-bottom:1rem; }
 .tda-branch { flex:1 1 150px; border:1px solid var(--border-color); border-radius:var(--r-md); padding:.55rem .8rem; background:var(--card-bg); }
 .tda-branch.idle { border-color:var(--warn-border); background:var(--warn-soft-bg); }
