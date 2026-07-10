@@ -124,6 +124,13 @@
   --focus-ring:            var(--action-ring);
 
   /* Aliases legacy (codemod posterior los limpia) */
+  /* Compat de tokens mal escritos en componentes → sanan borde/radio/texto en AMBOS temas.
+     Canónicos: --border-color, --r-sm/md/lg, --text-main. Migrar usos y luego quitar el alias. */
+  --border:      var(--border-color);
+  --radius-sm:   var(--r-sm);
+  --radius-md:   var(--r-md);
+  --radius-lg:   var(--r-lg);
+  --text:        var(--text-main);
   --brand-primary:        var(--brand-400);
   --brand-orange:         var(--brand-600);
   --brand-sunset:         var(--brand-700);

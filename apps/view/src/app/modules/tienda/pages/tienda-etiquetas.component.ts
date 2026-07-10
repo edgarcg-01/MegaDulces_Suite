@@ -7,6 +7,7 @@ import { AutoCompleteModule, AutoCompleteCompleteEvent, AutoCompleteSelectEvent 
 import { InputNumberModule } from 'primeng/inputnumber';
 import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
+import { SelectModule } from 'primeng/select';
 import { LabelComponent, LabelModel, LabelSections, HeroKey } from '../components/label.component';
 import { EtiquetasService, SearchHit } from '../etiquetas.service';
 
@@ -29,7 +30,7 @@ type Msg = { text: string; kind: 'info' | 'ok' | 'error' | 'warn' };
 @Component({
   selector: 'app-tienda-etiquetas',
   standalone: true,
-  imports: [CommonModule, FormsModule, MultiSelectModule, AutoCompleteModule, InputNumberModule, ButtonModule, TableModule, LabelComponent],
+  imports: [CommonModule, FormsModule, MultiSelectModule, AutoCompleteModule, InputNumberModule, ButtonModule, TableModule, SelectModule, LabelComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   encapsulation: ViewEncapsulation.None,
   styles: [`
@@ -57,8 +58,9 @@ type Msg = { text: string; kind: 'info' | 'ok' | 'error' | 'warn' };
     .etqp-msg-x:hover{ opacity:1; }
 
     /* ── Escaneo rápido (pistola): auto-agrega al Enter ────── */
-    .etqp-scanbar{ display:flex; align-items:center; gap:.6rem; padding:.5rem .75rem; border:1px solid var(--action);
-      border-radius: var(--r-md); background: var(--card-bg); box-shadow: 0 0 0 3px var(--action-ring); }
+    .etqp-scanbar{ display:flex; align-items:center; gap:.6rem; padding:.5rem .75rem; border:1px solid var(--border-color);
+      border-radius: var(--r-md); background: var(--card-bg); transition: border-color .12s ease, box-shadow .12s ease; }
+    .etqp-scanbar:focus-within{ border-color: var(--action); box-shadow: 0 0 0 3px var(--action-ring); }
     .etqp-scanbar > i{ color: var(--action); font-size:1.1rem; }
     .etqp-scan-input{ flex:1; min-width:0; border:0; background:transparent; color: var(--text-main);
       font-family: var(--font-mono); font-size: var(--fs-md,.9375rem); padding:.35rem .1rem; }
@@ -97,11 +99,8 @@ type Msg = { text: string; kind: 'info' | 'ok' | 'error' | 'warn' };
     .etqp-qname .nm{ font-size: var(--fs-sm,.85rem); color: var(--text-main); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
     .etqp-qname .sku{ font-family: var(--font-mono); font-size: var(--fs-xs,.72rem); color: var(--text-faint); }
     .etqp-num{ font-variant-numeric: tabular-nums; }
-    /* Selector de precio grande por ticket (F: hero dinámico). */
-    .etqp-hero-sel{ max-width: 12rem; width:100%; padding:.3rem .5rem; border:1px solid var(--border-color);
-      border-radius: var(--r-sm); background: var(--card-bg); color: var(--text-main);
-      font-size: var(--fs-sm,.85rem); cursor:pointer; transition: border-color .12s ease, box-shadow .12s ease; }
-    .etqp-hero-sel:focus-visible{ outline:none; border-color: var(--action); box-shadow: 0 0 0 3px var(--action-ring); }
+    /* Selector de precio grande por ticket (hero dinámico) — p-select. */
+    .etqp-hero-sel{ width:100%; max-width: 12rem; }
     td.etqp-cnum, th.etqp-cnum{ text-align:right; white-space:nowrap; }
     td.etqp-cact, th.etqp-cact{ text-align:right; width:2.5rem; }
     .etqp-del{ border:0; background:transparent; color: var(--text-faint); cursor:pointer; width:28px; height:28px;
@@ -164,7 +163,8 @@ type Msg = { text: string; kind: 'info' | 'ok' | 'error' | 'warn' };
       <div class="etqp-scanbar">
         <i class="pi pi-qrcode"></i>
         <input #scanInput type="text" inputmode="numeric" autocomplete="off" autofocus
-          class="etqp-scan-input" placeholder="Escanea con la pistola o teclea el código y Enter…"
+          class="etqp-scan-input" aria-label="Escanear o teclear código de producto"
+          placeholder="Escanea con la pistola o teclea el código y Enter…"
           (keyup.enter)="onScan(scanInput.value); scanInput.value=''" />
         <span class="etqp-scan-hint">5 díg = SKU · 8/12/13 = código de barras · se agrega solo</span>
       </div>
@@ -223,12 +223,9 @@ type Msg = { text: string; kind: 'info' | 'ok' | 'error' | 'warn' };
                     </div>
                   </td>
                   <td>
-                    <select class="etqp-hero-sel" [ngModel]="it.hero" (ngModelChange)="setHero(i, $event)"
-                      [attr.aria-label]="'Precio grande de ' + it.model.name">
-                      @for (o of heroOptions(it.model); track o.value) {
-                        <option [ngValue]="o.value">{{ o.label }}</option>
-                      }
-                    </select>
+                    <p-select [options]="heroOptions(it.model)" [ngModel]="it.hero" (onChange)="setHero(i, $event.value)"
+                      optionLabel="label" optionValue="value" appendTo="body" styleClass="etqp-hero-sel"
+                      [ariaLabel]="'Precio grande de ' + it.model.name"></p-select>
                   </td>
                   <td class="etqp-cnum">
                     <p-inputNumber styleClass="etqp-num" [ngModel]="it.copies" (ngModelChange)="setCopies(i, $event)"

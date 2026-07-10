@@ -14,7 +14,21 @@ import { TiendaStateService } from '../tienda-state.service';
   styleUrls: ['../tienda-shared.css'],
   styles: [`
     :host { display:block; }
-    .tda-kpis-mc { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:.75rem; margin:1rem 0; }
+    .tda-kpis-mc { display:grid; grid-template-columns:repeat(auto-fit,minmax(210px,1fr)); gap:.75rem; margin:1rem 0 .3rem; }
+    .tda-band-cap { margin:0 0 1rem; font-size:.72rem; color:var(--text-faint); }
+    .tda-band-cap b { color:var(--text-main); font-weight:700; }
+
+    /* Coaching por tienda: las 3 palancas vs promedio de la red + "qué subir" */
+    .tda-branch { flex-basis:210px; }
+    .levers { display:flex; gap:.4rem; margin-top:.55rem; }
+    .lever { flex:1; display:flex; flex-direction:column; gap:.1rem; padding:.3rem .4rem; border-radius:var(--r-sm,8px);
+      background:color-mix(in srgb, var(--text-main) 4%, transparent); }
+    .lever.weak { background:color-mix(in srgb, var(--action) 10%, transparent); box-shadow:inset 0 0 0 1px var(--action-ring); }
+    .lever .lv-k { font-size:.56rem; text-transform:uppercase; letter-spacing:.04em; color:var(--text-faint); white-space:nowrap; }
+    .lever .lv-i { font-family:var(--font-mono); font-variant-numeric:tabular-nums; font-size:.74rem; font-weight:700; color:var(--text-muted); }
+    .lever .lv-i.lo { color:var(--bad-soft-fg); } .lever .lv-i.hi { color:var(--ok-soft-fg); }
+    .coach { display:flex; align-items:center; gap:.35rem; margin-top:.45rem; font-size:.72rem; color:var(--action); font-weight:600; }
+    .coach i { font-size:.7rem; } .coach .g { margin-left:auto; color:var(--text-muted); font-weight:700; font-variant-numeric:tabular-nums; }
   `],
   template: `
     <div class="surf-page in tda">
@@ -39,23 +53,34 @@ import { TiendaStateService } from '../tienda-state.service';
       </header>
 
       <div class="tda-kpis-mc">
-        <app-metric-card label="Venta hoy" [value]="s.ventaHoy()" format="currency" variant="sparkline"
-          [series]="hourVenta()" [seriesLabels]="hourLabels()" tone="brand" [live]="s.connected()"></app-metric-card>
-        <app-metric-card label="Tickets hoy" [value]="s.ticketsHoy()" format="number"
-          [live]="s.connected()" [accent]="'var(--chart-2)'"></app-metric-card>
+        <app-metric-card label="Tickets del día" [value]="s.ticketsHoy()" format="number" variant="sparkline"
+          [series]="hourTickets()" [seriesLabels]="hourLabels()" tone="brand" [live]="s.connected()"
+          sub="volumen de transacciones"></app-metric-card>
         <app-metric-card label="Ticket promedio" [value]="s.avgTicket()" format="currency"
-          [accent]="'var(--chart-3)'"></app-metric-card>
-        <app-metric-card label="Sucursales activas" [value]="s.activeBranches()" format="number"
-          [sub]="'de ' + s.branchList.length"></app-metric-card>
+          [live]="s.connected()" [accent]="'var(--chart-2)'" sub="venta promedio por ticket"></app-metric-card>
+        <app-metric-card label="Productos por ticket" [value]="netUnits()" format="number" [decimals]="1"
+          [live]="s.connected()" [accent]="'var(--chart-3)'" [sub]="netLines()"></app-metric-card>
       </div>
+      <p class="tda-band-cap">Venta del día <b class="num">{{ s.ventaHoy() | currency:'MXN':'symbol-narrow':'1.0-0' }}</b>
+        — los 3 pilares son las palancas para subirla (Venta = Tickets × Ticket promedio; Ticket promedio ↔ Productos por ticket).</p>
 
       <div class="tda-branches">
-        @for (b of s.branches(); track b.warehouse_code) {
-          <div class="tda-branch" [class.idle]="s.idleMin(b.last_ts) >= 20">
-            <div class="bh"><span class="bn">{{ b.warehouse_name || b.warehouse_code }}</span>
-              <span class="bt" [class.warn]="s.idleMin(b.last_ts) >= 20">{{ s.lastLabel(b.last_ts) }}</span></div>
-            <div class="bv">{{ b.venta | currency:'MXN':'symbol-narrow':'1.0-0' }}</div>
-            <div class="bk">{{ b.tickets | number }} tickets</div>
+        @for (c of coached(); track c.b.warehouse_code) {
+          <div class="tda-branch" [class.idle]="s.idleMin(c.b.last_ts) >= 20">
+            <div class="bh"><span class="bn">{{ c.b.warehouse_name || c.b.warehouse_code }}</span>
+              <span class="bt" [class.warn]="s.idleMin(c.b.last_ts) >= 20">{{ s.lastLabel(c.b.last_ts) }}</span></div>
+            <div class="bv">{{ c.b.venta | currency:'MXN':'symbol-narrow':'1.0-0' }}</div>
+            <div class="bk">{{ c.b.tickets | number }} tickets</div>
+            <div class="levers" role="group" aria-label="Palancas vs promedio de la red">
+              @for (lv of c.lev.items; track lv.key) {
+                <div class="lever" [class.weak]="lv.key === c.lev.weakest.key">
+                  <span class="lv-k">{{ lv.short }}</span>
+                  <span class="lv-i" [class.lo]="lv.idx < 0.97" [class.hi]="lv.idx > 1.03">{{ pct(lv.idx) }}</span>
+                </div>
+              }
+            </div>
+            <div class="coach"><i class="pi pi-arrow-up"></i> Subir: <b>{{ c.lev.weakest.label }}</b>
+              <span class="g">{{ pct(c.lev.weakest.idx) }} vs red</span></div>
           </div>
         }
         @if (!s.branches().length) { <div class="tda-empty">Aún sin ventas hoy…</div> }
@@ -120,12 +145,21 @@ export class TiendaLiveComponent implements OnInit, OnDestroy {
   readonly s = inject(TiendaStateService);
 
   readonly hourVenta = computed(() => this.s.hourBars().map((h) => h.venta));
+  readonly hourTickets = computed(() => this.s.hourBars().map((h) => h.tickets));
   readonly hourLabels = computed(() => this.s.hourBars().map((h) => h.hora + ':00'));
   readonly peakHour = computed(() => {
     let hora = -1, max = 0;
     for (const h of this.s.hourBars()) if (h.venta > max) { max = h.venta; hora = h.hora; }
     return hora;
   });
+
+  // 3 pilares (nivel red) + coaching por tienda
+  readonly netUnits = computed(() => this.s.networkLevers().unitsPerTicket);
+  readonly netLines = computed(() => this.s.networkLevers().linesPerTicket.toFixed(1) + ' líneas por ticket');
+  readonly coached = computed(() => this.s.branches().map((b) => ({ b, lev: this.s.leversOf(b.warehouse_code) })));
+
+  /** Índice vs red → texto "+12%" / "−8%". */
+  pct(idx: number): string { const v = Math.round((idx - 1) * 100); return (v > 0 ? '+' : '') + v + '%'; }
 
   ngOnInit(): void { this.s.enter(); }
   ngOnDestroy(): void { this.s.leave(); }

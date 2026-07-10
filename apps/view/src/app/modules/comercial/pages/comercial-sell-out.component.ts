@@ -294,7 +294,7 @@ const CHANNEL_OPTS = [
     .so-badge { margin-left:.5rem; font-size:.7rem; color:var(--text-muted); }
     /* segmented → app-segmented (átomo compartido) */
     .so-toggles { flex-direction:row; gap:1rem; align-items:center; }
-    .so-toggle { display:inline-flex; align-items:center; gap:.4rem; font-size:.8rem; color:var(--text); }
+    .so-toggle { display:inline-flex; align-items:center; gap:.4rem; font-size:.8rem; color:var(--text-main); }
     .so-actions { margin-left:auto; }
     .so-actions-bar { display:flex; align-items:center; justify-content:space-between; gap:1rem; flex-wrap:wrap; margin-bottom:1rem; }
     .so-echo { display:flex; align-items:center; gap:.5rem; flex-wrap:wrap; font-size:.85rem; color:var(--text-muted); }
@@ -303,15 +303,15 @@ const CHANNEL_OPTS = [
     .so-dl { display:flex; gap:.5rem; margin-left:auto; }
     /* KPI grid — mismo lenguaje que /dashboard/reports (card-premium + rk-card). */
     .so-kpi-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:1rem; margin-bottom:1rem; }
-    .so-note { font-size:.78rem; color:var(--text-muted); background:var(--layout-bg); border:1px solid var(--border);
-      border-radius:var(--radius-sm); padding:.5rem .7rem; margin:0 0 1rem; display:flex; gap:.4rem; align-items:baseline; }
+    .so-note { font-size:.78rem; color:var(--text-muted); background:var(--layout-bg); border:1px solid var(--border-color);
+      border-radius:var(--r-sm); padding:.5rem .7rem; margin:0 0 1rem; display:flex; gap:.4rem; align-items:baseline; }
     .so-matrix-card { padding:1.25rem; }
     .so-matrix-head { display:flex; align-items:center; justify-content:space-between; gap:.75rem; margin-bottom:.75rem; flex-wrap:wrap; }
     .so-matrix-tools { display:flex; align-items:center; gap:1rem; }
     .so-matrix-count { font-size:.75rem; color:var(--text-muted); white-space:nowrap; }
     /* Buscador de producto: el input neutraliza el outline global (input:focus !important). */
     .so-search { display:inline-flex; align-items:center; gap:.4rem; height:32px; width:240px; max-width:100%;
-      background:var(--card-bg); border:1px solid var(--border); border-radius:var(--r-sm,8px); padding:0 .5rem;
+      background:var(--card-bg); border:1px solid var(--border-color); border-radius:var(--r-sm,8px); padding:0 .5rem;
       transition:border-color 120ms var(--ease-standard); }
     .so-search:focus-within { border-color:var(--action); box-shadow:0 0 0 3px var(--action-ring); }
     .so-search > i { color:var(--text-faint); font-size:var(--fs-sm,.85rem); flex-shrink:0; }
@@ -322,22 +322,22 @@ const CHANNEL_OPTS = [
       color:var(--text-faint); cursor:pointer; display:grid; place-items:center; font-size:var(--fs-xs,.75rem); }
     .so-search-clear:hover { color:var(--text-main); background:var(--hover-bg); }
     .so-matrix-empty { text-align:center; color:var(--text-muted); padding:1.5rem; }
-    .so-matrix-wrap { overflow-x:auto; border:1px solid var(--border); border-radius:var(--radius-md); }
+    .so-matrix-wrap { overflow-x:auto; border:1px solid var(--border-color); border-radius:var(--r-md); }
     .so-matrix { border-collapse:separate; border-spacing:0; font-size:.78rem; white-space:nowrap; min-width:100%; --so-h1:2.15rem; }
     /* Reglas horizontales solamente; verticales SOLO en fronteras de grupo (look de reporte, no de hoja de cálculo). */
-    .so-matrix th, .so-matrix td { border-bottom:1px solid var(--border); padding:.34rem .6rem; }
+    .so-matrix th, .so-matrix td { border-bottom:1px solid var(--border-color); padding:.34rem .6rem; }
     .so-matrix thead th { background:var(--layout-bg); font-weight:700; text-align:center; position:sticky; top:0; z-index:2; }
     /* Header de 2 niveles: la sub-fila (Cajas/Monto) baja bajo la fila de grupos, si no se solapan al hacer scroll. */
     .so-matrix thead tr:first-child th { height:var(--so-h1); top:0; }
     .so-matrix thead tr:nth-child(2) th { top:var(--so-h1); border-bottom:2px solid var(--border-color); }
     .so-matrix thead th.c0, .so-matrix thead th.c1 { text-align:left; }
     .so-matrix thead th.c2 { text-align:right; }
-    .so-matrix thead th.grp { text-align:center; font-size:.72rem; border-right:1px solid var(--border); }
+    .so-matrix thead th.grp { text-align:center; font-size:.72rem; border-right:1px solid var(--border-color); }
     .so-matrix thead th.grp.tot { background:var(--surface-selected-bg); }
     /* Sub-headers Cajas/Monto: micro-label alineado a su número. */
     .so-matrix .sub { font-size:.66rem; font-weight:700; color:var(--text-muted); text-transform:uppercase; letter-spacing:.04em; text-align:right; }
     /* Separador continuo en cada frontera de grupo-sucursal (fin de cada Monto). */
-    .so-matrix .m { border-right:1px solid var(--border); }
+    .so-matrix .m { border-right:1px solid var(--border-color); }
     /* Números: Cajas = secundario (muted), Monto = primario (fuerte). */
     .so-matrix td.n { text-align:right; font-variant-numeric:tabular-nums; min-width:64px; }
     .so-matrix td.n:not(.m):not(.b) { color:var(--text-muted); }
@@ -347,7 +347,7 @@ const CHANNEL_OPTS = [
     /* Bloque congelado: identidad del producto; divisores internos suaves + sombra de borde. */
     .so-matrix .frz { position:sticky; background:var(--card-bg); z-index:1; }
     .so-matrix thead .frz { z-index:3; }
-    .so-matrix .c0, .so-matrix .c1 { border-right:1px solid var(--border); }
+    .so-matrix .c0, .so-matrix .c1 { border-right:1px solid var(--border-color); }
     .so-matrix .c0 { left:0; } .so-matrix .c1 { left:70px; } .so-matrix .c2 { left:350px; }
     .so-matrix .c2 { box-shadow:6px 0 6px -4px rgba(0,0,0,.16); }
     /* Columna TOTAL: resumen destacado (tinte + borde izquierdo marcado, header→foot). */
@@ -365,10 +365,10 @@ const CHANNEL_OPTS = [
     .so-matrix tfoot td { position:sticky; bottom:0; background:var(--surface-selected-bg); font-weight:700; z-index:2; }
     /* Skeleton de carga (mientras se genera el reporte) */
     .so-skel { display:flex; flex-direction:column; gap:1rem; }
-    .so-skel-bar { height:2rem; width:min(420px,60%); border-radius:var(--radius-sm); }
-    .so-skel-card { height:104px; border-radius:var(--radius-md); }
-    .so-skel-table { display:flex; flex-direction:column; gap:.4rem; border:1px solid var(--border); border-radius:var(--radius-md); padding:.75rem; }
-    .so-skel-row { height:1.9rem; border-radius:var(--radius-sm); }
+    .so-skel-bar { height:2rem; width:min(420px,60%); border-radius:var(--r-sm); }
+    .so-skel-card { height:104px; border-radius:var(--r-md); }
+    .so-skel-table { display:flex; flex-direction:column; gap:.4rem; border:1px solid var(--border-color); border-radius:var(--r-md); padding:.75rem; }
+    .so-skel-row { height:1.9rem; border-radius:var(--r-sm); }
     .shim { position:relative; overflow:hidden; background:var(--skeleton-bg); }
     .shim::after { content:''; position:absolute; inset:0; transform:translateX(-100%);
       background:linear-gradient(90deg,transparent,rgba(255,255,255,.22),transparent); animation:so-shim 1.2s infinite; }

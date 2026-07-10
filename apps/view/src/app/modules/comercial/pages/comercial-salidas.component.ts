@@ -202,7 +202,7 @@ const MES: Record<string, string> = {
     .sl-clip { max-width:160px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
     .sl-rot { text-transform:capitalize; }
     .sl-unit { text-transform:uppercase; font-variant-numeric:tabular-nums; }
-    .sl-unit-warn { color:var(--warn-fg, #A16207); font-weight:600; }
+    .sl-unit-warn { color:var(--warn-fg); font-weight:600; }
     /* Jerarquía: Venta = primario (fuerte), Costo = secundario (muted). */
     .sl-strong { font-weight:700; }
     .sl-sec { color:var(--text-muted); }
