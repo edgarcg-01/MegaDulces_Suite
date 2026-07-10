@@ -29,15 +29,17 @@ const APPLY = process.argv.includes('--apply');
 const BATCH = 1000;
 const daysArg = (() => { const i = process.argv.indexOf('--days'); return i > -1 ? Number(process.argv[i + 1]) : 120; })();
 
+// Mismo map que import-in-transit / stock: código de almacén = nº sucursal Kepler (00–05).
+// En prod lo sobreescribe STOCK_BRANCH_MAP (runner on-prem con los hosts reales).
 const MAP = process.env.STOCK_BRANCH_MAP
   ? JSON.parse(process.env.STOCK_BRANCH_MAP)
   : [
-      { code: 'MD-CEDIS', url: 'postgresql://platform_ro:kepler123@192.168.9.95:5432/md_00' },
-      { code: 'MD-10', url: 'postgresql://platform_ro:kepler123@192.168.10.10:1977/md_01' },
-      { code: 'MD-42', url: 'postgresql://platform_ro:kepler123@192.168.42.42:5432/md_02' },
-      { code: 'KEPLER-03', url: 'postgresql://platform_ro:kepler123@192.168.40.40:5432/md_03' },
-      { code: 'MD-44', url: 'postgresql://platform_ro:kepler123@192.168.44.44:5432/md_04' },
-      { code: 'MD-54', url: 'postgresql://platform_ro:kepler123@192.168.54.54:5432/md_05' },
+      { code: '00', url: 'postgresql://platform_ro:kepler123@192.168.9.95:5432/md_00' },
+      { code: '01', url: 'postgresql://platform_ro:kepler123@192.168.10.10:1977/md_01' },
+      { code: '02', url: 'postgresql://platform_ro:kepler123@192.168.42.42:5432/md_02' },
+      { code: '03', url: 'postgresql://platform_ro:kepler123@192.168.40.40:5432/md_03' },
+      { code: '04', url: 'postgresql://platform_ro:kepler123@192.168.44.44:5432/md_04' },
+      { code: '05', url: 'postgresql://platform_ro:kepler123@192.168.54.54:5432/md_05' },
     ];
 
 // Nº de sucursal Kepler (kdm1.c1). Explícito en el map, o derivado del md_NN de la URL.
@@ -56,15 +58,36 @@ const LABELS = {
   RtrnPur1: 'Devolución de compra',
 };
 
+// Fallback estable del catálogo (Kepler system catalog, idéntico entre sucursales) —
+// para fuentes que no traen la tabla doctype (p.ej. el consolidado, que solo sincroniza
+// kdm1/kdm2). key = 'GENERO|NATURALEZA|TIPO_INT'. dir por naturaleza (A=+ / D=−).
+const INV_DOCTYPES_FALLBACK = [
+  ['N', 'A', 20, 'InvIn1'], ['U', 'A', 10, 'RtrnEn1'], ['U', 'A', 20, 'Rtrn1'],
+  ['X', 'A', 5, 'Purchas1'], ['X', 'A', 40, 'EntryOr1'],
+  ['N', 'D', 5, 'InvOut1'], ['N', 'D', 25, 'InvTrsf1'], ['N', 'D', 30, 'PhysInv1'],
+  ['U', 'D', 5, 'Sale1'], ['U', 'D', 45, 'Remiss1'], ['X', 'D', 30, 'RtrnPrd1'], ['X', 'D', 40, 'RtrnPur1'],
+];
+function fallbackMap() {
+  const m = new Map();
+  for (const [g, nat, tipo, code] of INV_DOCTYPES_FALLBACK) {
+    m.set(`${g}|${nat}|${tipo}`, { code, label: LABELS[code] || code, dir: nat === 'A' ? 1 : -1 });
+  }
+  return m;
+}
+
 // Catálogo autoritativo: doctypes que afectan inventario, con dirección + etiqueta.
-// key = 'GENERO|NATURALEZA|TIPO_INT'  →  { code, label, dir(+1/-1) }
-async function loadDoctypeMap(src) {
-  const rows = (await src.query(
-    `SELECT k_code, k_dscr,
-            substr(k_doc7,1,1) g, substr(k_doc7,2,1) nat, (substr(k_doc7,3,2))::int tipo
-     FROM md.doctype
-     WHERE k_binv IS NOT NULL AND k_binv::numeric = 1 AND coalesce(k_doc7,'') <> ''`
-  )).rows;
+// key = 'GENERO|NATURALEZA|TIPO_INT'  →  { code, label, dir(+1/-1) }. Fallback si no hay tabla.
+async function loadDoctypeMap(src, schema) {
+  let rows;
+  try {
+    rows = (await src.query(
+      `SELECT k_code, k_dscr,
+              substr(k_doc7,1,1) g, substr(k_doc7,2,1) nat, (substr(k_doc7,3,2))::int tipo
+       FROM ${schema}.doctype
+       WHERE k_binv IS NOT NULL AND k_binv::numeric = 1 AND coalesce(k_doc7,'') <> ''`
+    )).rows;
+  } catch { rows = []; }
+  if (!rows.length) return fallbackMap();
   const map = new Map();
   for (const r of rows) {
     map.set(`${r.g}|${r.nat}|${r.tipo}`, {
@@ -111,17 +134,18 @@ async function loadDoctypeMap(src) {
       try { src = new Client({ connectionString: m.url }); await src.connect(); }
       catch (e) { console.log(`  ⚠ ${m.code}: sin conexión (${e.message}) — skip`); continue; }
 
+      const schema = m.schema || 'md';
       let matched = 0, unmatched = 0, lines = 0;
       try {
-        const dt = await loadDoctypeMap(src);
+        const dt = await loadDoctypeMap(src, schema);
         if (!dt.size) { console.log(`  ⚠ ${m.code}: doctype sin tipos de inventario — skip`); await src.end(); continue; }
         // tuplas (genero,naturaleza,tipo) para filtrar en SQL
         const tuples = [...dt.keys()].map((k) => { const [g, n, t] = k.split('|'); return `('${g}','${n}',${t})`; }).join(',');
         const SQL = `
           SELECT h.c2 g, h.c3 nat, h.c4 tipo, h.c6 folio, h.c9::date doc_date,
                  h.c37 pgrp, h.c39 pfol, l.c8 sku, l.c9::numeric qty, l.c12::numeric val
-          FROM md.kdm1 h
-          JOIN md.kdm2 l ON l.c1=h.c1 AND l.c2=h.c2 AND l.c3=h.c3 AND l.c4=h.c4 AND l.c6=h.c6
+          FROM ${schema}.kdm1 h
+          JOIN ${schema}.kdm2 l ON l.c1=h.c1 AND l.c2=h.c2 AND l.c3=h.c3 AND l.c4=h.c4 AND l.c6=h.c6
           WHERE h.c1=$1 AND h.c9::date >= $2
             AND (h.c2, h.c3, (h.c4)::int) IN (${tuples})`;
         const rows = (await src.query(SQL, [suc, cutoff])).rows;

@@ -49,6 +49,7 @@ const STEPS = {
     path.join(K, 'import-computed-reorder.js'), // RA.3/RA-PRO.1 reorden por demanda + safety stock por nivel de servicio + XYZ — tras inventory-health
     path.join(K, 'import-network-reorder.js'),  // RA-PRO.6 DRP: reorden del CEDIS por demanda dependiente (Σ sucursales) — tras computed-reorder
     path.join(K, 'import-in-transit.js'),       // RA.5 OC en tránsito (X-A-35 sin X-A-40) → analytics.purchase_in_transit (resta del sugerido)
+    path.join(K, 'import-stock-movements.js'),  // DM — Diario de movimientos (kdm1⋈kdm2 filtrado por doctype.k_binv) → analytics.stock_movements (ventana 120d)
     path.join(K, 'import-erp-promos.js'),    // KV.6 promos vigentes (lee sucursal)
     path.join(K, 'import-erp-customers.js'), // KV.3 dim clientes (lee 6 sucursales)
     path.join(K, 'import-customer-sales.js'),// KV.3 historial por cliente (lee consolidado)
