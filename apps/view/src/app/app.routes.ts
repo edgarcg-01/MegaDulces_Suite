@@ -3,7 +3,7 @@ import { LoginComponent } from './modules/auth/login/login.component';
 import { ProjectsComponent } from './modules/projects/projects/projects.component';
 import { LayoutComponent } from './modules/dashboard/layout/layout.component';
 import { authGuard } from './core/guards/auth.guard';
-import { permissionGuard, anyPermissionGuard, colaboradorGuard, comercialHomeGuard } from './core/guards/permission.guard';
+import { permissionGuard, anyPermissionGuard, colaboradorGuard, comercialHomeGuard, almacenHomeGuard, logisticaHomeGuard } from './core/guards/permission.guard';
 import { Permission } from './core/constants/permissions';
 import { televentaGuard } from './modules/televenta/televenta.guard';
 import { repartoGuard } from './modules/reparto/reparto.guard';
@@ -123,7 +123,7 @@ export const routes: Routes = [
       {
         path: 'customers-360',
         loadComponent: () => import('./modules/comercial/pages/comercial-customers-360.component').then(m => m.ComercialCustomers360Component),
-        canActivate: [permissionGuard(Permission.COMMERCIAL_ANALYTICS_VER)]
+        canActivate: [permissionGuard(Permission.COMMERCIAL_CUSTOMERS360_VER)]
       },
       {
         path: 'erp-promos',
@@ -138,12 +138,12 @@ export const routes: Routes = [
       {
         path: 'salidas',
         loadComponent: () => import('./modules/comercial/pages/comercial-salidas.component').then(m => m.ComercialSalidasComponent),
-        canActivate: [permissionGuard(Permission.COMMERCIAL_ANALYTICS_VER)]
+        canActivate: [permissionGuard(Permission.COMMERCIAL_SALIDAS_VER)]
       },
       {
         path: 'ventas-por-ruta',
         loadComponent: () => import('./modules/comercial/pages/comercial-ventas-por-ruta.component').then(m => m.ComercialVentasPorRutaComponent),
-        canActivate: [permissionGuard(Permission.COMMERCIAL_ANALYTICS_VER)]
+        canActivate: [permissionGuard(Permission.COMMERCIAL_ROUTE_SALES_VER)]
       },
       // Egresos vive ahora en el proyecto Finanzas (deep-links viejos siguen funcionando).
       { path: 'egresos', redirectTo: '/finanzas/egresos' },
@@ -184,7 +184,7 @@ export const routes: Routes = [
         // Sprint M.3: ventas históricas del ERP Mega_Dulces vía FDW (read-only).
         path: 'historical',
         loadComponent: () => import('./modules/dashboard/historical-analytics/historical-analytics.component').then(m => m.HistoricalAnalyticsComponent),
-        canActivate: [permissionGuard(Permission.COMMERCIAL_ANALYTICS_VER)]
+        canActivate: [permissionGuard(Permission.COMMERCIAL_HISTORICAL_VER)]
       },
       {
         // Cierre de ruta: control de tickets venta/carga/combustible de vendedores.
@@ -287,7 +287,13 @@ export const routes: Routes = [
     canActivate: [authGuard],
     component: LayoutComponent,
     children: [
-      { path: '', redirectTo: 'inventory', pathMatch: 'full' },
+      // Landing dinámico: primera superficie accesible del rol (guard → UrlTree).
+      {
+        path: '',
+        pathMatch: 'full',
+        canActivate: [almacenHomeGuard],
+        loadComponent: () => import('./modules/comercial/pages/comercial-inventory.component').then(m => m.ComercialInventoryComponent),
+      },
       {
         path: 'inventory',
         loadComponent: () => import('./modules/comercial/pages/comercial-inventory.component').then(m => m.ComercialInventoryComponent),
@@ -350,12 +356,12 @@ export const routes: Routes = [
       {
         path: 'dead-stock',
         loadComponent: () => import('./modules/comercial/pages/comercial-dead-stock.component').then(m => m.ComercialDeadStockComponent),
-        canActivate: [permissionGuard(Permission.COMMERCIAL_ANALYTICS_VER)]
+        canActivate: [permissionGuard(Permission.COMMERCIAL_DEADSTOCK_VER)]
       },
       {
         path: 'inventory-health',
         loadComponent: () => import('./modules/comercial/pages/comercial-inventory-health.component').then(m => m.ComercialInventoryHealthComponent),
-        canActivate: [permissionGuard(Permission.COMMERCIAL_ANALYTICS_VER)]
+        canActivate: [permissionGuard(Permission.COMMERCIAL_INVHEALTH_VER)]
       },
       {
         // SM.4 — Supervisor de Movimientos: bandeja de descuadres (caja/inventario/cruce)
@@ -402,7 +408,13 @@ export const routes: Routes = [
     canActivate: [authGuard],
     component: LayoutComponent,
     children: [
-      { path: '', redirectTo: 'dashboard', pathMatch: 'full' },
+      // Landing dinámico: primera superficie accesible del rol (guard → UrlTree).
+      {
+        path: '',
+        pathMatch: 'full',
+        canActivate: [logisticaHomeGuard],
+        loadComponent: () => import('./modules/logistica/pages/logistica-dashboard.component').then(m => m.LogisticaDashboardComponent),
+      },
       {
         path: 'dashboard',
         loadComponent: () => import('./modules/logistica/pages/logistica-dashboard.component').then(m => m.LogisticaDashboardComponent),

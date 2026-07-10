@@ -131,10 +131,19 @@ export enum Permission {
   // que cada módulo tenga los suyos. Backfill determinista en la migración.
   // Ver docs/IMPLEMENTACION/FASES/FASE_AZ_AUTHZ_JERARQUICO.md.
   ROLES_VER = 'ROLES_VER',
+  // COMMERCIAL_ANALYTICS_VER = paraguas del Command Center + endpoints agregados
+  // (overview/network/top-*/erp-*). Cada REPORTE tiene su propio permiso abajo
+  // para poder acotar un rol a un solo reporte sin abrir todo el analytics.
   COMMERCIAL_ANALYTICS_VER = 'COMMERCIAL_ANALYTICS_VER',
-  // Sell-Out por empresa (RS): permiso dedicado para dar acceso SOLO a ese
-  // reporte sin abrir el resto de analytics (command-center/salidas/360/etc.).
   COMMERCIAL_SELLOUT_VER = 'COMMERCIAL_SELLOUT_VER',
+  COMMERCIAL_SALIDAS_VER = 'COMMERCIAL_SALIDAS_VER',
+  COMMERCIAL_ROUTE_SALES_VER = 'COMMERCIAL_ROUTE_SALES_VER',
+  // Traspasos NO tiene permiso propio nuevo: reusa el ya existente
+  // LOGISTICS_TRANSFERS_VER (la ruta /logistica/traspasos ya lo usa).
+  COMMERCIAL_CUSTOMERS360_VER = 'COMMERCIAL_CUSTOMERS360_VER',
+  COMMERCIAL_HISTORICAL_VER = 'COMMERCIAL_HISTORICAL_VER',
+  COMMERCIAL_DEADSTOCK_VER = 'COMMERCIAL_DEADSTOCK_VER',
+  COMMERCIAL_INVHEALTH_VER = 'COMMERCIAL_INVHEALTH_VER',
   COMMERCIAL_CARTERA_VER = 'COMMERCIAL_CARTERA_VER',
   COMMERCIAL_CARTERA_GESTIONAR = 'COMMERCIAL_CARTERA_GESTIONAR',
   COMMERCIAL_PRODUCTS_VER = 'COMMERCIAL_PRODUCTS_VER',

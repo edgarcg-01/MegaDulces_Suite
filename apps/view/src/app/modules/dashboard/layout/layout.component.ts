@@ -278,8 +278,8 @@ export class LayoutComponent implements OnInit, OnDestroy {
       title: 'Reportes',
       items: [
         { label: 'Sell-Out por empresa', icon: 'pi pi-file-excel', route: '/comercial/sell-out', permission: Permission.COMMERCIAL_SELLOUT_VER },
-        { label: 'Salidas por producto', icon: 'pi pi-box', route: '/comercial/salidas', permission: Permission.COMMERCIAL_ORDERS_VER },
-        { label: 'Ventas por ruta', icon: 'pi pi-directions', route: '/comercial/ventas-por-ruta', permission: Permission.COMMERCIAL_ORDERS_VER },
+        { label: 'Salidas por producto', icon: 'pi pi-box', route: '/comercial/salidas', permission: Permission.COMMERCIAL_SALIDAS_VER },
+        { label: 'Ventas por ruta', icon: 'pi pi-directions', route: '/comercial/ventas-por-ruta', permission: Permission.COMMERCIAL_ROUTE_SALES_VER },
       ],
     },
   ];
@@ -297,7 +297,7 @@ export class LayoutComponent implements OnInit, OnDestroy {
     { label: 'Mis entregas',     icon: 'pi pi-mobile',    route: '/logistica/my-assignments', permission: Permission.LOGISTICS_SHIPMENTS_VER },
     { label: 'Guías',            icon: 'pi pi-file-edit', route: '/logistica/guides',    permission: Permission.LOGISTICS_GUIDES_VER },
     { label: 'Costos',           icon: 'pi pi-money-bill', route: '/logistica/costs',    permission: Permission.LOGISTICS_EXPENSES_VER },
-    { label: 'Traspasos',        icon: 'pi pi-sync',      route: '/logistica/traspasos', permission: Permission.COMMERCIAL_ORDERS_VER },
+    { label: 'Traspasos',        icon: 'pi pi-sync',      route: '/logistica/traspasos', permission: Permission.LOGISTICS_TRANSFERS_VER },
     { label: 'Reportes',         icon: 'pi pi-chart-bar', route: '/logistica/reports',   permission: Permission.LOGISTICS_SHIPMENTS_VER },
     { label: 'Flotilla',         icon: 'pi pi-car',       route: '/logistica/fleet',     permission: Permission.LOGISTICS_FLEET_VER     },
     { label: 'Personal',         icon: 'pi pi-users',     route: '/logistica/staff',     permission: Permission.LOGISTICS_FLEET_VER },
@@ -407,8 +407,8 @@ export class LayoutComponent implements OnInit, OnDestroy {
     { label: 'Pasillos',        icon: 'pi pi-th-large',       route: '/almacen/inventory/aisles',   permission: Permission.COMMERCIAL_INVENTORY_ASIGNAR },
     { label: 'Exactitud (IRA)', icon: 'pi pi-verified',       route: '/almacen/inventory/ira',      permission: Permission.COMMERCIAL_INVENTORY_SUPERVISAR },
     { label: 'Por vencer',      icon: 'pi pi-calendar-times', route: '/almacen/inventory/expiring', permission: Permission.COMMERCIAL_INVENTORY_VER, exact: true },
-    { label: 'Stock muerto',    icon: 'pi pi-exclamation-triangle', route: '/almacen/dead-stock',   permission: Permission.COMMERCIAL_ANALYTICS_VER },
-    { label: 'Salud inv.',      icon: 'pi pi-heart',          route: '/almacen/inventory-health',   permission: Permission.COMMERCIAL_ANALYTICS_VER },
+    { label: 'Stock muerto',    icon: 'pi pi-exclamation-triangle', route: '/almacen/dead-stock',   permission: Permission.COMMERCIAL_DEADSTOCK_VER },
+    { label: 'Salud inv.',      icon: 'pi pi-heart',          route: '/almacen/inventory-health',   permission: Permission.COMMERCIAL_INVHEALTH_VER },
     { label: 'Cuadre',          icon: 'pi pi-check-square',   route: '/almacen/cuadre',             permission: Permission.RECONCILIATION_VER },
   ];
 

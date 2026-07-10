@@ -70,6 +70,10 @@ export class ProjectsComponent implements OnInit {
         Permission.COMMERCIAL_PRICING_VER,
         Permission.COMMERCIAL_ANALYTICS_VER,
         Permission.COMMERCIAL_SELLOUT_VER,
+        Permission.COMMERCIAL_SALIDAS_VER,
+        Permission.COMMERCIAL_ROUTE_SALES_VER,
+        Permission.COMMERCIAL_CUSTOMERS360_VER,
+        Permission.COMMERCIAL_HISTORICAL_VER,
       ],
       // Vendedor tiene COMMERCIAL_ORDERS_* pero no debe ver el admin de
       // Comercial (mostraría pedidos de toda la tenant) — tiene su propio
@@ -86,6 +90,8 @@ export class ProjectsComponent implements OnInit {
       anyOf: [
         Permission.COMMERCIAL_INVENTORY_VER,
         Permission.COMMERCIAL_WAREHOUSES_VER,
+        Permission.COMMERCIAL_DEADSTOCK_VER,
+        Permission.COMMERCIAL_INVHEALTH_VER,
       ],
     },
     {
@@ -121,6 +127,7 @@ export class ProjectsComponent implements OnInit {
         Permission.LOGISTICS_FLEET_VER,
         Permission.LOGISTICS_PAYROLL_VER,
         Permission.LOGISTICS_EXPENSES_VER,
+        Permission.LOGISTICS_TRANSFERS_VER,
       ],
     },
     {

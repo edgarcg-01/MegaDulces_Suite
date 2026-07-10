@@ -6,19 +6,19 @@ export const REPORTS_TABS: PageTab[] = [
     label: 'Sell-Out por empresa',
     route: '/comercial/sell-out',
     icon: 'pi pi-file-excel',
-    permission: Permission.COMMERCIAL_ORDERS_VER,
+    permission: Permission.COMMERCIAL_SELLOUT_VER,
   },
   {
     label: 'Salidas por producto',
     route: '/comercial/salidas',
     icon: 'pi pi-box',
-    permission: Permission.COMMERCIAL_ORDERS_VER,
+    permission: Permission.COMMERCIAL_SALIDAS_VER,
   },
   {
     label: 'Ventas por ruta',
     route: '/comercial/ventas-por-ruta',
     icon: 'pi pi-directions',
-    permission: Permission.COMMERCIAL_ORDERS_VER,
+    permission: Permission.COMMERCIAL_ROUTE_SALES_VER,
   },
   // Traspasos vive en Logística y Egresos en Finanzas — fuera de los tabs de
   // reportes de VENTA (aquí solo la familia sell-out/salidas/ruta).

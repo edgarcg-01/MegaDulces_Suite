@@ -72,13 +72,16 @@ export const anyPermissionGuard = (...requiredPermissions: Permission[]): CanAct
 };
 
 /**
- * Landing de `/comercial`: elige la primera superficie que el usuario puede ver,
- * en orden de prioridad. Antes el índice redirigía SIEMPRE a command-center, que
- * exige COMMERCIAL_ANALYTICS_VER — un rol acotado (p.ej. solo Sell-Out) quedaba
- * rebotado a /dashboard/captures y sin forma de llegar a su única página.
- * Devuelve un UrlTree (redirección) siempre; no renderiza componente.
+ * Landing de un proyecto (índice): redirige a la primera superficie que el rol
+ * puede ver, en orden de prioridad. Antes los índices redirigían SIEMPRE a una
+ * página fija (command-center/inventory/dashboard) que exige un permiso — un rol
+ * acotado a un solo reporte quedaba rebotado y sin forma de llegar a su página.
+ * Devuelve un UrlTree (redirección) siempre; el componente nunca se renderiza.
  */
-export const comercialHomeGuard: CanActivateFn = () => {
+export const landingRedirectGuard = (
+  candidates: { perm: Permission; url: string }[],
+  fallbackUrl: string,
+): CanActivateFn => () => {
   const authService = inject(AuthService);
   const perms = inject(PermissionsService);
   const router = inject(Router);
@@ -87,16 +90,50 @@ export const comercialHomeGuard: CanActivateFn = () => {
 
   const p = authService.user()?.permissions || {};
   const god = perms.can('manage', 'all');
-  const has = (k: Permission) => god || p[k] === true;
-
-  if (has(Permission.COMMERCIAL_ANALYTICS_VER)) return router.parseUrl('/comercial/command-center');
-  if (has(Permission.COMMERCIAL_ORDERS_VER)) return router.parseUrl('/comercial/orders');
-  if (has(Permission.COMMERCIAL_CUSTOMERS_VER)) return router.parseUrl('/comercial/customers');
-  if (has(Permission.COMMERCIAL_PRICING_VER)) return router.parseUrl('/comercial/pricing');
-  if (has(Permission.COMMERCIAL_SELLOUT_VER)) return router.parseUrl('/comercial/sell-out');
-  // Sin superficie comercial concreta: command-center + su permissionGuard decide el fallback.
-  return router.parseUrl('/comercial/command-center');
+  for (const c of candidates) {
+    if (god || p[c.perm] === true) return router.parseUrl(c.url);
+  }
+  return router.parseUrl(fallbackUrl);
 };
+
+/** Landing de `/comercial`. */
+export const comercialHomeGuard: CanActivateFn = landingRedirectGuard(
+  [
+    { perm: Permission.COMMERCIAL_ANALYTICS_VER, url: '/comercial/command-center' },
+    { perm: Permission.COMMERCIAL_ORDERS_VER, url: '/comercial/orders' },
+    { perm: Permission.COMMERCIAL_CUSTOMERS_VER, url: '/comercial/customers' },
+    { perm: Permission.COMMERCIAL_PRICING_VER, url: '/comercial/pricing' },
+    { perm: Permission.COMMERCIAL_SELLOUT_VER, url: '/comercial/sell-out' },
+    { perm: Permission.COMMERCIAL_SALIDAS_VER, url: '/comercial/salidas' },
+    { perm: Permission.COMMERCIAL_ROUTE_SALES_VER, url: '/comercial/ventas-por-ruta' },
+    { perm: Permission.COMMERCIAL_CUSTOMERS360_VER, url: '/comercial/customers-360' },
+    { perm: Permission.COMMERCIAL_HISTORICAL_VER, url: '/comercial/historical' },
+  ],
+  '/comercial/command-center',
+);
+
+/** Landing de `/almacen`. */
+export const almacenHomeGuard: CanActivateFn = landingRedirectGuard(
+  [
+    { perm: Permission.COMMERCIAL_INVENTORY_VER, url: '/almacen/inventory' },
+    { perm: Permission.COMMERCIAL_WAREHOUSES_VER, url: '/almacen/warehouses' },
+    { perm: Permission.COMMERCIAL_DEADSTOCK_VER, url: '/almacen/dead-stock' },
+    { perm: Permission.COMMERCIAL_INVHEALTH_VER, url: '/almacen/inventory-health' },
+  ],
+  '/almacen/inventory',
+);
+
+/** Landing de `/logistica`. */
+export const logisticaHomeGuard: CanActivateFn = landingRedirectGuard(
+  [
+    { perm: Permission.LOGISTICS_SHIPMENTS_VER, url: '/logistica/dashboard' },
+    { perm: Permission.LOGISTICS_FLEET_VER, url: '/logistica/dashboard' },
+    { perm: Permission.LOGISTICS_PAYROLL_VER, url: '/logistica/dashboard' },
+    { perm: Permission.LOGISTICS_EXPENSES_VER, url: '/logistica/dashboard' },
+    { perm: Permission.LOGISTICS_TRANSFERS_VER, url: '/logistica/traspasos' },
+  ],
+  '/logistica/dashboard',
+);
 
 export const colaboradorGuard: CanActivateFn = (route, state) => {
   const authService = inject(AuthService);

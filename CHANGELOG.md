@@ -10,6 +10,15 @@
 
 ## [Unreleased]
 
+### Added — Split de COMMERCIAL_ANALYTICS_VER en permisos dedicados por reporte (2026-07-10)
+- **Continuación del split de Sell-Out a TODOS los reportes** que compartían `COMMERCIAL_ANALYTICS_VER`, para poder acotar un rol a reportes específicos.
+- **6 permisos nuevos** (cada uno gatea su página + endpoints): `COMMERCIAL_SALIDAS_VER` (Salidas), `COMMERCIAL_ROUTE_SALES_VER` (Ventas por ruta), `COMMERCIAL_CUSTOMERS360_VER` (Clientes 360 = erp-customers), `COMMERCIAL_HISTORICAL_VER` (Histórico), `COMMERCIAL_DEADSTOCK_VER` (Stock muerto), `COMMERCIAL_INVHEALTH_VER` (Salud de inventario). Traspasos **reusa** el existente `LOGISTICS_TRANSFERS_VER` (su ruta ya lo exigía; se alineó el endpoint `/analytics/transfers`).
+- **Command Center** + endpoints agregados (overview/network/top-*/erp-promos/erp-shipments) quedan como paraguas bajo `COMMERCIAL_ANALYTICS_VER`.
+- Cableado completo en cada permiso: enum back+front, `ability.factory` (subject+action) + `AppSubject`, `permission-meta`, `authz-tree` (módulos toggleables bajo Comercial/Almacén), rutas, nav, tabs (reports-tabs + customers-tabs), y `projects.component` (anyOf de Ventas/Almacén/Logística).
+- **Landing dinámico generalizado** (`landingRedirectGuard` factory): índices de `/comercial`, `/almacen` y `/logistica` ahora redirigen a la primera superficie accesible del rol (antes redirect fijo que rebotaba a roles acotados).
+- **Migración `20260710130000`:** backfill no-regresión (roles con `COMMERCIAL_ANALYTICS_VER=true` reciben los 6 nuevos). Idempotente. Transfers sin backfill (quien lo usaba ya tiene `LOGISTICS_TRANSFERS_VER`).
+- **Pendiente prod:** redeploy api+view + correr la migración + re-login.
+
 ### Added — Permiso dedicado Sell-Out + rol acotado Auxiliar_mercadotecnia (2026-07-10)
 - **Problema:** todo el controller `commercial/analytics` (~30 endpoints) y 4+ rutas frontend (command-center, salidas, customers-360, sell-out) compartían el permiso `COMMERCIAL_ANALYTICS_VER`. No había forma de dar acceso a **solo** el reporte Sell-Out.
 - **Nuevo permiso `COMMERCIAL_SELLOUT_VER`** (enum back+front, `ability.factory` subject `commercial_sellout`+action `read`, `AppSubject`, `permission-meta`, `authz-tree` como módulo toggleable). Los 5 endpoints `sell-out*` y la ruta+nav frontend pasan a exigir este permiso en vez de `COMMERCIAL_ANALYTICS_VER`.

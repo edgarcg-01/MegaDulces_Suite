@@ -146,7 +146,7 @@ export class CommercialAnalyticsController {
   }
 
   @Get('dead-stock')
-  @RequirePermissions(Permission.COMMERCIAL_ANALYTICS_VER)
+  @RequirePermissions(Permission.COMMERCIAL_DEADSTOCK_VER)
   @ApiOperation({
     summary:
       'Stock muerto: existencia > 0 sin venta reciente (sales_units_30d=0). Capital parado al costo, por almacén. Accionable para compras (liquidar / dejar de surtir).',
@@ -168,7 +168,7 @@ export class CommercialAnalyticsController {
   // ─────────── Sprint M.3 — Ventas históricas (ERP Mega_Dulces vía FDW) ───────────
 
   @Get('historical/daily')
-  @RequirePermissions(Permission.COMMERCIAL_ANALYTICS_VER)
+  @RequirePermissions(Permission.COMMERCIAL_HISTORICAL_VER)
   @ApiOperation({
     summary:
       'Series diarias de ventas REALES del ERP (Mega_Dulces.ventas vía FDW). Read-only, no se mezcla con commercial.orders. Soporta filtro ?zona=La Piedad.',
@@ -182,7 +182,7 @@ export class CommercialAnalyticsController {
   }
 
   @Get('historical/top-products')
-  @RequirePermissions(Permission.COMMERCIAL_ANALYTICS_VER)
+  @RequirePermissions(Permission.COMMERCIAL_HISTORICAL_VER)
   @ApiOperation({
     summary: 'Top N productos del ERP por revenue (FDW). Filtros: from/to/zona/limit',
   })
@@ -201,7 +201,7 @@ export class CommercialAnalyticsController {
   }
 
   @Get('historical/by-zona')
-  @RequirePermissions(Permission.COMMERCIAL_ANALYTICS_VER)
+  @RequirePermissions(Permission.COMMERCIAL_HISTORICAL_VER)
   @ApiOperation({
     summary:
       'Ventas del ERP por zona/sucursal en el período: tickets, customers únicos, units, revenue',
@@ -211,7 +211,7 @@ export class CommercialAnalyticsController {
   }
 
   @Get('historical/ranking')
-  @RequirePermissions(Permission.COMMERCIAL_ANALYTICS_VER)
+  @RequirePermissions(Permission.COMMERCIAL_HISTORICAL_VER)
   @ApiOperation({
     summary:
       'Top N pre-calculado por el ERP (Mega_Dulces.ranking_productos). Cuenta TODA la venta del ERP, no solo pedidos levantados por la app. Default limit 100, max 1000.',
@@ -221,7 +221,7 @@ export class CommercialAnalyticsController {
   }
 
   @Get('historical/margin-by-category')
-  @RequirePermissions(Permission.COMMERCIAL_ANALYTICS_VER)
+  @RequirePermissions(Permission.COMMERCIAL_HISTORICAL_VER)
   @ApiOperation({
     summary:
       'Margen por categoría en el período. JOIN ventas_legacy (FDW) ↔ products.cost_base ↔ categories. Devuelve revenue, costo, margen $, margen %.',
@@ -257,7 +257,7 @@ export class CommercialAnalyticsController {
   // ─────────── KV.3/5/6 — analytics.* (venta real Kepler) ───────────
 
   @Get('inventory-health')
-  @RequirePermissions(Permission.COMMERCIAL_ANALYTICS_VER)
+  @RequirePermissions(Permission.COMMERCIAL_INVHEALTH_VER)
   @ApiOperation({ summary: 'KV.5 — Salud de inventario: días de cobertura + status por producto×almacén.' })
   inventoryHealth(@Query('warehouse_id') warehouseId?: string, @Query('status') status?: string) {
     return this.service.inventoryHealth({ warehouse_id: warehouseId, status });
@@ -462,14 +462,14 @@ export class CommercialAnalyticsController {
   }
 
   @Get('erp-customers')
-  @RequirePermissions(Permission.COMMERCIAL_ANALYTICS_VER)
+  @RequirePermissions(Permission.COMMERCIAL_CUSTOMERS360_VER)
   @ApiOperation({ summary: 'KV.3 — Clientes Kepler con compra agregada 180d.' })
   erpCustomers(@Query('search') search?: string, @Query('limit') limit?: string) {
     return this.service.erpCustomers({ search, limit: limit ? Number(limit) : undefined });
   }
 
   @Get('erp-customers/:code/products')
-  @RequirePermissions(Permission.COMMERCIAL_ANALYTICS_VER)
+  @RequirePermissions(Permission.COMMERCIAL_CUSTOMERS360_VER)
   @ApiOperation({ summary: 'KV.3 — Productos comprados por un cliente Kepler.' })
   erpCustomerProducts(@Param('code') code: string) {
     return this.service.erpCustomerProducts(code);
@@ -576,7 +576,7 @@ export class CommercialAnalyticsController {
   }
 
   @Get('salidas')
-  @RequirePermissions(Permission.COMMERCIAL_ANALYTICS_VER)
+  @RequirePermissions(Permission.COMMERCIAL_SALIDAS_VER)
   @ApiOperation({
     summary:
       'SAL — Salidas/Ventas por Producto. Modo AÑO (year → columnas por mes) o RANGO (from/to ISO → Venta/Costo del período, venta diaria). Params: year | from,to · warehouses=csv, brand_id, supplier_id, search.',
@@ -594,7 +594,7 @@ export class CommercialAnalyticsController {
   }
 
   @Get('salidas.xlsx')
-  @RequirePermissions(Permission.COMMERCIAL_ANALYTICS_VER)
+  @RequirePermissions(Permission.COMMERCIAL_SALIDAS_VER)
   @ApiOperation({ summary: 'SAL — Descarga XLSX de Salidas por Producto (mismos params que /salidas).' })
   async salidasXlsx(
     @Res() res: Response,
@@ -631,7 +631,7 @@ export class CommercialAnalyticsController {
   // ─────────── Fase RR — Ventas por Ruta ───────────
 
   @Get('sales-by-route')
-  @RequirePermissions(Permission.COMMERCIAL_ANALYTICS_VER)
+  @RequirePermissions(Permission.COMMERCIAL_ROUTE_SALES_VER)
   @ApiOperation({
     summary:
       'RR — Ventas por Ruta: fila por (sucursal, ruta) con venta (importe/unidades/tickets) mes a mes + share%. Ruta = serie de folio Kepler c63 (UD+almacén+ruta). Params: year, warehouses=csv.',
@@ -644,7 +644,7 @@ export class CommercialAnalyticsController {
   }
 
   @Get('sales-by-route.xlsx')
-  @RequirePermissions(Permission.COMMERCIAL_ANALYTICS_VER)
+  @RequirePermissions(Permission.COMMERCIAL_ROUTE_SALES_VER)
   @ApiOperation({ summary: 'RR — Descarga XLSX de Ventas por Ruta (mismos params que /sales-by-route).' })
   async salesByRouteXlsx(
     @Res() res: Response,
@@ -663,7 +663,7 @@ export class CommercialAnalyticsController {
   // ─────────── Fase T — Traspasos (movimientos que NO son venta) ───────────
 
   @Get('transfers')
-  @RequirePermissions(Permission.COMMERCIAL_ANALYTICS_VER)
+  @RequirePermissions(Permission.LOGISTICS_TRANSFERS_VER)
   @ApiOperation({
     summary:
       'T — Traspasos / movimientos que NO son venta (consolidación UD06, recepción UA50, traspasos): fila por (sucursal, tipo) mes a mes + share%. Params: year, warehouses=csv.',
@@ -676,7 +676,7 @@ export class CommercialAnalyticsController {
   }
 
   @Get('transfers.xlsx')
-  @RequirePermissions(Permission.COMMERCIAL_ANALYTICS_VER)
+  @RequirePermissions(Permission.LOGISTICS_TRANSFERS_VER)
   @ApiOperation({ summary: 'T — Descarga XLSX de Traspasos (mismos params que /transfers).' })
   async transfersXlsx(
     @Res() res: Response,
