@@ -287,17 +287,17 @@ interface LiveCountEntry {
   `,
   styles: [`
     .in-head-actions { display: flex; gap: .5rem; align-items: center; }
-    .in-live { display: inline-flex; align-items: center; gap: .35rem; font-size: .7rem; font-weight: 700; letter-spacing: .05em; color: var(--green-700,#15803d); padding: .2rem .5rem; border-radius: 99px; background: color-mix(in srgb, var(--green-500,#22c55e) 14%, transparent); }
-    .in-live-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green-500,#22c55e); animation: in-pulse 1.4s ease-in-out infinite; }
+    .in-live { display: inline-flex; align-items: center; gap: .35rem; font-size: .7rem; font-weight: 700; letter-spacing: .05em; color: var(--ok-fg); padding: .2rem .5rem; border-radius: 99px; background: color-mix(in srgb, var(--ok-fg) 14%, transparent); }
+    .in-live-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ok-fg); animation: in-pulse 1.4s ease-in-out infinite; }
     @keyframes in-pulse { 0%,100% { opacity: 1; } 50% { opacity: .3; } }
     .in-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: .75rem; margin-bottom: 1.25rem; }
-    .in-kpi { background: var(--surface-card, #fff); border: 1px solid var(--surface-200, #e7e5e4); border-radius: 12px; padding: .85rem 1rem; display: flex; flex-direction: column; }
+    .in-kpi { background: var(--card-bg); border: 1px solid var(--surface-200, #e7e5e4); border-radius: 12px; padding: .85rem 1rem; display: flex; flex-direction: column; }
     .in-kpi-v { font-size: 1.5rem; font-weight: 700; font-variant-numeric: tabular-nums; }
     .in-kpi-l { font-size: .75rem; color: var(--text-muted, #78716c); text-transform: uppercase; letter-spacing: .03em; }
-    .in-kpi-bad .in-kpi-v { color: var(--red-600, #dc2626); }
+    .in-kpi-bad .in-kpi-v { color: var(--bad-fg); }
     .in-kpi-warn .in-kpi-v { color: var(--orange-500, #f97316); }
     .in-actions { display: flex; gap: .5rem; flex-wrap: wrap; margin-bottom: 1rem; }
-    .in-assign { display: flex; gap: 1rem; flex-wrap: wrap; margin-bottom: 1rem; padding: .85rem 1rem; background: var(--surface-card,#fff); border: 1px solid var(--surface-200,#e7e5e4); border-radius: 12px; }
+    .in-assign { display: flex; gap: 1rem; flex-wrap: wrap; margin-bottom: 1rem; padding: .85rem 1rem; background: var(--card-bg); border: 1px solid var(--surface-200,#e7e5e4); border-radius: 12px; }
     .in-assign-col { flex: 1; min-width: 240px; display: flex; flex-direction: column; gap: .3rem; }
     .in-assign-col label { font-size: .8rem; font-weight: 600; color: var(--text-muted,#78716c); }
     .in-assign-col small { color: var(--text-muted,#78716c); }
@@ -306,8 +306,8 @@ interface LiveCountEntry {
     .in-mono { font-family: var(--font-mono, monospace); }
     .in-name { max-width: 240px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .in-num { text-align: right; font-variant-numeric: tabular-nums; }
-    .in-var-neg { color: var(--red-600, #dc2626); font-weight: 600; }
-    .in-var-pos { color: var(--green-600, #16a34a); font-weight: 600; }
+    .in-var-neg { color: var(--bad-fg); font-weight: 600; }
+    .in-var-pos { color: var(--ok-fg); font-weight: 600; }
     .in-row-disc { background: color-mix(in srgb, var(--orange-500, #f97316) 8%, transparent); }
     .in-empty { text-align: center; padding: 2rem; color: var(--text-muted, #78716c); }
     .in-form { display: flex; flex-direction: column; gap: .4rem; }
@@ -315,7 +315,7 @@ interface LiveCountEntry {
     :host ::ng-deep .in-w-full { width: 100%; }
     .in-resolve-name { font-weight: 600; margin: 0; }
     .in-resolve-meta { color: var(--text-muted, #78716c); font-size: .85rem; margin: .25rem 0 0; }
-    .in-interrupt { background: var(--surface-card,#fff); border: 1px solid var(--surface-200,#e7e5e4); border-radius: 12px; padding: .85rem 1rem; margin-bottom: 1rem; }
+    .in-interrupt { background: var(--card-bg); border: 1px solid var(--surface-200,#e7e5e4); border-radius: 12px; padding: .85rem 1rem; margin-bottom: 1rem; }
     .in-interrupt-head { display: flex; align-items: center; gap: .5rem; font-weight: 600; margin-bottom: .6rem; }
     .in-interrupt-head i { color: var(--orange-500,#f97316); }
     .in-interrupt-head small { font-weight: 400; color: var(--text-muted,#78716c); margin-left: auto; }

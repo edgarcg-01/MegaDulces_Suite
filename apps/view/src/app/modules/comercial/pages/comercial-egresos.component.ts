@@ -293,7 +293,7 @@ import { egresChartOptions } from './egresos-chart-opts';
     /* "Comparar": label arriba + toggle abajo, alineado como el resto (no centrado). */
     .ex-toggle { align-items: flex-start; justify-content: flex-end; min-width: 6rem; }
     .ex-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: .75rem; margin-bottom: 1rem; }
-    .ex-kpi { border: 1px solid var(--border, #e7e5e4); border-radius: var(--radius-md, 10px); padding: .85rem 1rem; background: var(--card-bg, #fff); }
+    .ex-kpi { border: 1px solid var(--border, #e7e5e4); border-radius: var(--r-md); padding: .85rem 1rem; background: var(--card-bg, #fff); }
     .ex-kpi-label { display: block; font-size: .72rem; font-weight: 600; color: var(--text-muted, #78716c); text-transform: uppercase; letter-spacing: .03em; }
     .ex-kpi-val { display: block; font-size: 1.4rem; font-weight: 700; margin-top: .15rem; }
     .ex-kpi-sub { display: block; font-size: .74rem; color: var(--text-muted, #78716c); margin-top: .1rem; }
@@ -328,7 +328,7 @@ import { egresChartOptions } from './egresos-chart-opts';
     .ex-dsec { margin: 1.1rem 0 .5rem; font-size: .8rem; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; color: var(--text-muted, #78716c); }
     .ex-doc-nolines { padding: .75rem 0; }
     .ex-findcards { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: .75rem; margin-bottom: 1rem; }
-    .ex-findcard { text-align: left; border: 1px solid var(--border, #e7e5e4); border-radius: var(--radius-md, 10px); padding: .85rem 1rem; background: var(--card-bg, #fff); cursor: pointer; transition: border-color .15s, box-shadow .15s; }
+    .ex-findcard { text-align: left; border: 1px solid var(--border, #e7e5e4); border-radius: var(--r-md); padding: .85rem 1rem; background: var(--card-bg, #fff); cursor: pointer; transition: border-color .15s, box-shadow .15s; }
     .ex-findcard:hover { border-color: var(--action, #f97316); }
     .ex-findcard.active { border-color: var(--action, #f97316); box-shadow: 0 0 0 1px var(--action, #f97316) inset; }
     .ex-findcard.sev-bad .ex-findcard-val { color: var(--bad-fg); }

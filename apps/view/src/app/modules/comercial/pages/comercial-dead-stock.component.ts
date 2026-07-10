@@ -105,7 +105,7 @@ import { INV_ANALYTICS_TABS } from '../inventory-tabs';
     .ds-head-actions { display: flex; gap: .5rem; align-items: center; }
     :host ::ng-deep .ds-wh { min-width: 220px; }
     .ds-kpis { display: flex; gap: .75rem; margin-bottom: 1rem; }
-    .ds-kpi { background: var(--surface-card,var(--c-surface)); border: 1px solid var(--surface-200,var(--c-border)); border-radius: 12px; padding: .85rem 1.25rem; display: flex; flex-direction: column; }
+    .ds-kpi { background: var(--card-bg); border: 1px solid var(--surface-200,var(--c-border)); border-radius: 12px; padding: .85rem 1.25rem; display: flex; flex-direction: column; }
     .ds-kpi-v { font-size: 1.6rem; font-weight: 700; font-variant-numeric: tabular-nums; }
     .ds-kpi-l { font-size: .75rem; color: var(--text-muted,var(--c-text-2)); text-transform: uppercase; letter-spacing: .03em; }
     .ds-kpi-bad .ds-kpi-v { color: var(--bad-fg); }

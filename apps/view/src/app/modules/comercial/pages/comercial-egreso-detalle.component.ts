@@ -337,7 +337,7 @@ interface Constraint { type: SliceType; key: string; label: string; }
     .ed-field label { font-size: .72rem; font-weight: 600; color: var(--text-muted, #78716c); text-transform: uppercase; letter-spacing: .03em; }
     .ed-narrow { max-width: 10rem; }
     .ed-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: .75rem; margin-bottom: 1rem; }
-    .ed-kpi { border: 1px solid var(--border, #e7e5e4); border-radius: var(--radius-md, 10px); padding: .85rem 1rem; background: var(--card-bg, #fff); }
+    .ed-kpi { border: 1px solid var(--border, #e7e5e4); border-radius: var(--r-md); padding: .85rem 1rem; background: var(--card-bg, #fff); }
     .ed-kpi-label { display: block; font-size: .72rem; font-weight: 600; color: var(--text-muted, #78716c); text-transform: uppercase; letter-spacing: .03em; }
     .ed-kpi-val { display: block; font-size: 1.35rem; font-weight: 700; margin-top: .15rem; }
     .ed-kpi-sub { display: block; font-size: .74rem; margin-top: .1rem; color: var(--text-muted, #78716c); }
@@ -370,7 +370,7 @@ interface Constraint { type: SliceType; key: string; label: string; }
     .ed-dv { font-size: .92rem; }
     .ed-dsec { margin: 1.1rem 0 .5rem; font-size: .8rem; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; color: var(--text-muted, #78716c); }
     .ed-chain { display: flex; gap: .4rem; flex-wrap: wrap; }
-    .ed-stage { display: flex; align-items: center; gap: .5rem; border: 1px solid var(--border, #e7e5e4); border-radius: var(--radius-md, 10px); padding: .5rem .7rem; min-width: 8.5rem; }
+    .ed-stage { display: flex; align-items: center; gap: .5rem; border: 1px solid var(--border, #e7e5e4); border-radius: var(--r-md); padding: .5rem .7rem; min-width: 8.5rem; }
     .ed-stage.done { border-color: color-mix(in srgb, var(--ok-fg, #16a34a) 40%, var(--border, #e7e5e4)); background: color-mix(in srgb, var(--ok-fg, #16a34a) 5%, transparent); }
     .ed-stage.miss { opacity: .6; border-style: dashed; }
     .ed-stage-ico .pi { font-size: 1rem; color: var(--text-muted, #78716c); }

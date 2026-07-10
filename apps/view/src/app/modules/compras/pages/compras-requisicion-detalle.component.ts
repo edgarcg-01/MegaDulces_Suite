@@ -99,17 +99,17 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
     .surf-page-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; }
     .rd-actions { display: flex; gap: .5rem; }
     .rd-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: .5rem; margin: 1rem 0; }
-    .rd-kpi { display: flex; flex-direction: column; gap: .15rem; padding: .7rem .9rem; border: 1px solid var(--surface-border, #e5e3df); border-radius: var(--radius-md, 10px); background: var(--surface-card, #fff); }
+    .rd-kpi { display: flex; flex-direction: column; gap: .15rem; padding: .7rem .9rem; border: 1px solid var(--border-color); border-radius: var(--r-md); background: var(--card-bg); }
     .rd-kpi-wide { grid-column: span 2; } .rd-note { font-size: .9rem; font-weight: 400; }
     .rd-kpi-val { font-size: 1.2rem; font-weight: 700; line-height: 1.1; }
-    .rd-kpi-lbl { font-size: .72rem; color: var(--text-muted, #8a8580); text-transform: uppercase; letter-spacing: .03em; }
+    .rd-kpi-lbl { font-size: .72rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: .03em; }
     .rd-table { font-size: .84rem; }
     .rd-r { text-align: right; font-variant-numeric: tabular-nums; }
     .rd-mono { font-family: var(--font-mono, ui-monospace, monospace); font-size: .8rem; }
-    .rd-muted { color: var(--text-muted, #8a8580); } .rd-strong { font-weight: 700; }
-    .rd-src-branch { color: var(--action, #c2410c); font-weight: 600; }
-    .rd-fill { margin-left: .35rem; font-size: .72rem; color: var(--text-muted, #8a8580); }
-    .rd-empty { color: var(--text-muted, #8a8580); padding: 2rem; text-align: center; }
+    .rd-muted { color: var(--text-muted); } .rd-strong { font-weight: 700; }
+    .rd-src-branch { color: var(--action); font-weight: 600; }
+    .rd-fill { margin-left: .35rem; font-size: .72rem; color: var(--text-muted); }
+    .rd-empty { color: var(--text-muted); padding: 2rem; text-align: center; }
   `],
 })
 export class ComprasRequisicionDetalleComponent implements OnInit {

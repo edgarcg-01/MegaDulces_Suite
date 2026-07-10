@@ -95,7 +95,7 @@ interface DraftLine {
         <span class="p-input-icon-left ec-search">
           <input pInputText type="text" [(ngModel)]="fSearch" (keyup.enter)="reload()" placeholder="SKU o nombre…" />
         </span>
-        <button pButton type="button" icon="pi pi-search" class="p-button-sm p-button-text" (click)="reload()"></button>
+        <button pButton type="button" icon="pi pi-search" class="p-button-sm p-button-text" (click)="reload()" ariaLabel="Buscar"></button>
       </div>
 
       <!-- Tabla -->
@@ -193,31 +193,31 @@ interface DraftLine {
     :host { display: block; }
     .ec-head-actions { display: flex; gap: .5rem; align-items: center; }
     .ec-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: .5rem; margin-bottom: 1rem; }
-    .ec-kpi { display: flex; flex-direction: column; gap: .15rem; padding: .7rem .9rem; border: 1px solid var(--surface-border, #e5e3df); border-radius: var(--radius-md, 10px); background: var(--surface-card, #fff); }
+    .ec-kpi { display: flex; flex-direction: column; gap: .15rem; padding: .7rem .9rem; border: 1px solid var(--border-color); border-radius: var(--r-md); background: var(--card-bg); }
     .ec-kpi-val { font-size: 1.35rem; font-weight: 700; line-height: 1; }
-    .ec-kpi-lbl { font-size: .72rem; color: var(--text-muted, #8a8580); text-transform: uppercase; letter-spacing: .03em; }
-    .ec-kpi.bad .ec-kpi-val { color: var(--red-600, #dc2626); }
-    .ec-kpi.warn .ec-kpi-val { color: var(--amber-600, #d97706); }
+    .ec-kpi-lbl { font-size: .72rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: .03em; }
+    .ec-kpi.bad .ec-kpi-val { color: var(--bad-fg); }
+    .ec-kpi.warn .ec-kpi-val { color: var(--warn-fg); }
     .ec-filters { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; margin-bottom: .75rem; }
     .ec-sel { min-width: 12rem; } .ec-sel-wide { min-width: 15rem; } .ec-sel-sm { min-width: 6.5rem; } .ec-search input { min-width: 12rem; }
     .ec-class { white-space: nowrap; }
-    .ec-cls { display: inline-block; min-width: 1.1rem; text-align: center; font-size: .68rem; font-weight: 700; font-family: var(--font-mono, ui-monospace, monospace); padding: 0 .2rem; color: var(--text-muted, #8a8580); }
-    .ec-abc-A { color: var(--text-strong, #1c1917); } /* alto valor: un poco más de peso */
-    .ec-xyz-Z { color: var(--action, #c2410c); }       /* errático: difícil de pronosticar (señal) */
-    .ec-svc { display: block; font-size: .62rem; color: var(--text-muted, #8a8580); font-variant-numeric: tabular-nums; }
+    .ec-cls { display: inline-block; min-width: 1.1rem; text-align: center; font-size: .68rem; font-weight: 700; font-family: var(--font-mono, ui-monospace, monospace); padding: 0 .2rem; color: var(--text-muted); }
+    .ec-abc-A { color: var(--text-main); } /* alto valor: un poco más de peso */
+    .ec-xyz-Z { color: var(--action); }       /* errático: difícil de pronosticar (señal) */
+    .ec-svc { display: block; font-size: .62rem; color: var(--text-muted); font-variant-numeric: tabular-nums; }
     .ec-table { font-size: .82rem; }
     .ec-r { text-align: right; font-variant-numeric: tabular-nums; }
     .ec-mono { font-family: var(--font-mono, ui-monospace, monospace); font-size: .78rem; }
-    .ec-muted { color: var(--text-muted, #8a8580); }
+    .ec-muted { color: var(--text-muted); }
     .ec-strong { font-weight: 700; }
-    .ec-sel-row { background: var(--surface-hover, #f6f5f3); }
-    .ec-src { font-size: .68rem; text-transform: uppercase; letter-spacing: .03em; color: var(--text-muted, #8a8580); }
-    .ec-src-kepler { color: var(--action, #c2410c); }
+    .ec-sel-row { background: var(--surface-hover-bg); }
+    .ec-src { font-size: .68rem; text-transform: uppercase; letter-spacing: .03em; color: var(--text-muted); }
+    .ec-src-kepler { color: var(--action); }
     .ec-transit { font-weight: 600; }
-    .ec-empty { color: var(--text-muted, #8a8580); padding: 1rem; text-align: center; }
-    .ec-dlg-sub { color: var(--text-muted, #8a8580); font-size: .85rem; margin-bottom: .5rem; }
-    .ec-dlg-note { color: var(--action, #c2410c); }
-    .ec-warn { display: flex; gap: .45rem; align-items: center; font-size: .8rem; color: var(--amber-700, #b45309); background: var(--amber-50, #fffbeb); border: 1px solid var(--amber-200, #fde68a); border-radius: var(--radius-sm, 8px); padding: .45rem .6rem; margin-bottom: .4rem; }
+    .ec-empty { color: var(--text-muted); padding: 1rem; text-align: center; }
+    .ec-dlg-sub { color: var(--text-muted); font-size: .85rem; margin-bottom: .5rem; }
+    .ec-dlg-note { color: var(--action); }
+    .ec-warn { display: flex; gap: .45rem; align-items: center; font-size: .8rem; color: var(--warn-soft-fg); background: var(--warn-soft-bg); border: 1px solid var(--warn-border); border-radius: var(--r-sm); padding: .45rem .6rem; margin-bottom: .4rem; }
     .ec-dlg-lines { max-height: 24rem; overflow-y: auto; display: flex; flex-direction: column; gap: .35rem; }
     .ec-dlg-line { display: flex; gap: .5rem; align-items: center; }
     .ec-dlg-name { font-size: .82rem; flex: 1; min-width: 0; }

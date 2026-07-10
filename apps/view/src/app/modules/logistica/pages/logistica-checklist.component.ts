@@ -138,7 +138,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
     .items-grid { display:flex; flex-direction:column; gap:.5rem; margin-top:1rem; }
     .item-row { display:flex; justify-content:space-between; align-items:center; gap:1rem; padding:.5rem; border:1px solid var(--surface-200); border-radius:6px; flex-wrap:wrap; }
     .item-label { display:flex; flex-direction:column; gap:.15rem; }
-    .req { color: var(--red-500); margin-left:.25rem; }
+    .req { color: var(--bad-fg); margin-left:.25rem; }
     .group-tag { background: var(--surface-100); padding:.1rem .4rem; border-radius:4px; font-size:.7rem; color: var(--text-color-secondary); }
     .item-controls { display:flex; gap:.5rem; align-items:center; }
     .comment-input { min-width: 200px; }

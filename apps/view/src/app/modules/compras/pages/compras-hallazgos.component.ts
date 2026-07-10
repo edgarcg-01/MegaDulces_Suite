@@ -78,14 +78,14 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
     .hz-head-actions { display: flex; gap: .5rem; align-items: center; }
     .hz-filters { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; margin-bottom: .75rem; }
     .hz-sel { min-width: 12rem; }
-    .hz-count { color: var(--text-muted, #8a8580); font-size: .82rem; margin-left: auto; }
+    .hz-count { color: var(--text-muted); font-size: .82rem; margin-left: auto; }
     .hz-table { font-size: .82rem; }
     .hz-r { text-align: right; font-variant-numeric: tabular-nums; }
     .hz-mono { font-family: var(--font-mono, ui-monospace, monospace); font-size: .78rem; }
-    .hz-muted { color: var(--text-muted, #8a8580); }
+    .hz-muted { color: var(--text-muted); }
     .hz-strong { font-weight: 700; }
-    .hz-bad { color: var(--red-600, #dc2626); font-weight: 600; }
-    .hz-empty { color: var(--text-muted, #8a8580); padding: 1rem; text-align: center; }
+    .hz-bad { color: var(--bad-fg); font-weight: 600; }
+    .hz-empty { color: var(--text-muted); padding: 1rem; text-align: center; }
   `],
 })
 export class ComprasHallazgosComponent implements OnInit {

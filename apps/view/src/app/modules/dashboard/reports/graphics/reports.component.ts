@@ -1106,7 +1106,7 @@ class="text-xs font-bold text-content-faint uppercase"
         padding: 0.5rem;
       }
       :host ::ng-deep .p-tablist-tablist {
-        border-bottom: 2px solid var(--surface-border);
+        border-bottom: 2px solid var(--border-color);
       }
     `,
   ],

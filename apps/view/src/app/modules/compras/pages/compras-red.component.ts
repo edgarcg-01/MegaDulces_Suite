@@ -64,15 +64,15 @@ import { ComprasService, NetworkNode } from '../compras.service';
   styles: [`
     :host { display: block; }
     .cr-kpis { display: flex; gap: .5rem; margin-bottom: 1rem; flex-wrap: wrap; }
-    .cr-kpi { display: flex; flex-direction: column; gap: .15rem; padding: .7rem .9rem; border: 1px solid var(--surface-border, #e5e3df); border-radius: var(--radius-md, 10px); background: var(--surface-card, #fff); min-width: 8rem; }
+    .cr-kpi { display: flex; flex-direction: column; gap: .15rem; padding: .7rem .9rem; border: 1px solid var(--border-color); border-radius: var(--r-md); background: var(--card-bg); min-width: 8rem; }
     .cr-kpi-val { font-size: 1.35rem; font-weight: 700; line-height: 1; }
-    .cr-kpi-lbl { font-size: .72rem; color: var(--text-muted, #8a8580); text-transform: uppercase; letter-spacing: .03em; }
+    .cr-kpi-lbl { font-size: .72rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: .03em; }
     .cr-table { font-size: .84rem; max-width: 60rem; }
     .cr-mono { font-family: var(--font-mono, ui-monospace, monospace); font-size: .8rem; }
-    .cr-muted { color: var(--text-muted, #8a8580); }
+    .cr-muted { color: var(--text-muted); }
     .cr-sel { min-width: 16rem; }
-    .cr-empty { color: var(--text-muted, #8a8580); padding: 1rem; text-align: center; }
-    .cr-foot { font-size: .72rem; color: var(--text-muted, #8a8580); margin-top: .5rem; }
+    .cr-empty { color: var(--text-muted); padding: 1rem; text-align: center; }
+    .cr-foot { font-size: .72rem; color: var(--text-muted); margin-top: .5rem; }
   `],
 })
 export class ComprasRedComponent implements OnInit {

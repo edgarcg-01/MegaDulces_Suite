@@ -36,7 +36,7 @@ import { ComprasService, SupplierParam } from '../compras.service';
         <span class="p-input-icon-left cp-search">
           <input pInputText type="text" [(ngModel)]="search" (keyup.enter)="load()" placeholder="Buscar proveedor…" />
         </span>
-        <button pButton type="button" icon="pi pi-search" class="p-button-sm p-button-text" (click)="load()"></button>
+        <button pButton type="button" icon="pi pi-search" class="p-button-sm p-button-text" (click)="load()" ariaLabel="Buscar"></button>
         <span class="cp-count">{{ rows().length | number }} proveedores</span>
       </div>
 
@@ -80,15 +80,15 @@ import { ComprasService, SupplierParam } from '../compras.service';
     :host { display: block; }
     .cp-filters { display: flex; gap: .5rem; align-items: center; margin-bottom: .75rem; }
     .cp-search input { min-width: 16rem; }
-    .cp-count { margin-left: auto; font-size: .8rem; color: var(--text-muted, #8a8580); }
+    .cp-count { margin-left: auto; font-size: .8rem; color: var(--text-muted); }
     .cp-table { font-size: .84rem; }
     .cp-r { text-align: right; font-variant-numeric: tabular-nums; }
-    .cp-muted { color: var(--text-muted, #8a8580); }
+    .cp-muted { color: var(--text-muted); }
     .cp-num { width: 6rem; text-align: right; }
-    .cp-unset { color: var(--text-muted, #8a8580); }
-    .cp-ok { color: var(--action, #c2410c); }
-    .cp-empty { color: var(--text-muted, #8a8580); padding: 1rem; text-align: center; }
-    .cp-foot { font-size: .72rem; color: var(--text-muted, #8a8580); margin-top: .5rem; }
+    .cp-unset { color: var(--text-muted); }
+    .cp-ok { color: var(--action); }
+    .cp-empty { color: var(--text-muted); padding: 1rem; text-align: center; }
+    .cp-foot { font-size: .72rem; color: var(--text-muted); margin-top: .5rem; }
   `],
 })
 export class ComprasProveedoresComponent implements OnInit {

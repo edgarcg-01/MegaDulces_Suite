@@ -141,8 +141,8 @@ const REASON_SEVERITY: Record<QueueItem['reason'], 'danger' | 'warn' | 'info' | 
       .section-header p { color: var(--text-color-secondary); font-size: 0.875rem; margin: 0; }
       .loading { display: flex; justify-content: center; padding: 4rem 0; }
       .my-card, .queue-card {
-        background: var(--surface-card);
-        border: 1px solid var(--surface-border);
+        background: var(--card-bg);
+        border: 1px solid var(--border-color);
         border-radius: 16px;
         padding: 1.25rem;
       }
@@ -154,7 +154,7 @@ const REASON_SEVERITY: Record<QueueItem['reason'], 'danger' | 'warn' | 'info' | 
         align-items: center;
         gap: 1rem;
         padding: 0.75rem;
-        border: 1px solid var(--surface-border);
+        border: 1px solid var(--border-color);
         border-radius: 12px;
         background: var(--neutral-50);
         min-height: 64px;

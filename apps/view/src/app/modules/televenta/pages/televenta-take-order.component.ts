@@ -134,7 +134,7 @@ interface CartRow {
       .page { display: flex; flex-direction: column; gap: 1rem; padding-bottom: 6rem; }
       .back-link { display: inline-flex; align-items: center; gap: 0.4rem; color: var(--text-color-secondary); font-size: 0.875rem; text-decoration: none; min-height: 36px; }
       .back-link:hover { color: var(--primary-color); }
-      .card { background: var(--surface-card); border: 1px solid var(--surface-border); border-radius: 16px; padding: 1.25rem; }
+      .card { background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 16px; padding: 1.25rem; }
       .card h2 { font-size: 1rem; font-weight: 600; margin: 0 0 0.75rem; color: var(--text-color); }
       .count { font-size: 0.8rem; color: var(--text-color-secondary); font-weight: 400; }
       .head { display: flex; justify-content: space-between; align-items: center; gap: 1rem; flex-wrap: wrap; }
@@ -146,7 +146,7 @@ interface CartRow {
       .search {
         width: 100%;
         padding: 0.7rem 1rem;
-        border: 1px solid var(--surface-border);
+        border: 1px solid var(--border-color);
         border-radius: 10px;
         font-size: 0.9rem;
         margin-bottom: 1rem;
@@ -165,7 +165,7 @@ interface CartRow {
       .qty-input { width: 70px !important; text-align: center; }
       .sticky-footer {
         position: sticky; bottom: 0; left: 0; right: 0;
-        background: var(--surface-card); border-top: 1px solid var(--surface-border);
+        background: var(--card-bg); border-top: 1px solid var(--border-color);
         padding: 0.85rem 1rem calc(0.85rem + env(safe-area-inset-bottom));
         margin: 0 -1rem -1rem;
         display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;

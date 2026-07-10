@@ -85,7 +85,7 @@ import { INV_ANALYTICS_TABS } from '../inventory-tabs';
     .ih-actions { display: flex; gap: .5rem; align-items: center; }
     :host ::ng-deep .ih-wh { min-width: 220px; }
     .ih-kpis { display: flex; flex-wrap: wrap; gap: .6rem; margin-bottom: 1rem; }
-    .ih-kpi { background: var(--surface-card,var(--c-surface)); border: 1px solid var(--surface-200,var(--c-border)); border-radius: 12px; padding: .7rem 1.1rem; display: flex; flex-direction: column; cursor: pointer; min-width: 92px; transition: border-color .15s; }
+    .ih-kpi { background: var(--card-bg); border: 1px solid var(--surface-200,var(--c-border)); border-radius: 12px; padding: .7rem 1.1rem; display: flex; flex-direction: column; cursor: pointer; min-width: 92px; transition: border-color .15s; }
     .ih-kpi:hover { border-color: var(--action,var(--c-text-2)); }
     .ih-kpi.active { border-color: var(--action); box-shadow: 0 0 0 1px var(--action) inset; }
     .ih-kpi-v { font-size: 1.5rem; font-weight: 700; font-variant-numeric: tabular-nums; }

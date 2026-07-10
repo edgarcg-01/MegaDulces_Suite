@@ -63,11 +63,11 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
     :host { display: block; }
     .rq-filters { margin-bottom: .75rem; } .rq-sel { min-width: 14rem; }
     .rq-table { font-size: .84rem; }
-    .rq-row { cursor: pointer; } .rq-row:hover { background: var(--surface-hover, #f6f5f3); }
+    .rq-row { cursor: pointer; } .rq-row:hover { background: var(--surface-hover-bg); }
     .rq-r { text-align: right; font-variant-numeric: tabular-nums; }
     .rq-mono { font-family: var(--font-mono, ui-monospace, monospace); font-weight: 600; }
-    .rq-muted { color: var(--text-muted, #8a8580); }
-    .rq-empty { color: var(--text-muted, #8a8580); padding: 1rem; text-align: center; }
+    .rq-muted { color: var(--text-muted); }
+    .rq-empty { color: var(--text-muted); padding: 1rem; text-align: center; }
   `],
 })
 export class ComprasRequisicionesComponent implements OnInit {

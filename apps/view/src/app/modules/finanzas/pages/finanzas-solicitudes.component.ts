@@ -113,7 +113,7 @@ import { ComercialService, ExpenseRequestRow, ExpenseRequestsReport } from '../.
     .so-field > label { font-size: var(--fs-micro, .72rem); text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); }
     .so-field.so-grow { flex: 1 1 16rem; }
     .so-kpis { display: flex; flex-wrap: wrap; gap: .8rem; margin-bottom: 1rem; }
-    .so-kpi { flex: 1; min-width: 150px; display: flex; flex-direction: column; gap: .15rem; padding: .9rem 1rem; border: 1px solid var(--border-color); border-radius: var(--radius-md, 12px); background: var(--card-bg); }
+    .so-kpi { flex: 1; min-width: 150px; display: flex; flex-direction: column; gap: .15rem; padding: .9rem 1rem; border: 1px solid var(--border-color); border-radius: var(--r-md); background: var(--card-bg); }
     .so-kpi.bad { border-left: 3px solid var(--bad-fg); }
     .so-kpi.ok { border-left: 3px solid var(--ok-fg); }
     .so-kpi-label { font-size: var(--fs-micro, .72rem); text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); }

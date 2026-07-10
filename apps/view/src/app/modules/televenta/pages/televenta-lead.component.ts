@@ -257,8 +257,8 @@ const OUTCOMES: OutcomeOption[] = [
       }
       .back-link:hover { color: var(--primary-color); }
       .card {
-        background: var(--surface-card);
-        border: 1px solid var(--surface-border);
+        background: var(--card-bg);
+        border: 1px solid var(--border-color);
         border-radius: 16px;
         padding: 1.25rem;
       }
@@ -297,7 +297,7 @@ const OUTCOMES: OutcomeOption[] = [
       .log-form label { display: flex; flex-direction: column; gap: 0.4rem; font-size: 0.875rem; }
       .log-form label > span:first-child { font-weight: 500; color: var(--text-color); }
       .checkbox-row { flex-direction: row !important; align-items: center; gap: 0.5rem !important; }
-      .modal-actions { display: flex; justify-content: flex-end; gap: 0.5rem; padding-top: 0.5rem; border-top: 1px solid var(--surface-border); margin-top: 0.5rem; }
+      .modal-actions { display: flex; justify-content: flex-end; gap: 0.5rem; padding-top: 0.5rem; border-top: 1px solid var(--border-color); margin-top: 0.5rem; }
     `,
   ],
 })
