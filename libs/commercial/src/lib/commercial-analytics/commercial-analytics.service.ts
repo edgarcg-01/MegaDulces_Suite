@@ -66,6 +66,7 @@ export interface SalidasRow {
   sku: string;
   nombre: string;
   uxc: number | null;
+  unit_sale: string | null;      // unidad de venta Kepler (PZA/CJA/KGS…) — define si la conversión a cajas aplica
   supplier: string | null;
   brand: string | null;
   categoria: string | null;      // SAL.6 clasificación
@@ -73,12 +74,12 @@ export interface SalidasRow {
   costo_civa: number | null;
   costo_caja: number | null;
   exist_paq: number;
-  exist_cja: number;
+  exist_cja: number | null;      // null cuando unit_sale no es pieza (no se puede convertir sin descuadrar)
   costo_existencia: number;
   monthly: Record<string, { venta: number; costo: number }>;
   venta_total: number;
   costo_total: number;
-  venta_cajas: number;             // SAL.6 venta_total ÷ UXC
+  venta_cajas: number | null;      // SAL.6 venta_total ÷ UXC — null si unit_sale no es pieza
   dias_cobertura: number | null;   // SAL.6 existencia ÷ venta diaria del período
   venta_prev: number | null;       // SAL.6 tendencia — venta período anterior (solo rango)
   venta_delta_pct: number | null;  // SAL.6 % variación vs período anterior
@@ -2338,7 +2339,7 @@ export class CommercialAnalyticsService {
         })
         .distinct(
           'w.code as wcode', 'w.name as wname', 'm.product_id as product_id',
-          'p.sku as sku', 'p.nombre as nombre', 'p.factor_sale as factor_sale',
+          'p.sku as sku', 'p.nombre as nombre', 'p.factor_sale as factor_sale', 'p.unit_sale as unit_sale',
           'p.cost_with_tax as cost_with_tax', 'p.cost_per_case as cost_per_case',
           's.name as supplier', 'b.nombre as brand', 'cat.name as categoria',
           'p.rotation_tier as rotation_tier', 'st.quantity as stock_qty',
@@ -2402,8 +2403,14 @@ export class CommercialAnalyticsService {
         }
       }
       const existPaq = Number(r.stock_qty) || 0;
-      const existCja = round(existPaq / factor, 2);
-      const ventaCajas = round(ventaTotal / factor, 2);
+      // Conversión a cajas SOLO cuando la venta/existencia están en PIEZAS. Para
+      // unidades ya-en-caja (CJA) o a granel (KGS) dividir por el factor descuadra
+      // (la venta ya está en cajas, o los kilos no se convierten con un pack) →
+      // devolvemos null y la UI muestra "—" en vez de un número incorrecto.
+      const unitSale = String(r.unit_sale ?? '').trim().toUpperCase();
+      const pieceUnit = unitSale === '' || unitSale === 'PZA' || unitSale === 'PZAS' || unitSale === 'PIEZA' || unitSale === 'PZ';
+      const existCja = pieceUnit ? round(existPaq / factor, 2) : null;
+      const ventaCajas = pieceUnit ? round(ventaTotal / factor, 2) : null;
       const diasCobertura = ventaTotal > 0 ? Math.round((existPaq * diasPeriodo) / ventaTotal) : null;
       const ventaPrev = isRange ? (prevByKey.get(key) ?? 0) : null;
       const ventaDelta = isRange && ventaPrev != null && ventaPrev > 0
@@ -2415,6 +2422,7 @@ export class CommercialAnalyticsService {
         sku: r.sku,
         nombre: r.nombre,
         uxc: r.factor_sale != null ? Number(r.factor_sale) : null,
+        unit_sale: r.unit_sale ?? null,
         supplier: r.supplier ?? null,
         brand: r.brand ?? null,
         categoria: r.categoria ?? null,
@@ -2423,7 +2431,7 @@ export class CommercialAnalyticsService {
         costo_caja: r.cost_per_case != null ? Number(r.cost_per_case) : null,
         exist_paq: existPaq,
         exist_cja: existCja,
-        costo_existencia: round(existCja * costCase),
+        costo_existencia: existCja != null ? round(existCja * costCase) : round(existPaq * costUnit),
         monthly,
         venta_total: round(ventaTotal, 2),
         costo_total: round(costoTotal),

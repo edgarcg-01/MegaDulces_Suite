@@ -146,7 +146,7 @@ const MES: Record<string, string> = {
                   <td class="sl-clip">{{ row.brand ?? '—' }}</td>
                   <td class="sl-clip comm-muted">{{ row.categoria ?? '—' }}</td>
                   <td class="sl-rot comm-muted">{{ row.rotation_tier ?? '—' }}</td>
-                  <td class="comm-num">{{ row.exist_cja | number:'1.0-2' }}</td>
+                  <td class="comm-num">{{ row.exist_cja == null ? '—' : (row.exist_cja | number:'1.0-2') }}</td>
                   <td class="comm-num">{{ row.costo_caja | currency:'MXN':'symbol-narrow':'1.0-2' }}</td>
                   @if (isRange()) {
                     <td class="comm-num sl-strong">{{ row.venta_total != null ? (row.venta_total | number:'1.0-0') : '·' }}</td>

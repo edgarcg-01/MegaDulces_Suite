@@ -1191,6 +1191,7 @@ export interface SalidasRow {
   sku: string;
   nombre: string;
   uxc: number | null;
+  unit_sale: string | null;
   supplier: string | null;
   brand: string | null;
   categoria: string | null;
@@ -1198,12 +1199,12 @@ export interface SalidasRow {
   costo_civa: number | null;
   costo_caja: number | null;
   exist_paq: number;
-  exist_cja: number;
+  exist_cja: number | null;
   costo_existencia: number;
   monthly: Record<string, { venta: number; costo: number }>;
   venta_total: number;
   costo_total: number;
-  venta_cajas: number;
+  venta_cajas: number | null;
   dias_cobertura: number | null;
   venta_prev: number | null;
   venta_delta_pct: number | null;

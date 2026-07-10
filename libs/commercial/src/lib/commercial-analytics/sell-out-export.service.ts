@@ -183,7 +183,7 @@ export class SellOutExportService {
       { h: 'CostoCIVA', v: (r) => r.costo_civa ?? 0, fmt: MONEY },
       { h: 'CostoXCaja', v: (r) => r.costo_caja ?? 0, fmt: MONEY },
       { h: 'Exist. Paq. Actual', v: (r) => r.exist_paq, fmt: NUM, total: true },
-      { h: 'Exist. Cja. Actual', v: (r) => r.exist_cja, fmt: '#,##0.00', total: true },
+      { h: 'Exist. Cja. Actual', v: (r) => r.exist_cja ?? '', fmt: '#,##0.00', total: true },
       { h: 'Valor Existencia', v: (r) => r.costo_existencia, fmt: MONEY, total: true },
     ];
     if (isRange) {
@@ -191,7 +191,7 @@ export class SellOutExportService {
       cols.push(
         { h: `Venta ${lbl}`, v: (r) => r.venta_total, fmt: NUM, total: true },
         { h: `Costo ${lbl}`, v: (r) => r.costo_total, fmt: MONEY, total: true },
-        { h: 'Venta cajas', v: (r) => r.venta_cajas, fmt: '#,##0.0', total: true },
+        { h: 'Venta cajas', v: (r) => r.venta_cajas ?? '', fmt: '#,##0.0', total: true },
         { h: 'Dias cobertura', v: (r) => r.dias_cobertura ?? '', fmt: NUM, kind: 'cov' },
         { h: 'Venta anterior', v: (r) => r.venta_prev ?? 0, fmt: NUM, total: true },
         { h: 'Var %', v: (r) => (r.venta_delta_pct == null ? '' : r.venta_delta_pct / 100), fmt: '0.0%', kind: 'delta' },
@@ -205,7 +205,7 @@ export class SellOutExportService {
       }
       cols.push(
         { h: 'Venta TOTAL', v: (r) => r.venta_total, fmt: NUM, total: true },
-        { h: 'Venta cajas', v: (r) => r.venta_cajas, fmt: '#,##0.0', total: true },
+        { h: 'Venta cajas', v: (r) => r.venta_cajas ?? '', fmt: '#,##0.0', total: true },
         { h: 'Dias cobertura', v: (r) => r.dias_cobertura ?? '', fmt: NUM, kind: 'cov' },
       );
     }
