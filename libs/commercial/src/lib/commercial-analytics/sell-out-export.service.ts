@@ -175,7 +175,8 @@ export class SellOutExportService {
       { h: 'Sucursal', v: (r) => r.warehouse_name },
       { h: 'Clave producto', v: (r) => r.sku },
       { h: 'Descripcion del producto', v: (r) => r.nombre },
-      { h: 'UXC', v: (r) => r.uxc ?? '' },
+      { h: 'Pz/Paq', v: (r) => r.pack_size ?? '' },
+      { h: 'Pz/Cja', v: (r) => r.box_size ?? '' },
       { h: 'Unidad', v: (r) => r.unit_sale ?? '' },
       { h: 'SN', v: (r) => r.supplier ?? '' },
       { h: 'CN', v: (r) => r.brand ?? '' },
@@ -194,6 +195,7 @@ export class SellOutExportService {
         { h: `Venta ${lbl}`, v: (r) => r.venta_total, fmt: NUM, total: true },
         { h: `Costo ${lbl}`, v: (r) => r.costo_total, fmt: MONEY, total: true },
         { h: 'Venta paquetes', v: (r) => r.venta_paquetes ?? '', fmt: '#,##0.0', total: true },
+        { h: 'Venta cajas', v: (r) => r.venta_cajas ?? '', fmt: '#,##0.0', total: true },
         { h: 'Dias cobertura', v: (r) => r.dias_cobertura ?? '', fmt: NUM, kind: 'cov' },
         { h: 'Venta anterior', v: (r) => r.venta_prev ?? 0, fmt: NUM, total: true },
         { h: 'Var %', v: (r) => (r.venta_delta_pct == null ? '' : r.venta_delta_pct / 100), fmt: '0.0%', kind: 'delta' },
@@ -208,6 +210,7 @@ export class SellOutExportService {
       cols.push(
         { h: 'Venta TOTAL', v: (r) => r.venta_total, fmt: NUM, total: true },
         { h: 'Venta paquetes', v: (r) => r.venta_paquetes ?? '', fmt: '#,##0.0', total: true },
+        { h: 'Venta cajas', v: (r) => r.venta_cajas ?? '', fmt: '#,##0.0', total: true },
         { h: 'Dias cobertura', v: (r) => r.dias_cobertura ?? '', fmt: NUM, kind: 'cov' },
       );
     }

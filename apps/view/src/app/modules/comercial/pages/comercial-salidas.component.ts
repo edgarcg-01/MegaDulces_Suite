@@ -115,7 +115,8 @@ const MES: Record<string, string> = {
                   <th scope="col" pFrozenColumn style="min-width:150px" pSortableColumn="warehouse_name">Sucursal <p-sortIcon field="warehouse_name" /></th>
                   <th scope="col" pFrozenColumn style="min-width:110px" pSortableColumn="sku">Clave <p-sortIcon field="sku" /></th>
                   <th scope="col" pFrozenColumn style="min-width:240px" pSortableColumn="nombre">Descripción <p-sortIcon field="nombre" /></th>
-                  <th scope="col" class="comm-num" pSortableColumn="uxc">UXC <p-sortIcon field="uxc" /></th>
+                  <th scope="col" class="comm-num" pSortableColumn="pack_size" pTooltip="Piezas por paquete (Kepler c81)">Pz/Paq <p-sortIcon field="pack_size" /></th>
+                  <th scope="col" class="comm-num" pSortableColumn="box_size" pTooltip="Piezas por caja (Kepler c84)">Pz/Cja <p-sortIcon field="box_size" /></th>
                   <th scope="col" pSortableColumn="unit_sale">Unidad <p-sortIcon field="unit_sale" /></th>
                   <th scope="col" pSortableColumn="brand">Marca <p-sortIcon field="brand" /></th>
                   <th scope="col" pSortableColumn="categoria">Categoría <p-sortIcon field="categoria" /></th>
@@ -136,7 +137,8 @@ const MES: Record<string, string> = {
                     }
                     <th scope="col" class="comm-num sl-strong" pSortableColumn="venta_total">Venta TOTAL <p-sortIcon field="venta_total" /></th>
                   }
-                  <th scope="col" class="comm-num" pSortableColumn="venta_paquetes">Paquetes <p-sortIcon field="venta_paquetes" /></th>
+                  <th scope="col" class="comm-num" pSortableColumn="venta_paquetes">Venta paq <p-sortIcon field="venta_paquetes" /></th>
+                  <th scope="col" class="comm-num" pSortableColumn="venta_cajas">Venta cja <p-sortIcon field="venta_cajas" /></th>
                   <th scope="col" class="comm-num" pSortableColumn="dias_cobertura">Cobertura <p-sortIcon field="dias_cobertura" /></th>
                 </tr>
               </ng-template>
@@ -145,7 +147,8 @@ const MES: Record<string, string> = {
                   <td pFrozenColumn class="comm-cell-strong">{{ row.warehouse_name }}</td>
                   <td pFrozenColumn><code class="comm-code">{{ row.sku }}</code></td>
                   <td pFrozenColumn class="sl-name" [pTooltip]="row.nombre" tooltipPosition="top">{{ row.nombre }}</td>
-                  <td class="comm-num">{{ row.uxc ?? '—' }}</td>
+                  <td class="comm-num comm-muted">{{ row.pack_size == null ? '—' : (row.pack_size | number:'1.0-0') }}</td>
+                  <td class="comm-num comm-muted">{{ row.box_size == null ? '—' : (row.box_size | number:'1.0-0') }}</td>
                   <td class="sl-unit" [class.sl-unit-warn]="!isPieza(row.unit_sale)">{{ row.unit_sale ?? '—' }}</td>
                   <td class="sl-clip">{{ row.brand ?? '—' }}</td>
                   <td class="sl-clip comm-muted">{{ row.categoria ?? '—' }}</td>
@@ -166,7 +169,8 @@ const MES: Record<string, string> = {
                     }
                     <td class="comm-num sl-strong">{{ row.venta_total | number:'1.0-0' }}</td>
                   }
-                  <td class="comm-num">{{ row.venta_paquetes != null ? (row.venta_paquetes | number:'1.0-1') : '·' }}</td>
+                  <td class="comm-num">{{ row.venta_paquetes != null ? (row.venta_paquetes | number:'1.0-1') : '—' }}</td>
+                  <td class="comm-num">{{ row.venta_cajas != null ? (row.venta_cajas | number:'1.0-1') : '—' }}</td>
                   <td class="comm-num comm-muted">{{ row.dias_cobertura == null ? '—' : (row.dias_cobertura | number:'1.0-0') }}</td>
                 </tr>
               </ng-template>

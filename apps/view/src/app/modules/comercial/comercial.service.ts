@@ -1208,6 +1208,7 @@ export interface SalidasRow {
   venta_total: number;
   costo_total: number;
   venta_paquetes: number | null;
+  venta_cajas: number | null;
   dias_cobertura: number | null;
   venta_prev: number | null;
   venta_delta_pct: number | null;

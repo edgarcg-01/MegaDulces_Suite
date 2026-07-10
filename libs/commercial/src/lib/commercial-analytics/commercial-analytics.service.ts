@@ -84,7 +84,8 @@ export interface SalidasRow {
   monthly: Record<string, { venta: number; costo: number }>;
   venta_total: number;
   costo_total: number;
-  venta_paquetes: number | null;   // SAL.6 venta_total ÷ pzas por paquete (antes mal-llamado "cajas")
+  venta_paquetes: number | null;   // venta_total ÷ pzas por paquete (null si no hay paquete)
+  venta_cajas: number | null;      // venta_total ÷ pzas por caja (null si no hay caja)
   dias_cobertura: number | null;   // SAL.6 existencia ÷ venta diaria del período
   venta_prev: number | null;       // SAL.6 tendencia — venta período anterior (solo rango)
   venta_delta_pct: number | null;  // SAL.6 % variación vs período anterior
@@ -2419,11 +2420,16 @@ export class CommercialAnalyticsService {
       // → null y la UI muestra "—". Caja suele venir sin factor (c84=0) → "—".
       const unitSale = String(r.unit_sale ?? '').trim().toUpperCase();
       const pieceUnit = unitSale === '' || unitSale === 'PZA' || unitSale === 'PZAS' || unitSale === 'PIEZA' || unitSale === 'PZ';
-      const packF = Number(r.pack_size) > 0 ? Number(r.pack_size) : (Number(r.factor_sale) > 0 ? Number(r.factor_sale) : 0);
+      // packF/boxF ESTRICTOS del catálogo de etiquetas (pack_size=PAQ, box_size=CJA,
+      // ya mapeados por etiqueta en import-label-data). Sin fallback a factor_sale
+      // (que es ambiguo: para el 75% del catálogo el "factor de venta" es la CAJA,
+      // no el paquete). Null → la columna muestra "—".
+      const packF = Number(r.pack_size) > 0 ? Number(r.pack_size) : 0;
       const boxF = Number(r.box_size) > 0 ? Number(r.box_size) : 0;
       const existPaquete = pieceUnit && packF > 0 ? round(existPaq / packF, 2) : null;
       const existCaja = pieceUnit && boxF > 0 ? round(existPaq / boxF, 2) : null;
       const ventaPaquetes = pieceUnit && packF > 0 ? round(ventaTotal / packF, 2) : null;
+      const ventaCajas = pieceUnit && boxF > 0 ? round(ventaTotal / boxF, 2) : null;
       const diasCobertura = ventaTotal > 0 ? Math.round((existPaq * diasPeriodo) / ventaTotal) : null;
       const ventaPrev = isRange ? (prevByKey.get(key) ?? 0) : null;
       const ventaDelta = isRange && ventaPrev != null && ventaPrev > 0
@@ -2452,6 +2458,7 @@ export class CommercialAnalyticsService {
         venta_total: round(ventaTotal, 2),
         costo_total: round(costoTotal),
         venta_paquetes: ventaPaquetes,
+        venta_cajas: ventaCajas,
         dias_cobertura: diasCobertura,
         venta_prev: ventaPrev != null ? round(ventaPrev, 2) : null,
         venta_delta_pct: ventaDelta,

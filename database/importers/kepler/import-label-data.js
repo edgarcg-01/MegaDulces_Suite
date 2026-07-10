@@ -2,10 +2,14 @@
 /**
  * Etiquetera — datos de etiqueta Kepler → commercial.product_label_prices (BULK, source='kepler').
  *
- * Fuente (decodificada 2026-07-09, verificada vs SKU 20186):
- *   md.kdii             c1=código/sku, c2=nombre (trae gramaje "…50G/8"), c7=barcode pieza,
- *                       c81=pzas por paquete, c84=pzas por caja,
- *                       c90=precio pieza, c91=precio paquete, c92=precio caja.
+ * Fuente (decodificada 2026-07-09; corregida 2026-07-10 — modelo de unidades por ETIQUETA):
+ *   md.kdii             c1=sku, c2=nombre (trae gramaje "…50G/8"), c7=barcode pieza, c11=unidad base.
+ *                       UNIDADES = pares (etiqueta, factor): (c80,c81) y (c83,c84), con precios
+ *                       c90=pieza, c91=precio de la unidad c80, c92=precio de la unidad c83.
+ *                       El factor es PIEZAS por esa unidad. La etiqueta manda (NO la posición):
+ *                       PAQ→paquete · CJA→caja · PZA→base(=1) · KG/BTO→granel (se ignoran para
+ *                       pack/box). ⚠️ El 75% del catálogo NO tiene paquete: su unidad es CJA
+ *                       directo (c80='CJA') → antes se guardaba mal como "pzas por paquete".
  *   md.kdpv_prod_util   c2=presentación (PZA/PAQ/CJA), c4=min_qty (umbral mayoreo),
  *                       c7=precio. PZA con min_qty>1 = mayoreo por pieza; PAQ = mayoreo por paquete.
  *
@@ -60,6 +64,22 @@ function barcodeFormat(code) {
 const num = (v) => { const n = Number(v); return Number.isFinite(n) ? n : null; };
 const int = (v) => { const n = parseInt(v, 10); return Number.isFinite(n) ? n : null; };
 
+/**
+ * Resuelve paquete/caja desde los 2 pares (etiqueta, factor, precio) de kdii.
+ * Por ETIQUETA, no por posición: PAQ→paquete, CJA→caja. Solo cuenta factores >1
+ * (un PZA×1 o PAQ×1 es la base, no agrupa). KG/BTO/otros no mapean a pack/box.
+ */
+function resolveUnits(slots) {
+  let pack_size = null, pack_price = null, box_size = null, box_price = null;
+  for (const s of slots) {
+    const f = int(s.factor);
+    if (!s.label || !f || f <= 1) continue;
+    if (s.label === 'PAQ') { pack_size = f; pack_price = num(s.price); }
+    else if (s.label === 'CJA') { box_size = f; box_price = num(s.price); }
+  }
+  return { pack_size, pack_price, box_size, box_price };
+}
+
 (async () => {
   const db = new Client({ connectionString: DST });
   const src = new Client({ connectionString: SRC });
@@ -83,11 +103,12 @@ const int = (v) => { const n = parseInt(v, 10); return Number.isFinite(n) ? n : 
     const skuToId = new Map(prods.map((p) => [p.sku, p.id]));
     console.log(`  catálogo con sku: ${skuToId.size}`);
 
-    // Maestro kdii (precios base + factores + barcode + nombre)
+    // Maestro kdii: pieza + los 2 pares (etiqueta, factor, precio) de unidad.
     const kdii = (await src.query(`
       SELECT c1 AS sku, c2 AS name, c7 AS barcode, c11 AS unit_base,
-             c81 AS pack_size, c84 AS box_size,
-             c90 AS piece_price, c91 AS pack_price, c92 AS box_price
+             btrim(c80) AS u1, c81 AS f1, c91 AS p1,
+             btrim(c83) AS u2, c84 AS f2, c92 AS p2,
+             c90 AS piece_price
         FROM md.kdii WHERE btrim(coalesce(c1,''))<>''`)).rows;
 
     // Tiers de mayoreo kdpv_prod_util
@@ -117,6 +138,11 @@ const int = (v) => { const n = parseInt(v, 10); return Number.isFinite(n) ? n : 
       const w = wholesale.get(r.sku) || {};
       const fmt = barcodeFormat(r.barcode);
       if (!fmt) noBarcode++;
+      // Unidades por etiqueta (paquete/caja reales, no por posición).
+      const u = resolveUnits([
+        { label: r.u1, factor: r.f1, price: r.p1 },
+        { label: r.u2, factor: r.f2, price: r.p2 },
+      ]);
       staged.push([
         pid,
         parseGramaje(r.name),
@@ -125,11 +151,11 @@ const int = (v) => { const n = parseInt(v, 10); return Number.isFinite(n) ? n : 
         num(r.piece_price),
         w.pieceMinQty || null,
         w.piecePrice != null ? w.piecePrice : null,
-        int(r.pack_size),
-        num(r.pack_price),
+        u.pack_size,
+        u.pack_price,
         w.packPrice != null ? w.packPrice : null,
-        int(r.box_size),
-        num(r.box_price),
+        u.box_size,
+        u.box_price,
         (r.unit_base || '').trim().toUpperCase() || null,
       ]);
       matched++;
