@@ -27,6 +27,19 @@ const n = (v: unknown): number | null => {
 };
 
 /**
+ * Simbología por longitud del código del PRODUCTO (`products.barcode`). Se usa `p.barcode`
+ * (no `l.barcode`) porque es lo que el lector matchea en resolve — así lo impreso == lo escaneable.
+ * Longitudes no-EAN (5 díg = SKU, basura) → null; el frontend cae a CODE128 del SKU.
+ */
+const barcodeFmt = (v: unknown): string | null => {
+  const c = String(v ?? '').trim();
+  if (/^\d{13}$/.test(c)) return 'EAN13';
+  if (/^\d{12}$/.test(c)) return 'UPC';
+  if (/^\d{8}$/.test(c)) return 'EAN8';
+  return null;
+};
+
+/**
  * Etiquetera (proyecto Tienda). Resuelve una lista de códigos (SKU o barcode) al
  * modelo de la etiqueta de anaquel. Datos de `commercial.product_label_prices`
  * (cargados por database/importers/kepler/import-label-data.js) + `public.products`.
@@ -92,14 +105,18 @@ export class CommercialLabelsService {
           continue;
         }
         seen.add(r.product_id);
+        // El barcode del label sale de p.barcode (lo que el lector matchea). Si es EAN/UPC/EAN8
+        // válido se imprime; si no, se deja null y el frontend imprime CODE128 del SKU.
+        const pbc = String(r.product_barcode ?? '').trim();
+        const fmt = barcodeFmt(pbc);
         labels.push({
           code,
           product_id: r.product_id,
           sku: r.sku ?? null,
           name: r.name,
           content: r.content ?? null,
-          barcode: r.barcode ?? null,
-          barcode_format: r.barcode_format ?? null,
+          barcode: fmt ? pbc : null,
+          barcode_format: fmt,
           piece_price: n(r.piece_price),
           wholesale_piece_min_qty: r.wholesale_piece_min_qty ?? null,
           wholesale_piece_price: n(r.wholesale_piece_price),

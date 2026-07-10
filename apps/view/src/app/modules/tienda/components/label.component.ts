@@ -177,7 +177,9 @@ export class LabelComponent implements AfterViewInit, OnChanges {
     return !!this.show.mayoreoPaq && w > 0 && (base <= 0 || w < base);
   }
   get hasCaja(): boolean { return !!this.show.caja && this.num(this.model?.box_price) > 0 && this.num(this.model?.box_size) > 0; }
-  get hasBarcode(): boolean { return !!this.show.barcode && !!this.model?.barcode && !!this.model?.barcode_format; }
+  // Muestra el barcode si el multiselect lo pide Y hay algo que codificar: EAN/UPC válido
+  // del producto, o al menos el SKU (fallback CODE128) → toda etiqueta sale escaneable.
+  get hasBarcode(): boolean { return !!this.show.barcode && (!!(this.model?.barcode && this.model?.barcode_format) || !!(this.model?.sku && this.model.sku.trim())); }
 
   /**
    * Precio grande. Con `hero` explícito (intercambiable por ticket) usa ese precio si es válido.
@@ -271,9 +273,16 @@ export class LabelComponent implements AfterViewInit, OnChanges {
     const el = this.bc?.nativeElement;
     if (!el) return;
     el.innerHTML = '';
-    const code = this.model?.barcode;
-    const fmt = this.model?.barcode_format;
-    if (!code || !fmt) return; // no dibujar códigos inválidos (Kepler traía basura)
+    // 1) EAN/UPC/EAN8 válido del producto (== lo que el lector matchea). 2) fallback: CODE128
+    //    del SKU, para que TODA etiqueta salga con un código escaneable (resolve matchea por SKU).
+    let code = this.model?.barcode;
+    let fmt = this.model?.barcode_format;
+    if (!code || !fmt) {
+      const sku = (this.model?.sku || '').trim();
+      if (!sku) return;
+      code = sku;
+      fmt = 'CODE128';
+    }
     try {
       JsBarcode(el, code, { format: fmt as any, displayValue: false, margin: 0, width: 2, height: 66 });
       const w = el.getAttribute('width');
