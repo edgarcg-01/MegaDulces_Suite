@@ -120,7 +120,9 @@ const MES: Record<string, string> = {
                   <th scope="col" pSortableColumn="brand">Marca <p-sortIcon field="brand" /></th>
                   <th scope="col" pSortableColumn="categoria">Categoría <p-sortIcon field="categoria" /></th>
                   <th scope="col" pSortableColumn="rotation_tier">Rot. <p-sortIcon field="rotation_tier" /></th>
-                  <th scope="col" class="comm-num" pSortableColumn="exist_cja">Exist. Cja <p-sortIcon field="exist_cja" /></th>
+                  <th scope="col" class="comm-num" pSortableColumn="exist_paq">Exist. Pza <p-sortIcon field="exist_paq" /></th>
+                  <th scope="col" class="comm-num" pSortableColumn="exist_paquete">Exist. Paq <p-sortIcon field="exist_paquete" /></th>
+                  <th scope="col" class="comm-num" pSortableColumn="exist_caja">Exist. Cja <p-sortIcon field="exist_caja" /></th>
                   <th scope="col" class="comm-num" pSortableColumn="costo_caja">Costo x Caja <p-sortIcon field="costo_caja" /></th>
                   @if (isRange()) {
                     <th scope="col" class="comm-num sl-strong" pSortableColumn="venta_total">Venta <p-sortIcon field="venta_total" /></th>
@@ -134,7 +136,7 @@ const MES: Record<string, string> = {
                     }
                     <th scope="col" class="comm-num sl-strong" pSortableColumn="venta_total">Venta TOTAL <p-sortIcon field="venta_total" /></th>
                   }
-                  <th scope="col" class="comm-num" pSortableColumn="venta_cajas">Cajas <p-sortIcon field="venta_cajas" /></th>
+                  <th scope="col" class="comm-num" pSortableColumn="venta_paquetes">Paquetes <p-sortIcon field="venta_paquetes" /></th>
                   <th scope="col" class="comm-num" pSortableColumn="dias_cobertura">Cobertura <p-sortIcon field="dias_cobertura" /></th>
                 </tr>
               </ng-template>
@@ -148,7 +150,9 @@ const MES: Record<string, string> = {
                   <td class="sl-clip">{{ row.brand ?? '—' }}</td>
                   <td class="sl-clip comm-muted">{{ row.categoria ?? '—' }}</td>
                   <td class="sl-rot comm-muted">{{ row.rotation_tier ?? '—' }}</td>
-                  <td class="comm-num">{{ row.exist_cja == null ? '—' : (row.exist_cja | number:'1.0-2') }}</td>
+                  <td class="comm-num">{{ row.exist_paq | number:'1.0-0' }}</td>
+                  <td class="comm-num">{{ row.exist_paquete == null ? '—' : (row.exist_paquete | number:'1.0-2') }}</td>
+                  <td class="comm-num">{{ row.exist_caja == null ? '—' : (row.exist_caja | number:'1.0-2') }}</td>
                   <td class="comm-num">{{ row.costo_caja | currency:'MXN':'symbol-narrow':'1.0-2' }}</td>
                   @if (isRange()) {
                     <td class="comm-num sl-strong">{{ row.venta_total != null ? (row.venta_total | number:'1.0-0') : '·' }}</td>
@@ -162,7 +166,7 @@ const MES: Record<string, string> = {
                     }
                     <td class="comm-num sl-strong">{{ row.venta_total | number:'1.0-0' }}</td>
                   }
-                  <td class="comm-num">{{ row.venta_cajas != null ? (row.venta_cajas | number:'1.0-1') : '·' }}</td>
+                  <td class="comm-num">{{ row.venta_paquetes != null ? (row.venta_paquetes | number:'1.0-1') : '·' }}</td>
                   <td class="comm-num comm-muted">{{ row.dias_cobertura == null ? '—' : (row.dias_cobertura | number:'1.0-0') }}</td>
                 </tr>
               </ng-template>
