@@ -28,6 +28,7 @@ export interface MovementsQuery {
   movement_kind?: string; // 'entrada' | 'salida'
   product_id?: string;
   search?: string;        // nombre/sku producto
+  folio?: string;         // filtra un folio exacto (drill al documento)
   group_by?: string;
   page?: number;
   pageSize?: number;
@@ -72,6 +73,7 @@ export class CommercialMovementsService {
     if (q.doc_code) b.where('m.doc_code', q.doc_code);
     if (q.movement_kind === 'entrada' || q.movement_kind === 'salida') b.where('m.movement_kind', q.movement_kind);
     if (q.product_id && UUID_RX.test(q.product_id)) b.where('m.product_id', q.product_id);
+    if (q.folio) b.where('m.folio', q.folio);
     if (q.search) {
       b.whereIn('m.product_id',
         trx('public.products').select('id').where('tenant_id', tenantId)
@@ -167,7 +169,7 @@ export class CommercialMovementsService {
       const [{ count }] = await build().count('* as count');
       const rows = await build()
         .select(
-          'm.doc_date', 'm.folio', 'm.doc_code', 'm.movement_label', 'm.movement_kind',
+          'm.warehouse_id', 'm.doc_date', 'm.folio', 'm.doc_code', 'm.movement_label', 'm.movement_kind',
           'm.genero', 'm.naturaleza', 'm.doc_type', 'm.signed_qty', 'm.qty',
           'm.unit_cost', 'm.amount', 'm.parent_group', 'm.parent_folio', 'm.source_branch',
           'p.nombre as product_name', 'p.sku', 'w.code as warehouse_code',
@@ -175,6 +177,42 @@ export class CommercialMovementsService {
         .orderBy([{ column: 'm.doc_date', order: 'desc' }, { column: 'm.folio', order: 'desc' }])
         .limit(pageSize).offset((page - 1) * pageSize);
       return { page, pageSize, total: Number(count), rows };
+    });
+  }
+
+  /** DRILL 3: documento completo — TODAS las líneas de un folio (sin filtrar por producto). */
+  async document(p: { folio: string; warehouse_id: string; doc_code?: string }) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      const q = trx('analytics.stock_movements as m')
+        .where('m.tenant_id', tenantId)
+        .andWhere('m.folio', p.folio)
+        .leftJoin('public.products as p', function (this: any) {
+          this.on('p.id', 'm.product_id').andOn('p.tenant_id', 'm.tenant_id');
+        })
+        .leftJoin('commercial.warehouses as w', 'w.id', 'm.warehouse_id');
+      if (p.warehouse_id && UUID_RX.test(p.warehouse_id)) q.where('m.warehouse_id', p.warehouse_id);
+      if (p.doc_code) q.where('m.doc_code', p.doc_code);
+      const lines = await q.select(
+        'm.doc_date', 'm.folio', 'm.doc_code', 'm.movement_label', 'm.movement_kind',
+        'm.genero', 'm.naturaleza', 'm.doc_type', 'm.signed_qty', 'm.qty',
+        'm.unit_cost', 'm.amount', 'm.parent_group', 'm.parent_folio', 'm.source_branch',
+        'p.nombre as product_name', 'p.sku', 'w.code as warehouse_code',
+      ).orderBy('p.nombre');
+      if (!lines.length) return { header: null, lines: [], totals: { qty: 0, amount: 0, lineas: 0 } };
+      const h = lines[0];
+      const header = {
+        folio: h.folio, doc_code: h.doc_code, movement_label: h.movement_label, movement_kind: h.movement_kind,
+        doc_date: h.doc_date, genero: h.genero, naturaleza: h.naturaleza, doc_type: h.doc_type,
+        warehouse_code: h.warehouse_code, source_branch: h.source_branch,
+        parent_group: h.parent_group, parent_folio: h.parent_folio,
+      };
+      const totals = {
+        qty: lines.reduce((s: number, l: any) => s + Number(l.signed_qty || 0), 0),
+        amount: lines.reduce((s: number, l: any) => s + Number(l.amount || 0), 0),
+        lineas: lines.length,
+      };
+      return { header, lines, totals };
     });
   }
 

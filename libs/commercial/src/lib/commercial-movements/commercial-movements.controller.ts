@@ -39,6 +39,13 @@ export class CommercialMovementsController {
   @ApiOperation({ summary: 'Drill folio a folio (line-level) de una rama. Filtros: product_id, doc_code, movement_kind, warehouse_id(s), from, to.' })
   lines(@Query() raw: Record<string, string>) { return this.svc.lines(this.q(raw)); }
 
+  @Get('document')
+  @RequirePermissions(Permission.COMMERCIAL_INVENTORY_VER)
+  @ApiOperation({ summary: 'Drill al documento: TODAS las líneas de un folio (header + líneas + totales). Params: folio, warehouse_id, doc_code.' })
+  document(@Query('folio') folio: string, @Query('warehouse_id') warehouse_id: string, @Query('doc_code') doc_code?: string) {
+    return this.svc.document({ folio, warehouse_id, doc_code });
+  }
+
   @Get('filters')
   @RequirePermissions(Permission.COMMERCIAL_INVENTORY_VER)
   @ApiOperation({ summary: 'Almacenes + tipos de documento presentes en el feed (para los selects).' })

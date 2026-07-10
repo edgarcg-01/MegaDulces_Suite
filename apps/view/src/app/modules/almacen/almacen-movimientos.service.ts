@@ -44,6 +44,7 @@ export interface AggregateResponse {
 }
 
 export interface MovementLine {
+  warehouse_id?: string;
   doc_date: string; folio: string; doc_code: string; movement_label: string;
   movement_kind: MovementKind; genero: string; naturaleza: string; doc_type: string;
   signed_qty: number; qty: number; unit_cost: number | null; amount: number | null;
@@ -51,6 +52,18 @@ export interface MovementLine {
   product_name: string | null; sku: string | null; warehouse_code: string | null;
 }
 export interface LinesResponse { page: number; pageSize: number; total: number; rows: MovementLine[]; }
+
+export interface DocumentHeader {
+  folio: string; doc_code: string; movement_label: string; movement_kind: MovementKind;
+  doc_date: string; genero: string; naturaleza: string; doc_type: string;
+  warehouse_code: string | null; source_branch: string;
+  parent_group: string | null; parent_folio: string | null;
+}
+export interface DocumentResponse {
+  header: DocumentHeader | null;
+  lines: MovementLine[];
+  totals: { qty: number; amount: number; lineas: number };
+}
 
 export interface MovementsFilterOpts {
   warehouses: { id: string; code: string; name: string }[];
@@ -82,6 +95,12 @@ export class AlmacenMovimientosService {
   }
   lines(f: MovementsFilters, extra: { product_id?: string; page?: number; pageSize?: number }): Observable<LinesResponse> {
     return this.http.get<LinesResponse>(`${this.base}/lines`, { params: this.params(f, extra) });
+  }
+  document(folio: string, warehouse_id?: string, doc_code?: string): Observable<DocumentResponse> {
+    let p = new HttpParams().set('folio', folio);
+    if (warehouse_id) p = p.set('warehouse_id', warehouse_id);
+    if (doc_code) p = p.set('doc_code', doc_code);
+    return this.http.get<DocumentResponse>(`${this.base}/document`, { params: p });
   }
   filters(): Observable<MovementsFilterOpts> {
     return this.http.get<MovementsFilterOpts>(`${this.base}/filters`);

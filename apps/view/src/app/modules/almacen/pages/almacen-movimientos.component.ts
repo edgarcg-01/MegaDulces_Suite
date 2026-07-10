@@ -12,7 +12,7 @@ import { TagModule } from 'primeng/tag';
 import { InputTextModule } from 'primeng/inputtext';
 import {
   AlmacenMovimientosService, GroupBy, MovementsFilters, MovementsSummary,
-  AggregateRow, MovementLine, MovementsFilterOpts,
+  AggregateRow, MovementLine, MovementsFilterOpts, DocumentResponse,
 } from '../almacen-movimientos.service';
 
 /**
@@ -121,9 +121,9 @@ import {
             </tr>
           </ng-template>
           <ng-template pTemplate="body" let-l>
-            <tr>
+            <tr class="dm-row" (click)="openDocument(l)" title="Ver el documento completo">
               <td class="dm-mono">{{ l.doc_date | date:'yyyy-MM-dd' }}</td>
-              <td class="dm-mono">{{ l.folio }}</td>
+              <td class="dm-mono dm-link">{{ l.folio }}</td>
               <td><p-tag [value]="l.movement_label" [severity]="l.movement_kind === 'entrada' ? 'success' : 'warn'" styleClass="dm-tag"></p-tag></td>
               @if (fGroup !== 'product') { <td class="dm-dname">{{ l.product_name || l.sku }}</td> }
               <td class="dm-r" [class.up]="l.signed_qty>0" [class.down]="l.signed_qty<0">{{ l.signed_qty | number:'1.0-0' }}</td>
@@ -133,7 +133,43 @@ import {
             </tr>
           </ng-template>
         </p-table>
-        <p class="dm-dlg-foot">{{ drillTotal() | number }} folios · sucursal {{ drillLines()[0].source_branch }}</p>
+        <p class="dm-dlg-foot">{{ drillTotal() | number }} folios · sucursal {{ drillLines()[0].source_branch }} · clic en un folio para ver el documento</p>
+      }
+    </p-dialog>
+
+    <!-- Drill 3: documento completo (todas las líneas del folio) -->
+    <p-dialog [(visible)]="docOpen" [modal]="true" [style]="{ width: '46rem', maxWidth: '95vw' }" [dismissableMask]="true" styleClass="dm-dlg">
+      <ng-template pTemplate="header"><span class="dm-dlg-title">Documento {{ doc()?.header?.folio }}</span></ng-template>
+      @if (docLoading()) { <div class="dm-empty">Cargando documento…</div> }
+      @else if (doc()) {
+        @if (doc()!.header; as h) {
+          <div class="dm-doc-head">
+            <p-tag [value]="h.movement_label" [severity]="h.movement_kind === 'entrada' ? 'success' : 'warn'" styleClass="dm-tag"></p-tag>
+            <span class="dm-doc-meta">{{ h.doc_date | date:'yyyy-MM-dd' }}</span>
+            <span class="dm-doc-meta dm-mono">{{ h.genero }}{{ h.naturaleza }}{{ h.doc_type }} · folio {{ h.folio }}</span>
+            <span class="dm-doc-meta">Almacén {{ h.warehouse_code || h.source_branch }}</span>
+            @if (h.parent_folio) { <span class="dm-doc-meta dm-mono">cadena → {{ h.parent_group }}·{{ h.parent_folio }}</span> }
+          </div>
+          <p-table [value]="doc()!.lines" styleClass="p-datatable-sm dm-dtable" [scrollable]="true" scrollHeight="22rem">
+            <ng-template pTemplate="header">
+              <tr><th>SKU</th><th>Producto</th><th class="dm-r">Cantidad</th><th class="dm-r">Costo/u</th><th class="dm-r">Importe</th></tr>
+            </ng-template>
+            <ng-template pTemplate="body" let-l>
+              <tr>
+                <td class="dm-mono">{{ l.sku }}</td>
+                <td class="dm-dname">{{ l.product_name || '—' }}</td>
+                <td class="dm-r" [class.up]="l.signed_qty>0" [class.down]="l.signed_qty<0">{{ l.signed_qty | number:'1.0-0' }}</td>
+                <td class="dm-r dm-muted">{{ l.unit_cost != null ? money(l.unit_cost) : '—' }}</td>
+                <td class="dm-r dm-strong">{{ l.amount != null ? money(l.amount) : '—' }}</td>
+              </tr>
+            </ng-template>
+          </p-table>
+          <div class="dm-doc-foot">
+            <span>{{ doc()!.totals.lineas | number }} líneas</span>
+            <span>Neto <strong [class.up]="doc()!.totals.qty>0" [class.down]="doc()!.totals.qty<0">{{ doc()!.totals.qty | number:'1.0-0' }}</strong></span>
+            <span>Total <strong>{{ money(doc()!.totals.amount) }}</strong></span>
+          </div>
+        } @else { <div class="dm-empty">Documento sin líneas.</div> }
       }
     </p-dialog>
   `,
@@ -163,6 +199,11 @@ import {
     .dm-dtable { font-size: .8rem; margin-top: .3rem; }
     .dm-dname { max-width: 14rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .dm-dlg-foot { margin-top: .6rem; font-size: .74rem; color: var(--text-muted); }
+    .dm-link { color: var(--action); }
+    .dm-doc-head { display: flex; flex-wrap: wrap; gap: .5rem 1rem; align-items: center; margin-bottom: .5rem; padding-bottom: .5rem; border-bottom: 1px solid var(--border-color); }
+    .dm-doc-meta { font-size: .76rem; color: var(--text-muted); }
+    .dm-doc-foot { display: flex; gap: 1.5rem; justify-content: flex-end; margin-top: .6rem; font-size: .82rem; }
+    .dm-doc-foot strong { font-variant-numeric: tabular-nums; }
   `],
 })
 export class AlmacenMovimientosComponent implements OnInit {
@@ -198,12 +239,17 @@ export class AlmacenMovimientosComponent implements OnInit {
     { label: 'Salidas', value: 'salida' },
   ];
 
-  // Drill
+  // Drill 2 (folios)
   drillOpen = false;
   drillLoading = signal(false);
   drillLines = signal<MovementLine[]>([]);
   drillTotal = signal(0);
   private drillLabel = signal('');
+
+  // Drill 3 (documento completo)
+  docOpen = false;
+  docLoading = signal(false);
+  doc = signal<DocumentResponse | null>(null);
 
   ngOnInit(): void {
     this.api.filters().pipe(takeUntilDestroyed(this.destroyRef)).subscribe((f: MovementsFilterOpts) => {
@@ -262,6 +308,17 @@ export class AlmacenMovimientosComponent implements OnInit {
     this.api.lines(f, extra).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (res) => { this.drillLines.set(res.rows); this.drillTotal.set(res.total); this.drillLoading.set(false); },
       error: () => { this.drillLines.set([]); this.drillLoading.set(false); },
+    });
+  }
+
+  /** Drill 3: abre el documento completo (todas las líneas del folio). */
+  openDocument(l: MovementLine): void {
+    this.docOpen = true;
+    this.docLoading.set(true);
+    this.doc.set(null);
+    this.api.document(l.folio, l.warehouse_id, l.doc_code).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (d) => { this.doc.set(d); this.docLoading.set(false); },
+      error: () => { this.doc.set({ header: null, lines: [], totals: { qty: 0, amount: 0, lineas: 0 } }); this.docLoading.set(false); },
     });
   }
 
