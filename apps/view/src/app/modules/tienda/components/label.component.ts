@@ -35,7 +35,7 @@ export interface LabelModel {
 
 /**
  * Etiqueta de anaquel Mega Dulces (115×40 mm) — diseño congelado (ver etiqueta-preview.html).
- * Sin iconos, letra grande, rojo en lo importante (SKU + número de piezas).
+ * Sin iconos, letra grande, naranja de marca (--brand-700 #F05A28) en lo importante (SKU + número de piezas).
  * ViewEncapsulation.None + clases `etq-*` para que el layout en mm y las fuentes apliquen
  * limpio al imprimir. El barcode se genera con JsBarcode (mismo formato que Kepler).
  */
@@ -48,7 +48,7 @@ export interface LabelModel {
   styles: [`
     @import url('https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;600;700;800&display=swap');
     .etq-label{
-      --green:hsl(141,76%,16%); --yellow:#f6c400; --cream:#f8f6ea; --red:#cc2222;
+      --green:hsl(141,76%,16%); --yellow:#f6c400; --cream:#f8f6ea; --red:#F05A28;
       --font:'Baloo 2',system-ui,sans-serif; --font-num:'Impact','Haettenschweiler','Anton','Arial Narrow',sans-serif;
       width:115mm; height:40mm; background:var(--cream); border-radius:3mm; overflow:hidden;
       font-family:var(--font); color:var(--green); display:flex; flex-direction:column;

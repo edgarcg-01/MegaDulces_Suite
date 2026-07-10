@@ -83,7 +83,7 @@ El título y valor del precio grande **"Precio por ___"** siguen la unidad base:
   - `pages/tienda-etiquetas.component.ts` — cola, búsqueda debounced, carga masiva, multiselect (PrimeNG), simulación de hoja Carta, impresión por iframe aislado (landscape 2-up, `@page letter landscape`, color forzado).
   - `components/label.component.ts` — la etiqueta 115×40 mm (`ViewEncapsulation.None`, clases `etq-*`), barcode con JsBarcode (dep npm `jsbarcode`, en `allowedCommonJsDependencies`), auto-ajuste del nombre al header, precio grande dinámico (`bigUnit`).
   - Ruta `/tienda/etiquetas` + nav "Etiquetas" (`permissionGuard(STORE_LIVE_VER)`).
-- **Diseño:** 115×40 mm, sin iconos, letra grande, verde `hsl(141,76%,16%)` + amarillo `#f6c400`, rojo `#cc2222` en SKU y números de piezas, brote de 2 hojas. Prototipo desechable en la raíz: `etiqueta-preview.html`.
+- **Diseño:** 115×40 mm, sin iconos, letra grande, verde `hsl(141,76%,16%)` + amarillo `#f6c400`, **naranja de marca `#F05A28` (`--brand-700` sunset)** en SKU y números de piezas, brote de 2 hojas. Prototipo desechable en la raíz: `etiqueta-preview.html`.
 
 ---
 
