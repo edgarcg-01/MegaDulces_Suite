@@ -53,6 +53,7 @@ export interface LabelModel {
       --font-cond:'Bebas Neue','Impact','Arial Narrow',sans-serif;
       width:115mm; height:40mm; background:var(--cream); border-radius:3mm; overflow:hidden;
       font-family:var(--font); color:var(--green); display:flex; flex-direction:column;
+      text-align:left; /* reset: el sheet-sim y el body de impresión usan text-align:center y se heredaba adentro (centraba los rótulos) */
       -webkit-print-color-adjust:exact; print-color-adjust:exact;
     }
     .etq-label *{ box-sizing:border-box; margin:0; padding:0; }
@@ -78,14 +79,16 @@ export interface LabelModel {
     .etq-pieza::before,.etq-pieza::after{ content:""; width:7mm; height:.9mm; flex:none;
       background:repeating-linear-gradient(90deg, var(--yellow) 0 2.8mm, transparent 2.8mm 4.6mm); }
     .etq-right{ width:55mm; min-height:0; display:flex; flex-direction:column; }
-    .etq-tier{ position:relative; display:grid; grid-template-columns:1fr 16mm 4mm; align-items:center;
-      column-gap:1.2mm; padding:.3mm 0; flex:1; min-height:0; }
+    .etq-tier{ position:relative; display:grid; grid-template-columns:1fr auto; align-items:center;
+      column-gap:2mm; padding:.3mm 0; flex:1; min-height:0; }
     .etq-tier::before{ content:""; position:absolute; top:0; left:0; right:0; height:.28mm;
       background:repeating-linear-gradient(90deg, var(--green) 0 .32mm, transparent .32mm .6mm); }
     .etq-tier:first-child::before{ display:none; }
     .etq-tier .txt{ font-family:var(--font-cond); font-size:3mm; font-weight:400; line-height:1; letter-spacing:.3px; }
-    .etq-tier .amt{ font-family:var(--font-cond); font-weight:400; font-size:5mm; white-space:nowrap; letter-spacing:.3px; text-align:left; font-variant-numeric:tabular-nums; }
-    .etq-tier .unit{ font-family:var(--font); font-size:1.9mm; font-weight:600; text-align:left; }
+    /* Celda de precio de ancho fijo → todos los precios arrancan en el mismo x (orden a la izquierda). */
+    .etq-tier .pricecell{ width:20mm; display:flex; align-items:baseline; gap:1mm; }
+    .etq-tier .amt{ font-family:var(--font-cond); font-weight:400; font-size:5mm; white-space:nowrap; letter-spacing:.3px; font-variant-numeric:tabular-nums; }
+    .etq-tier .unit{ font-family:var(--font); font-size:1.9mm; font-weight:600; }
     .etq-barcode{ margin-top:.3mm; display:flex; justify-content:flex-end; }
     .etq-barcode svg{ display:block; width:85%; height:5.4mm; }
   `],
@@ -108,29 +111,25 @@ export interface LabelModel {
           @if (show.mayoreoPza) {
             <div class="etq-tier">
               <div class="txt">Mayoreo desde <span class="etq-red">{{ mayoreoMin }}</span> pzas:</div>
-              <div class="amt">\${{ (model.wholesale_piece_price ?? 0) | number:'1.2-2' }}</div>
-              <div class="unit">c/u</div>
+              <div class="pricecell"><span class="amt">\${{ (model.wholesale_piece_price ?? 0) | number:'1.2-2' }}</span><span class="unit">c/u</span></div>
             </div>
           }
           @if (show.paquete) {
             <div class="etq-tier">
               <div class="txt">Paquete (<span class="etq-red">{{ model.pack_size }}</span> pzas):</div>
-              <div class="amt">\${{ (model.pack_price ?? 0) | number:'1.2-2' }}</div>
-              <div class="unit"></div>
+              <div class="pricecell"><span class="amt">\${{ (model.pack_price ?? 0) | number:'1.2-2' }}</span></div>
             </div>
           }
           @if (show.mayoreoPaq) {
             <div class="etq-tier">
               <div class="txt">Mayoreo desde <span class="etq-red">{{ mayoreoMin }}</span> paquetes:</div>
-              <div class="amt">\${{ (model.wholesale_pack_price ?? 0) | number:'1.2-2' }}</div>
-              <div class="unit">c/u</div>
+              <div class="pricecell"><span class="amt">\${{ (model.wholesale_pack_price ?? 0) | number:'1.2-2' }}</span><span class="unit">c/u</span></div>
             </div>
           }
           @if (show.caja) {
             <div class="etq-tier">
               <div class="txt">Caja (<span class="etq-red">{{ model.box_size }}</span> pzas):</div>
-              <div class="amt">\${{ (model.box_price ?? 0) | number:'1.2-2' }}</div>
-              <div class="unit"></div>
+              <div class="pricecell"><span class="amt">\${{ (model.box_price ?? 0) | number:'1.2-2' }}</span></div>
             </div>
           }
           @if (show.barcode) {
