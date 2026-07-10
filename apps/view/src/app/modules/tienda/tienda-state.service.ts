@@ -132,6 +132,62 @@ export class TiendaStateService {
     return this.buildHourBars(acc);
   }
 
+  // ── Palancas de crecimiento (3 pilares) ──────────────────────────
+  // Venta = Tickets × Ticket promedio ; Ticket promedio = Productos/ticket × Precio prom.
+  // Unidades/líneas se derivan del ticker (trae items de todo el día). Si un día
+  // supera el tope del ticker, el ratio queda como muestra representativa (los
+  // pilares Tickets y Ticket promedio siguen exactos porque salen de `branches`).
+  private itemsAgg(tickets: LiveTicket[]): { units: number; lines: number; n: number } {
+    let units = 0, lines = 0;
+    for (const t of tickets) {
+      const its = t.items || [];
+      lines += its.length;
+      for (const it of its) units += it.cant || 0;
+    }
+    return { units, lines, n: tickets.length };
+  }
+
+  /** Promedios de la RED (benchmark relativo para el coaching por tienda). */
+  readonly networkLevers = computed(() => {
+    const bs = this.branches();
+    const tickets = bs.reduce((s, b) => s + b.tickets, 0);
+    const venta = bs.reduce((s, b) => s + b.venta, 0);
+    const a = this.itemsAgg(this.ticker());
+    const active = bs.filter((b) => b.tickets > 0).length || 1;
+    return {
+      tickets,
+      ticketsPerStore: tickets / active,
+      ticketProm: tickets ? venta / tickets : 0,
+      unitsPerTicket: a.n ? a.units / a.n : 0,
+      linesPerTicket: a.n ? a.lines / a.n : 0,
+    };
+  });
+
+  /** Las 3 palancas de una tienda + índice vs red + cuál debe subir. */
+  leversOf(code: string) {
+    const b = this.branches().find((x) => x.warehouse_code === code);
+    const a = this.itemsAgg(this.ticketsOf(code));
+    const net = this.networkLevers();
+    const tickets = b?.tickets ?? 0;
+    const ticketProm = tickets ? (b!.venta / tickets) : 0;
+    const unitsPerTicket = a.n ? a.units / a.n : 0;
+    const linesPerTicket = a.n ? a.lines / a.n : 0;
+    const idx = {
+      tickets: net.ticketsPerStore ? tickets / net.ticketsPerStore : 1,
+      ticketProm: net.ticketProm ? ticketProm / net.ticketProm : 1,
+      unitsPerTicket: net.unitsPerTicket ? unitsPerTicket / net.unitsPerTicket : 1,
+    };
+    const items = [
+      { key: 'tickets', label: 'Tickets', short: 'Tickets', value: tickets, idx: idx.tickets },
+      { key: 'ticketProm', label: 'Ticket promedio', short: '$/tkt', value: ticketProm, idx: idx.ticketProm },
+      { key: 'unitsPerTicket', label: 'Productos/ticket', short: 'Prod/tkt', value: unitsPerTicket, idx: idx.unitsPerTicket },
+    ];
+    const weakest = items.reduce((m, e) => (e.idx < m.idx ? e : m), items[0]);
+    // gap vs red en % (negativo = por debajo)
+    const gapPct = Math.round((weakest.idx - 1) * 100);
+    return { tickets, ticketProm, unitsPerTicket, linesPerTicket, idx, items, weakest, gapPct };
+  }
+
   toggle(t: LiveTicket): void {
     const key = this.tkKey(t);
     this.open.update((s) => { const n = new Set(s); n.has(key) ? n.delete(key) : n.add(key); return n; });
