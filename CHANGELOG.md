@@ -10,6 +10,13 @@
 
 ## [Unreleased]
 
+### Fixed — Resolución de rol→permisos case-insensitive (raíz de "rebota a captures") (2026-07-10)
+- **Causa raíz normalizada:** el lookup `role_permissions.role_name` era case-sensitive en 3 rutas (login MT `auth-mt.service`, login legacy `auth.service`, y `PermissionsCacheService` del guard). Si `users.role_name` (minúscula, convención) difería del `role_permissions.role_name` (p.ej. `Auxiliar_mercadotecnia` capitalizado creado desde la UI) → el rol no se encontraba → **0 permisos** → usuario rebotado a `/dashboard/captures`. Afectaba a `gloria_garcia` y 4 usuarios más.
+- **Fix:** los 3 lookups comparan ahora `LOWER(role_name) = LOWER(?)`; la key del cache del guard se normaliza a minúscula (get + invalidate). Un mismatch de mayúsculas deja de romper la resolución — **sin necesitar tocar datos**.
+- **Prevención:** `CatalogsService` normaliza `role_name` a minúscula al **crear** y **renombrar** roles.
+- El fix de datos (mig `20260710150000`) sigue disponible para dejar la data canónica, pero ya no es requisito.
+- **Pendiente prod:** redeploy `api` + **re-login** del usuario (el front lee permisos del JWT del login).
+
 ### Added — Permisos dedicados para 2 páginas independientes (ERP promos + Ventas de vendedor) (2026-07-10)
 - Continuación del split: se separaron las páginas cuyos endpoints **no** se comparten con hermanas (sin riesgo de 403). Las páginas de flujos cohesivos (Compras, Logística-embarques, Flotilla, Tienda-vivo, Inventario-sesiones) **NO** se parten porque comparten endpoints y el guard backend es AND-only — partirlas daría 403 (requeriría soporte OR en backend).
 - **`COMMERCIAL_ERP_PROMOS_VER`** → `/comercial/erp-promos` + endpoint `analytics/erp-promotions` (antes ruta bajo PROMOTIONS_VER y endpoint bajo ANALYTICS_VER — inconsistencia resuelta).

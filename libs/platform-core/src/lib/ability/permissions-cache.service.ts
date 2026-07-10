@@ -46,14 +46,19 @@ export class PermissionsCacheService {
   ): Promise<Record<string, boolean>> {
     if (!roleName) return {};
     const now = Date.now();
-    const key = `${tenantId ?? 'global'}:${roleName}`;
+    // Normalizamos el role_name a minúscula para la KEY y el lookup: los
+    // usuarios pueden tener role_name en distinto case que role_permissions
+    // (data legacy). Sin esto, un mismatch de mayúsculas = 0 permisos = usuario
+    // rebotado a captures. La comparación en DB es LOWER()=LOWER().
+    const normRole = roleName.toLowerCase();
+    const key = `${tenantId ?? 'global'}:${normRole}`;
     const cached = this.cache.get(key);
     if (cached && cached.expiresAt > now) {
       return cached.permissions;
     }
     // tenant_id OBLIGATORIO para aislar: sin él, `.first()` sobre el mismo
     // role_name en varios tenants es no-determinista (cross-tenant leak).
-    const q = this.knex('role_permissions').where({ role_name: roleName });
+    const q = this.knex('role_permissions').whereRaw('LOWER(role_name) = ?', [normRole]);
     if (tenantId) q.where({ tenant_id: tenantId });
     const row = await q.first();
     const permissions: Record<string, boolean> = row?.permissions ?? {};
@@ -66,9 +71,11 @@ export class PermissionsCacheService {
    * a TODOS los usuarios con ese rol en su próximo request.
    */
   invalidate(roleName: string, tenantId?: string): void {
+    // Mismo normalizado que en la KEY (ver getPermissionsForRole).
+    const normRole = (roleName ?? '').toLowerCase();
     if (tenantId) {
-      if (this.cache.delete(`${tenantId}:${roleName}`)) {
-        this.logger.log(`Cache invalidated for "${tenantId}:${roleName}"`);
+      if (this.cache.delete(`${tenantId}:${normRole}`)) {
+        this.logger.log(`Cache invalidated for "${tenantId}:${normRole}"`);
       }
       return;
     }
@@ -77,12 +84,12 @@ export class PermissionsCacheService {
     for (const k of [...this.cache.keys()]) {
       const parts = k.split(':');
       const kRole = parts.length > 1 ? parts.slice(1).join(':') : k;
-      if (kRole === roleName) {
+      if (kRole === normRole) {
         this.cache.delete(k);
         n++;
       }
     }
-    if (n) this.logger.log(`Cache invalidated for role "${roleName}" (${n} entradas)`);
+    if (n) this.logger.log(`Cache invalidated for role "${normRole}" (${n} entradas)`);
   }
 
   /** Util de debug — no usar en runtime normal. */

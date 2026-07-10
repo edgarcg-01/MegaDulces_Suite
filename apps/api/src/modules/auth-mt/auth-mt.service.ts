@@ -85,8 +85,12 @@ export class AuthMtService {
         .where({ username: dto.username.toLowerCase().trim(), activo: true })
         .first();
       if (!u) return { user: null, rolePermissions: null, zonaName: null };
+      // Lookup case-insensitive: users.role_name puede diferir en mayúsculas de
+      // role_permissions.role_name (data legacy, p.ej. user 'auxiliar_x' vs fila
+      // 'Auxiliar_x'). Con match exacto el rol no se encontraba → JWT con 0
+      // permisos → el usuario quedaba rebotado a /dashboard/captures.
       const rp = await trx('role_permissions')
-        .where({ role_name: u.role_name })
+        .whereRaw('LOWER(role_name) = ?', [String(u.role_name ?? '').toLowerCase()])
         .first();
       let zn: string | null = null;
       if (u.zona_id) {

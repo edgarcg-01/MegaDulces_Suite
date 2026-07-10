@@ -192,7 +192,11 @@ export class CatalogsService {
     }
 
     if (type === 'roles') {
-      const name = (data.value || '').trim();
+      // Normalizamos a minúscula: el lookup rol→permisos es case-insensitive,
+      // pero mantener role_name canónico (snake_case minúscula) evita que
+      // convivan variantes de case ('Auxiliar_x' vs 'auxiliar_x') que rompían
+      // la resolución de permisos (usuarios en minúscula vs fila capitalizada).
+      const name = (data.value || '').trim().toLowerCase();
       if (!name) {
         throw new BadRequestException('El nombre del rol no puede estar vacío');
       }
@@ -608,7 +612,9 @@ export class CatalogsService {
       if (data.value === undefined) {
         throw new BadRequestException('Falta el nuevo nombre del rol');
       }
-      const newName = (data.value || '').trim();
+      // Canónico en minúscula (ver create): evita variantes de case que rompen
+      // la resolución de permisos.
+      const newName = (data.value || '').trim().toLowerCase();
       if (!newName) {
         throw new BadRequestException('El nombre del rol no puede estar vacío');
       }

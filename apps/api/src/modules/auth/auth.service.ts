@@ -60,8 +60,10 @@ export class AuthService {
     }
 
     // Obtener los permisos del rol del usuario
+    // Case-insensitive: users.role_name puede diferir en mayúsculas de
+    // role_permissions.role_name (data legacy) → match exacto daba 0 permisos.
     const rolePermissions = await this.knex('role_permissions')
-        .where({ role_name: user.role_name })
+        .whereRaw('LOWER(role_name) = ?', [String(user.role_name ?? '').toLowerCase()])
         .first();
 
     const permissions = rolePermissions ? rolePermissions.permissions : {};
