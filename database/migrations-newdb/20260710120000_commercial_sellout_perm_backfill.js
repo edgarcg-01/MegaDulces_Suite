@@ -18,7 +18,11 @@
  */
 const KEY = 'COMMERCIAL_SELLOUT_VER';
 const ANCHOR = 'COMMERCIAL_ANALYTICS_VER';
-const SELLOUT_ROLE = 'Auxiliar_mercadotecnia';
+// role_name canónico en minúscula snake_case (los usuarios lo tienen así). La
+// fila en prod se creó como 'Auxiliar_mercadotecnia' (mayúscula) → mismatch con
+// el lookup case-sensitive del guard = 0 permisos. La mig 20260710150000 la
+// renombra a minúscula; aquí ya usamos la forma canónica.
+const SELLOUT_ROLE = 'auxiliar_mercadotecnia';
 
 exports.up = async function (knex) {
   const bf = await knex.raw(
