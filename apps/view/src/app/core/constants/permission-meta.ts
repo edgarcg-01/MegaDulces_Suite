@@ -134,6 +134,13 @@ export const PERMISSION_META: Record<string, PermissionMetaEntry> = {
   // ── Compras / Reabastecimiento (Fase RA — ADR-030) ────────────────────
   [Permission.COMPRAS_VER]: { label: 'Ver Compras', description: 'Existencia crítica, punto de reorden y sugerido de compra. Solo lectura.', category: 'Compras' },
   [Permission.COMPRAS_GESTIONAR]: { label: 'Gestionar Compras', description: 'Generar y aprobar requisiciones de compra a proveedor desde el sugerido de reabastecimiento.', category: 'Compras' },
+
+  // ── Permisos que faltaban en el editor de permisos ────────────────────
+  [Permission.SUPERVISOR_AI_VER]: { label: 'Ver Supervisor AI', description: 'Consultar el supervisor de ejecución AI (parte diario, auditoría de fotos, hallazgos de ruta).', category: 'Seguimiento' },
+  [Permission.SUPERVISOR_AI_APROBAR]: { label: 'Aprobar acciones del Supervisor AI', description: 'Aprobar o rechazar las acciones propuestas por el supervisor AI (nivel co-piloto).', category: 'Seguimiento' },
+  [Permission.ROUTE_CONTROL_VER]: { label: 'Ver Control de ruta', description: 'Consultar los tickets de venta/carga/combustible del cierre de ruta de vendedores.', category: 'Comercial' },
+  [Permission.ROUTE_TICKET_CAPTURE]: { label: 'Capturar tickets de ruta', description: 'Registrar tickets del cierre de ruta (venta/carga/combustible).', category: 'Comercial' },
+  [Permission.LOGISTICS_HOME_DISPATCH]: { label: 'Reparto a domicilio', description: 'Entrega a domicilio: captura de folio, asignación a repartidor y corte de caja con arqueo.', category: 'Logística' },
 };
 
 /**

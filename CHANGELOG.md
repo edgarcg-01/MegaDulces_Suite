@@ -10,6 +10,11 @@
 
 ## [Unreleased]
 
+### Fixed — Editor de permisos completo: 8 permisos faltantes ahora visibles/etiquetados (2026-07-10)
+- **Auditoría enum vs UI:** 3 permisos eran **invisibles** en el editor árbol de roles (no estaban en `AUTHZ_TREE`) → no se podían otorgar desde `/admin/roles`: `RECONCILIATION_VER`, `RECONCILIATION_GESTIONAR` (Cuadre / Supervisor de movimientos, `/almacen/cuadre`) y `LOGISTICS_HOME_DISPATCH` (Reparto, `/reparto`). Agregados: módulo "Cuadre" en Almacén + nuevo proyecto "Reparto".
+- **5 permisos sin label/desglose** en `PERMISSION_META` (aparecían con la clave cruda): `SUPERVISOR_AI_VER`, `SUPERVISOR_AI_APROBAR`, `ROUTE_CONTROL_VER`, `ROUTE_TICKET_CAPTURE`, `LOGISTICS_HOME_DISPATCH`. Agregadas etiquetas + descripción + categoría.
+- **Resultado:** los 97 permisos del enum ahora están 100% en el árbol del editor y en el desglose por módulo. Sin migración (los permisos ya existían y estaban asignados; solo faltaba exponerlos en la UI). Redeploy `view` para verlo.
+
 ### Added — Split de COMMERCIAL_ANALYTICS_VER en permisos dedicados por reporte (2026-07-10)
 - **Continuación del split de Sell-Out a TODOS los reportes** que compartían `COMMERCIAL_ANALYTICS_VER`, para poder acotar un rol a reportes específicos.
 - **6 permisos nuevos** (cada uno gatea su página + endpoints): `COMMERCIAL_SALIDAS_VER` (Salidas), `COMMERCIAL_ROUTE_SALES_VER` (Ventas por ruta), `COMMERCIAL_CUSTOMERS360_VER` (Clientes 360 = erp-customers), `COMMERCIAL_HISTORICAL_VER` (Histórico), `COMMERCIAL_DEADSTOCK_VER` (Stock muerto), `COMMERCIAL_INVHEALTH_VER` (Salud de inventario). Traspasos **reusa** el existente `LOGISTICS_TRANSFERS_VER` (su ruta ya lo exigía; se alineó el endpoint `/analytics/transfers`).

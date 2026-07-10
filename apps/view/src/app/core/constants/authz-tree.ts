@@ -138,6 +138,7 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
           { id: 'physical-inventory', label: 'Inventario físico', route: '/almacen/inventory/sessions', view: [Permission.COMMERCIAL_INVENTORY_SUPERVISAR], manage: [Permission.COMMERCIAL_INVENTORY_CONTAR, Permission.COMMERCIAL_INVENTORY_RECONCILIAR, Permission.COMMERCIAL_INVENTORY_ASIGNAR] },
           { id: 'dead-stock', label: 'Stock muerto', route: '/almacen/dead-stock', view: [Permission.COMMERCIAL_DEADSTOCK_VER], manage: [] },
           { id: 'inventory-health', label: 'Salud de inventario', route: '/almacen/inventory-health', view: [Permission.COMMERCIAL_INVHEALTH_VER], manage: [] },
+          { id: 'cuadre', label: 'Cuadre / Supervisor de movimientos', route: '/almacen/cuadre', view: [Permission.RECONCILIATION_VER], manage: [Permission.RECONCILIATION_GESTIONAR] },
         ],
       },
       {
@@ -193,6 +194,15 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
           { id: 'egresos', label: 'Egresos contables', route: '/finanzas/egresos', view: [Permission.FINANCE_EXPENSES_VER], manage: [] },
           { id: 'hallazgos', label: 'Hallazgos', route: '/finanzas/hallazgos', view: [Permission.FINANCE_AI_CHAT], manage: [Permission.FINANCE_FINDINGS_GESTIONAR] },
           { id: 'maat', label: 'Pregúntale a Maat', route: '/finanzas/maat', view: [Permission.FINANCE_AI_CHAT], manage: [Permission.FINANCE_FINDINGS_GESTIONAR] },
+        ],
+      },
+      {
+        id: 'reparto',
+        label: 'Reparto',
+        icon: 'pi pi-send',
+        route: '/reparto',
+        modules: [
+          { id: 'reparto', label: 'Entrega a domicilio', route: '/reparto', view: [Permission.LOGISTICS_HOME_DISPATCH], manage: [] },
         ],
       },
     ],
