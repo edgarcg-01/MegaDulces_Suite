@@ -158,9 +158,19 @@ export class LabelComponent implements AfterViewInit, OnChanges {
 
   // ── F1: visibilidad data-driven — un tier solo se muestra si el multiselect lo
   //    pide Y hay dato real (precio > 0 y, donde aplica, tamaño > 0). Mata los $0.00 y (0 pzas).
-  get hasMayoreoPza(): boolean { return !!this.show.mayoreoPza && this.num(this.model?.wholesale_piece_price) > 0; }
+  // ── F5: además, un mayoreo solo se muestra si CUADRA (es más barato que su precio base);
+  //    un "mayoreo" ≥ menudeo es dato erróneo de Kepler → se oculta en vez de imprimir un precio absurdo.
+  get hasMayoreoPza(): boolean {
+    const w = this.num(this.model?.wholesale_piece_price);
+    const base = this.num(this.model?.piece_price);
+    return !!this.show.mayoreoPza && w > 0 && (base <= 0 || w < base);
+  }
   get hasPaquete(): boolean { return !!this.show.paquete && this.num(this.model?.pack_price) > 0 && this.num(this.model?.pack_size) > 0; }
-  get hasMayoreoPaq(): boolean { return !!this.show.mayoreoPaq && this.num(this.model?.wholesale_pack_price) > 0; }
+  get hasMayoreoPaq(): boolean {
+    const w = this.num(this.model?.wholesale_pack_price);
+    const base = this.num(this.model?.pack_price);
+    return !!this.show.mayoreoPaq && w > 0 && (base <= 0 || w < base);
+  }
   get hasCaja(): boolean { return !!this.show.caja && this.num(this.model?.box_price) > 0 && this.num(this.model?.box_size) > 0; }
   get hasBarcode(): boolean { return !!this.show.barcode && !!this.model?.barcode && !!this.model?.barcode_format; }
 

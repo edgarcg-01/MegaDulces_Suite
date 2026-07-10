@@ -134,7 +134,7 @@
                 #rla="routerLinkActive"
                 [routerLinkActiveOptions]="{ exact: item.exact === true }"
                 (click)="onNavClick()"
-                class="flex items-center w-full px-2 py-2 min-h-11 rounded-xl text-sm font-medium motion-safe:transition-colors duration-200 relative group cursor-pointer no-underline"
+                class="flex items-center w-full px-2 py-2 min-h-11 rounded-xl text-sm font-medium motion-safe:transition-colors duration-200 relative group cursor-pointer no-underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--action)]"
                 [class.text-content-muted]="!rla.isActive"
                 [class.hover:bg-surface-hover]="!rla.isActive"
                 [class.hover:text-content-main]="!rla.isActive"

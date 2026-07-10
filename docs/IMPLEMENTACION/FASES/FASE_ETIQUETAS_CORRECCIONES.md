@@ -2,7 +2,17 @@
 
 > Correcciones sobre la etiquetera de anaquel (`/tienda/etiquetas`). Errores detectados en uso real + auditoría de datos en prod (Railway) el 2026-07-10. Base: `LabelComponent` (`apps/view/.../tienda/components/label.component.ts`) + página (`.../pages/tienda-etiquetas.component.ts`) + importer (`database/importers/kepler/import-label-data.js`) + tabla `commercial.product_label_prices`.
 
-Estado: **📋 PLANEADO** — sin código aún (más allá de fixes previos de estilo/gramaje ya en árbol, pendientes de deploy).
+Estado: **🔨 EN CÓDIGO (2026-07-10)** — F1/F2/F3/F4/F8/F-Scan ✅ (label verificado con testigo 78148 + caso extremo $342k). F5 ✅ parcial (guarda de label; decode importer diferido). F6 ✅ (anillo de foco en nav; falta verificar teclado en localhost desktop). F7 ✅ decidido (sin código). **Todo compilado; pendiente push + redeploy + validación en localhost.**
+
+### Progreso por fase
+- **F1** ✅ Ocultar tiers sin dato (`hasMayoreoPza/Paquete/MayoreoPaq/Caja/Barcode` data-driven).
+- **F2/F8** ✅ Hero = precio de pieza + fallback (paq→caja) si pieza 0. Verificado: 78148 → $37.33.
+- **F3** ✅ Auto-fit hero (`fitPrice`, offsetWidth×1.12 por el scaleX) + montos de tier (`fitAmts`). Verificado: $342,299.99 encoge y cabe.
+- **F4** ✅ Separador de miles en el hero (regex de agrupación) — unificado con los tiers.
+- **F-Scan** ✅ Campo `#scanInput` autofocus; `onScan()` al Enter resuelve (SKU 5díg / barcode 8-13, backend acepta ambos), agrega, limpia y re-enfoca. Falta prueba con pistola real.
+- **F5** ✅ parcial — guarda en label: un mayoreo solo se muestra si `< precio base` (oculta 68 mayoreo-pza + 13 mayoreo-paq ilógicos). **Diferido:** el decode de `pack_price` equivocado en estuche/granel/display (repetidos $667.69/$1177.15) requiere revisar el importer contra Kepler on-prem.
+- **F6** ✅ Anillo `focus-visible` en items del nav lateral. **Nota:** la expansión del sidebar por teclado (`onSidebarFocusIn` gateado por `keyboardFocus`) NO se tocó — parece funcionar por diseño en desktop; las "fallas" observadas fueron artefacto de headless en 508px (mobile) + bundle viejo. Verificar en localhost desktop.
+- **F7** ✅ Decisión: NO se hace PDF rasterizado (degradaría calidad). La impresión ya es **vectorial**; PDF exacto vía "Guardar como PDF" del diálogo; manos-libres vía `chrome --kiosk-printing`. Ver §3.
 
 ---
 
