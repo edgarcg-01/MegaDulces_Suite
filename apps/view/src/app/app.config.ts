@@ -1,4 +1,9 @@
-import { ApplicationConfig, isDevMode, provideZoneChangeDetection } from '@angular/core';
+import { ApplicationConfig, LOCALE_ID, isDevMode, provideZoneChangeDetection } from '@angular/core';
+import { registerLocaleData } from '@angular/common';
+import localeEsMx from '@angular/common/locales/es-MX';
+
+// Sin esto, CurrencyPipe/DatePipe/DecimalPipe caen a en-US en silencio (DESIGN.md §10).
+registerLocaleData(localeEsMx);
 
 const isCapacitorNative = (): boolean =>
   typeof window !== 'undefined' &&
@@ -20,6 +25,7 @@ import { ConfirmationService } from 'primeng/api';
 export const appConfig: ApplicationConfig = {
   providers: [
     provideZoneChangeDetection({ eventCoalescing: true }),
+    { provide: LOCALE_ID, useValue: 'es-MX' },
     provideRouter(routes, withPreloading(SelectivePreloadStrategy)),
     provideAnimationsAsync(),
     provideHttpClient(

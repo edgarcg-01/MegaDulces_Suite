@@ -75,7 +75,7 @@ import { TiendaStateService } from '../tienda-state.service';
             <div class="hr" role="listitem" [class.peak]="h.hora === peak().hora && h.venta > 0"
                  [attr.aria-label]="h.hora + ':00 — ' + (h.venta | currency:'MXN':'symbol-narrow':'1.0-0') + ', ' + h.tickets + ' tickets'"
                  [title]="h.hora + 'h · ' + (h.venta | currency:'MXN') + ' · ' + h.tickets + ' tickets'">
-              <span class="hv" aria-hidden="true">{{ h.venta > 0 ? (h.venta / 1000 | number:'1.0-0') + 'k' : '' }}</span>
+              <span class="hv" aria-hidden="true">{{ h.hora === peak().hora && h.venta > 0 ? (h.venta / 1000 | number:'1.0-0') + 'k' : '' }}</span>
               <div class="bar" [style.height.%]="h.pct"></div>
               <span class="hl" aria-hidden="true">{{ h.hora }}</span>
             </div>

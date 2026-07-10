@@ -23,10 +23,9 @@ import { TiendaStateService } from '../tienda-state.service';
     .levers { display:flex; gap:.4rem; margin-top:.55rem; }
     .lever { flex:1; display:flex; flex-direction:column; gap:.1rem; padding:.3rem .4rem; border-radius:var(--r-sm,8px);
       background:color-mix(in srgb, var(--text-main) 4%, transparent); }
-    .lever.weak { background:color-mix(in srgb, var(--action) 10%, transparent); box-shadow:inset 0 0 0 1px var(--action-ring); }
     .lever .lv-k { font-size:.56rem; text-transform:uppercase; letter-spacing:.04em; color:var(--text-faint); white-space:nowrap; }
+    /* Contexto neutro: el signo +/- ya codifica dirección; el color se reserva para la acción (coach). */
     .lever .lv-i { font-family:var(--font-mono); font-variant-numeric:tabular-nums; font-size:.74rem; font-weight:700; color:var(--text-muted); }
-    .lever .lv-i.lo { color:var(--bad-soft-fg); } .lever .lv-i.hi { color:var(--ok-soft-fg); }
     .coach { display:flex; align-items:center; gap:.35rem; margin-top:.45rem; font-size:.72rem; color:var(--action); font-weight:600; }
     .coach i { font-size:.7rem; } .coach .g { margin-left:auto; color:var(--text-muted); font-weight:700; font-variant-numeric:tabular-nums; }
   `],
@@ -73,9 +72,9 @@ import { TiendaStateService } from '../tienda-state.service';
             <div class="bk">{{ c.b.tickets | number }} tickets</div>
             <div class="levers" role="group" aria-label="Palancas vs promedio de la red">
               @for (lv of c.lev.items; track lv.key) {
-                <div class="lever" [class.weak]="lv.key === c.lev.weakest.key">
+                <div class="lever">
                   <span class="lv-k">{{ lv.short }}</span>
-                  <span class="lv-i" [class.lo]="lv.idx < 0.97" [class.hi]="lv.idx > 1.03">{{ pct(lv.idx) }}</span>
+                  <span class="lv-i">{{ pct(lv.idx) }}</span>
                 </div>
               }
             </div>
