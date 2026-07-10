@@ -14,6 +14,9 @@ export interface LabelSections {
 }
 export const ALL_SECTIONS: LabelSections = { mayoreoPza: true, paquete: true, mayoreoPaq: true, caja: true, barcode: true };
 
+/** Qué precio va en GRANDE (hero). Intercambiable por ticket. */
+export type HeroKey = 'pieza' | 'paquete' | 'caja';
+
 export interface LabelModel {
   code?: string;
   product_id: string;
@@ -116,7 +119,7 @@ export interface LabelModel {
           }
           @if (hasPaquete) {
             <div class="etq-tier">
-              <div class="txt">Paquete (<span class="etq-red">{{ model.pack_size }}</span> pzas):</div>
+              <div class="txt">Paquete con <span class="etq-red">{{ model.pack_size }}</span> pzas:</div>
               <div class="pricecell"><span class="amt" #amtEl>\${{ model.pack_price | number:'1.2-2' }}</span></div>
             </div>
           }
@@ -128,7 +131,7 @@ export interface LabelModel {
           }
           @if (hasCaja) {
             <div class="etq-tier">
-              <div class="txt">Caja (<span class="etq-red">{{ model.box_size }}</span> pzas):</div>
+              <div class="txt">Caja con <span class="etq-red">{{ model.box_size }}</span> pzas:</div>
               <div class="pricecell"><span class="amt" #amtEl>\${{ model.box_price | number:'1.2-2' }}</span></div>
             </div>
           }
@@ -143,6 +146,8 @@ export interface LabelModel {
 export class LabelComponent implements AfterViewInit, OnChanges {
   @Input({ required: true }) model!: LabelModel;
   @Input() show: LabelSections = ALL_SECTIONS;
+  /** Precio que va en grande. Null = default (pieza con fallback). Intercambiable por ticket. */
+  @Input() hero: HeroKey | null = null;
   @ViewChild('bc') bc?: ElementRef<SVGElement>;
   @ViewChild('head') head?: ElementRef<HTMLElement>;
   @ViewChild('headtxt') headtxt?: ElementRef<HTMLElement>;
@@ -175,18 +180,25 @@ export class LabelComponent implements AfterViewInit, OnChanges {
   get hasBarcode(): boolean { return !!this.show.barcode && !!this.model?.barcode && !!this.model?.barcode_format; }
 
   /**
-   * F8/F2: el precio grande es el PRECIO DE PIEZA (legible en anaquel). Si no hay precio de
-   * pieza (>0), cae al primer precio disponible (paquete → caja) para no imprimir $0.00.
+   * Precio grande. Con `hero` explícito (intercambiable por ticket) usa ese precio si es válido.
+   * Sin override — default F8/F2: precio de PIEZA (legible en anaquel); si no hay pieza (>0),
+   * cae al primer precio disponible (paquete → caja) para no imprimir $0.00.
    * KG (granel): piece_price es $/kg → palabra "kg".
    */
   get bigUnit(): { word: string; value: number } {
     const m = this.model;
     const kg = (m?.unit_base || '').toUpperCase() === 'KG';
+    const pieceWord = kg ? 'kg' : 'pieza';
+    // Override explícito por ticket (solo si ese precio existe).
+    if (this.hero === 'paquete' && this.num(m?.pack_price) > 0) return { word: 'paquete', value: this.num(m?.pack_price) };
+    if (this.hero === 'caja' && this.num(m?.box_price) > 0) return { word: 'caja', value: this.num(m?.box_price) };
+    if (this.hero === 'pieza' && this.num(m?.piece_price) > 0) return { word: pieceWord, value: this.num(m?.piece_price) };
+    // Default: pieza con fallback.
     const piece = this.num(m?.piece_price);
-    if (piece > 0) return { word: kg ? 'kg' : 'pieza', value: piece };
+    if (piece > 0) return { word: pieceWord, value: piece };
     if (this.num(m?.pack_price) > 0) return { word: 'paquete', value: this.num(m?.pack_price) };
     if (this.num(m?.box_price) > 0) return { word: 'caja', value: this.num(m?.box_price) };
-    return { word: kg ? 'kg' : 'pieza', value: 0 };
+    return { word: pieceWord, value: 0 };
   }
   private get bigStr(): string { return this.bigUnit.value.toFixed(2); }
   // F4: separador de miles (igual que los tiers con number:'1.2-2') → "1,044".

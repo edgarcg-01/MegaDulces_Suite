@@ -7,10 +7,11 @@ import { AutoCompleteModule, AutoCompleteCompleteEvent, AutoCompleteSelectEvent 
 import { InputNumberModule } from 'primeng/inputnumber';
 import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
-import { LabelComponent, LabelModel, LabelSections } from '../components/label.component';
+import { LabelComponent, LabelModel, LabelSections, HeroKey } from '../components/label.component';
 import { EtiquetasService, SearchHit } from '../etiquetas.service';
 
-interface QueueItem { model: LabelModel; copies: number; }
+interface QueueItem { model: LabelModel; copies: number; hero: HeroKey; }
+interface SheetLabel { model: LabelModel; hero: HeroKey; }
 type Msg = { text: string; kind: 'info' | 'ok' | 'error' | 'warn' };
 
 /**
@@ -96,6 +97,11 @@ type Msg = { text: string; kind: 'info' | 'ok' | 'error' | 'warn' };
     .etqp-qname .nm{ font-size: var(--fs-sm,.85rem); color: var(--text-main); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
     .etqp-qname .sku{ font-family: var(--font-mono); font-size: var(--fs-xs,.72rem); color: var(--text-faint); }
     .etqp-num{ font-variant-numeric: tabular-nums; }
+    /* Selector de precio grande por ticket (F: hero dinámico). */
+    .etqp-hero-sel{ max-width: 12rem; width:100%; padding:.3rem .5rem; border:1px solid var(--border-color);
+      border-radius: var(--r-sm); background: var(--card-bg); color: var(--text-main);
+      font-size: var(--fs-sm,.85rem); cursor:pointer; transition: border-color .12s ease, box-shadow .12s ease; }
+    .etqp-hero-sel:focus-visible{ outline:none; border-color: var(--action); box-shadow: 0 0 0 3px var(--action-ring); }
     td.etqp-cnum, th.etqp-cnum{ text-align:right; white-space:nowrap; }
     td.etqp-cact, th.etqp-cact{ text-align:right; width:2.5rem; }
     .etqp-del{ border:0; background:transparent; color: var(--text-faint); cursor:pointer; width:28px; height:28px;
@@ -203,6 +209,7 @@ type Msg = { text: string; kind: 'info' | 'ok' | 'error' | 'warn' };
               <ng-template pTemplate="header">
                 <tr>
                   <th>Producto</th>
+                  <th>Precio grande</th>
                   <th class="etqp-cnum">Copias</th>
                   <th class="etqp-cact"></th>
                 </tr>
@@ -214,6 +221,14 @@ type Msg = { text: string; kind: 'info' | 'ok' | 'error' | 'warn' };
                       <span class="nm" [title]="it.model.name">{{ it.model.name }}</span>
                       <span class="sku">{{ it.model.sku }}</span>
                     </div>
+                  </td>
+                  <td>
+                    <select class="etqp-hero-sel" [ngModel]="it.hero" (ngModelChange)="setHero(i, $event)"
+                      [attr.aria-label]="'Precio grande de ' + it.model.name">
+                      @for (o of heroOptions(it.model); track o.value) {
+                        <option [ngValue]="o.value">{{ o.label }}</option>
+                      }
+                    </select>
                   </td>
                   <td class="etqp-cnum">
                     <p-inputNumber styleClass="etqp-num" [ngModel]="it.copies" (ngModelChange)="setCopies(i, $event)"
@@ -236,7 +251,7 @@ type Msg = { text: string; kind: 'info' | 'ok' | 'error' | 'warn' };
             <div class="etqp-sheetbox">
               <div class="etqp-sheet">
                 @for (m of sheetLabels(); track $index) {
-                  <app-label [model]="m" [show]="showMap()"></app-label>
+                  <app-label [model]="m.model" [hero]="m.hero" [show]="showMap()"></app-label>
                 }
               </div>
             </div>
@@ -255,7 +270,7 @@ type Msg = { text: string; kind: 'info' | 'ok' | 'error' | 'warn' };
     <!-- Hoja fuente (fuera de pantalla): se renderiza aquí y se clona al iframe de impresión. -->
     <div class="etqp-print" #printSheet>
       @for (m of printLabels(); track $index) {
-        <app-label [model]="m" [show]="showMap()"></app-label>
+        <app-label [model]="m.model" [hero]="m.hero" [show]="showMap()"></app-label>
       }
     </div>
   `,
@@ -272,7 +287,7 @@ export class TiendaEtiquetasComponent {
   notFound = signal<string[]>([]);
   loading = signal(false);
   msg = signal<Msg | null>(null);
-  printLabels = signal<LabelModel[]>([]);
+  printLabels = signal<SheetLabel[]>([]);
   printing = signal(false);
 
   totalLabels = computed(() => this.queue().reduce((s, it) => s + (it.copies || 0), 0));
@@ -305,10 +320,10 @@ export class TiendaEtiquetasComponent {
   // Carta horizontal (263×200mm útil): 2 columnas × 4 filas ≈ 8 etiquetas por hoja.
   private readonly PER_SHEET = 8;
   totalSheets = computed(() => Math.max(1, Math.ceil(this.totalLabels() / this.PER_SHEET)));
-  sheetLabels = computed<LabelModel[]>(() => {
-    const out: LabelModel[] = [];
+  sheetLabels = computed<SheetLabel[]>(() => {
+    const out: SheetLabel[] = [];
     for (const it of this.queue()) {
-      for (let i = 0; i < it.copies; i++) { out.push(it.model); if (out.length >= this.PER_SHEET) return out; }
+      for (let i = 0; i < it.copies; i++) { out.push({ model: it.model, hero: it.hero }); if (out.length >= this.PER_SHEET) return out; }
     }
     return out;
   });
@@ -399,8 +414,35 @@ export class TiendaEtiquetasComponent {
     for (const m of labels) {
       const existing = q.find((it) => it.model.product_id === m.product_id);
       if (existing) existing.copies += 1;
-      else q.push({ model: m, copies: 1 });
+      else q.push({ model: m, copies: 1, hero: this.defaultHero(m) });
     }
+    this.queue.set(q);
+  }
+
+  // ── Precio grande dinámico por ticket ──────────────────────────────
+  private n(v: number | null | undefined): number { return typeof v === 'number' && isFinite(v) ? v : 0; }
+
+  /** Hero por default: pieza si tiene precio; si no, el primero disponible (no imprime $0). */
+  private defaultHero(m: LabelModel): HeroKey {
+    if (this.n(m.piece_price) > 0) return 'pieza';
+    if (this.n(m.pack_price) > 0) return 'paquete';
+    if (this.n(m.box_price) > 0) return 'caja';
+    return 'pieza';
+  }
+
+  /** Opciones de precio grande para el selector del ticket — solo las que tienen precio. */
+  heroOptions(m: LabelModel): { value: HeroKey; label: string }[] {
+    const opts: { value: HeroKey; label: string }[] = [];
+    const fmt = (v: number) => '$' + v.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    if (this.n(m.piece_price) > 0) opts.push({ value: 'pieza', label: `Pieza ${fmt(this.n(m.piece_price))}` });
+    if (this.n(m.pack_price) > 0) opts.push({ value: 'paquete', label: `Paquete ${fmt(this.n(m.pack_price))}` });
+    if (this.n(m.box_price) > 0) opts.push({ value: 'caja', label: `Caja ${fmt(this.n(m.box_price))}` });
+    return opts;
+  }
+
+  setHero(i: number, hero: HeroKey): void {
+    const q = [...this.queue()];
+    q[i] = { ...q[i], hero };
     this.queue.set(q);
   }
 
@@ -412,10 +454,10 @@ export class TiendaEtiquetasComponent {
   remove(i: number): void { this.queue.set(this.queue().filter((_, idx) => idx !== i)); }
   clearQueue(): void { this.queue.set([]); this.notFound.set([]); this.msg.set(null); }
 
-  /** Expande la cola a una etiqueta por copia. */
-  private expanded(): LabelModel[] {
-    const out: LabelModel[] = [];
-    for (const it of this.queue()) for (let i = 0; i < it.copies; i++) out.push(it.model);
+  /** Expande la cola a una etiqueta por copia (cargando el hero por ticket). */
+  private expanded(): SheetLabel[] {
+    const out: SheetLabel[] = [];
+    for (const it of this.queue()) for (let i = 0; i < it.copies; i++) out.push({ model: it.model, hero: it.hero });
     return out;
   }
 
