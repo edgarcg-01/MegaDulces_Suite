@@ -64,8 +64,13 @@ const MAP = process.env.STOCK_BRANCH_MAP
 
       let matched = 0, unmatched = 0;
       try {
-        // Sólo productos con reorden configurado (c34<>0); los 3 se setean juntos.
-        const rows = (await src.query(`SELECT c1 AS sku, c33 AS mn, c34 AS ro, c35 AS mx FROM md.kdii WHERE c34 <> 0`)).rows;
+        // Sólo productos con reorden configurado (c34<>0) y ladder SANO:
+        //   c35 (máx) > 1   → descarta el máximo NOMINAL (placeholder =1 sin mantener,
+        //                     ~19% de las políticas Kepler → inflaba "sobrestock" y
+        //                     sub-sugería en agotados),
+        //   c35 >= c34      → descarta config INVERTIDA (máx por debajo del reorden).
+        // Lo descartado lo cubre import-computed-reorder (demanda) → política sana.
+        const rows = (await src.query(`SELECT c1 AS sku, c33 AS mn, c34 AS ro, c35 AS mx FROM md.kdii WHERE c34 <> 0 AND c35 > 1 AND c35 >= c34`)).rows;
         const staged = [];
         for (const r of rows) {
           const pid = skuToId.get(r.sku);
