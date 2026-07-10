@@ -1,8 +1,10 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  effect,
   computed,
   input,
+  signal,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { SparklineComponent } from '../charts/sparkline.component';
@@ -26,9 +28,9 @@ export type DeltaDir = 'up' | 'down' | 'flat' | 'auto';
   standalone: true,
   imports: [CommonModule, SparklineComponent, RingGaugeComponent, MiniBarsComponent, CountUpDirective],
   template: `
-    <article #card class="mc" [class]="'tone-' + tone()" [class.is-ember]="variant() === 'ember'" [class.is-interactive]="interactive()" [class.is-large]="large()" [class.has-accent]="!!accent()" [style.--mc-accent]="accentGraph()" (pointermove)="spot($event, card)">
+    <article #card class="mc" [class]="'tone-' + tone()" [class.is-ember]="variant() === 'ember'" [class.is-interactive]="interactive()" [class.is-large]="large()" [class.has-accent]="!!accent()" [class.is-flash]="flash()" [style.--mc-accent]="accentGraph()" (pointermove)="spot($event, card)">
       <header class="mc-head">
-        <span class="mc-label">{{ label() }}</span>
+        <span class="mc-label">{{ label() }}<span class="mc-live" *ngIf="live()" title="En vivo" aria-hidden="true"></span></span>
         <span class="mc-delta" *ngIf="delta() !== null && delta() !== undefined" [class]="'is-' + dir()">
           <i class="pi" [class.pi-arrow-up-right]="dir()==='up'" [class.pi-arrow-down-right]="dir()==='down'" [class.pi-minus]="dir()==='flat'" aria-hidden="true"></i>
           {{ deltaText() }}
@@ -47,7 +49,8 @@ export type DeltaDir = 'up' | 'down' | 'flat' | 'auto';
 
       <ng-template #stdValue>
         <div class="mc-value" *ngIf="format() === 'text'">{{ valueText() }}</div>
-        <div class="mc-value" *ngIf="format() !== 'text'" [appCountUp]="value()" [countUpFormat]="cuFormat()"></div>
+        <div class="mc-value" *ngIf="format() !== 'text'" [appCountUp]="value()" [countUpFormat]="cuFormat()"
+             [appCountUpLive]="live()" [attr.aria-live]="live() ? 'polite' : null"></div>
 
         <!-- SPARKLINE / EMBER -->
         <app-sparkline
@@ -92,6 +95,17 @@ export type DeltaDir = 'up' | 'down' | 'flat' | 'auto';
     }
     .mc:hover::after { opacity:1; }
     .mc.is-ember::after { display:none; }
+
+    /* Live (J17): dot pulsante + flash-on-change. Dinamismo = dato. */
+    .mc-live { display:inline-block; width:.4rem; height:.4rem; border-radius:50%; margin-left:.4rem;
+      background: var(--ok-fg); vertical-align:middle;
+      box-shadow:0 0 0 0 color-mix(in srgb, var(--ok-fg) 55%, transparent); animation:mc-pulse 1.8s infinite; }
+    @keyframes mc-pulse { 0%{box-shadow:0 0 0 0 color-mix(in srgb, var(--ok-fg) 55%, transparent);} 70%{box-shadow:0 0 0 .4rem transparent;} 100%{box-shadow:0 0 0 0 transparent;} }
+    .mc.is-flash { animation: mc-flash 1s var(--ease-standard); }
+    @keyframes mc-flash { from{ background: color-mix(in srgb, var(--mc-accent, var(--action)) 12%, var(--card-bg)); } to{ background: var(--card-bg); } }
+    .mc.has-accent.is-flash { animation: mc-flash-accent 1s var(--ease-standard); }
+    @keyframes mc-flash-accent { from{ background: color-mix(in srgb, var(--mc-accent) 16%, var(--card-bg)); } to{ background: color-mix(in srgb, var(--mc-accent) 5%, var(--card-bg)); } }
+    @media (prefers-reduced-motion: reduce) { .mc-live{ animation:none; } .mc.is-flash, .mc.has-accent.is-flash{ animation:none; } }
     .mc > * { position: relative; z-index: 1; }
     @media (prefers-reduced-motion: reduce) { .mc::after { transition:none; } }
     .mc.tone-ok::before   { background: var(--ok-fg); }
@@ -188,6 +202,26 @@ export class MetricCardComponent {
   readonly large = input<boolean>(false);
   /** Color de la tarjeta (token de paleta, ej. `var(--chart-2)`). Tiñe stripe + gráfica + fondo suave. Vacío = sunset. */
   readonly accent = input<string>('');
+  /** Dato vivo (J17): el número rueda al cambiar (no snap) + flash-on-change + dot "en vivo" + aria-live. Opt-in. */
+  readonly live = input<boolean>(false);
+
+  /** Pulse de fondo cuando el valor cambia estando en modo live. */
+  readonly flash = signal(false);
+  private flashTimer: ReturnType<typeof setTimeout> | null = null;
+
+  constructor() {
+    let first = true;
+    effect(() => {
+      const _ = this.value(); // dependencia
+      if (first) { first = false; return; }
+      if (!this.live()) return;
+      // Reinicia la animación: off → on en el siguiente microtask.
+      this.flash.set(false);
+      if (this.flashTimer) clearTimeout(this.flashTimer);
+      queueMicrotask(() => this.flash.set(true));
+      this.flashTimer = setTimeout(() => this.flash.set(false), 1000);
+    }, { allowSignalWrites: true });
+  }
 
   /** Color efectivo para gráficas (accent o sunset por default). */
   readonly accentGraph = computed(() => this.accent() || 'var(--action)');

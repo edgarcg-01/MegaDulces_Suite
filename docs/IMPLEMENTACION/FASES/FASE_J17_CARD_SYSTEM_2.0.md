@@ -37,7 +37,7 @@ Y **construir** los arquetipos B/C/D de [J16](FASE_J16_CARD_REPERTOIRE.md) sobre
 Dinamismo = **dato, no decoración** (nada de gradientes latiendo ni íconos girando); solo `transform`/`opacity`/`stroke-dashoffset`; techos de motion ≤350ms; `prefers-reduced-motion`; 0 hex (tokens); el valor final siempre en el DOM. Ver [`DESIGN.md` §Motion de KPI cards (BINDING)](../../../DESIGN.md) y checklist pre-vuelo §7b.
 
 ## Plan de fases
-- **J17.0 · Substrato** — `card-surface` base + `NumberFlowDirective` + flash-on-change + `aria-live`. Sin nuevos arquetipos aún; migrar 1 card viva de piloto (ej. "Venta del día" de `/tienda/pace` o KPIs de command-center).
+- **J17.0 · Substrato** — 🟡 EN CÓDIGO 2026-07-10 (parcial). ✅ `CountUpDirective` con modo `live` (re-anima de valor anterior → nuevo, "rueda" en vez de snap; ease-out 600ms; respeta reduced-motion) · ✅ `MetricCard` inputs `live` → dot "en vivo" + **flash-on-change** (pulse de fondo tokenizado, `effect` sobre `value()`) + `aria-live="polite"` · ✅ piloto: "Venta del día" en `/tienda/pace` (`[live]="s.connected()"`, alimentado por el WS de tickets). Backward-compatible (`live` default false). Build verde. **Diferido:** odómetro de rueda de dígitos (el preview lo muestra; el código usa re-tween count-up como primer incremento) y la extracción de la base `card-surface` compartida (va con J17.2).
 - **J17.1 · Micro-viz nuevos** — bullet, heat-strip, stacked-bar, dot-grid, diverging-bars como átomos SVG + integrarlos como variants de `MetricCard`.
 - **J17.2 · Arquetipos B/C/D** — construir los 7 de J16 sobre `card-surface`.
 - **J17.3 · Interacción** — progressive disclosure (side-peek) + pase de bento asimétrico en los strips existentes.

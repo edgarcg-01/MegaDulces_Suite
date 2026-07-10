@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, ViewEncapsulation, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, ElementRef, ViewChild, ViewEncapsulation, computed, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { catchError, of } from 'rxjs';
@@ -54,6 +54,16 @@ type Msg = { text: string; kind: 'info' | 'ok' | 'error' | 'warn' };
     .etqp-msg-x{ border:0; background:transparent; color:inherit; opacity:.6; cursor:pointer; padding:.15rem; border-radius: var(--r-sm);
       display:inline-flex; transition: opacity .12s ease; }
     .etqp-msg-x:hover{ opacity:1; }
+
+    /* ── Escaneo rápido (pistola): auto-agrega al Enter ────── */
+    .etqp-scanbar{ display:flex; align-items:center; gap:.6rem; padding:.5rem .75rem; border:1px solid var(--action);
+      border-radius: var(--r-md); background: var(--card-bg); box-shadow: 0 0 0 3px var(--action-ring); }
+    .etqp-scanbar > i{ color: var(--action); font-size:1.1rem; }
+    .etqp-scan-input{ flex:1; min-width:0; border:0; background:transparent; color: var(--text-main);
+      font-family: var(--font-mono); font-size: var(--fs-md,.9375rem); padding:.35rem .1rem; }
+    .etqp-scan-input:focus{ outline:none; }
+    .etqp-scan-hint{ font-size: var(--fs-xs,.72rem); color: var(--text-faint); white-space:nowrap; }
+    @media (max-width: 640px){ .etqp-scan-hint{ display:none; } }
 
     /* ── Entrada (dos formas de agregar, hermanas) ─────────── */
     .etqp-inputs{ display:grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: var(--sp-4); }
@@ -144,6 +154,14 @@ type Msg = { text: string; kind: 'info' | 'ok' | 'error' | 'warn' };
           <button class="etqp-msg-x" type="button" (click)="msg.set(null)" aria-label="Cerrar aviso"><i class="pi pi-times"></i></button>
         </div>
       }
+
+      <div class="etqp-scanbar">
+        <i class="pi pi-qrcode"></i>
+        <input #scanInput type="text" inputmode="numeric" autocomplete="off" autofocus
+          class="etqp-scan-input" placeholder="Escanea con la pistola o teclea el código y Enter…"
+          (keyup.enter)="onScan(scanInput.value); scanInput.value=''" />
+        <span class="etqp-scan-hint">5 díg = SKU · 8/12/13 = código de barras · se agrega solo</span>
+      </div>
 
       <div class="etqp-inputs">
         <div class="etqp-card">
@@ -245,6 +263,8 @@ type Msg = { text: string; kind: 'info' | 'ok' | 'error' | 'warn' };
 export class TiendaEtiquetasComponent {
   private readonly svc = inject(EtiquetasService);
 
+  @ViewChild('scanInput') scanInput?: ElementRef<HTMLInputElement>;
+
   results = signal<SearchHit[]>([]);
   acSelected: SearchHit | string | null = null;
   bulk = signal('');
@@ -327,6 +347,33 @@ export class TiendaEtiquetasComponent {
       },
       error: (err) => this.msg.set({ text: this.httpMsg('Agregar', err), kind: 'error' }),
     });
+  }
+
+  /**
+   * F-Scan — escáner/pistola: al Enter (terminador del escáner) resuelve el código y lo agrega
+   * automáticamente, sin clic. `resolve` acepta SKU (5 díg) o código de barras (8/12/13) indistinto,
+   * así que no hace falta ramificar por longitud. Limpia y re-enfoca para el siguiente escaneo.
+   */
+  onScan(raw: string): void {
+    const code = (raw || '').trim();
+    if (!code) { this.focusScan(); return; }
+    this.msg.set(null);
+    this.svc.resolve([code]).subscribe({
+      next: (r) => {
+        if (r.labels?.length) {
+          this.pushLabels(r.labels);
+          this.msg.set({ text: `Agregado: ${r.labels[0].name}`, kind: 'ok' });
+        } else {
+          this.msg.set({ text: `No encontrado: ${code}`, kind: 'warn' });
+        }
+        this.focusScan();
+      },
+      error: (e) => { this.msg.set({ text: this.httpMsg('Escaneo', e), kind: 'error' }); this.focusScan(); },
+    });
+  }
+
+  private focusScan(): void {
+    setTimeout(() => this.scanInput?.nativeElement.focus(), 0);
   }
 
   addBulk(): void {

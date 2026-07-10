@@ -30,15 +30,22 @@ export class CountUpDirective implements OnInit, OnDestroy {
   private raf = 0;
   private io?: IntersectionObserver;
 
+  private current = 0;
+
   @Input('appCountUp') set value(v: number | null | undefined) {
     this.target = Number(v) || 0;
     if (this.done) {
-      // Ya animó una vez: cambios posteriores (refresh) se aplican instantáneos.
-      this.render(this.target);
+      // Ya animó una vez. Live (J17): re-anima el cambio (número que "rueda").
+      // Default (refresh normal): valor final instantáneo.
+      if (this.appCountUpLive && !this.reduce()) this.tween(this.current, this.target, 600);
+      else this.render(this.target);
     } else {
       this.maybeStart();
     }
   }
+
+  /** Modo dato-vivo (J17): en cada cambio posterior al primer paint, re-anima de valor anterior → nuevo. */
+  @Input() appCountUpLive = false;
 
   @Input() countUpFormat: CountUpFormat = 'int';
 
@@ -66,29 +73,37 @@ export class CountUpDirective implements OnInit, OnDestroy {
     this.done = true;
     this.io.disconnect();
 
-    const reduce =
-      typeof window !== 'undefined' &&
-      window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
-    if (reduce || this.target === 0) {
+    if (this.reduce() || this.target === 0) {
       this.render(this.target);
       return;
     }
+    this.tween(0, this.target, 900);
+  }
 
-    const target = this.target;
-    const dur = 900;
+  private reduce(): boolean {
+    return (
+      typeof window !== 'undefined' &&
+      !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+    );
+  }
+
+  /** Anima de `from` a `to` (ease-out cubic, rAF). Reusado por el primer paint y por live. */
+  private tween(from: number, to: number, dur: number): void {
+    cancelAnimationFrame(this.raf);
     let start: number | null = null;
     const step = (ts: number) => {
       if (start === null) start = ts;
       const p = Math.min((ts - start) / dur, 1);
       const eased = 1 - Math.pow(1 - p, 3); // ease-out cubic
-      this.render(target * eased);
+      this.render(from + (to - from) * eased);
       if (p < 1) this.raf = requestAnimationFrame(step);
-      else this.render(target);
+      else this.render(to);
     };
     this.raf = requestAnimationFrame(step);
   }
 
   private render(v: number): void {
+    this.current = v;
     this.el.textContent = this.format(v);
   }
 

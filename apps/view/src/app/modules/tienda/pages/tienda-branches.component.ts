@@ -1,18 +1,23 @@
 import { ChangeDetectionStrategy, Component, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { FormsModule } from '@angular/forms';
+import { SelectModule } from 'primeng/select';
+import { MetricCardComponent } from '../../../shared/components/metric-card/metric-card.component';
 import { TiendaStateService } from '../tienda-state.service';
 
 /** Proyecto Tienda — detalle por SUCURSAL (KPIs + drill-down al ticker de cada tienda). */
 @Component({
   selector: 'app-tienda-branches',
   standalone: true,
-  imports: [CommonModule],
+  imports: [CommonModule, FormsModule, SelectModule, MetricCardComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   styleUrls: ['../tienda-shared.css'],
   styles: [`
-    .tda-branch { cursor:pointer; transition:border-color .15s, background .15s; }
-    .tda-branch:hover { border-color:var(--action,#b45309); }
-    .tda-branch.sel { border-color:var(--action,#b45309); background:var(--action,#b45309)0d; box-shadow:0 0 0 1px var(--action,#b45309); }
+    :host { display:block; }
+    .tda-kpis-mc { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:.75rem; margin:1rem 0; }
+    .tda-branch { cursor:pointer; transition:border-color .15s, background-color .15s; }
+    .tda-branch:hover { border-color:var(--action); }
+    .tda-branch.sel { border-color:var(--action); background:color-mix(in srgb, var(--action) 7%, transparent); box-shadow:inset 0 0 0 1px var(--action); }
     .tda-branch .bx { display:flex; justify-content:space-between; font-size:.7rem; color:var(--text-muted); margin-top:.15rem; }
     .drill-head { display:flex; align-items:baseline; gap:.6rem; }
     .drill-head .muted { color:var(--text-muted); font-size:.8rem; font-weight:600; }
@@ -28,20 +33,26 @@ import { TiendaStateService } from '../tienda-state.service';
           @if (s.scopedWarehouse) {
             <span class="tda-scope"><i class="pi pi-map-marker"></i>{{ s.branchName(s.scopedWarehouse) }}</span>
           } @else {
-            <select class="tda-filter" [value]="s.selectedBranch()" (change)="s.changeBranch($any($event.target).value)">
-              <option value="">Todas las sucursales</option>
-              @for (b of s.branchList; track b.code) { <option [value]="b.code">{{ b.name }}</option> }
-            </select>
+            <p-select [options]="branchOptions" [ngModel]="s.selectedBranch()" (onChange)="s.changeBranch($event.value)"
+              optionLabel="label" optionValue="value" styleClass="tda-filter-sel" [style]="{ minWidth: '12rem' }"
+              appendTo="body" ariaLabel="Filtrar por sucursal"></p-select>
           }
-          <div class="tda-live" [class.on]="s.connected()"><span class="dot"></span>{{ s.connected() ? 'EN VIVO' : 'conectando…' }}</div>
+          <div class="tda-live" [class.on]="s.connected()" role="status"
+               [attr.aria-label]="s.connected() ? 'Conexión en vivo activa' : 'Conectando'">
+            <span class="dot"></span>{{ s.connected() ? 'EN VIVO' : 'conectando…' }}
+          </div>
         </div>
       </header>
 
-      <div class="tda-kpis">
-        <div class="tda-kpi"><span class="l">Venta hoy</span><span class="v">{{ s.ventaHoy() | currency:'MXN':'symbol-narrow':'1.0-0' }}</span></div>
-        <div class="tda-kpi"><span class="l">Tickets hoy</span><span class="v">{{ s.ticketsHoy() | number }}</span></div>
-        <div class="tda-kpi"><span class="l">Ticket promedio</span><span class="v">{{ s.avgTicket() | currency:'MXN':'symbol-narrow':'1.0-0' }}</span></div>
-        <div class="tda-kpi"><span class="l">Sucursales activas</span><span class="v">{{ s.activeBranches() }}</span></div>
+      <div class="tda-kpis-mc">
+        <app-metric-card label="Venta hoy" [value]="s.ventaHoy()" format="currency" variant="sparkline"
+          [series]="hourVenta()" [seriesLabels]="hourLabels()" tone="brand" [live]="s.connected()"></app-metric-card>
+        <app-metric-card label="Tickets hoy" [value]="s.ticketsHoy()" format="number"
+          [live]="s.connected()" [accent]="'var(--chart-2)'"></app-metric-card>
+        <app-metric-card label="Ticket promedio" [value]="s.avgTicket()" format="currency"
+          [accent]="'var(--chart-3)'"></app-metric-card>
+        <app-metric-card label="Sucursales activas" [value]="s.activeBranches()" format="number"
+          [sub]="'de ' + s.branchList.length"></app-metric-card>
       </div>
 
       <div class="tda-branches">
@@ -107,6 +118,12 @@ import { TiendaStateService } from '../tienda-state.service';
 })
 export class TiendaBranchesComponent implements OnInit, OnDestroy {
   readonly s = inject(TiendaStateService);
+  readonly branchOptions = [
+    { label: 'Todas las sucursales', value: '' },
+    ...this.s.branchList.map((b) => ({ label: b.name, value: b.code })),
+  ];
+  readonly hourVenta = computed(() => this.s.hourBars().map((h) => h.venta));
+  readonly hourLabels = computed(() => this.s.hourBars().map((h) => h.hora + ':00'));
   readonly selected = signal<string>('');
   readonly selTickets = computed(() => (this.selected() ? this.s.ticketsOf(this.selected()) : []));
   readonly selHours = computed(() => (this.selected() ? this.s.hourBarsOf(this.selected()) : []));

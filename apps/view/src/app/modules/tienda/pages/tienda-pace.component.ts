@@ -64,7 +64,8 @@ import { TiendaStateService } from '../tienda-state.service';
         <app-metric-card label="Tickets hora pico" [value]="peak().tickets" format="number"
           sub="en la hora más alta"></app-metric-card>
         <app-metric-card label="Venta del día" [value]="s.ventaHoy()" format="currency"
-          variant="sparkline" [series]="hourVenta()" [seriesLabels]="hourLabels()" tone="brand"></app-metric-card>
+          variant="sparkline" [series]="hourVenta()" [seriesLabels]="hourLabels()" tone="brand"
+          [live]="s.connected()"></app-metric-card>
       </div>
 
       <section class="tda-card">

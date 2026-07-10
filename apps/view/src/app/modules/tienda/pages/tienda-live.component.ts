@@ -1,16 +1,21 @@
-import { ChangeDetectionStrategy, Component, OnDestroy, OnInit, inject } from '@angular/core';
+import { ChangeDetectionStrategy, Component, OnDestroy, OnInit, computed, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { SelectModule } from 'primeng/select';
+import { MetricCardComponent } from '../../../shared/components/metric-card/metric-card.component';
 import { TiendaStateService } from '../tienda-state.service';
 
 /** Proyecto Tienda — monitor de tickets de venta EN VIVO (WebSocket /store). */
 @Component({
   selector: 'app-tienda-live',
   standalone: true,
-  imports: [CommonModule, FormsModule, SelectModule],
+  imports: [CommonModule, FormsModule, SelectModule, MetricCardComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   styleUrls: ['../tienda-shared.css'],
+  styles: [`
+    :host { display:block; }
+    .tda-kpis-mc { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:.75rem; margin:1rem 0; }
+  `],
   template: `
     <div class="surf-page in tda">
       <header class="surf-page-head tda-head">
@@ -33,11 +38,15 @@ import { TiendaStateService } from '../tienda-state.service';
         </div>
       </header>
 
-      <div class="tda-kpis">
-        <div class="tda-kpi"><span class="l">Venta hoy</span><span class="v">{{ s.ventaHoy() | currency:'MXN':'symbol-narrow':'1.0-0' }}</span></div>
-        <div class="tda-kpi"><span class="l">Tickets hoy</span><span class="v">{{ s.ticketsHoy() | number }}</span></div>
-        <div class="tda-kpi"><span class="l">Ticket promedio</span><span class="v">{{ s.avgTicket() | currency:'MXN':'symbol-narrow':'1.0-0' }}</span></div>
-        <div class="tda-kpi"><span class="l">Sucursales activas</span><span class="v">{{ s.activeBranches() }}</span></div>
+      <div class="tda-kpis-mc">
+        <app-metric-card label="Venta hoy" [value]="s.ventaHoy()" format="currency" variant="sparkline"
+          [series]="hourVenta()" [seriesLabels]="hourLabels()" tone="brand" [live]="s.connected()"></app-metric-card>
+        <app-metric-card label="Tickets hoy" [value]="s.ticketsHoy()" format="number"
+          [live]="s.connected()" [accent]="'var(--chart-2)'"></app-metric-card>
+        <app-metric-card label="Ticket promedio" [value]="s.avgTicket()" format="currency"
+          [accent]="'var(--chart-3)'"></app-metric-card>
+        <app-metric-card label="Sucursales activas" [value]="s.activeBranches()" format="number"
+          [sub]="'de ' + s.branchList.length"></app-metric-card>
       </div>
 
       <div class="tda-branches">
@@ -82,7 +91,8 @@ import { TiendaStateService } from '../tienda-state.service';
             <h2>Ritmo de hoy (venta por hora)</h2>
             <div class="hrs">
               @for (h of s.hourBars(); track h.hora) {
-                <div class="hr" [title]="h.hora + 'h · ' + (h.venta | currency:'MXN')">
+                <div class="hr" [class.peak]="h.hora === peakHour() && h.venta > 0"
+                     [title]="h.hora + 'h · ' + (h.venta | currency:'MXN')">
                   <div class="bar" [style.height.%]="h.pct"></div>
                   <span class="hl">{{ h.hora }}</span>
                 </div>
@@ -108,6 +118,15 @@ import { TiendaStateService } from '../tienda-state.service';
 })
 export class TiendaLiveComponent implements OnInit, OnDestroy {
   readonly s = inject(TiendaStateService);
+
+  readonly hourVenta = computed(() => this.s.hourBars().map((h) => h.venta));
+  readonly hourLabels = computed(() => this.s.hourBars().map((h) => h.hora + ':00'));
+  readonly peakHour = computed(() => {
+    let hora = -1, max = 0;
+    for (const h of this.s.hourBars()) if (h.venta > max) { max = h.venta; hora = h.hora; }
+    return hora;
+  });
+
   ngOnInit(): void { this.s.enter(); }
   ngOnDestroy(): void { this.s.leave(); }
 }

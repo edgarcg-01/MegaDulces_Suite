@@ -79,33 +79,27 @@
 <body>
   <div class="hint">Preview <b>115×40 mm</b> — sin iconos · letra grande · naranja de marca en SKU y número de piezas.</div>
   <div class="stage">
+  <!-- Caso testigo 78148: piece 37.33 · pack 30x$1044 · sin mayoreo-pza · caja vacía.
+       Reglas nuevas: hero=pieza $37.33; tiers vacíos (mayoreo-pza, caja) OCULTOS; auto-fit. -->
   <div class="label">
-    <div class="head">CANELS GOMITAS MINIJARRITO SOUR</div>
+    <div class="head">GOMA CHAROLA SURTIDA D ELIZ /40</div>
     <div class="body">
       <div class="left">
-        <div class="meta"><span>50 g</span><span class="sep">|</span><span>Código: <span class="red">20186</span></span></div>
+        <div class="meta"><span>Código: <span class="red">78148</span></span></div>
         <div class="pricebox">
           <svg class="sprout" viewBox="0 0 40 40" fill="hsl(141, 60%, 38%)"><path transform="translate(12,15) rotate(120)" d="M0 -11 C4.5 -5 5.5 0 4 4.5 C2.8 7.5 -2.8 7.5 -4 4.5 C-5.5 0 -4.5 -5 0 -11 Z"/><path transform="translate(22,10) rotate(150) scale(0.7)" d="M0 -11 C4.5 -5 5.5 0 4 4.5 C2.8 7.5 -2.8 7.5 -4 4.5 C-5.5 0 -4.5 -5 0 -11 Z"/></svg>
-          <div class="price"><span class="cur">$</span>8<span class="dot">.</span>66</div>
+          <div class="price" id="priceEl"><span class="cur">$</span>37<span class="dot">.</span>33</div>
           <div class="pieza">Precio por pieza</div>
         </div>
       </div>
       <div class="right">
         <div class="tier">
-          <div class="txt">Mayoreo desde <span class="red">3</span> pzas:</div>
-          <div class="pricecell"><span class="amt">$7.68</span><span class="unit">c/u</span></div>
-        </div>
-        <div class="tier">
-          <div class="txt">Paquete (<span class="red">8</span> pzas):</div>
-          <div class="pricecell"><span class="amt">$66.06</span></div>
+          <div class="txt">Paquete (<span class="red">30</span> pzas):</div>
+          <div class="pricecell"><span class="amt">$1,044.00</span></div>
         </div>
         <div class="tier">
           <div class="txt">Mayoreo desde <span class="red">3</span> paquetes:</div>
-          <div class="pricecell"><span class="amt">$61.47</span><span class="unit">c/u</span></div>
-        </div>
-        <div class="tier">
-          <div class="txt">Caja (<span class="red">112</span> pzas):</div>
-          <div class="pricecell"><span class="amt">$860.60</span></div>
+          <div class="pricecell"><span class="amt">$34.80</span><span class="unit">c/u</span></div>
         </div>
         <div class="barcode"><svg id="bc"></svg></div>
       </div>
@@ -114,6 +108,14 @@
   </div>
 <script>
   function pickFormat(c){ if(/^\d{13}$/.test(c))return'EAN13'; if(/^\d{12}$/.test(c))return'UPC'; if(/^\d{8}$/.test(c))return'EAN8'; return'CODE128'; }
+  // Espejo de fitPrice() del componente: encoge el precio grande hasta caber (offsetWidth×1.12 por el scaleX).
+  function fitPrice(){ var el=document.getElementById('priceEl'); if(!el)return; var box=el.parentElement;
+    var cs=getComputedStyle(box), avail=box.clientWidth-parseFloat(cs.paddingLeft||0)-parseFloat(cs.paddingRight||0);
+    var size=16, g=0; el.style.fontSize=size+'mm';
+    while(el.offsetWidth*1.12>avail && size>6 && g++<120){ size-=0.3; el.style.fontSize=size+'mm'; } }
+  // Espejo de fitAmts(): cada monto se encoge hasta caber en su celda de 20mm.
+  function fitAmts(){ document.querySelectorAll('.pricecell .amt').forEach(function(amt){ var cell=amt.parentElement; var size=5,g=0; amt.style.fontSize=size+'mm';
+    while(cell.scrollWidth>cell.clientWidth && size>3 && g++<40){ size-=0.2; amt.style.fontSize=size+'mm'; } }); }
   window.addEventListener('load', function () {
     try {
       var code='018804701641', el=document.getElementById('bc');
@@ -121,6 +123,7 @@
       var w=el.getAttribute('width'), h=el.getAttribute('height');
       if(w&&h){ el.setAttribute('viewBox','0 0 '+w+' '+h); el.setAttribute('preserveAspectRatio','none'); el.removeAttribute('width'); el.removeAttribute('height'); }
     } catch(e){ console.error(e); }
+    (document.fonts && document.fonts.ready ? document.fonts.ready : Promise.resolve()).then(function(){ fitPrice(); fitAmts(); });
   });
 </script>
 </body>

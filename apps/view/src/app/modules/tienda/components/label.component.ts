@@ -179,7 +179,8 @@ export class LabelComponent implements AfterViewInit, OnChanges {
     return { word: kg ? 'kg' : 'pieza', value: 0 };
   }
   private get bigStr(): string { return this.bigUnit.value.toFixed(2); }
-  get bigInt(): string { return this.bigStr.split('.')[0]; }
+  // F4: separador de miles (igual que los tiers con number:'1.2-2') → "1,044".
+  get bigInt(): string { return this.bigStr.split('.')[0].replace(/\B(?=(\d{3})+(?!\d))/g, ','); }
   get bigDec(): string { return this.bigStr.split('.')[1] ?? '00'; }
 
   ngAfterViewInit(): void { this.render(); (document as any).fonts?.ready?.then(() => this.layout()); }
