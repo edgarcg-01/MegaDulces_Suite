@@ -22,6 +22,40 @@
 
 **No hay tabla de conteo físico dedicada.** Kepler registra la toma física como un **documento de ajuste** en `kdm1/kdm2` (sin sesión/folio persistido). La **Fase I sí persiste** folio + conteos + varianza — un superset auditable de lo que hace el ERP.
 
+## Reporte "Diario de movimientos" (Almacenes → Reportes → Existencia → Movimientos)
+
+Reporte server-side de Kepler (páginas `.kpl` sirviéndose de `192.168.x`; **el SQL vive en la BD, no en disco**). Lee los documentos de movimiento de inventario desde **`kdm1`** (cabecera) ⋈ **`kdm2`** (líneas). Su diálogo de parámetros mapea 1:1 a columnas de `kdm1`:
+
+| Campo del diálogo | Columna | Valores |
+|---|---|---|
+| Sucursal | `kdm1.c1` | nº sucursal (`01`, `02`…) — **`kdm1` arrastra réplicas de otras sucursales → filtrar `c1` propio siempre** |
+| **Género** | `kdm1.c2` | `U`=Ctas x cobrar · `X`=Ctas x pagar/compra · `N`=Otras/traspaso/inventario |
+| **Naturaleza** | `kdm1.c3` | `A`=Acreedora · `D`=Deudora |
+| **Tipo** | `kdm1.c4` | `35`=OC · `37`=vale entrada · `40`=orden entrada (suma existencia) · `20`=aplica/CxP · `50`=devolución… |
+| Grupo / Folio | `kdm1.c6` | folio del documento |
+| Fecha | `kdm1.c9` | fecha del documento |
+| (encadenado al padre) | `kdm1.c37`+`c39` | grupo+folio del doc padre (back-pointer de la cadena) |
+
+Líneas `kdm2` (FK compuesta `c1,c2,c3,c4,c6` → `kdm1`): `c8`=SKU · `c9`=cantidad · `c11`=presentación · `c12`=valor a costo.
+
+**Folio Kepler = `[Género][Naturaleza][Tipo][Serie]-[Folio]`.** Ej. reales: `XA2001-0000065` (Entrada, X+A+20+serie01), `XD4001-0000101` (Devolución compra crédito, X+D+40). Cada documento genera su póliza contable (ver [`KEPLER_CONTABILIDAD_MODELO.md`](KEPLER_CONTABILIDAD_MODELO.md)). Cadena de compras: `X-A-35 → 37 → 40 → 20` (misma lógica que `import-in-transit.js`).
+
+### Áreas de mejora (vs. lo que construiríamos como feed `analytics.stock_movements` + endpoint + página Operations)
+
+1. **Integridad.** Sin **saldo corrido** (no es kardex real: falta `existencia_antes → ±mov → existencia_después`); sin **cuadre contra `kdil`** (drift silencioso — cf. bug `kdil.c9`); **réplicas cross-sucursal** no advertidas (doble conteo); **cadena rota** invisible (OC sin recepción, vale huérfano); **signo ambiguo** (deriva de `c2+c3+c4` → normalizar a cantidad con signo).
+2. **Valor analítico.** Sin **valorización** (piezas sin $, aunque `kdm2.c12`=valor a costo está disponible); sin **agregaciones** (totales por producto/tipo/proveedor/día); sin **detección de anomalías** (ajustes atípicos, salidas sin venta); sin dimensión temporal/tendencia.
+3. **UX.** Códigos crípticos (`U/X/N`, `D/A`) sin labels legibles; rango de fechas único sin presets; sin consolidado multi-sucursal; output HTML estático (no ordenar/filtrar/buscar/drill); sin configuraciones guardadas.
+4. **Performance.** `NOT EXISTS` anidado sobre `kdm1/kdm2` sin índice compuesto `(c1,c2,c3,c4,c6)`; réplicas inflan scans; HTML monolítico sin virtualización.
+5. **Integración.** Solo HTML/impresión — **sin CSV/JSON, sin API**, sin tiempo real. No alimenta BI ni se automatiza.
+6. **Auditoría.** No muestra quién capturó ni cuándo (usuario, timestamp captura vs fecha doc); sin historial de cambios/reversas.
+7. **⭐ Agregación primero, folio a folio bajo demanda.** El diseño arranca **colapsado en el agregado**, no en el detalle. Jerarquía de drill-down:
+   - **Nivel 0 (default):** totales **por producto** en el rango — `Σ entradas`, `Σ salidas`, `neto`, **valorizado $** (`GROUP BY kdm2.c8`). Un renglón por SKU.
+   - **Re-agrupable** con un click: por tipo de documento / proveedor / día-semana / almacén.
+   - **Drill 1:** expandir producto → movimientos agrupados por tipo.
+   - **Drill 2:** expandir tipo → folios individuales (`kdm1`) con fecha, cantidad, usuario, estado de cadena.
+   - **Drill 3:** abrir folio → documento completo + póliza + cadena `35→37→40`.
+   - Regla: nunca se arranca en el detalle; se desmenuza **solo la rama de interés**, el resto queda colapsado (igual que un pivote financiero).
+
 ## Join a nuestra plataforma
 
 **`kdii.c1` == `public.products.sku`** (mismo esquema de códigos — nuestro catálogo vino de este Kepler). Mapeo por SKU dentro del tenant Mega Dulces. Overlap sucursal 03: **3,936/4,066 (97%)**; los 130 sin match son SKUs que no están en nuestro catálogo (ej. BOING).

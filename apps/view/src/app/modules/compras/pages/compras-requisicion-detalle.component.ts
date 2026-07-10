@@ -39,9 +39,9 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
                 <button pButton type="button" label="Rechazar" icon="pi pi-times" class="p-button-sm p-button-outlined p-button-danger" [loading]="busy()" (click)="reject()"></button>
                 <button pButton type="button" label="Aprobar" icon="pi pi-check" class="p-button-sm" [loading]="busy()" (click)="approve()"></button>
               } @else if (r.estado === 'approved') {
-                <button pButton type="button" label="Marcar ordenada" icon="pi pi-send" class="p-button-sm" [loading]="busy()" (click)="markOrdered()"></button>
-              } @else if (r.estado === 'ordered') {
-                <button pButton type="button" label="Marcar recibida" icon="pi pi-inbox" class="p-button-sm" [loading]="busy()" (click)="markReceived()"></button>
+                <button pButton type="button" label="Generar orden de compra" icon="pi pi-shopping-cart" class="p-button-sm" [loading]="busy()" (click)="generatePO()"></button>
+              } @else if (r.estado === 'ordered' || r.estado === 'received') {
+                <button pButton type="button" label="Ver orden de compra" icon="pi pi-arrow-right" class="p-button-sm p-button-outlined" (click)="goToPO()"></button>
               }
             </div>
           }
@@ -154,19 +154,19 @@ export class ComprasRequisicionDetalleComponent implements OnInit {
       error: () => { this.busy.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo rechazar.' }); },
     });
   }
-  markOrdered(): void {
+  /** RA.15 — genera la OC desde la requisición aprobada y navega a ella. */
+  generatePO(): void {
     this.busy.set(true);
-    this.api.markOrdered(this.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: () => { this.busy.set(false); this.toast.add({ severity: 'success', summary: 'Ordenada', detail: 'En tránsito con el proveedor.' }); this.load(); },
-      error: (e) => { this.busy.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudo ordenar.' }); },
+    this.api.createPOFromRequisition(this.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => { this.busy.set(false); this.toast.add({ severity: 'success', summary: 'Orden de compra generada', detail: r.folio }); this.router.navigate(['/compras/ordenes', r.id]); },
+      error: (e) => { this.busy.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudo generar la OC.' }); },
     });
   }
-  markReceived(): void {
-    this.busy.set(true);
-    this.api.markReceived(this.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: () => { this.busy.set(false); this.toast.add({ severity: 'success', summary: 'Recibida', detail: 'Mercancía recibida.' }); this.load(); },
-      error: (e) => { this.busy.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudo recibir.' }); },
-    });
+  /** Navega a la OC ya generada desde esta requisición. */
+  goToPO(): void {
+    const poId = this.req()?.purchase_order_id;
+    if (poId) this.router.navigate(['/compras/ordenes', poId]);
+    else this.router.navigate(['/compras/ordenes']);
   }
 
   /** Muestra la columna Recibido cuando la requisición ya está en recepción o recibida. */

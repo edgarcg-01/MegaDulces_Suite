@@ -111,6 +111,8 @@ export interface RequisitionLine {
 }
 export interface RequisitionDetail extends RequisitionRow {
   lines: RequisitionLine[];
+  purchase_order_id: string | null;   // RA.15 — OC generada desde esta requisición
+  purchase_order_folio: string | null;
 }
 export interface CreateRequisitionLine {
   product_id: string;
@@ -153,6 +155,54 @@ export interface SupplierParam {
   min_order_boxes: number | null;
   product_count: number;
 }
+
+// ── RA.15 (ADR-031) — Orden de Compra (OC) + Orden de Entrada (OE) ──────
+export type PurchaseOrderEstado = 'open' | 'partial' | 'received' | 'cancelled';
+export interface PurchaseOrderRow {
+  id: string;
+  folio: string;
+  estado: PurchaseOrderEstado;
+  source_type: SourceType;
+  expected_date: string | null;
+  total_lines: number;
+  total_units: number;
+  received_units: number;
+  total_cost: number;
+  created_at: string;
+  closed_at: string | null;
+  warehouse_code: string | null;
+  supplier_name: string | null;
+  source_code: string | null;
+}
+export interface PurchaseOrderLine {
+  id: string;
+  product_id: string;
+  sku: string;
+  nombre: string;
+  ordered_qty: number;
+  received_qty: number;
+  unit_cost: number;
+  line_cost: number;
+}
+export interface PurchaseOrderReceipt {
+  id: string;
+  folio: string;
+  total_units: number;
+  total_cost: number;
+  stock_applied: boolean;
+  received_at: string;
+  notes: string | null;
+}
+export interface PurchaseOrderDetail extends PurchaseOrderRow {
+  warehouse_name: string | null;
+  source_warehouse_id: string | null;
+  requisition_id: string | null;
+  requisition_folio: string | null;
+  notes: string | null;
+  lines: PurchaseOrderLine[];
+  receipts: PurchaseOrderReceipt[];
+}
+export interface CreateReceiptLine { po_line_id: string; received_qty: number; unit_cost?: number; }
 
 export type FindingKind = 'agotado_abc' | 'bajo_reorden';
 export type FindingSeverity = 'critica' | 'alta' | 'media';
@@ -277,5 +327,33 @@ export class ComprasService {
   }
   scanNow(): Observable<{ findings: number }> {
     return this.http.post<{ findings: number }>(`${this.base}/scan-now`, {});
+  }
+
+  // ── RA.15 (ADR-031) — Órdenes de compra (OC) + recepción (OE) ─────────
+  private readonly poBase = `${environment.apiUrl}/commercial/purchase-orders`;
+
+  listPurchaseOrders(q?: { estado?: string; supplier_id?: string; warehouse_id?: string; page?: number; pageSize?: number }): Observable<{ total: number; page: number; pageSize: number; rows: PurchaseOrderRow[] }> {
+    const p = new URLSearchParams();
+    if (q?.estado) p.set('estado', q.estado);
+    if (q?.supplier_id) p.set('supplier_id', q.supplier_id);
+    if (q?.warehouse_id) p.set('warehouse_id', q.warehouse_id);
+    if (q?.page) p.set('page', String(q.page));
+    if (q?.pageSize) p.set('pageSize', String(q.pageSize));
+    const qs = p.toString();
+    return this.http.get<{ total: number; page: number; pageSize: number; rows: PurchaseOrderRow[] }>(`${this.poBase}${qs ? '?' + qs : ''}`);
+  }
+  getPurchaseOrder(id: string): Observable<PurchaseOrderDetail> {
+    return this.http.get<PurchaseOrderDetail>(`${this.poBase}/${id}`);
+  }
+  /** Genera la OC desde una requisición aprobada. */
+  createPOFromRequisition(requisitionId: string, body?: { expected_date?: string | null; notes?: string }): Observable<{ id: string; folio: string; estado: PurchaseOrderEstado; requisition_folio: string }> {
+    return this.http.post<{ id: string; folio: string; estado: PurchaseOrderEstado; requisition_folio: string }>(`${this.poBase}/from-requisition/${requisitionId}`, body ?? {});
+  }
+  cancelPurchaseOrder(id: string): Observable<{ id: string; estado: PurchaseOrderEstado }> {
+    return this.http.post<{ id: string; estado: PurchaseOrderEstado }>(`${this.poBase}/${id}/cancel`, {});
+  }
+  /** OE — registra una recepción (parcial permitido); mueve stock. */
+  createReceipt(poId: string, dto: { lines: CreateReceiptLine[]; notes?: string; received_at?: string | null }): Observable<{ id: string; folio: string; po_estado: PurchaseOrderEstado; total_units: number; total_cost: number; stock_applied: boolean }> {
+    return this.http.post<{ id: string; folio: string; po_estado: PurchaseOrderEstado; total_units: number; total_cost: number; stock_applied: boolean }>(`${this.poBase}/${poId}/receipts`, dto);
   }
 }

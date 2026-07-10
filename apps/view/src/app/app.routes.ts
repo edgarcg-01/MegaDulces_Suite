@@ -277,6 +277,16 @@ export const routes: Routes = [
         loadComponent: () => import('./modules/compras/pages/compras-requisicion-detalle.component').then(m => m.ComprasRequisicionDetalleComponent),
         canActivate: [permissionGuard(Permission.COMPRAS_VER)]
       },
+      {
+        path: 'ordenes',
+        loadComponent: () => import('./modules/compras/pages/compras-ordenes.component').then(m => m.ComprasOrdenesComponent),
+        canActivate: [permissionGuard(Permission.COMPRAS_VER)]
+      },
+      {
+        path: 'ordenes/:id',
+        loadComponent: () => import('./modules/compras/pages/compras-orden-detalle.component').then(m => m.ComprasOrdenDetalleComponent),
+        canActivate: [permissionGuard(Permission.COMPRAS_VER)]
+      },
     ]
   },
   // ── Proyecto Almacén ────────────────────────────────────────────────
@@ -368,6 +378,12 @@ export const routes: Routes = [
         path: 'cuadre',
         loadComponent: () => import('./modules/almacen/pages/almacen-cuadre.component').then(m => m.AlmacenCuadreComponent),
         canActivate: [permissionGuard(Permission.RECONCILIATION_VER)]
+      },
+      {
+        // DM — Diario de movimientos (mejora del reporte Kepler): entradas/salidas agregadas + drill por folio
+        path: 'movimientos',
+        loadComponent: () => import('./modules/almacen/pages/almacen-movimientos.component').then(m => m.AlmacenMovimientosComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_INVENTORY_VER)]
       },
     ]
   },

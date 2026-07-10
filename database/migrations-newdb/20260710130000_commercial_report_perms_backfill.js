@@ -16,7 +16,7 @@
  *
  * Backfill (no-regresión): estos 6 reportes vivían bajo COMMERCIAL_ANALYTICS_VER,
  * así que todo rol con ANALYTICS_VER=true recibe los 6 en true; el resto en false.
- * Command Center + endpoints agregados (overview/network/top-*/erp-promos/shipments)
+ * Command Center + endpoints agregados (overview, network, top-N, erp-promos, shipments)
  * siguen bajo COMMERCIAL_ANALYTICS_VER.
  *
  * Idempotente: sólo escribe si la clave no existe (`-> 'KEY' IS NULL`, NO el

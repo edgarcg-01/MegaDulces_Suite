@@ -10,6 +10,17 @@
 
 ## [Unreleased]
 
+### Added — Diario de movimientos: mejora del reporte Kepler (feed + API + página) (2026-07-10)
+- **Fase DM** — reemplaza/mejora el reporte Kepler "Almacenes → Reportes → Existencia → Movimientos" (que lee `md.kdm1`⋈`md.kdm2`). Diseño rector: **agregación primero, folio a folio bajo demanda**.
+- **DM.0 feed** `analytics.stock_movements` (mig `20260710160000`, line-level, windowed) + importer `database/importers/kepler/import-stock-movements.js` (BULK, reusa `STOCK_BRANCH_MAP`). Qué mueve inventario lo decide el catálogo **autoritativo** `md.doctype` (`k_binv=1`, 14 tipos); el signo sale de la naturaleza (`c3`: `A`=entrada +, `D`=salida −). La factura `U/D/10` NO mueve stock → se excluye. **Validado** reconciliando Σ signed vs `md.kdil` existencia (48≈47 / 98≈84 / 18≈15). Dry-run md_03: 7,792 líneas.
+- **DM.1 backend** `libs/commercial/commercial-movements` — `GET /commercial/movements/{summary,aggregate,lines,filters}`. `aggregate` re-agrupa por `product|doc_code|day|warehouse`; `lines` = drill folio a folio. Permiso `COMMERCIAL_INVENTORY_VER`.
+- **DM.2 frontend** `/almacen/movimientos` (Operations denso, quiet-luxury): KPIs (entradas/salidas/neto/valor/docs), filtros (agrupación, almacén, fechas, dirección, tipo, búsqueda), tabla agregada + drill en diálogo con los folios. Nav "Movimientos" en Almacén.
+- **Doc:** [`ERP_KEPLER_SCHEMA.md`](docs/IMPLEMENTACION/ERP_KEPLER_SCHEMA.md) §"Reporte Diario de movimientos" (taxonomía Género/Naturaleza/Tipo → `c2/c3/c4`, folio `[G][N][Tipo][Serie]`, 7 áreas de mejora).
+- **Pendiente prod:** aplicar mig `20260710160000` + correr importer (cron nocturno) + redeploy api+view + re-login.
+
+### Fixed — Comentario en migración `20260710130000` cerraba el bloque `/* */` antes de tiempo (2026-07-10)
+- `top-*` seguido de `/erp-promos` formaba `*/` → `SyntaxError: Unexpected token ')'` al cargar la migración → **bloqueaba `migrate:latest`** (y el boot de Railway). Reescrito el comentario. La migración de report-perms nunca había corrido por esto.
+
 ### Fixed — Resolución de rol→permisos case-insensitive (raíz de "rebota a captures") (2026-07-10)
 - **Causa raíz normalizada:** el lookup `role_permissions.role_name` era case-sensitive en 3 rutas (login MT `auth-mt.service`, login legacy `auth.service`, y `PermissionsCacheService` del guard). Si `users.role_name` (minúscula, convención) difería del `role_permissions.role_name` (p.ej. `Auxiliar_mercadotecnia` capitalizado creado desde la UI) → el rol no se encontraba → **0 permisos** → usuario rebotado a `/dashboard/captures`. Afectaba a `gloria_garcia` y 4 usuarios más.
 - **Fix:** los 3 lookups comparan ahora `LOWER(role_name) = LOWER(?)`; la key del cache del guard se normaliza a minúscula (get + invalidate). Un mismatch de mayúsculas deja de romper la resolución — **sin necesitar tocar datos**.

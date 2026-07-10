@@ -391,6 +391,7 @@ export class LayoutComponent implements OnInit, OnDestroy {
   private comprasNavItems: NavItem[] = [
     { label: 'Existencia crítica', icon: 'pi pi-exclamation-triangle', route: '/compras/existencia-critica', permission: Permission.COMPRAS_VER },
     { label: 'Requisiciones',      icon: 'pi pi-file-edit',            route: '/compras/requisiciones',      permission: Permission.COMPRAS_VER },
+    { label: 'Órdenes de compra',  icon: 'pi pi-shopping-cart',        route: '/compras/ordenes',            permission: Permission.COMPRAS_VER },
     { label: 'Hallazgos',          icon: 'pi pi-flag',                 route: '/compras/hallazgos',          permission: Permission.COMPRAS_VER },
     { label: 'Proveedores',        icon: 'pi pi-truck',                route: '/compras/proveedores',        permission: Permission.COMPRAS_VER },
     { label: 'Red de abasto',      icon: 'pi pi-sitemap',              route: '/compras/red',                permission: Permission.COMPRAS_VER },
@@ -410,6 +411,7 @@ export class LayoutComponent implements OnInit, OnDestroy {
     { label: 'Stock muerto',    icon: 'pi pi-exclamation-triangle', route: '/almacen/dead-stock',   permission: Permission.COMMERCIAL_DEADSTOCK_VER },
     { label: 'Salud inv.',      icon: 'pi pi-heart',          route: '/almacen/inventory-health',   permission: Permission.COMMERCIAL_INVHEALTH_VER },
     { label: 'Cuadre',          icon: 'pi pi-check-square',   route: '/almacen/cuadre',             permission: Permission.RECONCILIATION_VER },
+    { label: 'Movimientos',     icon: 'pi pi-arrow-right-arrow-left', route: '/almacen/movimientos', permission: Permission.COMMERCIAL_INVENTORY_VER },
   ];
 
   // Reparto (entrega a domicilio, personal de tienda). El repartoGuard ya controla

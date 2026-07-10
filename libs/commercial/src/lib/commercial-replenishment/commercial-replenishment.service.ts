@@ -346,7 +346,11 @@ export class CommercialReplenishmentService {
         .where('l.tenant_id', tenantId).andWhere('l.requisition_id', id)
         .select('l.*', trx.raw('pr.sku AS sku'), trx.raw('pr.nombre AS nombre'), trx.raw('sup.name AS supplier_name'))
         .orderBy('pr.nombre');
-      return { ...header, lines };
+      // RA.15 — OC generada desde esta requisición (traza RQ→OC), si existe.
+      const po: any = await trx('commercial.purchase_orders')
+        .where({ tenant_id: tenantId, requisition_id: id }).whereNot('estado', 'cancelled')
+        .select('id', 'folio', 'estado').orderBy('created_at', 'desc').first();
+      return { ...header, lines, purchase_order_id: po?.id ?? null, purchase_order_folio: po?.folio ?? null };
     });
   }
 
