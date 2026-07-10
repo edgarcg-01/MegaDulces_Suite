@@ -176,6 +176,7 @@ export class SellOutExportService {
       { h: 'Clave producto', v: (r) => r.sku },
       { h: 'Descripcion del producto', v: (r) => r.nombre },
       { h: 'UXC', v: (r) => r.uxc ?? '' },
+      { h: 'Unidad', v: (r) => r.unit_sale ?? '' },
       { h: 'SN', v: (r) => r.supplier ?? '' },
       { h: 'CN', v: (r) => r.brand ?? '' },
       { h: 'Categoria', v: (r) => r.categoria ?? '' },

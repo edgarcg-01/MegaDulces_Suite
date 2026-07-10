@@ -116,6 +116,7 @@ const MES: Record<string, string> = {
                   <th scope="col" pFrozenColumn style="min-width:110px" pSortableColumn="sku">Clave <p-sortIcon field="sku" /></th>
                   <th scope="col" pFrozenColumn style="min-width:240px" pSortableColumn="nombre">Descripción <p-sortIcon field="nombre" /></th>
                   <th scope="col" class="comm-num" pSortableColumn="uxc">UXC <p-sortIcon field="uxc" /></th>
+                  <th scope="col" pSortableColumn="unit_sale">Unidad <p-sortIcon field="unit_sale" /></th>
                   <th scope="col" pSortableColumn="brand">Marca <p-sortIcon field="brand" /></th>
                   <th scope="col" pSortableColumn="categoria">Categoría <p-sortIcon field="categoria" /></th>
                   <th scope="col" pSortableColumn="rotation_tier">Rot. <p-sortIcon field="rotation_tier" /></th>
@@ -143,6 +144,7 @@ const MES: Record<string, string> = {
                   <td pFrozenColumn><code class="comm-code">{{ row.sku }}</code></td>
                   <td pFrozenColumn class="sl-name" [pTooltip]="row.nombre" tooltipPosition="top">{{ row.nombre }}</td>
                   <td class="comm-num">{{ row.uxc ?? '—' }}</td>
+                  <td class="sl-unit" [class.sl-unit-warn]="!isPieza(row.unit_sale)">{{ row.unit_sale ?? '—' }}</td>
                   <td class="sl-clip">{{ row.brand ?? '—' }}</td>
                   <td class="sl-clip comm-muted">{{ row.categoria ?? '—' }}</td>
                   <td class="sl-rot comm-muted">{{ row.rotation_tier ?? '—' }}</td>
@@ -195,6 +197,8 @@ const MES: Record<string, string> = {
     .sl-name { max-width:260px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
     .sl-clip { max-width:160px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
     .sl-rot { text-transform:capitalize; }
+    .sl-unit { text-transform:uppercase; font-variant-numeric:tabular-nums; }
+    .sl-unit-warn { color:var(--warn-fg, #A16207); font-weight:600; }
     /* Jerarquía: Venta = primario (fuerte), Costo = secundario (muted). */
     .sl-strong { font-weight:700; }
     .sl-sec { color:var(--text-muted); }
@@ -327,4 +331,11 @@ export class ComercialSalidasComponent {
 
   mes(m: string): string { return MES[m] ?? m; }
   cell(row: SalidasReport['rows'][number], m: string): { venta: number; costo: number } | undefined { return row.monthly[m]; }
+
+  /** Unidad de venta en pieza → la conversión a cajas aplica. CJA/KGS/otras se
+   * resaltan (cajas = "—") para que se vea de un vistazo que no hay error, es unidad. */
+  isPieza(u: string | null): boolean {
+    const s = (u ?? '').trim().toUpperCase();
+    return s === '' || s === 'PZA' || s === 'PZAS' || s === 'PIEZA' || s === 'PZ';
+  }
 }
