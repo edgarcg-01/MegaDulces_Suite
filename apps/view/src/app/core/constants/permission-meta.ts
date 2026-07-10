@@ -111,6 +111,8 @@ export const PERMISSION_META: Record<string, PermissionMetaEntry> = {
   [Permission.COMMERCIAL_HISTORICAL_VER]: { label: 'Ver Histórico de venta', description: 'Solo el histórico de venta del ERP (diario, top productos, por zona, ranking, margen por categoría).', category: 'Comercial · Analítica' },
   [Permission.COMMERCIAL_DEADSTOCK_VER]: { label: 'Ver Stock muerto', description: 'Solo el reporte de stock muerto (productos sin rotación).', category: 'Comercial · Analítica' },
   [Permission.COMMERCIAL_INVHEALTH_VER]: { label: 'Ver Salud de inventario', description: 'Solo el reporte de salud de inventario (días de cobertura + status por producto × almacén).', category: 'Comercial · Analítica' },
+  [Permission.COMMERCIAL_ERP_PROMOS_VER]: { label: 'Ver Promos del ERP', description: 'Solo la vista de promociones vigentes del ERP (Kepler). Distinto de gestionar promociones propias.', category: 'Comercial · Promociones' },
+  [Permission.COMMERCIAL_VENDOR_SALES_VER]: { label: 'Ver Ventas de vendedor', description: 'Solo el reporte de ventas de vendedor (parte comercial del ticket OCR: por tienda/captura/ruta).', category: 'Comercial' },
   [Permission.COMMERCIAL_CARTERA_VER]: { label: 'Ver Cartera', description: 'Consultar la cartera de ventas y la asignación de rutas a vendedores.', category: 'Comercial · Cartera' },
   [Permission.COMMERCIAL_CARTERA_GESTIONAR]: { label: 'Gestionar Cartera', description: 'Asignar rutas y orden de visita a los vendedores.', category: 'Comercial · Cartera' },
   [Permission.COMMERCIAL_PRODUCTS_VER]: { label: 'Ver Productos', description: 'Consultar el catálogo comercial de productos.', category: 'Comercial' },

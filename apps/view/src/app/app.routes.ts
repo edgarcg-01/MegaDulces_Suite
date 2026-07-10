@@ -128,7 +128,7 @@ export const routes: Routes = [
       {
         path: 'erp-promos',
         loadComponent: () => import('./modules/comercial/pages/comercial-erp-promos.component').then(m => m.ComercialErpPromosComponent),
-        canActivate: [permissionGuard(Permission.COMMERCIAL_PROMOTIONS_VER)]
+        canActivate: [permissionGuard(Permission.COMMERCIAL_ERP_PROMOS_VER)]
       },
       {
         path: 'sell-out',
@@ -196,7 +196,7 @@ export const routes: Routes = [
         // Ventas de vendedor: parte comercial del ticket OCR de la captura.
         path: 'vendor-sales',
         loadComponent: () => import('./modules/comercial/pages/comercial-vendor-sales.component').then(m => m.ComercialVendorSalesComponent),
-        canActivate: [permissionGuard(Permission.ROUTE_CONTROL_VER)]
+        canActivate: [permissionGuard(Permission.COMMERCIAL_VENDOR_SALES_VER)]
       },
     ]
   },

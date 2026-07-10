@@ -10,6 +10,14 @@
 
 ## [Unreleased]
 
+### Added — Permisos dedicados para 2 páginas independientes (ERP promos + Ventas de vendedor) (2026-07-10)
+- Continuación del split: se separaron las páginas cuyos endpoints **no** se comparten con hermanas (sin riesgo de 403). Las páginas de flujos cohesivos (Compras, Logística-embarques, Flotilla, Tienda-vivo, Inventario-sesiones) **NO** se parten porque comparten endpoints y el guard backend es AND-only — partirlas daría 403 (requeriría soporte OR en backend).
+- **`COMMERCIAL_ERP_PROMOS_VER`** → `/comercial/erp-promos` + endpoint `analytics/erp-promotions` (antes ruta bajo PROMOTIONS_VER y endpoint bajo ANALYTICS_VER — inconsistencia resuelta).
+- **`COMMERCIAL_VENDOR_SALES_VER`** → `/comercial/vendor-sales` + los 4 endpoints `commercial/vendor-sales/reports/*` (antes ROUTE_CONTROL_VER, que ahora queda solo para Control de ruta / tickets).
+- **Finanzas NO se partió:** `solicitudes` comparte `expenses/filters` y `expenses/sucursales` con `egresos` → es cohesivo, no independiente.
+- Cableado completo (enum, ability, meta, authz-tree, ruta, nav, projects anyOf, landing). Migración `20260710140000`: VENDOR_SALES ← ROUTE_CONTROL_VER; ERP_PROMOS ← (PROMOTIONS_VER AND ANALYTICS_VER). Idempotente.
+- **Pendiente prod:** redeploy api+view + migración + re-login.
+
 ### Fixed — Editor de permisos completo: 8 permisos faltantes ahora visibles/etiquetados (2026-07-10)
 - **Auditoría enum vs UI:** 3 permisos eran **invisibles** en el editor árbol de roles (no estaban en `AUTHZ_TREE`) → no se podían otorgar desde `/admin/roles`: `RECONCILIATION_VER`, `RECONCILIATION_GESTIONAR` (Cuadre / Supervisor de movimientos, `/almacen/cuadre`) y `LOGISTICS_HOME_DISPATCH` (Reparto, `/reparto`). Agregados: módulo "Cuadre" en Almacén + nuevo proyecto "Reparto".
 - **5 permisos sin label/desglose** en `PERMISSION_META` (aparecían con la clave cruda): `SUPERVISOR_AI_VER`, `SUPERVISOR_AI_APROBAR`, `ROUTE_CONTROL_VER`, `ROUTE_TICKET_CAPTURE`, `LOGISTICS_HOME_DISPATCH`. Agregadas etiquetas + descripción + categoría.

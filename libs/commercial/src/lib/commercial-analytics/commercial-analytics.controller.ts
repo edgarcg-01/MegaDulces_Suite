@@ -476,7 +476,7 @@ export class CommercialAnalyticsController {
   }
 
   @Get('erp-promotions')
-  @RequirePermissions(Permission.COMMERCIAL_ANALYTICS_VER)
+  @RequirePermissions(Permission.COMMERCIAL_ERP_PROMOS_VER)
   @ApiOperation({ summary: 'KV.6 — Promos vigentes del ERP.' })
   erpPromotions() {
     return this.service.erpPromotions();

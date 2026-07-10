@@ -38,28 +38,28 @@ export class CommercialVendorSalesController {
 
   // Reportes admin.
   @Get('reports/por-tienda')
-  @RequirePermissions(Permission.ROUTE_CONTROL_VER)
+  @RequirePermissions(Permission.COMMERCIAL_VENDOR_SALES_VER)
   @ApiOperation({ summary: 'Venta por tienda/cliente (capturas, líneas, unidades).' })
   porTienda(@Query() q: VendorSalesReportQuery) {
     return this.service.porTienda(q);
   }
 
   @Get('reports/por-captura')
-  @RequirePermissions(Permission.ROUTE_CONTROL_VER)
+  @RequirePermissions(Permission.COMMERCIAL_VENDOR_SALES_VER)
   @ApiOperation({ summary: 'Venta por captura/ticket de vendedor.' })
   porCaptura(@Query() q: VendorSalesReportQuery) {
     return this.service.porCaptura(q);
   }
 
   @Get('reports/por-ruta')
-  @RequirePermissions(Permission.ROUTE_CONTROL_VER)
+  @RequirePermissions(Permission.COMMERCIAL_VENDOR_SALES_VER)
   @ApiOperation({ summary: 'Venta por ruta del vendedor.' })
   porRuta(@Query() q: VendorSalesReportQuery) {
     return this.service.porRuta(q);
   }
 
   @Get('reports/captura-lines')
-  @RequirePermissions(Permission.ROUTE_CONTROL_VER)
+  @RequirePermissions(Permission.COMMERCIAL_VENDOR_SALES_VER)
   @ApiOperation({ summary: 'Líneas de una captura/ticket específico (drill-down).' })
   capturaLines(@Query('capture_ref') captureRef: string) {
     return this.service.linesByCapture(captureRef);

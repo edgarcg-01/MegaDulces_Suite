@@ -108,6 +108,8 @@ export const comercialHomeGuard: CanActivateFn = landingRedirectGuard(
     { perm: Permission.COMMERCIAL_ROUTE_SALES_VER, url: '/comercial/ventas-por-ruta' },
     { perm: Permission.COMMERCIAL_CUSTOMERS360_VER, url: '/comercial/customers-360' },
     { perm: Permission.COMMERCIAL_HISTORICAL_VER, url: '/comercial/historical' },
+    { perm: Permission.COMMERCIAL_ERP_PROMOS_VER, url: '/comercial/erp-promos' },
+    { perm: Permission.COMMERCIAL_VENDOR_SALES_VER, url: '/comercial/vendor-sales' },
   ],
   '/comercial/command-center',
 );

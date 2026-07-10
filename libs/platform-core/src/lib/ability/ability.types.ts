@@ -38,6 +38,8 @@ export type AppSubject =
   | 'commercial_historical'
   | 'commercial_deadstock'
   | 'commercial_invhealth'
+  | 'commercial_erp_promos'
+  | 'commercial_vendor_sales'
   | 'commercial_orders'
   | 'commercial_payments'
   | 'commercial_promotions'

@@ -74,6 +74,8 @@ export class ProjectsComponent implements OnInit {
         Permission.COMMERCIAL_ROUTE_SALES_VER,
         Permission.COMMERCIAL_CUSTOMERS360_VER,
         Permission.COMMERCIAL_HISTORICAL_VER,
+        Permission.COMMERCIAL_ERP_PROMOS_VER,
+        Permission.COMMERCIAL_VENDOR_SALES_VER,
       ],
       // Vendedor tiene COMMERCIAL_ORDERS_* pero no debe ver el admin de
       // Comercial (mostraría pedidos de toda la tenant) — tiene su propio
