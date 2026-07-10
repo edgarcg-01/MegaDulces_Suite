@@ -84,7 +84,7 @@ export interface LabelModel {
       background:repeating-linear-gradient(90deg, var(--green) 0 .32mm, transparent .32mm .6mm); }
     .etq-tier:first-child::before{ display:none; }
     .etq-tier .txt{ font-family:var(--font-cond); font-size:3mm; font-weight:400; line-height:1; letter-spacing:.3px; }
-    .etq-tier .amt{ font-family:var(--font-cond); font-weight:400; font-size:5mm; white-space:nowrap; letter-spacing:.3px; text-align:right; font-variant-numeric:tabular-nums; }
+    .etq-tier .amt{ font-family:var(--font-cond); font-weight:400; font-size:5mm; white-space:nowrap; letter-spacing:.3px; text-align:left; font-variant-numeric:tabular-nums; }
     .etq-tier .unit{ font-family:var(--font); font-size:1.9mm; font-weight:600; text-align:left; }
     .etq-barcode{ margin-top:.3mm; display:flex; justify-content:flex-end; }
     .etq-barcode svg{ display:block; width:85%; height:5.4mm; }
