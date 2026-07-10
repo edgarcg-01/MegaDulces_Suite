@@ -29,6 +29,14 @@
 - **Hallazgos + scanner nocturno (RA.8):** `commercial.replenishment_findings` (mig `20260709160000`) + `ReplenishmentScannerService` (`@Cron` 00:00 MX) que detecta **agotados clase A** (crítica) y **bajo punto de reorden** (alta/media), restando el tránsito. Bandeja **`/compras/hallazgos`** con "Escanear ahora" (`POST /replenishment/scan-now`). UPSERT idempotente por `dedup_key`, se auto-resuelve al despejarse. WS realtime diferido; el cron se apaga con `ENABLE_REPLENISHMENT_SCAN=false`.
 - **Pendiente:** RA.13b (fill rate histórico — bajo valor: fill rate ~100% artificial) + RA.14 auto-received desde Kepler. Prod: migs Railway + re-login + redeploy api+view + agendar `import-in-transit` + `scan-now`/cron.
 
+### Added — Compras: DRP multi-echelon (CEDIS planeado sobre demanda de la red) (Fase RA-PRO.6) (2026-07-09)
+- **Problema:** el CEDIS no vende directo → planeado por su propia venta quedaba **sin política de reorden** y las sucursales no podían surtirse de él. DRP lo planea por lo que consume la red.
+- **Topología de red** (mig `20260709190000`): `commercial.warehouses.source_warehouse_id` — NULL = CEDIS (compra a proveedores), set = sucursal (traspaso desde ese CEDIS). Define el árbol de 2 niveles + guard anti-self.
+- **Motor DRP** `import-network-reorder.js`: para cada CEDIS, `media_red = Σ avg(sucursal) + avg(propio)` y **`σ_red = √(Σ σ(sucursal)² + σ(propio)²)`** (risk pooling — las varianzas suman, el CV agregado baja), luego `safety = ceil(Z(0.98)×σ_red×√lead)`. Escribe la política del CEDIS (no pisa kepler/manual). Wireado en el nightly tras `import-computed-reorder`.
+- **Frontend `/compras/red`** (nav "Red de abasto"): configura de qué CEDIS se surte cada sucursal + KPIs (CEDIS / sucursales surtidas / sin origen). Backend `GET /network` + `POST /warehouses/:id/source`.
+- **Verificación:** smoke `test-newdb-ra-network.js` 7/7 (media Σ=7, σ=√25=5, guard self-source) en la suite. Builds api+view OK. Migración aplicada a Railway.
+- **Diferido (RA-PRO.6.2):** vista de distribución por producto (matriz CEDIS+sucursales con traspasos sugeridos) + asignación cuando el CEDIS no alcanza para toda la red.
+
 ### Added — Compras: parámetros de compra por proveedor (lead time + mínimo) (Fase RA-PRO.3) (2026-07-09)
 - **Hallazgo: Kepler NO codifica lead time real.** Medido en vivo (suc 03, 365d, cadena OC `X-A-35` → orden de entrada `X-A-40`): 73% mismo día, mediana 0, promedio negativo (−7.6d, entradas fechadas antes que su OC) → las fechas son artefacto de captura. Se descarta derivar lead time de Kepler; se **captura manual**.
 - **Nueva página `/compras/proveedores`** (permiso `COMPRAS_VER`): tabla editable de **lead time (días)** + **pedido mínimo (cajas)** por proveedor, con # de productos. Ambos alimentan el motor: punto de reorden `avg×lead` y safety stock `Z×σ×√lead`.

@@ -393,6 +393,7 @@ export class LayoutComponent implements OnInit, OnDestroy {
     { label: 'Requisiciones',      icon: 'pi pi-file-edit',            route: '/compras/requisiciones',      permission: Permission.COMPRAS_VER },
     { label: 'Hallazgos',          icon: 'pi pi-flag',                 route: '/compras/hallazgos',          permission: Permission.COMPRAS_VER },
     { label: 'Proveedores',        icon: 'pi pi-truck',                route: '/compras/proveedores',        permission: Permission.COMPRAS_VER },
+    { label: 'Red de abasto',      icon: 'pi pi-sitemap',              route: '/compras/red',                permission: Permission.COMPRAS_VER },
   ];
 
   // Almacén: existencias, conteo físico, FEFO, ABC/cíclico, pasillos. Operación

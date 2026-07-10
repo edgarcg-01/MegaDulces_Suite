@@ -260,6 +260,11 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.COMPRAS_VER)]
       },
       {
+        path: 'red',
+        loadComponent: () => import('./modules/compras/pages/compras-red.component').then(m => m.ComprasRedComponent),
+        canActivate: [permissionGuard(Permission.COMPRAS_VER)]
+      },
+      {
         path: 'requisiciones/:id',
         loadComponent: () => import('./modules/compras/pages/compras-requisicion-detalle.component').then(m => m.ComprasRequisicionDetalleComponent),
         canActivate: [permissionGuard(Permission.COMPRAS_VER)]

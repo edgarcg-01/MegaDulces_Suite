@@ -461,6 +461,43 @@ export class CommercialReplenishmentService {
     });
   }
 
+  // ── RA-PRO.6 — Topología de red de abasto (DRP CEDIS→sucursal) ────────
+  /** Almacenes reales con su origen de surtido; is_cedis = referenciado por ≥1 sucursal. */
+  async networkTopology() {
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      const rows = await trx('commercial.warehouses as w')
+        .leftJoin('commercial.warehouses as src', (j) => j.on('src.tenant_id', 'w.tenant_id').andOn('src.id', 'w.source_warehouse_id'))
+        .where('w.tenant_id', tenantId).whereNull('w.deleted_at').andWhere('w.kind', '<>', 'truck')
+        // Excluye almacenes efímeros de tests/procesos (conteo, equipos, caducidad, ventas).
+        .andWhereRaw(`w.code !~ '^(INV|TEAMWH|EXPALERT|SOLDEXP|TRUCK)'`)
+        .select('w.id', 'w.code', 'w.name', 'w.source_warehouse_id',
+          trx.raw('src.code AS source_code'),
+          trx.raw(`EXISTS (SELECT 1 FROM commercial.warehouses c WHERE c.tenant_id=w.tenant_id AND c.source_warehouse_id=w.id AND c.deleted_at IS NULL) AS is_cedis`))
+        .orderBy('w.code');
+      return rows;
+    });
+  }
+
+  /** RA-PRO.6 — fija de qué almacén (CEDIS) se surte una sucursal (o NULL = es CEDIS). */
+  async setWarehouseSource(warehouseId: string, sourceId: string | null) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    if (!UUID_RX.test(warehouseId)) throw new BadRequestException('warehouse_id inválido');
+    if (sourceId != null && !UUID_RX.test(sourceId)) throw new BadRequestException('source_warehouse_id inválido');
+    if (sourceId && sourceId === warehouseId) throw new BadRequestException('Un almacén no puede surtirse de sí mismo');
+    return this.tk.run(async (trx) => {
+      if (sourceId) {
+        const src = await trx('commercial.warehouses').where({ tenant_id: tenantId, id: sourceId }).whereNull('deleted_at').first('id');
+        if (!src) throw new NotFoundException('Almacén origen no encontrado');
+      }
+      const n = await trx('commercial.warehouses')
+        .where({ tenant_id: tenantId, id: warehouseId })
+        .update({ source_warehouse_id: sourceId, updated_at: trx.fn.now() });
+      if (!n) throw new NotFoundException('Almacén no encontrado');
+      return { id: warehouseId, source_warehouse_id: sourceId };
+    });
+  }
+
   /** RA-PRO.3 — captura manual del lead time del proveedor (días). */
   async setSupplierLeadTime(supplierId: string, days: number | null) {
     const tenantId = this.tenantCtx.requireTenantId();

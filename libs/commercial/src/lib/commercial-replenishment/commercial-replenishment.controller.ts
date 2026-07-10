@@ -129,4 +129,16 @@ export class CommercialReplenishmentController {
   setSupplierLeadTime(@Param('id') id: string, @Body() body: { days: number | null }) {
     return this.svc.setSupplierLeadTime(id, body?.days ?? null);
   }
+
+  @Get('network')
+  @RequirePermissions(Permission.COMPRAS_VER)
+  @ApiOperation({ summary: 'RA-PRO.6 — topología de red de abasto (almacenes + su CEDIS origen; DRP).' })
+  networkTopology() { return this.svc.networkTopology(); }
+
+  @Post('warehouses/:id/source')
+  @RequirePermissions(Permission.COMPRAS_GESTIONAR)
+  @ApiOperation({ summary: 'RA-PRO.6 — fija el CEDIS que surte a una sucursal (body { source_warehouse_id } | null = es CEDIS).' })
+  setWarehouseSource(@Param('id') id: string, @Body() body: { source_warehouse_id: string | null }) {
+    return this.svc.setWarehouseSource(id, body?.source_warehouse_id ?? null);
+  }
 }

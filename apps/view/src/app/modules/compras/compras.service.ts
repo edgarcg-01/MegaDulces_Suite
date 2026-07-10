@@ -137,6 +137,15 @@ export interface CreateRequisitionDto {
 }
 export interface ReceiveLine { line_id: string; received_qty: number; }
 
+export interface NetworkNode {
+  id: string;
+  code: string;
+  name: string;
+  source_warehouse_id: string | null;
+  source_code: string | null;
+  is_cedis: boolean;
+}
+
 export interface SupplierParam {
   id: string;
   name: string;
@@ -245,6 +254,14 @@ export class ComprasService {
   }
   setSupplierLeadTime(supplierId: string, days: number | null): Observable<{ id: string; lead_time_days: number | null }> {
     return this.http.post<{ id: string; lead_time_days: number | null }>(`${this.base}/suppliers/${supplierId}/lead-time`, { days });
+  }
+
+  /** RA-PRO.6 — topología de red de abasto (DRP CEDIS→sucursal). */
+  networkTopology(): Observable<NetworkNode[]> {
+    return this.http.get<NetworkNode[]>(`${this.base}/network`);
+  }
+  setWarehouseSource(warehouseId: string, sourceId: string | null): Observable<{ id: string; source_warehouse_id: string | null }> {
+    return this.http.post<{ id: string; source_warehouse_id: string | null }>(`${this.base}/warehouses/${warehouseId}/source`, { source_warehouse_id: sourceId });
   }
 
   /** RA.8 — bandeja de hallazgos de reabastecimiento. */

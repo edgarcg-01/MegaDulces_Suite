@@ -78,7 +78,7 @@ Cada una de las 9 celdas recibe una política distinta: **AX** (caro + predecibl
 
 ### 🔴 Grande — estructural, dependencias
 
-**RA-PRO.6 — DRP / multi-echelon CEDIS→sucursal.** Planear la red: el CEDIS se surte del proveedor, las sucursales del CEDIS. Encaja con RA.11 (origen prov/sucursal). Es el paso que convierte "N reorden por almacén" en "una red optimizada".
+**RA-PRO.6 — DRP / multi-echelon CEDIS→sucursal. ✅ HECHO (2026-07-09).** Topología `commercial.warehouses.source_warehouse_id` (mig `20260709190000`): NULL = CEDIS (compra a proveedores), set = sucursal (traspaso desde ese CEDIS). El importer `import-network-reorder.js` planea el CEDIS sobre **demanda dependiente** (antes tenía 0 política): `media_red = Σ avg(sucursal) + avg(propio)` y **`σ_red = √(Σ σ(sucursal)² + σ(propio)²)`** (risk pooling — las varianzas suman, el CV agregado baja), luego `safety = ceil(Z(0.98)×σ_red×√lead)`. Página **`/compras/red`** para configurar qué CEDIS surte cada sucursal + KPIs (CEDIS / sucursales / sin origen). Backend `networkTopology` + `setWarehouseSource`. Wireado en el nightly tras `import-computed-reorder`. Smoke `test-newdb-ra-network.js` 7/7 (media Σ=7, σ=√25=5, guard self-source). **Diferido (RA-PRO.6.2):** vista de distribución por producto (matriz CEDIS+sucursales con traspasos sugeridos) y optimización de asignación cuando el CEDIS no alcanza para toda la red.
 
 **RA-PRO.7 — Pronóstico estacional (Holt-Winters).** Bloqueado por backfill multi-año (RA.10.0): prod tiene ~7 meses de historia; la estacionalidad de dulces necesita ≥2 años. Gate por calendario/datos, no por código.
 
