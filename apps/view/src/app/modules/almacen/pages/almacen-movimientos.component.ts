@@ -66,7 +66,7 @@ import { Permission } from '../../../core/constants/permissions';
       </div>
 
       <!-- Tabla por DÍA (expandible) -->
-      <p-table [value]="days()" [loading]="loading()" dataKey="key" [(expandedRowKeys)]="expanded"
+      <p-table [value]="days()" [loading]="loading()" dataKey="key" [expandedRowKeys]="expanded"
                (onRowExpand)="onDayExpand($event.data)" styleClass="p-datatable-sm dm-table" [scrollable]="true" scrollHeight="flex">
         <ng-template pTemplate="header">
           <tr>
