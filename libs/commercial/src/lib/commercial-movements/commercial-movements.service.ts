@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
 
 /**
@@ -165,14 +165,20 @@ export class CommercialMovementsService {
     const pageSize = Math.min(500, Math.max(1, Number(q.pageSize) || 100));
     return this.tk.run(async (trx) => {
       const grouped = () => this.base(trx, tenantId, q)
-        .groupBy('m.warehouse_id', 'm.folio', 'm.doc_code', 'm.movement_label', 'm.movement_kind', 'm.source_branch');
+        .groupBy('m.warehouse_id', 'm.folio', 'm.doc_code', 'm.doc_serie', 'm.movement_label', 'm.movement_kind', 'm.source_branch');
       const countRows: any[] = await trx.count('* as count').from(grouped().select('m.folio').as('g'));
       const count = countRows[0]?.count ?? 0;
       const rows = await grouped()
         .leftJoin('commercial.warehouses as w', 'w.id', 'm.warehouse_id')
+        // DM.4 — marca humana "auditado" (identidad doc = warehouse+doc_code+serie+folio)
+        .leftJoin('commercial.stock_movement_audits as a', function (this: any) {
+          this.on('a.tenant_id', 'm.tenant_id').andOn('a.warehouse_id', 'm.warehouse_id')
+            .andOn('a.doc_code', 'm.doc_code').andOn('a.folio', 'm.folio')
+            .andOn(trx.raw(`a.doc_serie = coalesce(m.doc_serie,'')`));
+        })
         .groupBy('w.code')
         .select(
-          'm.warehouse_id', 'm.folio', 'm.doc_code', 'm.movement_label', 'm.movement_kind',
+          'm.warehouse_id', 'm.folio', 'm.doc_code', 'm.doc_serie', 'm.movement_label', 'm.movement_kind',
           'm.source_branch', 'w.code as warehouse_code',
         )
         .select(
@@ -183,6 +189,9 @@ export class CommercialMovementsService {
           trx.raw(`SUM(m.amount) AS amount`),
           trx.raw(`MAX(m.parent_group) AS parent_group`),
           trx.raw(`MAX(m.parent_folio) AS parent_folio`),
+          trx.raw(`COUNT(a.id) > 0 AS audited`),
+          trx.raw(`MAX(a.audited_by) AS audited_by`),
+          trx.raw(`MAX(a.created_at) AS audited_at`),
         )
         .orderByRaw('MIN(m.doc_date) DESC, m.folio DESC')
         .limit(pageSize).offset((page - 1) * pageSize);
@@ -190,8 +199,33 @@ export class CommercialMovementsService {
     });
   }
 
+  /** DM.4 — marca/desmarca un documento como auditado. Identidad = wh+doc_code+serie+folio. */
+  async setAudit(dto: { warehouse_id: string; doc_code: string; doc_serie?: string | null; folio: string; audited: boolean; note?: string | null }) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const username = this.tenantCtx.get()?.username || null;
+    if (!dto?.warehouse_id || !UUID_RX.test(dto.warehouse_id) || !dto.doc_code || !dto.folio) {
+      throw new BadRequestException('warehouse_id, doc_code y folio son requeridos');
+    }
+    const serie = dto.doc_serie ?? '';
+    return this.tk.run(async (trx) => {
+      if (dto.audited === false) {
+        const n = await trx('commercial.stock_movement_audits')
+          .where({ tenant_id: tenantId, warehouse_id: dto.warehouse_id, doc_code: dto.doc_code, doc_serie: serie, folio: dto.folio })
+          .delete();
+        return { audited: false, removed: n };
+      }
+      await trx.raw(`
+        INSERT INTO commercial.stock_movement_audits (tenant_id, warehouse_id, doc_code, doc_serie, folio, audited_by, note)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT (tenant_id, warehouse_id, doc_code, doc_serie, folio)
+        DO UPDATE SET audited_by = EXCLUDED.audited_by, note = EXCLUDED.note, updated_at = now()`,
+        [tenantId, dto.warehouse_id, dto.doc_code, serie, dto.folio, username, dto.note ?? null]);
+      return { audited: true, audited_by: username };
+    });
+  }
+
   /** DRILL 3: documento completo — TODAS las líneas de un folio (sin filtrar por producto). */
-  async document(p: { folio: string; warehouse_id: string; doc_code?: string }) {
+  async document(p: { folio: string; warehouse_id: string; doc_code?: string; doc_serie?: string }) {
     const tenantId = this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
       const q = trx('analytics.stock_movements as m')
@@ -203,6 +237,7 @@ export class CommercialMovementsService {
         .leftJoin('commercial.warehouses as w', 'w.id', 'm.warehouse_id');
       if (p.warehouse_id && UUID_RX.test(p.warehouse_id)) q.where('m.warehouse_id', p.warehouse_id);
       if (p.doc_code) q.where('m.doc_code', p.doc_code);
+      if (p.doc_serie != null && p.doc_serie !== '') q.whereRaw(`coalesce(m.doc_serie,'') = ?`, [p.doc_serie]);
       const lines = await q.select(
         'm.warehouse_id', 'm.doc_date', 'm.folio', 'm.doc_code', 'm.movement_label', 'm.movement_kind',
         'm.genero', 'm.naturaleza', 'm.doc_type', 'm.doc_serie', 'm.signed_qty', 'm.qty',
@@ -211,11 +246,17 @@ export class CommercialMovementsService {
       ).orderBy('p.nombre');
       if (!lines.length) return { header: null, lines: [], totals: { qty: 0, amount: 0, lineas: 0 }, counterpart: null };
       const h = lines[0];
+      // DM.4 — estado de auditoría humana del documento
+      const auditRow = await trx('commercial.stock_movement_audits')
+        .where({ tenant_id: tenantId, warehouse_id: h.warehouse_id, doc_code: h.doc_code, folio: h.folio })
+        .andWhereRaw(`doc_serie = coalesce(?, '')`, [h.doc_serie])
+        .first('audited_by', 'note', 'created_at');
       const header = {
-        folio: h.folio, doc_code: h.doc_code, movement_label: h.movement_label, movement_kind: h.movement_kind,
+        folio: h.folio, doc_code: h.doc_code, doc_serie: h.doc_serie, movement_label: h.movement_label, movement_kind: h.movement_kind,
         doc_date: h.doc_date, genero: h.genero, naturaleza: h.naturaleza, doc_type: h.doc_type,
-        warehouse_code: h.warehouse_code, source_branch: h.source_branch,
+        warehouse_id: h.warehouse_id, warehouse_code: h.warehouse_code, source_branch: h.source_branch,
         parent_group: h.parent_group, parent_folio: h.parent_folio,
+        audited: !!auditRow, audited_by: auditRow?.audited_by ?? null, audited_at: auditRow?.created_at ?? null,
       };
       const totals = {
         qty: lines.reduce((s: number, l: any) => s + Number(l.signed_qty || 0), 0),

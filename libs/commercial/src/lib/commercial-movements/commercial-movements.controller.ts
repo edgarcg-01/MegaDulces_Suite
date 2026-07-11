@@ -1,4 +1,4 @@
-import { Controller, Get, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
 import { CommercialMovementsService, MovementsQuery } from './commercial-movements.service';
@@ -41,9 +41,16 @@ export class CommercialMovementsController {
 
   @Get('document')
   @RequirePermissions(Permission.COMMERCIAL_INVENTORY_VER)
-  @ApiOperation({ summary: 'Drill al documento: TODAS las líneas de un folio (header + líneas + totales). Params: folio, warehouse_id, doc_code.' })
-  document(@Query('folio') folio: string, @Query('warehouse_id') warehouse_id: string, @Query('doc_code') doc_code?: string) {
-    return this.svc.document({ folio, warehouse_id, doc_code });
+  @ApiOperation({ summary: 'Drill al documento: TODAS las líneas de un folio (header + líneas + totales + contraparte + auditado). Params: folio, warehouse_id, doc_code, doc_serie.' })
+  document(@Query('folio') folio: string, @Query('warehouse_id') warehouse_id: string, @Query('doc_code') doc_code?: string, @Query('doc_serie') doc_serie?: string) {
+    return this.svc.document({ folio, warehouse_id, doc_code, doc_serie });
+  }
+
+  @Post('audit')
+  @RequirePermissions(Permission.COMMERCIAL_INVENTORY_SUPERVISAR)
+  @ApiOperation({ summary: 'DM.4 — marca/desmarca un documento como auditado. Body: { warehouse_id, doc_code, doc_serie?, folio, audited, note? }.' })
+  setAudit(@Body() dto: { warehouse_id: string; doc_code: string; doc_serie?: string | null; folio: string; audited: boolean; note?: string | null }) {
+    return this.svc.setAudit(dto);
   }
 
   @Get('transfers-check')

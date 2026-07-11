@@ -51,25 +51,49 @@ export interface MovementLine {
   parent_group: string | null; parent_folio: string | null; source_branch: string;
   product_name: string | null; sku: string | null; warehouse_code: string | null;
 }
-/** Fila del drill de folios: un DOCUMENTO englobado (folio×tipo×almacén), no una línea. */
+/** Fila del drill de folios: un DOCUMENTO englobado (folio×tipo×serie×almacén), no una línea. */
 export interface FolioRow {
-  warehouse_id: string; folio: string; doc_code: string; movement_label: string;
+  warehouse_id: string; folio: string; doc_code: string; doc_serie: string | null; movement_label: string;
   movement_kind: MovementKind; source_branch: string; warehouse_code: string | null;
   doc_date: string; lineas: number; signed_qty: number; qty: number; amount: number | null;
   parent_group: string | null; parent_folio: string | null;
+  audited: boolean; audited_by: string | null; audited_at: string | null;
 }
 export interface LinesResponse { page: number; pageSize: number; total: number; rows: FolioRow[]; }
 
+/** DM.3 — validación salida↔recepción de traspasos. */
+export type TransferStatus = 'ok' | 'diferencia' | 'sin_recepcion' | 'sin_origen';
+export interface TransferCheckRow {
+  origin_wh_id: string | null; origin_wh: string | null; origin_folio: string | null;
+  doc_serie: string | null; ship_date: string | null; qty_sent: number | null; amount: number | null; ship_lines: number | null;
+  dest_wh_id: string | null; dest_wh: string | null; rcv_folio: string | null;
+  rcv_date: string | null; qty_received: number | null; rcv_lines: number | null;
+  status: TransferStatus; delta: number;
+}
+export interface TransfersCheckResponse {
+  range: { from: string; to: string };
+  totals: { ok: number; diferencia: number; sin_recepcion: number; sin_origen: number };
+  rows: TransferCheckRow[];
+}
+
+export interface DocumentCounterpart {
+  kind: 'recepcion' | 'origen';
+  docs: { folio: string; warehouse_code: string | null; doc_date: string; qty: number; lineas: number }[];
+  qty: number; delta: number; status: 'ok' | 'diferencia' | 'sin_recepcion' | 'sin_origen';
+}
+
 export interface DocumentHeader {
-  folio: string; doc_code: string; movement_label: string; movement_kind: MovementKind;
+  folio: string; doc_code: string; doc_serie: string | null; movement_label: string; movement_kind: MovementKind;
   doc_date: string; genero: string; naturaleza: string; doc_type: string;
-  warehouse_code: string | null; source_branch: string;
+  warehouse_id: string; warehouse_code: string | null; source_branch: string;
   parent_group: string | null; parent_folio: string | null;
+  audited: boolean; audited_by: string | null; audited_at: string | null;
 }
 export interface DocumentResponse {
   header: DocumentHeader | null;
   lines: MovementLine[];
   totals: { qty: number; amount: number; lineas: number };
+  counterpart: DocumentCounterpart | null;
 }
 
 export interface MovementsFilterOpts {
@@ -103,11 +127,18 @@ export class AlmacenMovimientosService {
   lines(f: MovementsFilters, extra: { product_id?: string; page?: number; pageSize?: number }): Observable<LinesResponse> {
     return this.http.get<LinesResponse>(`${this.base}/lines`, { params: this.params(f, extra) });
   }
-  document(folio: string, warehouse_id?: string, doc_code?: string): Observable<DocumentResponse> {
+  document(folio: string, warehouse_id?: string, doc_code?: string, doc_serie?: string | null): Observable<DocumentResponse> {
     let p = new HttpParams().set('folio', folio);
     if (warehouse_id) p = p.set('warehouse_id', warehouse_id);
     if (doc_code) p = p.set('doc_code', doc_code);
+    if (doc_serie) p = p.set('doc_serie', doc_serie);
     return this.http.get<DocumentResponse>(`${this.base}/document`, { params: p });
+  }
+  transfersCheck(f: MovementsFilters): Observable<TransfersCheckResponse> {
+    return this.http.get<TransfersCheckResponse>(`${this.base}/transfers-check`, { params: this.params(f) });
+  }
+  setAudit(dto: { warehouse_id: string; doc_code: string; doc_serie?: string | null; folio: string; audited: boolean; note?: string | null }): Observable<{ audited: boolean; audited_by?: string | null }> {
+    return this.http.post<{ audited: boolean; audited_by?: string | null }>(`${this.base}/audit`, dto);
   }
   filters(): Observable<MovementsFilterOpts> {
     return this.http.get<MovementsFilterOpts>(`${this.base}/filters`);

@@ -12,8 +12,11 @@ import { TagModule } from 'primeng/tag';
 import { InputTextModule } from 'primeng/inputtext';
 import {
   AlmacenMovimientosService, GroupBy, MovementsFilters, MovementsSummary, MovementByType,
-  AggregateRow, FolioRow, MovementsFilterOpts, DocumentResponse,
+  AggregateRow, FolioRow, MovementsFilterOpts, DocumentResponse, TransfersCheckResponse, TransferStatus,
 } from '../almacen-movimientos.service';
+import { AuthService } from '../../../core/services/auth.service';
+import { PermissionsService } from '../../../core/services/permissions.service';
+import { Permission } from '../../../core/constants/permissions';
 
 /**
  * DM.2 — Diario de movimientos (mejora del reporte Kepler homónimo).
@@ -71,6 +74,18 @@ import {
             } @empty { <span class="dm-empty-sm">Sin salidas en el rango.</span> }
           </div>
         </div>
+      }
+
+      <!-- DM.3 — validación de traspasos: cada salida contra su recepción -->
+      @if (transfers(); as tc) {
+        <button type="button" class="dm-transfers" (click)="transfersOpen = true">
+          <span class="dm-tr-title">Traspasos</span>
+          <span class="dm-tr-chip ok">✓ {{ tc.totals.ok }} recibidos</span>
+          @if (tc.totals.diferencia) { <span class="dm-tr-chip warn">≠ {{ tc.totals.diferencia }} con diferencia</span> }
+          @if (tc.totals.sin_recepcion) { <span class="dm-tr-chip bad">⏳ {{ tc.totals.sin_recepcion }} sin recepción</span> }
+          @if (tc.totals.sin_origen) { <span class="dm-tr-chip bad">? {{ tc.totals.sin_origen }} sin origen</span> }
+          <span class="dm-tr-more">Ver detalle <i class="pi pi-angle-right"></i></span>
+        </button>
       }
 
       <!-- Filtros -->
@@ -140,7 +155,7 @@ import {
           <ng-template pTemplate="header">
             <tr>
               <th>Fecha</th><th>Folio</th><th>Tipo</th>
-              <th class="dm-r">Líneas</th><th class="dm-r">Cantidad</th><th class="dm-r">Valor</th><th>Cadena</th>
+              <th class="dm-r">Líneas</th><th class="dm-r">Cantidad</th><th class="dm-r">Valor</th><th>Cadena</th><th>Auditado</th>
             </tr>
           </ng-template>
           <ng-template pTemplate="body" let-l>
@@ -152,6 +167,15 @@ import {
               <td class="dm-r" [class.up]="l.signed_qty>0" [class.down]="l.signed_qty<0">{{ l.signed_qty | number:'1.0-0' }}</td>
               <td class="dm-r dm-strong">{{ l.amount != null ? money(l.amount) : '—' }}</td>
               <td class="dm-sub dm-mono">{{ l.parent_folio ? (l.parent_group + '·' + l.parent_folio) : '—' }}</td>
+              <td (click)="$event.stopPropagation()">
+                @if (l.audited) {
+                  <button type="button" class="dm-audit is-audited" [title]="'Auditado por ' + (l.audited_by || '—') + ' · ' + (l.audited_at | date:'yyyy-MM-dd HH:mm')"
+                          [disabled]="!canAudit" (click)="toggleAudit(l)"><i class="pi pi-verified"></i> Sí</button>
+                } @else {
+                  <button type="button" class="dm-audit" [title]="canAudit ? 'Marcar como auditado' : 'Sin auditar'"
+                          [disabled]="!canAudit" (click)="toggleAudit(l)"><i class="pi pi-circle"></i> No</button>
+                }
+              </td>
             </tr>
           </ng-template>
         </p-table>
@@ -168,10 +192,29 @@ import {
           <div class="dm-doc-head">
             <p-tag [value]="h.movement_label" [severity]="h.movement_kind === 'entrada' ? 'success' : 'warn'" styleClass="dm-tag"></p-tag>
             <span class="dm-doc-meta">{{ h.doc_date | date:'yyyy-MM-dd' }}</span>
-            <span class="dm-doc-meta dm-mono">{{ h.genero }}{{ h.naturaleza }}{{ h.doc_type }} · folio {{ h.folio }}</span>
+            <span class="dm-doc-meta dm-mono">{{ h.genero }}{{ h.naturaleza }}{{ h.doc_type }}{{ h.doc_serie ? '·s' + h.doc_serie : '' }} · folio {{ h.folio }}</span>
             <span class="dm-doc-meta">Almacén {{ h.warehouse_code || h.source_branch }}</span>
             @if (h.parent_folio) { <span class="dm-doc-meta dm-mono">cadena → {{ h.parent_group }}·{{ h.parent_folio }}</span> }
+            <button type="button" class="dm-audit dm-doc-audit" [class.is-audited]="h.audited" [disabled]="!canAudit" (click)="toggleAuditDoc(h)"
+                    [title]="h.audited ? ('Auditado por ' + (h.audited_by || '—')) : (canAudit ? 'Marcar como auditado' : 'Sin auditar')">
+              <i class="pi" [class.pi-verified]="h.audited" [class.pi-circle]="!h.audited"></i> {{ h.audited ? 'Auditado' : 'Sin auditar' }}
+            </button>
           </div>
+          <!-- Contraparte del traspaso: valida que se entregó Y se recibió -->
+          @if (doc()!.counterpart; as cp) {
+            <div class="dm-cp" [class.cp-ok]="cp.status === 'ok'" [class.cp-warn]="cp.status === 'diferencia'" [class.cp-bad]="cp.status === 'sin_recepcion' || cp.status === 'sin_origen'">
+              <i class="pi" [class.pi-check-circle]="cp.status === 'ok'" [class.pi-exclamation-triangle]="cp.status === 'diferencia'" [class.pi-clock]="cp.status === 'sin_recepcion' || cp.status === 'sin_origen'"></i>
+              @if (cp.docs.length) {
+                <span><strong>{{ cp.kind === 'recepcion' ? 'Recepción' : 'Origen' }}:</strong>
+                  @for (d of cp.docs; track d.folio) { <span class="dm-mono">{{ d.folio }} ({{ d.warehouse_code || '—' }}, {{ d.doc_date | date:'MM-dd' }}, {{ d.qty | number:'1.0-0' }} pzs)</span> }
+                </span>
+                @if (cp.status === 'ok') { <span class="dm-cp-status">cantidades cuadran ✓</span> }
+                @else { <span class="dm-cp-status">diferencia {{ cp.delta > 0 ? '+' : '' }}{{ cp.delta | number:'1.0-0' }} pzs</span> }
+              } @else {
+                <span>{{ cp.status === 'sin_recepcion' ? 'SIN RECEPCIÓN registrada en destino (en tránsito o no recibido)' : 'Recepción SIN documento de origen visible' }}</span>
+              }
+            </div>
+          }
           <p-table [value]="doc()!.lines" styleClass="p-datatable-sm dm-dtable" [scrollable]="true" scrollHeight="22rem">
             <ng-template pTemplate="header">
               <tr><th>SKU</th><th>Producto</th><th class="dm-r">Cantidad</th><th class="dm-r">Costo/u</th><th class="dm-r">Importe</th></tr>
@@ -192,6 +235,37 @@ import {
             <span>Total <strong>{{ money(doc()!.totals.amount) }}</strong></span>
           </div>
         } @else { <div class="dm-empty">Documento sin líneas.</div> }
+      }
+    </p-dialog>
+
+    <!-- DM.3 — detalle de validación de traspasos -->
+    <p-dialog [(visible)]="transfersOpen" [modal]="true" [style]="{ width: '56rem', maxWidth: '96vw' }" [dismissableMask]="true" styleClass="dm-dlg">
+      <ng-template pTemplate="header"><span class="dm-dlg-title">Validación de traspasos — salida vs recepción</span></ng-template>
+      @if (transfers(); as tc) {
+        <p class="dm-dlg-sub">Cada salida (UD41) pareada con su recepción (UA50) por serie+folio. {{ tc.range.from }} → {{ tc.range.to }}.</p>
+        <p-table [value]="tc.rows" styleClass="p-datatable-sm dm-dtable" [scrollable]="true" scrollHeight="26rem">
+          <ng-template pTemplate="header">
+            <tr>
+              <th>Estado</th><th>Origen</th><th>Folio salida</th><th>Fecha</th><th class="dm-r">Enviadas</th>
+              <th>Destino</th><th>Folio recep.</th><th>Fecha</th><th class="dm-r">Recibidas</th><th class="dm-r">Δ</th>
+            </tr>
+          </ng-template>
+          <ng-template pTemplate="body" let-r>
+            <tr>
+              <td><p-tag [value]="statusLabel(r.status)" [severity]="statusSev(r.status)" styleClass="dm-tag"></p-tag></td>
+              <td class="dm-mono">{{ r.origin_wh || '—' }}</td>
+              <td class="dm-mono dm-link" (click)="openTransferDoc(r, 'ship')">{{ r.origin_folio || '—' }}</td>
+              <td class="dm-mono">{{ r.ship_date ? (r.ship_date | date:'MM-dd') : '—' }}</td>
+              <td class="dm-r">{{ r.qty_sent != null ? (r.qty_sent | number:'1.0-0') : '—' }}</td>
+              <td class="dm-mono">{{ r.dest_wh || '—' }}</td>
+              <td class="dm-mono dm-link" (click)="openTransferDoc(r, 'rcv')">{{ r.rcv_folio || '—' }}</td>
+              <td class="dm-mono">{{ r.rcv_date ? (r.rcv_date | date:'MM-dd') : '—' }}</td>
+              <td class="dm-r">{{ r.qty_received != null ? (r.qty_received | number:'1.0-0') : '—' }}</td>
+              <td class="dm-r" [class.down]="r.delta < 0" [class.up]="r.delta > 0">{{ r.delta ? (r.delta | number:'1.0-0') : '0' }}</td>
+            </tr>
+          </ng-template>
+          <ng-template pTemplate="emptymessage"><tr><td colspan="10" class="dm-empty">Sin traspasos en el rango.</td></tr></ng-template>
+        </p-table>
       }
     </p-dialog>
   `,
@@ -234,6 +308,23 @@ import {
     .dm-type-num { font-size: .74rem; color: var(--text-muted); font-variant-numeric: tabular-nums; }
     .dm-type-val { font-size: .78rem; font-weight: 600; font-variant-numeric: tabular-nums; min-width: 5.5rem; text-align: right; }
     .dm-empty-sm { font-size: .76rem; color: var(--text-muted); padding: .2rem .4rem; }
+    .dm-transfers { display: flex; flex-wrap: wrap; align-items: center; gap: .6rem; width: 100%; margin-bottom: 1rem; padding: .5rem .7rem; border: 1px solid var(--border-color); border-radius: var(--r-md); background: var(--card-bg); cursor: pointer; font: inherit; color: var(--text-main); text-align: left; }
+    .dm-transfers:hover { background: var(--surface-hover-bg); }
+    .dm-tr-title { font-size: .72rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); }
+    .dm-tr-chip { font-size: .76rem; font-variant-numeric: tabular-nums; }
+    .dm-tr-chip.ok { color: var(--ok-fg); } .dm-tr-chip.warn { color: var(--warn-fg); } .dm-tr-chip.bad { color: var(--bad-fg); font-weight: 600; }
+    .dm-tr-more { margin-left: auto; font-size: .74rem; color: var(--text-muted); }
+    .dm-audit { display: inline-flex; align-items: center; gap: .3rem; border: 0; background: none; font: inherit; font-size: .74rem; color: var(--text-muted); cursor: pointer; padding: .15rem .35rem; border-radius: var(--r-sm); }
+    .dm-audit:hover:not(:disabled) { background: var(--surface-hover-bg); color: var(--text-main); }
+    .dm-audit:disabled { cursor: default; }
+    .dm-audit.is-audited { color: var(--ok-fg); }
+    .dm-doc-audit { margin-left: auto; }
+    .dm-cp { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; font-size: .78rem; padding: .45rem .6rem; border-radius: var(--r-sm); border: 1px solid var(--border-color); margin-bottom: .55rem; }
+    .dm-cp.cp-ok { color: var(--ok-soft-fg); background: var(--ok-soft-bg); border-color: var(--ok-border); }
+    .dm-cp.cp-warn { color: var(--warn-soft-fg); background: var(--warn-soft-bg); border-color: var(--warn-border); }
+    .dm-cp.cp-bad { color: var(--bad-fg); }
+    .dm-cp-status { font-weight: 600; }
+    .dm-dlg-sub { color: var(--text-muted); font-size: .8rem; margin: 0 0 .4rem; }
     .dm-doc-head { display: flex; flex-wrap: wrap; gap: .5rem 1rem; align-items: center; margin-bottom: .5rem; padding-bottom: .5rem; border-bottom: 1px solid var(--border-color); }
     .dm-doc-meta { font-size: .76rem; color: var(--text-muted); }
     .dm-doc-foot { display: flex; gap: 1.5rem; justify-content: flex-end; margin-top: .6rem; font-size: .82rem; }
@@ -243,6 +334,11 @@ import {
 export class AlmacenMovimientosComponent implements OnInit {
   private readonly api = inject(AlmacenMovimientosService);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly auth = inject(AuthService);
+  private readonly perms = inject(PermissionsService);
+
+  /** DM.4 — marcar auditado exige supervisión de inventario. */
+  readonly canAudit = this.perms.can('manage', 'all') || !!this.auth.user()?.permissions?.[Permission.COMMERCIAL_INVENTORY_SUPERVISAR];
 
   readonly pageSize = 50;
   rows = signal<AggregateRow[]>([]);
@@ -285,6 +381,10 @@ export class AlmacenMovimientosComponent implements OnInit {
   docLoading = signal(false);
   doc = signal<DocumentResponse | null>(null);
 
+  // DM.3 — validación de traspasos
+  transfersOpen = false;
+  transfers = signal<TransfersCheckResponse | null>(null);
+
   ngOnInit(): void {
     this.api.filters().pipe(takeUntilDestroyed(this.destroyRef)).subscribe((f: MovementsFilterOpts) => {
       this.warehouseOpts.set(f.warehouses.filter(w => w.code).map(w => ({ label: `${w.code} — ${w.name}`, value: w.id })));
@@ -308,6 +408,10 @@ export class AlmacenMovimientosComponent implements OnInit {
     this.page.set(1);
     this.load();
     this.api.summary(this.currentFilters()).pipe(takeUntilDestroyed(this.destroyRef)).subscribe(s => this.summary.set(s));
+    this.api.transfersCheck(this.currentFilters()).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (t) => this.transfers.set(t),
+      error: () => this.transfers.set(null),
+    });
   }
 
   private load(): void {
@@ -361,10 +465,56 @@ export class AlmacenMovimientosComponent implements OnInit {
     this.docOpen = true;
     this.docLoading.set(true);
     this.doc.set(null);
-    this.api.document(l.folio, l.warehouse_id, l.doc_code).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+    this.api.document(l.folio, l.warehouse_id, l.doc_code, l.doc_serie).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (d) => { this.doc.set(d); this.docLoading.set(false); },
-      error: () => { this.doc.set({ header: null, lines: [], totals: { qty: 0, amount: 0, lineas: 0 } }); this.docLoading.set(false); },
+      error: () => { this.doc.set({ header: null, lines: [], totals: { qty: 0, amount: 0, lineas: 0 }, counterpart: null }); this.docLoading.set(false); },
     });
+  }
+
+  /** DM.4 — toggle auditado desde la fila del drill (optimistic). */
+  toggleAudit(l: FolioRow): void {
+    if (!this.canAudit) return;
+    const next = !l.audited;
+    l.audited = next;
+    this.api.setAudit({ warehouse_id: l.warehouse_id, doc_code: l.doc_code, doc_serie: l.doc_serie, folio: l.folio, audited: next })
+      .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+        next: (r) => { l.audited_by = r.audited_by ?? null; this.drillLines.set([...this.drillLines()]); },
+        error: () => { l.audited = !next; this.drillLines.set([...this.drillLines()]); },
+      });
+  }
+
+  /** DM.4 — toggle auditado desde el diálogo del documento. */
+  toggleAuditDoc(h: NonNullable<DocumentResponse['header']>): void {
+    if (!this.canAudit) return;
+    const next = !h.audited;
+    h.audited = next;
+    this.api.setAudit({ warehouse_id: h.warehouse_id, doc_code: h.doc_code, doc_serie: h.doc_serie, folio: h.folio, audited: next })
+      .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+        next: (r) => { h.audited_by = r.audited_by ?? null; this.doc.set({ ...this.doc()! }); },
+        error: () => { h.audited = !next; this.doc.set({ ...this.doc()! }); },
+      });
+  }
+
+  statusLabel(s: TransferStatus): string {
+    return s === 'ok' ? 'Recibido' : s === 'diferencia' ? 'Diferencia' : s === 'sin_recepcion' ? 'Sin recepción' : 'Sin origen';
+  }
+  statusSev(s: TransferStatus): 'success' | 'warn' | 'danger' {
+    return s === 'ok' ? 'success' : s === 'diferencia' ? 'warn' : 'danger';
+  }
+
+  /** Abre el documento (salida o recepción) desde la tabla de validación. */
+  openTransferDoc(r: { origin_wh_id: string | null; origin_folio: string | null; doc_serie: string | null; dest_wh_id: string | null; rcv_folio: string | null }, side: 'ship' | 'rcv'): void {
+    const folio = side === 'ship' ? r.origin_folio : r.rcv_folio;
+    const wh = side === 'ship' ? r.origin_wh_id : r.dest_wh_id;
+    if (!folio || !wh) return;
+    this.docOpen = true;
+    this.docLoading.set(true);
+    this.doc.set(null);
+    this.api.document(folio, wh, side === 'ship' ? 'TrsfShip' : 'TrsfRcv', side === 'ship' ? r.doc_serie : null)
+      .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+        next: (d) => { this.doc.set(d); this.docLoading.set(false); },
+        error: () => { this.doc.set({ header: null, lines: [], totals: { qty: 0, amount: 0, lineas: 0 }, counterpart: null }); this.docLoading.set(false); },
+      });
   }
 
   groupHeader(): string {
