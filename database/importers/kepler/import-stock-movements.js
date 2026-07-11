@@ -75,6 +75,28 @@ function fallbackMap() {
   return m;
 }
 
+// Tipos custom Mega Dulces que MUEVEN inventario pero NO están flageados en doctype.k_binv.
+// Decode: import-transfers-monthly (fase T) + reconciliación greedy vs kdil 2026-07-10
+// (baseline k_binv err=39.2 → +traspasos 26.5 → +NA30 24.7). EXCLUIDOS con prueba:
+//   U/D/10 factura (err→295, triplica) · X/A/35|37|20|30 cadena compra papel (err→129)
+//   U/D/6 consolidación ruta (err→90, el ×2) · N/A/44 y N/A/45 (err→39, duplican UA50/XA40)
+//   UD12/UA21/UD41/UA25/UD40 y pagos/gastos (neutros = no mueven stock).
+// Signo por naturaleza (A=+/D=−) igual que el resto.
+const CUSTOM_TYPES = [
+  ['U', 'A', 50, 'TrsfRcv', 'Recepción de traspaso'],   // lado receptor (entrada)
+  ['N', 'A', 6, 'TrsfInBr', 'Entrada por traspaso'],     // entrada traspaso sucursal
+  ['N', 'A', 25, 'TrsfInWh', 'Entrada por traspaso'],    // entrada traspaso almacén
+  ['U', 'D', 13, 'TrsfShip', 'Traspaso a sucursal'],     // salida CEDIS a un destino
+  ['N', 'D', 6, 'TrsfOutBr', 'Salida por traspaso'],     // salida traspaso sucursal (N/D/25 ya viene por k_binv)
+  ['N', 'A', 30, 'PhysInvIn', 'Inventario físico (entrada)'], // sobrante del físico (contraparte de ND30)
+];
+function addCustomTypes(map) {
+  for (const [g, nat, tipo, code, label] of CUSTOM_TYPES) {
+    map.set(`${g}|${nat}|${tipo}`, { code, label, dir: nat === 'A' ? 1 : -1 });
+  }
+  return map;
+}
+
 // Catálogo autoritativo: doctypes que afectan inventario, con dirección + etiqueta.
 // key = 'GENERO|NATURALEZA|TIPO_INT'  →  { code, label, dir(+1/-1) }. Fallback si no hay tabla.
 async function loadDoctypeMap(src, schema) {
@@ -87,7 +109,7 @@ async function loadDoctypeMap(src, schema) {
        WHERE k_binv IS NOT NULL AND k_binv::numeric = 1 AND coalesce(k_doc7,'') <> ''`
     )).rows;
   } catch { rows = []; }
-  if (!rows.length) return fallbackMap();
+  if (!rows.length) return addCustomTypes(fallbackMap());
   const map = new Map();
   for (const r of rows) {
     map.set(`${r.g}|${r.nat}|${r.tipo}`, {
@@ -96,7 +118,7 @@ async function loadDoctypeMap(src, schema) {
       dir: r.nat === 'A' ? 1 : -1,
     });
   }
-  return map;
+  return addCustomTypes(map);
 }
 
 (async () => {
