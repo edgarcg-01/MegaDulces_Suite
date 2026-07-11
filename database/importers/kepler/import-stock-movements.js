@@ -165,14 +165,20 @@ async function loadDoctypeMap(src, schema) {
         if (!dt.size) { console.log(`  ⚠ ${m.code}: doctype sin tipos de inventario — skip`); await src.end(); continue; }
         // tuplas (genero,naturaleza,tipo) para filtrar en SQL
         const tuples = [...dt.keys()].map((k) => { const [g, n, t] = k.split('|'); return `('${g}','${n}',${t})`; }).join(',');
+        // CTE MATERIALIZED: primero reduce cabeceras (pocos miles) y recién ahí joinea kdm2.
+        // Sin esto el planner (schemas sync SIN índices) elige nested-loop 182k×2M → 30+ min.
         const SQL = `
-          SELECT h.c2 g, h.c3 nat, h.c4 tipo, h.c5::text serie, h.c6 folio, h.c9::date doc_date,
-                 h.c37 pgrp, h.c38::text pserie, h.c39 pfol, l.c8 sku, l.c9::numeric qty, l.c12::numeric val
-          FROM ${schema}.kdm1 h
-          JOIN ${schema}.kdm2 l ON l.c1=h.c1 AND l.c2=h.c2 AND l.c3=h.c3 AND l.c4=h.c4 AND l.c6=h.c6
-          WHERE h.c1=$1 AND h.c9::date >= $2
-            AND coalesce(l.c11,'') <> 'SER'  -- líneas de SERVICIO (fletes, "VENTAS AL 0%") no son producto
-            AND (h.c2, h.c3, (h.c4)::int) IN (${tuples})`;
+          WITH hh AS MATERIALIZED (
+            SELECT c1, c2, c3, c4, c5::text serie, c6, c9::date doc_date, c37, c38::text pserie, c39
+            FROM ${schema}.kdm1 h
+            WHERE h.c1=$1 AND h.c9::date >= $2
+              AND (h.c2, h.c3, (h.c4)::int) IN (${tuples})
+          )
+          SELECT hh.c2 g, hh.c3 nat, hh.c4 tipo, hh.serie, hh.c6 folio, hh.doc_date,
+                 hh.c37 pgrp, hh.pserie, hh.c39 pfol, l.c8 sku, l.c9::numeric qty, l.c12::numeric val
+          FROM hh
+          JOIN ${schema}.kdm2 l ON l.c1=hh.c1 AND l.c2=hh.c2 AND l.c3=hh.c3 AND l.c4=hh.c4 AND l.c6=hh.c6
+          WHERE coalesce(l.c11,'') <> 'SER'  -- líneas de SERVICIO (fletes, "VENTAS AL 0%") no son producto`;
         const rows = (await src.query(SQL, [suc, cutoff])).rows;
 
         const staged = [];

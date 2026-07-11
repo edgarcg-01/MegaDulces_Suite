@@ -264,6 +264,8 @@ export class CommercialMovementsService {
         lineas: lines.length,
       };
       // Contraparte de traspaso (salida↔recepción por tipo41+serie+folio, distinta sucursal).
+      // Los folios son secuencias POR SUCURSAL → puede haber varios candidatos; se elige el
+      // MEJOR por cantidad más cercana y luego fecha más cercana (mismo ranking que transfersCheck).
       let counterpart: any = null;
       const sentQty = lines.reduce((s: number, l: any) => s + Number(l.qty || 0), 0);
       const findCp = async (docCode: string, folioCol: string, folioVal: string, serieCol: string, serieVal: string | null) => {
@@ -276,9 +278,11 @@ export class CommercialMovementsService {
           .leftJoin('commercial.warehouses as w', 'w.id', 'm.warehouse_id')
           .groupBy('m.folio', 'm.warehouse_id', 'w.code')
           .select('m.folio', 'm.warehouse_id', 'w.code as warehouse_code')
-          .select(trx.raw(`MIN(m.doc_date) AS doc_date`), trx.raw(`MAX(m.doc_code) AS doc_code`), trx.raw(`MAX(m.doc_serie) AS doc_serie`), trx.raw(`SUM(m.qty) AS qty`), trx.raw(`COUNT(*)::int AS lineas`));
+          .select(trx.raw(`MIN(m.doc_date) AS doc_date`), trx.raw(`MAX(m.doc_code) AS doc_code`), trx.raw(`MAX(m.doc_serie) AS doc_serie`), trx.raw(`SUM(m.qty) AS qty`), trx.raw(`COUNT(*)::int AS lineas`))
+          .orderByRaw(`abs(SUM(m.qty) - ?) ASC, abs(MIN(m.doc_date) - ?::date) ASC`, [sentQty, h.doc_date])
+          .limit(1);
         if (!cp.length) return null;
-        const cpQty = cp.reduce((s: number, r: any) => s + Number(r.qty || 0), 0);
+        const cpQty = Number(cp[0].qty || 0);
         return { docs: cp, qty: cpQty, delta: cpQty - sentQty, status: Math.abs(cpQty - sentQty) < 0.01 ? 'ok' : 'diferencia' };
       };
       if (h.doc_code === 'TrsfShip') {
@@ -304,6 +308,10 @@ export class CommercialMovementsService {
     const { from, to } = this.range(q);
     const whs = this.whIds(q);
     return this.tk.run(async (trx) => {
+      // Folios Kepler son secuencias POR SUCURSAL → un (serie, folio) puede existir en varias
+      // sucursales de origen. Ranking LATERAL: para cada recepción se elige el candidato de
+      // salida con cantidad más cercana (y luego fecha más cercana). c10/c11 no discriminan
+      // (verificado 2026-07-10: par real con TI001≠TI002).
       const rows = (await trx.raw(`
         WITH shp AS (
           SELECT m.warehouse_id, w.code AS wh_code, m.folio, m.doc_serie,
@@ -319,30 +327,45 @@ export class CommercialMovementsService {
           LEFT JOIN commercial.warehouses w ON w.id = m.warehouse_id
           WHERE m.tenant_id = ? AND m.doc_code = 'TrsfRcv' AND m.parent_group = '41' AND m.doc_date BETWEEN ? AND ?
           GROUP BY m.warehouse_id, w.code, m.folio, m.parent_serie, m.parent_folio
+        ), paired AS (
+          SELECT s.warehouse_id AS origin_wh_id, s.wh_code AS origin_wh, s.folio AS origin_folio,
+                 s.doc_serie, s.doc_date AS ship_date, s.qty AS qty_sent, s.amount, s.lineas AS ship_lines,
+                 r.warehouse_id AS dest_wh_id, r.wh_code AS dest_wh, r.folio AS rcv_folio,
+                 r.doc_date AS rcv_date, r.qty AS qty_received, r.lineas AS rcv_lines
+          FROM rcv r
+          LEFT JOIN LATERAL (
+            SELECT * FROM shp s
+            WHERE s.folio = r.parent_folio
+              AND coalesce(s.doc_serie,'') = coalesce(r.parent_serie,'')
+              AND s.warehouse_id <> r.warehouse_id
+            ORDER BY abs(coalesce(s.qty,0) - coalesce(r.qty,0)) ASC, abs(s.doc_date - r.doc_date) ASC
+            LIMIT 1
+          ) s ON true
+        ), unreceived AS (
+          SELECT s.* FROM shp s
+          WHERE NOT EXISTS (
+            SELECT 1 FROM rcv r
+            WHERE r.parent_folio = s.folio AND coalesce(r.parent_serie,'') = coalesce(s.doc_serie,'')
+              AND r.warehouse_id <> s.warehouse_id)
         )
-        SELECT s.warehouse_id AS origin_wh_id, s.wh_code AS origin_wh, s.folio AS origin_folio,
-               s.doc_serie, s.doc_date AS ship_date, s.qty AS qty_sent, s.amount, s.lineas AS ship_lines,
-               r.warehouse_id AS dest_wh_id, r.wh_code AS dest_wh, r.folio AS rcv_folio,
-               r.doc_date AS rcv_date, r.qty AS qty_received, r.lineas AS rcv_lines,
-               CASE
-                 WHEN s.folio IS NULL THEN 'sin_origen'
-                 WHEN r.folio IS NULL THEN 'sin_recepcion'
-                 WHEN abs(coalesce(s.qty,0) - coalesce(r.qty,0)) < 0.01 THEN 'ok'
-                 ELSE 'diferencia'
-               END AS status,
-               coalesce(r.qty,0) - coalesce(s.qty,0) AS delta
-        FROM shp s
-        FULL OUTER JOIN rcv r
-          ON r.parent_folio = s.folio
-         AND coalesce(r.parent_serie,'') = coalesce(s.doc_serie,'')
-         AND r.warehouse_id <> s.warehouse_id
-        WHERE 1=1 ${whs.length ? `AND (s.warehouse_id = ANY(?) OR r.warehouse_id = ANY(?))` : ''}
-        ORDER BY CASE
-            WHEN s.folio IS NULL THEN 2
-            WHEN r.folio IS NULL THEN 1
-            WHEN abs(coalesce(s.qty,0) - coalesce(r.qty,0)) < 0.01 THEN 4
-            ELSE 0 END,
-          coalesce(s.doc_date, r.doc_date) DESC
+        SELECT * FROM (
+          SELECT origin_wh_id, origin_wh, origin_folio, doc_serie, ship_date, qty_sent, amount, ship_lines,
+                 dest_wh_id, dest_wh, rcv_folio, rcv_date, qty_received, rcv_lines,
+                 CASE
+                   WHEN origin_folio IS NULL THEN 'sin_origen'
+                   WHEN abs(coalesce(qty_sent,0) - coalesce(qty_received,0)) < 0.01 THEN 'ok'
+                   ELSE 'diferencia'
+                 END AS status,
+                 coalesce(qty_received,0) - coalesce(qty_sent,0) AS delta
+          FROM paired
+          UNION ALL
+          SELECT warehouse_id, wh_code, folio, doc_serie, doc_date, qty, amount, lineas,
+                 NULL, NULL, NULL, NULL, NULL, NULL, 'sin_recepcion', -qty
+          FROM unreceived
+        ) t
+        WHERE 1=1 ${whs.length ? `AND (t.origin_wh_id = ANY(?) OR t.dest_wh_id = ANY(?))` : ''}
+        ORDER BY CASE t.status WHEN 'diferencia' THEN 0 WHEN 'sin_recepcion' THEN 1 WHEN 'sin_origen' THEN 2 ELSE 4 END,
+                 coalesce(t.ship_date, t.rcv_date) DESC
         LIMIT 500
       `, whs.length ? [tenantId, from, to, tenantId, from, to, whs, whs] : [tenantId, from, to, tenantId, from, to])).rows;
       const totals = { ok: 0, diferencia: 0, sin_recepcion: 0, sin_origen: 0 };
