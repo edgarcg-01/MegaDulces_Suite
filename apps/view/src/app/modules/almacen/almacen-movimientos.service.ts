@@ -78,7 +78,7 @@ export interface TransfersCheckResponse {
 
 export interface DocumentCounterpart {
   kind: 'recepcion' | 'origen';
-  docs: { folio: string; warehouse_code: string | null; doc_date: string; qty: number; lineas: number }[];
+  docs: { folio: string; warehouse_id: string; warehouse_code: string | null; doc_code: string; doc_serie: string | null; doc_date: string; qty: number; lineas: number }[];
   qty: number; delta: number; status: 'ok' | 'diferencia' | 'sin_recepcion' | 'sin_origen';
 }
 

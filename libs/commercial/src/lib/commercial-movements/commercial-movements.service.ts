@@ -275,8 +275,8 @@ export class CommercialMovementsService {
           .whereNot('m.warehouse_id', h.warehouse_id ?? p.warehouse_id)
           .leftJoin('commercial.warehouses as w', 'w.id', 'm.warehouse_id')
           .groupBy('m.folio', 'm.warehouse_id', 'w.code')
-          .select('m.folio', 'w.code as warehouse_code')
-          .select(trx.raw(`MIN(m.doc_date) AS doc_date`), trx.raw(`SUM(m.qty) AS qty`), trx.raw(`COUNT(*)::int AS lineas`));
+          .select('m.folio', 'm.warehouse_id', 'w.code as warehouse_code')
+          .select(trx.raw(`MIN(m.doc_date) AS doc_date`), trx.raw(`MAX(m.doc_code) AS doc_code`), trx.raw(`MAX(m.doc_serie) AS doc_serie`), trx.raw(`SUM(m.qty) AS qty`), trx.raw(`COUNT(*)::int AS lineas`));
         if (!cp.length) return null;
         const cpQty = cp.reduce((s: number, r: any) => s + Number(r.qty || 0), 0);
         return { docs: cp, qty: cpQty, delta: cpQty - sentQty, status: Math.abs(cpQty - sentQty) < 0.01 ? 'ok' : 'diferencia' };
