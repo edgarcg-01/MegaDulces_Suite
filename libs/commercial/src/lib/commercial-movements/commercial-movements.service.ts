@@ -29,10 +29,13 @@ export interface MovementsQuery {
   product_id?: string;
   search?: string;        // nombre/sku producto
   folio?: string;         // filtra un folio exacto (drill al documento)
+  estado?: string;        // estado de traspaso: en_transito | completado | diferencia
   group_by?: string;
   page?: number;
   pageSize?: number;
 }
+
+type TransferDocStatus = 'en_transito' | 'completado' | 'diferencia';
 
 @Injectable()
 export class CommercialMovementsService {
@@ -158,17 +161,22 @@ export class CommercialMovementsService {
   /**
    * DRILL: folios de una rama, ENGLOBADOS — una fila por documento (folio×tipo×almacén),
    * no por línea. `lineas` dice cuántos productos trae; el detalle lo da document().
+   * Para traspasos anota `transfer_status` (en_transito|completado|diferencia); con
+   * `?estado=` filtra por ese estado (restringe a docs de traspaso y pagina en memoria).
    */
   async lines(q: MovementsQuery) {
     const tenantId = this.tenantCtx.requireTenantId();
     const page = Math.max(1, Number(q.page) || 1);
     const pageSize = Math.min(500, Math.max(1, Number(q.pageSize) || 100));
+    const estado = ['en_transito', 'completado', 'diferencia'].includes(q.estado || '') ? (q.estado as TransferDocStatus) : null;
     return this.tk.run(async (trx) => {
-      const grouped = () => this.base(trx, tenantId, q)
-        .groupBy('m.warehouse_id', 'm.folio', 'm.doc_code', 'm.doc_serie', 'm.movement_label', 'm.movement_kind', 'm.source_branch');
-      const countRows: any[] = await trx.count('* as count').from(grouped().select('m.folio').as('g'));
-      const count = countRows[0]?.count ?? 0;
-      const rows = await grouped()
+      const grouped = () => {
+        const b = this.base(trx, tenantId, q)
+          .groupBy('m.warehouse_id', 'm.folio', 'm.doc_code', 'm.doc_serie', 'm.movement_label', 'm.movement_kind', 'm.source_branch');
+        if (estado) b.whereIn('m.doc_code', ['TrsfShip', 'TrsfRcv']); // solo traspasos tienen estado
+        return b;
+      };
+      const fetch = (limit: number, offset: number) => grouped()
         .leftJoin('commercial.warehouses as w', 'w.id', 'm.warehouse_id')
         // DM.4 — marca humana "auditado" (identidad doc = warehouse+doc_code+serie+folio)
         .leftJoin('commercial.stock_movement_audits as a', function (this: any) {
@@ -188,15 +196,74 @@ export class CommercialMovementsService {
           trx.raw(`SUM(m.qty) AS qty`),
           trx.raw(`SUM(m.amount) AS amount`),
           trx.raw(`MAX(m.parent_group) AS parent_group`),
+          trx.raw(`MAX(m.parent_serie) AS parent_serie`),
           trx.raw(`MAX(m.parent_folio) AS parent_folio`),
           trx.raw(`COUNT(a.id) > 0 AS audited`),
           trx.raw(`MAX(a.audited_by) AS audited_by`),
           trx.raw(`MAX(a.created_at) AS audited_at`),
         )
         .orderByRaw('MIN(m.doc_date) DESC, m.folio DESC')
-        .limit(pageSize).offset((page - 1) * pageSize);
+        .limit(limit).offset(offset);
+
+      if (estado) {
+        // filtro por estado: computar sobre TODOS los traspasos del rango (cap 2000) y paginar en memoria
+        const all = await fetch(2000, 0);
+        await this.annotateTransferStatus(trx, tenantId, all);
+        const filtered = all.filter((r: any) => r.transfer_status === estado);
+        const rows = filtered.slice((page - 1) * pageSize, (page - 1) * pageSize + pageSize);
+        return { page, pageSize, total: filtered.length, rows };
+      }
+
+      const countRows: any[] = await trx.count('* as count').from(grouped().select('m.folio').as('g'));
+      const count = countRows[0]?.count ?? 0;
+      const rows = await fetch(pageSize, (page - 1) * pageSize);
+      await this.annotateTransferStatus(trx, tenantId, rows);
       return { page, pageSize, total: Number(count), rows };
     });
+  }
+
+  /**
+   * DM.3 — anota `transfer_status` en filas de traspaso (mismo ranking que transfersCheck:
+   * candidato con cantidad más cercana, luego fecha). Ship sin recepción = en_transito;
+   * recepción sin origen visible = diferencia (a revisar).
+   */
+  private async annotateTransferStatus(trx: any, tenantId: string, rows: any[]): Promise<void> {
+    const ships = rows.filter((r) => r.doc_code === 'TrsfShip');
+    const rcvs = rows.filter((r) => r.doc_code === 'TrsfRcv');
+    const near = (cands: any[], qty: number, date: any) => {
+      if (!cands.length) return null;
+      const t = new Date(date).getTime();
+      return [...cands].sort((a, b) =>
+        Math.abs(Number(a.q) - qty) - Math.abs(Number(b.q) - qty) ||
+        Math.abs(new Date(a.d).getTime() - t) - Math.abs(new Date(b.d).getTime() - t))[0];
+    };
+    if (ships.length) {
+      const cands = await trx('analytics.stock_movements as m')
+        .where('m.tenant_id', tenantId).andWhere('m.doc_code', 'TrsfRcv').andWhere('m.parent_group', '41')
+        .whereIn('m.parent_folio', ships.map((s) => s.folio))
+        .groupBy('m.parent_folio', 'm.parent_serie', 'm.warehouse_id')
+        .select('m.parent_folio as pf', 'm.warehouse_id as wh')
+        .select(trx.raw(`coalesce(m.parent_serie,'') AS ps`), trx.raw(`SUM(m.qty) AS q`), trx.raw(`MIN(m.doc_date) AS d`));
+      for (const s of ships) {
+        const mine = cands.filter((c: any) => c.pf === s.folio && c.ps === (s.doc_serie ?? '') && c.wh !== s.warehouse_id);
+        const best = near(mine, Number(s.qty), s.doc_date);
+        s.transfer_status = !best ? 'en_transito' : Math.abs(Number(best.q) - Number(s.qty)) < 0.01 ? 'completado' : 'diferencia';
+      }
+    }
+    if (rcvs.length) {
+      const cands = await trx('analytics.stock_movements as m')
+        .where('m.tenant_id', tenantId).andWhere('m.doc_code', 'TrsfShip')
+        .whereIn('m.folio', rcvs.map((r) => r.parent_folio).filter(Boolean))
+        .groupBy('m.folio', 'm.doc_serie', 'm.warehouse_id')
+        .select('m.folio as f', 'm.warehouse_id as wh')
+        .select(trx.raw(`coalesce(m.doc_serie,'') AS s`), trx.raw(`SUM(m.qty) AS q`), trx.raw(`MIN(m.doc_date) AS d`));
+      for (const r of rcvs) {
+        if (r.parent_group !== '41' || !r.parent_folio) { r.transfer_status = 'diferencia'; continue; }
+        const mine = cands.filter((c: any) => c.f === r.parent_folio && c.s === (r.parent_serie ?? '') && c.wh !== r.warehouse_id);
+        const best = near(mine, Number(r.qty), r.doc_date);
+        r.transfer_status = !best ? 'diferencia' : Math.abs(Number(best.q) - Number(r.qty)) < 0.01 ? 'completado' : 'diferencia';
+      }
+    }
   }
 
   /** DM.4 — marca/desmarca un documento como auditado. Identidad = wh+doc_code+serie+folio. */

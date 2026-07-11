@@ -11,6 +11,8 @@ import { environment } from '../../../environments/environment';
 export type GroupBy = 'product' | 'doc_code' | 'day' | 'warehouse';
 export type MovementKind = 'entrada' | 'salida';
 
+export type TransferDocStatus = 'en_transito' | 'completado' | 'diferencia';
+
 export interface MovementsFilters {
   warehouse_ids?: string[];
   from?: string;
@@ -18,6 +20,7 @@ export interface MovementsFilters {
   doc_code?: string;
   movement_kind?: MovementKind | '';
   search?: string;
+  estado?: TransferDocStatus | '';
 }
 
 export interface MovementTotals {
@@ -56,8 +59,10 @@ export interface FolioRow {
   warehouse_id: string; folio: string; doc_code: string; doc_serie: string | null; movement_label: string;
   movement_kind: MovementKind; source_branch: string; warehouse_code: string | null;
   doc_date: string; lineas: number; signed_qty: number; qty: number; amount: number | null;
-  parent_group: string | null; parent_folio: string | null;
+  parent_group: string | null; parent_serie: string | null; parent_folio: string | null;
   audited: boolean; audited_by: string | null; audited_at: string | null;
+  /** Solo docs de traspaso: en_transito | completado | diferencia. */
+  transfer_status?: TransferDocStatus | null;
 }
 export interface LinesResponse { page: number; pageSize: number; total: number; rows: FolioRow[]; }
 
@@ -114,6 +119,7 @@ export class AlmacenMovimientosService {
     if (f.doc_code) p = p.set('doc_code', f.doc_code);
     if (f.movement_kind) p = p.set('movement_kind', f.movement_kind);
     if (f.search) p = p.set('search', f.search);
+    if (f.estado) p = p.set('estado', f.estado);
     for (const [k, v] of Object.entries(extra)) if (v !== undefined && v !== '') p = p.set(k, String(v));
     return p;
   }

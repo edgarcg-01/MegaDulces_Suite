@@ -59,6 +59,8 @@ import { Permission } from '../../../core/constants/permissions';
                   optionLabel="label" optionValue="value" placeholder="Todo" styleClass="dm-sel-sm"></p-select>
         <p-select [options]="docTypeOpts()" [(ngModel)]="fDocCode" (onChange)="reload()"
                   optionLabel="label" optionValue="value" placeholder="Tipo de documento" [showClear]="true" styleClass="dm-sel"></p-select>
+        <p-select [options]="estadoOpts" [(ngModel)]="fEstado" (onChange)="reload()"
+                  optionLabel="label" optionValue="value" placeholder="Estado (traspasos)" [showClear]="true" styleClass="dm-sel"></p-select>
         <span class="dm-search">
           <input pInputText type="text" [(ngModel)]="fSearch" (keyup.enter)="reload()" placeholder="SKU o producto…" />
         </span>
@@ -96,7 +98,7 @@ import { Permission } from '../../../core/constants/permissions';
               @else {
                 <table class="dm-docs">
                   <thead>
-                    <tr><th>Tipo</th><th>Folio</th><th>Almacén</th><th class="dm-r">Líneas</th><th class="dm-r">Cantidad</th><th class="dm-r">Valor</th><th>Auditado</th></tr>
+                    <tr><th>Tipo</th><th>Folio</th><th>Almacén</th><th class="dm-r">Líneas</th><th class="dm-r">Cantidad</th><th class="dm-r">Valor</th><th>Estado</th><th>Auditoría</th></tr>
                   </thead>
                   <tbody>
                     @for (l of dayDocs()[day.key]; track l.warehouse_id + l.doc_code + l.folio) {
@@ -108,11 +110,24 @@ import { Permission } from '../../../core/constants/permissions';
                         <td class="dm-r" [class.up]="l.signed_qty>0" [class.down]="l.signed_qty<0">{{ l.signed_qty | number:'1.0-0' }}</td>
                         <td class="dm-r dm-strong">{{ l.amount != null ? money(l.amount) : '—' }}</td>
                         <td>
-                          @if (l.audited) { <span class="dm-audit is-audited"><i class="pi pi-verified"></i> Sí</span> }
-                          @else { <span class="dm-audit dm-pending"><i class="pi pi-circle"></i> Pendiente</span> }
+                          @if (l.transfer_status) {
+                            <p-tag [value]="estadoLabel(l.transfer_status)" [severity]="estadoSev(l.transfer_status)" styleClass="dm-tag"></p-tag>
+                          } @else { <span class="dm-muted">—</span> }
+                        </td>
+                        <td (click)="$event.stopPropagation()">
+                          @if (l.audited) {
+                            <button type="button" class="dm-audit is-audited" [disabled]="!canAudit" (click)="toggleAudit(l)"
+                                    [title]="'Auditado por ' + (l.audited_by || '—') + (canAudit ? ' · clic para quitar' : '')">
+                              <i class="pi pi-verified"></i> Auditado
+                            </button>
+                          } @else {
+                            <button type="button" class="dm-audit-row-btn" [disabled]="!canAudit" (click)="toggleAudit(l)" title="Marcar como auditado">
+                              <i class="pi pi-check"></i> Auditar
+                            </button>
+                          }
                         </td>
                       </tr>
-                    } @empty { <tr><td colspan="7" class="dm-empty">Sin documentos.</td></tr> }
+                    } @empty { <tr><td colspan="8" class="dm-empty">Sin documentos.</td></tr> }
                   </tbody>
                 </table>
               }
@@ -233,9 +248,14 @@ import { Permission } from '../../../core/constants/permissions';
     .dm-docs tbody td { padding: .35rem .75rem; border-top: 1px solid var(--border-color); }
     .dm-row { cursor: pointer; }
     .dm-row:hover td { background: var(--surface-hover-bg); }
-    .dm-audit { display: inline-flex; align-items: center; gap: .3rem; font-size: .76rem; }
+    .dm-audit { display: inline-flex; align-items: center; gap: .3rem; font-size: .76rem; border: 0; background: none; font-family: inherit; cursor: pointer; padding: .15rem .4rem; border-radius: var(--r-sm); }
     .dm-audit.is-audited { color: var(--ok-fg); font-weight: 600; }
     .dm-audit.dm-pending { color: var(--text-muted); }
+    .dm-audit:disabled { cursor: default; }
+    .dm-audit:hover:not(:disabled) { background: var(--surface-hover-bg); }
+    .dm-audit-row-btn { display: inline-flex; align-items: center; gap: .3rem; font-size: .74rem; font-family: inherit; cursor: pointer; padding: .2rem .55rem; border-radius: var(--r-sm); border: 1px solid var(--border-color); background: var(--card-bg); color: var(--text-main); }
+    .dm-audit-row-btn:hover:not(:disabled) { border-color: var(--ok-fg); color: var(--ok-fg); }
+    .dm-audit-row-btn:disabled { cursor: default; opacity: .55; }
     /* Dialog */
     .dm-dlg-title { font-weight: 700; }
     .dm-rel { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; font-size: .8rem; padding: .5rem .7rem; border: 1px solid var(--border-color); border-radius: var(--r-sm); margin-bottom: .5rem; background: var(--card-bg); }
@@ -286,11 +306,17 @@ export class AlmacenMovimientosComponent implements OnInit {
   fKind: '' | 'entrada' | 'salida' = '';
   fDocCode = '';
   fSearch = '';
+  fEstado: '' | 'en_transito' | 'completado' | 'diferencia' = '';
 
   kindOpts = [
     { label: 'Todo', value: '' },
     { label: 'Entradas', value: 'entrada' },
     { label: 'Salidas', value: 'salida' },
+  ];
+  estadoOpts = [
+    { label: 'En tránsito', value: 'en_transito' },
+    { label: 'Completado', value: 'completado' },
+    { label: 'Con diferencia', value: 'diferencia' },
   ];
 
   // Documento + contraparte
@@ -316,6 +342,7 @@ export class AlmacenMovimientosComponent implements OnInit {
       movement_kind: this.fKind,
       doc_code: this.fDocCode || undefined,
       search: this.fSearch || undefined,
+      estado: this.fEstado || undefined,
     };
   }
 
@@ -376,6 +403,26 @@ export class AlmacenMovimientosComponent implements OnInit {
   auditLabel(h: NonNullable<DocumentResponse['header']>): string {
     const cpFolio = this.cpDoc()?.header?.folio;
     return cpFolio ? `Auditar ${h.folio} ↔ ${cpFolio}` : `Auditar documento ${h.folio}`;
+  }
+
+  estadoLabel(s: string): string {
+    return s === 'en_transito' ? 'En tránsito' : s === 'completado' ? 'Completado' : 'Diferencia';
+  }
+  estadoSev(s: string): 'success' | 'warn' | 'danger' | 'info' {
+    return s === 'completado' ? 'success' : s === 'en_transito' ? 'info' : 'danger';
+  }
+
+  /** DM.4 — botón Auditar por fila (optimistic). */
+  toggleAudit(l: FolioRow): void {
+    if (!this.canAudit) return;
+    const next = !l.audited;
+    l.audited = next;
+    this.dayDocs.set({ ...this.dayDocs() });
+    this.api.setAudit({ warehouse_id: l.warehouse_id, doc_code: l.doc_code, doc_serie: l.doc_serie, folio: l.folio, audited: next })
+      .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+        next: (r) => { l.audited_by = r.audited_by ?? null; this.dayDocs.set({ ...this.dayDocs() }); },
+        error: () => { l.audited = !next; this.dayDocs.set({ ...this.dayDocs() }); },
+      });
   }
 
   toggleAuditDoc(h: NonNullable<DocumentResponse['header']>): void {
