@@ -53,17 +53,27 @@
 
   <div class="hidden lg:block bg-surface-card border border-divider shadow-sm rounded-xl overflow-hidden">
     <p-table
-      [value]="filteredUsers()"
+      [value]="usersByArea()"
       [loading]="loading()"
       responsiveLayout="scroll"
       styleClass="p-datatable-sm"
+      rowGroupMode="subheader"
+      groupRowsBy="_areaLabel"
     >
       <ng-template pTemplate="header">
         <tr class="text-xs uppercase tracking-wider text-content-faint bg-surface-ground border-b border-divider">
-          <th pSortableColumn="nombre" class="pl-4 py-3 text-left">Usuario <p-sortIcon field="nombre"></p-sortIcon></th>
-          <th pSortableColumn="role_name" class="py-3 text-left">Rol · Zona <p-sortIcon field="role_name"></p-sortIcon></th>
-          <th pSortableColumn="last_login_at" class="py-3 text-left">Actividad · Ruta <p-sortIcon field="last_login_at"></p-sortIcon></th>
+          <th class="pl-4 py-3 text-left">Usuario</th>
+          <th class="py-3 text-left">Rol · Zona</th>
+          <th class="py-3 text-left">Actividad · Ruta</th>
           <th class="text-center w-24 py-3">Acciones</th>
+        </tr>
+      </ng-template>
+
+      <ng-template pTemplate="groupheader" let-user>
+        <tr class="bg-surface-ground/60 border-b border-divider">
+          <td colspan="4" class="pl-4 py-2">
+            <span class="text-xs font-bold uppercase tracking-wider text-content-main">{{ user._areaLabel }}</span>
+          </td>
         </tr>
       </ng-template>
 
@@ -150,8 +160,16 @@
     </p-table>
   </div>
 
-  <div class="lg:hidden space-y-3">
-    @for (user of filteredUsers(); track user.id) {
+  <div class="lg:hidden space-y-5">
+    @for (g of groupedUsers(); track g.area.slug) {
+      <section>
+        <header class="flex items-center gap-2 mb-2 px-1">
+          <i [class]="g.area.icon + ' text-content-dim text-sm'" aria-hidden="true"></i>
+          <h2 class="text-xs font-bold uppercase tracking-wider text-content-main">{{ g.area.label }}</h2>
+          <span class="text-[10px] text-content-faint">{{ g.users.length }}</span>
+        </header>
+        <div class="space-y-3">
+        @for (user of g.users; track user.id) {
       <article class="bg-surface-card border border-divider rounded-xl p-4 shadow-sm">
         <div class="flex items-start gap-3">
           <div class="w-11 h-11 rounded-full flex items-center justify-center text-white text-sm font-bold shrink-0"
@@ -220,6 +238,9 @@
           </div>
         </div>
       </article>
+        }
+        </div>
+      </section>
     } @empty {
       <div class="text-center py-12 text-content-muted">
         <i class="pi pi-inbox text-3xl text-content-faint mb-2 block" aria-hidden="true"></i>

@@ -10,6 +10,12 @@
 
 ## [Unreleased]
 
+### Added — Agrupamiento por área de roles y usuarios en /admin (2026-07-11)
+- **`/admin/roles`:** el grid de roles ahora se agrupa en secciones por área (Sistemas, Mercadotecnia, Compras, … + "Externos" y "Otros/heredados"), con header por área y conteo.
+- **`/admin/users`:** la tabla (desktop, `rowGroupMode` subheader) y las cards (mobile, secciones) se agrupan por el área del rol de cada usuario.
+- **Mapa área↔rol** en `role-presets.ts`: los 13 roles de plantilla mapean a su propia área; los roles **heredados** (superadmin/admin→Sistemas, jefe_marketing→Mercadotecnia, vendedor/supervisor→Rutas, tele_operator→Telemarketing, customer_b2b→Externos, etc.) mapean vía `LEGACY_ROLE_AREA` (editable) para que el agrupamiento sea útil desde ya; lo no mapeado cae en "Otros".
+- Solo presentación (sin cambios de authz). **Pendiente prod:** redeploy `view`.
+
 ### Added — Roles por área (13 roles) + plantillas en el editor (2026-07-11)
 - **Modelo:** 1 rol por área del organigrama Mega Dulces, permisos en 2 niveles — PRIMARIO (ver+gestionar de los módulos core) + SECUNDARIO (ver+gestionar de módulos vecinos, por orden/estética). `prevencion_auditoria` = secundario **solo-ver global** (integridad de auditoría); `sistemas` = acceso total.
 - **13 roles:** `sistemas, contabilidad, compras, mercadotecnia, credito_cobranza, prevencion_auditoria, tesoreria, finanzas, rh, sucursal, cedis, rutas, telemarketing`. Conviven con los roles actuales (no los pisa).

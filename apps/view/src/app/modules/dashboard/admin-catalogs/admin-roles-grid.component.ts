@@ -14,6 +14,7 @@ import {
   PERMISSION_META,
   TOTAL_PERMISSIONS,
 } from '../../../core/constants/permission-meta';
+import { AREAS, AreaMeta, roleAreaSlug } from '../../../core/constants/role-presets';
 
 interface RoleInput {
   id: string;
@@ -77,8 +78,15 @@ const PLATFORM_ADMIN_ROLES: readonly string[] = ['superadmin', 'admin'];
         <p class="text-sm">No se encontraron roles.</p>
       </div>
     } @else {
-      <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
-        @for (card of cards(); track card.id) {
+      @for (g of groupedCards(); track g.area.slug) {
+      <section class="mb-7">
+        <header class="flex items-center gap-2 mb-3 pb-2 border-b border-divider">
+          <i [class]="g.area.icon + ' text-content-dim'"></i>
+          <h2 class="text-sm font-bold uppercase tracking-wider text-content-main">{{ g.area.label }}</h2>
+          <span class="text-xs text-content-faint">{{ g.cards.length }} rol{{ g.cards.length === 1 ? '' : 'es' }}</span>
+        </header>
+        <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+        @for (card of g.cards; track card.id) {
           <div
             class="group bg-surface-card border border-divider rounded-xl p-4 shadow-sm flex flex-col gap-3 cursor-pointer hover:border-brand/50 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand motion-safe:transition-all"
             role="button"
@@ -158,7 +166,9 @@ const PLATFORM_ADMIN_ROLES: readonly string[] = ['superadmin', 'admin'];
             </div>
           </div>
         }
-      </div>
+        </div>
+      </section>
+      }
     }
 
     <!-- Drawer de desglose -->
@@ -248,6 +258,15 @@ export class AdminRolesGridComponent {
   readonly cards = computed<RoleCard[]>(() =>
     this.roles().map((r) => this.summarize(r)),
   );
+
+  /** Roles agrupados por área (orden de AREAS); solo áreas con roles. */
+  readonly groupedCards = computed<{ area: AreaMeta; cards: RoleCard[] }[]>(() => {
+    const cards = this.cards();
+    return AREAS.map((area) => ({
+      area,
+      cards: cards.filter((c) => roleAreaSlug(c.value) === area.slug),
+    })).filter((g) => g.cards.length > 0);
+  });
 
   readonly selected = computed<RoleCard | null>(() => {
     const id = this.selectedId();

@@ -264,3 +264,81 @@ export function resolveAreaPresetMap(preset: AreaPreset): Record<string, boolean
   for (const p of resolveAreaPreset(preset)) out[p] = true;
   return out;
 }
+
+// ── Agrupamiento de usuarios/roles por área (UI /admin) ────────────────────
+
+export interface AreaMeta {
+  slug: string;
+  label: string;
+  icon: string;
+}
+
+/**
+ * Áreas para agrupar roles y usuarios en el admin, en orden de despliegue.
+ * Las 13 primeras son las áreas del organigrama (coinciden con los role_name de
+ * las plantillas). `externos` y `otros` son cajones para portal B2B y roles sin
+ * mapear.
+ */
+export const AREAS: AreaMeta[] = [
+  { slug: 'sistemas', label: 'Sistemas', icon: 'pi pi-cog' },
+  { slug: 'mercadotecnia', label: 'Mercadotecnia', icon: 'pi pi-megaphone' },
+  { slug: 'compras', label: 'Compras', icon: 'pi pi-shopping-bag' },
+  { slug: 'contabilidad', label: 'Contabilidad', icon: 'pi pi-calculator' },
+  { slug: 'finanzas', label: 'Finanzas', icon: 'pi pi-wallet' },
+  { slug: 'tesoreria', label: 'Tesorería', icon: 'pi pi-money-bill' },
+  { slug: 'credito_cobranza', label: 'Crédito y Cobranza', icon: 'pi pi-credit-card' },
+  { slug: 'prevencion_auditoria', label: 'Prevención y Auditoría', icon: 'pi pi-shield' },
+  { slug: 'rh', label: 'Recursos Humanos', icon: 'pi pi-id-card' },
+  { slug: 'sucursal', label: 'Sucursal', icon: 'pi pi-shop' },
+  { slug: 'cedis', label: 'CEDIS', icon: 'pi pi-box' },
+  { slug: 'rutas', label: 'Rutas', icon: 'pi pi-directions' },
+  { slug: 'telemarketing', label: 'Telemarketing', icon: 'pi pi-headphones' },
+  { slug: 'externos', label: 'Externos (Portal B2B)', icon: 'pi pi-globe' },
+  { slug: 'otros', label: 'Otros / heredados', icon: 'pi pi-ellipsis-h' },
+];
+
+const AREA_BY_SLUG = new Map(AREAS.map((a) => [a.slug, a]));
+
+/**
+ * Mapeo de roles LEGACY (no-plantilla) a un área, para que el agrupamiento sea
+ * útil desde ya (los usuarios migran a los roles de área gradualmente).
+ * Editable: si un rol cae en el área equivocada, ajustá acá.
+ */
+export const LEGACY_ROLE_AREA: Record<string, string> = {
+  superadmin: 'sistemas',
+  admin: 'sistemas',
+  jefe_marketing: 'mercadotecnia',
+  coordinadora_marketing: 'mercadotecnia',
+  auxiliar_mercadotecnia: 'mercadotecnia',
+  coordinador_ecommerce: 'mercadotecnia',
+  colaborador: 'mercadotecnia',
+  ejecutivo: 'mercadotecnia',
+  supervisor: 'rutas',
+  supervisor_ventas: 'rutas',
+  gerente_de_zona: 'rutas',
+  vendedor: 'rutas',
+  tele_operator: 'telemarketing',
+  gerente_compras: 'compras',
+  coordinador_presupuestos: 'finanzas',
+  encargado_sucursal: 'sucursal',
+  jefe_de_tienda: 'sucursal',
+  auxiliar_sucursal: 'sucursal',
+  supervisora: 'sucursal',
+  etiquetas_tienda: 'sucursal',
+  repartidor: 'cedis',
+  chofer: 'cedis',
+  customer_b2b: 'externos',
+};
+
+const PRESET_ROLES = new Set(AREA_PRESETS.map((p) => p.role));
+
+/** Área a la que pertenece un role_name (case-insensitive). */
+export function roleAreaSlug(roleName: string | null | undefined): string {
+  const r = (roleName ?? '').toLowerCase();
+  if (PRESET_ROLES.has(r)) return r; // los 13 roles de área = su propio slug
+  return LEGACY_ROLE_AREA[r] ?? 'otros';
+}
+
+export function areaMeta(slug: string): AreaMeta {
+  return AREA_BY_SLUG.get(slug) ?? { slug: 'otros', label: 'Otros / heredados', icon: 'pi pi-ellipsis-h' };
+}

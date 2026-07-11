@@ -46,6 +46,7 @@ import { AdminCatalogsService } from '../admin-catalogs/admin-catalogs.service';
 import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { STORE_BRANCHES } from '../../../core/constants/store-branches';
+import { AREAS, AreaMeta, roleAreaSlug } from '../../../core/constants/role-presets';
 
 interface RoleOption {
   label: string;
@@ -131,6 +132,26 @@ export class AdminUsersComponent implements OnInit {
       );
     });
   });
+
+  /** Usuarios agrupados por área (via su role_name), en orden de AREAS. */
+  readonly groupedUsers = computed<{ area: AreaMeta; users: User[] }[]>(() => {
+    const list = this.filteredUsers();
+    return AREAS.map((area) => ({
+      area,
+      users: list.filter((u) => roleAreaSlug(u.role_name) === area.slug),
+    })).filter((g) => g.users.length > 0);
+  });
+
+  /**
+   * Lista plana ordenada por área + con `_areaLabel` en cada fila, para el
+   * rowGroup del p-table (desktop). Contigua por área para que el subheader
+   * agrupe bien.
+   */
+  readonly usersByArea = computed(() =>
+    this.groupedUsers().flatMap((g) =>
+      g.users.map((u) => ({ ...u, _areaLabel: g.area.label })),
+    ),
+  );
 
   /** Color de avatar hash-seeded sobre la escala --avatar-1..8 (AA ≥ 4.5 sobre texto blanco). */
   avatarColorFor(seed: string): string {
