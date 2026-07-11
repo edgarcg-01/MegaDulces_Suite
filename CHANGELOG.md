@@ -10,6 +10,13 @@
 
 ## [Unreleased]
 
+### Added — Auto-received: cierra las OC contra la orden de entrada de Kepler (RA.15.1) (2026-07-10)
+- **Cierra el ciclo sin captura manual.** Mega Dulces hace la recepción **en Kepler** (doc `X-A-40`), no en la plataforma → nuestras OC quedarían `open` para siempre. El feed `import-auto-received.js` (on-prem, BULK) detecta el `X-A-40` y genera la OE que cierra la OC.
+- **No mueve stock:** como Kepler ya procesó el `X-A-40`, esa existencia **ya viene en el snapshot nocturno** → la OE va con `source='kepler'` + `stock_applied=false` (evita doble-conteo). Mig `20260710200000` (`goods_receipts.source` + `source_kepler_folio` + índice único parcial = idempotente).
+- **Matching heurístico** (decisión Edgar, sin folio compartido / sin write-back): por **presencia sku+almacén+fecha**. Un `X-A-40` posterior a la OC (mismo almacén) con el sku de una línea pendiente → la cierra en full (la qty Kepler viene en PAQ/CJA ≠ piezas; MD captura de golpe → fill ~100%). Dedup por folio + OC más vieja primero + cap al pendiente.
+- **Verificación:** smoke `test-auto-received-matching.js` **9/9** + integración contra `md_03` real (4,266 líneas de entrada / 347 folios; concilia correcto). Wireado en `run-prod-feeds.js` (nightly, tras `import-in-transit`).
+- **Limitación consciente:** el match es por presencia (no reconcilia cantidad exacta por la ambigüedad de unidad); como no toca inventario, un falso positivo sólo afecta estado/fill-rate de la OC. **Pendiente prod:** aplicar mig `20260710200000` a Railway + agendar el feed en el runner.
+
 ### Added — Cadena de compra real: Requisición → OC → OE que mueve stock (RA.15, ADR-031) (2026-07-10)
 - **Motivación (Edgar):** el flujo de compras aplastaba la cadena de Kepler en flags de estado ("cada paso sólo cambia un botón"). Re-verificado contra Kepler vivo (`md_03`): la compra son **documentos distintos** — `X-A-30` requisición (opcional) → `X-A-35` OC → `X-A-37` vale → `X-A-40` orden de entrada (**única que toca el kardex `kdij`**) → `X-A-20` aplica/CxP. Conteos 6-12m (br03): 279 req / 781 OC / 765 entrada; 504 OCs directas.
 - **Schema** (mig `20260710180000`, batch 164 local): `commercial.purchase_orders`+`_lines` (OC, folio `OC-YYYY-NNNNN`, estado `open→partial→received→cancelled`), `commercial.goods_receipts`+`_lines` (OE, folio `OE-YYYY-NNNNN`, **parciales**), `commercial.purchase_doc_sequences`. RLS forzado + FK compuestas `(tenant_id, id)`.

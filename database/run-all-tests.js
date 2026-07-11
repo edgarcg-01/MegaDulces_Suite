@@ -24,6 +24,7 @@ const TESTS = [
   { file: 'test-newdb-ra-service-level.js', label: 'RA-PRO.1/2 safety stock por nivel de servicio + segmentación XYZ (σ/CV población 90d + Z×σ×√LT + piso + CHECK)', needsApi: false },
   { file: 'test-newdb-ra-network.js', label: 'RA-PRO.6 DRP multi-echelon (CEDIS por demanda dependiente: media Σ + σ=√Σσ² risk pooling + guard self-source)', needsApi: false },
   { file: 'test-newdb-purchase-chain.js', label: 'RA.15 cadena de compra (RQ→OC→OE recepción parcial mueve stock + fill rate + RQ→received + traspaso +dst/−src + folios)', needsApi: false },
+  { file: 'test-auto-received-matching.js', label: 'RA.15.1 auto-received matching (X-A-40↔OC por presencia sku+almacén+fecha, dedup folio, OC vieja primero, cap pendiente)', needsApi: false },
   // HTTP E2E (requieren API)
   { file: 'http-inventory-count-test.js', label: 'I.5 conteo correctness (A1 freeze guard + A2 no-revierte + A4 segregación count_3)', needsApi: true },
   { file: 'http-inventory-abc-test.js', label: 'I.6 clasificación ABC (refresh + shape + filtro por clase)', needsApi: true },

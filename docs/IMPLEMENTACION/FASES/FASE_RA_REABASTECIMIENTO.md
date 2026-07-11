@@ -572,7 +572,19 @@ Cuánto pedimos vs cuánto llegó, para compensar faltantes crónicos del provee
 
 **Verificación:** smoke `test-newdb-purchase-chain.js` **21/21** (schema+RLS, folios OC/OE, RQ→OC→ordered, recepción parcial mueve stock +30, OC→partial, recepción final OC→received + RQ→received, fill 100%, 2 OE por OC, traspaso +dst/−src + clamp). Builds api+view OK. Migración `20260710180000_ra_purchase_orders_receipts.js` (batch 164 local).
 
-**Diferido:** vale `X-A-37` + CxP `X-A-20` (→ PaymentsService, Fase LM); auto-received por matching heurístico contra `X-A-40` de Kepler; espejar traspaso género `N` documento-a-documento. **Pendiente prod:** aplicar migración a Railway + redeploy api+view + re-login.
+**Diferido:** vale `X-A-37` + CxP `X-A-20` (→ PaymentsService, Fase LM); espejar traspaso género `N` documento-a-documento. **Pendiente prod:** aplicar migración a Railway + redeploy api+view + re-login.
+
+## RA.15.1 — Auto-received: cierre de OC contra la orden de entrada de Kepler ✅ COMPLETADO (local) 2026-07-10
+
+**Motivación:** Mega Dulces hace la recepción **en Kepler** (`X-A-40`), no en la plataforma → nuestras OC quedarían `open` para siempre. Este feed cierra el ciclo sin captura manual.
+
+**Diseño:** `import-auto-received.js` (on-prem, BULK, lee Kepler LAN + escribe newdb Railway — NO endpoint, la API no alcanza la LAN). Detecta órdenes de entrada `X-A-40` y genera la OE (`goods_receipt`) que cierra la OC. **NO mueve stock** (`source='kepler'`, `stock_applied=false`): Kepler ya procesó el `X-A-40` → esa existencia ya viene en el snapshot nocturno → evitar doble-conteo. Mig `20260710200000` (`goods_receipts.source` + `source_kepler_folio` + índice único parcial `(tenant, purchase_order_id, source_kepler_folio)` = idempotente).
+
+**Matching** (heurístico, decisión Edgar — sin folio compartido, sin write-back): **presencia sku+almacén+fecha**. Un `X-A-40` posterior a la OC (mismo almacén) con el sku de una línea pendiente → la cierra en full. La qty Kepler viene en unidad de presentación (PAQ/CJA) ≠ piezas de la OC → **no se reconcilia cantidad exacta**; se marca recibido = pendiente (MD captura de golpe → fill ~100%). Dedup por folio + OC más vieja primero + cap al pendiente + la entrada debe ser posterior a la creación de la OC.
+
+**Verificación:** smoke unitario `test-auto-received-matching.js` **9/9** (presencia, dedup, entrada-previa-no-matchea, allocation oldest-first, cap) + integración contra `md_03` real (4,266 líneas / 347 folios, concilia correcto) + query `ENTRADAS_SQL` validada viva. Wireado en `run-prod-feeds.js` nightly (tras `import-in-transit`).
+
+**Limitación consciente:** match por presencia (no cantidad exacta, por la ambigüedad de unidad); como no toca inventario, un falso positivo sólo afecta estado/fill-rate de la OC (nunca la existencia). **Pendiente prod:** aplicar mig `20260710200000` a Railway + agendar el feed en el runner on-prem.
 
 ---
 
