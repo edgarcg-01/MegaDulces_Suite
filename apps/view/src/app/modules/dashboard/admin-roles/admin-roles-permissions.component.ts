@@ -19,6 +19,7 @@ import { MessageService, ConfirmationService } from 'primeng/api';
 import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { CheckboxModule } from 'primeng/checkbox';
+import { SelectModule } from 'primeng/select';
 import { ButtonModule } from 'primeng/button';
 import { ToastModule } from 'primeng/toast';
 import { ConfirmDialogModule } from 'primeng/confirmdialog';
@@ -58,6 +59,7 @@ const CRITICAL_PERMISSIONS: readonly string[] = [
     FormsModule,
     RouterModule,
     CheckboxModule,
+    SelectModule,
     ButtonModule,
     ToastModule,
     ConfirmDialogModule,
@@ -83,18 +85,13 @@ const CRITICAL_PERMISSIONS: readonly string[] = [
           </p>
         </div>
         <div class="flex gap-2 items-center">
-          <select
-            class="text-sm border border-divider rounded-md px-2 py-1.5 bg-surface-card text-content-main"
-            [ngModel]="''"
-            (ngModelChange)="applyPreset($event)"
-            aria-label="Aplicar plantilla de área"
+          <p-select
+            [options]="presets" optionLabel="label" optionValue="role"
+            [(ngModel)]="presetSel" (onChange)="applyPreset($event.value)"
+            placeholder="Aplicar plantilla…" appendTo="body" [showClear]="false"
+            ariaLabel="Aplicar plantilla de área"
             pTooltip="Rellena el árbol con los permisos típicos de un área (podés ajustar antes de guardar)"
-          >
-            <option value="" disabled selected>Aplicar plantilla…</option>
-            @for (p of presets; track p.role) {
-              <option [value]="p.role">{{ p.label }}</option>
-            }
-          </select>
+          ></p-select>
           <p-button
             label="Guardar Cambios"
             icon="pi pi-save"
@@ -207,12 +204,13 @@ const CRITICAL_PERMISSIONS: readonly string[] = [
     </div>
   `,
   styles: [`
-    .tri { display:inline-flex; align-items:center; justify-content:center; width:1.5rem; height:1.5rem; border-radius:.375rem; cursor:pointer; color: var(--content-faint, #9ca3af); }
-    .tri:hover { background: var(--surface-layout, rgba(0,0,0,.04)); }
-    .tri-on { color: var(--action, #ea580c); }
-    .tri-partial { color: var(--content-dim, #6b7280); }
+    .tri { display:inline-flex; align-items:center; justify-content:center; width:1.5rem; height:1.5rem; border-radius:.375rem; cursor:pointer; color: var(--text-faint); }
+    .tri:hover { background: var(--hover-bg); }
+    .tri-on { color: var(--action); }
+    .tri-partial { color: var(--text-muted); }
     .tri-sm { width:1.25rem; height:1.25rem; }
-    .tag-locked { font-size:9px; text-transform:uppercase; letter-spacing:.05em; color: var(--content-faint,#9ca3af); border:1px solid var(--divider,#e5e7eb); border-radius:.25rem; padding:0 .375rem; }
+    .tri:focus-visible { outline:2px solid var(--action-ring); outline-offset:1px; }
+    .tag-locked { font-size:9px; text-transform:uppercase; letter-spacing:.05em; color: var(--text-faint); border:1px solid var(--border-color); border-radius:.25rem; padding:0 .375rem; }
   `],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
@@ -236,6 +234,8 @@ export class AdminRolesPermissionsComponent implements OnInit {
    */
   applyPreset(role: string): void {
     const preset = this.presets.find((p) => p.role === role);
+    // Es una acción, no una selección persistente: reset para que el placeholder vuelva.
+    this.presetSel = null;
     if (!preset) return;
     const map = resolveAreaPresetMap(preset);
     this.values.update((v) => {
@@ -253,6 +253,7 @@ export class AdminRolesPermissionsComponent implements OnInit {
     });
   }
 
+  presetSel: string | null = null;
   roleName = signal<string>('');
   saving = signal<boolean>(false);
   values = signal<Record<string, boolean>>({});

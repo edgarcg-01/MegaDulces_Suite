@@ -39,7 +39,7 @@ export interface LegendLayer {
   `,
   styles: [`
     .legend { display:flex; align-items:center; gap:.4rem; flex-wrap:wrap; }
-    .chip { display:inline-flex; align-items:center; gap:.4rem; padding:.25rem .6rem; border:1px solid var(--divider,#e7e5e4); border-radius:999px; background:var(--card-bg,#fff); cursor:pointer; font:600 .74rem 'Hanken Grotesk',sans-serif; color:var(--text,#1c1917); }
+    .chip { display:inline-flex; align-items:center; gap:.4rem; padding:.25rem .6rem; border:1px solid var(--border-color); border-radius:999px; background:var(--card-bg,#fff); cursor:pointer; font:600 .74rem 'Hanken Grotesk',sans-serif; color:var(--text,#1c1917); }
     .chip.off { opacity:.45; }
     .chip:hover { border-color:var(--action,#F05A28); }
     .sw { width:10px; height:10px; border-radius:3px; flex:0 0 auto; }

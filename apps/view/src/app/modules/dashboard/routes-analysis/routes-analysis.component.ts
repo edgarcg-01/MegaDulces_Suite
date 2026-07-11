@@ -178,8 +178,8 @@ interface RouteTrack {
     }
     .ru-legend-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
     .ru-map-empty { padding: 2.5rem; text-align: center; color: var(--text-muted); font-size: 0.8125rem; }
-    .ru-maptools { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; padding: 0.5rem 0.6rem; border-bottom: 1px solid var(--divider, #e7e5e4); }
-    .ru-snap-btn { font: 600 0.74rem 'Hanken Grotesk', sans-serif; padding: 0.3rem 0.65rem; border: 1px solid var(--divider, #d6d3d1); border-radius: 999px; background: var(--card-bg, #fff); color: var(--text, #1c1917); cursor: pointer; }
+    .ru-maptools { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; padding: 0.5rem 0.6rem; border-bottom: 1px solid var(--border-color); }
+    .ru-snap-btn { font: 600 0.74rem 'Hanken Grotesk', sans-serif; padding: 0.3rem 0.65rem; border: 1px solid var(--border-color); border-radius: 999px; background: var(--card-bg, #fff); color: var(--text, #1c1917); cursor: pointer; }
     .ru-snap-btn.act { border-color: var(--action, #F05A28); color: var(--action, #F05A28); background: var(--action-tint, #fff1ec); }
     .ru-snap-hint { font-size: 0.72rem; color: var(--text-dim, #78716c); }
 

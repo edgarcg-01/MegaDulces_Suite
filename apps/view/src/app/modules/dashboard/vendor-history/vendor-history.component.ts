@@ -133,21 +133,21 @@ interface VendorDay {
     .vh-title { font:700 1.1rem/1.2 'Hanken Grotesk',sans-serif; margin:0; color:var(--text,#1c1917); }
     .vh-sub { margin:.15rem 0 0; font-size:.8rem; color:var(--text-dim,#78716c); }
     .vh-filters { display:flex; gap:.5rem; flex-wrap:wrap; }
-    .vh-date { padding:.4rem .6rem; border:1px solid var(--divider,#d6d3d1); border-radius:8px; background:var(--card-bg,#fff); color:var(--text,#1c1917); font-size:.85rem; }
+    .vh-date { padding:.4rem .6rem; border:1px solid var(--border-color); border-radius:8px; background:var(--card-bg,#fff); color:var(--text,#1c1917); font-size:.85rem; }
     :host ::ng-deep .vh-select { min-width:220px; }
     .vh-empty { flex:1; display:flex; align-items:center; justify-content:center; color:var(--text-dim,#78716c); font-size:.9rem; text-align:center; padding:2rem; }
     .vh-kpis { display:grid; grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); gap:.6rem; }
-    .kpi { display:flex; flex-direction:column; gap:.1rem; padding:.7rem .85rem; border:1px solid var(--divider,#e7e5e4); border-radius:10px; background:var(--card-bg,#fff); }
+    .kpi { display:flex; flex-direction:column; gap:.1rem; padding:.7rem .85rem; border:1px solid var(--border-color); border-radius:10px; background:var(--card-bg,#fff); }
     .k-val { font:700 1.15rem/1.1 'Hanken Grotesk',sans-serif; color:var(--text,#1c1917); font-variant-numeric:tabular-nums; }
     .k-lbl { font-size:.72rem; color:var(--text-dim,#78716c); }
     .kpi-gap { border-color:#fecaca; background:#fef2f2; }
     .vh-note { font-size:.76rem; color:#92400e; background:#fffbeb; border:1px solid #fde68a; border-radius:8px; padding:.5rem .7rem; }
     .k-val small { font-size:.72rem; font-weight:600; color:#b91c1c; }
-    .vh-dv { border:1px solid var(--divider,#e7e5e4); border-radius:10px; background:var(--card-bg,#fff); overflow:hidden; }
-    .vh-dv-head { padding:.5rem .7rem; font:600 .8rem 'Hanken Grotesk',sans-serif; color:var(--text,#1c1917); border-bottom:1px solid var(--divider,#e7e5e4); }
+    .vh-dv { border:1px solid var(--border-color); border-radius:10px; background:var(--card-bg,#fff); overflow:hidden; }
+    .vh-dv-head { padding:.5rem .7rem; font:600 .8rem 'Hanken Grotesk',sans-serif; color:var(--text,#1c1917); border-bottom:1px solid var(--border-color); }
     .vh-dv-hint { font-weight:400; color:var(--text-dim,#78716c); font-size:.72rem; }
     .vh-dv-list { display:flex; flex-wrap:wrap; gap:.4rem; padding:.5rem .6rem; max-height:120px; overflow-y:auto; }
-    .vh-dv-row { display:inline-flex; align-items:center; gap:.4rem; padding:.35rem .6rem; border:1px solid var(--divider,#e7e5e4); border-radius:999px; background:var(--hover,#f5f5f4); cursor:pointer; font-size:.76rem; color:var(--text,#1c1917); }
+    .vh-dv-row { display:inline-flex; align-items:center; gap:.4rem; padding:.35rem .6rem; border:1px solid var(--border-color); border-radius:999px; background:var(--hover,#f5f5f4); cursor:pointer; font-size:.76rem; color:var(--text,#1c1917); }
     .vh-dv-row .pi-check-circle { color:var(--ok-fg,#16a34a); }
     .vh-dv-row.gap { border-color:#fecaca; background:#fef2f2; }
     .vh-dv-row.gap .pi-exclamation-triangle { color:#d97706; }
@@ -158,12 +158,12 @@ interface VendorDay {
     .vh-map { flex:1; min-height:0; }
     .vh-map app-map { display:block; height:100%; }
     :host ::ng-deep .vh-sk { display:block; margin-bottom:.6rem; }
-    .vh-pb { display:flex; align-items:center; gap:.7rem; padding:.5rem .7rem; border:1px solid var(--divider,#e7e5e4); border-radius:10px; background:var(--card-bg,#fff); }
+    .vh-pb { display:flex; align-items:center; gap:.7rem; padding:.5rem .7rem; border:1px solid var(--border-color); border-radius:10px; background:var(--card-bg,#fff); }
     .pb-btn { display:inline-flex; align-items:center; justify-content:center; width:34px; height:34px; flex:0 0 auto; border:0; border-radius:50%; background:var(--action,#F05A28); color:#fff; cursor:pointer; }
     .pb-range { flex:1; min-width:0; accent-color:var(--action,#F05A28); }
     .pb-clock { font:600 .78rem 'Hanken Grotesk',sans-serif; color:var(--text,#1c1917); font-variant-numeric:tabular-nums; min-width:58px; text-align:center; }
     .pb-speed { display:inline-flex; gap:.25rem; flex:0 0 auto; }
-    .pb-speed button { font-size:.72rem; font-weight:600; padding:.2rem .45rem; border:1px solid var(--divider,#d6d3d1); border-radius:6px; background:var(--card-bg,#fff); color:var(--text-dim,#78716c); cursor:pointer; }
+    .pb-speed button { font-size:.72rem; font-weight:600; padding:.2rem .45rem; border:1px solid var(--border-color); border-radius:6px; background:var(--card-bg,#fff); color:var(--text-dim,#78716c); cursor:pointer; }
     .pb-speed button.act { border-color:var(--action,#F05A28); color:var(--action,#F05A28); }
   `],
 })

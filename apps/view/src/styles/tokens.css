@@ -123,6 +123,40 @@
   --checkbox-accent-hover: var(--action-hover);
   --focus-ring:            var(--action-ring);
 
+  /* ── Shim de compat de tokens (BINDING) ──────────────────────────────
+     Nombres mal escritos en componentes viejos (varios dialectos) que NO existen
+     como token → sin esto, la declaración cae al fallback hex y queda HARDCODEADA
+     (rota en dark). El alias los resuelve a canónico que flipea por tema, en ambas
+     formas `var(--x)` y `var(--x, #hex)`. Canónico preferido en código nuevo;
+     migrar y quitar del shim con el tiempo. Ver [[feedback_canonical_tokens_border_radius]]. */
+  --border:        var(--border-color);
+  --divider:       var(--border-color);
+  --radius-sm:     var(--r-sm);
+  --radius-md:     var(--r-md);
+  --radius-lg:     var(--r-lg);
+  --text:          var(--text-main);
+  --text-soft:     var(--text-muted);
+  --text-dim:      var(--text-faint);
+  --content-main:  var(--text-main);
+  --content-muted: var(--text-muted);
+  --content-soft:  var(--text-muted);
+  --content-faint: var(--text-faint);
+  --content-dim:   var(--text-faint);
+  --content-disabled: var(--text-disabled);
+  --surface-card:  var(--card-bg);
+  --c-surface:     var(--card-bg);
+  --surface-border:var(--border-color);
+  --surface-layout:var(--layout-bg);
+  --surface-hover: var(--hover-bg);
+  --surface-2:     var(--layout-bg);
+  --surface-100:   var(--layout-bg);
+  --surface-200:   var(--hover-bg);
+  --hover:         var(--hover-bg);
+  --bad:           var(--bad-fg);
+  --ok:            var(--ok-fg);
+  --warn:          var(--warn-fg);
+  --orange-500:    var(--action);
+
   /* Aliases legacy (codemod posterior los limpia) */
   --brand-primary:        var(--brand-400);
   --brand-orange:         var(--brand-600);

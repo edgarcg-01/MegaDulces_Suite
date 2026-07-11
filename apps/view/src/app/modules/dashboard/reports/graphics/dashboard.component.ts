@@ -222,7 +222,7 @@ interface KpiCard {
                 <div class="relative" role="img" [attr.aria-label]="g.ariaLabel">
                   <svg viewBox="0 0 40 40" class="w-20 h-20 -rotate-90 motion-safe:transition-transform">
                     <circle cx="20" cy="20" r="15.5" fill="none"
-                            stroke="var(--surface-layout)" stroke-width="3"></circle>
+                            stroke="var(--layout-bg)" stroke-width="3"></circle>
                     <circle cx="20" cy="20" r="15.5" fill="none"
                             [attr.stroke]="g.color" stroke-width="3" stroke-linecap="round"
                             [attr.stroke-dasharray]="g.circumference"

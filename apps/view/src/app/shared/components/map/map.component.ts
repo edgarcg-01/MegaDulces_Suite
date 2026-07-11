@@ -81,9 +81,9 @@ export interface MapLayer {
     :host { display:block; }
     .map-shell { position:relative; }
     .map-host { width:100%; height:100%; }
-    .basemap-switch { position:absolute; top:.5rem; right:.5rem; z-index:500; display:flex; background:var(--card-bg,#fff); border:1px solid var(--divider,#e7e5e4); border-radius:8px; overflow:hidden; box-shadow:0 1px 4px rgba(0,0,0,.18); }
+    .basemap-switch { position:absolute; top:.5rem; right:.5rem; z-index:500; display:flex; background:var(--card-bg,#fff); border:1px solid var(--border-color); border-radius:8px; overflow:hidden; box-shadow:0 1px 4px rgba(0,0,0,.18); }
     .basemap-switch button { display:flex; align-items:center; gap:.3rem; border:0; background:transparent; padding:.34rem .56rem; font:600 .72rem 'Hanken Grotesk',sans-serif; color:var(--text-dim,#78716c); cursor:pointer; }
-    .basemap-switch button + button { border-left:1px solid var(--divider,#e7e5e4); }
+    .basemap-switch button + button { border-left:1px solid var(--border-color); }
     .basemap-switch button:hover { color:var(--text,#1c1917); }
     .basemap-switch button.act { background:var(--action,#F05A28); color:#fff; }
   `],
