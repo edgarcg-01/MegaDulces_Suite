@@ -51,7 +51,14 @@ export interface MovementLine {
   parent_group: string | null; parent_folio: string | null; source_branch: string;
   product_name: string | null; sku: string | null; warehouse_code: string | null;
 }
-export interface LinesResponse { page: number; pageSize: number; total: number; rows: MovementLine[]; }
+/** Fila del drill de folios: un DOCUMENTO englobado (folio×tipo×almacén), no una línea. */
+export interface FolioRow {
+  warehouse_id: string; folio: string; doc_code: string; movement_label: string;
+  movement_kind: MovementKind; source_branch: string; warehouse_code: string | null;
+  doc_date: string; lineas: number; signed_qty: number; qty: number; amount: number | null;
+  parent_group: string | null; parent_folio: string | null;
+}
+export interface LinesResponse { page: number; pageSize: number; total: number; rows: FolioRow[]; }
 
 export interface DocumentHeader {
   folio: string; doc_code: string; movement_label: string; movement_kind: MovementKind;

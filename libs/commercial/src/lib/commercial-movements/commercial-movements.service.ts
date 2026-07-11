@@ -155,26 +155,36 @@ export class CommercialMovementsService {
     });
   }
 
-  /** DRILL: folios individuales (line-level) de una rama. */
+  /**
+   * DRILL: folios de una rama, ENGLOBADOS — una fila por documento (folio×tipo×almacén),
+   * no por línea. `lineas` dice cuántos productos trae; el detalle lo da document().
+   */
   async lines(q: MovementsQuery) {
     const tenantId = this.tenantCtx.requireTenantId();
     const page = Math.max(1, Number(q.page) || 1);
     const pageSize = Math.min(500, Math.max(1, Number(q.pageSize) || 100));
     return this.tk.run(async (trx) => {
-      const build = () => this.base(trx, tenantId, q)
-        .leftJoin('public.products as p', function (this: any) {
-          this.on('p.id', 'm.product_id').andOn('p.tenant_id', 'm.tenant_id');
-        })
-        .leftJoin('commercial.warehouses as w', 'w.id', 'm.warehouse_id');
-      const [{ count }] = await build().count('* as count');
-      const rows = await build()
+      const grouped = () => this.base(trx, tenantId, q)
+        .groupBy('m.warehouse_id', 'm.folio', 'm.doc_code', 'm.movement_label', 'm.movement_kind', 'm.source_branch');
+      const countRows: any[] = await trx.count('* as count').from(grouped().select('m.folio').as('g'));
+      const count = countRows[0]?.count ?? 0;
+      const rows = await grouped()
+        .leftJoin('commercial.warehouses as w', 'w.id', 'm.warehouse_id')
+        .groupBy('w.code')
         .select(
-          'm.warehouse_id', 'm.doc_date', 'm.folio', 'm.doc_code', 'm.movement_label', 'm.movement_kind',
-          'm.genero', 'm.naturaleza', 'm.doc_type', 'm.signed_qty', 'm.qty',
-          'm.unit_cost', 'm.amount', 'm.parent_group', 'm.parent_folio', 'm.source_branch',
-          'p.nombre as product_name', 'p.sku', 'w.code as warehouse_code',
+          'm.warehouse_id', 'm.folio', 'm.doc_code', 'm.movement_label', 'm.movement_kind',
+          'm.source_branch', 'w.code as warehouse_code',
         )
-        .orderBy([{ column: 'm.doc_date', order: 'desc' }, { column: 'm.folio', order: 'desc' }])
+        .select(
+          trx.raw(`MIN(m.doc_date) AS doc_date`),
+          trx.raw(`COUNT(*)::int AS lineas`),
+          trx.raw(`SUM(m.signed_qty) AS signed_qty`),
+          trx.raw(`SUM(m.qty) AS qty`),
+          trx.raw(`SUM(m.amount) AS amount`),
+          trx.raw(`MAX(m.parent_group) AS parent_group`),
+          trx.raw(`MAX(m.parent_folio) AS parent_folio`),
+        )
+        .orderByRaw('MIN(m.doc_date) DESC, m.folio DESC')
         .limit(pageSize).offset((page - 1) * pageSize);
       return { page, pageSize, total: Number(count), rows };
     });
@@ -194,12 +204,12 @@ export class CommercialMovementsService {
       if (p.warehouse_id && UUID_RX.test(p.warehouse_id)) q.where('m.warehouse_id', p.warehouse_id);
       if (p.doc_code) q.where('m.doc_code', p.doc_code);
       const lines = await q.select(
-        'm.doc_date', 'm.folio', 'm.doc_code', 'm.movement_label', 'm.movement_kind',
-        'm.genero', 'm.naturaleza', 'm.doc_type', 'm.signed_qty', 'm.qty',
-        'm.unit_cost', 'm.amount', 'm.parent_group', 'm.parent_folio', 'm.source_branch',
+        'm.warehouse_id', 'm.doc_date', 'm.folio', 'm.doc_code', 'm.movement_label', 'm.movement_kind',
+        'm.genero', 'm.naturaleza', 'm.doc_type', 'm.doc_serie', 'm.signed_qty', 'm.qty',
+        'm.unit_cost', 'm.amount', 'm.parent_group', 'm.parent_serie', 'm.parent_folio', 'm.source_branch',
         'p.nombre as product_name', 'p.sku', 'w.code as warehouse_code',
       ).orderBy('p.nombre');
-      if (!lines.length) return { header: null, lines: [], totals: { qty: 0, amount: 0, lineas: 0 } };
+      if (!lines.length) return { header: null, lines: [], totals: { qty: 0, amount: 0, lineas: 0 }, counterpart: null };
       const h = lines[0];
       const header = {
         folio: h.folio, doc_code: h.doc_code, movement_label: h.movement_label, movement_kind: h.movement_kind,
@@ -212,7 +222,91 @@ export class CommercialMovementsService {
         amount: lines.reduce((s: number, l: any) => s + Number(l.amount || 0), 0),
         lineas: lines.length,
       };
-      return { header, lines, totals };
+      // Contraparte de traspaso (salida↔recepción por tipo41+serie+folio, distinta sucursal).
+      let counterpart: any = null;
+      const sentQty = lines.reduce((s: number, l: any) => s + Number(l.qty || 0), 0);
+      const findCp = async (docCode: string, folioCol: string, folioVal: string, serieCol: string, serieVal: string | null) => {
+        if (!folioVal) return null;
+        const cp = await trx('analytics.stock_movements as m')
+          .where('m.tenant_id', tenantId).andWhere('m.doc_code', docCode)
+          .andWhere(`m.${folioCol}`, folioVal)
+          .andWhereRaw(`coalesce(m.${serieCol},'') = coalesce(?, '')`, [serieVal])
+          .whereNot('m.warehouse_id', h.warehouse_id ?? p.warehouse_id)
+          .leftJoin('commercial.warehouses as w', 'w.id', 'm.warehouse_id')
+          .groupBy('m.folio', 'm.warehouse_id', 'w.code')
+          .select('m.folio', 'w.code as warehouse_code')
+          .select(trx.raw(`MIN(m.doc_date) AS doc_date`), trx.raw(`SUM(m.qty) AS qty`), trx.raw(`COUNT(*)::int AS lineas`));
+        if (!cp.length) return null;
+        const cpQty = cp.reduce((s: number, r: any) => s + Number(r.qty || 0), 0);
+        return { docs: cp, qty: cpQty, delta: cpQty - sentQty, status: Math.abs(cpQty - sentQty) < 0.01 ? 'ok' : 'diferencia' };
+      };
+      if (h.doc_code === 'TrsfShip') {
+        counterpart = { kind: 'recepcion', ...(await findCp('TrsfRcv', 'parent_folio', h.folio, 'parent_serie', h.doc_serie) || { docs: [], qty: 0, delta: -sentQty, status: 'sin_recepcion' }) };
+      } else if (h.doc_code === 'TrsfRcv' && h.parent_group === '41') {
+        counterpart = { kind: 'origen', ...(await findCp('TrsfShip', 'folio', h.parent_folio, 'doc_serie', h.parent_serie) || { docs: [], qty: 0, delta: sentQty, status: 'sin_origen' }) };
+      }
+      return { header, lines, totals, counterpart };
+    });
+  }
+
+  /**
+   * DM.3 — Validación de traspasos: parea cada salida (TrsfShip, UD41) con su recepción
+   * (TrsfRcv, UA50) vía el back-pointer de Kepler (parent = tipo 41 + SERIE + folio; la
+   * serie desambigua folios repetidos entre sucursales). Estados:
+   *   ok            → recepción existe y las piezas cuadran
+   *   diferencia    → recepción existe pero las piezas NO cuadran (merma/sobrante en tránsito)
+   *   sin_recepcion → salió y nadie lo ha recibido (en tránsito o perdido)
+   *   sin_origen    → recepción sin salida visible (origen fuera de ventana o no registrado)
+   */
+  async transfersCheck(q: MovementsQuery) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const { from, to } = this.range(q);
+    const whs = this.whIds(q);
+    return this.tk.run(async (trx) => {
+      const rows = (await trx.raw(`
+        WITH shp AS (
+          SELECT m.warehouse_id, w.code AS wh_code, m.folio, m.doc_serie,
+                 MIN(m.doc_date) AS doc_date, SUM(m.qty) AS qty, SUM(m.amount) AS amount, COUNT(*)::int AS lineas
+          FROM analytics.stock_movements m
+          LEFT JOIN commercial.warehouses w ON w.id = m.warehouse_id
+          WHERE m.tenant_id = ? AND m.doc_code = 'TrsfShip' AND m.doc_date BETWEEN ? AND ?
+          GROUP BY m.warehouse_id, w.code, m.folio, m.doc_serie
+        ), rcv AS (
+          SELECT m.warehouse_id, w.code AS wh_code, m.folio, m.parent_serie, m.parent_folio,
+                 MIN(m.doc_date) AS doc_date, SUM(m.qty) AS qty, COUNT(*)::int AS lineas
+          FROM analytics.stock_movements m
+          LEFT JOIN commercial.warehouses w ON w.id = m.warehouse_id
+          WHERE m.tenant_id = ? AND m.doc_code = 'TrsfRcv' AND m.parent_group = '41' AND m.doc_date BETWEEN ? AND ?
+          GROUP BY m.warehouse_id, w.code, m.folio, m.parent_serie, m.parent_folio
+        )
+        SELECT s.warehouse_id AS origin_wh_id, s.wh_code AS origin_wh, s.folio AS origin_folio,
+               s.doc_serie, s.doc_date AS ship_date, s.qty AS qty_sent, s.amount, s.lineas AS ship_lines,
+               r.warehouse_id AS dest_wh_id, r.wh_code AS dest_wh, r.folio AS rcv_folio,
+               r.doc_date AS rcv_date, r.qty AS qty_received, r.lineas AS rcv_lines,
+               CASE
+                 WHEN s.folio IS NULL THEN 'sin_origen'
+                 WHEN r.folio IS NULL THEN 'sin_recepcion'
+                 WHEN abs(coalesce(s.qty,0) - coalesce(r.qty,0)) < 0.01 THEN 'ok'
+                 ELSE 'diferencia'
+               END AS status,
+               coalesce(r.qty,0) - coalesce(s.qty,0) AS delta
+        FROM shp s
+        FULL OUTER JOIN rcv r
+          ON r.parent_folio = s.folio
+         AND coalesce(r.parent_serie,'') = coalesce(s.doc_serie,'')
+         AND r.warehouse_id <> s.warehouse_id
+        WHERE 1=1 ${whs.length ? `AND (s.warehouse_id = ANY(?) OR r.warehouse_id = ANY(?))` : ''}
+        ORDER BY CASE
+            WHEN s.folio IS NULL THEN 2
+            WHEN r.folio IS NULL THEN 1
+            WHEN abs(coalesce(s.qty,0) - coalesce(r.qty,0)) < 0.01 THEN 4
+            ELSE 0 END,
+          coalesce(s.doc_date, r.doc_date) DESC
+        LIMIT 500
+      `, whs.length ? [tenantId, from, to, tenantId, from, to, whs, whs] : [tenantId, from, to, tenantId, from, to])).rows;
+      const totals = { ok: 0, diferencia: 0, sin_recepcion: 0, sin_origen: 0 };
+      for (const r of rows) totals[r.status as keyof typeof totals]++;
+      return { range: { from, to }, totals, rows };
     });
   }
 

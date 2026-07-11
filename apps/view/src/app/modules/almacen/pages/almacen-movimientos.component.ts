@@ -11,8 +11,8 @@ import { DialogModule } from 'primeng/dialog';
 import { TagModule } from 'primeng/tag';
 import { InputTextModule } from 'primeng/inputtext';
 import {
-  AlmacenMovimientosService, GroupBy, MovementsFilters, MovementsSummary,
-  AggregateRow, MovementLine, MovementsFilterOpts, DocumentResponse,
+  AlmacenMovimientosService, GroupBy, MovementsFilters, MovementsSummary, MovementByType,
+  AggregateRow, FolioRow, MovementsFilterOpts, DocumentResponse,
 } from '../almacen-movimientos.service';
 
 /**
@@ -46,6 +46,30 @@ import {
           <div class="dm-kpi"><span class="dm-kpi-val">{{ money(s.totals.valor) }}</span><span class="dm-kpi-lbl">Valor movido</span></div>
           <div class="dm-kpi"><span class="dm-kpi-val">{{ s.totals.documentos | number }}</span><span class="dm-kpi-lbl">Documentos</span></div>
           <div class="dm-kpi"><span class="dm-kpi-val">{{ s.totals.lineas | number }}</span><span class="dm-kpi-lbl">Líneas</span></div>
+        </div>
+
+        <!-- Entradas vs Salidas por tipo de documento (clic = filtrar) -->
+        <div class="dm-types">
+          <div class="dm-types-col">
+            <h3 class="dm-types-h up">Entradas</h3>
+            @for (t of typesOf(s, 'entrada'); track t.doc_code) {
+              <button type="button" class="dm-type-row" [class.active]="fDocCode === t.doc_code" (click)="toggleType(t.doc_code)">
+                <span class="dm-type-lbl">{{ t.movement_label }}</span>
+                <span class="dm-type-num">+{{ t.piezas | number:'1.0-0' }} pzs</span>
+                <span class="dm-type-val">{{ money(t.valor || 0) }}</span>
+              </button>
+            } @empty { <span class="dm-empty-sm">Sin entradas en el rango.</span> }
+          </div>
+          <div class="dm-types-col">
+            <h3 class="dm-types-h down">Salidas</h3>
+            @for (t of typesOf(s, 'salida'); track t.doc_code) {
+              <button type="button" class="dm-type-row" [class.active]="fDocCode === t.doc_code" (click)="toggleType(t.doc_code)">
+                <span class="dm-type-lbl">{{ t.movement_label }}</span>
+                <span class="dm-type-num">−{{ t.piezas | number:'1.0-0' }} pzs</span>
+                <span class="dm-type-val">{{ money(t.valor || 0) }}</span>
+              </button>
+            } @empty { <span class="dm-empty-sm">Sin salidas en el rango.</span> }
+          </div>
         </div>
       }
 
@@ -116,8 +140,7 @@ import {
           <ng-template pTemplate="header">
             <tr>
               <th>Fecha</th><th>Folio</th><th>Tipo</th>
-              @if (fGroup !== 'product') { <th>Producto</th> }
-              <th class="dm-r">Cantidad</th><th class="dm-r">Costo/u</th><th class="dm-r">Valor</th><th>Cadena</th>
+              <th class="dm-r">Líneas</th><th class="dm-r">Cantidad</th><th class="dm-r">Valor</th><th>Cadena</th>
             </tr>
           </ng-template>
           <ng-template pTemplate="body" let-l>
@@ -125,15 +148,14 @@ import {
               <td class="dm-mono">{{ l.doc_date | date:'yyyy-MM-dd' }}</td>
               <td class="dm-mono dm-link">{{ l.folio }}</td>
               <td><p-tag [value]="l.movement_label" [severity]="l.movement_kind === 'entrada' ? 'success' : 'warn'" styleClass="dm-tag"></p-tag></td>
-              @if (fGroup !== 'product') { <td class="dm-dname">{{ l.product_name || l.sku }}</td> }
+              <td class="dm-r dm-muted">{{ l.lineas | number }}</td>
               <td class="dm-r" [class.up]="l.signed_qty>0" [class.down]="l.signed_qty<0">{{ l.signed_qty | number:'1.0-0' }}</td>
-              <td class="dm-r dm-muted">{{ l.unit_cost != null ? money(l.unit_cost) : '—' }}</td>
               <td class="dm-r dm-strong">{{ l.amount != null ? money(l.amount) : '—' }}</td>
               <td class="dm-sub dm-mono">{{ l.parent_folio ? (l.parent_group + '·' + l.parent_folio) : '—' }}</td>
             </tr>
           </ng-template>
         </p-table>
-        <p class="dm-dlg-foot">{{ drillTotal() | number }} folios · sucursal {{ drillLines()[0].source_branch }} · clic en un folio para ver el documento</p>
+        <p class="dm-dlg-foot">{{ drillTotal() | number }} documentos · sucursal {{ drillLines()[0].source_branch }} · clic en un folio para desglosarlo</p>
       }
     </p-dialog>
 
@@ -200,6 +222,18 @@ import {
     .dm-dname { max-width: 14rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .dm-dlg-foot { margin-top: .6rem; font-size: .74rem; color: var(--text-muted); }
     .dm-link { color: var(--action); }
+    .dm-types { display: grid; grid-template-columns: 1fr 1fr; gap: .5rem; margin-bottom: 1rem; }
+    @media (max-width: 40rem) { .dm-types { grid-template-columns: 1fr; } }
+    .dm-types-col { border: 1px solid var(--border-color); border-radius: var(--r-md); background: var(--card-bg); padding: .55rem .7rem; display: flex; flex-direction: column; gap: .1rem; }
+    .dm-types-h { margin: 0 0 .3rem; font-size: .72rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; }
+    .dm-types-h.up { color: var(--ok-fg); } .dm-types-h.down { color: var(--bad-fg); }
+    .dm-type-row { display: flex; align-items: baseline; gap: .6rem; padding: .28rem .4rem; border: 0; background: none; border-radius: var(--r-sm); cursor: pointer; font: inherit; text-align: left; color: var(--text-main); }
+    .dm-type-row:hover { background: var(--surface-hover-bg); }
+    .dm-type-row.active { background: var(--surface-hover-bg); outline: 1px solid var(--border-color); }
+    .dm-type-lbl { flex: 1; min-width: 0; font-size: .8rem; }
+    .dm-type-num { font-size: .74rem; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+    .dm-type-val { font-size: .78rem; font-weight: 600; font-variant-numeric: tabular-nums; min-width: 5.5rem; text-align: right; }
+    .dm-empty-sm { font-size: .76rem; color: var(--text-muted); padding: .2rem .4rem; }
     .dm-doc-head { display: flex; flex-wrap: wrap; gap: .5rem 1rem; align-items: center; margin-bottom: .5rem; padding-bottom: .5rem; border-bottom: 1px solid var(--border-color); }
     .dm-doc-meta { font-size: .76rem; color: var(--text-muted); }
     .dm-doc-foot { display: flex; gap: 1.5rem; justify-content: flex-end; margin-top: .6rem; font-size: .82rem; }
@@ -239,10 +273,10 @@ export class AlmacenMovimientosComponent implements OnInit {
     { label: 'Salidas', value: 'salida' },
   ];
 
-  // Drill 2 (folios)
+  // Drill 2 (folios englobados: una fila por documento)
   drillOpen = false;
   drillLoading = signal(false);
-  drillLines = signal<MovementLine[]>([]);
+  drillLines = signal<FolioRow[]>([]);
   drillTotal = signal(0);
   private drillLabel = signal('');
 
@@ -311,8 +345,19 @@ export class AlmacenMovimientosComponent implements OnInit {
     });
   }
 
+  /** Tipos de documento del summary filtrados por dirección (panel Entradas|Salidas). */
+  typesOf(s: MovementsSummary, kind: 'entrada' | 'salida'): MovementByType[] {
+    return (s.by_type || []).filter((t) => t.movement_kind === kind);
+  }
+
+  /** Clic en un tipo del panel = filtrar/desfiltrar la tabla por ese tipo. */
+  toggleType(doc_code: string): void {
+    this.fDocCode = this.fDocCode === doc_code ? '' : doc_code;
+    this.reload();
+  }
+
   /** Drill 3: abre el documento completo (todas las líneas del folio). */
-  openDocument(l: MovementLine): void {
+  openDocument(l: FolioRow): void {
     this.docOpen = true;
     this.docLoading.set(true);
     this.doc.set(null);

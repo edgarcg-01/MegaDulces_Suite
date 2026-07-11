@@ -46,6 +46,11 @@ export class CommercialMovementsController {
     return this.svc.document({ folio, warehouse_id, doc_code });
   }
 
+  @Get('transfers-check')
+  @RequirePermissions(Permission.COMMERCIAL_INVENTORY_VER)
+  @ApiOperation({ summary: 'DM.3 — Validación de traspasos: parea salida (UD41) ↔ recepción (UA50) por serie+folio y clasifica ok/diferencia/sin_recepcion/sin_origen.' })
+  transfersCheck(@Query() raw: Record<string, string>) { return this.svc.transfersCheck(this.q(raw)); }
+
   @Get('filters')
   @RequirePermissions(Permission.COMMERCIAL_INVENTORY_VER)
   @ApiOperation({ summary: 'Almacenes + tipos de documento presentes en el feed (para los selects).' })
