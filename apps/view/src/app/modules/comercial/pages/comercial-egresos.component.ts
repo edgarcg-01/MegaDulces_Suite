@@ -563,7 +563,7 @@ export class ComercialEgresosComponent {
     });
   }
 
-  money(v: number): string { return (v || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 }); }
+  money(v: number | string | null | undefined): string { return (Number(v ?? 0) || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 }); }
   pct(part: number, total: number): number { return total ? +((part / total) * 100).toFixed(1) : 0; }
 
   exportCsv() {

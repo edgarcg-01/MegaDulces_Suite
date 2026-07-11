@@ -168,9 +168,23 @@ Causa raíz encadenada: **arqueo no ciego** (habilita) → **handoff sin arqueo 
 - Caveat: el match `c67` (ticket) vs `c8` (corte) puede diferir por sucursal (suc02 tiene "sin tickets" que son artefacto de mapeo) → calibra por feedback L2.
 - `import-pos-ticket-sales`: $61.4M en tickets ≈ $61.3M venta_total del corte (reconcilian en agregado).
 
+## SM.9 — Arqueo ciego para cajeras en Tienda (2026-07-11)
+
+El arqueo ciego (SM.8/P1) se **expuso también en el proyecto Tienda** (`/tienda/arqueo`) para que las **cajeras** lo capturen sin darles el motor de reconciliación del supervisor. Doble superficie sobre la **misma tabla** `reconciliation.blind_counts`:
+- **Cajera** (`/tienda/arqueo`): captura + historial de SU sucursal. Ve su diferencia (faltante/sobrante) pero **no** el flag de enmascaramiento de Kepler.
+- **Supervisor** (`/almacen/cuadre`, tab Arqueo ciego): sin cambios — sigue viendo todo + enmascaramiento.
+
+Implementación:
+- Permisos dedicados **`STORE_ARQUEO_CAPTURAR`** / **`STORE_ARQUEO_VER`** (enum back+front, `permission-meta`, `authz-tree`). Añadidos al grupo `tienda` de `role-presets` → el rol de área **`sucursal`** los recibe.
+- Backend: `StoreArqueoController` (`libs/reconciliation`) bajo `/store/arqueo` — reusa `BlindCountService`, fuerza `warehouse_code` = sucursal del usuario (`@ReqUser`), y **quita `kepler_*`** de la respuesta.
+- Frontend: `TiendaArqueoComponent` + `ArqueoService` (`modules/tienda`), ruta `/tienda/arqueo` (`permissionGuard(STORE_ARQUEO_CAPTURAR)`), nav item, y **early-return** de `tienda` en `navItems` (el rol `sucursal` no tiene `REPORTES_VER_*` → sin esto el nav de tienda no renderiza).
+- Migración backfill `20260711130000_grant_store_arqueo_perm.js`: operadores (sucursal + tienda legacy + admin) → CAPTURAR+VER; `prevencion_auditoria` → solo VER.
+
+**Pendiente prod:** aplicar mig `20260711130000` + **re-login** (permisos viajan en JWT). Backend lee permisos frescos de DB (no requiere re-login); el nav/guard del frontend sí. Builds prod api+view OK.
+
 ## Estado del plan
 
-P0 habilitado · **P1–P6 ✅** implementados y verificados contra data real. **SM.8 (prevención) CERRADA.**
+P0 habilitado · **P1–P6 ✅** implementados y verificados contra data real. **SM.8 (prevención) CERRADA.** **SM.9 (arqueo en Tienda) ✅ 2026-07-11 (local).**
 
 El motor corre **10 reglas** (caja_descuadre, cajero_faltante_recurrente, descuadre_no_efectivo, arqueo_no_ciego, corte_riesgo_circunstancia, arqueo_ciego_divergente, handoff_sin_relevo, turno_largo, venta_vs_tickets, merma_inventario) en 3 planos (caja/cruce/inventario). Consola `/almacen/cuadre` con 7 tabs. Ciclo completo: **detectar → priorizar (focos) → intervenir (acciones) → medir (diff-in-diff)**.
 

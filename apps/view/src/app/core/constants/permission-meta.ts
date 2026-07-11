@@ -41,6 +41,8 @@ export const PERMISSION_META: Record<string, PermissionMetaEntry> = {
   [Permission.TIENDAS_CREAR]: { label: 'Crear Tiendas', description: 'Permite registrar nuevas tiendas desde la captura de visitas.', category: 'Configuración' },
   [Permission.STORE_LIVE_VER]: { label: 'Monitor Tienda en Vivo', description: 'Acceder al monitor de tickets y cajas en tiempo real (Proyecto TDA).', category: 'Tienda' },
   [Permission.STORE_LABELS_VER]: { label: 'Etiquetas de anaquel', description: 'Generar e imprimir etiquetas de precio de anaquel (Proyecto Tienda).', category: 'Tienda' },
+  [Permission.STORE_ARQUEO_CAPTURAR]: { label: 'Capturar Arqueo Ciego', description: 'La cajera cuenta el efectivo por denominación sin ver el esperado y sella el corte/relevo (Proyecto Tienda).', category: 'Tienda' },
+  [Permission.STORE_ARQUEO_VER]: { label: 'Ver Arqueos Ciegos', description: 'Consultar los arqueos ciegos capturados en la sucursal (Proyecto Tienda).', category: 'Tienda' },
   [Permission.ROLES_CONFIGURAR]: { label: 'Configurar Roles y Funciones', description: 'ACCESO CRÍTICO: edita este panel de permisos para cualquier rol.', category: 'Configuración' },
   [Permission.SCORING_CONFIG_VER]: { label: 'Ver Config. Puntuación', description: 'Visualizar la configuración y parámetros de scoring.', category: 'Configuración' },
   [Permission.SCORING_CONFIG_GESTIONAR]: { label: 'Gestionar Config. Puntuación', description: 'Editar parámetros, versiones y puntuaciones del scoring.', category: 'Configuración' },

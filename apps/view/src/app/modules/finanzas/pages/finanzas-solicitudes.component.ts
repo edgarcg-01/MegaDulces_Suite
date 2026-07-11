@@ -196,6 +196,6 @@ export class FinanzasSolicitudesComponent {
   estadoSev(e: string | null): 'success' | 'info' | 'warn' | 'danger' | 'secondary' {
     return ({ F: 'success', A: 'info', C: 'danger', N: 'warn' } as Record<string, 'success' | 'info' | 'warn' | 'danger'>)[e || ''] || 'secondary';
   }
-  money(v: number): string { return (v || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 }); }
+  money(v: number | string | null | undefined): string { return (Number(v ?? 0) || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 }); }
   pct(a: number, b: number): number { return b ? Math.round((a / b) * 100) : 0; }
 }

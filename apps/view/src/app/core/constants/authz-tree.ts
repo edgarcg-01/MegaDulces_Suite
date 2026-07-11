@@ -167,6 +167,7 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
         modules: [
           { id: 'store-live', label: 'Tienda en Vivo', route: '/tienda/live', view: [Permission.STORE_LIVE_VER], manage: [] },
           { id: 'store-labels', label: 'Etiquetas de anaquel', route: '/tienda/etiquetas', view: [Permission.STORE_LABELS_VER], manage: [] },
+          { id: 'store-arqueo', label: 'Arqueo ciego de caja', route: '/tienda/arqueo', view: [Permission.STORE_ARQUEO_VER], manage: [Permission.STORE_ARQUEO_CAPTURAR] },
         ],
       },
       {

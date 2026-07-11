@@ -692,7 +692,7 @@ export class AlmacenCuadreComponent implements OnInit {
 
   barPct(v: number, max: number): number { return max > 0 ? Math.max(3, Math.round((v / max) * 100)) : 0; }
   abs(n: number): number { return Math.abs(n || 0); }
-  money(v: number): string { return (v || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 }); }
+  money(v: number | string | null | undefined): string { return (Number(v ?? 0) || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 }); }
   signed(v: number): string { return (v > 0 ? '+' : '') + this.money(v); }
   planoLabel(p: string): string { return p === 'caja' ? 'Caja' : p === 'inventario' ? 'Inventario' : p === 'cruce' ? 'Cruce' : p; }
   claseMovLabel(c: string): string {

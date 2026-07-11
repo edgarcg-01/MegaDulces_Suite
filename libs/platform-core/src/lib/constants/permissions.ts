@@ -47,6 +47,10 @@ export enum Permission {
   STORE_LIVE_VER = 'STORE_LIVE_VER',
   // Módulo: Tienda — etiquetera de anaquel (impresión de etiquetas)
   STORE_LABELS_VER = 'STORE_LABELS_VER',
+  // Módulo: Tienda — arqueo ciego de caja para cajeras (captura + ver). Superficie
+  // acotada del arqueo del Supervisor de Movimientos (sin el motor de reconciliación).
+  STORE_ARQUEO_CAPTURAR = 'STORE_ARQUEO_CAPTURAR',
+  STORE_ARQUEO_VER = 'STORE_ARQUEO_VER',
 
   // Módulo: Comercial — Clientes B2B (Fase B)
   COMMERCIAL_CUSTOMERS_VER = 'COMMERCIAL_CUSTOMERS_VER',

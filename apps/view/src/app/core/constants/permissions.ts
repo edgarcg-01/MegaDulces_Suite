@@ -49,6 +49,9 @@ export enum Permission {
   STORE_LIVE_VER = 'STORE_LIVE_VER',
   // Proyecto Tienda — etiquetera de anaquel (impresión de etiquetas)
   STORE_LABELS_VER = 'STORE_LABELS_VER',
+  // Proyecto Tienda — arqueo ciego de caja para cajeras (captura + ver)
+  STORE_ARQUEO_CAPTURAR = 'STORE_ARQUEO_CAPTURAR',
+  STORE_ARQUEO_VER = 'STORE_ARQUEO_VER',
 
   // Comercial (Fase B+C)
   COMMERCIAL_CUSTOMERS_VER = 'COMMERCIAL_CUSTOMERS_VER',

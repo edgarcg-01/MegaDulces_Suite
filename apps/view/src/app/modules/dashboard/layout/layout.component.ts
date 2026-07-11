@@ -375,6 +375,7 @@ export class LayoutComponent implements OnInit, OnDestroy {
     { label: 'Monitor en vivo', icon: 'pi pi-bolt', route: '/tienda/live', permission: Permission.STORE_LIVE_VER },
     { label: 'Sucursales', icon: 'pi pi-building', route: '/tienda/branches', permission: Permission.STORE_LIVE_VER },
     { label: 'Ritmo del día', icon: 'pi pi-chart-line', route: '/tienda/pace', permission: Permission.STORE_LIVE_VER },
+    { label: 'Arqueo de caja', icon: 'pi pi-eye-slash', route: '/tienda/arqueo', permission: Permission.STORE_ARQUEO_CAPTURAR },
     { label: 'Etiquetas', icon: 'pi pi-tag', route: '/tienda/etiquetas', permission: Permission.STORE_LABELS_VER },
   ];
 
@@ -442,6 +443,12 @@ export class LayoutComponent implements OnInit, OnDestroy {
     // Compras: superficie propia con nav propio (un comprador puede no tener REPORTES_VER_*).
     if (this.currentProject() === 'compras') {
       return this.dedupeByRoute(this.comprasNavItems);
+    }
+    // Tienda: superficie de sucursal (cajeras/encargados). Un rol `sucursal` no tiene
+    // REPORTES_VER_* → sin este early-return el nav de tienda no renderizaría. Cada item
+    // se filtra por su permiso (STORE_LIVE_VER / STORE_ARQUEO_CAPTURAR / STORE_LABELS_VER).
+    if (this.currentProject() === 'tienda') {
+      return this.dedupeByRoute(this.tiendaNavItems.filter((i) => this.hasPermFor(i)));
     }
     // Colaborador restringido (sin reportes de equipo/global): solo captura diaria.
     const legacy = user.permissions;

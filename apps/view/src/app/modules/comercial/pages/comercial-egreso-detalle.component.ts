@@ -638,7 +638,7 @@ export class ComercialEgresoDetalleComponent {
     return ({ F: 'Finalizada', A: 'Autorizada', C: 'Cancelada', N: 'Nueva' } as Record<string, string>)[e || ''] || (e || '—');
   }
 
-  money(v: number): string { return (v || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 }); }
+  money(v: number | string | null | undefined): string { return (Number(v ?? 0) || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 }); }
 
   exportCsv() {
     const r = this.report();

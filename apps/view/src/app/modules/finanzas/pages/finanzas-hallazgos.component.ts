@@ -311,7 +311,7 @@ export class FinanzasHallazgosComponent implements OnInit {
       .map(([k, v]) => ({ k: k.replace(/_/g, ' '), v: String(v) }));
   }
 
-  money(v: number): string { return (v || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 }); }
+  money(v: number | string | null | undefined): string { return (Number(v ?? 0) || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 }); }
   claseLabel(c: string): string { return c === 'riesgo' ? 'Riesgo' : c === 'error_captura' ? 'Error' : c === 'oportunidad' ? 'Oportunidad' : c; }
   sevLabel(s: string): string { return s === 'critical' ? 'Crítico' : s === 'warn' ? 'Alerta' : 'Info'; }
   statusLabel(s: string): string { return s === 'confirmado' ? 'Confirmado' : s === 'descartado' ? 'Descartado' : s === 'corregido' ? 'Corregido' : s; }

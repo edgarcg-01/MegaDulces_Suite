@@ -417,6 +417,11 @@ export const routes: Routes = [
         loadComponent: () => import('./modules/tienda/pages/tienda-etiquetas.component').then(m => m.TiendaEtiquetasComponent),
         canActivate: [permissionGuard(Permission.STORE_LABELS_VER)]
       },
+      {
+        path: 'arqueo',
+        loadComponent: () => import('./modules/tienda/pages/tienda-arqueo.component').then(m => m.TiendaArqueoComponent),
+        canActivate: [permissionGuard(Permission.STORE_ARQUEO_CAPTURAR)]
+      },
     ]
   },
   {

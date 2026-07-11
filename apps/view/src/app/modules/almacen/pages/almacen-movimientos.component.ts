@@ -453,9 +453,11 @@ export class AlmacenMovimientosComponent implements OnInit {
   dayLabel(key: string): string {
     return (key || '').slice(0, 10);
   }
-  absN(v: number): number { return Math.abs(v || 0); }
-  money(v: number): string {
-    return (v || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', minimumFractionDigits: 0, maximumFractionDigits: 0 });
+  absN(v: number | string): number { return Math.abs(Number(v ?? 0) || 0); }
+  /** Postgres numeric llega como STRING por JSON; sin Number() el toLocaleString de string
+   *  ignora las opciones de currency y sale sin "$" ni comas. */
+  money(v: number | string | null | undefined): string {
+    return (Number(v ?? 0) || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', minimumFractionDigits: 0, maximumFractionDigits: 0 });
   }
   private iso(d: Date): string {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
