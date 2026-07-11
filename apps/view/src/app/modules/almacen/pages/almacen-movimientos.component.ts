@@ -89,11 +89,12 @@ import { Permission } from '../../../core/constants/permissions';
             <td class="dm-r dm-muted">{{ l.lineas | number }}</td>
             <td class="dm-r" [class.up]="l.signed_qty>0" [class.down]="l.signed_qty<0">{{ l.signed_qty | number:'1.0-0' }}</td>
             <td class="dm-r dm-strong">{{ l.amount != null ? money(l.amount) : '—' }}</td>
-            <td (click)="$event.stopPropagation()">
-              <button type="button" class="dm-audit" [class.is-audited]="l.audited" [disabled]="!canAudit" (click)="toggleAudit(l)"
-                      [title]="l.audited ? ('Auditado por ' + (l.audited_by || '—')) : (canAudit ? 'Marcar auditado' : 'Sin auditar')">
-                <i class="pi" [class.pi-verified]="l.audited" [class.pi-circle]="!l.audited"></i> {{ l.audited ? 'Sí' : 'No' }}
-              </button>
+            <td>
+              @if (l.audited) {
+                <span class="dm-audit is-audited" [title]="'Auditado por ' + (l.audited_by || '—')"><i class="pi pi-verified"></i> Sí</span>
+              } @else {
+                <span class="dm-audit dm-pending"><i class="pi pi-circle"></i> Pendiente</span>
+              }
             </td>
           </tr>
         </ng-template>
@@ -109,43 +110,53 @@ import { Permission } from '../../../core/constants/permissions';
         <span class="dm-dlg-title">Documento {{ doc()?.header?.folio }}</span>
       </ng-template>
       @if (docLoading()) { <div class="dm-empty">Cargando documento…</div> }
-      @else if (doc()?.header; as h) {
-        <!-- Validación de la contraparte (traspasos) -->
-        @if (doc()!.counterpart; as cp) {
-          <div class="dm-cp" [class.cp-ok]="cp.status === 'ok'" [class.cp-warn]="cp.status === 'diferencia'" [class.cp-bad]="cp.status === 'sin_recepcion' || cp.status === 'sin_origen'">
-            <i class="pi" [class.pi-check-circle]="cp.status === 'ok'" [class.pi-exclamation-triangle]="cp.status === 'diferencia'" [class.pi-clock]="cp.status === 'sin_recepcion' || cp.status === 'sin_origen'"></i>
-            <strong>{{ cpTitle(cp.status) }}</strong>
-            <span>Enviadas {{ absN(doc()!.totals.qty) | number:'1.0-0' }} · Recibidas {{ cp.qty | number:'1.0-0' }}</span>
-            @if (cp.status === 'diferencia') { <span class="dm-strong">Δ {{ cp.delta > 0 ? '+' : '' }}{{ cp.delta | number:'1.0-0' }} pzs</span> }
-          </div>
-        }
-
-        <!-- Header + botón auditar -->
-        <div class="dm-doc-head">
-          <p-tag [value]="h.movement_label" [severity]="h.movement_kind === 'entrada' ? 'success' : 'warn'" styleClass="dm-tag"></p-tag>
-          <span class="dm-doc-meta">{{ h.doc_date | date:'yyyy-MM-dd' }}</span>
-          <span class="dm-doc-meta">Almacén {{ h.warehouse_code || h.source_branch }}</span>
-          <button pButton type="button" class="p-button-sm dm-doc-audit" [class.p-button-success]="h.audited" [class.p-button-outlined]="!h.audited"
-                  [icon]="h.audited ? 'pi pi-verified' : 'pi pi-check'" [label]="h.audited ? 'Auditado' : 'Marcar auditado'"
-                  [disabled]="!canAudit" (click)="toggleAuditDoc(h)"></button>
-        </div>
-        @if (h.audited && h.audited_by) { <p class="dm-audit-by">Auditado por {{ h.audited_by }} · {{ h.audited_at | date:'yyyy-MM-dd HH:mm' }}</p> }
-
-        <!-- Documento + contraparte lado a lado -->
-        <div class="dm-cols" [class.two]="cpDoc()">
-          <div class="dm-col">
-            <h4 class="dm-col-h">{{ h.movement_kind === 'salida' ? 'Este documento (salida)' : 'Este documento' }}</h4>
-            <ng-container [ngTemplateOutlet]="linesTpl" [ngTemplateOutletContext]="{ lines: doc()!.lines, totals: doc()!.totals }"></ng-container>
-          </div>
-          @if (cpLoading()) { <div class="dm-col dm-empty">Cargando contraparte…</div> }
-          @else if (cpDoc()?.header; as ch) {
-            <div class="dm-col">
-              <h4 class="dm-col-h">Contraparte — {{ ch.movement_label }} · folio {{ ch.folio }} ({{ ch.warehouse_code || ch.source_branch }})</h4>
-              <ng-container [ngTemplateOutlet]="linesTpl" [ngTemplateOutletContext]="{ lines: cpDoc()!.lines, totals: cpDoc()!.totals }"></ng-container>
+      @else {
+        @if (doc()?.header; as h) {
+          <!-- Validación de la contraparte (traspasos) -->
+          @if (doc()!.counterpart; as cp) {
+            <div class="dm-cp" [class.cp-ok]="cp.status === 'ok'" [class.cp-warn]="cp.status === 'diferencia'" [class.cp-bad]="cp.status === 'sin_recepcion' || cp.status === 'sin_origen'">
+              <i class="pi" [class.pi-check-circle]="cp.status === 'ok'" [class.pi-exclamation-triangle]="cp.status === 'diferencia'" [class.pi-clock]="cp.status === 'sin_recepcion' || cp.status === 'sin_origen'"></i>
+              <strong>{{ cpTitle(cp.status) }}</strong>
+              <span>Enviadas {{ absN(doc()!.totals.qty) | number:'1.0-0' }} · Recibidas {{ cp.qty | number:'1.0-0' }}</span>
+              @if (cp.status === 'diferencia') { <span class="dm-strong">Δ {{ cp.delta > 0 ? '+' : '' }}{{ cp.delta | number:'1.0-0' }} pzs</span> }
             </div>
           }
-        </div>
-      } @else { <div class="dm-empty">Documento sin líneas.</div> }
+
+          <!-- Header -->
+          <div class="dm-doc-head">
+            <p-tag [value]="h.movement_label" [severity]="h.movement_kind === 'entrada' ? 'success' : 'warn'" styleClass="dm-tag"></p-tag>
+            <span class="dm-doc-meta">{{ h.doc_date | date:'yyyy-MM-dd' }}</span>
+            <span class="dm-doc-meta">Almacén {{ h.warehouse_code || h.source_branch }}</span>
+          </div>
+
+          <!-- Documento + contraparte lado a lado -->
+          <div class="dm-cols" [class.two]="cpDoc()">
+            <div class="dm-col">
+              <h4 class="dm-col-h">Folio {{ h.folio }} · {{ h.movement_kind === 'salida' ? 'salida' : 'entrada' }}</h4>
+              <ng-container [ngTemplateOutlet]="linesTpl" [ngTemplateOutletContext]="{ lines: doc()!.lines, totals: doc()!.totals }"></ng-container>
+            </div>
+            @if (cpLoading()) { <div class="dm-col dm-empty">Cargando contraparte…</div> }
+            @else if (cpDoc()) {
+              @if (cpDoc()!.header; as ch) {
+                <div class="dm-col">
+                  <h4 class="dm-col-h">Contraparte — folio {{ ch.folio }} · {{ ch.movement_label }} ({{ ch.warehouse_code || ch.source_branch }})</h4>
+                  <ng-container [ngTemplateOutlet]="linesTpl" [ngTemplateOutletContext]="{ lines: cpDoc()!.lines, totals: cpDoc()!.totals }"></ng-container>
+                </div>
+              }
+            }
+          </div>
+
+          <!-- Auditar: botón con los folios comparados -->
+          <div class="dm-audit-bar">
+            @if (h.audited) {
+              <span class="dm-audited-note"><i class="pi pi-verified"></i> Auditado por {{ h.audited_by || '—' }} · {{ h.audited_at | date:'yyyy-MM-dd HH:mm' }}</span>
+              <button pButton type="button" class="p-button-sm p-button-text p-button-secondary" label="Quitar auditoría" [disabled]="!canAudit" (click)="toggleAuditDoc(h)"></button>
+            } @else {
+              <button pButton type="button" class="dm-audit-btn" icon="pi pi-check-circle" [label]="auditLabel(h)" [disabled]="!canAudit" (click)="toggleAuditDoc(h)"></button>
+            }
+          </div>
+        } @else { <div class="dm-empty">Documento sin líneas.</div> }
+      }
     </p-dialog>
 
     <!-- Tabla de líneas reutilizable -->
@@ -187,6 +198,10 @@ import { Permission } from '../../../core/constants/permissions';
     .dm-audit:hover:not(:disabled) { background: var(--surface-hover-bg); color: var(--text-main); }
     .dm-audit:disabled { cursor: default; opacity: .8; }
     .dm-audit.is-audited { color: var(--ok-fg); font-weight: 600; }
+    .dm-audit.dm-pending { color: var(--text-muted); }
+    .dm-audit-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: .6rem; margin-top: 1rem; padding-top: .7rem; border-top: 1px solid var(--border-color); }
+    .dm-audited-note { display: inline-flex; align-items: center; gap: .35rem; font-size: .78rem; color: var(--ok-fg); margin-right: auto; }
+    :host ::ng-deep .dm-audit-btn.p-button { background: var(--ok-fg); border-color: var(--ok-fg); }
     /* Dialog */
     .dm-dlg-title { font-weight: 700; }
     .dm-cp { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; font-size: .8rem; padding: .5rem .7rem; border-radius: var(--r-sm); border: 1px solid var(--border-color); margin-bottom: .6rem; }
@@ -310,20 +325,13 @@ export class AlmacenMovimientosComponent implements OnInit {
       });
   }
 
-  /** DM.4 — toggle auditado desde la fila (optimistic). */
-  toggleAudit(l: FolioRow): void {
-    if (!this.canAudit) return;
-    const next = !l.audited;
-    l.audited = next;
-    this.rows.set([...this.rows()]);
-    this.api.setAudit({ warehouse_id: l.warehouse_id, doc_code: l.doc_code, doc_serie: l.doc_serie, folio: l.folio, audited: next })
-      .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-        next: (r) => { l.audited_by = r.audited_by ?? null; this.rows.set([...this.rows()]); },
-        error: () => { l.audited = !next; this.rows.set([...this.rows()]); },
-      });
+  /** Etiqueta del botón de auditar: incluye el folio y —si hay traspaso— la contraparte. */
+  auditLabel(h: NonNullable<DocumentResponse['header']>): string {
+    const cpFolio = this.cpDoc()?.header?.folio;
+    return cpFolio ? `Auditar ${h.folio} ↔ ${cpFolio}` : `Auditar documento ${h.folio}`;
   }
 
-  /** DM.4 — toggle auditado desde el diálogo. */
+  /** DM.4 — marca/quita auditado desde el diálogo (tras revisar la comparación). */
   toggleAuditDoc(h: NonNullable<DocumentResponse['header']>): void {
     if (!this.canAudit) return;
     const next = !h.audited;
