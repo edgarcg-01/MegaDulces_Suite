@@ -14,6 +14,7 @@ import { AdminCatalogsService } from '../admin-catalogs/admin-catalogs.service';
 import { Permission } from '../../../core/constants/permissions';
 import { PERMISSION_META } from '../../../core/constants/permission-meta';
 import { AUTHZ_TREE, AuthzApp, AuthzModule } from '../../../core/constants/authz-tree';
+import { AREA_PRESETS, resolveAreaPresetMap } from '../../../core/constants/role-presets';
 import { MessageService, ConfirmationService } from 'primeng/api';
 import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
@@ -81,7 +82,19 @@ const CRITICAL_PERMISSIONS: readonly string[] = [
             Asigna el acceso por app, proyecto o módulo. Marca un grupo para otorgar todo su contenido, o abre el módulo para afinar Ver / Gestionar.
           </p>
         </div>
-        <div class="flex gap-2">
+        <div class="flex gap-2 items-center">
+          <select
+            class="text-sm border border-divider rounded-md px-2 py-1.5 bg-surface-card text-content-main"
+            [ngModel]="''"
+            (ngModelChange)="applyPreset($event)"
+            aria-label="Aplicar plantilla de área"
+            pTooltip="Rellena el árbol con los permisos típicos de un área (podés ajustar antes de guardar)"
+          >
+            <option value="" disabled selected>Aplicar plantilla…</option>
+            @for (p of presets; track p.role) {
+              <option [value]="p.role">{{ p.label }}</option>
+            }
+          </select>
           <p-button
             label="Guardar Cambios"
             icon="pi pi-save"
@@ -214,6 +227,31 @@ export class AdminRolesPermissionsComponent implements OnInit {
   private destroyRef = inject(DestroyRef);
 
   readonly tree: readonly AuthzApp[] = AUTHZ_TREE;
+  readonly presets = AREA_PRESETS;
+
+  /**
+   * Rellena el árbol con la plantilla de un área. Respeta anti-escalation: solo
+   * toca hojas que el editor puede otorgar; las bloqueadas quedan como están.
+   * No guarda — deja el estado dirty para que el admin revise y confirme.
+   */
+  applyPreset(role: string): void {
+    const preset = this.presets.find((p) => p.role === role);
+    if (!preset) return;
+    const map = resolveAreaPresetMap(preset);
+    this.values.update((v) => {
+      const next = { ...v };
+      for (const key of Object.values(Permission)) {
+        if (!this.canGrant(key)) continue; // bloqueado: no se toca
+        next[key] = map[key] === true;
+      }
+      return next;
+    });
+    this.messageService.add({
+      severity: 'info',
+      summary: 'Plantilla aplicada',
+      detail: `"${preset.label}" — revisá los permisos y guardá para aplicar.`,
+    });
+  }
 
   roleName = signal<string>('');
   saving = signal<boolean>(false);

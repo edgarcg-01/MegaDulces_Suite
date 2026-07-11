@@ -10,6 +10,13 @@
 
 ## [Unreleased]
 
+### Added — Roles por área (13 roles) + plantillas en el editor (2026-07-11)
+- **Modelo:** 1 rol por área del organigrama Mega Dulces, permisos en 2 niveles — PRIMARIO (ver+gestionar de los módulos core) + SECUNDARIO (ver+gestionar de módulos vecinos, por orden/estética). `prevencion_auditoria` = secundario **solo-ver global** (integridad de auditoría); `sistemas` = acceso total.
+- **13 roles:** `sistemas, contabilidad, compras, mercadotecnia, credito_cobranza, prevencion_auditoria, tesoreria, finanzas, rh, sucursal, cedis, rutas, telemarketing`. Conviven con los roles actuales (no los pisa).
+- **Fuente única:** `apps/view/.../core/constants/role-presets.ts` (`MODULE_GROUPS` + `AREA_PRESETS` + resolver). La migración `20260711120000_area_role_presets_seed` replica la composición y crea los roles por tenant (`ON CONFLICT DO NOTHING`, idempotente).
+- **Plantillas en `/admin/roles`:** selector "Aplicar plantilla…" que rellena el árbol con la plantilla del área (respeta anti-escalation; deja dirty para revisar y guardar).
+- **Pendiente prod:** redeploy `view` + migración `20260711120000` + reasignar usuarios + re-login.
+
 ### Added — Auto-received: cierra las OC contra la orden de entrada de Kepler (RA.15.1) (2026-07-10)
 - **Cierra el ciclo sin captura manual.** Mega Dulces hace la recepción **en Kepler** (doc `X-A-40`), no en la plataforma → nuestras OC quedarían `open` para siempre. El feed `import-auto-received.js` (on-prem, BULK) detecta el `X-A-40` y genera la OE que cierra la OC.
 - **No mueve stock:** como Kepler ya procesó el `X-A-40`, esa existencia **ya viene en el snapshot nocturno** → la OE va con `source='kepler'` + `stock_applied=false` (evita doble-conteo). Mig `20260710200000` (`goods_receipts.source` + `source_kepler_folio` + índice único parcial = idempotente).
