@@ -53,8 +53,10 @@
 
   /* Derecha: tiers (sin iconos, letra grande) */
   .right{ width:55mm; min-height:0; display:flex; flex-direction:column; }
+  /* Los tiers se centran como grupo → 1 o 4 renglones siempre lucen balanceados (no flotan arriba). */
+  .tiers{ flex:1; min-height:0; display:flex; flex-direction:column; justify-content:center; gap:1.2mm; }
   .tier{ position:relative; display:grid; grid-template-columns:1fr auto; align-items:center;
-    column-gap:2mm; padding:.3mm 0; flex:1; min-height:0; }
+    column-gap:2mm; padding:.6mm 0; min-height:0; }
   .tier::before{ content:""; position:absolute; top:0; left:0; right:0; height:.28mm;
     background:repeating-linear-gradient(90deg, var(--green) 0 .32mm, transparent .32mm .6mm); }
   .tier:first-child::before{ display:none; }
@@ -79,27 +81,25 @@
 <body>
   <div class="hint">Preview <b>115×40 mm</b> — sin iconos · letra grande · naranja de marca en SKU y número de piezas.</div>
   <div class="stage">
-  <!-- Caso testigo 78148: piece 37.33 · pack 30x$1044 · sin mayoreo-pza · caja vacía.
-       Reglas nuevas: hero=pieza $37.33; tiers vacíos (mayoreo-pza, caja) OCULTOS; auto-fit. -->
+  <!-- Caso 99651: piece 140.56 · sin paquete/mayoreo-pza · caja 6x$767.45.
+       UN solo tier → panel derecho vacío/desbalanceado (bug a arreglar). -->
   <div class="label">
-    <div class="head">GOMA CHAROLA SURTIDA D ELIZ /40</div>
+    <div class="head">DINO JELLY 1.20L / 100 TINAJITA</div>
     <div class="body">
       <div class="left">
-        <div class="meta"><span>Código: <span class="red">78148</span></span></div>
+        <div class="meta"><span>1.20 l</span><span class="sep">|</span><span>Código: <span class="red">99651</span></span></div>
         <div class="pricebox">
           <svg class="sprout" viewBox="0 0 40 40" fill="hsl(141, 60%, 38%)"><path transform="translate(12,15) rotate(120)" d="M0 -11 C4.5 -5 5.5 0 4 4.5 C2.8 7.5 -2.8 7.5 -4 4.5 C-5.5 0 -4.5 -5 0 -11 Z"/><path transform="translate(22,10) rotate(150) scale(0.7)" d="M0 -11 C4.5 -5 5.5 0 4 4.5 C2.8 7.5 -2.8 7.5 -4 4.5 C-5.5 0 -4.5 -5 0 -11 Z"/></svg>
-          <div class="price" id="priceEl"><span class="cur">$</span>37<span class="dot">.</span>33</div>
+          <div class="price" id="priceEl"><span class="cur">$</span>140<span class="dot">.</span>56</div>
           <div class="pieza">Precio por pieza</div>
         </div>
       </div>
       <div class="right">
-        <div class="tier">
-          <div class="txt">Paquete con <span class="red">30</span> pzas:</div>
-          <div class="pricecell"><span class="amt">$1,044.00</span></div>
-        </div>
-        <div class="tier">
-          <div class="txt">Mayoreo desde <span class="red">3</span> paquetes:</div>
-          <div class="pricecell"><span class="amt">$34.80</span><span class="unit">c/u</span></div>
+        <div class="tiers">
+          <div class="tier">
+            <div class="txt">Caja con <span class="red">6</span> pzas:</div>
+            <div class="pricecell"><span class="amt">$767.45</span></div>
+          </div>
         </div>
         <div class="barcode"><svg id="bc"></svg></div>
       </div>

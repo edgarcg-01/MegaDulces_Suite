@@ -74,19 +74,26 @@
               id="username"
               type="text"
               formControlName="username"
-              placeholder="Nombre de usuario"
+              (input)="onUsernameInput()"
+              placeholder="nombre de usuario"
               autocomplete="username"
               autocapitalize="none"
               autocorrect="off"
               spellcheck="false"
               inputmode="text"
               enterkeyhint="next"
-              class="w-full bg-surface-hover/50 border-2 border-divider rounded-xl px-4 py-3 text-sm sm:text-base font-medium text-center text-content-main focus:outline-none focus:border-content-muted focus:bg-surface-card transition-all duration-200 placeholder:text-content-faint"
+              aria-describedby="username-hint"
+              class="w-full lowercase bg-surface-hover/50 border-2 border-divider rounded-xl px-4 py-3 text-sm sm:text-base font-medium text-center text-content-main focus:outline-none focus:border-content-muted focus:bg-surface-card transition-all duration-200 placeholder:text-content-faint placeholder:normal-case"
               [ngClass]="{'border-bad-fg focus:border-bad-fg': loginForm.get('username')?.invalid && loginForm.get('username')?.touched}">
-            <p *ngIf="loginForm.get('username')?.invalid && loginForm.get('username')?.touched"
+            <p *ngIf="loginForm.get('username')?.invalid && loginForm.get('username')?.touched; else usernameHint"
                class="text-xs text-bad-fg mt-1 font-medium">
               El usuario es requerido
             </p>
+            <ng-template #usernameHint>
+              <p id="username-hint" class="text-xs text-content-faint mt-1">
+                Solo minúsculas
+              </p>
+            </ng-template>
           </div>
 
           <!-- Password Input - Modern rounded style -->

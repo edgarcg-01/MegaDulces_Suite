@@ -82,8 +82,10 @@ export interface LabelModel {
     .etq-pieza::before,.etq-pieza::after{ content:""; width:7mm; height:.9mm; flex:none;
       background:repeating-linear-gradient(90deg, var(--yellow) 0 2.8mm, transparent 2.8mm 4.6mm); }
     .etq-right{ width:55mm; min-height:0; display:flex; flex-direction:column; }
+    /* Los tiers se centran como grupo → 1 o 4 renglones siempre lucen balanceados (no flotan arriba). */
+    .etq-tiers{ flex:1; min-height:0; display:flex; flex-direction:column; justify-content:center; gap:1.2mm; }
     .etq-tier{ position:relative; display:grid; grid-template-columns:1fr auto; align-items:center;
-      column-gap:2mm; padding:.3mm 0; flex:1; min-height:0; }
+      column-gap:2mm; padding:.6mm 0; min-height:0; }
     .etq-tier::before{ content:""; position:absolute; top:0; left:0; right:0; height:.28mm;
       background:repeating-linear-gradient(90deg, var(--green) 0 .32mm, transparent .32mm .6mm); }
     .etq-tier:first-child::before{ display:none; }

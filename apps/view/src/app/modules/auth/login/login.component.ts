@@ -37,6 +37,16 @@ export class LoginComponent implements OnInit {
     this.themeService.toggleMonochrome();
   }
 
+  // Los usuarios del sistema son siempre minúsculas. Coercionamos el valor real
+  // del control (no solo visual) para que un usuario que escriba mayúsculas no
+  // falle el login por un mismatch invisible.
+  onUsernameInput() {
+    const ctrl = this.loginForm.get('username');
+    const v = ctrl?.value ?? '';
+    const lower = v.toLowerCase();
+    if (v !== lower) ctrl?.setValue(lower);
+  }
+
   onSubmit() {
     if (this.loginForm.invalid) {
       this.loginForm.markAllAsTouched();
@@ -53,7 +63,7 @@ export class LoginComponent implements OnInit {
     this.authService
       .loginMt({
         tenant_slug: 'mega_dulces',
-        username: this.loginForm.value.username!,
+        username: this.loginForm.value.username!.trim().toLowerCase(),
         password: this.loginForm.value.password!,
       })
       .subscribe({
