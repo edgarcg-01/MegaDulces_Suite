@@ -918,6 +918,40 @@ Capas:
 
 ---
 
+## ADR-031 — Wincaja (POS Access 97): landing schema separado `wincaja.*` + crosswalk, NO merge
+
+**Fecha:** 2026-07-13 · **Estado:** Aceptado (OK de Edgar 2026-07-13) · **En curso (Fase W)** · Hereda ADR-010 (multi-tenant) y el patrón landing/reconciliación de ADR-029 (SM).
+
+**Contexto:** Sucursales de Mega Dulces corren un POS distinto a Kepler: **Wincaja**, en **Access 97 (Jet 3.5)**, un `.mdb` por sucursal. Copias "Concentrada" viven en `.245` en `D:\Salidas\Bases\Concentradas` (accesibles desde el hub como `Z:\...`). 70 tablas con nombres limpios en español (`Articulos`, `Clientes`, `MovimientoClientes`, `MaestroMovAlmacen`/`DetallesMovAlmacen`, `PagosDia`, `Arqueos`, …) — esquema totalmente distinto al ofuscado `kd**/cN` de Kepler → **son dos software distintos**, no dos vistas del mismo.
+
+Feasibilidad verificada (2026-07-13): ACE 12/16 rechazan el formato 97 ("base creada con versión anterior"); **`Microsoft.Jet.OLEDB.4.0` en proceso 32-bit** (`C:\Windows\SysWOW64\WindowsPowerShell`) abre los 4 `.mdb` reales read-only sin instalar nada. Sucursales: `10 PHIDALGO`, `30 MORELIA ABASTOS`, `32 MORELIA MADERO`, `50 CANINDO` (las de 2 MB son stubs inactivos).
+
+**Hecho decisivo:** son las **mismas sucursales físicas** que Kepler (`10 PHIDALGO`=`md_01`=`MD-10`="Padre Hidalgo"), pero con **relación asimétrica**: Kepler es el sistema primario y Wincaja queda atrás **excepto `30 MORELIA ABASTOS` y `50 CANINDO`, que HOY siguen operando en Wincaja** (movimientos hasta 30/06/2026; `10 PHIDALGO` congelada en 31/05/2026 = ya migró a Kepler). O sea: para 30/50 Wincaja es la **fuente viva y única** — esas sucursales hoy están **ciegas** en la plataforma (no aparecen en Command Center/Maat/RA porque Kepler no las ve).
+
+**Decisión:** Ingerir Wincaja a un **landing schema separado `wincaja.*`** (espejo 1:1 de las tablas relevantes, cada fila con `tenant_id` + `source_branch` + `imported_at`, RLS forzado, grants `app_runtime`). **Nunca** mezclar en `commercial.*`/`analytics.*` (Kepler) → cada fuente es dueña de sus filas → cero conflicto de duplicidad. Recarga **full por sucursal** (DELETE+INSERT en trx; los `.mdb` son snapshots mensuales "Concentrada", no incrementales) → idempotente por construcción sin depender de PKs naturales perfectas.
+
+Relacionar = **capa de mapeo, no fusión física**: tabla `wincaja.branches` (crosswalk `source_branch` ↔ `kepler_code` ↔ `warehouse_code` + `status`) + crosswalk de artículo/cliente por `CodigoBarras`/`RFC`/código. Sobre eso:
+- **30/50 (vivas en Wincaja):** un "bridge" alimenta las tablas canónicas que consume la plataforma → esas sucursales dejan de estar ciegas. NO hay duplicación (Kepler no las tiene).
+- **10/32 (ya en Kepler):** import histórico/legacy; el solapamiento se vuelve **conciliación de fuentes** (¿cuadra Wincaja vs Kepler?), materia prima para SM (ADR-029) y Maat (ADR-028).
+
+Extracción en **2 etapas** (desacopla la dependencia Jet del load PG): (A) PowerShell 32-bit Jet 4.0 → dump JSONL por tabla; (B) loader Node → UPSERT a `postgres_platform` (mismo patrón que `database/importers/`). Corre en `.245` (disco local, sin leer el `.mdb` vivo sobre SMB).
+
+**Alternativas:**
+- Merge en tablas Kepler (`commercial.*`) — rechazada: corrompe la verdad, imposible saber qué fuente escribió cada fila.
+- Modelo canónico único con columna `source` ahora — rechazada: prematuro, todavía no está probado que "existencia" signifique lo mismo en ambos sistemas.
+- `node-adodb` in-process — evitado: frágil (spawnea cscript 32-bit igual); el dump PS 32-bit ya está probado y deja artefacto auditable.
+
+**Consecuencias:**
+- ✅ 30/50 se vuelven visibles en la plataforma sin tocar Kepler.
+- ✅ Lineage limpio; el solapamiento 10/32 es feature (cuadre), no bug.
+- ⚠️ Cadencia: las "Concentrada" parecen refrescar mensual y van ~2 semanas atrás (max 30/06 al 13/07). Confirmar si hay un `.mdb` "Actual" más fresco para el importer permanente de 30/50.
+- ⚠️ `PagosDia.Hora` es time-only (epoch 1899) → la fecha se resuelve por join a `Cortes`, no directo.
+- ⏸️ Diferido: bridge a canónico para 30/50; conciliación Wincaja↔Kepler para 10/32; write-back Kepler (nunca).
+
+**Plan:** [`FASES/FASE_W_WINCAJA.md`](FASES/FASE_W_WINCAJA.md).
+
+---
+
 ## Cómo agregar un ADR nuevo
 
 1. Copiar `ADR-000` (la plantilla) renombrando al siguiente número correlativo.

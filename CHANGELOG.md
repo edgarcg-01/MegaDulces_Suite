@@ -10,6 +10,13 @@
 
 ## [Unreleased]
 
+### Added — Fase W: ingesta del POS Wincaja (Access 97) a `wincaja.*` (2026-07-13)
+- **ADR-031.** Sucursales de Mega Dulces corren un POS distinto a Kepler — **Wincaja**, en **Access 97 (Jet 3.5)**, un `.mdb` por sucursal (Concentradas en `.245`: `D:\Salidas\Bases\Concentradas`). Feasibilidad verificada: ACE 12/16 rechazan el formato 97; abre `Microsoft.Jet.OLEDB.4.0` **32-bit** read-only, sin instalar nada.
+- **Hecho clave:** mismas sucursales físicas que Kepler, pero `30 MORELIA ABASTOS` y `50 CANINDO` **siguen vivas en Wincaja** (Kepler no las ve → hoy están ciegas en la plataforma). `10 PHIDALGO` congelada 31/05/2026 (migró a Kepler md_01). Traer 30/50 = cobertura nueva, **no duplicación**.
+- **Decisión:** landing schema separado `wincaja.*` (21 tablas espejo, RLS forzado, `tenant_id` + `source_branch`) + crosswalk `wincaja.branches`. **Nunca** merge en `commercial.*`/`analytics.*`. Recarga full por sucursal = idempotente. El solapamiento 10/32 se vuelve conciliación Wincaja↔Kepler (feature).
+- **Importer 2 etapas** (`database/importers/wincaja/`): (A) `extract-table.ps1` PowerShell 32-bit + Jet 4.0 → JSONL; (B) `import-wincaja.js` Node → dedupe last-wins + recarga full con `SET LOCAL app.tenant_id`. Numéricos = `numeric` sin precisión (bronze acepta la fuente tal cual, incl. `CostoPromedio` corrupto 2.29e16). CLI `--branch <10|30|32|50|all> --domain <catalogo|cartera|compras|caja|ventas|ref|all> --apply`.
+- **Migración `20260713120000_wincaja_landing_schema`** aplicada local. **Pendiente prod:** migración a Railway + agendar importer en `.245` (LAN) + confirmar cadencia real de las Concentradas.
+
 ### Added — Agrupamiento por área de roles y usuarios en /admin (2026-07-11)
 - **`/admin/roles`:** el grid de roles ahora se agrupa en secciones por área (Sistemas, Mercadotecnia, Compras, … + "Externos" y "Otros/heredados"), con header por área y conteo.
 - **`/admin/users`:** la tabla (desktop, `rowGroupMode` subheader) y las cards (mobile, secciones) se agrupan por el área del rol de cada usuario.
