@@ -76,3 +76,8 @@ database/importers/kepler/service.env
 # Logs y wrapper del servicio (node-windows).
 database/importers/kepler/logs/
 database/importers/kepler/daemon/
+
+# Fase W — config real del sync Wincaja (contiene la URL de prod Railway) + logs.
+# Se versiona solo sync.local.env.example.
+database/importers/wincaja/sync.local.env
+database/importers/wincaja/logs/

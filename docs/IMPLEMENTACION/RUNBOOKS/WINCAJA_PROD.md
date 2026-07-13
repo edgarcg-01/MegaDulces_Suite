@@ -80,6 +80,27 @@ SELECT w.code, count(*) FROM commercial.stock st JOIN commercial.warehouses w ON
  WHERE w.code IN ('MD-30','MD-32','MD-50') GROUP BY 1;
 ```
 
+## Sync automático del dataset `actual` (vivo)
+
+On-prem (esta máquina tiene `Z:` → `\\192.168.0.245\D` + PowerShell 32-bit Jet). **No** corre en Railway (el cron NestJS no alcanza la LAN).
+
+**Wrapper:** [`database/importers/wincaja/sync-wincaja-actual.ps1`](../../../database/importers/wincaja/sync-wincaja-actual.ps1) — corre bronze `actual` + los 2 feeds gold + REFRESH de la MV, con log en `database/importers/wincaja/logs/`.
+
+**Setup (una vez):**
+1. `cp sync.local.env.example sync.local.env` y poné la URL de PROD en `DATABASE_URL_NEW` (gitignored).
+2. Para que corra **sin sesión interactiva**, usá rutas UNC en `sync.local.env` (`Z:` no existe en sesión no-interactiva):
+   ```
+   WINCAJA_ACTUALES=\\192.168.0.245\D\Salidas\Bases\Actuales
+   WINCAJA_CONCENTRADAS=\\192.168.0.245\D\Salidas\Bases\Concentradas
+   ```
+3. Registrar la tarea (diaria 05:00). Para correr aunque no haya sesión iniciada, agregá `/RU <usuario> /RP <password>`:
+   ```
+   schtasks /Create /TN "WincajaSyncActual" /SC DAILY /ST 05:00 /F ^
+     /TR "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"C:\Users\Sistemas\CascadeProjects\Trade_marketing\database\importers\wincaja\sync-wincaja-actual.ps1\""
+   ```
+
+**Correr manual:** `powershell -File database\importers\wincaja\sync-wincaja-actual.ps1`. Idempotente (recarga full).
+
 ## Rollback
 
 - Gold: `DELETE FROM analytics.sales_daily WHERE channel='wincaja'` + re-feed Kepler; stock se re-sincroniza con el snapshot nocturno de Kepler (no aplica a 30/32/50, que no tienen Kepler → borrar manual si se quiere).
