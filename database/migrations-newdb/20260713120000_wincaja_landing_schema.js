@@ -1,4 +1,4 @@
-/**
+﻿/**
  * W.0 - Landing schema `wincaja.*` para el POS Access 97 (Wincaja). ADR-031.
  *
  * Espejo 1:1 (bronze) de las tablas relevantes del .mdb por sucursal. Cada fila
@@ -45,6 +45,7 @@ const num = (t, name) => t.specificType(name, 'numeric');
 function stamp(t) {
   t.uuid('tenant_id').notNullable();
   t.text('source_branch').notNullable();
+  t.text('source_dataset').notNullable().defaultTo('actual'); // actual | concentrada
   t.specificType('imported_at', 'timestamptz').notNullable().defaultTo(knexRef.fn.now());
 }
 
@@ -72,10 +73,14 @@ exports.up = async function (knex) {
     });
     await createTenantRls(knex, 'branches');
     await knex('wincaja.branches').insert([
-      { tenant_id: TENANT, source_branch: '10', branch_name: 'PADRE HIDALGO', kepler_code: '01', warehouse_code: 'MD-10', status: 'legacy_on_kepler', mdb_file: '10 PHIDALGO.MDB', notes: 'Congelada 31/05/2026, migro a Kepler md_01' },
-      { tenant_id: TENANT, source_branch: '30', branch_name: 'MORELIA ABASTOS', kepler_code: null, warehouse_code: 'MD-30', status: 'live_on_wincaja', mdb_file: '30 MORELIA ABASTOS.mdb', notes: 'Viva en Wincaja (mov. a 30/06/2026)' },
-      { tenant_id: TENANT, source_branch: '32', branch_name: 'MORELIA MADERO', kepler_code: null, warehouse_code: 'MD-32', status: 'transition', mdb_file: '32 MORELIA MADERO.MDB', notes: 'Datos a 30/06/2026' },
-      { tenant_id: TENANT, source_branch: '50', branch_name: 'CANINDO', kepler_code: null, warehouse_code: 'MD-50', status: 'live_on_wincaja', mdb_file: '50 CANINDO.MDB', notes: 'Viva en Wincaja (mov. a 30/06/2026)' },
+      { tenant_id: TENANT, source_branch: '00', branch_name: 'BPIRAPUATO', kepler_code: '00', warehouse_code: 'MD-00', status: 'live_on_wincaja', mdb_file: '0 BPIRAPUATO MOV.MDB', notes: 'CEDIS/bodegon Irapuato; datos completos en el archivo MOV' },
+      { tenant_id: TENANT, source_branch: '10', branch_name: 'PADRE HIDALGO', kepler_code: '01', warehouse_code: 'MD-10', status: 'transition', mdb_file: '10 PHIDALGO.MDB', notes: 'Kepler md_01; Wincaja concentrada 31/05, actual 26/06' },
+      { tenant_id: TENANT, source_branch: '30', branch_name: 'MORELIA ABASTOS', kepler_code: null, warehouse_code: 'MD-30', status: 'live_on_wincaja', mdb_file: '30 MORELIA ABASTOS.MDB', notes: 'Viva en Wincaja (mov. a 12/07/2026); no en Kepler' },
+      { tenant_id: TENANT, source_branch: '32', branch_name: 'MORELIA MADERO', kepler_code: null, warehouse_code: 'MD-32', status: 'live_on_wincaja', mdb_file: '32 MORELIA MADERO.MDB', notes: 'Viva en Wincaja (mov. a 12/07/2026); no en Kepler' },
+      { tenant_id: TENANT, source_branch: '40', branch_name: '8 ESQUINAS', kepler_code: '03', warehouse_code: 'MD-40', status: 'legacy_on_kepler', mdb_file: '40 8ESQUINAS.MDB', notes: 'Kepler md_03; Wincaja ultimo mov 08/01/2026' },
+      { tenant_id: TENANT, source_branch: '44', branch_name: 'YURECUARO', kepler_code: '04', warehouse_code: 'MD-44', status: 'legacy_on_kepler', mdb_file: '44 YURECUARO.MDB', notes: 'Kepler md_04; Wincaja ultimo mov 17/02/2026' },
+      { tenant_id: TENANT, source_branch: '50', branch_name: 'CANINDO', kepler_code: null, warehouse_code: 'MD-50', status: 'live_on_wincaja', mdb_file: '50 CANINDO.MDB', notes: 'Viva en Wincaja (mov. a 12/07/2026); no en Kepler' },
+      { tenant_id: TENANT, source_branch: '54', branch_name: 'ZAMORA CENTRO', kepler_code: '05', warehouse_code: 'MD-54', status: 'legacy_on_kepler', mdb_file: '54 ZAMORA CENTRO.MDB', notes: 'Kepler md_05; Wincaja ultimo mov 15/03/2026' },
     ]);
   }
 
@@ -86,7 +91,7 @@ exports.up = async function (knex) {
       t.text('familia').notNullable();
       t.text('descripcion');
       ts(t, 'fecha_alta'); ts(t, 'fecha_ult_mod');
-      t.primary(['tenant_id', 'source_branch', 'familia']);
+      t.primary(['tenant_id', 'source_branch', 'source_dataset', 'familia']);
     });
     await createTenantRls(knex, 'familias');
   }
@@ -98,7 +103,7 @@ exports.up = async function (knex) {
       t.text('descripcion');
       t.text('familia');
       ts(t, 'fecha_alta'); ts(t, 'fecha_ult_mod');
-      t.primary(['tenant_id', 'source_branch', 'subfamilia']);
+      t.primary(['tenant_id', 'source_branch', 'source_dataset', 'subfamilia']);
     });
     await createTenantRls(knex, 'subfamilias');
   }
@@ -120,7 +125,7 @@ exports.up = async function (knex) {
       num(t, 'venta_valor_anual'); num(t, 'venta_unidad_anual');
       t.text('tipo');
       ts(t, 'fecha_alta'); ts(t, 'fecha_ult_mod');
-      t.primary(['tenant_id', 'source_branch', 'articulo']);
+      t.primary(['tenant_id', 'source_branch', 'source_dataset', 'articulo']);
     });
     await knex.raw(`CREATE INDEX ix_wcj_art_barras ON wincaja.articulos (tenant_id, codigo_barras)`);
     await knex.raw(`CREATE INDEX ix_wcj_art_subfam ON wincaja.articulos (tenant_id, source_branch, subfamilia)`);
@@ -135,7 +140,7 @@ exports.up = async function (knex) {
       num(t, 'precio'); num(t, 'cantidad_automatico');
       num(t, 'margen_utilidad'); num(t, 'margen_costo_promedio'); num(t, 'comision_vendedor');
       ts(t, 'fecha_ult_mod');
-      t.primary(['tenant_id', 'source_branch', 'articulo', 'no_precio']);
+      t.primary(['tenant_id', 'source_branch', 'source_dataset', 'articulo', 'no_precio']);
     });
     await createTenantRls(knex, 'precios');
   }
@@ -152,7 +157,7 @@ exports.up = async function (knex) {
       num(t, 'costo_existencia'); num(t, 'costo_promedio'); num(t, 'ultimo_costo');
       num(t, 'apartado');
       ts(t, 'fecha_ult_compra'); ts(t, 'fecha_ult_venta');
-      t.primary(['tenant_id', 'source_branch', 'almacen', 'articulo']);
+      t.primary(['tenant_id', 'source_branch', 'source_dataset', 'almacen', 'articulo']);
     });
     await createTenantRls(knex, 'existencias');
   }
@@ -166,7 +171,7 @@ exports.up = async function (knex) {
       num(t, 'costo');
       t.integer('prioridad');
       ts(t, 'fecha_ult_compra');
-      t.primary(['tenant_id', 'source_branch', 'articulo', 'proveedor']);
+      t.primary(['tenant_id', 'source_branch', 'source_dataset', 'articulo', 'proveedor']);
     });
     await createTenantRls(knex, 'articulo_proveedor');
   }
@@ -184,7 +189,7 @@ exports.up = async function (knex) {
       num(t, 'puntos_acumulados');
       t.text('territorio'); t.boolean('bloqueado');
       ts(t, 'fecha_alta'); ts(t, 'fecha_ult_mod');
-      t.primary(['tenant_id', 'source_branch', 'cliente']);
+      t.primary(['tenant_id', 'source_branch', 'source_dataset', 'cliente']);
     });
     await knex.raw(`CREATE INDEX ix_wcj_cli_rfc ON wincaja.clientes (tenant_id, rfc)`);
     await createTenantRls(knex, 'clientes');
@@ -202,7 +207,7 @@ exports.up = async function (knex) {
       t.text('moneda'); num(t, 'paridad');
       num(t, 'comision_generada'); num(t, 'comision_pendiente');
       t.text('almacen'); t.text('observaciones'); ts(t, 'fecha_captura');
-      t.primary(['tenant_id', 'source_branch', 'documento', 'tipo']);
+      t.primary(['tenant_id', 'source_branch', 'source_dataset', 'documento', 'tipo']);
     });
     await knex.raw(`CREATE INDEX ix_wcj_movcli_tercero ON wincaja.movimiento_clientes (tenant_id, source_branch, tercero)`);
     await knex.raw(`CREATE INDEX ix_wcj_movcli_fecha ON wincaja.movimiento_clientes (tenant_id, source_branch, fecha)`);
@@ -218,7 +223,7 @@ exports.up = async function (knex) {
       num(t, 'saldo_mn'); num(t, 'limite_credito_mn');
       t.text('tipo');
       ts(t, 'fecha_alta'); ts(t, 'fecha_ult_mod');
-      t.primary(['tenant_id', 'source_branch', 'proveedor']);
+      t.primary(['tenant_id', 'source_branch', 'source_dataset', 'proveedor']);
     });
     await createTenantRls(knex, 'proveedores');
   }
@@ -232,7 +237,7 @@ exports.up = async function (knex) {
       ts(t, 'fecha'); ts(t, 'fecha_vencimiento');
       num(t, 'valor'); num(t, 'descuento'); num(t, 'iva'); num(t, 'ieps'); num(t, 'saldo');
       t.text('moneda'); t.text('almacen'); t.text('observaciones'); ts(t, 'fecha_captura');
-      t.primary(['tenant_id', 'source_branch', 'documento', 'tipo']);
+      t.primary(['tenant_id', 'source_branch', 'source_dataset', 'documento', 'tipo']);
     });
     await createTenantRls(knex, 'movimiento_proveedores');
   }
@@ -246,7 +251,7 @@ exports.up = async function (knex) {
       t.text('codigo_proveedor');
       num(t, 'cantidad_pedida'); num(t, 'cantidad_surtida'); num(t, 'costo_pedido'); num(t, 'ultimo_costo_surtido');
       t.text('almacen'); t.text('emitio'); t.text('autorizo'); t.text('moneda');
-      t.primary(['tenant_id', 'source_branch', 'consecutivo', 'articulo']);
+      t.primary(['tenant_id', 'source_branch', 'source_dataset', 'consecutivo', 'articulo']);
     });
     await createTenantRls(knex, 'ordenes_compra');
   }
@@ -259,7 +264,7 @@ exports.up = async function (knex) {
       t.text('descripcion');
       t.boolean('credito'); t.boolean('tarjeta_credito'); t.boolean('vale_interno');
       num(t, 'paridad');
-      t.primary(['tenant_id', 'source_branch', 'forma_pago']);
+      t.primary(['tenant_id', 'source_branch', 'source_dataset', 'forma_pago']);
     });
     await createTenantRls(knex, 'formas_pago');
   }
@@ -274,7 +279,7 @@ exports.up = async function (knex) {
       num(t, 'paridad');
       t.text('caja'); t.boolean('cobranza');
       num(t, 'propina');
-      t.primary(['tenant_id', 'source_branch', 'consecutivo']);
+      t.primary(['tenant_id', 'source_branch', 'source_dataset', 'consecutivo']);
     });
     await knex.raw(`CREATE INDEX ix_wcj_pagos_folio ON wincaja.pagos_dia (tenant_id, source_branch, folio)`);
     await createTenantRls(knex, 'pagos_dia');
@@ -292,7 +297,7 @@ exports.up = async function (knex) {
       t.text('folio_inicial_movto'); t.text('folio_final_movto');
       t.integer('canceladas'); num(t, 'monto_canceladas');
       t.integer('eliminadas'); num(t, 'monto_eliminadas');
-      t.primary(['tenant_id', 'source_branch', 'folio', 'caja']);
+      t.primary(['tenant_id', 'source_branch', 'source_dataset', 'folio', 'caja']);
     });
     await knex.raw(`CREATE INDEX ix_wcj_cortes_fecha ON wincaja.cortes (tenant_id, source_branch, fecha_corte)`);
     await createTenantRls(knex, 'cortes');
@@ -305,7 +310,7 @@ exports.up = async function (knex) {
       t.text('folio'); t.text('caja');
       num(t, 'denominacion').notNullable();
       num(t, 'cantidad');
-      t.primary(['tenant_id', 'source_branch', 'consecutivo', 'denominacion']);
+      t.primary(['tenant_id', 'source_branch', 'source_dataset', 'consecutivo', 'denominacion']);
     });
     await knex.raw(`CREATE INDEX ix_wcj_arq_folio ON wincaja.arqueos (tenant_id, source_branch, folio)`);
     await createTenantRls(knex, 'arqueos');
@@ -321,7 +326,7 @@ exports.up = async function (knex) {
       t.text('forma_de_pago'); t.text('moneda'); t.text('cajero');
       t.boolean('incremento'); t.boolean('dotacion_inicial'); t.boolean('por_diferencia_corte');
       t.text('observacion');
-      t.primary(['tenant_id', 'source_branch', 'folio', 'caja']);
+      t.primary(['tenant_id', 'source_branch', 'source_dataset', 'folio', 'caja']);
     });
     await createTenantRls(knex, 'retiros');
   }
@@ -336,7 +341,7 @@ exports.up = async function (knex) {
       t.text('almacen'); t.text('moneda'); num(t, 'paridad');
       t.text('caja'); t.text('cajero'); t.text('vendedor');
       t.boolean('cancelado'); t.text('observaciones'); ts(t, 'fecha_captura');
-      t.primary(['tenant_id', 'source_branch', 'consecutivo']);
+      t.primary(['tenant_id', 'source_branch', 'source_dataset', 'consecutivo']);
     });
     await knex.raw(`CREATE INDEX ix_wcj_maestro_fecha ON wincaja.maestro_mov_almacen (tenant_id, source_branch, fecha)`);
     await knex.raw(`CREATE INDEX ix_wcj_maestro_tipo ON wincaja.maestro_mov_almacen (tenant_id, source_branch, tipo)`);
@@ -348,6 +353,7 @@ exports.up = async function (knex) {
       t.bigIncrements('id');
       t.uuid('tenant_id').notNullable();
       t.text('source_branch').notNullable();
+      t.text('source_dataset').notNullable().defaultTo('actual');
       t.specificType('imported_at', 'timestamptz').notNullable().defaultTo(knex.fn.now());
       t.text('consecutivo').notNullable();
       t.text('articulo').notNullable();
@@ -357,7 +363,7 @@ exports.up = async function (knex) {
       num(t, 'descuento1'); num(t, 'descuento2');
       t.text('tipo_precio'); t.text('unidad_venta');
     });
-    await knex.raw(`CREATE INDEX ix_wcj_det_join ON wincaja.detalles_mov_almacen (tenant_id, source_branch, consecutivo)`);
+    await knex.raw(`CREATE INDEX ix_wcj_det_join ON wincaja.detalles_mov_almacen (tenant_id, source_branch, source_dataset, consecutivo)`);
     await knex.raw(`CREATE INDEX ix_wcj_det_art ON wincaja.detalles_mov_almacen (tenant_id, source_branch, articulo)`);
     await createTenantRls(knex, 'detalles_mov_almacen');
   }
@@ -369,7 +375,7 @@ exports.up = async function (knex) {
       t.text('vendedor').notNullable();
       t.text('nombre');
       num(t, 'comision');
-      t.primary(['tenant_id', 'source_branch', 'vendedor']);
+      t.primary(['tenant_id', 'source_branch', 'source_dataset', 'vendedor']);
     });
     await createTenantRls(knex, 'vendedores');
   }
@@ -384,7 +390,7 @@ exports.up = async function (knex) {
       ts(t, 'fecha_inicial'); ts(t, 'fecha_final');
       num(t, 'limite'); num(t, 'remanente');
       t.text('id_oferta'); t.boolean('no_caduca');
-      t.primary(['tenant_id', 'source_branch', 'consecutivo']);
+      t.primary(['tenant_id', 'source_branch', 'source_dataset', 'consecutivo']);
     });
     await knex.raw(`CREATE INDEX ix_wcj_ofertas_art ON wincaja.ofertas (tenant_id, source_branch, articulo)`);
     await createTenantRls(knex, 'ofertas');

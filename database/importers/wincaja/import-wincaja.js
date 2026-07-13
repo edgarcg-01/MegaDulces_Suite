@@ -1,21 +1,24 @@
 /**
- * W.1 — Importer Wincaja (POS Access 97) → landing `wincaja.*`. ADR-031 / Fase W.
+ * W.1 - Importer Wincaja (POS Access 97) -> landing `wincaja.*`. ADR-031 / Fase W.
  *
- * 2 etapas por (sucursal, tabla):
- *   (A) extract-table.ps1 en PROCESO 32-BIT (Jet 4.0) → JSONL temporal.
- *   (B) load: parse JSONL → coerción → RECARGA FULL (DELETE por source_branch +
- *       INSERT chunked) dentro de una trx, con SET LOCAL app.tenant_id (pasa FORCE RLS).
+ * 2 etapas por (sucursal, dataset, tabla):
+ *   (A) extract-table.ps1 en PROCESO 32-BIT (Jet 4.0) -> JSONL temporal.
+ *   (B) load: parse JSONL -> coercion -> dedupe last-wins por PK -> RECARGA FULL
+ *       (DELETE por source_branch+source_dataset + INSERT chunked) en una trx,
+ *       con SET LOCAL app.tenant_id (pasa FORCE RLS).
  *
- * Recarga full = idempotente (los .mdb "Concentrada" son snapshots, no incrementales).
+ * DOS carpetas / datasets (deciden Edgar 2026-07-13):
+ *   - `actual`      = Z:\Salidas\Bases\Actuales      (vivo, periodo corriente; las 7-8 tiendas)
+ *   - `concentrada` = Z:\Salidas\Bases\Concentradas  (historico consolidado; solo 10/30/32/50)
+ * Coexisten via columna source_dataset (parte del PK) => no se pisan.
+ *
+ * Recarga full = idempotente (los .mdb son snapshots, no incrementales).
  *
  * Uso (desde database/):
- *   node importers/wincaja/import-wincaja.js --branch 30 --domain catalogo        # dry-run
- *   node importers/wincaja/import-wincaja.js --branch 30 --domain catalogo --apply
- *   node importers/wincaja/import-wincaja.js --branch all --domain all --apply
+ *   node importers/wincaja/import-wincaja.js --branch 30 --domain catalogo --dataset actual
+ *   node importers/wincaja/import-wincaja.js --branch all --domain all --dataset both --apply
  *
- * Env:
- *   WINCAJA_DIR   carpeta de los .mdb (default Z:\Salidas\Bases\Concentradas)
- *   DATABASE_URL_NEW  destino (si ausente, usa knexfile-newdb development)
+ * Env: WINCAJA_ACTUALES, WINCAJA_CONCENTRADAS (rutas), DATABASE_URL_NEW (destino).
  */
 'use strict';
 const path = require('path');
@@ -29,20 +32,43 @@ const arg = (k, d) => { const i = process.argv.indexOf(`--${k}`); return i >= 0 
 const APPLY = process.argv.includes('--apply');
 const BRANCH = arg('branch', '30');
 const DOMAIN = arg('domain', 'catalogo');
+const DATASET = arg('dataset', 'both'); // actual | concentrada | both
 const TENANT = process.env.WINCAJA_TENANT_ID || '00000000-0000-0000-0000-00000000d01c';
-const WINCAJA_DIR = process.env.WINCAJA_DIR || 'Z:\\Salidas\\Bases\\Concentradas';
 const PS32 = 'C:\\Windows\\SysWOW64\\WindowsPowerShell\\v1.0\\powershell.exe';
 const EXTRACT = path.join(__dirname, 'extract-table.ps1');
 
-// sucursales vivas/relevantes → archivo .mdb (los stubs de 2MB se ignoran)
-const BRANCH_FILES = {
-  '10': '10 PHIDALGO.MDB',
-  '30': '30 MORELIA ABASTOS.mdb',
-  '32': '32 MORELIA MADERO.MDB',
-  '50': '50 CANINDO.MDB',
+const FOLDERS = {
+  actual: process.env.WINCAJA_ACTUALES || 'Z:\\Salidas\\Bases\\Actuales',
+  concentrada: process.env.WINCAJA_CONCENTRADAS || 'Z:\\Salidas\\Bases\\Concentradas',
 };
 
-// tipos: t=text n=numeric i=int b=bool ts=timestamp
+// 8 sucursales pobladas (42 PIEDAD queda fuera: vacia). `prefix` = numero al inicio
+// del archivo; `mov` = usar el archivo "... MOV" (BPIRAPUATO parte masters+movs ahi).
+const BRANCHES = [
+  { code: '00', prefix: '0', mov: true, name: 'BPIRAPUATO' },
+  { code: '10', prefix: '10', name: 'PADRE HIDALGO' },
+  { code: '30', prefix: '30', name: 'MORELIA ABASTOS' },
+  { code: '32', prefix: '32', name: 'MORELIA MADERO' },
+  { code: '40', prefix: '40', name: '8 ESQUINAS' },
+  { code: '44', prefix: '44', name: 'YURECUARO' },
+  { code: '50', prefix: '50', name: 'CANINDO' },
+  { code: '54', prefix: '54', name: 'ZAMORA CENTRO' },
+];
+
+// resuelve el .mdb de una sucursal dentro de una carpeta (case-insensitive, evita RUTA)
+function resolveFile(dir, br) {
+  let files;
+  try { files = fs.readdirSync(dir); } catch { return null; }
+  const cands = files.filter((f) => {
+    const U = f.toUpperCase();
+    if (!U.endsWith('.MDB')) return false;
+    if (!U.startsWith(br.prefix + ' ')) return false;
+    if (/RUTA/.test(U)) return false;
+    return br.mov ? /MOV/.test(U) : !/ MOV/.test(U);
+  });
+  return cands.length ? path.join(dir, cands[0]) : null;
+}
+
 const S = (pg, access, cols, opts = {}) => ({ pg, access, cols, ...opts });
 const DOMAINS = {
   catalogo: [
@@ -79,8 +105,7 @@ const DOMAINS = {
   ],
 };
 
-// PK natural por tabla (para onConflict.merge → tolera dups intra-fuente, last-wins).
-// Las que no aparecen (detalles_mov_almacen) usan surrogate → insert plano.
+// PK natural por tabla (onConflict.merge + dedupe last-wins). detalles = surrogate.
 const PK = {
   familias: ['familia'], subfamilias: ['subfamilia'], articulos: ['articulo'],
   precios: ['articulo', 'no_precio'], existencias: ['almacen', 'articulo'],
@@ -107,7 +132,7 @@ function extract(mdb, accessTable, cols) {
   const out = path.join(os.tmpdir(), `wincaja_${accessTable}_${process.pid}.jsonl`);
   const colList = cols.map((c) => `[${c[1]}]`).join(', ');
   const res = spawnSync(PS32, ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', EXTRACT, '-Mdb', mdb, '-Table', accessTable, '-Out', out, '-Columns', colList], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
-  if (res.status !== 0) throw new Error(`extract ${accessTable} falló: ${(res.stderr || res.stdout || '').slice(0, 400)}`);
+  if (res.status !== 0) throw new Error(`extract ${accessTable}: ${(res.stderr || res.stdout || '').slice(0, 300)}`);
   const m = /ROWS=(\d+)/.exec(res.stdout || '');
   return { out, rows: m ? parseInt(m[1], 10) : null };
 }
@@ -123,37 +148,34 @@ function loadJsonl(file, spec) {
   });
 }
 
-async function reload(db, branch, spec, rows) {
+async function reload(db, branch, dataset, spec, rows) {
   const pk = PK[spec.pg];
-  const conflict = pk ? ['tenant_id', 'source_branch', ...pk] : null;
+  const conflict = pk ? ['tenant_id', 'source_branch', 'source_dataset', ...pk] : null;
   let data = rows;
-  let dropped = 0;
   if (pk) {
-    // dedupe por PK natural (last-wins): la fuente repite claves (ej. Productos
-    // con (articulo,proveedor) duplicado) y un INSERT no puede tocar la misma
-    // clave 2 veces. Recarga full => quedarse con la última ocurrencia es correcto.
     const m = new Map();
     for (const r of rows) m.set(pk.map((k) => r[k]).join(''), r);
-    dropped = rows.length - m.size;
     data = [...m.values()];
   }
   await db.transaction(async (trx) => {
     await trx.raw(`SET LOCAL app.tenant_id = '${TENANT}'`);
-    await trx(`wincaja.${spec.pg}`).where({ tenant_id: TENANT, source_branch: branch }).del();
-    const stamped = data.map((r) => ({ tenant_id: TENANT, source_branch: branch, ...r }));
+    await trx(`wincaja.${spec.pg}`).where({ tenant_id: TENANT, source_branch: branch, source_dataset: dataset }).del();
+    const stamped = data.map((r) => ({ tenant_id: TENANT, source_branch: branch, source_dataset: dataset, ...r }));
     for (let i = 0; i < stamped.length; i += 500) {
       const chunk = stamped.slice(i, i + 500);
       const q = trx(`wincaja.${spec.pg}`).insert(chunk);
       await (conflict ? q.onConflict(conflict).merge() : q);
     }
   });
-  return dropped;
+  return data.length;
 }
 
 (async () => {
-  const branches = BRANCH === 'all' ? Object.keys(BRANCH_FILES) : [BRANCH];
+  const wantBranches = BRANCH === 'all' ? BRANCHES : BRANCHES.filter((b) => b.code === BRANCH);
+  const datasets = DATASET === 'both' ? ['actual', 'concentrada'] : [DATASET];
   const domains = DOMAIN === 'all' ? Object.keys(DOMAINS) : [DOMAIN];
   const specs = domains.flatMap((d) => DOMAINS[d] || []);
+  if (!wantBranches.length) { console.error(`Sucursal desconocida: ${BRANCH}. Opciones: ${BRANCHES.map((b) => b.code).join(', ')}, all`); process.exit(1); }
   if (!specs.length) { console.error(`Dominio desconocido: ${DOMAIN}. Opciones: ${Object.keys(DOMAINS).join(', ')}, all`); process.exit(1); }
 
   let db = null;
@@ -164,26 +186,27 @@ async function reload(db, branch, spec, rows) {
     db = knexLib(cfg);
   }
 
-  for (const branch of branches) {
-    const file = BRANCH_FILES[branch];
-    if (!file) { console.warn(`suc ${branch}: sin archivo mapeado, skip`); continue; }
-    const mdb = path.join(WINCAJA_DIR, file);
-    if (!fs.existsSync(mdb)) { console.warn(`suc ${branch}: no existe ${mdb}, skip`); continue; }
-    console.log(`\n═══ Sucursal ${branch} (${file}) ═══`);
-    for (const spec of specs) {
-      const t0 = Date.now();
-      try {
-        const { out, rows } = extract(mdb, spec.access, spec.cols);
-        const data = loadJsonl(out, spec);
-        fs.unlinkSync(out);
-        if (APPLY) await reload(db, branch, spec, data);
-        const ms = Date.now() - t0;
-        console.log(`  ${spec.access.padEnd(22)} → wincaja.${spec.pg.padEnd(22)} ${String(data.length).padStart(7)} filas ${APPLY ? '✅' : '(dry)'} ${ms}ms`);
-      } catch (e) {
-        console.error(`  ${spec.access}: ERROR ${e.message}`);
+  for (const dataset of datasets) {
+    const dir = FOLDERS[dataset];
+    console.log(`\n########## DATASET=${dataset}  (${dir}) ##########`);
+    for (const br of wantBranches) {
+      const mdb = resolveFile(dir, br);
+      if (!mdb) { console.warn(`  suc ${br.code} (${br.name}): sin .mdb en ${dataset}, skip`); continue; }
+      console.log(`\n=== suc ${br.code} ${br.name} :: ${path.basename(mdb)} ===`);
+      for (const spec of specs) {
+        const t0 = Date.now();
+        try {
+          const { out } = extract(mdb, spec.access, spec.cols);
+          const rows = loadJsonl(out, spec);
+          fs.unlinkSync(out);
+          const n = APPLY ? await reload(db, br.code, dataset, spec, rows) : rows.length;
+          console.log(`  ${spec.access.padEnd(22)} -> ${spec.pg.padEnd(22)} ${String(n).padStart(7)} ${APPLY ? 'OK' : '(dry)'} ${Date.now() - t0}ms`);
+        } catch (e) {
+          console.error(`  ${spec.access}: ERROR ${String(e.message).slice(0, 120)}`);
+        }
       }
     }
   }
   if (db) await db.destroy();
-  if (!APPLY) console.log('\n(dry-run — usar --apply para escribir a wincaja.*)');
+  if (!APPLY) console.log('\n(dry-run - usar --apply para escribir a wincaja.*)');
 })().catch((e) => { console.error(e); process.exit(1); });

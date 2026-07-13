@@ -12,11 +12,12 @@
 | Hecho | Detalle |
 |---|---|
 | Formato | Access 97 (Jet 3.5). ACE 12/16 lo **rechazan**. Abre `Microsoft.Jet.OLEDB.4.0` **32-bit**, read-only. |
-| Ubicación | `.245` → `D:\Salidas\Bases\Concentradas\*.mdb` (= `Z:\...` desde el hub). |
-| Sucursales reales | `10 PHIDALGO` (201 MB), `30 MORELIA ABASTOS` (239 MB), `32 MORELIA MADERO` (115 MB), `50 CANINDO` (141 MB). Las de 2 MB (00/40/42/44/54) = stubs inactivos. |
-| Relación con Kepler | Mismas sucursales físicas. **Kepler primario**; Wincaja legacy **excepto 30 y 50 que siguen vivas** en Wincaja. `10` congelada 31/05/2026 (ya en Kepler); `30/32/50` con datos a 30/06/2026. |
-| Cadencia | "Concentrada" parece snapshot mensual, ~2 semanas de atraso. Confirmar `.mdb` "Actual" más fresco para 30/50. |
-| Escala (por sucursal) | `DetallesMovAlmacen` ~296k, `MovimientoClientes` ~66–154k, `PagosDia` ~100–175k, `Precios` ~89k, `Articulos`/`Existencias` ~15k. |
+| Ubicación | `.245` → `D:\Salidas\Bases\` (= `Z:\...` desde el hub). **Dos carpetas:** `Actuales` (vivo, período corriente) + `Concentradas` (histórico consolidado). |
+| Sucursales (8 pobladas) | `00 BPIRAPUATO` (archivo `MOV`), `10 PHIDALGO`, `30 MORELIA ABASTOS`, `32 MORELIA MADERO`, `40 8ESQUINAS`, `44 YURECUARO`, `50 CANINDO`, `54 ZAMORA CENTRO`. `42 PIEDAD` = vacía → fuera. (Pendiente confirmar con Edgar cuál de las 8 no es "sucursal" para el conteo de 7 — prob. BPIRAPUATO = CEDIS.) |
+| Datasets | `Actuales` tiene las 8 (catálogo+existencias+caja al día, movs del período). `Concentradas` solo consolidó **10/30/32/50**. Coexisten vía columna **`source_dataset`** (parte del PK). |
+| Relación con Kepler | Mismas sucursales físicas. **Kepler primario**; Wincaja vivo en `00/30/32/50` (movs julio); `40/44/54` último mov ene-mar (ya en Kepler → `md_03/04/05`); `10` a fin de junio (`md_01`). Las que Kepler no ve (30/32/50) hoy están ciegas en la plataforma. |
+| Cadencia | `Actuales` diario; `Concentradas` mensual. Confirmar con Edgar. |
+| Escala | `DetallesMovAlmacen` hasta ~940k (concentrada 30), `Precios` ~89k, `Articulos`/`Existencias` ~15k por sucursal-dataset. |
 
 **Método de lectura probado:**
 ```powershell
