@@ -452,6 +452,16 @@ export class LayoutComponent implements OnInit, OnDestroy {
     if (this.currentProject() === 'tienda') {
       return this.dedupeByRoute(this.tiendaNavItems.filter((i) => this.hasPermFor(i)));
     }
+    // Almacén / Logística: superficies operativas con nav propio. Un rol operativo
+    // (p.ej. `compras`, encargado de almacén) NO tiene REPORTES_VER_EQUIPO/GLOBAL,
+    // así que sin este early-return caía en el gate `!fullDashboard` de abajo y el
+    // sidebar quedaba vacío. Cada item se filtra por su permiso (COMMERCIAL_INVENTORY_*, etc.).
+    if (this.currentProject() === 'almacen') {
+      return this.dedupeByRoute(this.almacenNavItems.filter((i) => this.hasPermFor(i)));
+    }
+    if (this.currentProject() === 'logistica') {
+      return this.dedupeByRoute(this.logisticaNavItems.filter((i) => this.hasPermFor(i)));
+    }
     // Colaborador restringido (sin reportes de equipo/global): solo captura diaria.
     const legacy = user.permissions;
     const fullDashboard =
@@ -502,6 +512,14 @@ export class LayoutComponent implements OnInit, OnDestroy {
     }
     if (this.currentProject() === 'compras') {
       return [{ title: 'Compras', items: this.dedupeByRoute(this.comprasNavItems) }];
+    }
+    if (this.currentProject() === 'almacen') {
+      return [{ title: 'Almacén', items: this.dedupeByRoute(this.almacenNavItems.filter((i) => this.hasPermFor(i))) }]
+        .filter((g) => g.items.length > 0);
+    }
+    if (this.currentProject() === 'logistica') {
+      return [{ title: 'Logística', items: this.dedupeByRoute(this.logisticaNavItems.filter((i) => this.hasPermFor(i))) }]
+        .filter((g) => g.items.length > 0);
     }
     if (this.currentProject() === 'comercial') {
       return this.comercialNavGroups
