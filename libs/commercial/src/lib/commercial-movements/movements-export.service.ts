@@ -213,7 +213,7 @@ export class MovementsExportService {
       row.getCell(3).font = { name: 'Consolas', size: 9, color: { argb: C.ink } };
       row.getCell(4).alignment = { horizontal: 'center' };
       row.getCell(5).numFmt = '#,##0';
-      row.getCell(6).numFmt = '#,##0;[Red]-#,##0';
+      row.getCell(6).numFmt = '#,##0.00;[Red]-#,##0.00';
       row.getCell(7).numFmt = '"$"#,##0.00';
       this.sevCell(row.getCell(8), d.transfer_status);
       const aud = row.getCell(9);
@@ -240,7 +240,7 @@ export class MovementsExportService {
       cell.border = { top: { style: 'medium', color: { argb: C.dark } } };
     });
     tot.getCell(5).numFmt = '#,##0';
-    tot.getCell(6).numFmt = '#,##0;[Red]-#,##0';
+    tot.getCell(6).numFmt = '#,##0.00;[Red]-#,##0.00';
     tot.getCell(7).numFmt = '"$"#,##0.00';
     if (data.truncated) {
       const n = ws.addRow([`Listado truncado a ${data.docs.length.toLocaleString('es-MX')} documentos — acotá el rango o los filtros para el detalle completo.`]);
@@ -285,10 +285,10 @@ export class MovementsExportService {
       row.getCell(7).font = { name: 'Consolas', size: 9, color: { argb: C.ink } };
       row.getCell(4).numFmt = 'dd/mm/yyyy';
       row.getCell(8).numFmt = 'dd/mm/yyyy';
-      row.getCell(5).numFmt = '#,##0';
-      row.getCell(9).numFmt = '#,##0';
+      row.getCell(5).numFmt = '#,##0.00';
+      row.getCell(9).numFmt = '#,##0.00';
       const delta = row.getCell(10);
-      delta.numFmt = '+#,##0;-#,##0;"—"';
+      delta.numFmt = '+#,##0.00;-#,##0.00;"—"';
       if (Number(r.delta)) delta.font = { size: 10, bold: true, color: { argb: C.badFg } };
     }
     if (!data.transfers.length) {
@@ -333,7 +333,8 @@ export class MovementsExportService {
   private buildHtml(data: MovementsExportData): string {
     const esc = (s: any) => String(s ?? '').replace(/[&<>"]/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[m] as string));
     const money = (n: number, dec = 0) => (Number(n) || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: dec, minimumFractionDigits: dec });
-    const num = (n: any) => (n == null || n === '' ? '—' : Number(n).toLocaleString('es-MX', { maximumFractionDigits: 0 }));
+    // hasta 2 decimales: hay cantidades fraccionarias (KG); los enteros se muestran limpios
+    const num = (n: any) => (n == null || n === '' ? '—' : Number(n).toLocaleString('es-MX', { maximumFractionDigits: 2 }));
     const dmy = (d: any) => {
       const s = this.fmtDate(d);
       return s ? `${s.slice(8, 10)}/${s.slice(5, 7)}/${s.slice(2, 4)}` : '—';

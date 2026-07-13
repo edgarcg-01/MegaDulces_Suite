@@ -36,14 +36,14 @@ Reporte server-side de Kepler (páginas `.kpl` sirviéndose de `192.168.x`; **el
 | Fecha | `kdm1.c9` | fecha del documento |
 | (encadenado al padre) | `kdm1.c37`+`c39` | grupo+folio del doc padre (back-pointer de la cadena) |
 
-Líneas `kdm2` (FK compuesta `c1,c2,c3,c4,c6` → `kdm1`): `c8`=SKU · `c9`=cantidad · `c11`=presentación · `c12`=valor a costo.
+Líneas `kdm2` (FK compuesta `c1,c2,c3,c4,c6` → `kdm1`): `c8`=SKU · `c9`=cantidad (puede ser fraccionaria: KG) · `c10`=descripción · `c11`=presentación (`SER`=línea de servicio, no producto) · **`c12`=precio/costo UNITARIO** · **`c13`=IMPORTE de la línea** (`c13 = c9×c12`, verificado 100% en 18 tipos × 4 sucursales 2026-07-13). ⚠️ NO usar `c12` como importe — ese error subvaluó el feed DM (caso XA40 `0000179`: $147 vs $24,100.97 real). `c55/c56/c57/c58` = unidad alterna (presentación/factor/costo por bulto).
 
 **Folio Kepler = `[Género][Naturaleza][Tipo][Serie]-[Folio]`.** Ej. reales: `XA2001-0000065` (Entrada, X+A+20+serie01), `XD4001-0000101` (Devolución compra crédito, X+D+40). Cada documento genera su póliza contable (ver [`KEPLER_CONTABILIDAD_MODELO.md`](KEPLER_CONTABILIDAD_MODELO.md)). Cadena de compras: `X-A-35 → 37 → 40 → 20` (misma lógica que `import-in-transit.js`).
 
 ### Áreas de mejora (vs. lo que construiríamos como feed `analytics.stock_movements` + endpoint + página Operations)
 
 1. **Integridad.** Sin **saldo corrido** (no es kardex real: falta `existencia_antes → ±mov → existencia_después`); sin **cuadre contra `kdil`** (drift silencioso — cf. bug `kdil.c9`); **réplicas cross-sucursal** no advertidas (doble conteo); **cadena rota** invisible (OC sin recepción, vale huérfano); **signo ambiguo** (deriva de `c2+c3+c4` → normalizar a cantidad con signo).
-2. **Valor analítico.** Sin **valorización** (piezas sin $, aunque `kdm2.c12`=valor a costo está disponible); sin **agregaciones** (totales por producto/tipo/proveedor/día); sin **detección de anomalías** (ajustes atípicos, salidas sin venta); sin dimensión temporal/tendencia.
+2. **Valor analítico.** Sin **valorización** (piezas sin $, aunque `kdm2.c13`=importe de línea está disponible); sin **agregaciones** (totales por producto/tipo/proveedor/día); sin **detección de anomalías** (ajustes atípicos, salidas sin venta); sin dimensión temporal/tendencia.
 3. **UX.** Códigos crípticos (`U/X/N`, `D/A`) sin labels legibles; rango de fechas único sin presets; sin consolidado multi-sucursal; output HTML estático (no ordenar/filtrar/buscar/drill); sin configuraciones guardadas.
 4. **Performance.** `NOT EXISTS` anidado sobre `kdm1/kdm2` sin índice compuesto `(c1,c2,c3,c4,c6)`; réplicas inflan scans; HTML monolítico sin virtualización.
 5. **Integración.** Solo HTML/impresión — **sin CSV/JSON, sin API**, sin tiempo real. No alimenta BI ni se automatiza.
@@ -78,7 +78,7 @@ Kepler registra ajustes de inventario con documentos de tipo (tabla `doctype`):
 - **`InvIn` / `InvIn1`** (`NA2002`, nature N/A) = entrada (sobrante).
 - **`InvOut` / `InvOut1`** (`ND0502`, nature N/D) = salida (merma).
 - Header `kdm1`: c1=sucursal, c2='N' (nature inventario), c3=A/D (dirección), c4=tipo, c6=folio, c9=fecha.
-- Líneas `kdm2`: c8=SKU, c9=cantidad, c11=presentación, c12=valor a costo.
+- Líneas `kdm2`: c8=SKU, c9=cantidad, c11=presentación, c12=costo unitario, c13=importe de línea.
 
 **Mapeo Fase I → Kepler** (endpoint `GET /commercial/inventory/counts/:id/kepler-export`, gate RECONCILIAR):
 - Sucursal = código del almacén `KEPLER-NN` → `NN`.

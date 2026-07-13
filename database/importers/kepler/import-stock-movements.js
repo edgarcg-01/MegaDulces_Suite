@@ -175,7 +175,8 @@ async function loadDoctypeMap(src, schema) {
               AND (h.c2, h.c3, (h.c4)::int) IN (${tuples})
           )
           SELECT hh.c2 g, hh.c3 nat, hh.c4 tipo, hh.serie, hh.c6 folio, hh.doc_date,
-                 hh.c37 pgrp, hh.pserie, hh.c39 pfol, l.c8 sku, l.c9::numeric qty, l.c12::numeric val
+                 hh.c37 pgrp, hh.pserie, hh.c39 pfol, l.c8 sku, l.c9::numeric qty,
+                 l.c12::numeric unit_val, l.c13::numeric total_val
           FROM hh
           JOIN ${schema}.kdm2 l ON l.c1=hh.c1 AND l.c2=hh.c2 AND l.c3=hh.c3 AND l.c4=hh.c4 AND l.c6=hh.c6
           WHERE coalesce(l.c11,'') <> 'SER'  -- líneas de SERVICIO (fletes, "VENTAS AL 0%") no son producto`;
@@ -191,11 +192,14 @@ async function loadDoctypeMap(src, schema) {
           if (!pid) unmatched++;
           const qty = Math.abs(Number(r.qty) || 0);
           if (qty === 0) continue;
-          const val = Math.abs(Number(r.val) || 0);
+          // kdm2: c12 = precio/costo UNITARIO, c13 = IMPORTE de la línea (c13 = c9×c12,
+          // verificado 100% en 18 tipos × 4 sucursales 2026-07-13). NO usar c12 como importe.
+          const unit = Math.abs(Number(r.unit_val) || 0);
+          const total = Math.abs(Number(r.total_val) || 0) || (unit ? unit * qty : 0);
           staged.push([
             warehouseId, pid, r.sku || null, r.doc_date, r.g, r.nat, String(r.tipo), r.serie || null, info.code,
             info.dir > 0 ? 'entrada' : 'salida', info.label, r.folio,
-            info.dir * qty, qty, val ? val / qty : null, val || null,
+            info.dir * qty, qty, unit || (total ? total / qty : null), total || null,
             r.pgrp || null, r.pserie || null, r.pfol || null, suc,
           ]);
           matched++; lines++;
@@ -203,7 +207,7 @@ async function loadDoctypeMap(src, schema) {
 
         if (!sampleShown && staged.length) {
           console.log(`  muestra ${m.code}:`);
-          for (const s of staged.slice(0, 4)) console.log(`    ${s[2].toISOString?.().slice(0,10)||s[2]} ${s[10].padEnd(20)} folio=${s[11]} qty=${s[13]} signed=${s[12]} costo/u=${s[14]?Number(s[13]).toFixed(2):'-'}`);
+          for (const s of staged.slice(0, 4)) console.log(`    ${s[2].toISOString?.().slice(0,10)||s[2]} ${s[10].padEnd(20)} folio=${s[11]} qty=${s[13]} signed=${s[12]} costo/u=${s[14]?Number(s[14]).toFixed(2):'-'} importe=${s[15]?Number(s[15]).toFixed(2):'-'}`);
           sampleShown = true;
         }
 

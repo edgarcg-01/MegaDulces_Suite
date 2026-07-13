@@ -42,8 +42,8 @@ import { Permission } from '../../../core/constants/permissions';
         <div class="dm-head-right">
           @if (summary(); as s) {
             <div class="dm-strip">
-              <span class="up">+{{ s.totals.entradas | number:'1.0-0' }}</span> entradas ·
-              <span class="down">−{{ absN(s.totals.salidas) | number:'1.0-0' }}</span> salidas ·
+              <span class="up">+{{ s.totals.entradas | number:'1.0-2' }}</span> entradas ·
+              <span class="down">−{{ absN(s.totals.salidas) | number:'1.0-2' }}</span> salidas ·
               <span class="dm-strong">{{ money(s.totals.valor) }}</span> · {{ s.totals.documentos | number }} docs
             </div>
           }
@@ -100,8 +100,8 @@ import { Permission } from '../../../core/constants/permissions';
                         [icon]="expanded ? 'pi pi-chevron-down' : 'pi pi-chevron-right'"></button></td>
             <td class="dm-strong">{{ dayLabel(day.key) }}</td>
             <td class="dm-r dm-muted">{{ day.documentos | number }}</td>
-            <td class="dm-r up">{{ day.entradas ? ('+' + (day.entradas | number:'1.0-0')) : '—' }}</td>
-            <td class="dm-r down">{{ day.salidas ? ('−' + (absN(day.salidas) | number:'1.0-0')) : '—' }}</td>
+            <td class="dm-r up">{{ day.entradas ? ('+' + (day.entradas | number:'1.0-2')) : '—' }}</td>
+            <td class="dm-r down">{{ day.salidas ? ('−' + (absN(day.salidas) | number:'1.0-2')) : '—' }}</td>
             <td class="dm-r dm-strong">{{ money(day.valor || 0) }}</td>
           </tr>
         </ng-template>
@@ -121,7 +121,7 @@ import { Permission } from '../../../core/constants/permissions';
                         <td class="dm-mono dm-link">{{ l.folio }}</td>
                         <td class="dm-mono dm-muted">{{ l.warehouse_code || l.source_branch }}</td>
                         <td class="dm-r dm-muted">{{ l.lineas | number }}</td>
-                        <td class="dm-r" [class.up]="l.signed_qty>0" [class.down]="l.signed_qty<0">{{ l.signed_qty | number:'1.0-0' }}</td>
+                        <td class="dm-r" [class.up]="l.signed_qty>0" [class.down]="l.signed_qty<0">{{ l.signed_qty | number:'1.0-2' }}</td>
                         <td class="dm-r dm-strong">{{ l.amount != null ? money(l.amount) : '—' }}</td>
                         <td>
                           @if (l.transfer_status) {
@@ -184,8 +184,8 @@ import { Permission } from '../../../core/constants/permissions';
             <div class="dm-cp" [class.cp-ok]="cp.status === 'ok'" [class.cp-warn]="cp.status === 'diferencia'" [class.cp-bad]="cp.status === 'sin_recepcion' || cp.status === 'sin_origen'">
               <i class="pi" [class.pi-check-circle]="cp.status === 'ok'" [class.pi-exclamation-triangle]="cp.status === 'diferencia'" [class.pi-clock]="cp.status === 'sin_recepcion' || cp.status === 'sin_origen'"></i>
               <strong>{{ cpTitle(cp.status) }}</strong>
-              <span>Enviadas {{ absN(doc()!.totals.qty) | number:'1.0-0' }} · Recibidas {{ cp.qty | number:'1.0-0' }}</span>
-              @if (cp.status === 'diferencia') { <span class="dm-strong">Δ {{ cp.delta > 0 ? '+' : '' }}{{ cp.delta | number:'1.0-0' }} pzs</span> }
+              <span>Enviadas {{ absN(doc()!.totals.qty) | number:'1.0-2' }} · Recibidas {{ cp.qty | number:'1.0-2' }}</span>
+              @if (cp.status === 'diferencia') { <span class="dm-strong">Δ {{ cp.delta > 0 ? '+' : '' }}{{ cp.delta | number:'1.0-2' }} pzs</span> }
             </div>
           }
 
@@ -235,12 +235,12 @@ import { Permission } from '../../../core/constants/permissions';
           <tr>
             <td class="dm-mono">{{ l.sku }}</td>
             <td class="dm-dname" [title]="l.product_name">{{ l.product_name || '—' }}</td>
-            <td class="dm-r" [class.up]="l.signed_qty>0" [class.down]="l.signed_qty<0">{{ l.signed_qty | number:'1.0-0' }}</td>
+            <td class="dm-r" [class.up]="l.signed_qty>0" [class.down]="l.signed_qty<0">{{ l.signed_qty | number:'1.0-2' }}</td>
             <td class="dm-r dm-strong">{{ l.amount != null ? money(l.amount) : '—' }}</td>
           </tr>
         </ng-template>
       </p-table>
-      <div class="dm-col-foot">{{ totals.lineas | number }} líneas · Neto <strong [class.up]="totals.qty>0" [class.down]="totals.qty<0">{{ totals.qty | number:'1.0-0' }}</strong> · {{ money(totals.amount) }}</div>
+      <div class="dm-col-foot">{{ totals.lineas | number }} líneas · Neto <strong [class.up]="totals.qty>0" [class.down]="totals.qty<0">{{ totals.qty | number:'1.0-2' }}</strong> · {{ money(totals.amount) }}</div>
     </ng-template>
   `,
   styles: [`
