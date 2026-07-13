@@ -63,6 +63,14 @@ exports.up = async function (knex) {
       ON p.tenant_id = m.tenant_id AND p.sku = d.articulo AND p.deleted_at IS NULL
     WHERE d.tipo = 'V'
       AND COALESCE(m.cancelado, false) = false
+      -- excluir traspasos: ventas cuyo tercero es una cuenta interna (ALMAC%),
+      -- no un cliente real. Inflaban la venta ~15-19% en 30/50.
+      AND NOT EXISTS (
+        SELECT 1 FROM wincaja.clientes cli
+        WHERE cli.tenant_id = m.tenant_id AND cli.source_branch = m.source_branch
+          AND cli.source_dataset = m.source_dataset AND cli.cliente = m.tercero
+          AND cli.nombre ILIKE 'ALMAC%'
+      )
       AND (
         m.source_dataset = 'concentrada'
         OR c.conc_max IS NULL
