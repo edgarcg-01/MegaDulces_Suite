@@ -46,6 +46,10 @@
 - **Verificación:** smoke `test-newdb-purchase-chain.js` **21/21** (en la regression); builds api+view OK.
 - **Diferido:** vale `X-A-37` + CxP `X-A-20` (→ PaymentsService, Fase LM); auto-received por matching contra `X-A-40`; espejar traspaso género `N`. **Pendiente prod:** aplicar mig a Railway + redeploy api+view + re-login.
 
+### Added — Diario de movimientos: export a Excel y PDF (DM.6) (2026-07-13)
+- `GET /commercial/movements/export.{xlsx,pdf}` (mismos filtros que la vista: rango, almacenes, tipo, dirección, estado, búsqueda). **Excel** = 2 hojas: "Documentos" (folios englobados con estado de traspaso + auditoría, cap 5,000) y "Traspasos" (validación salida↔recepción con Δ). **PDF** = KPIs + ambas tablas (cap 1,200 docs, nota al truncar). Patrón SellOutExport (ExcelJS + puppeteer). Botones Excel/PDF en el header de `/almacen/movimientos`.
+- **Tope de tránsito 15 días en el pareo** (medido: 99.4% de los pareos exactos ≤11d): coincidencias de folio con docs de semanas atrás ya no generan "diferencia" fantasma → clasifican "sin origen". Calidad final: **308/316 exactos (97.5%), 8 diferencias reales** (patrón detectado: la sucursal 05 recibe sistemáticamente más de lo que CEDIS documenta; faltante 120 pzs CEDIS→03 folio 0000190 validado contra crudo).
+
 ### Fixed — Diario de movimientos: pareo con guard de fechas + líneas sin catálogo (DM.5) (2026-07-13)
 - **Caso real reportado (folio 0000227):** la UI pareaba la recepción `0000102@03` (07-08) con el `0000227` del **CEDIS (07-13)** — imposible físicamente; el origen verdadero era el `0000227` de la **sucursal 01 (07-07)**, colisión de folios entre sucursales. Validado contra crudo: suc01 1,124 pzs = 1,124 recibidas, **0 SKUs con diferencia**.
 - **Fix 1 — guard de fechas:** la recepción nunca es anterior a la salida (`ship.doc_date <= rcv.doc_date`) en los 4 puntos del pareo (transfersCheck LATERAL + unreceived + counterpart del documento + estado por fila). El CEDIS 0000227 ahora clasifica **En tránsito**.

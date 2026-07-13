@@ -39,13 +39,19 @@ import { Permission } from '../../../core/constants/permissions';
           <h1>Diario de movimientos</h1>
           <p class="surf-page-sub">Movimientos de inventario por día. Abrí un día para ver sus documentos y auditarlos.</p>
         </div>
-        @if (summary(); as s) {
-          <div class="dm-strip">
-            <span class="up">+{{ s.totals.entradas | number:'1.0-0' }}</span> entradas ·
-            <span class="down">−{{ absN(s.totals.salidas) | number:'1.0-0' }}</span> salidas ·
-            <span class="dm-strong">{{ money(s.totals.valor) }}</span> · {{ s.totals.documentos | number }} docs
-          </div>
-        }
+        <div class="dm-head-right">
+          @if (summary(); as s) {
+            <div class="dm-strip">
+              <span class="up">+{{ s.totals.entradas | number:'1.0-0' }}</span> entradas ·
+              <span class="down">−{{ absN(s.totals.salidas) | number:'1.0-0' }}</span> salidas ·
+              <span class="dm-strong">{{ money(s.totals.valor) }}</span> · {{ s.totals.documentos | number }} docs
+            </div>
+          }
+          <button pButton type="button" class="p-button-sm p-button-outlined" icon="pi pi-file-excel" label="Excel"
+                  [loading]="dlXlsx()" (click)="download('xlsx')" title="Documentos + validación de traspasos (filtros actuales)"></button>
+          <button pButton type="button" class="p-button-sm p-button-outlined" icon="pi pi-file-pdf" label="PDF"
+                  [loading]="dlPdf()" (click)="download('pdf')" title="Documentos + validación de traspasos (filtros actuales)"></button>
+        </div>
       </header>
 
       <!-- Filtros -->
@@ -239,6 +245,7 @@ import { Permission } from '../../../core/constants/permissions';
   `,
   styles: [`
     :host { display: block; }
+    .dm-head-right { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
     .dm-strip { font-size: .82rem; color: var(--text-muted); white-space: nowrap; }
     .dm-strip .up { color: var(--ok-fg); font-weight: 600; } .dm-strip .down { color: var(--bad-fg); font-weight: 600; }
     .dm-strip .dm-strong { color: var(--text-main); font-weight: 700; }
@@ -342,6 +349,30 @@ export class AlmacenMovimientosComponent implements OnInit {
   doc = signal<DocumentResponse | null>(null);
   cpLoading = signal(false);
   cpDoc = signal<DocumentResponse | null>(null);
+
+  // DM.6 — export XLSX/PDF
+  dlXlsx = signal(false);
+  dlPdf = signal(false);
+
+  /** Descarga el reporte (Documentos + Validación de traspasos) con los filtros actuales. */
+  download(format: 'xlsx' | 'pdf'): void {
+    const flag = format === 'xlsx' ? this.dlXlsx : this.dlPdf;
+    flag.set(true);
+    this.api.downloadExport(this.currentFilters(), format)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (resp) => {
+          flag.set(false);
+          const cd = resp.headers.get('content-disposition') || '';
+          const m = /filename\*=UTF-8''([^;]+)/i.exec(cd);
+          const name = m ? decodeURIComponent(m[1]) : `Diario de movimientos.${format}`;
+          const url = URL.createObjectURL(resp.body!);
+          const a = document.createElement('a'); a.href = url; a.download = name; a.click();
+          URL.revokeObjectURL(url);
+        },
+        error: () => flag.set(false),
+      });
+  }
 
   ngOnInit(): void {
     this.api.filters().pipe(takeUntilDestroyed(this.destroyRef)).subscribe((f: MovementsFilterOpts) => {

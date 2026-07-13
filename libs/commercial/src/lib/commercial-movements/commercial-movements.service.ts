@@ -247,7 +247,7 @@ export class CommercialMovementsService {
       for (const s of ships) {
         const sd = new Date(s.doc_date).getTime();
         const mine = cands.filter((c: any) => c.pf === s.folio && c.ps === (s.doc_serie ?? '') && c.wh !== s.warehouse_id
-          && new Date(c.d).getTime() >= sd); // recepción nunca anterior a la salida
+          && new Date(c.d).getTime() >= sd && new Date(c.d).getTime() <= sd + 15 * 864e5); // recepción ≥ salida, tope 15d
         const best = near(mine, Number(s.qty), s.doc_date);
         s.transfer_status = !best ? 'en_transito' : Math.abs(Number(best.q) - Number(s.qty)) < 0.01 ? 'completado' : 'diferencia';
       }
@@ -263,7 +263,7 @@ export class CommercialMovementsService {
         if (r.parent_group !== '41' || !r.parent_folio) { r.transfer_status = 'diferencia'; continue; }
         const rd = new Date(r.doc_date).getTime();
         const mine = cands.filter((c: any) => c.f === r.parent_folio && c.s === (r.parent_serie ?? '') && c.wh !== r.warehouse_id
-          && new Date(c.d).getTime() <= rd); // la salida debe ser anterior o igual a la recepción
+          && new Date(c.d).getTime() <= rd && new Date(c.d).getTime() >= rd - 15 * 864e5); // salida ≤ recepción, tope 15d
         const best = near(mine, Number(r.qty), r.doc_date);
         r.transfer_status = !best ? 'diferencia' : Math.abs(Number(best.q) - Number(r.qty)) < 0.01 ? 'completado' : 'diferencia';
       }
@@ -348,8 +348,10 @@ export class CommercialMovementsService {
           .where('m.tenant_id', tenantId).andWhere('m.doc_code', docCode)
           .andWhere(`m.${folioCol}`, folioVal)
           .andWhereRaw(`coalesce(m.${serieCol},'') = coalesce(?, '')`, [serieVal])
-          // física: recepción nunca anterior a la salida (folios colisionan entre sucursales)
-          .andWhereRaw(docCode === 'TrsfRcv' ? `m.doc_date >= ?::date` : `m.doc_date <= ?::date`, [h.doc_date])
+          // física: recepción nunca anterior a la salida + tope de tránsito 15d (folios colisionan entre sucursales)
+          .andWhereRaw(docCode === 'TrsfRcv'
+            ? `m.doc_date >= ?::date AND m.doc_date <= ?::date + 15`
+            : `m.doc_date <= ?::date AND m.doc_date >= ?::date - 15`, [h.doc_date, h.doc_date])
           .whereNot('m.warehouse_id', h.warehouse_id ?? p.warehouse_id)
           .leftJoin('commercial.warehouses as w', 'w.id', 'm.warehouse_id')
           .groupBy('m.folio', 'm.warehouse_id', 'w.code')
@@ -415,6 +417,7 @@ export class CommercialMovementsService {
               AND coalesce(s.doc_serie,'') = coalesce(r.parent_serie,'')
               AND s.warehouse_id <> r.warehouse_id
               AND s.doc_date <= r.doc_date  -- física: la recepción nunca es anterior a la salida (folios colisionan entre sucursales)
+              AND s.doc_date >= r.doc_date - 15  -- tope de tránsito 15d (99.4% de los pareos exactos ≤11d); más viejo = coincidencia de folio
             ORDER BY abs(coalesce(s.qty,0) - coalesce(r.qty,0)) ASC, abs(s.doc_date - r.doc_date) ASC
             LIMIT 1
           ) s ON true
@@ -424,7 +427,7 @@ export class CommercialMovementsService {
             SELECT 1 FROM rcv r
             WHERE r.parent_folio = s.folio AND coalesce(r.parent_serie,'') = coalesce(s.doc_serie,'')
               AND r.warehouse_id <> s.warehouse_id
-              AND r.doc_date >= s.doc_date)
+              AND r.doc_date >= s.doc_date AND r.doc_date <= s.doc_date + 15)
         )
         SELECT * FROM (
           SELECT origin_wh_id, origin_wh, origin_folio, doc_serie, ship_date, qty_sent, amount, ship_lines,
@@ -450,6 +453,29 @@ export class CommercialMovementsService {
       for (const r of rows) totals[r.status as keyof typeof totals]++;
       return { range: { from, to }, totals, rows };
     });
+  }
+
+  /** DM.6 — junta todo lo que necesita el export (docs englobados + totales + traspasos). */
+  async exportData(q: MovementsQuery) {
+    const PAGE = 500, MAX_PAGES = 10; // cap 5,000 docs por export
+    const first = await this.lines({ ...q, page: 1, pageSize: PAGE });
+    const docs = [...first.rows];
+    const pages = Math.min(Math.ceil(first.total / PAGE), MAX_PAGES);
+    for (let p = 2; p <= pages; p++) docs.push(...(await this.lines({ ...q, page: p, pageSize: PAGE })).rows);
+    const s = await this.summary(q);
+    const t = await this.transfersCheck(q);
+    return {
+      range: s.range,
+      totals: {
+        entradas: Number(s.totals?.entradas) || 0,
+        salidas: Number(s.totals?.salidas) || 0,
+        valor: Number(s.totals?.valor) || 0,
+        documentos: Number(s.totals?.documentos) || 0,
+      },
+      docs,
+      transfers: t.rows,
+      truncated: first.total > docs.length,
+    };
   }
 
   /** Almacenes + tipos de documento presentes (para los selects del frontend). */

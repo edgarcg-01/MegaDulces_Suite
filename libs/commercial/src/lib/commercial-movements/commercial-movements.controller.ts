@@ -1,7 +1,9 @@
-import { Body, Controller, Get, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Post, Query, Res, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import type { Response } from 'express';
 import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
 import { CommercialMovementsService, MovementsQuery } from './commercial-movements.service';
+import { MovementsExportService } from './movements-export.service';
 
 /**
  * DM.1 — Diario de movimientos (mejora del reporte Kepler). Lectura de inventario.
@@ -12,7 +14,10 @@ import { CommercialMovementsService, MovementsQuery } from './commercial-movemen
 @UseGuards(RolesGuard)
 @Controller('commercial/movements')
 export class CommercialMovementsController {
-  constructor(private readonly svc: CommercialMovementsService) {}
+  constructor(
+    private readonly svc: CommercialMovementsService,
+    private readonly exporter: MovementsExportService,
+  ) {}
 
   private q(raw: Record<string, string | undefined>): MovementsQuery {
     return {
@@ -58,6 +63,35 @@ export class CommercialMovementsController {
   @RequirePermissions(Permission.COMMERCIAL_INVENTORY_VER)
   @ApiOperation({ summary: 'DM.3 — Validación de traspasos: parea salida (UD41) ↔ recepción (UA50) por serie+folio y clasifica ok/diferencia/sin_recepcion/sin_origen.' })
   transfersCheck(@Query() raw: Record<string, string>) { return this.svc.transfersCheck(this.q(raw)); }
+
+  @Get('export.xlsx')
+  @RequirePermissions(Permission.COMMERCIAL_INVENTORY_VER)
+  @ApiOperation({ summary: 'DM.6 — Excel del Diario (hoja Documentos + hoja Validación de traspasos). Mismos filtros que /lines.' })
+  async exportXlsx(@Res() res: Response, @Query() raw: Record<string, string>) {
+    const data = await this.svc.exportData(this.q(raw));
+    const buf = await this.exporter.buildXlsx(data);
+    this.sendFile(res, buf, this.exporter.fileName(data.range, 'xlsx'),
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  }
+
+  @Get('export.pdf')
+  @RequirePermissions(Permission.COMMERCIAL_INVENTORY_VER)
+  @ApiOperation({ summary: 'DM.6 — PDF del Diario (documentos + validación de traspasos). Mismos filtros que /lines.' })
+  async exportPdf(@Res() res: Response, @Query() raw: Record<string, string>) {
+    const data = await this.svc.exportData(this.q(raw));
+    const buf = await this.exporter.buildPdf(data);
+    this.sendFile(res, buf, this.exporter.fileName(data.range, 'pdf'), 'application/pdf');
+  }
+
+  private sendFile(res: Response, buf: Buffer, filename: string, contentType: string) {
+    res.setHeader('Content-Type', contentType);
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${filename.replace(/[^ -~]/g, '_')}"; filename*=UTF-8''${encodeURIComponent(filename)}`,
+    );
+    res.setHeader('Content-Length', String(buf.length));
+    res.end(buf);
+  }
 
   @Get('filters')
   @RequirePermissions(Permission.COMMERCIAL_INVENTORY_VER)
