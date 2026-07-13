@@ -97,11 +97,19 @@ function resolveUnits(slots) {
     console.log(`\n=== Etiquetas Kepler → commercial.product_label_prices (${APPLY ? 'APPLY' : 'DRY-RUN'}) ===`);
     console.log(`  fuente: ${SRC.replace(/:[^:@/]+@/, ':***@')}\n`);
 
-    // Catálogo: sku → product_id
+    // Catálogo: índices por SKU y por BARCODE. El barcode es fallback para productos
+    // que llegaron al catálogo SIN sku (ej. OJILOCOS): Kepler los tiene por SKU pero el
+    // enlace por sku falla, así que los enganchamos por su código de barras (kdii.c7).
     const prods = (await db.query(
-      `SELECT id, sku FROM public.products WHERE tenant_id=$1 AND btrim(coalesce(sku,''))<>''`, [M])).rows;
-    const skuToId = new Map(prods.map((p) => [p.sku, p.id]));
-    console.log(`  catálogo con sku: ${skuToId.size}`);
+      `SELECT id, btrim(coalesce(sku,'')) AS sku, btrim(coalesce(barcode,'')) AS barcode
+         FROM public.products WHERE tenant_id=$1`, [M])).rows;
+    const skuToId = new Map();
+    const bcToId = new Map();
+    for (const p of prods) {
+      if (p.sku) skuToId.set(p.sku, p.id);
+      if (p.barcode && !bcToId.has(p.barcode)) bcToId.set(p.barcode, p.id);
+    }
+    console.log(`  catálogo: ${skuToId.size} con sku · ${bcToId.size} con barcode`);
 
     // Maestro kdii: pieza + los 2 pares (etiqueta, factor, precio) de unidad.
     const kdii = (await src.query(`
@@ -133,7 +141,12 @@ function resolveUnits(slots) {
     let matched = 0, unmatched = 0, noBarcode = 0;
     const staged = [];
     for (const r of kdii) {
-      const pid = skuToId.get(r.sku);
+      // Match por SKU; si no, fallback por barcode (productos sin sku en el catálogo).
+      let pid = skuToId.get(String(r.sku || '').trim());
+      if (!pid) {
+        const bc = String(r.barcode || '').trim();
+        if (bc) pid = bcToId.get(bc);
+      }
       if (!pid) { unmatched++; continue; }
       const w = wholesale.get(r.sku) || {};
       const fmt = barcodeFormat(r.barcode);
