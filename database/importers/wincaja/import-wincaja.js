@@ -102,6 +102,17 @@ const DOMAINS = {
   ref: [
     S('vendedores', 'Vendedores', [['vendedor', 'Vendedor', 't'], ['nombre', 'Nombre', 't'], ['comision', 'Comision', 'n']]),
     S('ofertas', 'Ofertas', [['consecutivo', 'Consecutivo', 't'], ['articulo', 'Articulo', 't'], ['descuento', 'Descuento', 'n'], ['porcentaje', 'Porcentaje', 'n'], ['nivel_precio', 'NivelPrecio', 'i'], ['fecha_inicial', 'FechaInicial', 'ts'], ['fecha_final', 'FechaFinal', 'ts'], ['limite', 'Limite', 'n'], ['remanente', 'Remanente', 'n'], ['id_oferta', 'ID_OFERTA', 't'], ['no_caduca', 'NoCaduca', 'b']]),
+    S('categorias', 'Categorias', [['categoria', 'Categoria', 't'], ['descripcion', 'Descripcion', 't'], ['ocultar_wm', 'OcultarWM', 'b'], ['fecha_alta', 'FechaAlta', 'ts'], ['fecha_ult_mod', 'FechaUltimaModificacion', 'ts']]),
+    S('almacenes', 'Almacenes', [['almacen', 'Almacen', 't'], ['descripcion', 'Descripcion', 't'], ['fecha_existencia_inicial', 'FechaExistenciaInicial', 'ts']]),
+    S('cajeros', 'Cajeros', [['cajero', 'Cajero', 't'], ['nombre', 'Nombre', 't'], ['nivel_seguridad', 'NivelSeguridad', 'i'], ['caja_actual', 'cajaactual', 't']]),
+  ],
+  prevencion: [
+    S('autorizaciones', 'Autorizaciones', [['autorizo', 'Autorizo', 't'], ['cajero', 'Cajero', 't'], ['fecha', 'Fecha', 'ts'], ['hora', 'Hora', 't'], ['referencia', 'Referencia', 't'], ['caja', 'Caja', 't']], { surrogate: true }),
+  ],
+  cotizaciones: [
+    S('cotizaciones', 'MaestroCotizaciones', [['consecutivo', 'Consecutivo', 't'], ['tipo', 'Tipo', 't'], ['tercero', 'Tercero', 't'], ['referencia', 'Referencia', 't'], ['fecha', 'Fecha', 'ts'], ['hora', 'Hora', 't'], ['almacen', 'Almacen', 't'], ['caja', 'Caja', 't'], ['cajero', 'Cajero', 't'], ['vendedor', 'Vendedor', 't'], ['moneda', 'Moneda', 't'], ['factura_sugerida', 'FacturaSugerida', 't'], ['apartado', 'Apartado', 'b'], ['vendida', 'Vendida', 'b'], ['venta_suspendida', 'VentaSuspendida', 'b'], ['observaciones', 'Observaciones', 't']]),
+    S('cotizacion_lineas', 'DetalleCotizaciones', [['consecutivo', 'Consecutivo', 't'], ['articulo', 'Articulo', 't'], ['cantidad_regular', 'CantidadRegular', 'n'], ['iva', 'IVA', 'n'], ['ieps', 'IEPS', 'n'], ['valor_venta', 'ValorVenta', 'n'], ['descuento1', 'Descuento1', 'n'], ['tipo_precio', 'TipoPrecio', 't'], ['unidad_venta', 'UnidadVenta', 't']], { surrogate: true }),
+    S('faltantes_cotizacion', 'FaltantesDeCotizaciones', [['articulo', 'Articulo', 't'], ['cantidad_regular', 'CantidadRegular', 'n'], ['cliente', 'Cliente', 't'], ['consecutivo', 'Consecutivo', 't'], ['fecha', 'Fecha', 'ts'], ['hora', 'Hora', 't'], ['almacen', 'Almacen', 't'], ['caja', 'Caja', 't'], ['cajero', 'Cajero', 't'], ['vendedor', 'Vendedor', 't'], ['iva', 'IVA', 'n'], ['valor_venta', 'ValorVenta', 'n']], { surrogate: true }),
   ],
 };
 
@@ -116,6 +127,7 @@ const PK = {
   formas_pago: ['forma_pago'], pagos_dia: ['consecutivo'], cortes: ['folio', 'caja'],
   arqueos: ['consecutivo', 'denominacion'], retiros: ['folio', 'caja'],
   maestro_mov_almacen: ['consecutivo'], vendedores: ['vendedor'], ofertas: ['consecutivo'],
+  categorias: ['categoria'], almacenes: ['almacen'], cajeros: ['cajero'], cotizaciones: ['consecutivo'],
 };
 
 function coerce(type, v) {
