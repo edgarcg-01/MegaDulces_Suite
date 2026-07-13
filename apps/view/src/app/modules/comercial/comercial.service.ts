@@ -1148,6 +1148,56 @@ export class ComercialService {
     if (p.max_importe != null) params = params.set('max_importe', String(p.max_importe));
     return params;
   }
+
+  // ── Fase W — Wincaja (POS Access, sucursales ciegas 30/32/50) ──
+  wincajaOverview(): Observable<WincajaBranchKpi[]> {
+    return this.http.get<WincajaBranchKpi[]>(`${this.base}/wincaja/overview`);
+  }
+  wincajaLostDemand(branch?: string, limit = 50): Observable<WincajaLostRow[]> {
+    let params = new HttpParams().set('limit', String(limit));
+    if (branch) params = params.set('branch', branch);
+    return this.http.get<WincajaLostRow[]>(`${this.base}/wincaja/lost-demand`, { params });
+  }
+  wincajaCartera(branch?: string, limit = 100): Observable<WincajaCarteraRow[]> {
+    let params = new HttpParams().set('limit', String(limit));
+    if (branch) params = params.set('branch', branch);
+    return this.http.get<WincajaCarteraRow[]>(`${this.base}/wincaja/cartera`, { params });
+  }
+}
+
+// ── Fase W — Wincaja tipos ──
+export interface WincajaBranchKpi {
+  source_branch: string;
+  branch_name: string;
+  warehouse_code: string;
+  status: string;
+  wincaja_only: boolean;
+  venta_total: number;
+  unidades: number;
+  inventario_valor: number;
+  skus_stock: number;
+  cartera: number;
+  cartera_clientes: number;
+  venta_perdida: number;
+  faltantes: number;
+}
+export interface WincajaLostRow {
+  sku: string;
+  veces: number;
+  importe_perdido: number;
+  qty_faltante: number;
+  in_kepler_catalog: boolean;
+}
+export interface WincajaCarteraRow {
+  source_branch: string;
+  cliente: string;
+  nombre: string;
+  rfc: string | null;
+  vendedor: string | null;
+  saldo: number;
+  limite_credito: number | null;
+  sobre_limite: boolean;
+  bloqueado: boolean;
 }
 
 // ── Fase RS — Sell-Out ──

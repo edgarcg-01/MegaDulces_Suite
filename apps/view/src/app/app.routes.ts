@@ -141,6 +141,11 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.COMMERCIAL_SALIDAS_VER)]
       },
       {
+        path: 'wincaja',
+        loadComponent: () => import('./modules/comercial/pages/comercial-wincaja.component').then(m => m.ComercialWincajaComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_ANALYTICS_VER)]
+      },
+      {
         path: 'ventas-por-ruta',
         loadComponent: () => import('./modules/comercial/pages/comercial-ventas-por-ruta.component').then(m => m.ComercialVentasPorRutaComponent),
         canActivate: [permissionGuard(Permission.COMMERCIAL_ROUTE_SALES_VER)]
