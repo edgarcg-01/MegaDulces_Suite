@@ -51,6 +51,8 @@ export enum Permission {
   // acotada del arqueo del Supervisor de Movimientos (sin el motor de reconciliación).
   STORE_ARQUEO_CAPTURAR = 'STORE_ARQUEO_CAPTURAR',
   STORE_ARQUEO_VER = 'STORE_ARQUEO_VER',
+  // Módulo: Tienda — análisis semanal de venta por sucursal (ISO week, WoW + tendencia)
+  STORE_ANALYTICS_VER = 'STORE_ANALYTICS_VER',
 
   // Módulo: Comercial — Clientes B2B (Fase B)
   COMMERCIAL_CUSTOMERS_VER = 'COMMERCIAL_CUSTOMERS_VER',

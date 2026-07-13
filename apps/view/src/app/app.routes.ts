@@ -422,6 +422,11 @@ export const routes: Routes = [
         loadComponent: () => import('./modules/tienda/pages/tienda-arqueo.component').then(m => m.TiendaArqueoComponent),
         canActivate: [permissionGuard(Permission.STORE_ARQUEO_CAPTURAR)]
       },
+      {
+        path: 'analisis-semanal',
+        loadComponent: () => import('./modules/tienda/pages/tienda-weekly.component').then(m => m.TiendaWeeklyComponent),
+        canActivate: [permissionGuard(Permission.STORE_ANALYTICS_VER)]
+      },
     ]
   },
   {

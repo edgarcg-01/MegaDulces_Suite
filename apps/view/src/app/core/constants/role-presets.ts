@@ -53,7 +53,7 @@ export const MODULE_GROUPS: Record<string, Permission[]> = {
     Permission.COMMERCIAL_VENDOR_SALES_VER,
   ],
   supervisor_ai: [Permission.SUPERVISOR_AI_VER, Permission.SUPERVISOR_AI_APROBAR],
-  tienda: [Permission.STORE_LIVE_VER, Permission.STORE_LABELS_VER, Permission.STORE_ARQUEO_CAPTURAR, Permission.STORE_ARQUEO_VER],
+  tienda: [Permission.STORE_LIVE_VER, Permission.STORE_LABELS_VER, Permission.STORE_ARQUEO_CAPTURAR, Permission.STORE_ARQUEO_VER, Permission.STORE_ANALYTICS_VER],
   comercial: [
     Permission.COMMERCIAL_CUSTOMERS_VER,
     Permission.COMMERCIAL_CUSTOMERS_GESTIONAR,

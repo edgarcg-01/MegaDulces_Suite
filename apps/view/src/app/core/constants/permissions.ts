@@ -52,6 +52,8 @@ export enum Permission {
   // Proyecto Tienda — arqueo ciego de caja para cajeras (captura + ver)
   STORE_ARQUEO_CAPTURAR = 'STORE_ARQUEO_CAPTURAR',
   STORE_ARQUEO_VER = 'STORE_ARQUEO_VER',
+  // Proyecto Tienda — análisis semanal de venta por sucursal
+  STORE_ANALYTICS_VER = 'STORE_ANALYTICS_VER',
 
   // Comercial (Fase B+C)
   COMMERCIAL_CUSTOMERS_VER = 'COMMERCIAL_CUSTOMERS_VER',

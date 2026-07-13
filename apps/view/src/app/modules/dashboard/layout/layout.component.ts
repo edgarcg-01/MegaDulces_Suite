@@ -375,6 +375,7 @@ export class LayoutComponent implements OnInit, OnDestroy {
     { label: 'Monitor en vivo', icon: 'pi pi-bolt', route: '/tienda/live', permission: Permission.STORE_LIVE_VER },
     { label: 'Sucursales', icon: 'pi pi-building', route: '/tienda/branches', permission: Permission.STORE_LIVE_VER },
     { label: 'Ritmo del día', icon: 'pi pi-chart-line', route: '/tienda/pace', permission: Permission.STORE_LIVE_VER },
+    { label: 'Análisis semanal', icon: 'pi pi-calendar', route: '/tienda/analisis-semanal', permission: Permission.STORE_ANALYTICS_VER },
     { label: 'Arqueo de caja', icon: 'pi pi-eye-slash', route: '/tienda/arqueo', permission: Permission.STORE_ARQUEO_CAPTURAR },
     { label: 'Etiquetas', icon: 'pi pi-tag', route: '/tienda/etiquetas', permission: Permission.STORE_LABELS_VER },
   ];
