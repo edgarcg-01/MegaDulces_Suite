@@ -24,6 +24,16 @@
   transition: padding 0.25s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
+/* Anti "toques fantasma" en mobile: mata el flash gris de tap del WebView
+   y el ghost-click de 300ms sobre los elementos interactivos del shell
+   (nav-items, botones del footer, bottom-nav, topbar). El drawer cerrado
+   ya es `inert` + `pointer-events-none` desde el template. */
+:host a,
+:host button {
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
 /* Item de nav activo — tratamiento sutil (quiet-luxury): fondo neutro tenue +
    ícono y texto en acento (--action). Reemplaza el pill sólido casi-negro. */
 :host .nav-active {
