@@ -138,7 +138,7 @@ async function loadDoctypeMap(src, schema) {
 
     await db.query('BEGIN');
     await db.query(`CREATE TEMP TABLE stg_mov (
-      warehouse_id uuid, product_id uuid, doc_date date, genero char(1), naturaleza char(1),
+      warehouse_id uuid, product_id uuid, sku text, doc_date date, genero char(1), naturaleza char(1),
       doc_type text, doc_serie text, doc_code text, movement_kind text, movement_label text, folio text,
       signed_qty numeric, qty numeric, unit_cost numeric, amount numeric,
       parent_group text, parent_serie text, parent_folio text, source_branch text) ON COMMIT DROP`);
@@ -185,13 +185,15 @@ async function loadDoctypeMap(src, schema) {
         for (const r of rows) {
           const info = dt.get(`${r.g}|${r.nat}|${parseInt(r.tipo, 10)}`);
           if (!info) continue;
-          const pid = skuToId.get(r.sku);
-          if (!pid) { unmatched++; continue; }
+          // SKU fuera de catálogo NO se descarta (rompería los totales del doc y la
+          // validación salida↔recepción): product_id NULL + sku denormalizado.
+          const pid = skuToId.get(r.sku) || null;
+          if (!pid) unmatched++;
           const qty = Math.abs(Number(r.qty) || 0);
           if (qty === 0) continue;
           const val = Math.abs(Number(r.val) || 0);
           staged.push([
-            warehouseId, pid, r.doc_date, r.g, r.nat, String(r.tipo), r.serie || null, info.code,
+            warehouseId, pid, r.sku || null, r.doc_date, r.g, r.nat, String(r.tipo), r.serie || null, info.code,
             info.dir > 0 ? 'entrada' : 'salida', info.label, r.folio,
             info.dir * qty, qty, val ? val / qty : null, val || null,
             r.pgrp || null, r.pserie || null, r.pfol || null, suc,
@@ -201,16 +203,16 @@ async function loadDoctypeMap(src, schema) {
 
         if (!sampleShown && staged.length) {
           console.log(`  muestra ${m.code}:`);
-          for (const s of staged.slice(0, 4)) console.log(`    ${s[2].toISOString?.().slice(0,10)||s[2]} ${s[9].padEnd(20)} folio=${s[10]} qty=${s[12]} signed=${s[11]} costo/u=${s[13]?Number(s[13]).toFixed(2):'-'}`);
+          for (const s of staged.slice(0, 4)) console.log(`    ${s[2].toISOString?.().slice(0,10)||s[2]} ${s[10].padEnd(20)} folio=${s[11]} qty=${s[13]} signed=${s[12]} costo/u=${s[14]?Number(s[13]).toFixed(2):'-'}`);
           sampleShown = true;
         }
 
         for (let i = 0; i < staged.length; i += BATCH) {
           const chunk = staged.slice(i, i + BATCH);
           const vals = [], params = [];
-          const N = 19;
+          const N = 20;
           chunk.forEach((row, ri) => { vals.push(`(${Array.from({ length: N }, (_, k) => `$${ri * N + k + 1}`).join(',')})`); params.push(...row); });
-          await db.query(`INSERT INTO stg_mov (warehouse_id,product_id,doc_date,genero,naturaleza,doc_type,doc_serie,doc_code,movement_kind,movement_label,folio,signed_qty,qty,unit_cost,amount,parent_group,parent_serie,parent_folio,source_branch) VALUES ${vals.join(',')}`, params);
+          await db.query(`INSERT INTO stg_mov (warehouse_id,product_id,sku,doc_date,genero,naturaleza,doc_type,doc_serie,doc_code,movement_kind,movement_label,folio,signed_qty,qty,unit_cost,amount,parent_group,parent_serie,parent_folio,source_branch) VALUES ${vals.join(',')}`, params);
         }
         touched.push(warehouseId);
         summary.push({ code: m.code, suc, matched, unmatched, lines });
@@ -231,8 +233,8 @@ async function loadDoctypeMap(src, schema) {
     );
     const ins = await db.query(`
       INSERT INTO analytics.stock_movements
-        (tenant_id,warehouse_id,product_id,doc_date,genero,naturaleza,doc_type,doc_serie,doc_code,movement_kind,movement_label,folio,signed_qty,qty,unit_cost,amount,parent_group,parent_serie,parent_folio,source_branch)
-      SELECT $1,warehouse_id,product_id,doc_date,genero,naturaleza,doc_type,doc_serie,doc_code,movement_kind,movement_label,folio,signed_qty,qty,unit_cost,amount,parent_group,parent_serie,parent_folio,source_branch
+        (tenant_id,warehouse_id,product_id,sku,doc_date,genero,naturaleza,doc_type,doc_serie,doc_code,movement_kind,movement_label,folio,signed_qty,qty,unit_cost,amount,parent_group,parent_serie,parent_folio,source_branch)
+      SELECT $1,warehouse_id,product_id,sku,doc_date,genero,naturaleza,doc_type,doc_serie,doc_code,movement_kind,movement_label,folio,signed_qty,qty,unit_cost,amount,parent_group,parent_serie,parent_folio,source_branch
       FROM stg_mov`, [M]);
     await db.query('COMMIT');
     console.log(`\n[APPLY] COMMIT — ${ins.rowCount} líneas de movimiento insertadas (${summary.length} almacenes).`);

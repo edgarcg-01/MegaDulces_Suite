@@ -46,6 +46,14 @@
 - **Verificación:** smoke `test-newdb-purchase-chain.js` **21/21** (en la regression); builds api+view OK.
 - **Diferido:** vale `X-A-37` + CxP `X-A-20` (→ PaymentsService, Fase LM); auto-received por matching contra `X-A-40`; espejar traspaso género `N`. **Pendiente prod:** aplicar mig a Railway + redeploy api+view + re-login.
 
+### Fixed — Diario de movimientos: pareo con guard de fechas + líneas sin catálogo (DM.5) (2026-07-13)
+- **Caso real reportado (folio 0000227):** la UI pareaba la recepción `0000102@03` (07-08) con el `0000227` del **CEDIS (07-13)** — imposible físicamente; el origen verdadero era el `0000227` de la **sucursal 01 (07-07)**, colisión de folios entre sucursales. Validado contra crudo: suc01 1,124 pzs = 1,124 recibidas, **0 SKUs con diferencia**.
+- **Fix 1 — guard de fechas:** la recepción nunca es anterior a la salida (`ship.doc_date <= rcv.doc_date`) en los 4 puntos del pareo (transfersCheck LATERAL + unreceived + counterpart del documento + estado por fila). El CEDIS 0000227 ahora clasifica **En tránsito**.
+- **Fix 2 — SKUs fuera de catálogo ya NO se descartan:** el importer perdía líneas (610 pzs en ese doc → totales falsos → "diferencia" fantasma). Mig `20260713100000`: `product_id` nullable + columna `sku` denormalizada; `document()` muestra "(sin catálogo)". Reseed prod: **96,156 líneas**.
+- **Calidad tras ambos fixes:** 322 pareos reales, **310 exactos (96%)** (antes 268/437 = 61% con falsos positivos); ~160 recepciones "sin origen" = salida anterior a la ventana 120d del feed.
+- **UI:** filtro **Estado (traspasos)** = En tránsito / Completado / Con diferencia + columna Estado por documento + **botón Auditar por fila** (además del "Auditar A ↔ B" del diálogo).
+- **Pendiente prod:** redeploy api+view + re-login.
+
 ### Added — Diario de movimientos: traspasos con contraparte + auditoría humana (DM.3/DM.4) (2026-07-10)
 - **Traspasos decodificados por reconciliación** (greedy vs `kdil`, exist=`c4+c8−c9`): entradas `UA50` (recepción) / `NA06/NA25` / **`NA30`** (físico entrada, hallazgo nuevo); salida real del CEDIS = **`UD41`** (reconciliación EXACTA err 45.2→0.0). Excluidos con prueba: `UD13` (factura del traspaso — líneas de SERVICIO sin producto), `UD40` (pedido, duplica), `NA44/NA45` (duplican UA50/XA40), `UD06` consolidación, `UD10` factura, cadena `XA35/37/20/30`. Filtro global de líneas `SER`.
 - **Pareo salida↔recepción** por `(tipo 41, serie, folio)` — la recepción guarda `c37/c38/c39` del origen; la serie desambigua folios repetidos entre sucursales. **Ranking LATERAL** (cantidad y fecha más cercanas) porque los folios son secuencias por sucursal y `c10/c11` no discriminan (verificado: par real TI001≠TI002). Mig `20260710170000` agrega `doc_serie/parent_serie` al feed. Validado en prod: **437/440 recepciones con origen**, 268 exactas, 169 con diferencia (= cola del auditor).

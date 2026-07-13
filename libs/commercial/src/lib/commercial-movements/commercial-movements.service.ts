@@ -245,7 +245,9 @@ export class CommercialMovementsService {
         .select('m.parent_folio as pf', 'm.warehouse_id as wh')
         .select(trx.raw(`coalesce(m.parent_serie,'') AS ps`), trx.raw(`SUM(m.qty) AS q`), trx.raw(`MIN(m.doc_date) AS d`));
       for (const s of ships) {
-        const mine = cands.filter((c: any) => c.pf === s.folio && c.ps === (s.doc_serie ?? '') && c.wh !== s.warehouse_id);
+        const sd = new Date(s.doc_date).getTime();
+        const mine = cands.filter((c: any) => c.pf === s.folio && c.ps === (s.doc_serie ?? '') && c.wh !== s.warehouse_id
+          && new Date(c.d).getTime() >= sd); // recepción nunca anterior a la salida
         const best = near(mine, Number(s.qty), s.doc_date);
         s.transfer_status = !best ? 'en_transito' : Math.abs(Number(best.q) - Number(s.qty)) < 0.01 ? 'completado' : 'diferencia';
       }
@@ -259,7 +261,9 @@ export class CommercialMovementsService {
         .select(trx.raw(`coalesce(m.doc_serie,'') AS s`), trx.raw(`SUM(m.qty) AS q`), trx.raw(`MIN(m.doc_date) AS d`));
       for (const r of rcvs) {
         if (r.parent_group !== '41' || !r.parent_folio) { r.transfer_status = 'diferencia'; continue; }
-        const mine = cands.filter((c: any) => c.f === r.parent_folio && c.s === (r.parent_serie ?? '') && c.wh !== r.warehouse_id);
+        const rd = new Date(r.doc_date).getTime();
+        const mine = cands.filter((c: any) => c.f === r.parent_folio && c.s === (r.parent_serie ?? '') && c.wh !== r.warehouse_id
+          && new Date(c.d).getTime() <= rd); // la salida debe ser anterior o igual a la recepción
         const best = near(mine, Number(r.qty), r.doc_date);
         r.transfer_status = !best ? 'diferencia' : Math.abs(Number(best.q) - Number(r.qty)) < 0.01 ? 'completado' : 'diferencia';
       }
@@ -309,8 +313,11 @@ export class CommercialMovementsService {
         'm.warehouse_id', 'm.doc_date', 'm.folio', 'm.doc_code', 'm.movement_label', 'm.movement_kind',
         'm.genero', 'm.naturaleza', 'm.doc_type', 'm.doc_serie', 'm.signed_qty', 'm.qty',
         'm.unit_cost', 'm.amount', 'm.parent_group', 'm.parent_serie', 'm.parent_folio', 'm.source_branch',
-        'p.nombre as product_name', 'p.sku', 'w.code as warehouse_code',
-      ).orderBy('p.nombre');
+        'w.code as warehouse_code',
+      )
+        // SKU fuera de catálogo: sin product_name pero el sku denormalizado siempre está
+        .select(trx.raw(`coalesce(p.nombre, '(sin catálogo)') AS product_name`), trx.raw(`coalesce(p.sku, m.sku) AS sku`))
+        .orderByRaw(`coalesce(p.nombre, '(sin catálogo)')`);
       if (!lines.length) return { header: null, lines: [], totals: { qty: 0, amount: 0, lineas: 0 }, counterpart: null };
       const h = lines[0];
       // DM.4 — estado de auditoría humana del documento
@@ -341,6 +348,8 @@ export class CommercialMovementsService {
           .where('m.tenant_id', tenantId).andWhere('m.doc_code', docCode)
           .andWhere(`m.${folioCol}`, folioVal)
           .andWhereRaw(`coalesce(m.${serieCol},'') = coalesce(?, '')`, [serieVal])
+          // física: recepción nunca anterior a la salida (folios colisionan entre sucursales)
+          .andWhereRaw(docCode === 'TrsfRcv' ? `m.doc_date >= ?::date` : `m.doc_date <= ?::date`, [h.doc_date])
           .whereNot('m.warehouse_id', h.warehouse_id ?? p.warehouse_id)
           .leftJoin('commercial.warehouses as w', 'w.id', 'm.warehouse_id')
           .groupBy('m.folio', 'm.warehouse_id', 'w.code')
@@ -405,6 +414,7 @@ export class CommercialMovementsService {
             WHERE s.folio = r.parent_folio
               AND coalesce(s.doc_serie,'') = coalesce(r.parent_serie,'')
               AND s.warehouse_id <> r.warehouse_id
+              AND s.doc_date <= r.doc_date  -- física: la recepción nunca es anterior a la salida (folios colisionan entre sucursales)
             ORDER BY abs(coalesce(s.qty,0) - coalesce(r.qty,0)) ASC, abs(s.doc_date - r.doc_date) ASC
             LIMIT 1
           ) s ON true
@@ -413,7 +423,8 @@ export class CommercialMovementsService {
           WHERE NOT EXISTS (
             SELECT 1 FROM rcv r
             WHERE r.parent_folio = s.folio AND coalesce(r.parent_serie,'') = coalesce(s.doc_serie,'')
-              AND r.warehouse_id <> s.warehouse_id)
+              AND r.warehouse_id <> s.warehouse_id
+              AND r.doc_date >= s.doc_date)
         )
         SELECT * FROM (
           SELECT origin_wh_id, origin_wh, origin_folio, doc_serie, ship_date, qty_sent, amount, ship_lines,

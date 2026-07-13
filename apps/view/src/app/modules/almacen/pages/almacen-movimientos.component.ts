@@ -62,10 +62,18 @@ import { Permission } from '../../../core/constants/permissions';
         <p-select [options]="estadoOpts" [(ngModel)]="fEstado" (onChange)="reload()"
                   optionLabel="label" optionValue="value" placeholder="Estado (traspasos)" [showClear]="true" styleClass="dm-sel"></p-select>
         <span class="dm-search">
-          <input pInputText type="text" [(ngModel)]="fSearch" (keyup.enter)="reload()" placeholder="SKU o producto…" />
+          <input pInputText type="text" [(ngModel)]="fSearch" (keyup.enter)="reload()" placeholder="SKU o producto…" aria-label="Buscar por SKU o producto" />
         </span>
         <button pButton type="button" icon="pi pi-search" class="p-button-sm p-button-text" (click)="reload()" ariaLabel="Buscar"></button>
       </div>
+
+      @if (error()) {
+        <div class="dm-error" role="alert">
+          <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+          <span>{{ error() }}</span>
+          <button pButton type="button" class="p-button-sm p-button-text" label="Reintentar" (click)="reload()"></button>
+        </div>
+      }
 
       <!-- Tabla por DÍA (expandible) -->
       <p-table [value]="days()" [loading]="loading()" dataKey="key" [expandedRowKeys]="expanded"
@@ -144,6 +152,12 @@ import { Permission } from '../../../core/constants/permissions';
     <p-dialog [(visible)]="docOpen" [modal]="true" [style]="{ width: cpDoc() ? '68rem' : '46rem', maxWidth: '96vw' }" [dismissableMask]="true" styleClass="dm-dlg">
       <ng-template pTemplate="header"><span class="dm-dlg-title">Documento {{ doc()?.header?.folio }}</span></ng-template>
       @if (docLoading()) { <div class="dm-empty">Cargando documento…</div> }
+      @else if (docError()) {
+        <div class="dm-error" role="alert">
+          <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+          <span>{{ docError() }}</span>
+        </div>
+      }
       @else {
         @if (doc()?.header; as h) {
           <!-- Relación con la contraparte -->
@@ -240,6 +254,8 @@ import { Permission } from '../../../core/constants/permissions';
     .dm-strong { font-weight: 700; }
     .dm-tag { font-size: .68rem; }
     .dm-empty { color: var(--text-muted); padding: 1rem; text-align: center; }
+    .dm-error { display: flex; align-items: center; gap: .5rem; font-size: .82rem; padding: .55rem .8rem; margin: .5rem 0; border-radius: var(--r-sm); background: var(--bad-soft-bg); color: var(--bad-soft-fg); border: 1px solid var(--bad-border); }
+    .dm-error span { margin-right: auto; }
     /* documentos dentro del día */
     .dm-exp { padding: 0 !important; background: var(--surface-alt-bg, var(--card-bg)); }
     .dm-docs { width: 100%; border-collapse: collapse; font-size: .82rem; }
@@ -250,7 +266,6 @@ import { Permission } from '../../../core/constants/permissions';
     .dm-row:hover td { background: var(--surface-hover-bg); }
     .dm-audit { display: inline-flex; align-items: center; gap: .3rem; font-size: .76rem; border: 0; background: none; font-family: inherit; cursor: pointer; padding: .15rem .4rem; border-radius: var(--r-sm); }
     .dm-audit.is-audited { color: var(--ok-fg); font-weight: 600; }
-    .dm-audit.dm-pending { color: var(--text-muted); }
     .dm-audit:disabled { cursor: default; }
     .dm-audit:hover:not(:disabled) { background: var(--surface-hover-bg); }
     .dm-audit-row-btn { display: inline-flex; align-items: center; gap: .3rem; font-size: .74rem; font-family: inherit; cursor: pointer; padding: .2rem .55rem; border-radius: var(--r-sm); border: 1px solid var(--border-color); background: var(--card-bg); color: var(--text-main); }
@@ -267,7 +282,7 @@ import { Permission } from '../../../core/constants/permissions';
     .dm-cp { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; font-size: .8rem; padding: .5rem .7rem; border-radius: var(--r-sm); border: 1px solid var(--border-color); margin-bottom: .6rem; }
     .dm-cp.cp-ok { color: var(--ok-soft-fg); background: var(--ok-soft-bg); border-color: var(--ok-border); }
     .dm-cp.cp-warn { color: var(--warn-soft-fg); background: var(--warn-soft-bg); border-color: var(--warn-border); }
-    .dm-cp.cp-bad { color: var(--bad-fg); background: var(--card-bg); }
+    .dm-cp.cp-bad { color: var(--bad-soft-fg); background: var(--bad-soft-bg); border-color: var(--bad-border); }
     .dm-doc-head { display: flex; flex-wrap: wrap; gap: .5rem 1rem; align-items: center; margin-bottom: .3rem; }
     .dm-doc-meta { font-size: .78rem; color: var(--text-muted); }
     .dm-cols { display: grid; grid-template-columns: 1fr; gap: 1rem; }
@@ -293,6 +308,7 @@ export class AlmacenMovimientosComponent implements OnInit {
   days = signal<AggregateRow[]>([]);
   summary = signal<MovementsSummary | null>(null);
   loading = signal(false);
+  error = signal<string | null>(null);
   expanded: Record<string, boolean> = {};
   dayDocs = signal<Record<string, FolioRow[]>>({});
   dayLoading = signal<Record<string, boolean>>({});
@@ -322,6 +338,7 @@ export class AlmacenMovimientosComponent implements OnInit {
   // Documento + contraparte
   docOpen = false;
   docLoading = signal(false);
+  docError = signal<string | null>(null);
   doc = signal<DocumentResponse | null>(null);
   cpLoading = signal(false);
   cpDoc = signal<DocumentResponse | null>(null);
@@ -351,12 +368,13 @@ export class AlmacenMovimientosComponent implements OnInit {
     this.expanded = {};
     this.dayDocs.set({});
     this.loading.set(true);
+    this.error.set(null);
     this.api.aggregate(this.currentFilters(), 'day', 1, 200).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (r) => {
         const rows = [...r.rows].sort((a, b) => (b.key > a.key ? 1 : b.key < a.key ? -1 : 0));
         this.days.set(rows); this.loading.set(false);
       },
-      error: () => { this.days.set([]); this.loading.set(false); },
+      error: () => { this.days.set([]); this.loading.set(false); this.error.set('No se pudieron cargar los movimientos. Revisá la conexión e intentá de nuevo.'); },
     });
     this.api.summary(this.currentFilters()).pipe(takeUntilDestroyed(this.destroyRef)).subscribe(s => this.summary.set(s));
   }
@@ -381,11 +399,12 @@ export class AlmacenMovimientosComponent implements OnInit {
   openDocument(l: FolioRow): void {
     this.docOpen = true;
     this.docLoading.set(true);
+    this.docError.set(null);
     this.doc.set(null);
     this.cpDoc.set(null);
     this.api.document(l.folio, l.warehouse_id, l.doc_code, l.doc_serie).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (d) => { this.doc.set(d); this.docLoading.set(false); this.loadCounterpart(d); },
-      error: () => { this.doc.set({ header: null, lines: [], totals: { qty: 0, amount: 0, lineas: 0 }, counterpart: null }); this.docLoading.set(false); },
+      error: () => { this.doc.set(null); this.docLoading.set(false); this.docError.set('No se pudo cargar el documento. Intentá de nuevo.'); },
     });
   }
 
