@@ -94,7 +94,9 @@ Debe verse `ONLINE` + `merge -> filas: <N>` + `OK`. Si dice `OFFLINE` → el run
 
 📋 **Pégame el log de C2.** → **Yo verifico** venta en `mart.ventas` + latido en `route_push_heartbeat`.
 
-### Bloque D — Instalar la tarea reactiva (cmd como ADMINISTRADOR)
+### Bloque D — Instalar la tarea reactiva (terminal ELEVADA obligatoria)
+
+> ⚠️ **GOTCHA (visto en ruta_28):** aunque la cuenta sea "Administrador", la ventana debe estar **elevada** o `schtasks /Create` da **"Acceso denegado"** (la tarea corre como SYSTEM → requiere elevación). Abrir *PowerShell → clic derecho → Ejecutar como administrador*. Tip: hacer TODO el Bloque B–D desde una sola ventana elevada. El `.cmd` y el `ruta.task.xml` se escriben igual; solo el `schtasks /Create` exige elevación.
 
 **D1.** Editar `install-task.v2.cmd` → `set TASKNAME=RutaNN` y copiarlo a `C:\KeplerPush\`.
 **D2.** Correr como Administrador:
