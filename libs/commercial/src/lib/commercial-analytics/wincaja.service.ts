@@ -33,13 +33,13 @@ export class WincajaService {
   /** KPIs por sucursal: venta, inventario, cartera real, demanda perdida. */
   overview() {
     return this.tk.run(async (trx) => {
-      const [sales, stock, ar, lost, branches] = await Promise.all([
-        trx('wincaja.v_sales_daily').select('source_branch').sum({ importe: 'importe' }).sum({ qty: 'qty' }).groupBy('source_branch'),
-        trx('wincaja.v_stock').select('source_branch').sum({ valor_inventario: 'valor_inventario' }).count({ skus: '*' }).groupBy('source_branch'),
-        trx('wincaja.v_ar_customer').where('is_internal', false).where('saldo', '>', 0).select('source_branch').sum({ ar: 'saldo' }).count({ clientes: '*' }).groupBy('source_branch'),
-        trx('wincaja.v_lost_demand').select('source_branch').sum({ perdido: 'importe_perdido' }).count({ faltantes: '*' }).groupBy('source_branch'),
-        trx('wincaja.branches').select('source_branch', 'branch_name', 'warehouse_code', 'status', 'kepler_code'),
-      ]);
+      // Secuencial (no Promise.all): pg no permite queries concurrentes sobre la
+      // misma conexion/transaccion — concurrente aqui tiraria error -> 500.
+      const sales = await trx('wincaja.v_sales_daily').select('source_branch').sum({ importe: 'importe' }).sum({ qty: 'qty' }).groupBy('source_branch');
+      const stock = await trx('wincaja.v_stock').select('source_branch').sum({ valor_inventario: 'valor_inventario' }).count({ skus: '*' }).groupBy('source_branch');
+      const ar = await trx('wincaja.v_ar_customer').where('is_internal', false).where('saldo', '>', 0).select('source_branch').sum({ ar: 'saldo' }).count({ clientes: '*' }).groupBy('source_branch');
+      const lost = await trx('wincaja.v_lost_demand').select('source_branch').sum({ perdido: 'importe_perdido' }).count({ faltantes: '*' }).groupBy('source_branch');
+      const branches = await trx('wincaja.branches').select('source_branch', 'branch_name', 'warehouse_code', 'status', 'kepler_code');
       const idx = (rows: any[]) => Object.fromEntries(rows.map((r) => [r.source_branch, r]));
       const S = idx(sales), K = idx(stock), A = idx(ar), L = idx(lost);
       return branches
