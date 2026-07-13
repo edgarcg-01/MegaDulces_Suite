@@ -57,7 +57,7 @@ export interface MovementLine {
 /** Fila del drill de folios: un DOCUMENTO englobado (folio×tipo×serie×almacén), no una línea. */
 export interface FolioRow {
   warehouse_id: string; folio: string; doc_code: string; doc_serie: string | null; movement_label: string;
-  movement_kind: MovementKind; source_branch: string; warehouse_code: string | null;
+  movement_kind: MovementKind; source_branch: string; warehouse_code: string | null; warehouse_name: string | null;
   doc_date: string; lineas: number; signed_qty: number; qty: number; amount: number | null;
   parent_group: string | null; parent_serie: string | null; parent_folio: string | null;
   audited: boolean; audited_by: string | null; audited_at: string | null;
@@ -66,7 +66,7 @@ export interface FolioRow {
 }
 export interface LinesResponse { page: number; pageSize: number; total: number; rows: FolioRow[]; }
 
-/** DM.3 — validación salida↔recepción de traspasos. */
+/** DM.3 — validación salida↔recepción de traspasos. origin_wh/dest_wh traen el NOMBRE del almacén (fallback código). */
 export type TransferStatus = 'ok' | 'diferencia' | 'sin_recepcion' | 'sin_origen';
 export interface TransferCheckRow {
   origin_wh_id: string | null; origin_wh: string | null; origin_folio: string | null;
@@ -83,14 +83,14 @@ export interface TransfersCheckResponse {
 
 export interface DocumentCounterpart {
   kind: 'recepcion' | 'origen';
-  docs: { folio: string; warehouse_id: string; warehouse_code: string | null; doc_code: string; doc_serie: string | null; doc_date: string; qty: number; lineas: number }[];
+  docs: { folio: string; warehouse_id: string; warehouse_code: string | null; warehouse_name: string | null; doc_code: string; doc_serie: string | null; doc_date: string; qty: number; lineas: number }[];
   qty: number; delta: number; status: 'ok' | 'diferencia' | 'sin_recepcion' | 'sin_origen';
 }
 
 export interface DocumentHeader {
   folio: string; doc_code: string; doc_serie: string | null; movement_label: string; movement_kind: MovementKind;
   doc_date: string; genero: string; naturaleza: string; doc_type: string;
-  warehouse_id: string; warehouse_code: string | null; source_branch: string;
+  warehouse_id: string; warehouse_code: string | null; warehouse_name: string | null; source_branch: string;
   parent_group: string | null; parent_folio: string | null;
   audited: boolean; audited_by: string | null; audited_at: string | null;
 }

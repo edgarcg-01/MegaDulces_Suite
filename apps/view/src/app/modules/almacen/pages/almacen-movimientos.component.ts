@@ -119,7 +119,7 @@ import { Permission } from '../../../core/constants/permissions';
                       <tr class="dm-row" (click)="openDocument(l)">
                         <td><p-tag [value]="l.movement_label" [severity]="l.movement_kind === 'entrada' ? 'success' : 'warn'" styleClass="dm-tag"></p-tag></td>
                         <td class="dm-mono dm-link">{{ l.folio }}</td>
-                        <td class="dm-mono dm-muted">{{ l.warehouse_code || l.source_branch }}</td>
+                        <td class="dm-muted">{{ l.warehouse_name || l.warehouse_code || l.source_branch }}</td>
                         <td class="dm-r dm-muted">{{ l.lineas | number }}</td>
                         <td class="dm-r" [class.up]="l.signed_qty>0" [class.down]="l.signed_qty<0">{{ l.signed_qty | number:'1.0-2' }}</td>
                         <td class="dm-r dm-strong">{{ l.amount != null ? money(l.amount) : '—' }}</td>
@@ -171,12 +171,12 @@ import { Permission } from '../../../core/constants/permissions';
             <div class="dm-rel">
               <i class="pi pi-link"></i>
               <span class="dm-rel-doc" [class.rel-out]="h.movement_kind==='salida'" [class.rel-in]="h.movement_kind==='entrada'">
-                Folio {{ h.folio }} · {{ h.warehouse_code || h.source_branch }} · {{ h.movement_kind === 'salida' ? 'salida' : 'entrada' }}
+                Folio {{ h.folio }} · {{ h.warehouse_name || h.warehouse_code || h.source_branch }} · {{ h.movement_kind === 'salida' ? 'salida' : 'entrada' }}
               </span>
               <i class="pi pi-arrows-h dm-rel-arrow"></i>
               @if (cp.docs.length) {
                 <span class="dm-rel-doc" [class.rel-out]="cp.kind==='origen'" [class.rel-in]="cp.kind==='recepcion'">
-                  Folio {{ cp.docs[0].folio }} · {{ cp.docs[0].warehouse_code || '—' }} · {{ cp.kind === 'recepcion' ? 'recepción' : 'origen' }}
+                  Folio {{ cp.docs[0].folio }} · {{ cp.docs[0].warehouse_name || cp.docs[0].warehouse_code || '—' }} · {{ cp.kind === 'recepcion' ? 'recepción' : 'origen' }}
                 </span>
               } @else { <span class="dm-rel-none">{{ cp.status === 'sin_recepcion' ? 'sin recepción' : 'sin origen' }}</span> }
             </div>
@@ -192,7 +192,7 @@ import { Permission } from '../../../core/constants/permissions';
           <div class="dm-doc-head">
             <p-tag [value]="h.movement_label" [severity]="h.movement_kind === 'entrada' ? 'success' : 'warn'" styleClass="dm-tag"></p-tag>
             <span class="dm-doc-meta">{{ h.doc_date | date:'yyyy-MM-dd' }}</span>
-            <span class="dm-doc-meta">Almacén {{ h.warehouse_code || h.source_branch }}</span>
+            <span class="dm-doc-meta">Almacén {{ h.warehouse_name || h.warehouse_code || h.source_branch }}</span>
           </div>
 
           <!-- Documento + contraparte lado a lado -->
@@ -205,7 +205,7 @@ import { Permission } from '../../../core/constants/permissions';
             @else if (cpDoc()) {
               @if (cpDoc()!.header; as ch) {
                 <div class="dm-col">
-                  <h4 class="dm-col-h">Contraparte — folio {{ ch.folio }} · {{ ch.movement_label }} ({{ ch.warehouse_code || ch.source_branch }})</h4>
+                  <h4 class="dm-col-h">Contraparte — folio {{ ch.folio }} · {{ ch.movement_label }} ({{ ch.warehouse_name || ch.warehouse_code || ch.source_branch }})</h4>
                   <ng-container [ngTemplateOutlet]="linesTpl" [ngTemplateOutletContext]="{ lines: cpDoc()!.lines, totals: cpDoc()!.totals }"></ng-container>
                 </div>
               }

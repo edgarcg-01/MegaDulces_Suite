@@ -53,6 +53,7 @@
 
 ### Changed — Diario de movimientos: PDF más legible (DM.6c) (2026-07-13)
 - Tipografía del PDF escalada para lectura (cuerpo 8.5→9.5px, **cifras 10.5px**, KPIs 13.5→17px, folios mono 9.5px, pills 8.5px, headers 8px) + más aire en filas. Se **quita la columna "Líneas"** del PDF (el Excel la conserva para filtrar). Verificado con render visual.
+- **Almacén por NOMBRE en vez de código** (`01` → "Padre Hidalgo") en toda la superficie DM: tabla por día, diálogo del documento (header, barra de relación, contraparte), Excel (columna Almacén + Origen/Destino de traspasos, anchos ajustados) y PDF. Backend: `lines/document/counterpart` devuelven `warehouse_name`; en `transfers-check` los campos de display `origin_wh/dest_wh` ahora traen `coalesce(name, code)`.
 
 ### Fixed — Diario de movimientos: valorización usaba el costo UNITARIO como importe (DM.7) (2026-07-13)
 - **Caso real reportado (Orden de entrada `0000179` alm 01):** el detalle mostraba $47/$50/$50 y total $147 para 400/62.55/41.05 unidades — "no cuadra". Causa: el feed leía **`kdm2.c12` como importe de línea**, pero en Kepler **`c12` = precio/costo unitario y `c13` = importe** (`c13 = c9×c12`, verificado **100% en 18 tipos de documento × 4 sucursales**, Σ idénticas). El doc real vale **$24,100.97**. El decode original validó cantidades contra existencia, nunca importes; los demás importers (pólizas, kardex, ventas por ruta, tickets) siempre usaron `c13` — solo `import-stock-movements.js` estaba mal.

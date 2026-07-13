@@ -184,10 +184,10 @@ export class CommercialMovementsService {
             .andOn('a.doc_code', 'm.doc_code').andOn('a.folio', 'm.folio')
             .andOn(trx.raw(`a.doc_serie = coalesce(m.doc_serie,'')`));
         })
-        .groupBy('w.code')
+        .groupBy('w.code', 'w.name')
         .select(
           'm.warehouse_id', 'm.folio', 'm.doc_code', 'm.doc_serie', 'm.movement_label', 'm.movement_kind',
-          'm.source_branch', 'w.code as warehouse_code',
+          'm.source_branch', 'w.code as warehouse_code', 'w.name as warehouse_name',
         )
         .select(
           trx.raw(`MIN(m.doc_date) AS doc_date`),
@@ -313,7 +313,7 @@ export class CommercialMovementsService {
         'm.warehouse_id', 'm.doc_date', 'm.folio', 'm.doc_code', 'm.movement_label', 'm.movement_kind',
         'm.genero', 'm.naturaleza', 'm.doc_type', 'm.doc_serie', 'm.signed_qty', 'm.qty',
         'm.unit_cost', 'm.amount', 'm.parent_group', 'm.parent_serie', 'm.parent_folio', 'm.source_branch',
-        'w.code as warehouse_code',
+        'w.code as warehouse_code', 'w.name as warehouse_name',
       )
         // SKU fuera de catálogo: sin product_name pero el sku denormalizado siempre está
         .select(trx.raw(`coalesce(p.nombre, '(sin catálogo)') AS product_name`), trx.raw(`coalesce(p.sku, m.sku) AS sku`))
@@ -328,7 +328,7 @@ export class CommercialMovementsService {
       const header = {
         folio: h.folio, doc_code: h.doc_code, doc_serie: h.doc_serie, movement_label: h.movement_label, movement_kind: h.movement_kind,
         doc_date: h.doc_date, genero: h.genero, naturaleza: h.naturaleza, doc_type: h.doc_type,
-        warehouse_id: h.warehouse_id, warehouse_code: h.warehouse_code, source_branch: h.source_branch,
+        warehouse_id: h.warehouse_id, warehouse_code: h.warehouse_code, warehouse_name: h.warehouse_name, source_branch: h.source_branch,
         parent_group: h.parent_group, parent_folio: h.parent_folio,
         audited: !!auditRow, audited_by: auditRow?.audited_by ?? null, audited_at: auditRow?.created_at ?? null,
       };
@@ -354,8 +354,8 @@ export class CommercialMovementsService {
             : `m.doc_date <= ?::date AND m.doc_date >= ?::date - 15`, [h.doc_date, h.doc_date])
           .whereNot('m.warehouse_id', h.warehouse_id ?? p.warehouse_id)
           .leftJoin('commercial.warehouses as w', 'w.id', 'm.warehouse_id')
-          .groupBy('m.folio', 'm.warehouse_id', 'w.code')
-          .select('m.folio', 'm.warehouse_id', 'w.code as warehouse_code')
+          .groupBy('m.folio', 'm.warehouse_id', 'w.code', 'w.name')
+          .select('m.folio', 'm.warehouse_id', 'w.code as warehouse_code', 'w.name as warehouse_name')
           .select(trx.raw(`MIN(m.doc_date) AS doc_date`), trx.raw(`MAX(m.doc_code) AS doc_code`), trx.raw(`MAX(m.doc_serie) AS doc_serie`), trx.raw(`SUM(m.qty) AS qty`), trx.raw(`COUNT(*)::int AS lineas`))
           .orderByRaw(`abs(SUM(m.qty) - ?) ASC, abs(MIN(m.doc_date) - ?::date) ASC`, [sentQty, h.doc_date])
           .limit(1);
@@ -392,19 +392,19 @@ export class CommercialMovementsService {
       // (verificado 2026-07-10: par real con TI001≠TI002).
       const rows = (await trx.raw(`
         WITH shp AS (
-          SELECT m.warehouse_id, w.code AS wh_code, m.folio, m.doc_serie,
+          SELECT m.warehouse_id, coalesce(w.name, w.code) AS wh_code, m.folio, m.doc_serie,
                  MIN(m.doc_date) AS doc_date, SUM(m.qty) AS qty, SUM(m.amount) AS amount, COUNT(*)::int AS lineas
           FROM analytics.stock_movements m
           LEFT JOIN commercial.warehouses w ON w.id = m.warehouse_id
           WHERE m.tenant_id = ? AND m.doc_code = 'TrsfShip' AND m.doc_date BETWEEN ? AND ?
-          GROUP BY m.warehouse_id, w.code, m.folio, m.doc_serie
+          GROUP BY m.warehouse_id, w.code, w.name, m.folio, m.doc_serie
         ), rcv AS (
-          SELECT m.warehouse_id, w.code AS wh_code, m.folio, m.parent_serie, m.parent_folio,
+          SELECT m.warehouse_id, coalesce(w.name, w.code) AS wh_code, m.folio, m.parent_serie, m.parent_folio,
                  MIN(m.doc_date) AS doc_date, SUM(m.qty) AS qty, COUNT(*)::int AS lineas
           FROM analytics.stock_movements m
           LEFT JOIN commercial.warehouses w ON w.id = m.warehouse_id
           WHERE m.tenant_id = ? AND m.doc_code = 'TrsfRcv' AND m.parent_group = '41' AND m.doc_date BETWEEN ? AND ?
-          GROUP BY m.warehouse_id, w.code, m.folio, m.parent_serie, m.parent_folio
+          GROUP BY m.warehouse_id, w.code, w.name, m.folio, m.parent_serie, m.parent_folio
         ), paired AS (
           SELECT s.warehouse_id AS origin_wh_id, s.wh_code AS origin_wh, s.folio AS origin_folio,
                  s.doc_serie, s.doc_date AS ship_date, s.qty AS qty_sent, s.amount, s.lineas AS ship_lines,

@@ -182,7 +182,7 @@ export class MovementsExportService {
     // ── Hoja 1 · Documentos ──────────────────────────────────────────
     const ws = wb.addWorksheet('Documentos', { properties: { tabColor: { argb: C.sunset } } });
     ws.columns = [
-      { width: 11 }, { width: 30 }, { width: 11 }, { width: 9 }, { width: 8 },
+      { width: 11 }, { width: 30 }, { width: 11 }, { width: 18 }, { width: 8 },
       { width: 12 }, { width: 14 }, { width: 15 }, { width: 11 }, { width: 17 },
     ] as any;
     this.masthead(ws, 10, 'MEGA DULCES  ·  DIARIO DE MOVIMIENTOS',
@@ -201,7 +201,7 @@ export class MovementsExportService {
     let sumLineas = 0, sumQty = 0, sumValor = 0;
     for (const d of data.docs) {
       const row = ws.addRow([
-        this.asDate(d.doc_date), d.movement_label, d.folio, d.warehouse_code || d.source_branch,
+        this.asDate(d.doc_date), d.movement_label, d.folio, d.warehouse_name || d.warehouse_code || d.source_branch,
         Number(d.lineas) || 0, Number(d.signed_qty) || 0, Number(d.amount) || 0,
         '', '', d.audited_by || '',
       ]);
@@ -211,7 +211,6 @@ export class MovementsExportService {
       row.eachCell({ includeEmpty: true }, (cell) => this.baseCell(cell));
       row.getCell(1).numFmt = 'dd/mm/yyyy';
       row.getCell(3).font = { name: 'Consolas', size: 9, color: { argb: C.ink } };
-      row.getCell(4).alignment = { horizontal: 'center' };
       row.getCell(5).numFmt = '#,##0';
       row.getCell(6).numFmt = '#,##0.00;[Red]-#,##0.00';
       row.getCell(7).numFmt = '"$"#,##0.00';
@@ -250,8 +249,8 @@ export class MovementsExportService {
     // ── Hoja 2 · Traspasos ───────────────────────────────────────────
     const wt = wb.addWorksheet('Traspasos', { properties: { tabColor: { argb: 'FFF8B400' } } });
     wt.columns = [
-      { width: 15 }, { width: 9 }, { width: 13 }, { width: 12 }, { width: 11 },
-      { width: 9 }, { width: 14 }, { width: 13 }, { width: 11 }, { width: 11 },
+      { width: 15 }, { width: 17 }, { width: 13 }, { width: 12 }, { width: 11 },
+      { width: 17 }, { width: 14 }, { width: 13 }, { width: 11 }, { width: 11 },
     ] as any;
     this.masthead(wt, 10, 'MEGA DULCES  ·  VALIDACIÓN DE TRASPASOS',
       `Salida ↔ recepción   ·   Periodo ${period}   ·   Generado el ${stamp}`);
@@ -279,8 +278,6 @@ export class MovementsExportService {
       ]);
       row.eachCell({ includeEmpty: true }, (cell) => this.baseCell(cell));
       this.sevCell(row.getCell(1), r.status);
-      row.getCell(2).alignment = { horizontal: 'center' };
-      row.getCell(6).alignment = { horizontal: 'center' };
       row.getCell(3).font = { name: 'Consolas', size: 9, color: { argb: C.ink } };
       row.getCell(7).font = { name: 'Consolas', size: 9, color: { argb: C.ink } };
       row.getCell(4).numFmt = 'dd/mm/yyyy';
@@ -356,15 +353,15 @@ export class MovementsExportService {
       sumValor += Number(d.amount) || 0;
       return `
       <tr><td>${dmy(d.doc_date)}</td><td class="dsc">${esc(d.movement_label)}</td><td class="mono">${esc(d.folio)}</td>
-      <td class="ctr">${esc(d.warehouse_code || d.source_branch)}</td>
+      <td>${esc(d.warehouse_name || d.warehouse_code || d.source_branch)}</td>
       <td class="num">${num(d.signed_qty)}</td><td class="num">${money(d.amount, 2)}</td>
       <td>${pill(d.transfer_status)}</td><td>${d.audited ? '<span class="aud">✓ Sí</span>' : '<span class="mut">Pendiente</span>'}</td></tr>`;
     }).join('');
 
     const trRows = data.transfers.map((r) => `
       <tr><td>${pill(r.status)}</td>
-      <td class="ctr">${esc(r.origin_wh || '—')}</td><td class="mono">${esc(r.origin_folio || '—')}</td><td>${dmy(r.ship_date)}</td><td class="num">${num(r.qty_sent)}</td>
-      <td class="ctr">${esc(r.dest_wh || '—')}</td><td class="mono">${esc(r.rcv_folio || '—')}</td><td>${dmy(r.rcv_date)}</td><td class="num">${num(r.qty_received)}</td>
+      <td>${esc(r.origin_wh || '—')}</td><td class="mono">${esc(r.origin_folio || '—')}</td><td>${dmy(r.ship_date)}</td><td class="num">${num(r.qty_sent)}</td>
+      <td>${esc(r.dest_wh || '—')}</td><td class="mono">${esc(r.rcv_folio || '—')}</td><td>${dmy(r.rcv_date)}</td><td class="num">${num(r.qty_received)}</td>
       <td class="num ${Number(r.delta) ? 'delta' : ''}">${Number(r.delta) ? (Number(r.delta) > 0 ? '+' : '') + num(r.delta) : '—'}</td></tr>`).join('');
 
     return `<!doctype html><html><head><meta charset="utf-8"><meta name="color-scheme" content="light"><style>
@@ -452,7 +449,7 @@ export class MovementsExportService {
           ? `primeros ${num(PDF_CAP)} de ${num(data.docs.length)} — el detalle completo está en el Excel`
           : `${num(docs.length)} documentos`}</span>
       </div>
-      <table><thead><tr><th>Fecha</th><th>Tipo de documento</th><th>Folio</th><th class="ctr">Alm.</th>
+      <table><thead><tr><th>Fecha</th><th>Tipo de documento</th><th>Folio</th><th>Almacén</th>
       <th class="num">Cantidad</th><th class="num">Valor</th><th>Estado</th><th>Auditado</th></tr></thead>
       <tbody>${docRows || '<tr><td colspan="8" class="empty">Sin documentos en el rango.</td></tr>'}
       ${docRows ? `<tr class="tot"><td colspan="4">TOTAL${data.docs.length > PDF_CAP ? ' (docs listados)' : ''}</td>
@@ -463,8 +460,8 @@ export class MovementsExportService {
         <h2>2 · Validación de traspasos (salida ↔ recepción)</h2>
         <span class="cnt">${num(data.transfers.length)} traspasos</span>
       </div>
-      <table><thead><tr><th>Estado</th><th class="ctr">Origen</th><th>Folio salida</th><th>Fecha salida</th><th class="num">Enviadas</th>
-      <th class="ctr">Destino</th><th>Folio recepción</th><th>Fecha recepción</th><th class="num">Recibidas</th><th class="num">Δ piezas</th></tr></thead>
+      <table><thead><tr><th>Estado</th><th>Origen</th><th>Folio salida</th><th>Fecha salida</th><th class="num">Enviadas</th>
+      <th>Destino</th><th>Folio recepción</th><th>Fecha recepción</th><th class="num">Recibidas</th><th class="num">Δ piezas</th></tr></thead>
       <tbody>${trRows || '<tr><td colspan="10" class="empty">Sin traspasos en el rango.</td></tr>'}</tbody></table>
 
     </body></html>`;
