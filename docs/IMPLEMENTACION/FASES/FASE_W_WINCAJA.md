@@ -93,6 +93,53 @@ Común a todas: `tenant_id uuid NOT NULL`, `source_branch text NOT NULL` (10/30/
 
 ---
 
+## Mapa de usos (backlog de valor)
+
+Dónde se puede consumir la data Wincaja, por módulo/motor. **Alcance:** 🔵 *ciegas* (30/32/50 — solo Wincaja, valor = destapar) · 🟣 *compartidas* (00/10/40/44/54 — en Kepler, valor = conciliar). **Data:** ✅ en `wincaja.*` · ⬜ en el `.mdb` pero falta ingerir.
+
+| # | Consumidor | Uso concreto | Tablas Wincaja | Alcance | Data |
+|---|---|---|---|:--:|:--:|
+| U1 | Command Center / analytics | Venta diaria/mensual, AOV, unidades, clientes únicos por sucursal | detalles/maestro + pagos_dia | 🔵🟣 | ✅ |
+| U2 | Sell-out | Venta por marca/familia/subfamilia | detalles + articulos→familias | 🔵🟣 | ✅ |
+| U3 | analytics | Top productos / top clientes / por vendedor / por forma de pago | detalles, maestro, pagos_dia, vendedores | 🔵🟣 | ✅ |
+| U4 | Command Center red | Comparación entre las 8 tiendas (surtido, ticket, dispersión) | detalles, precios, existencias | red | ✅ |
+| U5 | RA / Compras | Punto de reorden + existencia crítica + sugerido (hoy sin política) | existencias + detalles (demanda) + articulo_proveedor (costo) | 🔵 | ✅ |
+| U6 | RA / Compras | Demanda insatisfecha (venta perdida) → reorden | FaltantesDeCotizaciones | 🔵🟣 | ⬜ |
+| U7 | RA / Compras | Safety stock estacional (26 años de histórico) | detalles (concentrada) | 🔵 | ✅ |
+| U8 | RA / Compras | Sourcing por proveedor (mejor costo) + lead time | articulo_proveedor, ordenes_compra | 🔵🟣 | ✅ |
+| U9 | SM (reconciliation) | **Cuadre de caja por denominación** (Kepler no lo tiene) | arqueos, cortes, retiros, pagos_dia | 🔵🟣 | ✅ |
+| U10 | SM (reconciliation) | Conciliación Wincaja↔Kepler venta/existencia/corte por sku+suc+día | detalles, existencias, cortes | 🟣 | ✅ |
+| U11 | SM / Almacén | Movimientos de inventario (entradas/salidas/traspasos/mermas) | maestro/detalles por tipo | 🔵 | ✅ |
+| U12 | Prevención / auditoría | Cancelaciones/eliminaciones + overrides de supervisor | cortes (canceladas), Autorizaciones | 🔵🟣 | ⬜ (Autoriz.) |
+| U13 | Maat (finanzas) | **Cartera / cobranza**: aging, vencimientos, límites, bloqueados | movimiento_clientes, clientes | 🔵 | ✅ |
+| U14 | Maat (finanzas) | CxP / gasto por proveedor | movimiento_proveedores | 🔵🟣 | ✅ |
+| U15 | Maat (finanzas) | Tesorería: cortes, retiros, flujo de efectivo | cortes, retiros, pagos_dia | 🔵🟣 | ✅ |
+| U16 | Maat (finanzas) | Comisiones generadas/pendientes/pagadas (provisión) | movimiento_clientes.comision_*, vendedores | 🔵🟣 | ✅ |
+| U17 | Thot (inteligencia) | Rotación por SKU×sucursal | detalles | 🔵 | ✅ |
+| U18 | Thot (inteligencia) | Margen (precio − costo) por SKU×sucursal | precios, articulo_proveedor, existencias | 🔵 | ✅ |
+| U19 | Thot (inteligencia) | Afinidad / canasta (co-ocurrencia por ticket) | detalles + maestro | 🔵🟣 | ✅ |
+| U20 | Thot (inteligencia) | Whitespace (qué vende una tienda y otra no) | detalles (red) | red | ✅ |
+| U21 | Thot / mapa comercial | Segmentación de cliente (territorio, frecuencia, saldo) | clientes, movimiento_clientes | 🔵 | ✅ |
+| U22 | Take-order / vendor / portal | Gate de margen (costo real, única fuente para 30/32/50) | articulo_proveedor, existencias | 🔵 | ✅ |
+| U23 | Take-order / portal | Precio por nivel del cliente (mayoreo/menudeo) | precios, clientes.precio | 🔵 | ✅ |
+| U24 | Take-order / portal | "Tus frecuentes" / sugeridos por historial del cliente | detalles + maestro por tercero | 🔵 | ✅ |
+| U25 | Etiquetera / Tienda | Precio de anaquel por sucursal + ofertas vigentes | precios, ofertas | 🔵🟣 | ✅ |
+| U26 | Crédito y cobranza (Fase H) | Scoring: historial de pago, atrasos, plazo, sobre-límite | movimiento_clientes, clientes | 🔵 | ✅ |
+| U27 | Growth / lealtad (Fase G) | Reactivar puntos + campañas por territorio | clientes.puntos_acumulados | 🔵 | ✅ (puntos) |
+| U28 | WhatsApp bot (Fase F) | Recordatorio de cartera / confirmación de pedido a clientes | movimiento_clientes, clientes | 🔵 | ✅ |
+| U29 | Catálogo maestro / AI (Fase K) | Enriquecer `catalog.products` con ~3,700 SKUs + barcodes faltantes | articulos, ArticulosRelacion | red | ✅ / ⬜ |
+| U30 | Catálogo | Normalizar familias/subfamilias/categorías | familias, subfamilias, Categorias | red | ✅ / ⬜ |
+| U31 | Vendedor / nómina | Desempeño y comisión por vendedor | vendedores, maestro.vendedor | 🔵🟣 | ✅ |
+| U32 | Growth | Efectividad de promociones (venta con/sin oferta) | ofertas + detalles | 🔵🟣 | ✅ |
+| U33 | **Migración / system-of-record** | On-ramp para migrar 30/32/50 a la plataforma y **retirar Wincaja** | todo | 🔵 | ✅ |
+| U34 | Data quality | Readiness de migración: qué tan limpio migró Kepler (5 shared) | cruce vs Kepler | 🟣 | ✅ |
+
+**Caveat transversal:** el raw es *bronze* — conteos/actividad confiables; **montos $ (saldos, costos) traen basura** y requieren limpieza en la capa silver antes de mostrarse.
+
+**Cómo se libera:** casi todo (U1–U25) se destraba con **una capa silver** — vistas/MVs que traducen `wincaja.*` al shape canónico (`sku`/`warehouse_code`/`date`/`qty`/`$`) uniendo por producto (`articulo`=`sku`) + crosswalk de sucursal, limpiando montos. Con esa capa cada consumidor es "conectar uno más". U6/U12/U29 requieren ingerir tablas ⬜ primero (Autorizaciones, Cotizaciones/Faltantes, Categorias/Almacenes).
+
+---
+
 ## Pendiente operacional / prod
 
 - Confirmar cadencia real de las "Concentrada" y si existe un `.mdb` "Actual" más fresco para 30/50.
