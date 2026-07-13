@@ -113,30 +113,32 @@ export interface LabelModel {
           </div>
         </div>
         <div class="etq-right">
-          @if (hasMayoreoPza) {
-            <div class="etq-tier">
-              <div class="txt">Mayoreo desde <span class="etq-red">{{ mayoreoMin }}</span> pzas:</div>
-              <div class="pricecell"><span class="amt" #amtEl>\${{ model.wholesale_piece_price | number:'1.2-2' }}</span><span class="unit">c/u</span></div>
-            </div>
-          }
-          @if (hasPaquete) {
-            <div class="etq-tier">
-              <div class="txt">Paquete con <span class="etq-red">{{ model.pack_size }}</span> pzas:</div>
-              <div class="pricecell"><span class="amt" #amtEl>\${{ model.pack_price | number:'1.2-2' }}</span></div>
-            </div>
-          }
-          @if (hasMayoreoPaq) {
-            <div class="etq-tier">
-              <div class="txt">Mayoreo desde <span class="etq-red">{{ mayoreoMin }}</span> paquetes:</div>
-              <div class="pricecell"><span class="amt" #amtEl>\${{ model.wholesale_pack_price | number:'1.2-2' }}</span><span class="unit">c/u</span></div>
-            </div>
-          }
-          @if (hasCaja) {
-            <div class="etq-tier">
-              <div class="txt">Caja con <span class="etq-red">{{ model.box_size }}</span> pzas:</div>
-              <div class="pricecell"><span class="amt" #amtEl>\${{ model.box_price | number:'1.2-2' }}</span></div>
-            </div>
-          }
+          <div class="etq-tiers">
+            @if (hasMayoreoPza) {
+              <div class="etq-tier">
+                <div class="txt">Mayoreo desde <span class="etq-red">{{ mayoreoMin }}</span> pzas:</div>
+                <div class="pricecell"><span class="amt" #amtEl>\${{ model.wholesale_piece_price | number:'1.2-2' }}</span><span class="unit">c/u</span></div>
+              </div>
+            }
+            @if (hasPaquete) {
+              <div class="etq-tier">
+                <div class="txt">Paquete con <span class="etq-red">{{ model.pack_size }}</span> pzas:</div>
+                <div class="pricecell"><span class="amt" #amtEl>\${{ model.pack_price | number:'1.2-2' }}</span></div>
+              </div>
+            }
+            @if (hasMayoreoPaq) {
+              <div class="etq-tier">
+                <div class="txt">Mayoreo desde <span class="etq-red">{{ mayoreoMin }}</span> paquetes:</div>
+                <div class="pricecell"><span class="amt" #amtEl>\${{ model.wholesale_pack_price | number:'1.2-2' }}</span><span class="unit">c/u</span></div>
+              </div>
+            }
+            @if (hasCaja) {
+              <div class="etq-tier">
+                <div class="txt">Caja con <span class="etq-red">{{ model.box_size }}</span> pzas:</div>
+                <div class="pricecell"><span class="amt" #amtEl>\${{ model.box_price | number:'1.2-2' }}</span></div>
+              </div>
+            }
+          </div>
           @if (hasBarcode) {
             <div class="etq-barcode"><svg #bc></svg></div>
           }

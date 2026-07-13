@@ -354,8 +354,15 @@ export class TiendaEtiquetasComponent {
     if (!code) { this.msg.set({ text: 'El producto no tiene SKU ni código de barras.', kind: 'warn' }); return; }
     this.svc.resolve([code]).subscribe({
       next: (r) => {
-        this.pushLabels(r.labels);
-        if (!r.labels.length) this.msg.set({ text: `No se pudo agregar "${h.name}" (sin datos de etiqueta).`, kind: 'warn' });
+        const { added, skipped } = this.pushLabels(r.labels);
+        if (!added) {
+          this.msg.set({
+            text: skipped.length
+              ? `"${h.name}" no tiene precio en Kepler → no se puede etiquetar.`
+              : `No se pudo agregar "${h.name}" (sin datos de etiqueta).`,
+            kind: 'warn',
+          });
+        }
       },
       error: (err) => this.msg.set({ text: this.httpMsg('Agregar', err), kind: 'error' }),
     });
@@ -372,9 +379,11 @@ export class TiendaEtiquetasComponent {
     this.msg.set(null);
     this.svc.resolve([code]).subscribe({
       next: (r) => {
-        if (r.labels?.length) {
-          this.pushLabels(r.labels);
-          this.msg.set({ text: `Agregado: ${r.labels[0].name}`, kind: 'ok' });
+        const { added, skipped } = this.pushLabels(r.labels);
+        if (added) {
+          this.msg.set({ text: `Agregado: ${r.labels.find((l) => this.usable(l))?.name ?? code}`, kind: 'ok' });
+        } else if (skipped.length) {
+          this.msg.set({ text: `${skipped[0]}: sin precio en Kepler → no se puede etiquetar.`, kind: 'warn' });
         } else {
           this.msg.set({ text: `No encontrado: ${code}`, kind: 'warn' });
         }
@@ -395,10 +404,13 @@ export class TiendaEtiquetasComponent {
     this.msg.set(null);
     this.svc.resolve(codes).subscribe({
       next: (r) => {
-        this.pushLabels(r.labels);
+        const { added, skipped } = this.pushLabels(r.labels);
         this.notFound.set(r.not_found || []);
         const nf = r.not_found?.length || 0;
-        this.msg.set({ text: `Agregados ${r.labels.length} · no encontrados ${nf}`, kind: nf ? 'warn' : 'ok' });
+        let text = `Agregados ${added}`;
+        if (skipped.length) text += ` · sin precio ${skipped.length}`;
+        if (nf) text += ` · no encontrados ${nf}`;
+        this.msg.set({ text, kind: (skipped.length || nf) ? 'warn' : 'ok' });
         this.bulk.set('');
         this.loading.set(false);
       },
@@ -406,18 +418,33 @@ export class TiendaEtiquetasComponent {
     });
   }
 
-  private pushLabels(labels: LabelModel[]): void {
+  /**
+   * Agrega a la cola SOLO productos con dato de precio usable. Los que no tienen (ej. SKU-less
+   * sin fila en Kepler, como "OJILOCOS…") se omiten y se devuelven en `skipped` para avisar —
+   * antes se agregaba una etiqueta vacía ($0, sin código, sin tiers) = "no muestra info".
+   */
+  private pushLabels(labels: LabelModel[]): { added: number; skipped: string[] } {
     const q = [...this.queue()];
+    const skipped: string[] = [];
+    let added = 0;
     for (const m of labels) {
+      if (!this.usable(m)) { skipped.push(m.name); continue; }
       const existing = q.find((it) => it.model.product_id === m.product_id);
       if (existing) existing.copies += 1;
       else q.push({ model: m, copies: 1, hero: this.defaultHero(m) });
+      added++;
     }
     this.queue.set(q);
+    return { added, skipped };
   }
 
   // ── Precio grande dinámico por ticket ──────────────────────────────
   private n(v: number | null | undefined): number { return typeof v === 'number' && isFinite(v) ? v : 0; }
+
+  /** Un producto es "usable" para etiqueta si tiene AL MENOS un precio (pieza/paquete/caja). */
+  private usable(m: LabelModel): boolean {
+    return this.n(m.piece_price) > 0 || this.n(m.pack_price) > 0 || this.n(m.box_price) > 0;
+  }
 
   /** Hero por default: pieza si tiene precio; si no, el primero disponible (no imprime $0). */
   private defaultHero(m: LabelModel): HeroKey {
