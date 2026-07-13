@@ -68,5 +68,17 @@ const SELECT_SRC = `
     `SELECT count(*)::int n, coalesce(round(sum(revenue)::numeric,0),0) rev, count(distinct warehouse_id) wh
      FROM analytics.sales_daily WHERE tenant_id = ? AND channel = 'wincaja'`, [TENANT])).rows;
   console.log(`✅ canal wincaja: ${chk.n} filas, ${chk.wh} almacenes, revenue $${Number(chk.rev).toLocaleString()}`);
+
+  // Refresca la MV de KPIs por sucursal (overview instantaneo). Depende del bronze,
+  // no del gold, pero corre aqui como paso final del feed. CONCURRENTLY si ya esta
+  // poblada; plain el primer refresh (WITH NO DATA no admite CONCURRENTLY).
+  const mv = await db.raw(`SELECT ispopulated FROM pg_matviews WHERE schemaname = 'wincaja' AND matviewname = 'mv_branch_kpis'`);
+  if (mv.rows.length) {
+    const t = Date.now();
+    await db.raw(`REFRESH MATERIALIZED VIEW ${mv.rows[0].ispopulated ? 'CONCURRENTLY ' : ''}wincaja.mv_branch_kpis`);
+    console.log(`✅ REFRESH wincaja.mv_branch_kpis (${Date.now() - t}ms)`);
+  } else {
+    console.log('⚠ wincaja.mv_branch_kpis no existe aun (aplicar migracion 20260713200000)');
+  }
   await db.destroy();
 })().catch((e) => { console.error(e); process.exit(1); });

@@ -30,34 +30,62 @@ export class WincajaService {
     );
   }
 
-  /** KPIs por sucursal: venta, inventario, cartera real, demanda perdida. */
+  /**
+   * KPIs por sucursal: venta, inventario, cartera real, demanda perdida.
+   *
+   * Lee la MV `wincaja.mv_branch_kpis` (8 filas, precomputada por el feed gold) en
+   * vez de re-agregar ~2.6M lineas por request (~7s -> instantaneo). La MV no tiene
+   * RLS (limitacion PG) -> filtro tenant explicito via current_tenant_id(). Une
+   * `branches` (vivo, RLS ok) para nombre/estado. Si la MV no existe/esta vacia
+   * (feed no corrido), cae a la agregacion viva.
+   */
   overview() {
     return this.tk.run(async (trx) => {
-      // Secuencial (no Promise.all): pg no permite queries concurrentes sobre la
-      // misma conexion/transaccion — concurrente aqui tiraria error -> 500.
-      const sales = await trx('wincaja.v_sales_daily').select('source_branch').sum({ importe: 'importe' }).sum({ qty: 'qty' }).groupBy('source_branch');
-      const stock = await trx('wincaja.v_stock').select('source_branch').sum({ valor_inventario: 'valor_inventario' }).count({ skus: '*' }).groupBy('source_branch');
-      const ar = await trx('wincaja.v_ar_customer').where('is_internal', false).where('saldo', '>', 0).select('source_branch').sum({ ar: 'saldo' }).count({ clientes: '*' }).groupBy('source_branch');
-      const lost = await trx('wincaja.v_lost_demand').select('source_branch').sum({ perdido: 'importe_perdido' }).count({ faltantes: '*' }).groupBy('source_branch');
       const branches = await trx('wincaja.branches').select('source_branch', 'branch_name', 'warehouse_code', 'status', 'kepler_code');
+      const mv = await trx('pg_matviews').where({ schemaname: 'wincaja', matviewname: 'mv_branch_kpis' }).select('ispopulated').first();
+
       const idx = (rows: any[]) => Object.fromEntries(rows.map((r) => [r.source_branch, r]));
-      const S = idx(sales), K = idx(stock), A = idx(ar), L = idx(lost);
+      let K: Record<string, any>;
+
+      if (mv?.ispopulated) {
+        const kpis = await trx('wincaja.mv_branch_kpis')
+          .whereRaw('tenant_id = current_tenant_id()')
+          .select('source_branch', 'venta_total', 'unidades', 'inventario_valor', 'skus_stock', 'cartera', 'cartera_clientes', 'venta_perdida', 'faltantes');
+        K = idx(kpis);
+      } else {
+        // Fallback: agregacion viva (secuencial — pg no admite queries concurrentes en la misma trx).
+        const sales = await trx('wincaja.v_sales_daily').select('source_branch').sum({ venta_total: 'importe' }).sum({ unidades: 'qty' }).groupBy('source_branch');
+        const stock = await trx('wincaja.v_stock').select('source_branch').sum({ inventario_valor: 'valor_inventario' }).count({ skus_stock: '*' }).groupBy('source_branch');
+        const ar = await trx('wincaja.v_ar_customer').where('is_internal', false).where('saldo', '>', 0).select('source_branch').sum({ cartera: 'saldo' }).count({ cartera_clientes: '*' }).groupBy('source_branch');
+        const lost = await trx('wincaja.v_lost_demand').select('source_branch').sum({ venta_perdida: 'importe_perdido' }).count({ faltantes: '*' }).groupBy('source_branch');
+        const S = idx(sales), ST = idx(stock), A = idx(ar), L = idx(lost);
+        K = Object.fromEntries(branches.map((b: any) => [b.source_branch, {
+          venta_total: S[b.source_branch]?.venta_total, unidades: S[b.source_branch]?.unidades,
+          inventario_valor: ST[b.source_branch]?.inventario_valor, skus_stock: ST[b.source_branch]?.skus_stock,
+          cartera: A[b.source_branch]?.cartera, cartera_clientes: A[b.source_branch]?.cartera_clientes,
+          venta_perdida: L[b.source_branch]?.venta_perdida, faltantes: L[b.source_branch]?.faltantes,
+        }]));
+      }
+
       return branches
-        .map((b: any) => ({
-          source_branch: b.source_branch,
-          branch_name: b.branch_name,
-          warehouse_code: b.warehouse_code,
-          status: b.status,
-          wincaja_only: b.kepler_code == null,
-          venta_total: Number(S[b.source_branch]?.importe || 0),
-          unidades: Number(S[b.source_branch]?.qty || 0),
-          inventario_valor: Number(K[b.source_branch]?.valor_inventario || 0),
-          skus_stock: Number(K[b.source_branch]?.skus || 0),
-          cartera: Number(A[b.source_branch]?.ar || 0),
-          cartera_clientes: Number(A[b.source_branch]?.clientes || 0),
-          venta_perdida: Number(L[b.source_branch]?.perdido || 0),
-          faltantes: Number(L[b.source_branch]?.faltantes || 0),
-        }))
+        .map((b: any) => {
+          const k = K[b.source_branch] || {};
+          return {
+            source_branch: b.source_branch,
+            branch_name: b.branch_name,
+            warehouse_code: b.warehouse_code,
+            status: b.status,
+            wincaja_only: b.kepler_code == null,
+            venta_total: Number(k.venta_total || 0),
+            unidades: Number(k.unidades || 0),
+            inventario_valor: Number(k.inventario_valor || 0),
+            skus_stock: Number(k.skus_stock || 0),
+            cartera: Number(k.cartera || 0),
+            cartera_clientes: Number(k.cartera_clientes || 0),
+            venta_perdida: Number(k.venta_perdida || 0),
+            faltantes: Number(k.faltantes || 0),
+          };
+        })
         .sort((a, b) => b.venta_total - a.venta_total);
     });
   }
