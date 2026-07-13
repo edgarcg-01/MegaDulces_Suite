@@ -318,7 +318,7 @@ export class MovementsExportService {
         displayHeaderFooter: true,
         headerTemplate: '<span></span>',
         footerTemplate: `
-          <div style="width:100%;font-size:7px;color:#837A6C;padding:0 8mm;display:flex;justify-content:space-between;font-family:Helvetica,Arial,sans-serif;">
+          <div style="width:100%;font-size:8px;color:#837A6C;padding:0 8mm;display:flex;justify-content:space-between;font-family:Helvetica,Arial,sans-serif;">
             <span>Mega Dulces · Diario de movimientos · ${data.range.from} — ${data.range.to} · Uso interno</span>
             <span>Página <span class="pageNumber"></span> de <span class="totalPages"></span></span>
           </div>`,
@@ -349,15 +349,14 @@ export class MovementsExportService {
     const docs = data.docs.slice(0, PDF_CAP);
     const audited = data.docs.filter((d) => d.audited).length;
     const tc = this.transferCounts(data.transfers);
-    let sumLineas = 0, sumQty = 0, sumValor = 0;
+    let sumQty = 0, sumValor = 0;
 
     const docRows = docs.map((d) => {
-      sumLineas += Number(d.lineas) || 0;
       sumQty += Number(d.signed_qty) || 0;
       sumValor += Number(d.amount) || 0;
       return `
       <tr><td>${dmy(d.doc_date)}</td><td class="dsc">${esc(d.movement_label)}</td><td class="mono">${esc(d.folio)}</td>
-      <td class="ctr">${esc(d.warehouse_code || d.source_branch)}</td><td class="num">${num(d.lineas)}</td>
+      <td class="ctr">${esc(d.warehouse_code || d.source_branch)}</td>
       <td class="num">${num(d.signed_qty)}</td><td class="num">${money(d.amount, 2)}</td>
       <td>${pill(d.transfer_status)}</td><td>${d.audited ? '<span class="aud">✓ Sí</span>' : '<span class="mut">Pendiente</span>'}</td></tr>`;
     }).join('');
@@ -372,28 +371,29 @@ export class MovementsExportService {
       * { box-sizing: border-box; }
       /* Hoja de papel: fondo blanco SIEMPRE explícito (OS en dark lo pintaría oscuro) */
       html, body { background: #FFFFFF; }
-      body { font-family: Helvetica, 'Segoe UI', Arial, sans-serif; font-size: 8.5px; color: #241E18; margin: 0; }
+      body { font-family: Helvetica, 'Segoe UI', Arial, sans-serif; font-size: 9.5px; color: #241E18; margin: 0; }
       .num { text-align: right; font-variant-numeric: tabular-nums; }
+      td.num { font-size: 10.5px; }
       .ctr { text-align: center; }
-      .mono { font-family: Consolas, 'Liberation Mono', 'Courier New', monospace; font-size: 8px; }
+      .mono { font-family: Consolas, 'Liberation Mono', 'Courier New', monospace; font-size: 9.5px; }
       .mut { color: #837A6C; }
-      .dsc { max-width: 170px; }
+      .dsc { max-width: 210px; }
 
       .mast { display: flex; justify-content: space-between; align-items: flex-end; padding-bottom: 9px; border-bottom: 2px solid #1A1611; position: relative; }
       .mast:after { content: ''; position: absolute; left: 0; bottom: -2px; width: 92px; height: 2px; background: #F05A28; }
-      .brand { font-size: 8.5px; font-weight: 700; letter-spacing: .18em; color: #837A6C; }
-      h1 { font-size: 17px; margin: 3px 0 0; letter-spacing: -.01em; color: #1A1611; }
-      .meta { text-align: right; color: #5E564B; font-size: 8px; line-height: 1.55; }
-      .meta b { color: #1A1611; font-size: 10px; }
+      .brand { font-size: 9px; font-weight: 700; letter-spacing: .18em; color: #837A6C; }
+      h1 { font-size: 19px; margin: 3px 0 0; letter-spacing: -.01em; color: #1A1611; }
+      .meta { text-align: right; color: #5E564B; font-size: 9px; line-height: 1.55; }
+      .meta b { color: #1A1611; font-size: 11.5px; }
 
       .kpis { display: flex; gap: 8px; margin: 11px 0 6px; }
-      .kpi { flex: 1; border: 1px solid #E8E2D7; border-radius: 5px; padding: 6px 10px; background: #FFFFFF; }
-      .kpi-l { display: block; color: #837A6C; font-size: 6.8px; letter-spacing: .09em; text-transform: uppercase; font-weight: 700; }
-      .kpi-v { display: block; font-weight: 700; font-size: 13.5px; margin-top: 2px; font-variant-numeric: tabular-nums; color: #1A1611; }
+      .kpi { flex: 1; border: 1px solid #E8E2D7; border-radius: 5px; padding: 7px 11px; background: #FFFFFF; }
+      .kpi-l { display: block; color: #837A6C; font-size: 7.5px; letter-spacing: .09em; text-transform: uppercase; font-weight: 700; }
+      .kpi-v { display: block; font-weight: 700; font-size: 17px; margin-top: 3px; font-variant-numeric: tabular-nums; color: #1A1611; }
       .chips { display: flex; gap: 5px; align-items: center; margin: 0 0 8px; }
-      .chips .t { font-size: 6.8px; color: #837A6C; text-transform: uppercase; letter-spacing: .09em; font-weight: 700; margin-right: 3px; }
+      .chips .t { font-size: 7.5px; color: #837A6C; text-transform: uppercase; letter-spacing: .09em; font-weight: 700; margin-right: 3px; }
 
-      .pill { display: inline-block; border-radius: 999px; padding: 1.5px 7px; font-size: 7.2px; font-weight: 700; border: 1px solid transparent; }
+      .pill { display: inline-block; border-radius: 999px; padding: 2px 8px; font-size: 8.5px; font-weight: 700; border: 1px solid transparent; }
       .p-ok { background: #DCFCE7; color: #166534; border-color: #BBF7D0; }
       .p-warn { background: #FEF3C7; color: #92400E; border-color: #FDE68A; }
       .p-bad { background: #FEE2E2; color: #991B1B; border-color: #FECACA; }
@@ -402,19 +402,19 @@ export class MovementsExportService {
       .delta { color: #991B1B; font-weight: 700; }
 
       .sec { display: flex; justify-content: space-between; align-items: baseline; margin: 14px 0 5px; padding-left: 9px; border-left: 3px solid #F05A28; }
-      .sec h2 { font-size: 11px; margin: 0; color: #1A1611; }
-      .sec .cnt { font-size: 7.5px; color: #837A6C; }
+      .sec h2 { font-size: 12.5px; margin: 0; color: #1A1611; }
+      .sec .cnt { font-size: 9px; color: #837A6C; }
       .brk { page-break-before: always; }
 
       table { border-collapse: collapse; width: 100%; }
       thead { display: table-header-group; }
-      th { background: #F5F1EA; color: #5E564B; padding: 4px 6px; text-align: left; font-size: 7px; font-weight: 700;
+      th { background: #F5F1EA; color: #5E564B; padding: 5px 6px; text-align: left; font-size: 8px; font-weight: 700;
            text-transform: uppercase; letter-spacing: .06em; border-bottom: 1.5px solid #1A1611; border-top: 1px solid #E8E2D7; }
-      th.num { text-align: right; } th.ctr { text-align: center; }
-      td { border-bottom: 1px solid #EFEAE0; padding: 3px 6px; vertical-align: top; }
+      th.num { text-align: right; font-size: 8px; } th.ctr { text-align: center; }
+      td { border-bottom: 1px solid #EFEAE0; padding: 4px 6px; vertical-align: top; line-height: 1.3; }
       tr { page-break-inside: avoid; }
       .tot td { font-weight: 700; background: #FBF9F6; border-top: 1.5px solid #1A1611; border-bottom: none; }
-      .note { color: #837A6C; font-size: 7.5px; margin-top: 4px; font-style: italic; }
+      .note { color: #837A6C; font-size: 8.5px; margin-top: 4px; font-style: italic; }
       .empty { color: #837A6C; font-style: italic; padding: 10px 6px; }
     </style></head><body>
 
@@ -435,7 +435,7 @@ export class MovementsExportService {
         <div class="kpi"><span class="kpi-l">Salidas (pzas)</span><span class="kpi-v">−${num(Math.abs(data.totals.salidas))}</span></div>
         <div class="kpi"><span class="kpi-l">Valor movido</span><span class="kpi-v">${money(data.totals.valor)}</span></div>
         <div class="kpi"><span class="kpi-l">Documentos</span><span class="kpi-v">${num(data.totals.documentos)}</span></div>
-        <div class="kpi"><span class="kpi-l">Auditados</span><span class="kpi-v">${num(audited)} <span style="font-size:8px;color:#837A6C;font-weight:400">de ${num(docs.length)}</span></span></div>
+        <div class="kpi"><span class="kpi-l">Auditados</span><span class="kpi-v">${num(audited)} <span style="font-size:10px;color:#837A6C;font-weight:400">de ${num(docs.length)}</span></span></div>
       </div>
 
       <div class="chips">
@@ -452,11 +452,11 @@ export class MovementsExportService {
           ? `primeros ${num(PDF_CAP)} de ${num(data.docs.length)} — el detalle completo está en el Excel`
           : `${num(docs.length)} documentos`}</span>
       </div>
-      <table><thead><tr><th>Fecha</th><th>Tipo de documento</th><th>Folio</th><th class="ctr">Alm.</th><th class="num">Líneas</th>
+      <table><thead><tr><th>Fecha</th><th>Tipo de documento</th><th>Folio</th><th class="ctr">Alm.</th>
       <th class="num">Cantidad</th><th class="num">Valor</th><th>Estado</th><th>Auditado</th></tr></thead>
-      <tbody>${docRows || '<tr><td colspan="9" class="empty">Sin documentos en el rango.</td></tr>'}
+      <tbody>${docRows || '<tr><td colspan="8" class="empty">Sin documentos en el rango.</td></tr>'}
       ${docRows ? `<tr class="tot"><td colspan="4">TOTAL${data.docs.length > PDF_CAP ? ' (docs listados)' : ''}</td>
-        <td class="num">${num(sumLineas)}</td><td class="num">${num(sumQty)}</td><td class="num">${money(sumValor, 2)}</td><td></td><td></td></tr>` : ''}
+        <td class="num">${num(sumQty)}</td><td class="num">${money(sumValor, 2)}</td><td></td><td></td></tr>` : ''}
       </tbody></table>
 
       <div class="sec${docs.length > 22 ? ' brk' : ''}">
