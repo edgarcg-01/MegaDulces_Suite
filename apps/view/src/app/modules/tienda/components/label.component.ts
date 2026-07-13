@@ -172,11 +172,13 @@ export class LabelComponent implements AfterViewInit, OnChanges {
   }
   get hasPaquete(): boolean { return !!this.show.paquete && this.num(this.model?.pack_price) > 0 && this.num(this.model?.pack_size) > 0; }
   get hasMayoreoPaq(): boolean {
-    // Sólo si el producto TIENE paquete (pack_size>0): un "mayoreo por paquete"
-    // no aplica a productos sin nivel paquete (unidad = caja directa).
+    // Sólo si el producto TIENE paquete REAL (precio y tamaño > 0, igual que hasPaquete) y el
+    // mayoreo es más barato. Sin paquete, un "mayoreo por paquete" queda huérfano (ej. SKU 70001,
+    // unidad = caja directa). F5.
     const w = this.num(this.model?.wholesale_pack_price);
     const base = this.num(this.model?.pack_price);
-    return !!this.show.mayoreoPaq && this.num(this.model?.pack_size) > 0 && w > 0 && (base <= 0 || w < base);
+    const size = this.num(this.model?.pack_size);
+    return !!this.show.mayoreoPaq && base > 0 && size > 0 && w > 0 && w < base;
   }
   get hasCaja(): boolean { return !!this.show.caja && this.num(this.model?.box_price) > 0 && this.num(this.model?.box_size) > 0; }
   // Muestra el barcode si el multiselect lo pide Y hay algo que codificar: EAN/UPC válido
