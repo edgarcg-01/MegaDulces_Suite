@@ -5,7 +5,7 @@
  * (01-05) → 30/32/50 quedaban invisibles en Salidas.
  *
  * NO relee el silver: deriva de `analytics.sales_daily` (canal 'wincaja', que ya
- * tiene product_id×warehouse×día). Solo tiendas (channel='wincaja'); las RUTAS
+ * tiene product_id×warehouse×día). Solo tiendas (channel LIKE 'wincaja%'); las RUTAS
  * (channel='wincaja_ruta') se EXCLUYEN por decisión de negocio (Salidas es
  * producto×sucursal con existencia; el camión no tiene stock). Aditivo: Kepler no
  * alimenta 30/32/50 → cero doble conteo. Idempotente: DELETE de esas warehouses +
@@ -39,7 +39,7 @@ const STORES = ['MD-30', 'MD-32', 'MD-50'];
 
     const [pre] = (await db.raw(
       `SELECT count(*)::int rows, count(distinct product_id)::int prods, coalesce(round(sum(units)::numeric,0),0) u
-       FROM analytics.sales_daily WHERE tenant_id=? AND channel='wincaja' AND warehouse_id = ANY(?)`, [TENANT, ids])).rows;
+       FROM analytics.sales_daily WHERE tenant_id=? AND channel LIKE 'wincaja%' AND warehouse_id = ANY(?)`, [TENANT, ids])).rows;
     console.log(`  origen (sales_daily canal wincaja): ${pre.rows} filas prod×almacén×día, ${pre.prods} productos, ${Number(pre.u).toLocaleString()} unidades`);
 
     if (!APPLY) { console.log('(dry-run — usar --apply)'); await db.destroy(); return; }
@@ -49,7 +49,7 @@ const STORES = ['MD-30', 'MD-32', 'MD-50'];
       const iM = await trx.raw(
         `INSERT INTO analytics.product_sales_monthly (tenant_id, product_id, warehouse_id, month, units, updated_at)
          SELECT ?, product_id, warehouse_id, date_trunc('month', sale_date)::date, sum(units), now()
-         FROM analytics.sales_daily WHERE tenant_id=? AND channel='wincaja' AND warehouse_id = ANY(?)
+         FROM analytics.sales_daily WHERE tenant_id=? AND channel LIKE 'wincaja%' AND warehouse_id = ANY(?)
          GROUP BY product_id, warehouse_id, date_trunc('month', sale_date)`, [TENANT, TENANT, ids]);
       console.log(`  product_sales_monthly: -${dM} +${iM.rowCount}`);
 
@@ -57,7 +57,7 @@ const STORES = ['MD-30', 'MD-32', 'MD-50'];
       const iD = await trx.raw(
         `INSERT INTO analytics.product_sales_daily (tenant_id, product_id, warehouse_id, sale_date, units, updated_at)
          SELECT ?, product_id, warehouse_id, sale_date, sum(units), now()
-         FROM analytics.sales_daily WHERE tenant_id=? AND channel='wincaja' AND warehouse_id = ANY(?)
+         FROM analytics.sales_daily WHERE tenant_id=? AND channel LIKE 'wincaja%' AND warehouse_id = ANY(?)
          GROUP BY product_id, warehouse_id, sale_date`, [TENANT, TENANT, ids]);
       console.log(`  product_sales_daily:   -${dD} +${iD.rowCount}`);
     });

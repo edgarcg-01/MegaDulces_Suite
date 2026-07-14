@@ -23,16 +23,23 @@ const knexLib = require('knex');
 const APPLY = process.argv.includes('--apply');
 const TENANT = process.env.WINCAJA_TENANT_ID || '00000000-0000-0000-0000-00000000d01c';
 
-// channel = 'wincaja_ruta' para venta a bordo de ruta (sale_channel='ruta_venta',
-// warehouse RUTA-<code>), 'wincaja' para sucursal (mostrador/preventa_vecinal/
-// mayoreo_credito). Ambos suman al total; separables por channel. Sub-canal de
-// sucursal queda en el silver (v_sales_daily.sale_channel). W.8/W.10.
+// channel preserva el SUB-CANAL del silver (v_sales_daily.sale_channel), namespaced
+// 'wincaja_*' para no colisionar con Kepler (mostrador/credito/preventa/ruta):
+//   mostrador→wincaja_mostrador · mayoreo_credito→wincaja_credito ·
+//   preventa_vecinal→wincaja_preventa · ruta_venta→wincaja_ruta.
+// Sell-Out mapea cada uno a su canal real (antes todo caía en 'Otro'). Todos suman
+// al total; separables por channel. W.8/W.10 + RS (sub-canal 2026-07-14).
 const SELECT_SRC = `
   SELECT
     p.id                         AS product_id,
     w.id                         AS warehouse_id,
     s.business_date              AS sale_date,
-    CASE WHEN s.sale_channel = 'ruta_venta' THEN 'wincaja_ruta' ELSE 'wincaja' END AS channel,
+    'wincaja_' || CASE s.sale_channel
+       WHEN 'mayoreo_credito'  THEN 'credito'
+       WHEN 'preventa_vecinal' THEN 'preventa'
+       WHEN 'ruta_venta'       THEN 'ruta'
+       WHEN 'mostrador'        THEN 'mostrador'
+       ELSE s.sale_channel END   AS channel,
     SUM(s.qty)                   AS units,
     SUM(s.importe)               AS revenue,
     SUM(s.costo)                 AS cost,
@@ -46,7 +53,6 @@ const SELECT_SRC = `
   WHERE s.tenant_id = ? AND s.wincaja_only = true
   GROUP BY p.id, w.id, s.business_date, channel
 `;
-const WINCAJA_CHANNELS = ['wincaja', 'wincaja_ruta'];
 
 (async () => {
   const cfg = process.env.DATABASE_URL_NEW
@@ -60,7 +66,7 @@ const WINCAJA_CHANNELS = ['wincaja', 'wincaja_ruta'];
   if (!APPLY) { console.log('(dry-run - usar --apply)'); await db.destroy(); return; }
 
   await db.transaction(async (trx) => {
-    const del = await trx('analytics.sales_daily').where({ tenant_id: TENANT }).whereIn('channel', WINCAJA_CHANNELS).del();
+    const del = await trx('analytics.sales_daily').where({ tenant_id: TENANT }).where('channel', 'like', 'wincaja%').del();
     const ins = await trx.raw(
       `INSERT INTO analytics.sales_daily (tenant_id, product_id, warehouse_id, channel, sale_date, units, revenue, cost, tickets, updated_at)
        SELECT ?, product_id, warehouse_id, channel, sale_date, units, revenue, cost, tickets, now()
@@ -72,7 +78,7 @@ const WINCAJA_CHANNELS = ['wincaja', 'wincaja_ruta'];
 
   const chk = (await db.raw(
     `SELECT channel, count(*)::int n, coalesce(round(sum(revenue)::numeric,0),0) rev, count(distinct warehouse_id) wh
-     FROM analytics.sales_daily WHERE tenant_id = ? AND channel = ANY(?) GROUP BY channel ORDER BY channel`, [TENANT, WINCAJA_CHANNELS])).rows;
+     FROM analytics.sales_daily WHERE tenant_id = ? AND channel LIKE 'wincaja%' GROUP BY channel ORDER BY channel`, [TENANT])).rows;
   for (const r of chk) console.log(`✅ ${r.channel}: ${r.n} filas, ${r.wh} almacenes, revenue $${Number(r.rev).toLocaleString()}`);
 
   // Refresca la MV de KPIs por sucursal (overview instantaneo). Depende del bronze,

@@ -244,15 +244,17 @@ export interface SellOutBrandRow {
 const RS_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const CHANNEL_LABELS: Record<string, string> = {
   mostrador: 'Mostrador',
+  preventa: 'Preventa',
   ruta: 'Ruta',
   credito: 'Crédito',
   otro: 'Otro',
 };
 const CHANNEL_ORDER: Record<string, number> = {
   mostrador: 0,
-  ruta: 1,
-  credito: 2,
-  otro: 3,
+  preventa: 1,
+  ruta: 2,
+  credito: 3,
+  otro: 4,
 };
 // `TI*` = traspaso interno entre sucursales (logística, sale de CEDIS). NO es
 // venta a cliente → se excluye del sell-out (contarlo duplica + infla).
@@ -2049,6 +2051,10 @@ export class CommercialAnalyticsService {
         WHEN 'ruta'    THEN 'ruta'
         WHEN 'credito' THEN 'credito'
         WHEN 'mayoreo' THEN 'traspaso'
+        WHEN 'wincaja_mostrador' THEN 'mostrador'
+        WHEN 'wincaja_preventa'  THEN 'preventa'
+        WHEN 'wincaja_ruta'      THEN 'ruta'
+        WHEN 'wincaja_credito'   THEN 'credito'
         ELSE 'otro' END`;
 
     // Paso 1 y 2 — marca + agregación desde analytics.sales_daily (misma DB,
