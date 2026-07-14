@@ -15,11 +15,9 @@
       "Skill(design-consultation)",
       "Skill(design-consultation:*)",
       "WebFetch(domain:ecomm.design)",
-      "Bash(VECTOR_DATABASE_URL='postgresql://postgres:gZSTGBSjgyJdgVMBlFfhIXgEbEaOmnPz@acela.proxy.rlwy.net:37056/railway' node scripts/init-vector-db.js)",
       "PowerShell(Start-Process \"C:\\\\Users\\\\Sistemas\\\\.gstack\\\\projects\\\\edgarcg-01-Trade_marketing\\\\designs\\\\portal-redesign-20260604\\\\mercado-preview.html\")",
       "PowerShell(\"opened\")",
       "PowerShell(\"reopened\")",
-      "Bash(VECTOR_DATABASE_URL='postgresql://postgres:gZSTGBSjgyJdgVMBlFfhIXgEbEaOmnPz@acela.proxy.rlwy.net:37056/railway' node scripts/embed-active-products.js)",
       "Bash(git commit -m 'style\\(design\\): F4+F6+F9 - tipografia 10-12px, font-weight hierarchy, shadow decorativa fuera *)",
       "PowerShell(npx nx build view --skip-nx-cache 2>&1)",
       "Bash(git commit -m 'style\\(design\\): G2 - codemod hex pass 2 sobre portal/cart + televenta/* *)",
@@ -31,8 +29,6 @@
       "Bash(node scripts/bootstrap-planogram-aliases.js)",
       "Bash(node scripts/bootstrap-planogram-aliases.js --apply)",
       "Bash(mkdir -p _imported/logistica && cp \"C:/Users/Sistemas/Downloads/megadulces_beta \\(14\\) \\(2\\).html\" _imported/logistica/beta_v1.html && ls -la _imported/logistica/)",
-      "Bash(PGPASSWORD=superoot psql -h localhost -p 5433 -U postgres -d postgres_platform -c \"\\\\dt logistics.*\")",
-      "Bash(node -e \"const { Client } = require\\('pg'\\); \\(async \\(\\) => { const c = new Client\\({ connectionString: 'postgresql://postgres:superoot@localhost:5433/postgres_platform' }\\); await c.connect\\(\\); const r = await c.query\\(\\\\`SELECT table_name FROM information_schema.tables WHERE table_schema='logistics' ORDER BY table_name\\\\`\\); console.log\\('logistics.* tables:'\\); r.rows.forEach\\(x => console.log\\('  -', x.table_name\\)\\); await c.end\\(\\); }\\)\\(\\).catch\\(e => { console.error\\(e.message\\); process.exit\\(1\\); }\\);\")",
       "Bash(curl -s -m 4 http://localhost:3000/api/health)",
       "Bash(curl -s -m 4 http://localhost:3000/api)",
       "Bash(curl -s -m 5 -o /dev/null -w \"API :3334 -> HTTP %{http_code}\\\\n\" http://localhost:3334/api)",
@@ -60,8 +56,7 @@
       "Bash(node c:/tmp/cm0-validate.js)",
       "Bash(git branch *)",
       "Bash(cd \"C:/Users/Sistemas/.claude/projects/c--Users-Sistemas-CascadeProjects-Trade-marketing/ff5cd8f0-b5e1-4283-b4c5-25dcb2f0915f\" 2>/dev/null && find . -path '*wf_09cf8506*' -newer /dev/null 2>/dev/null | head -50; echo \"---- workflows dir ----\"; ls -la workflows/ 2>/dev/null; echo \"---- subagents/workflows ----\"; ls -la subagents/workflows/ 2>/dev/null)",
-      "Read(//dev/**)",
-      "PowerShell($env:PROD_DATABASE_URL='postgresql://postgres:whhQQTskVhAeQbbStUUkalNyWmikxBHJ@trolley.proxy.rlwy.net:39023/railway'; node database/scripts/diag-capture-schema.js)"
+      "Read(//dev/**)"
     ],
     "additionalDirectories": [
       "C:\\Users\\Sistemas\\Downloads",

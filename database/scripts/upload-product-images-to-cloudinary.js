@@ -76,13 +76,13 @@ async function main() {
   console.log(`[upload] dir: ${dir} (${files.length} images)`);
 
   // Setup knex connections según target
+  const localUrl = process.env.LOCAL_DATABASE_URL;
+  const railwayUrl = process.env.DATABASE_URL_NEW;
   const local = ['local', 'both'].includes(args.target)
-    ? buildKnex('postgresql://postgres:superoot@localhost:5433/postgres_platform')
+    ? buildKnex(localUrl || (() => { throw new Error('Falta LOCAL_DATABASE_URL en .env'); })())
     : null;
   const railway = ['railway', 'both'].includes(args.target)
-    ? buildKnex(
-        'postgresql://postgres:whhQQTskVhAeQbbStUUkalNyWmikxBHJ@trolley.proxy.rlwy.net:39023/railway',
-      )
+    ? buildKnex(railwayUrl || (() => { throw new Error('Falta DATABASE_URL_NEW en .env'); })())
     : null;
 
   // Pre-flight: verificar SKUs que existen en inventory.products

@@ -81,3 +81,16 @@ database/importers/kepler/daemon/
 # Se versiona solo sync.local.env.example.
 database/importers/wincaja/sync.local.env
 database/importers/wincaja/logs/
+
+# ── Seguridad: scripts de debug/scratch que históricamente hardcodearon
+#    credenciales de prod. NUNCA versionar. Usar env (.env) para conexiones.
+.claude/settings.local.json
+check_migrations.js
+_recover.js
+database/_recover.js
+_tmp*.js
+database/_tmp*.js
+_kep*.js
+database/_kep*.js
+_verify*.js
+database/_verify*.js

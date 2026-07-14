@@ -16,7 +16,8 @@
 require('dotenv').config({ path: require('path').resolve(__dirname, '..', '..', '.env') });
 const { Client } = require('pg');
 
-const RAILWAY_URL = process.env.RAILWAY_DATABASE_URL || 'postgresql://postgres:whhQQTskVhAeQbbStUUkalNyWmikxBHJ@trolley.proxy.rlwy.net:39023/railway';
+const RAILWAY_URL = process.env.RAILWAY_DATABASE_URL || process.env.DATABASE_URL_NEW;
+if (!RAILWAY_URL) { console.error('Falta RAILWAY_DATABASE_URL / DATABASE_URL_NEW en .env'); process.exit(1); }
 const LOCAL_CFG = require('../knexfile-newdb.js').development.connection;
 
 (async () => {

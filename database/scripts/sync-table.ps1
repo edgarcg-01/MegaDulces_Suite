@@ -1,6 +1,13 @@
 param([string]$Table, [string]$CsvPath, [string]$PkExpr = '(id)')
 
-$env:PGPASSWORD = 'whhQQTskVhAeQbbStUUkalNyWmikxBHJ'
+# Conexión vía variables de entorno estándar de libpq (psql las lee solo):
+#   PGHOST, PGPORT, PGUSER, PGDATABASE, PGPASSWORD.
+# NUNCA hardcodear credenciales aquí. Setealas en la sesión antes de correr:
+#   $env:PGHOST='...'; $env:PGPORT='...'; $env:PGUSER='postgres'; $env:PGDATABASE='railway'; $env:PGPASSWORD='...'
+if (-not $env:PGPASSWORD -or -not $env:PGHOST) {
+  Write-Error 'Faltan variables PG* (PGHOST/PGPORT/PGUSER/PGDATABASE/PGPASSWORD). Ver comentario.'
+  exit 1
+}
 $tempName = "tmp_$($Table.Replace('.','_'))_$(Get-Random -Maximum 99999)"
 $sql = @"
 SET session_replication_role = 'replica';
@@ -11,4 +18,4 @@ SELECT '$Table -> ' || COUNT(*) AS result FROM $Table;
 DROP TABLE $tempName;
 SET session_replication_role = 'origin';
 "@
-$sql | & 'C:\Program Files\PostgreSQL\18\bin\psql.exe' -h trolley.proxy.rlwy.net -p 39023 -U postgres -d railway -v ON_ERROR_STOP=1 -q -X 2>&1 | Select-String -NotMatch '^SET$','^CREATE TABLE$','^DROP TABLE$','^COPY \d+$','^INSERT 0 \d+$' | ForEach-Object { $_.Line }
+$sql | & 'C:\Program Files\PostgreSQL\18\bin\psql.exe' -v ON_ERROR_STOP=1 -q -X 2>&1 | Select-String -NotMatch '^SET$','^CREATE TABLE$','^DROP TABLE$','^COPY \d+$','^INSERT 0 \d+$' | ForEach-Object { $_.Line }
