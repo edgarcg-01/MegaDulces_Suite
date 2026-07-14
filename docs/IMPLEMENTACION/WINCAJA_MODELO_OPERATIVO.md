@@ -114,10 +114,12 @@ GOLD    analytics.sales_daily   solo sucursales que Kepler NO ve (30/32/50), cha
 - **Preventa vecinal (caja 15)** = venta minorista intensiva con **servicio a la puerta**
   del cliente; es venta de la **sucursal** (no de una ruta), canal `preventa_vecinal`.
 
-> Las rutas hoy llegan a **bronze + silver** (venta a bordo ~$31M ene-jul 2026, 13 rutas;
-> sell-through real que **no duplica** con las sucursales — la caja 98 está excluida). Para
-> el **gold**, cada ruta será su propia unidad (warehouse/dimensión `RUTA-<code>`), separada
-> de la sucursal madre — pendiente de crear esas unidades.
+> Rutas en **bronze + silver + gold** (venta a bordo ~$31M ene-jul 2026, 13 rutas;
+> sell-through real que **no duplica** con las sucursales — la caja 98 está excluida).
+> Cada ruta es su propia unidad gold: warehouse `RUTA-<code>` (kind='truck') y
+> `analytics.sales_daily channel='wincaja_ruta'`, separada de la sucursal madre y del
+> canal `wincaja` (mostrador/preventa/mayoreo). El feed de **stock excluye** RUTA-*
+> (no metemos inventario de camión). W.10.
 
 ## 6. Importer
 

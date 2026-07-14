@@ -279,14 +279,14 @@
        <div class="flex flex-col gap-2">
          <label for="zona" class="text-label text-content-muted">Zona</label>
          <p-select id="zona" [options]="zones()" formControlName="zona" placeholder="Selecciona zona"
-                   optionLabel="label" optionValue="value" class="w-full" styleClass="w-full"></p-select>
+                   optionLabel="label" optionValue="value" appendTo="body" class="w-full" styleClass="w-full"></p-select>
        </div>
 
        <div class="flex flex-col gap-2">
          <label for="warehouse_code" class="text-label text-content-muted">Sucursal (monitor Tienda)</label>
          <p-select id="warehouse_code" [options]="branchOptions" formControlName="warehouse_code"
                    placeholder="Todas (rol global)" [showClear]="true"
-                   optionLabel="label" optionValue="value" class="w-full" styleClass="w-full"></p-select>
+                   optionLabel="label" optionValue="value" appendTo="body" class="w-full" styleClass="w-full"></p-select>
          <small class="text-content-dim text-[11px]">Vacío = ve todas las sucursales. Con sucursal = solo ve la venta en vivo de esa tienda.</small>
        </div>
     </div>
@@ -309,14 +309,14 @@
     <div class="flex flex-col gap-2">
       <label for="role_name" class="text-label text-content-muted">Nivel de Acceso</label>
       <p-select id="role_name" [options]="assignableRoles()" formControlName="role_name" placeholder="Selecciona el rol"
-                  optionLabel="label" optionValue="value" class="w-full" styleClass="w-full"></p-select>
+                  optionLabel="label" optionValue="value" appendTo="body" class="w-full" styleClass="w-full"></p-select>
     </div>
 
     @if (isSupervisedRole(userForm.get('role_name')?.value)) {
       <div class="flex flex-col gap-2 animate-in fade-in slide-in-from-top-2 duration-300">
         <label for="supervisor_id" class="text-label text-content-muted">Jefe / Supervisor de Ventas</label>
         <p-select id="supervisor_id" [options]="supervisors()" formControlName="supervisor_id" placeholder="Asigna un supervisor"
-                    optionLabel="label" optionValue="value" [filter]="true" class="w-full" styleClass="w-full"></p-select>
+                    optionLabel="label" optionValue="value" [filter]="true" appendTo="body" class="w-full" styleClass="w-full"></p-select>
         @if (userForm.get('supervisor_id')?.invalid && userForm.get('supervisor_id')?.touched) {
           <small class="text-bad-fg">
             Debes asignar un supervisor para este usuario.
