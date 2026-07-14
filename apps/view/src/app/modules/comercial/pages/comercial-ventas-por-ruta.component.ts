@@ -136,7 +136,8 @@ const MES: Record<string, string> = {
                      [subtitle]="detail() ? ('Ruta ' + detail()!.route_no + ' · ' + detail()!.year) : null">
         @if (detailLoading()) {
           <div class="rr-detail-loading"><i class="pi pi-spin pi-spinner"></i> Cargando desglose…</div>
-        } @else if (detail(); as d) {
+        }
+        @if (detail(); as d) {
           <div class="rr-dkpis">
             <div class="rr-dkpi"><span>Venta</span><b>{{ d.totals.revenue | currency:'MXN':'symbol-narrow':'1.0-0' }}</b></div>
             <div class="rr-dkpi"><span>Tickets</span><b>{{ d.totals.tickets | number }}</b></div>
@@ -154,7 +155,7 @@ const MES: Record<string, string> = {
 
           @switch (tab()) {
             @case ('productos') {
-              <p-table [value]="d.products" styleClass="p-datatable-sm surf-table" [scrollable]="true" scrollHeight="52vh">
+              <p-table [value]="detail()!.products" styleClass="p-datatable-sm surf-table" [scrollable]="true" scrollHeight="52vh">
                 <ng-template pTemplate="header"><tr>
                   <th scope="col">Producto</th><th scope="col" class="comm-num">Unid</th>
                   <th scope="col" class="comm-num">Importe</th><th scope="col" class="comm-num">%</th></tr>
@@ -169,7 +170,7 @@ const MES: Record<string, string> = {
               <p class="rr-note">Top 50 por importe.</p>
             }
             @case ('dias') {
-              <p-table [value]="d.daily" styleClass="p-datatable-sm surf-table" [scrollable]="true" scrollHeight="52vh">
+              <p-table [value]="detail()!.daily" styleClass="p-datatable-sm surf-table" [scrollable]="true" scrollHeight="52vh">
                 <ng-template pTemplate="header"><tr>
                   <th scope="col">Día</th><th scope="col" class="comm-num">Tickets</th>
                   <th scope="col" class="comm-num">Venta</th><th scope="col" class="rr-barcol"></th></tr>
@@ -183,7 +184,7 @@ const MES: Record<string, string> = {
               </p-table>
             }
             @case ('clientes') {
-              <p-table [value]="d.clients" styleClass="p-datatable-sm surf-table" [scrollable]="true" scrollHeight="52vh">
+              <p-table [value]="detail()!.clients" styleClass="p-datatable-sm surf-table" [scrollable]="true" scrollHeight="52vh">
                 <ng-template pTemplate="header"><tr>
                   <th scope="col">Cliente</th><th scope="col" class="comm-num">Tickets</th>
                   <th scope="col" class="comm-num">Importe</th></tr>
@@ -197,7 +198,7 @@ const MES: Record<string, string> = {
               <p class="rr-note">Top 50 por importe. "Público" = venta a bordo sin cliente identificado.</p>
             }
             @case ('tickets') {
-              <p-table [value]="d.tickets" styleClass="p-datatable-sm surf-table" [scrollable]="true" scrollHeight="52vh">
+              <p-table [value]="detail()!.tickets" styleClass="p-datatable-sm surf-table" [scrollable]="true" scrollHeight="52vh">
                 <ng-template pTemplate="header"><tr>
                   <th scope="col">Folio</th><th scope="col">Fecha</th>
                   <th scope="col" class="comm-num">Líneas</th><th scope="col" class="comm-num">Importe</th></tr>
@@ -231,6 +232,27 @@ const MES: Record<string, string> = {
     /* Sticky/frozen/tema los da PrimeNG + surf-table; sólo jerarquía visual acá. */
     .rr-strong { font-weight:700; }
     .rr-foot td { font-weight:700; }
+    .rr-row { cursor:pointer; }
+    .rr-link { color:var(--action); text-underline-offset:2px; }
+    .rr-row:hover .rr-link { text-decoration:underline; }
+    /* Detalle (side-peek) */
+    .rr-detail-loading { color:var(--text-muted); font-size:.85rem; padding:1rem 0; display:flex; align-items:center; gap:.5rem; }
+    .rr-dkpis { display:grid; grid-template-columns:repeat(2,1fr); gap:.5rem; margin-bottom:1rem; }
+    .rr-dkpi { border:1px solid var(--border-color); border-radius:var(--r-md); padding:.5rem .7rem; background:var(--card-bg); }
+    .rr-dkpi span { display:block; font-size:.64rem; font-weight:600; text-transform:uppercase; letter-spacing:.04em; color:var(--text-muted); }
+    .rr-dkpi b { display:block; font-size:1.05rem; margin-top:.1rem; font-variant-numeric:tabular-nums; }
+    .rr-tabs { display:flex; gap:.25rem; border-bottom:1px solid var(--border-color); margin-bottom:.75rem; }
+    .rr-tabs button { appearance:none; background:none; border:none; border-bottom:2px solid transparent; padding:.5rem .6rem; font-size:.8rem; font-weight:600; color:var(--text-muted); cursor:pointer; }
+    .rr-tabs button:hover { color:var(--text-main); }
+    .rr-tabs button.on { color:var(--text-main); border-bottom-color:var(--action); }
+    .rr-tabs button:focus-visible { outline:2px solid var(--action); outline-offset:2px; }
+    .rr-prod { max-width:230px; }
+    .rr-sku { color:var(--text-muted); font-variant-numeric:tabular-nums; margin-right:.35rem; }
+    .rr-mono { font-variant-numeric:tabular-nums; }
+    .rr-tag { display:inline-block; margin-left:.4rem; font-size:.62rem; padding:.05rem .35rem; border-radius:var(--r-sm); background:var(--hover-bg); color:var(--text-muted); text-transform:uppercase; letter-spacing:.03em; }
+    .rr-note { margin:.5rem 0 0; font-size:.68rem; color:var(--text-muted); }
+    .rr-barcol { width:80px; }
+    .rr-bar { display:block; height:8px; border-radius:4px; background:var(--action); opacity:.55; }
   `],
 })
 export class ComercialVentasPorRutaComponent {
@@ -246,6 +268,13 @@ export class ComercialVentasPorRutaComponent {
 
   year = new Date().getFullYear();
   routes: string[] = [];
+
+  // Desglose (side-peek)
+  peekOpen = signal(false);
+  detail = signal<SalesByRouteDetail | null>(null);
+  detailLoading = signal(false);
+  tab = signal<DetailTab>('productos');
+  private dailyMax = 1;
 
   yearOpts = computed(() => { const y = new Date().getFullYear(); return [y, y - 1, y - 2]; });
 
@@ -286,6 +315,29 @@ export class ComercialVentasPorRutaComponent {
         error: () => { this.dl.set(false); this.toast.add({ severity: 'error', summary: 'Error al descargar XLSX' }); },
       });
   }
+
+  openRoute(row: SalesByRouteRow) {
+    this.tab.set('productos');
+    this.detail.set(null);
+    this.detailLoading.set(true);
+    this.peekOpen.set(true);
+    this.svc.salesByRouteDetail(row.route_code, this.year)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (d) => {
+          this.dailyMax = Math.max(1, ...d.daily.map((x) => x.revenue));
+          this.detail.set(d);
+          this.detailLoading.set(false);
+        },
+        error: (e) => {
+          this.detailLoading.set(false);
+          this.peekOpen.set(false);
+          this.toast.add({ severity: 'error', summary: 'Error al cargar el desglose', detail: e?.error?.message });
+        },
+      });
+  }
+
+  barPct(v: number): number { return this.dailyMax > 0 ? Math.round((v / this.dailyMax) * 100) : 0; }
 
   mes(m: string): string { return MES[m] ?? m; }
   cell(row: SalesByRouteRow, m: string) { return row.monthly[m]; }
