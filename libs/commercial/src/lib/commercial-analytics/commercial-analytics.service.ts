@@ -2476,9 +2476,14 @@ export class CommercialAnalyticsService {
 
   /**
    * RR — Ventas por Ruta: fila por (sucursal, ruta) con venta (importe/unidades/
-   * tickets) mes a mes + total + share%. Ruta = serie de folio Kepler `c63`
-   * (UD+almacén+ruta); `md_01-003` = PH ruta 03. Fuente: analytics.sales_by_route_monthly
-   * (feed live Kepler U/D/10, acumulativo). Historia por ruta se construye hacia adelante.
+   * tickets) mes a mes + total + share%. Fuente única: analytics.sales_by_route_monthly,
+   * que mezcla DOS orígenes sin doble-conteo:
+   *   • Kepler (route_code = serie de folio `c63`, UD+almacén+ruta; `md_01-003` = PH
+   *     ruta 03): feed live U/D/10 acumulativo, historia hacia adelante.
+   *   • Wincaja venta a bordo (route_code = 'WIN-<code>'): feed import-wincaja-routes-
+   *     monthly.js, atribuida a la sucursal MADRE. Padre Hidalgo se corta en 31/05/2026
+   *     (Wincaja hasta may, Kepler desde jun) → cero solape de mes.
+   * El endpoint no distingue origen: agrega ambos por (sucursal, ruta, mes).
    */
   async salesByRoute(q: SalesByRouteQuery): Promise<SalesByRouteReport> {
     const year = Number(q.year) || new Date().getFullYear();
