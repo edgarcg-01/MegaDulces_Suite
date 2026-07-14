@@ -779,8 +779,12 @@ export class DailyCapturesService {
         const update: { ruta_id: string; zona_id?: string } = { ruta_id: routeId };
         if (zoneId) update.zona_id = zoneId;
         const q = tx('stores').where({ id: storeId });
+        // OJO: el OR DEBE ir entre paréntesis. Sin ellos la precedencia SQL lo
+        // vuelve top-level (`(id=? AND ruta≠?) OR zona≠?`) y cada captura
+        // re-homeaba TODAS las tiendas con zona distinta (bug cazado en prod
+        // 2026-07-14 con trigger de auditoría: 341 filas pisadas por captura).
         if (zoneId)
-          q.whereRaw('ruta_id IS DISTINCT FROM ? OR zona_id IS DISTINCT FROM ?', [routeId, zoneId]);
+          q.whereRaw('(ruta_id IS DISTINCT FROM ? OR zona_id IS DISTINCT FROM ?)', [routeId, zoneId]);
         else q.whereRaw('ruta_id IS DISTINCT FROM ?', [routeId]);
         await q.update(update);
       });
