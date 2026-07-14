@@ -630,16 +630,23 @@ export class CommercialAnalyticsController {
 
   // ─────────── Fase RR — Ventas por Ruta ───────────
 
+  @Get('sales-by-route/routes')
+  @RequirePermissions(Permission.COMMERCIAL_ROUTE_SALES_VER)
+  @ApiOperation({ summary: 'RR — Opciones del filtro: SOLO las rutas del reporte (value = warehouse_code|route_code).' })
+  salesByRouteRoutes() {
+    return this.service.salesByRouteRoutes();
+  }
+
   @Get('sales-by-route')
   @RequirePermissions(Permission.COMMERCIAL_ROUTE_SALES_VER)
   @ApiOperation({
     summary:
-      'RR — Ventas por Ruta: fila por (sucursal, ruta) con venta (importe/unidades/tickets) mes a mes + share%. Ruta = serie de folio Kepler c63 (UD+almacén+ruta). Params: year, warehouses=csv.',
+      'RR — Ventas por Ruta: fila por (sucursal, ruta) con venta (importe/unidades/tickets) mes a mes + share%. Mezcla Kepler (serie c63) + Wincaja venta a bordo (WIN-). Params: year, routes=csv (warehouse_code|route_code).',
   })
-  salesByRoute(@Query('year') year?: string, @Query('warehouses') warehouses?: string) {
+  salesByRoute(@Query('year') year?: string, @Query('routes') routes?: string) {
     return this.service.salesByRoute({
       year: year ? Number(year) : new Date().getFullYear(),
-      warehouses: warehouses ? warehouses.split(',').map((c) => c.trim()).filter(Boolean) : undefined,
+      routes: routes ? routes.split(',').map((c) => c.trim()).filter(Boolean) : undefined,
     });
   }
 
@@ -649,11 +656,11 @@ export class CommercialAnalyticsController {
   async salesByRouteXlsx(
     @Res() res: Response,
     @Query('year') year?: string,
-    @Query('warehouses') warehouses?: string,
+    @Query('routes') routes?: string,
   ) {
     const report = await this.service.salesByRoute({
       year: year ? Number(year) : new Date().getFullYear(),
-      warehouses: warehouses ? warehouses.split(',').map((c) => c.trim()).filter(Boolean) : undefined,
+      routes: routes ? routes.split(',').map((c) => c.trim()).filter(Boolean) : undefined,
     });
     const buf = await this.exporter.buildSalesByRouteXlsx(report);
     this.sendFile(res, buf, this.exporter.salesByRouteFileName(report),

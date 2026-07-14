@@ -10,10 +10,10 @@ import { TableModule } from 'primeng/table';
 import { MessageService } from 'primeng/api';
 import {
   ComercialService,
+  SalesByRouteOption,
   SalesByRouteParams,
   SalesByRouteReport,
   SalesByRouteRow,
-  SellOutWarehouseRow,
 } from '../comercial.service';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { REPORTS_TABS } from '../reports-tabs';
@@ -51,9 +51,9 @@ const MES: Record<string, string> = {
           <p-select [options]="yearOpts()" [(ngModel)]="year" appendTo="body" (onChange)="load()" />
         </div>
         <div class="rr-field rr-wh">
-          <label>Sucursales</label>
-          <p-multiSelect [options]="warehouseOpts()" [(ngModel)]="warehouses" optionLabel="name" optionValue="code"
-                         placeholder="Todas" [showClear]="true" appendTo="body" styleClass="w-full" (onPanelHide)="load()" />
+          <label>Rutas</label>
+          <p-multiSelect [options]="routeOpts()" [(ngModel)]="routes" optionLabel="label" optionValue="value"
+                         placeholder="Todas" [showClear]="true" [filter]="true" appendTo="body" styleClass="w-full" (onPanelHide)="load()" />
         </div>
         <div class="rr-actions">
           <button pButton label="Consultar" icon="pi pi-search" size="small" [loading]="loading()" (click)="load()"></button>
@@ -152,24 +152,24 @@ export class ComercialVentasPorRutaComponent {
   private readonly toast = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);
 
-  warehouseOpts = signal<SellOutWarehouseRow[]>([]);
+  routeOpts = signal<SalesByRouteOption[]>([]);
   loading = signal(false);
   dl = signal(false);
   report = signal<SalesByRouteReport | null>(null);
 
   year = new Date().getFullYear();
-  warehouses: string[] = [];
+  routes: string[] = [];
 
   yearOpts = computed(() => { const y = new Date().getFullYear(); return [y, y - 1, y - 2]; });
 
   constructor() {
-    this.svc.sellOutWarehouses().pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({ next: (w) => this.warehouseOpts.set(w), error: () => undefined });
+    this.svc.salesByRouteRoutes().pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({ next: (r) => this.routeOpts.set(r), error: () => undefined });
     this.load();
   }
 
   private params(): SalesByRouteParams {
-    return { year: this.year, warehouses: this.warehouses.length ? this.warehouses : undefined };
+    return { year: this.year, routes: this.routes.length ? this.routes : undefined };
   }
 
   load() {

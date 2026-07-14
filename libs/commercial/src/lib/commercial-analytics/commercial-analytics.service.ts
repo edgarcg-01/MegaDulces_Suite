@@ -107,6 +107,18 @@ export interface SalidasReport {
 export interface SalesByRouteQuery {
   year: number;
   warehouses?: string[];
+  /** Filtro por ruta: claves compuestas `warehouse_code|route_code` (route_code
+   * de Kepler colisiona entre sucursales → el warehouse desambigua). */
+  routes?: string[];
+}
+
+export interface SalesByRouteOption {
+  value: string; // `warehouse_code|route_code`
+  label: string; // `Sucursal · Ruta N`
+  warehouse_code: string;
+  warehouse_name: string;
+  route_code: string;
+  route_no: string;
 }
 
 export interface SalesByRouteCell {
@@ -2485,12 +2497,35 @@ export class CommercialAnalyticsService {
    *     (Wincaja hasta may, Kepler desde jun) → cero solape de mes.
    * El endpoint no distingue origen: agrega ambos por (sucursal, ruta, mes).
    */
+  /** Opciones del filtro de /comercial/ventas-por-ruta: SOLO las rutas presentes
+   * en el reporte (no sucursales/almacenes/camiones). value = `wcode|route_code`
+   * porque el route_code de Kepler (serie UD100N) se repite entre sucursales. */
+  async salesByRouteRoutes(): Promise<SalesByRouteOption[]> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const rows: any[] = await this.tk.run(async (trx) =>
+      trx('analytics.sales_by_route_monthly as s')
+        .join('commercial.warehouses as w', 'w.id', 's.warehouse_id')
+        .where('s.tenant_id', tenantId)
+        .distinct('w.code as warehouse_code', 'w.name as warehouse_name', 's.route_code as route_code', 's.route_no as route_no')
+        .orderBy([{ column: 'w.name' }, { column: 's.route_no' }]),
+    );
+    return rows.map((r) => ({
+      value: `${r.warehouse_code}|${r.route_code}`,
+      label: `${r.warehouse_name} · Ruta ${r.route_no ?? r.route_code}`,
+      warehouse_code: r.warehouse_code,
+      warehouse_name: r.warehouse_name,
+      route_code: r.route_code,
+      route_no: r.route_no ?? '—',
+    }));
+  }
+
   async salesByRoute(q: SalesByRouteQuery): Promise<SalesByRouteReport> {
     const year = Number(q.year) || new Date().getFullYear();
     if (year < 2020 || year > 2100) throw new BadRequestException('year inválido');
     const from = `${year}-01-01`;
     const to = `${year + 1}-01-01`;
     const whFilter = (q.warehouses && q.warehouses.length) ? q.warehouses.map((w) => w.trim()).filter(Boolean) : null;
+    const routeFilter = (q.routes && q.routes.length) ? q.routes.map((r) => r.trim()).filter(Boolean) : null;
     const tenantId = this.tenantCtx.requireTenantId();
 
     const rawRows: any[] = await this.tk.run(async (trx) => {
@@ -2507,7 +2542,8 @@ export class CommercialAnalyticsService {
         .sum({ revenue: 's.revenue' })
         .sum({ tickets: 's.tickets' })
         .groupByRaw(`w.code, w.name, s.route_code, s.route_no, to_char(s.month,'MM')`);
-      if (whFilter) qb.whereIn('w.code', whFilter);
+      if (routeFilter) qb.whereRaw(`(w.code || '|' || s.route_code) = ANY(?)`, [routeFilter]);
+      else if (whFilter) qb.whereIn('w.code', whFilter);
       return qb;
     });
 

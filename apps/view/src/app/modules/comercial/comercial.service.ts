@@ -1016,6 +1016,10 @@ export class ComercialService {
     return this.http.get<SalesByRouteReport>(`${this.base}/analytics/sales-by-route`, { params: this.salesByRouteParams(p) });
   }
 
+  salesByRouteRoutes() {
+    return this.http.get<SalesByRouteOption[]>(`${this.base}/analytics/sales-by-route/routes`);
+  }
+
   salesByRouteDownloadXlsx(p: SalesByRouteParams) {
     return this.http.get(`${this.base}/analytics/sales-by-route.xlsx`, {
       params: this.salesByRouteParams(p), responseType: 'blob', observe: 'response',
@@ -1024,7 +1028,7 @@ export class ComercialService {
 
   private salesByRouteParams(p: SalesByRouteParams): HttpParams {
     let params = new HttpParams().set('year', String(p.year));
-    if (p.warehouses?.length) params = params.set('warehouses', p.warehouses.join(','));
+    if (p.routes?.length) params = params.set('routes', p.routes.join(','));
     return params;
   }
 
@@ -1279,7 +1283,17 @@ export interface SalidasReport {
 // ── Fase RR — Ventas por Ruta ──
 export interface SalesByRouteParams {
   year: number;
-  warehouses?: string[];
+  /** Claves compuestas `warehouse_code|route_code` (route_code de Kepler repite entre sucursales). */
+  routes?: string[];
+}
+
+export interface SalesByRouteOption {
+  value: string;
+  label: string;
+  warehouse_code: string;
+  warehouse_name: string;
+  route_code: string;
+  route_no: string;
 }
 
 export interface SalesByRouteCell {
