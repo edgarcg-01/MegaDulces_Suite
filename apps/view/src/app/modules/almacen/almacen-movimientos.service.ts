@@ -9,7 +9,8 @@ import { environment } from '../../../environments/environment';
  */
 
 export type GroupBy = 'product' | 'doc_code' | 'day' | 'warehouse';
-export type MovementKind = 'entrada' | 'salida';
+/** 'info' = documento informativo (k_binv=0, ej. Aplicación de orden de entrada): no mueve inventario. */
+export type MovementKind = 'entrada' | 'salida' | 'info';
 
 export type TransferDocStatus = 'en_transito' | 'completado' | 'diferencia';
 

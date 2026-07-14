@@ -92,9 +92,20 @@ const CUSTOM_TYPES = [
 ];
 // NO incluir: U/D/13 (factura del traspaso CEDIS — líneas de SERVICIO con el total $, sin
 // producto; el detalle real va en U/D/41) ni U/D/40 (pedido, papel de UD41 — sumarlo duplica).
+
+// Tipos INFORMATIVOS (k_binv=0, NO mueven inventario) que se cargan para consulta:
+// dir=0 → signed_qty=0 + movement_kind='info'. El service los excluye de KPIs y del
+// listado salvo filtro explícito por tipo. XA20 espeja las líneas de su XA40 1:1
+// (es el paso contable que genera la CxP al proveedor).
+const INFO_TYPES = [
+  ['X', 'A', 20, 'ApEntOr1', 'Aplicación de orden de entrada'],
+];
 function addCustomTypes(map) {
   for (const [g, nat, tipo, code, label] of CUSTOM_TYPES) {
     map.set(`${g}|${nat}|${tipo}`, { code, label, dir: nat === 'A' ? 1 : -1 });
+  }
+  for (const [g, nat, tipo, code, label] of INFO_TYPES) {
+    map.set(`${g}|${nat}|${tipo}`, { code, label, dir: 0 });
   }
   return map;
 }
@@ -198,7 +209,7 @@ async function loadDoctypeMap(src, schema) {
           const total = Math.abs(Number(r.total_val) || 0) || (unit ? unit * qty : 0);
           staged.push([
             warehouseId, pid, r.sku || null, r.doc_date, r.g, r.nat, String(r.tipo), r.serie || null, info.code,
-            info.dir > 0 ? 'entrada' : 'salida', info.label, r.folio,
+            info.dir === 0 ? 'info' : info.dir > 0 ? 'entrada' : 'salida', info.label, r.folio,
             info.dir * qty, qty, unit || (total ? total / qty : null), total || null,
             r.pgrp || null, r.pserie || null, r.pfol || null, suc,
           ]);

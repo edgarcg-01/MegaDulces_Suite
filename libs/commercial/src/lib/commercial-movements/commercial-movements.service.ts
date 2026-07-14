@@ -18,6 +18,8 @@ import { TenantKnexService, TenantContextService } from '@megadulces/platform-co
 const GROUPS = ['product', 'doc_code', 'day', 'warehouse'] as const;
 type GroupBy = (typeof GROUPS)[number];
 const UUID_RX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+// Docs informativos (k_binv=0, movement_kind='info' en el feed): solo visibles con filtro explícito
+const INFO_DOC_CODES = ['ApEntOr1'];
 
 export interface MovementsQuery {
   warehouse_id?: string;
@@ -83,6 +85,9 @@ export class CommercialMovementsService {
     if (q.movement_kind === 'entrada' || q.movement_kind === 'salida') b.where('m.movement_kind', q.movement_kind);
     if (q.product_id && UUID_RX.test(q.product_id)) b.where('m.product_id', q.product_id);
     if (q.folio) b.where('m.folio', q.folio);
+    // Tipos INFORMATIVOS (k_binv=0, ej. Aplicación de orden de entrada XA20): espejan las
+    // líneas de su doc padre → fuera de KPIs y listado, salvo filtro explícito por ese tipo
+    if (!INFO_DOC_CODES.includes(q.doc_code || '')) b.whereNot('m.movement_kind', 'info');
     // estado y origen/destino solo aplican a traspasos → todo (summary/aggregate/lines) se acota a ellos
     if (['en_transito', 'completado', 'diferencia'].includes(q.estado || '') || this.transferWhIds(q).length) {
       b.whereIn('m.doc_code', ['TrsfShip', 'TrsfRcv']);

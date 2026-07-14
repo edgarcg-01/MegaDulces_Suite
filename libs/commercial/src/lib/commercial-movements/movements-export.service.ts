@@ -202,7 +202,7 @@ export class MovementsExportService {
     for (const d of data.docs) {
       const row = ws.addRow([
         this.asDate(d.doc_date), d.movement_label, d.folio, d.warehouse_name || d.warehouse_code || d.source_branch,
-        Number(d.lineas) || 0, Number(d.signed_qty) || 0, Number(d.amount) || 0,
+        Number(d.lineas) || 0, d.movement_kind === 'info' ? null : Number(d.signed_qty) || 0, Number(d.amount) || 0,
         '', '', d.audited_by || '',
       ]);
       sumLineas += Number(d.lineas) || 0;
@@ -354,7 +354,7 @@ export class MovementsExportService {
       return `
       <tr><td>${dmy(d.doc_date)}</td><td class="dsc">${esc(d.movement_label)}</td><td class="mono">${esc(d.folio)}</td>
       <td>${esc(d.warehouse_name || d.warehouse_code || d.source_branch)}</td>
-      <td class="num">${num(d.signed_qty)}</td><td class="num">${money(d.amount, 2)}</td>
+      <td class="num">${d.movement_kind === 'info' ? '<span class="mut">—</span>' : num(d.signed_qty)}</td><td class="num">${money(d.amount, 2)}</td>
       <td>${pill(d.transfer_status)}</td><td>${d.audited ? '<span class="aud">✓ Sí</span>' : '<span class="mut">Pendiente</span>'}</td></tr>`;
     }).join('');
 

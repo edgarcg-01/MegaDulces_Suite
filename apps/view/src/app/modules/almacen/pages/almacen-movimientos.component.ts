@@ -121,11 +121,11 @@ import { Permission } from '../../../core/constants/permissions';
                   <tbody>
                     @for (l of dayDocs()[day.key]; track l.warehouse_id + l.doc_code + l.folio) {
                       <tr class="dm-row" (click)="openDocument(l)">
-                        <td><p-tag [value]="l.movement_label" [severity]="l.movement_kind === 'entrada' ? 'success' : 'warn'" styleClass="dm-tag"></p-tag></td>
+                        <td><p-tag [value]="l.movement_label" [severity]="kindSev(l.movement_kind)" styleClass="dm-tag"></p-tag></td>
                         <td class="dm-mono dm-link">{{ l.folio }}</td>
                         <td class="dm-muted">{{ l.warehouse_name || l.warehouse_code || l.source_branch }}</td>
                         <td class="dm-r dm-muted">{{ l.lineas | number }}</td>
-                        <td class="dm-r" [class.up]="l.signed_qty>0" [class.down]="l.signed_qty<0">{{ l.signed_qty | number:'1.0-2' }}</td>
+                        <td class="dm-r" [class.up]="l.signed_qty>0" [class.down]="l.signed_qty<0">{{ l.movement_kind === 'info' ? '—' : (l.signed_qty | number:'1.0-2') }}</td>
                         <td class="dm-r dm-strong">{{ l.amount != null ? money(l.amount) : '—' }}</td>
                         <td>
                           @if (l.transfer_status) {
@@ -194,15 +194,18 @@ import { Permission } from '../../../core/constants/permissions';
           }
 
           <div class="dm-doc-head">
-            <p-tag [value]="h.movement_label" [severity]="h.movement_kind === 'entrada' ? 'success' : 'warn'" styleClass="dm-tag"></p-tag>
+            <p-tag [value]="h.movement_label" [severity]="kindSev(h.movement_kind)" styleClass="dm-tag"></p-tag>
             <span class="dm-doc-meta">{{ h.doc_date | date:'yyyy-MM-dd' }}</span>
             <span class="dm-doc-meta">Almacén {{ h.warehouse_name || h.warehouse_code || h.source_branch }}</span>
+            @if (h.movement_kind === 'info' && h.parent_folio) {
+              <span class="dm-doc-meta">Aplica a la orden de entrada {{ h.parent_folio }} · no mueve inventario</span>
+            }
           </div>
 
           <!-- Documento + contraparte lado a lado -->
           <div class="dm-cols" [class.two]="cpDoc()">
             <div class="dm-col">
-              <h4 class="dm-col-h">Folio {{ h.folio }} · {{ h.movement_kind === 'salida' ? 'salida' : 'entrada' }}</h4>
+              <h4 class="dm-col-h">Folio {{ h.folio }} · {{ h.movement_kind === 'salida' ? 'salida' : h.movement_kind === 'info' ? 'informativo' : 'entrada' }}</h4>
               <ng-container [ngTemplateOutlet]="linesTpl" [ngTemplateOutletContext]="{ lines: doc()!.lines, totals: doc()!.totals }"></ng-container>
             </div>
             @if (cpLoading()) { <div class="dm-col dm-empty">Cargando contraparte…</div> }
@@ -466,6 +469,11 @@ export class AlmacenMovimientosComponent implements OnInit {
   }
   estadoSev(s: string): 'success' | 'warn' | 'danger' | 'info' {
     return s === 'completado' ? 'success' : s === 'en_transito' ? 'info' : 'danger';
+  }
+
+  /** Tag por dirección del documento; 'info' (no mueve inventario) = neutro. */
+  kindSev(k: string): 'success' | 'warn' | 'secondary' {
+    return k === 'entrada' ? 'success' : k === 'salida' ? 'warn' : 'secondary';
   }
 
   /** DM.4 — botón Auditar por fila (optimistic). */
