@@ -38,7 +38,32 @@ Reporte server-side de Kepler (páginas `.kpl` sirviéndose de `192.168.x`; **el
 
 Líneas `kdm2` (FK compuesta `c1,c2,c3,c4,c6` → `kdm1`): `c8`=SKU · `c9`=cantidad (puede ser fraccionaria: KG) · `c10`=descripción · `c11`=presentación (`SER`=línea de servicio, no producto) · **`c12`=precio/costo UNITARIO** · **`c13`=IMPORTE de la línea** (`c13 = c9×c12`, verificado 100% en 18 tipos × 4 sucursales 2026-07-13). ⚠️ NO usar `c12` como importe — ese error subvaluó el feed DM (caso XA40 `0000179`: $147 vs $24,100.97 real). `c55/c56/c57/c58` = unidad alterna (presentación/factor/costo por bulto).
 
-**Folio Kepler = `[Género][Naturaleza][Tipo][Serie]-[Folio]`.** Ej. reales: `XA2001-0000065` (Entrada, X+A+20+serie01), `XD4001-0000101` (Devolución compra crédito, X+D+40). Cada documento genera su póliza contable (ver [`KEPLER_CONTABILIDAD_MODELO.md`](KEPLER_CONTABILIDAD_MODELO.md)). Cadena de compras: `X-A-35 → 37 → 40 → 20` (misma lógica que `import-in-transit.js`).
+**Folio Kepler = `[Género][Naturaleza][Tipo][Serie]-[Folio]`.** Ej. reales: `XA2001-0000065` (Aplicación de orden de entrada, X+A+20+serie01), `XD4001-0000101` (Devolución compra crédito, X+D+40). Cada documento genera su póliza contable (ver [`KEPLER_CONTABILIDAD_MODELO.md`](KEPLER_CONTABILIDAD_MODELO.md)). Cadena de compras: `X-A-35 → 37 → 40 → 20` (misma lógica que `import-in-transit.js`).
+
+**Catálogo `md.doctype` completo** (dump md_03; `k_binv=1` = mueve inventario). Ojo: `X-A-37` (vale de entrada) y los tipos custom Mega Dulces (UA50/UD41/NA06/NA25/NA30/ND06) NO están en este catálogo de sistema — se decodificaron por reconciliación (ver importer DM):
+
+| k_doc7 | k_code | Descripción | binv | | k_doc7 | k_code | Descripción | binv |
+|---|---|---|---|---|---|---|---|---|
+| `NA1001` | ReqChk1 | Solicitud de cheque | 0 | | `UD5501` | DbNote1 | Nota de cargo (cliente) | 0 |
+| `NA1501` | Check1 | Cheque | 0 | | `XA0501` | Purchas1 | Compra | **1** |
+| `NA2002` | InvIn1 | Ajuste de entrada | **1** | | `XA0507` | Purchas2 | Compra contado | **1** |
+| `ND0502` | InvOut1 | Ajuste de salida | **1** | | `XA1001` | ExpAll1 | Asignación de gasto | 0 |
+| `ND2501` | InvTrsf1 | Traspaso (salida) | **1** | | `XA1501` | ExpReq1 | Solicitud de gasto | 0 |
+| `ND3001` | PhysInv1 | Inventario físico | **1** | | **`XA2001`** | **ApEntOr1** | **Aplicación de orden de entrada (CxP)** | **0** |
+| `UA0501` | Collect1 | Cobranza | 0 | | `XA3001` | Reqn1 | Requisición | 0 |
+| `UA1001` | RtrnEn1 | Devolución de venta | **1** | | `XA3501` | PurOrdr1 | Orden de compra | 0 |
+| `UA1501` | ApRtrn1 | Aplicación de devolución | 0 | | `XA4001` | EntryOr1 | Orden de entrada | **1** |
+| `UA2001` | Rtrn1 | Devolución directa | **1** | | `XA4501` | CrNoteS1 | Nota de crédito (proveedor) | 0 |
+| `UA2501` | Bonus | Bonificación (cliente) | 0 | | `XD1001` | ReqPay1 | Solicitud de pago | 0 |
+| `UA3501` | CrNote1 | Nota de crédito (cliente) | 0 | | `XD2501` | ApReqPy1/Payment1 | Aplicación de pago / Pago | 0 |
+| `UA4001` | Advance | Anticipo (cliente) | 0 | | `XD3001` | RtrnPrd1 | Devolución a proveedor | **1** |
+| `UD0501` | Sale1 | Venta directa | **1** | | `XD3501` | ApRtrPrd1 | Aplicación devolución prov. | 0 |
+| `UD0502` | Sale2 | Venta contado | **1** | | `XD4001` | RtrnPur1 | Devolución de compra | **1** |
+| `UD2001` | Invoice1 | Factura de remisión | 0 | | `XD5501` | DbNoteS1 | Nota de cargo (proveedor) | 0 |
+| `UD3501` | Quotat1 | Cotización | 0 | | `XD6001` | AdvSup | Anticipo (proveedor) | 0 |
+| `UD4001` | Order1 | Pedido de venta | 0 | | `UD4501` | Remiss1 | Remisión | **1** |
+
+**`XA20` Aplicación de orden de entrada** (verificado 2026-07-14): back-pointer `c37=40/c38/c39` → su orden de entrada XA40; **duplica las líneas de producto 1:1** (muestra 0000180: 3 líneas, 830 pzs, $3,472.25 idénticos en ambos docs). Es el paso CONTABLE que genera la CxP al proveedor — `k_binv=0`, por eso está excluida del feed DM (incluirla doblaría las entradas). Volumen 90d: CEDIS 2,843 / sucursales 80–329. Relevante para PaymentsService/CxP (Fase LM/RA), no para inventario.
 
 ### Áreas de mejora (vs. lo que construiríamos como feed `analytics.stock_movements` + endpoint + página Operations)
 
