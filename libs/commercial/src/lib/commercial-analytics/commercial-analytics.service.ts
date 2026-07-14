@@ -2012,14 +2012,14 @@ export class CommercialAnalyticsService {
 
   /**
    * Reporte Sell-Out: matriz Producto × (Sucursal[×Canal]) con cajas + monto,
-   * filtrado por marca/proveedor y periodo. Fuente = `mart.ventas` de la
-   * consolidación Kepler (venta real 6 sucursales). Cross-DB: resuelve los SKUs
-   * de la marca en `catalog.*` (postgres_platform) y filtra la consolidación.
+   * filtrado por marca/proveedor y periodo. Fuente = `analytics.sales_daily`:
+   * Kepler (01-05) + Wincaja (Morelia 30/32, Canindo 50 y sus rutas). Resuelve los
+   * SKUs de la marca en `catalog.*` y agrega por (sucursal, canal, producto).
    *
-   *   cajas = SUM(cantidad) / factor_sale (UXC)   ·   monto = SUM(importe)
+   *   cajas = SUM(units) / factor_sale (UXC)   ·   monto = SUM(revenue)
    *
    * Columnas DINÁMICAS: solo aparecen las sucursales×canales con venta en el
-   * periodo. Morelia y Can NO están en la consolidación (ver `coverage.note`).
+   * periodo. Canal Wincaja preserva sub-canal (mostrador/credito/preventa/ruta).
    */
   async sellOut(q: SellOutQuery): Promise<SellOutReport> {
     const brandId = (q.brand_id || '').trim();
@@ -2843,7 +2843,7 @@ export class CommercialAnalyticsService {
     const set = new Set(withData);
     const missing = retail.filter((n) => !set.has(n));
     const parts: string[] = [
-      'Fuente: venta consolidada Kepler (analytics.sales_daily). Morelia y Can NO están conectadas a la consolidación, no aparecen en el reporte.',
+      'Fuente: venta real (analytics.sales_daily) — Kepler (Padre Hidalgo, La Piedad, 8ESQ, Yurécuaro, Zamora) + Wincaja (Morelia Abastos/Madero, Canindo y sus rutas de reparto).',
     ];
     if (excludedTransfers > 0) {
       const m = Math.round(excludedTransfers).toLocaleString('es-MX');
