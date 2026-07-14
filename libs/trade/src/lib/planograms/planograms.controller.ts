@@ -4,6 +4,7 @@ import {
   Delete,
   Get,
   Param,
+  Patch,
   Post,
   Put,
   Query,
@@ -43,8 +44,21 @@ export class PlanogramsController {
     description: 'Incluir marcas/productos soft-deleted (default: false)',
     type: Boolean,
   })
-  async getAll(@Query('includeInactive') includeInactive?: string) {
-    return this.planogramsService.getAll(includeInactive === 'true');
+  @ApiQuery({
+    name: 'planogramOnly',
+    required: false,
+    description:
+      'Solo productos del planograma de trade (default: true). false = catálogo completo (ERP) para curación.',
+    type: Boolean,
+  })
+  async getAll(
+    @Query('includeInactive') includeInactive?: string,
+    @Query('planogramOnly') planogramOnly?: string,
+  ) {
+    return this.planogramsService.getAll(
+      includeInactive === 'true',
+      planogramOnly !== 'false',
+    );
   }
 
   @Get('version')
@@ -114,6 +128,21 @@ export class PlanogramsProductsController {
   @ApiOperation({ summary: 'Actualiza datos de un producto' })
   async updateProduct(@Param('id') id: string, @Body() dto: UpdateProductDto) {
     return this.planogramsService.updateProduct(id, dto);
+  }
+
+  @Patch(':id/planogram')
+  @RequirePermissions(Permission.PLANOGRAMAS_GESTIONAR)
+  @ApiOperation({
+    summary: 'Agrega/quita el producto del planograma de trade (in_planogram).',
+  })
+  async setPlanogramMembership(
+    @Param('id') id: string,
+    @Body() body: { in_planogram?: boolean },
+  ) {
+    return this.planogramsService.setPlanogramMembership(
+      id,
+      body?.in_planogram === true,
+    );
   }
 
   @Delete(':id')

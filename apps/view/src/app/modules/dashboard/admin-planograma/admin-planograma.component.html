@@ -31,6 +31,17 @@
         Mostrar inactivos
       </label>
       @if (canManage()) {
+        <label class="flex items-center gap-2 text-xs text-content-muted cursor-pointer whitespace-nowrap" pTooltip="Muestra el catálogo ERP completo para agregar productos al planograma">
+          <input
+            type="checkbox"
+            [checked]="catalogMode()"
+            (change)="toggleCatalogMode($any($event.target).checked)"
+            class="accent-brand"
+          />
+          Catálogo completo (agregar)
+        </label>
+      }
+      @if (canManage()) {
         <p-button label="Nueva Marca" icon="pi pi-plus" (onClick)="openAddBrand()" styleClass="p-button-brand"></p-button>
       }
     </div>
@@ -122,6 +133,9 @@
                                </button>
                              }
                              @if (canManage()) {
+                               <button type="button" class="icon-btn-ghost" [class.icon-btn-ghost-ok]="product.in_planogram" (click)="togglePlanogram(product)" [disabled]="saving()" [pTooltip]="product.in_planogram ? 'Quitar del planograma' : 'Agregar al planograma'" aria-label="Planograma">
+                                 <i class="pi" [ngClass]="product.in_planogram ? 'pi-star-fill' : 'pi-star'" aria-hidden="true"></i>
+                               </button>
                                <button type="button" class="icon-btn-ghost" (click)="openEditProduct(product)" pTooltip="Editar producto" aria-label="Editar producto">
                                  <i class="pi pi-pencil" aria-hidden="true"></i>
                                </button>
@@ -206,6 +220,9 @@
                     </button>
                   }
                   @if (canManage()) {
+                    <button type="button" class="icon-btn-ghost" [class.icon-btn-ghost-ok]="product.in_planogram" (click)="togglePlanogram(product)" [disabled]="saving()" [attr.aria-label]="product.in_planogram ? 'Quitar del planograma' : 'Agregar al planograma'">
+                      <i class="pi" [ngClass]="product.in_planogram ? 'pi-star-fill' : 'pi-star'" aria-hidden="true"></i>
+                    </button>
                     <button type="button" class="icon-btn-ghost" (click)="openEditProduct(product)" aria-label="Editar producto">
                       <i class="pi pi-pencil" aria-hidden="true"></i>
                     </button>

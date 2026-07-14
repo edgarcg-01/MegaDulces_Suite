@@ -11,10 +11,25 @@ export class AdminPlanogramaService {
   private apiUrl = `${environment.apiUrl}/planograms/brands`;
   private productsUrl = `${environment.apiUrl}/planograms/products`;
 
-  getBrands(includeInactive = false): Observable<any[]> {
+  /**
+   * @param planogramOnly true (default) = solo el planograma de trade; false =
+   * catálogo completo (ERP) para curar (agregar productos al planograma).
+   */
+  getBrands(includeInactive = false, planogramOnly = true): Observable<any[]> {
     let params = new HttpParams();
     if (includeInactive) params = params.set('includeInactive', 'true');
+    if (!planogramOnly) params = params.set('planogramOnly', 'false');
     return this.http.get<any[]>(this.apiUrl, { params });
+  }
+
+  /** Agrega/quita un producto del planograma de trade. */
+  setPlanogramMembership(
+    productId: string,
+    inPlanogram: boolean,
+  ): Observable<any> {
+    return this.http.patch<any>(`${this.productsUrl}/${productId}/planogram`, {
+      in_planogram: inPlanogram,
+    });
   }
 
   createBrand(data: {

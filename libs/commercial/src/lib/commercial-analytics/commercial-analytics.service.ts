@@ -2506,6 +2506,7 @@ export class CommercialAnalyticsService {
       trx('analytics.sales_by_route_monthly as s')
         .join('commercial.warehouses as w', 'w.id', 's.warehouse_id')
         .where('s.tenant_id', tenantId)
+        .andWhereRaw(`s.route_code LIKE 'WIN-%'`) // solo rutas reales (venta a bordo Wincaja)
         .distinct('w.code as warehouse_code', 'w.name as warehouse_name', 's.route_code as route_code', 's.route_no as route_no')
         .orderBy([{ column: 'w.name' }, { column: 's.route_no' }]),
     );

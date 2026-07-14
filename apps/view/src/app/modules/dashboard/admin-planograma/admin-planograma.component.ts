@@ -36,6 +36,7 @@ interface Product {
   nombre: string;
   brand_id: string;
   activo?: boolean;
+  in_planogram?: boolean;
 }
 
 interface Brand {
@@ -82,6 +83,8 @@ export class AdminPlanogramaComponent implements OnInit {
   saving = signal<boolean>(false);
   searchText = signal<string>('');
   showInactive = signal<boolean>(false);
+  /** true = muestra el catálogo ERP completo para curar (agregar al planograma). */
+  catalogMode = signal<boolean>(false);
   expandedRows = signal<Record<string, boolean>>({});
 
   // Diálogos como signals para integración con OnPush.
@@ -159,6 +162,11 @@ export class AdminPlanogramaComponent implements OnInit {
     this.loadBrands();
   }
 
+  toggleCatalogMode(value: boolean): void {
+    this.catalogMode.set(value);
+    this.loadBrands();
+  }
+
   isRowExpanded(brandId: string): boolean {
     return this.expandedRows()[brandId] || false;
   }
@@ -173,7 +181,7 @@ export class AdminPlanogramaComponent implements OnInit {
   loadBrands(): void {
     this.loading.set(true);
     this.planogramaService
-      .getBrands(this.showInactive())
+      .getBrands(this.showInactive(), !this.catalogMode())
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (data: Brand[]) => {
@@ -188,6 +196,35 @@ export class AdminPlanogramaComponent implements OnInit {
             detail: 'No se pudieron cargar las marcas.',
           });
           this.loading.set(false);
+        },
+      });
+  }
+
+  /** Agrega/quita el producto del planograma (curación). Optimista + refresh. */
+  togglePlanogram(product: Product): void {
+    if (this.saving()) return;
+    const next = !product.in_planogram;
+    this.saving.set(true);
+    this.planogramaService
+      .setPlanogramMembership(product.id, next)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: () => {
+          this.saving.set(false);
+          this.messageService.add({
+            severity: 'success',
+            summary: next ? 'Agregado al planograma' : 'Quitado del planograma',
+            detail: product.nombre,
+          });
+          this.loadBrands();
+        },
+        error: (err: any) => {
+          this.saving.set(false);
+          this.messageService.add({
+            severity: 'error',
+            summary: 'Error',
+            detail: err?.error?.message || 'No se pudo actualizar el planograma.',
+          });
         },
       });
   }

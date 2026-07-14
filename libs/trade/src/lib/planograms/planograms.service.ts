@@ -183,7 +183,16 @@ export class PlanogramsService {
       : data;
   }
 
-  async getAll(includeInactive = false) {
+  /**
+   * Catálogo jerárquico marcas → productos.
+   *
+   * `planogramOnly=true` (default) devuelve SOLO el planograma de trade
+   * (`in_planogram=true`) y recorta las marcas sin productos del planograma —
+   * es lo que consume la captura en ruta y la vista curada del admin.
+   * `planogramOnly=false` devuelve el catálogo completo (ERP incluido) para
+   * que el admin busque y agregue productos al planograma.
+   */
+  async getAll(includeInactive = false, planogramOnly = true) {
     // `KNEX_CONNECTION` corre como `postgres` (superuser) que bypassa RLS aun con
     // FORCE — el filtro de tenant_id debe ser explícito en cada query.
     const tenantId = this.tenantCtx.requireTenantId();
@@ -201,6 +210,10 @@ export class PlanogramsService {
       productsQuery.andWhere({ activo: true });
     }
 
+    if (planogramOnly) {
+      productsQuery.andWhere('in_planogram', true);
+    }
+
     const [brands, products] = await Promise.all([brandsQuery, productsQuery]);
 
     const productsByBrand = new Map<string, any[]>();
@@ -210,10 +223,35 @@ export class PlanogramsService {
       else productsByBrand.set(product.brand_id, [product]);
     }
 
-    return brands.map((brand) => ({
+    const result = brands.map((brand) => ({
       ...brand,
       productos: productsByBrand.get(brand.id) ?? [],
     }));
+
+    // En modo planograma, oculta marcas sin ningún producto del planograma
+    // (razones sociales de proveedores / buckets ERP quedan fuera).
+    return planogramOnly
+      ? result.filter((b) => (b.productos?.length ?? 0) > 0)
+      : result;
+  }
+
+  /**
+   * Agrega/quita un producto del planograma (curación desde /admin/planograma).
+   * Bump de `updated_at` para invalidar el cache del cliente móvil (getVersion).
+   */
+  async setPlanogramMembership(productId: string, inPlanogram: boolean) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const payload = await this.withTimestamp('products', {
+      in_planogram: !!inPlanogram,
+    });
+    const [product] = await this.knex('products')
+      .where({ id: productId, tenant_id: tenantId })
+      .update(payload)
+      .returning('*');
+    if (!product) {
+      throw new NotFoundException(`Producto con ID ${productId} no encontrado.`);
+    }
+    return product;
   }
 
   async getVersion() {
@@ -269,6 +307,8 @@ export class PlanogramsService {
     const insertData = await this.withTimestamp('products', {
       tenant_id: tenantId,
       activo: true,
+      // Crear desde /admin/planograma = producto del planograma por default.
+      in_planogram: true,
       ...data,
       brand_id: brandId,
     });

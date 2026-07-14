@@ -12,9 +12,10 @@
  * warehouse = kepler_code si existe (PH→'01') o warehouse_code (MD-32/MD-50).
  * route_code = 'WIN-<code>' (namespace propio → nunca choca con la serie Kepler).
  *
- * Corte anti-doble PADRE HIDALGO: PH vive en ambas fuentes en el cutover. Wincaja
- * es autoritativo HASTA 31/05/2026 (congelada); Kepler desde 01/06. Por eso las
- * rutas PH (parent '10') se cortan en business_date < 2026-06-01.
+ * SIN corte de Padre Hidalgo: Kepler NO tiene rutas de reparto (su serie c63
+ * UD100N = CAJA de mostrador, no ruta → verificado 2026-07-14). Como no hay ruta
+ * Kepler contra qué doble-contar, la venta a bordo Wincaja de PH se incluye completa.
+ * (El reporte /comercial/ventas-por-ruta ya filtra 'WIN-%' → solo rutas reales.)
  *
  * Idempotente: DELETE route_code LIKE 'WIN-%' del rango + INSERT (reload full,
  * NO GREATEST — el bronze Wincaja es snapshot completo, no purga como Kepler).
@@ -35,7 +36,6 @@ const APPLY = process.argv.includes('--apply');
 const TENANT = process.env.WINCAJA_TENANT_ID || '00000000-0000-0000-0000-00000000d01c';
 const yi = process.argv.indexOf('--year');
 const YEAR = yi !== -1 ? Number(process.argv[yi + 1]) : new Date().getFullYear();
-const PH_CUTOVER = '2026-06-01'; // Wincaja PH autoritativo < corte; Kepler >=
 
 const SRC = `
   SELECT
@@ -53,7 +53,6 @@ const SRC = `
     ON pw.tenant_id=sl.tenant_id AND pw.code=COALESCE(pb.kepler_code, pb.warehouse_code) AND pw.deleted_at IS NULL
   WHERE sl.tenant_id = ? AND sl.sale_channel = 'ruta_venta'
     AND sl.business_date >= ? AND sl.business_date < ?
-    AND NOT (pb.source_branch = '10' AND sl.business_date >= DATE '${PH_CUTOVER}')
   GROUP BY 1, 2, 3, 4
 `;
 
