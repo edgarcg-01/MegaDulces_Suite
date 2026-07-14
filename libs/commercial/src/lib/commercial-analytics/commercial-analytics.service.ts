@@ -2488,14 +2488,12 @@ export class CommercialAnalyticsService {
 
   /**
    * RR — Ventas por Ruta: fila por (sucursal, ruta) con venta (importe/unidades/
-   * tickets) mes a mes + total + share%. Fuente única: analytics.sales_by_route_monthly,
-   * que mezcla DOS orígenes sin doble-conteo:
-   *   • Kepler (route_code = serie de folio `c63`, UD+almacén+ruta; `md_01-003` = PH
-   *     ruta 03): feed live U/D/10 acumulativo, historia hacia adelante.
-   *   • Wincaja venta a bordo (route_code = 'WIN-<code>'): feed import-wincaja-routes-
-   *     monthly.js, atribuida a la sucursal MADRE. Padre Hidalgo se corta en 31/05/2026
-   *     (Wincaja hasta may, Kepler desde jun) → cero solape de mes.
-   * El endpoint no distingue origen: agrega ambos por (sucursal, ruta, mes).
+   * tickets) mes a mes + total + share%. SOLO rutas de reparto REALES (venta a bordo):
+   * filtra route_code LIKE 'WIN-%' (feed import-wincaja-routes-monthly.js, atribuidas a
+   * la sucursal madre). Las series Kepler `c63` UD100N NO son rutas: son CAJAS de
+   * mostrador (UD10+nº de caja = c5; verificado 2026-07-14) → se excluyen de este reporte.
+   * Fuente: analytics.sales_by_route_monthly (las filas Kepler quedan inertes; el feed
+   * import-sales-by-route-monthly.js queda pendiente de retiro).
    */
   /** Opciones del filtro de /comercial/ventas-por-ruta: SOLO las rutas presentes
    * en el reporte (no sucursales/almacenes/camiones). value = `wcode|route_code`
@@ -2535,6 +2533,7 @@ export class CommercialAnalyticsService {
         .where('s.tenant_id', tenantId)
         .andWhere('s.month', '>=', from)
         .andWhere('s.month', '<', to)
+        .andWhereRaw(`s.route_code LIKE 'WIN-%'`) // solo rutas reales (venta a bordo Wincaja); las series Kepler UD100N son CAJAS de mostrador, no rutas
         .select(
           'w.code as wcode', 'w.name as wname', 's.route_code as route_code', 's.route_no as route_no',
           trx.raw(`to_char(s.month,'MM') as mes`),

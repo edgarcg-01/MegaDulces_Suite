@@ -53,6 +53,7 @@ const SRC = `
     ON pw.tenant_id=sl.tenant_id AND pw.code=COALESCE(pb.kepler_code, pb.warehouse_code) AND pw.deleted_at IS NULL
   WHERE sl.tenant_id = ? AND sl.sale_channel = 'ruta_venta'
     AND sl.business_date >= ? AND sl.business_date < ?
+    AND sl.business_date <= CURRENT_DATE   -- descarta fechas POS corruptas a futuro (ej. RUTA 22 con dic-2026)
   GROUP BY 1, 2, 3, 4
 `;
 
