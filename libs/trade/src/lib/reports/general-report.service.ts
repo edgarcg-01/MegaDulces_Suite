@@ -289,6 +289,9 @@ export class GeneralReportService {
     const scoreRange = ranges.find(r => r.id === 'score');
     const byUser: Record<string, { username: string; visits: number; scoreSum: number; captures: number }> = {};
     for (const r of rows) {
+      // Ranking = leaderboard de scoring. Las capturas de vendedor
+      // (skip_scoring, score 0) no participan del ranking de colaboradores.
+      if (r.skip_scoring) continue;
       const user = r.captured_by_username || 'desconocido';
       if (!byUser[user]) byUser[user] = { username: user, visits: 0, scoreSum: 0, captures: 0 };
       const stats = typeof r.stats === 'string' ? JSON.parse(r.stats) : r.stats || {};
@@ -321,23 +324,26 @@ export class GeneralReportService {
 
   private computeByZone(rows: any[], ranges: KpiRangeDto[]): ZoneRow[] {
     const scoreRange = ranges.find(r => r.id === 'score');
-    const byZone: Record<string, { visits: number; scoreSum: number; captures: number; sales: number }> = {};
+    const byZone: Record<string, { visits: number; scoreSum: number; scoredCaptures: number; sales: number }> = {};
     for (const r of rows) {
       const zone = r.zona_captura || 'Sin zona';
-      if (!byZone[zone]) byZone[zone] = { visits: 0, scoreSum: 0, captures: 0, sales: 0 };
+      if (!byZone[zone]) byZone[zone] = { visits: 0, scoreSum: 0, scoredCaptures: 0, sales: 0 };
       const stats = typeof r.stats === 'string' ? JSON.parse(r.stats) : r.stats || {};
-      byZone[zone].captures += 1;
       byZone[zone].visits += Number(stats.totalExhibiciones || 0);
-      byZone[zone].scoreSum += Number(stats.puntuacionTotal || 0);
       byZone[zone].sales += Number(stats.ventaTotal || stats.ventaAdicional || 0);
+      // El promedio de score excluye capturas de vendedor (skip_scoring).
+      if (!r.skip_scoring) {
+        byZone[zone].scoreSum += Number(stats.puntuacionTotal || 0);
+        byZone[zone].scoredCaptures += 1;
+      }
     }
     return Object.entries(byZone)
       .map(([zone, v]) => ({
         zone,
         visits: v.visits,
-        avgScore: v.captures > 0 ? Math.round(v.scoreSum / v.captures) : 0,
+        avgScore: v.scoredCaptures > 0 ? Math.round(v.scoreSum / v.scoredCaptures) : 0,
         totalSales: v.sales,
-        rag: this.statusFor(scoreRange, v.captures > 0 ? v.scoreSum / v.captures : 0),
+        rag: this.statusFor(scoreRange, v.scoredCaptures > 0 ? v.scoreSum / v.scoredCaptures : 0),
       }))
       .sort((a, b) => b.avgScore - a.avgScore);
   }
@@ -352,6 +358,9 @@ export class GeneralReportService {
   private computeDistribution(rows: any[]): { labels: string[]; data: number[]; colors: string[] } {
     const buckets = { excelente: 0, bueno: 0, regular: 0, deficiente: 0 };
     for (const r of rows) {
+      // Distribución de scoring: excluye capturas de vendedor (skip_scoring),
+      // que caerían todas en "Deficiente" al tener score 0.
+      if (r.skip_scoring) continue;
       const stats = typeof r.stats === 'string' ? JSON.parse(r.stats) : r.stats || {};
       const score = Number(stats.puntuacionTotal || 0);
       if (score >= 85) buckets.excelente++;

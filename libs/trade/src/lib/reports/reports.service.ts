@@ -235,7 +235,7 @@ export class ReportsService {
       .clone()
       .select(
         this.knex.raw("SUM((stats->>'totalExhibiciones')::int) as visitas"),
-        this.knex.raw("AVG((stats->>'puntuacionTotal')::float) as avg_score"),
+        this.knex.raw("AVG((stats->>'puntuacionTotal')::float) FILTER (WHERE COALESCE(skip_scoring, false) = false) as avg_score"),
         this.knex.raw("SUM(COALESCE(NULLIF((stats->>'ventaTotal')::float, 0), (stats->>'ventaAdicional')::float)) as ventas"),
         this.knex.raw(
           'AVG(EXTRACT(EPOCH FROM (hora_fin - hora_inicio)) / 60) as avg_duration_min',
@@ -247,7 +247,7 @@ export class ReportsService {
       .clone()
       .select('captured_by_username')
       .select(
-        this.knex.raw("AVG((stats->>'puntuacionTotal')::float) as avg_score"),
+        this.knex.raw("AVG((stats->>'puntuacionTotal')::float) FILTER (WHERE COALESCE(skip_scoring, false) = false) as avg_score"),
       )
       .groupBy('captured_by_username')
       .orderBy('avg_score', 'desc')
@@ -356,7 +356,7 @@ export class ReportsService {
 
     const [stats] = await dcQuery.clone().select(
       this.knex.raw("SUM((stats->>'totalExhibiciones')::int) as visitas"),
-      this.knex.raw("AVG((stats->>'puntuacionTotal')::float) as avg_score"),
+      this.knex.raw("AVG((stats->>'puntuacionTotal')::float) FILTER (WHERE COALESCE(skip_scoring, false) = false) as avg_score"),
       this.knex.raw("SUM(COALESCE(NULLIF((stats->>'ventaTotal')::float, 0), (stats->>'ventaAdicional')::float)) as ventas"),
       this.knex.raw('AVG(EXTRACT(EPOCH FROM (hora_fin - hora_inicio)) / 60) as avg_duration_min'),
     );
@@ -545,14 +545,14 @@ export class ReportsService {
       aggRows = await query
         .clone()
         .clearSelect()
-        .select('dc.stats', 'dc.exhibiciones', 'dc.fecha', 'dc.hora_inicio', 'dc.user_id', 'dc.captured_by_username')
+        .select('dc.stats', 'dc.exhibiciones', 'dc.fecha', 'dc.hora_inicio', 'dc.user_id', 'dc.captured_by_username', 'dc.skip_scoring')
         .orderBy('hora_inicio', 'desc')
         .limit(MAX_AGG_ROWS);
     } else {
       aggRows = await query
         .clone()
         .clearSelect()
-        .select('dc.stats', 'dc.exhibiciones', 'dc.fecha', 'dc.hora_inicio', 'dc.user_id', 'dc.captured_by_username');
+        .select('dc.stats', 'dc.exhibiciones', 'dc.fecha', 'dc.hora_inicio', 'dc.user_id', 'dc.captured_by_username', 'dc.skip_scoring');
     }
     this.logger.debug(
       `getFilteredData total=${totalNum} pageReturned=${rows.length} aggRows=${aggRows.length} page=${safePage} pageSize=${safePageSize} tenant=${tenantId ?? 'none'}`,
@@ -624,6 +624,9 @@ export class ReportsService {
     let totalUniqueProducts = 0;
     let totalExhibiciones = 0;
     let totalCapturesAgg = 0;
+    // Capturas PUNTUABLES (colaborador): las de vendedor (skip_scoring) tienen
+    // score 0 y NO deben entrar al denominador del promedio de score.
+    let scoredCaptures = 0;
     let avgProductsPerVisit = '0.00';
     const dailyTrend: Record<string, any> = {};
     const productStats: Record<string, { total: number, exhibidores: Record<string, number> }> = {};
@@ -642,23 +645,32 @@ export class ReportsService {
           : row.exhibiciones || [];
       const score = stats.puntuacionTotal || 0;
       const ventas = stats.ventaTotal || 0;
+      const isScored = !row.skip_scoring;
 
       // 1 captura = 1 visita (cada daily_capture es una visita a tienda con su
       // store_id/hora_inicio). Antes se ponderaba por totalExhibiciones, lo que
       // inflaba "Visitas" (contaba exhibiciones, no visitas) y rompía la meta.
       totalCapturesAgg += 1;
       totalVisitas += 1;
-      totalScore += score;
       totalVentas += ventas;
+      // Score solo de capturas puntuables (colaborador). Las de vendedor
+      // (skip_scoring) no suman ni al numerador ni al denominador del promedio.
+      if (isScored) {
+        totalScore += score;
+        scoredCaptures += 1;
+      }
 
       // Todas las fechas del país se calculan en la TZ de MX (ver mx-date.ts).
       const dateKey = toMxDateKey(row.fecha) || toMxDateKey(row.hora_inicio);
       if (!dailyTrend[dateKey]) {
-        dailyTrend[dateKey] = { visits: 0, score: 0, count: 0 };
+        dailyTrend[dateKey] = { visits: 0, score: 0, count: 0, scoredCount: 0 };
       }
       dailyTrend[dateKey].visits += 1;
-      dailyTrend[dateKey].score += score;
       dailyTrend[dateKey].count += 1;
+      if (isScored) {
+        dailyTrend[dateKey].score += score;
+        dailyTrend[dateKey].scoredCount += 1;
+      }
 
       // Product Analysis Aggregation (only if include has 'products')
       exhibiciones.forEach((ex: any) => {
@@ -756,7 +768,7 @@ export class ReportsService {
     // Antes ambos venían de `normalizedRows.length` y mentían si total > pageSize.
     const metrics: Record<string, any> = {
       totalVisitas,
-      avgScore: totalCapturesAgg > 0 ? Math.round(totalScore / totalCapturesAgg) : 0,
+      avgScore: scoredCaptures > 0 ? Math.round(totalScore / scoredCaptures) : 0,
       totalVentas,
       avgVentaPorVisita: totalVisitas > 0 ? +(totalVentas / totalVisitas).toFixed(2) : 0,
       count: totalCapturesAgg,
@@ -805,7 +817,7 @@ export class ReportsService {
       .map((date) => ({
         date,
         visits: dailyTrend[date].visits,
-        avgScore: Math.round(dailyTrend[date].score / dailyTrend[date].count),
+        avgScore: dailyTrend[date].scoredCount > 0 ? Math.round(dailyTrend[date].score / dailyTrend[date].scoredCount) : 0,
       }));
 
     return {
@@ -838,6 +850,7 @@ export class ReportsService {
   } {
     let visits = 0;
     let score = 0;
+    let scoredVisits = 0;
     let ventas = 0;
     const health = { optimo: 0, regular: 0, critico: 0 };
     const pids = new Set<string>();
@@ -845,8 +858,12 @@ export class ReportsService {
       const raw = typeof row.stats === 'string' ? JSON.parse(row.stats) : row.stats || {};
       const venta = (raw.ventaTotal || 0) > 0 ? raw.ventaTotal : raw.ventaAdicional || 0;
       visits += 1;
-      score += raw.puntuacionTotal || 0;
       ventas += venta;
+      // Score excluye capturas de vendedor (skip_scoring) del promedio.
+      if (!row.skip_scoring) {
+        score += raw.puntuacionTotal || 0;
+        scoredVisits += 1;
+      }
       const exhib =
         typeof row.exhibiciones === 'string'
           ? JSON.parse(row.exhibiciones)
@@ -864,7 +881,7 @@ export class ReportsService {
     const totalExhibidores = health.optimo + health.regular + health.critico;
     return {
       totalVisitas: visits,
-      avgScore: visits > 0 ? Math.round(score / visits) : 0,
+      avgScore: scoredVisits > 0 ? Math.round(score / scoredVisits) : 0,
       totalVentas: ventas,
       avgVentaPorVisita: visits > 0 ? +(ventas / visits).toFixed(2) : 0,
       totalExhibidores,
@@ -983,7 +1000,9 @@ export class ReportsService {
         this.knex.raw(
           "DATE(hora_inicio AT TIME ZONE 'America/Mexico_City') as fecha",
         ),
-        this.knex.raw("AVG(COALESCE((stats->>'puntuacionTotal')::float, 0)) as puntuacion"),
+        // Score-average EXCLUYE capturas de vendedor (skip_scoring=true, score 0)
+        // para no arrastrar el promedio del colaborador hacia abajo.
+        this.knex.raw("AVG((stats->>'puntuacionTotal')::float) FILTER (WHERE COALESCE(skip_scoring, false) = false) as puntuacion"),
         // Suma REAL de puntos del día (no avg) — necesario para volumen acumulado.
         this.knex.raw("SUM(COALESCE((stats->>'puntuacionTotal')::float, 0)) as total"),
         // Conteo de visitas del día — habilita "puntos por visita" + adherencia.
@@ -1264,7 +1283,7 @@ export class ReportsService {
           'z.name as zone_name',
         )
         .select(this.knex.raw('COUNT(DISTINCT dc.id) as visitas'))
-        .select(this.knex.raw("COALESCE(AVG((dc.stats->>'puntuacionTotal')::float), 0) as score"))
+        .select(this.knex.raw("COALESCE(AVG((dc.stats->>'puntuacionTotal')::float) FILTER (WHERE COALESCE(dc.skip_scoring, false) = false), 0) as score"))
         .select(this.knex.raw("COALESCE(SUM(COALESCE(NULLIF((dc.stats->>'ventaTotal')::float, 0), (dc.stats->>'ventaAdicional')::float)), 0) as venta"))
         .groupBy('c.id', 'c.value', 'z.name')
         .orderBy('score', 'desc');
@@ -1303,7 +1322,7 @@ export class ReportsService {
       .whereIn('s.ruta_id', routeIds)
       .select('s.ruta_id', 'dc.user_id', 'dc.captured_by_username')
       .select(this.knex.raw('COUNT(DISTINCT dc.id) as exec_visitas'))
-      .select(this.knex.raw("COALESCE(AVG((dc.stats->>'puntuacionTotal')::float), 0) as exec_score"))
+      .select(this.knex.raw("COALESCE(AVG((dc.stats->>'puntuacionTotal')::float) FILTER (WHERE COALESCE(dc.skip_scoring, false) = false), 0) as exec_score"))
       .select(this.knex.raw("COALESCE(SUM(COALESCE(NULLIF((dc.stats->>'ventaTotal')::float, 0), (dc.stats->>'ventaAdicional')::float)), 0) as exec_venta"))
       .groupBy('s.ruta_id', 'dc.user_id', 'dc.captured_by_username')
       .orderBy('exec_score', 'desc');
@@ -1356,7 +1375,11 @@ export class ReportsService {
     // Compute global KPIs
     const totalRoutes = result.length;
     const routesWithVisits = result.filter(r => r.visitas > 0).length;
-    const avgScore = totalRoutes > 0 ? Math.round(result.reduce((s, r) => s + r.score, 0) / totalRoutes) : 0;
+    // avgScore promedia SOLO rutas con score puntuable (>0). Una ruta cuyas
+    // capturas son todas de vendedor (skip_scoring) queda en score 0 y NO debe
+    // arrastrar el promedio global.
+    const scoredRoutes = result.filter(r => r.score > 0);
+    const avgScore = scoredRoutes.length > 0 ? Math.round(scoredRoutes.reduce((s, r) => s + r.score, 0) / scoredRoutes.length) : 0;
     const routesInMeta = result.filter(r => r.score >= 80).length;
 
     return {
