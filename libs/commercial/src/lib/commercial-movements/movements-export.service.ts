@@ -198,21 +198,25 @@ export class MovementsExportService {
       ['Fecha', 'Tipo de documento', 'Folio', 'Almacén', 'Líneas', 'Cantidad', 'Valor', 'Estado traspaso', 'Auditado', 'Auditado por'],
       [5, 6, 7]);
 
-    let sumLineas = 0, sumQty = 0, sumValor = 0;
+    // info: la Cantidad muestra lo AMPARADO (muted, no suma inventario)
+    let sumLineas = 0, sumQty = 0, sumInfoQty = 0, sumValor = 0;
     for (const d of data.docs) {
+      const isInfo = d.movement_kind === 'info';
       const row = ws.addRow([
         this.asDate(d.doc_date), d.movement_label, d.folio, d.warehouse_name || d.warehouse_code || d.source_branch,
-        Number(d.lineas) || 0, d.movement_kind === 'info' ? null : Number(d.signed_qty) || 0, Number(d.amount) || 0,
+        Number(d.lineas) || 0, isInfo ? Number(d.qty) || 0 : Number(d.signed_qty) || 0, Number(d.amount) || 0,
         '', '', d.audited_by || '',
       ]);
       sumLineas += Number(d.lineas) || 0;
-      sumQty += Number(d.signed_qty) || 0;
+      if (isInfo) sumInfoQty += Number(d.qty) || 0;
+      else sumQty += Number(d.signed_qty) || 0;
       sumValor += Number(d.amount) || 0;
       row.eachCell({ includeEmpty: true }, (cell) => this.baseCell(cell));
       row.getCell(1).numFmt = 'dd/mm/yyyy';
       row.getCell(3).font = { name: 'Consolas', size: 9, color: { argb: C.ink } };
       row.getCell(5).numFmt = '#,##0';
       row.getCell(6).numFmt = '#,##0.00;[Red]-#,##0.00';
+      if (isInfo) row.getCell(6).font = { size: 10, italic: true, color: { argb: C.mute } };
       row.getCell(7).numFmt = '"$"#,##0.00';
       this.sevCell(row.getCell(8), d.transfer_status);
       const aud = row.getCell(9);
@@ -233,7 +237,7 @@ export class MovementsExportService {
     }
     const totLabel = data.truncated ? 'TOTAL (docs listados)' : 'TOTAL';
     const hasInv = data.docs.some((d) => d.movement_kind !== 'info');
-    const tot = ws.addRow([totLabel, '', '', '', sumLineas, hasInv ? sumQty : null, sumValor, '', '', '']);
+    const tot = ws.addRow([totLabel, '', '', '', sumLineas, hasInv ? sumQty : sumInfoQty, sumValor, '', '', '']);
     tot.eachCell({ includeEmpty: true }, (cell) => {
       cell.font = { size: 10, bold: true, color: { argb: C.ink } };
       cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: C.sand } };
@@ -346,18 +350,20 @@ export class MovementsExportService {
     const PDF_CAP = 1200; // el PDF es para lectura; el detalle completo va en el XLSX
     const docs = data.docs.slice(0, PDF_CAP);
     const audited = data.docs.filter((d) => d.audited).length;
-    // listado solo-informativo (ej. aplicaciones): la cantidad total no aplica, es "—" no "0"
+    // docs informativos: la columna muestra la cantidad AMPARADA (muted); el TOTAL suma
+    // inventario (signed) si hay docs de inventario, o lo amparado si el listado es solo-info
     const hasInv = docs.some((d) => d.movement_kind !== 'info');
     const tc = this.transferCounts(data.transfers);
-    let sumQty = 0, sumValor = 0;
+    let sumQty = 0, sumInfoQty = 0, sumValor = 0;
 
     const docRows = docs.map((d) => {
-      sumQty += Number(d.signed_qty) || 0;
+      if (d.movement_kind === 'info') sumInfoQty += Number(d.qty) || 0;
+      else sumQty += Number(d.signed_qty) || 0;
       sumValor += Number(d.amount) || 0;
       return `
       <tr><td>${dmy(d.doc_date)}</td><td class="dsc">${esc(d.movement_label)}</td><td class="mono">${esc(d.folio)}</td>
       <td>${esc(d.warehouse_name || d.warehouse_code || d.source_branch)}</td>
-      <td class="num">${d.movement_kind === 'info' ? '<span class="mut">—</span>' : num(d.signed_qty)}</td><td class="num">${money(d.amount, 2)}</td>
+      <td class="num">${d.movement_kind === 'info' ? `<span class="mut">${num(d.qty)}</span>` : num(d.signed_qty)}</td><td class="num">${money(d.amount, 2)}</td>
       <td>${pill(d.transfer_status)}</td><td>${d.audited ? '<span class="aud">✓ Sí</span>' : '<span class="mut">Pendiente</span>'}</td></tr>`;
     }).join('');
 
@@ -456,7 +462,7 @@ export class MovementsExportService {
       <th class="num">Cantidad</th><th class="num">Valor</th><th>Estado</th><th>Auditado</th></tr></thead>
       <tbody>${docRows || '<tr><td colspan="8" class="empty">Sin documentos en el rango.</td></tr>'}
       ${docRows ? `<tr class="tot"><td colspan="4">TOTAL${data.docs.length > PDF_CAP ? ' (docs listados)' : ''}</td>
-        <td class="num">${hasInv ? num(sumQty) : '—'}</td><td class="num">${money(sumValor, 2)}</td><td></td><td></td></tr>` : ''}
+        <td class="num">${hasInv ? num(sumQty) : `<span class="mut">${num(sumInfoQty)}</span>`}</td><td class="num">${money(sumValor, 2)}</td><td></td><td></td></tr>` : ''}
       </tbody></table>
 
       <div class="sec${docs.length > 22 ? ' brk' : ''}">

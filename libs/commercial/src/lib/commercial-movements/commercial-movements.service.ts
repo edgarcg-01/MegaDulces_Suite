@@ -351,8 +351,10 @@ export class CommercialMovementsService {
         parent_group: h.parent_group, parent_folio: h.parent_folio,
         audited: !!auditRow, audited_by: auditRow?.audited_by ?? null, audited_at: auditRow?.created_at ?? null,
       };
+      // docs informativos: signed=0 por diseño → el total útil es la cantidad AMPARADA (qty)
+      const isInfo = h.movement_kind === 'info';
       const totals = {
-        qty: lines.reduce((s: number, l: any) => s + Number(l.signed_qty || 0), 0),
+        qty: lines.reduce((s: number, l: any) => s + Number((isInfo ? l.qty : l.signed_qty) || 0), 0),
         amount: lines.reduce((s: number, l: any) => s + Number(l.amount || 0), 0),
         lineas: lines.length,
       };

@@ -125,7 +125,7 @@ import { Permission } from '../../../core/constants/permissions';
                         <td class="dm-mono dm-link">{{ l.folio }}</td>
                         <td class="dm-muted">{{ l.warehouse_name || l.warehouse_code || l.source_branch }}</td>
                         <td class="dm-r dm-muted">{{ l.lineas | number }}</td>
-                        <td class="dm-r" [class.up]="l.signed_qty>0" [class.down]="l.signed_qty<0">{{ l.movement_kind === 'info' ? '—' : (l.signed_qty | number:'1.0-2') }}</td>
+                        <td class="dm-r" [class.up]="l.signed_qty>0" [class.down]="l.signed_qty<0" [class.dm-muted]="l.movement_kind === 'info'">{{ (l.movement_kind === 'info' ? l.qty : l.signed_qty) | number:'1.0-2' }}</td>
                         <td class="dm-r dm-strong">{{ l.amount != null ? money(l.amount) : '—' }}</td>
                         <td>
                           @if (l.transfer_status) {
@@ -242,12 +242,12 @@ import { Permission } from '../../../core/constants/permissions';
           <tr>
             <td class="dm-mono">{{ l.sku }}</td>
             <td class="dm-dname" [title]="l.product_name">{{ l.product_name || '—' }}</td>
-            <td class="dm-r" [class.up]="l.signed_qty>0" [class.down]="l.signed_qty<0">{{ l.signed_qty | number:'1.0-2' }}</td>
+            <td class="dm-r" [class.up]="l.signed_qty>0" [class.down]="l.signed_qty<0" [class.dm-muted]="l.movement_kind === 'info'">{{ (l.movement_kind === 'info' ? l.qty : l.signed_qty) | number:'1.0-2' }}</td>
             <td class="dm-r dm-strong">{{ l.amount != null ? money(l.amount) : '—' }}</td>
           </tr>
         </ng-template>
       </p-table>
-      <div class="dm-col-foot">{{ totals.lineas | number }} líneas · Neto <strong [class.up]="totals.qty>0" [class.down]="totals.qty<0">{{ totals.qty | number:'1.0-2' }}</strong> · {{ money(totals.amount) }}</div>
+      <div class="dm-col-foot">{{ totals.lineas | number }} líneas · {{ lines[0]?.movement_kind === 'info' ? 'Ampara' : 'Neto' }} <strong [class.up]="totals.qty>0" [class.down]="totals.qty<0">{{ totals.qty | number:'1.0-2' }}</strong> · {{ money(totals.amount) }}</div>
     </ng-template>
   `,
   styles: [`
