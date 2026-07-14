@@ -41,7 +41,11 @@ export class WincajaService {
    */
   overview() {
     return this.tk.run(async (trx) => {
-      const branches = await trx('wincaja.branches').select('source_branch', 'branch_name', 'warehouse_code', 'status', 'kepler_code');
+      // Solo sucursales — las rutas de reparto (is_route) son unidad propia y no
+      // se muestran en el overview de sucursales (W.9).
+      const branches = await trx('wincaja.branches')
+        .whereRaw('NOT COALESCE(is_route, false)')
+        .select('source_branch', 'branch_name', 'warehouse_code', 'status', 'kepler_code');
       const mv = await trx('pg_matviews').where({ schemaname: 'wincaja', matviewname: 'mv_branch_kpis' }).select('ispopulated').first();
 
       const idx = (rows: any[]) => Object.fromEntries(rows.map((r) => [r.source_branch, r]));
