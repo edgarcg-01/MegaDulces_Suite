@@ -67,6 +67,10 @@ import { Permission } from '../../../core/constants/permissions';
                   optionLabel="label" optionValue="value" placeholder="Tipo de documento" [showClear]="true" styleClass="dm-sel"></p-select>
         <p-select [options]="estadoOpts" [(ngModel)]="fEstado" (onChange)="reload()"
                   optionLabel="label" optionValue="value" placeholder="Estado (traspasos)" [showClear]="true" styleClass="dm-sel"></p-select>
+        <p-multiSelect [options]="warehouseOpts()" [(ngModel)]="fTransferWhs" (onChange)="reload()"
+                       optionLabel="label" optionValue="value" placeholder="Origen/Destino (traspasos)" [showClear]="true"
+                       [maxSelectedLabels]="2" selectedItemsLabel="{0} orígenes/destinos" styleClass="dm-sel"
+                       title="Solo documentos de traspaso donde el origen o el destino esté en la selección"></p-multiSelect>
         <span class="dm-search">
           <input pInputText type="text" [(ngModel)]="fSearch" (keyup.enter)="reload()" placeholder="SKU o producto…" aria-label="Buscar por SKU o producto" />
         </span>
@@ -330,6 +334,7 @@ export class AlmacenMovimientosComponent implements OnInit {
   fDocCode = '';
   fSearch = '';
   fEstado: '' | 'en_transito' | 'completado' | 'diferencia' = '';
+  fTransferWhs: string[] = [];
 
   kindOpts = [
     { label: 'Todo', value: '' },
@@ -391,6 +396,7 @@ export class AlmacenMovimientosComponent implements OnInit {
       doc_code: this.fDocCode || undefined,
       search: this.fSearch || undefined,
       estado: this.fEstado || undefined,
+      transfer_wh_ids: this.fTransferWhs.length ? this.fTransferWhs : undefined,
     };
   }
 

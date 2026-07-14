@@ -30,6 +30,7 @@ export interface MovementsQuery {
   search?: string;        // nombre/sku producto
   folio?: string;         // filtra un folio exacto (drill al documento)
   estado?: string;        // estado de traspaso: en_transito | completado | diferencia
+  transfer_wh_ids?: string; // CSV UUIDs — traspasos cuyo ORIGEN o DESTINO ∈ selección (propio o contraparte)
   group_by?: string;
   page?: number;
   pageSize?: number;
@@ -55,6 +56,11 @@ export class CommercialMovementsService {
       .split(',').map((s) => s.trim()).filter((s) => UUID_RX.test(s));
   }
 
+  private transferWhIds(q: MovementsQuery): string[] {
+    return (q.transfer_wh_ids || '')
+      .split(',').map((s) => s.trim()).filter((s) => UUID_RX.test(s));
+  }
+
   /** Rango por default: últimos 30 días. */
   private range(q: MovementsQuery): { from: string; to: string } {
     const to = q.to && /^\d{4}-\d{2}-\d{2}$/.test(q.to) ? q.to : new Date().toISOString().slice(0, 10);
@@ -77,6 +83,10 @@ export class CommercialMovementsService {
     if (q.movement_kind === 'entrada' || q.movement_kind === 'salida') b.where('m.movement_kind', q.movement_kind);
     if (q.product_id && UUID_RX.test(q.product_id)) b.where('m.product_id', q.product_id);
     if (q.folio) b.where('m.folio', q.folio);
+    // estado y origen/destino solo aplican a traspasos → todo (summary/aggregate/lines) se acota a ellos
+    if (['en_transito', 'completado', 'diferencia'].includes(q.estado || '') || this.transferWhIds(q).length) {
+      b.whereIn('m.doc_code', ['TrsfShip', 'TrsfRcv']);
+    }
     if (q.search) {
       b.whereIn('m.product_id',
         trx('public.products').select('id').where('tenant_id', tenantId)
@@ -169,13 +179,11 @@ export class CommercialMovementsService {
     const page = Math.max(1, Number(q.page) || 1);
     const pageSize = Math.min(500, Math.max(1, Number(q.pageSize) || 100));
     const estado = ['en_transito', 'completado', 'diferencia'].includes(q.estado || '') ? (q.estado as TransferDocStatus) : null;
+    const transferWhs = this.transferWhIds(q);
     return this.tk.run(async (trx) => {
-      const grouped = () => {
-        const b = this.base(trx, tenantId, q)
-          .groupBy('m.warehouse_id', 'm.folio', 'm.doc_code', 'm.doc_serie', 'm.movement_label', 'm.movement_kind', 'm.source_branch');
-        if (estado) b.whereIn('m.doc_code', ['TrsfShip', 'TrsfRcv']); // solo traspasos tienen estado
-        return b;
-      };
+      // base() ya acota a docs de traspaso cuando hay estado u origen/destino
+      const grouped = () => this.base(trx, tenantId, q)
+        .groupBy('m.warehouse_id', 'm.folio', 'm.doc_code', 'm.doc_serie', 'm.movement_label', 'm.movement_kind', 'm.source_branch');
       const fetch = (limit: number, offset: number) => grouped()
         .leftJoin('commercial.warehouses as w', 'w.id', 'm.warehouse_id')
         // DM.4 — marca humana "auditado" (identidad doc = warehouse+doc_code+serie+folio)
@@ -205,11 +213,14 @@ export class CommercialMovementsService {
         .orderByRaw('MIN(m.doc_date) DESC, m.folio DESC')
         .limit(limit).offset(offset);
 
-      if (estado) {
-        // filtro por estado: computar sobre TODOS los traspasos del rango (cap 2000) y paginar en memoria
+      if (estado || transferWhs.length) {
+        // estado y origen/destino requieren el PAREO (la contraparte no es columna):
+        // computar sobre TODOS los traspasos del rango (cap 2000) y paginar en memoria
         const all = await fetch(2000, 0);
         await this.annotateTransferStatus(trx, tenantId, all);
-        const filtered = all.filter((r: any) => r.transfer_status === estado);
+        const filtered = all.filter((r: any) =>
+          (!estado || r.transfer_status === estado) &&
+          (!transferWhs.length || transferWhs.includes(r.warehouse_id) || transferWhs.includes(r.cp_warehouse_id)));
         const rows = filtered.slice((page - 1) * pageSize, (page - 1) * pageSize + pageSize);
         return { page, pageSize, total: filtered.length, rows };
       }
@@ -223,7 +234,8 @@ export class CommercialMovementsService {
   }
 
   /**
-   * DM.3 — anota `transfer_status` en filas de traspaso (mismo ranking que transfersCheck:
+   * DM.3 — anota `transfer_status` + `cp_warehouse_id` (almacén de la contraparte, para el
+   * filtro origen/destino) en filas de traspaso (mismo ranking que transfersCheck:
    * candidato con cantidad más cercana, luego fecha). Ship sin recepción = en_transito;
    * recepción sin origen visible = diferencia (a revisar).
    */
@@ -250,6 +262,7 @@ export class CommercialMovementsService {
           && new Date(c.d).getTime() >= sd && new Date(c.d).getTime() <= sd + 15 * 864e5); // recepción ≥ salida, tope 15d
         const best = near(mine, Number(s.qty), s.doc_date);
         s.transfer_status = !best ? 'en_transito' : Math.abs(Number(best.q) - Number(s.qty)) < 0.01 ? 'completado' : 'diferencia';
+        s.cp_warehouse_id = best ? best.wh : null;
       }
     }
     if (rcvs.length) {
@@ -266,6 +279,7 @@ export class CommercialMovementsService {
           && new Date(c.d).getTime() <= rd && new Date(c.d).getTime() >= rd - 15 * 864e5); // salida ≤ recepción, tope 15d
         const best = near(mine, Number(r.qty), r.doc_date);
         r.transfer_status = !best ? 'diferencia' : Math.abs(Number(best.q) - Number(r.qty)) < 0.01 ? 'completado' : 'diferencia';
+        r.cp_warehouse_id = best ? best.wh : null;
       }
     }
   }
@@ -385,6 +399,7 @@ export class CommercialMovementsService {
     const tenantId = this.tenantCtx.requireTenantId();
     const { from, to } = this.range(q);
     const whs = this.whIds(q);
+    const twhs = this.transferWhIds(q);
     return this.tk.run(async (trx) => {
       // Folios Kepler son secuencias POR SUCURSAL → un (serie, folio) puede existir en varias
       // sucursales de origen. Ranking LATERAL: para cada recepción se elige el candidato de
@@ -445,10 +460,13 @@ export class CommercialMovementsService {
           FROM unreceived
         ) t
         WHERE 1=1 ${whs.length ? `AND (t.origin_wh_id = ANY(?) OR t.dest_wh_id = ANY(?))` : ''}
+                  ${twhs.length ? `AND (t.origin_wh_id = ANY(?) OR t.dest_wh_id = ANY(?))` : ''}
         ORDER BY CASE t.status WHEN 'diferencia' THEN 0 WHEN 'sin_recepcion' THEN 1 WHEN 'sin_origen' THEN 2 ELSE 4 END,
                  coalesce(t.ship_date, t.rcv_date) DESC
         LIMIT 500
-      `, whs.length ? [tenantId, from, to, tenantId, from, to, whs, whs] : [tenantId, from, to, tenantId, from, to])).rows;
+      `, [tenantId, from, to, tenantId, from, to,
+          ...(whs.length ? [whs, whs] : []),
+          ...(twhs.length ? [twhs, twhs] : [])])).rows;
       const totals = { ok: 0, diferencia: 0, sin_recepcion: 0, sin_origen: 0 };
       for (const r of rows) totals[r.status as keyof typeof totals]++;
       return { range: { from, to }, totals, rows };
