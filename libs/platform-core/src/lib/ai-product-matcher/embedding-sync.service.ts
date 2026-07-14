@@ -134,6 +134,7 @@ export class EmbeddingSyncService implements OnModuleInit {
       brand_id: string | null;
       product_name: string;
       brand_name: string | null;
+      in_planogram: boolean;
     }[] = await this.knex('products as p')
       .leftJoin('brands as b', 'b.id', 'p.brand_id')
       .where('p.activo', true)
@@ -143,14 +144,24 @@ export class EmbeddingSyncService implements OnModuleInit {
         'p.brand_id',
         'p.nombre as product_name',
         'b.nombre as brand_name',
+        'p.in_planogram',
       );
 
     const activeIds = new Set(active.map((p) => p.id));
 
-    // 2) Estado actual del vector store (id → source_text).
-    const existingRows: { product_id: string; source_text: string }[] =
-      await this.vectorDb('product_embeddings').select('product_id', 'source_text');
-    const existing = new Map(existingRows.map((r) => [r.product_id, r.source_text]));
+    // 2) Estado actual del vector store (id → {source_text, in_planogram}).
+    const existingRows: {
+      product_id: string;
+      source_text: string;
+      in_planogram: boolean;
+    }[] = await this.vectorDb('product_embeddings').select(
+      'product_id',
+      'source_text',
+      'in_planogram',
+    );
+    const existing = new Map(
+      existingRows.map((r) => [r.product_id, r]),
+    );
 
     // 3) Borrar inactivos (en el store pero ya no activos en la fuente).
     //    Guarda anti-wipe: si borrar limpiaría >30% del store, la fuente
@@ -177,10 +188,13 @@ export class EmbeddingSyncService implements OnModuleInit {
       }
     }
 
-    // 4) Detectar stale: nuevos o renombrados (source_text difiere).
+    // 4) Detectar stale: nuevos, renombrados (source_text difiere) o con el flag
+    //    de planograma cambiado (in_planogram difiere) — para que la curación
+    //    desde /admin/planograma se refleje en el corpus del picker.
     const staleAll = active.filter((p) => {
       const text = this.sourceText(p.brand_name, p.product_name);
-      return existing.get(p.id) !== text;
+      const prev = existing.get(p.id);
+      return !prev || prev.source_text !== text || prev.in_planogram !== p.in_planogram;
     });
     const pending = Math.max(0, staleAll.length - this.tickBatch);
     const batch = staleAll.slice(0, this.tickBatch);
@@ -214,8 +228,8 @@ export class EmbeddingSyncService implements OnModuleInit {
             await trx.raw(
               `
               INSERT INTO product_embeddings
-                (product_id, tenant_id, brand_id, brand_name, product_name, source_text, embedding, updated_at)
-              VALUES (?, ?, ?, ?, ?, ?, ?::vector, now())
+                (product_id, tenant_id, brand_id, brand_name, product_name, source_text, embedding, in_planogram, updated_at)
+              VALUES (?, ?, ?, ?, ?, ?, ?::vector, ?, now())
               ON CONFLICT (product_id) DO UPDATE SET
                 tenant_id    = EXCLUDED.tenant_id,
                 brand_id     = EXCLUDED.brand_id,
@@ -223,6 +237,7 @@ export class EmbeddingSyncService implements OnModuleInit {
                 product_name = EXCLUDED.product_name,
                 source_text  = EXCLUDED.source_text,
                 embedding    = EXCLUDED.embedding,
+                in_planogram = EXCLUDED.in_planogram,
                 updated_at   = now()
               `,
               [
@@ -233,6 +248,7 @@ export class EmbeddingSyncService implements OnModuleInit {
                 p.product_name,
                 texts[j],
                 vecLiteral,
+                p.in_planogram,
               ],
             );
             processed++;

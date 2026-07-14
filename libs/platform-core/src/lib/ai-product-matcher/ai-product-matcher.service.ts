@@ -199,6 +199,7 @@ export class AiProductMatcherService {
                product_name,
                ROUND((1 - (embedding <=> ?::vector))::numeric, 4) AS score
         FROM product_embeddings
+        WHERE in_planogram = true
         ORDER BY embedding <=> ?::vector
         LIMIT ${RERANK_TOP_K}
         `,
@@ -223,7 +224,7 @@ export class AiProductMatcherService {
              ROUND((1 - (p.embedding <=> ?::vector))::numeric, 4) AS score
       FROM products p
       LEFT JOIN brands b ON b.id = p.brand_id
-      WHERE p.activo = true AND p.embedding IS NOT NULL
+      WHERE p.activo = true AND p.embedding IS NOT NULL AND p.in_planogram = true
       ORDER BY p.embedding <=> ?::vector
       LIMIT ${RERANK_TOP_K}
       `,
