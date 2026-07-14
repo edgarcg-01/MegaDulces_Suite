@@ -28,6 +28,7 @@ const SRC = `
   JOIN commercial.warehouses w
     ON w.tenant_id = s.tenant_id AND w.code = s.warehouse_code AND w.deleted_at IS NULL
   WHERE s.tenant_id = ? AND s.wincaja_only = true AND s.existencia IS NOT NULL
+    AND s.warehouse_code NOT LIKE 'RUTA-%'   -- excluir inventario de camion (W.10)
   GROUP BY p.id, w.id
 `;
 
