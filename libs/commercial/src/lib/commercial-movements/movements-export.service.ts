@@ -232,7 +232,8 @@ export class MovementsExportService {
       });
     }
     const totLabel = data.truncated ? 'TOTAL (docs listados)' : 'TOTAL';
-    const tot = ws.addRow([totLabel, '', '', '', sumLineas, sumQty, sumValor, '', '', '']);
+    const hasInv = data.docs.some((d) => d.movement_kind !== 'info');
+    const tot = ws.addRow([totLabel, '', '', '', sumLineas, hasInv ? sumQty : null, sumValor, '', '', '']);
     tot.eachCell({ includeEmpty: true }, (cell) => {
       cell.font = { size: 10, bold: true, color: { argb: C.ink } };
       cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: C.sand } };
@@ -345,6 +346,8 @@ export class MovementsExportService {
     const PDF_CAP = 1200; // el PDF es para lectura; el detalle completo va en el XLSX
     const docs = data.docs.slice(0, PDF_CAP);
     const audited = data.docs.filter((d) => d.audited).length;
+    // listado solo-informativo (ej. aplicaciones): la cantidad total no aplica, es "—" no "0"
+    const hasInv = docs.some((d) => d.movement_kind !== 'info');
     const tc = this.transferCounts(data.transfers);
     let sumQty = 0, sumValor = 0;
 
@@ -453,7 +456,7 @@ export class MovementsExportService {
       <th class="num">Cantidad</th><th class="num">Valor</th><th>Estado</th><th>Auditado</th></tr></thead>
       <tbody>${docRows || '<tr><td colspan="8" class="empty">Sin documentos en el rango.</td></tr>'}
       ${docRows ? `<tr class="tot"><td colspan="4">TOTAL${data.docs.length > PDF_CAP ? ' (docs listados)' : ''}</td>
-        <td class="num">${num(sumQty)}</td><td class="num">${money(sumValor, 2)}</td><td></td><td></td></tr>` : ''}
+        <td class="num">${hasInv ? num(sumQty) : '—'}</td><td class="num">${money(sumValor, 2)}</td><td></td><td></td></tr>` : ''}
       </tbody></table>
 
       <div class="sec${docs.length > 22 ? ' brk' : ''}">
