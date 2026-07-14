@@ -10,6 +10,7 @@ import { TableModule } from 'primeng/table';
 import { MessageService } from 'primeng/api';
 import {
   ComercialService,
+  SalesByRouteDetail,
   SalesByRouteOption,
   SalesByRouteParams,
   SalesByRouteReport,
@@ -17,6 +18,9 @@ import {
 } from '../comercial.service';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { REPORTS_TABS } from '../reports-tabs';
+import { SidePeekComponent } from '../../../shared/components/side-peek/side-peek.component';
+
+type DetailTab = 'productos' | 'dias' | 'clientes' | 'tickets';
 
 const MES: Record<string, string> = {
   '01': 'Ene', '02': 'Feb', '03': 'Mar', '04': 'Abr', '05': 'May', '06': 'Jun',
@@ -29,7 +33,7 @@ const MES: Record<string, string> = {
   standalone: true,
   imports: [
     CommonModule, FormsModule, ButtonModule, SelectModule, MultiSelectModule,
-    ToastModule, TableModule, PageTabsComponent,
+    ToastModule, TableModule, PageTabsComponent, SidePeekComponent,
   ],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -93,9 +97,9 @@ const MES: Record<string, string> = {
                 </tr>
               </ng-template>
               <ng-template pTemplate="body" let-row>
-                <tr>
+                <tr class="rr-row" (click)="openRoute(row)" title="Ver desglose de la ruta">
                   <td pFrozenColumn class="comm-cell-strong">{{ row.warehouse_name }}</td>
-                  <td pFrozenColumn class="rr-strong">Ruta {{ row.route_no }}</td>
+                  <td pFrozenColumn class="rr-strong"><span class="rr-link">Ruta {{ row.route_no }}</span></td>
                   @for (m of r.months; track m) {
                     <td class="comm-num">{{ cell(row, m)?.revenue != null ? (cell(row, m)!.revenue | currency:'MXN':'symbol-narrow':'1.0-0') : '·' }}</td>
                   }
@@ -124,8 +128,91 @@ const MES: Record<string, string> = {
         }
       } @else {
         <div class="comm-empty"><div class="comm-empty-icon"><i class="pi pi-directions"></i></div>
-          <h3>Ventas por ruta</h3><p>Elegí año y sucursales; el reporte carga automáticamente.</p></div>
+          <h3>Ventas por ruta</h3><p>Elegí las rutas; el reporte carga automáticamente.</p></div>
       }
+
+      <app-side-peek [(open)]="peekOpen"
+                     [title]="detail()?.warehouse_name || 'Ruta'"
+                     [subtitle]="detail() ? ('Ruta ' + detail()!.route_no + ' · ' + detail()!.year) : null">
+        @if (detailLoading()) {
+          <div class="rr-detail-loading"><i class="pi pi-spin pi-spinner"></i> Cargando desglose…</div>
+        } @else if (detail(); as d) {
+          <div class="rr-dkpis">
+            <div class="rr-dkpi"><span>Venta</span><b>{{ d.totals.revenue | currency:'MXN':'symbol-narrow':'1.0-0' }}</b></div>
+            <div class="rr-dkpi"><span>Tickets</span><b>{{ d.totals.tickets | number }}</b></div>
+            <div class="rr-dkpi"><span>Unidades</span><b>{{ d.totals.units | number:'1.0-0' }}</b></div>
+            <div class="rr-dkpi"><span>SKUs</span><b>{{ d.totals.skus | number }}</b></div>
+            <div class="rr-dkpi"><span>Clientes</span><b>{{ d.totals.clients | number }}</b></div>
+          </div>
+
+          <div class="rr-tabs" role="tablist">
+            <button type="button" role="tab" [class.on]="tab()==='productos'" [attr.aria-selected]="tab()==='productos'" (click)="tab.set('productos')">Productos</button>
+            <button type="button" role="tab" [class.on]="tab()==='dias'" [attr.aria-selected]="tab()==='dias'" (click)="tab.set('dias')">Por día</button>
+            <button type="button" role="tab" [class.on]="tab()==='clientes'" [attr.aria-selected]="tab()==='clientes'" (click)="tab.set('clientes')">Clientes</button>
+            <button type="button" role="tab" [class.on]="tab()==='tickets'" [attr.aria-selected]="tab()==='tickets'" (click)="tab.set('tickets')">Tickets</button>
+          </div>
+
+          @switch (tab()) {
+            @case ('productos') {
+              <p-table [value]="d.products" styleClass="p-datatable-sm surf-table" [scrollable]="true" scrollHeight="52vh">
+                <ng-template pTemplate="header"><tr>
+                  <th scope="col">Producto</th><th scope="col" class="comm-num">Unid</th>
+                  <th scope="col" class="comm-num">Importe</th><th scope="col" class="comm-num">%</th></tr>
+                </ng-template>
+                <ng-template pTemplate="body" let-p><tr>
+                  <td class="rr-prod"><span class="rr-sku">{{ p.sku }}</span> {{ p.name }}</td>
+                  <td class="comm-num">{{ p.units | number:'1.0-0' }}</td>
+                  <td class="comm-num rr-strong">{{ p.revenue | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+                  <td class="comm-num comm-muted">{{ p.share_pct | number:'1.0-1' }}%</td></tr>
+                </ng-template>
+              </p-table>
+              <p class="rr-note">Top 50 por importe.</p>
+            }
+            @case ('dias') {
+              <p-table [value]="d.daily" styleClass="p-datatable-sm surf-table" [scrollable]="true" scrollHeight="52vh">
+                <ng-template pTemplate="header"><tr>
+                  <th scope="col">Día</th><th scope="col" class="comm-num">Tickets</th>
+                  <th scope="col" class="comm-num">Venta</th><th scope="col" class="rr-barcol"></th></tr>
+                </ng-template>
+                <ng-template pTemplate="body" let-x><tr>
+                  <td>{{ x.date }}</td>
+                  <td class="comm-num">{{ x.tickets | number }}</td>
+                  <td class="comm-num rr-strong">{{ x.revenue | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+                  <td class="rr-barcol"><span class="rr-bar" [style.width.%]="barPct(x.revenue)"></span></td></tr>
+                </ng-template>
+              </p-table>
+            }
+            @case ('clientes') {
+              <p-table [value]="d.clients" styleClass="p-datatable-sm surf-table" [scrollable]="true" scrollHeight="52vh">
+                <ng-template pTemplate="header"><tr>
+                  <th scope="col">Cliente</th><th scope="col" class="comm-num">Tickets</th>
+                  <th scope="col" class="comm-num">Importe</th></tr>
+                </ng-template>
+                <ng-template pTemplate="body" let-c><tr>
+                  <td>{{ c.name }} @if (c.is_public) {<span class="rr-tag">público</span>}</td>
+                  <td class="comm-num">{{ c.tickets | number }}</td>
+                  <td class="comm-num rr-strong">{{ c.revenue | currency:'MXN':'symbol-narrow':'1.0-0' }}</td></tr>
+                </ng-template>
+              </p-table>
+              <p class="rr-note">Top 50 por importe. "Público" = venta a bordo sin cliente identificado.</p>
+            }
+            @case ('tickets') {
+              <p-table [value]="d.tickets" styleClass="p-datatable-sm surf-table" [scrollable]="true" scrollHeight="52vh">
+                <ng-template pTemplate="header"><tr>
+                  <th scope="col">Folio</th><th scope="col">Fecha</th>
+                  <th scope="col" class="comm-num">Líneas</th><th scope="col" class="comm-num">Importe</th></tr>
+                </ng-template>
+                <ng-template pTemplate="body" let-t><tr>
+                  <td class="rr-mono">{{ t.folio }}</td><td>{{ t.date }}</td>
+                  <td class="comm-num">{{ t.lines | number }}</td>
+                  <td class="comm-num rr-strong">{{ t.revenue | currency:'MXN':'symbol-narrow':'1.0-0' }}</td></tr>
+                </ng-template>
+              </p-table>
+              <p class="rr-note">Últimos 100 tickets.</p>
+            }
+          }
+        }
+      </app-side-peek>
     </div>
   `,
   styles: [`

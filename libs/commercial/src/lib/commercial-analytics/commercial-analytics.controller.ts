@@ -637,11 +637,18 @@ export class CommercialAnalyticsController {
     return this.service.salesByRouteRoutes();
   }
 
+  @Get('sales-by-route/detail')
+  @RequirePermissions(Permission.COMMERCIAL_ROUTE_SALES_VER)
+  @ApiOperation({ summary: 'RR — Desglose de una ruta: productos, serie diaria, clientes y tickets. Params: route (WIN-<code>), year.' })
+  salesByRouteDetail(@Query('route') route: string, @Query('year') year?: string) {
+    return this.service.salesByRouteDetail(route, year ? Number(year) : new Date().getFullYear());
+  }
+
   @Get('sales-by-route')
   @RequirePermissions(Permission.COMMERCIAL_ROUTE_SALES_VER)
   @ApiOperation({
     summary:
-      'RR — Ventas por Ruta: fila por (sucursal, ruta) con venta (importe/unidades/tickets) mes a mes + share%. Mezcla Kepler (serie c63) + Wincaja venta a bordo (WIN-). Params: year, routes=csv (warehouse_code|route_code).',
+      'RR — Ventas por Ruta: SOLO rutas reales (venta a bordo Wincaja, WIN-). Fila por (sucursal, ruta) mes a mes + share%. Params: year, routes=csv (warehouse_code|route_code).',
   })
   salesByRoute(@Query('year') year?: string, @Query('routes') routes?: string) {
     return this.service.salesByRoute({

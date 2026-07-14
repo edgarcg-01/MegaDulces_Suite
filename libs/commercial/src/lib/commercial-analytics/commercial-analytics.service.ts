@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException, Logger } from '@nestjs/common';
+import { Injectable, BadRequestException, NotFoundException, Logger } from '@nestjs/common';
 import { TenantKnexService } from '@megadulces/platform-core';
 import { TenantContextService } from '@megadulces/platform-core';
 
@@ -119,6 +119,18 @@ export interface SalesByRouteOption {
   warehouse_name: string;
   route_code: string;
   route_no: string;
+}
+
+export interface SalesByRouteDetail {
+  route_no: string;
+  route_code: string;
+  warehouse_name: string;
+  year: number;
+  totals: { revenue: number; units: number; tickets: number; skus: number; clients: number };
+  products: { sku: string; name: string; units: number; revenue: number; share_pct: number }[];
+  daily: { date: string; revenue: number; units: number; tickets: number }[];
+  clients: { code: string; name: string; revenue: number; units: number; tickets: number; is_public: boolean }[];
+  tickets: { folio: string; date: string; lines: number; units: number; revenue: number }[];
 }
 
 export interface SalesByRouteCell {
@@ -2601,6 +2613,104 @@ export class CommercialAnalyticsService {
 
     const months = Array.from(monthsSet).sort();
     return { year, months, rows, totals, monthly_totals: monthlyTotals, generated_at: new Date().toISOString() };
+  }
+
+  /**
+   * RR — Desglose de UNA ruta (venta a bordo Wincaja): productos, serie diaria,
+   * clientes (tienditas) y tickets. Lee el silver `wincaja.v_sales_lines` filtrado a
+   * la ruta (source_branch = route_code sin 'WIN-'), scoped al año. Público general
+   * (cliente NULL / '0001' = "cliente libre") se agrupa como "Mostrador a bordo".
+   */
+  async salesByRouteDetail(routeCode: string, year: number): Promise<SalesByRouteDetail> {
+    const y = Number(year) || new Date().getFullYear();
+    if (y < 2020 || y > 2100) throw new BadRequestException('year inválido');
+    const src = (routeCode || '').replace(/^WIN-/i, '').trim();
+    if (!src) throw new BadRequestException('route requerido');
+    const from = `${y}-01-01`;
+    const to = `${y + 1}-01-01`;
+    const tenantId = this.tenantCtx.requireTenantId();
+    const num = (v: any) => Number(v) || 0;
+
+    return this.tk.run(async (trx) => {
+      const head = (await trx.raw(
+        `SELECT b.source_branch AS route_no, COALESCE(pw.name, initcap(pb.branch_name)) AS wname
+         FROM wincaja.branches b
+         JOIN wincaja.branches pb ON pb.tenant_id=b.tenant_id AND pb.source_branch=b.parent_branch
+         LEFT JOIN commercial.warehouses pw ON pw.tenant_id=b.tenant_id
+           AND pw.code=COALESCE(pb.kepler_code, pb.warehouse_code) AND pw.deleted_at IS NULL
+         WHERE b.tenant_id=? AND b.source_branch=? AND b.is_route=true`, [tenantId, src])).rows[0];
+      if (!head) throw new NotFoundException('ruta no encontrada');
+
+      // WHERE común (mismo scope que el feed: canal ruta, año, sin fechas futuras corruptas)
+      const W = `sl.tenant_id=? AND sl.source_branch=? AND sl.sale_channel='ruta_venta'
+                 AND sl.business_date>=? AND sl.business_date<? AND sl.business_date<=CURRENT_DATE`;
+      const P = [tenantId, src, from, to];
+
+      const totals = (await trx.raw(
+        `SELECT sum(sl.importe) revenue, sum(sl.qty) units, count(distinct sl.consecutivo) tickets,
+                count(distinct sl.sku) skus,
+                count(distinct sl.cliente) FILTER (WHERE sl.cliente IS NOT NULL AND btrim(sl.cliente)<>'' AND sl.cliente<>'0001') clients
+         FROM wincaja.v_sales_lines sl WHERE ${W}`, P)).rows[0];
+      const totRev = num(totals.revenue);
+
+      const products = (await trx.raw(
+        `SELECT sl.sku, COALESCE(p.nombre, sl.sku) AS name, sum(sl.qty) units, sum(sl.importe) revenue
+         FROM wincaja.v_sales_lines sl
+         LEFT JOIN catalog.products p ON p.tenant_id=sl.tenant_id AND p.sku=sl.sku AND p.deleted_at IS NULL
+         WHERE ${W} GROUP BY sl.sku, p.nombre ORDER BY revenue DESC NULLS LAST LIMIT 50`, P)).rows;
+
+      const daily = (await trx.raw(
+        `SELECT sl.business_date::date AS date, sum(sl.importe) revenue, sum(sl.qty) units,
+                count(distinct sl.consecutivo) tickets
+         FROM wincaja.v_sales_lines sl WHERE ${W} GROUP BY 1 ORDER BY 1`, P)).rows;
+
+      const clients = (await trx.raw(
+        `SELECT
+           (sl.cliente IS NULL OR btrim(sl.cliente)='' OR sl.cliente='0001') AS is_public,
+           CASE WHEN sl.cliente IS NULL OR btrim(sl.cliente)='' OR sl.cliente='0001'
+                THEN '—' ELSE sl.cliente END AS code,
+           CASE WHEN sl.cliente IS NULL OR btrim(sl.cliente)='' OR sl.cliente='0001'
+                THEN 'Mostrador a bordo (público)' ELSE COALESCE(c.nombre, sl.cliente) END AS name,
+           sum(sl.importe) revenue, sum(sl.qty) units, count(distinct sl.consecutivo) tickets
+         FROM wincaja.v_sales_lines sl
+         LEFT JOIN (SELECT DISTINCT ON (source_branch, cliente) source_branch, cliente, nombre
+                    FROM wincaja.clientes WHERE tenant_id=? AND source_branch=? ORDER BY source_branch, cliente, source_dataset DESC) c
+           ON c.source_branch=sl.source_branch AND c.cliente=sl.cliente
+         WHERE ${W} GROUP BY 1,2,3 ORDER BY revenue DESC NULLS LAST LIMIT 50`, [tenantId, src, ...P])).rows;
+
+      const tickets = (await trx.raw(
+        `SELECT max(sl.doc_ref) folio, sl.consecutivo, max(sl.business_date::date) AS date,
+                count(*) lines, sum(sl.qty) units, sum(sl.importe) revenue
+         FROM wincaja.v_sales_lines sl WHERE ${W}
+         GROUP BY sl.consecutivo ORDER BY max(sl.business_date) DESC, revenue DESC NULLS LAST LIMIT 100`, P)).rows;
+
+      return {
+        route_no: head.route_no,
+        route_code: `WIN-${src}`,
+        warehouse_name: head.wname,
+        year: y,
+        totals: {
+          revenue: totRev, units: num(totals.units), tickets: num(totals.tickets),
+          skus: num(totals.skus), clients: num(totals.clients),
+        },
+        products: products.map((r: any) => ({
+          sku: r.sku, name: r.name, units: num(r.units), revenue: num(r.revenue),
+          share_pct: totRev > 0 ? Math.round((num(r.revenue) / totRev) * 1000) / 10 : 0,
+        })),
+        daily: daily.map((r: any) => ({
+          date: r.date instanceof Date ? r.date.toISOString().slice(0, 10) : String(r.date).slice(0, 10),
+          revenue: num(r.revenue), units: num(r.units), tickets: num(r.tickets),
+        })),
+        clients: clients.map((r: any) => ({
+          code: r.code, name: r.name, revenue: num(r.revenue), units: num(r.units),
+          tickets: num(r.tickets), is_public: !!r.is_public,
+        })),
+        tickets: tickets.map((r: any) => ({
+          folio: r.folio || r.consecutivo, date: r.date instanceof Date ? r.date.toISOString().slice(0, 10) : String(r.date).slice(0, 10),
+          lines: num(r.lines), units: num(r.units), revenue: num(r.revenue),
+        })),
+      };
+    });
   }
 
   /**

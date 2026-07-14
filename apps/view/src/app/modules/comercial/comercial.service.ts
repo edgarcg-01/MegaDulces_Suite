@@ -1020,6 +1020,11 @@ export class ComercialService {
     return this.http.get<SalesByRouteOption[]>(`${this.base}/analytics/sales-by-route/routes`);
   }
 
+  salesByRouteDetail(routeCode: string, year: number) {
+    const params = new HttpParams().set('route', routeCode).set('year', String(year));
+    return this.http.get<SalesByRouteDetail>(`${this.base}/analytics/sales-by-route/detail`, { params });
+  }
+
   salesByRouteDownloadXlsx(p: SalesByRouteParams) {
     return this.http.get(`${this.base}/analytics/sales-by-route.xlsx`, {
       params: this.salesByRouteParams(p), responseType: 'blob', observe: 'response',
@@ -1294,6 +1299,18 @@ export interface SalesByRouteOption {
   warehouse_name: string;
   route_code: string;
   route_no: string;
+}
+
+export interface SalesByRouteDetail {
+  route_no: string;
+  route_code: string;
+  warehouse_name: string;
+  year: number;
+  totals: { revenue: number; units: number; tickets: number; skus: number; clients: number };
+  products: { sku: string; name: string; units: number; revenue: number; share_pct: number }[];
+  daily: { date: string; revenue: number; units: number; tickets: number }[];
+  clients: { code: string; name: string; revenue: number; units: number; tickets: number; is_public: boolean }[];
+  tickets: { folio: string; date: string; lines: number; units: number; revenue: number }[];
 }
 
 export interface SalesByRouteCell {
