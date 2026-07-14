@@ -64,6 +64,14 @@ const MES: Record<string, string> = {
         </div>
       </div>
 
+      @if (error()) {
+        <div class="rr-error" role="alert">
+          <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+          <span>{{ error() }}</span>
+          <button pButton type="button" class="p-button-sm p-button-text" label="Reintentar" (click)="load()"></button>
+        </div>
+      }
+
       @if (report(); as r) {
         @if (r.rows.length) {
           <div class="rr-kpis">
@@ -99,7 +107,11 @@ const MES: Record<string, string> = {
               <ng-template pTemplate="body" let-row>
                 <tr class="rr-row" (click)="openRoute(row)" title="Ver desglose de la ruta">
                   <td pFrozenColumn class="comm-cell-strong">{{ row.warehouse_name }}</td>
-                  <td pFrozenColumn class="rr-strong"><span class="rr-link">Ruta {{ row.route_no }}</span></td>
+                  <td pFrozenColumn class="rr-strong">
+                    <!-- Botón real: el drill es accesible por teclado (la fila (click) queda para mouse). -->
+                    <button type="button" class="rr-link" (click)="$event.stopPropagation(); openRoute(row)"
+                            [attr.aria-label]="'Ver desglose de la ruta ' + row.route_no">Ruta {{ row.route_no }}</button>
+                  </td>
                   @for (m of r.months; track m) {
                     <td class="comm-num">{{ cell(row, m)?.revenue != null ? (cell(row, m)!.revenue | currency:'MXN':'symbol-narrow':'1.0-0') : '·' }}</td>
                   }
@@ -126,7 +138,10 @@ const MES: Record<string, string> = {
           <div class="comm-empty"><div class="comm-empty-icon"><i class="pi pi-inbox"></i></div>
             <h3>Sin resultados</h3><p>No hay ventas de ruta para los filtros elegidos.</p></div>
         }
-      } @else {
+      } @else if (loading()) {
+        <div class="comm-empty"><div class="comm-empty-icon"><i class="pi pi-spin pi-spinner"></i></div>
+          <h3>Cargando reporte…</h3><p>Consultando la venta por ruta del {{ year }}.</p></div>
+      } @else if (!error()) {
         <div class="comm-empty"><div class="comm-empty-icon"><i class="pi pi-directions"></i></div>
           <h3>Ventas por ruta</h3><p>Elegí las rutas; el reporte carga automáticamente.</p></div>
       }
@@ -233,8 +248,11 @@ const MES: Record<string, string> = {
     .rr-strong { font-weight:700; }
     .rr-foot td { font-weight:700; }
     .rr-row { cursor:pointer; }
-    .rr-link { color:var(--action); text-underline-offset:2px; }
+    .rr-link { appearance:none; background:none; border:none; padding:0; font:inherit; font-weight:700; cursor:pointer; color:var(--action); text-underline-offset:2px; }
     .rr-row:hover .rr-link { text-decoration:underline; }
+    .rr-link:focus-visible { outline:2px solid var(--action); outline-offset:2px; border-radius:var(--r-sm); }
+    .rr-error { display:flex; align-items:center; gap:.5rem; font-size:.82rem; padding:.55rem .8rem; margin-bottom:1rem; border-radius:var(--r-sm); background:var(--bad-soft-bg); color:var(--bad-soft-fg); border:1px solid var(--bad-border); }
+    .rr-error span { margin-right:auto; }
     /* Detalle (side-peek) */
     .rr-detail-loading { color:var(--text-muted); font-size:.85rem; padding:1rem 0; display:flex; align-items:center; gap:.5rem; }
     .rr-dkpis { display:grid; grid-template-columns:repeat(2,1fr); gap:.5rem; margin-bottom:1rem; }
@@ -264,6 +282,7 @@ export class ComercialVentasPorRutaComponent {
   routeOpts = signal<SalesByRouteOption[]>([]);
   loading = signal(false);
   dl = signal(false);
+  error = signal<string | null>(null);
   report = signal<SalesByRouteReport | null>(null);
 
   year = new Date().getFullYear();
@@ -290,11 +309,15 @@ export class ComercialVentasPorRutaComponent {
 
   load() {
     this.loading.set(true);
+    this.error.set(null);
     this.svc.salesByRoute(this.params())
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (r) => { this.report.set(r); this.loading.set(false); },
-        error: (e) => { this.loading.set(false); this.toast.add({ severity: 'error', summary: 'Error al consultar', detail: e?.error?.message }); },
+        error: (e) => {
+          this.loading.set(false);
+          this.error.set(e?.error?.message || 'No se pudo consultar el reporte. Revisá la conexión e intentá de nuevo.');
+        },
       });
   }
 

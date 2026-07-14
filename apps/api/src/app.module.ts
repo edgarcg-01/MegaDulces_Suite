@@ -95,6 +95,7 @@ import { LogisticsRoutingModule } from '@megadulces/logistics';
 import { MegaDulcesSyncModule } from '@megadulces/commercial';
 // MAAT (ADR-028) — AI de Finanzas: base de conocimiento (+ motor/chat en sprints siguientes)
 import { FinanceMaatModule } from '@megadulces/finance';
+import { FiscalListasModule } from '@megadulces/fiscal';
 import { ReconciliationModule } from '@megadulces/reconciliation';
 // MAAT.9 (3.0 P2) — binding del Port de notificación de Maat → canal de alertas commercial.
 import { FinanceNotifierBindingModule } from './composition/finance-notifier.binding.module';
@@ -159,6 +160,7 @@ const multitenantModules = process.env.ENABLE_MULTITENANT === 'true'
       MegaDulcesSyncModule,
       FinanceNotifierBindingModule,
       FinanceMaatModule,
+      FiscalListasModule,
       ReconciliationModule,
     ]
   : [];

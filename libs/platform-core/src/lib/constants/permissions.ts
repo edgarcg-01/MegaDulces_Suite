@@ -178,4 +178,9 @@ export enum Permission {
   // ── Compras / Reabastecimiento (Fase RA — ADR-030) ────────────────────
   COMPRAS_VER = 'COMPRAS_VER',
   COMPRAS_GESTIONAR = 'COMPRAS_GESTIONAR',
+
+  // ── Fiscal (auditoría CFDI / cumplimiento SAT — libs/fiscal) ──────────
+  // FISCAL.0/1 = motor de listas SAT (EFOS 69-B, Art. 69) + validación RFC.
+  FISCAL_LISTAS_VER = 'FISCAL_LISTAS_VER',
+  FISCAL_LISTAS_GESTIONAR = 'FISCAL_LISTAS_GESTIONAR',
 }
