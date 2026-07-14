@@ -10,6 +10,7 @@
     2. GOLD    : import-wincaja-analytics.js          (analytics.sales_daily + REFRESH MV)
     3. GOLD    : import-wincaja-stock.js              (commercial.stock)
     4. GOLD    : import-wincaja-routes-monthly.js      (analytics.sales_by_route_monthly, WIN-%)
+    5. GOLD    : import-wincaja-product-sales.js        (analytics.product_sales_monthly/daily, 30/32/50)
 
   Destino (prod Railway) = DATABASE_URL_NEW. Se toma de, en orden:
     a) variable de entorno DATABASE_URL_NEW ya seteada,
@@ -62,6 +63,7 @@ try {
   Run-Node 'GOLD sales+MV' @('importers/wincaja/import-wincaja-analytics.js', '--apply')
   Run-Node 'GOLD stock'    @('importers/wincaja/import-wincaja-stock.js', '--apply')
   Run-Node 'GOLD rutas mensual' @('importers/wincaja/import-wincaja-routes-monthly.js', '--apply')
+  Run-Node 'GOLD venta/producto' @('importers/wincaja/import-wincaja-product-sales.js', '--apply')
   Log "########## DONE OK ##########"
 } catch {
   Log "########## FALLO: $($_.Exception.Message) ##########"
