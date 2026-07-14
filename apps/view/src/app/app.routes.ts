@@ -385,10 +385,11 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.RECONCILIATION_VER)]
       },
       {
-        // DM — Diario de movimientos (mejora del reporte Kepler): entradas/salidas agregadas + drill por folio
+        // DM — Diario de movimientos (mejora del reporte Kepler): entradas/salidas agregadas + drill por folio.
+        // También es superficie de auditoría/prevención → accesible con RECONCILIATION_VER.
         path: 'movimientos',
         loadComponent: () => import('./modules/almacen/pages/almacen-movimientos.component').then(m => m.AlmacenMovimientosComponent),
-        canActivate: [permissionGuard(Permission.COMMERCIAL_INVENTORY_VER)]
+        canActivate: [anyPermissionGuard(Permission.COMMERCIAL_INVENTORY_VER, Permission.RECONCILIATION_VER)]
       },
     ]
   },

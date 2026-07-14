@@ -31,6 +31,12 @@ interface NavItem {
   route: string;
   permission: Permission;
   /**
+   * Si está set, el item es visible si el usuario tiene CUALQUIERA de estas
+   * perms (OR). Reemplaza a `permission` para el gate. Útil en superficies
+   * que sirven a dos roles (ej. Movimientos: inventario o prevención).
+   */
+  anyOf?: Permission[];
+  /**
    * Si es `true`, `routerLinkActive` solo matchea cuando la URL es
    * exactamente `route` (no sub-rutas). Necesario para `/dashboard`, que
    * como root sería prefix de TODAS las otras rutas.
@@ -335,9 +341,13 @@ export class LayoutComponent implements OnInit, OnDestroy {
    */
   private hasPermFor(item: NavItem): boolean {
     if (this.perms.can('manage', 'all')) return true;
+    const legacy = this.user()?.permissions;
+    // Gate OR: si el item declara `anyOf`, basta con una de esas perms.
+    if (item.anyOf?.length) {
+      return item.anyOf.some((p) => (legacy ? legacy[p] === true : false));
+    }
     const subject = this.permToSubject[item.permission];
     if (subject && this.perms.can('read', subject as any)) return true;
-    const legacy = this.user()?.permissions;
     return legacy ? legacy[item.permission] === true : false;
   }
 
@@ -414,7 +424,7 @@ export class LayoutComponent implements OnInit, OnDestroy {
     { label: 'Stock muerto',    icon: 'pi pi-exclamation-triangle', route: '/almacen/dead-stock',   permission: Permission.COMMERCIAL_DEADSTOCK_VER },
     { label: 'Salud inv.',      icon: 'pi pi-heart',          route: '/almacen/inventory-health',   permission: Permission.COMMERCIAL_INVHEALTH_VER },
     { label: 'Cuadre',          icon: 'pi pi-check-square',   route: '/almacen/cuadre',             permission: Permission.RECONCILIATION_VER },
-    { label: 'Movimientos',     icon: 'pi pi-arrow-right-arrow-left', route: '/almacen/movimientos', permission: Permission.COMMERCIAL_INVENTORY_VER },
+    { label: 'Movimientos',     icon: 'pi pi-arrow-right-arrow-left', route: '/almacen/movimientos', permission: Permission.COMMERCIAL_INVENTORY_VER, anyOf: [Permission.COMMERCIAL_INVENTORY_VER, Permission.RECONCILIATION_VER] },
   ];
 
   // Reparto (entrega a domicilio, personal de tienda). El repartoGuard ya controla

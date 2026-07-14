@@ -94,6 +94,9 @@ export class ProjectsComponent implements OnInit {
         Permission.COMMERCIAL_WAREHOUSES_VER,
         Permission.COMMERCIAL_DEADSTOCK_VER,
         Permission.COMMERCIAL_INVHEALTH_VER,
+        // Prevención/auditoría (Cuadre + Movimientos) vive en Almacén: un rol
+        // acotado a reconciliation (encargada_prevencion) debe poder entrar.
+        Permission.RECONCILIATION_VER,
       ],
     },
     {

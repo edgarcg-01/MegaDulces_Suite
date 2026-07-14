@@ -121,6 +121,8 @@ export const almacenHomeGuard: CanActivateFn = landingRedirectGuard(
     { perm: Permission.COMMERCIAL_WAREHOUSES_VER, url: '/almacen/warehouses' },
     { perm: Permission.COMMERCIAL_DEADSTOCK_VER, url: '/almacen/dead-stock' },
     { perm: Permission.COMMERCIAL_INVHEALTH_VER, url: '/almacen/inventory-health' },
+    // Rol de prevención (solo RECONCILIATION_VER): su landing es el Cuadre.
+    { perm: Permission.RECONCILIATION_VER, url: '/almacen/cuadre' },
   ],
   '/almacen/inventory',
 );
