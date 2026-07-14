@@ -55,10 +55,38 @@ const BRANCHES = [
   { code: '54', prefix: '54', name: 'ZAMORA CENTRO' },
 ];
 
-// resuelve el .mdb de una sucursal dentro de una carpeta (case-insensitive, evita RUTA)
+// Rutas de reparto (venta a bordo). Cada .mdb "<n> RUTA <code>.MDB" es una base
+// Wincaja completa con la venta REAL al cliente final (caja = numero de ruta). El
+// almacen madre traspasa via caja 98; la venta a bordo vive aca. source_branch = code
+// de ruta (no colisiona con sucursales). `parent` = sucursal madre.
+const ROUTES = [
+  { code: '21', parent: '10', route: true, name: 'RUTA 21' },
+  { code: '22', parent: '10', route: true, name: 'RUTA 22' },
+  { code: '23', parent: '10', route: true, name: 'RUTA 23' },
+  { code: '26', parent: '10', route: true, name: 'RUTA 26' },
+  { code: '27', parent: '10', route: true, name: 'RUTA 27' },
+  { code: '28', parent: '10', route: true, name: 'RUTA 28' },
+  { code: '321', parent: '32', route: true, name: 'RUTA 321' },
+  { code: '322', parent: '32', route: true, name: 'RUTA 322' },
+  { code: '501', parent: '50', route: true, name: 'RUTA 501' },
+  { code: '502', parent: '50', route: true, name: 'RUTA 502' },
+  { code: '503', parent: '50', route: true, name: 'RUTA 503' },
+  { code: '504', parent: '50', route: true, name: 'RUTA 504' },
+  { code: '505', parent: '50', route: true, name: 'RUTA 505' },
+];
+
+const ALL_UNITS = [...BRANCHES, ...ROUTES];
+
+// resuelve el .mdb de una sucursal o ruta dentro de una carpeta (case-insensitive).
 function resolveFile(dir, br) {
   let files;
   try { files = fs.readdirSync(dir); } catch { return null; }
+  if (br.route) {
+    // "21 RUTA 21.MDB", "32 RUTA 321.MDB", "50 RUTA 501.MDB" -> match por "RUTA <code>.MDB"
+    const re = new RegExp('RUTA ' + br.code.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\.MDB$', 'i');
+    const m = files.find((f) => re.test(f));
+    return m ? path.join(dir, m) : null;
+  }
   const cands = files.filter((f) => {
     const U = f.toUpperCase();
     if (!U.endsWith('.MDB')) return false;
@@ -183,11 +211,15 @@ async function reload(db, branch, dataset, spec, rows) {
 }
 
 (async () => {
-  const wantBranches = BRANCH === 'all' ? BRANCHES : BRANCHES.filter((b) => b.code === BRANCH);
+  const wantBranches =
+    BRANCH === 'all' ? ALL_UNITS
+    : BRANCH === 'branches' ? BRANCHES
+    : BRANCH === 'routes' ? ROUTES
+    : ALL_UNITS.filter((b) => b.code === BRANCH);
   const datasets = DATASET === 'both' ? ['actual', 'concentrada'] : [DATASET];
   const domains = DOMAIN === 'all' ? Object.keys(DOMAINS) : [DOMAIN];
   const specs = domains.flatMap((d) => DOMAINS[d] || []);
-  if (!wantBranches.length) { console.error(`Sucursal desconocida: ${BRANCH}. Opciones: ${BRANCHES.map((b) => b.code).join(', ')}, all`); process.exit(1); }
+  if (!wantBranches.length) { console.error(`Unidad desconocida: ${BRANCH}. Opciones: ${ALL_UNITS.map((b) => b.code).join(', ')}, all, branches, routes`); process.exit(1); }
   if (!specs.length) { console.error(`Dominio desconocido: ${DOMAIN}. Opciones: ${Object.keys(DOMAINS).join(', ')}, all`); process.exit(1); }
 
   let db = null;

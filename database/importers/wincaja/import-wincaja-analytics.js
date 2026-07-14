@@ -23,6 +23,9 @@ const knexLib = require('knex');
 const APPLY = process.argv.includes('--apply');
 const TENANT = process.env.WINCAJA_TENANT_ID || '00000000-0000-0000-0000-00000000d01c';
 
+// channel='wincaja' (lineage). v_sales_daily YA excluye no-venta (98/99/etc via
+// crosswalk caja_channels, W.8). El sub-canal de venta (mostrador/preventa_vecinal/
+// mayoreo_credito) queda en el silver (v_sales_daily.sale_channel) para drill-down.
 const SELECT_SRC = `
   SELECT
     p.id                         AS product_id,
