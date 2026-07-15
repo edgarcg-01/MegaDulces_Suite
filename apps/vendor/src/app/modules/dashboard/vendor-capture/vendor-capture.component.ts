@@ -187,6 +187,19 @@ const ALLOWED_IMAGE_TYPES = [
             <h3 class="text-base font-semibold text-content-main">Evidencia fotográfica</h3>
             <p class="text-xs text-content-muted leading-relaxed">Una foto del exhibidor es obligatoria para registrar la visita.</p>
           </header>
+          <!-- HV (b): encuadre guiado. El audit HV.0 mostró que las fotos salen muy
+               abiertas (se marcan ~37 productos y en la foto se leen ~8). Estas 3 reglas
+               suben la legibilidad para que la IA reconozca marcas y productos. -->
+          <div *ngIf="!exhibidorPreview()" class="rounded-xl bg-brand-orange/5 border border-brand-orange/20 p-3 space-y-2">
+            <p class="text-xs font-semibold text-brand-orange flex items-center gap-1.5">
+              <i class="pi pi-sparkles text-[0.7rem]" aria-hidden="true"></i> Para que la IA lea bien el exhibidor
+            </p>
+            <ul class="text-xs text-content-muted space-y-1.5">
+              <li class="flex items-start gap-2"><i class="pi pi-search text-[0.7rem] mt-0.5 text-brand-orange/70" aria-hidden="true"></i><span><strong class="text-content-main">Acercate</strong>: que se lean las marcas en los empaques, no la tienda entera.</span></li>
+              <li class="flex items-start gap-2"><i class="pi pi-th-large text-[0.7rem] mt-0.5 text-brand-orange/70" aria-hidden="true"></i><span><strong class="text-content-main">Enfocá tu sección</strong>: si el exhibidor es grande, encuadrá la zona con más producto propio.</span></li>
+              <li class="flex items-start gap-2"><i class="pi pi-sun text-[0.7rem] mt-0.5 text-brand-orange/70" aria-hidden="true"></i><span><strong class="text-content-main">Buena luz y de frente</strong>: sin reflejos ni sombras sobre los productos.</span></li>
+            </ul>
+          </div>
           <label *ngIf="!exhibidorPreview()"
                  class="block border-2 border-dashed border-divider rounded-xl p-8 text-center bg-surface-ground/40 motion-safe:transition-colors hover:bg-surface-ground hover:border-brand-orange/40 cursor-pointer relative focus-within:ring-2 focus-within:ring-brand-orange focus-within:ring-offset-2">
             <input type="file" accept="image/*" capture="environment" (change)="onExhibidor($event)"
