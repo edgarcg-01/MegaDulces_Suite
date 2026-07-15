@@ -10,6 +10,11 @@
 
 ## [Unreleased]
 
+### Fixed — Catálogo: costo por mediana+ancla-de-precio y factor de caja correcto (2026-07-15)
+- **Costo (kdik.c16):** dos SKUs mostraban costos absurdos (`83780`=$906, `83785`=$610 cuando lo real es ~$42/~$29). Causa: `liveCostVotes` tomaba, entre valores singleton (el redondeo por sucursal impide colisiones a 4dp), el **más grande** — justo la basura de valuación de md_00 — y el guard "conserva snapshot si difiere >10×" **preservaba la basura porque el snapshot .245 traía el mismo 906**. Nuevo `liveCost`: **mediana** entre sucursales + rechazo de outliers >4×/<0.25×, anclada a la **regla de precio de la casa** (`c90/1.2333`, no al snapshot). **429 costos ≥3× corregidos** (no 133).
+- **Factor de caja (Exist. Caja / CostoXCaja):** los `/20KG` Gustinos mostraban CostoXCaja=costo y Exist.Caja=piezas (factor_venta=1 en snapshot). El factor de VENTA vive en **`c81` (pz/paq)**, no en `c84` (que es la **caja máster**: TIC TAC c81=12 / c84=144). Regla segura: conservar `factor_venta` del snapshot cuando ya es >1 (dulces/goma/refresco correctos), rellenar desde `c81` solo cuando quedó en 1 (granel). **154 fills, 0 regresiones** sobre factores >1. Ej.: `PAQ COCA COLA 355ML/24`→24, `MAZAPAN /40`→40, pasta `/20KG`→20.
+- Aplicado a prod (UPDATE 11,992); ya vive vía el cron nightly. Sin deploy (dato).
+
 ### Changed — Fase FISCAL: el frontend fiscal es su propio proyecto "Contabilidad" (2026-07-15)
 - Por decisión de Edgar, **todo lo fiscal es un proyecto aparte "Contabilidad"** (`/contabilidad/*`), separado de Finanzas. Las 9 páginas + sus servicios se movieron de `modules/finanzas/` a `modules/contabilidad/` y se renombraron `Contabilidad*Component`; nuevo `CONTABILIDAD_TABS`. **Finanzas** conserva solo egresos/solicitudes/hallazgos/Maat.
 - Nuevo proyecto de primer nivel: tarjeta en `/projects` (icono calculator, gate por los perms `FISCAL_*`), rama en `LayoutComponent` (`currentProject='contabilidad'` + nav propio + **early-return** para roles contables sin `REPORTES_VER_*` + label), nodo en `authz-tree`. Rutas `/contabilidad/*` con `permissionGuard`. Build view producción verde.
