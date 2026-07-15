@@ -593,6 +593,30 @@ export class DailyCapturesService {
       if (cust?.store_id) resolvedStoreId = cust.store_id;
     }
 
+    // Guard anti-FK (offline-first): si el store_id no existe para el tenant
+    // (tienda creada offline que nunca sincronizó, o selección de una lista
+    // cacheada vieja), NO tiramos 500 que perdería toda la captura —la
+    // nulificamos y seguimos. store_id es NULLABLE y el FK es ON DELETE SET NULL:
+    // la captura (score, fotos, productos, cliente) se conserva sin el vínculo a
+    // tienda, en vez de rechazarse entera. `stores` resuelve a la tabla base del
+    // FK vía search_path (trade.stores). Best-effort: si el chequeo falla, dejamos
+    // el id como está (no castigamos capturas válidas por un error de lectura).
+    if (resolvedStoreId) {
+      try {
+        const exists = await this.knex('stores')
+          .where({ tenant_id: tenantId, id: resolvedStoreId })
+          .first('id');
+        if (!exists) {
+          this.logger.warn(
+            `store_id ${resolvedStoreId} no existe para tenant ${tenantId} (tienda offline sin sync o cache viejo). Guardando la captura SIN vínculo a tienda (store_id=null) para no perderla. folio=${dto.folio} sync_uuid=${dto.sync_uuid || '-'}`,
+          );
+          resolvedStoreId = null;
+        }
+      } catch (e: any) {
+        this.logger.warn(`No se pudo validar store_id ${resolvedStoreId}: ${e?.message}. Se intenta el insert tal cual.`);
+      }
+    }
+
     const insertPayload: any = {
       folio: dto.folio,
       user_id: userId,
