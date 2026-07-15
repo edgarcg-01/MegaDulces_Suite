@@ -1,6 +1,6 @@
 # Fase HV — Horus aprende los PRODUCTOS del exhibidor (visión a nivel SKU)
 
-> **Estado:** 🔨 DISEÑADO (planeación) 2026-07-15. Sin código aún.
+> **Estado:** ⚠️ HV.0 EJECUTADO 2026-07-15 — **el gate de viabilidad NO pasó a nivel SKU.** El plan se RECORTA (ver §7). El resto de esta fase (HV.1–HV.5) queda como estaba PROPUESTO pero condicionado al recorte.
 > **Pedido de Edgar:** "que Horus aprenda mediante las fotos de los exhibidores los productos que se encuentran en el exhibidor".
 > **Hereda:** ADR-020/021 (motor decide, LLM fuera del lazo de decisión, ship-collector-before-learner), ADR-011/012 (Voyage embeddings + pgvector de Fase K), H2.2 (PhotoAuditService).
 
@@ -135,6 +135,42 @@ Reglas nuevas del motor (todas pasan por calibración L2 y la bandeja existente)
 - **Costo por foto**: la extracción va en la MISMA llamada Haiku de H2.2 → costo marginal ≈ solo output extra (~200-400 tokens/foto). Backlog 591 fotos ≈ centavos de dólar. Presupuesto ya gobernado por `HORUS_VISION_*`.
 - **Gate de datos #1 (el real):** las capturas del flujo vendor recientes traen `photo_coverage 0%` en ventanas actuales — **sin fotos nuevas no hay aprendizaje nuevo**. El track de calidad de datos de HIQ (subir cobertura de foto) es prerequisito operativo, no técnico.
 - **Gate de datos #2:** el catálogo embebido es de productos PROPIOS → el nivel SKU solo aplica a Mega Dulces; competencia queda a nivel marca/texto (suficiente para dominancia).
+
+## 6.5 RESULTADO HV.0 (ejecutado 2026-07-15, 30 fotos reales de prod)
+
+Script `database/scripts/horus-vision-products-audit.js` (read-only, Haiku vision + tool extendido, contra `productosMarcados` declarado).
+
+| Métrica | Valor |
+|---|---|
+| Fotos procesadas | 30 (0 errores) |
+| Reconocidas como anaquel | 80% (24/30) |
+| Calidad de foto | good 17 · blurry 10 · dark 2 · unusable 1 |
+| Productos vistos por la visión | 238 (~7.9/foto) |
+| Legibilidad de lo visto | clear 29% · partial 46% · **guessed 25%** |
+| **Recall MARCA** (declarado que la visión vio) | **23.7%** (267/1126) |
+| **Recall SKU** | 28.9% (325/1126) |
+| Costo | ~3,046 tokens/foto |
+
+**El gate NO pasó** (marca-level 24% < 60% requerido). Pero el número crudo esconde el hallazgo real, que es más útil que el recall:
+
+**Hallazgo estructural — la declaración NO cabe en la foto.** El colaborador declara **~37 productos por exhibición** (1126/30) mientras la visión ve **~8 por foto**. Aun con visión perfecta el recall techa en ~8/37 ≈ 22%. Es decir: el 24% NO significa "la visión es mala leyendo" — significa que `productosMarcados` describe el **surtido de la tienda**, no lo que está en ESA foto. Tres causas confirmadas:
+1. **Sobre-declaración**: se marca el catálogo del PdV, no el contenido del frame (esto ES una señal de calidad que HV podría cazar en sentido inverso).
+2. **Dulcería a granel**: cueritos, altos, tamarindos en bolsas genéricas sin texto de SKU legible → físicamente ilegible, no es problema del modelo.
+3. **"Marca" = razón social del proveedor** en el catálogo ("BOLSAS DE LOS ALTOS S. DE R.L DE C.V."), que no es lo impreso en el empaque → el match por texto arranca cojo.
+
+**Lo que SÍ funciona** (rescatable): la visión lee ~8 productos legibles por foto y clasifica anaquel bien (80%). El texto crudo de marcas visibles es utilizable; lo que no es viable es **verificar declarado⊂visto a nivel SKU con recall alto**.
+
+## 7. RECORTE del plan (decisión de ingeniería tras HV.0)
+
+El plan original (matching duro SKU + `vision_product_mismatch` por conteo) se **descarta** — construiría sobre un 24% y un ground truth ruidoso. Reemplazo:
+
+- **HV.1 (sigue)**: extraer `products_seen[]` en la misma llamada de visión y persistir el **texto crudo** de marcas/productos vistos. Valor inmediato sin matching: alimenta el **mapa comercial** (qué marcas se ven en cada PdV, propias y de competencia) y es dato honesto.
+- **HV.2 (recortado a MARCA)**: matching solo a nivel **marca/línea** contra `catalog.brands` (+ alias aprendidos), NO SKU. Umbral de confianza alto; lo dudoso queda como texto sin match.
+- **HV.3 (invertido)**: la regla útil NO es "declaró 10, vi 3" (denominador roto) sino **`over_declaration`** — "declaró 37 productos, la foto legible muestra ≤8 marcas distintas de forma consistente en N visitas" → señal de calidad/fraude de captura (detecta, no acusa; guardarraíl H2.4). Y **`brand_not_declared`** — marca claramente visible que el colaborador NO marcó (bajo-declaración).
+- **HV.4 (sigue, clave)**: la bandeja de verificación es ahora MÁS importante — cada corrección humana construye `photo_product_aliases` a nivel marca y es el único camino a SKU (aprendizaje incremental, no big-bang).
+- **HV.5 diferido con gate reforzado**: SKU-level solo se reabre si (a) el catálogo gana marcas de consumidor limpias (no razones sociales) y (b) las fotos mejoran (encuadre por producto, no por exhibición completa). Embeddings visuales de referencia: gate = >30% guessed persiste (hoy 25%, cerca).
+
+**Prerequisito operativo confirmado por HV.0**: la calidad de la FOTO y de la DECLARACIÓN es el techo, no el modelo. Antes de invertir más en visión conviene: encuadre guiado en la app (una foto por producto/sección) y validar que `productosMarcados` refleje el frame. Sin eso, HV rinde a nivel marca y no más.
 
 ## 6. Decisiones abiertas para Edgar
 
