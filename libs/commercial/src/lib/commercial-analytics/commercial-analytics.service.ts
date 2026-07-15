@@ -2337,7 +2337,7 @@ export class CommercialAnalyticsService {
       diasPeriodo = Math.max(1, Math.round((end.getTime() - yStart.getTime()) / DAY) + 1);
     }
 
-    const { salesRows, metaRows, prevRows, stockRows } = await this.tk.run(async (trx) => {
+    const { salesRows, prodRows, prevRows, stkRows, scopeWh } = await this.tk.run(async (trx) => {
       const applyDate = (qb: any) => {
         qb.where('m.tenant_id', tenantId).andWhere(dcol, '>=', from);
         if (isRange) qb.andWhere(dcol, '<=', toIncl); else qb.andWhere(dcol, '<', toExcl);
@@ -2363,30 +2363,6 @@ export class CommercialAnalyticsService {
       }
       applyFilters(sq);
 
-      // Meta + existencia por (sucursal, producto) con venta en el período.
-      const mq = trx(src)
-        .join('catalog.products as p', 'p.id', 'm.product_id')
-        .join('commercial.warehouses as w', 'w.id', 'm.warehouse_id')
-        .leftJoin('catalog.suppliers as s', 's.id', 'p.supplier_id')
-        .leftJoin('catalog.brands as b', 'b.id', 'p.brand_id')
-        .leftJoin('catalog.categories as cat', 'cat.id', 'p.category_id')
-        .leftJoin('commercial.stock as st', function (this: any) {
-          this.on('st.product_id', 'm.product_id').andOn('st.warehouse_id', 'm.warehouse_id').andOn('st.tenant_id', 'm.tenant_id');
-        })
-        .leftJoin('commercial.product_label_prices as lp', function (this: any) {
-          this.on('lp.product_id', 'm.product_id').andOn('lp.tenant_id', 'm.tenant_id');
-        })
-        .distinct(
-          'w.code as wcode', 'w.name as wname', 'm.product_id as product_id',
-          'p.sku as sku', 'p.nombre as nombre', 'p.factor_sale as factor_sale', 'p.unit_sale as unit_sale',
-          'lp.pack_size as pack_size', 'lp.box_size as box_size',
-          'p.cost_with_tax as cost_with_tax', 'p.cost_per_case as cost_per_case',
-          's.name as supplier', 'b.nombre as brand', 'cat.name as categoria',
-          'p.rotation_tier as rotation_tier', 'st.quantity as stock_qty',
-        );
-      applyDate(mq);
-      applyFilters(mq);
-
       // SAL.6 — tendencia: venta del período ANTERIOR (misma duración, solo rango).
       let prevRows: any[] = [];
       if (isRange && prevFrom && prevTo) {
@@ -2401,43 +2377,47 @@ export class CommercialAnalyticsService {
         prevRows = await pq;
       }
 
-      // Productos con EXISTENCIA pero SIN venta en el período: el reporte se anclaba
-      // en product_sales → los lento-movimiento (existencia real, 0 ventas) desaparecían
-      // ("los de rojo no aparecen"). Se traen desde commercial.stock (misma forma que mq)
-      // y en el merge quedan con Venta=0. Scope = sucursales con venta en el período
-      // (subquery), para NO contaminar con CEDIS/almacenes fuera del alcance retail.
-      const scopeSub = trx(src).where('m.tenant_id', tenantId).andWhere(dcol, '>=', from);
-      if (isRange) scopeSub.andWhere(dcol, '<=', toIncl); else scopeSub.andWhere(dcol, '<', toExcl);
-      scopeSub.distinct('m.warehouse_id');
-      const stq = trx('commercial.stock as st')
-        .join('catalog.products as p', 'p.id', 'st.product_id')
-        .join('commercial.warehouses as w', function (this: any) {
-          this.on('w.id', 'st.warehouse_id').andOn('w.tenant_id', 'st.tenant_id');
-        })
+      // CATÁLOGO COMPLETO × SUCURSALES (decisión Edgar 2026-07-15): mostrar TODO producto
+      // activo en cada sucursal, aunque no tenga venta NI existencia (Venta 0 / Exist 0).
+      // La matriz sucursal×producto se arma en Node desde 3 queries planas (no cartesiano SQL).
+      // Scope de sucursales = las que tuvieron venta en el período (excluye rutas/Cedis sin
+      // venta). Con filtro de sucursal/marca la matriz se achica sola.
+      const swq = trx(src).join('commercial.warehouses as w', 'w.id', 'm.warehouse_id')
+        .where('m.tenant_id', tenantId).andWhere(dcol, '>=', from);
+      if (isRange) swq.andWhere(dcol, '<=', toIncl); else swq.andWhere(dcol, '<', toExcl);
+      swq.distinct('w.id as id', 'w.code as code', 'w.name as name');
+      let scopeWh: any[] = await swq;
+      if (whFilter) scopeWh = scopeWh.filter((w) => whFilter.includes(w.code));
+
+      const pq2 = trx('catalog.products as p')
         .leftJoin('catalog.suppliers as s', 's.id', 'p.supplier_id')
         .leftJoin('catalog.brands as b', 'b.id', 'p.brand_id')
         .leftJoin('catalog.categories as cat', 'cat.id', 'p.category_id')
         .leftJoin('commercial.product_label_prices as lp', function (this: any) {
-          this.on('lp.product_id', 'st.product_id').andOn('lp.tenant_id', 'st.tenant_id');
+          this.on('lp.product_id', 'p.id').andOn('lp.tenant_id', 'p.tenant_id');
         })
-        .where('st.tenant_id', tenantId)
-        .andWhere('st.quantity', '<>', 0)
-        .whereIn('st.warehouse_id', scopeSub)
-        .distinct(
-          'w.code as wcode', 'w.name as wname', 'st.product_id as product_id',
-          'p.sku as sku', 'p.nombre as nombre', 'p.factor_sale as factor_sale', 'p.unit_sale as unit_sale',
+        .where('p.tenant_id', tenantId).andWhere('p.activo', true)
+        .select(
+          'p.id as product_id', 'p.sku as sku', 'p.nombre as nombre',
+          'p.factor_sale as factor_sale', 'p.unit_sale as unit_sale',
           'lp.pack_size as pack_size', 'lp.box_size as box_size',
           'p.cost_with_tax as cost_with_tax', 'p.cost_per_case as cost_per_case',
-          's.name as supplier', 'b.nombre as brand', 'cat.name as categoria',
-          'p.rotation_tier as rotation_tier', 'st.quantity as stock_qty',
+          's.name as supplier', 'b.nombre as brand', 'cat.name as categoria', 'p.rotation_tier as rotation_tier',
         );
-      // Mismos filtros de marca/proveedor/búsqueda (+ whFilter por w.code).
-      if (whFilter) stq.whereIn('w.code', whFilter);
-      if (brandId) stq.andWhere('p.brand_id', brandId);
-      if (supplierId) stq.andWhere('p.supplier_id', supplierId);
-      if (term) stq.andWhere((qb: any) => qb.where('p.nombre', 'ilike', `%${term}%`).orWhere('p.sku', 'ilike', `%${term}%`));
+      if (brandId) pq2.andWhere('p.brand_id', brandId);
+      if (supplierId) pq2.andWhere('p.supplier_id', supplierId);
+      if (term) pq2.andWhere((qb: any) => qb.where('p.nombre', 'ilike', `%${term}%`).orWhere('p.sku', 'ilike', `%${term}%`));
 
-      return { salesRows: await sq, metaRows: await mq, prevRows, stockRows: await stq };
+      const scopeIds = scopeWh.map((w) => w.id);
+      let stkRows: any[] = [];
+      if (scopeIds.length) {
+        stkRows = await trx('commercial.stock as st')
+          .join('commercial.warehouses as w', 'w.id', 'st.warehouse_id')
+          .where('st.tenant_id', tenantId).whereIn('st.warehouse_id', scopeIds)
+          .select('w.code as wcode', 'st.product_id as product_id', 'st.quantity as quantity');
+      }
+
+      return { salesRows: await sq, prodRows: await pq2, prevRows, stkRows, scopeWh };
     });
 
     // Merge en Node.
@@ -2456,11 +2436,26 @@ export class CommercialAnalyticsService {
     const prevByKey = new Map<string, number>();
     for (const r of prevRows as any[]) prevByKey.set(`${r.wcode}|${r.product_id}`, Number(r.units) || 0);
     const round = (v: number, d = 2) => Math.round(v * 10 ** d) / 10 ** d;
-    // Productos con existencia y SIN venta en el período → se anexan a la meta con
-    // Venta=0 (el .map de abajo los computa igual: totalByKey/salesByKey no los tiene).
-    const metaKeys = new Set((metaRows as any[]).map((r) => `${r.wcode}|${r.product_id}`));
-    const stockOnly = (stockRows as any[]).filter((r) => !metaKeys.has(`${r.wcode}|${r.product_id}`));
-    const allMeta = [...(metaRows as any[]), ...stockOnly];
+    // Matriz sucursal×producto: TODO producto activo en CADA sucursal en scope, con su
+    // existencia (0 si no hay) y venta (0 si no vendió). Dedup de productos por si el
+    // join a product_label_prices trae >1 fila. El .map de abajo computa Venta desde
+    // salesByKey/totalByKey (ausente → 0).
+    const stockMap = new Map<string, number>();
+    for (const s of stkRows as any[]) stockMap.set(`${s.wcode}|${s.product_id}`, Number(s.quantity) || 0);
+    const prodMap = new Map<string, any>();
+    for (const p of prodRows as any[]) if (!prodMap.has(p.product_id)) prodMap.set(p.product_id, p);
+    const allMeta: any[] = [];
+    for (const w of scopeWh as any[]) {
+      for (const p of prodMap.values()) {
+        allMeta.push({
+          wcode: w.code, wname: w.name, product_id: p.product_id, sku: p.sku, nombre: p.nombre,
+          factor_sale: p.factor_sale, unit_sale: p.unit_sale, pack_size: p.pack_size, box_size: p.box_size,
+          cost_with_tax: p.cost_with_tax, cost_per_case: p.cost_per_case, supplier: p.supplier,
+          brand: p.brand, categoria: p.categoria, rotation_tier: p.rotation_tier,
+          stock_qty: stockMap.get(`${w.code}|${p.product_id}`) ?? 0,
+        });
+      }
+    }
     const rows: SalidasRow[] = allMeta.map((r) => {
       const key = `${r.wcode}|${r.product_id}`;
       const factor = Number(r.factor_sale) > 0 ? Number(r.factor_sale) : 1;
