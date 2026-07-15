@@ -483,6 +483,7 @@ export class SupervisorAgentService {
         vision_stockout: 'quiebre de stock (foto)',
         vision_mismatch: 'declarado ≠ observado (foto)',
         vision_invalid: 'fotos inválidas',
+        over_declaration: 'declara más de lo que la foto muestra',
         fraud_impossible_speed: 'salto imposible entre capturas',
         fraud_overlap: 'capturas solapadas en el tiempo',
         fraud_gps_mismatch: 'captura lejos de la tienda',

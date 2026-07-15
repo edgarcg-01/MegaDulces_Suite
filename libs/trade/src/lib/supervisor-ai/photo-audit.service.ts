@@ -27,6 +27,14 @@ const MAX_IMAGE_BYTES = 4_500_000; // límite práctico de la API de visión
 const SCAN_WINDOW_DAYS = 45;
 const ALLOWED_MEDIA = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
 
+type ProductSeen = {
+  brand_text: string | null;
+  product_text: string | null;
+  size_text: string | null;
+  facings_bucket: string | null; // '1' | '2-4' | '5+'
+  legibility: string | null; // clear | partial | guessed
+};
+
 type Verdict = {
   is_shelf: boolean | null;
   own_brand_visible: boolean | null;
@@ -35,7 +43,21 @@ type Verdict = {
   out_of_stock: boolean | null;
   photo_quality: string | null;
   notes: string | null;
+  products_seen: ProductSeen[]; // HV.1 — texto crudo de lo leído (ciego, sin match)
 };
+
+/** Marcas normalizadas distintas en una lista de productos vistos (para el conteo). */
+function distinctBrands(list: ProductSeen[]): number {
+  const set = new Set<string>();
+  for (const p of list) {
+    const b = String(p?.brand_text || '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, '')
+      .trim();
+    if (b.length >= 2) set.add(b);
+  }
+  return set.size;
+}
 
 @Injectable()
 export class PhotoAuditService {
@@ -149,6 +171,9 @@ export class PhotoAuditService {
             'out_of_stock',
             'photo_quality',
             'mismatch',
+            'products_seen',
+            'seen_product_count',
+            'seen_brand_count',
             'verdict',
             'model',
             'status',
@@ -185,6 +210,7 @@ export class PhotoAuditService {
         cand.declared_own === true &&
         v.own_brand_visible === false &&
         v.competitor_visible === true;
+      const seen = Array.isArray(v.products_seen) ? v.products_seen : [];
       return {
         ...base,
         is_shelf: v.is_shelf,
@@ -194,12 +220,23 @@ export class PhotoAuditService {
         out_of_stock: v.out_of_stock,
         photo_quality: v.photo_quality ? String(v.photo_quality).slice(0, 12) : null,
         mismatch,
+        products_seen: JSON.stringify(seen), // HV.1 — texto crudo
+        seen_product_count: seen.length,
+        seen_brand_count: distinctBrands(seen),
         verdict: JSON.stringify(v),
         status: 'analyzed',
         error: null,
       };
     } catch (e: any) {
-      return { ...base, status: 'error', error: String(e?.message || e).slice(0, 300), verdict: '{}' };
+      return {
+        ...base,
+        status: 'error',
+        error: String(e?.message || e).slice(0, 300),
+        verdict: '{}',
+        products_seen: '[]',
+        seen_product_count: 0,
+        seen_brand_count: 0,
+      };
     }
   }
 
@@ -233,7 +270,7 @@ export class PhotoAuditService {
         },
         body: JSON.stringify({
           model: this.model,
-          max_tokens: 512,
+          max_tokens: 1200, // HV.1: la lista products_seen agrega output
           tool_choice: { type: 'tool', name: 'audit_exhibition_photo' },
           tools: [
             {
@@ -256,6 +293,22 @@ export class PhotoAuditService {
                   out_of_stock: { type: 'boolean', description: '¿Hay huecos o espacios vacíos notorios (quiebre de stock)?' },
                   photo_quality: { type: 'string', enum: ['good', 'blurry', 'dark', 'unusable'] },
                   notes: { type: 'string', description: 'Observación breve, máx 1 frase en español.' },
+                  products_seen: {
+                    type: 'array',
+                    description:
+                      'Un item por producto/marca DISTINTO que se LEE en la foto. Solo lo que realmente ves; no inventes ni completes de memoria.',
+                    items: {
+                      type: 'object',
+                      properties: {
+                        brand_text: { type: 'string', description: 'Marca leída del empaque (ej: "Lupita", "Sabritas"). Vacío si no se lee.' },
+                        product_text: { type: 'string', description: 'Nombre/tipo de producto leído (ej: "cuerito rayado"). Vacío si no.' },
+                        size_text: { type: 'string', description: 'Tamaño si es legible (ej: "700g"). Vacío si no.' },
+                        facings_bucket: { type: 'string', enum: ['1', '2-4', '5+'], description: 'Cuántas caras/piezas del mismo producto se ven.' },
+                        legibility: { type: 'string', enum: ['clear', 'partial', 'guessed'], description: 'clear=texto nítido, partial=parte legible, guessed=inferido por forma/color.' },
+                      },
+                      required: ['legibility'],
+                    },
+                  },
                 },
                 required: ['is_shelf', 'photo_quality'],
               },
@@ -287,6 +340,18 @@ export class PhotoAuditService {
     const tool = json.content?.find((c) => c.type === 'tool_use' && c.name === 'audit_exhibition_photo');
     if (!tool) return null;
     const i = tool.input || {};
+    const seen: ProductSeen[] = Array.isArray(i.products_seen)
+      ? i.products_seen
+          .filter((p: any) => p && typeof p === 'object')
+          .slice(0, 40)
+          .map((p: any) => ({
+            brand_text: typeof p.brand_text === 'string' ? p.brand_text.slice(0, 80) : null,
+            product_text: typeof p.product_text === 'string' ? p.product_text.slice(0, 120) : null,
+            size_text: typeof p.size_text === 'string' ? p.size_text.slice(0, 30) : null,
+            facings_bucket: ['1', '2-4', '5+'].includes(p.facings_bucket) ? p.facings_bucket : null,
+            legibility: ['clear', 'partial', 'guessed'].includes(p.legibility) ? p.legibility : null,
+          }))
+      : [];
     return {
       is_shelf: typeof i.is_shelf === 'boolean' ? i.is_shelf : null,
       own_brand_visible: typeof i.own_brand_visible === 'boolean' ? i.own_brand_visible : null,
@@ -295,6 +360,7 @@ export class PhotoAuditService {
       out_of_stock: typeof i.out_of_stock === 'boolean' ? i.out_of_stock : null,
       photo_quality: typeof i.photo_quality === 'string' ? i.photo_quality : null,
       notes: typeof i.notes === 'string' ? i.notes.slice(0, 300) : null,
+      products_seen: seen,
     };
   }
 
@@ -380,6 +446,13 @@ export class PhotoAuditService {
         'cv.out_of_stock',
         'cv.mismatch',
         'cv.photo_quality',
+        'cv.seen_product_count',
+        // HV.3 — declarado en ESA exhibición (productosMarcados del idx correspondiente).
+        this.knex.raw(
+          `CASE WHEN jsonb_typeof(dc.exhibiciones -> cv.exhibition_idx -> 'productosMarcados') = 'array'
+                THEN jsonb_array_length(dc.exhibiciones -> cv.exhibition_idx -> 'productosMarcados')
+                ELSE 0 END AS declared_count`,
+        ),
         'dc.user_id',
         'dc.store_id',
         'dc.captured_by_username',
@@ -392,13 +465,24 @@ export class PhotoAuditService {
     const storeName = new Map<string, string>();
     storeRows.forEach((s: any) => storeName.set(s.id, s.nombre));
 
-    type Agg = { stockout: number; mismatch: number; invalid: number; total: number; sample: string | null; label: string | null };
+    type Agg = {
+      stockout: number;
+      mismatch: number;
+      invalid: number;
+      total: number;
+      sample: string | null;
+      label: string | null;
+      // HV.3 — over_declaration: sobre fotos LEGIBLES (anaquel + calidad usable).
+      legiblePhotos: number;
+      declaredSum: number;
+      seenSum: number;
+    };
     const byStore = new Map<string, Agg>();
     const byCollab = new Map<string, Agg>();
     const ensure = (m: Map<string, Agg>, k: string, label: string | null): Agg => {
       let a = m.get(k);
       if (!a) {
-        a = { stockout: 0, mismatch: 0, invalid: 0, total: 0, sample: null, label };
+        a = { stockout: 0, mismatch: 0, invalid: 0, total: 0, sample: null, label, legiblePhotos: 0, declaredSum: 0, seenSum: 0 };
         m.set(k, a);
       }
       return a;
@@ -421,6 +505,14 @@ export class PhotoAuditService {
           a.sample = a.sample || r.capture_id;
         }
         if (r.is_shelf === false || r.photo_quality === 'unusable') a.invalid++;
+        // Solo fotos legibles cuentan para over_declaration (una foto mala no prueba nada).
+        const legible = r.is_shelf === true && r.photo_quality !== 'unusable' && r.photo_quality !== 'dark';
+        const declared = Number(r.declared_count) || 0;
+        if (legible && declared > 0) {
+          a.legiblePhotos++;
+          a.declaredSum += declared;
+          a.seenSum += Number(r.seen_product_count) || 0;
+        }
       }
     }
 
@@ -472,6 +564,22 @@ export class PhotoAuditService {
           analyzed: a.total,
           pct: Math.round((a.invalid / a.total) * 100),
         });
+      }
+      // HV.3 — over_declaration: en fotos LEGIBLES, declara muy por encima de lo visible.
+      // NO acusa (source='vision', sin acción de co-piloto): es señal de CALIDAD de
+      // captura — o sobre-declara (marca el surtido, no el frame) o encuadra mal. El gate
+      // HV.0 lo detectó (≈37 declarados vs ≈8 vistos/foto). Umbrales conservadores.
+      if (a.legiblePhotos >= 3 && a.declaredSum >= 15 && a.seenSum >= 0) {
+        const ratio = a.declaredSum / Math.max(a.seenSum, 1);
+        if (ratio >= 3) {
+          add('over_declaration', 'warn', 'collaborator', userId, a.label, null, Math.round(ratio * 10) / 10, {
+            declared_avg: Math.round((a.declaredSum / a.legiblePhotos) * 10) / 10,
+            seen_avg: Math.round((a.seenSum / a.legiblePhotos) * 10) / 10,
+            ratio: Math.round(ratio * 10) / 10,
+            legible_photos: a.legiblePhotos,
+            hint: 'Declara más productos de los que la foto legible muestra: revisar encuadre (una foto por sección) o ajustar lo marcado al frame.',
+          });
+        }
       }
     }
 

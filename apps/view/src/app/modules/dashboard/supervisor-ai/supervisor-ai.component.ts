@@ -52,6 +52,7 @@ const FINDING_LABELS: Record<string, string> = {
   vision_stockout: 'quiebre de stock (foto)',
   vision_mismatch: 'declarado ≠ observado (foto)',
   vision_invalid: 'fotos inválidas',
+  over_declaration: 'declara más de lo que la foto muestra',
   fraud_impossible_speed: 'salto imposible entre capturas',
   fraud_overlap: 'capturas solapadas en el tiempo',
   fraud_gps_mismatch: 'captura lejos de la tienda',
@@ -1054,6 +1055,8 @@ export class SupervisorAiComponent implements OnInit {
         return `${e['mismatch_photos'] ?? '?'} foto(s) declaradas propio muestran competencia`;
       case 'vision_invalid':
         return `${e['pct'] ?? '?'}% de fotos inválidas / sin anaquel`;
+      case 'over_declaration':
+        return `declara ~${e['declared_avg'] ?? '?'} vs ~${e['seen_avg'] ?? '?'} visibles/foto (${e['legible_photos'] ?? '?'} fotos legibles)`;
       case 'fraud_impossible_speed':
         return `${e['events'] ?? '?'} salto(s), hasta ${e['max_speed_kmh'] ?? '?'} km/h`;
       case 'fraud_overlap':
