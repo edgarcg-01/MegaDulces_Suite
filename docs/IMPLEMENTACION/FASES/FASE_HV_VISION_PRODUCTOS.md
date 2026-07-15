@@ -1,6 +1,8 @@
 # Fase HV — Horus aprende los PRODUCTOS del exhibidor (visión a nivel SKU)
 
-> **Estado:** ⚠️ HV.0 EJECUTADO 2026-07-15 — **el gate de viabilidad NO pasó a nivel SKU.** El plan se RECORTA (ver §7). El resto de esta fase (HV.1–HV.5) queda como estaba PROPUESTO pero condicionado al recorte.
+> **Estado:** 🔨 HV.0 EJECUTADO + HV.1 (recortado) EN CÓDIGO 2026-07-15. Gate SKU NO pasó (§6.5); plan recortado a marca (§7). HV.1 = extracción de texto crudo + regla `over_declaration`. HV.2 (match marca) / HV.4 (bandeja) diferidos.
+>
+> **HV.1 ✅ en código (builds api+view verdes):** la visión (`PhotoAuditService`, misma llamada Haiku de H2.2) ahora extrae `products_seen[]` — texto crudo de marca/producto/tamaño/facings/legibilidad, extracción **ciega** (no ve lo declarado). Persistido en `commercial.capture_vision` (mig `20260715150000`, aditivo: `products_seen` jsonb + `seen_product_count` + `seen_brand_count`). **Sin matching a catálogo** (el gate no lo justifica). Regla nueva `over_declaration` (source='vision', **NO en `ACTION_FOR` → detecta sin acusar**): en fotos legibles, si el colaborador declara ≥3× lo visible (mín 3 fotos, ≥15 declarados) → hallazgo de CALIDAD de captura. Es exactamente la señal que el audit HV.0 destapó. SQL de `declared_count` por `exhibition_idx` validado contra prod. **Pendiente: restart API → un scan repuebla `products_seen` (los scans viejos están en 0) → `over_declaration` dispara.**
 > **Pedido de Edgar:** "que Horus aprenda mediante las fotos de los exhibidores los productos que se encuentran en el exhibidor".
 > **Hereda:** ADR-020/021 (motor decide, LLM fuera del lazo de decisión, ship-collector-before-learner), ADR-011/012 (Voyage embeddings + pgvector de Fase K), H2.2 (PhotoAuditService).
 
