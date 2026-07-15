@@ -1,6 +1,8 @@
 # Fase Horus-IQ — Subir la inteligencia del Supervisor AI
 
-> **Estado:** 🔨 HIQ.0 + HIQ.1 + HIQ.2 + HIQ.3a EN CÓDIGO 2026-07-15 (builds api+view verdes). HIQ.3b (cross-foto, pHash) / HIQ.4 / HIQ.5 / HIQ.6 pendientes.
+> **Estado:** 🔨 HIQ.0 + HIQ.1 + HIQ.2 + HIQ.3a + HIQ.4 EN CÓDIGO 2026-07-15 (builds api+view verdes). HIQ.3b (cross-foto, pHash) / HIQ.5 (push real) / HIQ.6 (partir frontend) pendientes.
+>
+> **HIQ.4 ✅ en código** — priorización por valor + anti-fatiga: `priorityOf = severidad × confianza × impacto × factor-valor(1.0–1.5)`. Valor de tienda = Σ `customer_360.monetary_90d` de sus clientes; colaborador = Σ del valor de las tiendas que capturó en 30d (safeQuery best-effort — **con la data local actual el factor queda neutro 1.0**; se activa solo cuando la venta por cliente madure, y despega con Fase VR que traerá venta real por tiendita). `value_90d` en el payload para explicabilidad. **Anti-fatiga**: no se re-propone acción familia coaching (`coaching`/`coaching_focus`) a un colaborador con `coaching_note` de hace <7 días; contador `fatigued` en el propose. Nota: OpportunityEngine no pasa por el filtro anti-fatiga (mejoras positivas) — evaluar si molesta en la práctica.
 >
 > **HIQ.1 ✅ en código** — Briefing 2.0 con memoria: `buildComparison()` determinista (nuevos/resueltos 24h, persistentes con días abiertos, delta del score del equipo vs hace 7d desde snapshots, titular del parte anterior, outcomes medidos de la semana) → el LLM narra "qué cambió / qué sigue igual / qué funcionó" (fallback determinista con las mismas frases). Cada parte se persiste en `commercial.briefing_history` (mig `20260715140000`, UPSERT por día) — memoria narrativa + tool `horus_briefing_history` (13ª tool del chat: "¿qué me dijiste ayer?"). Tablero: chips comparativos (+N nuevos / N resueltos / ▲▼ pts vs semana).
 >
