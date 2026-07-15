@@ -75,12 +75,51 @@ const CROSS_SQL = `
           WHERE tenant_id=? AND rfc IS NOT NULL AND upper(trim(rfc)) !~ '^[A-ZÑ&]{3,4}[0-9]{6}[A-Z0-9]{3}$'`, [T])).rows;
       ok(bad.some(r => r.rfc === RFC_BAD), 'validación RFC detecta formato_invalido (RFC-INVALIDO@@)');
 
+      // 6. FISCAL.1.1 — bridge a finance.findings (bandeja unificada de Maat)
+      const hasFin = (await trx.raw(`select 1 from information_schema.tables where table_schema='finance' and table_name='findings'`)).rows.length > 0;
+      if (hasFin) {
+        const DK = `proveedor_lista|69B|${RFC_EFOS}`;
+        // 6a. FK (tenant_id, rule_key): finding sin regla en rule_registry → rechazado
+        let fkRej = false;
+        try { await trx.raw('SAVEPOINT s2');
+          await trx.raw(`INSERT INTO finance.findings (tenant_id, rule_key, clase, severity, status, titulo, dedup_key) VALUES (?, 'proveedor_efos','riesgo','critical','nuevo','x','dk_fk_test')`, [T]);
+          await trx.raw('ROLLBACK TO SAVEPOINT s2');
+        } catch { fkRej = true; await trx.raw('ROLLBACK TO SAVEPOINT s2'); }
+        ok(fkRej, 'FK: finding sin regla en rule_registry es rechazado (el sink registra la regla primero)');
+
+        // 6b. ensureRule + upsert finding (réplica de MaatFindingsSinkService)
+        await trx('finance.rule_registry').insert({ tenant_id: T, rule_key: 'proveedor_efos', nombre: 'Proveedor EFOS 69-B', clase: 'riesgo' }).onConflict(['tenant_id', 'rule_key']).merge();
+        const SINK = `INSERT INTO finance.findings (tenant_id, rule_key, clase, severity, status, score, titulo, resumen, entity, periodo, importe, evidencia, dedup_key, first_seen, last_seen, created_at, updated_at)
+          VALUES (?, 'proveedor_efos','riesgo','critical','nuevo',0.95,'Proveedor en lista EFOS 69-B','r','{}'::jsonb,null,1160,'{}'::jsonb,?, now(),now(),now(),now())
+          ON CONFLICT (tenant_id, dedup_key) DO UPDATE SET last_seen=now(), importe=EXCLUDED.importe, severity=EXCLUDED.severity, updated_at=now()
+          RETURNING (xmax=0) AS is_insert`;
+        const f1 = await trx.raw(SINK, [T, DK]);
+        ok(f1.rows[0].is_insert === true, 'bridge: hallazgo EFOS insertado en finance.findings');
+        const f2 = await trx.raw(SINK, [T, DK]);
+        ok(f2.rows[0].is_insert === false, 'bridge: re-run idempotente por dedup_key');
+        const fc = Number((await trx('finance.findings').where({ tenant_id: T, dedup_key: DK }).count({ n: '*' }).first()).n);
+        ok(fc === 1, 'exactamente 1 finding tras doble push');
+
+        // 6c. status (triage humano) preservado en el UPSERT
+        await trx('finance.findings').where({ tenant_id: T, dedup_key: DK }).update({ status: 'confirmado' });
+        await trx.raw(SINK, [T, DK]);
+        const st = (await trx('finance.findings').where({ tenant_id: T, dedup_key: DK }).first()).status;
+        ok(st === 'confirmado', 'status de triage PRESERVADO en re-push (sink no pisa status)');
+
+        // 6d. L2: regla suprimida → excluida del set activo (el sink la omite)
+        await trx('finance.rule_registry').where({ tenant_id: T, rule_key: 'proveedor_efos' }).update({ suppressed_auto: true });
+        const active = await trx('finance.rule_registry').where({ tenant_id: T, enabled: true, suppressed_auto: false }).pluck('rule_key');
+        ok(!active.includes('proveedor_efos'), 'L2: regla suprimida excluida del set activo (bridge la omite)');
+      } else {
+        console.log('  ~ finance.findings no existe en esta DB — bridge test omitido');
+      }
+
       throw new Error('__ROLLBACK__');
     });
   } catch (e) {
     if (e.message !== '__ROLLBACK__') { console.error('ERROR:', e.message); fail++; }
   } finally { await knex.destroy(); }
 
-  console.log(`\nFISCAL.0/1 listas SAT + RFC smoke: ${pass} OK, ${fail} fallidos`);
+  console.log(`\nFISCAL.0/1/1.1 listas SAT + RFC + bridge Maat smoke: ${pass} OK, ${fail} fallidos`);
   process.exit(fail === 0 ? 0 : 1);
 })();

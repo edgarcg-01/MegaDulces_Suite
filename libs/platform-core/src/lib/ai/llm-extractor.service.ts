@@ -404,20 +404,27 @@ export class LlmExtractorService implements OnModuleInit {
     mediaType: string,
     ticketType: 'venta' | 'carga' | 'combustible',
   ): Promise<RouteTicketFields> {
+    // OJO route_code: algunos tickets nuevos imprimen "MOVIL:006" / "UNIDAD: 006"
+    // — ese es el número de la CAMIONETA, NO la ruta. route_code SOLO sale de
+    // "RD"/"Ruta N"; si únicamente hay MOVIL/UNIDAD, route_code va null (el
+    // backend infiere la ruta del vendedor).
+    const ROUTE_RULE =
+      'route_code = el número de RUTA que aparece tras "RD" o "Ruta" (ej. "Ruta 28" → "28"). ' +
+      'Si el ticket solo muestra "MOVIL:006" o "UNIDAD" (número de camioneta), eso NO es la ruta → route_code null. ';
     const perType: Record<typeof ticketType, string> = {
       venta:
-        'Ticket de CORTE DE VENTA de una ruta. Extrae: route_code (el número de ruta, tras "RD" o "Ruta", ej. "Ruta 28" → "28"). ' +
+        'Ticket de CORTE DE VENTA de una ruta. ' + ROUTE_RULE +
         'ticket_date. ticket_time (hora impresa). ' +
         'total = la VENTA NETA: el monto de la línea "Vtas tot - Dev (MN)" (ventas totales menos devoluciones). ' +
         'Si no está esa línea, usa "Total en caja" / "Total Disponible". Solo el número, sin símbolo ni comas. ' +
         'corte_number = el número de corte, que aparece tras "Folio de corte", "Numero de corte" o "Corte" (ej. "Folio de corte: 955" → "955"). ' +
         'reference y liters van null.',
       carga:
-        'Ticket de CARGA de mercancía a un camión de ruta. Extrae: route_code (número tras "RD" o "Ruta"), ' +
+        'Ticket de CARGA de mercancía a un camión de ruta. ' + ROUTE_RULE +
         'ticket_date, ticket_time (hora impresa), total (valor total cargado), folio (el identificador que aparece tras "FOLIO:", ' +
         'ej. "T153142782" — cópialo TAL CUAL, incluye letras y números). corte_number, reference y liters van null.',
       combustible:
-        'Ticket de COMBUSTIBLE/gasolina de una ruta. Extrae: route_code (número tras "RD" o "Ruta"), ' +
+        'Ticket de COMBUSTIBLE/gasolina de una ruta. ' + ROUTE_RULE +
         'ticket_date, ticket_time (hora impresa), total (importe), liters (litros cargados), reference (folio/referencia del ticket). ' +
         'corte_number va null.',
     };
@@ -447,7 +454,7 @@ export class LlmExtractorService implements OnModuleInit {
               input_schema: {
                 type: 'object',
                 properties: {
-                  route_code: { type: ['string', 'null'], description: 'Número de ruta tras "RD" (ej. "12"). null si no se ve.' },
+                  route_code: { type: ['string', 'null'], description: 'Número de RUTA tras "RD" o "Ruta" (ej. "12"). El número tras "MOVIL:" o "UNIDAD" es la camioneta, NO la ruta — en ese caso null. null si no se ve.' },
                   ticket_date: { type: ['string', 'null'], description: 'Fecha del ticket en ISO YYYY-MM-DD. Acepta CUALQUIER formato visible y conviértelo ("23/jun/2026", "23/06/2026", "23 de junio de 2026" → "2026-06-23"). Si NO hay fecha visible, devuelve null — NUNCA inventes ni pongas "<UNKNOWN>".' },
                   ticket_time: { type: ['string', 'null'], description: 'Hora impresa en el ticket en formato 24h HH:MM (ej. "Hora: 03:33 p.m." → "15:33"). null si no se ve.' },
                   total: { type: ['number', 'null'], description: 'Monto total en pesos (sin símbolo ni comas). null si no se ve.' },

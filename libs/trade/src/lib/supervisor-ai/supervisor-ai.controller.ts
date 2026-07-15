@@ -30,6 +30,7 @@ import { SalesExecutionService } from './sales-execution.service';
 import { RuleCalibrationService } from './rule-calibration.service';
 import { BaselineLearnerService } from './baseline-learner.service';
 import { OutcomeVerifierService } from './outcome-verifier.service';
+import { HorusChatService, HorusChatTurn } from './horus-chat/horus-chat.service';
 import { ListExecution360Dto } from './dto/execution-360-filter.dto';
 import { ListFindingsDto, ReviewFindingDto } from './dto/findings.dto';
 
@@ -59,7 +60,36 @@ export class SupervisorAiController {
     private readonly ruleCalibration: RuleCalibrationService,
     private readonly baselines: BaselineLearnerService,
     private readonly outcomes: OutcomeVerifierService,
+    private readonly chat: HorusChatService,
   ) {}
+
+  @Post('chat')
+  @RequirePermissions(Permission.SUPERVISOR_AI_VER)
+  @ApiOperation({
+    summary:
+      'HIQ.0 — Pregúntale a Horus: chat tool-use (ADR-026) sobre ejecución de Trade. Stateless: el cliente manda el historial.',
+  })
+  async askChat(
+    @ReqUser() user: any,
+    @Body() body: { history: HorusChatTurn[]; think?: boolean; deep_search?: boolean },
+  ) {
+    const res = await this.chat.ask(user, {
+      history: body?.history || [],
+      think: !!body?.think,
+      deepSearch: !!body?.deep_search,
+    });
+    const lastQ =
+      [...(body?.history || [])].reverse().find((t) => t?.role === 'user')?.content || '';
+    const logId = await this.chat.logExchange(user, lastQ, res);
+    return { ...res, log_id: logId };
+  }
+
+  @Post('chat/feedback')
+  @RequirePermissions(Permission.SUPERVISOR_AI_VER)
+  @ApiOperation({ summary: 'HIQ.0 — Voto 👍/👎 sobre una respuesta del chat (feedback loop)' })
+  chatFeedback(@ReqUser() user: any, @Body() body: { log_id: string; vote: number }) {
+    return this.chat.recordFeedback(user, body?.log_id, Number(body?.vote) || 0);
+  }
 
   @Get('execution-360')
   @RequirePermissions(Permission.SUPERVISOR_AI_VER)

@@ -6,6 +6,7 @@ import { FiscalListasService } from './fiscal-listas.service';
 import { SatListCrossService } from './sat-list-cross.service';
 import { RfcValidationService } from './rfc-validation.service';
 import { FiscalListasScannerService } from './fiscal-listas-scanner.service';
+import { FiscalFindingsBridgeService } from './fiscal-findings-bridge.service';
 
 /**
  * FISCAL.0/1 — API del motor de listas SAT (69-B, 69) + validación de RFC.
@@ -22,6 +23,7 @@ export class FiscalListasController {
     private readonly cross: SatListCrossService,
     private readonly rfc: RfcValidationService,
     private readonly scanner: FiscalListasScannerService,
+    private readonly bridge: FiscalFindingsBridgeService,
   ) {}
 
   @Get('matches')
@@ -75,11 +77,12 @@ export class FiscalListasController {
   @Post('scan')
   @RequirePermissions(Permission.FISCAL_LISTAS_GESTIONAR)
   @Throttle({ long: { limit: 4, ttl: 60_000 } })
-  @ApiOperation({ summary: 'Cruza todas las listas + valida RFCs para el tenant actual (idempotente).' })
+  @ApiOperation({ summary: 'Cruza todas las listas + valida RFCs + consolida en Maat para el tenant actual (idempotente).' })
   async scan() {
     const listas = await this.cross.crossAllCurrent();
     const rfc = await this.rfc.validateCurrent();
-    return { listas, rfc };
+    const maat = await this.bridge.syncCurrent();
+    return { listas, rfc, maat };
   }
 
   @Post('refresh')

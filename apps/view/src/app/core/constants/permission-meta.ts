@@ -131,6 +131,8 @@ export const PERMISSION_META: Record<string, PermissionMetaEntry> = {
   [Permission.FINANCE_EXPENSES_VER]: { label: 'Ver Egresos Contables', description: 'Proyecto Finanzas: egresos contables (pólizas de gastos 6xx y compras 5xx), desglose por cuenta/beneficiario y drill a documentos.', category: 'Finanzas' },
   [Permission.FINANCE_AI_CHAT]: { label: 'Chat AI de Finanzas (Maat)', description: 'Conversar con Maat: consultas sobre balanza, egresos, proveedores y hallazgos. Solo lectura de datos.', category: 'Finanzas' },
   [Permission.FINANCE_FINDINGS_GESTIONAR]: { label: 'Gestionar Hallazgos y Conocimiento', description: 'Confirmar/descartar hallazgos del motor de patrones y curar la base de conocimiento de Maat.', category: 'Finanzas' },
+  [Permission.FISCAL_LISTAS_VER]: { label: 'Ver Listas SAT (EFOS 69-B / Art. 69)', description: 'Proyecto Finanzas: bandeja de proveedores del tenant que aparecen en las listas negras del SAT (EFOS 69-B, Art. 69) y RFCs con problema estructural, con drill a documentos.', category: 'Finanzas' },
+  [Permission.FISCAL_LISTAS_GESTIONAR]: { label: 'Gestionar Listas SAT', description: 'Triage de coincidencias EFOS/Art.69, disparar el cruce/validación y refrescar las listas del SAT.', category: 'Finanzas' },
 
   // ── Supervisor de Movimientos (cuadre) — ADR-029 ──────────────────────
   [Permission.RECONCILIATION_VER]: { label: 'Ver Cuadre de Movimientos', description: 'Bandeja de descuadres del supervisor: caja (arqueos), inventario y cruces. Solo lectura.', category: 'Almacén' },

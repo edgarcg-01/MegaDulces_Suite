@@ -14,6 +14,7 @@ import { MaatScannerService } from './maat-scanner.service';
 import { MaatFindingsController } from './maat-findings.controller';
 import { MaatActionsService } from './maat-actions.service';
 import { MaatActionsController } from './maat-actions.controller';
+import { MaatFindingsSinkService } from './maat-findings-sink.service';
 
 /**
  * MAAT (ADR-028) — AI de Finanzas.
@@ -27,7 +28,8 @@ import { MaatActionsController } from './maat-actions.controller';
     MaatKnowledgeService, MaatToolsService, MaatChatService, MaatBriefingService,
     MaatDetectorService, MaatFindingsService, MaatScannerService, MaatActionsService,
     EmbeddingsService, MaatKnowledgeVectorService, MaatProviderGraphService,
+    MaatFindingsSinkService,
   ],
-  exports: [MaatKnowledgeService, MaatChatService, MaatDetectorService, MaatKnowledgeVectorService, MaatProviderGraphService],
+  exports: [MaatKnowledgeService, MaatChatService, MaatDetectorService, MaatKnowledgeVectorService, MaatProviderGraphService, MaatFindingsSinkService],
 })
 export class FinanceMaatModule {}

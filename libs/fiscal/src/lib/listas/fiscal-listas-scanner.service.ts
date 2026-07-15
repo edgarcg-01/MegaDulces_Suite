@@ -5,6 +5,7 @@ import { KNEX_NEW_DB } from '@megadulces/platform-core';
 import { SatListIngestService } from './sat-list-ingest.service';
 import { SatListCrossService } from './sat-list-cross.service';
 import { RfcValidationService } from './rfc-validation.service';
+import { FiscalFindingsBridgeService } from './fiscal-findings-bridge.service';
 import { SAT_LISTS } from './sat-lists.config';
 
 /**
@@ -22,6 +23,7 @@ export class FiscalListasScannerService {
     private readonly ingest: SatListIngestService,
     private readonly cross: SatListCrossService,
     private readonly rfc: RfcValidationService,
+    private readonly bridge: FiscalFindingsBridgeService,
   ) {}
 
   @Cron('0 0 7 * * *')
@@ -55,6 +57,9 @@ export class FiscalListasScannerService {
         }
         try { issues += (await this.rfc.validateForTenant(t.id)).issues; }
         catch (e: any) { this.logger.warn(`validación RFC tenant ${t.id} falló: ${e?.message || e}`); }
+        // Consolidar en la bandeja de Maat (best-effort; no-op si el port no está ligado).
+        try { await this.bridge.syncForTenant(t.id); }
+        catch (e: any) { this.logger.warn(`bridge Maat tenant ${t.id} falló: ${e?.message || e}`); }
       }
       this.logger.log(`scan fiscal ${source}: ${tenants.length} tenants · ${matched} matches · ${issues} RFC issues.`);
       return { tenants: tenants.length, matched, issues };

@@ -96,9 +96,19 @@ import { MegaDulcesSyncModule } from '@megadulces/commercial';
 // MAAT (ADR-028) — AI de Finanzas: base de conocimiento (+ motor/chat en sprints siguientes)
 import { FinanceMaatModule } from '@megadulces/finance';
 import { FiscalListasModule } from '@megadulces/fiscal';
+import { FiscalVaultModule } from '@megadulces/fiscal';
+import { FiscalJobsModule } from '@megadulces/fiscal';
+import { FiscalDescargaModule } from '@megadulces/fiscal';
+import { FiscalCfdiModule } from '@megadulces/fiscal';
+import { FiscalConciliacionModule } from '@megadulces/fiscal';
+import { FiscalDiotModule } from '@megadulces/fiscal';
+import { FiscalEstatusModule } from '@megadulces/fiscal';
+import { FiscalContabilidadModule } from '@megadulces/fiscal';
 import { ReconciliationModule } from '@megadulces/reconciliation';
 // MAAT.9 (3.0 P2) — binding del Port de notificación de Maat → canal de alertas commercial.
 import { FinanceNotifierBindingModule } from './composition/finance-notifier.binding.module';
+// FISCAL.1.1 — binding del Port de consolidación de hallazgos → Maat (finance.findings).
+import { FinanceFindingsSinkBindingModule } from './composition/finance-findings-sink.binding.module';
 // Composition root: liga ORDER_FULFILLMENT_PORT (contracts) ← CommercialOrdersService.
 // Permite que logística dispare el fulfill sin importar commercial (DI inversion).
 import { OrderFulfillmentBindingModule } from './composition/order-fulfillment.binding.module';
@@ -160,7 +170,16 @@ const multitenantModules = process.env.ENABLE_MULTITENANT === 'true'
       MegaDulcesSyncModule,
       FinanceNotifierBindingModule,
       FinanceMaatModule,
+      FinanceFindingsSinkBindingModule,
       FiscalListasModule,
+      FiscalVaultModule,
+      FiscalJobsModule,
+      FiscalCfdiModule,
+      FiscalConciliacionModule,
+      FiscalDiotModule,
+      FiscalEstatusModule,
+      FiscalContabilidadModule,
+      FiscalDescargaModule,
       ReconciliationModule,
     ]
   : [];

@@ -231,6 +231,8 @@ export interface ProcesarRouteTicketResult {
   /** Resolución de la ruta detectada contra el catálogo de la zona del vendedor. */
   route_matched: boolean;
   route_value: string | null; // nombre canónico, ej. "RUTA 321"
+  /** true = la ruta no venía impresa (ticket formato MOVIL) y se infirió del vendedor. */
+  route_inferred?: boolean;
   /** Solo carga: el folio ya existe en el historial (no reusable) → bloquea guardado. */
   folio_in_use?: boolean;
   lines?: RouteTicketLinePreview[]; // solo carga

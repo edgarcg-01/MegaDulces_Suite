@@ -183,4 +183,17 @@ export enum Permission {
   // FISCAL.0/1 = motor de listas SAT (EFOS 69-B, Art. 69) + validación RFC.
   FISCAL_LISTAS_VER = 'FISCAL_LISTAS_VER',
   FISCAL_LISTAS_GESTIONAR = 'FISCAL_LISTAS_GESTIONAR',
+  // FISCAL.2 = bóveda de credenciales SAT (e.firma/CIEC) — muy sensible.
+  FISCAL_CREDENCIALES_GESTIONAR = 'FISCAL_CREDENCIALES_GESTIONAR',
+  // FISCAL.4 = descarga masiva de CFDI (WS SAT).
+  FISCAL_DESCARGA_VER = 'FISCAL_DESCARGA_VER',
+  FISCAL_DESCARGA_GESTIONAR = 'FISCAL_DESCARGA_GESTIONAR',
+  // FISCAL.4.2 = almacén CFDI 4.0 (parser + fiscal.cfdis).
+  FISCAL_CFDI_VER = 'FISCAL_CFDI_VER',
+  // FISCAL.5 = conciliación CFDI↔póliza + PUE/PPD↔REP (saldo insoluto).
+  FISCAL_CONCILIACION_VER = 'FISCAL_CONCILIACION_VER',
+  // FISCAL.8 = DIOT + conciliación de IVA (efectivamente pagado).
+  FISCAL_DIOT_VER = 'FISCAL_DIOT_VER',
+  // FISCAL.9 = contabilidad electrónica (XMLs SAT: catálogo + balanza).
+  FISCAL_CONTAB_VER = 'FISCAL_CONTAB_VER',
 }

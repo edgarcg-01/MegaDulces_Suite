@@ -169,13 +169,18 @@ const TYPE_META: Record<RouteTicketType, { label: string; icon: string; desc: st
             <div class="crt-route" [class.ok]="routeMatched()" [class.bad]="!routeMatched()">
               <i class="pi" [ngClass]="routeMatched() ? 'pi-check-circle' : 'pi-exclamation-triangle'" aria-hidden="true"></i>
               <span class="crt-route-name">{{ routeMatched() ? routeValue() : 'Ruta no reconocida' }}</span>
-              <span class="crt-route-tag">{{ routeMatched() ? (selectedType() === 'combustible' ? 'tu jornada' : 'detectada') : 'reintenta' }}</span>
+              <span class="crt-route-tag">{{ routeMatched() ? (routeInferred() ? 'tu jornada' : 'detectada') : 'reintenta' }}</span>
             </div>
+            <!-- Ticket formato MOVIL (sin ruta impresa): la ruta se infirió de la jornada del vendedor. -->
+            <p class="crt-route-hint info" *ngIf="routeMatched() && routeInferred() && selectedType() !== 'combustible'">
+              El ticket no trae la ruta impresa (formato MOVIL); usamos tu ruta del día.
+            </p>
             <p class="crt-route-hint" *ngIf="!routeMatched() && selectedType() === 'combustible'">
               El recibo de combustible no trae ruta. Subí primero tu corte de venta o carga de hoy para asignarla.
             </p>
             <p class="crt-route-hint" *ngIf="!routeMatched() && selectedType() !== 'combustible'">
-              La ruta del ticket no coincide con ninguna ruta de tu zona. Vuelve a tomar la foto con la ruta visible.
+              No pudimos determinar tu ruta: el ticket no la trae legible y no encontramos tu asignación del día.
+              Pedile a tu supervisor que te asigne ruta, o vuelve a tomar la foto si el ticket sí dice "Ruta N".
             </p>
           </div>
 
@@ -478,6 +483,7 @@ const TYPE_META: Record<RouteTicketType, { label: string; icon: string; desc: st
       .crt-route-name { flex: 1; font-size: 0.9375rem; }
       .crt-route-tag { font-size: 0.5625rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; padding: 0.1rem 0.45rem; border-radius: 999px; background: color-mix(in srgb, currentColor 16%, transparent); }
       .crt-route-hint { margin: 0.4rem 0 0; font-size: 0.75rem; color: var(--bad-soft-fg); }
+      .crt-route-hint.info { color: var(--text-muted); }
 
       /* ── requisitos del día (venta + carga obligatorios) ── */
       .crt-reqs { background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 1rem; padding: 0.875rem 1rem; }
@@ -613,6 +619,8 @@ export class VendorCloseRouteComponent implements OnInit, OnDestroy {
   // Ruta resuelta por el backend (el usuario NO la edita). Sin match → no se guarda.
   readonly routeMatched = signal(false);
   readonly routeValue = signal<string | null>(null);
+  // true = ticket sin ruta impresa (formato MOVIL) → ruta inferida de la jornada.
+  readonly routeInferred = signal(false);
 
   // Resumen del último ticket guardado (card de éxito animada).
   readonly savedSummary = signal<{ type: RouteTicketType; route: string; total: number | null } | null>(null);
@@ -769,6 +777,7 @@ export class VendorCloseRouteComponent implements OnInit, OnDestroy {
           // Ruta resuelta por el backend contra el catálogo de su zona.
           this.routeMatched.set(!!res.route_matched);
           this.routeValue.set(res.route_value ?? null);
+          this.routeInferred.set(!!res.route_inferred);
           // Folio ya usado (carga, no reusable) → bloquea el guardado.
           this.folioInUse.set(!!res.folio_in_use);
           // carga: precargar productos detectados (solo los matcheados).
@@ -883,6 +892,7 @@ export class VendorCloseRouteComponent implements OnInit, OnDestroy {
     this.cargaLines.set([]);
     this.routeMatched.set(false);
     this.routeValue.set(null);
+    this.routeInferred.set(false);
     this.savedSummary.set(null);
     this.form = this.emptyForm();
   }

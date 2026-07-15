@@ -7,6 +7,7 @@ import {
   signal,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { RouterLink } from '@angular/router';
 import { ButtonModule } from 'primeng/button';
 import { SkeletonModule } from 'primeng/skeleton';
 import { ToastModule } from 'primeng/toast';
@@ -77,7 +78,7 @@ const QUADRANT_LABELS: Record<string, string> = {
 @Component({
   selector: 'app-supervisor-ai',
   standalone: true,
-  imports: [CommonModule, ButtonModule, SkeletonModule, ToastModule, TooltipModule],
+  imports: [CommonModule, RouterLink, ButtonModule, SkeletonModule, ToastModule, TooltipModule],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -87,15 +88,27 @@ const QUADRANT_LABELS: Record<string, string> = {
           <h1 class="horus__title">Supervisor IA</h1>
           <p class="horus__sub">Parte diario de ejecución en campo — el motor decide, el agente comunica</p>
         </div>
-        <button
-          pButton
-          type="button"
-          [disabled]="recomputing()"
-          (click)="recompute()"
-          class="p-button-sm"
-          [label]="recomputing() ? 'Recalculando…' : 'Recalcular'"
-          icon="pi pi-refresh"
-        ></button>
+        <div class="horus__head-actions">
+          <a
+            pButton
+            type="button"
+            routerLink="/dashboard/supervisor-ai/chat"
+            class="p-button-sm horus__ask"
+            label="Pregúntale a Horus"
+            icon="pi pi-sparkles"
+          ></a>
+          <button
+            pButton
+            type="button"
+            [disabled]="recomputing()"
+            (click)="recompute()"
+            class="p-button-sm"
+            severity="secondary"
+            [outlined]="true"
+            [label]="recomputing() ? 'Recalculando…' : 'Recalcular'"
+            icon="pi pi-refresh"
+          ></button>
+        </div>
       </header>
 
       @if (loading()) {
@@ -662,6 +675,7 @@ const QUADRANT_LABELS: Record<string, string> = {
     `
       .horus { padding: 1.25rem; max-width: 1100px; margin: 0 auto; color: var(--text, #1c1917); }
       .horus__head { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; margin-bottom: 1.25rem; }
+      .horus__head-actions { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
       .horus__title { font-size: 1.5rem; font-weight: 700; margin: 0; }
       .horus__sub { margin: .25rem 0 0; color: var(--text-soft, #78716c); font-size: .85rem; }
       .card { background: var(--card-bg, #fff); border: 1px solid var(--border, #e7e5e4); border-radius: var(--radius, 12px); padding: 1rem 1.1rem; margin-bottom: 1rem; }

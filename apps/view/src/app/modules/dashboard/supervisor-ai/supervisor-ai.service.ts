@@ -241,6 +241,24 @@ export interface ActionExplanation {
 export type ReviewStatus = 'dismissed' | 'confirmed' | 'reviewed';
 export type RuleOverride = 'enabled' | 'suppressed' | null;
 
+/** HIQ.0 — "Pregúntale a Horus" (chat tool-use, patrón ADR-026). */
+export interface HorusChatTurn {
+  role: 'user' | 'assistant';
+  content: string;
+}
+export interface HorusToolTrace {
+  name: string;
+  input: any;
+  result: any;
+}
+export interface HorusChatResponse {
+  answer: string;
+  source: 'llm' | 'no_api_key' | 'error';
+  tools_used: HorusToolTrace[];
+  iterations: number;
+  log_id: string | null;
+}
+
 @Injectable({ providedIn: 'root' })
 export class SupervisorAiService {
   private readonly http = inject(HttpClient);
@@ -248,6 +266,23 @@ export class SupervisorAiService {
 
   briefing(): Observable<BriefingResponse> {
     return this.http.get<BriefingResponse>(`${this.base}/briefing`);
+  }
+
+  /** HIQ.0 — chat stateless: mandamos historial + la pregunta como último turno user. */
+  askChat(
+    history: HorusChatTurn[],
+    question: string,
+    opts: { think?: boolean; deepSearch?: boolean } = {},
+  ): Observable<HorusChatResponse> {
+    return this.http.post<HorusChatResponse>(`${this.base}/chat`, {
+      history: [...history, { role: 'user', content: question }],
+      think: !!opts.think,
+      deep_search: !!opts.deepSearch,
+    });
+  }
+
+  chatFeedback(logId: string, vote: 1 | -1): Observable<{ ok: boolean }> {
+    return this.http.post<{ ok: boolean }>(`${this.base}/chat/feedback`, { log_id: logId, vote });
   }
 
   execution360(

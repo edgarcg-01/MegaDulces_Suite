@@ -5,6 +5,7 @@ import { SatListIngestService } from './sat-list-ingest.service';
 import { SatListCrossService } from './sat-list-cross.service';
 import { RfcValidationService } from './rfc-validation.service';
 import { FiscalListasScannerService } from './fiscal-listas-scanner.service';
+import { FiscalFindingsBridgeService } from './fiscal-findings-bridge.service';
 
 /**
  * FISCAL.0 + FISCAL.1 (libs/fiscal) — Motor de listas SAT + validación de RFC.
@@ -21,8 +22,8 @@ import { FiscalListasScannerService } from './fiscal-listas-scanner.service';
   controllers: [FiscalListasController],
   providers: [
     FiscalListasService, SatListIngestService, SatListCrossService,
-    RfcValidationService, FiscalListasScannerService,
+    RfcValidationService, FiscalListasScannerService, FiscalFindingsBridgeService,
   ],
-  exports: [FiscalListasService, SatListIngestService, SatListCrossService, RfcValidationService],
+  exports: [FiscalListasService, SatListIngestService, SatListCrossService, RfcValidationService, FiscalFindingsBridgeService],
 })
 export class FiscalListasModule {}

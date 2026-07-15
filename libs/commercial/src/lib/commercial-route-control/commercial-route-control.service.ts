@@ -125,10 +125,21 @@ export class CommercialRouteControlService {
     // las rutas reales de SU zona. Si no matchea, el front bloquea el guardado.
     // Combustible: el recibo es de la gasolinera (sin ruta) → la inferimos del
     // vendedor (su corte/carga del día o su única ruta de zona).
-    const resolved =
+    // Formato nuevo Kepler (2026-07): algunos cortes imprimen "MOVIL:006"
+    // (camioneta, rota entre rutas) en lugar de "Ruta 28". Si el ticket no trae
+    // ruta legible, caemos a la inferencia del vendedor igual que combustible.
+    let resolved =
       ticketType === 'combustible'
         ? await this.resolveVendorRoute()
         : await this.resolveZoneRoute(fields.route_code);
+    let routeInferred = ticketType === 'combustible';
+    if (!resolved.matched && ticketType !== 'combustible') {
+      const fallback = await this.resolveVendorRoute();
+      if (fallback.matched) {
+        resolved = fallback;
+        routeInferred = true;
+      }
+    }
 
     // Folio normalizado + aviso temprano si ya existe (carga): el front bloquea
     // el guardado para no perder el viaje con un folio no reusable.
@@ -143,6 +154,7 @@ export class CommercialRouteControlService {
       fields: { ...fields, route_code: resolved.code ?? fields.route_code, folio },
       route_matched: resolved.matched,
       route_value: resolved.value,
+      route_inferred: routeInferred,
       folio_in_use: folioInUse,
       lines,
     };
@@ -276,24 +288,26 @@ export class CommercialRouteControlService {
   // ── 2) Guardar (tras revisión) ──────────────────────────────────────────
   async guardar(dto: GuardarRouteTicketDto) {
     this.assertType(dto.ticket_type);
-    // Combustible no trae ruta en el recibo (es de la gasolinera) → no se exige.
-    if (dto.ticket_type !== 'combustible' && !dto.route_code?.trim())
-      throw new BadRequestException('route_code requerido');
     if (!dto.ticket_date || !DATE_RE.test(dto.ticket_date))
       throw new BadRequestException('ticket_date requerido (YYYY-MM-DD)');
 
-    // Garantía dura (independiente del front): venta/carga deben coincidir con una
-    // ruta real de la zona del vendedor (la traen impresas). Combustible: la ruta se
-    // infiere del propio vendedor (su corte/carga del día o su única ruta de zona).
-    const route =
+    // Garantía dura (independiente del front): la ruta debe coincidir con una
+    // ruta real de la zona del vendedor. Venta/carga: primero la impresa en el
+    // ticket; si el formato nuevo solo trae "MOVIL:NNN" (camioneta, sin ruta),
+    // se infiere del vendedor — igual que combustible (asignación del día →
+    // ticket del mismo día → ruta única de zona → última conocida).
+    let route =
       dto.ticket_type === 'combustible'
         ? await this.resolveVendorRoute()
         : await this.resolveZoneRoute(dto.route_code);
+    if (!route.matched && dto.ticket_type !== 'combustible') {
+      route = await this.resolveVendorRoute();
+    }
     if (!route.matched || !route.code) {
       throw new BadRequestException(
         dto.ticket_type === 'combustible'
           ? 'No pudimos determinar tu ruta para el combustible. Subí primero tu corte de venta o carga de hoy.'
-          : `Ruta no reconocida: "${dto.route_code}". Debe coincidir con una ruta registrada de tu zona (ej. RUTA 21). Vuelve a tomar la foto.`,
+          : 'No pudimos determinar tu ruta: el ticket no trae ruta legible (formato MOVIL) y no encontramos tu asignación del día. Pedile a tu supervisor que te asigne ruta e intentá de nuevo.',
       );
     }
     const canonicalRouteCode = route.code;

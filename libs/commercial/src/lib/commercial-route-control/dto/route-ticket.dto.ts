@@ -35,6 +35,12 @@ export interface ProcesarRouteTicketResult {
    */
   route_matched: boolean;
   route_value: string | null; // nombre canónico, ej. "RUTA 321"
+  /**
+   * true cuando la ruta NO venía impresa en el ticket y se infirió del vendedor
+   * (combustible siempre; venta/carga cuando el formato nuevo solo trae
+   * "MOVIL:NNN" — número de camioneta, rota entre rutas).
+   */
+  route_inferred?: boolean;
   /** Solo en carga: productos detectados para descargar al camión. */
   lines?: RouteTicketLinePreview[];
   /**
