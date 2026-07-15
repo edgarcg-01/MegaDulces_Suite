@@ -513,13 +513,16 @@ export class VendorCaptureComponent implements OnInit, OnDestroy {
       return;
     }
     this.identifyingExhibidor.set(true);
+    const t0 = Date.now();
     try {
       const fd = new FormData();
       fd.append('file', file, file.name || 'exhibidor.jpg');
+      console.log('[exhibición] POST /ai/exhibition/extract', { size_kb: Math.round(file.size / 1024), type: file.type });
       const res = await firstValueFrom(
         this.http.post<any>(`${this.apiUrl}/ai/exhibition/extract`, fd).pipe(timeout(50_000)),
       );
-      const ocr: OcrItem[] = (res?.match?.items || []).map((it: any) => {
+      const rawItems = res?.match?.items || [];
+      const ocr: OcrItem[] = rawItems.map((it: any) => {
         const conf = it.suggested?.confidence ?? it.confidence ?? 'no_match';
         return {
           raw: it.raw,
@@ -533,20 +536,42 @@ export class VendorCaptureComponent implements OnInit, OnDestroy {
         };
       });
       const matched = ocr.filter((o) => o.sku && o.confidence !== 'no_match');
+      // LOG DIAGNÓSTICO (visible en consola del device/navegador): leídos vs matcheados.
+      console.log(
+        `[exhibición] respuesta en ${Date.now() - t0}ms · leídos=${rawItems.length} matcheados=${matched.length}`,
+        ocr.map((o) => ({ raw: o.raw, match: o.product_name, conf: o.confidence })),
+      );
       this.mergeOcrItems(matched);
       await this.matchPlanogram();
       this.exhibidorIdentified.set(matched.length);
-      this.toast.add({
-        severity: matched.length ? 'success' : 'info',
-        summary: matched.length ? `${matched.length} producto(s) identificado(s)` : 'Sin productos reconocidos',
-        detail: matched.length
-          ? 'Revisá y confirmá lo que corresponde en la lista.'
-          : 'Marcá los productos a mano o tomá la foto más de cerca.',
-      });
+      // Mensaje que distingue las 3 situaciones (más información para el vendedor):
+      if (matched.length) {
+        this.toast.add({
+          severity: 'success',
+          summary: `${matched.length} producto(s) identificado(s)`,
+          detail: 'Revisá y confirmá lo que corresponde en la lista.',
+        });
+      } else if (rawItems.length) {
+        // La IA SÍ leyó productos pero ninguno coincidió con el catálogo (caso típico
+        // del dulce a granel / marcas genéricas). No es "no leyó" — es "no matcheó".
+        this.toast.add({
+          severity: 'info',
+          summary: `Leí ${rawItems.length} producto(s) pero no coinciden con el catálogo`,
+          detail: 'Marcalos a mano. (Los reconocidos aparecen en la lista.)',
+        });
+      } else {
+        this.toast.add({
+          severity: 'info',
+          summary: 'No se leyeron productos en la foto',
+          detail: 'Acercá la cámara al anaquel, con buena luz, y volvé a intentar.',
+        });
+      }
     } catch (e: any) {
+      console.error('[exhibición] error identificando productos', { status: e?.status, message: e?.message, error: e?.error });
       // Best-effort: si falla, la foto igual queda; el vendedor marca a mano.
       if (!(e instanceof TimeoutError) && !isTransientStatus(e?.status)) {
-        this.toast.add({ severity: 'warn', summary: 'No se pudo identificar', detail: 'Marcá los productos a mano.' });
+        const hint = e?.status === 404 ? 'El servicio aún no está disponible (redeploy pendiente).' : 'Marcá los productos a mano.';
+        this.toast.add({ severity: 'warn', summary: 'No se pudo identificar', detail: hint });
       }
     } finally {
       this.identifyingExhibidor.set(false);

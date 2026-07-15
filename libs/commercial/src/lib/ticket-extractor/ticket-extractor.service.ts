@@ -149,13 +149,34 @@ export class TicketExtractorService {
     const uploaded = await this.cloudinary.uploadImage(file, folder);
     const base64 = file.buffer.toString('base64');
     const mediaType = file.mimetype as 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif';
+    this.logger.log(
+      `[exhibición] START tenant=${tenantId} user=${userId} img=${(file.size / 1024).toFixed(0)}KB ${mediaType} → ${uploaded.public_id} (+${Date.now() - t0}ms)`,
+    );
+
     const items = await this.llm.extractFromExhibitionImage(base64, mediaType);
-    this.logger.log(`[exhibición] vision leyó ${items.length} productos (+${Date.now() - t0}ms)`);
+    // LOG DIAGNÓSTICO: qué LEYÓ la visión (para ver si el problema es lectura o match).
+    this.logger.log(
+      `[exhibición] vision leyó ${items.length} producto(s): ${items.map((i) => `"${i.normalized}"×${i.quantity}`).join(', ') || '(NINGUNO)'} (+${Date.now() - t0}ms)`,
+    );
+    if (items.length === 0) {
+      this.logger.warn(
+        `[exhibición] vision devolvió 0 productos — foto no es anaquel legible, ilegible, o sin ANTHROPIC_API_KEY. tenant=${tenantId}`,
+      );
+    }
+
     // Corpus 'catalog' (el de captures/planograma), NO 'active' (que es del ticket ERP).
     const match = await this.matcher.matchExtractedItems(items, t0);
+    // LOG DIAGNÓSTICO: qué DECIDIÓ el matcher por cada item (raw → match + confidence + score).
+    for (const it of match.items) {
+      const s = it.suggested;
+      this.logger.log(
+        `[exhibición]   "${it.raw}" → ${s?.product_name ? `${s.product_name} [${s.confidence}${s.score != null ? ` ${s.score}` : ''}]${s.autoConfirm ? ' ✓auto' : ''}` : 'SIN MATCH'}`,
+      );
+    }
+    const matched = match.items.filter((i) => i.suggested?.sku).length;
+    const auto = match.items.filter((i) => i.suggested?.autoConfirm).length;
     this.logger.log(
-      `[exhibición] match: ${match.items.length} items, ` +
-        `${match.items.filter((i) => i.suggested?.autoConfirm).length} autoConfirm (${match.meta.elapsed_ms}ms)`,
+      `[exhibición] RESULTADO: leídos=${items.length} matcheados=${matched} autoConfirm=${auto} sin_match=${match.items.length - matched} (${match.meta.elapsed_ms}ms total)`,
     );
     return { ticket_url: uploaded.secure_url, ticket_public_id: uploaded.public_id, match };
   }

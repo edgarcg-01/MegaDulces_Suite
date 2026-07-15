@@ -411,14 +411,21 @@ export class LlmExtractorService implements OnModuleInit {
     mediaType: 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif',
   ): Promise<{ raw: string; normalized: string; quantity: number }[]> {
     if (!this.apiKey) {
-      this.logger.warn('Exhibición OCR sin ANTHROPIC_API_KEY — devuelvo []');
+      this.logger.error(
+        '[exhibición] SIN ANTHROPIC_API_KEY — la identificación de productos NO puede correr. Setear ANTHROPIC_API_KEY en el entorno.',
+      );
       return [];
     }
-    if (!imageBase64) return [];
+    if (!imageBase64) {
+      this.logger.warn('[exhibición] imagen vacía — devuelvo []');
+      return [];
+    }
     try {
-      return await this.callClaudeVisionExhibition(imageBase64, mediaType);
+      const items = await this.callClaudeVisionExhibition(imageBase64, mediaType);
+      this.logger.log(`[exhibición] Claude vision (${this.model}) devolvió ${items.length} producto(s) legibles`);
+      return items;
     } catch (e: any) {
-      this.logger.warn(`Claude vision exhibición extract failed: ${e.message}`);
+      this.logger.error(`[exhibición] Claude vision FALLÓ: ${e?.message || e}`);
       return [];
     }
   }
@@ -446,13 +453,19 @@ export class LlmExtractorService implements OnModuleInit {
             {
               name: 'read_shelf_products',
               description:
-                'Lee los productos de dulces VISIBLES en la foto de una exhibición/anaquel de una ' +
-                'tienda mexicana. Un item por producto DISTINTO que se lea en los empaques. ' +
-                'Para cada uno: `raw` = texto tal como se lee (marca + producto, ej "Cuerito Lupita 700g"), ' +
-                '`normalized` = nombre limpio en minúsculas para matchear con catálogo (marca + tipo, sin ' +
-                'precios ni códigos), `quantity` = cuántas piezas/caras del MISMO producto se ven (entero, ' +
-                'default 1). Reportá SOLO lo que REALMENTE se lee; no inventes ni completes de memoria. ' +
-                'Si no es un anaquel o es ilegible, devuelve items vacíos.',
+                'Lee TODOS los productos VISIBLES en la foto de una exhibición/anaquel de dulces de una ' +
+                'tienda mexicana (distribuidora Mega Dulces). El surtido típico incluye: chocolates, chicles, ' +
+                'gomitas, paletas, malvaviscos, tamarindos, cueritos, mazapán, obleas, cacahuates, botanas, ' +
+                'caramelos macizos y dulce a granel. Un item por producto DISTINTO. ' +
+                'Sé EXHAUSTIVO: listá cada producto que distingas, no solo los más grandes ni los del frente. ' +
+                'Para cada uno: `raw` = texto tal como se lee (marca + producto, ej "Cuerito Lupita 700g"); ' +
+                'si NO hay marca legible (dulce a granel o empaque genérico), describí el TIPO igual ' +
+                '(ej "gomitas de oso", "paleta de tamarindo", "cacahuate japonés"). `normalized` = nombre ' +
+                'limpio en minúsculas para matchear con catálogo (marca + tipo, sin precios ni códigos). ' +
+                '`quantity` = cuántas piezas/caras del MISMO producto se ven (entero, default 1). ' +
+                'Reportá SOLO lo que REALMENTE se ve; no inventes ni completes de memoria. ' +
+                'Si la imagen NO es un anaquel de productos (selfie, recibo, persona) o es totalmente ilegible, ' +
+                'devuelve items vacíos.',
               input_schema: {
                 type: 'object',
                 properties: {
@@ -481,9 +494,10 @@ export class LlmExtractorService implements OnModuleInit {
                 {
                   type: 'text',
                   text:
-                    'Esta es una foto de una exhibición de dulces en una tiendita mexicana. ' +
-                    'Listá los productos que se VEN, leyendo marcas y nombres de los empaques, con la ' +
-                    'herramienta read_shelf_products.',
+                    'Esta es una foto de una exhibición de dulces en una tiendita mexicana (surtido de la ' +
+                    'distribuidora Mega Dulces). Listá TODOS los productos que se VEN —marca y tipo—, ' +
+                    'incluyendo el dulce a granel sin marca (describilo por tipo). Sé exhaustivo. ' +
+                    'Usá la herramienta read_shelf_products.',
                 },
               ],
             },
