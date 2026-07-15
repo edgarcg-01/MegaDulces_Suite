@@ -218,6 +218,13 @@ const ALLOWED_IMAGE_TYPES = [
                 <span class="text-sm font-medium">Identificando productos…</span>
               </div>
             </div>
+            <div *ngIf="!identifyingExhibidor() && exhibidorIdentified() !== null"
+                 class="flex items-center gap-2 text-xs rounded-lg p-2.5"
+                 [ngClass]="exhibidorIdentified()! > 0 ? 'bg-brand-orange/5 text-content-main' : 'bg-surface-ground/60 text-content-muted'">
+              <i [class]="exhibidorIdentified()! > 0 ? 'pi pi-check-circle text-brand-orange' : 'pi pi-info-circle'" aria-hidden="true"></i>
+              <span *ngIf="exhibidorIdentified()! > 0"><strong>{{ exhibidorIdentified() }}</strong> producto(s) identificado(s) — revisalos en la lista de abajo.</span>
+              <span *ngIf="exhibidorIdentified()! === 0">No se reconocieron productos. Marcalos a mano o acercá la cámara.</span>
+            </div>
             <div class="flex justify-center">
               <p-button icon="pi pi-refresh" label="Cambiar foto" severity="secondary" [outlined]="true" size="small" [disabled]="identifyingExhibidor()" (onClick)="removeExhibidor()"></p-button>
             </div>
@@ -385,6 +392,7 @@ export class VendorCaptureComponent implements OnInit, OnDestroy {
   readonly exhibidorFile = signal<File | null>(null);
   readonly exhibidorPreview = signal<string | null>(null);
   readonly identifyingExhibidor = signal(false); // HV.2 — IA leyendo productos de la foto
+  readonly exhibidorIdentified = signal<number | null>(null); // #productos identificados (null = aún no se corrió)
   readonly ticketPhotos = signal<string[]>([]); // previews; el vendedor puede tomar varias fotos del mismo ticket
   readonly processing = signal(false);
   readonly items = signal<OcrItem[]>([]);
@@ -481,13 +489,17 @@ export class VendorCaptureComponent implements OnInit, OnDestroy {
       return;
     }
     this.exhibidorFile.set(file);
+    this.exhibidorIdentified.set(null);
     const reader = new FileReader();
-    reader.onload = () => this.exhibidorPreview.set(reader.result as string);
+    // Primero mostramos la foto; SOLO cuando ya está en pantalla disparamos el
+    // análisis (HV.2: "primero la foto, después analizar"). La IA identifica los
+    // productos VISIBLES y los agrega a la lista como SUGERENCIAS a confirmar (gate
+    // HV.0 ~24-29% en dulce a granel: el vendedor revisa, no reemplaza marcado/ticket).
+    reader.onload = () => {
+      this.exhibidorPreview.set(reader.result as string);
+      void this.identifyExhibidor(file);
+    };
     reader.readAsDataURL(file);
-    // HV.2 — al tomar la foto, la IA identifica los productos VISIBLES y los agrega
-    // a la lista como SUGERENCIAS a confirmar (gate HV.0: ~24-29% en dulce a granel,
-    // por eso el vendedor revisa; no reemplaza el marcado manual ni el OCR del ticket).
-    void this.identifyExhibidor(file);
   }
 
   /** Identificación de productos desde la foto del exhibidor (online; offline se omite). */
@@ -523,11 +535,12 @@ export class VendorCaptureComponent implements OnInit, OnDestroy {
       const matched = ocr.filter((o) => o.sku && o.confidence !== 'no_match');
       this.mergeOcrItems(matched);
       await this.matchPlanogram();
+      this.exhibidorIdentified.set(matched.length);
       this.toast.add({
         severity: matched.length ? 'success' : 'info',
         summary: matched.length ? `${matched.length} producto(s) identificado(s)` : 'Sin productos reconocidos',
         detail: matched.length
-          ? 'Revisá y confirmá lo que corresponde.'
+          ? 'Revisá y confirmá lo que corresponde en la lista.'
           : 'Marcá los productos a mano o tomá la foto más de cerca.',
       });
     } catch (e: any) {
@@ -543,6 +556,7 @@ export class VendorCaptureComponent implements OnInit, OnDestroy {
   removeExhibidor(): void {
     this.exhibidorFile.set(null);
     this.exhibidorPreview.set(null);
+    this.exhibidorIdentified.set(null);
   }
 
   async onTicket(ev: Event): Promise<void> {
