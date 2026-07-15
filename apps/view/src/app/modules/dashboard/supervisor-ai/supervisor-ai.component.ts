@@ -14,7 +14,7 @@ import { ToastModule } from 'primeng/toast';
 import { TooltipModule } from 'primeng/tooltip';
 import { MessageService } from 'primeng/api';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { forkJoin, of } from 'rxjs';
+import { forkJoin, of, Observable } from 'rxjs';
 import { catchError } from 'rxjs/operators';
 
 import {
@@ -114,6 +114,13 @@ const QUADRANT_LABELS: Record<string, string> = {
         </div>
       </header>
 
+      @if (!loading() && failedSections().length > 0) {
+        <div class="load-error" role="alert">
+          <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+          <span>No se pudo cargar: <strong>{{ failedSections().join(' · ') }}</strong>. Los datos mostrados pueden estar incompletos.</span>
+          <button pButton type="button" label="Reintentar" icon="pi pi-refresh" [text]="true" size="small" (click)="reload()"></button>
+        </div>
+      }
       @if (loading()) {
         <p-skeleton height="9rem" styleClass="mb-3" />
         <p-skeleton height="14rem" />
@@ -695,6 +702,15 @@ const QUADRANT_LABELS: Record<string, string> = {
       .horus { padding: 1.25rem; max-width: 1100px; margin: 0 auto; color: var(--text, #1c1917); }
       .horus__head { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; margin-bottom: 1.25rem; }
       .horus__head-actions { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
+      .load-error {
+        display: flex; align-items: center; gap: .6rem; flex-wrap: wrap;
+        margin-bottom: 1rem; padding: .6rem .9rem; border-radius: .6rem;
+        background: color-mix(in srgb, var(--bad, #dc2626) 8%, transparent);
+        border: 1px solid color-mix(in srgb, var(--bad, #dc2626) 30%, transparent);
+        color: var(--bad, #dc2626); font-size: .8rem;
+      }
+      .load-error span { color: var(--text-soft, #57534e); }
+      .load-error strong { color: var(--text-main, #1c1917); }
       .horus__title { font-size: 1.5rem; font-weight: 700; margin: 0; }
       .horus__sub { margin: .25rem 0 0; color: var(--text-soft, #78716c); font-size: .85rem; }
       .card { background: var(--card-bg, #fff); border: 1px solid var(--border, #e7e5e4); border-radius: var(--radius, 12px); padding: 1rem 1.1rem; margin-bottom: 1rem; }
@@ -822,13 +838,18 @@ export class SupervisorAiComponent implements OnInit {
     this.load();
   }
 
+  /** HIQ.6 — re-fetch de las secciones (sin recompute del backend). */
+  reload(): void {
+    this.load();
+  }
+
   private load(): void {
     this.loading.set(true);
     this.failedSections.set([]);
     // HIQ.6 — visibilidad de errores: `guard` registra la sección que falló en vez de
     // tragar el error en silencio. Así una sección caída ≠ "sin datos" (el banner lo
     // dice y el usuario puede reintentar), fix de la queja del audit del monolito.
-    const guard = <T>(key: string, obs: any, fallback: T) =>
+    const guard = <T>(key: string, obs: Observable<T>, fallback: T): Observable<T> =>
       obs.pipe(
         catchError(() => {
           this.failedSections.update((s) => (s.includes(key) ? s : [...s, key]));
