@@ -32,31 +32,58 @@ export class SatListIngestService {
     if (!cfg.urls.length) {
       throw new Error(`Lista ${lista} sin URLs configuradas (ver env). Usá ingestCsv() con archivo.`);
     }
-    const parts: string[] = [];
+    const texts: string[] = [];
     for (const url of cfg.urls) {
       this.logger.log(`Descargando lista ${lista} de ${url}`);
       const res = await fetch(url, { signal: AbortSignal.timeout(60_000) });
       if (!res.ok) throw new Error(`SAT devolvió ${res.status} al descargar ${url}`);
       const buf = Buffer.from(await res.arrayBuffer());
-      parts.push(new TextDecoder('latin1').decode(buf)); // el SAT sirve Latin1
+      texts.push(new TextDecoder('latin1').decode(buf)); // el SAT sirve Latin1
     }
-    return this.ingestCsv(lista, parts.join('\n'), cfg.urls.join(' + '));
+    // El Art. 69 publica VARIOS CSV con encabezados DISTINTOS (p.ej. CSDsinefectos
+    // no trae "TIPO PERSONA" y su columna de supuesto queda en otro índice). Por eso
+    // se parsea CADA archivo con su PROPIO header y se combinan las filas: concatenar
+    // los textos y detectar un solo header metía columnas equivocadas (fechas como
+    // situación). El hash de dedup se computa sobre el texto concatenado (continuidad).
+    const listHash = this.hashOf(lista, texts.join('\n'));
+    const already = await this.findVersion(listHash);
+    if (already) return this.skipVersion(lista, listHash, already, cfg.urls.join(' + '));
+    const rows = texts.flatMap((t) => this.parseCsv(cfg, t)).map((r) => ({ ...r, lista }));
+    return this.persistRows(lista, rows, listHash, cfg.urls.join(' + '));
   }
 
-  /** Ingesta un CSV ya obtenido (refreshFromSat o importer CLI on-prem). */
+  /** Ingesta un CSV ya obtenido (importer CLI on-prem). Un archivo = un header. */
   async ingestCsv(lista: string, csvText: string, source = 'file'): Promise<SatListIngestResult> {
     const cfg = listaConfig(lista);
-    const listHash = createHash('sha256').update(`${lista}:${csvText}`).digest('hex').slice(0, 32);
-    const knex = this.tk.global;
-
-    const already = await knex('fiscal.sat_list_versions').where({ list_hash: listHash }).first();
-    if (already) {
-      this.logger.log(`Lista ${lista}/${listHash} ya procesada (${already.total_rfcs} RFCs) — skip.`);
-      return { lista, listHash, total: already.total_rfcs, altas: 0, cambios: 0, source, skipped: true };
-    }
-
+    const listHash = this.hashOf(lista, csvText);
+    const already = await this.findVersion(listHash);
+    if (already) return this.skipVersion(lista, listHash, already, source);
     const rows = this.parseCsv(cfg, csvText).map((r) => ({ ...r, lista }));
+    return this.persistRows(lista, rows, listHash, source);
+  }
+
+  private hashOf(lista: string, text: string): string {
+    return createHash('sha256').update(`${lista}:${text}`).digest('hex').slice(0, 32);
+  }
+
+  private findVersion(listHash: string) {
+    return this.tk.global('fiscal.sat_list_versions').where({ list_hash: listHash }).first();
+  }
+
+  private skipVersion(lista: string, listHash: string, already: any, source: string): SatListIngestResult {
+    this.logger.log(`Lista ${lista}/${listHash} ya procesada (${already.total_rfcs} RFCs) — skip.`);
+    return { lista, listHash, total: already.total_rfcs, altas: 0, cambios: 0, source, skipped: true };
+  }
+
+  /** Persiste filas ya parseadas (de uno o varios archivos) vía staging + merge idempotente. */
+  private async persistRows(
+    lista: string,
+    rows: Array<Record<string, string | null>>,
+    listHash: string,
+    source: string,
+  ): Promise<SatListIngestResult> {
     if (!rows.length) throw new Error(`CSV de lista ${lista} sin filas parseables (¿formato cambió?)`);
+    const knex = this.tk.global;
 
     await knex('fiscal.sat_list_staging').where({ lista }).del();
     for (let i = 0; i < rows.length; i += 1000) {
