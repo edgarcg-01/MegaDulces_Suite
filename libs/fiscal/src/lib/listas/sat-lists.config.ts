@@ -52,7 +52,9 @@ export const SAT_LISTS: Record<string, SatListConfig> = {
     cols: {
       rfc: ['rfc'],
       nombre: ['nombre', 'razon', 'contribuyente'],
-      situacion: ['supuesto', 'situacion', 'tipo'],
+      // NO 'tipo': matchea la columna "TIPO PERSONA" (F/M) antes que "SUPUESTO"
+      // (FIRMES/CANCELADOS/NO LOCALIZADOS/EXIGIBLES/…), que es la situación real del 69.
+      situacion: ['supuesto', 'situacion'],
     },
     riesgo: ['firme', 'no localizado', 'exigible', 'sentencia', 'definitivo', 'presunto'],
   },

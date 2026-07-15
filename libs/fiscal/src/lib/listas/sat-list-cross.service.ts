@@ -50,6 +50,9 @@ export class SatListCrossService {
                   min(ed.fecha) AS primera_fecha, max(ed.fecha) AS ultima_fecha
              FROM analytics.expense_documents ed
             WHERE ed.tenant_id = ? AND ed.rfc IS NOT NULL AND btrim(ed.rfc) <> ''
+              -- RFC genéricos (público en general / extranjero) no son proveedores
+              -- reales; ya se reportan aparte en rfc_issues. Fuera de la bandeja de listas.
+              AND upper(btrim(ed.rfc)) NOT IN ('XAXX010101000','XEXX010101000')
             GROUP BY upper(trim(ed.rfc))
          )
          INSERT INTO fiscal.sat_list_matches

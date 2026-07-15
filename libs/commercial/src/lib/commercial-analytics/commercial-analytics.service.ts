@@ -2486,6 +2486,10 @@ export class CommercialAnalyticsService {
       // → null y la UI muestra "—". Caja suele venir sin factor (c84=0) → "—".
       const unitSale = String(r.unit_sale ?? '').trim().toUpperCase();
       const pieceUnit = unitSale === '' || unitSale === 'PZA' || unitSale === 'PZAS' || unitSale === 'PIEZA' || unitSale === 'PZ';
+      // Si la unidad de venta YA es caja/paquete, la existencia está en esa unidad
+      // (factor 1) → mostrarla directo en su columna en vez de "—".
+      const cjaUnit = unitSale === 'CJA' || unitSale === 'CAJA';
+      const paqUnit = unitSale === 'PAQ' || unitSale === 'PAQUETE';
       // packF (PAQ) = pack_size del catálogo de etiquetas (estricto). boxF (CJA) =
       // box_size de etiquetas, y si falta CAE a factor_sale — el mismo factor con que
       // se calcula "Costo x Caja" (cost_per_case = cost × factor_sale). Antes boxF era
@@ -2494,10 +2498,10 @@ export class CommercialAnalyticsService {
       const packF = Number(r.pack_size) > 0 ? Number(r.pack_size) : 0;
       const boxF = Number(r.box_size) > 0 ? Number(r.box_size)
         : (Number(r.factor_sale) > 0 ? Number(r.factor_sale) : 0);
-      const existPaquete = pieceUnit && packF > 0 ? round(existPaq / packF, 2) : null;
-      const existCaja = pieceUnit && boxF > 0 ? round(existPaq / boxF, 2) : null;
-      const ventaPaquetes = pieceUnit && packF > 0 ? round(ventaTotal / packF, 2) : null;
-      const ventaCajas = pieceUnit && boxF > 0 ? round(ventaTotal / boxF, 2) : null;
+      const existPaquete = pieceUnit && packF > 0 ? round(existPaq / packF, 2) : (paqUnit ? existPaq : null);
+      const existCaja = pieceUnit && boxF > 0 ? round(existPaq / boxF, 2) : (cjaUnit ? existPaq : null);
+      const ventaPaquetes = pieceUnit && packF > 0 ? round(ventaTotal / packF, 2) : (paqUnit ? round(ventaTotal, 2) : null);
+      const ventaCajas = pieceUnit && boxF > 0 ? round(ventaTotal / boxF, 2) : (cjaUnit ? round(ventaTotal, 2) : null);
       const diasCobertura = ventaTotal > 0 ? Math.round((existPaq * diasPeriodo) / ventaTotal) : null;
       const ventaPrev = isRange ? (prevByKey.get(key) ?? 0) : null;
       const ventaDelta = isRange && ventaPrev != null && ventaPrev > 0
