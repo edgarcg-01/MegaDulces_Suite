@@ -1,6 +1,10 @@
 # Fase Horus-IQ — Subir la inteligencia del Supervisor AI
 
-> **Estado:** 🔨 HIQ.0 + HIQ.2 EN CÓDIGO 2026-07-15 (builds api+view verdes). HIQ.1/3/4/5/6 pendientes.
+> **Estado:** 🔨 HIQ.0 + HIQ.1 + HIQ.2 + HIQ.3a EN CÓDIGO 2026-07-15 (builds api+view verdes). HIQ.3b (cross-foto, pHash) / HIQ.4 / HIQ.5 / HIQ.6 pendientes.
+>
+> **HIQ.1 ✅ en código** — Briefing 2.0 con memoria: `buildComparison()` determinista (nuevos/resueltos 24h, persistentes con días abiertos, delta del score del equipo vs hace 7d desde snapshots, titular del parte anterior, outcomes medidos de la semana) → el LLM narra "qué cambió / qué sigue igual / qué funcionó" (fallback determinista con las mismas frases). Cada parte se persiste en `commercial.briefing_history` (mig `20260715140000`, UPSERT por día) — memoria narrativa + tool `horus_briefing_history` (13ª tool del chat: "¿qué me dijiste ayer?"). Tablero: chips comparativos (+N nuevos / N resueltos / ▲▼ pts vs semana).
+>
+> **HIQ.3a ✅ en código** — presupuesto de visión por env: `HORUS_VISION_MAX_PER_RUN` (on-demand, default 12), `HORUS_VISION_NIGHT_BUDGET` (cron, default 20), `HORUS_VISION_CONCURRENCY` (default 4). Para cerrar el backlog: setear budget alto unos días y volver al default.
 >
 > **HIQ.0 ✅ en código** — "Pregúntale a Horus": réplica por dominio del loop ReAct de Thot (`libs/trade/.../horus-chat/`: `horus-semantic.ts` + `horus-tools.service.ts` con 12 tools read-only sobre los servicios existentes + `horus-chat.service.ts`), endpoints `POST /supervisor-ai/chat` + `/chat/feedback`, bitácora `commercial.horus_chat_log` (mig `20260715120000`, RLS, feedback 👍/👎), página `/dashboard/supervisor-ai/chat` (réplica UX del chat de Thot con votos) + botón ember en el tablero. Modelos: Haiku default + Sonnet think (`HORUS_CHAT_MODEL`/`HORUS_CHAT_THINK_MODEL`, fallback a los de Thot). Curaduría dinámica de few-shot (promover 👍) DIFERIDA — few-shot estático inicial.
 >
