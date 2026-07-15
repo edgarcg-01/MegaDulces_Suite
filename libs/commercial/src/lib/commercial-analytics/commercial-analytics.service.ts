@@ -2486,12 +2486,14 @@ export class CommercialAnalyticsService {
       // → null y la UI muestra "—". Caja suele venir sin factor (c84=0) → "—".
       const unitSale = String(r.unit_sale ?? '').trim().toUpperCase();
       const pieceUnit = unitSale === '' || unitSale === 'PZA' || unitSale === 'PZAS' || unitSale === 'PIEZA' || unitSale === 'PZ';
-      // packF/boxF ESTRICTOS del catálogo de etiquetas (pack_size=PAQ, box_size=CJA,
-      // ya mapeados por etiqueta en import-label-data). Sin fallback a factor_sale
-      // (que es ambiguo: para el 75% del catálogo el "factor de venta" es la CAJA,
-      // no el paquete). Null → la columna muestra "—".
+      // packF (PAQ) = pack_size del catálogo de etiquetas (estricto). boxF (CJA) =
+      // box_size de etiquetas, y si falta CAE a factor_sale — el mismo factor con que
+      // se calcula "Costo x Caja" (cost_per_case = cost × factor_sale). Antes boxF era
+      // estricto de etiquetas → un producto SIN etiqueta mostraba Costo x Caja $565.20
+      // pero Pz/Cja y Exist. Cja en "—" (incoherente; caso 83769 GUSTINOS /20KG).
       const packF = Number(r.pack_size) > 0 ? Number(r.pack_size) : 0;
-      const boxF = Number(r.box_size) > 0 ? Number(r.box_size) : 0;
+      const boxF = Number(r.box_size) > 0 ? Number(r.box_size)
+        : (Number(r.factor_sale) > 0 ? Number(r.factor_sale) : 0);
       const existPaquete = pieceUnit && packF > 0 ? round(existPaq / packF, 2) : null;
       const existCaja = pieceUnit && boxF > 0 ? round(existPaq / boxF, 2) : null;
       const ventaPaquetes = pieceUnit && packF > 0 ? round(ventaTotal / packF, 2) : null;
@@ -2509,7 +2511,7 @@ export class CommercialAnalyticsService {
         uxc: r.factor_sale != null ? Number(r.factor_sale) : null,
         unit_sale: r.unit_sale ?? null,
         pack_size: r.pack_size != null ? Number(r.pack_size) : null,
-        box_size: r.box_size != null && Number(r.box_size) > 0 ? Number(r.box_size) : null,
+        box_size: boxF > 0 ? boxF : null, // etiqueta box_size, o factor_sale de fallback (coherente con Costo x Caja)
         supplier: r.supplier ?? null,
         brand: r.brand ?? null,
         categoria: r.categoria ?? null,

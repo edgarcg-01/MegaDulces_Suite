@@ -116,7 +116,7 @@ const MES: Record<string, string> = {
                   <th scope="col" pFrozenColumn style="min-width:110px" pSortableColumn="sku">Clave <p-sortIcon field="sku" /></th>
                   <th scope="col" pFrozenColumn style="min-width:240px" pSortableColumn="nombre">Descripción <p-sortIcon field="nombre" /></th>
                   <th scope="col" class="comm-num" pSortableColumn="pack_size" pTooltip="Piezas por paquete (Kepler c81)">Pz/Paq <p-sortIcon field="pack_size" /></th>
-                  <th scope="col" class="comm-num" pSortableColumn="box_size" pTooltip="Piezas por caja (Kepler c84)">Pz/Cja <p-sortIcon field="box_size" /></th>
+                  <th scope="col" class="comm-num" pSortableColumn="box_size" pTooltip="Piezas por caja (etiqueta c84, o factor de venta) — la unidad con que se calcula Costo x Caja">Pz/Cja <p-sortIcon field="box_size" /></th>
                   <th scope="col" pSortableColumn="unit_sale">Unidad <p-sortIcon field="unit_sale" /></th>
                   <th scope="col" pSortableColumn="brand">Marca <p-sortIcon field="brand" /></th>
                   <th scope="col" pSortableColumn="categoria">Categoría <p-sortIcon field="categoria" /></th>
