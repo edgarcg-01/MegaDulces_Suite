@@ -61,7 +61,7 @@ Leyenda: ✅ existe/reutilizable · 🔨 hecho este sprint · ⬜ por construir 
 | 15 | **Contabilidad electrónica** (XML catálogo + balanza + pólizas SAT) | ✅⏳ | **FISCAL.9 hecho (catálogo + balanza).** `ContabilidadElectronicaService` genera **Balanza BCE 1.3** (SaldoIni=Σneto previos del ejercicio, SaldoFin=SaldoIni+Debe−Haber, validado) + **Catálogo 1.3** desde `analytics.ledger_monthly`. `/fiscal/contabilidad-electronica/{balanza,catalogo}`. ⚠️ `CodAgrupador` = placeholder (falta mapeo SAT). Pólizas XML (PLZ) diferido. |
 | 16 | **DIOT** (Declaración Informativa de Operaciones con Terceros) | ✅ | **FISCAL.8.1 hecho.** `DiotService.build(period)` desde `fiscal.cfdis` recibidas con **IVA efectivamente pagado** (PUE en emisión / PPD prorrateado al pagarse el REP). Renglón por proveedor + tipo_tercero (04/05/15). `/fiscal/diot`. Perm `FISCAL_DIOT_VER`. |
 | 17 | **Conciliación de IVA** (acreditable vs trasladado, efectivamente pagado) | ✅ | **FISCAL.8.1 hecho.** `DiotService.ivaResumen(period)`: acreditable (recibidas pagado) vs trasladado (emitidas cobrado) → IVA a cargo/favor. `/fiscal/diot/iva`. Cálculo PUE/PPD flujo formalizado. |
-| 18 | **Impuestos provisionales** (ISR/IVA mensual) | ⬜ | Cierre fiscal mensual. |
+| 18 | **Impuestos provisionales** (ISR/IVA mensual) | ✅⏳ | **FISCAL.18 hecho.** `ImpuestosService.pagoProvisional(period, {cu,...})`: ISR = ingresos nominales acum (balanza fam 4) × coeficiente de utilidad × 30% − pagos previos − retenciones; IVA reusa `DiotService`. `/fiscal/impuestos/provisional`. **⚠️ Cálculo de apoyo — validar con contador; CU es input del ejercicio anterior.** Validado vs prod (ingresos Ene-Jul $387M). |
 
 ### Capa 5 — Gestión documental
 
@@ -69,7 +69,7 @@ Leyenda: ✅ existe/reutilizable · 🔨 hecho este sprint · ⬜ por construir 
 |---|--------|--------|--------------|
 | 19 | **Object Storage** (XML WORM + evidencias) | ✅⏳ | Cloudinary ya en uso; evaluar S3/Object Lock para XML legal (retención 5 años). |
 | 20 | **Generación de PDF** (representación impresa + expedientes) | ⬜ | SDD Fase 5. jsPDF/PDFKit ya se usa en logística. |
-| 21 | **Expediente de materialidad** (evidencia foto anexa) | ⬜ | Clave para defender operaciones con proveedores EFOS. |
+| 21 | **Expediente de materialidad** | ✅⏳ | **FISCAL.10.1 hecho.** `MaterialidadService.buildDossier(rfc)`: listas SAT + CFDIs + estatus + **cadena de suministro** (orden→recepción→factura→pago de `expense_doc_chain`; recepción física = evidencia) + veredicto heurístico. `/fiscal/materialidad/:rfc`. **Validado contra prod real** (DISTRIBUIDORA DE LA ROSA: 390 ops, 95% recepción → SÓLIDA). Evidencia foto anexa + PDF diferido (frontend con jsPDF). |
 
 ### Capa 6 — Inteligencia (AI) y motor de patrones
 
@@ -106,9 +106,9 @@ Leyenda: ✅ existe/reutilizable · 🔨 hecho este sprint · ⬜ por construir 
 9. **FISCAL.7 — Detectores fiscales nuevos en Maat** ⬜ — CFDI sin póliza, IVA descuadrado, etc.
 10. **FISCAL.8 — DIOT + conciliación IVA** ✅ *(FISCAL.8.1 código; falta DB + data CFDI)* — `DiotService` desde `fiscal.cfdis` con IVA **efectivamente pagado** (PUE emisión / PPD prorrateado al pagar REP). `/fiscal/diot` (DIOT por proveedor) + `/fiscal/diot/iva` (acreditable vs trasladado → a cargo/favor). Perm `FISCAL_DIOT_VER` (mig `20260714170500`, solo permiso). Sin tabla nueva.
 11. **FISCAL.9 — Contabilidad electrónica (XMLs SAT)** ✅ *(catálogo + balanza; código; falta DB + mapeo CodAgrupador SAT)* — `ContabilidadElectronicaService` genera Balanza BCE 1.3 + Catálogo 1.3 desde `analytics.ledger_monthly`. Saldos calculados + validados. `/fiscal/contabilidad-electronica/*`. Perm `FISCAL_CONTAB_VER` (mig `20260714170600`). Pólizas XML (PLZ) diferido.
-12. **FISCAL.10 — Documental: PDF (R2 Bucket Locks) + expediente de materialidad** ⬜.
+12. **FISCAL.10 — Documental: expediente de materialidad** ✅ *(FISCAL.10.1; validado vs prod real)* — `MaterialidadService.buildDossier(rfc)` (listas + CFDIs + cadena orden→recepción→factura→pago + veredicto). `/fiscal/materialidad/:rfc`. PDF representación impresa + evidencia foto anexa diferidos.
 
-**Ruta crítica:** FISCAL.2 (bóveda) ✅ → FISCAL.3 (job runner) ✅ → FISCAL.4 (descarga) ✅ → FISCAL.4.2 (parse/almacén) ✅ → FISCAL.5.1 (PUE/PPD↔REP) ✅ → FISCAL.5.2 (CFDI↔póliza) ✅. **Siguiente:** FISCAL.6 (estatus CFDI ante SAT: vigente/cancelado) o FISCAL.8 (DIOT + conciliación IVA). Todo lo de listas (EFOS/69/RFC) corre en paralelo.
+**Ruta crítica:** FISCAL.2 ✅ → FISCAL.3 ✅ → FISCAL.4 ✅ → FISCAL.4.2 ✅ → FISCAL.5.1 ✅ → FISCAL.5.2 ✅ → FISCAL.6 ✅ → FISCAL.8.1 ✅ → FISCAL.9 ✅ → FISCAL.10.1 ✅ → FISCAL.18 ✅. **BACKEND FISCAL COMPLETO (beta).** Aplicado dev (localhost:5433) + Railway prod (8 migs). Diferidos (menores): PDF representación impresa (frontend jsPDF), pólizas XML (PLZ), evidencia foto en materialidad, mapeo CodAgrupador SAT. Pendiente operacional: rotar creds Railway, redeploy API, envs (`FISCAL_CRYPTO_KEY`/`FISCAL_R2_*`), correr descarga, validar 2 firmas WS en sandbox, frontend.
 
 ---
 

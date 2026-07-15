@@ -19,6 +19,30 @@ export const FINANZAS_TABS: PageTab[] = [
     permission: Permission.FINANCE_AI_CHAT,
   },
   {
+    label: 'Listas SAT',
+    route: '/finanzas/listas-sat',
+    icon: 'pi pi-shield',
+    permission: Permission.FISCAL_LISTAS_VER,
+  },
+  {
+    label: 'CFDI',
+    route: '/finanzas/cfdi',
+    icon: 'pi pi-file',
+    permission: Permission.FISCAL_CFDI_VER,
+  },
+  {
+    label: 'Conciliación',
+    route: '/finanzas/conciliacion',
+    icon: 'pi pi-check-square',
+    permission: Permission.FISCAL_CONCILIACION_VER,
+  },
+  {
+    label: 'DIOT / IVA',
+    route: '/finanzas/diot',
+    icon: 'pi pi-percentage',
+    permission: Permission.FISCAL_DIOT_VER,
+  },
+  {
     label: 'Solicitudes de gasto',
     route: '/finanzas/solicitudes',
     icon: 'pi pi-file-edit',

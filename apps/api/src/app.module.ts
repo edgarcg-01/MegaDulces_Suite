@@ -104,6 +104,8 @@ import { FiscalConciliacionModule } from '@megadulces/fiscal';
 import { FiscalDiotModule } from '@megadulces/fiscal';
 import { FiscalEstatusModule } from '@megadulces/fiscal';
 import { FiscalContabilidadModule } from '@megadulces/fiscal';
+import { FiscalMaterialidadModule } from '@megadulces/fiscal';
+import { FiscalImpuestosModule } from '@megadulces/fiscal';
 import { ReconciliationModule } from '@megadulces/reconciliation';
 // MAAT.9 (3.0 P2) — binding del Port de notificación de Maat → canal de alertas commercial.
 import { FinanceNotifierBindingModule } from './composition/finance-notifier.binding.module';
@@ -179,6 +181,8 @@ const multitenantModules = process.env.ENABLE_MULTITENANT === 'true'
       FiscalDiotModule,
       FiscalEstatusModule,
       FiscalContabilidadModule,
+      FiscalMaterialidadModule,
+      FiscalImpuestosModule,
       FiscalDescargaModule,
       ReconciliationModule,
     ]

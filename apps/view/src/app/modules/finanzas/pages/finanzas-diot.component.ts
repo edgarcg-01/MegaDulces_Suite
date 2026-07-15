@@ -1,0 +1,138 @@
+import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, inject, signal } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { CommonModule } from '@angular/common';
+import { FormsModule } from '@angular/forms';
+import { ButtonModule } from 'primeng/button';
+import { TableModule } from 'primeng/table';
+import { ToastModule } from 'primeng/toast';
+import { MessageService } from 'primeng/api';
+import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
+import { FINANZAS_TABS } from '../finanzas-tabs';
+import { DiotService, DiotRow, DiotResult, IvaResumen } from '../diot.service';
+
+/**
+ * FISCAL.8.1 — DIOT + resumen de IVA (Operations). Selector de periodo (YYYY-MM),
+ * resumen de IVA (acreditable/trasladado → a cargo/favor, con flujo efectivo
+ * PUE/PPD) + DIOT por proveedor. Se llena al poblar fiscal.cfdis.
+ */
+@Component({
+  selector: 'app-finanzas-diot',
+  standalone: true,
+  imports: [CommonModule, FormsModule, ButtonModule, TableModule, ToastModule, PageTabsComponent],
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  providers: [MessageService],
+  template: `
+    <div class="surf-page in">
+      <p-toast></p-toast>
+      <app-page-tabs [tabs]="tabs" />
+
+      <header class="surf-page-head di-head">
+        <div class="surf-page-head-text">
+          <h1>DIOT / IVA</h1>
+          <p class="surf-page-sub">Operaciones con terceros e IVA con flujo efectivo (PUE en emisión, PPD al pagarse el REP). Cálculo determinista sobre los CFDI recibidos/emitidos.</p>
+        </div>
+        <div class="di-head-actions">
+          <label class="di-period"><span>Periodo</span><input type="month" [(ngModel)]="period" (change)="reload()" aria-label="Periodo (mes)" /></label>
+          <button pButton type="button" label="Actualizar" icon="pi pi-refresh" class="p-button-sm p-button-outlined" [loading]="loading()" (click)="reload()"></button>
+        </div>
+      </header>
+
+      @if (iva(); as v) {
+        <div class="di-kpis">
+          <div class="di-kpi"><span class="di-kpi-val">{{ money(v.iva_trasladado) }}</span><span class="di-kpi-lbl">IVA trasladado (cobrado)</span></div>
+          <div class="di-kpi"><span class="di-kpi-val">{{ money(v.iva_acreditable) }}</span><span class="di-kpi-lbl">IVA acreditable (pagado)</span></div>
+          <div class="di-kpi" [class.bad]="v.iva_a_cargo > 0"><span class="di-kpi-val">{{ money(v.iva_a_cargo) }}</span><span class="di-kpi-lbl">IVA a cargo</span></div>
+          <div class="di-kpi" [class.ok]="v.iva_a_favor > 0"><span class="di-kpi-val">{{ money(v.iva_a_favor) }}</span><span class="di-kpi-lbl">IVA a favor</span></div>
+        </div>
+      }
+
+      <div class="card-premium card-flat">
+        <div class="di-card-head">
+          <h3 class="di-card-title">DIOT — operaciones con terceros @if (diot(); as d) { <span class="muted">· {{ d.totales.proveedores | number }} proveedores · IVA {{ money(d.totales.iva16) }}</span> }</h3>
+        </div>
+        <p-table [value]="rows()" styleClass="p-datatable-sm di-table" [rowHover]="true" [loading]="loading()" [scrollable]="true" scrollHeight="520px" [paginator]="rows().length > 50" [rows]="50">
+          <ng-template pTemplate="header">
+            <tr>
+              <th>Proveedor</th>
+              <th style="width:6rem">Tercero</th>
+              <th style="width:5rem">Op.</th>
+              <th class="ta-r" style="width:10rem">Base</th>
+              <th class="ta-r" style="width:9rem">IVA 16%</th>
+              <th class="ta-r" style="width:9rem">IVA ret.</th>
+              <th class="ta-r" style="width:5rem">CFDI</th>
+            </tr>
+          </ng-template>
+          <ng-template pTemplate="body" let-r>
+            <tr>
+              <td><div class="di-name">{{ r.nombre || r.rfc }}</div><div class="di-rfc mono">{{ r.rfc }}</div></td>
+              <td><span class="di-tag">{{ terceroLabel(r.tipo_tercero) }}</span></td>
+              <td class="mono">{{ r.tipo_operacion }}</td>
+              <td class="ta-r mono">{{ money(r.base) }}</td>
+              <td class="ta-r strong mono">{{ money(r.iva16) }}</td>
+              <td class="ta-r mono">{{ money(r.iva_retenido) }}</td>
+              <td class="ta-r mono">{{ r.num_cfdis | number }}</td>
+            </tr>
+          </ng-template>
+          <ng-template pTemplate="emptymessage"><tr><td colspan="7" class="di-empty">
+            @if (loading()) { Cargando… }
+            @else if (errored()) { <i class="pi pi-exclamation-triangle"></i> No se pudo calcular la DIOT. <button pButton type="button" label="Reintentar" class="p-button-sm p-button-text" (click)="reload()"></button> }
+            @else { <i class="pi pi-inbox"></i> Sin operaciones con terceros en {{ period }}. Se llena al correr la <strong>descarga masiva</strong> de CFDI. }
+          </td></tr></ng-template>
+        </p-table>
+      </div>
+    </div>
+  `,
+  styles: [`
+    :host { display: block; }
+    .di-head { display: flex; align-items: flex-start; gap: 1rem; }
+    .di-head-actions { margin-left: auto; display: flex; gap: .5rem; align-items: flex-end; }
+    .di-period { display: flex; flex-direction: column; gap: .15rem; font-size: .68rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: .03em; }
+    .di-period input { border: 1px solid var(--border-color); border-radius: var(--r-sm, 8px); padding: .35rem .5rem; background: var(--card-bg); color: var(--text-main); font-family: var(--font-mono, monospace); }
+    .di-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: .75rem; margin-bottom: 1rem; }
+    .di-kpi { border: 1px solid var(--border-color); border-radius: var(--r-md, 10px); padding: .75rem 1rem; background: var(--card-bg); }
+    .di-kpi.bad { border-color: color-mix(in srgb, var(--bad-fg, #dc2626) 40%, var(--border-color)); }
+    .di-kpi.ok { border-color: color-mix(in srgb, var(--ok-fg, #16a34a) 40%, var(--border-color)); }
+    .di-kpi-val { display: block; font-size: 1.3rem; font-weight: 800; font-variant-numeric: tabular-nums; color: var(--text-main); font-family: var(--font-mono, ui-monospace, monospace); }
+    .di-kpi-lbl { display: block; font-size: .7rem; text-transform: uppercase; letter-spacing: .03em; color: var(--text-muted); margin-top: .15rem; }
+    .di-card-head { padding: .75rem 1rem .25rem; }
+    .di-card-title { margin: 0; font-size: .85rem; font-weight: 700; color: var(--text-main); }
+    .muted { color: var(--text-muted); font-weight: 400; }
+    .di-table { font-variant-numeric: tabular-nums; }
+    .ta-r { text-align: right; } .strong { font-weight: 700; }
+    .mono { font-family: var(--font-mono, ui-monospace, monospace); font-size: .85em; }
+    .di-name { font-weight: 600; color: var(--text-main); max-width: 32ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .di-rfc { color: var(--text-muted); margin-top: .05rem; }
+    .di-tag { display: inline-block; padding: .08rem .5rem; border-radius: var(--r-pill, 999px); font-size: .7rem; font-weight: 600; background: var(--surface-hover-bg, #f5f5f4); color: var(--text-muted); }
+    .di-empty { padding: 2.5rem 1rem; text-align: center; color: var(--text-muted); }
+    .di-empty .pi { display: block; font-size: 1.5rem; margin-bottom: .5rem; opacity: .6; }
+  `],
+})
+export class FinanzasDiotComponent implements OnInit {
+  readonly tabs = FINANZAS_TABS;
+  private readonly svc = inject(DiotService);
+  private readonly toast = inject(MessageService);
+  private readonly destroyRef = inject(DestroyRef);
+
+  period = this.currentMonth();
+  readonly diot = signal<DiotResult | null>(null);
+  readonly iva = signal<IvaResumen | null>(null);
+  readonly rows = signal<DiotRow[]>([]);
+  readonly loading = signal(false);
+  readonly errored = signal(false);
+
+  ngOnInit() { this.reload(); }
+
+  reload() {
+    if (!/^\d{4}-\d{2}$/.test(this.period)) { this.toast.add({ severity: 'warn', summary: 'Periodo inválido', detail: 'Elige un mes válido.' }); return; }
+    this.loading.set(true); this.errored.set(false);
+    this.svc.build(this.period).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (d) => { this.diot.set(d); this.rows.set(d.rows); this.loading.set(false); },
+      error: () => { this.loading.set(false); this.errored.set(true); this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo calcular la DIOT.' }); },
+    });
+    this.svc.iva(this.period).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (v) => this.iva.set(v), error: () => {} });
+  }
+
+  private currentMonth(): string { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`; }
+  terceroLabel(t: string): string { return t === '04' ? 'Nacional' : t === '05' ? 'Extranjero' : t === '15' ? 'Global' : t; }
+  money(v: number | string | null | undefined): string { return (Number(v ?? 0) || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 }); }
+}

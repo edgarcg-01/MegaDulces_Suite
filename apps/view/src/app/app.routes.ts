@@ -242,6 +242,26 @@ export const routes: Routes = [
         loadComponent: () => import('./modules/finanzas/pages/finanzas-hallazgos.component').then(m => m.FinanzasHallazgosComponent),
         canActivate: [permissionGuard(Permission.FINANCE_AI_CHAT)]
       },
+      {
+        path: 'listas-sat',
+        loadComponent: () => import('./modules/finanzas/pages/finanzas-listas-sat.component').then(m => m.FinanzasListasSatComponent),
+        canActivate: [permissionGuard(Permission.FISCAL_LISTAS_VER)]
+      },
+      {
+        path: 'cfdi',
+        loadComponent: () => import('./modules/finanzas/pages/finanzas-cfdi.component').then(m => m.FinanzasCfdiComponent),
+        canActivate: [permissionGuard(Permission.FISCAL_CFDI_VER)]
+      },
+      {
+        path: 'conciliacion',
+        loadComponent: () => import('./modules/finanzas/pages/finanzas-conciliacion.component').then(m => m.FinanzasConciliacionComponent),
+        canActivate: [permissionGuard(Permission.FISCAL_CONCILIACION_VER)]
+      },
+      {
+        path: 'diot',
+        loadComponent: () => import('./modules/finanzas/pages/finanzas-diot.component').then(m => m.FinanzasDiotComponent),
+        canActivate: [permissionGuard(Permission.FISCAL_DIOT_VER)]
+      },
     ]
   },
   // ── Proyecto Compras (Fase RA — ADR-030) ────────────────────────────

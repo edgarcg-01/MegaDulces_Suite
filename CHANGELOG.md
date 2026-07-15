@@ -10,6 +10,26 @@
 
 ## [Unreleased]
 
+### Added — Fase FISCAL: frontend (proyecto Finanzas, surface Operations) (2026-07-15)
+- **Foundation:** 5 permisos fiscales nuevos en el enum frontend (`FISCAL_CFDI_VER`, `FISCAL_CONCILIACION_VER`, `FISCAL_DIOT_VER`, `FISCAL_CONTAB_VER`, `FISCAL_DESCARGA_VER/GESTIONAR`, `FISCAL_CREDENCIALES_GESTIONAR`) + `permission-meta` (labels/categoría Finanzas) + `authz-tree` (nodos bajo Finanzas). 4 tabs nuevos en `FINANZAS_TABS` + 4 rutas en `/finanzas/*` con `permissionGuard`.
+- **3 páginas nuevas + wire de Listas SAT** (Operations: page-head Hanken, `p-table` sm, Geist Mono + `tabular-nums`, quiet-luxury monocromático con sunset solo en activo, tokens canónicos, `:host{display:block}`, matriz de estados loading/empty/error con empty≠error, dark first-class por tokens que flipean):
+  - **CFDI** (`/finanzas/cfdi`) — almacén 4.0: KPIs (CFDI/monto/IVA/PPD) + filtros (rol/tipo/fechas/búsqueda) + tabla densa con paginación lazy server-side; estatus SAT como badge semántico.
+  - **Conciliación** (`/finanzas/conciliacion`) — dos vistas: REP (PPD sin REP / saldo insoluto) y Cruce CFDI↔póliza (gastos sin CFDI / CFDI sin registrar), con KPIs por vista.
+  - **DIOT / IVA** (`/finanzas/diot`) — selector de periodo + resumen de IVA (trasladado/acreditable → a cargo/favor) + DIOT por proveedor (tercero/operación/base/IVA).
+  - **Listas SAT** (`/finanzas/listas-sat`) — ya existía, ahora **ruteada + en tabs** (estaba huérfana).
+- Empty-states honestos: "se llena al correr la descarga masiva" (fiscal.cfdis vacío = esperado, no error). **Verificado:** `nx build view --skip-nx-cache` producción verde. **Pendiente:** verificación visual (light/dark/móvil) — requiere servir el build; páginas de descarga/materialidad/contabilidad-XML/credenciales/impuestos-provisionales quedan como siguiente slice de frontend.
+
+### Added — Fase FISCAL (FISCAL.18): impuestos provisionales ISR + IVA (2026-07-15)
+- **`ImpuestosService.pagoProvisional`** (`libs/fiscal/impuestos`): cálculo de apoyo del pago provisional mensual. **ISR** (Art. 14 LISR) = ingresos nominales acumulados del ejercicio (balanza `analytics.ledger_monthly` familia 4, abonos−cargos) × **coeficiente de utilidad** × tasa (30%) − PTU − pérdidas − pagos provisionales previos − ISR retenido. **IVA** reusa `DiotService.ivaResumen` (flujo efectivo PUE/PPD). Devuelve ISR + IVA + total a pagar.
+- El **coeficiente de utilidad es un input obligatorio** (viene de la declaración anual del ejercicio anterior; no se puede derivar de la contabilidad corriente). `GET /fiscal/impuestos/provisional?period=YYYY-MM&cu=…&ptu=&perdidas=&pagos_previos=&retenido=`. Permiso `FISCAL_DIOT_VER`.
+- **⚠️ Cálculo de APOYO — validar con contador antes de declarar** (la respuesta incluye esta nota). **Validado vs prod:** ingresos Ene-Jul 2026 = $387M (familia 4, ~$55M/mes, consistente con la venta anual ~$671M); aritmética ISR correcta (base×tasa).
+- **Con esto el backend fiscal queda completo (beta):** capas 1-7 del mapa. Diferidos menores: PDF representación impresa, pólizas XML (PLZ), evidencia foto en materialidad, mapeo `CodAgrupador` SAT.
+
+### Added — Fase FISCAL (FISCAL.10.1): expediente de materialidad por proveedor (2026-07-15)
+- **`MaterialidadService`** (`libs/fiscal/materialidad`): arma el expediente de defensa de un proveedor (clave si es EFOS). Reúne, determinista: estatus en listas SAT (EFOS 69-B/Art.69, `fiscal.sat_list_matches`), CFDIs recibidos + cancelados (`fiscal.cfdis`), y la **cadena de suministro** (orden→recepción→factura→pago de `analytics.expense_doc_chain` — la recepción física es la evidencia más fuerte de materialidad) + operaciones/monto (`analytics.expense_documents`). Emite un **veredicto heurístico** (crítico/revisar/parcial/sólida).
+- **API** `GET /fiscal/materialidad/:rfc`. Permiso `FISCAL_LISTAS_VER` (defensa EFOS = dominio listas). Sin tablas nuevas.
+- **Validado contra prod REAL:** expediente de DISTRIBUIDORA DE LA ROSA (DRO020122GZ9): 390 operaciones, $52.5M, 371 cadenas con **95% de recepción física → veredicto SÓLIDA**. CFDIs/listas vacíos hasta correr descarga/ingesta (degradación correcta). El backend devuelve el expediente en JSON; el PDF y la evidencia foto anexa quedan al frontend (jsPDF).
+
 ### Deployed (Railway prod) — Fase FISCAL: 8 migraciones fiscales aplicadas a producción (2026-07-15)
 - Aplicadas a **Railway prod** (`trolley.proxy.rlwy.net/railway`) vía `knex migrate:up` una por una (batches 114-121) las **8 migraciones fiscales** (`160000`–`170600`). **Solo fiscales:** las 2 migraciones de Horus pendientes (`horus_chat_log`, `execution_thresholds_auto`, de otro thread) se dejaron **sin aplicar** deliberadamente (no deployar trabajo ajeno como efecto secundario).
 - **Validación prod:** 11 tablas `fiscal.*` + RLS FORCE + 8 políticas + permisos en 36/36 roles + fix crítico FISCAL.3 verificado en tabla real (sin 42P10, job de prueba limpiado) + balanza FISCAL.9 contra `analytics.ledger_monthly` prod (jul-2026, 176 cuentas, cuadra).

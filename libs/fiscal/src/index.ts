@@ -49,3 +49,11 @@ export * from './lib/estatus/sat-estatus.port';
 // FISCAL.9 = contabilidad electrónica (XMLs SAT: catálogo + balanza).
 export * from './lib/contabilidad/fiscal-contabilidad.module';
 export * from './lib/contabilidad/contabilidad-electronica.service';
+
+// FISCAL.10.1 = expediente de materialidad por proveedor.
+export * from './lib/materialidad/fiscal-materialidad.module';
+export * from './lib/materialidad/materialidad.service';
+
+// FISCAL.18 = impuestos provisionales (ISR + IVA mensual).
+export * from './lib/impuestos/fiscal-impuestos.module';
+export * from './lib/impuestos/impuestos.service';

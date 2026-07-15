@@ -133,6 +133,13 @@ export const PERMISSION_META: Record<string, PermissionMetaEntry> = {
   [Permission.FINANCE_FINDINGS_GESTIONAR]: { label: 'Gestionar Hallazgos y Conocimiento', description: 'Confirmar/descartar hallazgos del motor de patrones y curar la base de conocimiento de Maat.', category: 'Finanzas' },
   [Permission.FISCAL_LISTAS_VER]: { label: 'Ver Listas SAT (EFOS 69-B / Art. 69)', description: 'Proyecto Finanzas: bandeja de proveedores del tenant que aparecen en las listas negras del SAT (EFOS 69-B, Art. 69) y RFCs con problema estructural, con drill a documentos.', category: 'Finanzas' },
   [Permission.FISCAL_LISTAS_GESTIONAR]: { label: 'Gestionar Listas SAT', description: 'Triage de coincidencias EFOS/Art.69, disparar el cruce/validación y refrescar las listas del SAT.', category: 'Finanzas' },
+  [Permission.FISCAL_CFDI_VER]: { label: 'Ver CFDI', description: 'Almacén de CFDI 4.0 descargados del SAT: cabecera, impuestos, método de pago, estatus.', category: 'Finanzas' },
+  [Permission.FISCAL_CONCILIACION_VER]: { label: 'Ver Conciliación fiscal', description: 'Conciliación PUE/PPD ↔ REP (saldo insoluto, PPD sin complemento de pago) y CFDI ↔ póliza contable.', category: 'Finanzas' },
+  [Permission.FISCAL_DIOT_VER]: { label: 'Ver DIOT / IVA', description: 'DIOT (operaciones con terceros) y conciliación de IVA con flujo efectivo (PUE/PPD).', category: 'Finanzas' },
+  [Permission.FISCAL_CONTAB_VER]: { label: 'Ver Contabilidad electrónica', description: 'Generar los XML que exige el SAT: catálogo de cuentas y balanza de comprobación.', category: 'Finanzas' },
+  [Permission.FISCAL_DESCARGA_VER]: { label: 'Ver Descarga masiva CFDI', description: 'Bandeja de solicitudes de descarga masiva de CFDI ante el SAT (estado + paquetes).', category: 'Finanzas' },
+  [Permission.FISCAL_DESCARGA_GESTIONAR]: { label: 'Gestionar Descarga masiva CFDI', description: 'Crear solicitudes de descarga masiva de CFDI (dispara el pipeline con la e.firma).', category: 'Finanzas' },
+  [Permission.FISCAL_CREDENCIALES_GESTIONAR]: { label: 'Gestionar credenciales SAT (e.firma)', description: 'Alta/baja de la e.firma del contribuyente en la bóveda cifrada (muy sensible).', category: 'Finanzas' },
 
   // ── Supervisor de Movimientos (cuadre) — ADR-029 ──────────────────────
   [Permission.RECONCILIATION_VER]: { label: 'Ver Cuadre de Movimientos', description: 'Bandeja de descuadres del supervisor: caja (arqueos), inventario y cruces. Solo lectura.', category: 'Almacén' },

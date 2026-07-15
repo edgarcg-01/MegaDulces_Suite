@@ -112,24 +112,60 @@ const COLS = [
           'postgresql://platform_ro:kepler123@192.168.44.44:5432/md_04',
           'postgresql://platform_ro:kepler123@192.168.54.54:5432/md_05',
         ];
+    // OVERLAY VIVO (todo el catálogo, no solo altas): costo unitario CIVA = kdik.c16
+    // (validado 2026-07-14 vs la regla de precio de la casa: c90 = c16 × 1.2333, exacto
+    // en 99651/62064/70307), barcode = kdii.c7, unidad venta = kdii.c11, pzas/caja = c84.
+    // El costo se toma por MODA entre sucursales (el kdik del CEDIS trae basura de
+    // valuación, ej. 0.00016 en SKUs con costo real $114).
     const deltaRows = new Map();
+    const liveBySku = new Map(); // sku → { nombre, linea, barcode, unidad, pzsCaja, costos[] }
     for (const burl of KDII_BRANCHES) {
       const k = new Client({ connectionString: burl, connectionTimeoutMillis: 6000 });
+      const suc = (/md_(\d+)/.exec(burl) || [])[1] || '00';
       try {
         await k.connect();
         const { rows } = await k.query(`
           SELECT btrim(i.c1) AS sku, btrim(i.c2) AS nombre, btrim(i.c3::text) AS linea,
-                 btrim(coalesce(i.c7,'')) AS barcode, btrim(coalesce(i.c11,'')) AS unidad
+                 btrim(coalesce(i.c7,'')) AS barcode, btrim(coalesce(i.c11,'')) AS unidad,
+                 i.c84::numeric AS pzs_caja, k.c16::numeric AS costo
           FROM md.kdii i
-          WHERE btrim(coalesce(i.c1,'')) <> '' AND btrim(coalesce(i.c2,'')) <> ''`);
+          LEFT JOIN md.kdik k ON k.c1 = $1 AND k.c2 = i.c1
+          WHERE btrim(coalesce(i.c1,'')) <> '' AND btrim(coalesce(i.c2,'')) <> ''`, [suc]);
         let add = 0;
-        for (const r of rows) if (!knownSkus.has(r.sku) && !deltaRows.has(r.sku)) { deltaRows.set(r.sku, r); add++; }
-        console.log(`  delta kdii (${burl.split('@')[1]}): +${add} SKUs fuera de la consolidación`);
-      } catch (e) { console.log(`  delta kdii ${burl.split('@')[1]}: sin conexión (${e.message})`); } finally { await k.end().catch(() => {}); }
+        for (const r of rows) {
+          let lv = liveBySku.get(r.sku);
+          if (!lv) { lv = { ...r, costos: [] }; liveBySku.set(r.sku, lv); }
+          if (!lv.barcode && r.barcode) lv.barcode = r.barcode;
+          if (!lv.unidad && r.unidad) lv.unidad = r.unidad;
+          if (!(lv.pzs_caja > 0) && r.pzs_caja > 0) lv.pzs_caja = r.pzs_caja;
+          if (r.costo != null && Number(r.costo) > 0) lv.costos.push(Number(r.costo));
+          if (!knownSkus.has(r.sku) && !deltaRows.has(r.sku)) { deltaRows.set(r.sku, r); add++; }
+        }
+        console.log(`  kdii vivo (${burl.split('@')[1]}): ${rows.length} SKUs · +${add} fuera de la consolidación`);
+      } catch (e) { console.log(`  kdii vivo ${burl.split('@')[1]}: sin conexión (${e.message})`); } finally { await k.end().catch(() => {}); }
     }
+    // Moda del costo entre sucursales (4dp). Seguro anti-basura de valuación: con un solo
+    // voto solo se acepta si no hay snapshot o si está a menos de 10× del costo snapshot.
+    const liveCostVotes = (sku) => {
+      const cs = liveBySku.get(sku)?.costos || [];
+      if (!cs.length) return null;
+      const freq = new Map();
+      for (const c of cs) { const k4 = c.toFixed(4); freq.set(k4, (freq.get(k4) || 0) + 1); }
+      let best = null, bestN = 0;
+      for (const [v, n] of freq) if (n > bestN || (n === bestN && Number(v) > Number(best))) { best = v; bestN = n; }
+      return { value: Number(best), votes: bestN };
+    };
+    const liveCost = (sku, snapCost = null) => {
+      const m = liveCostVotes(sku);
+      if (!m) return null;
+      if (m.votes >= 2) return m.value;
+      if (snapCost == null || snapCost <= 0) return m.value;
+      const ratio = m.value / snapCost;
+      return ratio >= 0.1 && ratio <= 10 ? m.value : null;
+    };
 
     // Transformar (mismo mapeo que mega_dulces_sync) + skips.
-    const recs = []; let skipName = 0, skipBrand = 0, deltaAdds = 0;
+    const recs = []; let skipName = 0, skipBrand = 0, deltaAdds = 0, costChanged = 0;
     const resolveBrand = (lineaCode) => {
       let brand_id = brandsByCode.get(lineaCode);
       if (!brand_id) {
@@ -141,9 +177,12 @@ const COLS = [
     for (const d of deltaRows.values()) {
       const brand_id = resolveBrand(clean(d.linea));
       if (!brand_id) { skipBrand++; continue; }
+      const lv = liveBySku.get(d.sku);
+      const cost = liveCost(d.sku);
       recs.push([
         d.sku, clean(d.barcode), brand_id, null, d.nombre, null, null, clean(d.unidad),
-        null, null, null, null, null, null, null, null, null, null, null, null, true,
+        null, null, null, null, cost, cost && lv?.pzs_caja > 0 ? cost * lv.pzs_caja : null,
+        null, null, null, null, null, null, true,
       ]);
       deltaAdds++;
     }
@@ -153,27 +192,37 @@ const COLS = [
       if (!sku || !nombre) { skipName++; continue; }
       const brand_id = resolveBrand(clean(r.subfamilia_codigo));
       if (!brand_id) { skipBrand++; continue; }
+      // Overlay vivo: el costo actual manda sobre el snapshot; barcode/unidad solo rellenan.
+      // Caja: pzas de kdii.c84, o el UXC implícito del snapshot (costo_x_caja/costo_civa) con el costo vivo.
+      const lv = liveBySku.get(sku);
+      const cost = liveCost(sku, numOr(r.costo_civa));
+      const uxc = numOr(r.costo_x_caja) > 0 && numOr(r.costo_civa) > 0 ? Number(r.costo_x_caja) / Number(r.costo_civa) : null;
+      const costPerCase = cost != null ? (lv?.pzs_caja > 0 ? cost * lv.pzs_caja : (uxc ? cost * uxc : null)) : null;
       recs.push([
-        sku, clean(r.codigo_barras), brand_id, catsByCode.get(clean(r.categoria_codigo)) || null,
-        nombre, clean(r.descripcion), clean(r.unidad_compra), clean(r.unidad_venta),
+        sku, clean(r.codigo_barras) || (lv?.barcode || null), brand_id, catsByCode.get(clean(r.categoria_codigo)) || null,
+        nombre, clean(r.descripcion), clean(r.unidad_compra), clean(r.unidad_venta) || (lv?.unidad || null),
         numOr(r.factor_compra), numOr(r.factor_venta),
         r.iva_venta != null ? Number(r.iva_venta)/100 : null, r.ieps_venta != null ? Number(r.ieps_venta)/100 : null,
-        numOr(r.costo_civa), numOr(r.costo_x_caja), numOr(r.costo_matriz),
+        cost ?? numOr(r.costo_civa), costPerCase ?? numOr(r.costo_x_caja), numOr(r.costo_matriz),
         clean(r.ubicacion), clean(r.ubicacion_bodega),
         r.iva_compra != null ? Number(r.iva_compra)/100 : null, r.ieps_compra != null ? Number(r.ieps_compra)/100 : null,
         numOr(r.ptos_frecuencia), r.is_activo === true && r.en_existencia !== false,
       ]);
+      if (cost != null && numOr(r.costo_civa) != null && Math.abs(cost - Number(r.costo_civa)) > 0.005) costChanged++;
     }
     console.log(`  transformados: ${recs.length} (skip sin-nombre: ${skipName}, sin-brand: ${skipBrand})`);
+    console.log(`  overlay costo vivo: ${costChanged} productos con costo distinto al snapshot`);
 
     // STAGING temp + carga en batches.
     await db.query('BEGIN');
     await db.query(`SET LOCAL app.tenant_id = '${M}'`);
-    // Lock upfront de la tabla: el merge toca ~11k rows y deadlockeaba contra los
-    // crons que también escriben products (stock @1min / embeddings @15min). Con
-    // SHARE ROW EXCLUSIVE los otros escritores esperan (segundos) y no hay ciclo.
+    // Lock upfront de la tabla: el merge toca ~12k rows y deadlockeaba contra los
+    // crons que también escriben products. SHARE ROW EXCLUSIVE no bastó: un proceso
+    // con SELECT ... FOR UPDATE (ROW SHARE, compatible) tomaba row-locks y su UPDATE
+    // posterior cerraba el ciclo (deadlock reproducible 2026-07-14 en tuple products).
+    // EXCLUSIVE también frena los FOR UPDATE; los SELECT normales no se bloquean.
     await db.query(`SET LOCAL lock_timeout = '90s'`);
-    await db.query(`LOCK TABLE catalog.products IN SHARE ROW EXCLUSIVE MODE`);
+    await db.query(`LOCK TABLE catalog.products IN EXCLUSIVE MODE`);
     await db.query(`CREATE TEMP TABLE stg2 (${COLS.map((c)=>`${c} text`).join(',')}) ON COMMIT DROP`);
     for (let i = 0; i < recs.length; i += BATCH) {
       const chunk = recs.slice(i, i + BATCH);
