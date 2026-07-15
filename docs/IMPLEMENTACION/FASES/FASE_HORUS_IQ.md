@@ -1,6 +1,12 @@
 # Fase Horus-IQ — Subir la inteligencia del Supervisor AI
 
-> **Estado:** 🔨 DISEÑADO (planeación) 2026-07-15. Sin código aún.
+> **Estado:** 🔨 HIQ.0 + HIQ.2 EN CÓDIGO 2026-07-15 (builds api+view verdes). HIQ.1/3/4/5/6 pendientes.
+>
+> **HIQ.0 ✅ en código** — "Pregúntale a Horus": réplica por dominio del loop ReAct de Thot (`libs/trade/.../horus-chat/`: `horus-semantic.ts` + `horus-tools.service.ts` con 12 tools read-only sobre los servicios existentes + `horus-chat.service.ts`), endpoints `POST /supervisor-ai/chat` + `/chat/feedback`, bitácora `commercial.horus_chat_log` (mig `20260715120000`, RLS, feedback 👍/👎), página `/dashboard/supervisor-ai/chat` (réplica UX del chat de Thot con votos) + botón ember en el tablero. Modelos: Haiku default + Sonnet think (`HORUS_CHAT_MODEL`/`HORUS_CHAT_THINK_MODEL`, fallback a los de Thot). Curaduría dinámica de few-shot (promover 👍) DIFERIDA — few-shot estático inicial.
+>
+> **HIQ.2 ✅ en código + backfill EJECUTADO local** — `database/scripts/horus-backfill-snapshots.js` reconstruyó 1,040 snapshots retroactivos (45 días, idempotente, no pisa los del cron): **82/82 sujetos cruzan el piso de 7 obs → L1 despierta en el próximo compute**. `AdaptiveThresholdsService` (mig `20260715130000`: `auto_tuned_at`+`manual_lock`): umbrales desde percentiles del tenant (p10 score / 1σ trend / p90 dominancia / p90 días) con gate ≥8 sujetos + clamps; wireado en cron + `/compute`. Verificado contra DB local: con muestra insuficiente mantiene defaults (no-op correcto).
+>
+> **Pendiente operacional:** reiniciar API → `POST /supervisor-ai/compute` (repuebla feature store + baselines con la historia backfilleada) → probar `/chat` en vivo (requiere `ANTHROPIC_API_KEY`) + validación visual de la página + aplicar migs `20260715120000/130000` y correr el backfill en prod.
 > **Contexto:** Edgar percibe `/dashboard/supervisor-ai` como "un modelo poco inteligente". La auditoría 2026-07-15 confirma el porqué y este plan lo ataca portando los patrones que hacen inteligente a **Thot** (ADR-016/018/026) al dominio Trade.
 > **No es un rewrite:** Horus cumple correctamente ADR-020 (motor decide / agente comunica / co-piloto). Lo que falta es la capa de inteligencia percibida y despertar el aprendizaje.
 
