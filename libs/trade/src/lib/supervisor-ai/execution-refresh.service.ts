@@ -14,6 +14,7 @@ import { SalesExecutionService } from './sales-execution.service';
 import { RuleCalibrationService } from './rule-calibration.service';
 import { BaselineLearnerService } from './baseline-learner.service';
 import { OutcomeVerifierService } from './outcome-verifier.service';
+import { AdaptiveThresholdsService } from './adaptive-thresholds.service';
 
 /**
  * Horus — orquestador del refresh del feature store (Sprint Horus.0).
@@ -44,6 +45,7 @@ export class ExecutionRefreshService {
     private readonly ruleCalibration: RuleCalibrationService,
     private readonly baselines: BaselineLearnerService,
     private readonly outcomes: OutcomeVerifierService,
+    private readonly adaptiveThresholds: AdaptiveThresholdsService,
   ) {}
 
   // 08:30 UTC = 02:30 America/Mexico_City (después del refresh de Customer360 a las 08:00 UTC).
@@ -81,6 +83,9 @@ export class ExecutionRefreshService {
           // L1 (ADR-021): recomputa baselines por sujeto desde los snapshots → el motor
           // los usa para el z-score (self_anomaly). Activa por sujeto al cruzar el piso.
           await this.baselines.computeForTenant(t.id);
+          // HIQ.2: umbrales contextuales por percentiles del propio tenant (respeta
+          // manual_lock; gate por muestra mínima) — recién entonces emite findings.
+          await this.adaptiveThresholds.computeForTenant(t.id);
           // Motor de findings sobre el feature store recién computado (Horus.1).
           const f = await this.findings.generateForTenant(t.id);
           findingsOpen += f.open;

@@ -31,6 +31,7 @@ import { RuleCalibrationService } from './rule-calibration.service';
 import { BaselineLearnerService } from './baseline-learner.service';
 import { OutcomeVerifierService } from './outcome-verifier.service';
 import { HorusChatService, HorusChatTurn } from './horus-chat/horus-chat.service';
+import { AdaptiveThresholdsService } from './adaptive-thresholds.service';
 import { ListExecution360Dto } from './dto/execution-360-filter.dto';
 import { ListFindingsDto, ReviewFindingDto } from './dto/findings.dto';
 
@@ -61,6 +62,7 @@ export class SupervisorAiController {
     private readonly baselines: BaselineLearnerService,
     private readonly outcomes: OutcomeVerifierService,
     private readonly chat: HorusChatService,
+    private readonly adaptiveThresholds: AdaptiveThresholdsService,
   ) {}
 
   @Post('chat')
@@ -200,6 +202,7 @@ export class SupervisorAiController {
     const featureStore = await this.exec360.computeForTenant(tenantId);
     const calibration = await this.ruleCalibration.computeForTenant(tenantId); // L2: recalibra antes de emitir
     const baselines = await this.baselines.computeForTenant(tenantId); // L1: recomputa baselines (z-score)
+    const thresholds = await this.adaptiveThresholds.computeForTenant(tenantId); // HIQ.2: percentiles del tenant
     const findings = await this.findings.generateForTenant(tenantId);
     const fraud = await this.fraud.generateForTenant(tenantId); // determinista, sin LLM
     const diagnoses = await this.diagnosis.generateForTenant(tenantId); // R1: causa raíz (correlación de findings)
@@ -209,7 +212,7 @@ export class SupervisorAiController {
     const sales_execution = await this.salesExec.generateGapFindings(tenantId); // gateado por volumen de venta
     const snapshot = await this.exec360.snapshotForTenant(tenantId); // captura el estado final (incl. exec_score)
     const outcomes = await this.outcomes.measureForTenant(tenantId); // R4: mide outcomes maduros (cierra el lazo)
-    return { tenant_id: tenantId, feature_store: featureStore, calibration, baselines, findings, fraud, diagnoses, actions, opportunities, scoring, sales_execution, snapshot, outcomes };
+    return { tenant_id: tenantId, feature_store: featureStore, calibration, baselines, thresholds, findings, fraud, diagnoses, actions, opportunities, scoring, sales_execution, snapshot, outcomes };
   }
 
   @Post('vision/scan')

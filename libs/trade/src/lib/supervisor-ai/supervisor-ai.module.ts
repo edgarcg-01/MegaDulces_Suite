@@ -17,6 +17,7 @@ import { BaselineLearnerService } from './baseline-learner.service';
 import { OutcomeVerifierService } from './outcome-verifier.service';
 import { HorusChatService } from './horus-chat/horus-chat.service';
 import { HorusToolsService } from './horus-chat/horus-tools.service';
+import { AdaptiveThresholdsService } from './adaptive-thresholds.service';
 
 /**
  * Horus — Supervisor AI de ejecución (Trade Marketing). Read-only/compute sobre
@@ -45,6 +46,7 @@ import { HorusToolsService } from './horus-chat/horus-tools.service';
     OutcomeVerifierService,
     HorusChatService,
     HorusToolsService,
+    AdaptiveThresholdsService,
   ],
   exports: [Execution360Service, FindingsEngineService],
 })

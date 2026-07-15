@@ -93,7 +93,7 @@ function bucketToRow(b, dayMs) {
 async function main() {
   console.log(`Horus HIQ.2 — backfill de snapshots (${DAYS} días${DRY ? ', DRY RUN' : ''})\n`);
 
-  const tenants = await knex('identity.tenants').where('is_active', true).select('id', 'slug');
+  const tenants = await knex('identity.tenants').where('activo', true).whereNull('deleted_at').select('id', 'slug');
 
   // Trae UNA vez todas las capturas del rango extendido (DAYS + ventana 30).
   const caps = await knex('daily_captures as dc')
