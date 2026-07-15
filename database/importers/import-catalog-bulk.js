@@ -132,7 +132,8 @@ const COLS = [
         const { rows } = await k.query(`
           SELECT btrim(i.c1) AS sku, btrim(i.c2) AS nombre, btrim(i.c3::text) AS linea,
                  btrim(coalesce(i.c7,'')) AS barcode, btrim(coalesce(i.c11,'')) AS unidad,
-                 i.c84::numeric AS pzs_caja, k.c16::numeric AS costo
+                 i.c81::numeric AS pz_paq, i.c84::numeric AS pzs_caja,
+                 i.c90::numeric AS precio_pza, k.c16::numeric AS costo
           FROM md.kdii i
           LEFT JOIN md.kdik k ON k.c1 = $1 AND k.c2 = i.c1
           WHERE btrim(coalesce(i.c1,'')) <> '' AND btrim(coalesce(i.c2,'')) <> ''`, [suc]);
@@ -143,6 +144,8 @@ const COLS = [
           if (!lv.barcode && r.barcode) lv.barcode = r.barcode;
           if (!lv.unidad && r.unidad) lv.unidad = r.unidad;
           if (!(lv.pzs_caja > 0) && r.pzs_caja > 0) lv.pzs_caja = r.pzs_caja;
+          if (!(lv.pz_paq > 0) && r.pz_paq > 0) lv.pz_paq = r.pz_paq;
+          if (!(lv.precio_pza > 0) && r.precio_pza > 0) lv.precio_pza = r.precio_pza;
           if (r.costo != null && Number(r.costo) > 0) lv.costos.push(Number(r.costo));
           if (!knownSkus.has(r.sku) && !deltaRows.has(r.sku)) { deltaRows.set(r.sku, r); add++; }
         }
@@ -184,28 +187,49 @@ const COLS = [
         ieps: ieps.share >= 0.9 ? ieps.rate : null,
       };
     };
-    // Moda del costo entre sucursales (4dp). Seguro anti-basura de valuación: con un solo
-    // voto solo se acepta si no hay snapshot o si está a menos de 10× del costo snapshot.
-    const liveCostVotes = (sku) => {
-      const cs = liveBySku.get(sku)?.costos || [];
-      if (!cs.length) return null;
-      const freq = new Map();
-      for (const c of cs) { const k4 = c.toFixed(4); freq.set(k4, (freq.get(k4) || 0) + 1); }
-      let best = null, bestN = 0;
-      for (const [v, n] of freq) if (n > bestN || (n === bestN && Number(v) > Number(best))) { best = v; bestN = n; }
-      return { value: Number(best), votes: bestN };
+    // Costo vivo por MEDIANA entre sucursales (robusta a la basura de valuación de un
+    // solo kdik: ej. md_00 traía 906.07 en 83780 cuando el clúster real es ~42, y 610.48
+    // en 83785 cuando es ~30). La moda+desempate-al-máximo previa adoptaba justo ese
+    // outlier porque el redondeo por sucursal hace que ningún valor colisione a 4dp y
+    // todos quedan como singletons. Se rechazan valores >4× o <0.25× de la mediana y se
+    // recomputa la mediana de los sobrevivientes.
+    const median = (arr) => {
+      const s = [...arr].sort((a, b) => a - b);
+      const n = s.length;
+      return n % 2 ? s[(n - 1) / 2] : (s[n / 2 - 1] + s[n / 2]) / 2;
     };
-    const liveCost = (sku, snapCost = null) => {
-      const m = liveCostVotes(sku);
-      if (!m) return null;
-      if (m.votes >= 2) return m.value;
-      if (snapCost == null || snapCost <= 0) return m.value;
-      const ratio = m.value / snapCost;
-      return ratio >= 0.1 && ratio <= 10 ? m.value : null;
+    // El SNAPSHOT NO sirve de ancla: contiene la misma basura (83780 traía 906.07 también
+    // en .245). El ancla confiable es la regla de precio de la casa: c90 = costo × 1.2333
+    // (validado), así que costo implícito = c90 / 1.2333. Es un precio de lista (mantenido,
+    // consistente entre sucursales), no un valor de valuación.
+    const HOUSE = 1.2333;
+    const liveCost = (sku) => {
+      const lv = liveBySku.get(sku);
+      const cs = (lv?.costos || []).filter((c) => c > 0);
+      const anchor = lv?.precio_pza > 0 ? Number(lv.precio_pza) / HOUSE : null;
+      if (!cs.length) return anchor; // sin costo vivo → costo implícito del precio (o null)
+      const m0 = median(cs);
+      const kept = cs.filter((c) => c <= m0 * 4 && c >= m0 / 4);
+      let val = median(kept.length ? kept : cs);
+      // Si la mediana viva sigue absurda vs el ancla de precio (>4×/<0.25×), usa el ancla.
+      if (anchor && (val > anchor * 4 || val < anchor / 4)) val = anchor;
+      return val;
+    };
+    // Factor de caja vivo = UNIDAD DE VENTA = paquete (c81), NO la caja máster (c84).
+    // Verificado 2026-07-15: c81 es la caja de venta (salsa→12/24, pasta /20KG→20,
+    // Puratos→4/6, y coincide con el factor_venta del snapshot); c84 es el máster que la
+    // contiene (TIC TAC /12: c81=12, c84=144=12×12; HALLS /12: c81=30, c84=360). Usar c84
+    // inflaba el factor ~12×. Fallback a c84 solo si c81=0 (raro).
+    const liveBox = (sku) => {
+      const lv = liveBySku.get(sku);
+      if (!lv) return null;
+      if (lv.pz_paq > 0) return Number(lv.pz_paq);
+      if (lv.pzs_caja > 0) return Number(lv.pzs_caja);
+      return null;
     };
 
     // Transformar (mismo mapeo que mega_dulces_sync) + skips.
-    const recs = []; let skipName = 0, skipBrand = 0, deltaAdds = 0, costChanged = 0, taxChanged = 0;
+    const recs = []; let skipName = 0, skipBrand = 0, deltaAdds = 0, costChanged = 0, taxChanged = 0, factorChanged = 0, costOutlierFixed = 0, factorOverride1 = 0;
     const resolveBrand = (lineaCode) => {
       let brand_id = brandsByCode.get(lineaCode);
       if (!brand_id) {
@@ -217,12 +241,12 @@ const COLS = [
     for (const d of deltaRows.values()) {
       const brand_id = resolveBrand(clean(d.linea));
       if (!brand_id) { skipBrand++; continue; }
-      const lv = liveBySku.get(d.sku);
       const cost = liveCost(d.sku);
       const tv = liveTax(d.sku);
+      const boxF = liveBox(d.sku);
       recs.push([
         d.sku, clean(d.barcode), brand_id, null, d.nombre, null, null, clean(d.unidad),
-        null, null, tv?.iva ?? null, tv?.ieps ?? null, cost, cost && lv?.pzs_caja > 0 ? cost * lv.pzs_caja : null,
+        null, boxF, tv?.iva ?? null, tv?.ieps ?? null, cost, cost != null && boxF ? cost * boxF : null,
         null, null, null, null, null, null, true,
       ]);
       deltaAdds++;
@@ -234,29 +258,49 @@ const COLS = [
       const brand_id = resolveBrand(clean(r.subfamilia_codigo));
       if (!brand_id) { skipBrand++; continue; }
       // Overlay vivo: el costo actual manda sobre el snapshot; barcode/unidad solo rellenan.
-      // Caja: pzas de kdii.c84, o el UXC implícito del snapshot (costo_x_caja/costo_civa) con el costo vivo.
+      // Caja: factor vivo (c84→c81); el UXC implícito del snapshot es el fallback.
       const lv = liveBySku.get(sku);
-      const cost = liveCost(sku, numOr(r.costo_civa));
+      const cost = liveCost(sku);
       const uxc = numOr(r.costo_x_caja) > 0 && numOr(r.costo_civa) > 0 ? Number(r.costo_x_caja) / Number(r.costo_civa) : null;
-      const costPerCase = cost != null ? (lv?.pzs_caja > 0 ? cost * lv.pzs_caja : (uxc ? cost * uxc : null)) : null;
+      // El factor_venta del snapshot es la caja de VENTA de Kepler y es confiable cuando
+      // ya es >1 (dulces/goma/Puratos/salsas). Solo está mal cuando quedó en 1: los SKUs
+      // a granel (pasta /20KG) donde el factor real vive en c81. → conservar snapshot si
+      // >1; rellenar desde c81 solo si falta/1.
+      const snapFsRaw = numOr(r.factor_venta);
+      const boxF = liveBox(sku); // c81 (paquete de venta), fallback c84
+      const factorSale = snapFsRaw && snapFsRaw > 1 ? snapFsRaw : (boxF ?? snapFsRaw);
+      const baseCost = cost ?? numOr(r.costo_civa);
+      const costPerCase = baseCost != null && factorSale > 0 ? baseCost * factorSale
+        : (baseCost != null && uxc ? baseCost * uxc : numOr(r.costo_x_caja));
       const tv = liveTax(sku);
       const snapIva = r.iva_venta != null ? Number(r.iva_venta)/100 : null;
       const snapIeps = r.ieps_venta != null ? Number(r.ieps_venta)/100 : null;
       recs.push([
         sku, clean(r.codigo_barras) || (lv?.barcode || null), brand_id, catsByCode.get(clean(r.categoria_codigo)) || null,
         nombre, clean(r.descripcion), clean(r.unidad_compra), clean(r.unidad_venta) || (lv?.unidad || null),
-        numOr(r.factor_compra), numOr(r.factor_venta),
+        numOr(r.factor_compra), factorSale,
         tv?.iva ?? snapIva, tv?.ieps ?? snapIeps,
-        cost ?? numOr(r.costo_civa), costPerCase ?? numOr(r.costo_x_caja), numOr(r.costo_matriz),
+        baseCost, costPerCase, numOr(r.costo_matriz),
         clean(r.ubicacion), clean(r.ubicacion_bodega),
         r.iva_compra != null ? Number(r.iva_compra)/100 : null, r.ieps_compra != null ? Number(r.ieps_compra)/100 : null,
         numOr(r.ptos_frecuencia), r.is_activo === true && r.en_existencia !== false,
       ]);
       if (cost != null && numOr(r.costo_civa) != null && Math.abs(cost - Number(r.costo_civa)) > 0.005) costChanged++;
       if ((tv?.iva != null && tv.iva !== (snapIva ?? 0)) || (tv?.ieps != null && tv.ieps !== (snapIeps ?? 0))) taxChanged++;
+      const snapFs = numOr(r.factor_venta);
+      if (snapFs != null && Number(factorSale) !== Number(snapFs)) {
+        factorChanged++;
+        if ((snapFs || 0) > 1) factorOverride1++; // no debería pasar (se conserva snapshot>1)
+        if (process.env.DUMP_FACTOR && factorChanged <= 60)
+          console.log(`  [fac] ${sku} fs:${snapFs}→${factorSale} u=${clean(r.unidad_venta)} | ${nombre}`);
+      }
+      if (cost != null && numOr(r.costo_civa) != null && Number(r.costo_civa) > 0 && Number(r.costo_civa) / cost >= 3) costOutlierFixed++;
+      if (process.env.DEBUG_SKUS && process.env.DEBUG_SKUS.split(',').includes(sku))
+        console.log(`  [dbg] ${sku} fs:${snapFs}→${factorSale} cost:${numOr(r.costo_civa)}→${baseCost} xcaja:${numOr(r.costo_x_caja)}→${costPerCase} | ${nombre}`);
     }
     console.log(`  transformados: ${recs.length} (skip sin-nombre: ${skipName}, sin-brand: ${skipBrand})`);
-    console.log(`  overlay costo vivo: ${costChanged} productos con costo distinto al snapshot`);
+    console.log(`  overlay costo vivo: ${costChanged} productos con costo distinto al snapshot (${costOutlierFixed} outliers >=3x corregidos por mediana)`);
+    console.log(`  overlay factor caja vivo (c84→c81): ${factorChanged} productos con factor_sale distinto al snapshot (${factorOverride1} sobre un factor previo >1)`);
     console.log(`  overlay IVA/IEPS facturado: ${taxChanged} productos con tasa distinta al snapshot`);
 
     // STAGING temp + carga en batches.
