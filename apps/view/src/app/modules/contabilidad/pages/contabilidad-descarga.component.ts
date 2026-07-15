@@ -13,6 +13,7 @@ import { CONTABILIDAD_TABS } from '../contabilidad-tabs';
 import { AuthService } from '../../../core/services/auth.service';
 import { Permission } from '../../../core/constants/permissions';
 import { DescargaService, DownloadRequest, DownloadPackage } from '../descarga.service';
+import { CredencialesService } from '../credenciales.service';
 
 /**
  * FISCAL.4 — Bandeja de descarga masiva de CFDI (Operations). Lista de solicitudes
@@ -157,6 +158,7 @@ import { DescargaService, DownloadRequest, DownloadPackage } from '../descarga.s
 export class ContabilidadDescargaComponent implements OnInit {
   readonly tabs = CONTABILIDAD_TABS;
   private readonly svc = inject(DescargaService);
+  private readonly creds = inject(CredencialesService);
   private readonly toast = inject(MessageService);
   private readonly auth = inject(AuthService);
   private readonly destroyRef = inject(DestroyRef);
@@ -169,12 +171,21 @@ export class ContabilidadDescargaComponent implements OnInit {
   readonly expanded = signal<Record<string, boolean>>({});
   readonly packages = signal<Record<string, DownloadPackage[]>>({});
   readonly pkgLoading = signal<Record<string, boolean>>({});
+  /** RFCs con e.firma cargada (para precargar el RFC solicitante). */
+  readonly credRfcs = signal<string[]>([]);
 
   showNew = false;
   form: { rfcSolicitante: string; rol: 'recibidas' | 'emitidas'; tipo: 'CFDI' | 'Metadata'; fechaIni: string; fechaFin: string } =
     { rfcSolicitante: '', rol: 'recibidas', tipo: 'CFDI', fechaIni: '', fechaFin: '' };
 
-  ngOnInit() { this.reload(); }
+  ngOnInit() {
+    this.reload();
+    // Precarga los RFC con e.firma cargada → el alta preselecciona el RFC solicitante.
+    this.creds.status().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (cs) => this.credRfcs.set(cs.filter((c) => c.active).map((c) => c.rfc)),
+      error: () => {},
+    });
+  }
 
   reload() {
     this.loading.set(true); this.errored.set(false);
@@ -196,7 +207,7 @@ export class ContabilidadDescargaComponent implements OnInit {
     }
   }
 
-  openNew() { this.form = { rfcSolicitante: '', rol: 'recibidas', tipo: 'CFDI', fechaIni: '', fechaFin: '' }; this.showNew = true; }
+  openNew() { this.form = { rfcSolicitante: this.credRfcs()[0] ?? '', rol: 'recibidas', tipo: 'CFDI', fechaIni: '', fechaFin: '' }; this.showNew = true; }
   formValid(): boolean {
     return /^[A-ZÑ&]{3,4}[0-9]{6}[A-Z0-9]{3}$/.test((this.form.rfcSolicitante || '').toUpperCase()) && !!this.form.fechaIni && !!this.form.fechaFin && this.form.fechaIni <= this.form.fechaFin;
   }
