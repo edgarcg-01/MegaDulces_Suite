@@ -514,6 +514,26 @@ export class EventsService {
       this.gateway.server.to(reportsRooms.team(payload.tenantId, payload.supervisorId)).emit('field_alert', payload);
   }
 
+  /**
+   * HIQ.5 — Nudge de Horus al COLABORADOR: cuando el supervisor aprueba un coaching
+   * o una tarea, el vendedor recibe el aviso EN VIVO en su room propia (la app de
+   * vendedor escucha `horus:nudge`). Best-effort: el pull (`/supervisor-ai/field/*`)
+   * es la vía durable; esto solo adelanta el aviso si está conectado.
+   */
+  emitFieldNudge(payload: {
+    tenantId: string;
+    userId: string;
+    kind: 'coaching' | 'task';
+    title: string;
+    refId?: string | null;
+  }): boolean {
+    if (!payload?.tenantId || !payload?.userId || !this.gateway.server) return false;
+    this.gateway.server
+      .to(reportsRooms.own(payload.tenantId, payload.userId))
+      .emit('horus:nudge', { ...payload, at: new Date().toISOString() });
+    return true;
+  }
+
   emitRoutePing(payload: LivePingPayload): void {
     if (!payload?.tenantId || !payload?.userId) return;
     if (!this.gateway.server) return;

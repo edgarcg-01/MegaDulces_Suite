@@ -18,6 +18,7 @@ import { OutcomeVerifierService } from './outcome-verifier.service';
 import { HorusChatService } from './horus-chat/horus-chat.service';
 import { HorusToolsService } from './horus-chat/horus-tools.service';
 import { AdaptiveThresholdsService } from './adaptive-thresholds.service';
+import { WebSocketModule } from '../websocket/websocket.module';
 
 /**
  * Horus — Supervisor AI de ejecución (Trade Marketing). Read-only/compute sobre
@@ -26,8 +27,12 @@ import { AdaptiveThresholdsService } from './adaptive-thresholds.service';
  * ExecutionRefreshService usa ScheduleModule.forRoot() (global en app.module).
  * No requiere providers extra: KNEX_CONNECTION y TenantContextService vienen de
  * módulos globales.
+ *
+ * HIQ.5: importa WebSocketModule (exporta EventsService) para el nudge en vivo al
+ * colaborador al aprobar coaching/tarea. Sin ciclo (WebSocketModule solo importa Jwt).
  */
 @Module({
+  imports: [WebSocketModule],
   controllers: [SupervisorAiController, SupervisorFieldController],
   providers: [
     Execution360Service,

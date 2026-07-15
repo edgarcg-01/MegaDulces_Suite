@@ -11,6 +11,7 @@ import { KNEX_CONNECTION, TenantContextService } from '@megadulces/platform-core
 import { DiagnosisEngineService } from './diagnosis-engine.service';
 import { RuleCalibrationService } from './rule-calibration.service';
 import { BaselineLearnerService } from './baseline-learner.service';
+import { EventsService } from '../websocket/events.service';
 
 /**
  * Horus — Co-piloto de acciones (Sprint Horus.4).
@@ -104,7 +105,24 @@ export class SupervisorActionsService {
     private readonly calibration: RuleCalibrationService,
     private readonly baselines: BaselineLearnerService,
     @Optional() private readonly tenantContext?: TenantContextService,
+    @Optional() private readonly events?: EventsService,
   ) {}
+
+  /** HIQ.5 — nudge en vivo al colaborador (best-effort, nunca bloquea el approve). */
+  private nudgeField(payload: {
+    tenantId: string;
+    userId: string;
+    kind: 'coaching' | 'task';
+    title: string;
+    refId?: string | null;
+  }): 'ws' | 'deferred' {
+    try {
+      const ok = this.events?.emitFieldNudge(payload);
+      return ok ? 'ws' : 'deferred';
+    } catch {
+      return 'deferred';
+    }
+  }
 
   private tenantId(user: any): string | undefined {
     return user?.tenant_id || this.tenantContext?.get()?.tenantId;
@@ -563,13 +581,25 @@ export class SupervisorActionsService {
           created_by: approvedBy,
         })
         .returning('id');
+      const noteId = inserted?.[0]?.id || inserted?.[0] || null;
+      // HIQ.5 — nudge en vivo al colaborador (durable por pull en /field/my-coaching).
+      const delivery = this.nudgeField({
+        tenantId,
+        userId: collaboratorId,
+        kind: 'coaching',
+        title: message.slice(0, 120),
+        refId: noteId,
+      });
       return {
         effect: 'coaching_note',
-        coaching_note_id: inserted?.[0]?.id || inserted?.[0] || null,
+        coaching_note_id: noteId,
         category,
         reversible: true,
-        external_delivery: 'deferred',
-        note: 'Nota de coaching creada (visible al colaborador). Push al teléfono diferido.',
+        external_delivery: delivery,
+        note:
+          delivery === 'ws'
+            ? 'Nota de coaching creada y avisada en vivo al colaborador.'
+            : 'Nota de coaching creada (visible al colaborador). Aviso en vivo diferido (sin conexión).',
       };
     }
 
@@ -625,15 +655,29 @@ export class SupervisorActionsService {
           created_by: approvedBy,
         })
         .returning('id');
+      const taskId = inserted?.[0]?.id || inserted?.[0] || null;
+      // HIQ.5 — nudge en vivo si la tarea quedó asignada a un colaborador concreto.
+      const delivery = assignedTo
+        ? this.nudgeField({
+            tenantId,
+            userId: assignedTo,
+            kind: 'task',
+            title: String(action.title || 'Tarea de campo').slice(0, 120),
+            refId: taskId,
+          })
+        : 'deferred';
       return {
         effect: 'task',
-        task_id: inserted?.[0]?.id || inserted?.[0] || null,
+        task_id: taskId,
         task_type: TASK_TYPE[at],
         assigned_to_user: assignedTo,
         due: 'tomorrow',
         reversible: true,
-        external_delivery: 'deferred',
-        note: 'Tarea de campo creada para mañana (visible en la app del colaborador). Sync a daily_assignments diferido.',
+        external_delivery: delivery,
+        note:
+          delivery === 'ws'
+            ? 'Tarea creada para mañana y avisada en vivo al colaborador.'
+            : 'Tarea de campo creada para mañana (visible en la app del colaborador). Sync a daily_assignments diferido.',
       };
     }
 
