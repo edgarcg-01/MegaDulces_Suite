@@ -94,16 +94,64 @@ const COLS = [
       } catch { /* siguiente sucursal */ } finally { await k.end().catch(() => {}); }
     }
 
+    // DELTA kdii VIVO — altas de Kepler que la consolidación manual (.245) aún no trae.
+    // catalogo_completo/productos_activos son TABLAS snapshot (refresh manual): un producto
+    // nuevo en Kepler queda invisible y el feed de ventas TIRA sus unidades (caso línea 795 /
+    // Michel Ontiveros 2026-07-14: 4 SKUs vendiendo desde el 29-jun sin existir en catálogo).
+    // Solo campos con decode validado (sku/nombre/línea/barcode/unidad); costos/factores NULL
+    // — el refresh de la consolidación los completa después (el merge matchea por sku/nombre).
+    const knownSkus = new Set(srcRows.map((r) => clean(r.articulo)).filter(Boolean));
+    // Un alta puede existir solo en el kdii de SU sucursal → unión de las 6 (no basta una).
+    const KDII_BRANCHES = process.env.SALES_BRANCH_MAP
+      ? JSON.parse(process.env.SALES_BRANCH_MAP).map((b) => b.url || `postgresql://platform_ro:kepler123@${b.host}:${b.port}/${b.db}`)
+      : [
+          'postgresql://platform_ro:kepler123@192.168.9.95:5432/md_00',
+          'postgresql://platform_ro:kepler123@192.168.10.10:1977/md_01',
+          'postgresql://platform_ro:kepler123@192.168.42.42:5432/md_02',
+          'postgresql://platform_ro:kepler123@192.168.40.40:5432/md_03',
+          'postgresql://platform_ro:kepler123@192.168.44.44:5432/md_04',
+          'postgresql://platform_ro:kepler123@192.168.54.54:5432/md_05',
+        ];
+    const deltaRows = new Map();
+    for (const burl of KDII_BRANCHES) {
+      const k = new Client({ connectionString: burl, connectionTimeoutMillis: 6000 });
+      try {
+        await k.connect();
+        const { rows } = await k.query(`
+          SELECT btrim(i.c1) AS sku, btrim(i.c2) AS nombre, btrim(i.c3::text) AS linea,
+                 btrim(coalesce(i.c7,'')) AS barcode, btrim(coalesce(i.c11,'')) AS unidad
+          FROM md.kdii i
+          WHERE btrim(coalesce(i.c1,'')) <> '' AND btrim(coalesce(i.c2,'')) <> ''`);
+        let add = 0;
+        for (const r of rows) if (!knownSkus.has(r.sku) && !deltaRows.has(r.sku)) { deltaRows.set(r.sku, r); add++; }
+        console.log(`  delta kdii (${burl.split('@')[1]}): +${add} SKUs fuera de la consolidación`);
+      } catch (e) { console.log(`  delta kdii ${burl.split('@')[1]}: sin conexión (${e.message})`); } finally { await k.end().catch(() => {}); }
+    }
+
     // Transformar (mismo mapeo que mega_dulces_sync) + skips.
-    const recs = []; let skipName = 0, skipBrand = 0;
+    const recs = []; let skipName = 0, skipBrand = 0, deltaAdds = 0;
+    const resolveBrand = (lineaCode) => {
+      let brand_id = brandsByCode.get(lineaCode);
+      if (!brand_id) {
+        const nm = lineaName.get(lineaCode);
+        if (nm) brand_id = brandsByName.get(nm);
+      }
+      return brand_id || null;
+    };
+    for (const d of deltaRows.values()) {
+      const brand_id = resolveBrand(clean(d.linea));
+      if (!brand_id) { skipBrand++; continue; }
+      recs.push([
+        d.sku, clean(d.barcode), brand_id, null, d.nombre, null, null, clean(d.unidad),
+        null, null, null, null, null, null, null, null, null, null, null, null, true,
+      ]);
+      deltaAdds++;
+    }
+    if (deltaRows.size) console.log(`  delta kdii transformado: ${deltaAdds} altas (skip sin-brand: ${deltaRows.size - deltaAdds})`);
     for (const r of srcRows) {
       const sku = clean(r.articulo), nombre = clean(r.nombre);
       if (!sku || !nombre) { skipName++; continue; }
-      let brand_id = brandsByCode.get(clean(r.subfamilia_codigo));
-      if (!brand_id) {
-        const nm = lineaName.get(clean(r.subfamilia_codigo));
-        if (nm) brand_id = brandsByName.get(nm);
-      }
+      const brand_id = resolveBrand(clean(r.subfamilia_codigo));
       if (!brand_id) { skipBrand++; continue; }
       recs.push([
         sku, clean(r.codigo_barras), brand_id, catsByCode.get(clean(r.categoria_codigo)) || null,
