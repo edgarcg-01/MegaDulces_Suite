@@ -90,9 +90,11 @@ export class ExecutionRefreshService {
           const f = await this.findings.generateForTenant(t.id);
           findingsOpen += f.open;
           await this.fraud.generateForTenant(t.id); // determinista, sin LLM
-          // Visión acotada nocturna (H2.2): analiza un lote de fotos nuevas y
-          // emite findings de visión; el co-piloto los incorpora abajo.
-          await this.photoAudit.scanForTenant(t.id, { max: 20 });
+          // Visión acotada nocturna (H2.2 + HIQ.3): presupuesto configurable por env
+          // para cerrar el backlog de fotos sin tocar código (default 20/noche).
+          await this.photoAudit.scanForTenant(t.id, {
+            max: Number(process.env.HORUS_VISION_NIGHT_BUDGET) || 20,
+          });
           await this.photoAudit.generateVisionFindings(t.id);
           // R1 (Horus.R): correlaciona los findings ya emitidos en causas raíz
           // ANTES de proponer acciones → el co-piloto (R2) acciona el diagnóstico.

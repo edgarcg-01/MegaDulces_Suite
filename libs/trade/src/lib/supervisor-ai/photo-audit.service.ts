@@ -19,8 +19,10 @@ import { KNEX_CONNECTION, TenantContextService } from '@megadulces/platform-core
  * graciosa (retryable). Lee/escribe vía KNEX_CONNECTION + tenant explícito.
  */
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const MAX_PER_RUN = 12; // tope de fotos por corrida on-demand (control de costo/latencia)
-const CONCURRENCY = 4;
+// HIQ.3 — presupuesto configurable: con ~400 fotos de backlog, 12/corrida tardaba
+// semanas en dar cobertura. El costo lo gobierna el env, no una constante.
+const MAX_PER_RUN = Number(process.env.HORUS_VISION_MAX_PER_RUN) || 12; // tope on-demand
+const CONCURRENCY = Number(process.env.HORUS_VISION_CONCURRENCY) || 4;
 const MAX_IMAGE_BYTES = 4_500_000; // límite práctico de la API de visión
 const SCAN_WINDOW_DAYS = 45;
 const ALLOWED_MEDIA = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];

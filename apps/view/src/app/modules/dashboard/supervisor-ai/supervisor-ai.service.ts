@@ -3,6 +3,17 @@ import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { environment } from '../../../../environments/environment';
 
+export interface BriefingComparison {
+  yesterday_headline: string | null;
+  findings_new_24h: number;
+  findings_resolved_24h: number;
+  persistent: Array<{ subject: string; type: string; days_open: number }>;
+  team_score_now: number | null;
+  team_score_week_ago: number | null;
+  team_score_delta: number | null;
+  outcomes_7d: Array<{ subject: string; action_type: string; verdict: string; delta: number | null }>;
+}
+
 export interface BriefingResponse {
   headline: string;
   summary: string;
@@ -14,6 +25,7 @@ export interface BriefingResponse {
     warn: number;
     by_type: Record<string, number>;
   };
+  comparison?: BriefingComparison;
   source: 'agent' | 'engine';
   generated_at: string;
 }

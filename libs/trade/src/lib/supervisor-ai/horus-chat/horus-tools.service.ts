@@ -215,6 +215,15 @@ export class HorusToolsService {
         description: 'Correlación venta↔ejecución y cobertura de registro de venta de campo (cuadrantes).',
         input_schema: { type: 'object', properties: {} },
       },
+      {
+        name: 'horus_briefing_history',
+        description:
+          'Partes diarios previos (titular + resumen por día). Para "¿qué me dijiste ayer/esta semana?" y para dar continuidad narrativa.',
+        input_schema: {
+          type: 'object',
+          properties: { days: { type: 'integer', description: 'Cuántos días hacia atrás, default 7, máx 30' } },
+        },
+      },
     ];
   }
 
@@ -295,6 +304,20 @@ export class HorusToolsService {
         }
         case 'horus_sales_execution':
           return await this.salesExec.getCorrelation(user);
+        case 'horus_briefing_history': {
+          const tenantId = this.tenantId(user);
+          if (!tenantId) return { error: 'sin tenant' };
+          const days = Math.min(Math.max(Number(input?.days) || 7, 1), 30);
+          const rows = await this.knex('commercial.briefing_history')
+            .where('tenant_id', tenantId)
+            .whereRaw(
+              `briefing_date >= (now() AT TIME ZONE 'America/Mexico_City')::date - ?::int`,
+              [days],
+            )
+            .orderBy('briefing_date', 'desc')
+            .select('briefing_date', 'headline', 'summary', 'source');
+          return cap(rows);
+        }
         default:
           return { error: `Tool desconocida: ${name}` };
       }

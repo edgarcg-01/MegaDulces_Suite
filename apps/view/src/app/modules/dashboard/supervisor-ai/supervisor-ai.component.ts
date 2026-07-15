@@ -133,6 +133,22 @@ const QUADRANT_LABELS: Record<string, string> = {
               @if (b.stats.critical > 0) {
                 <span class="chip chip--bad">{{ b.stats.critical }} críticos</span>
               }
+              @if (b.comparison; as c) {
+                @if (c.findings_new_24h > 0) {
+                  <span class="chip" pTooltip="Hallazgos nuevos en las últimas 24h">+{{ c.findings_new_24h }} nuevos</span>
+                }
+                @if (c.findings_resolved_24h > 0) {
+                  <span class="chip chip--ok" pTooltip="Hallazgos resueltos en las últimas 24h">{{ c.findings_resolved_24h }} resueltos</span>
+                }
+                @if (c.team_score_delta !== null && c.team_score_delta !== 0) {
+                  <span
+                    class="chip"
+                    [class.chip--ok]="c.team_score_delta > 0"
+                    [class.chip--bad]="c.team_score_delta < 0"
+                    pTooltip="Score promedio del equipo vs hace 7 días (de los snapshots)"
+                  >{{ c.team_score_delta > 0 ? '▲' : '▼' }} {{ absVal(c.team_score_delta) }} pts vs sem.</span>
+                }
+              }
             </div>
 
             @if (b.attention.length > 0) {
@@ -688,6 +704,7 @@ const QUADRANT_LABELS: Record<string, string> = {
       .chips { display: flex; flex-wrap: wrap; gap: .4rem; }
       .chip { font-size: .75rem; padding: .2rem .55rem; border-radius: 999px; background: var(--layout-bg, #f5f5f4); color: var(--text-soft, #57534e); }
       .chip--bad { background: color-mix(in srgb, var(--bad, #dc2626) 12%, transparent); color: var(--bad, #dc2626); font-weight: 600; }
+      .chip--ok { background: color-mix(in srgb, var(--ok-fg, #16a34a) 12%, transparent); color: var(--ok-fg, #16a34a); font-weight: 600; }
       .attn { list-style: none; margin: .9rem 0 0; padding: .75rem 0 0; border-top: 1px solid var(--border, #e7e5e4); display: flex; flex-direction: column; gap: .5rem; }
       .attn__item { display: flex; align-items: baseline; gap: .55rem; font-size: .86rem; }
       .attn__subj { font-weight: 600; }
@@ -995,6 +1012,9 @@ export class SupervisorAiComponent implements OnInit {
   }
 
   // ── Helpers de presentación ──
+  absVal(n: number): number {
+    return Math.abs(n);
+  }
   sevClass(s: string): string {
     return s === 'critical' ? 'sev--critical' : s === 'warn' ? 'sev--warn' : 'sev--info';
   }
