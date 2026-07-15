@@ -119,6 +119,11 @@ const COLS = [
     // valuación, ej. 0.00016 en SKUs con costo real $114).
     const deltaRows = new Map();
     const liveBySku = new Map(); // sku → { nombre, linea, barcode, unidad, pzsCaja, costos[] }
+    // IVA/IEPS VIVOS = tasa realmente FACTURADA (CFDI 4.0): md.kdfe4imp por concepto
+    // (c11='002' IVA / '003' IEPS, c14=tasa, c12='Tasa') ⋈ kdm2 por doc+línea (i.c9=d.c7)
+    // → SKU. Decode validado 2026-07-14 (631 SKUs @01; snapshot difiere 16% IVA / 30% IEPS
+    // por desfase). Se adopta solo con ≥3 facturas y ≥90% de consistencia.
+    const taxAcc = new Map(); // sku → { '002': Map(tasa→n), '003': Map(tasa→n) }
     for (const burl of KDII_BRANCHES) {
       const k = new Client({ connectionString: burl, connectionTimeoutMillis: 6000 });
       const suc = (/md_(\d+)/.exec(burl) || [])[1] || '00';
@@ -141,9 +146,44 @@ const COLS = [
           if (r.costo != null && Number(r.costo) > 0) lv.costos.push(Number(r.costo));
           if (!knownSkus.has(r.sku) && !deltaRows.has(r.sku)) { deltaRows.set(r.sku, r); add++; }
         }
-        console.log(`  kdii vivo (${burl.split('@')[1]}): ${rows.length} SKUs · +${add} fuera de la consolidación`);
+        let taxRows = 0;
+        try {
+          const { rows: tr } = await k.query(`
+            SELECT d.c8 AS sku, i.c11 AS imp, i.c14::numeric AS tasa, count(*)::int AS n
+            FROM md.kdfe4imp i
+            JOIN md.kdm2 d ON d.c1=i.c1 AND d.c2=i.c4 AND d.c3=i.c5 AND d.c4=i.c6 AND d.c5=i.c7 AND d.c6=i.c8 AND d.c7=i.c9
+            WHERE i.c12='Tasa' AND i.c11 IN ('002','003')
+            GROUP BY 1,2,3`);
+          for (const t of tr) {
+            let a = taxAcc.get(t.sku);
+            if (!a) { a = {}; taxAcc.set(t.sku, a); }
+            const m = a[t.imp] || (a[t.imp] = new Map());
+            const k4 = Number(t.tasa).toFixed(4);
+            m.set(k4, (m.get(k4) || 0) + t.n);
+            taxRows += t.n;
+          }
+        } catch (e) { console.log(`    (impuestos CFDI ${suc}: ${e.message})`); }
+        console.log(`  kdii vivo (${burl.split('@')[1]}): ${rows.length} SKUs · +${add} fuera de la consolidación · ${taxRows} impuestos CFDI`);
       } catch (e) { console.log(`  kdii vivo ${burl.split('@')[1]}: sin conexión (${e.message})`); } finally { await k.end().catch(() => {}); }
     }
+    // Tasa viva por SKU: null = sin evidencia suficiente (se queda la del snapshot).
+    const liveTax = (sku) => {
+      const a = taxAcc.get(sku);
+      if (!a) return null;
+      const pick = (imp) => {
+        const m = a[imp];
+        if (!m) return { rate: 0, n: 0, share: 1 }; // sin filas de ese impuesto = facturado sin él
+        let tot = 0, best = null, bn = 0;
+        for (const [r, n] of m) { tot += n; if (n > bn) { bn = n; best = r; } }
+        return { rate: Number(best), n: tot, share: bn / tot };
+      };
+      const iva = pick('002'), ieps = pick('003');
+      if (iva.n + ieps.n < 3) return null;
+      return {
+        iva: iva.share >= 0.9 ? iva.rate : null,
+        ieps: ieps.share >= 0.9 ? ieps.rate : null,
+      };
+    };
     // Moda del costo entre sucursales (4dp). Seguro anti-basura de valuación: con un solo
     // voto solo se acepta si no hay snapshot o si está a menos de 10× del costo snapshot.
     const liveCostVotes = (sku) => {
@@ -165,7 +205,7 @@ const COLS = [
     };
 
     // Transformar (mismo mapeo que mega_dulces_sync) + skips.
-    const recs = []; let skipName = 0, skipBrand = 0, deltaAdds = 0, costChanged = 0;
+    const recs = []; let skipName = 0, skipBrand = 0, deltaAdds = 0, costChanged = 0, taxChanged = 0;
     const resolveBrand = (lineaCode) => {
       let brand_id = brandsByCode.get(lineaCode);
       if (!brand_id) {
@@ -179,9 +219,10 @@ const COLS = [
       if (!brand_id) { skipBrand++; continue; }
       const lv = liveBySku.get(d.sku);
       const cost = liveCost(d.sku);
+      const tv = liveTax(d.sku);
       recs.push([
         d.sku, clean(d.barcode), brand_id, null, d.nombre, null, null, clean(d.unidad),
-        null, null, null, null, cost, cost && lv?.pzs_caja > 0 ? cost * lv.pzs_caja : null,
+        null, null, tv?.iva ?? null, tv?.ieps ?? null, cost, cost && lv?.pzs_caja > 0 ? cost * lv.pzs_caja : null,
         null, null, null, null, null, null, true,
       ]);
       deltaAdds++;
@@ -198,20 +239,25 @@ const COLS = [
       const cost = liveCost(sku, numOr(r.costo_civa));
       const uxc = numOr(r.costo_x_caja) > 0 && numOr(r.costo_civa) > 0 ? Number(r.costo_x_caja) / Number(r.costo_civa) : null;
       const costPerCase = cost != null ? (lv?.pzs_caja > 0 ? cost * lv.pzs_caja : (uxc ? cost * uxc : null)) : null;
+      const tv = liveTax(sku);
+      const snapIva = r.iva_venta != null ? Number(r.iva_venta)/100 : null;
+      const snapIeps = r.ieps_venta != null ? Number(r.ieps_venta)/100 : null;
       recs.push([
         sku, clean(r.codigo_barras) || (lv?.barcode || null), brand_id, catsByCode.get(clean(r.categoria_codigo)) || null,
         nombre, clean(r.descripcion), clean(r.unidad_compra), clean(r.unidad_venta) || (lv?.unidad || null),
         numOr(r.factor_compra), numOr(r.factor_venta),
-        r.iva_venta != null ? Number(r.iva_venta)/100 : null, r.ieps_venta != null ? Number(r.ieps_venta)/100 : null,
+        tv?.iva ?? snapIva, tv?.ieps ?? snapIeps,
         cost ?? numOr(r.costo_civa), costPerCase ?? numOr(r.costo_x_caja), numOr(r.costo_matriz),
         clean(r.ubicacion), clean(r.ubicacion_bodega),
         r.iva_compra != null ? Number(r.iva_compra)/100 : null, r.ieps_compra != null ? Number(r.ieps_compra)/100 : null,
         numOr(r.ptos_frecuencia), r.is_activo === true && r.en_existencia !== false,
       ]);
       if (cost != null && numOr(r.costo_civa) != null && Math.abs(cost - Number(r.costo_civa)) > 0.005) costChanged++;
+      if ((tv?.iva != null && tv.iva !== (snapIva ?? 0)) || (tv?.ieps != null && tv.ieps !== (snapIeps ?? 0))) taxChanged++;
     }
     console.log(`  transformados: ${recs.length} (skip sin-nombre: ${skipName}, sin-brand: ${skipBrand})`);
     console.log(`  overlay costo vivo: ${costChanged} productos con costo distinto al snapshot`);
+    console.log(`  overlay IVA/IEPS facturado: ${taxChanged} productos con tasa distinta al snapshot`);
 
     // STAGING temp + carga en batches.
     await db.query('BEGIN');
