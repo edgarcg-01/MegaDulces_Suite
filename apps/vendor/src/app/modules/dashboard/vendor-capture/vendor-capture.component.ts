@@ -213,9 +213,13 @@ const ALLOWED_IMAGE_TYPES = [
           <div *ngIf="exhibidorPreview()" class="space-y-3">
             <div class="relative rounded-xl border border-divider overflow-hidden bg-black max-w-sm mx-auto">
               <img [src]="exhibidorPreview()!" alt="Vista previa del exhibidor" class="w-full h-64 object-cover">
+              <div *ngIf="identifyingExhibidor()" class="absolute inset-0 bg-black/50 flex flex-col items-center justify-center gap-2 text-white">
+                <i class="pi pi-spin pi-sparkles text-2xl" aria-hidden="true"></i>
+                <span class="text-sm font-medium">Identificando productos…</span>
+              </div>
             </div>
             <div class="flex justify-center">
-              <p-button icon="pi pi-refresh" label="Cambiar foto" severity="secondary" [outlined]="true" size="small" (onClick)="removeExhibidor()"></p-button>
+              <p-button icon="pi pi-refresh" label="Cambiar foto" severity="secondary" [outlined]="true" size="small" [disabled]="identifyingExhibidor()" (onClick)="removeExhibidor()"></p-button>
             </div>
           </div>
         </div>
@@ -380,6 +384,7 @@ export class VendorCaptureComponent implements OnInit, OnDestroy {
   }
   readonly exhibidorFile = signal<File | null>(null);
   readonly exhibidorPreview = signal<string | null>(null);
+  readonly identifyingExhibidor = signal(false); // HV.2 — IA leyendo productos de la foto
   readonly ticketPhotos = signal<string[]>([]); // previews; el vendedor puede tomar varias fotos del mismo ticket
   readonly processing = signal(false);
   readonly items = signal<OcrItem[]>([]);
@@ -479,6 +484,60 @@ export class VendorCaptureComponent implements OnInit, OnDestroy {
     const reader = new FileReader();
     reader.onload = () => this.exhibidorPreview.set(reader.result as string);
     reader.readAsDataURL(file);
+    // HV.2 — al tomar la foto, la IA identifica los productos VISIBLES y los agrega
+    // a la lista como SUGERENCIAS a confirmar (gate HV.0: ~24-29% en dulce a granel,
+    // por eso el vendedor revisa; no reemplaza el marcado manual ni el OCR del ticket).
+    void this.identifyExhibidor(file);
+  }
+
+  /** Identificación de productos desde la foto del exhibidor (online; offline se omite). */
+  private async identifyExhibidor(file: File): Promise<void> {
+    if (!navigator.onLine) {
+      this.toast.add({
+        severity: 'info',
+        summary: 'Sin conexión',
+        detail: 'La foto se guardará. La identificación de productos corre solo con internet.',
+      });
+      return;
+    }
+    this.identifyingExhibidor.set(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', file, file.name || 'exhibidor.jpg');
+      const res = await firstValueFrom(
+        this.http.post<any>(`${this.apiUrl}/ai/exhibition/extract`, fd).pipe(timeout(50_000)),
+      );
+      const ocr: OcrItem[] = (res?.match?.items || []).map((it: any) => {
+        const conf = it.suggested?.confidence ?? it.confidence ?? 'no_match';
+        return {
+          raw: it.raw,
+          quantity: Number(it.quantity) || 1,
+          sku: it.suggested?.sku ?? null,
+          product_name: it.suggested?.product_name ?? null,
+          brand_name: it.suggested?.brand_name ?? null,
+          confidence: conf,
+          // Sugerencia de foto: NO se auto-confirma salvo alta confianza (el vendedor revisa).
+          confirmed: !!it.suggested?.sku && conf === 'high',
+        };
+      });
+      const matched = ocr.filter((o) => o.sku && o.confidence !== 'no_match');
+      this.mergeOcrItems(matched);
+      await this.matchPlanogram();
+      this.toast.add({
+        severity: matched.length ? 'success' : 'info',
+        summary: matched.length ? `${matched.length} producto(s) identificado(s)` : 'Sin productos reconocidos',
+        detail: matched.length
+          ? 'Revisá y confirmá lo que corresponde.'
+          : 'Marcá los productos a mano o tomá la foto más de cerca.',
+      });
+    } catch (e: any) {
+      // Best-effort: si falla, la foto igual queda; el vendedor marca a mano.
+      if (!(e instanceof TimeoutError) && !isTransientStatus(e?.status)) {
+        this.toast.add({ severity: 'warn', summary: 'No se pudo identificar', detail: 'Marcá los productos a mano.' });
+      }
+    } finally {
+      this.identifyingExhibidor.set(false);
+    }
   }
 
   removeExhibidor(): void {

@@ -53,3 +53,29 @@ export class TicketExtractorController {
     return this.service.extractAndMatch(file, user.tenant_id, user.sub || user.id);
   }
 }
+
+/**
+ * HV.2 — Foto de EXHIBIDOR → productos sugeridos para la captura. Mismo pipeline
+ * (Cloudinary + vision + matcher) que el ticket, pero lee el ANAQUEL. Mismo gate
+ * `CAPTURE_TICKET_USE` + throttle (vision cuesta ~$0.004/imagen).
+ */
+@ApiTags('ticket-extractor')
+@ApiBearerAuth()
+@UseGuards(RequireAuthGuard, RolesGuard)
+@Controller('ai/exhibition')
+export class ExhibitionExtractorController {
+  constructor(private readonly service: TicketExtractorService) {}
+
+  @Post('extract')
+  @RequirePermissions(Permission.CAPTURE_TICKET_USE)
+  @Throttle({ long: { ttl: 60_000, limit: 10 } })
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 10 * 1024 * 1024 } }))
+  @ApiOperation({
+    summary: 'Sube foto de exhibidor. Devuelve productos VISIBLES matcheados al catálogo (sugerencias a confirmar).',
+  })
+  async extract(@Req() req: any, @UploadedFile() file: Express.Multer.File) {
+    const user = req.user;
+    if (!user) throw new UnauthorizedException('JWT inválido');
+    return this.service.extractExhibitionAndMatch(file, user.tenant_id, user.sub || user.id);
+  }
+}

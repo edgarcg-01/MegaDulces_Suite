@@ -396,6 +396,136 @@ export class LlmExtractorService implements OnModuleInit {
   }
 
   /**
+   * HV.2 — Extrae PRODUCTOS VISIBLES desde una FOTO DE EXHIBIDOR (anaquel), para
+   * pre-poblar la lista de la captura. Mismo shape que el ticket ({raw, normalized,
+   * quantity}) → reusa matchExtractedItems sin cambios. `quantity` = estimado de
+   * facings (cuántas piezas del mismo producto). Extracción de lo que se LEE en los
+   * empaques; devuelve [] si es ilegible o no es un anaquel.
+   *
+   * OJO (gate HV.0): el reconocimiento foto→SKU en este catálogo (dulce a granel,
+   * marcas = razones sociales) rinde ~24-29%. Por eso el resultado es SUGERENCIA a
+   * confirmar, nunca marca definitiva.
+   */
+  async extractFromExhibitionImage(
+    imageBase64: string,
+    mediaType: 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif',
+  ): Promise<{ raw: string; normalized: string; quantity: number }[]> {
+    if (!this.apiKey) {
+      this.logger.warn('Exhibición OCR sin ANTHROPIC_API_KEY — devuelvo []');
+      return [];
+    }
+    if (!imageBase64) return [];
+    try {
+      return await this.callClaudeVisionExhibition(imageBase64, mediaType);
+    } catch (e: any) {
+      this.logger.warn(`Claude vision exhibición extract failed: ${e.message}`);
+      return [];
+    }
+  }
+
+  private async callClaudeVisionExhibition(
+    imageBase64: string,
+    mediaType: string,
+  ): Promise<{ raw: string; normalized: string; quantity: number }[]> {
+    const ctrl = new AbortController();
+    const tId = setTimeout(() => ctrl.abort(), 30_000);
+    let res: Response;
+    try {
+      res = await fetch(this.endpoint, {
+        method: 'POST',
+        headers: {
+          'x-api-key': this.apiKey,
+          'anthropic-version': '2023-06-01',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: this.model,
+          max_tokens: 2048,
+          tool_choice: { type: 'tool', name: 'read_shelf_products' },
+          tools: [
+            {
+              name: 'read_shelf_products',
+              description:
+                'Lee los productos de dulces VISIBLES en la foto de una exhibición/anaquel de una ' +
+                'tienda mexicana. Un item por producto DISTINTO que se lea en los empaques. ' +
+                'Para cada uno: `raw` = texto tal como se lee (marca + producto, ej "Cuerito Lupita 700g"), ' +
+                '`normalized` = nombre limpio en minúsculas para matchear con catálogo (marca + tipo, sin ' +
+                'precios ni códigos), `quantity` = cuántas piezas/caras del MISMO producto se ven (entero, ' +
+                'default 1). Reportá SOLO lo que REALMENTE se lee; no inventes ni completes de memoria. ' +
+                'Si no es un anaquel o es ilegible, devuelve items vacíos.',
+              input_schema: {
+                type: 'object',
+                properties: {
+                  items: {
+                    type: 'array',
+                    items: {
+                      type: 'object',
+                      properties: {
+                        raw: { type: 'string', description: 'Texto leído del empaque (marca + producto).' },
+                        normalized: { type: 'string', description: 'Nombre limpio para matchear con catálogo.' },
+                        quantity: { type: 'integer', description: 'Facings/piezas del mismo producto. Default 1.', minimum: 1 },
+                      },
+                      required: ['raw', 'normalized', 'quantity'],
+                    },
+                  },
+                },
+                required: ['items'],
+              },
+            },
+          ],
+          messages: [
+            {
+              role: 'user',
+              content: [
+                { type: 'image', source: { type: 'base64', media_type: mediaType, data: imageBase64 } },
+                {
+                  type: 'text',
+                  text:
+                    'Esta es una foto de una exhibición de dulces en una tiendita mexicana. ' +
+                    'Listá los productos que se VEN, leyendo marcas y nombres de los empaques, con la ' +
+                    'herramienta read_shelf_products.',
+                },
+              ],
+            },
+          ],
+        }),
+        signal: ctrl.signal,
+      });
+    } finally {
+      clearTimeout(tId);
+    }
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(`Anthropic vision ${res.status}: ${body.slice(0, 300)}`);
+    }
+    const json = (await res.json()) as {
+      content: Array<
+        | { type: 'text'; text: string }
+        | { type: 'tool_use'; name: string; input: { items?: { raw: string; normalized: string; quantity?: number }[] } }
+      >;
+    };
+    const toolUse = json.content.find(
+      (c): c is Extract<typeof c, { type: 'tool_use' }> =>
+        c.type === 'tool_use' && c.name === 'read_shelf_products',
+    );
+    if (!toolUse) throw new Error('Claude vision no devolvió tool_use');
+    const items = toolUse.input.items ?? [];
+    return items
+      .filter(
+        (it) =>
+          typeof it.raw === 'string' &&
+          typeof it.normalized === 'string' &&
+          it.raw.trim() &&
+          it.normalized.trim(),
+      )
+      .map((it) => ({
+        raw: it.raw.trim(),
+        normalized: it.normalized.trim(),
+        quantity: Number.isInteger(it.quantity) && (it.quantity as number) >= 1 ? (it.quantity as number) : 1,
+      }));
+  }
+
+  /**
    * Vision para tickets de ruta. Pide a Claude los campos de cabecera según el
    * tipo. `route_code` = el número que sigue a "RD" (ej. "12"). Fechas a ISO.
    */

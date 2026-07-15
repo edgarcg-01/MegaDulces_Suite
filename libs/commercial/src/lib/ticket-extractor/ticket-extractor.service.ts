@@ -93,6 +93,73 @@ export class TicketExtractorService {
     }
   }
 
+  /**
+   * HV.2 — Foto de EXHIBIDOR → productos del catálogo (sugerencias para pre-poblar
+   * la lista de la captura). Mismo pipeline que el ticket, pero: (1) vision lee
+   * productos del ANAQUEL (no líneas de recibo), (2) matchea contra el corpus
+   * `catalog` (el que usan captures/planograma), (3) carpeta `exhibitions/`.
+   *
+   * Gate HV.0: rinde ~24-29% en este catálogo → SUGERENCIAS a confirmar, no marca
+   * definitiva. El frontend las mete como items con confidence, el vendedor revisa.
+   */
+  async extractExhibitionAndMatch(
+    file: Express.Multer.File,
+    tenantId: string,
+    userId: string,
+  ): Promise<TicketExtractResult> {
+    if (!file) throw new BadRequestException('file requerido');
+    if (!ACCEPTED_MIME_TYPES.has(file.mimetype)) {
+      throw new BadRequestException(
+        `mimetype no soportado: ${file.mimetype}. Aceptados: ${[...ACCEPTED_MIME_TYPES].join(', ')}`,
+      );
+    }
+    if (file.size > MAX_BYTES) {
+      throw new BadRequestException(
+        `Imagen excede ${MAX_BYTES} bytes (recibido ${file.size}). Reducí calidad o tamaño.`,
+      );
+    }
+    let deadline: ReturnType<typeof setTimeout>;
+    const timeout = new Promise<never>((_, reject) => {
+      deadline = setTimeout(
+        () =>
+          reject(
+            new GatewayTimeoutException(
+              'La lectura de la foto tardó demasiado. Revisá tu conexión y reintentá.',
+            ),
+          ),
+        PIPELINE_DEADLINE_MS,
+      );
+    });
+    const pipeline = this.runExhibitionPipeline(file, tenantId, userId);
+    pipeline.catch(() => undefined);
+    try {
+      return await Promise.race([pipeline, timeout]);
+    } finally {
+      clearTimeout(deadline!);
+    }
+  }
+
+  private async runExhibitionPipeline(
+    file: Express.Multer.File,
+    tenantId: string,
+    userId: string,
+  ): Promise<TicketExtractResult> {
+    const t0 = Date.now();
+    const folder = `exhibitions/${tenantId}/${userId}`;
+    const uploaded = await this.cloudinary.uploadImage(file, folder);
+    const base64 = file.buffer.toString('base64');
+    const mediaType = file.mimetype as 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif';
+    const items = await this.llm.extractFromExhibitionImage(base64, mediaType);
+    this.logger.log(`[exhibición] vision leyó ${items.length} productos (+${Date.now() - t0}ms)`);
+    // Corpus 'catalog' (el de captures/planograma), NO 'active' (que es del ticket ERP).
+    const match = await this.matcher.matchExtractedItems(items, t0);
+    this.logger.log(
+      `[exhibición] match: ${match.items.length} items, ` +
+        `${match.items.filter((i) => i.suggested?.autoConfirm).length} autoConfirm (${match.meta.elapsed_ms}ms)`,
+    );
+    return { ticket_url: uploaded.secure_url, ticket_public_id: uploaded.public_id, match };
+  }
+
   private async runPipeline(
     file: Express.Multer.File,
     tenantId: string,

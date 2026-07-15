@@ -1,5 +1,5 @@
 import { Module } from '@nestjs/common';
-import { TicketExtractorController } from './ticket-extractor.controller';
+import { TicketExtractorController, ExhibitionExtractorController } from './ticket-extractor.controller';
 import { TicketExtractorService } from './ticket-extractor.service';
 import { CloudinaryModule } from '@megadulces/platform-core';
 import { AiProductMatcherModule } from '@megadulces/platform-core';
@@ -12,7 +12,7 @@ import { AiProductMatcherModule } from '@megadulces/platform-core';
  */
 @Module({
   imports: [CloudinaryModule, AiProductMatcherModule],
-  controllers: [TicketExtractorController],
+  controllers: [TicketExtractorController, ExhibitionExtractorController],
   providers: [TicketExtractorService],
 })
 export class TicketExtractorModule {}
