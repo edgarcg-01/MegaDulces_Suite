@@ -355,7 +355,7 @@ export class LayoutComponent implements OnInit, OnDestroy {
    * Detecta proyecto activo según prefix del URL. Default = trade marketing.
    * /admin tiene prefix más específico que comercial/dashboard, chequearlo primero.
    */
-  private currentProject = computed<'trademk' | 'comercial' | 'admin' | 'logistica' | 'tienda' | 'reparto' | 'finanzas' | 'almacen' | 'compras'>(() => {
+  private currentProject = computed<'trademk' | 'comercial' | 'admin' | 'logistica' | 'tienda' | 'reparto' | 'finanzas' | 'contabilidad' | 'almacen' | 'compras'>(() => {
     const url = this.currentUrl();
     if (url.startsWith('/admin')) return 'admin';
     if (url.startsWith('/comercial')) return 'comercial';
@@ -363,6 +363,7 @@ export class LayoutComponent implements OnInit, OnDestroy {
     if (url.startsWith('/tienda')) return 'tienda';
     if (url.startsWith('/reparto')) return 'reparto';
     if (url.startsWith('/finanzas')) return 'finanzas';
+    if (url.startsWith('/contabilidad')) return 'contabilidad';
     if (url.startsWith('/almacen')) return 'almacen';
     if (url.startsWith('/compras')) return 'compras';
     return 'trademk';
@@ -375,6 +376,7 @@ export class LayoutComponent implements OnInit, OnDestroy {
       case 'tienda':     return 'Tienda';
       case 'reparto':    return 'Reparto';
       case 'finanzas':   return 'Finanzas';
+      case 'contabilidad': return 'Contabilidad';
       case 'almacen':    return 'Almacén';
       case 'compras':    return 'Compras';
       case 'admin':      return 'Administración';
@@ -397,6 +399,19 @@ export class LayoutComponent implements OnInit, OnDestroy {
     { label: 'Solicitudes de gasto', icon: 'pi pi-file-edit', route: '/finanzas/solicitudes', permission: Permission.FINANCE_EXPENSES_VER },
     { label: 'Hallazgos', icon: 'pi pi-flag', route: '/finanzas/hallazgos', permission: Permission.FINANCE_AI_CHAT },
     { label: 'Pregúntale a Maat', icon: 'pi pi-sparkles', route: '/finanzas/maat', permission: Permission.FINANCE_AI_CHAT },
+  ];
+
+  // Contabilidad (cumplimiento SAT / CFDI). Proyecto propio, separado de Finanzas.
+  private contabilidadNavItems: NavItem[] = [
+    { label: 'Listas SAT',          icon: 'pi pi-shield',         route: '/contabilidad/listas-sat',    permission: Permission.FISCAL_LISTAS_VER },
+    { label: 'CFDI',                icon: 'pi pi-file',           route: '/contabilidad/cfdi',          permission: Permission.FISCAL_CFDI_VER },
+    { label: 'Conciliación',        icon: 'pi pi-check-square',   route: '/contabilidad/conciliacion',  permission: Permission.FISCAL_CONCILIACION_VER },
+    { label: 'DIOT / IVA',          icon: 'pi pi-percentage',     route: '/contabilidad/diot',          permission: Permission.FISCAL_DIOT_VER },
+    { label: 'Descarga CFDI',       icon: 'pi pi-cloud-download', route: '/contabilidad/descarga',      permission: Permission.FISCAL_DESCARGA_VER },
+    { label: 'Materialidad',        icon: 'pi pi-folder-open',    route: '/contabilidad/materialidad',  permission: Permission.FISCAL_LISTAS_VER },
+    { label: 'Contabilidad e.',     icon: 'pi pi-book',           route: '/contabilidad/contabilidad',  permission: Permission.FISCAL_CONTAB_VER },
+    { label: 'Provisionales',       icon: 'pi pi-calculator',     route: '/contabilidad/impuestos',     permission: Permission.FISCAL_DIOT_VER },
+    { label: 'e.firma',             icon: 'pi pi-key',            route: '/contabilidad/credenciales',  permission: Permission.FISCAL_CREDENCIALES_GESTIONAR },
   ];
 
   // Compras / Reabastecimiento (Fase RA — ADR-030). Existencia crítica → sugerido →
@@ -451,6 +466,11 @@ export class LayoutComponent implements OnInit, OnDestroy {
     // (un usuario de finanzas puede no tener REPORTES_VER_*). El route-guard ya gatea acceso.
     if (this.currentProject() === 'finanzas') {
       return this.dedupeByRoute(this.finanzasNavItems);
+    }
+    // Contabilidad: superficie contable/fiscal propia. Un rol contable puede no tener
+    // REPORTES_VER_* → early-return para que el sidebar no quede vacío. Cada item por permiso.
+    if (this.currentProject() === 'contabilidad') {
+      return this.dedupeByRoute(this.contabilidadNavItems.filter((i) => this.hasPermFor(i)));
     }
     // Compras: superficie propia con nav propio (un comprador puede no tener REPORTES_VER_*).
     if (this.currentProject() === 'compras') {
@@ -519,6 +539,10 @@ export class LayoutComponent implements OnInit, OnDestroy {
     }
     if (this.currentProject() === 'finanzas') {
       return [{ title: 'Finanzas', items: this.dedupeByRoute(this.finanzasNavItems) }];
+    }
+    if (this.currentProject() === 'contabilidad') {
+      return [{ title: 'Contabilidad', items: this.dedupeByRoute(this.contabilidadNavItems.filter((i) => this.hasPermFor(i))) }]
+        .filter((g) => g.items.length > 0);
     }
     if (this.currentProject() === 'compras') {
       return [{ title: 'Compras', items: this.dedupeByRoute(this.comprasNavItems) }];

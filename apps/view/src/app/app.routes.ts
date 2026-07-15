@@ -242,25 +242,62 @@ export const routes: Routes = [
         loadComponent: () => import('./modules/finanzas/pages/finanzas-hallazgos.component').then(m => m.FinanzasHallazgosComponent),
         canActivate: [permissionGuard(Permission.FINANCE_AI_CHAT)]
       },
+    ]
+  },
+  // ── Proyecto Contabilidad (Fase FISCAL) ─────────────────────────────
+  // Cumplimiento SAT / CFDI: listas negras, almacén CFDI, conciliación, DIOT,
+  // descarga masiva, materialidad, contabilidad electrónica, impuestos, e.firma.
+  // Separado de Finanzas. Reusa LayoutComponent; nav por URL prefix.
+  {
+    path: 'contabilidad',
+    canActivate: [authGuard],
+    component: LayoutComponent,
+    children: [
+      { path: '', redirectTo: 'listas-sat', pathMatch: 'full' },
       {
         path: 'listas-sat',
-        loadComponent: () => import('./modules/finanzas/pages/finanzas-listas-sat.component').then(m => m.FinanzasListasSatComponent),
+        loadComponent: () => import('./modules/contabilidad/pages/contabilidad-listas-sat.component').then(m => m.ContabilidadListasSatComponent),
         canActivate: [permissionGuard(Permission.FISCAL_LISTAS_VER)]
       },
       {
         path: 'cfdi',
-        loadComponent: () => import('./modules/finanzas/pages/finanzas-cfdi.component').then(m => m.FinanzasCfdiComponent),
+        loadComponent: () => import('./modules/contabilidad/pages/contabilidad-cfdi.component').then(m => m.ContabilidadCfdiComponent),
         canActivate: [permissionGuard(Permission.FISCAL_CFDI_VER)]
       },
       {
         path: 'conciliacion',
-        loadComponent: () => import('./modules/finanzas/pages/finanzas-conciliacion.component').then(m => m.FinanzasConciliacionComponent),
+        loadComponent: () => import('./modules/contabilidad/pages/contabilidad-conciliacion.component').then(m => m.ContabilidadConciliacionComponent),
         canActivate: [permissionGuard(Permission.FISCAL_CONCILIACION_VER)]
       },
       {
         path: 'diot',
-        loadComponent: () => import('./modules/finanzas/pages/finanzas-diot.component').then(m => m.FinanzasDiotComponent),
+        loadComponent: () => import('./modules/contabilidad/pages/contabilidad-diot.component').then(m => m.ContabilidadDiotComponent),
         canActivate: [permissionGuard(Permission.FISCAL_DIOT_VER)]
+      },
+      {
+        path: 'descarga',
+        loadComponent: () => import('./modules/contabilidad/pages/contabilidad-descarga.component').then(m => m.ContabilidadDescargaComponent),
+        canActivate: [permissionGuard(Permission.FISCAL_DESCARGA_VER)]
+      },
+      {
+        path: 'materialidad',
+        loadComponent: () => import('./modules/contabilidad/pages/contabilidad-materialidad.component').then(m => m.ContabilidadMaterialidadComponent),
+        canActivate: [permissionGuard(Permission.FISCAL_LISTAS_VER)]
+      },
+      {
+        path: 'contabilidad',
+        loadComponent: () => import('./modules/contabilidad/pages/contabilidad-contabilidad.component').then(m => m.ContabilidadContabilidadComponent),
+        canActivate: [permissionGuard(Permission.FISCAL_CONTAB_VER)]
+      },
+      {
+        path: 'impuestos',
+        loadComponent: () => import('./modules/contabilidad/pages/contabilidad-impuestos.component').then(m => m.ContabilidadImpuestosComponent),
+        canActivate: [permissionGuard(Permission.FISCAL_DIOT_VER)]
+      },
+      {
+        path: 'credenciales',
+        loadComponent: () => import('./modules/contabilidad/pages/contabilidad-credenciales.component').then(m => m.ContabilidadCredencialesComponent),
+        canActivate: [permissionGuard(Permission.FISCAL_CREDENCIALES_GESTIONAR)]
       },
     ]
   },

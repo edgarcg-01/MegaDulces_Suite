@@ -163,6 +163,23 @@ export class ProjectsComponent implements OnInit {
       anyOf: [Permission.FINANCE_EXPENSES_VER],
     },
     {
+      id: 'contabilidad',
+      name: 'Contabilidad',
+      description: 'Cumplimiento fiscal SAT: listas negras (EFOS/69), CFDI, conciliación PUE/PPD↔REP y CFDI↔póliza, DIOT, descarga masiva, materialidad, contabilidad electrónica e impuestos provisionales.',
+      icon: 'pi pi-calculator',
+      route: '/contabilidad',
+      status: 'Activo',
+      anyOf: [
+        Permission.FISCAL_LISTAS_VER,
+        Permission.FISCAL_CFDI_VER,
+        Permission.FISCAL_CONCILIACION_VER,
+        Permission.FISCAL_DIOT_VER,
+        Permission.FISCAL_CONTAB_VER,
+        Permission.FISCAL_DESCARGA_VER,
+        Permission.FISCAL_CREDENCIALES_GESTIONAR,
+      ],
+    },
+    {
       id: 'admin',
       name: 'Administración',
       description: 'Gestión de usuarios, roles y permisos del sistema.',

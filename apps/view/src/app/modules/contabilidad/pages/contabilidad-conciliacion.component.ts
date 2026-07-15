@@ -6,7 +6,7 @@ import { TableModule } from 'primeng/table';
 import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
-import { FINANZAS_TABS } from '../finanzas-tabs';
+import { CONTABILIDAD_TABS } from '../contabilidad-tabs';
 import { ConciliacionService, PpdRow, ConciliacionStats, CruceStats, CfdiSinPoliza, PolizaSinCfdi } from '../conciliacion.service';
 
 /**
@@ -15,7 +15,7 @@ import { ConciliacionService, PpdRow, ConciliacionStats, CruceStats, CfdiSinPoli
  * periodos descargados). Vacío = esperado hasta poblar fiscal.cfdis (no error).
  */
 @Component({
-  selector: 'app-finanzas-conciliacion',
+  selector: 'app-contabilidad-conciliacion',
   standalone: true,
   imports: [CommonModule, ButtonModule, TableModule, ToastModule, PageTabsComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -133,8 +133,8 @@ import { ConciliacionService, PpdRow, ConciliacionStats, CruceStats, CfdiSinPoli
     .co-empty { padding: 2.5rem 1rem; text-align: center; color: var(--text-muted); }
   `],
 })
-export class FinanzasConciliacionComponent implements OnInit {
-  readonly tabs = FINANZAS_TABS;
+export class ContabilidadConciliacionComponent implements OnInit {
+  readonly tabs = CONTABILIDAD_TABS;
   private readonly svc = inject(ConciliacionService);
   private readonly toast = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);

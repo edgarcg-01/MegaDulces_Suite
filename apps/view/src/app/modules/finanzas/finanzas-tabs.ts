@@ -3,7 +3,8 @@ import { Permission } from '../../core/constants/permissions';
 
 /**
  * Tabs del proyecto Finanzas. Aquí crece lo contable (documentos, hallazgos,
- * cuentas por pagar) — NO en los tabs de reportes de venta.
+ * cuentas por pagar) — NO en los tabs de reportes de venta. Lo fiscal/cumplimiento
+ * SAT vive en el proyecto Contabilidad (`contabilidad-tabs.ts`).
  */
 export const FINANZAS_TABS: PageTab[] = [
   {
@@ -17,30 +18,6 @@ export const FINANZAS_TABS: PageTab[] = [
     route: '/finanzas/hallazgos',
     icon: 'pi pi-flag',
     permission: Permission.FINANCE_AI_CHAT,
-  },
-  {
-    label: 'Listas SAT',
-    route: '/finanzas/listas-sat',
-    icon: 'pi pi-shield',
-    permission: Permission.FISCAL_LISTAS_VER,
-  },
-  {
-    label: 'CFDI',
-    route: '/finanzas/cfdi',
-    icon: 'pi pi-file',
-    permission: Permission.FISCAL_CFDI_VER,
-  },
-  {
-    label: 'Conciliación',
-    route: '/finanzas/conciliacion',
-    icon: 'pi pi-check-square',
-    permission: Permission.FISCAL_CONCILIACION_VER,
-  },
-  {
-    label: 'DIOT / IVA',
-    route: '/finanzas/diot',
-    icon: 'pi pi-percentage',
-    permission: Permission.FISCAL_DIOT_VER,
   },
   {
     label: 'Solicitudes de gasto',

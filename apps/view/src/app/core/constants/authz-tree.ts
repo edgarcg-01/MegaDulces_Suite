@@ -197,11 +197,24 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
         modules: [
           { id: 'egresos', label: 'Egresos contables', route: '/finanzas/egresos', view: [Permission.FINANCE_EXPENSES_VER], manage: [] },
           { id: 'hallazgos', label: 'Hallazgos', route: '/finanzas/hallazgos', view: [Permission.FINANCE_AI_CHAT], manage: [Permission.FINANCE_FINDINGS_GESTIONAR] },
-          { id: 'listas-sat', label: 'Listas SAT (EFOS 69-B / Art. 69)', route: '/finanzas/listas-sat', view: [Permission.FISCAL_LISTAS_VER], manage: [Permission.FISCAL_LISTAS_GESTIONAR] },
-          { id: 'cfdi', label: 'CFDI', route: '/finanzas/cfdi', view: [Permission.FISCAL_CFDI_VER], manage: [] },
-          { id: 'conciliacion', label: 'Conciliación fiscal', route: '/finanzas/conciliacion', view: [Permission.FISCAL_CONCILIACION_VER], manage: [] },
-          { id: 'diot', label: 'DIOT / IVA', route: '/finanzas/diot', view: [Permission.FISCAL_DIOT_VER], manage: [] },
           { id: 'maat', label: 'Pregúntale a Maat', route: '/finanzas/maat', view: [Permission.FINANCE_AI_CHAT], manage: [Permission.FINANCE_FINDINGS_GESTIONAR] },
+        ],
+      },
+      {
+        id: 'contabilidad',
+        label: 'Contabilidad',
+        icon: 'pi pi-calculator',
+        route: '/contabilidad',
+        modules: [
+          { id: 'listas-sat', label: 'Listas SAT (EFOS 69-B / Art. 69)', route: '/contabilidad/listas-sat', view: [Permission.FISCAL_LISTAS_VER], manage: [Permission.FISCAL_LISTAS_GESTIONAR] },
+          { id: 'cfdi', label: 'CFDI', route: '/contabilidad/cfdi', view: [Permission.FISCAL_CFDI_VER], manage: [] },
+          { id: 'conciliacion', label: 'Conciliación fiscal', route: '/contabilidad/conciliacion', view: [Permission.FISCAL_CONCILIACION_VER], manage: [] },
+          { id: 'diot', label: 'DIOT / IVA', route: '/contabilidad/diot', view: [Permission.FISCAL_DIOT_VER], manage: [] },
+          { id: 'descarga', label: 'Descarga masiva CFDI', route: '/contabilidad/descarga', view: [Permission.FISCAL_DESCARGA_VER], manage: [Permission.FISCAL_DESCARGA_GESTIONAR] },
+          { id: 'materialidad', label: 'Expediente de materialidad', route: '/contabilidad/materialidad', view: [Permission.FISCAL_LISTAS_VER], manage: [] },
+          { id: 'contabilidad', label: 'Contabilidad electrónica', route: '/contabilidad/contabilidad', view: [Permission.FISCAL_CONTAB_VER], manage: [] },
+          { id: 'impuestos', label: 'Impuestos provisionales', route: '/contabilidad/impuestos', view: [Permission.FISCAL_DIOT_VER], manage: [] },
+          { id: 'credenciales', label: 'Credenciales SAT (e.firma)', route: '/contabilidad/credenciales', view: [Permission.FISCAL_CREDENCIALES_GESTIONAR], manage: [Permission.FISCAL_CREDENCIALES_GESTIONAR] },
         ],
       },
       {

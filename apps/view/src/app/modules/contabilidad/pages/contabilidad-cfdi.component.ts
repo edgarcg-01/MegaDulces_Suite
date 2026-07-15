@@ -8,7 +8,7 @@ import { ToastModule } from 'primeng/toast';
 import { InputTextModule } from 'primeng/inputtext';
 import { MessageService } from 'primeng/api';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
-import { FINANZAS_TABS } from '../finanzas-tabs';
+import { CONTABILIDAD_TABS } from '../contabilidad-tabs';
 import { CfdiService, CfdiRow, CfdiStats, CfdiFilters } from '../cfdi.service';
 
 /**
@@ -17,7 +17,7 @@ import { CfdiService, CfdiRow, CfdiStats, CfdiFilters } from '../cfdi.service';
  * la descarga masiva; vacío = estado esperado hasta entonces (no error).
  */
 @Component({
-  selector: 'app-finanzas-cfdi',
+  selector: 'app-contabilidad-cfdi',
   standalone: true,
   imports: [CommonModule, FormsModule, ButtonModule, TableModule, ToastModule, InputTextModule, PageTabsComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -132,8 +132,8 @@ import { CfdiService, CfdiRow, CfdiStats, CfdiFilters } from '../cfdi.service';
     .cf-empty .pi { display: block; font-size: 1.5rem; margin-bottom: .5rem; opacity: .6; }
   `],
 })
-export class FinanzasCfdiComponent implements OnInit {
-  readonly tabs = FINANZAS_TABS;
+export class ContabilidadCfdiComponent implements OnInit {
+  readonly tabs = CONTABILIDAD_TABS;
   private readonly svc = inject(CfdiService);
   private readonly toast = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);

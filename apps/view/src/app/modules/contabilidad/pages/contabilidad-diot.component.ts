@@ -7,7 +7,7 @@ import { TableModule } from 'primeng/table';
 import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
-import { FINANZAS_TABS } from '../finanzas-tabs';
+import { CONTABILIDAD_TABS } from '../contabilidad-tabs';
 import { DiotService, DiotRow, DiotResult, IvaResumen } from '../diot.service';
 
 /**
@@ -16,7 +16,7 @@ import { DiotService, DiotRow, DiotResult, IvaResumen } from '../diot.service';
  * PUE/PPD) + DIOT por proveedor. Se llena al poblar fiscal.cfdis.
  */
 @Component({
-  selector: 'app-finanzas-diot',
+  selector: 'app-contabilidad-diot',
   standalone: true,
   imports: [CommonModule, FormsModule, ButtonModule, TableModule, ToastModule, PageTabsComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -107,8 +107,8 @@ import { DiotService, DiotRow, DiotResult, IvaResumen } from '../diot.service';
     .di-empty .pi { display: block; font-size: 1.5rem; margin-bottom: .5rem; opacity: .6; }
   `],
 })
-export class FinanzasDiotComponent implements OnInit {
-  readonly tabs = FINANZAS_TABS;
+export class ContabilidadDiotComponent implements OnInit {
+  readonly tabs = CONTABILIDAD_TABS;
   private readonly svc = inject(DiotService);
   private readonly toast = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);

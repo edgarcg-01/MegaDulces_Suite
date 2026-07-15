@@ -6,7 +6,7 @@ import { TableModule } from 'primeng/table';
 import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
-import { FINANZAS_TABS } from '../finanzas-tabs';
+import { CONTABILIDAD_TABS } from '../contabilidad-tabs';
 import { ListasSatService, SatListMatch, RfcIssue, ListasStats, ListStatus, ExpenseDoc, FiscalEstado } from '../listas-sat.service';
 
 /**
@@ -16,7 +16,7 @@ import { ListasSatService, SatListMatch, RfcIssue, ListasStats, ListStatus, Expe
  * triage. Los hallazgos también se consolidan en la bandeja de Maat (Hallazgos).
  */
 @Component({
-  selector: 'app-finanzas-listas-sat',
+  selector: 'app-contabilidad-listas-sat',
   standalone: true,
   imports: [CommonModule, ButtonModule, TableModule, ToastModule, PageTabsComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -224,8 +224,8 @@ import { ListasSatService, SatListMatch, RfcIssue, ListasStats, ListStatus, Expe
     .ls-card-title { margin: 0 0 .6rem; font-size: .85rem; font-weight: 700; color: var(--text-main); }
   `],
 })
-export class FinanzasListasSatComponent implements OnInit {
-  readonly tabs = FINANZAS_TABS;
+export class ContabilidadListasSatComponent implements OnInit {
+  readonly tabs = CONTABILIDAD_TABS;
   private readonly svc = inject(ListasSatService);
   private readonly toast = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);
