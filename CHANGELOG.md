@@ -10,6 +10,11 @@
 
 ## [Unreleased]
 
+### Deployed (Railway prod) — Fase FISCAL: 8 migraciones fiscales aplicadas a producción (2026-07-15)
+- Aplicadas a **Railway prod** (`trolley.proxy.rlwy.net/railway`) vía `knex migrate:up` una por una (batches 114-121) las **8 migraciones fiscales** (`160000`–`170600`). **Solo fiscales:** las 2 migraciones de Horus pendientes (`horus_chat_log`, `execution_thresholds_auto`, de otro thread) se dejaron **sin aplicar** deliberadamente (no deployar trabajo ajeno como efecto secundario).
+- **Validación prod:** 11 tablas `fiscal.*` + RLS FORCE + 8 políticas + permisos en 36/36 roles + fix crítico FISCAL.3 verificado en tabla real (sin 42P10, job de prueba limpiado) + balanza FISCAL.9 contra `analytics.ledger_monthly` prod (jul-2026, 176 cuentas, cuadra).
+- **⚠️ SEGURIDAD:** el password de la URL usada es uno de los 3 expuestos en el incidente 2026-07-14 y **sigue sin rotar** — usar/rotar es acción de Edgar; se usó solo transitoriamente (env var, nunca a archivo). **Pendiente prod:** `FISCAL_CRYPTO_KEY`/`FISCAL_R2_*` en env + redeploy del API (endpoints `/fiscal/*` no vivos hasta reconstruir la imagen) + re-login + correr descarga.
+
 ### Deployed (dev) + Verified — Fase FISCAL: migraciones aplicadas a la DB nueva + validación 15/15 (2026-07-15)
 - **Migraciones APLICADAS** a la DB nueva de desarrollo (`localhost:5433/postgres_platform`, contenedor Docker `pgvector-md` = `DATABASE_URL_NEW`; el default `.245` está obsoleto). `npx knex migrate:latest --knexfile database/knexfile-newdb.js` → **batch 179, 10 migraciones** (las 8 fiscales `160000`–`170600` + planogram + horus, todas pendientes). Perms fiscales backfilleados a **56 roles**. (Se arrancó Docker Desktop + `pgvector-md`, que estaba caído).
 - **Validación contra la DB real 15/15:** 11 tablas `fiscal.*` con RLS ENABLE+FORCE + 8 políticas + grants a `app_runtime`; permisos en los 56 roles (admin `FISCAL_CFDI_VER=true`); **fix crítico FISCAL.3 verificado en la tabla real** (`ON CONFLICT` índice parcial sin 42P10 + dedup, job de prueba limpiado); RLS aísla por tenant; **FISCAL.9 balanza contra `analytics.ledger_monthly` REAL** (jul-2026: 176 cuentas, `SaldoFin=SaldoIni+Debe−Haber` cuadra en todas, Σdebe≈Σhaber≈$44.9M — el descuadre ~$12k es el bug conocido de Kepler XD5501, no del código).
