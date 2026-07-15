@@ -152,16 +152,87 @@ export class SupervisorActionsService {
   }
 
   /**
+   * HIQ.4 — valor de negocio por sujeto (proxy determinista y explicable):
+   * tienda = Σ monetary_90d de los clientes ligados a ella (customer_360, Thot);
+   * colaborador = Σ del valor de las tiendas que capturó en 30d. Best-effort:
+   * si customer_360 no resuelve, todo queda sin valor y la prioridad no cambia.
+   */
+  private async buildValueMap(
+    tenantId: string,
+  ): Promise<{ get: (subjectType: string, subjectId: string) => number | null; max: number }> {
+    const storeVal = new Map<string, number>();
+    const collabVal = new Map<string, number>();
+
+    const storeRows = await this.safeQuery(() =>
+      this.knex.raw(
+        `SELECT c.store_id, SUM(c360.monetary_90d)::numeric AS v
+           FROM commercial.customer_360 c360
+           JOIN commercial.customers c
+             ON c.tenant_id = c360.tenant_id AND c.id = c360.customer_id
+          WHERE c360.tenant_id = ? AND c.store_id IS NOT NULL AND c360.monetary_90d > 0
+          GROUP BY c.store_id`,
+        [tenantId],
+      ),
+    );
+    for (const r of storeRows?.rows || []) {
+      storeVal.set(String(r.store_id), Number(r.v) || 0);
+    }
+
+    if (storeVal.size) {
+      const visits = await this.safeQuery(() =>
+        this.knex('daily_captures')
+          .where('tenant_id', tenantId)
+          .whereNotNull('user_id')
+          .whereNotNull('store_id')
+          .whereRaw(`hora_inicio >= now() - interval '30 days'`)
+          .distinct('user_id', 'store_id'),
+      );
+      for (const v of visits || []) {
+        const sv = storeVal.get(String(v.store_id));
+        if (sv) collabVal.set(String(v.user_id), (collabVal.get(String(v.user_id)) || 0) + sv);
+      }
+    }
+
+    const max = Math.max(0, ...storeVal.values(), ...collabVal.values());
+    return {
+      max,
+      get: (subjectType: string, subjectId: string) => {
+        const m = subjectType === 'store' ? storeVal : subjectType === 'collaborator' ? collabVal : null;
+        const v = m?.get(String(subjectId));
+        return v != null && v > 0 ? v : null;
+      },
+    };
+  }
+
+  /**
    * Propone/actualiza acciones del co-piloto para UN tenant desde los findings
    * abiertos. Lo invoca el refresh tras generar findings (y el endpoint /compute).
    */
-  async proposeForTenant(tenantId: string): Promise<{ proposed: number; expired: number }> {
-    if (!tenantId) return { proposed: 0, expired: 0 };
+  async proposeForTenant(
+    tenantId: string,
+  ): Promise<{ proposed: number; expired: number; fatigued: number }> {
+    if (!tenantId) return { proposed: 0, expired: 0, fatigued: 0 };
 
     // R2: inputs de decisión — precisión aprendida (L2), baselines (L1), diagnósticos (R1).
     const confMap = await this.calibration.getConfidence(tenantId);
     const baseMap = await this.baselines.getBaselines(tenantId);
     const diagnoses = await this.diagnosis.getOpenForTenant(tenantId);
+    // HIQ.4: valor de negocio por sujeto (prioriza lo que cuesta dinero) +
+    // cadencia anti-fatiga (no re-coachear a quien recibió coaching hace <7d).
+    const values = await this.buildValueMap(tenantId);
+    const recentlyCoached = new Set<string>(
+      (
+        (await this.safeQuery(() =>
+          this.knex('commercial.coaching_notes')
+            .where('tenant_id', tenantId)
+            .whereNull('deleted_at')
+            .whereRaw(`created_at >= now() - interval '7 days'`)
+            .distinct('collaborator_id'),
+        )) || []
+      ).map((r: any) => String(r.collaborator_id)),
+    );
+    let fatigued = 0;
+    const COACHING_FAMILY = new Set(['coaching', 'coaching_focus']);
 
     const findings: FindingForAction[] = await this.knex('commercial.supervisor_findings')
       .where({ tenant_id: tenantId, status: 'open' })
@@ -181,6 +252,15 @@ export class SupervisorActionsService {
       const l2avg = l2vals.reduce((a, b) => a + b, 0) / l2vals.length;
       const conf = round3(((d.confidence != null ? Number(d.confidence) : 0.6) + l2avg) / 2);
       const impact = this.impactFor(d.subject_type, d.subject_id, baseMap);
+      if (
+        COACHING_FAMILY.has(actionType) &&
+        d.subject_type === 'collaborator' &&
+        recentlyCoached.has(String(d.subject_id))
+      ) {
+        fatigued++;
+        continue; // anti-fatiga: ya recibió coaching esta semana
+      }
+      const value = values.get(d.subject_type, d.subject_id);
       actions.push({
         tenant_id: tenantId,
         finding_id: null,
@@ -192,10 +272,10 @@ export class SupervisorActionsService {
         label: d.label ? String(d.label).slice(0, 160) : null,
         title: this.diagTitle(d).slice(0, 300),
         rationale: d.summary ? String(d.summary).slice(0, 2000) : null,
-        payload: JSON.stringify({ root_cause: d.root_cause, finding_types: types }),
+        payload: JSON.stringify({ root_cause: d.root_cause, finding_types: types, value_90d: value }),
         confidence: conf,
         expected_impact: impact ? JSON.stringify(impact) : null,
-        priority: this.priorityOf(d.severity, conf, impact),
+        priority: this.priorityOf(d.severity, conf, impact, value, values.max),
         diagnosis_id: d.id,
         root_cause: d.root_cause,
         proposed_by: 'horus',
@@ -208,8 +288,17 @@ export class SupervisorActionsService {
       if (claimed.has(f.id)) continue; // ya lo representa el diagnóstico (N→1)
       const actionType = ACTION_FOR[f.finding_type];
       if (!actionType) continue;
+      if (
+        COACHING_FAMILY.has(actionType) &&
+        f.subject_type === 'collaborator' &&
+        recentlyCoached.has(String(f.subject_id))
+      ) {
+        fatigued++;
+        continue; // anti-fatiga: ya recibió coaching esta semana
+      }
       const conf = confMap.get(`${f.finding_type}:${f.source || 'engine'}`) ?? 0.6;
       const impact = this.impactFor(f.subject_type, f.subject_id, baseMap);
+      const value = values.get(f.subject_type, f.subject_id);
       actions.push({
         tenant_id: tenantId,
         finding_id: f.id,
@@ -221,10 +310,10 @@ export class SupervisorActionsService {
         label: f.label ? String(f.label).slice(0, 160) : null,
         title: this.titleFor(f).slice(0, 300),
         rationale: null,
-        payload: JSON.stringify({ finding_type: f.finding_type, severity: f.severity }),
+        payload: JSON.stringify({ finding_type: f.finding_type, severity: f.severity, value_90d: value }),
         confidence: round3(conf),
         expected_impact: impact ? JSON.stringify(impact) : null,
-        priority: this.priorityOf(f.severity, conf, impact),
+        priority: this.priorityOf(f.severity, conf, impact, value, values.max),
         diagnosis_id: null,
         root_cause: null,
         proposed_by: 'horus',
@@ -266,7 +355,7 @@ export class SupervisorActionsService {
       })
       .update({ status: 'expired', updated_at: this.knex.fn.now() });
 
-    return { proposed: actions.length, expired: Number(expired) || 0 };
+    return { proposed: actions.length, expired: Number(expired) || 0, fatigued };
   }
 
   /** Impacto esperado (techo): volver a su normal aprendido (L1). Solo donde hay baseline limpio. */
@@ -281,10 +370,22 @@ export class SupervisorActionsService {
     return { metric: 'avg_score', baseline_mean: Number(b.mean), basis: 'baseline' };
   }
 
-  /** Prioridad = severidad × confianza × bonus-de-impacto. Solo para ordenar la bandeja. */
-  private priorityOf(severity: string, confidence: number, impact: any): number {
+  /**
+   * Prioridad = severidad × confianza × bonus-de-impacto × factor-de-valor.
+   * HIQ.4: el factor de valor (1.0–1.5) sube lo que cuesta dinero — un problema
+   * en la tienda que más vende pesa más que el mismo problema en una chica.
+   * Sin dato de valor, factor = 1 (no castiga). Solo ordena la bandeja.
+   */
+  private priorityOf(
+    severity: string,
+    confidence: number,
+    impact: any,
+    value: number | null = null,
+    maxValue = 0,
+  ): number {
     const sev = SEV_WEIGHT[severity] ?? 2;
-    return round3(sev * confidence * (impact ? 1.3 : 1));
+    const valueFactor = value != null && maxValue > 0 ? 1 + 0.5 * Math.min(1, value / maxValue) : 1;
+    return round3(sev * confidence * (impact ? 1.3 : 1) * valueFactor);
   }
 
   /** Título legible de la acción de un diagnóstico (R1). */
