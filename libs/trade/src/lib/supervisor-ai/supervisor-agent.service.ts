@@ -484,6 +484,8 @@ export class SupervisorAgentService {
         vision_mismatch: 'declarado ≠ observado (foto)',
         vision_invalid: 'fotos inválidas',
         over_declaration: 'declara más de lo que la foto muestra',
+        vision_recycled_phash: 'foto reciclada (near-duplicado)',
+        shelf_declining: 'el anaquel viene cayendo (foto)',
         fraud_impossible_speed: 'salto imposible entre capturas',
         fraud_overlap: 'capturas solapadas en el tiempo',
         fraud_gps_mismatch: 'captura lejos de la tienda',

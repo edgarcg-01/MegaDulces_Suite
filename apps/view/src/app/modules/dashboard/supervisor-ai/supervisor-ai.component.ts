@@ -53,6 +53,8 @@ const FINDING_LABELS: Record<string, string> = {
   vision_mismatch: 'declarado ≠ observado (foto)',
   vision_invalid: 'fotos inválidas',
   over_declaration: 'declara más de lo que la foto muestra',
+  vision_recycled_phash: 'foto reciclada (near-duplicado)',
+  shelf_declining: 'el anaquel viene cayendo (foto)',
   fraud_impossible_speed: 'salto imposible entre capturas',
   fraud_overlap: 'capturas solapadas en el tiempo',
   fraud_gps_mismatch: 'captura lejos de la tienda',
@@ -1057,6 +1059,10 @@ export class SupervisorAiComponent implements OnInit {
         return `${e['pct'] ?? '?'}% de fotos inválidas / sin anaquel`;
       case 'over_declaration':
         return `declara ~${e['declared_avg'] ?? '?'} vs ~${e['seen_avg'] ?? '?'} visibles/foto (${e['legible_photos'] ?? '?'} fotos legibles)`;
+      case 'vision_recycled_phash':
+        return `${e['near_duplicate_pairs'] ?? '?'} par(es) de fotos casi idénticas en capturas distintas`;
+      case 'shelf_declining':
+        return `calidad del anaquel ${e['shelf_before'] ?? '?'} → ${e['shelf_now'] ?? '?'} (cae ${e['drop'] ?? '?'})`;
       case 'fraud_impossible_speed':
         return `${e['events'] ?? '?'} salto(s), hasta ${e['max_speed_kmh'] ?? '?'} km/h`;
       case 'fraud_overlap':

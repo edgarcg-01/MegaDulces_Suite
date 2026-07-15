@@ -46,6 +46,20 @@ type Verdict = {
   products_seen: ProductSeen[]; // HV.1 — texto crudo de lo leído (ciego, sin match)
 };
 
+/** Distancia de Hamming entre dos dHash en hex (16 chars = 64 bits). 64 si inválidos. */
+function hammingHex(a: string, b: string): number {
+  if (!a || !b || a.length !== 16 || b.length !== 16) return 64;
+  let d = 0;
+  for (let i = 0; i < 16; i++) {
+    let x = parseInt(a[i], 16) ^ parseInt(b[i], 16);
+    while (x) {
+      d += x & 1;
+      x >>= 1;
+    }
+  }
+  return d;
+}
+
 /** Marcas normalizadas distintas en una lista de productos vistos (para el conteo). */
 function distinctBrands(list: ProductSeen[]): number {
   const set = new Set<string>();
@@ -174,6 +188,7 @@ export class PhotoAuditService {
             'products_seen',
             'seen_product_count',
             'seen_brand_count',
+            'phash',
             'verdict',
             'model',
             'status',
@@ -204,6 +219,7 @@ export class PhotoAuditService {
       const img = await this.fetchImage(cand.foto_url);
       const v = await this.callVision(img.base64, img.mediaType);
       if (!v) throw new Error('sin veredicto');
+      const phash = await this.computePhash(img.buffer); // HIQ.3b, best-effort
       const mismatch =
         v.is_shelf === true &&
         (v.photo_quality === 'good' || v.photo_quality === 'blurry') &&
@@ -223,6 +239,7 @@ export class PhotoAuditService {
         products_seen: JSON.stringify(seen), // HV.1 — texto crudo
         seen_product_count: seen.length,
         seen_brand_count: distinctBrands(seen),
+        phash, // HIQ.3b
         verdict: JSON.stringify(v),
         status: 'analyzed',
         error: null,
@@ -236,11 +253,12 @@ export class PhotoAuditService {
         products_seen: '[]',
         seen_product_count: 0,
         seen_brand_count: 0,
+        phash: null,
       };
     }
   }
 
-  private async fetchImage(url: string): Promise<{ base64: string; mediaType: string }> {
+  private async fetchImage(url: string): Promise<{ base64: string; mediaType: string; buffer: Buffer }> {
     const ctrl = new AbortController();
     const tId = setTimeout(() => ctrl.abort(), 15_000);
     try {
@@ -250,9 +268,39 @@ export class PhotoAuditService {
       if (!ALLOWED_MEDIA.includes(mediaType)) mediaType = 'image/jpeg';
       const buf = Buffer.from(await res.arrayBuffer());
       if (buf.byteLength > MAX_IMAGE_BYTES) throw new Error('imagen demasiado grande');
-      return { base64: buf.toString('base64'), mediaType };
+      return { base64: buf.toString('base64'), mediaType, buffer: buf };
     } finally {
       clearTimeout(tId);
+    }
+  }
+
+  /**
+   * HIQ.3b — dHash (difference hash) perceptual 64-bit del buffer de la imagen.
+   * Resize 9×8 grises → compara cada pixel con su vecino derecho → 64 bits → hex.
+   * Best-effort con sharp: si falla (formato raro, sin lib), devuelve null y el
+   * scan sigue sin pHash. sharp se importa perezoso para no romper si no está.
+   */
+  private async computePhash(buffer: Buffer): Promise<string | null> {
+    try {
+      // Import perezoso: si sharp no resuelve en el entorno, no rompe el módulo.
+      const sharp = (await import('sharp')).default;
+      const W = 9;
+      const H = 8;
+      const raw = await sharp(buffer).grayscale().resize(W, H, { fit: 'fill' }).raw().toBuffer();
+      let bits = '';
+      for (let y = 0; y < H; y++) {
+        for (let x = 0; x < W - 1; x++) {
+          const i = y * W + x;
+          bits += raw[i] > raw[i + 1] ? '1' : '0';
+        }
+      }
+      // 64 bits → 16 hex chars.
+      let hex = '';
+      for (let i = 0; i < 64; i += 4) hex += parseInt(bits.slice(i, i + 4), 2).toString(16);
+      return hex;
+    } catch (e: any) {
+      this.logger.debug(`pHash falló: ${e?.message || e}`);
+      return null;
     }
   }
 
@@ -447,6 +495,9 @@ export class PhotoAuditService {
         'cv.mismatch',
         'cv.photo_quality',
         'cv.seen_product_count',
+        'cv.shelf_quality',
+        'cv.phash',
+        'cv.analyzed_at',
         // HV.3 — declarado en ESA exhibición (productosMarcados del idx correspondiente).
         this.knex.raw(
           `CASE WHEN jsonb_typeof(dc.exhibiciones -> cv.exhibition_idx -> 'productosMarcados') = 'array'
@@ -516,6 +567,44 @@ export class PhotoAuditService {
       }
     }
 
+    // ── HIQ.3b — cross-foto: near-dup por pHash (recicladas) + evolución del anaquel ──
+    // Near-dup: fotos de DISTINTAS capturas del mismo colaborador con dHash a ≤8 bits
+    // de Hamming = misma foto re-tomada/re-subida (lo que fraud_recycled_photo por URL
+    // exacta no ve). Detecta, no acusa.
+    const recycledByCollab = new Map<string, { pairs: number; sample: string | null }>();
+    const shelfByStore = new Map<string, { recent: number[]; older: number[]; sample: string | null }>();
+    const nowMs = Date.now();
+    const HALF_MS = 15 * 24 * 3600 * 1000; // corte reciente vs anterior (15d)
+    const byUserPhash = new Map<string, { phash: string; capture_id: string }[]>();
+    for (const r of rows) {
+      if (r.user_id && typeof r.phash === 'string' && r.phash.length === 16) {
+        const arr = byUserPhash.get(r.user_id) || [];
+        arr.push({ phash: r.phash, capture_id: r.capture_id });
+        byUserPhash.set(r.user_id, arr);
+      }
+      if (r.store_id && r.shelf_quality != null && r.is_shelf === true) {
+        const s = shelfByStore.get(r.store_id) || { recent: [], older: [], sample: null };
+        const t = r.analyzed_at ? new Date(r.analyzed_at).getTime() : nowMs;
+        (nowMs - t <= HALF_MS ? s.recent : s.older).push(Number(r.shelf_quality));
+        s.sample = s.sample || r.capture_id;
+        shelfByStore.set(r.store_id, s);
+      }
+    }
+    for (const [userId, list] of byUserPhash) {
+      let pairs = 0;
+      let sample: string | null = null;
+      for (let i = 0; i < list.length; i++) {
+        for (let j = i + 1; j < list.length; j++) {
+          if (list[i].capture_id === list[j].capture_id) continue; // misma captura no cuenta
+          if (hammingHex(list[i].phash, list[j].phash) <= 8) {
+            pairs++;
+            sample = sample || list[i].capture_id;
+          }
+        }
+      }
+      if (pairs > 0) recycledByCollab.set(userId, { pairs, sample });
+    }
+
     const findings: any[] = [];
     const add = (
       type: string,
@@ -550,6 +639,22 @@ export class PhotoAuditService {
           analyzed: a.total,
         });
       }
+      // HIQ.3b — evolución del anaquel: la calidad cae vs las fotos de 2 semanas atrás.
+      const se = shelfByStore.get(storeId);
+      if (se && se.recent.length >= 2 && se.older.length >= 2) {
+        const avg = (xs: number[]) => xs.reduce((s, x) => s + x, 0) / xs.length;
+        const recent = avg(se.recent);
+        const older = avg(se.older);
+        if (older - recent >= 0.15) {
+          add('shelf_declining', older - recent >= 0.3 ? 'critical' : 'warn', 'store', storeId, a.label, se.sample, Math.round((older - recent) * 100) / 100, {
+            shelf_now: Math.round(recent * 100) / 100,
+            shelf_before: Math.round(older * 100) / 100,
+            drop: Math.round((older - recent) * 100) / 100,
+            photos_recent: se.recent.length,
+            photos_before: se.older.length,
+          });
+        }
+      }
     }
     for (const [userId, a] of byCollab) {
       if (a.mismatch >= 1) {
@@ -580,6 +685,15 @@ export class PhotoAuditService {
             hint: 'Declara más productos de los que la foto legible muestra: revisar encuadre (una foto por sección) o ajustar lo marcado al frame.',
           });
         }
+      }
+      // HIQ.3b — foto reciclada por near-duplicado perceptual (pHash), no solo URL.
+      const rec = recycledByCollab.get(userId);
+      if (rec && rec.pairs >= 1) {
+        add('vision_recycled_phash', 'critical', 'collaborator', userId, a.label, rec.sample, rec.pairs, {
+          near_duplicate_pairs: rec.pairs,
+          method: 'dhash_hamming<=8',
+          hint: 'Fotos casi idénticas en capturas distintas: posible reutilización de evidencia.',
+        });
       }
     }
 
