@@ -454,14 +454,21 @@ export class LlmExtractorService implements OnModuleInit {
               name: 'read_shelf_products',
               description:
                 'Lee TODOS los productos VISIBLES en la foto de una exhibición/anaquel de dulces de una ' +
-                'tienda mexicana (distribuidora Mega Dulces). El surtido típico incluye: chocolates, chicles, ' +
-                'gomitas, paletas, malvaviscos, tamarindos, cueritos, mazapán, obleas, cacahuates, botanas, ' +
-                'caramelos macizos y dulce a granel. Un item por producto DISTINTO. ' +
+                'tienda mexicana. El surtido típico incluye: chocolates, chicles, gomitas, paletas, ' +
+                'malvaviscos, tamarindos, cueritos, mazapán, obleas, cacahuates, botanas, caramelos macizos ' +
+                'y dulce a granel. Un item por producto DISTINTO. ' +
                 'Sé EXHAUSTIVO: listá cada producto que distingas, no solo los más grandes ni los del frente. ' +
-                'Para cada uno: `raw` = texto tal como se lee (marca + producto, ej "Cuerito Lupita 700g"); ' +
-                'si NO hay marca legible (dulce a granel o empaque genérico), describí el TIPO igual ' +
-                '(ej "gomitas de oso", "paleta de tamarindo", "cacahuate japonés"). `normalized` = nombre ' +
-                'limpio en minúsculas para matchear con catálogo (marca + tipo, sin precios ni códigos). ' +
+                '\n\nMUY IMPORTANTE — el exhibidor tiene tiras/etiquetas amarillas de la DISTRIBUIDORA que ' +
+                'dicen "Mega Dulces" / "De Los Altos": eso es la MARCA DE LA TIENDA, NO el nombre ni la marca ' +
+                'del producto. NUNCA incluyas "Mega Dulces" ni "De Los Altos" en `raw` ni en `normalized`. ' +
+                'Las etiquetas SÍ suelen nombrar el producto en el espacio (ej "Mazapán Grande", "Kisses", ' +
+                '"Pulparindo", "Bon Bon", "Pelón Pelo Rico") — usá ESE nombre del producto, o la marca del ' +
+                'empaque real (Snickers, Hershey\'s, Trident, Halls, Carlos V, Suizo de la Rosa). ' +
+                '\n\nPara cada uno: `raw` = nombre del producto tal como se lee (SIN "Mega Dulces"); ' +
+                'si NO hay marca legible (dulce a granel), describí el TIPO (ej "gomitas de oso", ' +
+                '"tamarindo enchilado", "cacahuate japonés"). `normalized` = nombre limpio en minúsculas ' +
+                'para matchear con catálogo (marca/tipo + variante, sin precios, códigos, ni "mega dulces"). ' +
+                'NO confundas categorías: un chicle es chicle (no gomita), una paleta no es caramelo macizo. ' +
                 '`quantity` = cuántas piezas/caras del MISMO producto se ven (entero, default 1). ' +
                 'Reportá SOLO lo que REALMENTE se ve; no inventes ni completes de memoria. ' +
                 'Si la imagen NO es un anaquel de productos (selfie, recibo, persona) o es totalmente ilegible, ' +

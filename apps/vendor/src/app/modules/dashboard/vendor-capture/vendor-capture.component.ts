@@ -529,6 +529,7 @@ export class VendorCaptureComponent implements OnInit, OnDestroy {
         // El corpus 'catalog' del matcher devuelve product_id (UUID de catálogo),
         // que ES lo que productosMarcados necesita — NO sku (que aquí es null).
         const pid = it.suggested?.product_id ?? null;
+        const score = Number(it.suggested?.score) || 0;
         return {
           raw: it.raw,
           quantity: Number(it.quantity) || 1,
@@ -541,8 +542,10 @@ export class VendorCaptureComponent implements OnInit, OnDestroy {
           planogramProductId: pid,
           // Producto presente en el exhibidor → cuenta para la visita (si hay product_id).
           inPlanogram: !!pid,
-          // Solo auto-confirma alta confianza; el resto queda para que el vendedor revise.
-          confirmed: !!pid && conf === 'high',
+          // Auto-confirma SOLO matches muy sólidos (high + score≥0.85). El resto queda
+          // como sugerencia sin marcar para que el vendedor revise — evita meter
+          // matches dudosos a la visita (ej. "chicles"→"gomitas" a 0.72).
+          confirmed: !!pid && conf === 'high' && score >= 0.85,
         };
       });
       // Match = tiene product_id de catálogo (NO sku: catalog no lo trae).
