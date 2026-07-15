@@ -41,6 +41,7 @@ interface OcrItem {
   confirmed: boolean;
   inPlanogram?: boolean; // su sku está en trade.planogram_skus → va a la visita
   planogramProductId?: string | null; // catalog UUID canónico (para productosMarcados de la visita)
+  fromPhoto?: boolean; // HV.2 — identificado desde la foto del exhibidor (ya trae product_id, sin sku)
 }
 
 const ALLOWED_IMAGE_TYPES = [
@@ -279,9 +280,9 @@ const ALLOWED_IMAGE_TYPES = [
               <li *ngFor="let it of items(); let i = index"
                   class="rounded-lg p-2.5 border"
                   [ngClass]="it.confirmed ? 'border-brand-orange/40 bg-brand-orange/5'
-                            : !it.sku ? 'border-divider bg-surface-ground/40 opacity-60' : 'border-divider bg-surface-card'">
+                            : !hasProduct(it) ? 'border-divider bg-surface-ground/40 opacity-60' : 'border-divider bg-surface-card'">
                 <label class="flex gap-3 items-start cursor-pointer">
-                  <input type="checkbox" [ngModel]="it.confirmed" [disabled]="!it.sku"
+                  <input type="checkbox" [ngModel]="it.confirmed" [disabled]="!hasProduct(it)"
                          (ngModelChange)="toggleItem(i, $event)" class="mt-1 w-4 h-4 accent-brand-orange shrink-0" />
                   <div class="flex-1 min-w-0">
                     <div class="text-sm font-medium text-content-main truncate">{{ it.product_name || '— sin match —' }}</div>
@@ -289,7 +290,8 @@ const ALLOWED_IMAGE_TYPES = [
                     <div class="flex items-center gap-1.5 mt-1 flex-wrap">
                       <span class="text-[10px] text-content-muted italic truncate">«{{ it.raw }}»</span>
                       <p-tag [severity]="confSeverity(it.confidence)" [value]="confLabel(it.confidence)" styleClass="text-[9px] py-0 px-1.5"></p-tag>
-                      <span *ngIf="it.inPlanogram" class="text-[9px] bg-brand/20 text-brand px-1.5 py-0 rounded font-semibold uppercase tracking-wide">Planograma</span>
+                      <span *ngIf="it.fromPhoto" class="text-[9px] bg-brand-orange/20 text-brand-orange px-1.5 py-0 rounded font-semibold uppercase tracking-wide">Foto</span>
+                      <span *ngIf="it.inPlanogram && !it.fromPhoto" class="text-[9px] bg-brand/20 text-brand px-1.5 py-0 rounded font-semibold uppercase tracking-wide">Planograma</span>
                       <span *ngIf="it.quantity > 1" class="text-[10px] bg-brand-orange text-white px-1.5 py-0 rounded font-semibold">×{{ it.quantity }}</span>
                     </div>
                   </div>
@@ -317,7 +319,7 @@ const ALLOWED_IMAGE_TYPES = [
           </div>
           <p-button label="Guardar captura" icon="pi pi-check" styleClass="p-button-brand w-full sm:w-auto"
                     [loading]="saving()"
-                    [disabled]="saving() || !exhibidorFile() || (confirmedCount() === 0 && !ticketOcrDeferred())"
+                    [disabled]="saving() || !exhibidorFile() || (confirmedCount() === 0 && planogramCount() === 0 && !ticketOcrDeferred())"
                     (onClick)="save()"></p-button>
         </div>
       </ng-container>
@@ -524,6 +526,9 @@ export class VendorCaptureComponent implements OnInit, OnDestroy {
       const rawItems = res?.match?.items || [];
       const ocr: OcrItem[] = rawItems.map((it: any) => {
         const conf = it.suggested?.confidence ?? it.confidence ?? 'no_match';
+        // El corpus 'catalog' del matcher devuelve product_id (UUID de catálogo),
+        // que ES lo que productosMarcados necesita — NO sku (que aquí es null).
+        const pid = it.suggested?.product_id ?? null;
         return {
           raw: it.raw,
           quantity: Number(it.quantity) || 1,
@@ -531,11 +536,17 @@ export class VendorCaptureComponent implements OnInit, OnDestroy {
           product_name: it.suggested?.product_name ?? null,
           brand_name: it.suggested?.brand_name ?? null,
           confidence: conf,
-          // Sugerencia de foto: NO se auto-confirma salvo alta confianza (el vendedor revisa).
-          confirmed: !!it.suggested?.sku && conf === 'high',
+          fromPhoto: true,
+          // El product_id del match es el catalog UUID canónico → va directo a la visita.
+          planogramProductId: pid,
+          // Producto presente en el exhibidor → cuenta para la visita (si hay product_id).
+          inPlanogram: !!pid,
+          // Solo auto-confirma alta confianza; el resto queda para que el vendedor revise.
+          confirmed: !!pid && conf === 'high',
         };
       });
-      const matched = ocr.filter((o) => o.sku && o.confidence !== 'no_match');
+      // Match = tiene product_id de catálogo (NO sku: catalog no lo trae).
+      const matched = ocr.filter((o) => o.planogramProductId && o.confidence !== 'no_match');
       // LOG DIAGNÓSTICO (visible en consola del device/navegador): leídos vs matcheados.
       console.log(
         `[exhibición] respuesta en ${Date.now() - t0}ms · leídos=${rawItems.length} matcheados=${matched.length}`,
@@ -670,20 +681,32 @@ export class VendorCaptureComponent implements OnInit, OnDestroy {
     this.items.update((arr) => arr.map((it, idx) => (idx === i ? { ...it, confirmed: checked } : it)));
   }
 
+  /** Un item es confirmable/guardable si tiene identidad de catálogo: sku (ticket) o product_id (foto). */
+  hasProduct(it: OcrItem): boolean {
+    return !!(it.sku || it.planogramProductId);
+  }
+
   /** Acumula items OCR de varias fotos: dedupe por sku (mayor cantidad). */
   private mergeOcrItems(incoming: OcrItem[]): void {
+    // Dedup por sku (ticket) O product_id de catálogo (foto): así el mismo producto
+    // no aparece dos veces si lo trae el ticket Y la foto del exhibidor.
+    const keyOf = (i: OcrItem) => i.sku || i.planogramProductId || null;
     this.items.update((prev) => {
       const result = prev.map((p) => ({ ...p }));
       const byId = new Map<string, OcrItem>();
-      for (const r of result) if (r.sku) byId.set(r.sku, r);
+      for (const r of result) {
+        const k = keyOf(r);
+        if (k) byId.set(k, r);
+      }
       for (const it of incoming) {
-        if (it.sku && byId.has(it.sku)) {
-          const d = byId.get(it.sku)!;
+        const k = keyOf(it);
+        if (k && byId.has(k)) {
+          const d = byId.get(k)!;
           d.quantity = Math.max(d.quantity, it.quantity);
         } else {
           const copy = { ...it };
           result.push(copy);
-          if (copy.sku) byId.set(copy.sku, copy);
+          if (k) byId.set(k, copy);
         }
       }
       return result;
@@ -710,11 +733,16 @@ export class VendorCaptureComponent implements OnInit, OnDestroy {
       );
       const bySku = new Map((matched || []).map((m) => [m.sku, m.product_id]));
       this.items.update((arr) =>
-        arr.map((it) => ({
-          ...it,
-          inPlanogram: !!it.sku && bySku.has(it.sku),
-          planogramProductId: it.sku ? bySku.get(it.sku) ?? null : null,
-        })),
+        arr.map((it) => {
+          // HV.2: los items identificados desde la FOTO ya traen product_id de catálogo
+          // (sin sku) — NO los pisamos con el lookup por-sku (los dejaría en null).
+          if (it.fromPhoto || !it.sku) return it;
+          return {
+            ...it,
+            inPlanogram: bySku.has(it.sku),
+            planogramProductId: bySku.get(it.sku) ?? null,
+          };
+        }),
       );
     } catch {
       // best-effort: si falla, no taggeamos planograma (la visita quedará sin productos).
@@ -744,26 +772,28 @@ export class VendorCaptureComponent implements OnInit, OnDestroy {
       return;
     }
 
+    // VENTA: líneas del ticket ERP — requieren sku (producto del set activo).
     const confirmed = this.items().filter((i) => i.confirmed && i.sku);
+    // VISITA: productos marcados en el exhibidor (productosMarcados) — usan el
+    // product_id CANÓNICO de catálogo. Incluye tanto items del ticket EN planograma
+    // como los identificados desde la FOTO (que traen product_id sin sku). Dedup.
+    const planogramPids = Array.from(
+      new Set(
+        this.items()
+          .filter((i) => i.confirmed && i.inPlanogram && i.planogramProductId)
+          .map((i) => i.planogramProductId as string),
+      ),
+    );
     // OCR diferido (sin red al tomar ticket): permitimos guardar sin items
     // si hay ticketBlob — el sync correrá OCR y populará la venta automáticamente.
     const ocrDeferred = this.ticketOcrDeferred() && !!this.ticketBlob;
-    if (confirmed.length === 0 && !ocrDeferred) return;
+    // Se puede guardar si hay venta (sku) O productos de visita (foto/planograma) O OCR diferido.
+    if (confirmed.length === 0 && planogramPids.length === 0 && !ocrDeferred) return;
 
     this.saving.set(true);
     this.syncUuid = this.syncUuid || this.newUuid();
     const today = this.todayMx();
     const userId = this.auth.user()?.sub || '';
-
-    // Productos que matchean el planograma de trade (dedup), con su product_id
-    // CANÓNICO (catalog). En modo OCR-diferido va vacío y el sync lo rellena.
-    const planogramPids = Array.from(
-      new Set(
-        confirmed
-          .filter((i) => i.inPlanogram && i.planogramProductId)
-          .map((i) => i.planogramProductId as string),
-      ),
-    );
 
     const visitPayload: any = {
       folio: this.makeFolio(),

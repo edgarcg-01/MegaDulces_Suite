@@ -173,7 +173,8 @@ export class TicketExtractorService {
         `[exhibición]   "${it.raw}" → ${s?.product_name ? `${s.product_name} [${s.confidence}${s.score != null ? ` ${s.score}` : ''}]${s.autoConfirm ? ' ✓auto' : ''}` : 'SIN MATCH'}`,
       );
     }
-    const matched = match.items.filter((i) => i.suggested?.sku).length;
+    // Corpus 'catalog' identifica por product_id (UUID), NO por sku (que queda null).
+    const matched = match.items.filter((i) => i.suggested?.product_id || i.suggested?.sku).length;
     const auto = match.items.filter((i) => i.suggested?.autoConfirm).length;
     this.logger.log(
       `[exhibición] RESULTADO: leídos=${items.length} matcheados=${matched} autoConfirm=${auto} sin_match=${match.items.length - matched} (${match.meta.elapsed_ms}ms total)`,
