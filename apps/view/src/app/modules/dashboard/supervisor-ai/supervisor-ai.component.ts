@@ -798,6 +798,7 @@ export class SupervisorAiComponent implements OnInit {
 
   readonly loading = signal(true);
   readonly recomputing = signal(false);
+  readonly failedSections = signal<string[]>([]); // HIQ.6 — secciones que fallaron al cargar
   readonly briefing = signal<BriefingResponse | null>(null);
   readonly findings = signal<FindingRow[]>([]);
   readonly diagnoses = signal<DiagnosisRow[]>([]);
@@ -823,26 +824,41 @@ export class SupervisorAiComponent implements OnInit {
 
   private load(): void {
     this.loading.set(true);
+    this.failedSections.set([]);
+    // HIQ.6 — visibilidad de errores: `guard` registra la sección que falló en vez de
+    // tragar el error en silencio. Así una sección caída ≠ "sin datos" (el banner lo
+    // dice y el usuario puede reintentar), fix de la queja del audit del monolito.
+    const guard = <T>(key: string, obs: any, fallback: T) =>
+      obs.pipe(
+        catchError(() => {
+          this.failedSections.update((s) => (s.includes(key) ? s : [...s, key]));
+          return of(fallback);
+        }),
+      );
     forkJoin({
-      brief: this.api.briefing().pipe(catchError(() => of(null))),
-      finds: this.api.findings({ status: 'open' }).pipe(catchError(() => of({ rows: [], total: 0 }))),
-      diags: this.api.diagnoses('open').pipe(catchError(() => of({ rows: [], total: 0 }))),
-      acts: this.api.actions('pending_approval').pipe(catchError(() => of({ rows: [], total: 0 }))),
-      opps: this.api.opportunities('pending_approval').pipe(catchError(() => of({ rows: [], total: 0 }))),
-      tasks: this.api.tasks().pipe(catchError(() => of({ rows: [], total: 0 }))),
-      notes: this.api.coachingNotes().pipe(catchError(() => of({ rows: [], total: 0 }))),
-      cov: this.api.visionCoverage().pipe(catchError(() => of(null))),
-      vis: this.api.vision(true).pipe(catchError(() => of({ rows: [], total: 0 }))),
-      salesEx: this.api.salesExecution().pipe(catchError(() => of(null))),
-      exec: this.api
-        .execution360({ subject_type: 'collaborator', window_days: 30 })
-        .pipe(catchError(() => of({ rows: [], total: 0, computed_at: null }))),
-      rules: this.api.learningRules().pipe(catchError(() => of({ rows: [], total: 0, computed_at: null }))),
-      bases: this.api
-        .learningBaselines({ subject_type: 'collaborator', metric: 'avg_score' })
-        .pipe(catchError(() => of({ rows: [], total: 0, computed_at: null }))),
-      eff: this.api.learningEffectiveness().pipe(catchError(() => of({ rows: [], total: 0 }))),
-      outc: this.api.outcomes().pipe(catchError(() => of({ rows: [], total: 0 }))),
+      brief: guard('Parte diario', this.api.briefing(), null),
+      finds: guard('Hallazgos', this.api.findings({ status: 'open' }), { rows: [], total: 0 }),
+      diags: guard('Diagnósticos', this.api.diagnoses('open'), { rows: [], total: 0 }),
+      acts: guard('Acciones', this.api.actions('pending_approval'), { rows: [], total: 0 }),
+      opps: guard('Mejoras', this.api.opportunities('pending_approval'), { rows: [], total: 0 }),
+      tasks: guard('Tareas', this.api.tasks(), { rows: [], total: 0 }),
+      notes: guard('Coaching', this.api.coachingNotes(), { rows: [], total: 0 }),
+      cov: guard('Cobertura visión', this.api.visionCoverage(), null),
+      vis: guard('Fotos flageadas', this.api.vision(true), { rows: [], total: 0 }),
+      salesEx: guard('Venta vs ejecución', this.api.salesExecution(), null),
+      exec: guard('Colaboradores', this.api.execution360({ subject_type: 'collaborator', window_days: 30 }), {
+        rows: [],
+        total: 0,
+        computed_at: null,
+      }),
+      rules: guard('Reglas (L2)', this.api.learningRules(), { rows: [], total: 0, computed_at: null }),
+      bases: guard('Baselines (L1)', this.api.learningBaselines({ subject_type: 'collaborator', metric: 'avg_score' }), {
+        rows: [],
+        total: 0,
+        computed_at: null,
+      }),
+      eff: guard('Efectividad (L3)', this.api.learningEffectiveness(), { rows: [], total: 0 }),
+      outc: guard('Outcomes', this.api.outcomes(), { rows: [], total: 0 }),
     })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe(({ brief, finds, diags, acts, opps, tasks, notes, cov, vis, salesEx, exec, rules, bases, eff, outc }) => {
