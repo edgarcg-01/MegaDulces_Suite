@@ -36,6 +36,7 @@ export interface CriticalStockRow {
   policy_method: string | null;      // 'service_level' | 'days_cover'
   lead_time_days: number | null;
   avg_daily_units: number | null;
+  sales_rank: number | null;         // ranking de ventas en la sucursal (#1 = el que más vende)
   unit_cost: number | null;
   bucket: Bucket;
   suggested_qty: number;

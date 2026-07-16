@@ -130,6 +130,16 @@ export class CommercialReplenishmentService {
         // RA-PRO.2 — analytics.inventory_health (avg diario para mostrar cobertura; sin RLS)
         .leftJoin('analytics.inventory_health as ih', (j) =>
           j.on('ih.tenant_id', 'rp.tenant_id').andOn('ih.warehouse_id', 'rp.warehouse_id').andOn('ih.product_id', 'rp.product_id'))
+        // Ranking de importancia POR VENTAS dentro de cada sucursal (#1 = el que más vende
+        // ahí = más urgente pedir). DENSE_RANK sobre la demanda diaria; solo los que venden
+        // reciben rank (los de demanda 0 → NULL vía el leftJoin).
+        .leftJoin(
+          trx.raw(
+            `(SELECT warehouse_id, product_id,
+                     DENSE_RANK() OVER (PARTITION BY warehouse_id ORDER BY avg_daily_units DESC) AS sales_rank
+                FROM analytics.inventory_health
+               WHERE tenant_id = ? AND avg_daily_units > 0) as sr`, [tenantId]),
+          (j: any) => j.on('sr.warehouse_id', 'rp.warehouse_id').andOn('sr.product_id', 'rp.product_id'))
         .where('rp.tenant_id', tenantId)
         .andWhere('pr.activo', true); // no sugerir reabasto de productos descontinuados
 
@@ -174,6 +184,7 @@ export class CommercialReplenishmentService {
           trx.raw('rp.policy_method AS policy_method'),
           trx.raw('rp.lead_time_days AS lead_time_days'),
           trx.raw('ih.avg_daily_units AS avg_daily_units'),
+          trx.raw('sr.sales_rank AS sales_rank'), // ranking de ventas en la sucursal (#1 = top)
           trx.raw('sup.id AS supplier_id'),
           trx.raw('sup.name AS supplier_name'),
           trx.raw('sup.min_order_boxes AS supplier_min_boxes'),

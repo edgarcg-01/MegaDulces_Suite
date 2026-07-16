@@ -3,7 +3,8 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
-import { forkJoin } from 'rxjs';
+import { forkJoin, Subject } from 'rxjs';
+import { debounceTime, distinctUntilChanged } from 'rxjs/operators';
 import { ButtonModule } from 'primeng/button';
 import { TableModule, TableLazyLoadEvent } from 'primeng/table';
 import { ToastModule } from 'primeng/toast';
@@ -81,21 +82,26 @@ interface DraftLine {
       <div class="ec-filters">
         <p-multiSelect [options]="warehouseOpts()" [(ngModel)]="fWarehouses" (onChange)="reload()"
                        optionLabel="label" optionValue="value" placeholder="Todos los almacenes" [showClear]="true"
+                       [filter]="true" filterBy="label" filterPlaceholder="Buscar almacén…"
                        [maxSelectedLabels]="2" selectedItemsLabel="{0} almacenes" styleClass="ec-sel"></p-multiSelect>
         <p-select [options]="bucketOpts" [(ngModel)]="fBucket" (onChange)="reload()"
                   optionLabel="label" optionValue="value" placeholder="Críticos (≤ reorden)" [showClear]="true" styleClass="ec-sel"></p-select>
         <p-select [options]="basisOpts" [(ngModel)]="fBasis" (onChange)="reload()"
                   optionLabel="label" optionValue="value" placeholder="Objetivo" styleClass="ec-sel"></p-select>
         <p-select [options]="supplierOpts()" [(ngModel)]="fSupplier" (onChange)="reload()"
-                  optionLabel="label" optionValue="value" placeholder="Todos los proveedores" [showClear]="true" styleClass="ec-sel-wide"></p-select>
+                  optionLabel="label" optionValue="value" placeholder="Todos los proveedores" [showClear]="true"
+                  [filter]="true" filterBy="label" filterPlaceholder="Buscar proveedor…" [resetFilterOnHide]="true"
+                  [virtualScroll]="true" [virtualScrollItemSize]="34" styleClass="ec-sel-wide"></p-select>
         <p-select [options]="abcOpts" [(ngModel)]="fAbc" (onChange)="reload()"
                   optionLabel="label" optionValue="value" placeholder="ABC" [showClear]="true" styleClass="ec-sel-sm"></p-select>
         <p-select [options]="xyzOpts" [(ngModel)]="fXyz" (onChange)="reload()"
                   optionLabel="label" optionValue="value" placeholder="XYZ" [showClear]="true" styleClass="ec-sel-sm"></p-select>
         <span class="p-input-icon-left ec-search">
-          <input pInputText type="text" [(ngModel)]="fSearch" (keyup.enter)="reload()" placeholder="SKU o nombre…" />
+          <i class="pi pi-search" aria-hidden="true"></i>
+          <input pInputText type="text" [(ngModel)]="fSearch" (ngModelChange)="onSearchChange($event)" (keyup.enter)="reload()"
+                 placeholder="SKU o nombre…" aria-label="Buscar por SKU o nombre" />
+          @if (fSearch) { <button type="button" class="ec-search-clear" (click)="clearSearch()" aria-label="Limpiar búsqueda"><i class="pi pi-times"></i></button> }
         </span>
-        <button pButton type="button" icon="pi pi-search" class="p-button-sm p-button-text" (click)="reload()" ariaLabel="Buscar"></button>
       </div>
 
       <!-- Tabla -->
@@ -109,6 +115,7 @@ interface DraftLine {
             <th>Producto</th>
             <th>Almacén</th>
             <th>Clase</th>
+            <th class="ec-r" title="Ranking por ventas en la sucursal (#1 = el que más vende = más importante pedir)">Rank vta</th>
             <th class="ec-r">Existencia</th>
             <th class="ec-r">Mín</th>
             <th class="ec-r">Reorden</th>
@@ -133,6 +140,10 @@ interface DraftLine {
               @if (r.xyz_class) { <span class="ec-cls ec-xyz-{{ r.xyz_class }}" [title]="xyzTitle(r)">{{ r.xyz_class }}</span> }
               @if (!r.abc_class && !r.xyz_class) { <span class="ec-muted">—</span> }
             </td>
+            <td class="ec-r">
+              @if (r.sales_rank != null) { <span [class.ec-rank-top]="r.sales_rank <= 20">#{{ r.sales_rank }}</span> }
+              @else { <span class="ec-muted">—</span> }
+            </td>
             <td class="ec-r">{{ r.on_hand | number:'1.0-0' }}</td>
             <td class="ec-r ec-muted">{{ r.min_stock | number:'1.0-0' }}</td>
             <td class="ec-r ec-muted">{{ r.reorder_point | number:'1.0-0' }}</td>
@@ -147,7 +158,7 @@ interface DraftLine {
           </tr>
         </ng-template>
         <ng-template pTemplate="emptymessage">
-          <tr><td colspan="16" class="ec-empty">Sin productos que reponer con estos filtros.</td></tr>
+          <tr><td colspan="17" class="ec-empty">Sin productos que reponer con estos filtros.</td></tr>
         </ng-template>
       </p-table>
     </div>
@@ -175,7 +186,8 @@ interface DraftLine {
               <p-select [options]="originOpts" [(ngModel)]="l.source_type" optionLabel="label" optionValue="value" styleClass="ec-dlg-origin" appendTo="body"></p-select>
               @if (l.source_type === 'branch') {
                 <p-select [options]="warehouseOpts()" [(ngModel)]="l.source_warehouse_id" optionLabel="label" optionValue="value"
-                          placeholder="Almacén origen" styleClass="ec-dlg-srcwh" appendTo="body"></p-select>
+                          placeholder="Almacén origen" [filter]="true" filterBy="label" filterPlaceholder="Buscar…"
+                          styleClass="ec-dlg-srcwh" appendTo="body"></p-select>
               }
               <input pInputText type="number" min="0" [(ngModel)]="l.final_qty" class="ec-dlg-qty" />
             </div>
@@ -199,7 +211,14 @@ interface DraftLine {
     .ec-kpi.bad .ec-kpi-val { color: var(--bad-fg); }
     .ec-kpi.warn .ec-kpi-val { color: var(--warn-fg); }
     .ec-filters { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; margin-bottom: .75rem; }
-    .ec-sel { min-width: 12rem; } .ec-sel-wide { min-width: 15rem; } .ec-sel-sm { min-width: 6.5rem; } .ec-search input { min-width: 12rem; }
+    .ec-sel { min-width: 12rem; } .ec-sel-wide { min-width: 15rem; } .ec-sel-sm { min-width: 6.5rem; }
+    /* Search con ícono a la izquierda + botón de limpiar a la derecha. */
+    .ec-search { position: relative; display: inline-flex; align-items: center; }
+    .ec-search > .pi-search { position: absolute; left: .6rem; font-size: .8rem; color: var(--text-muted); pointer-events: none; }
+    .ec-search input { min-width: 14rem; padding-left: 1.9rem; padding-right: 1.9rem; }
+    .ec-search-clear { position: absolute; right: .35rem; display: inline-flex; align-items: center; justify-content: center; width: 1.3rem; height: 1.3rem; border: 0; background: none; color: var(--text-muted); cursor: pointer; border-radius: var(--r-sm); }
+    .ec-search-clear:hover { color: var(--text-main); background: var(--surface-hover-bg); }
+    .ec-search-clear .pi { font-size: .72rem; }
     .ec-class { white-space: nowrap; }
     .ec-cls { display: inline-block; min-width: 1.1rem; text-align: center; font-size: .68rem; font-weight: 700; font-family: var(--font-mono, ui-monospace, monospace); padding: 0 .2rem; color: var(--text-muted); }
     .ec-abc-A { color: var(--text-main); } /* alto valor: un poco más de peso */
@@ -210,6 +229,7 @@ interface DraftLine {
     .ec-mono { font-family: var(--font-mono, ui-monospace, monospace); font-size: .78rem; }
     .ec-muted { color: var(--text-muted); }
     .ec-strong { font-weight: 700; }
+    .ec-rank-top { font-weight: 700; } /* top-20 vendedor de la sucursal: resalta por peso (quiet-luxury, sin color) */
     .ec-sel-row { background: var(--surface-hover-bg); }
     .ec-src { font-size: .68rem; text-transform: uppercase; letter-spacing: .03em; color: var(--text-muted); }
     .ec-src-kepler { color: var(--action); }
@@ -251,6 +271,9 @@ export class ComprasExistenciaCriticaComponent implements OnInit {
   fAbc = '';
   fXyz = '';
   fSearch = '';
+
+  /** Búsqueda en vivo: cada tecla empuja al Subject; debounce evita una consulta por letra. */
+  private readonly search$ = new Subject<string>();
 
   abcOpts = [
     { label: 'A (alto valor)', value: 'A' },
@@ -300,8 +323,14 @@ export class ComprasExistenciaCriticaComponent implements OnInit {
       f.warehouses.forEach((w) => this.warehouseNames.set(w.id, `${w.code} · ${w.name}`));
       this.supplierOpts.set(f.suppliers.map((s) => ({ label: s.name, value: s.id })));
     });
+    // Búsqueda en vivo: debounce 300ms + distinct para no reconsultar con el mismo texto.
+    this.search$.pipe(debounceTime(300), distinctUntilChanged(), takeUntilDestroyed(this.destroyRef))
+      .subscribe(() => this.reload());
     this.reload();
   }
+
+  onSearchChange(v: string): void { this.search$.next((v ?? '').trim()); }
+  clearSearch(): void { this.fSearch = ''; this.reload(); }
 
   reload(): void {
     this.selected.clear();
