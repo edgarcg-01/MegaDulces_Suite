@@ -37,6 +37,7 @@ export class CommercialProductsController {
     @Query('search') search?: string,
     @Query('brand_id') brandId?: string,
     @Query('category_id') categoryId?: string,
+    @Query('supplier_id') supplierId?: string,
     @Query('active') active?: string,
     @Query('with_cost') withCost?: string,
   ) {
@@ -46,9 +47,17 @@ export class CommercialProductsController {
       search,
       brand_id: brandId,
       category_id: categoryId,
+      supplier_id: supplierId,
       active: active === undefined ? undefined : active === 'true',
       with_cost: withCost === 'true',
     });
+  }
+
+  @Get('suppliers')
+  @RequirePermissions(Permission.COMMERCIAL_PRODUCTS_VER)
+  @ApiOperation({ summary: 'Proveedores con productos (id + nombre + # productos) para el filtro.' })
+  suppliers() {
+    return this.service.suppliers();
   }
 
   @Get('stats')

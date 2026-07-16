@@ -11,6 +11,7 @@ export interface ListProductsQuery {
   search?: string;
   brand_id?: string;
   category_id?: string;
+  supplier_id?: string;
   /** Filtro por `activo` (true = solo activos, false = solo inactivos). Undefined trae ambos. */
   active?: boolean;
   /** Solo productos con costo cargado (útil para validar imports del ERP). */
@@ -56,6 +57,14 @@ export class CommercialProductsService {
           .leftJoin('categories as cat', function () {
             this.on('cat.id', '=', 'p.category_id').andOn('cat.tenant_id', '=', 'p.tenant_id');
           })
+          // La vista public.products NO expone supplier_id → join a la tabla base catalog.products
+          // (mismo id, RLS scoped por tk.run) para poder filtrar/mostrar proveedor sin recrear la vista.
+          .leftJoin('catalog.products as cp', function () {
+            this.on('cp.id', '=', 'p.id').andOn('cp.tenant_id', '=', 'p.tenant_id');
+          })
+          .leftJoin('catalog.suppliers as sup', function () {
+            this.on('sup.id', '=', 'cp.supplier_id').andOn('sup.tenant_id', '=', 'cp.tenant_id');
+          })
           .whereNull('p.deleted_at');
 
         if (search) {
@@ -74,6 +83,10 @@ export class CommercialProductsService {
         if (query.category_id) {
           if (!UUID_REGEX.test(query.category_id)) throw new BadRequestException('category_id inválido');
           q = q.where('p.category_id', query.category_id);
+        }
+        if (query.supplier_id) {
+          if (!UUID_REGEX.test(query.supplier_id)) throw new BadRequestException('supplier_id inválido');
+          q = q.where('cp.supplier_id', query.supplier_id);
         }
         if (typeof query.active === 'boolean') {
           q = q.where('p.activo', query.active);
@@ -97,6 +110,8 @@ export class CommercialProductsService {
           'b.nombre as brand_name',
           'p.category_id',
           'cat.name as category_name',
+          'cp.supplier_id',
+          'sup.name as supplier_name',
           'p.unit_purchase',
           'p.unit_sale',
           'p.factor_purchase',
@@ -127,6 +142,25 @@ export class CommercialProductsService {
         },
       };
     });
+  }
+
+  /**
+   * Proveedores que tienen al menos un producto (para el dropdown del filtro). Devuelve
+   * id + nombre + # de productos, orden alfabético. `p.supplier_id` vive en catalog.products
+   * (la vista public.products no lo expone), scoped por RLS vía tk.run.
+   */
+  async suppliers() {
+    return this.tk.run(async (trx) =>
+      trx('catalog.products as p')
+        .join('catalog.suppliers as s', function () {
+          this.on('s.id', '=', 'p.supplier_id').andOn('s.tenant_id', '=', 'p.tenant_id');
+        })
+        .whereNull('p.deleted_at')
+        .whereNull('s.deleted_at')
+        .groupBy('s.id', 's.name')
+        .select('s.id', 's.name', trx.raw('COUNT(p.id)::int AS product_count'))
+        .orderBy('s.name', 'asc'),
+    );
   }
 
   /**

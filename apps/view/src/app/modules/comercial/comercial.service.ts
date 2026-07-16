@@ -101,6 +101,8 @@ export interface Product {
   brand_name?: string | null;
   category_id: string | null;
   category_name?: string | null;
+  supplier_id?: string | null;
+  supplier_name?: string | null;
   unit_purchase: string | null;
   unit_sale: string | null;
   factor_purchase: number | null;
@@ -125,6 +127,12 @@ export interface Product {
 export interface ProductsPage {
   data: Product[];
   pagination: { page: number; pageSize: number; total: number; pageCount: number };
+}
+
+export interface ProductSupplierOption {
+  id: string;
+  name: string;
+  product_count: number;
 }
 
 export interface ProductStats {
@@ -587,6 +595,7 @@ export class ComercialService {
     search?: string;
     brand_id?: string;
     category_id?: string;
+    supplier_id?: string;
     active?: boolean;
     with_cost?: boolean;
   } = {}) {
@@ -596,9 +605,14 @@ export class ComercialService {
     if (opts.search?.trim()) params = params.set('search', opts.search.trim());
     if (opts.brand_id) params = params.set('brand_id', opts.brand_id);
     if (opts.category_id) params = params.set('category_id', opts.category_id);
+    if (opts.supplier_id) params = params.set('supplier_id', opts.supplier_id);
     if (opts.active !== undefined) params = params.set('active', String(opts.active));
     if (opts.with_cost) params = params.set('with_cost', 'true');
     return this.http.get<ProductsPage>(`${this.base}/products`, { params });
+  }
+  /** Proveedores con productos (para el filtro de /comercial/products). */
+  productSuppliers() {
+    return this.http.get<ProductSupplierOption[]>(`${this.base}/products/suppliers`);
   }
   productStats(search?: string) {
     let params = new HttpParams();

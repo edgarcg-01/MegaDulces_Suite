@@ -22,7 +22,7 @@ import { TooltipModule } from 'primeng/tooltip';
 import { SkeletonModule } from 'primeng/skeleton';
 import { MessageService } from 'primeng/api';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { ComercialService, Product, ProductStats, UpdateProductDto } from '../comercial.service';
+import { ComercialService, Product, ProductStats, ProductSupplierOption, UpdateProductDto } from '../comercial.service';
 import { makeLazyLoad, makeDebouncedSearch } from '../../../shared/util';
 import { MetricCardComponent } from '../../../shared/components/metric-card/metric-card.component';
 
@@ -116,6 +116,30 @@ type ActiveFilter = 'all' | 'active' | 'inactive';
               >{{ f.label }}</button>
             </div>
 
+            <!-- Supplier filter -->
+            <p-select
+              [options]="suppliers()"
+              optionLabel="name"
+              optionValue="id"
+              [ngModel]="selectedSupplier()"
+              (onChange)="onSupplierChange($event.value)"
+              [filter]="true"
+              filterBy="name"
+              [showClear]="true"
+              placeholder="Todos los proveedores"
+              emptyFilterMessage="Sin coincidencias"
+              styleClass="pp-supplier-select"
+              appendTo="body"
+              scrollHeight="320px"
+            >
+              <ng-template let-s pTemplate="item">
+                <div class="pp-sup-opt">
+                  <span class="pp-sup-name">{{ s.name }}</span>
+                  <span class="pp-sup-count">{{ s.product_count }}</span>
+                </div>
+              </ng-template>
+            </p-select>
+
             <!-- Only with cost (importer validation) -->
             <label class="pp-toggle">
               <p-inputSwitch [(ngModel)]="onlyWithCost" (onChange)="reload()"></p-inputSwitch>
@@ -183,6 +207,7 @@ type ActiveFilter = 'all' | 'active' | 'inactive';
                 <th scope="col">Producto</th>
                 <th scope="col">SKU</th>
                 <th scope="col">Marca</th>
+                <th scope="col">Proveedor</th>
                 <th scope="col">Categoría</th>
                 <th scope="col">Ubic.</th>
                 <th scope="col" class="comm-num">Costo</th>
@@ -207,6 +232,10 @@ type ActiveFilter = 'all' | 'active' | 'inactive';
                 <td>
                   <span *ngIf="p.brand_name" class="pp-brand-tag">{{ p.brand_name }}</span>
                   <span *ngIf="!p.brand_name" class="comm-muted">—</span>
+                </td>
+                <td>
+                  <span *ngIf="p.supplier_name" class="pp-sup-tag" [pTooltip]="p.supplier_name" tooltipPosition="top">{{ p.supplier_name }}</span>
+                  <span *ngIf="!p.supplier_name" class="comm-muted">—</span>
                 </td>
                 <td>
                   <span *ngIf="p.category_name" class="pp-cat-tag">{{ p.category_name }}</span>
@@ -238,7 +267,7 @@ type ActiveFilter = 'all' | 'active' | 'inactive';
             </ng-template>
             <ng-template pTemplate="emptymessage">
               <tr>
-                <td colspan="9" class="comm-empty-cell">
+                <td colspan="10" class="comm-empty-cell">
                   <div class="comm-empty">
                     <div class="comm-empty-icon"><i [class]="searchInput ? 'pi pi-search' : 'pi pi-box'" aria-hidden="true"></i></div>
                     <h3>{{ searchInput ? 'Sin resultados' : 'Sin productos' }}</h3>
@@ -399,7 +428,7 @@ type ActiveFilter = 'all' | 'active' | 'inactive';
     .pp-reset:hover { color: var(--c-text-1); border-color: var(--c-text-1); background: var(--c-surface-2); }
     .pp-reset i { font-size: var(--fs-xs); }
 
-    .pp-brand-tag, .pp-cat-tag {
+    .pp-brand-tag, .pp-cat-tag, .pp-sup-tag {
       display: inline-block;
       padding: .15rem .55rem;
       background: var(--c-surface-2);
@@ -411,7 +440,13 @@ type ActiveFilter = 'all' | 'active' | 'inactive';
       max-width: 180px;
       overflow: hidden;
       text-overflow: ellipsis;
+      vertical-align: middle;
     }
+
+    /* Filtro de proveedor */
+    .pp-supplier-select { min-width: 210px; }
+    .pp-sup-opt { display: flex; align-items: center; justify-content: space-between; gap: 1rem; width: 100%; }
+    .pp-sup-count { font-size: var(--fs-xs); color: var(--c-text-3); font-variant-numeric: tabular-nums; }
     .pp-loc-code {
       font-size: var(--fs-xs);
       padding: .1rem .35rem;
@@ -481,6 +516,10 @@ export class ComercialProductsComponent {
   ];
   onlyWithCost = false;
 
+  // Filtro por proveedor (dropdown searchable).
+  readonly suppliers = signal<ProductSupplierOption[]>([]);
+  readonly selectedSupplier = signal<string | null>(null);
+
   /** Agregados catálogo-wide (no del paginado). Honra el search. */
   readonly stats = signal<ProductStats | null>(null);
   readonly brandSeries = computed(() => this.stats()?.top_brands.map((b) => b.sku_count) ?? []);
@@ -501,6 +540,19 @@ export class ComercialProductsComponent {
   constructor() {
     this.load();
     this.loadStats();
+    this.loadSuppliers();
+  }
+
+  private loadSuppliers(): void {
+    this.api
+      .productSuppliers()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({ next: (s) => this.suppliers.set(s || []), error: () => this.suppliers.set([]) });
+  }
+
+  onSupplierChange(id: string | null): void {
+    this.selectedSupplier.set(id);
+    this.reload();
   }
 
   /** Agregados catálogo-wide. Solo depende del search (no del segmento/costo ni del paginado). */
@@ -519,6 +571,7 @@ export class ComercialProductsComponent {
         page: this.page(),
         pageSize: this.pageSize(),
         search: this.searchSignal() || undefined,
+        supplier_id: this.selectedSupplier() || undefined,
         active: activeFilter === 'all' ? undefined : activeFilter === 'active',
         with_cost: this.onlyWithCost || undefined,
       })
@@ -573,12 +626,13 @@ export class ComercialProductsComponent {
     this.searchSignal.set('');
     this.activeFilter.set('all');
     this.onlyWithCost = false;
+    this.selectedSupplier.set(null);
     this.reload();
     this.loadStats();
   }
 
   hasActiveFilters(): boolean {
-    return !!this.searchSignal() || this.activeFilter() !== 'all' || this.onlyWithCost;
+    return !!this.searchSignal() || this.activeFilter() !== 'all' || this.onlyWithCost || !!this.selectedSupplier();
   }
 
   readonly onLazyLoad = makeLazyLoad(this.page, this.pageSize, () => this.load());
