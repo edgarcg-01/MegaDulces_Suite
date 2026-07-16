@@ -19,6 +19,10 @@ export interface Customer {
   name: string;
   legal_name?: string | null;
   rfc?: string | null;
+  /** FE.5 — régimen fiscal SAT del receptor (CFDI 4.0). */
+  regimen_fiscal?: string | null;
+  /** FE.5 — uso CFDI por defecto del cliente. */
+  uso_cfdi?: string | null;
   email?: string | null;
   phone?: string | null;
   whatsapp?: string | null;
@@ -216,6 +220,8 @@ export interface Order {
   confirmed_at?: string | null;
   fulfilled_at?: string | null;
   cancelled_at?: string | null;
+  /** FE.5 — UUID del CFDI emitido para este pedido (null si aún no facturado). */
+  cfdi_uuid?: string | null;
 }
 
 export interface OrderLine {
@@ -763,6 +769,12 @@ export class ComercialService {
   }
   cancelOrder(id: string, reason?: string) {
     return this.http.post<Order>(`${this.base}/orders/${id}/cancel`, { reason });
+  }
+  /** FE.5 — emite y timbra el CFDI (nominativa) de un pedido entregado. */
+  facturarOrder(id: string) {
+    return this.http.post<{ uuid: string; serie: string; folio: string; total: number }>(
+      `${this.base}/orders/${id}/facturar`, {},
+    );
   }
   updateOrderLine(orderId: string, lineId: string, body: { quantity?: number; discount_percent?: number; notes?: string }) {
     return this.http.patch<OrderLine>(`${this.base}/orders/${orderId}/lines/${lineId}`, body);

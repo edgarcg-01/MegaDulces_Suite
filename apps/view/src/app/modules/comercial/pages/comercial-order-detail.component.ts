@@ -77,6 +77,13 @@ import { Permission } from '../../../core/constants/permissions';
             [icon]="o.delivery_type === 'long_trip' ? 'pi pi-globe' : 'pi pi-truck'"
           ></p-tag>
           <p-tag [severity]="severity(o.status)" [value]="statusLabel(o.status)" styleClass="status-tag"></p-tag>
+          <p-tag
+            *ngIf="o.cfdi_uuid"
+            severity="success"
+            icon="pi pi-file-check"
+            [value]="'CFDI ' + shortUuid(o.cfdi_uuid)"
+            [pTooltip]="'Facturado · UUID ' + o.cfdi_uuid"
+          ></p-tag>
         </div>
       </header>
 
@@ -194,6 +201,19 @@ import { Permission } from '../../../core/constants/permissions';
                 (click)="confirmTransition('cancel', o)"></button>
       </div>
 
+      <!-- FE.5: facturar pedido entregado. El auto-invoice al entregar es best-effort;
+           este botón es el fallback manual (y para clientes con datos fiscales recién
+           capturados). Idempotente en backend (409 si ya tiene CFDI). -->
+      <div class="action-bar" *ngIf="o.status === 'fulfilled' && !o.cfdi_uuid && canFacturar()">
+        <button pButton label="Facturar (CFDI)" icon="pi pi-file-edit"
+                [loading]="facturando()"
+                severity="contrast"
+                (click)="facturar(o)"></button>
+        <span class="comm-muted is-small fa-hint">
+          Emite la factura nominativa. Requiere RFC, razón social, régimen, uso CFDI y CP fiscal del cliente.
+        </span>
+      </div>
+
       <!-- Logística: embarques asociados (solo si user tiene LOGISTICS_SHIPMENTS_VER) -->
       <p-card *ngIf="canSeeLogistics()" styleClass="logistics-card">
         <ng-template pTemplate="header">
@@ -285,7 +305,8 @@ import { Permission } from '../../../core/constants/permissions';
     .od-loading { display:flex; flex-direction:column; gap:1rem; }
     .grid { display:grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap:.75rem; }
     @media (max-width: 720px) { .grid { grid-template-columns: 1fr; } }
-    .action-bar { display:flex; gap:.75rem; }
+    .action-bar { display:flex; gap:.75rem; flex-wrap:wrap; align-items:center; }
+    .action-bar .fa-hint { align-self:center; max-width:34rem; }
 
     :host ::ng-deep .status-timeline { padding: .25rem 0; }
     .event { padding:.5rem 0; }
@@ -324,6 +345,18 @@ export class ComercialOrderDetailComponent {
   readonly shipments = signal<Shipment[]>([]);
   readonly loadingShipments = signal(false);
   readonly savingLineId = signal<string | null>(null);
+  readonly facturando = signal(false);
+
+  /** FE.5 — puede emitir CFDI del pedido (mismo permiso que el endpoint). */
+  readonly canFacturar = computed(() => {
+    const perms = this.auth.user()?.permissions || {};
+    return perms[Permission.FISCAL_FACTURAR_GESTIONAR] === true;
+  });
+
+  /** Primeros 8 chars del UUID del CFDI, para el chip compacto. */
+  shortUuid(u: string | null | undefined): string {
+    return u ? u.slice(0, 8) : '';
+  }
 
   /** Helper para usar Number() en el template. */
   readonly Number = Number;
@@ -503,6 +536,32 @@ export class ComercialOrderDetailComponent {
         this.actioning.set(false);
         const detail = err?.error?.message || 'No se pudo aplicar el cambio';
         this.toast.add({ severity: 'error', summary: 'Error', detail });
+      },
+    });
+  }
+
+  /** FE.5 — emite/timbra el CFDI nominativa del pedido entregado (fallback manual). */
+  facturar(o: OrderDetail): void {
+    this.confirm.confirm({
+      message: `¿Emitir la factura (CFDI) del pedido ${o.folio}? Se timbra ante el SAT con los datos fiscales del cliente.`,
+      header: 'Facturar pedido',
+      icon: 'pi pi-file-edit',
+      acceptLabel: 'Sí, facturar',
+      rejectLabel: 'Cancelar',
+      accept: () => {
+        this.facturando.set(true);
+        this.api.facturarOrder(o.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+          next: (res) => {
+            this.facturando.set(false);
+            this.toast.add({ severity: 'success', summary: 'CFDI emitido', detail: `UUID ${res.uuid}`, life: 6000 });
+            this.load(o.id);
+          },
+          error: (err) => {
+            this.facturando.set(false);
+            const detail = err?.error?.message || 'No se pudo emitir el CFDI';
+            this.toast.add({ severity: 'error', summary: 'Error al facturar', detail, life: 8000 });
+          },
+        });
       },
     });
   }

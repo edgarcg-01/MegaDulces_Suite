@@ -137,6 +137,7 @@ export const PERMISSION_META: Record<string, PermissionMetaEntry> = {
   [Permission.FISCAL_CONCILIACION_VER]: { label: 'Ver Conciliación fiscal', description: 'Conciliación PUE/PPD ↔ REP (saldo insoluto, PPD sin complemento de pago) y CFDI ↔ póliza contable.', category: 'Finanzas' },
   [Permission.FISCAL_DIOT_VER]: { label: 'Ver DIOT / IVA', description: 'DIOT (operaciones con terceros) y conciliación de IVA con flujo efectivo (PUE/PPD).', category: 'Finanzas' },
   [Permission.FISCAL_CONTAB_VER]: { label: 'Ver Contabilidad electrónica', description: 'Generar los XML que exige el SAT: catálogo de cuentas y balanza de comprobación.', category: 'Finanzas' },
+  [Permission.FISCAL_CONTAB_GESTIONAR]: { label: 'Gestionar código agrupador SAT', description: 'Editar el mapeo cuenta mayor → código agrupador del SAT (catálogo de cuentas 100% válido).', category: 'Finanzas' },
   [Permission.FISCAL_DESCARGA_VER]: { label: 'Ver Descarga masiva CFDI', description: 'Bandeja de solicitudes de descarga masiva de CFDI ante el SAT (estado + paquetes).', category: 'Finanzas' },
   [Permission.FISCAL_DESCARGA_GESTIONAR]: { label: 'Gestionar Descarga masiva CFDI', description: 'Crear solicitudes de descarga masiva de CFDI (dispara el pipeline con la e.firma).', category: 'Finanzas' },
   [Permission.FISCAL_CREDENCIALES_GESTIONAR]: { label: 'Gestionar credenciales SAT (e.firma)', description: 'Alta/baja de la e.firma del contribuyente en la bóveda cifrada (muy sensible).', category: 'Finanzas' },

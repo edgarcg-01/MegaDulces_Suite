@@ -8,6 +8,7 @@ import { InputNumberModule } from 'primeng/inputnumber';
 import { SelectModule } from 'primeng/select';
 import { Customer } from '../comercial.service';
 import { Route } from '../../logistica/logistica.service';
+import { SAT_REGIMENES, SAT_USOS_CFDI, SatCatItem } from '../../../shared/constants/sat-catalogs';
 
 /**
  * Diálogo de alta/edición de cliente. Presentacional: el padre es dueño del
@@ -53,6 +54,49 @@ import { Route } from '../../logistica/logistica.service';
           <span>RFC</span>
           <input pInputText formControlName="rfc" maxlength="13" style="text-transform:uppercase" />
         </label>
+
+        <!-- FE.5: datos fiscales del receptor (CFDI 4.0). Con RFC + razón social +
+             régimen + uso + CP el pedido entregado se auto-factura como nominativa;
+             sin ellos entra a la factura global de mostrador. -->
+        <label class="full fa-fiscal-head">
+          <span>Datos fiscales <em class="fa-opt">(para factura nominativa)</em></span>
+        </label>
+        <label>
+          <span>Régimen fiscal</span>
+          <p-select
+            formControlName="regimen_fiscal"
+            [options]="regimenes"
+            optionLabel="display"
+            optionValue="code"
+            placeholder="— Seleccionar —"
+            [filter]="true"
+            filterBy="display"
+            [showClear]="true"
+            appendTo="body"
+            styleClass="store-select"
+          ></p-select>
+        </label>
+        <label>
+          <span>Uso CFDI</span>
+          <p-select
+            formControlName="uso_cfdi"
+            [options]="usosCfdi"
+            optionLabel="display"
+            optionValue="code"
+            placeholder="— Seleccionar —"
+            [filter]="true"
+            filterBy="display"
+            [showClear]="true"
+            appendTo="body"
+            styleClass="store-select"
+          ></p-select>
+        </label>
+        <label>
+          <span>CP fiscal</span>
+          <input pInputText formControlName="billing_zip" maxlength="5" inputmode="numeric" placeholder="5 dígitos" />
+          <span class="comm-muted is-small">Código postal del domicilio fiscal (CFDI 4.0).</span>
+        </label>
+
         <label>
           <span>Email</span>
           <input pInputText formControlName="email" type="email" />
@@ -116,9 +160,15 @@ import { Route } from '../../logistica/logistica.service';
   `,
   styles: [`
     :host ::ng-deep .p-select.store-select { width: 100%; }
+    .fa-fiscal-head { border-top: 1px solid var(--c-divider, var(--surface-200)); padding-top: .75rem; margin-top: .25rem; }
+    .fa-fiscal-head span { font-weight: var(--fw-bold, 600); }
+    .fa-opt { font-weight: 400; font-style: normal; color: var(--c-text-3, var(--text-color-secondary)); }
   `],
 })
 export class CustomerFormDialogComponent {
+  readonly regimenes: SatCatItem[] = SAT_REGIMENES;
+  readonly usosCfdi: SatCatItem[] = SAT_USOS_CFDI;
+
   @Input() visible = false;
   @Input({ required: true }) form!: FormGroup;
   @Input() editing: Customer | null = null;

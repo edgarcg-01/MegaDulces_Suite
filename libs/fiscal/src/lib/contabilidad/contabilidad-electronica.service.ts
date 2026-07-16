@@ -70,13 +70,13 @@ export class ContabilidadElectronicaService {
       `TipoEnvio="${tipoEnvio}" FechaModBal="${this.finDeMes(p)}">\n${ctas}\n</BCE:Balanza>\n`;
   }
 
-  /** Catálogo de Cuentas XML del periodo. */
+  /** Catálogo de Cuentas XML del periodo. FE.11: usa el mapeo cuenta mayor → CodAgrupador SAT. */
   async catalogoXml(period: string, rfcParam?: string): Promise<string> {
     const p = this.normPeriod(period);
     const tid = this.tenantCtx.requireTenantId();
     const rfc = await this.resolveRfc(rfcParam);
 
-    const rows = await this.tk.run(async (trx) => {
+    const { rows, map } = await this.tk.run(async (trx) => {
       const r = await trx.raw(
         `SELECT cuenta, MAX(cuenta_nombre) nombre, MAX(cuenta_mayor) mayor, MAX(familia) familia
            FROM analytics.ledger_monthly
@@ -85,21 +85,136 @@ export class ContabilidadElectronicaService {
           ORDER BY cuenta`,
         { tid, period: p },
       );
-      return r.rows as any[];
+      // Mapeo CodAgrupador (RLS activa en el session de tk.run).
+      const mm = await trx('fiscal.cod_agrupador_map').select('cuenta_mayor', 'cod_agrupador', 'natur');
+      const map = new Map<string, { cod: string; natur: string | null }>(
+        mm.map((x: any) => [String(x.cuenta_mayor), { cod: x.cod_agrupador, natur: x.natur }]),
+      );
+      return { rows: r.rows as any[], map };
     });
 
     const [anio, mes] = p.split('-');
     const ctas = rows.map((r) => {
       const nivel = String(r.cuenta).includes('-') ? 2 : 1;
-      const subCtaDe = nivel === 2 ? ` SubCtaDe="${this.esc(r.mayor || String(r.cuenta).split('-')[0])}"` : '';
-      const codAgrup = this.esc(r.mayor || String(r.cuenta).split('-')[0]); // ⚠️ placeholder (falta mapeo SAT)
-      return `  <catalogocuentas:Ctas CodAgrupador="${codAgrup}" NumCta="${this.esc(r.cuenta)}" Desc="${this.esc(r.nombre || r.cuenta)}"${subCtaDe} Nivel="${nivel}" Natur="${this.natur(r.familia)}"/>`;
+      const mayor = String(r.mayor || String(r.cuenta).split('-')[0]);
+      const subCtaDe = nivel === 2 ? ` SubCtaDe="${this.esc(mayor)}"` : '';
+      const mapped = map.get(mayor);
+      // CodAgrupador del catálogo SAT; si el mayor no está mapeado, cae al placeholder (mayor).
+      const codAgrup = this.esc(mapped?.cod || mayor);
+      const natur = (mapped?.natur as 'D' | 'A' | null) || this.natur(r.familia);
+      return `  <catalogocuentas:Ctas CodAgrupador="${codAgrup}" NumCta="${this.esc(r.cuenta)}" Desc="${this.esc(r.nombre || r.cuenta)}"${subCtaDe} Nivel="${nivel}" Natur="${natur}"/>`;
     }).join('\n');
 
     return `<?xml version="1.0" encoding="utf-8"?>\n` +
       `<catalogocuentas:Catalogo xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" ` +
       `xsi:schemaLocation="${this.NS_CAT} ${this.NS_CAT}/CatalogoCuentas_1_3.xsd" ` +
       `xmlns:catalogocuentas="${this.NS_CAT}" Version="1.3" RFC="${this.esc(rfc)}" Mes="${mes}" Anio="${anio}">\n${ctas}\n</catalogocuentas:Catalogo>\n`;
+  }
+
+  // ── FE.11: mapeo cuenta mayor → código agrupador SAT ────────────────────────
+
+  /**
+   * Lista todas las cuentas mayor que aparecen en la balanza, con su mapeo SAT
+   * (o null si aún no mapeada). Es la vista que edita el contador. `en_uso` = la
+   * cuenta mayor tiene movimientos en la balanza (siempre true aquí, útil si a
+   * futuro se listan cuentas del mapeo sin uso).
+   */
+  async listCodAgrupador(): Promise<Array<{
+    cuenta_mayor: string; nombre: string | null; familia: string | null;
+    cod_agrupador: string | null; natur: string | null; source: string | null;
+    natur_default: 'D' | 'A';
+  }>> {
+    const tid = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      const r = await trx.raw(
+        `WITH mayores AS (
+           SELECT cuenta_mayor,
+                  MAX(cuenta_mayor_nombre) AS nombre,
+                  MAX(familia) AS familia
+             FROM analytics.ledger_monthly
+            WHERE tenant_id = :tid AND cuenta_mayor IS NOT NULL AND btrim(cuenta_mayor) <> ''
+            GROUP BY cuenta_mayor)
+         SELECT x.cuenta_mayor, x.nombre, x.familia,
+                m.cod_agrupador, m.natur, m.source
+           FROM mayores x
+           LEFT JOIN fiscal.cod_agrupador_map m
+             ON m.cuenta_mayor = x.cuenta_mayor AND m.tenant_id = :tid
+          ORDER BY x.cuenta_mayor`,
+        { tid },
+      );
+      return (r.rows as any[]).map((row) => ({
+        cuenta_mayor: row.cuenta_mayor,
+        nombre: row.nombre,
+        familia: row.familia,
+        cod_agrupador: row.cod_agrupador,
+        natur: row.natur,
+        source: row.source,
+        natur_default: this.natur(row.familia),
+      }));
+    });
+  }
+
+  /**
+   * Auto-sugerencia: siembra un mapeo `source='auto'` para cada cuenta mayor de la
+   * balanza que aún no tenga mapeo, usando la propia cuenta mayor como código
+   * (muchos catálogos MX ya numeran el mayor alineado al agrupador SAT). Es un
+   * PUNTO DE PARTIDA que el contador debe revisar/corregir. Idempotente: no pisa
+   * los ya mapeados (manual ni auto). Devuelve cuántos sembró.
+   */
+  async suggestCodAgrupador(): Promise<{ inserted: number }> {
+    const tid = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      const r = await trx.raw(
+        `INSERT INTO fiscal.cod_agrupador_map (tenant_id, cuenta_mayor, cod_agrupador, source)
+         SELECT :tid, x.cuenta_mayor, x.cuenta_mayor, 'auto'
+           FROM (SELECT DISTINCT cuenta_mayor FROM analytics.ledger_monthly
+                  WHERE tenant_id = :tid AND cuenta_mayor IS NOT NULL AND btrim(cuenta_mayor) <> '') x
+           LEFT JOIN fiscal.cod_agrupador_map m
+             ON m.cuenta_mayor = x.cuenta_mayor AND m.tenant_id = :tid
+          WHERE m.cuenta_mayor IS NULL
+          ON CONFLICT (tenant_id, cuenta_mayor) DO NOTHING`,
+        { tid },
+      );
+      return { inserted: r.rowCount ?? 0 };
+    });
+  }
+
+  /** Set/override manual de un mapeo (source='manual'). */
+  async upsertCodAgrupador(input: { cuenta_mayor: string; cod_agrupador: string; natur?: string | null }) {
+    const tid = this.tenantCtx.requireTenantId();
+    const mayor = String(input?.cuenta_mayor || '').trim();
+    const cod = String(input?.cod_agrupador || '').trim();
+    if (!mayor) throw new BadRequestException('cuenta_mayor requerida');
+    if (!/^[0-9]{3}(\.[0-9]{1,3})?$/.test(cod)) {
+      throw new BadRequestException('cod_agrupador inválido: formato SAT esperado NNN o NNN.NN (ej. 105.01).');
+    }
+    const natur = input?.natur ? String(input.natur).toUpperCase() : null;
+    if (natur && natur !== 'D' && natur !== 'A') throw new BadRequestException('natur inválida (D|A).');
+    return this.tk.run(async (trx) => {
+      const [row] = await trx('fiscal.cod_agrupador_map')
+        .insert({
+          tenant_id: trx.raw('public.current_tenant_id()'),
+          cuenta_mayor: mayor,
+          cod_agrupador: cod,
+          natur,
+          source: 'manual',
+          updated_at: trx.fn.now(),
+        })
+        .onConflict(['tenant_id', 'cuenta_mayor'])
+        .merge({ cod_agrupador: cod, natur, source: 'manual', updated_at: trx.fn.now() })
+        .returning('*');
+      return row;
+    });
+  }
+
+  /** Elimina un mapeo (la cuenta vuelve a caer al placeholder). */
+  async deleteCodAgrupador(cuentaMayor: string) {
+    const mayor = String(cuentaMayor || '').trim();
+    if (!mayor) throw new BadRequestException('cuenta_mayor requerida');
+    return this.tk.run(async (trx) => {
+      const n = await trx('fiscal.cod_agrupador_map').where({ cuenta_mayor: mayor }).del();
+      return { deleted: n };
+    });
   }
 
   /** RFC del contribuyente: param explícito o la e.firma activa del tenant. */

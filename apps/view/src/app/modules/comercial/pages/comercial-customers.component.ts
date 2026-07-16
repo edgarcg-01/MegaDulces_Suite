@@ -666,6 +666,10 @@ export class ComercialCustomersComponent {
     name: ['', Validators.required],
     legal_name: [''],
     rfc: [''],
+    // FE.5 — datos fiscales del receptor (habilitan la auto-factura nominativa).
+    regimen_fiscal: [null],
+    uso_cfdi: [null],
+    billing_zip: ['', Validators.pattern(/^\d{5}$/)],
     email: ['', Validators.email],
     phone: [''],
     credit_limit: [0],
@@ -787,7 +791,9 @@ export class ComercialCustomersComponent {
   openCreate(): void {
     this.editing.set(null);
     this.form.reset({
-      code: '', name: '', legal_name: '', rfc: '', email: '', phone: '',
+      code: '', name: '', legal_name: '', rfc: '',
+      regimen_fiscal: null, uso_cfdi: null, billing_zip: '',
+      email: '', phone: '',
       credit_limit: 0, payment_terms_days: 0, whatsapp: '', route_id: null, notes: '',
     });
     this.form.get('code')?.enable();
@@ -801,6 +807,9 @@ export class ComercialCustomersComponent {
       name: c.name,
       legal_name: c.legal_name || '',
       rfc: c.rfc || '',
+      regimen_fiscal: c.regimen_fiscal || null,
+      uso_cfdi: c.uso_cfdi || null,
+      billing_zip: c.billing_address?.zip || '',
       email: c.email || '',
       phone: c.phone || '',
       credit_limit: c.credit_limit || 0,
@@ -820,14 +829,24 @@ export class ComercialCustomersComponent {
   save(): void {
     if (this.form.invalid) return;
     this.saving.set(true);
-    const raw = this.form.getRawValue();
+    const editing = this.editing();
+    const { billing_zip, ...raw } = this.form.getRawValue();
+    // El CP fiscal se persiste dentro del JSONB billing_address; mergeamos con el
+    // domicilio existente para no pisar street/colonia/etc. si ya estaban capturados.
+    const zip = (billing_zip || '').trim();
+    const existingAddr = editing?.billing_address || undefined;
+    const billing_address = zip
+      ? { ...(existingAddr || {}), zip }
+      : existingAddr;
     const payload = {
       ...raw,
       rfc: raw.rfc?.trim().toUpperCase() || undefined,
+      regimen_fiscal: raw.regimen_fiscal || undefined,
+      uso_cfdi: raw.uso_cfdi || undefined,
       email: raw.email?.trim().toLowerCase() || undefined,
       route_id: raw.route_id || null,
+      ...(billing_address ? { billing_address } : {}),
     };
-    const editing = this.editing();
     const obs = editing
       ? this.api.updateCustomer(editing.id, payload)
       : this.api.createCustomer(payload);
