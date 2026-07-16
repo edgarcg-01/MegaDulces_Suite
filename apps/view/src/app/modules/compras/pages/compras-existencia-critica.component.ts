@@ -116,6 +116,7 @@ interface DraftLine {
             <th pSortableColumn="warehouse_code">Almacén <p-sortIcon field="warehouse_code" /></th>
             <th pSortableColumn="abc_class">Clase <p-sortIcon field="abc_class" /></th>
             <th class="ec-r" pSortableColumn="sales_rank" title="Ranking por ventas en la sucursal (#1 = el que más vende = más importante pedir)">Rank vta <p-sortIcon field="sales_rank" /></th>
+            <th class="ec-r" pSortableColumn="monthly_revenue" title="Venta mensual estimada ($) = demanda diaria × 30 × precio de venta. El peso en dinero del producto: cuánto representa en venta.">Venta/mes <p-sortIcon field="monthly_revenue" /></th>
             <th class="ec-r" pSortableColumn="on_hand">Existencia <p-sortIcon field="on_hand" /></th>
             <th class="ec-r" pSortableColumn="min_stock">Mín <p-sortIcon field="min_stock" /></th>
             <th class="ec-r" pSortableColumn="reorder_point">Reorden <p-sortIcon field="reorder_point" /></th>
@@ -142,6 +143,10 @@ interface DraftLine {
             </td>
             <td class="ec-r">
               @if (r.sales_rank != null) { <span [class.ec-rank-top]="r.sales_rank <= 20">#{{ r.sales_rank }}</span> }
+              @else { <span class="ec-muted">—</span> }
+            </td>
+            <td class="ec-r">
+              @if (revNum(r.monthly_revenue) > 0) { {{ money(r.monthly_revenue) }} }
               @else { <span class="ec-muted">—</span> }
             </td>
             <td class="ec-r">{{ r.on_hand | number:'1.0-0' }}</td>
@@ -594,6 +599,8 @@ export class ComprasExistenciaCriticaComponent implements OnInit {
   // Helpers
   /** Postgres numeric llega como STRING por JSON; sin Number() el toLocaleString de string ignora el formato de moneda. */
   money(v: number | string | null | undefined) { return (Number(v ?? 0) || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 }); }
+  /** venta/mes como número (numeric de Postgres llega string) para el guard de "—". */
+  revNum(v: number | string | null | undefined) { return Number(v ?? 0) || 0; }
   basisLabel(b: string) { return this.basisOpts.find((o) => o.value === b)?.label || b; }
   bucketLabel(b: Bucket) { return ({ agotado: 'Agotado', bajo_minimo: 'Bajo mínimo', bajo_reorden: 'Bajo reorden', sobrestock: 'Sobrestock', sano: 'Sano' } as Record<Bucket, string>)[b]; }
   bucketSev(b: Bucket): Sev { return ({ agotado: 'danger', bajo_minimo: 'danger', bajo_reorden: 'warn', sobrestock: 'secondary', sano: 'success' } as Record<Bucket, Sev>)[b]; }

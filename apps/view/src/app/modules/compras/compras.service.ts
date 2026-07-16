@@ -37,6 +37,7 @@ export interface CriticalStockRow {
   lead_time_days: number | null;
   avg_daily_units: number | null;
   sales_rank: number | null;         // ranking de ventas en la sucursal (#1 = el que más vende)
+  monthly_revenue: number | null;    // venta mensual estimada ($) = demanda × 30 × precio
   unit_cost: number | null;
   bucket: Bucket;
   suggested_qty: number;

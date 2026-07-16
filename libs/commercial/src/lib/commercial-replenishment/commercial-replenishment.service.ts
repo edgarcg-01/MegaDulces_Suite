@@ -97,6 +97,13 @@ export class CommercialReplenishmentService {
   // a escala de CAJA/PAQUETE en muchos granel, lo que inflaba el encargo ~16.6% al
   // multiplicarlo por piezas. Ambos reportes (crítica + /salidas) valorizan igual ahora.
   private costUnit() { return 'COALESCE(pr.cost_with_tax, pr.cost_base, 0)'; }
+  // Venta mensual estimada ($) = demanda diaria × 30 × precio de venta (costo × (1+markup)).
+  // Usa columnas ya joineadas (ih.avg_daily_units, pr.cost_with_tax, pr.markup_pct) — sin join
+  // nuevo. Da el PESO en dinero del producto para priorizar junto al rank por unidades: el #1
+  // por velocidad puede mover $500 o $50,000. markup ausente → cae a valor a costo.
+  private monthlyRevenue() {
+    return 'ROUND(COALESCE(ih.avg_daily_units,0) * 30 * COALESCE(pr.cost_with_tax,0) * (1 + COALESCE(pr.markup_pct,0)/100.0), 2)';
+  }
   private bucketExpr() {
     const oh = this.onHand();
     return `CASE
@@ -198,6 +205,7 @@ export class CommercialReplenishmentService {
           trx.raw('rp.lead_time_days AS lead_time_days'),
           trx.raw('ih.avg_daily_units AS avg_daily_units'),
           trx.raw('sr.sales_rank AS sales_rank'), // ranking de ventas en la sucursal (#1 = top)
+          trx.raw(`${this.monthlyRevenue()} AS monthly_revenue`), // peso $ del producto (venta/mes est.)
           trx.raw('sup.id AS supplier_id'),
           trx.raw('sup.name AS supplier_name'),
           trx.raw('sup.min_order_boxes AS supplier_min_boxes'),
@@ -246,6 +254,7 @@ export class CommercialReplenishmentService {
       warehouse_code: 'w.code',
       abc_class: 'COALESCE(abc.abc_class, rp.abc_class)',
       sales_rank: 'sr.sales_rank',
+      monthly_revenue: this.monthlyRevenue(),
       on_hand: oh,
       min_stock: 'rp.min_stock',
       reorder_point: 'rp.reorder_point',
