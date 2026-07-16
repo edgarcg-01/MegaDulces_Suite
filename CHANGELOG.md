@@ -10,6 +10,11 @@
 
 ## [Unreleased]
 
+### Changed — Consolidación de proveedores duplicados + backfill de supplier_id (2026-07-16)
+- El filtro de **/compras/existencia-critica es por PROVEEDOR**, y `catalog.suppliers` tenía el mismo problema de duplicados que las marcas + **28% de productos sin `supplier_id`** → invisibles al filtrar. Ej. Perfetti: 46 productos en la marca, pero 28 con proveedor "…SA", 1 con el duplicado "…S.A.", **17 sin proveedor**.
+- **`suppliers-normalize.js`** (espejo de brands, más simple — FKs `ON DELETE SET NULL`): clave agresiva / `--map`, remapea `supplier_id` en products/purchase_orders/purchase_requisitions, copia `lead_time_days`/`min_order_boxes` al canónico, soft-delete. **`suppliers-backfill.js`**: asigna el proveedor **dominante de la marca** (cobertura ≥0.7) a los productos sin proveedor.
+- **Aplicado a prod:** 63 proveedores consolidados (547→**484**), **1,169 productos** con `supplier_id` asignado (sin-proveedor 2,286→1,453). **Perfetti: los 46 productos bajo UN proveedor** → ya visibles al filtrar. Diferido: 923 productos cuya marca no tiene ningún proveedor (necesitan Kepler). Solo dato.
+
 ### Changed — Consolidación de marcas duplicadas: 61 marcas fusionadas (2026-07-16)
 - **Problema:** una misma marca aparecía fragmentada en varias entradas (razón social / puntuación / truncado Kepler a 30 chars / alias cortos). Ej. Perfetti en 3 entradas (26+16+2p) → sus dulces "desaparecían" al filtrar por proveedor.
 - **`brands-normalize.js` extendido** con 2 modos nuevos: **`--aggressive`** (clave que quita puntuación + sufijos legales `SA DE CV`/`S.A.`/etc. y agrupa por núcleo exacto — NO mezcla empresas que comparten palabras, a diferencia del similarity fuzzy) y **`--map <json>`** (mapa curado de alias cortos, ej. `PERFETTI → PERFETTI VAN MELLE`). Ambos reusan el remapeo de referencias (products/stock/prices/exhibiciones) + **paso 5b** (tablas RESTRICT nuevas: `stock_lots` con merge por lote, `stock_lot_movements`, `abc_classification`, líneas de compra) + **soft-delete** de la marca no-canónica (brands→products es CASCADE + hay tombstones que un hard-delete borraría violando FKs).
