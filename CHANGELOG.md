@@ -10,6 +10,10 @@
 
 ## [Unreleased]
 
+### Added — /compras/existencia-critica: columna "Rank vta" (importancia por ventas) (2026-07-15)
+- Nueva columna de **ranking por ventas dentro de cada sucursal** (#1 = el que más vende ahí = más urgente pedir). `DENSE_RANK` sobre `analytics.inventory_health.avg_daily_units`; solo los que venden reciben rank (demanda 0 → "—"). Combinado con el bucket crítico, prioriza: un crítico que además es top-seller se pide primero (ej. 8ESQ #2 ETIQUETAS vende 147/día en 0 existencia). Backend `leftJoin` a subquery rankeado + `sales_rank`; frontend columna con top-20 en negrita (quiet-luxury, dark-safe). **Requiere redeploy api+view.**
+- **Perfetti (PERFETTI VAN MELLE, 28 activos) validado coherente**: `cost_with_tax` correcto (X TREMES ~$13, MENTOS ROLL ~$77, IEPS 8% dulce / IVA 16% goma); `cost_base` per-caja en ~6 SKUs (ratio 0.05-0.12) — confirma que unificar a `cost_with_tax` fue lo correcto.
+
 ### Fixed — Validación /compras/existencia-critica vs /comercial/salidas + saneo de costo del encargo (2026-07-15)
 - **Validación cruzada** (workflow multi-agente, 11 verificaciones adversariales): la **existencia coincide exacta** entre ambos reportes (`reserved_quantity=0`), scope idéntico. Diverge el **universo de productos** (crítica solo ve productos con `reorder_policy`; salidas todo el activo) y la **valorización en $**.
 - **Regresión de costo corregida (mi fix del 14-jul):** el override al ancla `c90/1.2333` en `liveCost` (import-catalog-bulk) tomaba precio-de-CAJA en granel (c81=c84=0) y sobreescribía el `c16` correcto — `07215` $42.86→$821.54, `08023` $8.5→$90.21; y aceptaba `c16` per-caja de una sucursal (`83718` md_02 $716.94). **Fix:** quitar el override; **techo de sanidad vs costo matriz** (>5× = per-caja → usa matriz), preservando el caso inverso legítimo (`95207`: c16 $40 vs matriz $10 sub-valuada); filtro del **placeholder `c90=50.52`** (~20 SKUs → $40.96 falso). Anomalías `cost_with_tax/cost_base>3` **9→2** (las 2 = inversos legítimos). Prod UPDATE 11,994.
