@@ -56,10 +56,11 @@ export interface DeadStockRow {
   warehouse_code: string;
   sku: string;
   nombre: string;
-  on_hand: number;
-  avg_daily_units: number;   // ~0 (por eso es stock muerto)
+  on_hand: number;           // 0 = descontinuado / nunca surtido en este almacén
   unit_cost: number;
-  dead_value: number;        // existencia × costo = capital inmovilizado
+  dead_value: number;        // existencia × costo = capital inmovilizado (0 si sin stock)
+  last_activity: string | null; // última venta/movimiento en el almacén; null = nunca
+  created_at: string;        // alta en catálogo (fallback del "desde cuándo")
   supplier_name: string | null;
 }
 export interface DeadStockResponse {

@@ -179,7 +179,7 @@ interface DraftLine {
       </button>
 
       @if (deadOpen()) {
-        <p class="ec-dead-sub">Existencia SIN rotación (0 ventas) → sin política de reorden, por eso no aparece arriba. No se reabastece; considera liquidar o promocionar. Ordenado por capital inmovilizado.</p>
+        <p class="ec-dead-sub">TODO producto activo SIN rotación (sin política de reorden), por eso no aparece arriba. <b>Con existencia</b> = capital inmovilizado (liquidar/promover); <b>Sin existencia</b> = descontinuado o nunca surtido aquí. "Desde cuándo" = última venta/movimiento en el almacén; si nunca tuvo → alta en catálogo.</p>
         <p-table [value]="deadRows()" [loading]="deadLoading()" [scrollable]="true"
                  [paginator]="true" [rows]="pageSize" [totalRecords]="deadTotal()" [lazy]="true" (onLazyLoad)="onDeadPage($event)"
                  styleClass="p-datatable-sm ec-table" [rowsPerPageOptions]="[50, 100, 200]">
@@ -189,6 +189,8 @@ interface DraftLine {
               <th>Producto</th>
               <th>Almacén</th>
               <th class="ec-r">Existencia</th>
+              <th>Estado</th>
+              <th>Desde cuándo</th>
               <th class="ec-r">Costo unit.</th>
               <th class="ec-r">Capital inmovilizado</th>
               <th>Proveedor</th>
@@ -200,13 +202,18 @@ interface DraftLine {
               <td>{{ r.nombre }}</td>
               <td class="ec-muted">{{ r.warehouse_code }}</td>
               <td class="ec-r">{{ r.on_hand | number:'1.0-0' }}</td>
+              <td>
+                @if (r.on_hand > 0) { <span class="ec-dead-cap">Con existencia</span> }
+                @else { <span class="ec-muted">Sin existencia</span> }
+              </td>
+              <td class="ec-muted ec-dead-since">{{ deadSince(r) }}</td>
               <td class="ec-r ec-muted">{{ money(r.unit_cost) }}</td>
               <td class="ec-r ec-strong">{{ money(r.dead_value) }}</td>
               <td class="ec-muted">{{ r.supplier_name || '—' }}</td>
             </tr>
           </ng-template>
           <ng-template pTemplate="emptymessage">
-            <tr><td colspan="7" class="ec-empty">Sin stock muerto con estos filtros. 🎉</td></tr>
+            <tr><td colspan="9" class="ec-empty">Sin productos sin rotación con estos filtros. 🎉</td></tr>
           </ng-template>
         </p-table>
       }
@@ -305,6 +312,8 @@ interface DraftLine {
     .ec-dead-about { margin-left: .25rem; color: var(--text-muted); cursor: pointer; font-size: .85rem; }
     .ec-dead-about:hover { color: var(--action); }
     .ec-dead-sub { color: var(--text-muted); font-size: .8rem; margin: .35rem 0 .6rem; }
+    .ec-dead-cap { font-size: .7rem; padding: .08rem .4rem; border: 1px solid var(--border-color); border-radius: var(--r-sm); white-space: nowrap; }
+    .ec-dead-since { white-space: nowrap; font-size: .74rem; }
     .ec-about p { font-size: .88rem; line-height: 1.5; margin: 0 0 .7rem; }
     .ec-about-note { color: var(--text-muted); font-size: .82rem; border-top: 1px solid var(--border-color); padding-top: .6rem; }
     .ec-dlg-sub { color: var(--text-muted); font-size: .85rem; margin-bottom: .5rem; }
@@ -601,6 +610,16 @@ export class ComprasExistenciaCriticaComponent implements OnInit {
   money(v: number | string | null | undefined) { return (Number(v ?? 0) || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 }); }
   /** venta/mes como número (numeric de Postgres llega string) para el guard de "—". */
   revNum(v: number | string | null | undefined) { return Number(v ?? 0) || 0; }
+  /** fecha corta es-MX; '—' si inválida/nula. */
+  fmtDate(d: string | null | undefined) {
+    if (!d) return '—';
+    const dt = new Date(d);
+    return isNaN(dt.getTime()) ? '—' : dt.toLocaleDateString('es-MX', { day: 'numeric', month: 'short', year: 'numeric' });
+  }
+  /** "Desde cuándo": última venta/movimiento; si nunca tuvo → alta en catálogo. */
+  deadSince(r: DeadStockRow) {
+    return r.last_activity ? this.fmtDate(r.last_activity) : `sin actividad · alta ${this.fmtDate(r.created_at)}`;
+  }
   basisLabel(b: string) { return this.basisOpts.find((o) => o.value === b)?.label || b; }
   bucketLabel(b: Bucket) { return ({ agotado: 'Agotado', bajo_minimo: 'Bajo mínimo', bajo_reorden: 'Bajo reorden', sobrestock: 'Sobrestock', sano: 'Sano' } as Record<Bucket, string>)[b]; }
   bucketSev(b: Bucket): Sev { return ({ agotado: 'danger', bajo_minimo: 'danger', bajo_reorden: 'warn', sobrestock: 'secondary', sano: 'success' } as Record<Bucket, Sev>)[b]; }

@@ -305,37 +305,48 @@ export class CommercialReplenishmentService {
     });
   }
 
-  // ── Stock muerto (existencia SIN política de reorden) ─────────────────
+  // ── Stock muerto / SIN rotación (mostrar TODO lo no reabastecible) ─────
   /**
-   * Productos con EXISTENCIA pero SIN política de reorden en ese almacén → no rotan
-   * (0 demanda → import-computed-reorder no les genera política), por eso NO aparecen en
-   * Existencia Crítica. Es capital inmovilizado: se muestra aparte para liquidar/promover,
-   * NO para reabastecer. Respeta los filtros de almacén/proveedor/búsqueda del reporte.
+   * TODO producto activo SIN política de reorden en el almacén → no rota (0 demanda →
+   * import-computed-reorder no le genera política), por eso NO aparece en Existencia
+   * Crítica. Muestra TODOS (no solo los que tienen existencia): con stock = capital
+   * inmovilizado; sin stock = descontinuado / nunca surtido. `last_activity` = última
+   * venta o movimiento en ESE almacén (el "desde cuándo"); NULL = nunca tuvo actividad
+   * → el front cae a `created_at` ("alta en catálogo"). Ancla en catalog.products ×
+   * almacén gestionado (NO en stock, para no perder los de 0 existencia). Excluye ghosts
+   * sin SKU (fantasmas pre-Kepler, ruido). Respeta filtros almacén/proveedor/búsqueda.
    */
   async deadStock(q: CriticalStockQuery) {
     const tenantId = this.tenantCtx.requireTenantId();
     const page = Math.max(1, Number(q.page) || 1);
     const pageSize = Math.min(500, Math.max(1, Number(q.pageSize) || 50));
     const valueExpr = 'COALESCE(s.quantity,0) * COALESCE(pr.cost_with_tax, pr.cost_base, 0)';
+    // GREATEST ignora NULLs → la más reciente entre última venta y último movimiento.
+    const lastActivity =
+      `GREATEST(
+         (SELECT MAX(sd.sale_date) FROM analytics.product_sales_daily sd
+           WHERE sd.tenant_id = pr.tenant_id AND sd.product_id = pr.id AND sd.warehouse_id = w.id),
+         (SELECT MAX(sm.doc_date) FROM analytics.stock_movements sm
+           WHERE sm.tenant_id = pr.tenant_id AND sm.product_id = pr.id AND sm.warehouse_id = w.id))`;
     return this.tk.run(async (trx) => {
-      const base = trx('commercial.stock as s')
-        .join('catalog.products as pr', (j) => j.on('pr.tenant_id', 's.tenant_id').andOn('pr.id', 's.product_id'))
-        .leftJoin('commercial.warehouses as w', (j) => j.on('w.tenant_id', 's.tenant_id').andOn('w.id', 's.warehouse_id'))
-        .leftJoin('catalog.suppliers as sup', (j) => j.on('sup.tenant_id', 's.tenant_id').andOn('sup.id', 'pr.supplier_id'))
-        .leftJoin('analytics.inventory_health as ih', (j) =>
-          j.on('ih.tenant_id', 's.tenant_id').andOn('ih.warehouse_id', 's.warehouse_id').andOn('ih.product_id', 's.product_id'))
-        .where('s.tenant_id', tenantId)
+      const base = trx('catalog.products as pr')
+        // cross join producto × almacén (mismo tenant); luego filtra a los gestionados
+        .join('commercial.warehouses as w', (j) => j.on('w.tenant_id', 'pr.tenant_id'))
+        .leftJoin('commercial.stock as s', (j) =>
+          j.on('s.tenant_id', 'pr.tenant_id').andOn('s.warehouse_id', 'w.id').andOn('s.product_id', 'pr.id'))
+        .leftJoin('catalog.suppliers as sup', (j) => j.on('sup.tenant_id', 'pr.tenant_id').andOn('sup.id', 'pr.supplier_id'))
+        .where('pr.tenant_id', tenantId)
         .andWhere('pr.activo', true)
-        .andWhereRaw('COALESCE(s.quantity,0) <> 0')
-        .andWhereRaw(`NOT EXISTS (SELECT 1 FROM commercial.reorder_policy rp
-                        WHERE rp.tenant_id = s.tenant_id AND rp.warehouse_id = s.warehouse_id AND rp.product_id = s.product_id)`)
-        // Solo en almacenes que SÍ gestionan reorden (tienen alguna política). Excluye el
-        // CEDIS '00', cuyo inventario NO tiene política por diseño (planeación DRP pendiente,
-        // RA-PRO.6) → no es stock muerto, es abasto central sin política aún.
+        .whereNull('w.deleted_at')
+        .andWhereRaw(`pr.sku IS NOT NULL AND btrim(pr.sku) <> ''`) // sin ghosts (fantasmas pre-Kepler)
+        // solo almacenes que gestionan reorden (tienen alguna política) → excluye CEDIS '00'
         .andWhereRaw(`EXISTS (SELECT 1 FROM commercial.reorder_policy rpw
-                        WHERE rpw.tenant_id = s.tenant_id AND rpw.warehouse_id = s.warehouse_id)`);
+                        WHERE rpw.tenant_id = w.tenant_id AND rpw.warehouse_id = w.id)`)
+        // sin política para ESTE producto×almacén (los con política están en Crítica)
+        .andWhereRaw(`NOT EXISTS (SELECT 1 FROM commercial.reorder_policy rp
+                        WHERE rp.tenant_id = pr.tenant_id AND rp.warehouse_id = w.id AND rp.product_id = pr.id)`);
       const whIds = this.whIds(q);
-      if (whIds.length) base.whereIn('s.warehouse_id', whIds);
+      if (whIds.length) base.whereIn('w.id', whIds);
       if (q.supplier_id && UUID_RX.test(q.supplier_id)) base.andWhere('pr.supplier_id', q.supplier_id);
       if (q.search && q.search.trim()) {
         const t = `%${q.search.trim()}%`;
@@ -346,16 +357,18 @@ export class CommercialReplenishmentService {
       const sumRow: any = await base.clone().clearSelect().clearOrder().select(trx.raw(`ROUND(SUM(${valueExpr}), 2) AS total_value`)).first();
       const rows = await base.clone()
         .select(
-          's.product_id', 's.warehouse_id',
+          'pr.id as product_id', 'w.id as warehouse_id',
           trx.raw('w.code AS warehouse_code'),
           trx.raw('pr.sku AS sku'), trx.raw('pr.nombre AS nombre'),
           trx.raw('COALESCE(s.quantity,0) AS on_hand'),
-          trx.raw('COALESCE(ih.avg_daily_units, 0) AS avg_daily_units'),
           trx.raw('COALESCE(pr.cost_with_tax, pr.cost_base, 0) AS unit_cost'),
           trx.raw(`ROUND(${valueExpr}, 2) AS dead_value`),
+          trx.raw(`${lastActivity} AS last_activity`),
+          trx.raw('pr.created_at::date AS created_at'),
           trx.raw('sup.name AS supplier_name'),
         )
-        .orderByRaw(`${valueExpr} DESC`) // más capital inmovilizado primero
+        // capital inmovilizado primero; luego los de 0 existencia por antigüedad en catálogo
+        .orderByRaw(`${valueExpr} DESC, pr.created_at ASC`)
         .limit(pageSize).offset((page - 1) * pageSize);
       return { total, page, pageSize, total_value: Number(sumRow?.total_value || 0), rows };
     });

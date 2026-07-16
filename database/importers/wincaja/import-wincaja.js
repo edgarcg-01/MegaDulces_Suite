@@ -41,6 +41,11 @@ const FOLDERS = {
   actual: process.env.WINCAJA_ACTUALES || 'Z:\\Salidas\\Bases\\Actuales',
   concentrada: process.env.WINCAJA_CONCENTRADAS || 'Z:\\Salidas\\Bases\\Concentradas',
 };
+// Datasets HISTÓRICOS por año: Z:\Salidas\Bases\<año> (mismos .mdb transaccionales que
+// concentrada, un año por carpeta). El tag source_dataset = el año → NO colisiona con
+// actual/concentrada (recarga full por source_branch+source_dataset). Ej: --dataset 2025.
+const YEAR_BASE = process.env.WINCAJA_YEARS_BASE || 'Z:\\Salidas\\Bases';
+const folderFor = (ds) => FOLDERS[ds] || (/^\d{4}$/.test(ds) ? path.join(YEAR_BASE, ds) : null);
 
 // 8 sucursales pobladas (42 PIEDAD queda fuera: vacia). `prefix` = numero al inicio
 // del archivo; `mov` = usar el archivo "... MOV" (BPIRAPUATO parte masters+movs ahi).
@@ -231,7 +236,8 @@ async function reload(db, branch, dataset, spec, rows) {
   }
 
   for (const dataset of datasets) {
-    const dir = FOLDERS[dataset];
+    const dir = folderFor(dataset);
+    if (!dir) { console.error(`Dataset desconocido: ${dataset} (usar actual|concentrada|both o un año YYYY)`); continue; }
     console.log(`\n########## DATASET=${dataset}  (${dir}) ##########`);
     for (const br of wantBranches) {
       const mdb = resolveFile(dir, br);
