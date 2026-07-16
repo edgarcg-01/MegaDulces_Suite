@@ -92,13 +92,22 @@ function resolveFile(dir, br) {
     const m = files.find((f) => re.test(f));
     return m ? path.join(dir, m) : null;
   }
-  const cands = files.filter((f) => {
+  let cands = files.filter((f) => {
     const U = f.toUpperCase();
     if (!U.endsWith('.MDB')) return false;
     if (!U.startsWith(br.prefix + ' ')) return false;
     if (/RUTA/.test(U)) return false;
     return br.mov ? /MOV/.test(U) : !/ MOV/.test(U);
   });
+  // Si hay >1 (ej. carpeta de año con "10 PHIDALGO.MDB" + "10 PHIDALGO 2025 Dic.MDB"),
+  // preferir el archivo BASE (año completo) sobre los parciales con calificador de fecha
+  // (mes/año en el nombre); desempate por nombre más corto.
+  if (cands.length > 1) {
+    const DATEQ = /\b(ENE|FEB|MAR|ABR|MAY|JUN|JUL|AGO|SEP|OCT|NOV|DIC)\b|\b20\d\d\b/i;
+    const clean = cands.filter((f) => !DATEQ.test(f.toUpperCase().replace(/\.MDB$/, '')));
+    if (clean.length) cands = clean;
+    cands.sort((a, b) => a.length - b.length);
+  }
   return cands.length ? path.join(dir, cands[0]) : null;
 }
 
