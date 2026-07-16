@@ -15,6 +15,8 @@ export interface TicketExtractResult {
   ticket_url: string;
   ticket_public_id: string;
   match: MatchResponse;
+  /** HV.2 — espacios etiquetados SIN producto (quiebre de stock). Solo en el flujo de exhibidor. */
+  empty_slots?: string[];
 }
 
 const ACCEPTED_MIME_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif']);
@@ -153,11 +155,14 @@ export class TicketExtractorService {
       `[exhibición] START tenant=${tenantId} user=${userId} img=${(file.size / 1024).toFixed(0)}KB ${mediaType} → ${uploaded.public_id} (+${Date.now() - t0}ms)`,
     );
 
-    const items = await this.llm.extractFromExhibitionImage(base64, mediaType);
+    const { products: items, emptySlots } = await this.llm.extractFromExhibitionImage(base64, mediaType);
     // LOG DIAGNÓSTICO: qué LEYÓ la visión (para ver si el problema es lectura o match).
     this.logger.log(
       `[exhibición] vision leyó ${items.length} producto(s): ${items.map((i) => `"${i.normalized}"×${i.quantity}`).join(', ') || '(NINGUNO)'} (+${Date.now() - t0}ms)`,
     );
+    if (emptySlots.length) {
+      this.logger.log(`[exhibición] espacios VACÍOS (quiebre): ${emptySlots.join(', ')}`);
+    }
     if (items.length === 0) {
       this.logger.warn(
         `[exhibición] vision devolvió 0 productos — foto no es anaquel legible, ilegible, o sin ANTHROPIC_API_KEY. tenant=${tenantId}`,
@@ -177,9 +182,9 @@ export class TicketExtractorService {
     const matched = match.items.filter((i) => i.suggested?.product_id || i.suggested?.sku).length;
     const auto = match.items.filter((i) => i.suggested?.autoConfirm).length;
     this.logger.log(
-      `[exhibición] RESULTADO: leídos=${items.length} matcheados=${matched} autoConfirm=${auto} sin_match=${match.items.length - matched} (${match.meta.elapsed_ms}ms total)`,
+      `[exhibición] RESULTADO: leídos=${items.length} matcheados=${matched} autoConfirm=${auto} sin_match=${match.items.length - matched} vacíos=${emptySlots.length} (${match.meta.elapsed_ms}ms total)`,
     );
-    return { ticket_url: uploaded.secure_url, ticket_public_id: uploaded.public_id, match };
+    return { ticket_url: uploaded.secure_url, ticket_public_id: uploaded.public_id, match, empty_slots: emptySlots };
   }
 
   private async runPipeline(

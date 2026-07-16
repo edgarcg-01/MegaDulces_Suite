@@ -409,31 +409,39 @@ export class LlmExtractorService implements OnModuleInit {
   async extractFromExhibitionImage(
     imageBase64: string,
     mediaType: 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif',
-  ): Promise<{ raw: string; normalized: string; quantity: number }[]> {
+  ): Promise<{
+    products: { raw: string; normalized: string; quantity: number }[];
+    emptySlots: string[];
+  }> {
     if (!this.apiKey) {
       this.logger.error(
         '[exhibición] SIN ANTHROPIC_API_KEY — la identificación de productos NO puede correr. Setear ANTHROPIC_API_KEY en el entorno.',
       );
-      return [];
+      return { products: [], emptySlots: [] };
     }
     if (!imageBase64) {
-      this.logger.warn('[exhibición] imagen vacía — devuelvo []');
-      return [];
+      this.logger.warn('[exhibición] imagen vacía — devuelvo vacío');
+      return { products: [], emptySlots: [] };
     }
     try {
-      const items = await this.callClaudeVisionExhibition(imageBase64, mediaType);
-      this.logger.log(`[exhibición] Claude vision (${this.model}) devolvió ${items.length} producto(s) legibles`);
-      return items;
+      const res = await this.callClaudeVisionExhibition(imageBase64, mediaType);
+      this.logger.log(
+        `[exhibición] Claude vision (${this.model}) devolvió ${res.products.length} producto(s) + ${res.emptySlots.length} espacio(s) vacío(s)`,
+      );
+      return res;
     } catch (e: any) {
       this.logger.error(`[exhibición] Claude vision FALLÓ: ${e?.message || e}`);
-      return [];
+      return { products: [], emptySlots: [] };
     }
   }
 
   private async callClaudeVisionExhibition(
     imageBase64: string,
     mediaType: string,
-  ): Promise<{ raw: string; normalized: string; quantity: number }[]> {
+  ): Promise<{
+    products: { raw: string; normalized: string; quantity: number }[];
+    emptySlots: string[];
+  }> {
     const ctrl = new AbortController();
     const tId = setTimeout(() => ctrl.abort(), 30_000);
     let res: Response;
@@ -488,6 +496,16 @@ export class LlmExtractorService implements OnModuleInit {
                       required: ['raw', 'normalized', 'quantity'],
                     },
                   },
+                  empty_slots: {
+                    type: 'array',
+                    description:
+                      'ESPACIOS VACÍOS: cada charola/compartimento que tiene su ETIQUETA de anaquel (la tira ' +
+                      'amarilla que nombra el producto, ej "Kisses", "Pulparindo", "Bon Bon") pero NO tiene ' +
+                      'producto físico (o casi nada) en ese espacio = quiebre de stock. Poné el NOMBRE DEL ' +
+                      'PRODUCTO que dice la etiqueta del espacio vacío. Solo incluí espacios claramente vacíos ' +
+                      'con etiqueta legible; si dudás, no lo incluyas. Vacío si no ves ninguno.',
+                    items: { type: 'string' },
+                  },
                 },
                 required: ['items'],
               },
@@ -502,9 +520,10 @@ export class LlmExtractorService implements OnModuleInit {
                   type: 'text',
                   text:
                     'Esta es una foto de una exhibición de dulces en una tiendita mexicana (surtido de la ' +
-                    'distribuidora Mega Dulces). Listá TODOS los productos que se VEN —marca y tipo—, ' +
-                    'incluyendo el dulce a granel sin marca (describilo por tipo). Sé exhaustivo. ' +
-                    'Usá la herramienta read_shelf_products.',
+                    'distribuidora Mega Dulces). (1) Listá TODOS los productos que se VEN —marca y tipo—, ' +
+                    'incluyendo el dulce a granel sin marca (describilo por tipo). (2) Además, reportá en ' +
+                    'empty_slots los ESPACIOS con etiqueta de anaquel pero SIN producto (quiebre de stock). ' +
+                    'Sé exhaustivo. Usá la herramienta read_shelf_products.',
                 },
               ],
             },
@@ -522,7 +541,14 @@ export class LlmExtractorService implements OnModuleInit {
     const json = (await res.json()) as {
       content: Array<
         | { type: 'text'; text: string }
-        | { type: 'tool_use'; name: string; input: { items?: { raw: string; normalized: string; quantity?: number }[] } }
+        | {
+            type: 'tool_use';
+            name: string;
+            input: {
+              items?: { raw: string; normalized: string; quantity?: number }[];
+              empty_slots?: string[];
+            };
+          }
       >;
     };
     const toolUse = json.content.find(
@@ -531,7 +557,7 @@ export class LlmExtractorService implements OnModuleInit {
     );
     if (!toolUse) throw new Error('Claude vision no devolvió tool_use');
     const items = toolUse.input.items ?? [];
-    return items
+    const products = items
       .filter(
         (it) =>
           typeof it.raw === 'string' &&
@@ -544,6 +570,13 @@ export class LlmExtractorService implements OnModuleInit {
         normalized: it.normalized.trim(),
         quantity: Number.isInteger(it.quantity) && (it.quantity as number) >= 1 ? (it.quantity as number) : 1,
       }));
+    const emptySlots = Array.isArray(toolUse.input.empty_slots)
+      ? toolUse.input.empty_slots
+          .filter((s): s is string => typeof s === 'string' && !!s.trim())
+          .map((s) => s.trim().slice(0, 80))
+          .slice(0, 30)
+      : [];
+    return { products, emptySlots };
   }
 
   /**

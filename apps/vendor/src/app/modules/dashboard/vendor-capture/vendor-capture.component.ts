@@ -226,6 +226,16 @@ const ALLOWED_IMAGE_TYPES = [
               <span *ngIf="exhibidorIdentified()! > 0"><strong>{{ exhibidorIdentified() }}</strong> producto(s) identificado(s) — revisalos en la lista de abajo.</span>
               <span *ngIf="exhibidorIdentified()! === 0">No se reconocieron productos. Marcalos a mano o acercá la cámara.</span>
             </div>
+            <!-- HV.2 — espacios etiquetados sin producto (quiebre de stock a resurtir) -->
+            <div *ngIf="!identifyingExhibidor() && emptySlots().length" class="rounded-lg p-2.5 bg-amber-500/10 border border-amber-500/30">
+              <div class="flex items-center gap-2 text-xs font-semibold text-amber-600">
+                <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+                {{ emptySlots().length }} espacio(s) vacío(s) — resurtir
+              </div>
+              <div class="flex flex-wrap gap-1.5 mt-1.5">
+                <span *ngFor="let s of emptySlots()" class="text-[10px] bg-amber-500/15 text-amber-700 px-1.5 py-0.5 rounded font-medium">{{ s }}</span>
+              </div>
+            </div>
             <div class="flex justify-center">
               <p-button icon="pi pi-refresh" label="Cambiar foto" severity="secondary" [outlined]="true" size="small" [disabled]="identifyingExhibidor()" (onClick)="removeExhibidor()"></p-button>
             </div>
@@ -395,6 +405,7 @@ export class VendorCaptureComponent implements OnInit, OnDestroy {
   readonly exhibidorPreview = signal<string | null>(null);
   readonly identifyingExhibidor = signal(false); // HV.2 — IA leyendo productos de la foto
   readonly exhibidorIdentified = signal<number | null>(null); // #productos identificados (null = aún no se corrió)
+  readonly emptySlots = signal<string[]>([]); // HV.2 — espacios etiquetados sin producto (quiebre)
   readonly ticketPhotos = signal<string[]>([]); // previews; el vendedor puede tomar varias fotos del mismo ticket
   readonly processing = signal(false);
   readonly items = signal<OcrItem[]>([]);
@@ -550,10 +561,12 @@ export class VendorCaptureComponent implements OnInit, OnDestroy {
       });
       // Match = tiene product_id de catálogo (NO sku: catalog no lo trae).
       const matched = ocr.filter((o) => o.planogramProductId && o.confidence !== 'no_match');
-      // LOG DIAGNÓSTICO (visible en consola del device/navegador): leídos vs matcheados.
+      const empties: string[] = Array.isArray(res?.empty_slots) ? res.empty_slots : [];
+      this.emptySlots.set(empties);
+      // LOG DIAGNÓSTICO (visible en consola del device/navegador): leídos vs matcheados + vacíos.
       console.log(
-        `[exhibición] respuesta en ${Date.now() - t0}ms · leídos=${rawItems.length} matcheados=${matched.length}`,
-        ocr.map((o) => ({ raw: o.raw, match: o.product_name, conf: o.confidence })),
+        `[exhibición] respuesta en ${Date.now() - t0}ms · leídos=${rawItems.length} matcheados=${matched.length} vacíos=${empties.length}`,
+        { productos: ocr.map((o) => ({ raw: o.raw, match: o.product_name, conf: o.confidence })), espacios_vacios: empties },
       );
       this.mergeOcrItems(matched);
       await this.matchPlanogram();
@@ -596,6 +609,7 @@ export class VendorCaptureComponent implements OnInit, OnDestroy {
     this.exhibidorFile.set(null);
     this.exhibidorPreview.set(null);
     this.exhibidorIdentified.set(null);
+    this.emptySlots.set([]);
   }
 
   async onTicket(ev: Event): Promise<void> {
