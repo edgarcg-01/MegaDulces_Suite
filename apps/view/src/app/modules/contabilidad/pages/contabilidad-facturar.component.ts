@@ -8,6 +8,7 @@ import { ToastModule } from 'primeng/toast';
 import { DialogModule } from 'primeng/dialog';
 import { InputTextModule } from 'primeng/inputtext';
 import { ConfirmDialogModule } from 'primeng/confirmdialog';
+import { TooltipModule } from 'primeng/tooltip';
 import { ConfirmationService, MessageService } from 'primeng/api';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { CONTABILIDAD_TABS } from '../contabilidad-tabs';
@@ -24,7 +25,7 @@ interface ConceptoRow { descripcion: string; cantidad: number; valor_unitario: n
 @Component({
   selector: 'app-contabilidad-facturar',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, TableModule, ToastModule, DialogModule, InputTextModule, ConfirmDialogModule, PageTabsComponent],
+  imports: [CommonModule, FormsModule, ButtonModule, TableModule, ToastModule, DialogModule, InputTextModule, ConfirmDialogModule, TooltipModule, PageTabsComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService, ConfirmationService],
   template: `
@@ -73,18 +74,27 @@ interface ConceptoRow { descripcion: string; cantidad: number; valor_unitario: n
           </ng-template>
           <ng-template pTemplate="body" let-r>
             <tr>
-              <td class="mono">{{ r.serie }}{{ r.folio }}</td>
+              <td class="mono">{{ r.serie }}{{ r.folio }}@if (r.tipo_comprobante === 'E') {<span class="fa-nc" pTooltip="Nota de crédito (Egreso)">NC</span>}</td>
               <td class="mono">{{ r.fecha_timbrado || r.fecha | date:'dd/MM/yy HH:mm' }}</td>
               <td><div class="fa-recep">{{ r.receptor_nombre || '—' }}</div><div class="mono fa-sub">{{ r.receptor_rfc }}</div></td>
               <td class="ta-r mono">{{ mzn(r.subtotal) }}</td>
               <td class="ta-r mono">{{ mzn(r.total_trasladados) }}</td>
               <td class="ta-r mono fa-tot">{{ mzn(r.total) }}</td>
-              <td><span class="fa-est" [ngClass]="'e-' + estatusClass(r.estatus_sat)">{{ r.estatus_sat }}</span></td>
+              <td><span class="fa-est" [ngClass]="'e-' + estatusClass(r.estatus_sat)">{{ estatusLabel(r.estatus_sat) }}</span></td>
               <td class="ta-r">
                 <button pButton type="button" icon="pi pi-download" class="p-button-text p-button-sm" aria-label="Descargar XML" (click)="downloadXml(r)"></button>
                 <button pButton type="button" icon="pi pi-file-pdf" class="p-button-text p-button-sm" aria-label="Descargar PDF" (click)="downloadPdf(r)"></button>
+                @if (canManage && r.estatus_sat === 'vigente' && r.tipo_comprobante !== 'E') {
+                  <button pButton type="button" icon="pi pi-minus-circle" class="p-button-text p-button-sm" aria-label="Nota de crédito" pTooltip="Nota de crédito" (click)="openNc(r)"></button>
+                }
                 @if (canManage && r.estatus_sat === 'vigente') {
-                  <button pButton type="button" icon="pi pi-times" class="p-button-text p-button-sm p-button-danger" aria-label="Cancelar" (click)="cancelar(r)"></button>
+                  <button pButton type="button" icon="pi pi-times" class="p-button-text p-button-sm p-button-danger" aria-label="Cancelar" (click)="openCancel(r)"></button>
+                }
+                @if (r.estatus_sat === 'en_proceso_cancelacion') {
+                  <button pButton type="button" icon="pi pi-sync" class="p-button-text p-button-sm" [loading]="statusChecking()===r.uuid" aria-label="Consultar estatus SAT" pTooltip="Consultar estatus en el SAT" (click)="consultarEstatus(r)"></button>
+                }
+                @if (r.estatus_sat === 'cancelado' || r.estatus_sat === 'en_proceso_cancelacion') {
+                  <button pButton type="button" icon="pi pi-file-o" class="p-button-text p-button-sm" aria-label="Acuse de cancelación" pTooltip="Descargar acuse de cancelación" (click)="downloadAcuse(r)"></button>
                 }
               </td>
             </tr>
@@ -175,6 +185,68 @@ interface ConceptoRow { descripcion: string; cantidad: number; valor_unitario: n
           <button pButton type="button" label="Guardar" icon="pi pi-check" class="p-button-sm" [loading]="savingIssuer()" [disabled]="!issuerValid()" (click)="saveIssuer()"></button>
         </ng-template>
       </p-dialog>
+
+      <!-- FE.10 — Cancelar (motivo SAT + sustitución) -->
+      <p-dialog [(visible)]="showCancel" [modal]="true" [style]="{ width: '34rem' }" header="Cancelar factura ante el SAT" [draggable]="false">
+        @if (cancelRow(); as r) {
+          <div class="fa-form">
+            <p class="fa-note fa-note-warn"><i class="pi pi-exclamation-triangle"></i> Vas a cancelar <strong>{{ r.serie }}{{ r.folio }}</strong> ({{ r.receptor_nombre || 'Público general' }}, {{ mzn(r.total) }}). Si el CFDI requiere aceptación del receptor, queda <strong>en proceso</strong> hasta que la acepte (72h).</p>
+            <label class="fa-f"><span>Motivo de cancelación *</span>
+              <select [(ngModel)]="cancelForm.motivo">
+                <option value="02">02 — Comprobante emitido con errores sin relación</option>
+                <option value="01">01 — Comprobante emitido con errores con relación</option>
+                <option value="03">03 — No se llevó a cabo la operación</option>
+                <option value="04">04 — Operación nominativa en factura global</option>
+              </select>
+            </label>
+            @if (cancelForm.motivo === '01') {
+              <label class="fa-f"><span>UUID que sustituye * (folioSustitución)</span>
+                <input pInputText [(ngModel)]="cancelForm.folioSustitucion" maxlength="36" placeholder="F1234567-89AB-..." style="text-transform:uppercase" />
+              </label>
+            }
+            <label class="fa-f"><span>Nota interna (opcional)</span>
+              <input pInputText [(ngModel)]="cancelForm.reason" placeholder="Motivo/observación para auditoría" />
+            </label>
+          </div>
+          <ng-template pTemplate="footer">
+            <button pButton type="button" label="Volver" class="p-button-text p-button-sm" (click)="showCancel=false"></button>
+            <button pButton type="button" label="Cancelar factura" icon="pi pi-times" class="p-button-sm p-button-danger" [loading]="cancelling()" [disabled]="cancelForm.motivo==='01' && !isUuid(cancelForm.folioSustitucion)" (click)="confirmCancel()"></button>
+          </ng-template>
+        }
+      </p-dialog>
+
+      <!-- FE.12 — Nota de crédito (Egreso) -->
+      <p-dialog [(visible)]="showNc" [modal]="true" [style]="{ width: '44rem' }" header="Nota de crédito" [draggable]="false">
+        @if (ncRow(); as r) {
+          <div class="fa-form">
+            <p class="fa-note"><i class="pi pi-info-circle"></i> CFDI de <strong>Egreso</strong> relacionado (01) a <strong>{{ r.serie }}{{ r.folio }}</strong> · {{ r.receptor_nombre || 'Público general' }} ({{ r.receptor_rfc }}). Captura lo que se devuelve/bonifica.</p>
+            <div class="fa-concept-head"><span>Conceptos *</span><button pButton type="button" label="Agregar" icon="pi pi-plus" class="p-button-text p-button-sm" (click)="addNcConcepto()"></button></div>
+            <table class="fa-concepts">
+              <thead><tr><th>Descripción</th><th style="width:5rem">Cant.</th><th style="width:8rem">P. Unit.</th><th class="ta-r" style="width:7rem">Importe</th><th style="width:2rem"></th></tr></thead>
+              <tbody>
+                @for (c of ncConceptos(); track $index) {
+                  <tr>
+                    <td><input pInputText [(ngModel)]="c.descripcion" placeholder="Devolución de mercancía" /></td>
+                    <td><input pInputText type="number" min="0" step="1" [(ngModel)]="c.cantidad" /></td>
+                    <td><input pInputText type="number" min="0" step="0.01" [(ngModel)]="c.valor_unitario" /></td>
+                    <td class="ta-r mono">{{ mzn((c.cantidad||0) * (c.valor_unitario||0)) }}</td>
+                    <td>@if (ncConceptos().length > 1) { <button pButton type="button" icon="pi pi-trash" class="p-button-text p-button-sm p-button-danger" aria-label="Quitar" (click)="removeNcConcepto($index)"></button> }</td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+            <div class="fa-totals">
+              <span>Subtotal <strong class="mono">{{ mzn(ncTotals().subtotal) }}</strong></span>
+              <span>IVA 16% <strong class="mono">{{ mzn(ncTotals().iva) }}</strong></span>
+              <span class="fa-grand">Total NC <strong class="mono">{{ mzn(ncTotals().total) }}</strong></span>
+            </div>
+          </div>
+          <ng-template pTemplate="footer">
+            <button pButton type="button" label="Volver" class="p-button-text p-button-sm" (click)="showNc=false"></button>
+            <button pButton type="button" label="Emitir nota de crédito" icon="pi pi-check" class="p-button-sm" [loading]="ncEmitting()" [disabled]="!ncValid()" (click)="emitNc()"></button>
+          </ng-template>
+        }
+      </p-dialog>
     </div>
   `,
   styles: [`
@@ -189,6 +261,7 @@ interface ConceptoRow { descripcion: string; cantidad: number; valor_unitario: n
     .fa-recep { color: var(--text-main); }
     .fa-sub { color: var(--text-muted); font-size: .72rem; }
     .fa-tot { font-weight: 700; }
+    .fa-nc { display: inline-block; margin-left: .4rem; padding: 0 .35rem; border-radius: var(--r-sm, 4px); background: color-mix(in srgb, var(--bad-fg, #b91c1c) 14%, transparent); color: var(--bad-fg, #b91c1c); font-size: .6rem; font-weight: 800; letter-spacing: .04em; vertical-align: middle; }
     .fa-est { display: inline-block; padding: .1rem .5rem; border-radius: var(--r-pill, 999px); font-size: .66rem; font-weight: 700; text-transform: capitalize; }
     .e-ok { background: color-mix(in srgb, var(--ok-fg, #16a34a) 14%, transparent); color: var(--ok-fg, #16a34a); }
     .e-bad { background: color-mix(in srgb, var(--bad-fg, #dc2626) 15%, transparent); color: var(--bad-fg, #dc2626); }
@@ -232,9 +305,20 @@ export class ContabilidadFacturarComponent implements OnInit {
   readonly errored = signal(false);
   readonly emitting = signal(false);
   readonly savingIssuer = signal(false);
+  readonly cancelling = signal(false);
+  readonly statusChecking = signal<string | null>(null);
 
   showEmit = false;
   showIssuer = false;
+  // FE.10 — cancelación
+  showCancel = false;
+  readonly cancelRow = signal<EmittedInvoice | null>(null);
+  cancelForm = { motivo: '02', folioSustitucion: '', reason: '' };
+  // FE.12 — nota de crédito
+  showNc = false;
+  readonly ncRow = signal<EmittedInvoice | null>(null);
+  readonly ncConceptos = signal<ConceptoRow[]>([{ descripcion: '', cantidad: 1, valor_unitario: 0 }]);
+  readonly ncEmitting = signal(false);
   readonly conceptos = signal<ConceptoRow[]>([{ descripcion: '', cantidad: 1, valor_unitario: 0 }]);
   form = {
     tipo: 'global' as 'global' | 'nominativa',
@@ -363,20 +447,105 @@ export class ContabilidadFacturarComponent implements OnInit {
       error: () => this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo generar el PDF.' }),
     });
   }
-  cancelar(r: EmittedInvoice) {
-    this.confirm.confirm({
-      header: 'Cancelar factura',
-      message: `¿Cancelar ${r.serie}${r.folio} ante el SAT? Esta acción no se puede deshacer.`,
-      icon: 'pi pi-exclamation-triangle', acceptLabel: 'Cancelar factura', rejectLabel: 'No', acceptButtonStyleClass: 'p-button-danger p-button-sm', rejectButtonStyleClass: 'p-button-text p-button-sm',
-      accept: () => {
-        this.svc.cancelar(r.uuid, '02').pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-          next: () => { this.toast.add({ severity: 'success', summary: 'Factura cancelada' }); this.reload(); },
-          error: (e) => this.toast.add({ severity: 'error', summary: 'No se pudo cancelar', detail: e?.error?.message || 'El PAC rechazó la cancelación.' }),
-        });
+  // ── FE.10 cancelación ──
+  isUuid = (s: string) => /^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$/.test((s || '').trim());
+
+  openCancel(r: EmittedInvoice) {
+    this.cancelRow.set(r);
+    this.cancelForm = { motivo: '02', folioSustitucion: '', reason: '' };
+    this.showCancel = true;
+  }
+
+  confirmCancel() {
+    const r = this.cancelRow();
+    if (!r) return;
+    const f = this.cancelForm;
+    if (f.motivo === '01' && !this.isUuid(f.folioSustitucion)) {
+      this.toast.add({ severity: 'warn', summary: 'Falta el UUID de sustitución', detail: 'El motivo 01 requiere el UUID del CFDI que sustituye.' });
+      return;
+    }
+    this.cancelling.set(true);
+    this.svc.cancelar(r.uuid, f.motivo, f.motivo === '01' ? f.folioSustitucion.trim().toUpperCase() : undefined, f.reason || undefined)
+      .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+        next: (res) => {
+          this.cancelling.set(false);
+          this.showCancel = false;
+          const msg = res.estatus_sat === 'cancelado' ? 'Factura cancelada'
+            : res.estatus_sat === 'en_proceso_cancelacion' ? 'Cancelación en proceso (espera aceptación del receptor)'
+            : 'Solicitud de cancelación enviada';
+          this.toast.add({ severity: 'success', summary: msg, life: 6000 });
+          this.reload();
+        },
+        error: (e) => {
+          this.cancelling.set(false);
+          this.toast.add({ severity: 'error', summary: 'No se pudo cancelar', detail: e?.error?.message || 'El PAC rechazó la cancelación.' });
+        },
+      });
+  }
+
+  consultarEstatus(r: EmittedInvoice) {
+    this.statusChecking.set(r.uuid);
+    this.svc.consultarEstatus(r.uuid).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (res) => {
+        this.statusChecking.set(null);
+        this.toast.add({ severity: 'info', summary: 'Estatus SAT', detail: this.estatusLabel(res.estatus_sat), life: 4000 });
+        this.reload();
       },
+      error: (e) => { this.statusChecking.set(null); this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudo consultar el estatus.' }); },
+    });
+  }
+
+  downloadAcuse(r: EmittedInvoice) {
+    this.svc.getAcuse(r.uuid).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: ({ acuse }) => {
+        // El acuse puede venir como XML crudo o base64; si es base64 lo decodificamos.
+        const isXml = acuse.trimStart().startsWith('<');
+        const content = isXml ? acuse : (() => { try { return atob(acuse); } catch { return acuse; } })();
+        const blob = new Blob([content], { type: 'application/xml' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a'); a.href = url; a.download = `acuse_${r.serie || ''}${r.folio || r.uuid}.xml`; a.click();
+        URL.revokeObjectURL(url);
+      },
+      error: () => this.toast.add({ severity: 'warn', summary: 'Sin acuse', detail: 'Aún no hay acuse de cancelación para esta factura.' }),
+    });
+  }
+
+  // ── FE.12 nota de crédito ──
+  openNc(r: EmittedInvoice) {
+    this.ncRow.set(r);
+    this.ncConceptos.set([{ descripcion: `Devolución/descuento s/ ${r.serie || ''}${r.folio || ''}`.trim(), cantidad: 1, valor_unitario: 0 }]);
+    this.showNc = true;
+  }
+  addNcConcepto() { this.ncConceptos.update((v) => [...v, { descripcion: '', cantidad: 1, valor_unitario: 0 }]); }
+  removeNcConcepto(i: number) { this.ncConceptos.update((v) => v.filter((_, idx) => idx !== i)); }
+  ncTotals() {
+    const subtotal = this.r2(this.ncConceptos().reduce((s, c) => s + (Number(c.cantidad) || 0) * (Number(c.valor_unitario) || 0), 0));
+    const iva = this.r2(subtotal * 0.16);
+    return { subtotal, iva, total: this.r2(subtotal + iva) };
+  }
+  private ncValidConceptos() {
+    return this.ncConceptos().filter((c) => c.descripcion.trim() && Number(c.cantidad) > 0 && Number(c.valor_unitario) > 0);
+  }
+  ncValid(): boolean { return this.ncValidConceptos().length > 0; }
+  emitNc() {
+    const r = this.ncRow();
+    if (!r || !this.ncValid()) return;
+    const conceptos = this.ncValidConceptos().map((c) => ({ descripcion: c.descripcion.trim(), cantidad: Number(c.cantidad), valor_unitario: Number(c.valor_unitario) }));
+    this.ncEmitting.set(true);
+    this.svc.notaCredito(r.uuid, { conceptos }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (res) => {
+        this.ncEmitting.set(false);
+        this.showNc = false;
+        this.toast.add({ severity: 'success', summary: 'Nota de crédito timbrada', detail: `${res.serie}${res.folio} · ${this.mzn(res.total)}`, life: 6000 });
+        this.reload();
+      },
+      error: (e) => { this.ncEmitting.set(false); this.toast.add({ severity: 'error', summary: 'No se pudo emitir la NC', detail: e?.error?.message || 'El PAC rechazó la nota de crédito.' }); },
     });
   }
 
   estatusClass(e: string): string { return e === 'vigente' ? 'ok' : e === 'cancelado' ? 'bad' : 'neutral'; }
+  estatusLabel(e: string): string {
+    return e === 'vigente' ? 'Vigente' : e === 'cancelado' ? 'Cancelado' : e === 'en_proceso_cancelacion' ? 'En proceso' : (e || '—');
+  }
   mzn = (n: unknown) => new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(Number(n) || 0);
 }

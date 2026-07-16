@@ -25,12 +25,32 @@ export interface PacCancelInput {
   folioSustitucion?: string; // requerido si motivo 01
 }
 
+export interface PacCancelResult {
+  /** Estatus resultante normalizado: 'cancelado' | 'en_proceso_cancelacion' | 'rechazado' | 'desconocido'. */
+  estatus: 'cancelado' | 'en_proceso_cancelacion' | 'rechazado' | 'desconocido';
+  /** Acuse de cancelación del SAT (XML crudo o base64), si el PAC lo devuelve. */
+  acuse?: string | null;
+  /** Códigos por UUID que devuelve el PAC (ej. {"<uuid>":"201"}). */
+  codes?: Record<string, string>;
+  raw: unknown;
+}
+
+export interface PacStatusResult {
+  /** EstadoComprobante SAT: 'Vigente' | 'Cancelado' | 'No Encontrado'. */
+  estado?: string;
+  es_cancelable?: string;      // 'Cancelable sin aceptación' | 'Cancelable con aceptación' | 'No cancelable'
+  estatus_cancelacion?: string; // 'En proceso' | 'Cancelado sin aceptación' | ...
+  raw: unknown;
+}
+
 export interface PacPort {
   readonly provider: string;
   /** Timbra un CFDI 4.0 a partir del JSON del comprobante. */
   stamp(cfdiJson: unknown): Promise<PacStampResult>;
-  /** Cancela un CFDI ya timbrado ante el SAT. */
-  cancel(input: PacCancelInput): Promise<unknown>;
+  /** Cancela un CFDI ya timbrado ante el SAT. Devuelve estatus normalizado + acuse. */
+  cancel(input: PacCancelInput): Promise<PacCancelResult>;
+  /** Consulta el estatus del CFDI ante el SAT (vigente/cancelado). Null si no se pudo. */
+  status(input: { uuid: string; emisorRfc: string; receptorRfc: string; total: string | number }): Promise<PacStatusResult | null>;
   /** Genera la representación impresa (PDF, base64) desde el XML timbrado. */
   pdf(xml: string): Promise<string | null>;
 }

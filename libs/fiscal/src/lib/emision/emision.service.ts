@@ -3,7 +3,7 @@ import { TenantKnexService, TenantContextService } from '@megadulces/platform-co
 import { CfdiParserService } from '../cfdi/cfdi-parser.service';
 import { CfdiHeader } from '../cfdi/cfdi.types';
 import { PAC_PORT, PacPort, PacStampResult } from './pac.port';
-import { ConceptoInput, EmitirFacturaInput, IssuerConfigInput } from './emision.types';
+import { ConceptoInput, EmitirFacturaInput, IssuerConfigInput, NotaCreditoInput } from './emision.types';
 
 interface ComputedConcepto extends ConceptoInput {
   cantidadN: number; valorN: number; descuentoN: number;
@@ -103,6 +103,41 @@ export class EmisionService {
     };
   }
 
+  /**
+   * FE.12 — Nota de crédito (Egreso) sobre un CFDI emitido. Deriva el receptor del
+   * original (RFC/nombre EXACTOS, requisito SAT) y timbra TipoDeComprobante 'E' con
+   * CfdiRelacionados TipoRelacion '01'. Reusa el motor de `emitir`.
+   */
+  async emitirNotaCredito(uuidOriginal: string, input: NotaCreditoInput) {
+    if (!input?.conceptos?.length) throw new BadRequestException('La nota de crédito requiere al menos un concepto.');
+    const u = uuidOriginal.toUpperCase();
+    const original = await this.tk.run(async (trx) =>
+      trx('fiscal.cfdis').where({ uuid: u, rol: 'emitidas' }).first());
+    if (!original) throw new NotFoundException('Factura original no encontrada.');
+    if (original.tipo_comprobante === 'E') throw new BadRequestException('No se emite nota de crédito sobre otra nota de crédito.');
+    if (original.estatus_sat === 'cancelado') throw new BadRequestException('La factura original está cancelada.');
+
+    const receptor = {
+      rfc: original.receptor_rfc,
+      nombre: original.receptor_nombre,
+      regimen_fiscal: original.receptor_regimen || '616',
+      domicilio_cp: original.receptor_domicilio || original.lugar_expedicion,
+      uso_cfdi: original.receptor_uso_cfdi || 'S01',
+    };
+    return this.emitir({
+      tipo: 'nominativa',
+      tipo_comprobante: 'E',
+      relacionados: { tipo_relacion: '01', uuids: [u] },
+      emisor_rfc: input.emisor_rfc || original.emisor_rfc,
+      serie: input.serie,
+      forma_pago: input.forma_pago || original.forma_pago || '01',
+      metodo_pago: input.metodo_pago || original.metodo_pago || 'PUE',
+      moneda: original.moneda || 'MXN',
+      receptor,
+      conceptos: input.conceptos,
+    });
+  }
+
   private async nextFolio(trx: any, tenantId: string, serie: string): Promise<string> {
     const year = new Date().getFullYear();
     const rows = await trx
@@ -134,7 +169,7 @@ export class EmisionService {
       const [{ count }] = await q.clone().count<{ count: string }[]>('* as count');
       const rows = await q
         .select('id', 'uuid', 'serie', 'folio', 'fecha', 'fecha_timbrado', 'receptor_rfc', 'receptor_nombre',
-          'subtotal', 'total_trasladados', 'total', 'metodo_pago', 'forma_pago', 'estatus_sat', 'source')
+          'subtotal', 'total_trasladados', 'total', 'metodo_pago', 'forma_pago', 'estatus_sat', 'source', 'tipo_comprobante')
         .orderBy('fecha', 'desc').limit(limit).offset(offset);
       return { total: Number(count), limit, offset, rows };
     });
@@ -162,15 +197,81 @@ export class EmisionService {
     return b64;
   }
 
-  async cancelar(uuid: string, motivo?: string, folioSustitucion?: string) {
+  /**
+   * FE.10 — Cancelación completa. Valida el motivo (01 exige UUID de sustitución),
+   * pide la cancelación al PAC, guarda el acuse + motivo + sustitución y fija el
+   * estatus real (cancelado / en_proceso_cancelacion). Intenta confirmar contra el
+   * SAT con status() para resolver "en proceso" → "cancelado" cuando aplica.
+   */
+  async cancelar(uuid: string, motivo?: string, folioSustitucion?: string, reason?: string) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const mot = (motivo || '02').trim();
+    if (!['01', '02', '03', '04'].includes(mot)) {
+      throw new BadRequestException('Motivo inválido. Usa 01, 02, 03 o 04.');
+    }
+    const sustit = mot === '01' ? (folioSustitucion || '').trim().toUpperCase() : undefined;
+    if (mot === '01' && !/^[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}$/.test(sustit || '')) {
+      throw new BadRequestException('El motivo 01 requiere el UUID del CFDI que sustituye (folioSustitucion).');
+    }
+
+    const row = await this.tk.run(tenantId, async (trx) =>
+      trx('fiscal.cfdis').where({ uuid: uuid.toUpperCase(), rol: 'emitidas' }).first());
+    if (!row) throw new NotFoundException('Factura no encontrada.');
+    if (row.estatus_sat === 'cancelado') {
+      return { uuid: row.uuid, estatus_sat: 'cancelado', acuse: row.cancel_acuse, already: true };
+    }
+
+    const result = await this.pac.cancel({ uuid: row.uuid, rfc: row.emisor_rfc, motivo: mot, folioSustitucion: sustit });
+
+    // Confirmar contra el SAT (best-effort): resuelve "en proceso" → "cancelado".
+    let estatus = result.estatus;
+    if (estatus === 'en_proceso_cancelacion') {
+      const st = await this.pac.status({
+        uuid: row.uuid, emisorRfc: row.emisor_rfc, receptorRfc: row.receptor_rfc, total: row.total,
+      });
+      if (st?.estado && /cancel/i.test(st.estado)) estatus = 'cancelado';
+    }
+    const estatusSat = estatus === 'cancelado' ? 'cancelado'
+      : estatus === 'en_proceso_cancelacion' ? 'en_proceso_cancelacion' : row.estatus_sat;
+
+    await this.tk.run(tenantId, async (trx) =>
+      trx('fiscal.cfdis').where({ uuid: row.uuid }).update({
+        estatus_sat: estatusSat,
+        estatus_checked_at: trx.fn.now(),
+        cancel_motivo: mot,
+        cancel_sustitucion_uuid: sustit || null,
+        cancel_reason: reason || null,
+        cancel_requested_at: trx.fn.now(),
+        cancel_acuse: result.acuse || null,
+        updated_at: trx.fn.now(),
+      }));
+    return { uuid: row.uuid, estatus_sat: estatusSat, motivo: mot, acuse: result.acuse, codes: result.codes };
+  }
+
+  /** FE.10 — Consulta el estatus del CFDI ante el SAT y actualiza la fila. */
+  async consultarEstatus(uuid: string) {
     const tenantId = this.tenantCtx.requireTenantId();
     const row = await this.tk.run(tenantId, async (trx) =>
       trx('fiscal.cfdis').where({ uuid: uuid.toUpperCase(), rol: 'emitidas' }).first());
     if (!row) throw new NotFoundException('Factura no encontrada.');
-    const result = await this.pac.cancel({ uuid: row.uuid, rfc: row.emisor_rfc, motivo, folioSustitucion });
+    const st = await this.pac.status({
+      uuid: row.uuid, emisorRfc: row.emisor_rfc, receptorRfc: row.receptor_rfc, total: row.total,
+    });
+    if (!st) return { uuid: row.uuid, estatus_sat: row.estatus_sat, sat: null, checked: false };
+    const estatusSat = st.estado && /cancel/i.test(st.estado) ? 'cancelado'
+      : /en proceso/i.test(st.estatus_cancelacion || '') ? 'en_proceso_cancelacion'
+      : st.estado && /vigente/i.test(st.estado) ? 'vigente' : row.estatus_sat;
     await this.tk.run(tenantId, async (trx) =>
-      trx('fiscal.cfdis').where({ uuid: row.uuid }).update({ estatus_sat: 'cancelado', estatus_checked_at: trx.fn.now(), updated_at: trx.fn.now() }));
-    return { uuid: row.uuid, estatus_sat: 'cancelado', acuse: result };
+      trx('fiscal.cfdis').where({ uuid: row.uuid }).update({ estatus_sat: estatusSat, estatus_checked_at: trx.fn.now(), updated_at: trx.fn.now() }));
+    return { uuid: row.uuid, estatus_sat: estatusSat, sat: st, checked: true };
+  }
+
+  /** FE.10 — Acuse de cancelación del SAT (XML/base64) persistido al cancelar. */
+  async getAcuse(uuid: string): Promise<string> {
+    const row = await this.tk.run(async (trx) =>
+      trx('fiscal.cfdis').where({ uuid: uuid.toUpperCase(), rol: 'emitidas' }).select('cancel_acuse').first());
+    if (!row?.cancel_acuse) throw new NotFoundException('No hay acuse de cancelación para esta factura.');
+    return row.cancel_acuse;
   }
 
   // ── Motor de cálculo + armado del CFDI ───────────────────────────────────
@@ -239,6 +340,7 @@ export class EmisionService {
           UsoCFDI: input.receptor!.uso_cfdi,
         };
 
+    const tipoComprobante = input.tipo_comprobante || 'I';
     const json: any = {
       Version: '4.0', Serie: serie, Folio: folio, Fecha: fecha,
       FormaPago: input.forma_pago || '01', MetodoPago: input.metodo_pago || 'PUE',
@@ -246,13 +348,21 @@ export class EmisionService {
       SubTotal: c.subtotal.toFixed(2),
       Moneda: input.moneda || 'MXN',
       Total: c.total.toFixed(2),
-      TipoDeComprobante: 'I', Exportacion: '01', LugarExpedicion: cp,
+      TipoDeComprobante: tipoComprobante, Exportacion: '01', LugarExpedicion: cp,
       Emisor: { Rfc: issuer.rfc, Nombre: issuer.tax_name, RegimenFiscal: issuer.regimen_fiscal },
       Receptor: receptor,
       Conceptos: conceptos,
     };
+    // FE.12 — CFDI relacionados (nota de crédito = TipoRelacion 01 al UUID original).
+    if (input.relacionados?.uuids?.length) {
+      json.CfdiRelacionados = [{
+        TipoRelacion: input.relacionados.tipo_relacion || '01',
+        CfdiRelacionado: input.relacionados.uuids.map((u) => ({ Uuid: String(u).toUpperCase() })),
+      }];
+    }
     if (c.descuentoTotal > 0) json.Descuento = c.descuentoTotal.toFixed(2);
-    if (input.tipo === 'global') {
+    // InformaciónGlobal solo aplica a Ingreso a público general (no a Egreso).
+    if (input.tipo === 'global' && tipoComprobante === 'I') {
       json.InformacionGlobal = { Periodicidad: input.periodicidad || '01', Meses: fecha.slice(5, 7), 'Año': fecha.slice(0, 4) };
     }
     if (c.totalTraslados > 0) {

@@ -14,6 +14,8 @@ export interface EmittedInvoice {
   fecha: string; fecha_timbrado: string | null; receptor_rfc: string | null; receptor_nombre: string | null;
   subtotal: string | number; total_trasladados: string | number; total: string | number;
   metodo_pago: string | null; forma_pago: string | null; estatus_sat: string; source: string;
+  /** FE.12 — 'I' ingreso (factura) · 'E' egreso (nota de crédito). */
+  tipo_comprobante?: string | null;
 }
 export interface ConceptoInput {
   clave_prod_serv?: string; no_identificacion?: string; descripcion: string;
@@ -48,7 +50,20 @@ export class FacturasService {
   issuers(): Observable<IssuerConfig[]> { return this.http.get<IssuerConfig[]>(`${this.base}/issuer`); }
   saveIssuer(body: IssuerConfig): Observable<IssuerConfig> { return this.http.put<IssuerConfig>(`${this.base}/issuer`, body); }
   emitir(body: EmitirFacturaInput): Observable<EmitResult> { return this.http.post<EmitResult>(this.base, body); }
-  cancelar(uuid: string, motivo?: string): Observable<unknown> { return this.http.post(`${this.base}/${uuid}/cancelar`, { motivo }); }
+  /** FE.12 — nota de crédito (Egreso) sobre una factura emitida. */
+  notaCredito(uuid: string, body: { conceptos: ConceptoInput[]; forma_pago?: string; metodo_pago?: string; serie?: string }): Observable<EmitResult> {
+    return this.http.post<EmitResult>(`${this.base}/${uuid}/nota-credito`, body);
+  }
+  /** FE.10 — cancela con motivo SAT (01–04); motivo 01 requiere folioSustitucion (UUID). */
+  cancelar(uuid: string, motivo: string, folioSustitucion?: string, reason?: string): Observable<{ uuid: string; estatus_sat: string; acuse?: string }> {
+    return this.http.post<{ uuid: string; estatus_sat: string; acuse?: string }>(`${this.base}/${uuid}/cancelar`, { motivo, folioSustitucion, reason });
+  }
+  /** FE.10 — consulta el estatus del CFDI ante el SAT (actualiza la fila). */
+  consultarEstatus(uuid: string): Observable<{ uuid: string; estatus_sat: string; checked: boolean }> {
+    return this.http.get<{ uuid: string; estatus_sat: string; checked: boolean }>(`${this.base}/${uuid}/estatus`);
+  }
+  /** FE.10 — acuse de cancelación del SAT. */
+  getAcuse(uuid: string): Observable<{ acuse: string }> { return this.http.get<{ acuse: string }>(`${this.base}/${uuid}/acuse`); }
   getXml(uuid: string): Observable<string> { return this.http.get(`${this.base}/${uuid}/xml`, { responseType: 'text' }); }
   getPdf(uuid: string): Observable<{ pdf_base64: string }> { return this.http.get<{ pdf_base64: string }>(`${this.base}/${uuid}/pdf`); }
   /** FE.6 — factura global de mostrador (endpoint en commercial, no fiscal). */

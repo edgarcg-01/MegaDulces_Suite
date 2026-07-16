@@ -34,6 +34,18 @@ export interface EmitirFacturaInput {
   conceptos: ConceptoInput[];
   periodicidad?: string;      // factura global: 01 diario (default) ..05 bimestral
   order_id?: string;          // vínculo opcional a commercial.orders (FE.5)
+  // FE.12 — Egreso (nota de crédito): TipoDeComprobante 'E' + CFDI relacionado.
+  tipo_comprobante?: 'I' | 'E';                             // default I (Ingreso)
+  relacionados?: { tipo_relacion: string; uuids: string[] }; // ej. { tipo_relacion:'01', uuids:[<uuid original>] }
+}
+
+/** FE.12 — nota de crédito (Egreso) sobre un CFDI emitido. El receptor se deriva del original. */
+export interface NotaCreditoInput {
+  emisor_rfc?: string;
+  serie?: string;
+  forma_pago?: string;
+  metodo_pago?: string;
+  conceptos: ConceptoInput[];
 }
 
 export interface IssuerConfigInput {

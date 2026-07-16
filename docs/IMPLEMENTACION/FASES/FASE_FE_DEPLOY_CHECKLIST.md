@@ -38,9 +38,10 @@ Empezar en **PRUEBAS**:
 
 ## 2. Aplicar la migración pendiente (FE.11)
 
-Solo queda **una** migración de esta sesión sin aplicar. Las de FE.1 (`20260716120000`, Batch 124) y FE.5 (`20260716140000`, Batch 125) ya están en prod.
+Quedan **dos** migraciones de esta sesión sin aplicar. Las de FE.1 (`20260716120000`, Batch 124) y FE.5 (`20260716140000`, Batch 125) ya están en prod.
 
 - [ ] `20260716160000_fe11_cod_agrupador.js` — crea `fiscal.cod_agrupador_map` (RLS) + permiso `FISCAL_CONTAB_GESTIONAR`.
+- [ ] `20260716180000_fe10_cancel.js` — columnas `cancel_*` en `fiscal.cfdis` (motivo/sustitución/acuse/estatus). Aditiva.
 
 ```bash
 NODE_ENV=production DATABASE_URL_NEW='<cadena-de-conexión-prod>' \

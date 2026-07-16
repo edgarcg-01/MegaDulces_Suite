@@ -1,5 +1,5 @@
 import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
-import { PacPort, PacStampResult, PacCancelInput } from './pac.port';
+import { PacPort, PacStampResult, PacCancelInput, PacCancelResult, PacStatusResult } from './pac.port';
 
 /**
  * FE.0 — Adapter del PAC SW SmarterWeb / Luna Soft (Conectia).
@@ -84,21 +84,69 @@ export class SwPacService implements PacPort {
     };
   }
 
-  async cancel(input: PacCancelInput): Promise<unknown> {
+  /**
+   * FE.10 — Cancelación con el CSD ya cargado en la cuenta (por parámetros).
+   * SW: DELETE /cfdi/{rfc}/{uuid}/{motivo}/{folioSustitucion}. Devuelve
+   * `data.uuid = {"<UUID>":"<codigoEstatus>"}` + `data.acuse` (XML/base64 del SAT).
+   * El estatus real (vigente/cancelado) lo confirma `status()` — la cancelación
+   * con aceptación queda "en proceso" hasta que el receptor acepte (72h).
+   */
+  async cancel(input: PacCancelInput): Promise<PacCancelResult> {
     const token = await this.token();
     const motivo = input.motivo || '02';
-    const sustit = input.folioSustitucion || '';
-    // Cancelación con el CSD ya cargado en la cuenta (por UUID).
-    // TODO(FE.10): validar formato exacto del endpoint + manejar acuse de cancelación.
-    const url = `${this.base()}/cfdi/${input.rfc}/${input.uuid}/${motivo}/${sustit}`;
+    const sustit = motivo === '01' ? (input.folioSustitucion || '') : '';
+    const url = `${this.base()}/cfdi/${encodeURIComponent(input.rfc)}/${encodeURIComponent(input.uuid)}/${motivo}/${sustit}`;
     const res = await fetch(url, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
-    const data: any = await res.json().catch(() => ({}));
+    const text = await res.text();
+    let data: any;
+    try { data = JSON.parse(text); } catch { data = text; }
+
     if (!res.ok || data?.status === 'error') {
-      throw new ServiceUnavailableException(
-        `El PAC rechazó la cancelación (${res.status}): ${data?.message || 'ver respuesta'}`,
-      );
+      const msg = data?.message || (typeof data === 'string' ? data.slice(0, 300) : 'ver respuesta');
+      this.logger.error(`SW cancel ${res.status}: ${msg}`);
+      throw new ServiceUnavailableException(`El PAC rechazó la cancelación (${res.status}): ${msg}`);
     }
-    return data;
+
+    const d = data?.data || {};
+    const codes: Record<string, string> = {};
+    if (d.uuid && typeof d.uuid === 'object') {
+      for (const [k, v] of Object.entries(d.uuid)) codes[String(k).toUpperCase()] = String(v);
+    }
+    const code = codes[input.uuid.toUpperCase()] || '';
+    // 201 = petición aceptada (en proceso si requiere aceptación). 202 = ya estaba
+    // cancelado. Otros 2xx = aceptada. La confirmación fina la da status().
+    const estatus: PacCancelResult['estatus'] =
+      code === '202' ? 'cancelado' : (data?.status === 'success' ? 'en_proceso_cancelacion' : 'desconocido');
+    return { estatus, acuse: d.acuse ?? null, codes, raw: data };
+  }
+
+  /**
+   * FE.10 — Consulta el estatus del CFDI ante el SAT (vía SW). Best-effort: si el
+   * endpoint falla o cambia, devuelve null (no rompe el flujo de cancelación).
+   * SW: GET /cfdi/status/{rfcEmisor}/{rfcReceptor}/{total}/{uuid}.
+   */
+  async status(input: { uuid: string; emisorRfc: string; receptorRfc: string; total: string | number }): Promise<PacStatusResult | null> {
+    try {
+      const token = await this.token();
+      const total = String(input.total);
+      const url = `${this.base()}/cfdi/status/${encodeURIComponent(input.emisorRfc)}/${encodeURIComponent(input.receptorRfc)}/${encodeURIComponent(total)}/${encodeURIComponent(input.uuid)}`;
+      const res = await fetch(url, { method: 'GET', headers: { Authorization: `Bearer ${token}` } });
+      const data: any = await res.json().catch(() => ({}));
+      if (!res.ok || data?.status === 'error') {
+        this.logger.warn(`SW status ${res.status}: ${data?.message || 'sin data'}`);
+        return null;
+      }
+      const d = data?.data || {};
+      return {
+        estado: d.estadoComprobante || d.EstadoComprobante || d.estado,
+        es_cancelable: d.esCancelable || d.EsCancelable,
+        estatus_cancelacion: d.estatusCancelacion || d.EstatusCancelacion,
+        raw: data,
+      };
+    } catch (e: any) {
+      this.logger.warn(`SW status falló: ${e?.message || e}`);
+      return null;
+    }
   }
 
   /** Base del servicio de PDF de SW (host distinto: services.* → api.*). */
