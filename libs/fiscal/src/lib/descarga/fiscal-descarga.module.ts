@@ -6,6 +6,7 @@ import { DescargaController } from './descarga.controller';
 import { DescargaService } from './descarga.service';
 import { DescargaOrchestratorService } from './descarga-orchestrator.service';
 import { SatSoapService } from './sat-soap.service';
+import { SatSoapNodecfdiService } from './sat-soap-nodecfdi.service';
 import { SAT_SOAP_PORT } from './sat-soap.port';
 
 /**
@@ -21,7 +22,13 @@ import { SAT_SOAP_PORT } from './sat-soap.port';
     DescargaService,
     DescargaOrchestratorService,
     SatSoapService,
-    { provide: SAT_SOAP_PORT, useExisting: SatSoapService },
+    SatSoapNodecfdiService,
+    // FE.9: @nodecfdi es el default (firma WS-Security real). FISCAL_SAT_CLIENT=reference
+    // vuelve a la impl node:crypto (c14n mínima) solo para diagnóstico.
+    {
+      provide: SAT_SOAP_PORT,
+      useExisting: process.env.FISCAL_SAT_CLIENT === 'reference' ? SatSoapService : SatSoapNodecfdiService,
+    },
   ],
   exports: [DescargaService],
 })

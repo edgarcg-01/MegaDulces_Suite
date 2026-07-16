@@ -22,6 +22,8 @@ export interface CreateCustomerDto {
   name: string;
   legal_name?: string;
   rfc?: string;
+  regimen_fiscal?: string; // FE.5: régimen fiscal SAT del receptor (CFDI 4.0)
+  uso_cfdi?: string;       // FE.5: uso CFDI por defecto del cliente
   email?: string;
   phone?: string;
   whatsapp?: string;
@@ -133,6 +135,8 @@ export class CommercialCustomersService implements CustomerProvisioningPort {
           name: dto.name.trim(),
           legal_name: dto.legal_name?.trim() || null,
           rfc: dto.rfc?.toUpperCase() || null,
+          regimen_fiscal: dto.regimen_fiscal?.trim() || null,
+          uso_cfdi: dto.uso_cfdi?.trim().toUpperCase() || null,
           email: dto.email?.toLowerCase() || null,
           phone: dto.phone || null,
           whatsapp: normalizeWhatsapp(dto.whatsapp),
@@ -317,6 +321,8 @@ export class CommercialCustomersService implements CustomerProvisioningPort {
       if (dto.legal_name !== undefined)
         patch.legal_name = dto.legal_name?.trim() || null;
       if (dto.rfc !== undefined) patch.rfc = dto.rfc?.toUpperCase() || null;
+      if (dto.regimen_fiscal !== undefined) patch.regimen_fiscal = dto.regimen_fiscal?.trim() || null;
+      if (dto.uso_cfdi !== undefined) patch.uso_cfdi = dto.uso_cfdi?.trim().toUpperCase() || null;
       if (dto.email !== undefined) patch.email = dto.email?.toLowerCase() || null;
       if (dto.phone !== undefined) patch.phone = dto.phone || null;
       if (dto.whatsapp !== undefined) patch.whatsapp = normalizeWhatsapp(dto.whatsapp);

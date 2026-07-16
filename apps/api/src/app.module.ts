@@ -106,11 +106,13 @@ import { FiscalEstatusModule } from '@megadulces/fiscal';
 import { FiscalContabilidadModule } from '@megadulces/fiscal';
 import { FiscalMaterialidadModule } from '@megadulces/fiscal';
 import { FiscalImpuestosModule } from '@megadulces/fiscal';
+import { FiscalEmisionModule } from '@megadulces/fiscal';
 import { ReconciliationModule } from '@megadulces/reconciliation';
 // MAAT.9 (3.0 P2) — binding del Port de notificación de Maat → canal de alertas commercial.
 import { FinanceNotifierBindingModule } from './composition/finance-notifier.binding.module';
 // FISCAL.1.1 — binding del Port de consolidación de hallazgos → Maat (finance.findings).
 import { FinanceFindingsSinkBindingModule } from './composition/finance-findings-sink.binding.module';
+import { InvoiceIssuerBindingModule } from './composition/invoice-issuer.binding.module';
 // Composition root: liga ORDER_FULFILLMENT_PORT (contracts) ← CommercialOrdersService.
 // Permite que logística dispare el fulfill sin importar commercial (DI inversion).
 import { OrderFulfillmentBindingModule } from './composition/order-fulfillment.binding.module';
@@ -173,6 +175,7 @@ const multitenantModules = process.env.ENABLE_MULTITENANT === 'true'
       FinanceNotifierBindingModule,
       FinanceMaatModule,
       FinanceFindingsSinkBindingModule,
+      InvoiceIssuerBindingModule,
       FiscalListasModule,
       FiscalVaultModule,
       FiscalJobsModule,
@@ -184,6 +187,7 @@ const multitenantModules = process.env.ENABLE_MULTITENANT === 'true'
       FiscalMaterialidadModule,
       FiscalImpuestosModule,
       FiscalDescargaModule,
+      FiscalEmisionModule,
       ReconciliationModule,
     ]
   : [];

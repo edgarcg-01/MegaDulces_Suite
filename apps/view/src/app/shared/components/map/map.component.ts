@@ -140,6 +140,11 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   private baseTile?: L.TileLayer;
   private appliedStyle = '';
   private pickMarker: L.Marker | null = null;
+  /** Observa el tamaño del contenedor → invalidateSize (fix mapa gris por layout tardío). */
+  private ro: ResizeObserver | null = null;
+  /** Fallback a OSM si las tiles de Mapbox fallan (token restringido por URL / bloqueadas). */
+  private baseTileLoaded = false;
+  private fellBackToOsm = false;
 
   constructor() {
     effect(() => {
@@ -179,7 +184,17 @@ export class MapComponent implements AfterViewInit, OnDestroy {
       if (p) this.placePickMarker(p.lat, p.lng, true);
     }
     this.ready.set(true);
-    setTimeout(() => this.map?.invalidateSize(), 0);
+
+    // El bug "mapa gris en algunos dispositivos": Leaflet lee el tamaño del
+    // contenedor al iniciar; si el layout/lazy-route/fuentes no asentaron aún,
+    // lo lee 0×0 y no vuelve a pedir tiles. Reinvalidamos: (1) escalonado tras
+    // el init, (2) ante cualquier cambio de tamaño del contenedor (rotación,
+    // sidebar, panel), vía ResizeObserver.
+    [0, 120, 350, 800].forEach((ms) => setTimeout(() => this.map?.invalidateSize(), ms));
+    if (typeof ResizeObserver !== 'undefined') {
+      this.ro = new ResizeObserver(() => this.map?.invalidateSize());
+      this.ro.observe(this.host.nativeElement);
+    }
   }
 
   /** Coloca/mueve el pin arrastrable del picker. `pan`=centra el mapa en él. */
@@ -226,10 +241,10 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     this.basemapMode.set(mode);
   }
 
-  /** Style activo según token / modo / tema. '__osm__' = fallback sin token. */
+  /** Style activo según token / modo / tema. '__osm__' = fallback sin token o tras fallo de tiles. */
   private currentStyle(): string {
     const mb = environment.mapbox;
-    if (!mb?.token) return '__osm__';
+    if (!mb?.token || this.fellBackToOsm) return '__osm__';
     if (this.basemapMode() === 'satellite') return mb.styleSatellite || 'mapbox/satellite-streets-v12';
     return this.theme.isMonochrome() ? (mb.styleDark || 'mapbox/dark-v11') : (mb.styleLight || 'mapbox/light-v11');
   }
@@ -255,7 +270,21 @@ export class MapComponent implements AfterViewInit, OnDestroy {
     if (this.baseTile && style === this.appliedStyle) return;
     this.appliedStyle = style;
     if (this.baseTile) this.map.removeLayer(this.baseTile);
-    this.baseTile = this.buildBaseLayer(style).addTo(this.map);
+    this.baseTileLoaded = false;
+    const tile = this.buildBaseLayer(style);
+    // Si Mapbox falla del todo (token restringido por URL, dominio bloqueado por
+    // adblock/DNS) y NUNCA cargó una tile, caemos a OpenStreetMap una sola vez —
+    // así el mapa aparece igual en esos dispositivos. Errores sueltos tras una
+    // carga exitosa se ignoran (no degradamos el estilo por una tile transitoria).
+    if (style !== '__osm__') {
+      tile.on('tileload', () => { this.baseTileLoaded = true; });
+      tile.on('tileerror', () => {
+        if (this.baseTileLoaded || this.fellBackToOsm) return;
+        this.fellBackToOsm = true;
+        this.setBaseLayer();
+      });
+    }
+    this.baseTile = tile.addTo(this.map);
     this.baseTile.bringToBack();
   }
 
@@ -412,6 +441,8 @@ export class MapComponent implements AfterViewInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
+    this.ro?.disconnect();
+    this.ro = null;
     this.map?.remove();
     this.map = null;
   }

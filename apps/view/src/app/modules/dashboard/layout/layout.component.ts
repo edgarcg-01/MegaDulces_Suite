@@ -405,6 +405,7 @@ export class LayoutComponent implements OnInit, OnDestroy {
   private contabilidadNavItems: NavItem[] = [
     { label: 'Listas SAT',          icon: 'pi pi-shield',         route: '/contabilidad/listas-sat',    permission: Permission.FISCAL_LISTAS_VER },
     { label: 'CFDI',                icon: 'pi pi-file',           route: '/contabilidad/cfdi',          permission: Permission.FISCAL_CFDI_VER },
+    { label: 'Facturar',            icon: 'pi pi-file-edit',      route: '/contabilidad/facturar',      permission: Permission.FISCAL_FACTURAR_VER },
     { label: 'Conciliación',        icon: 'pi pi-check-square',   route: '/contabilidad/conciliacion',  permission: Permission.FISCAL_CONCILIACION_VER },
     { label: 'DIOT / IVA',          icon: 'pi pi-percentage',     route: '/contabilidad/diot',          permission: Permission.FISCAL_DIOT_VER },
     { label: 'Descarga CFDI',       icon: 'pi pi-cloud-download', route: '/contabilidad/descarga',      permission: Permission.FISCAL_DESCARGA_VER },

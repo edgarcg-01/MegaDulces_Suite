@@ -9,6 +9,7 @@ import { Permission } from '../../core/constants/permissions';
 export const CONTABILIDAD_TABS: PageTab[] = [
   { label: 'Listas SAT', route: '/contabilidad/listas-sat', icon: 'pi pi-shield', permission: Permission.FISCAL_LISTAS_VER },
   { label: 'CFDI', route: '/contabilidad/cfdi', icon: 'pi pi-file', permission: Permission.FISCAL_CFDI_VER },
+  { label: 'Facturar', route: '/contabilidad/facturar', icon: 'pi pi-file-edit', permission: Permission.FISCAL_FACTURAR_VER },
   { label: 'Conciliación', route: '/contabilidad/conciliacion', icon: 'pi pi-check-square', permission: Permission.FISCAL_CONCILIACION_VER },
   { label: 'DIOT / IVA', route: '/contabilidad/diot', icon: 'pi pi-percentage', permission: Permission.FISCAL_DIOT_VER },
   { label: 'Descarga CFDI', route: '/contabilidad/descarga', icon: 'pi pi-cloud-download', permission: Permission.FISCAL_DESCARGA_VER },

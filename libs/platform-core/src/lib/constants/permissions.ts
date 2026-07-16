@@ -196,4 +196,7 @@ export enum Permission {
   FISCAL_DIOT_VER = 'FISCAL_DIOT_VER',
   // FISCAL.9 = contabilidad electrónica (XMLs SAT: catálogo + balanza).
   FISCAL_CONTAB_VER = 'FISCAL_CONTAB_VER',
+  // FE = facturación electrónica (emisión/timbrado CFDI 4.0 vía PAC SW/Conectia).
+  FISCAL_FACTURAR_VER = 'FISCAL_FACTURAR_VER',
+  FISCAL_FACTURAR_GESTIONAR = 'FISCAL_FACTURAR_GESTIONAR',
 }

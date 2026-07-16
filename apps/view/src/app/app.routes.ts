@@ -265,6 +265,11 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.FISCAL_CFDI_VER)]
       },
       {
+        path: 'facturar',
+        loadComponent: () => import('./modules/contabilidad/pages/contabilidad-facturar.component').then(m => m.ContabilidadFacturarComponent),
+        canActivate: [permissionGuard(Permission.FISCAL_FACTURAR_VER)]
+      },
+      {
         path: 'conciliacion',
         loadComponent: () => import('./modules/contabilidad/pages/contabilidad-conciliacion.component').then(m => m.ContabilidadConciliacionComponent),
         canActivate: [permissionGuard(Permission.FISCAL_CONCILIACION_VER)]

@@ -57,3 +57,10 @@ export * from './lib/materialidad/materialidad.service';
 // FISCAL.18 = impuestos provisionales (ISR + IVA mensual).
 export * from './lib/impuestos/fiscal-impuestos.module';
 export * from './lib/impuestos/impuestos.service';
+
+// FE = Facturación electrónica (emisión/timbrado CFDI 4.0 vía PAC SW/Conectia).
+export * from './lib/emision/fiscal-emision.module';
+export * from './lib/emision/emision.service';
+export * from './lib/emision/order-invoice-issuer.service';
+export * from './lib/emision/pac.port';
+export * from './lib/emision/emision.types';

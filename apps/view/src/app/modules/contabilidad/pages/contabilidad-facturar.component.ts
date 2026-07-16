@@ -1,0 +1,382 @@
+import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { CommonModule } from '@angular/common';
+import { FormsModule } from '@angular/forms';
+import { ButtonModule } from 'primeng/button';
+import { TableModule } from 'primeng/table';
+import { ToastModule } from 'primeng/toast';
+import { DialogModule } from 'primeng/dialog';
+import { InputTextModule } from 'primeng/inputtext';
+import { ConfirmDialogModule } from 'primeng/confirmdialog';
+import { ConfirmationService, MessageService } from 'primeng/api';
+import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
+import { CONTABILIDAD_TABS } from '../contabilidad-tabs';
+import { AuthService } from '../../../core/services/auth.service';
+import { Permission } from '../../../core/constants/permissions';
+import { FacturasService, EmittedInvoice, IssuerConfig } from '../facturas.service';
+
+interface ConceptoRow { descripcion: string; cantidad: number; valor_unitario: number; }
+
+/**
+ * FE — Facturación (emisión/timbrado CFDI 4.0 vía PAC SW/Conectia). Operations.
+ * Bandeja de emitidas + alta (factura global mostrador o nominativa) + config del emisor.
+ */
+@Component({
+  selector: 'app-contabilidad-facturar',
+  standalone: true,
+  imports: [CommonModule, FormsModule, ButtonModule, TableModule, ToastModule, DialogModule, InputTextModule, ConfirmDialogModule, PageTabsComponent],
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  providers: [MessageService, ConfirmationService],
+  template: `
+    <div class="surf-page in">
+      <p-toast></p-toast>
+      <p-confirmDialog></p-confirmDialog>
+      <app-page-tabs [tabs]="tabs" />
+
+      <header class="surf-page-head fa-head">
+        <div class="surf-page-head-text">
+          <h1>Facturación</h1>
+          <p class="surf-page-sub">Emisión y timbrado de CFDI 4.0 (factura global de mostrador o nominativa). El PAC sella y timbra ante el SAT.</p>
+        </div>
+        <div class="fa-head-actions">
+          <button pButton type="button" label="Refrescar" icon="pi pi-refresh" class="p-button-sm p-button-text" [loading]="loading()" (click)="reload()"></button>
+          @if (canManage) {
+            <button pButton type="button" label="Emisor" icon="pi pi-id-card" class="p-button-sm p-button-text" (click)="openIssuer()"></button>
+            <button pButton type="button" label="Nueva factura" icon="pi pi-plus" class="p-button-sm" [disabled]="!hasIssuer()" (click)="openEmit()"></button>
+            <button pButton type="button" label="Global del día" icon="pi pi-calendar" class="p-button-sm p-button-text" [disabled]="!hasIssuer()" (click)="globalDia()"></button>
+          }
+        </div>
+      </header>
+
+      @if (canManage && !hasIssuer() && !loading()) {
+        <div class="fa-banner">
+          <i class="pi pi-info-circle"></i>
+          <span>Antes de facturar, configura los datos fiscales del <strong>emisor</strong> (RFC, razón social, régimen, CP).</span>
+          <button pButton type="button" label="Configurar emisor" icon="pi pi-id-card" class="p-button-sm" (click)="openIssuer()"></button>
+        </div>
+      }
+
+      <div class="card-premium card-flat">
+        <p-table [value]="rows()" styleClass="p-datatable-sm fa-table" [rowHover]="true" [loading]="loading()"
+                 [scrollable]="true" scrollHeight="560px" [paginator]="rows().length > 50" [rows]="50">
+          <ng-template pTemplate="header">
+            <tr>
+              <th style="width:8rem">Folio</th>
+              <th style="width:9rem">Fecha</th>
+              <th>Receptor</th>
+              <th class="ta-r" style="width:8rem">Subtotal</th>
+              <th class="ta-r" style="width:6rem">IVA</th>
+              <th class="ta-r" style="width:8rem">Total</th>
+              <th style="width:6rem">Estatus</th>
+              <th style="width:6rem"></th>
+            </tr>
+          </ng-template>
+          <ng-template pTemplate="body" let-r>
+            <tr>
+              <td class="mono">{{ r.serie }}{{ r.folio }}</td>
+              <td class="mono">{{ r.fecha_timbrado || r.fecha | date:'dd/MM/yy HH:mm' }}</td>
+              <td><div class="fa-recep">{{ r.receptor_nombre || '—' }}</div><div class="mono fa-sub">{{ r.receptor_rfc }}</div></td>
+              <td class="ta-r mono">{{ mzn(r.subtotal) }}</td>
+              <td class="ta-r mono">{{ mzn(r.total_trasladados) }}</td>
+              <td class="ta-r mono fa-tot">{{ mzn(r.total) }}</td>
+              <td><span class="fa-est" [ngClass]="'e-' + estatusClass(r.estatus_sat)">{{ r.estatus_sat }}</span></td>
+              <td class="ta-r">
+                <button pButton type="button" icon="pi pi-download" class="p-button-text p-button-sm" aria-label="Descargar XML" (click)="downloadXml(r)"></button>
+                <button pButton type="button" icon="pi pi-file-pdf" class="p-button-text p-button-sm" aria-label="Descargar PDF" (click)="downloadPdf(r)"></button>
+                @if (canManage && r.estatus_sat === 'vigente') {
+                  <button pButton type="button" icon="pi pi-times" class="p-button-text p-button-sm p-button-danger" aria-label="Cancelar" (click)="cancelar(r)"></button>
+                }
+              </td>
+            </tr>
+          </ng-template>
+          <ng-template pTemplate="emptymessage"><tr><td colspan="8" class="fa-empty">
+            @if (loading()) { Cargando… }
+            @else if (errored()) { <i class="pi pi-exclamation-triangle"></i> No se pudo cargar. <button pButton type="button" label="Reintentar" class="p-button-sm p-button-text" (click)="reload()"></button> }
+            @else { <i class="pi pi-file-edit"></i> Sin facturas emitidas. @if (canManage && hasIssuer()) { Crea una con "Nueva factura". } }
+          </td></tr></ng-template>
+        </p-table>
+      </div>
+
+      <!-- Emitir -->
+      <p-dialog [(visible)]="showEmit" [modal]="true" [style]="{ width: '46rem' }" header="Nueva factura" [draggable]="false">
+        <div class="fa-form">
+          <label class="fa-f"><span>Tipo *</span>
+            <div class="fa-seg">
+              <button type="button" [class.active]="form.tipo==='global'" (click)="form.tipo='global'">Global (mostrador)</button>
+              <button type="button" [class.active]="form.tipo==='nominativa'" (click)="form.tipo='nominativa'">Nominativa</button>
+            </div>
+          </label>
+
+          @if (form.tipo === 'nominativa') {
+            <div class="fa-grid2">
+              <label class="fa-f"><span>RFC receptor *</span><input pInputText [(ngModel)]="form.receptor.rfc" maxlength="13" style="text-transform:uppercase" placeholder="XAXX010101000" /></label>
+              <label class="fa-f"><span>Razón social * (exacta SAT)</span><input pInputText [(ngModel)]="form.receptor.nombre" placeholder="EMPRESA SA DE CV" /></label>
+              <label class="fa-f"><span>Régimen fiscal *</span><input pInputText [(ngModel)]="form.receptor.regimen_fiscal" placeholder="601" maxlength="3" /></label>
+              <label class="fa-f"><span>CP domicilio *</span><input pInputText [(ngModel)]="form.receptor.domicilio_cp" placeholder="59300" maxlength="5" /></label>
+              <label class="fa-f"><span>Uso CFDI *</span><input pInputText [(ngModel)]="form.receptor.uso_cfdi" placeholder="G03" maxlength="4" /></label>
+            </div>
+          } @else {
+            <p class="fa-note"><i class="pi pi-info-circle"></i> Factura global a <strong>PÚBLICO EN GENERAL</strong> (XAXX010101000). Se agrega el nodo Información Global (periodicidad diaria).</p>
+          }
+
+          <div class="fa-concept-head"><span>Conceptos *</span><button pButton type="button" label="Agregar" icon="pi pi-plus" class="p-button-text p-button-sm" (click)="addConcepto()"></button></div>
+          <table class="fa-concepts">
+            <thead><tr><th>Descripción</th><th style="width:5rem">Cant.</th><th style="width:8rem">P. Unit.</th><th class="ta-r" style="width:7rem">Importe</th><th style="width:2rem"></th></tr></thead>
+            <tbody>
+              @for (c of conceptos(); track $index) {
+                <tr>
+                  <td><input pInputText [(ngModel)]="c.descripcion" placeholder="Dulces surtidos" /></td>
+                  <td><input pInputText type="number" min="0" step="1" [(ngModel)]="c.cantidad" /></td>
+                  <td><input pInputText type="number" min="0" step="0.01" [(ngModel)]="c.valor_unitario" /></td>
+                  <td class="ta-r mono">{{ mzn((c.cantidad||0) * (c.valor_unitario||0)) }}</td>
+                  <td>@if (conceptos().length > 1) { <button pButton type="button" icon="pi pi-trash" class="p-button-text p-button-sm p-button-danger" aria-label="Quitar" (click)="removeConcepto($index)"></button> }</td>
+                </tr>
+              }
+            </tbody>
+          </table>
+
+          <div class="fa-grid3">
+            <label class="fa-f"><span>Forma de pago</span>
+              <select [(ngModel)]="form.forma_pago"><option value="01">01 Efectivo</option><option value="03">03 Transferencia</option><option value="04">04 Tarjeta crédito</option><option value="28">28 Tarjeta débito</option><option value="99">99 Por definir</option></select>
+            </label>
+            <label class="fa-f"><span>Método de pago</span>
+              <select [(ngModel)]="form.metodo_pago"><option value="PUE">PUE (una exhibición)</option><option value="PPD">PPD (parcialidades)</option></select>
+            </label>
+            <label class="fa-f"><span>Serie</span><input pInputText [(ngModel)]="form.serie" placeholder="(default emisor)" maxlength="10" style="text-transform:uppercase" /></label>
+          </div>
+
+          <div class="fa-totals">
+            <span>Subtotal <strong class="mono">{{ mzn(totals().subtotal) }}</strong></span>
+            <span>IVA 16% <strong class="mono">{{ mzn(totals().iva) }}</strong></span>
+            <span class="fa-grand">Total <strong class="mono">{{ mzn(totals().total) }}</strong></span>
+          </div>
+        </div>
+        <ng-template pTemplate="footer">
+          <button pButton type="button" label="Cancelar" class="p-button-text p-button-sm" (click)="showEmit=false"></button>
+          <button pButton type="button" label="Emitir y timbrar" icon="pi pi-check" class="p-button-sm" [loading]="emitting()" [disabled]="!emitValid()" (click)="emit()"></button>
+        </ng-template>
+      </p-dialog>
+
+      <!-- Emisor -->
+      <p-dialog [(visible)]="showIssuer" [modal]="true" [style]="{ width: '32rem' }" header="Datos fiscales del emisor" [draggable]="false">
+        <div class="fa-form">
+          <div class="fa-grid2">
+            <label class="fa-f"><span>RFC *</span><input pInputText [(ngModel)]="issuerForm.rfc" maxlength="13" style="text-transform:uppercase" placeholder="LOGL851014AQ5" /></label>
+            <label class="fa-f"><span>CP (lugar exp.) *</span><input pInputText [(ngModel)]="issuerForm.cp" maxlength="5" placeholder="59300" /></label>
+            <label class="fa-f fa-f-wide"><span>Razón social * (exacta SAT)</span><input pInputText [(ngModel)]="issuerForm.tax_name" placeholder="LUIS FRANCISCO LOPEZ GUTIERREZ" /></label>
+            <label class="fa-f"><span>Régimen fiscal *</span><input pInputText [(ngModel)]="issuerForm.regimen_fiscal" maxlength="3" placeholder="612" /></label>
+            <label class="fa-f"><span>Serie por defecto</span><input pInputText [(ngModel)]="issuerForm.serie" maxlength="10" placeholder="A" style="text-transform:uppercase" /></label>
+          </div>
+          <label class="fa-check"><input type="checkbox" [(ngModel)]="issuerForm.is_default" /> <span>Emisor por defecto</span></label>
+          <p class="fa-note"><i class="pi pi-info-circle"></i> El CSD (sello) vive en la cuenta del PAC (Conectia/SW); aquí solo van los datos del comprobante. Deben coincidir <strong>exacto</strong> con tu Constancia de Situación Fiscal.</p>
+        </div>
+        <ng-template pTemplate="footer">
+          <button pButton type="button" label="Cancelar" class="p-button-text p-button-sm" (click)="showIssuer=false"></button>
+          <button pButton type="button" label="Guardar" icon="pi pi-check" class="p-button-sm" [loading]="savingIssuer()" [disabled]="!issuerValid()" (click)="saveIssuer()"></button>
+        </ng-template>
+      </p-dialog>
+    </div>
+  `,
+  styles: [`
+    :host { display: block; }
+    .fa-head { display: flex; align-items: flex-start; gap: 1rem; }
+    .fa-head-actions { margin-left: auto; display: flex; gap: .4rem; align-items: center; }
+    .fa-banner { display: flex; align-items: center; gap: .6rem; background: color-mix(in srgb, var(--action) 8%, var(--card-bg)); border: 1px solid var(--border-color); border-radius: var(--r-md, 12px); padding: .7rem 1rem; margin-bottom: 1rem; font-size: .85rem; color: var(--text-main); }
+    .fa-banner button { margin-left: auto; }
+    .fa-table { font-variant-numeric: tabular-nums; }
+    .ta-r { text-align: right; }
+    .mono { font-family: var(--font-mono, ui-monospace, monospace); font-size: .85em; }
+    .fa-recep { color: var(--text-main); }
+    .fa-sub { color: var(--text-muted); font-size: .72rem; }
+    .fa-tot { font-weight: 700; }
+    .fa-est { display: inline-block; padding: .1rem .5rem; border-radius: var(--r-pill, 999px); font-size: .66rem; font-weight: 700; text-transform: capitalize; }
+    .e-ok { background: color-mix(in srgb, var(--ok-fg, #16a34a) 14%, transparent); color: var(--ok-fg, #16a34a); }
+    .e-bad { background: color-mix(in srgb, var(--bad-fg, #dc2626) 15%, transparent); color: var(--bad-fg, #dc2626); }
+    .e-neutral { background: var(--surface-hover-bg, #f5f5f4); color: var(--text-muted); }
+    .fa-empty { padding: 2.5rem 1rem; text-align: center; color: var(--text-muted); }
+    .fa-empty .pi { display: block; font-size: 1.5rem; margin-bottom: .5rem; opacity: .6; }
+    .fa-form { display: flex; flex-direction: column; gap: .8rem; padding-top: .5rem; }
+    .fa-f { display: flex; flex-direction: column; gap: .25rem; font-size: .72rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: .03em; }
+    .fa-f input, .fa-f select, .fa-concepts input { border: 1px solid var(--border-color); border-radius: var(--r-sm, 8px); padding: .45rem .6rem; background: var(--card-bg); color: var(--text-main); font-family: inherit; font-size: .85rem; width: 100%; }
+    .fa-grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: .6rem; }
+    .fa-grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: .6rem; }
+    .fa-f-wide { grid-column: 1 / -1; }
+    .fa-concept-head { display: flex; align-items: center; justify-content: space-between; font-size: .72rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: .03em; margin-top: .2rem; }
+    .fa-concepts { width: 100%; border-collapse: collapse; }
+    .fa-concepts th { text-align: left; font-size: .64rem; text-transform: uppercase; letter-spacing: .03em; color: var(--text-muted); padding: .2rem .35rem; border-bottom: 1px solid var(--border-color); }
+    .fa-concepts td { padding: .2rem .35rem; vertical-align: middle; }
+    .fa-concepts .ta-r { text-align: right; }
+    .fa-seg { display: inline-flex; border: 1px solid var(--border-color); border-radius: var(--r-pill, 999px); overflow: hidden; width: fit-content; }
+    .fa-seg button { border: none; background: var(--card-bg); padding: .35rem .9rem; font-size: .8rem; cursor: pointer; color: var(--text-muted); }
+    .fa-seg button.active { background: var(--action); color: var(--action-ink, #fff); font-weight: 600; }
+    .fa-check { display: flex; align-items: center; gap: .45rem; font-size: .82rem; color: var(--text-main); text-transform: none; letter-spacing: 0; }
+    .fa-totals { display: flex; gap: 1.4rem; justify-content: flex-end; align-items: baseline; border-top: 1px solid var(--border-color); padding-top: .7rem; font-size: .82rem; color: var(--text-muted); }
+    .fa-totals strong { color: var(--text-main); margin-left: .3rem; }
+    .fa-grand strong { font-size: 1.05rem; color: var(--action); }
+    .fa-note { font-size: .75rem; color: var(--text-muted); background: var(--surface-hover-bg, #f7f7f6); border-radius: var(--r-sm, 8px); padding: .5rem .7rem; margin: 0; display: flex; gap: .4rem; }
+  `],
+})
+export class ContabilidadFacturarComponent implements OnInit {
+  readonly tabs = CONTABILIDAD_TABS;
+  private readonly svc = inject(FacturasService);
+  private readonly toast = inject(MessageService);
+  private readonly confirm = inject(ConfirmationService);
+  private readonly auth = inject(AuthService);
+  private readonly destroyRef = inject(DestroyRef);
+
+  readonly canManage = this.auth.user()?.permissions?.[Permission.FISCAL_FACTURAR_GESTIONAR] === true;
+  readonly rows = signal<EmittedInvoice[]>([]);
+  readonly issuers = signal<IssuerConfig[]>([]);
+  readonly hasIssuer = computed(() => this.issuers().length > 0);
+  readonly loading = signal(false);
+  readonly errored = signal(false);
+  readonly emitting = signal(false);
+  readonly savingIssuer = signal(false);
+
+  showEmit = false;
+  showIssuer = false;
+  readonly conceptos = signal<ConceptoRow[]>([{ descripcion: '', cantidad: 1, valor_unitario: 0 }]);
+  form = {
+    tipo: 'global' as 'global' | 'nominativa',
+    serie: '', forma_pago: '01', metodo_pago: 'PUE',
+    receptor: { rfc: '', nombre: '', regimen_fiscal: '601', domicilio_cp: '', uso_cfdi: 'G03' },
+  };
+  issuerForm: IssuerConfig = { rfc: '', tax_name: '', regimen_fiscal: '612', cp: '', serie: 'A', is_default: true };
+
+  ngOnInit() { this.reload(); this.loadIssuers(); }
+
+  reload() {
+    this.loading.set(true); this.errored.set(false);
+    this.svc.list().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => { this.rows.set(r.rows); this.loading.set(false); },
+      error: () => { this.loading.set(false); this.errored.set(true); this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo cargar la bandeja.' }); },
+    });
+  }
+  loadIssuers() {
+    this.svc.issuers().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (i) => this.issuers.set(i), error: () => {} });
+  }
+
+  globalDia() {
+    this.confirm.confirm({
+      header: 'Factura global de mostrador',
+      message: 'Emite UN CFDI global con los pedidos entregados HOY cuyo cliente no tiene datos fiscales completos. ¿Continuar?',
+      icon: 'pi pi-calendar', acceptLabel: 'Emitir global', rejectLabel: 'Cancelar',
+      acceptButtonStyleClass: 'p-button-sm', rejectButtonStyleClass: 'p-button-text p-button-sm',
+      accept: () => {
+        this.svc.globalInvoice().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+          next: (r) => {
+            this.toast.add(r.issued
+              ? { severity: 'success', summary: 'Global emitida', detail: `${r.count} pedidos · ${this.mzn(r.total)} · UUID ${r.uuid?.slice(0, 8)}…`, life: 7000 }
+              : { severity: 'info', summary: 'Sin pedidos', detail: 'No hay ventas de mostrador sin facturar hoy.' });
+            this.reload();
+          },
+          error: (e) => this.toast.add({ severity: 'error', summary: 'No se pudo emitir la global', detail: e?.error?.message || 'Error.', life: 8000 }),
+        });
+      },
+    });
+  }
+
+  // ── Emitir ────────────────────────────────────────────────────────────────
+  openEmit() {
+    this.conceptos.set([{ descripcion: '', cantidad: 1, valor_unitario: 0 }]);
+    this.form = { tipo: 'global', serie: '', forma_pago: '01', metodo_pago: 'PUE', receptor: { rfc: '', nombre: '', regimen_fiscal: '601', domicilio_cp: '', uso_cfdi: 'G03' } };
+    this.showEmit = true;
+  }
+  addConcepto() { this.conceptos.update((v) => [...v, { descripcion: '', cantidad: 1, valor_unitario: 0 }]); }
+  removeConcepto(i: number) { this.conceptos.update((v) => v.filter((_, idx) => idx !== i)); }
+
+  private r2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
+  totals() {
+    const subtotal = this.r2(this.conceptos().reduce((s, c) => s + (Number(c.cantidad) || 0) * (Number(c.valor_unitario) || 0), 0));
+    const iva = this.r2(subtotal * 0.16);
+    return { subtotal, iva, total: this.r2(subtotal + iva) };
+  }
+  private validConceptos() {
+    return this.conceptos().filter((c) => c.descripcion.trim() && Number(c.cantidad) > 0 && Number(c.valor_unitario) >= 0);
+  }
+  emitValid(): boolean {
+    if (!this.validConceptos().length) return false;
+    if (this.form.tipo === 'nominativa') {
+      const r = this.form.receptor;
+      return /^[A-ZÑ&]{3,4}[0-9]{6}[A-Z0-9]{3}$/.test((r.rfc || '').toUpperCase()) && !!r.nombre.trim() && !!r.regimen_fiscal.trim() && /^[0-9]{5}$/.test(r.domicilio_cp) && !!r.uso_cfdi.trim();
+    }
+    return true;
+  }
+  emit() {
+    if (!this.emitValid()) return;
+    const conceptos = this.validConceptos().map((c) => ({ descripcion: c.descripcion.trim(), cantidad: Number(c.cantidad), valor_unitario: Number(c.valor_unitario) }));
+    const body = {
+      tipo: this.form.tipo,
+      serie: this.form.serie?.trim().toUpperCase() || undefined,
+      forma_pago: this.form.forma_pago, metodo_pago: this.form.metodo_pago,
+      periodicidad: this.form.tipo === 'global' ? '01' : undefined,
+      receptor: this.form.tipo === 'nominativa' ? { ...this.form.receptor, rfc: this.form.receptor.rfc.toUpperCase() } : undefined,
+      conceptos,
+    };
+    this.emitting.set(true);
+    this.svc.emitir(body).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => { this.emitting.set(false); this.showEmit = false; this.toast.add({ severity: 'success', summary: 'Factura timbrada', detail: `${r.serie}${r.folio} · UUID ${r.uuid?.slice(0, 8)}… · ${this.mzn(r.total)}`, life: 6000 }); this.reload(); },
+      error: (e) => { this.emitting.set(false); this.toast.add({ severity: 'error', summary: 'No se pudo timbrar', detail: e?.error?.message || 'El PAC rechazó el comprobante.', life: 8000 }); },
+    });
+  }
+
+  // ── Emisor ────────────────────────────────────────────────────────────────
+  openIssuer() {
+    const d = this.issuers().find((i) => i.is_default) || this.issuers()[0];
+    this.issuerForm = d ? { ...d } : { rfc: '', tax_name: '', regimen_fiscal: '612', cp: '', serie: 'A', is_default: true };
+    this.showIssuer = true;
+  }
+  issuerValid(): boolean {
+    const f = this.issuerForm;
+    return /^[A-ZÑ&]{3,4}[0-9]{6}[A-Z0-9]{3}$/.test((f.rfc || '').toUpperCase()) && !!f.tax_name?.trim() && !!f.regimen_fiscal?.trim() && /^[0-9]{5}$/.test(f.cp || '');
+  }
+  saveIssuer() {
+    if (!this.issuerValid()) return;
+    this.savingIssuer.set(true);
+    this.svc.saveIssuer({ ...this.issuerForm, rfc: this.issuerForm.rfc.toUpperCase() }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: () => { this.savingIssuer.set(false); this.showIssuer = false; this.toast.add({ severity: 'success', summary: 'Emisor guardado' }); this.loadIssuers(); },
+      error: () => { this.savingIssuer.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo guardar el emisor.' }); },
+    });
+  }
+
+  // ── Acciones de fila ────────────────────────────────────────────────────────
+  downloadXml(r: EmittedInvoice) {
+    this.svc.getXml(r.uuid).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (xml) => {
+        const blob = new Blob([xml], { type: 'application/xml' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a'); a.href = url; a.download = `${r.serie || ''}${r.folio || r.uuid}.xml`; a.click();
+        URL.revokeObjectURL(url);
+      },
+      error: () => this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo descargar el XML.' }),
+    });
+  }
+  downloadPdf(r: EmittedInvoice) {
+    this.svc.getPdf(r.uuid).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: ({ pdf_base64 }) => {
+        const bytes = Uint8Array.from(atob(pdf_base64), (ch) => ch.charCodeAt(0));
+        const blob = new Blob([bytes], { type: 'application/pdf' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a'); a.href = url; a.download = `${r.serie || ''}${r.folio || r.uuid}.pdf`; a.click();
+        URL.revokeObjectURL(url);
+      },
+      error: () => this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo generar el PDF.' }),
+    });
+  }
+  cancelar(r: EmittedInvoice) {
+    this.confirm.confirm({
+      header: 'Cancelar factura',
+      message: `¿Cancelar ${r.serie}${r.folio} ante el SAT? Esta acción no se puede deshacer.`,
+      icon: 'pi pi-exclamation-triangle', acceptLabel: 'Cancelar factura', rejectLabel: 'No', acceptButtonStyleClass: 'p-button-danger p-button-sm', rejectButtonStyleClass: 'p-button-text p-button-sm',
+      accept: () => {
+        this.svc.cancelar(r.uuid, '02').pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+          next: () => { this.toast.add({ severity: 'success', summary: 'Factura cancelada' }); this.reload(); },
+          error: (e) => this.toast.add({ severity: 'error', summary: 'No se pudo cancelar', detail: e?.error?.message || 'El PAC rechazó la cancelación.' }),
+        });
+      },
+    });
+  }
+
+  estatusClass(e: string): string { return e === 'vigente' ? 'ok' : e === 'cancelado' ? 'bad' : 'neutral'; }
+  mzn = (n: unknown) => new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(Number(n) || 0);
+}

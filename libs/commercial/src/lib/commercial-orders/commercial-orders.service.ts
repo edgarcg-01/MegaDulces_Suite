@@ -1,9 +1,13 @@
 import {
   Injectable,
+  Inject,
+  Optional,
+  Logger,
   NotFoundException,
   BadRequestException,
   ConflictException,
   ForbiddenException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { TenantKnexService } from '@megadulces/platform-core';
 import { TenantContextService } from '@megadulces/platform-core';
@@ -13,6 +17,7 @@ import { CommercialInventoryService } from '../commercial-inventory/commercial-i
 import { AlertsService } from '../commercial-alerts/alerts.service';
 import { CommercialPushService } from '../commercial-push/commercial-push.service';
 import { OrderStockService } from './order-stock.service';
+import { INVOICE_ISSUER_PORT, InvoiceIssuerPort, IssueInvoiceInput, IssueInvoiceResult } from '@megadulces/contracts';
 
 // ─────────── tipos ───────────
 
@@ -111,7 +116,10 @@ export class CommercialOrdersService {
     private readonly alerts: AlertsService,
     private readonly push: CommercialPushService,
     private readonly stock: OrderStockService,
+    @Optional() @Inject(INVOICE_ISSUER_PORT) private readonly invoiceIssuer?: InvoiceIssuerPort,
   ) {}
+
+  private readonly logger = new Logger(CommercialOrdersService.name);
 
   /**
    * Push fire-and-forget al cliente del pedido (Fase 3). Nunca lanza ni bloquea
@@ -854,7 +862,7 @@ export class CommercialOrdersService {
   async fulfill(orderId: string) {
     if (!UUID_REGEX.test(orderId))
       throw new BadRequestException('orderId inválido');
-    return this.tk.run(async (trx) => {
+    const order = await this.tk.run(async (trx) => {
       const o = await trx('commercial.orders').where({ id: orderId }).first();
       if (!o) throw new NotFoundException(`Order ${orderId} no encontrada`);
       if (o.status !== 'confirmed') {
@@ -864,6 +872,8 @@ export class CommercialOrdersService {
       }
       return this.fulfillInTransaction(trx, orderId);
     });
+    await this.tryAutoInvoice(order); // FE.5 best-effort (fuera de la trx)
+    return order;
   }
 
   /**
@@ -884,7 +894,7 @@ export class CommercialOrdersService {
     if (!UUID_REGEX.test(orderId))
       throw new BadRequestException('orderId inválido');
 
-    return this.tk.run(async (trx) => {
+    const fulfilled = await this.tk.run(async (trx) => {
       const order = await trx('commercial.orders').where({ id: orderId }).first();
       if (!order) throw new NotFoundException(`Order ${orderId} no encontrada`);
       await this.enforceOrderOwnership(trx, order);
@@ -935,6 +945,8 @@ export class CommercialOrdersService {
       // Estado garantizado 'confirmed' → fulfillInTransaction consume y entrega.
       return this.fulfillInTransaction(trx, orderId);
     });
+    await this.tryAutoInvoice(fulfilled); // FE.5 best-effort (fuera de la trx)
+    return fulfilled;
   }
 
   /**
@@ -1009,6 +1021,147 @@ export class CommercialOrdersService {
     }
 
     return updated;
+  }
+
+  // ── FE.5: auto-factura al entregar (best-effort, idempotente por cfdi_uuid) ──
+  /** Arma el CFDI nominativa desde pedido+cliente+líneas. null si el cliente no
+   *  tiene datos fiscales completos (mostrador va al global de mostrador, FE.6). */
+  private async buildInvoiceInput(orderId: string): Promise<IssueInvoiceInput | null> {
+    return this.tk.run(async (trx) => {
+      const order = await trx('commercial.orders').where({ id: orderId }).first();
+      if (!order || order.status !== 'fulfilled' || order.cfdi_uuid) return null;
+      const c = await trx('commercial.customers').where({ id: order.customer_id }).first();
+      const cp = c?.billing_address?.zip || null;
+      if (!c?.rfc || !c?.legal_name || !c?.regimen_fiscal || !c?.uso_cfdi || !cp) return null;
+      const lines = await trx('commercial.order_lines as ol')
+        .leftJoin('public.products as p', 'p.id', 'ol.product_id')
+        .where('ol.order_id', orderId)
+        .orderBy('ol.line_number')
+        .select('ol.quantity', 'ol.unit_price', 'ol.tax_rate', 'p.nombre', 'p.sku');
+      if (!lines.length) return null;
+      const conceptos = lines.map((l: any) => {
+        const tasa = Number(l.tax_rate ?? 0.16);
+        return {
+          descripcion: String(l.nombre || 'Producto'),
+          cantidad: Number(l.quantity),
+          valor_unitario: Number(l.unit_price),
+          no_identificacion: l.sku || undefined,
+          objeto_imp: tasa > 0 ? '02' : '01',
+          tasa_iva: tasa,
+        };
+      });
+      return {
+        tipo: 'nominativa',
+        order_id: orderId,
+        forma_pago: order.payment_method === 'cash' ? '01' : '99',
+        metodo_pago: 'PUE',
+        receptor: {
+          rfc: c.rfc, nombre: c.legal_name, regimen_fiscal: c.regimen_fiscal,
+          domicilio_cp: String(cp), uso_cfdi: c.uso_cfdi,
+        },
+        conceptos,
+      } as IssueInvoiceInput;
+    });
+  }
+
+  /** Dispara la emisión del CFDI tras entregar. Best-effort: nunca rompe el fulfill. */
+  private async tryAutoInvoice(order: any): Promise<void> {
+    if (!this.invoiceIssuer || !order || order.status !== 'fulfilled' || order.cfdi_uuid) return;
+    try {
+      const input = await this.buildInvoiceInput(order.id);
+      if (!input) return;
+      const tenantId = this.tenantCtx.requireTenantId();
+      const res = await this.invoiceIssuer.issue(tenantId, input);
+      if (res?.uuid) {
+        await this.tk.run(async (trx) =>
+          trx('commercial.orders').where({ id: order.id }).update({ cfdi_uuid: res.uuid, updated_at: trx.fn.now() }));
+        order.cfdi_uuid = res.uuid;
+      }
+    } catch (e: any) {
+      this.logger.warn(`Auto-factura best-effort falló (order ${order?.id}): ${e?.message || e}`);
+    }
+  }
+
+  /** FE.5 — emisión manual del CFDI de un pedido entregado (endpoint /:id/facturar). */
+  async issueForOrder(orderId: string): Promise<IssueInvoiceResult> {
+    if (!UUID_REGEX.test(orderId)) throw new BadRequestException('orderId inválido');
+    if (!this.invoiceIssuer) throw new ServiceUnavailableException('Facturación no disponible (módulo fiscal apagado).');
+    const order = await this.tk.run(async (trx) => trx('commercial.orders').where({ id: orderId }).first());
+    if (!order) throw new NotFoundException(`Order ${orderId} no encontrada`);
+    if (order.status !== 'fulfilled') throw new ConflictException('Solo se factura un pedido entregado (fulfilled).');
+    if (order.cfdi_uuid) throw new ConflictException(`El pedido ya tiene CFDI: ${order.cfdi_uuid}`);
+    const input = await this.buildInvoiceInput(orderId);
+    if (!input) throw new BadRequestException('El cliente no tiene datos fiscales completos (RFC, razón social, régimen fiscal, uso CFDI y CP en billing_address).');
+    const tenantId = this.tenantCtx.requireTenantId();
+    const res = await this.invoiceIssuer.issue(tenantId, input);
+    if (!res?.uuid) throw new ServiceUnavailableException('El PAC no devolvió UUID.');
+    await this.tk.run(async (trx) =>
+      trx('commercial.orders').where({ id: orderId }).update({ cfdi_uuid: res.uuid, updated_at: trx.fn.now() }));
+    return res;
+  }
+
+  /**
+   * FE.6 — Factura global de mostrador: agrega los pedidos ENTREGADOS de un día
+   * cuyo cliente NO tiene datos fiscales completos (los nominativos ya los facturó
+   * FE.5) en UN solo CFDI global (público en general). Idempotente: marca cada
+   * pedido incluido con el UUID de la global (no se re-incluye). Trigger manual;
+   * el cron queda diferido hasta verificar la emisión en vivo.
+   */
+  async issueDailyGlobal(dateStr?: string): Promise<{ issued: boolean; uuid?: string; count: number; total: number }> {
+    if (!this.invoiceIssuer) throw new ServiceUnavailableException('Facturación no disponible (módulo fiscal apagado).');
+    const tenantId = this.tenantCtx.requireTenantId();
+    const date = dateStr && /^\d{4}-\d{2}-\d{2}$/.test(dateStr) ? dateStr : this.mxToday();
+
+    const { orderIds, conceptos } = await this.tk.run(async (trx) => {
+      const rows = await trx('commercial.orders as o')
+        .leftJoin('commercial.customers as c', 'c.id', 'o.customer_id')
+        .whereRaw(`(o.fulfilled_at AT TIME ZONE 'America/Mexico_City')::date = ?`, [date])
+        .where('o.status', 'fulfilled')
+        .whereNull('o.cfdi_uuid')
+        .where((w: any) =>
+          w.whereNull('c.rfc').orWhereNull('c.legal_name').orWhereNull('c.regimen_fiscal')
+            .orWhereNull('c.uso_cfdi').orWhereRaw(`(c.billing_address->>'zip') IS NULL`))
+        .select('o.id');
+      const ids = rows.map((r: any) => r.id);
+      if (!ids.length) return { orderIds: [] as string[], conceptos: [] as any[] };
+      const agg = await trx('commercial.order_lines')
+        .whereIn('order_id', ids)
+        .groupBy('tax_rate')
+        .select('tax_rate')
+        .sum('line_subtotal as base');
+      const conceptos = agg
+        .map((a: any) => ({ tasa: Number(a.tax_rate ?? 0), base: Number(a.base) }))
+        .filter((x: any) => x.base > 0)
+        .map((x: any) => ({
+          descripcion: `Ventas al público en general${x.tasa > 0 ? ` (IVA ${(x.tasa * 100).toFixed(0)}%)` : ''}`,
+          cantidad: 1,
+          valor_unitario: Number(x.base.toFixed(2)),
+          objeto_imp: x.tasa > 0 ? '02' : '01',
+          tasa_iva: x.tasa,
+        }));
+      return { orderIds: ids, conceptos };
+    });
+
+    if (!orderIds.length || !conceptos.length) return { issued: false, count: 0, total: 0 };
+
+    const res = await this.invoiceIssuer.issue(tenantId, {
+      tipo: 'global', periodicidad: '01', forma_pago: '01', metodo_pago: 'PUE', conceptos,
+    } as IssueInvoiceInput);
+    if (!res?.uuid) throw new ServiceUnavailableException('El PAC no devolvió UUID para la factura global.');
+
+    await this.tk.run(async (trx) =>
+      trx('commercial.orders').whereIn('id', orderIds).update({ cfdi_uuid: res.uuid, updated_at: trx.fn.now() }));
+
+    this.logger.log(`Factura global ${date}: ${orderIds.length} pedidos → CFDI ${res.uuid}`);
+    return { issued: true, uuid: res.uuid, count: orderIds.length, total: res.total };
+  }
+
+  private mxToday(): string {
+    const p: any = Object.fromEntries(
+      new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Mexico_City', year: 'numeric', month: '2-digit', day: '2-digit' })
+        .formatToParts(new Date()).map((x) => [x.type, x.value]),
+    );
+    return `${p.year}-${p.month}-${p.day}`;
   }
 
   /**

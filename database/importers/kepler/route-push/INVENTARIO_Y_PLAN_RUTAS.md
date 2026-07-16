@@ -63,11 +63,15 @@ Cada camioneta tiene un Kepler local **independiente** (esquema `md.*`, una o va
 
 Estado del inventario de camionetas (lo único confirmado hoy):
 
-| TRUCK (empresa) | Base local | Serie local (`c63`) | Host/DDNS de la laptop | Tarea | Estado |
+| TRUCK (empresa) | Base local | Serie local (`c63`) | Host laptop | Tarea | Estado |
 |---|---|---|---|---|---|
-| `ruta_27` | `md_01-005` | `UD1001` | *(por documentar)* | `Ruta27` | ✅ dio de alta / ⚠️ sin datos desde 07-02 |
-| `ruta_23` | *(por confirmar)* | *(por confirmar)* | *(por documentar)* | `Ruta23` | ✅ dio de alta / ⚠️ sin datos desde 07-01 |
-| resto (~33) | — | — | — | — | ⬜ pendiente |
+| `ruta_22` | `md_01-002` | `UD1001` | *(por documentar)* | `Ruta22` | ✅ v2 reactiva (alta 2026-07-13) |
+| `ruta_23` | `md_01-003` | `UD1001` | *(por documentar)* | `Ruta23` | ✅ v2 reactiva (alta 2026-07-13) |
+| `ruta_27` | `md_01-005` | `UD1001` | `192.168.10.241` | `Ruta27` | ✅ v2 reactiva (alta 2026-07-16) |
+| `ruta_28` | `md_01-006` | `UD1001` | *(por documentar)* | `Ruta28` | ✅ v2 reactiva (alta 2026-07-16) |
+| resto (~31) | — | — | — | — | ⬜ pendiente |
+
+**Notas de campo:** todas las bases de camioneta siguen `md_01-0NN` con serie local **`UD1001`** (una ruta por base). El agente correcto es la variante CSV (con filtros `d.c8 NOT IN ('00001','00002')` + no-vacíos). La tarea se instala **desde PowerShell ELEVADA** (`schtasks /Create` da "Acceso denegado" si no). El firewall de las laptops solo permite Postgres en `localhost` → el descubrimiento y el push corren en la propia laptop.
 
 ### 1.4 Catálogo de rutas de la empresa (referencia)
 De `md.kdm_rutas` (branch `md_00`). **La ruta 28 = `R0028` ANGAMACUTIRO.** Este es el universo de rutas candidatas a onboarding:

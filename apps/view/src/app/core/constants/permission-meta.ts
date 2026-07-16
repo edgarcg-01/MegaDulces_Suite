@@ -140,6 +140,8 @@ export const PERMISSION_META: Record<string, PermissionMetaEntry> = {
   [Permission.FISCAL_DESCARGA_VER]: { label: 'Ver Descarga masiva CFDI', description: 'Bandeja de solicitudes de descarga masiva de CFDI ante el SAT (estado + paquetes).', category: 'Finanzas' },
   [Permission.FISCAL_DESCARGA_GESTIONAR]: { label: 'Gestionar Descarga masiva CFDI', description: 'Crear solicitudes de descarga masiva de CFDI (dispara el pipeline con la e.firma).', category: 'Finanzas' },
   [Permission.FISCAL_CREDENCIALES_GESTIONAR]: { label: 'Gestionar credenciales SAT (e.firma)', description: 'Alta/baja de la e.firma del contribuyente en la bóveda cifrada (muy sensible).', category: 'Finanzas' },
+  [Permission.FISCAL_FACTURAR_VER]: { label: 'Ver Facturación', description: 'Bandeja de facturas emitidas (CFDI 4.0) y descarga de su XML.', category: 'Finanzas' },
+  [Permission.FISCAL_FACTURAR_GESTIONAR]: { label: 'Emitir / cancelar facturas', description: 'Timbrar CFDI 4.0 (global o nominativa) vía PAC, cancelar ante el SAT y configurar el emisor.', category: 'Finanzas' },
 
   // ── Supervisor de Movimientos (cuadre) — ADR-029 ──────────────────────
   [Permission.RECONCILIATION_VER]: { label: 'Ver Cuadre de Movimientos', description: 'Bandeja de descuadres del supervisor: caja (arqueos), inventario y cruces. Solo lectura.', category: 'Almacén' },

@@ -14,6 +14,6 @@ import { CfdiController } from './cfdi.controller';
 @Module({
   controllers: [CfdiController],
   providers: [CfdiParserService, CfdiStorageService, CfdiIngestService, CfdiService],
-  exports: [CfdiIngestService, CfdiStorageService],
+  exports: [CfdiIngestService, CfdiStorageService, CfdiParserService],
 })
 export class FiscalCfdiModule {}

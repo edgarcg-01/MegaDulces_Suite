@@ -268,6 +268,26 @@ export class CommercialOrdersController {
     return this.service.deliverNow(id);
   }
 
+  @Post(':id/facturar')
+  @RequirePermissions(Permission.FISCAL_FACTURAR_GESTIONAR)
+  @ApiOperation({
+    summary:
+      'FE.5: emite y timbra el CFDI (nominativa) de un pedido entregado. Requiere datos fiscales del cliente. Idempotente (409 si ya tiene CFDI).',
+  })
+  facturar(@Param('id') id: string) {
+    return this.service.issueForOrder(id);
+  }
+
+  @Post('global-invoice')
+  @RequirePermissions(Permission.FISCAL_FACTURAR_GESTIONAR)
+  @ApiOperation({
+    summary:
+      'FE.6: emite la factura global de mostrador de un día (body.date YYYY-MM-DD, default hoy). Agrega los pedidos entregados SIN datos fiscales del cliente en 1 CFDI global.',
+  })
+  globalInvoice(@Body() body: { date?: string }) {
+    return this.service.issueDailyGlobal(body?.date);
+  }
+
   @Post(':id/cancel')
   @RequirePermissions(Permission.COMMERCIAL_ORDERS_CANCELAR)
   @ApiOperation({ summary: 'Cancelar pedido. Libera reservas si estaba confirmed.' })
