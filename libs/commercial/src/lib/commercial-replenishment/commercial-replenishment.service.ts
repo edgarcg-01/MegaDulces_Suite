@@ -125,10 +125,14 @@ export class CommercialReplenishmentService {
     const pageSize = Math.min(500, Math.max(1, Number(q.pageSize) || 50));
 
     return this.tk.run(async (trx) => {
-      // Ranking por ventas RELATIVO al filtro activo: cuando se selecciona un proveedor
-      // (o hay búsqueda), #1 = el producto de ESE proveedor que más vende en la sucursal
-      // — no el rank global. DENSE_RANK por almacén sobre la demanda diaria, mismo universo
-      // de productos que el reporte. Sin proveedor/búsqueda → rank global de la sucursal.
+      // Ranking POR DINERO (venta/mes est.) RELATIVO al filtro activo: cuando se selecciona
+      // un proveedor (o hay búsqueda), #1 = el producto de ESE proveedor que más VENDE EN $
+      // en la sucursal — no el rank global. Antes ordenaba por unidades/día, pero la demanda
+      // es tan granular (0.01–0.03/día) que empataba en masa (#4 con 3 productos, #6 con 4) y
+      // no reflejaba el peso económico. El dinero discrimina y coincide con la columna Venta/mes
+      // (mismo orden). Desempate por unidades para productos sin costo (money=0). Sin filtro →
+      // rank global $ de la sucursal.
+      const rankMoney = 'ih2.avg_daily_units * COALESCE(p2.cost_with_tax,0) * (1 + COALESCE(p2.markup_pct,0)/100.0)';
       const rankBind: any[] = [tenantId];
       let rankFilter = '';
       if (q.supplier_id && UUID_RX.test(q.supplier_id)) { rankFilter += ' AND p2.supplier_id = ?'; rankBind.push(q.supplier_id); }
@@ -136,7 +140,7 @@ export class CommercialReplenishmentService {
       if (rankTerm) { rankFilter += ' AND (p2.sku ILIKE ? OR p2.nombre ILIKE ?)'; rankBind.push(`%${rankTerm}%`, `%${rankTerm}%`); }
       const rankSub = trx.raw(
         `(SELECT ih2.warehouse_id, ih2.product_id,
-                 DENSE_RANK() OVER (PARTITION BY ih2.warehouse_id ORDER BY ih2.avg_daily_units DESC) AS sales_rank
+                 DENSE_RANK() OVER (PARTITION BY ih2.warehouse_id ORDER BY ${rankMoney} DESC, ih2.avg_daily_units DESC) AS sales_rank
             FROM analytics.inventory_health ih2
             JOIN catalog.products p2 ON p2.id = ih2.product_id AND p2.tenant_id = ih2.tenant_id
            WHERE ih2.tenant_id = ? AND ih2.avg_daily_units > 0 AND p2.activo = true${rankFilter}) as sr`,

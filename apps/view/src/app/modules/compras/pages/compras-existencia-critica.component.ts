@@ -115,7 +115,7 @@ interface DraftLine {
             <th pSortableColumn="nombre">Producto <p-sortIcon field="nombre" /></th>
             <th pSortableColumn="warehouse_code">Almacén <p-sortIcon field="warehouse_code" /></th>
             <th pSortableColumn="abc_class">Clase <p-sortIcon field="abc_class" /></th>
-            <th class="ec-r" pSortableColumn="sales_rank" title="Ranking por ventas en la sucursal (#1 = el que más vende = más importante pedir)">Rank vta <p-sortIcon field="sales_rank" /></th>
+            <th class="ec-r" pSortableColumn="sales_rank" title="Ranking por venta EN DINERO (venta/mes) del proveedor en la sucursal — #1 = el que más te vende en $ = más importante pedir. Coincide con ordenar por Venta/mes.">Rank vta <p-sortIcon field="sales_rank" /></th>
             <th class="ec-r" pSortableColumn="monthly_revenue" title="Venta mensual estimada ($) = demanda diaria × 30 × precio de venta. El peso en dinero del producto: cuánto representa en venta.">Venta/mes <p-sortIcon field="monthly_revenue" /></th>
             <th class="ec-r" pSortableColumn="on_hand">Existencia <p-sortIcon field="on_hand" /></th>
             <th class="ec-r" pSortableColumn="min_stock">Mín <p-sortIcon field="min_stock" /></th>
