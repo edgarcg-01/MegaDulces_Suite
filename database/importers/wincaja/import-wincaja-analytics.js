@@ -29,6 +29,13 @@ const TENANT = process.env.WINCAJA_TENANT_ID || '00000000-0000-0000-0000-0000000
 //   preventa_vecinal→wincaja_preventa · ruta_venta→wincaja_ruta.
 // Sell-Out mapea cada uno a su canal real (antes todo caía en 'Otro'). Todos suman
 // al total; separables por channel. W.8/W.10 + RS (sub-canal 2026-07-14).
+// PH (branch 10 = warehouse '01' "Padre Hidalgo") es COMPARTIDA con Kepler, pero
+// Kepler recién la tomó (solo tiene jun-jul 2026, ~$3.9M) mientras Wincaja tiene la
+// venta real ene–jun (~$57.6M). BLEND por corte de fecha (decisión Edgar): Wincaja
+// manda PH `< 2026-07-01`, Kepler desde jul 1. Se remapea el warehouse_code 'MD-10'
+// (no existe como almacén) → '01'. El feed Kepler (import-sales-fact.js) excluye '01'
+// pre-julio para cerrar el solape de junio → cero doble conteo.
+const PH_CUTOVER = "DATE '2026-07-01'";
 const SELECT_SRC = `
   SELECT
     p.id                         AS product_id,
@@ -49,8 +56,11 @@ const SELECT_SRC = `
   JOIN catalog.products p
     ON p.tenant_id = s.tenant_id AND p.sku = s.sku AND p.deleted_at IS NULL
   JOIN commercial.warehouses w
-    ON w.tenant_id = s.tenant_id AND w.code = s.warehouse_code AND w.deleted_at IS NULL
-  WHERE s.tenant_id = ? AND s.wincaja_only = true
+    ON w.tenant_id = s.tenant_id AND w.deleted_at IS NULL
+   AND w.code = CASE WHEN s.source_branch = '10' THEN '01' ELSE s.warehouse_code END
+  WHERE s.tenant_id = ?
+    AND ( s.wincaja_only = true
+          OR (s.source_branch = '10' AND s.business_date < ${PH_CUTOVER}) )
   GROUP BY p.id, w.id, s.business_date, channel
 `;
 

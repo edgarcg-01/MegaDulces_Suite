@@ -38,6 +38,9 @@ const MONTHS = 13;
     console.log(`  lookup destino: ${skuTo.size} products c/sku · ${whTo.size} warehouses`);
 
     // Origen agregado (consolidado).
+    // PH ('01'): Wincaja manda `< 2026-07-01` (venta real ene–jun), Kepler desde jul 1
+    // (Kepler recién tomó PH). Excluir el pre-julio de PH aquí cierra el solape de junio
+    // con el feed Wincaja → cero doble conteo. Ver import-wincaja-analytics.js (PH_CUTOVER).
     const { rows: agg } = await src.query(
       `SELECT almacen, sku, channel, fecha,
               sum(cantidad)::numeric        AS units,
@@ -45,6 +48,7 @@ const MONTHS = 13;
               count(DISTINCT folio)::int     AS tickets
          FROM mart.ventas_enriched
         WHERE fecha >= current_date - interval '${MONTHS} months'
+          AND NOT (almacen = '01' AND fecha < DATE '2026-07-01')
         GROUP BY almacen, sku, channel, fecha`);
     console.log(`  origen agregado: ${agg.length} filas (almacen×sku×canal×día)`);
 
@@ -88,8 +92,12 @@ const MONTHS = 13;
     }
     // Refresco full de la ventana: borra + reinserta (agrupado por si hay sku
     // duplicados que colapsan al mismo product_id → evita violar el unique).
+    // Scope del DELETE a canales KEPLER (NOT LIKE 'wincaja%'): este feed solo refresca
+    // su propia venta. Sin esto borraba TODA la ventana incluyendo los canales wincaja_*
+    // → si Kepler corría después de import-wincaja-analytics, dejaba a Wincaja en 0 hasta
+    // el próximo sync (causa raíz del "sell-out no muestra Wincaja"). Ahora son independientes.
     await db.query(
-      `DELETE FROM analytics.sales_daily WHERE tenant_id=$1 AND sale_date >= current_date - interval '${MONTHS} months'`, [M]);
+      `DELETE FROM analytics.sales_daily WHERE tenant_id=$1 AND sale_date >= current_date - interval '${MONTHS} months' AND channel NOT LIKE 'wincaja%'`, [M]);
     const up = await db.query(
       `INSERT INTO analytics.sales_daily
          (id, tenant_id, product_id, warehouse_id, channel, sale_date, units, revenue, cost, tickets, updated_at)
