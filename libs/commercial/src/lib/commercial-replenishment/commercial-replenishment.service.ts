@@ -31,6 +31,8 @@ export interface CriticalStockQuery {
   search?: string;
   target_basis?: string;
   scope?: string; // 'all' = todo; default = sólo <= punto de reorden (crítico)
+  sort_by?: string;  // columna de orden (whitelist en SORTABLE); default = prioridad por valor
+  sort_dir?: string; // 'asc' | 'desc'
   page?: number;
   pageSize?: number;
 }
@@ -116,6 +118,23 @@ export class CommercialReplenishmentService {
     const pageSize = Math.min(500, Math.max(1, Number(q.pageSize) || 50));
 
     return this.tk.run(async (trx) => {
+      // Ranking por ventas RELATIVO al filtro activo: cuando se selecciona un proveedor
+      // (o hay búsqueda), #1 = el producto de ESE proveedor que más vende en la sucursal
+      // — no el rank global. DENSE_RANK por almacén sobre la demanda diaria, mismo universo
+      // de productos que el reporte. Sin proveedor/búsqueda → rank global de la sucursal.
+      const rankBind: any[] = [tenantId];
+      let rankFilter = '';
+      if (q.supplier_id && UUID_RX.test(q.supplier_id)) { rankFilter += ' AND p2.supplier_id = ?'; rankBind.push(q.supplier_id); }
+      const rankTerm = (q.search || '').trim();
+      if (rankTerm) { rankFilter += ' AND (p2.sku ILIKE ? OR p2.nombre ILIKE ?)'; rankBind.push(`%${rankTerm}%`, `%${rankTerm}%`); }
+      const rankSub = trx.raw(
+        `(SELECT ih2.warehouse_id, ih2.product_id,
+                 DENSE_RANK() OVER (PARTITION BY ih2.warehouse_id ORDER BY ih2.avg_daily_units DESC) AS sales_rank
+            FROM analytics.inventory_health ih2
+            JOIN catalog.products p2 ON p2.id = ih2.product_id AND p2.tenant_id = ih2.tenant_id
+           WHERE ih2.tenant_id = ? AND ih2.avg_daily_units > 0 AND p2.activo = true${rankFilter}) as sr`,
+        rankBind);
+
       const base = trx('commercial.reorder_policy as rp')
         .leftJoin('commercial.stock as s', (j) =>
           j.on('s.tenant_id', 'rp.tenant_id').andOn('s.warehouse_id', 'rp.warehouse_id').andOn('s.product_id', 'rp.product_id'))
@@ -130,16 +149,10 @@ export class CommercialReplenishmentService {
         // RA-PRO.2 — analytics.inventory_health (avg diario para mostrar cobertura; sin RLS)
         .leftJoin('analytics.inventory_health as ih', (j) =>
           j.on('ih.tenant_id', 'rp.tenant_id').andOn('ih.warehouse_id', 'rp.warehouse_id').andOn('ih.product_id', 'rp.product_id'))
-        // Ranking de importancia POR VENTAS dentro de cada sucursal (#1 = el que más vende
-        // ahí = más urgente pedir). DENSE_RANK sobre la demanda diaria; solo los que venden
-        // reciben rank (los de demanda 0 → NULL vía el leftJoin).
-        .leftJoin(
-          trx.raw(
-            `(SELECT warehouse_id, product_id,
-                     DENSE_RANK() OVER (PARTITION BY warehouse_id ORDER BY avg_daily_units DESC) AS sales_rank
-                FROM analytics.inventory_health
-               WHERE tenant_id = ? AND avg_daily_units > 0) as sr`, [tenantId]),
-          (j: any) => j.on('sr.warehouse_id', 'rp.warehouse_id').andOn('sr.product_id', 'rp.product_id'))
+        // Ranking POR VENTAS relativo al filtro (rankSub arriba): #1 = el que más vende
+        // en la sucursal dentro del universo seleccionado. Solo los que venden reciben
+        // rank (demanda 0 → NULL vía el leftJoin).
+        .leftJoin(rankSub, (j: any) => j.on('sr.warehouse_id', 'rp.warehouse_id').andOn('sr.product_id', 'rp.product_id'))
         .where('rp.tenant_id', tenantId)
         .andWhere('pr.activo', true); // no sugerir reabasto de productos descontinuados
 
@@ -198,14 +211,52 @@ export class CommercialReplenishmentService {
         // Dinero primero: el sugerido valorizado ($) manda. Sin esto, los 3k+
         // agotados (muchos SKUs admin/insumo con costo 0) acaparan 60+ páginas
         // con existencia 0 y la vista "parece" rota.
-        .orderByRaw(`GREATEST(0, ${target} - ${oh} - ${it}) * ${this.costUnit()} DESC`)
-        .orderByRaw(`CASE ${this.bucketExpr()}
-            WHEN 'agotado' THEN 0 WHEN 'bajo_minimo' THEN 1 WHEN 'bajo_reorden' THEN 2 WHEN 'sobrestock' THEN 4 ELSE 3 END`)
-        .orderByRaw(`GREATEST(0, ${target} - ${oh} - ${it}) DESC`)
+        .modify((qb) => {
+          // Sort explícito por columna (whitelist). Si no hay, cae al orden por
+          // prioridad de valor (default de negocio). El sugerido default es un
+          // desempate útil aún cuando el usuario ordena por otra cosa.
+          const sortExpr = this.sortableExpr(q.sort_by, target, oh, it);
+          if (sortExpr) {
+            const dir = (q.sort_dir || '').toLowerCase() === 'asc' ? 'ASC' : 'DESC';
+            qb.orderByRaw(`${sortExpr} ${dir} NULLS LAST`)
+              .orderByRaw(`GREATEST(0, ${target} - ${oh} - ${it}) * ${this.costUnit()} DESC`);
+          } else {
+            qb.orderByRaw(`GREATEST(0, ${target} - ${oh} - ${it}) * ${this.costUnit()} DESC`)
+              .orderByRaw(`CASE ${this.bucketExpr()}
+                  WHEN 'agotado' THEN 0 WHEN 'bajo_minimo' THEN 1 WHEN 'bajo_reorden' THEN 2 WHEN 'sobrestock' THEN 4 ELSE 3 END`)
+              .orderByRaw(`GREATEST(0, ${target} - ${oh} - ${it}) DESC`);
+          }
+        })
         .limit(pageSize).offset((page - 1) * pageSize);
 
       return { total, page, pageSize, target_basis: basis, rows };
     });
+  }
+
+  /**
+   * Whitelist de columnas ordenables → expresión SQL segura. Devuelve null si
+   * la columna no es válida (→ orden por defecto). NUNCA interpola el input del
+   * usuario en el SQL: sólo la llave del mapa decide la expresión.
+   */
+  private sortableExpr(key: string | undefined, target: string, oh: string, it: string): string | null {
+    if (!key) return null;
+    const map: Record<string, string> = {
+      sku: 'pr.sku',
+      nombre: 'pr.nombre',
+      warehouse_code: 'w.code',
+      abc_class: 'COALESCE(abc.abc_class, rp.abc_class)',
+      sales_rank: 'sr.sales_rank',
+      on_hand: oh,
+      min_stock: 'rp.min_stock',
+      reorder_point: 'rp.reorder_point',
+      max_stock: 'rp.max_stock',
+      safety_stock: 'rp.safety_stock',
+      in_transit: it,
+      suggested_qty: `GREATEST(0, ${target} - ${oh} - ${it})`,
+      suggested_cost: `GREATEST(0, ${target} - ${oh} - ${it}) * ${this.costUnit()}`,
+      supplier_name: 'sup.name',
+    };
+    return map[key] ?? null;
   }
 
   /** KPIs por bucket (para las tarjetas de la página). */
@@ -238,6 +289,62 @@ export class CommercialReplenishmentService {
           trx.raw(`ROUND(SUM(GREATEST(0, ${target} - ${oh} - ${it}) * ${this.costUnit()}) FILTER (WHERE ${oh} <= rp.reorder_point), 2) AS sugerido_costo`),
         ).first();
       return r;
+    });
+  }
+
+  // ── Stock muerto (existencia SIN política de reorden) ─────────────────
+  /**
+   * Productos con EXISTENCIA pero SIN política de reorden en ese almacén → no rotan
+   * (0 demanda → import-computed-reorder no les genera política), por eso NO aparecen en
+   * Existencia Crítica. Es capital inmovilizado: se muestra aparte para liquidar/promover,
+   * NO para reabastecer. Respeta los filtros de almacén/proveedor/búsqueda del reporte.
+   */
+  async deadStock(q: CriticalStockQuery) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const page = Math.max(1, Number(q.page) || 1);
+    const pageSize = Math.min(500, Math.max(1, Number(q.pageSize) || 50));
+    const valueExpr = 'COALESCE(s.quantity,0) * COALESCE(pr.cost_with_tax, pr.cost_base, 0)';
+    return this.tk.run(async (trx) => {
+      const base = trx('commercial.stock as s')
+        .join('catalog.products as pr', (j) => j.on('pr.tenant_id', 's.tenant_id').andOn('pr.id', 's.product_id'))
+        .leftJoin('commercial.warehouses as w', (j) => j.on('w.tenant_id', 's.tenant_id').andOn('w.id', 's.warehouse_id'))
+        .leftJoin('catalog.suppliers as sup', (j) => j.on('sup.tenant_id', 's.tenant_id').andOn('sup.id', 'pr.supplier_id'))
+        .leftJoin('analytics.inventory_health as ih', (j) =>
+          j.on('ih.tenant_id', 's.tenant_id').andOn('ih.warehouse_id', 's.warehouse_id').andOn('ih.product_id', 's.product_id'))
+        .where('s.tenant_id', tenantId)
+        .andWhere('pr.activo', true)
+        .andWhereRaw('COALESCE(s.quantity,0) <> 0')
+        .andWhereRaw(`NOT EXISTS (SELECT 1 FROM commercial.reorder_policy rp
+                        WHERE rp.tenant_id = s.tenant_id AND rp.warehouse_id = s.warehouse_id AND rp.product_id = s.product_id)`)
+        // Solo en almacenes que SÍ gestionan reorden (tienen alguna política). Excluye el
+        // CEDIS '00', cuyo inventario NO tiene política por diseño (planeación DRP pendiente,
+        // RA-PRO.6) → no es stock muerto, es abasto central sin política aún.
+        .andWhereRaw(`EXISTS (SELECT 1 FROM commercial.reorder_policy rpw
+                        WHERE rpw.tenant_id = s.tenant_id AND rpw.warehouse_id = s.warehouse_id)`);
+      const whIds = this.whIds(q);
+      if (whIds.length) base.whereIn('s.warehouse_id', whIds);
+      if (q.supplier_id && UUID_RX.test(q.supplier_id)) base.andWhere('pr.supplier_id', q.supplier_id);
+      if (q.search && q.search.trim()) {
+        const t = `%${q.search.trim()}%`;
+        base.andWhere((b) => b.whereILike('pr.sku', t).orWhereILike('pr.nombre', t));
+      }
+      const totalRow: any = await base.clone().clearSelect().clearOrder().count('* as c').first();
+      const total = Number(totalRow?.c || 0);
+      const sumRow: any = await base.clone().clearSelect().clearOrder().select(trx.raw(`ROUND(SUM(${valueExpr}), 2) AS total_value`)).first();
+      const rows = await base.clone()
+        .select(
+          's.product_id', 's.warehouse_id',
+          trx.raw('w.code AS warehouse_code'),
+          trx.raw('pr.sku AS sku'), trx.raw('pr.nombre AS nombre'),
+          trx.raw('COALESCE(s.quantity,0) AS on_hand'),
+          trx.raw('COALESCE(ih.avg_daily_units, 0) AS avg_daily_units'),
+          trx.raw('COALESCE(pr.cost_with_tax, pr.cost_base, 0) AS unit_cost'),
+          trx.raw(`ROUND(${valueExpr}, 2) AS dead_value`),
+          trx.raw('sup.name AS supplier_name'),
+        )
+        .orderByRaw(`${valueExpr} DESC`) // más capital inmovilizado primero
+        .limit(pageSize).offset((page - 1) * pageSize);
+      return { total, page, pageSize, total_value: Number(sumRow?.total_value || 0), rows };
     });
   }
 

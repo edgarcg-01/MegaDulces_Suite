@@ -10,8 +10,10 @@
 
 ## [Unreleased]
 
-### Added — /compras/existencia-critica: columna "Rank vta" (importancia por ventas) (2026-07-15)
-- Nueva columna de **ranking por ventas dentro de cada sucursal** (#1 = el que más vende ahí = más urgente pedir). `DENSE_RANK` sobre `analytics.inventory_health.avg_daily_units`; solo los que venden reciben rank (demanda 0 → "—"). Combinado con el bucket crítico, prioriza: un crítico que además es top-seller se pide primero (ej. 8ESQ #2 ETIQUETAS vende 147/día en 0 existencia). Backend `leftJoin` a subquery rankeado + `sales_rank`; frontend columna con top-20 en negrita (quiet-luxury, dark-safe). **Requiere redeploy api+view.**
+### Added — /compras/existencia-critica: Rank vta (relativo al filtro) + sección Stock muerto (2026-07-15)
+- **Columna "Rank vta"** — ranking por ventas **relativo al filtro activo**: sin filtro = rank global de la sucursal; con proveedor/búsqueda seleccionado = **#1 = el que más vende de ESE proveedor** en la sucursal (no el rank global). `DENSE_RANK` sobre `inventory_health.avg_daily_units`, mismo universo que el reporte; solo los que venden reciben rank (demanda 0 → "—"). Sortable, top-20 en negrita. Prioriza: un crítico que además es top-seller se pide primero. Verificado (Perfetti PH: #1 X TREMES … #6 los 2 agotados).
+- **Sección "Stock muerto"** (colapsable, bajo la tabla) — productos con existencia pero **SIN política de reorden** (no rotan → no aparecen arriba) = **capital inmovilizado**. Ordenado por valor; respeta filtros almacén/proveedor/búsqueda. Excluye el CEDIS '00' (sin política por diseño, DRP pendiente — no es "muerto"). Botón **About** explica qué es y remite a /comercial/salidas para el inventario completo. Total retail ≈ **$11.3M** (destapó `99427 ETIQUETA` en 8ESQ = $9M: insumo con costo/unidad a revisar). Endpoint `GET /commercial/replenishment/dead-stock`.
+- **Requiere redeploy api+view.**
 - **Perfetti (PERFETTI VAN MELLE, 28 activos) validado coherente**: `cost_with_tax` correcto (X TREMES ~$13, MENTOS ROLL ~$77, IEPS 8% dulce / IVA 16% goma); `cost_base` per-caja en ~6 SKUs (ratio 0.05-0.12) — confirma que unificar a `cost_with_tax` fue lo correcto.
 
 ### Fixed — Validación /compras/existencia-critica vs /comercial/salidas + saneo de costo del encargo (2026-07-15)

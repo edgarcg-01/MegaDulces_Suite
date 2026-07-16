@@ -14,7 +14,7 @@ import { DialogModule } from 'primeng/dialog';
 import { TagModule } from 'primeng/tag';
 import { InputTextModule } from 'primeng/inputtext';
 import { MessageService } from 'primeng/api';
-import { ComprasService, CriticalStockRow, ReplenishmentSummary, Bucket, TargetBasis, SourceType, CreateRequisitionDto } from '../compras.service';
+import { ComprasService, CriticalStockRow, ReplenishmentSummary, Bucket, TargetBasis, SourceType, CreateRequisitionDto, DeadStockRow } from '../compras.service';
 
 type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
 
@@ -110,22 +110,22 @@ interface DraftLine {
                styleClass="p-datatable-sm ec-table" [rowsPerPageOptions]="[50, 100, 200]">
         <ng-template pTemplate="header">
           <tr>
-            <th style="width:2.5rem"><input type="checkbox" [checked]="allSelected()" (change)="toggleAll($event)" /></th>
-            <th>SKU</th>
-            <th>Producto</th>
-            <th>Almacén</th>
-            <th>Clase</th>
-            <th class="ec-r" title="Ranking por ventas en la sucursal (#1 = el que más vende = más importante pedir)">Rank vta</th>
-            <th class="ec-r">Existencia</th>
-            <th class="ec-r">Mín</th>
-            <th class="ec-r">Reorden</th>
-            <th class="ec-r">Máx</th>
-            <th class="ec-r">Colchón</th>
-            <th class="ec-r">OC a recibir</th>
-            <th class="ec-r">Sugerido</th>
+            <th style="width:2.5rem"><input type="checkbox" [checked]="allSelected()" (change)="toggleAll($event)" aria-label="Seleccionar todo" /></th>
+            <th pSortableColumn="sku">SKU <p-sortIcon field="sku" /></th>
+            <th pSortableColumn="nombre">Producto <p-sortIcon field="nombre" /></th>
+            <th pSortableColumn="warehouse_code">Almacén <p-sortIcon field="warehouse_code" /></th>
+            <th pSortableColumn="abc_class">Clase <p-sortIcon field="abc_class" /></th>
+            <th class="ec-r" pSortableColumn="sales_rank" title="Ranking por ventas en la sucursal (#1 = el que más vende = más importante pedir)">Rank vta <p-sortIcon field="sales_rank" /></th>
+            <th class="ec-r" pSortableColumn="on_hand">Existencia <p-sortIcon field="on_hand" /></th>
+            <th class="ec-r" pSortableColumn="min_stock">Mín <p-sortIcon field="min_stock" /></th>
+            <th class="ec-r" pSortableColumn="reorder_point">Reorden <p-sortIcon field="reorder_point" /></th>
+            <th class="ec-r" pSortableColumn="max_stock">Máx <p-sortIcon field="max_stock" /></th>
+            <th class="ec-r" pSortableColumn="safety_stock">Colchón <p-sortIcon field="safety_stock" /></th>
+            <th class="ec-r" pSortableColumn="in_transit">OC a recibir <p-sortIcon field="in_transit" /></th>
+            <th class="ec-r" pSortableColumn="suggested_qty">Sugerido <p-sortIcon field="suggested_qty" /></th>
             <th>Estado</th>
-            <th>Proveedor</th>
-            <th class="ec-r">Costo est.</th>
+            <th pSortableColumn="supplier_name">Proveedor <p-sortIcon field="supplier_name" /></th>
+            <th class="ec-r" pSortableColumn="suggested_cost">Costo est. <p-sortIcon field="suggested_cost" /></th>
             <th>Origen</th>
           </tr>
         </ng-template>
@@ -162,6 +162,61 @@ interface DraftLine {
         </ng-template>
       </p-table>
     </div>
+
+    <!-- Stock muerto: existencia sin política (no rota) = capital inmovilizado. Colapsable. -->
+    <section class="ec-dead">
+      <button type="button" class="ec-dead-head" (click)="toggleDead()" [attr.aria-expanded]="deadOpen()">
+        <i class="pi" [class.pi-chevron-right]="!deadOpen()" [class.pi-chevron-down]="deadOpen()" aria-hidden="true"></i>
+        <span class="ec-dead-title">Stock muerto</span>
+        @if (deadTotal()) { <span class="ec-dead-count">{{ deadTotal() | number }}</span> }
+        @if (deadValue()) { <span class="ec-dead-val">{{ money(deadValue()) }} inmovilizado</span> }
+        <i class="pi pi-info-circle ec-dead-about" (click)="openAbout($event)" title="¿Qué es el stock muerto?" aria-label="Qué es el stock muerto"></i>
+      </button>
+
+      @if (deadOpen()) {
+        <p class="ec-dead-sub">Existencia SIN rotación (0 ventas) → sin política de reorden, por eso no aparece arriba. No se reabastece; considera liquidar o promocionar. Ordenado por capital inmovilizado.</p>
+        <p-table [value]="deadRows()" [loading]="deadLoading()" [scrollable]="true"
+                 [paginator]="true" [rows]="pageSize" [totalRecords]="deadTotal()" [lazy]="true" (onLazyLoad)="onDeadPage($event)"
+                 styleClass="p-datatable-sm ec-table" [rowsPerPageOptions]="[50, 100, 200]">
+          <ng-template pTemplate="header">
+            <tr>
+              <th>SKU</th>
+              <th>Producto</th>
+              <th>Almacén</th>
+              <th class="ec-r">Existencia</th>
+              <th class="ec-r">Costo unit.</th>
+              <th class="ec-r">Capital inmovilizado</th>
+              <th>Proveedor</th>
+            </tr>
+          </ng-template>
+          <ng-template pTemplate="body" let-r>
+            <tr>
+              <td class="ec-mono">{{ r.sku }}</td>
+              <td>{{ r.nombre }}</td>
+              <td class="ec-muted">{{ r.warehouse_code }}</td>
+              <td class="ec-r">{{ r.on_hand | number:'1.0-0' }}</td>
+              <td class="ec-r ec-muted">{{ money(r.unit_cost) }}</td>
+              <td class="ec-r ec-strong">{{ money(r.dead_value) }}</td>
+              <td class="ec-muted">{{ r.supplier_name || '—' }}</td>
+            </tr>
+          </ng-template>
+          <ng-template pTemplate="emptymessage">
+            <tr><td colspan="7" class="ec-empty">Sin stock muerto con estos filtros. 🎉</td></tr>
+          </ng-template>
+        </p-table>
+      }
+    </section>
+
+    <!-- About: qué es el stock muerto -->
+    <p-dialog [visible]="aboutOpen()" (visibleChange)="aboutOpen.set($event)" [modal]="true" appendTo="body"
+              [style]="{ width: '34rem', maxWidth: '94vw' }" header="Stock muerto" [dismissableMask]="true">
+      <div class="ec-about">
+        <p><strong>Stock muerto</strong> = productos con existencia física pero <strong>sin rotación</strong> (0 ventas en la sucursal en la ventana de análisis).</p>
+        <p>Como no venden, el motor no les calcula una <em>política de reorden</em> (mínimo/reorden/máximo), y por eso <strong>no aparecen en Existencia Crítica</strong> arriba — que solo lista lo que hay que reabastecer.</p>
+        <p>Es <strong>capital inmovilizado</strong>: inventario parado que ocupa espacio y dinero. La acción no es pedir más, sino <strong>liquidar, promocionar o trasladar</strong> a una sucursal donde sí rote.</p>
+        <p class="ec-about-note">Para ver TODO el inventario (rote o no), usa el reporte de <strong>Salidas</strong> (/comercial/salidas), que lista el catálogo completo por sucursal.</p>
+      </div>
+    </p-dialog>
 
     <!-- Dialog: generar requisición. appendTo=body: la página vive en un contenedor
          con overflow/transform → sin esto el modal se renderiza pero queda clipeado
@@ -235,6 +290,18 @@ interface DraftLine {
     .ec-src-kepler { color: var(--action); }
     .ec-transit { font-weight: 600; }
     .ec-empty { color: var(--text-muted); padding: 1rem; text-align: center; }
+    /* Stock muerto */
+    .ec-dead { margin-top: 1.25rem; border-top: 1px solid var(--border-color); padding-top: .75rem; }
+    .ec-dead-head { display: flex; align-items: center; gap: .5rem; width: 100%; background: none; border: 0; cursor: pointer; padding: .3rem 0; color: var(--text-main); font: inherit; }
+    .ec-dead-head .pi-chevron-right, .ec-dead-head .pi-chevron-down { color: var(--text-muted); font-size: .8rem; }
+    .ec-dead-title { font-weight: 700; }
+    .ec-dead-count { font-variant-numeric: tabular-nums; font-size: .78rem; color: var(--text-muted); background: var(--surface-hover-bg); border-radius: var(--r-sm); padding: .05rem .4rem; }
+    .ec-dead-val { font-variant-numeric: tabular-nums; font-size: .78rem; color: var(--text-muted); }
+    .ec-dead-about { margin-left: .25rem; color: var(--text-muted); cursor: pointer; font-size: .85rem; }
+    .ec-dead-about:hover { color: var(--action); }
+    .ec-dead-sub { color: var(--text-muted); font-size: .8rem; margin: .35rem 0 .6rem; }
+    .ec-about p { font-size: .88rem; line-height: 1.5; margin: 0 0 .7rem; }
+    .ec-about-note { color: var(--text-muted); font-size: .82rem; border-top: 1px solid var(--border-color); padding-top: .6rem; }
     .ec-dlg-sub { color: var(--text-muted); font-size: .85rem; margin-bottom: .5rem; }
     .ec-dlg-note { color: var(--action); }
     .ec-warn { display: flex; gap: .45rem; align-items: center; font-size: .8rem; color: var(--warn-soft-fg); background: var(--warn-soft-bg); border: 1px solid var(--warn-border); border-radius: var(--r-sm); padding: .45rem .6rem; margin-bottom: .4rem; }
@@ -260,6 +327,15 @@ export class ComprasExistenciaCriticaComponent implements OnInit {
   saving = signal(false);
   page = signal(1);
 
+  // Stock muerto (existencia sin política de reorden = capital inmovilizado sin rotación).
+  deadRows = signal<DeadStockRow[]>([]);
+  deadTotal = signal(0);
+  deadValue = signal(0);
+  deadLoading = signal(false);
+  deadOpen = signal(false);
+  deadPage = signal(1);
+  aboutOpen = signal(false);
+
   warehouseOpts = signal<{ label: string; value: string }[]>([]);
   supplierOpts = signal<{ label: string; value: string }[]>([]);
   private warehouseNames = new Map<string, string>();
@@ -271,6 +347,9 @@ export class ComprasExistenciaCriticaComponent implements OnInit {
   fAbc = '';
   fXyz = '';
   fSearch = '';
+  /** Orden por columna (server-side). null = orden por defecto (prioridad por valor). */
+  fSortBy: string | null = null;
+  fSortDir: 'asc' | 'desc' = 'desc';
 
   /** Búsqueda en vivo: cada tecla empuja al Subject; debounce evita una consulta por letra. */
   private readonly search$ = new Subject<string>();
@@ -338,6 +417,32 @@ export class ComprasExistenciaCriticaComponent implements OnInit {
     this.page.set(1);
     this.load();
     this.loadSummary();
+    this.deadPage.set(1);
+    if (this.deadOpen()) this.loadDead();
+  }
+
+  toggleDead(): void {
+    const open = !this.deadOpen();
+    this.deadOpen.set(open);
+    if (open) { this.deadPage.set(1); this.loadDead(); }
+  }
+  openAbout(e: Event): void { e.stopPropagation(); this.aboutOpen.set(true); }
+  onDeadPage(e: TableLazyLoadEvent): void {
+    const size = e.rows || this.pageSize;
+    this.deadPage.set(Math.floor((e.first || 0) / size) + 1);
+    this.loadDead();
+  }
+  private loadDead(): void {
+    this.deadLoading.set(true);
+    this.api.deadStock({
+      warehouse_ids: this.fWarehouses.length ? this.fWarehouses : undefined,
+      supplier_id: this.fSupplier || undefined,
+      search: this.fSearch || undefined,
+      page: this.deadPage(), pageSize: this.pageSize,
+    }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => { this.deadRows.set(r.rows); this.deadTotal.set(r.total); this.deadValue.set(r.total_value); this.deadLoading.set(false); },
+      error: () => { this.deadLoading.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo cargar el stock muerto.' }); },
+    });
   }
 
   private load(): void {
@@ -348,6 +453,7 @@ export class ComprasExistenciaCriticaComponent implements OnInit {
       warehouse_ids: this.fWarehouses.length ? this.fWarehouses : undefined, supplier_id: this.fSupplier || undefined,
       abc: this.fAbc || undefined, xyz: this.fXyz || undefined,
       bucket, scope, target_basis: this.fBasis, search: this.fSearch || undefined,
+      sort_by: this.fSortBy || undefined, sort_dir: this.fSortBy ? this.fSortDir : undefined,
       page: this.page(), pageSize: this.pageSize,
     }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (r) => { this.rows.set(r.rows); this.total.set(r.total); this.loading.set(false); },
@@ -363,6 +469,10 @@ export class ComprasExistenciaCriticaComponent implements OnInit {
   onPage(e: TableLazyLoadEvent): void {
     const size = e.rows || this.pageSize;
     this.page.set(Math.floor((e.first || 0) / size) + 1);
+    // Ordenamiento por columna (server-side): PrimeNG manda sortField + sortOrder (1 asc, -1 desc).
+    const field = Array.isArray(e.sortField) ? e.sortField[0] : e.sortField;
+    this.fSortBy = field || null;
+    this.fSortDir = e.sortOrder === 1 ? 'asc' : 'desc';
     this.load();
   }
 

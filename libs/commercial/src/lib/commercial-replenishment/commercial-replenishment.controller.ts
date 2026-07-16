@@ -28,10 +28,12 @@ export class CommercialReplenishmentController {
     @Query('search') search?: string,
     @Query('target_basis') target_basis?: string,
     @Query('scope') scope?: string,
+    @Query('sort_by') sort_by?: string,
+    @Query('sort_dir') sort_dir?: string,
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
   ) {
-    return this.svc.criticalStock({ warehouse_id, warehouse_ids, supplier_id, abc, xyz, bucket, source, search, target_basis, scope, page: page ? Number(page) : undefined, pageSize: pageSize ? Number(pageSize) : undefined });
+    return this.svc.criticalStock({ warehouse_id, warehouse_ids, supplier_id, abc, xyz, bucket, source, search, target_basis, scope, sort_by, sort_dir, page: page ? Number(page) : undefined, pageSize: pageSize ? Number(pageSize) : undefined });
   }
 
   @Get('critical-stock/summary')
@@ -44,6 +46,20 @@ export class CommercialReplenishmentController {
     @Query('target_basis') target_basis?: string,
   ) {
     return this.svc.summary({ warehouse_id, warehouse_ids, supplier_id, target_basis });
+  }
+
+  @Get('dead-stock')
+  @RequirePermissions(Permission.COMPRAS_VER)
+  @ApiOperation({ summary: 'Stock muerto: existencia SIN política de reorden (no rota → capital inmovilizado). Filtros: warehouse_id, warehouse_ids(CSV), supplier_id, search.' })
+  deadStock(
+    @Query('warehouse_id') warehouse_id?: string,
+    @Query('warehouse_ids') warehouse_ids?: string,
+    @Query('supplier_id') supplier_id?: string,
+    @Query('search') search?: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+  ) {
+    return this.svc.deadStock({ warehouse_id, warehouse_ids, supplier_id, search, page: page ? Number(page) : undefined, pageSize: pageSize ? Number(pageSize) : undefined });
   }
 
   @Get('filters')
