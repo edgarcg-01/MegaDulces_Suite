@@ -198,21 +198,39 @@ const COLS = [
       const n = s.length;
       return n % 2 ? s[(n - 1) / 2] : (s[n / 2 - 1] + s[n / 2]) / 2;
     };
-    // El SNAPSHOT NO sirve de ancla: contiene la misma basura (83780 traía 906.07 también
-    // en .245). El ancla confiable es la regla de precio de la casa: c90 = costo × 1.2333
-    // (validado), así que costo implícito = c90 / 1.2333. Es un precio de lista (mantenido,
-    // consistente entre sucursales), no un valor de valuación.
+    // FALLBACK (sin c16 vivo): precio de la casa c90 = costo × 1.2333 → costo implícito
+    // c90/1.2333; si tampoco hay c90, el costo matriz del snapshot.
+    // TECHO DE SANIDAD: NO se usa el ancla c90 para OVERRIDE — c90 a veces es precio por
+    // CAJA en productos a granel (c81=c84=0), y sobreescribía el c16 correcto (07215: c16
+    // real $42.86 → ancla $821.54; 08023: c16 real $8.5 → ancla $90.21). El techo confiable
+    // es el costo MATRIZ (per-pieza): si la mediana viva se dispara >5× la matriz, es casi
+    // seguro un c16 per-caja metido en UNA sucursal (83718 md_02=$716.94 vs matriz $35) →
+    // usa la matriz. El 5× deja pasar el caso inverso legítimo (95207: c16 $40 vs matriz
+    // $10, ×3.8, donde la matriz está sub-valuada y el c16 es el correcto).
     const HOUSE = 1.2333;
-    const liveCost = (sku) => {
+    const C90_PLACEHOLDER = 50.52; // valor comodín de Kepler propagado a ~20 SKUs (no es precio real)
+    const liveCost = (sku, snapMatrix = null) => {
       const lv = liveBySku.get(sku);
       const cs = (lv?.costos || []).filter((c) => c > 0);
-      const anchor = lv?.precio_pza > 0 ? Number(lv.precio_pza) / HOUSE : null;
-      if (!cs.length) return anchor; // sin costo vivo → costo implícito del precio (o null)
-      const m0 = median(cs);
-      const kept = cs.filter((c) => c <= m0 * 4 && c >= m0 / 4);
-      let val = median(kept.length ? kept : cs);
-      // Si la mediana viva sigue absurda vs el ancla de precio (>4×/<0.25×), usa el ancla.
-      if (anchor && (val > anchor * 4 || val < anchor / 4)) val = anchor;
+      const mtx = snapMatrix != null && Number(snapMatrix) > 0 ? Number(snapMatrix) : null;
+      // c90 como ancla solo si NO es el placeholder 50.52.
+      const pza = lv?.precio_pza > 0 && Math.abs(Number(lv.precio_pza) - C90_PLACEHOLDER) > 0.01
+        ? Number(lv.precio_pza) : 0;
+      let val;
+      if (cs.length) {
+        const m0 = median(cs);
+        const kept = cs.filter((c) => c <= m0 * 4 && c >= m0 / 4);
+        val = median(kept.length ? kept : cs);
+      } else if (pza > 0) {
+        val = pza / HOUSE; // sin c16 vivo → costo implícito del precio de la casa
+      } else {
+        return mtx; // ni c16 ni precio real → matriz (o null → cae al costo_civa afuera)
+      }
+      // Techo de sanidad per-CAJA: si el estimado (mediana c16 o ancla de precio) se dispara
+      // >5× la matriz per-pieza, es casi seguro un valor por caja (c16 de una sucursal en
+      // 83718; o c90 por caja en granel) → usa la matriz. El 5× deja pasar el caso inverso
+      // legítimo (95207: c16 $40 vs matriz $10, ×3.8, la matriz está sub-valuada).
+      if (mtx && val > mtx * 5) val = mtx;
       return val;
     };
     // Factor de caja vivo = UNIDAD DE VENTA = paquete (c81), NO la caja máster (c84).
@@ -260,7 +278,7 @@ const COLS = [
       // Overlay vivo: el costo actual manda sobre el snapshot; barcode/unidad solo rellenan.
       // Caja: factor vivo (c84→c81); el UXC implícito del snapshot es el fallback.
       const lv = liveBySku.get(sku);
-      const cost = liveCost(sku);
+      const cost = liveCost(sku, numOr(r.costo_matriz));
       const uxc = numOr(r.costo_x_caja) > 0 && numOr(r.costo_civa) > 0 ? Number(r.costo_x_caja) / Number(r.costo_civa) : null;
       // El factor_venta del snapshot es la caja de VENTA de Kepler y es confiable cuando
       // ya es >1 (dulces/goma/Puratos/salsas). Solo está mal cuando quedó en 1: los SKUs

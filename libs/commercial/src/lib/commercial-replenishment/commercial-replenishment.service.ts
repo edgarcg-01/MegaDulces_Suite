@@ -90,6 +90,11 @@ export class CommercialReplenishmentService {
   /** Expresiones SQL compartidas (existencia disponible, en tránsito, bucket). */
   private onHand() { return '(COALESCE(s.quantity,0) - COALESCE(s.reserved_quantity,0))'; }
   private inTransit() { return 'COALESCE(pit.qty_in_transit, 0)'; } // RA.5 analytics.purchase_in_transit (OC a recibir)
+  // Costo unitario para valorizar el sugerido. Canónico = cost_with_tax (costo vivo por
+  // PIEZA desde kdik.c16, saneado 2026-07-15); cost_base (costo_matriz) es fallback — está
+  // a escala de CAJA/PAQUETE en muchos granel, lo que inflaba el encargo ~16.6% al
+  // multiplicarlo por piezas. Ambos reportes (crítica + /salidas) valorizan igual ahora.
+  private costUnit() { return 'COALESCE(pr.cost_with_tax, pr.cost_base, 0)'; }
   private bucketExpr() {
     const oh = this.onHand();
     return `CASE
@@ -125,7 +130,8 @@ export class CommercialReplenishmentService {
         // RA-PRO.2 — analytics.inventory_health (avg diario para mostrar cobertura; sin RLS)
         .leftJoin('analytics.inventory_health as ih', (j) =>
           j.on('ih.tenant_id', 'rp.tenant_id').andOn('ih.warehouse_id', 'rp.warehouse_id').andOn('ih.product_id', 'rp.product_id'))
-        .where('rp.tenant_id', tenantId);
+        .where('rp.tenant_id', tenantId)
+        .andWhere('pr.activo', true); // no sugerir reabasto de productos descontinuados
 
       const whIds = this.whIds(q);
       if (whIds.length) base.whereIn('rp.warehouse_id', whIds);
@@ -173,15 +179,15 @@ export class CommercialReplenishmentService {
           trx.raw('sup.min_order_boxes AS supplier_min_boxes'),
           trx.raw('pr.factor_purchase AS factor_purchase'),
           trx.raw('COALESCE(abc.abc_class, rp.abc_class) AS abc_class'),
-          trx.raw('pr.cost_base AS unit_cost'),
+          trx.raw(`${this.costUnit()} AS unit_cost`),
           trx.raw(`${this.bucketExpr()} AS bucket`),
           trx.raw(`GREATEST(0, ${target} - ${oh} - ${it}) AS suggested_qty`),
-          trx.raw(`ROUND(GREATEST(0, ${target} - ${oh} - ${it}) * COALESCE(pr.cost_base,0), 2) AS suggested_cost`),
+          trx.raw(`ROUND(GREATEST(0, ${target} - ${oh} - ${it}) * ${this.costUnit()}, 2) AS suggested_cost`),
         )
         // Dinero primero: el sugerido valorizado ($) manda. Sin esto, los 3k+
         // agotados (muchos SKUs admin/insumo con costo 0) acaparan 60+ páginas
         // con existencia 0 y la vista "parece" rota.
-        .orderByRaw(`GREATEST(0, ${target} - ${oh} - ${it}) * COALESCE(pr.cost_base, 0) DESC`)
+        .orderByRaw(`GREATEST(0, ${target} - ${oh} - ${it}) * ${this.costUnit()} DESC`)
         .orderByRaw(`CASE ${this.bucketExpr()}
             WHEN 'agotado' THEN 0 WHEN 'bajo_minimo' THEN 1 WHEN 'bajo_reorden' THEN 2 WHEN 'sobrestock' THEN 4 ELSE 3 END`)
         .orderByRaw(`GREATEST(0, ${target} - ${oh} - ${it}) DESC`)
@@ -205,7 +211,8 @@ export class CommercialReplenishmentService {
         .join('catalog.products as pr', (j) => j.on('pr.tenant_id', 'rp.tenant_id').andOn('pr.id', 'rp.product_id'))
         .leftJoin('analytics.purchase_in_transit as pit', (j) =>
           j.on('pit.tenant_id', 'rp.tenant_id').andOn('pit.warehouse_id', 'rp.warehouse_id').andOn('pit.product_id', 'rp.product_id'))
-        .where('rp.tenant_id', tenantId);
+        .where('rp.tenant_id', tenantId)
+        .andWhere('pr.activo', true); // no contar productos descontinuados en los KPIs
       const whIds = this.whIds(q);
       if (whIds.length) base.whereIn('rp.warehouse_id', whIds);
       if (q.supplier_id && UUID_RX.test(q.supplier_id)) base.andWhere('pr.supplier_id', q.supplier_id);
@@ -217,7 +224,7 @@ export class CommercialReplenishmentService {
           trx.raw(`COUNT(*) FILTER (WHERE ${oh} > rp.min_stock AND ${oh} <= rp.reorder_point)::int AS bajo_reorden`),
           trx.raw(`COUNT(*) FILTER (WHERE rp.max_stock > 0 AND ${oh} > rp.max_stock)::int AS sobrestock`),
           trx.raw('COUNT(*)::int AS total_policies'),
-          trx.raw(`ROUND(SUM(GREATEST(0, ${target} - ${oh} - ${it}) * COALESCE(pr.cost_base,0)) FILTER (WHERE ${oh} <= rp.reorder_point), 2) AS sugerido_costo`),
+          trx.raw(`ROUND(SUM(GREATEST(0, ${target} - ${oh} - ${it}) * ${this.costUnit()}) FILTER (WHERE ${oh} <= rp.reorder_point), 2) AS sugerido_costo`),
         ).first();
       return r;
     });
