@@ -526,9 +526,10 @@ export class CommercialAnalyticsController {
     @Query('warehouses') warehouses?: string,
     @Query('include_zeros') includeZeros?: string,
     @Query('search') search?: string,
+    @Query('view') view?: string,
   ) {
     return this.service.sellOut(
-      this.parseSellOutQuery(brandId, from, to, groupBy, channels, warehouses, includeZeros, search),
+      this.parseSellOutQuery(brandId, from, to, groupBy, channels, warehouses, includeZeros, search, view),
     );
   }
 
@@ -545,9 +546,10 @@ export class CommercialAnalyticsController {
     @Query('warehouses') warehouses?: string,
     @Query('include_zeros') includeZeros?: string,
     @Query('search') search?: string,
+    @Query('view') view?: string,
   ) {
     const report = await this.service.sellOut(
-      this.parseSellOutQuery(brandId, from, to, groupBy, channels, warehouses, includeZeros, search),
+      this.parseSellOutQuery(brandId, from, to, groupBy, channels, warehouses, includeZeros, search, view),
     );
     const buf = await this.exporter.buildXlsx(report);
     this.sendFile(res, buf, this.exporter.fileName(report, 'xlsx'),
@@ -567,9 +569,10 @@ export class CommercialAnalyticsController {
     @Query('warehouses') warehouses?: string,
     @Query('include_zeros') includeZeros?: string,
     @Query('search') search?: string,
+    @Query('view') view?: string,
   ) {
     const report = await this.service.sellOut(
-      this.parseSellOutQuery(brandId, from, to, groupBy, channels, warehouses, includeZeros, search),
+      this.parseSellOutQuery(brandId, from, to, groupBy, channels, warehouses, includeZeros, search, view),
     );
     const buf = await this.exporter.buildPdf(report);
     this.sendFile(res, buf, this.exporter.fileName(report, 'pdf'), 'application/pdf');
@@ -715,13 +718,18 @@ export class CommercialAnalyticsController {
     warehouses?: string,
     includeZeros?: string,
     search?: string,
+    view?: string,
   ) {
     const csv = (s?: string) => (s ? s.split(',').map((v) => v.trim()).filter(Boolean) : undefined);
+    const parsedView = view === 'month_columns' || view === 'month_summary'
+      ? (view as 'month_columns' | 'month_summary')
+      : undefined;
     return {
       brand_id: brandId,
       from,
       to,
       group_by: groupBy,
+      view: parsedView,
       channels: csv(channels),
       warehouses: csv(warehouses),
       include_zeros: includeZeros === 'true',

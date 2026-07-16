@@ -16,6 +16,7 @@ import {
   SellOutCell,
   SellOutParams,
   SellOutReport,
+  SellOutView,
   SellOutWarehouseRow,
 } from '../comercial.service';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
@@ -130,13 +131,22 @@ const CHANNEL_OPTS = [
         </div>
 
         <div class="so-field">
+          <label>Vista</label>
+          <app-segmented [options]="viewOpts" [value]="view()" (valueChange)="setView($event)" ariaLabel="Vista del reporte" />
+        </div>
+
+        <div class="so-field">
           <label>Medida</label>
           <app-segmented [options]="measureOpts" [value]="measure()" (valueChange)="setMeasure($event)" ariaLabel="Medida" />
         </div>
 
         <div class="so-field so-toggles">
-          <label class="so-toggle"><p-toggleSwitch [(ngModel)]="byChannel" /> <span>Desglosar canal</span></label>
-          <label class="so-toggle"><p-toggleSwitch [(ngModel)]="includeZeros" /> <span>Incluir sin venta</span></label>
+          @if (view() !== 'month_columns') {
+            <label class="so-toggle"><p-toggleSwitch [(ngModel)]="byChannel" /> <span>Desglosar canal</span></label>
+          }
+          @if (view() !== 'month_summary') {
+            <label class="so-toggle"><p-toggleSwitch [(ngModel)]="includeZeros" /> <span>Incluir sin venta</span></label>
+          }
         </div>
 
         <div class="so-actions">
@@ -195,9 +205,9 @@ const CHANNEL_OPTS = [
           </div>
           <div class="card-premium card-flat rk-card">
             <div class="rk-body">
-              <div class="rk-top"><span class="rk-label">{{ r.row_dim === 'brand' ? 'Empresas' : 'Productos' }}</span></div>
+              <div class="rk-top"><span class="rk-label">{{ rowNounCap(r) }}</span></div>
               <div class="rk-value">{{ r.rows.length }}</div>
-              <div class="rk-metaline">{{ r.row_dim === 'brand' ? 'Con venta · click para ver productos' : 'Con venta en el periodo' }}</div>
+              <div class="rk-metaline">{{ r.row_dim === 'brand' ? 'Con venta · click para ver productos' : r.row_dim === 'month' ? 'Meses con venta en el periodo' : 'Con venta en el periodo' }}</div>
             </div>
           </div>
           <div class="card-premium card-flat rk-card">
@@ -217,16 +227,20 @@ const CHANNEL_OPTS = [
           <!-- Matriz (dentro de card premium, como las secciones de reports) -->
           <div class="card-premium card-flat so-matrix-card">
             <div class="so-matrix-head">
-              <h3 class="text-sm font-bold text-content-main">Detalle por producto</h3>
-              <span class="so-matrix-count">{{ r.rows.length }} {{ r.row_dim === 'brand' ? 'empresas' : 'productos' }} · {{ r.columns.length }} columnas</span>
+              <h3 class="text-sm font-bold text-content-main">{{ matrixTitle(r) }}</h3>
+              <span class="so-matrix-count">{{ r.rows.length }} {{ rowNoun(r) }} · {{ r.columns.length }} columnas</span>
             </div>
           <div class="so-matrix-wrap">
             <table class="so-matrix">
               <thead>
                 <tr>
-                  <th class="frz c0" rowspan="2">Código</th>
-                  <th class="frz c1" rowspan="2">{{ r.row_dim === 'brand' ? 'Empresa' : 'Descripción' }}</th>
-                  <th class="frz c2" rowspan="2">UXC</th>
+                  @if (r.row_dim === 'month') {
+                    <th class="frz c0 only" rowspan="2">Mes</th>
+                  } @else {
+                    <th class="frz c0" rowspan="2">Código</th>
+                    <th class="frz c1" rowspan="2">{{ r.row_dim === 'brand' ? 'Empresa' : 'Descripción' }}</th>
+                    <th class="frz c2" rowspan="2">UXC</th>
+                  }
                   @for (c of r.columns; track c.key) { <th [attr.colspan]="grpColspan()" class="grp">{{ colLabel(c) }}</th> }
                   <th [attr.colspan]="grpColspan()" class="grp tot">TOTAL</th>
                 </tr>
@@ -244,9 +258,13 @@ const CHANNEL_OPTS = [
                   <tr [class.so-drill]="r.row_dim === 'brand'"
                       (click)="r.row_dim === 'brand' && drillBrand(row)"
                       [attr.title]="r.row_dim === 'brand' ? 'Ver productos de ' + row.nombre : null">
-                    <td class="frz c0 mono">{{ row.sku }}</td>
-                    <td class="frz c1 name">{{ row.nombre }}</td>
-                    <td class="frz c2 n">{{ row.uxc ?? '—' }}</td>
+                    @if (r.row_dim === 'month') {
+                      <td class="frz c0 only name">{{ row.nombre }}</td>
+                    } @else {
+                      <td class="frz c0 mono">{{ row.sku }}</td>
+                      <td class="frz c1 name">{{ row.nombre }}</td>
+                      <td class="frz c2 n">{{ row.uxc ?? '—' }}</td>
+                    }
                     @for (c of r.columns; track c.key) {
                       @if (showCajas()) { <td class="n">{{ cell(row, c.key)?.cajas != null ? (cell(row, c.key)!.cajas | number:'1.0-2') : '·' }}</td> }
                       @if (showMonto()) { <td class="n m">{{ cell(row, c.key)?.monto != null ? (cell(row, c.key)!.monto | currency:'MXN':'symbol-narrow':'1.0-0') : '·' }}</td> }
@@ -258,7 +276,7 @@ const CHANNEL_OPTS = [
               </tbody>
               <tfoot>
                 <tr class="tot-row">
-                  <td class="frz c0" colspan="3">TOTAL</td>
+                  <td class="frz c0" [attr.colspan]="r.row_dim === 'month' ? 1 : 3">TOTAL</td>
                   @for (c of r.columns; track c.key) {
                     @if (showCajas()) { <td class="n">{{ colTotal(r, c.key).cajas | number:'1.0-2' }}</td> }
                     @if (showMonto()) { <td class="n m">{{ colTotal(r, c.key).monto | currency:'MXN':'symbol-narrow':'1.0-0' }}</td> }
@@ -351,6 +369,8 @@ const CHANNEL_OPTS = [
     .so-matrix .c0, .so-matrix .c1 { border-right:1px solid var(--border-color); }
     .so-matrix .c0 { left:0; } .so-matrix .c1 { left:70px; } .so-matrix .c2 { left:350px; }
     .so-matrix .c2 { box-shadow:6px 0 6px -4px rgba(0,0,0,.16); }
+    /* Resumen mensual: única columna congelada (Mes) → borde + sombra propios. */
+    .so-matrix .c0.only { border-right:1px solid var(--border-color); box-shadow:6px 0 6px -4px rgba(0,0,0,.16); text-align:left; min-width:120px; }
     /* Columna TOTAL: resumen destacado (tinte + borde izquierdo marcado, header→foot). */
     .so-matrix tbody td:last-child, .so-matrix tbody td:nth-last-child(2),
     .so-matrix tfoot td:last-child, .so-matrix tfoot td:nth-last-child(2) { background:var(--surface-selected-bg); }
@@ -428,6 +448,14 @@ export class ComercialSellOutComponent {
   showMonto = computed(() => this.measure() !== 'cajas');
   grpColspan = computed(() => (this.measure() === 'ambas' ? 2 : 1));
   setMeasure(m: string) { this.measure.set(m as Measure); }
+  // RS.2 — vista del reporte: por producto (default) / mes en columnas / resumen mensual.
+  view = signal<SellOutView>('product');
+  readonly viewOpts = [
+    { label: 'Por producto', value: 'product' },
+    { label: 'Mes en columnas', value: 'month_columns' },
+    { label: 'Resumen mensual', value: 'month_summary' },
+  ];
+  setView(v: string) { this.view.set(v as SellOutView); this.generate(); }
   monthDate: Date = new Date();
   rangeDates: Date[] | null = null;
   quarter = 1;
@@ -546,6 +574,7 @@ export class ComercialSellOutComponent {
       from: this.curFrom,
       to: this.curTo,
       group_by: this.byChannel ? 'branch_channel' : 'branch',
+      view: this.view(),
       channels: this.channels.length ? this.channels : undefined,
       warehouses: this.warehouses.length ? this.warehouses : undefined,
       include_zeros: this.includeZeros,
@@ -598,6 +627,17 @@ export class ComercialSellOutComponent {
 
   colLabel(c: { branch_name: string; channel_label?: string }): string {
     return c.channel_label ? `${c.branch_name} · ${c.channel_label}` : c.branch_name;
+  }
+
+  /** Sustantivo de la fila según la vista (para conteos/labels). */
+  rowNoun(r: SellOutReport): string {
+    return r.row_dim === 'month' ? 'meses' : r.row_dim === 'brand' ? 'empresas' : 'productos';
+  }
+  rowNounCap(r: SellOutReport): string {
+    return r.row_dim === 'month' ? 'Meses' : r.row_dim === 'brand' ? 'Empresas' : 'Productos';
+  }
+  matrixTitle(r: SellOutReport): string {
+    return r.row_dim === 'month' ? 'Resumen mensual' : r.row_dim === 'brand' ? 'Detalle por empresa' : 'Detalle por producto';
   }
 
   cell(row: SellOutReport['rows'][number], key: string): SellOutCell | undefined {

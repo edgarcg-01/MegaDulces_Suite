@@ -1089,6 +1089,7 @@ export class ComercialService {
       .set('to', opts.to);
     if (opts.brand_id) params = params.set('brand_id', opts.brand_id);
     if (opts.group_by) params = params.set('group_by', opts.group_by);
+    if (opts.view && opts.view !== 'product') params = params.set('view', opts.view);
     if (opts.channels?.length) params = params.set('channels', opts.channels.join(','));
     if (opts.warehouses?.length) params = params.set('warehouses', opts.warehouses.join(','));
     if (opts.include_zeros) params = params.set('include_zeros', 'true');
@@ -1231,11 +1232,14 @@ export interface SellOutBrandRow {
   products: number;
 }
 
+export type SellOutView = 'product' | 'month_columns' | 'month_summary';
+
 export interface SellOutParams {
   brand_id?: string;
   from: string;
   to: string;
   group_by?: 'branch' | 'branch_channel';
+  view?: SellOutView;
   channels?: string[];
   warehouses?: string[];
   include_zeros?: boolean;
@@ -1396,6 +1400,8 @@ export interface SellOutColumn {
   branch_name: string;
   channel?: string;
   channel_label?: string;
+  /** Vista month_columns: mes ISO 'YYYY-MM' de la columna. */
+  month?: string;
 }
 
 export interface SellOutCell {
@@ -1416,7 +1422,8 @@ export interface SellOutReport {
   brand: { id: string | null; nombre: string; code: string | null };
   period: { from: string; to: string };
   group_by: 'branch' | 'branch_channel';
-  row_dim: 'brand' | 'product';
+  view: SellOutView;
+  row_dim: 'brand' | 'product' | 'month';
   columns: SellOutColumn[];
   rows: SellOutRow[];
   column_totals: Record<string, SellOutCell>;

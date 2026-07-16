@@ -64,8 +64,10 @@ export class SellOutExportService {
     ws.mergeCells(2, 1, 3, 1);
     ws.mergeCells(2, 2, 3, 2);
     ws.mergeCells(2, 3, 3, 3);
-    ws.getCell(2, 1).value = 'CÓDIGO';
-    ws.getCell(2, 2).value = 'DESCRIPCIÓN';
+    // Identidad de fila: por producto (Código/Descr/UXC), empresa o MES (resumen mensual).
+    // El mes viaja en `nombre` (col 2) → esa columna lleva la etiqueta 'MES'.
+    ws.getCell(2, 1).value = report.row_dim === 'month' ? '' : 'CÓDIGO';
+    ws.getCell(2, 2).value = report.row_dim === 'month' ? 'MES' : report.row_dim === 'brand' ? 'EMPRESA' : 'DESCRIPCIÓN';
     ws.getCell(2, 3).value = 'UXC';
 
     cols.forEach((c, i) => {
@@ -459,11 +461,21 @@ export class SellOutExportService {
     const period = this.periodLabel(report.period.from, report.period.to);
     const sucursales = report.coverage?.branches_with_data?.length ?? 0;
 
+    // Etiquetas según la vista (producto / empresa / mes).
+    const rowNoun = report.row_dim === 'month' ? 'meses' : report.row_dim === 'brand' ? 'empresas' : 'productos';
+    const rowNounCap = report.row_dim === 'month' ? 'Meses' : report.row_dim === 'brand' ? 'Empresas' : 'Productos';
+    const sectionTitle = report.row_dim === 'month' ? 'Resumen mensual' : report.row_dim === 'brand' ? 'Detalle por empresa' : 'Detalle por producto';
+    // El cuerpo escribe siempre sku(col1)/nombre(col2)/uxc(col3). En vista mensual el
+    // mes viaja en `nombre` → la etiqueta 'Mes' va en la 2ª columna para que coincida.
+    const idHead = report.row_dim === 'month'
+      ? '<th rowspan="2"></th><th rowspan="2">Mes</th><th rowspan="2"></th>'
+      : `<th rowspan="2">Código</th><th rowspan="2">${report.row_dim === 'brand' ? 'Empresa' : 'Descripción'}</th><th rowspan="2">UXC</th>`;
+
     // KPIs (mismo lenguaje que la tabla "MÉTRICAS PRINCIPALES" del PDF de /reports)
     const kpis: Array<[string, string]> = [
       ['Monto total', money(report.grand_total.monto)],
       ['Cajas', report.grand_total.cajas.toLocaleString('es-MX', { minimumFractionDigits: 1, maximumFractionDigits: 1 })],
-      ['Productos', String(report.rows.length)],
+      [rowNounCap, String(report.rows.length)],
       ['Sucursales', String(sucursales)],
     ];
     const kpiCells = kpis
@@ -510,12 +522,12 @@ export class SellOutExportService {
       </div>
       <div class="period">
         <div><span class="lbl">PERÍODO DE ANÁLISIS</span> &nbsp; <span class="val">${esc(period)}</span></div>
-        <span class="ch">${report.rows.length} productos · ${cols.length} columnas</span>
+        <span class="ch">${report.rows.length} ${rowNoun} · ${cols.length} columnas</span>
       </div>
       <div class="kpis">${kpiCells}</div>
-      <div class="sec">Detalle por producto</div>
+      <div class="sec">${esc(sectionTitle)}</div>
       <table><thead>
-        <tr><th rowspan="2">Código</th><th rowspan="2">Descripción</th><th rowspan="2">UXC</th>${topHeads}</tr>
+        <tr>${idHead}${topHeads}</tr>
         <tr>${subHeads}</tr>
       </thead><tbody>${body}${totRow}</tbody></table>
       <p class="note">${esc(report.coverage.note)}</p>

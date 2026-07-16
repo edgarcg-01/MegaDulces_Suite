@@ -26,6 +26,13 @@ export interface DateRangeQuery {
 
 // ── Fase RS — Sell-Out ──
 export type SellOutGroupBy = 'branch' | 'branch_channel';
+/**
+ * Vista del reporte (RS.2):
+ *  - `product`        → filas producto/empresa × columnas sucursal[×canal] (default, la de siempre).
+ *  - `month_columns`  → filas producto/empresa × columnas MES (evolución temporal por SKU).
+ *  - `month_summary`  → filas MES × columnas sucursal[×canal] (resumen mensual; TOTAL = venta del mes).
+ */
+export type SellOutView = 'product' | 'month_columns' | 'month_summary';
 
 export interface SellOutQuery {
   /** Marca/empresa. Vacío = TODAS las empresas (reporte general). */
@@ -33,6 +40,7 @@ export interface SellOutQuery {
   from: string;
   to: string;
   group_by?: SellOutGroupBy;
+  view?: SellOutView;
   channels?: string[];
   /** Códigos de almacén (commercial.warehouses.code) a incluir. Vacío = todos. */
   warehouses?: string[];
@@ -204,6 +212,8 @@ export interface SellOutColumn {
   branch_name: string;
   channel?: string;
   channel_label?: string;
+  /** RS.2 — vista month_columns: mes ISO 'YYYY-MM' de la columna (null en vistas por sucursal). */
+  month?: string;
 }
 
 export interface SellOutCell {
@@ -224,8 +234,9 @@ export interface SellOutReport {
   brand: { id: string | null; nombre: string; code: string | null };
   period: { from: string; to: string };
   group_by: SellOutGroupBy;
-  /** Dimensión de las filas: 'brand' = reporte general por empresa · 'product' = detalle. */
-  row_dim: 'brand' | 'product';
+  view: SellOutView;
+  /** Dimensión de las filas: 'brand' = reporte general por empresa · 'product' = detalle · 'month' = resumen mensual. */
+  row_dim: 'brand' | 'product' | 'month';
   columns: SellOutColumn[];
   rows: SellOutRow[];
   column_totals: Record<string, SellOutCell>;
@@ -259,6 +270,13 @@ const CHANNEL_ORDER: Record<string, number> = {
 // `TI*` = traspaso interno entre sucursales (logística, sale de CEDIS). NO es
 // venta a cliente → se excluye del sell-out (contarlo duplica + infla).
 const NON_SALE_CHANNEL = 'traspaso';
+// RS.2 — etiqueta corta de mes para las vistas por mes ('2026-01' → 'Ene 2026').
+const MONTH_ABBR_ES = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+function sellOutMonthLabel(ym: string): string {
+  const [y, m] = (ym || '').split('-');
+  const idx = Number(m) - 1;
+  return idx >= 0 && idx < 12 ? `${MONTH_ABBR_ES[idx]} ${y}` : ym;
+}
 
 const REVENUE_STATUSES = ['fulfilled'];
 // Para "trabajo en curso" que cuenta como pipeline (no revenue): 'confirmed'
@@ -2025,9 +2043,15 @@ export class CommercialAnalyticsService {
     const brandId = (q.brand_id || '').trim();
     if (brandId && !RS_UUID.test(brandId)) throw new BadRequestException('brand_id inválido');
     const search = (q.search || '').trim();
+    // RS.2 — vista: producto (default) / mes en columnas / resumen mensual.
+    const view: SellOutView = q.view === 'month_columns' || q.view === 'month_summary' ? q.view : 'product';
+    const monthCols = view === 'month_columns';
+    const monthRows = view === 'month_summary';
+    const needMonth = monthCols || monthRows;
     // Sin empresa y sin búsqueda → reporte GENERAL agrupado por EMPRESA (matriz chica,
     // ~decenas de filas). Con empresa elegida o búsqueda → detalle por PRODUCTO.
-    const byBrand = !brandId && !search;
+    // En resumen mensual las filas SON los meses (no producto/empresa).
+    const byBrand = !monthRows && !brandId && !search;
     if (!q.from || !q.to || !this.isIsoDate(q.from) || !this.isIsoDate(q.to))
       throw new BadRequestException('from/to requeridos (ISO 8601)');
     const from = q.from.slice(0, 10);
@@ -2095,6 +2119,7 @@ export class CommercialAnalyticsService {
         .andWhere('sd.sale_date', '>=', from)
         .andWhere('sd.sale_date', '<=', to)
         .modify((qb) => { if (warehouseFilter) qb.whereIn('w.code', warehouseFilter); })
+        .modify((qb) => { if (needMonth) qb.select(trx.raw(`to_char(sd.sale_date, 'YYYY-MM') as sale_month`)); })
         .select(
           'w.code as branch_code',
           'w.name as branch_name',
@@ -2109,7 +2134,10 @@ export class CommercialAnalyticsService {
         )
         .sum({ units: 'sd.units' })
         .sum({ monto: 'sd.revenue' })
-        .groupByRaw(`w.code, w.name, sd.product_id, p.sku, p.nombre, p.factor_sale, p.brand_id, b.nombre, b.code, ${channelExpr}`);
+        .groupByRaw(
+          `w.code, w.name, sd.product_id, p.sku, p.nombre, p.factor_sale, p.brand_id, b.nombre, b.code, ${channelExpr}` +
+          (needMonth ? `, to_char(sd.sale_date, 'YYYY-MM')` : ''),
+        );
 
       // Sucursales con venta (cualquier marca) en el periodo — para cobertura.
       const retailRows = await trx('analytics.sales_daily as sd')
@@ -2128,7 +2156,8 @@ export class CommercialAnalyticsService {
       brand: { id: brand.id, nombre: brand.nombre, code: brand.code ?? null },
       period: { from, to },
       group_by: groupBy,
-      row_dim: byBrand ? 'brand' : 'product',
+      view,
+      row_dim: monthRows ? 'month' : byBrand ? 'brand' : 'product',
       columns: [],
       rows: [],
       column_totals: {},
@@ -2158,23 +2187,43 @@ export class CommercialAnalyticsService {
       const cajas = units / factor;
       branchesWithData.add(r.branch_name);
 
-      const colKey = groupBy === 'branch' ? r.branch_code : `${r.branch_code}|${channel}`;
+      // Columnas: por MES (month_columns) o por sucursal[×canal].
+      const colKey = monthCols
+        ? r.sale_month
+        : groupBy === 'branch' ? r.branch_code : `${r.branch_code}|${channel}`;
       if (!columns.has(colKey)) {
-        columns.set(colKey, {
-          key: colKey,
-          branch_code: r.branch_code,
-          branch_name: r.branch_name,
-          channel: groupBy === 'branch' ? undefined : channel,
-          channel_label: groupBy === 'branch' ? undefined : CHANNEL_LABELS[channel] ?? channel,
-        });
+        columns.set(colKey, monthCols
+          ? {
+              key: colKey,
+              branch_code: '',
+              branch_name: sellOutMonthLabel(r.sale_month), // el exporter usa branch_name como etiqueta de columna
+              month: r.sale_month,
+            }
+          : {
+              key: colKey,
+              branch_code: r.branch_code,
+              branch_name: r.branch_name,
+              channel: groupBy === 'branch' ? undefined : channel,
+              channel_label: groupBy === 'branch' ? undefined : CHANNEL_LABELS[channel] ?? channel,
+            });
         colTotals.set(colKey, { cajas: 0, monto: 0 });
       }
 
-      // byBrand → una fila por EMPRESA (product_id lleva el brand_id para el drill).
-      const rowKey = byBrand ? (r.brand_id || 'sin-empresa') : r.sku;
+      // Filas: por MES (month_summary), por EMPRESA (byBrand → product_id lleva el
+      // brand_id para el drill), o por PRODUCTO.
+      const rowKey = monthRows ? r.sale_month : byBrand ? (r.brand_id || 'sin-empresa') : r.sku;
       let row = rowMap.get(rowKey);
       if (!row) {
-        row = byBrand
+        row = monthRows
+          ? {
+              product_id: r.sale_month,
+              sku: '',
+              nombre: sellOutMonthLabel(r.sale_month), // el exporter usa nombre como etiqueta de fila
+              uxc: null,
+              cells: {},
+              total: { cajas: 0, monto: 0 },
+            }
+          : byBrand
           ? {
               product_id: r.brand_id || '',
               sku: r.brand_code || '',
@@ -2205,9 +2254,9 @@ export class CommercialAnalyticsService {
       grandMonto += monto;
     }
 
-    // Filas: incluir SKUs sin venta si include_zeros
+    // Filas: incluir SKUs sin venta si include_zeros (solo aplica a filas por producto).
     let rows = Array.from(rowMap.values());
-    if (q.include_zeros) {
+    if (q.include_zeros && !monthRows) {
       for (const p of products) {
         if (!rowMap.has(p.sku)) {
           rows.push({
@@ -2221,10 +2270,13 @@ export class CommercialAnalyticsService {
         }
       }
     }
-    rows.sort((a, b) => b.total.monto - a.total.monto || a.nombre.localeCompare(b.nombre, 'es'));
+    // Resumen mensual → filas cronológicas (mes asc). Demás vistas → por monto desc.
+    if (monthRows) rows.sort((a, b) => a.product_id.localeCompare(b.product_id));
+    else rows.sort((a, b) => b.total.monto - a.total.monto || a.nombre.localeCompare(b.nombre, 'es'));
 
-    // Orden de columnas: por sucursal, luego canal en orden fijo
+    // Orden de columnas: por mes asc (month_columns) o por sucursal, luego canal en orden fijo.
     const orderedCols = Array.from(columns.values()).sort((a, b) => {
+      if (monthCols) return (a.month ?? '').localeCompare(b.month ?? '');
       if (a.branch_code !== b.branch_code) return a.branch_code.localeCompare(b.branch_code);
       return (CHANNEL_ORDER[a.channel ?? ''] ?? 99) - (CHANNEL_ORDER[b.channel ?? ''] ?? 99);
     });
