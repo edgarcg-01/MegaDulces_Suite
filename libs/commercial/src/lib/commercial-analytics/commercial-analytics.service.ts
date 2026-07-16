@@ -2444,9 +2444,19 @@ export class CommercialAnalyticsService {
     for (const s of stkRows as any[]) stockMap.set(`${s.wcode}|${s.product_id}`, Number(s.quantity) || 0);
     const prodMap = new Map<string, any>();
     for (const p of prodRows as any[]) if (!prodMap.has(p.product_id)) prodMap.set(p.product_id, p);
+    // Fantasmas pre-Kepler: productos SIN SKU creados por el seed/capturas de mayo-2026,
+    // superados por el catálogo real de Kepler (junio) → sin identidad Kepler ni forma de
+    // reordenarlos. Se ocultan de salidas SALVO que tengan stock o venta real en scope (los
+    // pocos con existencia se muestran para que se note la anomalía y se les asigne SKU).
+    const hasStockAny = new Set<string>();
+    for (const s of stkRows as any[]) if ((Number(s.quantity) || 0) !== 0) hasStockAny.add(s.product_id);
+    const hasSalesAny = new Set<string>();
+    for (const r of salesRows as any[]) if ((Number(r.units) || 0) !== 0) hasSalesAny.add(r.product_id);
+    const isGhost = (p: any) => (!p.sku || !String(p.sku).trim()) && !hasStockAny.has(p.product_id) && !hasSalesAny.has(p.product_id);
     const allMeta: any[] = [];
     for (const w of scopeWh as any[]) {
       for (const p of prodMap.values()) {
+        if (isGhost(p)) continue;
         allMeta.push({
           wcode: w.code, wname: w.name, product_id: p.product_id, sku: p.sku, nombre: p.nombre,
           factor_sale: p.factor_sale, unit_sale: p.unit_sale, pack_size: p.pack_size, box_size: p.box_size,
