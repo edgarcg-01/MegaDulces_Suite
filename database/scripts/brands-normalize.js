@@ -41,6 +41,23 @@ function normalize(s) {
   return s.toString().normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/['`´¨]/g, '').replace(/\s+/g, ' ').trim();
 }
 
+// Clave AGRESIVA para agrupar MARCAS (no productos): además del normalize, quita toda
+// puntuación y los sufijos de razón social al final (SA, SA DE CV, S DE RL DE CV, S.A.,
+// etc. — quedan como tokens sueltos tras quitar puntuación). Exact-match tras esto → NO
+// mezcla empresas distintas que comparten palabras (SARAMEL ≠ GONAC ≠ ELORO), a diferencia
+// del similarity fuzzy. Solo se usa con --aggressive, y SOLO para agrupar marcas; el match
+// de productos por nombre sigue con normalize() estricto.
+const LEGAL_TOKENS = new Set(['sa', 's', 'a', 'de', 'cv', 'c', 'v', 'rl', 'r', 'l', 'sc', 'sapi', 'p', 'i', 'sab', 'sofom', 'enr', 'sad', 'dc', 'mx', 'mexico']);
+function brandKey(s) {
+  let x = (s || '').toString().normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+  x = x.replace(/[.,*'`´¨\-\/&()]/g, ' ').replace(/\s+/g, ' ').trim();
+  const w = x.split(' ').filter(Boolean);
+  while (w.length > 1 && LEGAL_TOKENS.has(w[w.length - 1])) w.pop();
+  return w.join(' ');
+}
+const AGGRESSIVE = process.argv.includes('--aggressive');
+const groupKey = (s) => (AGGRESSIVE ? brandKey(s) : normalize(s));
+
 function pickCanonicalBrand(arr) {
   // Prefer all-uppercase (convención del resto del catálogo).
   // Si hay varios uppercase o ninguno, prefer el que tenga más productos activos,
@@ -67,7 +84,7 @@ async function buildPlan() {
 
   const groups = new Map();
   for (const b of brands) {
-    const key = `${b.tenant_id || 'legacy'}::${normalize(b.nombre)}`;
+    const key = `${b.tenant_id || 'legacy'}::${groupKey(b.nombre)}`;
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key).push(b);
   }
@@ -278,6 +295,41 @@ async function buildProductMaps(canonicalBrandId, nonCanonicalBrandId) {
       }
       console.log(`    → ${linesUpdated} order_lines reassigned`);
 
+      // 5b. Tablas RESTRICT agregadas DESPUÉS de escribir este script (FEFO + compras):
+      // stock_lots/stock_lot_movements → reassign (unique es (tenant,id), sin conflicto por
+      // producto+lote); abc_classification → DELETE (derivada, se recomputa nightly);
+      // goods_receipt/purchase_order/purchase_requisition_lines → reassign. Sin esto el
+      // DELETE del producto duplicado (paso 7) choca con la FK RESTRICT.
+      console.log('  (5b/8) stock_lots / abc / líneas de compra (RESTRICT nuevas)...');
+      let lotsR = 0, lotDup = 0, lotMovR = 0, abcD = 0, buyR = 0;
+      for (const [nonId, canonId] of productMap) {
+        // stock_lots: unique natural (tenant,warehouse,product,lot_code,expiry). Sumar qty
+        // donde el canónico ya tiene ese lote, borrar el dup, y reasignar el resto.
+        await trx.raw(`
+          UPDATE commercial.stock_lots l_can
+             SET quantity = l_can.quantity + l_dup.quantity
+          FROM commercial.stock_lots l_dup
+          WHERE l_can.product_id = ? AND l_dup.product_id = ?
+            AND l_can.tenant_id = l_dup.tenant_id AND l_can.warehouse_id = l_dup.warehouse_id
+            AND l_can.lot_code IS NOT DISTINCT FROM l_dup.lot_code
+            AND l_can.expiry_date IS NOT DISTINCT FROM l_dup.expiry_date`, [canonId, nonId]);
+        const dl = await trx.raw(`
+          DELETE FROM commercial.stock_lots ld
+          WHERE ld.product_id = ? AND EXISTS (
+            SELECT 1 FROM commercial.stock_lots lc WHERE lc.product_id = ?
+              AND lc.tenant_id = ld.tenant_id AND lc.warehouse_id = ld.warehouse_id
+              AND lc.lot_code IS NOT DISTINCT FROM ld.lot_code
+              AND lc.expiry_date IS NOT DISTINCT FROM ld.expiry_date)`, [nonId, canonId]);
+        lotDup += dl.rowCount || 0;
+        lotsR += await trx('commercial.stock_lots').where({ product_id: nonId }).update({ product_id: canonId });
+        lotMovR += await trx('commercial.stock_lot_movements').where({ product_id: nonId }).update({ product_id: canonId });
+        abcD += await trx('commercial.abc_classification').where({ product_id: nonId }).del();
+        buyR += await trx('commercial.goods_receipt_lines').where({ product_id: nonId }).update({ product_id: canonId });
+        buyR += await trx('commercial.purchase_order_lines').where({ product_id: nonId }).update({ product_id: canonId });
+        buyR += await trx('commercial.purchase_requisition_lines').where({ product_id: nonId }).update({ product_id: canonId });
+      }
+      console.log(`    → ${lotsR} lots reassigned (${lotDup} dup summed+deleted), ${lotMovR} lot-movs, ${abcD} abc deleted, ${buyR} purchase lines`);
+
       // 6. Productos sin match: solo UPDATE brand_id (los movemos a la canónica)
       console.log('  (6/8) products sin match — UPDATE brand_id...');
       let movedProds = 0;
@@ -294,14 +346,20 @@ async function buildProductMaps(canonicalBrandId, nonCanonicalBrandId) {
       }
       console.log(`    → ${prodsDeleted} products deleted`);
 
-      // 8. DELETE brands no canónicas
-      console.log('  (8/8) DELETE brands no canónicas...');
+      // 8. Eliminar brands no canónicas. En modo agresivo → SOFT-delete (set deleted_at):
+      // brands→products es ON DELETE CASCADE, y quedan productos SOFT-DELETED (tombstones)
+      // bajo estas brands que un HARD-delete cascade-borraría → violaría las FK RESTRICT de
+      // product_prices/stock. El soft-delete las oculta de la UP (filtro deleted_at IS NULL)
+      // sin tocar los tombstones, y es reversible. Estricto conserva el hard-delete.
+      console.log(`  (8/8) ${AGGRESSIVE ? 'SOFT-DELETE' : 'DELETE'} brands no canónicas...`);
       const brandIdsToDelete = [...brandMap.keys()];
       let brandsDeleted = 0;
       if (brandIdsToDelete.length) {
-        brandsDeleted = await trx('brands').whereIn('id', brandIdsToDelete).del();
+        brandsDeleted = AGGRESSIVE
+          ? await trx('brands').whereIn('id', brandIdsToDelete).whereNull('deleted_at').update({ deleted_at: trx.fn.now() })
+          : await trx('brands').whereIn('id', brandIdsToDelete).del();
       }
-      console.log(`    → ${brandsDeleted} brands deleted`);
+      console.log(`    → ${brandsDeleted} brands ${AGGRESSIVE ? 'soft-deleted' : 'deleted'}`);
     });
 
     console.log('\n✓ Normalización completa. Verifica con: node database/brands-explore.js');
