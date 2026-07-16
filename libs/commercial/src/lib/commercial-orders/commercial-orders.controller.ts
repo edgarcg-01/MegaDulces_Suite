@@ -3,6 +3,7 @@ import {
   Controller,
   Delete,
   Get,
+  Header,
   Param,
   Patch,
   Post,
@@ -276,6 +277,34 @@ export class CommercialOrdersController {
   })
   facturar(@Param('id') id: string) {
     return this.service.issueForOrder(id);
+  }
+
+  @Post(':id/self-invoice')
+  @RequirePermissions(Permission.COMMERCIAL_ORDERS_VER)
+  @ApiOperation({
+    summary:
+      'FE.7 (Portal B2B): el cliente factura SU propio pedido entregado. Ownership forzado + solo customer_b2b. Acepta datos fiscales para capturarlos antes de timbrar. Idempotente (409 si ya tiene CFDI).',
+  })
+  selfInvoice(
+    @Param('id') id: string,
+    @Body() body: { rfc?: string; legal_name?: string; regimen_fiscal?: string; uso_cfdi?: string; zip?: string },
+  ) {
+    return this.service.selfInvoiceOrder(id, body);
+  }
+
+  @Get(':id/cfdi-xml')
+  @RequirePermissions(Permission.COMMERCIAL_ORDERS_VER)
+  @Header('Content-Type', 'application/xml; charset=utf-8')
+  @ApiOperation({ summary: 'FE.7: XML timbrado del CFDI del pedido (ownership: customer_b2b solo el suyo).' })
+  cfdiXml(@Param('id') id: string) {
+    return this.service.getCfdiXml(id);
+  }
+
+  @Get(':id/cfdi-pdf')
+  @RequirePermissions(Permission.COMMERCIAL_ORDERS_VER)
+  @ApiOperation({ summary: 'FE.7: PDF (base64) del CFDI del pedido. Devuelve { pdf_base64 }.' })
+  cfdiPdf(@Param('id') id: string) {
+    return this.service.getCfdiPdf(id);
   }
 
   @Post('global-invoice')

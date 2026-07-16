@@ -9,6 +9,7 @@ import {
   signal,
 } from '@angular/core';
 import { CommonModule, CurrencyPipe } from '@angular/common';
+import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { SkeletonModule } from 'primeng/skeleton';
 import { TagModule } from 'primeng/tag';
@@ -20,12 +21,14 @@ import { PortalService, Order, OrderHistoryEntry, OrderShipmentEntry } from '../
 import { cldImage } from '../../../core/util/cloudinary';
 import { brandPlaceholderGradient } from '../../../core/util/brand-placeholder';
 import { CountUpDirective } from '../ui/count-up.directive';
+import { SAT_REGIMENES, SAT_USOS_CFDI, SatCatItem } from '../../../core/constants/sat-catalogs';
 
 @Component({
   selector: 'app-portal-order-detail',
   standalone: true,
   imports: [
     CommonModule,
+    FormsModule,
     RouterLink,
     CurrencyPipe,
     SkeletonModule,
@@ -156,6 +159,75 @@ import { CountUpDirective } from '../ui/count-up.directive';
       <p *ngIf="reorderError()" class="od-actions-error" role="alert">
         <i class="pi pi-exclamation-circle" aria-hidden="true"></i> {{ reorderError() }}
       </p>
+
+      <!-- FE.7 — Factura (CFDI) self-service -->
+      <section class="od-invoice" *ngIf="o.status === 'fulfilled'" aria-label="Factura">
+        <ng-container *ngIf="o.cfdi_uuid; else needInvoice">
+          <div class="od-inv-done">
+            <div class="od-inv-done-head">
+              <i class="pi pi-file-check" aria-hidden="true"></i>
+              <div>
+                <p class="od-inv-title">Factura emitida</p>
+                <p class="od-inv-sub">UUID {{ o.cfdi_uuid }}</p>
+              </div>
+            </div>
+            <div class="od-inv-dl">
+              <button type="button" class="od-inv-btn" [disabled]="downloadingPdf()" (click)="downloadPdf(o)">
+                <i [class]="downloadingPdf() ? 'pi pi-spin pi-spinner' : 'pi pi-file-pdf'" aria-hidden="true"></i> PDF
+              </button>
+              <button type="button" class="od-inv-btn" [disabled]="downloadingXml()" (click)="downloadXml(o)">
+                <i [class]="downloadingXml() ? 'pi pi-spin pi-spinner' : 'pi pi-code'" aria-hidden="true"></i> XML
+              </button>
+            </div>
+          </div>
+        </ng-container>
+
+        <ng-template #needInvoice>
+          <div class="od-inv-cta" *ngIf="!showInvoiceForm()">
+            <div class="od-inv-cta-text">
+              <p class="od-inv-title">¿Necesitas factura?</p>
+              <p class="od-inv-sub">Emite el CFDI de este pedido con tus datos fiscales.</p>
+            </div>
+            <button type="button" class="portal-btn-primary" (click)="openInvoiceForm()">
+              <i class="pi pi-file-edit" aria-hidden="true"></i> Solicitar factura
+            </button>
+          </div>
+
+          <form class="od-inv-form" *ngIf="showInvoiceForm()" (ngSubmit)="submitInvoice(o)">
+            <p class="od-inv-form-title">Datos fiscales</p>
+            <div class="od-inv-grid">
+              <label class="od-fld"><span>RFC</span>
+                <input type="text" [(ngModel)]="fiscal.rfc" name="rfc" maxlength="13" required autocomplete="off" style="text-transform:uppercase" />
+              </label>
+              <label class="od-fld od-fld-full"><span>Razón social</span>
+                <input type="text" [(ngModel)]="fiscal.legal_name" name="legal_name" required autocomplete="off" />
+              </label>
+              <label class="od-fld"><span>Régimen fiscal</span>
+                <select [(ngModel)]="fiscal.regimen_fiscal" name="regimen" required>
+                  <option value="">— Seleccionar —</option>
+                  <option *ngFor="let r of regimenes" [value]="r.code">{{ r.display }}</option>
+                </select>
+              </label>
+              <label class="od-fld"><span>Uso CFDI</span>
+                <select [(ngModel)]="fiscal.uso_cfdi" name="uso" required>
+                  <option *ngFor="let u of usos" [value]="u.code">{{ u.display }}</option>
+                </select>
+              </label>
+              <label class="od-fld"><span>CP fiscal</span>
+                <input type="text" [(ngModel)]="fiscal.zip" name="zip" maxlength="5" inputmode="numeric" required autocomplete="off" />
+              </label>
+            </div>
+            <p class="od-inv-err" *ngIf="invoiceError()" role="alert"><i class="pi pi-exclamation-circle" aria-hidden="true"></i> {{ invoiceError() }}</p>
+            <div class="od-inv-form-actions">
+              <button type="button" class="od-inv-btn" (click)="showInvoiceForm.set(false)" [disabled]="invoicing()">Cancelar</button>
+              <button type="submit" class="portal-btn-primary" [disabled]="invoicing()">
+                <i [class]="invoicing() ? 'pi pi-spin pi-spinner' : 'pi pi-check'" aria-hidden="true"></i>
+                {{ invoicing() ? 'Emitiendo…' : 'Emitir factura' }}
+              </button>
+            </div>
+          </form>
+        </ng-template>
+      </section>
 
       <div class="od-layout">
         <!-- Lines -->
@@ -536,6 +608,60 @@ import { CountUpDirective } from '../ui/count-up.directive';
         border-radius: var(--r-md);
         font-size: var(--fs-sm);
         font-weight: 600;
+      }
+
+      /* ── FE.7 FACTURA (CFDI) ───────────────────────────────────── */
+      .od-invoice {
+        margin-bottom: 1.5rem;
+        background: var(--card-bg);
+        border: 1px solid var(--border-color);
+        border-radius: var(--r-lg);
+        padding: 1.125rem 1.25rem;
+      }
+      .od-inv-title { margin: 0; font-size: var(--fs-body); font-weight: 700; color: var(--text-main); }
+      .od-inv-sub { margin: 0.15rem 0 0; font-size: var(--fs-xs); color: var(--text-muted); word-break: break-all; }
+      .od-inv-done, .od-inv-cta {
+        display: flex; justify-content: space-between; align-items: center; gap: 1rem; flex-wrap: wrap;
+      }
+      .od-inv-done-head { display: flex; align-items: center; gap: 0.75rem; }
+      .od-inv-done-head > i { font-size: var(--fs-h2); color: var(--ok-fg); }
+      .od-inv-dl { display: flex; gap: 0.5rem; }
+      .od-inv-btn {
+        display: inline-flex; align-items: center; gap: 0.4rem;
+        padding: 0.5rem 0.9rem; border-radius: var(--r-md);
+        background: var(--neutral-100); color: var(--text-main);
+        border: 1px solid var(--border-color); font-weight: 600; font-size: var(--fs-sm);
+        cursor: pointer; transition: background-color 150ms var(--ease-standard);
+      }
+      .od-inv-btn:hover:not(:disabled) { background: var(--neutral-200, var(--neutral-100)); }
+      .od-inv-btn:disabled { opacity: 0.6; cursor: default; }
+
+      .od-inv-form { display: flex; flex-direction: column; gap: 0.875rem; }
+      .od-inv-form-title { margin: 0; font-size: var(--fs-body); font-weight: 700; color: var(--text-main); }
+      .od-inv-grid {
+        display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;
+      }
+      @media (max-width: 560px) { .od-inv-grid { grid-template-columns: 1fr; } }
+      .od-fld { display: flex; flex-direction: column; gap: 0.3rem; }
+      .od-fld-full { grid-column: 1 / -1; }
+      .od-fld span {
+        font-size: var(--fs-nano); text-transform: uppercase; letter-spacing: 0.05em;
+        font-weight: 700; color: var(--text-muted);
+      }
+      .od-fld input, .od-fld select {
+        border: 1px solid var(--border-color); border-radius: var(--r-sm);
+        padding: 0.5rem 0.65rem; background: var(--input-bg, var(--card-bg)); color: var(--text-main);
+        font-size: var(--fs-sm); font-family: inherit;
+      }
+      .od-fld input:focus, .od-fld select:focus {
+        outline: none; border-color: var(--action); box-shadow: 0 0 0 3px var(--ember-soft, rgba(0,0,0,0.05));
+      }
+      .od-inv-form-actions { display: flex; justify-content: flex-end; gap: 0.6rem; }
+      .od-inv-err {
+        display: flex; align-items: center; gap: 0.4rem; margin: 0;
+        padding: 0.55rem 0.75rem; background: var(--bad-soft-bg); color: var(--bad-soft-fg);
+        border: 1px solid var(--bad-border); border-radius: var(--r-sm);
+        font-size: var(--fs-sm); font-weight: 600;
       }
 
       /* ── LAYOUT ────────────────────────────────────────────────── */
@@ -950,6 +1076,16 @@ export class PortalOrderDetailComponent implements OnInit {
   readonly reorderError = signal<string | null>(null);
   readonly celebrate = signal(false);
 
+  // ── FE.7: facturación self-service ──
+  readonly regimenes: SatCatItem[] = SAT_REGIMENES;
+  readonly usos: SatCatItem[] = SAT_USOS_CFDI;
+  readonly showInvoiceForm = signal(false);
+  readonly invoicing = signal(false);
+  readonly invoiceError = signal<string | null>(null);
+  readonly downloadingPdf = signal(false);
+  readonly downloadingXml = signal(false);
+  fiscal = { rfc: '', legal_name: '', regimen_fiscal: '', uso_cfdi: 'G03', zip: '' };
+
   /** Capturado en construcción: navegar borra `history.state` después. */
   private readonly justConfirmed =
     !!this.router.getCurrentNavigation()?.extras.state?.['justConfirmed'];
@@ -974,6 +1110,87 @@ export class PortalOrderDetailComponent implements OnInit {
         this.reorderError.set('No pudimos repetir el pedido. Intenta de nuevo.');
       },
     });
+  }
+
+  /** Abre el form de facturación, prefilleando con los datos fiscales del customer. */
+  openInvoiceForm(): void {
+    this.invoiceError.set(null);
+    this.showInvoiceForm.set(true);
+    this.api.myCustomerInfo().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (c: any) => {
+        this.fiscal = {
+          rfc: c?.rfc || '',
+          legal_name: c?.legal_name || c?.name || '',
+          regimen_fiscal: c?.regimen_fiscal || '',
+          uso_cfdi: c?.uso_cfdi || 'G03',
+          zip: c?.billing_address?.zip || '',
+        };
+      },
+      error: () => { /* form vacío: el cliente captura a mano */ },
+    });
+  }
+
+  submitInvoice(o: Order): void {
+    const f = this.fiscal;
+    if (!/^[A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3}$/.test((f.rfc || '').toUpperCase())) {
+      this.invoiceError.set('RFC inválido.'); return;
+    }
+    if (!f.legal_name?.trim()) { this.invoiceError.set('Falta la razón social.'); return; }
+    if (!f.regimen_fiscal) { this.invoiceError.set('Elige el régimen fiscal.'); return; }
+    if (!f.uso_cfdi) { this.invoiceError.set('Elige el uso de CFDI.'); return; }
+    if (!/^\d{5}$/.test(f.zip || '')) { this.invoiceError.set('CP fiscal inválido (5 dígitos).'); return; }
+
+    this.invoiceError.set(null);
+    this.invoicing.set(true);
+    this.api.selfInvoice(o.id, {
+      rfc: f.rfc.toUpperCase(), legal_name: f.legal_name.trim(),
+      regimen_fiscal: f.regimen_fiscal, uso_cfdi: f.uso_cfdi, zip: f.zip,
+    }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (res) => {
+        this.invoicing.set(false);
+        this.showInvoiceForm.set(false);
+        // Reflejar el CFDI recién emitido sin recargar toda la página.
+        const cur = this.order();
+        if (cur) this.order.set({ ...cur, cfdi_uuid: res.uuid });
+      },
+      error: (err) => {
+        this.invoicing.set(false);
+        this.invoiceError.set(err?.error?.message || 'No se pudo emitir la factura. Verifica tus datos fiscales.');
+      },
+    });
+  }
+
+  downloadPdf(o: Order): void {
+    if (this.downloadingPdf()) return;
+    this.downloadingPdf.set(true);
+    this.api.cfdiPdf(o.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (res) => {
+        this.downloadingPdf.set(false);
+        const bytes = Uint8Array.from(atob(res.pdf_base64), (c) => c.charCodeAt(0));
+        this.saveBlob(bytes, `factura_${o.code}.pdf`, 'application/pdf');
+      },
+      error: () => this.downloadingPdf.set(false),
+    });
+  }
+
+  downloadXml(o: Order): void {
+    if (this.downloadingXml()) return;
+    this.downloadingXml.set(true);
+    this.api.cfdiXml(o.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (xml) => {
+        this.downloadingXml.set(false);
+        this.saveBlob(xml, `factura_${o.code}.xml`, 'application/xml');
+      },
+      error: () => this.downloadingXml.set(false),
+    });
+  }
+
+  private saveBlob(data: BlobPart, filename: string, type: string): void {
+    const blob = new Blob([data], { type });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = filename; a.click();
+    URL.revokeObjectURL(url);
   }
 
   ngOnInit(): void {

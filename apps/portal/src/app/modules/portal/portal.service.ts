@@ -151,6 +151,8 @@ export interface Order {
   confirmed_at?: string;
   fulfilled_at?: string;
   cancelled_at?: string;
+  /** FE.7 — UUID del CFDI emitido para este pedido (null si aún no facturado). */
+  cfdi_uuid?: string | null;
   lines?: OrderLine[];
 }
 
@@ -186,6 +188,15 @@ export interface OrderShipmentEntry {
   created_at: string;
   vehicle_plate: string | null;
   route_name: string | null;
+}
+
+/** FE.7 — datos fiscales que el cliente confirma/edita al pedir su factura. */
+export interface SelfInvoiceFiscal {
+  rfc?: string;
+  legal_name?: string;
+  regimen_fiscal?: string;
+  uso_cfdi?: string;
+  zip?: string;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -738,6 +749,21 @@ export class PortalService {
 
   orderShipments(id: string): Observable<OrderShipmentEntry[]> {
     return this.http.get<OrderShipmentEntry[]>(`${this.base}/orders/${id}/shipments`);
+  }
+
+  // ─── FE.7: facturación self-service ───
+
+  /** El cliente factura SU pedido entregado. Datos fiscales opcionales (se guardan en su customer). */
+  selfInvoice(orderId: string, fiscal?: SelfInvoiceFiscal): Observable<{ uuid: string; serie: string; folio: string; total: number }> {
+    return this.http.post<{ uuid: string; serie: string; folio: string; total: number }>(
+      `${this.base}/orders/${orderId}/self-invoice`, fiscal || {},
+    );
+  }
+  cfdiXml(orderId: string): Observable<string> {
+    return this.http.get(`${this.base}/orders/${orderId}/cfdi-xml`, { responseType: 'text' });
+  }
+  cfdiPdf(orderId: string): Observable<{ pdf_base64: string }> {
+    return this.http.get<{ pdf_base64: string }>(`${this.base}/orders/${orderId}/cfdi-pdf`);
   }
 
   // ─── Recommendations (D.4) ───

@@ -1100,6 +1100,96 @@ export class CommercialOrdersService {
     return res;
   }
 
+  // ── FE.7: self-service de facturación desde el Portal B2B ────────────────────
+
+  /**
+   * FE.7 — El CLIENTE (customer_b2b) factura SU propio pedido entregado desde el
+   * portal. Ownership forzado (solo su pedido). Acepta datos fiscales opcionales
+   * para capturarlos/actualizarlos sobre `commercial.customers` antes de timbrar
+   * (self-service de "mis datos de facturación"). Idempotente por `cfdi_uuid`.
+   *
+   * Restringido a customer_b2b: los usuarios internos usan `/:id/facturar`
+   * (FISCAL_FACTURAR_GESTIONAR) — así este endpoint scoped no es un bypass de ese
+   * permiso administrativo.
+   */
+  async selfInvoiceOrder(
+    orderId: string,
+    fiscal?: { rfc?: string; legal_name?: string; regimen_fiscal?: string; uso_cfdi?: string; zip?: string },
+  ): Promise<IssueInvoiceResult> {
+    if (!UUID_REGEX.test(orderId)) throw new BadRequestException('orderId inválido');
+    if (!this.invoiceIssuer) throw new ServiceUnavailableException('Facturación no disponible (módulo fiscal apagado).');
+    const ctx = this.tenantCtx.get();
+    if (ctx?.roleName !== 'customer_b2b') {
+      throw new ForbiddenException('La auto-factura es solo para clientes del portal. Los internos usan facturación administrativa.');
+    }
+    if (fiscal?.rfc && !/^[A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3}$/.test(String(fiscal.rfc).toUpperCase())) {
+      throw new BadRequestException('RFC inválido.');
+    }
+    if (fiscal?.zip && !/^\d{5}$/.test(String(fiscal.zip))) {
+      throw new BadRequestException('CP inválido (5 dígitos).');
+    }
+
+    await this.tk.run(async (trx) => {
+      const order = await trx('commercial.orders').where({ id: orderId }).first();
+      if (!order) throw new NotFoundException(`Order ${orderId} no encontrada`);
+      await this.enforceOrderOwnership(trx, order);
+      if (order.status !== 'fulfilled') throw new ConflictException('Solo se factura un pedido entregado (fulfilled).');
+      if (order.cfdi_uuid) throw new ConflictException(`El pedido ya tiene CFDI: ${order.cfdi_uuid}`);
+
+      if (fiscal && (fiscal.rfc || fiscal.legal_name || fiscal.regimen_fiscal || fiscal.uso_cfdi || fiscal.zip)) {
+        const c = await trx('commercial.customers').where({ id: order.customer_id }).first();
+        const patch: Record<string, any> = { updated_at: trx.fn.now() };
+        if (fiscal.rfc) patch.rfc = String(fiscal.rfc).toUpperCase();
+        if (fiscal.legal_name) patch.legal_name = String(fiscal.legal_name).trim();
+        if (fiscal.regimen_fiscal) patch.regimen_fiscal = String(fiscal.regimen_fiscal).trim();
+        if (fiscal.uso_cfdi) patch.uso_cfdi = String(fiscal.uso_cfdi).trim().toUpperCase();
+        if (fiscal.zip) {
+          const addr = c?.billing_address && typeof c.billing_address === 'object' ? c.billing_address : {};
+          patch.billing_address = JSON.stringify({ ...addr, zip: String(fiscal.zip).trim() });
+        }
+        await trx('commercial.customers').where({ id: order.customer_id }).update(patch);
+      }
+    });
+
+    const input = await this.buildInvoiceInput(orderId);
+    if (!input) throw new BadRequestException('Faltan datos fiscales completos (RFC, razón social, régimen fiscal, uso CFDI y CP).');
+    const tenantId = this.tenantCtx.requireTenantId();
+    const res = await this.invoiceIssuer.issue(tenantId, input);
+    if (!res?.uuid) throw new ServiceUnavailableException('El PAC no devolvió UUID.');
+    await this.tk.run(async (trx) =>
+      trx('commercial.orders').where({ id: orderId }).update({ cfdi_uuid: res.uuid, updated_at: trx.fn.now() }));
+    return res;
+  }
+
+  /** FE.7 — UUID del CFDI del pedido, con ownership (customer_b2b solo el suyo). */
+  private async requireOwnedCfdiUuid(orderId: string): Promise<string> {
+    if (!UUID_REGEX.test(orderId)) throw new BadRequestException('orderId inválido');
+    if (!this.invoiceIssuer) throw new ServiceUnavailableException('Facturación no disponible.');
+    return this.tk.run(async (trx) => {
+      const order = await trx('commercial.orders').where({ id: orderId }).select('customer_id', 'cfdi_uuid').first();
+      if (!order) throw new NotFoundException(`Order ${orderId} no encontrada`);
+      await this.enforceOrderOwnership(trx, order);
+      if (!order.cfdi_uuid) throw new NotFoundException('Este pedido no tiene CFDI emitido.');
+      return order.cfdi_uuid as string;
+    });
+  }
+
+  /** FE.7 — XML timbrado del pedido (descarga desde el portal). */
+  async getCfdiXml(orderId: string): Promise<string> {
+    const uuid = await this.requireOwnedCfdiUuid(orderId);
+    const xml = await this.invoiceIssuer!.getXml(this.tenantCtx.requireTenantId(), uuid);
+    if (!xml) throw new NotFoundException('XML del CFDI no disponible.');
+    return xml;
+  }
+
+  /** FE.7 — PDF (base64) del pedido; el motor lo genera/cachea. */
+  async getCfdiPdf(orderId: string): Promise<{ pdf_base64: string }> {
+    const uuid = await this.requireOwnedCfdiUuid(orderId);
+    const pdf = await this.invoiceIssuer!.getPdf(this.tenantCtx.requireTenantId(), uuid);
+    if (!pdf) throw new NotFoundException('PDF del CFDI no disponible.');
+    return { pdf_base64: pdf };
+  }
+
   /**
    * FE.6 — Factura global de mostrador: agrega los pedidos ENTREGADOS de un día
    * cuyo cliente NO tiene datos fiscales completos (los nominativos ya los facturó
