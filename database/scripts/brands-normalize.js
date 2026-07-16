@@ -27,8 +27,12 @@ const { assertEnv, logTarget } = require('./_lib/preflight');
 assertEnv(['DATABASE_URL'], { script: __filename });
 logTarget('DATABASE_URL');
 
+const fs = require('fs');
 const DATABASE_URL = process.env.DATABASE_URL;
 const EXECUTE = process.argv.includes('--execute');
+// --map <archivo.json>: mapa curado { "MARCA ORIGEN": "MARCA CANÓNICA", ... } para alias
+// cortos que la clave (estricta o agresiva) no agrupa (PERFETTI → PERFETTI VAN MELLE).
+const MAP_PATH = (() => { const i = process.argv.indexOf('--map'); return i >= 0 ? process.argv[i + 1] : null; })();
 
 const db = knex({
   client: 'pg',
@@ -99,6 +103,30 @@ async function buildPlan() {
   return plan;
 }
 
+// Plan desde un mapa curado { "ORIGEN": "CANÓNICA" }. Resuelve por nombre exacto (trim)
+// entre marcas activas. Agrupa varias fuentes bajo la misma canónica. Reporta las que no
+// resuelven (no falla). Reusa toda la maquinaria de merge/soft-delete de abajo.
+async function buildPlanFromMap(mapPath) {
+  const raw = JSON.parse(fs.readFileSync(mapPath, 'utf8'));
+  const brands = await db('brands').whereNull('deleted_at').select('*');
+  const byName = new Map(brands.map(b => [b.nombre.trim(), b]));
+  const pc = await db.raw(`SELECT brand_id, COUNT(*) AS active FROM products WHERE deleted_at IS NULL GROUP BY brand_id`);
+  const counts = new Map(pc.rows.map(r => [r.brand_id, Number(r.active)]));
+  for (const b of brands) b.productCount = counts.get(b.id) || 0;
+  const byCanon = new Map();
+  const misses = [];
+  for (const [src, can] of Object.entries(raw)) {
+    const sb = byName.get(src.trim()), cb = byName.get(can.trim());
+    if (!sb) { misses.push(`origen no encontrada: "${src}"`); continue; }
+    if (!cb) { misses.push(`canónica no encontrada: "${can}"`); continue; }
+    if (sb.id === cb.id) { misses.push(`origen==canónica: "${src}"`); continue; }
+    if (!byCanon.has(cb.id)) byCanon.set(cb.id, { key: `map::${cb.nombre}`, canonical: cb, nonCanonical: [] });
+    byCanon.get(cb.id).nonCanonical.push(sb);
+  }
+  if (misses.length) { console.log('⚠️  pares no resueltos (se omiten):'); misses.forEach(m => console.log('   ' + m)); }
+  return [...byCanon.values()];
+}
+
 async function buildProductMaps(canonicalBrandId, nonCanonicalBrandId) {
   const [canonProds, nonCanonProds] = await Promise.all([
     db('products').where({ brand_id: canonicalBrandId }).whereNull('deleted_at').select('id', 'nombre', 'tenant_id'),
@@ -121,7 +149,7 @@ async function buildProductMaps(canonicalBrandId, nonCanonicalBrandId) {
     console.log(`▶ Mode: ${EXECUTE ? '🔥 EXECUTE' : '🧪 DRY-RUN (no changes)'}`);
     console.log('▶ Building plan...\n');
 
-    const plan = await buildPlan();
+    const plan = MAP_PATH ? await buildPlanFromMap(MAP_PATH) : await buildPlan();
     if (!plan.length) {
       console.log('✓ No hay duplicados. Nothing to do.');
       return;
@@ -351,15 +379,16 @@ async function buildProductMaps(canonicalBrandId, nonCanonicalBrandId) {
       // bajo estas brands que un HARD-delete cascade-borraría → violaría las FK RESTRICT de
       // product_prices/stock. El soft-delete las oculta de la UP (filtro deleted_at IS NULL)
       // sin tocar los tombstones, y es reversible. Estricto conserva el hard-delete.
-      console.log(`  (8/8) ${AGGRESSIVE ? 'SOFT-DELETE' : 'DELETE'} brands no canónicas...`);
+      const SOFT = AGGRESSIVE || !!MAP_PATH;
+      console.log(`  (8/8) ${SOFT ? 'SOFT-DELETE' : 'DELETE'} brands no canónicas...`);
       const brandIdsToDelete = [...brandMap.keys()];
       let brandsDeleted = 0;
       if (brandIdsToDelete.length) {
-        brandsDeleted = AGGRESSIVE
+        brandsDeleted = SOFT
           ? await trx('brands').whereIn('id', brandIdsToDelete).whereNull('deleted_at').update({ deleted_at: trx.fn.now() })
           : await trx('brands').whereIn('id', brandIdsToDelete).del();
       }
-      console.log(`    → ${brandsDeleted} brands ${AGGRESSIVE ? 'soft-deleted' : 'deleted'}`);
+      console.log(`    → ${brandsDeleted} brands ${SOFT ? 'soft-deleted' : 'deleted'}`);
     });
 
     console.log('\n✓ Normalización completa. Verifica con: node database/brands-explore.js');
