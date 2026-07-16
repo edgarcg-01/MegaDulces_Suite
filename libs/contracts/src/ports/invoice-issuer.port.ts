@@ -53,4 +53,8 @@ export interface IssueInvoiceResult {
 export interface InvoiceIssuerPort {
   /** Emite y timbra un CFDI. Best-effort desde hooks: el caller debe tolerar throw/null. */
   issue(tenantId: string, input: IssueInvoiceInput): Promise<IssueInvoiceResult | null>;
+  /** FE.7 — XML timbrado por UUID (para que el portal descargue la factura de su pedido). */
+  getXml(tenantId: string, uuid: string): Promise<string | null>;
+  /** FE.7 — PDF (base64) por UUID; lo genera/cachea el motor de emisión. */
+  getPdf(tenantId: string, uuid: string): Promise<string | null>;
 }

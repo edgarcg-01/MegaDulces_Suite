@@ -19,4 +19,24 @@ export class OrderInvoiceIssuerService implements InvoiceIssuerPort {
     const r = await this.emision.emitir(input as EmitirFacturaInput);
     return { uuid: r.uuid, serie: r.serie, folio: r.folio, total: r.total };
   }
+
+  /** FE.7 — XML timbrado por UUID (tenant vía CLS). */
+  async getXml(_tenantId: string, uuid: string): Promise<string | null> {
+    try {
+      return await this.emision.getXml(uuid);
+    } catch (e: any) {
+      this.logger.warn(`getXml(${uuid}) falló: ${e?.message || e}`);
+      return null;
+    }
+  }
+
+  /** FE.7 — PDF (base64) por UUID; EmisionService lo genera/cachea. */
+  async getPdf(_tenantId: string, uuid: string): Promise<string | null> {
+    try {
+      return await this.emision.getPdf(uuid);
+    } catch (e: any) {
+      this.logger.warn(`getPdf(${uuid}) falló: ${e?.message || e}`);
+      return null;
+    }
+  }
 }
