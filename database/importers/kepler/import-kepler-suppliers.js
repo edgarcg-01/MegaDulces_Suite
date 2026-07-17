@@ -2,17 +2,27 @@
 /**
  * Importer Kepler → catalog.suppliers + products.supplier_id (BULK).
  *
- * Siembra proveedores desde kdig (código=c1, nombre=c2) y enlaza cada producto
- * a su proveedor real vía kdii.c3 → kdig. No toca category_id (deprecado).
- * kdig/kdii son catálogos por-branch SIN columna sucursal (no aplica el gotcha
- * de réplicas de kdil).
+ * FUENTE CORRECTA (fix 2026-07-17): el PROVEEDOR REAL vive en
+ *   - `md.kdxd`          = catálogo de proveedores (c2=código, c3=nombre, c10=RFC)
+ *   - `md.kdpv_prov_prod` = relación proveedor→producto (c1=código prov, c2=SKU)
  *
- * MULTI-BRANCH (fix): antes leía SOLO md_03 → ~800 productos quedaban sin
- * proveedor porque su ficha (kdii.c3) vive en OTRA sucursal. Ahora recorre las
- * 6 sucursales y UNE: un SKU toma el primer c3 no vacío que encuentre. Reusa el
- * mismo `STOCK_BRANCH_MAP` que stock/reorden ("regla de oro": misma fuente).
+ * ANTES (bug): leía `md.kdig` (c1/c2) que es el catálogo de **LÍNEAS** (=marca), y
+ * enlazaba por `kdii.c3` (la línea del producto). Como import-brands-lineas.js usa
+ * la MISMA kdig, el "proveedor" salía IDÉNTICO a la marca (supplier_id==brand_id en
+ * 78% del catálogo). Ej: SKU 24007 (YOHARI) → proveedor real CP033 = "PRODUCTOS
+ * TECHANI", pero el catálogo lo ponía en la línea 015 "Dulces Chompys".
  *
- * BULK: staging temp + merge server-side (per-fila contra Railway ~1.2s/query).
+ * kdpv_prov_prod es ~1:1 (9,346 SKUs, solo 3 con >1 proveedor → gana el 1º). El
+ * proveedor "00001" = "PRODUCTOS SIN PROVEEDOR ASIGNADO" (marcador Kepler; se
+ * importa tal cual, es más honesto que dejar un proveedor equivocado).
+ *
+ * MULTI-BRANCH: kdxd/kdpv_prov_prod son por-sucursal (catálogos sin columna
+ * sucursal). Se recorren las 6 y se UNEN: un código de proveedor toma el primer
+ * nombre no vacío; un SKU toma el primer proveedor no vacío que aparezca.
+ *
+ * NO toca products sin entrada en kdpv_prov_prod (conservan su supplier_id actual;
+ * se reporta el conteo). NO borra los suppliers viejos huérfanos (quedan con 0
+ * productos; su limpieza es decisión aparte).
  *
  *   node database/importers/kepler/import-kepler-suppliers.js          # dry-run
  *   node database/importers/kepler/import-kepler-suppliers.js --apply
@@ -30,8 +40,6 @@ const DST = process.env.DATABASE_URL_NEW || 'postgresql://postgres:superoot@loca
 const APPLY = process.argv.includes('--apply');
 const BATCH = 1000;
 
-// Lista de sucursales a unir. Prioridad: SUPPLIERS_BRANCH_MAP > STOCK_BRANCH_MAP
-// > SUPPLIERS_BRANCH_URL (legacy, una sola) > default 6 sucursales.
 const BRANCHES = process.env.SUPPLIERS_BRANCH_MAP
   ? JSON.parse(process.env.SUPPLIERS_BRANCH_MAP)
   : process.env.STOCK_BRANCH_MAP
@@ -64,29 +72,30 @@ async function stage(db, table, cols, rows) {
   await db.connect();
 
   try {
-    console.log(`\n=== Import proveedores Kepler → suppliers + products.supplier_id (BULK, ${APPLY ? 'APPLY' : 'DRY-RUN'}) — ${BRANCHES.length} sucursal(es) ===\n`);
+    console.log(`\n=== Import PROVEEDOR REAL Kepler (kdxd + kdpv_prov_prod) → suppliers + products.supplier_id (BULK, ${APPLY ? 'APPLY' : 'DRY-RUN'}) — ${BRANCHES.length} sucursal(es) ===\n`);
 
-    // Union de las sucursales alcanzables. supMap: code→name (cualquiera no
-    // vacío). linkMap: sku→prov_code (primer c3 no vacío gana; un SKU con c3
-    // distinto entre sucursales es raro y se loguea como conflicto).
-    const supMap = new Map();
-    const linkMap = new Map();
+    const supMap = new Map();   // code -> name (proveedor real, kdxd)
+    const linkMap = new Map();  // sku  -> prov_code (kdpv_prov_prod)
     let conflicts = 0, reached = 0;
     for (const url of BRANCHES) {
       const src = new Client({ connectionString: url, connectionTimeoutMillis: 8000, statement_timeout: 120000 });
       const tag = (url.match(/@([^/]+)\/(\w+)/) || [, url, ''])[2] || url;
       try {
         await src.connect();
-        const { rows: kg } = await src.query(`SELECT btrim(c1) AS code, btrim(c2) AS name FROM md.kdig WHERE btrim(coalesce(c2,'')) <> ''`);
-        const { rows: link } = await src.query(`SELECT c1 AS sku, btrim(c3) AS prov_code FROM md.kdii WHERE NULLIF(btrim(c3),'') IS NOT NULL`);
-        for (const g of kg) if (!supMap.has(g.code)) supMap.set(g.code, g.name);
+        const { rows: xd } = await src.query(
+          `SELECT btrim(c2) AS code, btrim(c3) AS name FROM md.kdxd
+            WHERE btrim(coalesce(c2,'')) <> '' AND btrim(coalesce(c3,'')) <> ''`);
+        const { rows: link } = await src.query(
+          `SELECT btrim(c2) AS sku, btrim(c1) AS prov_code FROM md.kdpv_prov_prod
+            WHERE NULLIF(btrim(c1),'') IS NOT NULL AND NULLIF(btrim(c2),'') IS NOT NULL`);
+        for (const g of xd) if (!supMap.has(g.code)) supMap.set(g.code, g.name);
         for (const l of link) {
           const prev = linkMap.get(l.sku);
           if (prev == null) linkMap.set(l.sku, l.prov_code);
           else if (prev !== l.prov_code) conflicts++;
         }
         reached++;
-        console.log(`  ✅ ${tag}: ${kg.length} líneas · ${link.length} enlaces sku→prov`);
+        console.log(`  ✅ ${tag}: ${xd.length} proveedores · ${link.length} enlaces prov→sku`);
       } catch (e) {
         console.log(`  ⚠ ${tag}: sin conexión (${e.message}) — skip`);
       } finally {
@@ -94,24 +103,24 @@ async function stage(db, table, cols, rows) {
       }
     }
     if (!reached) throw new Error('Ninguna sucursal Kepler alcanzable — abort.');
-    const kg = [...supMap].map(([code, name]) => ({ code, name }));
+    const xd = [...supMap].map(([code, name]) => ({ code, name }));
     const link = [...linkMap].map(([sku, prov_code]) => ({ sku, prov_code }));
-    console.log(`\n  UNION (${reached}/${BRANCHES.length} sucursales): ${kg.length} proveedores · ${link.length} SKUs enlazados${conflicts ? ` · ⚠ ${conflicts} SKUs con c3 divergente entre sucursales (gana el 1º)` : ''}`);
+    console.log(`\n  UNION (${reached}/${BRANCHES.length} sucursales): ${xd.length} proveedores · ${link.length} SKUs enlazados${conflicts ? ` · ⚠ ${conflicts} SKUs con proveedor divergente entre sucursales (gana el 1º)` : ''}`);
 
     await db.query('BEGIN');
     await db.query(`SET LOCAL app.tenant_id = '${M}'`);
     await db.query(`CREATE TEMP TABLE stg_sup (code text, name text) ON COMMIT DROP`);
     await db.query(`CREATE TEMP TABLE stg_link (sku text, prov_code text) ON COMMIT DROP`);
-    await stage(db, 'stg_sup', ['code', 'name'], kg.map((g) => [g.code, g.name]));
+    await stage(db, 'stg_sup', ['code', 'name'], xd.map((g) => [g.code, g.name]));
     await stage(db, 'stg_link', ['sku', 'prov_code'], link.map((l) => [l.sku, l.prov_code]));
 
-    // 1) Upsert proveedores (server-side)
+    // 1) Upsert proveedores reales
     const up = await db.query(`
       INSERT INTO catalog.suppliers (tenant_id, code, name)
       SELECT $1, s.code, max(s.name) FROM stg_sup s GROUP BY s.code
       ON CONFLICT (tenant_id, code) DO UPDATE SET name=EXCLUDED.name, updated_at=now()`, [M]);
 
-    // 2) Enlazar products.supplier_id (server-side, solo cambios)
+    // 2) Re-enlazar products.supplier_id al proveedor REAL (solo cambios)
     const ln = await db.query(`
       UPDATE catalog.products p
          SET supplier_id = s.id, updated_at = now()
@@ -121,14 +130,30 @@ async function stage(db, table, cols, rows) {
          AND p.supplier_id IS DISTINCT FROM s.id`, [M]);
 
     console.log(`  proveedores upsert: ${up.rowCount} · productos (re)enlazados: ${ln.rowCount}`);
+
+    // Diagnóstico: SKUs del catálogo SIN entrada en kdpv_prov_prod (conservan supplier viejo)
+    const { rows: [cov] } = await db.query(`
+      SELECT count(*) FILTER (WHERE l.sku IS NULL) sin_link, count(*) total
+      FROM catalog.products p LEFT JOIN stg_link l ON l.sku=p.sku
+      WHERE p.tenant_id=$1 AND p.deleted_at IS NULL AND p.activo=true AND btrim(coalesce(p.sku,''))<>''`, [M]);
+    console.log(`  cobertura: ${cov.total - cov.sin_link}/${cov.total} SKUs con proveedor real · ${cov.sin_link} sin enlace (conservan supplier previo)`);
+
+    // Verificación puntual: los YOHARI que reportó el usuario
+    const { rows: chk } = await db.query(`
+      SELECT p.sku, s.code, s.name FROM catalog.products p
+      LEFT JOIN catalog.suppliers s ON s.id=p.supplier_id
+      WHERE p.tenant_id=$1 AND p.sku IN ('24007','30070','30084') ORDER BY p.sku`, [M]);
+    console.log('  check YOHARI:');
+    chk.forEach((r) => console.log(`    ${r.sku} → ${r.code} "${r.name}"`));
+
     const { rows: top } = await db.query(
-      `SELECT s.name, count(*) n FROM catalog.products p JOIN catalog.suppliers s ON s.tenant_id=p.tenant_id AND s.id=p.supplier_id
-        WHERE p.tenant_id=$1 GROUP BY s.name ORDER BY n DESC LIMIT 8`, [M]);
+      `SELECT s.code, s.name, count(*) n FROM catalog.products p JOIN catalog.suppliers s ON s.tenant_id=p.tenant_id AND s.id=p.supplier_id
+        WHERE p.tenant_id=$1 AND p.deleted_at IS NULL GROUP BY s.code, s.name ORDER BY n DESC LIMIT 10`, [M]);
     console.log('\nTop proveedores por # productos:');
-    top.forEach((r) => console.log(`  ${String(r.n).padStart(5)}  ${r.name}`));
+    top.forEach((r) => console.log(`  ${String(r.n).padStart(5)}  ${r.code}  ${r.name}`));
 
     if (APPLY) { await db.query('COMMIT'); console.log('\n[APPLY] COMMIT.'); }
-    else { await db.query('ROLLBACK'); console.log('\n[DRY-RUN] ROLLBACK.'); }
+    else { await db.query('ROLLBACK'); console.log('\n[DRY-RUN] ROLLBACK — usar --apply para aplicar.'); }
   } catch (e) {
     await db.query('ROLLBACK').catch(() => {});
     console.error('\nERROR (rollback):', e.message);
