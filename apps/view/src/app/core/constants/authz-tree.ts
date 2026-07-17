@@ -216,7 +216,7 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
           { id: 'conciliacion', label: 'Conciliación fiscal', route: '/contabilidad/conciliacion', view: [Permission.FISCAL_CONCILIACION_VER], manage: [] },
           { id: 'diot', label: 'DIOT / IVA', route: '/contabilidad/diot', view: [Permission.FISCAL_DIOT_VER], manage: [] },
           { id: 'descarga', label: 'Descarga masiva CFDI', route: '/contabilidad/descarga', view: [Permission.FISCAL_DESCARGA_VER], manage: [Permission.FISCAL_DESCARGA_GESTIONAR] },
-          { id: 'materialidad', label: 'Expediente de materialidad', route: '/contabilidad/materialidad', view: [Permission.FISCAL_MATERIALIDAD_VER], manage: [] },
+          { id: 'materialidad', label: 'Expediente de materialidad', route: '/contabilidad/materialidad', view: [Permission.FISCAL_MATERIALIDAD_VER], manage: [Permission.FISCAL_MATERIALIDAD_GESTIONAR] },
           { id: 'contabilidad', label: 'Contabilidad electrónica', route: '/contabilidad/contabilidad', view: [Permission.FISCAL_CONTAB_VER], manage: [Permission.FISCAL_CONTAB_GESTIONAR] },
           { id: 'impuestos', label: 'Impuestos provisionales', route: '/contabilidad/impuestos', view: [Permission.FISCAL_IMPUESTOS_VER], manage: [] },
           { id: 'credenciales', label: 'Credenciales SAT (e.firma)', route: '/contabilidad/credenciales', view: [], manage: [Permission.FISCAL_CREDENCIALES_GESTIONAR] },

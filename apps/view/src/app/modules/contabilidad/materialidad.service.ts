@@ -32,6 +32,16 @@ export interface MaterialidadChain {
   completa: boolean;
 }
 
+/** MAT.1 — un CFDI recibido con su asignación confirmada o la operación sugerida. */
+export interface MatReconcileRow {
+  cfdi_id: string; uuid: string; serie: string | null; folio: string | null; fecha: string | null;
+  total: number; tipo_comprobante: string | null; metodo_pago: string | null; estatus_sat: string; has_xml: boolean;
+  status: 'confirmed' | 'suggested' | 'unmatched';
+  assignment: { id: string; sucursal: string; doc_tipo: string; doc_folio: string; importe_operacion: number | null; diff_importe: number | null; diff_days: number | null; by: string | null; at: string | null } | null;
+  suggestion: { sucursal: string; doc_tipo: string; doc_folio: string; importe: number | null; fecha: string | null; diff_importe: number | null; diff_days: number | null } | null;
+}
+export interface MatAssignInput { cfdi_id: string; sucursal: string; doc_tipo?: string; doc_folio: string; note?: string; }
+
 @Injectable({ providedIn: 'root' })
 export class MaterialidadService {
   private readonly http = inject(HttpClient);
@@ -40,4 +50,9 @@ export class MaterialidadService {
   dossier(rfc: string): Observable<MaterialidadDossier> { return this.http.get<MaterialidadDossier>(`${this.base}/${encodeURIComponent(rfc)}`); }
   /** MAT.2 — desglose de documentos de la cadena de suministro del RFC. */
   chains(rfc: string): Observable<MaterialidadChain[]> { return this.http.get<MaterialidadChain[]>(`${this.base}/${encodeURIComponent(rfc)}/chains`); }
+  /** MAT.1 — conciliación CFDI↔operación del proveedor (asignación confirmada o sugerida). */
+  reconcile(rfc: string): Observable<MatReconcileRow[]> { return this.http.get<MatReconcileRow[]>(`${this.base}/${encodeURIComponent(rfc)}/reconcile`); }
+  confirmAssign(b: MatAssignInput): Observable<unknown> { return this.http.post(`${this.base}/assignments/confirm`, b); }
+  rejectAssign(b: MatAssignInput): Observable<unknown> { return this.http.post(`${this.base}/assignments/reject`, b); }
+  unassign(id: string): Observable<unknown> { return this.http.delete(`${this.base}/assignments/${encodeURIComponent(id)}`); }
 }

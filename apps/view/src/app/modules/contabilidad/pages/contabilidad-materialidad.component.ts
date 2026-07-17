@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
@@ -11,8 +11,10 @@ import { MessageService } from 'primeng/api';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { CONTABILIDAD_TABS } from '../contabilidad-tabs';
-import { MaterialidadService, MaterialidadDossier, MaterialidadChain } from '../materialidad.service';
-import { CfdiService, CfdiRow } from '../cfdi.service';
+import { MaterialidadService, MaterialidadDossier, MaterialidadChain, MatReconcileRow } from '../materialidad.service';
+import { CfdiService } from '../cfdi.service';
+import { AuthService } from '../../../core/services/auth.service';
+import { Permission } from '../../../core/constants/permissions';
 
 /**
  * FISCAL.10.1 — Expediente de materialidad de un proveedor (Operations). Se busca
@@ -205,36 +207,62 @@ import { CfdiService, CfdiRow } from '../cfdi.service';
           </p-table>
         }
         } @else {
-        <p class="mt-dlg-legend">Comprobantes fiscales (CFDI) que <strong>emitió este proveedor</strong> hacia ti. Descarga el XML para el expediente. No se enlazan 1-a-1 con la operación (Kepler no guarda el UUID) — se cruzan por monto y fecha.</p>
+        <p class="mt-dlg-legend">CFDIs que <strong>emitió este proveedor</strong> hacia ti, con la operación que los respalda. Kepler no guarda el UUID → el motor <strong>sugiere</strong> el enlace (mismo RFC, importe ±$1, fecha ±5 días) y tú lo <strong>confirmas</strong>. La asignación confirmada es la evidencia de materialidad.</p>
+        @if (reconSummary(); as rs) {
+          <div class="mt-recon-sum">
+            <span class="mt-rs ok">✓ {{ rs.confirmed }} asignadas</span>
+            <span class="mt-rs warn">◐ {{ rs.suggested }} sugeridas</span>
+            <span class="mt-rs muted">○ {{ rs.unmatched }} sin operación</span>
+          </div>
+        }
 
-        @if (cfdisLoading()) {
-          <div class="mt-dlg-skel">Cargando CFDIs…</div>
+        @if (reconLoading() && !recon()) {
+          <div class="mt-dlg-skel">Cargando conciliación…</div>
         } @else {
-          <p-table [value]="cfdis() || []" styleClass="p-datatable-sm mt-ctable" [rowHover]="true"
-                   [scrollable]="true" scrollHeight="52vh" [paginator]="(cfdis()?.length || 0) > 25" [rows]="25">
+          <p-table [value]="recon() || []" styleClass="p-datatable-sm mt-ctable" [rowHover]="true"
+                   [scrollable]="true" scrollHeight="48vh" [paginator]="(recon()?.length || 0) > 25" [rows]="25">
             <ng-template pTemplate="header">
               <tr>
                 <th style="width:3rem">Tipo</th>
-                <th>Folio / UUID</th>
-                <th style="width:6.5rem">Fecha</th>
-                <th style="width:5rem">Método</th>
-                <th class="ta-r" style="width:9rem">Total</th>
-                <th style="width:7rem">Estatus</th>
+                <th>CFDI</th>
+                <th class="ta-r" style="width:8.5rem">Total</th>
+                <th style="width:19rem">Operación que lo respalda</th>
                 <th style="width:2.5rem"></th>
               </tr>
             </ng-template>
             <ng-template pTemplate="body" let-c>
-              <tr>
+              <tr [class.mt-row-busy]="busy() === c.cfdi_id">
                 <td><span class="mt-conf">{{ c.tipo_comprobante || '—' }}</span></td>
-                <td><div class="strong mono">{{ c.serie }}{{ c.folio || '' }}</div><div class="muted mono cf-sub">{{ c.uuid }}</div></td>
-                <td class="mono">{{ c.fecha ? (c.fecha | date:'dd/MM/yy') : '—' }}</td>
-                <td>@if (c.metodo_pago) { <span class="mt-conf">{{ c.metodo_pago }}</span> } @else { — }</td>
+                <td><div class="strong mono">{{ c.serie }}{{ c.folio || '' }} <span class="muted">· {{ c.fecha ? (c.fecha | date:'dd/MM/yy') : '—' }}</span></div><div class="muted mono cf-sub">{{ c.uuid }}</div></td>
                 <td class="ta-r strong mono">{{ money(c.total) }}</td>
-                <td><span class="mt-est" [ngClass]="'e-' + c.estatus_sat">{{ estatusLabel(c.estatus_sat) }}</span></td>
+                <td>
+                  @switch (c.status) {
+                    @case ('confirmed') {
+                      <div class="mt-asg">
+                        <span class="mt-est e-vigente" title="Asignada por {{ c.assignment?.by || '—' }}"><i class="pi pi-check"></i> {{ c.assignment?.doc_folio }}</span>
+                        <span class="muted cf-sub">{{ c.assignment?.sucursal }} · Δ {{ money(c.assignment?.diff_importe) }}@if (c.assignment?.diff_days != null) { · {{ c.assignment?.diff_days }}d }</span>
+                        @if (canManage) { <button pButton type="button" label="Quitar" class="p-button-text p-button-sm mt-asg-x" [disabled]="busy() === c.cfdi_id" (click)="unassignRow(c)"></button> }
+                      </div>
+                    }
+                    @case ('suggested') {
+                      <div class="mt-asg">
+                        <span class="mt-conf c-inferred" title="Sugerida por RFC + importe + fecha"><i class="pi pi-sparkles"></i> {{ c.suggestion?.doc_folio }}</span>
+                        <span class="muted cf-sub">{{ c.suggestion?.sucursal }} · Δ {{ money(c.suggestion?.diff_importe) }}@if (c.suggestion?.diff_days != null) { · {{ c.suggestion?.diff_days }}d }</span>
+                        @if (canManage) {
+                          <span class="mt-asg-acts">
+                            <button pButton type="button" icon="pi pi-check" class="p-button-sm p-button-success mt-ico-btn" title="Confirmar asignación" aria-label="Confirmar" [disabled]="busy() === c.cfdi_id" (click)="confirmSuggestion(c)"></button>
+                            <button pButton type="button" icon="pi pi-times" class="p-button-text p-button-sm p-button-secondary mt-ico-btn" title="Descartar sugerencia" aria-label="Descartar" [disabled]="busy() === c.cfdi_id" (click)="rejectSuggestion(c)"></button>
+                          </span>
+                        }
+                      </div>
+                    }
+                    @default { <span class="muted cf-sub"><i class="pi pi-minus-circle"></i> Sin operación en ±$1 / ±5 días</span> }
+                  }
+                </td>
                 <td class="ta-r">@if (c.has_xml) { <button pButton type="button" icon="pi pi-download" class="p-button-text p-button-sm" title="Descargar XML" aria-label="Descargar XML" (click)="downloadXml(c)"></button> }</td>
               </tr>
             </ng-template>
-            <ng-template pTemplate="emptymessage"><tr><td colspan="7" class="mt-dlg-empty">
+            <ng-template pTemplate="emptymessage"><tr><td colspan="5" class="mt-dlg-empty">
               <i class="pi pi-inbox"></i> Sin CFDIs recibidos de este RFC. Corre la <strong>descarga masiva</strong> del SAT para poblarlos.
             </td></tr></ng-template>
           </p-table>
@@ -309,6 +337,13 @@ import { CfdiService, CfdiRow } from '../cfdi.service';
     .mt-est.e-vigente { background: color-mix(in srgb, var(--ok-fg, #16a34a) 14%, transparent); color: var(--ok-fg, #16a34a); }
     .mt-est.e-cancelado { background: color-mix(in srgb, var(--bad-fg, #dc2626) 15%, transparent); color: var(--bad-fg, #dc2626); }
     .mt-est.e-desconocido { background: var(--surface-hover-bg, #f5f5f4); color: var(--text-muted); }
+    .mt-recon-sum { display: flex; gap: .9rem; flex-wrap: wrap; margin-bottom: .7rem; font-size: .74rem; font-weight: 600; }
+    .mt-rs.ok { color: var(--ok-fg, #16a34a); } .mt-rs.warn { color: var(--warn-soft-fg, #b45309); } .mt-rs.muted { color: var(--text-muted); }
+    .mt-asg { display: flex; align-items: center; gap: .45rem; flex-wrap: wrap; }
+    .mt-asg-acts { display: inline-flex; gap: .2rem; }
+    .mt-asg .mt-conf .pi, .mt-est .pi { font-size: .82em; }
+    .mt-ico-btn { width: 1.9rem; height: 1.9rem; }
+    .mt-row-busy { opacity: .5; }
     .mt-exp-row > td { background: var(--surface-hover-bg, #faf9f8); }
     .mt-timeline { display: flex; align-items: stretch; gap: .5rem; flex-wrap: wrap; padding: .3rem 0; }
     .mt-tl-step { display: flex; align-items: center; gap: .5rem; border: 1px solid var(--border-color); border-radius: var(--r-md, 10px); padding: .5rem .7rem; background: var(--card-bg); min-width: 12rem; flex: 1; }
@@ -326,8 +361,12 @@ export class ContabilidadMaterialidadComponent {
   readonly tabs = CONTABILIDAD_TABS;
   private readonly svc = inject(MaterialidadService);
   private readonly cfdiSvc = inject(CfdiService);
+  private readonly auth = inject(AuthService);
   private readonly toast = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);
+
+  /** Solo con permiso de gestión se puede confirmar/descartar asignaciones. */
+  readonly canManage = this.auth.user()?.permissions?.[Permission.FISCAL_MATERIALIDAD_GESTIONAR] === true;
 
   rfc = '';
   readonly dossier = signal<MaterialidadDossier | null>(null);
@@ -338,11 +377,21 @@ export class ContabilidadMaterialidadComponent {
   readonly chainsLoading = signal(false);
   private chainsRfc = '';
 
-  /** MAT.2 — tab fiscal del diálogo: CFDIs recibidos del proveedor (reusa MAT.0). */
+  /** MAT.1 — tab fiscal: conciliación CFDI↔operación (asignación confirmada o sugerida). */
   readonly dlgTab = signal<'oper' | 'fiscal'>('oper');
-  readonly cfdis = signal<CfdiRow[] | null>(null);
-  readonly cfdisLoading = signal(false);
-  private cfdisRfc = '';
+  readonly recon = signal<MatReconcileRow[] | null>(null);
+  readonly reconLoading = signal(false);
+  readonly busy = signal<string | null>(null); // cfdi_id en curso (confirmar/descartar)
+  private reconRfc = '';
+  readonly reconSummary = computed(() => {
+    const rows = this.recon() || [];
+    return {
+      total: rows.length,
+      confirmed: rows.filter((r) => r.status === 'confirmed').length,
+      suggested: rows.filter((r) => r.status === 'suggested').length,
+      unmatched: rows.filter((r) => r.status === 'unmatched').length,
+    };
+  });
 
   /** KPIs de materialidad vía MetricStrip (sin caja). */
   kpiItems(d: MaterialidadDossier): MetricStripItem[] {
@@ -363,7 +412,7 @@ export class ContabilidadMaterialidadComponent {
     if (!this.rfcValid()) { this.toast.add({ severity: 'warn', summary: 'RFC inválido', detail: 'Revisa el formato del RFC.' }); return; }
     this.loading.set(true); this.searched.set(true); this.dossier.set(null);
     this.chains.set(null); this.chainsRfc = ''; this.chainsOpen.set(false);
-    this.cfdis.set(null); this.cfdisRfc = ''; this.dlgTab.set('oper');
+    this.recon.set(null); this.reconRfc = ''; this.dlgTab.set('oper'); this.busy.set(null);
     this.svc.dossier(this.rfc.toUpperCase()).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (d) => { this.dossier.set(d); this.loading.set(false); },
       error: () => { this.loading.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo armar el expediente.' }); },
@@ -384,26 +433,65 @@ export class ContabilidadMaterialidadComponent {
     });
   }
 
-  /** Cambia de tab; carga los CFDIs del proveedor la primera vez (cache por RFC). */
+  /** Cambia de tab; carga la conciliación del proveedor la 1a vez (cache por RFC). */
   setDlgTab(t: 'oper' | 'fiscal') {
     this.dlgTab.set(t);
     const d = this.dossier();
     if (t !== 'fiscal' || !d) return;
-    if (this.cfdis() && this.cfdisRfc === d.rfc) return;
-    this.cfdisLoading.set(true); this.cfdisRfc = d.rfc;
-    this.cfdiSvc.list({ emisor_rfc: d.rfc, rol: 'recibidas', limit: 500 }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (r) => { this.cfdis.set(r.rows); this.cfdisLoading.set(false); },
-      error: () => { this.cfdisLoading.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudieron cargar los CFDIs.' }); },
+    if (this.recon() && this.reconRfc === d.rfc) return;
+    this.loadRecon(d.rfc);
+  }
+
+  private loadRecon(rfc: string) {
+    this.reconLoading.set(true); this.reconRfc = rfc;
+    this.svc.reconcile(rfc).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (rows) => { this.recon.set(rows); this.reconLoading.set(false); },
+      error: () => { this.reconLoading.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo cargar la conciliación.' }); },
+    });
+  }
+  private reloadRecon() { const d = this.dossier(); if (d) this.loadRecon(d.rfc); }
+
+  /** Confirma la operación sugerida como evidencia del CFDI. */
+  confirmSuggestion(row: MatReconcileRow) {
+    if (!this.canManage || !row.suggestion) return;
+    const s = row.suggestion;
+    this.busy.set(row.cfdi_id);
+    this.svc.confirmAssign({ cfdi_id: row.cfdi_id, sucursal: s.sucursal, doc_tipo: s.doc_tipo, doc_folio: s.doc_folio })
+      .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+        next: () => { this.busy.set(null); this.toast.add({ severity: 'success', summary: 'Asignada', detail: `CFDI ligado a ${s.doc_folio}.` }); this.reloadRecon(); },
+        error: (e: any) => { this.busy.set(null); this.toast.add({ severity: 'error', summary: 'No se pudo asignar', detail: e?.error?.message || 'Intenta de nuevo.' }); },
+      });
+  }
+
+  /** Descarta la sugerencia para que no vuelva a proponerse. */
+  rejectSuggestion(row: MatReconcileRow) {
+    if (!this.canManage || !row.suggestion) return;
+    const s = row.suggestion;
+    this.busy.set(row.cfdi_id);
+    this.svc.rejectAssign({ cfdi_id: row.cfdi_id, sucursal: s.sucursal, doc_tipo: s.doc_tipo, doc_folio: s.doc_folio })
+      .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+        next: () => { this.busy.set(null); this.reloadRecon(); },
+        error: () => { this.busy.set(null); this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo descartar.' }); },
+      });
+  }
+
+  /** Revierte una asignación confirmada. */
+  unassignRow(row: MatReconcileRow) {
+    if (!this.canManage || !row.assignment) return;
+    this.busy.set(row.cfdi_id);
+    this.svc.unassign(row.assignment.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: () => { this.busy.set(null); this.reloadRecon(); },
+      error: () => { this.busy.set(null); this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo revertir.' }); },
     });
   }
 
-  /** Descarga el XML de un CFDI recibido (persistido en MAT.0). */
-  downloadXml(c: CfdiRow) {
-    this.cfdiSvc.xml(c.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+  /** Descarga el XML del CFDI (persistido en MAT.0). */
+  downloadXml(row: MatReconcileRow) {
+    this.cfdiSvc.xml(row.cfdi_id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (xml) => {
         const blob = new Blob([xml], { type: 'application/xml' });
         const url = URL.createObjectURL(blob);
-        const a = document.createElement('a'); a.href = url; a.download = `${c.uuid || c.id}.xml`; a.click();
+        const a = document.createElement('a'); a.href = url; a.download = `${row.uuid || row.cfdi_id}.xml`; a.click();
         URL.revokeObjectURL(url);
       },
       error: () => this.toast.add({ severity: 'warn', summary: 'Sin documento', detail: 'Este CFDI no tiene XML guardado. Re-descarga el periodo.' }),

@@ -145,6 +145,7 @@ export const PERMISSION_META: Record<string, PermissionMetaEntry> = {
   [Permission.FISCAL_FACTURAR_GESTIONAR]: { label: 'Emitir / cancelar facturas', description: 'Timbrar CFDI 4.0 (global o nominativa) vía PAC, cancelar ante el SAT y configurar el emisor.', category: 'Finanzas' },
   [Permission.FISCAL_IMPUESTOS_VER]: { label: 'Ver Impuestos provisionales', description: 'Cálculo de pagos provisionales (ISR/IVA) del período. Solo lectura.', category: 'Finanzas' },
   [Permission.FISCAL_MATERIALIDAD_VER]: { label: 'Ver Expediente de materialidad', description: 'Dossier de materialidad por RFC de proveedor (soporte ante EFOS/Art. 69). Solo lectura.', category: 'Finanzas' },
+  [Permission.FISCAL_MATERIALIDAD_GESTIONAR]: { label: 'Gestionar materialidad', description: 'Confirmar o descartar la asignación CFDI↔operación (el enlace que respalda la deducción).', category: 'Finanzas' },
 
   // ── Supervisor de Movimientos (cuadre) — ADR-029 ──────────────────────
   [Permission.RECONCILIATION_VER]: { label: 'Ver Cuadre de Movimientos', description: 'Bandeja de descuadres del supervisor: caja (arqueos), inventario y cruces. Solo lectura.', category: 'Almacén' },

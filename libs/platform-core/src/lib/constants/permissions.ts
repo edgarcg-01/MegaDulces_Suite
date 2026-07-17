@@ -222,4 +222,6 @@ export enum Permission {
   FISCAL_IMPUESTOS_VER = 'FISCAL_IMPUESTOS_VER',
   // FISCAL.10.1 = expediente de materialidad por RFC (feature propia, ya no toma prestado LISTAS).
   FISCAL_MATERIALIDAD_VER = 'FISCAL_MATERIALIDAD_VER',
+  // MAT.1 = confirmar/descartar la asignación CFDI↔operación (evidencia de materialidad).
+  FISCAL_MATERIALIDAD_GESTIONAR = 'FISCAL_MATERIALIDAD_GESTIONAR',
 }
