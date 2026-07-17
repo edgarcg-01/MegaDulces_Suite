@@ -64,6 +64,13 @@ exports.up = async function (knex) {
       LIMIT 1
     ) cc ON true
     WHERE d.tipo = 'V'
+      -- Guard defensivo contra basura POS de los MDB historicos: filas con
+      -- valor_venta / cantidad absurdos (ej PH 2025 tenia 1 fila con qty=207e12,
+      -- valor=995e12 que envenenaba TODO el revenue de la sucursal). Ningun renglon
+      -- real de dulceria a granel se acerca a $10M en una sola linea.
+      AND d.valor_venta < 10000000
+      AND d.valor_venta >= 0
+      AND COALESCE(d.cantidad_regular, 0) < 10000000
       AND COALESCE(m.cancelado, false) = false
       AND COALESCE(cc.es_venta, true) = true
       AND NOT EXISTS (
