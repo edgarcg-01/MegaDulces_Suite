@@ -55,6 +55,7 @@ const BRANCHES = [
   { code: '30', prefix: '30', name: 'MORELIA ABASTOS' },
   { code: '32', prefix: '32', name: 'MORELIA MADERO' },
   { code: '40', prefix: '40', name: '8 ESQUINAS' },
+  { code: '42', prefix: '42', name: 'PIEDAD ABASTOS' },
   { code: '44', prefix: '44', name: 'YURECUARO' },
   { code: '50', prefix: '50', name: 'CANINDO' },
   { code: '54', prefix: '54', name: 'ZAMORA CENTRO' },

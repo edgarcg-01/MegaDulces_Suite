@@ -36,6 +36,12 @@ const TENANT = process.env.WINCAJA_TENANT_ID || '00000000-0000-0000-0000-0000000
 // (no existe como almacén) → '01'. El feed Kepler (import-sales-fact.js) excluye '01'
 // pre-julio para cerrar el solape de junio → cero doble conteo.
 const PH_CUTOVER = "DATE '2026-07-01'";
+// La Piedad Abastos (branch 42 = warehouse '02') es el MISMO caso que PH: compartida
+// con Kepler, que la tomó el 2025-10-03 (tienda) / 2025-10-10 (credito). El histórico
+// ene–sep 2025 vive SOLO en Wincaja. BLEND: Wincaja manda `< 2025-10-01`, Kepler desde
+// oct. Se remapea 'MD-42' → '02' (el almacén real que Kepler alimenta). Kepler '02'
+// arranca en oct → cero solape sin tocar el feed Kepler.
+const LP_CUTOVER = "DATE '2025-10-01'";
 const SELECT_SRC = `
   SELECT
     p.id                         AS product_id,
@@ -57,10 +63,13 @@ const SELECT_SRC = `
     ON p.tenant_id = s.tenant_id AND p.sku = s.sku AND p.deleted_at IS NULL
   JOIN commercial.warehouses w
     ON w.tenant_id = s.tenant_id AND w.deleted_at IS NULL
-   AND w.code = CASE WHEN s.source_branch = '10' THEN '01' ELSE s.warehouse_code END
+   AND w.code = CASE WHEN s.source_branch = '10' THEN '01'
+                     WHEN s.source_branch = '42' THEN '02'
+                     ELSE s.warehouse_code END
   WHERE s.tenant_id = ?
     AND ( s.wincaja_only = true
-          OR (s.source_branch = '10' AND s.business_date < ${PH_CUTOVER}) )
+          OR (s.source_branch = '10' AND s.business_date < ${PH_CUTOVER})
+          OR (s.source_branch = '42' AND s.business_date < ${LP_CUTOVER}) )
   GROUP BY p.id, w.id, s.business_date, channel
 `;
 
