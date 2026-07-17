@@ -115,6 +115,24 @@ Kepler registra ajustes de inventario con documentos de tipo (tabla `doctype`):
 
 **Limitación (importante):** NO escribe en Kepler. El ERP de producción tiene header de ~200 columnas, folio/sequencing/triggers propios y mecanismo de import desconocido — escribir directo a `kdm1/kdm2` sería riesgoso e imposible de probar acá. El endpoint produce el documento para **importar/capturar** en Kepler. Un write-back vivo real requiere conocer el API/import de Kepler. Validado contra folio de prueba en KEPLER-03 (AGUA −4→InvOut $9.93, CHURRO +5→InvIn $22.68).
 
+## Ventas de telemarketing / mayoreo (canal telefónico)
+
+Además de la venta POS mostrador (`c2='U' c3='D' c4=10`), Kepler registra la **venta de telemarketing (mayoreo telefónico)** como un tipo de documento distinto:
+
+- **Documento:** `kdm1` (encabezado) ⋈ `kdm2` (líneas) con **`c2='U' AND c3='A' AND c4=5`** (folio `UA05##-`), venta a **crédito** (`c31='Cob'`).
+- **Cliente (`c10`) = cuenta-escritorio TLMKT** (el canal se modela como 3 cuentas-cliente en `kdud`, todas contabilizadas en sucursal **`00`/CEDIS**):
+
+  | `c10` | Escritorio | Equipo (agentes en `kdpv_kdku`) | Venta 2026 ene–jun |
+  |---|---|---|---|
+  | `10-70` | Padre Hidalgo | Sergio Mendoza (`10TLMKT01`), Cinthia Yareth (`10TLMKT`), Monserrath, Juan Diego | ~$20.4M |
+  | `30-73` | Morelia Abastos | Manuel García Zurita (`30TLKM01`), Humberto (`30TLMKT`) | ~$24.2M |
+  | `50-75` | Canindo / Zamora | Daniel Franco, Patricia González (`50APHG`), José Ramón Rodríguez (`50JRRV`) | ~$25.4M |
+
+- **Importe** = **`c16` (cabecera)** · **fecha** = `c9` · **capturista** = `c67`. Totales vivos 30d (jul-2026): 10-70 $3.74M · 30-73 $4.43M · 50-75 $5.57M.
+- **⚠️ SIN líneas de producto en `kdm2`:** verificado (2026-07-17) que los docs `U-A-5` **no tienen detalle en `kdm2`** (0 líneas por join completo y por folio; los "matches" por `c6` solo son colisiones de número de folio entre sucursales — los folios NO son únicos globales). Es un documento financiero de crédito a **nivel cabecera**: hay total (`c16`) pero **no desglose por SKU**. Dónde viven las líneas (si existen) = pendiente de forense (candidatos: `kdue` 154k "encab. venta", tablas fiscales `kdfe*`, o movimiento separado).
+- **⚠️ Atribución por agente NO disponible:** los códigos de agente TLMKT casi no aparecen en `kdm1` (`10TLMKT01`=0, `10TLMKT`=0, `30TLKM01`=0 de 90k+ docs). La venta solo estampa el **escritorio** (`c10`) y una **cuenta compartida de captura** (`c67`, mayormente `0GAVS`=Gloria Vera). Atribución fiable = **por escritorio**, no por persona.
+- **Integración a la plataforma — PENDIENTE (bloqueada a nivel línea).** El feed `import-sales-fact.js`/`mart.ventas` es line-level (SKU) y telemarketing no da líneas en `kdm2`, así que NO se puede meter al Sell-Out por-producto con el pipeline actual. Opciones: (A) feed **por cabecera** (revenue por escritorio, canal `tlmkt_*`, sin SKU) → visible en Command Center y Sell-Out por-canal, no por-producto; (B) forense para hallar la fuente de líneas. Se **revirtió** el intento de `c4=5` en las funciones mart (era inerte: kdm2 no tiene `U-A-5`).
+
 ## Pendiente / ideas
 
 - Confirmar con ancla real si `kdil.c9` es la existencia exacta (costos realistas lo respaldan; falta 1 SKU verificado contra la tienda).
