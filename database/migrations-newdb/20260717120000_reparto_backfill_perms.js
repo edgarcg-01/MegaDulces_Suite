@@ -13,7 +13,7 @@
  *       o encargado como repartidor). Roles repartidor custom se togglean en /admin/roles.
  *
  * Idempotente: cada clave se escribe sólo si aún no existe (`-> 'KEY' IS NULL`).
- * Aditivo: NO borra LOGISTICS_HOME_DISPATCH ni los ORDERS_*/PAYMENTS_* viejos (se
+ * Aditivo: NO borra LOGISTICS_HOME_DISPATCH ni los ORDERS_* / PAYMENTS_* viejos (se
  * retiran en la limpieza F4). Los permisos viajan en el JWT → re-login para el gating
  * de UI; la autz backend es fresca (cache 30s).
  *
