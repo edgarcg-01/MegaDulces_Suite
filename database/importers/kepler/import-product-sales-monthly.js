@@ -104,7 +104,15 @@ const SALES = `h.c2='U' AND h.c3='D' AND h.c4=10`;
       chunk.forEach((row, ri) => { const b = ri * 4; vals.push(`($${b+1},$${b+2},$${b+3},$${b+4})`); params.push(...row); });
       await db.query(`INSERT INTO stg_psm VALUES ${vals.join(',')}`, params);
     }
-    await db.query(`DELETE FROM analytics.product_sales_monthly WHERE tenant_id=$1 AND month >= $2 AND month < $3`, [M, from, to]);
+    // El DELETE NO debe tocar las tiendas SOLO-Wincaja (MD-30/32/50): las alimenta
+    // import-wincaja-product-sales.js (aditivo, Kepler ciego a ellas). Sin esta
+    // exclusión, este feed Kepler las borraba en cada corrida → desaparecían de /salidas.
+    await db.query(
+      `DELETE FROM analytics.product_sales_monthly WHERE tenant_id=$1 AND month >= $2 AND month < $3
+         AND warehouse_id NOT IN (
+           SELECT id FROM commercial.warehouses
+           WHERE tenant_id=$1 AND code IN ('MD-30','MD-32','MD-50') AND deleted_at IS NULL)`,
+      [M, from, to]);
     const up = await db.query(
       `INSERT INTO analytics.product_sales_monthly (id, tenant_id, product_id, warehouse_id, month, units, updated_at)
        SELECT gen_random_uuid(), $1, product_id, warehouse_id, month, sum(units), now()
