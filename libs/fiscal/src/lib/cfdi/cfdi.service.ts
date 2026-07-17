@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { TenantKnexService } from '@megadulces/platform-core';
 
 export interface CfdiListFilters {
@@ -25,6 +25,7 @@ export class CfdiService {
           'id', 'uuid', 'tipo_comprobante', 'serie', 'folio', 'fecha', 'emisor_rfc', 'emisor_nombre',
           'receptor_rfc', 'receptor_nombre', 'total', 'moneda', 'metodo_pago', 'forma_pago',
           'rol', 'estatus_sat',
+          trx.raw('(xml IS NOT NULL) AS has_xml'), // MAT.0: ¿hay documento descargable?
         )
         .orderBy('fecha', 'desc').limit(limit).offset(offset);
       return { total: Number(count), limit, offset, rows };
@@ -34,6 +35,15 @@ export class CfdiService {
   async get(id: string) {
     return this.tk.run(async (trx) =>
       trx('fiscal.cfdis').where({ id }).orWhere({ uuid: id.toUpperCase() }).first());
+  }
+
+  /** MAT.0 — XML del CFDI (documento guardado en la ingesta). Para recibidas solo
+   *  existe si se descargó con el guardado activo (re-descargar el periodo si falta). */
+  async getXml(id: string): Promise<string> {
+    const row = await this.tk.run(async (trx) =>
+      trx('fiscal.cfdis').where({ id }).orWhere({ uuid: id.toUpperCase() }).select('xml').first());
+    if (!row?.xml) throw new NotFoundException('XML no disponible para este CFDI (documento no guardado; re-descarga el periodo).');
+    return row.xml;
   }
 
   /** Resumen: conteo/monto por tipo de comprobante + método de pago, en el rango. */
@@ -63,7 +73,9 @@ export class CfdiService {
     if (f.estatus_sat) b.where('estatus_sat', f.estatus_sat);
     if (f.search) {
       const s = `%${f.search}%`;
-      b.where((w: any) => w.whereILike('emisor_nombre', s).orWhereILike('receptor_nombre', s).orWhereILike('uuid', s).orWhereILike('folio', s));
+      b.where((w: any) => w.whereILike('emisor_nombre', s).orWhereILike('receptor_nombre', s)
+        .orWhereILike('emisor_rfc', s).orWhereILike('receptor_rfc', s)
+        .orWhereILike('uuid', s).orWhereILike('folio', s));
     }
   }
 }

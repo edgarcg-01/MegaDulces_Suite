@@ -1,4 +1,4 @@
-import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Header, Param, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
 import { CfdiService, CfdiListFilters } from './cfdi.service';
@@ -20,6 +20,12 @@ export class CfdiController {
   @RequirePermissions(Permission.FISCAL_CFDI_VER)
   @ApiOperation({ summary: 'Resumen: conteo/monto por tipo de comprobante y método de pago.' })
   stats(@Query() q: CfdiListFilters) { return this.svc.stats(q); }
+
+  @Get(':id/xml')
+  @RequirePermissions(Permission.FISCAL_CFDI_VER)
+  @Header('Content-Type', 'application/xml')
+  @ApiOperation({ summary: 'MAT.0 — descarga el XML del CFDI (documento guardado).' })
+  xml(@Param('id') id: string) { return this.svc.getXml(id); }
 
   @Get(':id')
   @RequirePermissions(Permission.FISCAL_CFDI_VER)

@@ -75,6 +75,7 @@ import { CfdiService, CfdiRow, CfdiStats, CfdiFilters } from '../cfdi.service';
               <th style="width:5rem">Método</th>
               <th class="ta-r" style="width:10rem">Total</th>
               <th style="width:7rem">Estatus</th>
+              <th style="width:3rem"></th>
             </tr>
           </ng-template>
           <ng-template pTemplate="body" let-c>
@@ -86,9 +87,10 @@ import { CfdiService, CfdiRow, CfdiStats, CfdiFilters } from '../cfdi.service';
               <td>@if (c.metodo_pago) { <span class="cf-tag">{{ c.metodo_pago }}</span> } @else { — }</td>
               <td class="ta-r strong mono">{{ money(c.total) }}</td>
               <td><span class="cf-est" [ngClass]="'e-' + c.estatus_sat">{{ estatusLabel(c.estatus_sat) }}</span></td>
+              <td class="ta-r">@if (c.has_xml) { <button pButton type="button" icon="pi pi-download" class="p-button-text p-button-sm" title="Descargar XML" aria-label="Descargar XML" (click)="downloadXml(c)"></button> }</td>
             </tr>
           </ng-template>
-          <ng-template pTemplate="emptymessage"><tr><td colspan="7" class="cf-empty">
+          <ng-template pTemplate="emptymessage"><tr><td colspan="8" class="cf-empty">
             @if (loading()) { Cargando… }
             @else if (errored()) { <i class="pi pi-exclamation-triangle"></i> No se pudieron cargar los CFDI. <button pButton type="button" label="Reintentar" class="p-button-sm p-button-text" (click)="reload()"></button> }
             @else { <i class="pi pi-inbox"></i> Sin CFDI en este filtro. El almacén se llena al correr la <strong>descarga masiva</strong> del SAT. }
@@ -159,6 +161,18 @@ export class ContabilidadCfdiComponent implements OnInit {
       error: () => { this.loading.set(false); this.errored.set(true); this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudieron cargar los CFDI.' }); },
     });
     this.svc.stats(this.filters()).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (s) => this.stats.set(s), error: () => {} });
+  }
+
+  downloadXml(c: CfdiRow) {
+    this.svc.xml(c.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (xml) => {
+        const blob = new Blob([xml], { type: 'application/xml' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a'); a.href = url; a.download = `${c.uuid || c.id}.xml`; a.click();
+        URL.revokeObjectURL(url);
+      },
+      error: () => this.toast.add({ severity: 'warn', summary: 'Sin documento', detail: 'Este CFDI no tiene XML guardado. Re-descarga el periodo.' }),
+    });
   }
 
   applyFilters() { this.offset = 0; this.reload(); }

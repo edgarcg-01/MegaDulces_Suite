@@ -11,6 +11,7 @@ export interface CfdiRow {
   receptor_rfc: string | null; receptor_nombre: string | null; total: number | string | null;
   moneda: string | null; metodo_pago: string | null; forma_pago: string | null;
   rol: string | null; estatus_sat: string;
+  has_xml?: boolean;
 }
 
 export interface CfdiListResult { total: number; limit: number; offset: number; rows: CfdiRow[]; }
@@ -42,4 +43,6 @@ export class CfdiService {
   list(f: CfdiFilters = {}): Observable<CfdiListResult> { return this.http.get<CfdiListResult>(`${this.base}${this.qs(f)}`); }
   stats(f: CfdiFilters = {}): Observable<CfdiStats> { return this.http.get<CfdiStats>(`${this.base}/stats${this.qs(f)}`); }
   get(id: string): Observable<any> { return this.http.get(`${this.base}/${encodeURIComponent(id)}`); }
+  /** MAT.0 — XML del documento (recibidas: solo si se guardó al descargar). */
+  xml(id: string): Observable<string> { return this.http.get(`${this.base}/${encodeURIComponent(id)}/xml`, { responseType: 'text' }); }
 }

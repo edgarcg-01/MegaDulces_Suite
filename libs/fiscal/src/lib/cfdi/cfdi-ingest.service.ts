@@ -47,8 +47,10 @@ export class CfdiIngestService {
     const flush = async () => {
       if (batch.length) {
         const rows = batch; batch = [];
+        // MAT.0: merge('xml') backfillea el documento en re-descargas sin pisar el resto
+        // de la metadata (idempotente por (tenant, uuid)).
         await this.tk.run(tenantId, async (trx) =>
-          trx('fiscal.cfdis').insert(rows).onConflict(['tenant_id', 'uuid']).ignore());
+          trx('fiscal.cfdis').insert(rows).onConflict(['tenant_id', 'uuid']).merge(['xml']));
       }
       if (linkBatch.length) {
         const rows = linkBatch; linkBatch = [];
@@ -58,11 +60,12 @@ export class CfdiIngestService {
     };
 
     for (const e of xmls) {
+      const xml = e.getData().toString('utf8');
       let h: CfdiHeader | null = null;
-      try { h = this.parser.parse(e.getData().toString('utf8')); }
+      try { h = this.parser.parse(xml); }
       catch { h = null; }
       if (!h) { skipped++; continue; }
-      batch.push(this.toRow(tenantId, requestId, packageId, rol, e.entryName, h));
+      batch.push(this.toRow(tenantId, requestId, packageId, rol, e.entryName, h, xml));
       if (h.pagos?.length) for (const pl of h.pagos) linkBatch.push(this.toLinkRow(tenantId, h.uuid, pl));
       parsed++;
       if (batch.length >= this.CHUNK) await flush();
@@ -73,10 +76,11 @@ export class CfdiIngestService {
     return { storedRef, parsed, skipped, total: xmls.length };
   }
 
-  private toRow(tenantId: string, requestId: string, packageId: string, rol: string | null, entryName: string, h: CfdiHeader) {
+  private toRow(tenantId: string, requestId: string, packageId: string, rol: string | null, entryName: string, h: CfdiHeader, xml: string) {
     return {
       tenant_id: tenantId,
       uuid: h.uuid,
+      xml, // MAT.0: guardar el documento para poder mostrarlo/descargarlo (evidencia de materialidad)
       version: h.version,
       tipo_comprobante: h.tipoComprobante,
       serie: h.serie,
