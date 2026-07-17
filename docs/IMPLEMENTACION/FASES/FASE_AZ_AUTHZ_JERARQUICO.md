@@ -175,6 +175,38 @@ El controller `commercial-intelligence` (motor Thot: `suggest`, `nba`, `signals`
 
 ---
 
+## 7bis. Continuación — Independencia total de módulos (2026-07-17)
+
+> **Origen:** el usuario pidió que *cada módulo/submódulo sea autosuficiente* — p.ej. "para asignar en reparto solo necesito el permiso de reparto, no ver pedidos ni productos". Auditoría de los 68 controllers + frontend (4 agentes). Decisiones: **una permission por feature** + **OR de permisos** para utilitarios compartidos. Termina la "deuda consciente" que AZ dejó (reparto/carga/movimientos + fugas sueltas).
+
+**Infra nueva:** decorador `@RequireAnyPermission(...)` (OR) + soporte en `RolesGuard` (antes solo AND). Para utilitarios que consumen varios módulos (ej. `store/ticket-lookup` lo usan Tienda y Reparto).
+
+**Clusters resueltos (todos con build api+view+vendor verde + migración backfill idempotente/aditiva):**
+
+| Cluster | Antes | Ahora | Migración |
+|---|---|---|---|
+| **Reparto** (proyecto propio `REPARTO_*`) | ORDERS_FULFILL+PAYMENTS_REGISTRAR+SHIPMENTS_VER+HOME_DISPATCH | `REPARTO_DESPACHAR` (tienda) + `REPARTO_ENTREGAR` (repartidor) | `20260717120000` |
+| Fugas sueltas | stores·delete=CATALOGO / captures·delete=REPORTES_GESTIONAR / visits·list=REPORTES_VER_PROPIO | TIENDAS_CREAR / VISITAS_AUDITAR / VISITAS_VER | `20260717121000` |
+| **Carga** | ORDERS_VER/FULFILL | `COMMERCIAL_CARGA_VER/GESTIONAR` | `20260717122000` |
+| **Movimientos** | INVENTORY_VER/SUPERVISAR | `COMMERCIAL_MOVEMENTS_VER/GESTIONAR` | `20260717122000` |
+| **vendor-routes** | CUSTOMERS_VER+VISITAS_REGISTRAR+ORDERS_CREAR | todo el flujo del vendedor → `COMMERCIAL_CARTERA_VER` (admin sigue en `_GESTIONAR`; el vendedor NO reasigna) | `20260717123000` (upgrade-safe vs AZ) |
+| **Telemetry** portal/summary | `REPORTES_VER_GLOBAL` (⚠️ god-mode) | `COMMERCIAL_ANALYTICS_VER` | — (reusa) |
+| **Fiscal** impuestos/materialidad | FISCAL_DIOT_VER / FISCAL_LISTAS_VER | `FISCAL_IMPUESTOS_VER` / `FISCAL_MATERIALIDAD_VER` | `20260717124000` |
+
+`LOGISTICS_HOME_DISPATCH` → LEGACY (no se borra; retiro en F4). `rider.guard` (vendor) pasó a `REPARTO_ENTREGAR` — corrige de paso un bug latente (`jefe_de_tienda` se clasificaba como repartidor). `check-authz-tree`: enum↔tree completos (122/122, sin missing/orphan).
+
+**Dejado como está (con rationale):**
+- `estatus/check` = `FISCAL_CFDI_VER` — consultar estatus SAT de un CFDI ES operación del módulo CFDI, no un módulo aparte.
+- **commercial-intelligence** (nba/signals/customer-360/findings/…) = ORDERS_VER/CUSTOMERS_* — infra transversal que consumen portal+vendedor+admin (deuda consciente, decisión del usuario).
+- **Maat/Hallazgos** comparten `FINANCE_AI_CHAT`/`FINANCE_FINDINGS_GESTIONAR` — dos superficies de la misma capacidad Finanzas-AI (mismo criterio que intelligence).
+- `ai-product-matcher` (utilitario, gateado por el contexto que lo usa), `push/ticket-reminders` (dominio route-control), `vendor-sales·crear` (familia capture), `daily-assignments/me` (self-service documentado).
+
+**Finding nuevo (fuera de scope):** `LogisticsFleetController` no tiene `@RequirePermissions` en ningún endpoint → CRUD de flota abierto a cualquier autenticado. Registrar en auditoría.
+
+**⏳ Pendiente operacional:** aplicar las 5 migraciones nuevas (`20260717120000`–`124000`) + la de AZ `20260702190000` (aún sin aplicar) + **re-login** (los permisos viajan en el JWT; la autz backend es fresca con cache 30s).
+
+---
+
 ## 8. Decisiones abiertas para validar
 
 1. **Nombres de los 🆕** — ¿OK el estilo `COMMERCIAL_*` / `TRADE_*` / `LOGISTICS_*` de §5?

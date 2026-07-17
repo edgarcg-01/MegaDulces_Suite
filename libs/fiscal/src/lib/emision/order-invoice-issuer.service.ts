@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { InvoiceIssuerPort, IssueInvoiceInput, IssueInvoiceResult } from '@megadulces/contracts';
+import { InvoiceIssuerPort, IssueInvoiceInput, IssueInvoiceResult, IssueRepInput } from '@megadulces/contracts';
 import { EmisionService } from './emision.service';
 import { EmitirFacturaInput } from './emision.types';
 
@@ -38,5 +38,11 @@ export class OrderInvoiceIssuerService implements InvoiceIssuerPort {
       this.logger.warn(`getPdf(${uuid}) falló: ${e?.message || e}`);
       return null;
     }
+  }
+
+  /** FE.8 — REP al cobrar una PPD. Null si la factura es PUE (EmisionService decide). */
+  async issueRep(_tenantId: string, input: IssueRepInput): Promise<{ uuid: string } | null> {
+    const r = await this.emision.emitirRep(input);
+    return r ? { uuid: r.uuid } : null;
   }
 }

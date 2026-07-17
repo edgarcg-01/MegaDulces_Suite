@@ -7,6 +7,7 @@ import { TableModule } from 'primeng/table';
 import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
+import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { CONTABILIDAD_TABS } from '../contabilidad-tabs';
 import { DiotService, DiotRow, DiotResult, IvaResumen } from '../diot.service';
 
@@ -18,7 +19,7 @@ import { DiotService, DiotRow, DiotResult, IvaResumen } from '../diot.service';
 @Component({
   selector: 'app-contabilidad-diot',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, TableModule, ToastModule, PageTabsComponent],
+  imports: [CommonModule, FormsModule, ButtonModule, TableModule, ToastModule, PageTabsComponent, MetricStripComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
@@ -38,12 +39,7 @@ import { DiotService, DiotRow, DiotResult, IvaResumen } from '../diot.service';
       </header>
 
       @if (iva(); as v) {
-        <div class="di-kpis">
-          <div class="di-kpi"><span class="di-kpi-val">{{ money(v.iva_trasladado) }}</span><span class="di-kpi-lbl">IVA trasladado (cobrado)</span></div>
-          <div class="di-kpi"><span class="di-kpi-val">{{ money(v.iva_acreditable) }}</span><span class="di-kpi-lbl">IVA acreditable (pagado)</span></div>
-          <div class="di-kpi" [class.bad]="v.iva_a_cargo > 0"><span class="di-kpi-val">{{ money(v.iva_a_cargo) }}</span><span class="di-kpi-lbl">IVA a cargo</span></div>
-          <div class="di-kpi" [class.ok]="v.iva_a_favor > 0"><span class="di-kpi-val">{{ money(v.iva_a_favor) }}</span><span class="di-kpi-lbl">IVA a favor</span></div>
-        </div>
+        <app-metric-strip [items]="kpiItems(v)" ariaLabel="Resumen DIOT / IVA" />
       }
 
       <div class="card-premium card-flat">
@@ -88,12 +84,7 @@ import { DiotService, DiotRow, DiotResult, IvaResumen } from '../diot.service';
     .di-head-actions { margin-left: auto; display: flex; gap: .5rem; align-items: flex-end; }
     .di-period { display: flex; flex-direction: column; gap: .15rem; font-size: .68rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: .03em; }
     .di-period input { border: 1px solid var(--border-color); border-radius: var(--r-sm, 8px); padding: .35rem .5rem; background: var(--card-bg); color: var(--text-main); font-family: var(--font-mono, monospace); }
-    .di-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: .75rem; margin-bottom: 1rem; }
-    .di-kpi { border: 1px solid var(--border-color); border-radius: var(--r-md, 10px); padding: .75rem 1rem; background: var(--card-bg); }
-    .di-kpi.bad { border-color: color-mix(in srgb, var(--bad-fg, #dc2626) 40%, var(--border-color)); }
-    .di-kpi.ok { border-color: color-mix(in srgb, var(--ok-fg, #16a34a) 40%, var(--border-color)); }
-    .di-kpi-val { display: block; font-size: 1.3rem; font-weight: 800; font-variant-numeric: tabular-nums; color: var(--text-main); font-family: var(--font-mono, ui-monospace, monospace); }
-    .di-kpi-lbl { display: block; font-size: .7rem; text-transform: uppercase; letter-spacing: .03em; color: var(--text-muted); margin-top: .15rem; }
+    app-metric-strip { display:block; margin-bottom: 1rem; }
     .di-card-head { padding: .75rem 1rem .25rem; }
     .di-card-title { margin: 0; font-size: .85rem; font-weight: 700; color: var(--text-main); }
     .muted { color: var(--text-muted); font-weight: 400; }
@@ -116,6 +107,15 @@ export class ContabilidadDiotComponent implements OnInit {
   period = this.currentMonth();
   readonly diot = signal<DiotResult | null>(null);
   readonly iva = signal<IvaResumen | null>(null);
+
+  kpiItems(v: IvaResumen): MetricStripItem[] {
+    return [
+      { label: 'IVA trasladado', value: v.iva_trasladado, format: 'currency' },
+      { label: 'IVA acreditable', value: v.iva_acreditable, format: 'currency' },
+      { label: 'IVA a cargo', value: v.iva_a_cargo, format: 'currency', tone: v.iva_a_cargo > 0 ? 'bad' : 'default' },
+      { label: 'IVA a favor', value: v.iva_a_favor, format: 'currency', tone: v.iva_a_favor > 0 ? 'ok' : 'default' },
+    ];
+  }
   readonly rows = signal<DiotRow[]>([]);
   readonly loading = signal(false);
   readonly errored = signal(false);

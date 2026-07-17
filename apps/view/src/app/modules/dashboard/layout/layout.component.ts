@@ -440,7 +440,7 @@ export class LayoutComponent implements OnInit, OnDestroy {
     { label: 'Stock muerto',    icon: 'pi pi-exclamation-triangle', route: '/almacen/dead-stock',   permission: Permission.COMMERCIAL_DEADSTOCK_VER },
     { label: 'Salud inv.',      icon: 'pi pi-heart',          route: '/almacen/inventory-health',   permission: Permission.COMMERCIAL_INVHEALTH_VER },
     { label: 'Cuadre',          icon: 'pi pi-check-square',   route: '/almacen/cuadre',             permission: Permission.RECONCILIATION_VER },
-    { label: 'Movimientos',     icon: 'pi pi-arrow-right-arrow-left', route: '/almacen/movimientos', permission: Permission.COMMERCIAL_INVENTORY_VER, anyOf: [Permission.COMMERCIAL_INVENTORY_VER, Permission.RECONCILIATION_VER] },
+    { label: 'Movimientos',     icon: 'pi pi-arrow-right-arrow-left', route: '/almacen/movimientos', permission: Permission.COMMERCIAL_MOVEMENTS_VER, anyOf: [Permission.COMMERCIAL_MOVEMENTS_VER, Permission.RECONCILIATION_VER] },
   ];
 
   // Reparto (entrega a domicilio, personal de tienda). El repartoGuard ya controla

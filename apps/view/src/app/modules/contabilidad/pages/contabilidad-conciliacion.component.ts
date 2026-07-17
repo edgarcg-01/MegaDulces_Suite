@@ -6,6 +6,7 @@ import { TableModule } from 'primeng/table';
 import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
+import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { CONTABILIDAD_TABS } from '../contabilidad-tabs';
 import { ConciliacionService, PpdRow, ConciliacionStats, CruceStats, CfdiSinPoliza, PolizaSinCfdi } from '../conciliacion.service';
 
@@ -17,7 +18,7 @@ import { ConciliacionService, PpdRow, ConciliacionStats, CruceStats, CfdiSinPoli
 @Component({
   selector: 'app-contabilidad-conciliacion',
   standalone: true,
-  imports: [CommonModule, ButtonModule, TableModule, ToastModule, PageTabsComponent],
+  imports: [CommonModule, ButtonModule, TableModule, ToastModule, PageTabsComponent, MetricStripComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
@@ -39,12 +40,7 @@ import { ConciliacionService, PpdRow, ConciliacionStats, CruceStats, CfdiSinPoli
 
       @if (view() === 'rep') {
         @if (repStats(); as s) {
-          <div class="co-kpis">
-            <div class="co-kpi" [class.warn]="s.ppd_sin_rep > 0"><span class="co-kpi-val">{{ s.ppd_sin_rep | number }}</span><span class="co-kpi-lbl">PPD sin REP</span></div>
-            <div class="co-kpi"><span class="co-kpi-val">{{ s.con_saldo | number }}</span><span class="co-kpi-lbl">Con saldo insoluto</span></div>
-            <div class="co-kpi"><span class="co-kpi-val">{{ money(s.saldo_total) }}</span><span class="co-kpi-lbl">Saldo insoluto total</span></div>
-            <div class="co-kpi"><span class="co-kpi-val">{{ s.ppd_total | number }}</span><span class="co-kpi-lbl">Facturas PPD</span></div>
-          </div>
+          <app-metric-strip [items]="repItems(s)" ariaLabel="Resumen REP" />
         }
         <div class="co-subseg">
           <button [class.active]="repTab()==='sin_rep'" (click)="repTab.set('sin_rep')">PPD sin REP</button>
@@ -70,12 +66,7 @@ import { ConciliacionService, PpdRow, ConciliacionStats, CruceStats, CfdiSinPoli
         </div>
       } @else {
         @if (cruceStats(); as s) {
-          <div class="co-kpis">
-            <div class="co-kpi" [class.warn]="s.poliza_sin_cfdi > 0"><span class="co-kpi-val">{{ s.poliza_sin_cfdi | number }}</span><span class="co-kpi-lbl">Gastos sin CFDI</span></div>
-            <div class="co-kpi"><span class="co-kpi-val">{{ money(s.poliza_sin_cfdi_monto) }}</span><span class="co-kpi-lbl">$ sin comprobante</span></div>
-            <div class="co-kpi"><span class="co-kpi-val">{{ s.cfdi_sin_poliza | number }}</span><span class="co-kpi-lbl">CFDI sin registrar</span></div>
-            <div class="co-kpi"><span class="co-kpi-val">{{ money(s.cfdi_sin_poliza_monto) }}</span><span class="co-kpi-lbl">$ sin registrar</span></div>
-          </div>
+          <app-metric-strip [items]="cruceItems(s)" ariaLabel="Resumen cruce pólizas/CFDI" />
         }
         <div class="co-subseg">
           <button [class.active]="cruceTab()==='poliza'" (click)="cruceTab.set('poliza')">Gastos sin CFDI</button>
@@ -118,11 +109,7 @@ import { ConciliacionService, PpdRow, ConciliacionStats, CruceStats, CfdiSinPoli
     .co-subseg { display: inline-flex; gap: .3rem; margin-bottom: .8rem; }
     .co-subseg button { border: 1px solid var(--border-color); background: var(--card-bg); border-radius: var(--r-pill, 999px); padding: .25rem .8rem; font-size: .78rem; cursor: pointer; color: var(--text-muted); }
     .co-subseg button.active { border-color: var(--action); color: var(--action); font-weight: 600; }
-    .co-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: .75rem; margin-bottom: 1rem; }
-    .co-kpi { border: 1px solid var(--border-color); border-radius: var(--r-md, 10px); padding: .75rem 1rem; background: var(--card-bg); }
-    .co-kpi.warn { border-color: color-mix(in srgb, var(--warn-fg, #d97706) 45%, var(--border-color)); }
-    .co-kpi-val { display: block; font-size: 1.3rem; font-weight: 800; font-variant-numeric: tabular-nums; color: var(--text-main); font-family: var(--font-mono, ui-monospace, monospace); }
-    .co-kpi-lbl { display: block; font-size: .7rem; text-transform: uppercase; letter-spacing: .03em; color: var(--text-muted); margin-top: .15rem; }
+    app-metric-strip { display:block; margin-bottom: 1rem; }
     .co-table { font-variant-numeric: tabular-nums; }
     .ta-r { text-align: right; } .strong { font-weight: 700; } .bad { color: var(--bad-fg, #dc2626); }
     .mono { font-family: var(--font-mono, ui-monospace, monospace); font-size: .85em; }
@@ -146,6 +133,23 @@ export class ContabilidadConciliacionComponent implements OnInit {
   readonly errored = signal(false);
 
   readonly repStats = signal<ConciliacionStats | null>(null);
+
+  repItems(s: ConciliacionStats): MetricStripItem[] {
+    return [
+      { label: 'PPD sin REP', value: s.ppd_sin_rep, tone: s.ppd_sin_rep > 0 ? 'warn' : 'default' },
+      { label: 'Con saldo insoluto', value: s.con_saldo },
+      { label: 'Saldo insoluto total', value: s.saldo_total, format: 'currency' },
+      { label: 'Facturas PPD', value: s.ppd_total },
+    ];
+  }
+  cruceItems(s: CruceStats): MetricStripItem[] {
+    return [
+      { label: 'Gastos sin CFDI', value: s.poliza_sin_cfdi, tone: s.poliza_sin_cfdi > 0 ? 'warn' : 'default' },
+      { label: '$ sin comprobante', value: s.poliza_sin_cfdi_monto, format: 'currency' },
+      { label: 'CFDI sin registrar', value: s.cfdi_sin_poliza },
+      { label: '$ sin registrar', value: s.cfdi_sin_poliza_monto, format: 'currency' },
+    ];
+  }
   readonly ppdSinRep = signal<PpdRow[]>([]);
   readonly saldoInsoluto = signal<PpdRow[]>([]);
   readonly cruceStats = signal<CruceStats | null>(null);

@@ -75,7 +75,7 @@ interface ConceptoRow { descripcion: string; cantidad: number; valor_unitario: n
           </ng-template>
           <ng-template pTemplate="body" let-r>
             <tr>
-              <td class="mono">{{ r.serie }}{{ r.folio }}@if (r.tipo_comprobante === 'E') {<span class="fa-nc" pTooltip="Nota de crédito (Egreso)">NC</span>}</td>
+              <td class="mono">{{ r.serie }}{{ r.folio }}@if (r.tipo_comprobante === 'E') {<span class="fa-nc" pTooltip="Nota de crédito (Egreso)">NC</span>}@if (r.tipo_comprobante === 'P') {<span class="fa-rep" pTooltip="Complemento de Pago (REP)">REP</span>}</td>
               <td class="mono">{{ r.fecha_timbrado || r.fecha | date:'dd/MM/yy HH:mm' }}</td>
               <td><div class="fa-recep">{{ r.receptor_nombre || '—' }}</div><div class="mono fa-sub">{{ r.receptor_rfc }}</div></td>
               <td class="ta-r mono">{{ mzn(r.subtotal) }}</td>
@@ -330,6 +330,7 @@ interface ConceptoRow { descripcion: string; cantidad: number; valor_unitario: n
     .fa-sub { color: var(--text-muted); font-size: .72rem; }
     .fa-tot { font-weight: 700; }
     .fa-nc { display: inline-block; margin-left: .4rem; padding: 0 .35rem; border-radius: var(--r-sm, 4px); background: color-mix(in srgb, var(--bad-fg, #b91c1c) 14%, transparent); color: var(--bad-fg, #b91c1c); font-size: .6rem; font-weight: 800; letter-spacing: .04em; vertical-align: middle; }
+    .fa-rep { display: inline-block; margin-left: .4rem; padding: 0 .35rem; border-radius: var(--r-sm, 4px); background: color-mix(in srgb, var(--action, #2563eb) 14%, transparent); color: var(--action, #2563eb); font-size: .6rem; font-weight: 800; letter-spacing: .04em; vertical-align: middle; }
     .fa-est { display: inline-block; padding: .1rem .5rem; border-radius: var(--r-pill, 999px); font-size: .66rem; font-weight: 700; text-transform: capitalize; }
     .e-ok { background: color-mix(in srgb, var(--ok-fg, #16a34a) 14%, transparent); color: var(--ok-fg, #16a34a); }
     .e-bad { background: color-mix(in srgb, var(--bad-fg, #dc2626) 15%, transparent); color: var(--bad-fg, #dc2626); }

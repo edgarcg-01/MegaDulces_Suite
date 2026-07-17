@@ -1,5 +1,6 @@
 import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
 import { PacPort, PacStampResult, PacCancelInput, PacCancelResult, PacStatusResult } from './pac.port';
+import { PacError, extractPacCode } from './pac-error';
 
 /**
  * FE.0 — Adapter del PAC SW SmarterWeb / Luna Soft (Conectia).
@@ -69,8 +70,13 @@ export class SwPacService implements PacPort {
 
     if (!res.ok || data?.status !== 'success') {
       const msg = data?.message || (typeof data === 'string' ? data.slice(0, 300) : 'ver pac_response');
-      this.logger.error(`SW stamp ${res.status}: ${msg}`);
-      throw new ServiceUnavailableException(`El PAC rechazó el timbrado (${res.status}): ${msg}`);
+      const detail = data?.messageDetail;
+      const code = extractPacCode(msg, detail);
+      this.logger.error(`SW stamp ${res.status} [${code || '?'}]: ${msg}`);
+      throw new PacError('stamp', {
+        httpStatus: res.status, code, message: msg, messageDetail: detail,
+        raw: typeof data === 'object' ? data : { raw: String(data).slice(0, 2000) },
+      });
     }
     const d = data.data || {};
     return {
@@ -103,8 +109,13 @@ export class SwPacService implements PacPort {
 
     if (!res.ok || data?.status === 'error') {
       const msg = data?.message || (typeof data === 'string' ? data.slice(0, 300) : 'ver respuesta');
-      this.logger.error(`SW cancel ${res.status}: ${msg}`);
-      throw new ServiceUnavailableException(`El PAC rechazó la cancelación (${res.status}): ${msg}`);
+      const detail = data?.messageDetail;
+      const code = extractPacCode(msg, detail);
+      this.logger.error(`SW cancel ${res.status} [${code || '?'}]: ${msg}`);
+      throw new PacError('cancel', {
+        httpStatus: res.status, code, message: msg, messageDetail: detail,
+        raw: typeof data === 'object' ? data : { raw: String(data).slice(0, 2000) },
+      });
     }
 
     const d = data?.data || {};

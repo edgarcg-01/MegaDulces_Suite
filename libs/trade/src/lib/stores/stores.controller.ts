@@ -103,7 +103,7 @@ export class StoresController {
   }
 
   @Delete(':id')
-  @RequirePermissions(Permission.CATALOGO_GESTIONAR)
+  @RequirePermissions(Permission.TIENDAS_CREAR)
   @ApiOperation({
     summary: 'Eliminar tienda (soft delete — mantiene historial de visitas)',
   })

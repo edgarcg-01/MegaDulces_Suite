@@ -23,7 +23,7 @@ export class VisitsController {
   constructor(private readonly visitsService: VisitsService) {}
 
   @Get()
-  @RequirePermissions(Permission.REPORTES_VER_PROPIO)
+  @RequirePermissions(Permission.VISITAS_VER)
   @ApiOperation({ summary: 'Consultar todas las visitas reportadas' })
   findAll(@ReqUser() user: any) {
     return this.visitsService.findAll(user);

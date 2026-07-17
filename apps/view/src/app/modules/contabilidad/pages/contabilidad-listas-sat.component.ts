@@ -6,6 +6,7 @@ import { TableModule } from 'primeng/table';
 import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
+import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { CONTABILIDAD_TABS } from '../contabilidad-tabs';
 import { ListasSatService, SatListMatch, RfcIssue, ListasStats, ListStatus, ExpenseDoc, FiscalEstado } from '../listas-sat.service';
 
@@ -18,7 +19,7 @@ import { ListasSatService, SatListMatch, RfcIssue, ListasStats, ListStatus, Expe
 @Component({
   selector: 'app-contabilidad-listas-sat',
   standalone: true,
-  imports: [CommonModule, ButtonModule, TableModule, ToastModule, PageTabsComponent],
+  imports: [CommonModule, ButtonModule, TableModule, ToastModule, PageTabsComponent, MetricStripComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
@@ -55,13 +56,8 @@ import { ListasSatService, SatListMatch, RfcIssue, ListasStats, ListStatus, Expe
       </div>
 
       <!-- KPIs -->
-      @if (stats(); as s) {
-        <div class="ls-kpis">
-          <div class="ls-kpi" [class.bad]="s.pendientes_riesgo > 0"><span class="ls-kpi-val">{{ s.pendientes_riesgo | number }}</span><span class="ls-kpi-lbl">Proveedores en riesgo (pendientes)</span></div>
-          <div class="ls-kpi"><span class="ls-kpi-val">{{ money(s.exposicion_riesgo_mxn) }}</span><span class="ls-kpi-lbl">$ expuesto en riesgo</span></div>
-          <div class="ls-kpi"><span class="ls-kpi-val">{{ totalMatches() | number }}</span><span class="ls-kpi-lbl">Coincidencias totales</span></div>
-          <div class="ls-kpi" [class.bad]="totalRfcIssues() > 0"><span class="ls-kpi-val">{{ totalRfcIssues() | number }}</span><span class="ls-kpi-lbl">RFC con problema</span></div>
-        </div>
+      @if (stats()) {
+        <app-metric-strip [items]="kpiItems()" ariaLabel="Resumen de listas SAT" />
       }
 
       <!-- Filtros -->
@@ -188,11 +184,7 @@ import { ListasSatService, SatListMatch, RfcIssue, ListasStats, ListStatus, Expe
     .ls-status-chip.off { opacity: .7; }
     .ls-status-name { font-size: .8rem; font-weight: 600; color: var(--text-main); }
     .ls-status-meta { font-size: .7rem; color: var(--text-muted); font-variant-numeric: tabular-nums; }
-    .ls-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: .75rem; margin-bottom: 1rem; }
-    .ls-kpi { border: 1px solid var(--border-color); border-radius: var(--r-md, 10px); padding: .75rem 1rem; background: var(--card-bg); }
-    .ls-kpi.bad { border-color: color-mix(in srgb, var(--bad-fg, #dc2626) 40%, var(--border-color)); }
-    .ls-kpi-val { display: block; font-size: 1.3rem; font-weight: 800; font-variant-numeric: tabular-nums; color: var(--text-main); }
-    .ls-kpi-lbl { display: block; font-size: .7rem; text-transform: uppercase; letter-spacing: .03em; color: var(--text-muted); margin-top: .15rem; }
+    app-metric-strip { display:block; margin-bottom: 1rem; }
     .ls-filters { display: flex; gap: 1rem; flex-wrap: wrap; margin-bottom: .8rem; }
     .ls-seg { display: inline-flex; border: 1px solid var(--border-color); border-radius: var(--r-pill, 999px); overflow: hidden; }
     .ls-seg button { border: none; background: var(--card-bg); padding: .3rem .8rem; font-size: .8rem; cursor: pointer; color: var(--text-muted); }
@@ -254,6 +246,16 @@ export class ContabilidadListasSatComponent implements OnInit {
   });
   readonly totalMatches = computed(() => this.allMatches().length);
   readonly totalRfcIssues = computed(() => this.rfcIssues().length);
+  readonly kpiItems = computed<MetricStripItem[]>(() => {
+    const s = this.stats();
+    if (!s) return [];
+    return [
+      { label: 'Proveedores en riesgo', value: s.pendientes_riesgo, tone: s.pendientes_riesgo > 0 ? 'bad' : 'default' },
+      { label: '$ expuesto en riesgo', value: s.exposicion_riesgo_mxn, format: 'currency' },
+      { label: 'Coincidencias totales', value: this.totalMatches() },
+      { label: 'RFC con problema', value: this.totalRfcIssues(), tone: this.totalRfcIssues() > 0 ? 'bad' : 'default' },
+    ];
+  });
 
   ngOnInit() { this.reload(); }
 

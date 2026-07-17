@@ -8,6 +8,7 @@ import { ToastModule } from 'primeng/toast';
 import { InputTextModule } from 'primeng/inputtext';
 import { MessageService } from 'primeng/api';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
+import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { CONTABILIDAD_TABS } from '../contabilidad-tabs';
 import { CfdiService, CfdiRow, CfdiStats, CfdiFilters } from '../cfdi.service';
 
@@ -19,7 +20,7 @@ import { CfdiService, CfdiRow, CfdiStats, CfdiFilters } from '../cfdi.service';
 @Component({
   selector: 'app-contabilidad-cfdi',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, TableModule, ToastModule, InputTextModule, PageTabsComponent],
+  imports: [CommonModule, FormsModule, ButtonModule, TableModule, ToastModule, InputTextModule, PageTabsComponent, MetricStripComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
@@ -42,12 +43,7 @@ import { CfdiService, CfdiRow, CfdiStats, CfdiFilters } from '../cfdi.service';
       </header>
 
       @if (stats(); as s) {
-        <div class="cf-kpis">
-          <div class="cf-kpi"><span class="cf-kpi-val">{{ s.total | number }}</span><span class="cf-kpi-lbl">CFDI</span></div>
-          <div class="cf-kpi"><span class="cf-kpi-val">{{ money(s.monto) }}</span><span class="cf-kpi-lbl">Monto total</span></div>
-          <div class="cf-kpi"><span class="cf-kpi-val">{{ money(s.iva) }}</span><span class="cf-kpi-lbl">IVA trasladado</span></div>
-          <div class="cf-kpi"><span class="cf-kpi-val">{{ ppdCount(s) | number }}</span><span class="cf-kpi-lbl">PPD (crédito)</span></div>
-        </div>
+        <app-metric-strip [items]="kpiItems(s)" ariaLabel="Resumen de CFDI" />
       }
 
       <div class="cf-filters">
@@ -105,10 +101,7 @@ import { CfdiService, CfdiRow, CfdiStats, CfdiFilters } from '../cfdi.service';
     :host { display: block; }
     .cf-head { display: flex; align-items: flex-start; gap: 1rem; }
     .cf-head-actions { margin-left: auto; }
-    .cf-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: .75rem; margin-bottom: 1rem; }
-    .cf-kpi { border: 1px solid var(--border-color); border-radius: var(--r-md, 10px); padding: .75rem 1rem; background: var(--card-bg); }
-    .cf-kpi-val { display: block; font-size: 1.3rem; font-weight: 800; font-variant-numeric: tabular-nums; color: var(--text-main); font-family: var(--font-mono, ui-monospace, monospace); }
-    .cf-kpi-lbl { display: block; font-size: .7rem; text-transform: uppercase; letter-spacing: .03em; color: var(--text-muted); margin-top: .15rem; }
+    app-metric-strip { display:block; margin-bottom: 1rem; }
     .cf-filters { display: flex; gap: .6rem; flex-wrap: wrap; align-items: flex-end; margin-bottom: .8rem; }
     .cf-search input { min-width: 260px; }
     .cf-field { display: flex; flex-direction: column; gap: .15rem; font-size: .68rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: .03em; }
@@ -174,6 +167,15 @@ export class ContabilidadCfdiComponent implements OnInit {
   setTipo(t: 'all' | 'I' | 'E' | 'P') { this.tipo.set(t); this.applyFilters(); }
 
   ppdCount(s: CfdiStats): number { return Number(s.porMetodo?.find((m) => m.metodo_pago === 'PPD')?.n ?? 0); }
+
+  kpiItems(s: CfdiStats): MetricStripItem[] {
+    return [
+      { label: 'CFDI', value: s.total },
+      { label: 'Monto total', value: s.monto, format: 'currency' },
+      { label: 'IVA trasladado', value: s.iva, format: 'currency' },
+      { label: 'PPD (crédito)', value: this.ppdCount(s) },
+    ];
+  }
   estatusLabel(e: string): string { return e === 'vigente' ? 'Vigente' : e === 'cancelado' ? 'Cancelado' : 'Sin verificar'; }
   money(v: number | string | null | undefined): string { return (Number(v ?? 0) || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 }); }
 }

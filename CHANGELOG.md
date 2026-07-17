@@ -10,6 +10,18 @@
 
 ## [Unreleased]
 
+### Added — Fase FD: Diagnóstico de facturación (centro de errores CFDI + soluciones) (2026-07-17)
+- **Interfaz nueva `/contabilidad/diagnostico`** (pestaña "Diagnóstico" en Contabilidad): junta los errores de emisión CFDI, los **traduce** del código críptico del PAC/SAT a lenguaje humano y **propone la solución** (pasos + deep-link + reintentar). Nace de un hallazgo: hoy los fallos del PAC casi no se persistían.
+- **FD.0 captura** — `PacError` tipado (conserva código/mensaje/detalle/sobre JSON en vez de aplastarlo) + tabla `fiscal.emission_errors` (UPSERT idempotente por `dedup_key`, self-resolving) + wrap try/catch en emitir/nota de crédito/REP/cancelar (registra al fallar, resuelve al éxito). Migración `20260717120000_fd0_emission_diagnostics.js`.
+- **FD.1 base de conocimiento** `sat-error-catalog.ts` — catálogo curado de códigos SAT/PAC (CFDI40147/40148/40149/40158, 302/303/304/307…) → causa + solución + deep-link, con resolver por código→regex→fallback.
+- **FD.2 API** `/fiscal/diagnostics` (list/stats/catalog/detalle/dismiss) + **FD.3 revisión preventiva** `health()` on-demand (emisor sin configurar, e.firma por vencer, cobertura de código agrupador). Reusa permisos `FISCAL_FACTURAR_VER/GESTIONAR` (sin permisos nuevos).
+- **FD.4 frontend** — tablero con KPIs, panel preventivo, tabla de errores con solución expandible + respuesta cruda del PAC, y acciones (reintentar timbrado de pedidos reusa el retry idempotente de Comercial / ir a arreglar).
+
+### Fixed — 2 bugs latentes de facturación (dentro de FD.0) (2026-07-17)
+- **`fiscal.cfdis.estatus_sat`**: el CHECK solo permitía `vigente|cancelado|desconocido` pero FE.10 escribe `'en_proceso_cancelacion'` → **la cancelación con aceptación del receptor reventaba** con violación de CHECK. Se amplía el dominio (+`en_proceso_cancelacion`, +`rechazado`).
+- **REP fallido invisible**: el complemento de pago que fallaba solo hacía `logger.warn` → ahora se captura en `fiscal.emission_errors`.
+- **Build API verde**; regresión local aislada **9/9** (`test-newdb-fiscal-diagnostics.js`, registrado en run-all-tests.js). Pendiente: aplicar migración a prod (hoy `knex migrate` local bloqueado por un archivo de otro hilo con error de sintaxis) + validación en vivo contra el PAC. Ver [`FASE_FD`](docs/IMPLEMENTACION/FASES/FASE_FD_DIAGNOSTICO_FISCAL.md).
+
 ### Changed — Consolidación de proveedores duplicados + backfill de supplier_id (2026-07-16)
 - El filtro de **/compras/existencia-critica es por PROVEEDOR**, y `catalog.suppliers` tenía el mismo problema de duplicados que las marcas + **28% de productos sin `supplier_id`** → invisibles al filtrar. Ej. Perfetti: 46 productos en la marca, pero 28 con proveedor "…SA", 1 con el duplicado "…S.A.", **17 sin proveedor**.
 - **`suppliers-normalize.js`** (espejo de brands, más simple — FKs `ON DELETE SET NULL`): clave agresiva / `--map`, remapea `supplier_id` en products/purchase_orders/purchase_requisitions, copia `lead_time_days`/`min_order_boxes` al canónico, soft-delete. **`suppliers-backfill.js`**: asigna el proveedor **dominante de la marca** (cobertura ≥0.7) a los productos sin proveedor.

@@ -143,6 +143,8 @@ export const PERMISSION_META: Record<string, PermissionMetaEntry> = {
   [Permission.FISCAL_CREDENCIALES_GESTIONAR]: { label: 'Gestionar credenciales SAT (e.firma)', description: 'Alta/baja de la e.firma del contribuyente en la bóveda cifrada (muy sensible).', category: 'Finanzas' },
   [Permission.FISCAL_FACTURAR_VER]: { label: 'Ver Facturación', description: 'Bandeja de facturas emitidas (CFDI 4.0) y descarga de su XML.', category: 'Finanzas' },
   [Permission.FISCAL_FACTURAR_GESTIONAR]: { label: 'Emitir / cancelar facturas', description: 'Timbrar CFDI 4.0 (global o nominativa) vía PAC, cancelar ante el SAT y configurar el emisor.', category: 'Finanzas' },
+  [Permission.FISCAL_IMPUESTOS_VER]: { label: 'Ver Impuestos provisionales', description: 'Cálculo de pagos provisionales (ISR/IVA) del período. Solo lectura.', category: 'Finanzas' },
+  [Permission.FISCAL_MATERIALIDAD_VER]: { label: 'Ver Expediente de materialidad', description: 'Dossier de materialidad por RFC de proveedor (soporte ante EFOS/Art. 69). Solo lectura.', category: 'Finanzas' },
 
   // ── Supervisor de Movimientos (cuadre) — ADR-029 ──────────────────────
   [Permission.RECONCILIATION_VER]: { label: 'Ver Cuadre de Movimientos', description: 'Bandeja de descuadres del supervisor: caja (arqueos), inventario y cruces. Solo lectura.', category: 'Almacén' },
@@ -157,7 +159,17 @@ export const PERMISSION_META: Record<string, PermissionMetaEntry> = {
   [Permission.SUPERVISOR_AI_APROBAR]: { label: 'Aprobar acciones del Supervisor AI', description: 'Aprobar o rechazar las acciones propuestas por el supervisor AI (nivel co-piloto).', category: 'Seguimiento' },
   [Permission.ROUTE_CONTROL_VER]: { label: 'Ver Control de ruta', description: 'Consultar los tickets de venta/carga/combustible del cierre de ruta de vendedores.', category: 'Comercial' },
   [Permission.ROUTE_TICKET_CAPTURE]: { label: 'Capturar tickets de ruta', description: 'Registrar tickets del cierre de ruta (venta/carga/combustible).', category: 'Comercial' },
-  [Permission.LOGISTICS_HOME_DISPATCH]: { label: 'Reparto a domicilio', description: 'Entrega a domicilio: captura de folio, asignación a repartidor y corte de caja con arqueo.', category: 'Logística' },
+  [Permission.LOGISTICS_HOME_DISPATCH]: { label: 'Reparto a domicilio (legacy)', description: 'Permiso viejo de reparto — reemplazado por Despachar/Entregar. Se conserva para compatibilidad hasta la limpieza.', category: 'Reparto' },
+
+  // ── Reparto / Última Milla (proyecto propio — ADR-027) ────────────────
+  [Permission.REPARTO_DESPACHAR]: { label: 'Despachar reparto', description: 'Persona de tienda: captura el folio, asigna repartidor + moto, ve el tracking y los KPIs de entrega a domicilio.', category: 'Reparto' },
+  [Permission.REPARTO_ENTREGAR]: { label: 'Entregar (repartidor)', description: 'Repartidor: ve su ruta y paradas, cierra la entrega con evidencia + cobro, y hace su arqueo ciego de fin de día.', category: 'Reparto' },
+
+  // ── Comercial — Carga / Movimientos (features propias) ────────────────
+  [Permission.COMMERCIAL_CARGA_VER]: { label: 'Ver Carga', description: 'Consultar el estado de carga al camión de las líneas de pedido. Solo lectura.', category: 'Comercial · Pedidos' },
+  [Permission.COMMERCIAL_CARGA_GESTIONAR]: { label: 'Gestionar Carga', description: 'Marcar líneas como cargadas / no cargadas al camión (individual o en lote).', category: 'Comercial · Pedidos' },
+  [Permission.COMMERCIAL_MOVEMENTS_VER]: { label: 'Ver Movimientos', description: 'Diario de movimientos de stock (entradas/salidas/traspasos) con drill a documento. Solo lectura.', category: 'Comercial' },
+  [Permission.COMMERCIAL_MOVEMENTS_GESTIONAR]: { label: 'Auditar Movimientos', description: 'Marcar/desmarcar un documento de movimiento como auditado.', category: 'Comercial' },
 };
 
 /**
@@ -178,6 +190,7 @@ export const PERMISSION_CATEGORY_ORDER: readonly string[] = [
   'Comercial · Inventario físico',
   'Televenta',
   'Logística',
+  'Reparto',
   'Finanzas',
   'Tienda',
   'Portal B2B',

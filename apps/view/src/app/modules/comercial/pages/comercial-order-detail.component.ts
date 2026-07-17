@@ -15,6 +15,7 @@ import { TooltipModule } from 'primeng/tooltip';
 import { SkeletonModule } from 'primeng/skeleton';
 import { MessageService, ConfirmationService } from 'primeng/api';
 import { ComercialService, OrderDetail, OrderHistoryEntry, OrderLine, OrderStatus } from '../comercial.service';
+import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { LogisticaService, Shipment, ShipmentStatus } from '../../logistica/logistica.service';
 import { AuthService } from '../../../core/services/auth.service';
 import { Permission } from '../../../core/constants/permissions';
@@ -36,6 +37,7 @@ import { Permission } from '../../../core/constants/permissions';
     InputNumberModule,
     TooltipModule,
     SkeletonModule,
+    MetricStripComponent,
   ],
   providers: [MessageService, ConfirmationService],
   template: `
@@ -87,21 +89,8 @@ import { Permission } from '../../../core/constants/permissions';
         </div>
       </header>
 
-      <div class="grid">
-        <article class="comm-stat-card">
-          <span class="comm-stat-label">Cliente</span>
-          <span class="comm-stat-value">{{ o.customer_name || o.customer_id }}</span>
-        </article>
-        <article class="comm-stat-card">
-          <span class="comm-stat-label">Almacén</span>
-          <span class="comm-stat-value">{{ o.warehouse_name || '—' }}</span>
-        </article>
-        <article class="comm-stat-card">
-          <span class="comm-stat-label">Total</span>
-          <span class="comm-stat-value is-big">{{ o.total | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
-          <span class="comm-stat-sub" *ngIf="o.discount_total">Descuento: {{ o.discount_total | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
-        </article>
-      </div>
+      <app-metric-strip [items]="headItems(o)" ariaLabel="Resumen del pedido" />
+
 
       <p-card header="Líneas">
         <div class="lines-banner" *ngIf="o.status === 'pending_approval'">
@@ -303,8 +292,7 @@ import { Permission } from '../../../core/constants/permissions';
     /* Ritmo y padding de página vienen de .surf-page (gap:1rem, padding:0 1.5rem 2rem),
      * idéntico a las otras 21 páginas. Nada de márgenes ad-hoc por sección. */
     .od-loading { display:flex; flex-direction:column; gap:1rem; }
-    .grid { display:grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap:.75rem; }
-    @media (max-width: 720px) { .grid { grid-template-columns: 1fr; } }
+    app-metric-strip { display:block; }
     .action-bar { display:flex; gap:.75rem; flex-wrap:wrap; align-items:center; }
     .action-bar .fa-hint { align-self:center; max-width:34rem; }
 
@@ -339,6 +327,18 @@ export class ComercialOrderDetailComponent {
   private readonly destroyRef = inject(DestroyRef);
 
   readonly order = signal<OrderDetail | null>(null);
+
+  /** Cabecera del pedido vía MetricStrip (Cliente/Almacén como texto, Total en moneda). */
+  headItems(o: OrderDetail): MetricStripItem[] {
+    return [
+      { label: 'Cliente', value: o.customer_name || o.customer_id || '—', format: 'text' },
+      { label: 'Almacén', value: o.warehouse_name || '—', format: 'text' },
+      {
+        label: 'Total', value: o.total, format: 'currency', tone: 'brand',
+        sub: o.discount_total ? `Descuento: ${(+o.discount_total).toLocaleString('es-MX', { style: 'currency', currency: 'MXN' })}` : undefined,
+      },
+    ];
+  }
   readonly history = signal<OrderHistoryEntry[]>([]);
   readonly loading = signal(true);
   readonly actioning = signal(false);

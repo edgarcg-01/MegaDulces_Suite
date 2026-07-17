@@ -29,6 +29,7 @@ import {
   ExpenseFindingsReport,
 } from '../comercial.service';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
+import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { SegmentedComponent } from '../../../shared/components/segmented/segmented.component';
 import { FINANZAS_TABS } from '../../finanzas/finanzas-tabs';
 import { ThemeService } from '../../../core/services/theme.service';
@@ -46,7 +47,7 @@ import { egresChartOptions } from './egresos-chart-opts';
     CommonModule, FormsModule, ButtonModule, MultiSelectModule, SelectModule,
     DatePickerModule, InputNumberModule, InputTextModule, ToggleSwitchModule,
     TableModule, TreeTableModule, ChartModule, ToastModule,
-    PageTabsComponent, SegmentedComponent,
+    PageTabsComponent, SegmentedComponent, MetricStripComponent,
   ],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -94,21 +95,8 @@ import { egresChartOptions } from './egresos-chart-opts';
       </div>
 
       <!-- KPIs (solo del reporte de egresos — no aplican a Proveedores/Hallazgos) -->
-      @if (isReportView() && report(); as r) {
-        <div class="ex-kpis">
-          <div class="ex-kpi">
-            <span class="ex-kpi-label">Egreso total</span>
-            <span class="ex-kpi-val">{{ money(r.total) }}</span>
-            <span class="ex-kpi-sub">{{ r.movimientos | number }} movs · {{ r.from }} → {{ r.to }}</span>
-          </div>
-          @for (f of r.by_familia; track f.familia) {
-            <div class="ex-kpi">
-              <span class="ex-kpi-label">{{ f.label }}</span>
-              <span class="ex-kpi-val">{{ money(f.total) }}</span>
-              <span class="ex-kpi-sub">{{ f.movs | number }} movs · {{ pct(f.total, r.total) }}%</span>
-            </div>
-          }
-        </div>
+      @if (isReportView() && report()) {
+        <app-metric-strip [items]="kpiItems()" ariaLabel="Resumen de egresos" />
       }
 
       <!-- Vista -->
@@ -292,11 +280,7 @@ import { egresChartOptions } from './egresos-chart-opts';
     :host ::ng-deep .ex-narrow .p-inputnumber input { width: 100%; min-width: 0; }
     /* "Comparar": label arriba + toggle abajo, alineado como el resto (no centrado). */
     .ex-toggle { align-items: flex-start; justify-content: flex-end; min-width: 6rem; }
-    .ex-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: .75rem; margin-bottom: 1rem; }
-    .ex-kpi { border: 1px solid var(--border, #e7e5e4); border-radius: var(--r-md); padding: .85rem 1rem; background: var(--card-bg, #fff); }
-    .ex-kpi-label { display: block; font-size: .72rem; font-weight: 600; color: var(--text-muted, #78716c); text-transform: uppercase; letter-spacing: .03em; }
-    .ex-kpi-val { display: block; font-size: 1.4rem; font-weight: 700; margin-top: .15rem; }
-    .ex-kpi-sub { display: block; font-size: .74rem; color: var(--text-muted, #78716c); margin-top: .1rem; }
+    app-metric-strip { display:block; margin-bottom: 1rem; }
     .ex-viewbar { display: flex; align-items: center; gap: 1.5rem; margin-bottom: .75rem; flex-wrap: wrap; }
     .ex-dim { display: flex; align-items: center; gap: .5rem; }
     .ex-dim label { font-size: .72rem; font-weight: 600; color: var(--text-muted, #78716c); text-transform: uppercase; }
@@ -365,6 +349,17 @@ export class ComercialEgresosComponent {
   ];
 
   readonly report = signal<ExpensesReport | null>(null);
+  readonly kpiItems = computed<MetricStripItem[]>(() => {
+    const r = this.report();
+    if (!this.isReportView() || !r) return [];
+    const items: MetricStripItem[] = [
+      { label: 'Egreso total', value: r.total, format: 'currency', tone: 'brand', sub: `${r.movimientos} movs` },
+    ];
+    for (const f of r.by_familia) {
+      items.push({ label: f.label, value: f.total, format: 'currency', sub: `${f.movs} movs · ${this.pct(f.total, r.total)}%` });
+    }
+    return items;
+  });
   readonly tree = signal<ExpensesTree | null>(null);
   readonly providers = signal<ApProvider[]>([]);
   readonly findings = signal<ExpenseFindingsReport | null>(null);

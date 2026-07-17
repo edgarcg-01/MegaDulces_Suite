@@ -42,6 +42,7 @@ Quedan **dos** migraciones de esta sesión sin aplicar. Las de FE.1 (`2026071612
 
 - [ ] `20260716160000_fe11_cod_agrupador.js` — crea `fiscal.cod_agrupador_map` (RLS) + permiso `FISCAL_CONTAB_GESTIONAR`.
 - [ ] `20260716180000_fe10_cancel.js` — columnas `cancel_*` en `fiscal.cfdis` (motivo/sustitución/acuse/estatus). Aditiva.
+- [ ] `20260716200000_fe13_invoice_contingency.js` — columnas `cfdi_error/cfdi_attempts/cfdi_last_attempt_at` + índice parcial en `commercial.orders`. Aditiva.
 
 ```bash
 NODE_ENV=production DATABASE_URL_NEW='<cadena-de-conexión-prod>' \

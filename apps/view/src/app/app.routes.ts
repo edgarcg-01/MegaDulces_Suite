@@ -270,6 +270,11 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.FISCAL_FACTURAR_VER)]
       },
       {
+        path: 'diagnostico',
+        loadComponent: () => import('./modules/contabilidad/pages/contabilidad-diagnostico.component').then(m => m.ContabilidadDiagnosticoComponent),
+        canActivate: [permissionGuard(Permission.FISCAL_FACTURAR_VER)]
+      },
+      {
         path: 'conciliacion',
         loadComponent: () => import('./modules/contabilidad/pages/contabilidad-conciliacion.component').then(m => m.ContabilidadConciliacionComponent),
         canActivate: [permissionGuard(Permission.FISCAL_CONCILIACION_VER)]
@@ -452,7 +457,7 @@ export const routes: Routes = [
         // También es superficie de auditoría/prevención → accesible con RECONCILIATION_VER.
         path: 'movimientos',
         loadComponent: () => import('./modules/almacen/pages/almacen-movimientos.component').then(m => m.AlmacenMovimientosComponent),
-        canActivate: [anyPermissionGuard(Permission.COMMERCIAL_INVENTORY_VER, Permission.RECONCILIATION_VER)]
+        canActivate: [anyPermissionGuard(Permission.COMMERCIAL_MOVEMENTS_VER, Permission.RECONCILIATION_VER)]
       },
     ]
   },

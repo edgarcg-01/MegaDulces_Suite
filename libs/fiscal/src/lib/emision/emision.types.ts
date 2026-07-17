@@ -48,6 +48,19 @@ export interface NotaCreditoInput {
   conceptos: ConceptoInput[];
 }
 
+/** FE.8 — Complemento de Pago (REP): CFDI tipo 'P' con Pagos 2.0 sobre una factura PPD. */
+export interface RepInput {
+  cfdi_uuid: string;        // UUID de la factura PPD original
+  monto: number;            // importe de ESTE pago
+  forma_pago: string;       // clave SAT (01 efectivo, 03 transferencia, 04 tarjeta…)
+  fecha_pago?: string;      // ISO 'YYYY-MM-DDTHH:MM:SS' (default: ahora MX)
+  num_parcialidad: number;  // nº de parcialidad (1, 2, …)
+  imp_saldo_ant: number;    // saldo ANTES de este pago
+  imp_saldo_insoluto: number; // saldo DESPUÉS de este pago
+  emisor_rfc?: string;
+  serie?: string;           // default 'P'
+}
+
 export interface IssuerConfigInput {
   rfc: string;
   tax_name: string;

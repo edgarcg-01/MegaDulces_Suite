@@ -87,6 +87,14 @@ exports.seed = async function (knex) {
     LOGISTICS_CONFIG_GESTIONAR: true,
     LOGISTICS_CARTAPORTE_VER: true,
     LOGISTICS_CARTAPORTE_GESTIONAR: true,
+    // Reparto / Última Milla (proyecto propio — ADR-027)
+    REPARTO_DESPACHAR: true,
+    REPARTO_ENTREGAR: true,
+    // Comercial — Carga al camión / Diario de movimientos (features propias)
+    COMMERCIAL_CARGA_VER: true,
+    COMMERCIAL_CARGA_GESTIONAR: true,
+    COMMERCIAL_MOVEMENTS_VER: true,
+    COMMERCIAL_MOVEMENTS_GESTIONAR: true,
     // Fase V — Vendedor con OCR de ticket
     CAPTURE_TICKET_USE: true,
     // Acceso a la app de vendedor standalone
@@ -122,7 +130,10 @@ exports.seed = async function (knex) {
       ...perms,
       COMMERCIAL_ANALYTICS_VER: internal && !!perms.COMMERCIAL_ORDERS_VER,
       LOGISTICS_TRANSFERS_VER: internal && !!perms.COMMERCIAL_ORDERS_VER,
-      COMMERCIAL_CARTERA_VER: !!perms.USUARIOS_ASIGNAR_RUTA,
+      // CARTERA_VER: supervisor (asignar ruta) + vendedor que opera su cartera
+      // (vendor-routes ahora pide CARTERA_VER en vez de CUSTOMERS_VER/VISITAS/ORDERS_CREAR).
+      COMMERCIAL_CARTERA_VER: !!perms.USUARIOS_ASIGNAR_RUTA
+        || (internal && (!!perms.COMMERCIAL_CUSTOMERS_VER || !!perms.VISITAS_REGISTRAR || !!perms.COMMERCIAL_ORDERS_CREAR)),
       COMMERCIAL_CARTERA_GESTIONAR: !!perms.USUARIOS_ASIGNAR_RUTA,
       TRADE_ROUTE_PLAN_VER: !!perms.USUARIOS_ASIGNAR_RUTA,
       TRADE_ROUTE_PLAN_GESTIONAR: !!perms.USUARIOS_ASIGNAR_RUTA,
@@ -143,6 +154,14 @@ exports.seed = async function (knex) {
       // Compras / Reabastecimiento (Fase RA — ADR-030) — igual que backfill 20260708120100
       COMPRAS_VER: internal && !!perms.COMMERCIAL_INVENTORY_VER,
       COMPRAS_GESTIONAR: internal && !!perms.COMMERCIAL_INVENTORY_SUPERVISAR,
+      // Carga / Movimientos (features propias) — igual que backfill 20260717122000
+      COMMERCIAL_CARGA_VER: internal && !!perms.COMMERCIAL_ORDERS_VER,
+      COMMERCIAL_CARGA_GESTIONAR: internal && !!perms.COMMERCIAL_ORDERS_FULFILL,
+      COMMERCIAL_MOVEMENTS_VER: internal && !!perms.COMMERCIAL_INVENTORY_VER,
+      COMMERCIAL_MOVEMENTS_GESTIONAR: internal && !!perms.COMMERCIAL_INVENTORY_SUPERVISAR,
+      // Fiscal — impuestos/materialidad features propias — igual que backfill 20260717124000
+      FISCAL_IMPUESTOS_VER: internal && !!perms.FISCAL_DIOT_VER,
+      FISCAL_MATERIALIDAD_VER: internal && !!perms.FISCAL_LISTAS_VER,
     };
   };
 
@@ -294,6 +313,7 @@ exports.seed = async function (knex) {
         VENDOR_APP_ACCESS: true,
         // Stock via catálogo bajo ORDERS_VER — sin módulo de inventario.
         COMMERCIAL_CUSTOMERS_VER: true,
+        COMMERCIAL_CARTERA_VER: true, // opera SU cartera: mi ruta, check-in, alta rápida (feature autosuficiente)
         COMMERCIAL_PRICING_VER: true,
         COMMERCIAL_ORDERS_VER: true,
         COMMERCIAL_ORDERS_CREAR: true,
@@ -311,17 +331,12 @@ exports.seed = async function (knex) {
       role_name: 'repartidor',
       permissions: {
         ...NO_PERMS,
-        VENDOR_APP_ACCESS: true, // login a la app de vendedor (rutas /repartidor)
-        LOGISTICS_SHIPMENTS_VER: true, // sus embarques/guías vía my-driver
-        LOGISTICS_GUIDES_VER: true,
-        LOGISTICS_GUIDES_GESTIONAR: true, // marcar parada entregada / incidencia / POD
-        COMMERCIAL_CUSTOMERS_VER: true, // ver datos del cliente de la parada
-        COMMERCIAL_PRICING_VER: true,
-        COMMERCIAL_ORDERS_VER: true,
-        COMMERCIAL_ORDERS_FULFILL: true, // entregar (deliver-now / fulfill)
-        COMMERCIAL_ORDERS_CANCELAR: true, // rechazo del cliente
-        COMMERCIAL_PAYMENTS_REGISTRAR: true, // cobrar en la entrega
-        ROUTE_TICKET_CAPTURE: true, // tickets de cierre de ruta
+        VENDOR_APP_ACCESS: true, // login a la app (shell /rider)
+        // Módulo Reparto autosuficiente: entregar cubre ver ruta/paradas, cerrar
+        // parada con POD + cobro, y arqueo ciego. Ya NO toma prestado
+        // ORDERS_*/PAYMENTS_*/LOGISTICS_* (los endpoints piden REPARTO_ENTREGAR).
+        REPARTO_ENTREGAR: true,
+        ROUTE_TICKET_CAPTURE: true, // tickets de cierre de ruta (feature aparte)
       },
     },
     {
@@ -355,7 +370,7 @@ exports.seed = async function (knex) {
         LOGISTICS_SHIPMENTS_GESTIONAR: true, // arma/asigna la entrega
         LOGISTICS_GUIDES_VER: true,
         LOGISTICS_GUIDES_GESTIONAR: true,
-        LOGISTICS_HOME_DISPATCH: true, // captura folio Kepler + asigna (fallback mientras no existan roles de tienda)
+        REPARTO_DESPACHAR: true, // captura folio Kepler + asigna repartidor + tracking + KPIs
         LOGISTICS_EXPENSES_VER: true,
       },
     },
@@ -373,7 +388,7 @@ exports.seed = async function (knex) {
         LOGISTICS_SHIPMENTS_VER: true,
         LOGISTICS_GUIDES_VER: true,
         LOGISTICS_GUIDES_GESTIONAR: true,
-        LOGISTICS_HOME_DISPATCH: true,
+        REPARTO_DESPACHAR: true,
         ROUTE_CONTROL_VER: true,
       },
     },
@@ -391,7 +406,7 @@ exports.seed = async function (knex) {
         LOGISTICS_SHIPMENTS_VER: true,
         LOGISTICS_GUIDES_VER: true,
         LOGISTICS_GUIDES_GESTIONAR: true,
-        LOGISTICS_HOME_DISPATCH: true,
+        REPARTO_DESPACHAR: true,
       },
     },
     {
@@ -419,7 +434,7 @@ exports.seed = async function (knex) {
         LOGISTICS_SHIPMENTS_VER: true,
         LOGISTICS_GUIDES_VER: true,
         LOGISTICS_GUIDES_GESTIONAR: true,
-        LOGISTICS_HOME_DISPATCH: true,
+        REPARTO_DESPACHAR: true,
         ROUTE_CONTROL_VER: true,
       },
     },

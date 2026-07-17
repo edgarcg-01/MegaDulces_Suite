@@ -50,6 +50,17 @@ export interface IssueInvoiceResult {
   total: number;
 }
 
+// FE.8 — Complemento de Pago (REP): al cobrar una factura PPD, se emite un CFDI 'P'.
+export interface IssueRepInput {
+  cfdi_uuid: string;          // UUID de la factura PPD original
+  monto: number;              // importe de este pago (incluye IVA)
+  forma_pago: string;         // clave SAT (01/03/04…)
+  fecha_pago?: string;        // ISO; default ahora
+  num_parcialidad: number;    // nº de parcialidad
+  imp_saldo_ant: number;      // saldo antes del pago
+  imp_saldo_insoluto: number; // saldo después del pago
+}
+
 export interface InvoiceIssuerPort {
   /** Emite y timbra un CFDI. Best-effort desde hooks: el caller debe tolerar throw/null. */
   issue(tenantId: string, input: IssueInvoiceInput): Promise<IssueInvoiceResult | null>;
@@ -57,4 +68,6 @@ export interface InvoiceIssuerPort {
   getXml(tenantId: string, uuid: string): Promise<string | null>;
   /** FE.7 — PDF (base64) por UUID; lo genera/cachea el motor de emisión. */
   getPdf(tenantId: string, uuid: string): Promise<string | null>;
+  /** FE.8 — REP al cobrar una PPD. Devuelve null si la factura es PUE (no lleva REP). */
+  issueRep(tenantId: string, input: IssueRepInput): Promise<{ uuid: string } | null>;
 }

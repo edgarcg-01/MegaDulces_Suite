@@ -132,6 +132,23 @@ export enum Permission {
   LOGISTICS_CARTAPORTE_VER = 'LOGISTICS_CARTAPORTE_VER',
   LOGISTICS_CARTAPORTE_GESTIONAR = 'LOGISTICS_CARTAPORTE_GESTIONAR',
 
+  // ── Reparto / Última Milla (proyecto propio — ADR-027) ────────────────
+  // Dominio autosuficiente: NO depende de ORDERS_*/PAYMENTS_*/LOGISTICS_*.
+  // DESPACHAR = persona de tienda (captura folio, asigna repartidor+moto, ve
+  // tracking y KPIs). ENTREGAR = repartidor (ve su ruta, cierra parada, cobra,
+  // arqueo ciego). Reemplazan el uso prestado de LOGISTICS_HOME_DISPATCH +
+  // COMMERCIAL_ORDERS_FULFILL + COMMERCIAL_PAYMENTS_REGISTRAR + LOGISTICS_SHIPMENTS_VER.
+  REPARTO_DESPACHAR = 'REPARTO_DESPACHAR',
+  REPARTO_ENTREGAR = 'REPARTO_ENTREGAR',
+
+  // ── Comercial — Carga al camión (feature propia, no arrastra Pedidos) ──
+  COMMERCIAL_CARGA_VER = 'COMMERCIAL_CARGA_VER',
+  COMMERCIAL_CARGA_GESTIONAR = 'COMMERCIAL_CARGA_GESTIONAR',
+
+  // ── Comercial — Diario de movimientos de stock (feature propia, no Inventario) ──
+  COMMERCIAL_MOVEMENTS_VER = 'COMMERCIAL_MOVEMENTS_VER',
+  COMMERCIAL_MOVEMENTS_GESTIONAR = 'COMMERCIAL_MOVEMENTS_GESTIONAR',
+
   // ── Fase AZ — permisos jerárquicos (App → Proyecto → Módulo) ──────────
   // Nacen al partir permisos que antes gateaban varios módulos a la vez, para
   // que cada módulo tenga los suyos. Backfill determinista en la migración.
@@ -201,4 +218,8 @@ export enum Permission {
   // FE = facturación electrónica (emisión/timbrado CFDI 4.0 vía PAC SW/Conectia).
   FISCAL_FACTURAR_VER = 'FISCAL_FACTURAR_VER',
   FISCAL_FACTURAR_GESTIONAR = 'FISCAL_FACTURAR_GESTIONAR',
+  // FISCAL.18 = impuestos provisionales (feature propia, ya no toma prestado DIOT).
+  FISCAL_IMPUESTOS_VER = 'FISCAL_IMPUESTOS_VER',
+  // FISCAL.10.1 = expediente de materialidad por RFC (feature propia, ya no toma prestado LISTAS).
+  FISCAL_MATERIALIDAD_VER = 'FISCAL_MATERIALIDAD_VER',
 }

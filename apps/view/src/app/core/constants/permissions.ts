@@ -114,6 +114,16 @@ export enum Permission {
   LOGISTICS_CARTAPORTE_VER = 'LOGISTICS_CARTAPORTE_VER',
   LOGISTICS_CARTAPORTE_GESTIONAR = 'LOGISTICS_CARTAPORTE_GESTIONAR',
 
+  // ── Reparto / Última Milla (proyecto propio — ADR-027) ────────────────
+  REPARTO_DESPACHAR = 'REPARTO_DESPACHAR',
+  REPARTO_ENTREGAR = 'REPARTO_ENTREGAR',
+
+  // ── Comercial — Carga al camión / Diario de movimientos (features propias) ──
+  COMMERCIAL_CARGA_VER = 'COMMERCIAL_CARGA_VER',
+  COMMERCIAL_CARGA_GESTIONAR = 'COMMERCIAL_CARGA_GESTIONAR',
+  COMMERCIAL_MOVEMENTS_VER = 'COMMERCIAL_MOVEMENTS_VER',
+  COMMERCIAL_MOVEMENTS_GESTIONAR = 'COMMERCIAL_MOVEMENTS_GESTIONAR',
+
   // ── Fase AZ — permisos jerárquicos (App → Proyecto → Módulo) ──────────
   // Nacen al partir permisos que antes gateaban varios módulos. Deben quedar
   // sincronizados con libs/platform-core y con AUTHZ_TREE.
@@ -170,4 +180,7 @@ export enum Permission {
   FISCAL_CREDENCIALES_GESTIONAR = 'FISCAL_CREDENCIALES_GESTIONAR',
   FISCAL_FACTURAR_VER = 'FISCAL_FACTURAR_VER',
   FISCAL_FACTURAR_GESTIONAR = 'FISCAL_FACTURAR_GESTIONAR',
+  // Features propias (ya no toman prestado DIOT/LISTAS)
+  FISCAL_IMPUESTOS_VER = 'FISCAL_IMPUESTOS_VER',
+  FISCAL_MATERIALIDAD_VER = 'FISCAL_MATERIALIDAD_VER',
 }

@@ -1,6 +1,6 @@
 import { Body, Controller, Get, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiQuery } from '@nestjs/swagger';
-import { Public, RequirePermissions, Permission, ReqUser } from '@megadulces/platform-core';
+import { Public, RequirePermissions, RequireAnyPermission, Permission, ReqUser } from '@megadulces/platform-core';
 import { StoreService } from './store.service';
 import { StoreIngestGuard } from './store-ingest.guard';
 import { LiveTicket } from './store.types';
@@ -35,7 +35,7 @@ export class StoreController {
 
   /** LM-K.1 — busca un ticket Kepler por folio para armar la entrega a domicilio. */
   @Get('ticket-lookup')
-  @RequirePermissions(Permission.LOGISTICS_HOME_DISPATCH)
+  @RequireAnyPermission(Permission.STORE_LIVE_VER, Permission.REPARTO_DESPACHAR)
   @ApiQuery({ name: 'folio', required: true })
   @ApiQuery({ name: 'serie', required: false })
   @ApiQuery({ name: 'warehouse', required: false, description: "Sucursal ('01'..'03'). Ignorado si el usuario ya está scopeado a una sucursal." })

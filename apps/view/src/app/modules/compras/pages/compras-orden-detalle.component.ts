@@ -14,6 +14,7 @@ import { PermissionsService } from '../../../core/services/permissions.service';
 import { AuthService } from '../../../core/services/auth.service';
 import { Permission } from '../../../core/constants/permissions';
 import { ComprasService, PurchaseOrderDetail, PurchaseOrderLine, PurchaseOrderEstado, CreateReceiptLine } from '../compras.service';
+import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 
 type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
 
@@ -37,7 +38,7 @@ interface RecvLine {
 @Component({
   selector: 'app-compras-orden-detalle',
   standalone: true,
-  imports: [CommonModule, FormsModule, RouterLink, ButtonModule, TableModule, TagModule, DialogModule, InputTextModule, ToastModule],
+  imports: [CommonModule, FormsModule, RouterLink, ButtonModule, TableModule, TagModule, DialogModule, InputTextModule, ToastModule, MetricStripComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
@@ -71,12 +72,7 @@ interface RecvLine {
       </header>
 
       @if (po(); as p) {
-        <div class="od-kpis">
-          <div class="od-kpi"><span class="od-kpi-val">{{ p.total_units | number:'1.0-0' }}</span><span class="od-kpi-lbl">Pedido</span></div>
-          <div class="od-kpi"><span class="od-kpi-val">{{ p.received_units | number:'1.0-0' }}</span><span class="od-kpi-lbl">Recibido</span></div>
-          <div class="od-kpi"><span class="od-kpi-val">{{ fill(p) | percent:'1.0-0' }}</span><span class="od-kpi-lbl">Avance (fill rate)</span></div>
-          <div class="od-kpi"><span class="od-kpi-val">{{ money(p.total_cost) }}</span><span class="od-kpi-lbl">Costo pactado</span></div>
-        </div>
+        <app-metric-strip [items]="kpiItems(p)" ariaLabel="Resumen de la orden de compra" />
 
         <h2 class="od-h2">Líneas</h2>
         <p-table [value]="p.lines" styleClass="p-datatable-sm od-table">
@@ -147,10 +143,7 @@ interface RecvLine {
     .surf-page-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; }
     .od-actions { display: flex; gap: .5rem; }
     .od-link { color: var(--action); text-decoration: none; } .od-link:hover { text-decoration: underline; }
-    .od-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: .5rem; margin: 1rem 0; }
-    .od-kpi { display: flex; flex-direction: column; gap: .15rem; padding: .7rem .9rem; border: 1px solid var(--border-color); border-radius: var(--r-md); background: var(--card-bg); }
-    .od-kpi-val { font-size: 1.2rem; font-weight: 700; line-height: 1.1; }
-    .od-kpi-lbl { font-size: .72rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: .03em; }
+    app-metric-strip { display:block; margin: 1rem 0; }
     .od-h2 { font-size: .95rem; font-weight: 700; margin: 1.25rem 0 .5rem; }
     .od-table { font-size: .84rem; }
     .od-r { text-align: right; font-variant-numeric: tabular-nums; }
@@ -240,6 +233,15 @@ export class ComprasOrdenDetalleComponent implements OnInit {
 
   back(): void { this.router.navigate(['/compras/ordenes']); }
   fill(p: PurchaseOrderDetail): number { return Number(p.total_units) > 0 ? Number(p.received_units) / Number(p.total_units) : 0; }
+
+  kpiItems(p: PurchaseOrderDetail): MetricStripItem[] {
+    return [
+      { label: 'Pedido', value: p.total_units },
+      { label: 'Recibido', value: p.received_units },
+      { label: 'Avance (fill rate)', value: Math.round(this.fill(p) * 100), format: 'percent' },
+      { label: 'Costo pactado', value: p.total_cost, format: 'currency', tone: 'brand' },
+    ];
+  }
   money(v: number | string | null | undefined) { return (Number(v ?? 0) || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 }); }
   estadoLabel(e: PurchaseOrderEstado) { return ({ open: 'Abierta', partial: 'Parcial', received: 'Recibida', cancelled: 'Cancelada' } as Record<PurchaseOrderEstado, string>)[e]; }
   estadoSev(e: PurchaseOrderEstado): Sev { return ({ open: 'info', partial: 'warn', received: 'success', cancelled: 'danger' } as Record<PurchaseOrderEstado, Sev>)[e]; }

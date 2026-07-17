@@ -15,6 +15,7 @@ import { TagModule } from 'primeng/tag';
 import { InputTextModule } from 'primeng/inputtext';
 import { MessageService } from 'primeng/api';
 import { ComprasService, CriticalStockRow, ReplenishmentSummary, Bucket, TargetBasis, SourceType, CreateRequisitionDto, DeadStockRow } from '../compras.service';
+import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 
 type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
 
@@ -49,7 +50,7 @@ interface DraftLine {
 @Component({
   selector: 'app-compras-existencia-critica',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, TableModule, ToastModule, SelectModule, MultiSelectModule, DialogModule, TagModule, InputTextModule],
+  imports: [CommonModule, FormsModule, ButtonModule, TableModule, ToastModule, SelectModule, MultiSelectModule, DialogModule, TagModule, InputTextModule, MetricStripComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
@@ -68,14 +69,7 @@ interface DraftLine {
 
       <!-- KPIs -->
       @if (summary(); as s) {
-        <div class="ec-kpis">
-          <div class="ec-kpi" [class.bad]="s.agotado > 0"><span class="ec-kpi-val">{{ s.agotado | number }}</span><span class="ec-kpi-lbl">Agotado</span></div>
-          <div class="ec-kpi" [class.bad]="s.bajo_minimo > 0"><span class="ec-kpi-val">{{ s.bajo_minimo | number }}</span><span class="ec-kpi-lbl">Bajo mínimo</span></div>
-          <div class="ec-kpi" [class.warn]="s.bajo_reorden > 0"><span class="ec-kpi-val">{{ s.bajo_reorden | number }}</span><span class="ec-kpi-lbl">Bajo reorden</span></div>
-          <div class="ec-kpi"><span class="ec-kpi-val">{{ s.sobrestock | number }}</span><span class="ec-kpi-lbl">Sobrestock</span></div>
-          <div class="ec-kpi"><span class="ec-kpi-val">{{ s.total_policies | number }}</span><span class="ec-kpi-lbl">Con política</span></div>
-          <div class="ec-kpi"><span class="ec-kpi-val">{{ money(s.sugerido_costo || 0) }}</span><span class="ec-kpi-lbl">Sugerido a comprar</span></div>
-        </div>
+        <app-metric-strip [items]="kpiItems(s)" ariaLabel="Resumen de existencia crítica" />
       }
 
       <!-- Filtros -->
@@ -271,12 +265,7 @@ interface DraftLine {
   styles: [`
     :host { display: block; }
     .ec-head-actions { display: flex; gap: .5rem; align-items: center; }
-    .ec-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: .5rem; margin-bottom: 1rem; }
-    .ec-kpi { display: flex; flex-direction: column; gap: .15rem; padding: .7rem .9rem; border: 1px solid var(--border-color); border-radius: var(--r-md); background: var(--card-bg); }
-    .ec-kpi-val { font-size: 1.35rem; font-weight: 700; line-height: 1; }
-    .ec-kpi-lbl { font-size: .72rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: .03em; }
-    .ec-kpi.bad .ec-kpi-val { color: var(--bad-fg); }
-    .ec-kpi.warn .ec-kpi-val { color: var(--warn-fg); }
+    app-metric-strip { display:block; margin-bottom: 1rem; }
     .ec-filters { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; margin-bottom: .75rem; }
     .ec-sel { min-width: 12rem; } .ec-sel-wide { min-width: 15rem; } .ec-sel-sm { min-width: 6.5rem; }
     /* Search con ícono a la izquierda + botón de limpiar a la derecha. */
@@ -337,6 +326,17 @@ export class ComprasExistenciaCriticaComponent implements OnInit {
   rows = signal<CriticalStockRow[]>([]);
   total = signal(0);
   summary = signal<ReplenishmentSummary | null>(null);
+
+  kpiItems(s: ReplenishmentSummary): MetricStripItem[] {
+    return [
+      { label: 'Agotado', value: s.agotado, tone: s.agotado > 0 ? 'bad' : 'default' },
+      { label: 'Bajo mínimo', value: s.bajo_minimo, tone: s.bajo_minimo > 0 ? 'bad' : 'default' },
+      { label: 'Bajo reorden', value: s.bajo_reorden, tone: s.bajo_reorden > 0 ? 'warn' : 'default' },
+      { label: 'Sobrestock', value: s.sobrestock },
+      { label: 'Con política', value: s.total_policies },
+      { label: 'Sugerido a comprar', value: s.sugerido_costo || 0, format: 'currency', tone: 'brand' },
+    ];
+  }
   loading = signal(false);
   saving = signal(false);
   page = signal(1);

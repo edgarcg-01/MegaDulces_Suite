@@ -26,7 +26,7 @@ export class CommercialPaymentsController {
 
   /** Entrega + cobro atómicos (repartidor en la parada). */
   @Post('orders/:orderId/deliver-collect')
-  @RequirePermissions(Permission.COMMERCIAL_ORDERS_FULFILL, Permission.COMMERCIAL_PAYMENTS_REGISTRAR)
+  @RequirePermissions(Permission.REPARTO_ENTREGAR)
   @ApiOperation({ summary: 'Entrega el pedido (fulfill) y registra el cobro en una transacción.' })
   deliverCollect(@Param('orderId') orderId: string, @Body() dto: DeliverAndCollectDto) {
     return this.service.deliverAndCollect(orderId, dto ?? {});

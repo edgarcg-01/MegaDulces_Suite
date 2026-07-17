@@ -17,6 +17,7 @@ import {
   SalesByRouteRow,
 } from '../comercial.service';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
+import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { REPORTS_TABS } from '../reports-tabs';
 import { SidePeekComponent } from '../../../shared/components/side-peek/side-peek.component';
 
@@ -33,7 +34,7 @@ const MES: Record<string, string> = {
   standalone: true,
   imports: [
     CommonModule, FormsModule, ButtonModule, SelectModule, MultiSelectModule,
-    ToastModule, TableModule, PageTabsComponent, SidePeekComponent,
+    ToastModule, TableModule, PageTabsComponent, SidePeekComponent, MetricStripComponent,
   ],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -74,12 +75,8 @@ const MES: Record<string, string> = {
 
       @if (report(); as r) {
         @if (r.rows.length) {
-          <div class="rr-kpis">
-            <div class="rr-kpi"><span class="rr-kpi-l">Venta total</span><span class="rr-kpi-v">{{ r.totals.revenue | currency:'MXN':'symbol-narrow':'1.0-0' }}</span></div>
-            <div class="rr-kpi"><span class="rr-kpi-l">Rutas</span><span class="rr-kpi-v">{{ r.rows.length }}</span></div>
-            <div class="rr-kpi"><span class="rr-kpi-l">Tickets</span><span class="rr-kpi-v">{{ r.totals.tickets | number }}</span></div>
-            <div class="rr-kpi"><span class="rr-kpi-l">Unidades</span><span class="rr-kpi-v">{{ r.totals.units | number:'1.0-0' }}</span></div>
-          </div>
+          <app-metric-strip [items]="kpiItems()" ariaLabel="Resumen de ventas por ruta" />
+
 
           <div class="so-actions-bar">
             <span class="text-xs text-content-muted">{{ r.rows.length }} rutas · año {{ r.year }}</span>
@@ -238,10 +235,7 @@ const MES: Record<string, string> = {
     .rr-field > label { font-size:.72rem; font-weight:600; color:var(--text-muted); text-transform:uppercase; letter-spacing:.03em; }
     .rr-year { max-width:110px; } .rr-wh { min-width:240px; flex:1 1 240px; }
     .rr-actions { margin-left:auto; }
-    .rr-kpis { display:flex; flex-wrap:wrap; gap:.75rem; margin-bottom:1rem; }
-    .rr-kpi { flex:1 1 160px; border:1px solid var(--border-color); border-radius:var(--r-md); padding:.6rem .85rem; background:var(--card-bg); }
-    .rr-kpi-l { display:block; font-size:.68rem; font-weight:600; text-transform:uppercase; letter-spacing:.04em; color:var(--text-muted); }
-    .rr-kpi-v { display:block; font-size:1.25rem; font-weight:700; margin-top:.15rem; font-variant-numeric:tabular-nums; }
+    app-metric-strip { display:block; margin-bottom:1rem; }
     .so-actions-bar { display:flex; align-items:center; justify-content:space-between; gap:1rem; margin-bottom:1rem; }
     .rr-table-card { padding:1.25rem; }
     /* Sticky/frozen/tema los da PrimeNG + surf-table; sólo jerarquía visual acá. */
@@ -284,6 +278,17 @@ export class ComercialVentasPorRutaComponent {
   dl = signal(false);
   error = signal<string | null>(null);
   report = signal<SalesByRouteReport | null>(null);
+
+  readonly kpiItems = computed<MetricStripItem[]>(() => {
+    const r = this.report();
+    if (!r) return [];
+    return [
+      { label: 'Venta total', value: r.totals.revenue, format: 'currency' },
+      { label: 'Rutas', value: r.rows.length },
+      { label: 'Tickets', value: r.totals.tickets },
+      { label: 'Unidades', value: r.totals.units },
+    ];
+  });
 
   year = new Date().getFullYear();
   routes: string[] = [];

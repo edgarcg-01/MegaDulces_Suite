@@ -64,6 +64,8 @@ export interface AuthzApp {
 export const LEGACY_PERMISSIONS: readonly Permission[] = [
   // Repartido en TRADE_ROUTE_PLAN_* (agenda de rutas) + COMMERCIAL_CARTERA_* (cartera).
   Permission.USUARIOS_ASIGNAR_RUTA,
+  // Reemplazado por REPARTO_DESPACHAR + REPARTO_ENTREGAR (proyecto Reparto propio).
+  Permission.LOGISTICS_HOME_DISPATCH,
 ];
 
 export const AUTHZ_TREE: readonly AuthzApp[] = [
@@ -127,6 +129,7 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
           { id: 'products', label: 'Productos', route: '/comercial/products', view: [Permission.COMMERCIAL_PRODUCTS_VER], manage: [Permission.COMMERCIAL_PRODUCTS_GESTIONAR] },
           { id: 'thot', label: 'Thot / IA comercial', route: '/comercial/thot-chat', view: [Permission.COMMERCIAL_THOT_VER], manage: [Permission.COMMERCIAL_THOT_GESTIONAR] },
           { id: 'route-control', label: 'Control de ruta / tickets', route: '/comercial/route-tickets', view: [Permission.ROUTE_CONTROL_VER], manage: [Permission.ROUTE_TICKET_CAPTURE] },
+          { id: 'carga', label: 'Carga al camión', route: '/comercial/orders', view: [Permission.COMMERCIAL_CARGA_VER], manage: [Permission.COMMERCIAL_CARGA_GESTIONAR] },
         ],
       },
       {
@@ -141,6 +144,7 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
           { id: 'dead-stock', label: 'Stock muerto', route: '/almacen/dead-stock', view: [Permission.COMMERCIAL_DEADSTOCK_VER], manage: [] },
           { id: 'inventory-health', label: 'Salud de inventario', route: '/almacen/inventory-health', view: [Permission.COMMERCIAL_INVHEALTH_VER], manage: [] },
           { id: 'cuadre', label: 'Cuadre / Supervisor de movimientos', route: '/almacen/cuadre', view: [Permission.RECONCILIATION_VER], manage: [Permission.RECONCILIATION_GESTIONAR] },
+          { id: 'movimientos', label: 'Diario de movimientos', route: '/almacen/movimientos', view: [Permission.COMMERCIAL_MOVEMENTS_VER], manage: [Permission.COMMERCIAL_MOVEMENTS_GESTIONAR] },
         ],
       },
       {
@@ -212,19 +216,20 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
           { id: 'conciliacion', label: 'Conciliación fiscal', route: '/contabilidad/conciliacion', view: [Permission.FISCAL_CONCILIACION_VER], manage: [] },
           { id: 'diot', label: 'DIOT / IVA', route: '/contabilidad/diot', view: [Permission.FISCAL_DIOT_VER], manage: [] },
           { id: 'descarga', label: 'Descarga masiva CFDI', route: '/contabilidad/descarga', view: [Permission.FISCAL_DESCARGA_VER], manage: [Permission.FISCAL_DESCARGA_GESTIONAR] },
-          { id: 'materialidad', label: 'Expediente de materialidad', route: '/contabilidad/materialidad', view: [Permission.FISCAL_LISTAS_VER], manage: [] },
+          { id: 'materialidad', label: 'Expediente de materialidad', route: '/contabilidad/materialidad', view: [Permission.FISCAL_MATERIALIDAD_VER], manage: [] },
           { id: 'contabilidad', label: 'Contabilidad electrónica', route: '/contabilidad/contabilidad', view: [Permission.FISCAL_CONTAB_VER], manage: [Permission.FISCAL_CONTAB_GESTIONAR] },
-          { id: 'impuestos', label: 'Impuestos provisionales', route: '/contabilidad/impuestos', view: [Permission.FISCAL_DIOT_VER], manage: [] },
-          { id: 'credenciales', label: 'Credenciales SAT (e.firma)', route: '/contabilidad/credenciales', view: [Permission.FISCAL_CREDENCIALES_GESTIONAR], manage: [Permission.FISCAL_CREDENCIALES_GESTIONAR] },
+          { id: 'impuestos', label: 'Impuestos provisionales', route: '/contabilidad/impuestos', view: [Permission.FISCAL_IMPUESTOS_VER], manage: [] },
+          { id: 'credenciales', label: 'Credenciales SAT (e.firma)', route: '/contabilidad/credenciales', view: [], manage: [Permission.FISCAL_CREDENCIALES_GESTIONAR] },
         ],
       },
       {
         id: 'reparto',
-        label: 'Reparto',
+        label: 'Reparto / Última Milla',
         icon: 'pi pi-send',
         route: '/reparto',
         modules: [
-          { id: 'reparto', label: 'Entrega a domicilio', route: '/reparto', view: [Permission.LOGISTICS_HOME_DISPATCH], manage: [] },
+          { id: 'reparto-despacho', label: 'Despacho (tienda)', route: '/reparto', view: [Permission.REPARTO_DESPACHAR], manage: [] },
+          { id: 'reparto-entrega', label: 'Entrega (repartidor)', route: '/reparto', view: [Permission.REPARTO_ENTREGAR], manage: [] },
         ],
       },
     ],

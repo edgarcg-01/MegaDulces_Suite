@@ -3,7 +3,8 @@ import { TenantKnexService, TenantContextService } from '@megadulces/platform-co
 import { CfdiParserService } from '../cfdi/cfdi-parser.service';
 import { CfdiHeader } from '../cfdi/cfdi.types';
 import { PAC_PORT, PacPort, PacStampResult } from './pac.port';
-import { ConceptoInput, EmitirFacturaInput, IssuerConfigInput, NotaCreditoInput } from './emision.types';
+import { ConceptoInput, EmitirFacturaInput, IssuerConfigInput, NotaCreditoInput, RepInput } from './emision.types';
+import { EmissionErrorsService, EmissionErrorCtx } from './emission-errors.service';
 
 interface ComputedConcepto extends ConceptoInput {
   cantidadN: number; valorN: number; descuentoN: number;
@@ -30,6 +31,7 @@ export class EmisionService {
     private readonly tenantCtx: TenantContextService,
     @Inject(PAC_PORT) private readonly pac: PacPort,
     private readonly parser: CfdiParserService,
+    private readonly errors: EmissionErrorsService,
   ) {}
 
   // ── Configuración del emisor ────────────────────────────────────────────
@@ -91,15 +93,44 @@ export class EmisionService {
     // 2) Armar + timbrar
     const computed = this.computeConceptos(input.conceptos);
     const cfdiJson = this.buildCfdiJson(issuer, input, serie, folio, computed);
-    const stamp = await this.pac.stamp(cfdiJson);
+    const ctx = this.emitErrorCtx(input, serie, folio, computed);
+    let stamp: PacStampResult;
+    try {
+      stamp = await this.pac.stamp(cfdiJson);
+    } catch (e) {
+      await this.errors.record(tenantId, ctx, e);
+      throw e;
+    }
 
     // 3) Persistir la emitida
     await this.persist(tenantId, issuer, input, serie, folio, computed, stamp);
+    await this.errors.resolve(tenantId, ctx.dedup_key);
 
     return {
       uuid: stamp.uuid, serie, folio,
       subtotal: computed.subtotal, iva: computed.totalTraslados, total: computed.total,
       fecha_timbrado: stamp.fecha_timbrado, provider: this.pac.provider,
+    };
+  }
+
+  /** FD.0 — Contexto de captura del error de emisión (kind + dedup_key estable). */
+  private emitErrorCtx(input: EmitirFacturaInput, serie: string, folio: string, c: Computed): EmissionErrorCtx {
+    const isNC = input.tipo_comprobante === 'E' && !!input.relacionados?.uuids?.length;
+    const receptorRfc = input.tipo === 'global' ? 'XAXX010101000' : input.receptor?.rfc?.toUpperCase() || null;
+    const receptorNombre = input.tipo === 'global' ? 'PUBLICO EN GENERAL' : input.receptor?.nombre || null;
+    if (isNC) {
+      const orig = String(input.relacionados!.uuids[0]).toUpperCase();
+      return {
+        kind: 'nota_credito', dedup_key: `nota_credito:${orig}`, cfdi_uuid: orig,
+        receptor_rfc: receptorRfc, receptor_nombre: receptorNombre, serie, folio, total: c.total,
+      };
+    }
+    const dedup = input.order_id
+      ? `timbrado:order:${input.order_id}`
+      : `timbrado:manual:${receptorRfc || '?'}:${c.total}`;
+    return {
+      kind: 'timbrado', dedup_key: dedup, order_id: input.order_id || null,
+      receptor_rfc: receptorRfc, receptor_nombre: receptorNombre, serie, folio, total: c.total,
     };
   }
 
@@ -136,6 +167,124 @@ export class EmisionService {
       receptor,
       conceptos: input.conceptos,
     });
+  }
+
+  /**
+   * FE.8 — Complemento de Pago (REP). Emite un CFDI tipo 'P' con Pagos 2.0 sobre una
+   * factura PPD. Resuelve la factura original por UUID (serie/folio/receptor/moneda).
+   * Devuelve null si la factura NO es PPD (PUE no lleva REP). El monto del pago
+   * incluye IVA 16%: base = monto/1.16 (caso común MXN + tasa 16%).
+   */
+  async emitirRep(input: RepInput) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    if (!(Number(input?.monto) > 0)) throw new BadRequestException('monto del pago debe ser > 0');
+    const u = String(input.cfdi_uuid || '').toUpperCase();
+    const original = await this.tk.run(async (trx) =>
+      trx('fiscal.cfdis').where({ uuid: u, rol: 'emitidas' }).first());
+    if (!original) throw new NotFoundException('Factura original no encontrada.');
+    if (original.metodo_pago !== 'PPD') return null; // PUE no requiere REP
+    if (original.estatus_sat === 'cancelado') throw new BadRequestException('La factura original está cancelada.');
+
+    const { issuer, serie, folio } = await this.tk.run(tenantId, async (trx) => {
+      const iss = await this.resolveIssuer(trx, input.emisor_rfc || original.emisor_rfc);
+      if (!iss) throw new BadRequestException('No hay emisor configurado.');
+      const s = (input.serie || 'P').toUpperCase();
+      const f = await this.nextFolio(trx, tenantId, s);
+      return { issuer: iss, serie: s, folio: f };
+    });
+
+    const json = this.buildRepJson(issuer, original, input, serie, folio);
+    const dedup = `rep:${u}:${Number(input.num_parcialidad) || 1}`;
+    let stamp: PacStampResult;
+    try {
+      stamp = await this.pac.stamp(json);
+    } catch (e) {
+      await this.errors.record(tenantId, {
+        kind: 'rep', dedup_key: dedup, cfdi_uuid: u, serie, folio,
+        receptor_rfc: original.receptor_rfc, receptor_nombre: original.receptor_nombre,
+        total: this.round2(input.monto), num_parcialidad: Number(input.num_parcialidad) || 1,
+      }, e);
+      throw e;
+    }
+    await this.persistStamp(tenantId, stamp, () => this.repFallbackRow(tenantId, issuer, original, serie, folio, stamp));
+    await this.errors.resolve(tenantId, dedup);
+    return { uuid: stamp.uuid, serie, folio, monto: this.round2(input.monto), provider: this.pac.provider };
+  }
+
+  private buildRepJson(issuer: any, original: any, input: RepInput, serie: string, folio: string): any {
+    const fecha = this.mxNow();
+    const fechaPago = input.fecha_pago || fecha;
+    const monto = this.round2(input.monto);
+    const base = this.round2(monto / 1.16);
+    const iva = this.round2(monto - base);
+    const cp = original.receptor_domicilio || issuer.cp;
+    const doctoRel: any = {
+      IdDocumento: original.uuid,
+      MonedaDR: 'MXN',
+      NumParcialidad: String(input.num_parcialidad || 1),
+      ImpSaldoAnt: this.round2(input.imp_saldo_ant).toFixed(2),
+      ImpPagado: monto.toFixed(2),
+      ImpSaldoInsoluto: this.round2(input.imp_saldo_insoluto).toFixed(2),
+      ObjetoImpDR: '02',
+      ImpuestosDR: {
+        TrasladosDR: [{ BaseDR: base.toFixed(2), ImpuestoDR: '002', TipoFactorDR: 'Tasa', TasaOCuotaDR: '0.160000', ImporteDR: iva.toFixed(2) }],
+      },
+    };
+    if (original.serie) doctoRel.Serie = original.serie;
+    if (original.folio) doctoRel.Folio = original.folio;
+
+    return {
+      Version: '4.0', Serie: serie, Folio: folio, Fecha: fecha,
+      Sello: '', NoCertificado: '', Certificado: '',
+      SubTotal: '0', Moneda: 'XXX', Total: '0',
+      TipoDeComprobante: 'P', Exportacion: '01', LugarExpedicion: issuer.cp,
+      Emisor: { Rfc: issuer.rfc, Nombre: issuer.tax_name, RegimenFiscal: issuer.regimen_fiscal },
+      Receptor: {
+        Rfc: original.receptor_rfc, Nombre: original.receptor_nombre,
+        DomicilioFiscalReceptor: cp, RegimenFiscalReceptor: original.receptor_regimen || '616', UsoCFDI: 'CP01',
+      },
+      Conceptos: [{
+        ClaveProdServ: '84111506', Cantidad: '1', ClaveUnidad: 'ACT',
+        Descripcion: 'Pago', ValorUnitario: '0', Importe: '0', ObjetoImp: '01',
+      }],
+      Complemento: {
+        Pagos: {
+          Version: '2.0',
+          Totales: {
+            TotalTrasladosBaseIVA16: base.toFixed(2),
+            TotalTrasladosImpuestoIVA16: iva.toFixed(2),
+            MontoTotalPagos: monto.toFixed(2),
+          },
+          Pago: [{
+            FechaPago: fechaPago, FormaDePagoP: input.forma_pago || '99', MonedaP: 'MXN', Monto: monto.toFixed(2),
+            DoctoRelacionado: [doctoRel],
+          }],
+        },
+      },
+    };
+  }
+
+  /** Fila mínima para persistir un REP si el parser no puede leer el XML tipo 'P'. */
+  private repFallbackRow(tenantId: string, issuer: any, original: any, serie: string, folio: string, stamp: PacStampResult) {
+    return {
+      tenant_id: tenantId, uuid: (stamp.uuid || '').toUpperCase(), version: '4.0', tipo_comprobante: 'P',
+      serie, folio, fecha: stamp.fecha_timbrado ? new Date(stamp.fecha_timbrado) : new Date(),
+      fecha_timbrado: stamp.fecha_timbrado ? new Date(stamp.fecha_timbrado) : new Date(),
+      emisor_rfc: issuer.rfc, emisor_nombre: issuer.tax_name, emisor_regimen: issuer.regimen_fiscal,
+      receptor_rfc: original.receptor_rfc, receptor_nombre: original.receptor_nombre,
+      subtotal: 0, total: 0, moneda: 'XXX', metodo_pago: null, forma_pago: null,
+      lugar_expedicion: issuer.cp, no_certificado_sat: stamp.no_certificado_sat,
+      xml: stamp.xml ?? null, rol: 'emitidas', source: 'manual', estatus_sat: 'vigente', estatus_checked_at: new Date(),
+    };
+  }
+
+  /** Persiste una emitida a partir del stamp: parsea el XML si puede, si no usa el fallback. */
+  private async persistStamp(tenantId: string, stamp: PacStampResult, fallback: () => any) {
+    let header: CfdiHeader | null = null;
+    if (stamp.xml) { try { header = this.parser.parse(stamp.xml); } catch { header = null; } }
+    const row = header ? this.rowFromHeader(tenantId, header, stamp) : fallback();
+    await this.tk.run(tenantId, async (trx) =>
+      trx('fiscal.cfdis').insert(row).onConflict(['tenant_id', 'uuid']).ignore());
   }
 
   private async nextFolio(trx: any, tenantId: string, serie: string): Promise<string> {
@@ -221,7 +370,17 @@ export class EmisionService {
       return { uuid: row.uuid, estatus_sat: 'cancelado', acuse: row.cancel_acuse, already: true };
     }
 
-    const result = await this.pac.cancel({ uuid: row.uuid, rfc: row.emisor_rfc, motivo: mot, folioSustitucion: sustit });
+    const cancelDedup = `cancelacion:${row.uuid}`;
+    let result;
+    try {
+      result = await this.pac.cancel({ uuid: row.uuid, rfc: row.emisor_rfc, motivo: mot, folioSustitucion: sustit });
+    } catch (e) {
+      await this.errors.record(tenantId, {
+        kind: 'cancelacion', dedup_key: cancelDedup, cfdi_uuid: row.uuid,
+        receptor_rfc: row.receptor_rfc, receptor_nombre: row.receptor_nombre, total: row.total,
+      }, e);
+      throw e;
+    }
 
     // Confirmar contra el SAT (best-effort): resuelve "en proceso" → "cancelado".
     let estatus = result.estatus;
@@ -245,6 +404,7 @@ export class EmisionService {
         cancel_acuse: result.acuse || null,
         updated_at: trx.fn.now(),
       }));
+    await this.errors.resolve(tenantId, cancelDedup);
     return { uuid: row.uuid, estatus_sat: estatusSat, motivo: mot, acuse: result.acuse, codes: result.codes };
   }
 

@@ -8,6 +8,7 @@ import { TableModule } from 'primeng/table';
 import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
+import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { FINANZAS_TABS } from '../finanzas-tabs';
 import { FindingsService, Finding, FindingsStats, RuleHealth, FindingClase } from '../findings.service';
 import { ActionsService, ProposedAction } from '../actions.service';
@@ -21,7 +22,7 @@ import { ActionsService, ProposedAction } from '../actions.service';
 @Component({
   selector: 'app-finanzas-hallazgos',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, TableModule, ToastModule, PageTabsComponent],
+  imports: [CommonModule, FormsModule, ButtonModule, TableModule, ToastModule, PageTabsComponent, MetricStripComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
@@ -42,14 +43,7 @@ import { ActionsService, ProposedAction } from '../actions.service';
 
       <!-- KPIs -->
       @if (stats(); as s) {
-        <div class="fh-kpis">
-          <div class="fh-kpi"><span class="fh-kpi-val">{{ s.pendientes | number }}</span><span class="fh-kpi-lbl">Pendientes</span></div>
-          <div class="fh-kpi" [class.bad]="s.criticos > 0"><span class="fh-kpi-val">{{ s.criticos | number }}</span><span class="fh-kpi-lbl">Críticos</span></div>
-          <div class="fh-kpi"><span class="fh-kpi-val">{{ money(s.monto_en_riesgo) }}</span><span class="fh-kpi-lbl">$ en juego</span></div>
-          @for (c of s.por_clase; track c.clase) {
-            <div class="fh-kpi"><span class="fh-kpi-val">{{ c.n | number }}</span><span class="fh-kpi-lbl">{{ claseLabel(c.clase) }}</span></div>
-          }
-        </div>
+        <app-metric-strip [items]="kpiItems(s)" ariaLabel="Resumen de hallazgos" />
       }
 
       <!-- Acciones propuestas por Maat (HITL — aprobar/rechazar) -->
@@ -164,11 +158,7 @@ import { ActionsService, ProposedAction } from '../actions.service';
     :host { display: block; }
     .fh-head { display: flex; align-items: flex-start; gap: 1rem; }
     .fh-head-actions { margin-left: auto; display: flex; gap: .4rem; align-items: center; }
-    .fh-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: .75rem; margin-bottom: 1rem; }
-    .fh-kpi { border: 1px solid var(--border-color, #e7e5e4); border-radius: var(--r-md, 10px); padding: .75rem 1rem; background: var(--card-bg, #fff); }
-    .fh-kpi.bad { border-color: color-mix(in srgb, var(--bad-fg, #dc2626) 40%, var(--border-color, #e7e5e4)); }
-    .fh-kpi-val { display: block; font-size: 1.3rem; font-weight: 800; font-variant-numeric: tabular-nums; }
-    .fh-kpi-lbl { display: block; font-size: .7rem; text-transform: uppercase; letter-spacing: .03em; color: var(--text-muted, #78716c); }
+    app-metric-strip { display:block; margin-bottom: 1rem; }
     .fh-filters { display: flex; gap: 1rem; flex-wrap: wrap; margin-bottom: .8rem; }
     .fh-seg { display: inline-flex; border: 1px solid var(--border-color, #e7e5e4); border-radius: var(--r-pill, 999px); overflow: hidden; }
     .fh-seg button { border: none; background: var(--card-bg, #fff); padding: .3rem .8rem; font-size: .8rem; cursor: pointer; color: var(--text-muted, #57534e); }
@@ -223,6 +213,15 @@ export class FinanzasHallazgosComponent implements OnInit {
 
   readonly findings = signal<Finding[]>([]);
   readonly stats = signal<FindingsStats | null>(null);
+
+  kpiItems(s: FindingsStats): MetricStripItem[] {
+    return [
+      { label: 'Pendientes', value: s.pendientes },
+      { label: 'Críticos', value: s.criticos, tone: s.criticos > 0 ? 'bad' : 'default' },
+      { label: '$ en juego', value: s.monto_en_riesgo, format: 'currency' },
+      ...s.por_clase.map((c): MetricStripItem => ({ label: this.claseLabel(c.clase), value: c.n })),
+    ];
+  }
   readonly rules = signal<RuleHealth[]>([]);
   readonly loading = signal(false);
   readonly scanning = signal(false);

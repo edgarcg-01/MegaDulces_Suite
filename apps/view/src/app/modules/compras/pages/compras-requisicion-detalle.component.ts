@@ -11,6 +11,7 @@ import { PermissionsService } from '../../../core/services/permissions.service';
 import { AuthService } from '../../../core/services/auth.service';
 import { Permission } from '../../../core/constants/permissions';
 import { ComprasService, RequisitionDetail, RequisitionEstado } from '../compras.service';
+import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 
 type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
 
@@ -18,7 +19,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
 @Component({
   selector: 'app-compras-requisicion-detalle',
   standalone: true,
-  imports: [CommonModule, ButtonModule, TableModule, TagModule, ToastModule],
+  imports: [CommonModule, ButtonModule, TableModule, TagModule, ToastModule, MetricStripComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
@@ -49,12 +50,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
       </header>
 
       @if (req(); as r) {
-        <div class="rd-kpis">
-          <div class="rd-kpi"><span class="rd-kpi-val">{{ r.total_units | number:'1.0-0' }}</span><span class="rd-kpi-lbl">Unidades</span></div>
-          <div class="rd-kpi"><span class="rd-kpi-val">{{ money(r.total_cost) }}</span><span class="rd-kpi-lbl">Costo estimado</span></div>
-          <div class="rd-kpi"><span class="rd-kpi-val">{{ r.created_at | date:'dd/MM/yy HH:mm' }}</span><span class="rd-kpi-lbl">Creada</span></div>
-          @if (r.notes) { <div class="rd-kpi rd-kpi-wide"><span class="rd-kpi-val rd-note">{{ r.notes }}</span><span class="rd-kpi-lbl">Nota</span></div> }
-        </div>
+        <app-metric-strip [items]="kpiItems(r)" ariaLabel="Resumen de la requisición" />
 
         <p-table [value]="r.lines" styleClass="p-datatable-sm rd-table">
           <ng-template pTemplate="header">
@@ -98,11 +94,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
     .rd-back { margin-bottom: .25rem; margin-left: -.5rem; }
     .surf-page-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; }
     .rd-actions { display: flex; gap: .5rem; }
-    .rd-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: .5rem; margin: 1rem 0; }
-    .rd-kpi { display: flex; flex-direction: column; gap: .15rem; padding: .7rem .9rem; border: 1px solid var(--border-color); border-radius: var(--r-md); background: var(--card-bg); }
-    .rd-kpi-wide { grid-column: span 2; } .rd-note { font-size: .9rem; font-weight: 400; }
-    .rd-kpi-val { font-size: 1.2rem; font-weight: 700; line-height: 1.1; }
-    .rd-kpi-lbl { font-size: .72rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: .03em; }
+    app-metric-strip { display:block; margin: 1rem 0; }
     .rd-table { font-size: .84rem; }
     .rd-r { text-align: right; font-variant-numeric: tabular-nums; }
     .rd-mono { font-family: var(--font-mono, ui-monospace, monospace); font-size: .8rem; }
@@ -122,6 +114,17 @@ export class ComprasRequisicionDetalleComponent implements OnInit {
   private readonly destroyRef = inject(DestroyRef);
 
   req = signal<RequisitionDetail | null>(null);
+
+  kpiItems(r: RequisitionDetail): MetricStripItem[] {
+    const fmtDate = (d: any) => d ? new Date(d).toLocaleString('es-MX', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—';
+    const items: MetricStripItem[] = [
+      { label: 'Unidades', value: r.total_units },
+      { label: 'Costo estimado', value: r.total_cost, format: 'currency', tone: 'brand' },
+      { label: 'Creada', value: fmtDate(r.created_at), format: 'text' },
+    ];
+    if (r.notes) items.push({ label: 'Nota', value: r.notes, format: 'text' });
+    return items;
+  }
   loading = signal(true);
   busy = signal(false);
   canManage = this.perms.can('manage', 'all') || !!this.auth.user()?.permissions?.[Permission.COMPRAS_GESTIONAR];

@@ -12,7 +12,7 @@ export class ImpuestosController {
   constructor(private readonly svc: ImpuestosService) {}
 
   @Get('provisional')
-  @RequirePermissions(Permission.FISCAL_DIOT_VER)
+  @RequirePermissions(Permission.FISCAL_IMPUESTOS_VER)
   @ApiOperation({ summary: 'Pago provisional mensual ISR+IVA (period=YYYY-MM, cu=coeficiente de utilidad). Apoyo — validar con contador.' })
   provisional(@Query() q: any) {
     return this.svc.pagoProvisional(q.period, {

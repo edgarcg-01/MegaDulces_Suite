@@ -186,7 +186,7 @@ export class DailyCapturesController {
   }
 
   @Delete(':id')
-  @RequirePermissions(Permission.REPORTES_GESTIONAR)
+  @RequirePermissions(Permission.VISITAS_AUDITAR)
   @ApiOperation({
     summary: 'Eliminar una visita por ID o folio. Solo dueño o superadmin.',
   })

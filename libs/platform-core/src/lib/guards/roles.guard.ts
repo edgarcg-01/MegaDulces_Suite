@@ -6,7 +6,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import { PERMISSIONS_KEY } from '../decorators/permissions.decorator';
+import { PERMISSIONS_KEY, ANY_PERMISSIONS_KEY } from '../decorators/permissions.decorator';
 import { PermissionsCacheService } from '../ability/permissions-cache.service';
 import { buildAbility } from '../ability/ability.factory';
 
@@ -28,7 +28,15 @@ export class RolesGuard implements CanActivate {
       PERMISSIONS_KEY,
       [context.getHandler(), context.getClass()],
     );
-    if (!requiredPermissions || requiredPermissions.length === 0) {
+    // OR-group: @RequireAnyPermission(...) — basta con tener UNO. Se resuelve
+    // por handler/clase igual que el AND-group; los dos grupos coexisten.
+    const anyPermissions = this.reflector.getAllAndOverride<string[]>(
+      ANY_PERMISSIONS_KEY,
+      [context.getHandler(), context.getClass()],
+    );
+    const hasAnd = !!requiredPermissions && requiredPermissions.length > 0;
+    const hasAny = !!anyPermissions && anyPermissions.length > 0;
+    if (!hasAnd && !hasAny) {
       return true;
     }
 
@@ -67,14 +75,15 @@ export class RolesGuard implements CanActivate {
     // clave del módulo (p.ej. ORDERS_VER) abría TODAS las rutas del módulo
     // (ORDERS_FULFILL/CANCELAR/…). Ahora @RequirePermissions(X) exige que el rol
     // tenga literalmente `X: true`.
-    const allGranted = requiredPermissions.every(
-      (perm) => permissions[perm] === true,
-    );
+    const andOk = !hasAnd || requiredPermissions!.every((perm) => permissions[perm] === true);
+    // OR-group: al menos uno presente.
+    const anyOk = !hasAny || anyPermissions!.some((perm) => permissions[perm] === true);
 
-    if (!allGranted) {
-      const missing = requiredPermissions.filter((p) => permissions[p] !== true);
+    if (!andOk || !anyOk) {
+      const missingAnd = hasAnd ? requiredPermissions!.filter((p) => permissions[p] !== true) : [];
+      const missingAny = !anyOk ? `uno de [${anyPermissions!.join(', ')}]` : '';
       this.logger.warn(
-        `Bloqueo 403. Usuario: ${user.username} (rol ${user.role_name}). Faltan permisos: ${missing.join(', ')}`,
+        `Bloqueo 403. Usuario: ${user.username} (rol ${user.role_name}). Faltan permisos: ${[missingAnd.join(', '), missingAny].filter(Boolean).join(' + ')}`,
       );
       throw new ForbiddenException(
         'No tienes los permisos dinámicos necesarios.',

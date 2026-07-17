@@ -9,6 +9,7 @@ import { SelectModule } from 'primeng/select';
 import { TagModule } from 'primeng/tag';
 import { MessageService } from 'primeng/api';
 import { ComprasService, NetworkNode } from '../compras.service';
+import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 
 /**
  * RA-PRO.6 — Red de abasto (DRP). Define el árbol CEDIS→sucursal: de qué almacén se
@@ -19,7 +20,7 @@ import { ComprasService, NetworkNode } from '../compras.service';
 @Component({
   selector: 'app-compras-red',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, TableModule, ToastModule, SelectModule, TagModule],
+  imports: [CommonModule, FormsModule, ButtonModule, TableModule, ToastModule, SelectModule, TagModule, MetricStripComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
@@ -32,11 +33,8 @@ import { ComprasService, NetworkNode } from '../compras.service';
         </div>
       </header>
 
-      <div class="cr-kpis">
-        <div class="cr-kpi"><span class="cr-kpi-val">{{ cedisNodes().length }}</span><span class="cr-kpi-lbl">CEDIS</span></div>
-        <div class="cr-kpi"><span class="cr-kpi-val">{{ branchNodes().length }}</span><span class="cr-kpi-lbl">Sucursales surtidas</span></div>
-        <div class="cr-kpi"><span class="cr-kpi-val">{{ unlinked().length }}</span><span class="cr-kpi-lbl">Sin origen</span></div>
-      </div>
+      <app-metric-strip [items]="kpiItems()" ariaLabel="Resumen de la red de abasto" />
+
 
       <p-table [value]="nodes()" [loading]="loading()" styleClass="p-datatable-sm cr-table">
         <ng-template pTemplate="header">
@@ -63,10 +61,7 @@ import { ComprasService, NetworkNode } from '../compras.service';
   `,
   styles: [`
     :host { display: block; }
-    .cr-kpis { display: flex; gap: .5rem; margin-bottom: 1rem; flex-wrap: wrap; }
-    .cr-kpi { display: flex; flex-direction: column; gap: .15rem; padding: .7rem .9rem; border: 1px solid var(--border-color); border-radius: var(--r-md); background: var(--card-bg); min-width: 8rem; }
-    .cr-kpi-val { font-size: 1.35rem; font-weight: 700; line-height: 1; }
-    .cr-kpi-lbl { font-size: .72rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: .03em; }
+    app-metric-strip { display:block; margin-bottom: 1rem; }
     .cr-table { font-size: .84rem; max-width: 60rem; }
     .cr-mono { font-family: var(--font-mono, ui-monospace, monospace); font-size: .8rem; }
     .cr-muted { color: var(--text-muted); }
@@ -86,6 +81,11 @@ export class ComprasRedComponent implements OnInit {
   cedisNodes = computed(() => this.nodes().filter((n) => n.is_cedis));
   branchNodes = computed(() => this.nodes().filter((n) => !!n.source_warehouse_id));
   unlinked = computed(() => this.nodes().filter((n) => !n.source_warehouse_id && !n.is_cedis));
+  readonly kpiItems = computed<MetricStripItem[]>(() => [
+    { label: 'CEDIS', value: this.cedisNodes().length },
+    { label: 'Sucursales surtidas', value: this.branchNodes().length },
+    { label: 'Sin origen', value: this.unlinked().length, tone: this.unlinked().length > 0 ? 'warn' : 'default' },
+  ]);
 
   ngOnInit(): void { this.load(); }
 

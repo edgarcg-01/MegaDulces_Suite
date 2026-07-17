@@ -3,7 +3,7 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
 import { EmisionService } from './emision.service';
-import { EmitirFacturaInput, IssuerConfigInput, NotaCreditoInput } from './emision.types';
+import { EmitirFacturaInput, IssuerConfigInput, NotaCreditoInput, RepInput } from './emision.types';
 
 /**
  * FE.2 — API de emisión de facturas CFDI 4.0 (timbrado vía PAC SW/Conectia).
@@ -44,6 +44,14 @@ export class EmisionController {
   @ApiOperation({ summary: 'FE.12: emite una nota de crédito (CFDI de Egreso, TipoRelacion 01) sobre una factura emitida. El receptor se deriva del original.' })
   notaCredito(@Param('uuid') uuid: string, @Body() body: NotaCreditoInput) {
     return this.svc.emitirNotaCredito(uuid, body);
+  }
+
+  @Post(':uuid/rep')
+  @RequirePermissions(Permission.FISCAL_FACTURAR_GESTIONAR)
+  @Throttle({ long: { limit: 20, ttl: 60_000 } })
+  @ApiOperation({ summary: 'FE.8: emite el Complemento de Pago (REP) de un pago sobre esta factura PPD. Normalmente lo dispara PaymentsService; este endpoint es manual/contingencia.' })
+  rep(@Param('uuid') uuid: string, @Body() body: Omit<RepInput, 'cfdi_uuid'>) {
+    return this.svc.emitirRep({ ...body, cfdi_uuid: uuid });
   }
 
   @Get(':uuid/xml')

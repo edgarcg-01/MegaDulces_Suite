@@ -317,7 +317,7 @@ export class AlmacenMovimientosComponent implements OnInit {
   private readonly auth = inject(AuthService);
   private readonly perms = inject(PermissionsService);
 
-  readonly canAudit = this.perms.can('manage', 'all') || !!this.auth.user()?.permissions?.[Permission.COMMERCIAL_INVENTORY_SUPERVISAR];
+  readonly canAudit = this.perms.can('manage', 'all') || !!this.auth.user()?.permissions?.[Permission.COMMERCIAL_MOVEMENTS_GESTIONAR];
 
   days = signal<AggregateRow[]>([]);
   summary = signal<MovementsSummary | null>(null);

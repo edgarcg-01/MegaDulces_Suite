@@ -17,6 +17,7 @@ import { SelectModule } from 'primeng/select';
 import { MessageService, ConfirmationService } from 'primeng/api';
 import { debounceTime } from 'rxjs/operators';
 import { ComercialService, InventoryCountItem, InventorySupervisorProgress, AssignableUser, InventoryInterruptions, InventoryCountSession } from '../comercial.service';
+import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { InventoryMonitorSocketService } from '../inventory-monitor-socket.service';
 import { AuthService } from '../../../core/services/auth.service';
 import { Permission } from '../../../core/constants/permissions';
@@ -44,6 +45,7 @@ interface LiveCountEntry {
     CommonModule, FormsModule, RouterModule,
     ButtonModule, TableModule, TagModule, DialogModule, InputNumberModule, InputTextModule,
     ToastModule, ConfirmDialogModule, SelectButtonModule, MultiSelectModule, SelectModule,
+    MetricStripComponent,
   ],
   providers: [MessageService, ConfirmationService],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -104,13 +106,8 @@ interface LiveCountEntry {
       <div class="in-main">
 
       <!-- KPIs -->
-      <div class="in-kpis">
-        <div class="in-kpi"><span class="in-kpi-v">{{ progress()?.coverage_pct ?? 0 }}%</span><span class="in-kpi-l">Cobertura</span></div>
-        <div class="in-kpi"><span class="in-kpi-v">{{ progress()?.counted_once ?? 0 }}/{{ progress()?.total ?? 0 }}</span><span class="in-kpi-l">Contados</span></div>
-        <div class="in-kpi" [class.in-kpi-bad]="(progress()?.uncounted ?? 0) > 0"><span class="in-kpi-v">{{ progress()?.uncounted ?? 0 }}</span><span class="in-kpi-l">Sin contar</span></div>
-        <div class="in-kpi" [class.in-kpi-warn]="(progress()?.discrepancies ?? 0) > 0"><span class="in-kpi-v">{{ progress()?.discrepancies ?? 0 }}</span><span class="in-kpi-l">Discrepancias</span></div>
-        <div class="in-kpi"><span class="in-kpi-v">{{ (+(progress()?.value_at_variance ?? 0)) | currency:'MXN':'symbol-narrow':'1.0-0' }}</span><span class="in-kpi-l">Valor en riesgo</span></div>
-      </div>
+      <app-metric-strip [items]="kpiItems()" ariaLabel="Avance del conteo" />
+
 
       <!-- Fase actual + avance -->
       @if (progress()?.status === 'counting') {
@@ -290,12 +287,7 @@ interface LiveCountEntry {
     .in-live { display: inline-flex; align-items: center; gap: .35rem; font-size: .7rem; font-weight: 700; letter-spacing: .05em; color: var(--ok-fg); padding: .2rem .5rem; border-radius: 99px; background: color-mix(in srgb, var(--ok-fg) 14%, transparent); }
     .in-live-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ok-fg); animation: in-pulse 1.4s ease-in-out infinite; }
     @keyframes in-pulse { 0%,100% { opacity: 1; } 50% { opacity: .3; } }
-    .in-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: .75rem; margin-bottom: 1.25rem; }
-    .in-kpi { background: var(--card-bg); border: 1px solid var(--surface-200, #e7e5e4); border-radius: 12px; padding: .85rem 1rem; display: flex; flex-direction: column; }
-    .in-kpi-v { font-size: 1.5rem; font-weight: 700; font-variant-numeric: tabular-nums; }
-    .in-kpi-l { font-size: .75rem; color: var(--text-muted, #78716c); text-transform: uppercase; letter-spacing: .03em; }
-    .in-kpi-bad .in-kpi-v { color: var(--bad-fg); }
-    .in-kpi-warn .in-kpi-v { color: var(--orange-500, #f97316); }
+    app-metric-strip { display:block; margin-bottom: 1.25rem; }
     .in-actions { display: flex; gap: .5rem; flex-wrap: wrap; margin-bottom: 1rem; }
     .in-assign { display: flex; gap: 1rem; flex-wrap: wrap; margin-bottom: 1rem; padding: .85rem 1rem; background: var(--card-bg); border: 1px solid var(--surface-200,#e7e5e4); border-radius: 12px; }
     .in-assign-col { flex: 1; min-width: 240px; display: flex; flex-direction: column; gap: .3rem; }
@@ -385,6 +377,16 @@ export class ComercialInventorySessionDetailComponent {
 
   countId = this.route.snapshot.paramMap.get('id')!;
   progress = signal<InventorySupervisorProgress | null>(null);
+  readonly kpiItems = computed<MetricStripItem[]>(() => {
+    const p = this.progress();
+    return [
+      { label: 'Cobertura', value: p?.coverage_pct ?? 0, format: 'percent' },
+      { label: 'Contados', value: `${p?.counted_once ?? 0}/${p?.total ?? 0}`, format: 'text' },
+      { label: 'Sin contar', value: p?.uncounted ?? 0, tone: (p?.uncounted ?? 0) > 0 ? 'bad' : 'default' },
+      { label: 'Discrepancias', value: p?.discrepancies ?? 0, tone: (p?.discrepancies ?? 0) > 0 ? 'warn' : 'default' },
+      { label: 'Valor en riesgo', value: +(p?.value_at_variance ?? 0), format: 'currency' },
+    ];
+  });
   items = signal<InventoryCountItem[]>([]);
   loading = signal(false);
   computing = signal(false);

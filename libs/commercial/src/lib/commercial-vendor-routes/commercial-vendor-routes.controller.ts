@@ -24,9 +24,13 @@ import { RequirePermissions } from '@megadulces/platform-core';
 import { Permission } from '@megadulces/platform-core';
 
 /**
- * V.0 Modo Vendedor v2 — gestión de cartera (vendedor → rutas de venta) y orden
- * de visita. Gestión gateada por USUARIOS_ASIGNAR_RUTA (lo tiene supervisor_ventas);
- * la lectura de "mi cartera" por COMMERCIAL_CUSTOMERS_VER (lo tiene el vendedor).
+ * V.0 Modo Vendedor v2 — cartera del vendedor (rutas de venta) y orden de visita.
+ * Módulo autosuficiente (Comercial · Cartera):
+ *  - COMMERCIAL_CARTERA_VER: el vendedor OPERA su cartera con UN permiso — lecturas
+ *    (mi ruta/cobertura/cercanos) + sus writes de campo (check-in, cierre de visita,
+ *    corregir ubicación, alta rápida de cliente). NO arrastra CUSTOMERS/VISITAS/ORDERS.
+ *  - COMMERCIAL_CARTERA_GESTIONAR: administración (asignar ruta a vendedor, orden de
+ *    visita, desasignar). El vendedor NO la tiene → no puede reasignar carteras.
  */
 @ApiTags('commercial-vendor-routes')
 @ApiBearerAuth()
@@ -57,14 +61,14 @@ export class CommercialVendorRoutesController {
   }
 
   @Get('my')
-  @RequirePermissions(Permission.COMMERCIAL_CUSTOMERS_VER)
+  @RequirePermissions(Permission.COMMERCIAL_CARTERA_VER)
   @ApiOperation({ summary: 'Cartera del vendedor logueado: sus rutas de venta' })
   myRoutes() {
     return this.service.myRoutes();
   }
 
   @Get('coverage')
-  @RequirePermissions(Permission.COMMERCIAL_CUSTOMERS_VER)
+  @RequirePermissions(Permission.COMMERCIAL_CARTERA_VER)
   @ApiOperation({
     summary: 'V.4: cobertura del día — cartera del vendedor anotada con visited_today + última visita',
   })
@@ -73,7 +77,7 @@ export class CommercialVendorRoutesController {
   }
 
   @Get('home')
-  @RequirePermissions(Permission.COMMERCIAL_CUSTOMERS_VER)
+  @RequirePermissions(Permission.COMMERCIAL_CARTERA_VER)
   @ApiOperation({
     summary: 'V.5: feed "Mi ruta" — cartera anotada (visitado/ordenado hoy + pedidos pendientes) de un fetch',
   })
@@ -82,21 +86,21 @@ export class CommercialVendorRoutesController {
   }
 
   @Post('check-in')
-  @RequirePermissions(Permission.VISITAS_REGISTRAR)
+  @RequirePermissions(Permission.COMMERCIAL_CARTERA_VER)
   @ApiOperation({ summary: 'V.4: registra un check-in de visita del vendedor a un cliente (acepta lat/lng → backfill capture-on-visit)' })
   checkIn(@Body() body: CheckInDto) {
     return this.service.checkIn(body);
   }
 
   @Post('visits/finish')
-  @RequirePermissions(Permission.VISITAS_REGISTRAR)
+  @RequirePermissions(Permission.COMMERCIAL_CARTERA_VER)
   @ApiOperation({ summary: 'V.7: cierra la visita con su resultado (had_order/had_ticket/no_sale_reason); reusa la visita abierta de hoy o crea una' })
   finishVisit(@Body() body: FinishVisitDto) {
     return this.service.finishVisit(body);
   }
 
   @Get('nearby')
-  @RequirePermissions(Permission.COMMERCIAL_CUSTOMERS_VER)
+  @RequirePermissions(Permission.COMMERCIAL_CARTERA_VER)
   @ApiOperation({
     summary: 'V.6: clientes de la cartera cerca del vendedor (?lat&lng&radius), ordenados por distancia',
   })
@@ -113,7 +117,7 @@ export class CommercialVendorRoutesController {
   }
 
   @Post('customers/:id/location')
-  @RequirePermissions(Permission.VISITAS_REGISTRAR)
+  @RequirePermissions(Permission.COMMERCIAL_CARTERA_VER)
   @ApiOperation({
     summary: 'V.6: setea/corrige las coords del cliente con guard anti-traslape (force para confirmar pese a colisión)',
   })
@@ -122,7 +126,7 @@ export class CommercialVendorRoutesController {
   }
 
   @Post('customers')
-  @RequirePermissions(Permission.COMMERCIAL_ORDERS_CREAR)
+  @RequirePermissions(Permission.COMMERCIAL_CARTERA_VER)
   @ApiOperation({
     summary:
       'Alta rápida de cliente desde la app del vendedor (auto-genera code + price list default + geo opcional). Solo crea.',

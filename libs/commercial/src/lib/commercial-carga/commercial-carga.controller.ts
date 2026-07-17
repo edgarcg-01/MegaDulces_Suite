@@ -12,7 +12,7 @@ export class CommercialCargaController {
   constructor(private readonly service: CommercialCargaService) {}
 
   @Get('load-status')
-  @RequirePermissions(Permission.COMMERCIAL_ORDERS_VER)
+  @RequirePermissions(Permission.COMMERCIAL_CARGA_VER)
   @ApiOperation({ summary: 'Estados de carga (loaded/not_loaded) de las líneas de los pedidos dados (order_ids CSV).' })
   getStatuses(@Query('order_ids') orderIds?: string) {
     return this.service.getStatuses(
@@ -21,14 +21,14 @@ export class CommercialCargaController {
   }
 
   @Put('load-status')
-  @RequirePermissions(Permission.COMMERCIAL_ORDERS_FULFILL)
+  @RequirePermissions(Permission.COMMERCIAL_CARGA_GESTIONAR)
   @ApiOperation({ summary: 'Marcar una línea de carga: loaded / not_loaded (+motivo) / pending (borra).' })
   setStatus(@Body() body: SetLoadStatusDto) {
     return this.service.setStatus(body);
   }
 
   @Post('load-status/bulk')
-  @RequirePermissions(Permission.COMMERCIAL_ORDERS_FULFILL)
+  @RequirePermissions(Permission.COMMERCIAL_CARGA_GESTIONAR)
   @ApiOperation({ summary: 'Marcar varias líneas de carga de una (toggle por pedido o por producto).' })
   setStatusBulk(@Body() body: { items: SetLoadStatusDto[] }) {
     return this.service.setStatusBulk(body?.items || []);

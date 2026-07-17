@@ -1050,11 +1050,14 @@ export class CommercialOrdersService {
           tasa_iva: tasa,
         };
       });
+      // FE.8 — cliente a crédito (payment_terms_days > 0) → PPD (lleva REP al cobrar);
+      // contado → PUE. En PPD la forma de pago va '99' (por definir) hasta el REP.
+      const isPPD = Number(c.payment_terms_days ?? 0) > 0;
       return {
         tipo: 'nominativa',
         order_id: orderId,
-        forma_pago: order.payment_method === 'cash' ? '01' : '99',
-        metodo_pago: 'PUE',
+        forma_pago: isPPD ? '99' : (order.payment_method === 'cash' ? '01' : '99'),
+        metodo_pago: isPPD ? 'PPD' : 'PUE',
         receptor: {
           rfc: c.rfc, nombre: c.legal_name, regimen_fiscal: c.regimen_fiscal,
           domicilio_cp: String(cp), uso_cfdi: c.uso_cfdi,

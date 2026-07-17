@@ -20,6 +20,7 @@ import {
   SellOutWarehouseRow,
 } from '../comercial.service';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
+import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { SegmentedComponent } from '../../../shared/components/segmented/segmented.component';
 import { ProductSearchComponent, ProductHit } from '../components/product-search.component';
 import { REPORTS_TABS } from '../reports-tabs';
@@ -42,7 +43,7 @@ const CHANNEL_OPTS = [
   imports: [
     CommonModule, FormsModule, ButtonModule, SelectModule, MultiSelectModule,
     DatePickerModule, ToggleSwitchModule, InputTextModule, ToastModule,
-    PageTabsComponent, SegmentedComponent, ProductSearchComponent,
+    PageTabsComponent, SegmentedComponent, ProductSearchComponent, MetricStripComponent,
   ],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -187,37 +188,9 @@ const CHANNEL_OPTS = [
           </div>
         </div>
 
-        <!-- KPI cards (lenguaje visual de /dashboard/reports) -->
-        <div class="so-kpi-grid">
-          <div class="card-premium card-flat rk-card">
-            <div class="rk-body">
-              <div class="rk-top"><span class="rk-label">Monto total</span></div>
-              <div class="rk-value">{{ r.grand_total.monto | currency:'MXN':'symbol-narrow':'1.0-0' }}</div>
-              <div class="rk-metaline">Sell-out del periodo</div>
-            </div>
-          </div>
-          <div class="card-premium card-flat rk-card">
-            <div class="rk-body">
-              <div class="rk-top"><span class="rk-label">Cajas</span></div>
-              <div class="rk-value">{{ r.grand_total.cajas | number:'1.0-1' }}</div>
-              <div class="rk-metaline">Unidades ÷ UXC</div>
-            </div>
-          </div>
-          <div class="card-premium card-flat rk-card">
-            <div class="rk-body">
-              <div class="rk-top"><span class="rk-label">{{ rowNounCap(r) }}</span></div>
-              <div class="rk-value">{{ r.rows.length }}</div>
-              <div class="rk-metaline">{{ r.row_dim === 'brand' ? 'Con venta · click para ver productos' : r.row_dim === 'month' ? 'Meses con venta en el periodo' : 'Con venta en el periodo' }}</div>
-            </div>
-          </div>
-          <div class="card-premium card-flat rk-card">
-            <div class="rk-body">
-              <div class="rk-top"><span class="rk-label">Sucursales</span></div>
-              <div class="rk-value">{{ r.coverage.branches_with_data.length }}</div>
-              <div class="rk-metaline">Con venta · {{ r.columns.length }} columnas</div>
-            </div>
-          </div>
-        </div>
+        <!-- KPIs (MetricStrip compartido, sin caja) -->
+        <app-metric-strip [items]="kpiItems()" ariaLabel="Resumen del sell-out" />
+
 
         @if (r.coverage.note) {
           <p class="so-note"><i class="pi pi-info-circle"></i> {{ r.coverage.note }}</p>
@@ -321,7 +294,7 @@ const CHANNEL_OPTS = [
     .so-echo-sep { color:var(--text-faint); }
     .so-dl { display:flex; gap:.5rem; margin-left:auto; }
     /* KPI grid — mismo lenguaje que /dashboard/reports (card-premium + rk-card). */
-    .so-kpi-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:1rem; margin-bottom:1rem; }
+    app-metric-strip { display:block; margin-bottom:1rem; }
     .so-note { font-size:.78rem; color:var(--text-muted); background:var(--layout-bg); border:1px solid var(--border-color);
       border-radius:var(--r-sm); padding:.5rem .7rem; margin:0 0 1rem; display:flex; gap:.4rem; align-items:baseline; }
     .so-matrix-card { padding:1.25rem; }
@@ -428,6 +401,16 @@ export class ComercialSellOutComponent {
   loading = signal(false);
   dl = signal<'' | 'xlsx' | 'pdf'>('');
   report = signal<SellOutReport | null>(null);
+  readonly kpiItems = computed<MetricStripItem[]>(() => {
+    const r = this.report();
+    if (!r) return [];
+    return [
+      { label: 'Monto total', value: r.grand_total.monto, format: 'currency', sub: 'Sell-out del periodo' },
+      { label: 'Cajas', value: r.grand_total.cajas, format: 'decimal1', sub: 'Unidades ÷ UXC' },
+      { label: this.rowNounCap(r), value: r.rows.length, sub: r.row_dim === 'brand' ? 'Con venta · click para ver' : r.row_dim === 'month' ? 'Meses con venta' : 'Con venta en el periodo' },
+      { label: 'Sucursales', value: r.coverage.branches_with_data.length, sub: r.columns.length + ' columnas' },
+    ];
+  });
   meta = signal<{ brand: string; period: string; channels: string } | null>(null);
   // Filtro por producto (SKU/descr) — server-side, aplica en TODAS las empresas.
   search = signal('');

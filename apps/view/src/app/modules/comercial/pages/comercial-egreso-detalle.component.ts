@@ -24,6 +24,7 @@ import {
   ExpenseProvider360,
 } from '../comercial.service';
 import { ThemeService } from '../../../core/services/theme.service';
+import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { egresChartOptions } from './egresos-chart-opts';
 
 /**
@@ -44,6 +45,7 @@ interface Constraint { type: SliceType; key: string; label: string; }
   imports: [
     CommonModule, FormsModule, ButtonModule, MultiSelectModule, DatePickerModule,
     InputNumberModule, InputTextModule, TableModule, ChartModule, ToastModule, DialogModule,
+    MetricStripComponent,
   ],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -93,26 +95,11 @@ interface Constraint { type: SliceType; key: string; label: string; }
       } @else {
         @if (report(); as r) {
         <!-- KPIs -->
-        <div class="ed-kpis">
-          <div class="ed-kpi"><span class="ed-kpi-label">Total</span><span class="ed-kpi-val">{{ money(r.total) }}</span>
-            @if (r.rows.length && deltaTotal() !== null) { <span class="ed-kpi-sub" [class.up]="deltaTotal()! > 0" [class.down]="deltaTotal()! < 0">{{ deltaTotal()! > 0 ? '+' : '' }}{{ deltaTotal() }}% vs prev</span> }
-          </div>
-          <div class="ed-kpi"><span class="ed-kpi-label">Movimientos</span><span class="ed-kpi-val">{{ r.movimientos | number }}</span></div>
-          <div class="ed-kpi"><span class="ed-kpi-label">Documentos</span><span class="ed-kpi-val">{{ docs().length | number }}{{ docs().length >= 3000 ? '+' : '' }}</span></div>
-          <div class="ed-kpi"><span class="ed-kpi-label">{{ breakdownLabel() }}</span><span class="ed-kpi-val">{{ r.rows.length | number }}</span></div>
-          <div class="ed-kpi"><span class="ed-kpi-label">Ticket prom.</span><span class="ed-kpi-val">{{ money(ticket()) }}</span></div>
-        </div>
+        <app-metric-strip [items]="kpiGeneral()" ariaLabel="Resumen del egreso" />
 
         <!-- Proveedor 360: cuenta 201 (saldo/DPO/pagos) -->
-        @if (isProvider() && provider360()?.summary; as ps) {
-          <div class="ed-kpis">
-            <div class="ed-kpi"><span class="ed-kpi-label">Compra 12m</span><span class="ed-kpi-val">{{ money(ps.compra_12m) }}</span></div>
-            <div class="ed-kpi"><span class="ed-kpi-label">Saldo por pagar</span><span class="ed-kpi-val" [class.up]="ps.saldo > 0">{{ money(ps.saldo) }}</span></div>
-            <div class="ed-kpi"><span class="ed-kpi-label">Pagos 12m</span><span class="ed-kpi-val">{{ money(ps.pagos_12m) }}</span></div>
-            <div class="ed-kpi"><span class="ed-kpi-label">DPO (días de pago)</span><span class="ed-kpi-val" [class.up]="ps.dpo_dias != null && ps.dpo_dias > 60">{{ ps.dpo_dias != null ? ps.dpo_dias + ' d' : '—' }}</span></div>
-            <div class="ed-kpi"><span class="ed-kpi-label">Facturas 12m</span><span class="ed-kpi-val">{{ ps.num_facturas | number }}</span></div>
-            <div class="ed-kpi"><span class="ed-kpi-label">Última compra</span><span class="ed-kpi-val" style="font-size:1.05rem">{{ ps.ultima_compra | date:'dd/MM/yy' }}</span></div>
-          </div>
+        @if (isProvider() && provider360()?.summary) {
+          <app-metric-strip [items]="kpiProvider()" ariaLabel="Resumen del proveedor" />
         }
 
         <div class="ed-grid">
@@ -336,11 +323,7 @@ interface Constraint { type: SliceType; key: string; label: string; }
     .ed-field { display: flex; flex-direction: column; gap: .35rem; }
     .ed-field label { font-size: .72rem; font-weight: 600; color: var(--text-muted, #78716c); text-transform: uppercase; letter-spacing: .03em; }
     .ed-narrow { max-width: 10rem; }
-    .ed-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: .75rem; margin-bottom: 1rem; }
-    .ed-kpi { border: 1px solid var(--border, #e7e5e4); border-radius: var(--r-md); padding: .85rem 1rem; background: var(--card-bg, #fff); }
-    .ed-kpi-label { display: block; font-size: .72rem; font-weight: 600; color: var(--text-muted, #78716c); text-transform: uppercase; letter-spacing: .03em; }
-    .ed-kpi-val { display: block; font-size: 1.35rem; font-weight: 700; margin-top: .15rem; }
-    .ed-kpi-sub { display: block; font-size: .74rem; margin-top: .1rem; color: var(--text-muted, #78716c); }
+    app-metric-strip { display:block; margin-bottom: 1rem; }
     .ed-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem; }
     @media (max-width: 900px) { .ed-grid { grid-template-columns: 1fr; } }
     .ed-card { padding: 1rem; }
@@ -452,6 +435,32 @@ export class ComercialEgresoDetalleComponent {
     const t = this.report()?.total || 0;
     const prev = rows.reduce((a, r) => a + (r.prev_total || 0), 0);
     return prev ? +(((t - prev) / prev) * 100).toFixed(1) : null;
+  });
+
+  /** KPIs de cabecera vía MetricStrip (sin caja). */
+  readonly kpiGeneral = computed<MetricStripItem[]>(() => {
+    const r = this.report();
+    if (!r) return [];
+    return [
+      { label: 'Total', value: r.total, format: 'currency', tone: 'brand', delta: r.rows.length ? this.deltaTotal() : null },
+      { label: 'Movimientos', value: r.movimientos },
+      { label: 'Documentos', value: this.docs().length },
+      { label: this.breakdownLabel(), value: r.rows.length },
+      { label: 'Ticket prom.', value: this.ticket(), format: 'currency' },
+    ];
+  });
+  readonly kpiProvider = computed<MetricStripItem[]>(() => {
+    const ps = this.provider360()?.summary;
+    if (!this.isProvider() || !ps) return [];
+    const fmtDate = (d: any) => d ? new Date(d).toLocaleDateString('es-MX', { day: '2-digit', month: '2-digit', year: '2-digit' }) : '—';
+    return [
+      { label: 'Compra 12m', value: ps.compra_12m, format: 'currency' },
+      { label: 'Saldo por pagar', value: ps.saldo, format: 'currency', tone: ps.saldo > 0 ? 'bad' : 'default' },
+      { label: 'Pagos 12m', value: ps.pagos_12m, format: 'currency' },
+      { label: 'DPO', value: ps.dpo_dias != null ? ps.dpo_dias + ' d' : '—', format: 'text', tone: (ps.dpo_dias != null && ps.dpo_dias > 60) ? 'bad' : 'default' },
+      { label: 'Facturas 12m', value: ps.num_facturas },
+      { label: 'Última compra', value: fmtDate(ps.ultima_compra), format: 'text' },
+    ];
   });
   readonly chartData = computed(() => {
     const s = this.report()?.series || [];

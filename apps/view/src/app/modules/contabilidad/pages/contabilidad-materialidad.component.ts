@@ -7,6 +7,7 @@ import { ToastModule } from 'primeng/toast';
 import { InputTextModule } from 'primeng/inputtext';
 import { MessageService } from 'primeng/api';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
+import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { CONTABILIDAD_TABS } from '../contabilidad-tabs';
 import { MaterialidadService, MaterialidadDossier } from '../materialidad.service';
 
@@ -18,7 +19,7 @@ import { MaterialidadService, MaterialidadDossier } from '../materialidad.servic
 @Component({
   selector: 'app-contabilidad-materialidad',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, ToastModule, InputTextModule, PageTabsComponent],
+  imports: [CommonModule, FormsModule, ButtonModule, ToastModule, InputTextModule, PageTabsComponent, MetricStripComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
@@ -53,12 +54,8 @@ import { MaterialidadService, MaterialidadDossier } from '../materialidad.servic
           </div>
         </div>
 
-        <div class="mt-kpis">
-          <div class="mt-kpi"><span class="mt-kpi-val">{{ d.operaciones | number }}</span><span class="mt-kpi-lbl">Operaciones</span></div>
-          <div class="mt-kpi"><span class="mt-kpi-val">{{ money(d.monto_total) }}</span><span class="mt-kpi-lbl">Monto total</span></div>
-          <div class="mt-kpi" [class.ok]="d.cadena_suministro.recepcion_pct >= 80" [class.warn]="d.cadena_suministro.recepcion_pct < 50"><span class="mt-kpi-val">{{ d.cadena_suministro.recepcion_pct }}%</span><span class="mt-kpi-lbl">Con recepción física</span></div>
-          <div class="mt-kpi" [class.bad]="d.cfdis.cancelados > 0"><span class="mt-kpi-val">{{ d.cfdis.cancelados | number }}</span><span class="mt-kpi-lbl">CFDI cancelados</span></div>
-        </div>
+        <app-metric-strip [items]="kpiItems(d)" ariaLabel="Resumen de materialidad" />
+
 
         <div class="mt-grid">
           <div class="card-premium card-flat mt-block">
@@ -111,13 +108,7 @@ import { MaterialidadService, MaterialidadDossier } from '../materialidad.servic
     .v-revisar .mt-v-badge { background: color-mix(in srgb, var(--warn-fg, #d97706) 18%, transparent); color: var(--warn-soft-fg, #b45309); }
     .mt-v-title { font-size: .95rem; font-weight: 700; color: var(--text-main); }
     .mt-v-msg { font-size: .82rem; color: var(--text-muted); margin-top: .2rem; }
-    .mt-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: .75rem; margin-bottom: 1rem; }
-    .mt-kpi { border: 1px solid var(--border-color); border-radius: var(--r-md, 10px); padding: .75rem 1rem; background: var(--card-bg); }
-    .mt-kpi.ok { border-color: color-mix(in srgb, var(--ok-fg, #16a34a) 40%, var(--border-color)); }
-    .mt-kpi.warn { border-color: color-mix(in srgb, var(--warn-fg, #d97706) 45%, var(--border-color)); }
-    .mt-kpi.bad { border-color: color-mix(in srgb, var(--bad-fg, #dc2626) 45%, var(--border-color)); }
-    .mt-kpi-val { display: block; font-size: 1.3rem; font-weight: 800; font-variant-numeric: tabular-nums; color: var(--text-main); font-family: var(--font-mono, ui-monospace, monospace); }
-    .mt-kpi-lbl { display: block; font-size: .7rem; text-transform: uppercase; letter-spacing: .03em; color: var(--text-muted); margin-top: .15rem; }
+    app-metric-strip { display:block; margin-bottom: 1rem; }
     .mt-grid { display: grid; grid-template-columns: 1.3fr 1fr; gap: 1rem; }
     @media (max-width: 800px) { .mt-grid { grid-template-columns: 1fr; } }
     .mt-block { padding: 1rem; }
@@ -146,6 +137,17 @@ export class ContabilidadMaterialidadComponent {
 
   rfc = '';
   readonly dossier = signal<MaterialidadDossier | null>(null);
+
+  /** KPIs de materialidad vía MetricStrip (sin caja). */
+  kpiItems(d: MaterialidadDossier): MetricStripItem[] {
+    const rec = d.cadena_suministro.recepcion_pct;
+    return [
+      { label: 'Operaciones', value: d.operaciones },
+      { label: 'Monto total', value: d.monto_total, format: 'currency' },
+      { label: 'Con recepción física', value: rec, format: 'percent', tone: rec >= 80 ? 'ok' : rec < 50 ? 'warn' : 'default' },
+      { label: 'CFDI cancelados', value: d.cfdis.cancelados, tone: d.cfdis.cancelados > 0 ? 'bad' : 'default' },
+    ];
+  }
   readonly loading = signal(false);
   readonly searched = signal(false);
 

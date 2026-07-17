@@ -1,11 +1,14 @@
 import {
   BadRequestException,
   ConflictException,
+  Inject,
   Injectable,
   Logger,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
+import { INVOICE_ISSUER_PORT, InvoiceIssuerPort } from '@megadulces/contracts';
 import { CommercialOrdersService } from '../commercial-orders/commercial-orders.service';
 import {
   DeliverAndCollectDto,
@@ -40,7 +43,44 @@ export class CommercialPaymentsService {
     private readonly tk: TenantKnexService,
     private readonly tenantCtx: TenantContextService,
     private readonly orders: CommercialOrdersService,
+    @Optional() @Inject(INVOICE_ISSUER_PORT) private readonly invoiceIssuer?: InvoiceIssuerPort,
   ) {}
+
+  /** Mapea el método interno de cobro a la clave SAT de forma de pago (REP). */
+  private satFormaPago(method: PaymentMethod): string {
+    return method === 'cash' ? '01' : method === 'transfer' ? '03' : method === 'card' ? '04' : '99';
+  }
+
+  /**
+   * FE.8 — Best-effort: al cobrar una factura PPD emite el Complemento de Pago (REP).
+   * Corre FUERA de la trx del cobro (tras commit). El motor fiscal devuelve null si
+   * la factura es PUE (contado, no lleva REP). Nunca rompe el cobro.
+   */
+  private async tryEmitRep(orderId: string, payment: PaymentRow): Promise<void> {
+    if (!this.invoiceIssuer || payment.status === 'reversed') return;
+    try {
+      const { order, parcialidad } = await this.tk.run(async (trx) => {
+        const o = await trx('commercial.orders').where({ id: orderId }).select('cfdi_uuid', 'balance_due').first();
+        const c = await trx('commercial.payments')
+          .where({ order_id: orderId }).whereNot({ status: 'reversed' }).whereNull('deleted_at')
+          .count<{ c: string }[]>('* as c');
+        return { order: o, parcialidad: Number(c?.[0]?.c || 1) };
+      });
+      if (!order?.cfdi_uuid) return; // sin factura relacionada → no hay REP
+      const saldoInsoluto = Math.round(Number(order.balance_due) * 100) / 100; // ya post-pago
+      const saldoAnt = Math.round((saldoInsoluto + payment.amount) * 100) / 100;
+      await this.invoiceIssuer.issueRep(this.tenantCtx.requireTenantId(), {
+        cfdi_uuid: order.cfdi_uuid,
+        monto: payment.amount,
+        forma_pago: this.satFormaPago(payment.payment_method),
+        num_parcialidad: parcialidad,
+        imp_saldo_ant: saldoAnt,
+        imp_saldo_insoluto: saldoInsoluto,
+      });
+    } catch (e: any) {
+      this.logger.warn(`REP best-effort falló (order ${orderId}): ${e?.message || e}`);
+    }
+  }
 
   private requireUserId(): string {
     const userId = this.tenantCtx.get()?.userId;
@@ -149,7 +189,9 @@ export class CommercialPaymentsService {
 
   /** Registra un cobro standalone (no combinado con la entrega). */
   async recordPayment(dto: RecordPaymentDto): Promise<PaymentRow> {
-    return this.tk.run((trx) => this.insertPayment(trx, dto));
+    const payment = await this.tk.run((trx) => this.insertPayment(trx, dto));
+    await this.tryEmitRep(dto.order_id, payment); // FE.8: REP si la factura es PPD
+    return payment;
   }
 
   /**
@@ -165,7 +207,7 @@ export class CommercialPaymentsService {
     if (dto.payment && dto.payment.order_id && dto.payment.order_id !== orderId)
       throw new BadRequestException('payment.order_id no coincide con la orden');
 
-    return this.tk.run(async (trx) => {
+    const result = await this.tk.run(async (trx) => {
       const order = await this.orders.fulfillInTransaction(trx, orderId);
       let payment: PaymentRow | null = null;
       if (dto.payment) {
@@ -173,6 +215,8 @@ export class CommercialPaymentsService {
       }
       return { order, payment };
     });
+    if (result.payment) await this.tryEmitRep(orderId, result.payment); // FE.8: REP si PPD
+    return result;
   }
 
   /**

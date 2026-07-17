@@ -10,6 +10,7 @@ import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
 import { ComercialService, DeadStockReport, Warehouse } from '../comercial.service';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
+import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { ProductSearchComponent, ProductHit } from '../components/product-search.component';
 import { INV_ANALYTICS_TABS } from '../inventory-tabs';
 
@@ -20,7 +21,7 @@ import { INV_ANALYTICS_TABS } from '../inventory-tabs';
 @Component({
   selector: 'app-comercial-dead-stock',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, TableModule, TagModule, SelectModule, ToastModule, PageTabsComponent, ProductSearchComponent],
+  imports: [CommonModule, FormsModule, ButtonModule, TableModule, TagModule, SelectModule, ToastModule, PageTabsComponent, ProductSearchComponent, MetricStripComponent],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -43,16 +44,8 @@ import { INV_ANALYTICS_TABS } from '../inventory-tabs';
       </header>
 
       <!-- KPIs -->
-      <div class="ds-kpis">
-        <div class="ds-kpi ds-kpi-bad">
-          <span class="ds-kpi-v">{{ (report()?.total_capital_parado ?? 0) | currency:'MXN':'symbol-narrow':'1.0-0' }}</span>
-          <span class="ds-kpi-l">Capital parado</span>
-        </div>
-        <div class="ds-kpi">
-          <span class="ds-kpi-v">{{ report()?.total_skus ?? 0 }}</span>
-          <span class="ds-kpi-l">SKUs muertos</span>
-        </div>
-      </div>
+      <app-metric-strip [items]="kpiItems()" ariaLabel="Resumen de stock muerto" />
+
 
       <!-- Resumen por almacén -->
       @if ((report()?.by_warehouse?.length ?? 0) > 1 && !isSpecific()) {
@@ -104,11 +97,7 @@ import { INV_ANALYTICS_TABS } from '../inventory-tabs';
   styles: [`
     .ds-head-actions { display: flex; gap: .5rem; align-items: center; }
     :host ::ng-deep .ds-wh { min-width: 220px; }
-    .ds-kpis { display: flex; gap: .75rem; margin-bottom: 1rem; }
-    .ds-kpi { background: var(--card-bg); border: 1px solid var(--surface-200,var(--c-border)); border-radius: 12px; padding: .85rem 1.25rem; display: flex; flex-direction: column; }
-    .ds-kpi-v { font-size: 1.6rem; font-weight: 700; font-variant-numeric: tabular-nums; }
-    .ds-kpi-l { font-size: .75rem; color: var(--text-muted,var(--c-text-2)); text-transform: uppercase; letter-spacing: .03em; }
-    .ds-kpi-bad .ds-kpi-v { color: var(--bad-fg); }
+    app-metric-strip { display:block; margin-bottom: 1rem; }
     .ds-by-wh { display: flex; flex-wrap: wrap; gap: .5rem; margin-bottom: 1rem; }
     .ds-wh-chip { background: var(--surface-100,var(--c-surface-2)); border-radius: 8px; padding: .4rem .7rem; font-size: .8rem; display: flex; gap: .5rem; align-items: baseline; }
     .ds-mono { font-family: var(--font-mono,monospace); }
@@ -131,6 +120,11 @@ export class ComercialDeadStockComponent {
   warehouseFilter = this.ALL;
   warehouses = signal<{ label: string; value: string }[]>([]);
   warehouseOptions = computed(() => [{ label: 'Todos los almacenes', value: this.ALL }, ...this.warehouses()]);
+
+  readonly kpiItems = computed<MetricStripItem[]>(() => [
+    { label: 'Capital parado', value: this.report()?.total_capital_parado ?? 0, format: 'currency', tone: 'bad' },
+    { label: 'SKUs muertos', value: this.report()?.total_skus ?? 0 },
+  ]);
 
   isSpecific(): boolean { return this.warehouseFilter !== this.ALL; }
   private whParam(): string | undefined { return this.isSpecific() ? this.warehouseFilter : undefined; }

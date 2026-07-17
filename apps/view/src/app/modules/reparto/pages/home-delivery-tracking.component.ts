@@ -8,6 +8,7 @@ import { ButtonModule } from 'primeng/button';
 import { SelectButtonModule } from 'primeng/selectbutton';
 import { DispatchedDelivery, HomeDeliveryService, RiderPosition } from '../home-delivery.service';
 import { MapComponent, MapLayer, MapMarker } from '../../../shared/components/map/map.component';
+import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { MapLegendComponent, LegendLayer } from '../../../shared/components/map-legend/map-legend.component';
 import { WebSocketService } from '../../../core/services/websocket.service';
 
@@ -20,7 +21,7 @@ import { WebSocketService } from '../../../core/services/websocket.service';
 @Component({
   selector: 'app-home-delivery-tracking',
   standalone: true,
-  imports: [CommonModule, FormsModule, TableModule, TagModule, ButtonModule, SelectButtonModule, MapComponent, MapLegendComponent],
+  imports: [CommonModule, FormsModule, TableModule, TagModule, ButtonModule, SelectButtonModule, MapComponent, MapLegendComponent, MetricStripComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="trk">
@@ -37,12 +38,8 @@ import { WebSocketService } from '../../../core/services/websocket.service';
         </div>
       </header>
 
-      <div class="kpis" role="group" aria-label="Resumen de entregas de hoy">
-        <div class="kpi"><span class="kpi-l">Total</span><b class="kpi-v">{{ rows().length }}</b></div>
-        <div class="kpi"><span class="kpi-l">En camino</span><b class="kpi-v warn">{{ countBy('pendiente') }}</b></div>
-        <div class="kpi"><span class="kpi-l">Entregadas</span><b class="kpi-v ok">{{ countBy('entregado') }}</b></div>
-        <div class="kpi"><span class="kpi-l">Incidencias</span><b class="kpi-v bad">{{ incidents() }}</b></div>
-      </div>
+      <app-metric-strip [items]="kpiItems()" ariaLabel="Resumen de entregas de hoy" />
+
 
       <div class="map-wrap">
         <app-map [layers]="mapLayers()" height="360px" [autoFit]="'once'" />
@@ -93,22 +90,7 @@ import { WebSocketService } from '../../../core/services/websocket.service';
     h1 { font-size: 1.2rem; margin: 0; font-weight: 700; }
     .sub { margin: .1rem 0 0; color: var(--text-muted); font-size: .85rem; }
     .head-actions { display: flex; gap: .6rem; align-items: center; }
-    /* KPI strip — métricas inline separadas por hairline, sin caja por métrica
-       (patrón "KPI Strip" de Operations / quiet-luxury: no bg, no borde, no radio). */
-    .kpis { display:flex; flex-wrap:wrap; margin:.25rem 0 1.25rem; }
-    .kpi { display:flex; flex-direction:column; justify-content:center; gap:.15rem; padding:.1rem 1.4rem; }
-    .kpi:first-child { padding-left:.15rem; }
-    .kpi:not(:first-child) { border-left:1px solid var(--border-color); }
-    .kpi-l { font-size:.68rem; font-weight:600; color:var(--text-muted); text-transform:uppercase; letter-spacing:.05em; }
-    .kpi-v { font-family:var(--font-mono); font-size:1.55rem; font-weight:600; line-height:1.1; font-variant-numeric:tabular-nums; color:var(--text-main); }
-    .kpi-v.warn { color:var(--warn-fg); } .kpi-v.ok { color:var(--ok-fg); } .kpi-v.bad { color:var(--bad-fg); }
-    /* Móvil: 2×2 sin líneas al borde (solo un divisor central por fila). */
-    @media (max-width:560px) {
-      .kpis { display:grid; grid-template-columns:1fr 1fr; row-gap:.8rem; margin:.25rem 0 1rem; }
-      .kpi { padding:.1rem 1rem; }
-      .kpi:not(:first-child) { border-left:0; }
-      .kpi:nth-child(even) { border-left:1px solid var(--border-color); }
-    }
+    app-metric-strip { display:block; margin:.25rem 0 1.25rem; }
     .map-wrap { margin: 0 0 1rem; }
     .map-note { font-size: .78rem; color: var(--text-muted); margin-top: .4rem; display: flex; align-items: center; gap: .35rem; }
     .map-note .live { color: #16a34a; font-size: .6rem; }
@@ -146,6 +128,14 @@ export class HomeDeliveryTrackingComponent implements OnInit, OnDestroy {
   private tick: any = null;
 
   readonly incidents = computed(() => this.rows().filter((r) => !!r.incident_type).length);
+
+  /** KPIs de cabecera vía el componente compartido MetricStrip (sin caja). */
+  readonly kpiItems = computed<MetricStripItem[]>(() => [
+    { label: 'Total', value: this.rows().length },
+    { label: 'En camino', value: this.countBy('pendiente'), tone: 'warn', live: true },
+    { label: 'Entregadas', value: this.countBy('entregado'), tone: 'ok' },
+    { label: 'Incidencias', value: this.incidents(), tone: 'bad' },
+  ]);
 
   /** Pin de destino por entrega (con coords). Color por estado. */
   private destinoMarkers(): MapMarker[] {

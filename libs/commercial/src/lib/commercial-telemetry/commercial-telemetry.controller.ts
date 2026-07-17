@@ -73,11 +73,12 @@ export class CommercialTelemetryController {
 
   /**
    * Resumen agregado para el dashboard: p75/p95/p99 de cada Web Vital, tasa de
-   * error y funnel. Guardado por permiso de reportes globales.
+   * error y funnel. Analítica interna del Portal → COMMERCIAL_ANALYTICS_VER (antes
+   * pedía REPORTES_VER_GLOBAL, que concede god-mode manage:all — sobre-privilegio).
    */
   @ApiBearerAuth()
   @UseGuards(RolesGuard)
-  @RequirePermissions(Permission.REPORTES_VER_GLOBAL)
+  @RequirePermissions(Permission.COMMERCIAL_ANALYTICS_VER)
   @Get('portal/summary')
   @ApiOperation({ summary: 'Resumen de métricas del Portal B2B (p75/p99, error rate, funnel)' })
   async summary(

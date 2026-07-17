@@ -11,6 +11,7 @@ import { TagModule } from 'primeng/tag';
 import { InputTextModule } from 'primeng/inputtext';
 import { ButtonModule } from 'primeng/button';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
+import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { SegmentedComponent } from '../../../shared/components/segmented/segmented.component';
 import { FINANZAS_TABS } from '../finanzas-tabs';
 import { ComercialService, ExpenseRequestRow, ExpenseRequestsReport } from '../../comercial/comercial.service';
@@ -23,7 +24,7 @@ import { ComercialService, ExpenseRequestRow, ExpenseRequestsReport } from '../.
 @Component({
   selector: 'app-finanzas-solicitudes',
   standalone: true,
-  imports: [CommonModule, FormsModule, TableModule, MultiSelectModule, SelectModule, DatePickerModule, TagModule, InputTextModule, ButtonModule, PageTabsComponent, SegmentedComponent],
+  imports: [CommonModule, FormsModule, TableModule, MultiSelectModule, SelectModule, DatePickerModule, TagModule, InputTextModule, ButtonModule, PageTabsComponent, SegmentedComponent, MetricStripComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="surf-page in">
@@ -53,11 +54,7 @@ import { ComercialService, ExpenseRequestRow, ExpenseRequestsReport } from '../.
 
       <!-- KPIs -->
       @if (report(); as r) {
-        <div class="so-kpis">
-          <div class="so-kpi"><span class="so-kpi-label">Solicitudes</span><span class="so-kpi-val">{{ r.kpis.total | number }}</span><span class="so-kpi-sub">{{ money(r.kpis.importe) }}</span></div>
-          <div class="so-kpi bad"><span class="so-kpi-label">Sin aplicar</span><span class="so-kpi-val">{{ r.kpis.pendientes | number }}</span><span class="so-kpi-sub">{{ money(r.kpis.pendientes_importe) }}</span></div>
-          <div class="so-kpi ok"><span class="so-kpi-label">Aplicadas</span><span class="so-kpi-val">{{ r.kpis.aplicadas | number }}</span><span class="so-kpi-sub">{{ pct(r.kpis.aplicadas, r.kpis.total) }}%</span></div>
-        </div>
+        <app-metric-strip [items]="kpiItems(r)" ariaLabel="Resumen de solicitudes" />
       }
 
       <!-- Tabla -->
@@ -112,13 +109,7 @@ import { ComercialService, ExpenseRequestRow, ExpenseRequestsReport } from '../.
     .so-field { display: flex; flex-direction: column; gap: .3rem; }
     .so-field > label { font-size: var(--fs-micro, .72rem); text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); }
     .so-field.so-grow { flex: 1 1 16rem; }
-    .so-kpis { display: flex; flex-wrap: wrap; gap: .8rem; margin-bottom: 1rem; }
-    .so-kpi { flex: 1; min-width: 150px; display: flex; flex-direction: column; gap: .15rem; padding: .9rem 1rem; border: 1px solid var(--border-color); border-radius: var(--r-md); background: var(--card-bg); }
-    .so-kpi.bad { border-left: 3px solid var(--bad-fg); }
-    .so-kpi.ok { border-left: 3px solid var(--ok-fg); }
-    .so-kpi-label { font-size: var(--fs-micro, .72rem); text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); }
-    .so-kpi-val { font-size: 1.5rem; font-weight: 800; color: var(--text-main); font-variant-numeric: tabular-nums; line-height: 1.1; }
-    .so-kpi-sub { font-size: var(--fs-sm, .82rem); color: var(--text-muted); }
+    app-metric-strip { display:block; margin-bottom: 1rem; }
     .so-table .ta-r { text-align: right; font-variant-numeric: tabular-nums; }
     .so-table .strong { font-weight: 600; color: var(--text-main); }
     .so-table .muted { color: var(--text-muted); }
@@ -136,6 +127,14 @@ export class FinanzasSolicitudesComponent {
   private readonly destroyRef = inject(DestroyRef);
 
   readonly report = signal<ExpenseRequestsReport | null>(null);
+
+  kpiItems(r: ExpenseRequestsReport): MetricStripItem[] {
+    return [
+      { label: 'Solicitudes', value: r.kpis.total, sub: this.money(r.kpis.importe) },
+      { label: 'Sin aplicar', value: r.kpis.pendientes, tone: 'bad', sub: this.money(r.kpis.pendientes_importe) },
+      { label: 'Aplicadas', value: r.kpis.aplicadas, tone: 'ok', sub: `${this.pct(r.kpis.aplicadas, r.kpis.total)}%` },
+    ];
+  }
   readonly rows = computed(() => this.report()?.rows || []);
   readonly loading = signal(false);
   readonly sucursales = signal<{ code: string; label: string }[]>([]);

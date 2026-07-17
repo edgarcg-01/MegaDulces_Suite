@@ -7,6 +7,7 @@ import { ToastModule } from 'primeng/toast';
 import { InputTextModule } from 'primeng/inputtext';
 import { MessageService } from 'primeng/api';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
+import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { CONTABILIDAD_TABS } from '../contabilidad-tabs';
 import { ImpuestosService, ProvisionalResult } from '../impuestos.service';
 
@@ -18,7 +19,7 @@ import { ImpuestosService, ProvisionalResult } from '../impuestos.service';
 @Component({
   selector: 'app-contabilidad-impuestos',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, ToastModule, InputTextModule, PageTabsComponent],
+  imports: [CommonModule, FormsModule, ButtonModule, ToastModule, InputTextModule, PageTabsComponent, MetricStripComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
@@ -49,11 +50,8 @@ import { ImpuestosService, ProvisionalResult } from '../impuestos.service';
       </div>
 
       @if (res(); as r) {
-        <div class="im-kpis">
-          <div class="im-kpi" [class.bad]="r.isr.isr_a_pagar > 0"><span class="im-kpi-val">{{ money(r.isr.isr_a_pagar) }}</span><span class="im-kpi-lbl">ISR a pagar</span></div>
-          <div class="im-kpi" [class.bad]="r.iva.iva_a_cargo > 0" [class.ok]="r.iva.iva_a_favor > 0"><span class="im-kpi-val">{{ r.iva.iva_a_cargo > 0 ? money(r.iva.iva_a_cargo) : money(-r.iva.iva_a_favor) }}</span><span class="im-kpi-lbl">{{ r.iva.iva_a_cargo > 0 ? 'IVA a cargo' : 'IVA a favor' }}</span></div>
-          <div class="im-kpi strong-card"><span class="im-kpi-val">{{ money(r.total_a_pagar) }}</span><span class="im-kpi-lbl">Total a pagar</span></div>
-        </div>
+        <app-metric-strip [items]="kpiItems(r)" ariaLabel="Resumen de impuestos" />
+
 
         <div class="im-grid">
           <div class="card-premium card-flat im-block">
@@ -90,13 +88,7 @@ import { ImpuestosService, ProvisionalResult } from '../impuestos.service';
     .im-fields { display: flex; gap: .8rem; flex-wrap: wrap; align-items: flex-end; }
     .im-f { display: flex; flex-direction: column; gap: .25rem; font-size: .68rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: .03em; }
     .im-f input { border: 1px solid var(--border-color); border-radius: var(--r-sm, 8px); padding: .45rem .6rem; background: var(--card-bg); color: var(--text-main); font-family: var(--font-mono, monospace); width: 8.5rem; }
-    .im-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: .75rem; margin-bottom: 1rem; }
-    .im-kpi { border: 1px solid var(--border-color); border-radius: var(--r-md, 10px); padding: .85rem 1rem; background: var(--card-bg); }
-    .im-kpi.bad { border-color: color-mix(in srgb, var(--bad-fg, #dc2626) 40%, var(--border-color)); }
-    .im-kpi.ok { border-color: color-mix(in srgb, var(--ok-fg, #16a34a) 40%, var(--border-color)); }
-    .im-kpi.strong-card { background: var(--surface-hover-bg, #faf9f7); }
-    .im-kpi-val { display: block; font-size: 1.4rem; font-weight: 800; font-variant-numeric: tabular-nums; color: var(--text-main); font-family: var(--font-mono, ui-monospace, monospace); }
-    .im-kpi-lbl { display: block; font-size: .7rem; text-transform: uppercase; letter-spacing: .03em; color: var(--text-muted); margin-top: .15rem; }
+    app-metric-strip { display:block; margin-bottom: 1rem; }
     .im-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
     @media (max-width: 800px) { .im-grid { grid-template-columns: 1fr; } }
     .im-block { padding: 1rem 1.2rem; }
@@ -119,6 +111,15 @@ export class ContabilidadImpuestosComponent {
   p: { period: string; cu: number | null; tasa: number | null; ptu: number | null; perdidas: number | null; pagos_previos: number | null; retenido: number | null } =
     { period: this.currentMonth(), cu: null, tasa: 0.30, ptu: 0, perdidas: 0, pagos_previos: 0, retenido: 0 };
   readonly res = signal<ProvisionalResult | null>(null);
+
+  kpiItems(r: ProvisionalResult): MetricStripItem[] {
+    const cargo = r.iva.iva_a_cargo > 0;
+    return [
+      { label: 'ISR a pagar', value: r.isr.isr_a_pagar, format: 'currency', tone: r.isr.isr_a_pagar > 0 ? 'bad' : 'default' },
+      { label: cargo ? 'IVA a cargo' : 'IVA a favor', value: cargo ? r.iva.iva_a_cargo : r.iva.iva_a_favor, format: 'currency', tone: cargo ? 'bad' : (r.iva.iva_a_favor > 0 ? 'ok' : 'default') },
+      { label: 'Total a pagar', value: r.total_a_pagar, format: 'currency', tone: 'brand' },
+    ];
+  }
   readonly loading = signal(false);
 
   valid(): boolean { return /^\d{4}-\d{2}$/.test(this.p.period) && this.p.cu != null && this.p.cu >= 0; }

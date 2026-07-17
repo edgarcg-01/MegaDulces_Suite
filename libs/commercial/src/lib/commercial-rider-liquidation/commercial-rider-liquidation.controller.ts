@@ -58,7 +58,7 @@ export class CommercialRiderLiquidationController {
    * Auto-scoped por JWT (no recibe rider_user_id).
    */
   @Post('my/blind-close')
-  @RequirePermissions(Permission.COMMERCIAL_PAYMENTS_REGISTRAR)
+  @RequirePermissions(Permission.REPARTO_ENTREGAR)
   @ApiOperation({ summary: 'Arqueo ciego del repartidor (cuenta sin ver lo esperado; revela diferencia).' })
   blindCloseOwn(@Body() dto: { business_date?: string; cash_breakdown: Record<string, number>; notes?: string }) {
     return this.service.blindCloseOwn(dto);
