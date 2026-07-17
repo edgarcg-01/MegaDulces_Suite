@@ -54,6 +54,19 @@ export class DescargaOrchestratorService implements OnModuleInit {
       fn({ cerDer: cred.cer_der, keyDer: key, password }, this.soap!));
   }
 
+  /**
+   * Fecha → 'YYYY-MM-DD' para el WS del SAT. pg devuelve timestamptz como objeto
+   * Date, y `String(date)` da el formato local ("Wed Jul 01 …") que @nodecfdi
+   * rechaza con "Unable to create a Datetime". Normaliza Date o string a ISO.
+   */
+  private isoDay(d: unknown): string {
+    if (d instanceof Date) return d.toISOString().slice(0, 10);
+    const s = String(d ?? '');
+    if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+    const dt = new Date(s);
+    return isNaN(dt.getTime()) ? s.slice(0, 10) : dt.toISOString().slice(0, 10);
+  }
+
   private async handleSolicitud(job: FiscalJob): Promise<Record<string, unknown>> {
     const requestId = (job.payload as any).requestId as string;
     const req = await this.tk.run(async (trx) => trx('fiscal.download_requests').where({ id: requestId }).first());
@@ -73,7 +86,7 @@ export class DescargaOrchestratorService implements OnModuleInit {
       const auth = await soap.authenticate(m);
       return soap.solicita(auth.token, m, {
         rfcSolicitante: req.rfc_solicitante, rol: req.rol, tipo: req.tipo_solicitud,
-        fechaIni: String(req.fecha_ini).slice(0, 10), fechaFin: String(req.fecha_fin).slice(0, 10),
+        fechaIni: this.isoDay(req.fecha_ini), fechaFin: this.isoDay(req.fecha_fin),
       });
     });
 
