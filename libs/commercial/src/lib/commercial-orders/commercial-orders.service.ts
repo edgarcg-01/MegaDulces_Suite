@@ -1064,22 +1064,122 @@ export class CommercialOrdersService {
     });
   }
 
-  /** Dispara la emisión del CFDI tras entregar. Best-effort: nunca rompe el fulfill. */
+  /**
+   * Dispara la emisión del CFDI tras entregar. Best-effort: nunca rompe el fulfill.
+   * FE.13 — si el cliente no tiene datos fiscales (input null) NO es error (va al
+   * global de mostrador). Si el PAC falla con datos válidos, registra el error +
+   * incrementa intentos en la orden (queda en la cola de contingencia).
+   */
   private async tryAutoInvoice(order: any): Promise<void> {
     if (!this.invoiceIssuer || !order || order.status !== 'fulfilled' || order.cfdi_uuid) return;
+    let input;
     try {
-      const input = await this.buildInvoiceInput(order.id);
-      if (!input) return;
+      input = await this.buildInvoiceInput(order.id);
+    } catch {
+      input = null;
+    }
+    if (!input) return; // mostrador → factura global (no es fallo)
+    try {
       const tenantId = this.tenantCtx.requireTenantId();
       const res = await this.invoiceIssuer.issue(tenantId, input);
       if (res?.uuid) {
         await this.tk.run(async (trx) =>
-          trx('commercial.orders').where({ id: order.id }).update({ cfdi_uuid: res.uuid, updated_at: trx.fn.now() }));
+          trx('commercial.orders').where({ id: order.id }).update({ cfdi_uuid: res.uuid, cfdi_error: null, updated_at: trx.fn.now() }));
         order.cfdi_uuid = res.uuid;
       }
     } catch (e: any) {
-      this.logger.warn(`Auto-factura best-effort falló (order ${order?.id}): ${e?.message || e}`);
+      const msg = String(e?.message || e).slice(0, 500);
+      this.logger.warn(`Auto-factura best-effort falló (order ${order?.id}): ${msg}`);
+      await this.tk.run(async (trx) =>
+        trx('commercial.orders').where({ id: order.id }).update({
+          cfdi_error: msg,
+          cfdi_attempts: trx.raw('COALESCE(cfdi_attempts, 0) + 1'),
+          cfdi_last_attempt_at: trx.fn.now(),
+          updated_at: trx.fn.now(),
+        })).catch(() => undefined);
     }
+  }
+
+  /**
+   * FE.13 — Reintenta la auto-factura de los pedidos entregados que quedaron sin
+   * CFDI pese a tener datos fiscales completos (el PAC falló, o los datos se
+   * cargaron después de entregar). Idempotente (cfdi_uuid) + acotado por intentos.
+   * Corre dentro de un scope de tenant (request o cron con CLS sintético).
+   */
+  async retryPendingInvoices(opts: { days?: number; limit?: number; maxAttempts?: number } = {}): Promise<{ attempted: number; invoiced: number; failed: number }> {
+    if (!this.invoiceIssuer) return { attempted: 0, invoiced: 0, failed: 0 };
+    const days = Math.min(Math.max(opts.days ?? 7, 1), 90);
+    const limit = Math.min(Math.max(opts.limit ?? 50, 1), 500);
+    const maxAttempts = Math.min(Math.max(opts.maxAttempts ?? 5, 1), 20);
+
+    const ids: string[] = await this.tk.run(async (trx) =>
+      trx('commercial.orders as o')
+        .join('commercial.customers as c', 'c.id', 'o.customer_id')
+        .where('o.status', 'fulfilled')
+        .whereNull('o.cfdi_uuid')
+        .whereRaw(`o.fulfilled_at >= now() - (? || ' days')::interval`, [days])
+        .whereRaw('COALESCE(o.cfdi_attempts, 0) < ?', [maxAttempts])
+        .whereNotNull('c.rfc').whereNotNull('c.legal_name')
+        .whereNotNull('c.regimen_fiscal').whereNotNull('c.uso_cfdi')
+        .whereRaw(`(c.billing_address->>'zip') IS NOT NULL`)
+        .orderBy('o.fulfilled_at', 'asc')
+        .limit(limit)
+        .pluck('o.id'));
+
+    let invoiced = 0, failed = 0;
+    for (const id of ids) {
+      const order = await this.tk.run(async (trx) => trx('commercial.orders').where({ id }).first());
+      await this.tryAutoInvoice(order);
+      if (order?.cfdi_uuid) invoiced++; else failed++;
+    }
+    if (ids.length) this.logger.log(`FE.13 retry: ${ids.length} intentos → ${invoiced} facturados, ${failed} pendientes`);
+    return { attempted: ids.length, invoiced, failed };
+  }
+
+  /**
+   * FE.13 — Reporte de contingencia: pedidos entregados SIN CFDI. Separa el "gap"
+   * real (nominativa: tienen datos fiscales pero no se facturaron → revisar error)
+   * del mostrador (van a la factura global del día, agrupados por día).
+   */
+  async invoiceReconciliation(opts: { days?: number } = {}) {
+    const days = Math.min(Math.max(opts.days ?? 30, 1), 365);
+    return this.tk.run(async (trx) => {
+      const hasFiscal =
+        `(c.rfc IS NOT NULL AND c.legal_name IS NOT NULL AND c.regimen_fiscal IS NOT NULL
+          AND c.uso_cfdi IS NOT NULL AND (c.billing_address->>'zip') IS NOT NULL)`;
+      const base = () =>
+        trx('commercial.orders as o')
+          .leftJoin('commercial.customers as c', 'c.id', 'o.customer_id')
+          .where('o.status', 'fulfilled')
+          .whereNull('o.cfdi_uuid')
+          .whereRaw(`o.fulfilled_at >= now() - (? || ' days')::interval`, [days]);
+
+      const pendingNominativa = await base()
+        .whereRaw(hasFiscal)
+        .select('o.id', 'o.code', 'o.customer_id', 'c.name as customer_name', 'o.total',
+          'o.fulfilled_at', 'o.cfdi_attempts', 'o.cfdi_error', 'o.cfdi_last_attempt_at')
+        .orderBy('o.fulfilled_at', 'asc')
+        .limit(200);
+
+      const pendingGlobalByDay = await base()
+        .whereRaw(`NOT ${hasFiscal}`)
+        .select(trx.raw(`(o.fulfilled_at AT TIME ZONE 'America/Mexico_City')::date as day`))
+        .count('* as orders')
+        .sum('o.total as total')
+        .groupByRaw(`(o.fulfilled_at AT TIME ZONE 'America/Mexico_City')::date`)
+        .orderBy('day', 'desc')
+        .limit(90);
+
+      return {
+        days,
+        pending_nominativa: pendingNominativa,
+        pending_global_by_day: pendingGlobalByDay,
+        counts: {
+          nominativa: pendingNominativa.length,
+          global_days: pendingGlobalByDay.length,
+        },
+      };
+    });
   }
 
   /** FE.5 — emisión manual del CFDI de un pedido entregado (endpoint /:id/facturar). */

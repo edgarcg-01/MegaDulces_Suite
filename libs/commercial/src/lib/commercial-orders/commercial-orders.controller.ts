@@ -151,6 +151,16 @@ export class CommercialOrdersController {
     });
   }
 
+  @Get('invoice-reconciliation')
+  @RequirePermissions(Permission.FISCAL_FACTURAR_VER)
+  @ApiOperation({
+    summary:
+      'FE.13: reporte de contingencia — pedidos entregados SIN CFDI. Separa el gap nominativa (con datos fiscales, revisar error) del mostrador pendiente de global (por día). Query days (default 30).',
+  })
+  invoiceReconciliation(@Query('days') days?: string) {
+    return this.service.invoiceReconciliation({ days: days ? Number(days) : undefined });
+  }
+
   @Get(':id')
   @RequirePermissions(Permission.COMMERCIAL_ORDERS_VER)
   @ApiOperation({
@@ -315,6 +325,16 @@ export class CommercialOrdersController {
   })
   globalInvoice(@Body() body: { date?: string }) {
     return this.service.issueDailyGlobal(body?.date);
+  }
+
+  @Post('retry-invoices')
+  @RequirePermissions(Permission.FISCAL_FACTURAR_GESTIONAR)
+  @ApiOperation({
+    summary:
+      'FE.13: reintenta la auto-factura de los pedidos entregados sin CFDI que tienen datos fiscales completos (cola de contingencia). Idempotente. Body opcional { days, limit }.',
+  })
+  retryInvoices(@Body() body: { days?: number; limit?: number }) {
+    return this.service.retryPendingInvoices({ days: body?.days, limit: body?.limit });
   }
 
   @Post(':id/cancel')

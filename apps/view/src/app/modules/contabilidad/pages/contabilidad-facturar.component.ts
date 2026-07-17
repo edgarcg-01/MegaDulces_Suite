@@ -14,7 +14,7 @@ import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tab
 import { CONTABILIDAD_TABS } from '../contabilidad-tabs';
 import { AuthService } from '../../../core/services/auth.service';
 import { Permission } from '../../../core/constants/permissions';
-import { FacturasService, EmittedInvoice, IssuerConfig } from '../facturas.service';
+import { FacturasService, EmittedInvoice, IssuerConfig, InvoiceReconciliation } from '../facturas.service';
 
 interface ConceptoRow { descripcion: string; cantidad: number; valor_unitario: number; }
 
@@ -41,6 +41,7 @@ interface ConceptoRow { descripcion: string; cantidad: number; valor_unitario: n
         </div>
         <div class="fa-head-actions">
           <button pButton type="button" label="Refrescar" icon="pi pi-refresh" class="p-button-sm p-button-text" [loading]="loading()" (click)="reload()"></button>
+          <button pButton type="button" label="Pendientes" icon="pi pi-inbox" class="p-button-sm p-button-text" pTooltip="Pedidos entregados sin factura (contingencia)" (click)="openContingencia()"></button>
           @if (canManage) {
             <button pButton type="button" label="Emisor" icon="pi pi-id-card" class="p-button-sm p-button-text" (click)="openIssuer()"></button>
             <button pButton type="button" label="Nueva factura" icon="pi pi-plus" class="p-button-sm" [disabled]="!hasIssuer()" (click)="openEmit()"></button>
@@ -247,6 +248,73 @@ interface ConceptoRow { descripcion: string; cantidad: number; valor_unitario: n
           </ng-template>
         }
       </p-dialog>
+
+      <!-- FE.13 — Contingencia: pedidos entregados sin CFDI -->
+      <p-dialog [(visible)]="showContingencia" [modal]="true" [style]="{ width: '52rem' }" header="Pedidos entregados sin factura" [draggable]="false">
+        <div class="fa-form">
+          @if (loadingContingencia()) {
+            <p class="fa-note"><i class="pi pi-spin pi-spinner"></i> Cargando pendientes…</p>
+          } @else if (contingencia()) {
+            @if (contingencia(); as rec) {
+            <!-- Nominativa: gap real -->
+            <div class="fa-cont-sec">
+              <div class="fa-cont-head">
+                <span><strong>Facturas nominativa pendientes</strong> ({{ rec.counts.nominativa }})</span>
+                @if (canManage && rec.counts.nominativa > 0) {
+                  <button pButton type="button" label="Reintentar todos" icon="pi pi-replay" class="p-button-sm" [loading]="retrying()" (click)="retryPending()"></button>
+                }
+              </div>
+              @if (rec.pending_nominativa.length === 0) {
+                <p class="fa-note fa-note-ok"><i class="pi pi-check-circle"></i> Sin pendientes: todos los pedidos con datos fiscales fueron facturados.</p>
+              } @else {
+                <table class="fa-cont-table">
+                  <thead><tr><th>Pedido</th><th>Cliente</th><th class="ta-r">Total</th><th class="ta-r">Int.</th><th>Último error</th></tr></thead>
+                  <tbody>
+                    @for (o of rec.pending_nominativa; track o.id) {
+                      <tr>
+                        <td class="mono">{{ o.code }}</td>
+                        <td>{{ o.customer_name || o.customer_id }}</td>
+                        <td class="ta-r mono">{{ mzn(o.total) }}</td>
+                        <td class="ta-r mono">{{ o.cfdi_attempts || 0 }}</td>
+                        <td class="fa-cont-err">{{ o.cfdi_error || '—' }}</td>
+                      </tr>
+                    }
+                  </tbody>
+                </table>
+              }
+            </div>
+
+            <!-- Mostrador pendiente de global, por día -->
+            <div class="fa-cont-sec">
+              <div class="fa-cont-head"><span><strong>Mostrador pendiente de global</strong> ({{ rec.counts.global_days }} día(s))</span></div>
+              @if (rec.pending_global_by_day.length === 0) {
+                <p class="fa-note fa-note-ok"><i class="pi pi-check-circle"></i> Sin mostrador pendiente de factura global.</p>
+              } @else {
+                <table class="fa-cont-table">
+                  <thead><tr><th>Día</th><th class="ta-r">Pedidos</th><th class="ta-r">Total</th><th></th></tr></thead>
+                  <tbody>
+                    @for (d of rec.pending_global_by_day; track d.day) {
+                      <tr>
+                        <td class="mono">{{ d.day | date:'dd/MM/yy' }}</td>
+                        <td class="ta-r mono">{{ d.orders }}</td>
+                        <td class="ta-r mono">{{ mzn(d.total) }}</td>
+                        <td class="ta-r">@if (canManage) { <button pButton type="button" label="Facturar global" icon="pi pi-calendar" class="p-button-text p-button-sm" [loading]="globalDay()===d.day" (click)="globalForDay(d.day)"></button> }</td>
+                      </tr>
+                    }
+                  </tbody>
+                </table>
+              }
+            </div>
+            <p class="fa-note"><i class="pi pi-info-circle"></i> Ventana: últimos {{ rec.days }} días. El reintento es idempotente y solo aplica a pedidos con datos fiscales completos.</p>
+            }
+          } @else {
+            <p class="fa-note fa-note-warn"><i class="pi pi-exclamation-triangle"></i> No se pudo cargar el reporte.</p>
+          }
+        </div>
+        <ng-template pTemplate="footer">
+          <button pButton type="button" label="Cerrar" class="p-button-text p-button-sm" (click)="showContingencia=false"></button>
+        </ng-template>
+      </p-dialog>
     </div>
   `,
   styles: [`
@@ -286,7 +354,16 @@ interface ConceptoRow { descripcion: string; cantidad: number; valor_unitario: n
     .fa-totals { display: flex; gap: 1.4rem; justify-content: flex-end; align-items: baseline; border-top: 1px solid var(--border-color); padding-top: .7rem; font-size: .82rem; color: var(--text-muted); }
     .fa-totals strong { color: var(--text-main); margin-left: .3rem; }
     .fa-grand strong { font-size: 1.05rem; color: var(--action); }
-    .fa-note { font-size: .75rem; color: var(--text-muted); background: var(--surface-hover-bg, #f7f7f6); border-radius: var(--r-sm, 8px); padding: .5rem .7rem; margin: 0; display: flex; gap: .4rem; }
+    .fa-note { font-size: .75rem; color: var(--text-muted); background: var(--surface-hover-bg, #f7f7f6); border-radius: var(--r-sm, 8px); padding: .5rem .7rem; margin: 0; display: flex; gap: .4rem; align-items: baseline; }
+    .fa-note-ok { color: var(--ok-fg, #15803d); background: color-mix(in srgb, var(--ok-fg, #15803d) 8%, transparent); }
+    .fa-note-warn { color: var(--warn-fg, #b45309); background: color-mix(in srgb, var(--warn-fg, #b45309) 10%, transparent); }
+    /* FE.13 contingencia */
+    .fa-cont-sec { margin-bottom: 1.1rem; }
+    .fa-cont-head { display: flex; justify-content: space-between; align-items: center; gap: 1rem; margin-bottom: .5rem; font-size: .85rem; }
+    .fa-cont-table { width: 100%; border-collapse: collapse; font-size: .78rem; font-variant-numeric: tabular-nums; }
+    .fa-cont-table th { text-align: left; color: var(--text-muted); font-weight: 600; padding: .3rem .5rem; border-bottom: 1px solid var(--border-color); }
+    .fa-cont-table td { padding: .3rem .5rem; border-bottom: 1px solid var(--border-color); color: var(--text-main); }
+    .fa-cont-err { color: var(--bad-fg, #b91c1c); max-width: 16rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .72rem; }
   `],
 })
 export class ContabilidadFacturarComponent implements OnInit {
@@ -319,6 +396,12 @@ export class ContabilidadFacturarComponent implements OnInit {
   readonly ncRow = signal<EmittedInvoice | null>(null);
   readonly ncConceptos = signal<ConceptoRow[]>([{ descripcion: '', cantidad: 1, valor_unitario: 0 }]);
   readonly ncEmitting = signal(false);
+  // FE.13 — contingencia
+  showContingencia = false;
+  readonly contingencia = signal<InvoiceReconciliation | null>(null);
+  readonly loadingContingencia = signal(false);
+  readonly retrying = signal(false);
+  readonly globalDay = signal<string | null>(null);
   readonly conceptos = signal<ConceptoRow[]>([{ descripcion: '', cantidad: 1, valor_unitario: 0 }]);
   form = {
     tipo: 'global' as 'global' | 'nominativa',
@@ -540,6 +623,38 @@ export class ContabilidadFacturarComponent implements OnInit {
         this.reload();
       },
       error: (e) => { this.ncEmitting.set(false); this.toast.add({ severity: 'error', summary: 'No se pudo emitir la NC', detail: e?.error?.message || 'El PAC rechazó la nota de crédito.' }); },
+    });
+  }
+
+  // ── FE.13 contingencia ──
+  openContingencia() { this.showContingencia = true; this.loadReconciliation(); }
+  loadReconciliation() {
+    this.loadingContingencia.set(true);
+    this.svc.invoiceReconciliation(30).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (rec) => { this.contingencia.set(rec); this.loadingContingencia.set(false); },
+      error: () => { this.contingencia.set(null); this.loadingContingencia.set(false); },
+    });
+  }
+  retryPending() {
+    this.retrying.set(true);
+    this.svc.retryInvoices({}).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => {
+        this.retrying.set(false);
+        this.toast.add({ severity: r.invoiced > 0 ? 'success' : 'info', summary: `Reintento: ${r.invoiced}/${r.attempted} facturados`, detail: r.failed ? `${r.failed} siguen pendientes (ver error)` : undefined, life: 6000 });
+        this.loadReconciliation(); this.reload();
+      },
+      error: (e) => { this.retrying.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudo reintentar.' }); },
+    });
+  }
+  globalForDay(day: string) {
+    this.globalDay.set(day);
+    this.svc.globalInvoice(day).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => {
+        this.globalDay.set(null);
+        this.toast.add({ severity: r.issued ? 'success' : 'info', summary: r.issued ? `Global ${day}: ${this.mzn(r.total)} (${r.count} pedidos)` : 'Sin pedidos para facturar ese día', life: 6000 });
+        this.loadReconciliation(); this.reload();
+      },
+      error: (e) => { this.globalDay.set(null); this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudo emitir la global.' }); },
     });
   }
 

@@ -35,6 +35,19 @@ export interface EmitResult {
   fecha_timbrado?: string; provider: string;
 }
 
+/** FE.13 — reporte de contingencia (pedidos entregados sin CFDI). */
+export interface PendingNominativa {
+  id: string; code: string; customer_id: string; customer_name: string | null;
+  total: string | number; fulfilled_at: string; cfdi_attempts: number;
+  cfdi_error: string | null; cfdi_last_attempt_at: string | null;
+}
+export interface InvoiceReconciliation {
+  days: number;
+  pending_nominativa: PendingNominativa[];
+  pending_global_by_day: Array<{ day: string; orders: string | number; total: string | number }>;
+  counts: { nominativa: number; global_days: number };
+}
+
 @Injectable({ providedIn: 'root' })
 export class FacturasService {
   private readonly http = inject(HttpClient);
@@ -69,5 +82,15 @@ export class FacturasService {
   /** FE.6 — factura global de mostrador (endpoint en commercial, no fiscal). */
   globalInvoice(date?: string): Observable<{ issued: boolean; uuid?: string; count: number; total: number }> {
     return this.http.post<{ issued: boolean; uuid?: string; count: number; total: number }>(`${environment.apiUrl}/commercial/orders/global-invoice`, { date: date || null });
+  }
+
+  /** FE.13 — reporte de contingencia (pedidos entregados sin CFDI). */
+  invoiceReconciliation(days?: number): Observable<InvoiceReconciliation> {
+    const q = days ? `?days=${days}` : '';
+    return this.http.get<InvoiceReconciliation>(`${environment.apiUrl}/commercial/orders/invoice-reconciliation${q}`);
+  }
+  /** FE.13 — reintenta la auto-factura de los pendientes con datos fiscales. */
+  retryInvoices(body: { days?: number; limit?: number } = {}): Observable<{ attempted: number; invoiced: number; failed: number }> {
+    return this.http.post<{ attempted: number; invoiced: number; failed: number }>(`${environment.apiUrl}/commercial/orders/retry-invoices`, body);
   }
 }
