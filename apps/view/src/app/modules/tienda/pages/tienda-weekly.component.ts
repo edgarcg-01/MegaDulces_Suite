@@ -9,6 +9,7 @@ import { AuthService } from '../../../core/services/auth.service';
 import { ThemeService } from '../../../core/services/theme.service';
 import { branchName } from '../../../core/constants/store-branches';
 import { WeeklyService, WeeklyReport } from '../weekly.service';
+import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 
 type TrendMetric = 'revenue' | 'units';
 
@@ -23,7 +24,7 @@ type TrendMetric = 'revenue' | 'units';
 @Component({
   selector: 'app-tienda-weekly',
   standalone: true,
-  imports: [CommonModule, FormsModule, SelectModule, TableModule, ChartModule],
+  imports: [CommonModule, FormsModule, SelectModule, TableModule, ChartModule, MetricStripComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="surf-page in wk-page">
@@ -55,28 +56,7 @@ type TrendMetric = 'revenue' | 'units';
 
       @if (rep(); as r) {
         <!-- KPIs semana ref vs anterior -->
-        <div class="wk-kpis">
-          <div class="wk-kpi">
-            <span class="wk-kpi-lbl">Venta</span>
-            <span class="wk-kpi-val">{{ money(r.kpis.revenue.cur) }}</span>
-            <span class="wk-delta" [ngClass]="deltaCls(r.kpis.revenue.delta_pct)">{{ deltaTxt(r.kpis.revenue.delta_pct) }}</span>
-          </div>
-          <div class="wk-kpi">
-            <span class="wk-kpi-lbl">Margen</span>
-            <span class="wk-kpi-val">{{ money(r.kpis.margin.cur) }}</span>
-            <span class="wk-delta" [ngClass]="deltaCls(r.kpis.margin.delta_pct)">{{ deltaTxt(r.kpis.margin.delta_pct) }}</span>
-          </div>
-          <div class="wk-kpi">
-            <span class="wk-kpi-lbl">Unidades</span>
-            <span class="wk-kpi-val">{{ num(r.kpis.units.cur) }}</span>
-            <span class="wk-delta" [ngClass]="deltaCls(r.kpis.units.delta_pct)">{{ deltaTxt(r.kpis.units.delta_pct) }}</span>
-          </div>
-          <div class="wk-kpi">
-            <span class="wk-kpi-lbl">Unidades oficiales</span>
-            <span class="wk-kpi-val">{{ num(r.kpis.units_official.cur) }}</span>
-            <span class="wk-delta" [ngClass]="deltaCls(r.kpis.units_official.delta_pct)">{{ deltaTxt(r.kpis.units_official.delta_pct) }}</span>
-          </div>
-        </div>
+        <app-metric-strip [items]="kpiItems(r)" ariaLabel="Resumen semanal" />
         <p class="wk-refnote muted">Semana <strong>{{ r.ref_week.label }}</strong> ({{ r.ref_week.start | date:'dd/MM' }}–{{ weekEnd(r.ref_week.start) | date:'dd/MM' }}) vs {{ r.prev_week.label }}. «Unidades oficiales» cuadra con el reporte mensual; «Unidades» sale del fact de venta.</p>
 
         <!-- Tendencia -->
@@ -147,12 +127,7 @@ type TrendMetric = 'revenue' | 'units';
     .wk-seg button { border: none; background: var(--card-bg, #fff); padding: .3rem .8rem; font-size: .78rem; cursor: pointer; color: var(--text-muted, #57534e); }
     .wk-seg button.active { background: var(--action, #F05A28); color: var(--action-ink, #fff); font-weight: 600; }
     .wk-seg-sm button { padding: .25rem .65rem; font-size: .74rem; }
-    .wk-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: .75rem; margin-bottom: .5rem; }
-    .wk-kpi { border: 1px solid var(--border-color, #e7e5e4); border-radius: var(--r-md, 10px); padding: .75rem .9rem; background: var(--card-bg, #fff); display: flex; flex-direction: column; gap: .15rem; }
-    .wk-kpi-lbl { font-size: .66rem; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted, #78716c); }
-    .wk-kpi-val { font-size: 1.3rem; font-weight: 800; font-variant-numeric: tabular-nums; }
-    .wk-delta { font-size: .74rem; font-weight: 600; font-variant-numeric: tabular-nums; }
-    .wk-delta.up { color: var(--ok-fg, #16a34a); } .wk-delta.down { color: var(--bad-fg, #dc2626); } .wk-delta.flat { color: var(--text-faint, #a8a29e); }
+    app-metric-strip { display:block; margin-bottom: .5rem; }
     .wk-refnote { font-size: .72rem; margin: 0 0 1rem; }
     .wk-panel { padding: 1rem; margin-bottom: 1rem; }
     .wk-panel-head { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: .7rem; }
@@ -176,6 +151,16 @@ export class TiendaWeeklyComponent implements OnInit {
   readonly branchLabel = computed(() => branchName(this.scopedWarehouse));
 
   readonly rep = signal<WeeklyReport | null>(null);
+
+  kpiItems(r: WeeklyReport): MetricStripItem[] {
+    const k = r.kpis;
+    return [
+      { label: 'Venta', value: k.revenue.cur, format: 'currency', delta: k.revenue.delta_pct },
+      { label: 'Margen', value: k.margin.cur, format: 'currency', delta: k.margin.delta_pct },
+      { label: 'Unidades', value: k.units.cur, delta: k.units.delta_pct },
+      { label: 'Unidades oficiales', value: k.units_official.cur, delta: k.units_official.delta_pct },
+    ];
+  }
   readonly error = signal(false);
   readonly weeksN = signal(12);
   readonly weekSel = signal<string>('');

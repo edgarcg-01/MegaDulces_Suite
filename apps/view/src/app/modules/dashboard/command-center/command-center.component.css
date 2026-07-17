@@ -214,36 +214,7 @@
 }
 
 /* ── Contenido del side-peek de producto (el 360° de cliente vive en Customer360PanelComponent) ── */
-.cc-peek-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 1px;
-  background: var(--border-color);
-  border: 1px solid var(--border-color);
-  border-radius: var(--r-md);
-  overflow: hidden;
-}
-.cc-peek-metric {
-  background: var(--card-bg);
-  padding: 0.875rem 1rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-}
-.cc-peek-label {
-  font-size: var(--fs-micro);
-  font-weight: var(--fw-bold);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--c-text-2);
-}
-.cc-peek-val {
-  font-family: var(--font-mono);
-  font-size: var(--fs-h3);
-  font-weight: var(--fw-bold);
-  color: var(--c-text-1);
-  font-variant-numeric: tabular-nums;
-}
+app-metric-strip { display: block; }
 
 .cc-peek-section-label {
   margin: 1.25rem 0 0.75rem;

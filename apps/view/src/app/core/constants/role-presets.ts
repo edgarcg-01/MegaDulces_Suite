@@ -117,7 +117,7 @@ export const MODULE_GROUPS: Record<string, Permission[]> = {
     Permission.LOGISTICS_TRANSFERS_VER,
   ],
   nomina: [Permission.LOGISTICS_PAYROLL_VER, Permission.LOGISTICS_PAYROLL_GESTIONAR],
-  reparto: [Permission.LOGISTICS_HOME_DISPATCH],
+  reparto: [Permission.REPARTO_DESPACHAR, Permission.REPARTO_ENTREGAR],
   televenta: [Permission.COMMERCIAL_TELEVENTA_VER, Permission.COMMERCIAL_TELEVENTA_OPERATE],
   finanzas: [
     Permission.FINANCE_EXPENSES_VER,

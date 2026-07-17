@@ -9,6 +9,7 @@ import { ProgressBarModule } from 'primeng/progressbar';
 import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
 import { TeleventaDashboard, TeleventaService } from '../televenta.service';
+import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 
 type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
 
@@ -24,7 +25,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
   standalone: true,
   imports: [
     CommonModule, RouterLink,
-    ButtonModule, CardModule, TableModule, TagModule, ProgressBarModule, ToastModule,
+    ButtonModule, CardModule, TableModule, TagModule, ProgressBarModule, ToastModule, MetricStripComponent,
   ],
   providers: [MessageService],
   template: `
@@ -41,61 +42,14 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
     <ng-container *ngIf="data() as d">
 
       <!-- Mi performance (operador) -->
-      <div class="my-stats" *ngIf="d.my_stats">
-        <p-card>
-          <h3><i class="pi pi-user"></i> Mi performance hoy</h3>
-          <div class="mini-grid">
-            <div>
-              <div class="kpi-label">Llamadas</div>
-              <div class="kpi-value">{{ d.my_stats.my_calls }}</div>
-            </div>
-            <div>
-              <div class="kpi-label">Pedidos cerrados</div>
-              <div class="kpi-value pos">{{ d.my_stats.my_orders }}</div>
-            </div>
-            <div>
-              <div class="kpi-label">Minutos en línea</div>
-              <div class="kpi-value">{{ d.my_stats.my_minutes }}</div>
-            </div>
-            <div>
-              <div class="kpi-label">Mi conversión</div>
-              <div class="kpi-value">{{ myConversion(d) | number:'1.1-1' }}%</div>
-            </div>
-          </div>
-        </p-card>
-      </div>
+      @if (d.my_stats) {
+        <h3 class="section-title"><i class="pi pi-user"></i> Mi performance hoy</h3>
+        <app-metric-strip [items]="myItems(d)" ariaLabel="Mi performance de hoy" />
+      }
 
       <!-- KPIs del equipo (hoy) -->
       <h3 class="section-title">Equipo · Hoy</h3>
-      <div class="kpi-grid">
-        <div class="kpi-card kpi-purple">
-          <div class="kpi-icon"><i class="pi pi-phone"></i></div>
-          <div class="kpi-label">Llamadas hoy</div>
-          <div class="kpi-value">{{ d.today.calls }}</div>
-          <div class="kpi-sub muted">{{ d.today.total_minutes }} min totales</div>
-        </div>
-
-        <div class="kpi-card kpi-green">
-          <div class="kpi-icon"><i class="pi pi-check-circle"></i></div>
-          <div class="kpi-label">Pedidos cerrados</div>
-          <div class="kpi-value">{{ d.today.orders_taken }}</div>
-          <div class="kpi-sub muted">{{ todayConversion(d) | number:'1.1-1' }}% conversión</div>
-        </div>
-
-        <div class="kpi-card kpi-warn">
-          <div class="kpi-icon"><i class="pi pi-clock"></i></div>
-          <div class="kpi-label">Reservas activas</div>
-          <div class="kpi-value">{{ d.active_reservations.total }}</div>
-          <div class="kpi-sub muted">{{ d.active_reservations.unique_operators }} operadores</div>
-        </div>
-
-        <div class="kpi-card kpi-info">
-          <div class="kpi-icon"><i class="pi pi-chart-line"></i></div>
-          <div class="kpi-label">Conversión 7d</div>
-          <div class="kpi-value">{{ d.conversion_7d.conversion_pct }}%</div>
-          <div class="kpi-sub muted">{{ d.conversion_7d.orders_taken }} / {{ d.conversion_7d.total_calls }} llamadas</div>
-        </div>
-      </div>
+      <app-metric-strip [items]="teamItems(d)" ariaLabel="Métricas del equipo hoy" />
 
       <!-- Two-column -->
       <div class="two-col">
@@ -185,29 +139,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
 
     .my-stats h3 { margin:0 0 .75rem; font-size:1rem; }
     .my-stats h3 i { margin-right: .35rem; color: var(--primary-color); }
-    .mini-grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 1rem; }
-    .mini-grid > div { padding: .5rem 0; }
-
-    .kpi-grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap:1rem; margin-bottom:1.5rem; }
-    .kpi-card {
-      background: var(--card-bg);
-      border-left: 4px solid var(--neutral-300);
-      border-radius: 8px;
-      padding: 1rem 1.25rem;
-    }
-    .kpi-purple { border-left-color: var(--brand-orange); }
-    .kpi-purple .kpi-icon { color: var(--brand-orange); }
-    .kpi-green { border-left-color: var(--ok-fg); }
-    .kpi-green .kpi-icon { color: var(--ok-fg); }
-    .kpi-warn { border-left-color: var(--warn-fg); }
-    .kpi-warn .kpi-icon { color: var(--warn-fg); }
-    .kpi-info { border-left-color: var(--info-fg); }
-    .kpi-info .kpi-icon { color: var(--info-fg); }
-    .kpi-icon { font-size:1.25rem; margin-bottom:.5rem; }
-    .kpi-label { font-size:.75rem; text-transform:uppercase; letter-spacing:.05em; color: var(--text-muted); }
-    .kpi-value { font-size:1.75rem; font-weight:700; margin-top:.25rem; }
-    .kpi-value.pos { color: var(--ok-fg); }
-    .kpi-sub { font-size:.75rem; margin-top:.5rem; }
+    app-metric-strip { display:block; margin-bottom:1.5rem; }
 
     .two-col { display:grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap:1rem; }
     .two-col h3 { margin: 0 0 .75rem; font-size: 1rem; }
@@ -246,6 +178,23 @@ export class TeleventaDashboardComponent {
     });
   }
 
+  myItems(d: TeleventaDashboard): MetricStripItem[] {
+    const m = d.my_stats!;
+    return [
+      { label: 'Llamadas', value: m.my_calls },
+      { label: 'Pedidos cerrados', value: m.my_orders, tone: 'ok' },
+      { label: 'Minutos en línea', value: m.my_minutes },
+      { label: 'Mi conversión', value: this.myConversion(d), format: 'percent' },
+    ];
+  }
+  teamItems(d: TeleventaDashboard): MetricStripItem[] {
+    return [
+      { label: 'Llamadas hoy', value: d.today.calls, sub: `${d.today.total_minutes} min totales` },
+      { label: 'Pedidos cerrados', value: d.today.orders_taken, tone: 'ok', sub: `${this.todayConversion(d).toFixed(1)}% conversión` },
+      { label: 'Reservas activas', value: d.active_reservations.total, tone: 'warn', sub: `${d.active_reservations.unique_operators} operadores` },
+      { label: 'Conversión 7d', value: d.conversion_7d.conversion_pct, format: 'percent', sub: `${d.conversion_7d.orders_taken} / ${d.conversion_7d.total_calls} llamadas` },
+    ];
+  }
   todayConversion(d: TeleventaDashboard): number {
     if (!d.today.calls) return 0;
     return (d.today.orders_taken / d.today.calls) * 100;

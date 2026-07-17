@@ -21,6 +21,7 @@ import { SidePeekComponent } from '../../../shared/components/side-peek/side-pee
 import { Customer360PanelComponent } from '../../../shared/components/customer-360-panel/customer-360-panel.component';
 import { CountUpDirective } from '../../../shared/directives/count-up.directive';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
+import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { ANALYTICS_TABS } from '../../comercial/analytics-tabs';
 import {
   CommandCenterService,
@@ -69,6 +70,7 @@ interface ProductPeekRef {
     Customer360PanelComponent,
     CountUpDirective,
     PageTabsComponent,
+    MetricStripComponent,
   ],
   providers: [MessageService],
   templateUrl: './command-center.component.html',
@@ -371,5 +373,16 @@ export class CommandCenterComponent implements OnInit {
   /** Total disponible sumando almacenes (header del peek de producto). */
   prodTotalAvailable(): number {
     return this.prodStock().reduce((s, r) => s + Number(r.available_quantity || 0), 0);
+  }
+
+  /** Métricas del peek de producto vía MetricStrip (sin caja). */
+  peekKpis(p: { units_sold?: number | null; revenue?: number | null }): MetricStripItem[] {
+    const items: MetricStripItem[] = [];
+    if (p.units_sold != null) {
+      items.push({ label: 'Unidades · 30d', value: p.units_sold });
+      items.push({ label: 'Ventas · 30d', value: p.revenue ?? 0, format: 'currency-short' });
+    }
+    items.push({ label: 'Disponible (total)', value: this.prodTotalAvailable() });
+    return items;
   }
 }

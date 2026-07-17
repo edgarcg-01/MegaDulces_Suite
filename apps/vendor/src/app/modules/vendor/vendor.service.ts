@@ -299,7 +299,7 @@ export class VendorService {
   /**
    * Alta rápida de cliente desde la app (campo). El backend genera el code y
    * asigna la price list default → el cliente queda pedible de inmediato.
-   * Gateado por COMMERCIAL_ORDERS_CREAR (el vendedor ya lo tiene).
+   * Gateado por COMMERCIAL_CARTERA_VER (el vendedor opera su cartera con ese permiso).
    */
   createCustomer(dto: {
     name: string;

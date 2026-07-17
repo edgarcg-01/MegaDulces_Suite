@@ -491,22 +491,7 @@
     [subtitle]="prodRow()?.brand_name || null"
   >
     @if (prodRow(); as p) {
-      <div class="cc-peek-grid">
-        @if (p.units_sold != null) {
-          <div class="cc-peek-metric">
-            <span class="cc-peek-label">Unidades · 30d</span>
-            <span class="cc-peek-val">{{ fmtNumber(p.units_sold) }}</span>
-          </div>
-          <div class="cc-peek-metric">
-            <span class="cc-peek-label">Ventas · 30d</span>
-            <span class="cc-peek-val">{{ fmtMoneyShort(p.revenue) }}</span>
-          </div>
-        }
-        <div class="cc-peek-metric">
-          <span class="cc-peek-label">Disponible (total)</span>
-          <span class="cc-peek-val">{{ fmtNumber(prodTotalAvailable()) }}</span>
-        </div>
-      </div>
+      <app-metric-strip [items]="peekKpis(p)" ariaLabel="Métricas del producto" />
     }
 
     <div class="cc-peek-section-label">Stock por almacén</div>

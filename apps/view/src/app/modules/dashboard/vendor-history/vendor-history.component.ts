@@ -7,6 +7,7 @@ import { SelectModule } from 'primeng/select';
 import { SkeletonModule } from 'primeng/skeleton';
 import { environment } from '../../../../environments/environment';
 import { MapComponent, MapLayer, MapMarker } from '../../../shared/components/map/map.component';
+import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 
 interface FieldUser { user_id: string; username: string; ping_count: number; }
 interface DetectedVisit {
@@ -42,7 +43,7 @@ interface VendorDay {
 @Component({
   selector: 'app-vendor-history',
   standalone: true,
-  imports: [CommonModule, FormsModule, SelectModule, SkeletonModule, MapComponent],
+  imports: [CommonModule, FormsModule, SelectModule, SkeletonModule, MapComponent, MetricStripComponent],
   template: `
     <div class="vh-wrap">
       <header class="vh-head">
@@ -78,18 +79,7 @@ interface VendorDay {
         @if (day()!.snapped?.low_confidence) {
           <div class="vh-note"><i class="pi pi-info-circle" aria-hidden="true"></i>&nbsp;Recorrido aproximado: señal GPS dispersa (cadencia baja). Mejora con más pings.</div>
         }
-        <div class="vh-kpis">
-          <div class="kpi"><span class="k-val">{{ day()!.snapped?.low_confidence ? '≈ ' : '' }}{{ day()!.kpis.distance_km }}</span><span class="k-lbl">km {{ day()!.snapped?.low_confidence ? '(aprox)' : 'reales' }}</span></div>
-          <div class="kpi"><span class="k-val">{{ day()!.kpis.stop_count }}</span><span class="k-lbl">paradas</span></div>
-          <div class="kpi"><span class="k-val">{{ fmtMin(day()!.kpis.stop_min) }}</span><span class="k-lbl">en paradas</span></div>
-          <div class="kpi"><span class="k-val">{{ fmtMin(day()!.kpis.moving_min) }}</span><span class="k-lbl">en movimiento</span></div>
-          <div class="kpi"><span class="k-val">{{ day()!.kpis.avg_speed_kmh ?? '—' }}</span><span class="k-lbl">km/h prom</span></div>
-          <div class="kpi" [class.kpi-gap]="day()!.kpis.uncaptured_visits > 0">
-            <span class="k-val">{{ day()!.kpis.detected_visits }}<small>{{ day()!.kpis.uncaptured_visits > 0 ? ' · ' + day()!.kpis.uncaptured_visits + ' s/cap' : '' }}</small></span>
-            <span class="k-lbl">visitas detectadas</span>
-          </div>
-          <div class="kpi"><span class="k-val">{{ fmtTime(day()!.kpis.first_at) }}–{{ fmtTime(day()!.kpis.last_at) }}</span><span class="k-lbl">jornada</span></div>
-        </div>
+        <app-metric-strip [items]="dayKpis(day()!)" ariaLabel="Resumen de la jornada" />
         @if (day()!.detected_visits.length) {
           <div class="vh-dv">
             <div class="vh-dv-head">
@@ -136,10 +126,7 @@ interface VendorDay {
     .vh-date { padding:.4rem .6rem; border:1px solid var(--border-color); border-radius:8px; background:var(--card-bg,#fff); color:var(--text,#1c1917); font-size:.85rem; }
     :host ::ng-deep .vh-select { min-width:220px; }
     .vh-empty { flex:1; display:flex; align-items:center; justify-content:center; color:var(--text-dim,#78716c); font-size:.9rem; text-align:center; padding:2rem; }
-    .vh-kpis { display:grid; grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); gap:.6rem; }
-    .kpi { display:flex; flex-direction:column; gap:.1rem; padding:.7rem .85rem; border:1px solid var(--border-color); border-radius:10px; background:var(--card-bg,#fff); }
-    .k-val { font:700 1.15rem/1.1 'Hanken Grotesk',sans-serif; color:var(--text,#1c1917); font-variant-numeric:tabular-nums; }
-    .k-lbl { font-size:.72rem; color:var(--text-dim,#78716c); }
+    app-metric-strip { display:block; }
     .kpi-gap { border-color:#fecaca; background:#fef2f2; }
     .vh-note { font-size:.76rem; color:#92400e; background:#fffbeb; border:1px solid #fde68a; border-radius:8px; padding:.5rem .7rem; }
     .k-val small { font-size:.72rem; font-weight:600; color:#b91c1c; }
@@ -360,6 +347,20 @@ export class VendorHistoryComponent implements OnInit, OnDestroy {
 
   panToVisit(d: DetectedVisit): void {
     this.map?.panTo(d.lat, d.lng, 16);
+  }
+
+  dayKpis(d: VendorDay): MetricStripItem[] {
+    const k = d.kpis;
+    const low = d.snapped?.low_confidence;
+    return [
+      { label: `km ${low ? '(aprox)' : 'reales'}`, value: `${low ? '≈ ' : ''}${k.distance_km}`, format: 'text' },
+      { label: 'paradas', value: k.stop_count },
+      { label: 'en paradas', value: this.fmtMin(k.stop_min), format: 'text' },
+      { label: 'en movimiento', value: this.fmtMin(k.moving_min), format: 'text' },
+      { label: 'km/h prom', value: k.avg_speed_kmh ?? '—', format: k.avg_speed_kmh == null ? 'text' : 'number' },
+      { label: 'visitas detectadas', value: k.detected_visits, tone: k.uncaptured_visits > 0 ? 'warn' : 'default', sub: k.uncaptured_visits > 0 ? `${k.uncaptured_visits} s/cap` : undefined },
+      { label: 'jornada', value: `${this.fmtTime(k.first_at)}–${this.fmtTime(k.last_at)}`, format: 'text' },
+    ];
   }
 
   fmtMin(min: number | null | undefined): string {

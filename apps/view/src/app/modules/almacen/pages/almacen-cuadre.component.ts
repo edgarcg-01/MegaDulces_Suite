@@ -7,6 +7,7 @@ import { TableModule } from 'primeng/table';
 import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
 import { CuadreService, Discrepancy, DiscStats, RuleHealth, DiscPlano, CuadreOverview, CashCut, StockMovement, BlindCountResult, BlindCountRow, Foco, ReconAction, ActionPalanca } from '../cuadre.service';
+import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 
 type Tab = 'resumen' | 'focos' | 'cortes' | 'movimientos' | 'arqueo' | 'acciones' | 'descuadres';
 
@@ -18,7 +19,7 @@ type Tab = 'resumen' | 'focos' | 'cortes' | 'movimientos' | 'arqueo' | 'acciones
 @Component({
   selector: 'app-almacen-cuadre',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, TableModule, ToastModule],
+  imports: [CommonModule, FormsModule, ButtonModule, TableModule, ToastModule, MetricStripComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
@@ -48,19 +49,7 @@ type Tab = 'resumen' | 'focos' | 'cortes' | 'movimientos' | 'arqueo' | 'acciones
       <!-- ══ RESUMEN ══ -->
       @if (tab() === 'resumen') {
         @if (ov(); as o) {
-          <div class="cd-kpis">
-            <div class="cd-kpi"><span class="cd-kpi-val">{{ o.caja.cortes | number }}</span><span class="cd-kpi-lbl">Cortes de caja</span></div>
-            <div class="cd-kpi"><span class="cd-kpi-val">{{ money(o.caja.venta) }}</span><span class="cd-kpi-lbl">Venta total (3 formas)</span></div>
-            <div class="cd-kpi" [class.bad]="o.caja.con_descuadre > 0"><span class="cd-kpi-val">{{ o.caja.con_descuadre | number }}</span><span class="cd-kpi-lbl">Descuadre efectivo</span></div>
-            <div class="cd-kpi" [class.bad]="o.caja.descuadre_no_efectivo > 0"><span class="cd-kpi-val">{{ o.caja.descuadre_no_efectivo | number }}</span><span class="cd-kpi-lbl">Descuadre tarjeta/transf</span></div>
-            <div class="cd-kpi"><span class="cd-kpi-val bad">{{ money(o.caja.faltante) }}</span><span class="cd-kpi-lbl">Faltante caja</span></div>
-            <div class="cd-kpi"><span class="cd-kpi-val">{{ money(o.caja.sobrante) }}</span><span class="cd-kpi-lbl">Sobrante caja</span></div>
-            <div class="cd-kpi" [class.bad]="o.caja.pct_exacto >= 90" [class.warn]="o.caja.pct_exacto >= 70 && o.caja.pct_exacto < 90">
-              <span class="cd-kpi-val">{{ o.caja.pct_exacto }}%</span><span class="cd-kpi-lbl">Cuadre exacto (arqueo no ciego)</span></div>
-            <div class="cd-kpi" [class.warn]="o.caja.turnos_largos > 0"><span class="cd-kpi-val">{{ o.caja.turnos_largos | number }}</span><span class="cd-kpi-lbl">Turnos ≥10h (fatiga)</span></div>
-            <div class="cd-kpi"><span class="cd-kpi-val bad">{{ money(o.inventario.monto_merma) }}</span><span class="cd-kpi-lbl">Merma ({{ o.inventario.mermas | number }})</span></div>
-            <div class="cd-kpi" [class.bad]="o.descuadres.criticos > 0"><span class="cd-kpi-val">{{ o.descuadres.pendientes | number }}</span><span class="cd-kpi-lbl">Descuadres pend. ({{ o.descuadres.criticos }} crít.)</span></div>
-          </div>
+          <app-metric-strip [items]="resumenItems(o)" ariaLabel="Resumen de cuadre" />
           @if (o.caja.pct_exacto >= 70 && o.caja.cortes_monto_alto > 0) {
             <div class="cd-note">
               <i class="pi pi-exclamation-triangle"></i>
@@ -350,14 +339,7 @@ type Tab = 'resumen' | 'focos' | 'cortes' | 'movimientos' | 'arqueo' | 'acciones
       <!-- ══ DESCUADRES (bandeja HITL) ══ -->
       @if (tab() === 'descuadres') {
         @if (stats(); as s) {
-          <div class="cd-kpis">
-            <div class="cd-kpi"><span class="cd-kpi-val">{{ s.pendientes | number }}</span><span class="cd-kpi-lbl">Pendientes</span></div>
-            <div class="cd-kpi" [class.bad]="s.criticos > 0"><span class="cd-kpi-val">{{ s.criticos | number }}</span><span class="cd-kpi-lbl">Críticos</span></div>
-            <div class="cd-kpi"><span class="cd-kpi-val">{{ money(s.monto_en_juego) }}</span><span class="cd-kpi-lbl">$ en juego</span></div>
-            @for (p of s.por_plano; track p.plano) {
-              <div class="cd-kpi"><span class="cd-kpi-val">{{ p.n | number }}</span><span class="cd-kpi-lbl">{{ planoLabel(p.plano) }}</span></div>
-            }
-          </div>
+          <app-metric-strip [items]="descuadresItems(s)" ariaLabel="Resumen de descuadres" />
         }
         <div class="cd-filters">
           <div class="cd-seg">
@@ -439,10 +421,7 @@ type Tab = 'resumen' | 'focos' | 'cortes' | 'movimientos' | 'arqueo' | 'acciones
     .cd-tabs button.active { color: var(--action, #FB923C); border-bottom-color: var(--action, #FB923C); font-weight: 600; }
     .cd-tabs i { font-size: .8rem; }
     .cd-badge { background: var(--bad-fg, #dc2626); color: #fff; border-radius: 999px; font-size: .65rem; padding: .05rem .4rem; font-weight: 700; }
-    .cd-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: .75rem; margin-bottom: 1rem; }
-    .cd-kpi { border: 1px solid var(--border-color, #e7e5e4); border-radius: var(--r-md, 10px); padding: .75rem 1rem; background: var(--card-bg, #fff); }
-    .cd-kpi.bad { border-color: color-mix(in srgb, var(--bad-fg, #dc2626) 40%, var(--border-color, #e7e5e4)); }
-    .cd-kpi.warn { border-color: color-mix(in srgb, #d97706 45%, var(--border-color, #e7e5e4)); }
+    app-metric-strip { display:block; margin-bottom: 1rem; }
     .cd-note { display: flex; gap: .6rem; align-items: flex-start; background: color-mix(in srgb, #d97706 8%, transparent); border: 1px solid color-mix(in srgb, #d97706 30%, transparent); border-radius: var(--r-md, 10px); padding: .7rem .9rem; font-size: .82rem; line-height: 1.45; margin-bottom: 1rem; }
     .cd-note i { color: #b45309; margin-top: .15rem; }
     .cd-lbl { display: inline-flex; align-items: center; gap: .3rem; font-size: .76rem; color: var(--text-muted, #57534e); }
@@ -694,6 +673,29 @@ export class AlmacenCuadreComponent implements OnInit {
   abs(n: number): number { return Math.abs(n || 0); }
   money(v: number | string | null | undefined): string { return (Number(v ?? 0) || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 }); }
   signed(v: number): string { return (v > 0 ? '+' : '') + this.money(v); }
+  resumenItems(o: CuadreOverview): MetricStripItem[] {
+    return [
+      { label: 'Cortes de caja', value: o.caja.cortes },
+      { label: 'Venta total', value: o.caja.venta, format: 'currency' },
+      { label: 'Descuadre efectivo', value: o.caja.con_descuadre, tone: o.caja.con_descuadre > 0 ? 'bad' : 'default' },
+      { label: 'Descuadre tarjeta/transf', value: o.caja.descuadre_no_efectivo, tone: o.caja.descuadre_no_efectivo > 0 ? 'bad' : 'default' },
+      { label: 'Faltante caja', value: o.caja.faltante, format: 'currency', tone: 'bad' },
+      { label: 'Sobrante caja', value: o.caja.sobrante, format: 'currency' },
+      { label: 'Cuadre exacto', value: o.caja.pct_exacto, format: 'percent', tone: o.caja.pct_exacto >= 90 ? 'ok' : o.caja.pct_exacto >= 70 ? 'warn' : 'default' },
+      { label: 'Turnos ≥10h', value: o.caja.turnos_largos, tone: o.caja.turnos_largos > 0 ? 'warn' : 'default' },
+      { label: 'Merma', value: o.inventario.monto_merma, format: 'currency', tone: 'bad', sub: `${o.inventario.mermas} mermas` },
+      { label: 'Descuadres pend.', value: o.descuadres.pendientes, tone: o.descuadres.criticos > 0 ? 'bad' : 'default', sub: `${o.descuadres.criticos} crít.` },
+    ];
+  }
+  descuadresItems(s: DiscStats): MetricStripItem[] {
+    return [
+      { label: 'Pendientes', value: s.pendientes },
+      { label: 'Críticos', value: s.criticos, tone: s.criticos > 0 ? 'bad' : 'default' },
+      { label: '$ en juego', value: s.monto_en_juego, format: 'currency' },
+      ...s.por_plano.map((p): MetricStripItem => ({ label: this.planoLabel(p.plano), value: p.n })),
+    ];
+  }
+
   planoLabel(p: string): string { return p === 'caja' ? 'Caja' : p === 'inventario' ? 'Inventario' : p === 'cruce' ? 'Cruce' : p; }
   claseMovLabel(c: string): string {
     const m: Record<string, string> = { merma: 'Merma', traspaso_salida: 'Traspaso ↑', traspaso_entrada: 'Traspaso ↓', ajuste_salida: 'Ajuste sal.', ajuste_entrada: 'Ajuste ent.', inv_fisico: 'Inv. físico', otro: 'Otro' };

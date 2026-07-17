@@ -14,6 +14,7 @@ import {
   RiderLiquidation,
   RiderLiquidationService,
 } from '../rider-liquidation.service';
+import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 
 const DENOMS = [1000, 500, 200, 100, 50, 20, 10, 5, 2, 1, 0.5];
 
@@ -27,7 +28,7 @@ const DENOMS = [1000, 500, 200, 100, 50, 20, 10, 5, 2, 1, 0.5];
   standalone: true,
   imports: [
     CommonModule, FormsModule, SelectModule, DatePickerModule, InputNumberModule,
-    TableModule, TagModule, ButtonModule,
+    TableModule, TagModule, ButtonModule, MetricStripComponent,
   ],
   template: `
     <div class="surf-page in liq">
@@ -39,13 +40,7 @@ const DENOMS = [1000, 500, 200, 100, 50, 20, 10, 5, 2, 1, 0.5];
       </header>
 
       @if (kpis(); as k) {
-        <div class="liq-kpis">
-          <div class="liq-kpi"><span>Entregas</span><b>{{ k.delivered }}/{{ k.deliveries_total }}</b></div>
-          <div class="liq-kpi"><span>Éxito</span><b [class.bad]="k.success_rate_pct < 98 && k.deliveries_total > 0">{{ k.success_rate_pct }}%</b></div>
-          <div class="liq-kpi"><span>Incidencias</span><b [class.bad]="k.incident_rate_pct > 2">{{ k.incident_rate_pct }}%</b></div>
-          <div class="liq-kpi"><span>Tiempo prom.</span><b [class.bad]="(k.avg_delivery_min || 0) > 60">{{ k.avg_delivery_min ?? '—' }} min</b></div>
-          <div class="liq-kpi"><span>Dif. efectivo</span><b [class.bad]="k.cash_difference_abs !== 0">{{ money(k.cash_difference_abs) }}</b></div>
-        </div>
+        <app-metric-strip [items]="headKpis(k)" ariaLabel="Resumen de reparto" />
       }
 
       <!-- Selección de corte -->
@@ -78,13 +73,8 @@ const DENOMS = [1000, 500, 200, 100, 50, 20, 10, 5, 2, 1, 0.5];
             <p-tag [value]="statusLabel(c.status)" [severity]="statusSeverity(c.status)" />
           </div>
 
-          <div class="liq-kpis liq-kpis--inset">
-            <div class="liq-kpi"><span>Entregas</span><b>{{ c.deliveries_count }}</b></div>
-            <div class="liq-kpi"><span>Efectivo esperado</span><b>{{ money(c.cash_expected) }}</b></div>
-            <div class="liq-kpi"><span>Tarjeta</span><b>{{ money(c.card_total) }}</b></div>
-            <div class="liq-kpi"><span>Transferencia</span><b>{{ money(c.transfer_total) }}</b></div>
-            <div class="liq-kpi"><span>Incidencias</span><b>{{ c.incidents_count }}</b></div>
-          </div>
+          <app-metric-strip [items]="corteKpis(c)" ariaLabel="Resumen del corte" />
+
 
           @if (c.status === 'open') {
             <h2 class="liq-sectitle">Arqueo (billetes y monedas)</h2>
@@ -106,10 +96,7 @@ const DENOMS = [1000, 500, 200, 100, 50, 20, 10, 5, 2, 1, 0.5];
               <button pButton label="Cerrar corte" icon="pi pi-check" [loading]="busy()" (click)="closeCorte()"></button>
             </div>
           } @else {
-            <div class="liq-kpis liq-kpis--inset">
-              <div class="liq-kpi"><span>Efectivo contado</span><b>{{ money(c.cash_counted) }}</b></div>
-              <div class="liq-kpi"><span>Diferencia</span><b [class.bad]="num(c.cash_difference) !== 0">{{ money(c.cash_difference) }}</b></div>
-            </div>
+            <app-metric-strip [items]="corteClosedKpis(c)" ariaLabel="Cierre del corte" />
           }
         </div>
       }
@@ -177,13 +164,8 @@ const DENOMS = [1000, 500, 200, 100, 50, 20, 10, 5, 2, 1, 0.5];
   styles: [`
     :host { display:block; }
 
-    .liq-kpis { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:.75rem; margin-bottom:1rem; }
-    .liq-kpi { border:1px solid var(--border-color); border-radius:var(--r-md); padding:.7rem .85rem; background:var(--card-bg); }
-    .liq-kpi span { display:block; font-size:.68rem; font-weight:600; text-transform:uppercase; letter-spacing:.04em; color:var(--text-muted); }
-    .liq-kpi b { display:block; font-size:1.15rem; font-weight:700; margin-top:.15rem; color:var(--text-main); font-variant-numeric:tabular-nums; }
-    .liq-kpi b.bad { color:var(--bad-fg); }
-    .liq-kpis--inset { margin:0 0 .5rem; }
-    .liq-kpis--inset .liq-kpi { background:var(--layout-bg); }
+    app-metric-strip { display:block; margin-bottom:1rem; }
+    .liq-corte-head + app-metric-strip, .liq-actions + app-metric-strip { margin-bottom:.5rem; }
 
     .liq-card { margin-bottom:1rem; }
     .liq-form { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:1rem; align-items:end; }
@@ -261,6 +243,31 @@ export class RiderLiquidationComponent implements OnInit {
   }
 
   num(v: number | string | null | undefined): number { return Number(v ?? 0); }
+
+  headKpis(k: HomeDeliveryKpis): MetricStripItem[] {
+    return [
+      { label: 'Entregas', value: `${k.delivered}/${k.deliveries_total}`, format: 'text' },
+      { label: 'Éxito', value: k.success_rate_pct, format: 'percent', tone: (k.success_rate_pct < 98 && k.deliveries_total > 0) ? 'bad' : 'default' },
+      { label: 'Incidencias', value: k.incident_rate_pct, format: 'percent', tone: k.incident_rate_pct > 2 ? 'bad' : 'default' },
+      { label: 'Tiempo prom.', value: `${k.avg_delivery_min ?? '—'} min`, format: 'text', tone: (k.avg_delivery_min || 0) > 60 ? 'bad' : 'default' },
+      { label: 'Dif. efectivo', value: k.cash_difference_abs, format: 'currency', tone: k.cash_difference_abs !== 0 ? 'bad' : 'default' },
+    ];
+  }
+  corteKpis(c: RiderLiquidation): MetricStripItem[] {
+    return [
+      { label: 'Entregas', value: c.deliveries_count },
+      { label: 'Efectivo esperado', value: this.num(c.cash_expected), format: 'currency' },
+      { label: 'Tarjeta', value: this.num(c.card_total), format: 'currency' },
+      { label: 'Transferencia', value: this.num(c.transfer_total), format: 'currency' },
+      { label: 'Incidencias', value: c.incidents_count },
+    ];
+  }
+  corteClosedKpis(c: RiderLiquidation): MetricStripItem[] {
+    return [
+      { label: 'Efectivo contado', value: this.num(c.cash_counted), format: 'currency' },
+      { label: 'Diferencia', value: this.num(c.cash_difference), format: 'currency', tone: this.num(c.cash_difference) !== 0 ? 'bad' : 'default' },
+    ];
+  }
 
   money(v: number | string | null | undefined): string {
     return Number(v ?? 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN' });

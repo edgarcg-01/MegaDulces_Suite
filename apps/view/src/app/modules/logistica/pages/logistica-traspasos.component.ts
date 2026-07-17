@@ -14,6 +14,7 @@ import {
   TransfersRow,
   SellOutWarehouseRow,
 } from '../../comercial/comercial.service';
+import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 
 const MES: Record<string, string> = {
   '01': 'Ene', '02': 'Feb', '03': 'Mar', '04': 'Abr', '05': 'May', '06': 'Jun',
@@ -25,7 +26,7 @@ const MES: Record<string, string> = {
   selector: 'app-logistica-traspasos',
   standalone: true,
   imports: [
-    CommonModule, FormsModule, ButtonModule, SelectModule, MultiSelectModule, ToastModule,
+    CommonModule, FormsModule, ButtonModule, SelectModule, MultiSelectModule, ToastModule, MetricStripComponent,
   ],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -62,12 +63,7 @@ const MES: Record<string, string> = {
 
       @if (report(); as r) {
         @if (r.rows.length) {
-          <div class="tr-kpis">
-            @for (k of r.by_kind; track k.kind) {
-              <div class="tr-kpi"><span class="tr-kpi-l">{{ k.kind_label }}</span><span class="tr-kpi-v">{{ k.value | currency:'MXN':'symbol-narrow':'1.0-0' }}</span></div>
-            }
-            <div class="tr-kpi tr-kpi-muted"><span class="tr-kpi-l">Documentos</span><span class="tr-kpi-v">{{ r.totals.docs | number }}</span></div>
-          </div>
+          <app-metric-strip [items]="kpiItems(r)" ariaLabel="Resumen de traspasos" />
 
           <div class="so-actions-bar">
             <span class="text-xs text-content-muted">Año {{ r.year }}</span>
@@ -188,11 +184,7 @@ const MES: Record<string, string> = {
     .tr-field > label { font-size:.72rem; font-weight:600; color:var(--text-muted); text-transform:uppercase; letter-spacing:.03em; }
     .tr-year { max-width:110px; } .tr-wh { min-width:240px; flex:1 1 240px; }
     .tr-actions { margin-left:auto; }
-    .tr-kpis { display:flex; flex-wrap:wrap; gap:.75rem; margin-bottom:1rem; }
-    .tr-kpi { flex:1 1 160px; border:1px solid var(--border-color); border-radius:var(--r-md); padding:.6rem .85rem; background:var(--card-bg); }
-    .tr-kpi-l { display:block; font-size:.68rem; font-weight:600; text-transform:uppercase; letter-spacing:.04em; color:var(--text-muted); }
-    .tr-kpi-v { display:block; font-size:1.25rem; font-weight:700; margin-top:.15rem; font-variant-numeric:tabular-nums; }
-    .tr-kpi-muted { opacity:.72; }
+    app-metric-strip { display:block; margin-bottom:1rem; }
     .tr-sec { margin-bottom:1.75rem; }
     .tr-sec-head { display:flex; align-items:flex-start; gap:.6rem; margin-bottom:.6rem; }
     .tr-sec-badge { flex:0 0 auto; width:1.55rem; height:1.55rem; border-radius:50%; background:var(--action,#b45309); color:#fff; display:flex; align-items:center; justify-content:center; font-weight:700; font-size:.8rem; }
@@ -231,6 +223,13 @@ export class LogisticaTraspasosComponent {
   loading = signal(false);
   dl = signal(false);
   report = signal<TransfersReport | null>(null);
+
+  kpiItems(r: TransfersReport): MetricStripItem[] {
+    return [
+      ...r.by_kind.map((k): MetricStripItem => ({ label: k.kind_label, value: k.value, format: 'currency' })),
+      { label: 'Documentos', value: r.totals.docs },
+    ];
+  }
 
   // ① salida de CEDIS (misma kind → suma válida). ② lado receptor (consolidación + recepción).
   salidaRows = computed(() => (this.report()?.rows ?? []).filter((r) => r.kind === 'salida_cedis'));

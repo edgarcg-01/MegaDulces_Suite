@@ -151,7 +151,7 @@ export class ProjectsComponent implements OnInit {
       icon: 'pi pi-send',
       route: '/reparto',
       status: 'Activo',
-      anyOf: [Permission.LOGISTICS_HOME_DISPATCH],
+      anyOf: [Permission.REPARTO_DESPACHAR],
     },
     {
       id: 'finanzas',

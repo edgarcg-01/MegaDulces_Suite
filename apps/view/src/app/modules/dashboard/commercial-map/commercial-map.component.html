@@ -249,24 +249,7 @@
               <p class="cm-store-addr">
                 {{ d.store.zona }}@if (d.store.ruta) { · <b>Ruta {{ d.store.ruta }}</b> }@if (d.store.direccion) { · {{ d.store.direccion }} }
               </p>
-              <div class="cm-kpis">
-                <div class="cm-kpi">
-                  <span class="cm-kpi-v">{{ d.store.totalVisitas }}</span>
-                  <span class="cm-kpi-l">Visitas</span>
-                </div>
-                <div class="cm-kpi">
-                  <span class="cm-kpi-v">{{ d.store.score }}</span>
-                  <span class="cm-kpi-l">Score prom</span>
-                </div>
-                <div class="cm-kpi">
-                  <span class="cm-kpi-v" style="color: var(--ok-fg)">{{ d.store.ownTotal }}</span>
-                  <span class="cm-kpi-l">Mega Dulces</span>
-                </div>
-                <div class="cm-kpi">
-                  <span class="cm-kpi-v" style="color: var(--bad-fg)">{{ d.store.competitorTotal }}</span>
-                  <span class="cm-kpi-l">Competencia</span>
-                </div>
-              </div>
+              <app-metric-strip [items]="storeKpis(d.store)" ariaLabel="Resumen de la tienda" />
               @if (d.store.diasSinVisita !== null) {
                 <p class="cm-muted">
                   Última visita: {{ d.store.ultimaVisita }} · hace {{ d.store.diasSinVisita }} d

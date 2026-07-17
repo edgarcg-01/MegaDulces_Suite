@@ -177,32 +177,7 @@
   color: var(--text-muted);
   margin: 0 0 0.3rem;
 }
-.cm-kpis {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: var(--sp-2);
-  margin: var(--sp-2) 0;
-}
-.cm-kpi {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  padding: var(--sp-2);
-  background: var(--surface-ground);
-  border-radius: var(--r-sm);
-}
-.cm-kpi-v {
-  font-size: 1.05rem;
-  font-weight: 700;
-  color: var(--text-main);
-  font-variant-numeric: tabular-nums;
-}
-.cm-kpi-l {
-  font-size: 0.62rem;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-  color: var(--text-muted);
-}
+app-metric-strip { display: block; margin: var(--sp-2) 0; }
 .cm-muted {
   font-size: 0.72rem;
   color: var(--text-muted);

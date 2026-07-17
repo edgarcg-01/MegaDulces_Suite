@@ -7,8 +7,11 @@
  *   - daily-captures DELETE: REPORTES_GESTIONAR  → VISITAS_AUDITAR
  *   - visits GET (listar):   REPORTES_VER_PROPIO → VISITAS_VER
  *
- * Idempotente (`-> 'KEY' IS NULL`), aditivo (no borra el permiso viejo). Re-login
- * para el gating de UI; la autz backend es fresca (cache 30s).
+ * Semántica UPGRADE (no "fill-if-null"): TIENDAS_CREAR/VISITAS_AUDITAR/VISITAS_VER son
+ * permisos estándar que YA existen (=false) en el JSONB de todo rol, así que un guard
+ * `IS NULL` nunca dispararía y no preservaría acceso. Subimos false→true donde el origen
+ * es true. Idempotente (si ya es true, el WHERE lo excluye), aditivo (no borra el viejo).
+ * Re-login para el gating de UI; la autz backend es fresca (cache 30s).
  *
  * @param { import("knex").Knex } knex
  */
@@ -20,13 +23,11 @@ exports.up = async function (knex) {
   ];
   let total = 0;
   for (const d of derived) {
-    // Solo sube a true si el origen era true; si la clave ya existe, respeta su valor.
     const res = await knex.raw(
       `UPDATE role_permissions
-          SET permissions = permissions || jsonb_build_object(
-            :key::text, COALESCE((permissions->>:from::text)::boolean, false))
-        WHERE permissions -> :key::text IS NULL
-          AND COALESCE((permissions->>:from::text)::boolean, false) = true`,
+          SET permissions = permissions || jsonb_build_object(:key::text, true)
+        WHERE COALESCE((permissions->>:from::text)::boolean, false) = true
+          AND COALESCE((permissions->>:key::text)::boolean, false) = false`,
       { key: d.key, from: d.from },
     );
     total += res.rowCount ?? 0;

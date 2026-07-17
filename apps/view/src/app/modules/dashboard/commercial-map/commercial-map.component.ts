@@ -9,6 +9,7 @@ import { DatePickerModule } from 'primeng/datepicker';
 import { DialogModule } from 'primeng/dialog';
 import { AutoCompleteModule } from 'primeng/autocomplete';
 import { MapComponent, MapLayer, MapMarker } from '../../../shared/components/map/map.component';
+import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { MapLegendComponent, LegendLayer } from '../../../shared/components/map-legend/map-legend.component';
 import { MapLiveLayerService } from '../../../core/services/map-live-layer.service';
 import { AuthService } from '../../../core/services/auth.service';
@@ -54,6 +55,7 @@ type Period = 'todo' | 'hoy' | 'semana' | 'mes' | 'custom';
     AutoCompleteModule,
     MapComponent,
     MapLegendComponent,
+    MetricStripComponent,
   ],
   templateUrl: './commercial-map.component.html',
   styleUrl: './commercial-map.component.css',
@@ -64,6 +66,16 @@ export class CommercialMapComponent implements OnInit, OnDestroy {
   protected readonly live = inject(MapLiveLayerService);
   private readonly auth = inject(AuthService);
   private readonly perms = inject(PermissionsService);
+
+  /** KPIs de la tienda seleccionada vía MetricStrip (sin caja). */
+  storeKpis(s: { totalVisitas: number; score: number; ownTotal: number; competitorTotal: number }): MetricStripItem[] {
+    return [
+      { label: 'Visitas', value: s.totalVisitas },
+      { label: 'Score prom', value: s.score },
+      { label: 'Mega Dulces', value: s.ownTotal, tone: 'ok' },
+      { label: 'Competencia', value: s.competitorTotal, tone: 'bad' },
+    ];
+  }
 
   /** Capa "Personal en vivo": superpone vendedores en tiempo real sobre las tiendas. */
   readonly showLive = signal(false);
