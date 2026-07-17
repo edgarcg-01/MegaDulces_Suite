@@ -32,7 +32,7 @@ const CHANNEL_OPTS = [
   { label: 'Mostrador', value: 'mostrador' },
   { label: 'Preventa', value: 'preventa' },
   { label: 'Ruta', value: 'ruta' },
-  { label: 'Crédito', value: 'credito' },
+  { label: 'Mayoreo', value: 'credito' },
   { label: 'Otro', value: 'otro' },
 ];
 

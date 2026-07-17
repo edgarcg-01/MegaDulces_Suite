@@ -257,7 +257,7 @@ const CHANNEL_LABELS: Record<string, string> = {
   mostrador: 'Mostrador',
   preventa: 'Preventa',
   ruta: 'Ruta',
-  credito: 'Crédito',
+  credito: 'Mayoreo',   // Wincaja caja 70 (mayoreo_credito) + crédito numérico Kepler = venta de mayoreo/telemarketing
   otro: 'Otro',
 };
 const CHANNEL_ORDER: Record<string, number> = {
