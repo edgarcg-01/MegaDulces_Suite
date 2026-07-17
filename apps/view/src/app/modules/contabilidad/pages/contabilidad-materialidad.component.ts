@@ -5,11 +5,14 @@ import { FormsModule } from '@angular/forms';
 import { ButtonModule } from 'primeng/button';
 import { ToastModule } from 'primeng/toast';
 import { InputTextModule } from 'primeng/inputtext';
+import { DialogModule } from 'primeng/dialog';
+import { TableModule } from 'primeng/table';
 import { MessageService } from 'primeng/api';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { CONTABILIDAD_TABS } from '../contabilidad-tabs';
-import { MaterialidadService, MaterialidadDossier } from '../materialidad.service';
+import { MaterialidadService, MaterialidadDossier, MaterialidadChain } from '../materialidad.service';
+import { CfdiService, CfdiRow } from '../cfdi.service';
 
 /**
  * FISCAL.10.1 — Expediente de materialidad de un proveedor (Operations). Se busca
@@ -19,7 +22,7 @@ import { MaterialidadService, MaterialidadDossier } from '../materialidad.servic
 @Component({
   selector: 'app-contabilidad-materialidad',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, ToastModule, InputTextModule, PageTabsComponent, MetricStripComponent],
+  imports: [CommonModule, FormsModule, ButtonModule, ToastModule, InputTextModule, DialogModule, TableModule, PageTabsComponent, MetricStripComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
@@ -59,8 +62,16 @@ import { MaterialidadService, MaterialidadDossier } from '../materialidad.servic
 
         <div class="mt-grid">
           <div class="card-premium card-flat mt-block">
-            <h3 class="mt-block-title">Cadena de suministro</h3>
-            <div class="mt-chain">
+            <div class="mt-block-head">
+              <h3 class="mt-block-title">Cadena de suministro</h3>
+              <button pButton type="button" label="Ver documentos" icon="pi pi-list" class="p-button-sm p-button-text"
+                      [disabled]="d.cadena_suministro.cadenas === 0" (click)="openChains()"></button>
+            </div>
+            <div class="mt-chain" [class.clickable]="d.cadena_suministro.cadenas > 0"
+                 [attr.role]="d.cadena_suministro.cadenas > 0 ? 'button' : null"
+                 [attr.tabindex]="d.cadena_suministro.cadenas > 0 ? 0 : null"
+                 [attr.aria-label]="d.cadena_suministro.cadenas > 0 ? ('Desglosar ' + d.cadena_suministro.cadenas + ' cadenas de documentos') : null"
+                 (click)="openChains()" (keyup.enter)="openChains()">
               <div class="mt-chain-step" [class.on]="d.cadena_suministro.con_orden > 0"><span class="mt-chain-n">{{ d.cadena_suministro.con_orden | number }}</span><span>Orden</span></div>
               <i class="pi pi-arrow-right"></i>
               <div class="mt-chain-step" [class.on]="d.cadena_suministro.con_recepcion > 0"><span class="mt-chain-n">{{ d.cadena_suministro.con_recepcion | number }}</span><span>Recepción</span></div>
@@ -69,6 +80,9 @@ import { MaterialidadService, MaterialidadDossier } from '../materialidad.servic
               <i class="pi pi-arrow-right"></i>
               <div class="mt-chain-step" [class.on]="d.cadena_suministro.con_pago > 0"><span class="mt-chain-n">{{ d.cadena_suministro.con_pago | number }}</span><span>Pago</span></div>
             </div>
+            @if (d.cadena_suministro.cadenas > 0) {
+              <p class="mt-chain-hint"><i class="pi pi-hand-pointer"></i> Clic para desglosar los documentos de cada compra.</p>
+            }
           </div>
 
           <div class="card-premium card-flat mt-block">
@@ -91,6 +105,142 @@ import { MaterialidadService, MaterialidadDossier } from '../materialidad.servic
       } @else {
         <div class="mt-empty card-premium card-flat"><i class="pi pi-id-card"></i> Ingresa el RFC de un proveedor para armar su expediente de materialidad.</div>
       }
+
+      <p-dialog [(visible)]="chainsOpen" [modal]="true" [draggable]="false" [dismissableMask]="true"
+                [style]="{ width: 'min(940px, 95vw)' }" [breakpoints]="{ '640px': '100vw' }" styleClass="mt-dialog">
+        <ng-template pTemplate="header">
+          <div class="mt-dlg-head">
+            <span class="mt-dlg-title">Documentos de la cadena de suministro</span>
+            @if (dossier(); as d) { <span class="mono muted">{{ d.beneficiario || d.rfc }} · {{ d.rfc }}</span> }
+          </div>
+        </ng-template>
+
+        @if (dossier(); as d) {
+        <div class="mt-dlg-tabs" role="tablist">
+          <button type="button" role="tab" [attr.aria-selected]="dlgTab()==='oper'" [class.active]="dlgTab()==='oper'" (click)="setDlgTab('oper')"><i class="pi pi-sitemap"></i> Operación <span class="mt-tab-n">{{ d.cadena_suministro.cadenas }}</span></button>
+          <button type="button" role="tab" [attr.aria-selected]="dlgTab()==='fiscal'" [class.active]="dlgTab()==='fiscal'" (click)="setDlgTab('fiscal')"><i class="pi pi-file"></i> Fiscal · CFDIs <span class="mt-tab-n">{{ d.cfdis.total }}</span></button>
+        </div>
+        }
+
+        @if (dlgTab() === 'oper') {
+        <p class="mt-dlg-legend">Cada fila es una <strong>compra</strong>. Ábrela para ver sus documentos operativos: <b>Orden</b> → <b>Recepción</b> (entrada a almacén — la evidencia más fuerte) → <b>Factura</b> → <b>Pago</b>.</p>
+
+        @if (chainsLoading()) {
+          <div class="mt-dlg-skel">Cargando documentos…</div>
+        } @else {
+          <p-table [value]="chains() || []" dataKey="key" styleClass="p-datatable-sm mt-ctable" [rowHover]="true"
+                   [scrollable]="true" scrollHeight="52vh" [paginator]="(chains()?.length || 0) > 25" [rows]="25">
+            <ng-template pTemplate="header">
+              <tr>
+                <th style="width:2.5rem"></th>
+                <th>Factura</th>
+                <th style="width:5rem">Suc.</th>
+                <th class="ta-r" style="width:9rem">Total</th>
+                <th style="width:8rem">Cadena</th>
+                <th style="width:6.5rem">Enlace</th>
+              </tr>
+            </ng-template>
+            <ng-template pTemplate="body" let-c let-expanded="expanded">
+              <tr>
+                <td><button type="button" pButton [pRowToggler]="c" class="p-button-text p-button-sm mt-tog" [icon]="expanded ? 'pi pi-chevron-down' : 'pi pi-chevron-right'" [attr.aria-label]="expanded ? 'Ocultar documentos' : 'Ver documentos'"></button></td>
+                <td><div class="strong mono">{{ c.factura_folio }}</div><div class="muted mono cf-sub">{{ c.factura_fecha ? (c.factura_fecha | date:'dd/MM/yy') : '—' }}</div></td>
+                <td class="mono">{{ c.sucursal }}</td>
+                <td class="ta-r strong mono">{{ money(c.total) }}</td>
+                <td>
+                  <span class="mt-dots" [attr.aria-label]="'Orden ' + (c.orden_folio ? 'sí' : 'no') + ', Recepción ' + (c.recepcion_folio ? 'sí' : 'no') + ', Pago ' + (c.pago_folio ? 'sí' : 'no')">
+                    <span class="mt-dot" [class.on]="!!c.orden_folio" title="Orden">O</span>
+                    <span class="mt-dot" [class.on]="!!c.recepcion_folio" title="Recepción">R</span>
+                    <span class="mt-dot on" title="Factura">F</span>
+                    <span class="mt-dot" [class.on]="!!c.pago_folio" title="Pago">P</span>
+                  </span>
+                </td>
+                <td><span class="mt-conf" [ngClass]="'c-' + (c.match_confidence || 'na')">{{ confLabel(c.match_confidence) }}</span></td>
+              </tr>
+            </ng-template>
+            <ng-template pTemplate="rowexpansion" let-c>
+              <tr class="mt-exp-row">
+                <td colspan="6">
+                  <div class="mt-timeline">
+                    <div class="mt-tl-step" [class.off]="!c.orden_folio">
+                      <div class="mt-tl-ico"><i class="pi pi-file-edit"></i></div>
+                      <div class="mt-tl-b"><span class="mt-tl-lbl">Orden de compra</span>
+                        @if (c.orden_folio) { <span class="mono strong">{{ c.orden_folio }}</span><span class="muted mono">{{ c.orden_fecha ? (c.orden_fecha | date:'dd/MM/yy') : '' }}</span> }
+                        @else { <span class="muted">Sin orden registrada</span> }
+                      </div>
+                    </div>
+                    <i class="pi pi-arrow-right mt-tl-sep"></i>
+                    <div class="mt-tl-step" [class.off]="!c.recepcion_folio">
+                      <div class="mt-tl-ico"><i class="pi pi-inbox"></i></div>
+                      <div class="mt-tl-b"><span class="mt-tl-lbl">Recepción</span>
+                        @if (c.recepcion_folio) { <span class="mono strong">{{ c.recepcion_folio }}</span><span class="muted mono">{{ c.recepcion_fecha ? (c.recepcion_fecha | date:'dd/MM/yy') : '' }}</span> }
+                        @else { <span class="warn">Sin recepción — evidencia débil</span> }
+                      </div>
+                    </div>
+                    <i class="pi pi-arrow-right mt-tl-sep"></i>
+                    <div class="mt-tl-step">
+                      <div class="mt-tl-ico on"><i class="pi pi-file"></i></div>
+                      <div class="mt-tl-b"><span class="mt-tl-lbl">Factura</span><span class="mono strong">{{ c.factura_folio }}</span><span class="muted mono">{{ c.factura_fecha ? (c.factura_fecha | date:'dd/MM/yy') : '' }}</span></div>
+                    </div>
+                    <i class="pi pi-arrow-right mt-tl-sep"></i>
+                    <div class="mt-tl-step" [class.off]="!c.pago_folio">
+                      <div class="mt-tl-ico"><i class="pi pi-wallet"></i></div>
+                      <div class="mt-tl-b"><span class="mt-tl-lbl">Pago</span>
+                        @if (c.pago_folio) { <span class="mono strong">{{ c.pago_folio }}</span><span class="muted mono">{{ c.pago_fecha ? (c.pago_fecha | date:'dd/MM/yy') : '' }}</span> }
+                        @else { <span class="muted">Sin pago programado</span> }
+                      </div>
+                    </div>
+                  </div>
+                  @if (c.lead_days != null || c.pago_days != null) {
+                    <div class="mt-tl-meta">
+                      @if (c.lead_days != null) { <span>Orden → factura: <strong class="mono">{{ c.lead_days }}</strong> d</span> }
+                      @if (c.pago_days != null) { <span>Factura → pago: <strong class="mono">{{ c.pago_days }}</strong> d</span> }
+                    </div>
+                  }
+                </td>
+              </tr>
+            </ng-template>
+            <ng-template pTemplate="emptymessage"><tr><td colspan="6" class="mt-dlg-empty">
+              <i class="pi pi-inbox"></i> Sin cadenas de documentos reconstruidas para este RFC.
+            </td></tr></ng-template>
+          </p-table>
+        }
+        } @else {
+        <p class="mt-dlg-legend">Comprobantes fiscales (CFDI) que <strong>emitió este proveedor</strong> hacia ti. Descarga el XML para el expediente. No se enlazan 1-a-1 con la operación (Kepler no guarda el UUID) — se cruzan por monto y fecha.</p>
+
+        @if (cfdisLoading()) {
+          <div class="mt-dlg-skel">Cargando CFDIs…</div>
+        } @else {
+          <p-table [value]="cfdis() || []" styleClass="p-datatable-sm mt-ctable" [rowHover]="true"
+                   [scrollable]="true" scrollHeight="52vh" [paginator]="(cfdis()?.length || 0) > 25" [rows]="25">
+            <ng-template pTemplate="header">
+              <tr>
+                <th style="width:3rem">Tipo</th>
+                <th>Folio / UUID</th>
+                <th style="width:6.5rem">Fecha</th>
+                <th style="width:5rem">Método</th>
+                <th class="ta-r" style="width:9rem">Total</th>
+                <th style="width:7rem">Estatus</th>
+                <th style="width:2.5rem"></th>
+              </tr>
+            </ng-template>
+            <ng-template pTemplate="body" let-c>
+              <tr>
+                <td><span class="mt-conf">{{ c.tipo_comprobante || '—' }}</span></td>
+                <td><div class="strong mono">{{ c.serie }}{{ c.folio || '' }}</div><div class="muted mono cf-sub">{{ c.uuid }}</div></td>
+                <td class="mono">{{ c.fecha ? (c.fecha | date:'dd/MM/yy') : '—' }}</td>
+                <td>@if (c.metodo_pago) { <span class="mt-conf">{{ c.metodo_pago }}</span> } @else { — }</td>
+                <td class="ta-r strong mono">{{ money(c.total) }}</td>
+                <td><span class="mt-est" [ngClass]="'e-' + c.estatus_sat">{{ estatusLabel(c.estatus_sat) }}</span></td>
+                <td class="ta-r">@if (c.has_xml) { <button pButton type="button" icon="pi pi-download" class="p-button-text p-button-sm" title="Descargar XML" aria-label="Descargar XML" (click)="downloadXml(c)"></button> }</td>
+              </tr>
+            </ng-template>
+            <ng-template pTemplate="emptymessage"><tr><td colspan="7" class="mt-dlg-empty">
+              <i class="pi pi-inbox"></i> Sin CFDIs recibidos de este RFC. Corre la <strong>descarga masiva</strong> del SAT para poblarlos.
+            </td></tr></ng-template>
+          </p-table>
+        }
+        }
+      </p-dialog>
     </div>
   `,
   styles: [`
@@ -127,16 +277,72 @@ import { MaterialidadService, MaterialidadDossier } from '../materialidad.servic
     .mt-clean { font-size: .85rem; color: var(--ok-fg, #16a34a); display: flex; gap: .4rem; align-items: center; margin-bottom: .7rem; }
     .mt-cfdi-line { font-size: .8rem; color: var(--text-muted); border-top: 1px solid var(--border-color); padding-top: .6rem; }
     .mono { font-family: var(--font-mono, ui-monospace, monospace); font-size: .85em; } .muted { color: var(--text-muted); }
+    /* MAT.2 — desglose de documentos */
+    .mt-block-head { display: flex; align-items: center; justify-content: space-between; gap: .5rem; margin-bottom: .7rem; }
+    .mt-block-head .mt-block-title { margin: 0; }
+    .mt-chain.clickable { cursor: pointer; border-radius: var(--r-md, 10px); transition: background .15s ease; outline: none; padding: .3rem; margin: -.3rem; }
+    .mt-chain.clickable:hover { background: var(--surface-hover-bg, #f5f5f4); }
+    .mt-chain.clickable:focus-visible { box-shadow: 0 0 0 2px color-mix(in srgb, var(--action) 45%, transparent); }
+    .mt-chain-hint { margin: .6rem 0 0; font-size: .72rem; color: var(--text-muted); display: flex; align-items: center; gap: .35rem; }
+    .mt-chain-hint .pi { font-size: .8rem; }
+    .ta-r { text-align: right; } .strong { font-weight: 700; color: var(--text-main); } .warn { color: var(--warn-soft-fg, #b45309); font-weight: 600; }
+    .mt-dlg-head { display: flex; flex-direction: column; gap: .1rem; }
+    .mt-dlg-title { font-size: .95rem; font-weight: 700; color: var(--text-main); }
+    .mt-dlg-legend { font-size: .8rem; color: var(--text-muted); margin: 0 0 .8rem; line-height: 1.4; }
+    .mt-dlg-skel, .mt-dlg-empty { padding: 2.2rem 1rem; text-align: center; color: var(--text-muted); }
+    .mt-dlg-empty .pi { display: block; font-size: 1.4rem; margin-bottom: .4rem; opacity: .6; }
+    .mt-ctable { font-variant-numeric: tabular-nums; }
+    .cf-sub { font-size: .72rem; margin-top: .05rem; }
+    .mt-tog { width: 2rem; height: 2rem; }
+    .mt-dots { display: inline-flex; gap: .2rem; }
+    .mt-dot { display: inline-flex; align-items: center; justify-content: center; width: 1.25rem; height: 1.25rem; border-radius: var(--r-sm, 6px); font-size: .62rem; font-weight: 800; background: var(--surface-hover-bg, #f5f5f4); color: var(--text-faint, #a8a29e); }
+    .mt-dot.on { background: color-mix(in srgb, var(--ok-fg, #16a34a) 14%, transparent); color: var(--ok-fg, #16a34a); }
+    .mt-conf { display: inline-block; padding: .1rem .5rem; border-radius: var(--r-pill, 999px); font-size: .66rem; font-weight: 700; background: var(--surface-hover-bg, #f5f5f4); color: var(--text-muted); }
+    .mt-conf.c-exact { background: color-mix(in srgb, var(--ok-fg, #16a34a) 14%, transparent); color: var(--ok-fg, #16a34a); }
+    .mt-conf.c-inferred { background: color-mix(in srgb, var(--warn-fg, #d97706) 16%, transparent); color: var(--warn-soft-fg, #b45309); }
+    .mt-dlg-tabs { display: inline-flex; border: 1px solid var(--border-color); border-radius: var(--r-pill, 999px); overflow: hidden; margin-bottom: .8rem; }
+    .mt-dlg-tabs button { border: none; background: var(--card-bg); padding: .4rem .9rem; font-size: .8rem; cursor: pointer; color: var(--text-muted); display: inline-flex; align-items: center; gap: .4rem; }
+    .mt-dlg-tabs button + button { border-left: 1px solid var(--border-color); }
+    .mt-dlg-tabs button.active { background: var(--action); color: var(--action-ink, #fff); font-weight: 600; }
+    .mt-tab-n { font-variant-numeric: tabular-nums; font-size: .72rem; opacity: .85; }
+    .mt-est { display: inline-block; padding: .1rem .5rem; border-radius: var(--r-pill, 999px); font-size: .66rem; font-weight: 700; }
+    .mt-est.e-vigente { background: color-mix(in srgb, var(--ok-fg, #16a34a) 14%, transparent); color: var(--ok-fg, #16a34a); }
+    .mt-est.e-cancelado { background: color-mix(in srgb, var(--bad-fg, #dc2626) 15%, transparent); color: var(--bad-fg, #dc2626); }
+    .mt-est.e-desconocido { background: var(--surface-hover-bg, #f5f5f4); color: var(--text-muted); }
+    .mt-exp-row > td { background: var(--surface-hover-bg, #faf9f8); }
+    .mt-timeline { display: flex; align-items: stretch; gap: .5rem; flex-wrap: wrap; padding: .3rem 0; }
+    .mt-tl-step { display: flex; align-items: center; gap: .5rem; border: 1px solid var(--border-color); border-radius: var(--r-md, 10px); padding: .5rem .7rem; background: var(--card-bg); min-width: 12rem; flex: 1; }
+    .mt-tl-step.off { opacity: .55; border-style: dashed; }
+    .mt-tl-ico { display: inline-flex; align-items: center; justify-content: center; width: 1.9rem; height: 1.9rem; border-radius: var(--r-sm, 8px); background: var(--surface-hover-bg, #f5f5f4); color: var(--text-muted); flex-shrink: 0; }
+    .mt-tl-ico.on { background: color-mix(in srgb, var(--action) 14%, transparent); color: var(--action); }
+    .mt-tl-b { display: flex; flex-direction: column; gap: .05rem; min-width: 0; }
+    .mt-tl-lbl { font-size: .66rem; text-transform: uppercase; letter-spacing: .03em; color: var(--text-muted); font-weight: 600; }
+    .mt-tl-sep { color: var(--text-faint, #a8a29e); font-size: .75rem; align-self: center; }
+    .mt-tl-meta { display: flex; gap: 1.2rem; margin-top: .5rem; font-size: .74rem; color: var(--text-muted); }
+    @media (max-width: 640px) { .mt-tl-sep { display: none; } .mt-tl-step { min-width: 100%; } }
   `],
 })
 export class ContabilidadMaterialidadComponent {
   readonly tabs = CONTABILIDAD_TABS;
   private readonly svc = inject(MaterialidadService);
+  private readonly cfdiSvc = inject(CfdiService);
   private readonly toast = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);
 
   rfc = '';
   readonly dossier = signal<MaterialidadDossier | null>(null);
+
+  /** MAT.2 — desglose de documentos de la cadena de suministro (diálogo). */
+  readonly chainsOpen = signal(false);
+  readonly chains = signal<MaterialidadChain[] | null>(null);
+  readonly chainsLoading = signal(false);
+  private chainsRfc = '';
+
+  /** MAT.2 — tab fiscal del diálogo: CFDIs recibidos del proveedor (reusa MAT.0). */
+  readonly dlgTab = signal<'oper' | 'fiscal'>('oper');
+  readonly cfdis = signal<CfdiRow[] | null>(null);
+  readonly cfdisLoading = signal(false);
+  private cfdisRfc = '';
 
   /** KPIs de materialidad vía MetricStrip (sin caja). */
   kpiItems(d: MaterialidadDossier): MetricStripItem[] {
@@ -156,11 +362,56 @@ export class ContabilidadMaterialidadComponent {
   buscar() {
     if (!this.rfcValid()) { this.toast.add({ severity: 'warn', summary: 'RFC inválido', detail: 'Revisa el formato del RFC.' }); return; }
     this.loading.set(true); this.searched.set(true); this.dossier.set(null);
+    this.chains.set(null); this.chainsRfc = ''; this.chainsOpen.set(false);
+    this.cfdis.set(null); this.cfdisRfc = ''; this.dlgTab.set('oper');
     this.svc.dossier(this.rfc.toUpperCase()).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (d) => { this.dossier.set(d); this.loading.set(false); },
       error: () => { this.loading.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo armar el expediente.' }); },
     });
   }
+
+  /** Abre el desglose de documentos; carga las cadenas del RFC (con cache por RFC). */
+  openChains() {
+    const d = this.dossier();
+    if (!d || d.cadena_suministro.cadenas === 0) return;
+    this.dlgTab.set('oper');
+    this.chainsOpen.set(true);
+    if (this.chains() && this.chainsRfc === d.rfc) return;
+    this.chainsLoading.set(true); this.chainsRfc = d.rfc;
+    this.svc.chains(d.rfc).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (rows) => { this.chains.set(rows); this.chainsLoading.set(false); },
+      error: () => { this.chainsLoading.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudieron cargar los documentos.' }); },
+    });
+  }
+
+  /** Cambia de tab; carga los CFDIs del proveedor la primera vez (cache por RFC). */
+  setDlgTab(t: 'oper' | 'fiscal') {
+    this.dlgTab.set(t);
+    const d = this.dossier();
+    if (t !== 'fiscal' || !d) return;
+    if (this.cfdis() && this.cfdisRfc === d.rfc) return;
+    this.cfdisLoading.set(true); this.cfdisRfc = d.rfc;
+    this.cfdiSvc.list({ emisor_rfc: d.rfc, rol: 'recibidas', limit: 500 }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => { this.cfdis.set(r.rows); this.cfdisLoading.set(false); },
+      error: () => { this.cfdisLoading.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudieron cargar los CFDIs.' }); },
+    });
+  }
+
+  /** Descarga el XML de un CFDI recibido (persistido en MAT.0). */
+  downloadXml(c: CfdiRow) {
+    this.cfdiSvc.xml(c.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (xml) => {
+        const blob = new Blob([xml], { type: 'application/xml' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a'); a.href = url; a.download = `${c.uuid || c.id}.xml`; a.click();
+        URL.revokeObjectURL(url);
+      },
+      error: () => this.toast.add({ severity: 'warn', summary: 'Sin documento', detail: 'Este CFDI no tiene XML guardado. Re-descarga el periodo.' }),
+    });
+  }
+
+  confLabel(c: string | null): string { return c === 'exact' ? 'Directa' : c === 'inferred' ? 'Inferida' : c === 'partial' ? 'Parcial' : '—'; }
+  estatusLabel(e: string): string { return e === 'vigente' ? 'Vigente' : e === 'cancelado' ? 'Cancelado' : 'Sin verificar'; }
 
   veredictoLabel(n: string): string { return n === 'solida' ? 'Sólida' : n === 'critico' ? 'Crítico' : n === 'revisar' ? 'Revisar' : 'Parcial'; }
   listaLabel(l: string): string { return l === '69B' ? 'EFOS 69-B' : l === '69' ? 'Art. 69' : l; }

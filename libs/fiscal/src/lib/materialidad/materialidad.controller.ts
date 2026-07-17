@@ -15,4 +15,9 @@ export class MaterialidadController {
   @RequirePermissions(Permission.FISCAL_MATERIALIDAD_VER)
   @ApiOperation({ summary: 'Expediente de materialidad de un proveedor (listas + CFDIs + cadena de suministro + veredicto).' })
   dossier(@Param('rfc') rfc: string) { return this.svc.buildDossier(rfc); }
+
+  @Get(':rfc/chains')
+  @RequirePermissions(Permission.FISCAL_MATERIALIDAD_VER)
+  @ApiOperation({ summary: 'Desglose de la cadena de suministro: documentos (orden → recepción → factura → pago) por cada factura del proveedor.' })
+  chains(@Param('rfc') rfc: string) { return this.svc.chains(rfc); }
 }

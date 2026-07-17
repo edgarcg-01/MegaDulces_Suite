@@ -51,7 +51,7 @@ export class MaterialidadService {
         );
       const [chain] = await trx('analytics.expense_doc_chain as ch')
         .join('analytics.expense_documents as e', (j) => j.on('e.tenant_id', 'ch.tenant_id').andOn('e.sucursal', 'ch.sucursal').andOn('e.doc_folio', 'ch.factura_folio'))
-        .where('e.tenant_id', tid).andWhereRaw('UPPER(e.rfc)=?', [rfc])
+        .where('e.tenant_id', tid).andWhere('e.doc_tipo', 'XA2001').andWhereRaw('UPPER(e.rfc)=?', [rfc])
         .select(
           trx.raw('count(*)::int as cadenas'),
           trx.raw('count(*) FILTER (WHERE ch.orden_folio IS NOT NULL)::int as con_orden'),
@@ -81,6 +81,46 @@ export class MaterialidadService {
       },
       veredicto: this.veredicto(enLista, recepPct, cadenas, Number(cfdis?.cancelados || 0)),
     };
+  }
+
+  /**
+   * MAT.2 — Desglose de la cadena de suministro: una fila por factura de compra
+   * (XA2001) con sus documentos relacionados (orden XA3501 → recepción XA3701 →
+   * factura → pago programado XA4001), fechas y confianza del enlace. Es el drill
+   * detrás de la "Cadena de suministro" del expediente. analytics.* sin RLS →
+   * filtro de tenant explícito.
+   */
+  async chains(rfcInput: string) {
+    const rfc = (rfcInput || '').trim().toUpperCase();
+    if (!/^[A-ZÑ&]{3,4}[0-9]{6}[A-Z0-9]{3}$/.test(rfc)) throw new BadRequestException('RFC inválido');
+    const tid = this.tenantCtx.requireTenantId();
+    const rows = await this.tk.run(async (trx) =>
+      trx('analytics.expense_doc_chain as ch')
+        .join('analytics.expense_documents as e', (j) =>
+          j.on('e.tenant_id', 'ch.tenant_id').andOn('e.sucursal', 'ch.sucursal').andOn('e.doc_folio', 'ch.factura_folio'))
+        .where('e.tenant_id', tid).andWhere('e.doc_tipo', 'XA2001').andWhereRaw('UPPER(e.rfc)=?', [rfc])
+        .select(
+          'ch.sucursal', 'ch.factura_folio', 'ch.factura_fecha',
+          'ch.orden_folio', 'ch.orden_fecha', 'ch.recepcion_folio', 'ch.recepcion_fecha',
+          'ch.pago_folio', 'ch.pago_fecha',
+          trx.raw('ch.total::numeric AS total'),
+          'ch.lead_days', 'ch.pago_days', 'ch.match_confidence',
+        )
+        .orderBy('ch.factura_fecha', 'desc')
+        .limit(1000));
+    return rows.map((r: any) => ({
+      key: `${r.sucursal}|${r.factura_folio}`,
+      sucursal: r.sucursal,
+      factura_folio: r.factura_folio, factura_fecha: r.factura_fecha,
+      orden_folio: r.orden_folio, orden_fecha: r.orden_fecha,
+      recepcion_folio: r.recepcion_folio, recepcion_fecha: r.recepcion_fecha,
+      pago_folio: r.pago_folio, pago_fecha: r.pago_fecha,
+      total: Number(r.total || 0),
+      lead_days: r.lead_days != null ? Number(r.lead_days) : null,
+      pago_days: r.pago_days != null ? Number(r.pago_days) : null,
+      match_confidence: r.match_confidence,
+      completa: !!(r.orden_folio && r.recepcion_folio),
+    }));
   }
 
   private esRiesgo(lista: string, situacion: string): boolean {

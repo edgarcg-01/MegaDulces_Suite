@@ -18,10 +18,26 @@ export interface MaterialidadDossier {
   veredicto: { nivel: string; mensaje: string };
 }
 
+/** MAT.2 — una fila por factura de compra con sus documentos relacionados. */
+export interface MaterialidadChain {
+  key: string;
+  sucursal: string;
+  factura_folio: string; factura_fecha: string | null;
+  orden_folio: string | null; orden_fecha: string | null;
+  recepcion_folio: string | null; recepcion_fecha: string | null;
+  pago_folio: string | null; pago_fecha: string | null;
+  total: number;
+  lead_days: number | null; pago_days: number | null;
+  match_confidence: string | null;
+  completa: boolean;
+}
+
 @Injectable({ providedIn: 'root' })
 export class MaterialidadService {
   private readonly http = inject(HttpClient);
   private readonly base = `${environment.apiUrl}/fiscal/materialidad`;
 
   dossier(rfc: string): Observable<MaterialidadDossier> { return this.http.get<MaterialidadDossier>(`${this.base}/${encodeURIComponent(rfc)}`); }
+  /** MAT.2 — desglose de documentos de la cadena de suministro del RFC. */
+  chains(rfc: string): Observable<MaterialidadChain[]> { return this.http.get<MaterialidadChain[]>(`${this.base}/${encodeURIComponent(rfc)}/chains`); }
 }
