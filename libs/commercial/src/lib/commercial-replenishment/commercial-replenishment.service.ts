@@ -35,6 +35,7 @@ export interface CriticalStockQuery {
   sort_dir?: string; // 'asc' | 'desc'
   page?: number;
   pageSize?: number;
+  export?: boolean;  // interno: sube el cap de filas para exportar TODO (XLSX). No expuesto por query param.
 }
 
 interface RequisitionLineDto {
@@ -122,7 +123,8 @@ export class CommercialReplenishmentService {
     const oh = this.onHand();
     const it = this.inTransit();
     const page = Math.max(1, Number(q.page) || 1);
-    const pageSize = Math.min(500, Math.max(1, Number(q.pageSize) || 50));
+    const cap = q.export ? 100000 : 500;
+    const pageSize = Math.min(cap, Math.max(1, Number(q.pageSize) || (q.export ? cap : 50)));
 
     return this.tk.run(async (trx) => {
       // Ranking POR DINERO (venta/mes est.) RELATIVO al filtro activo: cuando se selecciona

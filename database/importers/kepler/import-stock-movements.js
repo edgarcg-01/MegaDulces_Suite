@@ -240,10 +240,13 @@ async function loadDoctypeMap(src, schema) {
     if (!APPLY) { await db.query('ROLLBACK'); console.log('\n[DRY-RUN] ROLLBACK — nada cambió.'); return; }
     if (!touched.length) { await db.query('ROLLBACK'); console.log('\nSin almacenes tocados — nada que hacer.'); return; }
 
-    // Merge: reemplaza la ventana de los almacenes tocados.
+    // Merge: reemplaza la ventana de los almacenes tocados. EXCLUYE las filas de
+    // origen Wincaja (source_branch 'W%', histórico pre-migración cargado por
+    // import-wincaja-stock-movements) — no las toca este feed Kepler.
     const wh = touched.map((_, i) => `$${i + 2}`).join(',');
     await db.query(
-      `DELETE FROM analytics.stock_movements WHERE tenant_id=$1 AND doc_date >= $${touched.length + 2} AND warehouse_id IN (${wh})`,
+      `DELETE FROM analytics.stock_movements WHERE tenant_id=$1 AND doc_date >= $${touched.length + 2}
+         AND warehouse_id IN (${wh}) AND coalesce(source_branch,'') NOT LIKE 'W%'`,
       [M, ...touched, cutoff]
     );
     const ins = await db.query(`

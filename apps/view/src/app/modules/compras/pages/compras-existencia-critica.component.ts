@@ -62,6 +62,8 @@ interface DraftLine {
           <p class="surf-page-sub">Existencia contra punto de reorden por almacén. El motor sugiere cuánto pedir; tú generas la requisición.</p>
         </div>
         <div class="ec-head-actions">
+          <button pButton type="button" label="Excel" icon="pi pi-file-excel" class="p-button-sm p-button-outlined p-button-secondary"
+                  [loading]="dl()" [disabled]="dl() || total() === 0" (click)="downloadXlsx()"></button>
           <button pButton type="button" [label]="'Generar requisición' + (selCount() ? ' (' + selCount() + ')' : '')" icon="pi pi-file-edit"
                   class="p-button-sm" [disabled]="!canRequire()" (click)="openDialog()"></button>
         </div>
@@ -338,6 +340,7 @@ export class ComprasExistenciaCriticaComponent implements OnInit {
     ];
   }
   loading = signal(false);
+  dl = signal(false);
   saving = signal(false);
   page = signal(1);
 
@@ -472,6 +475,33 @@ export class ComprasExistenciaCriticaComponent implements OnInit {
     }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (r) => { this.rows.set(r.rows); this.total.set(r.total); this.loading.set(false); },
       error: () => { this.loading.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo cargar la existencia crítica.' }); },
+    });
+  }
+
+  /** Export XLSX con diseño: mismos filtros de la vista, todas las filas del filtro. */
+  downloadXlsx(): void {
+    this.dl.set(true);
+    const scope = this.fBucket === '__all' ? 'all' : undefined;
+    const bucket = this.fBucket && this.fBucket !== '__all' ? this.fBucket : undefined;
+    this.api.criticalStockXlsx({
+      warehouse_ids: this.fWarehouses.length ? this.fWarehouses : undefined, supplier_id: this.fSupplier || undefined,
+      abc: this.fAbc || undefined, xyz: this.fXyz || undefined,
+      bucket, scope, target_basis: this.fBasis, search: this.fSearch || undefined,
+      sort_by: this.fSortBy || undefined, sort_dir: this.fSortBy ? this.fSortDir : undefined,
+    }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (resp) => {
+        this.dl.set(false);
+        const blob = resp.body!;
+        const cd = resp.headers.get('content-disposition') || '';
+        const star = /filename\*=UTF-8''([^;]+)/i.exec(cd);
+        const plain = /filename="?([^";]+)"?/i.exec(cd);
+        const name = star ? decodeURIComponent(star[1]) : (plain ? plain[1] : 'Existencia_Critica.xlsx');
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url; a.download = name; a.click();
+        URL.revokeObjectURL(url);
+      },
+      error: () => { this.dl.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo generar el Excel.' }); },
     });
   }
 

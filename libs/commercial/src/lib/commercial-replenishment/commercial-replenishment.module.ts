@@ -4,6 +4,7 @@ import { CommercialReplenishmentController } from './commercial-replenishment.co
 import { ReplenishmentScannerService } from './replenishment-scanner.service';
 import { CommercialPurchaseOrdersService } from './commercial-purchase-orders.service';
 import { CommercialPurchaseOrdersController } from './commercial-purchase-orders.controller';
+import { ReplenishmentExportService } from './replenishment-export.service';
 
 /**
  * Proyecto Compras / Reabastecimiento (Fase RA — ADR-030).
@@ -14,7 +15,7 @@ import { CommercialPurchaseOrdersController } from './commercial-purchase-orders
  */
 @Module({
   controllers: [CommercialReplenishmentController, CommercialPurchaseOrdersController],
-  providers: [CommercialReplenishmentService, ReplenishmentScannerService, CommercialPurchaseOrdersService],
+  providers: [CommercialReplenishmentService, ReplenishmentScannerService, CommercialPurchaseOrdersService, ReplenishmentExportService],
   exports: [CommercialReplenishmentService, CommercialPurchaseOrdersService],
 })
 export class CommercialReplenishmentModule {}

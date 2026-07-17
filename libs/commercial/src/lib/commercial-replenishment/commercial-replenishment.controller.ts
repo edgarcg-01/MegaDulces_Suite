@@ -1,7 +1,9 @@
-import { Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query, Res, UseGuards } from '@nestjs/common';
+import { Response } from 'express';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
 import { CommercialReplenishmentService, CreateRequisitionDto, ReceiveRequisitionDto } from './commercial-replenishment.service';
+import { ReplenishmentExportService } from './replenishment-export.service';
 
 /**
  * RA.4/RA.7 — Proyecto Compras (ADR-030). Existencia crítica + sugerido + requisiciones.
@@ -12,7 +14,10 @@ import { CommercialReplenishmentService, CreateRequisitionDto, ReceiveRequisitio
 @UseGuards(RolesGuard)
 @Controller('commercial/replenishment')
 export class CommercialReplenishmentController {
-  constructor(private readonly svc: CommercialReplenishmentService) {}
+  constructor(
+    private readonly svc: CommercialReplenishmentService,
+    private readonly exporter: ReplenishmentExportService,
+  ) {}
 
   @Get('critical-stock')
   @RequirePermissions(Permission.COMPRAS_VER)
@@ -34,6 +39,39 @@ export class CommercialReplenishmentController {
     @Query('pageSize') pageSize?: string,
   ) {
     return this.svc.criticalStock({ warehouse_id, warehouse_ids, supplier_id, abc, xyz, bucket, source, search, target_basis, scope, sort_by, sort_dir, page: page ? Number(page) : undefined, pageSize: pageSize ? Number(pageSize) : undefined });
+  }
+
+  @Get('critical-stock.xlsx')
+  @RequirePermissions(Permission.COMPRAS_VER)
+  @ApiOperation({ summary: 'Existencia crítica → Excel con diseño (mismos filtros que /critical-stock; exporta TODAS las filas del filtro, sin paginar).' })
+  async criticalStockXlsx(
+    @Res() res: Response,
+    @Query('warehouse_id') warehouse_id?: string,
+    @Query('warehouse_ids') warehouse_ids?: string,
+    @Query('supplier_id') supplier_id?: string,
+    @Query('abc') abc?: string,
+    @Query('xyz') xyz?: string,
+    @Query('bucket') bucket?: string,
+    @Query('source') source?: string,
+    @Query('search') search?: string,
+    @Query('target_basis') target_basis?: string,
+    @Query('scope') scope?: string,
+    @Query('sort_by') sort_by?: string,
+    @Query('sort_dir') sort_dir?: string,
+  ) {
+    const report = await this.svc.criticalStock({
+      warehouse_id, warehouse_ids, supplier_id, abc, xyz, bucket, source, search, target_basis, scope, sort_by, sort_dir,
+      export: true,
+    });
+    const buf = await this.exporter.build(report);
+    const filename = this.exporter.fileName(report);
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${filename.replace(/[^ -~]/g, '_')}"; filename*=UTF-8''${encodeURIComponent(filename)}`,
+    );
+    res.setHeader('Content-Length', String(buf.length));
+    res.end(buf);
   }
 
   @Get('critical-stock/summary')

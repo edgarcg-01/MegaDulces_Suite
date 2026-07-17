@@ -274,6 +274,28 @@ export class ComprasService {
     return this.http.get<CriticalStockResponse>(`${this.base}/critical-stock${qs ? '?' + qs : ''}`);
   }
 
+  /** Export XLSX con diseño (mismos filtros; exporta TODO el filtro, sin paginar). */
+  criticalStockXlsx(q: CriticalStockQuery) {
+    const p = new URLSearchParams();
+    if (q.warehouse_ids?.length) p.set('warehouse_ids', q.warehouse_ids.join(','));
+    else if (q.warehouse_id) p.set('warehouse_id', q.warehouse_id);
+    if (q.supplier_id) p.set('supplier_id', q.supplier_id);
+    if (q.abc) p.set('abc', q.abc);
+    if (q.xyz) p.set('xyz', q.xyz);
+    if (q.bucket) p.set('bucket', q.bucket);
+    if (q.source) p.set('source', q.source);
+    if (q.search) p.set('search', q.search);
+    if (q.target_basis) p.set('target_basis', q.target_basis);
+    if (q.scope) p.set('scope', q.scope);
+    if (q.sort_by) p.set('sort_by', q.sort_by);
+    if (q.sort_dir) p.set('sort_dir', q.sort_dir);
+    const qs = p.toString();
+    return this.http.get(`${this.base}/critical-stock.xlsx${qs ? '?' + qs : ''}`, {
+      responseType: 'blob',
+      observe: 'response',
+    });
+  }
+
   deadStock(q: { warehouse_ids?: string[]; warehouse_id?: string; supplier_id?: string; search?: string; page?: number; pageSize?: number }): Observable<DeadStockResponse> {
     const p = new URLSearchParams();
     if (q.warehouse_ids?.length) p.set('warehouse_ids', q.warehouse_ids.join(','));
