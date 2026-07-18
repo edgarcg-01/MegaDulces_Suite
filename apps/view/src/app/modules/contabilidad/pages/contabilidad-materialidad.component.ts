@@ -248,8 +248,15 @@ import { Permission } from '../../../core/constants/permissions';
                     }
                     @case ('suggested') {
                       <div class="mt-asg">
-                        <span class="mt-conf c-inferred" title="Sugerida por RFC + importe + fecha"><i class="pi pi-sparkles"></i> {{ c.suggestion?.doc_folio }}</span>
-                        <span class="muted cf-sub">{{ c.suggestion?.sucursal }} · Δ {{ money(c.suggestion?.diff_importe) }}@if (c.suggestion?.diff_days != null) { · {{ c.suggestion?.diff_days }}d }</span>
+                        @if (c.suggestion?.strength === 'weak') {
+                          <span class="mt-conf c-weak" title="Match débil: la operación no tiene RFC; cruzada solo por importe+fecha. Valida el nombre antes de confirmar."><i class="pi pi-exclamation-triangle"></i> {{ c.suggestion?.doc_folio }}</span>
+                        } @else {
+                          <span class="mt-conf c-inferred" title="Sugerida por RFC + importe + fecha"><i class="pi pi-sparkles"></i> {{ c.suggestion?.doc_folio }}</span>
+                        }
+                        <span class="muted cf-sub">{{ c.suggestion?.sucursal }} · Δ {{ money(c.suggestion?.diff_importe) }}@if (c.suggestion?.diff_days != null) { · {{ c.suggestion?.diff_days }}d }@if (c.suggestion?.strength === 'weak') { · <b class="warn">sin RFC</b> }</span>
+                        @if (c.suggestion?.strength === 'weak' && c.suggestion?.beneficiario) {
+                          <span class="mt-asg-benef" title="Nombre en la operación — verifica que coincida con el proveedor"><i class="pi pi-user"></i> {{ c.suggestion?.beneficiario }}</span>
+                        }
                         @if (canManage) {
                           <span class="mt-asg-acts">
                             <button pButton type="button" icon="pi pi-check" class="p-button-sm p-button-success mt-ico-btn" title="Confirmar asignación" aria-label="Confirmar" [disabled]="busy() === c.cfdi_id" (click)="confirmSuggestion(c)"></button>
@@ -330,6 +337,9 @@ import { Permission } from '../../../core/constants/permissions';
     .mt-conf { display: inline-block; padding: .1rem .5rem; border-radius: var(--r-pill, 999px); font-size: .66rem; font-weight: 700; background: var(--surface-hover-bg, #f5f5f4); color: var(--text-muted); }
     .mt-conf.c-exact { background: color-mix(in srgb, var(--ok-fg, #16a34a) 14%, transparent); color: var(--ok-fg, #16a34a); }
     .mt-conf.c-inferred { background: color-mix(in srgb, var(--warn-fg, #d97706) 16%, transparent); color: var(--warn-soft-fg, #b45309); }
+    .mt-conf.c-weak { background: color-mix(in srgb, var(--warn-fg, #d97706) 10%, transparent); color: var(--warn-soft-fg, #b45309); border: 1px dashed color-mix(in srgb, var(--warn-fg, #d97706) 45%, transparent); }
+    .mt-asg-benef { font-size: .7rem; color: var(--text-muted); display: inline-flex; align-items: center; gap: .25rem; max-width: 22ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .mt-asg-benef .pi { font-size: .8em; }
     .mt-dlg-tabs { display: inline-flex; border: 1px solid var(--border-color); border-radius: var(--r-pill, 999px); overflow: hidden; margin-bottom: .8rem; }
     .mt-dlg-tabs button { border: none; background: var(--card-bg); padding: .4rem .9rem; font-size: .8rem; cursor: pointer; color: var(--text-muted); display: inline-flex; align-items: center; gap: .4rem; }
     .mt-dlg-tabs button + button { border-left: 1px solid var(--border-color); }

@@ -53,7 +53,7 @@ export class PolizaCruceService {
                WHERE e.tenant_id = :tid
                  AND UPPER(e.rfc) = c.emisor_rfc
                  AND abs(COALESCE(e.importe,0) - COALESCE(c.total,0)) <= :tol
-                 AND e.fecha BETWEEN (c.fecha::date - :dias) AND (c.fecha::date + :dias)
+                 AND e.fecha BETWEEN (c.fecha::date - (:dias)::int) AND (c.fecha::date + (:dias)::int)
             )
           ORDER BY c.fecha DESC
           LIMIT :limit OFFSET :offset`,
@@ -86,7 +86,7 @@ export class PolizaCruceService {
                WHERE c.rol = 'recibidas' AND c.estatus_sat <> 'cancelado'
                  AND c.emisor_rfc = UPPER(e.rfc)
                  AND abs(COALESCE(c.total,0) - COALESCE(e.importe,0)) <= :tol
-                 AND c.fecha::date BETWEEN (e.fecha - :dias) AND (e.fecha + :dias)
+                 AND c.fecha::date BETWEEN (e.fecha - (:dias)::int) AND (e.fecha + (:dias)::int)
             )
           ORDER BY e.importe DESC
           LIMIT :limit OFFSET :offset`,
@@ -94,6 +94,18 @@ export class PolizaCruceService {
           from: f.from ?? null, to: f.to ?? null, rfc: f.rfc ? f.rfc.toUpperCase() : null },
       );
       return r.rows;
+    });
+  }
+
+  /** CFDIs recibidos ingestados con total=0 (falla de parseo). Agregado + muestra. */
+  private async cfdiTotalCero(): Promise<{ n: number; muestra: string[] }> {
+    return this.tk.run(async (trx) => {
+      const [r] = await trx('fiscal.cfdis')
+        .where({ rol: 'recibidas' })
+        .andWhere('estatus_sat', '<>', 'cancelado')
+        .andWhereRaw('COALESCE(total,0) = 0')
+        .select(trx.raw('count(*)::int as n'), trx.raw('(array_agg(uuid))[1:5] as muestra'));
+      return { n: Number(r?.n || 0), muestra: r?.muestra || [] };
     });
   }
 
@@ -115,9 +127,10 @@ export class PolizaCruceService {
     if (!this.sink) { this.logger.debug('FINANCE_FINDINGS_SINK_PORT no ligado — cruce no-op.'); return { pushed: 0, inserted: 0, skipped: 0 }; }
 
     // Ejecutar bajo el scope del tenant (las queries usan tenantCtx.requireTenantId()).
-    const { sinCfdi, sinPol } = await this.tenantCtx.run({ tenantId }, async () => ({
+    const { sinCfdi, sinPol, cero } = await this.tenantCtx.run({ tenantId }, async () => ({
       sinCfdi: await this.polizaSinCfdi({ limit: 5000 }),
       sinPol: await this.cfdiSinPoliza({ limit: 5000 }),
+      cero: await this.cfdiTotalCero(),
     }));
 
     const findings: FinanceFindingInput[] = [];
@@ -149,6 +162,20 @@ export class PolizaCruceService {
         periodo: this.ym(c.fecha), importe,
         evidencia: { fecha: c.fecha, metodo_pago: c.metodo_pago, fuente: 'fiscal.cfdis', match: 'rfc+importe+fecha' },
         dedup_key: `cfdi_sin_poliza|${c.uuid}`,
+      });
+    }
+
+    if (cero && Number(cero.n) > 0) {
+      const rCero: FinanceRuleInput = { rule_key: 'cfdi_total_cero', nombre: 'CFDI recibido con total $0', descripcion: 'CFDI recibido que quedó con total=0 al ingestarse (falla de parseo en la descarga masiva): no se puede validar importe, cruzar con la contabilidad ni sumar al gasto.', clase: 'error_captura' };
+      rules.set(rCero.rule_key, rCero);
+      findings.push({
+        rule_key: rCero.rule_key, clase: 'error_captura', severity: 'warn', score: 0.5,
+        titulo: `${cero.n} CFDI recibido(s) con total $0`,
+        resumen: `${cero.n} CFDI recibido(s) quedaron con total=0 al ingestarse (falla de parseo). No se pueden cruzar por importe ni sumar al gasto — re-parsear el XML guardado o re-descargar el periodo.`,
+        entity: { tipo: 'cfdi_total_cero' },
+        periodo: null, importe: 0,
+        evidencia: { num_cfdis: Number(cero.n), muestra_uuid: cero.muestra, fuente: 'fiscal.cfdis', regla: 'total = 0' },
+        dedup_key: 'cfdi_total_cero',
       });
     }
 

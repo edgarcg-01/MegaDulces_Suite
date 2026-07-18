@@ -38,7 +38,7 @@ export interface MatReconcileRow {
   total: number; tipo_comprobante: string | null; metodo_pago: string | null; estatus_sat: string; has_xml: boolean;
   status: 'confirmed' | 'suggested' | 'unmatched';
   assignment: { id: string; sucursal: string; doc_tipo: string; doc_folio: string; importe_operacion: number | null; diff_importe: number | null; diff_days: number | null; by: string | null; at: string | null } | null;
-  suggestion: { sucursal: string; doc_tipo: string; doc_folio: string; importe: number | null; fecha: string | null; diff_importe: number | null; diff_days: number | null } | null;
+  suggestion: { sucursal: string; doc_tipo: string; doc_folio: string; importe: number | null; fecha: string | null; diff_importe: number | null; diff_days: number | null; beneficiario: string | null; strength: 'strong' | 'weak' } | null;
 }
 export interface MatAssignInput { cfdi_id: string; sucursal: string; doc_tipo?: string; doc_folio: string; note?: string; }
 

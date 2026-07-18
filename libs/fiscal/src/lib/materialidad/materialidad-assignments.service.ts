@@ -5,6 +5,10 @@ import { TenantKnexService, TenantContextService } from '@megadulces/platform-co
  *  el UUID → se casa por RFC + importe ± $1 + fecha ± 5 días). */
 const TOL_IMPORTE = 1.0;
 const VENTANA_DIAS = 5;
+/** MAT.1.1 — fallback para operaciones SIN RFC (55% de las compras en Kepler): se
+ *  cruza solo por importe + fecha, con ventana más estrecha. Match "débil": lo
+ *  valida el humano por nombre (se muestra el beneficiario). */
+const VENTANA_DIAS_WEAK = 3;
 
 export interface AssignmentInput {
   cfdi_id: string;
@@ -52,18 +56,35 @@ export class MaterialidadAssignmentsService {
                 a.importe_operacion AS a_importe, a.diff_importe AS a_diff_importe, a.diff_days AS a_diff_days,
                 a.match_source AS a_source, a.created_by_username AS a_by, a.created_at AS a_at,
                 s.sucursal AS s_sucursal, s.doc_tipo AS s_doc_tipo, s.doc_folio AS s_doc_folio,
-                s.importe AS s_importe, s.fecha AS s_fecha, s.diff_importe AS s_diff_importe, s.diff_days AS s_diff_days
+                s.importe AS s_importe, s.fecha AS s_fecha, s.diff_importe AS s_diff_importe, s.diff_days AS s_diff_days,
+                s.beneficiario AS s_beneficiario, s.strength AS s_strength
            FROM fiscal.cfdis c
            LEFT JOIN fiscal.cfdi_assignments a ON a.cfdi_id = c.id AND a.status = 'confirmed'
            LEFT JOIN LATERAL (
-             SELECT e.sucursal, e.doc_tipo, e.doc_folio, e.importe, e.fecha,
-                    abs(COALESCE(e.importe,0) - COALESCE(c.total,0)) AS diff_importe,
-                    abs(e.fecha - c.fecha::date) AS diff_days
+             SELECT e.sucursal, e.doc_tipo, e.doc_folio, e.importe, e.fecha, e.beneficiario,
+                    LEAST(abs(COALESCE(e.importe,0) - COALESCE(c.total,0)),
+                          abs(COALESCE(e.importe,0) + COALESCE(e.iva,0) - COALESCE(c.total,0))) AS diff_importe,
+                    abs(e.fecha - c.fecha::date) AS diff_days,
+                    CASE WHEN UPPER(COALESCE(e.rfc,'')) = UPPER(c.emisor_rfc) THEN 'strong' ELSE 'weak' END AS strength
                FROM analytics.expense_documents e
-              WHERE e.tenant_id = :tid AND e.doc_tipo = 'XA2001'
-                AND UPPER(e.rfc) = UPPER(c.emisor_rfc)
-                AND abs(COALESCE(e.importe,0) - COALESCE(c.total,0)) <= :tol
-                AND e.fecha BETWEEN (c.fecha::date - :dias) AND (c.fecha::date + :dias)
+              WHERE e.tenant_id = :tid AND e.doc_tipo IN ('XA2001','XA1001')
+                AND COALESCE(c.total,0) > 0
+                AND LEAST(abs(COALESCE(e.importe,0) - COALESCE(c.total,0)),
+                          abs(COALESCE(e.importe,0) + COALESCE(e.iva,0) - COALESCE(c.total,0))) <= :tol
+                AND (
+                  -- fuerte: el documento tiene el RFC del proveedor (ventana normal)
+                  ( UPPER(COALESCE(e.rfc,'')) = UPPER(c.emisor_rfc)
+                    AND e.fecha BETWEEN (c.fecha::date - (:dias)::int) AND (c.fecha::date + (:dias)::int) )
+                  OR
+                  -- débil (MAT.1.1): documento SIN RFC → importe+fecha (ventana estrecha) +
+                  -- el nombre de la operación debe compartir una palabra (≥4) con el proveedor
+                  ( btrim(COALESCE(e.rfc,'')) = ''
+                    AND e.fecha BETWEEN (c.fecha::date - (:diasWeak)::int) AND (c.fecha::date + (:diasWeak)::int)
+                    AND EXISTS (
+                      SELECT 1 FROM regexp_split_to_table(upper(COALESCE(e.beneficiario,'')), '[^A-Z0-9]+') w
+                       WHERE length(w) >= 4 AND upper(COALESCE(c.emisor_nombre,'')) LIKE '%' || w || '%'
+                    ) )
+                )
                 AND NOT EXISTS (
                   SELECT 1 FROM fiscal.cfdi_assignments a2
                    WHERE a2.status = 'confirmed' AND a2.sucursal = e.sucursal
@@ -72,13 +93,14 @@ export class MaterialidadAssignmentsService {
                   SELECT 1 FROM fiscal.cfdi_assignments a3
                    WHERE a3.status = 'rejected' AND a3.cfdi_id = c.id
                      AND a3.sucursal = e.sucursal AND a3.doc_tipo = e.doc_tipo AND a3.doc_folio = e.doc_folio)
-              ORDER BY diff_importe ASC, diff_days ASC
+              -- prioriza fuerte sobre débil, luego menor diferencia de importe/fecha
+              ORDER BY (CASE WHEN UPPER(COALESCE(e.rfc,'')) = UPPER(c.emisor_rfc) THEN 0 ELSE 1 END) ASC, diff_importe ASC, diff_days ASC
               LIMIT 1
            ) s ON true
           WHERE c.rol = 'recibidas' AND UPPER(c.emisor_rfc) = :rfc AND c.estatus_sat <> 'cancelado'
           ORDER BY c.fecha DESC
           LIMIT 1000`,
-        { tid, rfc, tol: TOL_IMPORTE, dias: VENTANA_DIAS },
+        { tid, rfc, tol: TOL_IMPORTE, dias: VENTANA_DIAS, diasWeak: VENTANA_DIAS_WEAK },
       );
       return (r.rows as any[]).map((row) => this.mapRow(row));
     });
@@ -173,6 +195,8 @@ export class MaterialidadAssignmentsService {
       importe: row.s_importe != null ? Number(row.s_importe) : null, fecha: row.s_fecha,
       diff_importe: row.s_diff_importe != null ? Number(row.s_diff_importe) : null,
       diff_days: row.s_diff_days != null ? Number(row.s_diff_days) : null,
+      beneficiario: row.s_beneficiario ?? null,
+      strength: row.s_strength === 'weak' ? 'weak' : 'strong',
     } : null;
     return {
       cfdi_id: row.cfdi_id, uuid: row.uuid, serie: row.serie, folio: row.folio, fecha: row.fecha,

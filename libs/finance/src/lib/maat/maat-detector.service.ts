@@ -49,6 +49,7 @@ const RULES: RuleMeta[] = [
   { rule_key: 'iva_capitalizado', clase: 'error_captura', nombre: 'IVA capitalizado (bug XD5501)', descripcion: 'IVA acreditable huérfano por el bug de descuentos XD5501 (partida doble descuadrada).', params: {} },
   { rule_key: 'prov_203_orfano', clase: 'error_captura', nombre: 'Provisión 203 sin descargar', descripcion: 'Provisiones en la cuenta 203 que nunca se descargan (nómina/IMSS/SAT).', params: {} },
   { rule_key: 'anticipo_stale', clase: 'error_captura', nombre: 'Anticipo 107 sin aplicar', descripcion: 'Anticipos a proveedores (107) que nunca se aplican contra factura.', params: {} },
+  { rule_key: 'compra_sin_rfc', clase: 'error_captura', nombre: 'Compra/gasto sin RFC de proveedor', descripcion: 'Documentos de compra (XA2001) o gasto (XA1001) sin RFC del proveedor capturado: no son deducibles, no entran a DIOT y no permiten armar la materialidad del CFDI.', params: { min_monto: 10000 } },
   { rule_key: 'spread_proveedor_sku', clase: 'oportunidad', nombre: 'Ahorro por spread de precio', descripcion: 'Mismo SKU comprado a 2+ proveedores con diferencia de precio relevante — ahorro potencial.', params: { min_spread_pct: 15, min_proveedores: 2, min_compras: 2 } },
 ];
 /** rule_key → tipo de expense_findings v1 (ports de la Fase GX). */
@@ -137,6 +138,7 @@ export class MaatDetectorService {
       case 'dpo_largo': return this.detDpoLargo(trx, tenantId, params);
       case 'proveedor_nuevo_grande': return this.detProveedorNuevo(trx, tenantId, params);
       case 'spread_proveedor_sku': return this.detSpread(trx, tenantId, params);
+      case 'compra_sin_rfc': return this.detCompraSinRfc(trx, tenantId, params);
       case 'iva_capitalizado':
       case 'prov_203_orfano':
       case 'anticipo_stale': return this.detPortFindings(key, trx, tenantId);
@@ -166,6 +168,36 @@ export class MaatDetectorService {
       evidencia: { folios: r.folios, num_facturas: r.n },
       dedup_key: `cadena_incompleta|${r.sucursal}|${norm(r.beneficiario)}`,
     }));
+  }
+
+  // ── error_captura: compras/gastos sin RFC del proveedor (rompe deducibilidad, DIOT y materialidad) ──
+  private async detCompraSinRfc(trx: any, tenantId: string, p: any): Promise<RawFinding[]> {
+    const min = Number(p.min_monto) || 10000;
+    const rows = await trx('analytics.expense_documents')
+      .where('tenant_id', tenantId)
+      .whereIn('doc_tipo', ['XA2001', 'XA1001'])
+      .whereRaw("(rfc IS NULL OR btrim(rfc) = '')")
+      .groupBy('doc_tipo')
+      .havingRaw('SUM(importe) >= ?', [min])
+      .select('doc_tipo',
+        trx.raw('COUNT(*)::int AS n'),
+        trx.raw('ROUND(SUM(importe)::numeric, 2) AS monto'),
+        trx.raw("(array_agg(DISTINCT NULLIF(btrim(beneficiario), '')))[1:6] AS proveedores"));
+    return rows.map((r: any) => {
+      const compra = r.doc_tipo === 'XA2001';
+      return {
+        rule_key: 'compra_sin_rfc',
+        severity: (compra ? 'warn' : 'info') as 'warn' | 'info',
+        score: compra ? 0.7 : 0.4,
+        titulo: `${r.n} ${compra ? 'compra(s)' : 'gasto(s)'} sin RFC — ${money(Number(r.monto))}`,
+        resumen: `${r.n} documento(s) de ${compra ? 'compra (XA2001)' : 'gasto (XA1001)'} por ${money(Number(r.monto))} sin RFC del proveedor. ${compra ? 'Sin RFC no son deducibles, no entran a DIOT y no se puede cruzar el CFDI para materialidad.' : 'Ojo: muchos gastos internos (nómina/depreciación/viáticos) van sin RFC legítimamente — revisar los que sí deberían tenerlo.'}`,
+        entity: { doc_tipo: r.doc_tipo },
+        periodo: null,
+        importe: Number(r.monto),
+        evidencia: { num_docs: r.n, proveedores_muestra: r.proveedores, fuente: 'analytics.expense_documents', regla: "rfc IS NULL OR ''" },
+        dedup_key: `compra_sin_rfc|${r.doc_tipo}`,
+      };
+    });
   }
 
   // ── riesgo: pares de facturas casi idénticas (mismo proveedor, ventana corta) ──
