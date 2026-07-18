@@ -4,6 +4,7 @@ import { Knex } from 'knex';
 import { KNEX_NEW_DB, TenantContextService } from '@megadulces/platform-core';
 import { FINANCE_NOTIFIER_PORT, FinanceNotifierPort } from '@megadulces/contracts';
 import { MaatDetectorService } from './maat-detector.service';
+import { MaatLearningService } from './maat-learning.service';
 
 /**
  * MAAT.2 — Cron nocturno del motor de patrones. Corre los detectores para cada
@@ -19,6 +20,7 @@ export class MaatScannerService {
     @Inject(KNEX_NEW_DB) private readonly knex: Knex,
     private readonly tenantCtx: TenantContextService,
     private readonly detector: MaatDetectorService,
+    private readonly learning: MaatLearningService,
     // Notificador proactivo (WS + push). @Optional: si no hay binding, el scan corre igual.
     @Optional() @Inject(FINANCE_NOTIFIER_PORT) private readonly notifier?: FinanceNotifierPort,
   ) {}
@@ -38,6 +40,9 @@ export class MaatScannerService {
         try {
           const r = await this.tenantCtx.run({ tenantId: t.id }, () => this.detector.scanAll(source));
           nuevos += r.nuevos;
+          // MIQ.2 — tras detectar, el modelo aprende y prioriza (best-effort, no bloquea el scan).
+          await this.tenantCtx.run({ tenantId: t.id }, () => this.learning.runLearning())
+            .catch((e) => this.logger.warn(`learning tenant ${t.id} falló: ${e?.message || e}`));
           // Proactividad: notifica los hallazgos críticos NUEVOS (best-effort, no bloquea).
           if (this.notifier && r.nuevos_criticos?.length) {
             await this.notifier.notifyCritical(t.id, r.nuevos_criticos).catch((e) => this.logger.warn(`notifyCritical falló: ${e?.message || e}`));

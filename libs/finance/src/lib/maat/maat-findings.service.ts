@@ -33,8 +33,11 @@ export class MaatFindingsService {
       const b = trx('finance.findings as f')
         .leftJoin('finance.rule_registry as r', function (this: any) { this.on('r.tenant_id', 'f.tenant_id').andOn('r.rule_key', 'f.rule_key'); })
         .select('f.id', 'f.rule_key', 'r.nombre as regla', 'f.clase', 'f.severity', 'f.status', 'f.score',
+          trx.raw('f.model_score::numeric AS model_score'), 'f.model_version',
           'f.titulo', 'f.resumen', 'f.entity', 'f.periodo', trx.raw('f.importe::numeric AS importe'),
           'f.evidencia', 'f.first_seen', 'f.last_seen')
+        // prioridad APRENDIDA primero (MIQ.2); cae al score del detector en cold-start
+        .orderByRaw('COALESCE(f.model_score, f.score, 0) DESC')
         .orderByRaw("CASE f.severity WHEN 'critical' THEN 0 WHEN 'warn' THEN 1 ELSE 2 END")
         .orderBy('f.importe', 'desc')
         .limit(limit);
@@ -45,7 +48,7 @@ export class MaatFindingsService {
       if (q.severity) b.where('f.severity', q.severity);
       if (q.rule_key) b.where('f.rule_key', q.rule_key);
       const rows = await b;
-      return rows.map((r: any) => ({ ...r, importe: Number(r.importe) }));
+      return rows.map((r: any) => ({ ...r, importe: Number(r.importe), model_score: r.model_score == null ? null : Number(r.model_score) }));
     });
   }
 

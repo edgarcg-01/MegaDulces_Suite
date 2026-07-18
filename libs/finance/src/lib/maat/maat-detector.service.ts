@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
+import { MaatAnomalyService } from './maat-anomaly.service';
 
 /**
  * MAAT.2 — Motor de patrones de Maat (ADR-028). Formaliza el detector-lite de
@@ -43,6 +44,10 @@ const RULES: RuleMeta[] = [
   { rule_key: 'cadena_incompleta', clase: 'riesgo', nombre: 'Factura sin recepción', descripcion: 'Facturas de compra (XA2001) pagadas/registradas sin recepción (XA3701) correlacionada — pagar sin comprobante de recibido.', params: { min_monto: 5000, critico_monto: 100000 } },
   { rule_key: 'posible_duplicado', clase: 'riesgo', nombre: 'Posible factura duplicada', descripcion: 'Dos facturas del mismo proveedor con importe casi idéntico en una ventana corta.', params: { tolerancia_pct: 0.5, ventana_dias: 7, min_monto: 500 } },
   { rule_key: 'gasto_atipico', clase: 'riesgo', nombre: 'Gasto mensual atípico', descripcion: 'Gasto de una cuenta mayor en un mes se desvía ≥3σ de su historia (cuenta×sucursal).', params: { z: 3, min_meses: 6, min_monto: 20000 } },
+  // MIQ.1 — detección estadística (delegan en MaatAnomalyService): encuentran lo que ninguna regla escribió.
+  { rule_key: 'benford_importes', clase: 'riesgo', nombre: 'Distribución de montos anómala (Benford)', descripcion: 'Los importes de una sucursal se desvían de la Ley de Benford (MAD de Nigrini) — señal forense de montos fabricados o redondeados.', params: { min_docs: 300, mad_warn: 0.012, mad_crit: 0.015 } },
+  { rule_key: 'peer_group_outlier', clase: 'riesgo', nombre: 'Sucursal fuera de rango vs pares', descripcion: 'Una sucursal gasta muy por encima de sus pares en la misma cuenta el mismo mes (mediana + MAD robusto, corte transversal entre sucursales).', params: { z: 2.5, min_peers: 3, min_monto: 20000 } },
+  { rule_key: 'nivel_nuevo_serie', clase: 'riesgo', nombre: 'Costo subió y se quedó arriba', descripcion: 'Cambio de nivel sostenido en una cuenta×sucursal (no un pico de un mes): un costo recurrente que subió ≥50% y se mantiene arriba.', params: { min_meses: 8, cambio_pct: 0.5, min_monto: 15000, ventana_reciente: 3 } },
   { rule_key: 'salto_precio_sku', clase: 'riesgo', nombre: 'Salto de precio en SKU', descripcion: 'Costo unitario de un SKU a un proveedor se desvía ≥2σ (z-score) de su promedio histórico.', params: { z: 2, min_compras: 4 } },
   { rule_key: 'dpo_largo', clase: 'riesgo', nombre: 'DPO / saldo alto de proveedor', descripcion: 'Proveedor con saldo por pagar y días de pago (DPO) por encima del umbral.', params: { dpo_max: 60, min_saldo: 10000 } },
   { rule_key: 'proveedor_nuevo_grande', clase: 'riesgo', nombre: 'Proveedor nuevo de monto alto', descripcion: 'Proveedor sin historial previo que entra directo con una compra grande.', params: { antiguedad_dias: 60, min_monto: 50000 } },
@@ -65,6 +70,7 @@ export class MaatDetectorService {
   constructor(
     private readonly tk: TenantKnexService,
     private readonly tenantCtx: TenantContextService,
+    private readonly anomaly: MaatAnomalyService,
   ) {}
 
   /** Sincroniza el catálogo de reglas desde el código sin pisar la calibración humana. */
@@ -139,6 +145,9 @@ export class MaatDetectorService {
       case 'proveedor_nuevo_grande': return this.detProveedorNuevo(trx, tenantId, params);
       case 'spread_proveedor_sku': return this.detSpread(trx, tenantId, params);
       case 'compra_sin_rfc': return this.detCompraSinRfc(trx, tenantId, params);
+      case 'benford_importes': return this.anomaly.detBenford(trx, tenantId, params);
+      case 'peer_group_outlier': return this.anomaly.detPeerGroup(trx, tenantId, params);
+      case 'nivel_nuevo_serie': return this.anomaly.detNivelNuevo(trx, tenantId, params);
       case 'iva_capitalizado':
       case 'prov_203_orfano':
       case 'anticipo_stale': return this.detPortFindings(key, trx, tenantId);
