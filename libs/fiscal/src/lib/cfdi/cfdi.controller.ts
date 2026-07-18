@@ -1,7 +1,8 @@
-import { Controller, Get, Header, Param, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Header, Param, Query, Res, StreamableFile, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import type { Response } from 'express';
 import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
-import { CfdiService, CfdiListFilters } from './cfdi.service';
+import { CfdiService, type CfdiListFilters } from './cfdi.service';
 
 /** FISCAL.4.2 — API de lectura del almacén CFDI 4.0 (fiscal.cfdis). */
 @ApiTags('fiscal-cfdi')
@@ -20,6 +21,16 @@ export class CfdiController {
   @RequirePermissions(Permission.FISCAL_CFDI_VER)
   @ApiOperation({ summary: 'Resumen: conteo/monto por tipo de comprobante y método de pago.' })
   stats(@Query() q: CfdiListFilters) { return this.svc.stats(q); }
+
+  @Get('export.zip')
+  @RequirePermissions(Permission.FISCAL_CFDI_VER)
+  @ApiOperation({ summary: 'MAT — Exporta un ZIP con los XML agrupados en carpetas por RFC (+ _index.csv). Mismos filtros que la lista.' })
+  async exportZip(@Query() q: CfdiListFilters, @Res({ passthrough: true }) res: Response): Promise<StreamableFile> {
+    const { buffer, filename } = await this.svc.exportZip(q);
+    res.set('Content-Type', 'application/zip');
+    res.set('Content-Disposition', `attachment; filename="${filename}"`);
+    return new StreamableFile(buffer);
+  }
 
   @Get(':id/xml')
   @RequirePermissions(Permission.FISCAL_CFDI_VER)

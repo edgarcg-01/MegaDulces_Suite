@@ -60,6 +60,7 @@ import { CfdiService, CfdiRow, CfdiStats, CfdiFilters } from '../cfdi.service';
           <button [class.active]="tipo()==='P'" (click)="setTipo('P')" title="Pago (REP)">P</button>
         </div>
         <button pButton type="button" label="Buscar" icon="pi pi-filter" class="p-button-sm p-button-outlined" (click)="applyFilters()"></button>
+        <button pButton type="button" label="Exportar ZIP" icon="pi pi-download" class="p-button-sm p-button-text" [loading]="exporting()" (click)="exportZip()" title="Descarga los XML del filtro actual, en carpetas por RFC (+ índice CSV)"></button>
       </div>
 
       <div class="card-premium card-flat">
@@ -138,6 +139,7 @@ export class ContabilidadCfdiComponent implements OnInit {
   readonly stats = signal<CfdiStats | null>(null);
   readonly loading = signal(false);
   readonly errored = signal(false);
+  readonly exporting = signal(false);
   readonly rol = signal<'recibidas' | 'emitidas' | 'all'>('recibidas');
   readonly tipo = signal<'all' | 'I' | 'E' | 'P'>('all');
   from = ''; to = ''; search = '';
@@ -172,6 +174,20 @@ export class ContabilidadCfdiComponent implements OnInit {
         URL.revokeObjectURL(url);
       },
       error: () => this.toast.add({ severity: 'warn', summary: 'Sin documento', detail: 'Este CFDI no tiene XML guardado. Re-descarga el periodo.' }),
+    });
+  }
+
+  /** MAT — exporta el filtro actual como ZIP con carpetas por RFC (+ _index.csv). */
+  exportZip() {
+    this.exporting.set(true);
+    this.svc.exportZip(this.filters()).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (blob) => {
+        this.exporting.set(false);
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a'); a.href = url; a.download = 'expediente-cfdi.zip'; a.click();
+        URL.revokeObjectURL(url);
+      },
+      error: () => { this.exporting.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo generar el ZIP.' }); },
     });
   }
 

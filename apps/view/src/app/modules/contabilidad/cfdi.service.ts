@@ -45,4 +45,6 @@ export class CfdiService {
   get(id: string): Observable<any> { return this.http.get(`${this.base}/${encodeURIComponent(id)}`); }
   /** MAT.0 — XML del documento (recibidas: solo si se guardó al descargar). */
   xml(id: string): Observable<string> { return this.http.get(`${this.base}/${encodeURIComponent(id)}/xml`, { responseType: 'text' }); }
+  /** MAT — ZIP con los XML agrupados en carpetas por RFC (+ _index.csv). Mismos filtros. */
+  exportZip(f: CfdiFilters = {}): Observable<Blob> { return this.http.get(`${this.base}/export.zip${this.qs(f)}`, { responseType: 'blob' }); }
 }

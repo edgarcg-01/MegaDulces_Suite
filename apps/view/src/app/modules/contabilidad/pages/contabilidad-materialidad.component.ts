@@ -213,6 +213,8 @@ import { Permission } from '../../../core/constants/permissions';
             <span class="mt-rs ok">✓ {{ rs.confirmed }} asignadas</span>
             <span class="mt-rs warn">◐ {{ rs.suggested }} sugeridas</span>
             <span class="mt-rs muted">○ {{ rs.unmatched }} sin operación</span>
+            <button pButton type="button" label="Descargar ZIP" icon="pi pi-download" class="p-button-sm p-button-outlined mt-dl-btn"
+                    [loading]="exporting()" [disabled]="rs.total === 0" (click)="downloadExpediente()"></button>
           </div>
         }
 
@@ -337,7 +339,8 @@ import { Permission } from '../../../core/constants/permissions';
     .mt-est.e-vigente { background: color-mix(in srgb, var(--ok-fg, #16a34a) 14%, transparent); color: var(--ok-fg, #16a34a); }
     .mt-est.e-cancelado { background: color-mix(in srgb, var(--bad-fg, #dc2626) 15%, transparent); color: var(--bad-fg, #dc2626); }
     .mt-est.e-desconocido { background: var(--surface-hover-bg, #f5f5f4); color: var(--text-muted); }
-    .mt-recon-sum { display: flex; gap: .9rem; flex-wrap: wrap; margin-bottom: .7rem; font-size: .74rem; font-weight: 600; }
+    .mt-recon-sum { display: flex; gap: .9rem; flex-wrap: wrap; align-items: center; margin-bottom: .7rem; font-size: .74rem; font-weight: 600; }
+    .mt-dl-btn { margin-left: auto; }
     .mt-rs.ok { color: var(--ok-fg, #16a34a); } .mt-rs.warn { color: var(--warn-soft-fg, #b45309); } .mt-rs.muted { color: var(--text-muted); }
     .mt-asg { display: flex; align-items: center; gap: .45rem; flex-wrap: wrap; }
     .mt-asg-acts { display: inline-flex; gap: .2rem; }
@@ -382,6 +385,7 @@ export class ContabilidadMaterialidadComponent {
   readonly recon = signal<MatReconcileRow[] | null>(null);
   readonly reconLoading = signal(false);
   readonly busy = signal<string | null>(null); // cfdi_id en curso (confirmar/descartar)
+  readonly exporting = signal(false);
   private reconRfc = '';
   readonly reconSummary = computed(() => {
     const rows = this.recon() || [];
@@ -495,6 +499,22 @@ export class ContabilidadMaterialidadComponent {
         URL.revokeObjectURL(url);
       },
       error: () => this.toast.add({ severity: 'warn', summary: 'Sin documento', detail: 'Este CFDI no tiene XML guardado. Re-descarga el periodo.' }),
+    });
+  }
+
+  /** MAT — descarga el expediente del proveedor: ZIP con los XML en carpeta por RFC. */
+  downloadExpediente() {
+    const d = this.dossier();
+    if (!d) return;
+    this.exporting.set(true);
+    this.cfdiSvc.exportZip({ emisor_rfc: d.rfc, rol: 'recibidas' }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (blob) => {
+        this.exporting.set(false);
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a'); a.href = url; a.download = `expediente-cfdi-${d.rfc}.zip`; a.click();
+        URL.revokeObjectURL(url);
+      },
+      error: () => { this.exporting.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo generar el ZIP.' }); },
     });
   }
 
