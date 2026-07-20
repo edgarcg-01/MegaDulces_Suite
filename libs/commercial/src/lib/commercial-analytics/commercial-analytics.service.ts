@@ -226,6 +226,9 @@ export interface SellOutRow {
   sku: string;
   nombre: string;
   uxc: number | null;
+  /** RS.3 — 'weight' → la cantidad está en KG (granel/bulto, NO se divide a cajas);
+   *  'piece'/undefined → cantidad en CAJAS (piezas ÷ factor). El frontend etiqueta según esto. */
+  unit_kind?: 'piece' | 'weight';
   cells: Record<string, SellOutCell>;
   total: SellOutCell;
 }
@@ -2110,6 +2113,11 @@ export class CommercialAnalyticsService {
         .join('catalog.products as p', 'p.id', 'sd.product_id')
         .leftJoin('catalog.brands as b', 'b.id', 'p.brand_id')
         .join('commercial.warehouses as w', 'w.id', 'sd.warehouse_id')
+        // RS.3 — box_size del catálogo de etiquetas: divisor de respaldo cuando factor_sale
+        // viene en 1 (ej. 60101, factor_sale=1 pero caja de 20). unit_kind decide si se divide.
+        .leftJoin('commercial.product_label_prices as lp', function () {
+          this.on('lp.product_id', '=', 'p.id').andOn('lp.tenant_id', '=', 'p.tenant_id');
+        })
         .where('sd.tenant_id', tenantId)
         .andWhere('p.is_promo', false)
         .modify((qb) => {
@@ -2131,6 +2139,8 @@ export class CommercialAnalyticsService {
           'b.nombre as brand_nombre',
           'b.code as brand_code',
           trx.raw(`${channelExpr} as channel`),
+          trx.raw('max(sd.unit_kind) as unit_kind'),
+          trx.raw('max(lp.box_size) as box_size'),
         )
         .sum({ units: 'sd.units' })
         .sum({ monto: 'sd.revenue' })
@@ -2181,10 +2191,15 @@ export class CommercialAnalyticsService {
         continue;
       }
       if (channelFilter && !channelFilter.has(channel)) continue;
-      const factor = Number(r.factor_sale) > 0 ? Number(r.factor_sale) : 1;
       const units = Number(r.units) || 0;
       const monto = Number(r.monto) || 0;
-      const cajas = units / factor;
+      // RS.3 — producto de PESO: units ya está en kg → NO se divide (mostrar kg). Producto
+      // de PIEZA: units son piezas → cajas = piezas / (factor_sale, o box_size si factor=1).
+      const isWeight = r.unit_kind === 'weight';
+      const fs = Number(r.factor_sale);
+      const box = Number(r.box_size);
+      const divisor = fs > 1 ? fs : (box > 1 ? box : 1);
+      const cajas = isWeight ? units : units / divisor;
       branchesWithData.add(r.branch_name);
 
       // Columnas: por MES (month_columns) o por sucursal[×canal].
@@ -2237,6 +2252,7 @@ export class CommercialAnalyticsService {
               sku: r.sku,
               nombre: r.nombre,
               uxc: r.factor_sale != null ? Number(r.factor_sale) : null,
+              unit_kind: isWeight ? 'weight' : 'piece',
               cells: {},
               total: { cajas: 0, monto: 0 },
             };

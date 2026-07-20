@@ -1426,6 +1426,7 @@ export interface SellOutRow {
   sku: string;
   nombre: string;
   uxc: number | null;
+  unit_kind?: 'piece' | 'weight';
   cells: Record<string, SellOutCell>;
   total: SellOutCell;
 }

@@ -235,8 +235,10 @@ const CHANNEL_OPTS = [
                       <td class="frz c0 only name">{{ row.nombre }}</td>
                     } @else {
                       <td class="frz c0 mono">{{ row.sku }}</td>
-                      <td class="frz c1 name">{{ row.nombre }}</td>
-                      <td class="frz c2 n">{{ row.uxc ?? '—' }}</td>
+                      <td class="frz c1 name">{{ row.nombre }}
+                        @if (row.unit_kind === 'weight') { <span class="so-kg-tag" title="Producto a granel: la cantidad está en kilos, no en cajas">granel</span> }
+                      </td>
+                      <td class="frz c2 n">{{ row.unit_kind === 'weight' ? 'kg' : (row.uxc ?? '—') }}</td>
                     }
                     @for (c of r.columns; track c.key) {
                       @if (showCajas()) { <td class="n">{{ cell(row, c.key)?.cajas != null ? (cell(row, c.key)!.cajas | number:'1.0-2') : '·' }}</td> }
@@ -334,6 +336,10 @@ const CHANNEL_OPTS = [
     .so-matrix td.n { text-align:right; font-variant-numeric:tabular-nums; min-width:64px; }
     .so-matrix td.n:not(.m):not(.b) { color:var(--text-muted); }
     .so-matrix td.name { max-width:280px; overflow:hidden; text-overflow:ellipsis; }
+    /* RS.3 — marca de producto a granel: su cantidad va en kg, no en cajas. */
+    .so-kg-tag { display:inline-block; margin-left:.4rem; font-size:.62rem; font-weight:700; text-transform:uppercase;
+      letter-spacing:.04em; color:var(--text-muted); border:1px solid var(--border-color); border-radius:var(--r-xs,4px);
+      padding:.02rem .28rem; vertical-align:middle; }
     .so-matrix td.mono { font-family:var(--font-mono); font-size:.74rem; }
     .so-matrix td.b { font-weight:700; }
     /* Bloque congelado: identidad del producto; divisores internos suaves + sombra de borde. */
