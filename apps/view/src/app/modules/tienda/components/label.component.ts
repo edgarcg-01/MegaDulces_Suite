@@ -14,8 +14,8 @@ export interface LabelSections {
 }
 export const ALL_SECTIONS: LabelSections = { mayoreoPza: true, paquete: true, mayoreoPaq: true, caja: true, barcode: true };
 
-/** Qué precio va en GRANDE (hero). Intercambiable por ticket. */
-export type HeroKey = 'pieza' | 'paquete' | 'caja';
+/** Qué precio va en GRANDE (hero). Intercambiable por ticket. 'kg' = granel por kilo. */
+export type HeroKey = 'pieza' | 'paquete' | 'caja' | 'kg';
 
 export interface LabelModel {
   code?: string;
@@ -114,6 +114,12 @@ export interface LabelModel {
         </div>
         <div class="etq-right">
           <div class="etq-tiers">
+            @if (granelAltTier; as g) {
+              <div class="etq-tier">
+                <div class="txt">Precio por {{ g.label }}:</div>
+                <div class="pricecell"><span class="amt" #amtEl>\${{ g.value | number:'1.2-2' }}</span></div>
+              </div>
+            }
             @if (hasMayoreoPza) {
               <div class="etq-tier">
                 <div class="txt">Mayoreo desde <span class="etq-red">{{ mayoreoMin }}</span> pzas:</div>
@@ -211,18 +217,37 @@ export class LabelComponent implements AfterViewInit, OnChanges {
    */
   get bigUnit(): { word: string; value: number } {
     const m = this.model;
-    const granel = this.granelGrams > 0;
+    const grams = this.granelGrams;
+    const granel = grams > 0;
     const piece = this.num(m?.piece_price);
-    const pieceUnit = granel ? { word: 'kg', value: this.perKgPrice } : { word: 'pieza', value: piece };
-    // Override explícito por ticket (solo si ese precio existe).
+    const portionWord = grams >= 1000 ? 'kg' : `${grams} g`; // "500 g" / "kg"
+
+    // Overrides explícitos por ticket.
+    if (this.hero === 'kg' && granel) return { word: 'kg', value: this.perKgPrice };
     if (this.hero === 'paquete' && this.num(m?.pack_price) > 0) return { word: 'paquete', value: this.num(m?.pack_price) };
     if (this.hero === 'caja' && this.num(m?.box_price) > 0) return { word: 'caja', value: this.num(m?.box_price) };
-    if (this.hero === 'pieza' && piece > 0) return pieceUnit;
-    // Default: pieza/kg con fallback.
-    if (piece > 0) return pieceUnit;
+    if (this.hero === 'pieza' && piece > 0) return granel ? { word: portionWord, value: piece } : { word: 'pieza', value: piece };
+
+    // Default: granel = por kg (se vende por kilo); normal = pieza; con fallback.
+    if (granel && (piece > 0 || this.perKgPrice > 0)) return { word: 'kg', value: this.perKgPrice };
+    if (piece > 0) return { word: 'pieza', value: piece };
     if (this.num(m?.pack_price) > 0) return { word: 'paquete', value: this.num(m?.pack_price) };
     if (this.num(m?.box_price) > 0) return { word: 'caja', value: this.num(m?.box_price) };
     return granel ? { word: 'kg', value: 0 } : { word: 'pieza', value: 0 };
+  }
+
+  /**
+   * Granel de porción < 1 kg (500 g / 250 g / …): muestra el OTRO precio como tier para ver
+   * AMBOS — si el hero es por kg, el tier es la porción; si el hero es la porción, el tier es kg.
+   */
+  get granelAltTier(): { label: string; value: number } | null {
+    const grams = this.granelGrams;
+    if (grams <= 0 || grams >= 1000) return null;
+    const piece = this.num(this.model?.piece_price);
+    if (piece <= 0) return null;
+    return this.bigUnit.word === 'kg'
+      ? { label: `${grams} g`, value: piece }
+      : { label: '1 kg', value: this.perKgPrice };
   }
   private get bigStr(): string { return this.bigUnit.value.toFixed(2); }
   // F4: separador de miles (igual que los tiers con number:'1.2-2') → "1,044".

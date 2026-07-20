@@ -446,8 +446,9 @@ export class TiendaEtiquetasComponent {
     return this.n(m.piece_price) > 0 || this.n(m.pack_price) > 0 || this.n(m.box_price) > 0;
   }
 
-  /** Hero por default: pieza si tiene precio; si no, el primero disponible (no imprime $0). */
+  /** Hero por default: granel → por kg (se vende por kilo); si no, pieza / primero disponible. */
   private defaultHero(m: LabelModel): HeroKey {
+    if (this.granelGrams(m) > 0 && this.n(m.piece_price) > 0) return 'kg';
     if (this.n(m.piece_price) > 0) return 'pieza';
     if (this.n(m.pack_price) > 0) return 'paquete';
     if (this.n(m.box_price) > 0) return 'caja';
@@ -466,11 +467,17 @@ export class TiendaEtiquetasComponent {
     const opts: { value: HeroKey; label: string }[] = [];
     const fmt = (v: number) => '$' + v.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     const g = this.granelGrams(m);
-    if (this.n(m.piece_price) > 0) {
-      // Granel se vende por KG → el "pieza" es el precio por kilo derivado de la porción.
-      opts.push(g > 0
-        ? { value: 'pieza', label: `Kg ${fmt(this.n(m.piece_price) * 1000 / g)}` }
-        : { value: 'pieza', label: `Pieza ${fmt(this.n(m.piece_price))}` });
+    const piece = this.n(m.piece_price);
+    if (piece > 0) {
+      if (g > 0 && g < 1000) {
+        // Granel de porción < 1 kg → ofrece AMBAS: la porción y el kilo.
+        opts.push({ value: 'pieza', label: `${g} g ${fmt(piece)}` });
+        opts.push({ value: 'kg', label: `1 kg ${fmt(piece * 1000 / g)}` });
+      } else if (g >= 1000) {
+        opts.push({ value: 'kg', label: `1 kg ${fmt(piece)}` });
+      } else {
+        opts.push({ value: 'pieza', label: `Pieza ${fmt(piece)}` });
+      }
     }
     if (this.n(m.pack_price) > 0) opts.push({ value: 'paquete', label: `Paquete ${fmt(this.n(m.pack_price))}` });
     if (this.n(m.box_price) > 0) opts.push({ value: 'caja', label: `Caja ${fmt(this.n(m.box_price))}` });
