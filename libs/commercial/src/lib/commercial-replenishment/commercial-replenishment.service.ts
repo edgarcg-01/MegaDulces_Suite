@@ -38,6 +38,17 @@ export interface CriticalStockQuery {
   export?: boolean;  // interno: sube el cap de filas para exportar TODO (XLSX). No expuesto por query param.
 }
 
+// RA-PRO.8 — worklist "qué toca" (ciclos de reabasto por almacén×proveedor).
+export interface WorklistQuery {
+  warehouse_id?: string;
+  warehouse_ids?: string; // CSV (territorio del analista)
+  via?: string;           // 'purchase' | 'transfer'
+  status?: string;        // 'due' = vencido/hoy · default = todos los canales activos
+  search?: string;        // nombre de proveedor
+  page?: number;
+  pageSize?: number;
+}
+
 interface RequisitionLineDto {
   product_id: string;
   supplier_id?: string | null;
@@ -307,6 +318,85 @@ export class CommercialReplenishmentService {
     });
   }
 
+  // ── RA-PRO.8 — Worklist "Qué toca" (ciclos de reabasto) ───────────────
+  /**
+   * Lista, por (almacén × proveedor) con canal ACTIVO, cuándo toca el próximo pedido
+   * (next_due) y el sugerido con horizonte de ciclo: objetivo = demanda_diaria ×
+   * (cadencia + lead) + colchón; el lead efectivo de un traspaso es ~1d (interno).
+   * Agrega el sugerido de todos los SKUs del proveedor en ese almacén. Solo canales
+   * activos (última entrega ≤ 2× cadencia) para no arrastrar proveedores muertos.
+   * Scopeado por warehouse_ids (territorio del analista).
+   */
+  async worklist(q: WorklistQuery) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const page = Math.max(1, Number(q.page) || 1);
+    const pageSize = Math.min(500, Math.max(1, Number(q.pageSize) || 200));
+    const whIds = this.whIds(q);
+    return this.tk.run(async (trx) => {
+      const oh = '(COALESCE(s.quantity,0)-COALESCE(s.reserved_quantity,0))';
+      const it = 'COALESCE(pit.qty_in_transit,0)';
+      const effLead = `(CASE WHEN rc.via='transfer' THEN 1 ELSE COALESCE(rc.lead_time_days, sup.lead_time_days, 7) END)`;
+      const sug = `GREATEST(0, ceil(COALESCE(ih.avg_daily_units,0) * (rc.cadence_days + ${effLead}) + COALESCE(rp.safety_stock,0)) - ${oh} - ${it})`;
+      const cost = `COALESCE(pr.cost_with_tax, pr.cost_base, 0)`;
+
+      const filters: string[] = [
+        `rc.tenant_id = :t`,
+        `rc.cadence_days IS NOT NULL`,
+        `rc.last_delivery_date >= CURRENT_DATE - (rc.cadence_days*2)::int`,
+      ];
+      const binds: Record<string, unknown> = { t: tenantId };
+      if (whIds.length) { filters.push(`rc.warehouse_id IN (${whIds.map((_, i) => `:w${i}`).join(',')})`); whIds.forEach((w, i) => { binds[`w${i}`] = w; }); }
+      if (q.via && ['purchase', 'transfer'].includes(q.via)) { filters.push(`rc.via = :via`); binds.via = q.via; }
+      if (q.status === 'due') filters.push(`rc.next_due_date <= CURRENT_DATE`);
+      if (q.search && q.search.trim()) { filters.push(`sup.name ILIKE :s`); binds.s = `%${q.search.trim()}%`; }
+      const where = filters.join(' AND ');
+
+      const rows = (await trx.raw(`
+        SELECT rc.warehouse_id, w.code AS warehouse_code,
+               rc.supplier_id, sup.name AS supplier_name,
+               rc.via, rc.source_warehouse_id, srcw.code AS source_warehouse_code,
+               rc.cadence_days, rc.health_band, rc.last_delivery_date, rc.next_due_date,
+               (rc.next_due_date - CURRENT_DATE)::int AS days_to_due,
+               COALESCE(rc.lead_time_days, sup.lead_time_days) AS lead_time_days,
+               agg.n_skus, agg.n_below, agg.suggested_qty, agg.suggested_cost
+          FROM commercial.replenishment_channel rc
+          JOIN commercial.warehouses w ON w.tenant_id=rc.tenant_id AND w.id=rc.warehouse_id
+          LEFT JOIN catalog.suppliers sup ON sup.tenant_id=rc.tenant_id AND sup.id=rc.supplier_id
+          LEFT JOIN commercial.warehouses srcw ON srcw.tenant_id=rc.tenant_id AND srcw.id=rc.source_warehouse_id
+          LEFT JOIN LATERAL (
+            SELECT count(*)::int n_skus,
+                   count(*) FILTER (WHERE below)::int n_below,
+                   COALESCE(SUM(sug),0)::numeric AS suggested_qty,
+                   COALESCE(ROUND(SUM(sug*unit_cost)::numeric,2),0) AS suggested_cost
+              FROM (
+                SELECT (${oh} <= rp.reorder_point) AS below, ${sug} AS sug, ${cost} AS unit_cost
+                  FROM commercial.reorder_policy rp
+                  JOIN catalog.products pr ON pr.tenant_id=rp.tenant_id AND pr.id=rp.product_id
+                       AND pr.supplier_id=rc.supplier_id AND pr.activo=true
+                  LEFT JOIN commercial.stock s ON s.tenant_id=rp.tenant_id AND s.warehouse_id=rp.warehouse_id AND s.product_id=rp.product_id
+                  LEFT JOIN analytics.inventory_health ih ON ih.tenant_id=rp.tenant_id AND ih.warehouse_id=rp.warehouse_id AND ih.product_id=rp.product_id
+                  LEFT JOIN analytics.purchase_in_transit pit ON pit.tenant_id=rp.tenant_id AND pit.warehouse_id=rp.warehouse_id AND pit.product_id=rp.product_id
+                 WHERE rp.tenant_id=rc.tenant_id AND rp.warehouse_id=rc.warehouse_id
+              ) x
+          ) agg ON true
+         WHERE ${where}
+         ORDER BY rc.next_due_date ASC NULLS LAST, agg.suggested_cost DESC
+         LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`, binds)).rows;
+
+      const kpi = (await trx.raw(`
+        SELECT count(*)::int total,
+               count(*) FILTER (WHERE rc.next_due_date < CURRENT_DATE)::int vencidos,
+               count(*) FILTER (WHERE rc.next_due_date = CURRENT_DATE)::int hoy,
+               count(*) FILTER (WHERE rc.next_due_date > CURRENT_DATE AND rc.next_due_date <= CURRENT_DATE + 7)::int prox7,
+               COALESCE(SUM(rc.cadence_days),0) AS _dummy
+          FROM commercial.replenishment_channel rc
+          LEFT JOIN catalog.suppliers sup ON sup.tenant_id=rc.tenant_id AND sup.id=rc.supplier_id
+         WHERE ${where}`, binds)).rows[0];
+
+      return { total: Number(kpi.total), vencidos: Number(kpi.vencidos), hoy: Number(kpi.hoy), prox7: Number(kpi.prox7), page, pageSize, rows };
+    });
+  }
+
   // ── Stock muerto / SIN rotación (mostrar TODO lo no reabastecible) ─────
   /**
    * TODO producto activo SIN política de reorden en el almacén → no rota (0 demanda →
@@ -573,7 +663,7 @@ export class CommercialReplenishmentService {
         .leftJoin('commercial.warehouses as w', (j) => j.on('w.tenant_id', 'f.tenant_id').andOn('w.id', 'f.warehouse_id'))
         .leftJoin('catalog.suppliers as sup', (j) => j.on('sup.tenant_id', 'pr.tenant_id').andOn('sup.id', 'pr.supplier_id'))
         .where('f.tenant_id', tenantId).andWhere('f.status', status);
-      if (q.kind && ['agotado_abc', 'bajo_reorden'].includes(q.kind)) base.andWhere('f.kind', q.kind);
+      if (q.kind && ['agotado_abc', 'bajo_reorden', 'cadencia_lenta'].includes(q.kind)) base.andWhere('f.kind', q.kind);
       if (q.warehouse_id && UUID_RX.test(q.warehouse_id)) base.andWhere('f.warehouse_id', q.warehouse_id);
       const totalRow: any = await base.clone().clearSelect().clearOrder().count('* as c').first();
       const rows = await base.clone()

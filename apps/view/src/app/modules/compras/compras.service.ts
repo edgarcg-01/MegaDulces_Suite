@@ -228,7 +228,7 @@ export interface PurchaseOrderDetail extends PurchaseOrderRow {
 }
 export interface CreateReceiptLine { po_line_id: string; received_qty: number; unit_cost?: number; }
 
-export type FindingKind = 'agotado_abc' | 'bajo_reorden';
+export type FindingKind = 'agotado_abc' | 'bajo_reorden' | 'cadencia_lenta';
 export type FindingSeverity = 'critica' | 'alta' | 'media';
 export interface ReplenishmentFinding {
   id: string;
@@ -247,6 +247,36 @@ export interface ReplenishmentFinding {
   nombre: string;
   warehouse_code: string | null;
   supplier_name: string | null;
+}
+
+// ── RA-PRO.8 — Worklist "Qué toca" (ciclos de reabasto) ────────────────
+export type ReplenishVia = 'purchase' | 'transfer';
+export type CadenceBand = 'rapida' | 'promedio' | 'mal_abasto';
+export interface WorklistRow {
+  warehouse_id: string;
+  warehouse_code: string;
+  supplier_id: string;
+  supplier_name: string | null;
+  via: ReplenishVia;
+  source_warehouse_id: string | null;
+  source_warehouse_code: string | null; // hub que surte (si via=transfer)
+  cadence_days: number | null;
+  health_band: CadenceBand | null;
+  last_delivery_date: string | null;
+  next_due_date: string | null;
+  days_to_due: number | null;            // <0 vencido · 0 hoy · >0 futuro
+  lead_time_days: number | null;
+  n_skus: number;
+  n_below: number;                       // SKUs ≤ punto de reorden
+  suggested_qty: number;                 // piezas (horizonte = cadencia+lead+colchón)
+  suggested_cost: number;
+}
+export interface WorklistResponse {
+  total: number; vencidos: number; hoy: number; prox7: number;
+  page: number; pageSize: number; rows: WorklistRow[];
+}
+export interface WorklistQuery {
+  warehouse_ids?: string[]; warehouse_id?: string; via?: string; status?: string; search?: string; page?: number; pageSize?: number;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -387,6 +417,20 @@ export class ComprasService {
   }
   scanNow(): Observable<{ findings: number }> {
     return this.http.post<{ findings: number }>(`${this.base}/scan-now`, {});
+  }
+
+  /** RA-PRO.8 — worklist "qué toca": ciclos de reabasto por almacén×proveedor. */
+  worklist(q: WorklistQuery): Observable<WorklistResponse> {
+    const p = new URLSearchParams();
+    if (q.warehouse_ids?.length) p.set('warehouse_ids', q.warehouse_ids.join(','));
+    else if (q.warehouse_id) p.set('warehouse_id', q.warehouse_id);
+    if (q.via) p.set('via', q.via);
+    if (q.status) p.set('status', q.status);
+    if (q.search) p.set('search', q.search);
+    if (q.page) p.set('page', String(q.page));
+    if (q.pageSize) p.set('pageSize', String(q.pageSize));
+    const qs = p.toString();
+    return this.http.get<WorklistResponse>(`${this.base}/worklist${qs ? '?' + qs : ''}`);
   }
 
   // ── RA.15 (ADR-031) — Órdenes de compra (OC) + recepción (OE) ─────────

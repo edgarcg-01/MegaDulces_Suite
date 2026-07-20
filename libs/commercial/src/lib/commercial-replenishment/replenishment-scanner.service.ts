@@ -101,6 +101,64 @@ export class ReplenishmentScannerService {
         count++;
       }
 
+      // RA-PRO.8.4 — "cadencia_lenta": SKU que ROTA (ABC A/B) cuyo proveedor se COMPRA
+      // con cadencia > 14d → riesgo estructural de quiebre (el pedido llega demasiado
+      // espaciado para lo que vende). Distinto de bajo_reorden (momentáneo): esto es la
+      // política de compra la que no alcanza. Solo canales de compra (los traspasos son
+      // internos y rápidos). El umbral de rotación (A/B) evita marcar proveedores lentos legítimos.
+      const cadRows: any[] = await trx('commercial.replenishment_channel as rc')
+        .join('catalog.products as pr', (j) => j.on('pr.tenant_id', 'rc.tenant_id').andOn('pr.supplier_id', 'rc.supplier_id'))
+        .join('commercial.reorder_policy as rp', (j) =>
+          j.on('rp.tenant_id', 'rc.tenant_id').andOn('rp.warehouse_id', 'rc.warehouse_id').andOn('rp.product_id', 'pr.id'))
+        .leftJoin('commercial.stock as s', (j) =>
+          j.on('s.tenant_id', 'rp.tenant_id').andOn('s.warehouse_id', 'rp.warehouse_id').andOn('s.product_id', 'rp.product_id'))
+        .leftJoin('commercial.abc_classification as abc', (j) =>
+          j.on('abc.tenant_id', 'rp.tenant_id').andOn('abc.warehouse_id', 'rp.warehouse_id').andOn('abc.product_id', 'rp.product_id'))
+        .leftJoin('analytics.inventory_health as ih', (j) =>
+          j.on('ih.tenant_id', 'rp.tenant_id').andOn('ih.warehouse_id', 'rp.warehouse_id').andOn('ih.product_id', 'rp.product_id'))
+        .leftJoin('analytics.purchase_in_transit as pit', (j) =>
+          j.on('pit.tenant_id', 'rp.tenant_id').andOn('pit.warehouse_id', 'rp.warehouse_id').andOn('pit.product_id', 'rp.product_id'))
+        .where('rc.tenant_id', tenantId)
+        .andWhere('rc.via', 'purchase')
+        .andWhere('rc.cadence_days', '>', 21)
+        .andWhere('pr.activo', true)
+        // "Rota" se mide por VELOCIDAD (avg_daily), NO por ABC-valor (el dulce es casi todo
+        // clase C aunque venda mucho). Y la venta entre pedidos (avg×cadencia) supera el
+        // colchón del reorden → riesgo estructural de quiebre. Auto-escalado (sin umbral fijo).
+        .andWhereRaw(`COALESCE(ih.avg_daily_units,0) >= 2`)
+        .andWhereRaw(`COALESCE(ih.avg_daily_units,0) * rc.cadence_days > GREATEST(rp.reorder_point, 1)`)
+        .select(
+          'rc.warehouse_id', 'rp.product_id',
+          trx.raw('rc.cadence_days AS cadence_days'),
+          trx.raw(`${oh} AS on_hand`),
+          'rp.reorder_point',
+          trx.raw(`${it} AS in_transit`),
+          trx.raw(`COALESCE(abc.abc_class, rp.abc_class) AS abc_class`),
+          trx.raw(`${sugg} AS suggested_qty`),
+          trx.raw(`ROUND(${sugg} * COALESCE(pr.cost_base,0), 2) AS suggested_cost`),
+        );
+
+      for (const r of cadRows) {
+        const abc = (r.abc_class || '').toUpperCase();
+        const cad = Number(r.cadence_days);
+        const severity = cad > 45 ? 'critica' : cad > 30 ? 'alta' : 'media';
+        const dedup = `cadencia_lenta:${r.warehouse_id}:${r.product_id}`;
+        seen.push(dedup);
+        await trx.raw(
+          `INSERT INTO commercial.replenishment_findings
+             (tenant_id, warehouse_id, product_id, kind, severity, dedup_key, status, abc_class, on_hand, reorder_point, in_transit, suggested_qty, suggested_cost, first_seen_at, last_seen_at, updated_at)
+           VALUES (?, ?, ?, 'cadencia_lenta', ?, ?, 'open', ?, ?, ?, ?, ?, ?, now(), now(), now())
+           ON CONFLICT (tenant_id, dedup_key) DO UPDATE SET
+             status='open', severity=EXCLUDED.severity, abc_class=EXCLUDED.abc_class,
+             on_hand=EXCLUDED.on_hand, reorder_point=EXCLUDED.reorder_point, in_transit=EXCLUDED.in_transit,
+             suggested_qty=EXCLUDED.suggested_qty, suggested_cost=EXCLUDED.suggested_cost,
+             last_seen_at=now(), resolved_at=NULL, updated_at=now()`,
+          [tenantId, r.warehouse_id, r.product_id, severity, dedup, abc || null,
+           Number(r.on_hand), Number(r.reorder_point), Number(r.in_transit), Number(r.suggested_qty), Number(r.suggested_cost)],
+        );
+        count++;
+      }
+
       // Resolver los hallazgos abiertos cuya condición ya no aplica.
       if (seen.length) {
         await trx('commercial.replenishment_findings')

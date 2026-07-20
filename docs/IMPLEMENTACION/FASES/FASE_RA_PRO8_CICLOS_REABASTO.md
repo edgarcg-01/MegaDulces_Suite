@@ -26,11 +26,17 @@ El motor (Existencia Crítica) modela el **lead time** pero no el **período de 
 |---|---|---|
 | RA-PRO.8.1 | Mig `commercial.replenishment_channel` (almacén×proveedor: via/source_wh/cadence/next_due/band, RLS) | ✅ PROD 2026-07-20 |
 | RA-PRO.8.2 | Job `import-replenishment-cadence.js` (deriva canal+cadencia, topología, UPSERT idempotente) | ✅ PROD 2026-07-20 |
-| RA-PRO.8.3 | Motor: `sugerido` con horizonte=cadencia+lead+colchón; spokes sugieren **traspaso** no compra | ⬜ |
-| RA-PRO.8.4 | Detector cadencia-vs-demanda → hallazgo "mal abasto" en `/compras/hallazgos` | ⬜ |
-| RA-PRO.8.5 | Worklist "Qué toca hoy" por territorio (analista), filtrando canal ACTIVO | ⬜ |
+| RA-PRO.8.3 | Motor: `worklist()` + `GET /commercial/replenishment/worklist` — sugerido con horizonte=cadencia+lead(traspaso=1d)+colchón, agregado por (almacén×proveedor), solo canal activo | ✅ código+build 2026-07-20 |
+| RA-PRO.8.4 | Detector `cadencia_lenta` en scanner (mig CHECK kind) — SKU que ROTA (avg≥2/d por velocidad, NO ABC-valor) + `avg×cadencia > reorden` + cadencia>21d → hallazgo | ✅ código+build 2026-07-20 |
+| RA-PRO.8.5 | Página `/compras/que-toca` "Qué toca hoy" (KPIs vencido/hoy/próx7 + tabla + presets territorio + canal compra/traspaso) + nav | ✅ código+build 2026-07-20 |
 
 **Corrida inicial:** 1,950 pares (1,615 compra + 335 traspaso), 1,790 con cadencia. 273 proveedores. Topología `02/03/04→01`, `05→MD-50` fijada en `warehouses.source_warehouse_id`.
+
+**Validado en runtime (queries directas a prod):** worklist 1,196 canales activos (631 vencidos, 96 hoy, 221 próx7) con sugerido agregado; detector 303 hallazgos (9 crítica / 55 alta / 239 media). Builds `nx build api` + `nx build view` verdes.
+
+**Lección de calibración:** el gate de "rota" NO puede ser ABC-por-valor — el dulce es casi todo clase C aunque venda mucho (velocidad alta, valor unitario bajo). Se usa `avg_daily_units` (velocidad). Mismo error a evitar en cualquier detector de rotación sobre este catálogo.
+
+**Pendiente:** redeploy api+view a Railway (el código está listo; datos ya en prod). El scanner nocturno poblará `cadencia_lenta` (o `POST /scan-now` tras deploy). Nota: los "vencidos" del worklist se inflan si los feeds de movimientos no están al día (next_due se calcula del último recibo); con feeds diarios se autocorrige.
 
 ## Decisiones / notas
 

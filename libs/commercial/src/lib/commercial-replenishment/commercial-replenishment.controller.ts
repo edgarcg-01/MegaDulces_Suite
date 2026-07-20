@@ -105,6 +105,21 @@ export class CommercialReplenishmentController {
   @ApiOperation({ summary: 'Almacenes + proveedores con política de reorden (para los selects del frontend).' })
   filters() { return this.svc.filters(); }
 
+  @Get('worklist')
+  @RequirePermissions(Permission.COMPRAS_VER)
+  @ApiOperation({ summary: 'RA-PRO.8 — "Qué toca": ciclos de reabasto por almacén×proveedor (canal compra/traspaso + cadencia + próximo pedido + sugerido por horizonte). Filtros: warehouse_id(s), via(purchase|transfer), status(due), search.' })
+  worklist(
+    @Query('warehouse_id') warehouse_id?: string,
+    @Query('warehouse_ids') warehouse_ids?: string,
+    @Query('via') via?: string,
+    @Query('status') status?: string,
+    @Query('search') search?: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+  ) {
+    return this.svc.worklist({ warehouse_id, warehouse_ids, via, status, search, page: page ? Number(page) : undefined, pageSize: pageSize ? Number(pageSize) : undefined });
+  }
+
   @Get('requisitions')
   @RequirePermissions(Permission.COMPRAS_VER)
   @ApiOperation({ summary: 'Lista de requisiciones. Filtros: estado, warehouse_id.' })

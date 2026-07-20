@@ -104,6 +104,7 @@ export class ComprasHallazgosComponent implements OnInit {
   kindOpts = [
     { label: 'Agotado (clase A)', value: 'agotado_abc' },
     { label: 'Bajo reorden', value: 'bajo_reorden' },
+    { label: 'Surtido lento', value: 'cadencia_lenta' },
   ];
 
   ngOnInit(): void { this.reload(); }
@@ -128,5 +129,5 @@ export class ComprasHallazgosComponent implements OnInit {
   money(v: number | string | null | undefined) { return (Number(v ?? 0) || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 }); }
   sevLabel(s: FindingSeverity) { return ({ critica: 'Crítica', alta: 'Alta', media: 'Media' } as Record<FindingSeverity, string>)[s]; }
   sevTag(s: FindingSeverity): Sev { return ({ critica: 'danger', alta: 'warn', media: 'secondary' } as Record<FindingSeverity, Sev>)[s]; }
-  kindLabel(k: FindingKind) { return ({ agotado_abc: 'Agotado A', bajo_reorden: 'Bajo reorden' } as Record<FindingKind, string>)[k]; }
+  kindLabel(k: FindingKind) { return ({ agotado_abc: 'Agotado A', bajo_reorden: 'Bajo reorden', cadencia_lenta: 'Surtido lento' } as Record<FindingKind, string>)[k]; }
 }

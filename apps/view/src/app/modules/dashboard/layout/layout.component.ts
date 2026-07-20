@@ -418,6 +418,7 @@ export class LayoutComponent implements OnInit, OnDestroy {
   // Compras / Reabastecimiento (Fase RA — ADR-030). Existencia crítica → sugerido →
   // requisición (HITL). Proyecto propio; nav gateado por COMPRAS_VER.
   private comprasNavItems: NavItem[] = [
+    { label: 'Qué toca hoy',       icon: 'pi pi-calendar-clock',       route: '/compras/que-toca',           permission: Permission.COMPRAS_VER },
     { label: 'Existencia crítica', icon: 'pi pi-exclamation-triangle', route: '/compras/existencia-critica', permission: Permission.COMPRAS_VER },
     { label: 'Requisiciones',      icon: 'pi pi-file-edit',            route: '/compras/requisiciones',      permission: Permission.COMPRAS_VER },
     { label: 'Órdenes de compra',  icon: 'pi pi-shopping-cart',        route: '/compras/ordenes',            permission: Permission.COMPRAS_VER },
