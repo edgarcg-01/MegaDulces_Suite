@@ -55,3 +55,17 @@ Existencia Crítica y Qué Toca son **dos lentes del mismo motor** (mismo `reord
 - **Existencia Crítica**: gana el objetivo "Ciclo (cadencia)" en el selector, columna **Ciclo** (canal + cadencia + próximo) y cross-link "Qué toca hoy". Sigue siendo la vista de salud/auditoría (todos los buckets, huérfanos, muerto).
 - **Regla de diseño**: no se fusionan en una sola tabla — sobrestock/muerto/huérfanos viven solo a nivel SKU y se perderían. Cockpit para *pedir*, auditoría para *vigilar*.
 - Builds `nx build api` + `nx build view` verdes. **Pendiente: mismo redeploy** (api+view). Nota: la requisición se crea con `target_basis='max'` (el CHECK de `purchase_requisitions` no incluye 'cadence'; el snapshot por línea lleva los números reales).
+
+## RA-PRO.10 — Parámetros de pedido por proveedor (ciclo manual + mínimo de compra) ✅ código+build 2026-07-20
+
+Origen: análisis del pedido de GRUPO LEVI (Excel con fechas reales de pedido). La cadencia derivada de recibos (~5d) subestima el ciclo real de PEDIDO (~14d) por entregas partidas → se permite override manual + mínimo de compra.
+
+- **Mig** `20260720140000` (prod): `catalog.suppliers += cadence_days_override, colchon_days, min_order_amount` (min_order_boxes ya existía).
+- **Input** en `/compras/proveedores`: columnas editables Lead, **Cadencia (override)**, **Colchón (días)**, **Mín cajas**, **Mín $**. Endpoint `POST /suppliers/:id/order-params`.
+- **Motor**: con `cadence_days_override`, horizonte = `demanda × (cadencia + colchón)` (solo canales de COMPRA; el traspaso mantiene su ciclo). Aplica en `criticalStock` (base cadence) y `worklist`.
+- **Mínimo de compra** (decisión del usuario): **por proveedor (total)** + **sube al mínimo** repartiendo el faltante en los SKUs que más rotan (avg_daily). `GET /suppliers/:id/order` = pedido CONSOLIDADO (todos sus almacenes de compra) evaluado contra el mínimo. Botón "Ver pedido" → diálogo con sugerido→pedido (padded), líneas por almacén.
+- **Bug de data-quality corregido**: `factor_purchase` está **roto en todo el catálogo** (8088 productos, 0 con valor>1). El box factor real vive en **`factor_sale`** → el motor usa `COALESCE(NULLIF(factor_sale,0), NULLIF(factor_purchase,0), 1)` para cajas. Sin esto las cajas salían infladas 10-40x (piezas como cajas). Ver `reference_box_factor_factor_sale`.
+
+**Validado (Levi, cadencia 14+7):** motor = 738 cja / $86,758 (dentro del rango histórico real de sus pedidos $48k-$111k; su pedido reciente fue 446 cja / $60,894). El horizonte 21d da un pedido un poco mayor al reciente pero normal. Mínimo probado: con $80k no sube (ya arriba); con mínimo mayor reparte el faltante.
+
+**Pendiente:** redeploy api+view. Diferido: sanear `factor_purchase` global; `supplierOrder` incluye todos los almacenes de compra (incl. CEDIS si tiene canal) — revisar doble-conteo si el CEDIS pasa a DRP.
