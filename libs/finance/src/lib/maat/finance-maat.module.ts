@@ -10,6 +10,9 @@ import { MaatBriefingService } from './maat-briefing.service';
 import { MaatChatController } from './maat-chat.controller';
 import { MaatDetectorService } from './maat-detector.service';
 import { MaatAnomalyService } from './maat-anomaly.service';
+import { MaatCoverageService } from './maat-coverage.service';
+import { MaatDataQualityService } from './maat-dataquality.service';
+import { MaatEntityService } from './maat-entity.service';
 import { MaatFindingsService } from './maat-findings.service';
 import { MaatScannerService } from './maat-scanner.service';
 import { MaatFindingsController } from './maat-findings.controller';
@@ -19,6 +22,9 @@ import { MaatFindingsSinkService } from './maat-findings-sink.service';
 import { MaatLearningService } from './maat-learning.service';
 import { MaatEvalService } from './maat-eval.service';
 import { MaatLearningController } from './maat-learning.controller';
+import { MaatSkepticService } from './maat-skeptic.service';
+import { MaatDiscoveryService } from './maat-discovery.service';
+import { MaatDiscoveryController } from './maat-discovery.controller';
 
 /**
  * MAAT (ADR-028) — AI de Finanzas.
@@ -29,12 +35,14 @@ import { MaatLearningController } from './maat-learning.controller';
  *             del feedback / el LLM sigue fuera de los números.
  */
 @Module({
-  controllers: [MaatKnowledgeController, MaatChatController, MaatFindingsController, MaatActionsController, MaatLearningController],
+  controllers: [MaatKnowledgeController, MaatChatController, MaatFindingsController, MaatActionsController, MaatLearningController, MaatDiscoveryController],
   providers: [
     MaatKnowledgeService, MaatToolsService, MaatChatService, MaatBriefingService,
-    MaatDetectorService, MaatAnomalyService, MaatFindingsService, MaatScannerService, MaatActionsService,
+    MaatDetectorService, MaatAnomalyService, MaatCoverageService, MaatDataQualityService, MaatEntityService,
+    MaatFindingsService, MaatScannerService, MaatActionsService,
     EmbeddingsService, MaatKnowledgeVectorService, MaatProviderGraphService,
     MaatFindingsSinkService, MaatLearningService, MaatEvalService,
+    MaatSkepticService, MaatDiscoveryService,
   ],
   exports: [MaatKnowledgeService, MaatChatService, MaatDetectorService, MaatKnowledgeVectorService, MaatProviderGraphService, MaatFindingsSinkService],
 })

@@ -1,6 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
 import { MaatAnomalyService } from './maat-anomaly.service';
+import { MaatCoverageService } from './maat-coverage.service';
+import { MaatDataQualityService } from './maat-dataquality.service';
+import { MaatEntityService } from './maat-entity.service';
 
 /**
  * MAAT.2 — Motor de patrones de Maat (ADR-028). Formaliza el detector-lite de
@@ -48,6 +51,8 @@ const RULES: RuleMeta[] = [
   { rule_key: 'benford_importes', clase: 'riesgo', nombre: 'Distribución de montos anómala (Benford)', descripcion: 'Los importes de una sucursal se desvían de la Ley de Benford (MAD de Nigrini) — señal forense de montos fabricados o redondeados.', params: { min_docs: 300, mad_warn: 0.012, mad_crit: 0.015 } },
   { rule_key: 'peer_group_outlier', clase: 'riesgo', nombre: 'Sucursal fuera de rango vs pares', descripcion: 'Una sucursal gasta muy por encima de sus pares en la misma cuenta el mismo mes (mediana + MAD robusto, corte transversal entre sucursales).', params: { z: 2.5, min_peers: 3, min_monto: 20000 } },
   { rule_key: 'nivel_nuevo_serie', clase: 'riesgo', nombre: 'Costo subió y se quedó arriba', descripcion: 'Cambio de nivel sostenido en una cuenta×sucursal (no un pico de un mes): un costo recurrente que subió ≥50% y se mantiene arriba.', params: { min_meses: 8, cambio_pct: 0.5, min_monto: 15000, ventana_reciente: 3 } },
+  // MIQ.5 — entity resolution (delega en MaatEntityService): misma entidad, RFCs distintos.
+  { rule_key: 'entidad_duplicada', clase: 'riesgo', nombre: 'Misma entidad con RFCs distintos', descripcion: 'Un mismo proveedor (nombre casi idéntico, matching difuso) ligado a 2+ RFCs — proveedor fragmentado (rompe DIOT/materialidad) o duplicación/shell. Complementa el grafo de proveedores.', params: { min_monto: 10000 } },
   { rule_key: 'salto_precio_sku', clase: 'riesgo', nombre: 'Salto de precio en SKU', descripcion: 'Costo unitario de un SKU a un proveedor se desvía ≥2σ (z-score) de su promedio histórico.', params: { z: 2, min_compras: 4 } },
   { rule_key: 'dpo_largo', clase: 'riesgo', nombre: 'DPO / saldo alto de proveedor', descripcion: 'Proveedor con saldo por pagar y días de pago (DPO) por encima del umbral.', params: { dpo_max: 60, min_saldo: 10000 } },
   { rule_key: 'proveedor_nuevo_grande', clase: 'riesgo', nombre: 'Proveedor nuevo de monto alto', descripcion: 'Proveedor sin historial previo que entra directo con una compra grande.', params: { antiguedad_dias: 60, min_monto: 50000 } },
@@ -56,6 +61,9 @@ const RULES: RuleMeta[] = [
   { rule_key: 'anticipo_stale', clase: 'error_captura', nombre: 'Anticipo 107 sin aplicar', descripcion: 'Anticipos a proveedores (107) que nunca se aplican contra factura.', params: {} },
   { rule_key: 'compra_sin_rfc', clase: 'error_captura', nombre: 'Compra/gasto sin RFC de proveedor', descripcion: 'Documentos de compra (XA2001) o gasto (XA1001) sin RFC del proveedor capturado: no son deducibles, no entran a DIOT y no permiten armar la materialidad del CFDI.', params: { min_monto: 10000 } },
   { rule_key: 'spread_proveedor_sku', clase: 'oportunidad', nombre: 'Ahorro por spread de precio', descripcion: 'Mismo SKU comprado a 2+ proveedores con diferencia de precio relevante — ahorro potencial.', params: { min_spread_pct: 15, min_proveedores: 2, min_compras: 2 } },
+  // MIQ.3 — meta-detectores (delegan en Coverage/DataQuality): vigilan al propio motor y a sus feeds.
+  { rule_key: 'cobertura_punto_ciego', clase: 'riesgo', nombre: 'Punto ciego de cobertura', descripcion: 'Una categoría de riesgo financiero no tiene ningún detector activo (faltante, deshabilitado o auto-suprimido) — nadie vigila ese riesgo.', params: {} },
+  { rule_key: 'calidad_datos', clase: 'error_captura', nombre: 'Calidad de datos baja', descripcion: 'Un feed que alimenta al motor (compras/gastos sin RFC, cadena sin recepción, costo faltante, balanza rezagada) está degradado — los hallazgos que dependen de él son menos confiables.', params: { umbral_warn: 20, umbral_crit: 40 } },
 ];
 /** rule_key → tipo de expense_findings v1 (ports de la Fase GX). */
 const PORT_TIPO: Record<string, string> = { iva_capitalizado: 'iva_bug', prov_203_orfano: 'prov_203', anticipo_stale: 'anticipo_107' };
@@ -71,6 +79,9 @@ export class MaatDetectorService {
     private readonly tk: TenantKnexService,
     private readonly tenantCtx: TenantContextService,
     private readonly anomaly: MaatAnomalyService,
+    private readonly coverage: MaatCoverageService,
+    private readonly dataQuality: MaatDataQualityService,
+    private readonly entity: MaatEntityService,
   ) {}
 
   /** Sincroniza el catálogo de reglas desde el código sin pisar la calibración humana. */
@@ -148,6 +159,9 @@ export class MaatDetectorService {
       case 'benford_importes': return this.anomaly.detBenford(trx, tenantId, params);
       case 'peer_group_outlier': return this.anomaly.detPeerGroup(trx, tenantId, params);
       case 'nivel_nuevo_serie': return this.anomaly.detNivelNuevo(trx, tenantId, params);
+      case 'cobertura_punto_ciego': return this.coverage.detBlindSpots(trx, tenantId, params);
+      case 'calidad_datos': return this.dataQuality.detDataQuality(trx, tenantId, params);
+      case 'entidad_duplicada': return this.entity.detEntidadDuplicada(trx, tenantId, params);
       case 'iva_capitalizado':
       case 'prov_203_orfano':
       case 'anticipo_stale': return this.detPortFindings(key, trx, tenantId);

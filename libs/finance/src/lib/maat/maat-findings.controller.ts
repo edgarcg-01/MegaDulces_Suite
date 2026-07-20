@@ -8,6 +8,8 @@ import { TenantContextService } from '@megadulces/platform-core';
 import { MaatFindingsService } from './maat-findings.service';
 import { MaatDetectorService } from './maat-detector.service';
 import { MaatProviderGraphService } from './maat-provider-graph.service';
+import { MaatCoverageService } from './maat-coverage.service';
+import { MaatDataQualityService } from './maat-dataquality.service';
 
 interface AuthedRequest { user?: { username?: string; full_name?: string }; }
 
@@ -20,6 +22,8 @@ export class MaatFindingsController {
     private readonly findings: MaatFindingsService,
     private readonly detector: MaatDetectorService,
     private readonly graph: MaatProviderGraphService,
+    private readonly coverage: MaatCoverageService,
+    private readonly dataQuality: MaatDataQualityService,
     private readonly tenantCtx: TenantContextService,
   ) {}
 
@@ -45,6 +49,16 @@ export class MaatFindingsController {
   @RequirePermissions(Permission.FINANCE_AI_CHAT)
   @ApiOperation({ summary: 'MAAT.2 — Salud de las reglas: precisión, conteos, enabled/pinned/suprimida.' })
   rules() { return this.findings.rules(); }
+
+  @Get('coverage')
+  @RequirePermissions(Permission.FINANCE_AI_CHAT)
+  @ApiOperation({ summary: 'MIQ.3 — Cobertura por categoría de riesgo + puntos ciegos (qué NO estamos revisando).' })
+  coverageReport() { return this.coverage.coverage(); }
+
+  @Get('data-quality')
+  @RequirePermissions(Permission.FINANCE_AI_CHAT)
+  @ApiOperation({ summary: 'MIQ.3 — Índice de calidad de datos por feed (compras/gastos sin RFC, cadena, costo, balanza) — gate de confianza.' })
+  dataQualityReport() { return this.dataQuality.report(); }
 
   @Patch(':id/status')
   @RequirePermissions(Permission.FINANCE_FINDINGS_GESTIONAR)

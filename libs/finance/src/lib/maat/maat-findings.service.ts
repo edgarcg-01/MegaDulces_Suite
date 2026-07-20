@@ -33,11 +33,12 @@ export class MaatFindingsService {
       const b = trx('finance.findings as f')
         .leftJoin('finance.rule_registry as r', function (this: any) { this.on('r.tenant_id', 'f.tenant_id').andOn('r.rule_key', 'f.rule_key'); })
         .select('f.id', 'f.rule_key', 'r.nombre as regla', 'f.clase', 'f.severity', 'f.status', 'f.score',
-          trx.raw('f.model_score::numeric AS model_score'), 'f.model_version',
+          trx.raw('f.model_score::numeric AS model_score'), 'f.model_version', 'f.skeptic_verdict',
           'f.titulo', 'f.resumen', 'f.entity', 'f.periodo', trx.raw('f.importe::numeric AS importe'),
           'f.evidencia', 'f.first_seen', 'f.last_seen')
-        // prioridad APRENDIDA primero (MIQ.2); cae al score del detector en cold-start
-        .orderByRaw('COALESCE(f.model_score, f.score, 0) DESC')
+        // prioridad APRENDIDA primero (MIQ.2); en cold-start cae al score del detector
+        // ajustado por el veredicto del escéptico (MIQ.4): los refutados se hunden.
+        .orderByRaw("COALESCE(f.model_score, f.score * CASE f.skeptic_verdict WHEN 'refutado' THEN 0.3 WHEN 'debil' THEN 0.6 ELSE 1 END, f.score, 0) DESC")
         .orderByRaw("CASE f.severity WHEN 'critical' THEN 0 WHEN 'warn' THEN 1 ELSE 2 END")
         .orderBy('f.importe', 'desc')
         .limit(limit);

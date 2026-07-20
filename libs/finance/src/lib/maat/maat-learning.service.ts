@@ -37,6 +37,7 @@ const FEATURES: { name: string; of: (r: any) => number }[] = [
   { name: 'f_age_days', of: (r) => daysBetween(r.first_seen, Date.now()) },
   { name: 'f_recur_days', of: (r) => daysBetween(r.first_seen, r.last_seen) },
   { name: 'f_has_prov', of: (r) => (entityHasProv(r.entity) ? 1 : 0) },
+  { name: 'f_skeptic', of: (r) => (({ sostiene: 1, debil: 0.5, refutado: 0 } as Record<string, number>)[r.skeptic_verdict] ?? 0.75) },
 ];
 
 /** Orden canónico de nombres de features (para el backtest y el scoring). */
@@ -80,7 +81,7 @@ export class MaatLearningService {
       const rows = await trx('finance.findings as f')
         .leftJoin('finance.rule_registry as r', function (this: any) { this.on('r.tenant_id', 'f.tenant_id').andOn('r.rule_key', 'f.rule_key'); })
         .select('f.id', 'f.rule_key', 'f.clase', 'f.severity', 'f.score', 'f.importe', 'f.entity',
-          'f.first_seen', 'f.last_seen', 'r.precision_score as rule_prec',
+          'f.first_seen', 'f.last_seen', 'f.skeptic_verdict', 'r.precision_score as rule_prec',
           trx.raw(`(SELECT verdict FROM finance.finding_feedback fb
                      WHERE fb.tenant_id = f.tenant_id AND fb.finding_id = f.id
                      ORDER BY fb.created_at DESC LIMIT 1) AS verdict`))
@@ -160,7 +161,7 @@ export class MaatLearningService {
       const rows = await trx('finance.findings as f')
         .leftJoin('finance.rule_registry as r', function (this: any) { this.on('r.tenant_id', 'f.tenant_id').andOn('r.rule_key', 'f.rule_key'); })
         .whereIn('f.status', ['nuevo', 'en_revision']).where('f.tenant_id', tenantId)
-        .select('f.id', 'f.rule_key', 'f.clase', 'f.severity', 'f.score', 'f.importe', 'f.entity', 'f.first_seen', 'f.last_seen', 'r.precision_score as rule_prec');
+        .select('f.id', 'f.rule_key', 'f.clase', 'f.severity', 'f.score', 'f.importe', 'f.entity', 'f.first_seen', 'f.last_seen', 'f.skeptic_verdict', 'r.precision_score as rule_prec');
       let scored = 0;
       for (const r of rows) {
         const raw: Record<string, number> = {};
