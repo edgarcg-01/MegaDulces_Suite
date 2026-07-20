@@ -9,8 +9,11 @@ import { TableModule } from 'primeng/table';
 import { TagModule } from 'primeng/tag';
 import { SelectModule } from 'primeng/select';
 import { SelectButtonModule } from 'primeng/selectbutton';
+import { DatePickerModule } from 'primeng/datepicker';
 import { MessageService } from 'primeng/api';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
+import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
+import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import { CONTABILIDAD_TABS } from '../contabilidad-tabs';
 import { ContabilidadService, CodAgrupadorRow } from '../contabilidad.service';
 import { AuthService } from '../../../core/services/auth.service';
@@ -26,27 +29,28 @@ import { SAT_COD_AGRUPADOR } from '../../../shared/constants/sat-cod-agrupador';
 @Component({
   selector: 'app-contabilidad-contabilidad',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, ToastModule, InputTextModule, TableModule, TagModule, SelectModule, SelectButtonModule, PageTabsComponent],
+  imports: [CommonModule, FormsModule, ButtonModule, ToastModule, InputTextModule, TableModule, TagModule, SelectModule, SelectButtonModule, DatePickerModule, PageTabsComponent, FreshnessPillComponent, ContextHelpComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
     <div class="surf-page in">
       <p-toast></p-toast>
-      <app-page-tabs [tabs]="tabs" />
+      <app-page-tabs [tabs]="tabs" variant="liquid" />
 
       <header class="surf-page-head cb-head">
         <div class="surf-page-head-text">
-          <h1>Contabilidad electrónica</h1>
+          <h1 class="cb-h1">Contabilidad electrónica <app-context-help topic="contabilidad-e" /></h1>
           <p class="surf-page-sub">Genera los XML que exige el SAT desde la balanza contable: catálogo de cuentas y balanza de comprobación (1.3).</p>
         </div>
+        @if (loadedAt()) { <span class="cb-head-fresh"><app-freshness-pill [since]="loadedAt()" /></span> }
       </header>
 
       <div class="card-premium card-flat cb-panel">
         <div class="cb-form">
-          <label class="cb-f"><span>Periodo</span><input type="month" [(ngModel)]="period" aria-label="Periodo" /></label>
+          <label class="cb-f"><span>Periodo</span><p-datepicker [(ngModel)]="periodD" (onSelect)="syncPeriod()" view="month" dateFormat="mm/yy" [showIcon]="true" appendTo="body" ariaLabel="Periodo (mes)" styleClass="cb-dp" /></label>
           <label class="cb-f"><span>RFC (opcional)</span><input type="text" pInputText [(ngModel)]="rfc" placeholder="e.firma activa si vacío" maxlength="13" style="text-transform:uppercase" /></label>
           <label class="cb-f"><span>Tipo de envío (balanza)</span>
-            <p-select [options]="tipoEnvioOpts" [(ngModel)]="tipoEnvio" optionLabel="label" optionValue="value" styleClass="cb-sel" ariaLabel="Tipo de envío de la balanza" />
+            <p-select [options]="tipoEnvioOpts" [(ngModel)]="tipoEnvio" optionLabel="label" optionValue="value" styleClass="cb-sel sel-liquid" ariaLabel="Tipo de envío de la balanza" />
           </label>
         </div>
         <div class="cb-cards">
@@ -75,7 +79,7 @@ import { SAT_COD_AGRUPADOR } from '../../../shared/constants/sat-cod-agrupador';
             <div class="cb-card-desc">Mapea cada cuenta mayor a la clave del catálogo del SAT. El catálogo de cuentas XML usa este mapeo; las cuentas sin mapear caen al placeholder (la propia cuenta mayor).</div>
           </div>
           <div class="cb-map-actions">
-            <p-selectButton [options]="mapFilterOpts" [ngModel]="onlyUnmapped()" (ngModelChange)="onlyUnmapped.set($event)" optionLabel="label" optionValue="value" [allowEmpty]="false" styleClass="cb-sb" ariaLabel="Filtrar cuentas por mapeo" />
+            <p-selectButton [options]="mapFilterOpts" [ngModel]="onlyUnmapped()" (ngModelChange)="onlyUnmapped.set($event)" optionLabel="label" optionValue="value" [allowEmpty]="false" styleClass="cb-sb sb-liquid" ariaLabel="Filtrar cuentas por mapeo" />
             <span class="cb-cover" [class.is-full]="coverage().unmapped === 0" [class.is-empty]="coverage().total === 0">
               <i class="pi" [ngClass]="coverage().unmapped === 0 && coverage().total > 0 ? 'pi-check-circle' : 'pi-exclamation-circle'"></i>
               {{ coverage().mapped }}/{{ coverage().total }} mapeadas
@@ -137,31 +141,34 @@ import { SAT_COD_AGRUPADOR } from '../../../shared/constants/sat-cod-agrupador';
   `,
   styles: [`
     :host { display: block; }
+    .cb-head { display: flex; align-items: flex-start; gap: 1rem; }
+    .cb-h1 { display: inline-flex; align-items: center; gap: .3rem; }
+    .cb-head-fresh { margin-left: auto; }
     .cb-panel { padding: 1.2rem; }
     .cb-form { display: flex; gap: 1rem; flex-wrap: wrap; margin-bottom: 1.2rem; }
     .cb-f { display: flex; flex-direction: column; gap: .25rem; font-size: .7rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: .03em; }
-    .cb-f input { border: 1px solid var(--border-color); border-radius: var(--r-sm, 8px); padding: .45rem .6rem; background: var(--card-bg); color: var(--text-main); font-family: var(--font-mono, monospace); min-width: 12rem; }
+    .cb-f input { border: 1px solid var(--border-color); border-radius: var(--r-sm); padding: .45rem .6rem; background: var(--card-bg); color: var(--text-main); font-family: var(--font-mono, monospace); min-width: 12rem; }
     .cb-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem; }
-    .cb-card { border: 1px solid var(--border-color); border-radius: var(--r-md, 10px); padding: 1rem; display: flex; flex-direction: column; gap: .8rem; justify-content: space-between; background: var(--card-bg); }
+    .cb-card { border: 1px solid var(--border-color); border-radius: var(--r-md); padding: 1rem; display: flex; flex-direction: column; gap: .8rem; justify-content: space-between; background: var(--card-bg); }
     .cb-card-body { display: flex; gap: .8rem; align-items: flex-start; }
     .cb-card-body .pi { font-size: 1.4rem; color: var(--action); margin-top: .1rem; }
     .cb-card-title { font-size: .9rem; font-weight: 700; color: var(--text-main); }
     .cb-card-desc { font-size: .78rem; color: var(--text-muted); margin-top: .15rem; max-width: 60ch; }
     .cb-card button { align-self: flex-start; }
-    .cb-note { font-size: .75rem; color: var(--text-muted); background: var(--surface-hover-bg, #f7f7f6); border-radius: var(--r-sm, 8px); padding: .55rem .75rem; margin: 1rem 0 0; display: flex; gap: .4rem; align-items: baseline; }
+    .cb-note { font-size: .75rem; color: var(--text-muted); background: var(--surface-hover-bg); border-radius: var(--r-sm); padding: .55rem .75rem; margin: 1rem 0 0; display: flex; gap: .4rem; align-items: baseline; }
 
     /* ── FE.11 mapeo ── */
     .cb-map-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; flex-wrap: wrap; margin-bottom: 1rem; }
     .cb-map-actions { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
-    .cb-cover { display: inline-flex; align-items: center; gap: .35rem; font-size: .78rem; font-weight: 600; color: var(--text-muted); padding: .25rem .6rem; border-radius: 999px; border: 1px solid var(--border-color); white-space: nowrap; }
-    .cb-cover.is-full { color: var(--ok-fg, #15803d); border-color: color-mix(in srgb, var(--ok-fg, #15803d) 40%, transparent); }
-    .cb-cover.is-full .pi { color: var(--ok-fg, #15803d); }
-    .cb-cover:not(.is-full):not(.is-empty) .pi { color: var(--warn-fg, #b45309); }
+    .cb-cover { display: inline-flex; align-items: center; gap: .35rem; font-size: .78rem; font-weight: 600; color: var(--text-muted); padding: .25rem .6rem; border-radius: var(--r-pill); border: 1px solid var(--border-color); white-space: nowrap; }
+    .cb-cover.is-full { color: var(--ok-fg); border-color: color-mix(in srgb, var(--ok-fg) 40%, transparent); }
+    .cb-cover.is-full .pi { color: var(--ok-fg); }
+    .cb-cover:not(.is-full):not(.is-empty) .pi { color: var(--warn-fg); }
     .cb-name { color: var(--text-muted); font-size: .82rem; max-width: 32ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .cb-c-fam, .cb-c-nat { text-align: center; width: 4.5rem; font-family: var(--font-mono, monospace); }
     .cb-c-src { width: 6rem; }
     .cb-code-input { width: 100%; max-width: 12rem; font-family: var(--font-mono, monospace); }
-    tr.cb-unmapped td:first-child { box-shadow: inset 3px 0 0 var(--warn-fg, #b45309); }
+    tr.cb-unmapped td:first-child { box-shadow: inset 3px 0 0 var(--warn-fg); }
   `],
 })
 export class ContabilidadContabilidadComponent {
@@ -173,8 +180,13 @@ export class ContabilidadContabilidadComponent {
   private readonly destroyRef = inject(DestroyRef);
 
   period = this.currentMonth();
+  periodD: Date = new Date();
+  readonly loadedAt = signal<number | null>(null);
   rfc = '';
   tipoEnvio: 'N' | 'C' = 'N';
+
+  /** p-datepicker (vista mes) → sincroniza period YYYY-MM (descarga es con botón). */
+  syncPeriod() { if (this.periodD) this.period = `${this.periodD.getFullYear()}-${String(this.periodD.getMonth() + 1).padStart(2, '0')}`; }
   readonly tipoEnvioOpts = [{ label: 'Normal', value: 'N' }, { label: 'Complementaria', value: 'C' }];
   readonly dl = signal<'' | 'catalogo' | 'balanza'>('');
 
@@ -202,7 +214,7 @@ export class ContabilidadContabilidadComponent {
   loadMap(): void {
     this.loadingMap.set(true);
     this.svc.listCodAgrupador().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (rows) => { this.mapRows.set(rows || []); this.loadingMap.set(false); },
+      next: (rows) => { this.mapRows.set(rows || []); this.loadingMap.set(false); this.loadedAt.set(Date.now()); },
       error: () => { this.loadingMap.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo cargar el mapeo.' }); },
     });
   }

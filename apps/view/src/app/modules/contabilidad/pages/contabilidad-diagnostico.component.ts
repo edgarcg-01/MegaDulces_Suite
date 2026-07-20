@@ -35,7 +35,7 @@ import { FacturasService } from '../facturas.service';
   template: `
     <div class="surf-page in">
       <p-toast></p-toast>
-      <app-page-tabs [tabs]="tabs" />
+      <app-page-tabs [tabs]="tabs" variant="liquid" />
 
       <header class="surf-page-head di-head">
         <div class="surf-page-head-text">
@@ -78,8 +78,8 @@ import { FacturasService } from '../facturas.service';
 
       <!-- Filtros -->
       <div class="di-filters">
-        <p-selectButton [options]="statusOpts" [ngModel]="fStatus()" (ngModelChange)="setStatus($event)" optionLabel="label" optionValue="value" [allowEmpty]="false" ariaLabel="Estado del error" />
-        <p-select [options]="kindOpts" [ngModel]="fKind()" (ngModelChange)="setKind($event)" optionLabel="label" optionValue="value" appendTo="body" styleClass="di-sel" ariaLabel="Tipo de error" />
+        <p-selectButton styleClass="sb-liquid" [options]="statusOpts" [ngModel]="fStatus()" (ngModelChange)="setStatus($event)" optionLabel="label" optionValue="value" [allowEmpty]="false" ariaLabel="Estado del error" />
+        <p-select [options]="kindOpts" [ngModel]="fKind()" (ngModelChange)="setKind($event)" optionLabel="label" optionValue="value" appendTo="body" styleClass="di-sel sel-liquid" ariaLabel="Tipo de error" />
       </div>
 
       <div class="card-premium card-flat">

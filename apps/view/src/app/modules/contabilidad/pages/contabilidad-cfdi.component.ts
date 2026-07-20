@@ -35,7 +35,7 @@ import { CfdiService, CfdiRow, CfdiStats, CfdiFilters } from '../cfdi.service';
   template: `
     <div class="surf-page in">
       <p-toast></p-toast>
-      <app-page-tabs [tabs]="tabs" />
+      <app-page-tabs [tabs]="tabs" variant="liquid" />
 
       <header class="surf-page-head cf-head">
         <div class="surf-page-head-text">
@@ -43,7 +43,7 @@ import { CfdiService, CfdiRow, CfdiStats, CfdiFilters } from '../cfdi.service';
           <p class="surf-page-sub">Almacén de comprobantes 4.0 descargados del SAT. Se pobla al correr la descarga masiva. Cifras en flujo de emisión.</p>
         </div>
         <div class="cf-head-actions">
-          <p-selectButton [options]="rolOpts" [ngModel]="rol()" (ngModelChange)="setRol($event)" optionLabel="label" optionValue="value" [allowEmpty]="false" styleClass="cf-sb" ariaLabel="Rol de los comprobantes" />
+          <p-selectButton [options]="rolOpts" [ngModel]="rol()" (ngModelChange)="setRol($event)" optionLabel="label" optionValue="value" [allowEmpty]="false" styleClass="cf-sb sb-liquid" ariaLabel="Rol de los comprobantes" />
           @if (loadedAt()) { <app-freshness-pill [since]="loadedAt()" /> }
         </div>
       </header>
@@ -63,12 +63,12 @@ import { CfdiService, CfdiRow, CfdiStats, CfdiFilters } from '../cfdi.service';
         <label class="cf-field"><span>Hasta</span>
           <p-datepicker [(ngModel)]="toD" (onSelect)="applyFilters()" (onClear)="applyFilters()" dateFormat="yy-mm-dd" [showIcon]="true" [showClear]="true" appendTo="body" placeholder="Hasta" styleClass="cf-dp" />
         </label>
-        <p-selectButton [options]="tipoOpts" [ngModel]="tipo()" (ngModelChange)="setTipo($event)" optionLabel="label" optionValue="value" [allowEmpty]="false" styleClass="cf-sb" ariaLabel="Tipo de comprobante" />
+        <p-selectButton [options]="tipoOpts" [ngModel]="tipo()" (ngModelChange)="setTipo($event)" optionLabel="label" optionValue="value" [allowEmpty]="false" styleClass="cf-sb sb-liquid" ariaLabel="Tipo de comprobante" />
         <label class="cf-field"><span>Estatus</span>
-          <p-select [options]="estatusOpts" [ngModel]="estatus()" (ngModelChange)="setEstatus($event)" optionLabel="label" optionValue="value" styleClass="cf-sel" ariaLabel="Estatus SAT" />
+          <p-select [options]="estatusOpts" [ngModel]="estatus()" (ngModelChange)="setEstatus($event)" optionLabel="label" optionValue="value" styleClass="cf-sel sel-liquid" ariaLabel="Estatus SAT" />
         </label>
         <label class="cf-field"><span>Método</span>
-          <p-select [options]="metodoOpts" [ngModel]="metodo()" (ngModelChange)="setMetodo($event)" optionLabel="label" optionValue="value" styleClass="cf-sel" ariaLabel="Método de pago" />
+          <p-select [options]="metodoOpts" [ngModel]="metodo()" (ngModelChange)="setMetodo($event)" optionLabel="label" optionValue="value" styleClass="cf-sel sel-liquid" ariaLabel="Método de pago" />
         </label>
         <button pButton type="button" label="Buscar" icon="pi pi-filter" class="p-button-sm p-button-outlined" (click)="applyFilters()"></button>
         <button pButton type="button" label="Exportar ZIP" icon="pi pi-download" class="p-button-sm p-button-text" [loading]="exporting()" (click)="exportZip()" title="Descarga los XML del filtro actual, en carpetas por RFC (+ índice CSV)"></button>

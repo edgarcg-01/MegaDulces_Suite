@@ -35,7 +35,7 @@ import { Permission } from '../../../core/constants/permissions';
   template: `
     <div class="surf-page in">
       <p-toast></p-toast>
-      <app-page-tabs [tabs]="tabs" />
+      <app-page-tabs [tabs]="tabs" variant="liquid" />
 
       <header class="surf-page-head mt-head">
         <div class="surf-page-head-text">
@@ -121,7 +121,7 @@ import { Permission } from '../../../core/constants/permissions';
                 <p-inputicon styleClass="pi pi-search" />
                 <input type="text" pInputText placeholder="Buscar RFC o proveedor…" [ngModel]="provSearch()" (ngModelChange)="onProvSearch($event)" aria-label="Buscar proveedor" />
               </p-iconfield>
-              <p-selectButton [options]="riesgoOpts" [ngModel]="provRiesgo()" (ngModelChange)="setProvRiesgo($event)" optionLabel="label" optionValue="value" [allowEmpty]="false" ariaLabel="Filtrar por riesgo" />
+              <p-selectButton styleClass="sb-liquid" [options]="riesgoOpts" [ngModel]="provRiesgo()" (ngModelChange)="setProvRiesgo($event)" optionLabel="label" optionValue="value" [allowEmpty]="false" ariaLabel="Filtrar por riesgo" />
             </div>
           </div>
           @if (searched() && !dossier()) { <div class="mt-warn"><i class="pi pi-exclamation-triangle"></i> No se pudo armar el expediente de {{ rfc }}. Elegí uno de la lista.</div> }
@@ -170,7 +170,7 @@ import { Permission } from '../../../core/constants/permissions';
         </ng-template>
 
         @if (dossier(); as d) {
-        <p-selectButton [options]="dlgTabOpts(d)" [ngModel]="dlgTab()" (ngModelChange)="setDlgTab($event)" optionValue="value" [allowEmpty]="false" ariaLabel="Vista de documentos" styleClass="mt-dlg-sb">
+        <p-selectButton [options]="dlgTabOpts(d)" [ngModel]="dlgTab()" (ngModelChange)="setDlgTab($event)" optionValue="value" [allowEmpty]="false" ariaLabel="Vista de documentos" styleClass="mt-dlg-sb sb-liquid">
           <ng-template let-opt pTemplate="item"><i class="pi" [ngClass]="opt.icon"></i>&nbsp;{{ opt.label }} <span class="mt-tab-n">{{ opt.count }}</span></ng-template>
         </p-selectButton>
         }

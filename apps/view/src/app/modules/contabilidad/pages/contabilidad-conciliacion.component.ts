@@ -37,7 +37,7 @@ import { ConciliacionService, PpdRow, ConciliacionStats, CruceStats, CfdiSinPoli
   template: `
     <div class="surf-page in">
       <p-toast></p-toast>
-      <app-page-tabs [tabs]="tabs" />
+      <app-page-tabs [tabs]="tabs" variant="liquid" />
 
       <header class="surf-page-head co-head">
         <div class="surf-page-head-text">
@@ -51,7 +51,7 @@ import { ConciliacionService, PpdRow, ConciliacionStats, CruceStats, CfdiSinPoli
       </header>
 
       <div class="co-viewsel">
-        <p-selectButton [options]="viewOpts" [ngModel]="view()" (ngModelChange)="setView($event)" optionLabel="label" optionValue="value" [allowEmpty]="false" ariaLabel="Vista de conciliación" />
+        <p-selectButton styleClass="sb-liquid" [options]="viewOpts" [ngModel]="view()" (ngModelChange)="setView($event)" optionLabel="label" optionValue="value" [allowEmpty]="false" ariaLabel="Vista de conciliación" />
       </div>
 
       <div class="co-filters">
@@ -66,7 +66,7 @@ import { ConciliacionService, PpdRow, ConciliacionStats, CruceStats, CfdiSinPoli
           <p-datepicker [(ngModel)]="toD" (onSelect)="applyFilters()" (onClear)="applyFilters()" dateFormat="yy-mm-dd" [showIcon]="true" [showClear]="true" appendTo="body" placeholder="Hasta" />
         </label>
         @if (view() === 'rep') {
-          <p-selectButton [options]="rolOpts" [ngModel]="rol()" (ngModelChange)="setRol($event)" optionLabel="label" optionValue="value" [allowEmpty]="false" ariaLabel="Rol de los comprobantes" />
+          <p-selectButton styleClass="sb-liquid" [options]="rolOpts" [ngModel]="rol()" (ngModelChange)="setRol($event)" optionLabel="label" optionValue="value" [allowEmpty]="false" ariaLabel="Rol de los comprobantes" />
         }
         <button pButton type="button" label="Buscar" icon="pi pi-filter" class="p-button-sm p-button-outlined" (click)="applyFilters()"></button>
         @if (hasFilters()) { <button pButton type="button" label="Limpiar" icon="pi pi-times" class="p-button-sm p-button-text" (click)="clearFilters()"></button> }
@@ -77,7 +77,7 @@ import { ConciliacionService, PpdRow, ConciliacionStats, CruceStats, CfdiSinPoli
           <app-metric-strip [items]="repItems(s)" ariaLabel="Resumen REP" />
         }
         <div class="co-subseg">
-          <p-selectButton [options]="repTabOpts" [ngModel]="repTab()" (ngModelChange)="setRepTab($event)" optionLabel="label" optionValue="value" [allowEmpty]="false" ariaLabel="Sub-vista REP" />
+          <p-selectButton styleClass="sb-liquid" [options]="repTabOpts" [ngModel]="repTab()" (ngModelChange)="setRepTab($event)" optionLabel="label" optionValue="value" [allowEmpty]="false" ariaLabel="Sub-vista REP" />
         </div>
         <div class="card-premium card-flat">
           <p-table [value]="repRows()" styleClass="p-datatable-sm co-table" [rowHover]="true" [loading]="loading()" [scrollable]="true" scrollHeight="520px"
@@ -103,7 +103,7 @@ import { ConciliacionService, PpdRow, ConciliacionStats, CruceStats, CfdiSinPoli
           <app-metric-strip [items]="cruceItems(s)" ariaLabel="Resumen cruce pólizas/CFDI" />
         }
         <div class="co-subseg">
-          <p-selectButton [options]="cruceTabOpts" [ngModel]="cruceTab()" (ngModelChange)="setCruceTab($event)" optionLabel="label" optionValue="value" [allowEmpty]="false" ariaLabel="Sub-vista cruce" />
+          <p-selectButton styleClass="sb-liquid" [options]="cruceTabOpts" [ngModel]="cruceTab()" (ngModelChange)="setCruceTab($event)" optionLabel="label" optionValue="value" [allowEmpty]="false" ariaLabel="Sub-vista cruce" />
         </div>
         <div class="card-premium card-flat">
           @if (cruceTab() === 'poliza') {

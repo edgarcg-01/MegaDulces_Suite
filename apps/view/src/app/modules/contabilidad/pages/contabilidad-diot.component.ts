@@ -33,7 +33,7 @@ import { DiotService, DiotRow, DiotResult, IvaResumen } from '../diot.service';
   template: `
     <div class="surf-page in">
       <p-toast></p-toast>
-      <app-page-tabs [tabs]="tabs" />
+      <app-page-tabs [tabs]="tabs" variant="liquid" />
 
       <header class="surf-page-head di-head">
         <div class="surf-page-head-text">
@@ -61,7 +61,7 @@ import { DiotService, DiotRow, DiotResult, IvaResumen } from '../diot.service';
               <p-inputicon styleClass="pi pi-search" />
               <input type="text" pInputText placeholder="Buscar proveedor / RFC…" [ngModel]="search()" (ngModelChange)="search.set($event)" aria-label="Buscar proveedor" />
             </p-iconfield>
-            <p-select [options]="terceroOpts" [ngModel]="tercero()" (ngModelChange)="tercero.set($event)" optionLabel="label" optionValue="value" styleClass="di-sel" ariaLabel="Tipo de tercero" />
+            <p-select [options]="terceroOpts" [ngModel]="tercero()" (ngModelChange)="tercero.set($event)" optionLabel="label" optionValue="value" styleClass="di-sel sel-liquid" ariaLabel="Tipo de tercero" />
           </div>
         </div>
         <p-table [value]="filteredRows()" styleClass="p-datatable-sm di-table" [rowHover]="true" [loading]="loading()" [scrollable]="true" scrollHeight="520px" [paginator]="filteredRows().length > 50" [rows]="50">

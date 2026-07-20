@@ -41,7 +41,7 @@ interface ConceptoRow { descripcion: string; cantidad: number; valor_unitario: n
     <div class="surf-page in">
       <p-toast></p-toast>
       <p-confirmDialog></p-confirmDialog>
-      <app-page-tabs [tabs]="tabs" />
+      <app-page-tabs [tabs]="tabs" variant="liquid" />
 
       <header class="surf-page-head fa-head">
         <div class="surf-page-head-text">
@@ -138,7 +138,7 @@ interface ConceptoRow { descripcion: string; cantidad: number; valor_unitario: n
       <p-dialog [visible]="showEmit" (visibleChange)="showEmit=$event" [modal]="true" [style]="{ width: '46rem' }" header="Nueva factura" [draggable]="false" [closable]="false" [closeOnEscape]="false">
         <div class="fa-form">
           <label class="fa-f"><span>Tipo *</span>
-            <p-selectButton [options]="tipoOpts" [(ngModel)]="form.tipo" optionLabel="label" optionValue="value" [allowEmpty]="false" styleClass="fa-sb" ariaLabel="Tipo de factura" />
+            <p-selectButton [options]="tipoOpts" [(ngModel)]="form.tipo" optionLabel="label" optionValue="value" [allowEmpty]="false" styleClass="fa-sb sb-liquid" ariaLabel="Tipo de factura" />
           </label>
 
           @if (form.tipo === 'nominativa') {
@@ -154,27 +154,25 @@ interface ConceptoRow { descripcion: string; cantidad: number; valor_unitario: n
           }
 
           <div class="fa-concept-head"><span>Conceptos *</span><button pButton type="button" label="Agregar" icon="pi pi-plus" class="p-button-text p-button-sm" (click)="addConcepto()"></button></div>
-          <table class="fa-concepts">
-            <thead><tr><th>Descripción</th><th style="width:5rem">Cant.</th><th style="width:8rem">P. Unit.</th><th class="ta-r" style="width:7rem">Importe</th><th style="width:2rem"></th></tr></thead>
-            <tbody>
-              @for (c of conceptos(); track $index) {
-                <tr>
-                  <td><input pInputText [(ngModel)]="c.descripcion" placeholder="Dulces surtidos" /></td>
-                  <td><input pInputText type="number" min="0" step="1" [(ngModel)]="c.cantidad" /></td>
-                  <td><input pInputText type="number" min="0" step="0.01" [(ngModel)]="c.valor_unitario" /></td>
-                  <td class="ta-r mono">{{ mzn((c.cantidad||0) * (c.valor_unitario||0)) }}</td>
-                  <td>@if (conceptos().length > 1) { <button pButton type="button" icon="pi pi-trash" class="p-button-text p-button-sm p-button-danger" aria-label="Quitar" (click)="removeConcepto($index)"></button> }</td>
-                </tr>
-              }
-            </tbody>
-          </table>
+          <p-table [value]="conceptos()" styleClass="p-datatable-sm fa-concepts-tbl">
+            <ng-template pTemplate="header"><tr><th>Descripción</th><th style="width:5rem">Cant.</th><th style="width:8rem">P. Unit.</th><th class="ta-r" style="width:7rem">Importe</th><th style="width:2rem"></th></tr></ng-template>
+            <ng-template pTemplate="body" let-c let-i="rowIndex">
+              <tr>
+                <td><input pInputText [(ngModel)]="c.descripcion" placeholder="Dulces surtidos" /></td>
+                <td><input pInputText type="number" min="0" step="1" [(ngModel)]="c.cantidad" /></td>
+                <td><input pInputText type="number" min="0" step="0.01" [(ngModel)]="c.valor_unitario" /></td>
+                <td class="ta-r mono">{{ mzn((c.cantidad||0) * (c.valor_unitario||0)) }}</td>
+                <td>@if (conceptos().length > 1) { <button pButton type="button" icon="pi pi-trash" class="p-button-text p-button-sm p-button-danger" aria-label="Quitar" (click)="removeConcepto(i)"></button> }</td>
+              </tr>
+            </ng-template>
+          </p-table>
 
           <div class="fa-grid3">
             <label class="fa-f"><span>Forma de pago</span>
-              <p-select [options]="formaPagoOpts" [(ngModel)]="form.forma_pago" optionLabel="label" optionValue="value" appendTo="body" styleClass="fa-sel" ariaLabel="Forma de pago" />
+              <p-select [options]="formaPagoOpts" [(ngModel)]="form.forma_pago" optionLabel="label" optionValue="value" appendTo="body" styleClass="fa-sel sel-liquid" ariaLabel="Forma de pago" />
             </label>
             <label class="fa-f"><span>Método de pago</span>
-              <p-select [options]="metodoPagoOpts" [(ngModel)]="form.metodo_pago" optionLabel="label" optionValue="value" appendTo="body" styleClass="fa-sel" ariaLabel="Método de pago" />
+              <p-select [options]="metodoPagoOpts" [(ngModel)]="form.metodo_pago" optionLabel="label" optionValue="value" appendTo="body" styleClass="fa-sel sel-liquid" ariaLabel="Método de pago" />
             </label>
             <label class="fa-f"><span>Serie</span><input pInputText [(ngModel)]="form.serie" placeholder="(default emisor)" maxlength="10" style="text-transform:uppercase" /></label>
           </div>
@@ -216,7 +214,7 @@ interface ConceptoRow { descripcion: string; cantidad: number; valor_unitario: n
           <div class="fa-form">
             <p class="fa-note fa-note-warn"><i class="pi pi-exclamation-triangle"></i> Vas a cancelar <strong>{{ r.serie }}{{ r.folio }}</strong> ({{ r.receptor_nombre || 'Público general' }}, {{ mzn(r.total) }}). Si el CFDI requiere aceptación del receptor, queda <strong>en proceso</strong> hasta que la acepte (72h).</p>
             <label class="fa-f"><span>Motivo de cancelación *</span>
-              <p-select [options]="motivoOpts" [(ngModel)]="cancelForm.motivo" optionLabel="label" optionValue="value" appendTo="body" styleClass="fa-sel" ariaLabel="Motivo de cancelación" />
+              <p-select [options]="motivoOpts" [(ngModel)]="cancelForm.motivo" optionLabel="label" optionValue="value" appendTo="body" styleClass="fa-sel sel-liquid" ariaLabel="Motivo de cancelación" />
             </label>
             @if (cancelForm.motivo === '01') {
               <label class="fa-f"><span>UUID que sustituye * (folioSustitución)</span>
@@ -240,20 +238,18 @@ interface ConceptoRow { descripcion: string; cantidad: number; valor_unitario: n
           <div class="fa-form">
             <p class="fa-note"><i class="pi pi-info-circle"></i> CFDI de <strong>Egreso</strong> relacionado (01) a <strong>{{ r.serie }}{{ r.folio }}</strong> · {{ r.receptor_nombre || 'Público general' }} ({{ r.receptor_rfc }}). Captura lo que se devuelve/bonifica.</p>
             <div class="fa-concept-head"><span>Conceptos *</span><button pButton type="button" label="Agregar" icon="pi pi-plus" class="p-button-text p-button-sm" (click)="addNcConcepto()"></button></div>
-            <table class="fa-concepts">
-              <thead><tr><th>Descripción</th><th style="width:5rem">Cant.</th><th style="width:8rem">P. Unit.</th><th class="ta-r" style="width:7rem">Importe</th><th style="width:2rem"></th></tr></thead>
-              <tbody>
-                @for (c of ncConceptos(); track $index) {
-                  <tr>
-                    <td><input pInputText [(ngModel)]="c.descripcion" placeholder="Devolución de mercancía" /></td>
-                    <td><input pInputText type="number" min="0" step="1" [(ngModel)]="c.cantidad" /></td>
-                    <td><input pInputText type="number" min="0" step="0.01" [(ngModel)]="c.valor_unitario" /></td>
-                    <td class="ta-r mono">{{ mzn((c.cantidad||0) * (c.valor_unitario||0)) }}</td>
-                    <td>@if (ncConceptos().length > 1) { <button pButton type="button" icon="pi pi-trash" class="p-button-text p-button-sm p-button-danger" aria-label="Quitar" (click)="removeNcConcepto($index)"></button> }</td>
-                  </tr>
-                }
-              </tbody>
-            </table>
+            <p-table [value]="ncConceptos()" styleClass="p-datatable-sm fa-concepts-tbl">
+              <ng-template pTemplate="header"><tr><th>Descripción</th><th style="width:5rem">Cant.</th><th style="width:8rem">P. Unit.</th><th class="ta-r" style="width:7rem">Importe</th><th style="width:2rem"></th></tr></ng-template>
+              <ng-template pTemplate="body" let-c let-i="rowIndex">
+                <tr>
+                  <td><input pInputText [(ngModel)]="c.descripcion" placeholder="Devolución de mercancía" /></td>
+                  <td><input pInputText type="number" min="0" step="1" [(ngModel)]="c.cantidad" /></td>
+                  <td><input pInputText type="number" min="0" step="0.01" [(ngModel)]="c.valor_unitario" /></td>
+                  <td class="ta-r mono">{{ mzn((c.cantidad||0) * (c.valor_unitario||0)) }}</td>
+                  <td>@if (ncConceptos().length > 1) { <button pButton type="button" icon="pi pi-trash" class="p-button-text p-button-sm p-button-danger" aria-label="Quitar" (click)="removeNcConcepto(i)"></button> }</td>
+                </tr>
+              </ng-template>
+            </p-table>
             <div class="fa-totals">
               <span>Subtotal <strong class="mono">{{ mzn(ncTotals().subtotal) }}</strong></span>
               <span>IVA 16% <strong class="mono">{{ mzn(ncTotals().iva) }}</strong></span>
@@ -285,20 +281,18 @@ interface ConceptoRow { descripcion: string; cantidad: number; valor_unitario: n
               @if (rec.pending_nominativa.length === 0) {
                 <p class="fa-note fa-note-ok"><i class="pi pi-check-circle"></i> Sin pendientes: todos los pedidos con datos fiscales fueron facturados.</p>
               } @else {
-                <table class="fa-cont-table">
-                  <thead><tr><th>Pedido</th><th>Cliente</th><th class="ta-r">Total</th><th class="ta-r">Int.</th><th>Último error</th></tr></thead>
-                  <tbody>
-                    @for (o of rec.pending_nominativa; track o.id) {
-                      <tr>
-                        <td class="mono">{{ o.code }}</td>
-                        <td>{{ o.customer_name || o.customer_id }}</td>
-                        <td class="ta-r mono">{{ mzn(o.total) }}</td>
-                        <td class="ta-r mono">{{ o.cfdi_attempts || 0 }}</td>
-                        <td class="fa-cont-err">{{ o.cfdi_error || '—' }}</td>
-                      </tr>
-                    }
-                  </tbody>
-                </table>
+                <p-table [value]="rec.pending_nominativa" styleClass="p-datatable-sm fa-cont-tbl" [rowHover]="true">
+                  <ng-template pTemplate="header"><tr><th>Pedido</th><th>Cliente</th><th class="ta-r">Total</th><th class="ta-r">Int.</th><th>Último error</th></tr></ng-template>
+                  <ng-template pTemplate="body" let-o>
+                    <tr>
+                      <td class="mono">{{ o.code }}</td>
+                      <td>{{ o.customer_name || o.customer_id }}</td>
+                      <td class="ta-r mono">{{ mzn(o.total) }}</td>
+                      <td class="ta-r mono">{{ o.cfdi_attempts || 0 }}</td>
+                      <td class="fa-cont-err">{{ o.cfdi_error || '—' }}</td>
+                    </tr>
+                  </ng-template>
+                </p-table>
               }
             </div>
 
@@ -308,19 +302,17 @@ interface ConceptoRow { descripcion: string; cantidad: number; valor_unitario: n
               @if (rec.pending_global_by_day.length === 0) {
                 <p class="fa-note fa-note-ok"><i class="pi pi-check-circle"></i> Sin mostrador pendiente de factura global.</p>
               } @else {
-                <table class="fa-cont-table">
-                  <thead><tr><th>Día</th><th class="ta-r">Pedidos</th><th class="ta-r">Total</th><th></th></tr></thead>
-                  <tbody>
-                    @for (d of rec.pending_global_by_day; track d.day) {
-                      <tr>
-                        <td class="mono">{{ d.day | date:'dd/MM/yy' }}</td>
-                        <td class="ta-r mono">{{ d.orders }}</td>
-                        <td class="ta-r mono">{{ mzn(d.total) }}</td>
-                        <td class="ta-r">@if (canManage) { <button pButton type="button" label="Facturar global" icon="pi pi-calendar" class="p-button-text p-button-sm" [loading]="globalDay()===d.day" (click)="globalForDay(d.day)"></button> }</td>
-                      </tr>
-                    }
-                  </tbody>
-                </table>
+                <p-table [value]="rec.pending_global_by_day" styleClass="p-datatable-sm fa-cont-tbl" [rowHover]="true">
+                  <ng-template pTemplate="header"><tr><th>Día</th><th class="ta-r">Pedidos</th><th class="ta-r">Total</th><th></th></tr></ng-template>
+                  <ng-template pTemplate="body" let-d>
+                    <tr>
+                      <td class="mono">{{ d.day | date:'dd/MM/yy' }}</td>
+                      <td class="ta-r mono">{{ d.orders }}</td>
+                      <td class="ta-r mono">{{ mzn(d.total) }}</td>
+                      <td class="ta-r">@if (canManage) { <button pButton type="button" label="Facturar global" icon="pi pi-calendar" class="p-button-text p-button-sm" [loading]="globalDay()===d.day" (click)="globalForDay(d.day)"></button> }</td>
+                    </tr>
+                  </ng-template>
+                </p-table>
               }
             </div>
             <p class="fa-note"><i class="pi pi-info-circle"></i> Ventana: últimos {{ rec.days }} días. El reintento es idempotente y solo aplica a pedidos con datos fiscales completos.</p>
@@ -358,7 +350,8 @@ interface ConceptoRow { descripcion: string; cantidad: number; valor_unitario: n
     .fa-empty .pi { display: block; font-size: 1.5rem; margin-bottom: .5rem; opacity: .6; }
     .fa-form { display: flex; flex-direction: column; gap: .8rem; padding-top: .5rem; }
     .fa-f { display: flex; flex-direction: column; gap: .25rem; font-size: .72rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: .03em; }
-    .fa-f input, .fa-concepts input { border: 1px solid var(--border-color); border-radius: var(--r-sm); padding: .45rem .6rem; background: var(--card-bg); color: var(--text-main); font-family: inherit; font-size: .85rem; width: 100%; }
+    .fa-f input, .fa-concepts-tbl input { border: 1px solid var(--border-color); border-radius: var(--r-sm); padding: .45rem .6rem; background: var(--card-bg); color: var(--text-main); font-family: inherit; font-size: .85rem; width: 100%; }
+    :host ::ng-deep .fa-concepts-tbl .p-datatable-tbody > tr > td { padding: .2rem .35rem; }
     .fa-grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: .6rem; }
     .fa-grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: .6rem; }
     .fa-f-wide { grid-column: 1 / -1; }

@@ -9,9 +9,13 @@ import { InputTextModule } from 'primeng/inputtext';
 import { IconFieldModule } from 'primeng/iconfield';
 import { InputIconModule } from 'primeng/inputicon';
 import { SelectModule } from 'primeng/select';
+import { SelectButtonModule } from 'primeng/selectbutton';
+import { TagModule } from 'primeng/tag';
 import { MessageService } from 'primeng/api';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
+import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
+import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import { CONTABILIDAD_TABS } from '../contabilidad-tabs';
 import { ListasSatService, SatListMatch, RfcIssue, ListasStats, ListStatus, ExpenseDoc, FiscalEstado } from '../listas-sat.service';
 
@@ -24,20 +28,21 @@ import { ListasSatService, SatListMatch, RfcIssue, ListasStats, ListStatus, Expe
 @Component({
   selector: 'app-contabilidad-listas-sat',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, TableModule, ToastModule, InputTextModule, IconFieldModule, InputIconModule, SelectModule, PageTabsComponent, MetricStripComponent],
+  imports: [CommonModule, FormsModule, ButtonModule, TableModule, ToastModule, InputTextModule, IconFieldModule, InputIconModule, SelectModule, SelectButtonModule, TagModule, PageTabsComponent, MetricStripComponent, FreshnessPillComponent, ContextHelpComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
     <div class="surf-page in ls-page">
       <p-toast></p-toast>
-      <app-page-tabs [tabs]="tabs" />
+      <app-page-tabs [tabs]="tabs" variant="liquid" />
 
       <header class="surf-page-head ls-head">
         <div class="surf-page-head-text">
-          <h1>Listas SAT</h1>
+          <h1 class="ls-h1">Listas SAT <app-context-help topic="listas-sat" /></h1>
           <p class="surf-page-sub">Proveedores del negocio que aparecen en las listas negras del SAT (EFOS 69-B y Art. 69) y RFCs con problema de captura. El cruce es determinista sobre tus egresos; el triage alimenta a Maat.</p>
         </div>
         <div class="ls-head-actions">
+          @if (loadedAt()) { <app-freshness-pill [since]="loadedAt()" /> }
           <button pButton type="button" label="Escanear" icon="pi pi-bolt" class="p-button-sm p-button-outlined" [loading]="scanning()" (click)="scan()"></button>
           <button pButton type="button" label="Refrescar listas SAT" icon="pi pi-cloud-download" class="p-button-sm p-button-text" [loading]="refreshing()" (click)="refresh()"></button>
         </div>
@@ -67,22 +72,14 @@ import { ListasSatService, SatListMatch, RfcIssue, ListasStats, ListStatus, Expe
 
       <!-- Filtros -->
       <div class="ls-filters">
-        <div class="ls-seg">
-          <button [class.active]="lista() === 'all'" (click)="lista.set('all')">Todas</button>
-          <button [class.active]="lista() === '69B'" (click)="lista.set('69B')">EFOS 69-B</button>
-          <button [class.active]="lista() === '69'" (click)="lista.set('69')">Art. 69</button>
-        </div>
-        <div class="ls-seg">
-          <button [class.active]="estado() === 'pendientes'" (click)="estado.set('pendientes')">Pendientes</button>
-          <button [class.active]="estado() === 'confirmado'" (click)="estado.set('confirmado')">Confirmados</button>
-          <button [class.active]="estado() === 'descartado'" (click)="estado.set('descartado')">Descartados</button>
-        </div>
+        <p-selectButton styleClass="sb-liquid" [options]="listaOpts" [ngModel]="lista()" (ngModelChange)="lista.set($event)" optionLabel="label" optionValue="value" [allowEmpty]="false" ariaLabel="Filtrar por lista" />
+        <p-selectButton styleClass="sb-liquid" [options]="estadoOpts" [ngModel]="estado()" (ngModelChange)="estado.set($event)" optionLabel="label" optionValue="value" [allowEmpty]="false" ariaLabel="Filtrar por estado de triage" />
         <p-iconfield iconPosition="left" styleClass="ls-search">
           <p-inputicon styleClass="pi pi-search" />
           <input type="text" pInputText placeholder="Buscar RFC o proveedor…" [ngModel]="search()" (ngModelChange)="search.set($event)" aria-label="Buscar proveedor" />
         </p-iconfield>
         <label class="ls-fld"><span>Severidad</span>
-          <p-select [options]="sevOpts" [ngModel]="sev()" (ngModelChange)="sev.set($event)" optionLabel="label" optionValue="value" styleClass="ls-sel" ariaLabel="Filtrar por severidad" />
+          <p-select [options]="sevOpts" [ngModel]="sev()" (ngModelChange)="sev.set($event)" optionLabel="label" optionValue="value" styleClass="ls-sel sel-liquid" ariaLabel="Filtrar por severidad" />
         </label>
       </div>
 
@@ -105,12 +102,12 @@ import { ListasSatService, SatListMatch, RfcIssue, ListasStats, ListStatus, Expe
           <ng-template pTemplate="body" let-m let-expanded="expanded">
             <tr>
               <td><button pButton type="button" [icon]="expanded ? 'pi pi-chevron-down' : 'pi pi-chevron-right'" class="p-button-text p-button-sm" [attr.aria-label]="expanded ? 'Ocultar documentos' : 'Ver documentos'" (click)="toggle(m)"></button></td>
-              <td><span class="ls-sev" [ngClass]="'sev-' + sevOf(m.situacion)">{{ m.situacion }}</span></td>
+              <td><p-tag [value]="m.situacion" [severity]="sevSev(m.situacion)" styleClass="ls-chip" /></td>
               <td>
                 <div class="ls-name">{{ m.nombre || m.rfc }}</div>
                 <div class="ls-rfc mono">{{ m.rfc }}</div>
               </td>
-              <td><span class="ls-tag">{{ listaLabel(m.lista) }}</span></td>
+              <td><p-tag [value]="listaLabel(m.lista)" severity="secondary" styleClass="ls-chip" /></td>
               <td class="ta-r mono">{{ m.doc_count | number }}</td>
               <td class="ta-r strong mono">{{ money(m.importe_total) }}</td>
               <td>
@@ -131,20 +128,18 @@ import { ListasSatService, SatListMatch, RfcIssue, ListasStats, ListStatus, Expe
               @if (docsLoading()[m.rfc]) {
                 <div class="ls-ev-loading">Cargando documentos…</div>
               } @else if (docs()[m.rfc]?.length) {
-                <table class="ls-docs">
-                  <thead><tr><th>Fecha</th><th>Sucursal</th><th>Documento</th><th>Concepto</th><th class="ta-r">Importe</th></tr></thead>
-                  <tbody>
-                    @for (d of docs()[m.rfc]; track d.doc_tipo + d.doc_folio + d.sucursal) {
-                      <tr>
-                        <td class="mono">{{ d.fecha | date:'dd/MM/yy' }}</td>
-                        <td>{{ d.sucursal }}</td>
-                        <td class="mono">{{ d.doc_tipo }} {{ d.doc_folio }}</td>
-                        <td class="ls-doc-concepto">{{ d.concepto || '—' }}</td>
-                        <td class="ta-r mono">{{ money(d.importe) }}</td>
-                      </tr>
-                    }
-                  </tbody>
-                </table>
+                <p-table [value]="docs()[m.rfc] || []" styleClass="p-datatable-sm ls-docs-tbl" [rowHover]="true">
+                  <ng-template pTemplate="header"><tr><th>Fecha</th><th>Sucursal</th><th>Documento</th><th>Concepto</th><th class="ta-r">Importe</th></tr></ng-template>
+                  <ng-template pTemplate="body" let-d>
+                    <tr>
+                      <td class="mono">{{ d.fecha | date:'dd/MM/yy' }}</td>
+                      <td>{{ d.sucursal }}</td>
+                      <td class="mono">{{ d.doc_tipo }} {{ d.doc_folio }}</td>
+                      <td class="ls-doc-concepto">{{ d.concepto || '—' }}</td>
+                      <td class="ta-r mono">{{ money(d.importe) }}</td>
+                    </tr>
+                  </ng-template>
+                </p-table>
               } @else {
                 <div class="ls-ev-empty">Sin documentos para este RFC en el periodo cargado.</div>
               }
@@ -168,7 +163,7 @@ import { ListasSatService, SatListMatch, RfcIssue, ListasStats, ListStatus, Expe
             <ng-template pTemplate="body" let-it>
               <tr>
                 <td class="mono">{{ it.rfc }}</td>
-                <td><span class="ls-tag" [ngClass]="'iss-' + it.issue_type">{{ issueLabel(it.issue_type) }}</span></td>
+                <td><p-tag [value]="issueLabel(it.issue_type)" severity="warn" styleClass="ls-chip" /></td>
                 <td class="ta-r mono">{{ it.doc_count | number }}</td>
                 <td class="ta-r mono">{{ money(it.importe_total) }}</td>
                 <td>
@@ -189,42 +184,31 @@ import { ListasSatService, SatListMatch, RfcIssue, ListasStats, ListStatus, Expe
   styles: [`
     :host { display: block; }
     .ls-head { display: flex; align-items: flex-start; gap: 1rem; }
+    .ls-h1 { display: inline-flex; align-items: center; gap: .3rem; }
     .ls-head-actions { margin-left: auto; display: flex; gap: .4rem; align-items: center; }
     .ls-status { display: flex; flex-wrap: wrap; gap: .5rem; margin-bottom: 1rem; }
-    .ls-status-chip { display: inline-flex; flex-direction: column; gap: .1rem; border: 1px solid var(--border-color); border-radius: var(--r-md, 10px); padding: .45rem .8rem; background: var(--card-bg); }
-    .ls-status-chip.stale { border-color: color-mix(in srgb, var(--warn-fg, #d97706) 45%, var(--border-color)); }
+    .ls-status-chip { display: inline-flex; flex-direction: column; gap: .1rem; border: 1px solid var(--border-color); border-radius: var(--r-md); padding: .45rem .8rem; background: var(--card-bg); }
+    .ls-status-chip.stale { border-color: color-mix(in srgb, var(--warn-fg) 45%, var(--border-color)); }
     .ls-status-chip.off { opacity: .7; }
     .ls-status-name { font-size: .8rem; font-weight: 600; color: var(--text-main); }
     .ls-status-meta { font-size: .7rem; color: var(--text-muted); font-variant-numeric: tabular-nums; }
     app-metric-strip { display:block; margin-bottom: 1rem; }
     .ls-filters { display: flex; gap: 1rem; flex-wrap: wrap; margin-bottom: .8rem; }
-    .ls-seg { display: inline-flex; border: 1px solid var(--border-color); border-radius: var(--r-pill, 999px); overflow: hidden; }
-    .ls-seg button { border: none; background: var(--card-bg); padding: .3rem .8rem; font-size: .8rem; cursor: pointer; color: var(--text-muted); }
-    .ls-seg button.active { background: var(--action); color: var(--action-ink, #fff); font-weight: 600; }
     .ls-search input { min-width: 220px; }
+    :host ::ng-deep .ls-chip .p-tag { font-size: .66rem; font-weight: 700; padding: .1rem .5rem; text-transform: capitalize; }
     .ls-fld { display: flex; flex-direction: column; gap: .15rem; font-size: .68rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: .03em; }
     .ls-filters { align-items: flex-end; }
     .ls-table { font-variant-numeric: tabular-nums; }
     .ta-r { text-align: right; } .strong { font-weight: 700; } .muted { color: var(--text-muted); }
-    .bad { color: var(--bad-fg, #dc2626); }
+    .bad { color: var(--bad-fg); }
     .mono { font-family: var(--font-mono, ui-monospace, monospace); font-size: .85em; }
     .ls-name { font-weight: 600; color: var(--text-main); }
     .ls-rfc { color: var(--text-muted); margin-top: .05rem; }
-    .ls-sev { display: inline-block; padding: .1rem .5rem; border-radius: var(--r-pill, 999px); font-size: .66rem; font-weight: 700; text-transform: capitalize; }
-    .sev-critical { background: color-mix(in srgb, var(--bad-fg, #dc2626) 15%, transparent); color: var(--bad-fg, #dc2626); }
-    .sev-warn { background: color-mix(in srgb, var(--warn-fg, #d97706) 16%, transparent); color: var(--warn-soft-fg, #b45309); }
-    .sev-info { background: var(--surface-hover-bg, #f5f5f4); color: var(--text-muted); }
-    .ls-tag { display: inline-block; padding: .08rem .5rem; border-radius: var(--r-pill, 999px); font-size: .7rem; font-weight: 600; background: var(--surface-hover-bg, #f5f5f4); color: var(--text-muted); }
-    .iss-formato_invalido { background: color-mix(in srgb, var(--warn-fg, #d97706) 14%, transparent); color: var(--warn-soft-fg, #b45309); }
     .ls-acts { display: flex; align-items: center; gap: .1rem; }
     .ls-status-label { font-size: .75rem; font-weight: 600; }
-    .st-confirmado { color: var(--ok-fg, #16a34a); } .st-descartado { color: var(--text-faint, #a8a29e); }
-    .ls-ev { background: var(--surface-hover-bg, #fafaf9); padding: .8rem 1.2rem; }
+    .st-confirmado { color: var(--ok-fg); } .st-descartado { color: var(--text-faint); }
+    .ls-ev { background: var(--surface-hover-bg); padding: .8rem 1.2rem; }
     .ls-ev-loading, .ls-ev-empty { font-size: .82rem; color: var(--text-muted); padding: .4rem 0; }
-    .ls-docs { width: 100%; border-collapse: collapse; font-size: .82rem; }
-    .ls-docs th { text-align: left; font-size: .66rem; text-transform: uppercase; letter-spacing: .03em; color: var(--text-muted); padding: .2rem .5rem; border-bottom: 1px solid var(--border-color); }
-    .ls-docs td { padding: .25rem .5rem; border-bottom: 1px solid var(--border-color); color: var(--text-main); }
-    .ls-docs .ta-r { text-align: right; }
     .ls-doc-concepto { max-width: 30ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-muted); }
     .ls-empty { padding: 2rem; text-align: center; color: var(--text-muted); }
     .ls-issues { padding: 1rem; margin-top: 1rem; }
@@ -246,6 +230,9 @@ export class ContabilidadListasSatComponent implements OnInit {
   readonly refreshing = signal(false);
   readonly lista = signal<'all' | '69B' | '69'>('all');
   readonly estado = signal<'pendientes' | 'confirmado' | 'descartado'>('pendientes');
+  readonly loadedAt = signal<number | null>(null);
+  readonly listaOpts = [{ label: 'Todas', value: 'all' }, { label: 'EFOS 69-B', value: '69B' }, { label: 'Art. 69', value: '69' }];
+  readonly estadoOpts = [{ label: 'Pendientes', value: 'pendientes' }, { label: 'Confirmados', value: 'confirmado' }, { label: 'Descartados', value: 'descartado' }];
   readonly search = signal('');
   readonly sev = signal<'all' | 'critical' | 'warn' | 'info'>('all');
   readonly sevOpts = [{ label: 'Todas', value: 'all' }, { label: 'Crítica', value: 'critical' }, { label: 'Media', value: 'warn' }, { label: 'Baja', value: 'info' }];
@@ -285,7 +272,7 @@ export class ContabilidadListasSatComponent implements OnInit {
   private reload() {
     this.loading.set(true);
     this.svc.matches({ limit: 1000 }).pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({ next: (r) => { this.allMatches.set(r); this.loading.set(false); }, error: () => { this.loading.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudieron cargar las coincidencias.' }); } });
+      .subscribe({ next: (r) => { this.allMatches.set(r); this.loading.set(false); this.loadedAt.set(Date.now()); }, error: () => { this.loading.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudieron cargar las coincidencias.' }); } });
     this.svc.stats().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (s) => this.stats.set(s), error: () => {} });
     this.svc.status().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (s) => this.status.set(s), error: () => {} });
     this.svc.rfcIssues({ limit: 500 }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (r) => this.rfcIssues.set(r), error: () => {} });
@@ -344,6 +331,7 @@ export class ContabilidadListasSatComponent implements OnInit {
     if (['presunto', 'no localizado', 'exigible', 'sentencia'].includes(s)) return 'warn';
     return 'info';
   }
+  sevSev(situacion: string): 'danger' | 'warn' | 'secondary' { const s = this.sevOf(situacion); return s === 'critical' ? 'danger' : s === 'warn' ? 'warn' : 'secondary'; }
   listaLabel(l: string): string { return l === '69B' ? 'EFOS 69-B' : l === '69' ? 'Art. 69' : l; }
   issueLabel(t: string): string { return t === 'formato_invalido' ? 'Formato inválido' : t === 'rfc_generico' ? 'RFC genérico' : t; }
   estadoLabel(e: string): string { return e === 'confirmado' ? 'Confirmado' : e === 'descartado' ? 'Descartado' : e === 'en_revision' ? 'En revisión' : 'Nuevo'; }

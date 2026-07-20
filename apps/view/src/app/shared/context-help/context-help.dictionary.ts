@@ -285,6 +285,66 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
     ],
   },
 
+  'listas-sat': {
+    title: 'Listas SAT — guía',
+    intro: 'Proveedores tuyos que aparecen en las listas negras del SAT, cruzados contra tus egresos. El triage alimenta a Maat.',
+    groups: [
+      {
+        heading: 'Listas',
+        entries: [
+          { term: 'EFOS 69-B', def: 'Empresas que Facturan Operaciones Simuladas: el SAT presume factura falsa. Comprarles arriesga tu deducción.' },
+          { term: 'Art. 69', def: 'Contribuyentes con incumplimientos publicados (no localizados, créditos firmes, etc.).' },
+        ],
+      },
+      {
+        heading: 'Situación (severidad)',
+        entries: [
+          { term: 'Definitivo / Firme', def: 'Crítico: el estatus en la lista es definitivo. Máximo riesgo fiscal.' },
+          { term: 'Presunto / No localizado / Exigible', def: 'Medio: aún no definitivo, pero requiere revisión.' },
+          { term: 'Otros', def: 'Informativo.' },
+        ],
+      },
+      {
+        heading: 'Triage',
+        entries: [
+          { term: 'Confirmado', def: 'Revisaste y el riesgo es real; queda registrado para defensa/decisión.' },
+          { term: 'Descartado', def: 'Falso positivo (p. ej. RFC homónimo); no se vuelve a marcar.' },
+          { term: 'RFC con problema', def: 'RFC con formato inválido o genérico en tus egresos: corrige la captura.' },
+        ],
+      },
+    ],
+  },
+
+  'contabilidad-e': {
+    title: 'Contabilidad electrónica — guía',
+    intro: 'Genera los XML que exige el SAT (contabilidad electrónica 1.3) desde tu balanza contable.',
+    groups: [
+      {
+        heading: 'Documentos',
+        entries: [
+          { term: 'Catálogo de cuentas', def: 'Estructura de tus cuentas con nivel, naturaleza y código agrupador SAT.' },
+          { term: 'Balanza de comprobación', def: 'Saldo inicial, cargos (Debe), abonos (Haber) y saldo final por cuenta.' },
+        ],
+      },
+      {
+        heading: 'Código agrupador SAT',
+        entries: [
+          { term: 'Qué es', def: 'Clave del catálogo estándar del SAT (formato NNN o NNN.NN) a la que se mapea cada cuenta mayor tuya. Hace el catálogo 100% válido.' },
+          { term: 'Cuenta mayor', def: 'Tu cuenta contable de primer nivel.' },
+          { term: 'Naturaleza (D/A)', def: 'Deudora (D) o Acreedora (A).' },
+          { term: 'manual / auto', def: 'Origen del mapeo: capturado por ti (manual) o auto-sugerido (conviene revisarlo).' },
+        ],
+      },
+      {
+        heading: 'Tipo de envío',
+        entries: [
+          { term: 'Normal', def: 'Primer envío del periodo.' },
+          { term: 'Complementaria', def: 'Corrige una balanza ya enviada del mismo periodo.' },
+        ],
+      },
+    ],
+  },
+
   descarga: {
     title: 'Descarga masiva — ¿cómo funciona?',
     intro: 'Solicitudes de descarga de CFDI ante el SAT. El pipeline corre en segundo plano firmando con tu e.firma; el estado avanza solo.',

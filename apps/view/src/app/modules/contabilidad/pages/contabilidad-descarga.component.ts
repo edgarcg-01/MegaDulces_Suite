@@ -35,7 +35,7 @@ import { CredencialesService } from '../credenciales.service';
   template: `
     <div class="surf-page in">
       <p-toast></p-toast>
-      <app-page-tabs [tabs]="tabs" />
+      <app-page-tabs [tabs]="tabs" variant="liquid" />
 
       <header class="surf-page-head dz-head">
         <div class="surf-page-head-text">
@@ -54,7 +54,7 @@ import { CredencialesService } from '../credenciales.service';
 
       <div class="dz-filters">
         <label class="dz-fld"><span>Estado</span>
-          <p-select [options]="estadoOpts" [ngModel]="estado()" (ngModelChange)="setEstado($event)" optionLabel="label" optionValue="value" styleClass="dz-sel" ariaLabel="Filtrar por estado" />
+          <p-select [options]="estadoOpts" [ngModel]="estado()" (ngModelChange)="setEstado($event)" optionLabel="label" optionValue="value" styleClass="dz-sel sel-liquid" ariaLabel="Filtrar por estado" />
         </label>
         @if (estado() !== 'all') { <button pButton type="button" label="Limpiar" icon="pi pi-times" class="p-button-sm p-button-text dz-clear" (click)="setEstado('all')"></button> }
       </div>
@@ -90,14 +90,12 @@ import { CredencialesService } from '../credenciales.service';
             <tr><td colspan="8" class="dz-ev">
               @if (pkgLoading()[r.id]) { <div class="dz-ev-msg">Cargando paquetes…</div> }
               @else if (packages()[r.id]?.length) {
-                <table class="dz-pkgs">
-                  <thead><tr><th>Paquete</th><th style="width:8rem">Estado</th><th class="ta-r" style="width:6rem">CFDI</th><th>Detalle</th></tr></thead>
-                  <tbody>
-                    @for (p of packages()[r.id]; track p.id) {
-                      <tr><td class="mono">{{ p.id_paquete }}</td><td><p-tag [value]="p.estado" [severity]="estadoSev(p.estado)" styleClass="dz-chip" /></td><td class="ta-r mono">{{ p.num_cfdis != null ? (p.num_cfdis | number) : '—' }}</td><td class="dz-err">{{ p.last_error || '—' }}</td></tr>
-                    }
-                  </tbody>
-                </table>
+                <p-table [value]="packages()[r.id] || []" styleClass="p-datatable-sm dz-pkgs-tbl" [rowHover]="true">
+                  <ng-template pTemplate="header"><tr><th>Paquete</th><th style="width:8rem">Estado</th><th class="ta-r" style="width:6rem">CFDI</th><th>Detalle</th></tr></ng-template>
+                  <ng-template pTemplate="body" let-p>
+                    <tr><td class="mono">{{ p.id_paquete }}</td><td><p-tag [value]="p.estado" [severity]="estadoSev(p.estado)" styleClass="dz-chip" /></td><td class="ta-r mono">{{ p.num_cfdis != null ? (p.num_cfdis | number) : '—' }}</td><td class="dz-err">{{ p.last_error || '—' }}</td></tr>
+                  </ng-template>
+                </p-table>
               } @else {
                 <div class="dz-ev-msg">Sin paquetes aún. @if (r.mensaje_sat) { <span class="mono">SAT: {{ r.mensaje_sat }}</span> }</div>
               }
@@ -116,10 +114,10 @@ import { CredencialesService } from '../credenciales.service';
         <div class="dz-form">
           <label class="dz-f"><span>RFC solicitante *</span><input type="text" pInputText [(ngModel)]="form.rfcSolicitante" placeholder="XAXX010101000" maxlength="13" style="text-transform:uppercase" /></label>
           <label class="dz-f"><span>Rol *</span>
-            <p-selectButton [options]="rolOpts" [(ngModel)]="form.rol" optionLabel="label" optionValue="value" [allowEmpty]="false" styleClass="dz-sb" ariaLabel="Rol" />
+            <p-selectButton [options]="rolOpts" [(ngModel)]="form.rol" optionLabel="label" optionValue="value" [allowEmpty]="false" styleClass="dz-sb sb-liquid" ariaLabel="Rol" />
           </label>
           <label class="dz-f"><span>Tipo</span>
-            <p-selectButton [options]="tipoOpts" [(ngModel)]="form.tipo" optionLabel="label" optionValue="value" [allowEmpty]="false" styleClass="dz-sb" ariaLabel="Tipo de solicitud" />
+            <p-selectButton [options]="tipoOpts" [(ngModel)]="form.tipo" optionLabel="label" optionValue="value" [allowEmpty]="false" styleClass="dz-sb sb-liquid" ariaLabel="Tipo de solicitud" />
           </label>
           <div class="dz-row">
             <label class="dz-f"><span>Desde *</span><p-datepicker [(ngModel)]="form.fechaIni" dateFormat="yy-mm-dd" [showIcon]="true" appendTo="body" placeholder="Desde" styleClass="dz-dp" /></label>

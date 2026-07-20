@@ -28,7 +28,7 @@ import { ImpuestosService, ProvisionalResult } from '../impuestos.service';
   template: `
     <div class="surf-page in">
       <p-toast></p-toast>
-      <app-page-tabs [tabs]="tabs" />
+      <app-page-tabs [tabs]="tabs" variant="liquid" />
 
       <header class="surf-page-head im-head">
         <div class="surf-page-head-text">
