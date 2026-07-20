@@ -9,6 +9,7 @@ import { televentaGuard } from './modules/televenta/televenta.guard';
 import { repartoGuard } from './modules/reparto/reparto.guard';
 import { storeEntryRedirect } from './modules/tienda/tienda.guards';
 import { countFocusGuard } from './core/guards/count-focus.guard';
+import { unsavedChangesGuard } from './core/guards/unsaved-changes.guard';
 
 export const routes: Routes = [
   {
@@ -494,7 +495,8 @@ export const routes: Routes = [
       {
         path: 'arqueo',
         loadComponent: () => import('./modules/tienda/pages/tienda-arqueo.component').then(m => m.TiendaArqueoComponent),
-        canActivate: [permissionGuard(Permission.STORE_ARQUEO_CAPTURAR)]
+        canActivate: [permissionGuard(Permission.STORE_ARQUEO_CAPTURAR)],
+        canDeactivate: [unsavedChangesGuard]
       },
       {
         path: 'analisis-semanal',

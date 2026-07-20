@@ -368,4 +368,35 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
       },
     ],
   },
+
+  arqueo: {
+    title: 'Arqueo de caja — guía',
+    intro: 'Conteo del efectivo físico en la caja. Es CIEGO: cuentas por denominación sin ver el monto esperado; al guardar, el sistema revela tu diferencia real. Solo ves tu sucursal.',
+    groups: [
+      {
+        heading: 'Tipo de arqueo',
+        entries: [
+          { term: 'Cierre de día', def: 'Conteo final de la jornada de una caja; se compara contra el corte del sistema.' },
+          { term: 'Relevo (cambio de turno)', def: 'Entrega de la caja de un cajero saliente a uno entrante; se sella el monto entregado.' },
+        ],
+      },
+      {
+        heading: 'Resultado',
+        entries: [
+          { term: 'Contado', def: 'La suma del efectivo que capturaste por denominación.' },
+          { term: 'Esperado', def: 'Lo que el sistema (corte) dice que debería haber en la caja. No lo ves hasta guardar.' },
+          { term: 'Faltante', def: 'Contaste MENOS de lo esperado (diferencia positiva): falta dinero en la caja.' },
+          { term: 'Sobrante', def: 'Contaste MÁS de lo esperado (diferencia negativa): sobra dinero en la caja.' },
+          { term: 'Cuadrado', def: 'Contado = esperado: la caja cuadra exacto.' },
+          { term: 'Sin corte aún', def: 'Se guardó tu conteo pero todavía no hay corte del sistema para comparar; la diferencia aparecerá cuando se procese.' },
+        ],
+      },
+      {
+        heading: 'Por qué es ciego',
+        entries: [
+          { term: 'Arqueo ciego', def: 'Cuentas sin ver el esperado para que el conteo sea honesto y no se ajuste al número objetivo. La diferencia se revela solo al final.' },
+        ],
+      },
+    ],
+  },
 };
