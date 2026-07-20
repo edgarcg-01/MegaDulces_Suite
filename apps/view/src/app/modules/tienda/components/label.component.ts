@@ -140,7 +140,11 @@ export interface LabelModel {
             }
             @if (hasCaja) {
               <div class="etq-tier">
-                <div class="txt">Caja con <span class="etq-red">{{ model.box_size }}</span> pzas:</div>
+                @if (isGranel) {
+                  <div class="txt">Caja <span class="etq-red">{{ cajaWeight }}</span>:</div>
+                } @else {
+                  <div class="txt">Caja con <span class="etq-red">{{ model.box_size }}</span> pzas:</div>
+                }
                 <div class="pricecell"><span class="amt" #amtEl>\${{ model.box_price | number:'1.2-2' }}</span></div>
               </div>
             }
@@ -208,6 +212,12 @@ export class LabelComponent implements AfterViewInit, OnChanges {
   private get perKgPrice(): number {
     const g = this.granelGrams;
     return g > 0 ? this.num(this.model?.piece_price) * 1000 / g : 0;
+  }
+  get isGranel(): boolean { return this.granelGrams > 0; }
+  /** Peso de la caja en granel: box_size × porción (10×500g = "5 kg"). */
+  get cajaWeight(): string {
+    const g = this.num(this.model?.box_size) * this.granelGrams;
+    return g >= 1000 ? `${+(g / 1000).toFixed(2)} kg` : `${g} g`;
   }
 
   /**

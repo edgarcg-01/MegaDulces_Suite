@@ -122,7 +122,7 @@ function resolveUnits(slots) {
     // `DISTINCT ON (sku) … ORDER BY sku, c90 DESC` = una fila por SKU, la de mayor precio real.
     const kdii = (await src.query(`
       SELECT DISTINCT ON (btrim(c1))
-             c1 AS sku, c2 AS name, c7 AS barcode, c11 AS unit_base,
+             c1 AS sku, c2 AS name, c7 AS barcode, c95 AS barcode_alt, c11 AS unit_base,
              btrim(c80) AS u1, c81 AS f1, c91 AS p1,
              btrim(c83) AS u2, c84 AS f2, c92 AS p2,
              c90 AS piece_price
@@ -160,7 +160,9 @@ function resolveUnits(slots) {
       }
       if (!pid) { unmatched++; continue; }
       const w = wholesale.get(r.sku) || {};
-      const fmt = barcodeFormat(r.barcode);
+      // EAN real: c7 (barcode) suele traerlo, pero ~1685 productos tienen el SKU ahí; c95 lo rescata.
+      const bcReal = barcodeFormat(r.barcode) ? r.barcode : r.barcode_alt;
+      const fmt = barcodeFormat(bcReal);
       if (!fmt) noBarcode++;
       // Unidades por etiqueta (paquete/caja reales, no por posición).
       const u = resolveUnits([
@@ -170,7 +172,7 @@ function resolveUnits(slots) {
       staged.push([
         pid,
         parseGramaje(r.name),
-        fmt ? String(r.barcode).trim() : null,
+        fmt ? String(bcReal).trim() : null,
         fmt,
         num(r.piece_price),
         w.pieceMinQty || null,
