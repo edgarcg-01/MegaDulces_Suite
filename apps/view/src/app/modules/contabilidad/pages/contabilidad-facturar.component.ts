@@ -7,10 +7,19 @@ import { TableModule } from 'primeng/table';
 import { ToastModule } from 'primeng/toast';
 import { DialogModule } from 'primeng/dialog';
 import { InputTextModule } from 'primeng/inputtext';
+import { IconFieldModule } from 'primeng/iconfield';
+import { InputIconModule } from 'primeng/inputicon';
+import { DatePickerModule } from 'primeng/datepicker';
+import { SelectModule } from 'primeng/select';
+import { SelectButtonModule } from 'primeng/selectbutton';
+import { CheckboxModule } from 'primeng/checkbox';
+import { TagModule } from 'primeng/tag';
 import { ConfirmDialogModule } from 'primeng/confirmdialog';
 import { TooltipModule } from 'primeng/tooltip';
 import { ConfirmationService, MessageService } from 'primeng/api';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
+import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
+import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import { CONTABILIDAD_TABS } from '../contabilidad-tabs';
 import { AuthService } from '../../../core/services/auth.service';
 import { Permission } from '../../../core/constants/permissions';
@@ -25,7 +34,7 @@ interface ConceptoRow { descripcion: string; cantidad: number; valor_unitario: n
 @Component({
   selector: 'app-contabilidad-facturar',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, TableModule, ToastModule, DialogModule, InputTextModule, ConfirmDialogModule, TooltipModule, PageTabsComponent],
+  imports: [CommonModule, FormsModule, ButtonModule, TableModule, ToastModule, DialogModule, InputTextModule, IconFieldModule, InputIconModule, DatePickerModule, SelectModule, SelectButtonModule, CheckboxModule, TagModule, ConfirmDialogModule, TooltipModule, PageTabsComponent, FreshnessPillComponent, ContextHelpComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService, ConfirmationService],
   template: `
@@ -36,10 +45,11 @@ interface ConceptoRow { descripcion: string; cantidad: number; valor_unitario: n
 
       <header class="surf-page-head fa-head">
         <div class="surf-page-head-text">
-          <h1>Facturación</h1>
+          <h1 class="fa-h1">Facturación <app-context-help topic="facturar" /></h1>
           <p class="surf-page-sub">Emisión y timbrado de CFDI 4.0 (factura global de mostrador o nominativa). El PAC sella y timbra ante el SAT.</p>
         </div>
         <div class="fa-head-actions">
+          @if (loadedAt()) { <app-freshness-pill [since]="loadedAt()" /> }
           <button pButton type="button" label="Refrescar" icon="pi pi-refresh" class="p-button-sm p-button-text" [loading]="loading()" (click)="reload()"></button>
           <button pButton type="button" label="Pendientes" icon="pi pi-inbox" class="p-button-sm p-button-text" pTooltip="Pedidos entregados sin factura (contingencia)" (click)="openContingencia()"></button>
           @if (canManage) {
@@ -58,9 +68,24 @@ interface ConceptoRow { descripcion: string; cantidad: number; valor_unitario: n
         </div>
       }
 
+      <div class="fa-filters">
+        <p-iconfield iconPosition="left" styleClass="fa-search">
+          <p-inputicon styleClass="pi pi-search" />
+          <input type="text" pInputText placeholder="Buscar receptor, RFC, folio, UUID…" [(ngModel)]="search" (keyup.enter)="applyFilters()" aria-label="Buscar factura" />
+        </p-iconfield>
+        <label class="fa-field"><span>Desde</span>
+          <p-datepicker [(ngModel)]="fromD" (onSelect)="applyFilters()" (onClear)="applyFilters()" dateFormat="yy-mm-dd" [showIcon]="true" [showClear]="true" appendTo="body" placeholder="Desde" />
+        </label>
+        <label class="fa-field"><span>Hasta</span>
+          <p-datepicker [(ngModel)]="toD" (onSelect)="applyFilters()" (onClear)="applyFilters()" dateFormat="yy-mm-dd" [showIcon]="true" [showClear]="true" appendTo="body" placeholder="Hasta" />
+        </label>
+        <button pButton type="button" label="Buscar" icon="pi pi-filter" class="p-button-sm p-button-outlined" (click)="applyFilters()"></button>
+        @if (hasFilters()) { <button pButton type="button" label="Limpiar" icon="pi pi-times" class="p-button-sm p-button-text" (click)="clearFilters()"></button> }
+      </div>
+
       <div class="card-premium card-flat">
         <p-table [value]="rows()" styleClass="p-datatable-sm fa-table" [rowHover]="true" [loading]="loading()"
-                 [scrollable]="true" scrollHeight="560px" [paginator]="rows().length > 50" [rows]="50">
+                 [scrollable]="true" scrollHeight="560px" [lazy]="true" [paginator]="total() > 50" [rows]="50" [first]="offset()" [totalRecords]="total()" (onLazyLoad)="onPage($event)">
           <ng-template pTemplate="header">
             <tr>
               <th style="width:8rem">Folio</th>
@@ -81,7 +106,7 @@ interface ConceptoRow { descripcion: string; cantidad: number; valor_unitario: n
               <td class="ta-r mono">{{ mzn(r.subtotal) }}</td>
               <td class="ta-r mono">{{ mzn(r.total_trasladados) }}</td>
               <td class="ta-r mono fa-tot">{{ mzn(r.total) }}</td>
-              <td><span class="fa-est" [ngClass]="'e-' + estatusClass(r.estatus_sat)">{{ estatusLabel(r.estatus_sat) }}</span></td>
+              <td><p-tag [value]="estatusLabel(r.estatus_sat)" [severity]="estatusSev(r.estatus_sat)" styleClass="fa-chip" /></td>
               <td class="ta-r">
                 <button pButton type="button" icon="pi pi-download" class="p-button-text p-button-sm" aria-label="Descargar XML" (click)="downloadXml(r)"></button>
                 <button pButton type="button" icon="pi pi-file-pdf" class="p-button-text p-button-sm" aria-label="Descargar PDF" (click)="downloadPdf(r)"></button>
@@ -103,19 +128,17 @@ interface ConceptoRow { descripcion: string; cantidad: number; valor_unitario: n
           <ng-template pTemplate="emptymessage"><tr><td colspan="8" class="fa-empty">
             @if (loading()) { Cargando… }
             @else if (errored()) { <i class="pi pi-exclamation-triangle"></i> No se pudo cargar. <button pButton type="button" label="Reintentar" class="p-button-sm p-button-text" (click)="reload()"></button> }
+            @else if (hasFilters()) { <i class="pi pi-filter-slash"></i> Sin facturas para este filtro. <button pButton type="button" label="Limpiar filtros" class="p-button-sm p-button-text" (click)="clearFilters()"></button> }
             @else { <i class="pi pi-file-edit"></i> Sin facturas emitidas. @if (canManage && hasIssuer()) { Crea una con "Nueva factura". } }
           </td></tr></ng-template>
         </p-table>
       </div>
 
       <!-- Emitir -->
-      <p-dialog [(visible)]="showEmit" [modal]="true" [style]="{ width: '46rem' }" header="Nueva factura" [draggable]="false">
+      <p-dialog [visible]="showEmit" (visibleChange)="showEmit=$event" [modal]="true" [style]="{ width: '46rem' }" header="Nueva factura" [draggable]="false" [closable]="false" [closeOnEscape]="false">
         <div class="fa-form">
           <label class="fa-f"><span>Tipo *</span>
-            <div class="fa-seg">
-              <button type="button" [class.active]="form.tipo==='global'" (click)="form.tipo='global'">Global (mostrador)</button>
-              <button type="button" [class.active]="form.tipo==='nominativa'" (click)="form.tipo='nominativa'">Nominativa</button>
-            </div>
+            <p-selectButton [options]="tipoOpts" [(ngModel)]="form.tipo" optionLabel="label" optionValue="value" [allowEmpty]="false" styleClass="fa-sb" ariaLabel="Tipo de factura" />
           </label>
 
           @if (form.tipo === 'nominativa') {
@@ -148,10 +171,10 @@ interface ConceptoRow { descripcion: string; cantidad: number; valor_unitario: n
 
           <div class="fa-grid3">
             <label class="fa-f"><span>Forma de pago</span>
-              <select [(ngModel)]="form.forma_pago"><option value="01">01 Efectivo</option><option value="03">03 Transferencia</option><option value="04">04 Tarjeta crédito</option><option value="28">28 Tarjeta débito</option><option value="99">99 Por definir</option></select>
+              <p-select [options]="formaPagoOpts" [(ngModel)]="form.forma_pago" optionLabel="label" optionValue="value" appendTo="body" styleClass="fa-sel" ariaLabel="Forma de pago" />
             </label>
             <label class="fa-f"><span>Método de pago</span>
-              <select [(ngModel)]="form.metodo_pago"><option value="PUE">PUE (una exhibición)</option><option value="PPD">PPD (parcialidades)</option></select>
+              <p-select [options]="metodoPagoOpts" [(ngModel)]="form.metodo_pago" optionLabel="label" optionValue="value" appendTo="body" styleClass="fa-sel" ariaLabel="Método de pago" />
             </label>
             <label class="fa-f"><span>Serie</span><input pInputText [(ngModel)]="form.serie" placeholder="(default emisor)" maxlength="10" style="text-transform:uppercase" /></label>
           </div>
@@ -163,7 +186,7 @@ interface ConceptoRow { descripcion: string; cantidad: number; valor_unitario: n
           </div>
         </div>
         <ng-template pTemplate="footer">
-          <button pButton type="button" label="Cancelar" class="p-button-text p-button-sm" (click)="showEmit=false"></button>
+          <button pButton type="button" label="Cancelar" class="p-button-text p-button-sm" (click)="tryCloseEmit()"></button>
           <button pButton type="button" label="Emitir y timbrar" icon="pi pi-check" class="p-button-sm" [loading]="emitting()" [disabled]="!emitValid()" (click)="emit()"></button>
         </ng-template>
       </p-dialog>
@@ -178,7 +201,7 @@ interface ConceptoRow { descripcion: string; cantidad: number; valor_unitario: n
             <label class="fa-f"><span>Régimen fiscal *</span><input pInputText [(ngModel)]="issuerForm.regimen_fiscal" maxlength="3" placeholder="612" /></label>
             <label class="fa-f"><span>Serie por defecto</span><input pInputText [(ngModel)]="issuerForm.serie" maxlength="10" placeholder="A" style="text-transform:uppercase" /></label>
           </div>
-          <label class="fa-check"><input type="checkbox" [(ngModel)]="issuerForm.is_default" /> <span>Emisor por defecto</span></label>
+          <label class="fa-check"><p-checkbox [(ngModel)]="issuerForm.is_default" [binary]="true" inputId="fa-issuer-default" /> <span>Emisor por defecto</span></label>
           <p class="fa-note"><i class="pi pi-info-circle"></i> El CSD (sello) vive en la cuenta del PAC (Conectia/SW); aquí solo van los datos del comprobante. Deben coincidir <strong>exacto</strong> con tu Constancia de Situación Fiscal.</p>
         </div>
         <ng-template pTemplate="footer">
@@ -193,12 +216,7 @@ interface ConceptoRow { descripcion: string; cantidad: number; valor_unitario: n
           <div class="fa-form">
             <p class="fa-note fa-note-warn"><i class="pi pi-exclamation-triangle"></i> Vas a cancelar <strong>{{ r.serie }}{{ r.folio }}</strong> ({{ r.receptor_nombre || 'Público general' }}, {{ mzn(r.total) }}). Si el CFDI requiere aceptación del receptor, queda <strong>en proceso</strong> hasta que la acepte (72h).</p>
             <label class="fa-f"><span>Motivo de cancelación *</span>
-              <select [(ngModel)]="cancelForm.motivo">
-                <option value="02">02 — Comprobante emitido con errores sin relación</option>
-                <option value="01">01 — Comprobante emitido con errores con relación</option>
-                <option value="03">03 — No se llevó a cabo la operación</option>
-                <option value="04">04 — Operación nominativa en factura global</option>
-              </select>
+              <p-select [options]="motivoOpts" [(ngModel)]="cancelForm.motivo" optionLabel="label" optionValue="value" appendTo="body" styleClass="fa-sel" ariaLabel="Motivo de cancelación" />
             </label>
             @if (cancelForm.motivo === '01') {
               <label class="fa-f"><span>UUID que sustituye * (folioSustitución)</span>
@@ -217,7 +235,7 @@ interface ConceptoRow { descripcion: string; cantidad: number; valor_unitario: n
       </p-dialog>
 
       <!-- FE.12 — Nota de crédito (Egreso) -->
-      <p-dialog [(visible)]="showNc" [modal]="true" [style]="{ width: '44rem' }" header="Nota de crédito" [draggable]="false">
+      <p-dialog [visible]="showNc" (visibleChange)="showNc=$event" [modal]="true" [style]="{ width: '44rem' }" header="Nota de crédito" [draggable]="false" [closable]="false" [closeOnEscape]="false">
         @if (ncRow(); as r) {
           <div class="fa-form">
             <p class="fa-note"><i class="pi pi-info-circle"></i> CFDI de <strong>Egreso</strong> relacionado (01) a <strong>{{ r.serie }}{{ r.folio }}</strong> · {{ r.receptor_nombre || 'Público general' }} ({{ r.receptor_rfc }}). Captura lo que se devuelve/bonifica.</p>
@@ -243,7 +261,7 @@ interface ConceptoRow { descripcion: string; cantidad: number; valor_unitario: n
             </div>
           </div>
           <ng-template pTemplate="footer">
-            <button pButton type="button" label="Volver" class="p-button-text p-button-sm" (click)="showNc=false"></button>
+            <button pButton type="button" label="Volver" class="p-button-text p-button-sm" (click)="tryCloseNc()"></button>
             <button pButton type="button" label="Emitir nota de crédito" icon="pi pi-check" class="p-button-sm" [loading]="ncEmitting()" [disabled]="!ncValid()" (click)="emitNc()"></button>
           </ng-template>
         }
@@ -320,26 +338,27 @@ interface ConceptoRow { descripcion: string; cantidad: number; valor_unitario: n
   styles: [`
     :host { display: block; }
     .fa-head { display: flex; align-items: flex-start; gap: 1rem; }
+    .fa-h1 { display: inline-flex; align-items: center; gap: .3rem; }
     .fa-head-actions { margin-left: auto; display: flex; gap: .4rem; align-items: center; }
-    .fa-banner { display: flex; align-items: center; gap: .6rem; background: color-mix(in srgb, var(--action) 8%, var(--card-bg)); border: 1px solid var(--border-color); border-radius: var(--r-md, 12px); padding: .7rem 1rem; margin-bottom: 1rem; font-size: .85rem; color: var(--text-main); }
+    .fa-banner { display: flex; align-items: center; gap: .6rem; background: color-mix(in srgb, var(--action) 8%, var(--card-bg)); border: 1px solid var(--border-color); border-radius: var(--r-md); padding: .7rem 1rem; margin-bottom: 1rem; font-size: .85rem; color: var(--text-main); }
     .fa-banner button { margin-left: auto; }
+    .fa-filters { display: flex; gap: .6rem; flex-wrap: wrap; align-items: flex-end; margin-bottom: .8rem; }
+    .fa-search input { min-width: 260px; }
+    .fa-field { display: flex; flex-direction: column; gap: .15rem; font-size: .68rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: .03em; }
     .fa-table { font-variant-numeric: tabular-nums; }
     .ta-r { text-align: right; }
     .mono { font-family: var(--font-mono, ui-monospace, monospace); font-size: .85em; }
     .fa-recep { color: var(--text-main); }
     .fa-sub { color: var(--text-muted); font-size: .72rem; }
     .fa-tot { font-weight: 700; }
-    .fa-nc { display: inline-block; margin-left: .4rem; padding: 0 .35rem; border-radius: var(--r-sm, 4px); background: color-mix(in srgb, var(--bad-fg, #b91c1c) 14%, transparent); color: var(--bad-fg, #b91c1c); font-size: .6rem; font-weight: 800; letter-spacing: .04em; vertical-align: middle; }
-    .fa-rep { display: inline-block; margin-left: .4rem; padding: 0 .35rem; border-radius: var(--r-sm, 4px); background: color-mix(in srgb, var(--action, #2563eb) 14%, transparent); color: var(--action, #2563eb); font-size: .6rem; font-weight: 800; letter-spacing: .04em; vertical-align: middle; }
-    .fa-est { display: inline-block; padding: .1rem .5rem; border-radius: var(--r-pill, 999px); font-size: .66rem; font-weight: 700; text-transform: capitalize; }
-    .e-ok { background: color-mix(in srgb, var(--ok-fg, #16a34a) 14%, transparent); color: var(--ok-fg, #16a34a); }
-    .e-bad { background: color-mix(in srgb, var(--bad-fg, #dc2626) 15%, transparent); color: var(--bad-fg, #dc2626); }
-    .e-neutral { background: var(--surface-hover-bg, #f5f5f4); color: var(--text-muted); }
+    .fa-nc { display: inline-block; margin-left: .4rem; padding: 0 .35rem; border-radius: var(--r-sm); background: color-mix(in srgb, var(--bad-fg) 14%, transparent); color: var(--bad-fg); font-size: .6rem; font-weight: 800; letter-spacing: .04em; vertical-align: middle; }
+    .fa-rep { display: inline-block; margin-left: .4rem; padding: 0 .35rem; border-radius: var(--r-sm); background: color-mix(in srgb, var(--action) 14%, transparent); color: var(--action); font-size: .6rem; font-weight: 800; letter-spacing: .04em; vertical-align: middle; }
+    :host ::ng-deep .fa-chip .p-tag { font-size: .66rem; font-weight: 700; padding: .1rem .5rem; text-transform: capitalize; }
     .fa-empty { padding: 2.5rem 1rem; text-align: center; color: var(--text-muted); }
     .fa-empty .pi { display: block; font-size: 1.5rem; margin-bottom: .5rem; opacity: .6; }
     .fa-form { display: flex; flex-direction: column; gap: .8rem; padding-top: .5rem; }
     .fa-f { display: flex; flex-direction: column; gap: .25rem; font-size: .72rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: .03em; }
-    .fa-f input, .fa-f select, .fa-concepts input { border: 1px solid var(--border-color); border-radius: var(--r-sm, 8px); padding: .45rem .6rem; background: var(--card-bg); color: var(--text-main); font-family: inherit; font-size: .85rem; width: 100%; }
+    .fa-f input, .fa-concepts input { border: 1px solid var(--border-color); border-radius: var(--r-sm); padding: .45rem .6rem; background: var(--card-bg); color: var(--text-main); font-family: inherit; font-size: .85rem; width: 100%; }
     .fa-grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: .6rem; }
     .fa-grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: .6rem; }
     .fa-f-wide { grid-column: 1 / -1; }
@@ -348,27 +367,36 @@ interface ConceptoRow { descripcion: string; cantidad: number; valor_unitario: n
     .fa-concepts th { text-align: left; font-size: .64rem; text-transform: uppercase; letter-spacing: .03em; color: var(--text-muted); padding: .2rem .35rem; border-bottom: 1px solid var(--border-color); }
     .fa-concepts td { padding: .2rem .35rem; vertical-align: middle; }
     .fa-concepts .ta-r { text-align: right; }
-    .fa-seg { display: inline-flex; border: 1px solid var(--border-color); border-radius: var(--r-pill, 999px); overflow: hidden; width: fit-content; }
-    .fa-seg button { border: none; background: var(--card-bg); padding: .35rem .9rem; font-size: .8rem; cursor: pointer; color: var(--text-muted); }
-    .fa-seg button.active { background: var(--action); color: var(--action-ink, #fff); font-weight: 600; }
     .fa-check { display: flex; align-items: center; gap: .45rem; font-size: .82rem; color: var(--text-main); text-transform: none; letter-spacing: 0; }
     .fa-totals { display: flex; gap: 1.4rem; justify-content: flex-end; align-items: baseline; border-top: 1px solid var(--border-color); padding-top: .7rem; font-size: .82rem; color: var(--text-muted); }
     .fa-totals strong { color: var(--text-main); margin-left: .3rem; }
     .fa-grand strong { font-size: 1.05rem; color: var(--action); }
-    .fa-note { font-size: .75rem; color: var(--text-muted); background: var(--surface-hover-bg, #f7f7f6); border-radius: var(--r-sm, 8px); padding: .5rem .7rem; margin: 0; display: flex; gap: .4rem; align-items: baseline; }
-    .fa-note-ok { color: var(--ok-fg, #15803d); background: color-mix(in srgb, var(--ok-fg, #15803d) 8%, transparent); }
-    .fa-note-warn { color: var(--warn-fg, #b45309); background: color-mix(in srgb, var(--warn-fg, #b45309) 10%, transparent); }
+    .fa-note { font-size: .75rem; color: var(--text-muted); background: var(--surface-hover-bg); border-radius: var(--r-sm); padding: .5rem .7rem; margin: 0; display: flex; gap: .4rem; align-items: baseline; }
+    .fa-note-ok { color: var(--ok-fg); background: color-mix(in srgb, var(--ok-fg) 8%, transparent); }
+    .fa-note-warn { color: var(--warn-fg); background: color-mix(in srgb, var(--warn-fg) 10%, transparent); }
     /* FE.13 contingencia */
     .fa-cont-sec { margin-bottom: 1.1rem; }
     .fa-cont-head { display: flex; justify-content: space-between; align-items: center; gap: 1rem; margin-bottom: .5rem; font-size: .85rem; }
     .fa-cont-table { width: 100%; border-collapse: collapse; font-size: .78rem; font-variant-numeric: tabular-nums; }
     .fa-cont-table th { text-align: left; color: var(--text-muted); font-weight: 600; padding: .3rem .5rem; border-bottom: 1px solid var(--border-color); }
     .fa-cont-table td { padding: .3rem .5rem; border-bottom: 1px solid var(--border-color); color: var(--text-main); }
-    .fa-cont-err { color: var(--bad-fg, #b91c1c); max-width: 16rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .72rem; }
+    .fa-cont-err { color: var(--bad-fg); max-width: 16rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .72rem; }
   `],
 })
 export class ContabilidadFacturarComponent implements OnInit {
   readonly tabs = CONTABILIDAD_TABS;
+  readonly tipoOpts = [{ label: 'Global (mostrador)', value: 'global' }, { label: 'Nominativa', value: 'nominativa' }];
+  readonly formaPagoOpts = [
+    { label: '01 Efectivo', value: '01' }, { label: '03 Transferencia', value: '03' },
+    { label: '04 Tarjeta crédito', value: '04' }, { label: '28 Tarjeta débito', value: '28' }, { label: '99 Por definir', value: '99' },
+  ];
+  readonly metodoPagoOpts = [{ label: 'PUE (una exhibición)', value: 'PUE' }, { label: 'PPD (parcialidades)', value: 'PPD' }];
+  readonly motivoOpts = [
+    { label: '02 — Emitido con errores sin relación', value: '02' },
+    { label: '01 — Emitido con errores con relación', value: '01' },
+    { label: '03 — No se llevó a cabo la operación', value: '03' },
+    { label: '04 — Operación nominativa en factura global', value: '04' },
+  ];
   private readonly svc = inject(FacturasService);
   private readonly toast = inject(MessageService);
   private readonly confirm = inject(ConfirmationService);
@@ -385,6 +413,11 @@ export class ContabilidadFacturarComponent implements OnInit {
   readonly savingIssuer = signal(false);
   readonly cancelling = signal(false);
   readonly statusChecking = signal<string | null>(null);
+  readonly total = signal(0);
+  readonly loadedAt = signal<number | null>(null);
+  readonly offset = signal(0);
+  // filtros (el backend ya acepta from/to/search/limit/offset)
+  fromD: Date | null = null; toD: Date | null = null; search = '';
 
   showEmit = false;
   showIssuer = false;
@@ -415,11 +448,21 @@ export class ContabilidadFacturarComponent implements OnInit {
 
   reload() {
     this.loading.set(true); this.errored.set(false);
-    this.svc.list().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (r) => { this.rows.set(r.rows); this.loading.set(false); },
+    this.svc.list(this.filters()).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => { this.rows.set(r.rows); this.total.set(r.total); this.loading.set(false); this.loadedAt.set(Date.now()); },
       error: () => { this.loading.set(false); this.errored.set(true); this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo cargar la bandeja.' }); },
     });
   }
+
+  private fmt(d: Date | null): string | undefined {
+    if (!d) return undefined;
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  }
+  private filters() { return { from: this.fmt(this.fromD), to: this.fmt(this.toD), search: this.search.trim() || undefined, limit: 50, offset: this.offset() }; }
+  hasFilters(): boolean { return !!(this.fromD || this.toD || this.search.trim()); }
+  applyFilters() { this.offset.set(0); this.reload(); }
+  clearFilters() { this.fromD = null; this.toD = null; this.search = ''; this.applyFilters(); }
+  onPage(e: { first?: number }) { const f = e.first ?? 0; if (f !== this.offset()) { this.offset.set(f); this.reload(); } }
   loadIssuers() {
     this.svc.issuers().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (i) => this.issuers.set(i), error: () => {} });
   }
@@ -660,6 +703,36 @@ export class ContabilidadFacturarComponent implements OnInit {
   }
 
   estatusClass(e: string): string { return e === 'vigente' ? 'ok' : e === 'cancelado' ? 'bad' : 'neutral'; }
+  estatusSev(e: string): 'success' | 'danger' | 'warn' | 'secondary' {
+    return e === 'vigente' ? 'success' : e === 'cancelado' ? 'danger' : e === 'en_proceso_cancelacion' ? 'warn' : 'secondary';
+  }
+
+  // §8 — no descartar captura larga sin confirmar (el diálogo no cierra por Esc/mask).
+  private emitDirty(): boolean {
+    const anyConcept = this.conceptos().some((c) => (c.descripcion || '').trim() || Number(c.valor_unitario) > 0);
+    const r = this.form.receptor;
+    const anyRecep = this.form.tipo === 'nominativa' && (!!r.rfc || !!r.nombre || !!r.domicilio_cp);
+    return anyConcept || anyRecep;
+  }
+  tryCloseEmit() {
+    if (!this.emitDirty()) { this.showEmit = false; return; }
+    this.confirm.confirm({
+      header: 'Descartar factura', message: 'Tienes una factura sin timbrar. ¿Descartar los datos capturados?',
+      icon: 'pi pi-exclamation-triangle', acceptLabel: 'Descartar', rejectLabel: 'Seguir editando',
+      acceptButtonStyleClass: 'p-button-sm p-button-danger', rejectButtonStyleClass: 'p-button-text p-button-sm',
+      accept: () => { this.showEmit = false; },
+    });
+  }
+  private ncDirty(): boolean { return this.ncConceptos().some((c) => Number(c.valor_unitario) > 0); }
+  tryCloseNc() {
+    if (!this.ncDirty()) { this.showNc = false; return; }
+    this.confirm.confirm({
+      header: 'Descartar nota de crédito', message: '¿Descartar los conceptos capturados de la nota de crédito?',
+      icon: 'pi pi-exclamation-triangle', acceptLabel: 'Descartar', rejectLabel: 'Seguir editando',
+      acceptButtonStyleClass: 'p-button-sm p-button-danger', rejectButtonStyleClass: 'p-button-text p-button-sm',
+      accept: () => { this.showNc = false; },
+    });
+  }
   estatusLabel(e: string): string {
     return e === 'vigente' ? 'Vigente' : e === 'cancelado' ? 'Cancelado' : e === 'en_proceso_cancelacion' ? 'En proceso' : (e || '—');
   }

@@ -1,9 +1,14 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
+import { FormsModule } from '@angular/forms';
 import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
 import { ToastModule } from 'primeng/toast';
+import { InputTextModule } from 'primeng/inputtext';
+import { IconFieldModule } from 'primeng/iconfield';
+import { InputIconModule } from 'primeng/inputicon';
+import { SelectModule } from 'primeng/select';
 import { MessageService } from 'primeng/api';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
@@ -19,7 +24,7 @@ import { ListasSatService, SatListMatch, RfcIssue, ListasStats, ListStatus, Expe
 @Component({
   selector: 'app-contabilidad-listas-sat',
   standalone: true,
-  imports: [CommonModule, ButtonModule, TableModule, ToastModule, PageTabsComponent, MetricStripComponent],
+  imports: [CommonModule, FormsModule, ButtonModule, TableModule, ToastModule, InputTextModule, IconFieldModule, InputIconModule, SelectModule, PageTabsComponent, MetricStripComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
@@ -72,6 +77,13 @@ import { ListasSatService, SatListMatch, RfcIssue, ListasStats, ListStatus, Expe
           <button [class.active]="estado() === 'confirmado'" (click)="estado.set('confirmado')">Confirmados</button>
           <button [class.active]="estado() === 'descartado'" (click)="estado.set('descartado')">Descartados</button>
         </div>
+        <p-iconfield iconPosition="left" styleClass="ls-search">
+          <p-inputicon styleClass="pi pi-search" />
+          <input type="text" pInputText placeholder="Buscar RFC o proveedor…" [ngModel]="search()" (ngModelChange)="search.set($event)" aria-label="Buscar proveedor" />
+        </p-iconfield>
+        <label class="ls-fld"><span>Severidad</span>
+          <p-select [options]="sevOpts" [ngModel]="sev()" (ngModelChange)="sev.set($event)" optionLabel="label" optionValue="value" styleClass="ls-sel" ariaLabel="Filtrar por severidad" />
+        </label>
       </div>
 
       <!-- Tabla de coincidencias -->
@@ -189,6 +201,9 @@ import { ListasSatService, SatListMatch, RfcIssue, ListasStats, ListStatus, Expe
     .ls-seg { display: inline-flex; border: 1px solid var(--border-color); border-radius: var(--r-pill, 999px); overflow: hidden; }
     .ls-seg button { border: none; background: var(--card-bg); padding: .3rem .8rem; font-size: .8rem; cursor: pointer; color: var(--text-muted); }
     .ls-seg button.active { background: var(--action); color: var(--action-ink, #fff); font-weight: 600; }
+    .ls-search input { min-width: 220px; }
+    .ls-fld { display: flex; flex-direction: column; gap: .15rem; font-size: .68rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: .03em; }
+    .ls-filters { align-items: flex-end; }
     .ls-table { font-variant-numeric: tabular-nums; }
     .ta-r { text-align: right; } .strong { font-weight: 700; } .muted { color: var(--text-muted); }
     .bad { color: var(--bad-fg, #dc2626); }
@@ -231,6 +246,9 @@ export class ContabilidadListasSatComponent implements OnInit {
   readonly refreshing = signal(false);
   readonly lista = signal<'all' | '69B' | '69'>('all');
   readonly estado = signal<'pendientes' | 'confirmado' | 'descartado'>('pendientes');
+  readonly search = signal('');
+  readonly sev = signal<'all' | 'critical' | 'warn' | 'info'>('all');
+  readonly sevOpts = [{ label: 'Todas', value: 'all' }, { label: 'Crítica', value: 'critical' }, { label: 'Media', value: 'warn' }, { label: 'Baja', value: 'info' }];
   readonly expanded = signal<Record<string, boolean>>({});
   readonly docs = signal<Record<string, ExpenseDoc[]>>({});
   readonly docsLoading = signal<Record<string, boolean>>({});
@@ -238,10 +256,15 @@ export class ContabilidadListasSatComponent implements OnInit {
   readonly filteredMatches = computed(() => {
     const l = this.lista();
     const e = this.estado();
+    const q = this.search().trim().toLowerCase();
+    const sv = this.sev();
     return this.allMatches().filter((m) => {
       if (l !== 'all' && m.lista !== l) return false;
-      if (e === 'pendientes') return m.estado === 'nuevo' || m.estado === 'en_revision';
-      return m.estado === e;
+      if (e === 'pendientes') { if (!(m.estado === 'nuevo' || m.estado === 'en_revision')) return false; }
+      else if (m.estado !== e) return false;
+      if (sv !== 'all' && this.sevOf(m.situacion) !== sv) return false;
+      if (q && !(`${m.nombre || ''} ${m.rfc || ''}`.toLowerCase().includes(q))) return false;
+      return true;
     });
   });
   readonly totalMatches = computed(() => this.allMatches().length);

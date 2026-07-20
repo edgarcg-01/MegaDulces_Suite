@@ -123,7 +123,12 @@ import { Permission } from '../../../core/constants/permissions';
                       <tr class="dm-row" (click)="openDocument(l)">
                         <td><p-tag [value]="l.movement_label" [severity]="kindSev(l.movement_kind)" styleClass="dm-tag"></p-tag></td>
                         <td class="dm-mono dm-link">{{ l.folio }}</td>
-                        <td class="dm-muted">{{ l.warehouse_name || l.warehouse_code || l.source_branch }}</td>
+                        <td class="dm-muted">
+                          {{ l.warehouse_name || l.warehouse_code || l.source_branch }}
+                          @if (l.doc_code === 'TrsfShip' && destName(l)) {
+                            <span class="dm-dest" [title]="'Traspaso dirigido a ' + destName(l)"><i class="pi pi-arrow-right"></i>{{ destName(l) }}</span>
+                          }
+                        </td>
                         <td class="dm-r dm-muted">{{ l.lineas | number }}</td>
                         <td class="dm-r" [class.up]="l.signed_qty>0" [class.down]="l.signed_qty<0" [class.dm-muted]="l.movement_kind === 'info'">{{ (l.movement_kind === 'info' ? l.qty : l.signed_qty) | number:'1.0-2' }}</td>
                         <td class="dm-r dm-strong">{{ l.amount != null ? money(l.amount) : '—' }}</td>
@@ -182,6 +187,9 @@ import { Permission } from '../../../core/constants/permissions';
                 <span class="dm-rel-doc" [class.rel-out]="cp.kind==='origen'" [class.rel-in]="cp.kind==='recepcion'">
                   Folio {{ cp.docs[0].folio }} · {{ cp.docs[0].warehouse_name || cp.docs[0].warehouse_code || '—' }} · {{ cp.kind === 'recepcion' ? 'recepción' : 'origen' }}
                 </span>
+              } @else if (cp.status === 'sin_recepcion' && cpDestName(cp)) {
+                <span class="dm-rel-doc rel-in">{{ cpDestName(cp) }}</span>
+                <span class="dm-rel-none">· sin recepción</span>
               } @else { <span class="dm-rel-none">{{ cp.status === 'sin_recepcion' ? 'sin recepción' : 'sin origen' }}</span> }
             </div>
             <!-- Validación -->
@@ -263,6 +271,8 @@ import { Permission } from '../../../core/constants/permissions';
     .dm-r { text-align: right; font-variant-numeric: tabular-nums; }
     .up, .dm-r.up { color: var(--ok-fg); } .down, .dm-r.down { color: var(--bad-fg); }
     .dm-link { color: var(--action); }
+    .dm-dest { display: inline-flex; align-items: center; gap: .2rem; margin-left: .45rem; font-size: .74rem; color: var(--warn-soft-fg); background: var(--warn-soft-bg); padding: .05rem .4rem; border-radius: var(--r-sm); }
+    .dm-dest i { font-size: .62rem; }
     .dm-mono { font-family: var(--font-mono, ui-monospace, monospace); }
     .dm-muted { color: var(--text-muted); }
     .dm-strong { font-weight: 700; }
@@ -508,6 +518,14 @@ export class AlmacenMovimientosComponent implements OnInit {
       const row = cache[key].find((r) => r.folio === h.folio && r.warehouse_id === h.warehouse_id && r.doc_code === h.doc_code);
       if (row) { row.audited = audited; row.audited_by = by; this.dayDocs.set({ ...cache }); return; }
     }
+  }
+
+  /** DM.11 — nombre del destino de un traspaso (almacén curado o label kdud). */
+  destName(l: FolioRow): string | null {
+    return l.dest_warehouse_name || l.dest_label || null;
+  }
+  cpDestName(cp: NonNullable<DocumentResponse['counterpart']>): string | null {
+    return cp.dest_warehouse_name || cp.dest_label || null;
   }
 
   cpTitle(s: string): string {

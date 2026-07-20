@@ -5,13 +5,16 @@ import { FormsModule } from '@angular/forms';
 import { ButtonModule } from 'primeng/button';
 import { ToastModule } from 'primeng/toast';
 import { InputTextModule } from 'primeng/inputtext';
+import { IconFieldModule } from 'primeng/iconfield';
+import { InputIconModule } from 'primeng/inputicon';
+import { SelectButtonModule } from 'primeng/selectbutton';
 import { DialogModule } from 'primeng/dialog';
 import { TableModule } from 'primeng/table';
 import { MessageService } from 'primeng/api';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { CONTABILIDAD_TABS } from '../contabilidad-tabs';
-import { MaterialidadService, MaterialidadDossier, MaterialidadChain, MatReconcileRow } from '../materialidad.service';
+import { MaterialidadService, MaterialidadDossier, MaterialidadChain, MatReconcileRow, MatProvider } from '../materialidad.service';
 import { CfdiService } from '../cfdi.service';
 import { AuthService } from '../../../core/services/auth.service';
 import { Permission } from '../../../core/constants/permissions';
@@ -24,7 +27,7 @@ import { Permission } from '../../../core/constants/permissions';
 @Component({
   selector: 'app-contabilidad-materialidad',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, ToastModule, InputTextModule, DialogModule, TableModule, PageTabsComponent, MetricStripComponent],
+  imports: [CommonModule, FormsModule, ButtonModule, ToastModule, InputTextModule, IconFieldModule, InputIconModule, SelectButtonModule, DialogModule, TableModule, PageTabsComponent, MetricStripComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
@@ -45,6 +48,7 @@ import { Permission } from '../../../core/constants/permissions';
           <input type="text" pInputText placeholder="RFC del proveedor (p.ej. DRO020122GZ9)" [(ngModel)]="rfc" (keyup.enter)="buscar()" maxlength="13" style="text-transform:uppercase;min-width:280px" aria-label="RFC del proveedor" />
         </span>
         <button pButton type="button" label="Armar expediente" icon="pi pi-folder-open" class="p-button-sm" [loading]="loading()" [disabled]="!rfcValid()" (click)="buscar()"></button>
+        @if (dossier() || searched()) { <button pButton type="button" label="Ver proveedores" icon="pi pi-arrow-left" class="p-button-sm p-button-text" (click)="backToList()"></button> }
       </div>
 
       @if (loading()) {
@@ -102,10 +106,55 @@ import { Permission } from '../../../core/constants/permissions';
           </div>
         </div>
         }
-      } @else if (searched()) {
-        <div class="mt-empty card-premium card-flat"><i class="pi pi-exclamation-triangle"></i> No se pudo armar el expediente de {{ rfc }}.</div>
       } @else {
-        <div class="mt-empty card-premium card-flat"><i class="pi pi-id-card"></i> Ingresa el RFC de un proveedor para armar su expediente de materialidad.</div>
+        <div class="card-premium card-flat mt-disc">
+          <div class="mt-disc-head">
+            <div>
+              <h3 class="mt-disc-title">Proveedores</h3>
+              <p class="mt-disc-sub">Explorá por riesgo (lista negra → baja recepción → monto) o busca por nombre. Clic en uno arma su expediente — no necesitas teclear el RFC.</p>
+            </div>
+            <div class="mt-disc-filters">
+              <p-iconfield iconPosition="left" styleClass="mt-disc-search">
+                <p-inputicon styleClass="pi pi-search" />
+                <input type="text" pInputText placeholder="Buscar RFC o proveedor…" [ngModel]="provSearch()" (ngModelChange)="onProvSearch($event)" aria-label="Buscar proveedor" />
+              </p-iconfield>
+              <p-selectButton [options]="riesgoOpts" [ngModel]="provRiesgo()" (ngModelChange)="setProvRiesgo($event)" optionLabel="label" optionValue="value" [allowEmpty]="false" ariaLabel="Filtrar por riesgo" />
+            </div>
+          </div>
+          @if (searched() && !dossier()) { <div class="mt-warn"><i class="pi pi-exclamation-triangle"></i> No se pudo armar el expediente de {{ rfc }}. Elegí uno de la lista.</div> }
+          <p-table [value]="providers()" styleClass="p-datatable-sm mt-disc-table" [rowHover]="true" [loading]="provLoading()" [scrollable]="true" scrollHeight="480px" [paginator]="providers().length > 50" [rows]="50">
+            <ng-template pTemplate="header">
+              <tr>
+                <th>Proveedor</th>
+                <th class="ta-r" style="width:5rem">Ops</th>
+                <th class="ta-r" style="width:10rem">Monto</th>
+                <th class="ta-r" style="width:7rem">Recepción</th>
+                <th style="width:9rem">Riesgo</th>
+                <th style="width:3rem"></th>
+              </tr>
+            </ng-template>
+            <ng-template pTemplate="body" let-p>
+              <tr class="mt-disc-row" tabindex="0" [attr.aria-label]="'Armar expediente de ' + (p.beneficiario || p.rfc)" (click)="pickProvider(p.rfc)" (keyup.enter)="pickProvider(p.rfc)">
+                <td><div class="mt-p-name">{{ p.beneficiario || p.rfc }}</div><div class="mt-p-rfc mono">{{ p.rfc }}</div></td>
+                <td class="ta-r mono">{{ p.ops | number }}</td>
+                <td class="ta-r strong mono">{{ money(p.monto) }}</td>
+                <td class="ta-r mono">{{ p.recepcion_pct != null ? p.recepcion_pct + '%' : '—' }}</td>
+                <td>
+                  @if (p.en_riesgo) { <span class="mt-r-tag risk">Lista · riesgo</span> }
+                  @else if (p.en_lista) { <span class="mt-r-tag warn">En lista</span> }
+                  @else if (p.recepcion_pct != null && p.recepcion_pct < 50) { <span class="mt-r-tag warn">Baja recep.</span> }
+                  @else { <span class="muted">—</span> }
+                </td>
+                <td class="ta-r"><i class="pi pi-chevron-right muted"></i></td>
+              </tr>
+            </ng-template>
+            <ng-template pTemplate="emptymessage"><tr><td colspan="6" class="mt-empty2">
+              @if (provLoading()) { Cargando… }
+              @else if (provSearch() || provRiesgo() !== 'all') { <i class="pi pi-filter-slash"></i> Sin proveedores para este filtro. }
+              @else { <i class="pi pi-inbox"></i> Sin proveedores con egresos cargados. }
+            </td></tr></ng-template>
+          </p-table>
+        </div>
       }
 
       <p-dialog [(visible)]="chainsOpen" [modal]="true" [draggable]="false" [dismissableMask]="true"
@@ -368,6 +417,23 @@ import { Permission } from '../../../core/constants/permissions';
     .mt-tl-sep { color: var(--text-faint, #a8a29e); font-size: .75rem; align-self: center; }
     .mt-tl-meta { display: flex; gap: 1.2rem; margin-top: .5rem; font-size: .74rem; color: var(--text-muted); }
     @media (max-width: 640px) { .mt-tl-sep { display: none; } .mt-tl-step { min-width: 100%; } }
+    /* MAT — descubrimiento de proveedores */
+    .mt-disc { padding: 1rem 1.2rem 0; }
+    .mt-disc-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; flex-wrap: wrap; margin-bottom: .8rem; }
+    .mt-disc-title { margin: 0; font-size: .95rem; font-weight: 700; color: var(--text-main); }
+    .mt-disc-sub { margin: .15rem 0 0; font-size: .78rem; color: var(--text-muted); max-width: 62ch; }
+    .mt-disc-filters { display: flex; gap: .6rem; align-items: center; flex-wrap: wrap; }
+    .mt-disc-search input { min-width: 220px; }
+    .mt-disc-table { font-variant-numeric: tabular-nums; }
+    .mt-disc-row { cursor: pointer; }
+    .mt-p-name { font-weight: 600; color: var(--text-main); max-width: 40ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .mt-p-rfc { color: var(--text-muted); margin-top: .05rem; }
+    .mt-r-tag { display: inline-block; padding: .1rem .5rem; border-radius: var(--r-pill, 999px); font-size: .66rem; font-weight: 700; }
+    .mt-r-tag.risk { background: color-mix(in srgb, var(--bad-fg, #dc2626) 15%, transparent); color: var(--bad-fg, #dc2626); }
+    .mt-r-tag.warn { background: color-mix(in srgb, var(--warn-fg, #d97706) 16%, transparent); color: var(--warn-soft-fg, #b45309); }
+    .mt-warn { display: flex; align-items: center; gap: .4rem; font-size: .8rem; color: var(--warn-soft-fg, #b45309); background: color-mix(in srgb, var(--warn-fg, #d97706) 8%, transparent); border-radius: var(--r-sm, 8px); padding: .5rem .7rem; margin-bottom: .7rem; }
+    .mt-empty2 { padding: 2.5rem 1rem; text-align: center; color: var(--text-muted); }
+    .mt-empty2 .pi { display: block; font-size: 1.5rem; margin-bottom: .5rem; opacity: .6; }
   `],
 })
 export class ContabilidadMaterialidadComponent {
@@ -383,6 +449,14 @@ export class ContabilidadMaterialidadComponent {
 
   rfc = '';
   readonly dossier = signal<MaterialidadDossier | null>(null);
+
+  /** MAT — descubrimiento de proveedores: índice rankeado por riesgo para explorar sin teclear el RFC. */
+  readonly providers = signal<MatProvider[]>([]);
+  readonly provLoading = signal(false);
+  readonly provSearch = signal('');
+  readonly provRiesgo = signal<'all' | 'lista' | 'sin_recepcion'>('all');
+  readonly riesgoOpts = [{ label: 'Todos', value: 'all' }, { label: 'En lista', value: 'lista' }, { label: 'Sin recepción', value: 'sin_recepcion' }];
+  private provSearchT: ReturnType<typeof setTimeout> | null = null;
 
   /** MAT.2 — desglose de documentos de la cadena de suministro (diálogo). */
   readonly chainsOpen = signal(false);
@@ -419,6 +493,25 @@ export class ContabilidadMaterialidadComponent {
   }
   readonly loading = signal(false);
   readonly searched = signal(false);
+
+  constructor() {
+    this.loadProviders();
+    this.destroyRef.onDestroy(() => { if (this.provSearchT) clearTimeout(this.provSearchT); });
+  }
+
+  /** MAT — carga el índice de proveedores con el search + riesgo actuales. */
+  loadProviders() {
+    this.provLoading.set(true);
+    this.svc.providers({ search: this.provSearch().trim() || undefined, riesgo: this.provRiesgo() === 'all' ? undefined : this.provRiesgo(), limit: 200 })
+      .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+        next: (r) => { this.providers.set(r); this.provLoading.set(false); },
+        error: () => { this.provLoading.set(false); },
+      });
+  }
+  onProvSearch(v: string) { this.provSearch.set(v); if (this.provSearchT) clearTimeout(this.provSearchT); this.provSearchT = setTimeout(() => this.loadProviders(), 300); }
+  setProvRiesgo(r: 'all' | 'lista' | 'sin_recepcion') { this.provRiesgo.set(r); this.loadProviders(); }
+  pickProvider(rfc: string) { this.rfc = rfc; this.buscar(); }
+  backToList() { this.dossier.set(null); this.searched.set(false); this.rfc = ''; this.loadProviders(); }
 
   rfcValid(): boolean { return /^[A-ZÑ&]{3,4}[0-9]{6}[A-Z0-9]{3}$/.test((this.rfc || '').toUpperCase()); }
 

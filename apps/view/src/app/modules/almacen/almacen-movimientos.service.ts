@@ -66,6 +66,9 @@ export interface FolioRow {
   audited: boolean; audited_by: string | null; audited_at: string | null;
   /** Solo docs de traspaso: en_transito | completado | diferencia. */
   transfer_status?: TransferDocStatus | null;
+  /** DM.11 — destino (solo TrsfShip): a qué sucursal va dirigido. */
+  dest_code?: string | null; dest_label?: string | null;
+  dest_warehouse_id?: string | null; dest_warehouse_name?: string | null;
 }
 export interface LinesResponse { page: number; pageSize: number; total: number; rows: FolioRow[]; }
 
@@ -88,6 +91,8 @@ export interface DocumentCounterpart {
   kind: 'recepcion' | 'origen';
   docs: { folio: string; warehouse_id: string; warehouse_code: string | null; warehouse_name: string | null; doc_code: string; doc_serie: string | null; doc_date: string; qty: number; lineas: number }[];
   qty: number; delta: number; status: 'ok' | 'diferencia' | 'sin_recepcion' | 'sin_origen';
+  /** DM.11 — a quién va dirigido el traspaso (crítico cuando status='sin_recepcion'). */
+  dest_label?: string | null; dest_warehouse_id?: string | null; dest_warehouse_name?: string | null;
 }
 
 export interface DocumentHeader {
@@ -95,6 +100,7 @@ export interface DocumentHeader {
   doc_date: string; genero: string; naturaleza: string; doc_type: string;
   warehouse_id: string; warehouse_code: string | null; warehouse_name: string | null; source_branch: string;
   parent_group: string | null; parent_folio: string | null;
+  dest_code?: string | null; dest_label?: string | null; dest_warehouse_id?: string | null; dest_warehouse_name?: string | null;
   audited: boolean; audited_by: string | null; audited_at: string | null;
 }
 export interface DocumentResponse {

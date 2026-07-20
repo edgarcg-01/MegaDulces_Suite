@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
 import { MaterialidadService } from './materialidad.service';
@@ -14,6 +14,13 @@ export class MaterialidadController {
     private readonly svc: MaterialidadService,
     private readonly assign: MaterialidadAssignmentsService,
   ) {}
+
+  @Get()
+  @RequirePermissions(Permission.FISCAL_MATERIALIDAD_VER)
+  @ApiOperation({ summary: 'MAT — Descubrimiento: índice de proveedores rankeado por riesgo (lista negra / baja recepción / monto). Filtros: search, riesgo (all|lista|riesgo|sin_recepcion), limit.' })
+  providers(@Query('search') search?: string, @Query('riesgo') riesgo?: string, @Query('limit') limit?: string) {
+    return this.svc.providers({ search, riesgo, limit: limit ? Number(limit) : undefined });
+  }
 
   @Get(':rfc')
   @RequirePermissions(Permission.FISCAL_MATERIALIDAD_VER)

@@ -54,6 +54,10 @@
 
 **12b. Modo oscuro — SIEMPRE.** Dark es first-class, no un pase final. En cada componente/estilo: usar solo tokens que flipean por tema (nunca hex crudo — un `#fff`/`#ddd`/`--border` inexistente se ve bien en light y roto en dark); las sombras casi desaparecen en dark → la profundidad la lleva el **borde 1px**; verificar contraste AA en **ambos** temas (no naive-invert). `#fff`/`#000` literales solo si son correctos en los dos (ej. preview de hoja de papel).
 
+**13. Interacción resiliente** (captura, concurrencia, lote, dinero): estado sucio + `CanDeactivate`/`beforeunload`; frescura ("hace N min") + refresh local + scroll anclado en inserts vivos; fallos parciales tabulares (fallidos siguen seleccionados); todo botón que muta DB se auto-deshabilita **síncrono** al 1er clic; Tesler (no esconder lo vital) · Miller (chunking >6 campos / SKU) · Poka-yoke · keyboard-first. → [Leyes de interacción + arquitectura resiliente](#leyes-de-interacción--arquitectura-de-interacciones-resilientes-binding).
+
+**14. Layout por sector + ayuda contextual.** El layout lo dicta el **sector**, no el componente: Fiscal/Contable → **master-detail permanente** (nunca modal para leer doc extenso); Almacén/Compras → **full-width grid** + totales congelados + sidebar colapsable + offline/frescura prominentes; Mostrador/POS → **keyboard-first**, foco permanente en captura, total/cobro dominan, feed al tope (la bandeja auditable SÍ pagina). Pantalla con reglas de negocio estrictas → **`<app-context-help>`** desde diccionario versionado, no texto inventado. → [Arquitectura de layouts por sector](#arquitectura-de-layouts-por-sector--ayuda-contextual-binding).
+
 ---
 
 ## Arquitectura de tokens (3 tiers + interacción + densidad por puntero)
@@ -535,6 +539,83 @@ Cuando un requerimiento choque con `DESIGN.md`, **no se resuelve en silencio**: 
 
 ---
 
+## Leyes de interacción + arquitectura de interacciones resilientes (BINDING)
+
+> Alcance: **toda** superficie Operations con captura, datos volátiles o acciones que mutan DB. Añadido 2026-07-20 (destilado de la revisión de puntos ciegos de la IA como dev de frontend, con Edgar). Convierte el DS de "guía visual" en **contrato de interacción resiliente**: la IA diseña la fachada perfecta y omite la plomería (estado sucio, concurrencia, fallos parciales, doble-clic). Estas reglas se **verifican en review**, no son aspiracionales. Complementan [Ingeniería de UI](#ingeniería-de-ui--contrato-de-implementación-binding).
+
+### Leyes de interacción / densidad (complementan §Ing.UI 1)
+
+1. **Tesler (conservación de la complejidad).** La complejidad inherente de una operación (contabilidad, reglas SAT, conciliación) no se elimina, solo se traslada — y en Operations se traslada al **código** (cálculos automáticos), **no** al usuario ni a un colapsable. ⛔ **Prohibido ocultar datos vitales o filtros críticos** tras hamburguesas/tabs/acordeones en desktop "por limpieza": esconder complejidad operativa genera ansiedad. Progressive disclosure es legítimo **solo** para lo secundario/avanzado y debe verse como tal. Densidad ordenada > minimalismo que esconde.
+
+2. **Miller (chunking).** Ningún formulario con **>6 campos consecutivos** sin separador visual (grupo/tarjeta con su título: "Datos fiscales", "Contacto", "Condiciones de crédito"). Todo valor alfanumérico **>6 caracteres** (SKU, folio, RFC, UUID de factura) se muestra segmentado (`1234 5678 90`) — pero **la separación es de presentación** (CSS/spans): el valor copiable/buscable queda intacto, sin espacios ni guiones (se copia/pega a Kepler/SAT). Romper el paste es peor que la estética.
+
+3. **Jakob (familiaridad).** No se reinventan patrones que el usuario ya conoce de otras herramientas: tabla = Excel (filtros arriba, orden en header, paginación abajo), búsqueda arriba, `⌘K`, breadcrumbs. Innovar en la interacción de una pantalla operativa **frena** la productividad del equipo. Lookbook (Mobbin/Base Web) antes de inventar un flujo. Refuerza los "SAFE choices" + PrimeNG-first.
+
+4. **Proximidad numérica (Gestalt aterrizada).** En formularios, el margen inferior de un grupo de inputs = **2×** la distancia `label↔input` (el label pega a SU input, no al anterior). En tablas densas, el header pega a los datos y el `padding` vertical no infla la densidad (usar `--row-h-*`); demasiado aire entre etiqueta y dato rompe la asociación visual (el "efecto Dribbble").
+
+5. **Von Restorff — jerarquía de acción destructiva.** La acción destructiva (borrar, cancelar pedido, anular/cancelar factura) **nunca** usa `--action` (sunset); usa `--bad-fg` (patrón ghost-bad) + exige **confirmación con fricción proporcional o undo**, y va **físicamente separada** de la acción diaria (Fitts: no pegar "Borrar" junto a "Guardar"). Una sola acción primaria destacada por pantalla; el resto, discreto.
+
+6. **Poka-yoke (prevenir > reportar).** El diseño previene el error antes de reportarlo: validación **inline** al blur, submit **deshabilitado** mientras el form es inválido, formatos guiados (máscara RFC/teléfono/importe), unidades explícitas. El mensaje de error es el último recurso, no el primero.
+
+7. **Keyboard-first en captura.** Todo formulario de alta frecuencia: **autofocus** al primer campo, `Enter` = submit (salvo textarea), tab order lógico según el orden visual, atajos para lo repetitivo. Los capturistas viven en el teclado; obligar al mouse los frena. Complementa inline-edit (§datos densos 9) y ⌘K (§datos densos 12).
+
+### Arquitectura de interacciones resilientes
+
+8. **Estado sucio + navigation guards (anti-pérdida).** Todo formulario de captura compleja rastrea `isDirty`. Con `isDirty === true`: navegación **interna** (Router) interceptada por `CanDeactivate` con modal "¿Descartar cambios sin guardar?"; salida **externa** (cerrar pestaña / refresh) con `beforeunload` (prompt nativo — el texto ya no es customizable en navegadores modernos, y es lo esperado). `Esc` cierra modales de **lectura**; en un modal de **captura activa** pide confirmación, nunca descarta en silencio. Aplica a: requisición, take-order, captura/emisión CFDI, conciliación.
+
+9. **Datos añejos + frescura (concurrencia).** Toda vista de datos volátiles (existencia, tickets en vivo, pedidos, ledger) muestra **indicador de frescura** ("actualizado hace N min") y **refresh local** (re-consulta esa vista, no recarga la SPA — patrón ya usado en los botones "Refresh MVs" de analytics/command-center). Con WS/polling: **anclar el scroll** — insertar filas nuevas **no** debe desplazar bruscamente la posición si el usuario está interactuando con una fila (rompe Fitts en movimiento). *(El ticker de `/tienda/live` prepende: verificar que no salte durante hover/expand de un ticket.)*
+
+10. **Fallos parciales en lote.** Toda acción masiva maneja respuesta **parcial** (nunca binaria éxito/error): el backend devuelve resultado por ítem; la UI muestra resumen explícito ("48 procesados · 2 fallaron") o tabla de resultados. Los ítems fallidos **permanecen seleccionados** en la tabla para corregirlos; solo se limpia la selección de los exitosos. ⛔ Prohibido el toast rojo global que oculta 48 éxitos, o el verde que oculta 2 fallos. Aplica a: timbrado masivo CFDI, descarga masiva SAT, upsert de precios, aprobación de requisiciones.
+
+11. **Idempotencia visual (anti doble-clic del pánico).** Todo botón que muta DB (POST/PUT/DELETE) se **deshabilita a sí mismo de forma síncrona en el instante del primer clic** (`[loading]`/`[disabled]` **antes** de esperar la promesa de red), no al resolver. Defensa en profundidad con idempotencia de servidor (clave `client_uuid` / UPSERT por folio — ya en route-sale y `commercial.order_sequences`). Crítico en pago, timbrado, confirmación de pedido, liquidación.
+
+### Antipatrones (flag en review)
+- Formulario de captura largo sin `CanDeactivate` (se pierde todo al presionar Atrás).
+- Tabla de dato volátil sin frescura ni refresh local; ticker WS que salta el scroll al insertar.
+- Bulk action con toast único rojo/verde que oculta el resultado real por ítem.
+- Botón de pago/timbrado que no se deshabilita hasta que responde la red (registros duplicados).
+- Dato vital escondido tras un colapsable "por limpieza" (viola Tesler).
+- SKU/folio renderizado como cadena pegada de 10+ dígitos (viola Miller).
+
+---
+
+## Arquitectura de layouts por sector + ayuda contextual (BINDING)
+
+> Alcance: Operations. Añadido 2026-07-20. **El layout sigue a la operación, no al componente**: cada sector tiene una plantilla estructural **inmutable** que el dev/IA no reinventa por pantalla. Reconcilia y **tensa** los patrones de datos densos según el contexto operativo. Se verifica en review.
+
+### O. Layout por sector
+
+**O.1 — Fiscal / Contable (alta precisión).** Alcance: `/contabilidad/*`, `/finanzas/*`.
+- **Layout: Master-Detail permanente** (split). Al seleccionar un documento, su visor (XML · estado del sello digital · desglose de impuestos · timeline) aparece **al lado** sin perder el listado.
+- ⛔ **Prohibido modal superpuesto para LEER documentos financieros extensos** (CFDI, póliza, conciliación, DIOT). El modal queda para confirmar/crear corto.
+- Reconciliación con §datos densos 8: el **side-peek drawer** es aceptable para detalle ligero; para documento fiscal extenso → **split permanente**, no drawer efímero.
+
+**O.2 — Operativo / Almacén y Compras (densidad + volatilidad).** Alcance: `/compras/*`, `/almacen/*`, `/logistica/*` (inventario).
+- **Layout: full-width data grid** con **header y fila de totales congelados**. El sidebar es **colapsable a íconos** con un **modo foco** que cede el 100% del ancho a la grid (no forzado siempre; a un clic).
+- **Lectura a distancia:** contraste alto y tamaño suficiente (el operador mira de lejos / en movimiento).
+- **Tolerante a red:** indicador **offline prominente** (§PWA 5) + **frescura visible** (§9). El dato de existencia es volátil: nunca se ve estático sin señal de cuán fresco es.
+
+**O.3 — Comercial / Mostrador (velocidad, fricción cero).** Alcance: superficie **POS / captura en vivo** — `/tienda` (POS), `/vendor` take-order, `/televenta` take-order.
+- **Layout: keyboard-first / POS.** Foco **permanente** en el input de búsqueda/captura (listo para escáner / ingreso rápido). El **TOTAL y las acciones de cobro dominan** la jerarquía visual sobre cualquier otra métrica.
+- **Adición en tiempo real al tope** de la lista (feed de ticket/captura), **no paginación tradicional**.
+- **Reconciliación (crítica) con §datos densos 7:** esto aplica SOLO a la superficie de captura/POS en vivo. Las **listas transaccionales/auditables** (bandeja de pedidos, facturas, ledger de stock) **siguen paginadas** — auditabilidad manda. No confundir "mostrador" (feed) con "bandeja" (registro).
+
+### P. Ayuda contextual (Abouts por módulo)
+
+- Toda pantalla con **reglas de negocio estrictas** (criterio de existencia crítica, umbrales ABC/XYZ y nivel de servicio, estados 1-6 del SAT, reglas de materialidad, safety stock) incluye un componente **`<app-context-help>`**: cajón lateral deslizable (o popover amplio) que documenta la lógica de **ese** módulo, sin sacar al usuario de la pantalla.
+- **La descripción NO se inventa:** se consume de un **diccionario de negocio predefinido y versionado** (fuente única, p.ej. `shared/context-help/context-help.dictionary.ts`), no se redacta ad-hoc en el template. Si falta la entrada, se agrega al diccionario, no un texto suelto.
+- **Trigger:** icono `?` en el header del apartado; abre el cajón. A11y: focus-trap + Escape + retorno de foco (§PWA 6). **No intrusivo** — nunca auto-abre.
+
+### Antipatrones (flag en review)
+- Modal para leer un CFDI / póliza / conciliación extensa (viola O.1).
+- Grid de existencias con el sidebar comiéndose el ancho, o sin totales congelados (viola O.2).
+- Existencia/stock volátil sin indicador de frescura ni de offline (viola O.2 + §9).
+- Mostrador/POS con paginación tradicional o sin foco permanente en el input de captura (viola O.3).
+- Aplicar "no paginación" a una bandeja auditable de pedidos/facturas (rompe §datos densos 7).
+- Texto de ayuda de negocio inventado en el template en vez de consumir el diccionario (viola P).
+
+---
+
 ## PWA / App instalable (BINDING)
 
 > Alcance: toda app que se **instala** en el dispositivo. Hoy `apps/vendor` (mobile-first, vendedor en campo); candidatos: `/portal` y `apps/view`. Origen: auditoría del vendor 2026-06-18 (manifest copiado de `apps/view`, sin service worker, `theme-color` hardcodeado). Bases teóricas + fuentes en [`docs/DESIGN_FOUNDATIONS.md` §10](docs/DESIGN_FOUNDATIONS.md).
@@ -591,6 +672,8 @@ Una app instalada **promete capacidades nativas**: arranca offline, se ve como a
 ## Decisions Log
 | Fecha | Decisión | Razón |
 |------|----------|-------|
+| 2026-07-20 | **Arquitectura de layouts por sector + ayuda contextual BINDING** (O.1 Fiscal = master-detail permanente sin modal para docs extensos · O.2 Almacén/Compras = full-width grid + totales congelados + sidebar colapsable + offline/frescura · O.3 Mostrador/POS = keyboard-first + total/cobro dominantes + feed al tope; P = `<app-context-help>` desde diccionario de negocio versionado) | "El layout sigue a la operación, no al componente": cada sector tiene plantilla estructural inmutable. Reconcilia con datos densos (mostrador NO pagina / bandeja auditable SÍ; fiscal split permanente vs side-peek ligero). Genera backlog: viewer fiscal master-detail, focus-mode de sidebar, componente+diccionario ContextHelp. |
+| 2026-07-20 | **Leyes de interacción + arquitectura resiliente BINDING** (Tesler, Miller/chunking, Jakob, proximidad numérica, Von Restorff/destructivo, Poka-yoke, keyboard-first + estado sucio/`CanDeactivate`, datos añejos/frescura/scroll anclado, fallos parciales en lote, idempotencia visual anti doble-clic) | Cierra los puntos ciegos de la IA como dev de frontend: diseña la fachada y omite la plomería (retención de captura, concurrencia, respuesta parcial de bulk, doble-submit financiero). El DS visual no garantizaba interacciones resilientes. Destilado de la revisión con Edgar; huecos de cumplimiento asociados (309 `error:()=>` vacíos, focus-visible ~22%) quedan como barrido aparte. |
 | 2026-07-10 | **Contrato de ingeniería de UI BINDING** (fundamento cognitivo, matriz de estados, a11y AA+APCA, presupuesto de motion + ciclo de vida/Zone.js/`ctx.revert`, container queries en `libs/`, error boundaries por sección, formateo `Intl`+TZ+`tabular-nums`, XSS/`DomSanitizer`, estado-en-URL, optimistic UI, i18n locale) | Codifica el *cómo se construye* que faltaba: el DS visual no garantiza que la UI no se rompa con datos reales/errores ni que el motion no janquee/fugue memoria. GSAP aún no es dependencia — reglas rigen CSS/WAAPI hoy y GSAP si/cuando entre. |
 | 2026-06-24 | **Display Storefront: Fraunces serif → Poppins** (sans geométrica). *Supersede la decisión 2026-06-04 de conservar Fraunces.* | El usuario quiere la identidad tipográfica tipo Rappi (delivery app), no editorial-serif. Poppins es el análogo libre más cercano a "Rappi Sans". Body sigue Hanken Grotesk. Operations no cambia. |
 | 2026-06-24 | Firma de botones «Confite» (pill + gloss + lip + press) + portal monocromático con acento de marca | Darle al portal una identidad táctil propia (la "esencia" tipo Rappi) sin perder el quiet-luxury. Una sola acción en color; thumbnails/chrome neutros. Implementado en `.portal-btn-*` + util de placeholders. |

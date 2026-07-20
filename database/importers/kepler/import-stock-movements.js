@@ -152,7 +152,8 @@ async function loadDoctypeMap(src, schema) {
       warehouse_id uuid, product_id uuid, sku text, doc_date date, genero char(1), naturaleza char(1),
       doc_type text, doc_serie text, doc_code text, movement_kind text, movement_label text, folio text,
       signed_qty numeric, qty numeric, unit_cost numeric, amount numeric,
-      parent_group text, parent_serie text, parent_folio text, source_branch text) ON COMMIT DROP`);
+      parent_group text, parent_serie text, parent_folio text, source_branch text,
+      dest_code text, dest_label text) ON COMMIT DROP`);
 
     const touched = [];
     const summary = [];
@@ -178,18 +179,21 @@ async function loadDoctypeMap(src, schema) {
         const tuples = [...dt.keys()].map((k) => { const [g, n, t] = k.split('|'); return `('${g}','${n}',${t})`; }).join(',');
         // CTE MATERIALIZED: primero reduce cabeceras (pocos miles) y recién ahí joinea kdm2.
         // Sin esto el planner (schemas sync SIN índices) elige nested-loop 182k×2M → 30+ min.
+        // DM.11 — destino del traspaso: kdm1.c10 (código de contraparte) resuelto por md.kdud
+        // (c2=code → c3=label). Solo se estampa como destino en TrsfShip (ver más abajo).
         const SQL = `
           WITH hh AS MATERIALIZED (
-            SELECT c1, c2, c3, c4, c5::text serie, c6, c9::date doc_date, c37, c38::text pserie, c39
+            SELECT c1, c2, c3, c4, c5::text serie, c6, c9::date doc_date, c10, c37, c38::text pserie, c39
             FROM ${schema}.kdm1 h
             WHERE h.c1=$1 AND h.c9::date >= $2
               AND (h.c2, h.c3, (h.c4)::int) IN (${tuples})
           )
           SELECT hh.c2 g, hh.c3 nat, hh.c4 tipo, hh.serie, hh.c6 folio, hh.doc_date,
-                 hh.c37 pgrp, hh.pserie, hh.c39 pfol, l.c8 sku, l.c9::numeric qty,
-                 l.c12::numeric unit_val, l.c13::numeric total_val
+                 hh.c37 pgrp, hh.pserie, hh.c39 pfol, hh.c10 dest_code, dd.c3 dest_label,
+                 l.c8 sku, l.c9::numeric qty, l.c12::numeric unit_val, l.c13::numeric total_val
           FROM hh
           JOIN ${schema}.kdm2 l ON l.c1=hh.c1 AND l.c2=hh.c2 AND l.c3=hh.c3 AND l.c4=hh.c4 AND l.c6=hh.c6
+          LEFT JOIN (SELECT DISTINCT ON (c2) c2, c3 FROM ${schema}.kdud ORDER BY c2) dd ON dd.c2 = hh.c10
           WHERE coalesce(l.c11,'') <> 'SER'  -- líneas de SERVICIO (fletes, "VENTAS AL 0%") no son producto`;
         const rows = (await src.query(SQL, [suc, cutoff])).rows;
 
@@ -207,11 +211,16 @@ async function loadDoctypeMap(src, schema) {
           // verificado 100% en 18 tipos × 4 sucursales 2026-07-13). NO usar c12 como importe.
           const unit = Math.abs(Number(r.unit_val) || 0);
           const total = Math.abs(Number(r.total_val) || 0) || (unit ? unit * qty : 0);
+          // DM.11 — destino solo en el "Traspaso a sucursal" (TrsfShip); c10 es contraparte
+          // genérica (cliente/etc.) en el resto, ahí no significa destino.
+          const isShip = info.code === 'TrsfShip';
+          const destCode = isShip ? (r.dest_code || null) : null;
+          const destLabel = isShip ? (r.dest_label || r.dest_code || null) : null;
           staged.push([
             warehouseId, pid, r.sku || null, r.doc_date, r.g, r.nat, String(r.tipo), r.serie || null, info.code,
             info.dir === 0 ? 'info' : info.dir > 0 ? 'entrada' : 'salida', info.label, r.folio,
             info.dir * qty, qty, unit || (total ? total / qty : null), total || null,
-            r.pgrp || null, r.pserie || null, r.pfol || null, suc,
+            r.pgrp || null, r.pserie || null, r.pfol || null, suc, destCode, destLabel,
           ]);
           matched++; lines++;
         }
@@ -225,9 +234,9 @@ async function loadDoctypeMap(src, schema) {
         for (let i = 0; i < staged.length; i += BATCH) {
           const chunk = staged.slice(i, i + BATCH);
           const vals = [], params = [];
-          const N = 20;
+          const N = 22;
           chunk.forEach((row, ri) => { vals.push(`(${Array.from({ length: N }, (_, k) => `$${ri * N + k + 1}`).join(',')})`); params.push(...row); });
-          await db.query(`INSERT INTO stg_mov (warehouse_id,product_id,sku,doc_date,genero,naturaleza,doc_type,doc_serie,doc_code,movement_kind,movement_label,folio,signed_qty,qty,unit_cost,amount,parent_group,parent_serie,parent_folio,source_branch) VALUES ${vals.join(',')}`, params);
+          await db.query(`INSERT INTO stg_mov (warehouse_id,product_id,sku,doc_date,genero,naturaleza,doc_type,doc_serie,doc_code,movement_kind,movement_label,folio,signed_qty,qty,unit_cost,amount,parent_group,parent_serie,parent_folio,source_branch,dest_code,dest_label) VALUES ${vals.join(',')}`, params);
         }
         touched.push(warehouseId);
         summary.push({ code: m.code, suc, matched, unmatched, lines });
@@ -251,9 +260,16 @@ async function loadDoctypeMap(src, schema) {
     );
     const ins = await db.query(`
       INSERT INTO analytics.stock_movements
-        (tenant_id,warehouse_id,product_id,sku,doc_date,genero,naturaleza,doc_type,doc_serie,doc_code,movement_kind,movement_label,folio,signed_qty,qty,unit_cost,amount,parent_group,parent_serie,parent_folio,source_branch)
-      SELECT $1,warehouse_id,product_id,sku,doc_date,genero,naturaleza,doc_type,doc_serie,doc_code,movement_kind,movement_label,folio,signed_qty,qty,unit_cost,amount,parent_group,parent_serie,parent_folio,source_branch
+        (tenant_id,warehouse_id,product_id,sku,doc_date,genero,naturaleza,doc_type,doc_serie,doc_code,movement_kind,movement_label,folio,signed_qty,qty,unit_cost,amount,parent_group,parent_serie,parent_folio,source_branch,dest_code,dest_label)
+      SELECT $1,warehouse_id,product_id,sku,doc_date,genero,naturaleza,doc_type,doc_serie,doc_code,movement_kind,movement_label,folio,signed_qty,qty,unit_cost,amount,parent_group,parent_serie,parent_folio,source_branch,dest_code,dest_label
       FROM stg_mov`, [M]);
+    // DM.11 — auto-descubre destinos (dest_code, dest_label) sin tocar el warehouse_id curado.
+    await db.query(`
+      INSERT INTO analytics.transfer_dest_map (tenant_id, dest_code, dest_label)
+      SELECT $1, dest_code, max(dest_label) FROM stg_mov WHERE dest_code IS NOT NULL
+      GROUP BY dest_code
+      ON CONFLICT (tenant_id, dest_code) DO UPDATE
+        SET dest_label = COALESCE(EXCLUDED.dest_label, analytics.transfer_dest_map.dest_label), updated_at = now()`, [M]);
     await db.query('COMMIT');
     console.log(`\n[APPLY] COMMIT — ${ins.rowCount} líneas de movimiento insertadas (${summary.length} almacenes).`);
   } catch (e) {

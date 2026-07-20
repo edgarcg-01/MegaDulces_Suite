@@ -84,6 +84,76 @@ export class MaterialidadService {
   }
 
   /**
+   * MAT — Descubrimiento de proveedores: índice para EXPLORAR sin teclear el RFC
+   * exacto. Agrega analytics.expense_documents por RFC + cadena (recepción) + cruce
+   * con listas negras (fiscal.sat_list_matches, RLS), rankeado por RIESGO
+   * (en lista → baja recepción → monto). Filtros: search (RFC/nombre) + riesgo.
+   */
+  async providers(opts: { search?: string; riesgo?: string; limit?: number } = {}) {
+    const tid = this.tenantCtx.requireTenantId();
+    const limit = Math.min(500, Math.max(1, Number(opts.limit) || 200));
+    const q = (opts.search || '').trim().toUpperCase();
+    const riesgo = opts.riesgo || 'all';
+    const rows = await this.tk.run(async (trx) => {
+      const res = await trx.raw(
+        `WITH base AS (
+           SELECT UPPER(rfc) AS rfc, MAX(beneficiario) AS beneficiario, COUNT(*)::int AS ops,
+                  COALESCE(SUM(importe),0)::numeric AS monto, MIN(fecha) AS desde, MAX(fecha) AS hasta
+             FROM analytics.expense_documents
+            WHERE tenant_id = :tid AND rfc IS NOT NULL AND btrim(rfc) <> ''
+            GROUP BY UPPER(rfc)
+         ),
+         chain AS (
+           SELECT UPPER(e.rfc) AS rfc, COUNT(*)::int AS cadenas,
+                  COUNT(*) FILTER (WHERE ch.recepcion_folio IS NOT NULL)::int AS con_recepcion
+             FROM analytics.expense_doc_chain ch
+             JOIN analytics.expense_documents e
+               ON e.tenant_id = ch.tenant_id AND e.sucursal = ch.sucursal AND e.doc_folio = ch.factura_folio
+            WHERE e.tenant_id = :tid AND e.doc_tipo = 'XA2001' AND e.rfc IS NOT NULL
+            GROUP BY UPPER(e.rfc)
+         ),
+         lista AS (
+           SELECT UPPER(rfc) AS rfc, bool_or(true) AS en_lista,
+                  bool_or(
+                    (lista='69B' AND (lower(situacion) LIKE '%definitivo%' OR lower(situacion) LIKE '%presunto%'))
+                 OR (lista='69'  AND (lower(situacion) LIKE '%firme%' OR lower(situacion) LIKE '%no localizado%' OR lower(situacion) LIKE '%cancelado%' OR lower(situacion) LIKE '%exigible%'))
+                  ) AS en_riesgo
+             FROM fiscal.sat_list_matches WHERE rfc IS NOT NULL GROUP BY UPPER(rfc)
+         )
+         SELECT b.rfc, b.beneficiario, b.ops, b.monto, b.desde, b.hasta,
+                COALESCE(c.cadenas,0)::int AS cadenas, COALESCE(c.con_recepcion,0)::int AS con_recepcion,
+                COALESCE(l.en_lista,false) AS en_lista, COALESCE(l.en_riesgo,false) AS en_riesgo
+           FROM base b
+           LEFT JOIN chain c ON c.rfc = b.rfc
+           LEFT JOIN lista l ON l.rfc = b.rfc
+          WHERE (:q = '' OR b.rfc LIKE :qlike OR UPPER(COALESCE(b.beneficiario,'')) LIKE :qlike)
+            AND (CASE :riesgo
+                  WHEN 'lista' THEN COALESCE(l.en_lista,false)
+                  WHEN 'riesgo' THEN COALESCE(l.en_riesgo,false)
+                  WHEN 'sin_recepcion' THEN (COALESCE(c.cadenas,0) > 0 AND COALESCE(c.con_recepcion,0)::numeric / NULLIF(c.cadenas,0) < 0.5)
+                  ELSE true END)
+          ORDER BY COALESCE(l.en_riesgo,false) DESC, COALESCE(l.en_lista,false) DESC,
+                   (CASE WHEN COALESCE(c.cadenas,0) > 0 THEN c.con_recepcion::numeric / c.cadenas ELSE 1 END) ASC,
+                   b.monto DESC
+          LIMIT :limit`,
+        { tid, q, qlike: `%${q}%`, riesgo, limit },
+      );
+      return res.rows;
+    });
+    return rows.map((r: any) => {
+      const cadenas = Number(r.cadenas) || 0;
+      return {
+        rfc: r.rfc, beneficiario: r.beneficiario ?? null,
+        ops: Number(r.ops) || 0, monto: Number(r.monto) || 0,
+        desde: r.desde ?? null, hasta: r.hasta ?? null,
+        cadenas, con_recepcion: Number(r.con_recepcion) || 0,
+        recepcion_pct: cadenas > 0 ? Math.round((Number(r.con_recepcion) / cadenas) * 100) : null,
+        en_lista: !!r.en_lista, en_riesgo: !!r.en_riesgo,
+      };
+    });
+  }
+
+  /**
    * MAT.2 — Desglose de la cadena de suministro: una fila por factura de compra
    * (XA2001) con sus documentos relacionados (orden XA3501 → recepción XA3701 →
    * factura → pago programado XA4001), fechas y confianza del enlace. Es el drill

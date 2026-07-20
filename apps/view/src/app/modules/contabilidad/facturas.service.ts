@@ -53,11 +53,13 @@ export class FacturasService {
   private readonly http = inject(HttpClient);
   private readonly base = `${environment.apiUrl}/fiscal/facturas`;
 
-  list(q: { from?: string; to?: string; search?: string } = {}): Observable<{ total: number; limit: number; offset: number; rows: EmittedInvoice[] }> {
+  list(q: { from?: string; to?: string; search?: string; limit?: number; offset?: number } = {}): Observable<{ total: number; limit: number; offset: number; rows: EmittedInvoice[] }> {
     let params = new HttpParams();
     if (q.from) params = params.set('from', q.from);
     if (q.to) params = params.set('to', q.to);
     if (q.search) params = params.set('search', q.search);
+    if (q.limit != null) params = params.set('limit', String(q.limit));
+    if (q.offset != null) params = params.set('offset', String(q.offset));
     return this.http.get<{ total: number; limit: number; offset: number; rows: EmittedInvoice[] }>(this.base, { params });
   }
   issuers(): Observable<IssuerConfig[]> { return this.http.get<IssuerConfig[]>(`${this.base}/issuer`); }

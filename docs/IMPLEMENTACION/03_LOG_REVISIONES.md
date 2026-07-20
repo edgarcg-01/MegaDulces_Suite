@@ -6,6 +6,21 @@
 
 ---
 
+## 2026-07-20 — DM.11: destino del traspaso a sucursal (¿a quién va dirigido?)
+
+**Contexto:** en `/almacen/movimientos`, un "Traspaso a sucursal" (`TrsfShip` = U/D/41) sin recepción solo decía "sin recepción" — sin nombrar la sucursal destino, justo lo que se necesita para reclamar quién no ha recepcionado.
+
+**Hallazgo (siguiendo el flujo Kepler→UI):** el destino SÍ estaba en el origen y lo tirábamos. `kdm1.c10` (poblado 275/275 en U/D/41, 8 valores distintos) resuelve contra `md.kdud` (c2→c3) a la sucursal concreta: `TI007`→"TRASPASO ZAMORA CENTRO", `TI001`→"PADRE HIDALGO", etc. `kdud` no tiene puntero estructurado a sucursal → el mapeo `TI###→warehouse` es curado.
+
+**Cambio (slice vertical, 4 capas):**
+
+- **Schema** (mig `20260720120000`, Batch 188 local): `analytics.stock_movements` + `dest_code`/`dest_label` (denormalizados, self-describing) + tabla curable `analytics.transfer_dest_map` (dest_code→warehouse_id) sembrada con 8 TI### → MD-10/30/32/40/42/44/50/54 (8/8 resueltos).
+- **Importer** (`import-stock-movements.js`): CTE `hh`+`c10`, LEFT JOIN `kdud` para label; estampa dest **solo en TrsfShip** (c10 es contraparte genérica en el resto); auto-descubre destinos nuevos en `transfer_dest_map` (upsert, sin tocar el `warehouse_id` curado).
+- **Backend** (`commercial-movements.service.ts`): `lines()` (helper `annotateDest`), `document()` (header + counterpart) y `transfersCheck()` (llena `dest_wh`/`dest_wh_id` en los `sin_recepcion` vía CTE `shp`+dest y join al map). No mapeado ⇒ degrada a solo-label.
+- **Frontend**: tabla del día muestra "→ destino" en TrsfShip; el diálogo muestra "→ ZAMORA CENTRO · sin recepción" en la relación; el export XLSX/PDF ya renderizaba la columna Destino → ahora los `sin_recepcion` la traen poblada (sin cambio de export).
+
+**Red:** builds api+view verdes. Extracción validada en vivo contra Kepler CEDIS (md_00): reproducido el staging de U/D/41 → cada folio sale con dest_code+dest_label (1 destino/doc). Seed 8/8 resuelto. **Pendiente prod:** aplicar mig `20260720120000` a Railway + re-correr `import-stock-movements` (runner nightly) para backfillar `dest_code`/`dest_label` (la data existente queda NULL hasta re-import).
+
 ## 2026-07-07 — Maat: dimensión Departamento (centro de costos)
 
 **Contexto:** otra ventana agregó al reporte `/finanzas/egresos` la dimensión **departamento** = centro de costos de Kepler (póliza c13, nombre en `md.kdc3`, formato `1-XX-XX-XX`). La capa de datos ya estaba lista: `analytics.expense_entries.dpto` + `dpto_nombre` (migración `20260707120000`, aplicada local+Railway, importer poblándolas). Este cambio la cablea en Maat.

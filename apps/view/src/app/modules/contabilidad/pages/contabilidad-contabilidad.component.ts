@@ -7,6 +7,8 @@ import { ToastModule } from 'primeng/toast';
 import { InputTextModule } from 'primeng/inputtext';
 import { TableModule } from 'primeng/table';
 import { TagModule } from 'primeng/tag';
+import { SelectModule } from 'primeng/select';
+import { SelectButtonModule } from 'primeng/selectbutton';
 import { MessageService } from 'primeng/api';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { CONTABILIDAD_TABS } from '../contabilidad-tabs';
@@ -24,7 +26,7 @@ import { SAT_COD_AGRUPADOR } from '../../../shared/constants/sat-cod-agrupador';
 @Component({
   selector: 'app-contabilidad-contabilidad',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, ToastModule, InputTextModule, TableModule, TagModule, PageTabsComponent],
+  imports: [CommonModule, FormsModule, ButtonModule, ToastModule, InputTextModule, TableModule, TagModule, SelectModule, SelectButtonModule, PageTabsComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
@@ -43,6 +45,9 @@ import { SAT_COD_AGRUPADOR } from '../../../shared/constants/sat-cod-agrupador';
         <div class="cb-form">
           <label class="cb-f"><span>Periodo</span><input type="month" [(ngModel)]="period" aria-label="Periodo" /></label>
           <label class="cb-f"><span>RFC (opcional)</span><input type="text" pInputText [(ngModel)]="rfc" placeholder="e.firma activa si vacío" maxlength="13" style="text-transform:uppercase" /></label>
+          <label class="cb-f"><span>Tipo de envío (balanza)</span>
+            <p-select [options]="tipoEnvioOpts" [(ngModel)]="tipoEnvio" optionLabel="label" optionValue="value" styleClass="cb-sel" ariaLabel="Tipo de envío de la balanza" />
+          </label>
         </div>
         <div class="cb-cards">
           <div class="cb-card">
@@ -70,6 +75,7 @@ import { SAT_COD_AGRUPADOR } from '../../../shared/constants/sat-cod-agrupador';
             <div class="cb-card-desc">Mapea cada cuenta mayor a la clave del catálogo del SAT. El catálogo de cuentas XML usa este mapeo; las cuentas sin mapear caen al placeholder (la propia cuenta mayor).</div>
           </div>
           <div class="cb-map-actions">
+            <p-selectButton [options]="mapFilterOpts" [ngModel]="onlyUnmapped()" (ngModelChange)="onlyUnmapped.set($event)" optionLabel="label" optionValue="value" [allowEmpty]="false" styleClass="cb-sb" ariaLabel="Filtrar cuentas por mapeo" />
             <span class="cb-cover" [class.is-full]="coverage().unmapped === 0" [class.is-empty]="coverage().total === 0">
               <i class="pi" [ngClass]="coverage().unmapped === 0 && coverage().total > 0 ? 'pi-check-circle' : 'pi-exclamation-circle'"></i>
               {{ coverage().mapped }}/{{ coverage().total }} mapeadas
@@ -85,8 +91,8 @@ import { SAT_COD_AGRUPADOR } from '../../../shared/constants/sat-cod-agrupador';
           <option *ngFor="let c of satCodes" [value]="c.code">{{ c.label }}</option>
         </datalist>
 
-        <p-table [value]="mapRows()" [loading]="loadingMap()" responsiveLayout="scroll"
-                 styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--zebra" [scrollable]="true" scrollHeight="440px">
+        <p-table [value]="displayRows()" [loading]="loadingMap()" responsiveLayout="scroll"
+                 styleClass="p-datatable-sm surf-table surf-table--sticky" [scrollable]="true" scrollHeight="440px">
           <ng-template pTemplate="header">
             <tr>
               <th scope="col">Cuenta mayor</th>
@@ -119,7 +125,10 @@ import { SAT_COD_AGRUPADOR } from '../../../shared/constants/sat-cod-agrupador';
             </tr>
           </ng-template>
           <ng-template pTemplate="emptymessage">
-            <tr><td colspan="6" class="comm-muted" style="padding:1rem;text-align:center;">Sin balanza cargada (analytics.ledger_monthly vacío para este tenant).</td></tr>
+            <tr><td colspan="6" class="comm-muted" style="padding:1rem;text-align:center;">
+              @if (onlyUnmapped() && mapRows().length) { <i class="pi pi-check-circle"></i> Todas las cuentas están mapeadas. <button pButton type="button" label="Ver todas" class="p-button-sm p-button-text" (click)="onlyUnmapped.set(false)"></button> }
+              @else { Sin balanza cargada (analytics.ledger_monthly vacío para este tenant). }
+            </td></tr>
           </ng-template>
         </p-table>
         <p class="cb-note"><i class="pi pi-info-circle"></i> El código agrupador debe ser una clave del catálogo del SAT (formato <code>NNN</code> o <code>NNN.NN</code>). El campo sugiere claves comunes; podés escribir cualquiera válida.</p>
@@ -165,11 +174,15 @@ export class ContabilidadContabilidadComponent {
 
   period = this.currentMonth();
   rfc = '';
+  tipoEnvio: 'N' | 'C' = 'N';
+  readonly tipoEnvioOpts = [{ label: 'Normal', value: 'N' }, { label: 'Complementaria', value: 'C' }];
   readonly dl = signal<'' | 'catalogo' | 'balanza'>('');
 
   readonly mapRows = signal<CodAgrupadorRow[]>([]);
   readonly loadingMap = signal(false);
   readonly suggesting = signal(false);
+  readonly onlyUnmapped = signal(false);
+  readonly mapFilterOpts = [{ label: 'Todas', value: false }, { label: 'Sin mapear', value: true }];
 
   readonly canManage = computed(() => (this.auth.user()?.permissions || {})[Permission.FISCAL_CONTAB_GESTIONAR] === true);
 
@@ -178,6 +191,9 @@ export class ContabilidadContabilidadComponent {
     const mapped = rows.filter((r) => !!r.cod_agrupador).length;
     return { total: rows.length, mapped, unmapped: rows.length - mapped };
   });
+
+  /** "Sin mapear" filtra client-side sobre las cuentas ya cargadas (el trabajo real de cerrar el catálogo). */
+  readonly displayRows = computed(() => this.onlyUnmapped() ? this.mapRows().filter((r) => !r.cod_agrupador) : this.mapRows());
 
   constructor() {
     this.loadMap();
@@ -224,7 +240,7 @@ export class ContabilidadContabilidadComponent {
     if (!/^\d{4}-\d{2}$/.test(this.period)) { this.toast.add({ severity: 'warn', summary: 'Periodo inválido', detail: 'Elige un mes válido.' }); return; }
     this.dl.set(tipo);
     const rfc = this.rfc ? this.rfc.toUpperCase() : undefined;
-    const obs = tipo === 'catalogo' ? this.svc.catalogo(this.period, rfc) : this.svc.balanza(this.period, rfc);
+    const obs = tipo === 'catalogo' ? this.svc.catalogo(this.period, rfc) : this.svc.balanza(this.period, rfc, this.tipoEnvio);
     obs.pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (xml) => { this.dl.set(''); this.saveXml(xml, `${tipo}_${this.period}.xml`); this.toast.add({ severity: 'success', summary: 'XML generado', detail: `${tipo === 'catalogo' ? 'Catálogo' : 'Balanza'} ${this.period} descargado.` }); },
       error: () => { this.dl.set(''); this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo generar el XML (¿hay balanza en el periodo? ¿RFC/e.firma?).' }); },

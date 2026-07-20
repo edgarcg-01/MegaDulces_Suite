@@ -1,10 +1,14 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
 import { ToastModule } from 'primeng/toast';
+import { InputTextModule } from 'primeng/inputtext';
+import { IconFieldModule } from 'primeng/iconfield';
+import { InputIconModule } from 'primeng/inputicon';
+import { SelectModule } from 'primeng/select';
 import { MessageService } from 'primeng/api';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
@@ -19,7 +23,7 @@ import { DiotService, DiotRow, DiotResult, IvaResumen } from '../diot.service';
 @Component({
   selector: 'app-contabilidad-diot',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, TableModule, ToastModule, PageTabsComponent, MetricStripComponent],
+  imports: [CommonModule, FormsModule, ButtonModule, TableModule, ToastModule, InputTextModule, IconFieldModule, InputIconModule, SelectModule, PageTabsComponent, MetricStripComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
@@ -45,8 +49,15 @@ import { DiotService, DiotRow, DiotResult, IvaResumen } from '../diot.service';
       <div class="card-premium card-flat">
         <div class="di-card-head">
           <h3 class="di-card-title">DIOT — operaciones con terceros @if (diot(); as d) { <span class="muted">· {{ d.totales.proveedores | number }} proveedores · IVA {{ money(d.totales.iva16) }}</span> }</h3>
+          <div class="di-card-filters">
+            <p-iconfield iconPosition="left" styleClass="di-search">
+              <p-inputicon styleClass="pi pi-search" />
+              <input type="text" pInputText placeholder="Buscar proveedor / RFC…" [ngModel]="search()" (ngModelChange)="search.set($event)" aria-label="Buscar proveedor" />
+            </p-iconfield>
+            <p-select [options]="terceroOpts" [ngModel]="tercero()" (ngModelChange)="tercero.set($event)" optionLabel="label" optionValue="value" styleClass="di-sel" ariaLabel="Tipo de tercero" />
+          </div>
         </div>
-        <p-table [value]="rows()" styleClass="p-datatable-sm di-table" [rowHover]="true" [loading]="loading()" [scrollable]="true" scrollHeight="520px" [paginator]="rows().length > 50" [rows]="50">
+        <p-table [value]="filteredRows()" styleClass="p-datatable-sm di-table" [rowHover]="true" [loading]="loading()" [scrollable]="true" scrollHeight="520px" [paginator]="filteredRows().length > 50" [rows]="50">
           <ng-template pTemplate="header">
             <tr>
               <th>Proveedor</th>
@@ -72,6 +83,7 @@ import { DiotService, DiotRow, DiotResult, IvaResumen } from '../diot.service';
           <ng-template pTemplate="emptymessage"><tr><td colspan="7" class="di-empty">
             @if (loading()) { Cargando… }
             @else if (errored()) { <i class="pi pi-exclamation-triangle"></i> No se pudo calcular la DIOT. <button pButton type="button" label="Reintentar" class="p-button-sm p-button-text" (click)="reload()"></button> }
+            @else if (hasFilters()) { <i class="pi pi-filter-slash"></i> Ningún proveedor coincide con el filtro. <button pButton type="button" label="Limpiar" class="p-button-sm p-button-text" (click)="clearFilters()"></button> }
             @else { <i class="pi pi-inbox"></i> Sin operaciones con terceros en {{ period }}. Se llena al correr la <strong>descarga masiva</strong> de CFDI. }
           </td></tr></ng-template>
         </p-table>
@@ -85,7 +97,9 @@ import { DiotService, DiotRow, DiotResult, IvaResumen } from '../diot.service';
     .di-period { display: flex; flex-direction: column; gap: .15rem; font-size: .68rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: .03em; }
     .di-period input { border: 1px solid var(--border-color); border-radius: var(--r-sm, 8px); padding: .35rem .5rem; background: var(--card-bg); color: var(--text-main); font-family: var(--font-mono, monospace); }
     app-metric-strip { display:block; margin-bottom: 1rem; }
-    .di-card-head { padding: .75rem 1rem .25rem; }
+    .di-card-head { padding: .75rem 1rem .25rem; display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
+    .di-card-filters { display: flex; gap: .5rem; align-items: center; }
+    .di-search input { min-width: 200px; }
     .di-card-title { margin: 0; font-size: .85rem; font-weight: 700; color: var(--text-main); }
     .muted { color: var(--text-muted); font-weight: 400; }
     .di-table { font-variant-numeric: tabular-nums; }
@@ -119,6 +133,20 @@ export class ContabilidadDiotComponent implements OnInit {
   readonly rows = signal<DiotRow[]>([]);
   readonly loading = signal(false);
   readonly errored = signal(false);
+  readonly search = signal('');
+  readonly tercero = signal<'all' | '04' | '05' | '15'>('all');
+  readonly terceroOpts = [{ label: 'Todos los terceros', value: 'all' }, { label: 'Nacional', value: '04' }, { label: 'Extranjero', value: '05' }, { label: 'Global', value: '15' }];
+  readonly filteredRows = computed(() => {
+    const q = this.search().trim().toLowerCase();
+    const t = this.tercero();
+    return this.rows().filter((r) => {
+      if (t !== 'all' && r.tipo_tercero !== t) return false;
+      if (q && !(`${r.nombre || ''} ${r.rfc || ''}`.toLowerCase().includes(q))) return false;
+      return true;
+    });
+  });
+  hasFilters(): boolean { return !!(this.search().trim() || this.tercero() !== 'all'); }
+  clearFilters() { this.search.set(''); this.tercero.set('all'); }
 
   ngOnInit() { this.reload(); }
 

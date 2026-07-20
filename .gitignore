@@ -94,3 +94,7 @@ _kep*.js
 database/_kep*.js
 _verify*.js
 database/_verify*.js
+
+# Estado local del importer de stock incremental (no versionar)
+.stock-live-snapshot.json
+database/importers/kepler/.stock-live-snapshot.json

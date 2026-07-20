@@ -130,11 +130,14 @@ function saveSnap(obj) {
       await db.query(`INSERT INTO stg_stock (code, product_id, quantity) VALUES ${vals.join(',')}`, params);
     }
     // Cada (code, product_id) viene ya agregado y único desde JS → upsert directo.
+    // JOIN a products: un drop puede referir un product_id ya BORRADO del catálogo
+    // (venía del snapshot) → sin este filtro el INSERT viola fk_commercial_stock_product.
     const up = await db.query(`
       INSERT INTO commercial.stock (id, tenant_id, warehouse_id, product_id, quantity, updated_at)
       SELECT gen_random_uuid(), $1, w.id, s.product_id, s.quantity, now()
       FROM stg_stock s
       JOIN commercial.warehouses w ON w.tenant_id=$1 AND w.code=s.code
+      JOIN public.products p ON p.tenant_id=$1 AND p.id=s.product_id
       ON CONFLICT (tenant_id, warehouse_id, product_id) DO UPDATE SET quantity=EXCLUDED.quantity, updated_at=now()`, [M]);
     await db.query('COMMIT');
     console.log(`\n[APPLY] COMMIT — ${up.rowCount} filas de stock actualizadas (delta).`);

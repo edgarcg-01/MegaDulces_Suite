@@ -214,6 +214,9 @@ export class CommercialMovementsService {
           trx.raw(`COUNT(a.id) > 0 AS audited`),
           trx.raw(`MAX(a.audited_by) AS audited_by`),
           trx.raw(`MAX(a.created_at) AS audited_at`),
+          // DM.11 — destino del traspaso (kdm1.c10 → kdud); dest por-doc, MAX es el valor único
+          trx.raw(`MAX(m.dest_code) AS dest_code`),
+          trx.raw(`MAX(m.dest_label) AS dest_label`),
         )
         .orderByRaw('MIN(m.doc_date) DESC, m.folio DESC')
         .limit(limit).offset(offset);
@@ -227,6 +230,7 @@ export class CommercialMovementsService {
           (!estado || r.transfer_status === estado) &&
           (!transferWhs.length || transferWhs.includes(r.warehouse_id) || transferWhs.includes(r.cp_warehouse_id)));
         const rows = filtered.slice((page - 1) * pageSize, (page - 1) * pageSize + pageSize);
+        await this.annotateDest(trx, tenantId, rows);
         return { page, pageSize, total: filtered.length, rows };
       }
 
@@ -234,6 +238,7 @@ export class CommercialMovementsService {
       const count = countRows[0]?.count ?? 0;
       const rows = await fetch(pageSize, (page - 1) * pageSize);
       await this.annotateTransferStatus(trx, tenantId, rows);
+      await this.annotateDest(trx, tenantId, rows);
       return { page, pageSize, total: Number(count), rows };
     });
   }
@@ -289,6 +294,30 @@ export class CommercialMovementsService {
     }
   }
 
+  /**
+   * DM.11 — resuelve el DESTINO de los traspasos (TrsfShip): dest_label ya viene denormalizado;
+   * acá se le agrega dest_warehouse_id + nombre curado vía analytics.transfer_dest_map (para
+   * el filtro Origen/Destino y para nombrar "a quién va" cuando NO hay recepción). No mapeado
+   * ⇒ solo dest_label (el nombre igual responde la pregunta).
+   */
+  private async annotateDest(trx: any, tenantId: string, rows: any[]): Promise<void> {
+    const codes = [...new Set(rows.filter((r) => r.doc_code === 'TrsfShip' && r.dest_code).map((r) => r.dest_code))];
+    if (!codes.length) return;
+    const map = await trx('analytics.transfer_dest_map as dm')
+      .where('dm.tenant_id', tenantId).whereIn('dm.dest_code', codes)
+      .leftJoin('commercial.warehouses as w', 'w.id', 'dm.warehouse_id')
+      .select('dm.dest_code', 'dm.warehouse_id as dest_warehouse_id', 'dm.dest_label as map_label',
+        trx.raw(`coalesce(w.name, w.code) AS dest_warehouse_name`));
+    const byCode = new Map(map.map((m: any) => [m.dest_code, m]));
+    for (const r of rows) {
+      if (r.doc_code !== 'TrsfShip' || !r.dest_code) continue;
+      const m: any = byCode.get(r.dest_code);
+      r.dest_label = r.dest_label || m?.map_label || r.dest_code;
+      r.dest_warehouse_id = m?.dest_warehouse_id ?? null;
+      r.dest_warehouse_name = m?.dest_warehouse_name ?? null;
+    }
+  }
+
   /** DM.4 — marca/desmarca un documento como auditado. Identidad = wh+doc_code+serie+folio. */
   async setAudit(dto: { warehouse_id: string; doc_code: string; doc_serie?: string | null; folio: string; audited: boolean; note?: string | null }) {
     const tenantId = this.tenantCtx.requireTenantId();
@@ -332,6 +361,7 @@ export class CommercialMovementsService {
         'm.warehouse_id', 'm.doc_date', 'm.folio', 'm.doc_code', 'm.movement_label', 'm.movement_kind',
         'm.genero', 'm.naturaleza', 'm.doc_type', 'm.doc_serie', 'm.signed_qty', 'm.qty',
         'm.unit_cost', 'm.amount', 'm.parent_group', 'm.parent_serie', 'm.parent_folio', 'm.source_branch',
+        'm.dest_code', 'm.dest_label',
         'w.code as warehouse_code', 'w.name as warehouse_name',
       )
         // SKU fuera de catálogo: sin product_name pero el sku denormalizado siempre está
@@ -344,11 +374,23 @@ export class CommercialMovementsService {
         .where({ tenant_id: tenantId, warehouse_id: h.warehouse_id, doc_code: h.doc_code, folio: h.folio })
         .andWhereRaw(`doc_serie = coalesce(?, '')`, [h.doc_serie])
         .first('audited_by', 'note', 'created_at');
+      // DM.11 — destino del traspaso (solo TrsfShip); nombre curado vía transfer_dest_map
+      let destWarehouseId: string | null = null, destWarehouseName: string | null = null, destLabel: string | null = h.dest_label ?? null;
+      if (h.doc_code === 'TrsfShip' && h.dest_code) {
+        const dm = await trx('analytics.transfer_dest_map as dm')
+          .where('dm.tenant_id', tenantId).andWhere('dm.dest_code', h.dest_code)
+          .leftJoin('commercial.warehouses as w', 'w.id', 'dm.warehouse_id')
+          .first('dm.warehouse_id', 'dm.dest_label', trx.raw(`coalesce(w.name, w.code) AS dest_warehouse_name`));
+        destWarehouseId = dm?.warehouse_id ?? null;
+        destWarehouseName = dm?.dest_warehouse_name ?? null;
+        destLabel = destLabel || dm?.dest_label || h.dest_code;
+      }
       const header = {
         folio: h.folio, doc_code: h.doc_code, doc_serie: h.doc_serie, movement_label: h.movement_label, movement_kind: h.movement_kind,
         doc_date: h.doc_date, genero: h.genero, naturaleza: h.naturaleza, doc_type: h.doc_type,
         warehouse_id: h.warehouse_id, warehouse_code: h.warehouse_code, warehouse_name: h.warehouse_name, source_branch: h.source_branch,
         parent_group: h.parent_group, parent_folio: h.parent_folio,
+        dest_code: h.dest_code ?? null, dest_label: destLabel, dest_warehouse_id: destWarehouseId, dest_warehouse_name: destWarehouseName,
         audited: !!auditRow, audited_by: auditRow?.audited_by ?? null, audited_at: auditRow?.created_at ?? null,
       };
       // docs informativos: signed=0 por diseño → el total útil es la cantidad AMPARADA (qty)
@@ -386,6 +428,10 @@ export class CommercialMovementsService {
       };
       if (h.doc_code === 'TrsfShip') {
         counterpart = { kind: 'recepcion', ...(await findCp('TrsfRcv', 'parent_folio', h.folio, 'parent_serie', h.doc_serie) || { docs: [], qty: 0, delta: -sentQty, status: 'sin_recepcion' }) };
+        // DM.11 — a quién va dirigido (crítico cuando status='sin_recepcion')
+        counterpart.dest_label = destLabel;
+        counterpart.dest_warehouse_id = destWarehouseId;
+        counterpart.dest_warehouse_name = destWarehouseName;
       } else if (h.doc_code === 'TrsfRcv' && h.parent_group === '41') {
         counterpart = { kind: 'origen', ...(await findCp('TrsfShip', 'folio', h.parent_folio, 'doc_serie', h.parent_serie) || { docs: [], qty: 0, delta: sentQty, status: 'sin_origen' }) };
       }
@@ -415,7 +461,8 @@ export class CommercialMovementsService {
       const rows = (await trx.raw(`
         WITH shp AS (
           SELECT m.warehouse_id, coalesce(w.name, w.code) AS wh_code, m.folio, m.doc_serie,
-                 MIN(m.doc_date) AS doc_date, SUM(m.qty) AS qty, SUM(m.amount) AS amount, COUNT(*)::int AS lineas
+                 MIN(m.doc_date) AS doc_date, SUM(m.qty) AS qty, SUM(m.amount) AS amount, COUNT(*)::int AS lineas,
+                 max(m.dest_code) AS dest_code, max(m.dest_label) AS dest_label  -- DM.11 destino
           FROM analytics.stock_movements m
           LEFT JOIN commercial.warehouses w ON w.id = m.warehouse_id
           WHERE m.tenant_id = ? AND m.doc_code = 'TrsfShip' AND m.doc_date BETWEEN ? AND ?
@@ -462,16 +509,18 @@ export class CommercialMovementsService {
                  coalesce(qty_received,0) - coalesce(qty_sent,0) AS delta
           FROM paired
           UNION ALL
-          SELECT warehouse_id, wh_code, folio, doc_serie, doc_date, qty, amount, lineas,
-                 NULL, NULL, NULL, NULL, NULL, NULL, 'sin_recepcion', -qty
-          FROM unreceived
+          SELECT u.warehouse_id, u.wh_code, u.folio, u.doc_serie, u.doc_date, u.qty, u.amount, u.lineas,
+                 dm.warehouse_id, coalesce(dw.name, dw.code, u.dest_label), NULL, NULL, NULL, NULL, 'sin_recepcion', -u.qty
+          FROM unreceived u
+          LEFT JOIN analytics.transfer_dest_map dm ON dm.tenant_id = ? AND dm.dest_code = u.dest_code
+          LEFT JOIN commercial.warehouses dw ON dw.id = dm.warehouse_id
         ) t
         WHERE 1=1 ${whs.length ? `AND (t.origin_wh_id = ANY(?) OR t.dest_wh_id = ANY(?))` : ''}
                   ${twhs.length ? `AND (t.origin_wh_id = ANY(?) OR t.dest_wh_id = ANY(?))` : ''}
         ORDER BY CASE t.status WHEN 'diferencia' THEN 0 WHEN 'sin_recepcion' THEN 1 WHEN 'sin_origen' THEN 2 ELSE 4 END,
                  coalesce(t.ship_date, t.rcv_date) DESC
         LIMIT 500
-      `, [tenantId, from, to, tenantId, from, to,
+      `, [tenantId, from, to, tenantId, from, to, tenantId,
           ...(whs.length ? [whs, whs] : []),
           ...(twhs.length ? [twhs, twhs] : [])])).rows;
       const totals = { ok: 0, diferencia: 0, sin_recepcion: 0, sin_origen: 0 };

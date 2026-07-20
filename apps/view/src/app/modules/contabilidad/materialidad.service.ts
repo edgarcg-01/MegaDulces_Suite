@@ -42,10 +42,28 @@ export interface MatReconcileRow {
 }
 export interface MatAssignInput { cfdi_id: string; sucursal: string; doc_tipo?: string; doc_folio: string; note?: string; }
 
+/** MAT — fila del índice de descubrimiento de proveedores (rankeado por riesgo). */
+export interface MatProvider {
+  rfc: string; beneficiario: string | null; ops: number; monto: number;
+  desde: string | null; hasta: string | null;
+  cadenas: number; con_recepcion: number; recepcion_pct: number | null;
+  en_lista: boolean; en_riesgo: boolean;
+}
+
 @Injectable({ providedIn: 'root' })
 export class MaterialidadService {
   private readonly http = inject(HttpClient);
   private readonly base = `${environment.apiUrl}/fiscal/materialidad`;
+
+  /** MAT — descubrimiento: índice de proveedores para explorar sin teclear el RFC. */
+  providers(q: { search?: string; riesgo?: string; limit?: number } = {}): Observable<MatProvider[]> {
+    const p = new URLSearchParams();
+    if (q.search) p.set('search', q.search);
+    if (q.riesgo) p.set('riesgo', q.riesgo);
+    if (q.limit != null) p.set('limit', String(q.limit));
+    const s = p.toString();
+    return this.http.get<MatProvider[]>(`${this.base}${s ? '?' + s : ''}`);
+  }
 
   dossier(rfc: string): Observable<MaterialidadDossier> { return this.http.get<MaterialidadDossier>(`${this.base}/${encodeURIComponent(rfc)}`); }
   /** MAT.2 — desglose de documentos de la cadena de suministro del RFC. */
