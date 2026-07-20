@@ -2,8 +2,12 @@
 /**
  * Etiquetera — datos de etiqueta Kepler → commercial.product_label_prices (BULK, source='kepler').
  *
+ * Fuente = CONCENTRADA `kp.*` en .245 (todas las sucursales). Reconcilia precios entre sucursales:
+ * algunas traen placeholders ($6/$0.01 debajo del costo) → por SKU se toma la sucursal con el
+ * precio de pieza (c90) MÁS ALTO (el real; los placeholders son bajos). Ver SKU 20804 (2026-07-20).
+ *
  * Fuente (decodificada 2026-07-09; corregida 2026-07-10 — modelo de unidades por ETIQUETA):
- *   md.kdii             c1=sku, c2=nombre (trae gramaje "…50G/8"), c7=barcode pieza, c11=unidad base.
+ *   kp.kdii             c1=sku, c2=nombre (trae gramaje "…50G/8"), c7=barcode pieza, c11=unidad base.
  *                       UNIDADES = pares (etiqueta, factor): (c80,c81) y (c83,c84), con precios
  *                       c90=pieza, c91=precio de la unidad c80, c92=precio de la unidad c83.
  *                       El factor es PIEZAS por esa unidad. La etiqueta manda (NO la posición):
@@ -25,7 +29,8 @@ const { Client } = require('pg');
 
 const M = '00000000-0000-0000-0000-00000000d01c';
 const DST = process.env.DATABASE_URL_NEW || 'postgresql://postgres:superoot@localhost:5433/postgres_platform';
-const SRC = process.env.KEPLER_URL || 'postgresql://postgres:superoot@localhost:5433/md_03';
+// Fuente = CONCENTRADA kp.* (todas las sucursales) para poder reconciliar precios entre sucursales.
+const SRC = process.env.KEPLER_URL || 'postgresql://postgres:superoot@192.168.0.245:5432/KP_CONCENTRADA';
 const APPLY = process.argv.includes('--apply');
 const BATCH = 1000;
 
@@ -111,18 +116,24 @@ function resolveUnits(slots) {
     }
     console.log(`  catálogo: ${skuToId.size} con sku · ${bcToId.size} con barcode`);
 
-    // Maestro kdii: pieza + los 2 pares (etiqueta, factor, precio) de unidad.
+    // Maestro kdii — CONCENTRADA (kp.kdii, todas las sucursales). El precio de venta debe ser
+    // catálogo-wide, pero hay sucursales con placeholders ($6/$0.01 debajo del costo). Reconciliamos:
+    // por SKU tomamos la sucursal con el precio de pieza (c90) MÁS ALTO (los placeholders son bajos).
+    // `DISTINCT ON (sku) … ORDER BY sku, c90 DESC` = una fila por SKU, la de mayor precio real.
     const kdii = (await src.query(`
-      SELECT c1 AS sku, c2 AS name, c7 AS barcode, c11 AS unit_base,
+      SELECT DISTINCT ON (btrim(c1))
+             c1 AS sku, c2 AS name, c7 AS barcode, c11 AS unit_base,
              btrim(c80) AS u1, c81 AS f1, c91 AS p1,
              btrim(c83) AS u2, c84 AS f2, c92 AS p2,
              c90 AS piece_price
-        FROM md.kdii WHERE btrim(coalesce(c1,''))<>''`)).rows;
+        FROM kp.kdii
+       WHERE btrim(coalesce(c1,''))<>'' AND c90::numeric > 0
+       ORDER BY btrim(c1), c90::numeric DESC`)).rows;
 
-    // Tiers de mayoreo kdpv_prod_util
+    // Tiers de mayoreo — concentrada. Dedup (present,precio); el mejor precio por presentación.
     const kdpv = (await src.query(`
-      SELECT c1 AS sku, c2 AS present, c4::numeric AS min_qty, c7::numeric AS price
-        FROM md.kdpv_prod_util WHERE c7 > 0`)).rows;
+      SELECT DISTINCT c1 AS sku, c2 AS present, c4::numeric AS min_qty, c7::numeric AS price
+        FROM kp.kdpv_prod_util WHERE c7 > 0`)).rows;
     const wholesale = new Map(); // sku → { pieceMinQty, piecePrice, packPrice }
     for (const r of kdpv) {
       const w = wholesale.get(r.sku) || {};
