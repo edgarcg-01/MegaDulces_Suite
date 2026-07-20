@@ -2037,6 +2037,9 @@ input:focus, textarea:focus, select:focus {
 @media (prefers-reduced-motion: reduce) {
   .p-togglebutton.sb-liquid { transition-duration: 0.01ms !important; }
 }
+/* Variante compacta: para segmentados pequeños dentro de headers de card. */
+.p-selectbutton:has(.p-togglebutton.sb-liquid.sb-liquid-sm) { padding: 3px; }
+.p-togglebutton.sb-liquid.sb-liquid-sm { padding: 0.25rem 0.65rem !important; font-size: 0.74rem; }
 
 /* p-select (dropdown) estilo iOS ("sel-liquid") — el trigger se ve como pastilla
    redondeada, coherente con sb-liquid/liquid-tabs. El panel/overlay queda default.

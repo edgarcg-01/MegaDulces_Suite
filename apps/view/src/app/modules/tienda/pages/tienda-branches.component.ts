@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, OnDestroy, OnInit, computed, inject
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { SelectModule } from 'primeng/select';
+import { ButtonModule } from 'primeng/button';
 import { MetricCardComponent } from '../../../shared/components/metric-card/metric-card.component';
 import { TiendaStateService } from '../tienda-state.service';
 
@@ -9,7 +10,7 @@ import { TiendaStateService } from '../tienda-state.service';
 @Component({
   selector: 'app-tienda-branches',
   standalone: true,
-  imports: [CommonModule, FormsModule, SelectModule, MetricCardComponent],
+  imports: [CommonModule, FormsModule, SelectModule, ButtonModule, MetricCardComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   styleUrls: ['../tienda-shared.css'],
   styles: [`
@@ -45,6 +46,11 @@ import { TiendaStateService } from '../tienda-state.service';
         </div>
       </header>
 
+      @if (s.error()) {
+        <div class="tda-banner" role="alert"><i class="pi pi-exclamation-triangle"></i> No se pudo cargar el desempeño por sucursal.
+          <button pButton type="button" label="Reintentar" class="p-button-text p-button-sm" (click)="s.retry()"></button></div>
+      }
+
       <div class="tda-kpis-mc">
         <app-metric-card label="Venta hoy" [value]="s.ventaHoy()" format="currency" variant="sparkline"
           [series]="hourVenta()" [seriesLabels]="hourLabels()" tone="brand" [live]="s.connected()"></app-metric-card>
@@ -70,7 +76,7 @@ import { TiendaStateService } from '../tienda-state.service';
               <span>{{ (b.tickets ? b.venta / b.tickets : 0) | currency:'MXN':'symbol-narrow':'1.0-0' }} prom</span></div>
           </div>
         }
-        @if (!s.branches().length) { <div class="tda-empty">Aún sin ventas hoy…</div> }
+        @if (!s.branches().length && !s.error()) { <div class="tda-empty">Aún sin ventas hoy…</div> }
       </div>
 
       @if (selected()) {

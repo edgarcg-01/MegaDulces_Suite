@@ -8,6 +8,7 @@ import { InputNumberModule } from 'primeng/inputnumber';
 import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
 import { SelectModule } from 'primeng/select';
+import { TextareaModule } from 'primeng/textarea';
 import { LabelComponent, LabelModel, LabelSections, HeroKey } from '../components/label.component';
 import { EtiquetasService, SearchHit } from '../etiquetas.service';
 
@@ -30,7 +31,7 @@ type Msg = { text: string; kind: 'info' | 'ok' | 'error' | 'warn' };
 @Component({
   selector: 'app-tienda-etiquetas',
   standalone: true,
-  imports: [CommonModule, FormsModule, MultiSelectModule, AutoCompleteModule, InputNumberModule, ButtonModule, TableModule, SelectModule, LabelComponent],
+  imports: [CommonModule, FormsModule, MultiSelectModule, AutoCompleteModule, InputNumberModule, ButtonModule, TableModule, SelectModule, TextareaModule, LabelComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   encapsulation: ViewEncapsulation.None,
   styles: [`
@@ -53,11 +54,11 @@ type Msg = { text: string; kind: 'info' | 'ok' | 'error' | 'warn' };
     .etqp-msg.is-warn{ border-color: var(--warn-soft-bg); background: var(--warn-soft-bg); color: var(--warn-soft-fg); }
     .etqp-msg.is-error{ border-color: var(--bad-soft-bg); background: var(--bad-soft-bg); color: var(--bad-soft-fg); }
     .etqp-msg > span{ flex:1; }
-    .etqp-msg-x{ border:0; background:transparent; color:inherit; opacity:.6; cursor:pointer; padding:.15rem; border-radius: var(--r-sm);
-      display:inline-flex; transition: opacity .12s ease; }
-    .etqp-msg-x:hover{ opacity:1; }
 
-    /* ── Escaneo rápido (pistola): auto-agrega al Enter ────── */
+    /* ── Escaneo rápido (pistola): auto-agrega al Enter ──────
+       §14 Mostrador/POS: campo de captura keyboard-first, sin borde propio (el borde/foco
+       lo lleva la barra vía :focus-within). Input nativo intencional (no p-inputText) para
+       no romper el look borderless de la scanbar; lleva aria-label y foco permanente. */
     .etqp-scanbar{ display:flex; align-items:center; gap:.6rem; padding:.5rem .75rem; border:1px solid var(--border-color);
       border-radius: var(--r-md); background: var(--card-bg); transition: border-color .12s ease, box-shadow .12s ease; }
     .etqp-scanbar:focus-within{ border-color: var(--action); box-shadow: 0 0 0 3px var(--action-ring); }
@@ -103,23 +104,20 @@ type Msg = { text: string; kind: 'info' | 'ok' | 'error' | 'warn' };
     .etqp-hero-sel{ width:100%; max-width: 12rem; }
     td.etqp-cnum, th.etqp-cnum{ text-align:right; white-space:nowrap; }
     td.etqp-cact, th.etqp-cact{ text-align:right; width:2.5rem; }
-    .etqp-del{ border:0; background:transparent; color: var(--text-faint); cursor:pointer; width:28px; height:28px;
-      border-radius: var(--r-sm); display:inline-flex; align-items:center; justify-content:center;
-      transition: color .12s ease, background-color .12s ease; }
-    .etqp-del:hover{ color: var(--bad-soft-fg); background: var(--bad-soft-bg); }
-    .etqp-del:focus-visible{ outline:2px solid var(--focus-ring, var(--action-ring)); outline-offset:1px; }
 
-    /* Simulación de hoja Carta con líneas de recorte por etiqueta */
+    /* Simulación de hoja Carta con líneas de recorte por etiqueta.
+       §12b: los #fff/#888 aquí son LITERALES legítimos — representan la hoja de papel
+       física (blanca en ambos temas) y la línea de recorte impresa; no deben tokenizarse. */
     .etqp-sheetpanel{ position:sticky; top: var(--sp-4); display:flex; flex-direction:column; gap:.5rem; }
     .etqp-sheethead{ font-size: var(--fs-xs,.72rem); font-weight:600; text-transform:uppercase; letter-spacing:.06em;
       color: var(--text-faint); font-variant-numeric: tabular-nums; }
     .etqp-cuthint{ font-size: var(--fs-xs,.72rem); color: var(--text-faint); }
     .etqp-sheetbox{ width:500px; max-width:100%; height:387px; overflow:hidden; border:1px solid var(--border-color);
-      border-radius: var(--r-sm); background:#fff; }
-    .etqp-sheet{ width:279mm; height:216mm; padding:8mm; box-sizing:border-box; background:#fff;
+      border-radius: var(--r-sm); background:#fff; /* papel */ }
+    .etqp-sheet{ width:279mm; height:216mm; padding:8mm; box-sizing:border-box; background:#fff; /* papel */
       transform:scale(0.474); transform-origin:top left; text-align:center; font-size:0; }
     .etqp-sheet app-label{ display:inline-block; vertical-align:top; margin:2.5mm; }
-    .etqp-sheet app-label .etq-label{ border-radius:0 !important; outline:.3mm dashed #888; }
+    .etqp-sheet app-label .etq-label{ border-radius:0 !important; outline:.3mm dashed #888; /* recorte impreso */ }
 
     /* ── Empty state (Operations) ──────────────────────────── */
     .etqp-empty{ display:flex; flex-direction:column; align-items:center; text-align:center; gap:.4rem;
@@ -133,7 +131,7 @@ type Msg = { text: string; kind: 'info' | 'ok' | 'error' | 'warn' };
     .etqp-print{ position:fixed; left:-100000px; top:0; width:115mm; }
 
     @media (prefers-reduced-motion: reduce){
-      .etqp-msg-x, .etqp-ta, .etqp-del{ transition:none; }
+      .etqp-ta, .etqp-scanbar{ transition:none; }
     }
   `],
   template: `
@@ -156,7 +154,7 @@ type Msg = { text: string; kind: 'info' | 'ok' | 'error' | 'warn' };
              [class.is-ok]="m.kind === 'ok'" [class.is-warn]="m.kind === 'warn'" [class.is-error]="m.kind === 'error'">
           <i class="pi" [ngClass]="msgIcon(m.kind)"></i>
           <span>{{ m.text }}</span>
-          <button class="etqp-msg-x" type="button" (click)="msg.set(null)" aria-label="Cerrar aviso"><i class="pi pi-times"></i></button>
+          <p-button icon="pi pi-times" [text]="true" [rounded]="true" size="small" (onClick)="msg.set(null)" ariaLabel="Cerrar aviso"></p-button>
         </div>
       }
 
@@ -185,7 +183,7 @@ type Msg = { text: string; kind: 'info' | 'ok' | 'error' | 'warn' };
 
         <div class="etqp-card">
           <label for="etqp-bulk">Carga masiva — un código por línea (SKU o código de barras)</label>
-          <textarea id="etqp-bulk" class="etqp-ta" [ngModel]="bulk()" (ngModelChange)="bulk.set($event)"
+          <textarea pTextarea id="etqp-bulk" class="etqp-ta" [ngModel]="bulk()" (ngModelChange)="bulk.set($event)"
             placeholder="20186&#10;20187&#10;018804701641"></textarea>
           <div class="etqp-bulk-actions">
             <p-button label="Agregar lista" icon="pi pi-plus" [text]="true" [loading]="loading()"
@@ -234,9 +232,8 @@ type Msg = { text: string; kind: 'info' | 'ok' | 'error' | 'warn' };
                       [ariaLabel]="'Copias de ' + it.model.name"></p-inputNumber>
                   </td>
                   <td class="etqp-cact">
-                    <button class="etqp-del" type="button" (click)="remove(i)" [attr.aria-label]="'Quitar ' + it.model.name">
-                      <i class="pi pi-times"></i>
-                    </button>
+                    <p-button icon="pi pi-times" [text]="true" [rounded]="true" severity="danger" size="small"
+                      (onClick)="remove(i)" [ariaLabel]="'Quitar ' + it.model.name"></p-button>
                   </td>
                 </tr>
               </ng-template>

@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, OnDestroy, OnInit, computed, inject
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { SelectModule } from 'primeng/select';
+import { ButtonModule } from 'primeng/button';
 import { MetricCardComponent } from '../../../shared/components/metric-card/metric-card.component';
 import { TiendaStateService } from '../tienda-state.service';
 
@@ -9,7 +10,7 @@ import { TiendaStateService } from '../tienda-state.service';
 @Component({
   selector: 'app-tienda-pace',
   standalone: true,
-  imports: [CommonModule, FormsModule, SelectModule, MetricCardComponent],
+  imports: [CommonModule, FormsModule, SelectModule, ButtonModule, MetricCardComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   styleUrls: ['../tienda-shared.css'],
   styles: [`
@@ -55,6 +56,11 @@ import { TiendaStateService } from '../tienda-state.service';
           </div>
         </div>
       </header>
+
+      @if (s.error()) {
+        <div class="tda-banner" role="alert"><i class="pi pi-exclamation-triangle"></i> No se pudo cargar el ritmo del día.
+          <button pButton type="button" label="Reintentar" class="p-button-text p-button-sm" (click)="s.retry()"></button></div>
+      }
 
       <div class="pace-kpis">
         <app-metric-card label="Hora pico" format="text"
@@ -102,7 +108,7 @@ import { TiendaStateService } from '../tienda-state.service';
                 </div>
               </div>
             }
-            @if (!branchCurves().length) { <div class="tda-empty">Aún sin ventas hoy…</div> }
+            @if (!branchCurves().length && !s.error()) { <div class="tda-empty">Aún sin ventas hoy…</div> }
           </div>
         </section>
       }

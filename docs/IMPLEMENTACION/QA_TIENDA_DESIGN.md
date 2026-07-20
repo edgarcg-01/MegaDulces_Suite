@@ -52,22 +52,29 @@ Leyenda por celda: ⬜/🔨/✅/⚠️/➖
 
 | Regla | live | branches | pace | etiquetas | arqueo | weekly |
 |---|---|---|---|---|---|---|
-| 1 Surface | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
-| 2 Cero hex | ⬜ | ⬜ | ⬜ | ⚠️ | ⚠️ | ⚠️ |
-| 3 PrimeNG-first | ⬜ | ⬜ | ⬜ | ⚠️ | ⚠️ | ⚠️ |
-| 4 Tipografía/tabular | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
-| 5 Color/p-tag | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
-| 6 Estados (empty≠error) | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
-| 7 Datos densos | ➖ | ➖ | ➖ | ⬜ | ⬜ | ⬜ |
-| 7b Cards repertorio | ⬜ | ⬜ | ⬜ | ➖ | ⬜ | ⬜ |
-| 8 Motion techo | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
-| 9 libs/@container | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
-| 10 Dominio+seguridad | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
-| 11 a11y AA | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
-| 12 Build+QA 3 vistas | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
-| 12b Dark | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
-| 13 Resiliente | ⬜ | ➖ | ➖ | ⬜ | ⬜ | ➖ |
-| 14 Sector+help | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
+| 1 Surface | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| 2 Cero hex | ✅ | ✅ | ✅ | ✅ᵖ | ✅ | ✅ |
+| 3 PrimeNG-first | ✅ | ✅ | ✅ | ✅ˢ | ✅ | ✅ |
+| 4 Tipografía/tabular | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| 5 Color/p-tag | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| 6 Estados (empty≠error) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| 7 Datos densos | ➖ | ➖ | ➖ | ✅ | ✅ | ✅ |
+| 7b Cards repertorio | ✅ | ✅ | ✅ | ➖ | ➖ | ✅ |
+| 8 Motion techo | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| 9 libs/@container | ➖ | ➖ | ➖ | ➖ | ➖ | ➖ |
+| 10 Dominio+seguridad | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| 11 a11y AA | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| 12 Build+QA 3 vistas | 🔨 | 🔨 | 🔨 | 🔨 | 🔨 | 🔨 |
+| 12b Dark | 🔨 | 🔨 | 🔨 | 🔨 | 🔨 | 🔨 |
+| 13 Resiliente | ✅ | ➖ | ➖ | ✅ | ✅ | ➖ |
+| 14 Sector+help | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+
+**Notas de la matriz:**
+- `✅ᵖ` etiquetas / `label.component`: los `#fff`/`#888` son literales de **hoja de papel + impresión** (§12b) — no se tokenizan a propósito; comentados en el código.
+- `✅ˢ` etiquetas: único control nativo restante = `#scanInput` (campo de pistola POS, §14 keyboard-first, borderless-by-design, con aria-label). El resto migró a PrimeNG (`pTextarea`, `p-button`).
+- weekly: colores de Chart.js leídos desde tokens vía `cssVar()` (data-viz §5); ejes/línea flipan con el tema.
+- `🔨` en 12/12b: **build prod verde**; falta **QA visual light+dark+móvil** (lo hace Edgar — no automatizable desde CLI).
+- §9 `➖`: ningún componente de estas pantallas se embebe en múltiples anchos → no aplica container-query (los reusables `MetricCard`/`MetricStrip` ya lo resuelven en `shared/`).
 
 ## Orden sugerido de ataque
 

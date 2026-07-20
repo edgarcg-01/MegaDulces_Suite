@@ -56,3 +56,8 @@
 .al.sev-info { border-left-color:var(--info-fg); } .al.sev-warn { border-left-color:var(--warn-fg); } .al.sev-critical { border-left-color:var(--bad-fg); }
 .al-t { display:block; font-weight:700; font-size:.78rem; } .al-m { font-size:.72rem; color:var(--text-muted); }
 .tda-empty { color:var(--text-muted); font-size:.8rem; padding:.6rem 0; }
+/* §6 — banner de error de carga (distinto del empty "sin ventas"). */
+.tda-banner { display:flex; align-items:center; gap:.5rem; margin:.2rem 0 1rem; padding:.6rem .85rem; font-size:.82rem;
+  border:1px solid color-mix(in srgb, var(--bad-fg) 30%, transparent); background:color-mix(in srgb, var(--bad-fg) 8%, transparent);
+  border-radius:var(--r-md); color:var(--text-main); }
+.tda-banner i { color:var(--bad-fg); }

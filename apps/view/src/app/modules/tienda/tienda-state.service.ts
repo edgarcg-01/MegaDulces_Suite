@@ -25,6 +25,7 @@ export class TiendaStateService {
   readonly ticker = signal<LiveTicket[]>([]);
   readonly alerts = signal<StoreAlert[]>([]);
   readonly selectedBranch = signal<string>(''); // filtro global ('' = todas)
+  readonly error = signal(false); // §6: falla del snapshot ≠ "sin ventas"
   scopedWarehouse = ''; // sucursal fija por login ('' = rol global)
 
   private readonly open = signal<Set<string>>(new Set());
@@ -77,6 +78,7 @@ export class TiendaStateService {
   private loadSnapshot(): void {
     this.svc.snapshot(this.selectedBranch() || undefined).subscribe({
       next: (s) => {
+        this.error.set(false);
         this.ventaHoy.set(s.totals.venta);
         this.ticketsHoy.set(s.totals.tickets);
         this.branches.set(s.by_branch);
@@ -87,9 +89,12 @@ export class TiendaStateService {
         for (const t of s.recent) this.seen.add(this.tkKey(t));
         this.ticker.set(s.recent);
       },
-      error: () => undefined,
+      error: () => this.error.set(true),
     });
   }
+
+  /** §6/§13 — reintento manual del snapshot tras un error de carga. */
+  retry(): void { this.error.set(false); this.loadSnapshot(); }
 
   private applyTicket(t: LiveTicket): void {
     const sel = this.selectedBranch();

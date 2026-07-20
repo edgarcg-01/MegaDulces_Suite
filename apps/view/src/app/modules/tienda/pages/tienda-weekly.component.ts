@@ -3,6 +3,8 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { SelectModule } from 'primeng/select';
+import { SelectButtonModule } from 'primeng/selectbutton';
+import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
 import { ChartModule } from 'primeng/chart';
 import { AuthService } from '../../../core/services/auth.service';
@@ -24,7 +26,7 @@ type TrendMetric = 'revenue' | 'units';
 @Component({
   selector: 'app-tienda-weekly',
   standalone: true,
-  imports: [CommonModule, FormsModule, SelectModule, TableModule, ChartModule, MetricStripComponent],
+  imports: [CommonModule, FormsModule, SelectModule, SelectButtonModule, ButtonModule, TableModule, ChartModule, MetricStripComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="surf-page in wk-page">
@@ -40,18 +42,17 @@ type TrendMetric = 'revenue' | 'units';
       <div class="wk-controls">
         <label class="wk-ctl">Semana
           <p-select [options]="weekOptions()" optionLabel="label" optionValue="week_start"
-                    [ngModel]="weekSel()" (ngModelChange)="onWeek($event)" styleClass="wk-select" appendTo="body"></p-select>
+                    [ngModel]="weekSel()" (ngModelChange)="onWeek($event)" styleClass="sel-liquid wk-select" appendTo="body"></p-select>
         </label>
-        <div class="wk-seg">
-          <span class="wk-seg-lbl">Tendencia</span>
-          @for (n of [8, 12, 26]; track n) {
-            <button [class.active]="weeksN() === n" (click)="onWeeks(n)">{{ n }}</button>
-          }
-        </div>
+        <label class="wk-ctl">Tendencia
+          <p-selectButton [options]="weeksOptions" optionLabel="label" optionValue="value" [allowEmpty]="false"
+                          [ngModel]="weeksN()" (ngModelChange)="onWeeks($event)" styleClass="sb-liquid" />
+        </label>
       </div>
 
       @if (error()) {
-        <div class="wk-banner"><i class="pi pi-exclamation-triangle"></i> No se pudo cargar el análisis. <button (click)="load()">Reintentar</button></div>
+        <div class="wk-banner"><i class="pi pi-exclamation-triangle"></i> No se pudo cargar el análisis.
+          <button pButton type="button" label="Reintentar" class="p-button-text p-button-sm" (click)="load()"></button></div>
       }
 
       @if (rep(); as r) {
@@ -63,10 +64,8 @@ type TrendMetric = 'revenue' | 'units';
         <div class="card-premium card-flat wk-panel">
           <div class="wk-panel-head">
             <h3 class="wk-card-title">Tendencia — últimas {{ r.weeks }} semanas</h3>
-            <div class="wk-seg wk-seg-sm">
-              <button [class.active]="metric() === 'revenue'" (click)="metric.set('revenue')">Venta $</button>
-              <button [class.active]="metric() === 'units'" (click)="metric.set('units')">Unidades</button>
-            </div>
+            <p-selectButton [options]="metricOptions" optionLabel="label" optionValue="value" [allowEmpty]="false"
+                            [ngModel]="metric()" (ngModelChange)="metric.set($event)" styleClass="sb-liquid sb-liquid-sm" />
           </div>
           @if (r.series.length) {
             <div class="wk-chart"><p-chart type="line" [data]="chartData()" [options]="chartOpts()"></p-chart></div>
@@ -119,14 +118,9 @@ type TrendMetric = 'revenue' | 'units';
   `,
   styles: [`
     :host { display: block; }
-    .wk-scope { display: inline-flex; align-items: center; gap: .35rem; font-size: .78rem; font-weight: 600; color: var(--action, #F05A28); margin-left: auto; }
+    .wk-scope { display: inline-flex; align-items: center; gap: .35rem; font-size: .78rem; font-weight: 600; color: var(--action); margin-left: auto; }
     .wk-controls { display: flex; gap: 1rem; flex-wrap: wrap; align-items: center; margin-bottom: 1rem; }
-    .wk-ctl { display: inline-flex; align-items: center; gap: .4rem; font-size: .78rem; color: var(--text-muted, #57534e); }
-    .wk-seg { display: inline-flex; align-items: center; border: 1px solid var(--border-color, #e7e5e4); border-radius: var(--r-pill, 999px); overflow: hidden; }
-    .wk-seg-lbl { font-size: .72rem; color: var(--text-muted, #78716c); padding: 0 .5rem 0 .7rem; }
-    .wk-seg button { border: none; background: var(--card-bg, #fff); padding: .3rem .8rem; font-size: .78rem; cursor: pointer; color: var(--text-muted, #57534e); }
-    .wk-seg button.active { background: var(--action, #F05A28); color: var(--action-ink, #fff); font-weight: 600; }
-    .wk-seg-sm button { padding: .25rem .65rem; font-size: .74rem; }
+    .wk-ctl { display: inline-flex; align-items: center; gap: .4rem; font-size: .78rem; color: var(--text-muted); }
     app-metric-strip { display:block; margin-bottom: .5rem; }
     .wk-refnote { font-size: .72rem; margin: 0 0 1rem; }
     .wk-panel { padding: 1rem; margin-bottom: 1rem; }
@@ -134,11 +128,10 @@ type TrendMetric = 'revenue' | 'units';
     .wk-card-title { margin: 0; font-size: .85rem; font-weight: 700; }
     .wk-chart { height: 280px; }
     .wk-table { font-variant-numeric: tabular-nums; }
-    .wk-prod { display: block; font-weight: 500; } .wk-sku { display: block; font-size: .7rem; color: var(--text-muted, #78716c); font-family: var(--font-mono, ui-monospace, monospace); }
-    .wk-banner { display: flex; align-items: center; gap: .5rem; background: color-mix(in srgb, var(--bad-fg, #dc2626) 8%, transparent); border: 1px solid color-mix(in srgb, var(--bad-fg, #dc2626) 30%, transparent); border-radius: var(--r-md, 10px); padding: .7rem .9rem; font-size: .82rem; margin-bottom: 1rem; }
-    .wk-banner button { background: none; border: none; color: var(--action, #F05A28); font-weight: 600; cursor: pointer; }
-    .wk-loading, .wk-empty { padding: 2rem; text-align: center; color: var(--text-muted, #78716c); font-size: .85rem; }
-    .ta-r { text-align: right; } .strong { font-weight: 700; } .muted { color: var(--text-muted, #78716c); }
+    .wk-prod { display: block; font-weight: 500; } .wk-sku { display: block; font-size: .7rem; color: var(--text-muted); font-family: var(--font-mono, ui-monospace, monospace); }
+    .wk-banner { display: flex; align-items: center; gap: .5rem; background: color-mix(in srgb, var(--bad-fg) 8%, transparent); border: 1px solid color-mix(in srgb, var(--bad-fg) 30%, transparent); border-radius: var(--r-md); padding: .7rem .9rem; font-size: .82rem; margin-bottom: 1rem; }
+    .wk-loading, .wk-empty { padding: 2rem; text-align: center; color: var(--text-muted); font-size: .85rem; }
+    .ta-r { text-align: right; } .strong { font-weight: 700; } .muted { color: var(--text-muted); }
   `],
 })
 export class TiendaWeeklyComponent implements OnInit {
@@ -166,29 +159,45 @@ export class TiendaWeeklyComponent implements OnInit {
   readonly weekSel = signal<string>('');
   readonly metric = signal<TrendMetric>('revenue');
 
+  readonly weeksOptions = [
+    { label: '8', value: 8 }, { label: '12', value: 12 }, { label: '26', value: 26 },
+  ];
+  readonly metricOptions = [
+    { label: 'Venta $', value: 'revenue' as TrendMetric }, { label: 'Unidades', value: 'units' as TrendMetric },
+  ];
+
   readonly weekOptions = computed(() => [...(this.rep()?.series ?? [])].reverse().map((s) => ({ label: s.label, week_start: s.week_start })));
 
   readonly chartData = computed(() => {
     const r = this.rep(); const m = this.metric();
+    this.theme.isMonochrome(); // re-derivar al cambiar de tema
     if (!r) return { labels: [], datasets: [] };
-    const color = '#F05A28';
+    // Data-viz (§5 exento): color de la serie desde el token de acción para que flipe con el tema.
+    const color = this.cssVar('--action', '#F05A28');
     return {
       labels: r.series.map((s) => s.label),
       datasets: [{
         label: m === 'revenue' ? 'Venta $' : 'Unidades',
         data: r.series.map((s) => (m === 'revenue' ? s.revenue : s.units)),
         borderColor: color,
-        backgroundColor: 'rgba(240,90,40,.12)',
+        backgroundColor: `color-mix(in srgb, ${color} 12%, transparent)`,
         tension: 0.3, fill: true, pointRadius: 2, borderWidth: 2,
       }],
     };
   });
 
+  /** Lee un token CSS resuelto (para Chart.js, que no entiende var()). */
+  private cssVar(name: string, fallback: string): string {
+    const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    return v || fallback;
+  }
+
   readonly chartOpts = computed(() => {
-    const dark = this.theme.isMonochrome();
+    this.theme.isMonochrome(); // re-derivar al cambiar de tema
     const m = this.metric();
-    const axis = dark ? '#B0A595' : '#57534E';
-    const grid = dark ? 'rgba(255,255,255,.09)' : 'rgba(0,0,0,.08)';
+    // Ejes/grid desde tokens resueltos → flipan solos con el tema (sin hex por modo).
+    const axis = this.cssVar('--text-muted', '#57534E');
+    const grid = this.cssVar('--border-color', 'rgba(0,0,0,.08)');
     const fmt = (v: number) => (m === 'revenue' ? '$' + Number(v).toLocaleString('es-MX') : Number(v).toLocaleString('es-MX'));
     return {
       responsive: true, maintainAspectRatio: false,
