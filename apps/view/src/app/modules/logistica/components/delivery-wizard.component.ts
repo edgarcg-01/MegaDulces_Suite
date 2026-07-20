@@ -112,6 +112,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
                 [(ngModel)]="responsesSalida[item.id].ok"
                 optionLabel="label"
                 optionValue="value"
+                styleClass="sb-liquid"
               ></p-selectButton>
               <input
                 pInputText
@@ -184,6 +185,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
                 [(ngModel)]="responsesLlegada[item.id].ok"
                 optionLabel="label"
                 optionValue="value"
+                styleClass="sb-liquid"
               ></p-selectButton>
               <input
                 pInputText

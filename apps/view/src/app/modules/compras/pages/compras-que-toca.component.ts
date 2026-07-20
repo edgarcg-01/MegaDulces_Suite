@@ -61,8 +61,10 @@ interface DetailState { loading: boolean; lines: DetailLine[]; creating: boolean
         <p-select [options]="viaOpts" [(ngModel)]="fVia" (onChange)="reload()" optionLabel="label" optionValue="value"
                   placeholder="Canal" [showClear]="true" styleClass="qt-sel-sm"></p-select>
         <p-select [options]="statusOpts" [(ngModel)]="fStatus" (onChange)="reload()" optionLabel="label" optionValue="value" styleClass="qt-sel-sm"></p-select>
-        <input type="text" pInputText [(ngModel)]="fSearch" (keyup.enter)="reload()" placeholder="Proveedor…" class="qt-search" />
-        <button pButton type="button" icon="pi pi-search" class="p-button-sm p-button-text" (click)="reload()"></button>
+        <p-select [options]="supplierOpts()" [(ngModel)]="fSearch" (onChange)="reload()" (onClear)="reload()"
+                  optionLabel="label" optionValue="value" placeholder="Todos los proveedores" [showClear]="true"
+                  [filter]="true" filterBy="label" filterPlaceholder="Buscar proveedor…" [resetFilterOnHide]="true"
+                  [virtualScroll]="true" [virtualScrollItemSize]="34" styleClass="qt-sel-wide" ariaLabel="Filtrar por proveedor"></p-select>
         <span class="qt-count">{{ total() | number }} par(es) activo(s)</span>
       </div>
 
@@ -163,7 +165,7 @@ interface DetailState { loading: boolean; lines: DetailLine[]; creating: boolean
     .qt-terr-lbl { font-size: .78rem; color: var(--text-muted); margin-right: .25rem; }
     .qt-sel { min-width: 14rem; }
     .qt-sel-sm { min-width: 9rem; }
-    .qt-search { font-size: .82rem; }
+    .qt-sel-wide { min-width: 15rem; }
     .qt-count { color: var(--text-muted); font-size: .82rem; margin-left: auto; }
     .qt-table { font-size: .82rem; }
     .qt-r { text-align: right; font-variant-numeric: tabular-nums; }
@@ -199,6 +201,7 @@ export class ComprasQueTocaComponent implements OnInit {
 
   rows = signal<WLRow[]>([]);
   warehouses = signal<{ id: string; code: string; label: string }[]>([]);
+  supplierOpts = signal<{ label: string; value: string }[]>([]);
   detail = signal<Record<string, DetailState>>({});
   total = signal(0);
   vencidos = signal(0);
@@ -231,7 +234,10 @@ export class ComprasQueTocaComponent implements OnInit {
 
   ngOnInit(): void {
     this.api.filters().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (f: ReplenishmentFilters) => this.warehouses.set(f.warehouses.map((w) => ({ id: w.id, code: w.code, label: `${w.code} · ${w.name}` }))),
+      next: (f: ReplenishmentFilters) => {
+        this.warehouses.set(f.warehouses.map((w) => ({ id: w.id, code: w.code, label: `${w.code} · ${w.name}` })));
+        this.supplierOpts.set(f.suppliers.map((s) => ({ label: s.name, value: s.name })));
+      },
       error: () => {},
     });
     this.reload();

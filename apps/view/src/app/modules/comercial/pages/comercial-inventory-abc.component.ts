@@ -91,7 +91,7 @@ import { ProductSearchComponent, ProductHit } from '../components/product-search
 
       <!-- Toggle de vista -->
       <p-selectButton [options]="views" [(ngModel)]="view" optionLabel="label" optionValue="value"
-                      [allowEmpty]="false" styleClass="abc-views" ariaLabel="Cambiar vista"></p-selectButton>
+                      [allowEmpty]="false" styleClass="abc-views sb-liquid" ariaLabel="Cambiar vista"></p-selectButton>
 
       @if (view() === 'due') {
         <!-- AGENDA: qué toca contar -->

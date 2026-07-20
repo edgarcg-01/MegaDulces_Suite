@@ -221,7 +221,7 @@ interface LiveCountEntry {
 
       <!-- Filtro -->
       <div class="in-filter">
-        <p-selectButton [options]="filterOptions" [(ngModel)]="filter" (onChange)="load()" optionLabel="label" optionValue="value"></p-selectButton>
+        <p-selectButton [options]="filterOptions" [(ngModel)]="filter" (onChange)="load()" optionLabel="label" optionValue="value" styleClass="sb-liquid"></p-selectButton>
       </div>
 
       <!-- Tabla de items -->

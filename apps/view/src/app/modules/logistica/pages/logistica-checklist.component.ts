@@ -52,6 +52,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
           [(ngModel)]="newType"
           optionLabel="label"
           optionValue="value"
+          styleClass="sb-liquid"
         ></p-selectButton>
         <button pButton icon="pi pi-plus" label="Crear checklist" (click)="createNew()" [loading]="creating()"></button>
       </div>
@@ -87,6 +88,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
                 [(ngModel)]="responses[cl.id][item.id].ok"
                 optionLabel="label"
                 optionValue="value"
+                styleClass="sb-liquid"
               ></p-selectButton>
               <input
                 pInputText
