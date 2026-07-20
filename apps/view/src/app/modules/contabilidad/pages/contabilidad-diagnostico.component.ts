@@ -1,13 +1,20 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
+import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
 import { ToastModule } from 'primeng/toast';
 import { TooltipModule } from 'primeng/tooltip';
+import { SelectModule } from 'primeng/select';
+import { SelectButtonModule } from 'primeng/selectbutton';
+import { TagModule } from 'primeng/tag';
 import { MessageService } from 'primeng/api';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
+import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
+import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
+import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import { CONTABILIDAD_TABS } from '../contabilidad-tabs';
 import { AuthService } from '../../../core/services/auth.service';
 import { Permission } from '../../../core/constants/permissions';
@@ -22,7 +29,7 @@ import { FacturasService } from '../facturas.service';
 @Component({
   selector: 'app-contabilidad-diagnostico',
   standalone: true,
-  imports: [CommonModule, RouterLink, ButtonModule, TableModule, ToastModule, TooltipModule, PageTabsComponent],
+  imports: [CommonModule, FormsModule, RouterLink, ButtonModule, TableModule, ToastModule, TooltipModule, SelectModule, SelectButtonModule, TagModule, PageTabsComponent, MetricStripComponent, FreshnessPillComponent, ContextHelpComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
@@ -32,10 +39,11 @@ import { FacturasService } from '../facturas.service';
 
       <header class="surf-page-head di-head">
         <div class="surf-page-head-text">
-          <h1>Diagnóstico de facturación</h1>
+          <h1 class="di-h1">Diagnóstico de facturación <app-context-help topic="diagnostico" /></h1>
           <p class="surf-page-sub">Errores de timbrado, cancelación y complementos de pago — con la causa y la solución que propone el SAT/PAC.</p>
         </div>
         <div class="di-head-actions">
+          @if (loadedAt()) { <app-freshness-pill [since]="loadedAt()" /> }
           <button pButton type="button" label="Refrescar" icon="pi pi-refresh" class="p-button-sm p-button-text" [loading]="loading()" (click)="reload()"></button>
           @if (canManage && stats() && stats()!.open_total > 0) {
             <button pButton type="button" label="Reintentar timbrado de pedidos" icon="pi pi-replay" class="p-button-sm" [loading]="retrying()" (click)="retryOrders()"></button>
@@ -64,28 +72,14 @@ import { FacturasService } from '../facturas.service';
       }
 
       <!-- KPIs -->
-      <div class="di-kpis">
-        <div class="di-kpi"><span class="di-kpi-label">Errores abiertos</span><span class="di-kpi-val">{{ stats()?.open_total ?? '—' }}</span></div>
-        <div class="di-kpi di-kpi-bad"><span class="di-kpi-label">Críticos</span><span class="di-kpi-val">{{ stats()?.criticos ?? '—' }}</span></div>
-        @for (t of stats()?.por_tipo || []; track t.kind) {
-          <div class="di-kpi"><span class="di-kpi-label">{{ kindLabel(t.kind) }}</span><span class="di-kpi-val">{{ t.count }}</span></div>
-        }
-      </div>
+      @if (stats(); as s) {
+        <app-metric-strip [items]="kpiItems(s)" ariaLabel="Resumen de errores de facturación" />
+      }
 
       <!-- Filtros -->
       <div class="di-filters">
-        <div class="di-seg">
-          <button type="button" [class.active]="fStatus()==='open'" (click)="setStatus('open')">Abiertos</button>
-          <button type="button" [class.active]="fStatus()==='resolved'" (click)="setStatus('resolved')">Resueltos</button>
-          <button type="button" [class.active]="fStatus()==='all'" (click)="setStatus('all')">Todos</button>
-        </div>
-        <select class="di-select" [value]="fKind() || ''" (change)="setKind($any($event.target).value)">
-          <option value="">Todos los tipos</option>
-          <option value="timbrado">Timbrado</option>
-          <option value="nota_credito">Nota de crédito</option>
-          <option value="rep">Complemento de pago</option>
-          <option value="cancelacion">Cancelación</option>
-        </select>
+        <p-selectButton [options]="statusOpts" [ngModel]="fStatus()" (ngModelChange)="setStatus($event)" optionLabel="label" optionValue="value" [allowEmpty]="false" ariaLabel="Estado del error" />
+        <p-select [options]="kindOpts" [ngModel]="fKind()" (ngModelChange)="setKind($event)" optionLabel="label" optionValue="value" appendTo="body" styleClass="di-sel" ariaLabel="Tipo de error" />
       </div>
 
       <div class="card-premium card-flat">
@@ -106,7 +100,7 @@ import { FacturasService } from '../facturas.service';
           <ng-template pTemplate="body" let-r let-expanded="expanded">
             <tr>
               <td><button type="button" pButton [pRowToggler]="r" class="p-button-text p-button-sm" [icon]="expanded ? 'pi pi-chevron-down' : 'pi pi-chevron-right'" aria-label="Detalle"></button></td>
-              <td><span class="di-sev" [ngClass]="'s-' + (r.solucion.severity || 'warn')">{{ sevLabel(r.solucion.severity) }}</span></td>
+              <td><p-tag [value]="sevLabel(r.solucion.severity)" [severity]="sevSev(r.solucion.severity)" styleClass="di-chip" /></td>
               <td>{{ kindLabel(r.kind) }}</td>
               <td><div class="di-tit">{{ r.solucion.titulo }}</div></td>
               <td class="mono">{{ r.pac_code || '—' }}</td>
@@ -179,59 +173,49 @@ import { FacturasService } from '../facturas.service';
   styles: [`
     :host { display: block; }
     .di-head { display: flex; align-items: flex-start; gap: 1rem; }
+    .di-h1 { display: inline-flex; align-items: center; gap: .3rem; }
     .di-head-actions { margin-left: auto; display: flex; gap: .4rem; align-items: center; }
-    .di-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: .7rem; margin-bottom: 1rem; }
-    .di-kpi { background: var(--card-bg); border: 1px solid var(--border-color); border-radius: var(--r-md, 12px); padding: .8rem 1rem; display: flex; flex-direction: column; gap: .25rem; }
-    .di-kpi-label { font-size: .68rem; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); }
-    .di-kpi-val { font-size: 1.5rem; font-weight: 800; color: var(--text-main); font-variant-numeric: tabular-nums; }
-    .di-kpi-bad .di-kpi-val { color: var(--bad-fg, #b91c1c); }
+    app-metric-strip { display: block; margin-bottom: 1rem; }
     /* revisión preventiva */
-    .di-health { border: 1px solid var(--border-color); border-radius: var(--r-md, 12px); padding: .9rem 1.1rem; margin-bottom: 1rem; background: var(--card-bg); }
+    .di-health { border: 1px solid var(--border-color); border-radius: var(--r-md); padding: .9rem 1.1rem; margin-bottom: 1rem; background: var(--card-bg); }
     .di-health-head { font-size: .72rem; font-weight: 800; text-transform: uppercase; letter-spacing: .05em; color: var(--text-muted); display: flex; align-items: center; gap: .4rem; margin-bottom: .7rem; }
     .di-check { display: flex; align-items: flex-start; gap: .7rem; padding: .6rem 0; border-top: 1px solid var(--border-color); }
     .di-check:first-of-type { border-top: none; }
     .di-check > .pi { font-size: 1.1rem; margin-top: .1rem; }
-    .di-check.c-critical > .pi { color: var(--bad-fg, #b91c1c); }
-    .di-check.c-warn > .pi { color: var(--warn-fg, #b45309); }
+    .di-check.c-critical > .pi { color: var(--bad-fg); }
+    .di-check.c-warn > .pi { color: var(--warn-fg); }
     .di-check-body { flex: 1; min-width: 0; }
     .di-check-tit { font-weight: 700; color: var(--text-main); font-size: .88rem; }
     .di-check-det { font-size: .8rem; color: var(--text-muted); margin-top: .1rem; }
     .di-check-sol { font-size: .8rem; color: var(--text-main); margin-top: .3rem; }
     .di-check a { flex-shrink: 0; }
     .di-filters { display: flex; gap: .6rem; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; }
-    .di-seg { display: inline-flex; border: 1px solid var(--border-color); border-radius: var(--r-pill, 999px); overflow: hidden; }
-    .di-seg button { border: none; background: var(--card-bg); padding: .35rem .9rem; font-size: .8rem; cursor: pointer; color: var(--text-muted); }
-    .di-seg button.active { background: var(--action); color: var(--action-ink, #fff); font-weight: 600; }
-    .di-select { border: 1px solid var(--border-color); border-radius: var(--r-sm, 8px); padding: .4rem .6rem; background: var(--card-bg); color: var(--text-main); font: inherit; font-size: .82rem; }
     .di-table { font-variant-numeric: tabular-nums; }
     .ta-r { text-align: right; } .ta-c { text-align: center; }
     .mono { font-family: var(--font-mono, ui-monospace, monospace); font-size: .85em; }
     .di-tit { color: var(--text-main); font-weight: 600; }
     .di-sub { color: var(--text-muted); font-size: .72rem; }
-    .di-sev { display: inline-block; padding: .1rem .5rem; border-radius: var(--r-pill, 999px); font-size: .64rem; font-weight: 800; text-transform: uppercase; letter-spacing: .03em; }
-    .s-critical { background: color-mix(in srgb, var(--bad-fg, #dc2626) 15%, transparent); color: var(--bad-fg, #dc2626); }
-    .s-warn { background: color-mix(in srgb, var(--warn-fg, #b45309) 15%, transparent); color: var(--warn-fg, #b45309); }
-    .s-info { background: var(--surface-hover-bg, #f5f5f4); color: var(--text-muted); }
-    .di-resolved { color: var(--ok-fg, #15803d); font-size: .78rem; font-weight: 600; }
+    :host ::ng-deep .di-chip .p-tag { font-size: .64rem; font-weight: 800; text-transform: uppercase; letter-spacing: .03em; padding: .1rem .5rem; }
+    .di-resolved { color: var(--ok-fg); font-size: .78rem; font-weight: 600; }
     .di-resolved .pi { font-size: .8rem; margin-right: .2rem; }
     .di-empty { padding: 2.5rem 1rem; text-align: center; color: var(--text-muted); }
     .di-empty .pi { display: block; font-size: 1.5rem; margin-bottom: .5rem; opacity: .6; }
-    .di-empty .di-ok { color: var(--ok-fg, #15803d); opacity: 1; }
+    .di-empty .di-ok { color: var(--ok-fg); opacity: 1; }
     /* expansión */
-    .di-exp-row td { background: var(--surface-hover-bg, #faf9f7); }
+    .di-exp-row td { background: var(--surface-hover-bg); }
     .di-exp { display: grid; grid-template-columns: 1.4fr 1fr; gap: 1.4rem; padding: 1rem 1.2rem; }
     @media (max-width: 820px) { .di-exp { grid-template-columns: 1fr; } }
     .di-exp-main { display: flex; flex-direction: column; gap: 1rem; }
     .di-exp-block p { margin: .3rem 0 0; font-size: .85rem; color: var(--text-main); line-height: 1.5; }
     .di-exp-lbl { font-size: .66rem; font-weight: 800; text-transform: uppercase; letter-spacing: .06em; color: var(--text-muted); display: inline-flex; align-items: center; gap: .3rem; }
-    .di-exp-sol { background: color-mix(in srgb, var(--action) 6%, var(--card-bg)); border: 1px solid color-mix(in srgb, var(--action) 22%, transparent); border-radius: var(--r-md, 10px); padding: .8rem .95rem; }
-    .di-exp-sol .di-exp-lbl { color: var(--action-ink, var(--action)); }
+    .di-exp-sol { background: color-mix(in srgb, var(--action) 6%, var(--card-bg)); border: 1px solid color-mix(in srgb, var(--action) 22%, transparent); border-radius: var(--r-md); padding: .8rem .95rem; }
+    .di-exp-sol .di-exp-lbl { color: var(--action); }
     .di-exp-actions { display: flex; gap: .5rem; margin-top: .7rem; flex-wrap: wrap; }
-    .di-exp-tech { background: var(--card-bg); border: 1px solid var(--border-color); border-radius: var(--r-md, 10px); padding: .8rem .95rem; }
+    .di-exp-tech { background: var(--card-bg); border: 1px solid var(--border-color); border-radius: var(--r-md); padding: .8rem .95rem; }
     .di-tech-grid { display: grid; grid-template-columns: auto 1fr; gap: .3rem .8rem; margin: .5rem 0 .7rem; font-size: .8rem; }
     .di-tech-grid span { color: var(--text-muted); }
     .di-tech-grid b { color: var(--text-main); font-weight: 600; word-break: break-word; }
-    .di-raw { margin: .6rem 0 0; padding: .7rem; background: var(--surface-hover-bg, #f5f5f4); color: var(--text-muted); border: 1px solid var(--border-color); border-radius: var(--r-sm, 8px); font-family: var(--font-mono, monospace); font-size: .72rem; max-height: 240px; overflow: auto; white-space: pre-wrap; word-break: break-word; }
+    .di-raw { margin: .6rem 0 0; padding: .7rem; background: var(--surface-hover-bg); color: var(--text-muted); border: 1px solid var(--border-color); border-radius: var(--r-sm); font-family: var(--font-mono, monospace); font-size: .72rem; max-height: 240px; overflow: auto; white-space: pre-wrap; word-break: break-word; }
     .di-note { font-size: .75rem; color: var(--text-muted); margin: 1rem 0 0; display: flex; gap: .4rem; align-items: baseline; }
   `],
 })
@@ -255,13 +239,28 @@ export class ContabilidadDiagnosticoComponent implements OnInit {
   readonly rawById = signal<Record<string, string>>({});
   readonly fStatus = signal<'open' | 'resolved' | 'all'>('open');
   readonly fKind = signal<EmissionErrorKind | ''>('');
+  readonly loadedAt = signal<number | null>(null);
+
+  readonly statusOpts = [{ label: 'Abiertos', value: 'open' }, { label: 'Resueltos', value: 'resolved' }, { label: 'Todos', value: 'all' }];
+  readonly kindOpts = [
+    { label: 'Todos los tipos', value: '' }, { label: 'Timbrado', value: 'timbrado' },
+    { label: 'Nota de crédito', value: 'nota_credito' }, { label: 'Complemento de pago', value: 'rep' }, { label: 'Cancelación', value: 'cancelacion' },
+  ];
+
+  kpiItems(s: DiagnosticStats): MetricStripItem[] {
+    return [
+      { label: 'Errores abiertos', value: s.open_total, tone: s.open_total > 0 ? 'warn' : 'default' },
+      { label: 'Críticos', value: s.criticos, tone: s.criticos > 0 ? 'bad' : 'default' },
+      ...(s.por_tipo || []).map((t) => ({ label: this.kindLabel(t.kind), value: t.count } as MetricStripItem)),
+    ];
+  }
 
   ngOnInit() { this.reload(); }
 
   reload() {
     this.loading.set(true); this.errored.set(false);
     this.svc.list({ status: this.fStatus(), kind: this.fKind() || undefined }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (r) => { this.rows.set(r); this.loading.set(false); },
+      next: (r) => { this.rows.set(r); this.loading.set(false); this.loadedAt.set(Date.now()); },
       error: () => { this.loading.set(false); this.errored.set(true); },
     });
     this.svc.stats().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (s) => this.stats.set(s), error: () => {} });
@@ -307,4 +306,5 @@ export class ContabilidadDiagnosticoComponent implements OnInit {
     return k === 'timbrado' ? 'Timbrado' : k === 'nota_credito' ? 'Nota de crédito' : k === 'rep' ? 'Compl. de pago' : k === 'cancelacion' ? 'Cancelación' : k;
   }
   sevLabel(s?: string): string { return s === 'critical' ? 'Crítico' : s === 'info' ? 'Info' : 'Aviso'; }
+  sevSev(s?: string): 'danger' | 'warn' | 'secondary' { return s === 'critical' ? 'danger' : s === 'info' ? 'secondary' : 'warn'; }
 }

@@ -24,7 +24,7 @@ export class CommercialMovementsController {
       warehouse_id: raw.warehouse_id, warehouse_ids: raw.warehouse_ids,
       from: raw.from, to: raw.to, doc_code: raw.doc_code, movement_kind: raw.movement_kind,
       product_id: raw.product_id, search: raw.search, group_by: raw.group_by,
-      estado: raw.estado, transfer_wh_ids: raw.transfer_wh_ids,
+      estado: raw.estado, transfer_wh_ids: raw.transfer_wh_ids, dest_kinds: raw.dest_kinds,
       page: raw.page ? Number(raw.page) : undefined,
       pageSize: raw.pageSize ? Number(raw.pageSize) : undefined,
     };

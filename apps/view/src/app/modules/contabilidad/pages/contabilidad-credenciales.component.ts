@@ -7,9 +7,12 @@ import { TableModule } from 'primeng/table';
 import { ToastModule } from 'primeng/toast';
 import { DialogModule } from 'primeng/dialog';
 import { InputTextModule } from 'primeng/inputtext';
+import { TagModule } from 'primeng/tag';
 import { ConfirmDialogModule } from 'primeng/confirmdialog';
 import { MessageService, ConfirmationService } from 'primeng/api';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
+import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
+import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import { CONTABILIDAD_TABS } from '../contabilidad-tabs';
 import { AuthService } from '../../../core/services/auth.service';
 import { Permission } from '../../../core/constants/permissions';
@@ -23,7 +26,7 @@ import { CredencialesService, CredStatus } from '../credenciales.service';
 @Component({
   selector: 'app-contabilidad-credenciales',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, TableModule, ToastModule, DialogModule, InputTextModule, ConfirmDialogModule, PageTabsComponent],
+  imports: [CommonModule, FormsModule, ButtonModule, TableModule, ToastModule, DialogModule, InputTextModule, TagModule, ConfirmDialogModule, PageTabsComponent, FreshnessPillComponent, ContextHelpComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService, ConfirmationService],
   template: `
@@ -34,10 +37,11 @@ import { CredencialesService, CredStatus } from '../credenciales.service';
 
       <header class="surf-page-head cr-head">
         <div class="surf-page-head-text">
-          <h1>Credenciales SAT (e.firma)</h1>
+          <h1 class="cr-h1">Credenciales SAT (e.firma) <app-context-help topic="credenciales" /></h1>
           <p class="surf-page-sub">e.firma del contribuyente para la descarga masiva. Se cifra en reposo (AES-256-GCM); el material privado nunca se devuelve.</p>
         </div>
         <div class="cr-head-actions">
+          @if (loadedAt()) { <app-freshness-pill [since]="loadedAt()" /> }
           <button pButton type="button" label="Refrescar" icon="pi pi-refresh" class="p-button-sm p-button-text" [loading]="loading()" (click)="reload()"></button>
           @if (canManage) { <button pButton type="button" label="Cargar e.firma" icon="pi pi-upload" class="p-button-sm" (click)="showNew=true"></button> }
         </div>
@@ -58,7 +62,7 @@ import { CredencialesService, CredStatus } from '../credenciales.service';
               <td>{{ c.razon_social || '—' }}</td>
               <td class="mono">{{ c.cer_valid_to ? (c.cer_valid_to | date:'dd/MM/yyyy') : '—' }}</td>
               <td class="ta-r mono" [class.bad]="c.dias_para_vencer != null && c.dias_para_vencer < 30">{{ c.dias_para_vencer != null ? (c.dias_para_vencer | number) : '—' }}</td>
-              <td><span class="cr-est" [ngClass]="c.vigente ? 'e-ok' : 'e-bad'">{{ c.vigente ? 'Vigente' : 'Vencida' }}</span></td>
+              <td><p-tag [value]="c.vigente ? 'Vigente' : 'Vencida'" [severity]="c.vigente ? 'success' : 'danger'" styleClass="cr-chip" /></td>
               <td>@if (canManage) { <button pButton type="button" icon="pi pi-trash" class="p-button-sm p-button-text p-button-danger" [attr.aria-label]="'Eliminar ' + c.rfc" (click)="confirmDelete(c)"></button> }</td>
             </tr>
           </ng-template>
@@ -70,7 +74,7 @@ import { CredencialesService, CredStatus } from '../credenciales.service';
         </p-table>
       </div>
 
-      <p-dialog [(visible)]="showNew" [modal]="true" [style]="{ width: '30rem' }" header="Cargar e.firma" [draggable]="false">
+      <p-dialog [visible]="showNew" (visibleChange)="showNew=$event" [modal]="true" [style]="{ width: '30rem' }" header="Cargar e.firma" [draggable]="false" [closable]="false" [closeOnEscape]="false">
         <div class="cr-form">
           <label class="cr-f"><span>RFC *</span><input type="text" pInputText [(ngModel)]="form.rfc" maxlength="13" placeholder="XAXX010101000" style="text-transform:uppercase" /></label>
           <label class="cr-f"><span>Razón social</span><input type="text" pInputText [(ngModel)]="form.razon_social" /></label>
@@ -81,7 +85,7 @@ import { CredencialesService, CredStatus } from '../credenciales.service';
           <p class="cr-note"><i class="pi pi-lock"></i> El .key y la contraseña se cifran en reposo y solo se descifran efímeramente al firmar ante el SAT.</p>
         </div>
         <ng-template pTemplate="footer">
-          <button pButton type="button" label="Cancelar" class="p-button-text p-button-sm" (click)="showNew=false"></button>
+          <button pButton type="button" label="Cancelar" class="p-button-text p-button-sm" (click)="tryCloseNew()"></button>
           <button pButton type="button" label="Guardar" icon="pi pi-check" class="p-button-sm" [loading]="saving()" [disabled]="!formValid()" (click)="save()"></button>
         </ng-template>
       </p-dialog>
@@ -90,21 +94,20 @@ import { CredencialesService, CredStatus } from '../credenciales.service';
   styles: [`
     :host { display: block; }
     .cr-head { display: flex; align-items: flex-start; gap: 1rem; }
+    .cr-h1 { display: inline-flex; align-items: center; gap: .3rem; }
     .cr-head-actions { margin-left: auto; display: flex; gap: .4rem; align-items: center; }
-    .cr-warn { display: flex; gap: .5rem; align-items: center; font-size: .82rem; color: var(--warn-soft-fg, #b45309); background: color-mix(in srgb, var(--warn-fg, #d97706) 10%, transparent); border: 1px solid color-mix(in srgb, var(--warn-fg, #d97706) 30%, var(--border-color)); border-radius: var(--r-md, 10px); padding: .6rem .9rem; margin-bottom: 1rem; }
+    .cr-warn { display: flex; gap: .5rem; align-items: center; font-size: .82rem; color: var(--warn-soft-fg); background: color-mix(in srgb, var(--warn-fg) 10%, transparent); border: 1px solid color-mix(in srgb, var(--warn-fg) 30%, var(--border-color)); border-radius: var(--r-md); padding: .6rem .9rem; margin-bottom: 1rem; }
     .cr-warn code { font-family: var(--font-mono, monospace); }
     .cr-table { font-variant-numeric: tabular-nums; }
-    .ta-r { text-align: right; } .strong { font-weight: 700; } .bad { color: var(--bad-fg, #dc2626); }
+    .ta-r { text-align: right; } .strong { font-weight: 700; } .bad { color: var(--bad-fg); }
     .mono { font-family: var(--font-mono, ui-monospace, monospace); font-size: .85em; }
-    .cr-est { display: inline-block; padding: .1rem .5rem; border-radius: var(--r-pill, 999px); font-size: .66rem; font-weight: 700; }
-    .e-ok { background: color-mix(in srgb, var(--ok-fg, #16a34a) 14%, transparent); color: var(--ok-fg, #16a34a); }
-    .e-bad { background: color-mix(in srgb, var(--bad-fg, #dc2626) 15%, transparent); color: var(--bad-fg, #dc2626); }
+    :host ::ng-deep .cr-chip .p-tag { font-size: .66rem; font-weight: 700; padding: .1rem .5rem; }
     .cr-empty { padding: 2.5rem 1rem; text-align: center; color: var(--text-muted); }
     .cr-empty .pi { display: block; font-size: 1.5rem; margin-bottom: .5rem; opacity: .6; }
     .cr-form { display: flex; flex-direction: column; gap: .7rem; padding-top: .5rem; }
     .cr-f { display: flex; flex-direction: column; gap: .25rem; font-size: .72rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: .03em; }
-    .cr-f input[type=text], .cr-f input[type=password] { border: 1px solid var(--border-color); border-radius: var(--r-sm, 8px); padding: .45rem .6rem; background: var(--card-bg); color: var(--text-main); }
-    .cr-note { font-size: .75rem; color: var(--text-muted); background: var(--surface-hover-bg, #f7f7f6); border-radius: var(--r-sm, 8px); padding: .5rem .7rem; margin: 0; display: flex; gap: .4rem; }
+    .cr-f input[type=text], .cr-f input[type=password] { border: 1px solid var(--border-color); border-radius: var(--r-sm); padding: .45rem .6rem; background: var(--card-bg); color: var(--text-main); }
+    .cr-note { font-size: .75rem; color: var(--text-muted); background: var(--surface-hover-bg); border-radius: var(--r-sm); padding: .5rem .7rem; margin: 0; display: flex; gap: .4rem; }
   `],
 })
 export class ContabilidadCredencialesComponent implements OnInit {
@@ -121,6 +124,7 @@ export class ContabilidadCredencialesComponent implements OnInit {
   readonly errored = signal(false);
   readonly saving = signal(false);
   readonly vaultOff = signal(false);
+  readonly loadedAt = signal<number | null>(null);
 
   showNew = false;
   form: { rfc: string; razon_social: string; cer_b64: string; key_b64: string; password: string; ciec: string } =
@@ -131,7 +135,7 @@ export class ContabilidadCredencialesComponent implements OnInit {
   reload() {
     this.loading.set(true); this.errored.set(false);
     this.svc.status().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (r) => { this.rows.set(r); this.vaultOff.set(r.length > 0 && r.every((x) => !x.vault_ok)); this.loading.set(false); },
+      next: (r) => { this.rows.set(r); this.vaultOff.set(r.length > 0 && r.every((x) => !x.vault_ok)); this.loading.set(false); this.loadedAt.set(Date.now()); },
       error: () => { this.loading.set(false); this.errored.set(true); this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo cargar el estado de credenciales.' }); },
     });
   }
@@ -150,6 +154,22 @@ export class ContabilidadCredencialesComponent implements OnInit {
 
   formValid(): boolean {
     return /^[A-ZÑ&]{3,4}[0-9]{6}[A-Z0-9]{3}$/.test((this.form.rfc || '').toUpperCase()) && !!this.form.cer_b64 && !!this.form.key_b64 && !!this.form.password;
+  }
+
+  // §8 — el diálogo carga material sensible (RFC, .cer/.key, contraseña): no descartar sin confirmar.
+  private credDirty(): boolean {
+    const f = this.form;
+    return !!(f.rfc || f.razon_social || f.cer_b64 || f.key_b64 || f.password || f.ciec);
+  }
+  private resetForm() { this.form = { rfc: '', razon_social: '', cer_b64: '', key_b64: '', password: '', ciec: '' }; }
+  tryCloseNew() {
+    if (!this.credDirty()) { this.showNew = false; return; }
+    this.confirm.confirm({
+      header: 'Descartar carga', message: '¿Descartar los datos de la e.firma capturados?',
+      icon: 'pi pi-exclamation-triangle', acceptLabel: 'Descartar', rejectLabel: 'Seguir editando',
+      acceptButtonStyleClass: 'p-button-sm p-button-danger', rejectButtonStyleClass: 'p-button-text p-button-sm',
+      accept: () => { this.resetForm(); this.showNew = false; },
+    });
   }
 
   save() {

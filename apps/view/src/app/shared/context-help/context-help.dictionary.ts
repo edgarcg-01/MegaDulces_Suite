@@ -128,6 +128,163 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
     ],
   },
 
+  diagnostico: {
+    title: 'Diagnóstico de facturación — guía',
+    intro: 'Errores de timbrado/cancelación/REP traducidos con la base de conocimiento SAT/PAC, con su causa y solución.',
+    groups: [
+      {
+        heading: 'Tipo de error',
+        entries: [
+          { term: 'Timbrado', def: 'Falló el sellado/timbrado de una factura ante el PAC/SAT.' },
+          { term: 'Nota de crédito', def: 'Falló la emisión de un CFDI de Egreso (devolución/descuento).' },
+          { term: 'Complemento de pago (REP)', def: 'Falló la emisión del complemento que acredita el pago de una PPD.' },
+          { term: 'Cancelación', def: 'Falló la solicitud de cancelación de un CFDI ante el SAT.' },
+        ],
+      },
+      {
+        heading: 'Severidad',
+        entries: [
+          { term: 'Crítico', def: 'Bloquea la operación fiscal; requiere atención inmediata.' },
+          { term: 'Aviso', def: 'Debe resolverse pero no bloquea del todo.' },
+          { term: 'Info', def: 'Informativo; útil para contexto.' },
+        ],
+      },
+      {
+        heading: 'Cómo funciona',
+        entries: [
+          { term: 'Auto-registro', def: 'Cada error se registra solo cuando falla un timbrado/cancelación/REP.' },
+          { term: 'Auto-resolución', def: 'Se marca resuelto cuando un intento posterior tiene éxito.' },
+          { term: 'Reintentar', def: 'Vuelve a intentar el timbrado de los pedidos pendientes; es idempotente (no duplica).' },
+        ],
+      },
+    ],
+  },
+
+  diot: {
+    title: 'DIOT / IVA — guía',
+    intro: 'Declaración Informativa de Operaciones con Terceros + resumen de IVA, calculado con flujo efectivo sobre los CFDI.',
+    groups: [
+      {
+        heading: 'Tipo de tercero',
+        entries: [
+          { term: '04 Nacional', def: 'Proveedor con RFC mexicano.' },
+          { term: '05 Extranjero', def: 'Proveedor del extranjero (sin RFC mexicano).' },
+          { term: '15 Global', def: 'Operaciones agrupadas con público en general.' },
+        ],
+      },
+      {
+        heading: 'IVA',
+        entries: [
+          { term: 'IVA trasladado', def: 'El IVA que cobras en tus ventas (emitidas).' },
+          { term: 'IVA acreditable', def: 'El IVA que pagas en tus compras y puedes descontar (recibidas).' },
+          { term: 'IVA a cargo', def: 'Trasladado − acreditable, cuando es positivo: es lo que pagas al SAT.' },
+          { term: 'IVA a favor', def: 'Cuando el acreditable supera al trasladado: queda saldo a favor.' },
+        ],
+      },
+      {
+        heading: 'Flujo efectivo',
+        entries: [
+          { term: 'PUE', def: 'Pago en Una Exhibición: el IVA cuenta en el mes de emisión.' },
+          { term: 'PPD', def: 'Parcialidades/Diferido: el IVA cuenta cuando se paga (al recibirse el REP), no al emitir.' },
+        ],
+      },
+    ],
+  },
+
+  impuestos: {
+    title: 'Impuestos provisionales — guía',
+    intro: 'Cálculo de APOYO del pago provisional mensual (ISR + IVA). Siempre valida con tu contador antes de declarar.',
+    groups: [
+      {
+        heading: 'ISR provisional',
+        entries: [
+          { term: 'Coeficiente de utilidad', def: 'Factor de tu declaración anual del año pasado; estima la utilidad a partir de los ingresos (ingresos × coeficiente).' },
+          { term: 'Ingresos nominales acum.', def: 'Ingresos del ejercicio acumulados hasta el mes, sin ajuste inflacionario.' },
+          { term: 'Base gravable', def: 'Utilidad estimada − PTU pagada − pérdidas pendientes. Sobre esto se aplica la tasa.' },
+          { term: 'PTU pagada', def: 'Participación de los Trabajadores en las Utilidades pagada en el año; se resta de la base.' },
+          { term: 'Pérdidas pendientes', def: 'Pérdidas fiscales de años anteriores por amortizar; se restan de la base.' },
+          { term: 'Tasa ISR', def: 'Tasa aplicable (30% para personas morales).' },
+          { term: 'Pagos previos / retenido', def: 'Pagos provisionales de meses anteriores e ISR que te retuvieron; se acreditan contra el ISR causado.' },
+        ],
+      },
+      {
+        heading: 'IVA (flujo efectivo)',
+        entries: [
+          { term: 'IVA trasladado', def: 'El IVA que cobraste y que efectivamente se pagó (PUE, o PPD con REP).' },
+          { term: 'IVA acreditable', def: 'El IVA que pagaste en compras y puedes descontar.' },
+          { term: 'IVA a cargo / a favor', def: 'Trasladado − acreditable − retenido: si es positivo pagas al SAT; si es negativo queda a favor.' },
+        ],
+      },
+    ],
+  },
+
+  materialidad: {
+    title: 'Materialidad — guía',
+    intro: 'Expediente de defensa por proveedor: demuestra que la operación fue real. Crítico si el proveedor aparece en listas negras del SAT.',
+    groups: [
+      {
+        heading: 'Listas negras del SAT',
+        entries: [
+          { term: 'EFOS 69-B', def: 'Empresas que Facturan Operaciones Simuladas: el SAT presume que sus facturas son falsas. Comprar a un EFOS pone en riesgo tu deducción.' },
+          { term: 'Art. 69', def: 'Contribuyentes con incumplimientos publicados (no localizados, créditos firmes, etc.).' },
+        ],
+      },
+      {
+        heading: 'Cadena de suministro',
+        entries: [
+          { term: 'Orden → Recepción → Factura → Pago', def: 'La secuencia que prueba que la operación existió.' },
+          { term: 'Recepción', def: 'La entrada física a almacén: es la evidencia MÁS fuerte de materialidad.' },
+          { term: 'Materialidad', def: 'Demostrar con documentos y hechos que el bien/servicio realmente se recibió y se pagó.' },
+        ],
+      },
+      {
+        heading: 'Conciliación CFDI ↔ operación',
+        entries: [
+          { term: 'Confirmada', def: 'Ligaste el CFDI a una operación real: cuenta como evidencia.' },
+          { term: 'Sugerida', def: 'El motor propone el enlace por RFC + importe (±$1) + fecha (±5 días); falta que confirmes.' },
+          { term: 'Match débil / sin RFC', def: 'La operación no trae RFC; se cruzó solo por importe+fecha. Verifica el nombre antes de confirmar.' },
+          { term: 'Sin operación', def: 'No hay operación que respalde el CFDI en el rango: es un riesgo.' },
+        ],
+      },
+      {
+        heading: 'Veredicto',
+        entries: [
+          { term: 'Sólida / Revisar / Crítico', def: 'Nivel de defensa del expediente según listas negras, % de recepción física y completitud de la cadena.' },
+        ],
+      },
+    ],
+  },
+
+  credenciales: {
+    title: 'Credenciales SAT — guía',
+    intro: 'Bóveda de la e.firma para autorizar la descarga masiva del SAT. El material privado se cifra y nunca se devuelve por la API.',
+    groups: [
+      {
+        heading: 'Qué es cada cosa',
+        entries: [
+          { term: 'e.firma (FIEL)', def: 'Firma Electrónica Avanzada: identifica al contribuyente ante el SAT. Autoriza la descarga masiva de CFDI. (No es el CSD del timbrado, ese vive en el PAC.)' },
+          { term: '.cer', def: 'El certificado (parte pública) de la e.firma.' },
+          { term: '.key', def: 'La llave privada de la e.firma — el material secreto; se cifra en reposo.' },
+          { term: 'Contraseña de la llave', def: 'La clave que protege el archivo .key.' },
+          { term: 'CIEC', def: 'Clave de acceso al portal web del SAT (usuario/contraseña). Opcional aquí.' },
+        ],
+      },
+      {
+        heading: 'Estado',
+        entries: [
+          { term: 'Vigente / Vencida', def: 'Si el certificado sigue válido según su fecha de vencimiento.' },
+          { term: 'Días', def: 'Días restantes antes de que venza el certificado (se marca en rojo si faltan menos de 30).' },
+        ],
+      },
+      {
+        heading: 'Seguridad',
+        entries: [
+          { term: 'AES-256-GCM', def: 'El .key y las contraseñas se cifran en reposo; solo se descifran un instante al firmar ante el SAT.' },
+        ],
+      },
+    ],
+  },
+
   descarga: {
     title: 'Descarga masiva — ¿cómo funciona?',
     intro: 'Solicitudes de descarga de CFDI ante el SAT. El pipeline corre en segundo plano firmando con tu e.firma; el estado avanza solo.',

@@ -56,6 +56,10 @@ import { Permission } from '../../../core/constants/permissions';
 
       <!-- Filtros -->
       <div class="dm-filters">
+        <p-multiSelect [options]="destKindOpts" [(ngModel)]="fDestKinds" (onChange)="reload()"
+                       optionLabel="label" optionValue="value" placeholder="Destino"
+                       [showClear]="false" [showToggleAll]="false" styleClass="dm-sel-sm"
+                       title="Destino de los traspasos. Por defecto solo sucursales; agregá Rutas para incluir reparto."></p-multiSelect>
         <p-multiSelect [options]="warehouseOpts()" [(ngModel)]="fWarehouses" (onChange)="reload()"
                        optionLabel="label" optionValue="value" placeholder="Todos los almacenes" [showClear]="true"
                        [maxSelectedLabels]="2" selectedItemsLabel="{0} almacenes" styleClass="dm-sel"></p-multiSelect>
@@ -348,6 +352,7 @@ export class AlmacenMovimientosComponent implements OnInit {
   fSearch = '';
   fEstado: '' | 'en_transito' | 'completado' | 'diferencia' = '';
   fTransferWhs: string[] = [];
+  fDestKinds: string[] = ['sucursal']; // DM.11b — por defecto solo traspasos a sucursal (oculta rutas)
 
   kindOpts = [
     { label: 'Todo', value: '' },
@@ -358,6 +363,11 @@ export class AlmacenMovimientosComponent implements OnInit {
     { label: 'En tránsito', value: 'en_transito' },
     { label: 'Completado', value: 'completado' },
     { label: 'Con diferencia', value: 'diferencia' },
+  ];
+  destKindOpts = [
+    { label: 'Sucursal', value: 'sucursal' },
+    { label: 'Rutas', value: 'ruta' },
+    { label: 'Clientes', value: 'cliente' },
   ];
 
   // Documento + contraparte
@@ -410,6 +420,7 @@ export class AlmacenMovimientosComponent implements OnInit {
       search: this.fSearch || undefined,
       estado: this.fEstado || undefined,
       transfer_wh_ids: this.fTransferWhs.length ? this.fTransferWhs : undefined,
+      dest_kinds: this.fDestKinds.length ? this.fDestKinds : undefined,
     };
   }
 

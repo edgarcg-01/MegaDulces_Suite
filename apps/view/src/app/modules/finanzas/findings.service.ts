@@ -48,10 +48,41 @@ export interface RuleHealth {
   findings_falsos: number;
 }
 
+/** MIQ.3 — cobertura por categoría de riesgo + puntos ciegos. */
+export interface Coverage {
+  categorias: { key: string; nombre: string; critica: boolean; rules: string[]; registrados: number; activos: number; suprimidos: number; findings: number }[];
+  total_categorias: number; puntos_ciegos: string[]; cobertura_pct: number;
+}
+/** MIQ.3 — índice de calidad de los feeds. */
+export interface DataQuality {
+  indice_global: number; semaforo: 'verde' | 'amarillo' | 'rojo';
+  dimensiones: { key: string; nombre: string; score: number; pct_malo: number; n: number; importe: number; detalle: string }[];
+}
+/** MIQ.4 — hipótesis de detector propuesta (HITL). */
+export interface Hypothesis {
+  id: string; source: 'deterministic' | 'ai'; titulo: string; descripcion: string;
+  clase: FindingClase; score: number | null; status: string; evidencia: Record<string, any> | null; created_at: string;
+}
+/** MIQ.2 — estado del modelo que aprende. */
+export interface ModelStatus {
+  modelo: { version: number; algo: string; n_train: number; n_pos: number; trained_at: string; metrics: Record<string, any> } | null;
+  dataset: { total: number; etiquetados: number; positivos: number; scoreados: number };
+  listo_para_entrenar: boolean;
+}
+/** MIQ.6 — backtest time-split. */
+export interface Backtest {
+  ran: boolean; reason?: string; n_labeled?: number; base_rate?: number;
+  model?: { auc: number; precision: number; recall: number; f1: number };
+  baseline_detector?: { auc: number }; lift_auc?: number; veredicto?: string;
+}
+/** MIQ.2 — hallazgo con incertidumbre alta (active learning). */
+export interface UncertainRow { id: string; rule_key: string; titulo: string; severity: FindingSeverity; clase: FindingClase; importe: number; model_score: number; }
+
 @Injectable({ providedIn: 'root' })
 export class FindingsService {
   private readonly http = inject(HttpClient);
   private readonly base = `${environment.apiUrl}/finance/maat/findings`;
+  private readonly maatBase = `${environment.apiUrl}/finance/maat`;
 
   list(q?: { status?: string; clase?: string; severity?: string; rule_key?: string; limit?: number }): Observable<Finding[]> {
     const p = new URLSearchParams();
@@ -79,4 +110,21 @@ export class FindingsService {
   scan(): Observable<{ nuevos: number; reglas: number; por_regla: any[] }> {
     return this.http.post<{ nuevos: number; reglas: number; por_regla: any[] }>(`${this.base}/scan`, {});
   }
+
+  // ── MIQ.3 cobertura + calidad de datos ──
+  coverage(): Observable<Coverage> { return this.http.get<Coverage>(`${this.base}/coverage`); }
+  dataQuality(): Observable<DataQuality> { return this.http.get<DataQuality>(`${this.base}/data-quality`); }
+
+  // ── MIQ.4 descubrimiento de detectores (HITL) + escéptico ──
+  discovery(status = 'propuesta'): Observable<Hypothesis[]> { return this.http.get<Hypothesis[]>(`${this.maatBase}/discovery?status=${status}`); }
+  runDiscovery(): Observable<{ deterministas: number; ai: number; total: number }> { return this.http.post<{ deterministas: number; ai: number; total: number }>(`${this.maatBase}/discovery/run`, {}); }
+  approveHypothesis(id: string): Observable<any> { return this.http.post(`${this.maatBase}/discovery/${id}/approve`, {}); }
+  rejectHypothesis(id: string): Observable<any> { return this.http.post(`${this.maatBase}/discovery/${id}/reject`, {}); }
+  skepticRun(): Observable<{ revisados: number; refutado: number; debil: number; sostiene: number }> { return this.http.post<{ revisados: number; refutado: number; debil: number; sostiene: number }>(`${this.maatBase}/skeptic/run`, {}); }
+
+  // ── MIQ.2/6 modelo que aprende + backtest ──
+  learningStatus(): Observable<ModelStatus> { return this.http.get<ModelStatus>(`${this.maatBase}/learning/status`); }
+  backtest(): Observable<Backtest> { return this.http.get<Backtest>(`${this.maatBase}/learning/backtest`); }
+  uncertain(limit = 15): Observable<UncertainRow[]> { return this.http.get<UncertainRow[]>(`${this.maatBase}/learning/uncertain?limit=${limit}`); }
+  runLearning(): Observable<any> { return this.http.post(`${this.maatBase}/learning/run`, {}); }
 }

@@ -13,6 +13,8 @@ import { TableModule } from 'primeng/table';
 import { MessageService } from 'primeng/api';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
+import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
+import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import { CONTABILIDAD_TABS } from '../contabilidad-tabs';
 import { MaterialidadService, MaterialidadDossier, MaterialidadChain, MatReconcileRow, MatProvider } from '../materialidad.service';
 import { CfdiService } from '../cfdi.service';
@@ -27,7 +29,7 @@ import { Permission } from '../../../core/constants/permissions';
 @Component({
   selector: 'app-contabilidad-materialidad',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, ToastModule, InputTextModule, IconFieldModule, InputIconModule, SelectButtonModule, DialogModule, TableModule, PageTabsComponent, MetricStripComponent],
+  imports: [CommonModule, FormsModule, ButtonModule, ToastModule, InputTextModule, IconFieldModule, InputIconModule, SelectButtonModule, DialogModule, TableModule, PageTabsComponent, MetricStripComponent, FreshnessPillComponent, ContextHelpComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
@@ -37,16 +39,16 @@ import { Permission } from '../../../core/constants/permissions';
 
       <header class="surf-page-head mt-head">
         <div class="surf-page-head-text">
-          <h1>Expediente de materialidad</h1>
+          <h1 class="mt-h1">Expediente de materialidad <app-context-help topic="materialidad" /></h1>
           <p class="surf-page-sub">Defensa por proveedor: listas negras + CFDIs + cadena de suministro (orden → recepción → factura → pago). La recepción física es la evidencia más fuerte.</p>
         </div>
       </header>
 
       <div class="mt-search">
-        <span class="p-input-icon-left">
-          <i class="pi pi-search"></i>
+        <p-iconfield iconPosition="left" styleClass="mt-rfc-search">
+          <p-inputicon styleClass="pi pi-search" />
           <input type="text" pInputText placeholder="RFC del proveedor (p.ej. DRO020122GZ9)" [(ngModel)]="rfc" (keyup.enter)="buscar()" maxlength="13" style="text-transform:uppercase;min-width:280px" aria-label="RFC del proveedor" />
-        </span>
+        </p-iconfield>
         <button pButton type="button" label="Armar expediente" icon="pi pi-folder-open" class="p-button-sm" [loading]="loading()" [disabled]="!rfcValid()" (click)="buscar()"></button>
         @if (dossier() || searched()) { <button pButton type="button" label="Ver proveedores" icon="pi pi-arrow-left" class="p-button-sm p-button-text" (click)="backToList()"></button> }
       </div>
@@ -61,6 +63,7 @@ import { Permission } from '../../../core/constants/permissions';
             <div class="mt-v-title">{{ d.beneficiario || d.rfc }} <span class="mono muted">{{ d.rfc }}</span></div>
             <div class="mt-v-msg">{{ d.veredicto.mensaje }}</div>
           </div>
+          @if (loadedAt()) { <app-freshness-pill [since]="loadedAt()" label="armado" /> }
         </div>
 
         <app-metric-strip [items]="kpiItems(d)" ariaLabel="Resumen de materialidad" />
@@ -167,10 +170,9 @@ import { Permission } from '../../../core/constants/permissions';
         </ng-template>
 
         @if (dossier(); as d) {
-        <div class="mt-dlg-tabs" role="tablist">
-          <button type="button" role="tab" [attr.aria-selected]="dlgTab()==='oper'" [class.active]="dlgTab()==='oper'" (click)="setDlgTab('oper')"><i class="pi pi-sitemap"></i> Operación <span class="mt-tab-n">{{ d.cadena_suministro.cadenas }}</span></button>
-          <button type="button" role="tab" [attr.aria-selected]="dlgTab()==='fiscal'" [class.active]="dlgTab()==='fiscal'" (click)="setDlgTab('fiscal')"><i class="pi pi-file"></i> Fiscal · CFDIs <span class="mt-tab-n">{{ d.cfdis.total }}</span></button>
-        </div>
+        <p-selectButton [options]="dlgTabOpts(d)" [ngModel]="dlgTab()" (ngModelChange)="setDlgTab($event)" optionValue="value" [allowEmpty]="false" ariaLabel="Vista de documentos" styleClass="mt-dlg-sb">
+          <ng-template let-opt pTemplate="item"><i class="pi" [ngClass]="opt.icon"></i>&nbsp;{{ opt.label }} <span class="mt-tab-n">{{ opt.count }}</span></ng-template>
+        </p-selectButton>
         }
 
         @if (dlgTab() === 'oper') {
@@ -331,17 +333,18 @@ import { Permission } from '../../../core/constants/permissions';
   `,
   styles: [`
     :host { display: block; }
+    .mt-h1 { display: inline-flex; align-items: center; gap: .3rem; }
     .mt-search { display: flex; gap: .6rem; align-items: center; margin-bottom: 1rem; }
     .mt-skel, .mt-empty { padding: 2.5rem 1rem; text-align: center; color: var(--text-muted); }
     .mt-empty .pi { display: block; font-size: 1.6rem; margin-bottom: .5rem; opacity: .6; }
-    .mt-veredicto { display: flex; gap: 1rem; align-items: center; border: 1px solid var(--border-color); border-radius: var(--r-lg, 14px); padding: 1rem 1.2rem; margin-bottom: 1rem; background: var(--card-bg); }
-    .mt-veredicto.v-solida { border-color: color-mix(in srgb, var(--ok-fg, #16a34a) 45%, var(--border-color)); }
-    .mt-veredicto.v-critico { border-color: color-mix(in srgb, var(--bad-fg, #dc2626) 50%, var(--border-color)); }
-    .mt-veredicto.v-revisar { border-color: color-mix(in srgb, var(--warn-fg, #d97706) 50%, var(--border-color)); }
-    .mt-v-badge { font-size: .72rem; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; padding: .3rem .7rem; border-radius: var(--r-pill, 999px); background: var(--surface-hover-bg, #f5f5f4); color: var(--text-muted); white-space: nowrap; }
-    .v-solida .mt-v-badge { background: color-mix(in srgb, var(--ok-fg, #16a34a) 16%, transparent); color: var(--ok-fg, #16a34a); }
-    .v-critico .mt-v-badge { background: color-mix(in srgb, var(--bad-fg, #dc2626) 16%, transparent); color: var(--bad-fg, #dc2626); }
-    .v-revisar .mt-v-badge { background: color-mix(in srgb, var(--warn-fg, #d97706) 18%, transparent); color: var(--warn-soft-fg, #b45309); }
+    .mt-veredicto { display: flex; gap: 1rem; align-items: center; border: 1px solid var(--border-color); border-radius: var(--r-lg); padding: 1rem 1.2rem; margin-bottom: 1rem; background: var(--card-bg); }
+    .mt-veredicto.v-solida { border-color: color-mix(in srgb, var(--ok-fg) 45%, var(--border-color)); }
+    .mt-veredicto.v-critico { border-color: color-mix(in srgb, var(--bad-fg) 50%, var(--border-color)); }
+    .mt-veredicto.v-revisar { border-color: color-mix(in srgb, var(--warn-fg) 50%, var(--border-color)); }
+    .mt-v-badge { font-size: .72rem; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; padding: .3rem .7rem; border-radius: var(--r-pill); background: var(--surface-hover-bg); color: var(--text-muted); white-space: nowrap; }
+    .v-solida .mt-v-badge { background: color-mix(in srgb, var(--ok-fg) 16%, transparent); color: var(--ok-fg); }
+    .v-critico .mt-v-badge { background: color-mix(in srgb, var(--bad-fg) 16%, transparent); color: var(--bad-fg); }
+    .v-revisar .mt-v-badge { background: color-mix(in srgb, var(--warn-fg) 18%, transparent); color: var(--warn-soft-fg); }
     .mt-v-title { font-size: .95rem; font-weight: 700; color: var(--text-main); }
     .mt-v-msg { font-size: .82rem; color: var(--text-muted); margin-top: .2rem; }
     app-metric-strip { display:block; margin-bottom: 1rem; }
@@ -350,28 +353,28 @@ import { Permission } from '../../../core/constants/permissions';
     .mt-block { padding: 1rem; }
     .mt-block-title { margin: 0 0 .7rem; font-size: .85rem; font-weight: 700; color: var(--text-main); }
     .mt-chain { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
-    .mt-chain .pi { color: var(--text-faint, #a8a29e); font-size: .8rem; }
-    .mt-chain-step { display: flex; flex-direction: column; align-items: center; gap: .1rem; border: 1px solid var(--border-color); border-radius: var(--r-md, 10px); padding: .5rem .7rem; min-width: 4.5rem; opacity: .5; }
+    .mt-chain .pi { color: var(--text-faint); font-size: .8rem; }
+    .mt-chain-step { display: flex; flex-direction: column; align-items: center; gap: .1rem; border: 1px solid var(--border-color); border-radius: var(--r-md); padding: .5rem .7rem; min-width: 4.5rem; opacity: .5; }
     .mt-chain-step.on { opacity: 1; border-color: color-mix(in srgb, var(--action) 30%, var(--border-color)); }
     .mt-chain-n { font-size: 1.05rem; font-weight: 800; font-variant-numeric: tabular-nums; color: var(--text-main); font-family: var(--font-mono, monospace); }
     .mt-chain-step span:last-child { font-size: .68rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: .03em; }
     .mt-listas { list-style: none; margin: 0 0 .7rem; padding: 0; display: flex; flex-direction: column; gap: .35rem; }
     .mt-listas li { font-size: .82rem; color: var(--text-main); }
-    .mt-lista-tag { display: inline-block; padding: .08rem .5rem; border-radius: var(--r-pill, 999px); font-size: .68rem; font-weight: 700; }
-    .mt-lista-tag.risk { background: color-mix(in srgb, var(--bad-fg, #dc2626) 15%, transparent); color: var(--bad-fg, #dc2626); }
+    .mt-lista-tag { display: inline-block; padding: .08rem .5rem; border-radius: var(--r-pill); font-size: .68rem; font-weight: 700; }
+    .mt-lista-tag.risk { background: color-mix(in srgb, var(--bad-fg) 15%, transparent); color: var(--bad-fg); }
     .mt-lista-sit { font-weight: 600; text-transform: capitalize; }
-    .mt-clean { font-size: .85rem; color: var(--ok-fg, #16a34a); display: flex; gap: .4rem; align-items: center; margin-bottom: .7rem; }
+    .mt-clean { font-size: .85rem; color: var(--ok-fg); display: flex; gap: .4rem; align-items: center; margin-bottom: .7rem; }
     .mt-cfdi-line { font-size: .8rem; color: var(--text-muted); border-top: 1px solid var(--border-color); padding-top: .6rem; }
     .mono { font-family: var(--font-mono, ui-monospace, monospace); font-size: .85em; } .muted { color: var(--text-muted); }
     /* MAT.2 — desglose de documentos */
     .mt-block-head { display: flex; align-items: center; justify-content: space-between; gap: .5rem; margin-bottom: .7rem; }
     .mt-block-head .mt-block-title { margin: 0; }
-    .mt-chain.clickable { cursor: pointer; border-radius: var(--r-md, 10px); transition: background .15s ease; outline: none; padding: .3rem; margin: -.3rem; }
-    .mt-chain.clickable:hover { background: var(--surface-hover-bg, #f5f5f4); }
+    .mt-chain.clickable { cursor: pointer; border-radius: var(--r-md); transition: background .15s ease; outline: none; padding: .3rem; margin: -.3rem; }
+    .mt-chain.clickable:hover { background: var(--surface-hover-bg); }
     .mt-chain.clickable:focus-visible { box-shadow: 0 0 0 2px color-mix(in srgb, var(--action) 45%, transparent); }
     .mt-chain-hint { margin: .6rem 0 0; font-size: .72rem; color: var(--text-muted); display: flex; align-items: center; gap: .35rem; }
     .mt-chain-hint .pi { font-size: .8rem; }
-    .ta-r { text-align: right; } .strong { font-weight: 700; color: var(--text-main); } .warn { color: var(--warn-soft-fg, #b45309); font-weight: 600; }
+    .ta-r { text-align: right; } .strong { font-weight: 700; color: var(--text-main); } .warn { color: var(--warn-soft-fg); font-weight: 600; }
     .mt-dlg-head { display: flex; flex-direction: column; gap: .1rem; }
     .mt-dlg-title { font-size: .95rem; font-weight: 700; color: var(--text-main); }
     .mt-dlg-legend { font-size: .8rem; color: var(--text-muted); margin: 0 0 .8rem; line-height: 1.4; }
@@ -381,40 +384,37 @@ import { Permission } from '../../../core/constants/permissions';
     .cf-sub { font-size: .72rem; margin-top: .05rem; }
     .mt-tog { width: 2rem; height: 2rem; }
     .mt-dots { display: inline-flex; gap: .2rem; }
-    .mt-dot { display: inline-flex; align-items: center; justify-content: center; width: 1.25rem; height: 1.25rem; border-radius: var(--r-sm, 6px); font-size: .62rem; font-weight: 800; background: var(--surface-hover-bg, #f5f5f4); color: var(--text-faint, #a8a29e); }
-    .mt-dot.on { background: color-mix(in srgb, var(--ok-fg, #16a34a) 14%, transparent); color: var(--ok-fg, #16a34a); }
-    .mt-conf { display: inline-block; padding: .1rem .5rem; border-radius: var(--r-pill, 999px); font-size: .66rem; font-weight: 700; background: var(--surface-hover-bg, #f5f5f4); color: var(--text-muted); }
-    .mt-conf.c-exact { background: color-mix(in srgb, var(--ok-fg, #16a34a) 14%, transparent); color: var(--ok-fg, #16a34a); }
-    .mt-conf.c-inferred { background: color-mix(in srgb, var(--warn-fg, #d97706) 16%, transparent); color: var(--warn-soft-fg, #b45309); }
-    .mt-conf.c-weak { background: color-mix(in srgb, var(--warn-fg, #d97706) 10%, transparent); color: var(--warn-soft-fg, #b45309); border: 1px dashed color-mix(in srgb, var(--warn-fg, #d97706) 45%, transparent); }
+    .mt-dot { display: inline-flex; align-items: center; justify-content: center; width: 1.25rem; height: 1.25rem; border-radius: var(--r-sm); font-size: .62rem; font-weight: 800; background: var(--surface-hover-bg); color: var(--text-faint); }
+    .mt-dot.on { background: color-mix(in srgb, var(--ok-fg) 14%, transparent); color: var(--ok-fg); }
+    .mt-conf { display: inline-block; padding: .1rem .5rem; border-radius: var(--r-pill); font-size: .66rem; font-weight: 700; background: var(--surface-hover-bg); color: var(--text-muted); }
+    .mt-conf.c-exact { background: color-mix(in srgb, var(--ok-fg) 14%, transparent); color: var(--ok-fg); }
+    .mt-conf.c-inferred { background: color-mix(in srgb, var(--warn-fg) 16%, transparent); color: var(--warn-soft-fg); }
+    .mt-conf.c-weak { background: color-mix(in srgb, var(--warn-fg) 10%, transparent); color: var(--warn-soft-fg); border: 1px dashed color-mix(in srgb, var(--warn-fg) 45%, transparent); }
     .mt-asg-benef { font-size: .7rem; color: var(--text-muted); display: inline-flex; align-items: center; gap: .25rem; max-width: 22ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .mt-asg-benef .pi { font-size: .8em; }
-    .mt-dlg-tabs { display: inline-flex; border: 1px solid var(--border-color); border-radius: var(--r-pill, 999px); overflow: hidden; margin-bottom: .8rem; }
-    .mt-dlg-tabs button { border: none; background: var(--card-bg); padding: .4rem .9rem; font-size: .8rem; cursor: pointer; color: var(--text-muted); display: inline-flex; align-items: center; gap: .4rem; }
-    .mt-dlg-tabs button + button { border-left: 1px solid var(--border-color); }
-    .mt-dlg-tabs button.active { background: var(--action); color: var(--action-ink, #fff); font-weight: 600; }
+    .mt-dlg-sb { margin-bottom: .8rem; display: inline-block; }
     .mt-tab-n { font-variant-numeric: tabular-nums; font-size: .72rem; opacity: .85; }
-    .mt-est { display: inline-block; padding: .1rem .5rem; border-radius: var(--r-pill, 999px); font-size: .66rem; font-weight: 700; }
-    .mt-est.e-vigente { background: color-mix(in srgb, var(--ok-fg, #16a34a) 14%, transparent); color: var(--ok-fg, #16a34a); }
-    .mt-est.e-cancelado { background: color-mix(in srgb, var(--bad-fg, #dc2626) 15%, transparent); color: var(--bad-fg, #dc2626); }
-    .mt-est.e-desconocido { background: var(--surface-hover-bg, #f5f5f4); color: var(--text-muted); }
+    .mt-est { display: inline-block; padding: .1rem .5rem; border-radius: var(--r-pill); font-size: .66rem; font-weight: 700; }
+    .mt-est.e-vigente { background: color-mix(in srgb, var(--ok-fg) 14%, transparent); color: var(--ok-fg); }
+    .mt-est.e-cancelado { background: color-mix(in srgb, var(--bad-fg) 15%, transparent); color: var(--bad-fg); }
+    .mt-est.e-desconocido { background: var(--surface-hover-bg); color: var(--text-muted); }
     .mt-recon-sum { display: flex; gap: .9rem; flex-wrap: wrap; align-items: center; margin-bottom: .7rem; font-size: .74rem; font-weight: 600; }
     .mt-dl-btn { margin-left: auto; }
-    .mt-rs.ok { color: var(--ok-fg, #16a34a); } .mt-rs.warn { color: var(--warn-soft-fg, #b45309); } .mt-rs.muted { color: var(--text-muted); }
+    .mt-rs.ok { color: var(--ok-fg); } .mt-rs.warn { color: var(--warn-soft-fg); } .mt-rs.muted { color: var(--text-muted); }
     .mt-asg { display: flex; align-items: center; gap: .45rem; flex-wrap: wrap; }
     .mt-asg-acts { display: inline-flex; gap: .2rem; }
     .mt-asg .mt-conf .pi, .mt-est .pi { font-size: .82em; }
     .mt-ico-btn { width: 1.9rem; height: 1.9rem; }
     .mt-row-busy { opacity: .5; }
-    .mt-exp-row > td { background: var(--surface-hover-bg, #faf9f8); }
+    .mt-exp-row > td { background: var(--surface-hover-bg); }
     .mt-timeline { display: flex; align-items: stretch; gap: .5rem; flex-wrap: wrap; padding: .3rem 0; }
-    .mt-tl-step { display: flex; align-items: center; gap: .5rem; border: 1px solid var(--border-color); border-radius: var(--r-md, 10px); padding: .5rem .7rem; background: var(--card-bg); min-width: 12rem; flex: 1; }
+    .mt-tl-step { display: flex; align-items: center; gap: .5rem; border: 1px solid var(--border-color); border-radius: var(--r-md); padding: .5rem .7rem; background: var(--card-bg); min-width: 12rem; flex: 1; }
     .mt-tl-step.off { opacity: .55; border-style: dashed; }
-    .mt-tl-ico { display: inline-flex; align-items: center; justify-content: center; width: 1.9rem; height: 1.9rem; border-radius: var(--r-sm, 8px); background: var(--surface-hover-bg, #f5f5f4); color: var(--text-muted); flex-shrink: 0; }
+    .mt-tl-ico { display: inline-flex; align-items: center; justify-content: center; width: 1.9rem; height: 1.9rem; border-radius: var(--r-sm); background: var(--surface-hover-bg); color: var(--text-muted); flex-shrink: 0; }
     .mt-tl-ico.on { background: color-mix(in srgb, var(--action) 14%, transparent); color: var(--action); }
     .mt-tl-b { display: flex; flex-direction: column; gap: .05rem; min-width: 0; }
     .mt-tl-lbl { font-size: .66rem; text-transform: uppercase; letter-spacing: .03em; color: var(--text-muted); font-weight: 600; }
-    .mt-tl-sep { color: var(--text-faint, #a8a29e); font-size: .75rem; align-self: center; }
+    .mt-tl-sep { color: var(--text-faint); font-size: .75rem; align-self: center; }
     .mt-tl-meta { display: flex; gap: 1.2rem; margin-top: .5rem; font-size: .74rem; color: var(--text-muted); }
     @media (max-width: 640px) { .mt-tl-sep { display: none; } .mt-tl-step { min-width: 100%; } }
     /* MAT — descubrimiento de proveedores */
@@ -428,10 +428,10 @@ import { Permission } from '../../../core/constants/permissions';
     .mt-disc-row { cursor: pointer; }
     .mt-p-name { font-weight: 600; color: var(--text-main); max-width: 40ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .mt-p-rfc { color: var(--text-muted); margin-top: .05rem; }
-    .mt-r-tag { display: inline-block; padding: .1rem .5rem; border-radius: var(--r-pill, 999px); font-size: .66rem; font-weight: 700; }
-    .mt-r-tag.risk { background: color-mix(in srgb, var(--bad-fg, #dc2626) 15%, transparent); color: var(--bad-fg, #dc2626); }
-    .mt-r-tag.warn { background: color-mix(in srgb, var(--warn-fg, #d97706) 16%, transparent); color: var(--warn-soft-fg, #b45309); }
-    .mt-warn { display: flex; align-items: center; gap: .4rem; font-size: .8rem; color: var(--warn-soft-fg, #b45309); background: color-mix(in srgb, var(--warn-fg, #d97706) 8%, transparent); border-radius: var(--r-sm, 8px); padding: .5rem .7rem; margin-bottom: .7rem; }
+    .mt-r-tag { display: inline-block; padding: .1rem .5rem; border-radius: var(--r-pill); font-size: .66rem; font-weight: 700; }
+    .mt-r-tag.risk { background: color-mix(in srgb, var(--bad-fg) 15%, transparent); color: var(--bad-fg); }
+    .mt-r-tag.warn { background: color-mix(in srgb, var(--warn-fg) 16%, transparent); color: var(--warn-soft-fg); }
+    .mt-warn { display: flex; align-items: center; gap: .4rem; font-size: .8rem; color: var(--warn-soft-fg); background: color-mix(in srgb, var(--warn-fg) 8%, transparent); border-radius: var(--r-sm); padding: .5rem .7rem; margin-bottom: .7rem; }
     .mt-empty2 { padding: 2.5rem 1rem; text-align: center; color: var(--text-muted); }
     .mt-empty2 .pi { display: block; font-size: 1.5rem; margin-bottom: .5rem; opacity: .6; }
   `],
@@ -449,6 +449,15 @@ export class ContabilidadMaterialidadComponent {
 
   rfc = '';
   readonly dossier = signal<MaterialidadDossier | null>(null);
+  readonly loadedAt = signal<number | null>(null);
+
+  /** Opciones de las tabs del diálogo (icono + conteo dinámico del dossier). */
+  dlgTabOpts(d: MaterialidadDossier) {
+    return [
+      { label: 'Operación', value: 'oper', icon: 'pi-sitemap', count: d.cadena_suministro.cadenas },
+      { label: 'Fiscal · CFDIs', value: 'fiscal', icon: 'pi-file', count: d.cfdis.total },
+    ];
+  }
 
   /** MAT — descubrimiento de proveedores: índice rankeado por riesgo para explorar sin teclear el RFC. */
   readonly providers = signal<MatProvider[]>([]);
@@ -521,7 +530,7 @@ export class ContabilidadMaterialidadComponent {
     this.chains.set(null); this.chainsRfc = ''; this.chainsOpen.set(false);
     this.recon.set(null); this.reconRfc = ''; this.dlgTab.set('oper'); this.busy.set(null);
     this.svc.dossier(this.rfc.toUpperCase()).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (d) => { this.dossier.set(d); this.loading.set(false); },
+      next: (d) => { this.dossier.set(d); this.loading.set(false); this.loadedAt.set(Date.now()); },
       error: () => { this.loading.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo armar el expediente.' }); },
     });
   }

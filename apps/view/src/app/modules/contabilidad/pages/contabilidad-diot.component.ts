@@ -9,9 +9,13 @@ import { InputTextModule } from 'primeng/inputtext';
 import { IconFieldModule } from 'primeng/iconfield';
 import { InputIconModule } from 'primeng/inputicon';
 import { SelectModule } from 'primeng/select';
+import { DatePickerModule } from 'primeng/datepicker';
+import { TagModule } from 'primeng/tag';
 import { MessageService } from 'primeng/api';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
+import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
+import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import { CONTABILIDAD_TABS } from '../contabilidad-tabs';
 import { DiotService, DiotRow, DiotResult, IvaResumen } from '../diot.service';
 
@@ -23,7 +27,7 @@ import { DiotService, DiotRow, DiotResult, IvaResumen } from '../diot.service';
 @Component({
   selector: 'app-contabilidad-diot',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, TableModule, ToastModule, InputTextModule, IconFieldModule, InputIconModule, SelectModule, PageTabsComponent, MetricStripComponent],
+  imports: [CommonModule, FormsModule, ButtonModule, TableModule, ToastModule, InputTextModule, IconFieldModule, InputIconModule, SelectModule, DatePickerModule, TagModule, PageTabsComponent, MetricStripComponent, FreshnessPillComponent, ContextHelpComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
@@ -33,11 +37,14 @@ import { DiotService, DiotRow, DiotResult, IvaResumen } from '../diot.service';
 
       <header class="surf-page-head di-head">
         <div class="surf-page-head-text">
-          <h1>DIOT / IVA</h1>
+          <h1 class="di-h1">DIOT / IVA <app-context-help topic="diot" /></h1>
           <p class="surf-page-sub">Operaciones con terceros e IVA con flujo efectivo (PUE en emisión, PPD al pagarse el REP). Cálculo determinista sobre los CFDI recibidos/emitidos.</p>
         </div>
         <div class="di-head-actions">
-          <label class="di-period"><span>Periodo</span><input type="month" [(ngModel)]="period" (change)="reload()" aria-label="Periodo (mes)" /></label>
+          @if (loadedAt()) { <app-freshness-pill [since]="loadedAt()" /> }
+          <label class="di-period"><span>Periodo</span>
+            <p-datepicker [(ngModel)]="periodD" (onSelect)="onPeriod()" view="month" dateFormat="mm/yy" [showIcon]="true" appendTo="body" ariaLabel="Periodo (mes)" styleClass="di-dp" />
+          </label>
           <button pButton type="button" label="Actualizar" icon="pi pi-refresh" class="p-button-sm p-button-outlined" [loading]="loading()" (click)="reload()"></button>
         </div>
       </header>
@@ -72,7 +79,7 @@ import { DiotService, DiotRow, DiotResult, IvaResumen } from '../diot.service';
           <ng-template pTemplate="body" let-r>
             <tr>
               <td><div class="di-name">{{ r.nombre || r.rfc }}</div><div class="di-rfc mono">{{ r.rfc }}</div></td>
-              <td><span class="di-tag">{{ terceroLabel(r.tipo_tercero) }}</span></td>
+              <td><p-tag [value]="terceroLabel(r.tipo_tercero)" severity="secondary" styleClass="di-chip" /></td>
               <td class="mono">{{ r.tipo_operacion }}</td>
               <td class="ta-r mono">{{ money(r.base) }}</td>
               <td class="ta-r strong mono">{{ money(r.iva16) }}</td>
@@ -93,9 +100,9 @@ import { DiotService, DiotRow, DiotResult, IvaResumen } from '../diot.service';
   styles: [`
     :host { display: block; }
     .di-head { display: flex; align-items: flex-start; gap: 1rem; }
+    .di-h1 { display: inline-flex; align-items: center; gap: .3rem; }
     .di-head-actions { margin-left: auto; display: flex; gap: .5rem; align-items: flex-end; }
     .di-period { display: flex; flex-direction: column; gap: .15rem; font-size: .68rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: .03em; }
-    .di-period input { border: 1px solid var(--border-color); border-radius: var(--r-sm, 8px); padding: .35rem .5rem; background: var(--card-bg); color: var(--text-main); font-family: var(--font-mono, monospace); }
     app-metric-strip { display:block; margin-bottom: 1rem; }
     .di-card-head { padding: .75rem 1rem .25rem; display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
     .di-card-filters { display: flex; gap: .5rem; align-items: center; }
@@ -107,7 +114,7 @@ import { DiotService, DiotRow, DiotResult, IvaResumen } from '../diot.service';
     .mono { font-family: var(--font-mono, ui-monospace, monospace); font-size: .85em; }
     .di-name { font-weight: 600; color: var(--text-main); max-width: 32ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .di-rfc { color: var(--text-muted); margin-top: .05rem; }
-    .di-tag { display: inline-block; padding: .08rem .5rem; border-radius: var(--r-pill, 999px); font-size: .7rem; font-weight: 600; background: var(--surface-hover-bg, #f5f5f4); color: var(--text-muted); }
+    :host ::ng-deep .di-chip .p-tag { font-size: .68rem; font-weight: 600; padding: .08rem .5rem; }
     .di-empty { padding: 2.5rem 1rem; text-align: center; color: var(--text-muted); }
     .di-empty .pi { display: block; font-size: 1.5rem; margin-bottom: .5rem; opacity: .6; }
   `],
@@ -119,6 +126,8 @@ export class ContabilidadDiotComponent implements OnInit {
   private readonly destroyRef = inject(DestroyRef);
 
   period = this.currentMonth();
+  periodD: Date = new Date();
+  readonly loadedAt = signal<number | null>(null);
   readonly diot = signal<DiotResult | null>(null);
   readonly iva = signal<IvaResumen | null>(null);
 
@@ -154,12 +163,14 @@ export class ContabilidadDiotComponent implements OnInit {
     if (!/^\d{4}-\d{2}$/.test(this.period)) { this.toast.add({ severity: 'warn', summary: 'Periodo inválido', detail: 'Elige un mes válido.' }); return; }
     this.loading.set(true); this.errored.set(false);
     this.svc.build(this.period).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (d) => { this.diot.set(d); this.rows.set(d.rows); this.loading.set(false); },
+      next: (d) => { this.diot.set(d); this.rows.set(d.rows); this.loading.set(false); this.loadedAt.set(Date.now()); },
       error: () => { this.loading.set(false); this.errored.set(true); this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo calcular la DIOT.' }); },
     });
     this.svc.iva(this.period).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (v) => this.iva.set(v), error: () => {} });
   }
 
+  /** El p-datepicker (vista mes) maneja una Date; derivamos el periodo YYYY-MM. */
+  onPeriod() { if (this.periodD) { this.period = `${this.periodD.getFullYear()}-${String(this.periodD.getMonth() + 1).padStart(2, '0')}`; this.reload(); } }
   private currentMonth(): string { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`; }
   terceroLabel(t: string): string { return t === '04' ? 'Nacional' : t === '05' ? 'Extranjero' : t === '15' ? 'Global' : t; }
   money(v: number | string | null | undefined): string { return (Number(v ?? 0) || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 }); }

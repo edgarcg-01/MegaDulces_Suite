@@ -5,9 +5,12 @@ import { FormsModule } from '@angular/forms';
 import { ButtonModule } from 'primeng/button';
 import { ToastModule } from 'primeng/toast';
 import { InputTextModule } from 'primeng/inputtext';
+import { DatePickerModule } from 'primeng/datepicker';
 import { MessageService } from 'primeng/api';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
+import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
+import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import { CONTABILIDAD_TABS } from '../contabilidad-tabs';
 import { ImpuestosService, ProvisionalResult } from '../impuestos.service';
 
@@ -19,7 +22,7 @@ import { ImpuestosService, ProvisionalResult } from '../impuestos.service';
 @Component({
   selector: 'app-contabilidad-impuestos',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, ToastModule, InputTextModule, PageTabsComponent, MetricStripComponent],
+  imports: [CommonModule, FormsModule, ButtonModule, ToastModule, InputTextModule, DatePickerModule, PageTabsComponent, MetricStripComponent, FreshnessPillComponent, ContextHelpComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
@@ -29,7 +32,7 @@ import { ImpuestosService, ProvisionalResult } from '../impuestos.service';
 
       <header class="surf-page-head im-head">
         <div class="surf-page-head-text">
-          <h1>Impuestos provisionales</h1>
+          <h1 class="im-h1">Impuestos provisionales <app-context-help topic="impuestos" /></h1>
           <p class="surf-page-sub">Pago provisional mensual ISR + IVA. Cálculo de apoyo desde la balanza y los CFDI con flujo efectivo.</p>
         </div>
       </header>
@@ -38,7 +41,7 @@ import { ImpuestosService, ProvisionalResult } from '../impuestos.service';
 
       <div class="card-premium card-flat im-form">
         <div class="im-fields">
-          <label class="im-f"><span>Periodo *</span><input type="month" [(ngModel)]="p.period" /></label>
+          <label class="im-f"><span>Periodo *</span><p-datepicker [(ngModel)]="periodD" (onSelect)="syncPeriod()" view="month" dateFormat="mm/yy" [showIcon]="true" appendTo="body" ariaLabel="Periodo (mes)" styleClass="im-dp" /></label>
           <label class="im-f"><span>Coef. utilidad *</span><input type="number" step="0.0001" min="0" pInputText [(ngModel)]="p.cu" placeholder="0.0500" /></label>
           <label class="im-f"><span>Tasa ISR</span><input type="number" step="0.01" pInputText [(ngModel)]="p.tasa" placeholder="0.30" /></label>
           <label class="im-f"><span>PTU pagada</span><input type="number" step="0.01" pInputText [(ngModel)]="p.ptu" placeholder="0" /></label>
@@ -50,7 +53,10 @@ import { ImpuestosService, ProvisionalResult } from '../impuestos.service';
       </div>
 
       @if (res(); as r) {
-        <app-metric-strip [items]="kpiItems(r)" ariaLabel="Resumen de impuestos" />
+        <div class="im-resulthead">
+          <app-metric-strip [items]="kpiItems(r)" ariaLabel="Resumen de impuestos" />
+          @if (calcAt()) { <app-freshness-pill [since]="calcAt()" label="calculado" /> }
+        </div>
 
 
         <div class="im-grid">
@@ -83,12 +89,15 @@ import { ImpuestosService, ProvisionalResult } from '../impuestos.service';
   `,
   styles: [`
     :host { display: block; }
-    .im-warn { display: flex; gap: .5rem; align-items: center; font-size: .82rem; color: var(--warn-soft-fg, #b45309); background: color-mix(in srgb, var(--warn-fg, #d97706) 10%, transparent); border: 1px solid color-mix(in srgb, var(--warn-fg, #d97706) 30%, var(--border-color)); border-radius: var(--r-md, 10px); padding: .6rem .9rem; margin-bottom: 1rem; }
+    .im-h1 { display: inline-flex; align-items: center; gap: .3rem; }
+    .im-warn { display: flex; gap: .5rem; align-items: center; font-size: .82rem; color: var(--warn-soft-fg); background: color-mix(in srgb, var(--warn-fg) 10%, transparent); border: 1px solid color-mix(in srgb, var(--warn-fg) 30%, var(--border-color)); border-radius: var(--r-md); padding: .6rem .9rem; margin-bottom: 1rem; }
     .im-form { padding: 1rem 1.2rem; margin-bottom: 1rem; }
     .im-fields { display: flex; gap: .8rem; flex-wrap: wrap; align-items: flex-end; }
     .im-f { display: flex; flex-direction: column; gap: .25rem; font-size: .68rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: .03em; }
-    .im-f input { border: 1px solid var(--border-color); border-radius: var(--r-sm, 8px); padding: .45rem .6rem; background: var(--card-bg); color: var(--text-main); font-family: var(--font-mono, monospace); width: 8.5rem; }
+    .im-f input { border: 1px solid var(--border-color); border-radius: var(--r-sm); padding: .45rem .6rem; background: var(--card-bg); color: var(--text-main); font-family: var(--font-mono, monospace); width: 8.5rem; }
     app-metric-strip { display:block; margin-bottom: 1rem; }
+    .im-resulthead { display: flex; flex-direction: column; gap: .3rem; }
+    .im-resulthead app-freshness-pill { align-self: flex-end; margin: -.4rem 0 1rem; }
     .im-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
     @media (max-width: 800px) { .im-grid { grid-template-columns: 1fr; } }
     .im-block { padding: 1rem 1.2rem; }
@@ -110,7 +119,12 @@ export class ContabilidadImpuestosComponent {
 
   p: { period: string; cu: number | null; tasa: number | null; ptu: number | null; perdidas: number | null; pagos_previos: number | null; retenido: number | null } =
     { period: this.currentMonth(), cu: null, tasa: 0.30, ptu: 0, perdidas: 0, pagos_previos: 0, retenido: 0 };
+  periodD: Date = new Date();
   readonly res = signal<ProvisionalResult | null>(null);
+  readonly calcAt = signal<number | null>(null);
+
+  /** p-datepicker (vista mes) → sincroniza el periodo YYYY-MM (el cálculo es con el botón). */
+  syncPeriod() { if (this.periodD) this.p.period = `${this.periodD.getFullYear()}-${String(this.periodD.getMonth() + 1).padStart(2, '0')}`; }
 
   kpiItems(r: ProvisionalResult): MetricStripItem[] {
     const cargo = r.iva.iva_a_cargo > 0;
@@ -132,7 +146,7 @@ export class ContabilidadImpuestosComponent {
       tasa: this.p.tasa ?? undefined, ptu: this.p.ptu ?? undefined, perdidas: this.p.perdidas ?? undefined,
       pagos_previos: this.p.pagos_previos ?? undefined, retenido: this.p.retenido ?? undefined,
     }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (r) => { this.res.set(r); this.loading.set(false); },
+      next: (r) => { this.res.set(r); this.loading.set(false); this.calcAt.set(Date.now()); },
       error: () => { this.loading.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo calcular el pago provisional.' }); },
     });
   }

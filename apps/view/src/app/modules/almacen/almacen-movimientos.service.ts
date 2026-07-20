@@ -24,6 +24,8 @@ export interface MovementsFilters {
   estado?: TransferDocStatus | '';
   /** Traspasos cuyo ORIGEN o DESTINO (propio o contraparte) ∈ selección. Activa modo solo-traspasos. */
   transfer_wh_ids?: string[];
+  /** Destino de traspasos a mostrar: 'sucursal' (default) y/o 'ruta'. */
+  dest_kinds?: string[];
 }
 
 export interface MovementTotals {
@@ -130,6 +132,7 @@ export class AlmacenMovimientosService {
     if (f.search) p = p.set('search', f.search);
     if (f.estado) p = p.set('estado', f.estado);
     if (f.transfer_wh_ids?.length) p = p.set('transfer_wh_ids', f.transfer_wh_ids.join(','));
+    if (f.dest_kinds?.length) p = p.set('dest_kinds', f.dest_kinds.join(','));
     for (const [k, v] of Object.entries(extra)) if (v !== undefined && v !== '') p = p.set(k, String(v));
     return p;
   }

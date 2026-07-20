@@ -20,6 +20,10 @@ type GroupBy = (typeof GROUPS)[number];
 const UUID_RX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 // Docs informativos (k_binv=0, movement_kind='info' en el feed): solo visibles con filtro explícito
 const INFO_DOC_CODES = ['ApEntOr1'];
+// DM.11b — clasifica el DESTINO de un traspaso (dest_label/dest_code) como RUTA de reparto.
+// Cubre "R.D. 28", "RD MORELIA", "R.V. …", "RV-PH-01", "RUTA 501". Sucursal = todo lo demás
+// (TI### traspaso a sucursal, P.V. piso, TLMKT). Sin `?` a propósito → seguro inline en raw.
+const ROUTE_RX = '^\\s*(R\\.[DV]|R[DV]|RUTA)';
 
 export interface MovementsQuery {
   warehouse_id?: string;
@@ -33,6 +37,7 @@ export interface MovementsQuery {
   folio?: string;         // filtra un folio exacto (drill al documento)
   estado?: string;        // estado de traspaso: en_transito | completado | diferencia
   transfer_wh_ids?: string; // CSV UUIDs — traspasos cuyo ORIGEN o DESTINO ∈ selección (propio o contraparte)
+  dest_kinds?: string;    // CSV 'sucursal'|'ruta'|'cliente' — destino de traspasos; default 'sucursal'
   group_by?: string;
   page?: number;
   pageSize?: number;
@@ -61,6 +66,36 @@ export class CommercialMovementsService {
   private transferWhIds(q: MovementsQuery): string[] {
     return (q.transfer_wh_ids || '')
       .split(',').map((s) => s.trim()).filter((s) => UUID_RX.test(s));
+  }
+
+  /**
+   * DM.11b — tipos de destino de traspaso a mostrar (default 'sucursal'). Un TrsfShip va a:
+   *   sucursal → otra sucursal (dest_code 'TI###'; el traspaso interno "primordial")
+   *   ruta     → ruta de reparto (R.D./R.V./RUTA)
+   *   cliente  → tienda/cliente u otro (resto: ABARROTES…, TLMKT, códigos sueltos)
+   */
+  private destKinds(q: MovementsQuery): ('sucursal' | 'ruta' | 'cliente')[] {
+    const ks = (q.dest_kinds || '').split(',').map((s) => s.trim().toLowerCase())
+      .filter((s) => s === 'sucursal' || s === 'ruta' || s === 'cliente') as ('sucursal' | 'ruta' | 'cliente')[];
+    return ks.length ? [...new Set(ks)] : ['sucursal'];
+  }
+
+  /** SQL por bucket de destino (sobre m.dest_code/m.dest_label). */
+  private destBucketSql(kinds: ('sucursal' | 'ruta' | 'cliente')[]): string {
+    if (kinds.length === 3) return ''; // todos = sin filtro
+    const isRoute = `(coalesce(m.dest_label,'') ~* '${ROUTE_RX}' OR coalesce(m.dest_code,'') ~* '${ROUTE_RX}')`;
+    const isSuc = `m.dest_code ILIKE 'TI%'`;
+    const conds: string[] = [];
+    if (kinds.includes('sucursal')) conds.push(isSuc);
+    if (kinds.includes('ruta')) conds.push(isRoute);
+    if (kinds.includes('cliente')) conds.push(`(NOT ${isSuc} AND NOT ${isRoute})`);
+    return conds.length ? `(${conds.join(' OR ')})` : `false`;
+  }
+
+  /** WHERE de destino: acota los TrsfShip por bucket; no toca el resto de docs. */
+  private applyDestFilter(b: any, q: MovementsQuery) {
+    const sql = this.destBucketSql(this.destKinds(q));
+    if (sql) b.whereRaw(`(m.doc_code <> 'TrsfShip' OR ${sql})`);
   }
 
   /** Rango por default: últimos 30 días. */
@@ -92,6 +127,8 @@ export class CommercialMovementsService {
     if (['en_transito', 'completado', 'diferencia'].includes(q.estado || '') || this.transferWhIds(q).length) {
       b.whereIn('m.doc_code', ['TrsfShip', 'TrsfRcv']);
     }
+    // DM.11b — destino: por defecto oculta traspasos a rutas de reparto (no primordial)
+    this.applyDestFilter(b, q);
     if (q.search) {
       b.whereIn('m.product_id',
         trx('public.products').select('id').where('tenant_id', tenantId)
@@ -453,6 +490,10 @@ export class CommercialMovementsService {
     const { from, to } = this.range(q);
     const whs = this.whIds(q);
     const twhs = this.transferWhIds(q);
+    // DM.11b — mismo filtro de destino que el listado: por defecto solo sucursal (evita que
+    // rutas/clientes aparezcan como falsos "sin recepción"). ROUTE_RX sin `?` → seguro inline.
+    const destSql = this.destBucketSql(this.destKinds(q));
+    const shpDestSql = destSql ? ` AND ${destSql}` : '';
     return this.tk.run(async (trx) => {
       // Folios Kepler son secuencias POR SUCURSAL → un (serie, folio) puede existir en varias
       // sucursales de origen. Ranking LATERAL: para cada recepción se elige el candidato de
@@ -465,7 +506,7 @@ export class CommercialMovementsService {
                  max(m.dest_code) AS dest_code, max(m.dest_label) AS dest_label  -- DM.11 destino
           FROM analytics.stock_movements m
           LEFT JOIN commercial.warehouses w ON w.id = m.warehouse_id
-          WHERE m.tenant_id = ? AND m.doc_code = 'TrsfShip' AND m.doc_date BETWEEN ? AND ?
+          WHERE m.tenant_id = ? AND m.doc_code = 'TrsfShip' AND m.doc_date BETWEEN ? AND ?${shpDestSql}
           GROUP BY m.warehouse_id, w.code, w.name, m.folio, m.doc_serie
         ), rcv AS (
           SELECT m.warehouse_id, coalesce(w.name, w.code) AS wh_code, m.folio, m.parent_serie, m.parent_folio,

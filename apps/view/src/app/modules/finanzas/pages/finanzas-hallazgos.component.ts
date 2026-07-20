@@ -1,5 +1,6 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { Observable } from 'rxjs';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
@@ -10,7 +11,7 @@ import { MessageService } from 'primeng/api';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { FINANZAS_TABS } from '../finanzas-tabs';
-import { FindingsService, Finding, FindingsStats, RuleHealth, FindingClase } from '../findings.service';
+import { FindingsService, Finding, FindingsStats, RuleHealth, FindingClase, Coverage, DataQuality, Hypothesis, ModelStatus, Backtest, UncertainRow } from '../findings.service';
 import { ActionsService, ProposedAction } from '../actions.service';
 
 /**
@@ -41,6 +42,16 @@ import { ActionsService, ProposedAction } from '../actions.service';
         </div>
       </header>
 
+      <!-- Switcher de vistas (MAAT-IQ) -->
+      <div class="fh-viewseg" role="tablist">
+        <button role="tab" [attr.aria-selected]="view()==='hallazgos'" [class.active]="view()==='hallazgos'" (click)="setView('hallazgos')"><i class="pi pi-flag"></i> Hallazgos</button>
+        <button role="tab" [attr.aria-selected]="view()==='cobertura'" [class.active]="view()==='cobertura'" (click)="setView('cobertura')"><i class="pi pi-shield"></i> Cobertura</button>
+        <button role="tab" [attr.aria-selected]="view()==='calidad'" [class.active]="view()==='calidad'" (click)="setView('calidad')"><i class="pi pi-database"></i> Calidad de datos</button>
+        <button role="tab" [attr.aria-selected]="view()==='descubrimiento'" [class.active]="view()==='descubrimiento'" (click)="setView('descubrimiento')"><i class="pi pi-compass"></i> Descubrimiento</button>
+        <button role="tab" [attr.aria-selected]="view()==='modelo'" [class.active]="view()==='modelo'" (click)="setView('modelo')"><i class="pi pi-sparkles"></i> Modelo</button>
+      </div>
+
+      @if (view() === 'hallazgos') {
       <!-- KPIs -->
       @if (stats(); as s) {
         <app-metric-strip [items]="kpiItems(s)" ariaLabel="Resumen de hallazgos" />
@@ -152,6 +163,122 @@ import { ActionsService, ProposedAction } from '../actions.service';
           </td></tr></ng-template>
         </p-table>
       </div>
+      }
+
+      @else if (view() === 'cobertura') {
+        <div class="card-premium card-flat fh-panel">
+          <div class="fh-panel-head">
+            <h3 class="fh-card-title">Cobertura por categoría de riesgo <span class="muted">(¿qué NO estamos vigilando?)</span></h3>
+            @if (coverage(); as c) { <span class="fh-cov-pct" [class.bad]="c.puntos_ciegos.length > 0">{{ c.cobertura_pct }}% cubierto · {{ c.puntos_ciegos.length }} punto(s) ciego(s)</span> }
+          </div>
+          @if (coverage(); as c) {
+            <p-table [value]="c.categorias" styleClass="p-datatable-sm" [rowHover]="true">
+              <ng-template pTemplate="header"><tr><th>Categoría</th><th class="ta-r" style="width:7rem">Activos</th><th class="ta-r" style="width:7rem">Hallazgos</th><th style="width:11rem">Estado</th></tr></ng-template>
+              <ng-template pTemplate="body" let-cat>
+                <tr [class.fh-blind]="cat.activos === 0">
+                  <td><span class="fh-titulo">{{ cat.nombre }}</span>@if (cat.critica) { <span class="fh-tag cls-riesgo">crítica</span> }<div class="muted fh-cov-rules">{{ cat.rules.join(', ') }}</div></td>
+                  <td class="ta-r mono">{{ cat.activos }}/{{ cat.rules.length }}</td>
+                  <td class="ta-r mono">{{ cat.findings | number }}</td>
+                  <td>@if (cat.activos === 0) { <span class="fh-tag cls-riesgo">PUNTO CIEGO</span> } @else if (cat.suprimidos > 0) { <span class="fh-tag cls-error_captura">{{ cat.suprimidos }} suprimida(s)</span> } @else { <span class="fh-tag cls-oportunidad">cubierta</span> }</td>
+                </tr>
+              </ng-template>
+              <ng-template pTemplate="emptymessage"><tr><td colspan="4" class="fh-empty">@if (loadingMiq()) { Cargando… } @else { Corre "Escanear ahora" para registrar las reglas. }</td></tr></ng-template>
+            </p-table>
+          } @else if (loadingMiq()) { <div class="fh-empty">Cargando cobertura…</div> }
+        </div>
+      }
+
+      @else if (view() === 'calidad') {
+        <div class="card-premium card-flat fh-panel">
+          <div class="fh-panel-head">
+            <h3 class="fh-card-title">Calidad de los datos que alimentan al motor</h3>
+            @if (dq(); as d) { <span class="fh-dq-idx" [ngClass]="'sem-' + d.semaforo">Índice {{ d.indice_global }}/100</span> }
+          </div>
+          @if (dq(); as d) {
+            <p-table [value]="d.dimensiones" styleClass="p-datatable-sm" [rowHover]="true">
+              <ng-template pTemplate="header"><tr><th>Dimensión</th><th style="width:9rem">Score</th><th class="ta-r" style="width:10rem">$ afectado</th><th>Detalle</th></tr></ng-template>
+              <ng-template pTemplate="body" let-dim>
+                <tr>
+                  <td class="fh-titulo">{{ dim.nombre }}</td>
+                  <td><span class="fh-bar"><span class="fh-bar-fill" [ngClass]="scoreTone(dim.score)" [style.width.%]="dim.score"></span></span><span class="fh-bar-n mono">{{ dim.score }}</span></td>
+                  <td class="ta-r mono">{{ dim.importe ? money(dim.importe) : '—' }}</td>
+                  <td class="fh-resumen">{{ dim.detalle }}</td>
+                </tr>
+              </ng-template>
+            </p-table>
+          } @else if (loadingMiq()) { <div class="fh-empty">Cargando…</div> }
+        </div>
+      }
+
+      @else if (view() === 'descubrimiento') {
+        <div class="card-premium card-flat fh-panel fh-actions">
+          <div class="fh-panel-head">
+            <h3 class="fh-card-title">Hipótesis de detectores nuevos <span class="muted">(la AI y los mineros proponen, tú apruebas)</span></h3>
+            <button pButton type="button" label="Buscar hipótesis" icon="pi pi-compass" class="p-button-sm p-button-outlined" [loading]="discovering()" (click)="runDiscovery()"></button>
+          </div>
+          @for (h of hypotheses(); track h.id) {
+            <div class="fh-action">
+              <div class="fh-action-body">
+                <span class="fh-action-titulo">{{ h.titulo }} <span class="fh-tag" [ngClass]="h.source === 'ai' ? 'cls-pin' : 'cls-off'">{{ h.source === 'ai' ? 'AI' : 'determinista' }}</span></span>
+                <span class="fh-action-desc">{{ h.descripcion }}</span>
+              </div>
+              <div class="fh-action-acts">
+                <button pButton type="button" icon="pi pi-check" label="Aprobar" class="p-button-sm p-button-success" (click)="approveHyp(h)"></button>
+                <button pButton type="button" icon="pi pi-times" class="p-button-sm p-button-text p-button-danger" title="Rechazar" (click)="rejectHyp(h)"></button>
+              </div>
+            </div>
+          } @empty {
+            <div class="fh-empty">@if (loadingMiq()) { Cargando… } @else { <i class="pi pi-compass"></i> Sin hipótesis pendientes. Corre "Buscar hipótesis" para que los mineros propongan detectores nuevos. }</div>
+          }
+        </div>
+      }
+
+      @else if (view() === 'modelo') {
+        <div class="fh-model-grid">
+          <div class="card-premium card-flat fh-panel">
+            <h3 class="fh-card-title">Modelo que prioriza <span class="muted">(aprende del feedback)</span></h3>
+            @if (model(); as m) {
+              @if (m.modelo) {
+                <div class="fh-model-kv">
+                  <div><span class="fh-ev-k">Versión</span><span class="fh-ev-v mono">v{{ m.modelo.version }}</span></div>
+                  <div><span class="fh-ev-k">Entrenado con</span><span class="fh-ev-v mono">{{ m.modelo.n_train }} etiquetas ({{ m.modelo.n_pos }}+)</span></div>
+                  <div><span class="fh-ev-k">AUC (train)</span><span class="fh-ev-v mono">{{ m.modelo.metrics?.['auc'] ?? '—' }}</span></div>
+                  <div><span class="fh-ev-k">Precisión</span><span class="fh-ev-v mono">{{ m.modelo.metrics?.['precision'] ?? '—' }}</span></div>
+                </div>
+              } @else {
+                <div class="fh-empty2"><i class="pi pi-hourglass"></i> Cold-start: la bandeja usa el score del detector. El modelo entrena solo al llegar a ≥12 etiquetas (hoy {{ m.dataset.etiquetados }}).</div>
+              }
+              <div class="fh-model-ds muted">Dataset: {{ m.dataset.etiquetados }}/{{ m.dataset.total }} etiquetados · {{ m.dataset.scoreados }} priorizados</div>
+              <button pButton type="button" label="Entrenar / priorizar ahora" icon="pi pi-sync" class="p-button-sm p-button-outlined" [loading]="training()" (click)="runLearning()"></button>
+            } @else if (loadingMiq()) { <div class="fh-empty">Cargando…</div> }
+          </div>
+
+          <div class="card-premium card-flat fh-panel">
+            <h3 class="fh-card-title">Backtest <span class="muted">(¿supera al detector?)</span></h3>
+            @if (backtest(); as b) {
+              @if (b.ran) {
+                <div class="fh-model-kv">
+                  <div><span class="fh-ev-k">AUC modelo</span><span class="fh-ev-v mono strong">{{ b.model?.auc }}</span></div>
+                  <div><span class="fh-ev-k">AUC detector</span><span class="fh-ev-v mono">{{ b.baseline_detector?.auc }}</span></div>
+                  <div><span class="fh-ev-k">Lift</span><span class="fh-ev-v mono" [class.ok]="(b.lift_auc || 0) > 0">{{ b.lift_auc }}</span></div>
+                  <div><span class="fh-ev-k">Etiquetas</span><span class="fh-ev-v mono">{{ b.n_labeled }}</span></div>
+                </div>
+                <p class="fh-resumen">{{ b.veredicto }}</p>
+              } @else { <div class="fh-empty2"><i class="pi pi-info-circle"></i> {{ b.reason || 'Aún no hay suficientes etiquetas para el backtest.' }}</div> }
+            } @else if (loadingMiq()) { <div class="fh-empty">Cargando…</div> }
+          </div>
+
+          <div class="card-premium card-flat fh-panel fh-uncertain">
+            <h3 class="fh-card-title">Etiquetá estos primero <span class="muted">(el modelo está más inseguro — rinde más por clic)</span></h3>
+            @for (u of uncertain(); track u.id) {
+              <div class="fh-unc-row" tabindex="0" role="button" (click)="setView('hallazgos')" (keyup.enter)="setView('hallazgos')">
+                <span class="fh-unc-t">{{ u.titulo }}</span>
+                <span class="fh-unc-p mono">p={{ u.model_score | number:'1.2-2' }}</span>
+              </div>
+            } @empty { <div class="fh-empty">@if (loadingMiq()) { Cargando… } @else { Nada pendiente por etiquetar (o el modelo aún no scorea). }</div> }
+          </div>
+        </div>
+      }
     </div>
   `,
   styles: [`
@@ -200,6 +327,34 @@ import { ActionsService, ProposedAction } from '../actions.service';
     .fh-action-efecto { font-size: .8rem; color: var(--action, #FB923C); }
     .fh-action-efecto i { font-size: .7rem; }
     .fh-action-acts { display: flex; gap: .3rem; flex-shrink: 0; }
+    /* MAAT-IQ — vistas */
+    .fh-viewseg { display: flex; gap: .3rem; flex-wrap: wrap; margin-bottom: 1rem; border-bottom: 1px solid var(--border-color, #e7e5e4); padding-bottom: .6rem; }
+    .fh-viewseg button { border: none; background: transparent; padding: .35rem .8rem; font-size: .82rem; cursor: pointer; color: var(--text-muted, #78716c); border-radius: var(--r-md, 10px); display: inline-flex; align-items: center; gap: .4rem; }
+    .fh-viewseg button:hover { color: var(--text-main); }
+    .fh-viewseg button.active { background: var(--surface-hover-bg, #f5f5f4); color: var(--text-main); font-weight: 600; }
+    .fh-panel { padding: 1rem 1.2rem; margin-bottom: 1rem; }
+    .fh-panel-head { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; margin-bottom: .6rem; }
+    .fh-cov-pct { font-size: .8rem; font-weight: 600; color: var(--ok-fg, #16a34a); }
+    .fh-cov-pct.bad { color: var(--bad-fg, #dc2626); }
+    .fh-cov-rules { font-size: .68rem; margin-top: .1rem; }
+    .fh-blind td:first-child { box-shadow: inset 3px 0 0 var(--bad-fg, #dc2626); }
+    .fh-dq-idx { font-size: .85rem; font-weight: 700; padding: .15rem .6rem; border-radius: var(--r-pill, 999px); }
+    .sem-verde { background: color-mix(in srgb, var(--ok-fg, #16a34a) 14%, transparent); color: var(--ok-fg, #16a34a); }
+    .sem-amarillo { background: color-mix(in srgb, var(--warn-fg, #d97706) 16%, transparent); color: var(--warn-soft-fg, #b45309); }
+    .sem-rojo { background: color-mix(in srgb, var(--bad-fg, #dc2626) 15%, transparent); color: var(--bad-fg, #dc2626); }
+    .fh-bar { display: inline-block; width: 6rem; height: .5rem; background: var(--surface-hover-bg, #f5f5f4); border-radius: 999px; overflow: hidden; vertical-align: middle; }
+    .fh-bar-fill { display: block; height: 100%; border-radius: 999px; }
+    .fh-bar-fill.ok { background: var(--ok-fg, #16a34a); } .fh-bar-fill.warn { background: var(--warn-fg, #d97706); } .fh-bar-fill.bad { background: var(--bad-fg, #dc2626); }
+    .fh-bar-n { margin-left: .4rem; font-size: .8rem; }
+    .fh-model-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem; }
+    .fh-model-kv { display: grid; grid-template-columns: 1fr 1fr; gap: .5rem 1rem; margin-bottom: .6rem; }
+    .fh-model-ds { font-size: .76rem; margin-bottom: .6rem; }
+    .fh-empty2 { font-size: .82rem; color: var(--text-muted, #78716c); padding: .6rem 0; display: flex; gap: .4rem; align-items: baseline; }
+    .fh-uncertain { grid-column: 1 / -1; }
+    .fh-unc-row { display: flex; justify-content: space-between; gap: 1rem; padding: .4rem 0; border-top: 1px solid var(--border-color, #e7e5e4); cursor: pointer; }
+    .fh-unc-row:first-of-type { border-top: none; }
+    .fh-unc-t { font-size: .85rem; } .fh-unc-p { color: var(--text-muted, #78716c); }
+    .ok { color: var(--ok-fg, #16a34a); }
   `],
 })
 export class FinanzasHallazgosComponent implements OnInit {
@@ -229,6 +384,18 @@ export class FinanzasHallazgosComponent implements OnInit {
   readonly clase = signal<FindingClase | null>(null);
   readonly status = signal<'pendientes' | 'confirmado' | 'descartado'>('pendientes');
   readonly expanded = signal<Record<string, boolean>>({});
+
+  // MAAT-IQ — vistas (cobertura / calidad / descubrimiento / modelo)
+  readonly view = signal<'hallazgos' | 'cobertura' | 'calidad' | 'descubrimiento' | 'modelo'>('hallazgos');
+  readonly coverage = signal<Coverage | null>(null);
+  readonly dq = signal<DataQuality | null>(null);
+  readonly hypotheses = signal<Hypothesis[]>([]);
+  readonly model = signal<ModelStatus | null>(null);
+  readonly backtest = signal<Backtest | null>(null);
+  readonly uncertain = signal<UncertainRow[]>([]);
+  readonly loadingMiq = signal(false);
+  readonly discovering = signal(false);
+  readonly training = signal(false);
 
   ngOnInit() { this.reload(); this.loadStats(); this.loadActions(); }
 
@@ -275,6 +442,51 @@ export class FinanzasHallazgosComponent implements OnInit {
   toggle(f: Finding) {
     this.expanded.update((e) => { const c = { ...e }; if (c[f.id]) delete c[f.id]; else c[f.id] = true; return c; });
   }
+
+  // ── MAAT-IQ: cambia de vista y carga sus datos ──
+  setView(v: 'hallazgos' | 'cobertura' | 'calidad' | 'descubrimiento' | 'modelo') {
+    this.view.set(v);
+    if (v === 'cobertura') this.loadMiq(this.svc.coverage(), this.coverage);
+    else if (v === 'calidad') this.loadMiq(this.svc.dataQuality(), this.dq);
+    else if (v === 'descubrimiento') this.loadMiq(this.svc.discovery('propuesta'), this.hypotheses);
+    else if (v === 'modelo') {
+      this.loadMiq(this.svc.learningStatus(), this.model);
+      this.svc.backtest().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (b) => this.backtest.set(b), error: () => {} });
+      this.svc.uncertain(15).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (u) => this.uncertain.set(u), error: () => {} });
+    }
+  }
+  private loadMiq<T>(obs: Observable<T>, sink: { set: (v: T) => void }) {
+    this.loadingMiq.set(true);
+    obs.pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (r) => { sink.set(r); this.loadingMiq.set(false); }, error: () => this.loadingMiq.set(false) });
+  }
+
+  runDiscovery() {
+    this.discovering.set(true);
+    this.svc.runDiscovery().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => { this.discovering.set(false); this.toast.add({ severity: 'success', summary: 'Descubrimiento', detail: `${r.total} hipótesis (${r.deterministas} deterministas + ${r.ai} AI).` }); this.loadMiq(this.svc.discovery('propuesta'), this.hypotheses); },
+      error: () => { this.discovering.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo correr el descubrimiento.' }); },
+    });
+  }
+  approveHyp(h: Hypothesis) {
+    this.svc.approveHypothesis(h.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: () => { this.hypotheses.update((a) => a.filter((x) => x.id !== h.id)); this.toast.add({ severity: 'success', summary: 'Aprobada', detail: 'Queda en backlog para codificar/activar como detector.' }); },
+      error: () => this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo aprobar.' }),
+    });
+  }
+  rejectHyp(h: Hypothesis) {
+    this.svc.rejectHypothesis(h.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: () => this.hypotheses.update((a) => a.filter((x) => x.id !== h.id)),
+      error: () => this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo rechazar.' }),
+    });
+  }
+  runLearning() {
+    this.training.set(true);
+    this.svc.runLearning().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: () => { this.training.set(false); this.toast.add({ severity: 'success', summary: 'Modelo actualizado', detail: 'Features + entrenamiento + priorización.' }); this.setView('modelo'); },
+      error: () => { this.training.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo actualizar el modelo.' }); },
+    });
+  }
+  scoreTone(s: number): string { return s >= 80 ? 'ok' : s >= 60 ? 'warn' : 'bad'; }
 
   verdict(f: Finding, v: 'util' | 'falso') {
     this.svc.feedback(f.id, v).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({

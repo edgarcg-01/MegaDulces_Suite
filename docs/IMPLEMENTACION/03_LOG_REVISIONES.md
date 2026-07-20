@@ -19,7 +19,13 @@
 - **Backend** (`commercial-movements.service.ts`): `lines()` (helper `annotateDest`), `document()` (header + counterpart) y `transfersCheck()` (llena `dest_wh`/`dest_wh_id` en los `sin_recepcion` vía CTE `shp`+dest y join al map). No mapeado ⇒ degrada a solo-label.
 - **Frontend**: tabla del día muestra "→ destino" en TrsfShip; el diálogo muestra "→ ZAMORA CENTRO · sin recepción" en la relación; el export XLSX/PDF ya renderizaba la columna Destino → ahora los `sin_recepcion` la traen poblada (sin cambio de export).
 
-**Red:** builds api+view verdes. Extracción validada en vivo contra Kepler CEDIS (md_00): reproducido el staging de U/D/41 → cada folio sale con dest_code+dest_label (1 destino/doc). Seed 8/8 resuelto. **Pendiente prod:** aplicar mig `20260720120000` a Railway + re-correr `import-stock-movements` (runner nightly) para backfillar `dest_code`/`dest_label` (la data existente queda NULL hasta re-import).
+**Red:** builds api+view verdes. Extracción validada en vivo contra Kepler CEDIS (md_00): reproducido el staging de U/D/41 → cada folio sale con dest_code+dest_label (1 destino/doc). Seed 8/8 resuelto.
+
+**Prod (Railway) 2026-07-20:** mig `20260720120000` aplicada (Batch 128, con 2 de MAAT-IQ). Seed corregido — **los códigos de warehouse DIFIEREN por entorno**: prod usa nº de servidor Kepler `00`–`05` (01=Padre Hidalgo, 02=La Piedad, 03=8ESQ, 04=Yurécuaro, 05=Zamora Centro) + `MD-30/32/50`; local usa `MD-NN` por nº de tienda. El seed ahora usa códigos CANDIDATO (prod primero, fallback local) → `transfer_dest_map` 8/8 resuelto en prod. Backfill vía `database/scripts/backfill-transfer-dest.js` (lee c10+kdud de 6 Kepler LAN, UPDATE solo 2 cols en TrsfShip, ventana `BACKFILL_DAYS`, corrido a 365d) → **32,845/32,845 líneas TrsfShip con destino (100%)**.
+
+**DM.11b — filtro de destino (mismo día):** al ver los datos, la mayoría de TrsfShip NO son entre sucursales: de 2,568 docs → **347 sucursal (TI###)**, 119 ruta (R.D./R.V.), **2,102 cliente/otro** (ABARROTES…, reparto directo, sobre todo La Piedad 15 TI de 2,115). Filtro "Destino" multiselect arriba, **default `sucursal`** (oculta rutas+clientes, que no son primordiales); opciones Rutas y Clientes. Clasificación por patrón: sucursal=`dest_code ILIKE 'TI%'`, ruta=`ROUTE_RX` (R.D/RD/R.V/RV/RUTA, sin `?` → inline seguro en raw), cliente=resto. Aplica a summary/aggregate/lines (`applyDestFilter`) y a `transfersCheck` (quita rutas/clientes de los falsos "sin recepción"). Param `dest_kinds` CSV. No toca docs no-traspaso.
+
+**Pendiente prod:** redeploy API+view en Railway (el dato ya está; hasta el redeploy la UI no muestra el destino ni el filtro). El nightly ya trae dest para filas nuevas.
 
 ## 2026-07-07 — Maat: dimensión Departamento (centro de costos)
 
