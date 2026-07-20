@@ -2,7 +2,7 @@ import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, computed, injec
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { Router } from '@angular/router';
+import { Router, RouterLink } from '@angular/router';
 import { forkJoin, Subject } from 'rxjs';
 import { debounceTime, distinctUntilChanged } from 'rxjs/operators';
 import { ButtonModule } from 'primeng/button';
@@ -13,9 +13,13 @@ import { MultiSelectModule } from 'primeng/multiselect';
 import { DialogModule } from 'primeng/dialog';
 import { TagModule } from 'primeng/tag';
 import { InputTextModule } from 'primeng/inputtext';
+import { CheckboxModule, CheckboxChangeEvent } from 'primeng/checkbox';
+import { IconFieldModule } from 'primeng/iconfield';
+import { InputIconModule } from 'primeng/inputicon';
 import { MessageService } from 'primeng/api';
 import { ComprasService, CriticalStockRow, ReplenishmentSummary, Bucket, TargetBasis, SourceType, CreateRequisitionDto, DeadStockRow } from '../compras.service';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
+import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 
 type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
 
@@ -50,7 +54,7 @@ interface DraftLine {
 @Component({
   selector: 'app-compras-existencia-critica',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, TableModule, ToastModule, SelectModule, MultiSelectModule, DialogModule, TagModule, InputTextModule, MetricStripComponent],
+  imports: [CommonModule, FormsModule, RouterLink, ButtonModule, TableModule, ToastModule, SelectModule, MultiSelectModule, DialogModule, TagModule, InputTextModule, CheckboxModule, IconFieldModule, InputIconModule, MetricStripComponent, FreshnessPillComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
@@ -62,6 +66,8 @@ interface DraftLine {
           <p class="surf-page-sub">Existencia contra punto de reorden por almacén. El motor sugiere cuánto pedir; tú generas la requisición.</p>
         </div>
         <div class="ec-head-actions">
+          @if (loadedAt()) { <app-freshness-pill [since]="loadedAt()" /> }
+          <a pButton routerLink="/compras/que-toca" label="Qué toca hoy" icon="pi pi-calendar-clock" class="p-button-sm p-button-text" title="Ver por proveedor y ciclo de reabasto"></a>
           <button pButton type="button" label="Excel" icon="pi pi-file-excel" class="p-button-sm p-button-outlined p-button-secondary"
                   [loading]="dl()" [disabled]="dl() || total() === 0" (click)="downloadXlsx()"></button>
           <button pButton type="button" [label]="'Generar requisición' + (selCount() ? ' (' + selCount() + ')' : '')" icon="pi pi-file-edit"
@@ -92,12 +98,12 @@ interface DraftLine {
                   optionLabel="label" optionValue="value" placeholder="ABC" [showClear]="true" styleClass="ec-sel-sm"></p-select>
         <p-select [options]="xyzOpts" [(ngModel)]="fXyz" (onChange)="reload()"
                   optionLabel="label" optionValue="value" placeholder="XYZ" [showClear]="true" styleClass="ec-sel-sm"></p-select>
-        <span class="p-input-icon-left ec-search">
-          <i class="pi pi-search" aria-hidden="true"></i>
+        <p-iconfield styleClass="ec-search">
+          <p-inputicon styleClass="pi pi-search" />
           <input pInputText type="text" [(ngModel)]="fSearch" (ngModelChange)="onSearchChange($event)" (keyup.enter)="reload()"
                  placeholder="SKU o nombre…" aria-label="Buscar por SKU o nombre" />
-          @if (fSearch) { <button type="button" class="ec-search-clear" (click)="clearSearch()" aria-label="Limpiar búsqueda"><i class="pi pi-times"></i></button> }
-        </span>
+          @if (fSearch) { <p-inputicon styleClass="pi pi-times ec-search-clear" (click)="clearSearch()" role="button" ariaLabel="Limpiar búsqueda" /> }
+        </p-iconfield>
       </div>
 
       <!-- Tabla -->
@@ -106,8 +112,8 @@ interface DraftLine {
                styleClass="p-datatable-sm ec-table" [rowsPerPageOptions]="[50, 100, 200]">
         <ng-template pTemplate="header">
           <tr>
-            <th style="width:2.5rem"><input type="checkbox" [checked]="allSelected()" (change)="toggleAll($event)" aria-label="Seleccionar todo" /></th>
-            <th pSortableColumn="sku">SKU <p-sortIcon field="sku" /></th>
+            <th pFrozenColumn style="width:2.5rem"><p-checkbox [binary]="true" [ngModel]="allSelected()" (onChange)="toggleAll($event)" ariaLabel="Seleccionar todo" /></th>
+            <th pFrozenColumn style="min-width:7rem" pSortableColumn="sku">SKU <p-sortIcon field="sku" /></th>
             <th pSortableColumn="nombre">Producto <p-sortIcon field="nombre" /></th>
             <th pSortableColumn="warehouse_code">Almacén <p-sortIcon field="warehouse_code" /></th>
             <th pSortableColumn="abc_class">Clase <p-sortIcon field="abc_class" /></th>
@@ -124,12 +130,13 @@ interface DraftLine {
             <th pSortableColumn="supplier_name">Proveedor <p-sortIcon field="supplier_name" /></th>
             <th class="ec-r" pSortableColumn="suggested_cost">Costo est. <p-sortIcon field="suggested_cost" /></th>
             <th>Origen</th>
+            <th title="Cómo se surte (compra/traspaso) y cada cuánto — deriva del histórico">Ciclo</th>
           </tr>
         </ng-template>
         <ng-template pTemplate="body" let-r>
           <tr [class.ec-sel-row]="isSelected(r)">
-            <td><input type="checkbox" [checked]="isSelected(r)" (change)="toggle(r)" /></td>
-            <td class="ec-mono">{{ r.sku }}</td>
+            <td pFrozenColumn><p-checkbox [binary]="true" [ngModel]="isSelected(r)" (onChange)="toggle(r)" [ariaLabel]="'Seleccionar ' + r.sku" /></td>
+            <td pFrozenColumn class="ec-mono">{{ r.sku }}</td>
             <td>{{ r.nombre }}</td>
             <td class="ec-muted">{{ r.warehouse_code }}</td>
             <td class="ec-class">
@@ -156,10 +163,18 @@ interface DraftLine {
             <td class="ec-muted">{{ r.supplier_name || '—' }}</td>
             <td class="ec-r">{{ money(r.suggested_cost) }}</td>
             <td><span class="ec-src ec-src-{{ r.source }}">{{ sourceLabel(r.source) }}</span></td>
+            <td class="ec-muted ec-cycle">
+              @if (r.cadence_days != null) {
+                <i [class]="r.replenish_via === 'transfer' ? 'pi pi-arrow-right-arrow-left' : 'pi pi-shopping-cart'"
+                   [title]="r.replenish_via === 'transfer' ? ('Traspaso ← ' + (r.source_warehouse_code || '?')) : 'Compra directa'"></i>
+                {{ r.cadence_days | number:'1.0-0' }}d
+                @if (r.next_due_date) { <span class="ec-cyc-due">· {{ r.next_due_date | date:'dd/MM' }}</span> }
+              } @else { — }
+            </td>
           </tr>
         </ng-template>
         <ng-template pTemplate="emptymessage">
-          <tr><td colspan="17" class="ec-empty">Sin productos que reponer con estos filtros.</td></tr>
+          <tr><td colspan="18" class="ec-empty">Sin productos que reponer con estos filtros.</td></tr>
         </ng-template>
       </p-table>
     </div>
@@ -259,8 +274,8 @@ interface DraftLine {
         <input pInputText type="text" [(ngModel)]="notes" placeholder="Nota (opcional)" class="ec-dlg-notes" />
       </div>
       <ng-template pTemplate="footer">
-        <button pButton type="button" label="Cancelar" class="p-button-text p-button-sm" (click)="dialogOpen.set(false)"></button>
-        <button pButton type="button" label="Crear requisición" icon="pi pi-check" class="p-button-sm" [loading]="saving()" (click)="create()"></button>
+        <button pButton type="button" label="Cancelar" class="p-button-text p-button-sm" [disabled]="saving()" (click)="dialogOpen.set(false)"></button>
+        <button pButton type="button" label="Crear requisición" icon="pi pi-check" class="p-button-sm" [loading]="saving()" [disabled]="saving()" (click)="create()"></button>
       </ng-template>
     </p-dialog>
   `,
@@ -270,13 +285,11 @@ interface DraftLine {
     app-metric-strip { display:block; margin-bottom: 1rem; }
     .ec-filters { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; margin-bottom: .75rem; }
     .ec-sel { min-width: 12rem; } .ec-sel-wide { min-width: 15rem; } .ec-sel-sm { min-width: 6.5rem; }
-    /* Search con ícono a la izquierda + botón de limpiar a la derecha. */
-    .ec-search { position: relative; display: inline-flex; align-items: center; }
-    .ec-search > .pi-search { position: absolute; left: .6rem; font-size: .8rem; color: var(--text-muted); pointer-events: none; }
-    .ec-search input { min-width: 14rem; padding-left: 1.9rem; padding-right: 1.9rem; }
-    .ec-search-clear { position: absolute; right: .35rem; display: inline-flex; align-items: center; justify-content: center; width: 1.3rem; height: 1.3rem; border: 0; background: none; color: var(--text-muted); cursor: pointer; border-radius: var(--r-sm); }
-    .ec-search-clear:hover { color: var(--text-main); background: var(--surface-hover-bg); }
-    .ec-search-clear .pi { font-size: .72rem; }
+    /* Search: p-iconfield pone el ícono de lupa a la izquierda; el clear (inputicon) a la derecha. */
+    :host ::ng-deep .ec-search input { min-width: 14rem; }
+    /* p-inputicon trae pointer-events:none por default; el clear necesita ser clickeable. */
+    :host ::ng-deep .ec-search-clear { pointer-events: auto; cursor: pointer; font-size: .72rem; color: var(--text-muted); }
+    :host ::ng-deep .ec-search-clear:hover { color: var(--text-main); }
     .ec-class { white-space: nowrap; }
     .ec-cls { display: inline-block; min-width: 1.1rem; text-align: center; font-size: .68rem; font-weight: 700; font-family: var(--font-mono, ui-monospace, monospace); padding: 0 .2rem; color: var(--text-muted); }
     .ec-abc-A { color: var(--text-main); } /* alto valor: un poco más de peso */
@@ -343,6 +356,7 @@ export class ComprasExistenciaCriticaComponent implements OnInit {
   dl = signal(false);
   saving = signal(false);
   page = signal(1);
+  readonly loadedAt = signal<number | null>(null); // §14 frescura
 
   // Stock muerto (existencia sin política de reorden = capital inmovilizado sin rotación).
   deadRows = signal<DeadStockRow[]>([]);
@@ -390,6 +404,7 @@ export class ComprasExistenciaCriticaComponent implements OnInit {
     { label: 'Todos', value: '__all' },
   ];
   basisOpts = [
+    { label: 'Ciclo (cadencia)', value: 'cadence' }, // RA-PRO.9 — objetivo por horizonte de ciclo (casa con Qué Toca)
     { label: 'Hasta el máximo', value: 'max' },
     { label: 'Hasta reorden', value: 'reorder' },
     { label: 'Hasta el mínimo', value: 'min' },
@@ -473,7 +488,7 @@ export class ComprasExistenciaCriticaComponent implements OnInit {
       sort_by: this.fSortBy || undefined, sort_dir: this.fSortBy ? this.fSortDir : undefined,
       page: this.page(), pageSize: this.pageSize,
     }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (r) => { this.rows.set(r.rows); this.total.set(r.total); this.loading.set(false); },
+      next: (r) => { this.rows.set(r.rows); this.total.set(r.total); this.loading.set(false); this.loadedAt.set(Date.now()); },
       error: () => { this.loading.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo cargar la existencia crítica.' }); },
     });
   }
@@ -529,9 +544,8 @@ export class ComprasExistenciaCriticaComponent implements OnInit {
     this.selCount.set(this.selected.size);
   }
   allSelected() { return this.rows().length > 0 && this.rows().every((r) => this.selected.has(this.key(r))); }
-  toggleAll(e: Event) {
-    const on = (e.target as HTMLInputElement).checked;
-    if (on) this.rows().forEach((r) => this.selected.set(this.key(r), r));
+  toggleAll(e: CheckboxChangeEvent) {
+    if (e.checked) this.rows().forEach((r) => this.selected.set(this.key(r), r));
     else this.rows().forEach((r) => this.selected.delete(this.key(r)));
     this.selCount.set(this.selected.size);
   }
@@ -588,6 +602,7 @@ export class ComprasExistenciaCriticaComponent implements OnInit {
   }
 
   create(): void {
+    if (this.saving()) return; // §13 idempotencia visual: ignora re-clicks
     const all = this.draft().filter((l) => Number(l.final_qty) > 0);
     if (!all.length) { this.toast.add({ severity: 'warn', summary: 'Sin líneas', detail: 'Ajusta las cantidades (> 0).' }); return; }
     // Validar que las líneas de traspaso tengan almacén origen.

@@ -63,7 +63,12 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
           </tr>
         </ng-template>
         <ng-template pTemplate="emptymessage">
-          <tr><td colspan="12" class="oc-empty">Sin órdenes de compra con estos filtros. Genera una desde una requisición aprobada.</td></tr>
+          <tr><td colspan="12" class="oc-empty">
+            @if (error()) {
+              <i class="pi pi-exclamation-triangle"></i> No se pudieron cargar las órdenes de compra.
+              <button pButton type="button" label="Reintentar" class="p-button-text p-button-sm" (click)="reload()"></button>
+            } @else { Sin órdenes de compra con estos filtros. Genera una desde una requisición aprobada. }
+          </td></tr>
         </ng-template>
       </p-table>
     </div>
@@ -89,6 +94,7 @@ export class ComprasOrdenesComponent implements OnInit {
   rows = signal<PurchaseOrderRow[]>([]);
   total = signal(0);
   loading = signal(false);
+  error = signal(false); // §6: falla de carga ≠ "sin órdenes"
   page = signal(1);
   fEstado = '';
 
@@ -107,8 +113,8 @@ export class ComprasOrdenesComponent implements OnInit {
     this.loading.set(true);
     this.api.listPurchaseOrders({ estado: this.fEstado || undefined, page: this.page(), pageSize: this.pageSize })
       .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-        next: (r) => { this.rows.set(r.rows); this.total.set(r.total); this.loading.set(false); },
-        error: () => { this.loading.set(false); },
+        next: (r) => { this.rows.set(r.rows); this.total.set(r.total); this.loading.set(false); this.error.set(false); },
+        error: () => { this.loading.set(false); this.error.set(true); },
       });
   }
 

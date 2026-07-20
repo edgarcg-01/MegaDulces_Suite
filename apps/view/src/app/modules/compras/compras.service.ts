@@ -42,6 +42,12 @@ export interface CriticalStockRow {
   bucket: Bucket;
   suggested_qty: number;
   suggested_cost: number;
+  // RA-PRO.9 — contexto de canal/ciclo (cómo se surte y cuándo toca)
+  replenish_via?: 'purchase' | 'transfer' | null;
+  cadence_days?: number | null;
+  next_due_date?: string | null;
+  cadence_band?: 'rapida' | 'promedio' | 'mal_abasto' | null;
+  source_warehouse_code?: string | null;
 }
 export interface CriticalStockResponse {
   total: number;

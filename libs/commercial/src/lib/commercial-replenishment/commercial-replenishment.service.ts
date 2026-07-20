@@ -17,7 +17,7 @@ import { ReplenishmentScannerService } from './replenishment-scanner.service';
  * en_tránsito = 0 hasta RA.5 (feed de OC a recibir).
  */
 
-type TargetBasis = 'min' | 'reorder' | 'max';
+type TargetBasis = 'min' | 'reorder' | 'max' | 'cadence';
 type Bucket = 'agotado' | 'bajo_minimo' | 'bajo_reorden' | 'sano' | 'sobrestock';
 
 export interface CriticalStockQuery {
@@ -75,7 +75,7 @@ export interface CreateRequisitionDto {
 interface ReceiveLineDto { line_id: string; received_qty: number; }
 export interface ReceiveRequisitionDto { lines?: ReceiveLineDto[]; }
 
-const BASES: TargetBasis[] = ['min', 'reorder', 'max'];
+const BASES: TargetBasis[] = ['min', 'reorder', 'max', 'cadence'];
 const BUCKETS: Bucket[] = ['agotado', 'bajo_minimo', 'bajo_reorden', 'sano', 'sobrestock'];
 const UUID_RX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -130,9 +130,14 @@ export class CommercialReplenishmentService {
   async criticalStock(q: CriticalStockQuery) {
     const tenantId = this.tenantCtx.requireTenantId();
     const basis = this.basis(q.target_basis);
-    const target = this.targetCol(basis);
     const oh = this.onHand();
     const it = this.inTransit();
+    // RA-PRO.9 — base 'cadence' unifica el objetivo con Qué Toca: nivel = demanda ×
+    // (cadencia + lead efectivo) + colchón; traspaso = lead interno 1d. Sin canal/cadencia
+    // cae al máximo (mismo comportamiento que antes). Las demás bases (min/reorden/máx) intactas.
+    const effLead = `(CASE WHEN rc.via='transfer' THEN 1 ELSE COALESCE(rc.lead_time_days, sup.lead_time_days, 7) END)`;
+    const cadTarget = `COALESCE(CASE WHEN rc.cadence_days IS NOT NULL THEN ceil(COALESCE(ih.avg_daily_units,0) * (rc.cadence_days + ${effLead}) + COALESCE(rp.safety_stock,0)) END, rp.max_stock)`;
+    const target = basis === 'cadence' ? cadTarget : this.targetCol(basis);
     const page = Math.max(1, Number(q.page) || 1);
     const cap = q.export ? 100000 : 500;
     const pageSize = Math.min(cap, Math.max(1, Number(q.pageSize) || (q.export ? cap : 50)));
@@ -173,6 +178,11 @@ export class CommercialReplenishmentService {
         // RA-PRO.2 — analytics.inventory_health (avg diario para mostrar cobertura; sin RLS)
         .leftJoin('analytics.inventory_health as ih', (j) =>
           j.on('ih.tenant_id', 'rp.tenant_id').andOn('ih.warehouse_id', 'rp.warehouse_id').andOn('ih.product_id', 'rp.product_id'))
+        // RA-PRO.9 — canal de reabasto (compra/traspaso + cadencia + próximo) por almacén×proveedor
+        .leftJoin('commercial.replenishment_channel as rc', (j) =>
+          j.on('rc.tenant_id', 'rp.tenant_id').andOn('rc.warehouse_id', 'rp.warehouse_id').andOn('rc.supplier_id', 'pr.supplier_id'))
+        .leftJoin('commercial.warehouses as srcw', (j) =>
+          j.on('srcw.tenant_id', 'rp.tenant_id').andOn('srcw.id', 'rc.source_warehouse_id'))
         // Ranking POR VENTAS relativo al filtro (rankSub arriba): #1 = el que más vende
         // en la sucursal dentro del universo seleccionado. Solo los que venden reciben
         // rank (demanda 0 → NULL vía el leftJoin).
@@ -221,6 +231,12 @@ export class CommercialReplenishmentService {
           trx.raw('rp.policy_method AS policy_method'),
           trx.raw('rp.lead_time_days AS lead_time_days'),
           trx.raw('ih.avg_daily_units AS avg_daily_units'),
+          // RA-PRO.9 — contexto de canal/ciclo (para columnas y para que el detalle case con Qué Toca)
+          trx.raw('rc.via AS replenish_via'),
+          trx.raw('rc.cadence_days AS cadence_days'),
+          trx.raw('rc.next_due_date AS next_due_date'),
+          trx.raw('rc.health_band AS cadence_band'),
+          trx.raw('srcw.code AS source_warehouse_code'),
           trx.raw('sr.sales_rank AS sales_rank'), // ranking de ventas en la sucursal (#1 = top)
           trx.raw(`${this.monthlyRevenue()} AS monthly_revenue`), // peso $ del producto (venta/mes est.)
           trx.raw('sup.id AS supplier_id'),

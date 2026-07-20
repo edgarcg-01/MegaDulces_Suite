@@ -45,3 +45,13 @@ El motor (Existencia Crítica) modela el **lead time** pero no el **período de 
 - **cadence_source='manual'** protege del job las filas que la coordinadora/analistas ajusten (bandeja HITL, pendiente).
 - **Territorios** (para el worklist): coordinadora general = CEDIS+PH(+02/03/04) ; analista Morelia = MD-30+MD-32 ; analista Zamora = MD-50+05.
 - Data-quality pendiente: proveedor "Las Delicias" **duplicado** (2 IDs); mojibake `Ñ→�` en nombres de proveedor.
+
+## RA-PRO.9 — Cockpit de compra (unificación con Existencia Crítica) ✅ código+build 2026-07-20
+
+Existencia Crítica y Qué Toca son **dos lentes del mismo motor** (mismo `reorder_policy`+`stock`+`inventory_health`), distinto grano: Crítica = producto×almacén (por alarma de stock); Qué Toca = almacén×proveedor (por calendario). Unificación:
+
+- **Motor unificado**: nueva base de objetivo `target_basis='cadence'` en `criticalStock` — nivel = `demanda × (cadencia + lead_efectivo) + colchón` (traspaso lead=1d), con fallback a `max` si no hay canal. Las bases min/reorden/máx intactas. `criticalStock` ahora expone `replenish_via / cadence_days / next_due_date / cadence_band / source_warehouse_code`.
+- **Qué Toca = cockpit master-detail**: cada renglón (almacén×proveedor) se expande a sus SKUs (= `criticalStock` filtrado, base cadence → **los totales casan exacto**: verificado 01 $55.7k / MD-30 $212.4k / MD-50 $79.2k contra el master), editables → **Crear requisición** (compra) o **Crear traspaso** (`source_type=branch`, hub como origen).
+- **Existencia Crítica**: gana el objetivo "Ciclo (cadencia)" en el selector, columna **Ciclo** (canal + cadencia + próximo) y cross-link "Qué toca hoy". Sigue siendo la vista de salud/auditoría (todos los buckets, huérfanos, muerto).
+- **Regla de diseño**: no se fusionan en una sola tabla — sobrestock/muerto/huérfanos viven solo a nivel SKU y se perderían. Cockpit para *pedir*, auditoría para *vigilar*.
+- Builds `nx build api` + `nx build view` verdes. **Pendiente: mismo redeploy** (api+view). Nota: la requisición se crea con `target_basis='max'` (el CHECK de `purchase_requisitions` no incluye 'cadence'; el snapshot por línea lleva los números reales).

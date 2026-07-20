@@ -150,7 +150,7 @@ interface RecvLine {
     .od-mono { font-family: var(--font-mono, ui-monospace, monospace); font-size: .8rem; }
     .od-muted { color: var(--text-muted); }
     .od-pending { color: var(--warn-fg); font-weight: 600; }
-    .od-applied { color: var(--good-fg, var(--action)); font-size: .78rem; }
+    .od-applied { color: var(--ok-fg); font-size: .78rem; }
     .od-empty { color: var(--text-muted); padding: 2rem; text-align: center; }
     .od-dlg-sub { color: var(--text-muted); font-size: .85rem; margin-bottom: .6rem; }
     .od-dlg-lines { max-height: 26rem; overflow-y: auto; display: flex; flex-direction: column; gap: .35rem; }

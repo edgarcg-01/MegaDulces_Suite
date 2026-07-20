@@ -54,7 +54,12 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
           </tr>
         </ng-template>
         <ng-template pTemplate="emptymessage">
-          <tr><td colspan="9" class="rq-empty">Sin requisiciones todavía. Genera una desde Existencia crítica.</td></tr>
+          <tr><td colspan="9" class="rq-empty">
+            @if (error()) {
+              <i class="pi pi-exclamation-triangle"></i> No se pudieron cargar las requisiciones.
+              <button pButton type="button" label="Reintentar" class="p-button-text p-button-sm" (click)="reload()"></button>
+            } @else { Sin requisiciones todavía. Genera una desde Existencia crítica. }
+          </td></tr>
         </ng-template>
       </p-table>
     </div>
@@ -78,6 +83,7 @@ export class ComprasRequisicionesComponent implements OnInit {
   rows = signal<RequisitionRow[]>([]);
   total = signal(0);
   loading = signal(false);
+  error = signal(false); // §6: falla de carga ≠ "sin requisiciones"
   page = signal(1);
   fEstado = '';
 
@@ -96,8 +102,8 @@ export class ComprasRequisicionesComponent implements OnInit {
     this.loading.set(true);
     this.api.listRequisitions({ estado: this.fEstado || undefined, page: this.page(), pageSize: 50 })
       .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-        next: (r) => { this.rows.set(r.rows); this.total.set(r.total); this.loading.set(false); },
-        error: () => this.loading.set(false),
+        next: (r) => { this.rows.set(r.rows); this.total.set(r.total); this.loading.set(false); this.error.set(false); },
+        error: () => { this.loading.set(false); this.error.set(true); },
       });
   }
 

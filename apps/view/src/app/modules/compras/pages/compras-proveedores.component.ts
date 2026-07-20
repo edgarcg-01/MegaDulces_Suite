@@ -6,6 +6,8 @@ import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
 import { ToastModule } from 'primeng/toast';
 import { InputTextModule } from 'primeng/inputtext';
+import { IconFieldModule } from 'primeng/iconfield';
+import { InputIconModule } from 'primeng/inputicon';
 import { MessageService } from 'primeng/api';
 import { ComprasService, SupplierParam } from '../compras.service';
 
@@ -19,7 +21,7 @@ import { ComprasService, SupplierParam } from '../compras.service';
 @Component({
   selector: 'app-compras-proveedores',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, TableModule, ToastModule, InputTextModule],
+  imports: [CommonModule, FormsModule, ButtonModule, TableModule, ToastModule, InputTextModule, IconFieldModule, InputIconModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
@@ -33,10 +35,10 @@ import { ComprasService, SupplierParam } from '../compras.service';
       </header>
 
       <div class="cp-filters">
-        <span class="p-input-icon-left cp-search">
-          <input pInputText type="text" [(ngModel)]="search" (keyup.enter)="load()" placeholder="Buscar proveedor…" />
-        </span>
-        <button pButton type="button" icon="pi pi-search" class="p-button-sm p-button-text" (click)="load()" ariaLabel="Buscar"></button>
+        <p-iconfield styleClass="cp-search">
+          <p-inputicon styleClass="pi pi-search" />
+          <input pInputText type="text" [(ngModel)]="search" (keyup.enter)="load()" placeholder="Buscar proveedor…" aria-label="Buscar proveedor" />
+        </p-iconfield>
         <span class="cp-count">{{ rows().length | number }} proveedores</span>
       </div>
 
@@ -79,14 +81,14 @@ import { ComprasService, SupplierParam } from '../compras.service';
   styles: [`
     :host { display: block; }
     .cp-filters { display: flex; gap: .5rem; align-items: center; margin-bottom: .75rem; }
-    .cp-search input { min-width: 16rem; }
+    :host ::ng-deep .cp-search input { min-width: 16rem; }
     .cp-count { margin-left: auto; font-size: .8rem; color: var(--text-muted); }
     .cp-table { font-size: .84rem; }
     .cp-r { text-align: right; font-variant-numeric: tabular-nums; }
     .cp-muted { color: var(--text-muted); }
     .cp-num { width: 6rem; text-align: right; }
     .cp-unset { color: var(--text-muted); }
-    .cp-ok { color: var(--action); }
+    .cp-ok { color: var(--ok-fg); }
     .cp-empty { color: var(--text-muted); padding: 1rem; text-align: center; }
     .cp-foot { font-size: .72rem; color: var(--text-muted); margin-top: .5rem; }
   `],
