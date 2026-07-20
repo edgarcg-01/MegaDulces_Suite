@@ -110,9 +110,13 @@ function resolveUnits(slots) {
          FROM public.products WHERE tenant_id=$1`, [M])).rows;
     const skuToId = new Map();
     const bcToId = new Map();
+    const curBarcodeById = new Map();   // id → barcode actual (para decidir backfill)
+    const eansInUse = new Set();        // EANs válidos ya usados por ALGÚN producto (anti-colisión)
     for (const p of prods) {
       if (p.sku) skuToId.set(p.sku, p.id);
       if (p.barcode && !bcToId.has(p.barcode)) bcToId.set(p.barcode, p.id);
+      curBarcodeById.set(p.id, p.barcode);
+      if (barcodeFormat(p.barcode)) eansInUse.add(p.barcode);
     }
     console.log(`  catálogo: ${skuToId.size} con sku · ${bcToId.size} con barcode`);
 
@@ -151,6 +155,14 @@ function resolveUnits(slots) {
     // Armar filas
     let matched = 0, unmatched = 0, noBarcode = 0;
     const staged = [];
+    // Backfill de products.barcode: el scan Y el barcode impreso salen de products.barcode
+    // (commercial-labels.service). Si ahí quedó el SKU/basura pero Kepler tiene un EAN real,
+    // el lector NUNCA encuentra el producto (ej. 44141 → 7501008766606). Solo tocamos casos
+    // SEGUROS: barcode actual NO-EAN + EAN real libre (no usado por otro producto). Idempotente.
+    const barcodeFixes = [];
+    const claimedEan = new Set();
+    const stagedPids = new Set();   // evita que 2 filas kdii caigan al mismo product_id (ON CONFLICT doble)
+    let dupPid = 0;
     for (const r of kdii) {
       // Match por SKU; si no, fallback por barcode (productos sin sku en el catálogo).
       let pid = skuToId.get(String(r.sku || '').trim());
@@ -159,11 +171,24 @@ function resolveUnits(slots) {
         if (bc) pid = bcToId.get(bc);
       }
       if (!pid) { unmatched++; continue; }
+      if (stagedPids.has(pid)) { dupPid++; continue; }  // 1ª fila (mayor c90 por DISTINCT ON) gana
+      stagedPids.add(pid);
       const w = wholesale.get(r.sku) || {};
       // EAN real: c7 (barcode) suele traerlo, pero ~1685 productos tienen el SKU ahí; c95 lo rescata.
-      const bcReal = barcodeFormat(r.barcode) ? r.barcode : r.barcode_alt;
+      const bcReal = barcodeFormat(r.barcode) ? String(r.barcode).trim() : r.barcode_alt;
       const fmt = barcodeFormat(bcReal);
       if (!fmt) noBarcode++;
+      // ¿Backfill de products.barcode? Solo si el actual NO es EAN escaneable y el EAN real
+      // está libre (no lo usa otro producto ni otro fix de esta corrida). Claves reusadas
+      // (2 SKUs → mismo EAN) se saltan: no inventamos unicidad.
+      if (fmt) {
+        const cur = curBarcodeById.get(pid) || '';
+        const ean = String(bcReal).trim();
+        if (cur !== ean && !barcodeFormat(cur) && !eansInUse.has(ean) && !claimedEan.has(ean)) {
+          barcodeFixes.push([pid, ean]);
+          claimedEan.add(ean);
+        }
+      }
       // Unidades por etiqueta (paquete/caja reales, no por posición).
       const u = resolveUnits([
         { label: r.u1, factor: r.f1, price: r.p1 },
@@ -186,7 +211,8 @@ function resolveUnits(slots) {
       ]);
       matched++;
     }
-    console.log(`  kdii filas: ${kdii.length} · match catálogo: ${matched} · sin match: ${unmatched} · sin barcode válido: ${noBarcode}`);
+    console.log(`  kdii filas: ${kdii.length} · match catálogo: ${matched} · sin match: ${unmatched} · sin barcode válido: ${noBarcode} · pid duplicado saltado: ${dupPid}`);
+    console.log(`  backfill products.barcode (SKU/basura → EAN real, sin colisión): ${barcodeFixes.length}`);
     const sample = staged.slice(0, 6).map((s) => ({ gramaje: s[1], barcode: s[2], fmt: s[3], pza: s[4], may_pza: s[6], paq: s[8], box: s[10] }));
     console.table(sample);
 
@@ -226,8 +252,21 @@ function resolveUnits(slots) {
         box_size=EXCLUDED.box_size, box_price=EXCLUDED.box_price, unit_base=EXCLUDED.unit_base,
         source='kepler', computed_at=now(), updated_at=now()
       WHERE commercial.product_label_prices.source <> 'manual'`, [M]);
+    // Backfill de products.barcode (casos seguros). UPDATE puntual por producto; el guard
+    // WHERE re-valida que el barcode actual siga sin ser EAN (idempotente y anti-carrera).
+    let bcFixed = 0;
+    for (const [pid, ean] of barcodeFixes) {
+      const res = await db.query(
+        `UPDATE public.products SET barcode=$2, updated_at=now()
+          WHERE id=$1 AND tenant_id=$3
+            AND btrim(coalesce(barcode,'')) !~ '^[0-9]{8}$|^[0-9]{12}$|^[0-9]{13}$'
+            AND NOT EXISTS (SELECT 1 FROM public.products x
+                             WHERE x.tenant_id=$3 AND x.id<>$1 AND btrim(coalesce(x.barcode,''))=$2)`,
+        [pid, ean, M]);
+      bcFixed += res.rowCount;
+    }
     await db.query('COMMIT');
-    console.log(`\n[APPLY] COMMIT — ${up.rowCount} filas de etiqueta upserted.`);
+    console.log(`\n[APPLY] COMMIT — ${up.rowCount} filas de etiqueta upserted · ${bcFixed} barcodes backfilled.`);
   } catch (e) {
     await db.query('ROLLBACK').catch(() => {});
     console.error('\nERROR (rollback):', e.message);
