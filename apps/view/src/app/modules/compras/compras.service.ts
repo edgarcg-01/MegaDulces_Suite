@@ -183,7 +183,27 @@ export interface SupplierParam {
   name: string;
   lead_time_days: number | null;
   min_order_boxes: number | null;
+  cadence_days_override: number | null; // RA-PRO.10 — ciclo de pedido manual (días)
+  colchon_days: number | null;          // RA-PRO.10 — colchón en días de demanda
+  min_order_amount: number | null;      // RA-PRO.10 — mínimo de compra en $
   product_count: number;
+}
+export interface SupplierOrderParamsDto {
+  cadence_days_override?: number | null;
+  colchon_days?: number | null;
+  min_order_amount?: number | null;
+  min_order_boxes?: number | null;
+}
+export interface SupplierOrderLine {
+  warehouse_code: string; warehouse_id: string; product_id: string; sku: string; nombre: string;
+  on_hand: number; avg_daily: number; uxc: number; unit_cost: number;
+  suggested: number; final: number; cajas: number; line_cost: number;
+}
+export interface SupplierOrder {
+  supplier: { id: string; name: string; cadence_days_override: number | null; colchon_days: number | null; min_order_boxes: number | null; min_order_amount: number | null };
+  padded: boolean; // se subió al mínimo
+  totals: { cajas: number; amount: number; lines: number; suggested_cajas: number; suggested_amount: number };
+  lines: SupplierOrderLine[];
 }
 
 // ── RA.15 (ADR-031) — Orden de Compra (OC) + Orden de Entrada (OE) ──────
@@ -401,6 +421,14 @@ export class ComprasService {
   }
   setSupplierLeadTime(supplierId: string, days: number | null): Observable<{ id: string; lead_time_days: number | null }> {
     return this.http.post<{ id: string; lead_time_days: number | null }>(`${this.base}/suppliers/${supplierId}/lead-time`, { days });
+  }
+  /** RA-PRO.10 — parámetros de pedido (cadencia override + colchón + mínimo $/cajas). */
+  setSupplierOrderParams(supplierId: string, patch: SupplierOrderParamsDto): Observable<{ id: string }> {
+    return this.http.post<{ id: string }>(`${this.base}/suppliers/${supplierId}/order-params`, patch);
+  }
+  /** RA-PRO.10 — pedido consolidado al proveedor (cadencia+colchón, subido al mínimo). */
+  supplierOrder(supplierId: string): Observable<SupplierOrder> {
+    return this.http.get<SupplierOrder>(`${this.base}/suppliers/${supplierId}/order`);
   }
 
   /** RA-PRO.6 — topología de red de abasto (DRP CEDIS→sucursal). */

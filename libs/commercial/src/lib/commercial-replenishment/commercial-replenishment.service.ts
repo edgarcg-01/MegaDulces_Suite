@@ -136,7 +136,15 @@ export class CommercialReplenishmentService {
     // (cadencia + lead efectivo) + colchón; traspaso = lead interno 1d. Sin canal/cadencia
     // cae al máximo (mismo comportamiento que antes). Las demás bases (min/reorden/máx) intactas.
     const effLead = `(CASE WHEN rc.via='transfer' THEN 1 ELSE COALESCE(rc.lead_time_days, sup.lead_time_days, 7) END)`;
-    const cadTarget = `COALESCE(CASE WHEN rc.cadence_days IS NOT NULL THEN ceil(COALESCE(ih.avg_daily_units,0) * (rc.cadence_days + ${effLead}) + COALESCE(rp.safety_stock,0)) END, rp.max_stock)`;
+    // RA-PRO.10 — override manual por proveedor: si sup.cadence_days_override está, el objetivo
+    // usa horizonte = cadencia_override + colchón (solo COMPRA; el traspaso mantiene su ciclo).
+    const cadTarget = `COALESCE(
+      CASE
+        WHEN sup.cadence_days_override IS NOT NULL AND COALESCE(rc.via,'purchase') <> 'transfer'
+          THEN ceil(COALESCE(ih.avg_daily_units,0) * (sup.cadence_days_override + COALESCE(sup.colchon_days,0)))
+        WHEN rc.cadence_days IS NOT NULL
+          THEN ceil(COALESCE(ih.avg_daily_units,0) * (rc.cadence_days + ${effLead}) + COALESCE(rp.safety_stock,0))
+      END, rp.max_stock)`;
     const target = basis === 'cadence' ? cadTarget : this.targetCol(basis);
     const page = Math.max(1, Number(q.page) || 1);
     const cap = q.export ? 100000 : 500;
@@ -352,7 +360,13 @@ export class CommercialReplenishmentService {
       const oh = '(COALESCE(s.quantity,0)-COALESCE(s.reserved_quantity,0))';
       const it = 'COALESCE(pit.qty_in_transit,0)';
       const effLead = `(CASE WHEN rc.via='transfer' THEN 1 ELSE COALESCE(rc.lead_time_days, sup.lead_time_days, 7) END)`;
-      const sug = `GREATEST(0, ceil(COALESCE(ih.avg_daily_units,0) * (rc.cadence_days + ${effLead}) + COALESCE(rp.safety_stock,0)) - ${oh} - ${it})`;
+      // RA-PRO.10 — mismo override que criticalStock: cadencia_override + colchón (solo compra).
+      const sug = `GREATEST(0, ceil(
+        CASE
+          WHEN sup.cadence_days_override IS NOT NULL AND rc.via <> 'transfer'
+            THEN COALESCE(ih.avg_daily_units,0) * (sup.cadence_days_override + COALESCE(sup.colchon_days,0))
+          ELSE COALESCE(ih.avg_daily_units,0) * (rc.cadence_days + ${effLead}) + COALESCE(rp.safety_stock,0)
+        END) - ${oh} - ${it})`;
       const cost = `COALESCE(pr.cost_with_tax, pr.cost_base, 0)`;
 
       const filters: string[] = [
@@ -727,10 +741,13 @@ export class CommercialReplenishmentService {
         .where('sup.tenant_id', tenantId);
       if (q?.search && q.search.trim()) base.andWhereILike('sup.name', `%${q.search.trim()}%`);
       return base
-        .groupBy('sup.id', 'sup.name', 'sup.lead_time_days', 'sup.min_order_boxes')
+        .groupBy('sup.id', 'sup.name', 'sup.lead_time_days', 'sup.min_order_boxes', 'sup.cadence_days_override', 'sup.colchon_days', 'sup.min_order_amount')
         .select('sup.id', 'sup.name',
           trx.raw('sup.lead_time_days AS lead_time_days'),
           trx.raw('sup.min_order_boxes AS min_order_boxes'),
+          trx.raw('sup.cadence_days_override AS cadence_days_override'),
+          trx.raw('sup.colchon_days AS colchon_days'),
+          trx.raw('sup.min_order_amount AS min_order_amount'),
           trx.raw('COUNT(pr.id)::int AS product_count'))
         .orderBy('sup.name');
     });
@@ -784,6 +801,97 @@ export class CommercialReplenishmentService {
         .update({ lead_time_days: val, updated_at: trx.fn.now() });
       if (!n) throw new NotFoundException('Proveedor no encontrado');
       return { id: supplierId, lead_time_days: val };
+    });
+  }
+
+  // ── RA-PRO.10 — Parámetros de pedido + pedido consolidado con mínimo ──
+  /** Captura por proveedor: cadencia override (días) + colchón (días) + mínimo en $ y/o cajas. */
+  async setSupplierOrderParams(supplierId: string, patch: { cadence_days_override?: number | null; colchon_days?: number | null; min_order_amount?: number | null; min_order_boxes?: number | null }) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    if (!UUID_RX.test(supplierId)) throw new BadRequestException('supplier_id inválido');
+    const clampInt = (v: unknown, max: number) => v == null || Number.isNaN(Number(v)) ? null : Math.min(max, Math.max(0, Math.round(Number(v))));
+    const clampNum = (v: unknown) => v == null || Number.isNaN(Number(v)) ? null : Math.max(0, Number(v));
+    return this.tk.run(async (trx) => {
+      const upd: Record<string, unknown> = { updated_at: trx.fn.now() };
+      if ('cadence_days_override' in patch) upd.cadence_days_override = clampInt(patch.cadence_days_override, 365);
+      if ('colchon_days' in patch) upd.colchon_days = clampInt(patch.colchon_days, 365);
+      if ('min_order_amount' in patch) upd.min_order_amount = clampNum(patch.min_order_amount);
+      if ('min_order_boxes' in patch) upd.min_order_boxes = clampInt(patch.min_order_boxes, 1000000);
+      const n = await trx('catalog.suppliers').where({ tenant_id: tenantId, id: supplierId }).update(upd);
+      if (!n) throw new NotFoundException('Proveedor no encontrado');
+      return { id: supplierId, ...upd, updated_at: undefined };
+    });
+  }
+
+  /**
+   * Pedido CONSOLIDADO al proveedor (todos sus almacenes de COMPRA), con horizonte
+   * cadencia+colchón, evaluado contra el mínimo POR PROVEEDOR (total) y — si queda por
+   * debajo — SUBIDO al mínimo repartiendo el faltante en los SKUs que más rotan (avg_daily).
+   */
+  async supplierOrder(supplierId: string) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    if (!UUID_RX.test(supplierId)) throw new BadRequestException('supplier_id inválido');
+    return this.tk.run(async (trx) => {
+      const sup = await trx('catalog.suppliers').where({ tenant_id: tenantId, id: supplierId })
+        .first('id', 'name', 'cadence_days_override', 'colchon_days', 'min_order_boxes', 'min_order_amount', 'lead_time_days') as any;
+      if (!sup) throw new NotFoundException('Proveedor no encontrado');
+      const oh = this.onHand(); const it = this.inTransit();
+      const leadDefault = Number(sup.lead_time_days) || 7;
+      const cadTarget = `COALESCE(
+        CASE
+          WHEN :cadOv::int IS NOT NULL THEN ceil(COALESCE(ih.avg_daily_units,0) * (:cadOv::int + COALESCE(:colc::int,0)))
+          WHEN rc.cadence_days IS NOT NULL THEN ceil(COALESCE(ih.avg_daily_units,0) * (rc.cadence_days + COALESCE(rc.lead_time_days, ${leadDefault})) + COALESCE(rp.safety_stock,0))
+        END, rp.max_stock)`;
+      const raw = await trx.raw(`
+        SELECT w.code AS warehouse_code, w.id AS warehouse_id, pr.id AS product_id, pr.sku, pr.nombre,
+               ${oh} AS on_hand, COALESCE(ih.avg_daily_units,0) AS avg_daily,
+               -- piezas/caja: factor_purchase está roto (todo 1/null); factor_sale trae el valor real.
+               COALESCE(NULLIF(pr.factor_sale,0), NULLIF(pr.factor_purchase,0), 1) AS uxc,
+               COALESCE(pr.cost_with_tax, pr.cost_base, 0) AS unit_cost,
+               GREATEST(0, ${cadTarget} - ${oh} - ${it}) AS suggested
+          FROM commercial.reorder_policy rp
+          JOIN catalog.products pr ON pr.tenant_id=rp.tenant_id AND pr.id=rp.product_id AND pr.supplier_id=:sid AND pr.activo=true
+          JOIN commercial.warehouses w ON w.tenant_id=rp.tenant_id AND w.id=rp.warehouse_id AND w.deleted_at IS NULL AND w.kind<>'truck'
+          LEFT JOIN commercial.stock s ON s.tenant_id=rp.tenant_id AND s.warehouse_id=rp.warehouse_id AND s.product_id=rp.product_id
+          LEFT JOIN analytics.inventory_health ih ON ih.tenant_id=rp.tenant_id AND ih.warehouse_id=rp.warehouse_id AND ih.product_id=rp.product_id
+          LEFT JOIN analytics.purchase_in_transit pit ON pit.tenant_id=rp.tenant_id AND pit.warehouse_id=rp.warehouse_id AND pit.product_id=rp.product_id
+          LEFT JOIN commercial.replenishment_channel rc ON rc.tenant_id=rp.tenant_id AND rc.warehouse_id=rp.warehouse_id AND rc.supplier_id=pr.supplier_id
+         WHERE rp.tenant_id=:t AND COALESCE(rc.via,'purchase')='purchase'`,
+        { t: tenantId, sid: supplierId, cadOv: sup.cadence_days_override, colc: sup.colchon_days });
+      const lines = (raw.rows as any[])
+        .map((r) => ({
+          warehouse_code: r.warehouse_code, warehouse_id: r.warehouse_id, product_id: r.product_id, sku: r.sku, nombre: r.nombre,
+          on_hand: Number(r.on_hand), avg_daily: Number(r.avg_daily), uxc: Number(r.uxc) || 1, unit_cost: Number(r.unit_cost) || 0,
+          suggested: Math.round(Number(r.suggested)), final: Math.round(Number(r.suggested)),
+        }))
+        .filter((l) => l.suggested > 0);
+
+      const minBoxes = sup.min_order_boxes != null ? Number(sup.min_order_boxes) : null;
+      const minAmount = sup.min_order_amount != null ? Number(sup.min_order_amount) : null;
+      const tot = () => ({
+        cajas: lines.reduce((s, l) => s + l.final / l.uxc, 0),
+        amount: lines.reduce((s, l) => s + l.final * l.unit_cost, 0),
+      });
+      const before = tot();
+      const sumAvg = lines.reduce((s, l) => s + Math.max(l.avg_daily, 0), 0) || lines.length || 1;
+      let padded = false;
+      if (lines.length && minAmount != null && before.amount < minAmount) {
+        const short = minAmount - before.amount;
+        for (const l of lines) { const w = (Math.max(l.avg_daily, 0) || 1) / sumAvg; if (l.unit_cost > 0) l.final += Math.max(0, Math.round((short * w) / l.unit_cost)); }
+        padded = true;
+      } else if (lines.length && minBoxes != null && before.cajas < minBoxes) {
+        const short = minBoxes - before.cajas;
+        for (const l of lines) { const w = (Math.max(l.avg_daily, 0) || 1) / sumAvg; l.final += Math.max(0, Math.round(short * w)) * l.uxc; }
+        padded = true;
+      }
+      const after = tot();
+      return {
+        supplier: { id: sup.id, name: sup.name, cadence_days_override: sup.cadence_days_override, colchon_days: sup.colchon_days, min_order_boxes: minBoxes, min_order_amount: minAmount },
+        padded,
+        totals: { cajas: Math.round(after.cajas * 10) / 10, amount: Math.round(after.amount * 100) / 100, lines: lines.length,
+                  suggested_cajas: Math.round(before.cajas * 10) / 10, suggested_amount: Math.round(before.amount * 100) / 100 },
+        lines: lines.map((l) => ({ ...l, cajas: Math.round((l.final / l.uxc) * 10) / 10, line_cost: Math.round(l.final * l.unit_cost * 100) / 100 })),
+      };
     });
   }
 }

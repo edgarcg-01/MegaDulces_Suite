@@ -199,6 +199,18 @@ export class CommercialReplenishmentController {
     return this.svc.setSupplierLeadTime(id, body?.days ?? null);
   }
 
+  @Post('suppliers/:id/order-params')
+  @RequirePermissions(Permission.COMPRAS_GESTIONAR)
+  @ApiOperation({ summary: 'RA-PRO.10 — parámetros de pedido: cadencia override (días), colchón (días), mínimo de compra en $ y/o cajas. body { cadence_days_override, colchon_days, min_order_amount, min_order_boxes }.' })
+  setSupplierOrderParams(@Param('id') id: string, @Body() body: { cadence_days_override?: number | null; colchon_days?: number | null; min_order_amount?: number | null; min_order_boxes?: number | null }) {
+    return this.svc.setSupplierOrderParams(id, body ?? {});
+  }
+
+  @Get('suppliers/:id/order')
+  @RequirePermissions(Permission.COMPRAS_VER)
+  @ApiOperation({ summary: 'RA-PRO.10 — pedido consolidado al proveedor (todos sus almacenes de compra), horizonte cadencia+colchón, subido al mínimo (por proveedor total) repartiendo en los que más rotan.' })
+  supplierOrder(@Param('id') id: string) { return this.svc.supplierOrder(id); }
+
   @Get('network')
   @RequirePermissions(Permission.COMPRAS_VER)
   @ApiOperation({ summary: 'RA-PRO.6 — topología de red de abasto (almacenes + su CEDIS origen; DRP).' })

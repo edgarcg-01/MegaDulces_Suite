@@ -7,9 +7,13 @@ import { SelectModule } from 'primeng/select';
 import { MultiSelectModule } from 'primeng/multiselect';
 import { ToastModule } from 'primeng/toast';
 import { TableModule } from 'primeng/table';
+import { InputTextModule } from 'primeng/inputtext';
+import { IconFieldModule } from 'primeng/iconfield';
+import { InputIconModule } from 'primeng/inputicon';
 import { MessageService } from 'primeng/api';
 import {
   ComercialService,
+  SalesByRouteCell,
   SalesByRouteDetail,
   SalesByRouteOption,
   SalesByRouteParams,
@@ -34,7 +38,8 @@ const MES: Record<string, string> = {
   standalone: true,
   imports: [
     CommonModule, FormsModule, ButtonModule, SelectModule, MultiSelectModule,
-    ToastModule, TableModule, PageTabsComponent, SidePeekComponent, MetricStripComponent,
+    ToastModule, TableModule, InputTextModule, IconFieldModule, InputIconModule,
+    PageTabsComponent, SidePeekComponent, MetricStripComponent,
   ],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -65,6 +70,25 @@ const MES: Record<string, string> = {
         </div>
       </div>
 
+      <!-- Filtros de vista (client-side, instantáneos sobre lo cargado) -->
+      @if (report()?.rows?.length) {
+        <div class="rr-viewfilters">
+          <p-multiSelect [options]="branchOpts()" [ngModel]="fBranch()" (ngModelChange)="fBranch.set($event)"
+                         optionLabel="label" optionValue="value" placeholder="Todas las sucursales" [showClear]="true"
+                         [filter]="true" filterBy="label" filterPlaceholder="Buscar sucursal…" appendTo="body"
+                         [maxSelectedLabels]="2" selectedItemsLabel="{0} sucursales" styleClass="rr-vf-branch" ariaLabel="Filtrar por sucursal" />
+          <p-iconfield styleClass="rr-vf-search">
+            <p-inputicon styleClass="pi pi-search" />
+            <input pInputText type="text" [ngModel]="fQuery()" (ngModelChange)="fQuery.set($event)"
+                   placeholder="Buscar ruta o sucursal…" aria-label="Buscar ruta o sucursal" />
+            @if (fQuery()) { <p-inputicon styleClass="pi pi-times rr-vf-clear" (click)="fQuery.set('')" role="button" ariaLabel="Limpiar búsqueda" /> }
+          </p-iconfield>
+          @if (fBranch().length || fQuery()) {
+            <button pButton type="button" label="Limpiar filtros" icon="pi pi-filter-slash" class="p-button-sm p-button-text" (click)="clearViewFilters()"></button>
+          }
+        </div>
+      }
+
       @if (error()) {
         <div class="rr-error" role="alert">
           <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
@@ -79,13 +103,14 @@ const MES: Record<string, string> = {
 
 
           <div class="so-actions-bar">
-            <span class="text-xs text-content-muted">{{ r.rows.length }} rutas · año {{ r.year }}</span>
+            <span class="text-xs text-content-muted">{{ filteredRows().length }}@if (filteredRows().length !== r.rows.length) { de {{ r.rows.length }}} rutas · año {{ r.year }}</span>
             <button pButton label="XLSX" icon="pi pi-file-excel" size="small" severity="secondary" [outlined]="true"
                     [loading]="dl()" (click)="download()"></button>
           </div>
 
+          @if (filteredRows().length) {
           <div class="card-premium card-flat rr-table-card">
-            <p-table [value]="r.rows" [loading]="loading()" [rowHover]="true"
+            <p-table [value]="filteredRows()" [loading]="loading()" [rowHover]="true"
                      [scrollable]="true" scrollHeight="60vh"
                      sortField="revenue_total" [sortOrder]="-1"
                      styleClass="p-datatable-sm surf-table rr-ptable">
@@ -122,15 +147,19 @@ const MES: Record<string, string> = {
                   <td pFrozenColumn>TOTAL</td>
                   <td pFrozenColumn></td>
                   @for (m of r.months; track m) {
-                    <td class="comm-num">{{ r.monthly_totals[m]?.revenue != null ? (r.monthly_totals[m].revenue | currency:'MXN':'symbol-narrow':'1.0-0') : '·' }}</td>
+                    <td class="comm-num">{{ viewMonthlyTotals()[m]?.revenue ? (viewMonthlyTotals()[m].revenue | currency:'MXN':'symbol-narrow':'1.0-0') : '·' }}</td>
                   }
-                  <td class="comm-num rr-strong">{{ r.totals.revenue | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
-                  <td class="comm-num">100%</td>
-                  <td class="comm-num">{{ r.totals.tickets | number }}</td>
+                  <td class="comm-num rr-strong">{{ viewTotals().revenue | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+                  <td class="comm-num comm-muted">{{ viewTotals().share | number:'1.0-1' }}%</td>
+                  <td class="comm-num">{{ viewTotals().tickets | number }}</td>
                 </tr>
               </ng-template>
             </p-table>
           </div>
+          } @else {
+            <div class="comm-empty"><div class="comm-empty-icon"><i class="pi pi-filter-slash"></i></div>
+              <h3>Sin coincidencias</h3><p>Ninguna ruta coincide con los filtros de vista. <button pButton type="button" class="p-button-sm p-button-text" label="Limpiar filtros" (click)="clearViewFilters()"></button></p></div>
+          }
         } @else {
           <div class="comm-empty"><div class="comm-empty-icon"><i class="pi pi-inbox"></i></div>
             <h3>Sin resultados</h3><p>No hay ventas de ruta para los filtros elegidos.</p></div>
@@ -235,6 +264,12 @@ const MES: Record<string, string> = {
     .rr-field > label { font-size:.72rem; font-weight:600; color:var(--text-muted); text-transform:uppercase; letter-spacing:.03em; }
     .rr-year { max-width:110px; } .rr-wh { min-width:240px; flex:1 1 240px; }
     .rr-actions { margin-left:auto; }
+    /* Filtros de vista (client-side) */
+    .rr-viewfilters { display:flex; flex-wrap:wrap; gap:.5rem; align-items:center; margin-bottom:1rem; }
+    .rr-vf-branch { min-width:16rem; }
+    :host ::ng-deep .rr-vf-search input { min-width:14rem; }
+    :host ::ng-deep .rr-vf-clear { pointer-events:auto; cursor:pointer; font-size:.72rem; color:var(--text-muted); }
+    :host ::ng-deep .rr-vf-clear:hover { color:var(--text-main); }
     app-metric-strip { display:block; margin-bottom:1rem; }
     .so-actions-bar { display:flex; align-items:center; justify-content:space-between; gap:1rem; margin-bottom:1rem; }
     .rr-table-card { padding:1.25rem; }
@@ -279,16 +314,70 @@ export class ComercialVentasPorRutaComponent {
   error = signal<string | null>(null);
   report = signal<SalesByRouteReport | null>(null);
 
-  readonly kpiItems = computed<MetricStripItem[]>(() => {
+  // Filtros de vista (client-side): narran lo ya cargado sin round-trip al server.
+  fBranch = signal<string[]>([]);   // warehouse_code
+  fQuery = signal('');              // texto libre: ruta o sucursal
+
+  /** Sucursales presentes en el reporte (para el multiselect). */
+  readonly branchOpts = computed<{ label: string; value: string }[]>(() => {
     const r = this.report();
     if (!r) return [];
+    const seen = new Map<string, string>();
+    for (const row of r.rows) if (!seen.has(row.warehouse_code)) seen.set(row.warehouse_code, row.warehouse_name);
+    return [...seen].map(([value, label]) => ({ value, label })).sort((a, b) => a.label.localeCompare(b.label));
+  });
+
+  /** Filas visibles = reporte filtrado por sucursal + búsqueda (ruta/sucursal). */
+  readonly filteredRows = computed<SalesByRouteRow[]>(() => {
+    const r = this.report();
+    if (!r) return [];
+    const wh = this.fBranch();
+    const q = this.fQuery().trim().toLowerCase();
+    return r.rows.filter((row) => {
+      if (wh.length && !wh.includes(row.warehouse_code)) return false;
+      if (q) {
+        const hay = `${row.warehouse_name} ${row.route_no} ${row.route_code}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+  });
+
+  /** Totales por mes recalculados sobre lo filtrado (footer coherente con la vista). */
+  readonly viewMonthlyTotals = computed<Record<string, SalesByRouteCell>>(() => {
+    const r = this.report();
+    if (!r) return {};
+    const acc: Record<string, SalesByRouteCell> = {};
+    for (const m of r.months) acc[m] = { revenue: 0, units: 0, tickets: 0 };
+    for (const row of this.filteredRows()) {
+      for (const m of r.months) {
+        const c = row.monthly[m];
+        if (c) { acc[m].revenue += c.revenue || 0; acc[m].units += c.units || 0; acc[m].tickets += c.tickets || 0; }
+      }
+    }
+    return acc;
+  });
+
+  /** Totales de la vista + share sobre el gran total (peso real del subconjunto). */
+  readonly viewTotals = computed(() => {
+    let revenue = 0, units = 0, tickets = 0;
+    for (const row of this.filteredRows()) { revenue += row.revenue_total || 0; units += row.units_total || 0; tickets += row.tickets_total || 0; }
+    const grand = this.report()?.totals.revenue || 0;
+    return { revenue, units, tickets, share: grand > 0 ? (revenue / grand) * 100 : 0 };
+  });
+
+  readonly kpiItems = computed<MetricStripItem[]>(() => {
+    if (!this.report()) return [];
+    const t = this.viewTotals();
     return [
-      { label: 'Venta total', value: r.totals.revenue, format: 'currency' },
-      { label: 'Rutas', value: r.rows.length },
-      { label: 'Tickets', value: r.totals.tickets },
-      { label: 'Unidades', value: r.totals.units },
+      { label: 'Venta total', value: t.revenue, format: 'currency' },
+      { label: 'Rutas', value: this.filteredRows().length },
+      { label: 'Tickets', value: t.tickets },
+      { label: 'Unidades', value: t.units },
     ];
   });
+
+  clearViewFilters() { this.fBranch.set([]); this.fQuery.set(''); }
 
   year = new Date().getFullYear();
   routes: string[] = [];
