@@ -190,25 +190,39 @@ export class LabelComponent implements AfterViewInit, OnChanges {
   get hasBarcode(): boolean { return !!this.show.barcode && (!!(this.model?.barcode && this.model?.barcode_format) || !!(this.model?.sku && this.model.sku.trim())); }
 
   /**
+   * ¿Producto a GRANEL? `unit_base` = tamaño de la porción base: "KG" (1 kg) o gramos ("500",
+   * "250", "400"). Se vende por KILO → el precio grande es por kg, derivado de la porción.
+   */
+  private get granelGrams(): number {
+    const ub = (this.model?.unit_base || '').toUpperCase();
+    if (ub === 'KG') return 1000;
+    return /^\d+$/.test(ub) ? parseInt(ub, 10) : 0; // 500g/250g/400g; 0 = no es granel
+  }
+  /** Precio por kg del granel: pza × (1000 / gramos de la porción base). */
+  private get perKgPrice(): number {
+    const g = this.granelGrams;
+    return g > 0 ? this.num(this.model?.piece_price) * 1000 / g : 0;
+  }
+
+  /**
    * Precio grande. Con `hero` explícito (intercambiable por ticket) usa ese precio si es válido.
-   * Sin override — default F8/F2: precio de PIEZA (legible en anaquel); si no hay pieza (>0),
-   * cae al primer precio disponible (paquete → caja) para no imprimir $0.00.
-   * KG (granel): piece_price es $/kg → palabra "kg".
+   * GRANEL (unit_base KG/500/250/…): el "pieza" se muestra como **precio por kg**.
+   * Sin override: pieza/kg; si no hay (>0), cae a paquete → caja para no imprimir $0.00.
    */
   get bigUnit(): { word: string; value: number } {
     const m = this.model;
-    const kg = (m?.unit_base || '').toUpperCase() === 'KG';
-    const pieceWord = kg ? 'kg' : 'pieza';
+    const granel = this.granelGrams > 0;
+    const piece = this.num(m?.piece_price);
+    const pieceUnit = granel ? { word: 'kg', value: this.perKgPrice } : { word: 'pieza', value: piece };
     // Override explícito por ticket (solo si ese precio existe).
     if (this.hero === 'paquete' && this.num(m?.pack_price) > 0) return { word: 'paquete', value: this.num(m?.pack_price) };
     if (this.hero === 'caja' && this.num(m?.box_price) > 0) return { word: 'caja', value: this.num(m?.box_price) };
-    if (this.hero === 'pieza' && this.num(m?.piece_price) > 0) return { word: pieceWord, value: this.num(m?.piece_price) };
-    // Default: pieza con fallback.
-    const piece = this.num(m?.piece_price);
-    if (piece > 0) return { word: pieceWord, value: piece };
+    if (this.hero === 'pieza' && piece > 0) return pieceUnit;
+    // Default: pieza/kg con fallback.
+    if (piece > 0) return pieceUnit;
     if (this.num(m?.pack_price) > 0) return { word: 'paquete', value: this.num(m?.pack_price) };
     if (this.num(m?.box_price) > 0) return { word: 'caja', value: this.num(m?.box_price) };
-    return { word: pieceWord, value: 0 };
+    return granel ? { word: 'kg', value: 0 } : { word: 'pieza', value: 0 };
   }
   private get bigStr(): string { return this.bigUnit.value.toFixed(2); }
   // F4: separador de miles (igual que los tiers con number:'1.2-2') → "1,044".

@@ -454,11 +454,24 @@ export class TiendaEtiquetasComponent {
     return 'pieza';
   }
 
+  /** Granel: gramos de la porción base (KG=1000, "500"/"250"/…). 0 = no granel. */
+  private granelGrams(m: LabelModel): number {
+    const ub = (m.unit_base || '').toUpperCase();
+    if (ub === 'KG') return 1000;
+    return /^\d+$/.test(ub) ? parseInt(ub, 10) : 0;
+  }
+
   /** Opciones de precio grande para el selector del ticket — solo las que tienen precio. */
   heroOptions(m: LabelModel): { value: HeroKey; label: string }[] {
     const opts: { value: HeroKey; label: string }[] = [];
     const fmt = (v: number) => '$' + v.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-    if (this.n(m.piece_price) > 0) opts.push({ value: 'pieza', label: `Pieza ${fmt(this.n(m.piece_price))}` });
+    const g = this.granelGrams(m);
+    if (this.n(m.piece_price) > 0) {
+      // Granel se vende por KG → el "pieza" es el precio por kilo derivado de la porción.
+      opts.push(g > 0
+        ? { value: 'pieza', label: `Kg ${fmt(this.n(m.piece_price) * 1000 / g)}` }
+        : { value: 'pieza', label: `Pieza ${fmt(this.n(m.piece_price))}` });
+    }
     if (this.n(m.pack_price) > 0) opts.push({ value: 'paquete', label: `Paquete ${fmt(this.n(m.pack_price))}` });
     if (this.n(m.box_price) > 0) opts.push({ value: 'caja', label: `Caja ${fmt(this.n(m.box_price))}` });
     return opts;

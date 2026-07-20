@@ -81,26 +81,21 @@
 <body>
   <div class="hint">Preview <b>115×40 mm</b> — sin iconos · letra grande · naranja de marca en SKU y número de piezas.</div>
   <div class="stage">
-  <!-- Caso 99651: piece 140.56 · sin paquete/mayoreo-pza · caja 6x$767.45.
-       UN solo tier → panel derecho vacío/desbalanceado (bug a arreglar). -->
+  <!-- Caso 18022 GRANEL: pza $54.57 por 500g (unit_base "500") → se vende por KG.
+       Hero = $54.57 × 1000/500 = $109.14 "Precio por kg". Sin tiers pieza/paquete/caja. -->
   <div class="label">
-    <div class="head">DINO JELLY 1.20L / 100 TINAJITA</div>
+    <div class="head">CAJETA ENVINADA 25KGS CABADAS</div>
     <div class="body">
       <div class="left">
-        <div class="meta"><span>1.20 l</span><span class="sep">|</span><span>Código: <span class="red">99651</span></span></div>
+        <div class="meta"><span>Código: <span class="red">18022</span></span></div>
         <div class="pricebox">
           <svg class="sprout" viewBox="0 0 40 40" fill="hsl(141, 60%, 38%)"><path transform="translate(12,15) rotate(120)" d="M0 -11 C4.5 -5 5.5 0 4 4.5 C2.8 7.5 -2.8 7.5 -4 4.5 C-5.5 0 -4.5 -5 0 -11 Z"/><path transform="translate(22,10) rotate(150) scale(0.7)" d="M0 -11 C4.5 -5 5.5 0 4 4.5 C2.8 7.5 -2.8 7.5 -4 4.5 C-5.5 0 -4.5 -5 0 -11 Z"/></svg>
-          <div class="price" id="priceEl"><span class="cur">$</span>140<span class="dot">.</span>56</div>
-          <div class="pieza">Precio por pieza</div>
+          <div class="price" id="priceEl"><span class="cur">$</span>109<span class="dot">.</span>14</div>
+          <div class="pieza">Precio por kg</div>
         </div>
       </div>
       <div class="right">
-        <div class="tiers">
-          <div class="tier">
-            <div class="txt">Caja con <span class="red">6</span> pzas:</div>
-            <div class="pricecell"><span class="amt">$767.45</span></div>
-          </div>
-        </div>
+        <div class="tiers"></div>
         <div class="barcode"><svg id="bc"></svg></div>
       </div>
     </div>
