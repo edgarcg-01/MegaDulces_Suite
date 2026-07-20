@@ -368,7 +368,7 @@ export class CommercialReplenishmentService {
       const where = filters.join(' AND ');
 
       const rows = (await trx.raw(`
-        SELECT rc.warehouse_id, w.code AS warehouse_code,
+        SELECT rc.warehouse_id, w.code AS warehouse_code, w.name AS warehouse_name,
                rc.supplier_id, sup.name AS supplier_name,
                rc.via, rc.source_warehouse_id, srcw.code AS source_warehouse_code,
                rc.cadence_days, rc.health_band, rc.last_delivery_date, rc.next_due_date,

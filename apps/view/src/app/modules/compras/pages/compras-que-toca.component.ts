@@ -90,7 +90,7 @@ interface DetailState { loading: boolean; lines: DetailLine[]; creating: boolean
               <span class="qt-dd">{{ ddLabel(r.days_to_due) }}</span>
             </td>
             <td>{{ r.supplier_name || '—' }}</td>
-            <td class="qt-muted">{{ r.warehouse_code }}</td>
+            <td class="qt-muted" [title]="r.warehouse_code">{{ r.warehouse_name || r.warehouse_code }}</td>
             <td>
               @if (r.via === 'transfer') {
                 <span class="qt-via qt-via-t" [pTooltip]="'Traspaso desde ' + (r.source_warehouse_code||'?')">

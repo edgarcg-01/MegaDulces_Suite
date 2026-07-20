@@ -261,6 +261,7 @@ export type CadenceBand = 'rapida' | 'promedio' | 'mal_abasto';
 export interface WorklistRow {
   warehouse_id: string;
   warehouse_code: string;
+  warehouse_name: string | null;
   supplier_id: string;
   supplier_name: string | null;
   via: ReplenishVia;
