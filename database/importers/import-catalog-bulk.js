@@ -368,7 +368,12 @@ const COLS = [
     // MERGE server-side. UPDATE existentes.
     const setCols = COLS.filter((c) => c !== 'sku').map((c) => {
       if (['brand_id','category_id'].includes(c)) return `${c}=s.${c}::uuid`;
-      if (['factor_purchase','factor_sale','iva_rate','ieps_rate','cost_with_tax','cost_per_case','cost_base','iva_purchase_rate','ieps_purchase_rate','loyalty_points'].includes(c)) return `${c}=NULLIF(s.${c},'')::numeric`;
+      // RS.3c — factor_sale NO-CLOBBER: solo pisar cuando el entrante Kepler es >1
+      // (autoritativo cuando lo tiene). Si Kepler trae ≤1/vacío, conservar el mayor entre
+      // el existente y el entrante → preserva el backfill desde Wincaja (unidades por caja)
+      // y cualquier corrección manual. Ver backfill-factor-from-wincaja.js.
+      if (c === 'factor_sale') return `factor_sale=CASE WHEN NULLIF(s.factor_sale,'')::numeric > 1 THEN NULLIF(s.factor_sale,'')::numeric ELSE GREATEST(COALESCE(p.factor_sale,0), COALESCE(NULLIF(s.factor_sale,'')::numeric,0)) END`;
+      if (['factor_purchase','iva_rate','ieps_rate','cost_with_tax','cost_per_case','cost_base','iva_purchase_rate','ieps_purchase_rate','loyalty_points'].includes(c)) return `${c}=NULLIF(s.${c},'')::numeric`;
       if (c === 'activo') return `activo=(s.activo='true')`;
       return `${c}=s.${c}`;
     }).join(', ');
