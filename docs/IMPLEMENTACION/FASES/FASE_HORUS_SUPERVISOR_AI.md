@@ -354,3 +354,32 @@ Objetivo: que Horus explote TODA la señal usable de cada módulo de Trade. **Do
 ### Pendientes Horus 360
 - **K7** check-in×captura · **K3.2** niveles oficiales (refina exec_level) · **K5b** traza GPS (route_location_pings, ~2/5 trackean).
 - **Eje B (datos)**: D1 store_id en captura (33%→alto) · D2 daily_assignments.date · **D3 ventaAdicional** (rescata K2) · D4 route_id.
+
+---
+
+## Sprint Horus.ACT — acciones de campo accionables (2026-07-21)
+
+Extiende el repertorio del co-piloto con 4 capacidades pedidas por Edgar: (1) detectar que **no se visitó a un cliente** planeado, (2) **reordenar rutas**, (3) **agregar tiendas de oportunidad** desde INEGI/DENUE, (4) **mandar incidencias/mensajes** al campo/web. Las 4 caben sobre los rieles existentes (findings → acciones `pending_approval` → aprobar → ejecutor → nudge → aprendizaje). Se arrancó por **ACT.1 + ACT.4** (valor inmediato, bajo riesgo).
+
+**Decisiones (Edgar, 2026-07-21):**
+- Incidencia de visita faltante = **híbrido**: nudge automático al vendedor (app) + aprobación del supervisor para la versión formal (web).
+- Reorden de ruta = **nearest-neighbor Haversine** (MVP sin token Mapbox).
+- Alta de oportunidad = **crear cliente pedible + convertir prospecto**.
+
+### ACT.1 — Finding `missed_visit` ✅ EN CÓDIGO (builds api+view verdes, smoke DB 5/5)
+- `MissedVisitEngineService` (`libs/trade/.../supervisor-ai/missed-visit-engine.service.ts`): por cada vendedor con ruta asignada HOY (ISODOW MX), cruza la **cartera planeada del día** (fragmento inline de `vendor-cartera.sql` — `daily_assignments` × `customers.sales_route`/`visit_days`) contra `commercial.vendor_visits` de hoy. El delta = clientes no visitados → finding `missed_visit` por colaborador, `source='plan'`, severidad por fracción faltante, `evidence={planned,visited,missed,missed_customers[],date}`.
+- **Cron propio** `@Cron('0 0 3 * * *')` = **21:00 MX** (fin de jornada), NO el refresh de 02:30 (a esa hora "hoy" ya cambió → falso positivo masivo). Guard `hora<18 → skip` salvo `?force=true` para el endpoint manual `POST /supervisor-ai/missed-visits/scan`.
+- Vive 1 día: resuelve los `missed_visit` de días previos (dedup lleva la fecha MX). `source='plan'` propio para que el resolve del motor de findings (`source='engine'`) no lo pise.
+- Mig `20260721120000` amplía el CHECK `supervisor_findings.source += 'plan'`.
+
+### ACT.4 — Entrega de incidencia (canal híbrido) ✅ EN CÓDIGO
+- **Vendedor (automático)**: al emitir el finding, el motor crea `commercial.coaching_notes(category='incident')` (durable, visible en `/supervisor-ai/field/my-coaching`) + `EventsService.emitFieldNudge(kind:'incident')` (`horus:nudge` en vivo). Idempotente por `finding_id`. `category='incident'` entra **sin migración** (la columna no tiene CHECK).
+- **Supervisor (aprobación)**: el co-piloto propone `notify_missed_visit` (`ACTION_FOR['missed_visit']`, dedup con fecha → una acción por jornada). Aprobar ejecuta `EventsService.emitSupervisorIncident` (`horus:incident` a la room global del tenant) + confirma el finding (flujo genérico). Mig `20260721120000` amplía el CHECK `supervisor_actions.action_type += 'notify_missed_visit'`.
+- Si el supervisor **descarta** el finding, el cascade de `reviewFinding` soft-borra la incidencia del vendedor (propaga la decisión humana al campo).
+- FE: `FINDING_LABELS['missed_visit']`, `evidenceText`, `actionLabel`/`actionPi` para `notify_missed_visit`.
+
+**Pendiente prod:** `migrate:new` (`20260721120000`) en Railway + reinicio API (activa el cron 21:00) + registrar el smoke en `run-all-tests`.
+
+### ACT.2 / ACT.3 — pendientes (diseñados)
+- **ACT.2 reorden real**: ejecutor de `reprioritize_route` que escriba `commercial.customers.visit_sequence` desde `payload.proposed_order` (nearest-neighbor Haversine), reversible (orden previo en `result`). Preview antes→después en la UI.
+- **ACT.3 alta de oportunidad**: opportunity `add_opportunity_store` desde `commercial.prospect_stores` (whitespace alto cerca de ruta cubierta); approve crea `commercial.customers` (pedible) + `ProspectsService.markConverted`. Exige `SUPERVISOR_AI_APROBAR` (+`COMMERCIAL_ORDERS_CREAR` a decidir).

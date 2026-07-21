@@ -30,6 +30,7 @@ import { SalesExecutionService } from './sales-execution.service';
 import { RuleCalibrationService } from './rule-calibration.service';
 import { BaselineLearnerService } from './baseline-learner.service';
 import { OutcomeVerifierService } from './outcome-verifier.service';
+import { MissedVisitEngineService } from './missed-visit-engine.service';
 import { HorusChatService, HorusChatTurn } from './horus-chat/horus-chat.service';
 import { AdaptiveThresholdsService } from './adaptive-thresholds.service';
 import { ListExecution360Dto } from './dto/execution-360-filter.dto';
@@ -61,6 +62,7 @@ export class SupervisorAiController {
     private readonly ruleCalibration: RuleCalibrationService,
     private readonly baselines: BaselineLearnerService,
     private readonly outcomes: OutcomeVerifierService,
+    private readonly missedVisits: MissedVisitEngineService,
     private readonly chat: HorusChatService,
     private readonly adaptiveThresholds: AdaptiveThresholdsService,
   ) {}
@@ -251,6 +253,16 @@ export class SupervisorAiController {
   })
   fraudScan(@ReqUser() user: any) {
     return this.fraud.generateForTenant(user?.tenant_id);
+  }
+
+  @Post('missed-visits/scan')
+  @RequirePermissions(Permission.SUPERVISOR_AI_VER)
+  @ApiOperation({
+    summary:
+      'ACT.1: escanea visitas planeadas NO realizadas hoy (cartera del día vs vendor_visits) → findings missed_visit + auto-nudge al vendedor + propone acción. Guard hora≥18 salvo ?force=true.',
+  })
+  scanMissedVisits(@ReqUser() user: any, @Query('force') force?: string) {
+    return this.missedVisits.scanForTenant(user?.tenant_id, { force: force === 'true' });
   }
 
   @Get('sales-execution')

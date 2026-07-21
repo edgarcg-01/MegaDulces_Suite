@@ -523,7 +523,7 @@ export class EventsService {
   emitFieldNudge(payload: {
     tenantId: string;
     userId: string;
-    kind: 'coaching' | 'task';
+    kind: 'coaching' | 'task' | 'incident';
     title: string;
     refId?: string | null;
   }): boolean {
@@ -531,6 +531,25 @@ export class EventsService {
     this.gateway.server
       .to(reportsRooms.own(payload.tenantId, payload.userId))
       .emit('horus:nudge', { ...payload, at: new Date().toISOString() });
+    return true;
+  }
+
+  /**
+   * Horus.ACT.4 — escala una incidencia al SUPERVISOR (web): cuando el supervisor
+   * aprueba `notify_missed_visit`, el cockpit lo recibe en vivo en la room global
+   * del tenant (`horus:incident`). Best-effort: el registro durable es el finding
+   * confirmado + la acción `executed`; esto solo adelanta el aviso visual.
+   */
+  emitSupervisorIncident(payload: {
+    tenantId: string;
+    collaboratorId?: string | null;
+    title: string;
+    refId?: string | null;
+  }): boolean {
+    if (!payload?.tenantId || !this.gateway.server) return false;
+    this.gateway.server
+      .to(reportsRooms.global(payload.tenantId))
+      .emit('horus:incident', { ...payload, at: new Date().toISOString() });
     return true;
   }
 

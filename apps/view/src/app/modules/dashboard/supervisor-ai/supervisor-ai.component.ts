@@ -61,6 +61,7 @@ const FINDING_LABELS: Record<string, string> = {
   fraud_fast_visit: 'visita demasiado corta',
   fraud_recycled_photo: 'foto reciclada',
   sales_execution_gap: 'ejecuta bien pero sin venta',
+  missed_visit: 'no visitó tiendas planeadas',
 };
 
 const ROOT_CAUSE_LABELS: Record<string, string> = {
@@ -1112,6 +1113,8 @@ export class SupervisorAiComponent implements OnInit {
         return `${e['events'] ?? '?'} foto(s) reutilizada(s)`;
       case 'sales_execution_gap':
         return `salud ${e['exec_score'] ?? '?'} y 0 venta en 30d`;
+      case 'missed_visit':
+        return `${e['missed'] ?? '?'} de ${e['planned'] ?? '?'} tiendas planeadas sin visitar`;
       default:
         return '';
     }
@@ -1155,6 +1158,7 @@ export class SupervisorAiComponent implements OnInit {
       flag_recapture: 'Re-auditar',
       set_target: 'Fijar objetivo',
       flag_review: 'Revisión',
+      notify_missed_visit: 'Escalar visitas faltantes',
     };
     return m[t] || 'Acción';
   }
@@ -1169,6 +1173,7 @@ export class SupervisorAiComponent implements OnInit {
       replicate_best: 'pi pi-star',
       flag_recapture: 'pi pi-camera',
       set_target: 'pi pi-flag',
+      notify_missed_visit: 'pi pi-exclamation-circle',
     };
     return m[t] || 'pi pi-bolt';
   }

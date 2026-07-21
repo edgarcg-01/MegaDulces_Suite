@@ -44,6 +44,8 @@ const ACTION_FOR: Record<string, string> = {
   vision_stockout: 'visit',
   vision_mismatch: 'flag_recapture',
   vision_invalid: 'flag_recapture',
+  // Plan de visita (ACT.1): tiendas planeadas no visitadas → escalar al supervisor.
+  missed_visit: 'notify_missed_visit',
 };
 
 // R1→R2: traducción del diagnóstico (action_hint) a una acción coherente del co-piloto.
@@ -156,6 +158,8 @@ export class SupervisorActionsService {
         return `Re-auditar a ${who}: declaró propio pero la foto muestra competencia (${e.mismatch_photos ?? '?'})`;
       case 'vision_invalid':
         return `Re-auditar fotos de ${who}: ${e.pct ?? '?'}% inválidas o sin anaquel`;
+      case 'missed_visit':
+        return `Escalar a ${who}: quedaron ${e.missed ?? '?'} de ${e.planned ?? '?'} tiendas planeadas sin visitar hoy`;
       default:
         return `Acción sobre ${who}`;
     }
@@ -315,12 +319,19 @@ export class SupervisorActionsService {
         continue; // anti-fatiga: ya recibió coaching esta semana
       }
       const conf = confMap.get(`${f.finding_type}:${f.source || 'engine'}`) ?? 0.6;
-      const impact = this.impactFor(f.subject_type, f.subject_id, baseMap);
+      // missed_visit vive 1 día: el dedup lleva la fecha (evidence.date) → cada
+      // jornada es una acción propia y las viejas expiran solas. Y no atamos un
+      // expected_impact de avg_score (métrico ajeno a la cobertura de visita).
+      const isMissed = f.finding_type === 'missed_visit';
+      const missedDate = isMissed ? parseEvidence(f.evidence).date : null;
+      const impact = isMissed ? null : this.impactFor(f.subject_type, f.subject_id, baseMap);
       const value = values.get(f.subject_type, f.subject_id);
       actions.push({
         tenant_id: tenantId,
         finding_id: f.id,
-        dedup_key: `${actionType}:${f.subject_type}:${f.subject_id}:${f.finding_type}`,
+        dedup_key: `${actionType}:${f.subject_type}:${f.subject_id}:${f.finding_type}${
+          isMissed && missedDate ? `:${missedDate}` : ''
+        }`,
         action_type: actionType,
         kind: 'finding',
         subject_type: f.subject_type,
@@ -678,6 +689,36 @@ export class SupervisorActionsService {
           delivery === 'ws'
             ? 'Tarea creada para mañana y avisada en vivo al colaborador.'
             : 'Tarea de campo creada para mañana (visible en la app del colaborador). Sync a daily_assignments diferido.',
+      };
+    }
+
+    // ACT.4 → escalar la incidencia de visita faltante al SUPERVISOR (web). El
+    // aviso al vendedor ya salió automático desde el motor (coaching_notes
+    // 'incident' + nudge); aprobar aquí es la parte que ADR-020 exige de un humano.
+    // El finding se confirma por el flujo genérico (finding_id seteado).
+    if (at === 'notify_missed_visit' && tenantId) {
+      const collaboratorId =
+        subjectType === 'collaborator' && UUID_RE.test(subjectId) ? subjectId : null;
+      let delivery: 'ws' | 'deferred' = 'deferred';
+      try {
+        const ok = this.events?.emitSupervisorIncident({
+          tenantId,
+          collaboratorId,
+          title: String(action.title || 'Visitas planeadas no realizadas').slice(0, 160),
+          refId: action.finding_id || null,
+        });
+        delivery = ok ? 'ws' : 'deferred';
+      } catch {
+        delivery = 'deferred';
+      }
+      return {
+        effect: 'incident_escalated',
+        reversible: true,
+        external_delivery: delivery,
+        note:
+          delivery === 'ws'
+            ? 'Incidencia escalada al supervisor en vivo (web).'
+            : 'Incidencia registrada (finding confirmado). Aviso en vivo diferido (sin supervisores conectados).',
       };
     }
 

@@ -136,7 +136,10 @@ export class CommercialReplenishmentService {
     // RA-PRO.9 — base 'cadence' unifica el objetivo con Qué Toca: nivel = demanda ×
     // (cadencia + lead efectivo) + colchón; traspaso = lead interno 1d. Sin canal/cadencia
     // cae al máximo (mismo comportamiento que antes). Las demás bases (min/reorden/máx) intactas.
-    const effLead = `(CASE WHEN rc.via='transfer' THEN 1 ELSE COALESCE(rc.lead_time_days, sup.lead_time_days, 7) END)`;
+    // Traspaso: lead de tránsito hub→spoke. NO es deducible del feed (ship↔receive no enlazan,
+    // source_branch=dueño no origen; ver reference_kepler_movements_report) → default 3d (topología
+    // dice ~3d), afinable por canal vía rc.lead_time_days. Compra: lead del proveedor (o 7 default).
+    const effLead = `(CASE WHEN rc.via='transfer' THEN COALESCE(rc.lead_time_days, 3) ELSE COALESCE(rc.lead_time_days, sup.lead_time_days, 7) END)`;
     // RA-PRO.10 — override manual por proveedor: si sup.cadence_days_override está, el objetivo
     // usa horizonte = cadencia_override + colchón (solo COMPRA; el traspaso mantiene su ciclo).
     const cadTarget = `COALESCE(

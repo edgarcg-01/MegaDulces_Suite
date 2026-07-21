@@ -53,9 +53,23 @@ echo ==== %DATE% %TIME% :: %MODE_FLAGS% ==== >> "$LogDir\concentrate.log"
 "@ | Set-Content -Encoding ASCII $runnerCmd
 Write-Host "Runner escrito: $runnerCmd"
 
-# --- Acciones: incremental cada N horas + full diario ---
-$actIncr = New-ScheduledTaskAction -Execute "cmd.exe" -Argument "/c `"$runnerCmd`""
-$actFull = New-ScheduledTaskAction -Execute "cmd.exe" -Argument "/c `"$runnerCmd`" full"
+# --- Lanzador VBS OCULTO (WindowStyle=0): evita que aparezca la consola en pantalla.
+#     Mismo patrón que C:\KeplerRunner\run-hidden.vbs de los feeds de prod. ---
+$hiddenVbs = Join-Path $LogDir "..\run-concentrate-hidden.vbs"
+$hiddenVbs = [System.IO.Path]::GetFullPath($hiddenVbs)
+@"
+' Lanza run-concentrate.cmd SIN mostrar consola (WindowStyle=0, oculto).
+' Interactive (VPN/Docker viven en la sesion del usuario) pero sin ventana visible.
+Set sh = CreateObject("WScript.Shell")
+mode = ""
+If WScript.Arguments.Count > 0 Then mode = WScript.Arguments(0)
+sh.Run "$runnerCmd " & mode, 0, True
+"@ | Set-Content -Encoding ASCII $hiddenVbs
+Write-Host "Lanzador oculto escrito: $hiddenVbs"
+
+# --- Acciones: incremental cada N horas + full diario (via wscript OCULTO) ---
+$actIncr = New-ScheduledTaskAction -Execute "wscript.exe" -Argument "`"$hiddenVbs`""
+$actFull = New-ScheduledTaskAction -Execute "wscript.exe" -Argument "`"$hiddenVbs`" full"
 
 # --- Triggers ---
 $trgIncr = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes($FirstRunDelayMinutes) `
