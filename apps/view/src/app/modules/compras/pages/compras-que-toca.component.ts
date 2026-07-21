@@ -1,5 +1,6 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { forkJoin } from 'rxjs';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ButtonModule } from 'primeng/button';
@@ -18,22 +19,22 @@ import { FreshnessPillComponent } from '../../../shared/components/freshness-pil
 
 type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
 type WLRow = WorklistRow & { _key: string };
-type DetailLine = CriticalStockRow & { final: number; uxc: number };
+type DetailLine = CriticalStockRow & { finalCajas: number; uxc: number };
 interface DetailState {
   loading: boolean;
   basis: OrderBasis;
   lines: DetailLine[];
-  hub: Record<string, number> | null; // product_id → existencia en el hub (solo traspaso)
-  hist: SupplierOrderHistory | null;   // histórico de compras al proveedor
+  hub: Record<string, CriticalStockRow> | null; // product_id → fila del hub (solo traspaso)
+  hist: SupplierOrderHistory | null;             // histórico de compras al proveedor
   creating: boolean;
 }
 
 /**
- * RA-PRO.8/9/10 — Cockpit "Pedido" (antes "Qué toca"). Master (almacén × proveedor: cuándo,
- * canal, cadencia) con drill-down que CONCENTRA la compra: selector de base (cadencia/reorden/
- * máximo), cajas + $ por línea, mínimo del proveedor, aviso de traspaso NO surtible (hub sin
- * stock) e histórico de compras. Crea la requisición/traspaso. Superficie Operations (PrimeNG
- * denso, tokens, monocromático quiet-luxury: solo se colorean los problemas).
+ * RA-PRO.8/9/10 — Cockpit "Pedido". Master (almacén × proveedor) con drill-down que CONCENTRA la
+ * compra: base seleccionable (cadencia/reorden/máximo), pedido EN CAJAS (unidad real) con piezas +
+ * $ derivados, mínimo del proveedor con acción "subir al mínimo", aviso de traspaso NO surtible con
+ * acción "traspasar disponible + comprar faltante", histórico de compras y export. Superficie
+ * Operations (PrimeNG denso, tokens, monocromático quiet-luxury: solo se colorean los problemas).
  */
 @Component({
   selector: 'app-compras-que-toca',
@@ -47,7 +48,7 @@ interface DetailState {
       <header class="surf-page-head">
         <div class="surf-page-head-text">
           <h1>Pedido</h1>
-          <p class="surf-page-sub">Ciclos de reabasto por proveedor y sucursal. Abre un renglón para armar la compra: elige la base, revisa cajas y costo, y crea la requisición (compra) o traspaso según el canal.</p>
+          <p class="surf-page-sub">Ciclos de reabasto por proveedor y sucursal. Abre un renglón para armar la compra: elige la base, pide en cajas, sube al mínimo, resuelve el traspaso y crea la requisición.</p>
         </div>
         @if (loadedAt()) { <app-freshness-pill [since]="loadedAt()" /> }
       </header>
@@ -149,12 +150,13 @@ interface DetailState {
                     }
                   </div>
 
-                  <!-- Aviso: traspaso NO surtible (el hub no tiene stock) -->
+                  <!-- Aviso + acción: traspaso NO surtible (el hub no tiene stock) -->
                   @if (r.via==='transfer' && hubShortCount(r._key) > 0) {
                     <div class="qt-block" role="alert">
                       <i class="pi pi-exclamation-triangle"></i>
-                      El hub <strong>{{ r.source_warehouse_code }}</strong> no tiene stock para surtir {{ hubShortCount(r._key) }} línea(s).
-                      El faltante hay que <strong>comprarlo directo</strong>, no traspasarlo.
+                      <span>El hub <strong>{{ r.source_warehouse_code }}</strong> no tiene stock para surtir {{ hubShortCount(r._key) }} línea(s).</span>
+                      <button pButton label="Traspasar disponible + comprar faltante" icon="pi pi-arrows-h"
+                              class="p-button-sm qt-block-btn" [loading]="st.creating" (click)="splitTransfer(r)"></button>
                     </div>
                   }
 
@@ -166,8 +168,8 @@ interface DetailState {
                           <th class="qt-r">Existencia</th>
                           @if (r.via==='transfer') { <th class="qt-r">En hub</th> }
                           <th class="qt-r">Objetivo</th><th class="qt-r">Sugerido</th>
-                          <th class="qt-r qt-pedir">Pedir (pz)</th>
-                          <th class="qt-r">Cajas</th><th class="qt-r">$ línea</th>
+                          <th class="qt-r qt-pedir">Pedir (cajas)</th>
+                          <th class="qt-r">Piezas</th><th class="qt-r">$ línea</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -183,8 +185,8 @@ interface DetailState {
                             }
                             <td class="qt-r qt-muted">{{ objetivo(l) | number:'1.0-0' }}</td>
                             <td class="qt-r">{{ l.suggested_qty | number:'1.0-0' }}</td>
-                            <td class="qt-r qt-pedir"><p-inputNumber [(ngModel)]="l.final" [min]="0" [showButtons]="false" inputStyleClass="qt-qty" (onInput)="touch()"></p-inputNumber></td>
-                            <td class="qt-r qt-muted">{{ cajas(l) | number:'1.0-0' }}</td>
+                            <td class="qt-r qt-pedir"><p-inputNumber [(ngModel)]="l.finalCajas" [min]="0" [showButtons]="false" inputStyleClass="qt-qty" (onInput)="touch()"></p-inputNumber></td>
+                            <td class="qt-r qt-muted">{{ pzOf(l) | number:'1.0-0' }}</td>
                             <td class="qt-r">{{ money(lineCost(l)) }}</td>
                           </tr>
                         }
@@ -193,11 +195,14 @@ interface DetailState {
                     <div class="qt-det-foot">
                       @if (r.via==='purchase' && minWarn(r._key); as mw) {
                         <p-tag severity="warn" [value]="mw" styleClass="qt-mintag" [pTooltip]="'Mínimo de compra del proveedor (captúralo en Proveedores).'"></p-tag>
+                        <button pButton label="Subir al mínimo" icon="pi pi-arrow-up" class="p-button-sm p-button-text" (click)="padToMin(r)"></button>
                       }
                       <span class="qt-foot-tot">
-                        {{ countToOrder(r._key) }} línea(s) · {{ totalPz(r._key) | number:'1.0-0' }} pz ·
-                        {{ totalCajas(r._key) | number:'1.0-0' }} cajas · <strong>{{ money(detailTotal(r._key)) }}</strong>
+                        {{ countToOrder(r._key) }} línea(s) · {{ totalCajas(r._key) | number:'1.0-0' }} cajas ·
+                        {{ totalPz(r._key) | number:'1.0-0' }} pz · <strong>{{ money(detailTotal(r._key)) }}</strong>
                       </span>
+                      <button pButton label="Exportar" icon="pi pi-download" class="p-button-sm p-button-text"
+                              [disabled]="countToOrder(r._key)===0" (click)="exportRow(r)"></button>
                       <button pButton [label]="r.via==='transfer' ? 'Crear traspaso' : 'Crear requisición'"
                               icon="pi pi-file-edit" class="p-button-sm"
                               [loading]="st.creating" [disabled]="countToOrder(r._key)===0"
@@ -250,10 +255,11 @@ interface DetailState {
     .qt-basis-lbl { font-size: .74rem; color: var(--text-muted); margin-right: .3rem; }
     .qt-hist { font-size: .76rem; color: var(--text-main); display: inline-flex; align-items: center; gap: .35rem; }
     .qt-hist i { font-size: .72rem; color: var(--text-muted); }
-    .qt-block { display: flex; align-items: center; gap: .45rem; font-size: .78rem;
+    .qt-block { display: flex; align-items: center; gap: .5rem; font-size: .78rem;
       background: var(--bad-soft-bg); color: var(--bad-soft-fg); border: 1px solid var(--bad-border);
-      border-radius: var(--r-sm, 6px); padding: .35rem .6rem; margin-bottom: .5rem; }
+      border-radius: var(--r-sm, 6px); padding: .4rem .6rem; margin-bottom: .5rem; flex-wrap: wrap; }
     .qt-block i { font-size: .8rem; }
+    .qt-block-btn { margin-left: auto; }
     .qt-det-table { width: 100%; border-collapse: collapse; font-size: .8rem; }
     .qt-det-table th { text-align: left; color: var(--text-muted); font-weight: 600; font-size: .72rem;
       text-transform: uppercase; letter-spacing: .02em; padding: .25rem .5rem; border-bottom: 1px solid var(--border-color); }
@@ -357,7 +363,7 @@ export class ComprasQueTocaComponent implements OnInit {
         next: (res) => {
           const lines: DetailLine[] = res.rows
             .filter((x) => Number(x.suggested_qty) > 0)
-            .map((x) => ({ ...x, uxc: this.uxc(x), final: Math.round(Number(x.suggested_qty) || 0) }));
+            .map((x) => { const uxc = this.uxc(x); return { ...x, uxc, finalCajas: Math.ceil((Number(x.suggested_qty) || 0) / uxc) }; });
           this.detail.update((d) => (d[r._key] ? { ...d, [r._key]: { ...d[r._key], loading: false, basis, lines } } : d));
         },
         error: () => {
@@ -372,13 +378,13 @@ export class ComprasQueTocaComponent implements OnInit {
       next: (h) => this.detail.update((d) => (d[r._key] ? { ...d, [r._key]: { ...d[r._key], hist: h } } : d)),
       error: () => {},
     });
-    // Cobertura del hub (solo traspaso): existencia del origen para esos SKUs
+    // Cobertura del hub (solo traspaso): filas del origen para esos SKUs
     if (r.via === 'transfer' && r.source_warehouse_id) {
       this.api.criticalStock({ supplier_id: r.supplier_id, warehouse_id: r.source_warehouse_id, target_basis: 'max', scope: 'all', pageSize: 1000 })
         .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
           next: (res) => {
-            const hub: Record<string, number> = {};
-            for (const x of res.rows) hub[x.product_id] = Number(x.on_hand) || 0;
+            const hub: Record<string, CriticalStockRow> = {};
+            for (const x of res.rows) hub[x.product_id] = x;
             this.detail.update((d) => (d[r._key] ? { ...d, [r._key]: { ...d[r._key], hub } } : d));
           },
           error: () => {},
@@ -392,24 +398,24 @@ export class ComprasQueTocaComponent implements OnInit {
     const fs = Number(l.factor_sale), fp = Number(l.factor_purchase);
     return fs > 0 ? fs : (fp > 0 ? fp : 1);
   }
-  cajas(l: DetailLine): number { return Math.ceil(Number(l.final || 0) / (l.uxc || 1)); }
-  lineCost(l: DetailLine): number { return Number(l.final || 0) * Number(l.unit_cost || 0); }
+  pzOf(l: DetailLine): number { return Math.round(Number(l.finalCajas || 0) * (l.uxc || 1)); }
+  lineCost(l: DetailLine): number { return this.pzOf(l) * Number(l.unit_cost || 0); }
 
   private linesOf(key: string): DetailLine[] { this.touchTick(); return this.detail()[key]?.lines ?? []; }
-  countToOrder(key: string): number { return this.linesOf(key).filter((l) => Number(l.final) > 0).length; }
-  detailTotal(key: string): number { return this.linesOf(key).reduce((s, l) => s + Number(l.final || 0) * Number(l.unit_cost || 0), 0); }
-  totalPz(key: string): number { return this.linesOf(key).reduce((s, l) => s + Number(l.final || 0), 0); }
-  totalCajas(key: string): number { return this.linesOf(key).reduce((s, l) => s + Math.ceil(Number(l.final || 0) / (l.uxc || 1)), 0); }
+  countToOrder(key: string): number { return this.linesOf(key).filter((l) => Number(l.finalCajas) > 0).length; }
+  totalCajas(key: string): number { return this.linesOf(key).reduce((s, l) => s + Number(l.finalCajas || 0), 0); }
+  totalPz(key: string): number { return this.linesOf(key).reduce((s, l) => s + this.pzOf(l), 0); }
+  detailTotal(key: string): number { return this.linesOf(key).reduce((s, l) => s + this.pzOf(l) * Number(l.unit_cost || 0), 0); }
 
   // Cobertura del hub (traspaso)
-  hubOnHand(key: string, l: DetailLine): number | null { const h = this.detail()[key]?.hub; return h ? (h[l.product_id] ?? 0) : null; }
+  hubOnHand(key: string, l: DetailLine): number | null { const h = this.detail()[key]?.hub; return h ? Number(h[l.product_id]?.on_hand ?? 0) : null; }
   hubShort(key: string, l: DetailLine): boolean {
     const st = this.detail()[key]; this.touchTick();
-    if (!st?.hub) return false; return (st.hub[l.product_id] ?? 0) < Number(l.final || 0);
+    if (!st?.hub) return false; return Number(st.hub[l.product_id]?.on_hand ?? 0) < this.pzOf(l);
   }
   hubShortCount(key: string): number {
     const st = this.detail()[key]; this.touchTick();
-    if (!st?.hub) return 0; return st.lines.filter((l) => (st.hub![l.product_id] ?? 0) < Number(l.final || 0)).length;
+    if (!st?.hub) return 0; return st.lines.filter((l) => Number(st.hub![l.product_id]?.on_hand ?? 0) < this.pzOf(l)).length;
   }
 
   // Mínimo de compra del proveedor vs el pedido de esta sucursal (solo compra)
@@ -424,6 +430,26 @@ export class ComprasQueTocaComponent implements OnInit {
     return null;
   }
 
+  /** Sube el pedido al mínimo del proveedor repartiendo el faltante por rotación (avg_daily). */
+  padToMin(r: WLRow): void {
+    const key = r._key, st = this.detail()[key];
+    if (!st?.lines.length) return;
+    const l0 = st.lines[0];
+    const minA = l0.supplier_min_amount != null ? Number(l0.supplier_min_amount) : null;
+    const minB = l0.supplier_min_boxes != null ? Number(l0.supplier_min_boxes) : null;
+    const sumAvg = st.lines.reduce((s, l) => s + Math.max(Number(l.avg_daily_units) || 0, 0), 0);
+    const w = (l: DetailLine) => (sumAvg > 0 ? Math.max(Number(l.avg_daily_units) || 0, 0) / sumAvg : 1 / st.lines.length);
+    if (minA != null && this.detailTotal(key) < minA) {
+      const short = minA - this.detailTotal(key);
+      for (const l of st.lines) { const cc = (l.uxc || 1) * (Number(l.unit_cost) || 0); if (cc > 0) l.finalCajas = Number(l.finalCajas || 0) + Math.ceil((short * w(l)) / cc); }
+    } else if (minB != null && this.totalCajas(key) < minB) {
+      const short = minB - this.totalCajas(key);
+      for (const l of st.lines) l.finalCajas = Number(l.finalCajas || 0) + Math.ceil(short * w(l));
+    } else { return; }
+    this.touch();
+    this.toast.add({ severity: 'info', summary: 'Pedido subido al mínimo', detail: `${this.totalCajas(key)} cajas · ${this.money(this.detailTotal(key))}` });
+  }
+
   histTip(h: SupplierOrderHistory): string {
     if (!h.recent?.length) return '';
     const recent = h.recent.map((e) => `${new Date(e.date).toLocaleDateString('es-MX', { day: '2-digit', month: '2-digit', year: '2-digit' })}  ${this.money(e.amount)}`).join('\n');
@@ -433,7 +459,7 @@ export class ComprasQueTocaComponent implements OnInit {
   createReq(r: WLRow): void {
     const st = this.detail()[r._key];
     if (!st) return;
-    const picked = st.lines.filter((l) => Number(l.final) > 0);
+    const picked = st.lines.filter((l) => Number(l.finalCajas) > 0);
     if (!picked.length) return;
     const isTransfer = r.via === 'transfer';
     if (isTransfer && !r.source_warehouse_id) {
@@ -446,15 +472,7 @@ export class ComprasQueTocaComponent implements OnInit {
       source_type: isTransfer ? 'branch' : 'supplier',
       source_warehouse_id: isTransfer ? r.source_warehouse_id : null,
       notes: `Pedido ${r.supplier_name || ''} @ ${r.warehouse_code} · base ${st.basis}`.trim(),
-      lines: picked.map((l) => ({
-        product_id: l.product_id,
-        supplier_id: isTransfer ? null : (l.supplier_id ?? r.supplier_id),
-        source_type: isTransfer ? 'branch' : 'supplier',
-        source_warehouse_id: isTransfer ? r.source_warehouse_id : null,
-        on_hand: Number(l.on_hand), in_transit: Number(l.in_transit),
-        min_stock: Number(l.min_stock), reorder_point: Number(l.reorder_point), max_stock: Number(l.max_stock),
-        suggested_qty: Number(l.suggested_qty), final_qty: Number(l.final), unit_cost: Number(l.unit_cost || 0),
-      })),
+      lines: picked.map((l) => this.reqLine(l, this.pzOf(l), isTransfer ? 'branch' : 'supplier', isTransfer ? null : (l.supplier_id ?? r.supplier_id), isTransfer ? r.source_warehouse_id : null)),
     };
     this.detail.update((d) => ({ ...d, [r._key]: { ...d[r._key], creating: true } }));
     this.api.createRequisition(dto).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
@@ -467,6 +485,80 @@ export class ComprasQueTocaComponent implements OnInit {
         this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudo crear.' });
       },
     });
+  }
+
+  /**
+   * Traspaso NO surtible → dos documentos: (1) traspaso de lo DISPONIBLE en el hub, (2) requisición
+   * de COMPRA del faltante en el hub (para que se reabastezca y pueda surtir). Cierra el aviso rojo.
+   */
+  splitTransfer(r: WLRow): void {
+    const key = r._key, st = this.detail()[key];
+    if (!st?.hub || !r.source_warehouse_id) return;
+    const transfer: { l: DetailLine; qty: number }[] = [];
+    const purchase: { l: DetailLine; qty: number }[] = [];
+    for (const l of st.lines) {
+      const want = this.pzOf(l); if (want <= 0) continue;
+      const avail = Math.max(0, Math.min(want, Number(st.hub[l.product_id]?.on_hand ?? 0)));
+      if (avail > 0) transfer.push({ l, qty: avail });
+      if (want - avail > 0) purchase.push({ l, qty: want - avail });
+    }
+    if (!transfer.length && !purchase.length) return;
+    const jobs = [];
+    if (transfer.length) jobs.push(this.api.createRequisition({
+      warehouse_id: r.warehouse_id, supplier_id: null, source_type: 'branch', source_warehouse_id: r.source_warehouse_id,
+      notes: `Traspaso disponible ${r.supplier_name || ''} @ ${r.warehouse_code}`.trim(),
+      lines: transfer.map(({ l, qty }) => this.reqLine(l, qty, 'branch', null, r.source_warehouse_id)),
+    }));
+    if (purchase.length) jobs.push(this.api.createRequisition({
+      warehouse_id: r.source_warehouse_id, supplier_id: r.supplier_id, source_type: 'supplier', source_warehouse_id: null,
+      notes: `Compra faltante ${r.supplier_name || ''} @ hub ${r.source_warehouse_code} (para surtir ${r.warehouse_code})`.trim(),
+      lines: purchase.map(({ l, qty }) => { const hr = st.hub![l.product_id]; return this.reqLine(hr ?? l, qty, 'supplier', r.supplier_id, null); }),
+    }));
+    this.detail.update((d) => ({ ...d, [key]: { ...d[key], creating: true } }));
+    forkJoin(jobs).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (res) => {
+        this.detail.update((d) => ({ ...d, [key]: { ...d[key], creating: false } }));
+        const folios = res.map((x) => x.folio).join(' + ');
+        this.toast.add({ severity: 'success', summary: 'Traspaso + compra', detail: `${folios} · ${transfer.length} traspaso / ${purchase.length} compra` });
+      },
+      error: (e) => {
+        this.detail.update((d) => ({ ...d, [key]: { ...d[key], creating: false } }));
+        this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudo crear el split.' });
+      },
+    });
+  }
+
+  /** Construye una línea de requisición (final_qty en PIEZAS) desde una fila. */
+  private reqLine(l: CriticalStockRow, finalPz: number, sourceType: 'supplier' | 'branch', supplierId: string | null, sourceWh: string | null) {
+    return {
+      product_id: l.product_id,
+      supplier_id: supplierId,
+      source_type: sourceType,
+      source_warehouse_id: sourceWh,
+      on_hand: Number(l.on_hand), in_transit: Number(l.in_transit),
+      min_stock: Number(l.min_stock), reorder_point: Number(l.reorder_point), max_stock: Number(l.max_stock),
+      suggested_qty: Number(finalPz), final_qty: Number(finalPz), unit_cost: Number(l.unit_cost || 0),
+    };
+  }
+
+  /** Exporta el pedido del renglón a CSV (Excel-compatible, con BOM). */
+  exportRow(r: WLRow): void {
+    const st = this.detail()[r._key];
+    const picked = (st?.lines ?? []).filter((l) => Number(l.finalCajas) > 0);
+    if (!picked.length) return;
+    const esc = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const head = ['SKU', 'Producto', 'Existencia', 'Sugerido (pz)', 'Pedir (cajas)', 'Piezas', '$ unitario', '$ linea'];
+    const body = picked.map((l) => [l.sku, l.nombre, Math.round(Number(l.on_hand)), Math.round(Number(l.suggested_qty)), l.finalCajas, this.pzOf(l), Number(l.unit_cost || 0).toFixed(2), this.lineCost(l).toFixed(2)]);
+    const foot = ['', 'TOTAL', '', '', this.totalCajas(r._key), this.totalPz(r._key), '', this.detailTotal(r._key).toFixed(2)];
+    const csv = [head, ...body, foot].map((row) => row.map(esc).join(',')).join('\r\n');
+    const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const stamp = new Date().toISOString().slice(0, 10);
+    a.href = url;
+    a.download = `pedido_${(r.supplier_name || 'prov').replace(/[^a-z0-9]+/gi, '_').slice(0, 30)}_${r.warehouse_code}_${stamp}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
   }
 
   isTerr(codes: string[]): boolean {

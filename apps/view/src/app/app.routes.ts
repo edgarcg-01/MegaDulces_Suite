@@ -636,6 +636,11 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.ROLES_VER)]
       },
       {
+        path: 'db-health',
+        loadComponent: () => import('./modules/dashboard/admin-db-health/admin-db-health.component').then(m => m.AdminDbHealthComponent),
+        canActivate: [permissionGuard(Permission.USUARIOS_GESTIONAR)]
+      },
+      {
         path: 'roles/:role_name/permissions',
         loadComponent: () => import('./modules/dashboard/admin-roles/admin-roles-permissions.component').then(m => m.AdminRolesPermissionsComponent),
         canActivate: [permissionGuard(Permission.ROLES_CONFIGURAR)]

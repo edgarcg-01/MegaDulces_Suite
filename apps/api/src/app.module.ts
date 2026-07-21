@@ -40,6 +40,7 @@ import { JwtAuthGuard } from '@megadulces/platform-core';
 import { RolesGuard } from '@megadulces/platform-core';
 import { AuthMtModule } from './modules/auth-mt/auth-mt.module';
 import { TenantsAdminModule } from './modules/tenants-admin/tenants-admin.module';
+import { DbHealthModule } from './modules/db-health/db-health.module';
 // Fase B — Core comercial (corre dentro del toggle multi-tenant)
 import { CommercialCustomersModule } from '@megadulces/commercial';
 import { CommercialWarehousesModule } from '@megadulces/commercial';
@@ -128,6 +129,7 @@ const multitenantModules = process.env.ENABLE_MULTITENANT === 'true'
       TenantModule,
       AuthMtModule,
       TenantsAdminModule,
+      DbHealthModule,
       CommercialCustomersModule,
       CommercialWarehousesModule,
       CommercialPricingModule,
