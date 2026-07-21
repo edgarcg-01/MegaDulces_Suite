@@ -96,11 +96,21 @@ function run(script) {
   const steps = STEPS[MODE];
   if (!steps) usage();
 
+  const LOCAL = process.argv.includes('--local');
   const dst = process.env.DATABASE_URL_NEW || '';
-  if (APPLY && !/proxy\.rlwy\.net|railway/i.test(dst)) {
-    console.error('ABORT: --apply requiere DATABASE_URL_NEW apuntando a prod (Railway). Actual: ' + (dst || '(vacío)'));
+  const isRailway = /proxy\.rlwy\.net|railway/i.test(dst);
+  const isLocal = dst === '' || /localhost|127\.0\.0\.1|192\.168\.|::1/i.test(dst);
+  // Por default solo-prod (evita pegarle a local sin querer). Pasá --local para poblar
+  // la DB de desarrollo (localhost/LAN); en ese caso EXIGE que el target NO sea Railway.
+  if (APPLY && !LOCAL && !isRailway) {
+    console.error('ABORT: --apply requiere DATABASE_URL_NEW=prod (Railway), o pasá --local para poblar dev. Actual: ' + (dst || '(vacío/default local)'));
     process.exit(3);
   }
+  if (APPLY && LOCAL && !isLocal) {
+    console.error('ABORT: --local pero DATABASE_URL_NEW no es local/LAN (parece prod). Quitá --local o corregí el target. Actual: ' + dst);
+    process.exit(3);
+  }
+  if (LOCAL) console.log('  modo LOCAL: poblando DB de desarrollo (' + (dst || 'default localhost:5433/postgres_platform') + ')');
 
   console.log(`\n=== Runner prod feeds — modo "${MODE}" (${APPLY ? 'APPLY' : 'DRY-RUN'}) — ${steps.length} paso(s) ===`);
   let failed = 0;

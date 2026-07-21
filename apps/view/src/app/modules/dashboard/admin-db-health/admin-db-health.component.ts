@@ -3,7 +3,6 @@ import { CommonModule } from '@angular/common';
 import { TableModule } from 'primeng/table';
 import { TagModule } from 'primeng/tag';
 import { ButtonModule } from 'primeng/button';
-import { SkeletonModule } from 'primeng/skeleton';
 import { DbHealthService, DbHealthReport, HealthStatus, SourceHealth } from './db-health.service';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 
@@ -13,7 +12,7 @@ type Sev = 'success' | 'warn' | 'danger' | 'secondary';
   selector: 'app-admin-db-health',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, TableModule, TagModule, ButtonModule, SkeletonModule, FreshnessPillComponent],
+  imports: [CommonModule, TableModule, TagModule, ButtonModule, FreshnessPillComponent],
   template: `
     <div class="page">
       <header class="page-head">
@@ -45,52 +44,55 @@ type Sev = 'success' | 'warn' | 'danger' | 'secondary';
         </div>
       }
 
-      <div class="card">
-        <p-table [value]="rows()" [loading]="false" styleClass="p-datatable-sm" [tableStyle]="{ 'min-width': '48rem' }">
-          <ng-template pTemplate="header">
-            <tr>
-              <th>Fuente</th>
-              <th>Última actualización</th>
-              <th class="num">Antigüedad</th>
-              <th>Estado</th>
-              <th>Cadencia esperada</th>
-              <th class="num">Filas</th>
-            </tr>
-          </ng-template>
-          <ng-template pTemplate="body" let-s>
-            <tr>
-              <td>
-                <div class="src">{{ s.label }}</div>
-                <div class="tbl">{{ s.table }}</div>
-              </td>
-              <td>
-                @if (s.last_update) {
-                  <span class="when">{{ s.last_update | date: 'dd/MM HH:mm' }}</span>
-                } @else {
-                  <span class="when muted">nunca</span>
-                }
-              </td>
-              <td class="num" [class.txt-warn]="s.status==='warn'" [class.txt-crit]="s.status==='critical'">
-                {{ relAge(s.age_seconds) }}
-              </td>
-              <td>
-                <p-tag [severity]="sev(s.status)" [value]="statusLabel(s.status)" />
-                @if (s.note) { <span class="note">{{ s.note }}</span> }
-              </td>
-              <td class="cadence">{{ s.cadence }}</td>
-              <td class="num tnum">{{ s.rows != null ? (s.rows | number) : '—' }}</td>
-            </tr>
-          </ng-template>
-          <ng-template pTemplate="loadingbody">
-            <tr *ngFor="let _ of skeleton"><td colspan="6"><p-skeleton height="1.4rem" /></td></tr>
-          </ng-template>
-          <ng-template pTemplate="emptymessage">
-            <tr><td colspan="6" class="empty">
-              @if (loading()) { Cargando… } @else { Sin fuentes configuradas. }
-            </td></tr>
-          </ng-template>
-        </p-table>
-      </div>
+      <ng-container *ngTemplateOutlet="tbl; context: { $implicit: appRows(), title: 'DB de la app', firstCol: 'Tabla' }"></ng-container>
+      <ng-container *ngTemplateOutlet="tbl; context: { $implicit: sourceRows(), title: 'Fuentes / orígenes (se leen desde local; en prod no alcanza la LAN)', firstCol: 'Origen' }"></ng-container>
+
+      <ng-template #tbl let-data let-title="title" let-firstCol="firstCol">
+        <h2 class="sec">{{ title }}</h2>
+        <div class="card">
+          <p-table [value]="data" [loading]="false" styleClass="p-datatable-sm" [tableStyle]="{ 'min-width': '48rem' }">
+            <ng-template pTemplate="header">
+              <tr>
+                <th>{{ firstCol }}</th>
+                <th>Última actualización</th>
+                <th class="num">Antigüedad</th>
+                <th>Estado</th>
+                <th>Cadencia esperada</th>
+                <th class="num">Filas</th>
+              </tr>
+            </ng-template>
+            <ng-template pTemplate="body" let-s>
+              <tr>
+                <td>
+                  <div class="src">{{ s.label }}</div>
+                  <div class="tbl">{{ s.table }}</div>
+                </td>
+                <td>
+                  @if (s.last_update) {
+                    <span class="when">{{ s.last_update | date: 'dd/MM HH:mm' }}</span>
+                  } @else {
+                    <span class="when muted">{{ s.status === 'unknown' ? '—' : 'nunca' }}</span>
+                  }
+                </td>
+                <td class="num" [class.txt-warn]="s.status==='warn'" [class.txt-crit]="s.status==='critical'">
+                  {{ relAge(s.age_seconds) }}
+                </td>
+                <td>
+                  <p-tag [severity]="sev(s.status)" [value]="statusLabel(s.status)" />
+                  @if (s.note) { <span class="note">{{ s.note }}</span> }
+                </td>
+                <td class="cadence">{{ s.cadence }}</td>
+                <td class="num tnum">{{ s.rows != null ? (s.rows | number) : '—' }}</td>
+              </tr>
+            </ng-template>
+            <ng-template pTemplate="emptymessage">
+              <tr><td colspan="6" class="empty">
+                @if (loading()) { Cargando… } @else { Sin fuentes. }
+              </td></tr>
+            </ng-template>
+          </p-table>
+        </div>
+      </ng-template>
 
       <p class="foot">
         La antigüedad se infiere de <code>max(updated_at)</code> por tabla — la huella de que el feed corrió.
@@ -108,6 +110,7 @@ type Sev = 'success' | 'warn' | 'danger' | 'secondary';
     .banner { display: flex; align-items: center; gap: .5rem; font-size: .8rem; padding: .6rem .8rem; border: 1px solid var(--border-color); border-radius: var(--r-md, 8px); margin-bottom: .9rem; }
     .banner.crit { color: var(--danger-fg, #DC2626); border-color: color-mix(in srgb, var(--danger-fg, #DC2626) 40%, var(--border-color)); }
     .banner.err  { color: var(--warn-fg); border-color: color-mix(in srgb, var(--warn-fg) 40%, var(--border-color)); }
+    .sec { font-size: .8rem; font-weight: 700; letter-spacing: -0.01em; color: var(--text-main); margin: 1.1rem 0 .5rem; }
     .card { border: 1px solid var(--border-color); border-radius: var(--r-md, 8px); overflow: hidden; }
     .src { font-weight: 600; color: var(--text-main); font-size: .82rem; }
     .tbl { font-size: .68rem; color: var(--text-faint); font-family: var(--font-mono, monospace); }
@@ -130,9 +133,9 @@ export class AdminDbHealthComponent implements OnInit {
   readonly report = signal<DbHealthReport | null>(null);
   readonly loading = signal(false);
   readonly error = signal<string | null>(null);
-  readonly skeleton = Array.from({ length: 7 });
 
-  readonly rows = computed<SourceHealth[]>(() => this.report()?.sources ?? []);
+  readonly appRows = computed<SourceHealth[]>(() => (this.report()?.sources ?? []).filter((s) => s.group === 'app'));
+  readonly sourceRows = computed<SourceHealth[]>(() => (this.report()?.sources ?? []).filter((s) => s.group === 'source'));
 
   ngOnInit(): void { this.load(); }
 

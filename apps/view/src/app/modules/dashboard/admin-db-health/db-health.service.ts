@@ -6,6 +6,7 @@ import { environment } from '../../../../environments/environment';
 export type HealthStatus = 'ok' | 'warn' | 'critical' | 'unknown';
 
 export interface SourceHealth {
+  group: 'app' | 'source';
   key: string;
   label: string;
   table: string;
