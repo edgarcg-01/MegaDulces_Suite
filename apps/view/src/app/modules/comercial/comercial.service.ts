@@ -1096,6 +1096,22 @@ export class ComercialService {
     });
   }
 
+  /** RS.4 — Sell-Out por vendedor (solo Wincaja). Mismo shape SellOutReport. */
+  sellOutByVendor(opts: SellOutParams) {
+    let params = new HttpParams().set('from', opts.from).set('to', opts.to);
+    if (opts.brand_id) params = params.set('brand_id', opts.brand_id);
+    if (opts.search?.trim()) params = params.set('search', opts.search.trim());
+    if (opts.cells?.length) params = params.set('cells', opts.cells.join(','));
+    return this.http.get<SellOutReport>(`${this.base}/analytics/sell-out/by-vendor`, { params });
+  }
+
+  sellOutCanales() {
+    return this.http.get<SellOutTreeGroup[]>(`${this.base}/analytics/sell-out/canales`);
+  }
+  sellOutVendors() {
+    return this.http.get<SellOutTreeGroup[]>(`${this.base}/analytics/sell-out/vendors`);
+  }
+
   /** Descarga XLSX/PDF vía blob (respeta el interceptor de auth). */
   sellOutDownload(opts: SellOutParams, fmt: 'xlsx' | 'pdf') {
     return this.http.get(`${this.base}/analytics/sell-out.${fmt}`, {
@@ -1114,6 +1130,7 @@ export class ComercialService {
     if (opts.view && opts.view !== 'product') params = params.set('view', opts.view);
     if (opts.channels?.length) params = params.set('channels', opts.channels.join(','));
     if (opts.warehouses?.length) params = params.set('warehouses', opts.warehouses.join(','));
+    if (opts.cells?.length) params = params.set('cells', opts.cells.join(','));
     if (opts.include_zeros) params = params.set('include_zeros', 'true');
     if (opts.search?.trim()) params = params.set('search', opts.search.trim());
     return params;
@@ -1264,6 +1281,8 @@ export interface SellOutParams {
   view?: SellOutView;
   channels?: string[];
   warehouses?: string[];
+  /** RS.4 — filtro CANAL jerárquico: tokens "<canal>|<warehouse>" o "<canal>|*". */
+  cells?: string[];
   include_zeros?: boolean;
   search?: string;
 }
@@ -1271,6 +1290,13 @@ export interface SellOutParams {
 export interface SellOutWarehouseRow {
   code: string;
   name: string;
+}
+
+/** RS.4 — nodo de árbol para los slicers CANAL y VENDEDOR. */
+export interface SellOutTreeGroup {
+  group: string;
+  group_label: string;
+  leaves: { channel?: string; code: string; name: string }[];
 }
 
 // ── Fase SAL ──

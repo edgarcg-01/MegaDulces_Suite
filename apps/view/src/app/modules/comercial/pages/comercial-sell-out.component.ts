@@ -5,6 +5,7 @@ import { FormsModule } from '@angular/forms';
 import { ButtonModule } from 'primeng/button';
 import { SelectModule } from 'primeng/select';
 import { MultiSelectModule } from 'primeng/multiselect';
+import { CheckboxModule } from 'primeng/checkbox';
 import { DatePickerModule } from 'primeng/datepicker';
 import { ToggleSwitchModule } from 'primeng/toggleswitch';
 import { InputTextModule } from 'primeng/inputtext';
@@ -18,6 +19,7 @@ import {
   SellOutReport,
   SellOutView,
   SellOutWarehouseRow,
+  SellOutTreeGroup,
 } from '../comercial.service';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
@@ -41,7 +43,7 @@ const CHANNEL_OPTS = [
   selector: 'app-comercial-sell-out',
   standalone: true,
   imports: [
-    CommonModule, FormsModule, ButtonModule, SelectModule, MultiSelectModule,
+    CommonModule, FormsModule, ButtonModule, SelectModule, MultiSelectModule, CheckboxModule,
     DatePickerModule, ToggleSwitchModule, InputTextModule, ToastModule,
     PageTabsComponent, SegmentedComponent, ProductSearchComponent, MetricStripComponent,
   ],
@@ -72,6 +74,11 @@ const CHANNEL_OPTS = [
               <span class="so-badge">{{ b.products }}</span>
             </ng-template>
           </p-select>
+        </div>
+
+        <div class="so-field">
+          <label>Ver</label>
+          <app-segmented [options]="reportModeOpts" [value]="reportMode()" (valueChange)="setReportMode($event)" ariaLabel="Modo del reporte" />
         </div>
 
         <div class="so-field">
@@ -114,16 +121,12 @@ const CHANNEL_OPTS = [
         }
 
         <div class="so-field">
-          <label>Almacenes</label>
-          <p-multiSelect [options]="warehouseOpts()" [(ngModel)]="warehouses" optionLabel="name" optionValue="code"
-                         placeholder="Todos" [showClear]="true" [loading]="loadingWarehouses()"
-                         appendTo="body" styleClass="w-full" />
-        </div>
-
-        <div class="so-field">
-          <label>Canales</label>
-          <p-multiSelect [options]="channelOpts" [(ngModel)]="channels" optionLabel="label" optionValue="value"
-                         placeholder="Todos" [showClear]="true" appendTo="body" styleClass="w-full" />
+          <label>{{ reportMode() === 'vendedor' ? 'Vendedor' : 'Canal · Sucursal' }}</label>
+          <button type="button" class="so-slicer-btn" (click)="slicerOpen.set(!slicerOpen())">
+            <i class="pi pi-sitemap"></i>
+            <span>{{ selectedCount() ? (selectedCount() + ' seleccionados') : 'Todos' }}</span>
+            <i class="pi" [class.pi-chevron-down]="!slicerOpen()" [class.pi-chevron-up]="slicerOpen()"></i>
+          </button>
         </div>
 
         <div class="so-field so-search-field">
@@ -131,29 +134,64 @@ const CHANNEL_OPTS = [
           <app-product-search placeholder="SKU (5 díg.) o descripción…" (productSelected)="onProductPick($event)" />
         </div>
 
-        <div class="so-field">
-          <label>Vista</label>
-          <app-segmented [options]="viewOpts" [value]="view()" (valueChange)="setView($event)" ariaLabel="Vista del reporte" />
-        </div>
+        @if (reportMode() === 'canal') {
+          <div class="so-field">
+            <label>Vista</label>
+            <app-segmented [options]="viewOpts" [value]="view()" (valueChange)="setView($event)" ariaLabel="Vista del reporte" />
+          </div>
+        }
 
         <div class="so-field">
           <label>Medida</label>
           <app-segmented [options]="measureOpts" [value]="measure()" (valueChange)="setMeasure($event)" ariaLabel="Medida" />
         </div>
 
-        <div class="so-field so-toggles">
-          @if (view() !== 'month_columns') {
-            <label class="so-toggle"><p-toggleSwitch [(ngModel)]="byChannel" /> <span>Desglosar canal</span></label>
-          }
-          @if (view() !== 'month_summary') {
-            <label class="so-toggle"><p-toggleSwitch [(ngModel)]="includeZeros" /> <span>Incluir sin venta</span></label>
-          }
-        </div>
+        @if (reportMode() === 'canal') {
+          <div class="so-field so-toggles">
+            @if (view() !== 'month_columns') {
+              <label class="so-toggle"><p-toggleSwitch [(ngModel)]="byChannel" /> <span>Desglosar canal</span></label>
+            }
+            @if (view() !== 'month_summary') {
+              <label class="so-toggle"><p-toggleSwitch [(ngModel)]="includeZeros" /> <span>Incluir sin venta</span></label>
+            }
+          </div>
+        }
+      </div>
 
-        <div class="so-actions">
-          <button pButton label="Generar" icon="pi pi-search" size="small"
-                  [loading]="loading()" (click)="generate()"></button>
+      <!-- RS.4 — Slicer jerárquico Canal→Sucursal / Grupo→Vendedor -->
+      @if (slicerOpen()) {
+        <div class="so-slicer card-premium card-flat">
+          <div class="so-slicer-head">
+            <span>{{ reportMode() === 'vendedor' ? 'Filtrar por vendedor (solo Wincaja)' : 'Filtrar por canal y sucursal' }}</span>
+            <span class="so-slicer-actions">
+              <button type="button" class="so-link" (click)="clearCells()">Limpiar</button>
+              <button type="button" class="so-apply" (click)="applyCells()">Aplicar</button>
+            </span>
+          </div>
+          <div class="so-slicer-groups">
+            @for (g of activeTree(); track g.group) {
+              <div class="so-slicer-col">
+                <label class="so-slicer-group">
+                  <p-checkbox [binary]="true" [ngModel]="groupAllSel(g)" (onChange)="toggleGroup(g)" />
+                  <span>{{ g.group_label }}</span>
+                </label>
+                @for (leaf of g.leaves; track leaf.code) {
+                  <label class="so-slicer-leaf">
+                    <p-checkbox [binary]="true" [ngModel]="isLeafSel(g, leaf)" (onChange)="toggleLeaf(g, leaf)" />
+                    <span>{{ leaf.name }}</span>
+                  </label>
+                }
+              </div>
+            } @empty {
+              <p class="so-slicer-empty">Sin datos para este modo.</p>
+            }
+          </div>
         </div>
+      }
+
+      <div class="so-actions">
+        <button pButton label="Generar" icon="pi pi-search" size="small"
+                [loading]="loading()" (click)="generate()"></button>
       </div>
 
       @if (loading()) {
@@ -288,6 +326,27 @@ const CHANNEL_OPTS = [
     .so-badge { margin-left:.5rem; font-size:.7rem; color:var(--text-muted); }
     /* segmented → app-segmented (átomo compartido) */
     .so-toggles { flex-direction:row; gap:1rem; align-items:center; }
+    /* RS.4 — slicer jerárquico Canal/Vendedor */
+    .so-slicer-btn { display:inline-flex; align-items:center; gap:.5rem; height:32px; padding:0 .7rem;
+      background:var(--card-bg); border:1px solid var(--border-color); border-radius:var(--r-sm,8px);
+      font-size:.8rem; color:var(--text-main); cursor:pointer; min-width:11rem; justify-content:space-between; }
+    .so-slicer-btn:hover { border-color:var(--action); }
+    .so-slicer-btn .pi-sitemap { color:var(--text-muted); }
+    .so-slicer { margin-bottom:1rem; padding:.9rem 1rem; }
+    .so-slicer-head { display:flex; justify-content:space-between; align-items:center; margin-bottom:.75rem;
+      font-size:.82rem; font-weight:700; color:var(--text-main); }
+    .so-slicer-actions { display:flex; gap:.5rem; }
+    .so-link { background:none; border:none; color:var(--text-muted); font-size:.78rem; cursor:pointer; padding:.2rem .4rem; }
+    .so-link:hover { color:var(--text-main); }
+    .so-apply { background:var(--action); color:#fff; border:none; border-radius:var(--r-xs,6px); font-size:.78rem;
+      font-weight:600; cursor:pointer; padding:.28rem .7rem; }
+    .so-slicer-groups { display:flex; flex-wrap:wrap; gap:1.5rem; }
+    .so-slicer-col { display:flex; flex-direction:column; gap:.35rem; min-width:11rem; }
+    .so-slicer-group { display:flex; align-items:center; gap:.5rem; font-weight:700; font-size:.8rem;
+      color:var(--text-main); padding-bottom:.3rem; border-bottom:1px solid var(--border-color); margin-bottom:.15rem; }
+    .so-slicer-leaf { display:flex; align-items:center; gap:.5rem; font-size:.8rem; color:var(--text-main);
+      cursor:pointer; padding-left:.3rem; }
+    .so-slicer-empty { color:var(--text-muted); font-size:.82rem; }
     .so-toggle { display:inline-flex; align-items:center; gap:.4rem; font-size:.8rem; color:var(--text-main); }
     .so-actions { margin-left:auto; }
     .so-actions-bar { display:flex; align-items:center; justify-content:space-between; gap:1rem; flex-wrap:wrap; margin-bottom:1rem; }
@@ -457,6 +516,20 @@ export class ComercialSellOutComponent {
   warehouseOpts = signal<SellOutWarehouseRow[]>([]);
   loadingWarehouses = signal(false);
 
+  // RS.4 — modo del reporte + slicer jerárquico (CANAL o VENDEDOR).
+  reportMode = signal<'canal' | 'vendedor'>('canal');
+  readonly reportModeOpts = [
+    { label: 'Por canal', value: 'canal' },
+    { label: 'Por vendedor', value: 'vendedor' },
+  ];
+  canalTree = signal<SellOutTreeGroup[]>([]);
+  vendorTree = signal<SellOutTreeGroup[]>([]);
+  activeTree = computed(() => (this.reportMode() === 'vendedor' ? this.vendorTree() : this.canalTree()));
+  // tokens seleccionados ("<canal|grupo>|<code>"). Vacío = todos.
+  selectedCells = signal<Set<string>>(new Set());
+  slicerOpen = signal(false);
+  readonly selectedCount = computed(() => this.selectedCells().size);
+
   private curFrom = '';
   private curTo = '';
 
@@ -475,9 +548,48 @@ export class ComercialSellOutComponent {
     this.syncPeriod();
     this.loadBrands();
     this.loadWarehouses();
+    this.loadTrees();
     // Al entrar: reporte general de TODAS las empresas (empresa opcional).
     this.generate();
   }
+
+  private loadTrees() {
+    this.svc.sellOutCanales().pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({ next: (t) => this.canalTree.set(t), error: () => {} });
+    this.svc.sellOutVendors().pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({ next: (t) => this.vendorTree.set(t), error: () => {} });
+  }
+
+  setReportMode(m: string) {
+    this.reportMode.set(m as 'canal' | 'vendedor');
+    this.selectedCells.set(new Set());   // el token de canal no aplica al de vendedor
+    this.generate();
+  }
+
+  // Token de una hoja: canal usa leaf.channel; vendedor usa el grupo.
+  leafToken(g: SellOutTreeGroup, leaf: { channel?: string; code: string }): string {
+    return `${(leaf.channel ?? g.group)}|${leaf.code}`.toLowerCase();
+  }
+  isLeafSel(g: SellOutTreeGroup, leaf: { channel?: string; code: string }): boolean {
+    return this.selectedCells().has(this.leafToken(g, leaf));
+  }
+  toggleLeaf(g: SellOutTreeGroup, leaf: { channel?: string; code: string }) {
+    const s = new Set(this.selectedCells());
+    const t = this.leafToken(g, leaf);
+    s.has(t) ? s.delete(t) : s.add(t);
+    this.selectedCells.set(s);
+  }
+  groupAllSel(g: SellOutTreeGroup): boolean {
+    return g.leaves.length > 0 && g.leaves.every((l) => this.isLeafSel(g, l));
+  }
+  toggleGroup(g: SellOutTreeGroup) {
+    const s = new Set(this.selectedCells());
+    const all = this.groupAllSel(g);
+    for (const l of g.leaves) { const t = this.leafToken(g, l); all ? s.delete(t) : s.add(t); }
+    this.selectedCells.set(s);
+  }
+  clearCells() { this.selectedCells.set(new Set()); this.generate(); }
+  applyCells() { this.slicerOpen.set(false); this.generate(); }
 
   /** Autocomplete de producto (todas las empresas): al elegir uno, filtra por su SKU y regenera. */
   onProductPick(hit: ProductHit | null): void {
@@ -566,6 +678,7 @@ export class ComercialSellOutComponent {
       view: this.view(),
       channels: this.channels.length ? this.channels : undefined,
       warehouses: this.warehouses.length ? this.warehouses : undefined,
+      cells: this.selectedCells().size ? Array.from(this.selectedCells()) : undefined,
       include_zeros: this.includeZeros,
       search: this.search() || undefined,
     };
@@ -578,7 +691,10 @@ export class ComercialSellOutComponent {
       return;
     }
     this.loading.set(true);
-    this.svc.sellOut(this.buildParams())
+    const req = this.reportMode() === 'vendedor'
+      ? this.svc.sellOutByVendor(this.buildParams())
+      : this.svc.sellOut(this.buildParams());
+    req
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (r) => { this.report.set(r); this.meta.set(this.buildMeta()); this.loading.set(false); },
