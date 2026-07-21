@@ -142,7 +142,8 @@ async function ensureDestTable(dest, table, cols) {
   }
 }
 
-/** Elige la columna timestamp/date "de actividad" (la de MAX más reciente). */
+/** Elige la columna timestamp/date "de actividad" (la de MAX más reciente).
+ * Clampa a now() para que una fila con fecha basura futura no domine la elección. */
 async function pickTsCol(src, table, cols) {
   const cands = cols.filter((c) => isTsType(c.data_type)).map((c) => c.column_name);
   if (!cands.length) return null;
@@ -150,7 +151,7 @@ async function pickTsCol(src, table, cols) {
   let best = null, bestMax = null;
   for (const col of cands) {
     try {
-      const r = await src.query(`SELECT max(${qid(col)}) AS m FROM md.${qid(table)}`);
+      const r = await src.query(`SELECT max(${qid(col)}) AS m FROM md.${qid(table)} WHERE ${qid(col)} <= now()`);
       const m = r.rows[0].m;
       if (m && (bestMax === null || new Date(m) > new Date(bestMax))) { bestMax = m; best = col; }
     } catch { /* ignora columna problemática */ }
@@ -259,10 +260,14 @@ async function copyRows(src, dest, table, cols, branch, whereSql, whereParams) {
           }
 
           const loaded = await copyRows(src, dest, t, cols, b.code, whereSql ? `${qid(tsCol)} >= $2` : null, whereParams);
-          // Nuevo watermark = MAX(ts) en destino para la sucursal.
+          // Nuevo watermark = MAX(ts) REALISTA (<= now()) en destino para la sucursal.
+          // Clamp a now(): una fila con fecha basura futura (visto en Kepler: 2106, 2029,
+          // 2028) envenenaría el watermark y CONGELARÍA el incremental (nada vuelve a
+          // cumplir ts >= last_value). Las filas futuras siguen cargándose (overlap), solo
+          // no avanzan la marca de agua.
           let newMax = null;
           if (tsCol) {
-            newMax = (await dest.query(`SELECT max(${qid(tsCol)}) m FROM kp.${qid(t)} WHERE sucursal=$1`, [b.code])).rows[0].m;
+            newMax = (await dest.query(`SELECT max(${qid(tsCol)}) m FROM kp.${qid(t)} WHERE sucursal=$1 AND ${qid(tsCol)} <= now()`, [b.code])).rows[0].m;
           }
           const rowsTotal = Number((await dest.query(`SELECT count(*)::bigint n FROM kp.${qid(t)} WHERE sucursal=$1`, [b.code])).rows[0].n);
           await dest.query(

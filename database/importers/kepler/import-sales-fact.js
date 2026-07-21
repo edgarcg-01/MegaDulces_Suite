@@ -29,6 +29,12 @@ const DST = process.env.DATABASE_URL_NEW || 'postgresql://postgres:superoot@loca
 const APPLY = process.argv.includes('--apply');
 const BATCH = 2000;
 const MONTHS = 13;
+// Ventana refrescada. Default = 13 meses (nightly, refresco completo). El feed LIVE
+// (intradía, cada pocos min) pasa SALES_FACT_DAYS=N para refrescar solo los últimos N
+// días → DELETE+INSERT acotado, barato. Los días viejos ya cargados por el nightly no
+// se tocan. WIN se usa idéntico en el filtro del origen y en el DELETE del destino.
+const DAYS = process.env.SALES_FACT_DAYS ? parseInt(process.env.SALES_FACT_DAYS, 10) : null;
+const WIN = DAYS ? `current_date - interval '${DAYS} days'` : `current_date - interval '${MONTHS} months'`;
 
 // --- Modelo de unidades (RS.3) -------------------------------------------------
 // Unidades de venta que representan PESO (no cuenta de piezas).
@@ -86,7 +92,7 @@ function toCanonical(kind, u, cant, model) {
   await src.connect();
   await db.connect();
   try {
-    console.log(`\n=== Fact de ventas → analytics.sales_daily (BULK, ${APPLY ? 'APPLY' : 'DRY-RUN'}, ${MONTHS}m) ===\n`);
+    console.log(`\n=== Fact de ventas → analytics.sales_daily (BULK, ${APPLY ? 'APPLY' : 'DRY-RUN'}, ventana ${DAYS ? DAYS + 'd (LIVE)' : MONTHS + 'm'}) ===\n`);
 
     // Lookups del destino + MODELO DE UNIDAD por producto (RS.3).
     const prods = (await db.query(
@@ -117,14 +123,16 @@ function toCanonical(kind, u, cant, model) {
               sum(cantidad)::numeric        AS cant,
               round(sum(importe),2)::numeric AS revenue
          FROM mart.ventas_enriched
-        WHERE fecha >= current_date - interval '${MONTHS} months'
+        WHERE fecha >= ${WIN}
+          AND fecha <= current_date
           AND NOT (almacen = '01' AND fecha < DATE '2026-07-01')
         GROUP BY almacen, sku, channel, fecha, upper(btrim(coalesce(unidad,'')))`);
     // Tickets: aparte, SIN unidad, para no sobrecontar folios con varias unidades.
     const { rows: tk } = await src.query(
       `SELECT almacen, sku, channel, fecha, count(DISTINCT folio)::int AS tickets
          FROM mart.ventas_enriched
-        WHERE fecha >= current_date - interval '${MONTHS} months'
+        WHERE fecha >= ${WIN}
+          AND fecha <= current_date
           AND NOT (almacen = '01' AND fecha < DATE '2026-07-01')
         GROUP BY almacen, sku, channel, fecha`);
     const tkMap = new Map(tk.map((r) => [`${r.almacen}|${r.sku}|${r.channel}|${r.fecha.toISOString().slice(0,10)}`, r.tickets]));
@@ -186,21 +194,24 @@ function toCanonical(kind, u, cant, model) {
       });
       await db.query(`INSERT INTO stg_sf VALUES ${vals.join(',')}`, params);
     }
-    // Refresco full de la ventana: borra + reinserta (agrupado por si hay sku
-    // duplicados que colapsan al mismo product_id → evita violar el unique).
-    // Scope del DELETE a canales KEPLER (NOT LIKE 'wincaja%'): este feed solo refresca
-    // su propia venta. Sin esto borraba TODA la ventana incluyendo los canales wincaja_*
-    // → si Kepler corría después de import-wincaja-analytics, dejaba a Wincaja en 0 hasta
-    // el próximo sync (causa raíz del "sell-out no muestra Wincaja"). Ahora son independientes.
-    await db.query(
-      `DELETE FROM analytics.sales_daily WHERE tenant_id=$1 AND sale_date >= current_date - interval '${MONTHS} months' AND channel NOT LIKE 'wincaja%'`, [M]);
+    // Refresco por UPSERT (sin DELETE → cero churn/bloat, no reescribe la ventana entera):
+    // actualiza en su lugar las filas existentes e inserta solo las combinaciones nuevas.
+    // Agrupado por si hay sku duplicados que colapsan al mismo product_id.
+    // Los canales wincaja_* NO se tocan (no vienen en este origen), así que quedan intactos
+    // sin necesidad del scope explícito que tenía el viejo DELETE.
+    // Nota: una combinación (product,warehouse,channel,día) que existía y desaparece del
+    // origen (venta anulada/sku sin mapear) queda con su último valor — trade-off aceptado
+    // para no borrar (raro en ventas; el nightly la re-cuadra si el origen la vuelve a traer).
     const up = await db.query(
       `INSERT INTO analytics.sales_daily
          (id, tenant_id, product_id, warehouse_id, channel, sale_date, units, revenue, cost, tickets, unit_kind, updated_at)
        SELECT gen_random_uuid(), $1, product_id, warehouse_id, channel, sale_date,
               sum(units), sum(revenue), sum(cost), sum(tickets), max(unit_kind), now()
          FROM stg_sf
-        GROUP BY product_id, warehouse_id, channel, sale_date`, [M]);
+        GROUP BY product_id, warehouse_id, channel, sale_date
+       ON CONFLICT (tenant_id, product_id, warehouse_id, channel, sale_date)
+       DO UPDATE SET units=EXCLUDED.units, revenue=EXCLUDED.revenue, cost=EXCLUDED.cost,
+                     tickets=EXCLUDED.tickets, unit_kind=EXCLUDED.unit_kind, updated_at=now()`, [M]);
     await db.query('COMMIT');
     console.log(`\n[APPLY] COMMIT — ${up.rowCount} filas en analytics.sales_daily.`);
   } catch (e) {

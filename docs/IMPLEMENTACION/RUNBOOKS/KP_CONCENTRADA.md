@@ -69,7 +69,19 @@ FROM kp.sync_control WHERE table_name = 'kdm1' ORDER BY sucursal;
 - **Detección de `ts_col`**: elige la columna timestamp/date con MAX más reciente
   (la "fecha de actividad"). Ej. verificado: kdpord→c6, kdij→c10, kdm1→c18.
 - **Idempotente**: re-correr no duplica (overlap-reload por sucursal).
-- **Automatizar**: agendar en el Task Scheduler on-prem (junto a `run-prod-feeds.js`):
-  incremental cada X horas, `--full` semanal.
+- **Automatizar** ✅ (2026-07-21): tarea `KP-Concentrate` en el Task Scheduler de `.249`
+  (host con la VPN/Docker de sesión). Instalador:
+  [`install-concentrate-task.ps1`](../../../database/importers/kepler/install-concentrate-task.ps1)
+  → runner `C:\KeplerRunner\run-concentrate.cmd`. Incremental cada 4 h + `--full` diario 03:30.
+  Settings resilientes: `StartWhenAvailable` (recupera corridas perdidas si la PC estuvo
+  apagada), `WakeToRun`, retry 3×10 min, `IgnoreNew`, interactive/Highest.
+  **Para sobrevivir reinicios (manual, 1 vez en el host):** BIOS *Restore on AC Power Loss*,
+  auto-login del usuario y VPN/Docker en autostart. `.245` (server siempre-on) sería mejor
+  host, pero requiere confirmar que alcanza las subredes de sucursal (VPN).
+- **Watermark clamp** ✅ (2026-07-21): `pickTsCol` y el `newMax` guardado clampan a `now()`.
+  Antes, una fila con fecha basura futura del origen (visto: 2106/2029/2028) envenenaba el
+  watermark y **congelaba** el incremental de esa tabla (nada cumplía `ts >= last_value`).
+  Había 47 combos sucursal×tabla congelados (incluida `kdm1`/ventas). Un `--apply --full`
+  reconcilia los watermarks viejos ya guardados.
 - Es un **ODS crudo** (raw `kp.*`). La capa semántica (mart.ventas, etc.) y los
   importers KV pueden apuntar acá para leer **una** DB en vez de seis (paso futuro).

@@ -13,7 +13,10 @@
  *   - code ya existe            → skip.
  *   - nombre ya existe sin code → adopta el code (backfill).
  *   - nombre ya existe con OTRO code → conflicto, se reporta y skip.
- *   - resto                     → INSERT (nombre UPPERCASE canónico).
+ *   - nombre corresponde a una brand SOFT-DELETED → skip (se borró a propósito en
+ *     la dedup; reinsertar la resucitaría y violaría brands_tenant_nombre_unique,
+ *     que NO es parcial y cuenta las borradas). Se reporta.
+ *   - resto                     → INSERT (nombre UPPERCASE canónico), ON CONFLICT DO NOTHING.
  *
  *   node database/importers/kepler/import-brands-lineas.js          # dry-run
  *   node database/importers/kepler/import-brands-lineas.js --apply  # commit
@@ -62,8 +65,13 @@ const MAP = process.env.STOCK_BRANCH_MAP
       `SELECT code, btrim(upper(nombre)) AS nombre FROM catalog.brands WHERE tenant_id=$1 AND deleted_at IS NULL`, [M]);
     const haveCode = new Set(existing.rows.map((r) => r.code).filter(Boolean));
     const codeByName = new Map(existing.rows.map((r) => [r.nombre, r.code]));
+    // Nombres de brands SOFT-DELETED: brands_tenant_nombre_unique NO es parcial → cuenta
+    // las borradas. Reinsertar un nombre borrado viola la constraint (tumbaba el nightly).
+    const deletedRows = await db.query(
+      `SELECT btrim(upper(nombre)) AS nombre FROM catalog.brands WHERE tenant_id=$1 AND deleted_at IS NOT NULL`, [M]);
+    const deletedNames = new Set(deletedRows.rows.map((r) => r.nombre));
 
-    const inserts = [], adopts = [], conflicts = [];
+    const inserts = [], adopts = [], conflicts = [], skippedDeleted = [];
     const seenName = new Map(); // dedup por nombre TAMBIÉN entre las nuevas (unique tenant+nombre)
     for (const [code, nombre] of byCode) {
       if (haveCode.has(code)) continue;
@@ -73,12 +81,14 @@ const MAP = process.env.STOCK_BRANCH_MAP
         else conflicts.push({ code, nombre, existing_code: other });
         continue;
       }
+      if (deletedNames.has(nombre)) { skippedDeleted.push([code, nombre]); continue; }
       if (seenName.has(nombre)) { conflicts.push({ code, nombre, existing_code: `${seenName.get(nombre)} (nueva)` }); continue; }
       seenName.set(nombre, code);
       inserts.push([code, nombre]);
     }
     console.log(`  → INSERT nuevas: ${inserts.length}`);
     console.log(`  → adoptar code (nombre ya existe sin code): ${adopts.length}`);
+    if (skippedDeleted.length) { console.log(`  → skip (nombre = brand borrada en dedup): ${skippedDeleted.length}`); console.table(skippedDeleted.slice(0, 10).map(([code, nombre]) => ({ code, nombre }))); }
     if (conflicts.length) { console.log(`  → conflictos nombre-con-otro-code (skip): ${conflicts.length}`); console.table(conflicts.slice(0, 10)); }
     if (inserts.length) console.table(inserts.slice(0, 15).map(([code, nombre]) => ({ code, nombre })));
 
@@ -96,7 +106,8 @@ const MAP = process.env.STOCK_BRANCH_MAP
       const vals = chunk.map((_, ri) => `($${ri * 2 + 1}, $${ri * 2 + 2}, '${M}', now(), now())`);
       const params = []; chunk.forEach(([code, nombre]) => params.push(code, nombre));
       await db.query(
-        `INSERT INTO catalog.brands (code, nombre, tenant_id, created_at, updated_at) VALUES ${vals.join(',')}`, params);
+        `INSERT INTO catalog.brands (code, nombre, tenant_id, created_at, updated_at) VALUES ${vals.join(',')}
+           ON CONFLICT (tenant_id, nombre) DO NOTHING`, params);
     }
     await db.query('COMMIT');
     console.log(`\n[APPLY] COMMIT — ${inserts.length} brands nuevas + ${adopts.length} codes adoptados.`);
