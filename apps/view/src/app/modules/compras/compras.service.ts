@@ -308,7 +308,7 @@ export interface WorklistResponse {
   page: number; pageSize: number; rows: WorklistRow[];
 }
 export interface WorklistQuery {
-  warehouse_ids?: string[]; warehouse_id?: string; via?: string; status?: string; search?: string; page?: number; pageSize?: number;
+  warehouse_ids?: string[]; warehouse_id?: string; via?: string; status?: string; search?: string; target_basis?: string; page?: number; pageSize?: number;
 }
 
 // ── RA-PRO — Histórico de compras al proveedor (tamaño típico de orden) ──
@@ -482,6 +482,7 @@ export class ComprasService {
     if (q.via) p.set('via', q.via);
     if (q.status) p.set('status', q.status);
     if (q.search) p.set('search', q.search);
+    if (q.target_basis) p.set('target_basis', q.target_basis);
     if (q.page) p.set('page', String(q.page));
     if (q.pageSize) p.set('pageSize', String(q.pageSize));
     const qs = p.toString();

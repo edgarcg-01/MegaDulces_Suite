@@ -73,6 +73,8 @@ interface DetailState {
         <p-select [options]="viaOpts" [(ngModel)]="fVia" (onChange)="reload()" optionLabel="label" optionValue="value"
                   placeholder="Canal" [showClear]="true" styleClass="qt-sel-sm"></p-select>
         <p-select [options]="statusOpts" [(ngModel)]="fStatus" (onChange)="reload()" optionLabel="label" optionValue="value" styleClass="qt-sel-sm"></p-select>
+        <p-select [options]="basisOpts" [ngModel]="fBasis()" (ngModelChange)="fBasis.set($event); reload()" optionLabel="label" optionValue="value"
+                  placeholder="Objetivo" styleClass="qt-sel-sm" ariaLabel="Base del sugerido (objetivo)" pTooltip="Nivel al que se llena el sugerido: aplica a la columna Costo est. y al detalle" tooltipPosition="bottom"></p-select>
         <p-select [options]="supplierOpts()" [(ngModel)]="fSearch" (onChange)="reload()" (onClear)="reload()"
                   optionLabel="label" optionValue="value" placeholder="Todos los proveedores" [showClear]="true"
                   [filter]="true" filterBy="label" filterPlaceholder="Buscar proveedor…" [resetFilterOnHide]="true"
@@ -145,14 +147,7 @@ interface DetailState {
                 } @else {
                 <div class="qt-det">
                   <div class="qt-det-bar">
-                    <div class="qt-basis">
-                      <span class="qt-basis-lbl">Base:</span>
-                      @for (b of basisOpts; track b.value) {
-                        <button pButton type="button" [label]="b.label"
-                                class="p-button-sm" [ngClass]="st.basis===b.value ? 'p-button-outlined' : 'p-button-text'"
-                                [pTooltip]="b.tip" (click)="setBasis(r, b.value)"></button>
-                      }
-                    </div>
+                    <span class="qt-basis-lbl">Objetivo: <strong>{{ basisLabel(fBasis()) }}</strong> <span class="qt-muted">(cambialo en el filtro de arriba)</span></span>
                     @if (st.hist; as h) {
                       <div class="qt-hist" [pTooltip]="histTip(h)" tooltipPosition="left">
                         <i class="pi pi-history"></i>
@@ -324,7 +319,12 @@ interface DetailState {
     .qt-cad { font-variant-numeric: tabular-nums; margin-right: .35rem; }
     :host ::ng-deep .qt-band { font-size: .62rem !important; padding: .05rem .3rem !important; }
     .qt-empty { color: var(--text-muted); padding: 1rem; text-align: center; }
-    .qt-detrow > td { background: var(--surface-sunken, var(--card-bg)); padding: .4rem .75rem .6rem; }
+    /* La fila expandida NO debe estirar las columnas de la p-table (header sticky se
+       desalinea). El wrapper .qt-det es un BFC con scroll propio: la tabla ancha del
+       drill scrollea DENTRO en vez de ensanchar el cuerpo. min-width:0 en la celda
+       evita que el contenido imponga su ancho mínimo a la tabla exterior. */
+    .qt-detrow > td { background: var(--surface-sunken, var(--card-bg)); padding: .4rem .75rem .6rem; min-width: 0; }
+    .qt-det { min-width: 0; overflow-x: auto; }
     .qt-det-msg { color: var(--text-muted); font-size: .82rem; padding: .5rem; }
     .qt-det-bar { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; padding: .1rem .1rem .5rem; }
     .qt-basis { display: flex; align-items: center; gap: .1rem; }
@@ -396,12 +396,15 @@ export class ComprasQueTocaComponent implements OnInit {
   fVia = '';
   fStatus = '';
   fSearch = '';
+  /** Base GLOBAL (como "Objetivo" de Existencia Crítica): manda el sugerido/costo de
+   * TODA la vista — columna "Costo est.", KPI y drill usan la misma. Default = máximo. */
+  fBasis = signal<OrderBasis>('max');
   viaOpts = [{ label: 'Compra', value: 'purchase' }, { label: 'Traspaso', value: 'transfer' }];
   statusOpts = [{ label: 'Activos', value: '' }, { label: 'Solo lo que toca (≤ hoy)', value: 'due' }];
-  basisOpts: { label: string; value: OrderBasis; tip: string }[] = [
-    { label: 'Cadencia', value: 'cadence', tip: 'Cubre el ciclo del canal (cadencia + lead + colchón). El pedido "normal".' },
-    { label: 'Reorden', value: 'reorder', tip: 'Sube hasta el punto de reorden. Catch-up tras desabasto.' },
-    { label: 'Máximo', value: 'max', tip: 'Sube al máximo (tope de almacén).' },
+  basisOpts: { label: string; value: OrderBasis }[] = [
+    { label: 'Hasta el máximo', value: 'max' },
+    { label: 'Hasta reorden', value: 'reorder' },
+    { label: 'Hasta el mínimo', value: 'min' },
   ];
   territories = [
     { label: 'Bajío', codes: ['01', '02', '03', '04'] },
@@ -425,7 +428,7 @@ export class ComprasQueTocaComponent implements OnInit {
     this.loading.set(true);
     this.detail.set({});
     this.selectedRows.set([]);
-    this.api.worklist({ warehouse_ids: this.fWh.length ? this.fWh : undefined, via: this.fVia || undefined, status: this.fStatus || undefined, search: this.fSearch || undefined, pageSize: 500 })
+    this.api.worklist({ warehouse_ids: this.fWh.length ? this.fWh : undefined, via: this.fVia || undefined, status: this.fStatus || undefined, search: this.fSearch || undefined, target_basis: this.fBasis(), pageSize: 500 })
       .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
         next: (r) => {
           this.rows.set(r.rows.map((x) => ({ ...x, _key: `${x.warehouse_id}__${x.supplier_id}` })));
@@ -440,12 +443,7 @@ export class ComprasQueTocaComponent implements OnInit {
   onExpand(r: WLRow): void {
     const cur = this.detail()[r._key];
     if (cur && !cur.loading) return;
-    this.loadLines(r, 'cadence', true);
-  }
-
-  setBasis(r: WLRow, basis: OrderBasis): void {
-    if (this.detail()[r._key]?.basis === basis) return;
-    this.loadLines(r, basis, false);
+    this.loadLines(r, this.fBasis(), true);
   }
 
   private loadLines(r: WLRow, basis: OrderBasis, withContext: boolean): void {

@@ -45,6 +45,7 @@ export interface WorklistQuery {
   via?: string;           // 'purchase' | 'transfer'
   status?: string;        // 'due' = vencido/hoy · default = todos los canales activos
   search?: string;        // nombre de proveedor
+  target_basis?: string;  // base global (min|reorder|max) — igual que Existencia Crítica
   page?: number;
   pageSize?: number;
 }
@@ -367,14 +368,13 @@ export class CommercialReplenishmentService {
     return this.tk.run(async (trx) => {
       const oh = '(COALESCE(s.quantity,0)-COALESCE(s.reserved_quantity,0))';
       const it = 'COALESCE(pit.qty_in_transit,0)';
-      const effLead = `(CASE WHEN rc.via='transfer' THEN 1 ELSE COALESCE(rc.lead_time_days, sup.lead_time_days, 7) END)`;
-      // RA-PRO.10 — mismo override que criticalStock: cadencia_override + colchón (solo compra).
-      const sug = `GREATEST(0, ceil(
-        CASE
-          WHEN sup.cadence_days_override IS NOT NULL AND rc.via <> 'transfer'
-            THEN COALESCE(ih.avg_daily_units,0) * (sup.cadence_days_override + COALESCE(sup.colchon_days,0))
-          ELSE COALESCE(ih.avg_daily_units,0) * (rc.cadence_days + ${effLead}) + COALESCE(rp.safety_stock,0)
-        END) - ${oh} - ${it})`;
+      // Base GLOBAL (como "Objetivo" de Existencia Crítica): el sugerido llena hasta el
+      // nivel elegido (máximo/reorden/mínimo) con la MISMA fórmula que criticalStock (que
+      // alimenta el drill) → la columna "Costo est." y el detalle SIEMPRE coinciden y
+      // reaccionan al filtro base. La cadencia sigue mandando el "cuándo" (next_due).
+      const basis = this.basis(q.target_basis);
+      const target = this.targetCol(basis);
+      const sug = `GREATEST(0, ${target} - ${oh} - ${it})`;
       const cost = `COALESCE(pr.cost_with_tax, pr.cost_base, 0)`;
 
       const filters: string[] = [

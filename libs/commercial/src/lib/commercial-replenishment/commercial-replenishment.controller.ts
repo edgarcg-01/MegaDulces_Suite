@@ -114,10 +114,11 @@ export class CommercialReplenishmentController {
     @Query('via') via?: string,
     @Query('status') status?: string,
     @Query('search') search?: string,
+    @Query('target_basis') target_basis?: string,
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
   ) {
-    return this.svc.worklist({ warehouse_id, warehouse_ids, via, status, search, page: page ? Number(page) : undefined, pageSize: pageSize ? Number(pageSize) : undefined });
+    return this.svc.worklist({ warehouse_id, warehouse_ids, via, status, search, target_basis, page: page ? Number(page) : undefined, pageSize: pageSize ? Number(pageSize) : undefined });
   }
 
   @Get('requisitions')

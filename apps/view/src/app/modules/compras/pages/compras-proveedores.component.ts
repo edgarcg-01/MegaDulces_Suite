@@ -6,6 +6,7 @@ import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
 import { ToastModule } from 'primeng/toast';
 import { InputTextModule } from 'primeng/inputtext';
+import { InputNumberModule } from 'primeng/inputnumber';
 import { IconFieldModule } from 'primeng/iconfield';
 import { InputIconModule } from 'primeng/inputicon';
 import { DialogModule } from 'primeng/dialog';
@@ -23,7 +24,7 @@ import { ComprasService, SupplierParam, SupplierOrder, SupplierOrderParamsDto } 
 @Component({
   selector: 'app-compras-proveedores',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, TableModule, ToastModule, InputTextModule, IconFieldModule, InputIconModule, DialogModule, TagModule],
+  imports: [CommonModule, FormsModule, ButtonModule, TableModule, ToastModule, InputTextModule, InputNumberModule, IconFieldModule, InputIconModule, DialogModule, TagModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
@@ -68,7 +69,7 @@ import { ComprasService, SupplierParam, SupplierOrder, SupplierOrderParamsDto } 
             <td class="cp-r"><input pInputText type="number" min="0" max="365" [(ngModel)]="r.cadence_days_override" (change)="saveParam(r, { cadence_days_override: numOrNull(r.cadence_days_override) })" class="cp-num" [class.cp-unset]="r.cadence_days_override == null" placeholder="auto" /></td>
             <td class="cp-r"><input pInputText type="number" min="0" max="365" [(ngModel)]="r.colchon_days" (change)="saveParam(r, { colchon_days: numOrNull(r.colchon_days) })" class="cp-num" [class.cp-unset]="r.colchon_days == null" placeholder="—" /></td>
             <td class="cp-r"><input pInputText type="number" min="0" [(ngModel)]="r.min_order_boxes" (change)="saveParam(r, { min_order_boxes: numOrNull(r.min_order_boxes) })" class="cp-num" [class.cp-unset]="r.min_order_boxes == null" placeholder="—" /></td>
-            <td class="cp-r"><input pInputText type="number" min="0" [(ngModel)]="r.min_order_amount" (change)="saveParam(r, { min_order_amount: numOrNull(r.min_order_amount) })" class="cp-num" [class.cp-unset]="r.min_order_amount == null" placeholder="—" /></td>
+            <td class="cp-r"><p-inputNumber [(ngModel)]="r.min_order_amount" (onBlur)="saveParam(r, { min_order_amount: numOrNull(r.min_order_amount) })" mode="currency" currency="MXN" locale="es-MX" [maxFractionDigits]="0" [min]="0" [showButtons]="false" inputStyleClass="cp-num" placeholder="—" /></td>
             <td class="cp-r"><button pButton type="button" label="Ver pedido" icon="pi pi-list" class="p-button-sm p-button-text" (click)="openOrder(r)"></button></td>
             <td class="cp-r">@if (savedId() === r.id) { <i class="pi pi-check cp-ok"></i> }</td>
           </tr>
@@ -129,8 +130,9 @@ import { ComprasService, SupplierParam, SupplierOrder, SupplierOrderParamsDto } 
     .cp-r { text-align: right; font-variant-numeric: tabular-nums; }
     .cp-muted { color: var(--text-muted); }
     /* Auto-ajuste al valor: el input crece con su contenido (acotado), así no se corta
-       el dato (ej. Mín $ grande). field-sizing es soportado por el Chromium de la app. */
-    .cp-num { field-sizing: content; min-width: 4rem; max-width: 10rem; width: auto; text-align: right; }
+       el dato (ej. Mín $ grande). field-sizing es soportado por el Chromium de la app.
+       ng-deep porque cp-num también viste el input interno de <p-inputNumber> (Mín $). */
+    :host ::ng-deep .cp-num { field-sizing: content; min-width: 4rem; max-width: 12rem; width: auto; text-align: right; }
     .cp-unset { color: var(--text-muted); }
     .cp-ok { color: var(--ok-fg); }
     .cp-empty { color: var(--text-muted); padding: 1rem; text-align: center; }
