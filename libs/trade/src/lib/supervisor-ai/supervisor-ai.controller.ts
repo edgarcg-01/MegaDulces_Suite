@@ -31,6 +31,7 @@ import { RuleCalibrationService } from './rule-calibration.service';
 import { BaselineLearnerService } from './baseline-learner.service';
 import { OutcomeVerifierService } from './outcome-verifier.service';
 import { MissedVisitEngineService } from './missed-visit-engine.service';
+import { RouteBalanceService } from './route-balance.service';
 import { HorusChatService, HorusChatTurn } from './horus-chat/horus-chat.service';
 import { AdaptiveThresholdsService } from './adaptive-thresholds.service';
 import { ListExecution360Dto } from './dto/execution-360-filter.dto';
@@ -63,6 +64,7 @@ export class SupervisorAiController {
     private readonly baselines: BaselineLearnerService,
     private readonly outcomes: OutcomeVerifierService,
     private readonly missedVisits: MissedVisitEngineService,
+    private readonly routeBalance: RouteBalanceService,
     private readonly chat: HorusChatService,
     private readonly adaptiveThresholds: AdaptiveThresholdsService,
   ) {}
@@ -174,6 +176,30 @@ export class SupervisorAiController {
     return salesRoute
       ? this.opportunities.routeOptimizationDetail(user, salesRoute)
       : this.opportunities.listRouteOptimizations(user);
+  }
+
+  @Get('route-balance')
+  @RequirePermissions(Permission.SUPERVISOR_AI_VER)
+  @ApiOperation({
+    summary:
+      'ACT.5 balanceo de carga: simula (read-only) el rebalanceo del día — tiempo por persona/ruta antes vs después + movimientos de clientes para nivelar. ?day_of_week=1..7 (default hoy MX).',
+  })
+  routeBalance(@ReqUser() user: any, @Query('day_of_week') dayOfWeek?: string) {
+    return this.routeBalance.simulate(user, dayOfWeek);
+  }
+
+  @Post('route-balance/apply')
+  @RequirePermissions(Permission.SUPERVISOR_AI_APROBAR)
+  @ApiOperation({ summary: 'ACT.5 co-piloto: aplica el rebalanceo (recomputa server-side, escribe sales_route, reversible)' })
+  applyRouteBalance(@ReqUser() user: any, @Body() body: { day_of_week?: number }) {
+    return this.routeBalance.apply(user, body?.day_of_week);
+  }
+
+  @Post('route-balance/undo')
+  @RequirePermissions(Permission.SUPERVISOR_AI_APROBAR)
+  @ApiOperation({ summary: 'ACT.5: revierte el último rebalanceo aplicado del día (restaura sales_route/visit_sequence)' })
+  undoRouteBalance(@ReqUser() user: any, @Body() body: { day_of_week?: number }) {
+    return this.routeBalance.undo(user, body?.day_of_week);
   }
 
   @Get('coaching-notes')

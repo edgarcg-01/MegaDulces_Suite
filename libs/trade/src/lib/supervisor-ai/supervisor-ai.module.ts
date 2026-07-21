@@ -16,6 +16,7 @@ import { RuleCalibrationService } from './rule-calibration.service';
 import { BaselineLearnerService } from './baseline-learner.service';
 import { OutcomeVerifierService } from './outcome-verifier.service';
 import { MissedVisitEngineService } from './missed-visit-engine.service';
+import { RouteBalanceService } from './route-balance.service';
 import { HorusChatService } from './horus-chat/horus-chat.service';
 import { HorusToolsService } from './horus-chat/horus-tools.service';
 import { AdaptiveThresholdsService } from './adaptive-thresholds.service';
@@ -51,6 +52,7 @@ import { WebSocketModule } from '../websocket/websocket.module';
     BaselineLearnerService,
     OutcomeVerifierService,
     MissedVisitEngineService,
+    RouteBalanceService,
     HorusChatService,
     HorusToolsService,
     AdaptiveThresholdsService,

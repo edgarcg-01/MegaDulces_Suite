@@ -41,6 +41,7 @@ export const routes: Routes = [
       { path: 'supervisor-ai', loadComponent: () => import('./modules/dashboard/supervisor-ai/supervisor-ai.component').then(m => m.SupervisorAiComponent), canActivate: [permissionGuard(Permission.SUPERVISOR_AI_VER)] },
       { path: 'supervisor-ai/chat', loadComponent: () => import('./modules/dashboard/supervisor-ai/supervisor-ai-chat.component').then(m => m.SupervisorAiChatComponent), canActivate: [permissionGuard(Permission.SUPERVISOR_AI_VER)] },
       { path: 'supervisor-ai/route-optimization', loadComponent: () => import('./modules/dashboard/supervisor-ai/route-optimization.component').then(m => m.RouteOptimizationComponent), canActivate: [permissionGuard(Permission.SUPERVISOR_AI_VER)] },
+      { path: 'supervisor-ai/route-balance', loadComponent: () => import('./modules/dashboard/supervisor-ai/route-balance.component').then(m => m.RouteBalanceComponent), canActivate: [permissionGuard(Permission.SUPERVISOR_AI_VER)] },
       { path: 'stores', loadComponent: () => import('./modules/dashboard/stores/stores.component').then(m => m.StoresComponent), canActivate: [permissionGuard(Permission.TIENDAS_VER)] },
       { path: 'visits', loadComponent: () => import('./modules/dashboard/visits/visits.component').then(m => m.VisitsComponent) },
       { path: 'exhibitions', loadComponent: () => import('./modules/dashboard/exhibitions/exhibitions.component').then(m => m.ExhibitionsComponent) },
@@ -232,6 +233,11 @@ export const routes: Routes = [
       {
         path: 'solicitudes',
         loadComponent: () => import('./modules/finanzas/pages/finanzas-solicitudes.component').then(m => m.FinanzasSolicitudesComponent),
+        canActivate: [permissionGuard(Permission.FINANCE_EXPENSES_VER)]
+      },
+      {
+        path: 'comprobaciones',
+        loadComponent: () => import('./modules/finanzas/pages/finanzas-comprobaciones.component').then(m => m.FinanzasComprobacionesComponent),
         canActivate: [permissionGuard(Permission.FINANCE_EXPENSES_VER)]
       },
       {

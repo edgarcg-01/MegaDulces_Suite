@@ -284,6 +284,37 @@ export interface RouteOptDetail {
   metrics: { current_km: number; proposed_km: number; improvement_pct: number; stops: number } | null;
 }
 
+/** ACT.5 — balanceo de carga entre rutas/personas. */
+export interface RouteBalanceBin {
+  sales_route: string;
+  vendor: string | null;
+  vendor_user_id: string | null;
+  customers: number;
+  time_min: number;
+}
+export interface RouteBalanceMove {
+  customer_id: string;
+  name: string;
+  from_route: string;
+  to_route: string;
+}
+export interface RouteBalanceMetrics {
+  routes: number;
+  moved: number;
+  makespan_before: number;
+  makespan_after: number;
+  stddev_before: number;
+  stddev_after: number;
+  improvement_pct: number;
+}
+export interface RouteBalanceSim {
+  day_of_week: number | null;
+  before: RouteBalanceBin[];
+  after: RouteBalanceBin[];
+  moves: RouteBalanceMove[];
+  metrics: RouteBalanceMetrics | null;
+}
+
 export type ReviewStatus = 'dismissed' | 'confirmed' | 'reviewed';
 export type RuleOverride = 'enabled' | 'suppressed' | null;
 
@@ -474,5 +505,20 @@ export class SupervisorAiService {
   routeOptimizationDetail(salesRoute: string): Observable<RouteOptDetail> {
     const params = new HttpParams().set('sales_route', salesRoute);
     return this.http.get<RouteOptDetail>(`${this.base}/route-optimization`, { params });
+  }
+
+  // ACT.5 — balanceo de carga.
+  routeBalance(dayOfWeek?: number): Observable<RouteBalanceSim> {
+    let params = new HttpParams();
+    if (dayOfWeek) params = params.set('day_of_week', dayOfWeek);
+    return this.http.get<RouteBalanceSim>(`${this.base}/route-balance`, { params });
+  }
+
+  applyRouteBalance(dayOfWeek: number): Observable<any> {
+    return this.http.post<any>(`${this.base}/route-balance/apply`, { day_of_week: dayOfWeek });
+  }
+
+  undoRouteBalance(dayOfWeek: number): Observable<any> {
+    return this.http.post<any>(`${this.base}/route-balance/undo`, { day_of_week: dayOfWeek });
   }
 }

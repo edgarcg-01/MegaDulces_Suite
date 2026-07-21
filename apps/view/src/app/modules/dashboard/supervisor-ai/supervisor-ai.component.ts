@@ -111,6 +111,16 @@ const QUADRANT_LABELS: Record<string, string> = {
             label="Rutas reconvertidas"
             icon="pi pi-map"
           ></a>
+          <a
+            pButton
+            type="button"
+            routerLink="/dashboard/supervisor-ai/route-balance"
+            class="p-button-sm"
+            severity="secondary"
+            [outlined]="true"
+            label="Balanceo de carga"
+            icon="pi pi-sliders-h"
+          ></a>
           <button
             pButton
             type="button"

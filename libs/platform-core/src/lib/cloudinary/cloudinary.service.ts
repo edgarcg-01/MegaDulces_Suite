@@ -99,6 +99,27 @@ export class CloudinaryService {
     return this.cloudinary.uploader.upload(compressedBase64, { folder });
   }
 
+  /**
+   * Sube un comprobante que puede ser PDF o imagen (data URI con o sin prefijo).
+   * Las imágenes se comprimen (JPEG); los PDF se suben tal cual con
+   * `resource_type:'auto'` (Cloudinary los trata como `raw`), sin pasar por sharp.
+   * Devuelve `{ url, public_id, kind }`.
+   */
+  async uploadDocumentBase64(
+    dataUri: string,
+    folder = 'trade_marketing',
+  ): Promise<{ url: string; public_id: string; kind: 'pdf' | 'image' }> {
+    const isPdf = /^data:application\/pdf/i.test(dataUri) || /^JVBER/i.test(dataUri.replace(/^data:[^,]*,/, ''));
+    if (isPdf) {
+      this.logger.log(`Subiendo comprobante PDF a: ${folder}`);
+      const payload = dataUri.startsWith('data:') ? dataUri : `data:application/pdf;base64,${dataUri}`;
+      const res: UploadApiResponse = await this.cloudinary.uploader.upload(payload, { folder, resource_type: 'auto' });
+      return { url: res.secure_url, public_id: res.public_id, kind: 'pdf' };
+    }
+    const res = await this.uploadImageBase64(dataUri, folder);
+    return { url: res.secure_url, public_id: res.public_id, kind: 'image' };
+  }
+
   async deleteImage(publicId: string): Promise<any> {
     try {
       this.logger.log(`Solicitando borrado a Cloudinary: ${publicId}`);

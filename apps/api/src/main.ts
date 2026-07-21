@@ -126,6 +126,10 @@ async function bootstrap() {
   // - Endpoints de upload (daily-captures multipart): los maneja AnyFilesInterceptor
   //   sin pasar por este middleware, así que el límite del JSON no aplica.
   // - Endpoints con payload grande (base64 photos legacy): override por route si surge necesidad.
+  // Comprobación de gasto (GX.7): el comprobante PDF/imagen llega como base64
+  // (hasta 10MB → ~13MB en base64). Parser de mayor límite SOLO para esa ruta,
+  // montado antes del global para que gane (express salta el segundo si ya parseó).
+  app.use('/api/finance/expenses/proofs', json({ limit: '16mb' }));
   app.use(json({ limit: '2mb' }));
   app.use(urlencoded({ extended: true, limit: '2mb' }));
 

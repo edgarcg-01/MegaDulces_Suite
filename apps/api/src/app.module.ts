@@ -95,7 +95,7 @@ import { LogisticsRoutingModule } from '@megadulces/logistics';
 // Sprint M — sync ERP Mega_Dulces (.245) → postgres_platform (nightly cron + admin endpoints)
 import { MegaDulcesSyncModule } from '@megadulces/commercial';
 // MAAT (ADR-028) — AI de Finanzas: base de conocimiento (+ motor/chat en sprints siguientes)
-import { FinanceMaatModule } from '@megadulces/finance';
+import { FinanceMaatModule, FinanceExpenseProofsModule } from '@megadulces/finance';
 import { FiscalListasModule } from '@megadulces/fiscal';
 import { FiscalVaultModule } from '@megadulces/fiscal';
 import { FiscalJobsModule } from '@megadulces/fiscal';
@@ -176,6 +176,7 @@ const multitenantModules = process.env.ENABLE_MULTITENANT === 'true'
       MegaDulcesSyncModule,
       FinanceNotifierBindingModule,
       FinanceMaatModule,
+      FinanceExpenseProofsModule,
       FinanceFindingsSinkBindingModule,
       InvoiceIssuerBindingModule,
       FiscalListasModule,

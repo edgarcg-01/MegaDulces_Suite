@@ -8,3 +8,5 @@ export * from './lib/maat/finance-maat.module';
 export * from './lib/maat/maat-knowledge.service';
 export * from './lib/maat/maat-chat.service';
 export * from './lib/maat/maat-findings-sink.service';
+export * from './lib/expense-proofs/finance-expense-proofs.module';
+export * from './lib/expense-proofs/expense-proofs.service';

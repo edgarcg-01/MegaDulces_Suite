@@ -42,6 +42,14 @@ const PH_CUTOVER = "DATE '2026-07-01'";
 // oct. Se remapea 'MD-42' → '02' (el almacén real que Kepler alimenta). Kepler '02'
 // arranca en oct → cero solape sin tocar el feed Kepler.
 const LP_CUTOVER = "DATE '2025-10-01'";
+// RS.8 — Yurécuaro (branch 44 = warehouse '04') y Zamora Centro (branch 54 = '05') son el
+// MISMO caso: `legacy_on_kepler`, compartidas con Kepler que las tomó con cutover LIMPIO
+// (Kepler 04 arranca 2026-02-18, 05 arranca 2026-03-17; Wincaja termina justo antes → cero
+// solape). El histórico pre-cutover vive SOLO en Wincaja (~$1.04M + $4.07M) y se estaba
+// perdiendo. BLEND por fecha. 8 Esquinas (40→03) NO se agrega: Kepler 03 arranca 2025 y
+// solapa con el poco Wincaja de ene-2026 → sería doble conteo.
+const YURE_CUTOVER = "DATE '2026-02-18'";
+const ZAMORA_CUTOVER = "DATE '2026-03-16'";
 // RS.3 — normalización de unidad para Wincaja. Cada artículo tiene UNA unidad de
 // venta fija (wincaja.articulos.unidad_venta) → sin mezcla dentro del sku. qty ya
 // viene en esa unidad: PZA=piezas, KGS=kg. Solo CJA se convierte a piezas (×factor).
@@ -80,12 +88,16 @@ const SELECT_SRC = `
     ON w.tenant_id = s.tenant_id AND w.deleted_at IS NULL
    AND w.code = CASE WHEN s.source_branch = '10' THEN '01'
                      WHEN s.source_branch = '42' THEN '02'
+                     WHEN s.source_branch = '44' THEN '04'
+                     WHEN s.source_branch = '54' THEN '05'
                      ELSE s.warehouse_code END
   LEFT JOIN am ON am.tenant_id = s.tenant_id AND am.articulo = s.sku
   WHERE s.tenant_id = ?
     AND ( s.wincaja_only = true
           OR (s.source_branch = '10' AND s.business_date < ${PH_CUTOVER})
-          OR (s.source_branch = '42' AND s.business_date < ${LP_CUTOVER}) )
+          OR (s.source_branch = '42' AND s.business_date < ${LP_CUTOVER})
+          OR (s.source_branch = '44' AND s.business_date < ${YURE_CUTOVER})
+          OR (s.source_branch = '54' AND s.business_date < ${ZAMORA_CUTOVER}) )
   GROUP BY p.id, w.id, s.business_date, channel
 `;
 

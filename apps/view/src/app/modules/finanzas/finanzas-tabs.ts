@@ -26,6 +26,12 @@ export const FINANZAS_TABS: PageTab[] = [
     permission: Permission.FINANCE_EXPENSES_VER,
   },
   {
+    label: 'Reembolsos',
+    route: '/finanzas/comprobaciones',
+    icon: 'pi pi-receipt',
+    permission: Permission.FINANCE_EXPENSES_VER,
+  },
+  {
     label: 'Pregúntale a Maat',
     route: '/finanzas/maat',
     icon: 'pi pi-sparkles',

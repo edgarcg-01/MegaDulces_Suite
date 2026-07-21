@@ -4,6 +4,7 @@ import {
   KNEX_CONNECTION,
   TenantContextService,
   toMxDateKey,
+  isPlatformAdminRole,
 } from '@megadulces/platform-core';
 
 type Presence = 'none' | 'own' | 'competitor' | 'both' | 'unknown';
@@ -44,6 +45,10 @@ export class CommercialMapService {
 
   /** zona_id a la que está restringido el requester, o null si tiene acceso amplio. */
   private async getRequesterZonaId(user: any): Promise<string | null> {
+    // Roles de plataforma (superadmin/admin) son NACIONALES: ven TODAS las tiendas,
+    // aunque su registro de usuario arrastre un zona_id heredado. Sin esto, un
+    // superadmin con zona_id quedaba filtrado a esa zona → mapa vacío.
+    if (isPlatformAdminRole(user?.role_name)) return null;
     const uid = user?.sub || user?.id || user?.userId;
     if (!uid || !CommercialMapService.UUID_RE.test(String(uid))) return null;
     const row = await this.knex('users').where({ id: uid }).select('zona_id').first();

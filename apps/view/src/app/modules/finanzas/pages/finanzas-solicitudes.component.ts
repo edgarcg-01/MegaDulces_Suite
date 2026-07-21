@@ -15,6 +15,7 @@ import { MetricStripComponent, MetricStripItem } from '../../../shared/component
 import { SegmentedComponent } from '../../../shared/components/segmented/segmented.component';
 import { FINANZAS_TABS } from '../finanzas-tabs';
 import { ComercialService, ExpenseRequestRow, ExpenseRequestsReport } from '../../comercial/comercial.service';
+import { ComprobacionesService } from '../comprobaciones.service';
 
 /**
  * GX.6 — "Solicitudes de gasto": lista de solicitudes (Kepler XA1501) con su estado
@@ -91,8 +92,13 @@ import { ComercialService, ExpenseRequestRow, ExpenseRequestsReport } from '../.
                   <button type="button" class="so-link" (click)="verGasto(r)" [title]="'Ver gasto ' + r.gasto_folio">
                     <i class="pi pi-check-circle"></i> {{ r.gasto_folio || 'Aplicada' }}
                   </button>
-                } @else {
-                  <p-tag value="Pendiente" severity="warn" />
+                } @else if (!proofStatus()[r.folio]) {
+                  <button type="button" class="so-link so-comprobar" (click)="comprobar(r)" title="Subir comprobantes de esta solicitud">
+                    <i class="pi pi-upload"></i> Comprobar
+                  </button>
+                }
+                @if (proofStatus()[r.folio]; as ps) {
+                  <div class="so-proof" [ngClass]="'ps-' + ps"><i class="pi" [ngClass]="proofIcon(ps)"></i> Comprobante {{ proofLabel(ps) }}</div>
                 }
               </td>
               <td class="ta-r muted">{{ r.lead_days != null ? r.lead_days : '—' }}</td>
@@ -118,15 +124,22 @@ import { ComercialService, ExpenseRequestRow, ExpenseRequestsReport } from '../.
     .so-link:hover { text-decoration: underline; }
     .so-link i { font-size: .78rem; color: var(--ok-fg); }
     .so-empty { text-align: center; color: var(--text-muted); padding: 2rem; }
+    .so-proof { font-size: .72rem; display: inline-flex; align-items: center; gap: .3rem; margin-top: .15rem; }
+    .so-proof i { font-size: .72rem; }
+    .so-proof.ps-recibida { color: var(--warn-fg, #b45309); }
+    .so-proof.ps-validada { color: var(--ok-fg, #15803d); }
+    .so-proof.ps-rechazada { color: var(--danger-fg, #b91c1c); }
   `],
 })
 export class FinanzasSolicitudesComponent {
   readonly tabs = FINANZAS_TABS;
   private readonly svc = inject(ComercialService);
+  private readonly comprobaciones = inject(ComprobacionesService);
   private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
 
   readonly report = signal<ExpenseRequestsReport | null>(null);
+  readonly proofStatus = signal<Record<string, string>>({});
 
   kpiItems(r: ExpenseRequestsReport): MetricStripItem[] {
     return [
@@ -159,6 +172,8 @@ export class FinanzasSolicitudesComponent {
       .subscribe((rows) => this.sucursales.set(rows.map((s) => ({ code: s.code, label: s.name ? `${s.code} · ${s.name}` : s.code }))));
     this.svc.expensesFilters().pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((f) => this.solicitantes.set(f.areas || []));
+    this.comprobaciones.statusByFolio().pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((m) => this.proofStatus.set(m || {}));
     this.load();
   }
 
@@ -179,6 +194,16 @@ export class FinanzasSolicitudesComponent {
     }).pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({ next: (r) => { this.report.set(r); this.loading.set(false); }, error: () => this.loading.set(false) });
   }
+
+  /** Atajo a Reembolsos con el folio de la solicitud + proveedor pre-llenados. */
+  comprobar(r: ExpenseRequestRow) {
+    this.router.navigate(['/finanzas/comprobaciones'], {
+      queryParams: { open: '1', folio_solicitud: r.folio || '', proveedor: r.beneficiario || '' },
+    });
+  }
+
+  proofLabel(s: string): string { return ({ recibida: 'recibido', validada: 'validado', rechazada: 'rechazado' } as Record<string, string>)[s] || s; }
+  proofIcon(s: string): string { return ({ recibida: 'pi-clock', validada: 'pi-check-circle', rechazada: 'pi-times-circle' } as Record<string, string>)[s] || 'pi-file'; }
 
   /** Abre el gasto ligado en el detalle de egresos. */
   verGasto(r: ExpenseRequestRow) {
