@@ -2100,6 +2100,9 @@ export class CommercialAnalyticsService {
         ELSE 'otro' END`;
     // RS.5 — fuente separada (no fusionar): los canales `wincaja_*` son Wincaja; el resto Kepler.
     const sourceExpr = `CASE WHEN sd.channel LIKE 'wincaja_%' THEN 'wincaja' ELSE 'kepler' END`;
+    // RS.7 — los sub-almacenes de ruta de PH (código `01-NNN`) son RUTAS aunque su venta se
+    // cobre a crédito/contado → forzarlos al canal `ruta` (RD), no clasificarlos por forma_pago.
+    const canalExpr = `CASE WHEN w.code LIKE '01-%' THEN 'ruta' ELSE (${channelExpr}) END`;
 
     // Paso 1 y 2 — marca + agregación desde analytics.sales_daily (misma DB,
     // alimentada por el cron on-prem import-sales-fact.js). Tenant-scoped.
@@ -2165,7 +2168,7 @@ export class CommercialAnalyticsService {
               'p.brand_id as brand_id',
               'b.nombre as brand_nombre',
               'b.code as brand_code',
-              trx.raw(`${channelExpr} as channel`),
+              trx.raw(`${canalExpr} as channel`),
               trx.raw(`${sourceExpr} as source`),
               trx.raw('max(sd.unit_kind) as unit_kind'),
               trx.raw('NULL::numeric as box_size'),
@@ -2173,7 +2176,7 @@ export class CommercialAnalyticsService {
             )
             .sum({ monto: 'sd.revenue' })
             .groupByRaw(
-              `w.code, w.name, sd.product_id, p.sku, p.nombre, p.brand_id, b.nombre, b.code, ${channelExpr}, ${sourceExpr}` +
+              `w.code, w.name, sd.product_id, p.sku, p.nombre, p.brand_id, b.nombre, b.code, ${canalExpr}, ${sourceExpr}` +
               (needMonth ? `, sd.year_month` : ''),
             )
         : await trx('analytics.sales_daily as sd')
@@ -2206,7 +2209,7 @@ export class CommercialAnalyticsService {
               'p.brand_id as brand_id',
               'b.nombre as brand_nombre',
               'b.code as brand_code',
-              trx.raw(`${channelExpr} as channel`),
+              trx.raw(`${canalExpr} as channel`),
               trx.raw(`${sourceExpr} as source`),
               trx.raw('max(sd.unit_kind) as unit_kind'),
               trx.raw('max(lp.box_size) as box_size'),
@@ -2214,7 +2217,7 @@ export class CommercialAnalyticsService {
             .sum({ units: 'sd.units' })
             .sum({ monto: 'sd.revenue' })
             .groupByRaw(
-              `w.code, w.name, sd.product_id, p.sku, p.nombre, p.factor_sale, p.brand_id, b.nombre, b.code, ${channelExpr}, ${sourceExpr}` +
+              `w.code, w.name, sd.product_id, p.sku, p.nombre, p.factor_sale, p.brand_id, b.nombre, b.code, ${canalExpr}, ${sourceExpr}` +
               (needMonth ? `, to_char(sd.sale_date, 'YYYY-MM')` : ''),
             );
 
@@ -2563,12 +2566,14 @@ export class CommercialAnalyticsService {
   /** RS.4 — Árbol CANAL para el slicer: grupos (Sucursal/RD/RV/Mayoreo) → sucursales con venta. */
   async sellOutCanales(): Promise<{ group: string; group_label: string; leaves: { channel: string; code: string; name: string }[] }[]> {
     const tenantId = this.tenantCtx.requireTenantId();
-    const channelExpr = `CASE sd.channel
+    const channelExpr0 = `CASE sd.channel
         WHEN 'tienda' THEN 'mostrador' WHEN 'wincaja_mostrador' THEN 'mostrador'
         WHEN 'ruta' THEN 'ruta' WHEN 'wincaja_ruta' THEN 'ruta'
         WHEN 'wincaja_preventa' THEN 'preventa'
         WHEN 'credito' THEN 'credito' WHEN 'wincaja_credito' THEN 'credito'
         ELSE 'otro' END`;
+    // RS.7 — sub-almacenes de ruta de PH (01-NNN) → RD aunque cobren a crédito/contado.
+    const channelExpr = `CASE WHEN w.code LIKE '01-%' THEN 'ruta' ELSE (${channelExpr0}) END`;
     const rows = await this.tk.run((trx) => trx('analytics.sales_daily as sd')
       .join('commercial.warehouses as w', 'w.id', 'sd.warehouse_id')
       .where('sd.tenant_id', tenantId)
