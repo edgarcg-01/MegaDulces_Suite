@@ -191,6 +191,10 @@ export class CommercialReplenishmentService {
           j.on('rc.tenant_id', 'rp.tenant_id').andOn('rc.warehouse_id', 'rp.warehouse_id').andOn('rc.supplier_id', 'pr.supplier_id'))
         .leftJoin('commercial.warehouses as srcw', (j) =>
           j.on('srcw.tenant_id', 'rp.tenant_id').andOn('srcw.id', 'rc.source_warehouse_id'))
+        // Box factor de la etiquetera (fallback de factor_sale para uxc canónico; ver reference_box_factor_factor_sale)
+        .leftJoin(
+          trx.raw(`(SELECT tenant_id, product_id, max(box_size) AS bs FROM commercial.product_label_prices GROUP BY tenant_id, product_id) as lbl`),
+          (j: any) => j.on('lbl.tenant_id', 'rp.tenant_id').andOn('lbl.product_id', 'rp.product_id'))
         // Ranking POR VENTAS relativo al filtro (rankSub arriba): #1 = el que más vende
         // en la sucursal dentro del universo seleccionado. Solo los que venden reciben
         // rank (demanda 0 → NULL vía el leftJoin).
@@ -253,6 +257,7 @@ export class CommercialReplenishmentService {
           trx.raw('sup.min_order_amount AS supplier_min_amount'),
           trx.raw('pr.factor_purchase AS factor_purchase'),
           trx.raw('pr.factor_sale AS factor_sale'), // piezas/caja REAL (factor_purchase está roto); ver reference_box_factor_factor_sale
+          trx.raw('lbl.bs AS box_size'),            // fallback de factor_sale para uxc (etiquetera)
 
           trx.raw('COALESCE(abc.abc_class, rp.abc_class) AS abc_class'),
           trx.raw(`${this.costUnit()} AS unit_cost`),
@@ -375,7 +380,10 @@ export class CommercialReplenishmentService {
       const filters: string[] = [
         `rc.tenant_id = :t`,
         `rc.cadence_days IS NOT NULL`,
-        `rc.last_delivery_date >= CURRENT_DATE - (rc.cadence_days*2)::int`,
+        // Activo = recibió dentro de 2×cadencia O de los últimos 60d (piso). Sin el piso, un canal
+        // MUY vencido (dejó de comprar, ej. GONAC PH 7 semanas) cae fuera y se esconde justo cuando
+        // más urge — dejando solo el traspaso chico. El piso lo mantiene visible como vencido.
+        `rc.last_delivery_date >= CURRENT_DATE - GREATEST(rc.cadence_days*2, 60)::int`,
       ];
       const binds: Record<string, unknown> = { t: tenantId };
       if (whIds.length) { filters.push(`rc.warehouse_id IN (${whIds.map((_, i) => `:w${i}`).join(',')})`); whIds.forEach((w, i) => { binds[`w${i}`] = w; }); }
@@ -848,12 +856,13 @@ export class CommercialReplenishmentService {
       const raw = await trx.raw(`
         SELECT w.code AS warehouse_code, w.id AS warehouse_id, pr.id AS product_id, pr.sku, pr.nombre,
                ${oh} AS on_hand, COALESCE(ih.avg_daily_units,0) AS avg_daily,
-               -- piezas/caja: factor_purchase está roto (todo 1/null); factor_sale trae el valor real.
-               COALESCE(NULLIF(pr.factor_sale,0), NULLIF(pr.factor_purchase,0), 1) AS uxc,
+               -- piezas/caja canónico: factor_sale si >1, si no box_size (etiquetera), si no 1.
+               GREATEST(CASE WHEN pr.factor_sale > 1 THEN pr.factor_sale WHEN lbl.bs > 1 THEN lbl.bs ELSE 1 END, 1) AS uxc,
                COALESCE(pr.cost_with_tax, pr.cost_base, 0) AS unit_cost,
                GREATEST(0, ${cadTarget} - ${oh} - ${it}) AS suggested
           FROM commercial.reorder_policy rp
           JOIN catalog.products pr ON pr.tenant_id=rp.tenant_id AND pr.id=rp.product_id AND pr.supplier_id=:sid AND pr.activo=true
+          LEFT JOIN (SELECT tenant_id, product_id, max(box_size) bs FROM commercial.product_label_prices GROUP BY tenant_id, product_id) lbl ON lbl.tenant_id=pr.tenant_id AND lbl.product_id=pr.id
           JOIN commercial.warehouses w ON w.tenant_id=rp.tenant_id AND w.id=rp.warehouse_id AND w.deleted_at IS NULL AND w.kind<>'truck'
           LEFT JOIN commercial.stock s ON s.tenant_id=rp.tenant_id AND s.warehouse_id=rp.warehouse_id AND s.product_id=rp.product_id
           LEFT JOIN analytics.inventory_health ih ON ih.tenant_id=rp.tenant_id AND ih.warehouse_id=rp.warehouse_id AND ih.product_id=rp.product_id

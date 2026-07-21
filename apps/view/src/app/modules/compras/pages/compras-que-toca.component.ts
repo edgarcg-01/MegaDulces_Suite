@@ -394,9 +394,10 @@ export class ComprasQueTocaComponent implements OnInit {
 
   touch(): void { this.touchTick.update((n) => n + 1); }
   objetivo(l: DetailLine): number { return Math.round(Number(l.on_hand) + Number(l.in_transit) + Number(l.suggested_qty)); }
+  // uxc canónico: factor_sale → box_size (etiquetera) → 1 (mismo criterio que sales_boxes_monthly).
   private uxc(l: CriticalStockRow): number {
-    const fs = Number(l.factor_sale), fp = Number(l.factor_purchase);
-    return fs > 0 ? fs : (fp > 0 ? fp : 1);
+    const fs = Number(l.factor_sale), bs = Number(l.box_size), fp = Number(l.factor_purchase);
+    return fs > 1 ? fs : (bs > 1 ? bs : (fp > 1 ? fp : 1));
   }
   pzOf(l: DetailLine): number { return Math.round(Number(l.finalCajas || 0) * (l.uxc || 1)); }
   lineCost(l: DetailLine): number { return this.pzOf(l) * Number(l.unit_cost || 0); }
