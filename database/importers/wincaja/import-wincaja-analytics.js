@@ -42,7 +42,20 @@ const PH_CUTOVER = "DATE '2026-07-01'";
 // oct. Se remapea 'MD-42' → '02' (el almacén real que Kepler alimenta). Kepler '02'
 // arranca en oct → cero solape sin tocar el feed Kepler.
 const LP_CUTOVER = "DATE '2025-10-01'";
+// RS.3 — normalización de unidad para Wincaja. Cada artículo tiene UNA unidad de
+// venta fija (wincaja.articulos.unidad_venta) → sin mezcla dentro del sku. qty ya
+// viene en esa unidad: PZA=piezas, KGS=kg. Solo CJA se convierte a piezas (×factor).
+//   · unit_kind = 'weight' si el sku es KGS, si no 'piece'
+//   · units     = kg (KGS) · piezas (PZA) · qty×factor_venta (CJA→piezas)
+// `am` = modelo del artículo (1 fila por articulo, el dataset más reciente).
 const SELECT_SRC = `
+  WITH am AS (
+    SELECT DISTINCT ON (tenant_id, articulo)
+           tenant_id, articulo,
+           upper(btrim(coalesce(unidad_venta, ''))) AS uv, factor_venta
+      FROM wincaja.articulos
+     ORDER BY tenant_id, articulo, source_dataset DESC
+  )
   SELECT
     p.id                         AS product_id,
     w.id                         AS warehouse_id,
@@ -53,7 +66,9 @@ const SELECT_SRC = `
        WHEN 'ruta_venta'       THEN 'ruta'
        WHEN 'mostrador'        THEN 'mostrador'
        ELSE s.sale_channel END   AS channel,
-    SUM(s.qty)                   AS units,
+    SUM(CASE WHEN am.uv = 'CJA' THEN s.qty * COALESCE(NULLIF(am.factor_venta, 0), 1)
+             ELSE s.qty END)      AS units,
+    CASE WHEN bool_or(am.uv = 'KGS') THEN 'weight' ELSE 'piece' END AS unit_kind,
     SUM(s.importe)               AS revenue,
     SUM(s.costo)                 AS cost,
     SUM(s.importe) - SUM(s.costo) AS margin,
@@ -66,6 +81,7 @@ const SELECT_SRC = `
    AND w.code = CASE WHEN s.source_branch = '10' THEN '01'
                      WHEN s.source_branch = '42' THEN '02'
                      ELSE s.warehouse_code END
+  LEFT JOIN am ON am.tenant_id = s.tenant_id AND am.articulo = s.sku
   WHERE s.tenant_id = ?
     AND ( s.wincaja_only = true
           OR (s.source_branch = '10' AND s.business_date < ${PH_CUTOVER})
@@ -87,8 +103,8 @@ const SELECT_SRC = `
   await db.transaction(async (trx) => {
     const del = await trx('analytics.sales_daily').where({ tenant_id: TENANT }).where('channel', 'like', 'wincaja%').del();
     const ins = await trx.raw(
-      `INSERT INTO analytics.sales_daily (tenant_id, product_id, warehouse_id, channel, sale_date, units, revenue, cost, tickets, updated_at)
-       SELECT ?, product_id, warehouse_id, channel, sale_date, units, revenue, cost, tickets, now()
+      `INSERT INTO analytics.sales_daily (tenant_id, product_id, warehouse_id, channel, sale_date, units, revenue, cost, tickets, unit_kind, updated_at)
+       SELECT ?, product_id, warehouse_id, channel, sale_date, units, revenue, cost, tickets, unit_kind, now()
        FROM (${SELECT_SRC}) src`,
       [TENANT, TENANT],
     );
