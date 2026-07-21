@@ -57,21 +57,37 @@ const eanOk = (v) => { const s = String(v || '').trim(); return /^\d{13}$/.test(
 
     if (!APPLY) { console.log('\n[DRY-RUN] nada cambió.'); return; }
 
+    // BULK server-side: una sola sentencia (1223 round-trips por proxy = timeout). Dedup por
+    // (brand,nombre) con DISTINCT ON + ON CONFLICT DO NOTHING. barcode/factor validados en SQL.
     await db.query('BEGIN');
     await db.query(`SET LOCAL app.tenant_id = '${M}'`);
-    let n = 0, skip = 0;
-    for (const r of rows) {
-      const barcode = eanOk(r.barcode) ? String(r.barcode).trim() : null;
-      const factor = Number(r.factor_venta) > 1 ? Math.round(Number(r.factor_venta)) : null;
-      const res = await db.query(`
-        INSERT INTO catalog.products (id, tenant_id, brand_id, sku, nombre, barcode, unit_sale, factor_sale, is_promo, created_at, updated_at)
-        VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, false, now(), now())
-        ON CONFLICT (tenant_id, brand_id, nombre) DO NOTHING`,
-        [M, brand.id, r.sku, r.nombre, barcode, r.unidad || null, factor]);
-      if (res.rowCount) n++; else skip++;
-    }
+    const res = await db.query(`
+      WITH sold AS (
+        SELECT sku, sum(importe) rev FROM wincaja.v_sales_lines
+         WHERE tenant_id=$1 AND ( wincaja_only=true
+               OR (source_branch='10' AND business_date < DATE '2026-07-01')
+               OR (source_branch='42' AND business_date < DATE '2025-10-01')
+               OR (source_branch='44' AND business_date < DATE '2026-02-18')
+               OR (source_branch='54' AND business_date < DATE '2026-03-16') )
+         GROUP BY sku HAVING sum(importe) > 0),
+      art AS (SELECT DISTINCT ON (articulo) articulo, btrim(nombre) nombre, btrim(codigo_barras) barcode,
+                     upper(btrim(coalesce(unidad_venta,''))) unidad, factor_venta
+                FROM wincaja.articulos WHERE tenant_id=$1 ORDER BY articulo, source_dataset DESC),
+      cand AS (
+        SELECT DISTINCT ON (a.nombre) s.sku, a.nombre,
+               CASE WHEN btrim(coalesce(a.barcode,'')) ~ '^([0-9]{8}|[0-9]{12}|[0-9]{13})$' THEN btrim(a.barcode) ELSE NULL END barcode,
+               nullif(a.unidad,'') unidad,
+               CASE WHEN a.factor_venta > 1 THEN round(a.factor_venta)::int ELSE NULL END factor
+          FROM sold s JOIN art a ON a.articulo=s.sku
+         WHERE btrim(coalesce(a.nombre,'')) <> ''
+           AND NOT EXISTS (SELECT 1 FROM catalog.products p WHERE p.tenant_id=$1 AND p.sku=s.sku AND p.deleted_at IS NULL)
+         ORDER BY a.nombre, s.rev DESC)
+      INSERT INTO catalog.products (id, tenant_id, brand_id, sku, nombre, barcode, unit_sale, factor_sale, is_promo, created_at, updated_at)
+      SELECT gen_random_uuid(), $1, $2, sku, nombre, barcode, unidad, factor, false, now(), now()
+        FROM cand
+      ON CONFLICT (tenant_id, brand_id, nombre) DO NOTHING`, [M, brand.id]);
     await db.query('COMMIT');
-    console.log(`\n[APPLY] COMMIT — ${n} productos creados (${skip} saltados por nombre duplicado).`);
+    console.log(`\n[APPLY] COMMIT — ${res.rowCount} productos creados bajo PRODUCTOS VARIOS.`);
   } catch (e) {
     await db.query('ROLLBACK').catch(() => {});
     console.error('\nERROR (rollback):', e.message);

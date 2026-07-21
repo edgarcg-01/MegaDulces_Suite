@@ -184,7 +184,7 @@ export class SupervisorAiController {
     summary:
       'ACT.5 balanceo de carga: simula (read-only) el rebalanceo del día — tiempo por persona/ruta antes vs después + movimientos de clientes para nivelar. ?day_of_week=1..7 (default hoy MX).',
   })
-  routeBalance(@ReqUser() user: any, @Query('day_of_week') dayOfWeek?: string) {
+  routeBalanceSim(@ReqUser() user: any, @Query('day_of_week') dayOfWeek?: string) {
     return this.routeBalance.simulate(user, dayOfWeek);
   }
 

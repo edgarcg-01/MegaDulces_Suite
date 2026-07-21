@@ -210,8 +210,48 @@ const hex = () => randomBytes(5).toString('hex').toUpperCase();
     bad('ACT.3 add_opportunity_store', e);
   }
 
+  // ── ACT.5 — balanceo: log table + round-trip de sales_route ──
+  let logId = null;
+  try {
+    const [lg] = await knex('commercial.route_rebalance_log')
+      .insert({
+        tenant_id: TENANT,
+        day_of_week: 1,
+        moves: JSON.stringify([{ customer_id: SUBJ, name: 'SMOKE', from_route: 'RUTA A', to_route: 'RUTA B' }]),
+        previous_state: JSON.stringify([{ id: SUBJ, sales_route: 'RUTA A', visit_sequence: 3 }]),
+        metrics: JSON.stringify({ makespan_before: 120, makespan_after: 95, moved: 1, improvement_pct: 20.8 }),
+        status: 'applied',
+      })
+      .returning('id');
+    logId = lg?.id || lg;
+    ok('route_rebalance_log acepta insert (status=applied)');
+  } catch (e) {
+    bad('route_rebalance_log insert', e);
+  }
+
+  try {
+    const c = await knex('commercial.customers')
+      .where({ tenant_id: TENANT })
+      .whereNull('deleted_at')
+      .whereNotNull('sales_route')
+      .first('id', 'sales_route', 'visit_sequence');
+    if (!c) {
+      ok('ACT.5 sales_route round-trip — sin clientes con ruta (skip aceptable)');
+    } else {
+      const orig = { sr: c.sales_route, vs: c.visit_sequence };
+      await knex('commercial.customers').where({ id: c.id }).update({ sales_route: 'SMOKE-ROUTE', visit_sequence: null });
+      const moved = await knex('commercial.customers').where({ id: c.id }).first('sales_route');
+      const good = moved.sales_route === 'SMOKE-ROUTE';
+      await knex('commercial.customers').where({ id: c.id }).update({ sales_route: orig.sr, visit_sequence: orig.vs });
+      good ? ok('ACT.5 balanceo: sales_route move + restore round-trip') : bad('ACT.5 sales_route move');
+    }
+  } catch (e) {
+    bad('ACT.5 sales_route round-trip', e);
+  }
+
   // ── Cleanup ──────────────────────────────────────────────────────────────
   try {
+    if (logId) await knex('commercial.route_rebalance_log').where({ id: logId }).del();
     if (newCustId) await knex('commercial.customers').where({ id: newCustId }).del();
     if (act3Id) await knex('commercial.supervisor_actions').where({ id: act3Id }).del();
     if (prospectId) await knex('commercial.prospect_stores').where({ id: prospectId }).del();
