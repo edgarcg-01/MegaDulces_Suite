@@ -55,6 +55,17 @@ const BRANCHES = process.env.SUPPLIERS_BRANCH_MAP
           'postgresql://platform_ro:kepler123@192.168.54.54:5432/md_05',
         ];
 
+// Clave normalizada anti-duplicado (espejo de database/scripts/suppliers-normalize.js): quita
+// puntuación + sufijos de razón social. Kepler trunca nombres a 30 chars (char(30) en kdxd.c3) y
+// repite códigos de proveedor → falsos distintos; esta clave los reagrupa para el aviso post-import.
+const LEGAL = new Set(['sa', 's', 'a', 'de', 'cv', 'c', 'v', 'rl', 'r', 'l', 'sc', 'sapi', 'p', 'i', 'sab', 'sofom', 'enr', 'sad', 'dc', 'mx', 'mexico']);
+function bkey(s) {
+  let x = (s || '').toString().normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[.,*'`´¨\-\/&()]/g, ' ').replace(/\s+/g, ' ').trim();
+  const w = x.split(' ').filter(Boolean);
+  while (w.length > 1 && LEGAL.has(w[w.length - 1])) w.pop();
+  return w.join(' ');
+}
+
 async function stage(db, table, cols, rows) {
   for (let i = 0; i < rows.length; i += BATCH) {
     const chunk = rows.slice(i, i + BATCH);
@@ -120,12 +131,16 @@ async function stage(db, table, cols, rows) {
       SELECT $1, s.code, max(s.name) FROM stg_sup s GROUP BY s.code
       ON CONFLICT (tenant_id, code) DO UPDATE SET name=EXCLUDED.name, updated_at=now()`, [M]);
 
-    // 2) Re-enlazar products.supplier_id al proveedor REAL (solo cambios)
+    // 2) Re-enlazar products.supplier_id al proveedor REAL (solo cambios).
+    //    GUARD deleted_at IS NULL: nunca re-enganchar a un proveedor FUSIONADO (soft-deleted por
+    //    suppliers-normalize). Sin esto, un código Kepler de un duplicado ya fusionado volvería a
+    //    robar sus productos del canónico y desharía el merge. Los SKUs de códigos retirados
+    //    conservan su supplier_id actual (= el canónico al que la fusión ya los apuntó).
     const ln = await db.query(`
       UPDATE catalog.products p
          SET supplier_id = s.id, updated_at = now()
         FROM stg_link l
-        JOIN catalog.suppliers s ON s.tenant_id=$1 AND s.code=l.prov_code
+        JOIN catalog.suppliers s ON s.tenant_id=$1 AND s.code=l.prov_code AND s.deleted_at IS NULL
        WHERE p.tenant_id=$1 AND p.sku=l.sku
          AND p.supplier_id IS DISTINCT FROM s.id`, [M]);
 
@@ -151,6 +166,21 @@ async function stage(db, table, cols, rows) {
         WHERE p.tenant_id=$1 AND p.deleted_at IS NULL GROUP BY s.code, s.name ORDER BY n DESC LIMIT 10`, [M]);
     console.log('\nTop proveedores por # productos:');
     top.forEach((r) => console.log(`  ${String(r.n).padStart(5)}  ${r.code}  ${r.name}`));
+
+    // Aviso anti-duplicado: Kepler repite códigos + trunca nombres a 30 chars → nacen proveedores
+    // "distintos" que son el mismo. Agrupa los ACTIVOS por clave normalizada y avisa si hay que
+    // correr la consolidación (el guard de arriba ya evita que el merge previo se deshaga).
+    const { rows: activeSup } = await db.query(
+      `SELECT name FROM catalog.suppliers WHERE tenant_id=$1 AND deleted_at IS NULL`, [M]);
+    const grp = new Map();
+    for (const s of activeSup) { const k = bkey(s.name); if (k) grp.set(k, (grp.get(k) || 0) + 1); }
+    const dupGroups = [...grp.values()].filter((n) => n > 1).length;
+    if (dupGroups > 0) {
+      console.log(`\n  ⚠ ${dupGroups} grupo(s) de proveedores DUPLICADOS entre activos (códigos Kepler repetidos / nombres truncados).`);
+      console.log(`     → node database/scripts/suppliers-normalize.js --aggressive --execute`);
+    } else {
+      console.log(`\n  ✓ sin proveedores duplicados entre activos.`);
+    }
 
     if (APPLY) { await db.query('COMMIT'); console.log('\n[APPLY] COMMIT.'); }
     else { await db.query('ROLLBACK'); console.log('\n[DRY-RUN] ROLLBACK — usar --apply para aplicar.'); }

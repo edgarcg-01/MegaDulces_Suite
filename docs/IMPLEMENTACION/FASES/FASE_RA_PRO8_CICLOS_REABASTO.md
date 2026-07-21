@@ -44,7 +44,9 @@ El motor (Existencia Crítica) modela el **lead time** pero no el **período de 
 - **Al fijar `source_warehouse_id`**, el próximo `import-network-reorder` (DRP, RA-PRO.6) recalculará PH/Canindo por **demanda dependiente** de sus spokes — es el comportamiento correcto, pero cambia los números de reorden de PH.
 - **cadence_source='manual'** protege del job las filas que la coordinadora/analistas ajusten (bandeja HITL, pendiente).
 - **Territorios** (para el worklist): coordinadora general = CEDIS+PH(+02/03/04) ; analista Morelia = MD-30+MD-32 ; analista Zamora = MD-50+05.
-- Data-quality pendiente: proveedor "Las Delicias" **duplicado** (2 IDs); mojibake `Ñ→�` en nombres de proveedor.
+- **Consolidación de proveedores duplicados ✅ EJECUTADA en Railway 2026-07-20** (`suppliers-normalize --aggressive`): 1219→**959 activos**, 323 soft-deleted, **0 grupos duplicados restantes**, cadencia re-derivada post-fusión (1920 canales). Integridad verificada: 0 productos/canales/requisiciones huérfanos bajo proveedor borrado. GONAC 2→1 (106 prod, 9 canales). El script ahora copia también los params RA-PRO.10 (cadence_override/colchón/min$) al canónico.
+- **Data-quality (causa raíz de duplicados) — DIAGNOSTICADO:** el truncamiento viene de **Kepler `kdxd.c3` = char(30)** (121 proveedores con nombre de exactamente 30 chars; ej. GONAC `…SA DE C` vs `…SA DE CV`). Nuestra columna es `varchar(120)` y el importer copia sin cortar → no se arregla en origen (ERP legacy). Mitigación: la clave agresiva `bkey` reagrupa truncado+completo. Pendiente: mojibake `Ñ→�` en nombres (ej. Zermeño).
+- **Importer endurecido (`import-kepler-suppliers.js`) ✅ 2026-07-20:** (1) el re-enlace de `products.supplier_id` ahora filtra `s.deleted_at IS NULL` → **nunca re-engancha a un proveedor fusionado** (antes cada import deshacía parte del merge: re-linkeaba por código, incl. soft-deleted); (2) al final agrupa proveedores activos por `bkey` y **avisa si Kepler creó nuevos duplicados** → correr `suppliers-normalize`. Patrón operativo: **import → si avisa, normalize**.
 
 ## RA-PRO.9 — Cockpit de compra (unificación con Existencia Crítica) ✅ código+build 2026-07-20
 
