@@ -47,7 +47,13 @@ const SELECT_SQL = `
     FROM src`;
 
 (async () => {
-  const db = new Client({ connectionString: DST });
+  const remote = !/@(localhost|127\.0\.0\.1|192\.168\.)/.test(DST);
+  const db = new Client({
+    connectionString: DST,
+    ssl: remote ? { rejectUnauthorized: false } : false,
+    keepAlive: true,
+    statement_timeout: 0,
+  });
   await db.connect();
   try {
     console.log(`\n=== Rollup cajas → analytics.sales_boxes_monthly (${APPLY ? 'APPLY' : 'DRY-RUN'}) ===\n`);
