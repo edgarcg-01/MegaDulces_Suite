@@ -128,7 +128,9 @@ import { ComprasService, SupplierParam, SupplierOrder, SupplierOrderParamsDto } 
     .cp-table { font-size: .84rem; }
     .cp-r { text-align: right; font-variant-numeric: tabular-nums; }
     .cp-muted { color: var(--text-muted); }
-    .cp-num { width: 5rem; text-align: right; }
+    /* Auto-ajuste al valor: el input crece con su contenido (acotado), así no se corta
+       el dato (ej. Mín $ grande). field-sizing es soportado por el Chromium de la app. */
+    .cp-num { field-sizing: content; min-width: 4rem; max-width: 10rem; width: auto; text-align: right; }
     .cp-unset { color: var(--text-muted); }
     .cp-ok { color: var(--ok-fg); }
     .cp-empty { color: var(--text-muted); padding: 1rem; text-align: center; }
