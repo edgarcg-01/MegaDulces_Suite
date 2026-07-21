@@ -2137,12 +2137,15 @@ export class CommercialAnalyticsService {
 
       // is_promo fuera: marcadores de promo Kepler (precio simbólico $0.01) —
       // registran la aplicación de la promo en el ticket, no venta de producto.
-      const rawRows: any[] = monthAligned
+      // RS.6 — la parte KEPLER sale de sales_daily/boxes (sin vendedor); la parte WINCAJA
+      // se abre POR VENDEDOR desde v_sales_lines (abajo) y se une al mismo pivote.
+      const keplerRows: any[] = monthAligned
         ? await trx('analytics.sales_boxes_monthly as sd')
             .join('catalog.products as p', 'p.id', 'sd.product_id')
             .leftJoin('catalog.brands as b', 'b.id', 'p.brand_id')
             .join('commercial.warehouses as w', 'w.id', 'sd.warehouse_id')
             .where('sd.tenant_id', tenantId)
+            .andWhereRaw(`sd.channel NOT LIKE 'wincaja_%'`)
             .andWhere('p.is_promo', false)
             .modify((qb) => {
               if (brandId) qb.andWhere('p.brand_id', brandId);
@@ -2183,6 +2186,7 @@ export class CommercialAnalyticsService {
               this.on('lp.product_id', '=', 'p.id').andOn('lp.tenant_id', '=', 'p.tenant_id');
             })
             .where('sd.tenant_id', tenantId)
+            .andWhereRaw(`sd.channel NOT LIKE 'wincaja_%'`)
             .andWhere('p.is_promo', false)
             .modify((qb) => {
               if (brandId) qb.andWhere('p.brand_id', brandId);
@@ -2213,6 +2217,53 @@ export class CommercialAnalyticsService {
               `w.code, w.name, sd.product_id, p.sku, p.nombre, p.factor_sale, p.brand_id, b.nombre, b.code, ${channelExpr}, ${sourceExpr}` +
               (needMonth ? `, to_char(sd.sale_date, 'YYYY-MM')` : ''),
             );
+
+      // WINCAJA abierto POR VENDEDOR (v_sales_lines): mismo shape que los keplerRows +
+      // vendor_code/vendor_name. Normaliza unidad por artículo (KGS→kg, CJA→pzas) y aplica
+      // el BLEND del feed (incluye PH pre-julio). El pivote separa columnas por vendedor.
+      const winChanExpr = `CASE vl.sale_channel WHEN 'mayoreo_credito' THEN 'credito' WHEN 'preventa_vecinal' THEN 'preventa' WHEN 'ruta_venta' THEN 'ruta' ELSE 'mostrador' END`;
+      const winWhExpr = `CASE WHEN vl.source_branch='10' THEN '01' WHEN vl.source_branch='42' THEN '02' ELSE vl.warehouse_code END`;
+      const wincajaRows: any[] = await trx
+        .with('am', (qb) => qb.distinctOn('articulo').select('articulo as sku')
+          .select(trx.raw(`upper(btrim(coalesce(unidad_venta,''))) as uv`), 'factor_venta')
+          .from('wincaja.articulos').where('tenant_id', tenantId).orderByRaw('articulo, source_dataset DESC'))
+        .with('ven', (qb) => qb.distinctOn('source_branch', 'vendedor').select('source_branch', 'vendedor', 'nombre')
+          .from('wincaja.vendedores').where('tenant_id', tenantId).orderByRaw('source_branch, vendedor, source_dataset DESC'))
+        .select(
+          'w.code as branch_code', 'w.name as branch_name',
+          'p.id as product_id', 'p.sku as sku', 'p.nombre as nombre',
+          'p.factor_sale as factor_sale', 'p.brand_id as brand_id', 'b.nombre as brand_nombre', 'b.code as brand_code',
+          trx.raw(`${winChanExpr} as channel`),
+          trx.raw(`'wincaja'::text as source`),
+          trx.raw(`(vl.source_branch || ':' || vl.vendedor) as vendor_code`),
+          trx.raw(`coalesce(ven.nombre, vl.vendedor) as vendor_name`),
+          trx.raw(`CASE WHEN am.uv='KGS' THEN 'weight' ELSE 'piece' END as unit_kind`),
+          trx.raw('max(lp.box_size) as box_size'),
+          trx.raw(`SUM(CASE WHEN am.uv='CJA' THEN vl.qty * COALESCE(NULLIF(am.factor_venta,0),1) ELSE vl.qty END) as units`),
+          trx.raw('SUM(vl.importe) as monto'),
+        )
+        .from('wincaja.v_sales_lines as vl')
+        .join('catalog.products as p', function () { this.on('p.tenant_id', '=', 'vl.tenant_id').andOn('p.sku', '=', 'vl.sku'); })
+        .leftJoin('catalog.brands as b', 'b.id', 'p.brand_id')
+        .leftJoin('commercial.product_label_prices as lp', function () { this.on('lp.product_id', '=', 'p.id').andOn('lp.tenant_id', '=', 'p.tenant_id'); })
+        .joinRaw(`JOIN commercial.warehouses w ON w.tenant_id = vl.tenant_id AND w.deleted_at IS NULL AND w.code = ${winWhExpr}`)
+        .leftJoin('am', 'am.sku', 'vl.sku')
+        .leftJoin('ven', function () { this.on('ven.source_branch', '=', 'vl.source_branch').andOn('ven.vendedor', '=', 'vl.vendedor'); })
+        .where('vl.tenant_id', tenantId).andWhere('p.is_promo', false).whereNull('p.deleted_at')
+        .andWhereRaw(`(vl.wincaja_only = true OR (vl.source_branch = '10' AND vl.business_date < DATE '2026-07-01') OR (vl.source_branch = '42' AND vl.business_date < DATE '2025-10-01'))`)
+        .andWhere('vl.business_date', '>=', from).andWhere('vl.business_date', '<=', to)
+        .modify((qb) => {
+          if (brandId) qb.andWhere('p.brand_id', brandId);
+          if (search) qb.andWhereRaw('(p.sku ILIKE ? OR p.nombre ILIKE ?)', [`%${search}%`, `%${search}%`]);
+          if (warehouseFilter) qb.whereRaw(`${winWhExpr} = ANY(?)`, [warehouseFilter]);
+          if (needMonth) qb.select(trx.raw(`to_char(vl.business_date, 'YYYY-MM') as sale_month`));
+        })
+        .groupByRaw(
+          `w.code, w.name, p.id, p.sku, p.nombre, p.factor_sale, p.brand_id, b.nombre, b.code, vl.sale_channel, vl.source_branch, vl.vendedor, coalesce(ven.nombre, vl.vendedor), am.uv, am.factor_venta` +
+          (needMonth ? `, to_char(vl.business_date, 'YYYY-MM')` : ''),
+        );
+
+      const rawRows: any[] = [...keplerRows, ...wincajaRows];
 
       // Sucursales con venta (cualquier marca) en el periodo — para cobertura.
       const retailRows = await trx('analytics.sales_daily as sd')
@@ -2269,13 +2320,16 @@ export class CommercialAnalyticsService {
       const cajas = isWeight ? units : units / divisor;
       branchesWithData.add(r.branch_name);
 
-      // Columnas: por MES (month_columns) o por sucursal[×canal]×FUENTE (RS.5 — Kepler/Wincaja
-      // separadas, nunca fusionadas en la misma columna).
+      // Columnas: por MES (month_columns) o por sucursal[×canal]×FUENTE (RS.5). RS.6 — la
+      // fuente WINCAJA se abre además POR VENDEDOR (una columna por persona); KEPLER queda
+      // agregado (no tiene vendedor). Kepler y Wincaja nunca comparten columna.
       const src: 'kepler' | 'wincaja' = r.source === 'wincaja' ? 'wincaja' : 'kepler';
-      const srcLabel = src === 'wincaja' ? 'Wincaja' : 'Kepler';
+      const vendorCode = src === 'wincaja' ? String(r.vendor_code ?? '·') : null;
+      const srcLabel = src === 'wincaja' ? String(r.vendor_name ?? 'Wincaja') : 'Kepler';
+      const colTail = src === 'wincaja' ? `wincaja|${vendorCode}` : 'kepler';
       const colKey = monthCols
         ? r.sale_month
-        : groupBy === 'branch' ? `${r.branch_code}|${src}` : `${r.branch_code}|${channel}|${src}`;
+        : groupBy === 'branch' ? `${r.branch_code}|${colTail}` : `${r.branch_code}|${channel}|${colTail}`;
       if (!columns.has(colKey)) {
         columns.set(colKey, monthCols
           ? {
@@ -3065,13 +3119,18 @@ export class CommercialAnalyticsService {
    * la ruta (source_branch = route_code sin 'WIN-'), scoped al año. Público general
    * (cliente NULL / '0001' = "cliente libre") se agrupa como "Mostrador a bordo".
    */
-  async salesByRouteDetail(routeCode: string, year: number): Promise<SalesByRouteDetail> {
+  async salesByRouteDetail(
+    routeCode: string, year: number,
+    opts?: { from?: string; to?: string; sku?: string; client?: string },
+  ): Promise<SalesByRouteDetail> {
     const y = Number(year) || new Date().getFullYear();
     if (y < 2020 || y > 2100) throw new BadRequestException('year inválido');
     const src = (routeCode || '').replace(/^WIN-/i, '').trim();
     if (!src) throw new BadRequestException('route requerido');
-    const from = `${y}-01-01`;
-    const to = `${y + 1}-01-01`;
+    // El desglose respeta los filtros de la vista: rango de meses (from/to) + producto/cliente.
+    const dRx = /^\d{4}-\d{2}-\d{2}$/;
+    const from = (opts?.from && dRx.test(opts.from)) ? opts.from : `${y}-01-01`;
+    const to = (opts?.to && dRx.test(opts.to)) ? opts.to : `${y + 1}-01-01`;
     const tenantId = this.tenantCtx.requireTenantId();
     const num = (v: any) => Number(v) || 0;
 
@@ -3086,9 +3145,11 @@ export class CommercialAnalyticsService {
       if (!head) throw new NotFoundException('ruta no encontrada');
 
       // WHERE común (mismo scope que el feed: canal ruta, año, sin fechas futuras corruptas)
-      const W = `sl.tenant_id=? AND sl.source_branch=? AND sl.sale_channel='ruta_venta'
+      let W = `sl.tenant_id=? AND sl.source_branch=? AND sl.sale_channel='ruta_venta'
                  AND sl.business_date>=? AND sl.business_date<? AND sl.business_date<=CURRENT_DATE`;
-      const P = [tenantId, src, from, to];
+      const P: any[] = [tenantId, src, from, to];
+      if (opts?.sku) { W += ' AND sl.sku = ?'; P.push(opts.sku); }
+      if (opts?.client) { W += ' AND sl.cliente = ?'; P.push(opts.client); }
 
       const totals = (await trx.raw(
         `SELECT sum(sl.importe) revenue, sum(sl.qty) units, count(distinct sl.consecutivo) tickets,
