@@ -18,7 +18,9 @@ export class SellOutExportService {
   private readonly logger = new Logger(SellOutExportService.name);
 
   private colLabel(c: SellOutColumn): string {
-    return c.channel_label ? `${c.branch_name} · ${c.channel_label}` : c.branch_name;
+    const base = c.channel_label ? `${c.branch_name} · ${c.channel_label}` : c.branch_name;
+    // RS.5/6 — fuente (Kepler) o vendedor Wincaja viaja en source_label.
+    return c.source_label ? `${base} · ${c.source_label}` : base;
   }
 
   private periodLabel(from: string, to: string): string {

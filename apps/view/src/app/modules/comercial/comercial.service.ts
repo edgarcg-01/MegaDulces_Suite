@@ -1054,8 +1054,12 @@ export class ComercialService {
     return this.http.get<{ value: string; label: string }[]>(`${this.base}/analytics/sales-by-route/clients`);
   }
 
-  salesByRouteDetail(routeCode: string, year: number) {
-    const params = new HttpParams().set('route', routeCode).set('year', String(year));
+  salesByRouteDetail(routeCode: string, year: number, opts?: { from?: string; to?: string; sku?: string; client?: string }) {
+    let params = new HttpParams().set('route', routeCode).set('year', String(year));
+    if (opts?.from) params = params.set('from', opts.from);
+    if (opts?.to) params = params.set('to', opts.to);
+    if (opts?.sku) params = params.set('sku', opts.sku);
+    if (opts?.client) params = params.set('client', opts.client);
     return this.http.get<SalesByRouteDetail>(`${this.base}/analytics/sales-by-route/detail`, { params });
   }
 
@@ -1131,6 +1135,7 @@ export class ComercialService {
     if (opts.channels?.length) params = params.set('channels', opts.channels.join(','));
     if (opts.warehouses?.length) params = params.set('warehouses', opts.warehouses.join(','));
     if (opts.cells?.length) params = params.set('cells', opts.cells.join(','));
+    if (opts.mode) params = params.set('mode', opts.mode);
     if (opts.include_zeros) params = params.set('include_zeros', 'true');
     if (opts.search?.trim()) params = params.set('search', opts.search.trim());
     return params;
@@ -1283,6 +1288,8 @@ export interface SellOutParams {
   warehouses?: string[];
   /** RS.4 — filtro CANAL jerárquico: tokens "<canal>|<warehouse>" o "<canal>|*". */
   cells?: string[];
+  /** RS.4 — modo del reporte para exportación: 'canal' | 'vendedor'. */
+  mode?: 'canal' | 'vendedor';
   include_zeros?: boolean;
   search?: string;
 }

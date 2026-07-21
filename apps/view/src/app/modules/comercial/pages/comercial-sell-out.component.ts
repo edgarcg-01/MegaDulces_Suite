@@ -691,6 +691,7 @@ export class ComercialSellOutComponent {
       channels: this.channels.length ? this.channels : undefined,
       warehouses: this.warehouses.length ? this.warehouses : undefined,
       cells: this.selectedCells().size ? Array.from(this.selectedCells()) : undefined,
+      mode: this.reportMode(),
       include_zeros: this.includeZeros,
       search: this.search() || undefined,
     };

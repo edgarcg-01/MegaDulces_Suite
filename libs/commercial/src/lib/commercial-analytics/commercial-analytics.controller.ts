@@ -580,10 +580,11 @@ export class CommercialAnalyticsController {
     @Query('include_zeros') includeZeros?: string,
     @Query('search') search?: string,
     @Query('view') view?: string,
+    @Query('cells') cells?: string,
+    @Query('mode') mode?: string,
   ) {
-    const report = await this.service.sellOut(
-      this.parseSellOutQuery(brandId, from, to, groupBy, channels, warehouses, includeZeros, search, view),
-    );
+    const q = this.parseSellOutQuery(brandId, from, to, groupBy, channels, warehouses, includeZeros, search, view, cells);
+    const report = mode === 'vendedor' ? await this.service.sellOutByVendor(q) : await this.service.sellOut(q);
     const buf = await this.exporter.buildXlsx(report);
     this.sendFile(res, buf, this.exporter.fileName(report, 'xlsx'),
       'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
@@ -603,10 +604,11 @@ export class CommercialAnalyticsController {
     @Query('include_zeros') includeZeros?: string,
     @Query('search') search?: string,
     @Query('view') view?: string,
+    @Query('cells') cells?: string,
+    @Query('mode') mode?: string,
   ) {
-    const report = await this.service.sellOut(
-      this.parseSellOutQuery(brandId, from, to, groupBy, channels, warehouses, includeZeros, search, view),
-    );
+    const q = this.parseSellOutQuery(brandId, from, to, groupBy, channels, warehouses, includeZeros, search, view, cells);
+    const report = mode === 'vendedor' ? await this.service.sellOutByVendor(q) : await this.service.sellOut(q);
     const buf = await this.exporter.buildPdf(report);
     this.sendFile(res, buf, this.exporter.fileName(report, 'pdf'), 'application/pdf');
   }
@@ -690,8 +692,20 @@ export class CommercialAnalyticsController {
   @Get('sales-by-route/detail')
   @RequirePermissions(Permission.COMMERCIAL_ROUTE_SALES_VER)
   @ApiOperation({ summary: 'RR — Desglose de una ruta: productos, serie diaria, clientes y tickets. Params: route (WIN-<code>), year.' })
-  salesByRouteDetail(@Query('route') route: string, @Query('year') year?: string) {
-    return this.service.salesByRouteDetail(route, year ? Number(year) : new Date().getFullYear());
+  salesByRouteDetail(
+    @Query('route') route: string,
+    @Query('year') year?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('sku') sku?: string,
+    @Query('client') client?: string,
+  ) {
+    return this.service.salesByRouteDetail(route, year ? Number(year) : new Date().getFullYear(), {
+      from: from?.trim() || undefined,
+      to: to?.trim() || undefined,
+      sku: sku?.trim() || undefined,
+      client: client?.trim() || undefined,
+    });
   }
 
   @Get('sales-by-route')
