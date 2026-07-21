@@ -22,6 +22,7 @@
  */
 
 const { Client } = require('pg');
+const { productKind, buildModel, toCanonical } = require('./unit-normalization');
 
 const M = '00000000-0000-0000-0000-00000000d01c';
 const SRC = process.env.DATABASE_URL_KEPLER_CONSOLIDADO || 'postgresql://postgres:superoot@localhost:5433/kepler_consolidado';
@@ -35,56 +36,6 @@ const MONTHS = 13;
 // se tocan. WIN se usa idéntico en el filtro del origen y en el DELETE del destino.
 const DAYS = process.env.SALES_FACT_DAYS ? parseInt(process.env.SALES_FACT_DAYS, 10) : null;
 const WIN = DAYS ? `current_date - interval '${DAYS} days'` : `current_date - interval '${MONTHS} months'`;
-
-// --- Modelo de unidades (RS.3) -------------------------------------------------
-// Unidades de venta que representan PESO (no cuenta de piezas).
-const WEIGHT_U = new Set(['KG', '1KG', '2KG', '3KG', '5KG', 'CUB', 'BTO', 'BULTO']);
-// Etiqueta de unidad que es gramos numéricos ("500" = 500 g = 0.5 kg).
-const gramsUnitKg = (u) => { const m = /^(\d+(?:\.\d+)?)$/.exec(u); return m ? Number(m[1]) / 1000 : null; };
-// kg que representa una línea vendida en unidad `u` (solo para unidades de peso conocidas).
-const kgFromUnit = (u) => {
-  if (u === 'KG' || u === '1KG') return 1;
-  if (u === '2KG') return 2; if (u === '3KG') return 3; if (u === '5KG') return 5;
-  return gramsUnitKg(u);
-};
-// Gramaje del producto en kg (peso de UNA pieza/paquete/bulto) desde content ("9 kg",
-// "560 g", "20 kg") o unit_base ("KG"→1, "500"→0.5). null si no se puede inferir.
-function gramajeKg(content, unitBase) {
-  const c = String(content || '').trim().toLowerCase();
-  let m = /(\d+(?:[.,]\d+)?)\s*(kgs?|kilos?|k)\b/.exec(c);
-  if (m) return Number(m[1].replace(',', '.'));
-  m = /(\d+(?:[.,]\d+)?)\s*(g|gr|gramos?)\b/.exec(c);
-  if (m) return Number(m[1].replace(',', '.')) / 1000;
-  const ub = String(unitBase || '').trim().toUpperCase();
-  if (ub === 'KG') return 1;
-  const gb = /^(\d+(?:\.\d+)?)$/.exec(ub);
-  if (gb) return Number(gb[1]) / 1000;
-  return null;
-}
-// kind del producto SOLO desde el catálogo (estable, sin mirar ventas):
-// peso si la unidad de venta o la unidad base lo indican; si no, pieza.
-function productKind(unitSale, unitBase) {
-  const us = String(unitSale || '').trim().toUpperCase();
-  if (us === 'KGS' || us === 'KG') return 'weight';
-  const ub = String(unitBase || '').trim().toUpperCase();
-  if (WEIGHT_U.has(ub) || /^\d+(\.\d+)?$/.test(ub)) return 'weight';
-  return 'piece';
-}
-// Convierte `cant` de la unidad `u` al canónico del producto. Devuelve
-// { qty, ok }: ok=false si no se pudo convertir (se cuenta y se deja crudo).
-function toCanonical(kind, u, cant, model) {
-  if (kind === 'weight') {
-    const k = kgFromUnit(u);
-    if (k != null) return { qty: cant * k, ok: true };
-    if (model.gk != null) return { qty: cant * model.gk, ok: true }; // PAQ/PZA/CUB/BTO → gramaje
-    return { qty: cant, ok: false };
-  }
-  if (u === 'PZA' || u === 'PZ' || u === 'PIEZA') return { qty: cant, ok: true };
-  if (u === 'PAQ') return { qty: cant * (model.packF || 1), ok: true };
-  if (u === 'CJA') return { qty: cant * (model.boxF || 1), ok: true };
-  // unidad de peso en un producto de pieza (raro) → sin conversión limpia
-  return { qty: cant, ok: false };
-}
 
 (async () => {
   const src = new Client({ connectionString: SRC });
@@ -104,10 +55,7 @@ function toCanonical(kind, u, cant, model) {
         WHERE p.tenant_id=$1 AND btrim(coalesce(p.sku,''))<>''`, [M])).rows;
     const skuTo = new Map();
     for (const p of prods) {
-      const kind = productKind(p.unit_sale, p.unit_base);
-      const packF = Number(p.pack_size) > 1 ? Number(p.pack_size) : (Number(p.factor_sale) > 1 ? Number(p.factor_sale) : 1);
-      const boxF = Number(p.box_size) > 1 ? Number(p.box_size) : (Number(p.factor_sale) > 1 ? Number(p.factor_sale) : 1);
-      skuTo.set(p.sku, { id: p.id, markup_pct: p.markup_pct, kind, packF, boxF, gk: gramajeKg(p.content, p.unit_base) });
+      skuTo.set(p.sku, { id: p.id, markup_pct: p.markup_pct, ...buildModel(p) });
     }
     const whs = (await db.query(`SELECT id, code FROM commercial.warehouses WHERE tenant_id=$1`, [M])).rows;
     const whTo = new Map(whs.map((w) => [w.code, w.id]));
@@ -147,7 +95,7 @@ function toCanonical(kind, u, cant, model) {
       if (!p) { noSku++; continue; }
       const wid = whTo.get(r.almacen);
       if (!wid) { noWh++; continue; }
-      const conv = toCanonical(p.kind, r.unidad, Number(r.cant), p);
+      const conv = toCanonical(p, r.unidad, Number(r.cant));
       if (!conv.ok) unconv++;
       const fecha = r.fecha.toISOString().slice(0, 10);
       const key = `${p.id}|${wid}|${r.channel}|${fecha}`;

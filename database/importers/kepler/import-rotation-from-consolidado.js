@@ -18,6 +18,7 @@
  */
 
 const { Client } = require('pg');
+const { buildModel, toCanonical } = require('./unit-normalization');
 
 const M = '00000000-0000-0000-0000-00000000d01c';
 const SRC =
@@ -43,32 +44,61 @@ function percentile(sorted, p) {
   try {
     console.log(`\n=== Feed rotación RED (6 sucursales) → products (${APPLY ? 'APPLY' : 'DRY-RUN'}) ===\n`);
 
-    // Venta 30d / 90d por SKU (toda la red) ∪ universo en existencia.
-    const { rows: vrows } = await src.query(
+    // Catálogo: sku → id + MODELO DE UNIDAD (RS.3). Necesario para convertir cada
+    // bucket de `unidad` al canónico del producto antes de rankear rotación.
+    const { rows: prods } = await db.query(
+      `SELECT p.id, btrim(coalesce(p.sku,'')) AS sku,
+              upper(btrim(coalesce(p.unit_sale,''))) AS unit_sale, p.factor_sale,
+              l.pack_size, l.box_size, l.unit_base, l.content
+         FROM catalog.products p
+         LEFT JOIN commercial.product_label_prices l ON l.product_id=p.id AND l.tenant_id=p.tenant_id
+        WHERE p.tenant_id=$1 AND btrim(coalesce(p.sku,''))<>''`, [M]);
+    const skuToId = new Map();
+    const modelBySku = new Map();
+    for (const p of prods) { skuToId.set(p.sku, p.id); modelBySku.set(p.sku, buildModel(p)); }
+
+    // Venta 30d / 90d por SKU × UNIDAD (toda la red) ∪ universo en existencia.
+    const { rows: raw } = await src.query(
       `WITH s AS (
-         SELECT sku,
+         SELECT sku, upper(btrim(coalesce(unidad,''))) AS unidad,
                 sum(cantidad) FILTER (WHERE fecha >= CURRENT_DATE - 30) AS u30,
                 sum(cantidad) FILTER (WHERE fecha >= CURRENT_DATE - 90) AS u90
            FROM mart.ventas
           WHERE fecha >= CURRENT_DATE - 90
-          GROUP BY sku
+          GROUP BY sku, upper(btrim(coalesce(unidad,'')))
        ),
        stocked AS (SELECT DISTINCT sku FROM dic.stock WHERE existencia > 0)
-       SELECT COALESCE(s.sku, st.sku) AS sku,
-              COALESCE(round(s.u30),0)::int AS u30,
-              COALESCE(round(s.u90),0)::int AS u90
+       SELECT COALESCE(s.sku, st.sku) AS sku, s.unidad,
+              COALESCE(s.u30,0)::numeric AS u30, COALESCE(s.u90,0)::numeric AS u90
          FROM s FULL OUTER JOIN stocked st ON st.sku = s.sku`,
     );
 
-    const sellers = vrows.filter((r) => r.u90 > 0).map((r) => r.u90).sort((a, b) => a - b);
-    const p40 = percentile(sellers, 40);
-    const p75 = percentile(sellers, 75);
-    const tierOf = (u90) => (u90 <= 0 ? null : u90 >= p75 ? 'alta' : u90 >= p40 ? 'media' : 'baja');
-    console.log(`SKUs con dato: ${vrows.length} · vendedores: ${sellers.length} · umbral media>=${p40}u/90d · alta>=${p75}u/90d`);
+    // Convertir cada bucket (sku,unidad) → canónico y sumar por sku. Guardamos kind
+    // para rankear PIEZA vs PESO en escalas separadas (no comparar kg contra piezas).
+    const bySku = new Map(); // sku → { u30, u90, kind }
+    for (const r of raw) {
+      const m = modelBySku.get(r.sku);
+      const kind = m ? m.kind : 'piece';
+      const c30 = m ? toCanonical(m, r.unidad, Number(r.u30)).qty : Number(r.u30);
+      const c90 = m ? toCanonical(m, r.unidad, Number(r.u90)).qty : Number(r.u90);
+      let a = bySku.get(r.sku);
+      if (!a) { a = { u30: 0, u90: 0, kind }; bySku.set(r.sku, a); }
+      a.u30 += c30 || 0; a.u90 += c90 || 0;
+    }
+    const vrows = Array.from(bySku, ([sku, a]) => ({ sku, u30: Math.round(a.u30), u90: Math.round(a.u90), kind: a.kind }));
 
-    // Catálogo: sku → id
-    const { rows: prods } = await db.query(`SELECT id, sku FROM public.products WHERE tenant_id=$1`, [M]);
-    const skuToId = new Map(prods.map((p) => [p.sku, p.id]));
+    // Percentiles SEPARADOS por kind (piezas vs kg no son comparables).
+    const sortedBy = (k) => vrows.filter((r) => r.kind === k && r.u90 > 0).map((r) => r.u90).sort((a, b) => a - b);
+    const th = {
+      piece: { p40: percentile(sortedBy('piece'), 40), p75: percentile(sortedBy('piece'), 75) },
+      weight: { p40: percentile(sortedBy('weight'), 40), p75: percentile(sortedBy('weight'), 75) },
+    };
+    const tierOf = (u90, kind) => {
+      if (u90 <= 0) return null;
+      const t = th[kind] || th.piece;
+      return u90 >= t.p75 ? 'alta' : u90 >= t.p40 ? 'media' : 'baja';
+    };
+    console.log(`SKUs con dato: ${vrows.length} · pieza media>=${th.piece.p40}/alta>=${th.piece.p75} · peso(kg) media>=${th.weight.p40}/alta>=${th.weight.p75}`);
 
     // BULK (staging + un solo UPDATE FROM). El loop per-fila contra prod remoto
     // (~1.2s/query) tomaba ~1.7h; staging+merge = segundos.
@@ -78,7 +108,7 @@ function percentile(sorted, p) {
     for (const r of vrows) {
       const id = skuToId.get(r.sku);
       if (!id) { unmatched++; continue; }
-      const tier = tierOf(r.u90);
+      const tier = tierOf(r.u90, r.kind);
       dist[tier ?? 'dead']++;
       rows.push([id, tier, r.u30, r.u90]);
     }
