@@ -209,7 +209,7 @@ const MES: Record<string, string> = {
 
       <app-side-peek [(open)]="peekOpen"
                      [title]="detail()?.warehouse_name || 'Ruta'"
-                     [subtitle]="detail() ? ('Ruta ' + detail()!.route_no + ' · ' + detail()!.year) : null">
+                     [subtitle]="detailSubtitle()">
         @if (detailLoading()) {
           <div class="rr-detail-loading"><i class="pi pi-spin pi-spinner"></i> Cargando desglose…</div>
         }
@@ -473,6 +473,16 @@ export class ComercialVentasPorRutaComponent {
     ];
   });
 
+  /** Subtítulo del desglose: ruta + año + periodo/filtros aplicados (para que quede claro el alcance). */
+  readonly detailSubtitle = computed(() => {
+    const d = this.detail();
+    if (!d) return null;
+    const parts = [`Ruta ${d.route_no}`, String(d.year)];
+    if (this.periodLabel()) parts.push(this.periodLabel());
+    if (this.fProduct() || this.fClient()) parts.push('filtrado');
+    return parts.join(' · ');
+  });
+
   clearViewFilters() {
     this.fBranch.set([]); this.fQuery.set('');
     this.fMonthFrom.set(null); this.fMonthTo.set(null);
@@ -542,12 +552,28 @@ export class ComercialVentasPorRutaComponent {
       });
   }
 
+  /** El desglose respeta los filtros activos: rango de meses → fechas, + producto/cliente. */
+  private detailBounds(): { from?: string; to?: string } {
+    if (!this.fMonthFrom() && !this.fMonthTo()) return {};
+    const vm = this.visibleMonths();
+    if (!vm.length) return {};
+    const y = this.year;
+    const lastM = Number(vm[vm.length - 1]);
+    return {
+      from: `${y}-${vm[0]}-01`,
+      to: lastM >= 12 ? `${y + 1}-01-01` : `${y}-${String(lastM + 1).padStart(2, '0')}-01`,
+    };
+  }
+
   openRoute(row: SalesByRouteRow) {
     this.tab.set('productos');
     this.detail.set(null);
     this.detailLoading.set(true);
     this.peekOpen.set(true);
-    this.svc.salesByRouteDetail(row.route_code, this.year)
+    const b = this.detailBounds();
+    this.svc.salesByRouteDetail(row.route_code, this.year, {
+      from: b.from, to: b.to, sku: this.fProduct() || undefined, client: this.fClient() || undefined,
+    })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (d) => {
