@@ -2410,10 +2410,12 @@ export class CommercialAnalyticsService {
         .with('am', (qb) => qb.distinctOn('articulo').select('articulo as sku')
           .select(trx.raw(`upper(btrim(coalesce(unidad_venta,''))) as uv`), 'factor_venta')
           .from('wincaja.articulos').where('tenant_id', tenantId).orderByRaw('articulo, source_dataset DESC'))
-        .with('ven', (qb) => qb.distinctOn('vendedor').select('vendedor', 'nombre')
-          .from('wincaja.vendedores').where('tenant_id', tenantId).orderByRaw('vendedor, source_dataset DESC'))
+        // Nombre por (sucursal, vendedor): los códigos se reusan entre plazas para
+        // PERSONAS distintas (ej. cód 75 = Sergio en PH pero Alberto Ayala en Morelia).
+        .with('ven', (qb) => qb.distinctOn('source_branch', 'vendedor').select('source_branch', 'vendedor', 'nombre')
+          .from('wincaja.vendedores').where('tenant_id', tenantId).orderByRaw('source_branch, vendedor, source_dataset DESC'))
         .select(
-          'vl.vendedor as vendor_code',
+          trx.raw(`(vl.source_branch || ':' || vl.vendedor) as vendor_code`),
           trx.raw(`coalesce(ven.nombre, vl.vendedor) as vendor_name`),
           'vl.sale_channel as sale_channel',
           'p.id as product_id', 'p.sku as sku', 'p.nombre as nombre',
@@ -2427,13 +2429,13 @@ export class CommercialAnalyticsService {
         .leftJoin('catalog.brands as b', 'b.id', 'p.brand_id')
         .leftJoin('commercial.product_label_prices as lp', function () { this.on('lp.product_id', '=', 'p.id').andOn('lp.tenant_id', '=', 'p.tenant_id'); })
         .leftJoin('am', 'am.sku', 'vl.sku')
-        .leftJoin('ven', 'ven.vendedor', 'vl.vendedor')
+        .leftJoin('ven', function () { this.on('ven.source_branch', '=', 'vl.source_branch').andOn('ven.vendedor', '=', 'vl.vendedor'); })
         .where('vl.tenant_id', tenantId).andWhere('vl.wincaja_only', true).andWhere('p.is_promo', false)
         .whereNull('p.deleted_at')
         .whereIn('vl.sale_channel', ['mayoreo_credito', 'ruta_venta', 'preventa_vecinal'])
         .andWhere('vl.business_date', '>=', from).andWhere('vl.business_date', '<=', to)
         .modify((qb) => { if (brandId) qb.andWhere('p.brand_id', brandId); if (search) qb.andWhereRaw('(p.sku ILIKE ? OR p.nombre ILIKE ?)', [`%${search}%`, `%${search}%`]); })
-        .groupByRaw('vl.vendedor, vendor_name, vl.sale_channel, p.id, p.sku, p.nombre, p.factor_sale, p.brand_id, b.nombre, b.code');
+        .groupByRaw('vl.source_branch, vl.vendedor, vendor_name, vl.sale_channel, p.id, p.sku, p.nombre, p.factor_sale, p.brand_id, b.nombre, b.code');
       return { brand: b, raw: rows };
     });
 
@@ -2527,15 +2529,16 @@ export class CommercialAnalyticsService {
       preventa_vecinal: { g: 'preventa', label: 'RV (Vecinal)', ord: 2 },
     };
     const rows = await this.tk.run((trx) => trx
-      .with('ven', (qb) => qb.distinctOn('vendedor').select('vendedor', 'nombre')
-        .from('wincaja.vendedores').where('tenant_id', tenantId).orderByRaw('vendedor, source_dataset DESC'))
-      .select('vl.sale_channel as sale_channel', 'vl.vendedor as code', trx.raw(`coalesce(ven.nombre, vl.vendedor) as name`))
+      // Nombre e identidad por (sucursal, vendedor): los códigos se reusan entre plazas.
+      .with('ven', (qb) => qb.distinctOn('source_branch', 'vendedor').select('source_branch', 'vendedor', 'nombre')
+        .from('wincaja.vendedores').where('tenant_id', tenantId).orderByRaw('source_branch, vendedor, source_dataset DESC'))
+      .select('vl.sale_channel as sale_channel', trx.raw(`(vl.source_branch || ':' || vl.vendedor) as code`), trx.raw(`coalesce(ven.nombre, vl.vendedor) as name`))
       .sum({ rev: 'vl.importe' })
       .from('wincaja.v_sales_lines as vl')
-      .leftJoin('ven', 'ven.vendedor', 'vl.vendedor')
+      .leftJoin('ven', function () { this.on('ven.source_branch', '=', 'vl.source_branch').andOn('ven.vendedor', '=', 'vl.vendedor'); })
       .where('vl.tenant_id', tenantId).andWhere('vl.wincaja_only', true)
       .whereIn('vl.sale_channel', ['mayoreo_credito', 'ruta_venta', 'preventa_vecinal'])
-      .groupByRaw('vl.sale_channel, vl.vendedor, name')
+      .groupByRaw('vl.sale_channel, vl.source_branch, vl.vendedor, name')
       .havingRaw('sum(vl.importe) > 0'));
     const map = new Map<string, { group: string; group_label: string; ord: number; leaves: any[] }>();
     for (const r of rows as any[]) {
