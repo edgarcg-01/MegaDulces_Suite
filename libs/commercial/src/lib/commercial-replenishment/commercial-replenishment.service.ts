@@ -250,7 +250,10 @@ export class CommercialReplenishmentService {
           trx.raw('sup.id AS supplier_id'),
           trx.raw('sup.name AS supplier_name'),
           trx.raw('sup.min_order_boxes AS supplier_min_boxes'),
+          trx.raw('sup.min_order_amount AS supplier_min_amount'),
           trx.raw('pr.factor_purchase AS factor_purchase'),
+          trx.raw('pr.factor_sale AS factor_sale'), // piezas/caja REAL (factor_purchase está roto); ver reference_box_factor_factor_sale
+
           trx.raw('COALESCE(abc.abc_class, rp.abc_class) AS abc_class'),
           trx.raw(`${this.costUnit()} AS unit_cost`),
           trx.raw(`${this.bucketExpr()} AS bucket`),
@@ -891,6 +894,44 @@ export class CommercialReplenishmentService {
         totals: { cajas: Math.round(after.cajas * 10) / 10, amount: Math.round(after.amount * 100) / 100, lines: lines.length,
                   suggested_cajas: Math.round(before.cajas * 10) / 10, suggested_amount: Math.round(before.amount * 100) / 100 },
         lines: lines.map((l) => ({ ...l, cajas: Math.round((l.final / l.uxc) * 10) / 10, line_cost: Math.round(l.final * l.unit_cost * 100) / 100 })),
+      };
+    });
+  }
+
+  /**
+   * RA-PRO — Histórico de COMPRAS al proveedor (Orden de entrada X-A-40 / Wincaja) desde
+   * analytics.stock_movements, agrupado por día de entrega → tamaño típico de orden (para
+   * juzgar si el sugerido es sano y derivar un mínimo). Opcional: acotar a un almacén de
+   * COMPRA (para un renglón de traspaso, pásale el hub origen, que es donde se compra).
+   */
+  async supplierOrderHistory(supplierId: string, warehouseId?: string) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    if (!UUID_RX.test(supplierId)) throw new BadRequestException('supplier_id inválido');
+    if (warehouseId && !UUID_RX.test(warehouseId)) throw new BadRequestException('warehouse_id inválido');
+    return this.tk.run(async (trx) => {
+      const raw = await trx.raw(`
+        WITH ords AS (
+          SELECT m.doc_date::date AS d, sum(COALESCE(m.amount, m.qty*m.unit_cost)) AS val,
+                 sum(m.qty)::int AS pz, count(DISTINCT m.sku)::int AS skus
+            FROM analytics.stock_movements m
+            JOIN catalog.products p ON p.tenant_id=m.tenant_id AND p.id=m.product_id AND p.supplier_id=:sid
+           WHERE m.tenant_id=:t AND m.movement_kind='entrada'
+             AND ((m.genero='X' AND m.doc_type='40') OR m.doc_code='WIN_C')
+             ${warehouseId ? 'AND m.warehouse_id=:wid' : ''}
+           GROUP BY m.doc_date::date)
+        SELECT d, round(val)::float AS amount, pz, skus FROM ords ORDER BY d DESC`,
+        warehouseId ? { t: tenantId, sid: supplierId, wid: warehouseId } : { t: tenantId, sid: supplierId });
+      const rows = (raw.rows as any[]).map((r) => ({ date: r.d, amount: Number(r.amount) || 0, pz: Number(r.pz) || 0, skus: Number(r.skus) || 0 }));
+      const n = rows.length;
+      if (!n) return { supplier_id: supplierId, warehouse_id: warehouseId ?? null, n_orders: 0, last: null, median_amount: 0, typical_amount: 0, max_amount: 0, since: null, until: null, recent: [] };
+      const vals = rows.map((r) => r.amount).sort((a, b) => a - b);
+      const median = vals[Math.floor(vals.length / 2)];
+      const big = vals.filter((v) => v >= median);                 // órdenes "reales" (excluye migajas de fill-in)
+      const typical = big.length ? Math.round(big.reduce((s, v) => s + v, 0) / big.length) : Math.round(median);
+      return {
+        supplier_id: supplierId, warehouse_id: warehouseId ?? null, n_orders: n,
+        last: rows[0], median_amount: Math.round(median), typical_amount: typical, max_amount: Math.round(vals[vals.length - 1]),
+        since: rows[n - 1].date, until: rows[0].date, recent: rows.slice(0, 6),
       };
     });
   }

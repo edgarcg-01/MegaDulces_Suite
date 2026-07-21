@@ -211,6 +211,13 @@ export class CommercialReplenishmentController {
   @ApiOperation({ summary: 'RA-PRO.10 — pedido consolidado al proveedor (todos sus almacenes de compra), horizonte cadencia+colchón, subido al mínimo (por proveedor total) repartiendo en los que más rotan.' })
   supplierOrder(@Param('id') id: string) { return this.svc.supplierOrder(id); }
 
+  @Get('suppliers/:id/order-history')
+  @RequirePermissions(Permission.COMPRAS_VER)
+  @ApiOperation({ summary: 'RA-PRO — histórico de compras al proveedor (X-A-40 / Wincaja) por día de entrega → tamaño típico de orden. Opcional warehouse_id (el de compra; para traspasos pásale el hub origen).' })
+  supplierOrderHistory(@Param('id') id: string, @Query('warehouse_id') warehouse_id?: string) {
+    return this.svc.supplierOrderHistory(id, warehouse_id);
+  }
+
   @Get('network')
   @RequirePermissions(Permission.COMPRAS_VER)
   @ApiOperation({ summary: 'RA-PRO.6 — topología de red de abasto (almacenes + su CEDIS origen; DRP).' })

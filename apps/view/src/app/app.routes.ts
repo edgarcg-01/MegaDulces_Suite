@@ -327,10 +327,11 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.COMPRAS_VER)]
       },
       {
-        path: 'que-toca',
+        path: 'pedido',
         loadComponent: () => import('./modules/compras/pages/compras-que-toca.component').then(m => m.ComprasQueTocaComponent),
         canActivate: [permissionGuard(Permission.COMPRAS_VER)]
       },
+      { path: 'que-toca', redirectTo: 'pedido', pathMatch: 'full' }, // renombrado a "Pedido"
       {
         path: 'requisiciones',
         loadComponent: () => import('./modules/compras/pages/compras-requisiciones.component').then(m => m.ComprasRequisicionesComponent),

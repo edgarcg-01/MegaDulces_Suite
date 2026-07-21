@@ -67,7 +67,7 @@ interface DraftLine {
         </div>
         <div class="ec-head-actions">
           @if (loadedAt()) { <app-freshness-pill [since]="loadedAt()" /> }
-          <a pButton routerLink="/compras/que-toca" label="Qué toca hoy" icon="pi pi-calendar-clock" class="p-button-sm p-button-text" title="Ver por proveedor y ciclo de reabasto"></a>
+          <a pButton routerLink="/compras/pedido" label="Pedido" icon="pi pi-cart-plus" class="p-button-sm p-button-text" title="Armar el pedido por proveedor y ciclo de reabasto"></a>
           <button pButton type="button" label="Excel" icon="pi pi-file-excel" class="p-button-sm p-button-outlined p-button-secondary"
                   [loading]="dl()" [disabled]="dl() || total() === 0" (click)="downloadXlsx()"></button>
           <button pButton type="button" [label]="'Generar requisición' + (selCount() ? ' (' + selCount() + ')' : '')" icon="pi pi-file-edit"

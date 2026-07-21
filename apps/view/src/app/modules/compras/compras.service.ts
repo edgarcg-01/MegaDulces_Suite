@@ -6,6 +6,8 @@ import { environment } from '../../../environments/environment';
 /** Fase RA (ADR-030) — cliente del proyecto Compras: existencia crítica + requisiciones. */
 
 export type TargetBasis = 'min' | 'reorder' | 'max';
+/** Base del pedido en el cockpit (incluye 'cadence', que criticalStock soporta pero la requisición no persiste). */
+export type OrderBasis = 'cadence' | 'reorder' | 'max' | 'min';
 export type Bucket = 'agotado' | 'bajo_minimo' | 'bajo_reorden' | 'sano' | 'sobrestock';
 export type ReorderSource = 'kepler' | 'computed' | 'manual';
 export type RequisitionEstado = 'draft' | 'pending_approval' | 'approved' | 'ordered' | 'received' | 'cancelled';
@@ -25,8 +27,10 @@ export interface CriticalStockRow {
   source: ReorderSource;
   supplier_id: string | null;
   supplier_name: string | null;
-  supplier_min_boxes: number | null; // RA.13a — pedido mínimo del proveedor en cajas
-  factor_purchase: number | null;    // piezas por caja (para convertir piezas→cajas)
+  supplier_min_boxes: number | null;  // RA.13a — pedido mínimo del proveedor en cajas
+  supplier_min_amount: number | null; // RA-PRO.10 — pedido mínimo del proveedor en $
+  factor_purchase: number | null;     // ⚠ roto (todo 1/null) — NO usar para cajas
+  factor_sale: number | null;         // piezas/caja REAL (usar este); ver reference_box_factor_factor_sale
   abc_class: string | null;
   // RA-PRO.1/2 — política profesional (safety stock por nivel de servicio + XYZ)
   xyz_class: string | null;          // X estable · Y variable · Z errático
@@ -306,6 +310,21 @@ export interface WorklistQuery {
   warehouse_ids?: string[]; warehouse_id?: string; via?: string; status?: string; search?: string; page?: number; pageSize?: number;
 }
 
+// ── RA-PRO — Histórico de compras al proveedor (tamaño típico de orden) ──
+export interface OrderHistoryEntry { date: string; amount: number; pz: number; skus: number; }
+export interface SupplierOrderHistory {
+  supplier_id: string;
+  warehouse_id: string | null;
+  n_orders: number;
+  last: OrderHistoryEntry | null;
+  median_amount: number;
+  typical_amount: number;   // promedio de las órdenes "reales" (≥ mediana), sin migajas de fill-in
+  max_amount: number;
+  since: string | null;
+  until: string | null;
+  recent: OrderHistoryEntry[];
+}
+
 @Injectable({ providedIn: 'root' })
 export class ComprasService {
   private readonly http = inject(HttpClient);
@@ -466,6 +485,12 @@ export class ComprasService {
     if (q.pageSize) p.set('pageSize', String(q.pageSize));
     const qs = p.toString();
     return this.http.get<WorklistResponse>(`${this.base}/worklist${qs ? '?' + qs : ''}`);
+  }
+
+  /** RA-PRO — histórico de compras al proveedor (tamaño típico de orden). warehouse_id opcional (el de compra; para traspasos, el hub). */
+  supplierOrderHistory(supplierId: string, warehouseId?: string): Observable<SupplierOrderHistory> {
+    const qs = warehouseId ? `?warehouse_id=${encodeURIComponent(warehouseId)}` : '';
+    return this.http.get<SupplierOrderHistory>(`${this.base}/suppliers/${supplierId}/order-history${qs}`);
   }
 
   // ── RA.15 (ADR-031) — Órdenes de compra (OC) + recepción (OE) ─────────
