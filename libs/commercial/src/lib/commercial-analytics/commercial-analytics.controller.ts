@@ -511,6 +511,20 @@ export class CommercialAnalyticsController {
     return this.service.sellOutWarehouses();
   }
 
+  @Get('sell-out/canales')
+  @RequirePermissions(Permission.COMMERCIAL_SELLOUT_VER)
+  @ApiOperation({ summary: 'RS.4 — Árbol CANAL (Sucursal/RD/RV/Mayoreo → sucursales) para el slicer.' })
+  sellOutCanales() {
+    return this.service.sellOutCanales();
+  }
+
+  @Get('sell-out/vendors')
+  @RequirePermissions(Permission.COMMERCIAL_SELLOUT_VER)
+  @ApiOperation({ summary: 'RS.4 — Árbol VENDEDOR Wincaja (Mayoreo/RD/RV → vendedores) para el slicer.' })
+  sellOutVendors() {
+    return this.service.sellOutVendors();
+  }
+
   @Get('sell-out')
   @RequirePermissions(Permission.COMMERCIAL_SELLOUT_VER)
   @ApiOperation({
@@ -527,9 +541,28 @@ export class CommercialAnalyticsController {
     @Query('include_zeros') includeZeros?: string,
     @Query('search') search?: string,
     @Query('view') view?: string,
+    @Query('cells') cells?: string,
   ) {
     return this.service.sellOut(
-      this.parseSellOutQuery(brandId, from, to, groupBy, channels, warehouses, includeZeros, search, view),
+      this.parseSellOutQuery(brandId, from, to, groupBy, channels, warehouses, includeZeros, search, view, cells),
+    );
+  }
+
+  @Get('sell-out/by-vendor')
+  @RequirePermissions(Permission.COMMERCIAL_SELLOUT_VER)
+  @ApiOperation({
+    summary:
+      'RS.4 — Sell-Out POR VENDEDOR (solo Wincaja): matriz Producto × Vendedor agrupada MAYOREO/RD/RV. Params: brand_id, from, to, search, cells=csv ("<grupo>|<vendedor>" o "<grupo>|*").',
+  })
+  sellOutByVendor(
+    @Query('brand_id') brandId: string,
+    @Query('from') from: string,
+    @Query('to') to: string,
+    @Query('search') search?: string,
+    @Query('cells') cells?: string,
+  ) {
+    return this.service.sellOutByVendor(
+      this.parseSellOutQuery(brandId, from, to, undefined, undefined, undefined, undefined, search, undefined, cells),
     );
   }
 
@@ -744,6 +777,7 @@ export class CommercialAnalyticsController {
     includeZeros?: string,
     search?: string,
     view?: string,
+    cells?: string,
   ) {
     const csv = (s?: string) => (s ? s.split(',').map((v) => v.trim()).filter(Boolean) : undefined);
     const parsedView = view === 'month_columns' || view === 'month_summary'
@@ -757,6 +791,7 @@ export class CommercialAnalyticsController {
       view: parsedView,
       channels: csv(channels),
       warehouses: csv(warehouses),
+      cells: csv(cells),
       include_zeros: includeZeros === 'true',
       search: search?.trim() || undefined,
     };

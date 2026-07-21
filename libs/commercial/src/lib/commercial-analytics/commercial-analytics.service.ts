@@ -44,6 +44,10 @@ export interface SellOutQuery {
   channels?: string[];
   /** Códigos de almacén (commercial.warehouses.code) a incluir. Vacío = todos. */
   warehouses?: string[];
+  /** RS.4 — filtro CANAL jerárquico: tokens `"<canal>|<warehouse_code>"` o `"<canal>|*"`
+   *  (canal = mostrador|ruta|preventa|credito). Selección de hojas del árbol Canal→Sucursal.
+   *  Si viene, gana sobre channels/warehouses sueltos. */
+  cells?: string[];
   include_zeros?: boolean;
   /** Filtro por producto (SKU o nombre, ILIKE) — aplica en todas las empresas. */
   search?: string;
@@ -2068,6 +2072,10 @@ export class CommercialAnalyticsService {
     const channelFilter = (q.channels && q.channels.length)
       ? new Set(q.channels.map((c) => c.trim().toLowerCase()).filter(Boolean))
       : null;
+    // RS.4 — filtro por celdas (canal|almacén). Gana sobre channels/warehouses sueltos.
+    const cellFilter = (q.cells && q.cells.length)
+      ? new Set(q.cells.map((c) => c.trim().toLowerCase()).filter(Boolean))
+      : null;
     const warehouseFilter = (q.warehouses && q.warehouses.length)
       ? q.warehouses.map((w) => w.trim()).filter(Boolean)
       : null;
@@ -2241,6 +2249,8 @@ export class CommercialAnalyticsService {
         continue;
       }
       if (channelFilter && !channelFilter.has(channel)) continue;
+      // RS.4 — filtro CANAL jerárquico por celda (canal|almacén o canal|*).
+      if (cellFilter && !cellFilter.has(`${channel}|${String(r.branch_code).toLowerCase()}`) && !cellFilter.has(`${channel}|*`)) continue;
       const units = Number(r.units) || 0;
       const monto = Number(r.monto) || 0;
       // RS.3 — producto de PESO: units ya está en kg → NO se divide (mostrar kg). Producto
@@ -2366,6 +2376,176 @@ export class CommercialAnalyticsService {
       grand_total: { cajas: round(grandCajas, 3), monto: round(grandMonto, 2) },
       coverage: this.sellOutCoverage(Array.from(branchesWithData), retail, excludedTransfers),
     };
+  }
+
+  /**
+   * RS.4 — Sell-Out POR VENDEDOR (solo Wincaja: la dimensión vendedor solo existe ahí;
+   * Kepler mart.ventas no la trae). Matriz Producto × Vendedor, agrupada MAYOREO
+   * (mayoreo_credito) / RD (ruta_venta) / RV (preventa_vecinal). On-demand desde
+   * `wincaja.v_sales_lines` con normalización de unidad por artículo + nombres de
+   * `wincaja.vendedores`. Devuelve el mismo shape SellOutReport → reusa la tabla del front.
+   */
+  async sellOutByVendor(q: SellOutQuery): Promise<SellOutReport> {
+    const brandId = (q.brand_id || '').trim();
+    if (brandId && !RS_UUID.test(brandId)) throw new BadRequestException('brand_id inválido');
+    const search = (q.search || '').trim();
+    if (!q.from || !q.to || !this.isIsoDate(q.from) || !this.isIsoDate(q.to))
+      throw new BadRequestException('from/to requeridos (ISO 8601)');
+    const from = q.from.slice(0, 10);
+    const to = q.to.slice(0, 10);
+    if (from > to) throw new BadRequestException('from posterior a to');
+    const cellFilter = (q.cells && q.cells.length) ? new Set(q.cells.map((c) => c.trim().toLowerCase())) : null;
+    const tenantId = this.tenantCtx.requireTenantId();
+    // mayoreo_credito → 'mayoreo' · ruta_venta → 'ruta' (RD) · preventa_vecinal → 'preventa' (RV)
+    const GROUP: Record<string, string> = { mayoreo_credito: 'mayoreo', ruta_venta: 'ruta', preventa_vecinal: 'preventa' };
+    const GROUP_LABEL: Record<string, string> = { mayoreo: 'Mayoreo', ruta: 'RD (Reparto)', preventa: 'RV (Vecinal)' };
+    const GROUP_ORD: Record<string, number> = { mayoreo: 0, ruta: 1, preventa: 2 };
+
+    const { brand, raw } = await this.tk.run(async (trx) => {
+      const b = brandId
+        ? await trx('catalog.brands as b').where('b.id', brandId).whereNull('b.deleted_at').select('b.id', 'b.nombre', 'b.code').first()
+        : { id: null, nombre: 'Todas las empresas', code: null };
+      if (!b) throw new BadRequestException('Marca no encontrada');
+      const rows = await trx
+        .with('am', (qb) => qb.distinctOn('articulo').select('articulo as sku')
+          .select(trx.raw(`upper(btrim(coalesce(unidad_venta,''))) as uv`), 'factor_venta')
+          .from('wincaja.articulos').where('tenant_id', tenantId).orderByRaw('articulo, source_dataset DESC'))
+        .with('ven', (qb) => qb.distinctOn('vendedor').select('vendedor', 'nombre')
+          .from('wincaja.vendedores').where('tenant_id', tenantId).orderByRaw('vendedor, source_dataset DESC'))
+        .select(
+          'vl.vendedor as vendor_code',
+          trx.raw(`coalesce(ven.nombre, vl.vendedor) as vendor_name`),
+          'vl.sale_channel as sale_channel',
+          'p.id as product_id', 'p.sku as sku', 'p.nombre as nombre',
+          'p.factor_sale as factor_sale', 'p.brand_id as brand_id', 'b.nombre as brand_nombre', 'b.code as brand_code',
+          trx.raw('max(lp.box_size) as box_size'),
+          trx.raw(`max(am.uv) as uv_win`), trx.raw('max(am.factor_venta) as fac_win'),
+          trx.raw('sum(vl.qty) as qty'), trx.raw('sum(vl.importe) as monto'),
+        )
+        .from('wincaja.v_sales_lines as vl')
+        .join('catalog.products as p', function () { this.on('p.tenant_id', '=', 'vl.tenant_id').andOn('p.sku', '=', 'vl.sku'); })
+        .leftJoin('catalog.brands as b', 'b.id', 'p.brand_id')
+        .leftJoin('commercial.product_label_prices as lp', function () { this.on('lp.product_id', '=', 'p.id').andOn('lp.tenant_id', '=', 'p.tenant_id'); })
+        .leftJoin('am', 'am.sku', 'vl.sku')
+        .leftJoin('ven', 'ven.vendedor', 'vl.vendedor')
+        .where('vl.tenant_id', tenantId).andWhere('vl.wincaja_only', true).andWhere('p.is_promo', false)
+        .whereNull('p.deleted_at')
+        .whereIn('vl.sale_channel', ['mayoreo_credito', 'ruta_venta', 'preventa_vecinal'])
+        .andWhere('vl.business_date', '>=', from).andWhere('vl.business_date', '<=', to)
+        .modify((qb) => { if (brandId) qb.andWhere('p.brand_id', brandId); if (search) qb.andWhereRaw('(p.sku ILIKE ? OR p.nombre ILIKE ?)', [`%${search}%`, `%${search}%`]); })
+        .groupByRaw('vl.vendedor, vendor_name, vl.sale_channel, p.id, p.sku, p.nombre, p.factor_sale, p.brand_id, b.nombre, b.code');
+      return { brand: b, raw: rows };
+    });
+
+    const columns = new Map<string, SellOutColumn>();
+    const rowMap = new Map<string, SellOutRow>();
+    const colTotals = new Map<string, { cajas: number; monto: number }>();
+    let grandCajas = 0, grandMonto = 0;
+    for (const r of raw) {
+      const group = GROUP[r.sale_channel]; if (!group) continue;
+      const colKey = `${group}|${r.vendor_code}`;
+      if (cellFilter && !cellFilter.has(colKey.toLowerCase()) && !cellFilter.has(`${group}|*`)) continue;
+      const uv = String(r.uv_win ?? '').trim().toUpperCase();
+      const isWeight = uv === 'KGS';
+      const qty = Number(r.qty) || 0;
+      const facWin = Number(r.fac_win) || 1;
+      const units = isWeight ? qty : (uv === 'CJA' ? qty * (facWin > 1 ? facWin : 1) : qty);
+      const fs = Number(r.factor_sale); const box = Number(r.box_size);
+      const divisor = fs > 1 ? fs : (box > 1 ? box : 1);
+      const cajas = isWeight ? units : units / divisor;
+      const monto = Number(r.monto) || 0;
+      if (!columns.has(colKey)) {
+        columns.set(colKey, { key: colKey, branch_code: r.vendor_code, branch_name: r.vendor_name, channel: group, channel_label: GROUP_LABEL[group] });
+        colTotals.set(colKey, { cajas: 0, monto: 0 });
+      }
+      let row = rowMap.get(r.sku);
+      if (!row) { row = { product_id: r.product_id, sku: r.sku, nombre: r.nombre, uxc: r.factor_sale != null ? Number(r.factor_sale) : null, unit_kind: isWeight ? 'weight' : 'piece', cells: {}, total: { cajas: 0, monto: 0 } }; rowMap.set(r.sku, row); }
+      const cell = row.cells[colKey] ?? (row.cells[colKey] = { cajas: 0, monto: 0 });
+      cell.cajas += cajas; cell.monto += monto;
+      row.total.cajas += cajas; row.total.monto += monto;
+      const ct = colTotals.get(colKey)!; ct.cajas += cajas; ct.monto += monto;
+      grandCajas += cajas; grandMonto += monto;
+    }
+    const round = (v: number, d = 2) => Math.round(v * 10 ** d) / 10 ** d;
+    const rows = Array.from(rowMap.values()).sort((a, b) => b.total.monto - a.total.monto || a.nombre.localeCompare(b.nombre, 'es'));
+    for (const row of rows) {
+      for (const k of Object.keys(row.cells)) row.cells[k] = { cajas: round(row.cells[k].cajas, 3), monto: round(row.cells[k].monto, 2) };
+      row.total = { cajas: round(row.total.cajas, 3), monto: round(row.total.monto, 2) };
+    }
+    const orderedCols = Array.from(columns.values()).sort((a, b) =>
+      (GROUP_ORD[a.channel ?? ''] ?? 9) - (GROUP_ORD[b.channel ?? ''] ?? 9) || a.branch_name.localeCompare(b.branch_name, 'es'));
+    const columnTotalsObj: Record<string, SellOutCell> = {};
+    for (const [k, v] of colTotals) columnTotalsObj[k] = { cajas: round(v.cajas, 3), monto: round(v.monto, 2) };
+    return {
+      brand: { id: brand.id, nombre: brand.nombre, code: brand.code ?? null },
+      period: { from, to }, group_by: 'branch_channel', view: 'product', row_dim: 'product',
+      columns: orderedCols, rows, column_totals: columnTotalsObj,
+      grand_total: { cajas: round(grandCajas, 3), monto: round(grandMonto, 2) },
+      coverage: { branches_with_data: [], branches_missing: [], note: 'Por vendedor: solo canales Wincaja (mayoreo/RD/RV). Kepler no registra vendedor.' },
+      generated_at: new Date().toISOString(),
+    };
+  }
+
+  /** RS.4 — Árbol CANAL para el slicer: grupos (Sucursal/RD/RV/Mayoreo) → sucursales con venta. */
+  async sellOutCanales(): Promise<{ group: string; group_label: string; leaves: { channel: string; code: string; name: string }[] }[]> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const channelExpr = `CASE sd.channel
+        WHEN 'tienda' THEN 'mostrador' WHEN 'wincaja_mostrador' THEN 'mostrador'
+        WHEN 'ruta' THEN 'ruta' WHEN 'wincaja_ruta' THEN 'ruta'
+        WHEN 'wincaja_preventa' THEN 'preventa'
+        WHEN 'credito' THEN 'credito' WHEN 'wincaja_credito' THEN 'credito'
+        ELSE 'otro' END`;
+    const rows = await this.tk.run((trx) => trx('analytics.sales_daily as sd')
+      .join('commercial.warehouses as w', 'w.id', 'sd.warehouse_id')
+      .where('sd.tenant_id', tenantId)
+      .select(trx.raw(`${channelExpr} as channel`), 'w.code as code', 'w.name as name')
+      .sum({ rev: 'sd.revenue' })
+      .groupByRaw(`${channelExpr}, w.code, w.name`)
+      .havingRaw('sum(sd.revenue) > 0'));
+    const GROUP: Record<string, { g: string; label: string; ord: number }> = {
+      mostrador: { g: 'mostrador', label: 'Sucursal', ord: 0 },
+      ruta: { g: 'ruta', label: 'RD (Reparto)', ord: 1 },
+      preventa: { g: 'preventa', label: 'RV (Vecinal)', ord: 2 },
+      credito: { g: 'credito', label: 'Mayoreo', ord: 3 },
+    };
+    const map = new Map<string, { group: string; group_label: string; ord: number; leaves: any[] }>();
+    for (const r of rows as any[]) {
+      const meta = GROUP[r.channel]; if (!meta) continue;
+      if (!map.has(meta.g)) map.set(meta.g, { group: meta.g, group_label: meta.label, ord: meta.ord, leaves: [] });
+      map.get(meta.g)!.leaves.push({ channel: r.channel, code: r.code, name: r.name });
+    }
+    return Array.from(map.values()).sort((a, b) => a.ord - b.ord)
+      .map((g) => ({ group: g.group, group_label: g.group_label, leaves: g.leaves.sort((a, b) => a.name.localeCompare(b.name, 'es')) }));
+  }
+
+  /** RS.4 — Árbol VENDEDOR (solo Wincaja) para el slicer: MAYOREO/RD/RV → vendedores con venta. */
+  async sellOutVendors(): Promise<{ group: string; group_label: string; leaves: { code: string; name: string }[] }[]> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const GROUP: Record<string, { g: string; label: string; ord: number }> = {
+      mayoreo_credito: { g: 'mayoreo', label: 'Mayoreo', ord: 0 },
+      ruta_venta: { g: 'ruta', label: 'RD (Reparto)', ord: 1 },
+      preventa_vecinal: { g: 'preventa', label: 'RV (Vecinal)', ord: 2 },
+    };
+    const rows = await this.tk.run((trx) => trx
+      .with('ven', (qb) => qb.distinctOn('vendedor').select('vendedor', 'nombre')
+        .from('wincaja.vendedores').where('tenant_id', tenantId).orderByRaw('vendedor, source_dataset DESC'))
+      .select('vl.sale_channel as sale_channel', 'vl.vendedor as code', trx.raw(`coalesce(ven.nombre, vl.vendedor) as name`))
+      .sum({ rev: 'vl.importe' })
+      .from('wincaja.v_sales_lines as vl')
+      .leftJoin('ven', 'ven.vendedor', 'vl.vendedor')
+      .where('vl.tenant_id', tenantId).andWhere('vl.wincaja_only', true)
+      .whereIn('vl.sale_channel', ['mayoreo_credito', 'ruta_venta', 'preventa_vecinal'])
+      .groupByRaw('vl.sale_channel, vl.vendedor, name')
+      .havingRaw('sum(vl.importe) > 0'));
+    const map = new Map<string, { group: string; group_label: string; ord: number; leaves: any[] }>();
+    for (const r of rows as any[]) {
+      const meta = GROUP[r.sale_channel]; if (!meta) continue;
+      if (!map.has(meta.g)) map.set(meta.g, { group: meta.g, group_label: meta.label, ord: meta.ord, leaves: [] });
+      const bucket = map.get(meta.g)!;
+      if (!bucket.leaves.some((l) => l.code === r.code)) bucket.leaves.push({ code: r.code, name: r.name });
+    }
+    return Array.from(map.values()).sort((a, b) => a.ord - b.ord)
+      .map((g) => ({ group: g.group, group_label: g.group_label, leaves: g.leaves.sort((a, b) => String(a.name).localeCompare(String(b.name), 'es')) }));
   }
 
   /** Marcas/proveedores con al menos 1 producto — para el selector de empresa. */
