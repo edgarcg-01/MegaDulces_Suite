@@ -59,17 +59,18 @@ interface DetailState {
       <app-metric-strip [items]="kpiItems()" ariaLabel="Resumen de ciclos de reabasto" />
 
       <div class="qt-filters">
-        <div class="qt-terr">
-          <span class="qt-terr-lbl">Territorio:</span>
-          @for (t of territories; track t.label) {
-            <button pButton type="button" [label]="t.label"
-                    class="p-button-sm" [ngClass]="isTerr(t.codes) ? 'p-button-outlined' : 'p-button-text'"
-                    (click)="applyTerr(t.codes)"></button>
-          }
+        <div class="qt-wh">
+          <p-multiSelect [options]="warehouses()" [(ngModel)]="fWh" (onChange)="reload()"
+                         optionLabel="label" optionValue="id" placeholder="Todos los almacenes" [showClear]="true"
+                         [maxSelectedLabels]="2" selectedItemsLabel="{0} almacenes" styleClass="qt-sel"></p-multiSelect>
+          <div class="qt-atajos">
+            <span class="qt-atajos-lbl">Atajos:</span>
+            <button type="button" class="qt-atajo" [class.on]="!fWh.length" (click)="clearWh()">Todos</button>
+            @for (t of territories; track t.label) {
+              <button type="button" class="qt-atajo" [class.on]="isTerr(t.codes)" (click)="applyTerr(t.codes)">{{ t.label }}</button>
+            }
+          </div>
         </div>
-        <p-multiSelect [options]="warehouses()" [(ngModel)]="fWh" (onChange)="reload()"
-                       optionLabel="label" optionValue="id" placeholder="Almacenes" [showClear]="true"
-                       [maxSelectedLabels]="2" selectedItemsLabel="{0} almacenes" styleClass="qt-sel"></p-multiSelect>
         <p-select [options]="viaOpts" [(ngModel)]="fVia" (onChange)="reload()" optionLabel="label" optionValue="value"
                   placeholder="Canal" [showClear]="true" styleClass="qt-sel-sm"></p-select>
         <p-select [options]="statusOpts" [(ngModel)]="fStatus" (onChange)="reload()" optionLabel="label" optionValue="value" styleClass="qt-sel-sm"></p-select>
@@ -296,9 +297,14 @@ interface DetailState {
   styles: [`
     :host { display: block; }
     app-metric-strip { display: block; margin-bottom: .9rem; }
-    .qt-filters { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; margin-bottom: .75rem; }
-    .qt-terr { display: flex; align-items: center; gap: .15rem; flex-wrap: wrap; }
-    .qt-terr-lbl { font-size: .78rem; color: var(--text-muted); margin-right: .25rem; }
+    .qt-filters { display: flex; flex-wrap: wrap; gap: .5rem; align-items: flex-start; margin-bottom: .75rem; }
+    .qt-wh { display: flex; flex-direction: column; gap: .25rem; }
+    .qt-atajos { display: flex; align-items: center; gap: .1rem; flex-wrap: wrap; }
+    .qt-atajos-lbl { font-size: .7rem; color: var(--text-muted); margin-right: .2rem; }
+    .qt-atajo { border: none; background: none; cursor: pointer; font-size: .74rem; color: var(--text-muted);
+      padding: .05rem .4rem; border-radius: var(--r-sm, 6px); font-family: inherit; }
+    .qt-atajo:hover { color: var(--text-main); background: color-mix(in srgb, var(--text-main) 6%, transparent); }
+    .qt-atajo.on { color: var(--action); font-weight: 600; }
     .qt-sel { min-width: 14rem; }
     .qt-sel-sm { min-width: 9rem; }
     .qt-sel-wide { min-width: 15rem; }
@@ -763,6 +769,7 @@ export class ComprasQueTocaComponent implements OnInit {
     this.fWh = this.isTerr(codes) ? [] : ids;
     this.reload();
   }
+  clearWh(): void { this.fWh = []; this.reload(); }
   private idsForCodes(codes: string[]): string[] {
     return this.warehouses().filter((w) => codes.includes(w.code)).map((w) => w.id);
   }

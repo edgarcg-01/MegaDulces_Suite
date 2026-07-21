@@ -164,6 +164,18 @@ export class SupervisorAiController {
     return this.actions.listTasks({ status }, user);
   }
 
+  @Get('route-optimization')
+  @RequirePermissions(Permission.SUPERVISOR_AI_VER)
+  @ApiOperation({
+    summary:
+      'ACT.2/ACT.3 mapa "rutas reconvertidas": sin ?sales_route lista rutas con km actual vs óptimo + mejora%; con ?sales_route= devuelve orden actual, orden propuesto (NN) y tiendas de oportunidad cercanas.',
+  })
+  routeOptimization(@ReqUser() user: any, @Query('sales_route') salesRoute?: string) {
+    return salesRoute
+      ? this.opportunities.routeOptimizationDetail(user, salesRoute)
+      : this.opportunities.listRouteOptimizations(user);
+  }
+
   @Get('coaching-notes')
   @RequirePermissions(Permission.SUPERVISOR_AI_VER)
   @ApiOperation({ summary: 'Notas de coaching creadas por el co-piloto (efecto real de aprobar)' })

@@ -6,6 +6,7 @@ import {
   NotFoundException,
   Optional,
 } from '@nestjs/common';
+import { randomBytes } from 'crypto';
 import { Knex } from 'knex';
 import { KNEX_CONNECTION, TenantContextService } from '@megadulces/platform-core';
 import { DiagnosisEngineService } from './diagnosis-engine.service';
@@ -611,6 +612,100 @@ export class SupervisorActionsService {
           delivery === 'ws'
             ? 'Nota de coaching creada y avisada en vivo al colaborador.'
             : 'Nota de coaching creada (visible al colaborador). Aviso en vivo diferido (sin conexión).',
+      };
+    }
+
+    // ACT.2 → reorden REAL de la ruta: escribe commercial.customers.visit_sequence
+    // desde el orden propuesto (NN-Haversine, calculado por OpportunityEngine).
+    // Reversible: guarda el orden previo en result.previous_order. Sin proposed_order
+    // (ruta sin ≥3 clientes geolocalizados) cae a la tarea de repriorización (abajo).
+    if (at === 'reprioritize_route' && tenantId) {
+      const proposed = Array.isArray(payload.proposed_order) ? payload.proposed_order : [];
+      const salesRoute = payload.sales_route ? String(payload.sales_route) : null;
+      const ids = proposed
+        .map((x: any) => (typeof x === 'string' ? x : x?.id))
+        .filter((id: any) => typeof id === 'string' && UUID_RE.test(id));
+      if (salesRoute && ids.length >= 2) {
+        const res = await this.safeQuery(async () => {
+          const prev = await this.knex('commercial.customers')
+            .where({ tenant_id: tenantId, sales_route: salesRoute })
+            .whereNull('deleted_at')
+            .orderByRaw('visit_sequence asc nulls last, name asc')
+            .select('id', 'visit_sequence');
+          let seq = 1;
+          let reordered = 0;
+          for (const cid of ids) {
+            reordered += await this.knex('commercial.customers')
+              .where({ id: cid, tenant_id: tenantId, sales_route: salesRoute })
+              .whereNull('deleted_at')
+              .update({ visit_sequence: seq, updated_at: this.knex.fn.now() });
+            seq++;
+          }
+          return {
+            reordered,
+            previous_order: prev.map((c: any) => ({ id: c.id, visit_sequence: c.visit_sequence })),
+          };
+        });
+        if (res) {
+          return {
+            effect: 'route_reordered',
+            sales_route: salesRoute,
+            reordered: res.reordered,
+            previous_order: res.previous_order,
+            reversible: true,
+            note: `Ruta ${salesRoute} reordenada por cercanía (${res.reordered} paradas). El orden previo quedó guardado para revertir.`,
+          };
+        }
+        // Si el reorden falló (savepoint rollback), cae a la tarea (no pierde la acción).
+      }
+    }
+
+    // ACT.3 → alta de tienda de oportunidad: crea commercial.customers (pedible) +
+    // marca el prospecto DENUE convertido. NO reversible (es un alta comercial real).
+    if (at === 'add_opportunity_store' && tenantId) {
+      const prospectId =
+        payload.prospect_id && UUID_RE.test(String(payload.prospect_id)) ? String(payload.prospect_id) : null;
+      if (!prospectId) {
+        return { effect: 'noop', reversible: false, note: 'add_opportunity_store sin prospecto válido.' };
+      }
+      const res = await this.safeQuery(async () => {
+        const defaultPl = await this.knex('commercial.price_lists')
+          .where({ tenant_id: tenantId, is_default: true, active: true })
+          .whereNull('deleted_at')
+          .first();
+        const code = 'P-' + randomBytes(5).toString('hex').toUpperCase();
+        const [cust] = await this.knex('commercial.customers')
+          .insert({
+            tenant_id: tenantId,
+            code,
+            name: String(payload.name || 'Prospecto').slice(0, 200),
+            sales_route: payload.suggested_sales_route ? String(payload.suggested_sales_route) : null,
+            default_price_list_id: defaultPl?.id || null,
+            credit_limit: 0,
+            payment_terms_days: 0, // cash-only beta
+            active: true,
+            latitude: payload.lat ?? null,
+            longitude: payload.lng ?? null,
+            notes: [payload.scian_label, payload.address].filter(Boolean).join(' · ') || null,
+          })
+          .returning(['id', 'code']);
+        const customerId = cust?.id || cust;
+        await this.knex('commercial.prospect_stores')
+          .where({ tenant_id: tenantId, id: prospectId })
+          .update({ status: 'converted', matched_customer_id: customerId, updated_at: this.knex.fn.now() });
+        return { customerId, code: cust?.code || code };
+      });
+      if (!res) {
+        return { effect: 'noop', reversible: false, note: 'No se pudo dar de alta el cliente desde el prospecto.' };
+      }
+      return {
+        effect: 'store_added',
+        customer_id: res.customerId,
+        customer_code: res.code,
+        prospect_id: prospectId,
+        sales_route: payload.suggested_sales_route || null,
+        reversible: false,
+        note: `Cliente ${res.code} dado de alta desde el prospecto INEGI y convertido.`,
       };
     }
 

@@ -101,6 +101,16 @@ const QUADRANT_LABELS: Record<string, string> = {
             label="Pregúntale a Horus"
             icon="pi pi-sparkles"
           ></a>
+          <a
+            pButton
+            type="button"
+            routerLink="/dashboard/supervisor-ai/route-optimization"
+            class="p-button-sm"
+            severity="secondary"
+            [outlined]="true"
+            label="Rutas reconvertidas"
+            icon="pi pi-map"
+          ></a>
           <button
             pButton
             type="button"
@@ -1159,6 +1169,7 @@ export class SupervisorAiComponent implements OnInit {
       set_target: 'Fijar objetivo',
       flag_review: 'Revisión',
       notify_missed_visit: 'Escalar visitas faltantes',
+      add_opportunity_store: 'Alta de tienda de oportunidad',
     };
     return m[t] || 'Acción';
   }
@@ -1174,6 +1185,7 @@ export class SupervisorAiComponent implements OnInit {
       flag_recapture: 'pi pi-camera',
       set_target: 'pi pi-flag',
       notify_missed_visit: 'pi pi-exclamation-circle',
+      add_opportunity_store: 'pi pi-map-marker',
     };
     return m[t] || 'pi pi-bolt';
   }

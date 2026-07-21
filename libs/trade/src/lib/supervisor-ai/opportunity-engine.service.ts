@@ -50,6 +50,50 @@ export class OpportunityEngineService {
     @Optional() private readonly tenantContext?: TenantContextService,
   ) {}
 
+  /** Haversine en metros (ACT.2 reorden / ACT.3 ruta sugerida). */
+  private static haversine(lat1: number, lng1: number, lat2: number, lng2: number): number {
+    const R = 6371000;
+    const toRad = (d: number) => (d * Math.PI) / 180;
+    const dLat = toRad(lat2 - lat1);
+    const dLng = toRad(lng2 - lng1);
+    const a =
+      Math.sin(dLat / 2) ** 2 +
+      Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+    return 2 * R * Math.asin(Math.min(1, Math.sqrt(a)));
+  }
+
+  /**
+   * ACT.2 — orden de visita por vecino-más-cercano (Haversine). Seed = el de menor
+   * visit_sequence actual (o el primero). Los clientes SIN coords conservan su orden
+   * relativo al final. Devuelve los ids en el orden propuesto.
+   */
+  private static nnOrder(
+    custs: { id: string; latitude: any; longitude: any; visit_sequence: any }[],
+  ): string[] {
+    const geo = custs
+      .filter((c) => c.latitude != null && c.longitude != null)
+      .map((c) => ({ id: c.id, lat: Number(c.latitude), lng: Number(c.longitude), seq: c.visit_sequence }));
+    const noGeo = custs.filter((c) => c.latitude == null || c.longitude == null);
+    if (geo.length <= 2) return custs.map((c) => c.id); // nada que optimizar
+    geo.sort((a, b) => (a.seq ?? 9999) - (b.seq ?? 9999));
+    const remaining = [...geo];
+    const order = [remaining.shift()!];
+    while (remaining.length) {
+      const last = order[order.length - 1];
+      let bi = 0;
+      let bd = Infinity;
+      for (let i = 0; i < remaining.length; i++) {
+        const d = OpportunityEngineService.haversine(last.lat, last.lng, remaining[i].lat, remaining[i].lng);
+        if (d < bd) {
+          bd = d;
+          bi = i;
+        }
+      }
+      order.push(remaining.splice(bi, 1)[0]);
+    }
+    return [...order.map((c) => c.id), ...noGeo.map((c) => c.id)];
+  }
+
   private static parseArray(v: any): any[] {
     if (Array.isArray(v)) return v;
     if (typeof v === 'string') {
@@ -61,6 +105,146 @@ export class OpportunityEngineService {
       }
     }
     return [];
+  }
+
+  private tenantId(user: any): string | undefined {
+    return user?.tenant_id || this.tenantContext?.get()?.tenantId;
+  }
+
+  /** Km de un recorrido (suma de tramos haversine consecutivos). */
+  private static legKm(pts: { lat: number; lng: number }[]): number {
+    let m = 0;
+    for (let i = 1; i < pts.length; i++) {
+      m += OpportunityEngineService.haversine(pts[i - 1].lat, pts[i - 1].lng, pts[i].lat, pts[i].lng);
+    }
+    return Math.round((m / 1000) * 100) / 100;
+  }
+
+  /**
+   * ACT.2/ACT.3 (mapa "rutas reconvertidas"): distancia actual vs óptima por ruta.
+   * Read-only para el mapa — NO escribe visit_sequence (eso es el approve del co-piloto).
+   */
+  async listRouteOptimizations(user: any): Promise<{ routes: any[] }> {
+    const tenantId = this.tenantId(user);
+    if (!tenantId) return { routes: [] };
+    const custs = await this.knex('commercial.customers')
+      .where({ tenant_id: tenantId })
+      .whereNull('deleted_at')
+      .whereNotNull('sales_route')
+      .select('id', 'name', 'sales_route', 'latitude', 'longitude', 'visit_sequence');
+
+    const acts = await this.knex('commercial.supervisor_actions')
+      .where({ tenant_id: tenantId, action_type: 'reprioritize_route', status: 'pending_approval' })
+      .select('payload');
+    const withAction = new Set<string>();
+    for (const a of acts) {
+      const p = typeof a.payload === 'string' ? (() => { try { return JSON.parse(a.payload); } catch { return {}; } })() : a.payload || {};
+      if (p?.sales_route) withAction.add(String(p.sales_route));
+    }
+
+    const byRoute = new Map<string, any[]>();
+    for (const c of custs) {
+      const k = String(c.sales_route);
+      if (!byRoute.has(k)) byRoute.set(k, []);
+      byRoute.get(k)!.push(c);
+    }
+
+    const routes: any[] = [];
+    for (const [sr, arr] of byRoute) {
+      const geo = arr.filter((c) => c.latitude != null && c.longitude != null);
+      if (geo.length < 2) continue; // no hay recorrido que medir
+      const m = this.routeMetrics(arr);
+      routes.push({
+        sales_route: sr,
+        customers: arr.length,
+        geolocated: geo.length,
+        current_km: m.current_km,
+        proposed_km: m.proposed_km,
+        improvement_pct: m.improvement_pct,
+        has_action: withAction.has(sr),
+      });
+    }
+    routes.sort((a, b) => b.improvement_pct - a.improvement_pct);
+    return { routes };
+  }
+
+  /** Detalle para el mapa: orden actual, orden propuesto (NN), oportunidades cercanas y métricas. */
+  async routeOptimizationDetail(user: any, salesRoute: string): Promise<any> {
+    const tenantId = this.tenantId(user);
+    const sr = (salesRoute || '').trim();
+    if (!tenantId || !sr) return { sales_route: sr, current: [], proposed: [], opportunities: [], metrics: null };
+
+    const arr = await this.knex('commercial.customers')
+      .where({ tenant_id: tenantId, sales_route: sr })
+      .whereNull('deleted_at')
+      .select('id', 'name', 'latitude', 'longitude', 'visit_sequence');
+
+    const byId = new Map(arr.map((c: any) => [c.id, c]));
+    const currentOrdered = arr
+      .slice()
+      .sort((a: any, b: any) => (a.visit_sequence ?? 9999) - (b.visit_sequence ?? 9999) || String(a.name).localeCompare(String(b.name)));
+    const proposedIds = OpportunityEngineService.nnOrder(arr as any);
+
+    const toPt = (c: any, seq: number) => ({
+      id: c.id,
+      name: c.name,
+      seq,
+      lat: c.latitude != null ? Number(c.latitude) : null,
+      lng: c.longitude != null ? Number(c.longitude) : null,
+    });
+    const current = currentOrdered.map((c: any, i: number) => toPt(c, i + 1));
+    const proposed = proposedIds.map((id: string, i: number) => toPt(byId.get(id), i + 1));
+
+    // Oportunidades DENUE cercanas a la ruta (candidate a ≤3km de algún cliente).
+    const geoCust = arr.filter((c: any) => c.latitude != null && c.longitude != null);
+    let opportunities: any[] = [];
+    const prospects =
+      (await this.safeQuery(() =>
+        this.knex('commercial.prospect_stores')
+          .where({ tenant_id: tenantId, status: 'candidate' })
+          .whereNotNull('lat')
+          .whereNotNull('lng')
+          .select('id', 'nombre', 'lat', 'lng', 'scian_label', 'whitespace_score'),
+      )) || [];
+    for (const p of prospects) {
+      let nearest = Infinity;
+      for (const c of geoCust) {
+        const d = OpportunityEngineService.haversine(+p.lat, +p.lng, +c.latitude, +c.longitude);
+        if (d < nearest) nearest = d;
+      }
+      if (nearest <= 3000) {
+        opportunities.push({
+          prospect_id: p.id,
+          name: p.nombre,
+          lat: Number(p.lat),
+          lng: Number(p.lng),
+          scian_label: p.scian_label,
+          whitespace_score: p.whitespace_score != null ? Number(p.whitespace_score) : null,
+          nearest_customer_m: Math.round(nearest),
+        });
+      }
+    }
+    opportunities = opportunities.sort((a, b) => (b.whitespace_score || 0) - (a.whitespace_score || 0)).slice(0, 15);
+
+    return { sales_route: sr, current, proposed, opportunities, metrics: this.routeMetrics(arr) };
+  }
+
+  /** Km actual (por visit_sequence) vs propuesto (NN) sobre los clientes geolocalizados. */
+  private routeMetrics(arr: any[]): { current_km: number; proposed_km: number; improvement_pct: number; stops: number } {
+    const byId = new Map(arr.map((c: any) => [c.id, c]));
+    const currentGeo = arr
+      .slice()
+      .sort((a: any, b: any) => (a.visit_sequence ?? 9999) - (b.visit_sequence ?? 9999) || String(a.name).localeCompare(String(b.name)))
+      .filter((c: any) => c.latitude != null && c.longitude != null)
+      .map((c: any) => ({ lat: Number(c.latitude), lng: Number(c.longitude) }));
+    const proposedGeo = OpportunityEngineService.nnOrder(arr as any)
+      .map((id: string) => byId.get(id))
+      .filter((c: any) => c && c.latitude != null && c.longitude != null)
+      .map((c: any) => ({ lat: Number(c.latitude), lng: Number(c.longitude) }));
+    const current_km = OpportunityEngineService.legKm(currentGeo);
+    const proposed_km = OpportunityEngineService.legKm(proposedGeo);
+    const improvement_pct = current_km > 0 ? Math.round(((current_km - proposed_km) / current_km) * 1000) / 10 : 0;
+    return { current_km, proposed_km, improvement_pct, stops: currentGeo.length };
   }
 
   private async getThresholds(tenantId: string): Promise<Thresholds> {
@@ -325,13 +509,52 @@ export class OpportunityEngineService {
       arr.sort((a, b) => b.days - a.days);
       const top = arr.slice(0, 5);
       const rname = routeNames.get(routeId) || 'ruta';
+
+      // ACT.2: orden de visita óptimo (NN-Haversine) sobre los clientes de la ruta.
+      // `sales_route` (= catalogs.value) matchea `commercial.customers.sales_route`.
+      // Best-effort: si no hay ≥3 clientes geolocalizados, no adjuntamos orden y el
+      // ejecutor cae a la tarea de repriorización (comportamiento previo).
+      const custs =
+        (await this.safeQuery(() =>
+          this.knex('commercial.customers')
+            .where({ tenant_id: tenantId, sales_route: rname })
+            .whereNull('deleted_at')
+            .select('id', 'name', 'latitude', 'longitude', 'visit_sequence'),
+        )) || [];
+      const geoCount = custs.filter((c: any) => c.latitude != null && c.longitude != null).length;
+      let proposedOrder: Array<{ id: string; name: string; seq: number }> | null = null;
+      if (geoCount > 2) {
+        const orderedIds = OpportunityEngineService.nnOrder(custs as any);
+        const byId = new Map(custs.map((c: any) => [c.id, c]));
+        proposedOrder = orderedIds.map((id, i) => ({ id, name: byId.get(id)?.name || '—', seq: i + 1 }));
+      }
+      const rationale =
+        `${arr.length} tiendas de la ruta superan ${th.days_no_visit_max} días sin visita. Priorizar mañana: ${top
+          .map((s) => s.name)
+          .join(', ')}.` +
+        (proposedOrder ? ` Reordena ${proposedOrder.length} paradas por cercanía al aprobar.` : '');
       add(
         'reprioritize_route',
         'route',
         routeId,
         `Repriorizar ${rname}: ${arr.length} tiendas sin visita`,
-        `${arr.length} tiendas de la ruta superan ${th.days_no_visit_max} días sin visita. Priorizar mañana: ${top.map((s) => s.name).join(', ')}.`,
-        { route_id: routeId, stores: top, threshold: th.days_no_visit_max },
+        rationale,
+        {
+          route_id: routeId,
+          sales_route: rname,
+          stores: top,
+          threshold: th.days_no_visit_max,
+          proposed_order: proposedOrder,
+          current_order: proposedOrder
+            ? custs
+                .slice()
+                .sort(
+                  (a: any, b: any) =>
+                    (a.visit_sequence ?? 9999) - (b.visit_sequence ?? 9999),
+                )
+                .map((c: any) => ({ id: c.id, name: c.name }))
+            : null,
+        },
         rname,
       );
     }
@@ -354,6 +577,66 @@ export class OpportunityEngineService {
         { avg_score: Number(best.avg_score), visits: Number(best.visits_done) },
         best.label,
       );
+    }
+
+    // ── add_opportunity_store (ACT.3): prospecto DENUE de alto whitespace sin cobertura ──
+    // Degrada con gracia si el módulo DENUE no está presente (safeQuery → null → []).
+    const prospects =
+      (await this.safeQuery(() =>
+        this.knex('commercial.prospect_stores')
+          .where({ tenant_id: tenantId, status: 'candidate' })
+          .whereNotNull('lat')
+          .whereNotNull('lng')
+          .andWhere('whitespace_score', '>=', 60)
+          .orderBy('whitespace_score', 'desc')
+          .limit(3)
+          .select('id', 'nombre', 'lat', 'lng', 'scian_label', 'whitespace_score', 'calle', 'num_ext', 'colonia', 'municipio'),
+      )) || [];
+    if (prospects.length) {
+      // Ruta sugerida = sales_route del cliente propio geolocalizado más cercano.
+      const geoCusts =
+        (await this.safeQuery(() =>
+          this.knex('commercial.customers')
+            .where({ tenant_id: tenantId })
+            .whereNull('deleted_at')
+            .whereNotNull('latitude')
+            .whereNotNull('longitude')
+            .whereNotNull('sales_route')
+            .select('latitude', 'longitude', 'sales_route'),
+        )) || [];
+      for (const p of prospects) {
+        let bestRoute: string | null = null;
+        let bd = Infinity;
+        for (const c of geoCusts) {
+          const d = OpportunityEngineService.haversine(+p.lat, +p.lng, +c.latitude, +c.longitude);
+          if (d < bd) {
+            bd = d;
+            bestRoute = c.sales_route;
+          }
+        }
+        const addr = [p.calle, p.num_ext, p.colonia, p.municipio].filter(Boolean).join(' ');
+        add(
+          'add_opportunity_store',
+          'prospect',
+          p.id,
+          `Alta de oportunidad: ${p.nombre || 'PdV'} (score ${Math.round(Number(p.whitespace_score))})`,
+          `PdV de INEGI sin cobertura${bestRoute ? `, cerca de ${bestRoute}` : ''}${
+            p.scian_label ? ` · ${p.scian_label}` : ''
+          }. Darlo de alta como cliente pedible al aprobar.`,
+          {
+            prospect_id: p.id,
+            name: p.nombre,
+            lat: +p.lat,
+            lng: +p.lng,
+            scian_label: p.scian_label,
+            whitespace_score: Number(p.whitespace_score),
+            suggested_sales_route: bestRoute,
+            address: addr,
+            nearest_customer_m: isFinite(bd) ? Math.round(bd) : null,
+          },
+          p.nombre,
+        );
+      }
     }
 
     // UPSERT (respeta decisiones humanas) + expira las pending que ya no aplican.

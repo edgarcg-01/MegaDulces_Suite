@@ -1452,6 +1452,9 @@ export interface SellOutColumn {
   branch_name: string;
   channel?: string;
   channel_label?: string;
+  /** RS.5 — fuente separada: 'kepler' | 'wincaja'. */
+  source?: 'kepler' | 'wincaja';
+  source_label?: string;
   /** Vista month_columns: mes ISO 'YYYY-MM' de la columna. */
   month?: string;
 }

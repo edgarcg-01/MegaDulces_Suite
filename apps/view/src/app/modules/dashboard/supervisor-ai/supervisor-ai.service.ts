@@ -250,6 +250,40 @@ export interface ActionExplanation {
   action: { id: string; title: string; action_type: string; confidence: number | null; root_cause: string | null };
 }
 
+/** ACT.2/ACT.3 — mapa "rutas reconvertidas". */
+export interface RouteOptRow {
+  sales_route: string;
+  customers: number;
+  geolocated: number;
+  current_km: number;
+  proposed_km: number;
+  improvement_pct: number;
+  has_action: boolean;
+}
+export interface RouteOptStop {
+  id: string;
+  name: string;
+  seq: number;
+  lat: number | null;
+  lng: number | null;
+}
+export interface RouteOptOpportunity {
+  prospect_id: string;
+  name: string;
+  lat: number;
+  lng: number;
+  scian_label: string | null;
+  whitespace_score: number | null;
+  nearest_customer_m: number;
+}
+export interface RouteOptDetail {
+  sales_route: string;
+  current: RouteOptStop[];
+  proposed: RouteOptStop[];
+  opportunities: RouteOptOpportunity[];
+  metrics: { current_km: number; proposed_km: number; improvement_pct: number; stops: number } | null;
+}
+
 export type ReviewStatus = 'dismissed' | 'confirmed' | 'reviewed';
 export type RuleOverride = 'enabled' | 'suppressed' | null;
 
@@ -430,5 +464,15 @@ export class SupervisorAiService {
 
   learningOverride(findingType: string, override: RuleOverride, source = 'engine'): Observable<RuleStatRow> {
     return this.http.post<RuleStatRow>(`${this.base}/learning/rules/${findingType}/override`, { override, source });
+  }
+
+  // ACT.2/ACT.3 — mapa "rutas reconvertidas".
+  routeOptimizations(): Observable<{ routes: RouteOptRow[] }> {
+    return this.http.get<{ routes: RouteOptRow[] }>(`${this.base}/route-optimization`);
+  }
+
+  routeOptimizationDetail(salesRoute: string): Observable<RouteOptDetail> {
+    const params = new HttpParams().set('sales_route', salesRoute);
+    return this.http.get<RouteOptDetail>(`${this.base}/route-optimization`, { params });
   }
 }

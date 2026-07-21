@@ -220,6 +220,9 @@ export interface SellOutColumn {
   branch_name: string;
   channel?: string;
   channel_label?: string;
+  /** RS.5 — fuente/sistema de origen: 'kepler' | 'wincaja'. Separadas, NO fusionadas. */
+  source?: 'kepler' | 'wincaja';
+  source_label?: string;
   /** RS.2 — vista month_columns: mes ISO 'YYYY-MM' de la columna (null en vistas por sucursal). */
   month?: string;
 }
@@ -2095,6 +2098,8 @@ export class CommercialAnalyticsService {
         WHEN 'wincaja_ruta'      THEN 'ruta'
         WHEN 'wincaja_credito'   THEN 'credito'
         ELSE 'otro' END`;
+    // RS.5 — fuente separada (no fusionar): los canales `wincaja_*` son Wincaja; el resto Kepler.
+    const sourceExpr = `CASE WHEN sd.channel LIKE 'wincaja_%' THEN 'wincaja' ELSE 'kepler' END`;
 
     // Paso 1 y 2 — marca + agregación desde analytics.sales_daily (misma DB,
     // alimentada por el cron on-prem import-sales-fact.js). Tenant-scoped.
@@ -2158,13 +2163,14 @@ export class CommercialAnalyticsService {
               'b.nombre as brand_nombre',
               'b.code as brand_code',
               trx.raw(`${channelExpr} as channel`),
+              trx.raw(`${sourceExpr} as source`),
               trx.raw('max(sd.unit_kind) as unit_kind'),
               trx.raw('NULL::numeric as box_size'),
               trx.raw('COALESCE(SUM(sd.pieces), SUM(sd.kg), 0) as units'), // canónico (piezas o kg)
             )
             .sum({ monto: 'sd.revenue' })
             .groupByRaw(
-              `w.code, w.name, sd.product_id, p.sku, p.nombre, p.brand_id, b.nombre, b.code, ${channelExpr}` +
+              `w.code, w.name, sd.product_id, p.sku, p.nombre, p.brand_id, b.nombre, b.code, ${channelExpr}, ${sourceExpr}` +
               (needMonth ? `, sd.year_month` : ''),
             )
         : await trx('analytics.sales_daily as sd')
@@ -2197,13 +2203,14 @@ export class CommercialAnalyticsService {
               'b.nombre as brand_nombre',
               'b.code as brand_code',
               trx.raw(`${channelExpr} as channel`),
+              trx.raw(`${sourceExpr} as source`),
               trx.raw('max(sd.unit_kind) as unit_kind'),
               trx.raw('max(lp.box_size) as box_size'),
             )
             .sum({ units: 'sd.units' })
             .sum({ monto: 'sd.revenue' })
             .groupByRaw(
-              `w.code, w.name, sd.product_id, p.sku, p.nombre, p.factor_sale, p.brand_id, b.nombre, b.code, ${channelExpr}` +
+              `w.code, w.name, sd.product_id, p.sku, p.nombre, p.factor_sale, p.brand_id, b.nombre, b.code, ${channelExpr}, ${sourceExpr}` +
               (needMonth ? `, to_char(sd.sale_date, 'YYYY-MM')` : ''),
             );
 
@@ -2262,10 +2269,13 @@ export class CommercialAnalyticsService {
       const cajas = isWeight ? units : units / divisor;
       branchesWithData.add(r.branch_name);
 
-      // Columnas: por MES (month_columns) o por sucursal[×canal].
+      // Columnas: por MES (month_columns) o por sucursal[×canal]×FUENTE (RS.5 — Kepler/Wincaja
+      // separadas, nunca fusionadas en la misma columna).
+      const src: 'kepler' | 'wincaja' = r.source === 'wincaja' ? 'wincaja' : 'kepler';
+      const srcLabel = src === 'wincaja' ? 'Wincaja' : 'Kepler';
       const colKey = monthCols
         ? r.sale_month
-        : groupBy === 'branch' ? r.branch_code : `${r.branch_code}|${channel}`;
+        : groupBy === 'branch' ? `${r.branch_code}|${src}` : `${r.branch_code}|${channel}|${src}`;
       if (!columns.has(colKey)) {
         columns.set(colKey, monthCols
           ? {
@@ -2280,6 +2290,8 @@ export class CommercialAnalyticsService {
               branch_name: r.branch_name,
               channel: groupBy === 'branch' ? undefined : channel,
               channel_label: groupBy === 'branch' ? undefined : CHANNEL_LABELS[channel] ?? channel,
+              source: src,
+              source_label: srcLabel,
             });
         colTotals.set(colKey, { cajas: 0, monto: 0 });
       }
@@ -2350,11 +2362,13 @@ export class CommercialAnalyticsService {
     if (monthRows) rows.sort((a, b) => a.product_id.localeCompare(b.product_id));
     else rows.sort((a, b) => b.total.monto - a.total.monto || a.nombre.localeCompare(b.nombre, 'es'));
 
-    // Orden de columnas: por mes asc (month_columns) o por sucursal, luego canal en orden fijo.
+    // Orden de columnas: mes asc (month_columns) o sucursal → canal (orden fijo) → fuente (Kepler, Wincaja).
     const orderedCols = Array.from(columns.values()).sort((a, b) => {
       if (monthCols) return (a.month ?? '').localeCompare(b.month ?? '');
       if (a.branch_code !== b.branch_code) return a.branch_code.localeCompare(b.branch_code);
-      return (CHANNEL_ORDER[a.channel ?? ''] ?? 99) - (CHANNEL_ORDER[b.channel ?? ''] ?? 99);
+      const ch = (CHANNEL_ORDER[a.channel ?? ''] ?? 99) - (CHANNEL_ORDER[b.channel ?? ''] ?? 99);
+      if (ch !== 0) return ch;
+      return (a.source ?? '').localeCompare(b.source ?? '');
     });
 
     // Redondeo de presentación

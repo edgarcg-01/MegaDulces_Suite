@@ -380,6 +380,20 @@ Extiende el repertorio del co-piloto con 4 capacidades pedidas por Edgar: (1) de
 
 **Pendiente prod:** `migrate:new` (`20260721120000`) en Railway + reinicio API (activa el cron 21:00) + registrar el smoke en `run-all-tests`.
 
-### ACT.2 / ACT.3 — pendientes (diseñados)
-- **ACT.2 reorden real**: ejecutor de `reprioritize_route` que escriba `commercial.customers.visit_sequence` desde `payload.proposed_order` (nearest-neighbor Haversine), reversible (orden previo en `result`). Preview antes→después en la UI.
-- **ACT.3 alta de oportunidad**: opportunity `add_opportunity_store` desde `commercial.prospect_stores` (whitespace alto cerca de ruta cubierta); approve crea `commercial.customers` (pedible) + `ProspectsService.markConverted`. Exige `SUPERVISOR_AI_APROBAR` (+`COMMERCIAL_ORDERS_CREAR` a decidir).
+### ACT.2 — Reorden real de ruta ✅ EN CÓDIGO (builds verdes, smoke 8/8)
+- `OpportunityEngineService` enriquece la oportunidad `reprioritize_route`: calcula el orden **nearest-neighbor Haversine** (`nnOrder`) sobre los clientes de la ruta (`commercial.customers.sales_route` = `catalogs.value`) con coords, y adjunta `payload.proposed_order`/`current_order`/`sales_route`. Sin ≥3 clientes geolocalizados no adjunta orden (degrada).
+- Ejecutor (`executeAction`): al aprobar `reprioritize_route` con `proposed_order`, escribe `commercial.customers.visit_sequence` (1..N) en ese orden; **reversible** — guarda `previous_order` en `result`. Sin `proposed_order` cae a la tarea de repriorización (comportamiento previo). La rama va ANTES del bloque `TASK_TYPE`.
+- Sin migración (reusa `visit_sequence` + `reprioritize_route` ya en el CHECK).
+
+### ACT.3 — Alta de tienda de oportunidad (INEGI/DENUE) ✅ EN CÓDIGO (builds verdes, smoke 8/8)
+- `OpportunityEngineService` genera `add_opportunity_store` (kind='opportunity', subject_type='prospect') desde `commercial.prospect_stores` (status='candidate', `whitespace_score≥60`, top 3), con `suggested_sales_route` = ruta del cliente propio geolocalizado más cercano. Degrada con gracia si DENUE no está (safeQuery).
+- Ejecutor: al aprobar crea `commercial.customers` (code `P-…`, price list default, geo, `sales_route` sugerida = **pedible**) + marca el prospecto `status='converted'` (`matched_customer_id`). NO reversible (alta comercial real). Gateado por `SUPERVISOR_AI_APROBAR`.
+- Mig `20260721130000` amplía el CHECK `supervisor_actions.action_type += 'add_opportunity_store'`.
+- FE: `actionLabel`/`actionPi` para `add_opportunity_store`.
+
+**Smoke `smoke-horus-missed-visit.js` (registrado en `run-all-tests`, grupo needsApi:false) 8/8:** CHECKs (`source=plan`, `notify_missed_visit`, `add_opportunity_store`, `category=incident`), query de cartera planeada, reorden `visit_sequence` round-trip (ruta real), alta cliente + markConverted. **Pendiente prod: migrate:new (`20260721120000`+`20260721130000`) + restart.**
+
+### Mapa "Rutas reconvertidas" (visual ACT.2+ACT.3) ✅ EN CÓDIGO (builds verdes)
+- Backend read-only en `OpportunityEngineService`: `listRouteOptimizations` (rutas con km actual vs óptimo + mejora% + `has_action`) y `routeOptimizationDetail(salesRoute)` (orden actual por `visit_sequence`, orden propuesto NN, tiendas de oportunidad candidate a ≤3 km de la ruta, métricas km). Endpoint `GET /supervisor-ai/route-optimization[?sales_route=]`.
+- Frontend `route-optimization.component.ts` (`/dashboard/supervisor-ai/route-optimization`, gate `SUPERVISOR_AI_VER`): reusa el `MapComponent` compartido (Leaflet). **Línea gris = cómo se recorre hoy**, **línea verde numerada = cómo debería** (orden NN), **pines ámbar = tiendas de oportunidad**. Selector de ruta, KPIs (km hoy/óptimo/mejora%/paradas·oportunidades), leyenda con toggles de capa, lista "orden propuesto" con badge "antes #N". Botón "Rutas reconvertidas" en el header de la pantalla principal de Horus.
+- **Pendiente: verificación en vivo del endpoint con API arriba** (build no lo prueba) + validación visual.

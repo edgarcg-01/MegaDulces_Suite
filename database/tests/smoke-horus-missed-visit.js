@@ -1,8 +1,12 @@
 /**
- * Smoke Horus.ACT.1+4 (DB-level): valida que los CHECK extendidos aceptan
- * source='plan' + action_type='notify_missed_visit', y que la query de cartera
- * planeada del día corre sin error de SQL. No levanta el API.
+ * Smoke Horus.ACT (DB-level, sin API): valida los CHECK extendidos y las
+ * primitivas SQL de los ejecutores.
+ *   ACT.1/4 — source='plan' + action_type='notify_missed_visit' + category='incident'
+ *             + query de cartera planeada del día.
+ *   ACT.2   — reorden real de visit_sequence (round-trip sobre una ruta real).
+ *   ACT.3   — action_type='add_opportunity_store' + alta de cliente + markConverted.
  */
+const { randomBytes } = require('crypto');
 const knex = require('knex')(require('../knexfile-newdb').development);
 
 const TENANT = '00000000-0000-0000-0000-00000000d01c';
@@ -11,10 +15,17 @@ let pass = 0;
 let fail = 0;
 const ok = (m) => { pass++; console.log('  ✓', m); };
 const bad = (m, e) => { fail++; console.log('  ✗', m, e ? '— ' + e.message : ''); };
+const hex = () => randomBytes(5).toString('hex').toUpperCase();
 
 (async () => {
-  // 1) source='plan' aceptado por el CHECK.
   let findingId = null;
+  let actionId = null;
+  let noteId = null;
+  let prospectId = null;
+  let act3Id = null;
+  let newCustId = null;
+
+  // ── ACT.1 / ACT.4 ──────────────────────────────────────────────────────
   try {
     const [row] = await knex('commercial.supervisor_findings')
       .insert({
@@ -37,8 +48,6 @@ const bad = (m, e) => { fail++; console.log('  ✗', m, e ? '— ' + e.message :
     bad("supervisor_findings source='plan'", e);
   }
 
-  // 2) action_type='notify_missed_visit' aceptado por el CHECK.
-  let actionId = null;
   try {
     const [row] = await knex('commercial.supervisor_actions')
       .insert({
@@ -61,8 +70,6 @@ const bad = (m, e) => { fail++; console.log('  ✗', m, e ? '— ' + e.message :
     bad("supervisor_actions action_type='notify_missed_visit'", e);
   }
 
-  // 3) coaching_notes acepta category='incident' (sin CHECK).
-  let noteId = null;
   try {
     const [row] = await knex('commercial.coaching_notes')
       .insert({
@@ -80,7 +87,6 @@ const bad = (m, e) => { fail++; console.log('  ✗', m, e ? '— ' + e.message :
     bad("coaching_notes category='incident'", e);
   }
 
-  // 4) La query de cartera planeada del día corre sin error (0+ filas OK).
   try {
     const anyUser = await knex('public.daily_assignments').select('user_id').first();
     const uid = anyUser?.user_id || SUBJ;
@@ -107,8 +113,108 @@ const bad = (m, e) => { fail++; console.log('  ✗', m, e ? '— ' + e.message :
     bad('query cartera-planeada-del-día', e);
   }
 
-  // Limpieza.
+  // ── ACT.2 — reorden real de visit_sequence (round-trip sobre ruta real) ──
   try {
+    const route = await knex('commercial.customers')
+      .where({ tenant_id: TENANT })
+      .whereNull('deleted_at')
+      .whereNotNull('sales_route')
+      .groupBy('sales_route')
+      .havingRaw('count(*) >= 2')
+      .select('sales_route')
+      .first();
+    if (!route) {
+      ok('ACT.2 reorden — sin ruta con ≥2 clientes (skip aceptable)');
+    } else {
+      const rows = await knex('commercial.customers')
+        .where({ tenant_id: TENANT, sales_route: route.sales_route })
+        .whereNull('deleted_at')
+        .orderByRaw('visit_sequence asc nulls last, name asc')
+        .select('id', 'visit_sequence');
+      const original = rows.map((r) => ({ id: r.id, seq: r.visit_sequence }));
+      const reversed = rows.map((r) => r.id).reverse();
+      let seq = 1;
+      for (const id of reversed) {
+        await knex('commercial.customers').where({ id, tenant_id: TENANT }).update({ visit_sequence: seq });
+        seq++;
+      }
+      const first = await knex('commercial.customers').where({ id: reversed[0] }).first('visit_sequence');
+      const good = Number(first.visit_sequence) === 1;
+      // restaurar el orden previo (reversible, como el ejecutor guarda en result).
+      for (const o of original) {
+        await knex('commercial.customers').where({ id: o.id, tenant_id: TENANT }).update({ visit_sequence: o.seq });
+      }
+      good
+        ? ok(`ACT.2 reorden visit_sequence round-trip (ruta ${route.sales_route})`)
+        : bad('ACT.2 reorden visit_sequence');
+    }
+  } catch (e) {
+    bad('ACT.2 reorden', e);
+  }
+
+  // ── ACT.3 — action_type add_opportunity_store + alta cliente + markConverted ──
+  try {
+    const [pr] = await knex('commercial.prospect_stores')
+      .insert({
+        tenant_id: TENANT,
+        source: 'denue',
+        source_ref: 'SMOKE-' + hex(),
+        nombre: 'SMOKE Prospecto',
+        lat: 20.34,
+        lng: -102.03,
+        status: 'candidate',
+        whitespace_score: 80,
+      })
+      .returning('id');
+    prospectId = pr?.id || pr;
+
+    const [a] = await knex('commercial.supervisor_actions')
+      .insert({
+        tenant_id: TENANT,
+        dedup_key: 'opp:add_opportunity_store:prospect:' + prospectId,
+        action_type: 'add_opportunity_store',
+        kind: 'opportunity',
+        subject_type: 'prospect',
+        subject_id: prospectId,
+        title: 'SMOKE alta de oportunidad',
+        payload: JSON.stringify({ prospect_id: prospectId, name: 'SMOKE Prospecto' }),
+        status: 'pending_approval',
+        proposed_by: 'horus',
+      })
+      .returning('id');
+    act3Id = a?.id || a;
+    ok("supervisor_actions acepta action_type='add_opportunity_store'");
+
+    // Ejecutor (primitivas SQL): crea cliente + markConverted.
+    const [c] = await knex('commercial.customers')
+      .insert({
+        tenant_id: TENANT,
+        code: 'P-SMOKE-' + hex(),
+        name: 'SMOKE Prospecto',
+        credit_limit: 0,
+        payment_terms_days: 0,
+        active: true,
+        latitude: 20.34,
+        longitude: -102.03,
+      })
+      .returning('id');
+    newCustId = c?.id || c;
+    await knex('commercial.prospect_stores')
+      .where({ tenant_id: TENANT, id: prospectId })
+      .update({ status: 'converted', matched_customer_id: newCustId });
+    const conv = await knex('commercial.prospect_stores').where({ id: prospectId }).first('status', 'matched_customer_id');
+    conv.status === 'converted' && conv.matched_customer_id === newCustId
+      ? ok('ACT.3 alta de cliente + markConverted')
+      : bad('ACT.3 markConverted');
+  } catch (e) {
+    bad('ACT.3 add_opportunity_store', e);
+  }
+
+  // ── Cleanup ──────────────────────────────────────────────────────────────
+  try {
+    if (newCustId) await knex('commercial.customers').where({ id: newCustId }).del();
+    if (act3Id) await knex('commercial.supervisor_actions').where({ id: act3Id }).del();
+    if (prospectId) await knex('commercial.prospect_stores').where({ id: prospectId }).del();
     if (noteId) await knex('commercial.coaching_notes').where({ id: noteId }).del();
     if (actionId) await knex('commercial.supervisor_actions').where({ id: actionId }).del();
     if (findingId) await knex('commercial.supervisor_findings').where({ id: findingId }).del();
@@ -117,7 +223,7 @@ const bad = (m, e) => { fail++; console.log('  ✗', m, e ? '— ' + e.message :
     bad('cleanup', e);
   }
 
-  console.log(`\nHorus missed_visit smoke: ${pass} pass / ${fail} fail`);
+  console.log(`\nHorus.ACT smoke: ${pass} pass / ${fail} fail`);
   await knex.destroy();
   process.exit(fail ? 1 : 0);
 })();

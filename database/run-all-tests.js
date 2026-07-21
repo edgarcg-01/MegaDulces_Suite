@@ -27,6 +27,7 @@ const TESTS = [
   { file: 'test-auto-received-matching.js', label: 'RA.15.1 auto-received matching (X-A-40↔OC por presencia sku+almacén+fecha, dedup folio, OC vieja primero, cap pendiente)', needsApi: false },
   { file: 'test-newdb-fiscal-efos.js', label: 'FISCAL.0/1/1.1 motor listas SAT (69B+69) + validación RFC + bridge Maat (cruce×sat_list_rfcs+idempotencia+triage+formato_invalido+FK rule_registry+dedup finance.findings+L2 suprimida)', needsApi: false },
   { file: 'test-newdb-fiscal-diagnostics.js', label: 'FD.0/2 Diagnóstico facturación (emission_errors RLS + fix bug estatus_sat CHECK + captura idempotente por dedup_key + auto-reapertura)', needsApi: false },
+  { file: 'smoke-horus-missed-visit.js', label: 'Horus.ACT (ACT.1 missed_visit source=plan + ACT.4 notify/incident + ACT.2 reorden visit_sequence + ACT.3 add_opportunity_store + alta cliente/markConverted)', needsApi: false },
   // HTTP E2E (requieren API)
   { file: 'http-inventory-count-test.js', label: 'I.5 conteo correctness (A1 freeze guard + A2 no-revierte + A4 segregación count_3)', needsApi: true },
   { file: 'http-inventory-abc-test.js', label: 'I.6 clasificación ABC (refresh + shape + filtro por clase)', needsApi: true },

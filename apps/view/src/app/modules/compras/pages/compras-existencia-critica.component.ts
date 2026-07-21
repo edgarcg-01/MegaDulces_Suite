@@ -82,10 +82,19 @@ interface DraftLine {
 
       <!-- Filtros -->
       <div class="ec-filters">
-        <p-multiSelect [options]="warehouseOpts()" [(ngModel)]="fWarehouses" (onChange)="reload()"
-                       optionLabel="label" optionValue="value" placeholder="Todos los almacenes" [showClear]="true"
-                       [filter]="true" filterBy="label" filterPlaceholder="Buscar almacén…"
-                       [maxSelectedLabels]="2" selectedItemsLabel="{0} almacenes" styleClass="ec-sel"></p-multiSelect>
+        <div class="ec-wh">
+          <p-multiSelect [options]="warehouseOpts()" [(ngModel)]="fWarehouses" (onChange)="reload()"
+                         optionLabel="label" optionValue="value" placeholder="Todos los almacenes" [showClear]="true"
+                         [filter]="true" filterBy="label" filterPlaceholder="Buscar almacén…"
+                         [maxSelectedLabels]="2" selectedItemsLabel="{0} almacenes" styleClass="ec-sel"></p-multiSelect>
+          <div class="ec-atajos">
+            <span class="ec-atajos-lbl">Atajos:</span>
+            <button type="button" class="ec-atajo" [class.on]="!fWarehouses.length" (click)="clearWh()">Todos</button>
+            @for (t of territories; track t.label) {
+              <button type="button" class="ec-atajo" [class.on]="isTerr(t.codes)" (click)="applyTerr(t.codes)">{{ t.label }}</button>
+            }
+          </div>
+        </div>
         <p-select [options]="bucketOpts" [(ngModel)]="fBucket" (onChange)="reload()"
                   optionLabel="label" optionValue="value" placeholder="Críticos (≤ reorden)" [showClear]="true" styleClass="ec-sel"></p-select>
         <p-select [options]="basisOpts" [(ngModel)]="fBasis" (onChange)="reload()"
@@ -283,7 +292,14 @@ interface DraftLine {
     :host { display: block; }
     .ec-head-actions { display: flex; gap: .5rem; align-items: center; }
     app-metric-strip { display:block; margin-bottom: 1rem; }
-    .ec-filters { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; margin-bottom: .75rem; }
+    .ec-filters { display: flex; flex-wrap: wrap; gap: .5rem; align-items: flex-start; margin-bottom: .75rem; }
+    .ec-wh { display: flex; flex-direction: column; gap: .25rem; }
+    .ec-atajos { display: flex; align-items: center; gap: .1rem; flex-wrap: wrap; }
+    .ec-atajos-lbl { font-size: .7rem; color: var(--text-muted); margin-right: .2rem; }
+    .ec-atajo { border: none; background: none; cursor: pointer; font-size: .74rem; color: var(--text-muted);
+      padding: .05rem .4rem; border-radius: var(--r-sm, 6px); font-family: inherit; }
+    .ec-atajo:hover { color: var(--text-main); background: color-mix(in srgb, var(--text-main) 6%, transparent); }
+    .ec-atajo.on { color: var(--action); font-weight: 600; }
     .ec-sel { min-width: 12rem; } .ec-sel-wide { min-width: 15rem; } .ec-sel-sm { min-width: 6.5rem; }
     /* Search: p-iconfield pone el ícono de lupa a la izquierda; el clear (inputicon) a la derecha. */
     :host ::ng-deep .ec-search input { min-width: 14rem; }
@@ -367,8 +383,14 @@ export class ComprasExistenciaCriticaComponent implements OnInit {
   deadPage = signal(1);
   aboutOpen = signal(false);
 
-  warehouseOpts = signal<{ label: string; value: string }[]>([]);
+  warehouseOpts = signal<{ label: string; value: string; code: string }[]>([]);
   supplierOpts = signal<{ label: string; value: string }[]>([]);
+  territories = [
+    { label: 'Bajío', codes: ['01', '02', '03', '04'] },
+    { label: 'Morelia', codes: ['MD-30', 'MD-32'] },
+    { label: 'Zamora', codes: ['05', 'MD-50'] },
+    { label: 'CEDIS', codes: ['00'] },
+  ];
   private warehouseNames = new Map<string, string>();
 
   fWarehouses: string[] = [];
@@ -430,7 +452,7 @@ export class ComprasExistenciaCriticaComponent implements OnInit {
 
   ngOnInit(): void {
     this.api.filters().pipe(takeUntilDestroyed(this.destroyRef)).subscribe((f) => {
-      this.warehouseOpts.set(f.warehouses.map((w) => ({ label: `${w.code} · ${w.name}`, value: w.id })));
+      this.warehouseOpts.set(f.warehouses.map((w) => ({ label: `${w.code} · ${w.name}`, value: w.id, code: w.code })));
       f.warehouses.forEach((w) => this.warehouseNames.set(w.id, `${w.code} · ${w.name}`));
       this.supplierOpts.set(f.suppliers.map((s) => ({ label: s.name, value: s.id })));
     });
@@ -442,6 +464,10 @@ export class ComprasExistenciaCriticaComponent implements OnInit {
 
   onSearchChange(v: string): void { this.search$.next((v ?? '').trim()); }
   clearSearch(): void { this.fSearch = ''; this.reload(); }
+  clearWh(): void { this.fWarehouses = []; this.reload(); }
+  applyTerr(codes: string[]): void { this.fWarehouses = this.isTerr(codes) ? [] : this.idsForCodes(codes); this.reload(); }
+  isTerr(codes: string[]): boolean { const ids = this.idsForCodes(codes); return ids.length > 0 && ids.length === this.fWarehouses.length && ids.every((i) => this.fWarehouses.includes(i)); }
+  private idsForCodes(codes: string[]): string[] { return this.warehouseOpts().filter((w) => codes.includes(w.code)).map((w) => w.value); }
 
   reload(): void {
     this.selected.clear();

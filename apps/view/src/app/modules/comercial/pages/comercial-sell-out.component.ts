@@ -122,10 +122,13 @@ const CHANNEL_OPTS = [
 
         <div class="so-field">
           <label>{{ reportMode() === 'vendedor' ? 'Vendedor' : 'Canal · Sucursal' }}</label>
-          <button type="button" class="so-slicer-btn" (click)="slicerOpen.set(!slicerOpen())">
-            <i class="pi pi-sitemap"></i>
-            <span>{{ selectedCount() ? (selectedCount() + ' seleccionados') : 'Todos' }}</span>
-            <i class="pi" [class.pi-chevron-down]="!slicerOpen()" [class.pi-chevron-up]="slicerOpen()"></i>
+          <button type="button" class="so-slicer-btn" [class.is-open]="slicerOpen()" [class.has-val]="selectedCount() > 0"
+                  [attr.aria-expanded]="slicerOpen()"
+                  [attr.aria-label]="(reportMode() === 'vendedor' ? 'Vendedor' : 'Canal y sucursal') + ': ' + (selectedCount() ? selectedCount() + ' seleccionados' : 'Todos')"
+                  (click)="slicerOpen.set(!slicerOpen())">
+            <i class="pi pi-sitemap so-slicer-lead"></i>
+            <span class="so-slicer-val">{{ selectedCount() ? (selectedCount() + ' seleccionados') : 'Todos' }}</span>
+            <i class="pi so-slicer-caret" [class.pi-chevron-down]="!slicerOpen()" [class.pi-chevron-up]="slicerOpen()"></i>
           </button>
         </div>
 
@@ -327,11 +330,20 @@ const CHANNEL_OPTS = [
     /* segmented → app-segmented (átomo compartido) */
     .so-toggles { flex-direction:row; gap:1rem; align-items:center; }
     /* RS.4 — slicer jerárquico Canal/Vendedor */
-    .so-slicer-btn { display:inline-flex; align-items:center; gap:.5rem; height:32px; padding:0 .7rem;
-      background:var(--card-bg); border:1px solid var(--border-color); border-radius:var(--r-sm,8px);
-      font-size:.8rem; color:var(--text-main); cursor:pointer; min-width:11rem; justify-content:space-between; }
-    .so-slicer-btn:hover { border-color:var(--action); }
-    .so-slicer-btn .pi-sitemap { color:var(--text-muted); }
+    /* Trigger tipo select (consistente con los p-select de la barra): mismo alto,
+       radio, hover, foco anillado y estado "abierto". */
+    .so-slicer-btn { display:inline-flex; align-items:center; gap:.5rem; width:100%; min-width:13rem;
+      min-height:2.5rem; padding:.4rem .75rem;
+      background:var(--card-bg); border:1px solid var(--border-color); border-radius:var(--r-md);
+      font-size:.82rem; color:var(--text-main); cursor:pointer; justify-content:space-between;
+      transition:border-color .15s ease, box-shadow .15s ease, background-color .15s ease; }
+    .so-slicer-btn:hover { border-color:var(--action); background:var(--surface-hover-bg); }
+    .so-slicer-btn:focus-visible { outline:none; border-color:var(--action); box-shadow:0 0 0 2px var(--action-ring); }
+    .so-slicer-btn.is-open { border-color:var(--action); box-shadow:0 0 0 2px var(--action-ring); }
+    .so-slicer-lead { color:var(--text-muted); font-size:.85rem; }
+    .so-slicer-val { flex:1; text-align:left; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .so-slicer-btn.has-val .so-slicer-val { font-weight:600; }
+    .so-slicer-caret { color:var(--text-muted); font-size:.72rem; }
     .so-slicer { margin-bottom:1rem; padding:.9rem 1rem; }
     .so-slicer-head { display:flex; justify-content:space-between; align-items:center; margin-bottom:.75rem;
       font-size:.82rem; font-weight:700; color:var(--text-main); }
@@ -730,8 +742,9 @@ export class ComercialSellOutComponent {
     return `sell-out.${fmt}`;
   }
 
-  colLabel(c: { branch_name: string; channel_label?: string }): string {
-    return c.channel_label ? `${c.branch_name} · ${c.channel_label}` : c.branch_name;
+  colLabel(c: { branch_name: string; channel_label?: string; source_label?: string }): string {
+    const base = c.channel_label ? `${c.branch_name} · ${c.channel_label}` : c.branch_name;
+    return c.source_label ? `${base} · ${c.source_label}` : base;
   }
 
   /** Sustantivo de la fila según la vista (para conteos/labels). */

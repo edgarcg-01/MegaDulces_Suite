@@ -40,6 +40,7 @@ export const routes: Routes = [
       { path: 'commercial-map', loadComponent: () => import('./modules/dashboard/commercial-map/commercial-map.component').then(m => m.CommercialMapComponent), canActivate: [permissionGuard(Permission.COMMERCIAL_MAP_VER)] },
       { path: 'supervisor-ai', loadComponent: () => import('./modules/dashboard/supervisor-ai/supervisor-ai.component').then(m => m.SupervisorAiComponent), canActivate: [permissionGuard(Permission.SUPERVISOR_AI_VER)] },
       { path: 'supervisor-ai/chat', loadComponent: () => import('./modules/dashboard/supervisor-ai/supervisor-ai-chat.component').then(m => m.SupervisorAiChatComponent), canActivate: [permissionGuard(Permission.SUPERVISOR_AI_VER)] },
+      { path: 'supervisor-ai/route-optimization', loadComponent: () => import('./modules/dashboard/supervisor-ai/route-optimization.component').then(m => m.RouteOptimizationComponent), canActivate: [permissionGuard(Permission.SUPERVISOR_AI_VER)] },
       { path: 'stores', loadComponent: () => import('./modules/dashboard/stores/stores.component').then(m => m.StoresComponent), canActivate: [permissionGuard(Permission.TIENDAS_VER)] },
       { path: 'visits', loadComponent: () => import('./modules/dashboard/visits/visits.component').then(m => m.VisitsComponent) },
       { path: 'exhibitions', loadComponent: () => import('./modules/dashboard/exhibitions/exhibitions.component').then(m => m.ExhibitionsComponent) },
