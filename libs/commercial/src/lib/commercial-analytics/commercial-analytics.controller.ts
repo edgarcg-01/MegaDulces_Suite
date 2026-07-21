@@ -640,6 +640,20 @@ export class CommercialAnalyticsController {
     return this.service.salesByRouteRoutes();
   }
 
+  @Get('sales-by-route/products')
+  @RequirePermissions(Permission.COMMERCIAL_ROUTE_SALES_VER)
+  @ApiOperation({ summary: 'RR — Opciones del filtro por producto (SKUs vendidos en ruta).' })
+  salesByRouteProducts() {
+    return this.service.salesByRouteProducts();
+  }
+
+  @Get('sales-by-route/clients')
+  @RequirePermissions(Permission.COMMERCIAL_ROUTE_SALES_VER)
+  @ApiOperation({ summary: 'RR — Opciones del filtro por cliente (clientes de ruta, sin público).' })
+  salesByRouteClients() {
+    return this.service.salesByRouteClients();
+  }
+
   @Get('sales-by-route/detail')
   @RequirePermissions(Permission.COMMERCIAL_ROUTE_SALES_VER)
   @ApiOperation({ summary: 'RR — Desglose de una ruta: productos, serie diaria, clientes y tickets. Params: route (WIN-<code>), year.' })
@@ -653,10 +667,17 @@ export class CommercialAnalyticsController {
     summary:
       'RR — Ventas por Ruta: SOLO rutas reales (venta a bordo Wincaja, WIN-). Fila por (sucursal, ruta) mes a mes + share%. Params: year, routes=csv (warehouse_code|route_code).',
   })
-  salesByRoute(@Query('year') year?: string, @Query('routes') routes?: string) {
+  salesByRoute(
+    @Query('year') year?: string,
+    @Query('routes') routes?: string,
+    @Query('sku') sku?: string,
+    @Query('client') client?: string,
+  ) {
     return this.service.salesByRoute({
       year: year ? Number(year) : new Date().getFullYear(),
       routes: routes ? routes.split(',').map((c) => c.trim()).filter(Boolean) : undefined,
+      sku: sku?.trim() || undefined,
+      client: client?.trim() || undefined,
     });
   }
 
@@ -667,10 +688,14 @@ export class CommercialAnalyticsController {
     @Res() res: Response,
     @Query('year') year?: string,
     @Query('routes') routes?: string,
+    @Query('sku') sku?: string,
+    @Query('client') client?: string,
   ) {
     const report = await this.service.salesByRoute({
       year: year ? Number(year) : new Date().getFullYear(),
       routes: routes ? routes.split(',').map((c) => c.trim()).filter(Boolean) : undefined,
+      sku: sku?.trim() || undefined,
+      client: client?.trim() || undefined,
     });
     const buf = await this.exporter.buildSalesByRouteXlsx(report);
     this.sendFile(res, buf, this.exporter.salesByRouteFileName(report),

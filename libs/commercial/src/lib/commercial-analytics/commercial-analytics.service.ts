@@ -118,6 +118,10 @@ export interface SalesByRouteQuery {
   /** Filtro por ruta: claves compuestas `warehouse_code|route_code` (route_code
    * de Kepler colisiona entre sucursales → el warehouse desambigua). */
   routes?: string[];
+  /** Filtro por producto (SKU exacto): re-agrega la matriz desde v_sales_lines. */
+  sku?: string;
+  /** Filtro por cliente (código exacto): re-agrega la matriz desde v_sales_lines. */
+  client?: string;
 }
 
 export interface SalesByRouteOption {
@@ -2656,6 +2660,39 @@ export class CommercialAnalyticsService {
     }));
   }
 
+  /** RR — Opciones del filtro por PRODUCTO (SKUs vendidos en ruta, últimos 2 años, por venta). */
+  async salesByRouteProducts(): Promise<{ value: string; label: string }[]> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const rows: any[] = await this.tk.run(async (trx) => (await trx.raw(
+      `SELECT t.sku, COALESCE(pn.name, t.sku) AS name, t.rev
+       FROM (SELECT sl.sku, sum(sl.importe) AS rev
+             FROM wincaja.v_sales_lines sl
+             WHERE sl.tenant_id=? AND sl.sale_channel='ruta_venta'
+               AND sl.business_date >= (CURRENT_DATE - INTERVAL '2 years') AND sl.sku IS NOT NULL
+             GROUP BY sl.sku) t
+       LEFT JOIN (SELECT DISTINCT ON (sku) sku, nombre AS name FROM catalog.products
+                  WHERE tenant_id=? AND deleted_at IS NULL ORDER BY sku) pn ON pn.sku=t.sku
+       ORDER BY t.rev DESC NULLS LAST LIMIT 5000`, [tenantId, tenantId])).rows);
+    return rows.map((r) => ({ value: r.sku, label: `${r.name} · ${r.sku}` }));
+  }
+
+  /** RR — Opciones del filtro por CLIENTE (clientes de ruta, sin público, últimos 2 años). */
+  async salesByRouteClients(): Promise<{ value: string; label: string }[]> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const rows: any[] = await this.tk.run(async (trx) => (await trx.raw(
+      `SELECT t.code, COALESCE(cn.name, t.code) AS name, t.rev
+       FROM (SELECT sl.cliente AS code, sum(sl.importe) AS rev
+             FROM wincaja.v_sales_lines sl
+             WHERE sl.tenant_id=? AND sl.sale_channel='ruta_venta'
+               AND sl.cliente IS NOT NULL AND btrim(sl.cliente) <> '' AND sl.cliente <> '0001'
+               AND sl.business_date >= (CURRENT_DATE - INTERVAL '2 years')
+             GROUP BY sl.cliente) t
+       LEFT JOIN (SELECT DISTINCT ON (cliente) cliente, nombre AS name FROM wincaja.clientes
+                  WHERE tenant_id=? ORDER BY cliente, source_dataset DESC) cn ON cn.cliente=t.code
+       ORDER BY t.rev DESC NULLS LAST LIMIT 5000`, [tenantId, tenantId])).rows);
+    return rows.map((r) => ({ value: r.code, label: r.name ? `${r.name} · ${r.code}` : r.code }));
+  }
+
   async salesByRoute(q: SalesByRouteQuery): Promise<SalesByRouteReport> {
     const year = Number(q.year) || new Date().getFullYear();
     if (year < 2020 || year > 2100) throw new BadRequestException('year inválido');
@@ -2665,7 +2702,39 @@ export class CommercialAnalyticsService {
     const routeFilter = (q.routes && q.routes.length) ? q.routes.map((r) => r.trim()).filter(Boolean) : null;
     const tenantId = this.tenantCtx.requireTenantId();
 
+    // Path A (default): matriz pre-agregada de la MV (rápida, todos los productos).
+    // Path B (filtro producto/cliente): re-agrega desde la tabla-hecho v_sales_lines,
+    // que SÍ trae sku/cliente. Reusa el mapeo ruta→sucursal probado del detalle
+    // (branches is_route → parent_branch → warehouse) y emite el MISMO shape/identidad
+    // (route_code = 'WIN-'+source_branch) para que el drill-down siga funcionando.
+    const factFilter = !!(q.sku || q.client);
     const rawRows: any[] = await this.tk.run(async (trx) => {
+      if (factFilter) {
+        const params: any[] = [tenantId, from, to];
+        let extra = '';
+        if (q.sku) { extra += ' AND sl.sku = ?'; params.push(q.sku); }
+        if (q.client) { extra += ' AND sl.cliente = ?'; params.push(q.client); }
+        let scope = '';
+        if (routeFilter) { scope = ` AND (w.code || '|' || ('WIN-' || b.source_branch)) = ANY(?)`; params.push(routeFilter); }
+        else if (whFilter) { scope = ' AND w.code = ANY(?)'; params.push(whFilter); }
+        const res = await trx.raw(
+          `SELECT w.code AS wcode, COALESCE(w.name, initcap(pb.branch_name)) AS wname,
+                  ('WIN-' || b.source_branch) AS route_code, b.source_branch AS route_no,
+                  to_char(sl.business_date,'MM') AS mes,
+                  sum(sl.importe) AS revenue, sum(sl.qty) AS units, count(distinct sl.consecutivo) AS tickets
+           FROM wincaja.v_sales_lines sl
+           JOIN wincaja.branches b ON b.tenant_id=sl.tenant_id AND b.source_branch=sl.source_branch AND b.is_route=true
+           JOIN wincaja.branches pb ON pb.tenant_id=b.tenant_id AND pb.source_branch=b.parent_branch
+           LEFT JOIN commercial.warehouses w ON w.tenant_id=b.tenant_id
+                AND w.code=COALESCE(pb.kepler_code, pb.warehouse_code) AND w.deleted_at IS NULL
+           WHERE sl.tenant_id=? AND sl.sale_channel='ruta_venta'
+             AND sl.business_date>=? AND sl.business_date<? AND sl.business_date<=CURRENT_DATE
+             ${extra}${scope}
+           GROUP BY w.code, w.name, pb.branch_name, b.source_branch, to_char(sl.business_date,'MM')`,
+          params,
+        );
+        return res.rows;
+      }
       const qb = trx('analytics.sales_by_route_monthly as s')
         .join('commercial.warehouses as w', 'w.id', 's.warehouse_id')
         .where('s.tenant_id', tenantId)

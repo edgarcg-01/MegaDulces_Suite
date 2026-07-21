@@ -94,11 +94,15 @@ function pickCanonical(arr) {
     for (const g of plan) {
       const canonId = g.canonical.id;
       for (const n of g.non) {
-        // copiar lead_time/min_boxes al canónico si le faltan
+        // copiar params de compra al canónico si le faltan (lead/min + RA-PRO.10 cadencia/colchón/min$)
         const patch = {};
-        if (g.canonical.lead_time_days == null && n.lead_time_days != null) patch.lead_time_days = n.lead_time_days;
-        if (g.canonical.min_order_boxes == null && n.min_order_boxes != null) patch.min_order_boxes = n.min_order_boxes;
-        if (Object.keys(patch).length) { await trx('catalog.suppliers').where({ id: canonId }).update(patch); params++; g.canonical.lead_time_days = g.canonical.lead_time_days ?? patch.lead_time_days; g.canonical.min_order_boxes = g.canonical.min_order_boxes ?? patch.min_order_boxes; }
+        for (const col of ['lead_time_days', 'min_order_boxes', 'cadence_days_override', 'colchon_days', 'min_order_amount']) {
+          if (g.canonical[col] == null && n[col] != null) patch[col] = n[col];
+        }
+        if (Object.keys(patch).length) {
+          await trx('catalog.suppliers').where({ id: canonId }).update(patch); params++;
+          for (const col of Object.keys(patch)) g.canonical[col] = g.canonical[col] ?? patch[col];
+        }
         prods += await trx('catalog.products').where({ tenant_id: M, supplier_id: n.id }).update({ supplier_id: canonId });
         pos += await trx('commercial.purchase_orders').where({ tenant_id: M, supplier_id: n.id }).update({ supplier_id: canonId });
         reqs += await trx('commercial.purchase_requisitions').where({ tenant_id: M, supplier_id: n.id }).update({ supplier_id: canonId });

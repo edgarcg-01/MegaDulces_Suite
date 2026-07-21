@@ -1046,6 +1046,14 @@ export class ComercialService {
     return this.http.get<SalesByRouteOption[]>(`${this.base}/analytics/sales-by-route/routes`);
   }
 
+  salesByRouteProducts() {
+    return this.http.get<{ value: string; label: string }[]>(`${this.base}/analytics/sales-by-route/products`);
+  }
+
+  salesByRouteClients() {
+    return this.http.get<{ value: string; label: string }[]>(`${this.base}/analytics/sales-by-route/clients`);
+  }
+
   salesByRouteDetail(routeCode: string, year: number) {
     const params = new HttpParams().set('route', routeCode).set('year', String(year));
     return this.http.get<SalesByRouteDetail>(`${this.base}/analytics/sales-by-route/detail`, { params });
@@ -1060,6 +1068,8 @@ export class ComercialService {
   private salesByRouteParams(p: SalesByRouteParams): HttpParams {
     let params = new HttpParams().set('year', String(p.year));
     if (p.routes?.length) params = params.set('routes', p.routes.join(','));
+    if (p.sku) params = params.set('sku', p.sku);
+    if (p.client) params = params.set('client', p.client);
     return params;
   }
 
@@ -1320,6 +1330,10 @@ export interface SalesByRouteParams {
   year: number;
   /** Claves compuestas `warehouse_code|route_code` (route_code de Kepler repite entre sucursales). */
   routes?: string[];
+  /** Filtro por producto (SKU exacto) — re-agrega desde la tabla-hecho. */
+  sku?: string;
+  /** Filtro por cliente (código exacto) — re-agrega desde la tabla-hecho. */
+  client?: string;
 }
 
 export interface SalesByRouteOption {
