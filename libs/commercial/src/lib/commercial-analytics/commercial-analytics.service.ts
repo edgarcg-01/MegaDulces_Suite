@@ -2111,47 +2111,93 @@ export class CommercialAnalyticsService {
             .orderBy('p.nombre')
         : [];
 
+      // RS.3b — fast path: si el período abarca MESES COMPLETOS (month/quarter/year),
+      // leemos del rollup persistido `analytics.sales_boxes_monthly` (cajas/kg ya
+      // calculados, grano mensual → mucho menos que escanear sales_daily diario). Rango
+      // arbitrario o meses parciales → sales_daily on-the-fly. Ambos alimentan el MISMO
+      // pivote: units=canónico (piezas o kg), factor_sale=divisor, unit_kind manda.
+      const lastDayOfMonth = (iso: string) => {
+        const d = new Date(`${iso}T00:00:00Z`);
+        return new Date(d.getTime() + 86400000).getUTCDate() === 1;
+      };
+      const monthAligned = from.slice(8, 10) === '01' && lastDayOfMonth(to);
+
       // is_promo fuera: marcadores de promo Kepler (precio simbólico $0.01) —
       // registran la aplicación de la promo en el ticket, no venta de producto.
-      const rawRows: any[] = await trx('analytics.sales_daily as sd')
-        .join('catalog.products as p', 'p.id', 'sd.product_id')
-        .leftJoin('catalog.brands as b', 'b.id', 'p.brand_id')
-        .join('commercial.warehouses as w', 'w.id', 'sd.warehouse_id')
-        // RS.3 — box_size del catálogo de etiquetas: divisor de respaldo cuando factor_sale
-        // viene en 1 (ej. 60101, factor_sale=1 pero caja de 20). unit_kind decide si se divide.
-        .leftJoin('commercial.product_label_prices as lp', function () {
-          this.on('lp.product_id', '=', 'p.id').andOn('lp.tenant_id', '=', 'p.tenant_id');
-        })
-        .where('sd.tenant_id', tenantId)
-        .andWhere('p.is_promo', false)
-        .modify((qb) => {
-          if (brandId) qb.andWhere('p.brand_id', brandId);
-          if (search) qb.andWhereRaw('(p.sku ILIKE ? OR p.nombre ILIKE ?)', [`%${search}%`, `%${search}%`]);
-        })
-        .andWhere('sd.sale_date', '>=', from)
-        .andWhere('sd.sale_date', '<=', to)
-        .modify((qb) => { if (warehouseFilter) qb.whereIn('w.code', warehouseFilter); })
-        .modify((qb) => { if (needMonth) qb.select(trx.raw(`to_char(sd.sale_date, 'YYYY-MM') as sale_month`)); })
-        .select(
-          'w.code as branch_code',
-          'w.name as branch_name',
-          'sd.product_id as product_id',
-          'p.sku as sku',
-          'p.nombre as nombre',
-          'p.factor_sale as factor_sale',
-          'p.brand_id as brand_id',
-          'b.nombre as brand_nombre',
-          'b.code as brand_code',
-          trx.raw(`${channelExpr} as channel`),
-          trx.raw('max(sd.unit_kind) as unit_kind'),
-          trx.raw('max(lp.box_size) as box_size'),
-        )
-        .sum({ units: 'sd.units' })
-        .sum({ monto: 'sd.revenue' })
-        .groupByRaw(
-          `w.code, w.name, sd.product_id, p.sku, p.nombre, p.factor_sale, p.brand_id, b.nombre, b.code, ${channelExpr}` +
-          (needMonth ? `, to_char(sd.sale_date, 'YYYY-MM')` : ''),
-        );
+      const rawRows: any[] = monthAligned
+        ? await trx('analytics.sales_boxes_monthly as sd')
+            .join('catalog.products as p', 'p.id', 'sd.product_id')
+            .leftJoin('catalog.brands as b', 'b.id', 'p.brand_id')
+            .join('commercial.warehouses as w', 'w.id', 'sd.warehouse_id')
+            .where('sd.tenant_id', tenantId)
+            .andWhere('p.is_promo', false)
+            .modify((qb) => {
+              if (brandId) qb.andWhere('p.brand_id', brandId);
+              if (search) qb.andWhereRaw('(p.sku ILIKE ? OR p.nombre ILIKE ?)', [`%${search}%`, `%${search}%`]);
+            })
+            .andWhere('sd.year_month', '>=', from.slice(0, 7))
+            .andWhere('sd.year_month', '<=', to.slice(0, 7))
+            .modify((qb) => { if (warehouseFilter) qb.whereIn('w.code', warehouseFilter); })
+            .modify((qb) => { if (needMonth) qb.select(trx.raw(`sd.year_month as sale_month`)); })
+            .select(
+              'w.code as branch_code',
+              'w.name as branch_name',
+              'sd.product_id as product_id',
+              'p.sku as sku',
+              'p.nombre as nombre',
+              trx.raw('max(sd.uxc) as factor_sale'),   // divisor ya baked (factor_sale o box_size)
+              'p.brand_id as brand_id',
+              'b.nombre as brand_nombre',
+              'b.code as brand_code',
+              trx.raw(`${channelExpr} as channel`),
+              trx.raw('max(sd.unit_kind) as unit_kind'),
+              trx.raw('NULL::numeric as box_size'),
+              trx.raw('COALESCE(SUM(sd.pieces), SUM(sd.kg), 0) as units'), // canónico (piezas o kg)
+            )
+            .sum({ monto: 'sd.revenue' })
+            .groupByRaw(
+              `w.code, w.name, sd.product_id, p.sku, p.nombre, p.brand_id, b.nombre, b.code, ${channelExpr}` +
+              (needMonth ? `, sd.year_month` : ''),
+            )
+        : await trx('analytics.sales_daily as sd')
+            .join('catalog.products as p', 'p.id', 'sd.product_id')
+            .leftJoin('catalog.brands as b', 'b.id', 'p.brand_id')
+            .join('commercial.warehouses as w', 'w.id', 'sd.warehouse_id')
+            // RS.3 — box_size del catálogo de etiquetas: divisor de respaldo cuando factor_sale
+            // viene en 1 (ej. 60101, factor_sale=1 pero caja de 20). unit_kind decide si se divide.
+            .leftJoin('commercial.product_label_prices as lp', function () {
+              this.on('lp.product_id', '=', 'p.id').andOn('lp.tenant_id', '=', 'p.tenant_id');
+            })
+            .where('sd.tenant_id', tenantId)
+            .andWhere('p.is_promo', false)
+            .modify((qb) => {
+              if (brandId) qb.andWhere('p.brand_id', brandId);
+              if (search) qb.andWhereRaw('(p.sku ILIKE ? OR p.nombre ILIKE ?)', [`%${search}%`, `%${search}%`]);
+            })
+            .andWhere('sd.sale_date', '>=', from)
+            .andWhere('sd.sale_date', '<=', to)
+            .modify((qb) => { if (warehouseFilter) qb.whereIn('w.code', warehouseFilter); })
+            .modify((qb) => { if (needMonth) qb.select(trx.raw(`to_char(sd.sale_date, 'YYYY-MM') as sale_month`)); })
+            .select(
+              'w.code as branch_code',
+              'w.name as branch_name',
+              'sd.product_id as product_id',
+              'p.sku as sku',
+              'p.nombre as nombre',
+              'p.factor_sale as factor_sale',
+              'p.brand_id as brand_id',
+              'b.nombre as brand_nombre',
+              'b.code as brand_code',
+              trx.raw(`${channelExpr} as channel`),
+              trx.raw('max(sd.unit_kind) as unit_kind'),
+              trx.raw('max(lp.box_size) as box_size'),
+            )
+            .sum({ units: 'sd.units' })
+            .sum({ monto: 'sd.revenue' })
+            .groupByRaw(
+              `w.code, w.name, sd.product_id, p.sku, p.nombre, p.factor_sale, p.brand_id, b.nombre, b.code, ${channelExpr}` +
+              (needMonth ? `, to_char(sd.sale_date, 'YYYY-MM')` : ''),
+            );
 
       // Sucursales con venta (cualquier marca) en el periodo — para cobertura.
       const retailRows = await trx('analytics.sales_daily as sd')
