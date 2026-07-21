@@ -2430,8 +2430,12 @@ export class CommercialAnalyticsService {
         .leftJoin('commercial.product_label_prices as lp', function () { this.on('lp.product_id', '=', 'p.id').andOn('lp.tenant_id', '=', 'p.tenant_id'); })
         .leftJoin('am', 'am.sku', 'vl.sku')
         .leftJoin('ven', function () { this.on('ven.source_branch', '=', 'vl.source_branch').andOn('ven.vendedor', '=', 'vl.vendedor'); })
-        .where('vl.tenant_id', tenantId).andWhere('vl.wincaja_only', true).andWhere('p.is_promo', false)
+        .where('vl.tenant_id', tenantId).andWhere('p.is_promo', false)
         .whereNull('p.deleted_at')
+        // Mismo BLEND que el feed (import-wincaja-analytics): las wincaja_only (30/32/50)
+        // + PH(10) pre-2026-07-01 + La Piedad(42) pre-2025-10-01. Sin esto se caían los
+        // telemarketers de PH (Yareth, Sergio) porque PH es sucursal COMPARTIDA (wincaja_only=false).
+        .andWhereRaw(`(vl.wincaja_only = true OR (vl.source_branch = '10' AND vl.business_date < DATE '2026-07-01') OR (vl.source_branch = '42' AND vl.business_date < DATE '2025-10-01'))`)
         .whereIn('vl.sale_channel', ['mayoreo_credito', 'ruta_venta', 'preventa_vecinal'])
         .andWhere('vl.business_date', '>=', from).andWhere('vl.business_date', '<=', to)
         .modify((qb) => { if (brandId) qb.andWhere('p.brand_id', brandId); if (search) qb.andWhereRaw('(p.sku ILIKE ? OR p.nombre ILIKE ?)', [`%${search}%`, `%${search}%`]); })
@@ -2536,7 +2540,9 @@ export class CommercialAnalyticsService {
       .sum({ rev: 'vl.importe' })
       .from('wincaja.v_sales_lines as vl')
       .leftJoin('ven', function () { this.on('ven.source_branch', '=', 'vl.source_branch').andOn('ven.vendedor', '=', 'vl.vendedor'); })
-      .where('vl.tenant_id', tenantId).andWhere('vl.wincaja_only', true)
+      .where('vl.tenant_id', tenantId)
+      // Mismo BLEND que el feed: incluye PH(10) pre-julio → telemarketers de PH (Yareth, Sergio).
+      .andWhereRaw(`(vl.wincaja_only = true OR (vl.source_branch = '10' AND vl.business_date < DATE '2026-07-01') OR (vl.source_branch = '42' AND vl.business_date < DATE '2025-10-01'))`)
       .whereIn('vl.sale_channel', ['mayoreo_credito', 'ruta_venta', 'preventa_vecinal'])
       .groupByRaw('vl.sale_channel, vl.source_branch, vl.vendedor, name')
       .havingRaw('sum(vl.importe) > 0'));
