@@ -71,3 +71,13 @@ Origen: análisis del pedido de GRUPO LEVI (Excel con fechas reales de pedido). 
 **Validado (Levi, cadencia 14+7):** motor = 738 cja / $86,758 (dentro del rango histórico real de sus pedidos $48k-$111k; su pedido reciente fue 446 cja / $60,894). El horizonte 21d da un pedido un poco mayor al reciente pero normal. Mínimo probado: con $80k no sube (ya arriba); con mínimo mayor reparte el faltante.
 
 **Pendiente:** redeploy api+view. Diferido: sanear `factor_purchase` global; `supplierOrder` incluye todos los almacenes de compra (incl. CEDIS si tiene canal) — revisar doble-conteo si el CEDIS pasa a DRP.
+
+## RA-PRO.11 — Export XLSX de pedido/requisición con diseño (en todo punto de requisición) ✅ código+build 2026-07-22
+
+Origen: el export de `/compras/pedido` era un **CSV cliente-side crudo** (sin estructura, colorimetría ni desglose) y el export no existía en las demás superficies donde se arma o vive una requisición.
+
+- **Motor** `ReplenishmentExportService.buildPedido(order)` (ExcelJS, mismo lenguaje visual que `build()` de Existencia Crítica): título + resumen con totales, encabezado estilizado, **panel congelado** (identidad + 3 filas de header), autofiltro, fila **TOTAL con `SUBTOTAL(109,…)`** (respeta el filtro), renglones alternados. **Color solo en problemas** (existencia ≤0 y hub corto en rojo; cajas/importe en negrita) — quiet-luxury.
+- **Columnas dinámicas** (cada una aparece solo si alguna línea la trae): #, Almacén, SKU, Producto, ABC, XYZ, **Rank vta**, **Venta/mes ($ que mueve)**, Existencia, En tránsito, En hub, Reorden, Máximo, Sugerido, Pz/caja, **Pedir (cajas)**, Piezas, Recibido, Costo unit., Importe. → cockpit sale rico, requisición/OC salen limpias con el mismo builder.
+- **Endpoints**: `POST /commercial/replenishment/pedido.xlsx` (pedido armado en el cliente, con las cajas editadas), `GET /commercial/replenishment/requisitions/:id/export.xlsx`, `GET /commercial/purchase-orders/:id/export.xlsx`. Todos `COMPRAS_VER`.
+- **Superficies con export** (regla "toda requisición se puede exportar"): cockpit drill (proveedor×almacén), **pedido consolidado** (multi-almacén, `multi_warehouse`), detalle de requisición y detalle de OC — botón visible incluso para solo-lectura. Helper compartido `saveXlsxResponse` + `exportPedidoXlsx/exportRequisitionXlsx/exportPurchaseOrderXlsx` en `ComprasService`.
+- Builds `nx build api` + `nx build view` verdes. **Pendiente:** mismo redeploy (api+view). Reusa `COMPRAS_VER` → sin backfill ni re-login.

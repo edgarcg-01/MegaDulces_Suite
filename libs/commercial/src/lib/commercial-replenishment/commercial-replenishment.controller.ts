@@ -3,7 +3,23 @@ import { Response } from 'express';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
 import { CommercialReplenishmentService, CreateRequisitionDto, ReceiveRequisitionDto } from './commercial-replenishment.service';
-import { ReplenishmentExportService } from './replenishment-export.service';
+import { ReplenishmentExportService, PedidoExport } from './replenishment-export.service';
+
+const REQ_ESTADO_LABEL: Record<string, string> = {
+  draft: 'Borrador', pending_approval: 'Pendiente', approved: 'Aprobada',
+  ordered: 'Ordenada', received: 'Recibida', cancelled: 'Cancelada',
+};
+
+/** Envía un buffer XLSX como descarga (nombre con fallback ASCII + UTF-8). */
+function sendXlsx(res: Response, buf: Buffer, filename: string): void {
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.setHeader(
+    'Content-Disposition',
+    `attachment; filename="${filename.replace(/[^ -~]/g, '_')}"; filename*=UTF-8''${encodeURIComponent(filename)}`,
+  );
+  res.setHeader('Content-Length', String(buf.length));
+  res.end(buf);
+}
 
 /**
  * RA.4/RA.7 — Proyecto Compras (ADR-030). Existencia crítica + sugerido + requisiciones.
@@ -72,6 +88,42 @@ export class CommercialReplenishmentController {
     );
     res.setHeader('Content-Length', String(buf.length));
     res.end(buf);
+  }
+
+  @Post('pedido.xlsx')
+  @RequirePermissions(Permission.COMPRAS_VER)
+  @ApiOperation({ summary: 'Exporta un PEDIDO armado (cockpit/consolidado) a Excel con diseño. body = { title, supplier_name, warehouse_label, via, basis, source_warehouse_code, multi_warehouse, lines[] }.' })
+  async pedidoXlsx(@Res() res: Response, @Body() body: PedidoExport) {
+    const order: PedidoExport = { ...body, lines: Array.isArray(body?.lines) ? body.lines : [] };
+    const buf = await this.exporter.buildPedido(order);
+    sendXlsx(res, buf, this.exporter.fileNamePedido(order));
+  }
+
+  @Get('requisitions/:id/export.xlsx')
+  @RequirePermissions(Permission.COMPRAS_VER)
+  @ApiOperation({ summary: 'Exporta una requisición (header + líneas) a Excel con diseño.' })
+  async requisitionXlsx(@Res() res: Response, @Param('id') id: string) {
+    const r: any = await this.svc.getRequisition(id);
+    const isTransfer = (r.lines || []).some((l: any) => l.source_type === 'branch');
+    const order: PedidoExport = {
+      title: `REQUISICIÓN ${r.folio}`,
+      supplier_name: r.supplier_name,
+      warehouse_label: [r.warehouse_code, r.warehouse_name].filter(Boolean).join(' · '),
+      via: isTransfer ? 'transfer' : 'purchase',
+      basis: r.target_basis,
+      folio: r.folio,
+      estado: REQ_ESTADO_LABEL[r.estado] ?? r.estado,
+      lines: (r.lines || []).map((l: any) => ({
+        sku: l.sku, nombre: l.nombre,
+        on_hand: l.on_hand, in_transit: l.in_transit,
+        reorder_point: l.reorder_point, max_stock: l.max_stock,
+        suggested_qty: l.suggested_qty, piezas: l.final_qty,
+        received_qty: l.received_qty,
+        unit_cost: l.unit_cost, line_cost: l.line_cost,
+      })),
+    };
+    const buf = await this.exporter.buildPedido(order);
+    sendXlsx(res, buf, `Requisicion_${(r.folio || id).replace(/[^A-Za-z0-9]+/g, '_')}.xlsx`);
   }
 
   @Get('critical-stock/summary')

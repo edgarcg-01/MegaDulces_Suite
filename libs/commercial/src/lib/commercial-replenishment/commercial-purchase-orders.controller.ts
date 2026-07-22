@@ -1,7 +1,13 @@
-import { Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query, Res, UseGuards } from '@nestjs/common';
+import { Response } from 'express';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
 import { CommercialPurchaseOrdersService, CreatePurchaseOrderDto, CreateReceiptDto } from './commercial-purchase-orders.service';
+import { ReplenishmentExportService, PedidoExport } from './replenishment-export.service';
+
+const PO_ESTADO_LABEL: Record<string, string> = {
+  open: 'Abierta', partial: 'Parcial', received: 'Recibida', cancelled: 'Cancelada',
+};
 
 /**
  * RA.15 — Cadena de compra (ADR-031). OC (orden de compra) + OE (orden de entrada/recepción).
@@ -12,7 +18,10 @@ import { CommercialPurchaseOrdersService, CreatePurchaseOrderDto, CreateReceiptD
 @UseGuards(RolesGuard)
 @Controller('commercial/purchase-orders')
 export class CommercialPurchaseOrdersController {
-  constructor(private readonly svc: CommercialPurchaseOrdersService) {}
+  constructor(
+    private readonly svc: CommercialPurchaseOrdersService,
+    private readonly exporter: ReplenishmentExportService,
+  ) {}
 
   @Get()
   @RequirePermissions(Permission.COMPRAS_VER)
@@ -31,6 +40,38 @@ export class CommercialPurchaseOrdersController {
   @RequirePermissions(Permission.COMPRAS_VER)
   @ApiOperation({ summary: 'Detalle de OC: header + líneas (pedido vs recibido) + recepciones (OE).' })
   get(@Param('id') id: string) { return this.svc.getPurchaseOrder(id); }
+
+  @Get(':id/export.xlsx')
+  @RequirePermissions(Permission.COMPRAS_VER)
+  @ApiOperation({ summary: 'Exporta la orden de compra (header + líneas) a Excel con diseño.' })
+  async exportXlsx(@Res() res: Response, @Param('id') id: string) {
+    const p: any = await this.svc.getPurchaseOrder(id);
+    const isTransfer = p.source_type === 'branch';
+    const order: PedidoExport = {
+      title: `ORDEN DE COMPRA ${p.folio}`,
+      supplier_name: p.supplier_name,
+      warehouse_label: [p.warehouse_code, p.warehouse_name].filter(Boolean).join(' · '),
+      via: isTransfer ? 'transfer' : 'purchase',
+      source_warehouse_code: p.source_code,
+      folio: p.folio,
+      estado: PO_ESTADO_LABEL[p.estado] ?? p.estado,
+      lines: (p.lines || []).map((l: any) => ({
+        sku: l.sku, nombre: l.nombre,
+        piezas: l.ordered_qty,
+        received_qty: l.received_qty,
+        unit_cost: l.unit_cost, line_cost: l.line_cost,
+      })),
+    };
+    const buf = await this.exporter.buildPedido(order);
+    const filename = `Orden_Compra_${(p.folio || id).replace(/[^A-Za-z0-9]+/g, '_')}.xlsx`;
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${filename.replace(/[^ -~]/g, '_')}"; filename*=UTF-8''${encodeURIComponent(filename)}`,
+    );
+    res.setHeader('Content-Length', String(buf.length));
+    res.end(buf);
+  }
 
   @Post()
   @RequirePermissions(Permission.COMPRAS_GESTIONAR)

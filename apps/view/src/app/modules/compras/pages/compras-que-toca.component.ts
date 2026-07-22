@@ -15,7 +15,7 @@ import { InputTextModule } from 'primeng/inputtext';
 import { InputNumberModule } from 'primeng/inputnumber';
 import { DialogModule } from 'primeng/dialog';
 import { MessageService } from 'primeng/api';
-import { ComprasService, WorklistRow, ReplenishmentFilters, CriticalStockRow, CreateRequisitionDto, OrderBasis, SupplierOrderHistory, SupplierOrder, SupplierOrderLine } from '../compras.service';
+import { ComprasService, WorklistRow, ReplenishmentFilters, CriticalStockRow, CreateRequisitionDto, OrderBasis, SupplierOrderHistory, SupplierOrder, SupplierOrderLine, PedidoExportPayload, saveXlsxResponse } from '../compras.service';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 
@@ -222,7 +222,7 @@ interface DetailState {
                         {{ totalPz(r._key) | number:'1.0-0' }} pz · <strong>{{ money(detailTotal(r._key)) }}</strong>
                       </span>
                       <button pButton label="Exportar" icon="pi pi-download" class="p-button-sm p-button-text"
-                              [disabled]="countToOrder(r._key)===0" (click)="exportRow(r)"></button>
+                              [loading]="exporting()" [disabled]="countToOrder(r._key)===0" (click)="exportRow(r)"></button>
                       <button pButton [label]="r.via==='transfer' ? 'Crear traspaso' : 'Crear requisición'"
                               icon="pi pi-file-edit" class="p-button-sm"
                               [loading]="st.creating" [disabled]="countToOrder(r._key)===0"
@@ -281,6 +281,8 @@ interface DetailState {
               <span class="qt-foot-tot">
                 {{ consWhsIncluded() }} almacén(es) · {{ consTotCajas() | number:'1.0-0' }} cajas · <strong>{{ money(consTotAmount()) }}</strong>
               </span>
+              <button pButton label="Exportar" icon="pi pi-download" class="p-button-sm p-button-text"
+                      [loading]="consExporting()" [disabled]="!consLinesFiltered().length" (click)="exportConsolidated()"></button>
               <button pButton label="Generar requisiciones" icon="pi pi-file-edit" class="p-button-sm"
                       [loading]="consGenerating()" [disabled]="!consLinesFiltered().length" (click)="generateConsolidated()"></button>
             </div>
@@ -741,23 +743,64 @@ export class ComprasQueTocaComponent implements OnInit {
     });
   }
 
+  exporting = signal(false);
+  /** Export XLSX con diseño del pedido de esta fila (base cajas editada, ranking + $ que mueve). */
   exportRow(r: WLRow): void {
     const st = this.detail()[r._key];
     const picked = (st?.lines ?? []).filter((l) => Number(l.finalCajas) > 0);
     if (!picked.length) return;
-    const esc = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`;
-    const head = ['SKU', 'Producto', 'Rank', '$ mueve', 'Existencia', 'Sugerido (pz)', 'Pedir (cajas)', 'Piezas', '$ unitario', '$ linea'];
-    const body = picked.map((l) => [l.sku, l.nombre, l.sales_rank ?? '', Math.round(Number(l.monthly_revenue) || 0), Math.round(Number(l.on_hand)), Math.round(Number(l.suggested_qty)), l.finalCajas, this.pzOf(l), Number(l.unit_cost || 0).toFixed(2), this.lineCost(l).toFixed(2)]);
-    const foot = ['', 'TOTAL', '', '', '', '', this.totalCajas(r._key), this.totalPz(r._key), '', this.detailTotal(r._key).toFixed(2)];
-    const csv = [head, ...body, foot].map((row) => row.map(esc).join(',')).join('\r\n');
-    const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    const stamp = new Date().toISOString().slice(0, 10);
-    a.href = url;
-    a.download = `pedido_${(r.supplier_name || 'prov').replace(/[^a-z0-9]+/gi, '_').slice(0, 30)}_${r.warehouse_code}_${stamp}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+    const isTransfer = r.via === 'transfer';
+    const payload: PedidoExportPayload = {
+      title: `PEDIDO · ${r.supplier_name || ''} · ${r.warehouse_code}`.trim(),
+      supplier_name: r.supplier_name,
+      warehouse_label: `${r.warehouse_code}${r.warehouse_name ? ' · ' + r.warehouse_name : ''}`,
+      via: r.via,
+      basis: st?.basis ?? this.fBasis(),
+      source_warehouse_code: r.source_warehouse_code ?? null,
+      lines: picked.map((l) => ({
+        sku: l.sku, nombre: l.nombre,
+        abc_class: l.abc_class, xyz_class: l.xyz_class,
+        sales_rank: l.sales_rank, monthly_revenue: l.monthly_revenue == null ? null : Number(l.monthly_revenue),
+        on_hand: Number(l.on_hand), in_transit: Number(l.in_transit),
+        hub_on_hand: isTransfer ? this.hubOnHand(r._key, l) : null,
+        hub_short: isTransfer ? this.hubShort(r._key, l) : false,
+        reorder_point: Number(l.reorder_point), max_stock: Number(l.max_stock),
+        suggested_qty: Number(l.suggested_qty),
+        uxc: l.uxc, cajas: Number(l.finalCajas), piezas: this.pzOf(l),
+        unit_cost: Number(l.unit_cost || 0), line_cost: this.lineCost(l),
+      })),
+    };
+    this.exporting.set(true);
+    this.api.exportPedidoXlsx(payload).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (resp) => { this.exporting.set(false); saveXlsxResponse(resp, `Pedido_${r.warehouse_code}.xlsx`); },
+      error: () => { this.exporting.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo generar el Excel.' }); },
+    });
+  }
+
+  // A2 — export XLSX del pedido consolidado (multi-almacén)
+  consExporting = signal(false);
+  exportConsolidated(): void {
+    const sup = this.consSupplier(); const lines = this.consLinesFiltered();
+    if (!sup || !lines.length) return;
+    const payload: PedidoExportPayload = {
+      title: `PEDIDO CONSOLIDADO · ${sup.name || ''}`.trim(),
+      supplier_name: sup.name,
+      via: 'purchase',
+      multi_warehouse: true,
+      lines: lines.map((l) => ({
+        warehouse_code: l.warehouse_code,
+        sku: l.sku, nombre: l.nombre,
+        on_hand: Number(l.on_hand),
+        suggested_qty: Number(l.suggested),
+        uxc: Number(l.uxc), cajas: Number(l.cajas), piezas: Number(l.final),
+        unit_cost: Number(l.unit_cost), line_cost: Number(l.line_cost),
+      })),
+    };
+    this.consExporting.set(true);
+    this.api.exportPedidoXlsx(payload).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (resp) => { this.consExporting.set(false); saveXlsxResponse(resp, 'Pedido_consolidado.xlsx'); },
+      error: () => { this.consExporting.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo exportar.' }); },
+    });
   }
 
   isTerr(codes: string[]): boolean {

@@ -10,7 +10,7 @@ import { MessageService } from 'primeng/api';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { AuthService } from '../../../core/services/auth.service';
 import { Permission } from '../../../core/constants/permissions';
-import { ComprasService, RequisitionDetail, RequisitionEstado } from '../compras.service';
+import { ComprasService, RequisitionDetail, RequisitionEstado, saveXlsxResponse } from '../compras.service';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 
 type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
@@ -34,8 +34,9 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
           }
         </div>
         @if (req(); as r) {
-          @if (canManage) {
-            <div class="rd-actions">
+          <div class="rd-actions">
+            <button pButton type="button" label="Exportar Excel" icon="pi pi-file-excel" class="p-button-sm p-button-outlined p-button-secondary" [loading]="exporting()" (click)="exportXlsx()"></button>
+            @if (canManage) {
               @if (r.estado === 'pending_approval') {
                 <button pButton type="button" label="Rechazar" icon="pi pi-times" class="p-button-sm p-button-outlined p-button-danger" [loading]="busy()" (click)="reject()"></button>
                 <button pButton type="button" label="Aprobar" icon="pi pi-check" class="p-button-sm" [loading]="busy()" (click)="approve()"></button>
@@ -44,8 +45,8 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
               } @else if (r.estado === 'ordered' || r.estado === 'received') {
                 <button pButton type="button" label="Ver orden de compra" icon="pi pi-arrow-right" class="p-button-sm p-button-outlined" (click)="goToPO()"></button>
               }
-            </div>
-          }
+            }
+          </div>
         }
       </header>
 
@@ -127,8 +128,19 @@ export class ComprasRequisicionDetalleComponent implements OnInit {
   }
   loading = signal(true);
   busy = signal(false);
+  exporting = signal(false);
   canManage = this.perms.can('manage', 'all') || !!this.auth.user()?.permissions?.[Permission.COMPRAS_GESTIONAR];
   private id = '';
+
+  /** Export XLSX con diseño (header + líneas + totales). Disponible en cualquier estado. */
+  exportXlsx(): void {
+    const r = this.req(); if (!r) return;
+    this.exporting.set(true);
+    this.api.exportRequisitionXlsx(r.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (resp) => { this.exporting.set(false); saveXlsxResponse(resp, `${r.folio}.xlsx`); },
+      error: () => { this.exporting.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo exportar.' }); },
+    });
+  }
 
   ngOnInit(): void {
     this.id = this.route.snapshot.paramMap.get('id') || '';

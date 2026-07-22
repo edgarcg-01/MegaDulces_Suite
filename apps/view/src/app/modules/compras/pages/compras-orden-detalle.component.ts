@@ -13,7 +13,7 @@ import { MessageService } from 'primeng/api';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { AuthService } from '../../../core/services/auth.service';
 import { Permission } from '../../../core/constants/permissions';
-import { ComprasService, PurchaseOrderDetail, PurchaseOrderLine, PurchaseOrderEstado, CreateReceiptLine } from '../compras.service';
+import { ComprasService, PurchaseOrderDetail, PurchaseOrderLine, PurchaseOrderEstado, CreateReceiptLine, saveXlsxResponse } from '../compras.service';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 
 type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
@@ -58,16 +58,17 @@ interface RecvLine {
           }
         </div>
         @if (po(); as p) {
-          @if (canManage) {
-            <div class="od-actions">
+          <div class="od-actions">
+            <button pButton type="button" label="Exportar Excel" icon="pi pi-file-excel" class="p-button-sm p-button-outlined p-button-secondary" [loading]="exporting()" (click)="exportXlsx()"></button>
+            @if (canManage) {
               @if (p.estado === 'open' || p.estado === 'partial') {
                 <button pButton type="button" label="Registrar recepción" icon="pi pi-inbox" class="p-button-sm" (click)="openReceive()"></button>
               }
               @if (p.estado === 'open' && p.received_units === 0) {
                 <button pButton type="button" label="Cancelar OC" icon="pi pi-times" class="p-button-sm p-button-outlined p-button-danger" [loading]="busy()" (click)="cancel()"></button>
               }
-            </div>
-          }
+            }
+          </div>
         }
       </header>
 
@@ -175,6 +176,17 @@ export class ComprasOrdenDetalleComponent implements OnInit {
   loading = signal(true);
   busy = signal(false);
   saving = signal(false);
+  exporting = signal(false);
+
+  /** Export XLSX con diseño (header + líneas). Disponible en cualquier estado. */
+  exportXlsx(): void {
+    const p = this.po(); if (!p) return;
+    this.exporting.set(true);
+    this.api.exportPurchaseOrderXlsx(p.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (resp) => { this.exporting.set(false); saveXlsxResponse(resp, `${p.folio}.xlsx`); },
+      error: () => { this.exporting.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo exportar.' }); },
+    });
+  }
   recvOpen = signal(false);
   recvLines = signal<RecvLine[]>([]);
   recvNotes = '';

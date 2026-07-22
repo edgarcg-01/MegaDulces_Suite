@@ -1,5 +1,5 @@
 import { Injectable, inject } from '@angular/core';
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpResponse } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
 
@@ -326,6 +326,57 @@ export interface SupplierOrderHistory {
   recent: OrderHistoryEntry[];
 }
 
+// ── Export XLSX de un PEDIDO (cockpit/consolidado) ─────────────────────
+/** Línea de un pedido exportable. Campos opcionales: el backend incluye la columna solo si
+ * alguna línea la trae (así el cockpit sale rico y la requisición/OC salen limpias). */
+export interface PedidoExportLine {
+  warehouse_code?: string | null;
+  sku?: string | null;
+  nombre?: string | null;
+  abc_class?: string | null;
+  xyz_class?: string | null;
+  sales_rank?: number | null;
+  monthly_revenue?: number | null;
+  on_hand?: number | null;
+  in_transit?: number | null;
+  hub_on_hand?: number | null;
+  reorder_point?: number | null;
+  max_stock?: number | null;
+  suggested_qty?: number | null;
+  uxc?: number | null;
+  cajas?: number | null;
+  piezas?: number | null;
+  received_qty?: number | null;
+  unit_cost?: number | null;
+  line_cost?: number | null;
+  hub_short?: boolean;
+}
+export interface PedidoExportPayload {
+  title?: string | null;
+  supplier_name?: string | null;
+  warehouse_label?: string | null;
+  via?: 'purchase' | 'transfer' | null;
+  basis?: string | null;
+  source_warehouse_code?: string | null;
+  folio?: string | null;
+  estado?: string | null;
+  multi_warehouse?: boolean;
+  lines: PedidoExportLine[];
+}
+
+/** Dispara la descarga de un XLSX recibido como blob (respeta el filename del Content-Disposition). */
+export function saveXlsxResponse(resp: HttpResponse<Blob>, fallback = 'reporte.xlsx'): void {
+  const blob = resp.body!;
+  const cd = resp.headers.get('content-disposition') || '';
+  const star = /filename\*=UTF-8''([^;]+)/i.exec(cd);
+  const plain = /filename="?([^";]+)"?/i.exec(cd);
+  const name = star ? decodeURIComponent(star[1]) : (plain ? plain[1] : fallback);
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = name; a.click();
+  URL.revokeObjectURL(url);
+}
+
 @Injectable({ providedIn: 'root' })
 export class ComprasService {
   private readonly http = inject(HttpClient);
@@ -371,6 +422,15 @@ export class ComprasService {
       responseType: 'blob',
       observe: 'response',
     });
+  }
+
+  /** Export XLSX con diseño de un PEDIDO armado en el cliente (cockpit / consolidado). */
+  exportPedidoXlsx(payload: PedidoExportPayload) {
+    return this.http.post(`${this.base}/pedido.xlsx`, payload, { responseType: 'blob', observe: 'response' });
+  }
+  /** Export XLSX con diseño de una requisición ya creada (por id). */
+  exportRequisitionXlsx(id: string) {
+    return this.http.get(`${this.base}/requisitions/${id}/export.xlsx`, { responseType: 'blob', observe: 'response' });
   }
 
   deadStock(q: { warehouse_ids?: string[]; warehouse_id?: string; supplier_id?: string; search?: string; page?: number; pageSize?: number }): Observable<DeadStockResponse> {
@@ -510,6 +570,10 @@ export class ComprasService {
   }
   getPurchaseOrder(id: string): Observable<PurchaseOrderDetail> {
     return this.http.get<PurchaseOrderDetail>(`${this.poBase}/${id}`);
+  }
+  /** Export XLSX con diseño de una orden de compra (por id). */
+  exportPurchaseOrderXlsx(id: string) {
+    return this.http.get(`${this.poBase}/${id}/export.xlsx`, { responseType: 'blob', observe: 'response' });
   }
   /** Genera la OC desde una requisición aprobada. */
   createPOFromRequisition(requisitionId: string, body?: { expected_date?: string | null; notes?: string }): Observable<{ id: string; folio: string; estado: PurchaseOrderEstado; requisition_folio: string }> {
