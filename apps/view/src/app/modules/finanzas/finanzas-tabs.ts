@@ -14,6 +14,12 @@ export const FINANZAS_TABS: PageTab[] = [
     permission: Permission.FINANCE_EXPENSES_VER,
   },
   {
+    label: 'Bancos',
+    route: '/finanzas/bancos',
+    icon: 'pi pi-building-columns',
+    permission: Permission.FINANCE_EXPENSES_VER,
+  },
+  {
     label: 'Hallazgos',
     route: '/finanzas/hallazgos',
     icon: 'pi pi-flag',

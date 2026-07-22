@@ -231,6 +231,11 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.FINANCE_EXPENSES_VER)]
       },
       {
+        path: 'bancos',
+        loadComponent: () => import('./modules/finanzas/pages/finanzas-bancos.component').then(m => m.FinanzasBancosComponent),
+        canActivate: [permissionGuard(Permission.FINANCE_EXPENSES_VER)]
+      },
+      {
         path: 'solicitudes',
         loadComponent: () => import('./modules/finanzas/pages/finanzas-solicitudes.component').then(m => m.FinanzasSolicitudesComponent),
         canActivate: [permissionGuard(Permission.FINANCE_EXPENSES_VER)]

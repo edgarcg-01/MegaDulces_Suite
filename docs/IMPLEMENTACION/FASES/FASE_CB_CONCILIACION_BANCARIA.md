@@ -79,11 +79,21 @@ Migración [`20260722130000_finance_bank_reconciliation.js`](../../../database/m
 |---|---|---|
 | **CB.0** | ADR-033 + schema `finance.bank_*` + seed catálogo/cuentas | ✅ 2026-07-22 (local) |
 | **CB.1** | Importer `import-bank-statement.js` (exceljs): XLSX → `bank_statements`+`bank_movements`, traduce código Excel→categoría (regex de concepto para 612/613), valida totales vs CONCENTRADO, UPSERT por `client_uuid` | ✅ 2026-07-22 (local) |
-| **CB.2** | Backend `libs/finance` módulo `finance-bank`: CRUD cuentas/categorías, endpoint upload+import, listar movimientos, reclasificar, correr conciliación | ⬜ |
-| **CB.3** | Frontend `/finanzas/bancos`: cuentas → movimientos (grid editable) → conciliación (tablero estilo CONCENTRADO por banco) → diferencias | ⬜ |
+| **CB.1b** | Backfill histórico: correr el importer para **feb–jul 2026** (un workbook por mes) → histórico completo en `finance.bank_*`. Insumo: los XLSX mensuales (Edgar). | ⬜ (falta insumos) |
+| **CB.2** | Backend `libs/finance` módulo `finance-bank`: endpoints `GET /finance/bank/{accounts,categories,periods,statements,concentrado,movements}` + `PATCH /movements/:id/category`. Read=`FINANCE_EXPENSES_VER`, reclasificar=`FINANCE_FINDINGS_GESTIONAR`. Build api verde + queries verificadas vs local. **Upload web + reconcile → CB.2.1/CB.4.** | ✅ 2026-07-22 |
+| **CB.3** | Frontend `/finanzas/bancos` (Operations, PrimeNG, dark-first): tablero CONCENTRADO (pivote cuenta×grupo + MetricStrip KPIs) · grid de movimientos con **reclasificación inline optimista** (select por fila, resalta sin_clasificar) · lista de cuentas. Tab "Bancos" + ruta `permissionGuard(FINANCE_EXPENSES_VER)`. Build view verde. **Validación visual manual pendiente.** | ✅ 2026-07-22 |
 | **CB.4** | Motor de conciliación banco↔Kepler (fecha+monto+contraparte, patrón `expense_doc_chain`) + diferencias → `finance.findings` (clase conciliación) + `kepler_link` por banco | ⬜ |
 
 **Decisiones tomadas (Edgar 2026-07-22):** catálogo **rediseñado limpio** (no migrar códigos Excel); ingesta por **subir el XLSX** en CB.1.
+
+### Estrategia de corte (Edgar 2026-07-22)
+
+Dos fases de operación, con **julio 2026 (mes actual) como línea de corte**:
+
+1. **Histórico → vía Excel (backfill).** Todos los meses **hasta julio 2026 inclusive** se concilian importando los workbooks Excel mensuales con el importer CB.1 (`--file "<MES> 2026.xlsx" --period YYYY-MM`, idempotente). Deja el histórico completo cargado en `finance.bank_*` sin recapturar nada a mano.
+2. **Adelante → vía interfaz.** A partir de **agosto 2026** se deja de usar el Excel: los estados de cuenta se suben/capturan y concilian **en `/finanzas/bancos`** (upload web CB.2.1 + reclasificación + motor de conciliación CB.4). El Excel se retira.
+
+**CB.1-backfill (pendiente de insumos):** el importer ya es genérico; falta **cargar los workbooks de feb–jul 2026** (solo tengo enero). Cuando Edgar los provea, se corre el importer una vez por mes (o un loop) → histórico completo. Ver [`CB.1b`] abajo.
 
 ## 4. Diferido / decisiones abiertas
 - `kepler_link` por banco (mapear el `102` consolidado de Kepler a cada cuenta) — CB.4; el banco en Kepler vive en `c7` sucio.
