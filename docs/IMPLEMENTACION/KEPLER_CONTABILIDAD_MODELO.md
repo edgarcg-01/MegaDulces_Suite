@@ -117,7 +117,7 @@ No es una cuenta de control presupuestal: fue **el pivote de todo el P&L 2025**.
     | Contado | $0.2M | |
 
     → Feed: [`import-sales-by-channel.js`](../../database/importers/kepler/import-sales-by-channel.js) → `analytics.sales_by_channel_monthly`. 2025 no aplica (fue presupuesto, sin UD1301).
-  - **⚠️ El `ledger_monthly` (balanza) SÍ suma las 6 sucursales → su fam 4 2026 (~$416M) DOBLE-CUENTA las réplicas de sucursal.** El ingreso real es **~$357.5M**, no $416M. Afecta cualquier P&L/utilidad derivado de la balanza — pendiente corregir el feed de balanza para 401 (y revisar si 5xx/6xx tienen el mismo problema).
+  - **⚠️ El P&L se consolida en CEDIS (sucursal '00'); NO sumar las 6 sucursales.** Las DBs de sucursal REPLICAN la venta (fam 4) y el costo (fam 5) que CEDIS ya centraliza → sumar toda la red duplica (~+$59M ingresos, +$79M costo) y hunde el margen bruto de **17.6% (correcto, CEDIS-solo) a 10% (mal)**. El `ledger_monthly` guarda las 6 sucursales (necesario para el balance/fam 1-2, que sí son locales), pero **cualquier P&L filtra `sucursal='00'`**. Corregido: `maat_pnl` ahora hace default a '00'. **P&L 2026 real (CEDIS): ingresos $357.7M − costo $294.8M = bruta $62.9M (17.6%) − gastos $39.5M − otros $5.2M + fam9 $7.4M ≈ utilidad neta ~$18-26M (5-7%)** (rango por el tratamiento de fam 9 y el corte de inventario post-abr).
   - Pólizas de venta **sin línea de IVA** (`C 115 = A 401` exacto).
 - **`403` devoluciones/NC reales** — solo $667k/12m. No existe en kdco. **Los "$55M de cargos a 401" NO son devoluciones** (son la reclass + fletes neteados).
 

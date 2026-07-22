@@ -239,13 +239,13 @@ Tienes acceso a: **balanza de comprobación completa** (familias 1-9, cargos/abo
       {
         name: 'maat_pnl',
         description:
-          'Estado de resultados CONTABLE derivado de la balanza, por mes: ingresos (fam 4) − costo (fam 5) − gastos operación (fam 6) − otros gastos (fam 7) = resultado. Para "cuánto ganamos", márgenes y comparación de meses. OJO: aplica los issues conocidos (2025=presupuesto, dic-2025 doble, COGS no computable desde may-2026) al narrar.',
+          'Estado de resultados CONTABLE derivado de la balanza, por mes: ingresos (fam 4) − costo (fam 5) − gastos operación (fam 6) − otros gastos (fam 7) = resultado. Para "cuánto ganamos", márgenes y comparación de meses. Por DEFAULT consolida en CEDIS (sucursal 00), que es donde se centraliza el P&L; NO sumes sucursales (replican la venta → duplican, margen se hunde a ~10%). OJO: aplica los issues conocidos (2025=presupuesto, dic-2025 doble, COGS no computable desde may-2026) al narrar.',
         input_schema: {
           type: 'object',
           properties: {
             from_mes: { type: 'string', description: "Default: hace 12 meses." },
             to_mes: { type: 'string' },
-            sucursal: { type: 'string', description: 'Opcional. Sin sucursal = toda la red.' },
+            sucursal: { type: 'string', description: "Opcional. Default '00' (CEDIS, P&L consolidado). Pasar otra solo para ver esa sucursal (su venta replica CEDIS)." },
           },
         },
       },
@@ -591,8 +591,13 @@ Tienes acceso a: **balanza de comprobación completa** (familias 1-9, cargos/abo
 
   private async pnl(q: any) {
     const { from_mes, to_mes } = this.mesRange(q);
+    // ⚠️ El P&L se contabiliza CONSOLIDADO en CEDIS (sucursal '00'): ventas (401) y costos
+    // se centralizan ahí con todas las plazas. Las DBs de sucursal REPLICAN esa venta/costo,
+    // así que sumar toda la red DUPLICA (~+$60M ingresos, hunde el margen de 17.6% a 10%).
+    // Default = '00' (consolidado). Verificado vs cobranza + sales_daily. Ver KEPLER_CONTABILIDAD_MODELO.md.
+    const suc = q.sucursal || '00';
     return this.tk.run(async (trx) => {
-      const rows: any[] = await this.baseLedger(trx, { sucursal: q.sucursal }, from_mes, to_mes)
+      const rows: any[] = await this.baseLedger(trx, { sucursal: suc }, from_mes, to_mes)
         .groupBy('l.anio_mes')
         .select('l.anio_mes',
           trx.raw("ROUND(COALESCE(SUM(l.abonos - l.cargos) FILTER (WHERE l.familia='4'),0)::numeric,2) AS ingresos"),
@@ -601,8 +606,8 @@ Tienes acceso a: **balanza de comprobación completa** (familias 1-9, cargos/abo
           trx.raw("ROUND(COALESCE(SUM(l.cargos - l.abonos) FILTER (WHERE l.familia='7'),0)::numeric,2) AS otros_gastos"))
         .orderBy('l.anio_mes');
       return {
-        from_mes, to_mes, sucursal: q.sucursal || '(toda la red)',
-        nota: 'P&L contable derivado de la balanza. Recordar: 2025 = capa presupuesto; dic-2025 doble; costo (fam 5) usa el juego de inventarios y NO es computable desde may-2026 (cierre cortado); ingresos incluyen la reclass de $54.67M en mar-2026.',
+        from_mes, to_mes, sucursal: suc === '00' ? '00 (CEDIS, consolidado)' : suc,
+        nota: 'P&L consolidado en CEDIS (sucursal 00); NO sumar sucursales (replican la venta → duplican). Además: 2025 = capa presupuesto; dic-2025 doble; costo (fam 5) usa el juego de inventarios y NO es computable desde may-2026 (cierre cortado); ingresos incluyen la reclass de $54.67M en mar-2026.',
         rows: rows.map((r) => {
           const ingresos = Number(r.ingresos), costo = Number(r.costo), go = Number(r.gastos_operacion), og = Number(r.otros_gastos);
           const resultado = +(ingresos - costo - go - og).toFixed(2);
