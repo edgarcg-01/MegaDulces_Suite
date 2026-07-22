@@ -1,7 +1,8 @@
-import { Injectable, BadRequestException, Logger } from '@nestjs/common';
+import { Injectable, BadRequestException, Logger, Inject, Optional } from '@nestjs/common';
 import * as crypto from 'node:crypto';
 import * as ExcelJS from 'exceljs';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
+import { FINANCE_FINDINGS_SINK_PORT, FinanceFindingsSinkPort, FinanceFindingInput, FinanceRuleInput } from '@megadulces/contracts';
 
 /**
  * CB.2 — Conciliación bancaria (ADR-033). Servicio de lectura + reclasificación
@@ -86,6 +87,7 @@ export class FinanceBankService {
   constructor(
     private readonly tk: TenantKnexService,
     private readonly tenantCtx: TenantContextService,
+    @Optional() @Inject(FINANCE_FINDINGS_SINK_PORT) private readonly findingsSink?: FinanceFindingsSinkPort,
   ) {}
 
   /** Cuentas de banco/caja/factoraje. */
@@ -481,6 +483,161 @@ export class FinanceBankService {
   }
 
   /**
+   * CB.8 — Cuadre de saldos: el chequeo de integridad más fuerte del estado de
+   * cuenta. Por cuenta: saldo_inicial + depósitos − retiros == saldo_final.
+   * Δ ≠ 0 ⇒ falta capturar un movimiento o el saldo está mal tecleado. Más el
+   * check TI=TE (traspasos internos: lo que sale de una cuenta entra en otra →
+   * depósitos de traspaso ≈ retiros de traspaso en la red).
+   */
+  async balances(period?: string) {
+    this.tenantCtx.requireTenantId();
+    if (!period) throw new BadRequestException('period requerido (YYYY-MM)');
+    return this.tk.run(async (trx) => {
+      const rows = await trx('finance.bank_statements as st')
+        .join('finance.bank_accounts as ba', 'ba.id', 'st.bank_account_id')
+        .where('st.period', period)
+        .select('st.id', 'ba.bank', 'ba.account_label', 'ba.kind',
+          'st.opening_balance', 'st.closing_balance', 'st.total_in', 'st.total_out')
+        .orderBy([{ column: 'ba.kind' }, { column: 'ba.bank' }, { column: 'ba.account_label' }]);
+
+      const accounts = (rows as any[]).map((r) => {
+        const opening = n(r.opening_balance), closing = n(r.closing_balance);
+        const computed = Math.round((opening + n(r.total_in) - n(r.total_out)) * 100) / 100;
+        const delta = Math.round((computed - closing) * 100) / 100;
+        return {
+          statement_id: r.id, bank: r.bank, account_label: r.account_label, kind: r.kind,
+          opening, total_in: n(r.total_in), total_out: n(r.total_out),
+          computed_closing: computed, closing, delta,
+          cuadra: Math.abs(delta) < 1 && (opening !== 0 || closing !== 0),
+          sin_saldo: opening === 0 && closing === 0,
+        };
+      });
+
+      // TI=TE: traspasos internos deben netear en la red (depósitos ≈ retiros).
+      const tr = await trx('finance.bank_movements as bm')
+        .join('finance.bank_statements as st', 'st.id', 'bm.statement_id')
+        .leftJoin('finance.movement_categories as mc', 'mc.id', 'bm.category_id')
+        .where('st.period', period).where('mc.group_key', 'traspaso')
+        .select(trx.raw('SUM(bm.amount_in)::numeric AS entra'), trx.raw('SUM(bm.amount_out)::numeric AS sale'))
+        .first();
+      const traspasos = { entra: n((tr as any)?.entra), sale: n((tr as any)?.sale), delta: Math.round((n((tr as any)?.entra) - n((tr as any)?.sale)) * 100) / 100 };
+
+      const totals = accounts.reduce((t, a) => ({
+        opening: t.opening + a.opening, total_in: t.total_in + a.total_in, total_out: t.total_out + a.total_out,
+        closing: t.closing + a.closing, descuadre: t.descuadre + (a.cuadra || a.sin_saldo ? 0 : Math.abs(a.delta)),
+      }), { opening: 0, total_in: 0, total_out: 0, closing: 0, descuadre: 0 });
+
+      return { period, accounts, traspasos, totals,
+        cuentas_descuadradas: accounts.filter((a) => !a.cuadra && !a.sin_saldo).length,
+        cuentas_sin_saldo: accounts.filter((a) => a.sin_saldo).length };
+    });
+  }
+
+  /**
+   * CB.7 — Empuja las diferencias de conciliación a la bandeja unificada de Maat
+   * (finance.findings) vía FINANCE_FINDINGS_SINK_PORT (@Optional, best-effort).
+   * Determinista, sin LLM. Tres reglas:
+   *  - banco_retiro_sin_kepler (riesgo): retiro material sin pago 102 en Kepler.
+   *  - banco_sin_clasificar (error_captura): monto sin categoría en el periodo.
+   *  - banco_pnl_descuadre (riesgo): categoría de gasto vs mayor Kepler fuera de tol.
+   * Requiere haber corrido runMatch (usa recon_status). El triage/feedback vive en
+   * /finanzas/hallazgos (dedup estable → re-sync actualiza, no duplica).
+   */
+  async syncFindings(period?: string) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    if (!period) throw new BadRequestException('period requerido (YYYY-MM)');
+    if (!this.findingsSink) { this.logger.debug('sink de hallazgos no ligado — syncFindings no-op.'); return { pushed: 0, inserted: 0, skipped: 0 }; }
+
+    const RETIRO_MIN = 50000;   // solo retiros materiales sin casar → hallazgo (evita ruido de comisiones)
+    const PNL_MIN = 10000;      // descuadre P&L mínimo para reportar
+    const money = (v: number) => Number(v || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 });
+
+    // Retiros del banco sin casar, materiales (con su cuenta/categoría).
+    const unmatched = await this.tk.run(async (trx) =>
+      trx('finance.bank_movements as bm')
+        .join('finance.bank_statements as st', 'st.id', 'bm.statement_id')
+        .join('finance.bank_accounts as ba', 'ba.id', 'bm.bank_account_id')
+        .leftJoin('finance.movement_categories as mc', 'mc.id', 'bm.category_id')
+        .where('st.period', period).where('bm.recon_status', 'unmatched').where('bm.amount_out', '>=', RETIRO_MIN)
+        .whereRaw(`COALESCE(mc.group_key,'sin_clasificar') NOT IN ('traspaso','ingreso','devolucion')`)
+        .select('bm.id', 'bm.movement_date', 'bm.amount_out', 'bm.concept',
+          'mc.name as category_name', 'ba.bank', 'ba.account_label')
+        .orderBy('bm.amount_out', 'desc'));
+
+    const rc = await this.reconciliation(period);
+
+    const rules: FinanceRuleInput[] = [
+      { rule_key: 'banco_retiro_sin_kepler', nombre: 'Retiro bancario sin pago en Kepler', clase: 'riesgo',
+        descripcion: 'Retiro material del banco que no casó con ningún pago del 102 en Kepler (monto+fecha). Puede ser timing, pago no contabilizado o salida no soportada.' },
+      { rule_key: 'banco_sin_clasificar', nombre: 'Movimientos bancarios sin clasificar', clase: 'error_captura',
+        descripcion: 'Monto del estado de cuenta sin categoría asignada en el periodo — pendiente de resolver en la vista de Movimientos.' },
+      { rule_key: 'banco_pnl_descuadre', nombre: 'Descuadre banco vs mayor Kepler', clase: 'riesgo',
+        descripcion: 'El gasto pagado por banco de una categoría difiere del cargo del mayor contable en Kepler más allá de la tolerancia.' },
+      { rule_key: 'banco_saldo_no_cuadra', nombre: 'Saldo de cuenta no cuadra', clase: 'error_captura',
+        descripcion: 'saldo_inicial + depósitos − retiros ≠ saldo_final del estado de cuenta: falta capturar un movimiento o el saldo está mal tecleado.' },
+    ];
+
+    const findings: FinanceFindingInput[] = [];
+
+    for (const m of unmatched as any[]) {
+      const importe = n(m.amount_out);
+      findings.push({
+        rule_key: 'banco_retiro_sin_kepler', clase: 'riesgo',
+        severity: importe >= 500000 ? 'critical' : 'warn', score: importe >= 500000 ? 0.9 : 0.65,
+        titulo: `Retiro sin casar ${money(importe)} — ${m.concept || m.bank}`,
+        resumen: `Retiro de ${money(importe)} el ${m.movement_date} en ${m.bank} ${m.account_label} (${m.category_name || 'sin clasificar'}) no casó con ningún pago del 102 en Kepler.`,
+        entity: { bank_movement_id: m.id, bank: m.bank, account_label: m.account_label, categoria: m.category_name },
+        periodo: period, importe,
+        evidencia: { movement_date: m.movement_date, concept: m.concept, fuente: 'finance.bank_movements' },
+        dedup_key: `banco_retiro_sin_kepler|${m.id}`,
+      });
+    }
+
+    if (rc.sin_clasificar > 0) {
+      findings.push({
+        rule_key: 'banco_sin_clasificar', clase: 'error_captura', severity: 'warn', score: 0.5,
+        titulo: `${money(rc.sin_clasificar)} sin clasificar en ${period}`,
+        resumen: `Hay ${money(rc.sin_clasificar)} en movimientos bancarios sin categoría en ${period}. Resuélvelos en Movimientos para afinar el cuadre.`,
+        entity: { periodo: period }, periodo: period, importe: rc.sin_clasificar,
+        evidencia: { fuente: 'finance.bank_movements', regla: 'sin category_id' },
+        dedup_key: `banco_sin_clasificar|${period}`,
+      });
+    }
+
+    for (const a of rc.accounts as any[]) {
+      if (Math.abs(n(a.delta)) < PNL_MIN) continue;
+      findings.push({
+        rule_key: 'banco_pnl_descuadre', clase: 'riesgo', severity: Math.abs(a.delta) >= 100000 ? 'critical' : 'warn',
+        score: 0.6,
+        titulo: `Descuadre ${a.kepler_account} — Δ ${money(a.delta)}`,
+        resumen: `${a.concept}: banco pagó ${money(a.bank)} vs ${money(a.book)} del mayor ${a.kepler_account} en Kepler (Δ ${money(a.delta)}).`,
+        entity: { kepler_account: a.kepler_account, concepto: a.concept }, periodo: period, importe: Math.abs(n(a.delta)),
+        evidencia: { bank: a.bank, book: a.book, fuente: 'analytics.ledger_monthly' },
+        dedup_key: `banco_pnl_descuadre|${period}|${a.kepler_account}`,
+      });
+    }
+
+    // Cuadre de saldos (CB.8): una cuenta cuyo saldo no cierra = movimiento faltante o mal tecleado.
+    const bal = await this.balances(period);
+    for (const a of bal.accounts as any[]) {
+      if (a.cuadra || a.sin_saldo) continue;
+      findings.push({
+        rule_key: 'banco_saldo_no_cuadra', clase: 'error_captura', severity: Math.abs(a.delta) >= 100000 ? 'critical' : 'warn', score: 0.7,
+        titulo: `Saldo no cuadra ${a.bank} ${a.account_label} — Δ ${money(a.delta)}`,
+        resumen: `${a.bank} ${a.account_label}: inicial ${money(a.opening)} + depósitos ${money(a.total_in)} − retiros ${money(a.total_out)} = ${money(a.computed_closing)}, pero el saldo final es ${money(a.closing)} (Δ ${money(a.delta)}). Falta un movimiento o el saldo está mal capturado.`,
+        entity: { bank: a.bank, account_label: a.account_label, statement_id: a.statement_id }, periodo: period, importe: Math.abs(n(a.delta)),
+        evidencia: { opening: a.opening, total_in: a.total_in, total_out: a.total_out, computed_closing: a.computed_closing, closing: a.closing, fuente: 'finance.bank_statements' },
+        dedup_key: `banco_saldo_no_cuadra|${period}|${a.statement_id}`,
+      });
+    }
+
+    if (!findings.length) return { pushed: 0, inserted: 0, skipped: 0 };
+    const res = await this.findingsSink.pushFindings(tenantId, findings, rules);
+    this.logger.log(`syncFindings ${period}: ${findings.length} → Maat (${res.inserted} nuevos, ${res.skipped} omitidos).`);
+    return { pushed: findings.length, ...res };
+  }
+
+  /**
    * CB.4.1 — Matching por-transacción: retiros del banco (pagos) ↔ abonos del 102
    * de Kepler (`analytics.bank_postings`), por monto exacto + fecha ±7d (greedy,
    * el candidato de fecha más cercana). Escribe finance.bank_recon_matches y marca
@@ -493,7 +650,7 @@ export class FinanceBankService {
     const cents = (x: number) => Math.round((Number(x) || 0) * 100);
     const days = (a: any, b: any) => Math.abs(Math.round((new Date(a).getTime() - new Date(b).getTime()) / 86400000));
 
-    return this.tk.run(async (trx) => {
+    const result = await this.tk.run(async (trx) => {
       // Lado banco: retiros del periodo (excluye traspasos internos y sin importe).
       const bankMovs = await trx('finance.bank_movements as bm')
         .join('finance.bank_statements as st', 'st.id', 'bm.statement_id')
@@ -514,16 +671,36 @@ export class FinanceBankService {
       for (const p of posts) { const k = cents(p.importe); (byAmt.get(k) || byAmt.set(k, []).get(k))!.push(p); }
 
       const matches: any[] = []; const matchedIds: string[] = [];
+      const matchedSet = new Set<string>();
+      // 1er pase: monto exacto + fecha ±7d (greedy por fecha más cercana).
       for (const mv of bankMovs) {
         const cands = (byAmt.get(cents(n(mv.amount_out))) || []).filter((p) => !p.used);
         if (!cands.length) continue;
         let best: any = null, bestD = 8;
         for (const p of cands) { const d = p.fecha ? days(mv.movement_date, p.fecha) : 99; if (d < bestD) { best = p; bestD = d; } }
         if (!best) continue;
-        best.used = true; matchedIds.push(mv.id);
+        best.used = true; matchedIds.push(mv.id); matchedSet.add(mv.id);
         matches.push({ tenant_id: tenantId, bank_movement_id: mv.id, kepler_doc_tipo: best.doc_tipo,
           kepler_doc_folio: best.folio, kepler_cuenta: '102', kepler_amount: best.importe,
           match_type: 'inferred', match_confidence: bestD === 0 ? 0.95 : 0.75, matched_by: 'motor' });
+      }
+      // 2º pase (CB.8): retiros materiales (≥$10k) aún sin casar, por monto exacto
+      // SIN tope de fecha (elige el post de fecha más cercana). Confianza menor.
+      // Rescata pagos grandes con desfase de días (p.ej. el $1.03M a la Rosa) sin
+      // ensuciar comisiones/nómina chicas (que Kepler agrupa) por el umbral.
+      const SECOND_PASS_MIN = 10000;
+      let secondPass = 0;
+      for (const mv of bankMovs) {
+        if (matchedSet.has(mv.id) || n(mv.amount_out) < SECOND_PASS_MIN) continue;
+        const cands = (byAmt.get(cents(n(mv.amount_out))) || []).filter((p) => !p.used);
+        if (!cands.length) continue;
+        let best: any = null, bestD = Infinity;
+        for (const p of cands) { const d = p.fecha ? days(mv.movement_date, p.fecha) : 999; if (d < bestD) { best = p; bestD = d; } }
+        if (!best) continue;
+        best.used = true; matchedIds.push(mv.id); matchedSet.add(mv.id); secondPass++;
+        matches.push({ tenant_id: tenantId, bank_movement_id: mv.id, kepler_doc_tipo: best.doc_tipo,
+          kepler_doc_folio: best.folio, kepler_cuenta: '102', kepler_amount: best.importe,
+          match_type: 'inferred', match_confidence: 0.5, matched_by: 'motor-2p' });
       }
 
       // Persistir: limpiar matches previos del periodo + reinsertar; marcar recon_status.
@@ -539,15 +716,19 @@ export class FinanceBankService {
 
       const matchedAmt = matches.reduce((s, m) => s + n(m.kepler_amount), 0);
       const bankTotal = bankMovs.reduce((s: number, m: any) => s + n(m.amount_out), 0);
-      this.logger.log(`match ${period}: ${matches.length}/${bankMovs.length} retiros casados por ${matchedIds.length}`);
+      this.logger.log(`match ${period}: ${matches.length}/${bankMovs.length} retiros casados (${secondPass} en 2º pase)`);
       return {
-        period, bank_movements: bankMovs.length, matched: matches.length,
+        period, bank_movements: bankMovs.length, matched: matches.length, second_pass: secondPass,
         unmatched_bank: bankMovs.length - matches.length,
         kepler_postings: posts.length, unmatched_kepler: posts.filter((p) => !p.used).length,
         matched_amount: matchedAmt, bank_amount: bankTotal,
         match_rate: bankMovs.length ? Math.round((matches.length / bankMovs.length) * 100) : 0,
       };
     });
+
+    // CB.7 — tras casar, refresca los hallazgos de conciliación (best-effort).
+    try { await this.syncFindings(period); } catch (e: any) { this.logger.warn(`syncFindings tras match falló: ${e?.message || e}`); }
+    return result;
   }
 
   /**
@@ -662,7 +843,7 @@ export class FinanceBankService {
         const ci = { fecha: col['FECHA'], m: col['M'], s: col['S'], c: col['C'], prov: col['PROVEEDOR'], ret: col['RETIRO'], dep: col['DEPOSITO'], saldo: col['SALDO'] };
 
         const rows: any[] = []; const seen = new Map<string, number>();
-        let tin = 0, tout = 0, uncat = 0, lastBal: number | null = null;
+        let tin = 0, tout = 0, uncat = 0, lastBal: number | null = null, openingBal: number | null = null;
         for (let r = hRow + 1; r <= ws.rowCount; r++) {
           const row = ws.getRow(r);
           const date = excelDate(cellVal(row, ci.fecha));
@@ -679,6 +860,8 @@ export class FinanceBankService {
           if (!catId) uncat++;
           (byGroup[group] ||= { in: 0, out: 0, n: 0 }); byGroup[group].in += amtIn; byGroup[group].out += amtOut; byGroup[group].n++;
           tin += amtIn; tout += amtOut; if (bal !== null) lastBal = bal;
+          // Saldo inicial = saldo (running) tras el primer movimiento − su neto. Habilita el cuadre de saldos (CB.8).
+          if (openingBal === null && bal !== null) openingBal = Math.round((bal - amtIn + amtOut) * 100) / 100;
           const contentKey = `${acct.account_label}|${period}|${date}|${M}|${C}|${concept}|${amtIn}|${amtOut}`;
           const occ = (seen.get(contentKey) || 0) + 1; seen.set(contentKey, occ);
           const clientUuid = crypto.createHash('sha1').update(`${contentKey}|${occ}`).digest('hex');
@@ -690,10 +873,11 @@ export class FinanceBankService {
 
         const [st] = await trx('finance.bank_statements')
           .insert({ tenant_id: tenantId, bank_account_id: acct.id, period,
-            closing_balance: lastBal ?? 0, total_in: Math.round(tin * 100) / 100, total_out: Math.round(tout * 100) / 100,
+            opening_balance: openingBal ?? 0, closing_balance: lastBal ?? 0,
+            total_in: Math.round(tin * 100) / 100, total_out: Math.round(tout * 100) / 100,
             source_file: sourceFile || null, status: 'imported', imported_at: trx.fn.now(), imported_by: actor || null })
           .onConflict(['tenant_id', 'bank_account_id', 'period'])
-          .merge(['closing_balance', 'total_in', 'total_out', 'source_file', 'imported_at', 'updated_at'])
+          .merge(['opening_balance', 'closing_balance', 'total_in', 'total_out', 'source_file', 'imported_at', 'updated_at'])
           .returning('id');
         const statementId = (st as any).id;
         for (const r of rows) r.statement_id = statementId;

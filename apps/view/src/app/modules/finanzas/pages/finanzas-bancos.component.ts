@@ -9,7 +9,7 @@ import { MessageService } from 'primeng/api';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { FINANZAS_TABS } from '../finanzas-tabs';
-import { BankService, BankAccount, MovementCategory, BankStatement, BankMovement, Concentrado, Reconciliation, MatchResult, Differences, ClassifyRule } from '../bank.service';
+import { BankService, BankAccount, MovementCategory, BankStatement, BankMovement, Concentrado, Reconciliation, MatchResult, Differences, ClassifyRule, Balances } from '../bank.service';
 
 const MONTHS_ES: Record<string, string> = {
   ENERO: '01', FEBRERO: '02', MARZO: '03', ABRIL: '04', MAYO: '05', JUNIO: '06',
@@ -174,7 +174,10 @@ const GROUP_ORDER = ['ingreso', 'compra', 'gasto', 'factoraje', 'financiero', 't
           <div class="card-premium card-flat fb-match">
             <div class="fb-match-head">
               <h3 class="fb-card-title">Matching por-transacción <span class="muted">— retiros del banco ↔ pagos del 102 en Kepler</span></h3>
-              <button pButton type="button" label="Correr matching" icon="pi pi-bolt" class="p-button-sm p-button-outlined" [loading]="matching()" (click)="runMatch()"></button>
+              <div class="fb-match-actions">
+                <button pButton type="button" label="Enviar a Hallazgos" icon="pi pi-flag" class="p-button-sm p-button-text" [loading]="syncing()" (click)="syncFindings()" title="Empuja las diferencias a la bandeja de /finanzas/hallazgos"></button>
+                <button pButton type="button" label="Correr matching" icon="pi pi-bolt" class="p-button-sm p-button-outlined" [loading]="matching()" (click)="runMatch()"></button>
+              </div>
             </div>
             @if (matchResult(); as mr) {
               <div class="fb-match-res">
@@ -202,6 +205,40 @@ const GROUP_ORDER = ['ingreso', 'compra', 'gasto', 'factoraje', 'financiero', 't
             </div>
             @if (rc.sin_clasificar > 0) { <p class="fb-recon-note muted"><i class="pi pi-exclamation-triangle"></i> {{ rc.sin_clasificar | currency:'MXN':'symbol-narrow':'1.0-0' }} en movimientos sin clasificar — resuélvelos en Movimientos para afinar el cuadre.</p> }
           </div>
+
+          @if (balances(); as bal) {
+            <div class="card-premium card-flat fb-tablewrap fb-bal">
+              <h3 class="fb-card-title fb-pnl-title">Cuadre de saldos <span class="muted">— saldo inicial + depósitos − retiros = saldo final</span>
+                @if (bal.cuentas_descuadradas > 0) { <span class="fb-bal-badge bad">{{ bal.cuentas_descuadradas }} sin cuadrar</span> }
+                @else if (bal.cuentas_sin_saldo === bal.accounts.length) { <span class="fb-bal-badge warn">sin saldos</span> }
+                @else { <span class="fb-bal-badge ok">todo cuadra</span> }
+              </h3>
+              <p-table [value]="bal.accounts" styleClass="p-datatable-sm" [rowHover]="true" [scrollable]="true" scrollHeight="40vh">
+                <ng-template pTemplate="header">
+                  <tr><th>Cuenta</th><th class="ta-r">Inicial</th><th class="ta-r">Depósitos</th><th class="ta-r">Retiros</th><th class="ta-r">Calculado</th><th class="ta-r">Final</th><th class="ta-r">Δ</th></tr>
+                </ng-template>
+                <ng-template pTemplate="body" let-a>
+                  <tr [class.fb-bal-sinsaldo]="a.sin_saldo">
+                    <td>{{ a.bank }} <span class="muted mono">{{ a.account_label }}</span></td>
+                    <td class="ta-r mono">{{ a.opening | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+                    <td class="ta-r mono">{{ a.total_in | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+                    <td class="ta-r mono">{{ a.total_out | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+                    <td class="ta-r mono muted">{{ a.computed_closing | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+                    <td class="ta-r mono fb-strong">{{ a.closing | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+                    <td class="ta-r mono">
+                      @if (a.sin_saldo) { <span class="muted">—</span> }
+                      @else { <span [class.bad]="!a.cuadra" [class.ok]="a.cuadra">{{ a.delta | currency:'MXN':'symbol-narrow':'1.0-0' }}</span> }
+                    </td>
+                  </tr>
+                </ng-template>
+              </p-table>
+              <p class="fb-recon-note muted">
+                Traspasos internos (TI=TE): entra {{ bal.traspasos.entra | currency:'MXN':'symbol-narrow':'1.0-0' }} vs sale {{ bal.traspasos.sale | currency:'MXN':'symbol-narrow':'1.0-0' }}
+                <span [class.bad]="!cuadra(bal.traspasos.delta)" [class.ok]="cuadra(bal.traspasos.delta)">(Δ {{ bal.traspasos.delta | currency:'MXN':'symbol-narrow':'1.0-0' }})</span>.
+                @if (bal.cuentas_sin_saldo > 0) { · {{ bal.cuentas_sin_saldo }} cuenta(s) sin columna SALDO en el Excel (no verificable). }
+              </p>
+            </div>
+          }
           <div class="card-premium card-flat fb-tablewrap">
             <h3 class="fb-card-title fb-pnl-title">P&L — gasto del banco vs cuenta contable Kepler</h3>
             <p-table [value]="rc.accounts" styleClass="p-datatable-sm" [rowHover]="true">
@@ -481,6 +518,13 @@ const GROUP_ORDER = ['ingreso', 'compra', 'gasto', 'factoraje', 'financiero', 't
     .fb-pnl-title { padding: var(--sp-3) var(--sp-3) 0; }
     .fb-match { margin-bottom: var(--sp-3); }
     .fb-match-head { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); flex-wrap: wrap; }
+    .fb-match-actions { display: flex; align-items: center; gap: var(--sp-1); flex-wrap: wrap; }
+    .fb-bal { margin-bottom: var(--sp-3); }
+    .fb-bal-badge { font-size: var(--fs-xs); font-weight: 600; padding: 1px var(--sp-2); border-radius: var(--r-sm); margin-left: var(--sp-2); }
+    .fb-bal-badge.ok { color: var(--ok-fg); background: color-mix(in srgb, var(--ok-fg) 12%, transparent); }
+    .fb-bal-badge.bad { color: var(--bad-fg); background: color-mix(in srgb, var(--bad-fg) 12%, transparent); }
+    .fb-bal-badge.warn { color: var(--warn-fg); background: color-mix(in srgb, var(--warn-fg) 12%, transparent); }
+    .fb-bal-sinsaldo { opacity: 0.55; }
     .fb-match-res { display: flex; align-items: baseline; gap: var(--sp-2); flex-wrap: wrap; margin-top: var(--sp-2); font-size: var(--fs-sm); }
     .fb-match-rate { font-size: var(--fs-lg, 1.125rem); font-weight: 700; }
     .fb-match-rate.warn { color: var(--warn-fg); } .fb-match-rate.ok { color: var(--ok-fg); }
@@ -521,9 +565,11 @@ export class FinanzasBancosComponent implements OnInit {
   readonly statements = signal<BankStatement[]>([]);
   readonly concentrado = signal<Concentrado | null>(null);
   readonly reconciliation = signal<Reconciliation | null>(null);
+  readonly balances = signal<Balances | null>(null);
   readonly matchResult = signal<MatchResult | null>(null);
   readonly differences = signal<Differences | null>(null);
   readonly matching = signal(false);
+  readonly syncing = signal(false);
   readonly movements = signal<BankMovement[]>([]);
   readonly movTotal = signal(0);
 
@@ -580,6 +626,7 @@ export class FinanzasBancosComponent implements OnInit {
     });
     this.api.statements(p).pipe(takeUntilDestroyed(this.destroyRef)).subscribe((s) => this.statements.set(s));
     this.api.reconciliation(p).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (rc) => this.reconciliation.set(rc), error: () => this.reconciliation.set(null) });
+    this.api.balances(p).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (b) => this.balances.set(b), error: () => this.balances.set(null) });
     this.reloadMovements();
   }
 
@@ -683,10 +730,93 @@ export class FinanzasBancosComponent implements OnInit {
     });
   }
 
+  /** CB.7 — Empuja las diferencias del periodo a la bandeja de hallazgos de Maat. */
+  syncFindings(): void {
+    if (!this.period()) return;
+    this.syncing.set(true);
+    this.api.syncFindings(this.period()).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => {
+        this.syncing.set(false);
+        this.toast.add({ severity: 'success', summary: `${r.pushed} diferencias enviadas`, detail: `${r.inserted} nuevas en /finanzas/hallazgos · ${r.skipped} omitidas`, life: 4000 });
+      },
+      error: () => { this.syncing.set(false); this.fail('No se pudieron enviar las diferencias a Hallazgos.'); },
+    });
+  }
+
   /** Tolerancia de cuadre: ±$1,000 (o ~0.5%) se considera cuadrado. */
   cuadra(delta: number): boolean { return Math.abs(delta) < 1000; }
   label(group: string): string { return GROUP_LABELS[group] || group; }
   kindLabel(kind: string): string { return kind === 'bank' ? 'Banco' : kind === 'cash' ? 'Caja' : 'Factoraje'; }
+
+  // ── CB.6 Admin ──
+  openAdmin(): void {
+    this.view.set('admin');
+    if (!this.rules().length) this.api.rules().pipe(takeUntilDestroyed(this.destroyRef)).subscribe((r) => this.rules.set(r));
+  }
+
+  private ok(summary: string): void { this.toast.add({ severity: 'success', summary, life: 1500 }); }
+
+  patchRule(r: ClassifyRule, patch: Partial<ClassifyRule>): void {
+    this.rules.update((rs) => rs.map((x) => x.id === r.id ? { ...x, ...patch } : x));
+    this.api.updateRule(r.id, patch).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: () => this.ok('Regla actualizada'),
+      error: () => { this.reloadRules(); this.fail('No se pudo actualizar la regla (¿regex inválida?).'); },
+    });
+  }
+  addRule(): void {
+    if (!this.nrCategory) { this.fail('Elige una categoría para la regla.'); return; }
+    if (!this.nrType && !this.nrCode && !this.nrConcept) { this.fail('Al menos un matcher (tipo/código/concepto).'); return; }
+    this.api.createRule({
+      priority: this.nrPriority ?? undefined, match_type: this.nrType || null, match_code: this.nrCode || null,
+      match_concept: this.nrConcept || null, category_code: this.nrCategory,
+    } as any).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: () => { this.nrPriority = null; this.nrType = this.nrCode = this.nrConcept = this.nrCategory = ''; this.reloadRules(); this.ok('Regla agregada'); },
+      error: () => this.fail('No se pudo agregar la regla.'),
+    });
+  }
+  deleteRule(r: ClassifyRule): void {
+    this.rules.update((rs) => rs.filter((x) => x.id !== r.id));
+    this.api.deleteRule(r.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: () => this.ok('Regla eliminada'), error: () => { this.reloadRules(); this.fail('No se pudo eliminar.'); } });
+  }
+  private reloadRules(): void { this.api.rules().pipe(takeUntilDestroyed(this.destroyRef)).subscribe((r) => this.rules.set(r)); }
+
+  patchCategory(c: MovementCategory, patch: Partial<MovementCategory>): void {
+    this.categories.update((cs) => cs.map((x) => x.id === c.id ? { ...x, ...patch } : x));
+    this.api.updateCategory(c.id, patch).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: () => this.ok('Categoría actualizada'), error: () => this.fail('No se pudo actualizar la categoría.') });
+  }
+  addCategory(): void {
+    if (!this.ncCode || !this.ncName) { this.fail('Código y nombre requeridos.'); return; }
+    this.api.createCategory({ code: this.ncCode, name: this.ncName, group_key: this.ncGroup, kepler_account: this.ncKepler || null, flow: this.ncFlow } as any)
+      .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+        next: () => { this.ncCode = this.ncName = this.ncKepler = ''; this.api.categories().pipe(takeUntilDestroyed(this.destroyRef)).subscribe((cs) => this.categories.set(cs)); this.ok('Categoría agregada'); },
+        error: () => this.fail('No se pudo agregar la categoría.'),
+      });
+  }
+
+  patchAccount(a: BankAccount, patch: Partial<BankAccount>): void {
+    this.accounts.update((as) => as.map((x) => x.id === a.id ? { ...x, ...patch } : x));
+    this.api.updateAccount(a.id, patch).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: () => this.ok('Cuenta actualizada'), error: () => this.fail('No se pudo actualizar la cuenta.') });
+  }
+  addAccount(): void {
+    if (!this.naBank || !this.naLabel) { this.fail('Banco y cuenta requeridos.'); return; }
+    this.api.createAccount({ bank: this.naBank, account_label: this.naLabel, alias: this.naAlias || null, kind: this.naKind, kepler_link: this.naKepler || null } as any)
+      .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+        next: () => { this.naBank = this.naLabel = this.naAlias = this.naKepler = ''; this.api.accounts().pipe(takeUntilDestroyed(this.destroyRef)).subscribe((as) => this.accounts.set(as)); this.ok('Cuenta agregada'); },
+        error: () => this.fail('No se pudo agregar la cuenta.'),
+      });
+  }
+
+  reclassifyAll(): void {
+    this.reclassifying.set(true);
+    this.api.reclassifyAll().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => {
+        this.reclassifying.set(false);
+        this.toast.add({ severity: 'success', summary: 'Reclasificado', detail: `${r.changed} de ${r.scanned} movimientos recategorizados`, life: 4000 });
+        if (this.period()) this.loadPeriod();
+      },
+      error: () => { this.reclassifying.set(false); this.fail('No se pudo reclasificar.'); },
+    });
+  }
 
   private fail(msg: string): void {
     this.loading.set(false);

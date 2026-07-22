@@ -123,7 +123,7 @@ async function bulkUpsertMovements(db, rows) {
 
     const movRows = [];
     const seen = new Map();
-    let tin = 0, tout = 0, uncat = 0, lastBal = null;
+    let tin = 0, tout = 0, uncat = 0, lastBal = null, openingBal = null;
     for (let r = hRow + 1; r <= ws.rowCount; r++) {
       const row = ws.getRow(r);
       const date = excelDate(cellVal(row, ci.fecha));
@@ -140,6 +140,7 @@ async function bulkUpsertMovements(db, rows) {
       if (!catId) uncat++;
       (byGroup[group] ||= { in: 0, out: 0, n: 0 }); byGroup[group].in += amtIn; byGroup[group].out += amtOut; byGroup[group].n++;
       tin += amtIn; tout += amtOut; if (bal !== null) lastBal = bal;
+      if (openingBal === null && bal !== null) openingBal = Math.round((bal - amtIn + amtOut) * 100) / 100;
 
       const contentKey = `${acct.account_label}|${PERIOD}|${date}|${M}|${C}|${concept}|${amtIn}|${amtOut}`;
       const occ = (seen.get(contentKey) || 0) + 1; seen.set(contentKey, occ);
@@ -153,13 +154,13 @@ async function bulkUpsertMovements(db, rows) {
 
     if (APPLY) {
       const st = await db.query(
-        `INSERT INTO finance.bank_statements (tenant_id, bank_account_id, period, closing_balance, total_in, total_out, source_file, status, imported_at, imported_by)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,'imported',now(),'import-bank-statement')
+        `INSERT INTO finance.bank_statements (tenant_id, bank_account_id, period, opening_balance, closing_balance, total_in, total_out, source_file, status, imported_at, imported_by)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'imported',now(),'import-bank-statement')
          ON CONFLICT (tenant_id, bank_account_id, period) DO UPDATE SET
-           closing_balance=EXCLUDED.closing_balance, total_in=EXCLUDED.total_in, total_out=EXCLUDED.total_out,
+           opening_balance=EXCLUDED.opening_balance, closing_balance=EXCLUDED.closing_balance, total_in=EXCLUDED.total_in, total_out=EXCLUDED.total_out,
            source_file=EXCLUDED.source_file, imported_at=now(), updated_at=now()
          RETURNING id`,
-        [MEGA, acct.id, PERIOD, lastBal ?? 0, Math.round(tin * 100) / 100, Math.round(tout * 100) / 100, FILE]);
+        [MEGA, acct.id, PERIOD, openingBal ?? 0, lastBal ?? 0, Math.round(tin * 100) / 100, Math.round(tout * 100) / 100, FILE]);
       const stmtId = st.rows[0].id;
       for (const mr of movRows) mr[1] = stmtId;
       await bulkUpsertMovements(db, movRows);

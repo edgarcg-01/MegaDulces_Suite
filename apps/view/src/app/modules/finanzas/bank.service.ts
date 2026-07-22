@@ -52,8 +52,21 @@ export interface Reconciliation {
 }
 
 export interface MatchResult {
-  period: string; bank_movements: number; matched: number; unmatched_bank: number;
+  period: string; bank_movements: number; matched: number; second_pass?: number; unmatched_bank: number;
   kepler_postings: number; unmatched_kepler: number; matched_amount: number; bank_amount: number; match_rate: number;
+}
+
+/** CB.8 — cuadre de saldos por cuenta. */
+export interface BalanceRow {
+  statement_id: string; bank: string; account_label: string; kind: string;
+  opening: number; total_in: number; total_out: number; computed_closing: number; closing: number; delta: number;
+  cuadra: boolean; sin_saldo: boolean;
+}
+export interface Balances {
+  period: string; accounts: BalanceRow[];
+  traspasos: { entra: number; sale: number; delta: number };
+  totals: { opening: number; total_in: number; total_out: number; closing: number; descuadre: number };
+  cuentas_descuadradas: number; cuentas_sin_saldo: number;
 }
 
 export interface Differences {
@@ -70,6 +83,7 @@ export interface ClassifyRule {
   note: string | null; active: boolean;
 }
 export interface ReclassifyResult { scanned: number; changed: number; }
+export interface SyncFindingsResult { pushed: number; inserted: number; skipped: number; }
 
 export interface MovementsQuery {
   period?: string; account_id?: string; category_id?: string; group_key?: string;
@@ -87,6 +101,7 @@ export class BankService {
   statements(period: string): Observable<BankStatement[]> { return this.http.get<BankStatement[]>(`${this.base}/statements?period=${encodeURIComponent(period)}`); }
   concentrado(period: string): Observable<Concentrado> { return this.http.get<Concentrado>(`${this.base}/concentrado?period=${encodeURIComponent(period)}`); }
   reconciliation(period: string): Observable<Reconciliation> { return this.http.get<Reconciliation>(`${this.base}/reconciliation?period=${encodeURIComponent(period)}`); }
+  balances(period: string): Observable<Balances> { return this.http.get<Balances>(`${this.base}/balances?period=${encodeURIComponent(period)}`); }
 
   movements(q: MovementsQuery): Observable<MovementsPage> {
     const p = new URLSearchParams();
@@ -111,6 +126,9 @@ export class BankService {
   }
   differences(period: string): Observable<Differences> {
     return this.http.get<Differences>(`${this.base}/differences?period=${encodeURIComponent(period)}`);
+  }
+  syncFindings(period: string): Observable<SyncFindingsResult> {
+    return this.http.post<SyncFindingsResult>(`${this.base}/findings/sync`, { period });
   }
 
   importWorkbook(fileBase64: string, period: string, sourceFile: string): Observable<ImportResult> {

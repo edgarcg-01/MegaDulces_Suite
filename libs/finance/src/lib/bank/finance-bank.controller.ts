@@ -57,6 +57,16 @@ export class FinanceBankController {
   @ApiOperation({ summary: 'Diferencias de conciliación: retiros banco y pagos Kepler sin casar (por monto).' })
   differences(@Query('period') period?: string) { return this.svc.differences(period); }
 
+  @Get('balances')
+  @RequirePermissions(Permission.FINANCE_EXPENSES_VER)
+  @ApiOperation({ summary: 'Cuadre de saldos por cuenta (inicial + depósitos − retiros == final) + check TI=TE.' })
+  balances(@Query('period') period?: string) { return this.svc.balances(period); }
+
+  @Post('findings/sync')
+  @RequirePermissions(Permission.FINANCE_FINDINGS_GESTIONAR)
+  @ApiOperation({ summary: 'Empuja las diferencias de conciliación a la bandeja de hallazgos de Maat.' })
+  syncFindings(@Body() body: { period?: string }) { return this.svc.syncFindings(body?.period); }
+
   @Get('movements')
   @RequirePermissions(Permission.FINANCE_EXPENSES_VER)
   @ApiOperation({ summary: 'Movimientos filtrados (grid), paginados.' })
