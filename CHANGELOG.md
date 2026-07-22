@@ -10,6 +10,10 @@
 
 ## [Unreleased]
 
+### Changed — CB: Bancos con permisos propios (aparece en Roles y Permisos) (2026-07-22)
+- Bancos dejaba de verse en `/admin/roles` porque reusaba `FINANCE_EXPENSES_VER`/`FINANCE_FINDINGS_GESTIONAR` (no tenía nodo propio en `AUTHZ_TREE`). Ahora tiene **permisos dedicados** (independencia por módulo): `FINANCE_BANK_VER` (ver) + `FINANCE_BANK_GESTIONAR` (subir/reclasificar/reglas/match). Enum back (`libs/platform-core`) + front, controller `finance-bank` migrado a los nuevos, nodo **Bancos** en el árbol de autz (proyecto Finanzas), labels en `permission-meta`, preset `finanzas`, guard de ruta + tab.
+- **Backfill** (mig `20260722180000`, aplicada local+Railway): ancla los nuevos a los que Bancos usaba (`BANK_VER←EXPENSES_VER`, `BANK_GESTIONAR←FINDINGS_GESTIONAR`) para que **ningún rol pierda acceso** — 37 roles en Railway (finanzas/tesorería/contabilidad/admin…). **Requiere RE-LOGIN** (el JWT lleva los permisos). Builds api+view verdes.
+
 ### Added — CB.9.2: Conciliación bancaria — CAJA GENERAL entra al cuadre (+1,695 movs) (2026-07-22)
 - Revisión a fondo del workbook (22 hojas): las 19 de banco + FACTORAJE ya entraban; **CAJA GENERAL** (caja chica de toda la operación, **1,695 movimientos, EGRESO $10.9M / INGRESO $9.95M**) quedaba fuera por tener **otro layout**: `CTA` (código) · `FOLIO` · `DESCRIPCION` · `EGRESO`/`INGRESO` (no RETIRO/DEPOSITO) · `ARQUEO`/`DIF` (no SALDO).
 - Fix: **alias de columnas** en el parser (web + CLI) — mapea `C||CTA`, `PROVEEDOR||DESCRIPCION`, `RETIRO||EGRESO`, `DEPOSITO||INGRESO`, `#||FOLIO`. Sin rama aparte; misma clasificación (M+CTA+DESCRIPCION). CAJA no trae saldo bancario (ARQUEO es conteo físico) → `running_balance` null → el cuadre la marca "sin saldo" (no verificable por saldo), honesto.

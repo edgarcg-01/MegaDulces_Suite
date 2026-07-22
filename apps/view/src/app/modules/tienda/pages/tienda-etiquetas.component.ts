@@ -533,7 +533,11 @@ export class TiendaEtiquetasComponent {
     doc.write(`<!doctype html><html><head><meta charset="utf-8">${styles}
       <style>
         @page { size:letter landscape; margin:8mm; }
-        html,body{ margin:0; padding:0; background:#fff; }
+        /* Reset height/overflow del styles.css global clonado: html,body{height:100%} en impresión
+           = una hoja completa; con el margen del @page el body desborda ~16mm → 2ª hoja en blanco
+           en cada impresión. height:auto lo colapsa al contenido. !important gana al clon. */
+        html,body{ margin:0 !important; padding:0 !important; background:#fff;
+                   height:auto !important; min-height:0 !important; width:auto !important; overflow:visible !important; }
         *{ -webkit-print-color-adjust:exact !important; print-color-adjust:exact !important; }
         /* Carta horizontal: 2 etiquetas por fila (aprovecha el ancho); se paginan solas y no se parten. */
         body{ text-align:center; font-size:0; }

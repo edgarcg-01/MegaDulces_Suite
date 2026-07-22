@@ -199,6 +199,7 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
         icon: 'pi pi-wallet',
         route: '/finanzas',
         modules: [
+          { id: 'bancos', label: 'Bancos (conciliación)', route: '/finanzas/bancos', view: [Permission.FINANCE_BANK_VER], manage: [Permission.FINANCE_BANK_GESTIONAR] },
           { id: 'egresos', label: 'Egresos contables', route: '/finanzas/egresos', view: [Permission.FINANCE_EXPENSES_VER], manage: [] },
           { id: 'hallazgos', label: 'Hallazgos', route: '/finanzas/hallazgos', view: [Permission.FINANCE_AI_CHAT], manage: [Permission.FINANCE_FINDINGS_GESTIONAR] },
           { id: 'maat', label: 'Pregúntale a Maat', route: '/finanzas/maat', view: [Permission.FINANCE_AI_CHAT], manage: [Permission.FINANCE_FINDINGS_GESTIONAR] },

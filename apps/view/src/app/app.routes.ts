@@ -233,7 +233,7 @@ export const routes: Routes = [
       {
         path: 'bancos',
         loadComponent: () => import('./modules/finanzas/pages/finanzas-bancos.component').then(m => m.FinanzasBancosComponent),
-        canActivate: [permissionGuard(Permission.FINANCE_EXPENSES_VER)]
+        canActivate: [permissionGuard(Permission.FINANCE_BANK_VER)]
       },
       {
         path: 'solicitudes',

@@ -17,7 +17,7 @@ export const FINANZAS_TABS: PageTab[] = [
     label: 'Bancos',
     route: '/finanzas/bancos',
     icon: 'pi pi-building-columns',
-    permission: Permission.FINANCE_EXPENSES_VER,
+    permission: Permission.FINANCE_BANK_VER,
   },
   {
     label: 'Hallazgos',
