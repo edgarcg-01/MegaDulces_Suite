@@ -101,6 +101,17 @@ No es una cuenta de control presupuestal: fue **el pivote de todo el P&L 2025**.
   - Incluyen **$54.67M de una reclasificación interna** (`'VENTAS ABRIL 26'`, vive en la tabla de marzo `kdc22603`, `C 401-002 ↔ A 401-001/003/004`, neto $0) → **venta real ≈ $671M, no $726M**.
   - ago-dic 2025 ($339M) son pólizas resumen contra 999 (nov/dic = forecast).
   - **Todo el detalle 2026 cae en `401-002`** sin importar canal → las subcuentas NO sirven para mezcla de canal; el canal real vive en `c6` (P.V., TLMKT, R.D., R.V.).
+  - **⚠️ El NOMBRE de `401-002` es basura y engaña:** `kdco` de CEDIS la llama `'VENTA FLETES A TERCEROS'` y otra sucursal `'VENTAS VECINAL'` — **ninguno es cierto**. NO es fletes ni vecinal: es la cuenta de venta CONSOLIDADA de todo. Clasificar SIEMPRE por `c6`, nunca por el nombre de subcuenta.
+  - **Composición real por `c6` (2026, `md_00`, ~$345M neto — verificado 2026-07-22):**
+
+    | Canal (prefijo `c6`) | 2026 | Qué es |
+    | --- | ---: | --- |
+    | `P.V. <sucursal>` | ~$214M | Piso de Ventas (mostrador) por sucursal: Morelia Abastos, Canindo, PH, 8 Esquinas, La Piedad, Zamora, Yurécuaro |
+    | `TLMKT <sucursal>` | ~$94M | Telemarketing/mayoreo (Canindo, Morelia, PH) — **es la venta que los feeds de POS `sales_daily` NO capturan** |
+    | `RUTA NN` / `R.D.` | ~$33M | Rutas de reparto (501–504, 21–28, RD Morelia 321) |
+    | `R.V. <sucursal>` | ~$5M | Reparto Vecinal |
+
+  - **Reconciliación vs `analytics.sales_daily`:** la contabilidad ve ~$416M ingresos 2026-YTD vs ~$343M en `sales_daily`. El gap (~$73M) es sobre todo el **TLMKT (~$94M)** que el POS no captura (compensado en parte por diferencias de clasificación entre canales). Para reconciliar exacto: reclasificar `401` por `c6` + confirmar tratamiento de IVA en ambas fuentes.
   - Pólizas de venta **sin línea de IVA** (`C 115 = A 401` exacto).
 - **`403` devoluciones/NC reales** — solo $667k/12m. No existe en kdco. **Los "$55M de cargos a 401" NO son devoluciones** (son la reclass + fletes neteados).
 
