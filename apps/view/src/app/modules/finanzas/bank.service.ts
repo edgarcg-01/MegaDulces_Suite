@@ -85,6 +85,17 @@ export interface ClassifyRule {
 export interface ReclassifyResult { scanned: number; changed: number; }
 export interface SyncFindingsResult { pushed: number; inserted: number; skipped: number; }
 
+/** CB.9 — diagnóstico "¿por qué no cuadra y qué falta?". */
+export interface DiagnosticoItem {
+  tipo: string; severidad: 'warn' | 'bad'; importe: number;
+  titulo: string; detalle: string; accion: string;
+}
+export interface Diagnostico {
+  period: string; ingresos: number; egresos: number; neto: number; movimientos: number;
+  cuadra: boolean; cuentas_ok: number; cuentas_total: number; total_descuadre: number;
+  tiene_balanza_kepler: boolean; items: DiagnosticoItem[];
+}
+
 export interface MovementsQuery {
   period?: string; account_id?: string; category_id?: string; group_key?: string;
   uncategorized?: boolean; recon_status?: string; search?: string; limit?: number; offset?: number;
@@ -102,6 +113,7 @@ export class BankService {
   concentrado(period: string): Observable<Concentrado> { return this.http.get<Concentrado>(`${this.base}/concentrado?period=${encodeURIComponent(period)}`); }
   reconciliation(period: string): Observable<Reconciliation> { return this.http.get<Reconciliation>(`${this.base}/reconciliation?period=${encodeURIComponent(period)}`); }
   balances(period: string): Observable<Balances> { return this.http.get<Balances>(`${this.base}/balances?period=${encodeURIComponent(period)}`); }
+  diagnostico(period: string): Observable<Diagnostico> { return this.http.get<Diagnostico>(`${this.base}/diagnostico?period=${encodeURIComponent(period)}`); }
 
   movements(q: MovementsQuery): Observable<MovementsPage> {
     const p = new URLSearchParams();

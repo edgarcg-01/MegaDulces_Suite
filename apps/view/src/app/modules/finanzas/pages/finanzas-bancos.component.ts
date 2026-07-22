@@ -9,14 +9,14 @@ import { MessageService } from 'primeng/api';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { FINANZAS_TABS } from '../finanzas-tabs';
-import { BankService, BankAccount, MovementCategory, BankStatement, BankMovement, Concentrado, Reconciliation, MatchResult, Differences, ClassifyRule, Balances } from '../bank.service';
+import { BankService, BankAccount, MovementCategory, BankStatement, BankMovement, Concentrado, Reconciliation, MatchResult, Differences, ClassifyRule, Balances, Diagnostico } from '../bank.service';
 
 const MONTHS_ES: Record<string, string> = {
   ENERO: '01', FEBRERO: '02', MARZO: '03', ABRIL: '04', MAYO: '05', JUNIO: '06',
   JULIO: '07', AGOSTO: '08', SEPTIEMBRE: '09', OCTUBRE: '10', NOVIEMBRE: '11', DICIEMBRE: '12',
 };
 
-type View = 'concentrado' | 'movimientos' | 'conciliacion' | 'cuentas' | 'admin';
+type View = 'movimientos' | 'diagnostico' | 'concentrado' | 'conciliacion' | 'cuentas' | 'admin';
 type AdminTab = 'reglas' | 'categorias' | 'cuentas';
 
 /** Etiquetas + orden de los grupos del tablero CONCENTRADO. */
@@ -61,9 +61,13 @@ const GROUP_ORDER = ['ingreso', 'compra', 'gasto', 'factoraje', 'financiero', 't
       </header>
 
       <div class="fb-viewseg" role="tablist">
-        <button role="tab" [attr.aria-selected]="view()==='concentrado'" [class.active]="view()==='concentrado'" (click)="view.set('concentrado')"><i class="pi pi-table"></i> Concentrado</button>
         <button role="tab" [attr.aria-selected]="view()==='movimientos'" [class.active]="view()==='movimientos'" (click)="view.set('movimientos')"><i class="pi pi-list"></i> Movimientos</button>
-        <button role="tab" [attr.aria-selected]="view()==='conciliacion'" [class.active]="view()==='conciliacion'" (click)="view.set('conciliacion')"><i class="pi pi-check-circle"></i> Conciliación</button>
+        <button role="tab" [attr.aria-selected]="view()==='diagnostico'" [class.active]="view()==='diagnostico'" (click)="view.set('diagnostico')">
+          <i class="pi" [class.pi-check-circle]="diagnostico()?.cuadra" [class.pi-exclamation-triangle]="diagnostico() && !diagnostico()!.cuadra"></i> ¿Cuadra?
+          @if (diagnostico() && !diagnostico()!.cuadra) { <span class="fb-seg-count">{{ diagnostico()!.items.length }}</span> }
+        </button>
+        <button role="tab" [attr.aria-selected]="view()==='concentrado'" [class.active]="view()==='concentrado'" (click)="view.set('concentrado')"><i class="pi pi-table"></i> Concentrado</button>
+        <button role="tab" [attr.aria-selected]="view()==='conciliacion'" [class.active]="view()==='conciliacion'" (click)="view.set('conciliacion')"><i class="pi pi-sync"></i> Conciliación Kepler</button>
         <button role="tab" [attr.aria-selected]="view()==='cuentas'" [class.active]="view()==='cuentas'" (click)="view.set('cuentas')"><i class="pi pi-wallet"></i> Cuentas</button>
         <button role="tab" [attr.aria-selected]="view()==='admin'" [class.active]="view()==='admin'" (click)="openAdmin()"><i class="pi pi-cog"></i> Admin</button>
       </div>
@@ -73,6 +77,41 @@ const GROUP_ORDER = ['ingreso', 'compra', 'gasto', 'factoraje', 'financiero', 't
           @for (i of [1,2,3,4,5,6]; track i) { <div class="fb-skel-row"></div> }
         </div>
       } @else {
+
+      <!-- ── DIAGNÓSTICO: ¿por qué no cuadra y qué falta? ── -->
+      @if (view() === 'diagnostico') {
+        @if (diagnostico(); as d) {
+          <div class="fb-diag-head" [class.ok]="d.cuadra" [class.bad]="!d.cuadra">
+            @if (d.cuadra) {
+              <i class="pi pi-check-circle"></i>
+              <div><h2>Todo cuadra</h2><p>Los {{ d.movimientos | number }} movimientos de {{ d.period }} están clasificados y las {{ d.cuentas_total }} cuentas cierran su saldo.</p></div>
+            } @else {
+              <i class="pi pi-exclamation-triangle"></i>
+              <div><h2>{{ d.items.length }} cosa(s) por resolver para que cuadre</h2><p>Ordenadas por impacto. Cada una dice qué es y qué falta hacer.</p></div>
+            }
+          </div>
+
+          @if (!d.tiene_balanza_kepler) {
+            <p class="fb-diag-note muted"><i class="pi pi-info-circle"></i> La balanza de Kepler no está cargada para {{ d.period }}, así que el cruce contable no se está evaluando (solo el cuadre interno de saldos y la clasificación).</p>
+          }
+
+          <div class="fb-diag-list">
+            @for (it of d.items; track it.titulo) {
+              <div class="fb-diag-item" [class]="'sev-' + it.severidad">
+                <div class="fb-diag-item-head">
+                  <span class="fb-diag-dot"></span>
+                  <span class="fb-diag-title">{{ it.titulo }}</span>
+                  @if (it.importe > 0) { <span class="fb-diag-amt mono">{{ it.importe | currency:'MXN':'symbol-narrow':'1.0-0' }}</span> }
+                </div>
+                <p class="fb-diag-detalle">{{ it.detalle }}</p>
+                <p class="fb-diag-accion"><i class="pi pi-arrow-right"></i> {{ it.accion }}</p>
+              </div>
+            }
+          </div>
+        } @else {
+          <div class="surf-empty"><i class="pi pi-inbox"></i><p>Sin datos para {{ period() }}.</p></div>
+        }
+      }
 
       <!-- ── CONCENTRADO ── -->
       @if (view() === 'concentrado') {
@@ -113,8 +152,27 @@ const GROUP_ORDER = ['ingreso', 'compra', 'gasto', 'factoraje', 'financiero', 't
         }
       }
 
-      <!-- ── MOVIMIENTOS ── -->
+      <!-- ── MOVIMIENTOS: la tabla de todos los ingresos y egresos ── -->
       @if (view() === 'movimientos') {
+        @if (diagnostico(); as d) {
+          <div class="fb-cuadre" [class.ok]="d.cuadra" [class.bad]="!d.cuadra">
+            <div class="fb-cuadre-nums">
+              <div class="fb-cuadre-kpi"><span class="fb-cuadre-l">Ingresos</span><span class="fb-cuadre-v mono">{{ d.ingresos | currency:'MXN':'symbol-narrow':'1.0-0' }}</span></div>
+              <div class="fb-cuadre-kpi"><span class="fb-cuadre-l">Egresos</span><span class="fb-cuadre-v mono">{{ d.egresos | currency:'MXN':'symbol-narrow':'1.0-0' }}</span></div>
+              <div class="fb-cuadre-kpi"><span class="fb-cuadre-l">Neto</span><span class="fb-cuadre-v mono" [class.bad]="d.neto < 0">{{ d.neto | currency:'MXN':'symbol-narrow':'1.0-0' }}</span></div>
+              <div class="fb-cuadre-kpi"><span class="fb-cuadre-l">Movimientos</span><span class="fb-cuadre-v mono">{{ d.movimientos | number }}</span></div>
+            </div>
+            <div class="fb-cuadre-verdict">
+              @if (d.cuadra) {
+                <i class="pi pi-check-circle"></i> <span>Cuadra — {{ d.cuentas_ok }}/{{ d.cuentas_total }} cuentas cierran su saldo.</span>
+              } @else {
+                <i class="pi pi-exclamation-triangle"></i>
+                <span>No cuadra — {{ d.items.length }} cosa(s) por resolver{{ d.total_descuadre > 0 ? ' · ' + (d.total_descuadre | currency:'MXN':'symbol-narrow':'1.0-0') + ' en saldos' : '' }}.</span>
+                <button type="button" class="fb-cuadre-link" (click)="view.set('diagnostico')">Ver por qué →</button>
+              }
+            </div>
+          </div>
+        }
         <div class="fb-filters">
           <select [ngModel]="fAccount()" (ngModelChange)="fAccount.set($event); reloadMovements()" aria-label="Cuenta">
             <option value="">Todas las cuentas</option>
@@ -525,6 +583,45 @@ const GROUP_ORDER = ['ingreso', 'compra', 'gasto', 'factoraje', 'financiero', 't
     .fb-bal-badge.bad { color: var(--bad-fg); background: color-mix(in srgb, var(--bad-fg) 12%, transparent); }
     .fb-bal-badge.warn { color: var(--warn-fg); background: color-mix(in srgb, var(--warn-fg) 12%, transparent); }
     .fb-bal-sinsaldo { opacity: 0.55; }
+    .fb-seg-count { display: inline-flex; align-items: center; justify-content: center; min-width: 1.1rem; height: 1.1rem; padding: 0 4px; margin-left: 4px; font-size: var(--fs-2xs, 0.7rem); font-weight: 700; border-radius: var(--r-pill); background: var(--warn-fg); color: #fff; }
+    /* Banner de cuadre (Movimientos) */
+    .fb-cuadre { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-4); flex-wrap: wrap;
+      padding: var(--sp-3) var(--sp-4); margin-bottom: var(--sp-3); border: 1px solid var(--border-color); border-radius: var(--r-md); border-left-width: 3px; }
+    .fb-cuadre.ok { border-left-color: var(--ok-fg); }
+    .fb-cuadre.bad { border-left-color: var(--warn-fg); }
+    .fb-cuadre-nums { display: flex; gap: var(--sp-5); flex-wrap: wrap; }
+    .fb-cuadre-kpi { display: flex; flex-direction: column; gap: 1px; }
+    .fb-cuadre-l { font-size: var(--fs-xs); color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; }
+    .fb-cuadre-v { font-size: var(--fs-lg, 1.125rem); font-weight: 600; }
+    .fb-cuadre-verdict { display: flex; align-items: center; gap: var(--sp-2); font-size: var(--fs-sm); font-weight: 500; }
+    .fb-cuadre.ok .fb-cuadre-verdict { color: var(--ok-fg); }
+    .fb-cuadre.bad .fb-cuadre-verdict { color: var(--warn-fg); }
+    .fb-cuadre-link { background: none; border: none; color: var(--action); font: inherit; font-weight: 600; cursor: pointer; padding: 0; }
+    .fb-cuadre-link:hover { text-decoration: underline; }
+    /* Diagnóstico */
+    .fb-diag-head { display: flex; align-items: center; gap: var(--sp-3); padding: var(--sp-4); margin-bottom: var(--sp-3);
+      border: 1px solid var(--border-color); border-radius: var(--r-md); border-left-width: 3px; }
+    .fb-diag-head.ok { border-left-color: var(--ok-fg); }
+    .fb-diag-head.bad { border-left-color: var(--warn-fg); }
+    .fb-diag-head i { font-size: 1.5rem; }
+    .fb-diag-head.ok i { color: var(--ok-fg); }
+    .fb-diag-head.bad i { color: var(--warn-fg); }
+    .fb-diag-head h2 { font-size: var(--fs-md, 1rem); font-weight: 700; margin: 0; color: var(--text-main); }
+    .fb-diag-head p { font-size: var(--fs-sm); color: var(--text-muted); margin: 2px 0 0; }
+    .fb-diag-note { font-size: var(--fs-xs); margin: 0 0 var(--sp-3); }
+    .fb-diag-list { display: flex; flex-direction: column; gap: var(--sp-2); }
+    .fb-diag-item { padding: var(--sp-3) var(--sp-4); border: 1px solid var(--border-color); border-radius: var(--r-md); border-left-width: 3px; }
+    .fb-diag-item.sev-bad { border-left-color: var(--bad-fg); }
+    .fb-diag-item.sev-warn { border-left-color: var(--warn-fg); }
+    .fb-diag-item-head { display: flex; align-items: center; gap: var(--sp-2); }
+    .fb-diag-dot { width: 8px; height: 8px; border-radius: var(--r-pill); flex: none; }
+    .sev-bad .fb-diag-dot { background: var(--bad-fg); }
+    .sev-warn .fb-diag-dot { background: var(--warn-fg); }
+    .fb-diag-title { font-weight: 600; color: var(--text-main); }
+    .fb-diag-amt { margin-left: auto; font-weight: 700; }
+    .fb-diag-detalle { font-size: var(--fs-sm); color: var(--text-main); margin: var(--sp-2) 0 var(--sp-1); }
+    .fb-diag-accion { font-size: var(--fs-sm); color: var(--text-muted); margin: 0; display: flex; align-items: baseline; gap: var(--sp-1); }
+    .fb-diag-accion i { color: var(--action); font-size: 0.75rem; }
     .fb-match-res { display: flex; align-items: baseline; gap: var(--sp-2); flex-wrap: wrap; margin-top: var(--sp-2); font-size: var(--fs-sm); }
     .fb-match-rate { font-size: var(--fs-lg, 1.125rem); font-weight: 700; }
     .fb-match-rate.warn { color: var(--warn-fg); } .fb-match-rate.ok { color: var(--ok-fg); }
@@ -556,7 +653,7 @@ export class FinanzasBancosComponent implements OnInit {
   readonly tabs = FINANZAS_TABS;
   readonly GROUP_ORDER = GROUP_ORDER;
 
-  readonly view = signal<View>('concentrado');
+  readonly view = signal<View>('movimientos');
   readonly loading = signal(true);
   readonly periods = signal<string[]>([]);
   readonly period = signal<string>('');
@@ -566,6 +663,7 @@ export class FinanzasBancosComponent implements OnInit {
   readonly concentrado = signal<Concentrado | null>(null);
   readonly reconciliation = signal<Reconciliation | null>(null);
   readonly balances = signal<Balances | null>(null);
+  readonly diagnostico = signal<Diagnostico | null>(null);
   readonly matchResult = signal<MatchResult | null>(null);
   readonly differences = signal<Differences | null>(null);
   readonly matching = signal(false);
@@ -627,6 +725,7 @@ export class FinanzasBancosComponent implements OnInit {
     this.api.statements(p).pipe(takeUntilDestroyed(this.destroyRef)).subscribe((s) => this.statements.set(s));
     this.api.reconciliation(p).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (rc) => this.reconciliation.set(rc), error: () => this.reconciliation.set(null) });
     this.api.balances(p).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (b) => this.balances.set(b), error: () => this.balances.set(null) });
+    this.api.diagnostico(p).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (d) => this.diagnostico.set(d), error: () => this.diagnostico.set(null) });
     this.reloadMovements();
   }
 
@@ -685,7 +784,7 @@ export class FinanzasBancosComponent implements OnInit {
       ? { ...r, category_id: categoryId || null, category_code: cat?.code || null, category_name: cat?.name || null, group_key: cat?.group_key || null }
       : r));
     this.api.reclassify(m.id, categoryId || null).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: () => this.toast.add({ severity: 'success', summary: 'Reclasificado', life: 1500 }),
+      next: () => { this.toast.add({ severity: 'success', summary: 'Reclasificado', life: 1500 }); this.refreshDiagnostico(); },
       error: () => {
         this.movements.update((rows) => rows.map((r) => r.id === m.id ? { ...r, category_id: prev } : r));
         this.fail('No se pudo reclasificar.');
@@ -724,6 +823,7 @@ export class FinanzasBancosComponent implements OnInit {
         this.matchResult.set(mr);
         this.toast.add({ severity: 'success', summary: `Matching ${mr.match_rate}%`, detail: `${mr.matched} de ${mr.bank_movements} retiros casados`, life: 3500 });
         this.api.differences(this.period()).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (df) => this.differences.set(df), error: () => this.differences.set(null) });
+        this.refreshDiagnostico();
         this.reloadMovements();
       },
       error: () => { this.matching.set(false); this.fail('No se pudo correr el matching.'); },
@@ -741,6 +841,14 @@ export class FinanzasBancosComponent implements OnInit {
       },
       error: () => { this.syncing.set(false); this.fail('No se pudieron enviar las diferencias a Hallazgos.'); },
     });
+  }
+
+  /** Refresca el diagnóstico + balances del periodo (tras reclasificar / casar). */
+  private refreshDiagnostico(): void {
+    const p = this.period();
+    if (!p) return;
+    this.api.diagnostico(p).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (d) => this.diagnostico.set(d), error: () => {} });
+    this.api.balances(p).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (b) => this.balances.set(b), error: () => {} });
   }
 
   /** Tolerancia de cuadre: ±$1,000 (o ~0.5%) se considera cuadrado. */

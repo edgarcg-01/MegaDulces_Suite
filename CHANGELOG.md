@@ -10,6 +10,15 @@
 
 ## [Unreleased]
 
+### Changed — CB.9: Conciliación bancaria — rediseño a "la tabla que cuadra" + pestaña ¿Cuadra? (2026-07-22)
+- **Interfaz simple/entendible** (pedido de Edgar): la vista default de `/finanzas/bancos` pasa a **Movimientos** (una tabla de todos los ingresos/egresos) con un **banner de cuadre** arriba — Ingresos · Egresos · Neto · Movimientos + veredicto ✓/✗ y link «Ver por qué».
+- **Nueva pestaña ¿Cuadra?** (`GET /finance/bank/diagnostico`): agregador que traduce lo técnico a una **lista accionable** ordenada por impacto — cada ítem dice **qué es + monto + qué falta hacer** (movimientos sin clasificar, cuentas cuyo saldo no cierra, cuentas sin cargar tipo CAJA GENERAL, traspasos TI=TE que no netean, diferencias vs Kepler). Reúsa `balances`+`reconciliation`+conteos (sin data nueva). Badge de conteo en la pestaña.
+- Segmento reordenado: **Movimientos · ¿Cuadra? · Concentrado · Conciliación Kepler · Cuentas · Admin**. Operations surface (quiet-luxury, tokens, dark-first, tabular-nums).
+- Verificado en vivo contra Railway (enero): **18/19 cuentas cuadran**, diagnóstico = 3 ítems (1 saldo + 94 sin clasificar $1.46M + CAJA CG sin cargar). Builds api+view verdes. **Requiere redeploy api+view.**
+
+### Fixed — CB: Concentrado fallaba en prod (GROUP BY 42803) (2026-07-22)
+- `concentrado()` agrupaba por `COALESCE(mc.group_key, ?)` (binding `$2`) mientras el SELECT usaba el literal `'sin_clasificar'` → Postgres no los considera la misma expresión y exigía `mc.group_key` en el GROUP BY (error 42803). No se detectó en local porque los smokes eran queries directas a tabla, nunca el endpoint vivo. Fix: agrupar por la columna cruda `mc.group_key` (el COALESCE del SELECT deriva de ella; patrón que ya usaba `reconciliation()`). Verificado contra Railway (82 filas). **Requiere redeploy de api.**
+
 ### Added — CB.8: Conciliación bancaria — cuadre de saldos + 2º pase del matcher (2026-07-22)
 - **Cuadre de saldos** (el chequeo de integridad más fuerte): el import (web+CLI) ahora **deriva el saldo inicial** de la 1ª fila con SALDO (`opening = saldo − neto`; `opening_balance` ya existía en el schema CB.0 → sin migración). `GET /finance/bank/balances` + card **"Cuadre de saldos"** en Conciliación: por cuenta `inicial + depósitos − retiros == final` (Δ + badge) + check **TI=TE** (traspasos internos deben netear). Hallazgo `banco_saldo_no_cuadra` (error_captura) por cuenta que no foot-ea.
 - **2º pase del matcher**: retiros ≥$10k aún sin casar → monto exacto **sin tope de fecha** (confianza 0.5, `matched_by='motor-2p'`), para rescatar pagos grandes con desfase. Umbral evita ensuciar comisiones/nómina chicas.

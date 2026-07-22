@@ -62,6 +62,11 @@ export class FinanceBankController {
   @ApiOperation({ summary: 'Cuadre de saldos por cuenta (inicial + depósitos − retiros == final) + check TI=TE.' })
   balances(@Query('period') period?: string) { return this.svc.balances(period); }
 
+  @Get('diagnostico')
+  @RequirePermissions(Permission.FINANCE_EXPENSES_VER)
+  @ApiOperation({ summary: '¿Por qué no cuadra? Lista accionable de descuadres (sin clasificar, saldos, faltantes, Kepler).' })
+  diagnostico(@Query('period') period?: string) { return this.svc.diagnostico(period); }
+
   @Post('findings/sync')
   @RequirePermissions(Permission.FINANCE_FINDINGS_GESTIONAR)
   @ApiOperation({ summary: 'Empuja las diferencias de conciliación a la bandeja de hallazgos de Maat.' })

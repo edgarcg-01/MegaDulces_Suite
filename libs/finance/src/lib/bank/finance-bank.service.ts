@@ -196,8 +196,10 @@ export class FinanceBankService {
         .join('finance.bank_statements as st', 'st.id', 'bm.statement_id')
         .leftJoin('finance.movement_categories as mc', 'mc.id', 'bm.category_id')
         .where('st.period', period)
-        .groupBy('ba.id', 'ba.bank', 'ba.account_label', 'ba.alias', 'ba.kind')
-        .groupByRaw('COALESCE(mc.group_key, ?)', ['sin_clasificar'])
+        // Agrupa por la columna cruda (nullable); el COALESCE del SELECT deriva de
+        // ella y Postgres lo acepta. NO agrupar por el COALESCE con binding: el
+        // literal del SELECT y el $ del GROUP BY no matchean → 42803 (visto en prod).
+        .groupBy('ba.id', 'ba.bank', 'ba.account_label', 'ba.alias', 'ba.kind', 'mc.group_key')
         .select('ba.id as account_id', 'ba.bank', 'ba.account_label', 'ba.alias', 'ba.kind',
           trx.raw(`COALESCE(mc.group_key, 'sin_clasificar') AS group_key`),
           trx.raw('SUM(bm.amount_in)::numeric AS deposits'),
@@ -531,6 +533,96 @@ export class FinanceBankService {
         cuentas_descuadradas: accounts.filter((a) => !a.cuadra && !a.sin_saldo).length,
         cuentas_sin_saldo: accounts.filter((a) => a.sin_saldo).length };
     });
+  }
+
+  /**
+   * CB.9 — Diagnóstico "¿por qué no cuadra y qué falta?". Agregador legible que
+   * consolida todas las fuentes de descuadre en una lista accionable (cada ítem:
+   * qué es, monto, y qué falta hacer). Reúsa balances + reconciliation + conteos;
+   * no lee data nueva. Es la pestaña que traduce lo técnico a "esto te falta".
+   */
+  async diagnostico(period?: string) {
+    this.tenantCtx.requireTenantId();
+    if (!period) throw new BadRequestException('period requerido (YYYY-MM)');
+    const money = (v: number) => Number(v || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 });
+
+    // Totales de la tabla (ingresos/egresos) + sin_clasificar + cuentas sin estado de cuenta.
+    const { totales, sinClas, cuentasSinEstado } = await this.tk.run(async (trx) => {
+      const t = await trx('finance.bank_movements as bm')
+        .join('finance.bank_statements as st', 'st.id', 'bm.statement_id')
+        .where('st.period', period)
+        .select(trx.raw('SUM(bm.amount_in)::numeric AS ingresos'), trx.raw('SUM(bm.amount_out)::numeric AS egresos'), trx.raw('COUNT(*)::int AS movs'))
+        .first();
+      const sc = await trx('finance.bank_movements as bm')
+        .join('finance.bank_statements as st', 'st.id', 'bm.statement_id')
+        .where('st.period', period).whereNull('bm.category_id')
+        .select(trx.raw('COUNT(*)::int AS n'), trx.raw('SUM(bm.amount_in + bm.amount_out)::numeric AS monto')).first();
+      // Cuentas activas sin estado de cuenta cargado este periodo (p.ej. CAJA GENERAL no importable).
+      const missing = await trx('finance.bank_accounts as ba')
+        .where('ba.active', true)
+        .whereNotExists(function () { this.select(trx.raw('1')).from('finance.bank_statements as st').whereRaw('st.bank_account_id = ba.id AND st.period = ?', [period]); })
+        .select('ba.bank', 'ba.account_label', 'ba.kind');
+      return { totales: t, sinClas: sc, cuentasSinEstado: missing };
+    });
+
+    const bal = await this.balances(period);
+    let recon: any = null;
+    try { recon = await this.reconciliation(period); } catch { recon = null; }
+
+    const ingresos = n((totales as any)?.ingresos), egresos = n((totales as any)?.egresos);
+    const items: any[] = [];
+
+    // 1. Movimientos sin clasificar.
+    if (n((sinClas as any)?.n) > 0) {
+      items.push({ tipo: 'sin_clasificar', severidad: 'warn', importe: n((sinClas as any)?.monto),
+        titulo: `${(sinClas as any).n} movimientos sin clasificar`,
+        detalle: `Hay ${money(n((sinClas as any)?.monto))} sin categoría asignada. No entran a ningún grupo del cuadre.`,
+        accion: 'Clasifícalos en la pestaña Movimientos (filtro «Solo sin clasificar»); si es un patrón nuevo, agrégalo como regla en Admin.' });
+    }
+    // 2. Cuentas cuyo saldo no cuadra.
+    for (const a of bal.accounts.filter((x: any) => !x.cuadra && !x.sin_saldo)) {
+      items.push({ tipo: 'saldo_no_cuadra', severidad: Math.abs(a.delta) >= 100000 ? 'bad' : 'warn', importe: Math.abs(a.delta),
+        titulo: `${a.bank} ${a.account_label}: el saldo no cierra`,
+        detalle: `Inicial ${money(a.opening)} + ingresos ${money(a.total_in)} − egresos ${money(a.total_out)} = ${money(a.computed_closing)}, pero el saldo final es ${money(a.closing)} (Δ ${money(a.delta)}).`,
+        accion: 'Falta capturar un movimiento en esta cuenta, o el saldo está mal tecleado en el Excel. Revisa el estado de cuenta.' });
+    }
+    // 3. Cuentas sin estado de cuenta cargado (CAJA GENERAL, etc.).
+    for (const c of cuentasSinEstado as any[]) {
+      items.push({ tipo: 'cuenta_sin_cargar', severidad: 'warn', importe: 0,
+        titulo: `${c.bank} ${c.account_label}: sin cargar`,
+        detalle: `La cuenta existe en el catálogo pero no tiene estado de cuenta en ${period}.${c.kind === 'cash' ? ' (CAJA GENERAL tiene un layout de columnas distinto — pendiente de soportar.)' : ''}`,
+        accion: 'Sube su estado de cuenta del periodo, o desactívala en Admin si ya no aplica.' });
+    }
+    // 4. Traspasos internos que no netean (TI=TE).
+    if (Math.abs(bal.traspasos.delta) >= 1000) {
+      items.push({ tipo: 'traspaso_descuadre', severidad: 'warn', importe: Math.abs(bal.traspasos.delta),
+        titulo: 'Los traspasos internos no netean',
+        detalle: `Entra ${money(bal.traspasos.entra)} vs sale ${money(bal.traspasos.sale)} en traspasos entre cuentas propias (Δ ${money(bal.traspasos.delta)}). Deberían ser iguales.`,
+        accion: 'Falta el otro lado de un traspaso (la cuenta destino o la de origen). Revisa los movimientos tipo TI/TE.' });
+    }
+    // 5. Diferencias vs Kepler (P&L) — solo si hay balanza.
+    if (recon?.accounts?.length) {
+      for (const a of recon.accounts.filter((x: any) => Math.abs(n(x.delta)) >= 10000)) {
+        items.push({ tipo: 'kepler_pnl', severidad: Math.abs(a.delta) >= 100000 ? 'bad' : 'warn', importe: Math.abs(n(a.delta)),
+          titulo: `Difiere de Kepler: ${a.concept}`,
+          detalle: `El banco pagó ${money(a.bank)} en «${a.concept}» vs ${money(a.book)} del mayor ${a.kepler_account} en Kepler (Δ ${money(a.delta)}).`,
+          accion: 'Puede ser timing (pago en un mes, factura en otro) o una clasificación distinta. Revisa la conciliación por cuenta.' });
+      }
+    }
+
+    items.sort((x, y) => (y.importe || 0) - (x.importe || 0));
+    const totalDescuadre = bal.totals.descuadre;
+    return {
+      period,
+      ingresos, egresos, neto: Math.round((ingresos - egresos) * 100) / 100,
+      movimientos: n((totales as any)?.movs),
+      cuadra: items.length === 0,
+      cuentas_ok: bal.accounts.filter((a: any) => a.cuadra).length,
+      cuentas_total: bal.accounts.length,
+      total_descuadre: totalDescuadre,
+      tiene_balanza_kepler: !!recon?.accounts?.length,
+      items,
+    };
   }
 
   /**
