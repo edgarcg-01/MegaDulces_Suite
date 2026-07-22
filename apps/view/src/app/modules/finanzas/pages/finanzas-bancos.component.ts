@@ -266,12 +266,15 @@ const GROUP_ORDER = ['ingreso', 'compra', 'gasto', 'factoraje', 'financiero', 't
                 <td class="muted">{{ m.account_label }}</td>
                 <td class="fb-concept" [title]="m.concept">{{ m.concept || '—' }}</td>
                 <td>
-                  <!-- p-select viable porque la tabla pagina 50/pág → máx 50 overlays montados
-                       (montar uno por c/500 filas sin paginar congelaba la pestaña). -->
-                  <p-select [options]="categoryOpts()" optionLabel="label" optionValue="value" [filter]="true"
-                            [ngModel]="m.category_id || ''" (ngModelChange)="reclassify(m, $event)"
-                            appendTo="body" styleClass="fb-cat-select" [class.fb-cat-empty]="!m.category_id"
-                            [attr.aria-label]="'Categoría de ' + (m.concept || 'movimiento')"></p-select>
+                  <!-- select NATIVO por fila: barato (no congela con cientos de filas) y NO
+                       emite (ngModelChange) en el re-render (solo en cambio real del usuario),
+                       lo que evita el storm de PATCH que sí provocaba el p-select por fila. -->
+                  <select class="fb-cat-select" [class.fb-cat-empty]="!m.category_id"
+                          [ngModel]="m.category_id || ''" (ngModelChange)="reclassify(m, $event)"
+                          [attr.aria-label]="'Categoría de ' + (m.concept || 'movimiento')">
+                    <option value="">— sin clasificar —</option>
+                    @for (c of categories(); track c.id) { <option [value]="c.id">{{ c.name }}</option> }
+                  </select>
                 </td>
                 <td class="ta-r mono">{{ m.amount_in ? (m.amount_in | currency:'MXN':'symbol-narrow':'1.2-2') : '' }}</td>
                 <td class="ta-r mono">{{ m.amount_out ? (m.amount_out | currency:'MXN':'symbol-narrow':'1.2-2') : '' }}</td>
@@ -639,11 +642,10 @@ const GROUP_ORDER = ['ingreso', 'compra', 'gasto', 'factoraje', 'financiero', 't
     .fb-sticky-col { position: sticky; left: 0; background: var(--card-bg); z-index: 1; }
     .fb-total-row { font-weight: 600; border-top: 2px solid var(--border-color); background: var(--surface-ground); }
     .fb-concept { max-width: 28rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    :host ::ng-deep .fb-cat-select.p-select { width: 100%; background: var(--card-bg); border-color: transparent; }
-    :host ::ng-deep .fb-cat-select .p-select-label { padding: 2px var(--sp-1); font-size: var(--fs-xs); }
-    :host ::ng-deep .fb-cat-select:not(.p-focus):hover { border-color: var(--border-color); }
-    :host ::ng-deep .fb-cat-empty.p-select { border-color: var(--warn-border); }
-    :host ::ng-deep .fb-cat-empty .p-select-label { color: var(--warn-fg); }
+    .fb-cat-select { font: inherit; font-size: var(--fs-xs); width: 100%; padding: 2px var(--sp-1);
+      background: var(--card-bg); color: var(--text-main); border: 1px solid transparent; border-radius: var(--r-sm); cursor: pointer; }
+    .fb-cat-select:hover, .fb-cat-select:focus { border-color: var(--border-color); }
+    .fb-cat-empty { color: var(--warn-fg); border-color: var(--warn-border); }
     .fb-uncat { background: color-mix(in srgb, var(--warn-fg) 5%, transparent); }
     .fb-kind { font-size: var(--fs-xs); text-transform: capitalize; color: var(--text-muted); }
     .fb-skeleton { display: flex; flex-direction: column; gap: var(--sp-2); margin-top: var(--sp-4); }
@@ -925,6 +927,11 @@ export class FinanzasBancosComponent implements OnInit {
 
   /** Reclasifica optimista: refleja el cambio ya, revierte si el server falla. */
   reclassify(m: BankMovement, categoryId: string): void {
+    // Guard anti-storm: si la categoría NO cambió, no dispares nada. El (ngModelChange)
+    // re-emite el mismo valor en cada re-render (writeValue) → sin este guard, cada
+    // emisión muta el signal → re-render → re-emite → miles de PATCH vacíos en bucle.
+    const next = categoryId || null;
+    if (next === (m.category_id || null)) return;
     const prev = m.category_id;
     const cat = this.categories().find((c) => c.id === categoryId) || null;
     this.movements.update((rows) => rows.map((r) => r.id === m.id
