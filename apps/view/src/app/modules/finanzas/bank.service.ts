@@ -51,6 +51,26 @@ export interface Reconciliation {
   period: string; cash: ReconCash; accounts: ReconAccount[]; cobranza: number; sin_clasificar: number;
 }
 
+export interface MatchResult {
+  period: string; bank_movements: number; matched: number; unmatched_bank: number;
+  kepler_postings: number; unmatched_kepler: number; matched_amount: number; bank_amount: number; match_rate: number;
+}
+
+export interface Differences {
+  period: string;
+  bank_unmatched: { id: string; movement_date: string; amount_out: number; concept: string | null; raw_code: string | null; category_name: string | null; group_key: string | null }[];
+  kepler_unmatched: { doc_tipo: string; folio: string; fecha: string | null; importe: number; contraparte: string | null }[];
+}
+
+/** CB.6 — regla de clasificación editable (finance.bank_classify_rules). */
+export interface ClassifyRule {
+  id: string; priority: number;
+  match_type: string | null; match_code: string | null; match_concept: string | null;
+  category_code: string; category_name: string | null; group_key: string | null;
+  note: string | null; active: boolean;
+}
+export interface ReclassifyResult { scanned: number; changed: number; }
+
 export interface MovementsQuery {
   period?: string; account_id?: string; category_id?: string; group_key?: string;
   uncategorized?: boolean; recon_status?: string; search?: string; limit?: number; offset?: number;
@@ -86,9 +106,28 @@ export class BankService {
     return this.http.patch(`${this.base}/movements/${id}/category`, { category_id: categoryId });
   }
 
+  runMatch(period: string): Observable<MatchResult> {
+    return this.http.post<MatchResult>(`${this.base}/match`, { period });
+  }
+  differences(period: string): Observable<Differences> {
+    return this.http.get<Differences>(`${this.base}/differences?period=${encodeURIComponent(period)}`);
+  }
+
   importWorkbook(fileBase64: string, period: string, sourceFile: string): Observable<ImportResult> {
     return this.http.post<ImportResult>(`${this.base}/import`, { file_base64: fileBase64, period, source_file: sourceFile });
   }
+
+  // ── CB.6 Admin ──
+  createAccount(body: Partial<BankAccount>): Observable<BankAccount> { return this.http.post<BankAccount>(`${this.base}/accounts`, body); }
+  updateAccount(id: string, body: Partial<BankAccount>): Observable<BankAccount> { return this.http.patch<BankAccount>(`${this.base}/accounts/${id}`, body); }
+  createCategory(body: Partial<MovementCategory>): Observable<MovementCategory> { return this.http.post<MovementCategory>(`${this.base}/categories`, body); }
+  updateCategory(id: string, body: Partial<MovementCategory>): Observable<MovementCategory> { return this.http.patch<MovementCategory>(`${this.base}/categories/${id}`, body); }
+
+  rules(): Observable<ClassifyRule[]> { return this.http.get<ClassifyRule[]>(`${this.base}/rules`); }
+  createRule(body: Partial<ClassifyRule>): Observable<ClassifyRule> { return this.http.post<ClassifyRule>(`${this.base}/rules`, body); }
+  updateRule(id: string, body: Partial<ClassifyRule>): Observable<ClassifyRule> { return this.http.patch<ClassifyRule>(`${this.base}/rules/${id}`, body); }
+  deleteRule(id: string): Observable<unknown> { return this.http.delete(`${this.base}/rules/${id}`); }
+  reclassifyAll(period?: string): Observable<ReclassifyResult> { return this.http.post<ReclassifyResult>(`${this.base}/reclassify`, { period }); }
 }
 
 export interface ImportResult {

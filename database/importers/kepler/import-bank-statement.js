@@ -52,33 +52,21 @@ function excelDate(v) {
   return null;
 }
 
-// Traduce (M, C, concepto) del Excel → código de categoría limpia. Lo ambiguo → sin_clasificar.
-function classify(M, C, concept) {
+// CB.6 — Clasificación desde DB (finance.bank_classify_rules), misma fuente de
+// verdad que el backend. Reglas por priority; una aplica si todos sus matchers
+// no-nulos (regex M/C/concepto) hacen match. Patrones inválidos se ignoran.
+function compileRules(rules) {
+  const safe = (p) => { if (!p) return null; try { return new RegExp(p, 'i'); } catch { return null; } };
+  return [...rules].sort((a, b) => a.priority - b.priority)
+    .map((r) => ({ reType: safe(r.match_type), reCode: safe(r.match_code), reConcept: safe(r.match_concept), category: r.category_code }));
+}
+function classifyWith(compiled, M, C, concept) {
   const m = normKey(M), c = normKey(C), t = normKey(concept);
-  if (m === 'TE' || m === 'TI' || c === '-') return 'traspaso_entre_cuentas';
-  if (m === 'CF') return 'compra_factoraje';
-  if (m === 'PF') return 'pago_factoraje';
-  if (m === 'DS') return 'devolucion_spei';
-  if (m === 'ID') return 'ingreso_devolucion';
-  if (m === 'I') return /\bDEV|DEVOLUC/.test(t) ? 'ingreso_devolucion' : 'cobranza';
-  if (c === '102') return 'cobranza';
-  if (m === 'C' || c === '510' || c === '501') return 'compra_mercancia';
-  if (c === '610') return 'nomina';
-  if (c === '147') return 'iva_acreditable';
-  if (c === '631') return 'pension_alimenticia';
-  if (c === '621') return 'gasto_admin';
-  if (c === '612') {
-    if (/SUA|IMSS/.test(t)) return 'imss_sua';
-    if (/COMISI|COMISION|MEMBRES|COBRO/.test(t)) return 'comision_bancaria';
-    if (/CAPITAL|CREDITO|CRÉDITO|PRESTAMO|PRÉSTAMO/.test(t)) return 'pago_credito';
-    if (/ARRENDA/.test(t)) return 'renta';
-    if (/PAN AMERICANO|TRASLADO|VALORES/.test(t)) return 'traslado_valores';
-    return 'sin_clasificar';
-  }
-  if (c === '613') {
-    if (/CAJA DE AHORRO|CAJA AHORRO/.test(t)) return 'caja_ahorro';
-    if (/NOMINA|NÓMINA|\bNOM\b/.test(t)) return 'nomina';
-    return 'sin_clasificar';
+  for (const r of compiled) {
+    if (r.reType && !r.reType.test(m)) continue;
+    if (r.reCode && !r.reCode.test(c)) continue;
+    if (r.reConcept && !r.reConcept.test(t)) continue;
+    return r.category;
   }
   return 'sin_clasificar';
 }
@@ -94,7 +82,7 @@ async function bulkUpsertMovements(db, rows) {
       `INSERT INTO finance.bank_movements (${cols.join(',')}) VALUES ${vals.join(',')}
        ON CONFLICT (tenant_id, client_uuid) DO UPDATE SET
          statement_id=EXCLUDED.statement_id, bank_account_id=EXCLUDED.bank_account_id, movement_date=EXCLUDED.movement_date,
-         category_id=EXCLUDED.category_id, raw_type=EXCLUDED.raw_type, raw_code=EXCLUDED.raw_code, sucursal=EXCLUDED.sucursal,
+         raw_type=EXCLUDED.raw_type, raw_code=EXCLUDED.raw_code, sucursal=EXCLUDED.sucursal,
          concept=EXCLUDED.concept, amount_in=EXCLUDED.amount_in, amount_out=EXCLUDED.amount_out,
          running_balance=EXCLUDED.running_balance, source_file=EXCLUDED.source_file, updated_at=now()`,
       params);
@@ -118,6 +106,7 @@ async function bulkUpsertMovements(db, rows) {
   // catálogos desde DB
   const catMap = new Map((await db.query(`SELECT id, code, group_key FROM finance.movement_categories WHERE tenant_id=$1`, [MEGA])).rows.map((r) => [r.code, { id: r.id, group: r.group_key }]));
   const acctMap = new Map((await db.query(`SELECT id, alias, account_label, kind FROM finance.bank_accounts WHERE tenant_id=$1`, [MEGA])).rows.map((r) => [normKey(r.alias), r]));
+  const compiled = compileRules((await db.query(`SELECT priority, match_type, match_code, match_concept, category_code FROM finance.bank_classify_rules WHERE tenant_id=$1 AND active`, [MEGA])).rows);
 
   const summary = [];
   const byGroup = {}; // group_key → { in, out, n }
@@ -144,7 +133,7 @@ async function bulkUpsertMovements(db, rows) {
       const M = norm(cellVal(row, ci.m)), C = norm(cellVal(row, ci.c)), S = norm(cellVal(row, ci.s));
       const concept = norm(cellVal(row, ci.prov));
       const bal = ci.saldo ? money(cellVal(row, ci.saldo)) : null;
-      const catCode = classify(M, C, concept);
+      const catCode = classifyWith(compiled, M, C, concept);
       const cat = catMap.get(catCode);
       const catId = catCode === 'sin_clasificar' ? null : (cat ? cat.id : null);
       const group = catCode === 'sin_clasificar' ? 'sin_clasificar' : (cat ? cat.group : '?');

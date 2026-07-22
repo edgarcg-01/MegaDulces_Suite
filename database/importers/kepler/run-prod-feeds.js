@@ -67,6 +67,7 @@ const STEPS = {
     path.join(K, 'import-expense-requests.js'),  // GX.6 — solicitudes XA1501 (+UPDATE a expense_documents) — TRAS expenses-polizas
     path.join(K, 'import-sales-by-channel.js'),  // venta contable 401 reclasificada por canal real (solo CEDIS)
     path.join(K, 'import-cash-cuts.js'),         // SM.1 — cortes/arqueos de caja POS (kdpv_folio_caja)
+    path.join(K, 'import-bank-postings.js'),     // CB.4.1 — postings 102 Kepler (matching banco↔libro conciliación bancaria)
   ],
   catalog: [
     path.join(K, 'import-brands-lineas.js'), // líneas kdig → brands nuevas (si falta la línea, el producto se descarta abajo)
@@ -88,6 +89,7 @@ const STEPS = {
     path.join(K, 'import-expense-requests.js'), // tras expenses-polizas (UPDATE a expense_documents)
     path.join(K, 'import-sales-by-channel.js'),
     path.join(K, 'import-cash-cuts.js'),
+    path.join(K, 'import-bank-postings.js'),
   ],
 };
 STEPS.all = [...STEPS.catalog, ...STEPS.stock, ...STEPS.nightly];

@@ -9,14 +9,15 @@ import { MessageService } from 'primeng/api';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { FINANZAS_TABS } from '../finanzas-tabs';
-import { BankService, BankAccount, MovementCategory, BankStatement, BankMovement, Concentrado, Reconciliation } from '../bank.service';
+import { BankService, BankAccount, MovementCategory, BankStatement, BankMovement, Concentrado, Reconciliation, MatchResult, Differences, ClassifyRule } from '../bank.service';
 
 const MONTHS_ES: Record<string, string> = {
   ENERO: '01', FEBRERO: '02', MARZO: '03', ABRIL: '04', MAYO: '05', JUNIO: '06',
   JULIO: '07', AGOSTO: '08', SEPTIEMBRE: '09', OCTUBRE: '10', NOVIEMBRE: '11', DICIEMBRE: '12',
 };
 
-type View = 'concentrado' | 'movimientos' | 'conciliacion' | 'cuentas';
+type View = 'concentrado' | 'movimientos' | 'conciliacion' | 'cuentas' | 'admin';
+type AdminTab = 'reglas' | 'categorias' | 'cuentas';
 
 /** Etiquetas + orden de los grupos del tablero CONCENTRADO. */
 const GROUP_LABELS: Record<string, string> = {
@@ -64,6 +65,7 @@ const GROUP_ORDER = ['ingreso', 'compra', 'gasto', 'factoraje', 'financiero', 't
         <button role="tab" [attr.aria-selected]="view()==='movimientos'" [class.active]="view()==='movimientos'" (click)="view.set('movimientos')"><i class="pi pi-list"></i> Movimientos</button>
         <button role="tab" [attr.aria-selected]="view()==='conciliacion'" [class.active]="view()==='conciliacion'" (click)="view.set('conciliacion')"><i class="pi pi-check-circle"></i> Conciliación</button>
         <button role="tab" [attr.aria-selected]="view()==='cuentas'" [class.active]="view()==='cuentas'" (click)="view.set('cuentas')"><i class="pi pi-wallet"></i> Cuentas</button>
+        <button role="tab" [attr.aria-selected]="view()==='admin'" [class.active]="view()==='admin'" (click)="openAdmin()"><i class="pi pi-cog"></i> Admin</button>
       </div>
 
       @if (loading()) {
@@ -136,6 +138,7 @@ const GROUP_ORDER = ['ingreso', 'compra', 'gasto', 'factoraje', 'financiero', 't
                 <th style="width:11rem">Categoría</th>
                 <th class="ta-r" style="width:8rem">Depósito</th>
                 <th class="ta-r" style="width:8rem">Retiro</th>
+                <th style="width:2.5rem" title="Conciliación"></th>
               </tr>
             </ng-template>
             <ng-template pTemplate="body" let-m>
@@ -152,10 +155,14 @@ const GROUP_ORDER = ['ingreso', 'compra', 'gasto', 'factoraje', 'financiero', 't
                 </td>
                 <td class="ta-r mono">{{ m.amount_in ? (m.amount_in | currency:'MXN':'symbol-narrow':'1.2-2') : '' }}</td>
                 <td class="ta-r mono">{{ m.amount_out ? (m.amount_out | currency:'MXN':'symbol-narrow':'1.2-2') : '' }}</td>
+                <td class="ta-c">
+                  @if (m.recon_status === 'matched') { <i class="pi pi-check-circle fb-rec-ok" title="Casado con Kepler"></i> }
+                  @else if (m.recon_status === 'unmatched') { <i class="pi pi-circle fb-rec-no" title="Sin casar"></i> }
+                </td>
               </tr>
             </ng-template>
             <ng-template pTemplate="emptymessage">
-              <tr><td colspan="6"><div class="surf-empty"><i class="pi pi-inbox"></i><p>Sin movimientos con estos filtros.</p></div></td></tr>
+              <tr><td colspan="7"><div class="surf-empty"><i class="pi pi-inbox"></i><p>Sin movimientos con estos filtros.</p></div></td></tr>
             </ng-template>
           </p-table>
         </div>
@@ -164,6 +171,19 @@ const GROUP_ORDER = ['ingreso', 'compra', 'gasto', 'factoraje', 'financiero', 't
       <!-- ── CONCILIACIÓN banco ↔ Kepler ── -->
       @if (view() === 'conciliacion') {
         @if (reconciliation(); as rc) {
+          <div class="card-premium card-flat fb-match">
+            <div class="fb-match-head">
+              <h3 class="fb-card-title">Matching por-transacción <span class="muted">— retiros del banco ↔ pagos del 102 en Kepler</span></h3>
+              <button pButton type="button" label="Correr matching" icon="pi pi-bolt" class="p-button-sm p-button-outlined" [loading]="matching()" (click)="runMatch()"></button>
+            </div>
+            @if (matchResult(); as mr) {
+              <div class="fb-match-res">
+                <span class="fb-match-rate mono" [class.ok]="mr.match_rate >= 80" [class.warn]="mr.match_rate < 80">{{ mr.match_rate }}%</span>
+                <span class="muted">{{ mr.matched | number }} de {{ mr.bank_movements | number }} retiros casados · {{ mr.matched_amount | currency:'MXN':'symbol-narrow':'1.0-0' }} de {{ mr.bank_amount | currency:'MXN':'symbol-narrow':'1.0-0' }}</span>
+                <span class="muted">· {{ mr.unmatched_bank | number }} sin casar en banco · {{ mr.unmatched_kepler | number }} pagos Kepler sin casar</span>
+              </div>
+            } @else { <p class="fb-recon-note muted">Corre el matching para casar cada retiro con su pago en Kepler (monto + fecha).</p> }
+          </div>
           <div class="card-premium card-flat fb-recon-cash">
             <h3 class="fb-card-title">Caja — banco vs Kepler 102 <span class="muted">(excluye traspasos internos)</span></h3>
             <div class="fb-recon-grid">
@@ -202,6 +222,33 @@ const GROUP_ORDER = ['ingreso', 'compra', 'gasto', 'factoraje', 'financiero', 't
               </ng-template>
             </p-table>
           </div>
+
+          @if (differences(); as df) {
+            <div class="fb-diff-grid">
+              <div class="card-premium card-flat fb-tablewrap">
+                <h3 class="fb-card-title fb-pnl-title">Retiros del banco sin casar <span class="muted">(top {{ df.bank_unmatched.length }})</span></h3>
+                <p-table [value]="df.bank_unmatched" styleClass="p-datatable-sm" [rowHover]="true" [scrollable]="true" scrollHeight="40vh">
+                  <ng-template pTemplate="header"><tr><th style="width:6rem">Fecha</th><th>Concepto</th><th>Categoría</th><th class="ta-r">Monto</th></tr></ng-template>
+                  <ng-template pTemplate="body" let-r>
+                    <tr><td class="mono">{{ r.movement_date }}</td><td class="fb-concept" [title]="r.concept">{{ r.concept || '—' }}</td>
+                      <td class="muted">{{ r.category_name || 'sin clasificar' }}</td><td class="ta-r mono">{{ r.amount_out | currency:'MXN':'symbol-narrow':'1.0-0' }}</td></tr>
+                  </ng-template>
+                  <ng-template pTemplate="emptymessage"><tr><td colspan="4"><div class="surf-empty"><i class="pi pi-check-circle"></i><p>Todo casado.</p></div></td></tr></ng-template>
+                </p-table>
+              </div>
+              <div class="card-premium card-flat fb-tablewrap">
+                <h3 class="fb-card-title fb-pnl-title">Pagos Kepler (102) sin casar <span class="muted">(top {{ df.kepler_unmatched.length }})</span></h3>
+                <p-table [value]="df.kepler_unmatched" styleClass="p-datatable-sm" [rowHover]="true" [scrollable]="true" scrollHeight="40vh">
+                  <ng-template pTemplate="header"><tr><th style="width:6rem">Fecha</th><th>Beneficiario</th><th style="width:5rem">Doc</th><th class="ta-r">Monto</th></tr></ng-template>
+                  <ng-template pTemplate="body" let-r>
+                    <tr><td class="mono">{{ r.fecha }}</td><td class="fb-concept" [title]="r.contraparte">{{ r.contraparte || '—' }}</td>
+                      <td class="mono muted">{{ r.doc_tipo }}</td><td class="ta-r mono">{{ r.importe | currency:'MXN':'symbol-narrow':'1.0-0' }}</td></tr>
+                  </ng-template>
+                  <ng-template pTemplate="emptymessage"><tr><td colspan="4"><div class="surf-empty"><i class="pi pi-check-circle"></i><p>Todo casado.</p></div></td></tr></ng-template>
+                </p-table>
+              </div>
+            </div>
+          }
         } @else {
           <div class="surf-empty"><i class="pi pi-inbox"></i><p>Sin datos de conciliación para {{ period() }}.</p></div>
         }
@@ -229,6 +276,148 @@ const GROUP_ORDER = ['ingreso', 'compra', 'gasto', 'factoraje', 'financiero', 't
             </ng-template>
           </p-table>
         </div>
+      }
+
+      <!-- ── ADMIN: catálogo + reglas de clasificación ── -->
+      @if (view() === 'admin') {
+        <div class="fb-adminseg" role="tablist">
+          <button role="tab" [class.active]="adminTab()==='reglas'" (click)="adminTab.set('reglas')">Reglas de clasificación</button>
+          <button role="tab" [class.active]="adminTab()==='categorias'" (click)="adminTab.set('categorias')">Categorías</button>
+          <button role="tab" [class.active]="adminTab()==='cuentas'" (click)="adminTab.set('cuentas')">Cuentas de banco</button>
+        </div>
+
+        <!-- Reglas -->
+        @if (adminTab() === 'reglas') {
+          <div class="fb-admin-bar">
+            <p class="fb-admin-note muted">Se evalúan por prioridad (menor primero). Una regla aplica si todos sus matchers (regex) coinciden. Editar aquí NO reclasifica lo ya importado — usa «Reclasificar».</p>
+            <button pButton type="button" label="Reclasificar movimientos" icon="pi pi-refresh" class="p-button-sm p-button-outlined" [loading]="reclassifying()" (click)="reclassifyAll()"></button>
+          </div>
+          <div class="card-premium card-flat fb-tablewrap">
+            <p-table [value]="rules()" styleClass="p-datatable-sm" [rowHover]="true" [scrollable]="true" scrollHeight="58vh">
+              <ng-template pTemplate="header">
+                <tr>
+                  <th style="width:5rem">Prioridad</th>
+                  <th style="width:7rem">Tipo (M)</th>
+                  <th style="width:8rem">Código (C)</th>
+                  <th>Concepto (regex)</th>
+                  <th style="width:12rem">Categoría</th>
+                  <th style="width:4rem" class="ta-c">Activa</th>
+                  <th style="width:3rem"></th>
+                </tr>
+              </ng-template>
+              <ng-template pTemplate="body" let-r>
+                <tr [class.fb-inactive]="!r.active">
+                  <td><input type="number" class="fb-in fb-in-num" [ngModel]="r.priority" (change)="patchRule(r, { priority: +$any($event.target).value })"></td>
+                  <td><input class="fb-in mono" [ngModel]="r.match_type" (change)="patchRule(r, { match_type: $any($event.target).value })" placeholder="—"></td>
+                  <td><input class="fb-in mono" [ngModel]="r.match_code" (change)="patchRule(r, { match_code: $any($event.target).value })" placeholder="—"></td>
+                  <td><input class="fb-in mono" [ngModel]="r.match_concept" (change)="patchRule(r, { match_concept: $any($event.target).value })" placeholder="—"></td>
+                  <td>
+                    <select class="fb-in" [ngModel]="r.category_code" (ngModelChange)="patchRule(r, { category_code: $event })">
+                      @for (c of categories(); track c.id) { <option [value]="c.code">{{ c.name }}</option> }
+                    </select>
+                  </td>
+                  <td class="ta-c"><input type="checkbox" [ngModel]="r.active" (ngModelChange)="patchRule(r, { active: $event })"></td>
+                  <td class="ta-c"><button class="btn-ghost-danger" title="Eliminar" (click)="deleteRule(r)"><i class="pi pi-trash"></i></button></td>
+                </tr>
+              </ng-template>
+              <ng-template pTemplate="footer">
+                <tr class="fb-newrow">
+                  <td><input type="number" class="fb-in fb-in-num" [(ngModel)]="nrPriority" placeholder="auto"></td>
+                  <td><input class="fb-in mono" [(ngModel)]="nrType" placeholder="^I$"></td>
+                  <td><input class="fb-in mono" [(ngModel)]="nrCode" placeholder="^612$"></td>
+                  <td><input class="fb-in mono" [(ngModel)]="nrConcept" placeholder="SUA|IMSS"></td>
+                  <td>
+                    <select class="fb-in" [(ngModel)]="nrCategory">
+                      <option value="">— categoría —</option>
+                      @for (c of categories(); track c.id) { <option [value]="c.code">{{ c.name }}</option> }
+                    </select>
+                  </td>
+                  <td colspan="2" class="ta-c"><button pButton type="button" label="Agregar" icon="pi pi-plus" class="p-button-sm p-button-text" (click)="addRule()"></button></td>
+                </tr>
+              </ng-template>
+            </p-table>
+          </div>
+        }
+
+        <!-- Categorías -->
+        @if (adminTab() === 'categorias') {
+          <div class="card-premium card-flat fb-tablewrap">
+            <p-table [value]="categories()" styleClass="p-datatable-sm" [rowHover]="true" [scrollable]="true" scrollHeight="60vh">
+              <ng-template pTemplate="header">
+                <tr><th style="width:11rem">Código</th><th>Nombre</th><th style="width:9rem">Grupo</th><th style="width:8rem">Cuenta Kepler</th><th style="width:6rem">Flujo</th><th style="width:4rem" class="ta-c">Activa</th></tr>
+              </ng-template>
+              <ng-template pTemplate="body" let-c>
+                <tr [class.fb-inactive]="!c.active">
+                  <td class="mono muted">{{ c.code }}</td>
+                  <td><input class="fb-in" [ngModel]="c.name" (change)="patchCategory(c, { name: $any($event.target).value })"></td>
+                  <td>
+                    <select class="fb-in" [ngModel]="c.group_key" (ngModelChange)="patchCategory(c, { group_key: $event })">
+                      @for (g of GROUP_ORDER; track g) { <option [value]="g">{{ label(g) }}</option> }
+                    </select>
+                  </td>
+                  <td><input class="fb-in mono" [ngModel]="c.kepler_account" (change)="patchCategory(c, { kepler_account: $any($event.target).value })" placeholder="—"></td>
+                  <td>
+                    <select class="fb-in" [ngModel]="c.flow" (ngModelChange)="patchCategory(c, { flow: $event })">
+                      <option value="in">Entra</option><option value="out">Sale</option><option value="both">Ambos</option><option value="none">—</option>
+                    </select>
+                  </td>
+                  <td class="ta-c"><input type="checkbox" [ngModel]="c.active" (ngModelChange)="patchCategory(c, { active: $event })"></td>
+                </tr>
+              </ng-template>
+              <ng-template pTemplate="footer">
+                <tr class="fb-newrow">
+                  <td><input class="fb-in mono" [(ngModel)]="ncCode" placeholder="nuevo_codigo"></td>
+                  <td><input class="fb-in" [(ngModel)]="ncName" placeholder="Nombre visible"></td>
+                  <td>
+                    <select class="fb-in" [(ngModel)]="ncGroup">
+                      @for (g of GROUP_ORDER; track g) { <option [value]="g">{{ label(g) }}</option> }
+                    </select>
+                  </td>
+                  <td><input class="fb-in mono" [(ngModel)]="ncKepler" placeholder="601"></td>
+                  <td>
+                    <select class="fb-in" [(ngModel)]="ncFlow"><option value="out">Sale</option><option value="in">Entra</option><option value="both">Ambos</option><option value="none">—</option></select>
+                  </td>
+                  <td class="ta-c"><button pButton type="button" icon="pi pi-plus" class="p-button-sm p-button-text" (click)="addCategory()"></button></td>
+                </tr>
+              </ng-template>
+            </p-table>
+          </div>
+        }
+
+        <!-- Cuentas -->
+        @if (adminTab() === 'cuentas') {
+          <div class="card-premium card-flat fb-tablewrap">
+            <p-table [value]="accounts()" styleClass="p-datatable-sm" [rowHover]="true" [scrollable]="true" scrollHeight="60vh">
+              <ng-template pTemplate="header">
+                <tr><th style="width:8rem">Banco</th><th style="width:6rem">Cuenta</th><th style="width:10rem">Alias (hoja Excel)</th><th style="width:7rem">Tipo</th><th>Vínculo Kepler</th><th style="width:4rem" class="ta-c">Activa</th></tr>
+              </ng-template>
+              <ng-template pTemplate="body" let-a>
+                <tr [class.fb-inactive]="!a.active">
+                  <td>{{ a.bank }}</td>
+                  <td class="mono">{{ a.account_label }}</td>
+                  <td><input class="fb-in mono" [ngModel]="a.alias" (change)="patchAccount(a, { alias: $any($event.target).value })" placeholder="—"></td>
+                  <td>
+                    <select class="fb-in" [ngModel]="a.kind" (ngModelChange)="patchAccount(a, { kind: $event })">
+                      <option value="bank">Banco</option><option value="cash">Caja</option><option value="factoraje">Factoraje</option>
+                    </select>
+                  </td>
+                  <td><input class="fb-in" [ngModel]="a.kepler_link" (change)="patchAccount(a, { kepler_link: $any($event.target).value })" placeholder="cómo mapea al 102"></td>
+                  <td class="ta-c"><input type="checkbox" [ngModel]="a.active" (ngModelChange)="patchAccount(a, { active: $event })"></td>
+                </tr>
+              </ng-template>
+              <ng-template pTemplate="footer">
+                <tr class="fb-newrow">
+                  <td><input class="fb-in" [(ngModel)]="naBank" placeholder="BANCO"></td>
+                  <td><input class="fb-in mono" [(ngModel)]="naLabel" placeholder="0000"></td>
+                  <td><input class="fb-in mono" [(ngModel)]="naAlias" placeholder="hoja Excel"></td>
+                  <td><select class="fb-in" [(ngModel)]="naKind"><option value="bank">Banco</option><option value="cash">Caja</option><option value="factoraje">Factoraje</option></select></td>
+                  <td><input class="fb-in" [(ngModel)]="naKepler" placeholder="opcional"></td>
+                  <td class="ta-c"><button pButton type="button" icon="pi pi-plus" class="p-button-sm p-button-text" (click)="addAccount()"></button></td>
+                </tr>
+              </ng-template>
+            </p-table>
+          </div>
+        }
       }
       }
     </div>
@@ -290,6 +479,29 @@ const GROUP_ORDER = ['ingreso', 'compra', 'gasto', 'factoraje', 'financiero', 't
     .fb-recon-delta { font-size: var(--fs-sm); font-weight: 600; margin-top: 2px; }
     .fb-recon-note { font-size: var(--fs-xs); margin: var(--sp-3) 0 0; }
     .fb-pnl-title { padding: var(--sp-3) var(--sp-3) 0; }
+    .fb-match { margin-bottom: var(--sp-3); }
+    .fb-match-head { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); flex-wrap: wrap; }
+    .fb-match-res { display: flex; align-items: baseline; gap: var(--sp-2); flex-wrap: wrap; margin-top: var(--sp-2); font-size: var(--fs-sm); }
+    .fb-match-rate { font-size: var(--fs-lg, 1.125rem); font-weight: 700; }
+    .fb-match-rate.warn { color: var(--warn-fg); } .fb-match-rate.ok { color: var(--ok-fg); }
+    .warn { color: var(--warn-fg); }
+    .ta-c { text-align: center; }
+    .fb-rec-ok { color: var(--ok-fg); font-size: 0.85rem; }
+    .fb-rec-no { color: var(--text-faint); font-size: 0.7rem; }
+    .fb-diff-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(22rem, 1fr)); gap: var(--sp-3); margin-top: var(--sp-3); }
+    .fb-adminseg { display: flex; gap: var(--sp-1); margin-bottom: var(--sp-3); }
+    .fb-adminseg button { background: none; border: 1px solid var(--border-color); color: var(--text-muted); font: inherit; font-size: var(--fs-xs); font-weight: 500; padding: var(--sp-1) var(--sp-3); border-radius: var(--r-sm); cursor: pointer; }
+    .fb-adminseg button.active { color: var(--action); border-color: var(--action); background: color-mix(in srgb, var(--action) 8%, transparent); }
+    .fb-admin-bar { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); margin-bottom: var(--sp-3); flex-wrap: wrap; }
+    .fb-admin-note { font-size: var(--fs-xs); max-width: 48rem; margin: 0; }
+    .fb-in { font: inherit; font-size: var(--fs-xs); width: 100%; padding: 2px var(--sp-1); background: var(--card-bg); color: var(--text-main); border: 1px solid transparent; border-radius: var(--r-sm); }
+    .fb-in:hover, .fb-in:focus { border-color: var(--border-color); }
+    .fb-in-num { text-align: right; }
+    .fb-newrow { background: var(--surface-ground); }
+    .fb-newrow .fb-in { border-color: var(--border-color); }
+    .fb-inactive { opacity: 0.5; }
+    .btn-ghost-danger { background: none; border: none; color: var(--text-faint); cursor: pointer; padding: 2px var(--sp-1); border-radius: var(--r-sm); }
+    .btn-ghost-danger:hover { color: var(--bad-fg); background: color-mix(in srgb, var(--bad-fg) 10%, transparent); }
   `],
 })
 export class FinanzasBancosComponent implements OnInit {
@@ -309,6 +521,9 @@ export class FinanzasBancosComponent implements OnInit {
   readonly statements = signal<BankStatement[]>([]);
   readonly concentrado = signal<Concentrado | null>(null);
   readonly reconciliation = signal<Reconciliation | null>(null);
+  readonly matchResult = signal<MatchResult | null>(null);
+  readonly differences = signal<Differences | null>(null);
+  readonly matching = signal(false);
   readonly movements = signal<BankMovement[]>([]);
   readonly movTotal = signal(0);
 
@@ -318,6 +533,17 @@ export class FinanzasBancosComponent implements OnInit {
   readonly fSearch = signal('');
   readonly uploading = signal(false);
   private searchTimer: any = null;
+
+  // ── CB.6 Admin ──
+  readonly adminTab = signal<AdminTab>('reglas');
+  readonly rules = signal<ClassifyRule[]>([]);
+  readonly reclassifying = signal(false);
+  // nueva regla
+  nrPriority: number | null = null; nrType = ''; nrCode = ''; nrConcept = ''; nrCategory = '';
+  // nueva categoría
+  ncCode = ''; ncName = ''; ncGroup = 'gasto'; ncKepler = ''; ncFlow = 'out';
+  // nueva cuenta
+  naBank = ''; naLabel = ''; naAlias = ''; naKind = 'bank'; naKepler = '';
 
   /** Grupos con datos en el periodo (columnas del CONCENTRADO), en orden canónico. */
   readonly groupCols = computed(() => {
@@ -345,6 +571,8 @@ export class FinanzasBancosComponent implements OnInit {
 
   private loadPeriod(): void {
     this.loading.set(true);
+    this.matchResult.set(null);
+    this.differences.set(null);
     const p = this.period();
     this.api.concentrado(p).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (c) => this.concentrado.set(c),
@@ -439,6 +667,22 @@ export class FinanzasBancosComponent implements OnInit {
     if (!g) return 0;
     return group === 'ingreso' || group === 'devolucion' ? g.deposits : g.withdrawals;
   }
+  /** Corre el matching por-transacción del periodo y recarga los movimientos (recon_status). */
+  runMatch(): void {
+    if (!this.period()) return;
+    this.matching.set(true);
+    this.api.runMatch(this.period()).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (mr) => {
+        this.matching.set(false);
+        this.matchResult.set(mr);
+        this.toast.add({ severity: 'success', summary: `Matching ${mr.match_rate}%`, detail: `${mr.matched} de ${mr.bank_movements} retiros casados`, life: 3500 });
+        this.api.differences(this.period()).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (df) => this.differences.set(df), error: () => this.differences.set(null) });
+        this.reloadMovements();
+      },
+      error: () => { this.matching.set(false); this.fail('No se pudo correr el matching.'); },
+    });
+  }
+
   /** Tolerancia de cuadre: ±$1,000 (o ~0.5%) se considera cuadrado. */
   cuadra(delta: number): boolean { return Math.abs(delta) < 1000; }
   label(group: string): string { return GROUP_LABELS[group] || group; }

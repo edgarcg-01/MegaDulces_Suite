@@ -33,33 +33,36 @@ function excelDate(v: any): string | null {
   return m ? `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}` : null;
 }
 
-/** Traduce (M, C, concepto) del Excel → código de categoría limpia. Idéntico al CLI CB.1. */
-function classify(M: any, C: any, concept: any): string {
+/**
+ * CB.6 — Motor de clasificación desde DB (finance.bank_classify_rules).
+ * Reglas ordenadas por priority; una aplica si TODOS sus matchers no-nulos
+ * (regex sobre M/C/concepto) hacen match. La primera que aplica gana.
+ * Reemplaza la función classify() hardcodeada (ahora las reglas viven en DB,
+ * editables desde la vista Admin). Patrones inválidos se ignoran (best-effort).
+ */
+export interface ClassifyRuleRow {
+  priority: number; match_type: string | null; match_code: string | null;
+  match_concept: string | null; category_code: string;
+}
+interface CompiledRule { reType: RegExp | null; reCode: RegExp | null; reConcept: RegExp | null; category: string; }
+
+function compileRules(rules: ClassifyRuleRow[]): CompiledRule[] {
+  const safe = (p: string | null): RegExp | null => {
+    if (!p) return null;
+    try { return new RegExp(p, 'i'); } catch { return null; }
+  };
+  return [...rules]
+    .sort((a, b) => a.priority - b.priority)
+    .map((r) => ({ reType: safe(r.match_type), reCode: safe(r.match_code), reConcept: safe(r.match_concept), category: r.category_code }));
+}
+
+function classifyWith(compiled: CompiledRule[], M: any, C: any, concept: any): string {
   const m = normKey(M), c = normKey(C), t = normKey(concept);
-  if (m === 'TE' || m === 'TI' || c === '-') return 'traspaso_entre_cuentas';
-  if (m === 'CF') return 'compra_factoraje';
-  if (m === 'PF') return 'pago_factoraje';
-  if (m === 'DS') return 'devolucion_spei';
-  if (m === 'ID') return 'ingreso_devolucion';
-  if (m === 'I') return /\bDEV|DEVOLUC/.test(t) ? 'ingreso_devolucion' : 'cobranza';
-  if (c === '102') return 'cobranza';
-  if (m === 'C' || c === '510' || c === '501') return 'compra_mercancia';
-  if (c === '610') return 'nomina';
-  if (c === '147') return 'iva_acreditable';
-  if (c === '631') return 'pension_alimenticia';
-  if (c === '621') return 'gasto_admin';
-  if (c === '612') {
-    if (/SUA|IMSS/.test(t)) return 'imss_sua';
-    if (/COMISI|MEMBRES|COBRO/.test(t)) return 'comision_bancaria';
-    if (/CAPITAL|CREDITO|CRÉDITO|PRESTAMO|PRÉSTAMO/.test(t)) return 'pago_credito';
-    if (/ARRENDA/.test(t)) return 'renta';
-    if (/PAN AMERICANO|TRASLADO|VALORES/.test(t)) return 'traslado_valores';
-    return 'sin_clasificar';
-  }
-  if (c === '613') {
-    if (/CAJA DE AHORRO|CAJA AHORRO/.test(t)) return 'caja_ahorro';
-    if (/NOMINA|NÓMINA|\bNOM\b/.test(t)) return 'nomina';
-    return 'sin_clasificar';
+  for (const r of compiled) {
+    if (r.reType && !r.reType.test(m)) continue;
+    if (r.reCode && !r.reCode.test(c)) continue;
+    if (r.reConcept && !r.reConcept.test(t)) continue;
+    return r.category;
   }
   return 'sin_clasificar';
 }
@@ -236,11 +239,314 @@ export class FinanceBankService {
         catId = cat.id;
       }
       const [row] = await trx('finance.bank_movements').where({ id })
-        .update({ category_id: catId, updated_at: trx.fn.now() })
+        .update({ category_id: catId, classified_by: 'manual', updated_at: trx.fn.now() })
         .returning(['id', 'category_id']);
       if (!row) throw new BadRequestException('movimiento no encontrado');
       this.logger.log(`movimiento ${id} reclasificado → ${catId || 'sin_clasificar'} por ${actor || '?'}`);
       return row;
+    });
+  }
+
+  // ── CB.6 — Admin: catálogo (cuentas + categorías) y reglas de clasificación ──
+
+  /** Alta de cuenta de banco/caja/factoraje. */
+  async createAccount(body: any, actor?: string) {
+    this.tenantCtx.requireTenantId();
+    const bank = String(body?.bank || '').trim();
+    const account_label = String(body?.account_label || '').trim();
+    if (!bank || !account_label) throw new BadRequestException('bank y account_label requeridos');
+    const kind = ['bank', 'cash', 'factoraje'].includes(body?.kind) ? body.kind : 'bank';
+    return this.tk.run(async (trx) => {
+      const [row] = await trx('finance.bank_accounts')
+        .insert({ bank, account_label, alias: body?.alias?.trim() || null, kind, kepler_link: body?.kepler_link?.trim() || null })
+        .onConflict(['tenant_id', 'bank', 'account_label']).merge(['alias', 'kind', 'kepler_link', 'updated_at'])
+        .returning('*');
+      this.logger.log(`cuenta ${bank} ${account_label} guardada por ${actor || '?'}`);
+      return row;
+    });
+  }
+
+  /** Edita una cuenta (alias/kepler_link/kind/active). */
+  async updateAccount(id: string, body: any) {
+    this.tenantCtx.requireTenantId();
+    const patch: any = { updated_at: undefined };
+    if (body?.alias !== undefined) patch.alias = body.alias?.trim() || null;
+    if (body?.kepler_link !== undefined) patch.kepler_link = body.kepler_link?.trim() || null;
+    if (body?.kind !== undefined && ['bank', 'cash', 'factoraje'].includes(body.kind)) patch.kind = body.kind;
+    if (body?.active !== undefined) patch.active = !!body.active;
+    return this.tk.run(async (trx) => {
+      const [row] = await trx('finance.bank_accounts').where({ id })
+        .update({ ...patch, updated_at: trx.fn.now() }).returning('*');
+      if (!row) throw new BadRequestException('cuenta no encontrada');
+      return row;
+    });
+  }
+
+  /** Alta de categoría del catálogo limpio. */
+  async createCategory(body: any, actor?: string) {
+    this.tenantCtx.requireTenantId();
+    const code = String(body?.code || '').trim().toLowerCase().replace(/[^a-z0-9_]/g, '_');
+    const name = String(body?.name || '').trim();
+    const group_key = String(body?.group_key || '').trim();
+    const flow = ['in', 'out', 'both', 'none'].includes(body?.flow) ? body.flow : 'out';
+    if (!code || !name || !group_key) throw new BadRequestException('code, name y group_key requeridos');
+    return this.tk.run(async (trx) => {
+      const maxSort = Number((await trx('finance.movement_categories').max('sort_order as m').first())?.m || 0);
+      const [row] = await trx('finance.movement_categories')
+        .insert({ code, name, flow, group_key, kepler_account: body?.kepler_account?.trim() || null,
+          kepler_note: body?.kepler_note?.trim() || null, sort_order: maxSort + 10 })
+        .onConflict(['tenant_id', 'code'])
+        .merge(['name', 'flow', 'group_key', 'kepler_account', 'kepler_note', 'updated_at'])
+        .returning('*');
+      this.logger.log(`categoría ${code} guardada por ${actor || '?'}`);
+      return row;
+    });
+  }
+
+  /** Edita una categoría (name/kepler_account/group_key/flow/active). */
+  async updateCategory(id: string, body: any) {
+    this.tenantCtx.requireTenantId();
+    const patch: any = {};
+    if (body?.name !== undefined) patch.name = String(body.name).trim();
+    if (body?.kepler_account !== undefined) patch.kepler_account = body.kepler_account?.trim() || null;
+    if (body?.kepler_note !== undefined) patch.kepler_note = body.kepler_note?.trim() || null;
+    if (body?.group_key !== undefined) patch.group_key = String(body.group_key).trim();
+    if (body?.flow !== undefined && ['in', 'out', 'both', 'none'].includes(body.flow)) patch.flow = body.flow;
+    if (body?.active !== undefined) patch.active = !!body.active;
+    if (!Object.keys(patch).length) throw new BadRequestException('nada que actualizar');
+    return this.tk.run(async (trx) => {
+      const [row] = await trx('finance.movement_categories').where({ id })
+        .update({ ...patch, updated_at: trx.fn.now() }).returning('*');
+      if (!row) throw new BadRequestException('categoría no encontrada');
+      return row;
+    });
+  }
+
+  /** Lista las reglas de clasificación (por prioridad). */
+  async rules() {
+    this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      return trx('finance.bank_classify_rules as r')
+        .leftJoin('finance.movement_categories as mc', function () {
+          this.on('mc.code', 'r.category_code');
+        })
+        .select('r.id', 'r.priority', 'r.match_type', 'r.match_code', 'r.match_concept',
+          'r.category_code', 'mc.name as category_name', 'mc.group_key', 'r.note', 'r.active')
+        .orderBy('r.priority');
+    });
+  }
+
+  /** Valida que los patrones sean regex legales y la categoría exista. */
+  private async validateRule(trx: any, body: any) {
+    for (const key of ['match_type', 'match_code', 'match_concept']) {
+      const p = body?.[key];
+      if (p) { try { new RegExp(p, 'i'); } catch { throw new BadRequestException(`regex inválida en ${key}`); } }
+    }
+    const category_code = String(body?.category_code || '').trim();
+    if (!category_code) throw new BadRequestException('category_code requerido');
+    const cat = await trx('finance.movement_categories').where({ code: category_code }).first('code');
+    if (!cat) throw new BadRequestException(`categoría "${category_code}" no existe`);
+    if (!body?.match_type && !body?.match_code && !body?.match_concept)
+      throw new BadRequestException('al menos un matcher (tipo/código/concepto) requerido');
+    return category_code;
+  }
+
+  /** Alta de regla de clasificación. */
+  async createRule(body: any, actor?: string) {
+    this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      const category_code = await this.validateRule(trx, body);
+      let priority = Number(body?.priority);
+      if (!Number.isFinite(priority)) priority = Number((await trx('finance.bank_classify_rules').max('priority as m').first())?.m || 0) + 10;
+      const [row] = await trx('finance.bank_classify_rules')
+        .insert({ priority, match_type: body?.match_type?.trim() || null, match_code: body?.match_code?.trim() || null,
+          match_concept: body?.match_concept?.trim() || null, category_code, note: body?.note?.trim() || null })
+        .onConflict(['tenant_id', 'priority'])
+        .merge(['match_type', 'match_code', 'match_concept', 'category_code', 'note', 'active', 'updated_at'])
+        .returning('*');
+      this.logger.log(`regla p${priority} → ${category_code} guardada por ${actor || '?'}`);
+      return row;
+    });
+  }
+
+  /** Edita una regla. */
+  async updateRule(id: string, body: any) {
+    this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      const patch: any = {};
+      if (body?.category_code !== undefined || body?.match_type !== undefined || body?.match_code !== undefined || body?.match_concept !== undefined) {
+        const current = await trx('finance.bank_classify_rules').where({ id }).first();
+        if (!current) throw new BadRequestException('regla no encontrada');
+        const merged = { ...current, ...body };
+        patch.category_code = await this.validateRule(trx, merged);
+        patch.match_type = merged.match_type?.trim() || null;
+        patch.match_code = merged.match_code?.trim() || null;
+        patch.match_concept = merged.match_concept?.trim() || null;
+      }
+      if (body?.priority !== undefined && Number.isFinite(Number(body.priority))) patch.priority = Number(body.priority);
+      if (body?.note !== undefined) patch.note = body.note?.trim() || null;
+      if (body?.active !== undefined) patch.active = !!body.active;
+      if (!Object.keys(patch).length) throw new BadRequestException('nada que actualizar');
+      const [row] = await trx('finance.bank_classify_rules').where({ id })
+        .update({ ...patch, updated_at: trx.fn.now() }).returning('*');
+      if (!row) throw new BadRequestException('regla no encontrada');
+      return row;
+    });
+  }
+
+  /** Elimina una regla. */
+  async deleteRule(id: string) {
+    this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      const n = await trx('finance.bank_classify_rules').where({ id }).del();
+      if (!n) throw new BadRequestException('regla no encontrada');
+      return { deleted: n };
+    });
+  }
+
+  /**
+   * CB.6 — Re-aplica las reglas a los movimientos ya importados (tras editarlas).
+   * Respeta el override manual: NO toca filas con classified_by='manual'. Opcional
+   * `period` para acotar. Devuelve cuántas cambiaron de categoría.
+   */
+  async reclassifyAll(period?: string) {
+    this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      const compiled = compileRules(
+        await trx('finance.bank_classify_rules').where({ active: true })
+          .select('priority', 'match_type', 'match_code', 'match_concept', 'category_code'));
+      const catMap = new Map<string, string>(
+        (await trx('finance.movement_categories').select('id', 'code')).map((r: any) => [r.code, r.id]));
+
+      const q = trx('finance.bank_movements as bm')
+        .join('finance.bank_statements as st', 'st.id', 'bm.statement_id')
+        .where('bm.classified_by', 'rule');
+      if (period) q.where('st.period', period);
+      const movs = await q.select('bm.id', 'bm.raw_type', 'bm.raw_code', 'bm.concept', 'bm.category_id');
+
+      let changed = 0; const updates: Record<string, string[]> = {};
+      for (const m of movs as any[]) {
+        const code = classifyWith(compiled, m.raw_type, m.raw_code, m.concept);
+        const newCat = code === 'sin_clasificar' ? null : (catMap.get(code) || null);
+        if ((newCat || null) !== (m.category_id || null)) {
+          const key = newCat || '__null__';
+          (updates[key] ||= []).push(m.id);
+          changed++;
+        }
+      }
+      for (const [key, ids] of Object.entries(updates)) {
+        const catId = key === '__null__' ? null : key;
+        for (let i = 0; i < ids.length; i += 500)
+          await trx('finance.bank_movements').whereIn('id', ids.slice(i, i + 500))
+            .update({ category_id: catId, updated_at: trx.fn.now() });
+      }
+      this.logger.log(`reclassifyAll ${period || 'todos'}: ${changed}/${movs.length} recategorizados`);
+      return { scanned: movs.length, changed };
+    });
+  }
+
+  /**
+   * CB.4.2 — Diferencias de conciliación: lo que NO casó, rankeado por monto (accionable).
+   * Requiere haber corrido runMatch (usa recon_status + bank_recon_matches).
+   */
+  async differences(period?: string, limit = 50) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    if (!period) throw new BadRequestException('period requerido (YYYY-MM)');
+    return this.tk.run(async (trx) => {
+      // Retiros del banco sin casar (con su categoría).
+      const bank = await trx('finance.bank_movements as bm')
+        .join('finance.bank_statements as st', 'st.id', 'bm.statement_id')
+        .leftJoin('finance.movement_categories as mc', 'mc.id', 'bm.category_id')
+        .where('st.period', period).where('bm.amount_out', '>', 0).where('bm.recon_status', 'unmatched')
+        .select('bm.id', 'bm.movement_date', 'bm.amount_out', 'bm.concept', 'bm.raw_code',
+          'mc.name as category_name', 'mc.group_key')
+        .orderBy('bm.amount_out', 'desc').limit(limit);
+
+      // Pagos del 102 en Kepler sin casar (no referenciados por ningún match).
+      const kepler = await trx('analytics.bank_postings as p')
+        .where({ 'p.tenant_id': tenantId, 'p.anio_mes': period, 'p.cargo_abono': 'A' })
+        .whereNotExists(function () {
+          this.select(trx.raw('1')).from('finance.bank_recon_matches as m')
+            .whereRaw('m.kepler_doc_tipo = p.doc_tipo AND m.kepler_doc_folio = p.folio');
+        })
+        .select('p.doc_tipo', 'p.folio', 'p.fecha', 'p.importe', 'p.contraparte')
+        .orderBy('p.importe', 'desc').limit(limit);
+
+      return {
+        period,
+        bank_unmatched: bank.map((r: any) => ({ ...r, amount_out: n(r.amount_out) })),
+        kepler_unmatched: kepler.map((r: any) => ({ ...r, importe: n(r.importe) })),
+      };
+    });
+  }
+
+  /**
+   * CB.4.1 — Matching por-transacción: retiros del banco (pagos) ↔ abonos del 102
+   * de Kepler (`analytics.bank_postings`), por monto exacto + fecha ±7d (greedy,
+   * el candidato de fecha más cercana). Escribe finance.bank_recon_matches y marca
+   * bank_movements.recon_status. Solo lado pago (los depósitos/cobranza quedan a
+   * control-total en CB.4: Kepler los agrega por plaza, no casan 1:1).
+   */
+  async runMatch(period?: string) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    if (!period) throw new BadRequestException('period requerido (YYYY-MM)');
+    const cents = (x: number) => Math.round((Number(x) || 0) * 100);
+    const days = (a: any, b: any) => Math.abs(Math.round((new Date(a).getTime() - new Date(b).getTime()) / 86400000));
+
+    return this.tk.run(async (trx) => {
+      // Lado banco: retiros del periodo (excluye traspasos internos y sin importe).
+      const bankMovs = await trx('finance.bank_movements as bm')
+        .join('finance.bank_statements as st', 'st.id', 'bm.statement_id')
+        .leftJoin('finance.movement_categories as mc', 'mc.id', 'bm.category_id')
+        .where('st.period', period).where('bm.amount_out', '>', 0)
+        .whereRaw(`COALESCE(mc.group_key,'sin_clasificar') <> 'traspaso'`)
+        .select('bm.id', 'bm.movement_date', 'bm.amount_out', 'bm.concept')
+        .orderBy('bm.movement_date');
+
+      // Lado Kepler: abonos del 102 del periodo (pagos que salen).
+      const posts = (await trx('analytics.bank_postings')
+        .where({ tenant_id: tenantId, anio_mes: period, cargo_abono: 'A' })
+        .select('doc_tipo', 'folio', 'fecha', 'importe', 'contraparte'))
+        .map((p: any) => ({ ...p, importe: n(p.importe), used: false }));
+
+      // índice por monto en centavos
+      const byAmt = new Map<number, any[]>();
+      for (const p of posts) { const k = cents(p.importe); (byAmt.get(k) || byAmt.set(k, []).get(k))!.push(p); }
+
+      const matches: any[] = []; const matchedIds: string[] = [];
+      for (const mv of bankMovs) {
+        const cands = (byAmt.get(cents(n(mv.amount_out))) || []).filter((p) => !p.used);
+        if (!cands.length) continue;
+        let best: any = null, bestD = 8;
+        for (const p of cands) { const d = p.fecha ? days(mv.movement_date, p.fecha) : 99; if (d < bestD) { best = p; bestD = d; } }
+        if (!best) continue;
+        best.used = true; matchedIds.push(mv.id);
+        matches.push({ tenant_id: tenantId, bank_movement_id: mv.id, kepler_doc_tipo: best.doc_tipo,
+          kepler_doc_folio: best.folio, kepler_cuenta: '102', kepler_amount: best.importe,
+          match_type: 'inferred', match_confidence: bestD === 0 ? 0.95 : 0.75, matched_by: 'motor' });
+      }
+
+      // Persistir: limpiar matches previos del periodo + reinsertar; marcar recon_status.
+      const periodMovIds = bankMovs.map((m: any) => m.id);
+      if (periodMovIds.length) {
+        await trx('finance.bank_recon_matches').whereIn('bank_movement_id', periodMovIds).del();
+        for (let i = 0; i < matches.length; i += 500) await trx('finance.bank_recon_matches').insert(matches.slice(i, i + 500));
+        await trx('finance.bank_movements').whereIn('id', periodMovIds).update({ recon_status: 'unmatched', updated_at: trx.fn.now() });
+        for (let i = 0; i < matchedIds.length; i += 500) {
+          await trx('finance.bank_movements').whereIn('id', matchedIds.slice(i, i + 500)).update({ recon_status: 'matched', updated_at: trx.fn.now() });
+        }
+      }
+
+      const matchedAmt = matches.reduce((s, m) => s + n(m.kepler_amount), 0);
+      const bankTotal = bankMovs.reduce((s: number, m: any) => s + n(m.amount_out), 0);
+      this.logger.log(`match ${period}: ${matches.length}/${bankMovs.length} retiros casados por ${matchedIds.length}`);
+      return {
+        period, bank_movements: bankMovs.length, matched: matches.length,
+        unmatched_bank: bankMovs.length - matches.length,
+        kepler_postings: posts.length, unmatched_kepler: posts.filter((p) => !p.used).length,
+        matched_amount: matchedAmt, bank_amount: bankTotal,
+        match_rate: bankMovs.length ? Math.round((matches.length / bankMovs.length) * 100) : 0,
+      };
     });
   }
 
@@ -336,6 +642,9 @@ export class FinanceBankService {
       const acctMap = new Map<string, any>(
         (await trx('finance.bank_accounts').select('id', 'alias', 'account_label'))
           .map((r: any) => [normKey(r.alias), r]));
+      const compiled = compileRules(
+        await trx('finance.bank_classify_rules').where({ active: true })
+          .select('priority', 'match_type', 'match_code', 'match_concept', 'category_code'));
 
       const perAccount: any[] = [];
       const byGroup: Record<string, { in: number; out: number; n: number }> = {};
@@ -363,7 +672,7 @@ export class FinanceBankService {
           const M = String(cellVal(row, ci.m) ?? '').trim(), C = String(cellVal(row, ci.c) ?? '').trim(), S = String(cellVal(row, ci.s) ?? '').trim();
           const concept = String(cellVal(row, ci.prov) ?? '').replace(/\s+/g, ' ').trim();
           const bal = ci.saldo ? money(cellVal(row, ci.saldo)) : null;
-          const catCode = classify(M, C, concept);
+          const catCode = classifyWith(compiled, M, C, concept);
           const cat = catMap.get(catCode);
           const catId = catCode === 'sin_clasificar' ? null : (cat ? cat.id : null);
           const group = catCode === 'sin_clasificar' ? 'sin_clasificar' : (cat ? cat.group : 'sin_clasificar');
@@ -374,6 +683,7 @@ export class FinanceBankService {
           const occ = (seen.get(contentKey) || 0) + 1; seen.set(contentKey, occ);
           const clientUuid = crypto.createHash('sha1').update(`${contentKey}|${occ}`).digest('hex');
           rows.push({ tenant_id: tenantId, bank_account_id: acct.id, movement_date: date, category_id: catId,
+            classified_by: 'rule',
             raw_type: M || null, raw_code: C || null, sucursal: S || null, concept: concept || null,
             amount_in: amtIn, amount_out: amtOut, running_balance: bal, client_uuid: clientUuid, source_file: sourceFile || null });
         }
@@ -390,7 +700,9 @@ export class FinanceBankService {
         for (let i = 0; i < rows.length; i += 500) {
           await trx('finance.bank_movements').insert(rows.slice(i, i + 500))
             .onConflict(['tenant_id', 'client_uuid'])
-            .merge(['statement_id', 'bank_account_id', 'movement_date', 'category_id', 'raw_type', 'raw_code',
+            // No pisa category_id/classified_by en re-import: preserva la reclasificación
+            // manual y la clasificación previa. Para re-aplicar reglas → reclassifyAll().
+            .merge(['statement_id', 'bank_account_id', 'movement_date', 'raw_type', 'raw_code',
               'sucursal', 'concept', 'amount_in', 'amount_out', 'running_balance', 'source_file', 'updated_at']);
         }
 
