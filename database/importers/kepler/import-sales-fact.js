@@ -37,6 +37,14 @@ const MONTHS = 13;
 const DAYS = process.env.SALES_FACT_DAYS ? parseInt(process.env.SALES_FACT_DAYS, 10) : null;
 const WIN = DAYS ? `current_date - interval '${DAYS} days'` : `current_date - interval '${MONTHS} months'`;
 
+// Sub-almacenes de RUTA de PH: Kepler los emite como '01-NNN' (empieza ~2026-06-29),
+// pero la MISMA ruta ya vive como warehouse 'RUTA-NN' alimentado por Wincaja hasta
+// 2026-06-27 (canal wincaja_ruta). Se traduce 01-NNN → RUTA-NN para que cada ruta quede
+// en UN solo almacén con timeline continua (cutover natural: Wincaja <06-28, Kepler >=06-29,
+// sin solape). Mapeo por número de ruta (verificado vía forma_pago). NO crear 01-NNN.
+const ROUTE_MAP = { '01-001': 'RUTA-21', '01-002': 'RUTA-22', '01-003': 'RUTA-23', '01-004': 'RUTA-26', '01-005': 'RUTA-27', '01-006': 'RUTA-28' };
+const mapAlmacen = (a) => ROUTE_MAP[a] || a;
+
 (async () => {
   const src = new Client({ connectionString: SRC });
   const db = new Client({ connectionString: DST });
@@ -83,7 +91,7 @@ const WIN = DAYS ? `current_date - interval '${DAYS} days'` : `current_date - in
           AND fecha <= current_date
           AND NOT (almacen = '01' AND fecha < DATE '2026-07-01')
         GROUP BY almacen, sku, channel, fecha`);
-    const tkMap = new Map(tk.map((r) => [`${r.almacen}|${r.sku}|${r.channel}|${r.fecha.toISOString().slice(0,10)}`, r.tickets]));
+    const tkMap = new Map(tk.map((r) => [`${mapAlmacen(r.almacen)}|${r.sku}|${r.channel}|${r.fecha.toISOString().slice(0,10)}`, r.tickets]));
     console.log(`  origen: ${agg.length} filas (almacen×sku×canal×día×unidad) · ${tk.length} grupos de tickets`);
 
     // Transform: convertir cada bucket de unidad → canónico y RE-AGREGAR por
@@ -93,7 +101,8 @@ const WIN = DAYS ? `current_date - interval '${DAYS} days'` : `current_date - in
     for (const r of agg) {
       const p = skuTo.get(r.sku);
       if (!p) { noSku++; continue; }
-      const wid = whTo.get(r.almacen);
+      const alm = mapAlmacen(r.almacen);
+      const wid = whTo.get(alm);
       if (!wid) { noWh++; continue; }
       const conv = toCanonical(p, r.unidad, Number(r.cant));
       if (!conv.ok) unconv++;
@@ -101,7 +110,7 @@ const WIN = DAYS ? `current_date - interval '${DAYS} days'` : `current_date - in
       const key = `${p.id}|${wid}|${r.channel}|${fecha}`;
       let a = acc.get(key);
       if (!a) {
-        a = { pid: p.id, wid, channel: r.channel, fecha, sku: r.sku, almacen: r.almacen,
+        a = { pid: p.id, wid, channel: r.channel, fecha, sku: r.sku, almacen: alm,
               markup: p.markup_pct, units: 0, revenue: 0, kind: p.kind };
         acc.set(key, a);
       }

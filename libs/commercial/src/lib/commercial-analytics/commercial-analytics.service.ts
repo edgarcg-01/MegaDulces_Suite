@@ -2100,9 +2100,9 @@ export class CommercialAnalyticsService {
         ELSE 'otro' END`;
     // RS.5 — fuente separada (no fusionar): los canales `wincaja_*` son Wincaja; el resto Kepler.
     const sourceExpr = `CASE WHEN sd.channel LIKE 'wincaja_%' THEN 'wincaja' ELSE 'kepler' END`;
-    // RS.7 — los sub-almacenes de ruta de PH (código `01-NNN`) son RUTAS aunque su venta se
-    // cobre a crédito/contado → forzarlos al canal `ruta` (RD), no clasificarlos por forma_pago.
-    const canalExpr = `CASE WHEN w.code LIKE '01-%' THEN 'ruta' ELSE (${channelExpr}) END`;
+    // RS.7 — los almacenes de RUTA (código `RUTA-NN`; legacy `01-NNN`) son RUTAS aunque su venta
+    // se cobre a crédito/contado → forzarlos al canal `ruta` (RD), no clasificar por forma_pago.
+    const canalExpr = `CASE WHEN w.code LIKE 'RUTA-%' OR w.code LIKE '01-%' THEN 'ruta' ELSE (${channelExpr}) END`;
 
     // Paso 1 y 2 — marca + agregación desde analytics.sales_daily (misma DB,
     // alimentada por el cron on-prem import-sales-fact.js). Tenant-scoped.
@@ -2627,8 +2627,8 @@ export class CommercialAnalyticsService {
         WHEN 'wincaja_preventa' THEN 'preventa'
         WHEN 'credito' THEN 'credito' WHEN 'wincaja_credito' THEN 'credito'
         ELSE 'otro' END`;
-    // RS.7 — sub-almacenes de ruta de PH (01-NNN) → RD aunque cobren a crédito/contado.
-    const channelExpr = `CASE WHEN w.code LIKE '01-%' THEN 'ruta' ELSE (${channelExpr0}) END`;
+    // RS.7 — almacenes de RUTA (RUTA-NN; legacy 01-NNN) → RD aunque cobren a crédito/contado.
+    const channelExpr = `CASE WHEN w.code LIKE 'RUTA-%' OR w.code LIKE '01-%' THEN 'ruta' ELSE (${channelExpr0}) END`;
     const rows = await this.tk.run((trx) => trx('analytics.sales_daily as sd')
       .join('commercial.warehouses as w', 'w.id', 'sd.warehouse_id')
       .where('sd.tenant_id', tenantId)
