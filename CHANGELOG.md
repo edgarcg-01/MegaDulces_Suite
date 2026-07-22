@@ -10,6 +10,12 @@
 
 ## [Unreleased]
 
+### Added — Compras: filtro por Categoría de compra + pedido consolidado por categoría (2026-07-22)
+- **Filtro por Categoría (sourcing)** en Compras: al elegir una categoría de compra —**PRODUCTOS GUADALAJARA, GUADALAJARA 2, ARANDAS**…— aparecen **todos los proveedores que la conforman** con su sugerido. Nace de cómo el comprador trabaja por "plaza": una corrida a Guadalajara junta ~27 proveedores. Ya estaba todo mapeado (`catalog.categories` + `products.category_id`), no se importó ni tocó dato.
+- **Pedido de toda la categoría** (cockpit): botón que arma de una el pedido consolidado de **TODOS los proveedores** de la plaza (multi-proveedor × almacén), con su costo, exportable al **Excel con diseño** (nueva columna **Proveedor**) y **genera una requisición por proveedor×almacén**. Ej. Guadalajara = 846 líneas / 27 proveedores.
+- **Backend**: `criticalStock`/`worklist` aceptan `category_id`; `filters()` devuelve las categorías de compra con conteo de proveedores/productos; `buildPedido` gana columna Proveedor (dinámica: solo si el pedido abarca >1). **Frontend**: selector "Categoría" en el cockpit **Pedido** y en **Existencia Crítica** (funnel categoría → proveedor); el drill y el export se scopean a la categoría.
+- Builds api+view verdes; filtro validado en vivo (Guadalajara → 27 proveedores / 220 productos con política). **Pendiente prod:** redeploy api+view. Reusa `COMPRAS_VER` → sin migración ni re-login.
+
 ### Added — CB.0: Conciliación bancaria — schema + catálogo (reemplaza el workbook Excel) (2026-07-22)
 - **ADR-033.** Arranca la Fase CB: la conciliación de bancos deja de vivir en un Excel manual ("CUENTAS LUIS FRANCISCO", 19 cuentas + caja + factoraje, ~4,865 movs/mes tecleados a mano) y pasa a una interfaz en el proyecto Finanzas.
 - **Entendimiento validado** contra `01 ENERO 2026.xlsx`: mi parse cuadra al peso con la hoja CONCENTRADO (Ingresos $52.95M · Compras $43,534,807 · Gastos $6,584,511 · TI=TE $25.4M). Hallazgo: los códigos del Excel están **sobrecargados** (`612` mezcla SUA/comisión/capital/arrendamiento; `613` caja-ahorro/vehículo/personas; `610`=nómina) y **no empatan con Kepler** (`612`=robo, `147` no existe) → se rediseña a catálogo limpio, no se migra tal cual.

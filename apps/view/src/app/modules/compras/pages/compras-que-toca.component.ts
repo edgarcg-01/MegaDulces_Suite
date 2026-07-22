@@ -30,6 +30,8 @@ interface DetailState {
   hist: SupplierOrderHistory | null;
   creating: boolean;
 }
+/** Línea del pedido consolidado por CATEGORÍA (abarca varios proveedores × almacenes). */
+type CatLine = CriticalStockRow & { uxc: number; cajas: number; piezas: number; line_cost: number };
 
 /**
  * RA-PRO.8/9/10 — Cockpit "Pedido". Master (almacén × proveedor) con: multi-select + generación
@@ -76,12 +78,25 @@ interface DetailState {
         <p-select [options]="statusOpts" [(ngModel)]="fStatus" (onChange)="reload()" optionLabel="label" optionValue="value" styleClass="qt-sel-sm"></p-select>
         <p-select [options]="basisOpts" [ngModel]="fBasis()" (ngModelChange)="fBasis.set($event); reload()" optionLabel="label" optionValue="value"
                   placeholder="Objetivo" styleClass="qt-sel-sm" ariaLabel="Base del sugerido (objetivo)" pTooltip="Nivel al que se llena el sugerido: aplica a la columna Costo est. y al detalle" tooltipPosition="bottom"></p-select>
+        <p-select [options]="categoryOpts()" [(ngModel)]="fCategory" (onChange)="reload()" (onClear)="reload()"
+                  optionLabel="label" optionValue="value" placeholder="Todas las categorías" [showClear]="true"
+                  [filter]="true" filterBy="label" filterPlaceholder="Buscar categoría (Guadalajara, Arandas…)" [resetFilterOnHide]="true"
+                  [virtualScroll]="true" [virtualScrollItemSize]="34" styleClass="qt-sel-wide" ariaLabel="Filtrar por categoría de compra"></p-select>
         <p-select [options]="supplierOpts()" [(ngModel)]="fSearch" (onChange)="reload()" (onClear)="reload()"
                   optionLabel="label" optionValue="value" placeholder="Todos los proveedores" [showClear]="true"
                   [filter]="true" filterBy="label" filterPlaceholder="Buscar proveedor…" [resetFilterOnHide]="true"
                   [virtualScroll]="true" [virtualScrollItemSize]="34" styleClass="qt-sel-wide" ariaLabel="Filtrar por proveedor"></p-select>
         <span class="qt-count">{{ total() | number }} par(es) activo(s)</span>
       </div>
+
+      <!-- A3 — pedido consolidado de toda la categoría (todos sus proveedores de una) -->
+      @if (fCategory) {
+        <div class="qt-catbar">
+          <span class="qt-catbar-txt"><i class="pi pi-sitemap"></i> Categoría: <strong>{{ catLabel() }}</strong> — todos sus proveedores</span>
+          <button pButton label="Pedido de toda la categoría" icon="pi pi-bolt" class="p-button-sm"
+                  [loading]="catLoading()" (click)="openCategoryOrder()"></button>
+        </div>
+      }
 
       <!-- A1 — barra de acción del pedido general (selección múltiple) -->
       @if (selectedRows().length) {
@@ -295,6 +310,48 @@ interface DetailState {
       }
       }
     </p-dialog>
+
+    <!-- A3 — Pedido consolidado por CATEGORÍA (multi-proveedor × almacén) -->
+    <p-dialog [visible]="catVisible()" (visibleChange)="catVisible.set($event)" [modal]="true"
+              [style]="{width:'min(1120px,97vw)'}" [header]="'Pedido de categoría · ' + catLabel()" (onHide)="catRows.set([])">
+      @if (catLoading()) {
+        <div class="qt-det-msg">Cargando pedido de la categoría…</div>
+      } @else if (catRows().length) {
+        <div class="qt-cons">
+          <div class="qt-cons-scroll">
+            <table class="qt-det-table">
+              <thead><tr><th>Proveedor</th><th>Almacén</th><th>SKU</th><th>Producto</th>
+                <th class="qt-r">Sugerido</th><th class="qt-r">Cajas</th><th class="qt-r">Piezas</th><th class="qt-r">$ línea</th></tr></thead>
+              <tbody>
+                @for (l of catRows(); track l.product_id + '_' + l.warehouse_id) {
+                  <tr>
+                    <td class="qt-muted">{{ l.supplier_name || '—' }}</td>
+                    <td class="qt-muted">{{ l.warehouse_code }}</td>
+                    <td class="qt-mono">{{ l.sku }}</td>
+                    <td>{{ l.nombre }}</td>
+                    <td class="qt-r qt-muted">{{ l.suggested_qty | number:'1.0-0' }}</td>
+                    <td class="qt-r">{{ l.cajas | number:'1.0-0' }}</td>
+                    <td class="qt-r qt-muted">{{ l.piezas | number:'1.0-0' }}</td>
+                    <td class="qt-r">{{ money(l.line_cost) }}</td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          </div>
+          <div class="qt-det-foot">
+            <span class="qt-foot-tot">
+              {{ catSuppliers() }} proveedor(es) · {{ catRows().length }} líneas · {{ catTotCajas() | number:'1.0-0' }} cajas · <strong>{{ money(catTotAmount()) }}</strong>
+            </span>
+            <button pButton label="Exportar" icon="pi pi-download" class="p-button-sm p-button-text"
+                    [loading]="catExporting()" (click)="exportCategoryOrder()"></button>
+            <button pButton label="Generar requisiciones" icon="pi pi-file-edit" class="p-button-sm"
+                    [loading]="catGenerating()" (click)="generateCategoryOrder()"></button>
+          </div>
+        </div>
+      } @else {
+        <div class="qt-det-msg">Sin líneas por pedir en esta categoría (todo cubierto).</div>
+      }
+    </p-dialog>
   `,
   styles: [`
     :host { display: block; }
@@ -314,6 +371,10 @@ interface DetailState {
     .qt-bulk { display: flex; align-items: center; gap: .6rem; margin-bottom: .6rem; padding: .45rem .7rem;
       background: var(--action-ring, color-mix(in srgb, var(--action) 12%, transparent)); border-radius: var(--r-sm, 6px); }
     .qt-bulk-txt { font-size: .82rem; color: var(--text-main); }
+    .qt-catbar { display: flex; align-items: center; gap: .75rem; margin-bottom: .6rem; padding: .45rem .7rem;
+      background: var(--surface-sunken, color-mix(in srgb, var(--action) 7%, transparent)); border-radius: var(--r-sm, 6px); }
+    .qt-catbar-txt { font-size: .82rem; color: var(--text-main); margin-right: auto; }
+    .qt-catbar-txt i { color: var(--action); margin-right: .3rem; }
     .qt-table { font-size: .82rem; }
     .qt-r { text-align: right; font-variant-numeric: tabular-nums; }
     .qt-nowrap { white-space: nowrap; }
@@ -392,6 +453,14 @@ export class ComprasQueTocaComponent implements OnInit {
   consOrder = signal<SupplierOrder | null>(null);
   consSupplier = signal<{ id: string; name: string | null } | null>(null);
   consExcluded = signal<Set<string>>(new Set());
+  // A3 — pedido consolidado por CATEGORÍA (sourcing: Guadalajara/Arandas → todos sus proveedores)
+  categoryOpts = signal<{ label: string; value: string }[]>([]);
+  fCategory = '';
+  catVisible = signal(false);
+  catLoading = signal(false);
+  catGenerating = signal(false);
+  catExporting = signal(false);
+  catRows = signal<CatLine[]>([]);
 
   readonly kpiItems = computed<MetricStripItem[]>(() => [
     { label: 'Vencidos', value: this.vencidos(), tone: this.vencidos() > 0 ? 'bad' : 'default' },
@@ -426,6 +495,7 @@ export class ComprasQueTocaComponent implements OnInit {
       next: (f: ReplenishmentFilters) => {
         this.warehouses.set(f.warehouses.map((w) => ({ id: w.id, code: w.code, label: `${w.code} · ${w.name}` })));
         this.supplierOpts.set(f.suppliers.map((s) => ({ label: s.name, value: s.name })));
+        this.categoryOpts.set((f.categories || []).map((c) => ({ label: `${c.name} · ${c.n_suppliers} prov`, value: c.id })));
       },
       error: () => {},
     });
@@ -436,7 +506,7 @@ export class ComprasQueTocaComponent implements OnInit {
     this.loading.set(true);
     this.detail.set({});
     this.selectedRows.set([]);
-    this.api.worklist({ warehouse_ids: this.fWh.length ? this.fWh : undefined, via: this.fVia || undefined, status: this.fStatus || undefined, search: this.fSearch || undefined, target_basis: this.fBasis(), pageSize: 500 })
+    this.api.worklist({ warehouse_ids: this.fWh.length ? this.fWh : undefined, via: this.fVia || undefined, status: this.fStatus || undefined, search: this.fSearch || undefined, target_basis: this.fBasis(), category_id: this.fCategory || undefined, pageSize: 500 })
       .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
         next: (r) => {
           this.rows.set(r.rows.map((x) => ({ ...x, _key: `${x.warehouse_id}__${x.supplier_id}` })));
@@ -459,7 +529,7 @@ export class ComprasQueTocaComponent implements OnInit {
       ...d,
       [r._key]: { loading: true, basis, lines: d[r._key]?.lines ?? [], hub: d[r._key]?.hub ?? null, hist: d[r._key]?.hist ?? null, creating: false },
     }));
-    this.api.criticalStock({ supplier_id: r.supplier_id, warehouse_id: r.warehouse_id, target_basis: basis, scope: 'all', pageSize: 500 })
+    this.api.criticalStock({ supplier_id: r.supplier_id, warehouse_id: r.warehouse_id, category_id: this.fCategory || undefined, target_basis: basis, scope: 'all', pageSize: 500 })
       .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
         next: (res) => {
           const lines: DetailLine[] = res.rows
@@ -740,6 +810,77 @@ export class ComprasQueTocaComponent implements OnInit {
         this.consVisible.set(false); this.reload();
       },
       error: () => { this.consGenerating.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: 'Falló la generación.' }); },
+    });
+  }
+
+  // A3 — pedido consolidado por CATEGORÍA (todos los proveedores de la plaza: Guadalajara/Arandas)
+  catLabel(): string { return this.categoryOpts().find((o) => o.value === this.fCategory)?.label || '—'; }
+  openCategoryOrder(): void {
+    const catId = this.fCategory; if (!catId) return;
+    this.catLoading.set(true); this.catVisible.set(true); this.catRows.set([]);
+    this.api.criticalStock({ category_id: catId, warehouse_ids: this.fWh.length ? this.fWh : undefined, target_basis: this.fBasis(), scope: 'all', pageSize: 5000 })
+      .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+        next: (res) => {
+          const lines: CatLine[] = res.rows
+            .filter((x) => Number(x.suggested_qty) > 0)
+            .map((x) => { const uxc = this.uxc(x); const cajas = Math.ceil((Number(x.suggested_qty) || 0) / uxc); const piezas = cajas * uxc; return { ...x, uxc, cajas, piezas, line_cost: piezas * Number(x.unit_cost || 0) }; })
+            .sort((a, b) => (a.supplier_name || '').localeCompare(b.supplier_name || '') || (a.warehouse_code || '').localeCompare(b.warehouse_code || '') || (a.sales_rank ?? 1e9) - (b.sales_rank ?? 1e9));
+          this.catRows.set(lines); this.catLoading.set(false);
+        },
+        error: () => { this.catLoading.set(false); this.catVisible.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo cargar el pedido de la categoría.' }); },
+      });
+  }
+  catTotCajas(): number { return this.catRows().reduce((s, l) => s + Number(l.cajas || 0), 0); }
+  catTotAmount(): number { return this.catRows().reduce((s, l) => s + Number(l.line_cost || 0), 0); }
+  catSuppliers(): number { return new Set(this.catRows().map((l) => l.supplier_id)).size; }
+
+  exportCategoryOrder(): void {
+    const lines = this.catRows(); if (!lines.length) return;
+    const payload: PedidoExportPayload = {
+      title: `PEDIDO DE CATEGORÍA · ${this.catLabel()}`,
+      via: 'purchase', multi_warehouse: true,
+      lines: lines.map((l) => ({
+        supplier_name: l.supplier_name, warehouse_code: l.warehouse_code,
+        sku: l.sku, nombre: l.nombre, abc_class: l.abc_class, xyz_class: l.xyz_class,
+        sales_rank: l.sales_rank, monthly_revenue: l.monthly_revenue == null ? null : Number(l.monthly_revenue),
+        on_hand: Number(l.on_hand), in_transit: Number(l.in_transit),
+        reorder_point: Number(l.reorder_point), max_stock: Number(l.max_stock),
+        suggested_qty: Number(l.suggested_qty), uxc: l.uxc, cajas: l.cajas, piezas: l.piezas,
+        unit_cost: Number(l.unit_cost || 0), line_cost: l.line_cost,
+      })),
+    };
+    this.catExporting.set(true);
+    this.api.exportPedidoXlsx(payload).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (resp) => { this.catExporting.set(false); saveXlsxResponse(resp, 'Pedido_categoria.xlsx'); },
+      error: () => { this.catExporting.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo exportar.' }); },
+    });
+  }
+
+  generateCategoryOrder(): void {
+    const lines = this.catRows(); if (!lines.length) return;
+    // Una requisición por (proveedor × almacén); solo líneas con proveedor real (compra).
+    const groups = new Map<string, CatLine[]>();
+    for (const l of lines) {
+      if (!l.supplier_id) continue;
+      const k = `${l.supplier_id}__${l.warehouse_id}`;
+      if (!groups.has(k)) groups.set(k, []);
+      groups.get(k)!.push(l);
+    }
+    if (!groups.size) { this.toast.add({ severity: 'warn', summary: 'Sin proveedor', detail: 'Las líneas no tienen proveedor asignado.' }); return; }
+    this.catGenerating.set(true);
+    const jobs = [...groups.values()].map((ls) => this.api.createRequisition({
+      warehouse_id: ls[0].warehouse_id, supplier_id: ls[0].supplier_id, source_type: 'supplier', source_warehouse_id: null,
+      notes: `Pedido categoría ${this.catLabel()} · ${ls[0].supplier_name || ''} @ ${ls[0].warehouse_code}`.trim(),
+      lines: ls.map((l) => this.reqLine(l, l.piezas, 'supplier', l.supplier_id, null)),
+    }).pipe(map((req) => req.folio as string | null), catchError(() => of(null))));
+    forkJoin(jobs).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (folios) => {
+        this.catGenerating.set(false);
+        const ok = folios.filter(Boolean);
+        this.toast.add({ severity: ok.length ? 'success' : 'warn', summary: `${ok.length} requisición(es)`, detail: ok.slice(0, 8).join(' + ') || 'Nada creado' });
+        this.catVisible.set(false); this.reload();
+      },
+      error: () => { this.catGenerating.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: 'Falló la generación.' }); },
     });
   }
 
