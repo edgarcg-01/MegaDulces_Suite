@@ -89,14 +89,17 @@ export interface ReplenishmentSummary {
   total_policies: number;
   sugerido_costo: number | null;
 }
+export interface ReplenishmentCategory { id: string; code: string | null; name: string; n_suppliers: number; n_products: number; }
 export interface ReplenishmentFilters {
   warehouses: { id: string; code: string; name: string }[];
   suppliers: { id: string; name: string; min_order_boxes: number | null }[];
+  categories?: ReplenishmentCategory[]; // RA-PRO.12 — categorías de compra (sourcing)
 }
 export interface CriticalStockQuery {
   warehouse_id?: string;
   warehouse_ids?: string[]; // RA.12 — multi-sucursal
   supplier_id?: string;
+  category_id?: string; // RA-PRO.12 — categoría de compra (sourcing)
   abc?: string;
   xyz?: string; // RA-PRO.2
   bucket?: string;
@@ -308,7 +311,7 @@ export interface WorklistResponse {
   page: number; pageSize: number; rows: WorklistRow[];
 }
 export interface WorklistQuery {
-  warehouse_ids?: string[]; warehouse_id?: string; via?: string; status?: string; search?: string; target_basis?: string; page?: number; pageSize?: number;
+  warehouse_ids?: string[]; warehouse_id?: string; via?: string; status?: string; search?: string; target_basis?: string; category_id?: string; page?: number; pageSize?: number;
 }
 
 // ── RA-PRO — Histórico de compras al proveedor (tamaño típico de orden) ──
@@ -331,6 +334,7 @@ export interface SupplierOrderHistory {
  * alguna línea la trae (así el cockpit sale rico y la requisición/OC salen limpias). */
 export interface PedidoExportLine {
   warehouse_code?: string | null;
+  supplier_name?: string | null;
   sku?: string | null;
   nombre?: string | null;
   abc_class?: string | null;
@@ -387,6 +391,7 @@ export class ComprasService {
     if (q.warehouse_ids?.length) p.set('warehouse_ids', q.warehouse_ids.join(','));
     else if (q.warehouse_id) p.set('warehouse_id', q.warehouse_id);
     if (q.supplier_id) p.set('supplier_id', q.supplier_id);
+    if (q.category_id) p.set('category_id', q.category_id);
     if (q.abc) p.set('abc', q.abc);
     if (q.xyz) p.set('xyz', q.xyz);
     if (q.bucket) p.set('bucket', q.bucket);
@@ -408,6 +413,7 @@ export class ComprasService {
     if (q.warehouse_ids?.length) p.set('warehouse_ids', q.warehouse_ids.join(','));
     else if (q.warehouse_id) p.set('warehouse_id', q.warehouse_id);
     if (q.supplier_id) p.set('supplier_id', q.supplier_id);
+    if (q.category_id) p.set('category_id', q.category_id);
     if (q.abc) p.set('abc', q.abc);
     if (q.xyz) p.set('xyz', q.xyz);
     if (q.bucket) p.set('bucket', q.bucket);
@@ -543,6 +549,7 @@ export class ComprasService {
     if (q.status) p.set('status', q.status);
     if (q.search) p.set('search', q.search);
     if (q.target_basis) p.set('target_basis', q.target_basis);
+    if (q.category_id) p.set('category_id', q.category_id);
     if (q.page) p.set('page', String(q.page));
     if (q.pageSize) p.set('pageSize', String(q.pageSize));
     const qs = p.toString();

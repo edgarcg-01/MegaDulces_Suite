@@ -42,6 +42,7 @@ export class CommercialReplenishmentController {
     @Query('warehouse_id') warehouse_id?: string,
     @Query('warehouse_ids') warehouse_ids?: string,
     @Query('supplier_id') supplier_id?: string,
+    @Query('category_id') category_id?: string,
     @Query('abc') abc?: string,
     @Query('xyz') xyz?: string,
     @Query('bucket') bucket?: string,
@@ -54,7 +55,7 @@ export class CommercialReplenishmentController {
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
   ) {
-    return this.svc.criticalStock({ warehouse_id, warehouse_ids, supplier_id, abc, xyz, bucket, source, search, target_basis, scope, sort_by, sort_dir, page: page ? Number(page) : undefined, pageSize: pageSize ? Number(pageSize) : undefined });
+    return this.svc.criticalStock({ warehouse_id, warehouse_ids, supplier_id, category_id, abc, xyz, bucket, source, search, target_basis, scope, sort_by, sort_dir, page: page ? Number(page) : undefined, pageSize: pageSize ? Number(pageSize) : undefined });
   }
 
   @Get('critical-stock.xlsx')
@@ -65,6 +66,7 @@ export class CommercialReplenishmentController {
     @Query('warehouse_id') warehouse_id?: string,
     @Query('warehouse_ids') warehouse_ids?: string,
     @Query('supplier_id') supplier_id?: string,
+    @Query('category_id') category_id?: string,
     @Query('abc') abc?: string,
     @Query('xyz') xyz?: string,
     @Query('bucket') bucket?: string,
@@ -76,7 +78,7 @@ export class CommercialReplenishmentController {
     @Query('sort_dir') sort_dir?: string,
   ) {
     const report = await this.svc.criticalStock({
-      warehouse_id, warehouse_ids, supplier_id, abc, xyz, bucket, source, search, target_basis, scope, sort_by, sort_dir,
+      warehouse_id, warehouse_ids, supplier_id, category_id, abc, xyz, bucket, source, search, target_basis, scope, sort_by, sort_dir,
       export: true,
     });
     const buf = await this.exporter.build(report);
@@ -167,10 +169,11 @@ export class CommercialReplenishmentController {
     @Query('status') status?: string,
     @Query('search') search?: string,
     @Query('target_basis') target_basis?: string,
+    @Query('category_id') category_id?: string,
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
   ) {
-    return this.svc.worklist({ warehouse_id, warehouse_ids, via, status, search, target_basis, page: page ? Number(page) : undefined, pageSize: pageSize ? Number(pageSize) : undefined });
+    return this.svc.worklist({ warehouse_id, warehouse_ids, via, status, search, target_basis, category_id, page: page ? Number(page) : undefined, pageSize: pageSize ? Number(pageSize) : undefined });
   }
 
   @Get('requisitions')

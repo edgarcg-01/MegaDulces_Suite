@@ -952,6 +952,36 @@ Extracción en **2 etapas** (desacopla la dependencia Jet del load PG): (A) Powe
 
 ---
 
+## ADR-033 — **Conciliación bancaria** (Fase CB): reemplazar el workbook Excel por interfaz + catálogo limpio
+
+**Fecha:** 2026-07-22 · **Estado:** Aceptado (OK de Edgar 2026-07-22) · Hereda ADR-010 (multi-tenant), ADR-028 (Maat: motor decide / hallazgos) y el patrón de conciliación de ADR-029 (SM).
+
+**Contexto:** Finanzas concilia los bancos en un **workbook Excel manual** ("CUENTAS LUIS FRANCISCO"): **19 cuentas de banco + CAJA GENERAL + FACTORAJE**, ~**4,865 movimientos/mes** clasificados a mano con dos códigos por línea — `M` (tipo: I/G/C/TE/TI/CF/PF/DS/ID) y `C` (cuenta: 102/510/612/613/610/147…) — y una hoja CONCENTRADO que auto-suma por banco y calcula saldos + diferencias (factoraje, DEV SPEI). Verificado 2026-07-22 contra enero 2026: mi parse cuadra al peso con el CONCENTRADO (Compra $43,534,807 · Gasto $6,584,511 · Ingresos $52.95M · TI=TE $25.4M).
+
+**Hallazgo decisivo:** los códigos `C` del Excel están **sobrecargados** — `612` mezcla SUA/IMSS ($1.05M) + comisión bancaria + pago de capital + arrendamiento + traslado de valores; `613` mezcla caja de ahorro + compra de vehículo + pagos a personas; hay `$1.6M` en `(vacío)` y códigos-typo (`/`, `50`, `i`). Además **no empatan con Kepler** (`612`=ROBO en `kdco`, `147` no existe, `510` vs `511`). → el Excel no es auditable ni conciliable de forma determinista.
+
+**Decisión:**
+1. **Interfaz en el proyecto Finanzas (`/finanzas/bancos`)** que reemplaza el Excel: subir estado de cuenta → clasificar con catálogo controlado → conciliar contra Kepler → bandeja de diferencias.
+2. **Catálogo LIMPIO** (`finance.movement_categories`, 18 categorías) **alineado a cuentas Kepler** (comisión→`611-003`, IVA→`122`, compra→`511`, nómina→`601`, …), NO los códigos del Excel. El importer traduce `(código Excel + patrón de concepto)` → categoría limpia; lo ambiguo cae en `sin_clasificar` para resolver en la UI. (Decisión de Edgar: rediseñar, no migrar tal cual.)
+3. **Ingesta por subida del XLSX** actual (parser exceljs) en F1; evoluciona a parser de estado de cuenta por banco después.
+4. Schema `finance.bank_*` (RLS forzado, patrón A.0mt): `bank_accounts`, `movement_categories`, `bank_statements`, `bank_movements`, `bank_recon_matches`. UPSERT por `client_uuid` (no DELETE, regla de red Railway).
+5. **Motor de conciliación determinista** (ADR-016/028): cruza banco ↔ posting Kepler por fecha+monto+contraparte (reusa patrón `expense_doc_chain`); las diferencias se vuelven hallazgos Maat (`finance.findings`, clase conciliación). El LLM fuera del cuadre.
+
+**Alternativas:**
+- Migrar los códigos del Excel tal cual — rechazada: perpetúa la ambigüedad y no concilia con Kepler.
+- Seguir en Excel con macros — rechazada: no multiusuario, no auditable, no integrable con Maat.
+
+**Consecuencias:**
+- ✅ Cero doble tecleo, catálogo controlado (mata el `$1.6M` sin clasificar y los typos).
+- ✅ Conciliación banco↔libro determinista + diferencias como hallazgos.
+- ✅ La interfaz da el detalle por banco que Kepler colapsa en el `102` único.
+- ⚠️ El equipo cambia de hábito (códigos nuevos) — mitigado con mapeo automático en el import.
+- ⚠️ `kepler_link` por banco (mapear el 102 consolidado a cada cuenta) queda para F4 (el banco en Kepler vive en `c7` texto libre).
+
+**Plan:** [`FASES/FASE_CB_CONCILIACION_BANCARIA.md`](FASES/FASE_CB_CONCILIACION_BANCARIA.md).
+
+---
+
 ## Cómo agregar un ADR nuevo
 
 1. Copiar `ADR-000` (la plantilla) renombrando al siguiente número correlativo.

@@ -113,9 +113,10 @@ function classify(c6) {
   try {
     await db.query('BEGIN');
     await db.query(`SET LOCAL app.tenant_id = '${M}'`);
-    // Borra TODO el rango de meses (cualquier sucursal) → limpia réplicas viejas de sucursal;
-    // CEDIS es la única fuente autoritativa (centraliza la venta).
-    await db.query(`DELETE FROM analytics.sales_by_channel_monthly WHERE tenant_id=$1 AND anio_mes = ANY($2)`, [M, yms]);
+    // UPSERT update-in-place por (sucursal,canal,plaza,mes) — SIN DELETE, no churn en Railway.
+    // CEDIS es la única fuente (MAP = md_00), así que no hay réplicas de sucursal que limpiar.
+    // (Cleanup one-time: si prod trae filas legacy con sucursal<>'00' de corridas viejas
+    //  multi-sucursal, borrarlas a mano una vez — el UPSERT ya no las toca.)
     for (let i = 0; i < rows.length; i += BATCH) {
       const chunk = rows.slice(i, i + BATCH);
       const vals = [], params = [];
@@ -124,7 +125,9 @@ function classify(c6) {
         vals.push(`(gen_random_uuid(),$${o + 1},$${o + 2},$${o + 3},$${o + 4},$${o + 5},$${o + 6},$${o + 7},now(),now())`);
         params.push(M, a.sucursal, a.canal, a.plaza, a.ym, Math.round(a.ventas * 100) / 100, a.movs);
       });
-      await db.query(`INSERT INTO analytics.sales_by_channel_monthly (id,tenant_id,sucursal,canal,plaza,anio_mes,ventas,movs,computed_at,updated_at) VALUES ${vals.join(',')}`, params);
+      await db.query(`INSERT INTO analytics.sales_by_channel_monthly (id,tenant_id,sucursal,canal,plaza,anio_mes,ventas,movs,computed_at,updated_at) VALUES ${vals.join(',')}
+        ON CONFLICT (tenant_id,sucursal,canal,plaza,anio_mes) DO UPDATE SET
+          ventas=EXCLUDED.ventas, movs=EXCLUDED.movs, updated_at=now()`, params);
     }
     await db.query('COMMIT');
     await db.query(`ANALYZE analytics.sales_by_channel_monthly`);

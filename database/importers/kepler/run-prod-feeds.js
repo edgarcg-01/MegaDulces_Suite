@@ -8,7 +8,8 @@
  * Modos:
  *   node database/importers/kepler/run-prod-feeds.js live      # venta viva → prod (cada 15-30 min; LIGERO, solo consolidado local)
  *   node database/importers/kepler/run-prod-feeds.js stock     # stock 6 sucursales (cada 30 min)
- *   node database/importers/kepler/run-prod-feeds.js nightly   # rotación + top-sellers (nightly)
+ *   node database/importers/kepler/run-prod-feeds.js nightly   # rotación + top-sellers + contables (nightly)
+ *   node database/importers/kepler/run-prod-feeds.js finance   # solo feeds contables (balanza/cadena/solicitudes/canal/caja) — re-run manual
  *   node database/importers/kepler/run-prod-feeds.js catalog   # catálogo + precios (semanal)
  *   node database/importers/kepler/run-prod-feeds.js all       # todo (cutover / manual)
  *
@@ -62,6 +63,10 @@ const STEPS = {
     path.join(K, 'import-transfers-monthly.js'), // T — traspasos NO-venta (salida CEDIS U/D/13 + consolidación UD06 + recepción UA50; upsert acumulativo)
     path.join(K, 'import-expenses-polizas.js'), // GX — egresos contables (pólizas gastos 6xx + compras 5xx) desde kdc2YYMM
     path.join(K, 'import-ap-findings.js'),      // GX v3 — auxiliar de proveedores (201) + hallazgos (iva_bug/203/107)
+    path.join(K, 'import-ledger-chain.js'),      // MAAT.1 — balanza fam 1-9 + cadena de gasto → Maat P&L / fiscal / impuestos provisionales
+    path.join(K, 'import-expense-requests.js'),  // GX.6 — solicitudes XA1501 (+UPDATE a expense_documents) — TRAS expenses-polizas
+    path.join(K, 'import-sales-by-channel.js'),  // venta contable 401 reclasificada por canal real (solo CEDIS)
+    path.join(K, 'import-cash-cuts.js'),         // SM.1 — cortes/arqueos de caja POS (kdpv_folio_caja)
   ],
   catalog: [
     path.join(K, 'import-brands-lineas.js'), // líneas kdig → brands nuevas (si falta la línea, el producto se descarta abajo)
@@ -74,11 +79,21 @@ const STEPS = {
     path.join(K, 'import-logistics-dims.js'),
     path.join(K, 'import-erp-shipments.js'),
   ],
+  // FINANCE — feeds contables solos (re-run manual). Mismo set que corre en nightly.
+  // Todos idempotentes por UPSERT (no DELETE) para no cargar la red de Railway.
+  finance: [
+    path.join(K, 'import-expenses-polizas.js'),
+    path.join(K, 'import-ap-findings.js'),
+    path.join(K, 'import-ledger-chain.js'),
+    path.join(K, 'import-expense-requests.js'), // tras expenses-polizas (UPDATE a expense_documents)
+    path.join(K, 'import-sales-by-channel.js'),
+    path.join(K, 'import-cash-cuts.js'),
+  ],
 };
 STEPS.all = [...STEPS.catalog, ...STEPS.stock, ...STEPS.nightly];
 
 function usage() {
-  console.error('Uso: node run-prod-feeds.js <stock|nightly|catalog|logistics|all> [--apply]');
+  console.error('Uso: node run-prod-feeds.js <live|stock|nightly|finance|catalog|logistics|all> [--apply]');
   process.exit(2);
 }
 

@@ -115,13 +115,16 @@ async function bulkInsert(db, table, cols, rows) {
     if (!APPLY) { await db.query('ROLLBACK'); console.log('\n[DRY-RUN] ROLLBACK — nada cambió.'); return; }
     if (!okCodes.length) { await db.query('ROLLBACK'); console.log('\n[APPLY] Ninguna sucursal conectó.'); return; }
 
-    // expense_requests: reemplazo total por sucursal.
-    await db.query(`DELETE FROM analytics.expense_requests WHERE tenant_id=$1 AND sucursal = ANY($2)`, [M, okCodes]);
+    // expense_requests: UPSERT update-in-place (SIN DELETE, no churn en Railway). El flag
+    // `aplicada` y el estado se refrescan al re-postear una solicitud ya existente.
     const upReq = await db.query(`
       INSERT INTO analytics.expense_requests
         (tenant_id,sucursal,folio,fecha,importe,solicitante,beneficiario,concepto,estado,usuario,aplicada,computed_at)
       SELECT $1,sucursal,folio,fecha,importe,solicitante,beneficiario,concepto,estado,usuario,aplicada,now() FROM stg_req
-      ON CONFLICT (tenant_id,sucursal,folio) DO NOTHING`, [M]);
+      ON CONFLICT (tenant_id,sucursal,folio) DO UPDATE SET
+        fecha=EXCLUDED.fecha, importe=EXCLUDED.importe, solicitante=EXCLUDED.solicitante,
+        beneficiario=EXCLUDED.beneficiario, concepto=EXCLUDED.concepto, estado=EXCLUDED.estado,
+        usuario=EXCLUDED.usuario, aplicada=EXCLUDED.aplicada, computed_at=now()`, [M]);
 
     // Referencia del gasto → su solicitud (expense_documents.solicitud_*).
     const upDoc = await db.query(`

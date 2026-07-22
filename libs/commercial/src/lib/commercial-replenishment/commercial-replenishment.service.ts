@@ -24,6 +24,7 @@ export interface CriticalStockQuery {
   warehouse_id?: string;
   warehouse_ids?: string; // RA.12 — CSV de almacenes (multi-sucursal); tiene prioridad sobre warehouse_id
   supplier_id?: string;
+  category_id?: string; // RA-PRO.12 — categoría de compra (sourcing, ej. Guadalajara/Arandas)
   abc?: string;
   xyz?: string; // RA-PRO.2 — filtro por clase de variabilidad de demanda
   bucket?: string;
@@ -46,6 +47,7 @@ export interface WorklistQuery {
   status?: string;        // 'due' = vencido/hoy · default = todos los canales activos
   search?: string;        // nombre de proveedor
   target_basis?: string;  // base global (min|reorder|max) — igual que Existencia Crítica
+  category_id?: string;   // RA-PRO.12 — solo canales con productos de esta categoría de compra
   page?: number;
   pageSize?: number;
 }
@@ -166,6 +168,7 @@ export class CommercialReplenishmentService {
       const rankBind: any[] = [tenantId];
       let rankFilter = '';
       if (q.supplier_id && UUID_RX.test(q.supplier_id)) { rankFilter += ' AND p2.supplier_id = ?'; rankBind.push(q.supplier_id); }
+      if (q.category_id && UUID_RX.test(q.category_id)) { rankFilter += ' AND p2.category_id = ?'; rankBind.push(q.category_id); }
       const rankTerm = (q.search || '').trim();
       if (rankTerm) { rankFilter += ' AND (p2.sku ILIKE ? OR p2.nombre ILIKE ?)'; rankBind.push(`%${rankTerm}%`, `%${rankTerm}%`); }
       const rankSub = trx.raw(
@@ -209,6 +212,7 @@ export class CommercialReplenishmentService {
       const whIds = this.whIds(q);
       if (whIds.length) base.whereIn('rp.warehouse_id', whIds);
       if (q.supplier_id && UUID_RX.test(q.supplier_id)) base.andWhere('pr.supplier_id', q.supplier_id);
+      if (q.category_id && UUID_RX.test(q.category_id)) base.andWhere('pr.category_id', q.category_id);
       if (q.source && ['kepler', 'computed', 'manual'].includes(q.source)) base.andWhere('rp.source', q.source);
       if (q.abc && ['A', 'B', 'C'].includes(q.abc.toUpperCase())) base.andWhere((b) => b.where('abc.abc_class', q.abc!.toUpperCase()).orWhere('rp.abc_class', q.abc!.toUpperCase()));
       if (q.xyz && ['X', 'Y', 'Z'].includes(q.xyz.toUpperCase())) base.andWhere('rp.xyz_class', q.xyz.toUpperCase());
@@ -379,6 +383,8 @@ export class CommercialReplenishmentService {
       const target = this.targetCol(basis);
       const sug = `GREATEST(0, ${target} - ${oh} - ${it})`;
       const cost = `COALESCE(pr.cost_with_tax, pr.cost_base, 0)`;
+      // RA-PRO.12 — categoría de compra: el agg (n_skus/sugerido) solo cuenta productos de la categoría.
+      const catFrag = q.category_id && UUID_RX.test(q.category_id) ? 'AND pr.category_id = :cat' : '';
 
       const filters: string[] = [
         `rc.tenant_id = :t`,
@@ -393,6 +399,10 @@ export class CommercialReplenishmentService {
       if (q.via && ['purchase', 'transfer'].includes(q.via)) { filters.push(`rc.via = :via`); binds.via = q.via; }
       if (q.status === 'due') filters.push(`rc.next_due_date <= CURRENT_DATE`);
       if (q.search && q.search.trim()) { filters.push(`sup.name ILIKE :s`); binds.s = `%${q.search.trim()}%`; }
+      if (catFrag) {
+        filters.push(`EXISTS (SELECT 1 FROM commercial.reorder_policy rpc JOIN catalog.products prc ON prc.tenant_id=rpc.tenant_id AND prc.id=rpc.product_id WHERE rpc.tenant_id=rc.tenant_id AND rpc.warehouse_id=rc.warehouse_id AND prc.supplier_id=rc.supplier_id AND prc.category_id=:cat AND prc.activo=true)`);
+        binds.cat = q.category_id;
+      }
       const where = filters.join(' AND ');
 
       const rows = (await trx.raw(`
@@ -416,7 +426,7 @@ export class CommercialReplenishmentService {
                 SELECT (${oh} <= rp.reorder_point) AS below, ${sug} AS sug, ${cost} AS unit_cost
                   FROM commercial.reorder_policy rp
                   JOIN catalog.products pr ON pr.tenant_id=rp.tenant_id AND pr.id=rp.product_id
-                       AND pr.supplier_id=rc.supplier_id AND pr.activo=true
+                       AND pr.supplier_id=rc.supplier_id AND pr.activo=true ${catFrag}
                   LEFT JOIN commercial.stock s ON s.tenant_id=rp.tenant_id AND s.warehouse_id=rp.warehouse_id AND s.product_id=rp.product_id
                   LEFT JOIN analytics.inventory_health ih ON ih.tenant_id=rp.tenant_id AND ih.warehouse_id=rp.warehouse_id AND ih.product_id=rp.product_id
                   LEFT JOIN analytics.purchase_in_transit pit ON pit.tenant_id=rp.tenant_id AND pit.warehouse_id=rp.warehouse_id AND pit.product_id=rp.product_id
@@ -523,7 +533,18 @@ export class CommercialReplenishmentService {
         .join('catalog.suppliers as sup', (j) => j.on('sup.tenant_id', 'rp.tenant_id').andOn('sup.id', 'pr.supplier_id'))
         .where('rp.tenant_id', tenantId)
         .distinct('sup.id as id', 'sup.name as name', 'sup.min_order_boxes as min_order_boxes').orderBy('sup.name');
-      return { warehouses, suppliers };
+      // RA-PRO.12 — categorías de compra (sourcing, ej. Guadalajara/Arandas): las que tienen
+      // productos activos con política. n_suppliers/n_products alimentan la etiqueta del selector.
+      const categories = await trx('commercial.reorder_policy as rp')
+        .join('catalog.products as pr', (j) => j.on('pr.tenant_id', 'rp.tenant_id').andOn('pr.id', 'rp.product_id'))
+        .join('catalog.categories as c', (j) => j.on('c.tenant_id', 'pr.tenant_id').andOn('c.id', 'pr.category_id'))
+        .where('rp.tenant_id', tenantId).andWhere('pr.activo', true).whereNull('c.deleted_at')
+        .groupBy('c.id', 'c.code', 'c.name')
+        .select('c.id as id', 'c.code as code', 'c.name as name')
+        .countDistinct('pr.supplier_id as n_suppliers')
+        .countDistinct('pr.id as n_products')
+        .orderBy('c.name');
+      return { warehouses, suppliers, categories };
     });
   }
 

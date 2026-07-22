@@ -218,26 +218,27 @@ const daysBetween = (a, b) => (a && b ? Math.round((new Date(b) - new Date(a)) /
     if (!APPLY) { await db.query('ROLLBACK'); console.log('\n[DRY-RUN] ROLLBACK — nada cambió.'); return; }
     if (!okCodes.length) { await db.query('ROLLBACK'); console.log('\n[APPLY] Ninguna sucursal conectó — nada que aplicar.'); return; }
 
-    // c14 puede diferir del code del MAP → borrar también los codes staged
-    const stagedCodes = (await db.query(`SELECT DISTINCT sucursal FROM stg_ledger`)).rows.map((r) => r.sucursal);
-    const sucLedger = [...new Set([...okCodes, ...stagedCodes])];
-    const delL = await db.query(
-      `DELETE FROM analytics.ledger_monthly WHERE tenant_id=$1 AND sucursal = ANY($2) AND anio_mes = ANY($3)`,
-      [M, sucLedger, yms]);
-    // GROUP BY solo la PK (nombres via MAX): dos fuentes con el mismo código no
-    // deben chocar el INSERT aunque sus kdco difieran.
+    // UPSERT update-in-place (SIN DELETE): re-postear un mes actualiza los importes de las
+    // cuentas presentes; no churn de filas en Railway (regla del proyecto: actualizar, no
+    // borrar). Meses cerrados no pierden cuentas → no quedan filas huérfanas.
+    // GROUP BY solo la PK (nombres via MAX): dos fuentes con el mismo código no chocan el
+    // INSERT aunque sus kdco difieran.
     const upL = await db.query(
       `INSERT INTO analytics.ledger_monthly
          (tenant_id,sucursal,cuenta,cuenta_nombre,cuenta_mayor,cuenta_mayor_nombre,familia,anio_mes,cargos,abonos,neto,movs,computed_at)
        SELECT $1,sucursal,cuenta,MAX(cuenta_nombre),MAX(cuenta_mayor),MAX(cuenta_mayor_nombre),MAX(familia),anio_mes,
               SUM(cargos),SUM(abonos),SUM(cargos)-SUM(abonos),SUM(movs),now()
          FROM stg_ledger
-        GROUP BY sucursal,cuenta,anio_mes`,
+        GROUP BY sucursal,cuenta,anio_mes
+       ON CONFLICT (tenant_id,sucursal,cuenta,anio_mes) DO UPDATE SET
+         cuenta_nombre=EXCLUDED.cuenta_nombre, cuenta_mayor=EXCLUDED.cuenta_mayor,
+         cuenta_mayor_nombre=EXCLUDED.cuenta_mayor_nombre, familia=EXCLUDED.familia,
+         cargos=EXCLUDED.cargos, abonos=EXCLUDED.abonos, neto=EXCLUDED.neto,
+         movs=EXCLUDED.movs, computed_at=now()`,
       [M]);
 
-    const delC = await db.query(
-      `DELETE FROM analytics.expense_doc_chain WHERE tenant_id=$1 AND sucursal = ANY($2)`,
-      [M, okCodes]);
+    // Cadena: UPSERT DO UPDATE (antes DELETE+DO NOTHING) → refresca la cadena cuando el
+    // pago/recepción se agrega después, sin borrar y re-insertar toda la sucursal.
     const upC = await db.query(
       `INSERT INTO analytics.expense_doc_chain
          (tenant_id,sucursal,factura_folio,factura_fecha,orden_folio,orden_fecha,recepcion_folio,recepcion_fecha,
@@ -245,11 +246,16 @@ const daysBetween = (a, b) => (a && b ? Math.round((new Date(b) - new Date(a)) /
        SELECT $1,sucursal,factura_folio,factura_fecha,orden_folio,orden_fecha,recepcion_folio,recepcion_fecha,
               pago_folio,pago_fecha,beneficiario,total,lead_days,pago_days,match_confidence,now()
          FROM stg_chain
-       ON CONFLICT (tenant_id,sucursal,factura_folio) DO NOTHING`,
+       ON CONFLICT (tenant_id,sucursal,factura_folio) DO UPDATE SET
+         factura_fecha=EXCLUDED.factura_fecha, orden_folio=EXCLUDED.orden_folio, orden_fecha=EXCLUDED.orden_fecha,
+         recepcion_folio=EXCLUDED.recepcion_folio, recepcion_fecha=EXCLUDED.recepcion_fecha,
+         pago_folio=EXCLUDED.pago_folio, pago_fecha=EXCLUDED.pago_fecha, beneficiario=EXCLUDED.beneficiario,
+         total=EXCLUDED.total, lead_days=EXCLUDED.lead_days, pago_days=EXCLUDED.pago_days,
+         match_confidence=EXCLUDED.match_confidence, computed_at=now()`,
       [M]);
 
     await db.query('COMMIT');
-    console.log(`\n[APPLY] COMMIT — balanza: ${delL.rowCount} borrados + ${upL.rowCount} upserted · cadena: ${delC.rowCount} borrados + ${upC.rowCount} upserted.`);
+    console.log(`\n[APPLY] COMMIT — balanza: ${upL.rowCount} upserted · cadena: ${upC.rowCount} upserted (update-in-place, sin DELETE).`);
   } catch (e) {
     await db.query('ROLLBACK').catch(() => {});
     console.error('\nERROR (rollback):', e.message);

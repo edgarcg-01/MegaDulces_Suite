@@ -21,6 +21,7 @@ export interface CriticalStockExport {
  * que el cockpit sale rico (ranking, venta/mes, ABC/XYZ, cajas) y la requisición/OC salen limpias. */
 export interface PedidoExportLine {
   warehouse_code?: string | null;
+  supplier_name?: string | null;  // se muestra como columna solo si el pedido abarca varios proveedores (consolidado por categoría)
   sku?: string | null;
   nombre?: string | null;
   abc_class?: string | null;
@@ -247,6 +248,8 @@ export class ReplenishmentExportService {
     // Columna presente solo si alguna línea aporta el dato.
     const has = {
       wh: !!order.multi_warehouse || any((r) => !!r.warehouse_code),
+      // Proveedor solo si el pedido abarca >1 (consolidado por categoría). Con un solo proveedor va en el encabezado.
+      sup: new Set(rows.map((r) => r.supplier_name).filter(Boolean)).size > 1,
       abc: any((r) => !!r.abc_class),
       xyz: any((r) => !!r.xyz_class),
       rank: any((r) => r.sales_rank != null),
@@ -272,6 +275,7 @@ export class ReplenishmentExportService {
     };
     const cols: Col[] = [{ h: '#', v: (_r, i) => i + 1, width: 5 }];
     if (has.wh) cols.push({ h: 'Almacén', v: (r) => r.warehouse_code ?? '', width: 10 });
+    if (has.sup) cols.push({ h: 'Proveedor', v: (r) => r.supplier_name ?? '', width: 26 });
     cols.push({ h: 'SKU', v: (r) => r.sku ?? '', width: 12 });
     cols.push({ h: 'Producto', v: (r) => r.nombre ?? '', width: 42 });
     if (has.abc) cols.push({ h: 'ABC', v: (r) => r.abc_class ?? '', width: 6 });
@@ -293,8 +297,8 @@ export class ReplenishmentExportService {
 
     const lastCol = cols.length;
     const lastColL = ws.getColumn(lastCol).letter;
-    // Congelar la identidad (#, [Almacén], SKU, Producto) + las 3 filas de encabezado.
-    const xSplit = 1 + (has.wh ? 1 : 0) + 2;
+    // Congelar la identidad (#, [Almacén], [Proveedor], SKU, Producto) + las 3 filas de encabezado.
+    const xSplit = 1 + (has.wh ? 1 : 0) + (has.sup ? 1 : 0) + 2;
     ws.views = [{ state: 'frozen', xSplit, ySplit: 3 }];
 
     // Fila 1 — título

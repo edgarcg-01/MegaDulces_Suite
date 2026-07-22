@@ -10,6 +10,16 @@
 
 ## [Unreleased]
 
+### Added — CB.0: Conciliación bancaria — schema + catálogo (reemplaza el workbook Excel) (2026-07-22)
+- **ADR-033.** Arranca la Fase CB: la conciliación de bancos deja de vivir en un Excel manual ("CUENTAS LUIS FRANCISCO", 19 cuentas + caja + factoraje, ~4,865 movs/mes tecleados a mano) y pasa a una interfaz en el proyecto Finanzas.
+- **Entendimiento validado** contra `01 ENERO 2026.xlsx`: mi parse cuadra al peso con la hoja CONCENTRADO (Ingresos $52.95M · Compras $43,534,807 · Gastos $6,584,511 · TI=TE $25.4M). Hallazgo: los códigos del Excel están **sobrecargados** (`612` mezcla SUA/comisión/capital/arrendamiento; `613` caja-ahorro/vehículo/personas; `610`=nómina) y **no empatan con Kepler** (`612`=robo, `147` no existe) → se rediseña a catálogo limpio, no se migra tal cual.
+- **Schema `finance.bank_*`** (mig `20260722130000`, RLS forzado, patrón A.0mt): `bank_accounts` (20 seed), `movement_categories` (18 seed, alineado a cuentas Kepler), `bank_statements`, `bank_movements` (UPSERT por `client_uuid`), `bank_recon_matches`. Aplicada a **local (Batch 197)**; validada en trx (5 tablas + RLS + idempotencia). **Pendiente Railway.**
+- **Piedra Rosetta documentada:** el workbook es el detalle por banco que Kepler colapsa en el código único `102`; hoja `BNMX 1463` = subcuenta Kepler "BANAMEX 1463"; `FACTORAJE` = Kepler `210`. Plan CB.1–CB.4 en [`FASE_CB`](docs/IMPLEMENTACION/FASES/FASE_CB_CONCILIACION_BANCARIA.md).
+
+### Added — Feeds contables al nightly + UPSERT (no DELETE) para no cargar Railway (2026-07-22)
+- **`run-prod-feeds.js`**: los 4 feeds contables huérfanos (`import-ledger-chain`, `import-expense-requests`, `import-sales-by-channel`, `import-cash-cuts`) ahora corren en `nightly` (orden correcto tras `expenses-polizas`) + nuevo modo `finance` para re-run manual. Alimentaban la balanza/cadena/canal/caja que Maat, impuestos provisionales y contabilidad electrónica consumen; antes solo corrían a mano.
+- **DELETE+INSERT → UPSERT** en `ledger_monthly`, `expense_doc_chain`, `expense_requests`, `sales_by_channel_monthly` (update-in-place, sin churn de filas en Railway). Bonus: la cadena refresca el pago tardío (antes `DO NOTHING` lo ignoraba). Se mantiene DELETE solo en `expense_findings` (efímero). Validado: los 4 `ON CONFLICT` contra índices únicos reales.
+
 ### Added — Compras: Excel de pedido/requisición con diseño + export en todo punto de requisición (2026-07-22)
 - **Excel del pedido rediseñado.** El export de `/compras/pedido` era un CSV crudo (sin estructura, sin colorimetría). Ahora es un **XLSX con el mismo lenguaje visual que Existencia Crítica**: título + resumen con totales (líneas · cajas · piezas · importe), encabezado estilizado, panel congelado (identidad + encabezado), autofiltro, fila **TOTAL con `SUBTOTAL`** (respeta el filtro), renglones alternados y **color solo en los problemas** (existencia agotada y hub corto en rojo; cajas e importe en negrita).
 - **Desglose completo con las columnas que pediste:** #, Almacén (consolidado), SKU, Producto, **ABC/XYZ**, **Rank vta**, **Venta/mes ($ que mueve)**, Existencia, En tránsito, En hub (traspaso), Reorden, Máximo, Sugerido, Pz/caja, **Pedir (cajas)**, Piezas, Recibido, Costo unit., Importe. Las columnas son **dinámicas**: cada una aparece solo si las líneas la traen (el cockpit sale rico; la requisición/OC salen limpias).

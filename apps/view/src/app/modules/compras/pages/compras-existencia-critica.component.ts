@@ -99,6 +99,10 @@ interface DraftLine {
                   optionLabel="label" optionValue="value" placeholder="Críticos (≤ reorden)" [showClear]="true" styleClass="ec-sel"></p-select>
         <p-select [options]="basisOpts" [(ngModel)]="fBasis" (onChange)="reload()"
                   optionLabel="label" optionValue="value" placeholder="Objetivo" styleClass="ec-sel"></p-select>
+        <p-select [options]="categoryOpts()" [(ngModel)]="fCategory" (onChange)="reload()"
+                  optionLabel="label" optionValue="value" placeholder="Todas las categorías" [showClear]="true"
+                  [filter]="true" filterBy="label" filterPlaceholder="Buscar categoría (Guadalajara, Arandas…)" [resetFilterOnHide]="true"
+                  [virtualScroll]="true" [virtualScrollItemSize]="34" styleClass="ec-sel-wide" ariaLabel="Filtrar por categoría de compra"></p-select>
         <p-select [options]="supplierOpts()" [(ngModel)]="fSupplier" (onChange)="reload()"
                   optionLabel="label" optionValue="value" placeholder="Todos los proveedores" [showClear]="true"
                   [filter]="true" filterBy="label" filterPlaceholder="Buscar proveedor…" [resetFilterOnHide]="true"
@@ -385,6 +389,7 @@ export class ComprasExistenciaCriticaComponent implements OnInit {
 
   warehouseOpts = signal<{ label: string; value: string; code: string }[]>([]);
   supplierOpts = signal<{ label: string; value: string }[]>([]);
+  categoryOpts = signal<{ label: string; value: string }[]>([]);
   territories = [
     { label: 'Bajío', codes: ['01', '02', '03', '04'] },
     { label: 'Morelia', codes: ['MD-30', 'MD-32'] },
@@ -397,6 +402,7 @@ export class ComprasExistenciaCriticaComponent implements OnInit {
   fBucket = '';
   fBasis: TargetBasis = 'max';
   fSupplier = '';
+  fCategory = '';
   fAbc = '';
   fXyz = '';
   fSearch = '';
@@ -455,6 +461,7 @@ export class ComprasExistenciaCriticaComponent implements OnInit {
       this.warehouseOpts.set(f.warehouses.map((w) => ({ label: `${w.code} · ${w.name}`, value: w.id, code: w.code })));
       f.warehouses.forEach((w) => this.warehouseNames.set(w.id, `${w.code} · ${w.name}`));
       this.supplierOpts.set(f.suppliers.map((s) => ({ label: s.name, value: s.id })));
+      this.categoryOpts.set((f.categories || []).map((c) => ({ label: `${c.name} · ${c.n_suppliers} prov`, value: c.id })));
     });
     // Búsqueda en vivo: debounce 300ms + distinct para no reconsultar con el mismo texto.
     this.search$.pipe(debounceTime(300), distinctUntilChanged(), takeUntilDestroyed(this.destroyRef))
@@ -509,6 +516,7 @@ export class ComprasExistenciaCriticaComponent implements OnInit {
     const bucket = this.fBucket && this.fBucket !== '__all' ? this.fBucket : undefined;
     this.api.criticalStock({
       warehouse_ids: this.fWarehouses.length ? this.fWarehouses : undefined, supplier_id: this.fSupplier || undefined,
+      category_id: this.fCategory || undefined,
       abc: this.fAbc || undefined, xyz: this.fXyz || undefined,
       bucket, scope, target_basis: this.fBasis, search: this.fSearch || undefined,
       sort_by: this.fSortBy || undefined, sort_dir: this.fSortBy ? this.fSortDir : undefined,
@@ -526,6 +534,7 @@ export class ComprasExistenciaCriticaComponent implements OnInit {
     const bucket = this.fBucket && this.fBucket !== '__all' ? this.fBucket : undefined;
     this.api.criticalStockXlsx({
       warehouse_ids: this.fWarehouses.length ? this.fWarehouses : undefined, supplier_id: this.fSupplier || undefined,
+      category_id: this.fCategory || undefined,
       abc: this.fAbc || undefined, xyz: this.fXyz || undefined,
       bucket, scope, target_basis: this.fBasis, search: this.fSearch || undefined,
       sort_by: this.fSortBy || undefined, sort_dir: this.fSortBy ? this.fSortDir : undefined,
