@@ -134,6 +134,18 @@ function resolveUnits(slots) {
        WHERE btrim(coalesce(c1,''))<>'' AND c90::numeric > 0
        ORDER BY btrim(c1), c90::numeric DESC`)).rows;
 
+    // Diagnóstico on-prem: DEBUG_SKU=44360 imprime lo que Kepler trae para ese SKU en TODAS las
+    // sucursales (sin filtro de precio) → revela por qué un producto no llega a la etiquetera.
+    if (process.env.DEBUG_SKU) {
+      const dbg = (await src.query(
+        `SELECT btrim(c1) sku, c90 piece_c90, btrim(c80) u1, c81 f1, c91 p1_c91,
+                btrim(c83) u2, c84 f2, c92 p2_c92, c11 unit_base
+           FROM kp.kdii WHERE btrim(c1)=$1 ORDER BY c90::numeric DESC`,
+        [String(process.env.DEBUG_SKU).trim()])).rows;
+      console.log(`\n[DEBUG ${process.env.DEBUG_SKU}] filas en kp.kdii (todas las sucursales, SIN filtro de precio):`);
+      console.table(dbg);
+    }
+
     // Tiers de mayoreo — concentrada. Dedup (present,precio); el mejor precio por presentación.
     const kdpv = (await src.query(`
       SELECT DISTINCT c1 AS sku, c2 AS present, c4::numeric AS min_qty, c7::numeric AS price
