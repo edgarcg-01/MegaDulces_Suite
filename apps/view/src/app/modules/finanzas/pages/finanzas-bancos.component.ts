@@ -247,7 +247,8 @@ const GROUP_ORDER = ['ingreso', 'compra', 'gasto', 'factoraje', 'financiero', 't
           <span class="fb-count muted">{{ movTotal() | number }} movimientos</span>
         </div>
         <div class="card-premium card-flat fb-tablewrap">
-          <p-table [value]="movements()" styleClass="p-datatable-sm" [rowHover]="true" [scrollable]="true" scrollHeight="58vh">
+          <p-table [value]="movements()" styleClass="p-datatable-sm" [rowHover]="true" [scrollable]="true" scrollHeight="58vh"
+                   [paginator]="movements().length > 50" [rows]="50" [rowsPerPageOptions]="[50, 100, 200]">
             <ng-template pTemplate="header">
               <tr>
                 <th style="width:6rem">Fecha</th>
@@ -265,6 +266,8 @@ const GROUP_ORDER = ['ingreso', 'compra', 'gasto', 'factoraje', 'financiero', 't
                 <td class="muted">{{ m.account_label }}</td>
                 <td class="fb-concept" [title]="m.concept">{{ m.concept || '—' }}</td>
                 <td>
+                  <!-- p-select viable porque la tabla pagina 50/pág → máx 50 overlays montados
+                       (montar uno por c/500 filas sin paginar congelaba la pestaña). -->
                   <p-select [options]="categoryOpts()" optionLabel="label" optionValue="value" [filter]="true"
                             [ngModel]="m.category_id || ''" (ngModelChange)="reclassify(m, $event)"
                             appendTo="body" styleClass="fb-cat-select" [class.fb-cat-empty]="!m.category_id"
@@ -809,15 +812,6 @@ export class FinanzasBancosComponent implements OnInit {
     { label: '— sin clasificar —', value: '' },
     ...this.categories().map((c) => ({ label: c.name, value: c.id })),
   ]);
-  readonly ruleCatOpts = computed(() => this.categories().map((c) => ({ label: c.name, value: c.code })));
-  readonly groupSelOpts = computed(() => GROUP_ORDER.map((g) => ({ label: GROUP_LABELS[g] || g, value: g })));
-  readonly flowOpts = [
-    { label: 'Entra', value: 'in' }, { label: 'Sale', value: 'out' },
-    { label: 'Ambos', value: 'both' }, { label: '—', value: 'none' },
-  ];
-  readonly kindOpts = [
-    { label: 'Banco', value: 'bank' }, { label: 'Caja', value: 'cash' }, { label: 'Factoraje', value: 'factoraje' },
-  ];
 
   /** Última importación del periodo (para la píldora de frescura). */
   readonly lastImported = computed(() => {
