@@ -156,8 +156,28 @@ export class CommercialReplenishmentController {
 
   @Get('filters')
   @RequirePermissions(Permission.COMPRAS_VER)
-  @ApiOperation({ summary: 'Almacenes + proveedores con política de reorden (para los selects del frontend).' })
+  @ApiOperation({ summary: 'Almacenes + proveedores + categorías de compra con política (para los selects del frontend).' })
   filters() { return this.svc.filters(); }
+
+  @Get('categories')
+  @RequirePermissions(Permission.COMPRAS_VER)
+  @ApiOperation({ summary: 'RA-PRO.12 — categorías de compra con # productos / # proveedores + flag de duplicado (normalización).' })
+  listCategories(@Query('search') search?: string) { return this.svc.listCategories({ search }); }
+
+  @Post('categories/merge')
+  @RequirePermissions(Permission.COMPRAS_GESTIONAR)
+  @ApiOperation({ summary: 'RA-PRO.12 — fusiona categorías: repunta productos de from_ids[] → into_id y soft-borra las fusionadas.' })
+  mergeCategories(@Body() body: { into_id: string; from_ids: string[] }) { return this.svc.mergeCategories(body?.into_id, body?.from_ids || []); }
+
+  @Post('categories/auto-dedup')
+  @RequirePermissions(Permission.COMPRAS_GESTIONAR)
+  @ApiOperation({ summary: 'RA-PRO.12 — auto-fusiona categorías de NOMBRE IDÉNTICO (canónica = la de más productos).' })
+  autoDedupCategories() { return this.svc.autoDedupCategories(); }
+
+  @Post('categories/:id/rename')
+  @RequirePermissions(Permission.COMPRAS_GESTIONAR)
+  @ApiOperation({ summary: 'RA-PRO.12 — renombra una categoría.' })
+  renameCategory(@Param('id') id: string, @Body() body: { name: string }) { return this.svc.renameCategory(id, body?.name); }
 
   @Get('worklist')
   @RequirePermissions(Permission.COMPRAS_VER)

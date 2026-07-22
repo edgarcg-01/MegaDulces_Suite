@@ -90,6 +90,7 @@ export interface ReplenishmentSummary {
   sugerido_costo: number | null;
 }
 export interface ReplenishmentCategory { id: string; code: string | null; name: string; n_suppliers: number; n_products: number; }
+export interface CategoryAdmin extends ReplenishmentCategory { is_duplicate: boolean; }
 export interface ReplenishmentFilters {
   warehouses: { id: string; code: string; name: string }[];
   suppliers: { id: string; name: string; min_order_boxes: number | null }[];
@@ -463,6 +464,21 @@ export class ComprasService {
 
   filters(): Observable<ReplenishmentFilters> {
     return this.http.get<ReplenishmentFilters>(`${this.base}/filters`);
+  }
+
+  /** RA-PRO.12 — categorías de compra (normalización). */
+  listCategories(search?: string): Observable<CategoryAdmin[]> {
+    const qs = search ? `?search=${encodeURIComponent(search)}` : '';
+    return this.http.get<CategoryAdmin[]>(`${this.base}/categories${qs}`);
+  }
+  renameCategory(id: string, name: string): Observable<{ id: string; name: string }> {
+    return this.http.post<{ id: string; name: string }>(`${this.base}/categories/${id}/rename`, { name });
+  }
+  mergeCategories(into_id: string, from_ids: string[]): Observable<{ into: string; merged: number; products_repointed: number }> {
+    return this.http.post<{ into: string; merged: number; products_repointed: number }>(`${this.base}/categories/merge`, { into_id, from_ids });
+  }
+  autoDedupCategories(): Observable<{ groups: number; merged: number; products_repointed: number }> {
+    return this.http.post<{ groups: number; merged: number; products_repointed: number }>(`${this.base}/categories/auto-dedup`, {});
   }
 
   listRequisitions(q?: { estado?: string; warehouse_id?: string; page?: number; pageSize?: number }): Observable<{ total: number; page: number; pageSize: number; rows: RequisitionRow[] }> {

@@ -548,6 +548,87 @@ export class CommercialReplenishmentService {
     });
   }
 
+  // ── RA-PRO.12 — Categorías de compra: normalización (admin) ───────────
+  /** Todas las categorías activas + # productos / # proveedores + flag de duplicado por nombre. */
+  async listCategories(q: { search?: string }) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      const base = trx('catalog.categories as c')
+        .leftJoin('catalog.products as p', (j) => j.on('p.tenant_id', 'c.tenant_id').andOn('p.category_id', 'c.id'))
+        .where('c.tenant_id', tenantId).whereNull('c.deleted_at');
+      if (q.search && q.search.trim()) { const s = `%${q.search.trim()}%`; base.andWhere((b) => b.whereILike('c.name', s).orWhereILike('c.code', s)); }
+      const rows: any[] = await base
+        .groupBy('c.id', 'c.code', 'c.name')
+        .select('c.id as id', 'c.code as code', 'c.name as name',
+          trx.raw('count(DISTINCT p.id) FILTER (WHERE p.activo)::int as n_products'),
+          trx.raw('count(DISTINCT p.supplier_id) FILTER (WHERE p.activo)::int as n_suppliers'))
+        .orderByRaw('count(DISTINCT p.id) FILTER (WHERE p.activo) DESC, c.name ASC');
+      const nameCount = new Map<string, number>();
+      rows.forEach((r) => nameCount.set(r.name, (nameCount.get(r.name) || 0) + 1));
+      return rows.map((r) => ({ ...r, is_duplicate: (nameCount.get(r.name) || 0) > 1 }));
+    });
+  }
+
+  /** Renombra una categoría (normalización manual). */
+  async renameCategory(id: string, name: string) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    if (!UUID_RX.test(id)) throw new BadRequestException('id inválido');
+    const clean = (name || '').trim();
+    if (!clean) throw new BadRequestException('name requerido');
+    return this.tk.run(async (trx) => {
+      const n = await trx('catalog.categories').where({ tenant_id: tenantId, id }).whereNull('deleted_at')
+        .update({ name: clean, updated_at: trx.fn.now() });
+      if (!n) throw new NotFoundException('Categoría no encontrada');
+      return { id, name: clean };
+    });
+  }
+
+  /** Fusiona categorías: repunta los productos de from_ids → into_id y soft-borra las fusionadas. */
+  async mergeCategories(intoId: string, fromIds: string[]) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    if (!UUID_RX.test(intoId)) throw new BadRequestException('into_id inválido');
+    const from = (fromIds || []).filter((x) => UUID_RX.test(x) && x !== intoId);
+    if (!from.length) throw new BadRequestException('Nada que fusionar');
+    return this.tk.run(async (trx) => {
+      const into: any = await trx('catalog.categories').where({ tenant_id: tenantId, id: intoId }).whereNull('deleted_at').first();
+      if (!into) throw new NotFoundException('Categoría destino no encontrada');
+      const products_repointed = await trx('catalog.products')
+        .where('tenant_id', tenantId).whereIn('category_id', from).update({ category_id: intoId, updated_at: trx.fn.now() });
+      const merged = await trx('catalog.categories')
+        .where('tenant_id', tenantId).whereIn('id', from).whereNull('deleted_at')
+        .update({ deleted_at: trx.fn.now() });
+      this.logger.log(`Categorías fusionadas → ${into.name}: ${merged} cats, ${products_repointed} productos`);
+      return { into: into.name, merged, products_repointed };
+    });
+  }
+
+  /** Auto-dedup: fusiona categorías de NOMBRE IDÉNTICO (canónica = la de más productos). Solo nombres exactos. */
+  async autoDedupCategories() {
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      const dupNames: any[] = await trx('catalog.categories')
+        .where('tenant_id', tenantId).whereNull('deleted_at')
+        .groupBy('name').havingRaw('count(*) > 1').select('name');
+      let groups = 0, merged = 0, products_repointed = 0;
+      for (const { name } of dupNames) {
+        const cats: any[] = await trx('catalog.categories as c')
+          .leftJoin('catalog.products as p', (j) => j.on('p.tenant_id', 'c.tenant_id').andOn('p.category_id', 'c.id'))
+          .where('c.tenant_id', tenantId).whereNull('c.deleted_at').andWhere('c.name', name)
+          .groupBy('c.id', 'c.code')
+          .select('c.id', 'c.code', trx.raw('count(p.id)::int np'))
+          .orderByRaw('count(p.id) DESC, c.code ASC');
+        if (cats.length < 2) continue;
+        const rest = cats.slice(1).map((c) => c.id);
+        const rp = await trx('catalog.products').where('tenant_id', tenantId).whereIn('category_id', rest)
+          .update({ category_id: cats[0].id, updated_at: trx.fn.now() });
+        await trx('catalog.categories').where('tenant_id', tenantId).whereIn('id', rest).update({ deleted_at: trx.fn.now() });
+        groups++; merged += rest.length; products_repointed += rp;
+      }
+      this.logger.log(`Auto-dedup categorías: ${groups} grupos, ${merged} fusionadas, ${products_repointed} productos`);
+      return { groups, merged, products_repointed };
+    });
+  }
+
   // ── Requisiciones (HITL) ──────────────────────────────────────────────
   async createRequisition(dto: CreateRequisitionDto) {
     const tenantId = this.tenantCtx.requireTenantId();
