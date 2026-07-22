@@ -626,10 +626,16 @@ export class CommercialAnalyticsController {
     @Query('warehouses') warehouses?: string,
     @Query('brand_id') brandId?: string,
     @Query('supplier_id') supplierId?: string,
+    @Query('category_id') categoryId?: string,
     @Query('search') search?: string,
   ) {
-    return this.service.salidasReport(this.parseSalidasQuery(year, from, to, warehouses, brandId, supplierId, search));
+    return this.service.salidasReport(this.parseSalidasQuery(year, from, to, warehouses, brandId, supplierId, categoryId, search));
   }
+
+  @Get('salidas/categories')
+  @RequirePermissions(Permission.COMMERCIAL_SALIDAS_VER)
+  @ApiOperation({ summary: 'SAL — categorías de compra (con productos activos) para el filtro de Salidas.' })
+  salidasCategories() { return this.service.salidasCategories(); }
 
   @Get('salidas.xlsx')
   @RequirePermissions(Permission.COMMERCIAL_SALIDAS_VER)
@@ -642,9 +648,10 @@ export class CommercialAnalyticsController {
     @Query('warehouses') warehouses?: string,
     @Query('brand_id') brandId?: string,
     @Query('supplier_id') supplierId?: string,
+    @Query('category_id') categoryId?: string,
     @Query('search') search?: string,
   ) {
-    const report = await this.service.salidasReport(this.parseSalidasQuery(year, from, to, warehouses, brandId, supplierId, search));
+    const report = await this.service.salidasReport(this.parseSalidasQuery(year, from, to, warehouses, brandId, supplierId, categoryId, search));
     const buf = await this.exporter.buildSalidasXlsx(report);
     this.sendFile(res, buf, this.exporter.salidasFileName(report),
       'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
@@ -652,7 +659,7 @@ export class CommercialAnalyticsController {
 
   private parseSalidasQuery(
     year?: string, from?: string, to?: string, warehouses?: string,
-    brandId?: string, supplierId?: string, search?: string,
+    brandId?: string, supplierId?: string, categoryId?: string, search?: string,
   ) {
     const isRange = !!(from && to);
     return {
@@ -662,6 +669,7 @@ export class CommercialAnalyticsController {
       warehouses: warehouses ? warehouses.split(',').map((c) => c.trim()).filter(Boolean) : undefined,
       brand_id: brandId,
       supplier_id: supplierId,
+      category_id: categoryId,
       search,
     };
   }

@@ -1027,12 +1027,18 @@ export class ComercialService {
     });
   }
 
+  /** SAL — categorías de compra (sourcing) para el filtro de Salidas. */
+  salidasCategories() {
+    return this.http.get<SalidasCategoryOption[]>(`${this.base}/analytics/salidas/categories`);
+  }
+
   private salidasParams(p: SalidasParams): HttpParams {
     let params = new HttpParams();
     if (p.from && p.to) params = params.set('from', p.from).set('to', p.to);
     else params = params.set('year', String(p.year ?? new Date().getFullYear()));
     if (p.warehouses?.length) params = params.set('warehouses', p.warehouses.join(','));
     if (p.brand_id) params = params.set('brand_id', p.brand_id);
+    if (p.category_id) params = params.set('category_id', p.category_id);
     if (p.search) params = params.set('search', p.search);
     return params;
   }
@@ -1313,8 +1319,10 @@ export interface SalidasParams {
   to?: string;
   warehouses?: string[];
   brand_id?: string;
+  category_id?: string; // RA-PRO.12 — categoría de compra (sourcing)
   search?: string;
 }
+export interface SalidasCategoryOption { id: string; name: string; n_products: number; }
 
 export interface SalidasRow {
   warehouse_code: string;

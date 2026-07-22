@@ -68,6 +68,7 @@ export interface SalidasQuery {
   warehouses?: string[];
   brand_id?: string;
   supplier_id?: string;
+  category_id?: string; // RA-PRO.12 — categoría de compra (sourcing)
   search?: string;
 }
 
@@ -2726,11 +2727,26 @@ export class CommercialAnalyticsService {
    * Venta mensual = unidades reales (analytics.product_sales_monthly, feed live
    * Kepler U/D/10). Costo mensual = venta × costo_por_caja (fórmula del ERP).
    */
+  /** SAL — categorías de compra con productos activos (para el filtro de Salidas). */
+  async salidasCategories() {
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) =>
+      trx('catalog.categories as c')
+        .join('catalog.products as p', (j: any) => j.on('p.tenant_id', 'c.tenant_id').andOn('p.category_id', 'c.id'))
+        .where('c.tenant_id', tenantId).andWhere('p.activo', true).whereNull('c.deleted_at')
+        .groupBy('c.id', 'c.name')
+        .select('c.id as id', 'c.name as name')
+        .count('p.id as n_products')
+        .orderBy('c.name'),
+    );
+  }
+
   async salidasReport(q: SalidasQuery): Promise<SalidasReport> {
     const isRange = !!(q.from && q.to);
     const whFilter = (q.warehouses && q.warehouses.length) ? q.warehouses.map((w) => w.trim()).filter(Boolean) : null;
     const brandId = q.brand_id && RS_UUID.test(q.brand_id) ? q.brand_id : null;
     const supplierId = q.supplier_id && RS_UUID.test(q.supplier_id) ? q.supplier_id : null;
+    const categoryId = q.category_id && RS_UUID.test(q.category_id) ? q.category_id : null;
     const term = (q.search || '').trim();
     const tenantId = this.tenantCtx.requireTenantId();
 
@@ -2776,6 +2792,7 @@ export class CommercialAnalyticsService {
         if (whFilter) qb.whereIn('w.code', whFilter);
         if (brandId) qb.andWhere('p.brand_id', brandId);
         if (supplierId) qb.andWhere('p.supplier_id', supplierId);
+        if (categoryId) qb.andWhere('p.category_id', categoryId);
         if (term) qb.andWhere((b: any) => b.where('p.nombre', 'ilike', `%${term}%`).orWhere('p.sku', 'ilike', `%${term}%`));
       };
 
@@ -2836,6 +2853,7 @@ export class CommercialAnalyticsService {
         );
       if (brandId) pq2.andWhere('p.brand_id', brandId);
       if (supplierId) pq2.andWhere('p.supplier_id', supplierId);
+      if (categoryId) pq2.andWhere('p.category_id', categoryId);
       if (term) pq2.andWhere((qb: any) => qb.where('p.nombre', 'ilike', `%${term}%`).orWhere('p.sku', 'ilike', `%${term}%`));
 
       const scopeIds = scopeWh.map((w) => w.id);

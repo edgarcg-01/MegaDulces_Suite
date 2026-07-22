@@ -15,6 +15,7 @@ import {
   ComercialService,
   SalidasParams,
   SalidasReport,
+  SalidasCategoryOption,
   SellOutBrandRow,
   SellOutWarehouseRow,
 } from '../comercial.service';
@@ -83,6 +84,12 @@ const MES: Record<string, string> = {
           <label>Marca</label>
           <p-select [options]="brands()" [(ngModel)]="brandId" optionLabel="nombre" optionValue="id"
                     [filter]="true" filterBy="nombre" [showClear]="true" placeholder="Todas las marcas" appendTo="body"
+                    styleClass="w-full" (onChange)="load()" (onClear)="load()" />
+        </div>
+        <div class="sl-field sl-brand">
+          <label>Categoría</label>
+          <p-select [options]="categoryOpts()" [(ngModel)]="categoryId" optionLabel="label" optionValue="id"
+                    [filter]="true" filterBy="label" [showClear]="true" placeholder="Todas las categorías" appendTo="body"
                     styleClass="w-full" (onChange)="load()" (onClear)="load()" />
         </div>
         <div class="sl-field sl-search">
@@ -230,6 +237,7 @@ export class ComercialSalidasComponent {
 
   brands = signal<SellOutBrandRow[]>([]);
   warehouseOpts = signal<SellOutWarehouseRow[]>([]);
+  categoryOpts = signal<{ id: string; label: string }[]>([]);
   loading = signal(false);
   dl = signal(false);
   report = signal<SalidasReport | null>(null);
@@ -239,6 +247,7 @@ export class ComercialSalidasComponent {
   year = new Date().getFullYear();
   warehouses: string[] = [];
   brandId: string | null = null;
+  categoryId: string | null = null;
   search = '';
   rangeDates: Date[] | null = null;
 
@@ -257,6 +266,8 @@ export class ComercialSalidasComponent {
       .subscribe({ next: (w) => this.warehouseOpts.set(w), error: () => undefined });
     this.svc.sellOutBrands().pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({ next: (b) => this.brands.set(b), error: () => undefined });
+    this.svc.salidasCategories().pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({ next: (c) => this.categoryOpts.set(c.map((x) => ({ id: x.id, label: `${x.name} · ${x.n_products}` }))), error: () => undefined });
     this.load();
   }
 
@@ -298,6 +309,7 @@ export class ComercialSalidasComponent {
       // p-multiSelect con [showClear] deja `warehouses` en null al limpiar → guard con ?.
       warehouses: this.warehouses?.length ? this.warehouses : undefined,
       brand_id: this.brandId ?? undefined,
+      category_id: this.categoryId ?? undefined,
       search: this.search?.trim() || undefined,
     };
     if (this.periodMode() === 'year') return { ...base, year: this.year };
