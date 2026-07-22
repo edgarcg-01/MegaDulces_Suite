@@ -25,7 +25,7 @@ import {
 } from '../comercial.service';
 import { ThemeService } from '../../../core/services/theme.service';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
-import { egresChartOptions } from './egresos-chart-opts';
+import { egresChartOptions, egresChartSeries } from './egresos-chart-opts';
 
 /**
  * GX.4 — Explorador de detalle de egresos (una superficie por "cosa").
@@ -336,6 +336,7 @@ interface Constraint { type: SliceType; key: string; label: string; }
     .ed-dim-btn.active { background: var(--action, #FB923C); border-color: var(--action, #FB923C); color: #fff; font-weight: 600; }
     .ed-docs-head { display: flex; align-items: center; gap: 1rem; margin-bottom: .5rem; }
     .ed-table { font-variant-numeric: tabular-nums; }
+    .ed-table td.ta-r { font-family: var(--font-mono, ui-monospace, monospace); }
     .ta-r { text-align: right; }
     .mono { font-family: var(--font-mono, ui-monospace, monospace); font-size: .85em; }
     .strong { font-weight: 700; }
@@ -467,8 +468,8 @@ export class ComercialEgresoDetalleComponent {
     return {
       labels: s.map((p) => p.mes),
       datasets: [
-        { label: 'Compras / Costo', data: s.map((p) => p.compras), backgroundColor: '#FB923C' },
-        { label: 'Gastos', data: s.map((p) => p.gastos), backgroundColor: '#60A5FA' },
+        { label: 'Compras / Costo', data: s.map((p) => p.compras), backgroundColor: egresChartSeries()[0] },
+        { label: 'Gastos', data: s.map((p) => p.gastos), backgroundColor: egresChartSeries()[1] },
       ],
     };
   });

@@ -181,6 +181,7 @@ interface SolicitudSug extends ExpenseRequestRow { label: string; }
     .cp-field.cp-grow { flex: 1 1 18rem; }
     app-metric-strip { display: block; margin-bottom: 1rem; }
     .cp-table .ta-r { text-align: right; font-variant-numeric: tabular-nums; }
+    .cp-table td.ta-r { font-family: var(--font-mono, ui-monospace, monospace); }
     .cp-table .strong { font-weight: 600; color: var(--text-main); }
     .cp-table .muted { color: var(--text-muted); }
     .cp-suc-cell { font-size: .7rem; color: var(--text-muted); }
@@ -188,22 +189,22 @@ interface SolicitudSug extends ExpenseRequestRow { label: string; }
     .cp-files { display: inline-flex; gap: .35rem; flex-wrap: wrap; }
     .cp-fchip { color: var(--action); font-size: 1rem; }
     .cp-fchip:hover { opacity: .75; }
-    .cp-motivo { font-size: .72rem; color: var(--danger-fg, #b91c1c); max-width: 12rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .cp-motivo { font-size: .72rem; color: var(--bad-fg); max-width: 12rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .cp-empty { text-align: center; color: var(--text-muted); padding: 2rem; }
     .cp-form { display: flex; flex-direction: column; gap: .8rem; padding: .25rem 0; }
     .cp-row { display: flex; gap: .8rem; }
     .cp-row .cp-f { flex: 1 1 0; }
     .cp-f { display: flex; flex-direction: column; gap: .3rem; }
     .cp-f > span { font-size: var(--fs-micro, .72rem); text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); }
-    .cp-req { color: var(--danger-fg, #b91c1c); }
+    .cp-req { color: var(--bad-fg); }
     .cp-hint { font-size: .72rem; color: var(--text-muted); }
     .cp-f input[type=file] { font-size: .82rem; }
     .cp-files-head { font-size: .8rem; font-weight: 600; color: var(--text-main); margin-top: .4rem; border-top: 1px solid var(--border-color); padding-top: .7rem; }
     .cp-file { gap: .2rem; }
     .cp-suc { font-size: .82rem; color: var(--text-muted); display: inline-flex; align-items: center; gap: .4rem; margin-top: -.35rem; }
     .cp-suc strong { color: var(--text-main); }
-    .cp-filepick { font-size: .78rem; color: var(--ok-fg, #15803d); display: inline-flex; align-items: center; gap: .3rem; }
-    .cp-err { color: var(--danger-fg, #b91c1c); font-size: .82rem; }
+    .cp-filepick { font-size: .78rem; color: var(--ok-fg); display: inline-flex; align-items: center; gap: .3rem; }
+    .cp-err { color: var(--bad-fg); font-size: .82rem; }
     .w-full { width: 100%; }
   `],
 })

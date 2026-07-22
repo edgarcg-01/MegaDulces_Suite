@@ -293,6 +293,7 @@ import { ActionsService, ProposedAction } from '../actions.service';
     .fh-card-title { margin: 0 0 .6rem; font-size: .85rem; font-weight: 700; }
     .fh-rules { padding: 1rem; margin-bottom: 1rem; }
     .fh-table { font-variant-numeric: tabular-nums; }
+    .fh-table td.ta-r { font-family: var(--font-mono, ui-monospace, monospace); }
     .ta-r { text-align: right; } .strong { font-weight: 700; } .muted { color: var(--text-muted, #78716c); }
     .bad { color: var(--bad-fg, #dc2626); font-weight: 600; }
     .mono { font-family: var(--font-mono, ui-monospace, monospace); font-size: .85em; }
@@ -300,11 +301,11 @@ import { ActionsService, ProposedAction } from '../actions.service';
     .fh-resumen { font-size: .82rem; color: var(--text-muted, #78716c); margin-top: .1rem; max-width: 60ch; }
     .fh-sev { display: inline-block; padding: .1rem .5rem; border-radius: var(--r-pill, 999px); font-size: .68rem; font-weight: 700; text-transform: uppercase; }
     .sev-critical { background: color-mix(in srgb, var(--bad-fg, #dc2626) 15%, transparent); color: var(--bad-fg, #dc2626); }
-    .sev-warn { background: color-mix(in srgb, #d97706 15%, transparent); color: #b45309; }
+    .sev-warn { background: color-mix(in srgb, var(--warn-fg) 15%, transparent); color: var(--warn-soft-fg); }
     .sev-info { background: var(--surface-hover-bg, #f5f5f4); color: var(--text-muted, #57534e); }
     .fh-tag { display: inline-block; padding: .08rem .5rem; border-radius: var(--r-pill, 999px); font-size: .7rem; font-weight: 600; }
     .cls-riesgo { background: color-mix(in srgb, var(--bad-fg, #dc2626) 12%, transparent); color: var(--bad-fg, #dc2626); }
-    .cls-error_captura { background: color-mix(in srgb, #d97706 14%, transparent); color: #b45309; }
+    .cls-error_captura { background: color-mix(in srgb, var(--warn-fg) 14%, transparent); color: var(--warn-soft-fg); }
     .cls-oportunidad { background: color-mix(in srgb, var(--ok-fg, #16a34a) 14%, transparent); color: var(--ok-fg, #16a34a); }
     .cls-off { background: var(--surface-hover-bg, #f5f5f4); color: var(--text-muted, #78716c); }
     .cls-pin { background: color-mix(in srgb, var(--action, #FB923C) 15%, transparent); color: var(--action, #FB923C); }

@@ -147,21 +147,23 @@ export interface ThotAsk {
   styles: [`
     :host { display: block; }
 
-    /* Píldora — look original (blanca, redondeada, sombra suave). */
+    /* Píldora — tokenizada (surface + borde hairline; dark-safe). */
     .aci {
       max-width: 48rem;
       margin: 0 auto;
-      background: #fff;
-      color: #000;
+      background: var(--card-bg);
+      color: var(--text-main);
+      border: 1px solid var(--border-color);
       border-radius: 32px;
-      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+      box-shadow: var(--shadow-light, 0 2px 8px rgba(0, 0, 0, 0.08));
       height: 68px;
       overflow: hidden;
       cursor: text;
-      transition: height 450ms cubic-bezier(0.34, 1.4, 0.5, 1),
-        box-shadow 450ms cubic-bezier(0.34, 1.4, 0.5, 1);
+      transition: height 350ms cubic-bezier(0.34, 1.4, 0.5, 1),
+        box-shadow 350ms cubic-bezier(0.34, 1.4, 0.5, 1);
     }
-    .aci.expanded { height: 128px; box-shadow: 0 8px 32px rgba(0, 0, 0, 0.16); }
+    .aci:focus-within { outline: 2px solid var(--action); outline-offset: 2px; }
+    .aci.expanded { height: 128px; box-shadow: var(--shadow-hover, 0 8px 32px rgba(0, 0, 0, 0.16)); }
     .aci.has-attach.expanded { height: 172px; }
 
     .aci-row { display: flex; align-items: center; gap: 8px; padding: 12px; height: 68px; }
@@ -171,15 +173,15 @@ export interface ThotAsk {
       width: 44px; height: 44px;
       display: grid; place-items: center;
       border: none; background: transparent;
-      color: #1f2937;
+      color: var(--text-muted);
       border-radius: 9999px;
       cursor: pointer;
       transition: background-color 200ms ease;
     }
-    .aci-ic:hover { background: #f3f4f6; }
+    .aci-ic:hover { background: var(--surface-hover-bg); }
     .aci-ic i { font-size: 1.15rem; }
     /* Mic grabando: rojo + pulso. */
-    .aci-ic.recording { color: #dc2626; }
+    .aci-ic.recording { color: var(--bad-fg); }
     .aci-ic.recording::after {
       content: ''; position: absolute; inset: 0; border-radius: 9999px;
       box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.45);
@@ -196,30 +198,30 @@ export interface ThotAsk {
       display: inline-flex; align-items: center; gap: 8px;
       margin: 0 14px 8px;
       padding: 6px 8px 6px 10px;
-      background: #f3f4f6; border-radius: 12px;
-      font-size: 13px; color: #374151; max-width: calc(100% - 28px);
+      background: var(--surface-hover-bg); border-radius: 12px;
+      font-size: 13px; color: var(--text-muted); max-width: calc(100% - 28px);
     }
-    .aci-attach > .pi-image { color: var(--action, #f05a28); }
+    .aci-attach > .pi-image { color: var(--action); }
     .aci-attach-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .aci-attach-x {
       flex-shrink: 0; width: 22px; height: 22px; display: grid; place-items: center;
-      border: none; background: transparent; color: #6b7280; cursor: pointer; border-radius: 9999px;
+      border: none; background: transparent; color: var(--text-faint); cursor: pointer; border-radius: 9999px;
     }
-    .aci-attach-x:hover { background: #e5e7eb; color: #111; }
+    .aci-attach-x:hover { background: var(--surface-hover-bg); color: var(--text-main); }
 
     /* Overlay de grabación / transcripción dentro del campo. */
     .aci-rec {
       position: absolute; inset: 0;
       display: flex; align-items: center; gap: 8px;
       padding: 0 4px;
-      font-size: 15px; color: #dc2626; font-weight: 600;
+      font-size: 15px; color: var(--bad-fg); font-weight: 600;
       pointer-events: none;
       font-variant-numeric: tabular-nums;
     }
-    .aci-rec-busy { color: #6b7280; }
-    .aci-rec-err { color: #dc2626; font-weight: 500; }
+    .aci-rec-busy { color: var(--text-muted); }
+    .aci-rec-err { color: var(--bad-fg); font-weight: 500; }
     .aci-rec-dot {
-      width: 9px; height: 9px; border-radius: 9999px; background: #dc2626;
+      width: 9px; height: 9px; border-radius: 9999px; background: var(--bad-fg);
       animation: aciRecBlink 1.1s ease-in-out infinite;
     }
     @keyframes aciRecBlink { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
@@ -227,7 +229,7 @@ export interface ThotAsk {
     /* Onda de voz reactiva (JS escribe scaleY); CSS anima como fallback. */
     .aci-wave { display: inline-flex; align-items: center; gap: 3px; height: 20px; }
     .aci-wave i {
-      width: 3px; height: 100%; border-radius: 2px; background: #dc2626;
+      width: 3px; height: 100%; border-radius: 2px; background: var(--bad-fg);
       transform: scaleY(0.3); transform-origin: center;
       animation: aciWave 0.85s ease-in-out infinite alternate;
     }
@@ -248,24 +250,24 @@ export interface ThotAsk {
       width: 100%;
       border: none !important; outline: none !important; box-shadow: none !important;
       background: transparent;
-      color: #000;
+      color: var(--text-main);
       font-family: var(--font-body);
       font-size: 16px;
       padding: 8px 4px;
     }
-    .aci-field input::placeholder { color: #9ca3af; }
+    .aci-field input::placeholder { color: var(--text-faint); }
 
     .aci-send {
       flex-shrink: 0;
       width: 44px; height: 44px;
       display: grid; place-items: center;
       border: none;
-      background: #000; color: #fff;
+      background: var(--action); color: var(--action-ink);
       border-radius: 9999px;
       cursor: pointer;
       transition: background-color 200ms ease, transform 100ms ease, opacity 150ms ease;
     }
-    .aci-send:hover:not(:disabled) { background: #3f3f46; }
+    .aci-send:hover:not(:disabled) { background: var(--action-hover); }
     .aci-send:active:not(:disabled) { transform: scale(0.94); }
     .aci-send:disabled { opacity: 0.4; cursor: default; }
     .aci-send i { font-size: 1rem; }
@@ -286,8 +288,8 @@ export interface ThotAsk {
       display: inline-flex; align-items: center; gap: 4px;
       padding: 8px 16px;
       border: none;
-      background: #f3f4f6;
-      color: #374151;
+      background: color-mix(in srgb, var(--text-main) 6%, transparent);
+      color: var(--text-muted);
       border-radius: 9999px;
       font-family: var(--font-body);
       font-size: 14px; font-weight: 500;
@@ -295,14 +297,16 @@ export interface ThotAsk {
       white-space: nowrap;
       transition: background-color 200ms ease, color 200ms ease, outline-color 200ms ease;
     }
-    .aci-tg:hover { background: #e5e7eb; }
+    .aci-tg:hover { background: color-mix(in srgb, var(--text-main) 10%, transparent); }
+    .aci-tg:focus-visible { outline: 2px solid var(--action); outline-offset: 2px; }
+    /* Activo = IA ember (nunca azul/morado). */
     .aci-tg.on {
-      background: rgba(37, 99, 235, 0.10);
-      outline: 1px solid rgba(37, 99, 235, 0.6);
-      color: #172554;
+      background: var(--ember-soft);
+      outline: 1px solid var(--ember-border);
+      color: var(--action);
     }
     .aci-tg i { font-size: 1.05rem; }
-    .aci-tg:hover .pi-bolt { color: #facc15; }
+    .aci-tg:hover .pi-bolt { color: var(--action); }
 
     /* Deep Search: crece al activarse (icono → icono + label). */
     .aci-tg-grow .aci-tg-label {

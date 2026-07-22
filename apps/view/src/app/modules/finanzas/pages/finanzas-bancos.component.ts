@@ -1,13 +1,21 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, OnInit, ViewChild, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
 import { ToastModule } from 'primeng/toast';
+import { SelectModule } from 'primeng/select';
+import { CheckboxModule } from 'primeng/checkbox';
+import { InputNumberModule } from 'primeng/inputnumber';
+import { InputTextModule } from 'primeng/inputtext';
+import { IconFieldModule } from 'primeng/iconfield';
+import { InputIconModule } from 'primeng/inputicon';
 import { MessageService } from 'primeng/api';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
+import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
+import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 import { FINANZAS_TABS } from '../finanzas-tabs';
 import { BankService, BankAccount, MovementCategory, BankStatement, BankMovement, Concentrado, Reconciliation, MatchResult, Differences, ClassifyRule, Balances, Diagnostico } from '../bank.service';
 
@@ -16,8 +24,17 @@ const MONTHS_ES: Record<string, string> = {
   JULIO: '07', AGOSTO: '08', SEPTIEMBRE: '09', OCTUBRE: '10', NOVIEMBRE: '11', DICIEMBRE: '12',
 };
 
-type View = 'movimientos' | 'diagnostico' | 'concentrado' | 'conciliacion' | 'cuentas' | 'admin';
+type View = 'cierre' | 'movimientos' | 'concentrado' | 'conciliacion' | 'cuentas' | 'admin';
 type AdminTab = 'reglas' | 'categorias' | 'cuentas';
+
+/** Vistas de trabajo del segmento (Cierre = home). Admin vive aparte en el engrane. */
+const WORK_VIEWS: { key: View; label: string; icon: string }[] = [
+  { key: 'cierre', label: 'Cierre', icon: 'pi pi-flag' },
+  { key: 'movimientos', label: 'Movimientos', icon: 'pi pi-list' },
+  { key: 'concentrado', label: 'Concentrado', icon: 'pi pi-table' },
+  { key: 'conciliacion', label: 'Conciliación', icon: 'pi pi-sync' },
+  { key: 'cuentas', label: 'Cuentas', icon: 'pi pi-wallet' },
+];
 
 /** Etiquetas + orden de los grupos del tablero CONCENTRADO. */
 const GROUP_LABELS: Record<string, string> = {
@@ -34,7 +51,9 @@ const GROUP_ORDER = ['ingreso', 'compra', 'gasto', 'factoraje', 'financiero', 't
 @Component({
   selector: 'app-finanzas-bancos',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, TableModule, ToastModule, PageTabsComponent, MetricStripComponent],
+  imports: [CommonModule, FormsModule, ButtonModule, TableModule, ToastModule, SelectModule, CheckboxModule,
+    InputNumberModule, InputTextModule, IconFieldModule, InputIconModule,
+    PageTabsComponent, MetricStripComponent, LoadStateComponent, FreshnessPillComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
@@ -50,9 +69,8 @@ const GROUP_ORDER = ['ingreso', 'compra', 'gasto', 'factoraje', 'financiero', 't
         <div class="fb-head-actions">
           <label class="fb-period">
             <span>Periodo</span>
-            <select [ngModel]="period()" (ngModelChange)="setPeriod($event)" aria-label="Periodo">
-              @for (p of periods(); track p) { <option [value]="p">{{ p }}</option> }
-            </select>
+            <p-select [options]="periods()" [ngModel]="period()" (ngModelChange)="setPeriod($event)"
+                      appendTo="body" styleClass="fb-sel" [style]="{ minWidth: '8rem' }" ariaLabel="Periodo"></p-select>
           </label>
           <input #fileInput type="file" accept=".xlsx" hidden (change)="onFile($event)">
           <button pButton type="button" label="Subir estado de cuenta" icon="pi pi-upload"
@@ -60,16 +78,26 @@ const GROUP_ORDER = ['ingreso', 'compra', 'gasto', 'factoraje', 'financiero', 't
         </div>
       </header>
 
+      <!-- Barra de estado del cierre (answer-first: dónde va el periodo de un vistazo) -->
+      <div class="fb-status" aria-label="Estado del cierre">
+        <span class="fb-status-chip"><i class="pi pi-inbox"></i> Importado
+          <b class="mono">{{ importStatus().loaded }}/{{ importStatus().total }}</b> cuentas</span>
+        <span class="fb-status-chip" [class.warn]="(classifiedPct() ?? 100) < 100"><i class="pi pi-tags"></i> Clasificado
+          <b class="mono">{{ classifiedPct() == null ? '—' : classifiedPct() + '%' }}</b></span>
+        <span class="fb-status-chip" [class.warn]="reconciledPct() != null && reconciledPct()! < 80"><i class="pi pi-sync"></i> Conciliado
+          <b class="mono">{{ reconciledPct() == null ? 'sin correr' : reconciledPct() + '%' }}</b></span>
+        <app-freshness-pill [since]="lastImported()" />
+      </div>
+
       <div class="fb-viewseg" role="tablist">
-        <button role="tab" [attr.aria-selected]="view()==='movimientos'" [class.active]="view()==='movimientos'" (click)="view.set('movimientos')"><i class="pi pi-list"></i> Movimientos</button>
-        <button role="tab" [attr.aria-selected]="view()==='diagnostico'" [class.active]="view()==='diagnostico'" (click)="view.set('diagnostico')">
-          <i class="pi" [class.pi-check-circle]="diagnostico()?.cuadra" [class.pi-exclamation-triangle]="diagnostico() && !diagnostico()!.cuadra"></i> ¿Cuadra?
-          @if (diagnostico() && !diagnostico()!.cuadra) { <span class="fb-seg-count">{{ diagnostico()!.items.length }}</span> }
-        </button>
-        <button role="tab" [attr.aria-selected]="view()==='concentrado'" [class.active]="view()==='concentrado'" (click)="view.set('concentrado')"><i class="pi pi-table"></i> Concentrado</button>
-        <button role="tab" [attr.aria-selected]="view()==='conciliacion'" [class.active]="view()==='conciliacion'" (click)="view.set('conciliacion')"><i class="pi pi-sync"></i> Conciliación Kepler</button>
-        <button role="tab" [attr.aria-selected]="view()==='cuentas'" [class.active]="view()==='cuentas'" (click)="view.set('cuentas')"><i class="pi pi-wallet"></i> Cuentas</button>
-        <button role="tab" [attr.aria-selected]="view()==='admin'" [class.active]="view()==='admin'" (click)="openAdmin()"><i class="pi pi-cog"></i> Admin</button>
+        @for (v of WORK_VIEWS; track v.key) {
+          <button role="tab" [attr.aria-selected]="view()===v.key" [class.active]="view()===v.key" (click)="view.set(v.key)">
+            <i [class]="v.icon"></i> {{ v.label }}
+            @if (v.key === 'cierre' && diagnostico() && !diagnostico()!.cuadra) { <span class="fb-seg-count">{{ diagnostico()!.items.length }}</span> }
+          </button>
+        }
+        <button role="tab" class="fb-seg-config" [attr.aria-selected]="view()==='admin'" [class.active]="view()==='admin'"
+                (click)="openAdmin()" aria-label="Configuración" title="Configuración: reglas, categorías y cuentas"><i class="pi pi-cog"></i></button>
       </div>
 
       @if (loading()) {
@@ -78,56 +106,70 @@ const GROUP_ORDER = ['ingreso', 'compra', 'gasto', 'factoraje', 'financiero', 't
         </div>
       } @else {
 
-      <!-- ── DIAGNÓSTICO: ¿por qué no cuadra y qué falta? ── -->
-      @if (view() === 'diagnostico') {
-        @if (diagnostico(); as d) {
+      <!-- ── CIERRE (home): veredicto + resumen del dinero + qué falta (accionable) ── -->
+      @if (view() === 'cierre') {
+        @if (diagError()) {
+          <app-load-state [error]="diagError()" (retry)="setPeriod(period())"></app-load-state>
+        } @else {
+          @if (diagnostico(); as d) {
           <div class="fb-diag-head" [class.ok]="d.cuadra" [class.bad]="!d.cuadra">
             @if (d.cuadra) {
               <i class="pi pi-check-circle"></i>
               <div><h2>Todo cuadra</h2><p>Los {{ d.movimientos | number }} movimientos de {{ d.period }} están clasificados y las {{ d.cuentas_total }} cuentas cierran su saldo.</p></div>
             } @else {
               <i class="pi pi-exclamation-triangle"></i>
-              <div><h2>{{ d.items.length }} cosa(s) por resolver para que cuadre</h2><p>Ordenadas por impacto. Cada una dice qué es y qué falta hacer.</p></div>
+              <div><h2>{{ d.items.length }} cosa(s) por resolver para que cuadre</h2><p>Ordenadas por impacto. Cada una salta al lugar exacto para arreglarla.</p></div>
             }
           </div>
+
+          <app-metric-strip [items]="cierreKpis(d)" ariaLabel="Resumen del periodo" />
 
           @if (!d.tiene_balanza_kepler) {
             <p class="fb-diag-note muted"><i class="pi pi-info-circle"></i> La balanza de Kepler no está cargada para {{ d.period }}, así que el cruce contable no se está evaluando (solo el cuadre interno de saldos y la clasificación).</p>
           }
 
-          <div class="fb-diag-list">
-            @for (it of d.items; track it.titulo) {
-              <div class="fb-diag-item" [class]="'sev-' + it.severidad">
-                <div class="fb-diag-item-head">
-                  <span class="fb-diag-dot"></span>
-                  <span class="fb-diag-title">{{ it.titulo }}</span>
-                  @if (it.importe > 0) { <span class="fb-diag-amt mono">{{ it.importe | currency:'MXN':'symbol-narrow':'1.0-0' }}</span> }
+          @if (d.items.length) {
+            <h3 class="fb-card-title fb-cierre-h3">Qué falta <span class="muted">— por impacto</span></h3>
+            <div class="fb-diag-list">
+              @for (it of d.items; track it.titulo) {
+                <div class="fb-diag-item" [class]="'sev-' + it.severidad">
+                  <div class="fb-diag-item-head">
+                    <span class="fb-diag-dot"></span>
+                    <span class="fb-diag-title">{{ it.titulo }}</span>
+                    @if (it.importe > 0) { <span class="fb-diag-amt mono">{{ it.importe | currency:'MXN':'symbol-narrow':'1.0-0' }}</span> }
+                    <button pButton type="button" class="p-button-sm p-button-outlined fb-diag-cta"
+                            [label]="itemActionLabel(it)" icon="pi pi-arrow-right" iconPos="right" (click)="itemAction(it)"></button>
+                  </div>
+                  <p class="fb-diag-detalle">{{ it.detalle }}</p>
+                  @if (it.evidencia?.length) {
+                    <ul class="fb-diag-ev">
+                      @for (e of it.evidencia; track e.label) {
+                        <li>
+                          <span class="fb-diag-ev-label">{{ e.label }}</span>
+                          @if (e.count) { <span class="fb-diag-ev-meta">{{ e.count }} mov</span> }
+                          @if (e.folio) { <span class="fb-diag-ev-folio">{{ e.folio }}</span> }
+                          @if (e.monto != null) { <span class="fb-diag-ev-monto mono">{{ e.monto | currency:'MXN':'symbol-narrow':'1.0-0' }}</span> }
+                        </li>
+                      }
+                    </ul>
+                  }
+                  <p class="fb-diag-accion"><i class="pi pi-info-circle"></i> {{ it.accion }}</p>
                 </div>
-                <p class="fb-diag-detalle">{{ it.detalle }}</p>
-                @if (it.evidencia?.length) {
-                  <ul class="fb-diag-ev">
-                    @for (e of it.evidencia; track e.label) {
-                      <li>
-                        <span class="fb-diag-ev-label">{{ e.label }}</span>
-                        @if (e.count) { <span class="fb-diag-ev-meta">{{ e.count }} mov</span> }
-                        @if (e.folio) { <span class="fb-diag-ev-folio">{{ e.folio }}</span> }
-                        @if (e.monto != null) { <span class="fb-diag-ev-monto mono">{{ e.monto | currency:'MXN':'symbol-narrow':'1.0-0' }}</span> }
-                      </li>
-                    }
-                  </ul>
-                }
-                <p class="fb-diag-accion"><i class="pi pi-arrow-right"></i> {{ it.accion }}</p>
-              </div>
-            }
-          </div>
-        } @else {
-          <div class="surf-empty"><i class="pi pi-inbox"></i><p>Sin datos para {{ period() }}.</p></div>
+              }
+            </div>
+          }
+          } @else {
+            <div class="surf-empty"><i class="pi pi-inbox"></i><p>Sin datos para {{ period() }}. Sube un estado de cuenta para empezar.</p></div>
+          }
         }
       }
 
       <!-- ── CONCENTRADO ── -->
       @if (view() === 'concentrado') {
-        @if (concentrado(); as c) {
+        @if (concError()) {
+          <app-load-state [error]="concError()" (retry)="setPeriod(period())"></app-load-state>
+        } @else {
+          @if (concentrado(); as c) {
           <app-metric-strip [items]="kpiItems(c)" ariaLabel="Resumen del periodo" />
           <div class="card-premium card-flat fb-tablewrap">
             <p-table [value]="c.accounts" styleClass="p-datatable-sm" [rowHover]="true" [scrollable]="true" scrollHeight="60vh">
@@ -159,8 +201,9 @@ const GROUP_ORDER = ['ingreso', 'compra', 'gasto', 'factoraje', 'financiero', 't
               </ng-template>
             </p-table>
           </div>
-        } @else {
-          <div class="surf-empty"><i class="pi pi-inbox"></i><p>Sin estados de cuenta para {{ period() }}.</p></div>
+          } @else {
+            <div class="surf-empty"><i class="pi pi-inbox"></i><p>Sin estados de cuenta para {{ period() }}.</p></div>
+          }
         }
       }
 
@@ -180,22 +223,27 @@ const GROUP_ORDER = ['ingreso', 'compra', 'gasto', 'factoraje', 'financiero', 't
               } @else {
                 <i class="pi pi-exclamation-triangle"></i>
                 <span>No cuadra — {{ d.items.length }} cosa(s) por resolver{{ d.total_descuadre > 0 ? ' · ' + (d.total_descuadre | currency:'MXN':'symbol-narrow':'1.0-0') + ' en saldos' : '' }}.</span>
-                <button type="button" class="fb-cuadre-link" (click)="view.set('diagnostico')">Ver por qué →</button>
+                <button type="button" class="fb-cuadre-link" (click)="view.set('cierre')">Ver por qué →</button>
               }
             </div>
           </div>
         }
         <div class="fb-filters">
-          <select [ngModel]="fAccount()" (ngModelChange)="fAccount.set($event); reloadMovements()" aria-label="Cuenta">
-            <option value="">Todas las cuentas</option>
-            @for (a of accounts(); track a.id) { <option [value]="a.id">{{ a.bank }} {{ a.account_label }}</option> }
-          </select>
-          <select [ngModel]="fGroup()" (ngModelChange)="fGroup.set($event); reloadMovements()" aria-label="Grupo">
-            <option value="">Todos los grupos</option>
-            @for (g of GROUP_ORDER; track g) { <option [value]="g">{{ label(g) }}</option> }
-          </select>
-          <label class="fb-check"><input type="checkbox" [ngModel]="fUncat()" (ngModelChange)="fUncat.set($event); reloadMovements()"> Solo sin clasificar</label>
-          <input type="search" class="fb-search" [ngModel]="fSearch()" (ngModelChange)="onSearch($event)" placeholder="Buscar concepto / código…" aria-label="Buscar">
+          <p-select [options]="accountOpts()" optionLabel="label" optionValue="value" [filter]="true"
+                    [ngModel]="fAccount()" (ngModelChange)="fAccount.set($event); reloadMovements()"
+                    appendTo="body" styleClass="fb-sel" ariaLabel="Cuenta"></p-select>
+          <p-select [options]="groupOpts()" optionLabel="label" optionValue="value"
+                    [ngModel]="fGroup()" (ngModelChange)="fGroup.set($event); reloadMovements()"
+                    appendTo="body" styleClass="fb-sel" ariaLabel="Grupo"></p-select>
+          <span class="fb-check">
+            <p-checkbox [ngModel]="fUncat()" [binary]="true" inputId="fUncat" (onChange)="fUncat.set($event.checked); reloadMovements()"></p-checkbox>
+            <label for="fUncat">Solo sin clasificar</label>
+          </span>
+          <p-iconfield iconPosition="left" class="fb-search">
+            <p-inputicon styleClass="pi pi-search" />
+            <input pInputText type="text" [ngModel]="fSearch()" (ngModelChange)="onSearch($event)"
+                   placeholder="Buscar concepto / código…" aria-label="Buscar" />
+          </p-iconfield>
           <span class="fb-count muted">{{ movTotal() | number }} movimientos</span>
         </div>
         <div class="card-premium card-flat fb-tablewrap">
@@ -217,11 +265,10 @@ const GROUP_ORDER = ['ingreso', 'compra', 'gasto', 'factoraje', 'financiero', 't
                 <td class="muted">{{ m.account_label }}</td>
                 <td class="fb-concept" [title]="m.concept">{{ m.concept || '—' }}</td>
                 <td>
-                  <select class="fb-cat-select" [class.fb-cat-empty]="!m.category_id"
-                          [ngModel]="m.category_id || ''" (ngModelChange)="reclassify(m, $event)" [attr.aria-label]="'Categoría de ' + (m.concept || 'movimiento')">
-                    <option value="">— sin clasificar —</option>
-                    @for (c of categories(); track c.id) { <option [value]="c.id">{{ c.name }}</option> }
-                  </select>
+                  <p-select [options]="categoryOpts()" optionLabel="label" optionValue="value" [filter]="true"
+                            [ngModel]="m.category_id || ''" (ngModelChange)="reclassify(m, $event)"
+                            appendTo="body" styleClass="fb-cat-select" [class.fb-cat-empty]="!m.category_id"
+                            [attr.aria-label]="'Categoría de ' + (m.concept || 'movimiento')"></p-select>
                 </td>
                 <td class="ta-r mono">{{ m.amount_in ? (m.amount_in | currency:'MXN':'symbol-narrow':'1.2-2') : '' }}</td>
                 <td class="ta-r mono">{{ m.amount_out ? (m.amount_out | currency:'MXN':'symbol-narrow':'1.2-2') : '' }}</td>
@@ -238,9 +285,13 @@ const GROUP_ORDER = ['ingreso', 'compra', 'gasto', 'factoraje', 'financiero', 't
         </div>
       }
 
-      <!-- ── CONCILIACIÓN banco ↔ Kepler ── -->
+      <!-- ── CONCILIACIÓN banco ↔ Kepler (answer-first: veredicto → sin casar → evidencia) ── -->
       @if (view() === 'conciliacion') {
-        @if (reconciliation(); as rc) {
+        @if (reconError()) {
+          <app-load-state [error]="reconError()" (retry)="setPeriod(period())"></app-load-state>
+        } @else {
+          @if (reconciliation(); as rc) {
+          <!-- 1. Veredicto: match rate + caja vs 102 -->
           <div class="card-premium card-flat fb-match">
             <div class="fb-match-head">
               <h3 class="fb-card-title">Matching por-transacción <span class="muted">— retiros del banco ↔ pagos del 102 en Kepler</span></h3>
@@ -276,60 +327,7 @@ const GROUP_ORDER = ['ingreso', 'compra', 'gasto', 'factoraje', 'financiero', 't
             @if (rc.sin_clasificar > 0) { <p class="fb-recon-note muted"><i class="pi pi-exclamation-triangle"></i> {{ rc.sin_clasificar | currency:'MXN':'symbol-narrow':'1.0-0' }} en movimientos sin clasificar — resuélvelos en Movimientos para afinar el cuadre.</p> }
           </div>
 
-          @if (balances(); as bal) {
-            <div class="card-premium card-flat fb-tablewrap fb-bal">
-              <h3 class="fb-card-title fb-pnl-title">Cuadre de saldos <span class="muted">— saldo inicial + depósitos − retiros = saldo final</span>
-                @if (bal.cuentas_descuadradas > 0) { <span class="fb-bal-badge bad">{{ bal.cuentas_descuadradas }} sin cuadrar</span> }
-                @else if (bal.cuentas_sin_saldo === bal.accounts.length) { <span class="fb-bal-badge warn">sin saldos</span> }
-                @else { <span class="fb-bal-badge ok">todo cuadra</span> }
-              </h3>
-              <p-table [value]="bal.accounts" styleClass="p-datatable-sm" [rowHover]="true" [scrollable]="true" scrollHeight="40vh">
-                <ng-template pTemplate="header">
-                  <tr><th>Cuenta</th><th class="ta-r">Inicial</th><th class="ta-r">Depósitos</th><th class="ta-r">Retiros</th><th class="ta-r">Calculado</th><th class="ta-r">Final</th><th class="ta-r">Δ</th></tr>
-                </ng-template>
-                <ng-template pTemplate="body" let-a>
-                  <tr [class.fb-bal-sinsaldo]="a.sin_saldo">
-                    <td>{{ a.bank }} <span class="muted mono">{{ a.account_label }}</span></td>
-                    <td class="ta-r mono">{{ a.opening | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
-                    <td class="ta-r mono">{{ a.total_in | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
-                    <td class="ta-r mono">{{ a.total_out | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
-                    <td class="ta-r mono muted">{{ a.computed_closing | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
-                    <td class="ta-r mono fb-strong">{{ a.closing | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
-                    <td class="ta-r mono">
-                      @if (a.sin_saldo) { <span class="muted">—</span> }
-                      @else { <span [class.bad]="!a.cuadra" [class.ok]="a.cuadra">{{ a.delta | currency:'MXN':'symbol-narrow':'1.0-0' }}</span> }
-                    </td>
-                  </tr>
-                </ng-template>
-              </p-table>
-              <p class="fb-recon-note muted">
-                Traspasos internos (TI=TE): entra {{ bal.traspasos.entra | currency:'MXN':'symbol-narrow':'1.0-0' }} vs sale {{ bal.traspasos.sale | currency:'MXN':'symbol-narrow':'1.0-0' }}
-                <span [class.bad]="!cuadra(bal.traspasos.delta)" [class.ok]="cuadra(bal.traspasos.delta)">(Δ {{ bal.traspasos.delta | currency:'MXN':'symbol-narrow':'1.0-0' }})</span>.
-                @if (bal.cuentas_sin_saldo > 0) { · {{ bal.cuentas_sin_saldo }} cuenta(s) sin columna SALDO en el Excel (no verificable). }
-              </p>
-            </div>
-          }
-          <div class="card-premium card-flat fb-tablewrap">
-            <h3 class="fb-card-title fb-pnl-title">P&L — gasto del banco vs cuenta contable Kepler</h3>
-            <p-table [value]="rc.accounts" styleClass="p-datatable-sm" [rowHover]="true">
-              <ng-template pTemplate="header">
-                <tr><th style="width:6rem">Cuenta</th><th>Concepto</th><th class="ta-r">Banco (pagado)</th><th class="ta-r">Kepler (contable)</th><th class="ta-r">Δ</th></tr>
-              </ng-template>
-              <ng-template pTemplate="body" let-a>
-                <tr>
-                  <td class="mono">{{ a.kepler_account }}</td>
-                  <td class="fb-concept" [title]="a.concept">{{ a.concept }}</td>
-                  <td class="ta-r mono">{{ a.bank | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
-                  <td class="ta-r mono">{{ a.book | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
-                  <td class="ta-r mono" [class.bad]="!cuadra(a.delta)" [class.ok]="cuadra(a.delta)">{{ a.delta | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
-                </tr>
-              </ng-template>
-              <ng-template pTemplate="emptymessage">
-                <tr><td colspan="5"><div class="surf-empty"><i class="pi pi-inbox"></i><p>Sin balanza Kepler para {{ period() }} (falta correr el feed ledger-chain).</p></div></td></tr>
-              </ng-template>
-            </p-table>
-          </div>
-
+          <!-- 2. Lo accionable: lo que no casó por ambos lados -->
           @if (differences(); as df) {
             <div class="fb-diff-grid">
               <div class="card-premium card-flat fb-tablewrap">
@@ -356,33 +354,100 @@ const GROUP_ORDER = ['ingreso', 'compra', 'gasto', 'factoraje', 'financiero', 't
               </div>
             </div>
           }
-        } @else {
-          <div class="surf-empty"><i class="pi pi-inbox"></i><p>Sin datos de conciliación para {{ period() }}.</p></div>
+
+          <!-- 3. Evidencia contable: P&L banco vs mayor Kepler -->
+          <div class="card-premium card-flat fb-tablewrap">
+            <h3 class="fb-card-title fb-pnl-title">P&L — gasto del banco vs cuenta contable Kepler</h3>
+            <p-table [value]="rc.accounts" styleClass="p-datatable-sm" [rowHover]="true">
+              <ng-template pTemplate="header">
+                <tr><th style="width:6rem">Cuenta</th><th>Concepto</th><th class="ta-r">Banco (pagado)</th><th class="ta-r">Kepler (contable)</th><th class="ta-r">Δ</th></tr>
+              </ng-template>
+              <ng-template pTemplate="body" let-a>
+                <tr>
+                  <td class="mono">{{ a.kepler_account }}</td>
+                  <td class="fb-concept" [title]="a.concept">{{ a.concept }}</td>
+                  <td class="ta-r mono">{{ a.bank | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+                  <td class="ta-r mono">{{ a.book | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+                  <td class="ta-r mono" [class.bad]="!cuadra(a.delta)" [class.ok]="cuadra(a.delta)">{{ a.delta | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+                </tr>
+              </ng-template>
+              <ng-template pTemplate="emptymessage">
+                <tr><td colspan="5"><div class="surf-empty"><i class="pi pi-inbox"></i><p>Sin balanza Kepler para {{ period() }} (falta correr el feed ledger-chain).</p></div></td></tr>
+              </ng-template>
+            </p-table>
+          </div>
+          } @else {
+            <div class="surf-empty"><i class="pi pi-inbox"></i><p>Sin datos de conciliación para {{ period() }}.</p></div>
+          }
         }
       }
 
-      <!-- ── CUENTAS ── -->
+      <!-- ── CUENTAS: cuadre de saldos por cuenta (clic → sus movimientos) ── -->
       @if (view() === 'cuentas') {
-        <div class="card-premium card-flat fb-tablewrap">
-          <p-table [value]="statements()" styleClass="p-datatable-sm" [rowHover]="true">
-            <ng-template pTemplate="header">
-              <tr><th>Banco</th><th>Cuenta</th><th>Tipo</th><th class="ta-r">Depósitos</th><th class="ta-r">Retiros</th><th class="ta-r">Saldo final</th></tr>
-            </ng-template>
-            <ng-template pTemplate="body" let-s>
-              <tr>
-                <td>{{ s.bank }}</td>
-                <td class="mono">{{ s.account_label }}</td>
-                <td><span class="fb-kind">{{ kindLabel(s.kind) }}</span></td>
-                <td class="ta-r mono">{{ s.total_in | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
-                <td class="ta-r mono">{{ s.total_out | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
-                <td class="ta-r mono fb-strong">{{ s.closing_balance | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
-              </tr>
-            </ng-template>
-            <ng-template pTemplate="emptymessage">
-              <tr><td colspan="6"><div class="surf-empty"><i class="pi pi-inbox"></i><p>Sin cuentas cargadas para {{ period() }}.</p></div></td></tr>
-            </ng-template>
-          </p-table>
-        </div>
+        @if (balances(); as bal) {
+          <div class="card-premium card-flat fb-tablewrap fb-bal">
+            <h3 class="fb-card-title fb-pnl-title">Cuadre de saldos <span class="muted">— inicial + depósitos − retiros = final · clic en una cuenta para ver sus movimientos</span>
+              @if (bal.cuentas_descuadradas > 0) { <span class="fb-bal-badge bad">{{ bal.cuentas_descuadradas }} sin cuadrar</span> }
+              @else if (bal.cuentas_sin_saldo === bal.accounts.length) { <span class="fb-bal-badge warn">sin saldos</span> }
+              @else { <span class="fb-bal-badge ok">todo cuadra</span> }
+            </h3>
+            <p-table [value]="bal.accounts" styleClass="p-datatable-sm" [rowHover]="true" [scrollable]="true" scrollHeight="60vh">
+              <ng-template pTemplate="header">
+                <tr><th>Cuenta</th><th class="ta-r">Inicial</th><th class="ta-r">Depósitos</th><th class="ta-r">Retiros</th><th class="ta-r">Calculado</th><th class="ta-r">Final</th><th class="ta-r">Δ</th><th style="width:5rem" class="ta-c">Estado</th></tr>
+              </ng-template>
+              <ng-template pTemplate="body" let-a>
+                <tr class="fb-row-click" [class.fb-bal-sinsaldo]="a.sin_saldo" tabindex="0" role="button"
+                    (click)="verCuentaMovs(a)" (keyup.enter)="verCuentaMovs(a)"
+                    [attr.aria-label]="'Ver movimientos de ' + a.bank + ' ' + a.account_label">
+                  <td>{{ a.bank }} <span class="muted mono">{{ a.account_label }}</span></td>
+                  <td class="ta-r mono">{{ a.opening | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+                  <td class="ta-r mono">{{ a.total_in | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+                  <td class="ta-r mono">{{ a.total_out | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+                  <td class="ta-r mono muted">{{ a.computed_closing | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+                  <td class="ta-r mono fb-strong">{{ a.closing | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+                  <td class="ta-r mono">
+                    @if (a.sin_saldo) { <span class="muted">—</span> }
+                    @else { <span [class.bad]="!a.cuadra" [class.ok]="a.cuadra">{{ a.delta | currency:'MXN':'symbol-narrow':'1.0-0' }}</span> }
+                  </td>
+                  <td class="ta-c">
+                    @if (a.sin_saldo) { <span class="fb-kind">sin saldo</span> }
+                    @else if (a.cuadra) { <i class="pi pi-check-circle ok" title="Cuadra"></i> }
+                    @else { <i class="pi pi-exclamation-triangle bad" title="No cuadra"></i> }
+                  </td>
+                </tr>
+              </ng-template>
+              <ng-template pTemplate="emptymessage">
+                <tr><td colspan="8"><div class="surf-empty"><i class="pi pi-inbox"></i><p>Sin cuentas cargadas para {{ period() }}.</p></div></td></tr>
+              </ng-template>
+            </p-table>
+            <p class="fb-recon-note muted">
+              Traspasos internos (TI=TE): entra {{ bal.traspasos.entra | currency:'MXN':'symbol-narrow':'1.0-0' }} vs sale {{ bal.traspasos.sale | currency:'MXN':'symbol-narrow':'1.0-0' }}
+              <span [class.bad]="!cuadra(bal.traspasos.delta)" [class.ok]="cuadra(bal.traspasos.delta)">(Δ {{ bal.traspasos.delta | currency:'MXN':'symbol-narrow':'1.0-0' }})</span>.
+              @if (bal.cuentas_sin_saldo > 0) { · {{ bal.cuentas_sin_saldo }} cuenta(s) sin columna SALDO en el Excel (no verificable). }
+            </p>
+          </div>
+        } @else {
+          <div class="card-premium card-flat fb-tablewrap">
+            <p-table [value]="statements()" styleClass="p-datatable-sm" [rowHover]="true">
+              <ng-template pTemplate="header">
+                <tr><th>Banco</th><th>Cuenta</th><th>Tipo</th><th class="ta-r">Depósitos</th><th class="ta-r">Retiros</th><th class="ta-r">Saldo final</th></tr>
+              </ng-template>
+              <ng-template pTemplate="body" let-s>
+                <tr>
+                  <td>{{ s.bank }}</td>
+                  <td class="mono">{{ s.account_label }}</td>
+                  <td><span class="fb-kind">{{ kindLabel(s.kind) }}</span></td>
+                  <td class="ta-r mono">{{ s.total_in | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+                  <td class="ta-r mono">{{ s.total_out | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+                  <td class="ta-r mono fb-strong">{{ s.closing_balance | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+                </tr>
+              </ng-template>
+              <ng-template pTemplate="emptymessage">
+                <tr><td colspan="6"><div class="surf-empty"><i class="pi pi-inbox"></i><p>Sin cuentas cargadas para {{ period() }}.</p></div></td></tr>
+              </ng-template>
+            </p-table>
+          </div>
+        }
       }
 
       <!-- ── ADMIN: catálogo + reglas de clasificación ── -->
@@ -533,11 +598,10 @@ const GROUP_ORDER = ['ingreso', 'compra', 'gasto', 'factoraje', 'financiero', 't
     :host { display: block; }
     .fb-head-actions { display: flex; align-items: center; gap: var(--sp-3); }
     .fb-period { display: flex; align-items: center; gap: var(--sp-2); font-size: var(--fs-xs); color: var(--text-muted); }
-    .fb-period select, .fb-filters select, .fb-search {
-      font: inherit; font-size: var(--fs-sm); padding: var(--sp-1) var(--sp-2);
-      background: var(--card-bg); color: var(--text-main);
-      border: 1px solid var(--border-color); border-radius: var(--r-sm);
-    }
+    /* p-select compacto (header + filtros) */
+    :host ::ng-deep .fb-sel.p-select { font-size: var(--fs-sm); }
+    :host ::ng-deep .fb-sel .p-select-label { padding: var(--sp-1) var(--sp-2); }
+    :host ::ng-deep .fb-search .p-inputtext { width: 100%; font-size: var(--fs-sm); }
     .fb-viewseg { display: flex; gap: var(--sp-1); margin: var(--sp-3) 0; border-bottom: 1px solid var(--border-color); }
     .fb-viewseg button {
       display: inline-flex; align-items: center; gap: var(--sp-1); background: none; border: none;
@@ -546,6 +610,19 @@ const GROUP_ORDER = ['ingreso', 'compra', 'gasto', 'factoraje', 'financiero', 't
     }
     .fb-viewseg button.active { color: var(--action); border-bottom-color: var(--action); }
     .fb-viewseg button:focus-visible { outline: 2px solid var(--action-ring); outline-offset: -2px; }
+    .fb-seg-config { margin-left: auto; }
+    /* Barra de estado del cierre */
+    .fb-status { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-3); margin: var(--sp-2) 0 0; }
+    .fb-status-chip { display: inline-flex; align-items: center; gap: var(--sp-1); font-size: var(--fs-xs); color: var(--text-muted); }
+    .fb-status-chip i { font-size: .8rem; color: var(--text-faint); }
+    .fb-status-chip b { color: var(--text-main); font-weight: 600; }
+    .fb-status-chip.warn { color: var(--warn-fg); }
+    .fb-status-chip.warn i, .fb-status-chip.warn b { color: var(--warn-fg); }
+    /* Checklist accionable (Cierre) */
+    .fb-cierre-h3 { margin: var(--sp-4) 0 var(--sp-2); }
+    .fb-diag-cta { flex: none; }
+    .fb-row-click { cursor: pointer; }
+    .fb-row-click:focus-visible { outline: 2px solid var(--action-ring); outline-offset: -2px; }
     .fb-filters { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); margin-bottom: var(--sp-3); }
     .fb-search { min-width: 16rem; flex: 1; }
     .fb-check { display: inline-flex; align-items: center; gap: var(--sp-1); font-size: var(--fs-sm); color: var(--text-muted); }
@@ -559,13 +636,11 @@ const GROUP_ORDER = ['ingreso', 'compra', 'gasto', 'factoraje', 'financiero', 't
     .fb-sticky-col { position: sticky; left: 0; background: var(--card-bg); z-index: 1; }
     .fb-total-row { font-weight: 600; border-top: 2px solid var(--border-color); background: var(--surface-ground); }
     .fb-concept { max-width: 28rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .fb-cat-select {
-      font: inherit; font-size: var(--fs-xs); width: 100%; padding: 2px var(--sp-1);
-      background: var(--card-bg); color: var(--text-main);
-      border: 1px solid transparent; border-radius: var(--r-sm); cursor: pointer;
-    }
-    .fb-cat-select:hover, .fb-cat-select:focus { border-color: var(--border-color); }
-    .fb-cat-empty { color: var(--warn-fg); border-color: var(--warn-border); }
+    :host ::ng-deep .fb-cat-select.p-select { width: 100%; background: var(--card-bg); border-color: transparent; }
+    :host ::ng-deep .fb-cat-select .p-select-label { padding: 2px var(--sp-1); font-size: var(--fs-xs); }
+    :host ::ng-deep .fb-cat-select:not(.p-focus):hover { border-color: var(--border-color); }
+    :host ::ng-deep .fb-cat-empty.p-select { border-color: var(--warn-border); }
+    :host ::ng-deep .fb-cat-empty .p-select-label { color: var(--warn-fg); }
     .fb-uncat { background: color-mix(in srgb, var(--warn-fg) 5%, transparent); }
     .fb-kind { font-size: var(--fs-xs); text-transform: capitalize; color: var(--text-muted); }
     .fb-skeleton { display: flex; flex-direction: column; gap: var(--sp-2); margin-top: var(--sp-4); }
@@ -595,7 +670,7 @@ const GROUP_ORDER = ['ingreso', 'compra', 'gasto', 'factoraje', 'financiero', 't
     .fb-bal-badge.bad { color: var(--bad-fg); background: color-mix(in srgb, var(--bad-fg) 12%, transparent); }
     .fb-bal-badge.warn { color: var(--warn-fg); background: color-mix(in srgb, var(--warn-fg) 12%, transparent); }
     .fb-bal-sinsaldo { opacity: 0.55; }
-    .fb-seg-count { display: inline-flex; align-items: center; justify-content: center; min-width: 1.1rem; height: 1.1rem; padding: 0 4px; margin-left: 4px; font-size: var(--fs-2xs, 0.7rem); font-weight: 700; border-radius: var(--r-pill); background: var(--warn-fg); color: #fff; }
+    .fb-seg-count { display: inline-flex; align-items: center; justify-content: center; min-width: 1.1rem; height: 1.1rem; padding: 0 4px; margin-left: 4px; font-size: var(--fs-2xs, 0.7rem); font-weight: 700; border-radius: var(--r-pill); background: var(--warn-fg); color: var(--stone-950); }
     /* Banner de cuadre (Movimientos) */
     .fb-cuadre { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-4); flex-wrap: wrap;
       padding: var(--sp-3) var(--sp-4); margin-bottom: var(--sp-3); border: 1px solid var(--border-color); border-radius: var(--r-md); border-left-width: 3px; }
@@ -629,8 +704,8 @@ const GROUP_ORDER = ['ingreso', 'compra', 'gasto', 'factoraje', 'financiero', 't
     .fb-diag-dot { width: 8px; height: 8px; border-radius: var(--r-pill); flex: none; }
     .sev-bad .fb-diag-dot { background: var(--bad-fg); }
     .sev-warn .fb-diag-dot { background: var(--warn-fg); }
-    .fb-diag-title { font-weight: 600; color: var(--text-main); }
-    .fb-diag-amt { margin-left: auto; font-weight: 700; }
+    .fb-diag-title { flex: 1; min-width: 0; font-weight: 600; color: var(--text-main); }
+    .fb-diag-amt { font-weight: 700; }
     .fb-diag-detalle { font-size: var(--fs-sm); color: var(--text-main); margin: var(--sp-2) 0 var(--sp-1); }
     .fb-diag-accion { font-size: var(--fs-sm); color: var(--text-muted); margin: 0; display: flex; align-items: baseline; gap: var(--sp-1); }
     .fb-diag-accion i { color: var(--action); font-size: 0.75rem; }
@@ -671,8 +746,11 @@ export class FinanzasBancosComponent implements OnInit {
 
   readonly tabs = FINANZAS_TABS;
   readonly GROUP_ORDER = GROUP_ORDER;
+  readonly WORK_VIEWS = WORK_VIEWS;
 
-  readonly view = signal<View>('movimientos');
+  @ViewChild('fileInput') fileInput?: ElementRef<HTMLInputElement>;
+
+  readonly view = signal<View>('cierre');
   readonly loading = signal(true);
   readonly periods = signal<string[]>([]);
   readonly period = signal<string>('');
@@ -708,6 +786,58 @@ export class FinanzasBancosComponent implements OnInit {
   // nueva cuenta
   naBank = ''; naLabel = ''; naAlias = ''; naKind = 'bank'; naKepler = '';
 
+  // Errores por vista (banner + Reintentar; separa "no cargó" de "vacío" — DESIGN §6).
+  readonly concError = signal<string | null>(null);
+  readonly movError = signal<string | null>(null);
+  readonly reconError = signal<string | null>(null);
+  readonly diagError = signal<string | null>(null);
+  // Auto-disable síncrono de las altas (anti doble-submit — DESIGN §13).
+  readonly addingRule = signal(false);
+  readonly addingCat = signal(false);
+  readonly addingAcct = signal(false);
+
+  // Opciones para los p-select (label/value).
+  readonly accountOpts = computed(() => [
+    { label: 'Todas las cuentas', value: '' },
+    ...this.accounts().map((a) => ({ label: `${a.bank} ${a.account_label}`, value: a.id })),
+  ]);
+  readonly groupOpts = computed(() => [
+    { label: 'Todos los grupos', value: '' },
+    ...GROUP_ORDER.map((g) => ({ label: GROUP_LABELS[g] || g, value: g })),
+  ]);
+  readonly categoryOpts = computed(() => [
+    { label: '— sin clasificar —', value: '' },
+    ...this.categories().map((c) => ({ label: c.name, value: c.id })),
+  ]);
+  readonly ruleCatOpts = computed(() => this.categories().map((c) => ({ label: c.name, value: c.code })));
+  readonly groupSelOpts = computed(() => GROUP_ORDER.map((g) => ({ label: GROUP_LABELS[g] || g, value: g })));
+  readonly flowOpts = [
+    { label: 'Entra', value: 'in' }, { label: 'Sale', value: 'out' },
+    { label: 'Ambos', value: 'both' }, { label: '—', value: 'none' },
+  ];
+  readonly kindOpts = [
+    { label: 'Banco', value: 'bank' }, { label: 'Caja', value: 'cash' }, { label: 'Factoraje', value: 'factoraje' },
+  ];
+
+  /** Última importación del periodo (para la píldora de frescura). */
+  readonly lastImported = computed(() => {
+    const ds = this.statements().map((s) => s.imported_at).filter(Boolean) as string[];
+    return ds.length ? ds.sort().reverse()[0] : null;
+  });
+
+  // ── Estado del cierre para la barra de comando (chips answer-first) ──
+  readonly importStatus = computed(() => {
+    const total = this.accounts().filter((a) => a.active).length;
+    return { loaded: this.statements().length, total };
+  });
+  readonly classifiedPct = computed(() => {
+    const d = this.diagnostico();
+    if (!d || !d.movimientos) return null;
+    const sc = this.concentrado()?.groupTotals?.['sin_clasificar']?.movs ?? 0;
+    return Math.max(0, Math.round(((d.movimientos - sc) / d.movimientos) * 100));
+  });
+  readonly reconciledPct = computed(() => this.matchResult()?.match_rate ?? null);
+
   /** Grupos con datos en el periodo (columnas del CONCENTRADO), en orden canónico. */
   readonly groupCols = computed(() => {
     const c = this.concentrado();
@@ -736,27 +866,31 @@ export class FinanzasBancosComponent implements OnInit {
     this.loading.set(true);
     this.matchResult.set(null);
     this.differences.set(null);
+    this.concError.set(null);
+    this.reconError.set(null);
+    this.diagError.set(null);
     const p = this.period();
     this.api.concentrado(p).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (c) => this.concentrado.set(c),
-      error: () => this.fail('No se pudo cargar el concentrado.'),
+      next: (c) => { this.concentrado.set(c); this.loading.set(false); },
+      error: () => { this.concError.set('No se pudo cargar el concentrado del periodo.'); this.loading.set(false); },
     });
     this.api.statements(p).pipe(takeUntilDestroyed(this.destroyRef)).subscribe((s) => this.statements.set(s));
-    this.api.reconciliation(p).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (rc) => this.reconciliation.set(rc), error: () => this.reconciliation.set(null) });
+    this.api.reconciliation(p).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (rc) => this.reconciliation.set(rc), error: () => { this.reconciliation.set(null); this.reconError.set('No se pudo cargar la conciliación del periodo.'); } });
     this.api.balances(p).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (b) => this.balances.set(b), error: () => this.balances.set(null) });
-    this.api.diagnostico(p).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (d) => this.diagnostico.set(d), error: () => this.diagnostico.set(null) });
+    this.api.diagnostico(p).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (d) => this.diagnostico.set(d), error: () => { this.diagnostico.set(null); this.diagError.set('No se pudo cargar el diagnóstico del periodo.'); } });
     this.reloadMovements();
   }
 
   reloadMovements(): void {
     const p = this.period();
     if (!p) { this.loading.set(false); return; }
+    this.movError.set(null);
     this.api.movements({
       period: p, account_id: this.fAccount() || undefined, group_key: this.fGroup() || undefined,
       uncategorized: this.fUncat() || undefined, search: this.fSearch() || undefined, limit: 500,
     }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (r) => { this.movements.set(r.rows); this.movTotal.set(r.total); this.loading.set(false); },
-      error: () => this.fail('No se pudieron cargar los movimientos.'),
+      error: () => { this.movError.set('No se pudieron cargar los movimientos.'); this.loading.set(false); },
     });
   }
 
@@ -809,6 +943,19 @@ export class FinanzasBancosComponent implements OnInit {
         this.fail('No se pudo reclasificar.');
       },
     });
+  }
+
+  /** KPIs del dinero para la vista Cierre (ingresos/egresos/neto/movs + traspasos). */
+  cierreKpis(d: Diagnostico): MetricStripItem[] {
+    const items: MetricStripItem[] = [
+      { label: 'Ingresos', value: d.ingresos, format: 'currency', tone: 'ok' },
+      { label: 'Egresos', value: d.egresos, format: 'currency' },
+      { label: 'Neto', value: d.neto, format: 'currency', tone: d.neto >= 0 ? 'ok' : 'bad' },
+      { label: 'Movimientos', value: d.movimientos, format: 'number' },
+    ];
+    const tr = this.balances()?.traspasos;
+    if (tr) items.push({ label: 'Traspasos', value: tr.entra, format: 'currency', tone: this.cuadra(tr.delta) ? 'ok' : 'warn' });
+    return items;
   }
 
   kpiItems(c: Concentrado): MetricStripItem[] {
@@ -875,6 +1022,37 @@ export class FinanzasBancosComponent implements OnInit {
   label(group: string): string { return GROUP_LABELS[group] || group; }
   kindLabel(kind: string): string { return kind === 'bank' ? 'Banco' : kind === 'cash' ? 'Caja' : 'Factoraje'; }
 
+  /** Checklist accionable: salta al lugar exacto para resolver cada descuadre del diagnóstico. */
+  itemAction(it: { tipo?: string }): void {
+    switch (it?.tipo) {
+      case 'sin_clasificar': this.view.set('movimientos'); this.fGroup.set(''); this.fUncat.set(true); this.reloadMovements(); break;
+      case 'traspaso_descuadre': this.view.set('movimientos'); this.fUncat.set(false); this.fGroup.set('traspaso'); this.reloadMovements(); break;
+      case 'saldo_no_cuadra': this.view.set('cuentas'); break;
+      case 'kepler_pnl': this.view.set('conciliacion'); break;
+      case 'cuenta_sin_cargar': this.fileInput?.nativeElement.click(); break;
+      default: this.view.set('movimientos'); this.reloadMovements();
+    }
+  }
+  /** Desde Cuentas: salta a Movimientos filtrado a esa cuenta. */
+  verCuentaMovs(a: { bank: string; account_label: string }): void {
+    const acct = this.accounts().find((x) => x.bank === a.bank && x.account_label === a.account_label);
+    this.fAccount.set(acct?.id || '');
+    this.fGroup.set('');
+    this.fUncat.set(false);
+    this.view.set('movimientos');
+    this.reloadMovements();
+  }
+  itemActionLabel(it: { tipo?: string }): string {
+    switch (it?.tipo) {
+      case 'sin_clasificar': return 'Clasificar';
+      case 'traspaso_descuadre': return 'Ver traspasos';
+      case 'saldo_no_cuadra': return 'Ver cuenta';
+      case 'kepler_pnl': return 'Ver conciliación';
+      case 'cuenta_sin_cargar': return 'Subir estado';
+      default: return 'Revisar';
+    }
+  }
+
   // ── CB.6 Admin ──
   openAdmin(): void {
     this.view.set('admin');
@@ -891,14 +1069,16 @@ export class FinanzasBancosComponent implements OnInit {
     });
   }
   addRule(): void {
+    if (this.addingRule()) return;
     if (!this.nrCategory) { this.fail('Elige una categoría para la regla.'); return; }
     if (!this.nrType && !this.nrCode && !this.nrConcept) { this.fail('Al menos un matcher (tipo/código/concepto).'); return; }
+    this.addingRule.set(true);
     this.api.createRule({
       priority: this.nrPriority ?? undefined, match_type: this.nrType || null, match_code: this.nrCode || null,
       match_concept: this.nrConcept || null, category_code: this.nrCategory,
     } as any).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: () => { this.nrPriority = null; this.nrType = this.nrCode = this.nrConcept = this.nrCategory = ''; this.reloadRules(); this.ok('Regla agregada'); },
-      error: () => this.fail('No se pudo agregar la regla.'),
+      next: () => { this.addingRule.set(false); this.nrPriority = null; this.nrType = this.nrCode = this.nrConcept = this.nrCategory = ''; this.reloadRules(); this.ok('Regla agregada'); },
+      error: () => { this.addingRule.set(false); this.fail('No se pudo agregar la regla.'); },
     });
   }
   deleteRule(r: ClassifyRule): void {
@@ -912,11 +1092,13 @@ export class FinanzasBancosComponent implements OnInit {
     this.api.updateCategory(c.id, patch).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: () => this.ok('Categoría actualizada'), error: () => this.fail('No se pudo actualizar la categoría.') });
   }
   addCategory(): void {
+    if (this.addingCat()) return;
     if (!this.ncCode || !this.ncName) { this.fail('Código y nombre requeridos.'); return; }
+    this.addingCat.set(true);
     this.api.createCategory({ code: this.ncCode, name: this.ncName, group_key: this.ncGroup, kepler_account: this.ncKepler || null, flow: this.ncFlow } as any)
       .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-        next: () => { this.ncCode = this.ncName = this.ncKepler = ''; this.api.categories().pipe(takeUntilDestroyed(this.destroyRef)).subscribe((cs) => this.categories.set(cs)); this.ok('Categoría agregada'); },
-        error: () => this.fail('No se pudo agregar la categoría.'),
+        next: () => { this.addingCat.set(false); this.ncCode = this.ncName = this.ncKepler = ''; this.api.categories().pipe(takeUntilDestroyed(this.destroyRef)).subscribe((cs) => this.categories.set(cs)); this.ok('Categoría agregada'); },
+        error: () => { this.addingCat.set(false); this.fail('No se pudo agregar la categoría.'); },
       });
   }
 
@@ -925,11 +1107,13 @@ export class FinanzasBancosComponent implements OnInit {
     this.api.updateAccount(a.id, patch).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: () => this.ok('Cuenta actualizada'), error: () => this.fail('No se pudo actualizar la cuenta.') });
   }
   addAccount(): void {
+    if (this.addingAcct()) return;
     if (!this.naBank || !this.naLabel) { this.fail('Banco y cuenta requeridos.'); return; }
+    this.addingAcct.set(true);
     this.api.createAccount({ bank: this.naBank, account_label: this.naLabel, alias: this.naAlias || null, kind: this.naKind, kepler_link: this.naKepler || null } as any)
       .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-        next: () => { this.naBank = this.naLabel = this.naAlias = this.naKepler = ''; this.api.accounts().pipe(takeUntilDestroyed(this.destroyRef)).subscribe((as) => this.accounts.set(as)); this.ok('Cuenta agregada'); },
-        error: () => this.fail('No se pudo agregar la cuenta.'),
+        next: () => { this.addingAcct.set(false); this.naBank = this.naLabel = this.naAlias = this.naKepler = ''; this.api.accounts().pipe(takeUntilDestroyed(this.destroyRef)).subscribe((as) => this.accounts.set(as)); this.ok('Cuenta agregada'); },
+        error: () => { this.addingAcct.set(false); this.fail('No se pudo agregar la cuenta.'); },
       });
   }
 

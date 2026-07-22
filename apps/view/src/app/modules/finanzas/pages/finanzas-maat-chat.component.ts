@@ -361,10 +361,11 @@ const SUGGESTIONS = [
 
     .tc-kpis { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
     .tc-kpi { flex: 1; min-width: 120px; display: flex; flex-direction: column; gap: .1rem; padding: var(--sp-3); border: 1px solid var(--border-color); border-radius: var(--r-md); background: var(--surface-ground, var(--card-bg)); }
-    .tc-kpi-val { font-size: 1.35rem; font-weight: var(--fw-bold, 800); color: var(--text-main); font-variant-numeric: tabular-nums; letter-spacing: -.01em; line-height: 1.15; }
+    .tc-kpi-val { font-size: 1.35rem; font-weight: var(--fw-bold, 800); color: var(--text-main); font-family: var(--font-mono, ui-monospace, monospace); font-variant-numeric: tabular-nums; letter-spacing: -.01em; line-height: 1.15; }
     .tc-kpi-lbl { font-size: var(--fs-micro); color: var(--text-muted); text-transform: uppercase; letter-spacing: .04em; }
 
     .tc-table th.tc-r, .tc-table td.tc-r { text-align: right; font-variant-numeric: tabular-nums; }
+    .tc-table td.tc-r { font-family: var(--font-mono, ui-monospace, monospace); }
     .tc-table td.tc-strong { font-weight: var(--fw-bold, 600); color: var(--text-main); }
     .tc-table tbody tr { transition: background-color .12s var(--ease-standard); }
     .tc-table tbody tr:hover { background: var(--surface-hover-bg); }
@@ -491,7 +492,7 @@ const SUGGESTIONS = [
     .tc-brief-card.warn > i { color: var(--bad-fg); }
     .tc-brief-card.up > i { color: var(--action); }
     .tc-brief-body { display: flex; flex-direction: column; min-width: 0; }
-    .tc-brief-val { font-weight: var(--fw-bold, 700); font-size: .95rem; color: var(--text-main); }
+    .tc-brief-val { font-weight: var(--fw-bold, 700); font-size: .95rem; color: var(--text-main); font-family: var(--font-mono, ui-monospace, monospace); font-variant-numeric: tabular-nums; }
     .tc-brief-lbl { font-size: var(--fs-micro); color: var(--text-muted); text-transform: uppercase; letter-spacing: .03em; }
 
     /* ── Follow-up chips (repreguntas tras la respuesta) ── */
@@ -716,7 +717,7 @@ export class FinanzasMaatChatComponent implements OnInit {
     if (!kpis && mesCol && rows.length >= 3) {
       const numCols = cols.filter((c) => c.type !== 'text' && c.key !== 'movs');
       if (numCols.length) {
-        const palette = ['#FB923C', '#60A5FA', '#34D399', '#F472B6'];
+        const palette = this.chartPalette();
         chart = {
           labelKey: mesCol.key,
           data: {
@@ -912,6 +913,16 @@ export class FinanzasMaatChatComponent implements OnInit {
     const safe = this.sanitizer.bypassSecurityTrustHtml(this.mdToHtml(src || ''));
     this.mdCache.set(src, safe);
     return safe;
+  }
+
+  /** Paleta de series tokenizada (--chart-*, resuelta por tema; sin morado/azul crudo). */
+  private chartPalette(): string[] {
+    const g = (n: string, f: string): string => {
+      if (typeof getComputedStyle === 'undefined') return f;
+      const v = getComputedStyle(document.body).getPropertyValue(n).trim();
+      return v || f;
+    };
+    return [g('--chart-1', '#F05A28'), g('--chart-2', '#185FA5'), g('--chart-3', '#16A34A'), g('--chart-4', '#D97706')];
   }
 
   private esc(s: string): string {

@@ -117,6 +117,7 @@ import { ComprobacionesService } from '../comprobaciones.service';
     .so-field.so-grow { flex: 1 1 16rem; }
     app-metric-strip { display:block; margin-bottom: 1rem; }
     .so-table .ta-r { text-align: right; font-variant-numeric: tabular-nums; }
+    .so-table td.ta-r { font-family: var(--font-mono, ui-monospace, monospace); }
     .so-table .strong { font-weight: 600; color: var(--text-main); }
     .so-table .muted { color: var(--text-muted); }
     .mono { font-family: var(--font-mono); font-size: .85em; }
@@ -126,9 +127,9 @@ import { ComprobacionesService } from '../comprobaciones.service';
     .so-empty { text-align: center; color: var(--text-muted); padding: 2rem; }
     .so-proof { font-size: .72rem; display: inline-flex; align-items: center; gap: .3rem; margin-top: .15rem; }
     .so-proof i { font-size: .72rem; }
-    .so-proof.ps-recibida { color: var(--warn-fg, #b45309); }
-    .so-proof.ps-validada { color: var(--ok-fg, #15803d); }
-    .so-proof.ps-rechazada { color: var(--danger-fg, #b91c1c); }
+    .so-proof.ps-recibida { color: var(--warn-fg); }
+    .so-proof.ps-validada { color: var(--ok-fg); }
+    .so-proof.ps-rechazada { color: var(--bad-fg); }
   `],
 })
 export class FinanzasSolicitudesComponent {

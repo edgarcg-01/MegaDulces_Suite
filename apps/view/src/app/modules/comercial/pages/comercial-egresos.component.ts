@@ -33,7 +33,7 @@ import { MetricStripComponent, MetricStripItem } from '../../../shared/component
 import { SegmentedComponent } from '../../../shared/components/segmented/segmented.component';
 import { FINANZAS_TABS } from '../../finanzas/finanzas-tabs';
 import { ThemeService } from '../../../core/services/theme.service';
-import { egresChartOptions } from './egresos-chart-opts';
+import { egresChartOptions, egresChartSeries } from './egresos-chart-opts';
 
 /**
  * GX v2 — Egresos contables (pólizas gastos + compras) con desglose jerárquico
@@ -285,6 +285,7 @@ import { egresChartOptions } from './egresos-chart-opts';
     .ex-dim { display: flex; align-items: center; gap: .5rem; }
     .ex-dim label { font-size: .72rem; font-weight: 600; color: var(--text-muted, #78716c); text-transform: uppercase; }
     .ex-table { font-variant-numeric: tabular-nums; }
+    .ex-table td.ta-r { font-family: var(--font-mono, ui-monospace, monospace); }
     .ta-r { text-align: right; }
     .mono { font-family: var(--font-mono, ui-monospace, monospace); font-size: .85em; }
     .ex-code { color: var(--text-muted, #78716c); margin-left: .5rem; }
@@ -410,8 +411,8 @@ export class ComercialEgresosComponent {
     return {
       labels: s.map((p) => p.mes),
       datasets: [
-        { label: 'Compras / Costo', data: s.map((p) => p.compras), backgroundColor: '#FB923C' },
-        { label: 'Gastos', data: s.map((p) => p.gastos), backgroundColor: '#60A5FA' },
+        { label: 'Compras / Costo', data: s.map((p) => p.compras), backgroundColor: egresChartSeries()[0] },
+        { label: 'Gastos', data: s.map((p) => p.gastos), backgroundColor: egresChartSeries()[1] },
       ],
     };
   });
