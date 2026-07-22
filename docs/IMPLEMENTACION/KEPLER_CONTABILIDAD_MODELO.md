@@ -102,16 +102,22 @@ No es una cuenta de control presupuestal: fue **el pivote de todo el P&L 2025**.
   - ago-dic 2025 ($339M) son pólizas resumen contra 999 (nov/dic = forecast).
   - **Todo el detalle 2026 cae en `401-002`** sin importar canal → las subcuentas NO sirven para mezcla de canal; el canal real vive en `c6` (P.V., TLMKT, R.D., R.V.).
   - **⚠️ El NOMBRE de `401-002` es basura y engaña:** `kdco` de CEDIS la llama `'VENTA FLETES A TERCEROS'` y otra sucursal `'VENTAS VECINAL'` — **ninguno es cierto**. NO es fletes ni vecinal: es la cuenta de venta CONSOLIDADA de todo. Clasificar SIEMPRE por `c6`, nunca por el nombre de subcuenta.
-  - **Composición real por `c6` (2026, `md_00`, ~$345M neto — verificado 2026-07-22):**
+  - **⚠️ DOS reglas críticas para contar la venta 401 (verificado 2026-07-22):**
+    1. **SOLO CEDIS (`md_00`, c14='00').** La venta se contabiliza CENTRALIZADA en CEDIS con TODAS las plazas en `c6` ('P.V. 8 Esquinas', 'TLMKT Canindo'…). Las DBs de sucursal **replican** esas mismas ventas → sumar las 6 **duplica ~$62M**. La cobranza `UA0501` ($314.8M) solo cuadra con CEDIS.
+    2. **SOLO el documento de venta `UD1301`** (`doc_tipo = c15‖c16‖lpad(c17,2)‖lpad(c18,2)`). Los otros doc_tipo en 401 (`UD1201` $10M notas, `0000`, `XA1001` bajas) NO son venta. Los postings "CONTADO" que no son UD1301 son resúmenes que duplican.
+  - **Venta real 2026 = `$357.5M`** (CEDIS, UD1301) — cuadra con `sales_daily` (~$343M) y con la cobranza. Composición por `c6`:
 
-    | Canal (prefijo `c6`) | 2026 | Qué es |
+    | Canal (`c6`) | 2026 | Qué es |
     | --- | ---: | --- |
-    | `P.V. <sucursal>` | ~$214M | Piso de Ventas (mostrador) por sucursal: Morelia Abastos, Canindo, PH, 8 Esquinas, La Piedad, Zamora, Yurécuaro |
-    | `TLMKT <sucursal>` | ~$94M | Telemarketing/mayoreo (Canindo, Morelia, PH) — **es la venta que los feeds de POS `sales_daily` NO capturan** |
-    | `RUTA NN` / `R.D.` | ~$33M | Rutas de reparto (501–504, 21–28, RD Morelia 321) |
-    | `R.V. <sucursal>` | ~$5M | Reparto Vecinal |
+    | Mostrador (`P.V.`/`PISO`/`SUCURSAL`) | $204.1M | Piso de ventas por plaza |
+    | Telemarketing (`TLMKT`) | $94.0M | Mayoreo/televenta — **lo que `sales_daily` NO captura** |
+    | Ruta (`R.D.`/`RUTA NN`) | $33.5M | Reparto (501–504, 21–28, Morelia 321) |
+    | Otro (nombre de cliente) | $19.3M | Crédito individual sin prefijo de canal |
+    | Reparto vecinal (`R.V.`) | $6.4M | |
+    | Contado | $0.2M | |
 
-  - **Reconciliación vs `analytics.sales_daily`:** la contabilidad ve ~$416M ingresos 2026-YTD vs ~$343M en `sales_daily`. El gap (~$73M) es sobre todo el **TLMKT (~$94M)** que el POS no captura (compensado en parte por diferencias de clasificación entre canales). Para reconciliar exacto: reclasificar `401` por `c6` + confirmar tratamiento de IVA en ambas fuentes.
+    → Feed: [`import-sales-by-channel.js`](../../database/importers/kepler/import-sales-by-channel.js) → `analytics.sales_by_channel_monthly`. 2025 no aplica (fue presupuesto, sin UD1301).
+  - **⚠️ El `ledger_monthly` (balanza) SÍ suma las 6 sucursales → su fam 4 2026 (~$416M) DOBLE-CUENTA las réplicas de sucursal.** El ingreso real es **~$357.5M**, no $416M. Afecta cualquier P&L/utilidad derivado de la balanza — pendiente corregir el feed de balanza para 401 (y revisar si 5xx/6xx tienen el mismo problema).
   - Pólizas de venta **sin línea de IVA** (`C 115 = A 401` exacto).
 - **`403` devoluciones/NC reales** — solo $667k/12m. No existe en kdco. **Los "$55M de cargos a 401" NO son devoluciones** (son la reclass + fletes neteados).
 

@@ -22,14 +22,16 @@ const BATCH = 1000;
 function arg(name, def) { const i = process.argv.indexOf(`--${name}`); return i !== -1 && process.argv[i + 1] && !process.argv[i + 1].startsWith('--') ? process.argv[i + 1] : def; }
 const MONTHS = Math.max(1, Math.min(36, Number(arg('months', 12))));
 
+// ⚠️ SOLO CEDIS (md_00): la venta se contabiliza CENTRALIZADA en CEDIS (c14='00'), con TODAS
+// las plazas en el concepto c6 ('P.V. 8 Esquinas', 'TLMKT Canindo'…). Las DBs de sucursal
+// REPLICAN esas mismas ventas → leer las 6 duplicaba ~$62M. Validado vs cobranza UA0501
+// ($314.8M) y sales_daily (~$343M): solo CEDIS cuadra (~$357M). Ver KEPLER_CONTABILIDAD_MODELO.md.
 const MAP = process.env.EXPENSES_BRANCH_MAP ? JSON.parse(process.env.EXPENSES_BRANCH_MAP) : [
   { code: '00', url: 'postgresql://platform_ro:kepler123@192.168.9.95:5432/md_00' },
-  { code: '01', url: 'postgresql://platform_ro:kepler123@192.168.10.10:1977/md_01' },
-  { code: '02', url: 'postgresql://platform_ro:kepler123@192.168.42.42:5432/md_02' },
-  { code: '03', url: 'postgresql://platform_ro:kepler123@192.168.40.40:5432/md_03' },
-  { code: '04', url: 'postgresql://platform_ro:kepler123@192.168.44.44:5432/md_04' },
-  { code: '05', url: 'postgresql://platform_ro:kepler123@192.168.54.54:5432/md_05' },
 ];
+// Documento de venta real (C 115 / A 401). Otros doc_tipo en 401 (UD1201, 0000, XA1001) son
+// notas/reclasificaciones/bajas → se excluyen. doc_tipo = c15‖c16‖lpad(c17,2)‖lpad(c18,2).
+const SALE_DOC = process.env.SALE_DOC || 'UD1301';
 
 function monthWindow(n) {
   const now = new Date();
@@ -79,7 +81,8 @@ function classify(c6) {
         const rows = (await src.query(
           `SELECT c6, c4, c5::numeric v FROM md.${t.tbl}
             WHERE c3 LIKE '401%' AND COALESCE(c5,0) <> 0
-              AND (c14 IS NULL OR btrim(c14)='' OR btrim(c14)=$1)`, [b.code])).rows;
+              AND (c15||c16||lpad(c17::text,2,'0')||lpad(c18::text,2,'0')) = $2
+              AND (c14 IS NULL OR btrim(c14)='' OR btrim(c14)=$1)`, [b.code, SALE_DOC])).rows;
         for (const r of rows) {
           const cl = classify(r.c6);
           if (!cl) continue;
@@ -110,7 +113,9 @@ function classify(c6) {
   try {
     await db.query('BEGIN');
     await db.query(`SET LOCAL app.tenant_id = '${M}'`);
-    await db.query(`DELETE FROM analytics.sales_by_channel_monthly WHERE tenant_id=$1 AND sucursal = ANY($2) AND anio_mes = ANY($3)`, [M, okCodes, yms]);
+    // Borra TODO el rango de meses (cualquier sucursal) → limpia réplicas viejas de sucursal;
+    // CEDIS es la única fuente autoritativa (centraliza la venta).
+    await db.query(`DELETE FROM analytics.sales_by_channel_monthly WHERE tenant_id=$1 AND anio_mes = ANY($2)`, [M, yms]);
     for (let i = 0; i < rows.length; i += BATCH) {
       const chunk = rows.slice(i, i + BATCH);
       const vals = [], params = [];
