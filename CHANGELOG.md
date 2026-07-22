@@ -10,6 +10,12 @@
 
 ## [Unreleased]
 
+### Added — CB.9.2: Conciliación bancaria — CAJA GENERAL entra al cuadre (+1,695 movs) (2026-07-22)
+- Revisión a fondo del workbook (22 hojas): las 19 de banco + FACTORAJE ya entraban; **CAJA GENERAL** (caja chica de toda la operación, **1,695 movimientos, EGRESO $10.9M / INGRESO $9.95M**) quedaba fuera por tener **otro layout**: `CTA` (código) · `FOLIO` · `DESCRIPCION` · `EGRESO`/`INGRESO` (no RETIRO/DEPOSITO) · `ARQUEO`/`DIF` (no SALDO).
+- Fix: **alias de columnas** en el parser (web + CLI) — mapea `C||CTA`, `PROVEEDOR||DESCRIPCION`, `RETIRO||EGRESO`, `DEPOSITO||INGRESO`, `#||FOLIO`. Sin rama aparte; misma clasificación (M+CTA+DESCRIPCION). CAJA no trae saldo bancario (ARQUEO es conteo físico) → `running_balance` null → el cuadre la marca "sin saldo" (no verificable por saldo), honesto.
+- Aplicado a Railway vía CLI (idempotente): enero **4,865 → 6,560 movs**, cuentas sin cargar **1 → 0**. **sin_clasificar sube a ~14.7%** (CAJA trae patrones nuevos: Viáticos, Capital marca, transporte…) → se resuelven agregando reglas CAJA en Admin.
+- Hallazgos del review (no accionados, bajo ROI): columnas `#` (folio, 7% lleno) y `F VTA` (fecha factura, 35% con basura) siguen sin capturarse; SALDO INICIAL está en CONCENTRADO por cuenta (fuente más limpia que derivar); códigos M de crédito (LEM/CI/P/PLEM) que el motor no mapea; ~12 filas con importe sin fecha se pierden.
+
 ### Changed — CB.9: Conciliación bancaria — rediseño a "la tabla que cuadra" + pestaña ¿Cuadra? (2026-07-22)
 - **Interfaz simple/entendible** (pedido de Edgar): la vista default de `/finanzas/bancos` pasa a **Movimientos** (una tabla de todos los ingresos/egresos) con un **banner de cuadre** arriba — Ingresos · Egresos · Neto · Movimientos + veredicto ✓/✗ y link «Ver por qué».
 - **Nueva pestaña ¿Cuadra?** (`GET /finance/bank/diagnostico`): agregador que traduce lo técnico a una **lista accionable** ordenada por impacto — cada ítem dice **qué es + monto + qué falta hacer** (movimientos sin clasificar, cuentas cuyo saldo no cierra, cuentas sin cargar tipo CAJA GENERAL, traspasos TI=TE que no netean, diferencias vs Kepler). Reúsa `balances`+`reconciliation`+conteos (sin data nueva). Badge de conteo en la pestaña.

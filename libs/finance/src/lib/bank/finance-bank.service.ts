@@ -1002,9 +1002,16 @@ export class FinanceBankService {
           if (u.some((v) => v === 'FECHA')) { hRow = r; u.forEach((v, i) => { if (v) col[v] = i; }); break; }
         }
         const acct = acctMap.get(normKey(ws.name));
-        if (!hRow || !col['FECHA'] || (!col['RETIRO'] && !col['DEPOSITO'])) { perAccount.push({ sheet: ws.name, note: 'layout no estándar — omitido' }); continue; }
+        // Alias de columnas: hojas de banco (C/PROVEEDOR/RETIRO/DEPOSITO/SALDO) y
+        // CAJA GENERAL (CTA/DESCRIPCION/EGRESO/INGRESO, sin SALDO — trae ARQUEO/DIF).
+        const ci = {
+          fecha: col['FECHA'], m: col['M'], s: col['S'],
+          c: col['C'] || col['CTA'], prov: col['PROVEEDOR'] || col['DESCRIPCION'],
+          ret: col['RETIRO'] || col['EGRESO'], dep: col['DEPOSITO'] || col['INGRESO'],
+          saldo: col['SALDO'], folio: col['#'] || col['FOLIO'],
+        };
+        if (!hRow || !ci.fecha || (!ci.ret && !ci.dep)) { perAccount.push({ sheet: ws.name, note: 'layout no estándar — omitido' }); continue; }
         if (!acct) { perAccount.push({ sheet: ws.name, note: 'cuenta no registrada — omitido' }); continue; }
-        const ci = { fecha: col['FECHA'], m: col['M'], s: col['S'], c: col['C'], prov: col['PROVEEDOR'], ret: col['RETIRO'], dep: col['DEPOSITO'], saldo: col['SALDO'] };
 
         const rows: any[] = []; const seen = new Map<string, number>();
         let tin = 0, tout = 0, uncat = 0, lastBal: number | null = null, openingBal: number | null = null;

@@ -117,9 +117,16 @@ async function bulkUpsertMovements(db, rows) {
     let hRow = 0, col = {};
     for (let r = 1; r <= 8; r++) { const u = ws.getRow(r).values.map((v) => normKey(v)); if (u.some((v) => v === 'FECHA')) { hRow = r; u.forEach((v, i) => { if (v) col[v] = i; }); break; } }
     const acct = acctMap.get(normKey(ws.name));
-    if (!hRow || !col['FECHA'] || (!col['RETIRO'] && !col['DEPOSITO'])) { summary.push({ hoja: ws.name, nota: 'layout no estándar — skip' }); continue; }
+    // Alias de columnas: banco (C/PROVEEDOR/RETIRO/DEPOSITO/SALDO) y CAJA GENERAL
+    // (CTA/DESCRIPCION/EGRESO/INGRESO, sin SALDO).
+    const ci = {
+      fecha: col['FECHA'], m: col['M'], s: col['S'],
+      c: col['C'] || col['CTA'], prov: col['PROVEEDOR'] || col['DESCRIPCION'],
+      ret: col['RETIRO'] || col['EGRESO'], dep: col['DEPOSITO'] || col['INGRESO'],
+      saldo: col['SALDO'], folio: col['#'] || col['FOLIO'],
+    };
+    if (!hRow || !ci.fecha || (!ci.ret && !ci.dep)) { summary.push({ hoja: ws.name, nota: 'layout no estándar — skip' }); continue; }
     if (!acct) { summary.push({ hoja: ws.name, nota: 'cuenta no seedeada — skip' }); continue; }
-    const ci = { fecha: col['FECHA'], m: col['M'], s: col['S'], c: col['C'], prov: col['PROVEEDOR'], ret: col['RETIRO'], dep: col['DEPOSITO'], saldo: col['SALDO'] };
 
     const movRows = [];
     const seen = new Map();
