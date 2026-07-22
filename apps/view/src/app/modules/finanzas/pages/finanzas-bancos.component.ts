@@ -104,6 +104,18 @@ const GROUP_ORDER = ['ingreso', 'compra', 'gasto', 'factoraje', 'financiero', 't
                   @if (it.importe > 0) { <span class="fb-diag-amt mono">{{ it.importe | currency:'MXN':'symbol-narrow':'1.0-0' }}</span> }
                 </div>
                 <p class="fb-diag-detalle">{{ it.detalle }}</p>
+                @if (it.evidencia?.length) {
+                  <ul class="fb-diag-ev">
+                    @for (e of it.evidencia; track e.label) {
+                      <li>
+                        <span class="fb-diag-ev-label">{{ e.label }}</span>
+                        @if (e.count) { <span class="fb-diag-ev-meta">{{ e.count }} mov</span> }
+                        @if (e.folio) { <span class="fb-diag-ev-folio">{{ e.folio }}</span> }
+                        @if (e.monto != null) { <span class="fb-diag-ev-monto mono">{{ e.monto | currency:'MXN':'symbol-narrow':'1.0-0' }}</span> }
+                      </li>
+                    }
+                  </ul>
+                }
                 <p class="fb-diag-accion"><i class="pi pi-arrow-right"></i> {{ it.accion }}</p>
               </div>
             }
@@ -622,6 +634,13 @@ const GROUP_ORDER = ['ingreso', 'compra', 'gasto', 'factoraje', 'financiero', 't
     .fb-diag-detalle { font-size: var(--fs-sm); color: var(--text-main); margin: var(--sp-2) 0 var(--sp-1); }
     .fb-diag-accion { font-size: var(--fs-sm); color: var(--text-muted); margin: 0; display: flex; align-items: baseline; gap: var(--sp-1); }
     .fb-diag-accion i { color: var(--action); font-size: 0.75rem; }
+    .fb-diag-ev { list-style: none; margin: 0 0 var(--sp-2); padding: var(--sp-2) var(--sp-3); display: flex; flex-direction: column; gap: 2px;
+      background: var(--surface-ground); border: 1px solid var(--border-color); border-radius: var(--r-sm); }
+    .fb-diag-ev li { display: flex; align-items: baseline; gap: var(--sp-2); font-size: var(--fs-xs); }
+    .fb-diag-ev-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono); color: var(--text-main); }
+    .fb-diag-ev-meta { color: var(--text-muted); }
+    .fb-diag-ev-folio { color: var(--text-muted); font-family: var(--font-mono); }
+    .fb-diag-ev-monto { font-weight: 600; color: var(--text-main); min-width: 6rem; text-align: right; }
     .fb-match-res { display: flex; align-items: baseline; gap: var(--sp-2); flex-wrap: wrap; margin-top: var(--sp-2); font-size: var(--fs-sm); }
     .fb-match-rate { font-size: var(--fs-lg, 1.125rem); font-weight: 700; }
     .fb-match-rate.warn { color: var(--warn-fg); } .fb-match-rate.ok { color: var(--ok-fg); }

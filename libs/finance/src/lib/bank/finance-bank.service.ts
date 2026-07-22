@@ -541,13 +541,20 @@ export class FinanceBankService {
    * qué es, monto, y qué falta hacer). Reúsa balances + reconciliation + conteos;
    * no lee data nueva. Es la pestaña que traduce lo técnico a "esto te falta".
    */
+  /** Fecha (Date o 'YYYY-MM-DD') → 'DD/MM' con componentes locales (sin voltear a UTC). */
+  private dm(v: any): string {
+    if (v instanceof Date && !isNaN(v.getTime())) return `${String(v.getDate()).padStart(2, '0')}/${String(v.getMonth() + 1).padStart(2, '0')}`;
+    const m = String(v ?? '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+    return m ? `${m[3]}/${m[2]}` : String(v ?? '');
+  }
+
   async diagnostico(period?: string) {
     this.tenantCtx.requireTenantId();
     if (!period) throw new BadRequestException('period requerido (YYYY-MM)');
     const money = (v: number) => Number(v || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 });
 
     // Totales de la tabla (ingresos/egresos) + sin_clasificar + cuentas sin estado de cuenta.
-    const { totales, sinClas, cuentasSinEstado } = await this.tk.run(async (trx) => {
+    const { totales, sinClas, sinClasBuckets, cuentasSinEstado } = await this.tk.run(async (trx) => {
       const t = await trx('finance.bank_movements as bm')
         .join('finance.bank_statements as st', 'st.id', 'bm.statement_id')
         .where('st.period', period)
@@ -557,12 +564,21 @@ export class FinanceBankService {
         .join('finance.bank_statements as st', 'st.id', 'bm.statement_id')
         .where('st.period', period).whereNull('bm.category_id')
         .select(trx.raw('COUNT(*)::int AS n'), trx.raw('SUM(bm.amount_in + bm.amount_out)::numeric AS monto')).first();
+      // Los grupos que más pesan del sin_clasificar (código + concepto) → qué regla agregar.
+      const scb = await trx('finance.bank_movements as bm')
+        .join('finance.bank_statements as st', 'st.id', 'bm.statement_id')
+        .where('st.period', period).whereNull('bm.category_id')
+        .groupByRaw(`COALESCE(NULLIF(bm.raw_code,''),'—'), LEFT(UPPER(COALESCE(bm.concept,'')), 28)`)
+        .select(trx.raw(`COALESCE(NULLIF(bm.raw_code,''),'—') AS code`),
+          trx.raw(`LEFT(UPPER(COALESCE(bm.concept,'')), 28) AS concepto`),
+          trx.raw('COUNT(*)::int AS n'), trx.raw('SUM(bm.amount_in + bm.amount_out)::numeric AS monto'))
+        .orderByRaw('SUM(bm.amount_in + bm.amount_out) DESC').limit(6);
       // Cuentas activas sin estado de cuenta cargado este periodo (p.ej. CAJA GENERAL no importable).
       const missing = await trx('finance.bank_accounts as ba')
         .where('ba.active', true)
         .whereNotExists(function () { this.select(trx.raw('1')).from('finance.bank_statements as st').whereRaw('st.bank_account_id = ba.id AND st.period = ?', [period]); })
         .select('ba.bank', 'ba.account_label', 'ba.kind');
-      return { totales: t, sinClas: sc, cuentasSinEstado: missing };
+      return { totales: t, sinClas: sc, sinClasBuckets: scb, cuentasSinEstado: missing };
     });
 
     const bal = await this.balances(period);
@@ -572,19 +588,25 @@ export class FinanceBankService {
     const ingresos = n((totales as any)?.ingresos), egresos = n((totales as any)?.egresos);
     const items: any[] = [];
 
-    // 1. Movimientos sin clasificar.
+    // 1. Movimientos sin clasificar (+ evidencia: los grupos que más pesan = qué regla agregar).
     if (n((sinClas as any)?.n) > 0) {
+      const evidencia = (sinClasBuckets as any[]).map((b) => ({
+        label: `Cód ${b.code} · "${String(b.concepto || '').trim() || '(sin concepto)'}…"`,
+        count: Number(b.n), monto: n(b.monto),
+      }));
       items.push({ tipo: 'sin_clasificar', severidad: 'warn', importe: n((sinClas as any)?.monto),
         titulo: `${(sinClas as any).n} movimientos sin clasificar`,
-        detalle: `Hay ${money(n((sinClas as any)?.monto))} sin categoría asignada. No entran a ningún grupo del cuadre.`,
-        accion: 'Clasifícalos en la pestaña Movimientos (filtro «Solo sin clasificar»); si es un patrón nuevo, agrégalo como regla en Admin.' });
+        detalle: `Hay ${money(n((sinClas as any)?.monto))} sin categoría asignada. No entran a ningún grupo del cuadre. Los grupos de abajo son los que más pesan — cada uno es una regla que puedes crear.`,
+        accion: 'En Admin → Reglas, crea una regla por cada patrón de abajo (código C + concepto → categoría) y dale «Reclasificar». Los que sean únicos, clasifícalos a mano en Movimientos.',
+        evidencia });
     }
-    // 2. Cuentas cuyo saldo no cuadra.
+    // 2. Cuentas cuyo saldo no cuadra (+ evidencia: el renglón donde el saldo salta).
     for (const a of bal.accounts.filter((x: any) => !x.cuadra && !x.sin_saldo)) {
       items.push({ tipo: 'saldo_no_cuadra', severidad: Math.abs(a.delta) >= 100000 ? 'bad' : 'warn', importe: Math.abs(a.delta),
         titulo: `${a.bank} ${a.account_label}: el saldo no cierra`,
         detalle: `Inicial ${money(a.opening)} + ingresos ${money(a.total_in)} − egresos ${money(a.total_out)} = ${money(a.computed_closing)}, pero el saldo final es ${money(a.closing)} (Δ ${money(a.delta)}).`,
-        accion: 'Falta capturar un movimiento en esta cuenta, o el saldo está mal tecleado en el Excel. Revisa el estado de cuenta.' });
+        accion: 'Falta capturar un movimiento en esta cuenta, o el saldo está mal tecleado. Revisa el/los renglón(es) de abajo: ahí el saldo del estado de cuenta salta más de lo que explica el movimiento.',
+        _statementId: a.statement_id, _opening: a.opening });
     }
     // 3. Cuentas sin estado de cuenta cargado (CAJA GENERAL, etc.).
     for (const c of cuentasSinEstado as any[]) {
@@ -600,15 +622,65 @@ export class FinanceBankService {
         detalle: `Entra ${money(bal.traspasos.entra)} vs sale ${money(bal.traspasos.sale)} en traspasos entre cuentas propias (Δ ${money(bal.traspasos.delta)}). Deberían ser iguales.`,
         accion: 'Falta el otro lado de un traspaso (la cuenta destino o la de origen). Revisa los movimientos tipo TI/TE.' });
     }
-    // 5. Diferencias vs Kepler (P&L) — solo si hay balanza.
+    // 5. Diferencias vs Kepler (P&L) — solo si hay balanza. Dirección + causa concreta.
     if (recon?.accounts?.length) {
       for (const a of recon.accounts.filter((x: any) => Math.abs(n(x.delta)) >= 10000)) {
-        items.push({ tipo: 'kepler_pnl', severidad: Math.abs(a.delta) >= 100000 ? 'bad' : 'warn', importe: Math.abs(n(a.delta)),
-          titulo: `Difiere de Kepler: ${a.concept}`,
-          detalle: `El banco pagó ${money(a.bank)} en «${a.concept}» vs ${money(a.book)} del mayor ${a.kepler_account} en Kepler (Δ ${money(a.delta)}).`,
-          accion: 'Puede ser timing (pago en un mes, factura en otro) o una clasificación distinta. Revisa la conciliación por cuenta.' });
+        const delta = n(a.delta), abs = Math.abs(delta);
+        const keplerMas = delta < 0; // book (mayor) > banco (pagado)
+        const detalle = keplerMas
+          ? `Kepler registra ${money(a.book)} de gasto en el mayor ${a.kepler_account} («${a.concept}»), pero por banco solo salieron ${money(a.bank)}: hay ${money(abs)} MÁS reconocido en Kepler que pagado por banco.`
+          : `Por banco salieron ${money(a.bank)} en «${a.concept}», pero Kepler solo registra ${money(a.book)} en el mayor ${a.kepler_account}: el banco pagó ${money(abs)} MÁS de lo que Kepler reconoce.`;
+        const accion = keplerMas
+          ? `Gasto reconocido que aún no salió del banco. Casi siempre es una de tres: (1) facturas por pagar (aún no se paga el dinero), (2) se pagó desde CAJA GENERAL o factoraje —que aquí no entran—, o (3) el pago cae en otro mes. Contrasta con el saldo de proveedores por pagar.`
+          : `Salió más dinero del que Kepler reconoce en esta cuenta. Revisa si: (1) el pago quedó clasificado en OTRA cuenta contable del banco, (2) fue un anticipo a proveedor, o (3) falta capturar la póliza/factura en Kepler.`;
+        items.push({ tipo: 'kepler_pnl', severidad: abs >= 100000 ? 'bad' : 'warn', importe: abs,
+          titulo: keplerMas ? `Kepler registra más que el banco: ${a.concept}` : `El banco pagó más que Kepler: ${a.concept}`,
+          detalle, accion, _mayor: a.kepler_account });
       }
     }
+
+    // Evidencia con folios/renglones concretos (saldo + Kepler). Un solo tk.run.
+    const needsEvidence = items.some((it) => it._statementId || it._mayor);
+    if (needsEvidence) {
+      await this.tk.run(async (trx) => {
+        for (const it of items) {
+          // Saldo: recorrer el estado de cuenta y ubicar dónde el saldo salta más que el neto.
+          if (it._statementId) {
+            const movs = await trx('finance.bank_movements')
+              .where({ statement_id: it._statementId }).whereNotNull('running_balance')
+              .select('movement_date', 'concept', 'amount_in', 'amount_out', 'running_balance')
+              .orderBy([{ column: 'movement_date' }, { column: 'id' }]);
+            let cum = n(it._opening), prevRes = 0; const breaks: any[] = [];
+            for (const m of movs as any[]) {
+              cum = Math.round((cum + n(m.amount_in) - n(m.amount_out)) * 100) / 100;
+              const res = Math.round((n(m.running_balance) - cum) * 100) / 100;
+              const step = Math.round((res - prevRes) * 100) / 100;
+              if (Math.abs(step) >= 1) breaks.push({ label: `${this.dm(m.movement_date)} · ${(m.concept || '—').slice(0, 40)}`, monto: step });
+              prevRes = res;
+            }
+            breaks.sort((x, y) => Math.abs(y.monto) - Math.abs(x.monto));
+            it.evidencia = breaks.slice(0, 3);
+          }
+          // Kepler: los pagos del banco de ese mayor (con folio Kepler si están casados).
+          if (it._mayor) {
+            const rows = await trx('finance.bank_movements as bm')
+              .join('finance.bank_statements as st', 'st.id', 'bm.statement_id')
+              .join('finance.movement_categories as mc', 'mc.id', 'bm.category_id')
+              .leftJoin('finance.bank_recon_matches as rm', 'rm.bank_movement_id', 'bm.id')
+              .where('st.period', period).where('bm.amount_out', '>', 0)
+              .whereRaw(`(regexp_split_to_array(mc.kepler_account, '[-/]'))[1] = ?`, [it._mayor])
+              .select('bm.movement_date', 'bm.concept', 'bm.amount_out', 'rm.kepler_doc_tipo', 'rm.kepler_doc_folio')
+              .orderBy('bm.amount_out', 'desc').limit(6);
+            it.evidencia = (rows as any[]).map((r) => ({
+              label: `${this.dm(r.movement_date)} · ${(r.concept || '—').slice(0, 40)}`,
+              monto: n(r.amount_out),
+              folio: r.kepler_doc_folio ? `Kepler ${r.kepler_doc_tipo || ''} ${r.kepler_doc_folio}`.trim() : 'sin casar en Kepler',
+            }));
+          }
+        }
+      });
+    }
+    for (const it of items) { delete it._statementId; delete it._opening; delete it._mayor; }
 
     items.sort((x, y) => (y.importe || 0) - (x.importe || 0));
     const totalDescuadre = bal.totals.descuadre;

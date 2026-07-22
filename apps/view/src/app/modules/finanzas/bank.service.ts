@@ -86,9 +86,11 @@ export interface ReclassifyResult { scanned: number; changed: number; }
 export interface SyncFindingsResult { pushed: number; inserted: number; skipped: number; }
 
 /** CB.9 — diagnóstico "¿por qué no cuadra y qué falta?". */
+export interface DiagnosticoEvidencia { label: string; monto?: number; count?: number; folio?: string; }
 export interface DiagnosticoItem {
   tipo: string; severidad: 'warn' | 'bad'; importe: number;
   titulo: string; detalle: string; accion: string;
+  evidencia?: DiagnosticoEvidencia[];
 }
 export interface Diagnostico {
   period: string; ingresos: number; egresos: number; neto: number; movimientos: number;
