@@ -130,6 +130,8 @@ async function bootstrap() {
   // (hasta 10MB → ~13MB en base64). Parser de mayor límite SOLO para esa ruta,
   // montado antes del global para que gane (express salta el segundo si ya parseó).
   app.use('/api/finance/expenses/proofs', json({ limit: '16mb' }));
+  // Conciliación bancaria (CB.2.1): el workbook Excel llega como base64 (~2-5MB).
+  app.use('/api/finance/bank/import', json({ limit: '25mb' }));
   app.use(json({ limit: '2mb' }));
   app.use(urlencoded({ extended: true, limit: '2mb' }));
 

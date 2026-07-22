@@ -42,6 +42,15 @@ export interface Concentrado {
   groupTotals: Record<string, ConcentradoGroup>; grand: ConcentradoGroup;
 }
 
+export interface ReconCash {
+  bank_in: number; kepler_102_cargos: number; delta_in: number;
+  bank_out: number; kepler_102_abonos: number; delta_out: number;
+}
+export interface ReconAccount { kepler_account: string; concept: string; bank: number; book: number; delta: number; }
+export interface Reconciliation {
+  period: string; cash: ReconCash; accounts: ReconAccount[]; cobranza: number; sin_clasificar: number;
+}
+
 export interface MovementsQuery {
   period?: string; account_id?: string; category_id?: string; group_key?: string;
   uncategorized?: boolean; recon_status?: string; search?: string; limit?: number; offset?: number;
@@ -57,6 +66,7 @@ export class BankService {
   periods(): Observable<string[]> { return this.http.get<string[]>(`${this.base}/periods`); }
   statements(period: string): Observable<BankStatement[]> { return this.http.get<BankStatement[]>(`${this.base}/statements?period=${encodeURIComponent(period)}`); }
   concentrado(period: string): Observable<Concentrado> { return this.http.get<Concentrado>(`${this.base}/concentrado?period=${encodeURIComponent(period)}`); }
+  reconciliation(period: string): Observable<Reconciliation> { return this.http.get<Reconciliation>(`${this.base}/reconciliation?period=${encodeURIComponent(period)}`); }
 
   movements(q: MovementsQuery): Observable<MovementsPage> {
     const p = new URLSearchParams();
@@ -75,4 +85,14 @@ export class BankService {
   reclassify(id: string, categoryId: string | null): Observable<unknown> {
     return this.http.patch(`${this.base}/movements/${id}/category`, { category_id: categoryId });
   }
+
+  importWorkbook(fileBase64: string, period: string, sourceFile: string): Observable<ImportResult> {
+    return this.http.post<ImportResult>(`${this.base}/import`, { file_base64: fileBase64, period, source_file: sourceFile });
+  }
+}
+
+export interface ImportResult {
+  period: string;
+  accounts: { sheet: string; movs?: number; deposits?: number; withdrawals?: number; sin_clasificar?: number; note?: string }[];
+  total: number; deposits: number; withdrawals: number; sin_clasificar: number;
 }

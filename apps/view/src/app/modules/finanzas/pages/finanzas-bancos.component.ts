@@ -9,9 +9,14 @@ import { MessageService } from 'primeng/api';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { FINANZAS_TABS } from '../finanzas-tabs';
-import { BankService, BankAccount, MovementCategory, BankStatement, BankMovement, Concentrado } from '../bank.service';
+import { BankService, BankAccount, MovementCategory, BankStatement, BankMovement, Concentrado, Reconciliation } from '../bank.service';
 
-type View = 'concentrado' | 'movimientos' | 'cuentas';
+const MONTHS_ES: Record<string, string> = {
+  ENERO: '01', FEBRERO: '02', MARZO: '03', ABRIL: '04', MAYO: '05', JUNIO: '06',
+  JULIO: '07', AGOSTO: '08', SEPTIEMBRE: '09', OCTUBRE: '10', NOVIEMBRE: '11', DICIEMBRE: '12',
+};
+
+type View = 'concentrado' | 'movimientos' | 'conciliacion' | 'cuentas';
 
 /** Etiquetas + orden de los grupos del tablero CONCENTRADO. */
 const GROUP_LABELS: Record<string, string> = {
@@ -48,12 +53,16 @@ const GROUP_ORDER = ['ingreso', 'compra', 'gasto', 'factoraje', 'financiero', 't
               @for (p of periods(); track p) { <option [value]="p">{{ p }}</option> }
             </select>
           </label>
+          <input #fileInput type="file" accept=".xlsx" hidden (change)="onFile($event)">
+          <button pButton type="button" label="Subir estado de cuenta" icon="pi pi-upload"
+                  class="p-button-sm p-button-outlined" [loading]="uploading()" (click)="fileInput.click()"></button>
         </div>
       </header>
 
       <div class="fb-viewseg" role="tablist">
         <button role="tab" [attr.aria-selected]="view()==='concentrado'" [class.active]="view()==='concentrado'" (click)="view.set('concentrado')"><i class="pi pi-table"></i> Concentrado</button>
         <button role="tab" [attr.aria-selected]="view()==='movimientos'" [class.active]="view()==='movimientos'" (click)="view.set('movimientos')"><i class="pi pi-list"></i> Movimientos</button>
+        <button role="tab" [attr.aria-selected]="view()==='conciliacion'" [class.active]="view()==='conciliacion'" (click)="view.set('conciliacion')"><i class="pi pi-check-circle"></i> Conciliación</button>
         <button role="tab" [attr.aria-selected]="view()==='cuentas'" [class.active]="view()==='cuentas'" (click)="view.set('cuentas')"><i class="pi pi-wallet"></i> Cuentas</button>
       </div>
 
@@ -152,6 +161,52 @@ const GROUP_ORDER = ['ingreso', 'compra', 'gasto', 'factoraje', 'financiero', 't
         </div>
       }
 
+      <!-- ── CONCILIACIÓN banco ↔ Kepler ── -->
+      @if (view() === 'conciliacion') {
+        @if (reconciliation(); as rc) {
+          <div class="card-premium card-flat fb-recon-cash">
+            <h3 class="fb-card-title">Caja — banco vs Kepler 102 <span class="muted">(excluye traspasos internos)</span></h3>
+            <div class="fb-recon-grid">
+              <div class="fb-recon-cell">
+                <span class="fb-recon-l">Depósitos (entra)</span>
+                <span class="fb-recon-v mono">{{ rc.cash.bank_in | currency:'MXN':'symbol-narrow':'1.0-0' }}</span>
+                <span class="fb-recon-vs mono muted">vs 102 cargos {{ rc.cash.kepler_102_cargos | currency:'MXN':'symbol-narrow':'1.0-0' }}</span>
+                <span class="fb-recon-delta mono" [class.bad]="!cuadra(rc.cash.delta_in)" [class.ok]="cuadra(rc.cash.delta_in)">Δ {{ rc.cash.delta_in | currency:'MXN':'symbol-narrow':'1.0-0' }}</span>
+              </div>
+              <div class="fb-recon-cell">
+                <span class="fb-recon-l">Retiros (sale)</span>
+                <span class="fb-recon-v mono">{{ rc.cash.bank_out | currency:'MXN':'symbol-narrow':'1.0-0' }}</span>
+                <span class="fb-recon-vs mono muted">vs 102 abonos {{ rc.cash.kepler_102_abonos | currency:'MXN':'symbol-narrow':'1.0-0' }}</span>
+                <span class="fb-recon-delta mono" [class.bad]="!cuadra(rc.cash.delta_out)" [class.ok]="cuadra(rc.cash.delta_out)">Δ {{ rc.cash.delta_out | currency:'MXN':'symbol-narrow':'1.0-0' }}</span>
+              </div>
+            </div>
+            @if (rc.sin_clasificar > 0) { <p class="fb-recon-note muted"><i class="pi pi-exclamation-triangle"></i> {{ rc.sin_clasificar | currency:'MXN':'symbol-narrow':'1.0-0' }} en movimientos sin clasificar — resuélvelos en Movimientos para afinar el cuadre.</p> }
+          </div>
+          <div class="card-premium card-flat fb-tablewrap">
+            <h3 class="fb-card-title fb-pnl-title">P&L — gasto del banco vs cuenta contable Kepler</h3>
+            <p-table [value]="rc.accounts" styleClass="p-datatable-sm" [rowHover]="true">
+              <ng-template pTemplate="header">
+                <tr><th style="width:6rem">Cuenta</th><th>Concepto</th><th class="ta-r">Banco (pagado)</th><th class="ta-r">Kepler (contable)</th><th class="ta-r">Δ</th></tr>
+              </ng-template>
+              <ng-template pTemplate="body" let-a>
+                <tr>
+                  <td class="mono">{{ a.kepler_account }}</td>
+                  <td class="fb-concept" [title]="a.concept">{{ a.concept }}</td>
+                  <td class="ta-r mono">{{ a.bank | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+                  <td class="ta-r mono">{{ a.book | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+                  <td class="ta-r mono" [class.bad]="!cuadra(a.delta)" [class.ok]="cuadra(a.delta)">{{ a.delta | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+                </tr>
+              </ng-template>
+              <ng-template pTemplate="emptymessage">
+                <tr><td colspan="5"><div class="surf-empty"><i class="pi pi-inbox"></i><p>Sin balanza Kepler para {{ period() }} (falta correr el feed ledger-chain).</p></div></td></tr>
+              </ng-template>
+            </p-table>
+          </div>
+        } @else {
+          <div class="surf-empty"><i class="pi pi-inbox"></i><p>Sin datos de conciliación para {{ period() }}.</p></div>
+        }
+      }
+
       <!-- ── CUENTAS ── -->
       @if (view() === 'cuentas') {
         <div class="card-premium card-flat fb-tablewrap">
@@ -223,6 +278,18 @@ const GROUP_ORDER = ['ingreso', 'compra', 'gasto', 'factoraje', 'financiero', 't
     @media (prefers-reduced-motion: reduce) { .fb-skel-row { animation: none; } }
     .surf-empty { display: flex; flex-direction: column; align-items: center; gap: var(--sp-2); padding: var(--sp-8); color: var(--text-muted); }
     .surf-empty i { font-size: 1.5rem; }
+    .ok { color: var(--ok-fg); }
+    .bad { color: var(--bad-fg); }
+    .fb-card-title { font-size: var(--fs-sm); font-weight: 600; color: var(--text-main); margin: 0 0 var(--sp-3); }
+    .fb-recon-cash { margin-bottom: var(--sp-3); }
+    .fb-recon-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: var(--sp-3); }
+    .fb-recon-cell { display: flex; flex-direction: column; gap: 2px; padding: var(--sp-3); border: 1px solid var(--border-color); border-radius: var(--r-md); }
+    .fb-recon-l { font-size: var(--fs-xs); color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; }
+    .fb-recon-v { font-size: var(--fs-lg, 1.125rem); font-weight: 600; }
+    .fb-recon-vs { font-size: var(--fs-xs); }
+    .fb-recon-delta { font-size: var(--fs-sm); font-weight: 600; margin-top: 2px; }
+    .fb-recon-note { font-size: var(--fs-xs); margin: var(--sp-3) 0 0; }
+    .fb-pnl-title { padding: var(--sp-3) var(--sp-3) 0; }
   `],
 })
 export class FinanzasBancosComponent implements OnInit {
@@ -241,6 +308,7 @@ export class FinanzasBancosComponent implements OnInit {
   readonly categories = signal<MovementCategory[]>([]);
   readonly statements = signal<BankStatement[]>([]);
   readonly concentrado = signal<Concentrado | null>(null);
+  readonly reconciliation = signal<Reconciliation | null>(null);
   readonly movements = signal<BankMovement[]>([]);
   readonly movTotal = signal(0);
 
@@ -248,6 +316,7 @@ export class FinanzasBancosComponent implements OnInit {
   readonly fGroup = signal('');
   readonly fUncat = signal(false);
   readonly fSearch = signal('');
+  readonly uploading = signal(false);
   private searchTimer: any = null;
 
   /** Grupos con datos en el periodo (columnas del CONCENTRADO), en orden canónico. */
@@ -282,6 +351,7 @@ export class FinanzasBancosComponent implements OnInit {
       error: () => this.fail('No se pudo cargar el concentrado.'),
     });
     this.api.statements(p).pipe(takeUntilDestroyed(this.destroyRef)).subscribe((s) => this.statements.set(s));
+    this.api.reconciliation(p).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (rc) => this.reconciliation.set(rc), error: () => this.reconciliation.set(null) });
     this.reloadMovements();
   }
 
@@ -301,6 +371,35 @@ export class FinanzasBancosComponent implements OnInit {
     this.fSearch.set(v);
     if (this.searchTimer) clearTimeout(this.searchTimer);
     this.searchTimer = setTimeout(() => this.reloadMovements(), 300);
+  }
+
+  /** Sube un workbook Excel: deriva el periodo del nombre (o usa el seleccionado) e importa. */
+  onFile(ev: Event): void {
+    const input = ev.target as HTMLInputElement;
+    const file = input.files?.[0];
+    if (!file) return;
+    const upper = file.name.toUpperCase();
+    const m = upper.match(/(ENERO|FEBRERO|MARZO|ABRIL|MAYO|JUNIO|JULIO|AGOSTO|SEPTIEMBRE|OCTUBRE|NOVIEMBRE|DICIEMBRE)\s+(\d{4})/);
+    const period = m ? `${m[2]}-${MONTHS_ES[m[1]]}` : this.period();
+    if (!period) { this.fail('No pude derivar el periodo del nombre; selecciona un periodo primero.'); input.value = ''; return; }
+
+    this.uploading.set(true);
+    const reader = new FileReader();
+    reader.onload = () => {
+      const b64 = String(reader.result || '');
+      this.api.importWorkbook(b64, period, file.name).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+        next: (res) => {
+          this.uploading.set(false);
+          input.value = '';
+          this.toast.add({ severity: 'success', summary: `Importado ${res.period}`, detail: `${res.total} movimientos · ${res.sin_clasificar} sin clasificar`, life: 4000 });
+          if (!this.periods().includes(res.period)) this.periods.update((ps) => [res.period, ...ps].sort().reverse());
+          this.setPeriod(res.period);
+        },
+        error: () => { this.uploading.set(false); input.value = ''; this.fail('No se pudo importar el Excel.'); },
+      });
+    };
+    reader.onerror = () => { this.uploading.set(false); input.value = ''; this.fail('No se pudo leer el archivo.'); };
+    reader.readAsDataURL(file);
   }
 
   /** Reclasifica optimista: refleja el cambio ya, revierte si el server falla. */
@@ -340,6 +439,8 @@ export class FinanzasBancosComponent implements OnInit {
     if (!g) return 0;
     return group === 'ingreso' || group === 'devolucion' ? g.deposits : g.withdrawals;
   }
+  /** Tolerancia de cuadre: ±$1,000 (o ~0.5%) se considera cuadrado. */
+  cuadra(delta: number): boolean { return Math.abs(delta) < 1000; }
   label(group: string): string { return GROUP_LABELS[group] || group; }
   kindLabel(kind: string): string { return kind === 'bank' ? 'Banco' : kind === 'cash' ? 'Caja' : 'Factoraje'; }
 
