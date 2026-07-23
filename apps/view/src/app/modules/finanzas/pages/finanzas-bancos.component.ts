@@ -139,6 +139,12 @@ const GROUP_COLOR: Record<string, string> = {
 
           <app-metric-strip [items]="cierreKpis(d)" ariaLabel="Resumen del periodo" />
 
+          <label class="fb-toggle">
+            <p-checkbox [ngModel]="countTransfers()" [binary]="true" inputId="ctTr" (onChange)="countTransfers.set($event.checked)" />
+            <span>Contar traspasos internos en el neto</span>
+            <span class="muted">— por default se excluyen (son movimientos entre cuentas propias, no flujo del negocio); el neto muestra solo lo operativo.</span>
+          </label>
+
           @if (!d.tiene_balanza_kepler) {
             <p class="fb-diag-note muted"><i class="pi pi-info-circle"></i> La balanza de Kepler no está cargada para {{ d.period }}, así que el cruce contable no se está evaluando (solo el cuadre interno de saldos y la clasificación).</p>
           }
@@ -187,8 +193,14 @@ const GROUP_COLOR: Record<string, string> = {
         } @else {
           @if (concentrado(); as c) {
           <app-metric-strip [items]="kpiItems(c)" ariaLabel="Resumen del periodo" />
+          <div class="fb-filters">
+            <p-select [options]="accountOpts()" optionLabel="label" optionValue="value" [filter]="true"
+                      [ngModel]="fConcAccount()" (ngModelChange)="fConcAccount.set($event)"
+                      appendTo="body" styleClass="fb-sel sel-liquid" ariaLabel="Cuenta"></p-select>
+            <span class="fb-count muted">{{ concAccounts().length }} cuenta(s)</span>
+          </div>
           <div class="card-premium card-flat fb-tablewrap">
-            <p-table [value]="c.accounts" styleClass="p-datatable-sm" [rowHover]="true" [scrollable]="true" scrollHeight="60vh">
+            <p-table [value]="concAccounts()" styleClass="p-datatable-sm" [rowHover]="true" [scrollable]="true" scrollHeight="60vh">
               <ng-template pTemplate="header">
                 <tr>
                   <th class="fb-sticky-col">Cuenta</th>
@@ -225,25 +237,6 @@ const GROUP_COLOR: Record<string, string> = {
 
       <!-- ── MOVIMIENTOS: la tabla de todos los ingresos y egresos ── -->
       @if (view() === 'movimientos') {
-        @if (diagnostico(); as d) {
-          <div class="fb-cuadre" [class.ok]="d.cuadra" [class.bad]="!d.cuadra">
-            <div class="fb-cuadre-nums">
-              <div class="fb-cuadre-kpi"><span class="fb-cuadre-l">Ingresos</span><span class="fb-cuadre-v mono">{{ d.ingresos | currency:'MXN':'symbol-narrow':'1.0-0' }}</span></div>
-              <div class="fb-cuadre-kpi"><span class="fb-cuadre-l">Egresos</span><span class="fb-cuadre-v mono">{{ d.egresos | currency:'MXN':'symbol-narrow':'1.0-0' }}</span></div>
-              <div class="fb-cuadre-kpi"><span class="fb-cuadre-l">Neto</span><span class="fb-cuadre-v mono" [class.bad]="d.neto < 0">{{ d.neto | currency:'MXN':'symbol-narrow':'1.0-0' }}</span></div>
-              <div class="fb-cuadre-kpi"><span class="fb-cuadre-l">Movimientos</span><span class="fb-cuadre-v mono">{{ d.movimientos | number }}</span></div>
-            </div>
-            <div class="fb-cuadre-verdict">
-              @if (d.cuadra) {
-                <i class="pi pi-check-circle"></i> <span>Cuadra — {{ d.cuentas_ok }}/{{ d.cuentas_total }} cuentas cierran su saldo.</span>
-              } @else {
-                <i class="pi pi-exclamation-triangle"></i>
-                <span>No cuadra — {{ d.items.length }} cosa(s) por resolver{{ d.total_descuadre > 0 ? ' · ' + (d.total_descuadre | currency:'MXN':'symbol-narrow':'1.0-0') + ' en saldos' : '' }}.</span>
-                <button type="button" class="fb-cuadre-link" (click)="view.set('cierre')">Ver por qué →</button>
-              }
-            </div>
-          </div>
-        }
         <div class="fb-filters">
           <p-select [options]="accountOpts()" optionLabel="label" optionValue="value" [filter]="true"
                     [ngModel]="fAccount()" (ngModelChange)="fAccount.set($event); reloadMovements()"
@@ -251,6 +244,9 @@ const GROUP_COLOR: Record<string, string> = {
           <p-select [options]="groupOpts()" optionLabel="label" optionValue="value"
                     [ngModel]="fGroup()" (ngModelChange)="fGroup.set($event); reloadMovements()"
                     appendTo="body" styleClass="fb-sel sel-liquid" ariaLabel="Grupo"></p-select>
+          <p-select [options]="reconOpts" optionLabel="label" optionValue="value"
+                    [ngModel]="fRecon()" (ngModelChange)="fRecon.set($event); reloadMovements()"
+                    appendTo="body" styleClass="fb-sel sel-liquid" ariaLabel="Estado de conciliación"></p-select>
           <span class="fb-check">
             <p-checkbox [ngModel]="fUncat()" [binary]="true" inputId="fUncat" (onChange)="fUncat.set($event.checked); reloadMovements()"></p-checkbox>
             <label for="fUncat">Solo sin clasificar</label>
@@ -264,7 +260,10 @@ const GROUP_COLOR: Record<string, string> = {
             <input pInputText type="text" [ngModel]="fSearch()" (ngModelChange)="onSearch($event)"
                    placeholder="Buscar concepto / código…" aria-label="Buscar" />
           </p-iconfield>
-          <span class="fb-count muted">{{ movTotal() | number }} movimientos</span>
+          <span class="fb-count muted">
+            @if (movTotal() > movements().length) { Mostrando {{ movements().length | number }} de {{ movTotal() | number }} }
+            @else { {{ movTotal() | number }} movimientos }
+          </span>
         </div>
         @if (colorByGroup()) {
           <div class="fb-legend" aria-label="Colores por grupo — clic para filtrar">
@@ -281,12 +280,12 @@ const GROUP_COLOR: Record<string, string> = {
                    [paginator]="movements().length > 50" [rows]="50" [rowsPerPageOptions]="[50, 100, 200]">
             <ng-template pTemplate="header">
               <tr>
-                <th class="col-w6">Fecha</th>
+                <th class="col-w6" pSortableColumn="movement_date">Fecha <p-sortIcon field="movement_date" /></th>
                 <th class="col-w7">Cuenta</th>
                 <th>Concepto</th>
                 <th class="col-w11">Categoría</th>
-                <th class="ta-r col-w8">Depósito</th>
-                <th class="ta-r col-w8">Retiro</th>
+                <th class="ta-r col-w8" pSortableColumn="amount_in">Depósito <p-sortIcon field="amount_in" /></th>
+                <th class="ta-r col-w8" pSortableColumn="amount_out">Retiro <p-sortIcon field="amount_out" /></th>
                 <th class="col-w25" title="Conciliación"></th>
               </tr>
             </ng-template>
@@ -595,6 +594,8 @@ const GROUP_COLOR: Record<string, string> = {
     .fb-filters { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); margin-bottom: var(--sp-3); }
     .fb-search { min-width: 16rem; flex: 1; }
     .fb-check { display: inline-flex; align-items: center; gap: var(--sp-1); font-size: var(--fs-sm); color: var(--text-muted); }
+    .fb-toggle { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; font-size: var(--fs-sm); color: var(--text-main); margin: var(--sp-1) 0 var(--sp-3); }
+    .fb-toggle .muted { font-size: var(--fs-xs); }
     .fb-count { margin-left: auto; font-size: var(--fs-xs); }
     .fb-tablewrap { padding: 0; overflow: hidden; }
     .mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
@@ -770,9 +771,18 @@ export class FinanzasBancosComponent implements OnInit {
   readonly fGroup = signal('');
   readonly fUncat = signal(false);
   readonly colorByGroup = signal(true);
+  /** Cierre: contar (o no) los traspasos internos en Ingresos/Egresos/Neto. Default = NO. */
+  readonly countTransfers = signal(false);
   readonly fSearch = signal('');
+  readonly fRecon = signal('');
   readonly uploading = signal(false);
   private searchTimer: any = null;
+
+  readonly reconOpts = [
+    { label: 'Conciliación: todos', value: '' },
+    { label: 'Conciliados', value: 'matched' },
+    { label: 'Sin conciliar', value: 'unmatched' },
+  ];
 
   // ── Admin (read-only + setup de cuentas) ──
   readonly adminTab = signal<AdminTab>('catalogo');
@@ -830,6 +840,13 @@ export class FinanzasBancosComponent implements OnInit {
     return this.amtPct(mr);
   });
 
+  /** Concentrado: filtro por cuenta (client-side). */
+  readonly fConcAccount = signal('');
+  readonly concAccounts = computed(() => {
+    const c = this.concentrado(); if (!c) return [];
+    const f = this.fConcAccount();
+    return f ? c.accounts.filter((a) => a.account_id === f) : c.accounts;
+  });
   /** Grupos con datos en el periodo (columnas del CONCENTRADO), en orden canónico. */
   readonly groupCols = computed(() => {
     const c = this.concentrado();
@@ -879,7 +896,8 @@ export class FinanzasBancosComponent implements OnInit {
     this.movError.set(null);
     this.api.movements({
       period: p, account_id: this.fAccount() || undefined, group_key: this.fGroup() || undefined,
-      uncategorized: this.fUncat() || undefined, search: this.fSearch() || undefined, limit: 500,
+      uncategorized: this.fUncat() || undefined, recon_status: this.fRecon() || undefined,
+      search: this.fSearch() || undefined, limit: 500,
     }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (r) => { this.movements.set(r.rows); this.movTotal.set(r.total); this.loading.set(false); },
       error: () => { this.movError.set('No se pudieron cargar los movimientos.'); this.loading.set(false); },
@@ -921,12 +939,22 @@ export class FinanzasBancosComponent implements OnInit {
     reader.readAsDataURL(file);
   }
 
-  /** KPIs del dinero para la vista Cierre (ingresos/egresos/neto/movs + traspasos). */
+  /** Totales del cierre según el toggle "contar traspasos": por default EXCLUYE los
+   *  traspasos internos (flujo operativo real); si se activan, muestra el bruto. */
+  cierreTotals(d: Diagnostico): { ingresos: number; egresos: number; neto: number } {
+    const tr = this.concentrado()?.groupTotals?.['traspaso'];
+    if (this.countTransfers() || !tr) return { ingresos: d.ingresos, egresos: d.egresos, neto: d.neto };
+    const ingresos = d.ingresos - (tr.deposits || 0);
+    const egresos = d.egresos - (tr.withdrawals || 0);
+    return { ingresos, egresos, neto: Math.round((ingresos - egresos) * 100) / 100 };
+  }
+  /** KPIs del dinero para la vista Cierre (ingresos/egresos/neto/movs + traspasos aparte). */
   cierreKpis(d: Diagnostico): MetricStripItem[] {
+    const t = this.cierreTotals(d);
     const items: MetricStripItem[] = [
-      { label: 'Ingresos', value: d.ingresos, format: 'currency', tone: 'ok' },
-      { label: 'Egresos', value: d.egresos, format: 'currency' },
-      { label: 'Neto', value: d.neto, format: 'currency', tone: d.neto >= 0 ? 'ok' : 'bad' },
+      { label: 'Ingresos', value: t.ingresos, format: 'currency', tone: 'ok' },
+      { label: 'Egresos', value: t.egresos, format: 'currency' },
+      { label: 'Neto', value: t.neto, format: 'currency', tone: t.neto >= 0 ? 'ok' : 'bad' },
       { label: 'Movimientos', value: d.movimientos, format: 'number' },
     ];
     const tr = this.balances()?.traspasos;
