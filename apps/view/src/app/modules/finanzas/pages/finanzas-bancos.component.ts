@@ -19,42 +19,10 @@ import { FreshnessPillComponent } from '../../../shared/components/freshness-pil
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import { FINANZAS_TABS } from '../finanzas-tabs';
 import { BankService, BankAccount, MovementCategory, BankStatement, BankMovement, Concentrado, Reconciliation, MatchResult, Differences, Balances, Diagnostico, KeplerAccount } from '../bank.service';
-
-const MONTHS_ES: Record<string, string> = {
-  ENERO: '01', FEBRERO: '02', MARZO: '03', ABRIL: '04', MAYO: '05', JUNIO: '06',
-  JULIO: '07', AGOSTO: '08', SEPTIEMBRE: '09', OCTUBRE: '10', NOVIEMBRE: '11', DICIEMBRE: '12',
-};
-
-type View = 'cierre' | 'movimientos' | 'concentrado' | 'conciliacion' | 'cuentas' | 'admin';
-type AdminTab = 'catalogo' | 'cuentas';
-
-/** Vistas de trabajo del segmento (Cierre = home). Admin vive aparte en el engrane. */
-const WORK_VIEWS: { key: View; label: string; icon: string }[] = [
-  { key: 'cierre', label: 'Cierre', icon: 'pi pi-flag' },
-  { key: 'movimientos', label: 'Movimientos', icon: 'pi pi-list' },
-  { key: 'concentrado', label: 'Concentrado', icon: 'pi pi-table' },
-  { key: 'conciliacion', label: 'Conciliación', icon: 'pi pi-sync' },
-  { key: 'cuentas', label: 'Cuentas', icon: 'pi pi-wallet' },
-];
-
-/** Etiquetas + orden de los grupos del tablero CONCENTRADO. */
-const GROUP_LABELS: Record<string, string> = {
-  ingreso: 'Ingresos', compra: 'Compras', gasto: 'Gastos', factoraje: 'Factoraje',
-  financiero: 'Financiero', traspaso: 'Traspasos', devolucion: 'Devoluciones', sin_clasificar: 'Sin clasificar',
-};
-const GROUP_ORDER = ['ingreso', 'compra', 'gasto', 'factoraje', 'financiero', 'traspaso', 'devolucion', 'sin_clasificar'];
-
-/**
- * Color por grupo (CC.1) — el color = la clasificación, como en el Excel manual pero
- * determinista + dark-safe. Usa la paleta categórica sancionada por DESIGN (--chart-*,
- * sin morado, flipa en dark); evoca el Excel donde importa (verde ingreso, rosa compra,
- * naranja gasto). traspaso = gris neutro (interno, netea). sin_clasificar = warn.
- */
-const GROUP_COLOR: Record<string, string> = {
-  ingreso: 'var(--chart-3)', compra: 'var(--chart-5)', gasto: 'var(--chart-1)',
-  factoraje: 'var(--chart-4)', financiero: 'var(--chart-2)', traspaso: 'var(--chart-8)',
-  devolucion: 'var(--chart-6)', sin_clasificar: 'var(--warn-fg)',
-};
+import {
+  BankView as View, BankAdminTab as AdminTab, MONTHS_ES, WORK_VIEWS,
+  GROUP_LABELS, GROUP_ORDER, GROUP_COLOR,
+} from './bancos/bancos-shared';
 
 /**
  * CB.3 — Conciliación bancaria (ADR-033). Reemplaza el workbook Excel: tablero
