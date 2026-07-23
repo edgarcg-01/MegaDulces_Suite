@@ -533,11 +533,14 @@ export class FinanceBankService {
         };
       });
 
-      // TI=TE: traspasos internos deben netear en la red (depósitos ≈ retiros).
+      // TI=TE: traspasos internos deben netear en la red (depósitos ≈ retiros). CB.13.1 —
+      // el cuadre se mide SOLO sobre los marcadores reales de traspaso interno (raw_type
+      // TI/TE), no sobre toda la categoría 'traspaso': movimientos S (Spei) o G que caen
+      // mal clasificados ahí contaminaban el neto con un descuadre falso (era misclasificación,
+      // no un lado faltante — los TI/TE reales netean exacto a 0).
       const tr = await trx('finance.bank_movements as bm')
         .join('finance.bank_statements as st', 'st.id', 'bm.statement_id')
-        .leftJoin('finance.movement_categories as mc', 'mc.id', 'bm.category_id')
-        .where('st.period', period).where('mc.group_key', 'traspaso')
+        .where('st.period', period).whereIn('bm.raw_type', ['TI', 'TE'])
         .select(trx.raw('SUM(bm.amount_in)::numeric AS entra'), trx.raw('SUM(bm.amount_out)::numeric AS sale'))
         .first();
       const traspasos = { entra: n((tr as any)?.entra), sale: n((tr as any)?.sale), delta: Math.round((n((tr as any)?.entra) - n((tr as any)?.sale)) * 100) / 100 };
@@ -739,7 +742,10 @@ export class FinanceBankService {
       cuentas_ok: bal.accounts.filter((a: any) => a.cuadra).length,
       cuentas_total: bal.accounts.length,
       total_descuadre: totalDescuadre,
-      tiene_balanza_kepler: !!recon?.accounts?.length,
+      // CB.13.1 — la balanza está "cargada" si el 102 de Kepler tiene datos (cargos/abonos),
+      // NO si recon.accounts tiene filas: ese array se vació a propósito al eliminar el P&L
+      // adivinado, así que atarlo ahí dejaba el banner "balanza no cargada" prendido siempre.
+      tiene_balanza_kepler: n(recon?.cash?.kepler_102_cargos) > 0 || n(recon?.cash?.kepler_102_abonos) > 0,
       conciliacion_corrida: conciliacionCorrida,
       kepler_postings_cargados: !sinPostingsKepler,
       items,

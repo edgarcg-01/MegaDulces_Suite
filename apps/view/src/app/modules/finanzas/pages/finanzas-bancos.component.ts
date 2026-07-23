@@ -350,10 +350,10 @@ const GROUP_COLOR: Record<string, string> = {
             <h3 class="fb-card-title">Caja — banco vs Kepler 102 <span class="muted">(excluye traspasos internos)</span></h3>
             <div class="fb-recon-grid">
               <div class="fb-recon-cell">
-                <span class="fb-recon-l">Depósitos (entra)</span>
+                <span class="fb-recon-l">Depósitos (entra) <span class="muted">· memo</span></span>
                 <span class="fb-recon-v mono">{{ rc.cash.bank_in | currency:'MXN':'symbol-narrow':'1.0-0' }}</span>
                 <span class="fb-recon-vs mono muted">vs 102 cargos {{ rc.cash.kepler_102_cargos | currency:'MXN':'symbol-narrow':'1.0-0' }}</span>
-                <span class="fb-recon-delta mono" [class.bad]="!cuadra(rc.cash.delta_in)" [class.ok]="cuadra(rc.cash.delta_in)">Δ {{ rc.cash.delta_in | currency:'MXN':'symbol-narrow':'1.0-0' }}</span>
+                <span class="fb-recon-delta mono muted" [class.ok]="cuadra(rc.cash.delta_in)" title="No todo lo que entra al banco es cargo al 102 (factoraje→210, cobranza de tienda→libro de sucursal). Δ informativo.">Δ {{ rc.cash.delta_in | currency:'MXN':'symbol-narrow':'1.0-0' }}</span>
               </div>
               <div class="fb-recon-cell">
                 <span class="fb-recon-l">Retiros (sale)</span>
@@ -1128,13 +1128,16 @@ export class FinanzasBancosComponent implements OnInit {
   private money0(v: number): string {
     return Number(v || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 });
   }
-  /** Lectura en llano del cuadre de caja (banco vs 102 de Kepler). */
+  /** Lectura en llano del cuadre de caja (banco vs 102 de Kepler). Lado retiros = la
+   *  conciliación real; lado depósitos = memo (por eso se explica por qué difiere). */
   cajaRead(rc: Reconciliation): string {
     const dOut = Math.abs(rc.cash.delta_out);
-    if (this.cuadra(rc.cash.delta_out)) {
-      return `Los ${this.money0(rc.cash.bank_out)} que salieron del banco cuadran con los abonos del 102 en Kepler.`;
-    }
-    return `De los ${this.money0(rc.cash.bank_out)} que salieron del banco, Kepler reconoce ${this.money0(rc.cash.kepler_102_abonos)} en el 102 — difieren ${this.money0(dOut)}.`;
+    const salida = this.cuadra(rc.cash.delta_out)
+      ? `Los ${this.money0(rc.cash.bank_out)} que salieron del banco cuadran con los abonos del 102 en Kepler.`
+      : `De los ${this.money0(rc.cash.bank_out)} que salieron del banco, Kepler reconoce ${this.money0(rc.cash.kepler_102_abonos)} en el 102 — difieren ${this.money0(dOut)}. Esta es la conciliación que importa (el detalle por pago está abajo).`;
+    if (this.cuadra(rc.cash.delta_in)) return salida;
+    const dIn = Math.abs(rc.cash.delta_in);
+    return `${salida} El lado de depósitos difiere ${this.money0(dIn)}, pero es esperado: el banco recibe factoraje (Kepler lo asienta en 210, no 102) y cobranza de tienda (va al libro de la sucursal) — no todo lo que entra al banco es cargo al 102, así que ese Δ no se persigue 1 a 1.`;
   }
   /** Lectura en llano del matching por-transacción. */
   matchRead(mr: MatchResult): string {
