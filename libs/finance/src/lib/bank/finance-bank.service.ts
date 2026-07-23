@@ -631,7 +631,7 @@ export class FinanceBankService {
           ? `Kepler registra ${money(a.book)} de gasto en el mayor ${a.kepler_account} («${a.concept}»), pero por banco solo salieron ${money(a.bank)}: hay ${money(abs)} MÁS reconocido en Kepler que pagado por banco.`
           : `Por banco salieron ${money(a.bank)} en «${a.concept}», pero Kepler solo registra ${money(a.book)} en el mayor ${a.kepler_account}: el banco pagó ${money(abs)} MÁS de lo que Kepler reconoce.`;
         const accion = keplerMas
-          ? `Gasto reconocido que aún no salió del banco. Casi siempre es una de tres: (1) facturas por pagar (aún no se paga el dinero), (2) se pagó desde CAJA GENERAL o factoraje —que aquí no entran—, o (3) el pago cae en otro mes. Contrasta con el saldo de proveedores por pagar.`
+          ? `Gasto reconocido en Kepler que aún no se refleja como pago cruzado. Casi siempre es una de tres: (1) facturas por pagar (aún no sale el dinero), (2) el pago cae en otro mes (timing), o (3) hay movimientos sin clasificar —o pagados vía factoraje— que no se cruzan contra este mayor. Contrasta con el saldo de proveedores por pagar.`
           : `Salió más dinero del que Kepler reconoce en esta cuenta. Revisa si: (1) el pago quedó clasificado en OTRA cuenta contable del banco, (2) fue un anticipo a proveedor, o (3) falta capturar la póliza/factura en Kepler.`;
         items.push({ tipo: 'kepler_pnl', severidad: abs >= 100000 ? 'bad' : 'warn', importe: abs,
           titulo: keplerMas ? `Kepler registra más que el banco: ${a.concept}` : `El banco pagó más que Kepler: ${a.concept}`,
