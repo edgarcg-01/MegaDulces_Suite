@@ -82,6 +82,8 @@ export interface ClassifyRule {
   category_code: string; category_name: string | null; group_key: string | null;
   note: string | null; active: boolean;
 }
+/** CB.13 — cuenta del catálogo real de Kepler (finance.kepler_accounts). */
+export interface KeplerAccount { cuenta: string; cuenta_nombre: string | null; cuenta_mayor: string; cuenta_mayor_nombre: string | null; es_mayor: boolean; }
 export interface ReclassifyResult { scanned: number; changed: number; }
 export interface SyncFindingsResult { pushed: number; inserted: number; skipped: number; }
 
@@ -116,6 +118,7 @@ export class BankService {
   reconciliation(period: string): Observable<Reconciliation> { return this.http.get<Reconciliation>(`${this.base}/reconciliation?period=${encodeURIComponent(period)}`); }
   balances(period: string): Observable<Balances> { return this.http.get<Balances>(`${this.base}/balances?period=${encodeURIComponent(period)}`); }
   diagnostico(period: string): Observable<Diagnostico> { return this.http.get<Diagnostico>(`${this.base}/diagnostico?period=${encodeURIComponent(period)}`); }
+  keplerAccounts(search: string): Observable<KeplerAccount[]> { return this.http.get<KeplerAccount[]>(`${this.base}/kepler-accounts?search=${encodeURIComponent(search || '')}`); }
 
   movements(q: MovementsQuery): Observable<MovementsPage> {
     const p = new URLSearchParams();

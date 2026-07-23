@@ -72,6 +72,11 @@ export class FinanceBankController {
   @ApiOperation({ summary: 'Verifica el parseo cuenta×tipo contra la hoja CONCENTRADO (Δ≠0 = error de captura nuestro).' })
   parseCheck(@Query('period') period?: string) { return this.svc.parseCheck(period); }
 
+  @Get('kepler-accounts')
+  @RequirePermissions(Permission.FINANCE_BANK_VER)
+  @ApiOperation({ summary: 'Búsqueda en el catálogo real de cuentas de Kepler (clave o descripción).' })
+  keplerAccounts(@Query('search') search?: string) { return this.svc.keplerAccounts(search); }
+
   @Post('findings/sync')
   @RequirePermissions(Permission.FINANCE_BANK_GESTIONAR)
   @ApiOperation({ summary: 'Empuja las diferencias de conciliación a la bandeja de hallazgos de Maat.' })

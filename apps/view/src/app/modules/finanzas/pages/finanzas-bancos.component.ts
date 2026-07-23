@@ -18,7 +18,7 @@ import { LoadStateComponent } from '../../../shared/components/load-state/load-s
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import { FINANZAS_TABS } from '../finanzas-tabs';
-import { BankService, BankAccount, MovementCategory, BankStatement, BankMovement, Concentrado, Reconciliation, MatchResult, Differences, ClassifyRule, Balances, Diagnostico } from '../bank.service';
+import { BankService, BankAccount, MovementCategory, BankStatement, BankMovement, Concentrado, Reconciliation, MatchResult, Differences, ClassifyRule, Balances, Diagnostico, KeplerAccount } from '../bank.service';
 
 const MONTHS_ES: Record<string, string> = {
   ENERO: '01', FEBRERO: '02', MARZO: '03', ABRIL: '04', MAYO: '05', JUNIO: '06',
@@ -26,7 +26,7 @@ const MONTHS_ES: Record<string, string> = {
 };
 
 type View = 'cierre' | 'movimientos' | 'concentrado' | 'conciliacion' | 'cuentas' | 'admin';
-type AdminTab = 'reglas' | 'categorias' | 'cuentas';
+type AdminTab = 'reglas' | 'categorias' | 'cuentas' | 'catalogo';
 
 /** Vistas de trabajo del segmento (Cierre = home). Admin vive aparte en el engrane. */
 const WORK_VIEWS: { key: View; label: string; icon: string }[] = [
@@ -498,7 +498,30 @@ const GROUP_COLOR: Record<string, string> = {
           <button role="tab" [class.active]="adminTab()==='reglas'" (click)="adminTab.set('reglas')">Reglas de clasificación</button>
           <button role="tab" [class.active]="adminTab()==='categorias'" (click)="adminTab.set('categorias')">Categorías</button>
           <button role="tab" [class.active]="adminTab()==='cuentas'" (click)="adminTab.set('cuentas')">Cuentas de banco</button>
+          <button role="tab" [class.active]="adminTab()==='catalogo'" (click)="adminTab.set('catalogo')">Catálogo Kepler</button>
         </div>
+
+        <!-- Catálogo real de cuentas de Kepler (búsqueda) -->
+        @if (adminTab() === 'catalogo') {
+          <div class="fb-admin-bar">
+            <p class="fb-admin-note muted">Catálogo REAL de cuentas de Kepler (almacén 00). Usa esto para saber qué mayor/subcuenta es cada cosa — NO adivines. Busca por clave (611) o descripción (comisión).</p>
+          </div>
+          <div class="card-premium card-flat fb-tablewrap">
+            <div style="padding: var(--sp-3)">
+              <input class="fb-in" style="width:100%; max-width:28rem" [ngModel]="kaSearch()" (ngModelChange)="onKaSearch($event)" placeholder="Buscar cuenta: clave o descripción…" aria-label="Buscar cuenta Kepler">
+            </div>
+            <table class="fb-subtable" style="width:100%">
+              <thead><tr><th style="width:8rem">Clave</th><th>Descripción</th><th style="width:6rem">Mayor</th></tr></thead>
+              <tbody>
+                @for (a of keplerAccounts(); track a.cuenta) {
+                  <tr><td class="mono" [class.ok]="a.es_mayor">{{ a.cuenta }}</td><td>{{ a.cuenta_nombre || '—' }}</td><td class="mono muted">{{ a.cuenta_mayor }}</td></tr>
+                } @empty {
+                  <tr><td colspan="3" class="muted" style="padding: var(--sp-4)">{{ kaSearch() ? 'Sin resultados.' : 'Escribe para buscar en el catálogo.' }}</td></tr>
+                }
+              </tbody>
+            </table>
+          </div>
+        }
 
         <!-- Reglas -->
         @if (adminTab() === 'reglas') {
@@ -714,6 +737,9 @@ const GROUP_COLOR: Record<string, string> = {
     @media (prefers-reduced-motion: reduce) { .fb-skel-row { animation: none; } }
     .surf-empty { display: flex; flex-direction: column; align-items: center; gap: var(--sp-2); padding: var(--sp-8); color: var(--text-muted); }
     .surf-empty i { font-size: 1.5rem; }
+    .fb-subtable { border-collapse: collapse; font-size: var(--fs-sm); }
+    .fb-subtable th { text-align: left; font-weight: 600; color: var(--text-muted); padding: 4px var(--sp-3); border-bottom: 1px solid var(--border-color); }
+    .fb-subtable td { padding: 4px var(--sp-3); border-bottom: 1px solid var(--border-color); }
     .ok { color: var(--ok-fg); }
     .bad { color: var(--bad-fg); }
     .fb-card-title { font-size: var(--fs-sm); font-weight: 600; color: var(--text-main); margin: 0 0 var(--sp-3); }
@@ -854,6 +880,9 @@ export class FinanzasBancosComponent implements OnInit {
   // ── CB.6 Admin ──
   readonly adminTab = signal<AdminTab>('reglas');
   readonly rules = signal<ClassifyRule[]>([]);
+  // CB.13 — buscador del catálogo real de cuentas Kepler.
+  readonly kaSearch = signal('');
+  readonly keplerAccounts = signal<KeplerAccount[]>([]);
   readonly reclassifying = signal(false);
   // nueva regla
   nrPriority: number | null = null; nrType = ''; nrCode = ''; nrConcept = ''; nrCategory = '';
@@ -1158,6 +1187,16 @@ export class FinanzasBancosComponent implements OnInit {
       case 'cuenta_sin_cargar': return 'Subir estado';
       default: return 'Revisar';
     }
+  }
+
+  // CB.13 — búsqueda en el catálogo real de cuentas de Kepler.
+  onKaSearch(v: string): void {
+    this.kaSearch.set(v);
+    const s = (v || '').trim();
+    if (!s) { this.keplerAccounts.set([]); return; }
+    this.api.keplerAccounts(s).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => this.keplerAccounts.set(r), error: () => this.keplerAccounts.set([]),
+    });
   }
 
   // ── CB.6 Admin ──

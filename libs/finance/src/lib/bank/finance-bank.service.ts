@@ -1088,6 +1088,23 @@ export class FinanceBankService {
   }
 
   /**
+   * CB.13 (Fase 1) — Búsqueda en el catálogo REAL de cuentas de Kepler (finance.kepler_accounts,
+   * canónico almacén 00). Por clave o descripción — réplica del "Búsqueda de cuentas" de Kepler.
+   * Sirve para mapear/consultar contra el catálogo real en vez de adivinar.
+   */
+  async keplerAccounts(search?: string, limit = 60) {
+    this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      const q = trx('finance.kepler_accounts')
+        .select('cuenta', 'cuenta_nombre', 'cuenta_mayor', 'cuenta_mayor_nombre', 'es_mayor')
+        .orderBy('cuenta').limit(Math.min(limit, 200));
+      const s = String(search || '').trim();
+      if (s) q.where((b) => b.where('cuenta', 'ilike', `%${s}%`).orWhere('cuenta_nombre', 'ilike', `%${s}%`));
+      return q;
+    });
+  }
+
+  /**
    * CB.2.1 — Import web del workbook Excel (mismo parse+clasificación que el CLI CB.1).
    * Recibe el .xlsx en base64 + periodo; puebla bank_statements + bank_movements
    * (UPSERT por client_uuid, no DELETE). Devuelve resumen por cuenta + grupos.
