@@ -1,7 +1,8 @@
-import { ChangeDetectionStrategy, Component, EventEmitter, Output, input } from '@angular/core';
+import { ChangeDetectionStrategy, Component, EventEmitter, Output, input, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
+import { DialogModule } from 'primeng/dialog';
 import { ContextHelpComponent } from '../../../../shared/context-help/context-help.component';
 import { Reconciliation, MatchResult, Differences } from '../../bank.service';
 import { amtPct, cuadra, money0, dmy } from './bancos-shared';
@@ -14,7 +15,7 @@ import { amtPct, cuadra, money0, dmy } from './bancos-shared';
 @Component({
   selector: 'bancos-conciliacion',
   standalone: true,
-  imports: [CommonModule, ButtonModule, TableModule, ContextHelpComponent],
+  imports: [CommonModule, ButtonModule, TableModule, DialogModule, ContextHelpComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (reconciliation(); as rc) {
@@ -58,23 +59,31 @@ import { amtPct, cuadra, money0, dmy } from './bancos-shared';
       @if (differences(); as df) {
         <div class="fb-diff-grid">
           <div class="card-premium card-flat fb-tablewrap">
-            <h3 class="fb-card-title fb-pnl-title">Retiros del banco sin conciliar <span class="muted">(top {{ df.bank_unmatched.length }})</span><app-context-help topic="bancos_retiros_sin_casar" /></h3>
-            <p-table [value]="df.bank_unmatched" styleClass="p-datatable-sm" [rowHover]="true" [scrollable]="true" scrollHeight="40vh">
+            <h3 class="fb-card-title fb-pnl-title">Retiros del banco sin conciliar
+              <span class="muted">— {{ df.bank_total.count | number }} · {{ df.bank_total.amount | currency:'MXN':'symbol-narrow':'1.0-0' }}</span>
+              <app-context-help topic="bancos_retiros_sin_casar" /></h3>
+            <p-table [value]="df.bank_unmatched" styleClass="p-datatable-sm" [rowHover]="true" [scrollable]="true" scrollHeight="40vh"
+                     [paginator]="df.bank_unmatched.length > 25" [rows]="25" [rowsPerPageOptions]="[25, 50, 100]">
               <ng-template pTemplate="header"><tr><th class="col-w6">Fecha</th><th>Concepto</th><th>Categoría</th><th class="ta-r">Monto</th></tr></ng-template>
               <ng-template pTemplate="body" let-r>
-                <tr><td class="mono">{{ dm(r.movement_date) }}</td><td class="fb-concept" [title]="r.concept">{{ r.concept || '—' }}</td>
+                <tr class="fb-row-click" (click)="openBank(r)" tabindex="0" role="button" (keyup.enter)="openBank(r)">
+                  <td class="mono">{{ dm(r.movement_date) }}</td><td class="fb-concept" [title]="r.concept">{{ r.concept || '—' }}</td>
                   <td class="muted">{{ r.category_name || 'sin clasificar' }}</td><td class="ta-r mono">{{ r.amount_out | currency:'MXN':'symbol-narrow':'1.0-0' }}</td></tr>
               </ng-template>
               <ng-template pTemplate="emptymessage"><tr><td colspan="4"><div class="surf-empty"><i class="pi pi-check-circle"></i><p>Todo conciliado.</p></div></td></tr></ng-template>
             </p-table>
           </div>
           <div class="card-premium card-flat fb-tablewrap">
-            <h3 class="fb-card-title fb-pnl-title">Pagos Kepler (102) sin conciliar <span class="muted">(top {{ df.kepler_unmatched.length }})</span><app-context-help topic="bancos_kepler_sin_casar" /></h3>
-            <p-table [value]="df.kepler_unmatched" styleClass="p-datatable-sm" [rowHover]="true" [scrollable]="true" scrollHeight="40vh">
+            <h3 class="fb-card-title fb-pnl-title">Pagos Kepler (102) sin conciliar
+              <span class="muted">— {{ df.kepler_total.count | number }} · {{ df.kepler_total.amount | currency:'MXN':'symbol-narrow':'1.0-0' }}</span>
+              <app-context-help topic="bancos_kepler_sin_casar" /></h3>
+            <p-table [value]="df.kepler_unmatched" styleClass="p-datatable-sm" [rowHover]="true" [scrollable]="true" scrollHeight="40vh"
+                     [paginator]="df.kepler_unmatched.length > 25" [rows]="25" [rowsPerPageOptions]="[25, 50, 100]">
               <ng-template pTemplate="header"><tr><th class="col-w6">Fecha</th><th>Beneficiario</th><th class="col-w5">Doc</th><th class="ta-r">Monto</th></tr></ng-template>
               <ng-template pTemplate="body" let-r>
-                <tr><td class="mono">{{ dm(r.fecha) }}</td><td class="fb-concept" [title]="r.contraparte">{{ r.contraparte || '—' }}</td>
-                  <td class="mono muted">{{ r.doc_tipo }}</td><td class="ta-r mono">{{ r.importe | currency:'MXN':'symbol-narrow':'1.0-0' }}</td></tr>
+                <tr class="fb-row-click" (click)="openKepler(r)" tabindex="0" role="button" (keyup.enter)="openKepler(r)">
+                  <td class="mono">{{ dm(r.fecha) }}</td><td class="fb-concept" [title]="r.contraparte">{{ r.contraparte || '—' }}</td>
+                  <td class="mono muted">{{ r.doc_tipo }} {{ r.folio }}</td><td class="ta-r mono">{{ r.importe | currency:'MXN':'symbol-narrow':'1.0-0' }}</td></tr>
               </ng-template>
               <ng-template pTemplate="emptymessage"><tr><td colspan="4"><div class="surf-empty"><i class="pi pi-check-circle"></i><p>Todo conciliado.</p></div></td></tr></ng-template>
             </p-table>
@@ -84,6 +93,17 @@ import { amtPct, cuadra, money0, dmy } from './bancos-shared';
     } @else {
       <div class="surf-empty"><i class="pi pi-inbox"></i><p>Sin datos de conciliación para {{ period() }}.</p></div>
     }
+
+    <!-- Detalle del renglón (clic en una fila sin conciliar) -->
+    <p-dialog [visible]="!!detail()" (visibleChange)="detail.set(null)" [modal]="true" [dismissableMask]="true"
+              [header]="detail()?.title || 'Detalle'" [style]="{ width: '30rem' }">
+      @if (detail(); as d) {
+        <dl class="fb-dl">
+          @for (f of d.fields; track f.k) { <div class="fb-dl-row"><dt>{{ f.k }}</dt><dd [class.mono]="f.mono">{{ f.v }}</dd></div> }
+        </dl>
+        <p class="fb-dl-note muted"><i class="pi pi-info-circle"></i> {{ d.note }}</p>
+      }
+    </p-dialog>
   `,
   styles: [`
     :host { display: block; }
@@ -112,6 +132,13 @@ import { amtPct, cuadra, money0, dmy } from './bancos-shared';
     .fb-recon-note { font-size: var(--fs-xs); margin: var(--sp-3) 0 0; }
     .col-w5 { width: 5rem; } .col-w6 { width: 6rem; }
     .fb-diff-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(22rem, 1fr)); gap: var(--sp-3); margin-top: var(--sp-3); }
+    .fb-row-click { cursor: pointer; }
+    .fb-row-click:focus-visible { outline: 2px solid var(--action-ring); outline-offset: -2px; }
+    .fb-dl { margin: 0; display: flex; flex-direction: column; gap: var(--sp-2); }
+    .fb-dl-row { display: grid; grid-template-columns: 8rem 1fr; gap: var(--sp-2); align-items: baseline; }
+    .fb-dl-row dt { font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: .04em; color: var(--text-faint); font-weight: 700; }
+    .fb-dl-row dd { margin: 0; font-size: var(--fs-sm); color: var(--text-main); }
+    .fb-dl-note { font-size: var(--fs-xs); margin: var(--sp-4) 0 0; display: flex; align-items: baseline; gap: var(--sp-1); }
     .surf-empty { display: flex; flex-direction: column; align-items: center; gap: var(--sp-2); padding: var(--sp-8); color: var(--text-muted); }
     .surf-empty i { font-size: 1.5rem; }
   `],
@@ -129,6 +156,34 @@ export class BancosConciliacionComponent {
   cuadra = cuadra;
   pct(mr: { matched_amount: number; bank_amount: number }): number { return amtPct(mr); }
   dm(v: any): string { return dmy(v); }
+
+  /** Detalle del renglón clicado (dialog). El doc real vive en Kepler. */
+  readonly detail = signal<{ title: string; fields: { k: string; v: string; mono?: boolean }[]; note: string } | null>(null);
+  openBank(r: any): void {
+    this.detail.set({
+      title: 'Retiro del banco sin conciliar',
+      fields: [
+        { k: 'Fecha', v: dmy(r.movement_date), mono: true },
+        { k: 'Concepto', v: r.concept || '—' },
+        { k: 'Categoría', v: r.category_name || 'sin clasificar' },
+        { k: 'Código', v: r.raw_code || '—', mono: true },
+        { k: 'Monto', v: money0(r.amount_out), mono: true },
+      ],
+      note: 'Salió del banco pero no se encontró su pago en el 102. En Kepler, búscalo en el auxiliar del 102 por beneficiario + monto + fecha; si no existe, captúralo en la cuenta correcta.',
+    });
+  }
+  openKepler(r: any): void {
+    this.detail.set({
+      title: `Pago Kepler ${r.doc_tipo || ''} ${r.folio || ''}`.trim(),
+      fields: [
+        { k: 'Documento', v: `${r.doc_tipo || ''} ${r.folio || ''}`.trim(), mono: true },
+        { k: 'Fecha', v: dmy(r.fecha), mono: true },
+        { k: 'Beneficiario', v: r.contraparte || '—' },
+        { k: 'Importe', v: money0(r.importe), mono: true },
+      ],
+      note: 'Kepler registró este pago en el 102 pero no casó con ningún retiro del banco. Ábrelo en Kepler por su folio (columna Doc) para ver la póliza y verificar de qué banco/fecha salió.',
+    });
+  }
 
   matchRead(mr: MatchResult): string {
     if (mr.unmatched_bank === 0) return `Todos los retiros del banco ya tienen su pago en Kepler (100%).`;

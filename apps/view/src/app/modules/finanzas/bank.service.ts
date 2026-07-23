@@ -69,10 +69,13 @@ export interface Balances {
   cuentas_descuadradas: number; cuentas_sin_saldo: number;
 }
 
+export interface DiffTotal { count: number; amount: number; }
 export interface Differences {
   period: string;
   bank_unmatched: { id: string; movement_date: string; amount_out: number; concept: string | null; raw_code: string | null; category_name: string | null; group_key: string | null }[];
   kepler_unmatched: { doc_tipo: string; folio: string; fecha: string | null; importe: number; contraparte: string | null }[];
+  bank_total: DiffTotal;
+  kepler_total: DiffTotal;
 }
 
 /** CB.6 — regla de clasificación editable (finance.bank_classify_rules). */

@@ -471,20 +471,20 @@ export class FinanceBankService {
    * CB.4.2 — Diferencias de conciliación: lo que NO casó, rankeado por monto (accionable).
    * Requiere haber corrido runMatch (usa recon_status + bank_recon_matches).
    */
-  async differences(period?: string, limit = 50) {
+  async differences(period?: string) {
     const tenantId = this.tenantCtx.requireTenantId();
     if (!period) throw new BadRequestException('period requerido (YYYY-MM)');
     return this.tk.run(async (trx) => {
-      // Retiros del banco sin casar (con su categoría).
+      // Retiros del banco sin casar (TODOS, con su categoría) — rankeados por monto.
       const bank = await trx('finance.bank_movements as bm')
         .join('finance.bank_statements as st', 'st.id', 'bm.statement_id')
         .leftJoin('finance.movement_categories as mc', 'mc.id', 'bm.category_id')
         .where('st.period', period).where('bm.amount_out', '>', 0).where('bm.recon_status', 'unmatched')
         .select('bm.id', 'bm.movement_date', 'bm.amount_out', 'bm.concept', 'bm.raw_code',
           'mc.name as category_name', 'mc.group_key')
-        .orderBy('bm.amount_out', 'desc').limit(limit);
+        .orderBy('bm.amount_out', 'desc');
 
-      // Pagos del 102 en Kepler sin casar (no referenciados por ningún match).
+      // Pagos del 102 en Kepler sin casar (TODOS, no referenciados por ningún match).
       const kepler = await trx('analytics.bank_postings as p')
         .where({ 'p.tenant_id': tenantId, 'p.anio_mes': period, 'p.cargo_abono': 'A' })
         .whereNotExists(function () {
@@ -492,12 +492,16 @@ export class FinanceBankService {
             .whereRaw('m.kepler_doc_tipo = p.doc_tipo AND m.kepler_doc_folio = p.folio');
         })
         .select('p.doc_tipo', 'p.folio', 'p.fecha', 'p.importe', 'p.contraparte')
-        .orderBy('p.importe', 'desc').limit(limit);
+        .orderBy('p.importe', 'desc');
 
+      const bankRows = bank.map((r: any) => ({ ...r, amount_out: n(r.amount_out) }));
+      const keplerRows = kepler.map((r: any) => ({ ...r, importe: n(r.importe) }));
       return {
         period,
-        bank_unmatched: bank.map((r: any) => ({ ...r, amount_out: n(r.amount_out) })),
-        kepler_unmatched: kepler.map((r: any) => ({ ...r, importe: n(r.importe) })),
+        bank_unmatched: bankRows,
+        kepler_unmatched: keplerRows,
+        bank_total: { count: bankRows.length, amount: bankRows.reduce((s: number, r: any) => s + r.amount_out, 0) },
+        kepler_total: { count: keplerRows.length, amount: keplerRows.reduce((s: number, r: any) => s + r.importe, 0) },
       };
     });
   }
