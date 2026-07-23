@@ -480,8 +480,8 @@ export class FinanceBankService {
         .join('finance.bank_statements as st', 'st.id', 'bm.statement_id')
         .leftJoin('finance.movement_categories as mc', 'mc.id', 'bm.category_id')
         .where('st.period', period).where('bm.amount_out', '>', 0).where('bm.recon_status', 'unmatched')
-        .select('bm.id', 'bm.movement_date', 'bm.amount_out', 'bm.concept', 'bm.raw_code',
-          'mc.name as category_name', 'mc.group_key')
+        .select('bm.id', 'bm.movement_date', 'bm.amount_out', 'bm.concept', 'bm.raw_code', 'bm.raw_type',
+          'mc.name as category_name', 'mc.group_key', 'mc.kepler_account')
         .orderBy('bm.amount_out', 'desc');
 
       // Pagos del 102 en Kepler sin casar (TODOS, no referenciados por ningún match).

@@ -5,7 +5,7 @@ import { TableModule } from 'primeng/table';
 import { DialogModule } from 'primeng/dialog';
 import { ContextHelpComponent } from '../../../../shared/context-help/context-help.component';
 import { Reconciliation, MatchResult, Differences } from '../../bank.service';
-import { amtPct, cuadra, money0, dmy } from './bancos-shared';
+import { amtPct, cuadra, money0, dmy, groupLabel } from './bancos-shared';
 
 /**
  * CB.14 — Vista CONCILIACIÓN (matching por-transacción + caja vs 102 + diferencias).
@@ -165,8 +165,11 @@ export class BancosConciliacionComponent {
       fields: [
         { k: 'Fecha', v: dmy(r.movement_date), mono: true },
         { k: 'Concepto', v: r.concept || '—' },
+        { k: 'Tipo (Excel)', v: r.raw_type || '—', mono: true },
+        { k: 'Código (Excel)', v: r.raw_code || '—', mono: true },
         { k: 'Categoría', v: r.category_name || 'sin clasificar' },
-        { k: 'Código', v: r.raw_code || '—', mono: true },
+        { k: 'Grupo', v: r.group_key ? groupLabel(r.group_key) : '—' },
+        { k: 'Cuenta Kepler', v: r.kepler_account || '—', mono: true },
         { k: 'Monto', v: money0(r.amount_out), mono: true },
       ],
       note: 'Salió del banco pero no se encontró su pago en el 102. En Kepler, búscalo en el auxiliar del 102 por beneficiario + monto + fecha; si no existe, captúralo en la cuenta correcta.',
