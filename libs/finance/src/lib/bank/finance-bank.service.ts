@@ -943,10 +943,16 @@ export class FinanceBankService {
 
       // P&L: categorías de gasto/compra/financiero → cuenta Kepler; banco retiros vs cargos del mayor.
       const PNL_GROUPS = new Set(['gasto', 'compra', 'financiero']);
+      // Mayores que NO son de flujo de efectivo: se acumulan por factura/póliza, no por
+      // pago de banco. 122 (IVA acreditable) recibe cargos de CADA compra + abonos de
+      // acreditamiento (balance), así que su saldo nunca iguala salidas de banco →
+      // compararlo contra retiros da un falso "Kepler registra más" (~$4.2M en enero).
+      const NON_CASH = new Set(['122']);
       const byMayor: Record<string, { concepts: Set<string>; bank: number }> = {};
       for (const r of bank as any[]) {
         if (!PNL_GROUPS.has(r.group_key) || !r.kepler_account) continue;
         const may = mayorOf(r.kepler_account);
+        if (NON_CASH.has(may)) continue;
         (byMayor[may] ||= { concepts: new Set(), bank: 0 });
         byMayor[may].concepts.add(r.name);
         byMayor[may].bank += n(r.withdrawals);

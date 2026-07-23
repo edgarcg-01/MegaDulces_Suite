@@ -48,7 +48,7 @@ const CATEGORIES = [
   ['compra_factoraje',      'Compra con factoraje',      'out',  '201/210', 'factoraje',     'Compra financiada por factoraje'],
   ['pago_factoraje',        'Pago a factoraje',          'out',  '210',     'factoraje',     'Pago del crédito de factoraje (Financiera Bajío)'],
   ['nomina',                'Nómina',                    'out',  '601',     'gasto',         'Dispersión de nómina'],
-  ['imss_sua',              'IMSS / SUA',                'out',  '762',     'gasto',         'Cuota IMSS/SUA; 88% del IMSS real vive en 601'],
+  ['imss_sua',              'IMSS / SUA',                'out',  '601',     'gasto',         'Cuota IMSS/SUA; en Kepler vive en 601 (mayor 762 está en $0). Corregido CB.9.3'],
   ['pension_alimenticia',   'Pensión alimenticia',       'out',  '601',     'gasto',         'Retención de nómina'],
   ['comision_bancaria',     'Comisión bancaria',         'out',  '611-003', 'gasto',         'Comisión del banco (NO 612, que en Kepler=robo)'],
   ['iva_acreditable',       'IVA acreditable',           'out',  '122',     'gasto',         'IVA de comisiones/servicios'],
