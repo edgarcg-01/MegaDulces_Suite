@@ -3,7 +3,7 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute } from '@angular/router';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { forkJoin, of } from 'rxjs';
+import { forkJoin, of, catchError, map } from 'rxjs';
 import { TableModule } from 'primeng/table';
 import { SelectModule } from 'primeng/select';
 import { AutoCompleteModule } from 'primeng/autocomplete';
@@ -107,7 +107,7 @@ interface SolicitudSug extends ExpenseRequestRow { label: string; }
               </td>
               <td>
                 @if (canManage()) {
-                  @if (r.status !== 'validada') { <button pButton type="button" size="small" text severity="success" icon="pi pi-check" label="Validar" (click)="doValidate(r)"></button> }
+                  @if (r.status !== 'validada') { <button pButton type="button" size="small" text severity="success" icon="pi pi-check" label="Validar" [loading]="validatingId() === r.id" [disabled]="!!validatingId()" (click)="doValidate(r)"></button> }
                   @if (r.status !== 'rechazada') { <button pButton type="button" size="small" text severity="danger" icon="pi pi-times" (click)="openReject(r)" title="Rechazar"></button> }
                 } @else { <span class="muted">—</span> }
               </td>
@@ -237,6 +237,7 @@ export class FinanzasComprobacionesComponent {
   readonly loading = signal(false);
   readonly error = signal<string | null>(null);
   readonly saving = signal(false);
+  readonly validatingId = signal<string | null>(null);
   readonly statusSel = signal<string>('');
   readonly departamentos = signal<Departamento[]>([]);
   readonly sucursalDerivada = signal<string>('');
@@ -254,7 +255,8 @@ export class FinanzasComprobacionesComponent {
   solicitudSel: SolicitudSug | string | null = null;
   fechaGasto: Date | null = null;
   form: CreateExpenseProof = {};
-  private fileData: Record<string, string> = {}; // role → data URI
+  private fileData: Record<string, string> = {}; // role → data URI (pendiente de subir)
+  private uploaded: Record<string, ProofFile> = {}; // role → ya subido OK (sobrevive fallos parciales)
 
   // reject
   readonly showReject = signal(false);
@@ -317,7 +319,7 @@ export class FinanzasComprobacionesComponent {
   }
 
   openNew(reset = true) {
-    if (reset) { this.form = { solicitante: this.auth.user()?.username || '' }; this.fechaGasto = null; this.fileData = {}; this.fileNames.set({}); this.solicitudSel = null; }
+    if (reset) { this.form = { solicitante: this.auth.user()?.username || '' }; this.fechaGasto = null; this.fileData = {}; this.uploaded = {}; this.fileNames.set({}); this.solicitudSel = null; }
     else if (!this.form.solicitante) { this.form.solicitante = this.auth.user()?.username || ''; }
     this.sucursalDerivada.set('');
     this.formError.set('');
@@ -337,6 +339,7 @@ export class FinanzasComprobacionesComponent {
     const reader = new FileReader();
     reader.onload = () => {
       this.fileData[role] = String(reader.result || ''); // data URI (backend detecta PDF vs imagen)
+      delete this.uploaded[role]; // archivo nuevo → re-subir
       this.fileNames.update((m) => ({ ...m, [role]: file.name }));
     };
     reader.readAsDataURL(file);
@@ -355,32 +358,57 @@ export class FinanzasComprobacionesComponent {
       this.formError.set('Completa los campos obligatorios (*).'); return;
     }
     for (const slot of this.fileSlots) {
-      if (slot.required && !this.fileData[slot.role]) { this.formError.set(`Falta: ${slot.label}.`); return; }
+      if (slot.required && !this.fileData[slot.role] && !this.uploaded[slot.role]) { this.formError.set(`Falta: ${slot.label}.`); return; }
     }
     this.formError.set('');
     this.saving.set(true);
 
-    // Subir cada archivo presente (uno por request), luego crear la solicitud.
-    const roles = this.fileSlots.map((s) => s.role).filter((r) => this.fileData[r]);
-    const uploads = roles.map((r) => this.svc.uploadFile(this.fileData[r], r));
-    (uploads.length ? forkJoin(uploads) : of([] as ProofFile[]))
+    // Sube SOLO lo que aún no subió; cada archivo con su propio catch → un fallo NO tira los demás.
+    // Los que suben OK quedan en `uploaded` y no se re-suben: reintentás solo los que faltaron.
+    const present = this.fileSlots.map((s) => s.role).filter((r) => this.fileData[r] || this.uploaded[r]);
+    const toUpload = present.filter((r) => !this.uploaded[r]);
+    if (!toUpload.length) { this.createRequest(present); return; }
+
+    const ups = toUpload.map((r) => this.svc.uploadFile(this.fileData[r], r).pipe(
+      map((file) => ({ role: r, file: file as ProofFile | null })),
+      catchError(() => of({ role: r, file: null as ProofFile | null })),
+    ));
+    forkJoin(ups).pipe(takeUntilDestroyed(this.destroyRef)).subscribe((results) => {
+      const failed: string[] = [];
+      for (const res of results) {
+        if (res.file) { this.uploaded[res.role] = res.file; delete this.fileData[res.role]; }
+        else failed.push(res.role);
+      }
+      if (failed.length) {
+        this.saving.set(false);
+        const labels = failed.map((r) => this.fileLabel(r)).join(', ');
+        const okN = results.length - failed.length;
+        this.formError.set(`No se pudieron subir: ${labels}.${okN ? ` (${okN} sí quedaron guardados.)` : ''} Reintentá solo esos y volvé a Enviar.`);
+        return;
+      }
+      this.createRequest(present);
+    });
+  }
+
+  /** Crea la solicitud con los archivos ya subidos OK (todos los slots presentes). */
+  private createRequest(present: string[]) {
+    const files = present.map((r) => this.uploaded[r]).filter(Boolean) as ProofFile[];
+    this.svc.create({ ...this.form, fecha_gasto: this.fmtDate(this.fechaGasto), files })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: (files) => {
-          this.svc.create({ ...f, fecha_gasto: this.fmtDate(this.fechaGasto), files })
-            .pipe(takeUntilDestroyed(this.destroyRef))
-            .subscribe({
-              next: () => { this.saving.set(false); this.showForm.set(false); this.toast.add({ severity: 'success', summary: 'Solicitud enviada', detail: `Folio ${f.folio_solicitud}` }); this.load(); },
-              error: (e) => { this.saving.set(false); this.formError.set(e?.error?.message || 'No se pudo enviar la solicitud.'); },
-            });
-        },
-        error: () => { this.saving.set(false); this.formError.set('No se pudieron subir los archivos.'); },
+        next: () => { this.saving.set(false); this.uploaded = {}; this.showForm.set(false); this.toast.add({ severity: 'success', summary: 'Solicitud enviada', detail: `Folio ${this.form.folio_solicitud}` }); this.load(); },
+        error: (e) => { this.saving.set(false); this.formError.set(e?.error?.message || 'No se pudo enviar la solicitud.'); },
       });
   }
 
   doValidate(r: ExpenseProof) {
+    if (this.validatingId()) return; // anti doble-clic
+    this.validatingId.set(r.id);
     this.svc.validate(r.id).pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({ next: () => { this.toast.add({ severity: 'success', summary: 'Validada', detail: `Folio ${r.folio_solicitud}` }); this.load(); }, error: () => this.toast.add({ severity: 'error', summary: 'Error al validar' }) });
+      .subscribe({
+        next: () => { this.validatingId.set(null); this.toast.add({ severity: 'success', summary: 'Validada', detail: `Folio ${r.folio_solicitud}` }); this.load(); },
+        error: () => { this.validatingId.set(null); this.toast.add({ severity: 'error', summary: 'Error al validar' }); },
+      });
   }
 
   openReject(r: ExpenseProof) { this.rejectTarget.set(r); this.rejectMotivo = ''; this.showReject.set(true); }

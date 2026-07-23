@@ -293,7 +293,7 @@ const GROUP_COLOR: Record<string, string> = {
               <tr class="fb-mov-row" [class.fb-colored]="colorByGroup()"
                   [style.--g]="colorByGroup() ? groupColorVar(m.group_key) : null"
                   [class.fb-uncat]="!m.category_id && !colorByGroup()">
-                <td class="mono">{{ m.movement_date }}</td>
+                <td class="mono">{{ dmy(m.movement_date) }}</td>
                 <td class="muted">{{ m.account_label }}</td>
                 <td class="fb-concept" [title]="m.concept">{{ m.concept || '—' }}</td>
                 <td>
@@ -374,7 +374,7 @@ const GROUP_COLOR: Record<string, string> = {
                 <p-table [value]="df.bank_unmatched" styleClass="p-datatable-sm" [rowHover]="true" [scrollable]="true" scrollHeight="40vh">
                   <ng-template pTemplate="header"><tr><th style="width:6rem">Fecha</th><th>Concepto</th><th>Categoría</th><th class="ta-r">Monto</th></tr></ng-template>
                   <ng-template pTemplate="body" let-r>
-                    <tr><td class="mono">{{ r.movement_date }}</td><td class="fb-concept" [title]="r.concept">{{ r.concept || '—' }}</td>
+                    <tr><td class="mono">{{ dmy(r.movement_date) }}</td><td class="fb-concept" [title]="r.concept">{{ r.concept || '—' }}</td>
                       <td class="muted">{{ r.category_name || 'sin clasificar' }}</td><td class="ta-r mono">{{ r.amount_out | currency:'MXN':'symbol-narrow':'1.0-0' }}</td></tr>
                   </ng-template>
                   <ng-template pTemplate="emptymessage"><tr><td colspan="4"><div class="surf-empty"><i class="pi pi-check-circle"></i><p>Todo casado.</p></div></td></tr></ng-template>
@@ -385,7 +385,7 @@ const GROUP_COLOR: Record<string, string> = {
                 <p-table [value]="df.kepler_unmatched" styleClass="p-datatable-sm" [rowHover]="true" [scrollable]="true" scrollHeight="40vh">
                   <ng-template pTemplate="header"><tr><th style="width:6rem">Fecha</th><th>Beneficiario</th><th style="width:5rem">Doc</th><th class="ta-r">Monto</th></tr></ng-template>
                   <ng-template pTemplate="body" let-r>
-                    <tr><td class="mono">{{ r.fecha }}</td><td class="fb-concept" [title]="r.contraparte">{{ r.contraparte || '—' }}</td>
+                    <tr><td class="mono">{{ dmy(r.fecha) }}</td><td class="fb-concept" [title]="r.contraparte">{{ r.contraparte || '—' }}</td>
                       <td class="mono muted">{{ r.doc_tipo }}</td><td class="ta-r mono">{{ r.importe | currency:'MXN':'symbol-narrow':'1.0-0' }}</td></tr>
                   </ng-template>
                   <ng-template pTemplate="emptymessage"><tr><td colspan="4"><div class="surf-empty"><i class="pi pi-check-circle"></i><p>Todo casado.</p></div></td></tr></ng-template>
@@ -1126,6 +1126,11 @@ export class FinanzasBancosComponent implements OnInit {
   kindLabel(kind: string): string { return kind === 'bank' ? 'Banco' : kind === 'cash' ? 'Caja' : 'Factoraje'; }
   /** Color del grupo (CC.1) como referencia CSS var, para tinte de fila / dot de leyenda. */
   groupColorVar(group?: string | null): string { return GROUP_COLOR[group || 'sin_clasificar'] || 'transparent'; }
+  /** Fecha dd/MM/yy sin conversión de TZ (string puro; evita el off-by-one del date pipe con fechas date). */
+  dmy(v: unknown): string {
+    const m = String(v ?? '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+    return m ? `${m[3]}/${m[2]}/${m[1].slice(2)}` : String(v ?? '');
+  }
 
   /** Checklist accionable: salta al lugar exacto para resolver cada descuadre del diagnóstico. */
   itemAction(it: { tipo?: string }): void {

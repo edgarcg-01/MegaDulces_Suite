@@ -12,7 +12,7 @@ import { InputTextModule } from 'primeng/inputtext';
 import { TableModule } from 'primeng/table';
 import { ChartModule } from 'primeng/chart';
 import { ToastModule } from 'primeng/toast';
-import { DialogModule } from 'primeng/dialog';
+import { DrawerModule } from 'primeng/drawer';
 import { MessageService } from 'primeng/api';
 import {
   ComercialService,
@@ -46,7 +46,7 @@ interface Constraint { type: SliceType; key: string; label: string; }
   standalone: true,
   imports: [
     CommonModule, FormsModule, ButtonModule, MultiSelectModule, DatePickerModule,
-    InputNumberModule, InputTextModule, TableModule, ChartModule, ToastModule, DialogModule,
+    InputNumberModule, InputTextModule, TableModule, ChartModule, ToastModule, DrawerModule,
     MetricStripComponent, ContextHelpComponent, LoadStateComponent,
   ],
   providers: [MessageService],
@@ -196,8 +196,8 @@ interface Constraint { type: SliceType; key: string; label: string; }
         }
       }
 
-      <!-- Drill al documento fuente -->
-      <p-dialog [visible]="docDetailOpen()" (visibleChange)="docDetailOpen.set($event)" [modal]="true" [dismissableMask]="true"
+      <!-- Drill al documento fuente — side-peek (O.1: nunca modal para leer doc extenso) -->
+      <p-drawer [visible]="docDetailOpen()" (visibleChange)="docDetailOpen.set($event)" position="right" [dismissible]="true"
                 appendTo="body" [style]="{ width: '54rem', maxWidth: '95vw' }" [header]="docDetailTitle()">
         @if (docDetailLoading()) {
           <div class="ed-empty">Cargando documento…</div>
@@ -305,7 +305,7 @@ interface Constraint { type: SliceType; key: string; label: string; }
             <div class="ed-empty">No se encontró el documento.</div>
           }
         }
-      </p-dialog>
+      </p-drawer>
     </div>
   `,
   styles: [`
