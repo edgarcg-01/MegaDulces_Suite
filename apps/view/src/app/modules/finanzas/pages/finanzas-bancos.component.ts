@@ -18,7 +18,7 @@ import { LoadStateComponent } from '../../../shared/components/load-state/load-s
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import { FINANZAS_TABS } from '../finanzas-tabs';
-import { BankService, BankAccount, MovementCategory, BankStatement, BankMovement, Concentrado, Reconciliation, MatchResult, Differences, ClassifyRule, Balances, Diagnostico, KeplerAccount } from '../bank.service';
+import { BankService, BankAccount, MovementCategory, BankStatement, BankMovement, Concentrado, Reconciliation, MatchResult, Differences, Balances, Diagnostico, KeplerAccount } from '../bank.service';
 
 const MONTHS_ES: Record<string, string> = {
   ENERO: '01', FEBRERO: '02', MARZO: '03', ABRIL: '04', MAYO: '05', JUNIO: '06',
@@ -26,7 +26,7 @@ const MONTHS_ES: Record<string, string> = {
 };
 
 type View = 'cierre' | 'movimientos' | 'concentrado' | 'conciliacion' | 'cuentas' | 'admin';
-type AdminTab = 'reglas' | 'categorias' | 'cuentas' | 'catalogo';
+type AdminTab = 'catalogo' | 'cuentas';
 
 /** Vistas de trabajo del segmento (Cierre = home). Admin vive aparte en el engrane. */
 const WORK_VIEWS: { key: View; label: string; icon: string }[] = [
@@ -281,13 +281,13 @@ const GROUP_COLOR: Record<string, string> = {
                    [paginator]="movements().length > 50" [rows]="50" [rowsPerPageOptions]="[50, 100, 200]">
             <ng-template pTemplate="header">
               <tr>
-                <th style="width:6rem">Fecha</th>
-                <th style="width:7rem">Cuenta</th>
+                <th class="col-w6">Fecha</th>
+                <th class="col-w7">Cuenta</th>
                 <th>Concepto</th>
-                <th style="width:11rem">Categoría</th>
-                <th class="ta-r" style="width:8rem">Depósito</th>
-                <th class="ta-r" style="width:8rem">Retiro</th>
-                <th style="width:2.5rem" title="Conciliación"></th>
+                <th class="col-w11">Categoría</th>
+                <th class="ta-r col-w8">Depósito</th>
+                <th class="ta-r col-w8">Retiro</th>
+                <th class="col-w25" title="Conciliación"></th>
               </tr>
             </ng-template>
             <ng-template pTemplate="body" let-m>
@@ -298,20 +298,15 @@ const GROUP_COLOR: Record<string, string> = {
                 <td class="muted">{{ m.account_label }}</td>
                 <td class="fb-concept" [title]="m.concept">{{ m.concept || '—' }}</td>
                 <td>
-                  <!-- select NATIVO por fila: barato (no congela con cientos de filas) y NO
-                       emite (ngModelChange) en el re-render (solo en cambio real del usuario),
-                       lo que evita el storm de PATCH que sí provocaba el p-select por fila. -->
-                  <select class="fb-cat-select" [class.fb-cat-empty]="!m.category_id"
-                          [ngModel]="m.category_id || ''" (ngModelChange)="reclassify(m, $event)"
-                          [attr.aria-label]="'Categoría de ' + (m.concept || 'movimiento')">
-                    <option value="">— sin clasificar —</option>
-                    @for (c of categories(); track c.id) { <option [value]="c.id">{{ c.name }}</option> }
-                  </select>
+                  <!-- Read-only: la clasificación se hace en Kepler, no aquí (el motor la
+                       aplica al importar). Chip informativo con la categoría vigente. -->
+                  @if (m.category_name) { <span class="fb-cat-chip">{{ m.category_name }}</span> }
+                  @else { <span class="fb-cat-chip fb-cat-none">sin clasificar</span> }
                 </td>
                 <td class="ta-r mono">{{ m.amount_in ? (m.amount_in | currency:'MXN':'symbol-narrow':'1.2-2') : '' }}</td>
                 <td class="ta-r mono">{{ m.amount_out ? (m.amount_out | currency:'MXN':'symbol-narrow':'1.2-2') : '' }}</td>
                 <td class="ta-c">
-                  @if (m.recon_status === 'matched') { <i class="pi pi-check-circle fb-rec-ok" title="Casado con Kepler"></i> }
+                  @if (m.recon_status === 'matched') { <i class="pi pi-check-circle fb-rec-ok" title="Conciliado con Kepler"></i> }
                   @else if (m.recon_status === 'unmatched') { <i class="pi pi-circle fb-rec-no" title="Sin conciliar"></i> }
                 </td>
               </tr>
@@ -373,7 +368,7 @@ const GROUP_COLOR: Record<string, string> = {
               <div class="card-premium card-flat fb-tablewrap">
                 <h3 class="fb-card-title fb-pnl-title">Retiros del banco sin conciliar <span class="muted">(top {{ df.bank_unmatched.length }})</span><app-context-help topic="bancos_retiros_sin_casar" /></h3>
                 <p-table [value]="df.bank_unmatched" styleClass="p-datatable-sm" [rowHover]="true" [scrollable]="true" scrollHeight="40vh">
-                  <ng-template pTemplate="header"><tr><th style="width:6rem">Fecha</th><th>Concepto</th><th>Categoría</th><th class="ta-r">Monto</th></tr></ng-template>
+                  <ng-template pTemplate="header"><tr><th class="col-w6">Fecha</th><th>Concepto</th><th>Categoría</th><th class="ta-r">Monto</th></tr></ng-template>
                   <ng-template pTemplate="body" let-r>
                     <tr><td class="mono">{{ dmy(r.movement_date) }}</td><td class="fb-concept" [title]="r.concept">{{ r.concept || '—' }}</td>
                       <td class="muted">{{ r.category_name || 'sin clasificar' }}</td><td class="ta-r mono">{{ r.amount_out | currency:'MXN':'symbol-narrow':'1.0-0' }}</td></tr>
@@ -384,7 +379,7 @@ const GROUP_COLOR: Record<string, string> = {
               <div class="card-premium card-flat fb-tablewrap">
                 <h3 class="fb-card-title fb-pnl-title">Pagos Kepler (102) sin conciliar <span class="muted">(top {{ df.kepler_unmatched.length }})</span><app-context-help topic="bancos_kepler_sin_casar" /></h3>
                 <p-table [value]="df.kepler_unmatched" styleClass="p-datatable-sm" [rowHover]="true" [scrollable]="true" scrollHeight="40vh">
-                  <ng-template pTemplate="header"><tr><th style="width:6rem">Fecha</th><th>Beneficiario</th><th style="width:5rem">Doc</th><th class="ta-r">Monto</th></tr></ng-template>
+                  <ng-template pTemplate="header"><tr><th class="col-w6">Fecha</th><th>Beneficiario</th><th class="col-w5">Doc</th><th class="ta-r">Monto</th></tr></ng-template>
                   <ng-template pTemplate="body" let-r>
                     <tr><td class="mono">{{ dmy(r.fecha) }}</td><td class="fb-concept" [title]="r.contraparte">{{ r.contraparte || '—' }}</td>
                       <td class="mono muted">{{ r.doc_tipo }}</td><td class="ta-r mono">{{ r.importe | currency:'MXN':'symbol-narrow':'1.0-0' }}</td></tr>
@@ -415,7 +410,7 @@ const GROUP_COLOR: Record<string, string> = {
             </h3>
             <p-table [value]="bal.accounts" dataKey="statement_id" styleClass="p-datatable-sm" [rowHover]="true" [scrollable]="true" scrollHeight="60vh">
               <ng-template pTemplate="header">
-                <tr><th style="width:2.5rem"></th><th>Cuenta</th><th class="ta-r">Inicial</th><th class="ta-r">Depósitos</th><th class="ta-r">Retiros</th><th class="ta-r">Calculado</th><th class="ta-r">Final</th><th class="ta-r">Δ</th><th style="width:5rem" class="ta-c">Estado</th></tr>
+                <tr><th class="col-w25"></th><th>Cuenta</th><th class="ta-r">Inicial</th><th class="ta-r">Depósitos</th><th class="ta-r">Retiros</th><th class="ta-r">Calculado</th><th class="ta-r">Final</th><th class="ta-r">Δ</th><th class="col-w5 ta-c">Estado</th></tr>
               </ng-template>
               <ng-template pTemplate="body" let-a let-expanded="expanded">
                 <tr class="fb-row-click" [class.fb-bal-sinsaldo]="a.sin_saldo" tabindex="0" role="button"
@@ -470,7 +465,8 @@ const GROUP_COLOR: Record<string, string> = {
             </p>
           </div>
         } @else {
-          <div class="card-premium card-flat fb-tablewrap">
+          <div class="card-premium card-flat fb-tablewrap fb-bal">
+            <h3 class="fb-card-title fb-pnl-title">Cuentas del periodo <span class="muted">— estados de cuenta cargados (sin saldos para verificar el cuadre)</span></h3>
             <p-table [value]="statements()" styleClass="p-datatable-sm" [rowHover]="true">
               <ng-template pTemplate="header">
                 <tr><th>Banco</th><th>Cuenta</th><th>Tipo</th><th class="ta-r">Depósitos</th><th class="ta-r">Retiros</th><th class="ta-r">Saldo final</th></tr>
@@ -496,161 +492,63 @@ const GROUP_COLOR: Record<string, string> = {
       <!-- ── ADMIN: catálogo + reglas de clasificación ── -->
       @if (view() === 'admin') {
         <div class="fb-adminseg" role="tablist">
-          <button role="tab" [class.active]="adminTab()==='reglas'" (click)="adminTab.set('reglas')">Reglas de clasificación</button>
-          <button role="tab" [class.active]="adminTab()==='categorias'" (click)="adminTab.set('categorias')">Categorías</button>
-          <button role="tab" [class.active]="adminTab()==='cuentas'" (click)="adminTab.set('cuentas')">Cuentas de banco</button>
           <button role="tab" [class.active]="adminTab()==='catalogo'" (click)="adminTab.set('catalogo')">Catálogo Kepler</button>
+          <button role="tab" [class.active]="adminTab()==='cuentas'" (click)="adminTab.set('cuentas')">Cuentas de banco</button>
         </div>
 
         <!-- Catálogo real de cuentas de Kepler (búsqueda) -->
         @if (adminTab() === 'catalogo') {
           <div class="fb-admin-bar">
-            <p class="fb-admin-note muted">Catálogo REAL de cuentas de Kepler (almacén 00). Usa esto para saber qué mayor/subcuenta es cada cosa — NO adivines. Busca por clave (611) o descripción (comisión).</p>
+            <p class="fb-admin-note muted">Catálogo REAL de cuentas de Kepler (almacén 00). Úsalo para saber qué mayor/subcuenta es cada cosa — NO adivines. Busca por clave (611) o descripción (comisión).</p>
+            <p-iconfield iconPosition="left" class="fb-search">
+              <p-inputicon styleClass="pi pi-search" />
+              <input pInputText type="text" [ngModel]="kaSearch()" (ngModelChange)="onKaSearch($event)"
+                     placeholder="Buscar cuenta: clave o descripción…" aria-label="Buscar cuenta Kepler" />
+            </p-iconfield>
           </div>
           <div class="card-premium card-flat fb-tablewrap">
-            <div style="padding: var(--sp-3)">
-              <input class="fb-in" style="width:100%; max-width:28rem" [ngModel]="kaSearch()" (ngModelChange)="onKaSearch($event)" placeholder="Buscar cuenta: clave o descripción…" aria-label="Buscar cuenta Kepler">
-            </div>
-            <table class="fb-subtable" style="width:100%">
-              <thead><tr><th style="width:8rem">Clave</th><th>Descripción</th><th style="width:6rem">Mayor</th></tr></thead>
-              <tbody>
-                @for (a of keplerAccounts(); track a.cuenta) {
-                  <tr><td class="mono" [class.ok]="a.es_mayor">{{ a.cuenta }}</td><td>{{ a.cuenta_nombre || '—' }}</td><td class="mono muted">{{ a.cuenta_mayor }}</td></tr>
-                } @empty {
-                  <tr><td colspan="3" class="muted" style="padding: var(--sp-4)">{{ kaSearch() ? 'Sin resultados.' : 'Escribe para buscar en el catálogo.' }}</td></tr>
-                }
-              </tbody>
-            </table>
-          </div>
-        }
-
-        <!-- Reglas -->
-        @if (adminTab() === 'reglas') {
-          <div class="fb-admin-bar">
-            <p class="fb-admin-note muted">Se evalúan por prioridad (menor primero). Una regla aplica si todos sus matchers (regex) coinciden. Editar aquí NO reclasifica lo ya importado — usa «Reclasificar».</p>
-            <button pButton type="button" label="Reclasificar movimientos" icon="pi pi-refresh" class="p-button-sm p-button-outlined" [loading]="reclassifying()" (click)="reclassifyAll()"></button>
-          </div>
-          <div class="card-premium card-flat fb-tablewrap">
-            <p-table [value]="rules()" styleClass="p-datatable-sm" [rowHover]="true" [scrollable]="true" scrollHeight="58vh">
+            <p-table [value]="keplerAccounts()" styleClass="p-datatable-sm" [rowHover]="true" [scrollable]="true" scrollHeight="60vh">
               <ng-template pTemplate="header">
-                <tr>
-                  <th style="width:5rem">Prioridad</th>
-                  <th style="width:7rem">Tipo (M)</th>
-                  <th style="width:8rem">Código (C)</th>
-                  <th>Concepto (regex)</th>
-                  <th style="width:12rem">Categoría</th>
-                  <th style="width:4rem" class="ta-c">Activa</th>
-                  <th style="width:3rem"></th>
-                </tr>
+                <tr><th class="col-w8">Clave</th><th>Descripción</th><th class="col-w6">Mayor</th></tr>
               </ng-template>
-              <ng-template pTemplate="body" let-r>
-                <tr [class.fb-inactive]="!r.active">
-                  <td><input type="number" class="fb-in fb-in-num" [ngModel]="r.priority" (change)="patchRule(r, { priority: +$any($event.target).value })"></td>
-                  <td><input class="fb-in mono" [ngModel]="r.match_type" (change)="patchRule(r, { match_type: $any($event.target).value })" placeholder="—"></td>
-                  <td><input class="fb-in mono" [ngModel]="r.match_code" (change)="patchRule(r, { match_code: $any($event.target).value })" placeholder="—"></td>
-                  <td><input class="fb-in mono" [ngModel]="r.match_concept" (change)="patchRule(r, { match_concept: $any($event.target).value })" placeholder="—"></td>
-                  <td>
-                    <select class="fb-in" [ngModel]="r.category_code" (ngModelChange)="patchRule(r, { category_code: $event })">
-                      @for (c of categories(); track c.id) { <option [value]="c.code">{{ c.name }}</option> }
-                    </select>
-                  </td>
-                  <td class="ta-c"><input type="checkbox" [ngModel]="r.active" (ngModelChange)="patchRule(r, { active: $event })"></td>
-                  <td class="ta-c"><button class="btn-ghost-danger" title="Eliminar" (click)="deleteRule(r)"><i class="pi pi-trash"></i></button></td>
-                </tr>
+              <ng-template pTemplate="body" let-a>
+                <tr><td class="mono" [class.ok]="a.es_mayor">{{ a.cuenta }}</td><td>{{ a.cuenta_nombre || '—' }}</td><td class="mono muted">{{ a.cuenta_mayor }}</td></tr>
               </ng-template>
-              <ng-template pTemplate="footer">
-                <tr class="fb-newrow">
-                  <td><input type="number" class="fb-in fb-in-num" [(ngModel)]="nrPriority" placeholder="auto"></td>
-                  <td><input class="fb-in mono" [(ngModel)]="nrType" placeholder="^I$"></td>
-                  <td><input class="fb-in mono" [(ngModel)]="nrCode" placeholder="^612$"></td>
-                  <td><input class="fb-in mono" [(ngModel)]="nrConcept" placeholder="SUA|IMSS"></td>
-                  <td>
-                    <select class="fb-in" [(ngModel)]="nrCategory">
-                      <option value="">— categoría —</option>
-                      @for (c of categories(); track c.id) { <option [value]="c.code">{{ c.name }}</option> }
-                    </select>
-                  </td>
-                  <td colspan="2" class="ta-c"><button pButton type="button" label="Agregar" icon="pi pi-plus" class="p-button-sm p-button-text" (click)="addRule()"></button></td>
-                </tr>
+              <ng-template pTemplate="emptymessage">
+                <tr><td colspan="3"><div class="surf-empty"><i class="pi pi-search"></i><p>{{ kaSearch() ? 'Sin resultados.' : 'Escribe para buscar en el catálogo.' }}</p></div></td></tr>
               </ng-template>
             </p-table>
           </div>
         }
 
-        <!-- Categorías -->
-        @if (adminTab() === 'categorias') {
-          <div class="card-premium card-flat fb-tablewrap">
-            <p-table [value]="categories()" styleClass="p-datatable-sm" [rowHover]="true" [scrollable]="true" scrollHeight="60vh">
-              <ng-template pTemplate="header">
-                <tr><th style="width:11rem">Código</th><th>Nombre</th><th style="width:9rem">Grupo</th><th style="width:8rem">Cuenta Kepler</th><th style="width:6rem">Flujo</th><th style="width:4rem" class="ta-c">Activa</th></tr>
-              </ng-template>
-              <ng-template pTemplate="body" let-c>
-                <tr [class.fb-inactive]="!c.active">
-                  <td class="mono muted">{{ c.code }}</td>
-                  <td><input class="fb-in" [ngModel]="c.name" (change)="patchCategory(c, { name: $any($event.target).value })"></td>
-                  <td>
-                    <select class="fb-in" [ngModel]="c.group_key" (ngModelChange)="patchCategory(c, { group_key: $event })">
-                      @for (g of GROUP_ORDER; track g) { <option [value]="g">{{ label(g) }}</option> }
-                    </select>
-                  </td>
-                  <td><input class="fb-in mono" [ngModel]="c.kepler_account" (change)="patchCategory(c, { kepler_account: $any($event.target).value })" placeholder="—"></td>
-                  <td>
-                    <select class="fb-in" [ngModel]="c.flow" (ngModelChange)="patchCategory(c, { flow: $event })">
-                      <option value="in">Entra</option><option value="out">Sale</option><option value="both">Ambos</option><option value="none">—</option>
-                    </select>
-                  </td>
-                  <td class="ta-c"><input type="checkbox" [ngModel]="c.active" (ngModelChange)="patchCategory(c, { active: $event })"></td>
-                </tr>
-              </ng-template>
-              <ng-template pTemplate="footer">
-                <tr class="fb-newrow">
-                  <td><input class="fb-in mono" [(ngModel)]="ncCode" placeholder="nuevo_codigo"></td>
-                  <td><input class="fb-in" [(ngModel)]="ncName" placeholder="Nombre visible"></td>
-                  <td>
-                    <select class="fb-in" [(ngModel)]="ncGroup">
-                      @for (g of GROUP_ORDER; track g) { <option [value]="g">{{ label(g) }}</option> }
-                    </select>
-                  </td>
-                  <td><input class="fb-in mono" [(ngModel)]="ncKepler" placeholder="601"></td>
-                  <td>
-                    <select class="fb-in" [(ngModel)]="ncFlow"><option value="out">Sale</option><option value="in">Entra</option><option value="both">Ambos</option><option value="none">—</option></select>
-                  </td>
-                  <td class="ta-c"><button pButton type="button" icon="pi pi-plus" class="p-button-sm p-button-text" (click)="addCategory()"></button></td>
-                </tr>
-              </ng-template>
-            </p-table>
-          </div>
-        }
-
-        <!-- Cuentas -->
+        <!-- Cuentas de banco (setup): alta/edición con PrimeNG -->
         @if (adminTab() === 'cuentas') {
+          <div class="fb-admin-bar">
+            <p class="fb-admin-note muted">Cuentas del catálogo (banco/caja/factoraje). Alias = nombre de la hoja en el Excel. Necesario para importar y cuadrar.</p>
+          </div>
           <div class="card-premium card-flat fb-tablewrap">
             <p-table [value]="accounts()" styleClass="p-datatable-sm" [rowHover]="true" [scrollable]="true" scrollHeight="60vh">
               <ng-template pTemplate="header">
-                <tr><th style="width:8rem">Banco</th><th style="width:6rem">Cuenta</th><th style="width:10rem">Alias (hoja Excel)</th><th style="width:7rem">Tipo</th><th>Vínculo Kepler</th><th style="width:4rem" class="ta-c">Activa</th></tr>
+                <tr><th class="col-w8">Banco</th><th class="col-w6">Cuenta</th><th class="col-w10">Alias (hoja Excel)</th><th class="col-w7">Tipo</th><th>Vínculo Kepler</th><th class="col-w4 ta-c">Activa</th></tr>
               </ng-template>
               <ng-template pTemplate="body" let-a>
                 <tr [class.fb-inactive]="!a.active">
                   <td>{{ a.bank }}</td>
                   <td class="mono">{{ a.account_label }}</td>
-                  <td><input class="fb-in mono" [ngModel]="a.alias" (change)="patchAccount(a, { alias: $any($event.target).value })" placeholder="—"></td>
-                  <td>
-                    <select class="fb-in" [ngModel]="a.kind" (ngModelChange)="patchAccount(a, { kind: $event })">
-                      <option value="bank">Banco</option><option value="cash">Caja</option><option value="factoraje">Factoraje</option>
-                    </select>
-                  </td>
-                  <td><input class="fb-in" [ngModel]="a.kepler_link" (change)="patchAccount(a, { kepler_link: $any($event.target).value })" placeholder="cómo mapea al 102"></td>
-                  <td class="ta-c"><input type="checkbox" [ngModel]="a.active" (ngModelChange)="patchAccount(a, { active: $event })"></td>
+                  <td><input pInputText class="fb-pin mono" [ngModel]="a.alias" (change)="patchAccount(a, { alias: $any($event.target).value })" placeholder="—" /></td>
+                  <td><p-select [options]="kindOpts" optionLabel="label" optionValue="value" [ngModel]="a.kind" (ngModelChange)="patchAccount(a, { kind: $event })" appendTo="body" styleClass="fb-sel sel-liquid" /></td>
+                  <td><input pInputText class="fb-pin" [ngModel]="a.kepler_link" (change)="patchAccount(a, { kepler_link: $any($event.target).value })" placeholder="cómo mapea al 102" /></td>
+                  <td class="ta-c"><p-checkbox [ngModel]="a.active" [binary]="true" (onChange)="patchAccount(a, { active: $event.checked })" /></td>
                 </tr>
               </ng-template>
               <ng-template pTemplate="footer">
                 <tr class="fb-newrow">
-                  <td><input class="fb-in" [(ngModel)]="naBank" placeholder="BANCO"></td>
-                  <td><input class="fb-in mono" [(ngModel)]="naLabel" placeholder="0000"></td>
-                  <td><input class="fb-in mono" [(ngModel)]="naAlias" placeholder="hoja Excel"></td>
-                  <td><select class="fb-in" [(ngModel)]="naKind"><option value="bank">Banco</option><option value="cash">Caja</option><option value="factoraje">Factoraje</option></select></td>
-                  <td><input class="fb-in" [(ngModel)]="naKepler" placeholder="opcional"></td>
-                  <td class="ta-c"><button pButton type="button" icon="pi pi-plus" class="p-button-sm p-button-text" (click)="addAccount()"></button></td>
+                  <td><input pInputText class="fb-pin" [(ngModel)]="naBank" placeholder="BANCO" /></td>
+                  <td><input pInputText class="fb-pin mono" [(ngModel)]="naLabel" placeholder="0000" /></td>
+                  <td><input pInputText class="fb-pin mono" [(ngModel)]="naAlias" placeholder="hoja Excel" /></td>
+                  <td><p-select [options]="kindOpts" optionLabel="label" optionValue="value" [(ngModel)]="naKind" appendTo="body" styleClass="fb-sel sel-liquid" /></td>
+                  <td><input pInputText class="fb-pin" [(ngModel)]="naKepler" placeholder="opcional" /></td>
+                  <td class="ta-c"><button pButton type="button" icon="pi pi-plus" class="p-button-sm p-button-text" [disabled]="addingAcct()" (click)="addAccount()"></button></td>
                 </tr>
               </ng-template>
             </p-table>
@@ -707,18 +605,16 @@ const GROUP_COLOR: Record<string, string> = {
     .fb-sticky-col { position: sticky; left: 0; background: var(--card-bg); z-index: 1; }
     .fb-total-row { font-weight: 600; border-top: 2px solid var(--border-color); background: var(--surface-ground); }
     .fb-concept { max-width: 28rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    /* Select nativo estilo iOS "lite": pastilla redondeada + foco --action, denso (no rompe la fila). */
-    .fb-cat-select {
-      font: inherit; font-size: var(--fs-xs); width: 100%; padding: 3px var(--sp-2);
-      background: var(--card-bg); color: var(--text-main);
-      border: 1px solid var(--border-color); border-radius: var(--r-pill);
-      cursor: pointer; transition: background-color 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
-    }
-    .fb-cat-select:hover { background: var(--hover-bg); }
-    .fb-cat-select:focus { outline: none; border-color: var(--action); box-shadow: 0 0 0 3px var(--action-ring); }
-    .fb-cat-empty { color: var(--warn-fg); border-color: var(--warn-border); }
-    .theme-monochrome .fb-cat-select { box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04); }
+    /* Chip de categoría de solo lectura (la clasificación se hace en Kepler, no aquí). */
+    .fb-cat-chip { display: inline-block; font-size: var(--fs-xs); color: var(--text-muted); }
+    .fb-cat-chip.fb-cat-none { color: var(--warn-fg); }
     .fb-uncat { background: color-mix(in srgb, var(--warn-fg) 5%, transparent); }
+    /* Anchos de columna (evita style="width" inline — antipatrón DESIGN). */
+    .col-w25 { width: 2.5rem; } .col-w4 { width: 4rem; } .col-w5 { width: 5rem; }
+    .col-w6 { width: 6rem; } .col-w7 { width: 7rem; } .col-w8 { width: 8rem; }
+    .col-w10 { width: 10rem; } .col-w11 { width: 11rem; }
+    /* pInputText compacto para edición inline en Admin. */
+    :host ::ng-deep .fb-pin.p-inputtext { width: 100%; font-size: var(--fs-xs); padding: 2px var(--sp-2); }
     /* CC — color por grupo (el color = la clasificación; sutil, dark-safe, --g inyectado por fila) */
     .fb-colored > td { background: color-mix(in srgb, var(--g, transparent) 8%, transparent); }
     .fb-colored > td:first-child { box-shadow: inset 3px 0 0 var(--g, transparent); }
@@ -878,17 +774,14 @@ export class FinanzasBancosComponent implements OnInit {
   readonly uploading = signal(false);
   private searchTimer: any = null;
 
-  // ── CB.6 Admin ──
-  readonly adminTab = signal<AdminTab>('reglas');
-  readonly rules = signal<ClassifyRule[]>([]);
+  // ── Admin (read-only + setup de cuentas) ──
+  readonly adminTab = signal<AdminTab>('catalogo');
+  readonly kindOpts = [
+    { label: 'Banco', value: 'bank' }, { label: 'Caja', value: 'cash' }, { label: 'Factoraje', value: 'factoraje' },
+  ];
   // CB.13 — buscador del catálogo real de cuentas Kepler.
   readonly kaSearch = signal('');
   readonly keplerAccounts = signal<KeplerAccount[]>([]);
-  readonly reclassifying = signal(false);
-  // nueva regla
-  nrPriority: number | null = null; nrType = ''; nrCode = ''; nrConcept = ''; nrCategory = '';
-  // nueva categoría
-  ncCode = ''; ncName = ''; ncGroup = 'gasto'; ncKepler = ''; ncFlow = 'out';
   // nueva cuenta
   naBank = ''; naLabel = ''; naAlias = ''; naKind = 'bank'; naKepler = '';
 
@@ -897,9 +790,7 @@ export class FinanzasBancosComponent implements OnInit {
   readonly movError = signal<string | null>(null);
   readonly reconError = signal<string | null>(null);
   readonly diagError = signal<string | null>(null);
-  // Auto-disable síncrono de las altas (anti doble-submit — DESIGN §13).
-  readonly addingRule = signal(false);
-  readonly addingCat = signal(false);
+  // Auto-disable síncrono del alta de cuenta (anti doble-submit — DESIGN §13).
   readonly addingAcct = signal(false);
 
   // Opciones para los p-select (label/value).
@@ -1028,27 +919,6 @@ export class FinanzasBancosComponent implements OnInit {
     };
     reader.onerror = () => { this.uploading.set(false); input.value = ''; this.fail('No se pudo leer el archivo.'); };
     reader.readAsDataURL(file);
-  }
-
-  /** Reclasifica optimista: refleja el cambio ya, revierte si el server falla. */
-  reclassify(m: BankMovement, categoryId: string): void {
-    // Guard anti-storm: si la categoría NO cambió, no dispares nada. El (ngModelChange)
-    // re-emite el mismo valor en cada re-render (writeValue) → sin este guard, cada
-    // emisión muta el signal → re-render → re-emite → miles de PATCH vacíos en bucle.
-    const next = categoryId || null;
-    if (next === (m.category_id || null)) return;
-    const prev = m.category_id;
-    const cat = this.categories().find((c) => c.id === categoryId) || null;
-    this.movements.update((rows) => rows.map((r) => r.id === m.id
-      ? { ...r, category_id: categoryId || null, category_code: cat?.code || null, category_name: cat?.name || null, group_key: cat?.group_key || null }
-      : r));
-    this.api.reclassify(m.id, categoryId || null).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: () => { this.toast.add({ severity: 'success', summary: 'Reclasificado', life: 1500 }); this.refreshDiagnostico(); },
-      error: () => {
-        this.movements.update((rows) => rows.map((r) => r.id === m.id ? { ...r, category_id: prev } : r));
-        this.fail('No se pudo reclasificar.');
-      },
-    });
   }
 
   /** KPIs del dinero para la vista Cierre (ingresos/egresos/neto/movs + traspasos). */
@@ -1215,54 +1085,10 @@ export class FinanzasBancosComponent implements OnInit {
     });
   }
 
-  // ── CB.6 Admin ──
-  openAdmin(): void {
-    this.view.set('admin');
-    if (!this.rules().length) this.api.rules().pipe(takeUntilDestroyed(this.destroyRef)).subscribe((r) => this.rules.set(r));
-  }
+  // ── Admin ──
+  openAdmin(): void { this.view.set('admin'); }
 
   private ok(summary: string): void { this.toast.add({ severity: 'success', summary, life: 1500 }); }
-
-  patchRule(r: ClassifyRule, patch: Partial<ClassifyRule>): void {
-    this.rules.update((rs) => rs.map((x) => x.id === r.id ? { ...x, ...patch } : x));
-    this.api.updateRule(r.id, patch).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: () => this.ok('Regla actualizada'),
-      error: () => { this.reloadRules(); this.fail('No se pudo actualizar la regla (¿regex inválida?).'); },
-    });
-  }
-  addRule(): void {
-    if (this.addingRule()) return;
-    if (!this.nrCategory) { this.fail('Elige una categoría para la regla.'); return; }
-    if (!this.nrType && !this.nrCode && !this.nrConcept) { this.fail('Al menos un matcher (tipo/código/concepto).'); return; }
-    this.addingRule.set(true);
-    this.api.createRule({
-      priority: this.nrPriority ?? undefined, match_type: this.nrType || null, match_code: this.nrCode || null,
-      match_concept: this.nrConcept || null, category_code: this.nrCategory,
-    } as any).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: () => { this.addingRule.set(false); this.nrPriority = null; this.nrType = this.nrCode = this.nrConcept = this.nrCategory = ''; this.reloadRules(); this.ok('Regla agregada'); },
-      error: () => { this.addingRule.set(false); this.fail('No se pudo agregar la regla.'); },
-    });
-  }
-  deleteRule(r: ClassifyRule): void {
-    this.rules.update((rs) => rs.filter((x) => x.id !== r.id));
-    this.api.deleteRule(r.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: () => this.ok('Regla eliminada'), error: () => { this.reloadRules(); this.fail('No se pudo eliminar.'); } });
-  }
-  private reloadRules(): void { this.api.rules().pipe(takeUntilDestroyed(this.destroyRef)).subscribe((r) => this.rules.set(r)); }
-
-  patchCategory(c: MovementCategory, patch: Partial<MovementCategory>): void {
-    this.categories.update((cs) => cs.map((x) => x.id === c.id ? { ...x, ...patch } : x));
-    this.api.updateCategory(c.id, patch).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: () => this.ok('Categoría actualizada'), error: () => this.fail('No se pudo actualizar la categoría.') });
-  }
-  addCategory(): void {
-    if (this.addingCat()) return;
-    if (!this.ncCode || !this.ncName) { this.fail('Código y nombre requeridos.'); return; }
-    this.addingCat.set(true);
-    this.api.createCategory({ code: this.ncCode, name: this.ncName, group_key: this.ncGroup, kepler_account: this.ncKepler || null, flow: this.ncFlow } as any)
-      .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-        next: () => { this.addingCat.set(false); this.ncCode = this.ncName = this.ncKepler = ''; this.api.categories().pipe(takeUntilDestroyed(this.destroyRef)).subscribe((cs) => this.categories.set(cs)); this.ok('Categoría agregada'); },
-        error: () => { this.addingCat.set(false); this.fail('No se pudo agregar la categoría.'); },
-      });
-  }
 
   patchAccount(a: BankAccount, patch: Partial<BankAccount>): void {
     this.accounts.update((as) => as.map((x) => x.id === a.id ? { ...x, ...patch } : x));
@@ -1277,18 +1103,6 @@ export class FinanzasBancosComponent implements OnInit {
         next: () => { this.addingAcct.set(false); this.naBank = this.naLabel = this.naAlias = this.naKepler = ''; this.api.accounts().pipe(takeUntilDestroyed(this.destroyRef)).subscribe((as) => this.accounts.set(as)); this.ok('Cuenta agregada'); },
         error: () => { this.addingAcct.set(false); this.fail('No se pudo agregar la cuenta.'); },
       });
-  }
-
-  reclassifyAll(): void {
-    this.reclassifying.set(true);
-    this.api.reclassifyAll().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (r) => {
-        this.reclassifying.set(false);
-        this.toast.add({ severity: 'success', summary: 'Reclasificado', detail: `${r.changed} de ${r.scanned} movimientos recategorizados`, life: 4000 });
-        if (this.period()) this.loadPeriod();
-      },
-      error: () => { this.reclassifying.set(false); this.fail('No se pudo reclasificar.'); },
-    });
   }
 
   private fail(msg: string): void {
