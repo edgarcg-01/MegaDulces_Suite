@@ -24,6 +24,8 @@ import {
   GROUP_LABELS, GROUP_ORDER, GROUP_COLOR,
 } from './bancos/bancos-shared';
 import { BancosConcentradoComponent } from './bancos/bancos-concentrado.component';
+import { BancosConciliacionComponent } from './bancos/bancos-conciliacion.component';
+import { BancosCuentasComponent } from './bancos/bancos-cuentas.component';
 
 /**
  * CB.3 — Conciliación bancaria (ADR-033). Reemplaza el workbook Excel: tablero
@@ -36,7 +38,7 @@ import { BancosConcentradoComponent } from './bancos/bancos-concentrado.componen
   imports: [CommonModule, FormsModule, ButtonModule, TableModule, ToastModule, SelectModule, CheckboxModule,
     InputNumberModule, InputTextModule, IconFieldModule, InputIconModule,
     PageTabsComponent, MetricStripComponent, LoadStateComponent, FreshnessPillComponent, ContextHelpComponent,
-    BancosConcentradoComponent],
+    BancosConcentradoComponent, BancosConciliacionComponent, BancosCuentasComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
@@ -256,170 +258,16 @@ import { BancosConcentradoComponent } from './bancos/bancos-concentrado.componen
         @if (reconError()) {
           <app-load-state [error]="reconError()" (retry)="setPeriod(period())"></app-load-state>
         } @else {
-          @if (reconciliation(); as rc) {
-          <!-- 1. Veredicto: match rate + caja vs 102 -->
-          <div class="card-premium card-flat fb-match">
-            <div class="fb-match-head">
-              <h3 class="fb-card-title">Conciliación por transacción <span class="muted">— retiros del banco ↔ pagos del 102 en Kepler</span></h3>
-              <div class="fb-match-actions">
-                <button pButton type="button" label="Enviar a Hallazgos" icon="pi pi-flag" class="p-button-sm p-button-text" [loading]="syncing()" (click)="syncFindings()" title="Empuja las diferencias a la bandeja de /finanzas/hallazgos"></button>
-                <button pButton type="button" label="Conciliar" icon="pi pi-bolt" class="p-button-sm p-button-outlined" [loading]="matching()" (click)="runMatch()"></button>
-              </div>
-            </div>
-            @if (matchResult(); as mr) {
-              <div class="fb-match-res">
-                <span class="fb-match-rate mono" [class.ok]="amtPct(mr) >= 70" [class.warn]="amtPct(mr) < 70">{{ amtPct(mr) }}%</span>
-                <span class="muted"><b>del monto conciliado</b> — {{ mr.matched_amount | currency:'MXN':'symbol-narrow':'1.0-0' }} de {{ mr.bank_amount | currency:'MXN':'symbol-narrow':'1.0-0' }} · {{ mr.matched | number }} de {{ mr.bank_movements | number }} retiros ({{ mr.match_rate }}% por conteo)</span>
-                <span class="muted">· {{ mr.unmatched_bank | number }} sin conciliar en banco · {{ mr.unmatched_kepler | number }} pagos Kepler sin conciliar</span>
-              </div>
-              <p class="fb-plain">{{ matchRead(mr) }}</p>
-            } @else { <p class="fb-recon-note muted">Ejecuta la conciliación para vincular cada retiro con su pago en Kepler (monto + fecha).</p> }
-          </div>
-          <div class="card-premium card-flat fb-recon-cash">
-            <h3 class="fb-card-title">Caja — banco vs Kepler 102 <span class="muted">(excluye traspasos internos)</span><app-context-help topic="bancos_caja" /></h3>
-            <div class="fb-recon-grid">
-              <div class="fb-recon-cell">
-                <span class="fb-recon-l">Depósitos (entra) <span class="muted">· memo</span></span>
-                <span class="fb-recon-v mono">{{ rc.cash.bank_in | currency:'MXN':'symbol-narrow':'1.0-0' }}</span>
-                <span class="fb-recon-vs mono muted">vs 102 cargos {{ rc.cash.kepler_102_cargos | currency:'MXN':'symbol-narrow':'1.0-0' }}</span>
-                <span class="fb-recon-delta mono muted" [class.ok]="cuadra(rc.cash.delta_in)" title="El efectivo de CAJA GENERAL y la cobranza de otras sucursales no son cargo al 102 de banco; la columna de depósitos no es espejo del mayor 102. Δ informativo, no un gap.">Δ {{ rc.cash.delta_in | currency:'MXN':'symbol-narrow':'1.0-0' }}</span>
-              </div>
-              <div class="fb-recon-cell">
-                <span class="fb-recon-l">Retiros (sale)</span>
-                <span class="fb-recon-v mono">{{ rc.cash.bank_out | currency:'MXN':'symbol-narrow':'1.0-0' }}</span>
-                <span class="fb-recon-vs mono muted">vs 102 abonos {{ rc.cash.kepler_102_abonos | currency:'MXN':'symbol-narrow':'1.0-0' }}</span>
-                <span class="fb-recon-delta mono" [class.bad]="!cuadra(rc.cash.delta_out)" [class.ok]="cuadra(rc.cash.delta_out)">Δ {{ rc.cash.delta_out | currency:'MXN':'symbol-narrow':'1.0-0' }}</span>
-              </div>
-            </div>
-            <p class="fb-plain">{{ cajaRead(rc) }}</p>
-            @if (rc.sin_clasificar > 0) { <p class="fb-recon-note muted"><i class="pi pi-exclamation-triangle"></i> {{ rc.sin_clasificar | currency:'MXN':'symbol-narrow':'1.0-0' }} en movimientos sin clasificar — sí están contados en los totales, pero sin categoría no se les atribuye concepto. En el tab Cierre está el detalle y cómo resolverlos en Kepler.</p> }
-          </div>
-
-          <!-- 2. Lo accionable: lo que no casó por ambos lados -->
-          @if (differences(); as df) {
-            <div class="fb-diff-grid">
-              <div class="card-premium card-flat fb-tablewrap">
-                <h3 class="fb-card-title fb-pnl-title">Retiros del banco sin conciliar <span class="muted">(top {{ df.bank_unmatched.length }})</span><app-context-help topic="bancos_retiros_sin_casar" /></h3>
-                <p-table [value]="df.bank_unmatched" styleClass="p-datatable-sm" [rowHover]="true" [scrollable]="true" scrollHeight="40vh">
-                  <ng-template pTemplate="header"><tr><th class="col-w6">Fecha</th><th>Concepto</th><th>Categoría</th><th class="ta-r">Monto</th></tr></ng-template>
-                  <ng-template pTemplate="body" let-r>
-                    <tr><td class="mono">{{ dmy(r.movement_date) }}</td><td class="fb-concept" [title]="r.concept">{{ r.concept || '—' }}</td>
-                      <td class="muted">{{ r.category_name || 'sin clasificar' }}</td><td class="ta-r mono">{{ r.amount_out | currency:'MXN':'symbol-narrow':'1.0-0' }}</td></tr>
-                  </ng-template>
-                  <ng-template pTemplate="emptymessage"><tr><td colspan="4"><div class="surf-empty"><i class="pi pi-check-circle"></i><p>Todo conciliado.</p></div></td></tr></ng-template>
-                </p-table>
-              </div>
-              <div class="card-premium card-flat fb-tablewrap">
-                <h3 class="fb-card-title fb-pnl-title">Pagos Kepler (102) sin conciliar <span class="muted">(top {{ df.kepler_unmatched.length }})</span><app-context-help topic="bancos_kepler_sin_casar" /></h3>
-                <p-table [value]="df.kepler_unmatched" styleClass="p-datatable-sm" [rowHover]="true" [scrollable]="true" scrollHeight="40vh">
-                  <ng-template pTemplate="header"><tr><th class="col-w6">Fecha</th><th>Beneficiario</th><th class="col-w5">Doc</th><th class="ta-r">Monto</th></tr></ng-template>
-                  <ng-template pTemplate="body" let-r>
-                    <tr><td class="mono">{{ dmy(r.fecha) }}</td><td class="fb-concept" [title]="r.contraparte">{{ r.contraparte || '—' }}</td>
-                      <td class="mono muted">{{ r.doc_tipo }}</td><td class="ta-r mono">{{ r.importe | currency:'MXN':'symbol-narrow':'1.0-0' }}</td></tr>
-                  </ng-template>
-                  <ng-template pTemplate="emptymessage"><tr><td colspan="4"><div class="surf-empty"><i class="pi pi-check-circle"></i><p>Todo conciliado.</p></div></td></tr></ng-template>
-                </p-table>
-              </div>
-            </div>
-          }
-
-          <!-- 3. La conciliación real es el matching por-transacción (arriba). El P&L
-               "categoría → mayor Kepler" se retiró (CB.13): los mapeos eran adivinados
-               (602=vehículos no traslado, 608=misc, 611-003=$600) y daban deltas falsos. -->
-          } @else {
-            <div class="surf-empty"><i class="pi pi-inbox"></i><p>Sin datos de conciliación para {{ period() }}.</p></div>
-          }
+          <bancos-conciliacion [reconciliation]="reconciliation()" [matchResult]="matchResult()"
+            [differences]="differences()" [matching]="matching()" [syncing]="syncing()" [period]="period()"
+            (runMatch)="runMatch()" (syncFindings)="syncFindings()" />
         }
       }
 
       <!-- ── CUENTAS: cuadre de saldos por cuenta (clic → sus movimientos) ── -->
       @if (view() === 'cuentas') {
-        @if (balances(); as bal) {
-          <div class="card-premium card-flat fb-tablewrap fb-bal">
-            <h3 class="fb-card-title fb-pnl-title">Cuadre de saldos <span class="muted">— inicial + depósitos − retiros = final · clic en una cuenta para ver sus movimientos</span>
-              @if (bal.cuentas_descuadradas > 0) { <span class="fb-bal-badge bad">{{ bal.cuentas_descuadradas }} sin cuadrar</span> }
-              @else if (bal.cuentas_sin_saldo === bal.accounts.length) { <span class="fb-bal-badge warn">sin saldos</span> }
-              @else { <span class="fb-bal-badge ok">todo cuadra</span> }
-            </h3>
-            <p-table [value]="bal.accounts" dataKey="statement_id" styleClass="p-datatable-sm" [rowHover]="true" [scrollable]="true" scrollHeight="60vh">
-              <ng-template pTemplate="header">
-                <tr><th class="col-w25"></th><th>Cuenta</th><th class="ta-r">Inicial</th><th class="ta-r">Depósitos</th><th class="ta-r">Retiros</th><th class="ta-r">Calculado</th><th class="ta-r">Final</th><th class="ta-r">Δ</th><th class="col-w5 ta-c">Estado</th></tr>
-              </ng-template>
-              <ng-template pTemplate="body" let-a let-expanded="expanded">
-                <tr class="fb-row-click" [class.fb-bal-sinsaldo]="a.sin_saldo" tabindex="0" role="button"
-                    (click)="verCuentaMovs(a)" (keyup.enter)="verCuentaMovs(a)"
-                    [attr.aria-label]="'Ver movimientos de ' + a.bank + ' ' + a.account_label">
-                  <td class="ta-c">
-                    @if (!a.cuadra && !a.sin_saldo && breaksFor(a).length) {
-                      <button type="button" pButton [pRowToggler]="a" (click)="$event.stopPropagation()"
-                              [icon]="expanded ? 'pi pi-chevron-down' : 'pi pi-chevron-right'"
-                              class="p-button-text p-button-sm" aria-label="Ver dónde salta el saldo"></button>
-                    }
-                  </td>
-                  <td>{{ a.bank }} <span class="muted mono">{{ a.account_label }}</span></td>
-                  <td class="ta-r mono">{{ a.opening | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
-                  <td class="ta-r mono">{{ a.total_in | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
-                  <td class="ta-r mono">{{ a.total_out | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
-                  <td class="ta-r mono muted">{{ a.computed_closing | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
-                  <td class="ta-r mono fb-strong">{{ a.closing | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
-                  <td class="ta-r mono">
-                    @if (a.sin_saldo) { <span class="muted">—</span> }
-                    @else { <span [class.bad]="!a.cuadra" [class.ok]="a.cuadra">{{ a.delta | currency:'MXN':'symbol-narrow':'1.0-0' }}</span> }
-                  </td>
-                  <td class="ta-c">
-                    @if (a.sin_saldo) { <span class="fb-kind">sin saldo</span> }
-                    @else if (a.cuadra) { <i class="pi pi-check-circle ok" title="Cuadra"></i> }
-                    @else { <i class="pi pi-exclamation-triangle bad" title="No cuadra"></i> }
-                  </td>
-                </tr>
-              </ng-template>
-              <ng-template pTemplate="rowexpansion" let-a>
-                <tr class="fb-break-row"><td colspan="9">
-                  <div class="fb-breaks">
-                    <span class="fb-breaks-h"><i class="pi pi-search-plus"></i> Dónde salta el saldo</span>
-                    @for (b of breaksFor(a); track b.label) {
-                      <div class="fb-break">
-                        <span class="fb-break-l mono">{{ b.label }}</span>
-                        <span class="fb-break-m mono" [class.bad]="(b.monto || 0) < 0">{{ b.monto | currency:'MXN':'symbol-narrow':'1.0-0' }}</span>
-                      </div>
-                    }
-                    <p class="fb-breaks-note muted">En estos renglones el saldo del estado de cuenta salta más de lo que explica el movimiento: ahí falta capturar algo, o el saldo quedó mal tecleado.</p>
-                  </div>
-                </td></tr>
-              </ng-template>
-              <ng-template pTemplate="emptymessage">
-                <tr><td colspan="9"><div class="surf-empty"><i class="pi pi-inbox"></i><p>Sin cuentas cargadas para {{ period() }}.</p></div></td></tr>
-              </ng-template>
-            </p-table>
-            <p class="fb-recon-note muted">
-              Traspasos internos (TI=TE): entra {{ bal.traspasos.entra | currency:'MXN':'symbol-narrow':'1.0-0' }} vs sale {{ bal.traspasos.sale | currency:'MXN':'symbol-narrow':'1.0-0' }}
-              <span [class.bad]="!cuadra(bal.traspasos.delta)" [class.ok]="cuadra(bal.traspasos.delta)">(Δ {{ bal.traspasos.delta | currency:'MXN':'symbol-narrow':'1.0-0' }})</span>.
-              @if (bal.cuentas_sin_saldo > 0) { · {{ bal.cuentas_sin_saldo }} cuenta(s) sin columna SALDO en el Excel (no verificable). }
-            </p>
-          </div>
-        } @else {
-          <div class="card-premium card-flat fb-tablewrap fb-bal">
-            <h3 class="fb-card-title fb-pnl-title">Cuentas del periodo <span class="muted">— estados de cuenta cargados (sin saldos para verificar el cuadre)</span></h3>
-            <p-table [value]="statements()" styleClass="p-datatable-sm" [rowHover]="true">
-              <ng-template pTemplate="header">
-                <tr><th>Banco</th><th>Cuenta</th><th>Tipo</th><th class="ta-r">Depósitos</th><th class="ta-r">Retiros</th><th class="ta-r">Saldo final</th></tr>
-              </ng-template>
-              <ng-template pTemplate="body" let-s>
-                <tr>
-                  <td>{{ s.bank }}</td>
-                  <td class="mono">{{ s.account_label }}</td>
-                  <td><span class="fb-kind">{{ kindLabel(s.kind) }}</span></td>
-                  <td class="ta-r mono">{{ s.total_in | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
-                  <td class="ta-r mono">{{ s.total_out | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
-                  <td class="ta-r mono fb-strong">{{ s.closing_balance | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
-                </tr>
-              </ng-template>
-              <ng-template pTemplate="emptymessage">
-                <tr><td colspan="6"><div class="surf-empty"><i class="pi pi-inbox"></i><p>Sin cuentas cargadas para {{ period() }}.</p></div></td></tr>
-              </ng-template>
-            </p-table>
-          </div>
-        }
+        <bancos-cuentas [balances]="balances()" [statements]="statements()" [diagnostico]="diagnostico()"
+          [period]="period()" (openAccount)="verCuentaMovs($event)" />
       }
 
       <!-- ── ADMIN: catálogo + reglas de clasificación ── -->
