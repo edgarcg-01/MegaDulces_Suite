@@ -26,6 +26,7 @@ import {
 import { ThemeService } from '../../../core/services/theme.service';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
+import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
 import { egresChartOptions, egresChartSeries } from './egresos-chart-opts';
 
 /**
@@ -46,7 +47,7 @@ interface Constraint { type: SliceType; key: string; label: string; }
   imports: [
     CommonModule, FormsModule, ButtonModule, MultiSelectModule, DatePickerModule,
     InputNumberModule, InputTextModule, TableModule, ChartModule, ToastModule, DialogModule,
-    MetricStripComponent, ContextHelpComponent,
+    MetricStripComponent, ContextHelpComponent, LoadStateComponent,
   ],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -93,6 +94,8 @@ interface Constraint { type: SliceType; key: string; label: string; }
 
       @if (loading()) {
         <div class="ed-empty">Cargando…</div>
+      } @else if (error()) {
+        <app-load-state [error]="error()" (retry)="loadReport()"></app-load-state>
       } @else {
         @if (report(); as r) {
         <!-- KPIs -->
@@ -378,6 +381,7 @@ export class ComercialEgresoDetalleComponent {
   private readonly theme = inject(ThemeService);
 
   readonly report = signal<ExpensesReport | null>(null);
+  readonly error = signal<string | null>(null);
   readonly docs = signal<ExpenseDocRow[]>([]);
   readonly loading = signal(false);
   readonly sucursales = signal<{ code: string; label: string }[]>([]);
@@ -558,15 +562,16 @@ export class ComercialEgresoDetalleComponent {
     this.localTimer = setTimeout(() => { this.localTimer = null; this.reload(); }, 300);
   }
 
-  private loadReport() {
+  loadReport() {
     if (!this.chain().length) return;
     this.loading.set(true);
+    this.error.set(null);
     this.repSub?.unsubscribe();
     this.repSub = this.svc.expenses(this.params({ group_by: this.breakdownDim(), compare: true }))
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (r) => { this.report.set(r); this.loading.set(false); },
-        error: () => { this.loading.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo cargar el detalle' }); },
+        error: () => { this.loading.set(false); this.error.set('No se pudo cargar el detalle de egresos.'); },
       });
   }
 

@@ -20,6 +20,7 @@ import { MetricStripComponent, MetricStripItem } from '../../../shared/component
 import { SegmentedComponent } from '../../../shared/components/segmented/segmented.component';
 import { FINANZAS_TABS } from '../finanzas-tabs';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
+import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
 import { AuthService } from '../../../core/services/auth.service';
 import { Permission } from '../../../core/constants/permissions';
 import { ComercialService, ExpenseRequestRow } from '../../comercial/comercial.service';
@@ -38,7 +39,7 @@ interface SolicitudSug extends ExpenseRequestRow { label: string; }
 @Component({
   selector: 'app-finanzas-comprobaciones',
   standalone: true,
-  imports: [CommonModule, FormsModule, TableModule, SelectModule, AutoCompleteModule, DatePickerModule, TagModule, InputTextModule, InputNumberModule, ButtonModule, DialogModule, ToastModule, PageTabsComponent, SegmentedComponent, MetricStripComponent, ContextHelpComponent],
+  imports: [CommonModule, FormsModule, TableModule, SelectModule, AutoCompleteModule, DatePickerModule, TagModule, InputTextModule, InputNumberModule, ButtonModule, DialogModule, ToastModule, PageTabsComponent, SegmentedComponent, MetricStripComponent, ContextHelpComponent, LoadStateComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
@@ -64,6 +65,9 @@ interface SolicitudSug extends ExpenseRequestRow { label: string; }
         <app-metric-strip [items]="kpiItems(r)" ariaLabel="Resumen" />
       }
 
+      @if (error()) {
+        <app-load-state [error]="error()" (retry)="load()"></app-load-state>
+      } @else {
       <div class="card-premium card-flat">
         <p-table [value]="rows()" styleClass="p-datatable-sm cp-table" [rowHover]="true" [scrollable]="true" scrollHeight="60vh"
                  [paginator]="rows().length > 100" [rows]="100" [loading]="loading()" sortField="created_at" [sortOrder]="-1">
@@ -112,6 +116,7 @@ interface SolicitudSug extends ExpenseRequestRow { label: string; }
           <ng-template pTemplate="emptymessage"><tr><td colspan="9" class="cp-empty">Sin solicitudes para el filtro.</td></tr></ng-template>
         </p-table>
       </div>
+      }
     </div>
 
     <!-- Diálogo: nueva solicitud de reembolso -->
@@ -230,6 +235,7 @@ export class FinanzasComprobacionesComponent {
   readonly report = signal<ExpenseProofsReport | null>(null);
   readonly rows = computed(() => this.report()?.rows || []);
   readonly loading = signal(false);
+  readonly error = signal<string | null>(null);
   readonly saving = signal(false);
   readonly statusSel = signal<string>('');
   readonly departamentos = signal<Departamento[]>([]);
@@ -279,9 +285,13 @@ export class FinanzasComprobacionesComponent {
   load() {
     if (this.timer) { clearTimeout(this.timer); this.timer = null; }
     this.loading.set(true);
+    this.error.set(null);
     this.svc.list({ status: this.statusSel() || undefined, search: this.search || undefined })
       .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({ next: (r) => { this.report.set(r); this.loading.set(false); }, error: () => this.loading.set(false) });
+      .subscribe({
+        next: (r) => { this.report.set(r); this.loading.set(false); },
+        error: () => { this.error.set('No se pudieron cargar las comprobaciones.'); this.loading.set(false); },
+      });
   }
 
   // (A) Autocomplete de solicitud Kepler (XA1501); excluye canceladas.

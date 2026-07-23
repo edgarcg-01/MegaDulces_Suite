@@ -12,6 +12,7 @@ import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tab
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { FINANZAS_TABS } from '../finanzas-tabs';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
+import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
 import { FindingsService, Finding, FindingsStats, RuleHealth, FindingClase, Coverage, DataQuality, Hypothesis, ModelStatus, Backtest, UncertainRow } from '../findings.service';
 import { ActionsService, ProposedAction } from '../actions.service';
 
@@ -24,7 +25,7 @@ import { ActionsService, ProposedAction } from '../actions.service';
 @Component({
   selector: 'app-finanzas-hallazgos',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, TableModule, ToastModule, PageTabsComponent, MetricStripComponent, ContextHelpComponent],
+  imports: [CommonModule, FormsModule, ButtonModule, TableModule, ToastModule, PageTabsComponent, MetricStripComponent, ContextHelpComponent, LoadStateComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
@@ -122,6 +123,9 @@ import { ActionsService, ProposedAction } from '../actions.service';
       </div>
 
       <!-- Tabla de hallazgos -->
+      @if (error()) {
+        <app-load-state [error]="error()" (retry)="reload()"></app-load-state>
+      } @else {
       <div class="card-premium card-flat">
         <p-table [value]="findings()" styleClass="p-datatable-sm fh-table" [rowHover]="true" [loading]="loading()"
                  dataKey="id" [expandedRowKeys]="expanded()" [scrollable]="true" scrollHeight="560px" [paginator]="findings().length > 50" [rows]="50">
@@ -164,6 +168,7 @@ import { ActionsService, ProposedAction } from '../actions.service';
           </td></tr></ng-template>
         </p-table>
       </div>
+      }
       }
 
       @else if (view() === 'cobertura') {
@@ -381,6 +386,7 @@ export class FinanzasHallazgosComponent implements OnInit {
   }
   readonly rules = signal<RuleHealth[]>([]);
   readonly loading = signal(false);
+  readonly error = signal<string | null>(null);
   readonly scanning = signal(false);
   readonly rulesOpen = signal(false);
   readonly clase = signal<FindingClase | null>(null);
@@ -418,12 +424,16 @@ export class FinanzasHallazgosComponent implements OnInit {
     });
   }
 
-  private reload() {
+  reload() {
     this.loading.set(true);
+    this.error.set(null);
     const status = this.status() === 'pendientes' ? undefined : this.status();
     this.svc.list({ clase: this.clase() || undefined, status, limit: 300 })
       .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({ next: (r) => { this.findings.set(r); this.loading.set(false); }, error: () => this.loading.set(false) });
+      .subscribe({
+        next: (r) => { this.findings.set(r); this.loading.set(false); },
+        error: () => { this.error.set('No se pudieron cargar los hallazgos.'); this.loading.set(false); },
+      });
   }
   private loadStats() {
     this.svc.stats().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (s) => this.stats.set(s), error: () => {} });

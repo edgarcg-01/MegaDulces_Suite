@@ -32,6 +32,7 @@ import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tab
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { SegmentedComponent } from '../../../shared/components/segmented/segmented.component';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
+import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
 import { FINANZAS_TABS } from '../../finanzas/finanzas-tabs';
 import { ThemeService } from '../../../core/services/theme.service';
 import { egresChartOptions, egresChartSeries } from './egresos-chart-opts';
@@ -48,7 +49,7 @@ import { egresChartOptions, egresChartSeries } from './egresos-chart-opts';
     CommonModule, FormsModule, ButtonModule, MultiSelectModule, SelectModule,
     DatePickerModule, InputNumberModule, InputTextModule, ToggleSwitchModule,
     TableModule, TreeTableModule, ChartModule, ToastModule,
-    PageTabsComponent, SegmentedComponent, MetricStripComponent, ContextHelpComponent,
+    PageTabsComponent, SegmentedComponent, MetricStripComponent, ContextHelpComponent, LoadStateComponent,
   ],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -113,6 +114,8 @@ import { egresChartOptions, egresChartSeries } from './egresos-chart-opts';
 
       @if (loading()) {
         <div class="ex-empty">Cargando…</div>
+      } @else if (error()) {
+        <app-load-state [error]="error()" (retry)="loadReport()"></app-load-state>
       } @else {
         <!-- ÁRBOL -->
         @if (view() === 'arbol') {
@@ -351,6 +354,7 @@ export class ComercialEgresosComponent {
   ];
 
   readonly report = signal<ExpensesReport | null>(null);
+  readonly error = signal<string | null>(null);
   readonly kpiItems = computed<MetricStripItem[]>(() => {
     const r = this.report();
     if (!this.isReportView() || !r) return [];
@@ -495,14 +499,15 @@ export class ComercialEgresosComponent {
   private reportSub?: Subscription;
   private treeSub?: Subscription;
 
-  private loadReport() {
+  loadReport() {
     this.loading.set(true);
+    this.error.set(null);
     this.reportSub?.unsubscribe(); // cancela la request anterior: sin esto una respuesta lenta vieja pisa a la nueva
     this.reportSub = this.svc.expenses(this.params({ group_by: this.groupBy(), compare: this.compare() }))
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (r) => { this.report.set(r); this.fresh.report = true; this.loading.set(false); },
-        error: () => { this.loading.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo cargar egresos' }); },
+        error: () => { this.loading.set(false); this.error.set('No se pudieron cargar los egresos del período.'); },
       });
   }
 

@@ -15,6 +15,7 @@ import { MetricStripComponent, MetricStripItem } from '../../../shared/component
 import { SegmentedComponent } from '../../../shared/components/segmented/segmented.component';
 import { FINANZAS_TABS } from '../finanzas-tabs';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
+import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
 import { ComercialService, ExpenseRequestRow, ExpenseRequestsReport } from '../../comercial/comercial.service';
 import { ComprobacionesService } from '../comprobaciones.service';
 
@@ -26,7 +27,7 @@ import { ComprobacionesService } from '../comprobaciones.service';
 @Component({
   selector: 'app-finanzas-solicitudes',
   standalone: true,
-  imports: [CommonModule, FormsModule, TableModule, MultiSelectModule, SelectModule, DatePickerModule, TagModule, InputTextModule, ButtonModule, PageTabsComponent, SegmentedComponent, MetricStripComponent, ContextHelpComponent],
+  imports: [CommonModule, FormsModule, TableModule, MultiSelectModule, SelectModule, DatePickerModule, TagModule, InputTextModule, ButtonModule, PageTabsComponent, SegmentedComponent, MetricStripComponent, ContextHelpComponent, LoadStateComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="surf-page in">
@@ -60,6 +61,9 @@ import { ComprobacionesService } from '../comprobaciones.service';
       }
 
       <!-- Tabla -->
+      @if (error()) {
+        <app-load-state [error]="error()" (retry)="load()"></app-load-state>
+      } @else {
       <div class="card-premium card-flat">
         <p-table [value]="rows()" styleClass="p-datatable-sm so-table" [rowHover]="true" [scrollable]="true" scrollHeight="60vh"
                  [paginator]="rows().length > 100" [rows]="100" [loading]="loading()"
@@ -108,6 +112,7 @@ import { ComprobacionesService } from '../comprobaciones.service';
           <ng-template pTemplate="emptymessage"><tr><td colspan="10" class="so-empty">Sin solicitudes para el filtro. (¿corrió el feed?)</td></tr></ng-template>
         </p-table>
       </div>
+      }
     </div>
   `,
   styles: [`
@@ -152,6 +157,7 @@ export class FinanzasSolicitudesComponent {
   }
   readonly rows = computed(() => this.report()?.rows || []);
   readonly loading = signal(false);
+  readonly error = signal<string | null>(null);
   readonly sucursales = signal<{ code: string; label: string }[]>([]);
   readonly solicitantes = signal<string[]>([]);
   readonly aplicadaSel = signal<string>('');
@@ -188,13 +194,17 @@ export class FinanzasSolicitudesComponent {
     const fmt = (d?: Date) => d ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` : undefined;
     const ap = this.aplicadaSel();
     this.loading.set(true);
+    this.error.set(null);
     this.svc.expenseRequests({
       from: fmt(a), to: fmt(b),
       sucursal: this.sucursal, estado: this.estado || undefined,
       solicitante: this.solicitante || undefined, search: this.search || undefined,
       aplicada: ap === 'pend' ? false : ap === 'apl' ? true : undefined,
     }).pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({ next: (r) => { this.report.set(r); this.loading.set(false); }, error: () => this.loading.set(false) });
+      .subscribe({
+        next: (r) => { this.report.set(r); this.loading.set(false); },
+        error: () => { this.error.set('No se pudieron cargar las solicitudes de gasto.'); this.loading.set(false); },
+      });
   }
 
   /** Atajo a Reembolsos con el folio de la solicitud + proveedor pre-llenados. */
