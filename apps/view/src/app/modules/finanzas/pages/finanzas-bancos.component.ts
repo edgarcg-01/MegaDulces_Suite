@@ -353,7 +353,7 @@ const GROUP_COLOR: Record<string, string> = {
                 <span class="fb-recon-l">Depósitos (entra) <span class="muted">· memo</span></span>
                 <span class="fb-recon-v mono">{{ rc.cash.bank_in | currency:'MXN':'symbol-narrow':'1.0-0' }}</span>
                 <span class="fb-recon-vs mono muted">vs 102 cargos {{ rc.cash.kepler_102_cargos | currency:'MXN':'symbol-narrow':'1.0-0' }}</span>
-                <span class="fb-recon-delta mono muted" [class.ok]="cuadra(rc.cash.delta_in)" title="No todo lo que entra al banco es cargo al 102 (factoraje→210, cobranza de tienda→libro de sucursal). Δ informativo.">Δ {{ rc.cash.delta_in | currency:'MXN':'symbol-narrow':'1.0-0' }}</span>
+                <span class="fb-recon-delta mono muted" [class.ok]="cuadra(rc.cash.delta_in)" title="El efectivo de CAJA GENERAL y la cobranza de otras sucursales no son cargo al 102 de banco; la columna de depósitos no es espejo del mayor 102. Δ informativo, no un gap.">Δ {{ rc.cash.delta_in | currency:'MXN':'symbol-narrow':'1.0-0' }}</span>
               </div>
               <div class="fb-recon-cell">
                 <span class="fb-recon-l">Retiros (sale)</span>
@@ -1137,7 +1137,7 @@ export class FinanzasBancosComponent implements OnInit {
       : `De los ${this.money0(rc.cash.bank_out)} que salieron del banco, Kepler reconoce ${this.money0(rc.cash.kepler_102_abonos)} en el 102 — difieren ${this.money0(dOut)}. Esta es la conciliación que importa (el detalle por pago está abajo).`;
     if (this.cuadra(rc.cash.delta_in)) return salida;
     const dIn = Math.abs(rc.cash.delta_in);
-    return `${salida} El lado de depósitos difiere ${this.money0(dIn)}, pero es esperado: el banco recibe factoraje (Kepler lo asienta en 210, no 102) y cobranza de tienda (va al libro de la sucursal) — no todo lo que entra al banco es cargo al 102, así que ese Δ no se persigue 1 a 1.`;
+    return `${salida} El lado de depósitos difiere ${this.money0(dIn)}, pero es memo, no un gap: mezcla los depósitos de banco con el efectivo de CAJA GENERAL (que Kepler asienta en caja, no en el 102) y con cobranza que entra por otra sucursal — la columna de depósitos no es espejo del mayor 102, así que ese Δ no se persigue 1 a 1.`;
   }
   /** Lectura en llano del matching por-transacción. */
   matchRead(mr: MatchResult): string {
