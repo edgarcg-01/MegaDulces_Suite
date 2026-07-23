@@ -762,7 +762,6 @@ export class FinanceBankService {
     if (!this.findingsSink) { this.logger.debug('sink de hallazgos no ligado — syncFindings no-op.'); return { pushed: 0, inserted: 0, skipped: 0 }; }
 
     const RETIRO_MIN = 50000;   // solo retiros materiales sin casar → hallazgo (evita ruido de comisiones)
-    const PNL_MIN = 10000;      // descuadre P&L mínimo para reportar
     const money = (v: number) => Number(v || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 });
 
     // Retiros del banco sin casar, materiales (con su cuenta/categoría).
@@ -784,8 +783,6 @@ export class FinanceBankService {
         descripcion: 'Retiro material del banco que no casó con ningún pago del 102 en Kepler (monto+fecha). Puede ser timing, pago no contabilizado o salida no soportada.' },
       { rule_key: 'banco_sin_clasificar', nombre: 'Movimientos bancarios sin clasificar', clase: 'error_captura',
         descripcion: 'Monto del estado de cuenta sin categoría asignada en el periodo — pendiente de resolver en la vista de Movimientos.' },
-      { rule_key: 'banco_pnl_descuadre', nombre: 'Descuadre banco vs mayor Kepler', clase: 'riesgo',
-        descripcion: 'El gasto pagado por banco de una categoría difiere del cargo del mayor contable en Kepler más allá de la tolerancia.' },
       { rule_key: 'banco_saldo_no_cuadra', nombre: 'Saldo de cuenta no cuadra', clase: 'error_captura',
         descripcion: 'saldo_inicial + depósitos − retiros ≠ saldo_final del estado de cuenta: falta capturar un movimiento o el saldo está mal tecleado.' },
     ];
@@ -817,18 +814,9 @@ export class FinanceBankService {
       });
     }
 
-    for (const a of rc.accounts as any[]) {
-      if (Math.abs(n(a.delta)) < PNL_MIN) continue;
-      findings.push({
-        rule_key: 'banco_pnl_descuadre', clase: 'riesgo', severity: Math.abs(a.delta) >= 100000 ? 'critical' : 'warn',
-        score: 0.6,
-        titulo: `Descuadre ${a.kepler_account} — Δ ${money(a.delta)}`,
-        resumen: `${a.concept}: banco pagó ${money(a.bank)} vs ${money(a.book)} del mayor ${a.kepler_account} en Kepler (Δ ${money(a.delta)}).`,
-        entity: { kepler_account: a.kepler_account, concepto: a.concept }, periodo: period, importe: Math.abs(n(a.delta)),
-        evidencia: { bank: a.bank, book: a.book, fuente: 'analytics.ledger_monthly' },
-        dedup_key: `banco_pnl_descuadre|${period}|${a.kepler_account}`,
-      });
-    }
+    // CB.13 — banco_pnl_descuadre ELIMINADO: se alimentaba del P&L categoría→mayor
+    // adivinado (removido). Generaba hallazgos falsos. La conciliación real es el
+    // retiro-sin-casar (arriba) del matching por-transacción.
 
     // Cuadre de saldos (CB.8): una cuenta cuyo saldo no cierra = movimiento faltante o mal tecleado.
     const bal = await this.balances(period);
@@ -980,7 +968,6 @@ export class FinanceBankService {
   async reconciliation(period?: string) {
     const tenantId = this.tenantCtx.requireTenantId();
     if (!period) throw new BadRequestException('period requerido (YYYY-MM)');
-    const mayorOf = (acc: string | null) => String(acc || '').split(/[-/]/)[0].trim();
 
     return this.tk.run(async (trx) => {
       // Lado banco: por categoría (grupo + cuenta Kepler).
@@ -994,15 +981,19 @@ export class FinanceBankService {
           trx.raw('SUM(bm.amount_in)::numeric AS deposits'),
           trx.raw('SUM(bm.amount_out)::numeric AS withdrawals'));
 
-      // Lado libro: balanza del periodo por cuenta mayor (analytics.* → tenant explícito).
+      // Lado libro: balanza del periodo. Base = ALMACÉN 00 (CEDIS): el 100% del 102
+      // (pólizas de banco) de Kepler vive ahí; 02/03 son libros locales de tienda que
+      // NO salen de estos bancos corporativos. Sumar las 3 sucursales inflaba el 102 (CB.13).
       const book = await trx('analytics.ledger_monthly')
-        .where({ tenant_id: tenantId, anio_mes: period })
+        .where({ tenant_id: tenantId, anio_mes: period, sucursal: '00' })
         .groupBy('cuenta_mayor')
         .select('cuenta_mayor', trx.raw('SUM(cargos)::numeric AS cargos'), trx.raw('SUM(abonos)::numeric AS abonos'));
       const bookBy: Record<string, { cargos: number; abonos: number }> = {};
       for (const r of book as any[]) bookBy[r.cuenta_mayor] = { cargos: n(r.cargos), abonos: n(r.abonos) };
 
-      // CAJA: banco (excl. traspasos internos) vs 102.
+      // CAJA: banco (excl. traspasos internos) vs 102 de almacén 00. ESTA es la conciliación
+      // contra Kepler. El detalle exacto (¿qué pago casa con qué póliza?) vive en el matching
+      // por-transacción (runMatch) — no en un mapeo categoría→mayor.
       const EXCLUDE = new Set(['traspaso']);
       let bankIn = 0, bankOut = 0;
       for (const r of bank as any[]) {
@@ -1015,26 +1006,12 @@ export class FinanceBankService {
         bank_out: bankOut, kepler_102_abonos: k102.abonos, delta_out: bankOut - k102.abonos,
       };
 
-      // P&L: categorías de gasto/compra/financiero → cuenta Kepler; banco retiros vs cargos del mayor.
-      const PNL_GROUPS = new Set(['gasto', 'compra', 'financiero']);
-      // Mayores que NO son de flujo de efectivo: se acumulan por factura/póliza, no por
-      // pago de banco. 122 (IVA acreditable) recibe cargos de CADA compra + abonos de
-      // acreditamiento (balance), así que su saldo nunca iguala salidas de banco →
-      // compararlo contra retiros da un falso "Kepler registra más" (~$4.2M en enero).
-      const NON_CASH = new Set(['122']);
-      const byMayor: Record<string, { concepts: Set<string>; bank: number }> = {};
-      for (const r of bank as any[]) {
-        if (!PNL_GROUPS.has(r.group_key) || !r.kepler_account) continue;
-        const may = mayorOf(r.kepler_account);
-        if (NON_CASH.has(may)) continue;
-        (byMayor[may] ||= { concepts: new Set(), bank: 0 });
-        byMayor[may].concepts.add(r.name);
-        byMayor[may].bank += n(r.withdrawals);
-      }
-      const accounts = Object.entries(byMayor).map(([may, v]) => {
-        const book = (bookBy[may]?.cargos) || 0;
-        return { kepler_account: may, concept: [...v.concepts].join(', '), bank: v.bank, book, delta: v.bank - book };
-      }).sort((a, b) => b.bank - a.bank);
+      // CB.13 — El P&L "categoría banco → mayor Kepler" se ELIMINÓ: los mapeos eran
+      // adivinados (602 es vehículos, no traslado; 608 es misc, no tarjeta; 611-003 tiene
+      // $600, no todas las comisiones) y generaban deltas falsos. El catálogo real (185
+      // cuentas, branch-specific) + el desfase cash/devengado hacen imposible el mapeo 1:N.
+      // La conciliación real = matching por-transacción (exacto). accounts queda vacío.
+      const accounts: { kepler_account: string; concept: string; bank: number; book: number; delta: number }[] = [];
 
       // Cobranza (ingreso) como memo: depósitos vs 102 cargos (ya en cash).
       const cobranza = (bank as any[]).filter((r) => r.group_key === 'ingreso').reduce((s, r) => s + n(r.deposits), 0);

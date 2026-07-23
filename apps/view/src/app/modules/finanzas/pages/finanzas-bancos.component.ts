@@ -394,27 +394,9 @@ const GROUP_COLOR: Record<string, string> = {
             </div>
           }
 
-          <!-- 3. Evidencia contable: P&L banco vs mayor Kepler -->
-          <div class="card-premium card-flat fb-tablewrap">
-            <h3 class="fb-card-title fb-pnl-title">P&L — gasto del banco vs cuenta contable Kepler</h3>
-            <p-table [value]="rc.accounts" styleClass="p-datatable-sm" [rowHover]="true">
-              <ng-template pTemplate="header">
-                <tr><th style="width:6rem">Cuenta</th><th>Concepto</th><th class="ta-r">Banco (pagado)</th><th class="ta-r">Kepler (contable)</th><th class="ta-r">Δ</th></tr>
-              </ng-template>
-              <ng-template pTemplate="body" let-a>
-                <tr>
-                  <td class="mono">{{ a.kepler_account }}</td>
-                  <td class="fb-concept" [title]="a.concept">{{ a.concept }}</td>
-                  <td class="ta-r mono">{{ a.bank | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
-                  <td class="ta-r mono">{{ a.book | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
-                  <td class="ta-r mono" [class.bad]="!cuadra(a.delta)" [class.ok]="cuadra(a.delta)">{{ a.delta | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
-                </tr>
-              </ng-template>
-              <ng-template pTemplate="emptymessage">
-                <tr><td colspan="5"><div class="surf-empty"><i class="pi pi-inbox"></i><p>Sin balanza Kepler para {{ period() }} (falta correr el feed ledger-chain).</p></div></td></tr>
-              </ng-template>
-            </p-table>
-          </div>
+          <!-- 3. La conciliación real es el matching por-transacción (arriba). El P&L
+               "categoría → mayor Kepler" se retiró (CB.13): los mapeos eran adivinados
+               (602=vehículos no traslado, 608=misc, 611-003=$600) y daban deltas falsos. -->
           } @else {
             <div class="surf-empty"><i class="pi pi-inbox"></i><p>Sin datos de conciliación para {{ period() }}.</p></div>
           }
