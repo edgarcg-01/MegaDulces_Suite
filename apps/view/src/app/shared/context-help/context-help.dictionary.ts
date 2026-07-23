@@ -557,6 +557,58 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
     ],
   },
 
+  bancos_retiros_sin_casar: {
+    title: 'Retiros del banco sin casar',
+    intro: 'Retiros que salieron del banco y no encontraron su pago equivalente en el 102 de Kepler. NO todos son un error — mirá la columna "Categoría": según qué sean, se resuelven distinto (o no requieren nada).',
+    resolve: [
+      {
+        heading: '① Pago a factoraje / Compra con factoraje',
+        kind: 'info',
+        intro: 'Reducen el pasivo de factoraje en Kepler (cuenta 210); no son abono al 102, por eso nunca casan.',
+        steps: [
+          'En Kepler confirmá que el pago esté en 210 (acreedor factoraje).',
+          'Si está en 210, es correcto — no se toca.',
+        ],
+      },
+      {
+        heading: '② Nómina, comisión bancaria, tarjeta/TPV',
+        kind: 'info',
+        intro: 'Kepler los agrupa en una póliza mensual (nómina 601, comisión 611-003), no transfer por transfer. El dinero YA está en el 102, solo agrupado.',
+        steps: [
+          'No se corrige: es diferencia de granularidad, no un gap.',
+        ],
+      },
+      {
+        heading: '③ Compra de mercancía / gasto directo',
+        kind: 'fix',
+        intro: 'Éstos SÍ se capturan en Kepler: pagos que salieron del banco sin egreso aplicado en el 102 (p. ej. REM BOLSAS, SWEETS DIMENSION, CANEL\'S).',
+        steps: [
+          'En Kepler abrí el auxiliar del 102 (bancos) del periodo.',
+          'Buscá la póliza de egreso por beneficiario + monto + fecha.',
+          'Si NO existe → capturala: abono al 102 / cargo al proveedor (aplicá el pago a su factura).',
+          'Si existe pero en otra cuenta de banco → reclasificala al 102 correcto.',
+        ],
+      },
+    ],
+  },
+
+  bancos_kepler_sin_casar: {
+    title: 'Pagos de Kepler (102) sin casar',
+    intro: 'El lado inverso: pagos que Kepler registró en el 102 pero que no encontraron su retiro equivalente en el banco (por monto + fecha). Kepler dice que pagó; el banco no lo muestra o no casó.',
+    resolve: [
+      {
+        heading: 'Qué hacer en Kepler',
+        kind: 'fix',
+        steps: [
+          'Abrí cada póliza por su folio (columna Doc) y mirá contra qué banco y fecha se registró.',
+          'Si salió de OTRA cuenta de banco (o de caja/factoraje) → es correcto, solo no casó contra este banco.',
+          'Si tiene fecha/monto mal capturado o está duplicada en Kepler → corregila ahí.',
+          'Si de verdad no salió del banco → revisá si es una provisión / cuenta por pagar que todavía no se paga.',
+        ],
+      },
+    ],
+  },
+
   egresos: {
     title: 'Egresos contables — guía',
     intro: 'Todo lo que sale (pólizas de cargo 5xx/6xx del mayor de Kepler): compras a proveedor y gastos. Podés ver el árbol por cuenta, la tendencia mensual, el ranking de proveedores y hacer drill hasta el documento y su cadena.',

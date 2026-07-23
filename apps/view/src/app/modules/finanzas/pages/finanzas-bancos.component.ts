@@ -364,14 +364,14 @@ const GROUP_COLOR: Record<string, string> = {
               </div>
             </div>
             <p class="fb-plain">{{ cajaRead(rc) }}</p>
-            @if (rc.sin_clasificar > 0) { <p class="fb-recon-note muted"><i class="pi pi-exclamation-triangle"></i> {{ rc.sin_clasificar | currency:'MXN':'symbol-narrow':'1.0-0' }} en movimientos sin clasificar — resuélvelos en Movimientos para afinar el cuadre.</p> }
+            @if (rc.sin_clasificar > 0) { <p class="fb-recon-note muted"><i class="pi pi-exclamation-triangle"></i> {{ rc.sin_clasificar | currency:'MXN':'symbol-narrow':'1.0-0' }} en movimientos sin clasificar — no netean en el cuadre. En el tab Cierre está el detalle y cómo resolverlos en Kepler.</p> }
           </div>
 
           <!-- 2. Lo accionable: lo que no casó por ambos lados -->
           @if (differences(); as df) {
             <div class="fb-diff-grid">
               <div class="card-premium card-flat fb-tablewrap">
-                <h3 class="fb-card-title fb-pnl-title">Retiros del banco sin casar <span class="muted">(top {{ df.bank_unmatched.length }})</span></h3>
+                <h3 class="fb-card-title fb-pnl-title">Retiros del banco sin casar <span class="muted">(top {{ df.bank_unmatched.length }})</span><app-context-help topic="bancos_retiros_sin_casar" /></h3>
                 <p-table [value]="df.bank_unmatched" styleClass="p-datatable-sm" [rowHover]="true" [scrollable]="true" scrollHeight="40vh">
                   <ng-template pTemplate="header"><tr><th style="width:6rem">Fecha</th><th>Concepto</th><th>Categoría</th><th class="ta-r">Monto</th></tr></ng-template>
                   <ng-template pTemplate="body" let-r>
@@ -382,7 +382,7 @@ const GROUP_COLOR: Record<string, string> = {
                 </p-table>
               </div>
               <div class="card-premium card-flat fb-tablewrap">
-                <h3 class="fb-card-title fb-pnl-title">Pagos Kepler (102) sin casar <span class="muted">(top {{ df.kepler_unmatched.length }})</span></h3>
+                <h3 class="fb-card-title fb-pnl-title">Pagos Kepler (102) sin casar <span class="muted">(top {{ df.kepler_unmatched.length }})</span><app-context-help topic="bancos_kepler_sin_casar" /></h3>
                 <p-table [value]="df.kepler_unmatched" styleClass="p-datatable-sm" [rowHover]="true" [scrollable]="true" scrollHeight="40vh">
                   <ng-template pTemplate="header"><tr><th style="width:6rem">Fecha</th><th>Beneficiario</th><th style="width:5rem">Doc</th><th class="ta-r">Monto</th></tr></ng-template>
                   <ng-template pTemplate="body" let-r>
@@ -1196,7 +1196,7 @@ export class FinanzasBancosComponent implements OnInit {
   }
   itemActionLabel(it: { tipo?: string }): string {
     switch (it?.tipo) {
-      case 'sin_clasificar': return 'Clasificar';
+      case 'sin_clasificar': return 'Ver sin clasificar';
       case 'traspaso_descuadre': return 'Ver traspasos';
       case 'saldo_no_cuadra': return 'Ver cuenta';
       case 'kepler_pnl': return 'Ver conciliación';
