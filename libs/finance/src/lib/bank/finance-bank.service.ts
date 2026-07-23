@@ -19,7 +19,11 @@ const normKey = (s: any) => String(s ?? '').replace(/\s+/g, ' ').trim().toUpperC
 
 // Tokens significativos de un nombre de beneficiario (para el 3er pase del matcher
 // por nombre). Quita ruido societario (SA/DE/CV/SAPI…), acentos y palabras cortas.
-const STOP_TOKENS = new Set(['SA', 'DE', 'CV', 'SAPI', 'SAB', 'SC', 'SRL', 'RL', 'SOFOM', 'ENR', 'SOF', 'THE', 'DEL', 'LA', 'EL', 'LOS', 'LAS', 'Y', 'PAGO', 'SPEI', 'TRANSFERENCIA']);
+// Ruido societario + palabras operativas GENÉRICAS: un concepto que solo tiene estas
+// (p.ej. "Nomina 01", "Gasto", "Abono") NO debe casar por nombre — no identifica una
+// contraparte. Solo casan conceptos con un nombre propio (proveedor/persona) real.
+const STOP_TOKENS = new Set(['SA', 'DE', 'CV', 'SAPI', 'SAB', 'SC', 'SRL', 'RL', 'SOFOM', 'ENR', 'SOF', 'THE', 'DEL', 'LA', 'EL', 'LOS', 'LAS', 'Y', 'PAGO', 'SPEI', 'TRANSFERENCIA',
+  'NOMINA', 'GASTO', 'GASTOS', 'ABONO', 'PRESTAMO', 'RETIRO', 'DEPOSITO', 'COMPRA', 'VENTA', 'COMISION', 'CONSUMO', 'CONSUMOS', 'REEMBOLSO', 'ANTICIPO', 'VIATICOS', 'TRASPASO', 'INTERES', 'INTERESES', 'CAPITAL', 'SUELDO', 'FINIQUITO', 'FACTURA', 'DOMICILIACION', 'SERVICIO', 'SERVICIOS']);
 const nameTokens = (s: any): Set<string> => {
   const t = normKey(s).normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^A-Z0-9 ]/g, ' ');
   return new Set(t.split(/\s+/).filter((w) => w.length >= 4 && !STOP_TOKENS.has(w)));
