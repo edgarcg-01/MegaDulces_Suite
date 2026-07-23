@@ -14,6 +14,7 @@ import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tab
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { SegmentedComponent } from '../../../shared/components/segmented/segmented.component';
 import { FINANZAS_TABS } from '../finanzas-tabs';
+import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import { ComercialService, ExpenseRequestRow, ExpenseRequestsReport } from '../../comercial/comercial.service';
 import { ComprobacionesService } from '../comprobaciones.service';
 
@@ -25,14 +26,14 @@ import { ComprobacionesService } from '../comprobaciones.service';
 @Component({
   selector: 'app-finanzas-solicitudes',
   standalone: true,
-  imports: [CommonModule, FormsModule, TableModule, MultiSelectModule, SelectModule, DatePickerModule, TagModule, InputTextModule, ButtonModule, PageTabsComponent, SegmentedComponent, MetricStripComponent],
+  imports: [CommonModule, FormsModule, TableModule, MultiSelectModule, SelectModule, DatePickerModule, TagModule, InputTextModule, ButtonModule, PageTabsComponent, SegmentedComponent, MetricStripComponent, ContextHelpComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="surf-page in">
       <app-page-tabs [tabs]="tabs" />
       <header class="surf-page-head">
         <div class="surf-page-head-text">
-          <h1>Solicitudes de gasto</h1>
+          <div style="display:inline-flex;align-items:center;gap:.4rem"><h1>Solicitudes de gasto</h1><app-context-help topic="solicitudes" /></div>
           <p class="surf-page-sub">Solicitudes (XA1501) y su aplicación a gasto (XA1001) · estado, solicitante y días de proceso · fuente Kepler</p>
         </div>
       </header>

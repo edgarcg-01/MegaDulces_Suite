@@ -11,6 +11,7 @@ import { MessageService } from 'primeng/api';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { FINANZAS_TABS } from '../finanzas-tabs';
+import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import { FindingsService, Finding, FindingsStats, RuleHealth, FindingClase, Coverage, DataQuality, Hypothesis, ModelStatus, Backtest, UncertainRow } from '../findings.service';
 import { ActionsService, ProposedAction } from '../actions.service';
 
@@ -23,7 +24,7 @@ import { ActionsService, ProposedAction } from '../actions.service';
 @Component({
   selector: 'app-finanzas-hallazgos',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, TableModule, ToastModule, PageTabsComponent, MetricStripComponent],
+  imports: [CommonModule, FormsModule, ButtonModule, TableModule, ToastModule, PageTabsComponent, MetricStripComponent, ContextHelpComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
@@ -33,7 +34,7 @@ import { ActionsService, ProposedAction } from '../actions.service';
 
       <header class="surf-page-head fh-head">
         <div class="surf-page-head-text">
-          <h1>Hallazgos</h1>
+          <div style="display:inline-flex;align-items:center;gap:.4rem"><h1>Hallazgos</h1><app-context-help topic="hallazgos" /></div>
           <p class="surf-page-sub">Patrones que el motor detecta en los libros: riesgos, errores de captura y oportunidades. Confirma o descarta — Maat aprende de cada veredicto.</p>
         </div>
         <div class="fh-head-actions">

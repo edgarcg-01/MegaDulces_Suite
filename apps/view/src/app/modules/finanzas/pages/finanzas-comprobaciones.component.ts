@@ -19,6 +19,7 @@ import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tab
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { SegmentedComponent } from '../../../shared/components/segmented/segmented.component';
 import { FINANZAS_TABS } from '../finanzas-tabs';
+import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import { AuthService } from '../../../core/services/auth.service';
 import { Permission } from '../../../core/constants/permissions';
 import { ComercialService, ExpenseRequestRow } from '../../comercial/comercial.service';
@@ -37,7 +38,7 @@ interface SolicitudSug extends ExpenseRequestRow { label: string; }
 @Component({
   selector: 'app-finanzas-comprobaciones',
   standalone: true,
-  imports: [CommonModule, FormsModule, TableModule, SelectModule, AutoCompleteModule, DatePickerModule, TagModule, InputTextModule, InputNumberModule, ButtonModule, DialogModule, ToastModule, PageTabsComponent, SegmentedComponent, MetricStripComponent],
+  imports: [CommonModule, FormsModule, TableModule, SelectModule, AutoCompleteModule, DatePickerModule, TagModule, InputTextModule, InputNumberModule, ButtonModule, DialogModule, ToastModule, PageTabsComponent, SegmentedComponent, MetricStripComponent, ContextHelpComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
@@ -46,7 +47,7 @@ interface SolicitudSug extends ExpenseRequestRow { label: string; }
       <app-page-tabs [tabs]="tabs" />
       <header class="surf-page-head cp-head">
         <div class="surf-page-head-text">
-          <h1>Solicitudes de reembolso</h1>
+          <div style="display:inline-flex;align-items:center;gap:.4rem"><h1>Solicitudes de reembolso</h1><app-context-help topic="reembolsos" /></div>
           <p class="surf-page-sub">Adjunta los comprobantes de una solicitud de gasto (Kepler XA1501) · recibida → validada/rechazada</p>
         </div>
         <button pButton type="button" icon="pi pi-plus" label="Nueva solicitud" (click)="openNew()"></button>

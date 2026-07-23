@@ -31,6 +31,7 @@ import {
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { SegmentedComponent } from '../../../shared/components/segmented/segmented.component';
+import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import { FINANZAS_TABS } from '../../finanzas/finanzas-tabs';
 import { ThemeService } from '../../../core/services/theme.service';
 import { egresChartOptions, egresChartSeries } from './egresos-chart-opts';
@@ -47,7 +48,7 @@ import { egresChartOptions, egresChartSeries } from './egresos-chart-opts';
     CommonModule, FormsModule, ButtonModule, MultiSelectModule, SelectModule,
     DatePickerModule, InputNumberModule, InputTextModule, ToggleSwitchModule,
     TableModule, TreeTableModule, ChartModule, ToastModule,
-    PageTabsComponent, SegmentedComponent, MetricStripComponent,
+    PageTabsComponent, SegmentedComponent, MetricStripComponent, ContextHelpComponent,
   ],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -58,7 +59,7 @@ import { egresChartOptions, egresChartSeries } from './egresos-chart-opts';
 
       <header class="surf-page-head">
         <div class="surf-page-head-text">
-          <h1>Egresos contables</h1>
+          <div style="display:inline-flex;align-items:center;gap:.4rem"><h1>Egresos contables</h1><app-context-help topic="egresos" /></div>
           <p class="surf-page-sub">Pólizas de gastos (6xx) y compras (5xx) · desglose por cuenta, beneficiario, sucursal y más · fuente Kepler</p>
         </div>
         <button pButton type="button" label="Exportar CSV" icon="pi pi-download"

@@ -442,4 +442,100 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
       },
     ],
   },
+  egresos: {
+    title: 'Egresos contables — guía',
+    intro: 'Todo lo que sale (pólizas de cargo 5xx/6xx del mayor de Kepler): compras a proveedor y gastos. Podés ver el árbol por cuenta, la tendencia mensual, el ranking de proveedores y hacer drill hasta el documento y su cadena.',
+    groups: [
+      {
+        heading: 'Familia del egreso',
+        entries: [
+          { term: 'Compra', def: 'Pago/registro de mercancía a proveedor (cuenta 511/510 y afines). Es el grueso del egreso.' },
+          { term: 'Gasto', def: 'Egreso operativo que no es mercancía: nómina, servicios, comisiones, renta, viáticos (cuentas 6xx).' },
+        ],
+      },
+      {
+        heading: 'Cómo leer',
+        entries: [
+          { term: 'Cuenta', def: 'Cuenta contable de Kepler (código + nombre). Agrupa el gasto por su naturaleza.' },
+          { term: 'Beneficiario', def: 'A quién se le pagó (proveedor o tercero). El drill por beneficiario acumula el filtro de cuenta.' },
+          { term: 'Póliza / documento', def: 'El asiento contable concreto. Su detalle abre la cadena pedido → factura → pago (materialidad de la operación).' },
+          { term: 'Δ vs periodo previo', def: 'Variación del gasto contra el mes anterior. ▲ = subió, ▼ = bajó.' },
+        ],
+      },
+    ],
+  },
+  hallazgos: {
+    title: 'Hallazgos de Maat — guía',
+    intro: 'Patrones que el motor detecta en los libros. Vos confirmás o descartás cada uno: ese veredicto ENTRENA la precisión de la regla (las reglas ruidosas se auto-suprimen). El motor decide, vos validás, el LLM queda fuera del número.',
+    groups: [
+      {
+        heading: 'Clase de hallazgo',
+        entries: [
+          { term: 'Riesgo', def: 'Posible pérdida o exposición (pago sin soporte, duplicado, descuadre). Máxima prioridad.' },
+          { term: 'Error de captura', def: 'Dato mal tecleado o inconsistente (saldo que no cierra, sin clasificar). Se corrige en la fuente.' },
+          { term: 'Oportunidad', def: 'Ahorro o mejora detectable (descuento no aplicado, condición mejor).' },
+        ],
+      },
+      {
+        heading: 'Severidad',
+        entries: [
+          { term: 'Crítico', def: 'Impacto alto ($ grande o riesgo serio) — atender primero.' },
+          { term: 'Alerta', def: 'Impacto medio — revisar.' },
+          { term: 'Info', def: 'Bajo impacto / informativo.' },
+        ],
+      },
+      {
+        heading: 'Triage (tu veredicto entrena)',
+        entries: [
+          { term: 'Confirmar', def: 'Es real y útil → sube la precisión de esa regla y queda para seguimiento.' },
+          { term: 'Descartar (falso positivo)', def: 'No aplica → baja la precisión; si una regla acumula falsos, se auto-suprime.' },
+          { term: 'Precisión de regla', def: '% de aciertos según tu feedback. Reglas de baja precisión se silencian salvo que las fijes (pin).' },
+        ],
+      },
+    ],
+  },
+  reembolsos: {
+    title: 'Reembolsos / comprobaciones — guía',
+    intro: 'Comprobación de gastos: ligás la evidencia (facturas, tickets, XMLs) a una solicitud de gasto de Kepler para que el egreso quede soportado.',
+    groups: [
+      {
+        heading: 'Estado',
+        entries: [
+          { term: 'Recibida', def: 'Se subió la comprobación; falta validarla.' },
+          { term: 'Validada', def: 'Revisada y aceptada como soporte del gasto.' },
+          { term: 'Rechazada', def: 'No cumple; se indica el motivo para recapturar.' },
+        ],
+      },
+      {
+        heading: 'Archivos',
+        entries: [
+          { term: 'Comprobante por rol', def: 'Cada gasto puede pedir distintos documentos (factura, ticket, XML). Subí el archivo en su casilla.' },
+          { term: 'Solicitud (Kepler)', def: 'El folio de gasto autorizado en Kepler al que se liga la comprobación.' },
+        ],
+      },
+    ],
+  },
+  solicitudes: {
+    title: 'Solicitudes de gasto — guía',
+    intro: 'Solicitudes de gasto capturadas en Kepler. Desde aquí ves su estado y saltás a comprobarlas (subir soporte) o a ver el egreso ya contabilizado.',
+    groups: [
+      {
+        heading: 'Estado de la solicitud',
+        entries: [
+          { term: 'Nueva', def: 'Capturada, pendiente de aprobación.' },
+          { term: 'Aprobada', def: 'Autorizada; puede ejercerse el gasto.' },
+          { term: 'Cerrada / ejercida', def: 'Gasto realizado y contabilizado.' },
+          { term: 'Cancelada', def: 'Anulada; no procede.' },
+        ],
+      },
+      {
+        heading: 'Acciones',
+        entries: [
+          { term: 'Comprobar', def: 'Ir a Reembolsos con el folio y proveedor precargados para subir el soporte.' },
+          { term: 'Ver gasto', def: 'Abrir el egreso contable ligado a esta solicitud (si ya se contabilizó).' },
+          { term: 'Comprobante recibido/validado', def: 'Indicador de si la solicitud ya tiene soporte cargado y en qué estado está.' },
+        ],
+      },
+    ],
+  },
 };

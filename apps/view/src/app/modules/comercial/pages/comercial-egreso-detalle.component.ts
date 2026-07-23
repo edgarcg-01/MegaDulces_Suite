@@ -25,6 +25,7 @@ import {
 } from '../comercial.service';
 import { ThemeService } from '../../../core/services/theme.service';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
+import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import { egresChartOptions, egresChartSeries } from './egresos-chart-opts';
 
 /**
@@ -45,7 +46,7 @@ interface Constraint { type: SliceType; key: string; label: string; }
   imports: [
     CommonModule, FormsModule, ButtonModule, MultiSelectModule, DatePickerModule,
     InputNumberModule, InputTextModule, TableModule, ChartModule, ToastModule, DialogModule,
-    MetricStripComponent,
+    MetricStripComponent, ContextHelpComponent,
   ],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -57,7 +58,7 @@ interface Constraint { type: SliceType; key: string; label: string; }
         <button pButton type="button" icon="pi pi-arrow-left" label="Volver" class="p-button-text p-button-sm"
                 (click)="back()"></button>
         <div class="surf-page-head-text">
-          <h1>{{ title() }}</h1>
+          <div style="display:inline-flex;align-items:center;gap:.4rem"><h1>{{ title() }}</h1><app-context-help topic="egresos" /></div>
           <p class="surf-page-sub">{{ subtitle() }}</p>
         </div>
         <button pButton type="button" label="Exportar CSV" icon="pi pi-download"

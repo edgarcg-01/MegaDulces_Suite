@@ -58,6 +58,8 @@
 
 **14. Layout por sector + ayuda contextual.** El layout lo dicta el **sector**, no el componente: Fiscal/Contable → **master-detail permanente** (nunca modal para leer doc extenso); Almacén/Compras → **full-width grid** + totales congelados + sidebar colapsable + offline/frescura prominentes; Mostrador/POS → **keyboard-first**, foco permanente en captura, total/cobro dominan, feed al tope (la bandeja auditable SÍ pagina). Pantalla con reglas de negocio estrictas → **`<app-context-help>`** desde diccionario versionado, no texto inventado. → [Arquitectura de layouts por sector](#arquitectura-de-layouts-por-sector--ayuda-contextual-binding).
 
+**15. Jerarquía + comprensión (interfaces de MUCHOS valores).** En pantallas densas en cifras (tablas de conciliación, KPIs, ledger, existencia, egresos, pólizas) el riesgo #1 no es el estilo — es que no se entienda qué se mira: **answer-first** (veredicto/resumen primero; el grid crudo al drill-down) · cada número no trivial con su **lectura en llano** al lado · las diferencias **señalan la fila exacta**, no solo el total · todo dato accionable es **navegable a su arreglo** (con el filtro puesto) · jerarquía por **tipo+contraste, no por color** · color de grupo determinista + leyenda + nunca único portador · abouts (regla P) donde haya jerga. → [Jerarquía visual + comprensión del dato](#jerarquía-visual--comprensión-del-dato-interfaces-densas-en-valores--binding).
+
 ---
 
 ## Arquitectura de tokens (3 tiers + interacción + densidad por puntero)
@@ -616,6 +618,34 @@ Cuando un requerimiento choque con `DESIGN.md`, **no se resuelve en silencio**: 
 
 ---
 
+## Jerarquía visual + comprensión del dato (interfaces densas en valores) — BINDING
+
+> Alcance: superficies **densas en cifras** — tablas de conciliación, tableros de KPIs, ledgers, existencia, egresos, pólizas, cualquier grid con muchos valores. Añadido 2026-07-22 (destilado con Edgar sobre el rediseño de `/finanzas/bancos`). Donde hay **muchos números**, el riesgo #1 no es el estilo: es que el usuario no entienda **qué mira, qué significa, dónde está el problema y qué hacer**. Estas reglas convierten "muchos valores" en "una respuesta". Complementan [§Ingeniería de UI 1 (fundamento cognitivo)](#ingeniería-de-ui--contrato-de-implementación-binding) y [O.1 (Fiscal/Contable)](#arquitectura-de-layouts-por-sector--ayuda-contextual-binding). Se **verifican en review**.
+
+**Q.1 — Answer-first (pirámide invertida).** La pantalla abre con la **conclusión** — veredicto / total / "¿cuadra? · cuánto · qué falta" — no con la herramienta cruda. El dato primario domina por tamaño+peso+posición; la evidencia y el grid de N filas van al drill-down. ⛔ Si lo primero que ve el usuario es una tabla de cientos de filas en vez de la lectura del periodo, falló.
+
+**Q.2 — Explicar el número, no solo mostrarlo.** Todo número no trivial lleva su **lectura en lenguaje llano** al lado ("de $X, Kepler reconoce $Y → difieren $Z"), no solo el Δ crudo. Cuando el backend ya computa el porqué (dirección + causa), se **muestra**; no se entierra en una sola vista.
+
+**Q.3 — Señalar dónde está la diferencia.** En conciliación/comparación/descuadre, la UI apunta a la **fila/renglón exacto** del problema (expandible o enlazado), no solo el total agregado. Si el backend calcula la evidencia (el renglón donde salta el saldo, el par que no casa), se muestra **en contexto**.
+
+**Q.4 — Redirección desde el dato.** Todo número/estado que **evidencia algo** es **navegable a su lugar de arreglo con el filtro ya puesto** (chip de estado, fila, Δ, ítem de checklist → vista+filtro exactos). El usuario no vuelve a buscar lo que el sistema ya sabe señalar. Refuerza estado-en-URL (§Ing.UI 9).
+
+**Q.5 — Tres niveles de jerarquía explícitos.** Cada pantalla declara **primario / secundario / terciario** y lo expresa por **escala de tipo por rol** (`--text-page-head/section-head/body/data/label`) + **contraste de texto**, nunca por color ni por más cajas (refuerza §Ing.UI 1). `tabular-nums` innegociable para que las columnas de cifras se lean como columnas.
+
+**Q.6 — Color de grupo al servicio del entendimiento.** Cuando el color codifica categoría/grupo en un grid de muchos valores (patrón banco/Excel), es **determinista** (mismo grupo→mismo color siempre), **sutil** (tinte/borde, no fill saturado), **dark-safe** (paleta `--chart-*`, sin morado), con **leyenda visible** y **nunca único portador** (siempre + etiqueta/categoría). Es la excepción data-viz de la directiva quiet-luxury, no licencia para decorar.
+
+**Q.7 — Abouts (regla P) donde haya jerga.** El entendimiento del dato incluye poder consultar qué significa cada término sin salir de la pantalla: `<app-context-help>` desde el diccionario versionado.
+
+### Antipatrones (flag en review)
+- Pantalla de muchos valores que abre en el grid crudo, sin veredicto/lectura arriba (viola Q.1).
+- Δ / total mostrado sin explicación en llano de qué significa o por qué (viola Q.2).
+- "No cuadra $X" sin señalar la fila que lo causa (viola Q.3).
+- Número que evidencia un problema pero no lleva a arreglarlo (viola Q.4).
+- Jerarquía "lograda" con colores/cajas en vez de tipo+contraste (viola Q.5).
+- Color de grupo inconsistente, saturado, sin leyenda, o como único portador de significado (viola Q.6).
+
+---
+
 ## PWA / App instalable (BINDING)
 
 > Alcance: toda app que se **instala** en el dispositivo. Hoy `apps/vendor` (mobile-first, vendedor en campo); candidatos: `/portal` y `apps/view`. Origen: auditoría del vendor 2026-06-18 (manifest copiado de `apps/view`, sin service worker, `theme-color` hardcodeado). Bases teóricas + fuentes en [`docs/DESIGN_FOUNDATIONS.md` §10](docs/DESIGN_FOUNDATIONS.md).
@@ -672,6 +702,7 @@ Una app instalada **promete capacidades nativas**: arranca offline, se ve como a
 ## Decisions Log
 | Fecha | Decisión | Razón |
 |------|----------|-------|
+| 2026-07-22 | **Jerarquía visual + comprensión en interfaces de MUCHOS valores BINDING (§Q + pre-vuelo 15)** (answer-first · explicar el número en llano · señalar la fila exacta de la diferencia · redirección desde el dato · jerarquía por tipo+contraste no por color · color-grupo determinista+leyenda+no único portador · abouts P) | El DS garantizaba tokens/estados/a11y pero no que una pantalla con muchas cifras se **entienda**: qué es primario, qué significa cada número, dónde está el problema, cómo arreglarlo. Faltaba como regla → dependía de que el usuario lo pidiera a los golpes. Destilado con Edgar sobre el rediseño de `/finanzas/bancos` (color-por-grupo, renglón que salta, lecturas en llano, chips navegables). |
 | 2026-07-20 | **Arquitectura de layouts por sector + ayuda contextual BINDING** (O.1 Fiscal = master-detail permanente sin modal para docs extensos · O.2 Almacén/Compras = full-width grid + totales congelados + sidebar colapsable + offline/frescura · O.3 Mostrador/POS = keyboard-first + total/cobro dominantes + feed al tope; P = `<app-context-help>` desde diccionario de negocio versionado) | "El layout sigue a la operación, no al componente": cada sector tiene plantilla estructural inmutable. Reconcilia con datos densos (mostrador NO pagina / bandeja auditable SÍ; fiscal split permanente vs side-peek ligero). Genera backlog: viewer fiscal master-detail, focus-mode de sidebar, componente+diccionario ContextHelp. |
 | 2026-07-20 | **Leyes de interacción + arquitectura resiliente BINDING** (Tesler, Miller/chunking, Jakob, proximidad numérica, Von Restorff/destructivo, Poka-yoke, keyboard-first + estado sucio/`CanDeactivate`, datos añejos/frescura/scroll anclado, fallos parciales en lote, idempotencia visual anti doble-clic) | Cierra los puntos ciegos de la IA como dev de frontend: diseña la fachada y omite la plomería (retención de captura, concurrencia, respuesta parcial de bulk, doble-submit financiero). El DS visual no garantizaba interacciones resilientes. Destilado de la revisión con Edgar; huecos de cumplimiento asociados (309 `error:()=>` vacíos, focus-visible ~22%) quedan como barrido aparte. |
 | 2026-07-10 | **Contrato de ingeniería de UI BINDING** (fundamento cognitivo, matriz de estados, a11y AA+APCA, presupuesto de motion + ciclo de vida/Zone.js/`ctx.revert`, container queries en `libs/`, error boundaries por sección, formateo `Intl`+TZ+`tabular-nums`, XSS/`DomSanitizer`, estado-en-URL, optimistic UI, i18n locale) | Codifica el *cómo se construye* que faltaba: el DS visual no garantiza que la UI no se rompa con datos reales/errores ni que el motion no janquee/fugue memoria. GSAP aún no es dependencia — reglas rigen CSS/WAAPI hoy y GSAP si/cuando entre. |
