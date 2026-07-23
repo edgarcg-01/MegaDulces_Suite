@@ -39,7 +39,10 @@ async function createTenantRls(knex, table) {
 // null = comodín (siempre hace match). Patrones = regex case-insensitive.
 const RULES = [
   [10,  '^(TE|TI)$', null,        null,                                                           'traspaso_entre_cuentas', 'Traspaso interno por tipo de movimiento'],
-  [11,  null,        '^-$',       null,                                                           'traspaso_entre_cuentas', 'Código "-" = traspaso entre cuentas'],
+  // El código "-" = traspaso es un FALLBACK débil: debe ceder ante el tipo-M (PF/DS/ID/CF/C).
+  // Por eso vive en prioridad 82 (después de todos los tipos-M), no en 11. Si estuviera antes,
+  // se tragaba PF/DS/ID/C con código "-" y ensuciaba el neteo de traspasos (bug CB.9.4).
+  [82,  null,        '^-$',       null,                                                           'traspaso_entre_cuentas', 'Código "-" = traspaso (fallback, cede ante tipo-M)'],
   [20,  '^CF$',      null,        null,                                                           'compra_factoraje',       'Compra con factoraje'],
   [30,  '^PF$',      null,        null,                                                           'pago_factoraje',         'Pago a factoraje'],
   [40,  '^DS$',      null,        null,                                                           'devolucion_spei',        'Devolución SPEI'],
