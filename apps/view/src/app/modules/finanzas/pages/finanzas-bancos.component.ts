@@ -113,7 +113,7 @@ import { BancosAdminComponent } from './bancos/bancos-admin.component';
           <app-load-state [error]="concError()" (retry)="setPeriod(period())"></app-load-state>
         } @else {
           @if (concentrado(); as c) {
-            <bancos-concentrado [concentrado]="c" [accountOpts]="accountOpts()" />
+            <bancos-concentrado [concentrado]="c" [balances]="balances()" [accountOpts]="accountOpts()" />
           } @else {
             <div class="surf-empty"><i class="pi pi-inbox"></i><p>Sin estados de cuenta para {{ period() }}.</p></div>
           }

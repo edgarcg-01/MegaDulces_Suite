@@ -4,8 +4,8 @@ import { FormsModule } from '@angular/forms';
 import { SelectModule } from 'primeng/select';
 import { TableModule } from 'primeng/table';
 import { MetricStripComponent, MetricStripItem } from '../../../../shared/components/metric-strip/metric-strip.component';
-import { Concentrado } from '../../bank.service';
-import { GROUP_ORDER, groupLabel, groupColorVar } from './bancos-shared';
+import { Concentrado, Balances } from '../../bank.service';
+import { GROUP_ORDER, groupLabel, groupColorVar, money0 } from './bancos-shared';
 
 /**
  * CB.14 — Vista CONCENTRADO (pivote cuenta × grupo). Presentacional: recibe el
@@ -33,14 +33,22 @@ import { GROUP_ORDER, groupLabel, groupColorVar } from './bancos-shared';
             @for (g of groupCols(); track g) { <th class="ta-r"><span class="fb-ghead"><span class="fb-legend-dot" [style.--g]="color(g)"></span>{{ label(g) }}</span></th> }
             <th class="ta-r">Depósitos</th>
             <th class="ta-r">Retiros</th>
+            <th class="ta-c col-cuadre" title="¿El saldo de esta cuenta cierra? (inicial + depósitos − retiros = final)">Cuadre</th>
           </tr>
         </ng-template>
         <ng-template pTemplate="body" let-a>
-          <tr>
+          <tr [class.fb-nocuadra]="cuadreOf(a).state === 'bad'">
             <td class="fb-sticky-col"><span class="fb-acct">{{ a.bank }} <span class="muted">{{ a.account_label }}</span></span></td>
             @for (g of groupCols(); track g) { <td class="ta-r mono">{{ cellAmount(a, g) | currency:'MXN':'symbol-narrow':'1.0-0' }}</td> }
             <td class="ta-r mono fb-strong">{{ a.deposits | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
             <td class="ta-r mono fb-strong">{{ a.withdrawals | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+            <td class="ta-c">
+              @switch (cuadreOf(a).state) {
+                @case ('ok') { <i class="pi pi-check-circle ok" title="Cuadra"></i> }
+                @case ('bad') { <i class="pi pi-exclamation-triangle bad" [title]="'No cuadra · Δ ' + cuadreOf(a).deltaFmt"></i> }
+                @default { <span class="muted" title="Sin saldo en el Excel para verificar">—</span> }
+              }
+            </td>
           </tr>
         </ng-template>
         <ng-template pTemplate="footer">
@@ -49,6 +57,7 @@ import { GROUP_ORDER, groupLabel, groupColorVar } from './bancos-shared';
             @for (g of groupCols(); track g) { <td class="ta-r mono">{{ groupTotal(g) | currency:'MXN':'symbol-narrow':'1.0-0' }}</td> }
             <td class="ta-r mono fb-strong">{{ c().grand.deposits | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
             <td class="ta-r mono fb-strong">{{ c().grand.withdrawals | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+            <td class="ta-c">@if (noCuadraCount() > 0) { <span class="fb-bad-badge" [title]="noCuadraCount() + ' cuenta(s) sin cuadrar'">{{ noCuadraCount() }}</span> }</td>
           </tr>
         </ng-template>
       </p-table>
@@ -68,12 +77,37 @@ import { GROUP_ORDER, groupLabel, groupColorVar } from './bancos-shared';
     .fb-total-row { font-weight: 600; border-top: 2px solid var(--border-color); background: var(--surface-ground); }
     .fb-ghead { display: inline-flex; align-items: center; gap: 4px; }
     .fb-legend-dot { width: 10px; height: 10px; border-radius: 3px; background: var(--g, var(--text-faint)); flex: none; }
+    .ta-c { text-align: center; }
+    .ok { color: var(--ok-fg); } .bad { color: var(--bad-fg); }
+    .col-cuadre { width: 5rem; }
+    /* Fila cuya cuenta no cuadra: borde-tinte sutil (quiet-luxury, no fill saturado). */
+    .fb-nocuadra > td:first-child { box-shadow: inset 3px 0 0 var(--bad-fg); }
+    .fb-bad-badge { display: inline-flex; align-items: center; justify-content: center; min-width: 1.2rem; height: 1.2rem;
+      font-size: var(--fs-2xs, .7rem); font-weight: 700; border-radius: var(--r-pill);
+      background: color-mix(in srgb, var(--bad-fg) 15%, transparent); color: var(--bad-fg); }
   `],
 })
 export class BancosConcentradoComponent {
   readonly concentrado = input.required<Concentrado>();
+  readonly balances = input.required<Balances | null>();
   readonly accountOpts = input.required<{ label: string; value: string }[]>();
   readonly fAccount = signal('');
+
+  /** Mapa bank|account_label → cuadre (del cuadre de saldos verificado). */
+  readonly balMap = computed(() => {
+    const m = new Map<string, { cuadra: boolean; sin_saldo: boolean; delta: number }>();
+    for (const b of this.balances()?.accounts ?? []) {
+      m.set(`${b.bank}|${b.account_label}`, { cuadra: b.cuadra, sin_saldo: b.sin_saldo, delta: b.delta });
+    }
+    return m;
+  });
+  cuadreOf(a: { bank: string; account_label: string }): { state: 'ok' | 'bad' | 'na'; deltaFmt: string } {
+    const b = this.balMap().get(`${a.bank}|${a.account_label}`);
+    if (!b || b.sin_saldo) return { state: 'na', deltaFmt: '' };
+    return { state: b.cuadra ? 'ok' : 'bad', deltaFmt: money0(b.delta) };
+  }
+  readonly noCuadraCount = computed(() =>
+    this.rows().filter((a) => this.cuadreOf(a).state === 'bad').length);
 
   readonly c = computed(() => this.concentrado());
   readonly rows = computed(() => {
