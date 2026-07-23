@@ -1045,6 +1045,72 @@ export class FinanceBankService {
   }
 
   /**
+   * CB.11 — Verifica el PARSEO contra la hoja CONCENTRADO (finance.bank_concentrado_ref):
+   * agrega bank_movements por cuenta × tipo-M y compara contra la referencia humana
+   * (la verdad que contabilidad ya cuadró). Δ≠0 en cualquier tipo = error de captura
+   * NUESTRO, detectado de una vez (no por muestreo). Los tipos S/DS (pares Spei/DevSpei)
+   * se reportan aparte: el CONCENTRADO los excluye por lavarse. Candado de regresión.
+   */
+  async parseCheck(period?: string) {
+    this.tenantCtx.requireTenantId();
+    if (!period) throw new BadRequestException('period requerido (YYYY-MM)');
+    const CONC_TYPES = ['I', 'ID', 'LEM', 'CI', 'C', 'CF', 'PF', 'P', 'PLEM', 'G', 'TI', 'TE'];
+    const digits = (s: any) => String(s || '').replace(/\D/g, '');
+    return this.tk.run(async (trx) => {
+      const ref = await trx('finance.bank_concentrado_ref').where({ period })
+        .select('bank', 'cuenta', 'account_key', 'tipo', 'monto');
+      if (!ref.length) return { period, tiene_referencia: false, ok: null,
+        mensaje: 'No hay hoja CONCENTRADO cargada para este periodo (corre import-concentrado).' };
+
+      const refByAcct: Record<string, { bank: string; cuenta: string; t: Record<string, number> }> = {};
+      for (const r of ref as any[]) { (refByAcct[r.account_key] ||= { bank: r.bank, cuenta: r.cuenta, t: {} }).t[r.tipo] = n(r.monto); }
+
+      const mv = await trx('finance.bank_movements as bm')
+        .join('finance.bank_statements as st', 'st.id', 'bm.statement_id')
+        .join('finance.bank_accounts as ba', 'ba.id', 'bm.bank_account_id')
+        .where('st.period', period)
+        .groupBy('ba.bank', 'ba.account_label', 'ba.alias', 'bm.raw_type')
+        .select('ba.account_label as lbl', 'ba.bank', 'ba.alias', trx.raw('UPPER(bm.raw_type) as rt'),
+          trx.raw('SUM(bm.amount_in + bm.amount_out)::numeric as monto'));
+      const dbByAcct: Record<string, { bank: string; lbl: string; alias: string; t: Record<string, number> }> = {};
+      for (const r of mv as any[]) { const k = `${r.bank}|${r.lbl}`;
+        (dbByAcct[k] ||= { bank: r.bank, lbl: r.lbl, alias: String(r.alias || '').toUpperCase(), t: {} });
+        dbByAcct[k].t[r.rt] = (dbByAcct[k].t[r.rt] || 0) + n(r.monto); }
+
+      const matchRef = (d: any): [string, any] | null => {
+        const dd = digits(d.lbl), dbank = String(d.bank).toUpperCase();
+        for (const [k, e] of Object.entries(refByAcct)) {
+          const kd = digits(k);
+          if (kd && dd && (kd === dd || (kd.length >= 3 && dd.endsWith(kd)) || (dd.length >= 3 && kd.endsWith(dd)))) return [k, e];
+          const tok = String(k).toUpperCase().replace(/[^A-Z0-9]/g, '');
+          if (tok && d.alias.replace(/[^A-Z0-9]/g, '').includes(tok)) return [k, e];
+          if (!kd && !dd && (String(e.bank).toUpperCase().startsWith(dbank) || dbank.startsWith(String(e.bank).toUpperCase().slice(0, 4)))) return [k, e];
+        }
+        return null;
+      };
+
+      const cuentas: any[] = []; let totalDelta = 0; const usedRef = new Set<string>();
+      for (const d of Object.values(dbByAcct)) {
+        const m = matchRef(d);
+        if (!m) { cuentas.push({ bank: d.bank, cuenta: d.lbl, matched: false, nota: 'sin fila en CONCENTRADO' }); continue; }
+        const [rk, e] = m; usedRef.add(rk);
+        const byType: Record<string, number> = {}; const extras: Record<string, number> = {};
+        for (const [rt, v] of Object.entries(d.t)) { if (CONC_TYPES.includes(rt)) byType[rt] = (byType[rt] || 0) + v; else extras[rt] = (extras[rt] || 0) + v; }
+        const diffs: any[] = [];
+        for (const ty of CONC_TYPES) { const ex = e.t[ty] || 0, ob = byType[ty] || 0; const delta = Math.round((ob - ex) * 100) / 100;
+          if (Math.abs(delta) >= 1) { diffs.push({ tipo: ty, excel: ex, db: ob, delta }); totalDelta += Math.abs(delta); } }
+        cuentas.push({ bank: e.bank, cuenta: e.cuenta, matched: true, diffs,
+          extras: Object.entries(extras).filter(([, v]) => Math.abs(v) >= 1).map(([tipo, monto]) => ({ tipo, monto: Math.round(monto) })) });
+      }
+      const refSinCuenta = Object.entries(refByAcct).filter(([k]) => !usedRef.has(k)).map(([, e]) => ({ bank: e.bank, cuenta: e.cuenta }));
+      totalDelta = Math.round(totalDelta * 100) / 100;
+      return { period, tiene_referencia: true, ok: totalDelta < 1, total_delta: totalDelta,
+        cuentas_ok: cuentas.filter((c) => c.matched && !c.diffs?.length).length,
+        cuentas_total: cuentas.length, cuentas, ref_sin_cuenta: refSinCuenta };
+    });
+  }
+
+  /**
    * CB.2.1 — Import web del workbook Excel (mismo parse+clasificación que el CLI CB.1).
    * Recibe el .xlsx en base64 + periodo; puebla bank_statements + bank_movements
    * (UPSERT por client_uuid, no DELETE). Devuelve resumen por cuenta + grupos.

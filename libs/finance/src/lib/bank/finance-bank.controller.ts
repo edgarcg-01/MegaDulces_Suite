@@ -67,6 +67,11 @@ export class FinanceBankController {
   @ApiOperation({ summary: '¿Por qué no cuadra? Lista accionable de descuadres (sin clasificar, saldos, faltantes, Kepler).' })
   diagnostico(@Query('period') period?: string) { return this.svc.diagnostico(period); }
 
+  @Get('parse-check')
+  @RequirePermissions(Permission.FINANCE_BANK_VER)
+  @ApiOperation({ summary: 'Verifica el parseo cuenta×tipo contra la hoja CONCENTRADO (Δ≠0 = error de captura nuestro).' })
+  parseCheck(@Query('period') period?: string) { return this.svc.parseCheck(period); }
+
   @Post('findings/sync')
   @RequirePermissions(Permission.FINANCE_BANK_GESTIONAR)
   @ApiOperation({ summary: 'Empuja las diferencias de conciliación a la bandeja de hallazgos de Maat.' })
