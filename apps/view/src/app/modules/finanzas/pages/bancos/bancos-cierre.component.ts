@@ -35,9 +35,10 @@ import { cuadra } from './bancos-shared';
 
       <label class="fb-toggle">
         <p-checkbox [ngModel]="countTransfers()" [binary]="true" inputId="ctTr" (onChange)="countTransfers.set($event.checked)" />
-        <span>Contar traspasos internos en el neto</span>
-        <span class="muted">— por default se excluyen (son movimientos entre cuentas propias, no flujo del negocio); el neto muestra solo lo operativo.</span>
+        <span>Incluir traspasos internos en ingresos/egresos</span>
+        <span class="muted">— los traspasos (entre cuentas propias) netean a $0, así que NO cambian el neto; el toggle solo cambia el volumen bruto que ves.</span>
       </label>
+      <p class="fb-diag-note muted"><i class="pi pi-info-circle"></i> El <b>neto</b> es el flujo del mes (lo que entró − lo que salió) — <b>no tiene que ser $0</b>. Lo que debe <b>cuadrar</b> es el saldo de cada cuenta (pestaña Cuentas: inicial + depósitos − retiros = final) y los traspasos internos (TI=TE).</p>
 
       @if (!d.tiene_balanza_kepler) {
         <p class="fb-diag-note muted"><i class="pi pi-info-circle"></i> La balanza de Kepler no está cargada para {{ d.period }}, así que el cruce contable no se está evaluando (solo el cuadre interno de saldos y la clasificación).</p>
@@ -132,10 +133,14 @@ export class BancosCierreComponent {
   readonly countTransfers = signal(false);
 
   private totals(d: Diagnostico): { ingresos: number; egresos: number; neto: number } {
-    const tr = this.concentrado()?.groupTotals?.['traspaso'];
+    // Excluir solo los traspasos internos REALES (raw_type TI/TE, de balances) — netean
+    // a $0, así que el neto NO cambia al incluirlos/excluirlos: el toggle solo cambia el
+    // volumen bruto de ingresos/egresos que se ve. (Usar el grupo 'traspaso' era el bug:
+    // arrastraba Spei/G mal clasificados y falseaba el neto operativo.)
+    const tr = this.balances()?.traspasos;
     if (this.countTransfers() || !tr) return { ingresos: d.ingresos, egresos: d.egresos, neto: d.neto };
-    const ingresos = d.ingresos - (tr.deposits || 0);
-    const egresos = d.egresos - (tr.withdrawals || 0);
+    const ingresos = d.ingresos - (tr.entra || 0);
+    const egresos = d.egresos - (tr.sale || 0);
     return { ingresos, egresos, neto: Math.round((ingresos - egresos) * 100) / 100 };
   }
   kpis(d: Diagnostico): MetricStripItem[] {
