@@ -629,8 +629,8 @@ export class FinanceBankService {
       }));
       items.push({ tipo: 'sin_clasificar', severidad: 'warn', importe: n((sinClas as any)?.monto),
         titulo: `${(sinClas as any).n} movimientos sin clasificar`,
-        detalle: `Hay ${money(n((sinClas as any)?.monto))} sin categoría asignada. No entran a ningún grupo del cuadre. Los grupos de abajo son los que más pesan — cada uno es una regla que puedes crear.`,
-        accion: 'En Admin → Reglas, crea una regla por cada patrón de abajo (código C + concepto → categoría) y dale «Reclasificar». Los que sean únicos, clasifícalos a mano en Movimientos.',
+        detalle: `Hay ${money(n((sinClas as any)?.monto))} sin categoría asignada. No entran a ningún grupo del cuadre. Los grupos de abajo son los que más pesan.`,
+        accion: 'Por ahora la clasificación no se edita aquí. En Kepler, busca cada movimiento por monto + fecha en el auxiliar del 102: la contracuenta te dice su naturaleza. Si no está registrado, captúralo en la cuenta correcta.',
         evidencia });
     }
     // 2. Cuentas cuyo saldo no cuadra (+ evidencia: el renglón donde el saldo salta).

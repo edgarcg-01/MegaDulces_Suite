@@ -494,16 +494,16 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
 
   bancos_sin_clasificar: {
     title: 'Movimientos sin clasificar',
-    intro: 'Movimientos a los que el motor no les asignó categoría. No entran a ningún grupo del cuadre, por eso hay que clasificarlos.',
+    intro: 'Movimientos del banco a los que el motor aún no les asignó categoría. Por ahora la clasificación NO se edita aquí — para el cuadre lo que importa es que el movimiento esté bien registrado en Kepler.',
     resolve: [
       {
-        heading: 'Clasificarlos',
+        heading: 'Qué hacer en Kepler',
         kind: 'fix',
         steps: [
-          'Los patrones que más pesan salen listados abajo (código + concepto).',
-          'Para cada patrón repetido: Admin → Reglas → creá una regla (código + concepto → categoría) y dale "Reclasificar".',
-          'Los movimientos únicos/raros: clasificalos a mano en el tab Movimientos.',
-          '"Reclasificar" respeta lo que ya marcaste a mano — no lo pisa.',
+          'En Kepler, buscá cada movimiento por monto + fecha en el auxiliar del 102 (o en la cuenta del beneficiario).',
+          'La contracuenta que usó Kepler te dice su naturaleza: nómina 601, servicios 603, comisión bancaria 611-003, etc.',
+          'Si el movimiento NO está registrado en Kepler, capturalo en la cuenta correcta — ese es el gap real que cierra el cuadre.',
+          'Los patrones que más pesan salen listados abajo (código + concepto) para ubicarlos rápido.',
         ],
       },
     ],
@@ -530,12 +530,12 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
     intro: 'Los traspasos entre cuentas propias (TI = entra, TE = sale) deben netear a cero: lo que sale de una cuenta entra en otra.',
     resolve: [
       {
-        heading: 'Revisar',
+        heading: 'Qué hacer en Kepler',
         kind: 'fix',
         steps: [
-          'Si TI ≠ TE, normalmente falta capturar el otro lado del traspaso (la cuenta destino o la de origen).',
-          'Ojo: movimientos que NO son traspaso (Spei, otros) mal clasificados como traspaso también descuadran — reclasificalos a su categoría real.',
-          'Los traspasos reales (raw_type TI/TE) ya se miden aparte y netean a cero.',
+          'Si TI ≠ TE, en Kepler revisá que el traspaso tenga sus DOS lados capturados (cuenta origen y cuenta destino).',
+          'Si falta un lado, capturalo en Kepler.',
+          'Los traspasos reales (TI/TE) ya se miden aparte y netean a cero; un Spei u otro movimiento mal etiquetado como traspaso también descuadra — en Kepler verificá su cuenta real.',
         ],
       },
     ],
