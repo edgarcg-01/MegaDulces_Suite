@@ -7,8 +7,9 @@ import { CheckboxModule } from 'primeng/checkbox';
 import { InputTextModule } from 'primeng/inputtext';
 import { IconFieldModule } from 'primeng/iconfield';
 import { InputIconModule } from 'primeng/inputicon';
+import { DialogModule } from 'primeng/dialog';
 import { BankMovement } from '../../bank.service';
-import { GROUP_ORDER, groupLabel, groupColorVar, dmy } from './bancos-shared';
+import { GROUP_ORDER, groupLabel, groupColorVar, dmy, money0 } from './bancos-shared';
 
 /**
  * CB.14 — Vista MOVIMIENTOS (tabla filtrable read-only). El shell posee los filtros
@@ -18,7 +19,7 @@ import { GROUP_ORDER, groupLabel, groupColorVar, dmy } from './bancos-shared';
 @Component({
   selector: 'bancos-movimientos',
   standalone: true,
-  imports: [CommonModule, FormsModule, TableModule, SelectModule, CheckboxModule, InputTextModule, IconFieldModule, InputIconModule],
+  imports: [CommonModule, FormsModule, TableModule, SelectModule, CheckboxModule, InputTextModule, IconFieldModule, InputIconModule, DialogModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="fb-filters">
@@ -74,9 +75,10 @@ import { GROUP_ORDER, groupLabel, groupColorVar, dmy } from './bancos-shared';
           </tr>
         </ng-template>
         <ng-template pTemplate="body" let-m>
-          <tr class="fb-mov-row" [class.fb-colored]="colorByGroup()"
+          <tr class="fb-mov-row fb-row-click" [class.fb-colored]="colorByGroup()"
               [style.--g]="colorByGroup() ? color(m.group_key) : null"
-              [class.fb-uncat]="!m.category_id && !colorByGroup()">
+              [class.fb-uncat]="!m.category_id && !colorByGroup()"
+              (click)="openMov(m)" tabindex="0" role="button" (keyup.enter)="openMov(m)">
             <td class="mono">{{ dm(m.movement_date) }}</td>
             <td class="muted">{{ m.account_label }}</td>
             <td class="fb-concept" [title]="m.concept">{{ m.concept || '—' }}</td>
@@ -97,6 +99,17 @@ import { GROUP_ORDER, groupLabel, groupColorVar, dmy } from './bancos-shared';
         </ng-template>
       </p-table>
     </div>
+
+    <!-- Detalle del movimiento (clic en fila): a qué se atribuye + estado. -->
+    <p-dialog [visible]="!!detail()" (visibleChange)="detail.set(null)" [modal]="true" [dismissableMask]="true"
+              [header]="detail()?.title || 'Movimiento'" [style]="{ width: '32rem' }">
+      @if (detail(); as d) {
+        <dl class="fb-dl">
+          @for (f of d.fields; track f.k) { <div class="fb-dl-row"><dt>{{ f.k }}</dt><dd [class.mono]="f.mono">{{ f.v }}</dd></div> }
+        </dl>
+        <p class="fb-dl-note muted"><i class="pi pi-info-circle"></i> {{ d.note }}</p>
+      }
+    </p-dialog>
   `,
   styles: [`
     :host { display: block; }
@@ -127,6 +140,13 @@ import { GROUP_ORDER, groupLabel, groupColorVar, dmy } from './bancos-shared';
     .fb-rec-no { color: var(--text-faint); font-size: 0.7rem; }
     .surf-empty { display: flex; flex-direction: column; align-items: center; gap: var(--sp-2); padding: var(--sp-8); color: var(--text-muted); }
     .surf-empty i { font-size: 1.5rem; }
+    .fb-row-click { cursor: pointer; }
+    .fb-row-click:focus-visible { outline: 2px solid var(--action-ring); outline-offset: -2px; }
+    .fb-dl { margin: 0; display: flex; flex-direction: column; gap: var(--sp-2); }
+    .fb-dl-row { display: grid; grid-template-columns: 9rem 1fr; gap: var(--sp-2); align-items: baseline; }
+    .fb-dl-row dt { font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: .04em; color: var(--text-faint); font-weight: 700; }
+    .fb-dl-row dd { margin: 0; font-size: var(--fs-sm); color: var(--text-main); }
+    .fb-dl-note { font-size: var(--fs-xs); margin: var(--sp-4) 0 0; display: flex; align-items: baseline; gap: var(--sp-1); }
   `],
 })
 export class BancosMovimientosComponent {
@@ -148,4 +168,33 @@ export class BancosMovimientosComponent {
   label(g: string): string { return groupLabel(g); }
   color(g?: string | null): string { return groupColorVar(g); }
   dm(v: any): string { return dmy(v); }
+
+  /** Detalle del movimiento (clic en fila): a qué se atribuye + estado de conciliación. */
+  readonly detail = signal<{ title: string; fields: { k: string; v: string; mono?: boolean }[]; note: string } | null>(null);
+  openMov(m: BankMovement): void {
+    const esRetiro = (m.amount_out || 0) > 0;
+    const fields = [
+      { k: 'Fecha', v: dmy(m.movement_date), mono: true },
+      { k: 'Cuenta', v: `${m.bank} ${m.account_label}` },
+      { k: 'Concepto', v: m.concept || '—' },
+      { k: 'Tipo (Excel)', v: m.raw_type || '—', mono: true },
+      { k: 'Código (Excel)', v: m.raw_code || '—', mono: true },
+      { k: 'Categoría', v: m.category_name || 'sin clasificar' },
+      { k: 'Grupo', v: m.group_key ? groupLabel(m.group_key) : '—' },
+      { k: 'Cuenta Kepler', v: m.kepler_account || '—', mono: true },
+      { k: esRetiro ? 'Retiro' : 'Depósito', v: money0(esRetiro ? m.amount_out : m.amount_in), mono: true },
+      { k: 'Conciliación', v: m.recon_status === 'matched' ? 'Conciliado con Kepler' : m.recon_status === 'unmatched' ? 'Sin conciliar' : '—' },
+    ];
+    let note: string;
+    if (m.group_key === 'ingreso' && esRetiro) {
+      note = 'Ojo: está clasificado como ingreso (cobranza) pero es un RETIRO (salida). Se ve como posible misclasificación — revisa el tipo/código del Excel; si es un cargo real, debe reclasificarse en el origen.';
+    } else if (!esRetiro) {
+      note = 'Es un depósito. Los depósitos no se concilian 1 a 1 contra el 102 (ese cruce aplica solo a los retiros).';
+    } else if (m.recon_status === 'matched') {
+      note = 'Conciliado: este retiro ya tiene su pago equivalente en el 102 de Kepler.';
+    } else {
+      note = 'Sin conciliar: no se encontró su pago en el 102. Si es factoraje o nómina/comisión agrupada, no requiere acción; si es compra/gasto, captúralo o reclasifícalo en Kepler (auxiliar del 102, por beneficiario + monto + fecha).';
+    }
+    this.detail.set({ title: 'Detalle del movimiento', fields, note });
+  }
 }
