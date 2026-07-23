@@ -20,13 +20,15 @@ import { ContextHelpComponent } from '../../../shared/context-help/context-help.
 import { FINANZAS_TABS } from '../finanzas-tabs';
 import { BankService, BankAccount, MovementCategory, BankStatement, BankMovement, Concentrado, Reconciliation, MatchResult, Differences, Balances, Diagnostico, KeplerAccount } from '../bank.service';
 import {
-  BankView as View, BankAdminTab as AdminTab, MONTHS_ES, WORK_VIEWS,
-  GROUP_LABELS, GROUP_ORDER, GROUP_COLOR,
+  BankView as View, MONTHS_ES, WORK_VIEWS,
+  GROUP_LABELS, GROUP_ORDER,
 } from './bancos/bancos-shared';
 import { BancosConcentradoComponent } from './bancos/bancos-concentrado.component';
 import { BancosConciliacionComponent } from './bancos/bancos-conciliacion.component';
 import { BancosCuentasComponent } from './bancos/bancos-cuentas.component';
 import { BancosCierreComponent } from './bancos/bancos-cierre.component';
+import { BancosMovimientosComponent } from './bancos/bancos-movimientos.component';
+import { BancosAdminComponent } from './bancos/bancos-admin.component';
 
 /**
  * CB.3 — Conciliación bancaria (ADR-033). Reemplaza el workbook Excel: tablero
@@ -39,7 +41,8 @@ import { BancosCierreComponent } from './bancos/bancos-cierre.component';
   imports: [CommonModule, FormsModule, ButtonModule, TableModule, ToastModule, SelectModule, CheckboxModule,
     InputNumberModule, InputTextModule, IconFieldModule, InputIconModule,
     PageTabsComponent, MetricStripComponent, LoadStateComponent, FreshnessPillComponent, ContextHelpComponent,
-    BancosConcentradoComponent, BancosConciliacionComponent, BancosCuentasComponent, BancosCierreComponent],
+    BancosConcentradoComponent, BancosConciliacionComponent, BancosCuentasComponent, BancosCierreComponent,
+    BancosMovimientosComponent, BancosAdminComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
@@ -119,84 +122,10 @@ import { BancosCierreComponent } from './bancos/bancos-cierre.component';
 
       <!-- ── MOVIMIENTOS: la tabla de todos los ingresos y egresos ── -->
       @if (view() === 'movimientos') {
-        <div class="fb-filters">
-          <p-select [options]="accountOpts()" optionLabel="label" optionValue="value" [filter]="true"
-                    [ngModel]="fAccount()" (ngModelChange)="fAccount.set($event); reloadMovements()"
-                    appendTo="body" styleClass="fb-sel sel-liquid" ariaLabel="Cuenta"></p-select>
-          <p-select [options]="groupOpts()" optionLabel="label" optionValue="value"
-                    [ngModel]="fGroup()" (ngModelChange)="fGroup.set($event); reloadMovements()"
-                    appendTo="body" styleClass="fb-sel sel-liquid" ariaLabel="Grupo"></p-select>
-          <p-select [options]="reconOpts" optionLabel="label" optionValue="value"
-                    [ngModel]="fRecon()" (ngModelChange)="fRecon.set($event); reloadMovements()"
-                    appendTo="body" styleClass="fb-sel sel-liquid" ariaLabel="Estado de conciliación"></p-select>
-          <span class="fb-check">
-            <p-checkbox [ngModel]="fUncat()" [binary]="true" inputId="fUncat" (onChange)="fUncat.set($event.checked); reloadMovements()"></p-checkbox>
-            <label for="fUncat">Solo sin clasificar</label>
-          </span>
-          <span class="fb-check">
-            <p-checkbox [ngModel]="colorByGroup()" [binary]="true" inputId="fColor" (onChange)="colorByGroup.set($event.checked)"></p-checkbox>
-            <label for="fColor">Color por grupo</label>
-          </span>
-          <p-iconfield iconPosition="left" class="fb-search">
-            <p-inputicon styleClass="pi pi-search" />
-            <input pInputText type="text" [ngModel]="fSearch()" (ngModelChange)="onSearch($event)"
-                   placeholder="Buscar concepto / código…" aria-label="Buscar" />
-          </p-iconfield>
-          <span class="fb-count muted">
-            @if (movTotal() > movements().length) { Mostrando {{ movements().length | number }} de {{ movTotal() | number }} }
-            @else { {{ movTotal() | number }} movimientos }
-          </span>
-        </div>
-        @if (colorByGroup()) {
-          <div class="fb-legend" aria-label="Colores por grupo — clic para filtrar">
-            @for (g of GROUP_ORDER; track g) {
-              <button type="button" class="fb-legend-item" [class.active]="fGroup() === g" [style.--g]="groupColorVar(g)"
-                      (click)="fGroup.set(fGroup() === g ? '' : g); reloadMovements()" [attr.aria-pressed]="fGroup() === g">
-                <span class="fb-legend-dot"></span>{{ label(g) }}
-              </button>
-            }
-          </div>
-        }
-        <div class="card-premium card-flat fb-tablewrap">
-          <p-table [value]="movements()" styleClass="p-datatable-sm" [rowHover]="true" [scrollable]="true" scrollHeight="58vh"
-                   [paginator]="movements().length > 50" [rows]="50" [rowsPerPageOptions]="[50, 100, 200]">
-            <ng-template pTemplate="header">
-              <tr>
-                <th class="col-w6" pSortableColumn="movement_date">Fecha <p-sortIcon field="movement_date" /></th>
-                <th class="col-w7">Cuenta</th>
-                <th>Concepto</th>
-                <th class="col-w11">Categoría</th>
-                <th class="ta-r col-w8" pSortableColumn="amount_in">Depósito <p-sortIcon field="amount_in" /></th>
-                <th class="ta-r col-w8" pSortableColumn="amount_out">Retiro <p-sortIcon field="amount_out" /></th>
-                <th class="col-w25" title="Conciliación"></th>
-              </tr>
-            </ng-template>
-            <ng-template pTemplate="body" let-m>
-              <tr class="fb-mov-row" [class.fb-colored]="colorByGroup()"
-                  [style.--g]="colorByGroup() ? groupColorVar(m.group_key) : null"
-                  [class.fb-uncat]="!m.category_id && !colorByGroup()">
-                <td class="mono">{{ dmy(m.movement_date) }}</td>
-                <td class="muted">{{ m.account_label }}</td>
-                <td class="fb-concept" [title]="m.concept">{{ m.concept || '—' }}</td>
-                <td>
-                  <!-- Read-only: la clasificación se hace en Kepler, no aquí (el motor la
-                       aplica al importar). Chip informativo con la categoría vigente. -->
-                  @if (m.category_name) { <span class="fb-cat-chip">{{ m.category_name }}</span> }
-                  @else { <span class="fb-cat-chip fb-cat-none">sin clasificar</span> }
-                </td>
-                <td class="ta-r mono">{{ m.amount_in ? (m.amount_in | currency:'MXN':'symbol-narrow':'1.2-2') : '' }}</td>
-                <td class="ta-r mono">{{ m.amount_out ? (m.amount_out | currency:'MXN':'symbol-narrow':'1.2-2') : '' }}</td>
-                <td class="ta-c">
-                  @if (m.recon_status === 'matched') { <i class="pi pi-check-circle fb-rec-ok" title="Conciliado con Kepler"></i> }
-                  @else if (m.recon_status === 'unmatched') { <i class="pi pi-circle fb-rec-no" title="Sin conciliar"></i> }
-                </td>
-              </tr>
-            </ng-template>
-            <ng-template pTemplate="emptymessage">
-              <tr><td colspan="7"><div class="surf-empty"><i class="pi pi-inbox"></i><p>Sin movimientos con estos filtros.</p></div></td></tr>
-            </ng-template>
-          </p-table>
-        </div>
+        <bancos-movimientos [movements]="movements()" [movTotal]="movTotal()"
+          [accountOpts]="accountOpts()" [groupOpts]="groupOpts()" [reconOpts]="reconOpts"
+          [fAccount]="fAccount()" [fGroup]="fGroup()" [fRecon]="fRecon()" [fUncat]="fUncat()" [fSearch]="fSearch()"
+          (filter)="onMovFilter($event)" (searchChange)="onSearch($event)" />
       }
 
       <!-- ── CONCILIACIÓN banco ↔ Kepler (answer-first: veredicto → sin conciliar → evidencia) ── -->
@@ -216,71 +145,12 @@ import { BancosCierreComponent } from './bancos/bancos-cierre.component';
           [period]="period()" (openAccount)="verCuentaMovs($event)" />
       }
 
-      <!-- ── ADMIN: catálogo + reglas de clasificación ── -->
+      <!-- ── ADMIN: catálogo real Kepler (read-only) + setup de cuentas de banco ── -->
       @if (view() === 'admin') {
-        <div class="fb-adminseg" role="tablist">
-          <button role="tab" [class.active]="adminTab()==='catalogo'" (click)="adminTab.set('catalogo')">Catálogo Kepler</button>
-          <button role="tab" [class.active]="adminTab()==='cuentas'" (click)="adminTab.set('cuentas')">Cuentas de banco</button>
-        </div>
-
-        <!-- Catálogo real de cuentas de Kepler (búsqueda) -->
-        @if (adminTab() === 'catalogo') {
-          <div class="fb-admin-bar">
-            <p class="fb-admin-note muted">Catálogo REAL de cuentas de Kepler (almacén 00). Úsalo para saber qué mayor/subcuenta es cada cosa — NO adivines. Busca por clave (611) o descripción (comisión).</p>
-            <p-iconfield iconPosition="left" class="fb-search">
-              <p-inputicon styleClass="pi pi-search" />
-              <input pInputText type="text" [ngModel]="kaSearch()" (ngModelChange)="onKaSearch($event)"
-                     placeholder="Buscar cuenta: clave o descripción…" aria-label="Buscar cuenta Kepler" />
-            </p-iconfield>
-          </div>
-          <div class="card-premium card-flat fb-tablewrap">
-            <p-table [value]="keplerAccounts()" styleClass="p-datatable-sm" [rowHover]="true" [scrollable]="true" scrollHeight="60vh">
-              <ng-template pTemplate="header">
-                <tr><th class="col-w8">Clave</th><th>Descripción</th><th class="col-w6">Mayor</th></tr>
-              </ng-template>
-              <ng-template pTemplate="body" let-a>
-                <tr><td class="mono" [class.ok]="a.es_mayor">{{ a.cuenta }}</td><td>{{ a.cuenta_nombre || '—' }}</td><td class="mono muted">{{ a.cuenta_mayor }}</td></tr>
-              </ng-template>
-              <ng-template pTemplate="emptymessage">
-                <tr><td colspan="3"><div class="surf-empty"><i class="pi pi-search"></i><p>{{ kaSearch() ? 'Sin resultados.' : 'Escribe para buscar en el catálogo.' }}</p></div></td></tr>
-              </ng-template>
-            </p-table>
-          </div>
-        }
-
-        <!-- Cuentas de banco (setup): alta/edición con PrimeNG -->
-        @if (adminTab() === 'cuentas') {
-          <div class="fb-admin-bar">
-            <p class="fb-admin-note muted">Cuentas del catálogo (banco/caja/factoraje). Alias = nombre de la hoja en el Excel. Necesario para importar y cuadrar.</p>
-          </div>
-          <div class="card-premium card-flat fb-tablewrap">
-            <p-table [value]="accounts()" styleClass="p-datatable-sm" [rowHover]="true" [scrollable]="true" scrollHeight="60vh">
-              <ng-template pTemplate="header">
-                <tr><th class="col-w8">Banco</th><th class="col-w6">Cuenta</th><th class="col-w10">Alias (hoja Excel)</th><th class="col-w7">Tipo</th><th>Vínculo Kepler</th><th class="col-w4 ta-c">Activa</th></tr>
-              </ng-template>
-              <ng-template pTemplate="body" let-a>
-                <tr [class.fb-inactive]="!a.active">
-                  <td>{{ a.bank }}</td>
-                  <td class="mono">{{ a.account_label }}</td>
-                  <td><input pInputText class="fb-pin mono" [ngModel]="a.alias" (change)="patchAccount(a, { alias: $any($event.target).value })" placeholder="—" /></td>
-                  <td><p-select [options]="kindOpts" optionLabel="label" optionValue="value" [ngModel]="a.kind" (ngModelChange)="patchAccount(a, { kind: $event })" appendTo="body" styleClass="fb-sel sel-liquid" /></td>
-                  <td><input pInputText class="fb-pin" [ngModel]="a.kepler_link" (change)="patchAccount(a, { kepler_link: $any($event.target).value })" placeholder="cómo mapea al 102" /></td>
-                  <td class="ta-c"><p-checkbox [ngModel]="a.active" [binary]="true" (onChange)="patchAccount(a, { active: $event.checked })" /></td>
-                </tr>
-              </ng-template>
-              <ng-template pTemplate="footer">
-                <tr class="fb-newrow">
-                  <td><input pInputText class="fb-pin" [(ngModel)]="naBank" placeholder="BANCO" /></td>
-                  <td><input pInputText class="fb-pin mono" [(ngModel)]="naLabel" placeholder="0000" /></td>
-                  <td><input pInputText class="fb-pin mono" [(ngModel)]="naAlias" placeholder="hoja Excel" /></td>
-                  <td><p-select [options]="kindOpts" optionLabel="label" optionValue="value" [(ngModel)]="naKind" appendTo="body" styleClass="fb-sel sel-liquid" /></td>
-                  <td><input pInputText class="fb-pin" [(ngModel)]="naKepler" placeholder="opcional" /></td>
-                  <td class="ta-c"><button pButton type="button" icon="pi pi-plus" class="p-button-sm p-button-text" [disabled]="addingAcct()" (click)="addAccount()"></button></td>
-                </tr>
-              </ng-template>
-            </p-table>
-          </div>
-        }
+        <bancos-admin [keplerAccounts]="keplerAccounts()" [accounts]="accounts()"
+          [kaSearch]="kaSearch()" [addingAcct]="addingAcct()"
+          (search)="onKaSearch($event)" (patchAccount)="patchAccount($event.a, $event.patch)"
+          (addAccount)="addAccount($event)" />
       }
       }
     </div>
@@ -495,10 +365,10 @@ export class FinanzasBancosComponent implements OnInit {
   readonly movements = signal<BankMovement[]>([]);
   readonly movTotal = signal(0);
 
+  // Filtros de Movimientos (el shell los posee para poder recargar al cambiar de periodo).
   readonly fAccount = signal('');
   readonly fGroup = signal('');
   readonly fUncat = signal(false);
-  readonly colorByGroup = signal(true);
   readonly fSearch = signal('');
   readonly fRecon = signal('');
   readonly uploading = signal(false);
@@ -510,16 +380,9 @@ export class FinanzasBancosComponent implements OnInit {
     { label: 'Sin conciliar', value: 'unmatched' },
   ];
 
-  // ── Admin (read-only + setup de cuentas) ──
-  readonly adminTab = signal<AdminTab>('catalogo');
-  readonly kindOpts = [
-    { label: 'Banco', value: 'bank' }, { label: 'Caja', value: 'cash' }, { label: 'Factoraje', value: 'factoraje' },
-  ];
-  // CB.13 — buscador del catálogo real de cuentas Kepler.
+  // CB.13 — buscador del catálogo real de cuentas Kepler (resultados los posee el shell).
   readonly kaSearch = signal('');
   readonly keplerAccounts = signal<KeplerAccount[]>([]);
-  // nueva cuenta
-  naBank = ''; naLabel = ''; naAlias = ''; naKind = 'bank'; naKepler = '';
 
   // Errores por vista (banner + Reintentar; separa "no cargó" de "vacío" — DESIGN §6).
   readonly concError = signal<string | null>(null);
@@ -688,13 +551,15 @@ export class FinanzasBancosComponent implements OnInit {
     this.api.balances(p).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (b) => this.balances.set(b), error: () => {} });
   }
 
-  label(group: string): string { return GROUP_LABELS[group] || group; }
-  /** Color del grupo (CC.1) como referencia CSS var, para tinte de fila / dot de leyenda. */
-  groupColorVar(group?: string | null): string { return GROUP_COLOR[group || 'sin_clasificar'] || 'transparent'; }
-  /** Fecha dd/MM/yy sin conversión de TZ (string puro; evita el off-by-one del date pipe con fechas date). */
-  dmy(v: unknown): string {
-    const m = String(v ?? '').match(/^(\d{4})-(\d{2})-(\d{2})/);
-    return m ? `${m[3]}/${m[2]}/${m[1].slice(2)}` : String(v ?? '');
+  /** Cambio de filtro emitido por <bancos-movimientos>: setea el signal y recarga. */
+  onMovFilter(e: { field: string; value: any }): void {
+    switch (e.field) {
+      case 'account': this.fAccount.set(e.value || ''); break;
+      case 'group': this.fGroup.set(e.value || ''); break;
+      case 'recon': this.fRecon.set(e.value || ''); break;
+      case 'uncat': this.fUncat.set(!!e.value); break;
+    }
+    this.reloadMovements();
   }
 
   /** Checklist accionable: salta al lugar exacto para resolver cada descuadre del diagnóstico. */
@@ -736,13 +601,13 @@ export class FinanzasBancosComponent implements OnInit {
     this.accounts.update((as) => as.map((x) => x.id === a.id ? { ...x, ...patch } : x));
     this.api.updateAccount(a.id, patch).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: () => this.ok('Cuenta actualizada'), error: () => this.fail('No se pudo actualizar la cuenta.') });
   }
-  addAccount(): void {
+  addAccount(p: { bank: string; account_label: string; alias: string; kind: string; kepler_link: string }): void {
     if (this.addingAcct()) return;
-    if (!this.naBank || !this.naLabel) { this.fail('Banco y cuenta requeridos.'); return; }
+    if (!p.bank || !p.account_label) { this.fail('Banco y cuenta requeridos.'); return; }
     this.addingAcct.set(true);
-    this.api.createAccount({ bank: this.naBank, account_label: this.naLabel, alias: this.naAlias || null, kind: this.naKind, kepler_link: this.naKepler || null } as any)
+    this.api.createAccount({ bank: p.bank, account_label: p.account_label, alias: p.alias || null, kind: p.kind, kepler_link: p.kepler_link || null } as any)
       .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-        next: () => { this.addingAcct.set(false); this.naBank = this.naLabel = this.naAlias = this.naKepler = ''; this.api.accounts().pipe(takeUntilDestroyed(this.destroyRef)).subscribe((as) => this.accounts.set(as)); this.ok('Cuenta agregada'); },
+        next: () => { this.addingAcct.set(false); this.api.accounts().pipe(takeUntilDestroyed(this.destroyRef)).subscribe((as) => this.accounts.set(as)); this.ok('Cuenta agregada'); },
         error: () => { this.addingAcct.set(false); this.fail('No se pudo agregar la cuenta.'); },
       });
   }
