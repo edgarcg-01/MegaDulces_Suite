@@ -412,7 +412,7 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
           { term: 'Cierre', def: 'La respuesta del mes: ¿cuadra o no? Arriba el veredicto y el resumen del dinero; abajo la lista de "qué falta", ordenada por impacto, con un botón que te lleva al lugar exacto de arreglarlo.' },
           { term: 'Movimientos', def: 'Todos los ingresos y egresos del periodo. Aquí clasificás (asignás categoría) lo que el motor dejó "sin clasificar".' },
           { term: 'Concentrado', def: 'Pivote cuenta × grupo (ingresos, compras, gastos, traspasos…): en qué se movió el dinero por banco.' },
-          { term: 'Conciliación', def: 'Cruce contra Kepler: cuántos retiros ya tienen su pago en el mayor, y qué quedó sin casar por ambos lados.' },
+          { term: 'Conciliación', def: 'Cruce contra Kepler: cuántos retiros ya tienen su pago en el mayor, y qué quedó sin conciliar por ambos lados.' },
           { term: 'Cuentas', def: 'Cuadre de saldos por cuenta. Clic en una cuenta para ver sus movimientos.' },
         ],
       },
@@ -429,10 +429,10 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
         heading: 'Conciliación vs Kepler',
         entries: [
           { term: '102', def: 'La cuenta contable única con la que Kepler agrupa TODOS los bancos. El workbook es el detalle por banco que Kepler colapsa en ese 102.' },
-          { term: 'Casado / sin casar', def: 'Un retiro del banco "casa" cuando se encuentra su pago equivalente en el 102 de Kepler (mismo monto ± fecha). "Sin casar" = aún no se le encontró par.' },
+          { term: 'Conciliado / sin conciliar', def: 'Un retiro del banco se "concilia" cuando se encuentra su pago equivalente en el 102 de Kepler (mismo monto ± fecha). "Sin conciliar" = aún no se le encontró par.' },
           { term: 'Caja (control-total)', def: 'Compara el total de depósitos/retiros del banco contra los cargos/abonos del 102. Excluye traspasos internos.' },
           { term: 'Retiros vs depósitos', def: 'El lado de RETIROS (banco vs abonos del 102) es la conciliación real: cada diferencia se persigue. El lado de DEPÓSITOS es un memo — mezcla banco + CAJA GENERAL (efectivo) + cobranza de otra sucursal, y el 102 no es su espejo, así que ese Δ no se persigue 1 a 1.' },
-          { term: 'Factoraje', def: 'Financiamiento de compras. Los pagos por factoraje reducen el pasivo en Kepler (cuenta 210), NO son abono al 102 — por eso nunca casan contra el 102 y no son un gap.' },
+          { term: 'Factoraje', def: 'Financiamiento de compras. Los pagos por factoraje reducen el pasivo en Kepler (cuenta 210), NO son abono al 102 — por eso nunca concilian contra el 102 y no son un gap.' },
         ],
       },
       {
@@ -462,7 +462,7 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
       {
         heading: 'Retiros ① — Factoraje',
         kind: 'info',
-        intro: 'Los pagos por factoraje reducen el pasivo en Kepler (cuenta 210); no son abono al 102, así que nunca casan contra el 102.',
+        intro: 'Los pagos por factoraje reducen el pasivo en Kepler (cuenta 210); no son abono al 102, así que nunca concilian contra el 102.',
         steps: [
           'En Kepler confirmá que el pago esté en 210 (acreedor factoraje).',
           'Si está en 210, es correcto — no se toca.',
@@ -486,7 +486,7 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
           'Buscá la póliza de egreso por beneficiario + monto + fecha.',
           'Si NO existe → capturala: abono al 102 / cargo al proveedor (aplicá el pago a su factura).',
           'Si existe pero en otra cuenta de banco → reclasificala al 102 correcto.',
-          'La lista exacta por proveedor está en el tab Conciliación → "Pagos Kepler (102) sin casar".',
+          'La lista exacta por proveedor está en el tab Conciliación → "Pagos Kepler (102) sin conciliar".',
         ],
       },
     ],
@@ -558,13 +558,13 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
   },
 
   bancos_retiros_sin_casar: {
-    title: 'Retiros del banco sin casar',
+    title: 'Retiros del banco sin conciliar',
     intro: 'Retiros que salieron del banco y no encontraron su pago equivalente en el 102 de Kepler. NO todos son un error — mirá la columna "Categoría": según qué sean, se resuelven distinto (o no requieren nada).',
     resolve: [
       {
         heading: '① Pago a factoraje / Compra con factoraje',
         kind: 'info',
-        intro: 'Reducen el pasivo de factoraje en Kepler (cuenta 210); no son abono al 102, por eso nunca casan.',
+        intro: 'Reducen el pasivo de factoraje en Kepler (cuenta 210); no son abono al 102, por eso nunca concilian.',
         steps: [
           'En Kepler confirmá que el pago esté en 210 (acreedor factoraje).',
           'Si está en 210, es correcto — no se toca.',
@@ -593,7 +593,7 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
   },
 
   bancos_kepler_sin_casar: {
-    title: 'Pagos de Kepler (102) sin casar',
+    title: 'Pagos de Kepler (102) sin conciliar',
     intro: 'El lado inverso: pagos que Kepler registró en el 102 pero que no encontraron su retiro equivalente en el banco (por monto + fecha). Kepler dice que pagó; el banco no lo muestra o no casó.',
     resolve: [
       {

@@ -665,7 +665,7 @@ export class FinanceBankService {
           : `Por banco salieron ${money(a.bank)} en «${a.concept}», pero Kepler solo registra ${money(a.book)} en el mayor ${a.kepler_account}: el banco pagó ${money(abs)} MÁS de lo que Kepler reconoce.`;
         const accion = keplerMas
           ? `Kepler YA reconoció este gasto; el banco todavía no lo paga. Normalmente NO se corrige en Kepler — es cuenta por pagar. Pasos: (1) en Kepler abre el auxiliar del mayor ${a.kepler_account} y saca las facturas SIN pago aplicado (esas explican el Δ); (2) confirma que el proveedor esté en cuentas por pagar; (3) si YA se pagó, busca el pago en otra cuenta de banco o en factoraje. El detalle de facturas por proveedor está en el módulo Egresos.`
-          : `Salió dinero del banco que Kepler no reconoce en el mayor ${a.kepler_account}. Cada renglón de abajo con «sin casar en Kepler» es un pago SIN póliza en el 102. Pasos en Kepler, uno por uno: (1) busca la póliza de egreso por beneficiario + monto + fecha; (2) si NO existe, captúrala en el mayor correcto; (3) si existe pero en otra cuenta, reclasifícala. Los renglones que ya muestran folio Kepler están casados —esos no se tocan.`;
+          : `Salió dinero del banco que Kepler no reconoce en el mayor ${a.kepler_account}. Cada renglón de abajo con «sin conciliar en Kepler» es un pago SIN póliza en el 102. Pasos en Kepler, uno por uno: (1) busca la póliza de egreso por beneficiario + monto + fecha; (2) si NO existe, captúrala en el mayor correcto; (3) si existe pero en otra cuenta, reclasifícala. Los renglones que ya muestran folio Kepler están conciliados —esos no se tocan.`;
         items.push({ tipo: 'kepler_pnl', severidad: abs >= 100000 ? 'bad' : 'warn', importe: abs,
           titulo: keplerMas ? `Kepler registra más que el banco: ${a.concept}` : `El banco pagó más que Kepler: ${a.concept}`,
           detalle, accion, _mayor: a.kepler_account });
@@ -707,7 +707,7 @@ export class FinanceBankService {
             it.evidencia = (rows as any[]).map((r) => ({
               label: `${this.dm(r.movement_date)} · ${(r.concept || '—').slice(0, 40)}`,
               monto: n(r.amount_out),
-              folio: r.kepler_doc_folio ? `Kepler ${r.kepler_doc_tipo || ''} ${r.kepler_doc_folio}`.trim() : 'sin casar en Kepler',
+              folio: r.kepler_doc_folio ? `Kepler ${r.kepler_doc_tipo || ''} ${r.kepler_doc_folio}`.trim() : 'sin conciliar en Kepler',
             }));
           }
         }
@@ -724,14 +724,14 @@ export class FinanceBankService {
     const sinPostingsKepler = n(keplerPostingsCount) === 0;
     if (sinPostingsKepler && !!recon?.accounts?.length) {
       items.unshift({ tipo: 'aviso_conciliar', severidad: 'info', importe: 0,
-        titulo: 'Faltan las pólizas del 102 de Kepler (no se puede casar aún)',
-        detalle: 'No hay pólizas del 102 (bancos/caja) de Kepler cargadas para este periodo, así que la conciliación por-transacción no puede correr y toda la evidencia dirá «sin casar en Kepler». Eso NO significa que falte en Kepler — todavía no hay con qué cruzar.',
+        titulo: 'Faltan las pólizas del 102 de Kepler (no se puede conciliar aún)',
+        detalle: 'No hay pólizas del 102 (bancos/caja) de Kepler cargadas para este periodo, así que la conciliación por-transacción no puede correr y toda la evidencia dirá «sin conciliar en Kepler». Eso NO significa que falte en Kepler — todavía no hay con qué cruzar.',
         accion: 'Carga el feed de pólizas 102 del periodo (import-bank-postings) y luego presiona «Conciliar» en la pestaña Conciliación. Recién entonces la evidencia mostrará el folio exacto de Kepler de cada pago.' });
     } else if (!conciliacionCorrida && !!recon?.accounts?.length) {
       items.unshift({ tipo: 'aviso_conciliar', severidad: 'info', importe: 0,
         titulo: 'Corre «Conciliar» primero',
-        detalle: 'Las pólizas de Kepler están cargadas pero el matching por-transacción no se ha ejecutado este periodo, así que la evidencia de abajo marca todo como «sin casar en Kepler». Eso NO significa que falte en Kepler — significa que aún no se parean los pagos.',
-        accion: 'Ve a la pestaña Conciliación y presiona «Conciliar». Después, cada renglón mostrará su folio de Kepler cuando exista, y solo los que queden «sin casar» serán gaps reales que capturar.' });
+        detalle: 'Las pólizas de Kepler están cargadas pero la conciliación por-transacción no se ha ejecutado este periodo, así que la evidencia de abajo marca todo como «sin conciliar en Kepler». Eso NO significa que falte en Kepler — significa que aún no se parean los pagos.',
+        accion: 'Ve a la pestaña Conciliación y presiona «Conciliar». Después, cada renglón mostrará su folio de Kepler cuando exista, y solo los que queden «sin conciliar» serán gaps reales que capturar.' });
     }
     const totalDescuadre = bal.totals.descuadre;
     return {
@@ -800,7 +800,7 @@ export class FinanceBankService {
       findings.push({
         rule_key: 'banco_retiro_sin_kepler', clase: 'riesgo',
         severity: importe >= 500000 ? 'critical' : 'warn', score: importe >= 500000 ? 0.9 : 0.65,
-        titulo: `Retiro sin casar ${money(importe)} — ${m.concept || m.bank}`,
+        titulo: `Retiro sin conciliar ${money(importe)} — ${m.concept || m.bank}`,
         resumen: `Retiro de ${money(importe)} el ${m.movement_date} en ${m.bank} ${m.account_label} (${m.category_name || 'sin clasificar'}) no casó con ningún pago del 102 en Kepler.`,
         entity: { bank_movement_id: m.id, bank: m.bank, account_label: m.account_label, categoria: m.category_name },
         periodo: period, importe,

@@ -312,7 +312,7 @@ const GROUP_COLOR: Record<string, string> = {
                 <td class="ta-r mono">{{ m.amount_out ? (m.amount_out | currency:'MXN':'symbol-narrow':'1.2-2') : '' }}</td>
                 <td class="ta-c">
                   @if (m.recon_status === 'matched') { <i class="pi pi-check-circle fb-rec-ok" title="Casado con Kepler"></i> }
-                  @else if (m.recon_status === 'unmatched') { <i class="pi pi-circle fb-rec-no" title="Sin casar"></i> }
+                  @else if (m.recon_status === 'unmatched') { <i class="pi pi-circle fb-rec-no" title="Sin conciliar"></i> }
                 </td>
               </tr>
             </ng-template>
@@ -323,7 +323,7 @@ const GROUP_COLOR: Record<string, string> = {
         </div>
       }
 
-      <!-- ── CONCILIACIÓN banco ↔ Kepler (answer-first: veredicto → sin casar → evidencia) ── -->
+      <!-- ── CONCILIACIÓN banco ↔ Kepler (answer-first: veredicto → sin conciliar → evidencia) ── -->
       @if (view() === 'conciliacion') {
         @if (reconError()) {
           <app-load-state [error]="reconError()" (retry)="setPeriod(period())"></app-load-state>
@@ -332,20 +332,20 @@ const GROUP_COLOR: Record<string, string> = {
           <!-- 1. Veredicto: match rate + caja vs 102 -->
           <div class="card-premium card-flat fb-match">
             <div class="fb-match-head">
-              <h3 class="fb-card-title">Matching por-transacción <span class="muted">— retiros del banco ↔ pagos del 102 en Kepler</span></h3>
+              <h3 class="fb-card-title">Conciliación por transacción <span class="muted">— retiros del banco ↔ pagos del 102 en Kepler</span></h3>
               <div class="fb-match-actions">
                 <button pButton type="button" label="Enviar a Hallazgos" icon="pi pi-flag" class="p-button-sm p-button-text" [loading]="syncing()" (click)="syncFindings()" title="Empuja las diferencias a la bandeja de /finanzas/hallazgos"></button>
-                <button pButton type="button" label="Correr matching" icon="pi pi-bolt" class="p-button-sm p-button-outlined" [loading]="matching()" (click)="runMatch()"></button>
+                <button pButton type="button" label="Conciliar" icon="pi pi-bolt" class="p-button-sm p-button-outlined" [loading]="matching()" (click)="runMatch()"></button>
               </div>
             </div>
             @if (matchResult(); as mr) {
               <div class="fb-match-res">
                 <span class="fb-match-rate mono" [class.ok]="amtPct(mr) >= 70" [class.warn]="amtPct(mr) < 70">{{ amtPct(mr) }}%</span>
                 <span class="muted"><b>del monto conciliado</b> — {{ mr.matched_amount | currency:'MXN':'symbol-narrow':'1.0-0' }} de {{ mr.bank_amount | currency:'MXN':'symbol-narrow':'1.0-0' }} · {{ mr.matched | number }} de {{ mr.bank_movements | number }} retiros ({{ mr.match_rate }}% por conteo)</span>
-                <span class="muted">· {{ mr.unmatched_bank | number }} sin casar en banco · {{ mr.unmatched_kepler | number }} pagos Kepler sin casar</span>
+                <span class="muted">· {{ mr.unmatched_bank | number }} sin conciliar en banco · {{ mr.unmatched_kepler | number }} pagos Kepler sin conciliar</span>
               </div>
               <p class="fb-plain">{{ matchRead(mr) }}</p>
-            } @else { <p class="fb-recon-note muted">Corre el matching para casar cada retiro con su pago en Kepler (monto + fecha).</p> }
+            } @else { <p class="fb-recon-note muted">Ejecuta la conciliación para vincular cada retiro con su pago en Kepler (monto + fecha).</p> }
           </div>
           <div class="card-premium card-flat fb-recon-cash">
             <h3 class="fb-card-title">Caja — banco vs Kepler 102 <span class="muted">(excluye traspasos internos)</span><app-context-help topic="bancos_caja" /></h3>
@@ -371,25 +371,25 @@ const GROUP_COLOR: Record<string, string> = {
           @if (differences(); as df) {
             <div class="fb-diff-grid">
               <div class="card-premium card-flat fb-tablewrap">
-                <h3 class="fb-card-title fb-pnl-title">Retiros del banco sin casar <span class="muted">(top {{ df.bank_unmatched.length }})</span><app-context-help topic="bancos_retiros_sin_casar" /></h3>
+                <h3 class="fb-card-title fb-pnl-title">Retiros del banco sin conciliar <span class="muted">(top {{ df.bank_unmatched.length }})</span><app-context-help topic="bancos_retiros_sin_casar" /></h3>
                 <p-table [value]="df.bank_unmatched" styleClass="p-datatable-sm" [rowHover]="true" [scrollable]="true" scrollHeight="40vh">
                   <ng-template pTemplate="header"><tr><th style="width:6rem">Fecha</th><th>Concepto</th><th>Categoría</th><th class="ta-r">Monto</th></tr></ng-template>
                   <ng-template pTemplate="body" let-r>
                     <tr><td class="mono">{{ dmy(r.movement_date) }}</td><td class="fb-concept" [title]="r.concept">{{ r.concept || '—' }}</td>
                       <td class="muted">{{ r.category_name || 'sin clasificar' }}</td><td class="ta-r mono">{{ r.amount_out | currency:'MXN':'symbol-narrow':'1.0-0' }}</td></tr>
                   </ng-template>
-                  <ng-template pTemplate="emptymessage"><tr><td colspan="4"><div class="surf-empty"><i class="pi pi-check-circle"></i><p>Todo casado.</p></div></td></tr></ng-template>
+                  <ng-template pTemplate="emptymessage"><tr><td colspan="4"><div class="surf-empty"><i class="pi pi-check-circle"></i><p>Todo conciliado.</p></div></td></tr></ng-template>
                 </p-table>
               </div>
               <div class="card-premium card-flat fb-tablewrap">
-                <h3 class="fb-card-title fb-pnl-title">Pagos Kepler (102) sin casar <span class="muted">(top {{ df.kepler_unmatched.length }})</span><app-context-help topic="bancos_kepler_sin_casar" /></h3>
+                <h3 class="fb-card-title fb-pnl-title">Pagos Kepler (102) sin conciliar <span class="muted">(top {{ df.kepler_unmatched.length }})</span><app-context-help topic="bancos_kepler_sin_casar" /></h3>
                 <p-table [value]="df.kepler_unmatched" styleClass="p-datatable-sm" [rowHover]="true" [scrollable]="true" scrollHeight="40vh">
                   <ng-template pTemplate="header"><tr><th style="width:6rem">Fecha</th><th>Beneficiario</th><th style="width:5rem">Doc</th><th class="ta-r">Monto</th></tr></ng-template>
                   <ng-template pTemplate="body" let-r>
                     <tr><td class="mono">{{ dmy(r.fecha) }}</td><td class="fb-concept" [title]="r.contraparte">{{ r.contraparte || '—' }}</td>
                       <td class="mono muted">{{ r.doc_tipo }}</td><td class="ta-r mono">{{ r.importe | currency:'MXN':'symbol-narrow':'1.0-0' }}</td></tr>
                   </ng-template>
-                  <ng-template pTemplate="emptymessage"><tr><td colspan="4"><div class="surf-empty"><i class="pi pi-check-circle"></i><p>Todo casado.</p></div></td></tr></ng-template>
+                  <ng-template pTemplate="emptymessage"><tr><td colspan="4"><div class="surf-empty"><i class="pi pi-check-circle"></i><p>Todo conciliado.</p></div></td></tr></ng-template>
                 </p-table>
               </div>
             </div>
@@ -1093,12 +1093,12 @@ export class FinanzasBancosComponent implements OnInit {
       next: (mr) => {
         this.matching.set(false);
         this.matchResult.set(mr);
-        this.toast.add({ severity: 'success', summary: `Matching ${mr.match_rate}%`, detail: `${mr.matched} de ${mr.bank_movements} retiros casados`, life: 3500 });
+        this.toast.add({ severity: 'success', summary: `Conciliación ${mr.match_rate}%`, detail: `${mr.matched} de ${mr.bank_movements} retiros conciliados`, life: 3500 });
         this.api.differences(this.period()).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (df) => this.differences.set(df), error: () => this.differences.set(null) });
         this.refreshDiagnostico();
         this.reloadMovements();
       },
-      error: () => { this.matching.set(false); this.fail('No se pudo correr el matching.'); },
+      error: () => { this.matching.set(false); this.fail('No se pudo correr la conciliación.'); },
     });
   }
 
@@ -1115,7 +1115,7 @@ export class FinanzasBancosComponent implements OnInit {
     });
   }
 
-  /** Refresca el diagnóstico + balances del periodo (tras reclasificar / casar). */
+  /** Refresca el diagnóstico + balances del periodo (tras reclasificar / conciliar). */
   private refreshDiagnostico(): void {
     const p = this.period();
     if (!p) return;
@@ -1156,7 +1156,7 @@ export class FinanzasBancosComponent implements OnInit {
   matchRead(mr: MatchResult): string {
     if (mr.unmatched_bank === 0) return `Todos los retiros del banco ya tienen su pago en Kepler (100%).`;
     const ap = this.amtPct(mr);
-    return `Ya casó el ${ap}% del dinero (${this.money0(mr.matched_amount)} de ${this.money0(mr.bank_amount)}). Los ${mr.unmatched_bank} retiros sin casar son en su mayoría comisiones y nómina chicas que Kepler agrupa (no casan 1 a 1) — por eso el % por conteo (${mr.match_rate}%) se ve más bajo que el % por monto.`;
+    return `Ya concilió el ${ap}% del dinero (${this.money0(mr.matched_amount)} de ${this.money0(mr.bank_amount)}). Los ${mr.unmatched_bank} retiros sin conciliar son en su mayoría comisiones y nómina chicas que Kepler agrupa (no concilian 1 a 1) — por eso el % por conteo (${mr.match_rate}%) se ve más bajo que el % por monto.`;
   }
   label(group: string): string { return GROUP_LABELS[group] || group; }
   kindLabel(kind: string): string { return kind === 'bank' ? 'Banco' : kind === 'cash' ? 'Caja' : 'Factoraje'; }
