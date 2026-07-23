@@ -26,6 +26,7 @@ import {
 import { BancosConcentradoComponent } from './bancos/bancos-concentrado.component';
 import { BancosConciliacionComponent } from './bancos/bancos-conciliacion.component';
 import { BancosCuentasComponent } from './bancos/bancos-cuentas.component';
+import { BancosCierreComponent } from './bancos/bancos-cierre.component';
 
 /**
  * CB.3 — Conciliación bancaria (ADR-033). Reemplaza el workbook Excel: tablero
@@ -38,7 +39,7 @@ import { BancosCuentasComponent } from './bancos/bancos-cuentas.component';
   imports: [CommonModule, FormsModule, ButtonModule, TableModule, ToastModule, SelectModule, CheckboxModule,
     InputNumberModule, InputTextModule, IconFieldModule, InputIconModule,
     PageTabsComponent, MetricStripComponent, LoadStateComponent, FreshnessPillComponent, ContextHelpComponent,
-    BancosConcentradoComponent, BancosConciliacionComponent, BancosCuentasComponent],
+    BancosConcentradoComponent, BancosConciliacionComponent, BancosCuentasComponent, BancosCierreComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
@@ -98,63 +99,8 @@ import { BancosCuentasComponent } from './bancos/bancos-cuentas.component';
         @if (diagError()) {
           <app-load-state [error]="diagError()" (retry)="setPeriod(period())"></app-load-state>
         } @else {
-          @if (diagnostico(); as d) {
-          <div class="fb-diag-head" [class.ok]="d.cuadra" [class.bad]="!d.cuadra">
-            @if (d.cuadra) {
-              <i class="pi pi-check-circle"></i>
-              <div><h2>Todo cuadra</h2><p>Los {{ d.movimientos | number }} movimientos de {{ d.period }} están clasificados y las {{ d.cuentas_total }} cuentas cierran su saldo.</p></div>
-            } @else {
-              <i class="pi pi-exclamation-triangle"></i>
-              <div><h2>{{ d.items.length }} cosa(s) por resolver para que cuadre</h2><p>Ordenadas por impacto. Cada una salta al lugar exacto para arreglarla.</p></div>
-            }
-          </div>
-
-          <app-metric-strip [items]="cierreKpis(d)" ariaLabel="Resumen del periodo" />
-
-          <label class="fb-toggle">
-            <p-checkbox [ngModel]="countTransfers()" [binary]="true" inputId="ctTr" (onChange)="countTransfers.set($event.checked)" />
-            <span>Contar traspasos internos en el neto</span>
-            <span class="muted">— por default se excluyen (son movimientos entre cuentas propias, no flujo del negocio); el neto muestra solo lo operativo.</span>
-          </label>
-
-          @if (!d.tiene_balanza_kepler) {
-            <p class="fb-diag-note muted"><i class="pi pi-info-circle"></i> La balanza de Kepler no está cargada para {{ d.period }}, así que el cruce contable no se está evaluando (solo el cuadre interno de saldos y la clasificación).</p>
-          }
-
-          @if (d.items.length) {
-            <h3 class="fb-card-title fb-cierre-h3">Qué falta <span class="muted">— por impacto</span></h3>
-            <div class="fb-diag-list">
-              @for (it of d.items; track it.titulo) {
-                <div class="fb-diag-item" [class]="'sev-' + it.severidad">
-                  <div class="fb-diag-item-head">
-                    <span class="fb-diag-dot"></span>
-                    <span class="fb-diag-title">{{ it.titulo }}</span>
-                    @if (helpTopic(it.tipo); as ht) { <app-context-help [topic]="ht" /> }
-                    @if (it.importe > 0) { <span class="fb-diag-amt mono">{{ it.importe | currency:'MXN':'symbol-narrow':'1.0-0' }}</span> }
-                    <button pButton type="button" class="p-button-sm p-button-outlined fb-diag-cta"
-                            [label]="itemActionLabel(it)" icon="pi pi-arrow-right" iconPos="right" (click)="itemAction(it)"></button>
-                  </div>
-                  <p class="fb-diag-detalle">{{ it.detalle }}</p>
-                  @if (it.evidencia?.length) {
-                    <ul class="fb-diag-ev">
-                      @for (e of it.evidencia; track e.label) {
-                        <li>
-                          <span class="fb-diag-ev-label">{{ e.label }}</span>
-                          @if (e.count) { <span class="fb-diag-ev-meta">{{ e.count }} mov</span> }
-                          @if (e.folio) { <span class="fb-diag-ev-folio">{{ e.folio }}</span> }
-                          @if (e.monto != null) { <span class="fb-diag-ev-monto mono">{{ e.monto | currency:'MXN':'symbol-narrow':'1.0-0' }}</span> }
-                        </li>
-                      }
-                    </ul>
-                  }
-                  <p class="fb-diag-accion"><i class="pi pi-info-circle"></i> {{ it.accion }}</p>
-                </div>
-              }
-            </div>
-          }
-          } @else {
-            <div class="surf-empty"><i class="pi pi-inbox"></i><p>Sin datos para {{ period() }}. Sube un estado de cuenta para empezar.</p></div>
-          }
+          <bancos-cierre [diagnostico]="diagnostico()" [concentrado]="concentrado()" [balances]="balances()"
+            [period]="period()" (itemAction)="itemAction($event)" />
         }
       }
 
@@ -553,8 +499,6 @@ export class FinanzasBancosComponent implements OnInit {
   readonly fGroup = signal('');
   readonly fUncat = signal(false);
   readonly colorByGroup = signal(true);
-  /** Cierre: contar (o no) los traspasos internos en Ingresos/Egresos/Neto. Default = NO. */
-  readonly countTransfers = signal(false);
   readonly fSearch = signal('');
   readonly fRecon = signal('');
   readonly uploading = signal(false);
@@ -706,29 +650,6 @@ export class FinanzasBancosComponent implements OnInit {
     reader.readAsDataURL(file);
   }
 
-  /** Totales del cierre según el toggle "contar traspasos": por default EXCLUYE los
-   *  traspasos internos (flujo operativo real); si se activan, muestra el bruto. */
-  cierreTotals(d: Diagnostico): { ingresos: number; egresos: number; neto: number } {
-    const tr = this.concentrado()?.groupTotals?.['traspaso'];
-    if (this.countTransfers() || !tr) return { ingresos: d.ingresos, egresos: d.egresos, neto: d.neto };
-    const ingresos = d.ingresos - (tr.deposits || 0);
-    const egresos = d.egresos - (tr.withdrawals || 0);
-    return { ingresos, egresos, neto: Math.round((ingresos - egresos) * 100) / 100 };
-  }
-  /** KPIs del dinero para la vista Cierre (ingresos/egresos/neto/movs + traspasos aparte). */
-  cierreKpis(d: Diagnostico): MetricStripItem[] {
-    const t = this.cierreTotals(d);
-    const items: MetricStripItem[] = [
-      { label: 'Ingresos', value: t.ingresos, format: 'currency', tone: 'ok' },
-      { label: 'Egresos', value: t.egresos, format: 'currency' },
-      { label: 'Neto', value: t.neto, format: 'currency', tone: t.neto >= 0 ? 'ok' : 'bad' },
-      { label: 'Movimientos', value: d.movimientos, format: 'number' },
-    ];
-    const tr = this.balances()?.traspasos;
-    if (tr) items.push({ label: 'Traspasos', value: tr.entra, format: 'currency', tone: this.cuadra(tr.delta) ? 'ok' : 'warn' });
-    return items;
-  }
-
   /** Corre el matching por-transacción del periodo y recarga los movimientos (recon_status). */
   runMatch(): void {
     if (!this.period()) return;
@@ -767,43 +688,7 @@ export class FinanzasBancosComponent implements OnInit {
     this.api.balances(p).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (b) => this.balances.set(b), error: () => {} });
   }
 
-  /** Tolerancia de cuadre: ±$1,000 (o ~0.5%) se considera cuadrado. */
-  cuadra(delta: number): boolean { return Math.abs(delta) < 1000; }
-
-  /** About "cómo se resuelve" por tipo de item del Cierre (topic del diccionario, o null). */
-  helpTopic(tipo: string): string | null {
-    const map: Record<string, string> = {
-      sin_clasificar: 'bancos_sin_clasificar',
-      saldo_no_cuadra: 'bancos_saldo_no_cuadra',
-      traspaso_descuadre: 'bancos_traspaso_descuadre',
-      cuenta_sin_cargar: 'bancos_cuenta_sin_cargar',
-      kepler_pnl: 'bancos_caja',
-    };
-    return map[tipo] ?? null;
-  }
-
-  private money0(v: number): string {
-    return Number(v || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 });
-  }
-  /** Lectura en llano del cuadre de caja (banco vs 102 de Kepler). Lado retiros = la
-   *  conciliación real; lado depósitos = memo (por eso se explica por qué difiere). */
-  cajaRead(rc: Reconciliation): string {
-    const dOut = Math.abs(rc.cash.delta_out);
-    const salida = this.cuadra(rc.cash.delta_out)
-      ? `Los ${this.money0(rc.cash.bank_out)} que salieron del banco cuadran con los abonos del 102 en Kepler.`
-      : `De los ${this.money0(rc.cash.bank_out)} que salieron del banco, Kepler reconoce ${this.money0(rc.cash.kepler_102_abonos)} en el 102 — difieren ${this.money0(dOut)}. Esta es la conciliación que importa (el detalle por pago está abajo).`;
-    if (this.cuadra(rc.cash.delta_in)) return salida;
-    const dIn = Math.abs(rc.cash.delta_in);
-    return `${salida} El lado de depósitos difiere ${this.money0(dIn)}, pero es memo, no un gap: mezcla los depósitos de banco con el efectivo de CAJA GENERAL (que Kepler asienta en caja, no en el 102) y con cobranza que entra por otra sucursal — la columna de depósitos no es espejo del mayor 102, así que ese Δ no se persigue 1 a 1.`;
-  }
-  /** Lectura en llano del matching por-transacción. */
-  matchRead(mr: MatchResult): string {
-    if (mr.unmatched_bank === 0) return `Todos los retiros del banco ya tienen su pago en Kepler (100%).`;
-    const ap = this.amtPct(mr);
-    return `Ya concilió el ${ap}% del dinero (${this.money0(mr.matched_amount)} de ${this.money0(mr.bank_amount)}). Los ${mr.unmatched_bank} retiros sin conciliar son en su mayoría comisiones y nómina chicas que Kepler agrupa (no concilian 1 a 1) — por eso el % por conteo (${mr.match_rate}%) se ve más bajo que el % por monto.`;
-  }
   label(group: string): string { return GROUP_LABELS[group] || group; }
-  kindLabel(kind: string): string { return kind === 'bank' ? 'Banco' : kind === 'cash' ? 'Caja' : 'Factoraje'; }
   /** Color del grupo (CC.1) como referencia CSS var, para tinte de fila / dot de leyenda. */
   groupColorVar(group?: string | null): string { return GROUP_COLOR[group || 'sin_clasificar'] || 'transparent'; }
   /** Fecha dd/MM/yy sin conversión de TZ (string puro; evita el off-by-one del date pipe con fechas date). */
@@ -823,12 +708,6 @@ export class FinanzasBancosComponent implements OnInit {
       default: this.view.set('movimientos'); this.reloadMovements();
     }
   }
-  /** Renglones donde salta el saldo de una cuenta (del diagnóstico): "dónde está la diferencia". */
-  breaksFor(a: { bank: string; account_label: string }): { label: string; monto?: number }[] {
-    const key = `${a.bank} ${a.account_label}:`;
-    const it = this.diagnostico()?.items.find((x) => x.tipo === 'saldo_no_cuadra' && x.titulo.startsWith(key));
-    return it?.evidencia ?? [];
-  }
   /** Desde Cuentas: salta a Movimientos filtrado a esa cuenta. */
   verCuentaMovs(a: { bank: string; account_label: string }): void {
     const acct = this.accounts().find((x) => x.bank === a.bank && x.account_label === a.account_label);
@@ -838,17 +717,6 @@ export class FinanzasBancosComponent implements OnInit {
     this.view.set('movimientos');
     this.reloadMovements();
   }
-  itemActionLabel(it: { tipo?: string }): string {
-    switch (it?.tipo) {
-      case 'sin_clasificar': return 'Ver sin clasificar';
-      case 'traspaso_descuadre': return 'Ver traspasos';
-      case 'saldo_no_cuadra': return 'Ver cuenta';
-      case 'kepler_pnl': return 'Ver conciliación';
-      case 'cuenta_sin_cargar': return 'Subir estado';
-      default: return 'Revisar';
-    }
-  }
-
   // CB.13 — búsqueda en el catálogo real de cuentas de Kepler.
   onKaSearch(v: string): void {
     this.kaSearch.set(v);
