@@ -9,7 +9,10 @@
  */
 export interface HelpEntry { term: string; def: string; }
 export interface HelpGroup { heading: string; entries: HelpEntry[]; }
-export interface HelpTopic { title: string; intro?: string; groups: HelpGroup[]; }
+/** Bloque "cómo se resuelve": pasos accionables. kind='fix' = se corrige (en Kepler/aquí);
+ *  kind='info' = no requiere acción (se explica por qué). */
+export interface HelpResolveBlock { heading: string; kind?: 'fix' | 'info'; intro?: string; steps: string[]; }
+export interface HelpTopic { title: string; intro?: string; groups?: HelpGroup[]; resolve?: HelpResolveBlock[]; }
 
 export const CONTEXT_HELP: Record<string, HelpTopic> = {
   cfdi: {
@@ -428,8 +431,8 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
           { term: '102', def: 'La cuenta contable única con la que Kepler agrupa TODOS los bancos. El workbook es el detalle por banco que Kepler colapsa en ese 102.' },
           { term: 'Casado / sin casar', def: 'Un retiro del banco "casa" cuando se encuentra su pago equivalente en el 102 de Kepler (mismo monto ± fecha). "Sin casar" = aún no se le encontró par.' },
           { term: 'Caja (control-total)', def: 'Compara el total de depósitos/retiros del banco contra los cargos/abonos del 102. Excluye traspasos internos.' },
-          { term: 'P&L banco vs Kepler', def: 'Por categoría de gasto: lo pagado por banco vs lo que el mayor de Kepler reconoce. Δ negativo = Kepler reconoce más de lo que salió (factura por pagar, pago desde caja/factoraje, o cae en otro mes).' },
-          { term: 'Factoraje', def: 'Financiamiento de compras (Kepler 210). Los pagos hechos por factoraje no salen del banco, por eso pueden explicar diferencias con Kepler.' },
+          { term: 'Retiros vs depósitos', def: 'El lado de RETIROS (banco vs abonos del 102) es la conciliación real: cada diferencia se persigue. El lado de DEPÓSITOS es un memo — mezcla banco + CAJA GENERAL (efectivo) + cobranza de otra sucursal, y el 102 no es su espejo, así que ese Δ no se persigue 1 a 1.' },
+          { term: 'Factoraje', def: 'Financiamiento de compras. Los pagos por factoraje reducen el pasivo en Kepler (cuenta 210), NO son abono al 102 — por eso nunca casan contra el 102 y no son un gap.' },
         ],
       },
       {
@@ -442,6 +445,118 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
       },
     ],
   },
+  // ── Abouts enfocados por sección del tablero de bancos (CB.13.1) ──
+  bancos_caja: {
+    title: 'Cuadre de caja: cómo cerrarlo',
+    intro: 'Compara lo que entró/salió del banco contra el 102 de Kepler. El lado de RETIROS es la conciliación real (cada diferencia se persigue); el de DEPÓSITOS es un memo. El número rojo del lado retiros NO es todo error de Kepler — se parte en tres cosas, y solo una se captura en Kepler.',
+    resolve: [
+      {
+        heading: 'Depósitos (Δ del lado que entra) — memo',
+        kind: 'info',
+        intro: 'No es un gap. Los depósitos mezclan banco + efectivo de CAJA GENERAL (que Kepler asienta en caja, no en el 102) + cobranza que entra por otra sucursal. La columna de depósitos no es espejo del mayor 102.',
+        steps: [
+          'No se corrige contra el 102: es informativo.',
+          'Si se quiere cuadrar, se hace por caja/sucursal por separado, no contra el 102 de banco.',
+        ],
+      },
+      {
+        heading: 'Retiros ① — Factoraje',
+        kind: 'info',
+        intro: 'Los pagos por factoraje reducen el pasivo en Kepler (cuenta 210); no son abono al 102, así que nunca casan contra el 102.',
+        steps: [
+          'En Kepler confirmá que el pago esté en 210 (acreedor factoraje).',
+          'Si está en 210, es correcto — no se toca.',
+        ],
+      },
+      {
+        heading: 'Retiros ② — Nómina, comisiones y tarjeta',
+        kind: 'info',
+        intro: 'Kepler los agrupa en una póliza mensual (nómina en 601, comisiones bancarias en 611-003), no transfer por transfer. El dinero YA está en el 102, solo que agrupado.',
+        steps: [
+          'No se corrige: es diferencia de granularidad de captura.',
+          'Por eso el cuadre casa por monto pero no 1 a 1 por conteo.',
+        ],
+      },
+      {
+        heading: 'Retiros ③ — Pagos a proveedor sin póliza en el 102',
+        kind: 'fix',
+        intro: 'Éste SÍ se captura en Kepler: pagos de mercancía que salieron del banco pero no tienen egreso aplicado en el 102.',
+        steps: [
+          'En Kepler abrí el auxiliar del 102 (bancos) del periodo.',
+          'Buscá la póliza de egreso por beneficiario + monto + fecha.',
+          'Si NO existe → capturala: abono al 102 / cargo al proveedor (aplicá el pago a su factura).',
+          'Si existe pero en otra cuenta de banco → reclasificala al 102 correcto.',
+          'La lista exacta por proveedor está en el tab Conciliación → "Pagos Kepler (102) sin casar".',
+        ],
+      },
+    ],
+  },
+
+  bancos_sin_clasificar: {
+    title: 'Movimientos sin clasificar',
+    intro: 'Movimientos a los que el motor no les asignó categoría. No entran a ningún grupo del cuadre, por eso hay que clasificarlos.',
+    resolve: [
+      {
+        heading: 'Clasificarlos',
+        kind: 'fix',
+        steps: [
+          'Los patrones que más pesan salen listados abajo (código + concepto).',
+          'Para cada patrón repetido: Admin → Reglas → creá una regla (código + concepto → categoría) y dale "Reclasificar".',
+          'Los movimientos únicos/raros: clasificalos a mano en el tab Movimientos.',
+          '"Reclasificar" respeta lo que ya marcaste a mano — no lo pisa.',
+        ],
+      },
+    ],
+  },
+
+  bancos_saldo_no_cuadra: {
+    title: 'El saldo de una cuenta no cierra',
+    intro: 'Saldo inicial + depósitos − retiros debería dar el saldo final del estado de cuenta. Si no da, falta capturar un movimiento o un saldo/monto está mal tecleado.',
+    resolve: [
+      {
+        heading: 'Encontrar y corregir el error',
+        kind: 'fix',
+        steps: [
+          'La fila expande el/los renglón(es) donde el saldo del banco salta más de lo que explica el movimiento: ahí está el error.',
+          'Si falta un movimiento, capturalo (o volvé a subir el estado de cuenta si el Excel venía incompleto).',
+          'Si el saldo inicial/final está mal tecleado, corregilo en la fuente y reimportá.',
+        ],
+      },
+    ],
+  },
+
+  bancos_traspaso_descuadre: {
+    title: 'Los traspasos internos no netean',
+    intro: 'Los traspasos entre cuentas propias (TI = entra, TE = sale) deben netear a cero: lo que sale de una cuenta entra en otra.',
+    resolve: [
+      {
+        heading: 'Revisar',
+        kind: 'fix',
+        steps: [
+          'Si TI ≠ TE, normalmente falta capturar el otro lado del traspaso (la cuenta destino o la de origen).',
+          'Ojo: movimientos que NO son traspaso (Spei, otros) mal clasificados como traspaso también descuadran — reclasificalos a su categoría real.',
+          'Los traspasos reales (raw_type TI/TE) ya se miden aparte y netean a cero.',
+        ],
+      },
+    ],
+  },
+
+  bancos_cuenta_sin_cargar: {
+    title: 'Cuenta sin estado de cuenta',
+    intro: 'La cuenta existe en el catálogo pero no tiene estado de cuenta cargado en este periodo, así que su movimiento no entra al cuadre.',
+    resolve: [
+      {
+        heading: 'Cargarla o desactivarla',
+        kind: 'fix',
+        steps: [
+          'Subí el estado de cuenta del periodo para esa cuenta.',
+          'Si la cuenta ya no aplica, desactivala en Admin → Cuentas.',
+          'CAJA GENERAL tiene un layout de columnas distinto — puede requerir su importador propio.',
+        ],
+      },
+    ],
+  },
+
   egresos: {
     title: 'Egresos contables — guía',
     intro: 'Todo lo que sale (pólizas de cargo 5xx/6xx del mayor de Kepler): compras a proveedor y gastos. Podés ver el árbol por cuenta, la tendencia mensual, el ranking de proveedores y hacer drill hasta el documento y su cadena.',

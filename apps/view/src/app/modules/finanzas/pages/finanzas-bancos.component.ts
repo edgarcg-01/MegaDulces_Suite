@@ -151,6 +151,7 @@ const GROUP_COLOR: Record<string, string> = {
                   <div class="fb-diag-item-head">
                     <span class="fb-diag-dot"></span>
                     <span class="fb-diag-title">{{ it.titulo }}</span>
+                    @if (helpTopic(it.tipo); as ht) { <app-context-help [topic]="ht" /> }
                     @if (it.importe > 0) { <span class="fb-diag-amt mono">{{ it.importe | currency:'MXN':'symbol-narrow':'1.0-0' }}</span> }
                     <button pButton type="button" class="p-button-sm p-button-outlined fb-diag-cta"
                             [label]="itemActionLabel(it)" icon="pi pi-arrow-right" iconPos="right" (click)="itemAction(it)"></button>
@@ -347,7 +348,7 @@ const GROUP_COLOR: Record<string, string> = {
             } @else { <p class="fb-recon-note muted">Corre el matching para casar cada retiro con su pago en Kepler (monto + fecha).</p> }
           </div>
           <div class="card-premium card-flat fb-recon-cash">
-            <h3 class="fb-card-title">Caja — banco vs Kepler 102 <span class="muted">(excluye traspasos internos)</span></h3>
+            <h3 class="fb-card-title">Caja — banco vs Kepler 102 <span class="muted">(excluye traspasos internos)</span><app-context-help topic="bancos_caja" /></h3>
             <div class="fb-recon-grid">
               <div class="fb-recon-cell">
                 <span class="fb-recon-l">Depósitos (entra) <span class="muted">· memo</span></span>
@@ -1124,6 +1125,18 @@ export class FinanzasBancosComponent implements OnInit {
 
   /** Tolerancia de cuadre: ±$1,000 (o ~0.5%) se considera cuadrado. */
   cuadra(delta: number): boolean { return Math.abs(delta) < 1000; }
+
+  /** About "cómo se resuelve" por tipo de item del Cierre (topic del diccionario, o null). */
+  helpTopic(tipo: string): string | null {
+    const map: Record<string, string> = {
+      sin_clasificar: 'bancos_sin_clasificar',
+      saldo_no_cuadra: 'bancos_saldo_no_cuadra',
+      traspaso_descuadre: 'bancos_traspaso_descuadre',
+      cuenta_sin_cargar: 'bancos_cuenta_sin_cargar',
+      kepler_pnl: 'bancos_caja',
+    };
+    return map[tipo] ?? null;
+  }
 
   private money0(v: number): string {
     return Number(v || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 });

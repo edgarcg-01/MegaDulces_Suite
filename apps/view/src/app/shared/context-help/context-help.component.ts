@@ -29,7 +29,7 @@ import { CONTEXT_HELP } from './context-help.dictionary';
       <p-drawer [visible]="open()" (visibleChange)="open.set($event)" position="right"
                 [style]="{ width: '26rem' }" [header]="topic.title" styleClass="ch-drawer" [dismissible]="true">
         @if (topic.intro) { <p class="ch-intro">{{ topic.intro }}</p> }
-        @for (g of topic.groups; track g.heading) {
+        @for (g of topic.groups ?? []; track g.heading) {
           <section class="ch-group">
             <h3 class="ch-h">{{ g.heading }}</h3>
             <dl class="ch-dl">
@@ -37,6 +37,23 @@ import { CONTEXT_HELP } from './context-help.dictionary';
                 <div class="ch-row"><dt>{{ e.term }}</dt><dd>{{ e.def }}</dd></div>
               }
             </dl>
+          </section>
+        }
+        @if (topic.resolve?.length) {
+          <section class="ch-group">
+            <h3 class="ch-h">Cómo se resuelve</h3>
+            @for (b of topic.resolve; track b.heading) {
+              <div class="ch-rb" [class.info]="b.kind === 'info'">
+                <div class="ch-rb-head">
+                  <span class="ch-rb-badge">{{ b.kind === 'info' ? 'No requiere acción' : 'Se corrige' }}</span>
+                  <span class="ch-rb-title">{{ b.heading }}</span>
+                </div>
+                @if (b.intro) { <p class="ch-rb-intro">{{ b.intro }}</p> }
+                <ol class="ch-rb-steps">
+                  @for (s of b.steps; track $index) { <li>{{ s }}</li> }
+                </ol>
+              </div>
+            }
           </section>
         }
       </p-drawer>
@@ -53,6 +70,17 @@ import { CONTEXT_HELP } from './context-help.dictionary';
     .ch-row dt { font-family: var(--font-mono, ui-monospace, monospace); font-size: .78rem; font-weight: 700; color: var(--text-main); }
     .ch-row dd { margin: 0; font-size: .8rem; color: var(--text-muted); line-height: 1.4; }
     @media (max-width: 520px) { .ch-row { grid-template-columns: 1fr; gap: .15rem; } }
+    /* Bloques "cómo se resuelve" */
+    .ch-rb { border-left: 2px solid var(--action, #d9772e); padding: 0 0 0 .7rem; margin: 0 0 .9rem; }
+    .ch-rb.info { border-left-color: var(--border-color, #e5e1da); }
+    .ch-rb-head { display: flex; align-items: center; gap: .45rem; margin-bottom: .3rem; flex-wrap: wrap; }
+    .ch-rb-badge { font-size: .6rem; text-transform: uppercase; letter-spacing: .04em; font-weight: 700;
+      padding: .1rem .4rem; border-radius: var(--r-xs, 4px); background: color-mix(in srgb, var(--action, #d9772e) 15%, transparent); color: var(--action, #d9772e); white-space: nowrap; }
+    .ch-rb.info .ch-rb-badge { background: color-mix(in srgb, var(--text-muted, #78716c) 12%, transparent); color: var(--text-muted); }
+    .ch-rb-title { font-size: .82rem; font-weight: 700; color: var(--text-main); }
+    .ch-rb-intro { font-size: .78rem; color: var(--text-muted); margin: 0 0 .4rem; line-height: 1.4; }
+    .ch-rb-steps { margin: 0; padding-left: 1.1rem; display: flex; flex-direction: column; gap: .3rem; }
+    .ch-rb-steps li { font-size: .8rem; color: var(--text-muted); line-height: 1.4; }
   `],
 })
 export class ContextHelpComponent {
