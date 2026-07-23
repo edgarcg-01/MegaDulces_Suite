@@ -339,8 +339,8 @@ const GROUP_COLOR: Record<string, string> = {
             </div>
             @if (matchResult(); as mr) {
               <div class="fb-match-res">
-                <span class="fb-match-rate mono" [class.ok]="mr.match_rate >= 80" [class.warn]="mr.match_rate < 80">{{ mr.match_rate }}%</span>
-                <span class="muted">{{ mr.matched | number }} de {{ mr.bank_movements | number }} retiros casados · {{ mr.matched_amount | currency:'MXN':'symbol-narrow':'1.0-0' }} de {{ mr.bank_amount | currency:'MXN':'symbol-narrow':'1.0-0' }}</span>
+                <span class="fb-match-rate mono" [class.ok]="amtPct(mr) >= 70" [class.warn]="amtPct(mr) < 70">{{ amtPct(mr) }}%</span>
+                <span class="muted"><b>del monto conciliado</b> — {{ mr.matched_amount | currency:'MXN':'symbol-narrow':'1.0-0' }} de {{ mr.bank_amount | currency:'MXN':'symbol-narrow':'1.0-0' }} · {{ mr.matched | number }} de {{ mr.bank_movements | number }} retiros ({{ mr.match_rate }}% por conteo)</span>
                 <span class="muted">· {{ mr.unmatched_bank | number }} sin casar en banco · {{ mr.unmatched_kepler | number }} pagos Kepler sin casar</span>
               </div>
               <p class="fb-plain">{{ matchRead(mr) }}</p>
@@ -917,7 +917,15 @@ export class FinanzasBancosComponent implements OnInit {
     const sc = this.concentrado()?.groupTotals?.['sin_clasificar']?.movs ?? 0;
     return Math.max(0, Math.round(((d.movimientos - sc) / d.movimientos) * 100));
   });
-  readonly reconciledPct = computed(() => this.matchResult()?.match_rate ?? null);
+  // % por MONTO (no por conteo): es el que importa — el dinero grande casa, las
+  // comisiones/nómina chiquitas que Kepler agrupa no, y subvenden el conteo.
+  amtPct(mr: { matched_amount: number; bank_amount: number }): number {
+    return mr?.bank_amount ? Math.round((mr.matched_amount / mr.bank_amount) * 100) : 0;
+  }
+  readonly reconciledPct = computed(() => {
+    const mr = this.matchResult(); if (!mr) return null;
+    return this.amtPct(mr);
+  });
 
   /** Grupos con datos en el periodo (columnas del CONCENTRADO), en orden canónico. */
   readonly groupCols = computed(() => {
@@ -1119,8 +1127,9 @@ export class FinanzasBancosComponent implements OnInit {
   }
   /** Lectura en llano del matching por-transacción. */
   matchRead(mr: MatchResult): string {
-    if (mr.unmatched_bank === 0) return `Los ${mr.matched} retiros del banco ya tienen su pago en Kepler (100%).`;
-    return `${mr.matched} de ${mr.bank_movements} retiros ya tienen su pago en Kepler (${mr.match_rate}%). Los ${mr.unmatched_bank} de abajo aún no casan.`;
+    if (mr.unmatched_bank === 0) return `Todos los retiros del banco ya tienen su pago en Kepler (100%).`;
+    const ap = this.amtPct(mr);
+    return `Ya casó el ${ap}% del dinero (${this.money0(mr.matched_amount)} de ${this.money0(mr.bank_amount)}). Los ${mr.unmatched_bank} retiros sin casar son en su mayoría comisiones y nómina chicas que Kepler agrupa (no casan 1 a 1) — por eso el % por conteo (${mr.match_rate}%) se ve más bajo que el % por monto.`;
   }
   label(group: string): string { return GROUP_LABELS[group] || group; }
   kindLabel(kind: string): string { return kind === 'bank' ? 'Banco' : kind === 'cash' ? 'Caja' : 'Factoraje'; }
