@@ -364,7 +364,7 @@ const GROUP_COLOR: Record<string, string> = {
               </div>
             </div>
             <p class="fb-plain">{{ cajaRead(rc) }}</p>
-            @if (rc.sin_clasificar > 0) { <p class="fb-recon-note muted"><i class="pi pi-exclamation-triangle"></i> {{ rc.sin_clasificar | currency:'MXN':'symbol-narrow':'1.0-0' }} en movimientos sin clasificar — no netean en el cuadre. En el tab Cierre está el detalle y cómo resolverlos en Kepler.</p> }
+            @if (rc.sin_clasificar > 0) { <p class="fb-recon-note muted"><i class="pi pi-exclamation-triangle"></i> {{ rc.sin_clasificar | currency:'MXN':'symbol-narrow':'1.0-0' }} en movimientos sin clasificar — sí están contados en los totales, pero sin categoría no se les atribuye concepto. En el tab Cierre está el detalle y cómo resolverlos en Kepler.</p> }
           </div>
 
           <!-- 2. Lo accionable: lo que no casó por ambos lados -->
