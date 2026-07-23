@@ -146,8 +146,8 @@ import { ActionsService, ProposedAction } from '../actions.service';
                 <div class="fh-acts">
                   @if (docUrl(f); as u) { <button pButton type="button" icon="pi pi-external-link" class="p-button-text p-button-sm" title="Ver póliza" (click)="go(u)"></button> }
                   @if (f.status === 'nuevo' || f.status === 'en_revision') {
-                    <button pButton type="button" icon="pi pi-check" label="Confirmar" class="p-button-sm p-button-success p-button-text" (click)="verdict(f, 'util')" title="Es real y útil"></button>
-                    <button pButton type="button" icon="pi pi-times" class="p-button-sm p-button-danger p-button-text" (click)="verdict(f, 'falso')" title="Falso positivo"></button>
+                    <button pButton type="button" icon="pi pi-check" label="Confirmar" class="p-button-sm p-button-success p-button-text" [disabled]="pending().has(f.id)" (click)="verdict(f, 'util')" title="Es real y útil" aria-label="Confirmar hallazgo"></button>
+                    <button pButton type="button" icon="pi pi-times" class="p-button-sm p-button-danger p-button-text" [disabled]="pending().has(f.id)" (click)="verdict(f, 'falso')" title="Falso positivo" aria-label="Descartar como falso positivo"></button>
                   } @else {
                     <span class="fh-status" [ngClass]="'st-' + f.status">{{ statusLabel(f.status) }}</span>
                   }
@@ -387,6 +387,8 @@ export class FinanzasHallazgosComponent implements OnInit {
   readonly rules = signal<RuleHealth[]>([]);
   readonly loading = signal(false);
   readonly error = signal<string | null>(null);
+  /** Hallazgos con veredicto en vuelo — evita doble-POST (§13 idempotencia visual). */
+  readonly pending = signal<Set<string>>(new Set());
   readonly scanning = signal(false);
   readonly rulesOpen = signal(false);
   readonly clase = signal<FindingClase | null>(null);
@@ -501,15 +503,24 @@ export class FinanzasHallazgosComponent implements OnInit {
   scoreTone(s: number): string { return s >= 80 ? 'ok' : s >= 60 ? 'warn' : 'bad'; }
 
   verdict(f: Finding, v: 'util' | 'falso') {
+    if (this.pending().has(f.id)) return; // anti doble-clic
+    this.pending.update((s) => new Set(s).add(f.id));
+    const snapshot = this.findings();
+    this.findings.update((arr) => arr.filter((x) => x.id !== f.id)); // optimista: sale ya
+    const clear = () => this.pending.update((s) => { const n = new Set(s); n.delete(f.id); return n; });
     this.svc.feedback(f.id, v).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (res) => {
-        this.findings.update((arr) => arr.filter((x) => x.id !== f.id));
+        clear();
         this.loadStats();
         const msg = v === 'util' ? 'Confirmado' : 'Descartado';
         const sup = res?.suppressed ? ' · regla auto-suprimida por baja precisión' : '';
         this.toast.add({ severity: v === 'util' ? 'success' : 'info', summary: msg, detail: `Maat aprende de esto${sup}.` });
       },
-      error: () => this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo registrar.' }),
+      error: () => {
+        clear();
+        this.findings.set(snapshot); // rollback visible
+        this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo registrar.' });
+      },
     });
   }
 
