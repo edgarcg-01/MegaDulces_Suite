@@ -45,6 +45,18 @@ const GROUP_LABELS: Record<string, string> = {
 const GROUP_ORDER = ['ingreso', 'compra', 'gasto', 'factoraje', 'financiero', 'traspaso', 'devolucion', 'sin_clasificar'];
 
 /**
+ * Color por grupo (CC.1) — el color = la clasificación, como en el Excel manual pero
+ * determinista + dark-safe. Usa la paleta categórica sancionada por DESIGN (--chart-*,
+ * sin morado, flipa en dark); evoca el Excel donde importa (verde ingreso, rosa compra,
+ * naranja gasto). traspaso = gris neutro (interno, netea). sin_clasificar = warn.
+ */
+const GROUP_COLOR: Record<string, string> = {
+  ingreso: 'var(--chart-3)', compra: 'var(--chart-5)', gasto: 'var(--chart-1)',
+  factoraje: 'var(--chart-4)', financiero: 'var(--chart-2)', traspaso: 'var(--chart-8)',
+  devolucion: 'var(--chart-6)', sin_clasificar: 'var(--warn-fg)',
+};
+
+/**
  * CB.3 — Conciliación bancaria (ADR-033). Reemplaza el workbook Excel: tablero
  * CONCENTRADO (pivote cuenta × grupo), grid de movimientos con reclasificación
  * inline, y lista de cuentas. Surface Operations (denso, quiet-luxury, dark-first).
@@ -179,7 +191,7 @@ const GROUP_ORDER = ['ingreso', 'compra', 'gasto', 'factoraje', 'financiero', 't
               <ng-template pTemplate="header">
                 <tr>
                   <th class="fb-sticky-col">Cuenta</th>
-                  @for (g of groupCols(); track g) { <th class="ta-r">{{ label(g) }}</th> }
+                  @for (g of groupCols(); track g) { <th class="ta-r"><span class="fb-ghead"><span class="fb-legend-dot" [style.--g]="groupColorVar(g)"></span>{{ label(g) }}</span></th> }
                   <th class="ta-r">Depósitos</th>
                   <th class="ta-r">Retiros</th>
                 </tr>
@@ -242,6 +254,10 @@ const GROUP_ORDER = ['ingreso', 'compra', 'gasto', 'factoraje', 'financiero', 't
             <p-checkbox [ngModel]="fUncat()" [binary]="true" inputId="fUncat" (onChange)="fUncat.set($event.checked); reloadMovements()"></p-checkbox>
             <label for="fUncat">Solo sin clasificar</label>
           </span>
+          <span class="fb-check">
+            <p-checkbox [ngModel]="colorByGroup()" [binary]="true" inputId="fColor" (onChange)="colorByGroup.set($event.checked)"></p-checkbox>
+            <label for="fColor">Color por grupo</label>
+          </span>
           <p-iconfield iconPosition="left" class="fb-search">
             <p-inputicon styleClass="pi pi-search" />
             <input pInputText type="text" [ngModel]="fSearch()" (ngModelChange)="onSearch($event)"
@@ -249,6 +265,16 @@ const GROUP_ORDER = ['ingreso', 'compra', 'gasto', 'factoraje', 'financiero', 't
           </p-iconfield>
           <span class="fb-count muted">{{ movTotal() | number }} movimientos</span>
         </div>
+        @if (colorByGroup()) {
+          <div class="fb-legend" aria-label="Colores por grupo — clic para filtrar">
+            @for (g of GROUP_ORDER; track g) {
+              <button type="button" class="fb-legend-item" [class.active]="fGroup() === g" [style.--g]="groupColorVar(g)"
+                      (click)="fGroup.set(fGroup() === g ? '' : g); reloadMovements()" [attr.aria-pressed]="fGroup() === g">
+                <span class="fb-legend-dot"></span>{{ label(g) }}
+              </button>
+            }
+          </div>
+        }
         <div class="card-premium card-flat fb-tablewrap">
           <p-table [value]="movements()" styleClass="p-datatable-sm" [rowHover]="true" [scrollable]="true" scrollHeight="58vh"
                    [paginator]="movements().length > 50" [rows]="50" [rowsPerPageOptions]="[50, 100, 200]">
@@ -264,7 +290,9 @@ const GROUP_ORDER = ['ingreso', 'compra', 'gasto', 'factoraje', 'financiero', 't
               </tr>
             </ng-template>
             <ng-template pTemplate="body" let-m>
-              <tr [class.fb-uncat]="!m.category_id">
+              <tr class="fb-mov-row" [class.fb-colored]="colorByGroup()"
+                  [style.--g]="colorByGroup() ? groupColorVar(m.group_key) : null"
+                  [class.fb-uncat]="!m.category_id && !colorByGroup()">
                 <td class="mono">{{ m.movement_date }}</td>
                 <td class="muted">{{ m.account_label }}</td>
                 <td class="fb-concept" [title]="m.concept">{{ m.concept || '—' }}</td>
@@ -685,6 +713,18 @@ const GROUP_ORDER = ['ingreso', 'compra', 'gasto', 'factoraje', 'financiero', 't
     .fb-cat-empty { color: var(--warn-fg); border-color: var(--warn-border); }
     .theme-monochrome .fb-cat-select { box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04); }
     .fb-uncat { background: color-mix(in srgb, var(--warn-fg) 5%, transparent); }
+    /* CC — color por grupo (el color = la clasificación; sutil, dark-safe, --g inyectado por fila) */
+    .fb-colored > td { background: color-mix(in srgb, var(--g, transparent) 8%, transparent); }
+    .fb-colored > td:first-child { box-shadow: inset 3px 0 0 var(--g, transparent); }
+    .fb-legend { display: flex; flex-wrap: wrap; gap: var(--sp-1) var(--sp-2); margin-bottom: var(--sp-2); }
+    .fb-legend-item { display: inline-flex; align-items: center; gap: var(--sp-1); font: inherit; font-size: var(--fs-xs);
+      color: var(--text-muted); background: none; border: 1px solid transparent; border-radius: var(--r-pill);
+      padding: 2px var(--sp-2); cursor: pointer; transition: background-color 120ms ease, border-color 120ms ease; }
+    .fb-legend-item:hover { background: var(--hover-bg); }
+    .fb-legend-item.active { border-color: var(--g); color: var(--text-main); background: color-mix(in srgb, var(--g) 8%, transparent); }
+    .fb-legend-item:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 1px; }
+    .fb-legend-dot { width: 10px; height: 10px; border-radius: 3px; background: var(--g, var(--text-faint)); flex: none; }
+    .fb-ghead { display: inline-flex; align-items: center; gap: 4px; }
     .fb-kind { font-size: var(--fs-xs); text-transform: capitalize; color: var(--text-muted); }
     .fb-skeleton { display: flex; flex-direction: column; gap: var(--sp-2); margin-top: var(--sp-4); }
     .fb-skel-row { height: var(--row-h-md, 40px); border-radius: var(--r-sm); background: var(--hover-bg); animation: fb-pulse 1.4s ease-in-out infinite; }
@@ -824,6 +864,7 @@ export class FinanzasBancosComponent implements OnInit {
   readonly fAccount = signal('');
   readonly fGroup = signal('');
   readonly fUncat = signal(false);
+  readonly colorByGroup = signal(true);
   readonly fSearch = signal('');
   readonly uploading = signal(false);
   private searchTimer: any = null;
@@ -1083,6 +1124,8 @@ export class FinanzasBancosComponent implements OnInit {
   }
   label(group: string): string { return GROUP_LABELS[group] || group; }
   kindLabel(kind: string): string { return kind === 'bank' ? 'Banco' : kind === 'cash' ? 'Caja' : 'Factoraje'; }
+  /** Color del grupo (CC.1) como referencia CSS var, para tinte de fila / dot de leyenda. */
+  groupColorVar(group?: string | null): string { return GROUP_COLOR[group || 'sin_clasificar'] || 'transparent'; }
 
   /** Checklist accionable: salta al lugar exacto para resolver cada descuadre del diagnóstico. */
   itemAction(it: { tipo?: string }): void {
