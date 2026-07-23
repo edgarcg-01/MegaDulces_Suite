@@ -23,6 +23,7 @@ import {
   BankView as View, BankAdminTab as AdminTab, MONTHS_ES, WORK_VIEWS,
   GROUP_LABELS, GROUP_ORDER, GROUP_COLOR,
 } from './bancos/bancos-shared';
+import { BancosConcentradoComponent } from './bancos/bancos-concentrado.component';
 
 /**
  * CB.3 — Conciliación bancaria (ADR-033). Reemplaza el workbook Excel: tablero
@@ -34,7 +35,8 @@ import {
   standalone: true,
   imports: [CommonModule, FormsModule, ButtonModule, TableModule, ToastModule, SelectModule, CheckboxModule,
     InputNumberModule, InputTextModule, IconFieldModule, InputIconModule,
-    PageTabsComponent, MetricStripComponent, LoadStateComponent, FreshnessPillComponent, ContextHelpComponent],
+    PageTabsComponent, MetricStripComponent, LoadStateComponent, FreshnessPillComponent, ContextHelpComponent,
+    BancosConcentradoComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
@@ -160,43 +162,7 @@ import {
           <app-load-state [error]="concError()" (retry)="setPeriod(period())"></app-load-state>
         } @else {
           @if (concentrado(); as c) {
-          <app-metric-strip [items]="kpiItems(c)" ariaLabel="Resumen del periodo" />
-          <div class="fb-filters">
-            <p-select [options]="accountOpts()" optionLabel="label" optionValue="value" [filter]="true"
-                      [ngModel]="fConcAccount()" (ngModelChange)="fConcAccount.set($event)"
-                      appendTo="body" styleClass="fb-sel sel-liquid" ariaLabel="Cuenta"></p-select>
-            <span class="fb-count muted">{{ concAccounts().length }} cuenta(s)</span>
-          </div>
-          <div class="card-premium card-flat fb-tablewrap">
-            <p-table [value]="concAccounts()" styleClass="p-datatable-sm" [rowHover]="true" [scrollable]="true" scrollHeight="60vh">
-              <ng-template pTemplate="header">
-                <tr>
-                  <th class="fb-sticky-col">Cuenta</th>
-                  @for (g of groupCols(); track g) { <th class="ta-r"><span class="fb-ghead"><span class="fb-legend-dot" [style.--g]="groupColorVar(g)"></span>{{ label(g) }}</span></th> }
-                  <th class="ta-r">Depósitos</th>
-                  <th class="ta-r">Retiros</th>
-                </tr>
-              </ng-template>
-              <ng-template pTemplate="body" let-a>
-                <tr>
-                  <td class="fb-sticky-col"><span class="fb-acct">{{ a.bank }} <span class="muted">{{ a.account_label }}</span></span></td>
-                  @for (g of groupCols(); track g) {
-                    <td class="ta-r mono">{{ cellAmount(a, g) | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
-                  }
-                  <td class="ta-r mono fb-strong">{{ a.deposits | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
-                  <td class="ta-r mono fb-strong">{{ a.withdrawals | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
-                </tr>
-              </ng-template>
-              <ng-template pTemplate="footer">
-                <tr class="fb-total-row">
-                  <td class="fb-sticky-col">Total</td>
-                  @for (g of groupCols(); track g) { <td class="ta-r mono">{{ groupTotal(c, g) | currency:'MXN':'symbol-narrow':'1.0-0' }}</td> }
-                  <td class="ta-r mono fb-strong">{{ c.grand.deposits | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
-                  <td class="ta-r mono fb-strong">{{ c.grand.withdrawals | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
-                </tr>
-              </ng-template>
-            </p-table>
-          </div>
+            <bancos-concentrado [concentrado]="c" [accountOpts]="accountOpts()" />
           } @else {
             <div class="surf-empty"><i class="pi pi-inbox"></i><p>Sin estados de cuenta para {{ period() }}.</p></div>
           }
@@ -808,21 +774,6 @@ export class FinanzasBancosComponent implements OnInit {
     return this.amtPct(mr);
   });
 
-  /** Concentrado: filtro por cuenta (client-side). */
-  readonly fConcAccount = signal('');
-  readonly concAccounts = computed(() => {
-    const c = this.concentrado(); if (!c) return [];
-    const f = this.fConcAccount();
-    return f ? c.accounts.filter((a) => a.account_id === f) : c.accounts;
-  });
-  /** Grupos con datos en el periodo (columnas del CONCENTRADO), en orden canónico. */
-  readonly groupCols = computed(() => {
-    const c = this.concentrado();
-    if (!c) return [] as string[];
-    const present = new Set(Object.keys(c.groupTotals));
-    return GROUP_ORDER.filter((g) => present.has(g));
-  });
-
   ngOnInit(): void {
     this.api.periods().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (ps) => {
@@ -930,27 +881,6 @@ export class FinanzasBancosComponent implements OnInit {
     return items;
   }
 
-  kpiItems(c: Concentrado): MetricStripItem[] {
-    const neto = c.grand.deposits - c.grand.withdrawals;
-    const sinClas = c.groupTotals['sin_clasificar'];
-    return [
-      { label: 'Depósitos', value: c.grand.deposits, format: 'currency' },
-      { label: 'Retiros', value: c.grand.withdrawals, format: 'currency' },
-      { label: 'Neto', value: neto, format: 'currency', tone: neto >= 0 ? 'ok' : 'bad' },
-      { label: 'Sin clasificar', value: sinClas ? sinClas.movs : 0, format: 'number', tone: (sinClas?.movs || 0) > 0 ? 'warn' : 'ok' },
-    ];
-  }
-
-  cellAmount(a: any, group: string): number {
-    const g = a.groups?.[group];
-    if (!g) return 0;
-    return group === 'ingreso' || group === 'devolucion' ? g.deposits : g.withdrawals;
-  }
-  groupTotal(c: Concentrado, group: string): number {
-    const g = c.groupTotals?.[group];
-    if (!g) return 0;
-    return group === 'ingreso' || group === 'devolucion' ? g.deposits : g.withdrawals;
-  }
   /** Corre el matching por-transacción del periodo y recarga los movimientos (recon_status). */
   runMatch(): void {
     if (!this.period()) return;
