@@ -16,6 +16,20 @@ import { FINANCE_FINDINGS_SINK_PORT, FinanceFindingsSinkPort, FinanceFindingInpu
 
 const n = (v: any) => Number(v) || 0;
 const normKey = (s: any) => String(s ?? '').replace(/\s+/g, ' ').trim().toUpperCase();
+
+// Tokens significativos de un nombre de beneficiario (para el 3er pase del matcher
+// por nombre). Quita ruido societario (SA/DE/CV/SAPI…), acentos y palabras cortas.
+const STOP_TOKENS = new Set(['SA', 'DE', 'CV', 'SAPI', 'SAB', 'SC', 'SRL', 'RL', 'SOFOM', 'ENR', 'SOF', 'THE', 'DEL', 'LA', 'EL', 'LOS', 'LAS', 'Y', 'PAGO', 'SPEI', 'TRANSFERENCIA']);
+const nameTokens = (s: any): Set<string> => {
+  const t = normKey(s).normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^A-Z0-9 ]/g, ' ');
+  return new Set(t.split(/\s+/).filter((w) => w.length >= 4 && !STOP_TOKENS.has(w)));
+};
+const nameScore = (a: Set<string>, b: Set<string>): number => {
+  if (!a.size || !b.size) return 0;
+  let shared = 0;
+  for (const w of a) if (b.has(w)) shared++;
+  return shared / Math.min(a.size, b.size);
+};
 const money = (v: any): number => {
   if (typeof v === 'number') return v;
   const t = String(v ?? '').replace(/[$,\s]/g, '').trim();
@@ -549,12 +563,12 @@ export class FinanceBankService {
   }
 
   async diagnostico(period?: string) {
-    this.tenantCtx.requireTenantId();
+    const tenantId = this.tenantCtx.requireTenantId();
     if (!period) throw new BadRequestException('period requerido (YYYY-MM)');
     const money = (v: number) => Number(v || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 });
 
     // Totales de la tabla (ingresos/egresos) + sin_clasificar + cuentas sin estado de cuenta.
-    const { totales, sinClas, sinClasBuckets, cuentasSinEstado } = await this.tk.run(async (trx) => {
+    const { totales, sinClas, sinClasBuckets, cuentasSinEstado, matchedCount, keplerPostingsCount } = await this.tk.run(async (trx) => {
       const t = await trx('finance.bank_movements as bm')
         .join('finance.bank_statements as st', 'st.id', 'bm.statement_id')
         .where('st.period', period)
@@ -578,7 +592,19 @@ export class FinanceBankService {
         .where('ba.active', true)
         .whereNotExists(function () { this.select(trx.raw('1')).from('finance.bank_statements as st').whereRaw('st.bank_account_id = ba.id AND st.period = ?', [period]); })
         .select('ba.bank', 'ba.account_label', 'ba.kind');
-      return { totales: t, sinClas: sc, sinClasBuckets: scb, cuentasSinEstado: missing };
+      // ¿Ya corrió la conciliación por-transacción? Si 0 casados, la evidencia dirá
+      // "sin casar en Kepler" en TODO → engañoso (parece que falta en Kepler cuando
+      // en realidad no se ha pareado). Avisamos que corra "Conciliar" primero.
+      const mc = await trx('finance.bank_movements as bm')
+        .join('finance.bank_statements as st', 'st.id', 'bm.statement_id')
+        .where('st.period', period).where('bm.recon_status', 'matched')
+        .count({ n: '*' }).first();
+      // ¿Hay pólizas del 102 de Kepler cargadas para el periodo? (feed analytics.bank_postings,
+      // sin RLS → tenant explícito). Sin ellas el matching NO puede correr en absoluto.
+      const kp = await trx('analytics.bank_postings')
+        .where({ tenant_id: tenantId, anio_mes: period }).count({ n: '*' }).first();
+      return { totales: t, sinClas: sc, sinClasBuckets: scb, cuentasSinEstado: missing,
+        matchedCount: n((mc as any)?.n), keplerPostingsCount: n((kp as any)?.n) };
     });
 
     const bal = await this.balances(period);
@@ -631,8 +657,8 @@ export class FinanceBankService {
           ? `Kepler registra ${money(a.book)} de gasto en el mayor ${a.kepler_account} («${a.concept}»), pero por banco solo salieron ${money(a.bank)}: hay ${money(abs)} MÁS reconocido en Kepler que pagado por banco.`
           : `Por banco salieron ${money(a.bank)} en «${a.concept}», pero Kepler solo registra ${money(a.book)} en el mayor ${a.kepler_account}: el banco pagó ${money(abs)} MÁS de lo que Kepler reconoce.`;
         const accion = keplerMas
-          ? `Gasto reconocido en Kepler que aún no se refleja como pago cruzado. Casi siempre es una de tres: (1) facturas por pagar (aún no sale el dinero), (2) el pago cae en otro mes (timing), o (3) hay movimientos sin clasificar —o pagados vía factoraje— que no se cruzan contra este mayor. Contrasta con el saldo de proveedores por pagar.`
-          : `Salió más dinero del que Kepler reconoce en esta cuenta. Revisa si: (1) el pago quedó clasificado en OTRA cuenta contable del banco, (2) fue un anticipo a proveedor, o (3) falta capturar la póliza/factura en Kepler.`;
+          ? `Kepler YA reconoció este gasto; el banco todavía no lo paga. Normalmente NO se corrige en Kepler — es cuenta por pagar. Pasos: (1) en Kepler abre el auxiliar del mayor ${a.kepler_account} y saca las facturas SIN pago aplicado (esas explican el Δ); (2) confirma que el proveedor esté en cuentas por pagar; (3) si YA se pagó, busca el pago en otra cuenta de banco o en factoraje. El detalle de facturas por proveedor está en el módulo Egresos.`
+          : `Salió dinero del banco que Kepler no reconoce en el mayor ${a.kepler_account}. Cada renglón de abajo con «sin casar en Kepler» es un pago SIN póliza en el 102. Pasos en Kepler, uno por uno: (1) busca la póliza de egreso por beneficiario + monto + fecha; (2) si NO existe, captúrala en el mayor correcto; (3) si existe pero en otra cuenta, reclasifícala. Los renglones que ya muestran folio Kepler están casados —esos no se tocan.`;
         items.push({ tipo: 'kepler_pnl', severidad: abs >= 100000 ? 'bad' : 'warn', importe: abs,
           titulo: keplerMas ? `Kepler registra más que el banco: ${a.concept}` : `El banco pagó más que Kepler: ${a.concept}`,
           detalle, accion, _mayor: a.kepler_account });
@@ -683,16 +709,35 @@ export class FinanceBankService {
     for (const it of items) { delete it._statementId; delete it._opening; delete it._mayor; }
 
     items.sort((x, y) => (y.importe || 0) - (x.importe || 0));
+    const cuadra = items.length === 0; // real issues, antes de meter el aviso informativo
+    // Aviso al frente: la evidencia "sin casar en Kepler" solo es confiable si (a) están
+    // cargadas las pólizas del 102 de Kepler y (b) ya corrió el matching. Si no, todo
+    // sale "sin casar" y parecería que falta en Kepler cuando NO es cierto.
+    const conciliacionCorrida = n(matchedCount) > 0;
+    const sinPostingsKepler = n(keplerPostingsCount) === 0;
+    if (sinPostingsKepler && !!recon?.accounts?.length) {
+      items.unshift({ tipo: 'aviso_conciliar', severidad: 'info', importe: 0,
+        titulo: 'Faltan las pólizas del 102 de Kepler (no se puede casar aún)',
+        detalle: 'No hay pólizas del 102 (bancos/caja) de Kepler cargadas para este periodo, así que la conciliación por-transacción no puede correr y toda la evidencia dirá «sin casar en Kepler». Eso NO significa que falte en Kepler — todavía no hay con qué cruzar.',
+        accion: 'Carga el feed de pólizas 102 del periodo (import-bank-postings) y luego presiona «Conciliar» en la pestaña Conciliación. Recién entonces la evidencia mostrará el folio exacto de Kepler de cada pago.' });
+    } else if (!conciliacionCorrida && !!recon?.accounts?.length) {
+      items.unshift({ tipo: 'aviso_conciliar', severidad: 'info', importe: 0,
+        titulo: 'Corre «Conciliar» primero',
+        detalle: 'Las pólizas de Kepler están cargadas pero el matching por-transacción no se ha ejecutado este periodo, así que la evidencia de abajo marca todo como «sin casar en Kepler». Eso NO significa que falte en Kepler — significa que aún no se parean los pagos.',
+        accion: 'Ve a la pestaña Conciliación y presiona «Conciliar». Después, cada renglón mostrará su folio de Kepler cuando exista, y solo los que queden «sin casar» serán gaps reales que capturar.' });
+    }
     const totalDescuadre = bal.totals.descuadre;
     return {
       period,
       ingresos, egresos, neto: Math.round((ingresos - egresos) * 100) / 100,
       movimientos: n((totales as any)?.movs),
-      cuadra: items.length === 0,
+      cuadra,
       cuentas_ok: bal.accounts.filter((a: any) => a.cuadra).length,
       cuentas_total: bal.accounts.length,
       total_descuadre: totalDescuadre,
       tiene_balanza_kepler: !!recon?.accounts?.length,
+      conciliacion_corrida: conciliacionCorrida,
+      kepler_postings_cargados: !sinPostingsKepler,
       items,
     };
   }
@@ -866,6 +911,31 @@ export class FinanceBankService {
           kepler_doc_folio: best.folio, kepler_cuenta: '102', kepler_amount: best.importe,
           match_type: 'inferred', match_confidence: 0.5, matched_by: 'motor-2p' });
       }
+      // 3er pase (CB.10): por NOMBRE del beneficiario + monto aproximado. Rescata los
+      // pagos donde los centavos banco ≠ Kepler (redondeos, IVA, comisión embebida) pero
+      // el beneficiario coincide. Exige AMBOS: |Δmonto| ≤ max($5, 0.5%) Y score de nombre
+      // ≥ 0.5 (tokens significativos compartidos) → no casa por monto solo (seguro).
+      const NAME_PASS_MIN = 5000;
+      let thirdPass = 0;
+      for (const mv of bankMovs) {
+        if (matchedSet.has(mv.id) || n(mv.amount_out) < NAME_PASS_MIN) continue;
+        const amt = n(mv.amount_out), tol = Math.max(5, amt * 0.005);
+        const mvTok = nameTokens(mv.concept);
+        if (!mvTok.size) continue;
+        let best: any = null, bestScore = 0, bestD = Infinity;
+        for (const p of posts) {
+          if (p.used || Math.abs(p.importe - amt) > tol) continue;
+          const sc = nameScore(mvTok, nameTokens(p.contraparte));
+          if (sc < 0.5) continue;
+          const d = p.fecha ? days(mv.movement_date, p.fecha) : 999;
+          if (sc > bestScore || (sc === bestScore && d < bestD)) { best = p; bestScore = sc; bestD = d; }
+        }
+        if (!best) continue;
+        best.used = true; matchedIds.push(mv.id); matchedSet.add(mv.id); thirdPass++;
+        matches.push({ tenant_id: tenantId, bank_movement_id: mv.id, kepler_doc_tipo: best.doc_tipo,
+          kepler_doc_folio: best.folio, kepler_cuenta: '102', kepler_amount: best.importe,
+          match_type: 'inferred', match_confidence: 0.6, matched_by: 'motor-name' });
+      }
 
       // Persistir: limpiar matches previos del periodo + reinsertar; marcar recon_status.
       const periodMovIds = bankMovs.map((m: any) => m.id);
@@ -880,9 +950,9 @@ export class FinanceBankService {
 
       const matchedAmt = matches.reduce((s, m) => s + n(m.kepler_amount), 0);
       const bankTotal = bankMovs.reduce((s: number, m: any) => s + n(m.amount_out), 0);
-      this.logger.log(`match ${period}: ${matches.length}/${bankMovs.length} retiros casados (${secondPass} en 2º pase)`);
+      this.logger.log(`match ${period}: ${matches.length}/${bankMovs.length} retiros casados (${secondPass} 2º pase, ${thirdPass} por nombre)`);
       return {
-        period, bank_movements: bankMovs.length, matched: matches.length, second_pass: secondPass,
+        period, bank_movements: bankMovs.length, matched: matches.length, second_pass: secondPass, name_pass: thirdPass,
         unmatched_bank: bankMovs.length - matches.length,
         kepler_postings: posts.length, unmatched_kepler: posts.filter((p) => !p.used).length,
         matched_amount: matchedAmt, bank_amount: bankTotal,
