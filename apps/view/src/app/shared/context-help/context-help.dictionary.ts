@@ -399,4 +399,47 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
       },
     ],
   },
+  bancos: {
+    title: 'Conciliación bancaria — guía',
+    intro: 'Reemplaza el Excel manual de bancos. Cada mes: subís los estados de cuenta, el motor clasifica los movimientos contra un catálogo alineado a Kepler, y la pantalla te dice si TODO cuadra — y si no, exactamente qué falta y dónde.',
+    groups: [
+      {
+        heading: 'Las vistas',
+        entries: [
+          { term: 'Cierre', def: 'La respuesta del mes: ¿cuadra o no? Arriba el veredicto y el resumen del dinero; abajo la lista de "qué falta", ordenada por impacto, con un botón que te lleva al lugar exacto de arreglarlo.' },
+          { term: 'Movimientos', def: 'Todos los ingresos y egresos del periodo. Aquí clasificás (asignás categoría) lo que el motor dejó "sin clasificar".' },
+          { term: 'Concentrado', def: 'Pivote cuenta × grupo (ingresos, compras, gastos, traspasos…): en qué se movió el dinero por banco.' },
+          { term: 'Conciliación', def: 'Cruce contra Kepler: cuántos retiros ya tienen su pago en el mayor, y qué quedó sin casar por ambos lados.' },
+          { term: 'Cuentas', def: 'Cuadre de saldos por cuenta. Clic en una cuenta para ver sus movimientos.' },
+        ],
+      },
+      {
+        heading: 'Cuadre de saldos',
+        entries: [
+          { term: 'Cuadre', def: 'Saldo inicial + depósitos − retiros debe dar el saldo final del estado de cuenta. Si no da, falta capturar un movimiento o el saldo está mal tecleado.' },
+          { term: 'Δ (delta)', def: 'La diferencia entre el saldo calculado y el saldo final real. Δ = 0 (o ±$1,000 de tolerancia) = cuadra.' },
+          { term: 'Renglón donde salta', def: 'Cuando una cuenta no cuadra, la fila expande el/los movimiento(s) exactos donde el saldo del banco salta más de lo que explica el movimiento: ahí está el error.' },
+          { term: 'TI = TE', def: 'Traspasos internos: dinero movido entre cuentas propias. Lo que entra (TI) debe ser igual a lo que sale (TE) y netear a cero. Si no netean, falta el otro lado del traspaso.' },
+        ],
+      },
+      {
+        heading: 'Conciliación vs Kepler',
+        entries: [
+          { term: '102', def: 'La cuenta contable única con la que Kepler agrupa TODOS los bancos. El workbook es el detalle por banco que Kepler colapsa en ese 102.' },
+          { term: 'Casado / sin casar', def: 'Un retiro del banco "casa" cuando se encuentra su pago equivalente en el 102 de Kepler (mismo monto ± fecha). "Sin casar" = aún no se le encontró par.' },
+          { term: 'Caja (control-total)', def: 'Compara el total de depósitos/retiros del banco contra los cargos/abonos del 102. Excluye traspasos internos.' },
+          { term: 'P&L banco vs Kepler', def: 'Por categoría de gasto: lo pagado por banco vs lo que el mayor de Kepler reconoce. Δ negativo = Kepler reconoce más de lo que salió (factura por pagar, pago desde caja/factoraje, o cae en otro mes).' },
+          { term: 'Factoraje', def: 'Financiamiento de compras (Kepler 210). Los pagos hechos por factoraje no salen del banco, por eso pueden explicar diferencias con Kepler.' },
+        ],
+      },
+      {
+        heading: 'Clasificación',
+        entries: [
+          { term: 'Sin clasificar', def: 'Movimiento sin categoría asignada. No entra a ningún grupo del cuadre → hay que clasificarlo (a mano o creando una regla).' },
+          { term: 'Regla', def: 'Patrón (código + concepto → categoría) que el motor aplica automáticamente al importar. Editable en ⚙ Config. "Reclasificar" re-aplica las reglas respetando lo que marcaste a mano.' },
+          { term: 'Categoría', def: 'Etiqueta limpia alineada a una cuenta contable de Kepler (nómina, compra_mercancia, comisión_bancaria…).' },
+        ],
+      },
+    ],
+  },
 };

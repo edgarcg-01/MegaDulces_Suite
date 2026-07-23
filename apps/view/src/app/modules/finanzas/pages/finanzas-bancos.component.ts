@@ -16,6 +16,7 @@ import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tab
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
+import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import { FINANZAS_TABS } from '../finanzas-tabs';
 import { BankService, BankAccount, MovementCategory, BankStatement, BankMovement, Concentrado, Reconciliation, MatchResult, Differences, ClassifyRule, Balances, Diagnostico } from '../bank.service';
 
@@ -53,7 +54,7 @@ const GROUP_ORDER = ['ingreso', 'compra', 'gasto', 'factoraje', 'financiero', 't
   standalone: true,
   imports: [CommonModule, FormsModule, ButtonModule, TableModule, ToastModule, SelectModule, CheckboxModule,
     InputNumberModule, InputTextModule, IconFieldModule, InputIconModule,
-    PageTabsComponent, MetricStripComponent, LoadStateComponent, FreshnessPillComponent],
+    PageTabsComponent, MetricStripComponent, LoadStateComponent, FreshnessPillComponent, ContextHelpComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
@@ -63,14 +64,14 @@ const GROUP_ORDER = ['ingreso', 'compra', 'gasto', 'factoraje', 'financiero', 't
 
       <header class="surf-page-head fb-head">
         <div class="surf-page-head-text">
-          <h1>Bancos</h1>
+          <div class="fb-title-row"><h1>Bancos</h1><app-context-help topic="bancos" /></div>
           <p class="surf-page-sub">Conciliación bancaria: estados de cuenta clasificados contra el catálogo alineado a Kepler. Reemplaza el Excel manual.</p>
         </div>
         <div class="fb-head-actions">
           <label class="fb-period">
             <span>Periodo</span>
             <p-select [options]="periods()" [ngModel]="period()" (ngModelChange)="setPeriod($event)"
-                      appendTo="body" styleClass="fb-sel" [style]="{ minWidth: '8rem' }" ariaLabel="Periodo"></p-select>
+                      appendTo="body" styleClass="fb-sel sel-liquid" [style]="{ minWidth: '8rem' }" ariaLabel="Periodo"></p-select>
           </label>
           <input #fileInput type="file" accept=".xlsx" hidden (change)="onFile($event)">
           <button pButton type="button" label="Subir estado de cuenta" icon="pi pi-upload"
@@ -80,12 +81,14 @@ const GROUP_ORDER = ['ingreso', 'compra', 'gasto', 'factoraje', 'financiero', 't
 
       <!-- Barra de estado del cierre (answer-first: dónde va el periodo de un vistazo) -->
       <div class="fb-status" aria-label="Estado del cierre">
-        <span class="fb-status-chip"><i class="pi pi-inbox"></i> Importado
-          <b class="mono">{{ importStatus().loaded }}/{{ importStatus().total }}</b> cuentas</span>
-        <span class="fb-status-chip" [class.warn]="(classifiedPct() ?? 100) < 100"><i class="pi pi-tags"></i> Clasificado
-          <b class="mono">{{ classifiedPct() == null ? '—' : classifiedPct() + '%' }}</b></span>
-        <span class="fb-status-chip" [class.warn]="reconciledPct() != null && reconciledPct()! < 80"><i class="pi pi-sync"></i> Conciliado
-          <b class="mono">{{ reconciledPct() == null ? 'sin correr' : reconciledPct() + '%' }}</b></span>
+        <button type="button" class="fb-status-chip" (click)="view.set('cuentas')" title="Ver cuentas y su cuadre de saldos">
+          <i class="pi pi-inbox"></i> Importado <b class="mono">{{ importStatus().loaded }}/{{ importStatus().total }}</b> cuentas</button>
+        <button type="button" class="fb-status-chip" [class.warn]="(classifiedPct() ?? 100) < 100"
+                (click)="fGroup.set(''); fUncat.set(true); view.set('movimientos'); reloadMovements()" title="Ver los movimientos sin clasificar">
+          <i class="pi pi-tags"></i> Clasificado <b class="mono">{{ classifiedPct() == null ? '—' : classifiedPct() + '%' }}</b></button>
+        <button type="button" class="fb-status-chip" [class.warn]="reconciledPct() != null && reconciledPct()! < 80"
+                (click)="view.set('conciliacion')" title="Ver la conciliación contra Kepler">
+          <i class="pi pi-sync"></i> Conciliado <b class="mono">{{ reconciledPct() == null ? 'sin correr' : reconciledPct() + '%' }}</b></button>
         <app-freshness-pill [since]="lastImported()" />
       </div>
 
@@ -231,10 +234,10 @@ const GROUP_ORDER = ['ingreso', 'compra', 'gasto', 'factoraje', 'financiero', 't
         <div class="fb-filters">
           <p-select [options]="accountOpts()" optionLabel="label" optionValue="value" [filter]="true"
                     [ngModel]="fAccount()" (ngModelChange)="fAccount.set($event); reloadMovements()"
-                    appendTo="body" styleClass="fb-sel" ariaLabel="Cuenta"></p-select>
+                    appendTo="body" styleClass="fb-sel sel-liquid" ariaLabel="Cuenta"></p-select>
           <p-select [options]="groupOpts()" optionLabel="label" optionValue="value"
                     [ngModel]="fGroup()" (ngModelChange)="fGroup.set($event); reloadMovements()"
-                    appendTo="body" styleClass="fb-sel" ariaLabel="Grupo"></p-select>
+                    appendTo="body" styleClass="fb-sel sel-liquid" ariaLabel="Grupo"></p-select>
           <span class="fb-check">
             <p-checkbox [ngModel]="fUncat()" [binary]="true" inputId="fUncat" (onChange)="fUncat.set($event.checked); reloadMovements()"></p-checkbox>
             <label for="fUncat">Solo sin clasificar</label>
@@ -312,6 +315,7 @@ const GROUP_ORDER = ['ingreso', 'compra', 'gasto', 'factoraje', 'financiero', 't
                 <span class="muted">{{ mr.matched | number }} de {{ mr.bank_movements | number }} retiros casados · {{ mr.matched_amount | currency:'MXN':'symbol-narrow':'1.0-0' }} de {{ mr.bank_amount | currency:'MXN':'symbol-narrow':'1.0-0' }}</span>
                 <span class="muted">· {{ mr.unmatched_bank | number }} sin casar en banco · {{ mr.unmatched_kepler | number }} pagos Kepler sin casar</span>
               </div>
+              <p class="fb-plain">{{ matchRead(mr) }}</p>
             } @else { <p class="fb-recon-note muted">Corre el matching para casar cada retiro con su pago en Kepler (monto + fecha).</p> }
           </div>
           <div class="card-premium card-flat fb-recon-cash">
@@ -330,6 +334,7 @@ const GROUP_ORDER = ['ingreso', 'compra', 'gasto', 'factoraje', 'financiero', 't
                 <span class="fb-recon-delta mono" [class.bad]="!cuadra(rc.cash.delta_out)" [class.ok]="cuadra(rc.cash.delta_out)">Δ {{ rc.cash.delta_out | currency:'MXN':'symbol-narrow':'1.0-0' }}</span>
               </div>
             </div>
+            <p class="fb-plain">{{ cajaRead(rc) }}</p>
             @if (rc.sin_clasificar > 0) { <p class="fb-recon-note muted"><i class="pi pi-exclamation-triangle"></i> {{ rc.sin_clasificar | currency:'MXN':'symbol-narrow':'1.0-0' }} en movimientos sin clasificar — resuélvelos en Movimientos para afinar el cuadre.</p> }
           </div>
 
@@ -397,14 +402,21 @@ const GROUP_ORDER = ['ingreso', 'compra', 'gasto', 'factoraje', 'financiero', 't
               @else if (bal.cuentas_sin_saldo === bal.accounts.length) { <span class="fb-bal-badge warn">sin saldos</span> }
               @else { <span class="fb-bal-badge ok">todo cuadra</span> }
             </h3>
-            <p-table [value]="bal.accounts" styleClass="p-datatable-sm" [rowHover]="true" [scrollable]="true" scrollHeight="60vh">
+            <p-table [value]="bal.accounts" dataKey="statement_id" styleClass="p-datatable-sm" [rowHover]="true" [scrollable]="true" scrollHeight="60vh">
               <ng-template pTemplate="header">
-                <tr><th>Cuenta</th><th class="ta-r">Inicial</th><th class="ta-r">Depósitos</th><th class="ta-r">Retiros</th><th class="ta-r">Calculado</th><th class="ta-r">Final</th><th class="ta-r">Δ</th><th style="width:5rem" class="ta-c">Estado</th></tr>
+                <tr><th style="width:2.5rem"></th><th>Cuenta</th><th class="ta-r">Inicial</th><th class="ta-r">Depósitos</th><th class="ta-r">Retiros</th><th class="ta-r">Calculado</th><th class="ta-r">Final</th><th class="ta-r">Δ</th><th style="width:5rem" class="ta-c">Estado</th></tr>
               </ng-template>
-              <ng-template pTemplate="body" let-a>
+              <ng-template pTemplate="body" let-a let-expanded="expanded">
                 <tr class="fb-row-click" [class.fb-bal-sinsaldo]="a.sin_saldo" tabindex="0" role="button"
                     (click)="verCuentaMovs(a)" (keyup.enter)="verCuentaMovs(a)"
                     [attr.aria-label]="'Ver movimientos de ' + a.bank + ' ' + a.account_label">
+                  <td class="ta-c">
+                    @if (!a.cuadra && !a.sin_saldo && breaksFor(a).length) {
+                      <button type="button" pButton [pRowToggler]="a" (click)="$event.stopPropagation()"
+                              [icon]="expanded ? 'pi pi-chevron-down' : 'pi pi-chevron-right'"
+                              class="p-button-text p-button-sm" aria-label="Ver dónde salta el saldo"></button>
+                    }
+                  </td>
                   <td>{{ a.bank }} <span class="muted mono">{{ a.account_label }}</span></td>
                   <td class="ta-r mono">{{ a.opening | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
                   <td class="ta-r mono">{{ a.total_in | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
@@ -422,8 +434,22 @@ const GROUP_ORDER = ['ingreso', 'compra', 'gasto', 'factoraje', 'financiero', 't
                   </td>
                 </tr>
               </ng-template>
+              <ng-template pTemplate="rowexpansion" let-a>
+                <tr class="fb-break-row"><td colspan="9">
+                  <div class="fb-breaks">
+                    <span class="fb-breaks-h"><i class="pi pi-search-plus"></i> Dónde salta el saldo</span>
+                    @for (b of breaksFor(a); track b.label) {
+                      <div class="fb-break">
+                        <span class="fb-break-l mono">{{ b.label }}</span>
+                        <span class="fb-break-m mono" [class.bad]="(b.monto || 0) < 0">{{ b.monto | currency:'MXN':'symbol-narrow':'1.0-0' }}</span>
+                      </div>
+                    }
+                    <p class="fb-breaks-note muted">En estos renglones el saldo del estado de cuenta salta más de lo que explica el movimiento: ahí falta capturar algo, o el saldo quedó mal tecleado.</p>
+                  </div>
+                </td></tr>
+              </ng-template>
               <ng-template pTemplate="emptymessage">
-                <tr><td colspan="8"><div class="surf-empty"><i class="pi pi-inbox"></i><p>Sin cuentas cargadas para {{ period() }}.</p></div></td></tr>
+                <tr><td colspan="9"><div class="surf-empty"><i class="pi pi-inbox"></i><p>Sin cuentas cargadas para {{ period() }}.</p></div></td></tr>
               </ng-template>
             </p-table>
             <p class="fb-recon-note muted">
@@ -617,9 +643,14 @@ const GROUP_ORDER = ['ingreso', 'compra', 'gasto', 'factoraje', 'financiero', 't
     .fb-viewseg button.active { color: var(--action); border-bottom-color: var(--action); }
     .fb-viewseg button:focus-visible { outline: 2px solid var(--action-ring); outline-offset: -2px; }
     .fb-seg-config { margin-left: auto; }
+    .fb-title-row { display: inline-flex; align-items: center; gap: var(--sp-1); }
     /* Barra de estado del cierre */
     .fb-status { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-3); margin: var(--sp-2) 0 0; }
-    .fb-status-chip { display: inline-flex; align-items: center; gap: var(--sp-1); font-size: var(--fs-xs); color: var(--text-muted); }
+    .fb-status-chip { display: inline-flex; align-items: center; gap: var(--sp-1); font: inherit; font-size: var(--fs-xs);
+      color: var(--text-muted); background: none; border: 1px solid transparent; border-radius: var(--r-pill);
+      padding: 2px var(--sp-2); cursor: pointer; transition: background-color 120ms ease, border-color 120ms ease; }
+    .fb-status-chip:hover { background: var(--hover-bg); border-color: var(--border-color); }
+    .fb-status-chip:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 1px; }
     .fb-status-chip i { font-size: .8rem; color: var(--text-faint); }
     .fb-status-chip b { color: var(--text-main); font-weight: 600; }
     .fb-status-chip.warn { color: var(--warn-fg); }
@@ -642,10 +673,17 @@ const GROUP_ORDER = ['ingreso', 'compra', 'gasto', 'factoraje', 'financiero', 't
     .fb-sticky-col { position: sticky; left: 0; background: var(--card-bg); z-index: 1; }
     .fb-total-row { font-weight: 600; border-top: 2px solid var(--border-color); background: var(--surface-ground); }
     .fb-concept { max-width: 28rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .fb-cat-select { font: inherit; font-size: var(--fs-xs); width: 100%; padding: 2px var(--sp-1);
-      background: var(--card-bg); color: var(--text-main); border: 1px solid transparent; border-radius: var(--r-sm); cursor: pointer; }
-    .fb-cat-select:hover, .fb-cat-select:focus { border-color: var(--border-color); }
+    /* Select nativo estilo iOS "lite": pastilla redondeada + foco --action, denso (no rompe la fila). */
+    .fb-cat-select {
+      font: inherit; font-size: var(--fs-xs); width: 100%; padding: 3px var(--sp-2);
+      background: var(--card-bg); color: var(--text-main);
+      border: 1px solid var(--border-color); border-radius: var(--r-pill);
+      cursor: pointer; transition: background-color 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
+    }
+    .fb-cat-select:hover { background: var(--hover-bg); }
+    .fb-cat-select:focus { outline: none; border-color: var(--action); box-shadow: 0 0 0 3px var(--action-ring); }
     .fb-cat-empty { color: var(--warn-fg); border-color: var(--warn-border); }
+    .theme-monochrome .fb-cat-select { box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04); }
     .fb-uncat { background: color-mix(in srgb, var(--warn-fg) 5%, transparent); }
     .fb-kind { font-size: var(--fs-xs); text-transform: capitalize; color: var(--text-muted); }
     .fb-skeleton { display: flex; flex-direction: column; gap: var(--sp-2); margin-top: var(--sp-4); }
@@ -665,6 +703,16 @@ const GROUP_ORDER = ['ingreso', 'compra', 'gasto', 'factoraje', 'financiero', 't
     .fb-recon-vs { font-size: var(--fs-xs); }
     .fb-recon-delta { font-size: var(--fs-sm); font-weight: 600; margin-top: 2px; }
     .fb-recon-note { font-size: var(--fs-xs); margin: var(--sp-3) 0 0; }
+    /* Lectura en lenguaje llano ("explica el número") */
+    .fb-plain { font-size: var(--fs-sm); color: var(--text-main); margin: var(--sp-2) 0 0; line-height: 1.4; }
+    /* Renglones donde salta el saldo (expansión en Cuentas) — "dónde está la diferencia" */
+    .fb-break-row > td { background: var(--surface-ground); }
+    .fb-breaks { display: flex; flex-direction: column; gap: 2px; padding: var(--sp-2) var(--sp-3); }
+    .fb-breaks-h { display: inline-flex; align-items: center; gap: var(--sp-1); font-size: var(--fs-xs); font-weight: 700; color: var(--text-main); text-transform: uppercase; letter-spacing: .04em; margin-bottom: var(--sp-1); }
+    .fb-break { display: flex; align-items: baseline; justify-content: space-between; gap: var(--sp-3); font-size: var(--fs-xs); padding: 2px 0; border-bottom: 1px solid var(--border-color); }
+    .fb-break-l { color: var(--text-main); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .fb-break-m { font-weight: 600; color: var(--text-main); flex: none; }
+    .fb-breaks-note { font-size: var(--fs-xs); margin: var(--sp-2) 0 0; }
     .fb-pnl-title { padding: var(--sp-3) var(--sp-3) 0; }
     .fb-match { margin-bottom: var(--sp-3); }
     .fb-match-head { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); flex-wrap: wrap; }
@@ -809,10 +857,6 @@ export class FinanzasBancosComponent implements OnInit {
   readonly groupOpts = computed(() => [
     { label: 'Todos los grupos', value: '' },
     ...GROUP_ORDER.map((g) => ({ label: GROUP_LABELS[g] || g, value: g })),
-  ]);
-  readonly categoryOpts = computed(() => [
-    { label: '— sin clasificar —', value: '' },
-    ...this.categories().map((c) => ({ label: c.name, value: c.id })),
   ]);
 
   /** Última importación del periodo (para la píldora de frescura). */
@@ -1020,6 +1064,23 @@ export class FinanzasBancosComponent implements OnInit {
 
   /** Tolerancia de cuadre: ±$1,000 (o ~0.5%) se considera cuadrado. */
   cuadra(delta: number): boolean { return Math.abs(delta) < 1000; }
+
+  private money0(v: number): string {
+    return Number(v || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 });
+  }
+  /** Lectura en llano del cuadre de caja (banco vs 102 de Kepler). */
+  cajaRead(rc: Reconciliation): string {
+    const dOut = Math.abs(rc.cash.delta_out);
+    if (this.cuadra(rc.cash.delta_out)) {
+      return `Los ${this.money0(rc.cash.bank_out)} que salieron del banco cuadran con los abonos del 102 en Kepler.`;
+    }
+    return `De los ${this.money0(rc.cash.bank_out)} que salieron del banco, Kepler reconoce ${this.money0(rc.cash.kepler_102_abonos)} en el 102 — difieren ${this.money0(dOut)}.`;
+  }
+  /** Lectura en llano del matching por-transacción. */
+  matchRead(mr: MatchResult): string {
+    if (mr.unmatched_bank === 0) return `Los ${mr.matched} retiros del banco ya tienen su pago en Kepler (100%).`;
+    return `${mr.matched} de ${mr.bank_movements} retiros ya tienen su pago en Kepler (${mr.match_rate}%). Los ${mr.unmatched_bank} de abajo aún no casan.`;
+  }
   label(group: string): string { return GROUP_LABELS[group] || group; }
   kindLabel(kind: string): string { return kind === 'bank' ? 'Banco' : kind === 'cash' ? 'Caja' : 'Factoraje'; }
 
@@ -1033,6 +1094,12 @@ export class FinanzasBancosComponent implements OnInit {
       case 'cuenta_sin_cargar': this.fileInput?.nativeElement.click(); break;
       default: this.view.set('movimientos'); this.reloadMovements();
     }
+  }
+  /** Renglones donde salta el saldo de una cuenta (del diagnóstico): "dónde está la diferencia". */
+  breaksFor(a: { bank: string; account_label: string }): { label: string; monto?: number }[] {
+    const key = `${a.bank} ${a.account_label}:`;
+    const it = this.diagnostico()?.items.find((x) => x.tipo === 'saldo_no_cuadra' && x.titulo.startsWith(key));
+    return it?.evidencia ?? [];
   }
   /** Desde Cuentas: salta a Movimientos filtrado a esa cuenta. */
   verCuentaMovs(a: { bank: string; account_label: string }): void {
