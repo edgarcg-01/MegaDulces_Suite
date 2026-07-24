@@ -8,6 +8,7 @@ import { SelectModule } from 'primeng/select';
 import { InputTextModule } from 'primeng/inputtext';
 import { IconFieldModule } from 'primeng/iconfield';
 import { InputIconModule } from 'primeng/inputicon';
+import { DialogModule } from 'primeng/dialog';
 import { BankService, SideBySide, SideExcelRow, SideKeplerRow, MovementFlow } from '../../bank.service';
 import { dmy, dmShort, groupLabel, money0 } from './bancos-shared';
 
@@ -27,7 +28,7 @@ interface Pair {
 @Component({
   selector: 'bancos-side-by-side',
   standalone: true,
-  imports: [CommonModule, FormsModule, TableModule, ButtonModule, SelectModule, InputTextModule, IconFieldModule, InputIconModule],
+  imports: [CommonModule, FormsModule, TableModule, ButtonModule, SelectModule, InputTextModule, IconFieldModule, InputIconModule, DialogModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="fb-sbs-bar">
@@ -140,13 +141,13 @@ interface Pair {
       </div>
     </div>
 
-    <!-- ── DESGLOSE del renglón seleccionado ── -->
-    @if (sel(); as p) {
-      <div class="card-premium card-flat fb-sbs-detail">
-        <div class="fb-sbs-detail-head">
-          <h3 class="fb-sbs-h">Desglose</h3>
-          <button pButton type="button" icon="pi pi-times" class="p-button-sm p-button-text" (click)="resetSel()" aria-label="Cerrar desglose"></button>
-        </div>
+    <p class="fb-sbs-cta muted"><i class="pi pi-hand-point-up"></i> Haz clic en un renglón para abrir su desglose en una ventana.</p>
+
+    <!-- ── DESGLOSE en ventana (se abre al hacer clic en un renglón) ── -->
+    <p-dialog [visible]="!!sel()" (onHide)="resetSel()" [modal]="true" [dismissableMask]="true"
+              [style]="{ width: '46rem' }" [breakpoints]="{ '768px': '95vw' }"
+              [contentStyle]="{ maxHeight: '75vh', overflow: 'auto' }" header="Desglose del movimiento">
+      @if (sel(); as p) {
         <div class="fb-sbs-pair">
           <div class="fb-sbs-side">
             <span class="fb-sbs-side-t">Excel (banco)</span>
@@ -245,10 +246,8 @@ interface Pair {
             <p class="fb-dl-note muted"><i class="pi pi-info-circle"></i> {{ fl.nota }}</p>
           }
         </div>
-      </div>
-    } @else {
-      <p class="fb-sbs-cta muted"><i class="pi pi-hand-point-up"></i> Pasa el mouse para ver el par alineado; haz clic en un renglón para desglosarlo.</p>
-    }
+      }
+    </p-dialog>
   `,
   styles: [`
     :host { display: block; }
