@@ -646,7 +646,9 @@ Plan: [`FASES/FASE_SM_SUPERVISOR_MOVIMIENTOS.md`](FASES/FASE_SM_SUPERVISOR_MOVIM
 - [x] **[F.7.3]** ✅ `WhatsAppPromoService` + `WhatsAppPromoController` (`/whatsapp/promos`, `WHATSAPP_BOT_GESTIONAR`): `POST /image` (imagen libre — solo ventana 24h) y `POST /template` (plantilla aprobada — inicia fuera de ventana). getOrCreate hilo → encola out → log. **VALIDADO EN RUNTIME (2026-07-24): POST /image 201 + `out type=image` logueado.**
 - [ ] **[F.7.2]** ⏳ **Trámite de Edgar (fuera de código):** crear + aprobar en Meta los templates de marketing (~1-2 días). ⚠️ Sin template aprobado, las promos fuera de ventana 24h fallan. El código ya los envía por nombre.
 
-### Sprint F.8 — Envíos masivos de promos (broadcast) 🧪 EN CÓDIGO (2026-07-24, build verde + migración Batch 208)
+### Sprint F.8 — Envíos masivos de promos (broadcast) ✅ VALIDADO RUNTIME (2026-07-24, simulador; migración Batch 208)
+
+> **Validado E2E:** opt-in 2 teléfonos → campaña (plantilla+imagen) congela 2 destinatarios → send → fan-out `done` **2/2 enviados 0 fallidos** con ids únicos. Opt-out "BAJA" → `opted_out` + acuse del bot antes del orquestador.
 
 > Decisión Edgar: **aún no hay opt-in** → F.8 arranca capturando consentimiento.
 
