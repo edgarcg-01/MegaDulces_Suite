@@ -1,0 +1,34 @@
+# Config de gitleaks para Trade Marketing.
+# Motivo: ya se filtraron credenciales de prod al repo una vez (ver
+# docs de seguridad). Este gate evita que vuelva a pasar.
+#
+# Extiende las reglas default de gitleaks + una regla propia para connection
+# strings con password embebido (el tipo exacto de lo que se filtró).
+
+title = "Trade Marketing gitleaks"
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "db-connection-string-with-password"
+description = "Connection string (postgres/mysql/redis/mongo) con password embebido"
+regex = '''(postgres(?:ql)?|mysql|redis|mongodb(?:\+srv)?):\/\/[^:\/\s@]+:[^@\/\s]+@'''
+tags = ["database", "connection-string", "credentials"]
+
+[allowlist]
+description = "Defaults SOLO de dev local (no son secretos de prod) + rutas generadas/vendor"
+# Rutas que no se auditan (generado / vendor / lockfile ruidoso).
+paths = [
+  '''node_modules''',
+  '''(^|/)dist(/|$)''',
+  '''\.angular''',
+  '''coverage''',
+  '''package-lock\.json''',
+]
+# Connection strings a localhost/LAN con el password de dev conocido: NO son
+# secretos de prod (arrancan la DB local). Prod (proxy.rlwy.net con password real)
+# NO matchea acá → se marca como hallazgo, que es lo que queremos.
+regexes = [
+  '''(postgres(?:ql)?|redis):\/\/[^:@\/\s]+:(superoot|postgres|kepler123)@(localhost|127\.0\.0\.1|192\.168\.|::1)''',
+]
