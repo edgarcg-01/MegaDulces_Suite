@@ -45,7 +45,18 @@ export class WhatsAppOrdersService {
         thread_id: t.id,
         phone: t.phone,
         customer_name: t.delivery_address?.recipient_name || t.profile_name || null,
-        items: (t.cart || []).map((c) => ({ name: c.name, qty: c.qty, unit_price: c.unit_price })),
+        items: (t.cart || []).map((c) => {
+          const factor = c.pieces_per_package || 1;
+          const pkgs = factor > 1 && c.qty % factor === 0 ? c.qty / factor : null;
+          return {
+            name: c.name,
+            qty: c.qty, // piezas (canónico)
+            unit_price: c.unit_price,
+            pieces_per_package: factor,
+            // "2 paquetes (80 pzas)" o "5 pzas" — para que el operador vea cómo se pidió.
+            presentation: pkgs ? `${pkgs} paq × ${factor} (${c.qty} pzas)` : `${c.qty} pzas`,
+          };
+        }),
         total: Math.round(total * 100) / 100,
         delivery_address: t.delivery_address,
         last_message_at: t.last_message_at,

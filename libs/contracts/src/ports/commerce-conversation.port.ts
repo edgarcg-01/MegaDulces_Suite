@@ -11,13 +11,21 @@
 
 export const COMMERCE_CONVERSATION_PORT = 'COMMERCE_CONVERSATION_PORT';
 
-/** Producto resuelto por el motor: id + nombre + precio autoritativo. */
+/**
+ * Producto resuelto por el motor: id + nombre + precio + existencia + empaque.
+ * Todo lo cuantitativo (precio/stock/factor) sale del motor, NUNCA del LLM (ADR-016).
+ */
 export interface ConversationProductHit {
   product_id: string;
   name: string;
   brand_name: string | null;
+  /** Precio por PIEZA (unidad canónica del pedido). */
   unit_price: number;
   min_qty: number;
+  /** Piezas disponibles en el almacén de surtido (quantity − reserved). */
+  stock_pieces: number;
+  /** Piezas por paquete/caja (factor_sale UXC). 1 = se vende suelto por pieza. */
+  pieces_per_package: number;
 }
 
 /** Alta de un pedido a domicilio desde una conversación aprobada (F.3). */

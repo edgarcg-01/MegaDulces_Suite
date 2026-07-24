@@ -11,8 +11,10 @@ import { environment } from '../../../environments/environment';
 
 export interface WhatsAppOrderItem {
   name: string | null;
-  qty: number;
+  qty: number; // piezas
   unit_price: number | null;
+  pieces_per_package?: number;
+  presentation?: string; // "2 paq × 40 (80 pzas)" o "5 pzas"
 }
 
 export interface WhatsAppPendingOrder {
