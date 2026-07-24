@@ -62,21 +62,18 @@ export class WhatsAppWebhookController {
   @Public()
   @Post()
   @HttpCode(200)
-  async inbound(
+  inbound(
     @Req() req: any,
     @Body() body: unknown,
     @Headers('x-hub-signature-256') signature?: string,
-  ): Promise<{ received: boolean; accepted: number }> {
-    try {
-      const accepted = await this.ingest.ingest(body, signature, req?.rawBody);
-      return { received: true, accepted };
-    } catch (e: any) {
-      // Firma inválida u otro error de parseo: log + 200 igual para que Meta no
-      // reintente en loop una firma que nunca va a validar (salvo que queramos
-      // depurar). Devolvemos accepted:0.
-      this.logger.error(`Webhook inbound rechazado: ${e?.message}`);
-      return { received: true, accepted: 0 };
-    }
+  ): { received: boolean } {
+    // Meta EXIGE 200 rápido (si no, reintenta en loop). Procesamos en segundo
+    // plano (la conversación con Claude puede tardar varios segundos). El
+    // reproceso por reintento de Meta es seguro: dedup por wa_message_id.
+    this.ingest
+      .ingest(body, signature, req?.rawBody)
+      .catch((e: any) => this.logger.error(`Webhook inbound falló: ${e?.message}`));
+    return { received: true };
   }
 
   @Public()
