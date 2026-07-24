@@ -1035,12 +1035,14 @@ export class FinanceBankService {
     const days = (a: any, b: any) => Math.abs(Math.round((new Date(a).getTime() - new Date(b).getTime()) / 86400000));
 
     const result = await this.tk.run(async (trx) => {
-      // Lado banco: retiros del periodo (excluye traspasos internos y sin importe).
+      // Lado banco: retiros del periodo (excluye traspasos internos, factoraje y sin importe).
+      // CB.17 — factoraje fuera: no pega al 102 (CF lo paga el factor; PF no se asienta como
+      // abono al 102 con el nombre del factor) → incluirlo solo inflaba "retiros sin conciliar".
       const bankMovs = await trx('finance.bank_movements as bm')
         .join('finance.bank_statements as st', 'st.id', 'bm.statement_id')
         .leftJoin('finance.movement_categories as mc', 'mc.id', 'bm.category_id')
         .where('st.period', period).where('bm.amount_out', '>', 0)
-        .whereRaw(`COALESCE(mc.group_key,'sin_clasificar') <> 'traspaso'`)
+        .whereRaw(`COALESCE(mc.group_key,'sin_clasificar') NOT IN ('traspaso','factoraje')`)
         .select('bm.id', 'bm.movement_date', 'bm.amount_out', 'bm.concept')
         .orderBy('bm.movement_date');
 
@@ -1158,9 +1160,9 @@ export class FinanceBankService {
         .join('finance.bank_statements as st', 'st.id', 'bm.statement_id')
         .leftJoin('finance.movement_categories as mc', 'mc.id', 'bm.category_id')
         .where('st.period', period)
-        .groupBy('mc.group_key', 'mc.kepler_account', 'mc.name')
+        .groupBy('mc.group_key', 'mc.kepler_account', 'mc.name', 'mc.code')
         .select(trx.raw(`COALESCE(mc.group_key,'sin_clasificar') AS group_key`),
-          'mc.kepler_account', 'mc.name',
+          'mc.kepler_account', 'mc.name', 'mc.code',
           trx.raw('SUM(bm.amount_in)::numeric AS deposits'),
           trx.raw('SUM(bm.amount_out)::numeric AS withdrawals'));
 
@@ -1174,10 +1176,14 @@ export class FinanceBankService {
       const bookBy: Record<string, { cargos: number; abonos: number }> = {};
       for (const r of book as any[]) bookBy[r.cuenta_mayor] = { cargos: n(r.cargos), abonos: n(r.abonos) };
 
-      // CAJA: banco (excl. traspasos internos) vs 102 de almacén 00. ESTA es la conciliación
-      // contra Kepler. El detalle exacto (¿qué pago casa con qué póliza?) vive en el matching
-      // por-transacción (runMatch) — no en un mapeo categoría→mayor.
-      const EXCLUDE = new Set(['traspaso']);
+      // CAJA: banco (excl. traspasos internos Y factoraje) vs 102 de almacén 00. ESTA es la
+      // conciliación contra Kepler. El detalle exacto (¿qué pago casa con qué póliza?) vive en
+      // el matching por-transacción (runMatch). CB.17 — factoraje EXCLUIDO del cuadre Egresos↔102:
+      // es financiamiento, no un pago normal del 102. El CF (compra con factoraje) ni siquiera es
+      // salida de banco (paga el factor); el PF (pago al factor) sí sale de banco pero Kepler NO lo
+      // asienta como abono al 102 con el nombre del factor (verificado: no hay cuenta de factor).
+      // Se muestra como línea propia "Financiamiento (factoraje)", igual que los traspasos.
+      const EXCLUDE = new Set(['traspaso', 'factoraje']);
       let bankIn = 0, bankOut = 0;
       for (const r of bank as any[]) {
         if (EXCLUDE.has(r.group_key)) continue;
@@ -1189,6 +1195,16 @@ export class FinanceBankService {
         bank_out: bankOut, kepler_102_abonos: k102.abonos, delta_out: bankOut - k102.abonos,
       };
 
+      // CB.17 — Factoraje como línea propia (memo, fuera del cuadre 102). CF = compra que
+      // pagó el factor (no sale de banco); PF = pago real al factor desde banco.
+      let facCF = 0, facPF = 0;
+      for (const r of bank as any[]) {
+        if (r.group_key !== 'factoraje') continue;
+        if (r.code === 'compra_factoraje') facCF += n(r.withdrawals);
+        else facPF += n(r.withdrawals);
+      }
+      const factoraje = { compra: Math.round(facCF * 100) / 100, pago: Math.round(facPF * 100) / 100, total: Math.round((facCF + facPF) * 100) / 100 };
+
       // CB.13 — El P&L "categoría banco → mayor Kepler" se ELIMINÓ: los mapeos eran
       // adivinados (602 es vehículos, no traslado; 608 es misc, no tarjeta; 611-003 tiene
       // $600, no todas las comisiones) y generaban deltas falsos. El catálogo real (185
@@ -1199,7 +1215,7 @@ export class FinanceBankService {
       // Cobranza (ingreso) como memo: depósitos vs 102 cargos (ya en cash).
       const cobranza = (bank as any[]).filter((r) => r.group_key === 'ingreso').reduce((s, r) => s + n(r.deposits), 0);
 
-      return { period, cash, accounts, cobranza,
+      return { period, cash, accounts, cobranza, factoraje,
         sin_clasificar: (bank as any[]).filter((r) => r.group_key === 'sin_clasificar').reduce((s, r) => s + n(r.deposits) + n(r.withdrawals), 0) };
     });
   }
