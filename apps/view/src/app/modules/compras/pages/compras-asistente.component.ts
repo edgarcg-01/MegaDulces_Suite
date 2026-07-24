@@ -3,9 +3,9 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ButtonModule } from 'primeng/button';
-import { ComprasService } from '../compras.service';
+import { ComprasService, saveXlsxResponse } from '../compras.service';
 
-interface Msg { role: 'user' | 'assistant'; content: string; pending?: boolean; error?: boolean; tools?: string[]; }
+interface Msg { role: 'user' | 'assistant'; content: string; pending?: boolean; error?: boolean; tools?: string[]; download?: { id: string; folio: string }; }
 
 /**
  * TOT-C — Asistente conversacional de compras. Arma/ajusta requisiciones a proveedor
@@ -42,6 +42,7 @@ interface Msg { role: 'user' | 'assistant'; content: string; pending?: boolean; 
             <div class="ca-bubble" [class.ca-err]="m.error">
               @if (m.pending) { <span class="ca-dots"><i></i><i></i><i></i></span> }
               @else { <div class="ca-text">{{ m.content }}</div>
+                @if (m.download) { <button pButton type="button" icon="pi pi-file-excel" [label]="'Descargar ' + m.download.folio + ' (Excel)'" class="p-button-sm ca-dl" [loading]="downloading()===m.download.id" (click)="download(m.download!)"></button> }
                 @if (m.tools?.length) { <div class="ca-tools">{{ m.tools!.join(' · ') }}</div> } }
             </div>
           </div>
@@ -73,6 +74,7 @@ interface Msg { role: 'user' | 'assistant'; content: string; pending?: boolean; 
     .ca-ai .ca-bubble { background: var(--surface-card, var(--card-bg)); border: 1px solid var(--border-color); border-bottom-left-radius: 4px; }
     .ca-err { border-color: var(--bad-fg, #b0342a) !important; }
     .ca-text { white-space: pre-wrap; word-break: break-word; }
+    .ca-dl { margin-top: .5rem; }
     .ca-tools { font-size: .68rem; color: var(--text-muted); margin-top: .4rem; font-family: var(--font-mono, ui-monospace, monospace); }
     .ca-dots { display: inline-flex; gap: .25rem; }
     .ca-dots i { width: 6px; height: 6px; border-radius: 50%; background: var(--text-muted); animation: caBlink 1.2s infinite both; }
@@ -92,6 +94,7 @@ export class ComprasAsistenteComponent {
 
   messages = signal<Msg[]>([]);
   sending = signal(false);
+  downloading = signal<string>('');
   draft = '';
   samples = ['¿Qué toca pedir hoy?', 'Arma Fabricas Selectas para Padre Hidalgo a cadencia', 'Requisiciones pendientes'];
 
@@ -108,7 +111,14 @@ export class ComprasAsistenteComponent {
     this.scroll();
     this.api.comprasChat(hist).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (res) => {
-        this.replacePending({ role: 'assistant', content: res.answer || 'Sin respuesta.', tools: (res.tools_used || []).map((x) => x.name), error: res.source === 'error' });
+        // ¿alguna tool preparó una descarga? (create/export → requisition_id + download_xlsx)
+        const dl = (res.tools_used || []).map((t) => t.result).reverse()
+          .find((r) => r && r.download_xlsx && r.requisition_id);
+        this.replacePending({
+          role: 'assistant', content: res.answer || 'Sin respuesta.',
+          tools: (res.tools_used || []).map((x) => x.name), error: res.source === 'error',
+          download: dl ? { id: String(dl.requisition_id), folio: String(dl.folio || 'requisición') } : undefined,
+        });
         this.sending.set(false); this.scroll();
       },
       error: () => {
@@ -120,6 +130,13 @@ export class ComprasAsistenteComponent {
 
   private replacePending(msg: Msg): void {
     this.messages.update((arr) => { const i = arr.findIndex((m) => m.pending); if (i >= 0) { const c = [...arr]; c[i] = msg; return c; } return [...arr, msg]; });
+  }
+  download(d: { id: string; folio: string }): void {
+    this.downloading.set(d.id);
+    this.api.exportRequisitionXlsx(d.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (resp) => { saveXlsxResponse(resp, `${d.folio}.xlsx`); this.downloading.set(''); },
+      error: () => { this.downloading.set(''); },
+    });
   }
   private scroll(): void { setTimeout(() => { const el = this.thread?.nativeElement; if (el) el.scrollTop = el.scrollHeight; }, 30); }
   reset(): void { this.messages.set([]); this.draft = ''; }
