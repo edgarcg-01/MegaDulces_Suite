@@ -2,9 +2,11 @@ import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import axios from 'axios';
 import { createHmac, timingSafeEqual } from 'crypto';
 import {
+  ImageMessage,
   InboundMessage,
   InteractiveMessage,
   SendResult,
+  TemplateMessage,
   WhatsAppPort,
 } from '../ports/whatsapp.port';
 
@@ -92,6 +94,43 @@ export class MetaCloudWhatsAppAdapter implements WhatsAppPort {
             reply: { id: b.id, title: b.title.slice(0, 20) },
           })),
         },
+      },
+    });
+  }
+
+  async sendImage(to: string, msg: ImageMessage): Promise<SendResult> {
+    return this.post({
+      messaging_product: 'whatsapp',
+      recipient_type: 'individual',
+      to,
+      type: 'image',
+      image: { link: msg.link, ...(msg.caption ? { caption: msg.caption } : {}) },
+    });
+  }
+
+  async sendTemplate(to: string, msg: TemplateMessage): Promise<SendResult> {
+    const components: any[] = [];
+    if (msg.imageLink) {
+      components.push({
+        type: 'header',
+        parameters: [{ type: 'image', image: { link: msg.imageLink } }],
+      });
+    }
+    if (msg.bodyParams?.length) {
+      components.push({
+        type: 'body',
+        parameters: msg.bodyParams.map((t) => ({ type: 'text', text: t })),
+      });
+    }
+    return this.post({
+      messaging_product: 'whatsapp',
+      recipient_type: 'individual',
+      to,
+      type: 'template',
+      template: {
+        name: msg.name,
+        language: { code: msg.language },
+        ...(components.length ? { components } : {}),
       },
     });
   }
