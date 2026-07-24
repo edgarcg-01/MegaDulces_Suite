@@ -10,11 +10,12 @@
 //
 // SETUP (una vez, en Jenkins → Manage Credentials, tipo "Secret text"):
 //   - id: DATABASE_URL_NEW                → proxy Railway prod (postgresql://...@...proxy.rlwy.net:.../railway)
-//   - id: DATABASE_URL_KEPLER_CONSOLIDADO → postgresql://...@192.168.0.245:5433/kepler_consolidado
-//   - id: MEGA_DULCES_URL                 → postgresql://...@192.168.0.245:5432/Mega_Dulces  (solo mode=catalog)
+//   - id: DATABASE_URL_KEPLER_CONSOLIDADO → postgresql://...@192.168.0.249:5433/kepler_consolidado  (pgvector-md, este host)
+//   - id: MEGA_DULCES_URL                 → postgresql://...@192.168.0.245:5432/Mega_Dulces  (Kepler, solo mode=catalog)
 //
-// IMPORTANTE: usá la IP LAN (192.168.0.245), NO 'localhost' — el pipeline corre
-// dentro de un contenedor y 'localhost' apuntaría al contenedor, no al host.
+// IMPORTANTE: usá IPs LAN (192.168.0.249 = este host / 192.168.0.245 = Kepler), NO
+// 'localhost' — el pipeline corre dentro de un contenedor y 'localhost' apuntaría al
+// contenedor, no al host. Los Postgres escuchan en 0.0.0.0 → la IP LAN los alcanza.
 //
 // Jobs sugeridos (crea uno por modo con este mismo Jenkinsfile + trigger cron):
 //   feeds-live     H/15 * * * *      APPLY=true  MODE=live
@@ -25,11 +26,10 @@
 pipeline {
   agent {
     docker {
+      // Sin --network host (no existe en Docker Desktop/Windows). El contenedor
+      // alcanza las DBs por IP LAN (192.168.0.249 / .245) y el proxy de Railway
+      // por internet, todo desde la red bridge default.
       image 'node:20-bookworm-slim'
-      // 'host' → el contenedor alcanza el .245 y el proxy de Railway sin NAT.
-      // Windows/Docker Desktop: cambiá por '--add-host=host.docker.internal:host-gateway'
-      // y usá host.docker.internal en las credenciales.
-      args '--network host'
     }
   }
 
