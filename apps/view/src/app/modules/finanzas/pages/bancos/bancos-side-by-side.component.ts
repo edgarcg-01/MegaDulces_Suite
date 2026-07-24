@@ -85,6 +85,18 @@ interface Pair { key: string; excel: SideExcelRow | null; kepler: SideKeplerRow 
           </tr>
         </ng-template>
         <ng-template pTemplate="emptymessage"><tr><td colspan="9"><div class="surf-empty"><i class="pi pi-inbox"></i><p>Sin movimientos con estos filtros.</p></div></td></tr></ng-template>
+        <ng-template pTemplate="footer">
+          <tr class="fb-total-row">
+            <td></td>
+            <td class="fb-t-lbl">Total banco</td>
+            <td class="ta-r mono fb-strong">{{ tot().mExcel | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+            <td></td>
+            <td class="fb-grp-sep" aria-hidden="true"></td>
+            <td></td><td></td>
+            <td class="fb-t-lbl">Total Kepler</td>
+            <td class="ta-r mono fb-strong">{{ (tot().kC + tot().kA) | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+          </tr>
+        </ng-template>
       </p-table>
     </div>
 
@@ -239,6 +251,9 @@ interface Pair { key: string; excel: SideExcelRow | null; kepler: SideKeplerRow 
     .fb-grp-sep { width: 2px; padding: 0 !important; background: var(--border-color); }
     td.fb-grp-sep { background: var(--border-color); }
     .fb-empty-side { color: var(--text-faint); font-size: var(--fs-xs); font-style: italic; }
+    .fb-total-row td { border-top: 2px solid var(--border-color); background: var(--surface-ground); font-weight: 600; }
+    .fb-total-row .fb-t-lbl { font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: .04em; color: var(--text-faint); font-weight: 700; text-align: right; }
+    .fb-strong { color: var(--text-main); font-weight: 700; }
     .fb-row-click { cursor: pointer; }
     .fb-row-click:focus-visible { outline: 2px solid var(--action-ring); outline-offset: -2px; }
     /* Sin contraparte: renglón atenuado (un lado vacío). */
@@ -365,14 +380,14 @@ export class BancosSideBySideComponent {
 
   /** Cuenta T: totales de ambos lados sobre lo filtrado (para no hacer deducir al usuario). */
   readonly tot = computed(() => {
-    let eIn = 0, eOut = 0, kC = 0, kA = 0, soloExcel = 0, soloKepler = 0, pares = 0;
+    let eIn = 0, eOut = 0, kC = 0, kA = 0, mExcel = 0, soloExcel = 0, soloKepler = 0, pares = 0;
     for (const p of this.pairs()) {
-      if (p.excel) { eIn += p.excel.entra; eOut += p.excel.sale; }
+      if (p.excel) { eIn += p.excel.entra; eOut += p.excel.sale; mExcel += p.excel.sale > 0 ? p.excel.sale : p.excel.entra; }
       if (p.kepler) { if (p.kepler.cargo_abono === 'C') kC += p.kepler.importe; else kA += p.kepler.importe; }
       if (p.excel && p.kepler) pares++; else if (p.excel) soloExcel++; else soloKepler++;
     }
     const r2 = (v: number) => Math.round(v * 100) / 100;
-    return { eIn: r2(eIn), eOut: r2(eOut), kC: r2(kC), kA: r2(kA), eNet: r2(eIn - eOut), kNet: r2(kC - kA), dIn: r2(eIn - kC), dOut: r2(eOut - kA), pares, soloExcel, soloKepler };
+    return { eIn: r2(eIn), eOut: r2(eOut), kC: r2(kC), kA: r2(kA), mExcel: r2(mExcel), eNet: r2(eIn - eOut), kNet: r2(kC - kA), dIn: r2(eIn - kC), dOut: r2(eOut - kA), pares, soloExcel, soloKepler };
   });
   deltaOk(v: number): boolean { return Math.abs(v) < 1000; }
 
