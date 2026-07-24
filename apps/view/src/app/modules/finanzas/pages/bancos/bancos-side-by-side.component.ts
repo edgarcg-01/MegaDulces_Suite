@@ -88,6 +88,30 @@ interface Pair { key: string; excel: SideExcelRow | null; kepler: SideKeplerRow 
       </p-table>
     </div>
 
+    <!-- ── CUENTA T: totales de los dos lados (según el filtro actual) ── -->
+    <div class="card-premium card-flat fb-taccount">
+      <h3 class="fb-sbs-h">Totales <span class="muted">— cuenta T (según el filtro actual)</span></h3>
+      <div class="fb-t">
+        <div class="fb-t-side fb-t-excel">
+          <div class="fb-t-h">Excel (banco)</div>
+          <div class="fb-t-row"><span>Depósitos (entra)</span><b class="mono">{{ tot().eIn | currency:'MXN':'symbol-narrow':'1.0-0' }}</b></div>
+          <div class="fb-t-row"><span>Retiros (sale)</span><b class="mono">{{ tot().eOut | currency:'MXN':'symbol-narrow':'1.0-0' }}</b></div>
+          <div class="fb-t-row fb-t-net"><span>Neto (entra − sale)</span><b class="mono" [class.ok]="tot().eNet >= 0" [class.bad]="tot().eNet < 0">{{ tot().eNet | currency:'MXN':'symbol-narrow':'1.0-0' }}</b></div>
+        </div>
+        <div class="fb-t-side fb-t-kepler">
+          <div class="fb-t-h">Kepler (102)</div>
+          <div class="fb-t-row"><span>Cargos (entra)</span><b class="mono">{{ tot().kC | currency:'MXN':'symbol-narrow':'1.0-0' }}</b></div>
+          <div class="fb-t-row"><span>Abonos (sale)</span><b class="mono">{{ tot().kA | currency:'MXN':'symbol-narrow':'1.0-0' }}</b></div>
+          <div class="fb-t-row fb-t-net"><span>Neto (cargos − abonos)</span><b class="mono" [class.ok]="tot().kNet >= 0" [class.bad]="tot().kNet < 0">{{ tot().kNet | currency:'MXN':'symbol-narrow':'1.0-0' }}</b></div>
+        </div>
+      </div>
+      <div class="fb-t-deltas">
+        <span>Δ entradas <span class="muted">(Excel − Kepler)</span> <b class="mono" [class.ok]="deltaOk(tot().dIn)" [class.warn]="!deltaOk(tot().dIn)">{{ tot().dIn | currency:'MXN':'symbol-narrow':'1.0-0' }}</b></span>
+        <span>Δ salidas <span class="muted">(Excel − Kepler)</span> <b class="mono" [class.ok]="deltaOk(tot().dOut)" [class.warn]="!deltaOk(tot().dOut)">{{ tot().dOut | currency:'MXN':'symbol-narrow':'1.0-0' }}</b></span>
+        <span class="muted">{{ tot().pares }} pares · {{ tot().soloExcel }} solo banco · {{ tot().soloKepler }} solo Kepler</span>
+      </div>
+    </div>
+
     <!-- ── DESGLOSE del renglón seleccionado ── -->
     @if (sel(); as p) {
       <div class="card-premium card-flat fb-sbs-detail">
@@ -249,6 +273,18 @@ interface Pair { key: string; excel: SideExcelRow | null; kepler: SideKeplerRow 
     table.fb-flow-table th { text-align: left; font-weight: 600; color: var(--text-muted); padding: 3px var(--sp-2); border-bottom: 1px solid var(--border-color); white-space: nowrap; }
     table.fb-flow-table td { padding: 3px var(--sp-2); border-bottom: 1px solid var(--border-color); }
     .fb-flow-cob { font-size: var(--fs-sm); color: var(--text-main); margin: var(--sp-2) 0 0; line-height: 1.4; }
+    /* Cuenta T — totales de los dos lados */
+    .fb-taccount { margin-top: var(--sp-3); padding: var(--sp-4); }
+    .fb-t { display: grid; grid-template-columns: 1fr 1fr; gap: 0; margin: var(--sp-2) 0; }
+    @media (max-width: 40rem) { .fb-t { grid-template-columns: 1fr; } }
+    .fb-t-side { padding: 0 var(--sp-4); }
+    .fb-t-excel { border-right: 2px solid var(--border-color); }
+    .fb-t-h { font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: .05em; font-weight: 700; color: var(--text-main); text-align: center; padding-bottom: var(--sp-2); border-bottom: 2px solid var(--border-color); margin-bottom: var(--sp-2); }
+    .fb-t-row { display: flex; align-items: baseline; justify-content: space-between; gap: var(--sp-3); font-size: var(--fs-sm); padding: 3px 0; color: var(--text-muted); }
+    .fb-t-row b { color: var(--text-main); font-weight: 600; }
+    .fb-t-net { border-top: 1px solid var(--border-color); margin-top: var(--sp-1); padding-top: var(--sp-2); font-weight: 600; color: var(--text-main); }
+    .fb-t-deltas { display: flex; flex-wrap: wrap; gap: var(--sp-4); justify-content: center; padding-top: var(--sp-3); border-top: 1px dashed var(--border-color); font-size: var(--fs-sm); color: var(--text-muted); }
+    .fb-t-deltas b { font-weight: 700; }
     .fb-sbs-cta { margin-top: var(--sp-4); font-size: var(--fs-sm); display: flex; align-items: center; gap: var(--sp-2); }
     .surf-empty { display: flex; flex-direction: column; align-items: center; gap: var(--sp-2); padding: var(--sp-6); color: var(--text-muted); }
     .surf-empty i { font-size: 1.5rem; }
@@ -326,6 +362,19 @@ export class BancosSideBySideComponent {
     });
   });
   readonly concCount = computed(() => this.allPairs().filter((p) => p.excel && p.kepler).length);
+
+  /** Cuenta T: totales de ambos lados sobre lo filtrado (para no hacer deducir al usuario). */
+  readonly tot = computed(() => {
+    let eIn = 0, eOut = 0, kC = 0, kA = 0, soloExcel = 0, soloKepler = 0, pares = 0;
+    for (const p of this.pairs()) {
+      if (p.excel) { eIn += p.excel.entra; eOut += p.excel.sale; }
+      if (p.kepler) { if (p.kepler.cargo_abono === 'C') kC += p.kepler.importe; else kA += p.kepler.importe; }
+      if (p.excel && p.kepler) pares++; else if (p.excel) soloExcel++; else soloKepler++;
+    }
+    const r2 = (v: number) => Math.round(v * 100) / 100;
+    return { eIn: r2(eIn), eOut: r2(eOut), kC: r2(kC), kA: r2(kA), eNet: r2(eIn - eOut), kNet: r2(kC - kA), dIn: r2(eIn - kC), dOut: r2(eOut - kA), pares, soloExcel, soloKepler };
+  });
+  deltaOk(v: number): boolean { return Math.abs(v) < 1000; }
 
   isSel(p: Pair): boolean { return this.sel()?.key === p.key; }
   pick(p: Pair): void { this.sel.set(p); this.resetFlow(); }
