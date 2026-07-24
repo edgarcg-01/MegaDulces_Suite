@@ -18,7 +18,7 @@ export interface ThotSuggestion {
   pdv_marks: number; // veces marcado en las capturas de ese PdV
   on_promo: boolean; // tiene una promoción activa (CV.5 — señal empuje↔promos)
   score: number;
-  reason: 'estrategia' | 'promo' | 'whitespace' | 'affinity' | 'recompra' | 'zona' | 'rotacion' | 'margen' | 'demanda';
+  reason: 'estrategia' | 'promo' | 'whitespace' | 'affinity' | 'recompra' | 'zona' | 'momentum' | 'rotacion' | 'margen' | 'demanda';
   reason_label: string;
 }
 
@@ -107,10 +107,21 @@ export class ThotService {
             AND (d.valid_to   IS NULL OR d.valid_to   >= CURRENT_DATE)
           GROUP BY pr.id
         ),
+        mom AS (  -- CT-C.4 momentum: velocidad reciente (30d) vs baseline (90d) en CAJAS (units_base)
+          SELECT product_id,
+                 SUM(COALESCE(units_base, units)) FILTER (WHERE sale_date >= CURRENT_DATE - 30) / 30.0 AS r30,
+                 SUM(COALESCE(units_base, units)) FILTER (WHERE sale_date >= CURRENT_DATE - 90) / 90.0 AS r90
+          FROM analytics.sales_daily
+          WHERE tenant_id = public.current_tenant_id() AND sale_date >= CURRENT_DATE - 90
+          GROUP BY product_id
+        ),
         cand AS (
           SELECT p.id AS product_id, p.nombre AS product_name,
                  pp.price, COALESCE(pp.tax_rate, 0) AS tax_rate, COALESCE(pp.min_qty, 1) AS min_qty,
                  p.rotation_tier, p.sales_units_30d,
+                 -- momentum 0..1: aceleración (r30/r90 − 1) acotada; sólo si hay baseline real (r90>0).
+                 CASE WHEN COALESCE(mm.r90, 0) > 0
+                      THEN LEAST(GREATEST(mm.r30 / mm.r90 - 1, 0), 1) ELSE 0 END AS momentum,
                  CASE WHEN p.cost_with_tax > 0 AND pp.price > 0
                       THEN (pp.price - p.cost_with_tax / (1 + COALESCE(pp.tax_rate, 0))) / pp.price
                       ELSE NULL END AS margin_net,
@@ -136,6 +147,7 @@ export class ThotService {
           LEFT JOIN intelligence.pdv_presence pv
             ON pv.product_id = p.id AND pv.tenant_id = p.tenant_id AND pv.customer_id = ?
           LEFT JOIN dir dr ON dr.product_id = p.id
+          LEFT JOIN mom mm ON mm.product_id = p.id
           WHERE p.tenant_id = public.current_tenant_id() AND p.deleted_at IS NULL
             AND (b.is_commercial = true OR b.is_commercial IS NULL)
             AND NOT (p.id = ANY(?::uuid[]))
@@ -153,7 +165,8 @@ export class ThotService {
                + 0.45 * strat_boost
                + 0.6 * (zona_index * (CASE WHEN present THEN 0 ELSE 1 END))
                + 0.25 * present_recency
-               + 0.5 * (CASE WHEN on_promo THEN 1 ELSE 0 END) AS score
+               + 0.5 * (CASE WHEN on_promo THEN 1 ELSE 0 END)
+               + 0.4 * momentum AS score
         FROM cand
         ORDER BY score DESC NULLS LAST
         LIMIT ?
@@ -181,6 +194,7 @@ export class ThotService {
           else if (!present && zonaIdx >= 0.5) { reason = 'whitespace'; label = 'Falta en tu tienda'; }
           else if (hasCart && aff >= 0.3) { reason = 'affinity'; label = 'Va con lo que llevas'; }
           else if (present && pdvMarks > 0) { reason = 'recompra'; label = 'Ya lo manejas'; }
+          else if (Number(r.momentum) >= 0.3) { reason = 'momentum'; label = 'En aceleración'; }
           else if (zonaIdx >= 0.5) { reason = 'zona'; label = 'Se vende en tu zona'; }
           else if (r.rotation_tier === 'alta') { reason = 'rotacion'; label = 'Alta rotación'; }
           else if (!stripMargin && margin != null && margin >= 0.25) { reason = 'margen'; label = 'Buen margen'; }
