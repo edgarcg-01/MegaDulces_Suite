@@ -169,6 +169,28 @@ const ENTRIES = [
     title: 'Activo fijo sin depreciación',
     body: 'La 150 no registra depreciación en 12 meses; vehículos usados se compran directo a la cuenta; hay un abono de $967k sin documento; CAPEX (ej. servidor $135k) cargado a gasto. El balance no refleja el valor real del activo fijo ni el gasto su consumo.',
   },
+
+  // ── Conciliación bancaria (CB / ADR-033) + tareas de conciliación (MA) ──────
+  {
+    kind: 'definicion',
+    title: 'Conciliación bancaria: crosswalk Excel ↔ Kepler 102',
+    body: 'El workbook de bancos ("CUENTAS LUIS FRANCISCO", 19 cuentas + caja + factoraje) se cargó a finance.bank_movements. Kepler colapsa TODOS los bancos en el mayor 102 (sucursal 00 = fiscal). Crosswalk: DEPÓSITO del Excel ↔ CARGO (C) del 102; RETIRO del Excel ↔ ABONO (A) del 102 (signo invertido). La cobranza entra por UA0501 (C 102 / A 115); los pagos a proveedores salen por XD2601/XD2501 (C 201 / A 102). El matching por-transacción (finance.bank_recon_matches) casa retiro↔abono por monto exacto + fecha ±7d.',
+  },
+  {
+    kind: 'regla_negocio',
+    title: 'Sin conciliar ≠ falta póliza en Kepler',
+    body: 'Un movimiento "sin conciliar" (recon_status=unmatched) tiene 4 causas posibles, y SOLO una requiere capturar en Kepler: (1) agrupado — el banco lo trae en bulto y Kepler lo tiene partido en N pólizas (o al revés), casa por total no 1:1 (ej. cobranza de un día = N ventas UA0501); (2) timing — el pago cae en otro mes contable; (3) fuera del 102 — factoraje/caja/traspaso que no es fiscal; (4) genuinamente ausente — el pago se hizo pero NO se contabilizó → ESTO es lo que Finanzas debe capturar en Kepler. La tarea de conciliación (finance.recon_tasks) es para el caso (4): retiros materiales sin pago en el 102.',
+  },
+  {
+    kind: 'regla_negocio',
+    title: 'Factoraje y CAJA GENERAL quedan fuera del cuadre fiscal',
+    body: 'FACTORAJE es financiamiento (un crédito que adelanta cobranza), no una operación fiscal → se reporta como memo aparte, NO entra al cuadre banco↔102. CAJA GENERAL tampoco es fiscal (efectivo operativo) → memo aparte. El cuadre fiscal es SOLO bancos (kind<>cash, sin traspaso ni factoraje) vs el 102 sucursal 00. Verificado vs el CONCENTRADO de enero-2026 al peso.',
+  },
+  {
+    kind: 'regla_negocio',
+    title: 'Tareas de conciliación: motor asigna, humano captura en Kepler',
+    body: 'MA (ADR-028/016): los retiros materiales sin conciliar (finance.findings regla banco_retiro_sin_kepler) se agrupan por PROVEEDOR+periodo en finance.recon_tasks y se REPARTEN a usuarios de Finanzas (automático round-robin/por-cuenta + asignación manual del líder). El humano las resuelve EN KEPLER (captura la póliza que falta); la plataforma NUNCA escribe en Kepler (read-only/on-prem), solo rastrea. El cierre se VERIFICA: cuando el re-match encuentra que el movimiento ya casó, la tarea pasa a resuelto (no por auto-reporte). Empezamos por los montos grandes y bajamos el umbral poco a poco.',
+  },
 ];
 
 (async () => {

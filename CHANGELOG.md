@@ -10,6 +10,14 @@
 
 ## [Unreleased]
 
+### Added — MA: Maat reparte tareas de conciliación a Finanzas (2026-07-24)
+- Los retiros del banco **sin conciliar** contra el 102 de Kepler (hallazgos `banco_retiro_sin_kepler` que ya produce CB.7) ahora se **agrupan por proveedor** y se **asignan** a usuarios de Finanzas para que los capturen **en Kepler**. Vive en **Maat** (`libs/finance`), no en Thot (comercial, aislado de finanzas). Modelo ADR-028/016: motor decide qué falta + a quién · humano ejecuta en Kepler · **nunca escribimos en Kepler** (solo rastreamos) · cierre **verificado por re-match** (no auto-reporte) · reparto determinista (LLM fuera).
+- **Schema:** `finance.recon_tasks` (mig `20260724120000`, RLS forzado). Tarea = proveedor+periodo (agrupa N findings), con asignación + ciclo de vida (pendiente/en_proceso/resuelto/no_aplica) + `resolution_source` (verificado/manual) + `kepler_ref`. UNIQUE (tenant,rule,periodo,group_key) = idempotente. Permiso nuevo **FINANCE_RECON_ASIGNAR** (líder; backfill ← FINANCE_BANK_GESTIONAR).
+- **Backend:** `MaatReconTasksService` + `MaatReconTasksController` (`/finance/maat/recon-tasks`): `run` (build→verifica cierres→reparte), reparto **round-robin balanceado**, asignación **manual** del líder, `buildTasks` con umbral `min_importe` (default $100k — "empezar por los grandes"), cierre verificado, stats + carga por usuario.
+- **Frontend:** nueva pestaña **Tareas de conciliación** (`/finanzas/tareas`, Operations): KPIs, vistas Mis tareas/Todas/Sin repartir, tabla densa, dialogs resolver/asignar, botón "Correr motor".
+- **Conocimiento:** 4 entradas de conciliación sembradas en `finance.knowledge` (crosswalk Excel↔102, "sin conciliar ≠ falta póliza", factoraje/caja fuera del cuadre, cómo asigna MA).
+- Verificado: builds api+view verdes + smoke DB **8/8** (enero: 47 sin conciliar → 33 grupos → 17 tareas ≥$100k / $6.8M, reparto balanceado spread=0). **Pendiente prod:** mig `20260724120000` + redeploy api+view + re-login. Nota: el seed deriva perms de finanzas de COMMERCIAL_ORDERS_VER → zona de candidatos amplia (27 users); acotar `FINANCE_BANK_GESTIONAR` a roles de finanzas reales o usar asignación manual.
+
 ### Added — PERF: Cache distribuido tenant-aware (cache-manager + Redis/Keyv) (2026-07-24)
 - `CacheModule` global (`@nestjs/cache-manager` + `@keyv/redis` + `keyv`) en AppModule: Redis vía `createKeyv(REDIS_URL)` si está seteado (cross-instance, reusa el `redis-md` que ya usa Socket.IO), si no Keyv in-memory. TTL default 60s (ms).
 - **`TenantCacheService`** (`libs/platform-core/.../cache/`): helper `getOrSet(key, ttlMs, producer)` + `invalidate(key)` que **prefija la key con el `tenant_id`** del contexto (AsyncLocalStorage). **Evita la fuga cross-tenant** del `CacheInterceptor` global de NestJS (que cachea por URL y serviría datos de un tenant a otro — ya pasó con PermissionsCache). Degrada con gracia (si Redis falla, computa igual). `@Global`, inyectable en cualquier service.

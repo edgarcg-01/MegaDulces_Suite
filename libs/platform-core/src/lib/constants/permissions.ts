@@ -190,6 +190,8 @@ export enum Permission {
   // Conciliación bancaria (CB / ADR-033) — permiso propio del módulo Bancos.
   FINANCE_BANK_VER = 'FINANCE_BANK_VER',
   FINANCE_BANK_GESTIONAR = 'FINANCE_BANK_GESTIONAR',
+  // MA (ADR-028/016) — reparto de tareas de conciliación (líder de Finanzas).
+  FINANCE_RECON_ASIGNAR = 'FINANCE_RECON_ASIGNAR',
 
   // ── Supervisor de Movimientos (cuadre / reconciliación) — ADR-029 ─────
   RECONCILIATION_VER = 'RECONCILIATION_VER',
