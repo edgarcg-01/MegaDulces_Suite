@@ -1,0 +1,16 @@
+{
+  "name": "whatsapp",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "libs/whatsapp/src",
+  "projectType": "library",
+  "targets": {
+    "lint": {
+      "executor": "@nx/eslint:lint",
+      "outputs": ["{options.outputFile}"],
+      "options": {
+        "lintFilePatterns": ["libs/whatsapp/**/*.ts"]
+      }
+    }
+  },
+  "tags": ["scope:whatsapp", "type:feature"]
+}

@@ -57,6 +57,7 @@ export type AppSubject =
   | 'capture_ticket'
   | 'route_ticket'
   | 'vendor_app'
-  | 'compras';
+  | 'compras'
+  | 'whatsapp';
 
 export type AppAbility = MongoAbility<[Action, AppSubject]>;
