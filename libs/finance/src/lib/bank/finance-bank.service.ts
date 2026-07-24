@@ -1114,6 +1114,74 @@ export class FinanceBankService {
           match_type: 'inferred', match_confidence: 0.6, matched_by: 'motor-name' });
       }
 
+      // 4º/5º pase (CB.19): AGRUPADO. Un pago del banco suele ser la SUMA de varias pólizas
+      // del 102 (o al revés: SUA en varias exhibiciones). Suma-de-subconjuntos ACOTADA para
+      // no casar falso: mismo beneficiario (solapamiento de tokens substring), ventana ±10d,
+      // ≤4 sumandos, suma EXACTA en centavos, solo materiales ≥$5k. Confianza 0.55.
+      const GROUP_MIN = 5000, GROUP_WINDOW = 10, GROUP_MAXN = 4, POOL = 25;
+      const normCp = (s: any) => normKey(s).normalize('NFD').replace(/[̀-ͯ]/g, '');
+      const ovl = (tok: Set<string>, cp: string): boolean => {
+        if (!tok.size) return false;
+        let h = 0; for (const t of tok) if (cp.includes(t)) h++;
+        return h >= Math.min(2, tok.size);
+      };
+      const subsetSum = (arr: number[], target: number, maxN: number): number[] | null => {
+        let out: number[] | null = null;
+        const dfs = (start: number, rem: number, picked: number[]): void => {
+          if (out) return;
+          if (rem === 0 && picked.length >= 2) { out = picked.slice(); return; }
+          if (picked.length === maxN || rem < 0) return;
+          for (let i = start; i < arr.length; i++) {
+            if (arr[i] > rem) continue;
+            picked.push(i); dfs(i + 1, rem - arr[i], picked); picked.pop();
+            if (out) return;
+          }
+        };
+        dfs(0, target, []);
+        return out;
+      };
+      for (const p of posts as any[]) p._cp = normCp(p.contraparte);
+      const bankTok = new Map<string, Set<string>>();
+      for (const mv of bankMovs as any[]) bankTok.set(mv.id, nameTokens(mv.concept));
+
+      let groupPass = 0;
+      // A) 1 retiro del banco = N abonos del 102 (mismo beneficiario, ventana corta).
+      for (const mv of bankMovs as any[]) {
+        if (matchedSet.has(mv.id) || n(mv.amount_out) < GROUP_MIN) continue;
+        const tok = bankTok.get(mv.id)!; if (!tok.size) continue;
+        const cands = (posts as any[])
+          .filter((p) => !p.used && ovl(tok, p._cp) && (p.fecha ? days(mv.movement_date, p.fecha) <= GROUP_WINDOW : false))
+          .sort((a, b) => b.importe - a.importe).slice(0, POOL);
+        if (cands.length < 2) continue;
+        const idx = subsetSum(cands.map((p) => cents(p.importe)), cents(n(mv.amount_out)), GROUP_MAXN);
+        if (!idx) continue;
+        matchedIds.push(mv.id); matchedSet.add(mv.id); groupPass++;
+        for (const i of idx) {
+          const p = cands[i]; p.used = true;
+          matches.push({ tenant_id: tenantId, bank_movement_id: mv.id, kepler_doc_tipo: p.doc_tipo,
+            kepler_doc_folio: p.folio, kepler_cuenta: '102', kepler_amount: p.importe,
+            match_type: 'inferred', match_confidence: 0.55, matched_by: 'motor-group' });
+        }
+      }
+      // B) N retiros del banco = 1 abono del 102 (p.ej. SUA/IMSS pagado en varias exhibiciones).
+      for (const p of posts as any[]) {
+        if (p.used || p.importe < GROUP_MIN) continue;
+        const cands = (bankMovs as any[])
+          .filter((mv) => !matchedSet.has(mv.id) && n(mv.amount_out) > 0 && ovl(bankTok.get(mv.id)!, p._cp) && (p.fecha ? days(mv.movement_date, p.fecha) <= GROUP_WINDOW : false))
+          .sort((a, b) => n(b.amount_out) - n(a.amount_out)).slice(0, POOL);
+        if (cands.length < 2) continue;
+        const idx = subsetSum(cands.map((mv) => cents(n(mv.amount_out))), cents(p.importe), GROUP_MAXN);
+        if (!idx) continue;
+        p.used = true; groupPass++;
+        for (const i of idx) {
+          const mv = cands[i];
+          matchedIds.push(mv.id); matchedSet.add(mv.id);
+          matches.push({ tenant_id: tenantId, bank_movement_id: mv.id, kepler_doc_tipo: p.doc_tipo,
+            kepler_doc_folio: p.folio, kepler_cuenta: '102', kepler_amount: n(mv.amount_out),
+            match_type: 'inferred', match_confidence: 0.55, matched_by: 'motor-groupN1' });
+        }
+      }
+
       // Persistir: limpiar matches previos del periodo + reinsertar; marcar recon_status.
       const periodMovIds = bankMovs.map((m: any) => m.id);
       if (periodMovIds.length) {
@@ -1125,15 +1193,18 @@ export class FinanceBankService {
         }
       }
 
+      // matched = retiros del banco DISTINTOS casados (matchedIds), no filas de match:
+      // con el pase agrupado hay varias filas por un mismo retiro (1:N) → contar filas inflaría.
+      const matchedBank = matchedIds.length;
       const matchedAmt = matches.reduce((s, m) => s + n(m.kepler_amount), 0);
       const bankTotal = bankMovs.reduce((s: number, m: any) => s + n(m.amount_out), 0);
-      this.logger.log(`match ${period}: ${matches.length}/${bankMovs.length} retiros casados (${secondPass} 2º pase, ${thirdPass} por nombre)`);
+      this.logger.log(`match ${period}: ${matchedBank}/${bankMovs.length} retiros casados (${secondPass} 2º, ${thirdPass} nombre, ${groupPass} agrupado)`);
       return {
-        period, bank_movements: bankMovs.length, matched: matches.length, second_pass: secondPass, name_pass: thirdPass,
-        unmatched_bank: bankMovs.length - matches.length,
+        period, bank_movements: bankMovs.length, matched: matchedBank, second_pass: secondPass, name_pass: thirdPass, group_pass: groupPass,
+        unmatched_bank: bankMovs.length - matchedBank,
         kepler_postings: posts.length, unmatched_kepler: posts.filter((p) => !p.used).length,
         matched_amount: matchedAmt, bank_amount: bankTotal,
-        match_rate: bankMovs.length ? Math.round((matches.length / bankMovs.length) * 100) : 0,
+        match_rate: bankMovs.length ? Math.round((matchedBank / bankMovs.length) * 100) : 0,
       };
     });
 

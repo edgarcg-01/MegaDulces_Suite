@@ -55,7 +55,7 @@ export interface Reconciliation {
 }
 
 export interface MatchResult {
-  period: string; bank_movements: number; matched: number; second_pass?: number; unmatched_bank: number;
+  period: string; bank_movements: number; matched: number; second_pass?: number; name_pass?: number; group_pass?: number; unmatched_bank: number;
   kepler_postings: number; unmatched_kepler: number; matched_amount: number; bank_amount: number; match_rate: number;
 }
 
