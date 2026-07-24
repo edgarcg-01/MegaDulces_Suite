@@ -1,6 +1,10 @@
 import { Module } from '@nestjs/common';
 import { SentryModule } from '@sentry/nestjs/setup';
 import { ConfigModule } from '@nestjs/config';
+import { CacheModule } from '@nestjs/cache-manager';
+import { createKeyv } from '@keyv/redis';
+import Keyv from 'keyv';
+import { TenantCacheModule } from '@megadulces/platform-core';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 // ServeStaticModule + join removidos — nginx sirve el SPA, NestJS solo /api/*.
@@ -205,6 +209,22 @@ const multitenantModules = process.env.ENABLE_MULTITENANT === 'true'
     ConfigModule.forRoot({
       isGlobal: true,
     }),
+    // Cache distribuido (Redis vía Keyv) si REDIS_URL está seteado; si no,
+    // in-memory. Global → CACHE_MANAGER disponible en toda la app. El acceso
+    // tenant-aware va por TenantCacheService (NO usar CacheInterceptor por URL:
+    // fuga cross-tenant). TTL en ms.
+    CacheModule.registerAsync({
+      isGlobal: true,
+      useFactory: () => {
+        const url = process.env.REDIS_URL;
+        // Con REDIS_URL → Keyv sobre Redis (cross-instance). Sin él → Keyv
+        // in-memory (single instance, dev). Siempre devolvemos `stores` para
+        // que el tipo sea consistente.
+        const store = url ? createKeyv(url) : new Keyv();
+        return { stores: [store], ttl: 60_000 };
+      },
+    }),
+    TenantCacheModule,
     // Rate limiting global: 3 tiers (short/medium/long) por IP.
     // Defaults pensados para mobile + web admin. Endpoints sensibles
     // (login, upload) pueden tener @Throttle más estricto por método.

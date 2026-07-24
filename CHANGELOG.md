@@ -10,6 +10,12 @@
 
 ## [Unreleased]
 
+### Added — PERF: Cache distribuido tenant-aware (cache-manager + Redis/Keyv) (2026-07-24)
+- `CacheModule` global (`@nestjs/cache-manager` + `@keyv/redis` + `keyv`) en AppModule: Redis vía `createKeyv(REDIS_URL)` si está seteado (cross-instance, reusa el `redis-md` que ya usa Socket.IO), si no Keyv in-memory. TTL default 60s (ms).
+- **`TenantCacheService`** (`libs/platform-core/.../cache/`): helper `getOrSet(key, ttlMs, producer)` + `invalidate(key)` que **prefija la key con el `tenant_id`** del contexto (AsyncLocalStorage). **Evita la fuga cross-tenant** del `CacheInterceptor` global de NestJS (que cachea por URL y serviría datos de un tenant a otro — ya pasó con PermissionsCache). Degrada con gracia (si Redis falla, computa igual). `@Global`, inyectable en cualquier service.
+- **NO se cacheó ningún endpoint todavía a propósito**: los de analytics ya están MV-cacheados (refresh 15min) o necesitan frescura (staleness bug si se cachean). Cachear el endpoint equivocado (alto churn) mete data vieja. La herramienta queda lista; se aplica a los reads lentos reales (bajo churn) cuando se identifiquen (observabilidad/Edgar), con TTL corto + `invalidate()` tras writes.
+- Build api verde. Backend-only.
+
 ### Added — OBS: Observabilidad + seguridad (Sentry + gitleaks + uptime) (2026-07-24)
 - **Error tracking (Sentry)** wireado en backend y frontend, **inerte sin DSN** (seguro en dev/local). Backend: `apps/api/src/instrument.ts` (`Sentry.init` gated por `SENTRY_DSN`, cargado 1º en `main.ts`) + `SentryModule.forRoot()` en AppModule (registra el filtro global de excepciones). Frontend: `Sentry.init` gated por `environment.sentryDsn` + `ErrorHandler` de Sentry en `app.config.ts`. **Builds api+view verdes** (prod, sin caché). `@sentry/nestjs`+`@sentry/angular` v10.68. Pendiente: crear proyecto en Sentry SaaS (free) y setear el DSN (Railway env para api + `environment.sentryDsn` para view) — hasta entonces no captura nada.
 - **Secret scanning (gitleaks)**: job `secret-scan` en `.github/workflows/ci.yml` (escanea solo commits nuevos, separado del build) + `.gitleaks.toml` (regla de connection-string con password + allowlist de defaults dev local) + hook `pre-commit` opt-in (`.githooks/`). Motivo: fuga previa de credenciales de prod al repo.

@@ -16,6 +16,10 @@ export * from './lib/tenant/tenant-context.service';
 export * from './lib/tenant/tenant-context.interceptor';
 export * from './lib/tenant/legacy-tx.als';
 
+// ── cache (tenant-aware) ──
+export * from './lib/cache/tenant-cache.service';
+export * from './lib/cache/tenant-cache.module';
+
 // ── ability / permisos ──
 export * from './lib/ability/ability.module';
 export * from './lib/ability/ability.factory';
