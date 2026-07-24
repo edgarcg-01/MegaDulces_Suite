@@ -6,6 +6,27 @@
 
 ---
 
+## 2026-07-24 — Fase F (Comercio Conversacional WhatsApp): F.0–F.3 en código, camino comercial cerrado
+
+**Contexto:** el usuario pidió que los clientes puedan hacer pedidos por WhatsApp con un chat conversacional y que esos pedidos generen repartos. Análisis previo: la "mitad de atrás" (pedido → reparto → COD → liquidación) YA existía (Fase LM); `createIntake` ya aceptaba `delivery_channel='whatsapp'`. Lo faltante era solo la capa conversacional de entrada.
+
+**Decisiones (ADR-006/007/034, resueltas con el usuario):** canal = **Meta Cloud API directo** (sin BSP intermediario, detrás de `WhatsAppPort` + simulador); LLM = **Claude Haiku tool-use** (reusa el patrón de `LlmExtractorService`/Thot/Maat); autonomía = **bot arma / humano confirma** (freno de seguridad, reusa el patrón de bandeja de televenta); infra = **Redis + BullMQ** (degrada in-process sin `REDIS_URL`).
+
+**Entregado (4 commits, builds api+view verdes):**
+
+- **F.0** — `libs/whatsapp` nueva (`@megadulces/whatsapp`): `WhatsAppPort` + `SimulatorWhatsAppAdapter` (dev sin Meta) + `MetaCloudWhatsAppAdapter` (Graph v21 + firma HMAC timing-safe) + `WhatsAppQueueService` (BullMQ si `REDIS_URL`, si no in-process) + `ConversationThreadService`. Migración `whatsapp.conversation_threads`/`messages` (RLS forzado). Permisos `WHATSAPP_BOT_VER/GESTIONAR` (enum BE+FE + ability.factory subject `whatsapp` + backfill ← `REPARTO_DESPACHAR`). Fix `.gitignore` `WhatsApp*/` → `/WhatsApp*/` (capturaba la lib por FS case-insensitive de Windows). `bullmq@5.81.1` instalado.
+- **F.1** — `WhatsAppWebhookController` `@Public()` (GET verify + POST inbound con HMAC sobre raw body capturado en main.ts + `/sim`) + `WhatsAppIngestService` (dedup por `wa_message_id` → hilo → cola; scope CLS sintético `tenantCtx.run`, patrón cron; workers in/out re-establecen scope desde `job.tenant_id`). Smoke `http-whatsapp-webhook-test.js` en `run-all-tests`.
+- **F.2** — `ConversationOrchestratorService` (loop tool-use Claude Haiku, máx 6 iter; 7 tools: buscar/agregar/quitar/ver carrito, capturar_domicilio (texto), confirmar_pedido (marca `review`, NO crea orden ni cobra), handoff_humano). **Invariante ADR-016:** el precio sale del motor (`catalog-search`), NUNCA del LLM. Degrada honesto a handoff sin API key/catálogo. Puerto `COMMERCE_CONVERSATION_PORT` (contracts) + binding en composition root → `libs/whatsapp` no importa `commercial` (frontera limpia).
+- **F.3** — bandeja `/reparto/pedidos-whatsapp` (master-detail Operations) + `WhatsAppOrdersService`/`Controller` (`/whatsapp/orders`): confirmar → `createHomeDeliveryOrder` (puerto → `createIntake`, cliente casual + domicilio + líneas, confirmado + stock reservado) → avisa al cliente por WA → cierra hilo → **aparece en `/reparto/asignar`**. Rechazar cierra + avisa. Decisión: el hilo en `review` ES el estado pendiente (no `pending_approval` intermedio); la aprobación humana ES la confirmación.
+
+**Arquitectura:** todo detrás de puertos abstractos (canal + comercio) → aislamiento de vendor + frontera limpia entre libs. Cero acoplamiento nuevo `whatsapp → commercial` (solo vía contracts + composition root, como los otros bindings del proyecto).
+
+**Diferido:** **F.4** (handoff explícito con vista para retomar el hilo + dashboard de conversaciones/métricas) — nice-to-have; el bot ya deriva a `handoff` cuando no entiende, y el camino comercial (pedir → reparto → cobro) está cerrado sin F.4.
+
+**Pendiente operacional (Edgar):** `npm run migrate:new` + arrancar API con `ENABLE_MULTITENANT=true` + `ANTHROPIC_API_KEY` (+ `VOYAGE_API_KEY` o cae a LIKE) + correr `http-whatsapp-webhook-test.js` + validación en vivo/visual (calidad conversacional no automatizable). Para prod real: app de Meta + número verificado + `WHATSAPP_*` env + `WHATSAPP_PROVIDER=meta` + `REDIS_URL` (BullMQ). Los smokes NO corrieron con API arriba en esta sesión (regla del proyecto: no levantar dev servers).
+
+---
+
 ## 2026-07-20 — DM.11: destino del traspaso a sucursal (¿a quién va dirigido?)
 
 **Contexto:** en `/almacen/movimientos`, un "Traspaso a sucursal" (`TrsfShip` = U/D/41) sin recepción solo decía "sin recepción" — sin nombrar la sucursal destino, justo lo que se necesita para reclamar quién no ha recepcionado.
