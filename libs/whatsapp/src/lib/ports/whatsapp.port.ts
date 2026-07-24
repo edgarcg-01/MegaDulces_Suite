@@ -48,6 +48,24 @@ export interface InteractiveMessage {
   footer?: string;
 }
 
+/** Imagen saliente (F.7). `link` es una URL pública accesible por Meta. */
+export interface ImageMessage {
+  link: string;
+  caption?: string;
+}
+
+/**
+ * Mensaje de PLANTILLA (F.7) — obligatorio para promos iniciadas por el negocio
+ * fuera de la ventana de 24h. La plantilla debe estar aprobada en Meta.
+ * `imageLink` llena el header de imagen; `bodyParams` los {{1}},{{2}}… del body.
+ */
+export interface TemplateMessage {
+  name: string;
+  language: string; // ej. 'es_MX' | 'es'
+  imageLink?: string;
+  bodyParams?: string[];
+}
+
 /** Resultado del envío. `message_id` null si el proveedor no lo devuelve (simulador). */
 export interface SendResult {
   message_id: string | null;
@@ -66,6 +84,12 @@ export interface WhatsAppPort {
 
   /** Envía un mensaje con botones de respuesta rápida. */
   sendInteractive(to: string, msg: InteractiveMessage): Promise<SendResult>;
+
+  /** Envía una imagen (URL pública) con caption opcional. Solo dentro de la ventana 24h. */
+  sendImage(to: string, msg: ImageMessage): Promise<SendResult>;
+
+  /** Envía una plantilla aprobada (promos fuera de la ventana 24h). */
+  sendTemplate(to: string, msg: TemplateMessage): Promise<SendResult>;
 
   /**
    * Verificación del webhook (handshake GET de Meta). Devuelve el `challenge`

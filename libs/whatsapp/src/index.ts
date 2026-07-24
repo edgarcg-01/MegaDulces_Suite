@@ -16,3 +16,5 @@ export * from './lib/webhook/whatsapp-ingest.service';
 export * from './lib/webhook/whatsapp-webhook.controller';
 export * from './lib/orders/whatsapp-orders.service';
 export * from './lib/orders/whatsapp-orders.controller';
+export * from './lib/promos/whatsapp-promo.service';
+export * from './lib/promos/whatsapp-promo.controller';

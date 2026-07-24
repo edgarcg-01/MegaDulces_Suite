@@ -1,15 +1,17 @@
 import { Injectable, Logger } from '@nestjs/common';
 import {
+  ImageMessage,
   InboundMessage,
   InteractiveMessage,
   SendResult,
+  TemplateMessage,
   WhatsAppPort,
 } from '../ports/whatsapp.port';
 
 /** Mensaje saliente capturado por el simulador (para inspección en dev/tests). */
 export interface SimOutbound {
   to: string;
-  kind: 'text' | 'interactive';
+  kind: 'text' | 'interactive' | 'image' | 'template';
   body: string;
   buttons?: { id: string; title: string }[];
   at: string; // ISO
@@ -63,6 +65,24 @@ export class SimulatorWhatsAppAdapter implements WhatsAppPort {
       kind: 'interactive',
       body: msg.body,
       buttons: msg.buttons,
+      at: new Date().toISOString(),
+    });
+  }
+
+  async sendImage(to: string, msg: ImageMessage): Promise<SendResult> {
+    return this.push({
+      to,
+      kind: 'image',
+      body: `[imagen ${msg.link}]${msg.caption ? ' ' + msg.caption : ''}`,
+      at: new Date().toISOString(),
+    });
+  }
+
+  async sendTemplate(to: string, msg: TemplateMessage): Promise<SendResult> {
+    return this.push({
+      to,
+      kind: 'template',
+      body: `[template ${msg.name}/${msg.language}]${msg.imageLink ? ' +img' : ''}${msg.bodyParams?.length ? ' (' + msg.bodyParams.join(', ') + ')' : ''}`,
       at: new Date().toISOString(),
     });
   }

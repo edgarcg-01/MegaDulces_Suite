@@ -2,8 +2,10 @@ import { Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { TenantContextService } from '@megadulces/platform-core';
 import { WHATSAPP_PORT } from '../ports/whatsapp.port';
 import type {
+  ImageMessage,
   InboundMessage,
   InteractiveMessage,
+  TemplateMessage,
   WhatsAppPort,
 } from '../ports/whatsapp.port';
 import { WhatsAppQueueService, WhatsAppJob } from '../queue/whatsapp-queue.service';
@@ -23,9 +25,11 @@ interface InJobPayload {
 interface OutJobPayload {
   to: string;
   thread_id: string;
-  kind: 'text' | 'interactive';
+  kind: 'text' | 'interactive' | 'image' | 'template';
   body: string;
   interactive?: InteractiveMessage;
+  image?: ImageMessage;
+  template?: TemplateMessage;
 }
 
 /**
@@ -155,15 +159,16 @@ export class WhatsAppIngestService implements OnModuleInit {
     const tenantId = job.tenant_id || this.tenantId;
     const p = job.payload as OutJobPayload;
     await this.tenantCtx.run({ tenantId }, async () => {
-      const res =
-        p.kind === 'interactive' && p.interactive
-          ? await this.port.sendInteractive(p.to, p.interactive)
-          : await this.port.sendText(p.to, p.body);
+      let res;
+      if (p.kind === 'interactive' && p.interactive) res = await this.port.sendInteractive(p.to, p.interactive);
+      else if (p.kind === 'image' && p.image) res = await this.port.sendImage(p.to, p.image);
+      else if (p.kind === 'template' && p.template) res = await this.port.sendTemplate(p.to, p.template);
+      else res = await this.port.sendText(p.to, p.body);
       await this.threads.logMessage(p.thread_id, 'out', {
         wa_message_id: res.message_id,
         type: p.kind,
         body: p.body,
-        payload: p.interactive ?? null,
+        payload: p.interactive ?? p.image ?? p.template ?? null,
       });
     });
   }
