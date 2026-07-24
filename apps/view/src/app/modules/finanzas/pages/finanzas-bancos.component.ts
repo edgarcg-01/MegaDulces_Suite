@@ -179,15 +179,28 @@ import { BancosSideBySideComponent } from './bancos/bancos-side-by-side.componen
     :host ::ng-deep .fb-sel.p-select { font-size: var(--fs-sm); }
     :host ::ng-deep .fb-sel .p-select-label { padding: var(--sp-1) var(--sp-2); }
     :host ::ng-deep .fb-search .p-inputtext { width: 100%; font-size: var(--fs-sm); }
-    .fb-viewseg { display: flex; gap: var(--sp-1); margin: var(--sp-3) 0; border-bottom: 1px solid var(--border-color); }
-    .fb-viewseg button {
-      display: inline-flex; align-items: center; gap: var(--sp-1); background: none; border: none;
-      color: var(--text-muted); font: inherit; font-size: var(--fs-sm); font-weight: 500;
-      padding: var(--sp-2) var(--sp-3); border-bottom: 2px solid transparent; cursor: pointer;
+    /* Segmentado estilo iOS ("liquid") — pastilla contenedora + pill activa elevada, coherente con sel-liquid */
+    .fb-viewseg {
+      display: flex; align-items: stretch; gap: 2px; margin: var(--sp-3) 0; padding: 4px;
+      background: var(--surface-ground); border: 1px solid var(--border-color); border-radius: var(--r-pill);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5), 0 1px 2px rgba(0, 0, 0, 0.04);
+      overflow-x: auto; overflow-y: hidden; scrollbar-width: none; -ms-overflow-style: none;
     }
-    .fb-viewseg button.active { color: var(--action); border-bottom-color: var(--action); }
-    .fb-viewseg button:focus-visible { outline: 2px solid var(--action-ring); outline-offset: -2px; }
+    .fb-viewseg::-webkit-scrollbar { display: none; }
+    .fb-viewseg button {
+      display: inline-flex; align-items: center; gap: var(--sp-1); background: none; border: none; border-radius: var(--r-pill);
+      color: var(--text-muted); font: inherit; font-size: var(--fs-sm); font-weight: 500;
+      padding: var(--sp-1) var(--sp-3); cursor: pointer; white-space: nowrap;
+      transition: background-color 200ms ease, color 200ms ease, box-shadow 200ms ease;
+    }
+    .fb-viewseg button:not(.active):hover { color: var(--text-main); }
+    .fb-viewseg button.active {
+      color: var(--action); background: var(--card-bg);
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06), 0 2px 8px rgba(0, 0, 0, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.5);
+    }
+    .fb-viewseg button:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 1px; }
     .fb-seg-config { margin-left: auto; }
+    .theme-monochrome .fb-viewseg { box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 1px 2px rgba(0, 0, 0, 0.5); }
     .fb-title-row { display: inline-flex; align-items: center; gap: var(--sp-1); }
     /* Barra de estado del cierre */
     .fb-status { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-3); margin: var(--sp-2) 0 0; }
