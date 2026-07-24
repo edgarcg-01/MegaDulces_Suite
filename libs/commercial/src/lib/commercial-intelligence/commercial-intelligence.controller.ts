@@ -33,6 +33,7 @@ import { ThotChatService, ThotChatTurn } from './thot-chat/thot-chat.service';
 import { ThotToolsService } from './thot-chat/thot-tools.service';
 import { PortalThotToolsService } from './thot-chat/portal-thot-tools.service';
 import { VendorThotToolsService } from './thot-chat/vendor-thot-tools.service';
+import { ComprasToolsService } from './thot-chat/compras-tools.service';
 import { ThotExamplesService } from './thot-chat/thot-examples.service';
 import { ThotScope, PH_FULFILLMENT_WAREHOUSE } from './thot-chat/thot-tool-provider';
 
@@ -60,6 +61,7 @@ export class CommercialIntelligenceController {
     private readonly adminTools: ThotToolsService,
     private readonly portalTools: PortalThotToolsService,
     private readonly vendorTools: VendorThotToolsService,
+    private readonly comprasTools: ComprasToolsService,
     private readonly examples: ThotExamplesService,
   ) {}
 
@@ -496,6 +498,21 @@ export class CommercialIntelligenceController {
     const result = await this.chat.ask(this.vendorTools, scope, { history });
     const lastQuestion = [...history].reverse().find((t) => t.role === 'user')?.content || '';
     const logId = await this.chat.logExchange({ userId: req.user?.id, userName, profile: 'vendor', question: lastQuestion }, result);
+    return { ...result, log_id: logId };
+  }
+
+  // ─── Compras: asistente conversacional de requisiciones (motor RA) ───
+  @Post('compras/thot/chat')
+  @RequirePermissions(Permission.COMPRAS_GESTIONAR)
+  @ApiOperation({ summary: 'Chat de compras: arma/ajusta requisiciones a proveedor conversando (motor RA). El comprador aprueba (HITL).' })
+  async comprasThotChat(@Req() req: any, @Body() body: { history?: ThotChatTurn[]; message?: string; think?: boolean }) {
+    const history: ThotChatTurn[] = Array.isArray(body?.history) ? body.history : [];
+    if (body?.message) history.push({ role: 'user', content: String(body.message) });
+    const userName = req.user?.full_name || req.user?.username || undefined;
+    const scope: ThotScope = { profile: 'compras', userName };
+    const result = await this.chat.ask(this.comprasTools, scope, { history, think: !!body?.think });
+    const lastQuestion = [...history].reverse().find((t) => t.role === 'user')?.content || '';
+    const logId = await this.chat.logExchange({ userId: req.user?.id, userName, profile: 'compras', question: lastQuestion }, result);
     return { ...result, log_id: logId };
   }
 

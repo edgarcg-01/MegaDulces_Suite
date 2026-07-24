@@ -32,6 +32,10 @@ Estados: ⬜ TODO · 🔨 EN CÓDIGO · 🧪 PROBADO · 🚀 STAGING · ✅ PROD
 - 🔨 **TOT.2 — Portal B2B toma pedidos** — EN CÓDIGO 2026-07-24
   Mismas 5 tools en `PortalThotToolsService` scoped al `customer_id` del JWT (sin arg, sin `guarded` — es su propio pedido). Confirmar usa `confirm()` (draft→**pending_approval**, lo aprueba el vendedor — flujo B2B existente). "Lo de siempre" reusa `thot_my_last_order`/`thot_my_usual_products` ya existentes. System prompt del portal actualizado (la regla vieja "no podés crear pedidos" se reemplazó por las reglas HITL). Build api verde.
 
+- 🔨 **TOT-C — Asistente conversacional de COMPRAS (requisiciones a proveedor)** — EN CÓDIGO 2026-07-24
+  Aplica el mismo patrón al lado de PROCURA (/compras/pedido), envolviendo el motor RA (no Thot-ventas). `ComprasToolsService` (nuevo provider `ThotToolProvider`, profile `compras`) reusa el loop `ThotChatService.ask`. 5 tools: `compras_resolve_supplier`, `compras_worklist` ("¿qué toca?"), `compras_suggested_order` (sugerido en CAJAS por proveedor×almacén, base cadence), `compras_create_requisition` (items[{sku,cajas}] → `createRequisition` → **pending_approval**), `compras_pending_requisitions`. El motor pone cantidades/costo; el LLM no inventa; la requisición queda pendiente de aprobación (HITL). Endpoint `POST /commercial/intelligence/compras/thot/chat` (gate `COMPRAS_GESTIONAR`). Frontend: página `/compras/asistente` (chat compacto Operations) + nav "Asistente (Thot)". Module: intelligence importa `CommercialReplenishmentModule`. Builds api+view verdes.
+  *Pendiente:* redeploy + `ANTHROPIC_API_KEY` + prueba en vivo (resolver proveedor → sugerido → ajustar → crear requisición → folio).
+
 - ⬜ **TOT.3 — "Guardar para próximos" explícito (plantillas)**
   Hoy "lo de siempre" se computa on-the-fly (`frequentProducts()`) — suficiente para el MVP. Nice-to-have: tabla `commercial.customer_order_templates` (customer_id + label + items jsonb) para plantillas nombradas ("mi pedido de fin de semana"), tool `thot_order_save_template` / `thot_order_load_template`.
 

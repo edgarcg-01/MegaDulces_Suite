@@ -11,7 +11,7 @@ export interface ThotToolDef {
   input_schema: Record<string, any>;
 }
 
-export type ThotProfile = 'admin' | 'portal' | 'vendor';
+export type ThotProfile = 'admin' | 'portal' | 'vendor' | 'compras';
 
 export interface ThotScope {
   profile: ThotProfile;
