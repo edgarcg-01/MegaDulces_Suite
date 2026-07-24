@@ -179,21 +179,33 @@ export class MaatReconTasksService {
     return this.tk.run(async (trx) => {
       const q = trx('finance.recon_tasks').whereIn('status', ['pendiente', 'en_proceso']);
       if (period) q.where('periodo', period);
-      const tasks = await q.select('id', 'finding_ids');
+      const tasks = await q.select('id', 'finding_ids', 'assigned_to', 'assigned_to_username');
       let closed = 0;
       for (const t of tasks as any[]) {
         const ids: string[] = Array.isArray(t.finding_ids) ? t.finding_ids : JSON.parse(t.finding_ids || '[]');
         if (!ids.length) continue;
-        // ¿cuántos de los movimientos de esta tarea siguen sin conciliar?
-        const pend: any = await trx('finance.findings as f')
-          .joinRaw("JOIN finance.bank_movements bm ON bm.id = NULLIF(f.entity->>'bank_movement_id','')::uuid")
-          .whereIn('f.id', ids).where('bm.recon_status', 'unmatched')
-          .count('* as c').first();
-        if (Number(pend?.c || 0) === 0) {
+        const pending = await this.pendingUnmatched(trx, ids);
+        if (pending === 0) {
           await trx('finance.recon_tasks').where('id', t.id).update({
             status: 'resuelto', resolution_source: 'verificado', resolved_at: trx.fn.now(),
             resolved_by: 'maat', updated_at: trx.fn.now(),
           });
+          // Avisa en el hilo y, si tenía dueño, le pasa la siguiente (cierra el lazo).
+          await trx('finance.recon_task_messages').insert({
+            tenant_id: trx.raw('public.current_tenant_id()'), task_id: t.id, role: 'maat', kind: 'verify',
+            username: 'Maat', body: `✓ Verificado: los ${ids.length} movimiento(s) ya cruzan con el 102 en Kepler. Cierro la tarea.`,
+            meta: JSON.stringify({ verified: true, matched: ids.length, pending: 0, auto: true }),
+          });
+          if (t.assigned_to) {
+            const next = await this.assignNextTo(trx, t.assigned_to, t.assigned_to_username);
+            if (next) {
+              await trx('finance.recon_task_messages').insert({
+                tenant_id: trx.raw('public.current_tenant_id()'), task_id: t.id, role: 'maat', kind: 'assignment',
+                username: 'Maat', body: `Te asigné tu siguiente tarea: ${next.proveedor_label} — ${this.money(next.importe_total)} (${next.n_movimientos} mov).`,
+                meta: JSON.stringify({ next_task_id: next.id }),
+              });
+            }
+          }
           closed++;
         }
       }
@@ -295,6 +307,120 @@ export class MaatReconTasksService {
         monto_abierto: Number(totals?.monto_abierto || 0),
         por_usuario: (porUsuario as any[]).map((u) => ({ user_id: u.assigned_to, username: u.assigned_to_username, n: Number(u.n), monto: Number(u.monto) })),
       };
+    });
+  }
+
+  // ── CHAT POR TAREA + verificación (MA.8) ──────────────────────────────────
+
+  private money(v: any): string {
+    return Number(v || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 });
+  }
+
+  /** Hilo de mensajes de una tarea (persona ↔ Maat). */
+  async messages(taskId: string) {
+    this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) =>
+      trx('finance.recon_task_messages').where('task_id', taskId)
+        .select('id', 'role', 'kind', 'username', 'body', 'meta', 'created_at')
+        .orderBy('created_at', 'asc'));
+  }
+
+  /** Comentario libre de una persona en el hilo. */
+  async postMessage(taskId: string, body: string, username?: string) {
+    this.tenantCtx.requireTenantId();
+    const text = (body || '').trim();
+    if (!text) throw new BadRequestException('mensaje vacío');
+    return this.tk.run(async (trx) => {
+      const task = await trx('finance.recon_tasks').where('id', taskId).select('id').first();
+      if (!task) throw new BadRequestException('tarea no encontrada');
+      const [row] = await trx('finance.recon_task_messages')
+        .insert({ tenant_id: trx.raw('public.current_tenant_id()'), task_id: taskId, role: 'user', kind: 'comment', username: username || null, body: text })
+        .returning(['id', 'role', 'kind', 'username', 'body', 'created_at']);
+      return row;
+    });
+  }
+
+  /** ¿cuántos movimientos de la tarea siguen sin conciliar en Kepler? (single-task verify). */
+  private async pendingUnmatched(trx: any, findingIds: string[]): Promise<number> {
+    if (!findingIds.length) return 0;
+    const r: any = await trx('finance.findings as f')
+      .joinRaw("JOIN finance.bank_movements bm ON bm.id = NULLIF(f.entity->>'bank_movement_id','')::uuid")
+      .whereIn('f.id', findingIds).where('bm.recon_status', 'unmatched').count('* as c').first();
+    return Number(r?.c || 0);
+  }
+
+  /** Reparto dirigido: da a un usuario la siguiente tarea pendiente sin dueño (la mayor). */
+  private async assignNextTo(trx: any, userId: string, username: string | null) {
+    const next = await trx('finance.recon_tasks')
+      .where('status', 'pendiente').whereNull('assigned_to')
+      .orderBy('importe_total', 'desc')
+      .select('id', 'proveedor_label', 'importe_total', 'n_movimientos', 'periodo').first();
+    if (!next) return null;
+    await trx('finance.recon_tasks').where('id', next.id).update({
+      assigned_to: userId, assigned_to_username: username, assigned_by: 'maat', assigned_at: trx.fn.now(), updated_at: trx.fn.now(),
+    });
+    return next;
+  }
+
+  /**
+   * La persona reporta que ya concilió la tarea EN KEPLER. Maat VERIFICA por
+   * re-match (recon_status) — no confía en el auto-reporte:
+   *   verificado → cierra la tarea + asigna la SIGUIENTE al mismo usuario, todo en el hilo.
+   *   aún no cruza → lo deja en_proceso y explica qué falta; se cierra sola cuando Kepler refleje.
+   * Determinista: el LLM no interviene.
+   */
+  async reportDone(taskId: string, body: string, actor: { userId?: string; username?: string } = {}) {
+    this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      const task = await trx('finance.recon_tasks').where('id', taskId)
+        .select('id', 'finding_ids', 'proveedor_label', 'assigned_to', 'assigned_to_username', 'status').first();
+      if (!task) throw new BadRequestException('tarea no encontrada');
+      const ids: string[] = Array.isArray(task.finding_ids) ? task.finding_ids : JSON.parse(task.finding_ids || '[]');
+      const total = ids.length;
+
+      // mensaje de reporte de la persona
+      await trx('finance.recon_task_messages').insert({
+        tenant_id: trx.raw('public.current_tenant_id()'), task_id: taskId, role: 'user', kind: 'report',
+        username: actor.username || null, body: (body || '').trim() || 'Reporté esta conciliación como hecha en Kepler.',
+      });
+
+      const pending = await this.pendingUnmatched(trx, ids);
+
+      if (pending === 0) {
+        await trx('finance.recon_tasks').where('id', taskId).update({
+          status: 'resuelto', resolution_source: 'verificado', resolved_at: trx.fn.now(),
+          resolved_by: actor.username || 'maat', updated_at: trx.fn.now(),
+        });
+        // Asignar la siguiente al mismo usuario (si hay y si estaba asignada a alguien).
+        const uid = task.assigned_to || actor.userId || null;
+        const uname = task.assigned_to_username || actor.username || null;
+        const next = uid ? await this.assignNextTo(trx, uid, uname) : null;
+
+        const verifyBody = `✓ Verificado: los ${total} movimiento(s) ya cruzan con el 102 en Kepler. Cierro la tarea.`;
+        await trx('finance.recon_task_messages').insert({
+          tenant_id: trx.raw('public.current_tenant_id()'), task_id: taskId, role: 'maat', kind: 'verify',
+          username: 'Maat', body: verifyBody, meta: JSON.stringify({ verified: true, matched: total, pending: 0 }),
+        });
+        if (next) {
+          await trx('finance.recon_task_messages').insert({
+            tenant_id: trx.raw('public.current_tenant_id()'), task_id: taskId, role: 'maat', kind: 'assignment',
+            username: 'Maat', body: `Te asigné tu siguiente tarea: ${next.proveedor_label} — ${this.money(next.importe_total)} (${next.n_movimientos} mov). Concíliala en Kepler y repórtala aquí.`,
+            meta: JSON.stringify({ next_task_id: next.id }),
+          });
+        }
+        return { verified: true, matched: total, pending: 0, next: next ? { id: next.id, proveedor_label: next.proveedor_label, importe_total: Number(next.importe_total), n_movimientos: next.n_movimientos } : null };
+      }
+
+      // aún no cruza
+      if (task.status === 'pendiente') {
+        await trx('finance.recon_tasks').where('id', taskId).update({ status: 'en_proceso', updated_at: trx.fn.now() });
+      }
+      const verifyBody = `Aún no veo el cruce en Kepler: ${pending} de ${total} movimiento(s) siguen sin conciliar. En cuanto la póliza se refleje (revisa monto + fecha + beneficiario en el 102) cierro la tarea automáticamente y te paso la siguiente.`;
+      await trx('finance.recon_task_messages').insert({
+        tenant_id: trx.raw('public.current_tenant_id()'), task_id: taskId, role: 'maat', kind: 'verify',
+        username: 'Maat', body: verifyBody, meta: JSON.stringify({ verified: false, matched: total - pending, pending }),
+      });
+      return { verified: false, matched: total - pending, pending, next: null };
     });
   }
 }

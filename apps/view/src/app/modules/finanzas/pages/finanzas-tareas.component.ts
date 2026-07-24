@@ -17,7 +17,7 @@ import { LoadStateComponent } from '../../../shared/components/load-state/load-s
 import { FINANZAS_TABS } from '../finanzas-tabs';
 import { AuthService } from '../../../core/services/auth.service';
 import { Permission } from '../../../core/constants/permissions';
-import { ReconTasksService, ReconTask, ReconTaskStats, ReconTaskStatus, FinanceUser } from '../recon-tasks.service';
+import { ReconTasksService, ReconTask, ReconTaskStats, ReconTaskStatus, FinanceUser, ReconTaskMessage } from '../recon-tasks.service';
 
 /**
  * MA — Tareas de conciliación (Maat). Superficie Operations: los movimientos sin
@@ -112,6 +112,7 @@ import { ReconTasksService, ReconTask, ReconTaskStats, ReconTaskStatus, FinanceU
               <td><p-tag [value]="statusLabel(t.status)" [severity]="statusSeverity(t.status)" [rounded]="true" /></td>
               <td class="ta-r">
                 <div class="ft-row-acts">
+                  <button pButton type="button" icon="pi pi-comments" class="p-button-text p-button-sm" [attr.aria-label]="'Hilo de ' + t.proveedor_label" pTooltip="Hilo y verificación" (click)="openChat(t)"></button>
                   @if (canManage() && t.status === 'pendiente') {
                     <button pButton type="button" label="Tomar" icon="pi pi-play" class="p-button-text p-button-sm" (click)="quickStatus(t, 'en_proceso')"></button>
                   }
@@ -164,6 +165,46 @@ import { ReconTasksService, ReconTask, ReconTaskStats, ReconTaskStatus, FinanceU
         <button pButton type="button" label="Asignar" icon="pi pi-check" class="p-button-sm" [loading]="saving()" [disabled]="!selectedUser" (click)="submitAssign(selectedUser)"></button>
       </ng-template>
     </p-dialog>
+
+    <!-- Dialog: hilo + verificación -->
+    <p-dialog [visible]="!!chatTask()" (visibleChange)="onChatVisible($event)" [modal]="true" [style]="{ width: '34rem' }"
+      [dismissableMask]="true" styleClass="ft-chat-dlg">
+      <ng-template pTemplate="header">
+        @if (chatTask(); as t) {
+          <div class="ft-chat-head">
+            <span class="ft-chat-title">{{ t.proveedor_label }}</span>
+            <span class="ft-chat-meta">{{ t.periodo }} · {{ t.n_movimientos }} mov · {{ t.importe_total | currency:'MXN':'symbol-narrow':'1.0-0' }} · <p-tag [value]="statusLabel(t.status)" [severity]="statusSeverity(t.status)" [rounded]="true" /></span>
+          </div>
+        }
+      </ng-template>
+      <div class="ft-chat">
+        @if (chatLoading()) { <p class="muted ft-chat-empty">Cargando…</p> }
+        @else if (!chatMessages().length) {
+          <p class="muted ft-chat-empty">Aún no hay mensajes. Cuando concilies esta tarea en Kepler, repórtalo aquí y Maat lo verifica.</p>
+        }
+        @for (m of chatMessages(); track m.id) {
+          <div class="ft-msg" [class.ft-msg-maat]="m.role === 'maat'">
+            <div class="ft-msg-who">
+              @if (m.role === 'maat') { <i class="pi pi-sparkles" aria-hidden="true"></i> Maat }
+              @else { {{ m.username || 'Usuario' }} }
+              @if (m.kind === 'report') { <span class="ft-msg-kind">reportó</span> }
+              @else if (m.kind === 'assignment') { <span class="ft-msg-kind ft-kind-assign">nueva tarea</span> }
+            </div>
+            <div class="ft-msg-body" [class.ft-verify-ok]="m.kind==='verify' && m.meta?.['verified']" [class.ft-verify-no]="m.kind==='verify' && m.meta && !m.meta['verified']">{{ m.body }}</div>
+          </div>
+        }
+      </div>
+      <ng-template pTemplate="footer">
+        <div class="ft-chat-composer">
+          <input pInputText [(ngModel)]="chatDraft" placeholder="Escribe un mensaje…" (keydown.enter)="sendMessage()" [disabled]="reporting()" />
+          <button pButton type="button" icon="pi pi-send" class="p-button-text p-button-sm" [attr.aria-label]="'Enviar'" [disabled]="!chatDraft.trim() || reporting()" (click)="sendMessage()"></button>
+        </div>
+        @if (canManage() && chatTask() && (chatTask()!.status === 'pendiente' || chatTask()!.status === 'en_proceso')) {
+          <button pButton type="button" label="Ya lo hice en Kepler" icon="pi pi-check-circle" class="p-button-sm ft-report-btn" [loading]="reporting()" (click)="report()"
+                  pTooltip="Maat verifica que el movimiento ya cruce en el 102 y, si sí, cierra y te pasa la siguiente." tooltipPosition="top"></button>
+        }
+      </ng-template>
+    </p-dialog>
   `,
   styles: [`
     :host { display: block; }
@@ -194,6 +235,23 @@ import { ReconTasksService, ReconTask, ReconTaskStats, ReconTaskStatus, FinanceU
     .ft-dlg-hint { font-size: var(--fs-sm); color: var(--text-muted); }
     .ft-field { display: flex; flex-direction: column; gap: .3rem; font-size: var(--fs-sm); }
     .ft-field input, .ft-field :where(.ft-select) { width: 100%; }
+    .ft-chat-head { display: flex; flex-direction: column; gap: .15rem; }
+    .ft-chat-title { font-weight: 600; color: var(--text-main); }
+    .ft-chat-meta { font-size: var(--fs-xs); color: var(--text-muted); font-family: var(--font-mono); display: inline-flex; align-items: center; gap: .35rem; }
+    .ft-chat { display: flex; flex-direction: column; gap: .6rem; max-height: 46vh; overflow-y: auto; padding: .25rem 0; }
+    .ft-chat-empty { padding: 1rem 0; text-align: center; }
+    .ft-msg { display: flex; flex-direction: column; gap: .15rem; align-items: flex-start; max-width: 88%; }
+    .ft-msg-maat { align-self: flex-end; align-items: flex-end; }
+    .ft-msg-who { font-size: var(--fs-xs); color: var(--text-faint); display: inline-flex; align-items: center; gap: .3rem; }
+    .ft-msg-kind { border: 1px solid var(--border-color); border-radius: var(--r-sm); padding: 0 .25rem; }
+    .ft-kind-assign { color: var(--action); border-color: var(--action-ring); }
+    .ft-msg-body { font-size: var(--fs-sm); background: var(--hover-bg); border: 1px solid var(--border-color); border-radius: var(--r-md); padding: .4rem .6rem; color: var(--text-main); white-space: pre-wrap; }
+    .ft-msg-maat .ft-msg-body { background: var(--ember-soft); border-color: var(--ember-border); }
+    .ft-verify-ok { border-left: 3px solid var(--ok-fg); }
+    .ft-verify-no { border-left: 3px solid var(--warn-fg); }
+    .ft-chat-composer { display: flex; gap: .3rem; align-items: center; width: 100%; }
+    .ft-chat-composer input { flex: 1; }
+    .ft-report-btn { margin-top: .5rem; width: 100%; }
   `],
 })
 export class FinanzasTareasComponent implements OnInit {
@@ -224,6 +282,12 @@ export class FinanzasTareasComponent implements OnInit {
   keplerRef = '';
   note = '';
   selectedUser: string | null = null;
+
+  readonly chatTask = signal<ReconTask | null>(null);
+  readonly chatMessages = signal<ReconTaskMessage[]>([]);
+  readonly chatLoading = signal(false);
+  readonly reporting = signal(false);
+  chatDraft = '';
 
   readonly emptyTitle = computed(() =>
     this.view() === 'me' ? 'No tienes tareas asignadas' :
@@ -291,6 +355,43 @@ export class FinanzasTareasComponent implements OnInit {
     this.svc.assignManual(t.id, userId).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: () => { this.saving.set(false); this.assignTask.set(null); this.toast.add({ severity: 'success', summary: userId ? 'Asignada' : 'Devuelta al pool', detail: t.proveedor_label }); this.reload(); },
       error: (e) => { this.saving.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudo asignar.' }); },
+    });
+  }
+
+  openChat(t: ReconTask): void { this.chatTask.set(t); this.chatDraft = ''; this.loadMessages(t.id); }
+  onChatVisible(v: boolean): void { if (!v) { this.chatTask.set(null); this.chatMessages.set([]); } }
+  private loadMessages(id: string): void {
+    this.chatLoading.set(true);
+    this.svc.messages(id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (m) => { this.chatMessages.set(m); this.chatLoading.set(false); },
+      error: () => { this.chatLoading.set(false); },
+    });
+  }
+  sendMessage(): void {
+    const t = this.chatTask(); const body = this.chatDraft.trim();
+    if (!t || !body) return;
+    this.chatDraft = '';
+    this.svc.postMessage(t.id, body).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (m) => this.chatMessages.update((cur) => [...cur, m]),
+      error: (e) => this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudo enviar.' }),
+    });
+  }
+  report(): void {
+    const t = this.chatTask();
+    if (!t) return;
+    this.reporting.set(true);
+    this.svc.reportDone(t.id, this.chatDraft.trim() || undefined).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => {
+        this.reporting.set(false); this.chatDraft = '';
+        if (r.verified) {
+          this.toast.add({ severity: 'success', summary: 'Verificado por Maat', detail: r.next ? `Cerrada. Siguiente: ${r.next.proveedor_label}` : 'Tarea cerrada.' });
+        } else {
+          this.toast.add({ severity: 'warn', summary: 'Aún no cruza en Kepler', detail: `${r.pending} de ${r.matched + r.pending} movimiento(s) sin conciliar.` });
+        }
+        this.loadMessages(t.id);
+        this.reload();
+      },
+      error: (e) => { this.reporting.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudo reportar.' }); },
     });
   }
 

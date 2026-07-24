@@ -45,6 +45,17 @@ export interface ReconTaskStats {
 
 export interface FinanceUser { id: string; username: string; full_name: string | null; }
 
+export type ReconMsgRole = 'user' | 'maat';
+export type ReconMsgKind = 'comment' | 'report' | 'verify' | 'assignment';
+export interface ReconTaskMessage {
+  id: string; role: ReconMsgRole; kind: ReconMsgKind; username: string | null;
+  body: string; meta: Record<string, any> | null; created_at: string;
+}
+export interface ReportResult {
+  verified: boolean; matched: number; pending: number;
+  next: { id: string; proveedor_label: string; importe_total: number; n_movimientos: number } | null;
+}
+
 export interface RunResult {
   periodo: string; grupos: number; upserted: number; skipped_small: number;
   min_importe: number; assigned: number; users: number; cerradas_verificadas: number;
@@ -86,4 +97,9 @@ export class ReconTasksService {
   assignManual(id: string, user_id: string | null): Observable<any> {
     return this.http.post(`${this.base}/${id}/assign`, { user_id });
   }
+
+  // ── Chat por tarea (MA.8) ──
+  messages(id: string): Observable<ReconTaskMessage[]> { return this.http.get<ReconTaskMessage[]>(`${this.base}/${id}/messages`); }
+  postMessage(id: string, body: string): Observable<ReconTaskMessage> { return this.http.post<ReconTaskMessage>(`${this.base}/${id}/messages`, { body }); }
+  reportDone(id: string, body?: string): Observable<ReportResult> { return this.http.post<ReportResult>(`${this.base}/${id}/report`, { body }); }
 }
