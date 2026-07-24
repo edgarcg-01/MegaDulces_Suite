@@ -341,8 +341,8 @@ export class FinanceBankService {
         .leftJoin('finance.movement_categories as mc', 'mc.id', 'bm.category_id')
         .leftJoin('finance.bank_recon_matches as rm', 'rm.bank_movement_id', 'bm.id')
         .where('st.period', period)
-        .select('bm.id', 'bm.movement_date', 'ba.bank', 'ba.account_label', 'bm.concept',
-          'bm.raw_type', 'mc.group_key', 'mc.name as category_name',
+        .select('bm.id', 'bm.movement_date', 'ba.bank', 'ba.account_label', 'ba.id as account_id', 'bm.concept',
+          'bm.raw_type', 'bm.raw_code', 'bm.sucursal', 'mc.group_key', 'mc.name as category_name', 'mc.kepler_account',
           'bm.amount_in', 'bm.amount_out', 'bm.recon_status',
           'rm.kepler_doc_tipo', 'rm.kepler_doc_folio')
         .orderBy([{ column: 'bm.movement_date' }, { column: 'bm.id' }]);
@@ -352,20 +352,21 @@ export class FinanceBankService {
           this.on('rm.kepler_doc_tipo', 'p.doc_tipo').andOn('rm.kepler_doc_folio', 'p.folio');
         })
         .where({ 'p.tenant_id': tenantId, 'p.anio_mes': period })
-        .select('p.doc_tipo', 'p.folio', 'p.fecha', 'p.cargo_abono', 'p.importe', 'p.contraparte', 'rm.bank_movement_id')
+        .select('p.doc_tipo', 'p.folio', 'p.fecha', 'p.cargo_abono', 'p.importe', 'p.contraparte', 'p.forma', 'rm.bank_movement_id')
         .orderBy([{ column: 'p.fecha' }, { column: 'p.folio' }]);
 
       return {
         period,
         excel: (excel as any[]).map((r) => ({
-          id: r.id, fecha: r.movement_date, cuenta: `${r.bank} ${r.account_label}`.trim(),
-          concepto: r.concept, tipo: r.raw_type, grupo: r.group_key, categoria: r.category_name,
+          id: r.id, fecha: r.movement_date, cuenta: `${r.bank} ${r.account_label}`.trim(), account_id: r.account_id,
+          concepto: r.concept, tipo: r.raw_type, codigo: r.raw_code, sucursal: r.sucursal,
+          grupo: r.group_key, categoria: r.category_name, kepler_account: r.kepler_account,
           entra: n(r.amount_in), sale: n(r.amount_out), recon_status: r.recon_status,
           match_key: r.kepler_doc_folio ? `${r.kepler_doc_tipo || ''}|${r.kepler_doc_folio}` : null,
         })),
         kepler: (kepler as any[]).map((r) => ({
           doc_tipo: r.doc_tipo, folio: r.folio, fecha: r.fecha, cargo_abono: r.cargo_abono,
-          importe: n(r.importe), contraparte: r.contraparte,
+          importe: n(r.importe), contraparte: r.contraparte, forma: r.forma,
           bank_movement_id: r.bank_movement_id || null,
           match_key: `${r.doc_tipo || ''}|${r.folio}`,
         })),

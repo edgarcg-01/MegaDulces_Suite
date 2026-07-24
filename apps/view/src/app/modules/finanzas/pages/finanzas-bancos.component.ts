@@ -363,7 +363,7 @@ export class FinanzasBancosComponent implements OnInit {
 
   @ViewChild('fileInput') fileInput?: ElementRef<HTMLInputElement>;
 
-  readonly view = signal<View>('cierre');
+  readonly view = signal<View>('comparador');
   readonly loading = signal(true);
   readonly periods = signal<string[]>([]);
   readonly period = signal<string>('');
@@ -500,6 +500,8 @@ export class FinanzasBancosComponent implements OnInit {
     this.api.balances(p).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (b) => this.balances.set(b), error: () => this.balances.set(null) });
     this.api.diagnostico(p).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (d) => this.diagnostico.set(d), error: () => { this.diagnostico.set(null); this.diagError.set('No se pudo cargar el diagnóstico del periodo.'); } });
     this.reloadMovements();
+    // Comparador es la vista principal → cargar su data (grande) si es la vista activa.
+    if (this.view() === 'comparador') this.loadSideBySide();
   }
 
   reloadMovements(): void {

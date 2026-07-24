@@ -12,7 +12,10 @@ import { BankService, SideBySide, SideExcelRow, SideKeplerRow, MovementFlow } fr
 import { dmy, dmShort, groupLabel, money0 } from './bancos-shared';
 
 /** Un renglón del comparador: Excel y/o Kepler alineados por match_key. */
-interface Pair { key: string; excel: SideExcelRow | null; kepler: SideKeplerRow | null; fecha: string; monto: number; }
+interface Pair {
+  key: string; excel: SideExcelRow | null; kepler: SideKeplerRow | null;
+  fecha: string; monto: number; concepto: string; esEgreso: boolean; cuenta: string; grupo: string | null;
+}
 
 /**
  * CB.16 — Comparador Excel ↔ Kepler alineado. UNA tabla, dos grupos de columnas
@@ -28,6 +31,12 @@ interface Pair { key: string; excel: SideExcelRow | null; kepler: SideKeplerRow 
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="fb-sbs-bar">
+      <p-select [options]="cuentaOpts()" optionLabel="label" optionValue="value" [filter]="true"
+                [ngModel]="fCuenta()" (ngModelChange)="fCuenta.set($event); resetSel()"
+                appendTo="body" styleClass="fb-sel sel-liquid" ariaLabel="Cuenta"></p-select>
+      <p-select [options]="grupoOpts()" optionLabel="label" optionValue="value"
+                [ngModel]="fGrupo()" (ngModelChange)="fGrupo.set($event); resetSel()"
+                appendTo="body" styleClass="fb-sel sel-liquid" ariaLabel="Grupo"></p-select>
       <p-select [options]="filterOpts" optionLabel="label" optionValue="value"
                 [ngModel]="fEstado()" (ngModelChange)="fEstado.set($event); resetSel()"
                 appendTo="body" styleClass="fb-sel sel-liquid" ariaLabel="Estado de conciliación"></p-select>
@@ -47,12 +56,17 @@ interface Pair { key: string; excel: SideExcelRow | null; kepler: SideKeplerRow 
                [paginator]="pairs().length > 50" [rows]="50" [rowsPerPageOptions]="[50, 100, 200]">
         <ng-template pTemplate="header">
           <tr class="fb-grp-row">
+            <th class="fb-grp-tipo" aria-hidden="true"></th>
             <th colspan="4" class="fb-grp fb-grp-excel">Excel (banco)</th>
             <th class="fb-grp-sep" aria-hidden="true"></th>
             <th colspan="4" class="fb-grp fb-grp-kepler">Kepler (102)</th>
           </tr>
           <tr>
-            <th class="col-w6">Fecha</th><th>Concepto</th><th class="ta-r col-w9">Monto</th><th class="ta-c col-w25"></th>
+            <th class="col-w7" pSortableColumn="esEgreso">Tipo <p-sortIcon field="esEgreso" /></th>
+            <th class="col-w6" pSortableColumn="fecha">Fecha <p-sortIcon field="fecha" /></th>
+            <th pSortableColumn="concepto">Concepto <p-sortIcon field="concepto" /></th>
+            <th class="ta-r col-w9" pSortableColumn="monto">Monto <p-sortIcon field="monto" /></th>
+            <th class="ta-c col-w25"></th>
             <th class="fb-grp-sep" aria-hidden="true"></th>
             <th class="col-w6">Fecha</th><th class="col-w7">Doc</th><th>Beneficiario</th><th class="ta-r col-w9">Importe</th>
           </tr>
@@ -60,6 +74,8 @@ interface Pair { key: string; excel: SideExcelRow | null; kepler: SideKeplerRow 
         <ng-template pTemplate="body" let-p>
           <tr class="fb-row-click" [class.fb-sel-row]="isSel(p)" [class.fb-nomatch]="!p.excel || !p.kepler"
               (click)="pick(p)" tabindex="0" role="button" (keyup.enter)="pick(p)">
+            <!-- Tipo -->
+            <td><span class="fb-tipo-tag" [class.tin]="!p.esEgreso" [class.tout]="p.esEgreso">{{ p.esEgreso ? 'Egreso' : 'Ingreso' }}</span></td>
             <!-- Excel -->
             @if (p.excel; as e) {
               <td class="mono">{{ dm(e.fecha) }}</td>
@@ -84,10 +100,10 @@ interface Pair { key: string; excel: SideExcelRow | null; kepler: SideKeplerRow 
             }
           </tr>
         </ng-template>
-        <ng-template pTemplate="emptymessage"><tr><td colspan="9"><div class="surf-empty"><i class="pi pi-inbox"></i><p>Sin movimientos con estos filtros.</p></div></td></tr></ng-template>
+        <ng-template pTemplate="emptymessage"><tr><td colspan="10"><div class="surf-empty"><i class="pi pi-inbox"></i><p>Sin movimientos con estos filtros.</p></div></td></tr></ng-template>
         <ng-template pTemplate="footer">
           <tr class="fb-total-row">
-            <td></td>
+            <td></td><td></td>
             <td class="fb-t-lbl">Total banco</td>
             <td class="ta-r mono fb-strong">{{ tot().mExcel | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
             <td></td>
@@ -139,7 +155,10 @@ interface Pair { key: string; excel: SideExcelRow | null; kepler: SideKeplerRow 
                 <div class="fb-dl-row"><dt>Fecha</dt><dd class="mono">{{ dm(e.fecha) }}</dd></div>
                 <div class="fb-dl-row"><dt>Cuenta</dt><dd>{{ e.cuenta }}</dd></div>
                 <div class="fb-dl-row"><dt>Concepto</dt><dd>{{ e.concepto || '—' }}</dd></div>
+                <div class="fb-dl-row"><dt>Tipo / Código</dt><dd class="mono">{{ e.tipo || '—' }} / {{ e.codigo || '—' }}</dd></div>
+                @if (e.sucursal) { <div class="fb-dl-row"><dt>Sucursal</dt><dd class="mono">{{ e.sucursal }}</dd></div> }
                 <div class="fb-dl-row"><dt>Categoría</dt><dd>{{ e.categoria || 'sin clasificar' }} <span class="muted">· {{ e.grupo ? gl(e.grupo) : '—' }}</span></dd></div>
+                <div class="fb-dl-row"><dt>Regla contable</dt><dd class="mono">{{ e.kepler_account ? e.kepler_account + ' (regla)' : '—' }}</dd></div>
                 <div class="fb-dl-row"><dt>{{ e.sale > 0 ? 'Retiro' : 'Depósito' }}</dt><dd class="mono">{{ m0(e.sale > 0 ? e.sale : e.entra) }}</dd></div>
               </dl>
             } @else { <p class="muted fb-sbs-none">Sin movimiento espejo en el banco.</p> }
@@ -153,6 +172,7 @@ interface Pair { key: string; excel: SideExcelRow | null; kepler: SideKeplerRow 
                 <div class="fb-dl-row"><dt>Documento</dt><dd class="mono">{{ k.doc_tipo }} {{ k.folio }}</dd></div>
                 <div class="fb-dl-row"><dt>Beneficiario</dt><dd>{{ k.contraparte || '—' }}</dd></div>
                 <div class="fb-dl-row"><dt>Naturaleza</dt><dd>{{ k.cargo_abono === 'A' ? 'Abono (sale)' : 'Cargo (entra)' }}</dd></div>
+                @if (k.forma) { <div class="fb-dl-row"><dt>Ref/forma</dt><dd class="mono">{{ k.forma }}</dd></div> }
                 <div class="fb-dl-row"><dt>Importe</dt><dd class="mono">{{ m0(k.importe) }}</dd></div>
               </dl>
             } @else { <p class="muted fb-sbs-none">Sin póliza espejo en Kepler (se cuadra por total, no 1 a 1).</p> }
@@ -238,6 +258,11 @@ interface Pair { key: string; excel: SideExcelRow | null; kepler: SideKeplerRow 
     .ok { color: var(--ok-fg); } .warn { color: var(--warn-fg); }
     .fb-faint { color: var(--text-faint); font-size: .7rem; }
     .col-w25 { width: 2.5rem; } .col-w6 { width: 6rem; } .col-w7 { width: 7rem; } .col-w9 { width: 9rem; }
+    .fb-grp-tipo { width: 5.5rem; }
+    /* Tag Ingreso/Egreso (dark-safe, sin morado; ingreso=ok, egreso=neutro) */
+    .fb-tipo-tag { display: inline-block; font-size: var(--fs-2xs, .7rem); font-weight: 700; padding: 1px var(--sp-2); border-radius: var(--r-pill); text-transform: uppercase; letter-spacing: .03em; }
+    .fb-tipo-tag.tin { color: var(--ok-fg); background: color-mix(in srgb, var(--ok-fg) 14%, transparent); }
+    .fb-tipo-tag.tout { color: var(--text-muted); background: color-mix(in srgb, var(--text-faint) 16%, transparent); }
     .fb-sbs-bar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); margin-bottom: var(--sp-3); }
     .fb-sbs-search { min-width: 16rem; flex: 1; }
     :host ::ng-deep .fb-sbs-search .p-inputtext { width: 100%; font-size: var(--fs-sm); }
@@ -313,6 +338,8 @@ export class BancosSideBySideComponent {
 
   readonly fEstado = signal<'all' | 'matched' | 'unmatched'>('all');
   readonly fLado = signal<'all' | 'egreso' | 'ingreso'>('all');
+  readonly fCuenta = signal('');
+  readonly fGrupo = signal('');
   readonly fSearch = signal('');
   readonly filterOpts = [
     { label: 'Todos', value: 'all' },
@@ -334,6 +361,18 @@ export class BancosSideBySideComponent {
   gl(g: string): string { return groupLabel(g); }
   m0(v: number): string { return money0(v); }
 
+  /** Opciones de filtro derivadas de la data (cuentas y grupos presentes). */
+  readonly cuentaOpts = computed(() => {
+    const set = new Set<string>();
+    for (const e of this.data().excel) if (e.cuenta) set.add(e.cuenta);
+    return [{ label: 'Todas las cuentas', value: '' }, ...[...set].sort().map((c) => ({ label: c, value: c }))];
+  });
+  readonly grupoOpts = computed(() => {
+    const set = new Set<string>();
+    for (const e of this.data().excel) if (e.grupo) set.add(e.grupo);
+    return [{ label: 'Todos los grupos', value: '' }, ...[...set].sort().map((g) => ({ label: groupLabel(g), value: g }))];
+  });
+
   /** Une Excel y Kepler por match_key en renglones alineados, ordenados igual (fecha, monto desc). */
   readonly allPairs = computed<Pair[]>(() => {
     const d = this.data();
@@ -345,12 +384,14 @@ export class BancosSideBySideComponent {
       const k = e.match_key ? kByKey.get(e.match_key) || null : null;
       if (k) usedK.add(k.match_key);
       const monto = e.sale > 0 ? e.sale : e.entra;
-      pairs.push({ key: e.id, excel: e, kepler: k, fecha: String(e.fecha || ''), monto });
+      pairs.push({ key: e.id, excel: e, kepler: k, fecha: String(e.fecha || ''), monto,
+        concepto: e.concepto || k?.contraparte || '', esEgreso: e.sale > 0, cuenta: e.cuenta || '', grupo: e.grupo || null });
     }
     // Pólizas de Kepler sin movimiento espejo en el banco.
     for (const k of d.kepler) {
       if (usedK.has(k.match_key)) continue;
-      pairs.push({ key: `k:${k.match_key}`, excel: null, kepler: k, fecha: String(k.fecha || ''), monto: k.importe });
+      pairs.push({ key: `k:${k.match_key}`, excel: null, kepler: k, fecha: String(k.fecha || ''), monto: k.importe,
+        concepto: k.contraparte || '', esEgreso: k.cargo_abono === 'A', cuenta: '', grupo: null });
     }
     // Mismo orden para todo: por fecha, luego por monto desc.
     pairs.sort((a, b) => (a.fecha < b.fecha ? -1 : a.fecha > b.fecha ? 1 : b.monto - a.monto));
@@ -364,15 +405,15 @@ export class BancosSideBySideComponent {
   }
   readonly pairs = computed<Pair[]>(() => {
     const est = this.fEstado(); const lado = this.fLado(); const s = this.fSearch();
+    const cuenta = this.fCuenta(); const grupo = this.fGrupo();
     return this.allPairs().filter((p) => {
       const matched = !!p.excel && !!p.kepler;
       if (est === 'matched' && !matched) return false;
       if (est === 'unmatched' && matched) return false;
-      if (lado !== 'all') {
-        const esEgreso = p.excel ? p.excel.sale > 0 : p.kepler?.cargo_abono === 'A';
-        if (lado === 'egreso' && !esEgreso) return false;
-        if (lado === 'ingreso' && esEgreso) return false;
-      }
+      if (lado === 'egreso' && !p.esEgreso) return false;
+      if (lado === 'ingreso' && p.esEgreso) return false;
+      if (cuenta && p.cuenta !== cuenta) return false;
+      if (grupo && p.grupo !== grupo) return false;
       return this.hit(s, p.excel?.concepto, p.excel?.categoria, p.kepler?.contraparte, p.kepler?.folio, p.kepler?.doc_tipo);
     });
   });

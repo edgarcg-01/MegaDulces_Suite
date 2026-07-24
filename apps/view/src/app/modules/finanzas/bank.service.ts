@@ -133,13 +133,14 @@ export interface MovementFlow {
 
 /** CB.16 — Comparador lado a lado Excel ↔ Kepler. */
 export interface SideExcelRow {
-  id: string; fecha: string; cuenta: string; concepto: string | null; tipo: string | null;
-  grupo: string | null; categoria: string | null; entra: number; sale: number;
+  id: string; fecha: string; cuenta: string; account_id: string; concepto: string | null; tipo: string | null;
+  codigo: string | null; sucursal: string | null; grupo: string | null; categoria: string | null;
+  kepler_account: string | null; entra: number; sale: number;
   recon_status: string; match_key: string | null;
 }
 export interface SideKeplerRow {
   doc_tipo: string; folio: string; fecha: string | null; cargo_abono: string;
-  importe: number; contraparte: string | null; bank_movement_id: string | null; match_key: string;
+  importe: number; contraparte: string | null; forma: string | null; bank_movement_id: string | null; match_key: string;
 }
 export interface SideBySide { period: string; excel: SideExcelRow[]; kepler: SideKeplerRow[]; }
 
