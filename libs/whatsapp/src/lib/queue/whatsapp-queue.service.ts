@@ -130,18 +130,21 @@ export class WhatsAppQueueService implements OnModuleInit, OnModuleDestroy {
         return;
       }
     }
-    // In-process: ejecuta el handler ya mismo (si hay). Sin handler = se ignora
-    // con log (aún no registrado, p. ej. durante el arranque).
+    // In-process: procesa el handler FIRE-AND-FORGET (no await) para que el
+    // productor —el webhook— responda 200 a Meta de inmediato; si no, Meta espera
+    // a que termine Claude (3-8s) y reintenta. El reproceso por reintento es
+    // seguro (dedup por wa_message_id). Sin durabilidad: un crash pierde el job
+    // (aceptable en piloto; usar WHATSAPP_USE_BULLMQ=true para durabilidad).
     const handler = this.handlers.get(job.dir);
     if (!handler) {
       this.logger.warn(`Sin handler para '${job.dir}' — job descartado (modo in-process).`);
       return;
     }
-    try {
-      await handler(job);
-    } catch (e: any) {
-      this.logger.error(`Handler '${job.dir}' falló (in-process, sin reintento): ${e?.message}`);
-    }
+    Promise.resolve()
+      .then(() => handler(job))
+      .catch((e: any) =>
+        this.logger.error(`Handler '${job.dir}' falló (in-process, sin reintento): ${e?.message}`),
+      );
   }
 
   async onModuleDestroy(): Promise<void> {
