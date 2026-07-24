@@ -646,13 +646,13 @@ Plan: [`FASES/FASE_SM_SUPERVISOR_MOVIMIENTOS.md`](FASES/FASE_SM_SUPERVISOR_MOVIM
 - [x] **[F.7.3]** ✅ `WhatsAppPromoService` + `WhatsAppPromoController` (`/whatsapp/promos`, `WHATSAPP_BOT_GESTIONAR`): `POST /image` (imagen libre — solo ventana 24h) y `POST /template` (plantilla aprobada — inicia fuera de ventana). getOrCreate hilo → encola out → log. **VALIDADO EN RUNTIME (2026-07-24): POST /image 201 + `out type=image` logueado.**
 - [ ] **[F.7.2]** ⏳ **Trámite de Edgar (fuera de código):** crear + aprobar en Meta los templates de marketing (~1-2 días). ⚠️ Sin template aprobado, las promos fuera de ventana 24h fallan. El código ya los envía por nombre.
 
-### Sprint F.8 — Envíos masivos de promos (broadcast) ⬜ (planeado)
+### Sprint F.8 — Envíos masivos de promos (broadcast) 🧪 EN CÓDIGO (2026-07-24, build verde + migración Batch 208)
 
 > Decisión Edgar: **aún no hay opt-in** → F.8 arranca capturando consentimiento.
 
-- [ ] **[F.8.1]** Opt-in de marketing: el bot pide consentimiento al primer contacto + registro (`commercial.customers` flag / tabla `whatsapp.marketing_optin`) + manejo de opt-out ("BAJA"/"STOP"). ⚠️ Meta banea el número si mandás marketing sin opt-in.
-- [ ] **[F.8.2]** Campañas: segmento + template + imagen. Envío por **BullMQ** (`WHATSAPP_USE_BULLMQ=true`) con **rate-limit + tier** de calidad de Meta + reintentos. (Invierte el default in-process del piloto SOLO para el broadcast.)
-- [ ] **[F.8.3]** Tracking (enviado/entregado/leído/falló) + panel de campañas + costo por conversación de marketing.
+- [x] **[F.8.1]** ✅ `whatsapp.marketing_optin` (RLS) + `WhatsAppOptinService` (opt-in/out por teléfono). **Opt-out "BAJA"/"STOP" en el ingest ANTES del orquestador** (regla dura Meta) + acuse. Opt-in manual/import por endpoint. **Opt-in conversacional del bot DIFERIDO** (necesita threading del phone al orquestador).
+- [x] **[F.8.2]** ✅ `WhatsAppCampaignService`: crea campaña (plantilla+imagen) congelando destinatarios opted-in; `send()` fan-out en segundo plano por `sendTemplate` con **rate-limit** (`WHATSAPP_BROADCAST_DELAY_MS`, default 350ms) + tracking por destinatario. (BullMQ opt-in con `WHATSAPP_USE_BULLMQ=true` para durabilidad/tier a escala; MVP usa fan-out detached in-process.)
+- [x] **[F.8.3]** ✅ Tracking `campaign_recipients` (pending/sent/failed) + contadores en `campaigns` + `WhatsAppBroadcastController` (`/whatsapp/campaigns` CRUD+send+status, `/whatsapp/optin` stats/manual). **Panel de campañas frontend + costo por conversación DIFERIDOS.** Runtime pendiente de restart de nx serve.
 
 ---
 
