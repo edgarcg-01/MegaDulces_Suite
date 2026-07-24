@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
 import { ThotService } from '../thot.service';
+import { CommercialOrdersService } from '../../commercial-orders/commercial-orders.service';
 import { ThotToolDef, ThotToolProvider, ThotScope } from './thot-tool-provider';
 import { buildPortalSystemPrompt } from './thot-semantic';
 
@@ -17,6 +18,7 @@ export class PortalThotToolsService implements ThotToolProvider {
     private readonly thot: ThotService,
     private readonly tk: TenantKnexService,
     private readonly ctx: TenantContextService,
+    private readonly orders: CommercialOrdersService,
   ) {}
 
   systemPrompt(scope: ThotScope, ctx: { today: string }): string {
@@ -32,6 +34,12 @@ export class PortalThotToolsService implements ThotToolProvider {
       { name: 'thot_catalog_search', description: 'Busca productos en el catálogo con TU precio y si hay disponibilidad. Para "¿tienen X?", "precio de X".', input_schema: { type: 'object', properties: { query: { type: 'string', description: 'Nombre o SKU del producto.' } }, required: ['query'] } },
       { name: 'thot_product_availability', description: 'Dice si un producto está disponible para surtirte ahora (desde la sucursal que te surte).', input_schema: { type: 'object', properties: { query: { type: 'string', description: 'Nombre o SKU del producto.' } }, required: ['query'] } },
       { name: 'thot_my_promotions', description: 'Promociones vigentes disponibles para ti.', input_schema: { type: 'object', properties: {} } },
+      // TOT.2 — armar TU pedido conversando. El sistema pone precio/stock/mínimos; el LLM no los inventa.
+      { name: 'thot_order_add', description: 'Agrega uno o varios productos a tu pedido (lo crea si no existe). items[{query, quantity}] (query = SKU o nombre).', input_schema: { type: 'object', properties: { items: { type: 'array', items: { type: 'object', properties: { query: { type: 'string' }, quantity: { type: 'number' } }, required: ['query', 'quantity'] } } }, required: ['items'] } },
+      { name: 'thot_order_set_qty', description: 'Ajusta la cantidad exacta de un producto en tu pedido (o lo agrega). Para "cámbialo a 3".', input_schema: { type: 'object', properties: { query: { type: 'string' }, quantity: { type: 'number' } }, required: ['query', 'quantity'] } },
+      { name: 'thot_order_remove', description: 'Quita un producto de tu pedido.', input_schema: { type: 'object', properties: { query: { type: 'string' } }, required: ['query'] } },
+      { name: 'thot_order_review', description: 'Muestra tu pedido actual (productos, cantidades, total) antes de confirmar.', input_schema: { type: 'object', properties: {} } },
+      { name: 'thot_order_confirm', description: 'CONFIRMA tu pedido (queda pendiente de aprobación del vendedor). Úsala SOLO cuando el cliente lo pida tras revisar.', input_schema: { type: 'object', properties: {} } },
     ];
   }
 
@@ -70,6 +78,16 @@ export class PortalThotToolsService implements ThotToolProvider {
           return await this.availability(String(args.query || ''), scope.warehouseCode);
         case 'thot_my_promotions':
           return await this.promotions();
+        case 'thot_order_add':
+          return await this.orderAdd(customerId, args.items, scope.warehouseCode);
+        case 'thot_order_set_qty':
+          return await this.orderSetQty(customerId, String(args.query || ''), Number(args.quantity), scope.warehouseCode);
+        case 'thot_order_remove':
+          return await this.orderRemove(customerId, String(args.query || ''));
+        case 'thot_order_review':
+          return await this.orderReview(customerId);
+        case 'thot_order_confirm':
+          return await this.orderConfirm(customerId);
         default:
           return { error: `Tool no disponible en el portal: ${name}` };
       }
@@ -207,5 +225,117 @@ export class PortalThotToolsService implements ThotToolProvider {
         .select('code', 'name', 'promotion_type', 'starts_at', 'ends_at');
       return rows.map((r: any) => ({ name: r.name, type: r.promotion_type, until: r.ends_at }));
     });
+  }
+
+  // ── TOT.2 — Armar TU pedido conversando (borrador vía CommercialOrdersService) ──
+  // El motor pone precio/stock/mínimos; el LLM no los inventa. Confirmar = pending_approval (aprueba el vendedor).
+
+  private async ensureDraft(customerId: string, warehouseCode?: string | null): Promise<string> {
+    const existing = await this.tk.run((trx) =>
+      trx('commercial.orders').where({ customer_id: customerId, status: 'draft' })
+        .whereNull('deleted_at').orderBy('created_at', 'desc').first('id'));
+    if (existing?.id) return existing.id;
+    const whId = await this.tk.run((trx) =>
+      trx('commercial.warehouses').where({ code: warehouseCode || 'MD-10' }).whereNull('deleted_at').first('id').then((r: any) => r?.id));
+    if (!whId) throw new Error(`Almacén ${warehouseCode || 'MD-10'} no encontrado.`);
+    const order: any = await this.orders.createDraft({ customer_id: customerId, warehouse_id: whId });
+    return order.id;
+  }
+
+  private async draftId(customerId: string): Promise<string | null> {
+    const d = await this.tk.run((trx) =>
+      trx('commercial.orders').where({ customer_id: customerId, status: 'draft' })
+        .whereNull('deleted_at').orderBy('created_at', 'desc').first('id'));
+    return d?.id || null;
+  }
+
+  private async resolveProduct(query: string): Promise<any> {
+    const q = (query || '').trim();
+    if (q.length < 2) return null;
+    const tenantId = this.ctx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      const exact = await trx('catalog.products').where({ tenant_id: tenantId, sku: q }).whereNull('deleted_at').first('id', 'sku', 'nombre');
+      if (exact) return exact;
+      const like = `%${q}%`;
+      const rows = await trx('catalog.products').where('tenant_id', tenantId).whereNull('deleted_at')
+        .andWhere((w: any) => w.whereRaw('nombre ILIKE ?', [like]).orWhereRaw('sku ILIKE ?', [like]))
+        .limit(6).select('id', 'sku', 'nombre');
+      if (rows.length === 1) return rows[0];
+      if (rows.length === 0) return null;
+      return { options: rows.map((r: any) => ({ sku: r.sku, product: r.nombre })) };
+    });
+  }
+
+  private async cartSummary(orderId: string): Promise<any> {
+    return this.tk.run(async (trx) => {
+      const o = await trx('commercial.orders').where({ id: orderId }).first('code', 'status', 'subtotal', 'total');
+      if (!o) return { error: 'Pedido no encontrado.' };
+      const lines = await trx('commercial.order_lines as ol')
+        .join('catalog.products as p', 'p.id', 'ol.product_id')
+        .where('ol.order_id', orderId).orderBy('ol.line_number')
+        .select('p.sku', 'p.nombre as product', trx.raw('ol.quantity::numeric AS qty'), trx.raw('ol.unit_price::numeric AS unit_price'), trx.raw('ol.line_total::numeric AS line_total'));
+      return {
+        folio: o.code, status: o.status, subtotal: Number(o.subtotal), total: Number(o.total),
+        lines: lines.map((l: any) => ({ sku: l.sku, product: l.product, qty: Number(l.qty), unit_price: Number(l.unit_price), line_total: Number(l.line_total) })),
+      };
+    });
+  }
+
+  private async orderAdd(customerId: string, items: any[], warehouseCode?: string | null) {
+    if (!Array.isArray(items) || !items.length) return { error: 'Dime al menos un producto con cantidad.' };
+    const orderId = await this.ensureDraft(customerId, warehouseCode);
+    const added: any[] = [], failed: any[] = [];
+    for (const it of items) {
+      const prod = await this.resolveProduct(String(it?.query || ''));
+      const qty = Number(it?.quantity);
+      if (!prod) { failed.push({ query: it?.query, reason: 'no encontrado en catálogo' }); continue; }
+      if (prod.options) { failed.push({ query: it?.query, reason: 'ambiguo, pide que elija', options: prod.options }); continue; }
+      if (!(qty > 0)) { failed.push({ query: it?.query, reason: 'cantidad inválida' }); continue; }
+      try { await this.orders.addLine(orderId, { product_id: prod.id, quantity: qty }); added.push({ sku: prod.sku, product: prod.nombre, quantity: qty }); }
+      catch (e: any) { failed.push({ query: it?.query, reason: e?.message || 'no se pudo agregar' }); }
+    }
+    return { added, failed, cart: await this.cartSummary(orderId) };
+  }
+
+  private async orderSetQty(customerId: string, query: string, qty: number, warehouseCode?: string | null) {
+    if (!(qty >= 0)) return { error: 'Cantidad inválida.' };
+    const prod = await this.resolveProduct(query);
+    if (!prod) return { error: `No encontré "${query}" en el catálogo.` };
+    if (prod.options) return { needs_clarification: prod.options };
+    const orderId = await this.ensureDraft(customerId, warehouseCode);
+    const line = await this.tk.run((trx) => trx('commercial.order_lines').where({ order_id: orderId, product_id: prod.id }).first('id'));
+    try {
+      if (qty === 0) { if (line) await this.orders.removeLine(orderId, line.id); }
+      else if (line) await this.orders.updateLine(orderId, line.id, { quantity: qty });
+      else await this.orders.addLine(orderId, { product_id: prod.id, quantity: qty });
+    } catch (e: any) { return { error: e?.message || 'no se pudo ajustar', cart: await this.cartSummary(orderId) }; }
+    return { ok: true, cart: await this.cartSummary(orderId) };
+  }
+
+  private async orderRemove(customerId: string, query: string) {
+    const orderId = await this.draftId(customerId);
+    if (!orderId) return { error: 'No tienes un pedido en borrador.' };
+    const prod = await this.resolveProduct(query);
+    if (!prod || prod.options) return { error: `No pude ubicar "${query}" con precisión.` };
+    const line = await this.tk.run((trx) => trx('commercial.order_lines').where({ order_id: orderId, product_id: prod.id }).first('id'));
+    if (!line) return { error: `"${query}" no está en tu pedido.`, cart: await this.cartSummary(orderId) };
+    try { await this.orders.removeLine(orderId, line.id); } catch (e: any) { return { error: e?.message || 'no se pudo quitar' }; }
+    return { ok: true, cart: await this.cartSummary(orderId) };
+  }
+
+  private async orderReview(customerId: string) {
+    const orderId = await this.draftId(customerId);
+    if (!orderId) return { message: 'No tienes un pedido en borrador todavía.' };
+    return this.cartSummary(orderId);
+  }
+
+  private async orderConfirm(customerId: string) {
+    const orderId = await this.draftId(customerId);
+    if (!orderId) return { error: 'No hay pedido para confirmar.' };
+    try {
+      await this.orders.confirm(orderId); // draft → pending_approval (lo aprueba el vendedor)
+      const cart = await this.cartSummary(orderId);
+      return { ok: true, confirmed: true, folio: cart.folio, total: cart.total, status: cart.status, nota: 'Queda pendiente de aprobación del vendedor.' };
+    } catch (e: any) { return { error: e?.message || 'no se pudo confirmar el pedido' }; }
   }
 }

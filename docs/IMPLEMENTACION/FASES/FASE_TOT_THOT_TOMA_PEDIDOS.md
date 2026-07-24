@@ -29,8 +29,8 @@ Estados: ⬜ TODO · 🔨 EN CÓDIGO · 🧪 PROBADO · 🚀 STAGING · ✅ PROD
   System prompt del vendedor extendido con las reglas de toma de pedido (HITL, cero números inventados, leer antes de confirmar). Build api verde.
   *Pendiente:* validación en vivo (requiere redeploy + `ANTHROPIC_API_KEY`) + probar con cliente real de cartera.
 
-- ⬜ **TOT.2 — Portal B2B toma pedidos**
-  Mismas tools en `PortalThotToolsService`, pero el `customer_id` sale del JWT (no arg, sin `guarded` — es su propio pedido). El cliente arma su pedido conversando desde el portal.
+- 🔨 **TOT.2 — Portal B2B toma pedidos** — EN CÓDIGO 2026-07-24
+  Mismas 5 tools en `PortalThotToolsService` scoped al `customer_id` del JWT (sin arg, sin `guarded` — es su propio pedido). Confirmar usa `confirm()` (draft→**pending_approval**, lo aprueba el vendedor — flujo B2B existente). "Lo de siempre" reusa `thot_my_last_order`/`thot_my_usual_products` ya existentes. System prompt del portal actualizado (la regla vieja "no podés crear pedidos" se reemplazó por las reglas HITL). Build api verde.
 
 - ⬜ **TOT.3 — "Guardar para próximos" explícito (plantillas)**
   Hoy "lo de siempre" se computa on-the-fly (`frequentProducts()`) — suficiente para el MVP. Nice-to-have: tabla `commercial.customer_order_templates` (customer_id + label + items jsonb) para plantillas nombradas ("mi pedido de fin de semana"), tool `thot_order_save_template` / `thot_order_load_template`.
