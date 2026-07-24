@@ -90,6 +90,7 @@ import { ReconTasksService, ReconTask, ReconTaskStats, ReconTaskStatus, FinanceU
               <th>Proveedor / concepto</th>
               <th style="width:6rem" class="ta-c">Movs</th>
               <th style="width:9rem" class="ta-r">Importe</th>
+              <th style="width:12rem">Dónde está</th>
               <th style="width:11rem">Asignado a</th>
               <th style="width:8rem">Estado</th>
               <th style="width:14rem"></th>
@@ -103,6 +104,13 @@ import { ReconTasksService, ReconTask, ReconTaskStats, ReconTaskStatus, FinanceU
               </td>
               <td class="ta-c mono">{{ t.n_movimientos }}</td>
               <td class="ta-r mono">{{ t.importe_total | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+              <td>
+                @if (t.causa) {
+                  <button type="button" class="ft-causa-btn" (click)="openDetail(t)" pTooltip="Ver dónde está y cómo resolverlo">
+                    <p-tag [value]="t.causa_label || t.causa" [severity]="causaSeverity(t.causa)" [rounded]="true" />
+                  </button>
+                } @else { <span class="muted">—</span> }
+              </td>
               <td>
                 @if (t.assigned_to_username) {
                   <span class="ft-assignee">{{ t.assigned_to_username }}</span>
@@ -186,19 +194,51 @@ import { ReconTasksService, ReconTask, ReconTaskStats, ReconTaskStatus, FinanceU
               <span class="ft-diag-chip"><p-tag [value]="causaLabel(c.key) + ' · ' + c.n" [severity]="causaSeverity(c.key)" [rounded]="true" /></span>
             }
           </div>
-          <p class="ft-diag-lead">Qué hacer con cada retiro para conciliarlo <strong>en Kepler</strong>:</p>
+          <p class="ft-diag-lead">Para cada retiro: <strong>dónde está</strong>, <strong>cómo resolverlo</strong> en Kepler y más detalles si los necesitas.</p>
           <div class="ft-diag-list">
             @for (m of d.movimientos; track m.finding_id) {
-              <div class="ft-diag-item">
+              <div class="ft-diag-item" [class.ft-diag-noterr]="m.es_error === false">
                 <div class="ft-diag-top">
                   <span class="mono ft-diag-monto">{{ m.monto | currency:'MXN':'symbol-narrow':'1.0-0' }}</span>
-                  <span class="ft-diag-meta">{{ m.fecha | date:'dd/MM/yy' }} · {{ m.banco }} {{ m.cuenta }}</span>
                   <p-tag [value]="m.causa_label" [severity]="causaSeverity(m.causa)" [rounded]="true" />
+                  @if (m.es_error === false) { <span class="ft-diag-flag ok">No es error de Kepler</span> }
+                  @else if (m.es_error === true) { <span class="ft-diag-flag bad">Falta capturar en Kepler</span> }
                 </div>
-                @if (m.concepto) { <div class="ft-diag-concept">{{ m.concepto }}</div> }
-                <div class="ft-diag-do"><i class="pi pi-arrow-right" aria-hidden="true"></i> {{ m.instruccion }}</div>
-                @if (m.folio_102) { <div class="ft-diag-ref">Folio 102: <span class="mono">{{ m.folio_102 }}</span></div> }
-                @if (m.factura_folio) { <div class="ft-diag-ref">Factura: <span class="mono">{{ m.factura_folio }}</span></div> }
+
+                <div class="ft-diag-sec"><span class="ft-diag-k"><i class="pi pi-map-marker"></i> Dónde está</span><span class="ft-diag-v">{{ m.donde }}</span></div>
+
+                <div class="ft-diag-sec"><span class="ft-diag-k"><i class="pi pi-check-circle"></i> Cómo resolverlo</span>
+                  <div class="ft-diag-v">
+                    <p class="ft-diag-instr">{{ m.instruccion }}</p>
+                    @if (m.pasos?.length) {
+                      <ol class="ft-diag-pasos">@for (p of m.pasos; track $index) { <li>{{ p }}</li> }</ol>
+                    }
+                  </div>
+                </div>
+
+                @if (m.mas_detalles && (m.mas_detalles.cadena.length || m.mas_detalles.folios_102.length)) {
+                  <button type="button" class="ft-diag-more" (click)="toggleMov(m.finding_id)">
+                    <i class="pi" [class.pi-chevron-right]="!isExpanded(m.finding_id)" [class.pi-chevron-down]="isExpanded(m.finding_id)"></i>
+                    Más detalles (de dónde viene en Kepler)
+                  </button>
+                  @if (isExpanded(m.finding_id)) {
+                    <div class="ft-diag-detail">
+                      @if (m.mas_detalles.cadena.length) {
+                        <div class="ft-dd-lbl">Cadena de compra del proveedor</div>
+                        @for (c of m.mas_detalles.cadena; track $index) {
+                          <div class="ft-dd-row"><span class="mono">{{ c.factura || '—' }}</span><span>{{ c.total | currency:'MXN':'symbol-narrow':'1.0-0' }}</span><span class="muted">{{ c.pago ? 'pagada: ' + c.pago : 'sin pago' }}</span></div>
+                        }
+                      }
+                      @if (m.mas_detalles.folios_102.length) {
+                        <div class="ft-dd-lbl">Pagos del 102 de este proveedor</div>
+                        @for (f of m.mas_detalles.folios_102; track $index) {
+                          <div class="ft-dd-row"><span class="mono">{{ f.folio }}</span><span>{{ f.importe | currency:'MXN':'symbol-narrow':'1.0-0' }}</span><span class="muted">{{ f.fecha | date:'dd/MM/yy' }}</span></div>
+                        }
+                      }
+                      @if (m.mas_detalles.nota) { <p class="ft-dd-nota">{{ m.mas_detalles.nota }}</p> }
+                    </div>
+                  }
+                }
               </div>
             }
           </div>
@@ -316,6 +356,22 @@ import { ReconTasksService, ReconTask, ReconTaskStats, ReconTaskStatus, FinanceU
     .ft-diag-do { font-size: var(--fs-sm); color: var(--text-main); margin-top: .4rem; display: flex; gap: .35rem; }
     .ft-diag-do i { color: var(--action); margin-top: .15rem; }
     .ft-diag-ref { font-size: var(--fs-xs); color: var(--text-muted); margin-top: .2rem; }
+    .ft-causa-btn { background: none; border: none; padding: 0; cursor: pointer; }
+    .ft-diag-noterr { opacity: .82; }
+    .ft-diag-flag { font-size: var(--fs-xs); padding: .05rem .4rem; border-radius: var(--r-sm); border: 1px solid var(--border-color); }
+    .ft-diag-flag.ok { color: var(--ok-fg); border-color: var(--ok-fg); }
+    .ft-diag-flag.bad { color: var(--bad-fg); border-color: var(--bad-fg); }
+    .ft-diag-sec { display: flex; flex-direction: column; gap: .15rem; margin-top: .5rem; }
+    .ft-diag-k { font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: .05em; color: var(--text-faint); display: inline-flex; align-items: center; gap: .3rem; }
+    .ft-diag-v { font-size: var(--fs-sm); color: var(--text-main); }
+    .ft-diag-instr { margin: 0 0 .3rem; }
+    .ft-diag-pasos { margin: 0; padding-left: 1.1rem; display: flex; flex-direction: column; gap: .2rem; font-size: var(--fs-sm); }
+    .ft-diag-more { background: none; border: none; padding: .3rem 0 0; margin-top: .3rem; color: var(--action); cursor: pointer; font: inherit; font-size: var(--fs-xs); display: inline-flex; align-items: center; gap: .3rem; }
+    .ft-diag-detail { margin-top: .4rem; padding: .5rem .6rem; background: var(--hover-bg); border-radius: var(--r-sm); }
+    .ft-dd-lbl { font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: .05em; color: var(--text-faint); margin: .3rem 0 .2rem; }
+    .ft-dd-row { display: flex; gap: .6rem; font-size: var(--fs-xs); padding: .1rem 0; }
+    .ft-dd-row > span:first-child { flex: 1; }
+    .ft-dd-nota { font-size: var(--fs-xs); color: var(--text-muted); margin: .35rem 0 0; }
   `],
 })
 export class FinanzasTareasComponent implements OnInit {
@@ -428,7 +484,7 @@ export class FinanzasTareasComponent implements OnInit {
     });
   }
 
-  openDetail(t: ReconTask): void { this.detailTask.set(t); this.detail.set(null); this.reloadDetail(); }
+  openDetail(t: ReconTask): void { this.detailTask.set(t); this.detail.set(null); this.expandedMovs.set(new Set()); this.reloadDetail(); }
   onDetailVisible(v: boolean): void { if (!v) { this.detailTask.set(null); this.detail.set(null); this.detailError.set(null); } }
   reloadDetail(): void {
     const t = this.detailTask();
@@ -450,10 +506,19 @@ export class FinanzasTareasComponent implements OnInit {
     return Object.entries(d.resumen).map(([key, n]) => ({ key: key as ReconCausa, n: n as number }));
   }
   causaLabel(c: ReconCausa): string {
-    return { pago_en_102: 'Ya en Kepler', factura_sin_pago: 'Falta pago', revisar_cadena: 'Revisar', capturar_desde_cero: 'Capturar', sin_diagnostico: 'Sin diagnóstico' }[c] || c;
+    return { pago_en_102: 'Ya en Kepler', factura_sin_pago: 'Falta pago', revisar_cadena: 'Revisar', capturar_desde_cero: 'Capturar', financiamiento: 'Financiamiento', sin_diagnostico: 'Sin diagnóstico' }[c] || c;
   }
-  causaSeverity(c: ReconCausa | string): 'info' | 'warn' | 'danger' | 'secondary' {
-    return c === 'pago_en_102' ? 'info' : c === 'capturar_desde_cero' ? 'danger' : c === 'sin_diagnostico' ? 'secondary' : 'warn';
+  causaSeverity(c: ReconCausa | string | null): 'info' | 'warn' | 'danger' | 'secondary' {
+    return c === 'pago_en_102' ? 'info' : c === 'capturar_desde_cero' ? 'danger'
+      : (c === 'sin_diagnostico' || c === 'financiamiento') ? 'secondary' : 'warn';
+  }
+
+  private readonly expandedMovs = signal<Set<string>>(new Set());
+  isExpanded(id: string): boolean { return this.expandedMovs().has(id); }
+  toggleMov(id: string): void {
+    const s = new Set(this.expandedMovs());
+    s.has(id) ? s.delete(id) : s.add(id);
+    this.expandedMovs.set(s);
   }
 
   openChat(t: ReconTask): void { this.chatTask.set(t); this.chatDraft = ''; this.loadMessages(t.id); }

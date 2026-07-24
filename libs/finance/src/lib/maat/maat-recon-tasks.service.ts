@@ -71,21 +71,25 @@ export class MaatReconTasksService {
     return this.tk.run(async (trx) => {
       const rows: any[] = await trx('finance.findings as f')
         .joinRaw("JOIN finance.bank_movements bm ON bm.id = NULLIF(f.entity->>'bank_movement_id','')::uuid")
+        .leftJoin('finance.movement_categories as mc', 'mc.id', 'bm.category_id')
         .where('f.rule_key', 'banco_retiro_sin_kepler')
         .where('f.periodo', period)
         .whereIn('f.status', ['nuevo', 'en_revision'])
         .where('bm.recon_status', 'unmatched')
-        .select('f.id as finding_id', trx.raw('f.importe::numeric AS importe'),
-          trx.raw("COALESCE(f.evidencia->>'concept','') AS concept"));
+        .select('f.id as finding_id', 'bm.id as bm_id', trx.raw('f.importe::numeric AS importe'),
+          trx.raw("COALESCE(f.evidencia->>'concept','') AS concept"), 'mc.group_key');
 
       // Agrupar por proveedor. Sin concepto → grupo propio por finding (degrada bien).
-      const groups = new Map<string, { key: string; label: string; ids: string[]; importe: number }>();
+      // Guarda el movimiento representante (mayor monto) + su group_key para diagnosticar.
+      const groups = new Map<string, { key: string; label: string; ids: string[]; importe: number; repBm: string; repMonto: number; repGk: string | null }>();
       for (const r of rows) {
         let { key, label } = this.proveedorKey(r.concept);
         if (!key) { key = `mov_${r.finding_id}`; }
-        const g = groups.get(key) || { key, label, ids: [], importe: 0 };
+        const imp = this.n(r.importe);
+        const g = groups.get(key) || { key, label, ids: [] as string[], importe: 0, repBm: r.bm_id, repMonto: imp, repGk: r.group_key };
         g.ids.push(r.finding_id);
-        g.importe += this.n(r.importe);
+        g.importe += imp;
+        if (imp >= g.repMonto) { g.repMonto = imp; g.repBm = r.bm_id; g.repGk = r.group_key; }
         if (!g.label && label) g.label = label;
         groups.set(key, g);
       }
@@ -93,17 +97,25 @@ export class MaatReconTasksService {
       let upserted = 0, skippedSmall = 0;
       for (const g of groups.values()) {
         if (g.importe < minImporte) { skippedSmall++; continue; }
+        // Causa dominante (para mostrarla en la lista). Financiamiento no llama a Kepler.
+        let causa = 'financiamiento', causaLabel = 'No es error de Kepler — financiamiento';
+        if (g.repGk !== 'factoraje' && g.repGk !== 'financiero') {
+          let flow: any = null;
+          try { flow = await this.bank.movementFlow(g.repBm); } catch { /* best-effort */ }
+          const d = this.diagnose(flow, g.repMonto, g.repGk);
+          causa = d.causa; causaLabel = d.causa_label;
+        }
         const res = await trx.raw(
           `INSERT INTO finance.recon_tasks
-             (tenant_id, rule_key, periodo, group_key, proveedor_label, finding_ids, n_movimientos, importe_total, created_at, updated_at)
-           VALUES (public.current_tenant_id(), 'banco_retiro_sin_kepler', ?, ?, ?, ?::jsonb, ?, ?, now(), now())
+             (tenant_id, rule_key, periodo, group_key, proveedor_label, finding_ids, n_movimientos, importe_total, causa, causa_label, created_at, updated_at)
+           VALUES (public.current_tenant_id(), 'banco_retiro_sin_kepler', ?, ?, ?, ?::jsonb, ?, ?, ?, ?, now(), now())
            ON CONFLICT (tenant_id, rule_key, periodo, group_key) DO UPDATE
              SET finding_ids = EXCLUDED.finding_ids, n_movimientos = EXCLUDED.n_movimientos,
                  importe_total = EXCLUDED.importe_total, proveedor_label = EXCLUDED.proveedor_label,
-                 updated_at = now()
+                 causa = EXCLUDED.causa, causa_label = EXCLUDED.causa_label, updated_at = now()
              WHERE finance.recon_tasks.status IN ('pendiente','en_proceso')
            RETURNING (xmax = 0) AS is_insert`,
-          [period, g.key, g.label, JSON.stringify(g.ids), g.ids.length, g.importe.toFixed(2)],
+          [period, g.key, g.label, JSON.stringify(g.ids), g.ids.length, g.importe.toFixed(2), causa, causaLabel],
         );
         if (res.rows?.length) upserted++;
       }
@@ -267,7 +279,7 @@ export class MaatReconTasksService {
     return this.tk.run(async (trx) => {
       const b = trx('finance.recon_tasks')
         .select('id', 'rule_key', 'periodo', 'group_key', 'proveedor_label', 'finding_ids',
-          'n_movimientos', trx.raw('importe_total::numeric AS importe_total'),
+          'n_movimientos', trx.raw('importe_total::numeric AS importe_total'), 'causa', 'causa_label',
           'assigned_to', 'assigned_to_username', 'assigned_by', 'assigned_at',
           'status', 'due_at', 'resolved_at', 'resolved_by', 'resolution_note', 'resolution_source', 'kepler_ref',
           'created_at', 'updated_at')
@@ -323,32 +335,44 @@ export class MaatReconTasksService {
    *  - revisar_cadena    hay compras pero ninguna factura sin pago cuadra → revisar auxiliar.
    *  - capturar_desde_cero  sin rastro en el 102 → capturar el egreso desde cero.
    */
-  private diagnose(flow: any, monto: number) {
+  private diagnose(flow: any, monto: number, groupKey?: string | null) {
     const tol = Math.max(50, monto * 0.01);
     const close = (a: any) => Math.abs(Number(a || 0) - monto) <= tol;
     const banco = flow?.movement?.bank || 'el banco';
     const prov = flow?.proveedor?.nombre || flow?.movement?.concept || 'el proveedor';
+
+    // NO es error de Kepler: factoraje/crédito es financiamiento, no va al 102.
+    if (groupKey === 'factoraje' || groupKey === 'financiero') {
+      return { causa: 'financiamiento', causa_label: 'No es error de Kepler — financiamiento', es_error: false, folio_102: null, factura_folio: null,
+        instruccion: `Este retiro es ${groupKey === 'factoraje' ? 'factoraje' : 'pago de crédito'} — financiamiento, NO una compra o gasto fiscal. No se registra contra la cuenta 102 en Kepler, así que no hay nada que capturar.`,
+        pasos: ['Confirma que es factoraje/crédito por el concepto del estado de cuenta.', 'No captures póliza contra el 102 — no aplica.', 'Márcala como "No aplica" con una nota (ej. "factoraje, no fiscal").'] };
+    }
+
     const docs: any[] = flow?.docs || [];
     if (docs.length) {
       const hit = docs.find((d) => close(d.importe));
       if (hit) {
         const folio = `${hit.doc_tipo || ''} ${hit.folio}`.trim();
-        return { causa: 'pago_en_102', causa_label: 'El pago ya está en Kepler (desfase)', folio_102: folio, factura_folio: null,
-          instruccion: `El pago YA existe en el 102 (folio ${folio}, ${this.money(hit.importe)}). Es desfase de fecha o Kepler lo trae agregado — NO recaptures. Revisa el auxiliar y, si urge, ajusta la fecha para que case; si no, el re-match lo cierra solo.` };
+        return { causa: 'pago_en_102', causa_label: 'El pago ya está en Kepler (desfase)', es_error: false, folio_102: folio, factura_folio: null,
+          instruccion: `El pago YA existe en el 102 (folio ${folio}, ${this.money(hit.importe)}). Es desfase de fecha o Kepler lo trae agregado — NO recaptures.`,
+          pasos: [`Abre el auxiliar de la cuenta 102 en Kepler y busca el folio ${folio}.`, 'Confirma que es el mismo pago (monto y beneficiario).', 'No captures de nuevo: ajusta la fecha para que cuadre, o deja que el re-match lo cierre solo.'] };
       }
     }
     const cadena: any[] = flow?.cadena || [];
     const factSinPago = cadena.find((c) => !c.pago_folio && close(c.total)) || cadena.find((c) => !c.pago_folio);
     if (factSinPago) {
-      return { causa: 'factura_sin_pago', causa_label: 'Hay factura sin pago en Kepler', folio_102: null, factura_folio: factSinPago.factura_folio,
-        instruccion: `Existe la factura ${factSinPago.factura_folio} (${this.money(factSinPago.total)}) de ${prov} sin pago registrado. Captura la póliza de pago (doc XD2601): C 201 ${prov} / A 102 ${banco}, por ${this.money(monto)}.` };
+      return { causa: 'factura_sin_pago', causa_label: 'Hay factura sin pago en Kepler', es_error: true, folio_102: null, factura_folio: factSinPago.factura_folio,
+        instruccion: `Existe la factura ${factSinPago.factura_folio} (${this.money(factSinPago.total)}) de ${prov} sin pago registrado. Falta capturar la póliza de pago.`,
+        pasos: [`Abre en Kepler la factura ${factSinPago.factura_folio} de ${prov}.`, `Registra su póliza de pago (doc XD2601): Cargo a 201 ${prov} / Abono a 102 ${banco}.`, `Usa el monto ${this.money(monto)} y la fecha del estado de cuenta.`] };
     }
     if (cadena.length) {
-      return { causa: 'revisar_cadena', causa_label: 'Compras del proveedor, ninguna cuadra el monto', folio_102: null, factura_folio: null,
-        instruccion: `Hay compras de ${prov} este mes pero ninguna factura sin pago cuadra ${this.money(monto)}. Revisa el auxiliar del proveedor en Kepler para ubicar a qué documento corresponde este retiro.` };
+      return { causa: 'revisar_cadena', causa_label: 'Compras del proveedor, ninguna cuadra el monto', es_error: true, folio_102: null, factura_folio: null,
+        instruccion: `Hay compras de ${prov} este mes pero ninguna factura sin pago cuadra ${this.money(monto)}. Hay que ubicar a qué documento corresponde este retiro.`,
+        pasos: [`Abre el auxiliar del proveedor ${prov} en Kepler.`, `Ubica a qué factura/documento corresponde el retiro de ${this.money(monto)}.`, 'Registra o concilia el pago según lo que encuentres.'] };
     }
-    return { causa: 'capturar_desde_cero', causa_label: 'Sin rastro en el 102', folio_102: null, factura_folio: null,
-      instruccion: `No hay rastro de ${prov} en el 102 este mes. Captura el egreso desde cero (doc XD2601): C 201 ${prov} / A 102 ${banco}, por ${this.money(monto)}, con la fecha y el beneficiario del estado de cuenta.` };
+    return { causa: 'capturar_desde_cero', causa_label: 'Sin rastro en el 102', es_error: true, folio_102: null, factura_folio: null,
+      instruccion: `No hay rastro de ${prov} en el 102 este mes. El pago se hizo pero no se contabilizó — hay que capturarlo desde cero.`,
+      pasos: [`Abre captura de póliza de egreso en Kepler (doc XD2601).`, `Cargo a la cuenta 201 (${prov}) / Abono a la 102 (${banco}).`, `Monto ${this.money(monto)}, con la fecha y el beneficiario del estado de cuenta.`] };
   }
 
   /** Detalle accionable de una tarea: sus movimientos + qué hacer con cada uno. */
@@ -369,21 +393,34 @@ export class MaatReconTasksService {
         .leftJoin('finance.movement_categories as mc', 'mc.id', 'bm.category_id')
         .whereIn('f.id', ids)
         .select('f.id as finding_id', 'bm.id as bm_id', 'bm.movement_date', trx.raw('bm.amount_out::numeric AS amount_out'),
-          'bm.concept', 'bm.recon_status', 'ba.bank', 'ba.account_label', 'mc.name as categoria')
+          'bm.concept', 'bm.recon_status', 'ba.bank', 'ba.account_label', 'mc.name as categoria', 'mc.group_key')
         .orderBy('bm.amount_out', 'desc'));
 
+    const fmtDate = (d: any) => { try { return new Date(d).toISOString().slice(0, 10); } catch { return String(d); } };
     const movimientos: any[] = [];
     for (let i = 0; i < movs.length; i++) {
       const m: any = movs[i];
-      const base = { finding_id: m.finding_id, bank_movement_id: m.bm_id, fecha: m.movement_date, monto: Number(m.amount_out),
-        banco: m.bank, cuenta: m.account_label, concepto: m.concept, categoria: m.categoria, recon_status: m.recon_status };
-      if (i < CAP) {
+      const monto = Number(m.amount_out);
+      const donde = `Estado de cuenta ${m.bank} ${m.account_label} · ${fmtDate(m.movement_date)} · retiro de ${this.money(monto)}${m.concept ? ` · "${m.concept}"` : ''}`;
+      const base = { finding_id: m.finding_id, bank_movement_id: m.bm_id, fecha: m.movement_date, monto,
+        banco: m.bank, cuenta: m.account_label, concepto: m.concept, categoria: m.categoria, group_key: m.group_key, recon_status: m.recon_status, donde };
+      const financing = m.group_key === 'factoraje' || m.group_key === 'financiero';
+      if (i < CAP && !financing) {
         let flow: any = null;
         try { flow = await this.bank.movementFlow(m.bm_id); } catch { /* best-effort */ }
-        movimientos.push({ ...base, ...this.diagnose(flow, Number(m.amount_out)) });
+        // "Más detalles": la cadena Kepler + folios del 102 del proveedor (compacto).
+        const mas_detalles = flow ? {
+          proveedor: flow.proveedor?.nombre || null,
+          cadena: (flow.cadena || []).slice(0, 5).map((c: any) => ({ factura: c.factura_folio, fecha: c.factura_fecha, total: Number(c.total || 0), pago: c.pago_folio || null })),
+          folios_102: (flow.docs || []).slice(0, 5).map((d: any) => ({ folio: `${d.doc_tipo || ''} ${d.folio}`.trim(), fecha: d.fecha, importe: Number(d.importe || 0) })),
+          nota: flow.nota || null,
+        } : null;
+        movimientos.push({ ...base, ...this.diagnose(flow, monto, m.group_key), mas_detalles });
+      } else if (financing) {
+        movimientos.push({ ...base, ...this.diagnose(null, monto, m.group_key), mas_detalles: null });
       } else {
-        movimientos.push({ ...base, causa: 'sin_diagnostico', causa_label: 'Sin diagnóstico (tarea con muchos movimientos)', folio_102: null, factura_folio: null,
-          instruccion: 'Revisa manualmente en el auxiliar del 102 (monto + fecha + beneficiario).' });
+        movimientos.push({ ...base, causa: 'sin_diagnostico', causa_label: 'Sin diagnóstico (tarea con muchos movimientos)', es_error: null, folio_102: null, factura_folio: null,
+          instruccion: 'Revisa manualmente en el auxiliar del 102 (monto + fecha + beneficiario).', pasos: [], mas_detalles: null });
       }
     }
     const resumen: Record<string, number> = {};

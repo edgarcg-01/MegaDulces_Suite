@@ -19,6 +19,8 @@ export interface ReconTask {
   finding_ids: string[];
   n_movimientos: number;
   importe_total: number;
+  causa: ReconCausa | null;
+  causa_label: string | null;
   assigned_to: string | null;
   assigned_to_username: string | null;
   assigned_by: string | null;
@@ -56,11 +58,17 @@ export interface ReportResult {
   next: { id: string; proveedor_label: string; importe_total: number; n_movimientos: number } | null;
 }
 
-export type ReconCausa = 'pago_en_102' | 'factura_sin_pago' | 'revisar_cadena' | 'capturar_desde_cero' | 'sin_diagnostico';
+export type ReconCausa = 'pago_en_102' | 'factura_sin_pago' | 'revisar_cadena' | 'capturar_desde_cero' | 'financiamiento' | 'sin_diagnostico';
+export interface ReconFlowChain { factura: string | null; fecha: string | null; total: number; pago: string | null; }
+export interface ReconFlow102 { folio: string; fecha: string | null; importe: number; }
+export interface ReconMovementMasDetalles { proveedor: string | null; cadena: ReconFlowChain[]; folios_102: ReconFlow102[]; nota: string | null; }
 export interface ReconMovementDetail {
   finding_id: string; bank_movement_id: string; fecha: string; monto: number;
-  banco: string; cuenta: string; concepto: string; categoria: string | null; recon_status: string;
-  causa: ReconCausa; causa_label: string; folio_102: string | null; factura_folio: string | null; instruccion: string;
+  banco: string; cuenta: string; concepto: string; categoria: string | null; group_key: string | null; recon_status: string;
+  donde: string;
+  causa: ReconCausa; causa_label: string; es_error: boolean | null;
+  folio_102: string | null; factura_folio: string | null; instruccion: string; pasos: string[];
+  mas_detalles: ReconMovementMasDetalles | null;
 }
 export interface ReconTaskDetail {
   task: { id: string; proveedor_label: string; periodo: string; n_movimientos: number; importe_total: number; status: ReconTaskStatus; assigned_to_username: string | null };
