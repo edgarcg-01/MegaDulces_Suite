@@ -24,6 +24,7 @@ export * from './lib/commercial-intelligence/commercial-intelligence.module';
 export * from './lib/commercial-promotions/commercial-promotions.module';
 export * from './lib/commercial-products/commercial-products.module';
 export * from './lib/commercial-catalog-search/commercial-catalog-search.module';
+export * from './lib/commercial-catalog-search/commercial-catalog-search.service';
 export * from './lib/commercial-televenta/commercial-televenta.module';
 export * from './lib/commercial-route-control/commercial-route-control.module';
 export * from './lib/commercial-vendor-sales/commercial-vendor-sales.module';

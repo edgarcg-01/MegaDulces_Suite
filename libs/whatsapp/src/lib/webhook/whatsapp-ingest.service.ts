@@ -8,6 +8,7 @@ import type {
 } from '../ports/whatsapp.port';
 import { WhatsAppQueueService, WhatsAppJob } from '../queue/whatsapp-queue.service';
 import { ConversationThreadService } from '../conversation/conversation-thread.service';
+import { ConversationOrchestratorService } from '../conversation/conversation-orchestrator.service';
 
 /** Payload de un job de ENTRADA (un mensaje del cliente a procesar). */
 interface InJobPayload {
@@ -63,6 +64,7 @@ export class WhatsAppIngestService implements OnModuleInit {
     @Inject(WHATSAPP_PORT) private readonly port: WhatsAppPort,
     private readonly queue: WhatsAppQueueService,
     private readonly threads: ConversationThreadService,
+    private readonly orchestrator: ConversationOrchestratorService,
     private readonly tenantCtx: TenantContextService,
   ) {}
 
@@ -135,18 +137,16 @@ export class WhatsAppIngestService implements OnModuleInit {
   // ── Workers ────────────────────────────────────────────────────────────────
 
   /**
-   * Worker de ENTRADA. F.1 = placeholder: saluda en el primer mensaje del hilo,
-   * acusa recibo después. F.2 reemplaza por el orquestador Claude.
+   * Worker de ENTRADA (F.2): corre el orquestador conversacional (Claude tool-use)
+   * sobre el estado del hilo y encola la respuesta. Sin API key / sin catálogo el
+   * orquestador degrada a handoff (respuesta honesta), no rompe.
    */
   private async onInboundJob(job: WhatsAppJob): Promise<void> {
     const tenantId = job.tenant_id || this.tenantId;
     const p = job.payload as InJobPayload;
     await this.tenantCtx.run({ tenantId }, async () => {
-      // (F.2: aquí corre el orquestador tool-use sobre el estado del hilo.)
-      const body =
-        '¡Hola! 👋 Soy el asistente de Mega Dulces. Ya recibimos tu mensaje y ' +
-        'en breve te ayudamos a armar tu pedido. (Asistente conversacional en camino.)';
-      await this.enqueueOut({ to: p.phone, thread_id: p.thread_id, kind: 'text', body });
+      const result = await this.orchestrator.handleTurn(p.thread_id, p.text || '');
+      await this.enqueueOut({ to: p.phone, thread_id: p.thread_id, kind: 'text', body: result.reply });
     });
   }
 
