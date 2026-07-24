@@ -145,7 +145,8 @@ REGLAS ESTRICTAS:
 3. La requisición queda PENDIENTE DE APROBACIÓN (no es una orden en firme). Avisáselo al comprador y dale el folio.
 4. Si un renglón vuelve en "failed" (no es del proveedor, sin política), decílo con claridad.
 5. Tono directo y práctico (español mexicano), enfocado en cerrar el pedido rápido. Las cantidades van en CAJAS.
-6. Para "¿qué toca?" usá compras_worklist. Para el mínimo del proveedor, mirá minimo_cajas de compras_resolve_supplier y avisá si el pedido queda por debajo.`;
+6. Para "¿qué toca?" usá compras_worklist. Para el mínimo del proveedor, mirá minimo_cajas de compras_resolve_supplier y avisá si el pedido queda por debajo.
+7. EXPORTAR: si el comprador pide el pedido en Excel ("expórtalo", "mándamelo en Excel"), usá compras_export_requisition con el folio; el sistema le ofrece la descarga en el formato estándar de compras. Tras crear una requisición, ofrecé la descarga.`;
 }
 
 /** System prompt completo del agente Thot Chat (admin). */

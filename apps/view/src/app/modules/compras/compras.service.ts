@@ -388,8 +388,8 @@ export class ComprasService {
   private readonly base = `${environment.apiUrl}/commercial/replenishment`;
 
   /** TOT-C — asistente conversacional de compras (arma requisiciones). Endpoint del motor de intelligence. */
-  comprasChat(history: { role: 'user' | 'assistant'; content: string }[], think = false): Observable<{ answer: string; tools_used?: { name: string }[]; source?: string; log_id?: string }> {
-    return this.http.post<{ answer: string; tools_used?: { name: string }[]; source?: string; log_id?: string }>(
+  comprasChat(history: { role: 'user' | 'assistant'; content: string }[], think = false): Observable<{ answer: string; tools_used?: { name: string; result?: any }[]; source?: string; log_id?: string }> {
+    return this.http.post<{ answer: string; tools_used?: { name: string; result?: any }[]; source?: string; log_id?: string }>(
       `${environment.apiUrl}/commercial/intelligence/compras/thot/chat`, { history, think });
   }
 

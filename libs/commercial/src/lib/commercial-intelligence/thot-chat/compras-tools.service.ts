@@ -33,6 +33,7 @@ export class ComprasToolsService implements ThotToolProvider {
       { name: 'compras_suggested_order', description: 'El pedido SUGERIDO por el motor para un proveedor en un almacén (renglones en CAJAS + costo). basis: cadence (default, para el ciclo) | max | reorder | min. Requiere supplier_id + warehouse_code.', input_schema: { type: 'object', properties: { supplier_id: { type: 'string' }, warehouse_code: { type: 'string' }, basis: { type: 'string', description: 'cadence|max|reorder|min. Default cadence.' } }, required: ['supplier_id', 'warehouse_code'] } },
       { name: 'compras_create_requisition', description: 'CREA la requisición de compra (queda PENDIENTE DE APROBACIÓN). items = [{sku, cajas}]. Úsala SOLO cuando el comprador lo pida tras revisar. Requiere supplier_id + warehouse_code + items.', input_schema: { type: 'object', properties: { supplier_id: { type: 'string' }, warehouse_code: { type: 'string' }, items: { type: 'array', items: { type: 'object', properties: { sku: { type: 'string' }, cajas: { type: 'number' } }, required: ['sku', 'cajas'] } }, notes: { type: 'string' } }, required: ['supplier_id', 'warehouse_code', 'items'] } },
       { name: 'compras_pending_requisitions', description: 'Requisiciones pendientes de aprobación (folio, proveedor, almacén, total).', input_schema: { type: 'object', properties: {} } },
+      { name: 'compras_export_requisition', description: 'Prepara la descarga de una requisición en Excel (el formato estándar de compras). Para "expórtalo", "mándamelo en Excel". Requiere el folio (RQ-YYYY-NNNNN) o el id.', input_schema: { type: 'object', properties: { ref: { type: 'string', description: 'Folio (RQ-...) o id de la requisición.' } }, required: ['ref'] } },
     ];
   }
 
@@ -45,6 +46,7 @@ export class ComprasToolsService implements ThotToolProvider {
         case 'compras_suggested_order': return await this.suggestedOrder(String(args.supplier_id || ''), String(args.warehouse_code || ''), args.basis);
         case 'compras_create_requisition': return await this.createRequisition(String(args.supplier_id || ''), String(args.warehouse_code || ''), args.items, args.notes);
         case 'compras_pending_requisitions': return await this.pending();
+        case 'compras_export_requisition': return await this.exportRequisition(String(args.ref || ''));
         default: return { error: `Tool no disponible en compras: ${name}` };
       }
     } catch (e: any) {
@@ -135,7 +137,21 @@ export class ComprasToolsService implements ThotToolProvider {
       warehouse_id: whId, supplier_id: supplierId, source_type: 'supplier', source_warehouse_id: null,
       notes: notes || 'Requisición armada con el asistente de compras', lines,
     } as any);
-    return { ok: true, folio: req.folio, estado: req.estado, total_lineas: req.total_lines, total: Math.round(Number(req.total_cost)), failed: failed.length ? failed : undefined, nota: 'Queda PENDIENTE DE APROBACIÓN.' };
+    return { ok: true, requisition_id: req.id, folio: req.folio, estado: req.estado, total_lineas: req.total_lines, total: Math.round(Number(req.total_cost)), failed: failed.length ? failed : undefined, nota: 'Queda PENDIENTE DE APROBACIÓN. Puedes descargarla en Excel.', download_xlsx: true };
+  }
+
+  /** Resuelve una requisición (por folio o id) para que el front ofrezca su descarga XLSX. */
+  private async exportRequisition(ref: string) {
+    const r = (ref || '').trim();
+    if (!r) return { error: 'Dame el folio o id de la requisición.' };
+    const tenantId = this.ctx.requireTenantId();
+    const row = await this.tk.run((trx) => {
+      const q = trx('commercial.purchase_requisitions').where('tenant_id', tenantId);
+      if (UUID_RE.test(r)) q.andWhere('id', r); else q.andWhere('folio', r.toUpperCase());
+      return q.first('id', 'folio', 'estado', 'total_cost');
+    });
+    if (!row) return { error: `No encontré la requisición "${r}".` };
+    return { requisition_id: row.id, folio: row.folio, estado: row.estado, total: Math.round(Number(row.total_cost)), download_xlsx: true, nota: 'Lista para descargar en Excel.' };
   }
 
   private async pending() {
