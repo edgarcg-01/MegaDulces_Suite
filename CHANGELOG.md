@@ -10,6 +10,11 @@
 
 ## [Unreleased]
 
+### Added — MA.11: tareas de conciliación explícitas (dónde está / cómo / más detalles) (2026-07-24)
+- Cada tarea ahora dice **dónde está el error y si de verdad lo es**: columna **"Dónde está"** con tag de causa en la lista, y al abrir la tarea un detalle **muy explícito** por movimiento — **Dónde está** (estado de cuenta, banco, cuenta, fecha, monto, concepto), **Cómo resolverlo** (pasos numerados en Kepler: cuenta 201/102, doc XD2601) y **Más detalles** expandible (cadena de compra + folios del 102 del proveedor).
+- Nueva causa **`financiamiento`**: factoraje/crédito se marca "No es error de Kepler" (no va al 102 → márcala No aplica), en vez de tratarlo como pendiente de captura. Cada movimiento trae bandera **es_error** (verde/rojo).
+- Backend: `diagnose()` con pasos + financiamiento; `detail()` devuelve `donde`/`pasos`/`es_error`/`mas_detalles`; `buildTasks` calcula y guarda la **causa dominante** (mig `20260724160000` agrega `recon_tasks.causa`/`causa_label`). Builds api+view verdes; migración aplicada a prod (Batch 138) y local. **Pendiente prod:** redeploy api+view + correr el motor.
+
 ### Added — Hotfix: conversaciones de Thot en /comercial/thot-curation (2026-07-24)
 - La curaduría de Thot ahora muestra **todas las conversaciones** (no solo los 👍 sin promover): nueva sección "Conversaciones" con filtro Todas/👍/👎 + búsqueda por pregunta + tabla (fecha, usuario, pregunta, respuesta, feedback) y diálogo de detalle con la respuesta completa + tools + botón "Promover a ejemplo".
 - Endpoint `GET commercial/intelligence/thot/examples/conversations?limit&feedback&q` (`ThotExamplesService.conversations`), **resiliente** a que `thot_chat_log` no tenga `feedback`/`promoted` (usa `hasColumn`). Builds api+view verdes. Sin migración. **Pendiente prod:** redeploy api+view.
