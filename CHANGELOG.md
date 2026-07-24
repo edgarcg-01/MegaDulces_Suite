@@ -18,6 +18,11 @@
 - **Conocimiento:** 4 entradas de conciliación sembradas en `finance.knowledge` (crosswalk Excel↔102, "sin conciliar ≠ falta póliza", factoraje/caja fuera del cuadre, cómo asigna MA).
 - Verificado: builds api+view verdes + smoke DB **8/8** (enero: 47 sin conciliar → 33 grupos → 17 tareas ≥$100k / $6.8M, reparto balanceado spread=0). **Pendiente prod:** mig `20260724120000` + redeploy api+view + re-login. Nota: el seed deriva perms de finanzas de COMMERCIAL_ORDERS_VER → zona de candidatos amplia (27 users); acotar `FINANCE_BANK_GESTIONAR` a roles de finanzas reales o usar asignación manual.
 
+### Added — MA.10: Maat responde en el hilo de la tarea (2026-07-24)
+- Antes Maat solo contestaba al botón "Ya lo hice en Kepler"; los comentarios/preguntas libres quedaban sin respuesta. Ahora **cada mensaje de la persona recibe respuesta de Maat** en el hilo, orientándola sobre dónde/cómo arreglarlo en Kepler.
+- La respuesta usa el cerebro de chat de Maat (tool-use Claude) anclado al **diagnóstico de la tarea** (MA.9) si hay `ANTHROPIC_API_KEY`; si no, **cae a una guía determinista** con los pasos por movimiento (auxiliar 102, póliza XD2601 C 201/A 102). Nunca inventa folios/montos; la verificación/cierre sigue siendo por re-match (no cambia).
+- `postMessage` devuelve `{message, reply}`; frontend muestra "Maat escribiendo…" y anexa ambos. Builds api+view verdes. **Pendiente prod:** redeploy (sin migración).
+
 ### Added — MA.9: detalle "qué hacer" por tarea con diagnóstico de causa (2026-07-24)
 - Al hacer clic en el **proveedor/concepto** de una tarea se abre un panel con **qué hacer con cada retiro para conciliarlo en Kepler**. Maat diagnostica la causa de cada movimiento (reusa `movementFlow` de Bancos): **pago ya en el 102** (desfase → no recapturar, da el folio) · **factura sin pago** (captura la póliza XD2601 vs esa factura) · **compras sin factura que cuadre** (revisar auxiliar) · **sin rastro** (capturar desde cero). Cada movimiento trae su instrucción concreta (cuenta 201/102, doc, monto) + folios.
 - Backend: `GET /finance/maat/recon-tasks/:id/detail` (`MaatReconTasksService.detail` + `diagnose`); `FinanceMaatModule` importa `FinanceBankModule` para reusar el trace (sin migración, read-only).
