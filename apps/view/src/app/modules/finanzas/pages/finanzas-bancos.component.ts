@@ -18,7 +18,7 @@ import { LoadStateComponent } from '../../../shared/components/load-state/load-s
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import { FINANZAS_TABS } from '../finanzas-tabs';
-import { BankService, BankAccount, MovementCategory, BankStatement, BankMovement, Concentrado, Reconciliation, MatchResult, Differences, Balances, Diagnostico, KeplerAccount } from '../bank.service';
+import { BankService, BankAccount, MovementCategory, BankStatement, BankMovement, Concentrado, Reconciliation, MatchResult, Differences, Balances, Diagnostico, KeplerAccount, SideBySide } from '../bank.service';
 import {
   BankView as View, MONTHS_ES, WORK_VIEWS,
   GROUP_LABELS, GROUP_ORDER,
@@ -29,6 +29,7 @@ import { BancosCuentasComponent } from './bancos/bancos-cuentas.component';
 import { BancosCierreComponent } from './bancos/bancos-cierre.component';
 import { BancosMovimientosComponent } from './bancos/bancos-movimientos.component';
 import { BancosAdminComponent } from './bancos/bancos-admin.component';
+import { BancosSideBySideComponent } from './bancos/bancos-side-by-side.component';
 
 /**
  * CB.3 — Conciliación bancaria (ADR-033). Reemplaza el workbook Excel: tablero
@@ -42,7 +43,7 @@ import { BancosAdminComponent } from './bancos/bancos-admin.component';
     InputNumberModule, InputTextModule, IconFieldModule, InputIconModule,
     PageTabsComponent, MetricStripComponent, LoadStateComponent, FreshnessPillComponent, ContextHelpComponent,
     BancosConcentradoComponent, BancosConciliacionComponent, BancosCuentasComponent, BancosCierreComponent,
-    BancosMovimientosComponent, BancosAdminComponent],
+    BancosMovimientosComponent, BancosAdminComponent, BancosSideBySideComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
@@ -82,7 +83,7 @@ import { BancosAdminComponent } from './bancos/bancos-admin.component';
 
       <div class="fb-viewseg" role="tablist">
         @for (v of WORK_VIEWS; track v.key) {
-          <button role="tab" [attr.aria-selected]="view()===v.key" [class.active]="view()===v.key" (click)="view.set(v.key)">
+          <button role="tab" [attr.aria-selected]="view()===v.key" [class.active]="view()===v.key" (click)="goView(v.key)">
             <i [class]="v.icon"></i> {{ v.label }}
             @if (v.key === 'cierre' && diagnostico() && !diagnostico()!.cuadra) { <span class="fb-seg-count">{{ diagnostico()!.items.length }}</span> }
           </button>
@@ -136,6 +137,21 @@ import { BancosAdminComponent } from './bancos/bancos-admin.component';
           <bancos-conciliacion [reconciliation]="reconciliation()" [matchResult]="matchResult()"
             [differences]="differences()" [matching]="matching()" [syncing]="syncing()" [period]="period()"
             (runMatch)="runMatch()" (syncFindings)="syncFindings()" />
+        }
+      }
+
+      <!-- ── COMPARADOR Excel ↔ Kepler: dos tablas enlazadas + desglose ── -->
+      @if (view() === 'comparador') {
+        @if (sbsError()) {
+          <app-load-state [error]="sbsError()" (retry)="loadSideBySide()"></app-load-state>
+        } @else if (sbsLoading()) {
+          <div class="fb-skeleton" aria-busy="true">@for (i of [1,2,3,4,5,6]; track i) { <div class="fb-skel-row"></div> }</div>
+        } @else {
+          @if (sideBySide(); as sbs) {
+            <bancos-side-by-side [data]="sbs" />
+          } @else {
+            <div class="surf-empty"><i class="pi pi-inbox"></i><p>Sin datos para {{ period() }}.</p></div>
+          }
         }
       }
 
@@ -364,6 +380,10 @@ export class FinanzasBancosComponent implements OnInit {
   readonly syncing = signal(false);
   readonly movements = signal<BankMovement[]>([]);
   readonly movTotal = signal(0);
+  // CB.16 — comparador Excel ↔ Kepler (lazy: se carga al abrir la pestaña).
+  readonly sideBySide = signal<SideBySide | null>(null);
+  readonly sbsLoading = signal(false);
+  readonly sbsError = signal<string | null>(null);
 
   // Filtros de Movimientos (el shell los posee para poder recargar al cambiar de periodo).
   readonly fAccount = signal('');
@@ -445,6 +465,22 @@ export class FinanzasBancosComponent implements OnInit {
 
   setPeriod(p: string): void { this.period.set(p); this.loadPeriod(); }
 
+  /** Cambio de vista; carga perezosa del comparador (payload grande) al abrirlo. */
+  goView(v: View): void {
+    this.view.set(v);
+    if (v === 'comparador' && !this.sideBySide() && !this.sbsLoading()) this.loadSideBySide();
+  }
+  loadSideBySide(): void {
+    const p = this.period();
+    if (!p) return;
+    this.sbsLoading.set(true);
+    this.sbsError.set(null);
+    this.api.sideBySide(p).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (s) => { this.sideBySide.set(s); this.sbsLoading.set(false); },
+      error: () => { this.sbsError.set('No se pudo cargar el comparador Excel ↔ Kepler.'); this.sbsLoading.set(false); },
+    });
+  }
+
   private loadPeriod(): void {
     this.loading.set(true);
     this.matchResult.set(null);
@@ -452,6 +488,8 @@ export class FinanzasBancosComponent implements OnInit {
     this.concError.set(null);
     this.reconError.set(null);
     this.diagError.set(null);
+    this.sideBySide.set(null);
+    this.sbsError.set(null);
     const p = this.period();
     this.api.concentrado(p).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (c) => { this.concentrado.set(c); this.loading.set(false); },

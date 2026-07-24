@@ -125,6 +125,18 @@ export interface MovementFlow {
   nota: string;
 }
 
+/** CB.16 — Comparador lado a lado Excel ↔ Kepler. */
+export interface SideExcelRow {
+  id: string; fecha: string; cuenta: string; concepto: string | null; tipo: string | null;
+  grupo: string | null; categoria: string | null; entra: number; sale: number;
+  recon_status: string; match_key: string | null;
+}
+export interface SideKeplerRow {
+  doc_tipo: string; folio: string; fecha: string | null; cargo_abono: string;
+  importe: number; contraparte: string | null; bank_movement_id: string | null; match_key: string;
+}
+export interface SideBySide { period: string; excel: SideExcelRow[]; kepler: SideKeplerRow[]; }
+
 export interface MovementsQuery {
   period?: string; account_id?: string; category_id?: string; group_key?: string;
   uncategorized?: boolean; recon_status?: string; search?: string; limit?: number; offset?: number;
@@ -161,6 +173,9 @@ export class BankService {
 
   movementFlow(id: string): Observable<MovementFlow> {
     return this.http.get<MovementFlow>(`${this.base}/movements/${id}/flow`);
+  }
+  sideBySide(period: string): Observable<SideBySide> {
+    return this.http.get<SideBySide>(`${this.base}/side-by-side?period=${encodeURIComponent(period)}`);
   }
 
   reclassify(id: string, categoryId: string | null): Observable<unknown> {

@@ -103,6 +103,11 @@ export class FinanceBankController {
     return this.svc.movements(q);
   }
 
+  @Get('side-by-side')
+  @RequirePermissions(Permission.FINANCE_BANK_VER)
+  @ApiOperation({ summary: 'Comparador Excel↔Kepler: movimientos del banco y pólizas del 102 con match_key para enlazar selección.' })
+  sideBySide(@Query('period') period?: string) { return this.svc.sideBySide(period); }
+
   @Get('movements/:id/flow')
   @RequirePermissions(Permission.FINANCE_BANK_VER)
   @ApiOperation({ summary: 'Flujo de un movimiento: cadena compra→pago (proveedor) o cómo Kepler tiene la cobranza (depósito).' })

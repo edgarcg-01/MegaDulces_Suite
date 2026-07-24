@@ -305,6 +305,55 @@ export class FinanceBankService {
   }
 
   /**
+   * CB.16 — Comparador lado a lado Excel ↔ Kepler. Devuelve las dos listas del
+   * periodo (movimientos del banco / pólizas del 102) con una `match_key` común
+   * (`doc_tipo|folio`) para enlazar la selección en el frontend: al elegir un
+   * movimiento de un lado se resalta y salta su contraparte en el otro. Los que no
+   * casaron traen match_key null (Excel) o sin fila espejo (Kepler) → "sin contraparte".
+   */
+  async sideBySide(period?: string) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    if (!period) throw new BadRequestException('period requerido (YYYY-MM)');
+    return this.tk.run(async (trx) => {
+      const excel = await trx('finance.bank_movements as bm')
+        .join('finance.bank_accounts as ba', 'ba.id', 'bm.bank_account_id')
+        .join('finance.bank_statements as st', 'st.id', 'bm.statement_id')
+        .leftJoin('finance.movement_categories as mc', 'mc.id', 'bm.category_id')
+        .leftJoin('finance.bank_recon_matches as rm', 'rm.bank_movement_id', 'bm.id')
+        .where('st.period', period)
+        .select('bm.id', 'bm.movement_date', 'ba.bank', 'ba.account_label', 'bm.concept',
+          'bm.raw_type', 'mc.group_key', 'mc.name as category_name',
+          'bm.amount_in', 'bm.amount_out', 'bm.recon_status',
+          'rm.kepler_doc_tipo', 'rm.kepler_doc_folio')
+        .orderBy([{ column: 'bm.movement_date' }, { column: 'bm.id' }]);
+
+      const kepler = await trx('analytics.bank_postings as p')
+        .leftJoin('finance.bank_recon_matches as rm', function () {
+          this.on('rm.kepler_doc_tipo', 'p.doc_tipo').andOn('rm.kepler_doc_folio', 'p.folio');
+        })
+        .where({ 'p.tenant_id': tenantId, 'p.anio_mes': period })
+        .select('p.doc_tipo', 'p.folio', 'p.fecha', 'p.cargo_abono', 'p.importe', 'p.contraparte', 'rm.bank_movement_id')
+        .orderBy([{ column: 'p.fecha' }, { column: 'p.folio' }]);
+
+      return {
+        period,
+        excel: (excel as any[]).map((r) => ({
+          id: r.id, fecha: r.movement_date, cuenta: `${r.bank} ${r.account_label}`.trim(),
+          concepto: r.concept, tipo: r.raw_type, grupo: r.group_key, categoria: r.category_name,
+          entra: n(r.amount_in), sale: n(r.amount_out), recon_status: r.recon_status,
+          match_key: r.kepler_doc_folio ? `${r.kepler_doc_tipo || ''}|${r.kepler_doc_folio}` : null,
+        })),
+        kepler: (kepler as any[]).map((r) => ({
+          doc_tipo: r.doc_tipo, folio: r.folio, fecha: r.fecha, cargo_abono: r.cargo_abono,
+          importe: n(r.importe), contraparte: r.contraparte,
+          bank_movement_id: r.bank_movement_id || null,
+          match_key: `${r.doc_tipo || ''}|${r.folio}`,
+        })),
+      };
+    });
+  }
+
+  /**
    * Tablero CONCENTRADO: pivote cuenta × grupo (ingreso/compra/gasto/factoraje/
    * financiero/traspaso/devolucion/sin_clasificar) con depósitos/retiros, más
    * fila de totales. Es la vista que reemplaza la hoja CONCENTRADO del Excel.
