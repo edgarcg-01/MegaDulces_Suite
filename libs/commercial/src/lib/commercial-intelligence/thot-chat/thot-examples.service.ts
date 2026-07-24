@@ -151,14 +151,19 @@ export class ThotExamplesService {
   /** Cola de curaduría: respuestas con 👍 que aún no son ejemplo. */
   async candidates(limitParam?: number) {
     const limit = Math.min(100, Math.max(1, Number(limitParam) || 30));
-    return this.tk.run(async (trx) =>
-      trx('commercial.thot_chat_log')
-        .where({ feedback: 1, promoted: false })
+    return this.tk.run(async (trx) => {
+      // feedback/promoted pueden faltar (bug de migración) → no reventar.
+      const hasFb = await trx.schema.withSchema('commercial').hasColumn('thot_chat_log', 'feedback');
+      if (!hasFb) return [];
+      const q = trx('commercial.thot_chat_log')
+        .where('feedback', 1)
         .whereNotNull('answer')
         .orderBy('created_at', 'desc')
         .limit(limit)
-        .select('id', 'question', 'answer', 'tools_used', 'user_name', 'created_at'),
-    );
+        .select('id', 'question', 'answer', 'tools_used', 'user_name', 'created_at');
+      if (await trx.schema.withSchema('commercial').hasColumn('thot_chat_log', 'promoted')) q.where('promoted', false);
+      return q;
+    });
   }
 
   /**
