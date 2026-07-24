@@ -78,6 +78,8 @@ type CatLine = CriticalStockRow & { uxc: number; cajas: number; piezas: number; 
         <p-select [options]="statusOpts" [(ngModel)]="fStatus" (onChange)="reload()" optionLabel="label" optionValue="value" styleClass="qt-sel-sm"></p-select>
         <p-select [options]="basisOpts" [ngModel]="fBasis()" (ngModelChange)="fBasis.set($event); reload()" optionLabel="label" optionValue="value"
                   placeholder="Objetivo" styleClass="qt-sel-sm" ariaLabel="Base del sugerido (objetivo)" pTooltip="Nivel al que se llena el sugerido: aplica a la columna Costo est. y al detalle" tooltipPosition="bottom"></p-select>
+        <p-select [options]="unitOpts" [ngModel]="orderUnit()" (ngModelChange)="orderUnit.set($event)" optionLabel="label" optionValue="value"
+                  styleClass="qt-sel-sm" ariaLabel="Unidad de captura del pedido" pTooltip="Capturar el pedido en cajas o en piezas (equivalen por el factor de la caja)" tooltipPosition="bottom"></p-select>
         <p-select [options]="categoryOpts()" [(ngModel)]="fCategory" (onChange)="reload()" (onClear)="reload()"
                   optionLabel="label" optionValue="value" placeholder="Todas las categorías" [showClear]="true"
                   [filter]="true" filterBy="label" filterPlaceholder="Buscar por código o nombre (996, Guadalajara, Arandas…)" [resetFilterOnHide]="true"
@@ -198,8 +200,8 @@ type CatLine = CriticalStockRow & { uxc: number; cajas: number; piezas: number; 
                           @if (r.via==='transfer') { <th class="qt-r">En hub</th> }
                           <th class="qt-r">Objetivo</th>
                           <th class="qt-r qt-sortable" (click)="setSort('sug')">Sugerido {{ sortArrow('sug') }}</th>
-                          <th class="qt-r qt-pedir qt-sortable" (click)="setSort('cajas')">Pedir (cajas) {{ sortArrow('cajas') }}</th>
-                          <th class="qt-r qt-sortable" (click)="setSort('pz')">Piezas {{ sortArrow('pz') }}</th>
+                          <th class="qt-r qt-pedir qt-sortable" (click)="setSort('cajas')">Pedir ({{ orderUnit() }}) {{ sortArrow('cajas') }}</th>
+                          <th class="qt-r qt-sortable" (click)="setSort('pz')">{{ orderUnit()==='cajas' ? 'Piezas' : 'Cajas' }} {{ sortArrow('pz') }}</th>
                           <th class="qt-r qt-sortable" (click)="setSort('line')">$ línea {{ sortArrow('line') }}</th>
                         </tr>
                       </thead>
@@ -218,8 +220,8 @@ type CatLine = CriticalStockRow & { uxc: number; cajas: number; piezas: number; 
                             }
                             <td class="qt-r qt-muted">{{ objetivo(l) | number:'1.0-0' }}</td>
                             <td class="qt-r">{{ l.suggested_qty | number:'1.0-0' }}</td>
-                            <td class="qt-r qt-pedir"><p-inputNumber [(ngModel)]="l.finalCajas" [min]="0" [showButtons]="false" inputStyleClass="qt-qty" (onInput)="touch()"></p-inputNumber></td>
-                            <td class="qt-r qt-muted">{{ pzOf(l) | number:'1.0-0' }}</td>
+                            <td class="qt-r qt-pedir"><p-inputNumber [ngModel]="orderUnit()==='cajas' ? l.finalCajas : pzOf(l)" (ngModelChange)="setQty(l, $event)" [min]="0" [showButtons]="false" inputStyleClass="qt-qty"></p-inputNumber></td>
+                            <td class="qt-r qt-muted">{{ (orderUnit()==='cajas' ? pzOf(l) : l.finalCajas) | number:'1.0-0' }}</td>
                             <td class="qt-r">{{ money(lineCost(l)) }}</td>
                           </tr>
                         }
@@ -284,7 +286,7 @@ type CatLine = CriticalStockRow & { uxc: number; cajas: number; piezas: number; 
                       <td class="qt-mono">{{ l.sku }}</td>
                       <td>{{ l.nombre }}</td>
                       <td class="qt-r">{{ l.cajas | number:'1.0-0' }}</td>
-                      <td class="qt-r qt-muted">{{ l.final | number:'1.0-0' }}</td>
+                      <td class="qt-r qt-muted">{{ l.piezas | number:'1.0-0' }}</td>
                       <td class="qt-r">{{ money(l.line_cost) }}</td>
                     </tr>
                   }
@@ -476,6 +478,9 @@ export class ComprasQueTocaComponent implements OnInit {
   /** Base GLOBAL (como "Objetivo" de Existencia Crítica): manda el sugerido/costo de
    * TODA la vista — columna "Costo est.", KPI y drill usan la misma. Default = máximo. */
   fBasis = signal<OrderBasis>('cadence');
+  // Unidad dual de captura del pedido (canónico interno = cajas; piezas = cajas × uxc).
+  orderUnit = signal<'cajas' | 'piezas'>('cajas');
+  unitOpts = [{ label: 'En cajas', value: 'cajas' }, { label: 'En piezas', value: 'piezas' }];
   viaOpts = [{ label: 'Compra', value: 'purchase' }, { label: 'Traspaso', value: 'transfer' }];
   statusOpts = [{ label: 'Activos', value: '' }, { label: 'Solo lo que toca (≤ hoy)', value: 'due' }];
   basisOpts: { label: string; value: OrderBasis }[] = [
@@ -534,9 +539,11 @@ export class ComprasQueTocaComponent implements OnInit {
     this.api.criticalStock({ supplier_id: r.supplier_id, warehouse_id: r.warehouse_id, category_id: this.fCategory || undefined, target_basis: basis, scope: 'all', pageSize: 500 })
       .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
         next: (res) => {
+          // El backend entrega cantidades en CAJAS (unidad canónica: stock/min/máx/costo en cajas).
+          // uxc = piezas/caja, sólo para la vista dual (columna Piezas). suggested_qty ya está en cajas.
           const lines: DetailLine[] = res.rows
             .filter((x) => Number(x.suggested_qty) > 0)
-            .map((x) => { const uxc = this.uxc(x); return { ...x, uxc, finalCajas: Math.ceil((Number(x.suggested_qty) || 0) / uxc) }; });
+            .map((x) => { const uxc = this.uxc(x); return { ...x, uxc, finalCajas: Math.ceil(Number(x.suggested_qty) || 0) }; });
           this.detail.update((d) => (d[r._key] ? { ...d, [r._key]: { ...d[r._key], loading: false, basis, lines } } : d));
         },
         error: () => {
@@ -571,13 +578,20 @@ export class ComprasQueTocaComponent implements OnInit {
     return fs > 1 ? fs : (bs > 1 ? bs : (fp > 1 ? fp : 1));
   }
   pzOf(l: DetailLine): number { return Math.round(Number(l.finalCajas || 0) * (l.uxc || 1)); }
-  lineCost(l: DetailLine): number { return this.pzOf(l) * Number(l.unit_cost || 0); }
+  // Captura dual: el input edita en cajas o piezas según el toggle; el estado canónico es finalCajas.
+  setQty(l: DetailLine, v: number): void {
+    const n = Math.max(0, Number(v) || 0);
+    l.finalCajas = this.orderUnit() === 'piezas' ? Math.ceil(n / (l.uxc || 1)) : Math.round(n);
+    this.touch();
+  }
+  // Costo por CAJA (unit_cost es por caja); el $ = cajas × costo_caja.
+  lineCost(l: DetailLine): number { return Number(l.finalCajas || 0) * Number(l.unit_cost || 0); }
 
   private linesOf(key: string): DetailLine[] { this.touchTick(); return this.detail()[key]?.lines ?? []; }
   countToOrder(key: string): number { return this.linesOf(key).filter((l) => Number(l.finalCajas) > 0).length; }
   totalCajas(key: string): number { return this.linesOf(key).reduce((s, l) => s + Number(l.finalCajas || 0), 0); }
   totalPz(key: string): number { return this.linesOf(key).reduce((s, l) => s + this.pzOf(l), 0); }
-  detailTotal(key: string): number { return this.linesOf(key).reduce((s, l) => s + this.pzOf(l) * Number(l.unit_cost || 0), 0); }
+  detailTotal(key: string): number { return this.linesOf(key).reduce((s, l) => s + Number(l.finalCajas || 0) * Number(l.unit_cost || 0), 0); }
 
   // D — orden por columna (no lee touchTick → no salta la fila mientras editas)
   setSort(f: string): void { this.detSort.update((s) => (s.f === f ? { f, d: (s.d === 1 ? -1 : 1) as 1 | -1 } : { f, d: 1 })); }
@@ -605,14 +619,15 @@ export class ComprasQueTocaComponent implements OnInit {
     });
   }
 
+  // Hub on_hand viene en CAJAS (canónico) → se compara contra las cajas pedidas (finalCajas).
   hubOnHand(key: string, l: DetailLine): number | null { const h = this.detail()[key]?.hub; return h ? Number(h[l.product_id]?.on_hand ?? 0) : null; }
   hubShort(key: string, l: DetailLine): boolean {
     const st = this.detail()[key]; this.touchTick();
-    if (!st?.hub) return false; return Number(st.hub[l.product_id]?.on_hand ?? 0) < this.pzOf(l);
+    if (!st?.hub) return false; return Number(st.hub[l.product_id]?.on_hand ?? 0) < Number(l.finalCajas || 0);
   }
   hubShortCount(key: string): number {
     const st = this.detail()[key]; this.touchTick();
-    if (!st?.hub) return 0; return st.lines.filter((l) => Number(st.hub![l.product_id]?.on_hand ?? 0) < this.pzOf(l)).length;
+    if (!st?.hub) return 0; return st.lines.filter((l) => Number(st.hub![l.product_id]?.on_hand ?? 0) < Number(l.finalCajas || 0)).length;
   }
 
   minWarn(key: string): string | null {
@@ -636,7 +651,7 @@ export class ComprasQueTocaComponent implements OnInit {
     const w = (l: DetailLine) => (sumAvg > 0 ? Math.max(Number(l.avg_daily_units) || 0, 0) / sumAvg : 1 / st.lines.length);
     if (minA != null && this.detailTotal(key) < minA) {
       const short = minA - this.detailTotal(key);
-      for (const l of st.lines) { const cc = (l.uxc || 1) * (Number(l.unit_cost) || 0); if (cc > 0) l.finalCajas = Number(l.finalCajas || 0) + Math.ceil((short * w(l)) / cc); }
+      for (const l of st.lines) { const cc = Number(l.unit_cost) || 0; if (cc > 0) l.finalCajas = Number(l.finalCajas || 0) + Math.ceil((short * w(l)) / cc); }
     } else if (minB != null && this.totalCajas(key) < minB) {
       const short = minB - this.totalCajas(key);
       for (const l of st.lines) l.finalCajas = Number(l.finalCajas || 0) + Math.ceil(short * w(l));
@@ -667,7 +682,7 @@ export class ComprasQueTocaComponent implements OnInit {
       source_type: isTransfer ? 'branch' : 'supplier',
       source_warehouse_id: isTransfer ? r.source_warehouse_id : null,
       notes: `Pedido ${r.supplier_name || ''} @ ${r.warehouse_code} · base ${st.basis}`.trim(),
-      lines: picked.map((l) => this.reqLine(l, this.pzOf(l), isTransfer ? 'branch' : 'supplier', isTransfer ? null : (l.supplier_id ?? r.supplier_id), isTransfer ? r.source_warehouse_id : null)),
+      lines: picked.map((l) => this.reqLine(l, Number(l.finalCajas || 0), isTransfer ? 'branch' : 'supplier', isTransfer ? null : (l.supplier_id ?? r.supplier_id), isTransfer ? r.source_warehouse_id : null)),
     };
     this.detail.update((d) => ({ ...d, [r._key]: { ...d[r._key], creating: true } }));
     this.api.createRequisition(dto).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
@@ -688,7 +703,7 @@ export class ComprasQueTocaComponent implements OnInit {
     const transfer: { l: DetailLine; qty: number }[] = [];
     const purchase: { l: DetailLine; qty: number }[] = [];
     for (const l of st.lines) {
-      const want = this.pzOf(l); if (want <= 0) continue;
+      const want = Number(l.finalCajas || 0); if (want <= 0) continue; // en CAJAS (igual que hub on_hand)
       const avail = Math.max(0, Math.min(want, Number(st.hub[l.product_id]?.on_hand ?? 0)));
       if (avail > 0) transfer.push({ l, qty: avail });
       if (want - avail > 0) purchase.push({ l, qty: want - avail });
@@ -719,7 +734,8 @@ export class ComprasQueTocaComponent implements OnInit {
     });
   }
 
-  private reqLine(l: CriticalStockRow, finalPz: number, sourceType: 'supplier' | 'branch', supplierId: string | null, sourceWh: string | null) {
+  // finalCajas y todas las cantidades van en CAJAS; unit_cost es por caja → total = cajas × costo_caja.
+  private reqLine(l: CriticalStockRow, finalCajas: number, sourceType: 'supplier' | 'branch', supplierId: string | null, sourceWh: string | null) {
     return {
       product_id: l.product_id,
       supplier_id: supplierId,
@@ -727,7 +743,7 @@ export class ComprasQueTocaComponent implements OnInit {
       source_warehouse_id: sourceWh,
       on_hand: Number(l.on_hand), in_transit: Number(l.in_transit),
       min_stock: Number(l.min_stock), reorder_point: Number(l.reorder_point), max_stock: Number(l.max_stock),
-      suggested_qty: Number(finalPz), final_qty: Number(finalPz), unit_cost: Number(l.unit_cost || 0),
+      suggested_qty: Number(finalCajas), final_qty: Number(finalCajas), unit_cost: Number(l.unit_cost || 0),
     };
   }
 
@@ -748,7 +764,7 @@ export class ComprasQueTocaComponent implements OnInit {
             warehouse_id: r.warehouse_id, supplier_id: isTransfer ? null : r.supplier_id,
             source_type: isTransfer ? 'branch' : 'supplier', source_warehouse_id: isTransfer ? r.source_warehouse_id : null,
             notes: `Pedido general ${r.supplier_name || ''} @ ${r.warehouse_code}`.trim(),
-            lines: picked.map((l) => { const uxc = this.uxc(l); const pz = Math.ceil((Number(l.suggested_qty) || 0) / uxc) * uxc; return this.reqLine(l, pz, isTransfer ? 'branch' : 'supplier', isTransfer ? null : (l.supplier_id ?? r.supplier_id), isTransfer ? r.source_warehouse_id : null); }),
+            lines: picked.map((l) => { const cajas = Math.ceil(Number(l.suggested_qty) || 0); return this.reqLine(l, cajas, isTransfer ? 'branch' : 'supplier', isTransfer ? null : (l.supplier_id ?? r.supplier_id), isTransfer ? r.source_warehouse_id : null); }),
           };
           return this.api.createRequisition(dto).pipe(map((req) => ({ ok: true, wh: r.warehouse_code, folio: req.folio })), catchError(() => of({ ok: false, wh: r.warehouse_code })));
         }),
@@ -825,7 +841,7 @@ export class ComprasQueTocaComponent implements OnInit {
         next: (res) => {
           const lines: CatLine[] = res.rows
             .filter((x) => Number(x.suggested_qty) > 0)
-            .map((x) => { const uxc = this.uxc(x); const cajas = Math.ceil((Number(x.suggested_qty) || 0) / uxc); const piezas = cajas * uxc; return { ...x, uxc, cajas, piezas, line_cost: piezas * Number(x.unit_cost || 0) }; })
+            .map((x) => { const uxc = this.uxc(x); const cajas = Math.ceil(Number(x.suggested_qty) || 0); const piezas = cajas * uxc; return { ...x, uxc, cajas, piezas, line_cost: cajas * Number(x.unit_cost || 0) }; })
             .sort((a, b) => (a.supplier_name || '').localeCompare(b.supplier_name || '') || (a.warehouse_code || '').localeCompare(b.warehouse_code || '') || (a.sales_rank ?? 1e9) - (b.sales_rank ?? 1e9));
           this.catRows.set(lines); this.catLoading.set(false);
         },
@@ -935,7 +951,7 @@ export class ComprasQueTocaComponent implements OnInit {
         sku: l.sku, nombre: l.nombre,
         on_hand: Number(l.on_hand),
         suggested_qty: Number(l.suggested),
-        uxc: Number(l.uxc), cajas: Number(l.cajas), piezas: Number(l.final),
+        uxc: Number(l.uxc), cajas: Number(l.cajas), piezas: Number(l.piezas),
         unit_cost: Number(l.unit_cost), line_cost: Number(l.line_cost),
       })),
     };
