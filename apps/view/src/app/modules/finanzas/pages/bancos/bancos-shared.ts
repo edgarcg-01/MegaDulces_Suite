@@ -15,11 +15,11 @@ export const MONTHS_ES: Record<string, string> = {
 
 /** Vistas de trabajo del segmento (Cierre = home). Admin vive aparte en el engrane. */
 export const WORK_VIEWS: { key: BankView; label: string; icon: string }[] = [
+  { key: 'comparador', label: 'Excel ↔ Kepler', icon: 'pi pi-arrows-h' },
   { key: 'cierre', label: 'Cierre', icon: 'pi pi-flag' },
   { key: 'movimientos', label: 'Movimientos', icon: 'pi pi-list' },
   { key: 'concentrado', label: 'Concentrado', icon: 'pi pi-table' },
   { key: 'conciliacion', label: 'Conciliación', icon: 'pi pi-sync' },
-  { key: 'comparador', label: 'Excel ↔ Kepler', icon: 'pi pi-arrows-h' },
   { key: 'cuentas', label: 'Cuentas', icon: 'pi pi-wallet' },
 ];
 
