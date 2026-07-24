@@ -1006,8 +1006,10 @@ export class CommercialReplenishmentService {
 
       const minBoxes = sup.min_order_boxes != null ? Number(sup.min_order_boxes) : null;
       const minAmount = sup.min_order_amount != null ? Number(sup.min_order_amount) : null;
+      // final está en CAJAS (canónico: suggested = objetivo_cajas − stock_cajas). uxc = piezas/caja
+      // sólo para la vista dual. cajas = final; piezas = final × uxc; $ = final × costo_caja.
       const tot = () => ({
-        cajas: lines.reduce((s, l) => s + l.final / l.uxc, 0),
+        cajas: lines.reduce((s, l) => s + l.final, 0),
         amount: lines.reduce((s, l) => s + l.final * l.unit_cost, 0),
       });
       const before = tot();
@@ -1018,8 +1020,8 @@ export class CommercialReplenishmentService {
         for (const l of lines) { const w = (Math.max(l.avg_daily, 0) || 1) / sumAvg; if (l.unit_cost > 0) l.final += Math.max(0, Math.round((short * w) / l.unit_cost)); }
         padded = true;
       } else if (lines.length && minBoxes != null && before.cajas < minBoxes) {
-        const short = minBoxes - before.cajas;
-        for (const l of lines) { const w = (Math.max(l.avg_daily, 0) || 1) / sumAvg; l.final += Math.max(0, Math.round(short * w)) * l.uxc; }
+        const short = minBoxes - before.cajas; // faltante en CAJAS → se reparte en cajas (final ya es cajas)
+        for (const l of lines) { const w = (Math.max(l.avg_daily, 0) || 1) / sumAvg; l.final += Math.max(0, Math.round(short * w)); }
         padded = true;
       }
       const after = tot();
@@ -1028,7 +1030,7 @@ export class CommercialReplenishmentService {
         padded,
         totals: { cajas: Math.round(after.cajas * 10) / 10, amount: Math.round(after.amount * 100) / 100, lines: lines.length,
                   suggested_cajas: Math.round(before.cajas * 10) / 10, suggested_amount: Math.round(before.amount * 100) / 100 },
-        lines: lines.map((l) => ({ ...l, cajas: Math.round((l.final / l.uxc) * 10) / 10, line_cost: Math.round(l.final * l.unit_cost * 100) / 100 })),
+        lines: lines.map((l) => ({ ...l, cajas: l.final, piezas: l.final * l.uxc, line_cost: Math.round(l.final * l.unit_cost * 100) / 100 })),
       };
     });
   }

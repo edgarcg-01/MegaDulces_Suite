@@ -206,7 +206,7 @@ export interface SupplierOrderParamsDto {
 export interface SupplierOrderLine {
   warehouse_code: string; warehouse_id: string; product_id: string; sku: string; nombre: string;
   on_hand: number; avg_daily: number; uxc: number; unit_cost: number;
-  suggested: number; final: number; cajas: number; line_cost: number;
+  suggested: number; final: number; cajas: number; piezas: number; line_cost: number;
 }
 export interface SupplierOrder {
   supplier: { id: string; name: string; cadence_days_override: number | null; colchon_days: number | null; min_order_boxes: number | null; min_order_amount: number | null };

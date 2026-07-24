@@ -21,18 +21,38 @@ const M = '00000000-0000-0000-0000-00000000d01c';
 const DST = process.env.DATABASE_URL_NEW || 'postgresql://postgres:superoot@localhost:5433/postgres_platform';
 const APPLY = process.argv.includes('--apply');
 
-// vel agrega la venta 90d por producto×almacén. Para la dispersión (σ) sobre la
-// población de 90 días (INCLUYE los días sin venta como cero) usamos los momentos:
+// NORMALIZACIÓN DE UNIDAD (ver reference_box_factor_factor_sale): sales_daily.units
+// MEZCLA unidades — el POS `tienda`/`credito` vende PIEZAS sueltas y Wincaja vende CAJAS,
+// pero units las suma como si fueran lo mismo (unit_kind='piece' es mentira para todos).
+// commercial.stock y cost_with_tax están en CAJAS (unidad del ERP: kdil existencia + costo
+// por caja), así que la unidad canónica del reabasto es la CAJA. Convertimos cada fila en
+// piezas → cajas dividiendo entre factor_sale. Detección por fila (robusta, punto medio
+// geométrico): la fila está en PIEZAS si precio_unit = revenue/units < cost_with_tax/√factor
+// (una caja se vende ≥ su costo; una pieza a ~costo/factor). Sin costo/factor → se deja igual.
+//
+// norm agrega a nivel (producto×almacén×DÍA) con units ya en cajas; luego vel calcula los
+// momentos sobre esos totales diarios. Para la dispersión (σ) sobre la población de 90 días
+// (INCLUYE los días sin venta como cero) usamos los momentos:
 //   μ = Σu / 90     σ = sqrt( Σu² / 90 − μ² )   (varianza poblacional, N=90)
-// sales_daily solo tiene filas en días CON venta, por eso dividimos entre 90 (no
-// entre el nº de filas). CV = σ/μ → clase XYZ (X≤0.5 estable, Y≤1 variable, Z>1).
+// dividimos entre 90 (no entre el nº de días con venta). CV = σ/μ → XYZ (X≤0.5 / Y≤1 / Z>1).
 const SELECT_HEALTH = `
-  WITH vel AS (
+  WITH norm AS (
+    SELECT sd.product_id, sd.warehouse_id, sd.sale_date::date AS d,
+           sum(
+             CASE WHEN p.factor_sale > 1 AND p.cost_with_tax > 0 AND sd.units > 0
+                       AND (sd.revenue / sd.units) < p.cost_with_tax / sqrt(p.factor_sale)
+                  THEN sd.units / p.factor_sale        -- fila en PIEZAS → cajas
+                  ELSE sd.units END                    -- ya en cajas (o sin ancla) → igual
+           ) AS units_day
+      FROM analytics.sales_daily sd
+      JOIN catalog.products p ON p.tenant_id = sd.tenant_id AND p.id = sd.product_id
+     WHERE sd.tenant_id = $1 AND sd.sale_date >= current_date - 90 AND sd.units > 0
+     GROUP BY sd.product_id, sd.warehouse_id, sd.sale_date::date
+  ), vel AS (
     SELECT product_id, warehouse_id,
-           sum(units)          AS units_90d,
-           sum(units*units)    AS sumsq_90d
-      FROM analytics.sales_daily
-     WHERE tenant_id = $1 AND sale_date >= current_date - 90
+           sum(units_day)            AS units_90d,
+           sum(units_day*units_day)  AS sumsq_90d
+      FROM norm
      GROUP BY product_id, warehouse_id
   ), stat AS (
     SELECT product_id, warehouse_id, units_90d,
