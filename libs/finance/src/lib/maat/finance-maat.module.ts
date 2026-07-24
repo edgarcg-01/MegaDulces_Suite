@@ -27,6 +27,7 @@ import { MaatDiscoveryService } from './maat-discovery.service';
 import { MaatDiscoveryController } from './maat-discovery.controller';
 import { MaatReconTasksService } from './maat-recon-tasks.service';
 import { MaatReconTasksController } from './maat-recon-tasks.controller';
+import { FinanceBankModule } from '../bank/finance-bank.module';
 
 /**
  * MAAT (ADR-028) — AI de Finanzas.
@@ -37,6 +38,7 @@ import { MaatReconTasksController } from './maat-recon-tasks.controller';
  *             del feedback / el LLM sigue fuera de los números.
  */
 @Module({
+  imports: [FinanceBankModule],
   controllers: [MaatKnowledgeController, MaatChatController, MaatFindingsController, MaatActionsController, MaatLearningController, MaatDiscoveryController, MaatReconTasksController],
   providers: [
     MaatKnowledgeService, MaatToolsService, MaatChatService, MaatBriefingService,

@@ -1,5 +1,6 @@
 import { Injectable, BadRequestException, Logger } from '@nestjs/common';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
+import { FinanceBankService } from '../bank/finance-bank.service';
 
 /**
  * MA.2 — Motor de tareas de conciliación (Maat · ADR-028/016).
@@ -36,6 +37,7 @@ export class MaatReconTasksService {
   constructor(
     private readonly tk: TenantKnexService,
     private readonly tenantCtx: TenantContextService,
+    private readonly bank: FinanceBankService,
   ) {}
 
   private n(v: any): number { return Number(v || 0); }
@@ -308,6 +310,87 @@ export class MaatReconTasksService {
         por_usuario: (porUsuario as any[]).map((u) => ({ user_id: u.assigned_to, username: u.assigned_to_username, n: Number(u.n), monto: Number(u.monto) })),
       };
     });
+  }
+
+  // ── DETALLE: qué hacer por movimiento (MA.9 — diagnóstico de causa) ───────
+
+  /**
+   * Diagnostica un movimiento contra el contexto Kepler del proveedor (movementFlow):
+   *  - pago_en_102       el pago YA existe en el 102 con monto ≈ → desfase, no recapturar.
+   *  - factura_sin_pago  hay factura del proveedor sin pago → capturar la póliza de pago.
+   *  - revisar_cadena    hay compras pero ninguna factura sin pago cuadra → revisar auxiliar.
+   *  - capturar_desde_cero  sin rastro en el 102 → capturar el egreso desde cero.
+   */
+  private diagnose(flow: any, monto: number) {
+    const tol = Math.max(50, monto * 0.01);
+    const close = (a: any) => Math.abs(Number(a || 0) - monto) <= tol;
+    const banco = flow?.movement?.bank || 'el banco';
+    const prov = flow?.proveedor?.nombre || flow?.movement?.concept || 'el proveedor';
+    const docs: any[] = flow?.docs || [];
+    if (docs.length) {
+      const hit = docs.find((d) => close(d.importe));
+      if (hit) {
+        const folio = `${hit.doc_tipo || ''} ${hit.folio}`.trim();
+        return { causa: 'pago_en_102', causa_label: 'El pago ya está en Kepler (desfase)', folio_102: folio, factura_folio: null,
+          instruccion: `El pago YA existe en el 102 (folio ${folio}, ${this.money(hit.importe)}). Es desfase de fecha o Kepler lo trae agregado — NO recaptures. Revisa el auxiliar y, si urge, ajusta la fecha para que case; si no, el re-match lo cierra solo.` };
+      }
+    }
+    const cadena: any[] = flow?.cadena || [];
+    const factSinPago = cadena.find((c) => !c.pago_folio && close(c.total)) || cadena.find((c) => !c.pago_folio);
+    if (factSinPago) {
+      return { causa: 'factura_sin_pago', causa_label: 'Hay factura sin pago en Kepler', folio_102: null, factura_folio: factSinPago.factura_folio,
+        instruccion: `Existe la factura ${factSinPago.factura_folio} (${this.money(factSinPago.total)}) de ${prov} sin pago registrado. Captura la póliza de pago (doc XD2601): C 201 ${prov} / A 102 ${banco}, por ${this.money(monto)}.` };
+    }
+    if (cadena.length) {
+      return { causa: 'revisar_cadena', causa_label: 'Compras del proveedor, ninguna cuadra el monto', folio_102: null, factura_folio: null,
+        instruccion: `Hay compras de ${prov} este mes pero ninguna factura sin pago cuadra ${this.money(monto)}. Revisa el auxiliar del proveedor en Kepler para ubicar a qué documento corresponde este retiro.` };
+    }
+    return { causa: 'capturar_desde_cero', causa_label: 'Sin rastro en el 102', folio_102: null, factura_folio: null,
+      instruccion: `No hay rastro de ${prov} en el 102 este mes. Captura el egreso desde cero (doc XD2601): C 201 ${prov} / A 102 ${banco}, por ${this.money(monto)}, con la fecha y el beneficiario del estado de cuenta.` };
+  }
+
+  /** Detalle accionable de una tarea: sus movimientos + qué hacer con cada uno. */
+  async detail(taskId: string) {
+    this.tenantCtx.requireTenantId();
+    const CAP = 12; // diagnóstico Kepler acotado (movementFlow escanea) — el resto va genérico
+    const task = await this.tk.run(async (trx) =>
+      trx('finance.recon_tasks').where('id', taskId)
+        .select('id', 'proveedor_label', 'periodo', 'finding_ids', 'n_movimientos',
+          trx.raw('importe_total::numeric AS importe_total'), 'status', 'assigned_to_username').first());
+    if (!task) throw new BadRequestException('tarea no encontrada');
+    const ids: string[] = Array.isArray(task.finding_ids) ? task.finding_ids : JSON.parse(task.finding_ids || '[]');
+
+    const movs = await this.tk.run(async (trx) =>
+      trx('finance.findings as f')
+        .joinRaw("JOIN finance.bank_movements bm ON bm.id = NULLIF(f.entity->>'bank_movement_id','')::uuid")
+        .join('finance.bank_accounts as ba', 'ba.id', 'bm.bank_account_id')
+        .leftJoin('finance.movement_categories as mc', 'mc.id', 'bm.category_id')
+        .whereIn('f.id', ids)
+        .select('f.id as finding_id', 'bm.id as bm_id', 'bm.movement_date', trx.raw('bm.amount_out::numeric AS amount_out'),
+          'bm.concept', 'bm.recon_status', 'ba.bank', 'ba.account_label', 'mc.name as categoria')
+        .orderBy('bm.amount_out', 'desc'));
+
+    const movimientos: any[] = [];
+    for (let i = 0; i < movs.length; i++) {
+      const m: any = movs[i];
+      const base = { finding_id: m.finding_id, bank_movement_id: m.bm_id, fecha: m.movement_date, monto: Number(m.amount_out),
+        banco: m.bank, cuenta: m.account_label, concepto: m.concept, categoria: m.categoria, recon_status: m.recon_status };
+      if (i < CAP) {
+        let flow: any = null;
+        try { flow = await this.bank.movementFlow(m.bm_id); } catch { /* best-effort */ }
+        movimientos.push({ ...base, ...this.diagnose(flow, Number(m.amount_out)) });
+      } else {
+        movimientos.push({ ...base, causa: 'sin_diagnostico', causa_label: 'Sin diagnóstico (tarea con muchos movimientos)', folio_102: null, factura_folio: null,
+          instruccion: 'Revisa manualmente en el auxiliar del 102 (monto + fecha + beneficiario).' });
+      }
+    }
+    const resumen: Record<string, number> = {};
+    for (const r of movimientos) resumen[r.causa] = (resumen[r.causa] || 0) + 1;
+    return {
+      task: { id: task.id, proveedor_label: task.proveedor_label, periodo: task.periodo, n_movimientos: task.n_movimientos,
+        importe_total: Number(task.importe_total), status: task.status, assigned_to_username: task.assigned_to_username },
+      movimientos, resumen,
+    };
   }
 
   // ── CHAT POR TAREA + verificación (MA.8) ──────────────────────────────────
