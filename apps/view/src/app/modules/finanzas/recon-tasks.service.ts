@@ -114,6 +114,8 @@ export class ReconTasksService {
 
   // ── Chat por tarea (MA.8) ──
   messages(id: string): Observable<ReconTaskMessage[]> { return this.http.get<ReconTaskMessage[]>(`${this.base}/${id}/messages`); }
-  postMessage(id: string, body: string): Observable<ReconTaskMessage> { return this.http.post<ReconTaskMessage>(`${this.base}/${id}/messages`, { body }); }
+  postMessage(id: string, body: string): Observable<{ message: ReconTaskMessage; reply: ReconTaskMessage }> {
+    return this.http.post<{ message: ReconTaskMessage; reply: ReconTaskMessage }>(`${this.base}/${id}/messages`, { body });
+  }
   reportDone(id: string, body?: string): Observable<ReportResult> { return this.http.post<ReportResult>(`${this.base}/${id}/report`, { body }); }
 }

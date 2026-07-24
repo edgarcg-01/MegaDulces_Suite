@@ -1,6 +1,7 @@
 import { Injectable, BadRequestException, Logger } from '@nestjs/common';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
 import { FinanceBankService } from '../bank/finance-bank.service';
+import { MaatChatService } from './maat-chat.service';
 
 /**
  * MA.2 — Motor de tareas de conciliación (Maat · ADR-028/016).
@@ -38,6 +39,7 @@ export class MaatReconTasksService {
     private readonly tk: TenantKnexService,
     private readonly tenantCtx: TenantContextService,
     private readonly bank: FinanceBankService,
+    private readonly chat: MaatChatService,
   ) {}
 
   private n(v: any): number { return Number(v || 0); }
@@ -408,12 +410,19 @@ export class MaatReconTasksService {
         .orderBy('created_at', 'asc'));
   }
 
-  /** Comentario libre de una persona en el hilo. */
+  /**
+   * Comentario/pregunta de una persona en el hilo → Maat CONTESTA. La respuesta es
+   * guía (agente comunica): usa el chat tool-use si hay ANTHROPIC_API_KEY, con el
+   * diagnóstico de la tarea como contexto; si no, cae a la guía determinista del
+   * diagnóstico. Nunca inventa números — la verificación/cierre sigue siendo por
+   * re-match (reportDone), esto solo ORIENTA sobre dónde/cómo arreglarlo en Kepler.
+   */
   async postMessage(taskId: string, body: string, username?: string) {
     this.tenantCtx.requireTenantId();
     const text = (body || '').trim();
     if (!text) throw new BadRequestException('mensaje vacío');
-    return this.tk.run(async (trx) => {
+    // 1. guardar el mensaje de la persona
+    const userMsg = await this.tk.run(async (trx) => {
       const task = await trx('finance.recon_tasks').where('id', taskId).select('id').first();
       if (!task) throw new BadRequestException('tarea no encontrada');
       const [row] = await trx('finance.recon_task_messages')
@@ -421,6 +430,37 @@ export class MaatReconTasksService {
         .returning(['id', 'role', 'kind', 'username', 'body', 'created_at']);
       return row;
     });
+    // 2. respuesta de Maat (fuera de la trx anterior; best-effort)
+    let replyText: string;
+    try { replyText = await this.maatReplyText(taskId, text, username); }
+    catch (e: any) { this.logger.warn(`maatReply falló: ${e?.message || e}`); replyText = 'Puedo ayudarte con esta conciliación — abre el detalle de la tarea para ver el paso exacto en Kepler.'; }
+    const reply = await this.tk.run(async (trx) => {
+      const [row] = await trx('finance.recon_task_messages')
+        .insert({ tenant_id: trx.raw('public.current_tenant_id()'), task_id: taskId, role: 'maat', kind: 'comment', username: 'Maat', body: replyText })
+        .returning(['id', 'role', 'kind', 'username', 'body', 'created_at']);
+      return row;
+    });
+    return { message: userMsg, reply };
+  }
+
+  /** Texto de la respuesta de Maat a un comentario, anclado al diagnóstico de la tarea. */
+  private async maatReplyText(taskId: string, userText: string, username?: string): Promise<string> {
+    const det = await this.detail(taskId);
+    const guide = det.movimientos.map((m: any) => `• ${this.money(m.monto)} — ${m.instruccion}`).join('\n');
+    const fallback = `Esto es lo que falta para cerrar la tarea de ${det.task.proveedor_label} (hazlo en Kepler):\n${guide}\n\nEn corto: abre el auxiliar de la cuenta 102, ubica cada movimiento por monto + fecha + beneficiario; si el pago no aparece, captura la póliza de egreso (doc XD2601: C 201 proveedor / A 102 banco). Cuando termines, toca "Ya lo hice en Kepler" y lo verifico.`;
+
+    if (!process.env.ANTHROPIC_API_KEY) return fallback;
+    try {
+      const preamble =
+        `Eres Maat, la AI de Finanzas. Estás en el HILO de una tarea de conciliación bancaria. NO inventes folios ni montos: usa SOLO este contexto.\n` +
+        `Tarea: proveedor "${det.task.proveedor_label}", periodo ${det.task.periodo}, ${det.task.n_movimientos} movimiento(s), total ${this.money(det.task.importe_total)}.\n` +
+        `Diagnóstico por movimiento (qué hacer en Kepler):\n${guide}\n\n` +
+        `La persona de Finanzas escribió: "${userText}"\n\n` +
+        `Respóndele BREVE y concreto, orientándola sobre DÓNDE y CÓMO arreglarlo en Kepler (auxiliar de la cuenta 102; captura de póliza de egreso XD2601 = C 201 proveedor / A 102 banco). Si tiene dudas de dónde, dale el paso exacto. Recuérdale que al terminar toque "Ya lo hice en Kepler" para que verifiques por re-match.`;
+      const r = await this.chat.ask({ userName: username || null }, { history: [{ role: 'user', content: preamble }] });
+      if (r?.answer && r.source !== 'no_api_key' && r.source !== 'error') return r.answer;
+    } catch (e: any) { this.logger.warn(`chat.ask en hilo falló: ${e?.message || e}`); }
+    return fallback;
   }
 
   /** ¿cuántos movimientos de la tarea siguen sin conciliar en Kepler? (single-task verify). */

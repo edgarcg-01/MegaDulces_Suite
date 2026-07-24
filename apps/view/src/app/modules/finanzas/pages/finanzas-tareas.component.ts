@@ -240,6 +240,9 @@ import { ReconTasksService, ReconTask, ReconTaskStats, ReconTaskStatus, FinanceU
             <div class="ft-msg-body" [class.ft-verify-ok]="m.kind==='verify' && m.meta?.['verified']" [class.ft-verify-no]="m.kind==='verify' && m.meta && !m.meta['verified']">{{ m.body }}</div>
           </div>
         }
+        @if (chatThinking()) {
+          <div class="ft-msg ft-msg-maat"><div class="ft-msg-who"><i class="pi pi-sparkles"></i> Maat</div><div class="ft-msg-body muted">escribiendo…</div></div>
+        }
       </div>
       <ng-template pTemplate="footer">
         <div class="ft-chat-composer">
@@ -348,6 +351,7 @@ export class FinanzasTareasComponent implements OnInit {
   readonly chatMessages = signal<ReconTaskMessage[]>([]);
   readonly chatLoading = signal(false);
   readonly reporting = signal(false);
+  readonly chatThinking = signal(false);
   chatDraft = '';
 
   readonly detailTask = signal<ReconTask | null>(null);
@@ -463,11 +467,12 @@ export class FinanzasTareasComponent implements OnInit {
   }
   sendMessage(): void {
     const t = this.chatTask(); const body = this.chatDraft.trim();
-    if (!t || !body) return;
+    if (!t || !body || this.chatThinking()) return;
     this.chatDraft = '';
+    this.chatThinking.set(true);
     this.svc.postMessage(t.id, body).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (m) => this.chatMessages.update((cur) => [...cur, m]),
-      error: (e) => this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudo enviar.' }),
+      next: (r) => { this.chatMessages.update((cur) => [...cur, r.message, r.reply]); this.chatThinking.set(false); },
+      error: (e) => { this.chatThinking.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudo enviar.' }); },
     });
   }
   report(): void {
