@@ -144,7 +144,8 @@ interface Pair {
     <p class="fb-sbs-cta muted"><i class="pi pi-hand-point-up"></i> Haz clic en un renglón para abrir su desglose en una ventana.</p>
 
     <!-- ── DESGLOSE en ventana (se abre al hacer clic en un renglón) ── -->
-    <p-dialog [visible]="!!sel()" (onHide)="resetSel()" [modal]="true" [dismissableMask]="true"
+    <p-dialog [visible]="!!sel()" (visibleChange)="onDialogVisible($event)" (onHide)="resetSel()"
+              [modal]="true" [dismissableMask]="true" [closeOnEscape]="true"
               [style]="{ width: '46rem' }" [breakpoints]="{ '768px': '95vw' }"
               [contentStyle]="{ maxHeight: '75vh', overflow: 'auto' }" header="Desglose del movimiento">
       @if (sel(); as p) {
@@ -434,6 +435,8 @@ export class BancosSideBySideComponent {
   isSel(p: Pair): boolean { return this.sel()?.key === p.key; }
   pick(p: Pair): void { this.sel.set(p); this.resetFlow(); }
   resetSel(): void { this.sel.set(null); this.resetFlow(); }
+  /** p-dialog cierra (X / máscara / Esc) → sincroniza limpiando la selección. */
+  onDialogVisible(v: boolean): void { if (!v) this.resetSel(); }
   private resetFlow(): void { this.flow.set(null); this.flowLoading.set(false); }
 
   readonly flowId = computed<string | null>(() => {
