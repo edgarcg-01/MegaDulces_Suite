@@ -160,4 +160,27 @@ export class ThotExamplesService {
         .select('id', 'question', 'answer', 'tools_used', 'user_name', 'created_at'),
     );
   }
+
+  /**
+   * TC — Conversaciones que tuvo Thot (todo el log, no solo los 👍). Para revisar
+   * qué se preguntó y cómo respondió. Filtros opcionales: solo con feedback,
+   * búsqueda por texto de la pregunta.
+   */
+  async conversations(opts: { limit?: number; feedback?: 'up' | 'down' | 'all'; q?: string } = {}) {
+    const limit = Math.min(200, Math.max(1, Number(opts.limit) || 50));
+    return this.tk.run(async (trx) => {
+      // feedback/promoted pueden faltar según el estado de migraciones → resiliente.
+      const hasFb = await trx.schema.withSchema('commercial').hasColumn('thot_chat_log', 'feedback');
+      const hasProm = await trx.schema.withSchema('commercial').hasColumn('thot_chat_log', 'promoted');
+      const cols = ['id', 'question', 'answer', 'tools_used', 'user_name', 'source', 'iterations', 'created_at'];
+      if (hasFb) cols.push('feedback');
+      if (hasProm) cols.push('promoted');
+      const b = trx('commercial.thot_chat_log').orderBy('created_at', 'desc').limit(limit).select(cols);
+      if (hasFb && opts.feedback === 'up') b.where('feedback', 1);
+      else if (hasFb && opts.feedback === 'down') b.where('feedback', -1);
+      if (opts.q) b.whereILike('question', `%${opts.q}%`);
+      const rows = await b;
+      return (rows as any[]).map((r) => ({ ...r, feedback: hasFb ? r.feedback : null, promoted: hasProm ? !!r.promoted : false }));
+    });
+  }
 }

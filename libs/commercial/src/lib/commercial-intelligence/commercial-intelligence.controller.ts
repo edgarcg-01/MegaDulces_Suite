@@ -523,6 +523,13 @@ export class CommercialIntelligenceController {
     return this.examples.candidates(limit ? parseInt(limit, 10) : undefined);
   }
 
+  @Get('thot/examples/conversations')
+  @RequirePermissions(Permission.COMMERCIAL_THOT_GESTIONAR)
+  @ApiOperation({ summary: 'Conversaciones que tuvo Thot (todo el log). ?limit&feedback=up|down|all&q=' })
+  thotConversations(@Query('limit') limit?: string, @Query('feedback') feedback?: 'up' | 'down' | 'all', @Query('q') q?: string) {
+    return this.examples.conversations({ limit: limit ? parseInt(limit, 10) : undefined, feedback, q });
+  }
+
   @Post('thot/examples')
   @RequirePermissions(Permission.COMMERCIAL_THOT_GESTIONAR)
   @ApiOperation({ summary: 'Agrega un ejemplo dorado (pregunta → tools → respuesta modelo).' })

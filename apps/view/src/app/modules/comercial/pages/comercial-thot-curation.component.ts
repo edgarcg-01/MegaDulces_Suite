@@ -12,7 +12,7 @@ import { TextareaModule } from 'primeng/textarea';
 import { ToastModule } from 'primeng/toast';
 import { TooltipModule } from 'primeng/tooltip';
 import { MessageService } from 'primeng/api';
-import { ThotCurationService, ThotExampleRow, ThotCandidateRow } from '../thot-curation.service';
+import { ThotCurationService, ThotExampleRow, ThotCandidateRow, ThotConversationRow } from '../thot-curation.service';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { ANALYTICS_TABS } from '../analytics-tabs';
 
@@ -43,6 +43,38 @@ import { ANALYTICS_TABS } from '../analytics-tabs';
           <button pButton icon="pi pi-refresh" [text]="true" severity="secondary" size="small" (click)="reload()" [loading]="loading()"></button>
         </div>
       </header>
+
+      <!-- Conversaciones que tuvo Thot -->
+      <h3 class="tcur-h">Conversaciones <span class="tcur-badge">{{ conversations().length }}</span></h3>
+      <div class="tcur-convbar">
+        <div class="tcur-seg">
+          <button [class.active]="convFeedback()==='all'" (click)="setConvFeedback('all')">Todas</button>
+          <button [class.active]="convFeedback()==='up'" (click)="setConvFeedback('up')">👍</button>
+          <button [class.active]="convFeedback()==='down'" (click)="setConvFeedback('down')">👎</button>
+        </div>
+        <span class="p-input-icon-left tcur-search">
+          <input pInputText [(ngModel)]="convSearch" (keydown.enter)="loadConversations()" placeholder="Buscar en preguntas…" />
+        </span>
+        <button pButton icon="pi pi-search" size="small" [text]="true" severity="secondary" (click)="loadConversations()"></button>
+      </div>
+      <p-table [value]="conversations()" [loading]="convLoading()" styleClass="p-datatable-sm surf-table" [paginator]="conversations().length > 12" [rows]="12">
+        <ng-template pTemplate="header">
+          <tr><th>Fecha</th><th>Usuario</th><th>Pregunta</th><th>Respuesta</th><th></th><th></th></tr>
+        </ng-template>
+        <ng-template pTemplate="body" let-c>
+          <tr class="tcur-conv-row" (click)="openConv(c)">
+            <td class="tcur-date">{{ c.created_at | date:'dd/MM/yy HH:mm' }}</td>
+            <td>{{ c.user_name || '—' }}</td>
+            <td class="tcur-q">{{ c.question }}</td>
+            <td class="tcur-a">{{ (c.answer || '') | slice:0:100 }}{{ (c.answer || '').length > 100 ? '…' : '' }}</td>
+            <td class="tcur-fb">{{ fbIcon(c.feedback) }}@if (c.promoted) { <i class="pi pi-star-fill tcur-star" title="Ya es ejemplo dorado"></i> }</td>
+            <td class="tcur-right"><button pButton icon="pi pi-eye" size="small" [text]="true" severity="secondary" (click)="openConv(c); $event.stopPropagation()"></button></td>
+          </tr>
+        </ng-template>
+        <ng-template pTemplate="emptymessage">
+          <tr><td colspan="6" class="comm-empty-cell"><div class="comm-empty"><div class="comm-empty-icon"><i class="pi pi-comments"></i></div><h3>Sin conversaciones</h3><p>Cuando alguien use el chat de Thot, las conversaciones aparecerán acá.</p></div></td></tr>
+        </ng-template>
+      </p-table>
 
       <!-- Cola de curaduría -->
       <h3 class="tcur-h">Cola de curaduría <span class="tcur-badge">{{ candidates().length }}</span></h3>
@@ -110,6 +142,24 @@ import { ANALYTICS_TABS } from '../analytics-tabs';
         <button pButton label="Guardar" severity="contrast" [disabled]="!form.question.trim()" (click)="save()"></button>
       </ng-template>
     </p-dialog>
+
+    <!-- Detalle de conversación -->
+    <p-dialog [visible]="!!conv()" (visibleChange)="onConvVisible($event)" [modal]="true" [draggable]="false" [style]="{ width: '640px' }" [dismissableMask]="true" header="Conversación">
+      @if (conv(); as c) {
+        <div class="tcur-conv">
+          <div class="tcur-conv-meta">{{ c.created_at | date:'dd/MM/yy HH:mm' }} · {{ c.user_name || '—' }} · {{ fbIcon(c.feedback) }}@if (c.source) { · {{ c.source }} }</div>
+          <div class="tcur-conv-block"><span class="tcur-conv-lbl">Pregunta</span><p class="tcur-conv-q">{{ c.question }}</p></div>
+          <div class="tcur-conv-block"><span class="tcur-conv-lbl">Respuesta de Thot</span><p class="tcur-conv-ans">{{ c.answer || '(sin respuesta)' }}</p></div>
+          @if (toolNames(c.tools_used) !== '—') { <div class="tcur-conv-block"><span class="tcur-conv-lbl">Tools</span><span class="tcur-tools">{{ toolNames(c.tools_used) }}</span></div> }
+        </div>
+      }
+      <ng-template pTemplate="footer">
+        <button pButton label="Cerrar" [text]="true" severity="secondary" (click)="conv.set(null)"></button>
+        @if (conv() && !conv()!.promoted) {
+          <button pButton icon="pi pi-star" label="Promover a ejemplo" severity="contrast" (click)="promoteConv(conv()!)"></button>
+        }
+      </ng-template>
+    </p-dialog>
   `,
   styles: [`
     .tcur-actions { display: flex; gap: .5rem; align-items: center; }
@@ -125,6 +175,22 @@ import { ANALYTICS_TABS } from '../analytics-tabs';
     .tcur-form label { display: flex; flex-direction: column; gap: .3rem; font-size: .82rem; color: var(--text-muted,var(--c-text-2)); }
     .tcur-form input, .tcur-form textarea { width: 100%; }
     :host ::ng-deep .tcur-w { width: 100%; }
+    .tcur-convbar { display: flex; align-items: center; gap: .6rem; margin-bottom: .6rem; flex-wrap: wrap; }
+    .tcur-seg { display: inline-flex; border: 1px solid var(--border-color); border-radius: var(--r-md,8px); overflow: hidden; }
+    .tcur-seg button { background: none; border: none; padding: .3rem .7rem; font: inherit; font-size: .82rem; cursor: pointer; color: var(--text-muted,var(--c-text-2)); border-right: 1px solid var(--border-color); }
+    .tcur-seg button:last-child { border-right: none; }
+    .tcur-seg button.active { background: var(--action); color: var(--action-ink,#fff); }
+    .tcur-search input { min-width: 220px; }
+    .tcur-conv-row { cursor: pointer; }
+    .tcur-date { font-family: var(--font-mono,monospace); font-size: .78rem; color: var(--text-muted,var(--c-text-2)); white-space: nowrap; }
+    .tcur-fb { white-space: nowrap; }
+    .tcur-star { color: var(--action); font-size: .72rem; margin-left: .25rem; }
+    .tcur-conv { display: flex; flex-direction: column; gap: .9rem; }
+    .tcur-conv-meta { font-size: .78rem; color: var(--text-muted,var(--c-text-2)); font-family: var(--font-mono,monospace); }
+    .tcur-conv-block { display: flex; flex-direction: column; gap: .25rem; }
+    .tcur-conv-lbl { font-size: .72rem; text-transform: uppercase; letter-spacing: .05em; color: var(--text-faint,var(--c-text-3)); }
+    .tcur-conv-q { margin: 0; font-weight: 500; color: var(--text-main,var(--c-text-1)); }
+    .tcur-conv-ans { margin: 0; white-space: pre-wrap; color: var(--text-main,var(--c-text-1)); font-size: .9rem; line-height: 1.5; }
   `],
 })
 export class ComercialThotCurationComponent {
@@ -138,15 +204,39 @@ export class ComercialThotCurationComponent {
 
   examples = signal<ThotExampleRow[]>([]);
   candidates = signal<ThotCandidateRow[]>([]);
+  conversations = signal<ThotConversationRow[]>([]);
   loading = signal(false);
+  convLoading = signal(false);
   reindexing = signal(false);
   profile = '';
+  convFeedback = signal<'all' | 'up' | 'down'>('all');
+  convSearch = '';
+  conv = signal<ThotConversationRow | null>(null);
   addOpen = signal(false);
   form = { profile: 'admin', question: '', answer: '', toolsStr: '', note: '' };
 
   constructor() { this.reload(); }
 
-  reload() { this.loadExamples(); this.loadCandidates(); }
+  reload() { this.loadExamples(); this.loadCandidates(); this.loadConversations(); }
+
+  loadConversations() {
+    this.convLoading.set(true);
+    this.svc.conversations({ feedback: this.convFeedback(), q: this.convSearch.trim() || undefined, limit: 80 })
+      .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+        next: (r) => { this.conversations.set(r || []); this.convLoading.set(false); },
+        error: () => { this.convLoading.set(false); this.toast.add({ severity: 'error', summary: 'Error al cargar conversaciones' }); },
+      });
+  }
+  setConvFeedback(f: 'all' | 'up' | 'down') { this.convFeedback.set(f); this.loadConversations(); }
+  openConv(c: ThotConversationRow) { this.conv.set(c); }
+  onConvVisible(v: boolean) { if (!v) this.conv.set(null); }
+  fbIcon(fb: number | null): string { return fb === 1 ? '👍' : fb === -1 ? '👎' : '—'; }
+  promoteConv(c: ThotConversationRow) {
+    this.svc.promote(c.id, {}).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: () => { this.toast.add({ severity: 'success', summary: 'Promovido a ejemplo dorado' }); this.conv.set(null); this.reload(); },
+      error: () => this.toast.add({ severity: 'error', summary: 'No se pudo promover' }),
+    });
+  }
 
   loadExamples() {
     this.loading.set(true);
