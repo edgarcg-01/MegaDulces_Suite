@@ -7,6 +7,8 @@ import { ConversationThreadService } from './conversation/conversation-thread.se
 import { ConversationOrchestratorService } from './conversation/conversation-orchestrator.service';
 import { WhatsAppIngestService } from './webhook/whatsapp-ingest.service';
 import { WhatsAppWebhookController } from './webhook/whatsapp-webhook.controller';
+import { WhatsAppOrdersService } from './orders/whatsapp-orders.service';
+import { WhatsAppOrdersController } from './orders/whatsapp-orders.controller';
 
 /**
  * Fase F (ADR-006/007/034) — Comercio conversacional por WhatsApp.
@@ -29,7 +31,7 @@ const whatsAppPortProvider = {
 };
 
 @Module({
-  controllers: [WhatsAppWebhookController],
+  controllers: [WhatsAppWebhookController, WhatsAppOrdersController],
   providers: [
     // Ambos adaptables se instancian solo si son la clase elegida por el token;
     // los declaramos para que Nest los pueda construir vía el useClass.
@@ -40,6 +42,7 @@ const whatsAppPortProvider = {
     ConversationThreadService,
     ConversationOrchestratorService,
     WhatsAppIngestService,
+    WhatsAppOrdersService,
   ],
   exports: [WHATSAPP_PORT, WhatsAppQueueService, ConversationThreadService, ConversationOrchestratorService, WhatsAppIngestService],
 })

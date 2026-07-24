@@ -12,6 +12,7 @@ export * from './lib/commercial-inventory/commercial-inventory.module';
 export * from './lib/commercial-orders/commercial-orders.module';
 export * from './lib/commercial-payments/commercial-payments.module';
 export * from './lib/commercial-home-delivery/commercial-home-delivery.module';
+export * from './lib/commercial-home-delivery/commercial-home-delivery.service';
 export * from './lib/commercial-rider-liquidation/commercial-rider-liquidation.module';
 export * from './lib/commercial-carga/commercial-carga.module';
 export * from './lib/commercial-analytics/commercial-analytics.module';

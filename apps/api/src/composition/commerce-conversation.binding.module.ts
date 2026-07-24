@@ -2,11 +2,15 @@ import { Global, Injectable, Module } from '@nestjs/common';
 import { COMMERCE_CONVERSATION_PORT } from '@megadulces/contracts';
 import type {
   CommerceConversationPort,
+  ConversationOrderDto,
+  ConversationOrderResult,
   ConversationProductHit,
 } from '@megadulces/contracts';
 import {
   CommercialCatalogSearchModule,
   CommercialCatalogSearchService,
+  CommercialHomeDeliveryModule,
+  CommercialHomeDeliveryService,
 } from '@megadulces/commercial';
 
 /**
@@ -22,7 +26,10 @@ import {
  */
 @Injectable()
 class CatalogSearchCommerceAdapter implements CommerceConversationPort {
-  constructor(private readonly search: CommercialCatalogSearchService) {}
+  constructor(
+    private readonly search: CommercialCatalogSearchService,
+    private readonly homeDelivery: CommercialHomeDeliveryService,
+  ) {}
 
   async searchProducts(query: string, opts?: { limit?: number }): Promise<ConversationProductHit[]> {
     const q = (query || '').trim();
@@ -38,11 +45,21 @@ class CatalogSearchCommerceAdapter implements CommerceConversationPort {
         min_qty: Number(r.min_qty) || 1,
       }));
   }
+
+  async createHomeDeliveryOrder(dto: ConversationOrderDto): Promise<ConversationOrderResult> {
+    const order: any = await this.homeDelivery.createIntake({
+      casual: { name: dto.casual.name, phone: dto.casual.phone },
+      delivery_address: dto.delivery_address,
+      delivery_channel: 'whatsapp',
+      lines: dto.lines.map((l) => ({ product_id: l.product_id, quantity: l.quantity })),
+    });
+    return { order_id: order.id, code: order.code, total: Number(order.total) || 0 };
+  }
 }
 
 @Global()
 @Module({
-  imports: [CommercialCatalogSearchModule],
+  imports: [CommercialCatalogSearchModule, CommercialHomeDeliveryModule],
   providers: [
     CatalogSearchCommerceAdapter,
     { provide: COMMERCE_CONVERSATION_PORT, useExisting: CatalogSearchCommerceAdapter },

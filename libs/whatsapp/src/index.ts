@@ -14,3 +14,5 @@ export * from './lib/conversation/conversation-thread.service';
 export * from './lib/conversation/conversation-orchestrator.service';
 export * from './lib/webhook/whatsapp-ingest.service';
 export * from './lib/webhook/whatsapp-webhook.controller';
+export * from './lib/orders/whatsapp-orders.service';
+export * from './lib/orders/whatsapp-orders.controller';
