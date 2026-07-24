@@ -31,4 +31,6 @@ paths = [
 # NO matchea acá → se marca como hallazgo, que es lo que queremos.
 regexes = [
   '''(postgres(?:ql)?|redis):\/\/[^:@\/\s]+:(superoot|postgres|kepler123)@(localhost|127\.0\.0\.1|192\.168\.|::1)''',
+  # DSN de Sentry del frontend: PÚBLICO por diseño (va en el bundle del browser).
+  '''https:\/\/[a-f0-9]+@o\d+\.ingest\.[a-z0-9.]*sentry\.io\/\d+''',
 ]
