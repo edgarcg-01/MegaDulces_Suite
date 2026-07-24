@@ -15,7 +15,7 @@
 | C — Sales Intelligence | 🟢 **CERRADA formalmente (beta)** | C.0+C.1+C.3 MVP+C.4+C.5 ✅ — cierre verificado 2026-06-02 | 100% (C.0bis exhibition normalization + C.3.8-9 mapa/drill-down deferred) |
 | D — Catálogo + B2B Portal | 🟢 **CERRADA formalmente (beta)** | D.0+D.1+D.2+D.3+D.4+D.5 ✅ — cierre verificado 2026-06-02 | 100% (D.2.3 offline sync queue + D.3.1 app separada deferred post-beta) |
 | **E — Remote Manager (televenta)** | 🟢 **CERRADA formalmente (beta)** | E.0+E.1+E.2 ✅ — cierre verificado 2026-06-02 con regression 19/19. Schema (lead_reservations + call_logs + rol tele_operator) + backend 7 endpoints + cron @5min + frontend `/televenta/*`. Validación visual pendiente (E.3.2). | 100% beta-ready |
-| **F — Comercio Conversacional (WhatsApp)** | 🔨 **DISEÑADO 2026-07-24 — ADR-006/007/034 resueltos** | Reescrita: cliente pide por WhatsApp con chat conversacional → **bot arma / humano confirma** → cae en la cadena de Reparto YA construida (`createIntake` en `pending_approval` → bandeja `/reparto/pedidos-whatsapp` → `/reparto/asignar` → COD → liquidación). **Canal = Meta Cloud API directo** detrás de `WhatsAppPort` (+ adaptador simulador para dev sin BSP). **LLM = Claude Haiku tool-use** (reusa `LlmExtractorService`/Thot/Maat); el motor decide el dinero (catalog-search + Match-AI K + pricing), el LLM fuera (ADR-016). **Infra = Redis+BullMQ** (colas in/out, idempotencia por message_id, degrada in-process sin `REDIS_URL`). 5 sprints F.0–F.4. Plan en [`FASE_F`](FASES/FASE_F_WHATSAPP_BOT.md). Sin código aún. | 0% (diseñado) |
+| **F — Comercio Conversacional (WhatsApp)** | 🧪 **F.0–F.3 EN CÓDIGO 2026-07-24 (builds api+view verdes, 4 commits) — camino comercial CERRADO** | Cliente pide por WhatsApp con chat conversacional → **bot arma / humano confirma** → cae en la cadena de Reparto YA construida. **F.0** `libs/whatsapp` (puerto + simulador + Meta Cloud adapter HMAC + cola BullMQ degradable + estado `whatsapp.conversation_threads`/`messages` RLS + permisos `WHATSAPP_BOT_*`). **F.1** webhook `@Public()` (verify + HMAC + dedup) + ingesta a cola con scope CLS sintético + `/sim`. **F.2** `ConversationOrchestratorService` (Claude Haiku tool-use, 7 tools; precio del motor NO del LLM, ADR-016; degrada a handoff sin API key) vía `COMMERCE_CONVERSATION_PORT` (frontera limpia). **F.3** bandeja `/reparto/pedidos-whatsapp` (confirmar → `createIntake` → `/reparto/asignar` → COD → liquidación; avisa al cliente por WA). Smoke `http-whatsapp-webhook-test.js` en runner. **F.4 (handoff explícito + panel de conversaciones) DIFERIDO — nice-to-have; el camino comercial está cerrado.** **Pendiente operacional (Edgar): `migrate:new` + smoke + validación en vivo/visual con `ANTHROPIC_API_KEY`; para prod real: app Meta + número + `WHATSAPP_*` env + `REDIS_URL`.** Plan en [`FASE_F`](FASES/FASE_F_WHATSAPP_BOT.md). | ~80% (F.0–F.3 en código; F.4 diferido; falta migrate+validación) |
 | G — Growth | ⏸️ Bloqueada por D | — | 0% |
 | H — Fintech | ⏸️ Bloqueada por D | — | 0% |
 | I — ML + WS scaling | ⏸️ Bloqueada por H | — | 0% |
@@ -620,11 +620,13 @@ Plan: [`FASES/FASE_SM_SUPERVISOR_MOVIMIENTOS.md`](FASES/FASE_SM_SUPERVISOR_MOVIM
 - [x] **[F.3.1]** ✅ Decisión: el bot NO crea la orden — el hilo en `review` ES el estado pendiente; la **aprobación humana es la confirmación** (más simple que `pending_approval` intermedio). Puerto `COMMERCE_CONVERSATION_PORT.createHomeDeliveryOrder` → `CommercialHomeDeliveryService.createIntake` (cliente casual + domicilio + líneas, canal whatsapp, confirmado + stock reservado).
 - [x] **[F.3.2]** ✅ Backend `WhatsAppOrdersService` + `WhatsAppOrdersController` (`/whatsapp/orders`): `GET` bandeja (hilos `review` con carrito/domicilio/total, perm `WHATSAPP_BOT_VER`), `POST :id/confirm` (crea orden → avisa al cliente por WA → cierra hilo, perm `WHATSAPP_BOT_GESTIONAR`), `POST :id/reject` (cierra + avisa). Frontend `/reparto/pedidos-whatsapp` (master-detail Operations: lista + detalle con productos/domicilio/total + Confirmar/Rechazar) + nav "Pedidos WhatsApp" en el shell de Reparto. Confirmado → cae en `/reparto/asignar`. **Builds api+view VERDES.** Pendiente: validación visual + E2E en vivo.
 
-### Sprint F.4 — Handoff + panel de conversaciones ⬜
+### Sprint F.4 — Handoff + panel de conversaciones ⏸️ DIFERIDO (nice-to-have)
 
-- [ ] **[F.4.1]** Handoff a operador (umbral "no entendí" + palabra clave) + responder manual desde el panel.
+> El camino comercial (pedir → reparto → cobro) quedó cerrado con F.0–F.3. El bot ya deriva a `handoff` cuando no entiende (tool `handoff_humano` + degradación sin API key). F.4 agrega la vista para retomar esos hilos + métricas, pero no bloquea la operación.
+
+- [ ] **[F.4.1]** Vista para retomar hilos en `handoff` (responder manual desde el panel) + palabra clave de escalamiento.
 - [ ] **[F.4.2]** Dashboard de conversaciones (admin) + métricas (autocompletado%, tiempo, costo/conv, tasa handoff).
-- [ ] **[F.4.3]** Checkpoint: smoke en `run-all-tests.js` + entrada en `03_LOG_REVISIONES.md`.
+- [ ] **[F.4.3]** Checkpoint final de fase.
 
 ---
 
