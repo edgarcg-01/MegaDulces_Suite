@@ -10,6 +10,12 @@
 
 ## [Unreleased]
 
+### Added — JK: Jenkins CI/CD on-prem (scaffold JK.0–JK.3) (2026-07-24)
+- **Ataca 2 dolores** (consumo de red + deploys lentos): los feeds pasan del Windows Task Scheduler mudo (el feed que falló dejó output vacío) a jobs de Jenkins con logs/historial/reintento; y el build de Angular deja de correr **EN Railway** → build local → push a GHCR → Railway solo **baja** la imagen (deja de compilar, deploy en segundos).
+- Scaffold en [`jenkins/`](jenkins/): `docker-compose.yml` (Jenkins LTS, portable, socket Docker, TZ MX), `Jenkinsfile.feeds` (modo+APPLY dry-run default, captura+archiva log por corrida, mapa 1:1 vs Task Scheduler), `Jenkinsfile.deploy` (buildx amd64 → GHCR tags sha+latest → `railway redeploy`; source=Docker Image, `migrate.sh` se conserva), `README.md` (setup + rollout de menor riesgo). Plan en [`FASE_JK`](docs/IMPLEMENTACION/FASES/FASE_JK_JENKINS_CICD.md).
+- **Notas registradas:** para 1 dev Jenkins es más pesado que un self-hosted GitHub Actions runner (ya existe `.github/workflows/ci.yml`) — se mantiene por decisión explícita. "Comprimir importers en binario" **no reduce el egress** (lo causan las filas que viajan a Railway) → JK.4 opcional; el fix de raíz vive en el proyecto Coolify on-prem (DB de prod en la LAN).
+- **Sin runtime aún:** falta `docker compose up -d` en el box on-prem + credenciales + config del dashboard de Railway. Sin cambios en el código de la app.
+
 ### Changed — CB: Bancos con permisos propios (aparece en Roles y Permisos) (2026-07-22)
 - Bancos dejaba de verse en `/admin/roles` porque reusaba `FINANCE_EXPENSES_VER`/`FINANCE_FINDINGS_GESTIONAR` (no tenía nodo propio en `AUTHZ_TREE`). Ahora tiene **permisos dedicados** (independencia por módulo): `FINANCE_BANK_VER` (ver) + `FINANCE_BANK_GESTIONAR` (subir/reclasificar/reglas/match). Enum back (`libs/platform-core`) + front, controller `finance-bank` migrado a los nuevos, nodo **Bancos** en el árbol de autz (proyecto Finanzas), labels en `permission-meta`, preset `finanzas`, guard de ruta + tab.
 - **Backfill** (mig `20260722180000`, aplicada local+Railway): ancla los nuevos a los que Bancos usaba (`BANK_VER←EXPENSES_VER`, `BANK_GESTIONAR←FINDINGS_GESTIONAR`) para que **ningún rol pierda acceso** — 37 roles en Railway (finanzas/tesorería/contabilidad/admin…). **Requiere RE-LOGIN** (el JWT lleva los permisos). Builds api+view verdes.

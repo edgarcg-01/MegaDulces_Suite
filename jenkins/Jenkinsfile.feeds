@@ -1,0 +1,114 @@
+// ─────────────────────────────────────────────────────────────────────────────
+// JK.1 — Pipeline de FEEDS (carga de información Kepler → prod)
+//
+// Reemplaza el Windows Task Scheduler que hoy dispara run-prod-feeds.js. Ventaja
+// sobre Task Scheduler: logs por paso archivados, historial, reintento, trigger
+// manual y alerta en fallo (el feed que falló hoy dejó output VACÍO — esto lo
+// arregla).
+//
+// Cada importer sigue siendo la fuente de verdad; esto solo secuencia + captura.
+//
+// SETUP (una vez, en Jenkins → Manage Credentials, tipo "Secret text"):
+//   - id: DATABASE_URL_NEW                → proxy Railway prod (postgresql://...@...proxy.rlwy.net:.../railway)
+//   - id: DATABASE_URL_KEPLER_CONSOLIDADO → postgresql://...@192.168.0.245:5433/kepler_consolidado
+//   - id: MEGA_DULCES_URL                 → postgresql://...@192.168.0.245:5432/Mega_Dulces  (solo mode=catalog)
+//
+// IMPORTANTE: usá la IP LAN (192.168.0.245), NO 'localhost' — el pipeline corre
+// dentro de un contenedor y 'localhost' apuntaría al contenedor, no al host.
+//
+// Jobs sugeridos (crea uno por modo con este mismo Jenkinsfile + trigger cron):
+//   feeds-live     H/15 * * * *      APPLY=true  MODE=live
+//   feeds-stock    H/30 * * * *      APPLY=true  MODE=stock
+//   feeds-nightly  H 4 * * *         APPLY=true  MODE=nightly
+//   feeds-catalog  H 3 * * 1         APPLY=true  MODE=catalog   (semanal, lunes)
+// ─────────────────────────────────────────────────────────────────────────────
+pipeline {
+  agent {
+    docker {
+      image 'node:20-bookworm-slim'
+      // 'host' → el contenedor alcanza el .245 y el proxy de Railway sin NAT.
+      // Windows/Docker Desktop: cambiá por '--add-host=host.docker.internal:host-gateway'
+      // y usá host.docker.internal en las credenciales.
+      args '--network host'
+    }
+  }
+
+  parameters {
+    choice(
+      name: 'MODE',
+      choices: ['live', 'stock', 'nightly', 'finance', 'catalog', 'logistics', 'all'],
+      description: 'Modo de run-prod-feeds.js'
+    )
+    booleanParam(
+      name: 'APPLY',
+      defaultValue: false,
+      description: 'false = dry-run (no escribe). true = commit a prod. DEJAR EN false para probar el pipeline.'
+    )
+    string(
+      name: 'LIVE_DAYS',
+      defaultValue: '3',
+      description: 'Solo mode=live: ventana de días a refrescar (SALES_FACT_DAYS). Mantener chico = barato.'
+    )
+  }
+
+  options {
+    timestamps()
+    disableConcurrentBuilds()        // dos feeds al mismo destino se pisarían
+    timeout(time: 60, unit: 'MINUTES')
+    buildDiscarder(logRotator(numToKeepStr: '50'))
+  }
+
+  environment {
+    CI = 'true'
+    NPM_CONFIG_FUND = 'false'
+    NPM_CONFIG_AUDIT = 'false'
+  }
+
+  stages {
+    stage('Checkout') {
+      steps { checkout scm }
+    }
+
+    stage('Install deps') {
+      steps {
+        // Solo prod deps: los importers usan pg/knex/exceljs/dotenv, nada de devDeps.
+        sh 'npm ci --omit=dev --prefer-offline --no-audit --no-fund'
+      }
+    }
+
+    stage('Run feeds') {
+      environment {
+        DATABASE_URL_NEW                = credentials('DATABASE_URL_NEW')
+        DATABASE_URL_KEPLER_CONSOLIDADO = credentials('DATABASE_URL_KEPLER_CONSOLIDADO')
+        MEGA_DULCES_URL                 = credentials('MEGA_DULCES_URL')
+      }
+      steps {
+        script {
+          // mode=live refresca solo los últimos N días del fact (barato).
+          if (params.MODE == 'live') { env.SALES_FACT_DAYS = params.LIVE_DAYS }
+          def applyFlag = params.APPLY ? '--apply' : ''
+          echo "Feeds: modo=${params.MODE} apply=${params.APPLY}"
+          // tee → el log queda en el workspace para archivar además del console.
+          sh """
+            set -o pipefail
+            node database/importers/kepler/run-prod-feeds.js ${params.MODE} ${applyFlag} 2>&1 \
+              | tee feeds-${params.MODE}.log
+          """
+        }
+      }
+    }
+  }
+
+  post {
+    always {
+      archiveArtifacts artifacts: "feeds-*.log", allowEmptyArchive: true, fingerprint: false
+    }
+    failure {
+      // TODO(JK.1.1): enganchar alerta (WS AlertsService / correo / webhook).
+      echo "⚠️  Feed '${params.MODE}' FALLÓ — revisar feeds-${params.MODE}.log archivado."
+    }
+    success {
+      echo "✅ Feed '${params.MODE}' OK."
+    }
+  }
+}
