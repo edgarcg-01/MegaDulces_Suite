@@ -11,3 +11,5 @@ export * from './lib/adapters/simulator.adapter';
 export * from './lib/adapters/meta-cloud.adapter';
 export * from './lib/queue/whatsapp-queue.service';
 export * from './lib/conversation/conversation-thread.service';
+export * from './lib/webhook/whatsapp-ingest.service';
+export * from './lib/webhook/whatsapp-webhook.controller';

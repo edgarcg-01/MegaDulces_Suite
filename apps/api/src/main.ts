@@ -134,6 +134,18 @@ async function bootstrap() {
   app.use('/api/finance/expenses/proofs', json({ limit: '16mb' }));
   // Conciliación bancaria (CB.2.1): el workbook Excel llega como base64 (~2-5MB).
   app.use('/api/finance/bank/import', json({ limit: '25mb' }));
+  // WhatsApp (F.1): el webhook de Meta necesita el body CRUDO para validar la
+  // firma HMAC (X-Hub-Signature-256). `verify` guarda el buffer en req.rawBody
+  // antes de que se parsee el JSON. Montado antes del global para que gane.
+  app.use(
+    '/api/webhooks/whatsapp',
+    json({
+      limit: '1mb',
+      verify: (req: any, _res, buf: Buffer) => {
+        if (buf?.length) req.rawBody = buf;
+      },
+    }),
+  );
   app.use(json({ limit: '2mb' }));
   app.use(urlencoded({ extended: true, limit: '2mb' }));
 

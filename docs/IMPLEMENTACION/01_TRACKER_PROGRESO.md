@@ -594,20 +594,20 @@ Plan: [`FASES/FASE_SM_SUPERVISOR_MOVIMIENTOS.md`](FASES/FASE_SM_SUPERVISOR_MOVIM
 
 > ADR-006 (Meta Cloud API) · ADR-007 (Claude Haiku) · ADR-034 (arquitectura). Plan completo en [`FASES/FASE_F_WHATSAPP_BOT.md`](FASES/FASE_F_WHATSAPP_BOT.md).
 
-### Sprint F.0 — Fundación (`libs/whatsapp` + cola + estado) 🔨
+### Sprint F.0 — Fundación (`libs/whatsapp` + cola + estado) ✅ EN CÓDIGO (2026-07-24, build api verde)
 
-- [ ] **[F.0.1]** Lib `libs/whatsapp` + registro Nx (`@megadulces/whatsapp` en tsconfig.base).
-- [ ] **[F.0.2]** `WhatsAppPort` (interface) + `SimulatorWhatsAppAdapter` (dev, sin Meta) + selección por `WHATSAPP_PROVIDER`.
-- [ ] **[F.0.3]** Cola BullMQ `whatsapp-in`/`whatsapp-out` con degradación in-process si no hay `REDIS_URL` (patrón `CacheModule`). Instalar `bullmq`.
-- [ ] **[F.0.4]** Migración `whatsapp.conversation_threads` + `whatsapp.messages` (RLS forzado, patrón A.0mt, UPSERT por `wa_message_id`).
-- [ ] **[F.0.5]** Permisos `WHATSAPP_BOT_VER` / `WHATSAPP_BOT_GESTIONAR` (enum BE+FE + ability.factory + AppSubject + seed roles + backfill migration).
-- [ ] **[F.0.6]** Wiring en AppModule bajo `ENABLE_MULTITENANT` + smoke inicial (crear hilo, encolar/procesar mensaje simulado).
+- [x] **[F.0.1]** ✅ Lib `libs/whatsapp` + registro Nx (`@megadulces/whatsapp` en tsconfig.base). Fix `.gitignore` `WhatsApp*/` → `/WhatsApp*/` (capturaba la lib por FS case-insensitive de Windows).
+- [x] **[F.0.2]** ✅ `WhatsAppPort` (interface + token DI) + `SimulatorWhatsAppAdapter` (dev, buffer outbox) + `MetaCloudWhatsAppAdapter` (Graph v21 + HMAC) + selección por `WHATSAPP_PROVIDER` (default `simulator`).
+- [x] **[F.0.3]** ✅ Cola `WhatsAppQueueService` — BullMQ (`whatsapp-in`/`whatsapp-out`, attempts 5 + backoff exp, jobId idempotente) si hay `REDIS_URL`; degrada in-process si no (patrón `CacheModule`). `bullmq@5.81.1` instalado; import diferido (no penaliza boot sin Redis).
+- [x] **[F.0.4]** ✅ Migración `20260724140000` — `whatsapp.conversation_threads` (1 hilo abierto/número por índice parcial) + `whatsapp.messages` (dedup por índice parcial `wa_message_id`), RLS forzado + grants app_runtime. `ConversationThreadService` (getOrCreate/update/logMessage, RLS vía `TenantKnexService.run`).
+- [x] **[F.0.5]** ✅ Permisos `WHATSAPP_BOT_VER`/`GESTIONAR` (enum BE+FE + ability.factory subject `whatsapp` + AppSubject + backfill ← `REPARTO_DESPACHAR`, customer_b2b nunca).
+- [x] **[F.0.6]** ✅ Wiring en AppModule bajo `ENABLE_MULTITENANT`. **Build api VERDE.** Pendiente operacional: `migrate:new` + correr smoke con API arriba.
 
-### Sprint F.1 — Canal Meta (webhook + emisor) ⬜
+### Sprint F.1 — Canal Meta (webhook + emisor) 🧪 EN CÓDIGO (2026-07-24, build api verde)
 
-- [ ] **[F.1.1]** `MetaCloudWhatsAppAdapter` (envío a Graph API v21 + validación HMAC `X-Hub-Signature-256`).
-- [ ] **[F.1.2]** `GET /webhooks/whatsapp` (verify token) + `POST /webhooks/whatsapp` (parse inbound + dedup por `message_id` → encola).
-- [ ] **[F.1.3]** Config env (`WHATSAPP_*`) + endpoint `POST /webhooks/whatsapp/sim` (solo simulador).
+- [x] **[F.1.1]** ✅ `MetaCloudWhatsAppAdapter` (envío texto/interactive a Graph v21 + validación HMAC `X-Hub-Signature-256` con `WHATSAPP_APP_SECRET`, timing-safe; degrada no-op sin credenciales).
+- [x] **[F.1.2]** ✅ `WhatsAppWebhookController` `@Public()`: `GET /webhooks/whatsapp` (handshake verify) + `POST` (parse inbound → dedup por `wa_message_id` → hilo → log → encola; 200 rápido). `WhatsAppIngestService` resuelve tenant + scope CLS sintético (`tenantCtx.run`) + workers in/out (F.1 = responder placeholder, F.2 lo reemplaza). Raw body para HMAC capturado en main.ts (`verify` → `req.rawBody`).
+- [x] **[F.1.3]** ✅ Config env (`WHATSAPP_PROVIDER`/`_PHONE_NUMBER_ID`/`_ACCESS_TOKEN`/`_VERIFY_TOKEN`/`_APP_SECRET`/`_TENANT_ID`) + `POST /webhooks/whatsapp/sim` (solo `provider=simulator`). Smoke `http-whatsapp-webhook-test.js` escrito + registrado en `run-all-tests.js` (needsApi). **Pendiente: correr con API arriba.**
 
 ### Sprint F.2 — Orquestador conversacional ⬜
 

@@ -4,6 +4,8 @@ import { SimulatorWhatsAppAdapter } from './adapters/simulator.adapter';
 import { MetaCloudWhatsAppAdapter } from './adapters/meta-cloud.adapter';
 import { WhatsAppQueueService } from './queue/whatsapp-queue.service';
 import { ConversationThreadService } from './conversation/conversation-thread.service';
+import { WhatsAppIngestService } from './webhook/whatsapp-ingest.service';
+import { WhatsAppWebhookController } from './webhook/whatsapp-webhook.controller';
 
 /**
  * Fase F (ADR-006/007/034) — Comercio conversacional por WhatsApp.
@@ -26,6 +28,7 @@ const whatsAppPortProvider = {
 };
 
 @Module({
+  controllers: [WhatsAppWebhookController],
   providers: [
     // Ambos adaptables se instancian solo si son la clase elegida por el token;
     // los declaramos para que Nest los pueda construir vía el useClass.
@@ -34,8 +37,9 @@ const whatsAppPortProvider = {
     whatsAppPortProvider,
     WhatsAppQueueService,
     ConversationThreadService,
+    WhatsAppIngestService,
   ],
-  exports: [WHATSAPP_PORT, WhatsAppQueueService, ConversationThreadService],
+  exports: [WHATSAPP_PORT, WhatsAppQueueService, ConversationThreadService, WhatsAppIngestService],
 })
 export class WhatsAppModule {
   private readonly logger = new Logger(WhatsAppModule.name);

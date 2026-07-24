@@ -53,6 +53,8 @@ const TESTS = [
   { file: 'http-j10-order-tracking-test.js', label: 'J.10 order tracking (commercial/orders/:id/shipments)', needsApi: true },
   // Fase LM-K — entrega a domicilio desde folio Kepler
   { file: 'http-home-delivery-test.js', label: 'LM-K entrega domicilio (folio Kepler → dispatch → outcome COD → arqueo)', needsApi: true },
+  // Fase F — comercio conversacional WhatsApp (webhook simulador end-to-end)
+  { file: 'http-whatsapp-webhook-test.js', label: 'F.0/F.1 WhatsApp webhook (verify + /sim inbound → cola → placeholder out + dedup + DB hilo/mensajes)', needsApi: true },
   // Fase K — AI product match en captures
   { file: 'http-ai-match-test.js', label: 'K.1 AI product match (Claude Haiku + Voyage + pgvector)', needsApi: true },
   // Cierre de ruta (port Automation_RD)
