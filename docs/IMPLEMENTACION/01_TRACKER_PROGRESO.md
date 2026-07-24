@@ -640,11 +640,11 @@ Plan: [`FASES/FASE_SM_SUPERVISOR_MOVIMIENTOS.md`](FASES/FASE_SM_SUPERVISOR_MOVIM
 
 > Edgar eligió **humano confirma**. No se sube la autonomía del bot: "surtir" = el flujo F.3 (bandeja) + validación de stock de F.5. Si en el futuro se quiere bot-cierra-solo, reabrir aquí.
 
-### Sprint F.7 — Promos con imágenes ⬜ (planeado)
+### Sprint F.7 — Promos con imágenes 🧪 EN CÓDIGO (2026-07-24, build api verde)
 
-- [ ] **[F.7.1]** `MetaCloudWhatsAppAdapter.sendImage` (media por link/id) + `sendTemplate` (plantilla con header de imagen).
-- [ ] **[F.7.2]** Catálogo de templates de marketing (creados+aprobados en Meta — **trámite de Edgar**, ~1-2 días revisión). ⚠️ Promos iniciadas por el negocio fuera de la ventana 24h **exigen** template aprobado.
-- [ ] **[F.7.3]** El bot puede mandar imagen libre dentro de la ventana 24h (cliente que ya escribió).
+- [x] **[F.7.1]** ✅ `WhatsAppPort += sendImage/sendTemplate`; adapter Meta (payloads Graph v21: `type:image` link+caption, `type:template` con header de imagen + body params) + simulador (outbox). Cola de salida soporta kinds `image`/`template`; worker `out` despacha por tipo.
+- [x] **[F.7.3]** ✅ `WhatsAppPromoService` + `WhatsAppPromoController` (`/whatsapp/promos`, `WHATSAPP_BOT_GESTIONAR`): `POST /image` (imagen libre — solo ventana 24h) y `POST /template` (plantilla aprobada — inicia fuera de ventana). getOrCreate hilo → encola out → log. **Build verde. Runtime pendiente (DB caída).**
+- [ ] **[F.7.2]** ⏳ **Trámite de Edgar (fuera de código):** crear + aprobar en Meta los templates de marketing (~1-2 días). ⚠️ Sin template aprobado, las promos fuera de ventana 24h fallan. El código ya los envía por nombre.
 
 ### Sprint F.8 — Envíos masivos de promos (broadcast) ⬜ (planeado)
 
