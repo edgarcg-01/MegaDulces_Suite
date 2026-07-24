@@ -1,0 +1,104 @@
+// ─────────────────────────────────────────────────────────────────────────────
+// JK.2 + JK.3 — Build LOCAL → push a GHCR → Railway baja la imagen
+//
+// Hoy Railway COMPILA el Dockerfile (Angular heap 4GB + api) en cada deploy →
+// deploy lento + consumo de build en Railway. Este pipeline compila en tu box
+// local (RAM sobra), pushea la imagen a GHCR, y dispara a Railway para que solo
+// la BAJE y corra. Railway sigue siendo el hosting; deja de compilar.
+//
+// SETUP (una vez):
+//  1. Credenciales en Jenkins:
+//       - id: GHCR_CREDS     (tipo Username+Password) → user GitHub + PAT con write:packages
+//       - id: RAILWAY_TOKEN  (tipo Secret text)       → Project/Service token de Railway
+//  2. En GitHub: el PAT necesita scope write:packages (push) — read:packages para que Railway baje.
+//  3. En Railway (dashboard, una sola vez): Service → Settings → Source →
+//       "Docker Image" → ghcr.io/<OWNER>/trade-marketing:latest
+//       + registry credentials (user GitHub + PAT read:packages) si el paquete es privado.
+//     El preDeployCommand (migrate.sh) se conserva: corre igual con image source.
+//
+// NOTA amd64: Railway corre linux/amd64. Si el box de Jenkins es amd64 (Windows/.245),
+// el build es nativo. Si fuera ARM, el --platform lo emula (lento).
+// ─────────────────────────────────────────────────────────────────────────────
+pipeline {
+  agent none
+
+  parameters {
+    string(name: 'IMAGE', defaultValue: 'ghcr.io/CHANGEME/trade-marketing',
+           description: 'Repo de la imagen en GHCR (ghcr.io/<owner>/<name>). Reemplazar CHANGEME.')
+    string(name: 'RAILWAY_SERVICE', defaultValue: 'api',
+           description: 'Nombre del servicio en Railway a redeployar.')
+    booleanParam(name: 'PUSH', defaultValue: true,
+           description: 'true = push a GHCR. false = solo build local (probar Dockerfile).')
+    booleanParam(name: 'DEPLOY', defaultValue: true,
+           description: 'true = dispara railway redeploy tras el push. false = solo deja la imagen en GHCR.')
+  }
+
+  options {
+    timestamps()
+    disableConcurrentBuilds()
+    timeout(time: 40, unit: 'MINUTES')
+    buildDiscarder(logRotator(numToKeepStr: '30'))
+  }
+
+  stages {
+    stage('Build & Push') {
+      agent {
+        docker {
+          image 'docker:27-cli'
+          args '-v /var/run/docker.sock:/var/run/docker.sock --network host'
+        }
+      }
+      steps {
+        checkout scm
+        script {
+          env.GIT_SHA = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
+        }
+        withCredentials([usernamePassword(credentialsId: 'GHCR_CREDS',
+                          usernameVariable: 'GHCR_USER', passwordVariable: 'GHCR_PAT')]) {
+          sh '''
+            set -e
+            echo "$GHCR_PAT" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
+
+            # buildx con --platform amd64 (target Railway). El Dockerfile usa
+            # cache mounts BuildKit → requiere buildx (docker:cli lo trae).
+            docker buildx create --use --name tmbuilder 2>/dev/null || docker buildx use tmbuilder
+
+            PUSHFLAG=$( [ "${PUSH}" = "true" ] && echo "--push" || echo "--load" )
+
+            docker buildx build \
+              --platform linux/amd64 \
+              -t ${IMAGE}:${GIT_SHA} \
+              -t ${IMAGE}:latest \
+              ${PUSHFLAG} \
+              .
+
+            docker logout ghcr.io
+          '''
+        }
+        echo "Imagen: ${params.IMAGE}:${env.GIT_SHA} (+ :latest)"
+      }
+    }
+
+    stage('Deploy (Railway pull)') {
+      when { expression { return params.DEPLOY && params.PUSH } }
+      agent {
+        docker {
+          image 'node:20-bookworm-slim'
+          args '--network host'
+        }
+      }
+      steps {
+        withCredentials([string(credentialsId: 'RAILWAY_TOKEN', variable: 'RAILWAY_TOKEN')]) {
+          // Railway ya está configurado con source = Docker Image = ${IMAGE}:latest.
+          // redeploy hace que baje la última :latest recién pusheada.
+          sh 'npx -y @railway/cli@latest redeploy --service "${RAILWAY_SERVICE}" -y'
+        }
+        echo "✅ Railway redeploy disparado para servicio '${params.RAILWAY_SERVICE}'."
+      }
+    }
+  }
+
+  post {
+    failure { echo "⚠️  Build/deploy FALLÓ — revisar consola." }
+  }
+}

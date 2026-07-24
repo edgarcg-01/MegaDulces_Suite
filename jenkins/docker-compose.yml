@@ -1,0 +1,41 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Jenkins on-prem — controlador único (JK.0)
+#
+# Corre en el MISMO box que hoy ejecuta los feeds (el que alcanza Kepler local
+# 5433, el .245 y el proxy de Railway). Portable: idéntico en Windows (Docker
+# Desktop) y Linux.
+#
+# Levantar:   docker compose -f jenkins/docker-compose.yml up -d
+# Password inicial:  docker exec trade-jenkins cat /var/jenkins_home/secrets/initialAdminPassword
+# UI:         http://localhost:8080   (NO exponer a internet directo — ver README)
+#
+# El socket de Docker se monta para que Jenkins pueda (a) lanzar agents en
+# contenedores node:20 para los feeds y (b) construir/pushear el image del deploy
+# (JK.2). Es un privilegio fuerte: el panel DEBE quedar detrás de Cloudflare
+# Access / red privada, nunca abierto a internet.
+# ─────────────────────────────────────────────────────────────────────────────
+services:
+  jenkins:
+    image: jenkins/jenkins:lts-jdk17
+    container_name: trade-jenkins
+    restart: unless-stopped
+    # Linux: 'host' deja que los agents alcancen localhost:5433 y la LAN 192.168.x
+    # sin NAT. En Windows/Docker Desktop 'host' NO aplica: comentá esta línea y usá
+    # host.docker.internal en las URLs de las credenciales (ver README).
+    network_mode: host
+    environment:
+      # -Djenkins... desactiva el setup wizard nada; solo fija zona horaria MX.
+      JAVA_OPTS: "-Duser.timezone=America/Mexico_City -Djenkins.install.runSetupWizard=true"
+      # Puerto del controlador (con network_mode host se publica directo).
+      JENKINS_OPTS: "--httpPort=8080"
+    volumes:
+      - jenkins_home:/var/jenkins_home
+      # Docker CLI + socket: Jenkins habla con el Docker del host.
+      - /var/run/docker.sock:/var/run/docker.sock
+    # En Windows/Docker Desktop, borrá 'network_mode: host' de arriba y descomentá:
+    # ports:
+    #   - "8080:8080"
+    #   - "50000:50000"
+
+volumes:
+  jenkins_home:
