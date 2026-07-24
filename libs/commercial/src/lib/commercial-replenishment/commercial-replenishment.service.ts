@@ -535,10 +535,19 @@ export class CommercialReplenishmentService {
         .distinct('sup.id as id', 'sup.name as name', 'sup.min_order_boxes as min_order_boxes').orderBy('sup.name');
       // RA-PRO.12 — categorías de compra (sourcing, ej. Guadalajara/Arandas): las que tienen
       // productos activos con política. n_suppliers/n_products alimentan la etiqueta del selector.
+      // Depuración del selector (RA-PRO.12): la categoría de Kepler = campo libre de Wincaja
+      // (mismo origen, 100% alineado por código+nombre). Está contaminado con ~84% de nombres de
+      // PROVEEDOR + etiquetas de ESTATUS + basura. Para el filtro de COMPRA excluimos:
+      //  · estatus/ciclo de vida (A ELIMINAR / BAJA ROTACIÓN / OBSOLETO / DESCONTINUADO): no son
+      //    categorías de sourcing y un pedido no debe armarse sobre productos marcados a eliminar.
+      //  · basura sin al menos 3 alfanuméricos ('***', 'A', 'AB').
+      // Se conservan proveedores + plazas + tipos; el selector es buscable por código y nombre.
       const categories = await trx('commercial.reorder_policy as rp')
         .join('catalog.products as pr', (j) => j.on('pr.tenant_id', 'rp.tenant_id').andOn('pr.id', 'rp.product_id'))
         .join('catalog.categories as c', (j) => j.on('c.tenant_id', 'pr.tenant_id').andOn('c.id', 'pr.category_id'))
         .where('rp.tenant_id', tenantId).andWhere('pr.activo', true).whereNull('c.deleted_at')
+        .andWhereRaw(`c.name !~* '(ELIMINAR|BAJA ROTAC|OBSOLET|DESCONTINU|NO USAR|NO UTILIZAR)'`)
+        .andWhereRaw(`btrim(coalesce(c.name,'')) ~ '[[:alnum:]]{3}'`)
         .groupBy('c.id', 'c.code', 'c.name')
         .select('c.id as id', 'c.code as code', 'c.name as name')
         .countDistinct('pr.supplier_id as n_suppliers')

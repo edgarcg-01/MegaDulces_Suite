@@ -80,7 +80,7 @@ type CatLine = CriticalStockRow & { uxc: number; cajas: number; piezas: number; 
                   placeholder="Objetivo" styleClass="qt-sel-sm" ariaLabel="Base del sugerido (objetivo)" pTooltip="Nivel al que se llena el sugerido: aplica a la columna Costo est. y al detalle" tooltipPosition="bottom"></p-select>
         <p-select [options]="categoryOpts()" [(ngModel)]="fCategory" (onChange)="reload()" (onClear)="reload()"
                   optionLabel="label" optionValue="value" placeholder="Todas las categorías" [showClear]="true"
-                  [filter]="true" filterBy="label" filterPlaceholder="Buscar categoría (Guadalajara, Arandas…)" [resetFilterOnHide]="true"
+                  [filter]="true" filterBy="label" filterPlaceholder="Buscar por código o nombre (996, Guadalajara, Arandas…)" [resetFilterOnHide]="true"
                   [virtualScroll]="true" [virtualScrollItemSize]="34" styleClass="qt-sel-wide" ariaLabel="Filtrar por categoría de compra"></p-select>
         <p-select [options]="supplierOpts()" [(ngModel)]="fSearch" (onChange)="reload()" (onClear)="reload()"
                   optionLabel="label" optionValue="value" placeholder="Todos los proveedores" [showClear]="true"
@@ -495,7 +495,8 @@ export class ComprasQueTocaComponent implements OnInit {
       next: (f: ReplenishmentFilters) => {
         this.warehouses.set(f.warehouses.map((w) => ({ id: w.id, code: w.code, label: `${w.code} · ${w.name}` })));
         this.supplierOpts.set(f.suppliers.map((s) => ({ label: s.name, value: s.name })));
-        this.categoryOpts.set((f.categories || []).map((c) => ({ label: `${c.name} · ${c.n_suppliers} prov`, value: c.id })));
+        // Etiqueta con CÓDIGO + nombre (+ #prov) → el filtro del p-select busca por ambos (filterBy=label).
+        this.categoryOpts.set((f.categories || []).map((c) => ({ label: `${c.code ? c.code + ' · ' : ''}${c.name} · ${c.n_suppliers} prov`, value: c.id })));
       },
       error: () => {},
     });
