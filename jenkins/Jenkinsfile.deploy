@@ -1,36 +1,41 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// JK.2 + JK.3 — Build LOCAL → push a GHCR → Railway baja la imagen
+// JK.2 + JK.3 — Build LOCAL (.249) → push Docker Hub → Railway baja la imagen
 //
-// Hoy Railway COMPILA el Dockerfile (Angular heap 4GB + api) en cada deploy →
-// deploy lento + consumo de build en Railway. Este pipeline compila en tu box
-// local (RAM sobra), pushea la imagen a GHCR, y dispara a Railway para que solo
-// la BAJE y corra. Railway sigue siendo el hosting; deja de compilar.
+// Hoy Railway COMPILA el Dockerfile (Angular heap 4GB + api) en cada push (ver
+// .github/workflows/ci.yml: "Railway construye desde el repo") → deploy lento +
+// consumo de build en Railway. Este pipeline compila en .249 (30 GB RAM), pushea
+// a Docker Hub (namespace edgarcg01, el que ya usás), y Railway solo BAJA la
+// imagen. Railway sigue siendo prod; deja de compilar.
+//
+// BONUS: Watchtower en .249 ya observa las imágenes :latest → el stack de PRUEBAS
+// local se auto-actualiza al pushear. Flujo: build → push → .249 prueba solo →
+// gate → railway redeploy a prod.
 //
 // SETUP (una vez):
 //  1. Credenciales en Jenkins:
-//       - id: GHCR_CREDS     (tipo Username+Password) → user GitHub + PAT con write:packages
-//       - id: RAILWAY_TOKEN  (tipo Secret text)       → Project/Service token de Railway
-//  2. En GitHub: el PAT necesita scope write:packages (push) — read:packages para que Railway baje.
-//  3. En Railway (dashboard, una sola vez): Service → Settings → Source →
-//       "Docker Image" → ghcr.io/<OWNER>/trade-marketing:latest
-//       + registry credentials (user GitHub + PAT read:packages) si el paquete es privado.
+//       - id: DOCKERHUB_CREDS  (Username+Password) → user Docker Hub (edgarcg01) + Access Token
+//       - id: RAILWAY_TOKEN    (Secret text)       → Project/Service token de Railway
+//  2. Railway (dashboard, una vez): Service prod → Settings → Source → "Docker Image"
+//       → docker.io/edgarcg01/trade-marketing:latest  (+ credenciales si es privado).
 //     El preDeployCommand (migrate.sh) se conserva: corre igual con image source.
 //
-// NOTA amd64: Railway corre linux/amd64. Si el box de Jenkins es amd64 (Windows/.245),
-// el build es nativo. Si fuera ARM, el --platform lo emula (lento).
+// NOTA: el Dockerfile raíz es la imagen COMBINADA (nginx+api) que usa Railway. El
+// stack de pruebas de .249 usa 2 imágenes separadas (trade-marketing-api/-view,
+// build manual aparte) — esas quedan como están; este pipeline es la de prod.
+// amd64: Railway corre linux/amd64; .249 es amd64 → build nativo.
 // ─────────────────────────────────────────────────────────────────────────────
 pipeline {
   agent none
 
   parameters {
-    string(name: 'IMAGE', defaultValue: 'ghcr.io/CHANGEME/trade-marketing',
-           description: 'Repo de la imagen en GHCR (ghcr.io/<owner>/<name>). Reemplazar CHANGEME.')
+    string(name: 'IMAGE', defaultValue: 'edgarcg01/trade-marketing',
+           description: 'Repo de la imagen combinada en Docker Hub (para Railway prod).')
     string(name: 'RAILWAY_SERVICE', defaultValue: 'api',
-           description: 'Nombre del servicio en Railway a redeployar.')
+           description: 'Nombre del servicio prod en Railway a redeployar.')
     booleanParam(name: 'PUSH', defaultValue: true,
-           description: 'true = push a GHCR. false = solo build local (probar Dockerfile).')
+           description: 'true = push a Docker Hub. false = solo build local (probar Dockerfile).')
     booleanParam(name: 'DEPLOY', defaultValue: true,
-           description: 'true = dispara railway redeploy tras el push. false = solo deja la imagen en GHCR.')
+           description: 'true = dispara railway redeploy tras el push. false = solo deja la imagen en Docker Hub (Watchtower actualiza el test de .249).')
   }
 
   options {
@@ -45,7 +50,7 @@ pipeline {
       agent {
         docker {
           image 'docker:27-cli'
-          args '-v /var/run/docker.sock:/var/run/docker.sock --network host'
+          args '-v //var/run/docker.sock:/var/run/docker.sock'
         }
       }
       steps {
@@ -53,11 +58,11 @@ pipeline {
         script {
           env.GIT_SHA = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
         }
-        withCredentials([usernamePassword(credentialsId: 'GHCR_CREDS',
-                          usernameVariable: 'GHCR_USER', passwordVariable: 'GHCR_PAT')]) {
+        withCredentials([usernamePassword(credentialsId: 'DOCKERHUB_CREDS',
+                          usernameVariable: 'DH_USER', passwordVariable: 'DH_PAT')]) {
           sh '''
             set -e
-            echo "$GHCR_PAT" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
+            echo "$DH_PAT" | docker login -u "$DH_USER" --password-stdin
 
             # buildx con --platform amd64 (target Railway). El Dockerfile usa
             # cache mounts BuildKit → requiere buildx (docker:cli lo trae).
@@ -72,7 +77,7 @@ pipeline {
               ${PUSHFLAG} \
               .
 
-            docker logout ghcr.io
+            docker logout
           '''
         }
         echo "Imagen: ${params.IMAGE}:${env.GIT_SHA} (+ :latest)"
@@ -81,12 +86,7 @@ pipeline {
 
     stage('Deploy (Railway pull)') {
       when { expression { return params.DEPLOY && params.PUSH } }
-      agent {
-        docker {
-          image 'node:20-bookworm-slim'
-          args '--network host'
-        }
-      }
+      agent { docker { image 'node:20-bookworm-slim' } }
       steps {
         withCredentials([string(credentialsId: 'RAILWAY_TOKEN', variable: 'RAILWAY_TOKEN')]) {
           // Railway ya está configurado con source = Docker Image = ${IMAGE}:latest.

@@ -1,119 +1,94 @@
 # Jenkins on-prem — orquestación de feeds + build/deploy
 
 Reemplaza el **Windows Task Scheduler** (feeds) y saca el **build fuera de Railway**
-(deploy lento + egress). Corre en el box on-prem que ya alcanza Kepler local, el
-`.245` y el proxy de Railway.
+(deploy lento + consumo). Corre en **`.249` (SISTEMAS)** — el box que hoy ya ejecuta
+los feeds (tareas `Catalog`/`Nightly`/`Stock`), tiene Docker + `pgvector-md` (5433) +
+el stack de pruebas + Watchtower, y alcanza `.245`. **NO va en `.245`** (ése es el box
+de consolidación Kepler; se deja intacto).
 
-> **Nota de arquitectura:** Jenkins funciona, pero es pesado para un solo dev. El
-> equivalente liviano sería un self-hosted GitHub Actions runner (ya existe
-> `.github/workflows/ci.yml`). Se mantiene Jenkins por decisión explícita.
+> **Nota de arquitectura:** para 1 dev Jenkins es pesado. Los **feeds** SÍ necesitan un
+> runner on-prem (acceso LAN a las DBs que un runner cloud no tiene) → justifican
+> Jenkins acá. El **build** podría ir en el GitHub Actions que ya existe
+> (`.github/workflows/ci.yml`, hoy solo gate). Se hace en Jenkins por decisión de Edgar.
 
 ---
 
-## JK.0 — Levantar Jenkins
+## JK.0 — Levantar Jenkins (en .249)
 
 ```bash
 docker compose -f jenkins/docker-compose.yml up -d
-# password inicial:
 docker exec trade-jenkins cat /var/jenkins_home/secrets/initialAdminPassword
 ```
 
-Abrí `http://localhost:8080`, instalá los plugins sugeridos + **Docker Pipeline**.
+Abrí `http://localhost:8080`, instalá plugins sugeridos + **Docker Pipeline**.
 
-**Dónde correrlo:** el mismo box que hoy dispara los feeds. En **Linux** (ideal,
-ej. `.245`) `network_mode: host` deja que los agents alcancen `localhost:5433` y la
-LAN sin NAT. En **Windows/Docker Desktop**: quitá `network_mode: host` del compose,
-descomentá los `ports:`, y en las credenciales usá `host.docker.internal` en vez
-de `localhost`.
+**Red:** nada de `network_mode: host` (no existe en Docker Desktop). Los pipelines
+alcanzan las DBs por **IP LAN** (`192.168.0.249:5433`, `192.168.0.245:5432`) — tus
+Postgres escuchan en `0.0.0.0`, así que la IP LAN los ve desde cualquier contenedor.
 
-### Seguridad (obligatorio)
-Jenkins monta el socket de Docker → puede construir imágenes y correr contenedores.
-Eso es control total del host. **Nunca** lo expongas directo a internet:
-- Detrás de **Cloudflare Access** (Zero Trust, login con tu correo) cuando montemos el túnel, o
-- Solo accesible por LAN / VPN mientras tanto.
+**Seguridad:** Jenkins monta el socket de Docker → control del host. **Solo LAN/VPN**,
+nunca abierto a internet (cuando montés Cloudflare Tunnel, detrás de Access).
 
 ---
 
 ## JK.1 — Pipeline de feeds
 
-1. **Credenciales** (Manage Jenkins → Credentials → System → Global → Add, tipo *Secret text*):
+1. **Credenciales** (Manage Jenkins → Credentials → *Secret text*):
 
    | ID | Valor | Usado en |
    |---|---|---|
    | `DATABASE_URL_NEW` | proxy Railway prod | todos los modos |
-   | `DATABASE_URL_KEPLER_CONSOLIDADO` | `postgresql://…@192.168.0.245:5433/kepler_consolidado` | todos |
+   | `DATABASE_URL_KEPLER_CONSOLIDADO` | `postgresql://…@192.168.0.249:5433/kepler_consolidado` | todos |
    | `MEGA_DULCES_URL` | `postgresql://…@192.168.0.245:5432/Mega_Dulces` | solo `catalog` |
 
-   ⚠️ Usá la **IP LAN `192.168.0.245`**, NO `localhost` — el pipeline corre en un
-   contenedor y `localhost` sería el contenedor, no el host.
+   ⚠️ IPs LAN (`192.168.0.249` = este host / `192.168.0.245` = Kepler), NO `localhost`.
 
 2. **Un job por modo** (New Item → Pipeline → *Pipeline script from SCM* →
-   `jenkins/Jenkinsfile.feeds`), con trigger cron. Mapa 1:1 contra el Task Scheduler actual:
+   `jenkins/Jenkinsfile.feeds`) con trigger cron, 1:1 contra el Task Scheduler:
 
-   | Job | Cron Jenkins | MODE | APPLY | Reemplaza |
+   | Job | Cron | MODE | APPLY | Reemplaza tarea |
    |---|---|---|---|---|
-   | `feeds-live` | `H/15 * * * *` | live | true | tarea "live 15-30 min" |
-   | `feeds-stock` | `H/30 * * * *` | stock | true | tarea "stock 30 min" |
-   | `feeds-nightly` | `H 4 * * *` | nightly | true | tarea nightly 04:00 |
-   | `feeds-catalog` | `H 3 * * 1` | catalog | true | tarea catálogo semanal |
+   | `feeds-live` | `H/15 * * * *` | live | true | (live 15-30 min) |
+   | `feeds-stock` | `H/30 * * * *` | stock | true | Stock |
+   | `feeds-nightly` | `H 4 * * *` | nightly | true | Nightly |
+   | `feeds-catalog` | `H 3 * * 1` | catalog | true | Catalog |
 
-3. **Primer run = dry-run.** Dejá `APPLY=false` la primera vez: valida checkout,
-   deps, conexión y secuencia **sin escribir a prod**. Recién con el dry-run verde
-   ponés `APPLY=true` en los triggers.
+3. **Primer run = dry-run** (`APPLY=false`): valida checkout/deps/conexión sin escribir.
+   Recién con verde ponés `APPLY=true`.
 
-4. **Apagá las tareas de Windows** recién cuando los jobs equivalentes estén verdes
-   en Jenkins (evita doble escritura).
+4. **Apagá las tareas de Windows** (`Catalog`/`Nightly`/`Stock`) recién con los jobs
+   equivalentes verdes (evita doble escritura).
 
 ---
 
-## JK.2 + JK.3 — Build local → GHCR → Railway baja la imagen
+## JK.2 + JK.3 — Build local → Docker Hub → Railway baja la imagen
 
-El [`Dockerfile`](../Dockerfile) hoy se compila **en Railway** (deploy lento + build
-consume recursos de Railway). [`Jenkinsfile.deploy`](Jenkinsfile.deploy) lo compila
-**local** (RAM sobra), pushea a **GHCR**, y Railway solo **baja** la imagen. Railway
-sigue siendo el hosting; deja de compilar.
+[`Jenkinsfile.deploy`](Jenkinsfile.deploy) compila el [`Dockerfile`](../Dockerfile) raíz
+(combinado nginx+api, el que usa Railway) en `.249`, pushea a **Docker Hub
+`edgarcg01/trade-marketing`**, y Railway solo **baja** la imagen. Watchtower actualiza
+el stack de pruebas de `.249` de yapa.
 
 ### Setup (una vez)
-
-1. **Credenciales en Jenkins:**
+1. Credenciales Jenkins:
    | ID | Tipo | Valor |
    |---|---|---|
-   | `GHCR_CREDS` | Username+Password | user GitHub + PAT con `write:packages` |
+   | `DOCKERHUB_CREDS` | Username+Password | user Docker Hub (`edgarcg01`) + Access Token |
    | `RAILWAY_TOKEN` | Secret text | Project/Service token de Railway |
-
-2. **GitHub PAT:** scope `write:packages` (push desde Jenkins) + `read:packages`
-   (para que Railway baje si el paquete es privado).
-
-3. **Railway (dashboard, una vez):** Service → Settings → **Source → "Docker Image"**
-   → `ghcr.io/<OWNER>/trade-marketing:latest` + registry credentials (user + PAT
-   `read:packages`) si es privado. El **`preDeployCommand` (`migrate.sh`) se conserva** —
-   corre igual con image source, así que las migraciones siguen aplicándose en el deploy.
-
-4. En `Jenkinsfile.deploy` reemplazá `CHANGEME` en el param `IMAGE` por tu owner de GitHub.
+2. Railway (dashboard, una vez): Service prod → Settings → **Source → "Docker Image"**
+   → `docker.io/edgarcg01/trade-marketing:latest`. El **`preDeployCommand` (`migrate.sh`)
+   se conserva** — las migraciones siguen aplicándose en el deploy.
 
 ### Flujo
+- Job `deploy` (Pipeline from SCM → `jenkins/Jenkinsfile.deploy`). Tags `:<git-sha>` + `:latest`.
+- **Primer run `PUSH=false`** → valida que compila local (build en frío ~min; luego cache buildx).
+- `PUSH=true DEPLOY=true` → compila, pushea (Watchtower prueba en `.249`), `railway redeploy` a prod.
 
-- Job `deploy` (Pipeline from SCM → `jenkins/Jenkinsfile.deploy`).
-- Tags: `:<git-sha>` + `:latest`. Railway apunta a `:latest`.
-- **Primer run con `PUSH=false`** para validar que el Dockerfile compila local
-  (build en frío ~varios min; luego el cache local de buildx acelera).
-- Con el build verde: `PUSH=true DEPLOY=true` → compila, pushea, y dispara
-  `railway redeploy`.
+### Egress
+El push local→Docker Hub sube ~300-500 MB por build (tu internet, una vez). Railway baja
+de Docker Hub (no es tu egress de Railway). El build deja de correr en Railway = deploy rápido.
 
-### Egress / red
-El push local→GHCR sube ~300-500 MB por build (tu internet, una vez). Railway baja
-GHCR→Railway (no es tu egress de Railway). El build deja de correr en Railway =
-deploy en segundos.
-
-> **El fix de raíz al egress** (feeds escribiendo a prod) es mover la DB de prod a
-> la LAN — eso es el proyecto Coolify on-prem, aparte de esto.
+> **El fix de raíz al egress de feeds** (filas escritas a Railway) es mover la DB de prod
+> a la LAN — proyecto Coolify on-prem, aparte de esto.
 
 ## JK.4 — Binario de importers (opcional, baja prioridad)
-
-Compilar los importers con `bun build --compile` da portabilidad, **no** reduce el
-egress (eso lo resuelve mover prod a la LAN). Solo si se quiere correr sin `node_modules`.
-
-## JK.4 — Binario de importers (opcional, baja prioridad)
-
-Compilar los importers con `bun build --compile` da portabilidad, **no** reduce el
-egress (eso lo resuelve mover prod a la LAN). Solo si se quiere correr sin `node_modules`.
+`bun build --compile` da portabilidad, **no** reduce egress (lo causan las filas a Railway).
