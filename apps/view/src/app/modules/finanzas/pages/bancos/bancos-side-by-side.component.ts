@@ -165,6 +165,27 @@ interface Pair { key: string; excel: SideExcelRow | null; kepler: SideKeplerRow 
             @if (fl.cobranza && fl.cobranza.kepler_movs) {
               <p class="fb-flow-cob">Este cobrador tiene <b>{{ fl.cobranza.kepler_movs }}</b> pólizas de cobranza en el mes (suman <b class="mono">{{ fl.cobranza.kepler_suma | currency:'MXN':'symbol-narrow':'1.0-0' }}</b>). El banco lo depositó junto; Kepler lo tiene por venta.</p>
             }
+            @if (fl.docs.length) {
+              <div class="fb-flow-chain">
+                <div class="fb-flow-h">{{ fl.tipo === 'deposito' ? 'Ventas cobradas — folios en Kepler (102)' : 'Pagos del proveedor — folios en Kepler (102)' }} <span class="muted">· {{ fl.docs.length }}</span></div>
+                <div class="fb-sbs-tablewrap">
+                  <table class="fb-flow-table">
+                    <thead><tr><th>Doc</th><th>Folio</th><th>Fecha</th><th>Ref/forma</th><th class="ta-r">Importe</th></tr></thead>
+                    <tbody>
+                      @for (dc of fl.docs; track dc.doc_tipo + dc.folio) {
+                        <tr>
+                          <td class="mono muted">{{ dc.doc_tipo }}</td>
+                          <td class="mono">{{ dc.folio }}</td>
+                          <td class="mono muted">{{ ds(dc.fecha) }}</td>
+                          <td class="mono muted fb-concept">{{ dc.forma || '—' }}</td>
+                          <td class="ta-r mono">{{ dc.importe | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+                        </tr>
+                      }
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            }
             <p class="fb-dl-note muted"><i class="pi pi-info-circle"></i> {{ fl.nota }}</p>
           }
         </div>

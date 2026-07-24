@@ -251,23 +251,27 @@ export class FinanceBankService {
       // DEPÓSITO (cobranza): cómo Kepler lo tiene (repartido por venta).
       if (!esRetiro) {
         let cobranza = { kepler_movs: 0, kepler_suma: 0 };
+        let docs: any[] = [];
         if (strongest) {
           const rows = await trx('analytics.bank_postings')
             .where({ tenant_id: tenantId, anio_mes: period, cargo_abono: 'C' })
             .whereILike('contraparte', `%${strongest}%`)
-            .select('importe', 'contraparte');
+            .select('doc_tipo', 'folio', 'fecha', 'importe', 'contraparte', 'forma')
+            .orderBy([{ column: 'fecha' }, { column: 'folio' }]);
           const match = (rows as any[]).filter((r) => nameScore(tok, nameTokens(r.contraparte)) >= 0.5);
           cobranza = { kepler_movs: match.length, kepler_suma: Math.round(match.reduce((s, r) => s + n(r.importe), 0) * 100) / 100 };
+          docs = match.slice(0, 100).map((r) => ({ doc_tipo: r.doc_tipo, folio: r.folio, fecha: r.fecha, importe: n(r.importe), contraparte: r.contraparte, forma: r.forma }));
         }
-        return { period, movement, tipo: 'deposito', proveedor: null, cadena: [], cobranza,
+        return { period, movement, tipo: 'deposito', proveedor: null, cadena: [], cobranza, docs,
           nota: cobranza.kepler_movs
-            ? `Es cobranza. El banco lo registra como UN depósito; en Kepler está repartido en ${cobranza.kepler_movs} pólizas de este cobrador este mes (suman ${fmt(cobranza.kepler_suma)}). Por eso no hay una línea con este monto exacto en Kepler — se cuadra por total, no 1 a 1.`
+            ? `Es cobranza. El banco lo registra como UN depósito; en Kepler está repartido en ${cobranza.kepler_movs} pólizas de cobranza (ventas cobradas) este mes (suman ${fmt(cobranza.kepler_suma)}). Abajo están los folios individuales. Por eso no hay una línea con este monto exacto en Kepler — se cuadra por total, no 1 a 1.`
             : 'Es cobranza (un depósito). Los depósitos no se concilian 1 a 1 contra el 102: el banco los agrupa distinto que Kepler. Se cuadran por total.' };
       }
 
       // PAGO: cadena del proveedor en el mes + mini-cuadre banco vs Kepler.
       let cadena: any[] = [];
       let proveedor: any = null;
+      let docs: any[] = [];
       if (strongest) {
         const chainRows = await trx('analytics.expense_doc_chain')
           .where('tenant_id', tenantId)
@@ -287,7 +291,8 @@ export class FinanceBankService {
         const keplerRows = await trx('analytics.bank_postings')
           .where({ tenant_id: tenantId, anio_mes: period, cargo_abono: 'A' })
           .whereILike('contraparte', `%${strongest}%`)
-          .select('contraparte', 'importe');
+          .select('doc_tipo', 'folio', 'fecha', 'contraparte', 'importe', 'forma')
+          .orderBy([{ column: 'fecha' }, { column: 'folio' }]);
         const keplerMatch = (keplerRows as any[]).filter((r) => nameScore(tok, nameTokens(r.contraparte)) >= 0.5);
         proveedor = {
           nombre: cadena[0]?.beneficiario || keplerMatch[0]?.contraparte || m.concept,
@@ -296,11 +301,12 @@ export class FinanceBankService {
           kepler_total_mes: Math.round(keplerMatch.reduce((s, r) => s + n(r.importe), 0) * 100) / 100,
           kepler_movs: keplerMatch.length,
         };
+        docs = keplerMatch.slice(0, 100).map((r) => ({ doc_tipo: r.doc_tipo, folio: r.folio, fecha: r.fecha, importe: n(r.importe), contraparte: r.contraparte, forma: r.forma }));
       }
-      return { period, movement, tipo: 'pago', proveedor, cadena, cobranza: null,
+      return { period, movement, tipo: 'pago', proveedor, cadena, cobranza: null, docs,
         nota: cadena.length
-          ? 'La cadena de abajo son las compras a este proveedor en el mes (orden → recepción → factura → pago) según Kepler: de ahí viene el pago. Es el contexto del proveedor, no un cruce 1 a 1 exacto con este retiro.'
-          : 'No se encontró cadena de compra para este beneficiario en el mes. Puede ser un gasto o servicio (no compra de mercancía), o el nombre no coincide con el catálogo de proveedores.' };
+          ? 'La cadena de abajo son las compras a este proveedor en el mes (orden → recepción → factura → pago) según Kepler: de ahí viene el pago. Abajo también están los folios de pago del 102. Es el contexto del proveedor, no un cruce 1 a 1 exacto con este retiro.'
+          : 'No se encontró cadena de compra para este beneficiario en el mes. Puede ser un gasto o servicio (no compra de mercancía), o el nombre no coincide con el catálogo de proveedores. Abajo, si hay, los folios de pago del 102.' };
     });
   }
 

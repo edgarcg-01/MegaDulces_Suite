@@ -110,6 +110,9 @@ export interface FlowChainRow {
   recepcion_folio: string | null; pago_folio: string | null; pago_fecha: string | null;
   beneficiario: string | null; total: number; lead_days: number | null; pago_days: number | null; match_confidence: string | null;
 }
+export interface FlowDoc {
+  doc_tipo: string; folio: string; fecha: string | null; importe: number; contraparte: string | null; forma?: string | null;
+}
 export interface MovementFlow {
   period: string;
   movement: {
@@ -122,6 +125,7 @@ export interface MovementFlow {
   proveedor: { nombre: string; banco_total_mes: number; banco_movs: number; kepler_total_mes: number; kepler_movs: number } | null;
   cadena: FlowChainRow[];
   cobranza: { kepler_movs: number; kepler_suma: number } | null;
+  docs: FlowDoc[];
   nota: string;
 }
 
