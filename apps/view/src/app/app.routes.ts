@@ -728,6 +728,11 @@ export const routes: Routes = [
           import('./modules/reparto/pages/home-delivery-dispatch.component').then((m) => m.HomeDeliveryDispatchComponent),
       },
       {
+        path: 'pedidos-whatsapp',
+        loadComponent: () =>
+          import('./modules/reparto/pages/whatsapp-orders.component').then((m) => m.WhatsAppOrdersComponent),
+      },
+      {
         path: 'seguimiento',
         loadComponent: () =>
           import('./modules/reparto/pages/home-delivery-tracking.component').then((m) => m.HomeDeliveryTrackingComponent),

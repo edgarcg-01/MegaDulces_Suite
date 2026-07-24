@@ -615,10 +615,10 @@ Plan: [`FASES/FASE_SM_SUPERVISOR_MOVIMIENTOS.md`](FASES/FASE_SM_SUPERVISOR_MOVIM
 - [x] **[F.2.2]** ✅ 7 tools: `buscar_producto` (catalog-search, precio del motor), `agregar_al_carrito` (precio del hit, NO del LLM — invariante ADR-016), `quitar_del_carrito`, `ver_carrito`, `capturar_domicilio` (texto; geocoding vive en `/reparto/asignar`), `confirmar_pedido` (marca `review`, NO crea orden ni cobra), `handoff_humano`.
 - [x] **[F.2.3]** ✅ Estado + carrito persistidos en `conversation_threads` al cierre del turno; historial (últimos 8 msgs) como contexto. **Build api VERDE.** Pendiente: validación en vivo con `ANTHROPIC_API_KEY` + catálogo (calidad conversacional no es automatizable). **F.3 = crear la orden `pending_approval` desde el hilo `review` + bandeja.**
 
-### Sprint F.3 — Pedido → bandeja de revisión ⬜
+### Sprint F.3 — Pedido → bandeja de revisión 🧪 EN CÓDIGO (2026-07-24, builds api+view verdes)
 
-- [ ] **[F.3.1]** `createIntake` soporta `status='pending_approval'` cuando el origen es el bot (no `place` automático).
-- [ ] **[F.3.2]** Bandeja `/reparto/pedidos-whatsapp` (patrón televenta): listar pendientes, ver carrito+domicilio, editar, **confirmar** (dispara `place` + reserva stock) → sigue en `/reparto/asignar`.
+- [x] **[F.3.1]** ✅ Decisión: el bot NO crea la orden — el hilo en `review` ES el estado pendiente; la **aprobación humana es la confirmación** (más simple que `pending_approval` intermedio). Puerto `COMMERCE_CONVERSATION_PORT.createHomeDeliveryOrder` → `CommercialHomeDeliveryService.createIntake` (cliente casual + domicilio + líneas, canal whatsapp, confirmado + stock reservado).
+- [x] **[F.3.2]** ✅ Backend `WhatsAppOrdersService` + `WhatsAppOrdersController` (`/whatsapp/orders`): `GET` bandeja (hilos `review` con carrito/domicilio/total, perm `WHATSAPP_BOT_VER`), `POST :id/confirm` (crea orden → avisa al cliente por WA → cierra hilo, perm `WHATSAPP_BOT_GESTIONAR`), `POST :id/reject` (cierra + avisa). Frontend `/reparto/pedidos-whatsapp` (master-detail Operations: lista + detalle con productos/domicilio/total + Confirmar/Rechazar) + nav "Pedidos WhatsApp" en el shell de Reparto. Confirmado → cae en `/reparto/asignar`. **Builds api+view VERDES.** Pendiente: validación visual + E2E en vivo.
 
 ### Sprint F.4 — Handoff + panel de conversaciones ⬜
 

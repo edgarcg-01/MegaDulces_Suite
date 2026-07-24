@@ -17,6 +17,7 @@ export interface ConversationThread {
   id: string;
   phone: string;
   wa_id: string;
+  profile_name: string | null;
   customer_id: string | null;
   state: ThreadState;
   cart: CartItem[];
@@ -44,6 +45,7 @@ export class ConversationThreadService {
       id: row.id,
       phone: row.phone,
       wa_id: row.wa_id,
+      profile_name: row.profile_name ?? null,
       customer_id: row.customer_id ?? null,
       state: row.state,
       cart: (j(row.cart) as CartItem[]) ?? [],
@@ -84,6 +86,17 @@ export class ConversationThreadService {
     return this.tk.run(async (trx) => {
       const row = await trx('whatsapp.conversation_threads').where({ id }).first();
       return row ? this.parse(row) : null;
+    });
+  }
+
+  /** Hilos en un estado dado (p. ej. 'review' = bandeja de pedidos por aprobar). */
+  async listByState(state: ThreadState, limit = 100): Promise<ConversationThread[]> {
+    return this.tk.run(async (trx) => {
+      const rows = await trx('whatsapp.conversation_threads')
+        .where({ state })
+        .orderBy('last_message_at', 'asc')
+        .limit(limit);
+      return rows.map((r) => this.parse(r));
     });
   }
 

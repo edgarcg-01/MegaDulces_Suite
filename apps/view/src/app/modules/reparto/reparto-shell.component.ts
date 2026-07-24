@@ -29,6 +29,10 @@ import { AuthService } from '../../core/services/auth.service';
             <i class="pi pi-home" aria-hidden="true"></i>
             <span>Asignar pedido</span>
           </a>
+          <a routerLink="pedidos-whatsapp" routerLinkActive="active">
+            <i class="pi pi-whatsapp" aria-hidden="true"></i>
+            <span>Pedidos WhatsApp</span>
+          </a>
           <a routerLink="seguimiento" routerLinkActive="active">
             <i class="pi pi-map-marker" aria-hidden="true"></i>
             <span>Seguimiento</span>
