@@ -74,4 +74,24 @@ export class MaatReconTasksController {
   assignManual(@Param('id') id: string, @Body() body: { user_id: string | null }, @Req() req: AuthedRequest) {
     return this.tasks.assignManual(id, body?.user_id ?? null, req?.user?.username);
   }
+
+  // ── Chat por tarea + verificación (MA.8) ──
+  @Get(':id/messages')
+  @RequirePermissions(Permission.FINANCE_BANK_VER)
+  @ApiOperation({ summary: 'MA — Hilo de la tarea (persona ↔ Maat).' })
+  messages(@Param('id') id: string) { return this.tasks.messages(id); }
+
+  @Post(':id/messages')
+  @RequirePermissions(Permission.FINANCE_BANK_VER)
+  @ApiOperation({ summary: 'MA — Comentario libre en el hilo de la tarea.' })
+  postMessage(@Param('id') id: string, @Body() body: { body: string }, @Req() req: AuthedRequest) {
+    return this.tasks.postMessage(id, body?.body, req?.user?.username);
+  }
+
+  @Post(':id/report')
+  @RequirePermissions(Permission.FINANCE_BANK_GESTIONAR)
+  @ApiOperation({ summary: 'MA — "Ya lo hice en Kepler": Maat verifica por re-match y, si cruza, cierra + asigna la siguiente.' })
+  reportDone(@Param('id') id: string, @Body() body: { body?: string }, @Req() req: AuthedRequest) {
+    return this.tasks.reportDone(id, body?.body || '', { userId: req?.user?.sub, username: req?.user?.username });
+  }
 }
