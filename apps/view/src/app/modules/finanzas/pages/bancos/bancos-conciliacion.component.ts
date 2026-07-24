@@ -54,11 +54,23 @@ import { amtPct, cuadra, money0, dmy, groupLabel } from './bancos-shared';
                   <td class="ta-c"><span class="fb-kve-tag memo" title="Factoraje = financiamiento, no pasa por el 102. Se muestra aparte, no entra al cuadre de egresos.">memo</span></td>
                 </tr>
               }
+              @if (rc.caja && rc.caja.total > 0) {
+                <tr class="fb-kve-memo-row">
+                  <th scope="row"><i class="pi pi-wallet fb-fac-ico"></i> Caja general <span class="muted">(no fiscal)</span></th>
+                  <td class="ta-r mono">{{ rc.caja.total | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+                  <td class="ta-r mono muted">fuera del 102</td>
+                  <td class="ta-r mono muted">—</td>
+                  <td class="ta-c"><span class="fb-kve-tag memo" title="CAJA GENERAL es efectivo NO fiscal: no pasa por el 102. Se muestra aparte y no entra al cuadre (igual que en el CONCENTRADO de contabilidad).">memo</span></td>
+                </tr>
+              }
             </tbody>
           </table>
         </div>
         @if (rc.factoraje && rc.factoraje.total > 0) {
           <p class="fb-plain fb-fac-note"><i class="pi pi-info-circle"></i> <b>Factoraje {{ rc.factoraje.total | currency:'MXN':'symbol-narrow':'1.0-0' }}</b> = financiamiento (el factor adelanta el dinero), NO cuenta en el cuadre de egresos vs 102. De eso, <b>{{ rc.factoraje.compra | currency:'MXN':'symbol-narrow':'1.0-0' }}</b> es compra que pagó el factor (no salió de tu banco) y <b>{{ rc.factoraje.pago | currency:'MXN':'symbol-narrow':'1.0-0' }}</b> es pago real al factor desde tu banco (pendiente de amarrar contra la cuenta del factor en Kepler).</p>
+        }
+        @if (rc.caja && rc.caja.total > 0) {
+          <p class="fb-plain fb-fac-note"><i class="pi pi-info-circle"></i> <b>Caja general {{ rc.caja.total | currency:'MXN':'symbol-narrow':'1.0-0' }}</b> es efectivo <b>no fiscal</b> — no pasa por el 102, por eso queda fuera del cuadre (igual que en el CONCENTRADO de contabilidad). Se sigue viendo en Movimientos y Concentrado.</p>
         }
         <p class="fb-plain">{{ cajaRead(rc) }}</p>
         @if (rc.sin_clasificar > 0) { <p class="fb-recon-note muted"><i class="pi pi-exclamation-triangle"></i> {{ rc.sin_clasificar | currency:'MXN':'symbol-narrow':'1.0-0' }} en movimientos sin clasificar — sí están contados en los totales, pero sin categoría no se les atribuye concepto. En el tab Cierre está el detalle y cómo resolverlos en Kepler.</p> }
