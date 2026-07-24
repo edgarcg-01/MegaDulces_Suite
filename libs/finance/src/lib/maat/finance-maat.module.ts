@@ -25,6 +25,8 @@ import { MaatLearningController } from './maat-learning.controller';
 import { MaatSkepticService } from './maat-skeptic.service';
 import { MaatDiscoveryService } from './maat-discovery.service';
 import { MaatDiscoveryController } from './maat-discovery.controller';
+import { MaatReconTasksService } from './maat-recon-tasks.service';
+import { MaatReconTasksController } from './maat-recon-tasks.controller';
 
 /**
  * MAAT (ADR-028) — AI de Finanzas.
@@ -35,7 +37,7 @@ import { MaatDiscoveryController } from './maat-discovery.controller';
  *             del feedback / el LLM sigue fuera de los números.
  */
 @Module({
-  controllers: [MaatKnowledgeController, MaatChatController, MaatFindingsController, MaatActionsController, MaatLearningController, MaatDiscoveryController],
+  controllers: [MaatKnowledgeController, MaatChatController, MaatFindingsController, MaatActionsController, MaatLearningController, MaatDiscoveryController, MaatReconTasksController],
   providers: [
     MaatKnowledgeService, MaatToolsService, MaatChatService, MaatBriefingService,
     MaatDetectorService, MaatAnomalyService, MaatCoverageService, MaatDataQualityService, MaatEntityService,
@@ -43,6 +45,7 @@ import { MaatDiscoveryController } from './maat-discovery.controller';
     EmbeddingsService, MaatKnowledgeVectorService, MaatProviderGraphService,
     MaatFindingsSinkService, MaatLearningService, MaatEvalService,
     MaatSkepticService, MaatDiscoveryService,
+    MaatReconTasksService,
   ],
   exports: [MaatKnowledgeService, MaatChatService, MaatDetectorService, MaatKnowledgeVectorService, MaatProviderGraphService, MaatFindingsSinkService],
 })

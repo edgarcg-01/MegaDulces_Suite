@@ -113,6 +113,8 @@ exports.seed = async function (knex) {
     // Conciliación bancaria (CB / ADR-033) — módulo Bancos con permiso propio
     FINANCE_BANK_VER: true,
     FINANCE_BANK_GESTIONAR: true,
+    // MA (ADR-028/016) — reparto de tareas de conciliación (líder de Finanzas)
+    FINANCE_RECON_ASIGNAR: true,
     // Supervisor de Movimientos (ADR-029) — cuadre caja/inventario
     RECONCILIATION_VER: true,
     RECONCILIATION_GESTIONAR: true,
@@ -154,6 +156,8 @@ exports.seed = async function (knex) {
       // Bancos (CB / ADR-033) — igual que backfill 20260722180000 (ancla a los perms finance)
       FINANCE_BANK_VER: internal && !!perms.COMMERCIAL_ORDERS_VER,
       FINANCE_BANK_GESTIONAR: internal && !!perms.COMMERCIAL_ORDERS_VER,
+      // MA — reparto de tareas de conciliación, ancla a gestión de Bancos (backfill 20260724120000)
+      FINANCE_RECON_ASIGNAR: internal && !!perms.COMMERCIAL_ORDERS_VER,
       // Supervisor de Movimientos (ADR-029) — igual que backfill 20260707190000
       RECONCILIATION_VER: internal && !!perms.COMMERCIAL_INVENTORY_VER,
       RECONCILIATION_GESTIONAR: internal && !!perms.COMMERCIAL_INVENTORY_SUPERVISAR,

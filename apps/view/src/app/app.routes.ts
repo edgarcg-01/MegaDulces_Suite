@@ -255,6 +255,11 @@ export const routes: Routes = [
         loadComponent: () => import('./modules/finanzas/pages/finanzas-hallazgos.component').then(m => m.FinanzasHallazgosComponent),
         canActivate: [permissionGuard(Permission.FINANCE_AI_CHAT)]
       },
+      {
+        path: 'tareas',
+        loadComponent: () => import('./modules/finanzas/pages/finanzas-tareas.component').then(m => m.FinanzasTareasComponent),
+        canActivate: [permissionGuard(Permission.FINANCE_BANK_VER)]
+      },
     ]
   },
   // ── Proyecto Contabilidad (Fase FISCAL) ─────────────────────────────

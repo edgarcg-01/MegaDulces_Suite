@@ -26,6 +26,12 @@ export const FINANZAS_TABS: PageTab[] = [
     permission: Permission.FINANCE_AI_CHAT,
   },
   {
+    label: 'Tareas de conciliación',
+    route: '/finanzas/tareas',
+    icon: 'pi pi-check-square',
+    permission: Permission.FINANCE_BANK_VER,
+  },
+  {
     label: 'Solicitudes de gasto',
     route: '/finanzas/solicitudes',
     icon: 'pi pi-file-edit',
