@@ -51,7 +51,7 @@ const RULE = `
              round(sum(sd.units) - sum(${RULE})) AS colapso
         FROM analytics.sales_daily sd
         JOIN catalog.products p ON p.tenant_id = sd.tenant_id AND p.id = sd.product_id
-       WHERE sd.tenant_id = $1 AND sd.sale_date >= current_date - $2
+       WHERE sd.tenant_id = $1 AND sd.sale_date >= current_date - $2::int
        GROUP BY sd.channel ORDER BY colapso DESC NULLS LAST`, [M, LOOKBACK]);
     console.table(imp);
 
@@ -64,7 +64,7 @@ const RULE = `
          SET units_base = ${RULE}
         FROM catalog.products p
        WHERE sd.tenant_id = $1 AND p.tenant_id = sd.tenant_id AND p.id = sd.product_id
-         AND sd.sale_date >= current_date - $2
+         AND sd.sale_date >= current_date - $2::int
          AND sd.units_base IS DISTINCT FROM (${RULE})`, [M, LOOKBACK]);
     await db.query('COMMIT');
     console.log(`\n[APPLY] COMMIT — ${res.rowCount} filas normalizadas.`);

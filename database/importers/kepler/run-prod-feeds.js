@@ -45,7 +45,8 @@ const STEPS = {
     path.join(K, 'import-margin.js'),        // KV.4 markup (lee sucursal) — antes del fact
     path.join(K, 'import-sales-fact.js'),    // KV.1 fact (lee consolidado; cost usa markup)
     path.join(K, 'import-sales-stats.js'),   // KV.2 ABC/share (lee prod sales_daily) — tras sales-fact
-    path.join(K, 'import-inventory-health.js'), // KV.5 días cobertura/status (stock × sales_daily)
+    path.join(K, 'import-sales-units-base.js'), // RA-PRO.14 normaliza sales_daily.units → units_base en CAJAS (canal+precio) — antes de inventory-health
+    path.join(K, 'import-inventory-health.js'), // KV.5 días cobertura/status (stock × sales_daily); demanda en cajas vía units_base
     path.join(K, 'import-reorder-policy.js'),   // RA.2 umbrales reorden Kepler (kdii.c33/34/35 → reorder_policy source=kepler)
     path.join(K, 'import-computed-reorder.js'), // RA.3/RA-PRO.1 reorden por demanda + safety stock por nivel de servicio + XYZ — tras inventory-health
     path.join(K, 'import-network-reorder.js'),  // RA-PRO.6 DRP: reorden del CEDIS por demanda dependiente (Σ sucursales) — tras computed-reorder
