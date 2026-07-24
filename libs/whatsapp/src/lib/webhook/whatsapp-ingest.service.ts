@@ -11,6 +11,7 @@ import type {
 import { WhatsAppQueueService, WhatsAppJob } from '../queue/whatsapp-queue.service';
 import { ConversationThreadService } from '../conversation/conversation-thread.service';
 import { ConversationOrchestratorService } from '../conversation/conversation-orchestrator.service';
+import { WhatsAppOptinService } from '../broadcast/whatsapp-optin.service';
 
 /** Payload de un job de ENTRADA (un mensaje del cliente a procesar). */
 interface InJobPayload {
@@ -69,6 +70,7 @@ export class WhatsAppIngestService implements OnModuleInit {
     private readonly queue: WhatsAppQueueService,
     private readonly threads: ConversationThreadService,
     private readonly orchestrator: ConversationOrchestratorService,
+    private readonly optin: WhatsAppOptinService,
     private readonly tenantCtx: TenantContextService,
   ) {}
 
@@ -149,6 +151,18 @@ export class WhatsAppIngestService implements OnModuleInit {
     const tenantId = job.tenant_id || this.tenantId;
     const p = job.payload as InJobPayload;
     await this.tenantCtx.run({ tenantId }, async () => {
+      // Opt-out de marketing SIEMPRE primero (regla Meta): "BAJA"/"STOP" → baja +
+      // acuse, sin pasar por el orquestador.
+      if (this.optin.isOptOutMessage(p.text)) {
+        await this.optin.optOut(p.phone);
+        await this.enqueueOut({
+          to: p.phone,
+          thread_id: p.thread_id,
+          kind: 'text',
+          body: 'Listo, no te enviaremos más promociones. Si querés volver a recibirlas, escribinos. 🙌',
+        });
+        return;
+      }
       const result = await this.orchestrator.handleTurn(p.thread_id, p.text || '');
       await this.enqueueOut({ to: p.phone, thread_id: p.thread_id, kind: 'text', body: result.reply });
     });

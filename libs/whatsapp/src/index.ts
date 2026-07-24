@@ -18,3 +18,6 @@ export * from './lib/orders/whatsapp-orders.service';
 export * from './lib/orders/whatsapp-orders.controller';
 export * from './lib/promos/whatsapp-promo.service';
 export * from './lib/promos/whatsapp-promo.controller';
+export * from './lib/broadcast/whatsapp-optin.service';
+export * from './lib/broadcast/whatsapp-campaign.service';
+export * from './lib/broadcast/whatsapp-broadcast.controller';

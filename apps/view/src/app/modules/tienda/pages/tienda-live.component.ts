@@ -29,6 +29,9 @@ import { TiendaStateService } from '../tienda-state.service';
     .lever .lv-i { font-family:var(--font-mono); font-variant-numeric:tabular-nums; font-size:.74rem; font-weight:700; color:var(--text-muted); }
     .coach { display:flex; align-items:center; gap:.35rem; margin-top:.45rem; font-size:.72rem; color:var(--action); font-weight:600; }
     .coach i { font-size:.7rem; } .coach .g { margin-left:auto; color:var(--text-muted); font-weight:700; font-variant-numeric:tabular-nums; }
+    .tda-offline { display:flex; align-items:center; gap:.5rem; background:var(--bad-soft-bg); color:var(--bad-soft-fg);
+      border:1px solid var(--bad-border); border-radius:var(--r-sm,8px); padding:.55rem .8rem; margin:.5rem 0; font-size:.84rem; }
+    .tda-offline i { color:var(--bad-fg); } .tda-offline b { font-weight:700; }
   `],
   template: `
     <div class="surf-page in tda">
@@ -55,6 +58,17 @@ import { TiendaStateService } from '../tienda-state.service';
       @if (s.error()) {
         <div class="tda-banner" role="alert"><i class="pi pi-exclamation-triangle"></i> No se pudo cargar la venta del día.
           <button pButton type="button" label="Reintentar" class="p-button-text p-button-sm" (click)="s.retry()"></button></div>
+      }
+
+      @if (s.disconnectedBranches(); as off) {
+        @if (off.length) {
+          <div class="tda-banner tda-offline" role="alert">
+            <i class="pi pi-exclamation-triangle"></i>
+            <span><b>Sin conexión al POS:</b>
+              @for (d of off; track d.code) {{{ d.name }} ({{ offlineLabel(d) }})@if (!$last) {<span>, </span>}}
+              — la sucursal dejó de reportar ventas; revisar equipo/red.</span>
+          </div>
+        }
       }
 
       <div class="tda-kpis-mc">
@@ -88,7 +102,7 @@ import { TiendaStateService } from '../tienda-state.service';
               <span class="g">{{ pct(c.lev.weakest.idx) }} vs red</span></div>
           </div>
         }
-        @if (!s.branches().length && !s.error()) { <div class="tda-empty">Aún sin ventas hoy…</div> }
+        @if (!coached().length && !s.error()) { <div class="tda-empty">Aún sin ventas hoy…</div> }
       </div>
 
       <div class="tda-grid">
@@ -160,10 +174,19 @@ export class TiendaLiveComponent implements OnInit, OnDestroy {
   // 3 pilares (nivel red) + coaching por tienda
   readonly netUnits = computed(() => this.s.networkLevers().unitsPerTicket);
   readonly netLines = computed(() => this.s.networkLevers().linesPerTicket.toFixed(1) + ' líneas por ticket');
-  readonly coached = computed(() => this.s.branches().map((b) => ({ b, lev: this.s.leversOf(b.warehouse_code) })));
+  // Solo tiendas que vendieron hoy tienen tarjeta de coaching; las caídas van al banner "sin conexión".
+  readonly coached = computed(() => this.s.branches().filter((b) => b.tickets > 0).map((b) => ({ b, lev: this.s.leversOf(b.warehouse_code) })));
 
   /** Índice vs red → texto "+12%" / "−8%". */
   pct(idx: number): string { const v = Math.round((idx - 1) * 100); return (v > 0 ? '+' : '') + v + '%'; }
+
+  /** Etiqueta de antigüedad para el banner de sin-conexión. */
+  offlineLabel(d: { last_ts: string; idle: number }): string {
+    if (d.idle >= 9999 || !d.last_ts) return 'sin ventas hoy';
+    if (d.idle < 60) return `hace ${d.idle} min`;
+    const h = Math.floor(d.idle / 60);
+    return h < 24 ? `hace ${h} h` : `hace ${Math.floor(h / 24)} d`;
+  }
 
   ngOnInit(): void { this.s.enter(); }
   ngOnDestroy(): void { this.s.leave(); }
