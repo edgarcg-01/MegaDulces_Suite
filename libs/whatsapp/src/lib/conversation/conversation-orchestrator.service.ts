@@ -144,25 +144,53 @@ export class ConversationOrchestratorService {
         for (const h of hits) seen.set(h.product_id, h);
         if (work.state === 'greeting') work.state = 'shopping';
         return {
-          resultados: hits.map((h) => ({
-            product_id: h.product_id,
-            nombre: h.name,
-            marca: h.brand_name,
-            precio: h.unit_price,
-            minimo: h.min_qty,
-          })),
+          resultados: hits.map((h) => {
+            const factor = h.pieces_per_package || 1;
+            return {
+              product_id: h.product_id,
+              nombre: h.name,
+              marca: h.brand_name,
+              precio_pieza: h.unit_price,
+              minimo_piezas: h.min_qty,
+              // Empaque: cómo se vende. factor 1 = suelto por pieza.
+              piezas_por_paquete: factor,
+              se_vende_por: factor > 1 ? 'pieza o paquete' : 'pieza',
+              // Existencia (en el almacén de surtido). El bot NO debe prometer más.
+              disponible_piezas: h.stock_pieces,
+              disponible_paquetes: factor > 1 ? Math.floor(h.stock_pieces / factor) : null,
+              agotado: h.stock_pieces <= 0,
+            };
+          }),
         };
       }
       case 'agregar_al_carrito': {
         const pid = String(input.product_id || '');
-        const qty = Math.max(1, Math.floor(Number(input.cantidad) || 1));
+        const cantidad = Math.max(1, Math.floor(Number(input.cantidad) || 1));
+        const unidad = String(input.unidad || 'pieza').toLowerCase() === 'paquete' ? 'paquete' : 'pieza';
         const hit = seen.get(pid);
         if (!hit) return { error: 'Producto no encontrado en la última búsqueda. Usá buscar_producto primero y agregá con un product_id de esos resultados.' };
+        const factor = hit.pieces_per_package || 1;
+        // Convertir a PIEZAS (unidad canónica del pedido).
+        const addPieces = unidad === 'paquete' ? cantidad * factor : cantidad;
         const existing = work.cart.find((c) => c.product_id === pid);
-        if (existing) existing.qty += qty;
-        else work.cart.push({ product_id: pid, sku: null, name: hit.name, qty, unit_price: hit.unit_price });
+        const already = existing?.qty || 0;
+        // Validación de existencia (motor, no LLM): nunca por encima del stock.
+        if (hit.stock_pieces <= 0) {
+          return { error: `"${hit.name}" está agotado ahora mismo. Ofrecé otra opción.` };
+        }
+        if (already + addPieces > hit.stock_pieces) {
+          const maxPk = factor > 1 ? Math.floor(hit.stock_pieces / factor) : null;
+          return {
+            error: 'Existencia insuficiente.',
+            disponible_piezas: hit.stock_pieces,
+            disponible_paquetes: maxPk,
+            ya_en_carrito_piezas: already,
+          };
+        }
+        if (existing) existing.qty += addPieces;
+        else work.cart.push({ product_id: pid, sku: null, name: hit.name, qty: addPieces, unit_price: hit.unit_price, pieces_per_package: factor });
         if (work.state === 'greeting') work.state = 'shopping';
-        return { ok: true, carrito: this.cartView(work.cart) };
+        return { ok: true, agregado: { producto: hit.name, piezas: addPieces, como: `${cantidad} ${unidad}(s)` }, carrito: this.cartView(work.cart) };
       }
       case 'quitar_del_carrito': {
         const pid = String(input.product_id || '');
@@ -203,7 +231,18 @@ export class ConversationOrchestratorService {
   }
 
   private cartView(cart: CartItem[]) {
-    const items = cart.map((c) => ({ nombre: c.name, cantidad: c.qty, precio_unitario: c.unit_price, subtotal: Math.round((c.qty * (c.unit_price || 0)) * 100) / 100 }));
+    const items = cart.map((c) => {
+      const factor = c.pieces_per_package || 1;
+      const paquetes = factor > 1 && c.qty % factor === 0 ? c.qty / factor : null;
+      return {
+        nombre: c.name,
+        piezas: c.qty,
+        // Presentación legible: "2 paquetes (80 pzas)" o "5 piezas".
+        presentacion: paquetes ? `${paquetes} paquete(s) de ${factor} (${c.qty} pzas)` : `${c.qty} pieza(s)`,
+        precio_pieza: c.unit_price,
+        subtotal: Math.round(c.qty * (c.unit_price || 0) * 100) / 100,
+      };
+    });
     const total = Math.round(items.reduce((s, i) => s + i.subtotal, 0) * 100) / 100;
     return { items, total };
   }
@@ -244,7 +283,9 @@ export class ConversationOrchestratorService {
       'Tu trabajo: ayudar al cliente a armar un pedido a domicilio.',
       'REGLAS DURAS:',
       '- Para agregar un producto SIEMPRE usá primero buscar_producto y luego agregar_al_carrito con un product_id de esos resultados. Nunca inventes productos ni precios.',
-      '- Los precios y el total salen de las herramientas, no los inventes ni los cambies.',
+      '- Los precios, existencia y total salen de las herramientas, no los inventes ni los cambies.',
+      '- EXISTENCIA: nunca prometas ni agregues más de lo disponible. Si buscar_producto dice agotado (disponible_piezas 0), ofrecé otra opción. Si el cliente pide más de lo que hay, decile cuánto hay y ofrecé el máximo.',
+      '- UNIDADES: los productos se venden por PIEZA y a veces por PAQUETE/CAJA (piezas_por_paquete). Cuando el cliente diga "una caja", "un paquete" o "una bolsa", agregá con unidad="paquete"; cuando diga piezas sueltas, unidad="pieza". Aclarale al cliente cómo viene (ej. "viene en paquete de 40 piezas, ¿cuántos paquetes?") y confirmá siempre la cantidad en piezas y paquetes.',
       '- Antes de confirmar necesitás: al menos 1 producto en el carrito Y el domicilio (calle y número).',
       '- Al confirmar, avisá que un asesor de Mega Dulces revisa y confirma el pedido (no lo cierres vos).',
       '- Si el cliente pide algo que no entendés, se enoja, o pide hablar con una persona, usá handoff_humano.',
@@ -257,13 +298,21 @@ export class ConversationOrchestratorService {
     return [
       {
         name: 'buscar_producto',
-        description: 'Busca productos del catálogo por nombre/descripción en lenguaje natural. Devuelve product_id + nombre + precio. Úsalo SIEMPRE antes de agregar al carrito.',
+        description: 'Busca productos del catálogo por nombre/descripción en lenguaje natural. Devuelve product_id + precio_pieza + piezas_por_paquete + disponible_piezas/paquetes + agotado. Úsalo SIEMPRE antes de agregar al carrito.',
         input_schema: { type: 'object', properties: { query: { type: 'string', description: 'Lo que el cliente quiere (ej. "pulparindo", "mazapán de la rosa", "paletas payaso")' } }, required: ['query'] },
       },
       {
         name: 'agregar_al_carrito',
-        description: 'Agrega un producto al carrito. Usá un product_id que haya devuelto buscar_producto en esta conversación.',
-        input_schema: { type: 'object', properties: { product_id: { type: 'string' }, cantidad: { type: 'integer', minimum: 1 } }, required: ['product_id', 'cantidad'] },
+        description: 'Agrega un producto al carrito. Usá un product_id que haya devuelto buscar_producto. Especificá la unidad: "pieza" (suelto) o "paquete" (caja/bolsa completa de piezas_por_paquete). Valida existencia automáticamente y rechaza si no alcanza.',
+        input_schema: {
+          type: 'object',
+          properties: {
+            product_id: { type: 'string' },
+            cantidad: { type: 'integer', minimum: 1, description: 'Cuántas unidades (piezas o paquetes según "unidad").' },
+            unidad: { type: 'string', enum: ['pieza', 'paquete'], description: 'Cómo lo pide el cliente. Default "pieza".' },
+          },
+          required: ['product_id', 'cantidad'],
+        },
       },
       {
         name: 'quitar_del_carrito',

@@ -9,8 +9,11 @@ export interface CartItem {
   product_id: string;
   sku?: string | null;
   name?: string | null;
+  /** Cantidad en PIEZAS (unidad canónica del pedido, = order_lines.quantity). */
   qty: number;
   unit_price?: number | null;
+  /** Piezas por paquete/caja (factor_sale). Para mostrar "2 paquetes (80 pzas)". */
+  pieces_per_package?: number | null;
 }
 
 export interface ConversationThread {

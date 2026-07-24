@@ -89,15 +89,15 @@ import { WhatsAppOrdersService, WhatsAppPendingOrder } from '../whatsapp-orders.
                 <ng-template pTemplate="header">
                   <tr>
                     <th scope="col">Producto</th>
-                    <th scope="col" class="comm-num">Cant</th>
-                    <th scope="col" class="comm-num">P. unit</th>
+                    <th scope="col">Cantidad</th>
+                    <th scope="col" class="comm-num">P. pieza</th>
                     <th scope="col" class="comm-num">Subtotal</th>
                   </tr>
                 </ng-template>
                 <ng-template pTemplate="body" let-it>
                   <tr>
                     <td>{{ it.name || '—' }}</td>
-                    <td class="comm-num">{{ it.qty }}</td>
+                    <td>{{ it.presentation || (it.qty + ' pzas') }}</td>
                     <td class="comm-num">{{ money(it.unit_price) }}</td>
                     <td class="comm-num">{{ money(it.qty * (it.unit_price || 0)) }}</td>
                   </tr>
