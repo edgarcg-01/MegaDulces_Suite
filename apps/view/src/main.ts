@@ -1,6 +1,17 @@
 import { bootstrapApplication } from '@angular/platform-browser';
+import * as Sentry from '@sentry/angular';
 import { appConfig } from './app/app.config';
 import { AppComponent } from './app/app.component';
+import { environment } from './environments/environment';
+
+// Error tracking del frontend. Inerte sin sentryDsn (ver environment.ts).
+if (environment.sentryDsn) {
+  Sentry.init({
+    dsn: environment.sentryDsn,
+    environment: environment.envName,
+    tracesSampleRate: 0.1,
+  });
+}
 
 // One-time migration: si quedó registrado el SW custom legacy (`sw-offline.js`)
 // de un deploy previo, lo desregistramos y borramos sus caches. ngsw toma

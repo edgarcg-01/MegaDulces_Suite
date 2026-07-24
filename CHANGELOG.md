@@ -10,6 +10,12 @@
 
 ## [Unreleased]
 
+### Added — OBS: Observabilidad + seguridad (Sentry + gitleaks + uptime) (2026-07-24)
+- **Error tracking (Sentry)** wireado en backend y frontend, **inerte sin DSN** (seguro en dev/local). Backend: `apps/api/src/instrument.ts` (`Sentry.init` gated por `SENTRY_DSN`, cargado 1º en `main.ts`) + `SentryModule.forRoot()` en AppModule (registra el filtro global de excepciones). Frontend: `Sentry.init` gated por `environment.sentryDsn` + `ErrorHandler` de Sentry en `app.config.ts`. **Builds api+view verdes** (prod, sin caché). `@sentry/nestjs`+`@sentry/angular` v10.68. Pendiente: crear proyecto en Sentry SaaS (free) y setear el DSN (Railway env para api + `environment.sentryDsn` para view) — hasta entonces no captura nada.
+- **Secret scanning (gitleaks)**: job `secret-scan` en `.github/workflows/ci.yml` (escanea solo commits nuevos, separado del build) + `.gitleaks.toml` (regla de connection-string con password + allowlist de defaults dev local) + hook `pre-commit` opt-in (`.githooks/`). Motivo: fuga previa de credenciales de prod al repo.
+- **Observabilidad self-hosted (infra)**: `ops/observability/docker-compose.yml` con **Uptime Kuma** (usable ya — monitorea la URL pública de Railway desde `.249`) + **GlitchTip** (error tracking self-hosted, para cuando prod sea on-prem; mismo SDK que Sentry, solo cambia el DSN).
+- Contexto: son los huecos de prod-readiness que faltaban (no había error tracking ni escaneo de secretos). Encajan en el `.249`/on-prem del proyecto Coolify.
+
 ### Added — JK: Jenkins CI/CD on-prem (scaffold JK.0–JK.3) (2026-07-24)
 - **Ataca 2 dolores** (consumo de red + deploys lentos): los feeds pasan del Windows Task Scheduler mudo (el feed que falló dejó output vacío) a jobs de Jenkins con logs/historial/reintento; y el build de Angular deja de correr **EN Railway** → build local en `.249` → push a Docker Hub `edgarcg01/trade-marketing` → Watchtower prueba en `.249` → Railway solo **baja** la imagen (deja de compilar, deploy en segundos).
 - **Host = `.249`** (la máquina que ya corre los feeds + Docker + pgvector-md 5433 + stack de pruebas + Watchtower), NO `.245` (consolidación Kepler, intacto). Docker Desktop → sin `network_mode: host`; DBs por IP LAN (`192.168.0.249:5433` / `192.168.0.245:5432`).
