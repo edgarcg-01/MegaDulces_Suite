@@ -19,5 +19,6 @@ import { CommercialRecommendationsModule } from '../commercial-recommendations/c
   imports: [AiProductMatcherModule, CommercialRecommendationsModule],
   controllers: [CommercialCatalogSearchController],
   providers: [CommercialCatalogSearchService, TenantKnexService],
+  exports: [CommercialCatalogSearchService],
 })
 export class CommercialCatalogSearchModule {}

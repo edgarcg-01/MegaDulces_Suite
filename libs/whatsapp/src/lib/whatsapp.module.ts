@@ -4,6 +4,7 @@ import { SimulatorWhatsAppAdapter } from './adapters/simulator.adapter';
 import { MetaCloudWhatsAppAdapter } from './adapters/meta-cloud.adapter';
 import { WhatsAppQueueService } from './queue/whatsapp-queue.service';
 import { ConversationThreadService } from './conversation/conversation-thread.service';
+import { ConversationOrchestratorService } from './conversation/conversation-orchestrator.service';
 import { WhatsAppIngestService } from './webhook/whatsapp-ingest.service';
 import { WhatsAppWebhookController } from './webhook/whatsapp-webhook.controller';
 
@@ -37,9 +38,10 @@ const whatsAppPortProvider = {
     whatsAppPortProvider,
     WhatsAppQueueService,
     ConversationThreadService,
+    ConversationOrchestratorService,
     WhatsAppIngestService,
   ],
-  exports: [WHATSAPP_PORT, WhatsAppQueueService, ConversationThreadService, WhatsAppIngestService],
+  exports: [WHATSAPP_PORT, WhatsAppQueueService, ConversationThreadService, ConversationOrchestratorService, WhatsAppIngestService],
 })
 export class WhatsAppModule {
   private readonly logger = new Logger(WhatsAppModule.name);

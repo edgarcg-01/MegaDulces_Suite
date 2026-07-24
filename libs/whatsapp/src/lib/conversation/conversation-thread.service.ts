@@ -79,6 +79,26 @@ export class ConversationThreadService {
     });
   }
 
+  /** Trae un hilo por id (o null). Para el orquestador (estado + carrito frescos). */
+  async getById(id: string): Promise<ConversationThread | null> {
+    return this.tk.run(async (trx) => {
+      const row = await trx('whatsapp.conversation_threads').where({ id }).first();
+      return row ? this.parse(row) : null;
+    });
+  }
+
+  /** Últimos N mensajes del hilo (orden cronológico) para dar contexto al LLM. */
+  async recentMessages(threadId: string, limit = 8): Promise<{ direction: 'in' | 'out'; body: string | null }[]> {
+    return this.tk.run(async (trx) => {
+      const rows = await trx('whatsapp.messages')
+        .where({ thread_id: threadId })
+        .orderBy('created_at', 'desc')
+        .limit(limit)
+        .select('direction', 'body');
+      return rows.reverse();
+    });
+  }
+
   /** Patch parcial del hilo (estado / carrito / domicilio / customer / order / handoff). */
   async update(
     id: string,

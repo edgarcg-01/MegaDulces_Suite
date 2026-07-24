@@ -116,6 +116,8 @@ import { FiscalEmisionModule } from '@megadulces/fiscal';
 import { ReconciliationModule } from '@megadulces/reconciliation';
 // Fase F (ADR-006/007/034) — Comercio conversacional por WhatsApp (canal + cola + estado).
 import { WhatsAppModule } from '@megadulces/whatsapp';
+// F.2 — binding del Port conversacional → catálogo commercial (DI inversion).
+import { CommerceConversationBindingModule } from './composition/commerce-conversation.binding.module';
 // MAAT.9 (3.0 P2) — binding del Port de notificación de Maat → canal de alertas commercial.
 import { FinanceNotifierBindingModule } from './composition/finance-notifier.binding.module';
 // FISCAL.1.1 — binding del Port de consolidación de hallazgos → Maat (finance.findings).
@@ -200,6 +202,8 @@ const multitenantModules = process.env.ENABLE_MULTITENANT === 'true'
       FiscalDescargaModule,
       FiscalEmisionModule,
       ReconciliationModule,
+      // Binding del Port ANTES de WhatsApp (provee el token @Global que inyecta).
+      CommerceConversationBindingModule,
       WhatsAppModule,
     ]
   : [];

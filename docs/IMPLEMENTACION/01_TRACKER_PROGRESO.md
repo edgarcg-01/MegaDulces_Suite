@@ -609,11 +609,11 @@ Plan: [`FASES/FASE_SM_SUPERVISOR_MOVIMIENTOS.md`](FASES/FASE_SM_SUPERVISOR_MOVIM
 - [x] **[F.1.2]** ✅ `WhatsAppWebhookController` `@Public()`: `GET /webhooks/whatsapp` (handshake verify) + `POST` (parse inbound → dedup por `wa_message_id` → hilo → log → encola; 200 rápido). `WhatsAppIngestService` resuelve tenant + scope CLS sintético (`tenantCtx.run`) + workers in/out (F.1 = responder placeholder, F.2 lo reemplaza). Raw body para HMAC capturado en main.ts (`verify` → `req.rawBody`).
 - [x] **[F.1.3]** ✅ Config env (`WHATSAPP_PROVIDER`/`_PHONE_NUMBER_ID`/`_ACCESS_TOKEN`/`_VERIFY_TOKEN`/`_APP_SECRET`/`_TENANT_ID`) + `POST /webhooks/whatsapp/sim` (solo `provider=simulator`). Smoke `http-whatsapp-webhook-test.js` escrito + registrado en `run-all-tests.js` (needsApi). **Pendiente: correr con API arriba.**
 
-### Sprint F.2 — Orquestador conversacional ⬜
+### Sprint F.2 — Orquestador conversacional 🧪 EN CÓDIGO (2026-07-24, build api verde)
 
-- [ ] **[F.2.1]** `ConversationOrchestrator` (Claude Haiku tool-use, plantilla Thot/`LlmExtractorService`, fallback heurístico).
-- [ ] **[F.2.2]** Tools: `buscar_producto` (catalog-search + Match-AI K), `agregar_al_carrito`/`ver_carrito`/`quitar` (pricing determinista), `capturar_domicilio` (geocode Mapbox), `confirmar_pedido`, `handoff_humano`.
-- [ ] **[F.2.3]** Persistencia de estado + carrito en `conversation_threads`; ventana 24h.
+- [x] **[F.2.1]** ✅ `ConversationOrchestratorService` — loop tool-use Claude Haiku (mismo endpoint/model que `LlmExtractorService`), máx 6 iteraciones. **Degrada honesto a handoff** sin `ANTHROPIC_API_KEY` o sin puerto de catálogo (nunca inventa pedido). Puerto `COMMERCE_CONVERSATION_PORT` (contracts) + binding `CommerceConversationBindingModule` → `CommercialCatalogSearchService` (frontera limpia: whatsapp no importa commercial). Reemplaza el placeholder del worker `in`.
+- [x] **[F.2.2]** ✅ 7 tools: `buscar_producto` (catalog-search, precio del motor), `agregar_al_carrito` (precio del hit, NO del LLM — invariante ADR-016), `quitar_del_carrito`, `ver_carrito`, `capturar_domicilio` (texto; geocoding vive en `/reparto/asignar`), `confirmar_pedido` (marca `review`, NO crea orden ni cobra), `handoff_humano`.
+- [x] **[F.2.3]** ✅ Estado + carrito persistidos en `conversation_threads` al cierre del turno; historial (últimos 8 msgs) como contexto. **Build api VERDE.** Pendiente: validación en vivo con `ANTHROPIC_API_KEY` + catálogo (calidad conversacional no es automatizable). **F.3 = crear la orden `pending_approval` desde el hilo `review` + bandeja.**
 
 ### Sprint F.3 — Pedido → bandeja de revisión ⬜
 
