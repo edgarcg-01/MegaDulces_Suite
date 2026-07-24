@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { CommercialRecommendationsModule } from '../commercial-recommendations/commercial-recommendations.module';
+import { CommercialOrdersModule } from '../commercial-orders/commercial-orders.module';
 import { Customer360Service } from './customer-360.service';
 import { Customer360RefreshService } from './customer-360-refresh.service';
 import { DecisionEngineService } from './decision-engine.service';
@@ -31,7 +32,7 @@ import { CommercialIntelligenceController } from './commercial-intelligence.cont
  * canasta de reorden sugerida.
  */
 @Module({
-  imports: [CommercialRecommendationsModule],
+  imports: [CommercialRecommendationsModule, CommercialOrdersModule],
   controllers: [CommercialIntelligenceController],
   providers: [
     Customer360Service,
