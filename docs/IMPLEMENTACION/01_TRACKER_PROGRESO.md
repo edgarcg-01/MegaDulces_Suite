@@ -634,7 +634,7 @@ Plan: [`FASES/FASE_SM_SUPERVISOR_MOVIMIENTOS.md`](FASES/FASE_SM_SUPERVISOR_MOVIM
 
 - [x] **[F.5.1]** ✅ `COMMERCE_CONVERSATION_PORT.searchProducts` devuelve `stock_pieces` (quantity−reserved del almacén default) + `pieces_per_package` (factor_sale). Enriquecido en el binding adapter (LATERAL sobre `commercial.stock`), sin tocar el `search()` compartido.
 - [x] **[F.5.2]** ✅ Orquestador: `buscar_producto` expone disponible/agotado/empaque; `agregar_al_carrito` con `unidad=pieza|paquete` (→ piezas canónicas) + **valida stock** (rechaza si excede); prompt anti-agotado + empaque. Carrito/bandeja muestran "2 paq × 40 (80 pzas)".
-- [ ] **[F.5.3]** ⏳ Validación runtime (bloqueada por DB local caída en la sesión): buscar → agregar por paquete → verificar conversión piezas + rechazo por stock.
+- [x] **[F.5.3]** ✅ **VALIDADO EN RUNTIME (2026-07-24, simulador + Claude real):** "2 cajas de vero pica fresa" → 48 piezas (factor 24, precio del motor $3,388.99); pedir 999999 cajas → **rechazo por stock** con carrito intacto (48) + respuesta con gracia del bot. **Bug encontrado+arreglado:** el simulador reiniciaba el contador de `message_id` en cada restart → colisión con el índice único → los `out` no se registraban; fix `sim-out-<ts>-<n>`. Además cola in-process vuelve a AWAIT + ack rápido a Meta en el webhook controller. Commits `a5b5b586`+`e9e9a0d5`.
 
 ### Sprint F.6 — "Surtir" (autonomía) ⏸️ DESCARTADO por decisión (2026-07-24)
 
@@ -643,7 +643,7 @@ Plan: [`FASES/FASE_SM_SUPERVISOR_MOVIMIENTOS.md`](FASES/FASE_SM_SUPERVISOR_MOVIM
 ### Sprint F.7 — Promos con imágenes 🧪 EN CÓDIGO (2026-07-24, build api verde)
 
 - [x] **[F.7.1]** ✅ `WhatsAppPort += sendImage/sendTemplate`; adapter Meta (payloads Graph v21: `type:image` link+caption, `type:template` con header de imagen + body params) + simulador (outbox). Cola de salida soporta kinds `image`/`template`; worker `out` despacha por tipo.
-- [x] **[F.7.3]** ✅ `WhatsAppPromoService` + `WhatsAppPromoController` (`/whatsapp/promos`, `WHATSAPP_BOT_GESTIONAR`): `POST /image` (imagen libre — solo ventana 24h) y `POST /template` (plantilla aprobada — inicia fuera de ventana). getOrCreate hilo → encola out → log. **Build verde. Runtime pendiente (DB caída).**
+- [x] **[F.7.3]** ✅ `WhatsAppPromoService` + `WhatsAppPromoController` (`/whatsapp/promos`, `WHATSAPP_BOT_GESTIONAR`): `POST /image` (imagen libre — solo ventana 24h) y `POST /template` (plantilla aprobada — inicia fuera de ventana). getOrCreate hilo → encola out → log. **VALIDADO EN RUNTIME (2026-07-24): POST /image 201 + `out type=image` logueado.**
 - [ ] **[F.7.2]** ⏳ **Trámite de Edgar (fuera de código):** crear + aprobar en Meta los templates de marketing (~1-2 días). ⚠️ Sin template aprobado, las promos fuera de ventana 24h fallan. El código ya los envía por nombre.
 
 ### Sprint F.8 — Envíos masivos de promos (broadcast) ⬜ (planeado)
