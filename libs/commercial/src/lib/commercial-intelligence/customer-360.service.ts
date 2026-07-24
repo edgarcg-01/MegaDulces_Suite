@@ -103,12 +103,7 @@ export class Customer360Service {
 
     return trx.raw(
       `
-      INSERT INTO commercial.customer_360 (
-        id, tenant_id, customer_id, orders_count, first_order_at, last_order_at,
-        recency_days, frequency_90d, monetary_90d, aov, cadence_days,
-        next_order_estimate, lifecycle_stage, computed_at, created_at, updated_at
-      )
-      order_days AS (
+      WITH order_days AS (
         SELECT DISTINCT o.customer_id,
           (o.created_at AT TIME ZONE 'America/Mexico_City')::date AS order_day
         FROM commercial.orders o
@@ -148,14 +143,33 @@ export class Customer360Service {
           ${aggFilter}
         GROUP BY c.id
       ),
+      cps_agg AS (  -- CT-C.1b: venta REAL del ERP por cliente (analytics.customer_product_sales, code = erp_code).
+        SELECT c.id AS customer_id,                 -- commercial.orders casi vacío en Mega Dulces; el ERP es la fuente.
+               SUM(cps.revenue_90d)::numeric        AS erp_monetary_90d,
+               MAX(cps.last_purchase_date)::timestamptz AS erp_last
+        FROM commercial.customers c
+        JOIN analytics.customer_product_sales cps
+          ON cps.tenant_id = public.current_tenant_id() AND cps.erp_code = c.code
+        WHERE c.deleted_at IS NULL
+        GROUP BY c.id
+      ),
       metrics AS (
         SELECT agg.*,
           cad.cadence_days,
-          CASE WHEN agg.last_order_at IS NULL THEN NULL
-               ELSE EXTRACT(EPOCH FROM (NOW() - agg.last_order_at)) / 86400.0
+          -- combina app (commercial.orders) + ERP (customer_product_sales); prefiere lo más reciente / la venta real.
+          GREATEST(agg.last_order_at, ce.erp_last) AS combined_last,
+          COALESCE(NULLIF(agg.monetary_90d, 0), ce.erp_monetary_90d, 0) AS combined_monetary,
+          CASE WHEN GREATEST(agg.last_order_at, ce.erp_last) IS NULL THEN NULL
+               ELSE EXTRACT(EPOCH FROM (NOW() - GREATEST(agg.last_order_at, ce.erp_last))) / 86400.0
           END AS recency_f
         FROM agg
         LEFT JOIN cadence cad ON cad.customer_id = agg.customer_id
+        LEFT JOIN cps_agg ce ON ce.customer_id = agg.customer_id
+      )
+      INSERT INTO commercial.customer_360 (
+        id, tenant_id, customer_id, orders_count, first_order_at, last_order_at,
+        recency_days, frequency_90d, monetary_90d, aov, cadence_days,
+        next_order_estimate, lifecycle_stage, computed_at, created_at, updated_at
       )
       SELECT
         gen_random_uuid(),
@@ -163,18 +177,18 @@ export class Customer360Service {
         m.customer_id,
         m.orders_count,
         m.first_order_at,
-        m.last_order_at,
+        m.combined_last,
         CASE WHEN m.recency_f IS NULL THEN NULL ELSE FLOOR(m.recency_f)::int END,
         m.frequency_90d,
-        m.monetary_90d,
+        ROUND(m.combined_monetary, 2),
         ROUND(m.aov, 2),
         ROUND(m.cadence_days::numeric, 2),
-        CASE WHEN m.last_order_at IS NOT NULL AND m.cadence_days IS NOT NULL
-             THEN ((m.last_order_at + (m.cadence_days || ' days')::interval) AT TIME ZONE 'America/Mexico_City')::date
+        CASE WHEN m.combined_last IS NOT NULL AND m.cadence_days IS NOT NULL
+             THEN ((m.combined_last + (m.cadence_days || ' days')::interval) AT TIME ZONE 'America/Mexico_City')::date
              ELSE NULL
         END,
         CASE
-          WHEN m.orders_count = 0 THEN 'new'
+          WHEN m.combined_last IS NULL THEN 'new'  -- CT-C.1b: sin actividad NI en app NI en ERP (no orders_count=0, que ahora incluye clientes ERP reales)
           WHEN m.first_order_at >= NOW() - INTERVAL '30 days' AND m.orders_count <= 2 THEN 'new'
           WHEN m.cadence_days IS NOT NULL THEN
             CASE
