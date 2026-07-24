@@ -168,6 +168,11 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.COMMERCIAL_THOT_GESTIONAR)]
       },
       {
+        path: 'razonamiento',
+        loadComponent: () => import('./modules/comercial/pages/comercial-razonamiento.component').then(m => m.ComercialRazonamientoComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_THOT_VER)]
+      },
+      {
         path: 'pricing',
         loadComponent: () => import('./modules/comercial/pages/comercial-pricing.component').then(m => m.ComercialPricingComponent),
         canActivate: [permissionGuard(Permission.COMMERCIAL_PRICING_VER)]
