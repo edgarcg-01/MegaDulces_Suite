@@ -19,6 +19,39 @@ import { amtPct, cuadra, money0, dmy, groupLabel } from './bancos-shared';
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (reconciliation(); as rc) {
+      <!-- CB.15.1 — Answer-first: ¿cuánto dice el Excel vs cuánto dice Kepler? -->
+      <div class="card-premium card-flat fb-kve">
+        <h3 class="fb-card-title">Kepler vs Excel <span class="muted">— ¿coincide lo que movió el banco con lo que registró Kepler en el 102?</span><app-context-help topic="bancos_caja" /></h3>
+        <div class="fb-kve-wrap">
+          <table class="fb-kve">
+            <thead>
+              <tr><th scope="col"></th><th scope="col" class="ta-r">Excel (banco)</th><th scope="col" class="ta-r">Kepler (102)</th><th scope="col" class="ta-r">Diferencia</th><th scope="col" class="ta-c">Estado</th></tr>
+            </thead>
+            <tbody>
+              <tr>
+                <th scope="row"><i class="pi pi-arrow-down-left fb-in-ico"></i> Ingresos <span class="muted">(entra)</span></th>
+                <td class="ta-r mono">{{ rc.cash.bank_in | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+                <td class="ta-r mono">{{ rc.cash.kepler_102_cargos | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+                <td class="ta-r mono muted">Δ {{ rc.cash.delta_in | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+                <td class="ta-c"><span class="fb-kve-tag memo" title="Los depósitos NO son espejo del 102: mezclan efectivo de CAJA GENERAL y cobranza de otras sucursales. Se cuadra por total, no 1 a 1. Δ informativo, no un gap.">memo</span></td>
+              </tr>
+              <tr>
+                <th scope="row"><i class="pi pi-arrow-up-right fb-out-ico"></i> Egresos <span class="muted">(sale)</span></th>
+                <td class="ta-r mono">{{ rc.cash.bank_out | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+                <td class="ta-r mono">{{ rc.cash.kepler_102_abonos | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+                <td class="ta-r mono" [class.bad]="!cuadra(rc.cash.delta_out)" [class.ok]="cuadra(rc.cash.delta_out)">Δ {{ rc.cash.delta_out | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+                <td class="ta-c">
+                  @if (cuadra(rc.cash.delta_out)) { <i class="pi pi-check-circle ok" title="Cuadra"></i> }
+                  @else { <i class="pi pi-exclamation-triangle bad" title="No cuadra — revisa el detalle abajo"></i> }
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="fb-plain">{{ cajaRead(rc) }}</p>
+        @if (rc.sin_clasificar > 0) { <p class="fb-recon-note muted"><i class="pi pi-exclamation-triangle"></i> {{ rc.sin_clasificar | currency:'MXN':'symbol-narrow':'1.0-0' }} en movimientos sin clasificar — sí están contados en los totales, pero sin categoría no se les atribuye concepto. En el tab Cierre está el detalle y cómo resolverlos en Kepler.</p> }
+      </div>
+
       <div class="card-premium card-flat fb-match">
         <div class="fb-match-head">
           <h3 class="fb-card-title">Conciliación por transacción <span class="muted">— retiros del banco ↔ pagos del 102 en Kepler</span></h3>
@@ -35,25 +68,6 @@ import { amtPct, cuadra, money0, dmy, groupLabel } from './bancos-shared';
           </div>
           <p class="fb-plain">{{ matchRead(mr) }}</p>
         } @else { <p class="fb-recon-note muted">Ejecuta la conciliación para vincular cada retiro con su pago en Kepler (monto + fecha).</p> }
-      </div>
-      <div class="card-premium card-flat fb-recon-cash">
-        <h3 class="fb-card-title">Caja — banco vs Kepler 102 <span class="muted">(excluye traspasos internos)</span><app-context-help topic="bancos_caja" /></h3>
-        <div class="fb-recon-grid">
-          <div class="fb-recon-cell">
-            <span class="fb-recon-l">Depósitos (entra) <span class="muted">· memo</span></span>
-            <span class="fb-recon-v mono">{{ rc.cash.bank_in | currency:'MXN':'symbol-narrow':'1.0-0' }}</span>
-            <span class="fb-recon-vs mono muted">vs 102 cargos {{ rc.cash.kepler_102_cargos | currency:'MXN':'symbol-narrow':'1.0-0' }}</span>
-            <span class="fb-recon-delta mono muted" [class.ok]="cuadra(rc.cash.delta_in)" title="El efectivo de CAJA GENERAL y la cobranza de otras sucursales no son cargo al 102 de banco; la columna de depósitos no es espejo del mayor 102. Δ informativo, no un gap.">Δ {{ rc.cash.delta_in | currency:'MXN':'symbol-narrow':'1.0-0' }}</span>
-          </div>
-          <div class="fb-recon-cell">
-            <span class="fb-recon-l">Retiros (sale)</span>
-            <span class="fb-recon-v mono">{{ rc.cash.bank_out | currency:'MXN':'symbol-narrow':'1.0-0' }}</span>
-            <span class="fb-recon-vs mono muted">vs 102 abonos {{ rc.cash.kepler_102_abonos | currency:'MXN':'symbol-narrow':'1.0-0' }}</span>
-            <span class="fb-recon-delta mono" [class.bad]="!cuadra(rc.cash.delta_out)" [class.ok]="cuadra(rc.cash.delta_out)">Δ {{ rc.cash.delta_out | currency:'MXN':'symbol-narrow':'1.0-0' }}</span>
-          </div>
-        </div>
-        <p class="fb-plain">{{ cajaRead(rc) }}</p>
-        @if (rc.sin_clasificar > 0) { <p class="fb-recon-note muted"><i class="pi pi-exclamation-triangle"></i> {{ rc.sin_clasificar | currency:'MXN':'symbol-narrow':'1.0-0' }} en movimientos sin clasificar — sí están contados en los totales, pero sin categoría no se les atribuye concepto. En el tab Cierre está el detalle y cómo resolverlos en Kepler.</p> }
       </div>
 
       @if (differences(); as df) {
@@ -130,6 +144,18 @@ import { amtPct, cuadra, money0, dmy, groupLabel } from './bancos-shared';
     .fb-recon-vs { font-size: var(--fs-xs); }
     .fb-recon-delta { font-size: var(--fs-sm); font-weight: 600; margin-top: 2px; }
     .fb-recon-note { font-size: var(--fs-xs); margin: var(--sp-3) 0 0; }
+    /* CB.15.1 — tabla Kepler vs Excel (answer-first, densa, quiet-luxury). */
+    .fb-kve { margin-bottom: var(--sp-3); }
+    .fb-kve-wrap { overflow-x: auto; }
+    table.fb-kve { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); }
+    table.fb-kve th, table.fb-kve td { padding: var(--sp-2) var(--sp-3); border-bottom: 1px solid var(--border-color); }
+    table.fb-kve thead th { font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: .04em; color: var(--text-faint); font-weight: 700; white-space: nowrap; }
+    table.fb-kve tbody th[scope=row] { text-align: left; font-weight: 600; color: var(--text-main); white-space: nowrap; }
+    table.fb-kve tbody tr:last-child td, table.fb-kve tbody tr:last-child th { border-bottom: none; }
+    .fb-in-ico { color: var(--ok-fg); font-size: .8rem; margin-right: 4px; }
+    .fb-out-ico { color: var(--text-faint); font-size: .8rem; margin-right: 4px; }
+    .fb-kve-tag { display: inline-block; font-size: var(--fs-2xs, .7rem); font-weight: 700; padding: 1px var(--sp-2); border-radius: var(--r-pill);
+      background: color-mix(in srgb, var(--text-faint) 15%, transparent); color: var(--text-muted); text-transform: uppercase; letter-spacing: .03em; }
     .col-w5 { width: 5rem; } .col-w6 { width: 6rem; }
     .fb-diff-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(22rem, 1fr)); gap: var(--sp-3); margin-top: var(--sp-3); }
     .fb-row-click { cursor: pointer; }

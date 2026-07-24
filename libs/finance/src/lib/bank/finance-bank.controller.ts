@@ -103,6 +103,11 @@ export class FinanceBankController {
     return this.svc.movements(q);
   }
 
+  @Get('movements/:id/flow')
+  @RequirePermissions(Permission.FINANCE_BANK_VER)
+  @ApiOperation({ summary: 'Flujo de un movimiento: cadena compra→pago (proveedor) o cómo Kepler tiene la cobranza (depósito).' })
+  movementFlow(@Param('id') id: string) { return this.svc.movementFlow(id); }
+
   @Post('import')
   @RequirePermissions(Permission.FINANCE_BANK_GESTIONAR)
   @ApiOperation({ summary: 'Sube un workbook Excel (base64) y lo importa/concilia por periodo.' })

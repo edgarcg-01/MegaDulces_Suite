@@ -1,4 +1,5 @@
-import { ChangeDetectionStrategy, Component, EventEmitter, Output, input, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, EventEmitter, Output, inject, input, signal } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { TableModule } from 'primeng/table';
@@ -8,8 +9,9 @@ import { InputTextModule } from 'primeng/inputtext';
 import { IconFieldModule } from 'primeng/iconfield';
 import { InputIconModule } from 'primeng/inputicon';
 import { DialogModule } from 'primeng/dialog';
-import { BankMovement } from '../../bank.service';
-import { GROUP_ORDER, groupLabel, groupColorVar, dmy, money0 } from './bancos-shared';
+import { ButtonModule } from 'primeng/button';
+import { BankService, BankMovement, MovementFlow } from '../../bank.service';
+import { GROUP_ORDER, groupLabel, groupColorVar, dmy, dmShort, money0 } from './bancos-shared';
 
 /**
  * CB.14 — Vista MOVIMIENTOS (tabla filtrable read-only). El shell posee los filtros
@@ -19,7 +21,7 @@ import { GROUP_ORDER, groupLabel, groupColorVar, dmy, money0 } from './bancos-sh
 @Component({
   selector: 'bancos-movimientos',
   standalone: true,
-  imports: [CommonModule, FormsModule, TableModule, SelectModule, CheckboxModule, InputTextModule, IconFieldModule, InputIconModule, DialogModule],
+  imports: [CommonModule, FormsModule, TableModule, SelectModule, CheckboxModule, InputTextModule, IconFieldModule, InputIconModule, DialogModule, ButtonModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="fb-filters">
@@ -100,14 +102,63 @@ import { GROUP_ORDER, groupLabel, groupColorVar, dmy, money0 } from './bancos-sh
       </p-table>
     </div>
 
-    <!-- Detalle del movimiento (clic en fila): a qué se atribuye + estado. -->
-    <p-dialog [visible]="!!detail()" (visibleChange)="detail.set(null)" [modal]="true" [dismissableMask]="true"
-              [header]="detail()?.title || 'Movimiento'" [style]="{ width: '32rem' }">
+    <!-- Detalle del movimiento (clic en fila): a qué se atribuye + estado + flujo. -->
+    <p-dialog [visible]="!!detail()" (visibleChange)="closeDetail()" [modal]="true" [dismissableMask]="true"
+              [header]="detail()?.title || 'Movimiento'" [style]="{ width: '36rem' }">
       @if (detail(); as d) {
         <dl class="fb-dl">
           @for (f of d.fields; track f.k) { <div class="fb-dl-row"><dt>{{ f.k }}</dt><dd [class.mono]="f.mono">{{ f.v }}</dd></div> }
         </dl>
         <p class="fb-dl-note muted"><i class="pi pi-info-circle"></i> {{ d.note }}</p>
+
+        <!-- CB.15.2 — de dónde viene: cadena del proveedor (pago) o cómo Kepler tiene la cobranza (depósito) -->
+        <div class="fb-flow-sec">
+          @if (!flow() && !flowLoading()) {
+            <button pButton type="button" label="Ver de dónde viene" icon="pi pi-sitemap"
+                    class="p-button-sm p-button-outlined" (click)="loadFlow()"></button>
+          }
+          @if (flowLoading()) { <p class="muted fb-flow-loading"><i class="pi pi-spin pi-spinner"></i> Rastreando el flujo…</p> }
+          @if (flow(); as fl) {
+            @if (fl.proveedor && (fl.proveedor.banco_movs || fl.proveedor.kepler_movs)) {
+              <div class="fb-flow-cuadre">
+                <span class="fb-flow-prov">{{ fl.proveedor.nombre }}</span>
+                <div class="fb-flow-nums">
+                  <span><b class="mono">{{ fl.proveedor.banco_total_mes | currency:'MXN':'symbol-narrow':'1.0-0' }}</b> banco ({{ fl.proveedor.banco_movs }})</span>
+                  <span class="muted">vs</span>
+                  <span><b class="mono">{{ fl.proveedor.kepler_total_mes | currency:'MXN':'symbol-narrow':'1.0-0' }}</b> Kepler 102 ({{ fl.proveedor.kepler_movs }})</span>
+                  @if (provCuadra(fl)) { <i class="pi pi-check-circle ok" title="Cuadra en el mes"></i> }
+                  @else { <i class="pi pi-exclamation-triangle warn" title="Difieren en el mes"></i> }
+                </div>
+              </div>
+            }
+            @if (fl.cadena.length) {
+              <div class="fb-flow-chain">
+                <div class="fb-flow-h">Compras del proveedor en el mes (orden → recepción → factura → pago)</div>
+                <table class="fb-flow-table">
+                  <thead><tr><th>Factura</th><th>Orden</th><th>Recepción</th><th>Pago</th><th class="ta-r">Total</th></tr></thead>
+                  <tbody>
+                    @for (r of fl.cadena; track r.factura_folio) {
+                      <tr>
+                        <td class="mono">{{ r.factura_folio || '—' }} <span class="muted">{{ ds(r.factura_fecha) }}</span></td>
+                        <td class="mono muted">{{ r.orden_folio || '—' }}</td>
+                        <td class="mono muted">{{ r.recepcion_folio || '—' }}</td>
+                        <td class="mono muted">{{ r.pago_folio || '—' }} {{ ds(r.pago_fecha) }}</td>
+                        <td class="ta-r mono">{{ r.total | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+                      </tr>
+                    }
+                  </tbody>
+                </table>
+              </div>
+            }
+            @if (fl.cobranza && fl.cobranza.kepler_movs) {
+              <div class="fb-flow-chain">
+                <div class="fb-flow-h">Cómo lo tiene Kepler</div>
+                <p class="fb-flow-cob">Este cobrador tiene <b>{{ fl.cobranza.kepler_movs }}</b> pólizas de cobranza en el mes (suman <b class="mono">{{ fl.cobranza.kepler_suma | currency:'MXN':'symbol-narrow':'1.0-0' }}</b>). El banco lo depositó junto; Kepler lo tiene por venta.</p>
+              </div>
+            }
+            <p class="fb-dl-note muted"><i class="pi pi-info-circle"></i> {{ fl.nota }}</p>
+          }
+        </div>
       }
     </p-dialog>
   `,
@@ -147,6 +198,20 @@ import { GROUP_ORDER, groupLabel, groupColorVar, dmy, money0 } from './bancos-sh
     .fb-dl-row dt { font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: .04em; color: var(--text-faint); font-weight: 700; }
     .fb-dl-row dd { margin: 0; font-size: var(--fs-sm); color: var(--text-main); }
     .fb-dl-note { font-size: var(--fs-xs); margin: var(--sp-4) 0 0; display: flex; align-items: baseline; gap: var(--sp-1); }
+    .ok { color: var(--ok-fg); } .warn { color: var(--warn-fg); }
+    /* CB.15.2 — flujo "de dónde viene" */
+    .fb-flow-sec { margin-top: var(--sp-4); padding-top: var(--sp-3); border-top: 1px solid var(--border-color); }
+    .fb-flow-loading { font-size: var(--fs-sm); display: flex; align-items: center; gap: var(--sp-2); }
+    .fb-flow-cuadre { display: flex; flex-direction: column; gap: 2px; margin-bottom: var(--sp-3); }
+    .fb-flow-prov { font-size: var(--fs-sm); font-weight: 600; color: var(--text-main); }
+    .fb-flow-nums { display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-2); font-size: var(--fs-sm); color: var(--text-muted); }
+    .fb-flow-nums b { color: var(--text-main); font-weight: 600; }
+    .fb-flow-h { font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: .04em; color: var(--text-faint); font-weight: 700; margin-bottom: var(--sp-1); }
+    .fb-flow-chain { margin-top: var(--sp-2); }
+    table.fb-flow-table { width: 100%; border-collapse: collapse; font-size: var(--fs-xs); }
+    table.fb-flow-table th { text-align: left; font-weight: 600; color: var(--text-muted); padding: 3px var(--sp-2); border-bottom: 1px solid var(--border-color); white-space: nowrap; }
+    table.fb-flow-table td { padding: 3px var(--sp-2); border-bottom: 1px solid var(--border-color); }
+    .fb-flow-cob { font-size: var(--fs-sm); color: var(--text-main); margin: 0; line-height: 1.4; }
   `],
 })
 export class BancosMovimientosComponent {
@@ -163,16 +228,45 @@ export class BancosMovimientosComponent {
   @Output() filter = new EventEmitter<{ field: string; value: any }>();
   @Output() searchChange = new EventEmitter<string>();
 
+  private readonly api = inject(BankService);
+  private readonly destroyRef = inject(DestroyRef);
+
   readonly GROUP_ORDER = GROUP_ORDER;
   readonly colorByGroup = signal(true);
   label(g: string): string { return groupLabel(g); }
   color(g?: string | null): string { return groupColorVar(g); }
   dm(v: any): string { return dmy(v); }
+  ds(v: any): string { return dmShort(v); }
 
   /** Detalle del movimiento (clic en fila): a qué se atribuye + estado de conciliación. */
   readonly detail = signal<{ title: string; fields: { k: string; v: string; mono?: boolean }[]; note: string } | null>(null);
+  private readonly currentId = signal<string | null>(null);
+  readonly flow = signal<MovementFlow | null>(null);
+  readonly flowLoading = signal(false);
+
+  closeDetail(): void { this.detail.set(null); this.flow.set(null); this.currentId.set(null); }
+
+  /** CB.15.2 — rastrea de dónde viene el movimiento (cadena del proveedor / cobranza Kepler). */
+  loadFlow(): void {
+    const id = this.currentId();
+    if (!id || this.flowLoading()) return;
+    this.flowLoading.set(true);
+    this.api.movementFlow(id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (fl) => { this.flow.set(fl); this.flowLoading.set(false); },
+      error: () => { this.flowLoading.set(false); },
+    });
+  }
+  provCuadra(fl: MovementFlow): boolean {
+    if (!fl.proveedor) return false;
+    return Math.abs(fl.proveedor.banco_total_mes - fl.proveedor.kepler_total_mes) < 1000;
+  }
+
   openMov(m: BankMovement): void {
+    this.flow.set(null);
+    this.currentId.set(m.id);
     const esRetiro = (m.amount_out || 0) > 0;
+    const conciliado = m.recon_status === 'matched';
+    const folio = conciliado && m.kepler_doc_folio ? `${m.kepler_doc_tipo || ''} ${m.kepler_doc_folio}`.trim() : null;
     const fields = [
       { k: 'Fecha', v: dmy(m.movement_date), mono: true },
       { k: 'Cuenta', v: `${m.bank} ${m.account_label}` },
@@ -181,17 +275,23 @@ export class BancosMovimientosComponent {
       { k: 'Código (Excel)', v: m.raw_code || '—', mono: true },
       { k: 'Categoría', v: m.category_name || 'sin clasificar' },
       { k: 'Grupo', v: m.group_key ? groupLabel(m.group_key) : '—' },
-      { k: 'Cuenta Kepler', v: m.kepler_account || '—', mono: true },
+      // "Regla contable": es a qué cuenta DEBERÍA ir según la categoría — NO es un cruce
+      // verificado contra Kepler. El cruce real (si existe) es la póliza de abajo.
+      { k: 'Regla contable', v: m.kepler_account ? `${m.kepler_account} (regla, sin verificar)` : '—', mono: true },
       { k: esRetiro ? 'Retiro' : 'Depósito', v: money0(esRetiro ? m.amount_out : m.amount_in), mono: true },
-      { k: 'Conciliación', v: m.recon_status === 'matched' ? 'Conciliado con Kepler' : m.recon_status === 'unmatched' ? 'Sin conciliar' : '—' },
+      { k: 'Conciliación', v: conciliado ? 'Conciliado con Kepler' : m.recon_status === 'unmatched' ? 'Sin conciliar' : '—' },
+      // Solo cuando SÍ hay cruce real: el folio de la póliza del 102 de Kepler (verificado).
+      ...(folio ? [{ k: 'Póliza Kepler', v: folio, mono: true }] : []),
     ];
     let note: string;
     if (m.group_key === 'ingreso' && esRetiro) {
       note = 'Ojo: está clasificado como ingreso (cobranza) pero es un RETIRO (salida). Se ve como posible misclasificación — revisa el tipo/código del Excel; si es un cargo real, debe reclasificarse en el origen.';
     } else if (!esRetiro) {
-      note = 'Es un depósito. Los depósitos no se concilian 1 a 1 contra el 102 (ese cruce aplica solo a los retiros).';
-    } else if (m.recon_status === 'matched') {
-      note = 'Conciliado: este retiro ya tiene su pago equivalente en el 102 de Kepler.';
+      note = 'Es un depósito (cobranza). Los depósitos NO se concilian 1 a 1 contra el 102: el banco los registra como un depósito único y Kepler los tiene partidos por venta. Se cuadran por total, no por línea. La "regla contable" de arriba es solo a qué cuenta corresponde, no un cruce verificado.';
+    } else if (conciliado) {
+      note = folio
+        ? `Conciliado: este pago casó con la póliza ${folio} del 102 en Kepler (mismo monto y fecha). Ese folio SÍ es un cruce verificado — la "regla contable" de arriba no lo es.`
+        : 'Conciliado: este pago ya tiene su equivalente en el 102 de Kepler.';
     } else {
       note = 'Sin conciliar: no se encontró su pago en el 102. Si es factoraje o nómina/comisión agrupada, no requiere acción; si es compra/gasto, captúralo o reclasifícalo en Kepler (auxiliar del 102, por beneficiario + monto + fecha).';
     }

@@ -28,6 +28,7 @@ export interface BankMovement {
   group_key: string | null; kepler_account: string | null;
   raw_type: string | null; raw_code: string | null; sucursal: string | null; concept: string | null;
   amount_in: number; amount_out: number; running_balance: number | null; recon_status: string;
+  kepler_doc_tipo?: string | null; kepler_doc_folio?: string | null;
 }
 
 export interface MovementsPage { total: number; rows: BankMovement[]; }
@@ -103,6 +104,27 @@ export interface Diagnostico {
   tiene_balanza_kepler: boolean; items: DiagnosticoItem[];
 }
 
+/** CB.15.2 — Flujo de un movimiento (de dónde viene). */
+export interface FlowChainRow {
+  factura_folio: string | null; factura_fecha: string | null; orden_folio: string | null;
+  recepcion_folio: string | null; pago_folio: string | null; pago_fecha: string | null;
+  beneficiario: string | null; total: number; lead_days: number | null; pago_days: number | null; match_confidence: string | null;
+}
+export interface MovementFlow {
+  period: string;
+  movement: {
+    id: string; fecha: string; bank: string; account_label: string; concept: string | null;
+    raw_type: string | null; raw_code: string | null; sucursal: string | null;
+    categoria: string | null; grupo: string | null; kepler_account: string | null;
+    es_retiro: boolean; monto: number; recon_status: string; kepler_folio: string | null;
+  };
+  tipo: 'pago' | 'deposito';
+  proveedor: { nombre: string; banco_total_mes: number; banco_movs: number; kepler_total_mes: number; kepler_movs: number } | null;
+  cadena: FlowChainRow[];
+  cobranza: { kepler_movs: number; kepler_suma: number } | null;
+  nota: string;
+}
+
 export interface MovementsQuery {
   period?: string; account_id?: string; category_id?: string; group_key?: string;
   uncategorized?: boolean; recon_status?: string; search?: string; limit?: number; offset?: number;
@@ -135,6 +157,10 @@ export class BankService {
     if (q.limit != null) p.set('limit', String(q.limit));
     if (q.offset != null) p.set('offset', String(q.offset));
     return this.http.get<MovementsPage>(`${this.base}/movements?${p.toString()}`);
+  }
+
+  movementFlow(id: string): Observable<MovementFlow> {
+    return this.http.get<MovementFlow>(`${this.base}/movements/${id}/flow`);
   }
 
   reclassify(id: string, categoryId: string | null): Observable<unknown> {

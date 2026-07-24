@@ -182,11 +182,16 @@ export class FinanceBankService {
         return b;
       };
       const [{ count }] = await base().count({ count: '*' });
+      // El folio REAL conciliado (leftJoin solo en las filas, no en el count: runMatch
+      // parea 1:1, así que a lo más hay un match por movimiento). Esto distingue la
+      // "regla contable" (mc.kepler_account) del cruce verificado (rm.kepler_doc_folio).
       const rows = await base()
+        .leftJoin('finance.bank_recon_matches as rm', 'rm.bank_movement_id', 'bm.id')
         .select('bm.id', 'bm.movement_date', 'ba.bank', 'ba.account_label', 'bm.bank_account_id',
           'bm.category_id', 'mc.code as category_code', 'mc.name as category_name', 'mc.group_key',
           'mc.kepler_account', 'bm.raw_type', 'bm.raw_code', 'bm.sucursal', 'bm.concept',
-          'bm.amount_in', 'bm.amount_out', 'bm.running_balance', 'bm.recon_status')
+          'bm.amount_in', 'bm.amount_out', 'bm.running_balance', 'bm.recon_status',
+          'rm.kepler_doc_tipo', 'rm.kepler_doc_folio')
         .orderBy([{ column: 'bm.movement_date' }, { column: 'bm.id' }])
         .limit(limit).offset(offset);
       return {
@@ -197,6 +202,105 @@ export class FinanceBankService {
           running_balance: r.running_balance === null ? null : n(r.running_balance),
         })),
       };
+    });
+  }
+
+  /**
+   * CB.15.2 — Flujo de UN movimiento ("de dónde viene"). Para un PAGO: su cadena
+   * compra→recepción→factura→pago (analytics.expense_doc_chain) + mini-cuadre banco
+   * vs Kepler 102 de ese proveedor en el mes. Para un DEPÓSITO (cobranza): cómo lo
+   * tiene Kepler (partido en pólizas UA0501). El match por beneficiario reusa el mismo
+   * scoring de nombres del matcher (tokens significativos ≥0.5) → contexto honesto, NO
+   * un cruce 1:1 exacto (eso se declara en la nota).
+   */
+  async movementFlow(id: string) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    if (!id) throw new BadRequestException('id requerido');
+    return this.tk.run(async (trx) => {
+      const m = await trx('finance.bank_movements as bm')
+        .join('finance.bank_accounts as ba', 'ba.id', 'bm.bank_account_id')
+        .join('finance.bank_statements as st', 'st.id', 'bm.statement_id')
+        .leftJoin('finance.movement_categories as mc', 'mc.id', 'bm.category_id')
+        .leftJoin('finance.bank_recon_matches as rm', 'rm.bank_movement_id', 'bm.id')
+        .where('bm.id', id)
+        .select('bm.id', 'bm.movement_date', 'ba.bank', 'ba.account_label', 'bm.concept',
+          'bm.raw_type', 'bm.raw_code', 'bm.sucursal', 'bm.amount_in', 'bm.amount_out', 'bm.recon_status',
+          'mc.name as category_name', 'mc.group_key', 'mc.kepler_account',
+          'rm.kepler_doc_tipo', 'rm.kepler_doc_folio', 'st.period')
+        .first();
+      if (!m) throw new BadRequestException('movimiento no encontrado');
+
+      const period: string = m.period;
+      const fmt = (v: number) => Number(v || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 });
+      const esRetiro = n(m.amount_out) > 0;
+      const movement = {
+        id: m.id, fecha: m.movement_date, bank: m.bank, account_label: m.account_label,
+        concept: m.concept, raw_type: m.raw_type, raw_code: m.raw_code, sucursal: m.sucursal,
+        categoria: m.category_name, grupo: m.group_key, kepler_account: m.kepler_account,
+        es_retiro: esRetiro, monto: esRetiro ? n(m.amount_out) : n(m.amount_in),
+        recon_status: m.recon_status,
+        kepler_folio: m.kepler_doc_folio ? `${m.kepler_doc_tipo || ''} ${m.kepler_doc_folio}`.trim() : null,
+      };
+
+      const tok = nameTokens(m.concept);
+      const strongest = tok.size ? [...tok].sort((a, b) => b.length - a.length)[0] : null;
+      const [yy, mm] = period.split('-').map(Number);
+      const ini = `${period}-01`;
+      const fin = mm >= 12 ? `${yy + 1}-01-01` : `${yy}-${String(mm + 1).padStart(2, '0')}-01`;
+
+      // DEPÓSITO (cobranza): cómo Kepler lo tiene (repartido por venta).
+      if (!esRetiro) {
+        let cobranza = { kepler_movs: 0, kepler_suma: 0 };
+        if (strongest) {
+          const rows = await trx('analytics.bank_postings')
+            .where({ tenant_id: tenantId, anio_mes: period, cargo_abono: 'C' })
+            .whereILike('contraparte', `%${strongest}%`)
+            .select('importe', 'contraparte');
+          const match = (rows as any[]).filter((r) => nameScore(tok, nameTokens(r.contraparte)) >= 0.5);
+          cobranza = { kepler_movs: match.length, kepler_suma: Math.round(match.reduce((s, r) => s + n(r.importe), 0) * 100) / 100 };
+        }
+        return { period, movement, tipo: 'deposito', proveedor: null, cadena: [], cobranza,
+          nota: cobranza.kepler_movs
+            ? `Es cobranza. El banco lo registra como UN depósito; en Kepler está repartido en ${cobranza.kepler_movs} pólizas de este cobrador este mes (suman ${fmt(cobranza.kepler_suma)}). Por eso no hay una línea con este monto exacto en Kepler — se cuadra por total, no 1 a 1.`
+            : 'Es cobranza (un depósito). Los depósitos no se concilian 1 a 1 contra el 102: el banco los agrupa distinto que Kepler. Se cuadran por total.' };
+      }
+
+      // PAGO: cadena del proveedor en el mes + mini-cuadre banco vs Kepler.
+      let cadena: any[] = [];
+      let proveedor: any = null;
+      if (strongest) {
+        const chainRows = await trx('analytics.expense_doc_chain')
+          .where('tenant_id', tenantId)
+          .whereILike('beneficiario', `%${strongest}%`)
+          .whereRaw('factura_fecha >= ? AND factura_fecha < ?', [ini, fin])
+          .select('factura_folio', 'factura_fecha', 'orden_folio', 'recepcion_folio', 'pago_folio', 'pago_fecha', 'beneficiario', 'total', 'lead_days', 'pago_days', 'match_confidence')
+          .orderBy('total', 'desc').limit(20);
+        cadena = (chainRows as any[]).filter((r) => nameScore(tok, nameTokens(r.beneficiario)) >= 0.5)
+          .slice(0, 12).map((r) => ({ ...r, total: n(r.total) }));
+
+        const bankRows = await trx('finance.bank_movements as bm')
+          .join('finance.bank_statements as st', 'st.id', 'bm.statement_id')
+          .where('st.period', period).where('bm.amount_out', '>', 0)
+          .whereILike('bm.concept', `%${strongest}%`)
+          .select('bm.concept', 'bm.amount_out');
+        const bankMatch = (bankRows as any[]).filter((r) => nameScore(tok, nameTokens(r.concept)) >= 0.5);
+        const keplerRows = await trx('analytics.bank_postings')
+          .where({ tenant_id: tenantId, anio_mes: period, cargo_abono: 'A' })
+          .whereILike('contraparte', `%${strongest}%`)
+          .select('contraparte', 'importe');
+        const keplerMatch = (keplerRows as any[]).filter((r) => nameScore(tok, nameTokens(r.contraparte)) >= 0.5);
+        proveedor = {
+          nombre: cadena[0]?.beneficiario || keplerMatch[0]?.contraparte || m.concept,
+          banco_total_mes: Math.round(bankMatch.reduce((s, r) => s + n(r.amount_out), 0) * 100) / 100,
+          banco_movs: bankMatch.length,
+          kepler_total_mes: Math.round(keplerMatch.reduce((s, r) => s + n(r.importe), 0) * 100) / 100,
+          kepler_movs: keplerMatch.length,
+        };
+      }
+      return { period, movement, tipo: 'pago', proveedor, cadena, cobranza: null,
+        nota: cadena.length
+          ? 'La cadena de abajo son las compras a este proveedor en el mes (orden → recepción → factura → pago) según Kepler: de ahí viene el pago. Es el contexto del proveedor, no un cruce 1 a 1 exacto con este retiro.'
+          : 'No se encontró cadena de compra para este beneficiario en el mes. Puede ser un gasto o servicio (no compra de mercancía), o el nombre no coincide con el catálogo de proveedores.' };
     });
   }
 
