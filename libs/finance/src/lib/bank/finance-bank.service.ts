@@ -244,6 +244,20 @@ export class FinanceBankService {
 
       const tok = nameTokens(m.concept);
       const strongest = tok.size ? [...tok].sort((a, b) => b.length - a.length)[0] : null;
+      // Match por SOLAPAMIENTO de tokens como substring (no set-equality): exige ≥2
+      // tokens del movimiento presentes en la contraparte (o ≥1 si solo hay 1 token
+      // significativo). Cacha "Tlmk"⊂"TLMKT" y plaza (Morelia) juntos → incluye "TLMKT
+      // Morelia", excluye "RD Morelia" (solo comparte plaza). Más preciso que nameScore
+      // para el cross-naming banco(vendedor)↔Kepler(plaza), y preserva proveedores (Mondelez).
+      const normCp = (s: any) => normKey(s).normalize('NFD').replace(/[̀-ͯ]/g, '');
+      const need = Math.min(2, tok.size);
+      const matchCp = (contraparte: any): boolean => {
+        if (!tok.size) return false;
+        const c = normCp(contraparte);
+        let hits = 0;
+        for (const t of tok) if (c.includes(t)) hits++;
+        return hits >= need;
+      };
       const [yy, mm] = period.split('-').map(Number);
       const ini = `${period}-01`;
       const fin = mm >= 12 ? `${yy + 1}-01-01` : `${yy}-${String(mm + 1).padStart(2, '0')}-01`;
@@ -258,9 +272,9 @@ export class FinanceBankService {
             .whereILike('contraparte', `%${strongest}%`)
             .select('doc_tipo', 'folio', 'fecha', 'importe', 'contraparte', 'forma')
             .orderBy([{ column: 'fecha' }, { column: 'folio' }]);
-          const match = (rows as any[]).filter((r) => nameScore(tok, nameTokens(r.contraparte)) >= 0.5);
+          const match = (rows as any[]).filter((r) => matchCp(r.contraparte));
           cobranza = { kepler_movs: match.length, kepler_suma: Math.round(match.reduce((s, r) => s + n(r.importe), 0) * 100) / 100 };
-          docs = match.slice(0, 100).map((r) => ({ doc_tipo: r.doc_tipo, folio: r.folio, fecha: r.fecha, importe: n(r.importe), contraparte: r.contraparte, forma: r.forma }));
+          docs = match.slice(0, 500).map((r) => ({ doc_tipo: r.doc_tipo, folio: r.folio, fecha: r.fecha, importe: n(r.importe), contraparte: r.contraparte, forma: r.forma }));
         }
         return { period, movement, tipo: 'deposito', proveedor: null, cadena: [], cobranza, docs,
           nota: cobranza.kepler_movs
@@ -287,13 +301,13 @@ export class FinanceBankService {
           .where('st.period', period).where('bm.amount_out', '>', 0)
           .whereILike('bm.concept', `%${strongest}%`)
           .select('bm.concept', 'bm.amount_out');
-        const bankMatch = (bankRows as any[]).filter((r) => nameScore(tok, nameTokens(r.concept)) >= 0.5);
+        const bankMatch = (bankRows as any[]).filter((r) => matchCp(r.concept));
         const keplerRows = await trx('analytics.bank_postings')
           .where({ tenant_id: tenantId, anio_mes: period, cargo_abono: 'A' })
           .whereILike('contraparte', `%${strongest}%`)
           .select('doc_tipo', 'folio', 'fecha', 'contraparte', 'importe', 'forma')
           .orderBy([{ column: 'fecha' }, { column: 'folio' }]);
-        const keplerMatch = (keplerRows as any[]).filter((r) => nameScore(tok, nameTokens(r.contraparte)) >= 0.5);
+        const keplerMatch = (keplerRows as any[]).filter((r) => matchCp(r.contraparte));
         proveedor = {
           nombre: cadena[0]?.beneficiario || keplerMatch[0]?.contraparte || m.concept,
           banco_total_mes: Math.round(bankMatch.reduce((s, r) => s + n(r.amount_out), 0) * 100) / 100,
@@ -301,7 +315,7 @@ export class FinanceBankService {
           kepler_total_mes: Math.round(keplerMatch.reduce((s, r) => s + n(r.importe), 0) * 100) / 100,
           kepler_movs: keplerMatch.length,
         };
-        docs = keplerMatch.slice(0, 100).map((r) => ({ doc_tipo: r.doc_tipo, folio: r.folio, fecha: r.fecha, importe: n(r.importe), contraparte: r.contraparte, forma: r.forma }));
+        docs = keplerMatch.slice(0, 500).map((r) => ({ doc_tipo: r.doc_tipo, folio: r.folio, fecha: r.fecha, importe: n(r.importe), contraparte: r.contraparte, forma: r.forma }));
       }
       return { period, movement, tipo: 'pago', proveedor, cadena, cobranza: null, docs,
         nota: cadena.length
