@@ -376,11 +376,23 @@ export class CommercialReplenishmentService {
       const oh = '(COALESCE(s.quantity,0)-COALESCE(s.reserved_quantity,0))';
       const it = 'COALESCE(pit.qty_in_transit,0)';
       // Base GLOBAL (como "Objetivo" de Existencia Crítica): el sugerido llena hasta el
-      // nivel elegido (máximo/reorden/mínimo) con la MISMA fórmula que criticalStock (que
-      // alimenta el drill) → la columna "Costo est." y el detalle SIEMPRE coinciden y
+      // nivel elegido (cadencia/máximo/reorden/mínimo) con la MISMA fórmula que criticalStock
+      // (que alimenta el drill) → la columna "Costo est." y el detalle SIEMPRE coinciden y
       // reaccionan al filtro base. La cadencia sigue mandando el "cuándo" (next_due).
       const basis = this.basis(q.target_basis);
-      const target = this.targetCol(basis);
+      // RA-PRO.13 — base 'cadence' (default de la pantalla): llena SOLO para el ciclo del
+      // proveedor (demanda × (cadencia + lead) + safety), no hasta el máximo — que en artículos
+      // lumpy (globos, CV alto) es ~1 año de cobertura e infla el pedido 5-10x. Fórmula IDÉNTICA
+      // al cadTarget de criticalStock; la LATERAL ve rc.*/sup.* del outer, así total y drill cuadran.
+      const effLead = `(CASE WHEN rc.via='transfer' THEN COALESCE(rc.lead_time_days, 3) ELSE COALESCE(rc.lead_time_days, sup.lead_time_days, 7) END)`;
+      const cadTarget = `COALESCE(
+        CASE
+          WHEN sup.cadence_days_override IS NOT NULL AND COALESCE(rc.via,'purchase') <> 'transfer'
+            THEN ceil(COALESCE(ih.avg_daily_units,0) * (sup.cadence_days_override + COALESCE(sup.colchon_days,0)))
+          WHEN rc.cadence_days IS NOT NULL
+            THEN ceil(COALESCE(ih.avg_daily_units,0) * (rc.cadence_days + ${effLead}) + COALESCE(rp.safety_stock,0))
+        END, rp.max_stock)`;
+      const target = basis === 'cadence' ? cadTarget : this.targetCol(basis);
       const sug = `GREATEST(0, ${target} - ${oh} - ${it})`;
       const cost = `COALESCE(pr.cost_with_tax, pr.cost_base, 0)`;
       // RA-PRO.12 — categoría de compra: el agg (n_skus/sugerido) solo cuenta productos de la categoría.

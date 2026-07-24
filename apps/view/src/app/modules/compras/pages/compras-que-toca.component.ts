@@ -475,10 +475,11 @@ export class ComprasQueTocaComponent implements OnInit {
   fSearch = '';
   /** Base GLOBAL (como "Objetivo" de Existencia Crítica): manda el sugerido/costo de
    * TODA la vista — columna "Costo est.", KPI y drill usan la misma. Default = máximo. */
-  fBasis = signal<OrderBasis>('max');
+  fBasis = signal<OrderBasis>('cadence');
   viaOpts = [{ label: 'Compra', value: 'purchase' }, { label: 'Traspaso', value: 'transfer' }];
   statusOpts = [{ label: 'Activos', value: '' }, { label: 'Solo lo que toca (≤ hoy)', value: 'due' }];
   basisOpts: { label: string; value: OrderBasis }[] = [
+    { label: 'Para este ciclo (cadencia)', value: 'cadence' },
     { label: 'Hasta el máximo', value: 'max' },
     { label: 'Hasta reorden', value: 'reorder' },
     { label: 'Hasta el mínimo', value: 'min' },
