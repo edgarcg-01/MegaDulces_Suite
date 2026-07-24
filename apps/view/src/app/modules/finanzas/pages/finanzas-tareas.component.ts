@@ -14,6 +14,7 @@ import { MessageService } from 'primeng/api';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
+import { MarkdownPipe } from '../../../shared/pipes/markdown.pipe';
 import { FINANZAS_TABS } from '../finanzas-tabs';
 import { AuthService } from '../../../core/services/auth.service';
 import { Permission } from '../../../core/constants/permissions';
@@ -29,7 +30,7 @@ import { ReconTasksService, ReconTask, ReconTaskStats, ReconTaskStatus, FinanceU
   selector: 'app-finanzas-tareas',
   standalone: true,
   imports: [CommonModule, FormsModule, ButtonModule, TableModule, TagModule, DialogModule, SelectModule,
-    InputTextModule, TooltipModule, ToastModule, PageTabsComponent, MetricStripComponent, LoadStateComponent],
+    InputTextModule, TooltipModule, ToastModule, PageTabsComponent, MetricStripComponent, LoadStateComponent, MarkdownPipe],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
@@ -277,7 +278,11 @@ import { ReconTasksService, ReconTask, ReconTaskStats, ReconTaskStatus, FinanceU
               @if (m.kind === 'report') { <span class="ft-msg-kind">reportó</span> }
               @else if (m.kind === 'assignment') { <span class="ft-msg-kind ft-kind-assign">nueva tarea</span> }
             </div>
-            <div class="ft-msg-body" [class.ft-verify-ok]="m.kind==='verify' && m.meta?.['verified']" [class.ft-verify-no]="m.kind==='verify' && m.meta && !m.meta['verified']">{{ m.body }}</div>
+            @if (m.role === 'maat') {
+              <div class="ft-msg-body ft-md" [class.ft-verify-ok]="m.kind==='verify' && m.meta?.['verified']" [class.ft-verify-no]="m.kind==='verify' && m.meta && !m.meta['verified']" [innerHTML]="m.body | markdown"></div>
+            } @else {
+              <div class="ft-msg-body">{{ m.body }}</div>
+            }
           </div>
         }
         @if (chatThinking()) {
@@ -342,6 +347,13 @@ import { ReconTasksService, ReconTask, ReconTaskStats, ReconTaskStatus, FinanceU
     .ft-chat-composer { display: flex; gap: .3rem; align-items: center; width: 100%; }
     .ft-chat-composer input { flex: 1; }
     .ft-report-btn { margin-top: .5rem; width: 100%; }
+    .ft-md :first-child { margin-top: 0; }
+    .ft-md :last-child { margin-bottom: 0; }
+    .ft-md p { margin: 0 0 .35rem; }
+    .ft-md ul, .ft-md ol { margin: .25rem 0; padding-left: 1.15rem; display: flex; flex-direction: column; gap: .12rem; }
+    .ft-md .md-h { font-weight: 600; margin: .3rem 0 .2rem; }
+    .ft-md code { font-family: var(--font-mono); background: var(--card-bg); border: 1px solid var(--border-color); border-radius: var(--r-sm); padding: 0 .2rem; font-size: .9em; }
+    .ft-md a { color: var(--action); }
     .ft-prov-btn { background: none; border: none; padding: 0; font: inherit; font-weight: 500; color: var(--text-main); cursor: pointer; display: inline-flex; align-items: center; gap: .2rem; text-align: left; }
     .ft-prov-btn:hover { color: var(--action); }
     .ft-prov-btn i { font-size: .75rem; color: var(--text-faint); }
