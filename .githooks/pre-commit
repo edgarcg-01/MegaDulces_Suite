@@ -1,0 +1,22 @@
+#!/bin/sh
+# Pre-commit opt-in: escanea lo staged con gitleaks ANTES de commitear, para
+# atrapar secretos antes de que salgan del disco (el CI los atrapa después del
+# push; esto es la primera línea).
+#
+# Activar (una vez):   git config core.hooksPath .githooks
+# Requiere gitleaks instalado:  https://github.com/gitleaks/gitleaks/releases
+#
+# Si gitleaks no está instalado, NO bloquea el commit (solo avisa) — para no
+# romper la automatización de commits del entorno.
+
+if command -v gitleaks >/dev/null 2>&1; then
+  if ! gitleaks protect --staged --redact --config .gitleaks.toml; then
+    echo ""
+    echo "⛔ gitleaks detectó un posible secreto en lo staged."
+    echo "   Sacalo del commit (usá env/credenciales). Si es falso positivo,"
+    echo "   agregá el patrón al [allowlist] de .gitleaks.toml."
+    exit 1
+  fi
+else
+  echo "⚠️  gitleaks no está instalado — se saltea el escaneo local (el CI igual escanea)."
+fi

@@ -20,6 +20,26 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Escaneo de secretos. Job SEPARADO del build (no lo bloquea). gitleaks-action
+  # escanea solo los commits nuevos del push/PR (no revienta con el historial).
+  # NOTA: si el repo es de una ORG, necesita un GITLEAKS_LICENSE (gratis, se
+  # registra en gitleaks.io) como secret. Repos personales: no hace falta.
+  secret-scan:
+    name: Secret scan (gitleaks)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_CONFIG: .gitleaks.toml
+          GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
+
   build:
     name: Build & typecheck (api · view · portal · vendor)
     runs-on: ubuntu-latest
