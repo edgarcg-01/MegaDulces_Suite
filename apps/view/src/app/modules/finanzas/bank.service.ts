@@ -49,9 +49,10 @@ export interface ReconCash {
 }
 export interface ReconAccount { kepler_account: string; concept: string; bank: number; book: number; delta: number; }
 export interface ReconFactoraje { compra: number; pago: number; total: number; }
+export interface ReconCaja { ingresos: number; egresos: number; total: number; }
 export interface Reconciliation {
   period: string; cash: ReconCash; accounts: ReconAccount[]; cobranza: number; sin_clasificar: number;
-  factoraje?: ReconFactoraje;
+  factoraje?: ReconFactoraje; caja?: ReconCaja;
 }
 
 export interface MatchResult {

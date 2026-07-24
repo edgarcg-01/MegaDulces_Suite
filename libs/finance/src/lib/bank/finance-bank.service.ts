@@ -341,6 +341,8 @@ export class FinanceBankService {
         .leftJoin('finance.movement_categories as mc', 'mc.id', 'bm.category_id')
         .leftJoin('finance.bank_recon_matches as rm', 'rm.bank_movement_id', 'bm.id')
         .where('st.period', period)
+        // CB.21 — CAJA GENERAL no es fiscal → fuera del comparador contra el 102 (que es fiscal).
+        .whereNot('ba.kind', 'cash')
         .select('bm.id', 'bm.movement_date', 'ba.bank', 'ba.account_label', 'ba.id as account_id', 'bm.concept',
           'bm.raw_type', 'bm.raw_code', 'bm.sucursal', 'mc.group_key', 'mc.name as category_name', 'mc.kepler_account',
           'bm.amount_in', 'bm.amount_out', 'bm.recon_status',
@@ -1227,13 +1229,14 @@ export class FinanceBankService {
     if (!period) throw new BadRequestException('period requerido (YYYY-MM)');
 
     return this.tk.run(async (trx) => {
-      // Lado banco: por categoría (grupo + cuenta Kepler).
+      // Lado banco: por categoría (grupo + cuenta Kepler) + kind de la cuenta.
       const bank = await trx('finance.bank_movements as bm')
         .join('finance.bank_statements as st', 'st.id', 'bm.statement_id')
+        .join('finance.bank_accounts as ba', 'ba.id', 'bm.bank_account_id')
         .leftJoin('finance.movement_categories as mc', 'mc.id', 'bm.category_id')
         .where('st.period', period)
-        .groupBy('mc.group_key', 'mc.kepler_account', 'mc.name', 'mc.code')
-        .select(trx.raw(`COALESCE(mc.group_key,'sin_clasificar') AS group_key`),
+        .groupBy('ba.kind', 'mc.group_key', 'mc.kepler_account', 'mc.name', 'mc.code')
+        .select('ba.kind', trx.raw(`COALESCE(mc.group_key,'sin_clasificar') AS group_key`),
           'mc.kepler_account', 'mc.name', 'mc.code',
           trx.raw('SUM(bm.amount_in)::numeric AS deposits'),
           trx.raw('SUM(bm.amount_out)::numeric AS withdrawals'));
@@ -1255,9 +1258,14 @@ export class FinanceBankService {
       // salida de banco (paga el factor); el PF (pago al factor) sí sale de banco pero Kepler NO lo
       // asienta como abono al 102 con el nombre del factor (verificado: no hay cuenta de factor).
       // Se muestra como línea propia "Financiamiento (factoraje)", igual que los traspasos.
+      // CB.21 — CAJA GENERAL (kind='cash') NO ES FISCAL → fuera del cuadre contra el 102.
+      // El CONCENTRADO de contabilidad tampoco la incluye (verificado: los tipos I/C/G/TI/TE
+      // de solo-bancos cuadran al peso con la hoja). Es efectivo que no pasa por el mayor 102.
+      // Se muestra como memo aparte "Caja general (no fiscal)".
       const EXCLUDE = new Set(['traspaso', 'factoraje']);
-      let bankIn = 0, bankOut = 0;
+      let bankIn = 0, bankOut = 0, cajaIn = 0, cajaOut = 0;
       for (const r of bank as any[]) {
+        if (r.kind === 'cash') { cajaIn += n(r.deposits); cajaOut += n(r.withdrawals); continue; }
         if (EXCLUDE.has(r.group_key)) continue;
         bankIn += n(r.deposits); bankOut += n(r.withdrawals);
       }
@@ -1266,16 +1274,19 @@ export class FinanceBankService {
         bank_in: bankIn, kepler_102_cargos: k102.cargos, delta_in: bankIn - k102.cargos,
         bank_out: bankOut, kepler_102_abonos: k102.abonos, delta_out: bankOut - k102.abonos,
       };
+      const r2 = (v: number) => Math.round(v * 100) / 100;
+      const caja = { ingresos: r2(cajaIn), egresos: r2(cajaOut), total: r2(cajaIn + cajaOut) };
 
       // CB.17 — Factoraje como línea propia (memo, fuera del cuadre 102). CF = compra que
-      // pagó el factor (no sale de banco); PF = pago real al factor desde banco.
+      // pagó el factor (no sale de banco); PF = pago real al factor desde banco. (Solo cuentas
+      // no-caja; la caja ya se separó arriba.)
       let facCF = 0, facPF = 0;
       for (const r of bank as any[]) {
-        if (r.group_key !== 'factoraje') continue;
+        if (r.kind === 'cash' || r.group_key !== 'factoraje') continue;
         if (r.code === 'compra_factoraje') facCF += n(r.withdrawals);
         else facPF += n(r.withdrawals);
       }
-      const factoraje = { compra: Math.round(facCF * 100) / 100, pago: Math.round(facPF * 100) / 100, total: Math.round((facCF + facPF) * 100) / 100 };
+      const factoraje = { compra: r2(facCF), pago: r2(facPF), total: r2(facCF + facPF) };
 
       // CB.13 — El P&L "categoría banco → mayor Kepler" se ELIMINÓ: los mapeos eran
       // adivinados (602 es vehículos, no traslado; 608 es misc, no tarjeta; 611-003 tiene
@@ -1284,11 +1295,11 @@ export class FinanceBankService {
       // La conciliación real = matching por-transacción (exacto). accounts queda vacío.
       const accounts: { kepler_account: string; concept: string; bank: number; book: number; delta: number }[] = [];
 
-      // Cobranza (ingreso) como memo: depósitos vs 102 cargos (ya en cash).
-      const cobranza = (bank as any[]).filter((r) => r.group_key === 'ingreso').reduce((s, r) => s + n(r.deposits), 0);
+      // Cobranza (ingreso) como memo: depósitos vs 102 cargos (ya en cash). Solo bancos (sin caja).
+      const cobranza = (bank as any[]).filter((r) => r.kind !== 'cash' && r.group_key === 'ingreso').reduce((s, r) => s + n(r.deposits), 0);
 
-      return { period, cash, accounts, cobranza, factoraje,
-        sin_clasificar: (bank as any[]).filter((r) => r.group_key === 'sin_clasificar').reduce((s, r) => s + n(r.deposits) + n(r.withdrawals), 0) };
+      return { period, cash, accounts, cobranza, factoraje, caja,
+        sin_clasificar: (bank as any[]).filter((r) => r.kind !== 'cash' && r.group_key === 'sin_clasificar').reduce((s, r) => s + n(r.deposits) + n(r.withdrawals), 0) };
     });
   }
 
