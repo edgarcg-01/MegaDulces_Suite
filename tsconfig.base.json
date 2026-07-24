@@ -26,7 +26,8 @@
       "@megadulces/shared-auth/core": ["libs/shared-auth/core/index.ts"],
       "@megadulces/shared-auth/ui": ["libs/shared-auth/ui/index.ts"],
       "@megadulces/shared-scoring": ["libs/shared-scoring/index.ts"],
-      "@megadulces/trade": ["libs/trade/src/index.ts"]
+      "@megadulces/trade": ["libs/trade/src/index.ts"],
+      "@megadulces/whatsapp": ["libs/whatsapp/src/index.ts"]
     }
   },
   "exclude": ["node_modules", "dist"]

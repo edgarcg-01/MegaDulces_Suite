@@ -228,36 +228,40 @@ Detallado en `FASES/FASE_A0bis_MULTITENANT_NEW_DB.md` (nuevo). Sprint **A.0-mult
 
 ## ADR-006 — WhatsApp BSP
 
-**Estado:** Pendiente — decidir en Sprint A.0.4 (al iniciar trámite)
+**Estado:** ✅ Aceptado (2026-07-24) — **Meta Cloud API directo**
 
-**Fecha:** _(por completar)_
+**Fecha:** 2026-07-24
 
-**Contexto:** WhatsApp Business API requiere un BSP (Business Solution Provider). Opciones principales para LATAM: 360dialog, Wati, Gupshup, Twilio.
+**Contexto:** WhatsApp Business API requiere un canal. Opciones para LATAM: Meta Cloud API directo, 360dialog, Wati, Gupshup, Twilio.
 
-**Decisión:** _(pendiente)_
+**Decisión:** **Meta WhatsApp Cloud API directo** (sin BSP intermediario).
 
-**Alternativas a evaluar:**
-- **360dialog**: economías de escala, especializado en WhatsApp puro, $50-100/mes base.
-- **Wati**: UI completa de gestión + API, $40-100/mes, popular en LATAM.
-- **Gupshup**: foco India pero opera global, agresivo en precios.
-- **Twilio**: brand reconocido, API más rica, más caro.
-- **Meta directo**: máximo control, pero proceso de aprobación es brutal.
+**Razonamiento:**
+- **Costo mínimo:** solo la tarifa de conversación de Meta, sin markup por mensaje (Twilio/Wati cobran encima). Con el volumen esperado del piloto (bot arma / humano confirma, un número por sucursal) la diferencia es material.
+- **Control total** del webhook y del emisor — encaja con el patrón de la app (todo in-house, monolito Nest, `libs/*` propios). No dependemos de la UI ni del rate-limit de un tercero.
+- La app ya tiene `axios` (llamadas HTTP a Cloud API) e infra de webhooks/firma HMAC trivial de montar en un controller Nest.
+- El único costo real es el onboarding (app de Meta + verificación de WhatsApp Business + número dedicado), que es un trámite de una sola vez.
 
-**Criterios de decisión:** precio por conversación, soporte en español, integración con Node.js, calidad de docs, tiempo de verificación.
+**Aislamiento del riesgo de vendor:** la integración vive detrás de un puerto abstracto **`WhatsAppPort`** (`libs/whatsapp`). El adaptador Meta (`MetaCloudWhatsAppAdapter`) es una implementación; existe un **`SimulatorWhatsAppAdapter`** para construir y probar todo el flujo conversacional sin BSP. Cambiar a 360dialog/Twilio en el futuro = un adaptador nuevo, sin tocar el motor conversacional.
+
+**Requisitos operativos (Edgar, fuera de código):** app en Meta for Developers + WhatsApp Business verificado + número dedicado + `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_WABA_ID`, `WHATSAPP_ACCESS_TOKEN` (permanente), `WHATSAPP_VERIFY_TOKEN`, `WHATSAPP_APP_SECRET` (para validar la firma). Plantillas de mensaje aprobadas para iniciar conversación fuera de la ventana de 24 h.
 
 ---
 
 ## ADR-007 — Selección de LLM para bot conversacional
 
-**Estado:** Pendiente — decidir en Sprint F (Fase F)
+**Estado:** ✅ Aceptado (2026-07-24) — **Anthropic Claude Haiku 4.5** (tool-use)
 
-**Fecha:** _(por completar)_
+**Fecha:** 2026-07-24
 
-**Contexto:** El bot conversacional necesita LLM con tool calling. Opciones: Anthropic Claude, OpenAI GPT, Google Gemini, modelos open-source via Replicate/Together.
+**Contexto:** El bot conversacional necesita un LLM con tool calling en español. Opciones: Anthropic Claude, OpenAI GPT, Google Gemini, open-source.
 
-**Decisión:** _(pendiente)_
+**Decisión:** **Claude Haiku 4.5 con tool-use**, mismo modelo y patrón que ya usa el proyecto (`LlmExtractorService`, Thot Chat, Maat). Cero reinvención: reusa `ANTHROPIC_API_KEY`, el wrapper de `api.anthropic.com/v1/messages` y el fallback heurístico ya probados.
 
-**Recomendación preliminar:** Anthropic Claude Haiku 4.5 — balance precio/calidad/velocidad para tool calling en español. Costo aproximado: $0.80/1M tokens input.
+**Razonamiento:**
+- **Consistencia:** ya es el estándar de facto (ADR-011/026/028). Un solo proveedor, un solo secreto, una sola forma de tool-use.
+- **Costo/velocidad:** Haiku es barato y rápido, apto para conversación. Si un turno necesita más razonamiento (p. ej. resolver un pedido ambiguo), se puede escalar a Sonnet-think puntual como ya hace Maat.
+- **El LLM NO toca el dinero (ADR-016):** el bot arma el carrito en lenguaje natural, pero **la resolución producto→SKU→precio y el total los calcula el motor determinista** (catalog-search + Match-AI de Fase K + pricing). El LLM solo orquesta la conversación y llama tools; nunca inventa precios ni confirma cobros.
 
 ---
 
@@ -979,6 +983,36 @@ Extracción en **2 etapas** (desacopla la dependencia Jet del load PG): (A) Powe
 - ⚠️ `kepler_link` por banco (mapear el 102 consolidado a cada cuenta) queda para F4 (el banco en Kepler vive en `c7` texto libre).
 
 **Plan:** [`FASES/FASE_CB_CONCILIACION_BANCARIA.md`](FASES/FASE_CB_CONCILIACION_BANCARIA.md).
+
+---
+
+## ADR-034 — **Comercio conversacional por WhatsApp** (Fase F): el bot arma, el humano confirma, el pedido cae en la cadena de Reparto ya construida
+
+**Fecha:** 2026-07-24 · **Estado:** Aceptado (decisiones de Edgar 2026-07-24) · Hereda ADR-006 (Meta Cloud API), ADR-007 (Claude Haiku tool-use), ADR-016 (motor decide / LLM fuera del dinero) y ADR-027 (última milla = orquestación).
+
+**Contexto:** Los clientes deben poder pedir por WhatsApp con un chat conversacional y que esos pedidos se conviertan en **repartos** a domicilio. La "mitad de atrás" **ya existe y está en beta**: `CommercialHomeDeliveryService.createIntake()` recibe un pedido (cliente de cartera o **casual** dedupe por teléfono) con `delivery_channel='whatsapp'` y lo arma vía `createDraft → replaceLines → place`; de ahí `/reparto/asignar` lo despacha a un repartidor (rol `repartidor`), que cobra contra-entrega (COD, firma + geocerca) y liquida (`rider_liquidations`). Lo único que falta es la **capa conversacional de entrada**.
+
+**Decisión:**
+1. **Canal:** Meta WhatsApp Cloud API directo detrás de un puerto abstracto `WhatsAppPort` (ADR-006). Adaptador Meta + adaptador simulador para desarrollo/pruebas sin BSP.
+2. **Nivel de autonomía = "bot arma / humano confirma"** (elección de Edgar). El bot entiende el pedido por lenguaje natural, resuelve productos y arma el carrito, captura domicilio, y crea la orden en estado **`pending_approval`** (ADR-013 ya lo soporta). El pedido cae en una **bandeja de revisión** (`/reparto/pedidos-whatsapp`, patrón televenta): un operador la revisa, la confirma (dispara `place`/reserva de stock) y de ahí sigue el flujo normal de `/reparto/asignar`. **El bot nunca confirma ni cobra solo** en el piloto.
+3. **El LLM fuera del camino del dinero (ADR-016):** Claude Haiku orquesta la conversación por tool-use (`buscar_producto`, `agregar_al_carrito`, `capturar_domicilio`, `confirmar`), pero **producto→SKU→precio→total los calcula el motor determinista** (catalog-search + Match-AI Fase K + pricing). El LLM no inventa precios.
+4. **Infra:** sumar **Redis + BullMQ** (elección de Edgar) para colas `whatsapp-in`/`whatsapp-out` (idempotencia por `message_id`, reintentos, absorbe picos). Desbloquea también G (event bus), H (idempotencia fintech), I (WS scaling). Degradación grácil: sin `REDIS_URL` procesa in-process (mismo patrón que `CacheModule`).
+5. **Estado de conversación:** tabla `whatsapp.conversation_threads` (o `commercial.*`) por número de teléfono, con carrito en curso + estado del diálogo + `handoff` a operador cuando el bot no entiende.
+6. **Reuso máximo, módulo nuevo mínimo:** `libs/whatsapp` solo contiene canal + orquestador + hilos + bandeja. Clientes, catálogo, pedido, reparto, cobro y liquidación se reusan tal cual.
+
+**Alternativas:**
+- Bot 100% autónomo que cierra y cobra solo — **diferido**: más riesgo para el piloto; la bandeja humana es el freno de seguridad. Se puede subir la autonomía por monto/cliente después (híbrido) sin rehacer nada.
+- BSP con UI (Wati/Twilio) — rechazada (ADR-006): markup por mensaje + menos control.
+- RAG sobre catálogo para el bot — innecesario: catalog-search + Match-AI ya resuelven producto por nombre mejor y de forma determinista (mismo criterio que ADR-026).
+
+**Consecuencias:**
+- ✅ Time-to-value bajo: la cadena pedido→reparto ya está; el trabajo se concentra en canal + conversación + bandeja.
+- ✅ Aislamiento de vendor (puerto) + degradación sin Redis + simulador → se construye y prueba sin depender de trámites de Meta.
+- ✅ Freno humano en el piloto; sube a autónomo cuando haya confianza.
+- ⚠️ Requisitos operativos de Meta (app verificada, número, plantillas 24h) son bloqueantes para producción real (no para desarrollo con simulador).
+- ⚠️ `createIntake` hoy hace `place` y deja `confirmed`; hay que dejarlo en `pending_approval` cuando el origen es el bot (cambio pequeño y localizado, F.3).
+
+**Plan:** [`FASES/FASE_F_WHATSAPP_BOT.md`](FASES/FASE_F_WHATSAPP_BOT.md).
 
 ---
 

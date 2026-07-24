@@ -15,7 +15,7 @@
 | C — Sales Intelligence | 🟢 **CERRADA formalmente (beta)** | C.0+C.1+C.3 MVP+C.4+C.5 ✅ — cierre verificado 2026-06-02 | 100% (C.0bis exhibition normalization + C.3.8-9 mapa/drill-down deferred) |
 | D — Catálogo + B2B Portal | 🟢 **CERRADA formalmente (beta)** | D.0+D.1+D.2+D.3+D.4+D.5 ✅ — cierre verificado 2026-06-02 | 100% (D.2.3 offline sync queue + D.3.1 app separada deferred post-beta) |
 | **E — Remote Manager (televenta)** | 🟢 **CERRADA formalmente (beta)** | E.0+E.1+E.2 ✅ — cierre verificado 2026-06-02 con regression 19/19. Schema (lead_reservations + call_logs + rol tele_operator) + backend 7 endpoints + cron @5min + frontend `/televenta/*`. Validación visual pendiente (E.3.2). | 100% beta-ready |
-| F — WhatsApp Bot | ⏸️ Bloqueada por D | — | 0% |
+| **F — Comercio Conversacional (WhatsApp)** | 🔨 **DISEÑADO 2026-07-24 — ADR-006/007/034 resueltos** | Reescrita: cliente pide por WhatsApp con chat conversacional → **bot arma / humano confirma** → cae en la cadena de Reparto YA construida (`createIntake` en `pending_approval` → bandeja `/reparto/pedidos-whatsapp` → `/reparto/asignar` → COD → liquidación). **Canal = Meta Cloud API directo** detrás de `WhatsAppPort` (+ adaptador simulador para dev sin BSP). **LLM = Claude Haiku tool-use** (reusa `LlmExtractorService`/Thot/Maat); el motor decide el dinero (catalog-search + Match-AI K + pricing), el LLM fuera (ADR-016). **Infra = Redis+BullMQ** (colas in/out, idempotencia por message_id, degrada in-process sin `REDIS_URL`). 5 sprints F.0–F.4. Plan en [`FASE_F`](FASES/FASE_F_WHATSAPP_BOT.md). Sin código aún. | 0% (diseñado) |
 | G — Growth | ⏸️ Bloqueada por D | — | 0% |
 | H — Fintech | ⏸️ Bloqueada por D | — | 0% |
 | I — ML + WS scaling | ⏸️ Bloqueada por H | — | 0% |
@@ -590,7 +590,45 @@ Plan: [`FASES/FASE_SM_SUPERVISOR_MOVIMIENTOS.md`](FASES/FASE_SM_SUPERVISOR_MOVIM
 
 ---
 
-## 📋 BACKLOG — Fases E, F, G, H, I
+## 📋 BACKLOG — Fase F: Comercio Conversacional por WhatsApp
+
+> ADR-006 (Meta Cloud API) · ADR-007 (Claude Haiku) · ADR-034 (arquitectura). Plan completo en [`FASES/FASE_F_WHATSAPP_BOT.md`](FASES/FASE_F_WHATSAPP_BOT.md).
+
+### Sprint F.0 — Fundación (`libs/whatsapp` + cola + estado) 🔨
+
+- [ ] **[F.0.1]** Lib `libs/whatsapp` + registro Nx (`@megadulces/whatsapp` en tsconfig.base).
+- [ ] **[F.0.2]** `WhatsAppPort` (interface) + `SimulatorWhatsAppAdapter` (dev, sin Meta) + selección por `WHATSAPP_PROVIDER`.
+- [ ] **[F.0.3]** Cola BullMQ `whatsapp-in`/`whatsapp-out` con degradación in-process si no hay `REDIS_URL` (patrón `CacheModule`). Instalar `bullmq`.
+- [ ] **[F.0.4]** Migración `whatsapp.conversation_threads` + `whatsapp.messages` (RLS forzado, patrón A.0mt, UPSERT por `wa_message_id`).
+- [ ] **[F.0.5]** Permisos `WHATSAPP_BOT_VER` / `WHATSAPP_BOT_GESTIONAR` (enum BE+FE + ability.factory + AppSubject + seed roles + backfill migration).
+- [ ] **[F.0.6]** Wiring en AppModule bajo `ENABLE_MULTITENANT` + smoke inicial (crear hilo, encolar/procesar mensaje simulado).
+
+### Sprint F.1 — Canal Meta (webhook + emisor) ⬜
+
+- [ ] **[F.1.1]** `MetaCloudWhatsAppAdapter` (envío a Graph API v21 + validación HMAC `X-Hub-Signature-256`).
+- [ ] **[F.1.2]** `GET /webhooks/whatsapp` (verify token) + `POST /webhooks/whatsapp` (parse inbound + dedup por `message_id` → encola).
+- [ ] **[F.1.3]** Config env (`WHATSAPP_*`) + endpoint `POST /webhooks/whatsapp/sim` (solo simulador).
+
+### Sprint F.2 — Orquestador conversacional ⬜
+
+- [ ] **[F.2.1]** `ConversationOrchestrator` (Claude Haiku tool-use, plantilla Thot/`LlmExtractorService`, fallback heurístico).
+- [ ] **[F.2.2]** Tools: `buscar_producto` (catalog-search + Match-AI K), `agregar_al_carrito`/`ver_carrito`/`quitar` (pricing determinista), `capturar_domicilio` (geocode Mapbox), `confirmar_pedido`, `handoff_humano`.
+- [ ] **[F.2.3]** Persistencia de estado + carrito en `conversation_threads`; ventana 24h.
+
+### Sprint F.3 — Pedido → bandeja de revisión ⬜
+
+- [ ] **[F.3.1]** `createIntake` soporta `status='pending_approval'` cuando el origen es el bot (no `place` automático).
+- [ ] **[F.3.2]** Bandeja `/reparto/pedidos-whatsapp` (patrón televenta): listar pendientes, ver carrito+domicilio, editar, **confirmar** (dispara `place` + reserva stock) → sigue en `/reparto/asignar`.
+
+### Sprint F.4 — Handoff + panel de conversaciones ⬜
+
+- [ ] **[F.4.1]** Handoff a operador (umbral "no entendí" + palabra clave) + responder manual desde el panel.
+- [ ] **[F.4.2]** Dashboard de conversaciones (admin) + métricas (autocompletado%, tiempo, costo/conv, tasa handoff).
+- [ ] **[F.4.3]** Checkpoint: smoke en `run-all-tests.js` + entrada en `03_LOG_REVISIONES.md`.
+
+---
+
+## 📋 BACKLOG — Fases G, H, I
 
 _(Items detallados se agregan al iniciar cada fase. Plan macro está en cada `FASES/FASE_X_*.md`)_
 

@@ -118,6 +118,10 @@ export enum Permission {
   REPARTO_DESPACHAR = 'REPARTO_DESPACHAR',
   REPARTO_ENTREGAR = 'REPARTO_ENTREGAR',
 
+  // ── Fase F — Comercio conversacional por WhatsApp (ADR-006/007/034) ────
+  WHATSAPP_BOT_VER = 'WHATSAPP_BOT_VER',
+  WHATSAPP_BOT_GESTIONAR = 'WHATSAPP_BOT_GESTIONAR',
+
   // ── Comercial — Carga al camión / Diario de movimientos (features propias) ──
   COMMERCIAL_CARGA_VER = 'COMMERCIAL_CARGA_VER',
   COMMERCIAL_CARGA_GESTIONAR = 'COMMERCIAL_CARGA_GESTIONAR',

@@ -229,4 +229,12 @@ export enum Permission {
   FISCAL_MATERIALIDAD_VER = 'FISCAL_MATERIALIDAD_VER',
   // MAT.1 = confirmar/descartar la asignación CFDI↔operación (evidencia de materialidad).
   FISCAL_MATERIALIDAD_GESTIONAR = 'FISCAL_MATERIALIDAD_GESTIONAR',
+
+  // ── Fase F — Comercio conversacional por WhatsApp (ADR-006/007/034) ────
+  // VER = ver conversaciones + la bandeja de pedidos WhatsApp. GESTIONAR =
+  // confirmar pedidos de la bandeja, tomar handoff, responder manual. Anclados
+  // a REPARTO_DESPACHAR (quien opera el reparto). El bot NO cobra: el motor
+  // decide el dinero, el humano confirma (ADR-016/034).
+  WHATSAPP_BOT_VER = 'WHATSAPP_BOT_VER',
+  WHATSAPP_BOT_GESTIONAR = 'WHATSAPP_BOT_GESTIONAR',
 }

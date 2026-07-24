@@ -44,7 +44,8 @@ lh-dashboard*
 lh-slim.json
 prod-*.txt
 build-err*.txt
-WhatsApp*/
+# Exports de chats de WhatsApp sueltos en la raíz (no la lib libs/whatsapp).
+/WhatsApp*/
 WhatsApp*.zip
 database/*.jsonl
 
