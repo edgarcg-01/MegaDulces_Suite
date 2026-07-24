@@ -52,7 +52,10 @@ export class SimulatorWhatsAppAdapter implements WhatsAppPort {
     this._outbox.push(o);
     if (this._outbox.length > 500) this._outbox.splice(0, this._outbox.length - 500);
     this.logger.debug(`[sim →${o.to}] ${o.kind}: ${o.body}`);
-    return { message_id: `sim-out-${++this.seq}` };
+    // ID único ENTRE reinicios: sin el timestamp, el contador reinicia en cada
+    // restart y colisiona con el índice único (tenant_id, wa_message_id) → los
+    // `out` no se registraban. Meta manda ids únicos reales; esto solo simula eso.
+    return { message_id: `sim-out-${Date.now()}-${++this.seq}` };
   }
 
   async sendText(to: string, body: string): Promise<SendResult> {
@@ -105,7 +108,7 @@ export class SimulatorWhatsAppAdapter implements WhatsAppPort {
       const text = b['text'] != null ? String(b['text']) : null;
       if (!from) continue;
       out.push({
-        wa_message_id: String(b['wa_message_id'] ?? `sim-in-${++this.seq}`),
+        wa_message_id: String(b['wa_message_id'] ?? `sim-in-${Date.now()}-${++this.seq}`),
         from,
         wa_id: String(b['wa_id'] ?? from),
         profile_name: (b['profile_name'] as string) ?? null,
