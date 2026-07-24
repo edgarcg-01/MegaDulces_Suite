@@ -10,6 +10,10 @@
 
 ## [Unreleased]
 
+### Added — Hotfix: conversaciones de Thot en /comercial/thot-curation (2026-07-24)
+- La curaduría de Thot ahora muestra **todas las conversaciones** (no solo los 👍 sin promover): nueva sección "Conversaciones" con filtro Todas/👍/👎 + búsqueda por pregunta + tabla (fecha, usuario, pregunta, respuesta, feedback) y diálogo de detalle con la respuesta completa + tools + botón "Promover a ejemplo".
+- Endpoint `GET commercial/intelligence/thot/examples/conversations?limit&feedback&q` (`ThotExamplesService.conversations`), **resiliente** a que `thot_chat_log` no tenga `feedback`/`promoted` (usa `hasColumn`). Builds api+view verdes. Sin migración. **Pendiente prod:** redeploy api+view.
+
 ### Added — MA: Maat reparte tareas de conciliación a Finanzas (2026-07-24)
 - Los retiros del banco **sin conciliar** contra el 102 de Kepler (hallazgos `banco_retiro_sin_kepler` que ya produce CB.7) ahora se **agrupan por proveedor** y se **asignan** a usuarios de Finanzas para que los capturen **en Kepler**. Vive en **Maat** (`libs/finance`), no en Thot (comercial, aislado de finanzas). Modelo ADR-028/016: motor decide qué falta + a quién · humano ejecuta en Kepler · **nunca escribimos en Kepler** (solo rastreamos) · cierre **verificado por re-match** (no auto-reporte) · reparto determinista (LLM fuera).
 - **Schema:** `finance.recon_tasks` (mig `20260724120000`, RLS forzado). Tarea = proveedor+periodo (agrupa N findings), con asignación + ciclo de vida (pendiente/en_proceso/resuelto/no_aplica) + `resolution_source` (verificado/manual) + `kepler_ref`. UNIQUE (tenant,rule,periodo,group_key) = idempotente. Permiso nuevo **FINANCE_RECON_ASIGNAR** (líder; backfill ← FINANCE_BANK_GESTIONAR).

@@ -22,6 +22,18 @@ export interface ThotCandidateRow {
   user_name: string | null;
   created_at: string;
 }
+export interface ThotConversationRow {
+  id: string;
+  question: string;
+  answer: string | null;
+  tools_used: any[];
+  user_name: string | null;
+  source: string | null;
+  feedback: number | null;
+  promoted: boolean;
+  iterations: number | null;
+  created_at: string;
+}
 
 @Injectable({ providedIn: 'root' })
 export class ThotCurationService {
@@ -35,6 +47,13 @@ export class ThotCurationService {
   }
   candidates(limit = 30): Observable<ThotCandidateRow[]> {
     return this.http.get<ThotCandidateRow[]>(`${this.base}/examples/candidates`, { params: new HttpParams().set('limit', String(limit)) });
+  }
+  conversations(opts: { limit?: number; feedback?: 'up' | 'down' | 'all'; q?: string } = {}): Observable<ThotConversationRow[]> {
+    let p = new HttpParams();
+    if (opts.limit) p = p.set('limit', String(opts.limit));
+    if (opts.feedback && opts.feedback !== 'all') p = p.set('feedback', opts.feedback);
+    if (opts.q) p = p.set('q', opts.q);
+    return this.http.get<ThotConversationRow[]>(`${this.base}/examples/conversations`, { params: p });
   }
   add(dto: { profile?: string; question: string; answer?: string; tools?: any[]; note?: string }) {
     return this.http.post<{ id: string }>(`${this.base}/examples`, dto);
