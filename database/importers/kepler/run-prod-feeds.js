@@ -29,6 +29,7 @@ const MODE = process.argv[2];
 const APPLY = process.argv.includes('--apply');
 const DIR = path.join('database', 'importers');
 const K = path.join(DIR, 'kepler');
+const SCRIPTS = path.join('database', 'scripts');
 
 const STEPS = {
   // LIVE (cada 15-30 min): venta del día → prod. Solo lee mart.ventas_enriched
@@ -55,7 +56,7 @@ const STEPS = {
     path.join(K, 'import-stock-movements.js'),  // DM — Diario de movimientos (kdm1⋈kdm2 filtrado por doctype.k_binv) → analytics.stock_movements (ventana 120d)
     path.join(K, 'import-erp-promos.js'),    // KV.6 promos vigentes (lee sucursal)
     path.join(K, 'import-erp-customers.js'), // KV.3 dim clientes (lee 6 sucursales)
-    path.join(K, 'import-customer-sales.js'),// KV.3 historial por cliente (lee consolidado)
+    path.join(K, 'import-customer-sales.js'),// KV.3 historial por cliente (lee consolidado) → analytics.customer_product_sales (fuente RFM de customer_360, CT-C.1b)
     path.join(K, 'import-logistics-dims.js'),// KV.8 dims logística (rutas/choferes/flota)
     path.join(K, 'import-erp-shipments.js'), // KV.8 embarques reales (kdpord)
     path.join(K, 'import-product-sales-monthly.js'), // SAL.1 venta mensual x producto (lee 6 sucursales live U/D/10)
@@ -69,6 +70,10 @@ const STEPS = {
     path.join(K, 'import-sales-by-channel.js'),  // venta contable 401 reclasificada por canal real (solo CEDIS)
     path.join(K, 'import-cash-cuts.js'),         // SM.1 — cortes/arqueos de caja POS (kdpv_folio_caja)
     path.join(K, 'import-bank-postings.js'),     // CB.4.1 — postings 102 Kepler (matching banco↔libro conciliación bancaria)
+    // CT-C.3 — feature store de Thot al nightly (antes eran scripts manuales): afinidad de canasta + demanda por zona
+    // + presencia en PdV. Alimentan el score de suggest (afinidad/zona/whitespace) y los findings de distribución.
+    path.join(SCRIPTS, 'thot-build-features.js'),     // intelligence.product_affinity (lift market-basket) + zone_demand
+    path.join(SCRIPTS, 'thot-build-pdv-presence.js'), // intelligence.pdv_presence (desde capturas Trade)
   ],
   catalog: [
     path.join(K, 'import-brands-lineas.js'), // líneas kdig → brands nuevas (si falta la línea, el producto se descarta abajo)

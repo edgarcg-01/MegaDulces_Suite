@@ -102,16 +102,17 @@ Frontend nuevo bajo `apps/view/src/app/modules/comercial/` reusando el patrón d
 ### TRACK C — Datos vivos de Thot
 
 - 🔨 **CT-C.1 — Operacionalizar customer_360** — DIAGNOSTICADO 2026-07-24, reclasificado a sub-proyecto
-  **Causa raíz:** el cron corre bien y el tenant está activo; `customer_360` computa desde `commercial.orders` (9 pedidos de la app) → sale vacío. La venta real de Mega Dulces vive en el ERP y **no hay fact de venta por-cliente** (analytics.sales_daily es por producto×almacén). **Fix real:** construir un feed `analytics.customer_sales_*` (RFM por cliente desde el ERP/mart.ventas) y repuntar `customer_360.computeForTenant()` a esa fuente. Recién entonces churn_risk + NBA tienen base.
-  *Aceptación:* `customer_360` poblada desde venta ERP; `/nba` y `churn_risk` devuelven data real.
+  **Causa raíz:** el cron corre bien y el tenant está activo; `customer_360` computa desde `commercial.orders` (9 pedidos de la app) → sale vacío.
+  **BREAKTHROUGH 2026-07-24:** la fuente RFM del ERP **YA EXISTE** — `analytics.customer_product_sales` (feed `import-customer-sales.js`, en el nightly) está **poblada: 33,408 filas, 1,734 clientes, fresca (23-jul)** con `revenue_90d/180d`, `units_90d/180d`, `last_purchase_date`. Mapea a `commercial.customers` por `code = erp_code` → **301 clientes con match** (tienditas reales con venta). Deja de ser "archaeology": **es un sprint acotado** = reescribir `customer_360.runUpsert()` para derivar de `customer_product_sales` (monetary_90d = Σrevenue_90d; recency/last_order = last_purchase_date; lifecycle por recency — la rama ELSE ya funciona sin cadencia). Limitación: cps agrega sin fecha por-pedido → `frequency/cadence/orders_count` quedan nulos (aceptable; churn_risk es por recencia). **No blind-shippeado:** toca servicio core y necesita verificación en runtime (view build bloqueado por otro thread) + decisión orders-vs-cps-vs-both para no regresar un tenant que sí use la app.
+  *Aceptación:* `customer_360` poblada desde `customer_product_sales`; `churn_risk` + NBA con data real.
 
 - ⬜ **CT-C.2 — Lazo de feedback (commerce_signals)**
   Asegurar que `suggest?log=<channel>` registra el ofrecimiento y que la conversión se atribuye por razón (`/signals/conversion-by-reason`). Hoy la tabla está vacía → verificar el wiring en portal/vendedor.
   *Aceptación:* ofrecer y luego comprar deja rastro; el reporte de conversión por razón (afinidad/zona/margen) devuelve números.
 
-- ⬜ **CT-C.3 — Feature store como cron**
-  Agendar `thot-build-features.js` (afinidad + zona) y `thot-build-pdv-presence.js` en `run-prod-feeds` (nightly) en vez de scripts manuales, para que whitespace/afinidad no envejezcan.
-  *Aceptación:* las features se recomputan solas cada noche; fecha de cómputo fresca.
+- 🔨 **CT-C.3 — Feature store como cron** — EN CÓDIGO 2026-07-24
+  `thot-build-features.js` (afinidad + zona) y `thot-build-pdv-presence.js` agregados al `nightly` de `run-prod-feeds.js` (const `SCRIPTS`). Se recomputan solos cada noche → whitespace/afinidad/gap de distribución no envejecen. Syntax OK.
+  *Pendiente:* que el nightly corra (ya está wireado).
 
 - 🔨 **CT-C.4 — Señal momentum real** — EN CÓDIGO 2026-07-24 (commit c173ea3a)
   CTE `mom` sobre `analytics.sales_daily` en CAJAS (`units_base`): `momentum = clamp(r30/r90 − 1, 0..1)` sólo con baseline real. `score += 0.4·momentum`; `reason='momentum'` ("En aceleración"). Sanity vs prod: 1,213/5,868 aceleran ≥0.3 (tops estacionales reales). Build api verde. **Landable sin bloqueo** (opera sobre data poblada). Pendiente: redeploy.
