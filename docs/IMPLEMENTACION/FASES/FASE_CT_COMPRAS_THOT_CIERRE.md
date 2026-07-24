@@ -1,6 +1,8 @@
 # Fase CT — Cierre Compras + Thot (post-mapa operativo)
 
-> **Estado:** ⬜ PLANEADO 2026-07-24. Surge del mapa operativo de Compras + Thot (datos vivos de prod ese día). Tres tracks paralelos: **A** = superficie de razonamiento/autonomía de Thot (hoy API-only), **B** = cerrar los diferidos de Compras (RA), **C** = poner al día los datos que alimentan a Thot.
+> **Estado:** 🔨 EN CURSO 2026-07-24. **CT-A.1 en código** (bandeja de hallazgos `/comercial/razonamiento` + servicio `commercial-intelligence.service.ts` + nav; build verde). **CT-C.1 diagnosticado** (ver abajo). Surge del mapa operativo de Compras + Thot (datos vivos de prod ese día). Tres tracks: **A** = superficie de razonamiento/autonomía de Thot (hoy API-only), **B** = cerrar los diferidos de Compras (RA), **C** = poner al día los datos que alimentan a Thot.
+>
+> **HALLAZGO CLAVE (bloquea A):** las tablas de razonamiento (`commercial_findings/_diagnoses/_actions`) están **vacías en prod** — y su fuente lo está también: `customer_360` computa desde `commercial.orders` (**9 pedidos**, los de la app B2B/vendedor), NO de la venta real del ERP. Hay 3,110 clientes y 1,248 `erp_customers` pero **no existe un fact de venta por-cliente del ERP**. Conclusión: **Track A depende de Track C**, y CT-C.1 no es "correr el cron" sino **construir la fuente de venta por-cliente desde el ERP** (sub-proyecto). La UI de A.1 ya está lista y se encenderá en cuanto fluya la data.
 >
 > **Tesis heredada (no se toca):** el motor decide de forma determinista, el humano aprueba (HITL), el LLM comunica y nunca toca el camino del dinero (ADR-016 / 018 / 020 / 023 / 026 / 030).
 >
@@ -45,10 +47,9 @@ Estados: ⬜ TODO · 🔨 EN CÓDIGO · 🧪 PROBADO · 🚀 STAGING · ✅ PROD
 ### TRACK A — Superficie de razonamiento & autonomía de Thot
 Frontend nuevo bajo `apps/view/src/app/modules/comercial/` reusando el patrón de `/compras/hallazgos` y `/finanzas/hallazgos` (Maat). Cliente en `comercial-intelligence.service.ts`. Nav bajo el proyecto Comercial. Respetar DESIGN.md (Operations: tabla densa, master-detail, chips de severidad, sin morado/azul).
 
-- ⬜ **CT-A.1 — Bandeja de Hallazgos comerciales** (`/comercial/hallazgos`)
-  Consume `GET /commercial/intelligence/findings` (filtros status/severity/subject_type) + `POST /findings/compute` + `POST /findings/:id/review`.
-  Tabla densa por severidad (dead-stock, margin_laggard, distribution_gap, churn_risk) + panel de evidencia + confirmar/descartar. KPIs por tipo.
-  *Aceptación:* la bandeja lista los findings vivos, el triage persiste y se refleja en el scorecard L2; botón "recalcular" dispara compute.
+- 🔨 **CT-A.1 — Bandeja de Hallazgos comerciales** (`/comercial/razonamiento`) — EN CÓDIGO 2026-07-24
+  Nuevo `commercial-intelligence.service.ts` (findings/diagnoses/actions/learning/autonomy) + `comercial-razonamiento.component.ts` + ruta gate `COMMERCIAL_THOT_VER` + nav "Razonamiento (Thot)". Tabla densa por severidad, KPIs por tipo (togglean filtro), fila expandible con evidencia JSON, triage confirmar/descartar/reabrir, botón Recalcular. Build view verde.
+  *Pendiente:* datos (findings vacíos hasta CT-C) + validación visual claro/oscuro. El triage llama `POST /findings/:id/review`; el 403 por falta de permiso de gestión se muestra como toast honesto.
 
 - ⬜ **CT-A.2 — Diagnósticos (causa raíz)** (tab en la misma pantalla)
   `GET /diagnoses` + `/compute` + `/:id/review`. Muestra el diagnóstico (≥2 findings correlacionados sobre el mismo sujeto) con sus findings hijos enlazados.
@@ -100,9 +101,9 @@ Frontend nuevo bajo `apps/view/src/app/modules/comercial/` reusando el patrón d
 
 ### TRACK C — Datos vivos de Thot
 
-- ⬜ **CT-C.1 — Operacionalizar customer_360**
-  Correr `customer-360-refresh` (cron 2 AM MX ya existe) + backfill inicial en prod; verificar que alimenta churn findings y NBA. Investigar por qué la tabla está en 0 (¿cron no corre en Railway? ¿scope de tenant?).
-  *Aceptación:* `customer_360` poblada; `/nba` y `churn_risk` findings devuelven data real.
+- 🔨 **CT-C.1 — Operacionalizar customer_360** — DIAGNOSTICADO 2026-07-24, reclasificado a sub-proyecto
+  **Causa raíz:** el cron corre bien y el tenant está activo; `customer_360` computa desde `commercial.orders` (9 pedidos de la app) → sale vacío. La venta real de Mega Dulces vive en el ERP y **no hay fact de venta por-cliente** (analytics.sales_daily es por producto×almacén). **Fix real:** construir un feed `analytics.customer_sales_*` (RFM por cliente desde el ERP/mart.ventas) y repuntar `customer_360.computeForTenant()` a esa fuente. Recién entonces churn_risk + NBA tienen base.
+  *Aceptación:* `customer_360` poblada desde venta ERP; `/nba` y `churn_risk` devuelven data real.
 
 - ⬜ **CT-C.2 — Lazo de feedback (commerce_signals)**
   Asegurar que `suggest?log=<channel>` registra el ofrecimiento y que la conversión se atribuye por razón (`/signals/conversion-by-reason`). Hoy la tabla está vacía → verificar el wiring en portal/vendedor.
