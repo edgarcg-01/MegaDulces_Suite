@@ -628,6 +628,32 @@ Plan: [`FASES/FASE_SM_SUPERVISOR_MOVIMIENTOS.md`](FASES/FASE_SM_SUPERVISOR_MOVIM
 - [ ] **[F.4.2]** Dashboard de conversaciones (admin) + métricas (autocompletado%, tiempo, costo/conv, tasa handoff).
 - [ ] **[F.4.3]** Checkpoint final de fase.
 
+### Sprint F.5 — Existencia + unidades (pieza/paquete) en el bot 🧪 EN CÓDIGO (2026-07-24, builds api+view verdes)
+
+> Pedido por Edgar. Decisión de autonomía: **humano sigue confirmando** (sin cambio); F.5 solo hace que el bot no prometa agotados y hable en pieza/paquete/caja.
+
+- [x] **[F.5.1]** ✅ `COMMERCE_CONVERSATION_PORT.searchProducts` devuelve `stock_pieces` (quantity−reserved del almacén default) + `pieces_per_package` (factor_sale). Enriquecido en el binding adapter (LATERAL sobre `commercial.stock`), sin tocar el `search()` compartido.
+- [x] **[F.5.2]** ✅ Orquestador: `buscar_producto` expone disponible/agotado/empaque; `agregar_al_carrito` con `unidad=pieza|paquete` (→ piezas canónicas) + **valida stock** (rechaza si excede); prompt anti-agotado + empaque. Carrito/bandeja muestran "2 paq × 40 (80 pzas)".
+- [ ] **[F.5.3]** ⏳ Validación runtime (bloqueada por DB local caída en la sesión): buscar → agregar por paquete → verificar conversión piezas + rechazo por stock.
+
+### Sprint F.6 — "Surtir" (autonomía) ⏸️ DESCARTADO por decisión (2026-07-24)
+
+> Edgar eligió **humano confirma**. No se sube la autonomía del bot: "surtir" = el flujo F.3 (bandeja) + validación de stock de F.5. Si en el futuro se quiere bot-cierra-solo, reabrir aquí.
+
+### Sprint F.7 — Promos con imágenes ⬜ (planeado)
+
+- [ ] **[F.7.1]** `MetaCloudWhatsAppAdapter.sendImage` (media por link/id) + `sendTemplate` (plantilla con header de imagen).
+- [ ] **[F.7.2]** Catálogo de templates de marketing (creados+aprobados en Meta — **trámite de Edgar**, ~1-2 días revisión). ⚠️ Promos iniciadas por el negocio fuera de la ventana 24h **exigen** template aprobado.
+- [ ] **[F.7.3]** El bot puede mandar imagen libre dentro de la ventana 24h (cliente que ya escribió).
+
+### Sprint F.8 — Envíos masivos de promos (broadcast) ⬜ (planeado)
+
+> Decisión Edgar: **aún no hay opt-in** → F.8 arranca capturando consentimiento.
+
+- [ ] **[F.8.1]** Opt-in de marketing: el bot pide consentimiento al primer contacto + registro (`commercial.customers` flag / tabla `whatsapp.marketing_optin`) + manejo de opt-out ("BAJA"/"STOP"). ⚠️ Meta banea el número si mandás marketing sin opt-in.
+- [ ] **[F.8.2]** Campañas: segmento + template + imagen. Envío por **BullMQ** (`WHATSAPP_USE_BULLMQ=true`) con **rate-limit + tier** de calidad de Meta + reintentos. (Invierte el default in-process del piloto SOLO para el broadcast.)
+- [ ] **[F.8.3]** Tracking (enviado/entregado/leído/falló) + panel de campañas + costo por conversación de marketing.
+
 ---
 
 ## 📋 BACKLOG — Fases G, H, I
