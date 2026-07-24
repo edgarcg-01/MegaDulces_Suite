@@ -9,6 +9,10 @@ export const environment = {
   production: isProduction,
   apiUrl: isLocalDev ? 'http://localhost:3334/api' : '/api', // Conexión directa en local
   envName: isLocalDev ? 'local' : (isProduction ? 'production' : 'preview'),
+  // Sentry error tracking (frontend). VACÍO = inerte. Pegá acá el DSN del proyecto
+  // Angular de Sentry (SaaS free) o de GlitchTip cuando prod sea on-prem. Los DSN
+  // de frontend son PÚBLICOS por diseño (viven en el bundle) — no es un secreto.
+  sentryDsn: '',
   // Mapbox: token PÚBLICO (pk.) — seguro en el bundle por diseño. Restringir por
   // URL en el panel de Mapbox (Account → Tokens) para que nadie use tu cuota.
   // Sin token → el mapa cae a OpenStreetMap (no rompe dev).

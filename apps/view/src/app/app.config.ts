@@ -1,4 +1,5 @@
-import { ApplicationConfig, LOCALE_ID, isDevMode, provideZoneChangeDetection } from '@angular/core';
+import { ApplicationConfig, ErrorHandler, LOCALE_ID, isDevMode, provideZoneChangeDetection } from '@angular/core';
+import * as Sentry from '@sentry/angular';
 import { registerLocaleData } from '@angular/common';
 import localeEsMx from '@angular/common/locales/es-MX';
 
@@ -26,6 +27,8 @@ export const appConfig: ApplicationConfig = {
   providers: [
     provideZoneChangeDetection({ eventCoalescing: true }),
     { provide: LOCALE_ID, useValue: 'es-MX' },
+    // Sentry captura los errores no manejados de Angular (inerte sin DSN).
+    { provide: ErrorHandler, useValue: Sentry.createErrorHandler() },
     provideRouter(routes, withPreloading(SelectivePreloadStrategy)),
     provideAnimationsAsync(),
     provideHttpClient(

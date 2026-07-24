@@ -1,3 +1,5 @@
+// Sentry: DEBE ir primero (instrumenta al cargar). Inerte sin SENTRY_DSN.
+import './instrument';
 import * as dotenv from 'dotenv';
 dotenv.config();
 import { Logger } from '@nestjs/common';

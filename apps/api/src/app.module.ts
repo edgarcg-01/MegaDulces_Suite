@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { SentryModule } from '@sentry/nestjs/setup';
 import { ConfigModule } from '@nestjs/config';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
@@ -198,6 +199,9 @@ const multitenantModules = process.env.ENABLE_MULTITENANT === 'true'
 
 @Module({
   imports: [
+    // Sentry: captura excepciones no manejadas (registra SentryGlobalFilter).
+    // Inerte si Sentry.init no corrió (sin SENTRY_DSN). Debe ir arriba.
+    SentryModule.forRoot(),
     ConfigModule.forRoot({
       isGlobal: true,
     }),
