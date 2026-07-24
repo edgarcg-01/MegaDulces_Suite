@@ -1,6 +1,8 @@
 import { Module } from '@nestjs/common';
 import { CommercialRecommendationsModule } from '../commercial-recommendations/commercial-recommendations.module';
 import { CommercialOrdersModule } from '../commercial-orders/commercial-orders.module';
+import { CommercialReplenishmentModule } from '../commercial-replenishment/commercial-replenishment.module';
+import { ComprasToolsService } from './thot-chat/compras-tools.service';
 import { Customer360Service } from './customer-360.service';
 import { Customer360RefreshService } from './customer-360-refresh.service';
 import { DecisionEngineService } from './decision-engine.service';
@@ -32,7 +34,7 @@ import { CommercialIntelligenceController } from './commercial-intelligence.cont
  * canasta de reorden sugerida.
  */
 @Module({
-  imports: [CommercialRecommendationsModule, CommercialOrdersModule],
+  imports: [CommercialRecommendationsModule, CommercialOrdersModule, CommercialReplenishmentModule],
   controllers: [CommercialIntelligenceController],
   providers: [
     Customer360Service,
@@ -51,6 +53,7 @@ import { CommercialIntelligenceController } from './commercial-intelligence.cont
     ThotToolsService,
     PortalThotToolsService,
     VendorThotToolsService,
+    ComprasToolsService,
     ThotChatService,
     ThotExamplesService,
     ThotExampleVectorService,
