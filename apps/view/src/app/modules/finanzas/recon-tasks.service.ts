@@ -56,6 +56,18 @@ export interface ReportResult {
   next: { id: string; proveedor_label: string; importe_total: number; n_movimientos: number } | null;
 }
 
+export type ReconCausa = 'pago_en_102' | 'factura_sin_pago' | 'revisar_cadena' | 'capturar_desde_cero' | 'sin_diagnostico';
+export interface ReconMovementDetail {
+  finding_id: string; bank_movement_id: string; fecha: string; monto: number;
+  banco: string; cuenta: string; concepto: string; categoria: string | null; recon_status: string;
+  causa: ReconCausa; causa_label: string; folio_102: string | null; factura_folio: string | null; instruccion: string;
+}
+export interface ReconTaskDetail {
+  task: { id: string; proveedor_label: string; periodo: string; n_movimientos: number; importe_total: number; status: ReconTaskStatus; assigned_to_username: string | null };
+  movimientos: ReconMovementDetail[];
+  resumen: Record<string, number>;
+}
+
 export interface RunResult {
   periodo: string; grupos: number; upserted: number; skipped_small: number;
   min_importe: number; assigned: number; users: number; cerradas_verificadas: number;
@@ -97,6 +109,8 @@ export class ReconTasksService {
   assignManual(id: string, user_id: string | null): Observable<any> {
     return this.http.post(`${this.base}/${id}/assign`, { user_id });
   }
+
+  detail(id: string): Observable<ReconTaskDetail> { return this.http.get<ReconTaskDetail>(`${this.base}/${id}/detail`); }
 
   // ── Chat por tarea (MA.8) ──
   messages(id: string): Observable<ReconTaskMessage[]> { return this.http.get<ReconTaskMessage[]>(`${this.base}/${id}/messages`); }

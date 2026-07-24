@@ -17,7 +17,7 @@ import { LoadStateComponent } from '../../../shared/components/load-state/load-s
 import { FINANZAS_TABS } from '../finanzas-tabs';
 import { AuthService } from '../../../core/services/auth.service';
 import { Permission } from '../../../core/constants/permissions';
-import { ReconTasksService, ReconTask, ReconTaskStats, ReconTaskStatus, FinanceUser, ReconTaskMessage } from '../recon-tasks.service';
+import { ReconTasksService, ReconTask, ReconTaskStats, ReconTaskStatus, FinanceUser, ReconTaskMessage, ReconTaskDetail, ReconCausa } from '../recon-tasks.service';
 
 /**
  * MA — Tareas de conciliación (Maat). Superficie Operations: los movimientos sin
@@ -98,7 +98,7 @@ import { ReconTasksService, ReconTask, ReconTaskStats, ReconTaskStatus, FinanceU
           <ng-template pTemplate="body" let-t>
             <tr>
               <td>
-                <div class="ft-prov">{{ t.proveedor_label }}</div>
+                <button type="button" class="ft-prov ft-prov-btn" (click)="openDetail(t)" [attr.aria-label]="'Ver qué hacer con ' + t.proveedor_label">{{ t.proveedor_label }}<i class="pi pi-angle-right"></i></button>
                 <div class="ft-meta">{{ t.periodo }}@if (t.kepler_ref) { · <span class="mono">{{ t.kepler_ref }}</span> }</div>
               </td>
               <td class="ta-c mono">{{ t.n_movimientos }}</td>
@@ -163,6 +163,53 @@ import { ReconTasksService, ReconTask, ReconTaskStats, ReconTaskStatus, FinanceU
       <ng-template pTemplate="footer">
         <button pButton type="button" label="Devolver al pool" class="p-button-text p-button-sm" (click)="submitAssign(null)"></button>
         <button pButton type="button" label="Asignar" icon="pi pi-check" class="p-button-sm" [loading]="saving()" [disabled]="!selectedUser" (click)="submitAssign(selectedUser)"></button>
+      </ng-template>
+    </p-dialog>
+
+    <!-- Dialog: detalle accionable "qué hacer" -->
+    <p-dialog [visible]="!!detailTask()" (visibleChange)="onDetailVisible($event)" [modal]="true" [style]="{ width: '42rem' }"
+      [dismissableMask]="true" styleClass="ft-detail-dlg">
+      <ng-template pTemplate="header">
+        @if (detailTask(); as t) {
+          <div class="ft-chat-head">
+            <span class="ft-chat-title">{{ t.proveedor_label }}</span>
+            <span class="ft-chat-meta">{{ t.periodo }} · {{ t.n_movimientos }} mov · {{ t.importe_total | currency:'MXN':'symbol-narrow':'1.0-0' }}</span>
+          </div>
+        }
+      </ng-template>
+
+      <app-load-state [loading]="detailLoading()" [error]="detailError()" [isEmpty]="false" (retry)="reloadDetail()">
+        @if (detail(); as d) {
+          <!-- resumen por causa -->
+          <div class="ft-diag-sum">
+            @for (c of resumenList(d); track c.key) {
+              <span class="ft-diag-chip"><p-tag [value]="causaLabel(c.key) + ' · ' + c.n" [severity]="causaSeverity(c.key)" [rounded]="true" /></span>
+            }
+          </div>
+          <p class="ft-diag-lead">Qué hacer con cada retiro para conciliarlo <strong>en Kepler</strong>:</p>
+          <div class="ft-diag-list">
+            @for (m of d.movimientos; track m.finding_id) {
+              <div class="ft-diag-item">
+                <div class="ft-diag-top">
+                  <span class="mono ft-diag-monto">{{ m.monto | currency:'MXN':'symbol-narrow':'1.0-0' }}</span>
+                  <span class="ft-diag-meta">{{ m.fecha | date:'dd/MM/yy' }} · {{ m.banco }} {{ m.cuenta }}</span>
+                  <p-tag [value]="m.causa_label" [severity]="causaSeverity(m.causa)" [rounded]="true" />
+                </div>
+                @if (m.concepto) { <div class="ft-diag-concept">{{ m.concepto }}</div> }
+                <div class="ft-diag-do"><i class="pi pi-arrow-right" aria-hidden="true"></i> {{ m.instruccion }}</div>
+                @if (m.folio_102) { <div class="ft-diag-ref">Folio 102: <span class="mono">{{ m.folio_102 }}</span></div> }
+                @if (m.factura_folio) { <div class="ft-diag-ref">Factura: <span class="mono">{{ m.factura_folio }}</span></div> }
+              </div>
+            }
+          </div>
+        }
+      </app-load-state>
+
+      <ng-template pTemplate="footer">
+        <button pButton type="button" label="Abrir hilo" icon="pi pi-comments" class="p-button-text p-button-sm" (click)="detailToChat()"></button>
+        @if (canManage() && detailTask() && (detailTask()!.status === 'pendiente' || detailTask()!.status === 'en_proceso')) {
+          <button pButton type="button" label="Ya lo hice en Kepler" icon="pi pi-check-circle" class="p-button-sm" (click)="detailToChat(true)"></button>
+        }
       </ng-template>
     </p-dialog>
 
@@ -252,6 +299,20 @@ import { ReconTasksService, ReconTask, ReconTaskStats, ReconTaskStatus, FinanceU
     .ft-chat-composer { display: flex; gap: .3rem; align-items: center; width: 100%; }
     .ft-chat-composer input { flex: 1; }
     .ft-report-btn { margin-top: .5rem; width: 100%; }
+    .ft-prov-btn { background: none; border: none; padding: 0; font: inherit; font-weight: 500; color: var(--text-main); cursor: pointer; display: inline-flex; align-items: center; gap: .2rem; text-align: left; }
+    .ft-prov-btn:hover { color: var(--action); }
+    .ft-prov-btn i { font-size: .75rem; color: var(--text-faint); }
+    .ft-diag-sum { display: flex; flex-wrap: wrap; gap: .35rem; margin-bottom: .6rem; }
+    .ft-diag-lead { font-size: var(--fs-sm); color: var(--text-muted); margin: 0 0 .6rem; }
+    .ft-diag-list { display: flex; flex-direction: column; gap: .55rem; max-height: 52vh; overflow-y: auto; }
+    .ft-diag-item { border: 1px solid var(--border-color); border-radius: var(--r-md); padding: .55rem .7rem; }
+    .ft-diag-top { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
+    .ft-diag-monto { font-weight: 600; color: var(--text-main); }
+    .ft-diag-meta { font-size: var(--fs-xs); color: var(--text-faint); font-family: var(--font-mono); flex: 1; }
+    .ft-diag-concept { font-size: var(--fs-xs); color: var(--text-muted); margin-top: .2rem; }
+    .ft-diag-do { font-size: var(--fs-sm); color: var(--text-main); margin-top: .4rem; display: flex; gap: .35rem; }
+    .ft-diag-do i { color: var(--action); margin-top: .15rem; }
+    .ft-diag-ref { font-size: var(--fs-xs); color: var(--text-muted); margin-top: .2rem; }
   `],
 })
 export class FinanzasTareasComponent implements OnInit {
@@ -288,6 +349,11 @@ export class FinanzasTareasComponent implements OnInit {
   readonly chatLoading = signal(false);
   readonly reporting = signal(false);
   chatDraft = '';
+
+  readonly detailTask = signal<ReconTask | null>(null);
+  readonly detail = signal<ReconTaskDetail | null>(null);
+  readonly detailLoading = signal(false);
+  readonly detailError = signal<string | null>(null);
 
   readonly emptyTitle = computed(() =>
     this.view() === 'me' ? 'No tienes tareas asignadas' :
@@ -356,6 +422,34 @@ export class FinanzasTareasComponent implements OnInit {
       next: () => { this.saving.set(false); this.assignTask.set(null); this.toast.add({ severity: 'success', summary: userId ? 'Asignada' : 'Devuelta al pool', detail: t.proveedor_label }); this.reload(); },
       error: (e) => { this.saving.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudo asignar.' }); },
     });
+  }
+
+  openDetail(t: ReconTask): void { this.detailTask.set(t); this.detail.set(null); this.reloadDetail(); }
+  onDetailVisible(v: boolean): void { if (!v) { this.detailTask.set(null); this.detail.set(null); this.detailError.set(null); } }
+  reloadDetail(): void {
+    const t = this.detailTask();
+    if (!t) return;
+    this.detailLoading.set(true); this.detailError.set(null);
+    this.svc.detail(t.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (d) => { this.detail.set(d); this.detailLoading.set(false); },
+      error: (e) => { this.detailError.set(e?.error?.message || 'No se pudo cargar el detalle.'); this.detailLoading.set(false); },
+    });
+  }
+  detailToChat(report = false): void {
+    const t = this.detailTask();
+    if (!t) return;
+    this.detailTask.set(null); this.detail.set(null);
+    this.openChat(t);
+    if (report) setTimeout(() => this.report(), 0);
+  }
+  resumenList(d: ReconTaskDetail): { key: ReconCausa; n: number }[] {
+    return Object.entries(d.resumen).map(([key, n]) => ({ key: key as ReconCausa, n: n as number }));
+  }
+  causaLabel(c: ReconCausa): string {
+    return { pago_en_102: 'Ya en Kepler', factura_sin_pago: 'Falta pago', revisar_cadena: 'Revisar', capturar_desde_cero: 'Capturar', sin_diagnostico: 'Sin diagnóstico' }[c] || c;
+  }
+  causaSeverity(c: ReconCausa | string): 'info' | 'warn' | 'danger' | 'secondary' {
+    return c === 'pago_en_102' ? 'info' : c === 'capturar_desde_cero' ? 'danger' : c === 'sin_diagnostico' ? 'secondary' : 'warn';
   }
 
   openChat(t: ReconTask): void { this.chatTask.set(t); this.chatDraft = ''; this.loadMessages(t.id); }

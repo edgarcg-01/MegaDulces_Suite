@@ -38,6 +38,11 @@ export class MaatReconTasksController {
   @ApiOperation({ summary: 'MA — KPIs: pendientes/en_proceso/resueltas/pool, $ abierto, carga por usuario.' })
   stats(@Query('periodo') periodo?: string) { return this.tasks.stats(periodo); }
 
+  @Get(':id/detail')
+  @RequirePermissions(Permission.FINANCE_BANK_VER)
+  @ApiOperation({ summary: 'MA — Detalle accionable: los movimientos de la tarea + qué hacer con cada uno (diagnóstico de causa vs Kepler).' })
+  detail(@Param('id') id: string) { return this.tasks.detail(id); }
+
   @Get('finance-users')
   @RequirePermissions(Permission.FINANCE_RECON_ASIGNAR)
   @ApiOperation({ summary: 'MA — Usuarios de Finanzas candidatos (para el selector de asignación manual).' })

@@ -18,6 +18,12 @@
 - **Conocimiento:** 4 entradas de conciliación sembradas en `finance.knowledge` (crosswalk Excel↔102, "sin conciliar ≠ falta póliza", factoraje/caja fuera del cuadre, cómo asigna MA).
 - Verificado: builds api+view verdes + smoke DB **8/8** (enero: 47 sin conciliar → 33 grupos → 17 tareas ≥$100k / $6.8M, reparto balanceado spread=0). **Pendiente prod:** mig `20260724120000` + redeploy api+view + re-login. Nota: el seed deriva perms de finanzas de COMMERCIAL_ORDERS_VER → zona de candidatos amplia (27 users); acotar `FINANCE_BANK_GESTIONAR` a roles de finanzas reales o usar asignación manual.
 
+### Added — MA.9: detalle "qué hacer" por tarea con diagnóstico de causa (2026-07-24)
+- Al hacer clic en el **proveedor/concepto** de una tarea se abre un panel con **qué hacer con cada retiro para conciliarlo en Kepler**. Maat diagnostica la causa de cada movimiento (reusa `movementFlow` de Bancos): **pago ya en el 102** (desfase → no recapturar, da el folio) · **factura sin pago** (captura la póliza XD2601 vs esa factura) · **compras sin factura que cuadre** (revisar auxiliar) · **sin rastro** (capturar desde cero). Cada movimiento trae su instrucción concreta (cuenta 201/102, doc, monto) + folios.
+- Backend: `GET /finance/maat/recon-tasks/:id/detail` (`MaatReconTasksService.detail` + `diagnose`); `FinanceMaatModule` importa `FinanceBankModule` para reusar el trace (sin migración, read-only).
+- Frontend: celda del proveedor → p-dialog con chips de resumen por causa + lista de movimientos (monto/fecha/banco + tag de causa + instrucción) + "Abrir hilo"/"Ya lo hice en Kepler".
+- Builds api+view verdes. **Pendiente prod:** redeploy api+view (sin migración nueva).
+
 ### Added — MA.8: chat por tarea + verificación de Maat + siguiente tarea (2026-07-24)
 - Cada tarea de conciliación tiene un **hilo** (`finance.recon_task_messages`, mig `20260724130000`): la persona comunica que ya la concilió y toca **"Ya lo hice en Kepler"** → **Maat verifica por re-match** (¿el movimiento ya cruza en el 102?, no auto-reporte) → si sí, cierra la tarea (verificado) y **le asigna la siguiente** al mismo usuario, todo anunciado en el hilo; si no, la deja en proceso y explica qué falta (se cierra sola cuando Kepler lo refleje; el cierre nocturno también avisa + asigna).
 - Backend: `MaatReconTasksService.reportDone/messages/postMessage/assignNextTo` + endpoints `/finance/maat/recon-tasks/:id/{messages,report}`. `verifyClosure` extendido para postear + encadenar la siguiente. Determinista (LLM fuera): Maat "verifica" cruzando `recon_status` y "asigna" por reparto.
