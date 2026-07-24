@@ -113,9 +113,8 @@ Frontend nuevo bajo `apps/view/src/app/modules/comercial/` reusando el patrón d
   Agendar `thot-build-features.js` (afinidad + zona) y `thot-build-pdv-presence.js` en `run-prod-feeds` (nightly) en vez de scripts manuales, para que whitespace/afinidad no envejezcan.
   *Aceptación:* las features se recomputan solas cada noche; fecha de cómputo fresca.
 
-- ⬜ **CT-C.4 — Señal momentum real**
-  Implementar momentum como término propio del score (tendencia ventas 30d vs 90d, normalizada) en `thot.service.suggest()`, con su `reason='momentum'`. Cierra el gap "documentado-no-implementado" del ADR-018.
-  *Aceptación:* un producto en aceleración sube en el ranking con razón "momentum"; documentado en el score.
+- 🔨 **CT-C.4 — Señal momentum real** — EN CÓDIGO 2026-07-24 (commit c173ea3a)
+  CTE `mom` sobre `analytics.sales_daily` en CAJAS (`units_base`): `momentum = clamp(r30/r90 − 1, 0..1)` sólo con baseline real. `score += 0.4·momentum`; `reason='momentum'` ("En aceleración"). Sanity vs prod: 1,213/5,868 aceleran ≥0.3 (tops estacionales reales). Build api verde. **Landable sin bloqueo** (opera sobre data poblada). Pendiente: redeploy.
 
 - ⬜ **CT-C.5 — Curación del golden set (arranque)**
   Promover las mejores respuestas 👍 del `thot_chat_log` (73 convs) a `thot_chat_examples` (hoy 0) vía `/thot/examples/from-log/:logId` + reindex pgvector. Arranca el few-shot dinámico.
