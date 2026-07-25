@@ -49,7 +49,8 @@ const PEOPLE = [
       console.log(`rename 'gestor de egresos' → 'gestor_egresos': ${r.rowCount}`);
     } else { console.log(`'gestor_egresos' ya existe — no renombro`); }
     await db.query(`UPDATE users SET role_name='gestor_egresos' WHERE role_name='gestor de egresos'`);
-    const d = await db.query(`UPDATE role_permissions SET activo=false, deleted_at=now() WHERE role_name='auxiliar finanzas' AND deleted_at IS NULL`);
+    // `activo` es GENERATED (deleted_at IS NULL) → soft-delete solo toca deleted_at.
+    const d = await db.query(`UPDATE role_permissions SET deleted_at=now() WHERE role_name='auxiliar finanzas' AND deleted_at IS NULL`);
     console.log(`soft-delete duplicado 'auxiliar finanzas': ${d.rowCount}`);
 
     // 2) Crear usuarios faltantes
