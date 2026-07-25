@@ -19,7 +19,7 @@ const { Client } = require('pg');
 const bcrypt = require('bcryptjs');
 
 const M = '00000000-0000-0000-0000-00000000d01c';
-const TEMP = process.env.TEMP_PASSWORD || 'MegaDulces2026!';
+const TEMP = process.env.TEMP_PASSWORD || '123456';
 const URL = process.env.DATABASE_URL_NEW;
 const APPLY = process.argv.includes('--apply');
 
