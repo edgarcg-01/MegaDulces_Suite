@@ -43,6 +43,18 @@ export class MetaCloudWhatsAppAdapter implements WhatsAppPort {
     return `https://graph.facebook.com/${this.graphVersion}/${this.phoneNumberId}/messages`;
   }
 
+  /**
+   * Normaliza el número destino. México: Meta reporta el `wa_id` entrante como
+   * `521XXXXXXXXXX` (13 dígitos, con el `1` de móvil), pero el envío espera
+   * `52XXXXXXXXXX` (12 dígitos). Sin esto, responder al remitente falla con
+   * `#131030` en modo prueba y puede fallar la entrega en prod. Otros países
+   * pasan sin cambios.
+   */
+  private normalizeTo(to: string): string {
+    const d = (to || '').replace(/\D/g, '');
+    return d.startsWith('521') && d.length === 13 ? '52' + d.slice(3) : d;
+  }
+
   private ready(): boolean {
     if (!this.phoneNumberId || !this.accessToken) {
       this.logger.warn('WHATSAPP_PHONE_NUMBER_ID / WHATSAPP_ACCESS_TOKEN ausentes — envío no-op.');
@@ -71,7 +83,7 @@ export class MetaCloudWhatsAppAdapter implements WhatsAppPort {
     return this.post({
       messaging_product: 'whatsapp',
       recipient_type: 'individual',
-      to,
+      to: this.normalizeTo(to),
       type: 'text',
       text: { preview_url: false, body },
     });
@@ -81,7 +93,7 @@ export class MetaCloudWhatsAppAdapter implements WhatsAppPort {
     return this.post({
       messaging_product: 'whatsapp',
       recipient_type: 'individual',
-      to,
+      to: this.normalizeTo(to),
       type: 'interactive',
       interactive: {
         type: 'button',
@@ -102,7 +114,7 @@ export class MetaCloudWhatsAppAdapter implements WhatsAppPort {
     return this.post({
       messaging_product: 'whatsapp',
       recipient_type: 'individual',
-      to,
+      to: this.normalizeTo(to),
       type: 'image',
       image: { link: msg.link, ...(msg.caption ? { caption: msg.caption } : {}) },
     });
@@ -125,7 +137,7 @@ export class MetaCloudWhatsAppAdapter implements WhatsAppPort {
     return this.post({
       messaging_product: 'whatsapp',
       recipient_type: 'individual',
-      to,
+      to: this.normalizeTo(to),
       type: 'template',
       template: {
         name: msg.name,
