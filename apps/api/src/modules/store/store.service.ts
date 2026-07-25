@@ -147,6 +147,22 @@ export class StoreService {
       .max({ last_ts: 'ticket_ts' })
       .orderByRaw('sum(total) DESC NULLS LAST');
 
+    // Sucursales ACTIVAS en los últimos 7 días con su último ticket real (para detectar
+    // "sin conexión": una caja que vendía y dejó de reportar NO debe desaparecer del tablero,
+    // sino aparecer con su last_ts stale). Se fusiona con las de hoy (tickets=0 si no hay hoy).
+    const recentBranches = await scope(k('analytics.store_live_tickets')
+      .where('tenant_id', TENANT)
+      .andWhereRaw(`ticket_ts > now() - interval '7 days'`))
+      .groupBy('warehouse_code', 'warehouse_name')
+      .select('warehouse_code', 'warehouse_name')
+      .max({ last_ts: 'ticket_ts' });
+    const todayCodes = new Set(byBranch.map((b: any) => b.warehouse_code));
+    for (const r of recentBranches as any[]) {
+      if (!todayCodes.has(r.warehouse_code)) {
+        byBranch.push({ warehouse_code: r.warehouse_code, warehouse_name: r.warehouse_name, tickets: 0, venta: 0, last_ts: r.last_ts });
+      }
+    }
+
     const hourly = await scope(k('analytics.store_live_tickets')
       .where('tenant_id', TENANT)
       .andWhereRaw(today))
