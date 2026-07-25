@@ -40,6 +40,22 @@ export class TiendaStateService {
 
   readonly avgTicket = computed(() => (this.ticketsHoy() ? this.ventaHoy() / this.ticketsHoy() : 0));
   readonly activeBranches = computed(() => this.branches().filter((b) => b.tickets > 0).length);
+
+  /**
+   * Sucursales SIN CONEXIÓN al POS: vendían y dejaron de reportar. Se listan solo cuando la
+   * red está operando (alguien vendió hace <15 min) para no alarmar de noche/cierre, y con
+   * ≥45 min de silencio. El snapshot incluye cajas activas los últimos 7d aunque hoy no
+   * vendan (con su last_ts real) → una caja caída aparece acá en vez de desaparecer.
+   */
+  readonly disconnectedBranches = computed(() => {
+    const bs = this.branches();
+    const networkFresh = bs.some((b) => b.tickets > 0 && this.idleMin(b.last_ts) < 15);
+    if (!networkFresh) return [];
+    return bs
+      .filter((b) => this.idleMin(b.last_ts) >= 45)
+      .map((b) => ({ code: b.warehouse_code, name: b.warehouse_name || b.warehouse_code, last_ts: b.last_ts, idle: this.idleMin(b.last_ts) }))
+      .sort((a, b) => b.idle - a.idle);
+  });
   readonly hourBars = computed(() => this.buildHourBars(this.hourly()));
 
   private tkKey(t: LiveTicket): string { return t.warehouse_code + t.serie + t.folio; }
