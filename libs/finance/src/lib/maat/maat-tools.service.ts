@@ -136,7 +136,7 @@ ${Object.entries(SUCURSAL_CAT).map(([c, n]) => `${c} = ${n}`).join(' · ')}
 ${knowledgeBlock}
 
 ## ALCANCE ACTUAL
-Tienes acceso a: **balanza de comprobación completa** (familias 1-9, cargos/abonos por cuenta×sucursal×mes, ~19 meses — maat_balanza), **P&L contable derivado** (ingresos−costo−gastos por mes — maat_pnl), egresos contables al detalle (compras 511 + gastos 6xx/7xx — maat_egresos), documentos fuente con líneas de producto, auxiliar de proveedores (201: saldo/pagos/DPO), **cadena de aprovisionamiento** por factura (orden→recepción→factura→pago — maat_cadena) y hallazgos contables. AÚN NO tienes: flujo de caja proyectado ni auxiliar bancario por banco (las 17 cuentas comparten el código 102). Al usar la balanza recuerda los issues conocidos: 2025 es capa presupuesto, dic-2025 doble, COGS no computable desde may-2026.
+Tienes acceso a: **balanza de comprobación completa** (familias 1-9, cargos/abonos por cuenta×sucursal×mes, ~19 meses — maat_balanza), la **balanza de los LIBROS FISCALES OFICIALES de ContPAQi** (consolidada de la entidad, la verdad del contador/SAT — maat_contpaqi_balanza; úsala para "según los libros oficiales"), el **contraste ingresos libros-vs-operación** (ContPAQi fiscal vs Kepler operativo mes a mes — maat_libros_vs_operacion; el gap suele ser estructural, no error), **P&L contable derivado** (ingresos−costo−gastos por mes — maat_pnl), egresos contables al detalle (compras 511 + gastos 6xx/7xx — maat_egresos), documentos fuente con líneas de producto, auxiliar de proveedores (201: saldo/pagos/DPO), **cadena de aprovisionamiento** por factura (orden→recepción→factura→pago — maat_cadena) y hallazgos contables. AÚN NO tienes: flujo de caja proyectado ni auxiliar bancario por banco (las 17 cuentas comparten el código 102). Al usar la balanza recuerda los issues conocidos: 2025 es capa presupuesto, dic-2025 doble, COGS no computable desde may-2026.
 
 ## EJEMPLOS (patrón de uso — imita el enfoque, no las cifras)
 - "desglosa una póliza de La Rosa" → maat_buscar_documentos(beneficiario:'LA ROSA') → responde con 2-3 opciones, cada una como link markdown usando su ui_url. NO pidas el folio. Cierra con \`[[SEGUIR]] Ver el detalle de la factura más grande | ¿Cuánto le compramos a La Rosa este año? | ¿Hay facturas duplicadas de este proveedor?\`
@@ -168,6 +168,11 @@ Tienes acceso a: **balanza de comprobación completa** (familias 1-9, cargos/abo
         const fam = i.familia ? ` (familia ${i.familia})` : (i.cuenta ? ` de la cuenta ${i.cuenta}` : '');
         return `Revisando la balanza${dim}${fam}${inSuc}…`;
       }
+      case 'maat_contpaqi_balanza': {
+        const fam = i.familia ? ` (familia ${i.familia})` : (i.cuenta ? ` de la cuenta ${i.cuenta}` : '');
+        return `Revisando los libros fiscales de ContPAQi${dim}${fam}…`;
+      }
+      case 'maat_libros_vs_operacion': return 'Contrastando los libros fiscales contra la operación…';
       case 'maat_pnl': return `Calculando el estado de resultados${inSuc}…`;
       case 'maat_simular_flujo': return `Simulando el flujo de caja${i.delay_dias ? ` (retraso ${i.delay_dias}d)` : ''}…`;
       case 'maat_cadena':
@@ -234,6 +239,36 @@ Tienes acceso a: **balanza de comprobación completa** (familias 1-9, cargos/abo
             limit: { type: 'number', description: 'Default 30, máx 200.' },
           },
           required: ['group_by'],
+        },
+      },
+      {
+        name: 'maat_contpaqi_balanza',
+        description:
+          'BALANZA de los LIBROS FISCALES OFICIALES (ContPAQi Contabilidad), CONSOLIDADA de la entidad (NO por sucursal — la contabilidad casi no segmenta). cargos/abonos/neto por dimensión (cuenta, familia, mes, agrupador_sat). Es la verdad que ve el CONTADOR y el SAT — distinta de maat_balanza (que es Kepler, operativo, por sucursal). Úsala para "según los libros / la contabilidad oficial", saldos fiscales, o para COMPARAR operación (Kepler) vs libros (ContPAQi). Meses YYYY-MM, ejercicios 2018-2026. Cuadra (Σcargos≈Σabonos).',
+        input_schema: {
+          type: 'object',
+          properties: {
+            group_by: { type: 'string', enum: ['cuenta', 'familia', 'mes', 'agrupador_sat'], description: 'Dimensión del desglose. agrupador_sat = código SAT de contabilidad electrónica.' },
+            from_mes: { type: 'string', description: "Mes inicio 'YYYY-MM'. Default: hace 12 meses." },
+            to_mes: { type: 'string', description: "Mes fin 'YYYY-MM'. Default: mes actual." },
+            familia: { type: 'string', enum: ['1', '2', '3', '4', '5', '6'], description: '1 Activo · 2 Pasivo · 3 Capital · 4 Ingresos · 5 Costos/Gastos · 6. Opcional.' },
+            cuenta: { type: 'string', description: "Cuenta exacta ContPAQi ('1020100000'). Opcional." },
+            limit: { type: 'number', description: 'Default 30, máx 200.' },
+          },
+          required: ['group_by'],
+        },
+      },
+      {
+        name: 'maat_libros_vs_operacion',
+        description:
+          'CONTRASTE libros fiscales (ContPAQi) vs operación (Kepler): ingresos (familia 4) mes a mes, con Δ y ratio %. Para "¿cuánto declaramos vs cuánto vendimos?", "¿los libros reflejan la operación?", "diferencia entre contabilidad y ventas". ⚠️ El gap suele ser ESTRUCTURAL (IVA, alcance de la entidad fiscal = 1 RFC vs la operación completa, o timing) — NO lo narres como error/fraude sin verificar; explícalo con ese caveat.',
+        input_schema: {
+          type: 'object',
+          properties: {
+            from_mes: { type: 'string', description: "Mes inicio 'YYYY-MM'. Default: hace 12 meses." },
+            to_mes: { type: 'string', description: "Mes fin 'YYYY-MM'. Default: mes actual." },
+            sucursal: { type: 'string', description: "Sucursal Kepler para la operación. Default '00' (CEDIS, ingresos consolidados)." },
+          },
         },
       },
       {
@@ -454,6 +489,8 @@ Tienes acceso a: **balanza de comprobación completa** (familias 1-9, cargos/abo
           .catch((e) => ({ error: String(e?.message || e) }));
         case 'maat_egresos': return await this.egresos(input);
         case 'maat_balanza': return await this.balanza(input);
+        case 'maat_contpaqi_balanza': return await this.contpaqiBalanza(input);
+        case 'maat_libros_vs_operacion': return await this.librosVsOperacion(input);
         case 'maat_pnl': return await this.pnl(input);
         case 'maat_simular_flujo': return await this.simularFlujo(input);
         case 'maat_cadena': return await this.cadena(input);
@@ -585,6 +622,79 @@ Tienes acceso a: **balanza de comprobación completa** (familias 1-9, cargos/abo
       return {
         from_mes, to_mes,
         rows: col(rows.map((r) => ({ [q.group_by]: r.key, cargos: Number(r.cargos), abonos: Number(r.abonos), neto: Number(r.neto), movs: Number(r.movs) }))),
+      };
+    });
+  }
+
+  // ── CP.1 (Fase CP, ADR-035) — Balanza de los libros fiscales ContPAQi ──
+  // analytics.contpaqi_ledger_monthly = balanza CONSOLIDADA de la entidad (sin sucursal;
+  // la contabilidad casi no segmenta). Verdad fiscal; sin RLS → tenant explícito.
+  private async contpaqiBalanza(q: any) {
+    const DIMS: Record<string, { group: string; label: string }> = {
+      cuenta: { group: 'l.cuenta, l.cuenta_nombre', label: "l.cuenta || ' ' || COALESCE(l.cuenta_nombre,'')" },
+      familia: { group: 'l.familia', label: "CASE l.familia WHEN '1' THEN '1 Activo' WHEN '2' THEN '2 Pasivo' WHEN '3' THEN '3 Capital' WHEN '4' THEN '4 Ingresos' WHEN '5' THEN '5 Costos/Gastos' WHEN '6' THEN '6 Otros' ELSE l.familia END" },
+      mes: { group: 'l.anio_mes', label: 'l.anio_mes' },
+      agrupador_sat: { group: 'l.agrupador_sat, l.agrupador_sat_nombre', label: "COALESCE(l.agrupador_sat,'-') || ' ' || COALESCE(l.agrupador_sat_nombre,'')" },
+    };
+    const dim = DIMS[q.group_by] || DIMS['familia'];
+    const limit = Math.min(200, Math.max(1, Number(q.limit) || 30));
+    const { from_mes, to_mes } = this.mesRange(q);
+    return this.tk.run(async (trx) => {
+      const b = trx('analytics.contpaqi_ledger_monthly as l')
+        .where('l.tenant_id', this.tenantId())
+        .andWhere('l.anio_mes', '>=', from_mes).andWhere('l.anio_mes', '<=', to_mes);
+      if (q.familia) b.where('l.familia', String(q.familia));
+      if (q.cuenta) b.where('l.cuenta', String(q.cuenta));
+      b.groupByRaw(dim.group)
+        .select(trx.raw(`${dim.label} AS key`),
+          trx.raw('ROUND(SUM(l.cargos)::numeric,2) AS cargos'),
+          trx.raw('ROUND(SUM(l.abonos)::numeric,2) AS abonos'),
+          trx.raw('ROUND(SUM(l.cargos - l.abonos)::numeric,2) AS neto'))
+        .limit(limit);
+      if (q.group_by === 'mes') b.orderByRaw('1');
+      else b.orderByRaw('GREATEST(ABS(SUM(l.cargos)), ABS(SUM(l.abonos))) DESC');
+      const rows: any[] = await b;
+      return {
+        fuente: 'ContPAQi (libros fiscales oficiales, consolidado de la entidad)',
+        from_mes, to_mes,
+        rows: col(rows.map((r) => ({ [q.group_by]: r.key, cargos: Number(r.cargos), abonos: Number(r.abonos), neto: Number(r.neto) }))),
+      };
+    });
+  }
+
+  // ── CP.4 (Fase CP, ADR-035) — Contraste libros (ContPAQi) vs operación (Kepler) ──
+  // Ingresos fam4 mes a mes: Kepler operativo (venta consolidada CEDIS) vs ContPAQi fiscal.
+  // El gap es típicamente estructural (IVA / alcance de la entidad fiscal / timing) → el
+  // `nota` obliga a narrar sin gritar fraude. Solo ingresos (fam4 es limpio en ambos; los
+  // egresos NO se comparan aquí porque las familias 5/6/7 no mapean 1:1 entre los dos sistemas).
+  private async librosVsOperacion(q: any) {
+    const { from_mes, to_mes } = this.mesRange(q);
+    const suc = q.sucursal || '00';
+    const tenantId = this.tenantId();
+    return this.tk.run(async (trx) => {
+      const kep: any[] = await trx('analytics.ledger_monthly')
+        .where({ tenant_id: tenantId, familia: '4', sucursal: suc })
+        .andWhere('anio_mes', '>=', from_mes).andWhere('anio_mes', '<=', to_mes)
+        .groupBy('anio_mes').select('anio_mes').select(trx.raw('SUM(abonos-cargos)::numeric v'));
+      const cpq: any[] = await trx('analytics.contpaqi_ledger_monthly')
+        .where({ tenant_id: tenantId, familia: '4' })
+        .andWhere('anio_mes', '>=', from_mes).andWhere('anio_mes', '<=', to_mes)
+        .groupBy('anio_mes').select('anio_mes').select(trx.raw('SUM(abonos-cargos)::numeric v'));
+      const km = new Map(kep.map((r) => [r.anio_mes, Number(r.v)]));
+      const cm = new Map(cpq.map((r) => [r.anio_mes, Number(r.v)]));
+      const meses = [...new Set([...km.keys(), ...cm.keys()])].sort();
+      const rows = meses.map((m) => {
+        const k = Math.round(km.get(m) || 0), c = Math.round(cm.get(m) || 0);
+        return { mes: m, operacion_kepler: k, libros_contpaqi: c, delta: k - c, ratio_pct: k ? +((c / k) * 100).toFixed(1) : null };
+      });
+      const tk = rows.reduce((s, r) => s + r.operacion_kepler, 0);
+      const tc = rows.reduce((s, r) => s + r.libros_contpaqi, 0);
+      return {
+        concepto: 'ingresos (familia 4)', from_mes, to_mes, sucursal_operacion: suc,
+        operacion_kepler_total: tk, libros_contpaqi_total: tc, delta_total: tk - tc,
+        ratio_pct: tk ? +((tc / tk) * 100).toFixed(1) : null,
+        nota: 'Kepler = operación (venta consolidada en CEDIS). ContPAQi = libros fiscales de UNA entidad (RFC persona física). Un gap consistente suele ser estructural: IVA, alcance de la entidad fiscal (la operación puede repartirse en varios RFC) o timing de registro — NO lo presentes como error/fraude sin evidencia adicional.',
+        rows: col(rows),
       };
     });
   }

@@ -18,7 +18,7 @@ import { LoadStateComponent } from '../../../shared/components/load-state/load-s
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import { FINANZAS_TABS } from '../finanzas-tabs';
-import { BankService, BankAccount, MovementCategory, BankStatement, BankMovement, Concentrado, Reconciliation, MatchResult, Differences, Balances, Diagnostico, KeplerAccount, SideBySide } from '../bank.service';
+import { BankService, BankAccount, MovementCategory, BankStatement, BankMovement, Concentrado, Reconciliation, MatchResult, Differences, Balances, Diagnostico, KeplerAccount, SideBySide, ContpaqiCompare } from '../bank.service';
 import {
   BankView as View, MONTHS_ES, WORK_VIEWS,
   GROUP_LABELS, GROUP_ORDER,
@@ -30,6 +30,7 @@ import { BancosCierreComponent } from './bancos/bancos-cierre.component';
 import { BancosMovimientosComponent } from './bancos/bancos-movimientos.component';
 import { BancosAdminComponent } from './bancos/bancos-admin.component';
 import { BancosSideBySideComponent } from './bancos/bancos-side-by-side.component';
+import { BancosContpaqiComponent } from './bancos/bancos-contpaqi.component';
 
 /**
  * CB.3 — Conciliación bancaria (ADR-033). Reemplaza el workbook Excel: tablero
@@ -43,7 +44,7 @@ import { BancosSideBySideComponent } from './bancos/bancos-side-by-side.componen
     InputNumberModule, InputTextModule, IconFieldModule, InputIconModule,
     PageTabsComponent, MetricStripComponent, LoadStateComponent, FreshnessPillComponent, ContextHelpComponent,
     BancosConcentradoComponent, BancosConciliacionComponent, BancosCuentasComponent, BancosCierreComponent,
-    BancosMovimientosComponent, BancosAdminComponent, BancosSideBySideComponent],
+    BancosMovimientosComponent, BancosAdminComponent, BancosSideBySideComponent, BancosContpaqiComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
@@ -152,6 +153,17 @@ import { BancosSideBySideComponent } from './bancos/bancos-side-by-side.componen
           } @else {
             <div class="surf-empty"><i class="pi pi-inbox"></i><p>Sin datos para {{ period() }}.</p></div>
           }
+        }
+      }
+
+      <!-- ── vs ContPAQi: banco (Excel) contra los LIBROS reales de contabilidad ── -->
+      @if (view() === 'contpaqi') {
+        @if (cpqError()) {
+          <app-load-state [error]="cpqError()" (retry)="loadContpaqi()"></app-load-state>
+        } @else if (cpqLoading()) {
+          <div class="fb-skeleton" aria-busy="true">@for (i of [1,2,3,4,5,6]; track i) { <div class="fb-skel-row"></div> }</div>
+        } @else {
+          <bancos-contpaqi [compare]="contpaqiCompare()" [linking]="cpqLinking()" [period]="period()" (link)="linkContpaqi()" />
         }
       }
 
@@ -397,6 +409,11 @@ export class FinanzasBancosComponent implements OnInit {
   readonly sideBySide = signal<SideBySide | null>(null);
   readonly sbsLoading = signal(false);
   readonly sbsError = signal<string | null>(null);
+  // CP.2 — comparación vs LIBROS ContPAQi (lazy: se carga al abrir la pestaña).
+  readonly contpaqiCompare = signal<ContpaqiCompare | null>(null);
+  readonly cpqLoading = signal(false);
+  readonly cpqError = signal<string | null>(null);
+  readonly cpqLinking = signal(false);
 
   // Filtros de Movimientos (el shell los posee para poder recargar al cambiar de periodo).
   readonly fAccount = signal('');
@@ -482,6 +499,32 @@ export class FinanzasBancosComponent implements OnInit {
   goView(v: View): void {
     this.view.set(v);
     if (v === 'comparador' && !this.sideBySide() && !this.sbsLoading()) this.loadSideBySide();
+    if (v === 'contpaqi' && !this.contpaqiCompare() && !this.cpqLoading()) this.loadContpaqi();
+  }
+
+  /** CP.2 — carga la comparación banco vs libros ContPAQi del periodo (lazy). */
+  loadContpaqi(): void {
+    const p = this.period();
+    if (!p) return;
+    this.cpqLoading.set(true);
+    this.cpqError.set(null);
+    this.api.contpaqiCompare(p).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (c) => { this.contpaqiCompare.set(c); this.cpqLoading.set(false); },
+      error: () => { this.cpqError.set('No se pudo cargar la comparación vs ContPAQi.'); this.cpqLoading.set(false); },
+    });
+  }
+
+  /** CP.2 — auto-enlaza las cuentas de banco con su cuenta contable 102xxx de ContPAQi. */
+  linkContpaqi(): void {
+    this.cpqLinking.set(true);
+    this.api.linkContpaqi().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => {
+        this.cpqLinking.set(false);
+        this.toast.add({ severity: 'success', summary: `${r.linked} de ${r.total} cuentas enlazadas`, detail: 'Comparando contra los libros de ContPAQi', life: 3000 });
+        this.loadContpaqi();
+      },
+      error: () => { this.cpqLinking.set(false); this.fail('No se pudieron enlazar las cuentas con ContPAQi.'); },
+    });
   }
   loadSideBySide(): void {
     const p = this.period();
@@ -503,7 +546,10 @@ export class FinanzasBancosComponent implements OnInit {
     this.diagError.set(null);
     this.sideBySide.set(null);
     this.sbsError.set(null);
+    this.contpaqiCompare.set(null);
+    this.cpqError.set(null);
     const p = this.period();
+    if (this.view() === 'contpaqi') this.loadContpaqi();
     this.api.concentrado(p).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (c) => { this.concentrado.set(c); this.loading.set(false); },
       error: () => { this.concError.set('No se pudo cargar el concentrado del periodo.'); this.loading.set(false); },

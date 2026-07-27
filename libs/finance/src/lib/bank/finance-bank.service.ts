@@ -118,6 +118,97 @@ export class FinanceBankService {
     });
   }
 
+  // ── CP.2 (Fase CP, ADR-035) — Enlace + comparación con la contabilidad ContPAQi ──
+
+  /** Patrón de nombre de banco en ContPAQi por código de cuenta CB. */
+  private static readonly CPQ_BANK_RX: Record<string, RegExp> = {
+    SANTANDER: /santander|stder|stdr/i,
+    BBVA: /bbva|bancomer/i,
+    BANORTE: /banorte/i,
+    BBAJIO: /bajio/i,
+    BANAMEX: /banamex/i,
+  };
+
+  /**
+   * Auto-enlaza cada cuenta de banco (finance.bank_accounts) con su cuenta contable de
+   * ContPAQi `102xxxxxxx` (analytics.contpaqi_bank_movements) — por familia de banco +
+   * account_label contenido en el nombre. Persiste contpaqi_cuenta. Idempotente. GESTIONAR.
+   */
+  async linkContpaqi() {
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      const accounts = await trx('finance.bank_accounts').select('id', 'bank', 'account_label', 'kind');
+      const cpq = await trx('analytics.contpaqi_bank_movements')
+        .where('tenant_id', tenantId)
+        .select('cuenta', 'cuenta_nombre').count('* as movs')
+        .groupBy('cuenta', 'cuenta_nombre');
+      const results: any[] = [];
+      for (const a of accounts) {
+        const rx = FinanceBankService.CPQ_BANK_RX[a.bank];
+        let best: any = null;
+        if (rx && a.kind === 'bank') {
+          const label = String(a.account_label).trim();
+          best = cpq
+            .filter((c: any) => rx.test(c.cuenta_nombre || '') && String(c.cuenta_nombre).replace(/\D/g, '').includes(label))
+            .sort((x: any, y: any) => Number(y.movs) - Number(x.movs))[0] || null;
+        }
+        await trx('finance.bank_accounts').where('id', a.id).update({
+          contpaqi_cuenta: best ? best.cuenta : null,
+          contpaqi_cuenta_nombre: best ? String(best.cuenta_nombre).trim() : null,
+          updated_at: trx.fn.now(),
+        });
+        results.push({ bank: a.bank, account_label: a.account_label, contpaqi_cuenta: best?.cuenta ?? null, contpaqi_cuenta_nombre: best ? String(best.cuenta_nombre).trim() : null });
+      }
+      const linked = results.filter((r) => r.contpaqi_cuenta).length;
+      this.logger.log(`ContPAQi link: ${linked}/${accounts.length} cuentas enlazadas`);
+      return { linked, total: accounts.length, results };
+    });
+  }
+
+  /**
+   * Comparación por cuenta: el estado de cuenta del periodo (Excel/finance) vs los LIBROS de
+   * ContPAQi (analytics.contpaqi_bank_movements) — la 3ª columna de verdad (contabilidad, no
+   * proxy). Ancla en todas las cuentas; Excel = 0 si no hay estado de cuenta. Requiere linkContpaqi.
+   */
+  async contpaqiCompare(period?: string) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    if (!period) throw new BadRequestException('period requerido (YYYY-MM)');
+    return this.tk.run(async (trx) => {
+      const accounts = await trx('finance.bank_accounts')
+        .select('id', 'bank', 'account_label', 'alias', 'kind', 'contpaqi_cuenta', 'contpaqi_cuenta_nombre');
+      const stmts = await trx('finance.bank_statements').where('period', period)
+        .select('bank_account_id', 'total_in', 'total_out');
+      const stByAcct = new Map(stmts.map((s: any) => [s.bank_account_id, s]));
+      const cpq = await trx('analytics.contpaqi_bank_movements')
+        .where('tenant_id', tenantId).andWhere('anio_mes', period).select('cuenta')
+        .select(trx.raw(`SUM(importe) FILTER (WHERE flujo='deposito') AS dep`))
+        .select(trx.raw(`SUM(importe) FILTER (WHERE flujo='retiro') AS ret`))
+        .count('* as movs').groupBy('cuenta');
+      const cpqByCuenta = new Map(cpq.map((c: any) => [c.cuenta, c]));
+      const r2 = (v: number) => Math.round(v * 100) / 100;
+      const rows = accounts.map((a: any) => {
+        const st: any = stByAcct.get(a.id);
+        const c: any = a.contpaqi_cuenta ? cpqByCuenta.get(a.contpaqi_cuenta) : null;
+        const exIn = n(st?.total_in), exOut = n(st?.total_out);
+        const cpIn = c ? n(c.dep) : 0, cpOut = c ? n(c.ret) : 0;
+        return {
+          bank: a.bank, account_label: a.account_label, alias: a.alias, kind: a.kind,
+          contpaqi_cuenta: a.contpaqi_cuenta, contpaqi_cuenta_nombre: a.contpaqi_cuenta_nombre, linked: !!a.contpaqi_cuenta,
+          excel_in: exIn, excel_out: exOut, contpaqi_in: cpIn, contpaqi_out: cpOut,
+          delta_in: r2(exIn - cpIn), delta_out: r2(exOut - cpOut), contpaqi_movs: c ? Number(c.movs) : 0,
+        };
+      });
+      const tot = rows.reduce((s: any, r: any) => ({
+        excel_in: s.excel_in + r.excel_in, excel_out: s.excel_out + r.excel_out,
+        contpaqi_in: s.contpaqi_in + r.contpaqi_in, contpaqi_out: s.contpaqi_out + r.contpaqi_out,
+      }), { excel_in: 0, excel_out: 0, contpaqi_in: 0, contpaqi_out: 0 });
+      return {
+        period, linked: rows.filter((r: any) => r.linked).length, rows,
+        totals: { ...tot, delta_in: r2(tot.excel_in - tot.contpaqi_in), delta_out: r2(tot.excel_out - tot.contpaqi_out) },
+      };
+    });
+  }
+
   /** Catálogo de categorías limpias (alineado a Kepler). */
   async categories() {
     this.tenantCtx.requireTenantId();

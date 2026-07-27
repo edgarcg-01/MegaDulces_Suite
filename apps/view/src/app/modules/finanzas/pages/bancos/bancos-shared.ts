@@ -5,7 +5,7 @@
  * funciones puras, así cada hijo importa lo que necesita sin acoplarse al shell.
  */
 
-export type BankView = 'cierre' | 'movimientos' | 'concentrado' | 'conciliacion' | 'comparador' | 'cuentas' | 'admin';
+export type BankView = 'cierre' | 'movimientos' | 'concentrado' | 'conciliacion' | 'comparador' | 'contpaqi' | 'cuentas' | 'admin';
 export type BankAdminTab = 'catalogo' | 'cuentas';
 
 export const MONTHS_ES: Record<string, string> = {
@@ -20,6 +20,7 @@ export const WORK_VIEWS: { key: BankView; label: string; icon: string }[] = [
   { key: 'movimientos', label: 'Movimientos', icon: 'pi pi-list' },
   { key: 'concentrado', label: 'Concentrado', icon: 'pi pi-table' },
   { key: 'conciliacion', label: 'Conciliación', icon: 'pi pi-sync' },
+  { key: 'contpaqi', label: 'vs ContPAQi', icon: 'pi pi-book' },
   { key: 'cuentas', label: 'Cuentas', icon: 'pi pi-wallet' },
 ];
 

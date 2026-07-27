@@ -82,6 +82,18 @@ export class FinanceBankController {
   @ApiOperation({ summary: 'Empuja las diferencias de conciliación a la bandeja de hallazgos de Maat.' })
   syncFindings(@Body() body: { period?: string }) { return this.svc.syncFindings(body?.period); }
 
+  // ── CP.2 (Fase CP, ADR-035) — Comparación con la contabilidad ContPAQi ──
+
+  @Post('contpaqi/link')
+  @RequirePermissions(Permission.FINANCE_BANK_GESTIONAR)
+  @ApiOperation({ summary: 'Auto-enlaza las cuentas de banco con su cuenta contable ContPAQi (102xxx) por familia + número.' })
+  contpaqiLink() { return this.svc.linkContpaqi(); }
+
+  @Get('contpaqi-compare')
+  @RequirePermissions(Permission.FINANCE_BANK_VER)
+  @ApiOperation({ summary: 'Excel/estado de cuenta vs LIBROS ContPAQi por cuenta y periodo (la 3ª columna de verdad + deltas).' })
+  contpaqiCompare(@Query('period') period?: string) { return this.svc.contpaqiCompare(period); }
+
   @Get('movements')
   @RequirePermissions(Permission.FINANCE_BANK_VER)
   @ApiOperation({ summary: 'Movimientos filtrados (grid), paginados.' })

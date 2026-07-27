@@ -93,7 +93,8 @@ Migraciones idempotentes (`database/migrations-newdb/`), grants `app_runtime`, s
 - **Importer** `database/importers/contpaqi/import-contpaqi-ledger.js` (`mssql` con `instanceName`, dry-run/`--apply`, BATCH 1000, UPSERT idempotente). Lee `SaldosCuentas` (Tipo2=cargos/Tipo3=abonos × `Importes1..14`) ⋈ `Cuentas` ⋈ `AgrupadoresSAT` ⋈ `Ejercicios`(Id→año). **Filtra `Afectable=1`** (solo cuentas de detalle; los padres son rollup y sumarlos duplicaba → sin filtro daba $185B con Δ$1.3B; con filtro cuadra).
 - **Cargado:** 187,350 filas origen → **56,821 filas** destino, ejercicios 2017–2026. **Cuadre: Σcargos $24,883,973,042 ≈ Σabonos $24,883,974,051, Δrel 0.000004%** (= total `MovimientosPoliza`).
 - **Smoke** `test-newdb-contpaqi-ledger.js` **18/18** + registrado en `run-all-tests` (tolerante si no hay import).
-- **Pendiente:** tool `maat_contpaqi_balanza` (exponer a Maat) + wire en `run-prod-feeds nightly` + `contpaqi.sync_state` + `CONTPAQI_SQL_PASSWORD` en `.env` de la máquina de feeds (el importer default a `superoot`). **Valor #1: Maat sobre los libros fiscales reales, sin reconstruir desde Kepler.**
+- **Tool Maat `maat_contpaqi_balanza` ✅ 2026-07-27:** en `maat-tools.service.ts` (definición + dispatch + `contpaqiBalanza()` + describeStep + ALCANCE del prompt). Balanza fiscal CONSOLIDADA por cuenta/familia/mes/agrupador_sat; el LLM la distingue de `maat_balanza` (Kepler, operativo, por sucursal). Validado en vivo: Ingresos fam4 ≈ $569M/año. `nx build api` verde. → el chat de `/finanzas/maat` ya responde sobre los libros fiscales reales.
+- **Pendiente:** wire en `run-prod-feeds nightly` + `contpaqi.sync_state` + `CONTPAQI_SQL_PASSWORD` en `.env` de la máquina de feeds (el importer default a `superoot`). **Valor #1 ✅: Maat sobre los libros fiscales reales, sin reconstruir desde Kepler.**
 
 ### CP.2 — Ledger bancario ContPAQi → `analytics.contpaqi_bank_movements` 🔨 PULL ✅ 2026-07-27 (local)
 - **Corrección de decode:** los módulos `Egresos`/`Cheques`/`DocumentosBancarios` de ContPAQi **cayeron en desuso** (solo 2018-2019). El lado-banco **vivo** son los **movimientos de póliza sobre cuentas `102xxxxxxx`** (2024=57k, 2025=59k, 2026=32k). `CuentasCheques` = maestro de cuentas bancarias (número + banco), sin `IdCuenta` contable.
@@ -101,13 +102,22 @@ Migraciones idempotentes (`database/migrations-newdb/`), grants `app_runtime`, s
 - **Importer** `import-contpaqi-bank-movements.js` (`--from` año, default 2024, UPSERT). **Cargado: 147,952 movimientos** (2024+). Cargo=depósito / abono=retiro (cuenta de activo). `Referencia` de línea va vacía → `concepto` = `Polizas.Concepto`.
 - **✅ Validado vs Fase CB:** enero 2026 → ContPAQi **4,848 movimientos** ≈ workbook CB **4,865** (mismo universo). Depósitos $79.2M = ingresos CB $52.9M + traspasos $25.4M. **El ledger bancario de ContPAQi ES el del workbook, reconciliable.**
 - **Smoke** `test-newdb-contpaqi-bank.js` **17/17** + registrado en `run-all-tests`.
-- **Pendiente (integración con CB):** crosswalk `finance.bank_accounts` ↔ cuenta `102xxx` (por número embebido en el nombre) + que `/finanzas/bancos` concilie contra este ledger (folio de póliza) en vez del proxy "Kepler 102" y del matcher token-name (CB.15). **Valor #2: conciliación bancaria anclada en la contabilidad real.**
+
+**Integración con la Fase CB (backend) ✅ 2026-07-27 (local):**
+- **Migración** `20260727140000_finance_bank_contpaqi_link.js` (Batch 218): `finance.bank_accounts` + `contpaqi_cuenta` / `contpaqi_cuenta_nombre`.
+- **Servicio** `FinanceBankService.linkContpaqi()` (auto-match por familia de banco + `account_label` contenido en el nombre `102xxx`) + `contpaqiCompare(period)` (por cuenta: Excel vs LIBROS ContPAQi + deltas, ancla en todas las cuentas). **Endpoints** `POST /finance/bank/contpaqi/link` (GESTIONAR) + `GET /finance/bank/contpaqi-compare?period=` (VER).
+- **Smoke** `test-newdb-contpaqi-bank-link.js` **6/6**: **16/18 cuentas de banco auto-enlazan** a su cuenta contable ContPAQi. `nx build api` verde.
+
+**Frontend ✅ 2026-07-27 (local):** nueva tab **"vs ContPAQi"** en `/finanzas/bancos` (`WORK_VIEWS` + `BankView`). Componente `bancos-contpaqi.component.ts` (presentacional, answer-first calcado de `conciliacion`): veredicto Depósitos/Retiros **Excel vs LIBROS ContPAQi** + Δ + estado (cuadra/no), tabla por cuenta (enlazada/sin enlazar/sin Excel), botón **Enlazar cuentas**. Service `contpaqiCompare()`+`linkContpaqi()`. Shell wireado (carga lazy + toast + reset por periodo). Solo tokens (dark-safe), PrimeNG. `nx build view` verde.
+- **CP.2 = 🟢 rebanada vertical completa** (staging + crosswalk + endpoints + UI). **Pendiente prod:** aplicar migs (bank movements + link) a Railway + correr importers en la máquina de feeds + llamar al endpoint link una vez. **Valor #2: conciliación bancaria anclada en la contabilidad real, no en el proxy Kepler-102.**
 
 ### CP.3 — Feed CFDI / proveedores → materialidad + fiscal
 - Pull `Proveedores`(RFC, retenciones) + `DocumentosAdministrativos`(UUID) + `AsocCFDIs`(UUID↔movimiento) → alimenta **MAT** (materialidad CFDI↔póliza) y **fiscal** (EFOS/69-B por RFC, Fase FISCAL). Los XML/PDF del ADD quedan disponibles si se requieren.
 
-### CP.4 — "Libros vs Operación" en Maat (detector)
-- Detector que cruza la balanza ContPAQi (**fiscal**) vs Kepler `analytics.ledger_monthly` (**operación**) por cuenta/periodo → `finance.findings` de descuadre (`FINANCE_FINDINGS_SINK_PORT`). Encaja con el motor de patrones de Maat (ADR-028) y con "comprehension-first: señalar el diff".
+### CP.4 — "Libros vs Operación" en Maat 🔨 TOOL ✅ 2026-07-27 (local)
+- **Tool `maat_libros_vs_operacion`** en `maat-tools.service.ts`: contrasta ingresos (fam4) **ContPAQi (fiscal)** vs **Kepler (operación, CEDIS 00)** mes a mes → Δ + ratio %. Read-only, determinista, sin schema nuevo.
+- **Hallazgo validado en vivo (2026 ene-jun):** Kepler ~$52-58M/mes vs ContPAQi ~$41-46M/mes → **gap estable ~$12M/mes (~78% ratio)**. El tool trae un `nota` que obliga a Maat a narrarlo como **estructural** (IVA / alcance de la entidad fiscal = 1 RFC vs operación completa / timing), **no como error/fraude**. Solo ingresos (fam4 es limpio en ambos; egresos 5/6/7 no mapean 1:1). `nx build api` verde.
+- **Diferido:** detector persistente en `finance.findings` — NO se hace ahora porque el gap es estructural y constante (un hallazgo recurrente sería ruido); un detector futuro debería marcar solo CAMBIOS anómalos del ratio mes a mes, no el gap en sí.
 
 ### CP.5 — Push: pólizas por archivo (HITL)
 - Generador desde eventos operativos (ventas `fulfilled`, `expense_documents`, bancos conciliados) → **layout de importación de pólizas de ContPAQi** (modelo `Ejercicio/Periodo/TipoPol/Folio` + `MovimientosPoliza` `IdCuenta`/`TipoMovto`(0=cargo,1=abono)/`Importe`/`IdSegNeg`).
