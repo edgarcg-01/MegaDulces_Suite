@@ -181,7 +181,7 @@ export class WhatsAppIngestService implements OnModuleInit {
       // acuse, sin pasar por el orquestador.
       if (this.optin.isOptOutMessage(p.text)) {
         await this.optin.optOut(p.phone);
-        await this.enqueueOut({
+        await this.enqueueOut(tenantId, {
           to: p.phone,
           thread_id: p.thread_id,
           kind: 'text',
@@ -190,7 +190,7 @@ export class WhatsAppIngestService implements OnModuleInit {
         return;
       }
       const result = await this.orchestrator.handleTurn(p.thread_id, p.text || '');
-      await this.enqueueOut({ to: p.phone, thread_id: p.thread_id, kind: 'text', body: result.reply });
+      await this.enqueueOut(tenantId, { to: p.phone, thread_id: p.thread_id, kind: 'text', body: result.reply });
     });
   }
 
@@ -213,8 +213,13 @@ export class WhatsAppIngestService implements OnModuleInit {
     });
   }
 
-  /** Encola una respuesta saliente (usado por el worker de entrada y por F.2). */
-  private async enqueueOut(payload: OutJobPayload): Promise<void> {
-    await this.queue.enqueue({ dir: 'out', tenant_id: this.tenantId, payload });
+  /**
+   * Encola una respuesta saliente en el MISMO tenant del mensaje de entrada
+   * (FIQ.0 fix): sin esto el reply se encolaba con el tenant default y, con un 2º
+   * tenant en el mapa, el worker reabría scope equivocado → 23503 (FK compuesta
+   * (tenant_id, thread_id)) + reintentos que duplican el envío al cliente.
+   */
+  private async enqueueOut(tenantId: string, payload: OutJobPayload): Promise<void> {
+    await this.queue.enqueue({ dir: 'out', tenant_id: tenantId, payload });
   }
 }
