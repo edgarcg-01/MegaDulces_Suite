@@ -474,13 +474,13 @@ export class CommercialCatalogSearchService {
    * cache 24h interno + recompute on demand, así que llamarlo en cada request
    * es barato.
    */
-  async getMySuggested(input: { warehouseId: string | null }) {
-    const customerId = await this.resolveCustomerIdFromCtx();
+  async getMySuggested(input: { customerId?: string | null; warehouseId: string | null }) {
+    const customerId = input.customerId ?? (await this.resolveCustomerIdFromCtx());
     if (!customerId) return [];
 
     let basket;
     try {
-      basket = await this.recommendations.getForMyCustomer();
+      basket = await this.recommendations.getForCustomer(customerId);
     } catch {
       // Customer sin pedidos previos → la heurística puede fallar; degradación
       // suave: devolvemos [] y el chip simplemente no aparece.
@@ -671,8 +671,8 @@ export class CommercialCatalogSearchService {
    *   - cross_sell_discount → `rules.target_product_id` + `rules.trigger_product_id`
    *   - bundle_fixed_price → `rules.items[].product_id`
    */
-  async getWithPromo(input: { warehouseId: string | null }) {
-    const customerId = await this.resolveCustomerIdFromCtx();
+  async getWithPromo(input: { customerId?: string | null; warehouseId: string | null }) {
+    const customerId = input.customerId ?? (await this.resolveCustomerIdFromCtx());
 
     const promos = await this.tk.run(async (trx) =>
       trx('commercial.promotions')
