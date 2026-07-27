@@ -15,7 +15,7 @@ import { InputTextModule } from 'primeng/inputtext';
 import { InputNumberModule } from 'primeng/inputnumber';
 import { DialogModule } from 'primeng/dialog';
 import { MessageService } from 'primeng/api';
-import { ComprasService, WorklistRow, ReplenishmentFilters, CriticalStockRow, CreateRequisitionDto, OrderBasis, SupplierOrderHistory, SupplierOrder, SupplierOrderLine, PedidoExportPayload, saveXlsxResponse } from '../compras.service';
+import { ComprasService, WorklistRow, ReplenishmentFilters, ReplenishmentSummary, CriticalStockRow, CreateRequisitionDto, OrderBasis, SupplierOrderHistory, SupplierOrder, SupplierOrderLine, PedidoExportPayload, saveXlsxResponse } from '../compras.service';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 
@@ -59,6 +59,21 @@ type CatLine = CriticalStockRow & { uxc: number; cajas: number; piezas: number; 
       </header>
 
       <app-metric-strip [items]="kpiItems()" ariaLabel="Resumen de ciclos de reabasto" />
+
+      @if (abasto(); as a) {
+        <div class="qt-abasto">
+          <div class="qt-abasto-head">
+            <span class="qt-abasto-title">Punto de abasto <span class="qt-muted">· del filtro ({{ a.total_policies | number }} SKU)</span></span>
+            <p-select [options]="abastoUnidadOpts" [ngModel]="abastoUnidad()" (ngModelChange)="abastoUnidad.set($event)" optionLabel="label" optionValue="value" styleClass="qt-sel-sm" ariaLabel="Unidad del punto de abasto"></p-select>
+          </div>
+          <div class="qt-abasto-cards">
+            <div class="qt-ab-card qt-ab-min"><span class="qt-ab-k">Mínimo</span><span class="qt-ab-v">{{ abastoFmt(a.min_valor, a.min_cajas) }}</span></div>
+            <div class="qt-ab-card qt-ab-reord"><span class="qt-ab-k">Punto de reorden</span><span class="qt-ab-v">{{ abastoFmt(a.reorden_valor, a.reorden_cajas) }}</span></div>
+            <div class="qt-ab-card qt-ab-max"><span class="qt-ab-k">Máximo</span><span class="qt-ab-v">{{ abastoFmt(a.max_valor, a.max_cajas) }}</span></div>
+            <div class="qt-ab-card qt-ab-exist"><span class="qt-ab-k">Existencia actual</span><span class="qt-ab-v">{{ abastoFmt(a.existencia_valor, a.existencia_cajas) }}</span></div>
+          </div>
+        </div>
+      }
 
       <div class="qt-filters">
         <div class="qt-wh">
@@ -358,6 +373,17 @@ type CatLine = CriticalStockRow & { uxc: number; cajas: number; piezas: number; 
   styles: [`
     :host { display: block; }
     app-metric-strip { display: block; margin-bottom: .9rem; }
+    .qt-abasto { border: 1px solid var(--border-color); border-radius: var(--r-md, 8px); padding: .6rem .75rem; margin-bottom: .75rem; background: var(--surface-card, var(--card-bg)); }
+    .qt-abasto-head { display: flex; align-items: center; justify-content: space-between; gap: .5rem; margin-bottom: .5rem; }
+    .qt-abasto-title { font-size: .82rem; font-weight: 600; }
+    .qt-abasto-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: .5rem; }
+    .qt-ab-card { display: flex; flex-direction: column; gap: .15rem; padding: .5rem .65rem; border-radius: var(--r-sm, 6px); border-left: 3px solid var(--border-color); background: var(--surface-hover, rgba(0,0,0,.02)); }
+    .qt-ab-k { font-size: .7rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: .04em; }
+    .qt-ab-v { font-size: 1.05rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+    .qt-ab-min { border-left-color: var(--bad-fg, #b0342a); }
+    .qt-ab-reord { border-left-color: var(--warn-fg, #b06a12); }
+    .qt-ab-max { border-left-color: var(--text-muted); }
+    .qt-ab-exist { border-left-color: var(--action); }
     .qt-filters { display: flex; flex-wrap: wrap; gap: .5rem; align-items: flex-start; margin-bottom: .75rem; }
     .qt-wh { display: flex; flex-direction: column; gap: .25rem; }
     .qt-atajos { display: flex; align-items: center; gap: .1rem; flex-wrap: wrap; }
@@ -431,6 +457,8 @@ export class ComprasQueTocaComponent implements OnInit {
   private readonly destroyRef = inject(DestroyRef);
 
   rows = signal<WLRow[]>([]);
+  abasto = signal<ReplenishmentSummary | null>(null);
+  abastoUnidad = signal<'valor' | 'cajas'>('valor');
   warehouses = signal<{ id: string; code: string; label: string }[]>([]);
   supplierOpts = signal<{ label: string; value: string }[]>([]);
   detail = signal<Record<string, DetailState>>({});
@@ -513,6 +541,9 @@ export class ComprasQueTocaComponent implements OnInit {
     this.loading.set(true);
     this.detail.set({});
     this.selectedRows.set([]);
+    // RA-PRO.15 — valor del punto de abasto (mín/reorden/máx) según el filtro activo.
+    this.api.summary({ warehouse_ids: this.fWh.length ? this.fWh : undefined, search: this.fSearch || undefined, category_id: this.fCategory || undefined, target_basis: this.fBasis() })
+      .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (s) => this.abasto.set(s), error: () => this.abasto.set(null) });
     this.api.worklist({ warehouse_ids: this.fWh.length ? this.fWh : undefined, via: this.fVia || undefined, status: this.fStatus || undefined, search: this.fSearch || undefined, target_basis: this.fBasis(), category_id: this.fCategory || undefined, pageSize: 500 })
       .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
         next: (r) => {
@@ -994,4 +1025,10 @@ export class ComprasQueTocaComponent implements OnInit {
   bandLabel(b: string): string { return ({ rapida: 'rápida', promedio: 'promedio', mal_abasto: 'lento' } as Record<string, string>)[b] || b; }
   bandSev(b: string): Sev { return ({ rapida: 'success', promedio: 'info', mal_abasto: 'danger' } as Record<string, Sev>)[b] || 'secondary'; }
   money(v: number | string | null | undefined) { return (Number(v ?? 0) || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 }); }
+  abastoUnidadOpts = [{ label: 'En $', value: 'valor' }, { label: 'En cajas', value: 'cajas' }];
+  abastoFmt(valor: number | null | undefined, cajas: number | null | undefined): string {
+    return this.abastoUnidad() === 'valor'
+      ? this.money(valor)
+      : `${(Number(cajas) || 0).toLocaleString('es-MX', { maximumFractionDigits: 0 })} cajas`;
+  }
 }

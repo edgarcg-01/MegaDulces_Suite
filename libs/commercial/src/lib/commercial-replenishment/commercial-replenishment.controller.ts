@@ -130,14 +130,16 @@ export class CommercialReplenishmentController {
 
   @Get('critical-stock/summary')
   @RequirePermissions(Permission.COMPRAS_VER)
-  @ApiOperation({ summary: 'KPIs por bucket (agotado/bajo mínimo/bajo reorden/sobrestock) + costo sugerido.' })
+  @ApiOperation({ summary: 'KPIs por bucket + costo sugerido + VALOR del punto de abasto (mín/reorden/máx) del filtro.' })
   summary(
     @Query('warehouse_id') warehouse_id?: string,
     @Query('warehouse_ids') warehouse_ids?: string,
     @Query('supplier_id') supplier_id?: string,
+    @Query('search') search?: string,
+    @Query('category_id') category_id?: string,
     @Query('target_basis') target_basis?: string,
   ) {
-    return this.svc.summary({ warehouse_id, warehouse_ids, supplier_id, target_basis });
+    return this.svc.summary({ warehouse_id, warehouse_ids, supplier_id, search, category_id, target_basis });
   }
 
   @Get('dead-stock')
