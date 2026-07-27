@@ -111,16 +111,33 @@ class CatalogSearchCommerceAdapter implements CommerceConversationPort {
 
     return priced.map((r) => {
       const mx = meta.get(r.product_id);
+      const stock = mx?.stock_pieces ?? 0;
+      const factor = mx?.pieces_per_package ?? 1;
       return {
         product_id: r.product_id,
         name: r.product_name,
         brand_name: r.brand_name ?? null,
         unit_price: Number(r.price),
         min_qty: Number(r.min_qty) || 1,
-        stock_pieces: mx?.stock_pieces ?? 0,
-        pieces_per_package: mx?.pieces_per_package ?? 1,
+        stock_pieces: stock,
+        availability: this.stockBucket(stock, factor),
+        pieces_per_package: factor,
       };
     });
+  }
+
+  /**
+   * FIQ.2 (requisito 7) — Disponibilidad CUALITATIVA, sin revelar el total exacto.
+   * El almacén de surtido es el mismo que usará el pedido (default activo, ver
+   * LATERAL arriba), así que el bucket es consistente con lo que se puede reservar.
+   *   agotado  = 0 piezas
+   *   pocas    = quedan pocas (< 2 cajas si viene en caja, o < 12 piezas suelto)
+   *   disponible = hay de sobra
+   */
+  private stockBucket(stock: number, factor: number): 'disponible' | 'pocas' | 'agotado' {
+    if (stock <= 0) return 'agotado';
+    const lowThreshold = factor > 1 ? factor * 2 : 12;
+    return stock < lowThreshold ? 'pocas' : 'disponible';
   }
 
   async createHomeDeliveryOrder(dto: ConversationOrderDto): Promise<ConversationOrderResult> {

@@ -22,8 +22,17 @@ export interface ConversationProductHit {
   /** Precio por PIEZA (unidad canónica del pedido). */
   unit_price: number;
   min_qty: number;
-  /** Piezas disponibles en el almacén de surtido (quantity − reserved). */
+  /**
+   * Piezas disponibles en el almacén de surtido (quantity − reserved). USO INTERNO
+   * (tope de `agregar_al_carrito`, ADR-016) — el motor NUNCA debe exponer este
+   * número exacto al LLM/cliente. Para comunicar disponibilidad, usar `availability`.
+   */
   stock_pieces: number;
+  /**
+   * Disponibilidad CUALITATIVA (FIQ.2 / requisito 7): lo único que se comunica al
+   * cliente. 'agotado' | 'pocas' (quedan pocas) | 'disponible'. Sin revelar el total.
+   */
+  availability: 'disponible' | 'pocas' | 'agotado';
   /** Piezas por paquete/caja (factor_sale UXC). 1 = se vende suelto por pieza. */
   pieces_per_package: number;
 }
