@@ -24,6 +24,7 @@ const TESTS = [
   { file: 'test-newdb-ra-service-level.js', label: 'RA-PRO.1/2 safety stock por nivel de servicio + segmentación XYZ (σ/CV población 90d + Z×σ×√LT + piso + CHECK)', needsApi: false },
   { file: 'test-newdb-ra-network.js', label: 'RA-PRO.6 DRP multi-echelon (CEDIS por demanda dependiente: media Σ + σ=√Σσ² risk pooling + guard self-source)', needsApi: false },
   { file: 'test-newdb-purchase-chain.js', label: 'RA.15 cadena de compra (RQ→OC→OE recepción parcial mueve stock + fill rate + RQ→received + traspaso +dst/−src + folios)', needsApi: false },
+  { file: 'test-newdb-contpaqi-ledger.js', label: 'CP.1 balanza ContPAQi (schema+PK+cuadre Σcargos≈Σabonos+neto+formato anio_mes+familias+aislamiento tenant; tolerante sin import)', needsApi: false },
   { file: 'test-newdb-fiq0-phone-identity.js', label: 'FIQ.0 identidad por teléfono (mx_normalize_phone paridad SQL↔TS + índices funcionales + resolveCustomerByPhone 4 formatos + dedup casual + seed tenant map)', needsApi: false },
   { file: 'test-newdb-fiq3-volume-pricing.js', label: 'FIQ.3 precio por cantidad (tiers de volumen: mejor precio con min_qty≤qty, caja≤suelto, bajo-mínimo sin tier — paridad SQL↔JS vs data real)', needsApi: false },
   { file: 'test-newdb-fiq6-reservations.js', label: 'FIQ.6 apartado con TTL (RLS forzado 3 tablas + folio AP-YYYY-NNNNN + reserva sube reserved_quantity/baja disponible + cron expiración devuelve stock + activos por teléfono — rollback sin efecto real)', needsApi: false },
