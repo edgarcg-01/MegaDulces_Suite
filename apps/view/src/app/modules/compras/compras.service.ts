@@ -47,6 +47,13 @@ export interface CriticalStockRow {
   bucket: Bucket;
   suggested_qty: number;
   suggested_cost: number;
+  // RA-PRO.16 — redistribución (cruce de red): traspaso vs compra real.
+  surplus_here?: number;      // sobrante en ESTE almacén (existencia − máximo) → traspasar a otra
+  surplus_network?: number;   // sobrante del producto en OTRAS sucursales (disponible para traspaso)
+  transfer_in?: number;       // del sugerido, cuánto se cubre con traspaso (min(sugerido, sobrante_red))
+  buy_qty?: number;           // compra REAL (sugerido − traspaso)
+  buy_cost?: number;          // $ de la compra real
+  accion?: 'sobrante' | 'traspaso' | 'traspaso_parcial' | 'comprar' | 'ok';
   // RA-PRO.9 — contexto de canal/ciclo (cómo se surte y cuándo toca)
   replenish_via?: 'purchase' | 'transfer' | null;
   cadence_days?: number | null;
@@ -97,6 +104,9 @@ export interface ReplenishmentSummary {
   reorden_cajas: number | null;
   max_cajas: number | null;
   existencia_cajas: number | null;
+  // RA-PRO.16 — del sugerido: cuánto se cubre por traspaso (sobrante de red) vs compra real.
+  traspasable_valor: number | null;
+  compra_real_valor: number | null;
 }
 export interface ReplenishmentCategory { id: string; code: string | null; name: string; n_suppliers: number; n_products: number; }
 export interface CategoryAdmin extends ReplenishmentCategory { is_duplicate: boolean; }

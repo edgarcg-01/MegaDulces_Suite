@@ -139,6 +139,9 @@ interface DraftLine {
             <th class="ec-r" pSortableColumn="safety_stock">Colchón <p-sortIcon field="safety_stock" /></th>
             <th class="ec-r" pSortableColumn="in_transit">OC a recibir <p-sortIcon field="in_transit" /></th>
             <th class="ec-r" pSortableColumn="suggested_qty">Sugerido <p-sortIcon field="suggested_qty" /></th>
+            <th class="ec-r" pSortableColumn="transfer_in" title="Del sugerido, cuánto puedes cubrir con SOBRANTE de otra sucursal (traspaso) en vez de comprar.">Traspaso <p-sortIcon field="transfer_in" /></th>
+            <th class="ec-r" pSortableColumn="buy_qty" title="Compra REAL = sugerido − traspaso posible. Lo que de verdad hay que pedir al proveedor.">Comprar <p-sortIcon field="buy_qty" /></th>
+            <th pSortableColumn="accion">Acción <p-sortIcon field="accion" /></th>
             <th>Estado</th>
             <th pSortableColumn="supplier_name">Proveedor <p-sortIcon field="supplier_name" /></th>
             <th class="ec-r" pSortableColumn="suggested_cost">Costo est. <p-sortIcon field="suggested_cost" /></th>
@@ -171,7 +174,10 @@ interface DraftLine {
             <td class="ec-r ec-muted">{{ r.max_stock | number:'1.0-0' }}</td>
             <td class="ec-r" [title]="safetyTitle(r)">{{ r.safety_stock != null ? (r.safety_stock | number:'1.0-0') : '—' }}@if (r.service_level) {<span class="ec-svc">{{ (r.service_level * 100) | number:'1.0-0' }}%</span>}</td>
             <td class="ec-r" [class.ec-transit]="r.in_transit > 0">{{ r.in_transit > 0 ? (r.in_transit | number:'1.0-0') : '—' }}</td>
-            <td class="ec-r ec-strong">{{ r.suggested_qty | number:'1.0-0' }}</td>
+            <td class="ec-r ec-muted">{{ r.suggested_qty | number:'1.0-0' }}</td>
+            <td class="ec-r" [class.ec-transit]="(r.transfer_in || 0) > 0" [title]="(r.surplus_network || 0) > 0 ? ('Sobrante en la red: ' + (r.surplus_network | number:'1.0-0')) : ''">{{ (r.transfer_in || 0) > 0 ? (r.transfer_in | number:'1.0-0') : '—' }}</td>
+            <td class="ec-r ec-strong">{{ (r.buy_qty ?? r.suggested_qty) | number:'1.0-0' }}</td>
+            <td><p-tag [value]="accionLabel(r.accion)" [severity]="accionSev(r.accion)"></p-tag></td>
             <td><p-tag [value]="bucketLabel(r.bucket)" [severity]="bucketSev(r.bucket)"></p-tag></td>
             <td class="ec-muted">{{ r.supplier_name || '—' }}</td>
             <td class="ec-r">{{ money(r.suggested_cost) }}</td>
@@ -369,9 +375,12 @@ export class ComprasExistenciaCriticaComponent implements OnInit {
       { label: 'Bajo reorden', value: s.bajo_reorden, tone: s.bajo_reorden > 0 ? 'warn' : 'default' },
       { label: 'Sobrestock', value: s.sobrestock },
       { label: 'Con política', value: s.total_policies },
-      { label: 'Sugerido a comprar', value: s.sugerido_costo || 0, format: 'currency', tone: 'brand' },
+      { label: 'Traspasable (ya lo tienes)', value: s.traspasable_valor || 0, format: 'currency', tone: (s.traspasable_valor || 0) > 0 ? 'warn' : 'default' },
+      { label: 'Compra real', value: s.compra_real_valor ?? (s.sugerido_costo || 0), format: 'currency', tone: 'brand' },
     ];
   }
+  accionLabel(a?: string) { return ({ sobrante: 'Sobrante · traspasar', traspaso: 'Traspaso', traspaso_parcial: 'Traspaso + compra', comprar: 'Comprar', ok: 'OK' } as Record<string, string>)[a || 'ok'] || a; }
+  accionSev(a?: string): Sev { return ({ sobrante: 'secondary', traspaso: 'success', traspaso_parcial: 'warn', comprar: 'info', ok: 'contrast' } as Record<string, Sev>)[a || 'ok'] || 'info'; }
   loading = signal(false);
   dl = signal(false);
   saving = signal(false);

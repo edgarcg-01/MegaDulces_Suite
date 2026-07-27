@@ -215,6 +215,7 @@ type CatLine = CriticalStockRow & { uxc: number; cajas: number; piezas: number; 
                           @if (r.via==='transfer') { <th class="qt-r">En hub</th> }
                           <th class="qt-r">Objetivo</th>
                           <th class="qt-r qt-sortable" (click)="setSort('sug')">Sugerido {{ sortArrow('sug') }}</th>
+                          <th class="qt-r" pTooltip="Del sugerido, cuánto puedes cubrir con SOBRANTE de otra sucursal (traspaso) en vez de comprar" tooltipPosition="top">Traspaso</th>
                           <th class="qt-r qt-pedir qt-sortable" (click)="setSort('cajas')">Pedir ({{ orderUnit() }}) {{ sortArrow('cajas') }}</th>
                           <th class="qt-r qt-sortable" (click)="setSort('pz')">{{ orderUnit()==='cajas' ? 'Piezas' : 'Cajas' }} {{ sortArrow('pz') }}</th>
                           <th class="qt-r qt-sortable" (click)="setSort('line')">$ línea {{ sortArrow('line') }}</th>
@@ -235,6 +236,7 @@ type CatLine = CriticalStockRow & { uxc: number; cajas: number; piezas: number; 
                             }
                             <td class="qt-r qt-muted">{{ objetivo(l) | number:'1.0-0' }}</td>
                             <td class="qt-r">{{ l.suggested_qty | number:'1.0-0' }}</td>
+                            <td class="qt-r" [class.qt-muted]="!(l.transfer_in)" [class.qt-transfer]="(l.transfer_in || 0) > 0" [pTooltip]="(l.surplus_network || 0) > 0 ? ('Sobrante en la red: ' + (l.surplus_network | number:'1.0-0') + ' — traspasa en vez de comprar') : ''">{{ (l.transfer_in || 0) > 0 ? (l.transfer_in | number:'1.0-0') : '—' }}</td>
                             <td class="qt-r qt-pedir"><p-inputNumber [ngModel]="orderUnit()==='cajas' ? l.finalCajas : pzOf(l)" (ngModelChange)="setQty(l, $event)" [min]="0" [showButtons]="false" inputStyleClass="qt-qty"></p-inputNumber></td>
                             <td class="qt-r qt-muted">{{ (orderUnit()==='cajas' ? pzOf(l) : l.finalCajas) | number:'1.0-0' }}</td>
                             <td class="qt-r">{{ money(lineCost(l)) }}</td>
@@ -384,6 +386,7 @@ type CatLine = CriticalStockRow & { uxc: number; cajas: number; piezas: number; 
     .qt-ab-reord { border-left-color: var(--warn-fg, #b06a12); }
     .qt-ab-max { border-left-color: var(--text-muted); }
     .qt-ab-exist { border-left-color: var(--action); }
+    .qt-transfer { color: var(--good-fg, #3f7d3f); font-weight: 600; }
     .qt-filters { display: flex; flex-wrap: wrap; gap: .5rem; align-items: flex-start; margin-bottom: .75rem; }
     .qt-wh { display: flex; flex-direction: column; gap: .25rem; }
     .qt-atajos { display: flex; align-items: center; gap: .1rem; flex-wrap: wrap; }
