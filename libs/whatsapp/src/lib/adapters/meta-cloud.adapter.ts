@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import axios from 'axios';
 import { createHmac, timingSafeEqual } from 'crypto';
+import { normalizeMxPhone } from '@megadulces/platform-core';
 import {
   ImageMessage,
   InboundMessage,
@@ -51,8 +52,9 @@ export class MetaCloudWhatsAppAdapter implements WhatsAppPort {
    * pasan sin cambios.
    */
   private normalizeTo(to: string): string {
-    const d = (to || '').replace(/\D/g, '');
-    return d.startsWith('521') && d.length === 13 ? '52' + d.slice(3) : d;
+    // Util canónico compartido (FIQ.0): 521XXXXXXXXXX → 52XXXXXXXXXX. Fallback a
+    // los dígitos crudos para números no-MX.
+    return normalizeMxPhone(to) || (to || '').replace(/\D/g, '');
   }
 
   private ready(): boolean {
@@ -183,16 +185,17 @@ export class MetaCloudWhatsAppAdapter implements WhatsAppPort {
         const contacts = Array.isArray(value?.contacts) ? value.contacts : [];
         const profileByWaId = new Map<string, string>();
         for (const c of contacts) if (c?.wa_id) profileByWaId.set(c.wa_id, c?.profile?.name || '');
+        const phoneNumberId = value?.metadata?.phone_number_id ?? null;
         const messages = Array.isArray(value?.messages) ? value.messages : [];
         for (const m of messages) {
-          out.push(this.normalize(m, profileByWaId));
+          out.push(this.normalize(m, profileByWaId, phoneNumberId));
         }
       }
     }
     return out;
   }
 
-  private normalize(m: any, profiles: Map<string, string>): InboundMessage {
+  private normalize(m: any, profiles: Map<string, string>, phoneNumberId?: string | null): InboundMessage {
     const from = String(m?.from ?? '');
     let type: InboundMessage['type'] = 'unsupported';
     let text: string | null = null;
@@ -222,6 +225,7 @@ export class MetaCloudWhatsAppAdapter implements WhatsAppPort {
       wa_message_id: String(m?.id ?? ''),
       from,
       wa_id: from,
+      phone_number_id: phoneNumberId ?? null,
       profile_name: profiles.get(from) ?? null,
       type,
       text,

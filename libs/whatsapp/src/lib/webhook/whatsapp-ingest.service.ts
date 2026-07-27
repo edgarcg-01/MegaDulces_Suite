@@ -1,5 +1,6 @@
 import { Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import { TenantContextService } from '@megadulces/platform-core';
+import type { Knex } from 'knex';
+import { KNEX_NEW_DB, TenantContextService, normalizeMxPhone } from '@megadulces/platform-core';
 import { WHATSAPP_PORT } from '../ports/whatsapp.port';
 import type {
   ImageMessage,
@@ -65,8 +66,12 @@ export class WhatsAppIngestService implements OnModuleInit {
   private readonly tenantId =
     process.env.WHATSAPP_TENANT_ID || '00000000-0000-0000-0000-00000000d01c';
 
+  /** Cache phone_number_id → tenant_id (tabla global, cambia rara vez). */
+  private readonly tenantByPhoneId = new Map<string, string>();
+
   constructor(
     @Inject(WHATSAPP_PORT) private readonly port: WhatsAppPort,
+    @Inject(KNEX_NEW_DB) private readonly knex: Knex,
     private readonly queue: WhatsAppQueueService,
     private readonly threads: ConversationThreadService,
     private readonly orchestrator: ConversationOrchestratorService,
@@ -108,13 +113,16 @@ export class WhatsAppIngestService implements OnModuleInit {
         this.logger.debug(`Mensaje ${msg.type} ignorado (F.1 solo texto/interactive).`);
         continue;
       }
-      const tenantId = this.resolveTenantId(msg);
+      const tenantId = await this.resolveTenantId(msg);
+      // FIQ.0: teléfono canónico (52XXXXXXXXXX) para hilo/lookup/outbound. Un solo
+      // formato en todo el pipeline → el cliente recurrente matchea y no se duplica.
+      const phone = normalizeMxPhone(msg.from) || msg.from;
       await this.tenantCtx.run({ tenantId }, async () => {
         if (await this.threads.isDuplicateInbound(msg)) {
           this.logger.debug(`Duplicado ${msg.wa_message_id} — ignorado.`);
           return;
         }
-        const thread = await this.threads.getOrCreate(msg.from, msg.wa_id, msg.profile_name);
+        const thread = await this.threads.getOrCreate(phone, msg.wa_id, msg.profile_name);
         await this.threads.logMessage(thread.id, 'in', {
           wa_message_id: msg.wa_message_id,
           type: msg.type,
@@ -123,7 +131,7 @@ export class WhatsAppIngestService implements OnModuleInit {
         });
         const payload: InJobPayload = {
           thread_id: thread.id,
-          phone: msg.from,
+          phone,
           wa_id: msg.wa_id,
           text: msg.text ?? null,
           wa_message_id: msg.wa_message_id,
@@ -135,9 +143,27 @@ export class WhatsAppIngestService implements OnModuleInit {
     return accepted;
   }
 
-  /** Resolución de tenant. Single-tenant piloto (ver nota de la propiedad). */
-  private resolveTenantId(_msg: InboundMessage): string {
-    return this.tenantId;
+  /**
+   * Resolución de tenant por `phone_number_id` de Meta vía
+   * `whatsapp.phone_number_tenant_map` (tabla global sin RLS). Cachea el mapeo.
+   * Fallback al tenant default (piloto single-tenant) si no hay id o no matchea.
+   */
+  private async resolveTenantId(msg: InboundMessage): Promise<string> {
+    const pnid = msg.phone_number_id;
+    if (!pnid) return this.tenantId;
+    const cached = this.tenantByPhoneId.get(pnid);
+    if (cached) return cached;
+    try {
+      const row = await this.knex('whatsapp.phone_number_tenant_map')
+        .where({ phone_number_id: pnid })
+        .first('tenant_id');
+      const tid = (row?.tenant_id as string) || this.tenantId;
+      this.tenantByPhoneId.set(pnid, tid);
+      return tid;
+    } catch (e: any) {
+      this.logger.warn(`resolveTenantId map falló (${e?.message}) — uso tenant default.`);
+      return this.tenantId;
+    }
   }
 
   // ── Workers ────────────────────────────────────────────────────────────────
