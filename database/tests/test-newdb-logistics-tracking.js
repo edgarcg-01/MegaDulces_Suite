@@ -111,6 +111,28 @@ async function sync(client, objects) {
   return { objects: objects.length, created, updated, linked, positions };
 }
 
+async function scanAlerts(client) {
+  await client.query('BEGIN'); await client.query(`SET LOCAL app.tenant_id = '${TENANT}'`);
+  const trackers = (await client.query('select id, vehicle_id, last_seen_at, last_speed_kmh from logistics.trackers where deleted_at is null')).rows;
+  const now = Date.now(); let opened = 0, resolved = 0;
+  for (const t of trackers) {
+    const mins = t.last_seen_at ? Math.floor((now - new Date(t.last_seen_at).getTime()) / 60000) : null;
+    const conds = [
+      { kind: 'offline', on: mins != null && mins >= 90 && mins <= 1440, sev: 'danger', val: mins ?? 0, msg: `Sin señal hace ${mins} min` },
+      { kind: 'speed', on: (t.last_speed_kmh ?? 0) >= 90, sev: 'warn', val: t.last_speed_kmh ?? 0, msg: `Exceso de velocidad: ${t.last_speed_kmh} km/h` },
+    ];
+    for (const c of conds) {
+      const open = (await client.query("select id from logistics.fleet_alerts where tracker_id=$1 and kind=$2 and status='open'", [t.id, c.kind])).rows[0];
+      if (c.on) {
+        if (open) await client.query('update logistics.fleet_alerts set last_seen_at=now(), value=$2, message=$3, severity=$4 where id=$1', [open.id, c.val, c.msg, c.sev]);
+        else { await client.query("insert into logistics.fleet_alerts (tenant_id,tracker_id,vehicle_id,kind,severity,message,value,status) values (public.current_tenant_id(),$1,$2,$3,$4,$5,$6,'open')", [t.id, t.vehicle_id, c.kind, c.sev, c.msg, c.val]); opened++; }
+      } else if (open) { await client.query("update logistics.fleet_alerts set status='resolved', resolved_at=now() where id=$1", [open.id]); resolved++; }
+    }
+  }
+  await client.query('COMMIT');
+  return { opened, resolved, scanned: trackers.length };
+}
+
 (async () => {
   console.log('\n=== LT smoke: rastreo de flota ===');
   if (!USER || !PASS) throw new Error('Faltan MAGNI_USER / MAGNI_PASS');
@@ -152,6 +174,19 @@ async function sync(client, objects) {
 
     const b2 = await bootstrap(client);
     assert(b2.created === 0 && b2.linked === 0, 'bootstrap idempotente: 2da corrida no crea ni vincula');
+
+    // ── Alertas (LT.6) ──
+    const s1 = await scanAlerts(client);
+    console.log('  scan alertas:', JSON.stringify(s1));
+    assert(s1.scanned === objects.length, `scanner recorrió los ${s1.scanned} trackers`);
+    const s2 = await scanAlerts(client);
+    assert(s2.opened === 0, 'scanner idempotente: 0 alertas nuevas en 2da corrida');
+
+    await client.query('BEGIN'); await client.query(`SET LOCAL app.tenant_id = '${TENANT}'`);
+    const exp = (await client.query("select ((select count(*) from logistics.trackers where deleted_at is null and last_speed_kmh>=90) + (select count(*) from logistics.trackers where deleted_at is null and last_seen_at is not null and extract(epoch from (now()-last_seen_at))/60 between 90 and 1440))::int n")).rows[0].n;
+    const act = (await client.query("select count(*)::int n from logistics.fleet_alerts where status in ('open','ack')")).rows[0].n;
+    await client.query('COMMIT');
+    assert(act === exp, `alertas activas (${act}) == condiciones detectadas (${exp})`);
 
     console.log(`\n✅ ${assertions}/${assertions} asserts OK\n`);
     process.exit(0);

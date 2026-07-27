@@ -2,6 +2,8 @@ import { Module } from '@nestjs/common';
 import { LogisticsTrackingService } from './logistics-tracking.service';
 import { LogisticsTrackingController } from './logistics-tracking.controller';
 import { FleetPollerService } from './fleet-poller.service';
+import { FleetAlertsService } from './fleet-alerts.service';
+import { FleetAlertsScannerService } from './fleet-alerts-scanner.service';
 import { MagniTrackingAdapter } from './magnitracking.adapter';
 import { FLEET_PROVIDER_PORT } from './fleet-provider.port';
 
@@ -14,9 +16,11 @@ import { FLEET_PROVIDER_PORT } from './fleet-provider.port';
   providers: [
     LogisticsTrackingService,
     FleetPollerService,
+    FleetAlertsService,
+    FleetAlertsScannerService,
     MagniTrackingAdapter,
     { provide: FLEET_PROVIDER_PORT, useExisting: MagniTrackingAdapter },
   ],
-  exports: [LogisticsTrackingService],
+  exports: [LogisticsTrackingService, FleetAlertsService],
 })
 export class LogisticsTrackingModule {}

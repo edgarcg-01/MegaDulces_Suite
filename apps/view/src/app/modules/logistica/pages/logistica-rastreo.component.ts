@@ -17,17 +17,11 @@ import {
   LogisticaService,
   TrackerLive,
   TrackerStatus,
+  FleetAlertRow,
   Vehicle,
 } from '../logistica.service';
 
 type Sev = 'success' | 'warn' | 'danger' | 'secondary' | 'info';
-interface FleetAlert {
-  id: string;
-  kind: 'offline' | 'speed';
-  label: string;
-  detail: string;
-  severity: Sev;
-}
 
 const STATUS_META: Record<TrackerStatus, { label: string; sev: Sev; color: string }> = {
   moving: { label: 'En movimiento', sev: 'success', color: 'var(--ok-fg)' },
@@ -35,8 +29,6 @@ const STATUS_META: Record<TrackerStatus, { label: string; sev: Sev; color: strin
   offline: { label: 'Fuera de línea', sev: 'secondary', color: 'var(--c-text-3)' },
   unknown: { label: 'Sin dato', sev: 'secondary', color: 'var(--c-text-3)' },
 };
-const OFFLINE_ALERT_MIN = 90; // min sin reportar → alerta
-const SPEED_ALERT_KMH = 90;
 
 @Component({
   selector: 'app-logistica-rastreo',
@@ -65,13 +57,18 @@ const SPEED_ALERT_KMH = 90;
         </div>
       </header>
 
-      <!-- Alertas (offline prolongado / exceso de velocidad) -->
+      <!-- Alertas persistidas (scanner server-side: sin señal / exceso de velocidad) -->
       <div class="sheet cols-12" *ngIf="alerts().length">
         <article class="cell cell-span-12 rk-alerts">
-          <button type="button" class="rk-alert" *ngFor="let a of alerts()" (click)="select(a.id)">
-            <p-tag [value]="a.label" [severity]="a.severity" [rounded]="true"></p-tag>
-            <span class="rk-alert-detail">{{ a.detail }}</span>
-          </button>
+          <div class="rk-alert" *ngFor="let a of alerts(); trackBy: trackAlert" [class.ackd]="a.status === 'ack'">
+            <button type="button" class="rk-alert-main" (click)="select(a.tracker_id)">
+              <p-tag [value]="alertLabel(a.kind)" [severity]="a.severity" [rounded]="true"></p-tag>
+              <span class="rk-alert-detail">{{ a.external_name || a.route_code || '—' }} · {{ a.message }}</span>
+            </button>
+            <button pButton icon="pi pi-check" [text]="true" size="small" severity="secondary"
+                    *ngIf="a.status !== 'ack'" (click)="ackAlert(a.id)"
+                    pTooltip="Reconocer" aria-label="Reconocer alerta"></button>
+          </div>
         </article>
       </div>
 
@@ -283,19 +280,7 @@ export class LogisticaRastreoComponent {
       })),
   );
 
-  readonly alerts = computed<FleetAlert[]>(() => {
-    const out: FleetAlert[] = [];
-    for (const u of this.units()) {
-      const mins = this.minsSince(u.last_seen_at);
-      if (mins != null && mins >= OFFLINE_ALERT_MIN && u.last_status !== 'offline') {
-        out.push({ id: u.id, kind: 'offline', label: 'Sin señal', severity: 'danger', detail: `${this.displayName(u)} · sin reportar hace ${this.ago(u.last_seen_at)}` });
-      }
-      if ((u.last_speed_kmh ?? 0) >= SPEED_ALERT_KMH) {
-        out.push({ id: u.id, kind: 'speed', label: 'Exceso de velocidad', severity: 'warn', detail: `${this.displayName(u)} · ${u.last_speed_kmh} km/h` });
-      }
-    }
-    return out;
-  });
+  readonly alerts = signal<FleetAlertRow[]>([]);
 
   private timer: any = null;
 
@@ -312,7 +297,17 @@ export class LogisticaRastreoComponent {
       next: (r) => { this.units.set(r || []); this.errored.set(false); this.loading.set(false); if (r?.length) this.lastSynced.set(Date.now()); },
       error: () => { this.errored.set(true); this.loading.set(false); },
     });
+    this.api.fleetAlerts().subscribe({ next: (a) => this.alerts.set(a || []), error: () => {} });
   }
+
+  ackAlert(id: string) {
+    this.api.ackFleetAlert(id).subscribe({
+      next: () => this.alerts.update((l) => l.filter((a) => a.id !== id)),
+      error: () => {},
+    });
+  }
+  alertLabel(kind: 'offline' | 'speed') { return kind === 'offline' ? 'Sin señal' : 'Exceso de velocidad'; }
+  trackAlert = (_: number, a: FleetAlertRow) => a.id;
 
   private loadVehicles() {
     this.api.listVehicles({ active: true }).subscribe({ next: (v) => this.vehicles.set(v || []), error: () => {} });
