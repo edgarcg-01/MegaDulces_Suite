@@ -128,6 +128,24 @@ export class CommercialReplenishmentService {
       WHEN rp.max_stock > 0 AND ${oh} > rp.max_stock THEN 'sobrestock'
       ELSE 'sano' END`;
   }
+  /**
+   * RA-PRO.9/13 — objetivo por CADENCIA de ciclo (compartido por criticalStock y worklist):
+   * nivel = demanda_diaria × (cadencia + lead efectivo) + safety; sin canal/cadencia cae al
+   * máximo. Override manual por proveedor (sup.cadence_days_override, solo COMPRA) usa
+   * cadencia_override + colchón. El lead de traspaso (tránsito hub→spoke) no es deducible del
+   * feed → default 3d, afinable por canal (rc.lead_time_days); compra usa lead del proveedor (o 7).
+   * Requiere que la query joinee rc/sup/ih/rp con esos alias.
+   */
+  private cadenceTarget(): string {
+    const effLead = `(CASE WHEN rc.via='transfer' THEN COALESCE(rc.lead_time_days, 3) ELSE COALESCE(rc.lead_time_days, sup.lead_time_days, 7) END)`;
+    return `COALESCE(
+      CASE
+        WHEN sup.cadence_days_override IS NOT NULL AND COALESCE(rc.via,'purchase') <> 'transfer'
+          THEN ceil(COALESCE(ih.avg_daily_units,0) * (sup.cadence_days_override + COALESCE(sup.colchon_days,0)))
+        WHEN rc.cadence_days IS NOT NULL
+          THEN ceil(COALESCE(ih.avg_daily_units,0) * (rc.cadence_days + ${effLead}) + COALESCE(rp.safety_stock,0))
+      END, rp.max_stock)`;
+  }
 
   // ── Reporte Existencia Crítica ────────────────────────────────────────
   async criticalStock(q: CriticalStockQuery) {
@@ -135,23 +153,9 @@ export class CommercialReplenishmentService {
     const basis = this.basis(q.target_basis);
     const oh = this.onHand();
     const it = this.inTransit();
-    // RA-PRO.9 — base 'cadence' unifica el objetivo con Qué Toca: nivel = demanda ×
-    // (cadencia + lead efectivo) + colchón; traspaso = lead interno 1d. Sin canal/cadencia
-    // cae al máximo (mismo comportamiento que antes). Las demás bases (min/reorden/máx) intactas.
-    // Traspaso: lead de tránsito hub→spoke. NO es deducible del feed (ship↔receive no enlazan,
-    // source_branch=dueño no origen; ver reference_kepler_movements_report) → default 3d (topología
-    // dice ~3d), afinable por canal vía rc.lead_time_days. Compra: lead del proveedor (o 7 default).
-    const effLead = `(CASE WHEN rc.via='transfer' THEN COALESCE(rc.lead_time_days, 3) ELSE COALESCE(rc.lead_time_days, sup.lead_time_days, 7) END)`;
-    // RA-PRO.10 — override manual por proveedor: si sup.cadence_days_override está, el objetivo
-    // usa horizonte = cadencia_override + colchón (solo COMPRA; el traspaso mantiene su ciclo).
-    const cadTarget = `COALESCE(
-      CASE
-        WHEN sup.cadence_days_override IS NOT NULL AND COALESCE(rc.via,'purchase') <> 'transfer'
-          THEN ceil(COALESCE(ih.avg_daily_units,0) * (sup.cadence_days_override + COALESCE(sup.colchon_days,0)))
-        WHEN rc.cadence_days IS NOT NULL
-          THEN ceil(COALESCE(ih.avg_daily_units,0) * (rc.cadence_days + ${effLead}) + COALESCE(rp.safety_stock,0))
-      END, rp.max_stock)`;
-    const target = basis === 'cadence' ? cadTarget : this.targetCol(basis);
+    // RA-PRO.9 — base 'cadence' unifica el objetivo con Qué Toca (helper cadenceTarget()).
+    // Las demás bases (min/reorden/máx) intactas.
+    const target = basis === 'cadence' ? this.cadenceTarget() : this.targetCol(basis);
     const page = Math.max(1, Number(q.page) || 1);
     const cap = q.export ? 100000 : 500;
     const pageSize = Math.min(cap, Math.max(1, Number(q.pageSize) || (q.export ? cap : 50)));
@@ -382,17 +386,9 @@ export class CommercialReplenishmentService {
       const basis = this.basis(q.target_basis);
       // RA-PRO.13 — base 'cadence' (default de la pantalla): llena SOLO para el ciclo del
       // proveedor (demanda × (cadencia + lead) + safety), no hasta el máximo — que en artículos
-      // lumpy (globos, CV alto) es ~1 año de cobertura e infla el pedido 5-10x. Fórmula IDÉNTICA
-      // al cadTarget de criticalStock; la LATERAL ve rc.*/sup.* del outer, así total y drill cuadran.
-      const effLead = `(CASE WHEN rc.via='transfer' THEN COALESCE(rc.lead_time_days, 3) ELSE COALESCE(rc.lead_time_days, sup.lead_time_days, 7) END)`;
-      const cadTarget = `COALESCE(
-        CASE
-          WHEN sup.cadence_days_override IS NOT NULL AND COALESCE(rc.via,'purchase') <> 'transfer'
-            THEN ceil(COALESCE(ih.avg_daily_units,0) * (sup.cadence_days_override + COALESCE(sup.colchon_days,0)))
-          WHEN rc.cadence_days IS NOT NULL
-            THEN ceil(COALESCE(ih.avg_daily_units,0) * (rc.cadence_days + ${effLead}) + COALESCE(rp.safety_stock,0))
-        END, rp.max_stock)`;
-      const target = basis === 'cadence' ? cadTarget : this.targetCol(basis);
+      // lumpy (globos, CV alto) es ~1 año de cobertura e infla el pedido 5-10x. Misma fórmula
+      // que criticalStock (helper cadenceTarget()); la LATERAL ve rc.*/sup.* del outer, así total y drill cuadran.
+      const target = basis === 'cadence' ? this.cadenceTarget() : this.targetCol(basis);
       const sug = `GREATEST(0, ${target} - ${oh} - ${it})`;
       const cost = `COALESCE(pr.cost_with_tax, pr.cost_base, 0)`;
       // RA-PRO.12 — categoría de compra: el agg (n_skus/sugerido) solo cuenta productos de la categoría.
@@ -798,6 +794,14 @@ export class CommercialReplenishmentService {
         .where({ tenant_id: tenantId, id }).first();
       if (!req) throw new NotFoundException('Requisición no encontrada');
       if (req.estado !== 'ordered') throw new BadRequestException(`La requisición no está en estado 'ordered'`);
+      // Guard anti-doble-recepción: si esta requisición ya generó una OC (no cancelada), la
+      // entrada de mercancía DEBE ir por el flujo OC→OE (createReceipt), que mueve stock y marca
+      // la RQ 'received' al cerrar. Este atajo (RA.14, sin movimiento) solo aplica a requisiciones
+      // ordenadas manualmente (markOrdered) sin OC. Evita estados divergentes / doble conteo.
+      const linkedPO: any = await trx('commercial.purchase_orders')
+        .where({ tenant_id: tenantId, requisition_id: id }).whereNot('estado', 'cancelled')
+        .first('folio');
+      if (linkedPO) throw new BadRequestException(`La requisición tiene una OC (${linkedPO.folio}); recibe la mercancía desde la orden de compra.`);
 
       const recv = new Map<string, number>();
       for (const l of dto?.lines || []) { if (UUID_RX.test(l.line_id)) recv.set(l.line_id, Math.max(0, Number(l.received_qty) || 0)); }

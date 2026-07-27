@@ -48,12 +48,16 @@ export class ReplenishmentScannerService {
   async scanTenant(tenantId: string): Promise<number> {
     let count = 0;
     await this.knex.transaction(async (trx) => {
-      await trx.raw(`SET LOCAL app.tenant_id = '${tenantId}'`);
+      await trx.raw(`SET LOCAL app.tenant_id = ?`, [tenantId]);
 
       const oh = '(COALESCE(s.quantity,0) - COALESCE(s.reserved_quantity,0))';
       const it = 'COALESCE(pit.qty_in_transit, 0)';
       // Objetivo = máximo (restock real). Sugerido neto de tránsito.
       const sugg = `GREATEST(0, rp.max_stock - ${oh} - ${it})`;
+      // Costo unitario canónico = cost_with_tax (por PIEZA); cost_base es fallback (está a
+      // escala de CAJA en granel e inflaba el valorizado ~16.6%). Debe casar con Existencia
+      // Crítica (ver commercial-replenishment.service.ts costUnit()).
+      const costUnit = 'COALESCE(pr.cost_with_tax, pr.cost_base, 0)';
 
       const rows: any[] = await trx('commercial.reorder_policy as rp')
         .leftJoin('commercial.stock as s', (j) =>
@@ -73,7 +77,7 @@ export class ReplenishmentScannerService {
           trx.raw(`${it} AS in_transit`),
           trx.raw('abc.abc_class AS abc_class'),
           trx.raw(`${sugg} AS suggested_qty`),
-          trx.raw(`ROUND(${sugg} * COALESCE(pr.cost_base,0), 2) AS suggested_cost`),
+          trx.raw(`ROUND(${sugg} * ${costUnit}, 2) AS suggested_cost`),
         );
 
       const seen: string[] = [];
@@ -102,7 +106,7 @@ export class ReplenishmentScannerService {
       }
 
       // RA-PRO.8.4 — "cadencia_lenta": SKU que ROTA (ABC A/B) cuyo proveedor se COMPRA
-      // con cadencia > 14d → riesgo estructural de quiebre (el pedido llega demasiado
+      // con cadencia > 21d → riesgo estructural de quiebre (el pedido llega demasiado
       // espaciado para lo que vende). Distinto de bajo_reorden (momentáneo): esto es la
       // política de compra la que no alcanza. Solo canales de compra (los traspasos son
       // internos y rápidos). El umbral de rotación (A/B) evita marcar proveedores lentos legítimos.
@@ -135,7 +139,7 @@ export class ReplenishmentScannerService {
           trx.raw(`${it} AS in_transit`),
           trx.raw(`COALESCE(abc.abc_class, rp.abc_class) AS abc_class`),
           trx.raw(`${sugg} AS suggested_qty`),
-          trx.raw(`ROUND(${sugg} * COALESCE(pr.cost_base,0), 2) AS suggested_cost`),
+          trx.raw(`ROUND(${sugg} * ${costUnit}, 2) AS suggested_cost`),
         );
 
       for (const r of cadRows) {

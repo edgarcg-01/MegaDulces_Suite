@@ -15,6 +15,10 @@
 > - **Pendiente prod:** aplicar migs 20260708120000/120100 a Railway + `re-login` (permisos) + agendar `import-reorder-policy`/`import-computed-reorder` en el runner + redeploy api+view.
 > **Tesis:** portar a la plataforma la lógica de reabastecimiento que Mega Dulces ya opera en Kepler (reporte "Existencia Crítica" → orden de compra sugerida), reusando la infraestructura de inventario (Fase I/ABC/FEFO), analytics (inventory_health) y el patrón HITL (Maat/SM). El **motor decide** (umbrales + demanda), el **humano aprueba** (bandeja de requisiciones), el **LLM fuera del camino** (ADR-016).
 > **Fuente de la investigación:** decode del ERP Kepler + verificación contra datos vivos (2026-07-08). Ver §2.
+>
+> **Alcance real (superset de RA.0–RA.14):** además de lo listado arriba, el módulo shipeó RA-PRO.1/2 (safety stock por nivel de servicio + ABC-XYZ), RA-PRO.3/10 (parámetros de proveedor: lead time, cadencia, colchón, mínimo $/cajas), RA-PRO.6 (topología de red DRP), RA-PRO.8/9/13 (worklist "Qué toca" / "Pedido" por ciclo de reabasto), RA-PRO.12 (normalización de categorías de compra), RA.15/ADR-031 (cadena OC→OE que **mueve stock**), export XLSX con diseño y un asistente conversacional (`/compras/asistente`). **12 páginas** en `/compras/*` (existencia-critica, pedido, asistente, requisiciones+detalle, ordenes+detalle, hallazgos, proveedores, red, categorias).
+>
+> **Corrección 2026-07-27 (auditoría del módulo):** (1) `ReplenishmentScannerService` valorizaba `suggested_cost` con `cost_base` (escala de caja, inflaba ~16.6%) → alineado a `COALESCE(cost_with_tax, cost_base, 0)` como Existencia Crítica. (2) `markReceived` (atajo RA.14 sin movimiento de stock) ahora se **bloquea** si la requisición ya generó una OC no cancelada — la recepción debe ir por el flujo OC→OE (que sí mueve stock), evitando doble-conteo. (3) Fórmula de objetivo por cadencia deduplicada en helper `cadenceTarget()` (compartido por criticalStock/worklist). (4) `SET LOCAL app.tenant_id` del scanner pasado a bind. Build api OK + smoke `test-newdb-replenishment` 18/18.
 
 ---
 
