@@ -603,6 +603,57 @@ export class CommercialPricingService {
     });
   }
 
+  /**
+   * FIQ.3 (tiers de volumen) — Precio por CANTIDAD. Entre TODAS las entradas de
+   * precio del producto (P1..P4/MAYOREO son quiebres por cantidad), elige la mejor
+   * (MENOR precio) cuyo `min_qty <= qty`. El precio/pza depende de cuánto compra
+   * (pieza suelta vs caja vs varias cajas). Modelo confirmado por el negocio:
+   * "por cantidad", el precio NO depende de la lista del cliente sino del volumen.
+   *
+   *   - `min_purchase`: el `min_qty` más chico = mínimo absoluto de compra.
+   *   - `price` null si `qty < min_purchase` (el caller reporta el mínimo).
+   *
+   * Determinista y read-only (ADR-016: el motor pone el número). Scope de tenant (CLS/RLS).
+   */
+  async resolvePriceForQty(productId: string, qty: number) {
+    if (!UUID_REGEX.test(productId)) throw new BadRequestException('product_id inválido');
+    const q = Math.max(1, Math.floor(Number(qty) || 1));
+    return this.tk.run(async (trx) => {
+      const tiers = await trx('commercial.product_prices')
+        .where({ product_id: productId })
+        .whereNull('deleted_at')
+        .select('price', 'tax_rate', 'min_qty', 'price_list_id')
+        .orderBy('min_qty', 'asc');
+      if (!tiers.length) {
+        return { product_id: productId, price: null, tax_rate: null, min_qty: null, min_purchase: null, price_list_id: null, source: null as string | null };
+      }
+      const minPurchase = Math.max(1, Number(tiers[0].min_qty) || 1);
+      const applicable = tiers.filter((t) => (Number(t.min_qty) || 1) <= q);
+      if (!applicable.length) {
+        // qty por debajo del mínimo de compra: sin precio aplicable, reportar el mínimo.
+        return {
+          product_id: productId,
+          price: null,
+          tax_rate: Number(tiers[0].tax_rate),
+          min_qty: minPurchase,
+          min_purchase: minPurchase,
+          price_list_id: tiers[0].price_list_id,
+          source: 'below_min' as string | null,
+        };
+      }
+      const best = applicable.reduce((a, b) => (Number(b.price) < Number(a.price) ? b : a));
+      return {
+        product_id: productId,
+        price: Number(best.price),
+        tax_rate: Number(best.tax_rate),
+        min_qty: minPurchase,
+        min_purchase: minPurchase,
+        price_list_id: best.price_list_id,
+        source: 'qty_tier' as string | null,
+      };
+    });
+  }
+
   // ───── helpers ─────
 
   /**
