@@ -10,6 +10,13 @@
 
 ## [Unreleased]
 
+### Added — Fase LT: rastreo de flota GPS (MagniTracking) (2026-07-27)
+- **Integración de la flota al dominio Logística.** magnitracking.net = white-label de GPS-Server.net v4 (cuenta 614, ~50 devices Ruptela+Streamax). **Sin API oficial** → `MagniTrackingAdapter` detrás de `FleetProviderPort` replica el login de sesión + poll `fn_objects` (ADR-034; hereda ADR-016).
+- **Backend** `libs/logistics/logistics-tracking`: `LogisticsTrackingService` (sync/live/history/link + auto-match por placa), `FleetPollerService` (`@Cron` 1min, solo con env creds), controller `GET /logistics/tracking/{live,trackers,trackers/:id/history}` + `POST /sync-now` + `PATCH /trackers/:id/link` (`LOGISTICS_FLEET_VER/GESTIONAR`).
+- **Schema:** `logistics.trackers` (mig `20260727180000`, RLS, última posición denorm) + `logistics.vehicle_positions` (mig `20260727181000`, sin RLS, dedupe `tenant+tracker+captured_at`, patrón `route_location_pings`).
+- **Frontend** `/logistica/rastreo` ("Rastreo GPS"): mapa `app-map` por estado (movimiento/detenido/offline) + KPIs + alertas client-side (offline >90 min / vel >90 km/h) + recorrido histórico del día + vinculación tracker→vehículo.
+- **Verificación:** build api+view OK; smoke `test-newdb-logistics-tracking` 8/8 (RLS como app_runtime, dedupe idempotente). **Creds por env `MAGNI_USER/PASS` (rotar el compartido). Pendiente prod:** 2 migs Railway + env API + redeploy. Gotcha: auto-match 2/50 (placas seed ≠ GPS). Diferido: alertas server-side por WS. Plan en [`FASE_LT`](docs/IMPLEMENTACION/FASES/FASE_LT_RASTREO_FLOTA.md).
+
 ### Added — Fase FIQ: bot de WhatsApp 10x (6 sprints) (2026-07-27)
 - **FIQ.6 apartado con TTL** — "apártame esto" reserva stock (folio `AP-YYYY-NNNNN`), cron `@5min` libera vencidos y devuelve el inventario. Tools apartar/consultar/cancelar. Reusa el motor de stock (guard anti-conteo-físico). ADR-038.
 - **FIQ.7 trust-score + gate** — detector CERO LLM de "solo juegan"/no-show/deuda → tier `block/require_deposit/allow` en el confirm; el LLM nunca acusa. Feature store + umbrales por tenant + cold-start neutro. `require_deposit`=transferencia/handoff (no cobro online). ADR-037.
