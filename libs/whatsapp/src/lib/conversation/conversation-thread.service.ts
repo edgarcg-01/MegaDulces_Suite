@@ -213,6 +213,54 @@ export class ConversationThreadService {
     });
   }
 
+  /**
+   * FIQ.1 — Turnos LLM de un teléfono en las últimas `hours` (fuente del throttle
+   * / budget-guard del canal público). Cuenta filas de bot_chat_log.
+   */
+  async countRecentTurns(phone: string, hours = 24): Promise<number> {
+    const h = Math.max(1, Math.floor(Number(hours) || 24));
+    return this.tk.run(async (trx) => {
+      const r = await trx('whatsapp.bot_chat_log')
+        .where({ phone })
+        .where('created_at', '>', trx.raw(`now() - (? || ' hours')::interval`, [h]))
+        .count<{ count: string }>('* as count')
+        .first();
+      return Number(r?.count) || 0;
+    });
+  }
+
+  /** FIQ.1 — Audita un turno del bot (modelo/tools/latencia). Best-effort. */
+  async logBotTurn(row: {
+    thread_id: string;
+    phone: string;
+    user_text: string | null;
+    reply_text: string | null;
+    model: string;
+    escalated: boolean;
+    tools_used: string[];
+    iterations: number;
+    latency_ms: number;
+  }): Promise<void> {
+    try {
+      await this.tk.run(async (trx) => {
+        await trx('whatsapp.bot_chat_log').insert({
+          tenant_id: trx.raw('public.current_tenant_id()'),
+          thread_id: row.thread_id,
+          phone: row.phone,
+          user_text: row.user_text ? String(row.user_text).slice(0, 4000) : null,
+          reply_text: row.reply_text ? String(row.reply_text).slice(0, 4000) : null,
+          model: row.model,
+          escalated: row.escalated,
+          tools_used: JSON.stringify(row.tools_used || []),
+          iterations: row.iterations,
+          latency_ms: row.latency_ms,
+        });
+      });
+    } catch (e: any) {
+      this.logger.warn(`logBotTurn falló (${e?.message}) — no rompe el turno.`);
+    }
+  }
+
   /** Helper: ¿ya vimos este mensaje entrante? (dedup previo al encolado). */
   async isDuplicateInbound(msg: InboundMessage): Promise<boolean> {
     if (!msg.wa_message_id) return false;
