@@ -78,6 +78,15 @@ export class ConversationOrchestratorService {
       this.logger.warn(`resolveCustomerByPhone falló (${e?.message}) — sigo sin personalizar.`);
     }
 
+    // FIQ.4: memoria cross-sesión — última dirección conocida para dar continuidad.
+    let knownAddress: any = null;
+    try {
+      const prof = await this.threads.getContactProfile(thread.phone);
+      if (prof) knownAddress = prof.last_address;
+    } catch (e: any) {
+      this.logger.warn(`getContactProfile falló (${e?.message}) — sin memoria.`);
+    }
+
     // Estado de trabajo del turno (se persiste al final).
     const work = {
       cart: [...thread.cart] as CartItem[],
@@ -86,6 +95,7 @@ export class ConversationOrchestratorService {
       handoff: false,
       customerName,
       customerId,
+      knownAddress,
     };
     // Productos vistos en ESTE turno (product_id → hit). El precio del carrito
     // sale de aquí, no del LLM.
@@ -118,6 +128,12 @@ export class ConversationOrchestratorService {
       state: work.state,
       handoff: work.handoff || undefined,
     });
+    // FIQ.4: persistir memoria cross-sesión (última dirección) para el próximo contacto.
+    if (work.address?.street) {
+      await this.threads
+        .upsertContactProfile(thread.phone, { last_address: work.address, customer_id: work.customerId })
+        .catch((e: any) => this.logger.warn(`upsertContactProfile falló (${e?.message}).`));
+    }
     return { reply: reply || 'Listo.', handoff: work.handoff, state: work.state };
   }
 
@@ -359,7 +375,7 @@ export class ConversationOrchestratorService {
 
   private async callClaude(
     messages: any[],
-    work: { cart: CartItem[]; address: any; state: ThreadState; customerName?: string | null },
+    work: { cart: CartItem[]; address: any; state: ThreadState; customerName?: string | null; knownAddress?: any },
   ): Promise<any> {
     const ctrl = new AbortController();
     const tId = setTimeout(() => ctrl.abort(), this.timeoutMs);
@@ -392,14 +408,21 @@ export class ConversationOrchestratorService {
     address: any;
     state: ThreadState;
     customerName?: string | null;
+    knownAddress?: any;
   }): string {
     const cart = this.cartView(work.cart);
     const cliente = work.customerName
       ? `CLIENTE RECONOCIDO: "${work.customerName}". Saludalo por su nombre (solo el primer nombre, cálido) al inicio. Ya es cliente de Mega Dulces: si pide "lo de siempre"/su pedido habitual, o si querés sugerirle, usá mi_historial.`
       : 'CLIENTE NUEVO/NO IDENTIFICADO: tratalo con calidez; no inventes su nombre ni su historial.';
+    // FIQ.4: memoria — dirección de un pedido anterior (solo si aún no capturó una en este pedido).
+    const memoria =
+      work.knownAddress?.street && !work.address?.street
+        ? `MEMORIA: en un pedido anterior lo enviaste a "${work.knownAddress.street}". Cuando llegue el momento de la entrega, ofrecé enviar a la misma dirección (confirmá antes de usarla; si dice que sí, capturala con capturar_domicilio).`
+        : '';
     return [
       'Sos el asistente de pedidos de Mega Dulces (dulcería) por WhatsApp. Hablás en español mexicano, cálido y breve (mensajes cortos, sin markdown).',
       cliente,
+      memoria,
       'Tu trabajo: ayudar al cliente a armar un pedido a domicilio.',
       'REGLAS DURAS:',
       '- Para agregar un producto SIEMPRE usá primero buscar_producto y luego agregar_al_carrito con un product_id de esos resultados. Nunca inventes productos ni precios.',
