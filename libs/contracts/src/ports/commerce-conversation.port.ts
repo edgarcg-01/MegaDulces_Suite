@@ -222,6 +222,14 @@ export interface CommerceConversationPort {
    * temporada". Mismo enriquecimiento y garantías que marketTopProducts.
    */
   marketTrending(opts?: { limit?: number }): Promise<ConversationMarketHit[]>;
+
+  /**
+   * Clientes DEBIDOS para un nudge de reorden (FIQ.10) — atrasados vs su cadencia
+   * (customer_360) + su producto habitual (recommended_baskets), solo contactables
+   * (teléfono E.164 no-nulo) y en etapa active/at_risk. El MOTOR decide; el agente
+   * compone y respeta opt-in. Ordenado por más atrasado. Scope de tenant (CLS).
+   */
+  listDueForReorder(opts?: { limit?: number; minOverdueDays?: number }): Promise<ConversationReorderCandidate[]>;
 }
 
 /** Veredicto de confianza del contacto (FIQ.7). El gate actúa; el LLM comunica sin acusar. */
@@ -229,4 +237,19 @@ export interface ConversationTrust {
   tier: 'neutral' | 'allow' | 'require_deposit' | 'block';
   risk_score: number;
   reasons: string[];
+}
+
+/**
+ * Cliente DEBIDO para un nudge de reorden (FIQ.10 / requisito 2+8). El MOTOR
+ * decide quién está atrasado vs su cadencia (customer_360) y su producto habitual
+ * (recommended_baskets); el agente compone el mensaje y respeta opt-in/24h. El
+ * teléfono viene E.164 canónico y no-nulo (solo contactables).
+ */
+export interface ConversationReorderCandidate {
+  customer_id: string;
+  name: string;
+  phone: string;
+  days_overdue: number;
+  cadence_days: number;
+  top_product: string | null;
 }
