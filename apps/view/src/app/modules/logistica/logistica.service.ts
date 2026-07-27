@@ -987,6 +987,9 @@ export class LogisticaService {
   trackingSyncNow(): Observable<{ objects: number; created: number; updated: number; linked: number; positions: number; ms: number }> {
     return this.http.post<{ objects: number; created: number; updated: number; linked: number; positions: number; ms: number }>(`${this.base}/tracking/sync-now`, {});
   }
+  trackingBootstrapVehicles(): Observable<{ created: number; linked: number; skipped: number }> {
+    return this.http.post<{ created: number; linked: number; skipped: number }>(`${this.base}/tracking/bootstrap-vehicles`, {});
+  }
   linkTracker(trackerId: string, vehicleId: string | null): Observable<{ id: string; vehicle_id: string | null }> {
     return this.http.patch<{ id: string; vehicle_id: string | null }>(`${this.base}/tracking/trackers/${trackerId}/link`, { vehicle_id: vehicleId });
   }
