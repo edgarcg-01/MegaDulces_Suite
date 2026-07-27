@@ -348,6 +348,13 @@ export class CommercialReplenishmentService {
       const whIds = this.whIds(q);
       if (whIds.length) base.whereIn('rp.warehouse_id', whIds);
       if (q.supplier_id && UUID_RX.test(q.supplier_id)) base.andWhere('pr.supplier_id', q.supplier_id);
+      if (q.category_id && UUID_RX.test(q.category_id)) base.andWhere('pr.category_id', q.category_id);
+      // Filtro por nombre de proveedor (el cockpit filtra por nombre, no por id).
+      if (q.search && q.search.trim()) {
+        base.join('catalog.suppliers as sup', (j) => j.on('sup.tenant_id', 'rp.tenant_id').andOn('sup.id', 'pr.supplier_id'))
+          .andWhereRaw('sup.name ILIKE ?', [`%${q.search.trim()}%`]);
+      }
+      const cost = this.costUnit();
 
       const r: any = await base
         .select(
@@ -356,7 +363,16 @@ export class CommercialReplenishmentService {
           trx.raw(`COUNT(*) FILTER (WHERE ${oh} > rp.min_stock AND ${oh} <= rp.reorder_point)::int AS bajo_reorden`),
           trx.raw(`COUNT(*) FILTER (WHERE rp.max_stock > 0 AND ${oh} > rp.max_stock)::int AS sobrestock`),
           trx.raw('COUNT(*)::int AS total_policies'),
-          trx.raw(`ROUND(SUM(GREATEST(0, ${target} - ${oh} - ${it}) * ${this.costUnit()}) FILTER (WHERE ${oh} <= rp.reorder_point), 2) AS sugerido_costo`),
+          trx.raw(`ROUND(SUM(GREATEST(0, ${target} - ${oh} - ${it}) * ${cost}) FILTER (WHERE ${oh} <= rp.reorder_point), 2) AS sugerido_costo`),
+          // RA-PRO.15 — VALOR del punto de abasto (Σ umbral × costo/caja) + existencia actual, según el filtro.
+          trx.raw(`ROUND(SUM(rp.min_stock * ${cost}), 2) AS min_valor`),
+          trx.raw(`ROUND(SUM(rp.reorder_point * ${cost}), 2) AS reorden_valor`),
+          trx.raw(`ROUND(SUM(rp.max_stock * ${cost}), 2) AS max_valor`),
+          trx.raw(`ROUND(SUM(${oh} * ${cost}), 2) AS existencia_valor`),
+          trx.raw(`ROUND(SUM(rp.min_stock), 2) AS min_cajas`),
+          trx.raw(`ROUND(SUM(rp.reorder_point), 2) AS reorden_cajas`),
+          trx.raw(`ROUND(SUM(rp.max_stock), 2) AS max_cajas`),
+          trx.raw(`ROUND(SUM(${oh}), 2) AS existencia_cajas`),
         ).first();
       return r;
     });

@@ -88,6 +88,15 @@ export interface ReplenishmentSummary {
   sobrestock: number;
   total_policies: number;
   sugerido_costo: number | null;
+  // RA-PRO.15 — VALOR del punto de abasto (Σ umbral × costo/caja) + existencia, según el filtro.
+  min_valor: number | null;
+  reorden_valor: number | null;
+  max_valor: number | null;
+  existencia_valor: number | null;
+  min_cajas: number | null;
+  reorden_cajas: number | null;
+  max_cajas: number | null;
+  existencia_cajas: number | null;
 }
 export interface ReplenishmentCategory { id: string; code: string | null; name: string; n_suppliers: number; n_products: number; }
 export interface CategoryAdmin extends ReplenishmentCategory { is_duplicate: boolean; }
@@ -458,11 +467,13 @@ export class ComprasService {
     return this.http.get<DeadStockResponse>(`${this.base}/dead-stock${qs ? '?' + qs : ''}`);
   }
 
-  summary(q: { warehouse_id?: string; warehouse_ids?: string[]; supplier_id?: string; target_basis?: string }): Observable<ReplenishmentSummary> {
+  summary(q: { warehouse_id?: string; warehouse_ids?: string[]; supplier_id?: string; search?: string; category_id?: string; target_basis?: string }): Observable<ReplenishmentSummary> {
     const p = new URLSearchParams();
     if (q.warehouse_ids?.length) p.set('warehouse_ids', q.warehouse_ids.join(','));
     else if (q.warehouse_id) p.set('warehouse_id', q.warehouse_id);
     if (q.supplier_id) p.set('supplier_id', q.supplier_id);
+    if (q.search) p.set('search', q.search);
+    if (q.category_id) p.set('category_id', q.category_id);
     if (q.target_basis) p.set('target_basis', q.target_basis);
     const qs = p.toString();
     return this.http.get<ReplenishmentSummary>(`${this.base}/critical-stock/summary${qs ? '?' + qs : ''}`);
