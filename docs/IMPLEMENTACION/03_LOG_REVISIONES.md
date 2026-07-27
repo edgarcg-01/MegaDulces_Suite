@@ -6,6 +6,24 @@
 
 ---
 
+## 2026-07-27 — Auditoría del módulo `/compras` (Fase RA): 4 correcciones + doc al día
+
+**Contexto:** el usuario pidió analizar todo el módulo `/compras` y corregir las observaciones encontradas. Mapa: backend `libs/commercial/commercial-replenishment` (2 controllers + `CommercialReplenishmentService` 1075 L + `CommercialPurchaseOrdersService` + `ReplenishmentScannerService` + export XLSX), frontend 12 páginas en `/compras/*` + `compras.service.ts` (618 L). Alcance real = superset de RA.0–RA.14: también RA-PRO.1/2/3/6/8/9/10/12/13 + RA.15/ADR-031 (cadena OC→OE que mueve stock) + asistente conversacional.
+
+**Hallazgos y fixes aplicados:**
+
+- **#1 (datos) — costo inconsistente en el scanner.** `ReplenishmentScannerService` valorizaba `suggested_cost` con `cost_base` (escala de CAJA en granel → inflaba ~16.6%), mientras Existencia Crítica ya usaba `cost_with_tax` (por pieza). Alineado a `COALESCE(cost_with_tax, cost_base, 0)` en los 2 sitios (agotado/bajo_reorden + cadencia_lenta) → la bandeja de hallazgos ahora cuadra con el reporte.
+- **#2 (operación) — doble camino de recepción.** Una requisición podía recibirse por `markReceived` (atajo RA.14, SIN mover stock) aunque ya tuviera una OC en curso (flujo OC→OE, que SÍ mueve stock) → estados divergentes / doble-conteo. `markReceived` ahora lanza `BadRequestException` si existe OC no cancelada ligada; la recepción con OC debe ir por la orden de compra.
+- **#3 (mantenibilidad) — fórmula de cadencia duplicada.** El objetivo por ciclo (`effLead` + `cadTarget`) estaba copiado byte-a-byte en `criticalStock` y `worklist`. Extraído a helper privado `cadenceTarget()`.
+- **#4 (cosmético) — comentario `cadencia_lenta` decía ">14d" pero el filtro es `>21`.** Corregido el comentario. **#6** — `SET LOCAL app.tenant_id` del scanner pasado de interpolación a bind.
+- **#5 (doc drift)** — el doc de fase y el tracker describían RA como "Existencia Crítica + Requisiciones"; en runtime hay 12 páginas. Addendum de alcance real + bloque de corrección en [`FASE_RA`](FASES/FASE_RA_REABASTECIMIENTO.md).
+
+**Fuera de alcance detectado:** `libs/whatsapp/broadcast/whatsapp-reorder.service.ts:93` tenía un TS2783 preexistente (commit FIQ.10 de hoy) que dejaba `nx build api` roto — `skipped` duplicado por spread. Fix trivial (quitar la llave redundante) para desbloquear el build.
+
+**Verificación:** `nx build api` verde + smoke `test-newdb-replenishment` **18/18**. Sin migraciones (solo lógica). Pendiente: redeploy api para que prod tome el fix de costo del scanner.
+
+---
+
 ## 2026-07-24 — Fase F (Comercio Conversacional WhatsApp): F.0–F.3 en código, camino comercial cerrado
 
 **Contexto:** el usuario pidió que los clientes puedan hacer pedidos por WhatsApp con un chat conversacional y que esos pedidos generen repartos. Análisis previo: la "mitad de atrás" (pedido → reparto → COD → liquidación) YA existía (Fase LM); `createIntake` ya aceptaba `delivery_channel='whatsapp'`. Lo faltante era solo la capa conversacional de entrada.
