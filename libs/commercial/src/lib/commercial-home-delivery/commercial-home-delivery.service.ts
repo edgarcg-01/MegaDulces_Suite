@@ -265,12 +265,20 @@ export class CommercialHomeDeliveryService {
     if (existing) return existing.id;
 
     const digits = (canonical || phone.replace(/\D/g, '')).slice(-10) || 'SN';
-    const created = await this.customers.create({
-      code: `CAS-${digits}`,
-      name: dto.casual.name.trim(),
-      phone,
-      is_casual: true,
-    });
+    const base = { name: dto.casual.name.trim(), phone, is_casual: true };
+    // El único de `code` es TOTAL (incluye soft-deleted): un casual borrado con el
+    // mismo teléfono chocaría 23505 (el dedup solo mira no-borrados). Retry con sufijo.
+    let created;
+    try {
+      created = await this.customers.create({ code: `CAS-${digits}`, ...base });
+    } catch (e: any) {
+      if (e?.code === '23505' || /unique|duplicate/i.test(e?.message || '')) {
+        const suffix = Date.now().toString(36).slice(-4).toUpperCase();
+        created = await this.customers.create({ code: `CAS-${digits}-${suffix}`, ...base });
+      } else {
+        throw e;
+      }
+    }
     // Guardar whatsapp E.164 canónico para que el bot reconozca al casual la próxima.
     // Defensivo contra el índice UNIQUE parcial (tenant_id, whatsapp): si colisiona, se deja null.
     if (canonical) {
