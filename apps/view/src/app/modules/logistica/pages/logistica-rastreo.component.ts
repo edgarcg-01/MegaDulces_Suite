@@ -191,8 +191,10 @@ const STATUS_META: Record<TrackerStatus, { label: string; sev: Sev; color: strin
     .rk-actions { display:flex; gap:.4rem; align-items:center; }
 
     .rk-alerts { display:flex; flex-wrap:wrap; gap:.4rem; }
-    .rk-alert { display:inline-flex; align-items:center; gap:.5rem; background:transparent; border:1px solid var(--c-divider); border-radius:var(--r-md,8px); padding:.3rem .5rem .3rem .4rem; cursor:pointer; font:inherit; }
-    .rk-alert:hover { background:var(--overlay-hover); }
+    .rk-alert { display:inline-flex; align-items:center; gap:.15rem; border:1px solid var(--c-divider); border-radius:var(--r-md,8px); padding:.2rem .3rem; }
+    .rk-alert.ackd { opacity:.55; }
+    .rk-alert-main { display:inline-flex; align-items:center; gap:.5rem; background:transparent; border:0; padding:.1rem .3rem; cursor:pointer; font:inherit; color:inherit; border-radius:var(--r-sm,6px); }
+    .rk-alert-main:hover { background:var(--overlay-hover); }
     .rk-alert-detail { font-size:var(--fs-sm); color:var(--c-text-2); }
 
     .rk-kpis { }
