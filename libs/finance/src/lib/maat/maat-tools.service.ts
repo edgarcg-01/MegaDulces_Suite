@@ -136,7 +136,7 @@ ${Object.entries(SUCURSAL_CAT).map(([c, n]) => `${c} = ${n}`).join(' · ')}
 ${knowledgeBlock}
 
 ## ALCANCE ACTUAL
-Tienes acceso a: **balanza de comprobación completa** (familias 1-9, cargos/abonos por cuenta×sucursal×mes, ~19 meses — maat_balanza), la **balanza de los LIBROS FISCALES OFICIALES de ContPAQi** (consolidada de la entidad, la verdad del contador/SAT — maat_contpaqi_balanza; úsala para "según los libros oficiales"), el **contraste ingresos libros-vs-operación** (ContPAQi fiscal vs Kepler operativo mes a mes — maat_libros_vs_operacion; el gap suele ser estructural, no error), **P&L contable derivado** (ingresos−costo−gastos por mes — maat_pnl), egresos contables al detalle (compras 511 + gastos 6xx/7xx — maat_egresos), documentos fuente con líneas de producto, auxiliar de proveedores (201: saldo/pagos/DPO), **cadena de aprovisionamiento** por factura (orden→recepción→factura→pago — maat_cadena) y hallazgos contables. AÚN NO tienes: flujo de caja proyectado ni auxiliar bancario por banco (las 17 cuentas comparten el código 102). Al usar la balanza recuerda los issues conocidos: 2025 es capa presupuesto, dic-2025 doble, COGS no computable desde may-2026.
+Tienes acceso a: **balanza de comprobación completa** (familias 1-9, cargos/abonos por cuenta×sucursal×mes, ~19 meses — maat_balanza), la **balanza de los LIBROS FISCALES OFICIALES de ContPAQi** (consolidada de la entidad, la verdad del contador/SAT — maat_contpaqi_balanza; úsala para "según los libros oficiales"), el **contraste ingresos libros-vs-operación** (ContPAQi fiscal vs Kepler operativo mes a mes — maat_libros_vs_operacion; el gap suele ser estructural, no error), el **riesgo fiscal de proveedores** (cruce de los proveedores de la contabilidad ContPAQi vs la lista negra del SAT 69/69B EFOS — maat_contpaqi_efos), **P&L contable derivado** (ingresos−costo−gastos por mes — maat_pnl), egresos contables al detalle (compras 511 + gastos 6xx/7xx — maat_egresos), documentos fuente con líneas de producto, auxiliar de proveedores (201: saldo/pagos/DPO), **cadena de aprovisionamiento** por factura (orden→recepción→factura→pago — maat_cadena) y hallazgos contables. Ya tienes **auxiliar bancario por banco** desde los libros ContPAQi (maat_contpaqi_banco) — resuelve el viejo problema de que Kepler mete los 17 bancos en el código 102. AÚN NO tienes: flujo de caja proyectado. Al usar la balanza recuerda los issues conocidos: 2025 es capa presupuesto, dic-2025 doble, COGS no computable desde may-2026.
 
 ## EJEMPLOS (patrón de uso — imita el enfoque, no las cifras)
 - "desglosa una póliza de La Rosa" → maat_buscar_documentos(beneficiario:'LA ROSA') → responde con 2-3 opciones, cada una como link markdown usando su ui_url. NO pidas el folio. Cierra con \`[[SEGUIR]] Ver el detalle de la factura más grande | ¿Cuánto le compramos a La Rosa este año? | ¿Hay facturas duplicadas de este proveedor?\`
@@ -172,6 +172,8 @@ Tienes acceso a: **balanza de comprobación completa** (familias 1-9, cargos/abo
         const fam = i.familia ? ` (familia ${i.familia})` : (i.cuenta ? ` de la cuenta ${i.cuenta}` : '');
         return `Revisando los libros fiscales de ContPAQi${dim}${fam}…`;
       }
+      case 'maat_contpaqi_banco': return `Revisando el auxiliar bancario${i.banco ? ` de ${i.banco}` : ''}…`;
+      case 'maat_contpaqi_efos': return i.solo_69b ? 'Buscando proveedores EFOS (lista negra 69B)…' : 'Cruzando proveedores contra las listas del SAT…';
       case 'maat_libros_vs_operacion': return 'Contrastando los libros fiscales contra la operación…';
       case 'maat_pnl': return `Calculando el estado de resultados${inSuc}…`;
       case 'maat_simular_flujo': return `Simulando el flujo de caja${i.delay_dias ? ` (retraso ${i.delay_dias}d)` : ''}…`;
@@ -256,6 +258,35 @@ Tienes acceso a: **balanza de comprobación completa** (familias 1-9, cargos/abo
             limit: { type: 'number', description: 'Default 30, máx 200.' },
           },
           required: ['group_by'],
+        },
+      },
+      {
+        name: 'maat_contpaqi_banco',
+        description:
+          'AUXILIAR BANCARIO por cuenta de banco, de los libros ContPAQi (movimientos de póliza sobre las cuentas 102xxx): depósitos/retiros/neto por banco o por mes. Llena el hueco que ANTES no existía (Kepler mete los 17 bancos en un solo código 102 → no se podía ver por banco). Para "¿cuánto movió Santander en marzo?", "¿qué banco tiene más salida?", flujo por banco. Cubre 2024+. Meses YYYY-MM.',
+        input_schema: {
+          type: 'object',
+          properties: {
+            group_by: { type: 'string', enum: ['banco', 'mes'], description: 'banco = totales por cuenta de banco · mes = serie mensual (usa `banco` para acotar a uno).' },
+            banco: { type: 'string', description: 'Filtro ILIKE por nombre de banco ("santander", "bajio", "banorte"). Opcional.' },
+            from_mes: { type: 'string', description: "Mes inicio 'YYYY-MM'. Default: hace 12 meses." },
+            to_mes: { type: 'string', description: "Mes fin 'YYYY-MM'. Default: mes actual." },
+            limit: { type: 'number', description: 'Default 40, máx 200.' },
+          },
+          required: ['group_by'],
+        },
+      },
+      {
+        name: 'maat_contpaqi_efos',
+        description:
+          'RIESGO FISCAL: cruza los proveedores de la CONTABILIDAD (ContPAQi) contra la lista negra del SAT. 69B = EFOS (empresas que facturan operaciones simuladas → CFDI NO deducible, foco de auditoría SAT, riesgo ALTO); 69 = art. 69 CFF (incumplidos / no localizados / cancelados → riesgo menor, verificar). Para "¿tenemos proveedores en la lista negra del SAT?", "riesgo de deducibilidad", "proveedores EFOS". Cruce por RFC exacto sobre los proveedores reales de los libros.',
+        input_schema: {
+          type: 'object',
+          properties: {
+            solo_69b: { type: 'boolean', description: 'true → solo EFOS (lista 69B, los graves). Default: todas las listas.' },
+            search: { type: 'string', description: 'Filtro ILIKE por RFC o nombre del proveedor. Opcional.' },
+            limit: { type: 'number', description: 'Default 50, máx 200.' },
+          },
         },
       },
       {
@@ -490,6 +521,8 @@ Tienes acceso a: **balanza de comprobación completa** (familias 1-9, cargos/abo
         case 'maat_egresos': return await this.egresos(input);
         case 'maat_balanza': return await this.balanza(input);
         case 'maat_contpaqi_balanza': return await this.contpaqiBalanza(input);
+        case 'maat_contpaqi_banco': return await this.contpaqiBanco(input);
+        case 'maat_contpaqi_efos': return await this.contpaqiEfos(input);
         case 'maat_libros_vs_operacion': return await this.librosVsOperacion(input);
         case 'maat_pnl': return await this.pnl(input);
         case 'maat_simular_flujo': return await this.simularFlujo(input);
@@ -658,6 +691,65 @@ Tienes acceso a: **balanza de comprobación completa** (familias 1-9, cargos/abo
         fuente: 'ContPAQi (libros fiscales oficiales, consolidado de la entidad)',
         from_mes, to_mes,
         rows: col(rows.map((r) => ({ [q.group_by]: r.key, cargos: Number(r.cargos), abonos: Number(r.abonos), neto: Number(r.neto) }))),
+      };
+    });
+  }
+
+  // ── CP.2 (Fase CP, ADR-035) — Auxiliar bancario por banco (libros ContPAQi) ──
+  // analytics.contpaqi_bank_movements = movimientos de póliza sobre cuentas 102xxx (por banco).
+  // Llena el hueco "los 17 bancos comparten el 102" de Kepler. Sin RLS → tenant explícito.
+  private async contpaqiBanco(q: any) {
+    const { from_mes, to_mes } = this.mesRange(q);
+    const limit = Math.min(200, Math.max(1, Number(q.limit) || 40));
+    const byMes = q.group_by === 'mes';
+    return this.tk.run(async (trx) => {
+      const b = trx('analytics.contpaqi_bank_movements as m')
+        .where('m.tenant_id', this.tenantId())
+        .andWhere('m.anio_mes', '>=', from_mes).andWhere('m.anio_mes', '<=', to_mes);
+      if (q.banco) b.whereRaw('m.cuenta_nombre ILIKE ?', [`%${String(q.banco).trim()}%`]);
+      b.groupByRaw(byMes ? 'm.anio_mes' : 'm.cuenta, m.cuenta_nombre')
+        .select(trx.raw(`${byMes ? 'm.anio_mes' : 'm.cuenta_nombre'} AS key`))
+        .select(trx.raw("ROUND(SUM(m.importe) FILTER (WHERE m.flujo='deposito')::numeric,2) AS depositos"))
+        .select(trx.raw("ROUND(SUM(m.importe) FILTER (WHERE m.flujo='retiro')::numeric,2) AS retiros"))
+        .select(trx.raw('COUNT(*)::int AS movs'))
+        .limit(limit);
+      if (byMes) b.orderByRaw('1');
+      else b.orderByRaw("SUM(m.importe) DESC");
+      const rows: any[] = await b;
+      return {
+        fuente: 'ContPAQi (auxiliar bancario, libros)', from_mes, to_mes, banco: q.banco || null,
+        rows: col(rows.map((r) => {
+          const dep = Number(r.depositos) || 0, ret = Number(r.retiros) || 0;
+          return { [byMes ? 'mes' : 'banco']: String(r.key || '').trim(), depositos: dep, retiros: ret, neto: Math.round((dep - ret) * 100) / 100, movs: Number(r.movs) };
+        })),
+      };
+    });
+  }
+
+  // ── CP.3 (Fase CP, ADR-035) — Riesgo fiscal: proveedores ContPAQi vs lista negra SAT ──
+  // Cruza analytics.contpaqi_suppliers.rfc contra fiscal.sat_list_rfcs (69/69B). Ambas sin RLS
+  // por-tenant (sat_list_rfcs es catálogo global); app_runtime tiene SELECT en las dos.
+  private async contpaqiEfos(q: any) {
+    const limit = Math.min(200, Math.max(1, Number(q.limit) || 50));
+    const tenantId = this.tenantId();
+    return this.tk.run(async (trx) => {
+      const b = trx('analytics.contpaqi_suppliers as s')
+        .join('fiscal.sat_list_rfcs as l', 'l.rfc', 's.rfc')
+        .where('s.tenant_id', tenantId).whereNotNull('s.rfc');
+      if (q.solo_69b) b.where('l.lista', '69B');
+      if (q.search && String(q.search).trim()) {
+        const t = `%${String(q.search).trim()}%`;
+        b.whereRaw('(s.rfc ILIKE ? OR s.nombre ILIKE ?)', [t, t]);
+      }
+      const rows: any[] = await b
+        .select('s.codigo', 's.nombre', 's.rfc', 'l.lista', 'l.situacion', trx.raw('l.fecha_publicacion::date AS fecha_publicacion'))
+        .orderByRaw("CASE l.lista WHEN '69B' THEN 0 ELSE 1 END, s.nombre")
+        .limit(limit);
+      const en69b = rows.filter((r) => r.lista === '69B').length;
+      return {
+        total: rows.length, en_69b: en69b,
+        nota: '69B = EFOS (facturan operaciones simuladas): CFDI NO deducible, riesgo ALTO y foco de auditoría SAT — prioriza estos. 69 = art. 69 CFF (incumplidos/no localizados/cancelados): riesgo menor, verificar caso por caso. Cruce por RFC exacto sobre los proveedores de la contabilidad.',
+        rows: col(rows.map((r) => ({ rfc: r.rfc, nombre: r.nombre, lista: r.lista, situacion: r.situacion, codigo: String(r.codigo).trim() }))),
       };
     });
   }

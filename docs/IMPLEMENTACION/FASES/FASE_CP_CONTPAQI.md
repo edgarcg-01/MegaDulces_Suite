@@ -109,10 +109,14 @@ Migraciones idempotentes (`database/migrations-newdb/`), grants `app_runtime`, s
 - **Smoke** `test-newdb-contpaqi-bank-link.js` **6/6**: **16/18 cuentas de banco auto-enlazan** a su cuenta contable ContPAQi. `nx build api` verde.
 
 **Frontend ✅ 2026-07-27 (local):** nueva tab **"vs ContPAQi"** en `/finanzas/bancos` (`WORK_VIEWS` + `BankView`). Componente `bancos-contpaqi.component.ts` (presentacional, answer-first calcado de `conciliacion`): veredicto Depósitos/Retiros **Excel vs LIBROS ContPAQi** + Δ + estado (cuadra/no), tabla por cuenta (enlazada/sin enlazar/sin Excel), botón **Enlazar cuentas**. Service `contpaqiCompare()`+`linkContpaqi()`. Shell wireado (carga lazy + toast + reset por periodo). Solo tokens (dark-safe), PrimeNG. `nx build view` verde.
-- **CP.2 = 🟢 rebanada vertical completa** (staging + crosswalk + endpoints + UI). **Pendiente prod:** aplicar migs (bank movements + link) a Railway + correr importers en la máquina de feeds + llamar al endpoint link una vez. **Valor #2: conciliación bancaria anclada en la contabilidad real, no en el proxy Kepler-102.**
+- **Tool Maat `maat_contpaqi_banco` ✅ 2026-07-27:** auxiliar bancario por banco (depósitos/retiros/neto por cuenta o por mes) desde `analytics.contpaqi_bank_movements`. **Llena un hueco explícito de Maat** (el prompt decía "AÚN NO tienes auxiliar bancario por banco — las 17 cuentas comparten el 102"; actualizado). Validado en vivo (BBVA 0174915712 ~$84M dep/ret 2026-H1). `nx build api` verde.
+- **CP.2 = 🟢 rebanada vertical completa** (staging + crosswalk + endpoints + UI + tool Maat). **Pendiente prod:** aplicar migs (bank movements + link) a Railway + correr importers en la máquina de feeds + llamar al endpoint link una vez. **Valor #2: conciliación bancaria anclada en la contabilidad real, no en el proxy Kepler-102.**
 
-### CP.3 — Feed CFDI / proveedores → materialidad + fiscal
-- Pull `Proveedores`(RFC, retenciones) + `DocumentosAdministrativos`(UUID) + `AsocCFDIs`(UUID↔movimiento) → alimenta **MAT** (materialidad CFDI↔póliza) y **fiscal** (EFOS/69-B por RFC, Fase FISCAL). Los XML/PDF del ADD quedan disponibles si se requieren.
+### CP.3 — Proveedores ContPAQi × lista negra SAT (EFOS) 🔨 SLICE ✅ 2026-07-27 (local)
+- **Migración** `20260727150000_analytics_contpaqi_suppliers.js` (Batch 221) + **importer** `import-contpaqi-suppliers.js`: `analytics.contpaqi_suppliers` (RFC + retenciones). **Cargado: 3,411 proveedores, 3,398 con RFC** (99.6%).
+- **Tool Maat `maat_contpaqi_efos`**: cruza los proveedores de la contabilidad vs `fiscal.sat_list_rfcs` (69/69B). El `nota` prioriza **69B = EFOS** (operaciones simuladas, CFDI no deducible, riesgo alto).
+- **Hallazgo fiscal real:** **109 proveedores en listas SAT — 103 en '69' + 6 en '69B' (EFOS)**. Grants `app_runtime` verificados en ambas tablas del cruce. Smoke `test-newdb-contpaqi-efos.js` **9/9** + en `run-all-tests`. `nx build api` verde.
+- **Diferido:** materialidad CFDI↔póliza vía `DocumentosAdministrativos`(UUID) + `AsocCFDIs` (integración con el módulo MAT — surface más grande). Los XML/PDF del ADD quedan disponibles.
 
 ### CP.4 — "Libros vs Operación" en Maat 🔨 TOOL ✅ 2026-07-27 (local)
 - **Tool `maat_libros_vs_operacion`** en `maat-tools.service.ts`: contrasta ingresos (fam4) **ContPAQi (fiscal)** vs **Kepler (operación, CEDIS 00)** mes a mes → Δ + ratio %. Read-only, determinista, sin schema nuevo.

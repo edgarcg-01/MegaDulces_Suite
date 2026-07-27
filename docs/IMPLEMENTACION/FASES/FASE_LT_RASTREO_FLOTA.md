@@ -1,6 +1,6 @@
 # Fase LT — Rastreo de flota GPS (MagniTracking)
 
-> **Estado:** 🟢 LT.0 + LT.1 + LT.2 + LT.3 (parte visible) ✅ local (beta) — 2026-07-27.
+> **Estado:** 🟢 LT.0 + LT.1 + LT.2 + LT.3 (visible) + LT.5 (bootstrap) ✅ local (beta) — 2026-07-27.
 > **ADR:** ADR-034 (proveedor de rastreo detrás de puerto; sin API oficial → sesión).
 > Hereda ADR-016 (el motor/adaptador trae datos, el LLM fuera).
 
@@ -79,10 +79,11 @@ superficie Operations (quiet-luxury, `surf-page`, `p-tag` por estado, Geist mono
 - **Prod (Railway):** aplicar migs `20260727180000` + `20260727181000`; setear
   `MAGNI_USER`/`MAGNI_PASS` (y `MEGADULCES_TENANT_ID` si difiere) en el env del API;
   redeploy api+view. **Rotar** el password del proveedor.
-- **Auto-match débil (2/50):** las placas en `logistics.vehicles` (seed) casi no
-  coinciden con las de los nombres del GPS. Con flota real mejora; el resto se
-  vincula manual desde la UI. Alternativa: bootstrap de `logistics.vehicles` desde
-  los trackers.
+- **Auto-match (resuelto por LT.5 bootstrap):** el sync inline solo vinculaba 2/50
+  (placas seed ≠ nombres GPS). `POST /logistics/tracking/bootstrap-vehicles` (botón
+  "Vincular por placa") crea vehículos desde el nombre del GPS (`extractPlate`/
+  `extractBrand`) y vincula → **48/50** (2 sin placa: "DESCONTINUADO" + numérica).
+  Idempotente; dos trackers con la misma placa (GPS + dashcam) comparten vehículo.
 - **LT.3 server-side (diferido):** hoy las alertas son client-side (solo con la
   página abierta). Para vigilancia proactiva: un `@Cron` scanner (patrón
   `AlertsScannerService`) que empuje alertas por WS/`AlertsGateway`.
