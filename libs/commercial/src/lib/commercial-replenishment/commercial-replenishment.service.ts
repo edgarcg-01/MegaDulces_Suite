@@ -206,6 +206,16 @@ export class CommercialReplenishmentService {
         .leftJoin(
           trx.raw(`(SELECT tenant_id, product_id, max(box_size) AS bs FROM commercial.product_label_prices GROUP BY tenant_id, product_id) as lbl`),
           (j: any) => j.on('lbl.tenant_id', 'rp.tenant_id').andOn('lbl.product_id', 'rp.product_id'))
+        // RA-PRO.16 — SUPERÁVIT DE RED por producto: Σ (existencia − máximo) en TODAS las sucursales del tenant.
+        // Sirve para cubrir el déficit de una sucursal con el sobrante de otra (traspaso) ANTES de comprar.
+        .leftJoin(
+          trx.raw(`(SELECT rp2.product_id,
+                      SUM(GREATEST(0, (COALESCE(s2.quantity,0) - COALESCE(s2.reserved_quantity,0)) - rp2.max_stock)) AS surplus_total
+                    FROM commercial.reorder_policy rp2
+                    LEFT JOIN commercial.stock s2 ON s2.tenant_id = rp2.tenant_id AND s2.warehouse_id = rp2.warehouse_id AND s2.product_id = rp2.product_id
+                    WHERE rp2.tenant_id = ?
+                    GROUP BY rp2.product_id) as sbp`, [tenantId]),
+          (j: any) => j.on('sbp.product_id', 'rp.product_id'))
         // Ranking POR VENTAS relativo al filtro (rankSub arriba): #1 = el que más vende
         // en la sucursal dentro del universo seleccionado. Solo los que venden reciben
         // rank (demanda 0 → NULL vía el leftJoin).
@@ -276,6 +286,19 @@ export class CommercialReplenishmentService {
           trx.raw(`${this.bucketExpr()} AS bucket`),
           trx.raw(`GREATEST(0, ${target} - ${oh} - ${it}) AS suggested_qty`),
           trx.raw(`ROUND(GREATEST(0, ${target} - ${oh} - ${it}) * ${this.costUnit()}, 2) AS suggested_cost`),
+          // RA-PRO.16 — Redistribución: cubrir el sugerido con sobrante de OTRA sucursal antes de comprar.
+          trx.raw(`GREATEST(0, ${oh} - rp.max_stock) AS surplus_here`),                                  // sobrante en ESTE almacén (traspasar a otra)
+          trx.raw(`GREATEST(0, COALESCE(sbp.surplus_total,0) - GREATEST(0, ${oh} - rp.max_stock)) AS surplus_network`), // sobrante del producto en OTRAS sucursales
+          trx.raw(`LEAST(GREATEST(0, ${target} - ${oh} - ${it}), GREATEST(0, COALESCE(sbp.surplus_total,0) - GREATEST(0, ${oh} - rp.max_stock))) AS transfer_in`), // cubrible por traspaso
+          trx.raw(`GREATEST(0, GREATEST(0, ${target} - ${oh} - ${it}) - LEAST(GREATEST(0, ${target} - ${oh} - ${it}), GREATEST(0, COALESCE(sbp.surplus_total,0) - GREATEST(0, ${oh} - rp.max_stock)))) AS buy_qty`), // compra REAL (residual)
+          trx.raw(`ROUND(GREATEST(0, GREATEST(0, ${target} - ${oh} - ${it}) - LEAST(GREATEST(0, ${target} - ${oh} - ${it}), GREATEST(0, COALESCE(sbp.surplus_total,0) - GREATEST(0, ${oh} - rp.max_stock)))) * ${this.costUnit()}, 2) AS buy_cost`),
+          trx.raw(`CASE
+              WHEN GREATEST(0, ${oh} - rp.max_stock) > 0 THEN 'sobrante'
+              WHEN LEAST(GREATEST(0, ${target} - ${oh} - ${it}), GREATEST(0, COALESCE(sbp.surplus_total,0) - GREATEST(0, ${oh} - rp.max_stock))) > 0
+                   AND GREATEST(0, ${target} - ${oh} - ${it}) - LEAST(GREATEST(0, ${target} - ${oh} - ${it}), GREATEST(0, COALESCE(sbp.surplus_total,0) - GREATEST(0, ${oh} - rp.max_stock))) <= 0 THEN 'traspaso'
+              WHEN LEAST(GREATEST(0, ${target} - ${oh} - ${it}), GREATEST(0, COALESCE(sbp.surplus_total,0) - GREATEST(0, ${oh} - rp.max_stock))) > 0 THEN 'traspaso_parcial'
+              WHEN GREATEST(0, ${target} - ${oh} - ${it}) > 0 THEN 'comprar'
+              ELSE 'ok' END AS accion`),
         )
         // Dinero primero: el sugerido valorizado ($) manda. Sin esto, los 3k+
         // agotados (muchos SKUs admin/insumo con costo 0) acaparan 60+ páginas
@@ -343,6 +366,13 @@ export class CommercialReplenishmentService {
         .join('catalog.products as pr', (j) => j.on('pr.tenant_id', 'rp.tenant_id').andOn('pr.id', 'rp.product_id'))
         .leftJoin('analytics.purchase_in_transit as pit', (j) =>
           j.on('pit.tenant_id', 'rp.tenant_id').andOn('pit.warehouse_id', 'rp.warehouse_id').andOn('pit.product_id', 'rp.product_id'))
+        // RA-PRO.16 — superávit de red por producto (para el $ traspasable vs compra real del filtro)
+        .leftJoin(
+          trx.raw(`(SELECT rp2.product_id, SUM(GREATEST(0, (COALESCE(s2.quantity,0) - COALESCE(s2.reserved_quantity,0)) - rp2.max_stock)) AS surplus_total
+                    FROM commercial.reorder_policy rp2
+                    LEFT JOIN commercial.stock s2 ON s2.tenant_id = rp2.tenant_id AND s2.warehouse_id = rp2.warehouse_id AND s2.product_id = rp2.product_id
+                    WHERE rp2.tenant_id = ? GROUP BY rp2.product_id) as sbp`, [tenantId]),
+          (j: any) => j.on('sbp.product_id', 'rp.product_id'))
         .where('rp.tenant_id', tenantId)
         .andWhere('pr.activo', true); // no contar productos descontinuados en los KPIs
       const whIds = this.whIds(q);
@@ -364,6 +394,9 @@ export class CommercialReplenishmentService {
           trx.raw(`COUNT(*) FILTER (WHERE rp.max_stock > 0 AND ${oh} > rp.max_stock)::int AS sobrestock`),
           trx.raw('COUNT(*)::int AS total_policies'),
           trx.raw(`ROUND(SUM(GREATEST(0, ${target} - ${oh} - ${it}) * ${cost}) FILTER (WHERE ${oh} <= rp.reorder_point), 2) AS sugerido_costo`),
+          // RA-PRO.16 — del sugerido, cuánto se cubre con TRASPASO (sobrante de otra sucursal) vs COMPRA real.
+          trx.raw(`ROUND(SUM(LEAST(GREATEST(0, ${target} - ${oh} - ${it}), GREATEST(0, COALESCE(sbp.surplus_total,0) - GREATEST(0, ${oh} - rp.max_stock))) * ${cost}), 2) AS traspasable_valor`),
+          trx.raw(`ROUND(SUM(GREATEST(0, GREATEST(0, ${target} - ${oh} - ${it}) - LEAST(GREATEST(0, ${target} - ${oh} - ${it}), GREATEST(0, COALESCE(sbp.surplus_total,0) - GREATEST(0, ${oh} - rp.max_stock)))) * ${cost}), 2) AS compra_real_valor`),
           // RA-PRO.15 — VALOR del punto de abasto (Σ umbral × costo/caja) + existencia actual, según el filtro.
           trx.raw(`ROUND(SUM(rp.min_stock * ${cost}), 2) AS min_valor`),
           trx.raw(`ROUND(SUM(rp.reorder_point * ${cost}), 2) AS reorden_valor`),
