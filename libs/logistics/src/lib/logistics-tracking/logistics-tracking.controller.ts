@@ -50,6 +50,13 @@ export class LogisticsTrackingController {
     return this.service.sync();
   }
 
+  @Post('bootstrap-vehicles')
+  @RequirePermissions(Permission.LOGISTICS_FLEET_GESTIONAR)
+  @ApiOperation({ summary: 'Crear vehículos desde los trackers sin vincular (por placa)' })
+  bootstrapVehicles() {
+    return this.service.bootstrapVehicles();
+  }
+
   @Patch('trackers/:id/link')
   @RequirePermissions(Permission.LOGISTICS_FLEET_GESTIONAR)
   @ApiOperation({ summary: 'Vincular/desvincular un tracker a un vehículo' })

@@ -38,6 +38,33 @@ async function post(path, body) {
 const mapStatus = (s) => ({ m: 'moving', s: 'stopped', off: 'offline' }[s] || 'unknown');
 const toIso = (dt) => { const m = (dt || '').match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})/); return m ? `${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}:${m[6]}-06:00` : null; };
 const parseRoute = (n) => { const m = (n || '').match(/R[\s-]?(\d{1,3})\b/i); return m ? `R-${m[1]}` : null; };
+const KNOWN_BRANDS = ['NISSAN', 'CHEVROLET', 'FORD', 'RAM', 'DODGE', 'TOYOTA', 'HONDA', 'VOLKSWAGEN', 'VW', 'AVANZA', 'ITALIKA', 'TRANSIT', 'SUBURBAN', 'SAVEIRO', 'JEEP', 'MAZDA', 'HINO', 'ISUZU', 'INTERNATIONAL', 'FREIGHTLINER', 'KENWORTH'];
+function extractPlate(name) {
+  if (!name) return null;
+  const toks = name.toUpperCase().replace(/\([^)]*\)/g, ' ').split(/[^A-Z0-9]+/).filter(Boolean);
+  const cands = toks.filter((t) => t.length >= 5 && t.length <= 8 && /[A-Z]/.test(t) && /\d/.test(t) && !/^R\d+$/.test(t));
+  return cands.length ? cands[cands.length - 1] : null;
+}
+function extractBrand(name) {
+  if (!name) return null;
+  const toks = name.toUpperCase().replace(/\([^)]*\)/g, ' ').split(/[^A-Z0-9]+/).filter(Boolean);
+  return toks.find((t) => KNOWN_BRANDS.includes(t)) || toks[0] || null;
+}
+async function bootstrap(client) {
+  await client.query('BEGIN'); await client.query(`SET LOCAL app.tenant_id = '${TENANT}'`);
+  const trackers = (await client.query('select id, external_name from logistics.trackers where deleted_at is null and vehicle_id is null')).rows;
+  let created = 0, linked = 0, skipped = 0;
+  for (const t of trackers) {
+    const plate = extractPlate(t.external_name);
+    if (!plate) { skipped++; continue; }
+    let veh = (await client.query('select id from logistics.vehicles where plate=$1 and deleted_at is null', [plate])).rows[0];
+    if (!veh) { veh = (await client.query("insert into logistics.vehicles (tenant_id,plate,brand,status,active,notes) values (public.current_tenant_id(),$1,$2,'disponible',true,$3) returning id", [plate, extractBrand(t.external_name), `Auto-creado desde rastreo GPS: ${t.external_name}`])).rows[0]; created++; }
+    await client.query('update logistics.trackers set vehicle_id=$2, updated_at=now() where id=$1', [t.id, veh.id]);
+    linked++;
+  }
+  await client.query('COMMIT');
+  return { created, linked, skipped };
+}
 function matchVehicle(name, vehicles) {
   const toks = new Set((name || '').toUpperCase().split(/[^A-Z0-9]+/).filter((t) => t.length >= 5));
   for (const v of vehicles) if (v.plate && toks.has(v.plate.toUpperCase())) return v.id;
@@ -97,7 +124,7 @@ async function sync(client, objects) {
     const r1 = await sync(client, objects);
     console.log('  sync #1:', JSON.stringify(r1));
     assert(r1.created + r1.updated === objects.length, 'todos los objetos upserted como trackers');
-    assert(r1.linked > 0, `auto-match vinculó ${r1.linked} trackers a vehículos por placa`);
+    console.log(`  auto-match (delta esta corrida): ${r1.linked}`);
 
     await client.query('BEGIN'); await client.query(`SET LOCAL app.tenant_id = '${TENANT}'`);
     const tc = (await client.query('select count(*)::int n from logistics.trackers')).rows[0].n;
@@ -112,6 +139,19 @@ async function sync(client, objects) {
     console.log('  sync #2:', JSON.stringify(r2));
     assert(r2.created === 0, 'sync idempotente: 0 trackers nuevos en 2da corrida');
     assert(r2.positions <= r1.positions, 'dedupe de posiciones: 2da corrida no re-inserta el mismo fix');
+
+    const b1 = await bootstrap(client);
+    console.log('  bootstrap:', JSON.stringify(b1));
+    const withPlate = objects.filter((o) => extractPlate(o.name)).length;
+
+    await client.query('BEGIN'); await client.query(`SET LOCAL app.tenant_id = '${TENANT}'`);
+    const linkedNow = (await client.query('select count(*)::int n from logistics.trackers where vehicle_id is not null')).rows[0].n;
+    await client.query('COMMIT');
+    assert(withPlate > objects.length / 2, `${withPlate}/${objects.length} trackers con placa parseable`);
+    assert(linkedNow === withPlate, `todos los trackers con placa quedaron vinculados (${linkedNow}/${withPlate})`);
+
+    const b2 = await bootstrap(client);
+    assert(b2.created === 0 && b2.linked === 0, 'bootstrap idempotente: 2da corrida no crea ni vincula');
 
     console.log(`\n✅ ${assertions}/${assertions} asserts OK\n`);
     process.exit(0);

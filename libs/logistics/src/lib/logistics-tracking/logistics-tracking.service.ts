@@ -217,6 +217,46 @@ export class LogisticsTrackingService {
     });
   }
 
+  /**
+   * Bootstrap: crea vehículos en logistics.vehicles a partir de los trackers sin
+   * vincular (extrae la placa del nombre del GPS) y los vincula. Dos trackers con
+   * la misma placa (GPS + dashcam) comparten el vehículo. Idempotente.
+   */
+  async bootstrapVehicles(tenantId: string = DEFAULT_TENANT_ID) {
+    return this.tk.run(tenantId, async (trx) => {
+      const trackers: Array<{ id: string; external_name: string | null }> = await trx('logistics.trackers')
+        .whereNull('deleted_at')
+        .whereNull('vehicle_id')
+        .select('id', 'external_name');
+      let created = 0;
+      let linked = 0;
+      let skipped = 0;
+      for (const t of trackers) {
+        const plate = extractPlate(t.external_name);
+        if (!plate) { skipped++; continue; }
+        let veh = await trx('logistics.vehicles').where({ plate }).whereNull('deleted_at').first('id');
+        if (!veh) {
+          const [row] = await trx('logistics.vehicles')
+            .insert({
+              tenant_id: trx.raw('public.current_tenant_id()'),
+              plate,
+              brand: extractBrand(t.external_name),
+              status: 'disponible',
+              active: true,
+              notes: `Auto-creado desde rastreo GPS: ${t.external_name}`,
+            })
+            .returning('id');
+          veh = row;
+          created++;
+        }
+        await trx('logistics.trackers').where({ id: t.id }).update({ vehicle_id: veh.id, updated_at: trx.fn.now() });
+        linked++;
+      }
+      this.logger.log(`bootstrapVehicles: ${created} vehículos creados, ${linked} trackers vinculados, ${skipped} sin placa`);
+      return { created, linked, skipped };
+    });
+  }
+
   /** Vincula (o desvincula con null) un tracker a un vehículo. */
   async linkTracker(trackerId: string, vehicleId: string | null) {
     if (!UUID_REGEX.test(trackerId)) throw new BadRequestException('trackerId inválido');
@@ -246,6 +286,34 @@ export class LogisticsTrackingService {
 export function parseRoute(name: string): string | null {
   const m = (name || '').match(/R[\s-]?(\d{1,3})\b/i);
   return m ? `R-${m[1]}` : null;
+}
+
+const KNOWN_BRANDS = [
+  'NISSAN', 'CHEVROLET', 'FORD', 'RAM', 'DODGE', 'TOYOTA', 'HONDA', 'VOLKSWAGEN',
+  'VW', 'AVANZA', 'ITALIKA', 'TRANSIT', 'SUBURBAN', 'SAVEIRO', 'JEEP', 'MAZDA',
+  'HINO', 'ISUZU', 'INTERNATIONAL', 'FREIGHTLINER', 'KENWORTH',
+];
+
+/**
+ * Extrae la placa del nombre del GPS. Quita paréntesis (rutas/DASHCAM) y toma el
+ * último token 5–8 alfanumérico con letra+dígito que no sea una ruta R-NN.
+ * "CHEVROLET S10 MW7947C (CAM)R-321" → "MW7947C"; "AVANZA PLU992A" → "PLU992A".
+ */
+export function extractPlate(name: string | null): string | null {
+  if (!name) return null;
+  const clean = name.toUpperCase().replace(/\([^)]*\)/g, ' ');
+  const toks = clean.split(/[^A-Z0-9]+/).filter(Boolean);
+  const cands = toks.filter(
+    (t) => t.length >= 5 && t.length <= 8 && /[A-Z]/.test(t) && /\d/.test(t) && !/^R\d+$/.test(t),
+  );
+  return cands.length ? cands[cands.length - 1] : null;
+}
+
+/** Marca conocida (primer token que matchee la lista), o el primer token. */
+export function extractBrand(name: string | null): string | null {
+  if (!name) return null;
+  const toks = name.toUpperCase().replace(/\([^)]*\)/g, ' ').split(/[^A-Z0-9]+/).filter(Boolean);
+  return toks.find((t) => KNOWN_BRANDS.includes(t)) || toks[0] || null;
 }
 
 /** Empareja por placa: si algún token del nombre === placa de un vehículo. */

@@ -11,6 +11,7 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ButtonModule } from 'primeng/button';
 import { TagModule } from 'primeng/tag';
+import { TooltipModule } from 'primeng/tooltip';
 import { MapComponent, MapMarker } from '../../../shared/components/map/map.component';
 import {
   LogisticaService,
@@ -40,7 +41,7 @@ const SPEED_ALERT_KMH = 90;
 @Component({
   selector: 'app-logistica-rastreo',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, TagModule, MapComponent],
+  imports: [CommonModule, FormsModule, ButtonModule, TagModule, TooltipModule, MapComponent],
   template: `
     <div class="surf-page">
       <header class="surf-page-head">
@@ -54,6 +55,9 @@ const SPEED_ALERT_KMH = 90;
           </p>
         </div>
         <div class="rk-actions">
+          <button pButton icon="pi pi-link" label="Vincular por placa" severity="secondary" size="small" [text]="true"
+                  [loading]="bootstrapping()" (click)="bootstrap()" aria-label="Crear y vincular vehículos por placa"
+                  pTooltip="Crea vehículos desde los nombres del GPS y los vincula por placa"></button>
           <button pButton icon="pi pi-sync" label="Sincronizar" severity="secondary" size="small"
                   [loading]="syncing()" (click)="syncNow()" aria-label="Forzar sincronización con el proveedor"></button>
           <button pButton icon="pi pi-refresh" label="Actualizar" [text]="true" size="small"
@@ -245,6 +249,7 @@ export class LogisticaRastreoComponent {
   readonly vehicles = signal<Vehicle[]>([]);
   readonly loading = signal(false);
   readonly syncing = signal(false);
+  readonly bootstrapping = signal(false);
   readonly errored = signal(false);
   readonly selectedId = signal<string | number | null>(null);
   readonly showTrail = signal(false);
@@ -318,6 +323,14 @@ export class LogisticaRastreoComponent {
     this.api.trackingSyncNow().subscribe({
       next: () => { this.syncing.set(false); this.refresh(); },
       error: () => this.syncing.set(false),
+    });
+  }
+
+  bootstrap() {
+    this.bootstrapping.set(true);
+    this.api.trackingBootstrapVehicles().subscribe({
+      next: () => { this.bootstrapping.set(false); this.loadVehicles(); this.refresh(); },
+      error: () => this.bootstrapping.set(false),
     });
   }
 
