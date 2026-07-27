@@ -95,10 +95,13 @@ Migraciones idempotentes (`database/migrations-newdb/`), grants `app_runtime`, s
 - **Smoke** `test-newdb-contpaqi-ledger.js` **18/18** + registrado en `run-all-tests` (tolerante si no hay import).
 - **Pendiente:** tool `maat_contpaqi_balanza` (exponer a Maat) + wire en `run-prod-feeds nightly` + `contpaqi.sync_state` + `CONTPAQI_SQL_PASSWORD` en `.env` de la máquina de feeds (el importer default a `superoot`). **Valor #1: Maat sobre los libros fiscales reales, sin reconstruir desde Kepler.**
 
-### CP.2 — Upgrade de la Fase CB con bancos reales
-- **Crosswalk** `finance.bank_accounts` ↔ cuentas ContPAQi `102xxxxxxx` (match por número de cuenta embebido en el nombre) → reemplaza el proxy "Kepler 102".
-- **Pull** `Egresos`+`Cheques`+`DocumentosBancarios` (lado-banco autoritativo con folio de póliza + CFDI) → la conciliación de `/finanzas/bancos` casa contra **pagos reales con póliza**, no contra matching por nombre. (Cierra la brecha del matcher token-name de CB.15.)
-- **Valor #2: conciliación bancaria de verdad, anclada en la contabilidad.**
+### CP.2 — Ledger bancario ContPAQi → `analytics.contpaqi_bank_movements` 🔨 PULL ✅ 2026-07-27 (local)
+- **Corrección de decode:** los módulos `Egresos`/`Cheques`/`DocumentosBancarios` de ContPAQi **cayeron en desuso** (solo 2018-2019). El lado-banco **vivo** son los **movimientos de póliza sobre cuentas `102xxxxxxx`** (2024=57k, 2025=59k, 2026=32k). `CuentasCheques` = maestro de cuentas bancarias (número + banco), sin `IdCuenta` contable.
+- **Migración** `20260727130000_analytics_contpaqi_bank_movements.js` (Batch 217 local): tabla por movimiento (cuenta banco, fecha, `flujo` deposito/retiro, importe, folio de póliza, `concepto` de la póliza, `es_conciliado`). PK `(tenant_id, id_movimiento)`.
+- **Importer** `import-contpaqi-bank-movements.js` (`--from` año, default 2024, UPSERT). **Cargado: 147,952 movimientos** (2024+). Cargo=depósito / abono=retiro (cuenta de activo). `Referencia` de línea va vacía → `concepto` = `Polizas.Concepto`.
+- **✅ Validado vs Fase CB:** enero 2026 → ContPAQi **4,848 movimientos** ≈ workbook CB **4,865** (mismo universo). Depósitos $79.2M = ingresos CB $52.9M + traspasos $25.4M. **El ledger bancario de ContPAQi ES el del workbook, reconciliable.**
+- **Smoke** `test-newdb-contpaqi-bank.js` **17/17** + registrado en `run-all-tests`.
+- **Pendiente (integración con CB):** crosswalk `finance.bank_accounts` ↔ cuenta `102xxx` (por número embebido en el nombre) + que `/finanzas/bancos` concilie contra este ledger (folio de póliza) en vez del proxy "Kepler 102" y del matcher token-name (CB.15). **Valor #2: conciliación bancaria anclada en la contabilidad real.**
 
 ### CP.3 — Feed CFDI / proveedores → materialidad + fiscal
 - Pull `Proveedores`(RFC, retenciones) + `DocumentosAdministrativos`(UUID) + `AsocCFDIs`(UUID↔movimiento) → alimenta **MAT** (materialidad CFDI↔póliza) y **fiscal** (EFOS/69-B por RFC, Fase FISCAL). Los XML/PDF del ADD quedan disponibles si se requieren.

@@ -6,6 +6,16 @@
 
 ---
 
+## 2026-07-27 — RR: venta en ruta del PUSH (.249) → reporte (cierra cutover PH)
+
+**Síntoma (reportado):** `/comercial/ventas-por-ruta` mostraba julio casi vacío. Diagnóstico: **cutover a fin de junio** — las rutas de PH (21-28) migraron de las Access `.mdb` de Wincaja (fuente legacy, congelada 06-27) al **PUSH**: cada camioneta corre Kepler local y sube su venta cada 15 min al runner `192.168.0.249:5433/kepler_consolidado` (`mart.ventas`, `sucursal='ruta_NN'`). El push llegaba fresco (ruta_23/26/27 hoy, resto 2 días) pero **no había puente hacia la plataforma** → el reporte seguía leyendo el `.mdb` retirado. (Conexión verificada OK; no era caída.) Confirmado también que las series Kepler `UD100N` de PH son **cajas de mostrador** (5 registradoras, ~5,800 tickets c/u), NO rutas → correcto excluirlas.
+
+**Fix (2 piezas, sin tocar backend/frontend del reporte):**
+- **Nuevo feed** `database/importers/kepler/import-route-push-monthly.js`: `.249 mart.ventas ruta_NN` → `analytics.sales_by_route_monthly` con `route_code='WIN-<NN>'` (mismo namespace Wincaja → **una sola fila continua** por ruta) + warehouse por prefijo de almacén ('01-003'→'01'). **UPSERT GREATEST** (julio crece con los días; la cola de junio del push nunca degrada el mes completo Wincaja → sin doble conteo). Agregado a `run-prod-feeds.js` nightly.
+- **`import-wincaja-routes-monthly.js`**: cambiado de `DELETE 'WIN-%' (todo el año) + INSERT` a **UPSERT (`onConflict.merge`)**, para que NO borre el namespace completo y **no pise el julio del push** (Wincaja no tiene julio de PH). Overwrite por combinación (bronze = snapshot completo).
+
+**Red (prod):** feed aplicado (10 filas WIN-21..28). Julio pasó de **6 rutas/$1.75M → 12 rutas/$4.14M**. Coexistencia probada: corrí AMBOS feeds y el julio del push **sobrevivió** intacto, junio sin cambios (sin doble conteo). Falta: **RUTA 321** (Morelia) sigue rezagada (Wincaja `.mdb` sin sync desde 06-02) — issue aparte, no PH. **Limitación conocida:** el drill-down (side-peek) lee `wincaja.v_sales_lines`, que no tiene el push → detalle de julio de rutas PH sale vacío (la matriz sí muestra). Feed line-level del push = follow-up.
+
 ## 2026-07-27 — Auditoría del módulo `/compras` (Fase RA): 4 correcciones + doc al día
 
 **Contexto:** el usuario pidió analizar todo el módulo `/compras` y corregir las observaciones encontradas. Mapa: backend `libs/commercial/commercial-replenishment` (2 controllers + `CommercialReplenishmentService` 1075 L + `CommercialPurchaseOrdersService` + `ReplenishmentScannerService` + export XLSX), frontend 12 páginas en `/compras/*` + `compras.service.ts` (618 L). Alcance real = superset de RA.0–RA.14: también RA-PRO.1/2/3/6/8/9/10/12/13 + RA.15/ADR-031 (cadena OC→OE que mueve stock) + asistente conversacional.
