@@ -36,6 +36,7 @@ export class OrderStockService {
     productId: string,
     quantity: number,
     orderId: string,
+    referenceType = 'order',
   ): Promise<void> {
     await this.assertNotFrozen(trx, warehouseId);
     const stockRow = await trx('commercial.stock')
@@ -75,7 +76,7 @@ export class OrderStockService {
       quantity,
       quantity_before: qBefore,
       quantity_after: qBefore,
-      reference_type: 'order',
+      reference_type: referenceType,
       reference_id: orderId,
       created_by: this.tenantCtx.get()?.userId || null,
     });
@@ -176,6 +177,7 @@ export class OrderStockService {
     productId: string,
     quantity: number,
     orderId: string,
+    referenceType = 'order',
   ): Promise<void> {
     await this.assertNotFrozen(trx, warehouseId);
     const stockRow = await trx('commercial.stock')
@@ -202,7 +204,7 @@ export class OrderStockService {
       quantity: releaseQty,
       quantity_before: Number(stockRow.quantity),
       quantity_after: Number(stockRow.quantity),
-      reference_type: 'order',
+      reference_type: referenceType,
       reference_id: orderId,
       created_by: this.tenantCtx.get()?.userId || null,
     });

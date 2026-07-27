@@ -8,7 +8,9 @@ import type {
   ConversationOrderResult,
   ConversationProductHit,
   ConversationPromoHit,
+  ConversationReservation,
   ConversationSuggestionHit,
+  ConversationTrust,
 } from '@megadulces/contracts';
 import { TenantKnexService, normalizeMxPhone } from '@megadulces/platform-core';
 import {
@@ -16,6 +18,10 @@ import {
   CommercialCatalogSearchService,
   CommercialHomeDeliveryModule,
   CommercialHomeDeliveryService,
+  CommercialStockReservationModule,
+  StockReservationService,
+  CommercialTrustModule,
+  ContactTrustEngineService,
 } from '@megadulces/commercial';
 
 /**
@@ -44,6 +50,8 @@ class CatalogSearchCommerceAdapter implements CommerceConversationPort {
     private readonly search: CommercialCatalogSearchService,
     private readonly homeDelivery: CommercialHomeDeliveryService,
     private readonly tk: TenantKnexService,
+    private readonly reservations: StockReservationService,
+    private readonly trust: ContactTrustEngineService,
   ) {}
 
   /**
@@ -274,6 +282,60 @@ class CatalogSearchCommerceAdapter implements CommerceConversationPort {
     return stock < lowThreshold ? 'pocas' : 'disponible';
   }
 
+  /**
+   * FIQ.6 (ADR-038) — Aparta (reserva con TTL) los productos para el contacto.
+   * Delega en el MOTOR (StockReservationService): reserva atómica de stock +
+   * folio AP-YYYY-NNNNN. Devuelve el hold; nunca crea orden ni cobra (ADR-034).
+   */
+  async reserveStock(input: {
+    phone: string;
+    customerId?: string | null;
+    lines: { product_id: string; quantity: number }[];
+    ttlMinutes?: number;
+    notes?: string;
+  }): Promise<ConversationReservation> {
+    const r = await this.reservations.apartar({
+      phone: input.phone,
+      customerId: input.customerId ?? null,
+      lines: input.lines,
+      ttlMinutes: input.ttlMinutes,
+      notes: input.notes,
+    });
+    return {
+      reservation_id: r.reservation_id,
+      folio: r.folio,
+      expires_at: r.expires_at,
+      expires_in_minutes: r.expires_in_minutes,
+      total: r.total,
+      lines: r.lines,
+    };
+  }
+
+  async activeReservations(phone: string): Promise<ConversationReservation[]> {
+    const rows = await this.reservations.activeByPhone(phone);
+    return rows.map((r) => ({
+      reservation_id: r.reservation_id,
+      folio: r.folio,
+      expires_at: r.expires_at,
+      expires_in_minutes: r.expires_in_minutes,
+      total: r.total,
+      lines: r.lines,
+    }));
+  }
+
+  async releaseReservation(input: { phone: string; reservationId?: string }): Promise<{ released: number }> {
+    return this.reservations.release(input.phone, input.reservationId);
+  }
+
+  /**
+   * FIQ.7 (ADR-037) — Evalúa la confianza del contacto (determinista). Delega en
+   * el MOTOR; el gate del bot obedece el tier y el LLM comunica sin acusar.
+   */
+  async assessContactTrust(phone: string): Promise<ConversationTrust> {
+    const a = await this.trust.assess(phone);
+    return { tier: a.tier, risk_score: a.risk_score, reasons: a.reasons };
+  }
+
   async createHomeDeliveryOrder(dto: ConversationOrderDto): Promise<ConversationOrderResult> {
     const order: any = await this.homeDelivery.createIntake({
       casual: { name: dto.casual.name, phone: dto.casual.phone },
@@ -287,7 +349,7 @@ class CatalogSearchCommerceAdapter implements CommerceConversationPort {
 
 @Global()
 @Module({
-  imports: [CommercialCatalogSearchModule, CommercialHomeDeliveryModule],
+  imports: [CommercialCatalogSearchModule, CommercialHomeDeliveryModule, CommercialStockReservationModule, CommercialTrustModule],
   providers: [
     CatalogSearchCommerceAdapter,
     { provide: COMMERCE_CONVERSATION_PORT, useExisting: CatalogSearchCommerceAdapter },

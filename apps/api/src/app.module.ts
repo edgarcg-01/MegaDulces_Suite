@@ -71,6 +71,8 @@ import { PortalAiOrderModule } from '@megadulces/commercial';
 import { CommercialCatalogSearchModule } from '@megadulces/commercial';
 // Fase E — Remote Manager / Televenta
 import { CommercialTeleventaModule } from '@megadulces/commercial';
+import { CommercialStockReservationModule } from '@megadulces/commercial';
+import { CommercialTrustModule } from '@megadulces/commercial';
 // Cierre de ruta — tickets venta/carga/combustible del vendedor (port Automation_RD)
 import { CommercialRouteControlModule } from '@megadulces/commercial';
 // Captura del vendedor — líneas de venta (OCR ticket) ancladas a la tienda
@@ -160,6 +162,8 @@ const multitenantModules = process.env.ENABLE_MULTITENANT === 'true'
       PortalAiOrderModule,
       CommercialCatalogSearchModule,
       CommercialTeleventaModule,
+      CommercialStockReservationModule,
+      CommercialTrustModule,
       CommercialRouteControlModule,
       CommercialVendorSalesModule,
       CommercialVendorRoutesModule,
