@@ -29,6 +29,13 @@ import {
  * Cliente casual de WhatsApp = sin cartera → `search` cae al price_list default
  * del tenant (customerId null). El precio devuelto es el autoritativo (ADR-016).
  */
+/** Metadata de enriquecimiento por producto: empaque + existencia + tiers de precio. */
+interface EnrichMeta {
+  pieces_per_package: number;
+  stock_pieces: number;
+  tiers: Array<{ min_qty: number; price: number }>;
+}
+
 @Injectable()
 class CatalogSearchCommerceAdapter implements CommerceConversationPort {
   private readonly logger = new Logger(CatalogSearchCommerceAdapter.name);
@@ -158,9 +165,7 @@ class CatalogSearchCommerceAdapter implements CommerceConversationPort {
    * surtido (default activo, quantity − reserved) + empaque (factor_sale). Es el
    * MISMO almacén que usará el pedido → los buckets/topes son consistentes.
    */
-  private async enrichMeta(
-    ids: string[],
-  ): Promise<Map<string, { pieces_per_package: number; stock_pieces: number }>> {
+  private async enrichMeta(ids: string[]): Promise<Map<string, EnrichMeta>> {
     if (!ids.length) return new Map();
     return this.tk.run(async (trx) => {
       const rows = await trx.raw(
@@ -182,15 +187,33 @@ class CatalogSearchCommerceAdapter implements CommerceConversationPort {
             AND p.id = ANY(?)`,
         [ids],
       );
-      const m = new Map<string, { pieces_per_package: number; stock_pieces: number }>();
+      const m = new Map<string, EnrichMeta>();
       for (const r of rows.rows) {
         m.set(r.product_id, {
           pieces_per_package: Math.max(1, Math.round(Number(r.pieces_per_package) || 1)),
           stock_pieces: Math.max(0, Math.floor(Number(r.stock_pieces) || 0)),
+          tiers: [],
         });
+      }
+      // FIQ.3: tiers de precio por cantidad (misma pasada, un batch) → el bot muestra
+      // el MISMO precio que el pedido cobra (resolvePriceForQty), pieza y caja.
+      const priceRows = await trx('commercial.product_prices')
+        .whereIn('product_id', ids)
+        .whereNull('deleted_at')
+        .select('product_id', 'price', 'min_qty');
+      for (const pr of priceRows) {
+        const e = m.get(pr.product_id);
+        if (e) e.tiers.push({ min_qty: Math.max(1, Number(pr.min_qty) || 1), price: Number(pr.price) });
       }
       return m;
     });
+  }
+
+  /** Mejor precio (menor) con min_qty <= qty. null si qty < mínimo. Espejo de resolvePriceForQty. */
+  private bestTierPrice(tiers: Array<{ min_qty: number; price: number }>, qty: number): number | null {
+    const applicable = tiers.filter((t) => t.min_qty <= qty);
+    if (!applicable.length) return null;
+    return applicable.reduce((a, b) => (b.price < a.price ? b : a)).price;
   }
 
   /**
@@ -212,23 +235,25 @@ class CatalogSearchCommerceAdapter implements CommerceConversationPort {
     });
   }
 
-  /** Mapea una fila con precio (search o historial) a un hit con bucket de existencia. */
-  private toHit(
-    r: any,
-    meta: Map<string, { pieces_per_package: number; stock_pieces: number }>,
-  ): ConversationProductHit {
+  /** Mapea una fila (search/historial) a un hit: precio POR CANTIDAD (tier) + bucket de existencia. */
+  private toHit(r: any, meta: Map<string, EnrichMeta>): ConversationProductHit {
     const mx = meta.get(r.product_id);
     const stock = mx?.stock_pieces ?? 0;
     const factor = mx?.pieces_per_package ?? 1;
-    const unitPrice = Number(r.price);
+    const tiers = mx?.tiers ?? [];
+    // FIQ.3: precio pieza = tier de entrada (mínimo de compra); precio caja = tier a la
+    // caja (factor). Mismo cálculo que resolvePriceForQty → el bot cotiza = el pedido cobra.
+    const minPurchase = tiers.length ? Math.min(...tiers.map((t) => t.min_qty)) : 1;
+    const piecePrice = this.bestTierPrice(tiers, minPurchase) ?? Number(r.price);
+    const boxUnit = this.bestTierPrice(tiers, factor) ?? piecePrice;
     return {
       product_id: r.product_id,
       name: r.product_name,
       brand_name: r.brand_name ?? null,
-      unit_price: unitPrice,
-      // FIQ.3: precio por caja/paquete (mayoreo) — lo calcula el motor, no el LLM.
-      price_per_package: Math.round(unitPrice * factor * 100) / 100,
-      min_qty: Number(r.min_qty) || 1,
+      unit_price: piecePrice,
+      // FIQ.3: precio por caja al TIER de la caja (mayoreo real), no pieza×factor.
+      price_per_package: Math.round(boxUnit * factor * 100) / 100,
+      min_qty: minPurchase,
       stock_pieces: stock,
       availability: this.stockBucket(stock, factor),
       pieces_per_package: factor,
