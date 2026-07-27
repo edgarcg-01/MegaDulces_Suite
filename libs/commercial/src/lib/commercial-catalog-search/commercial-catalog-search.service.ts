@@ -17,6 +17,12 @@ interface SearchInput {
    * customer linkeado), cae al price_list default del tenant.
    */
   customerId?: string | null;
+  /**
+   * FIQ.3: override explícito de lista de precio (p. ej. el canal WhatsApp cotiza
+   * MAYOREO a casuales aunque el default del tenant sea otra). Precede a la
+   * resolución por customer/default.
+   */
+  priceListId?: string | null;
 }
 
 interface SearchResult {
@@ -44,7 +50,8 @@ export class CommercialCatalogSearchService {
 
   async search(input: SearchInput): Promise<{ results: SearchResult[]; mode: 'semantic' | 'fallback_like' }> {
     const customerId = input.customerId ?? (await this.resolveCustomerIdFromCtx());
-    const priceListId = await this.resolvePriceListId(customerId);
+    // FIQ.3: override de canal (WhatsApp) → si no, lista del customer → default tenant.
+    const priceListId = input.priceListId ?? (await this.resolvePriceListId(customerId));
     if (!priceListId) return { results: [], mode: 'fallback_like' };
 
     // Si falta VOYAGE_API_KEY, cae a búsqueda LIKE tradicional para no romper UX.
