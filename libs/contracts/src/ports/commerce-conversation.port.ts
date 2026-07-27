@@ -19,8 +19,10 @@ export interface ConversationProductHit {
   product_id: string;
   name: string;
   brand_name: string | null;
-  /** Precio por PIEZA (unidad canónica del pedido). */
+  /** Precio por PIEZA (unidad canónica del pedido). De la lista del cliente si se reconoció (FIQ.3). */
   unit_price: number;
+  /** Precio por PAQUETE/CAJA = unit_price × pieces_per_package (FIQ.3 mayoreo). El motor lo calcula, no el LLM. */
+  price_per_package: number;
   min_qty: number;
   /**
    * Piezas disponibles en el almacén de surtido (quantity − reserved). USO INTERNO
@@ -85,7 +87,10 @@ export interface CommerceConversationPort {
    * tenant (cliente casual de WhatsApp sin cartera). Devuelve top-N con precio.
    * Debe ejecutarse dentro de un scope de tenant (CLS) ya establecido.
    */
-  searchProducts(query: string, opts?: { limit?: number }): Promise<ConversationProductHit[]>;
+  searchProducts(
+    query: string,
+    opts?: { limit?: number; customerId?: string | null },
+  ): Promise<ConversationProductHit[]>;
 
   /**
    * Resuelve el cliente de cartera por su teléfono (FIQ.0 / ADR-036). Normaliza

@@ -183,6 +183,7 @@ export class ConversationOrchestratorService {
               nombre: h.name,
               marca: h.brand_name,
               precio_pieza: h.unit_price,
+              precio_paquete: factor > 1 ? h.price_per_package : null,
               piezas_por_paquete: factor,
               se_vende_por: factor > 1 ? 'pieza o paquete' : 'pieza',
               disponibilidad: h.availability,
@@ -192,7 +193,11 @@ export class ConversationOrchestratorService {
         };
       }
       case 'buscar_producto': {
-        const hits = await this.commerce!.searchProducts(String(input.query || ''), { limit: 5 });
+        // FIQ.3: precio de la lista del cliente reconocido (mayoreo).
+        const hits = await this.commerce!.searchProducts(String(input.query || ''), {
+          limit: 5,
+          customerId: work.customerId,
+        });
         for (const h of hits) seen.set(h.product_id, h);
         if (work.state === 'greeting') work.state = 'shopping';
         return {
@@ -203,6 +208,8 @@ export class ConversationOrchestratorService {
               nombre: h.name,
               marca: h.brand_name,
               precio_pieza: h.unit_price,
+              // FIQ.3: precio por caja (mayoreo) cuando viene en paquete.
+              precio_paquete: factor > 1 ? h.price_per_package : null,
               minimo_piezas: h.min_qty,
               // Empaque: cómo se vende. factor 1 = suelto por pieza.
               piezas_por_paquete: factor,
@@ -350,6 +357,7 @@ export class ConversationOrchestratorService {
       '- Los precios, existencia y total salen de las herramientas, no los inventes ni los cambies.',
       '- EXISTENCIA: NUNCA menciones cantidades exactas de inventario ni "quedan N piezas". Comunicá SOLO la disponibilidad cualitativa de buscar_producto (disponibilidad: "disponible" = hay; "pocas" = quedan pocas, podés generar urgencia SIN número; "agotado" = ofrecé otra opción). Si el cliente pide más de lo que hay, agregar_al_carrito lo rechaza: pedile una cantidad menor o ofrecé avisarle cuando se reponga, SIN decir el número disponible.',
       '- UNIDADES: los productos se venden por PIEZA y a veces por PAQUETE/CAJA (piezas_por_paquete). Cuando el cliente diga "una caja", "un paquete" o "una bolsa", agregá con unidad="paquete"; cuando diga piezas sueltas, unidad="pieza". Aclarale al cliente cómo viene (ej. "viene en paquete de 40 piezas, ¿cuántos paquetes?") y confirmá siempre la cantidad en piezas y paquetes.',
+      '- MAYOREO/PRECIOS: los precios que te da buscar_producto YA son los del cliente (de mayoreo si está reconocido) — nunca inventes ni cambies un precio. Cuando el producto viene en caja (piezas_por_paquete > 1), ofrecé SIEMPRE el precio por CAJA (precio_paquete) además del de pieza, ej. "la caja de 40 te sale a $precio_paquete ($precio_pieza c/u)". Respetá minimo_piezas (cantidad mínima de compra) al cerrar.',
       '- Antes de confirmar necesitás: al menos 1 producto en el carrito Y el domicilio (calle y número).',
       '- Al confirmar, avisá que un asesor de Mega Dulces revisa y confirma el pedido (no lo cierres vos).',
       '- Si el cliente pide algo que no entendés, se enoja, o pide hablar con una persona, usá handoff_humano.',

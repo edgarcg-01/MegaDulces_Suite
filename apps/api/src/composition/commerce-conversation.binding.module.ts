@@ -69,10 +69,18 @@ class CatalogSearchCommerceAdapter implements CommerceConversationPort {
     });
   }
 
-  async searchProducts(query: string, opts?: { limit?: number }): Promise<ConversationProductHit[]> {
+  async searchProducts(
+    query: string,
+    opts?: { limit?: number; customerId?: string | null },
+  ): Promise<ConversationProductHit[]> {
     const q = (query || '').trim();
     if (!q) return [];
-    const { results } = await this.search.search({ query: q, limit: opts?.limit ?? 5, customerId: null });
+    // FIQ.3: cliente reconocido (FIQ.0) → precio de SU lista. Casual → lista de
+    // CANAL (WHATSAPP_PRICE_LIST_CODE, p. ej. MAYOREO) si está configurada; si no,
+    // default del tenant. El override solo aplica a casuales (customerId manda).
+    const customerId = opts?.customerId ?? null;
+    const priceListId = customerId ? null : await this.channelPriceListId();
+    const { results } = await this.search.search({ query: q, limit: opts?.limit ?? 5, customerId, priceListId });
     const priced = results.filter((r) => r.price != null);
     if (priced.length === 0) return [];
     const meta = await this.enrichMeta(priced.map((r) => r.product_id));
@@ -146,6 +154,25 @@ class CatalogSearchCommerceAdapter implements CommerceConversationPort {
     });
   }
 
+  /**
+   * FIQ.3: lista de precio del canal WhatsApp para CASUALES (sin cartera). Si
+   * `WHATSAPP_PRICE_LIST_CODE` no está seteada, devuelve null → el motor cae a la
+   * lista default del tenant. Permite cotizar MAYOREO al público del bot sin tocar
+   * el default global (decisión de negocio configurable, no hardcodeada).
+   */
+  private async channelPriceListId(): Promise<string | null> {
+    const code = process.env.WHATSAPP_PRICE_LIST_CODE;
+    if (!code) return null;
+    return this.tk.run(async (trx) => {
+      const r = await trx('commercial.price_lists').where({ code }).whereNull('deleted_at').first('id');
+      if (!r) {
+        this.logger.warn(`WHATSAPP_PRICE_LIST_CODE=${code} no existe — uso lista default del tenant.`);
+        return null;
+      }
+      return r.id as string;
+    });
+  }
+
   /** Mapea una fila con precio (search o historial) a un hit con bucket de existencia. */
   private toHit(
     r: any,
@@ -154,11 +181,14 @@ class CatalogSearchCommerceAdapter implements CommerceConversationPort {
     const mx = meta.get(r.product_id);
     const stock = mx?.stock_pieces ?? 0;
     const factor = mx?.pieces_per_package ?? 1;
+    const unitPrice = Number(r.price);
     return {
       product_id: r.product_id,
       name: r.product_name,
       brand_name: r.brand_name ?? null,
-      unit_price: Number(r.price),
+      unit_price: unitPrice,
+      // FIQ.3: precio por caja/paquete (mayoreo) — lo calcula el motor, no el LLM.
+      price_per_package: Math.round(unitPrice * factor * 100) / 100,
       min_qty: Number(r.min_qty) || 1,
       stock_pieces: stock,
       availability: this.stockBucket(stock, factor),
