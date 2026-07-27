@@ -30,6 +30,8 @@ export interface InboundMessage {
   type: 'text' | 'interactive' | 'image' | 'audio' | 'location' | 'unsupported';
   /** cuerpo de texto (o el título del botón/lista elegido en interactive). */
   text?: string | null;
+  /** FIQ.5 — ubicación compartida (pin). lat/lng para entrega + geofence. */
+  location?: { lat: number; lng: number; name?: string | null; address?: string | null } | null;
   /** payload crudo del proveedor por si el orquestador necesita más. */
   raw?: unknown;
   /** epoch segundos del mensaje (del proveedor). */

@@ -199,6 +199,7 @@ export class MetaCloudWhatsAppAdapter implements WhatsAppPort {
     const from = String(m?.from ?? '');
     let type: InboundMessage['type'] = 'unsupported';
     let text: string | null = null;
+    let location: InboundMessage['location'] = null;
     switch (m?.type) {
       case 'text':
         type = 'text';
@@ -215,9 +216,17 @@ export class MetaCloudWhatsAppAdapter implements WhatsAppPort {
       case 'audio':
         type = 'audio';
         break;
-      case 'location':
+      case 'location': {
         type = 'location';
+        // FIQ.5: pin de ubicación → lat/lng para entrega + geofence.
+        const lat = Number(m?.location?.latitude);
+        const lng = Number(m?.location?.longitude);
+        if (Number.isFinite(lat) && Number.isFinite(lng)) {
+          location = { lat, lng, name: m?.location?.name ?? null, address: m?.location?.address ?? null };
+          text = m?.location?.address || m?.location?.name || null;
+        }
         break;
+      }
       default:
         type = 'unsupported';
     }
@@ -229,6 +238,7 @@ export class MetaCloudWhatsAppAdapter implements WhatsAppPort {
       profile_name: profiles.get(from) ?? null,
       type,
       text,
+      location,
       raw: m,
       timestamp: m?.timestamp ? Number(m.timestamp) : null,
     };

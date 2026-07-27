@@ -20,6 +20,8 @@ interface InJobPayload {
   phone: string;
   wa_id: string;
   text: string | null;
+  /** FIQ.5 — coords si el mensaje fue un pin de ubicación. */
+  location?: { lat: number; lng: number; name?: string | null; address?: string | null } | null;
   wa_message_id: string;
 }
 
@@ -109,8 +111,8 @@ export class WhatsAppIngestService implements OnModuleInit {
   private async acceptMessages(messages: InboundMessage[]): Promise<number> {
     let accepted = 0;
     for (const msg of messages) {
-      if (msg.type !== 'text' && msg.type !== 'interactive') {
-        this.logger.debug(`Mensaje ${msg.type} ignorado (F.1 solo texto/interactive).`);
+      if (msg.type !== 'text' && msg.type !== 'interactive' && msg.type !== 'location') {
+        this.logger.debug(`Mensaje ${msg.type} ignorado (soportado: texto/interactive/location).`);
         continue;
       }
       const tenantId = await this.resolveTenantId(msg);
@@ -134,6 +136,7 @@ export class WhatsAppIngestService implements OnModuleInit {
           phone,
           wa_id: msg.wa_id,
           text: msg.text ?? null,
+          location: msg.location ?? null,
           wa_message_id: msg.wa_message_id,
         };
         await this.queue.enqueue({ dir: 'in', tenant_id: tenantId, payload }, `in:${tenantId}:${msg.wa_message_id}`);
@@ -205,7 +208,11 @@ export class WhatsAppIngestService implements OnModuleInit {
         this.logger.warn(`Throttle: ${p.phone} superó ${cap} turnos/24h → handoff sin LLM.`);
         return;
       }
-      const result = await this.orchestrator.handleTurn(p.thread_id, p.text || '');
+      // FIQ.5: un pin de ubicación llega sin texto → sinteticé uno para el LLM.
+      const userText = p.text || (p.location ? '📍 Te comparto mi ubicación' : '');
+      const result = await this.orchestrator.handleTurn(p.thread_id, userText, {
+        location: p.location || undefined,
+      });
       await this.enqueueOut(tenantId, { to: p.phone, thread_id: p.thread_id, kind: 'text', body: result.reply });
     });
   }
