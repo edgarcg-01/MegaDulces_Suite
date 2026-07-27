@@ -64,10 +64,12 @@ export class ConversationOrchestratorService {
     // barato; se hace cada turno para tener el nombre fresco y persiste el
     // customer_id la primera vez que se resuelve. El MOTOR resuelve, el LLM saluda.
     let customerName: string | null = null;
+    let customerId: string | null = thread.customer_id;
     try {
       const customer = await this.commerce.resolveCustomerByPhone(thread.phone);
       if (customer) {
         customerName = customer.name;
+        customerId = customer.customer_id;
         if (!thread.customer_id) {
           await this.threads.update(threadId, { customer_id: customer.customer_id });
         }
@@ -83,6 +85,7 @@ export class ConversationOrchestratorService {
       state: thread.state as ThreadState,
       handoff: false,
       customerName,
+      customerId,
     };
     // Productos vistos en ESTE turno (product_id → hit). El precio del carrito
     // sale de aquí, no del LLM.
@@ -152,10 +155,42 @@ export class ConversationOrchestratorService {
   private async execTool(
     name: string,
     input: any,
-    work: { cart: CartItem[]; address: any; state: ThreadState; handoff: boolean },
+    work: {
+      cart: CartItem[];
+      address: any;
+      state: ThreadState;
+      handoff: boolean;
+      customerName?: string | null;
+      customerId?: string | null;
+    },
     seen: Map<string, ConversationProductHit>,
   ): Promise<any> {
     switch (name) {
+      case 'mi_historial': {
+        // FIQ.4: "lo de siempre" / reorden. Requiere cliente reconocido (FIQ.0).
+        if (!work.customerId) {
+          return { info: 'Cliente no identificado (número nuevo): no hay historial. Ofrecé ayudarle a buscar productos.' };
+        }
+        const hist = await this.commerce!.customerHistory(work.customerId, { limit: 8 });
+        for (const h of hist) seen.set(h.product_id, h); // habilita agregar_al_carrito (tope con stock)
+        if (work.state === 'greeting') work.state = 'shopping';
+        if (hist.length === 0) return { info: 'El cliente no tiene compras previas registradas.' };
+        return {
+          historial: hist.map((h) => {
+            const factor = h.pieces_per_package || 1;
+            return {
+              product_id: h.product_id,
+              nombre: h.name,
+              marca: h.brand_name,
+              precio_pieza: h.unit_price,
+              piezas_por_paquete: factor,
+              se_vende_por: factor > 1 ? 'pieza o paquete' : 'pieza',
+              disponibilidad: h.availability,
+              veces_pedido: h.times_ordered,
+            };
+          }),
+        };
+      }
       case 'buscar_producto': {
         const hits = await this.commerce!.searchProducts(String(input.query || ''), { limit: 5 });
         for (const h of hits) seen.set(h.product_id, h);
@@ -304,8 +339,8 @@ export class ConversationOrchestratorService {
   }): string {
     const cart = this.cartView(work.cart);
     const cliente = work.customerName
-      ? `CLIENTE RECONOCIDO: "${work.customerName}". Saludalo por su nombre (usá solo el primer nombre, cálido) al inicio de la conversación. Ya es cliente de Mega Dulces.`
-      : 'CLIENTE NUEVO/NO IDENTIFICADO: tratalo con calidez; no inventes su nombre.';
+      ? `CLIENTE RECONOCIDO: "${work.customerName}". Saludalo por su nombre (solo el primer nombre, cálido) al inicio. Ya es cliente de Mega Dulces: si pide "lo de siempre"/su pedido habitual, o si querés sugerirle, usá mi_historial.`
+      : 'CLIENTE NUEVO/NO IDENTIFICADO: tratalo con calidez; no inventes su nombre ni su historial.';
     return [
       'Sos el asistente de pedidos de Mega Dulces (dulcería) por WhatsApp. Hablás en español mexicano, cálido y breve (mensajes cortos, sin markdown).',
       cliente,
@@ -326,8 +361,13 @@ export class ConversationOrchestratorService {
   private toolDefs(): any[] {
     return [
       {
+        name: 'mi_historial',
+        description: 'Devuelve los productos que ESTE cliente ya compró antes (frecuencia + disponibilidad). Úsalo cuando pida "lo de siempre", "lo mismo", su pedido habitual, o para sugerir según su historial. Los product_id sirven para agregar_al_carrito. Solo funciona con cliente reconocido.',
+        input_schema: { type: 'object', properties: {} },
+      },
+      {
         name: 'buscar_producto',
-        description: 'Busca productos del catálogo por nombre/descripción en lenguaje natural. Devuelve product_id + precio_pieza + piezas_por_paquete + disponible_piezas/paquetes + agotado. Úsalo SIEMPRE antes de agregar al carrito.',
+        description: 'Busca productos del catálogo por nombre/descripción en lenguaje natural. Devuelve product_id + precio_pieza + piezas_por_paquete + disponibilidad (cualitativa). Úsalo SIEMPRE antes de agregar al carrito.',
         input_schema: { type: 'object', properties: { query: { type: 'string', description: 'Lo que el cliente quiere (ej. "pulparindo", "mazapán de la rosa", "paletas payaso")' } }, required: ['query'] },
       },
       {

@@ -392,11 +392,13 @@ export class CommercialCatalogSearchService {
    * señal. Si el customer no tiene historial → array vacío.
    */
   async getMyHistory(input: {
+    /** FIQ.4: override explícito (bot de WhatsApp sin JWT). Si no viene, resuelve del ctx. */
+    customerId?: string | null;
     warehouseId: string | null;
     days?: number;
     limit?: number;
   }) {
-    const customerId = await this.resolveCustomerIdFromCtx();
+    const customerId = input.customerId ?? (await this.resolveCustomerIdFromCtx());
     if (!customerId) return [];
     const days = Math.max(1, Math.min(365, input.days ?? 90));
     const limit = Math.max(1, Math.min(200, input.limit ?? 60));
