@@ -172,10 +172,9 @@ export class ConversationOrchestratorService {
               // Empaque: cómo se vende. factor 1 = suelto por pieza.
               piezas_por_paquete: factor,
               se_vende_por: factor > 1 ? 'pieza o paquete' : 'pieza',
-              // Existencia (en el almacén de surtido). El bot NO debe prometer más.
-              disponible_piezas: h.stock_pieces,
-              disponible_paquetes: factor > 1 ? Math.floor(h.stock_pieces / factor) : null,
-              agotado: h.stock_pieces <= 0,
+              // FIQ.2: existencia CUALITATIVA (nunca el número exacto). El tope real
+              // lo aplica agregar_al_carrito con stock_pieces (interno, no se expone).
+              disponibilidad: h.availability,
             };
           }),
         };
@@ -196,12 +195,13 @@ export class ConversationOrchestratorService {
           return { error: `"${hit.name}" está agotado ahora mismo. Ofrecé otra opción.` };
         }
         if (already + addPieces > hit.stock_pieces) {
-          const maxPk = factor > 1 ? Math.floor(hit.stock_pieces / factor) : null;
+          // FIQ.2: rechaza sin revelar el total. El LLM ofrece menos o waitlist,
+          // NUNCA dice cuántas piezas hay.
           return {
-            error: 'Existencia insuficiente.',
-            disponible_piezas: hit.stock_pieces,
-            disponible_paquetes: maxPk,
-            ya_en_carrito_piezas: already,
+            error: 'insuficiente',
+            mensaje: 'No tengo esa cantidad disponible ahora mismo.',
+            instruccion:
+              'Pedí una cantidad menor o ofrecé avisarle cuando se reponga. NO menciones el número disponible.',
           };
         }
         if (existing) existing.qty += addPieces;
@@ -313,7 +313,7 @@ export class ConversationOrchestratorService {
       'REGLAS DURAS:',
       '- Para agregar un producto SIEMPRE usá primero buscar_producto y luego agregar_al_carrito con un product_id de esos resultados. Nunca inventes productos ni precios.',
       '- Los precios, existencia y total salen de las herramientas, no los inventes ni los cambies.',
-      '- EXISTENCIA: nunca prometas ni agregues más de lo disponible. Si buscar_producto dice agotado (disponible_piezas 0), ofrecé otra opción. Si el cliente pide más de lo que hay, decile cuánto hay y ofrecé el máximo.',
+      '- EXISTENCIA: NUNCA menciones cantidades exactas de inventario ni "quedan N piezas". Comunicá SOLO la disponibilidad cualitativa de buscar_producto (disponibilidad: "disponible" = hay; "pocas" = quedan pocas, podés generar urgencia SIN número; "agotado" = ofrecé otra opción). Si el cliente pide más de lo que hay, agregar_al_carrito lo rechaza: pedile una cantidad menor o ofrecé avisarle cuando se reponga, SIN decir el número disponible.',
       '- UNIDADES: los productos se venden por PIEZA y a veces por PAQUETE/CAJA (piezas_por_paquete). Cuando el cliente diga "una caja", "un paquete" o "una bolsa", agregá con unidad="paquete"; cuando diga piezas sueltas, unidad="pieza". Aclarale al cliente cómo viene (ej. "viene en paquete de 40 piezas, ¿cuántos paquetes?") y confirmá siempre la cantidad en piezas y paquetes.',
       '- Antes de confirmar necesitás: al menos 1 producto en el carrito Y el domicilio (calle y número).',
       '- Al confirmar, avisá que un asesor de Mega Dulces revisa y confirma el pedido (no lo cierres vos).',
