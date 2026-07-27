@@ -557,6 +557,38 @@ export interface LiveShipment {
   captured_at: string;
 }
 
+// ── LT Rastreo de flota GPS ──────────────────────────────────────────────────
+export type TrackerStatus = 'moving' | 'stopped' | 'offline' | 'unknown';
+
+export interface TrackerLive {
+  id: string;
+  imei: string;
+  external_name: string | null;
+  protocol: string | null;
+  route_code: string | null;
+  vehicle_id: string | null;
+  vehicle_plate: string | null;
+  last_lat: number | null;
+  last_lng: number | null;
+  last_speed_kmh: number | null;
+  last_heading: number | null;
+  last_ignition: boolean | null;
+  last_status: TrackerStatus | null;
+  last_status_text: string | null;
+  last_seen_at: string | null;
+  last_synced_at: string | null;
+}
+
+export interface TrackerHistoryPoint {
+  captured_at: string;
+  lat: number;
+  lng: number;
+  speed_kmh: number | null;
+  heading: number | null;
+  ignition: boolean | null;
+  status: TrackerStatus | null;
+}
+
 @Injectable({ providedIn: 'root' })
 export class LogisticaService {
   private readonly http = inject(HttpClient);
@@ -940,6 +972,23 @@ export class LogisticaService {
   // ── J12.1 Rastreo en vivo ──────────────────────────────────────────────────
   liveShipments(): Observable<LiveShipment[]> {
     return this.http.get<LiveShipment[]>(`${this.base}/shipments/live`);
+  }
+
+  // ── LT Rastreo de flota GPS (MagniTracking) ────────────────────────────────
+  liveTracking(): Observable<TrackerLive[]> {
+    return this.http.get<TrackerLive[]>(`${this.base}/tracking/live`);
+  }
+  trackerHistory(trackerId: string, from?: string, to?: string): Observable<TrackerHistoryPoint[]> {
+    let params = new HttpParams();
+    if (from) params = params.set('from', from);
+    if (to) params = params.set('to', to);
+    return this.http.get<TrackerHistoryPoint[]>(`${this.base}/tracking/trackers/${trackerId}/history`, { params });
+  }
+  trackingSyncNow(): Observable<{ objects: number; created: number; updated: number; linked: number; positions: number; ms: number }> {
+    return this.http.post<{ objects: number; created: number; updated: number; linked: number; positions: number; ms: number }>(`${this.base}/tracking/sync-now`, {});
+  }
+  linkTracker(trackerId: string, vehicleId: string | null): Observable<{ id: string; vehicle_id: string | null }> {
+    return this.http.patch<{ id: string; vehicle_id: string | null }>(`${this.base}/tracking/trackers/${trackerId}/link`, { vehicle_id: vehicleId });
   }
 
   // ── J12.3 Optimización de ruta ─────────────────────────────────────────────

@@ -145,6 +145,22 @@ export interface SideKeplerRow {
 }
 export interface SideBySide { period: string; excel: SideExcelRow[]; kepler: SideKeplerRow[]; }
 
+/** CP.2 (Fase CP) — Comparación banco (Excel) vs LIBROS de ContPAQi por cuenta. */
+export interface ContpaqiCompareRow {
+  bank: string; account_label: string; alias: string | null; kind: string;
+  contpaqi_cuenta: string | null; contpaqi_cuenta_nombre: string | null; linked: boolean;
+  excel_in: number; excel_out: number; contpaqi_in: number; contpaqi_out: number;
+  delta_in: number; delta_out: number; contpaqi_movs: number;
+}
+export interface ContpaqiCompare {
+  period: string; linked: number; rows: ContpaqiCompareRow[];
+  totals: { excel_in: number; excel_out: number; contpaqi_in: number; contpaqi_out: number; delta_in: number; delta_out: number };
+}
+export interface ContpaqiLinkResult {
+  linked: number; total: number;
+  results: { bank: string; account_label: string; contpaqi_cuenta: string | null; contpaqi_cuenta_nombre: string | null }[];
+}
+
 export interface MovementsQuery {
   period?: string; account_id?: string; category_id?: string; group_key?: string;
   uncategorized?: boolean; recon_status?: string; search?: string; limit?: number; offset?: number;
@@ -184,6 +200,14 @@ export class BankService {
   }
   sideBySide(period: string): Observable<SideBySide> {
     return this.http.get<SideBySide>(`${this.base}/side-by-side?period=${encodeURIComponent(period)}`);
+  }
+
+  // ── CP.2 (Fase CP) — comparación vs LIBROS ContPAQi ──
+  contpaqiCompare(period: string): Observable<ContpaqiCompare> {
+    return this.http.get<ContpaqiCompare>(`${this.base}/contpaqi-compare?period=${encodeURIComponent(period)}`);
+  }
+  linkContpaqi(): Observable<ContpaqiLinkResult> {
+    return this.http.post<ContpaqiLinkResult>(`${this.base}/contpaqi/link`, {});
   }
 
   reclassify(id: string, categoryId: string | null): Observable<unknown> {

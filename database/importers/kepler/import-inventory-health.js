@@ -21,27 +21,26 @@ const M = '00000000-0000-0000-0000-00000000d01c';
 const DST = process.env.DATABASE_URL_NEW || 'postgresql://postgres:superoot@localhost:5433/postgres_platform';
 const APPLY = process.argv.includes('--apply');
 
-// NORMALIZACIÓN DE UNIDAD (ver reference_box_factor_factor_sale): sales_daily.units MEZCLA
-// unidades — el POS `tienda`/`credito` vende PIEZAS sueltas y Wincaja vende CAJAS. La demanda
-// se calcula en CAJAS (unidad canónica: stock kdil + cost_with_tax por caja). La columna
-// `sales_daily.units_base` ya trae la venta normalizada a cajas (la puebla import-sales-units-base.js
-// con la regla híbrida canal+precio). Aquí leemos units_base; si aún es NULL (fila nueva antes
-// del normalizador) caemos a la MISMA regla inline como fallback.
+// UNIDAD CANÓNICA = PIEZAS (decidido 2026-07-27, verificado contra movimientos de COMPRA reales).
+// El motor de reabasto trabaja TODO en piezas porque las 3 señales de Kepler ya viven en piezas y
+// balancean entre sí (entrada X-A-40 ⋈ salida/venta ⋈ existencia kdil):
+//   · stock.quantity (kdil c4+c8−c9)                → PIEZAS
+//   · sales_daily.units (POS/Wincaja, conteo)       → PIEZAS
+//   · cost_with_tax (kdik.c16, = unit_cost de la entrada, amount = qty_pz × cost) → por PIEZA
+// El intento previo de normalizar a CAJAS (units_base ÷ factor_sale) rompía la consistencia contra
+// stock/costo (que NO se convertían) e inflaba/deflactaba ×factor según disparara una regla frágil.
+// Aquí la demanda es la venta CRUDA en piezas (units). La caja es solo DISPLAY (piezas ÷ factor_sale
+// en el front / service). Ver reference_box_factor_factor_sale + FASE_CT/FASE_RA.
 //
-// norm agrega a nivel (producto×almacén×DÍA) con units ya en cajas; luego vel calcula los
-// momentos sobre esos totales diarios. Para la dispersión (σ) sobre la población de 90 días
-// (INCLUYE los días sin venta como cero) usamos los momentos:
+// norm agrega a nivel (producto×almacén×DÍA); luego vel calcula los momentos sobre esos totales
+// diarios. Para la dispersión (σ) sobre la población de 90 días (INCLUYE los días sin venta como
+// cero) usamos los momentos:
 //   μ = Σu / 90     σ = sqrt( Σu² / 90 − μ² )   (varianza poblacional, N=90)
 // dividimos entre 90 (no entre el nº de días con venta). CV = σ/μ → XYZ (X≤0.5 / Y≤1 / Z>1).
 const SELECT_HEALTH = `
   WITH norm AS (
     SELECT sd.product_id, sd.warehouse_id, sd.sale_date::date AS d,
-           sum(COALESCE(sd.units_base,
-             CASE WHEN p.factor_sale > 1 AND p.cost_with_tax > 0 AND sd.units > 0
-                       AND (sd.revenue / sd.units) < p.cost_with_tax / sqrt(p.factor_sale)
-                  THEN sd.units / p.factor_sale        -- fallback: fila en PIEZAS → cajas
-                  ELSE sd.units END)                   -- fallback: ya en cajas (o sin ancla)
-           ) AS units_day
+           sum(sd.units) AS units_day                 -- PIEZAS crudas (unidad canónica)
       FROM analytics.sales_daily sd
       JOIN catalog.products p ON p.tenant_id = sd.tenant_id AND p.id = sd.product_id
      WHERE sd.tenant_id = $1 AND sd.sale_date >= current_date - 90 AND sd.units > 0

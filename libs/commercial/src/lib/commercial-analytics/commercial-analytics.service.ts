@@ -3042,7 +3042,7 @@ export class CommercialAnalyticsService {
     const rows: any[] = await this.tk.run(async (trx) => (await trx.raw(
       `SELECT t.sku, COALESCE(pn.name, t.sku) AS name, t.rev
        FROM (SELECT sl.sku, sum(sl.importe) AS rev
-             FROM wincaja.v_sales_lines sl
+             FROM analytics.v_route_sales_lines sl
              WHERE sl.tenant_id=? AND sl.sale_channel='ruta_venta'
                AND sl.business_date >= (CURRENT_DATE - INTERVAL '2 years') AND sl.sku IS NOT NULL
              GROUP BY sl.sku) t
@@ -3058,7 +3058,7 @@ export class CommercialAnalyticsService {
     const rows: any[] = await this.tk.run(async (trx) => (await trx.raw(
       `SELECT t.code, COALESCE(cn.name, t.code) AS name, t.rev
        FROM (SELECT sl.cliente AS code, sum(sl.importe) AS rev
-             FROM wincaja.v_sales_lines sl
+             FROM analytics.v_route_sales_lines sl
              WHERE sl.tenant_id=? AND sl.sale_channel='ruta_venta'
                AND sl.cliente IS NOT NULL AND btrim(sl.cliente) <> '' AND sl.cliente <> '0001'
                AND sl.business_date >= (CURRENT_DATE - INTERVAL '2 years')
@@ -3098,7 +3098,7 @@ export class CommercialAnalyticsService {
                   ('WIN-' || b.source_branch) AS route_code, b.source_branch AS route_no,
                   to_char(sl.business_date,'MM') AS mes,
                   sum(sl.importe) AS revenue, sum(sl.qty) AS units, count(distinct sl.consecutivo) AS tickets
-           FROM wincaja.v_sales_lines sl
+           FROM analytics.v_route_sales_lines sl
            JOIN wincaja.branches b ON b.tenant_id=sl.tenant_id AND b.source_branch=sl.source_branch AND b.is_route=true
            JOIN wincaja.branches pb ON pb.tenant_id=b.tenant_id AND pb.source_branch=b.parent_branch
            LEFT JOIN commercial.warehouses w ON w.tenant_id=b.tenant_id
@@ -3228,19 +3228,19 @@ export class CommercialAnalyticsService {
         `SELECT sum(sl.importe) revenue, sum(sl.qty) units, count(distinct sl.consecutivo) tickets,
                 count(distinct sl.sku) skus,
                 count(distinct sl.cliente) FILTER (WHERE sl.cliente IS NOT NULL AND btrim(sl.cliente)<>'' AND sl.cliente<>'0001') clients
-         FROM wincaja.v_sales_lines sl WHERE ${W}`, P)).rows[0];
+         FROM analytics.v_route_sales_lines sl WHERE ${W}`, P)).rows[0];
       const totRev = num(totals.revenue);
 
       const products = (await trx.raw(
         `SELECT sl.sku, COALESCE(p.nombre, sl.sku) AS name, sum(sl.qty) units, sum(sl.importe) revenue
-         FROM wincaja.v_sales_lines sl
+         FROM analytics.v_route_sales_lines sl
          LEFT JOIN catalog.products p ON p.tenant_id=sl.tenant_id AND p.sku=sl.sku AND p.deleted_at IS NULL
          WHERE ${W} GROUP BY sl.sku, p.nombre ORDER BY revenue DESC NULLS LAST LIMIT 50`, P)).rows;
 
       const daily = (await trx.raw(
         `SELECT sl.business_date::date AS date, sum(sl.importe) revenue, sum(sl.qty) units,
                 count(distinct sl.consecutivo) tickets
-         FROM wincaja.v_sales_lines sl WHERE ${W} GROUP BY 1 ORDER BY 1`, P)).rows;
+         FROM analytics.v_route_sales_lines sl WHERE ${W} GROUP BY 1 ORDER BY 1`, P)).rows;
 
       const clients = (await trx.raw(
         `SELECT
@@ -3250,7 +3250,7 @@ export class CommercialAnalyticsService {
            CASE WHEN sl.cliente IS NULL OR btrim(sl.cliente)='' OR sl.cliente='0001'
                 THEN 'Mostrador a bordo (público)' ELSE COALESCE(c.nombre, sl.cliente) END AS name,
            sum(sl.importe) revenue, sum(sl.qty) units, count(distinct sl.consecutivo) tickets
-         FROM wincaja.v_sales_lines sl
+         FROM analytics.v_route_sales_lines sl
          LEFT JOIN (SELECT DISTINCT ON (source_branch, cliente) source_branch, cliente, nombre
                     FROM wincaja.clientes WHERE tenant_id=? AND source_branch=? ORDER BY source_branch, cliente, source_dataset DESC) c
            ON c.source_branch=sl.source_branch AND c.cliente=sl.cliente
@@ -3259,7 +3259,7 @@ export class CommercialAnalyticsService {
       const tickets = (await trx.raw(
         `SELECT max(sl.doc_ref) folio, sl.consecutivo, max(sl.business_date::date) AS date,
                 count(*) lines, sum(sl.qty) units, sum(sl.importe) revenue
-         FROM wincaja.v_sales_lines sl WHERE ${W}
+         FROM analytics.v_route_sales_lines sl WHERE ${W}
          GROUP BY sl.consecutivo ORDER BY max(sl.business_date) DESC, revenue DESC NULLS LAST LIMIT 100`, P)).rows;
 
       return {

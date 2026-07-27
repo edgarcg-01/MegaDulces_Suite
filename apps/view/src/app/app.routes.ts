@@ -624,6 +624,12 @@ export const routes: Routes = [
         loadComponent: () => import('./modules/logistica/pages/logistica-live.component').then(m => m.LogisticaLiveComponent),
         canActivate: [permissionGuard(Permission.LOGISTICS_FLEET_VER)]
       },
+      // LT — Rastreo de flota GPS (MagniTracking): posiciones reales de los trackers
+      {
+        path: 'rastreo',
+        loadComponent: () => import('./modules/logistica/pages/logistica-rastreo.component').then(m => m.LogisticaRastreoComponent),
+        canActivate: [permissionGuard(Permission.LOGISTICS_FLEET_VER)]
+      },
       // J12.3 — Planeador de ruta (mapa + optimización)
       {
         path: 'planner',
