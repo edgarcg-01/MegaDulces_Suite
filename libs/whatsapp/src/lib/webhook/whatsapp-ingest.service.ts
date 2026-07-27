@@ -189,6 +189,22 @@ export class WhatsAppIngestService implements OnModuleInit {
         });
         return;
       }
+      // FIQ.1 — Throttle / budget-guard (canal público = techo de gasto + anti-DoS):
+      // si un número supera N turnos LLM en 24h, degradamos a un template + handoff,
+      // SIN llamar al LLM. Cap configurable (WHATSAPP_DAILY_TURN_CAP, default 50).
+      const cap = Number(process.env.WHATSAPP_DAILY_TURN_CAP) || 50;
+      const recentTurns = await this.threads.countRecentTurns(p.phone, 24);
+      if (recentTurns >= cap) {
+        await this.threads.update(p.thread_id, { handoff: true, state: 'handoff' });
+        await this.enqueueOut(tenantId, {
+          to: p.phone,
+          thread_id: p.thread_id,
+          kind: 'text',
+          body: 'Gracias por tu mensaje 🙌 En breve un asesor de Mega Dulces continúa tu atención.',
+        });
+        this.logger.warn(`Throttle: ${p.phone} superó ${cap} turnos/24h → handoff sin LLM.`);
+        return;
+      }
       const result = await this.orchestrator.handleTurn(p.thread_id, p.text || '');
       await this.enqueueOut(tenantId, { to: p.phone, thread_id: p.thread_id, kind: 'text', body: result.reply });
     });

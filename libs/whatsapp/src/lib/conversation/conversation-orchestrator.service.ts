@@ -31,7 +31,10 @@ export interface TurnResult {
 export class ConversationOrchestratorService {
   private readonly logger = new Logger(ConversationOrchestratorService.name);
   private readonly endpoint = 'https://api.anthropic.com/v1/messages';
+  // FIQ.1 — model tiering: Haiku enruta el grueso; Sonnet toma los turnos
+  // "difíciles" (mensajes largos, ambigüedad, comparación/negociación, mayoreo).
   private readonly model = 'claude-haiku-4-5-20251001';
+  private readonly sonnetModel = process.env.WHATSAPP_SONNET_MODEL || 'claude-sonnet-5';
   private readonly apiKey = process.env.ANTHROPIC_API_KEY || '';
   private readonly timeoutMs = 20_000;
   private readonly maxIters = 6;
@@ -110,9 +113,12 @@ export class ConversationOrchestratorService {
     }
     messages.push({ role: 'user', content: userText });
 
-    let reply = '';
+    // FIQ.1: elegí el modelo del turno (Haiku por defecto, Sonnet si es complejo).
+    const model = this.pickModel(userText, history.length);
+    const t0 = Date.now();
+    let loop: { text: string; iterations: number; tools: string[] };
     try {
-      reply = await this.runToolLoop(messages, work, seen);
+      loop = await this.runToolLoop(messages, work, seen, model);
     } catch (e: any) {
       this.logger.warn(`Tool loop falló (${e?.message}) → handoff.`);
       await this.threads.update(threadId, { handoff: true, state: 'handoff' });
@@ -122,6 +128,7 @@ export class ConversationOrchestratorService {
         state: 'handoff',
       };
     }
+    const reply = loop.text;
 
     await this.threads.update(threadId, {
       cart: work.cart,
@@ -135,6 +142,18 @@ export class ConversationOrchestratorService {
         .upsertContactProfile(thread.phone, { last_address: work.address, customer_id: work.customerId })
         .catch((e: any) => this.logger.warn(`upsertContactProfile falló (${e?.message}).`));
     }
+    // FIQ.1: auditoría del turno (modelo/tools/latencia) + fuente del throttle.
+    await this.threads.logBotTurn({
+      thread_id: threadId,
+      phone: thread.phone,
+      user_text: userText,
+      reply_text: reply,
+      model,
+      escalated: model !== this.model,
+      tools_used: loop.tools,
+      iterations: loop.iterations,
+      latency_ms: Date.now() - t0,
+    });
     return { reply: reply || 'Listo.', handoff: work.handoff, state: work.state };
   }
 
@@ -144,29 +163,32 @@ export class ConversationOrchestratorService {
     messages: any[],
     work: { cart: CartItem[]; address: any; state: ThreadState; handoff: boolean },
     seen: Map<string, ConversationProductHit>,
-  ): Promise<string> {
+    model: string,
+  ): Promise<{ text: string; iterations: number; tools: string[] }> {
+    const tools: string[] = [];
     for (let i = 0; i < this.maxIters; i++) {
-      const res = await this.callClaude(messages, work);
+      const res = await this.callClaude(messages, work, model);
       const content: any[] = res?.content || [];
       const toolUses = content.filter((c) => c.type === 'tool_use');
       const textParts = content.filter((c) => c.type === 'text').map((c) => c.text);
 
       if (toolUses.length === 0) {
         // Turno terminado: el texto es la respuesta al cliente.
-        return textParts.join('\n').trim();
+        return { text: textParts.join('\n').trim(), iterations: i + 1, tools };
       }
 
       // Ejecutar cada tool y devolver resultados.
       messages.push({ role: 'assistant', content });
       const toolResults: any[] = [];
       for (const tu of toolUses) {
+        tools.push(tu.name);
         const out = await this.execTool(tu.name, tu.input || {}, work, seen);
         toolResults.push({ type: 'tool_result', tool_use_id: tu.id, content: JSON.stringify(out) });
       }
       messages.push({ role: 'user', content: toolResults });
     }
     // Se agotaron las iteraciones: respuesta segura.
-    return 'Perfecto, ya casi. ¿Confirmo tu pedido o querés agregar algo más?';
+    return { text: 'Perfecto, ya casi. ¿Confirmo tu pedido o querés agregar algo más?', iterations: this.maxIters, tools };
   }
 
   private async execTool(
@@ -463,6 +485,7 @@ export class ConversationOrchestratorService {
   private async callClaude(
     messages: any[],
     work: { cart: CartItem[]; address: any; state: ThreadState; customerName?: string | null; knownAddress?: any },
+    model: string,
   ): Promise<any> {
     const ctrl = new AbortController();
     const tId = setTimeout(() => ctrl.abort(), this.timeoutMs);
@@ -475,7 +498,7 @@ export class ConversationOrchestratorService {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          model: this.model,
+          model,
           max_tokens: 1024,
           system: this.systemPrompt(work),
           tools: this.toolDefs(),
@@ -488,6 +511,24 @@ export class ConversationOrchestratorService {
     } finally {
       clearTimeout(tId);
     }
+  }
+
+  /**
+   * FIQ.1 — Tiering de modelo. Haiku conduce el grueso (rápido/barato); Sonnet
+   * toma los turnos "difíciles": mensajes largos, hilo ya extenso, o señales de
+   * ambigüedad/comparación/negociación/mayoreo/factura donde el razonamiento
+   * paga. Heurístico y barato (sin llamada extra). El motor sigue poniendo los
+   * números (ADR-016) sin importar el modelo.
+   */
+  private pickModel(userText: string, historyLen: number): string {
+    const t = (userText || '').toLowerCase();
+    const complex =
+      t.length > 160 ||
+      historyLen >= 6 ||
+      /(por qu|porqu|cu[aá]l|diferencia|recomien|no s[eé]|conviene|mejor opci|comparar|cu[aá]nto.*(sale|cuesta|queda).*(si|con)|mayoreo|al por mayor|factura|descuento|precio especial|crédito|credito)/i.test(
+        t,
+      );
+    return complex ? this.sonnetModel : this.model;
   }
 
   private systemPrompt(work: {
