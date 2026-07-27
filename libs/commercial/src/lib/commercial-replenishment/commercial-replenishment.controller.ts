@@ -58,6 +58,22 @@ export class CommercialReplenishmentController {
     return this.svc.criticalStock({ warehouse_id, warehouse_ids, supplier_id, category_id, abc, xyz, bucket, source, search, target_basis, scope, sort_by, sort_dir, page: page ? Number(page) : undefined, pageSize: pageSize ? Number(pageSize) : undefined });
   }
 
+  @Get('purchase-suggestion')
+  @RequirePermissions(Permission.COMPRAS_VER)
+  @ApiOperation({ summary: 'RA-PRO.17 — Compra sugerida anclada en el ritmo de compra REAL (entrada X-A-40). sugerido = max(0, ritmo_diario × cobertura − existencia/uxc − en_tránsito), valuado al costo real. Solo almacenes que compran directo. Filtros: warehouse_id(s), supplier_id, category_id, search, coverage_days(=30).' })
+  purchaseSuggestion(
+    @Query('warehouse_id') warehouse_id?: string,
+    @Query('warehouse_ids') warehouse_ids?: string,
+    @Query('supplier_id') supplier_id?: string,
+    @Query('category_id') category_id?: string,
+    @Query('search') search?: string,
+    @Query('coverage_days') coverage_days?: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+  ) {
+    return this.svc.purchaseSuggestion({ warehouse_id, warehouse_ids, supplier_id, category_id, search, coverage_days: coverage_days ? Number(coverage_days) : undefined, page: page ? Number(page) : undefined, pageSize: pageSize ? Number(pageSize) : undefined });
+  }
+
   @Get('critical-stock.xlsx')
   @RequirePermissions(Permission.COMPRAS_VER)
   @ApiOperation({ summary: 'Existencia crítica → Excel con diseño (mismos filtros que /critical-stock; exporta TODAS las filas del filtro, sin paginar).' })

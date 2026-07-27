@@ -61,6 +61,24 @@ export interface CriticalStockRow {
   cadence_band?: 'rapida' | 'promedio' | 'mal_abasto' | null;
   source_warehouse_code?: string | null;
 }
+// RA-PRO.17 — Compra sugerida anclada en el ritmo de compra REAL (entrada X-A-40).
+export interface PurchaseSuggestionRow {
+  product_id: string; warehouse_id: string; warehouse_code: string;
+  sku: string; nombre: string; supplier_id: string | null; supplier_name: string | null;
+  uxc: number; daily_rate: number; order_days: number; last_purchase: string | null;
+  on_hand_pieces: number; on_hand_units: number; in_transit_units: number;
+  unit_cost: number; target_units: number; suggested_units: number; suggested_pieces: number;
+  suggested_cost: number; days_cover: number | null;
+}
+export interface PurchaseSuggestionResponse {
+  total: number; total_valor: number; page: number; pageSize: number; coverage_days: number;
+  rows: PurchaseSuggestionRow[];
+}
+export interface PurchaseSuggestionQuery {
+  warehouse_id?: string; warehouse_ids?: string[]; supplier_id?: string; category_id?: string;
+  search?: string; coverage_days?: number; page?: number; pageSize?: number;
+}
+
 export interface CriticalStockResponse {
   total: number;
   page: number;
@@ -431,6 +449,21 @@ export class ComprasService {
     if (q.pageSize) p.set('pageSize', String(q.pageSize));
     const qs = p.toString();
     return this.http.get<CriticalStockResponse>(`${this.base}/critical-stock${qs ? '?' + qs : ''}`);
+  }
+
+  /** RA-PRO.17 — Compra sugerida anclada en el ritmo de compra REAL (entrada X-A-40). */
+  purchaseSuggestion(q: PurchaseSuggestionQuery): Observable<PurchaseSuggestionResponse> {
+    const p = new URLSearchParams();
+    if (q.warehouse_ids?.length) p.set('warehouse_ids', q.warehouse_ids.join(','));
+    else if (q.warehouse_id) p.set('warehouse_id', q.warehouse_id);
+    if (q.supplier_id) p.set('supplier_id', q.supplier_id);
+    if (q.category_id) p.set('category_id', q.category_id);
+    if (q.search) p.set('search', q.search);
+    if (q.coverage_days) p.set('coverage_days', String(q.coverage_days));
+    if (q.page) p.set('page', String(q.page));
+    if (q.pageSize) p.set('pageSize', String(q.pageSize));
+    const qs = p.toString();
+    return this.http.get<PurchaseSuggestionResponse>(`${this.base}/purchase-suggestion${qs ? '?' + qs : ''}`);
   }
 
   /** Export XLSX con diseño (mismos filtros; exporta TODO el filtro, sin paginar). */

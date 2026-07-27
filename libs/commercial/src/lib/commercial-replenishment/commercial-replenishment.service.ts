@@ -52,6 +52,19 @@ export interface WorklistQuery {
   pageSize?: number;
 }
 
+// RA-PRO.17 — Compra sugerida anclada en el LEDGER de compras reales (analytics.purchase_velocity).
+export interface PurchaseSuggestionQuery {
+  warehouse_id?: string;
+  warehouse_ids?: string;   // CSV
+  supplier_id?: string;
+  category_id?: string;
+  search?: string;
+  coverage_days?: number;   // horizonte de cobertura (default 30 ≈ ciclo mensual real)
+  page?: number;
+  pageSize?: number;
+  export?: boolean;
+}
+
 interface RequisitionLineDto {
   product_id: string;
   supplier_id?: string | null;
@@ -408,6 +421,84 @@ export class CommercialReplenishmentService {
           trx.raw(`ROUND(SUM(${oh}), 2) AS existencia_cajas`),
         ).first();
       return r;
+    });
+  }
+
+  // ── RA-PRO.17 — Compra sugerida (ritmo de compra REAL) ────────────────
+  /**
+   * Sugerido de compra anclado en el LEDGER de compras reales (analytics.purchase_velocity,
+   * entrada X-A-40). Reemplaza la valuación derivada demanda×política×costo — que en el granel
+   * se rompía por unidades mezcladas (venta piezas / compra cajas / costo per-caja o per-pieza).
+   * El ledger es la única fuente auto-consistente y en dinero real. Validado: a 30d de cobertura
+   * reproduce el gasto mensual real por proveedor (Fabricas Selectas $206k ≈ $220k real).
+   *
+   *   sugerido_compra = max(0, ritmo_diario × cobertura − existencia/uxc − en_tránsito)
+   *   valor           = sugerido_compra × costo_real_entrada
+   *
+   * Grano = producto × almacén QUE COMPRA (solo esos tienen purchase_velocity) → el sugerido a
+   * proveedor sale donde de verdad se compra (CEDIS/hubs); las sucursales van por traspaso.
+   * Unidades: purchase_velocity.daily_rate y en_tránsito están en la UNIDAD DE COMPRA de Kepler
+   * (caja); la existencia (kdil) está en piezas → se divide por uxc (factor_sale, o box_size de la
+   * etiquetera) para llevarla a la misma unidad. `piezas` = sugerido × uxc (display).
+   */
+  async purchaseSuggestion(q: PurchaseSuggestionQuery) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const cov = Math.min(120, Math.max(1, Number(q.coverage_days) || 30));
+    const page = Math.max(1, Number(q.page) || 1);
+    const cap = q.export ? 100000 : 500;
+    const pageSize = Math.min(cap, Math.max(1, Number(q.pageSize) || (q.export ? cap : 50)));
+    return this.tk.run(async (trx) => {
+      const uxc = `GREATEST(CASE WHEN pr.factor_sale > 1 THEN pr.factor_sale WHEN lbl.bs > 1 THEN lbl.bs ELSE 1 END, 1)`;
+      const oh = `(COALESCE(s.quantity,0) - COALESCE(s.reserved_quantity,0))`;
+      const it = `COALESCE(pit.qty_in_transit, 0)`;              // ya en unidad de compra (caja)
+      const ohU = `(${oh} / ${uxc})`;                            // existencia → unidad de compra
+      const sug = `GREATEST(0, pv.daily_rate * :cov - ${ohU} - ${it})`;
+      const filters: string[] = ['pv.tenant_id = :t', 'pv.daily_rate > 0', 'pr.activo = true'];
+      const binds: Record<string, unknown> = { t: tenantId, cov };
+      const whIds = this.whIds(q);
+      if (whIds.length) { filters.push(`pv.warehouse_id IN (${whIds.map((_, i) => `:w${i}`).join(',')})`); whIds.forEach((w, i) => { binds[`w${i}`] = w; }); }
+      if (q.supplier_id && UUID_RX.test(q.supplier_id)) { filters.push('pr.supplier_id = :sid'); binds.sid = q.supplier_id; }
+      if (q.category_id && UUID_RX.test(q.category_id)) { filters.push('pr.category_id = :cat'); binds.cat = q.category_id; }
+      if (q.search && q.search.trim()) { filters.push('(pr.sku ILIKE :s OR pr.nombre ILIKE :s)'); binds.s = `%${q.search.trim()}%`; }
+      const where = filters.join(' AND ');
+
+      const from = `
+        FROM analytics.purchase_velocity pv
+        JOIN catalog.products pr ON pr.tenant_id = pv.tenant_id AND pr.id = pv.product_id
+        JOIN commercial.warehouses w ON w.tenant_id = pv.tenant_id AND w.id = pv.warehouse_id
+        LEFT JOIN catalog.suppliers sup ON sup.tenant_id = pr.tenant_id AND sup.id = pr.supplier_id
+        LEFT JOIN commercial.stock s ON s.tenant_id = pv.tenant_id AND s.warehouse_id = pv.warehouse_id AND s.product_id = pv.product_id
+        LEFT JOIN analytics.purchase_in_transit pit ON pit.tenant_id = pv.tenant_id AND pit.warehouse_id = pv.warehouse_id AND pit.product_id = pv.product_id
+        LEFT JOIN (SELECT tenant_id, product_id, max(box_size) bs FROM commercial.product_label_prices GROUP BY tenant_id, product_id) lbl
+               ON lbl.tenant_id = pv.tenant_id AND lbl.product_id = pv.product_id
+        WHERE ${where}`;
+
+      const totalRow = (await trx.raw(`SELECT count(*)::int c, round(SUM(${sug} * pv.real_unit_cost)::numeric,2) total_valor ${from}`, binds)).rows[0];
+
+      const rows = (await trx.raw(`
+        SELECT pv.product_id, pv.warehouse_id, w.code AS warehouse_code,
+               pr.sku, pr.nombre, sup.id AS supplier_id, sup.name AS supplier_name,
+               ${uxc} AS uxc,
+               round(pv.daily_rate::numeric, 3) AS daily_rate,
+               pv.order_days, pv.last_purchase,
+               round(${oh}::numeric, 1) AS on_hand_pieces,
+               round(${ohU}::numeric, 2) AS on_hand_units,
+               ${it} AS in_transit_units,
+               round(pv.real_unit_cost::numeric, 4) AS unit_cost,
+               round((pv.daily_rate * :cov)::numeric, 2) AS target_units,
+               round(${sug}::numeric, 2) AS suggested_units,
+               round((${sug} * ${uxc})::numeric, 0) AS suggested_pieces,
+               round((${sug} * pv.real_unit_cost)::numeric, 2) AS suggested_cost,
+               round((${ohU} / NULLIF(pv.daily_rate,0))::numeric, 1) AS days_cover
+        ${from}
+        ORDER BY (${sug} * pv.real_unit_cost) DESC, pv.daily_rate DESC
+        LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`, binds)).rows;
+
+      return {
+        total: Number(totalRow?.c || 0),
+        total_valor: Number(totalRow?.total_valor || 0),
+        page, pageSize, coverage_days: cov, rows,
+      };
     });
   }
 
