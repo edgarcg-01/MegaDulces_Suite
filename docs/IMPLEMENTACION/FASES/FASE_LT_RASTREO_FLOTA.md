@@ -1,6 +1,6 @@
 # Fase LT — Rastreo de flota GPS (MagniTracking)
 
-> **Estado:** 🟢 LT.0 + LT.1 + LT.2 + LT.3 (visible) + LT.5 (bootstrap) ✅ local (beta) — 2026-07-27.
+> **Estado:** 🟢 LT.0 + LT.1 + LT.2 + LT.3 + LT.5 (bootstrap) + LT.6 (alertas server-side) ✅ local (beta) — 2026-07-27.
 > **ADR:** ADR-034 (proveedor de rastreo detrás de puerto; sin API oficial → sesión).
 > Hereda ADR-016 (el motor/adaptador trae datos, el LLM fuera).
 
@@ -84,8 +84,11 @@ superficie Operations (quiet-luxury, `surf-page`, `p-tag` por estado, Geist mono
   "Vincular por placa") crea vehículos desde el nombre del GPS (`extractPlate`/
   `extractBrand`) y vincula → **48/50** (2 sin placa: "DESCONTINUADO" + numérica).
   Idempotente; dos trackers con la misma placa (GPS + dashcam) comparten vehículo.
-- **LT.3 server-side (diferido):** hoy las alertas son client-side (solo con la
-  página abierta). Para vigilancia proactiva: un `@Cron` scanner (patrón
-  `AlertsScannerService`) que empuje alertas por WS/`AlertsGateway`.
+- **LT.6 alertas server-side ✅** — tabla `logistics.fleet_alerts` (mig `20260727182000`,
+  RLS, UNIQUE parcial anti-spam por tracker+kind abierto) + `FleetAlertsScannerService`
+  (`@Cron` 5 min) detecta sin-señal (90 min–24 h) y exceso de velocidad (>90 km/h);
+  endpoints `GET /alerts`, `POST /alerts/scan-now`, `PATCH /alerts/:id/ack`. La página
+  lee alertas persistidas con botón reconocer. Diferido: push por WS al campo
+  (requiere `FLEET_NOTIFIER_PORT` en el app-shell, `libs/logistics` no importa commercial).
 - **TZ:** se asume MX `-06:00` fijo. Validar si la cuenta reporta en otra zona.
 - Retención de `vehicle_positions` (purga/partición) cuando crezca el volumen.
