@@ -170,6 +170,49 @@ export class ConversationThreadService {
     });
   }
 
+  /**
+   * FIQ.4 — Perfil persistente del contacto (memoria cross-sesión) por teléfono
+   * canónico. Devuelve null si es la primera vez que escribe.
+   */
+  async getContactProfile(
+    phone: string,
+  ): Promise<{ last_address: any | null; summary: string | null; customer_id: string | null } | null> {
+    return this.tk.run(async (trx) => {
+      const row = await trx('whatsapp.contact_profile').where({ whatsapp: phone }).first();
+      if (!row) return null;
+      const j = (v: any) => (typeof v === 'string' ? JSON.parse(v) : v);
+      return {
+        last_address: row.last_address ? j(row.last_address) : null,
+        summary: row.summary ?? null,
+        customer_id: row.customer_id ?? null,
+      };
+    });
+  }
+
+  /** FIQ.4 — UPSERT del perfil por (tenant_id, whatsapp). Patch parcial. */
+  async upsertContactProfile(
+    phone: string,
+    patch: { customer_id?: string | null; last_address?: any; summary?: string | null },
+  ): Promise<void> {
+    await this.tk.run(async (trx) => {
+      const set: Record<string, unknown> = { updated_at: trx.fn.now() };
+      if (patch.customer_id !== undefined) set['customer_id'] = patch.customer_id;
+      if (patch.last_address !== undefined)
+        set['last_address'] = patch.last_address ? JSON.stringify(patch.last_address) : null;
+      if (patch.summary !== undefined) set['summary'] = patch.summary;
+      const existing = await trx('whatsapp.contact_profile').where({ whatsapp: phone }).first('id');
+      if (existing) {
+        await trx('whatsapp.contact_profile').where({ id: existing.id }).update(set);
+      } else {
+        await trx('whatsapp.contact_profile').insert({
+          tenant_id: trx.raw('public.current_tenant_id()'),
+          whatsapp: phone,
+          ...set,
+        });
+      }
+    });
+  }
+
   /** Helper: ¿ya vimos este mensaje entrante? (dedup previo al encolado). */
   async isDuplicateInbound(msg: InboundMessage): Promise<boolean> {
     if (!msg.wa_message_id) return false;
