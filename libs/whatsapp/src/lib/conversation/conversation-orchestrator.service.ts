@@ -192,6 +192,55 @@ export class ConversationOrchestratorService {
           }),
         };
       }
+      case 'sugeridos_para_ti': {
+        // FIQ.4: canasta IA (upsell/cross-sell). Requiere cliente reconocido.
+        if (!work.customerId) {
+          return { info: 'Cliente no identificado: no hay sugeridos personalizados. Usá promociones_activas o buscar_producto.' };
+        }
+        const sug = await this.commerce!.customerSuggested(work.customerId);
+        for (const h of sug) seen.set(h.product_id, h);
+        if (work.state === 'greeting') work.state = 'shopping';
+        if (sug.length === 0) return { info: 'Sin sugerencias por ahora.' };
+        return {
+          sugeridos: sug.map((h) => {
+            const factor = h.pieces_per_package || 1;
+            return {
+              product_id: h.product_id,
+              nombre: h.name,
+              marca: h.brand_name,
+              precio_pieza: h.unit_price,
+              precio_paquete: factor > 1 ? h.price_per_package : null,
+              piezas_por_paquete: factor,
+              se_vende_por: factor > 1 ? 'pieza o paquete' : 'pieza',
+              disponibilidad: h.availability,
+              motivo: h.reason,
+            };
+          }),
+        };
+      }
+      case 'promociones_activas': {
+        // FIQ.4: promos vigentes para el cliente (o all_customers si casual).
+        const promos = await this.commerce!.activePromotions({ customerId: work.customerId });
+        for (const h of promos) seen.set(h.product_id, h);
+        if (work.state === 'greeting') work.state = 'shopping';
+        if (promos.length === 0) return { info: 'No hay promociones activas en este momento.' };
+        return {
+          promociones: promos.map((h) => {
+            const factor = h.pieces_per_package || 1;
+            return {
+              product_id: h.product_id,
+              nombre: h.name,
+              marca: h.brand_name,
+              precio_pieza: h.unit_price,
+              precio_paquete: factor > 1 ? h.price_per_package : null,
+              piezas_por_paquete: factor,
+              se_vende_por: factor > 1 ? 'pieza o paquete' : 'pieza',
+              disponibilidad: h.availability,
+              promo: h.promo_name,
+            };
+          }),
+        };
+      }
       case 'buscar_producto': {
         // FIQ.3: precio de la lista del cliente reconocido (mayoreo).
         const hits = await this.commerce!.searchProducts(String(input.query || ''), {
@@ -358,6 +407,7 @@ export class ConversationOrchestratorService {
       '- EXISTENCIA: NUNCA menciones cantidades exactas de inventario ni "quedan N piezas". Comunicá SOLO la disponibilidad cualitativa de buscar_producto (disponibilidad: "disponible" = hay; "pocas" = quedan pocas, podés generar urgencia SIN número; "agotado" = ofrecé otra opción). Si el cliente pide más de lo que hay, agregar_al_carrito lo rechaza: pedile una cantidad menor o ofrecé avisarle cuando se reponga, SIN decir el número disponible.',
       '- UNIDADES: los productos se venden por PIEZA y a veces por PAQUETE/CAJA (piezas_por_paquete). Cuando el cliente diga "una caja", "un paquete" o "una bolsa", agregá con unidad="paquete"; cuando diga piezas sueltas, unidad="pieza". Aclarale al cliente cómo viene (ej. "viene en paquete de 40 piezas, ¿cuántos paquetes?") y confirmá siempre la cantidad en piezas y paquetes.',
       '- MAYOREO/PRECIOS: los precios que te da buscar_producto YA son los del cliente (de mayoreo si está reconocido) — nunca inventes ni cambies un precio. Cuando el producto viene en caja (piezas_por_paquete > 1), ofrecé SIEMPRE el precio por CAJA (precio_paquete) además del de pieza, ej. "la caja de 40 te sale a $precio_paquete ($precio_pieza c/u)". Respetá minimo_piezas (cantidad mínima de compra) al cerrar.',
+      '- UPSELL (con tacto): si el cliente está reconocido y por cerrar o dudando, ofrecé 1-2 productos de sugeridos_para_ti (con su motivo) o de promociones_activas. Nunca insistas ni satures; máximo una sugerencia por turno.',
       '- Antes de confirmar necesitás: al menos 1 producto en el carrito Y el domicilio (calle y número).',
       '- Al confirmar, avisá que un asesor de Mega Dulces revisa y confirma el pedido (no lo cierres vos).',
       '- Si el cliente pide algo que no entendés, se enoja, o pide hablar con una persona, usá handoff_humano.',
@@ -371,6 +421,16 @@ export class ConversationOrchestratorService {
       {
         name: 'mi_historial',
         description: 'Devuelve los productos que ESTE cliente ya compró antes (frecuencia + disponibilidad). Úsalo cuando pida "lo de siempre", "lo mismo", su pedido habitual, o para sugerir según su historial. Los product_id sirven para agregar_al_carrito. Solo funciona con cliente reconocido.',
+        input_schema: { type: 'object', properties: {} },
+      },
+      {
+        name: 'sugeridos_para_ti',
+        description: 'Canasta de recomendaciones IA para el cliente (lo que suele llevar + productos afines que no compra + novedades), cada uno con un motivo. Úsalo para UPSELL/cross-sell: cuando el cliente termina o duda, ofrecele 1-2 sugeridos relevantes. Solo con cliente reconocido. product_id sirven para agregar_al_carrito.',
+        input_schema: { type: 'object', properties: {} },
+      },
+      {
+        name: 'promociones_activas',
+        description: 'Lista productos con promoción/oferta vigente para el cliente. Úsalo cuando pregunte por ofertas/promociones o para tentarlo con lo que está en promo. product_id sirven para agregar_al_carrito.',
         input_schema: { type: 'object', properties: {} },
       },
       {

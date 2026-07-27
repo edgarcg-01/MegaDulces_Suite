@@ -48,6 +48,18 @@ export interface ConversationHistoryHit extends ConversationProductHit {
   last_ordered_at: string | null;
 }
 
+/** Sugerencia IA (FIQ.4) — canasta estratégica (base/focus/exploration/innovation) + razón. Cubre upsell/cross-sell. */
+export interface ConversationSuggestionHit extends ConversationProductHit {
+  reason: string;
+  category: string | null;
+}
+
+/** Producto con promoción activa (FIQ.4) aplicable al cliente/canal. */
+export interface ConversationPromoHit extends ConversationProductHit {
+  promo_name: string;
+  promo_type: string;
+}
+
 /** Alta de un pedido a domicilio desde una conversación aprobada (F.3). */
 export interface ConversationOrderDto {
   /** Cliente casual (alta rápida / dedupe por teléfono). */
@@ -106,6 +118,19 @@ export interface CommerceConversationPort {
    * con precio + existencia (bucket). [] si no tiene historial. Scope de tenant (CLS).
    */
   customerHistory(customerId: string, opts?: { limit?: number; days?: number }): Promise<ConversationHistoryHit[]>;
+
+  /**
+   * Canasta IA de sugeridos del cliente (FIQ.4 / requisito 8+1) — base/focus/
+   * exploration/innovation con razón. Sirve para upsell/cross-sell. `customerId`
+   * de FIQ.0. [] si no hay. Scope de tenant (CLS).
+   */
+  customerSuggested(customerId: string): Promise<ConversationSuggestionHit[]>;
+
+  /**
+   * Productos con promoción activa (FIQ.4 / requisito 1+6) aplicable al cliente
+   * (o `all_customers` si casual). `customerId` opcional (null = casual). Scope CLS.
+   */
+  activePromotions(opts?: { customerId?: string | null }): Promise<ConversationPromoHit[]>;
 
   /**
    * Crea el pedido a domicilio (canal whatsapp) cuando un HUMANO aprueba la

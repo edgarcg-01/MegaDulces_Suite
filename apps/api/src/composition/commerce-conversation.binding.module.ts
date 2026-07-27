@@ -7,6 +7,8 @@ import type {
   ConversationOrderDto,
   ConversationOrderResult,
   ConversationProductHit,
+  ConversationPromoHit,
+  ConversationSuggestionHit,
 } from '@megadulces/contracts';
 import { TenantKnexService, normalizeMxPhone } from '@megadulces/platform-core';
 import {
@@ -111,6 +113,43 @@ class CatalogSearchCommerceAdapter implements CommerceConversationPort {
       ...this.toHit(r, meta),
       times_ordered: Number(r.times_ordered) || 0,
       last_ordered_at: r.last_ordered_at ?? null,
+    }));
+  }
+
+  /**
+   * FIQ.4 (requisito 8+1) — Canasta IA de sugeridos (base/focus/exploration/
+   * innovation) del cliente, para upsell/cross-sell. Reusa getMySuggested del
+   * motor (con customerId explícito) + enriquece con precio/existencia/empaque.
+   */
+  async customerSuggested(customerId: string): Promise<ConversationSuggestionHit[]> {
+    if (!customerId) return [];
+    const rows: any[] = await this.search.getMySuggested({ customerId, warehouseId: null });
+    const priced = rows.filter((r) => r.price != null);
+    if (priced.length === 0) return [];
+    const meta = await this.enrichMeta(priced.map((r) => r.product_id));
+    return priced.map((r) => ({
+      ...this.toHit(r, meta),
+      reason: r.rec_reason ?? '',
+      category: r.rec_category ?? null,
+    }));
+  }
+
+  /**
+   * FIQ.4 (requisito 1+6) — Productos con promoción activa aplicable al cliente
+   * (o all_customers si casual). Reusa getWithPromo del motor + enriquece.
+   */
+  async activePromotions(opts?: { customerId?: string | null }): Promise<ConversationPromoHit[]> {
+    const rows: any[] = await this.search.getWithPromo({
+      customerId: opts?.customerId ?? null,
+      warehouseId: null,
+    });
+    const priced = rows.filter((r) => r.price != null);
+    if (priced.length === 0) return [];
+    const meta = await this.enrichMeta(priced.map((r) => r.product_id));
+    return priced.map((r) => ({
+      ...this.toHit(r, meta),
+      promo_name: r.promo_name ?? '',
+      promo_type: r.promo_type ?? '',
     }));
   }
 
