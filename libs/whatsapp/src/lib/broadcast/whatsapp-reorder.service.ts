@@ -90,7 +90,7 @@ export class WhatsAppReorderService {
   async run(opts: { limit?: number; minOverdueDays?: number; dryRun?: boolean } = {}): Promise<any> {
     const plan = await this.preview(opts);
     if (opts.dryRun) return { dry_run: true, ...plan };
-    if (plan.eligible.length === 0) return { dry_run: false, sent: 0, skipped: plan.skipped, ...plan };
+    if (plan.eligible.length === 0) return { dry_run: false, sent: 0, ...plan };
 
     const template = process.env.WHATSAPP_REORDER_TEMPLATE;
 
