@@ -16,6 +16,7 @@ import {
   FleetVehicle,
   HomeDeliveryService,
   KeplerTicket,
+  PendingOrder,
 } from '../home-delivery.service';
 import { MapComponent } from '../../../shared/components/map/map.component';
 
@@ -40,6 +41,64 @@ import { MapComponent } from '../../../shared/components/map/map.component';
           <p class="surf-page-sub">Buscá el folio Kepler, capturá el domicilio y asigná repartidor + moto</p>
         </div>
       </header>
+
+      <!-- Por despachar: pedidos de intake (bot/portal/tel) confirmados sin asignar.
+           Independiente del flujo Kepler de abajo. -->
+      @if (pendingOrders().length) {
+        <div class="card-premium rd-card rd-pending">
+          <h2 class="rd-sectitle" style="margin-top:0">
+            Pedidos por despachar <span class="rd-hint">· bot / portal · {{ pendingOrders().length }}</span>
+          </h2>
+          <div class="rd-grid">
+            <div class="rd-field">
+              <label for="psd">Fecha de entrega</label>
+              <p-datePicker inputId="psd" [(ngModel)]="shipmentDate" dateFormat="dd/mm/yy"
+                            [minDate]="today" [showIcon]="true" appendTo="body" styleClass="rd-full" />
+            </div>
+          </div>
+          <p-table [value]="pendingOrders()" styleClass="p-datatable-sm surf-table rd-mt">
+            <ng-template pTemplate="header">
+              <tr>
+                <th scope="col">Cliente</th>
+                <th scope="col">Canal</th>
+                <th scope="col">Domicilio</th>
+                <th scope="col" class="comm-num">Cobra</th>
+                <th scope="col">Repartidor</th>
+                <th scope="col"></th>
+              </tr>
+            </ng-template>
+            <ng-template pTemplate="body" let-o>
+              <tr>
+                <td>
+                  <div class="rd-opt-main">{{ o.customer_name }}</div>
+                  <div class="rd-opt-sub">{{ o.phone || 'sin teléfono' }} · {{ o.code }}</div>
+                </td>
+                <td><p-tag [value]="o.channel || 'intake'" severity="info" /></td>
+                <td>
+                  @if (o.street) {
+                    {{ o.street }}<span class="rd-opt-sub" *ngIf="o.references"> · {{ o.references }}</span>
+                  } @else { <span class="rd-geo-hint">sin domicilio</span> }
+                </td>
+                <td class="comm-num">{{ money(o.amount_to_collect) }}</td>
+                <td>
+                  <p-select [options]="riders()" [(ngModel)]="assignRider[o.order_id]" optionValue="rider_user_id"
+                            appendTo="body" styleClass="rd-full" placeholder="Repartidor"
+                            [filter]="riders().length > 8" filterBy="full_name" [emptyMessage]="'Sin repartidores'">
+                    <ng-template let-d pTemplate="item"><span>{{ d.full_name || d.username }}</span></ng-template>
+                    <ng-template let-d pTemplate="selectedItem"><span *ngIf="d">{{ d.full_name || d.username }}</span></ng-template>
+                  </p-select>
+                </td>
+                <td>
+                  <button pButton size="small" label="Asignar" icon="pi pi-send"
+                          [loading]="assigningId() === o.order_id" (click)="assignOrder(o)"></button>
+                </td>
+              </tr>
+            </ng-template>
+          </p-table>
+          @if (assignError()) { <p class="rd-err"><i class="pi pi-exclamation-circle"></i> {{ assignError() }}</p> }
+          @if (assignOk()) { <p class="rd-geo-ok rd-mt"><i class="pi pi-check-circle"></i> {{ assignOk() }}</p> }
+        </div>
+      }
 
       <ol class="rd-steps" aria-label="Progreso">
         <li [class.on]="step() === 0" [class.done]="step() > 0"><span class="rd-num">1</span> Buscar folio</li>
@@ -328,6 +387,13 @@ export class HomeDeliveryDispatchComponent implements OnInit {
   readonly dispatchError = signal<string | null>(null);
   readonly result = signal<any | null>(null);
 
+  // Bandeja "por despachar": pedidos de intake (bot/portal) confirmados sin parada.
+  readonly pendingOrders = signal<PendingOrder[]>([]);
+  readonly assigningId = signal<string | null>(null);
+  readonly assignError = signal<string | null>(null);
+  readonly assignOk = signal<string | null>(null);
+  assignRider: Record<string, string> = {};
+
   readonly step = computed(() => (this.result() ? 2 : this.ticket() ? 1 : 0));
 
   // Picker de ubicación (geocoding + click/arrastre en mapa).
@@ -359,6 +425,41 @@ export class HomeDeliveryDispatchComponent implements OnInit {
   ngOnInit(): void {
     this.svc.listRiders().subscribe({ next: (d) => this.riders.set(d || []), error: () => {} });
     this.svc.listVehicles().subscribe({ next: (v) => this.vehicles.set(v || []), error: () => {} });
+    this.loadPending();
+  }
+
+  /** Carga la bandeja de pedidos de intake por despachar (bot/portal/tel). */
+  loadPending(): void {
+    this.svc.listPendingOrders().subscribe({
+      next: (d) => this.pendingOrders.set(d || []),
+      error: () => {},
+    });
+  }
+
+  /** Asigna un pedido de intake ya existente a un repartidor (crea la parada). */
+  assignOrder(o: PendingOrder): void {
+    this.assignError.set(null);
+    this.assignOk.set(null);
+    const rider = this.assignRider[o.order_id];
+    if (!rider) { this.assignError.set(`Elegí un repartidor para ${o.customer_name}.`); return; }
+    this.assigningId.set(o.order_id);
+    this.svc
+      .dispatchOrder(o.order_id, {
+        rider_user_id: rider,
+        vehicle_id: this.vehicleId || undefined,
+        shipment_date: this.iso(this.shipmentDate),
+      })
+      .subscribe({
+        next: (r) => {
+          this.assigningId.set(null);
+          this.assignOk.set(`Pedido ${o.code} asignado (${r?.folio || 'REP'}).`);
+          this.pendingOrders.update((list) => list.filter((x) => x.order_id !== o.order_id));
+        },
+        error: (e) => {
+          this.assigningId.set(null);
+          this.assignError.set(e?.error?.message || 'No se pudo asignar.');
+        },
+      });
   }
 
   money(v: number | undefined): string {
