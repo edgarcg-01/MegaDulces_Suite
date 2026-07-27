@@ -8,7 +8,7 @@
 |---|---|---|
 | **FIQ.0** identidad por teléfono | ✅ **HECHO** (local) | Smoke `test-newdb-fiq0` 22/22 + review adversarial (3 fixes). Migs 20260727120000/120500 aplicadas local. Build api+view OK. |
 | **FIQ.2** existencia por buckets | ✅ **HECHO** (local) | `availability` (agotado/pocas/disponible) en el adapter; el bot no revela el total. Build OK. Validación runtime sim pendiente. |
-| **FIQ.4** personalización | 🔨 **PARCIAL** (local) | Core `mi_historial` ("lo de siempre") ✅. Diferido: sugeridos IA + upsell + `promociones_activas` + `contact_profile` (memoria). |
+| **FIQ.4** personalización | ✅ **HECHO** (local) | `mi_historial` ("lo de siempre") + `sugeridos_para_ti` (canasta IA/upsell) + `promociones_activas` + `contact_profile` (memoria cross-sesión: última dirección). Mig 20260727130000. Diferido: upsell cart-aware Thot + summary LLM. |
 | **FIQ.3** precio a mayoreo | ✅ **HECHO** (local) | Cliente reconocido → su lista; casual → lista de canal `WHATSAPP_PRICE_LIST_CODE`; precio por caja (`price_per_package`). **⚠️ La `is_default` del tenant es P1 (público) — setear `WHATSAPP_PRICE_LIST_CODE=MAYOREO` en Railway.** Diferido: volume-break tiers P1..P4. |
 | FIQ.1, FIQ.5–FIQ.11 | ⬜ TODO | Ver plan abajo. |
 
