@@ -99,6 +99,8 @@ import { LogisticsReportsModule } from '@megadulces/logistics';
 import { LogisticsCartaporteModule } from '@megadulces/logistics';
 // Fase J12.3 — Optimización de ruta (solver heurístico)
 import { LogisticsRoutingModule } from '@megadulces/logistics';
+// Fase LT — Rastreo de flota GPS (MagniTracking / GPS-Server.net)
+import { LogisticsTrackingModule } from '@megadulces/logistics';
 // Sprint M — sync ERP Mega_Dulces (.245) → postgres_platform (nightly cron + admin endpoints)
 import { MegaDulcesSyncModule } from '@megadulces/commercial';
 // MAAT (ADR-028) — AI de Finanzas: base de conocimiento (+ motor/chat en sprints siguientes)
@@ -186,6 +188,7 @@ const multitenantModules = process.env.ENABLE_MULTITENANT === 'true'
       LogisticsReportsModule,
       LogisticsCartaporteModule,
       LogisticsRoutingModule,
+      LogisticsTrackingModule,
       MegaDulcesSyncModule,
       FinanceNotifierBindingModule,
       FinanceMaatModule,
