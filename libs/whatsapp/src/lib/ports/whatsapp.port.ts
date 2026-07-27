@@ -22,6 +22,8 @@ export interface InboundMessage {
   from: string;
   /** wa_id del contacto (Meta) — suele coincidir con `from`. */
   wa_id: string;
+  /** phone_number_id del número receptor (Meta metadata) — routing multi-tenant (FIQ.0). */
+  phone_number_id?: string | null;
   /** nombre de perfil del contacto, si el proveedor lo manda. */
   profile_name?: string | null;
   /** tipo del mensaje entrante. */

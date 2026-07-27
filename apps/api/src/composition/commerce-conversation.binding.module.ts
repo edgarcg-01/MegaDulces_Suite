@@ -1,12 +1,13 @@
-import { Global, Injectable, Module } from '@nestjs/common';
+import { Global, Injectable, Logger, Module } from '@nestjs/common';
 import { COMMERCE_CONVERSATION_PORT } from '@megadulces/contracts';
 import type {
   CommerceConversationPort,
+  ConversationCustomer,
   ConversationOrderDto,
   ConversationOrderResult,
   ConversationProductHit,
 } from '@megadulces/contracts';
-import { TenantKnexService } from '@megadulces/platform-core';
+import { TenantKnexService, normalizeMxPhone } from '@megadulces/platform-core';
 import {
   CommercialCatalogSearchModule,
   CommercialCatalogSearchService,
@@ -27,11 +28,45 @@ import {
  */
 @Injectable()
 class CatalogSearchCommerceAdapter implements CommerceConversationPort {
+  private readonly logger = new Logger(CatalogSearchCommerceAdapter.name);
+
   constructor(
     private readonly search: CommercialCatalogSearchService,
     private readonly homeDelivery: CommercialHomeDeliveryService,
     private readonly tk: TenantKnexService,
   ) {}
+
+  /**
+   * FIQ.0 (ADR-036) — Reconoce al cliente por su teléfono. Normaliza a MSISDN
+   * canónico y matchea contra `customers.whatsapp` normalizado (índice funcional
+   * `ix_customers_whatsapp_norm`), con fallback a `phone`. Prefiere el cliente de
+   * cartera (no casual) y el más reciente. El MOTOR resuelve; el LLM solo saluda.
+   */
+  async resolveCustomerByPhone(phone: string): Promise<ConversationCustomer | null> {
+    const canonical = normalizeMxPhone(phone);
+    if (!canonical) return null;
+    return this.tk.run(async (trx) => {
+      const row = await trx('commercial.customers')
+        .whereNull('deleted_at')
+        .andWhere((b: any) => {
+          b.whereRaw('public.mx_normalize_phone(whatsapp) = ?', [canonical]).orWhereRaw(
+            'public.mx_normalize_phone(phone) = ?',
+            [canonical],
+          );
+        })
+        // Cartera formal antes que casual; luego el más reciente.
+        .orderBy('is_casual', 'asc')
+        .orderBy('created_at', 'desc')
+        .first('id', 'name', 'is_casual', 'default_price_list_id');
+      if (!row) return null;
+      return {
+        customer_id: row.id,
+        name: row.name,
+        is_casual: !!row.is_casual,
+        default_price_list_id: row.default_price_list_id ?? null,
+      };
+    });
+  }
 
   async searchProducts(query: string, opts?: { limit?: number }): Promise<ConversationProductHit[]> {
     const q = (query || '').trim();

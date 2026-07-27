@@ -47,6 +47,20 @@ export interface ConversationOrderResult {
   total: number;
 }
 
+/**
+ * Cliente reconocido por su teléfono (FIQ.0 / ADR-036). El bot lo usa para
+ * saludar por nombre y, más adelante (FIQ.3/4), para su precio de mayoreo,
+ * historial y recomendaciones. Resuelto por el MOTOR (motor decide, LLM narra).
+ */
+export interface ConversationCustomer {
+  customer_id: string;
+  name: string;
+  /** true = alta rápida sin cartera formal (casual). */
+  is_casual: boolean;
+  /** Lista de precio del cliente (mayoreo). null = usa el default del tenant. */
+  default_price_list_id: string | null;
+}
+
 export interface CommerceConversationPort {
   /**
    * Busca productos por lenguaje natural, scoped al price_list default del
@@ -54,6 +68,14 @@ export interface CommerceConversationPort {
    * Debe ejecutarse dentro de un scope de tenant (CLS) ya establecido.
    */
   searchProducts(query: string, opts?: { limit?: number }): Promise<ConversationProductHit[]>;
+
+  /**
+   * Resuelve el cliente de cartera por su teléfono (FIQ.0 / ADR-036). Normaliza
+   * a MSISDN canónico y busca por `customers.whatsapp` (y `phone` de fallback).
+   * Devuelve null si no hay match (contacto casual/nuevo). Debe ejecutarse dentro
+   * de un scope de tenant (CLS) ya establecido.
+   */
+  resolveCustomerByPhone(phone: string): Promise<ConversationCustomer | null>;
 
   /**
    * Crea el pedido a domicilio (canal whatsapp) cuando un HUMANO aprueba la

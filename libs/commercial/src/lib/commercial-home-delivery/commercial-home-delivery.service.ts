@@ -5,7 +5,7 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
+import { TenantKnexService, TenantContextService, normalizeMxPhone, toE164Mx } from '@megadulces/platform-core';
 import { CommercialCustomersService } from '../commercial-customers/commercial-customers.service';
 import { CommercialOrdersService } from '../commercial-orders/commercial-orders.service';
 import { CommercialPaymentsService } from '../commercial-payments/commercial-payments.service';
@@ -245,19 +245,43 @@ export class CommercialHomeDeliveryService {
       throw new BadRequestException('Falta customer_id o casual {name, phone}');
 
     const phone = dto.casual.phone.trim();
-    // Dedup: si ya existe un cliente con ese teléfono, reusarlo (no duplicar casuales).
-    const existing = await this.tk.run((trx) =>
-      trx('commercial.customers').whereNull('deleted_at').where({ phone }).first(),
-    );
+    const canonical = normalizeMxPhone(phone);
+    // Dedup por teléfono NORMALIZADO (FIQ.0 / ADR-036): matchea whatsapp o phone
+    // aunque llegue en formatos distintos (521 vs 52 vs +52) — no duplica casuales.
+    const existing = await this.tk.run((trx) => {
+      const q = trx('commercial.customers').whereNull('deleted_at');
+      if (canonical) {
+        q.where((b) => {
+          b.whereRaw('public.mx_normalize_phone(whatsapp) = ?', [canonical]).orWhereRaw(
+            'public.mx_normalize_phone(phone) = ?',
+            [canonical],
+          );
+        });
+      } else {
+        q.where({ phone });
+      }
+      return q.first();
+    });
     if (existing) return existing.id;
 
-    const digits = phone.replace(/\D/g, '').slice(-10) || 'SN';
+    const digits = (canonical || phone.replace(/\D/g, '')).slice(-10) || 'SN';
     const created = await this.customers.create({
       code: `CAS-${digits}`,
       name: dto.casual.name.trim(),
       phone,
       is_casual: true,
     });
+    // Guardar whatsapp E.164 canónico para que el bot reconozca al casual la próxima.
+    // Defensivo contra el índice UNIQUE parcial (tenant_id, whatsapp): si colisiona, se deja null.
+    if (canonical) {
+      try {
+        await this.tk.run((trx) =>
+          trx('commercial.customers').where({ id: created.id }).update({ whatsapp: toE164Mx(canonical) }),
+        );
+      } catch (e: any) {
+        this.logger.warn(`No se pudo setear whatsapp del casual ${created.id} (${e?.message}).`);
+      }
+    }
     return created.id;
   }
 

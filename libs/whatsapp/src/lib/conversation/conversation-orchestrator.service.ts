@@ -60,12 +60,29 @@ export class ConversationOrchestratorService {
       };
     }
 
+    // FIQ.0 (ADR-036): reconocer al cliente por su teléfono. Lookup indexado
+    // barato; se hace cada turno para tener el nombre fresco y persiste el
+    // customer_id la primera vez que se resuelve. El MOTOR resuelve, el LLM saluda.
+    let customerName: string | null = null;
+    try {
+      const customer = await this.commerce.resolveCustomerByPhone(thread.phone);
+      if (customer) {
+        customerName = customer.name;
+        if (!thread.customer_id) {
+          await this.threads.update(threadId, { customer_id: customer.customer_id });
+        }
+      }
+    } catch (e: any) {
+      this.logger.warn(`resolveCustomerByPhone falló (${e?.message}) — sigo sin personalizar.`);
+    }
+
     // Estado de trabajo del turno (se persiste al final).
     const work = {
       cart: [...thread.cart] as CartItem[],
       address: thread.delivery_address as any,
       state: thread.state as ThreadState,
       handoff: false,
+      customerName,
     };
     // Productos vistos en ESTE turno (product_id → hit). El precio del carrito
     // sale de aquí, no del LLM.
@@ -249,7 +266,10 @@ export class ConversationOrchestratorService {
 
   // ── Claude ──────────────────────────────────────────────────────────────────
 
-  private async callClaude(messages: any[], work: { cart: CartItem[]; address: any; state: ThreadState }): Promise<any> {
+  private async callClaude(
+    messages: any[],
+    work: { cart: CartItem[]; address: any; state: ThreadState; customerName?: string | null },
+  ): Promise<any> {
     const ctrl = new AbortController();
     const tId = setTimeout(() => ctrl.abort(), this.timeoutMs);
     try {
@@ -276,10 +296,19 @@ export class ConversationOrchestratorService {
     }
   }
 
-  private systemPrompt(work: { cart: CartItem[]; address: any; state: ThreadState }): string {
+  private systemPrompt(work: {
+    cart: CartItem[];
+    address: any;
+    state: ThreadState;
+    customerName?: string | null;
+  }): string {
     const cart = this.cartView(work.cart);
+    const cliente = work.customerName
+      ? `CLIENTE RECONOCIDO: "${work.customerName}". Saludalo por su nombre (usá solo el primer nombre, cálido) al inicio de la conversación. Ya es cliente de Mega Dulces.`
+      : 'CLIENTE NUEVO/NO IDENTIFICADO: tratalo con calidez; no inventes su nombre.';
     return [
       'Sos el asistente de pedidos de Mega Dulces (dulcería) por WhatsApp. Hablás en español mexicano, cálido y breve (mensajes cortos, sin markdown).',
+      cliente,
       'Tu trabajo: ayudar al cliente a armar un pedido a domicilio.',
       'REGLAS DURAS:',
       '- Para agregar un producto SIEMPRE usá primero buscar_producto y luego agregar_al_carrito con un product_id de esos resultados. Nunca inventes productos ni precios.',
