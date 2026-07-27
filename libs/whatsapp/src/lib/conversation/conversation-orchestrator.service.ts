@@ -96,6 +96,7 @@ export class ConversationOrchestratorService {
       customerName,
       customerId,
       knownAddress,
+      phone: thread.phone as string, // FIQ.6: ancla del apartado (E.164 canónico).
     };
     // Productos vistos en ESTE turno (product_id → hit). El precio del carrito
     // sale de aquí, no del LLM.
@@ -178,6 +179,7 @@ export class ConversationOrchestratorService {
       handoff: boolean;
       customerName?: string | null;
       customerId?: string | null;
+      phone?: string | null;
     },
     seen: Map<string, ConversationProductHit>,
   ): Promise<any> {
@@ -338,12 +340,97 @@ export class ConversationOrchestratorService {
       case 'confirmar_pedido': {
         if (work.cart.length === 0) return { error: 'El carrito está vacío. Agregá al menos un producto.' };
         if (!work.address?.street) return { error: 'Falta el domicilio de entrega. Pedí la calle y número.' };
+        // FIQ.7 (ADR-037): gate de confianza. El MOTOR decide el tier; el LLM
+        // comunica sin acusar. Degrada a 'allow' si el puerto falla (no romper).
+        let trust: { tier: string; reasons: string[] } | null = null;
+        if (work.phone) {
+          try {
+            trust = await this.commerce!.assessContactTrust(work.phone);
+          } catch (e: any) {
+            this.logger.warn(`assessContactTrust falló (${e?.message}) — confirmo sin gate.`);
+          }
+        }
+        if (trust?.tier === 'block') {
+          // No auto-confirmar: derivar a un humano (nunca refuse hard ni acuse).
+          work.handoff = true;
+          work.state = 'handoff';
+          return {
+            gate: 'handoff',
+            instruccion:
+              'NO confirmes el pedido. Con calidez, decile que un asesor de Mega Dulces lo va a contactar para coordinar este pedido. NUNCA menciones su historial, ni "bloqueo", ni desconfianza. Amable y neutral.',
+          };
+        }
         work.state = 'review';
+        if (trust?.tier === 'require_deposit') {
+          return {
+            ok: true,
+            gate: 'require_deposit',
+            mensaje: 'Pedido listo para revisión de un asesor.',
+            resumen: { carrito: this.cartView(work.cart), domicilio: work.address },
+            instruccion:
+              'Pedile con tacto un ANTICIPO o pago por TRANSFERENCIA para asegurar el pedido (política para pedidos nuevos o grandes) y avisá que un asesor lo confirma. NO menciones su historial ni des explicaciones negativas, NO pidas datos de tarjeta (no hay pago en línea).',
+          };
+        }
         return {
           ok: true,
           mensaje: 'Pedido listo para revisión de un asesor.',
           resumen: { carrito: this.cartView(work.cart), domicilio: work.address },
         };
+      }
+      case 'apartar_pedido': {
+        // FIQ.6 (ADR-038): aparta (reserva con TTL) lo que hay en el carrito. El
+        // MOTOR reserva el stock de forma atómica; el bot NO cierra el pedido.
+        if (!work.phone) return { error: 'No tengo el teléfono del contacto para el apartado.' };
+        if (work.cart.length === 0) return { error: 'El carrito está vacío. Agregá productos antes de apartar.' };
+        const horas = Math.max(1, Math.min(Math.floor(Number(input.horas) || 3), 24));
+        try {
+          const res = await this.commerce!.reserveStock({
+            phone: work.phone,
+            customerId: work.customerId ?? null,
+            lines: work.cart.map((c) => ({ product_id: c.product_id, quantity: c.qty })),
+            ttlMinutes: horas * 60,
+          });
+          // El stock queda reservado bajo el folio → vaciamos el carrito de trabajo
+          // (los items pasaron al apartado) para no reservar dos veces si confirma luego.
+          work.cart = [];
+          return {
+            ok: true,
+            folio: res.folio,
+            vence_en_horas: Math.max(1, Math.round(res.expires_in_minutes / 60)),
+            total: res.total,
+            items: res.lines.map((l) => ({ producto: l.name, piezas: l.quantity })),
+            instruccion:
+              'Confirmá el folio y hasta cuándo se lo guardamos. El apartado NO es una entrega: si quiere que se lo llevemos, armá un pedido con confirmar_pedido (domicilio + confirmar).',
+          };
+        } catch (e: any) {
+          // Stock insuficiente (ConflictException del motor) → mensaje cualitativo, sin números.
+          return {
+            error: 'no_apartado',
+            mensaje: e?.message || 'No pudimos apartar esos productos ahora.',
+            instruccion: 'Ofrecé una cantidad menor o quitar el producto que no alcanzó. NUNCA menciones números de inventario.',
+          };
+        }
+      }
+      case 'consultar_apartado': {
+        // FIQ.6: apartados vigentes del contacto.
+        if (!work.phone) return { info: 'Sin teléfono no puedo consultar apartados.' };
+        const list = await this.commerce!.activeReservations(work.phone);
+        if (list.length === 0) return { info: 'No tenés apartados activos en este momento.' };
+        return {
+          apartados: list.map((r) => ({
+            folio: r.folio,
+            vence_en_horas: Math.max(1, Math.round(r.expires_in_minutes / 60)),
+            total: r.total,
+            items: r.lines.map((l) => ({ producto: l.name, piezas: l.quantity })),
+          })),
+        };
+      }
+      case 'cancelar_apartado': {
+        // FIQ.6: libera TODOS los apartados activos del contacto y devuelve el stock.
+        if (!work.phone) return { error: 'Sin teléfono no puedo cancelar apartados.' };
+        const res = await this.commerce!.releaseReservation({ phone: work.phone });
+        if (res.released === 0) return { info: 'No tenías apartados activos para cancelar.' };
+        return { ok: true, cancelados: res.released, instruccion: 'Confirmá que liberaste el apartado.' };
       }
       case 'handoff_humano':
         work.handoff = true;
@@ -431,8 +518,10 @@ export class ConversationOrchestratorService {
       '- UNIDADES: los productos se venden por PIEZA y a veces por PAQUETE/CAJA (piezas_por_paquete). Cuando el cliente diga "una caja", "un paquete" o "una bolsa", agregá con unidad="paquete"; cuando diga piezas sueltas, unidad="pieza". Aclarale al cliente cómo viene (ej. "viene en paquete de 40 piezas, ¿cuántos paquetes?") y confirmá siempre la cantidad en piezas y paquetes.',
       '- MAYOREO/PRECIOS: los precios que te da buscar_producto YA son los del cliente (de mayoreo si está reconocido) — nunca inventes ni cambies un precio. Cuando el producto viene en caja (piezas_por_paquete > 1), ofrecé SIEMPRE el precio por CAJA (precio_paquete) además del de pieza, ej. "la caja de 40 te sale a $precio_paquete ($precio_pieza c/u)". Respetá minimo_piezas (cantidad mínima de compra) al cerrar.',
       '- UPSELL (con tacto): si el cliente está reconocido y por cerrar o dudando, ofrecé 1-2 productos de sugeridos_para_ti (con su motivo) o de promociones_activas. Nunca insistas ni satures; máximo una sugerencia por turno.',
+      '- APARTADO: si el cliente quiere que le GUARDES/RESERVES producto para que no se agote (sin entregarlo aún, o porque lo recoge después, o no está listo para dar domicilio), armá el carrito y usá apartar_pedido. Dale el folio AP-... y decile hasta cuándo se lo guardás. El apartado NO es una entrega: si además quiere que se lo lleven, eso es un pedido aparte (domicilio + confirmar_pedido). Puede consultar (consultar_apartado) o cancelar (cancelar_apartado) su apartado.',
       '- Antes de confirmar necesitás: al menos 1 producto en el carrito Y el domicilio (calle y número).',
       '- Al confirmar, avisá que un asesor de Mega Dulces revisa y confirma el pedido (no lo cierres vos).',
+      '- CONFIANZA/PAGO: si confirmar_pedido te devuelve una instrucción de pedir anticipo/transferencia o de derivar a un asesor, seguila con calidez y SIN explicaciones negativas. NUNCA menciones el historial del cliente, "bloqueo", deuda ni desconfianza.',
       '- Si el cliente pide algo que no entendés, se enoja, o pide hablar con una persona, usá handoff_humano.',
       '- El pago es contra-entrega (efectivo al recibir). No pidas datos de tarjeta.',
       `ESTADO ACTUAL → etapa: ${work.state}. Carrito: ${cart.items.length ? JSON.stringify(cart) : 'vacío'}. Domicilio: ${work.address?.street ? JSON.stringify(work.address) : 'no capturado'}.`,
@@ -501,6 +590,27 @@ export class ConversationOrchestratorService {
       {
         name: 'confirmar_pedido',
         description: 'Marca el pedido como listo para que un asesor lo revise y confirme. Requiere carrito con productos y domicilio.',
+        input_schema: { type: 'object', properties: {} },
+      },
+      {
+        name: 'apartar_pedido',
+        description:
+          'Aparta (reserva/guarda) los productos del carrito por unas horas para que no se agoten, SIN entregarlos todavía. Úsalo cuando el cliente diga "apártame", "resérvame", "guárdamelo", "lo recojo después", o no esté listo para dar domicilio. Devuelve un folio AP-... y hasta cuándo se guarda. El apartado NO es un pedido a domicilio.',
+        input_schema: {
+          type: 'object',
+          properties: {
+            horas: { type: 'integer', minimum: 1, maximum: 24, description: 'Cuántas horas guardarlo (default 3, máx 24).' },
+          },
+        },
+      },
+      {
+        name: 'consultar_apartado',
+        description: 'Muestra los apartados vigentes del cliente (folio, qué guardó, hasta cuándo, total). Úsalo si pregunta "¿qué tengo apartado?" o "¿sigue mi apartado?".',
+        input_schema: { type: 'object', properties: {} },
+      },
+      {
+        name: 'cancelar_apartado',
+        description: 'Cancela/libera los apartados vigentes del cliente (devuelve los productos al inventario). Úsalo si dice "cancela mi apartado" o "ya no lo quiero".',
         input_schema: { type: 'object', properties: {} },
       },
       {

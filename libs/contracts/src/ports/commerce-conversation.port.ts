@@ -79,6 +79,30 @@ export interface ConversationOrderResult {
   total: number;
 }
 
+/** Línea de un apartado (FIQ.6): producto + piezas + snapshot de precio. */
+export interface ConversationReservationLine {
+  product_id: string;
+  name: string;
+  quantity: number;
+  unit_price: number;
+  line_total: number;
+}
+
+/**
+ * Apartado de pedido con TTL (FIQ.6 / ADR-038). Hold temporal de stock anclado al
+ * teléfono del contacto; el motor reserva el inventario y un cron lo libera al
+ * vencer. NO es una orden ni un cobro (ADR-034). El folio (AP-YYYY-NNNNN) lo pone
+ * el motor.
+ */
+export interface ConversationReservation {
+  reservation_id: string;
+  folio: string;
+  expires_at: string;
+  expires_in_minutes: number;
+  total: number;
+  lines: ConversationReservationLine[];
+}
+
 /**
  * Cliente reconocido por su teléfono (FIQ.0 / ADR-036). El bot lo usa para
  * saludar por nombre y, más adelante (FIQ.3/4), para su precio de mayoreo,
@@ -140,4 +164,44 @@ export interface CommerceConversationPort {
    * confirmación (ADR-034: bot arma / humano confirma).
    */
   createHomeDeliveryOrder(dto: ConversationOrderDto): Promise<ConversationOrderResult>;
+
+  /**
+   * Aparta (reserva con TTL) los productos indicados para el contacto (FIQ.6 /
+   * ADR-038). El MOTOR reserva el stock (reserved_quantity) de forma atómica —
+   * todo-o-nada — y devuelve el folio + vencimiento. Lanza si alguna línea no
+   * alcanza (mensaje cualitativo, sin revelar el inventario). `customerId` de FIQ.0.
+   * Scope de tenant (CLS) ya establecido.
+   */
+  reserveStock(input: {
+    phone: string;
+    customerId?: string | null;
+    lines: { product_id: string; quantity: number }[];
+    ttlMinutes?: number;
+    notes?: string;
+  }): Promise<ConversationReservation>;
+
+  /** Apartados ACTIVOS (no vencidos) del teléfono (FIQ.6). [] si no hay. Scope CLS. */
+  activeReservations(phone: string): Promise<ConversationReservation[]>;
+
+  /**
+   * Libera apartado(s) del teléfono y devuelve el stock (FIQ.6). Si `reservationId`
+   * viene, solo ese; si no, todos los activos del teléfono. Scope CLS.
+   */
+  releaseReservation(input: { phone: string; reservationId?: string }): Promise<{ released: number }>;
+
+  /**
+   * Evalúa la confianza del contacto por su teléfono (FIQ.7 / ADR-037). El MOTOR
+   * agrega señales reales (no-show, cancelaciones, "solo conversa sin comprar",
+   * deuda) → un tier que el gate del bot obedece; el LLM solo comunica y NUNCA
+   * acusa ni revela el score. `require_deposit` = transferencia/anticipo (no cobro
+   * online). Determinista, CERO LLM. Scope de tenant (CLS) ya establecido.
+   */
+  assessContactTrust(phone: string): Promise<ConversationTrust>;
+}
+
+/** Veredicto de confianza del contacto (FIQ.7). El gate actúa; el LLM comunica sin acusar. */
+export interface ConversationTrust {
+  tier: 'neutral' | 'allow' | 'require_deposit' | 'block';
+  risk_score: number;
+  reasons: string[];
 }
