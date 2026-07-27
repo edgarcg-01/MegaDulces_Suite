@@ -219,14 +219,22 @@ export class ConversationThreadService {
    */
   async countRecentTurns(phone: string, hours = 24): Promise<number> {
     const h = Math.max(1, Math.floor(Number(hours) || 24));
-    return this.tk.run(async (trx) => {
-      const r = await trx('whatsapp.bot_chat_log')
-        .where({ phone })
-        .where('created_at', '>', trx.raw(`now() - (? || ' hours')::interval`, [h]))
-        .count<{ count: string }>('* as count')
-        .first();
-      return Number(r?.count) || 0;
-    });
+    try {
+      return await this.tk.run(async (trx) => {
+        const r = await trx('whatsapp.bot_chat_log')
+          .where({ phone })
+          .where('created_at', '>', trx.raw(`now() - (? || ' hours')::interval`, [h]))
+          .count<{ count: string }>('* as count')
+          .first();
+        return Number(r?.count) || 0;
+      });
+    } catch (e: any) {
+      // FAIL-OPEN: el throttle es defensa-en-profundidad, NUNCA debe tumbar la
+      // respuesta. Si bot_chat_log aún no existe (migración no aplicada en la
+      // instancia) o la DB falla, no throttleamos este turno (mejor responder).
+      this.logger.warn(`countRecentTurns falló (${e?.message}) — sin throttle este turno.`);
+      return 0;
+    }
   }
 
   /** FIQ.1 — Audita un turno del bot (modelo/tools/latencia). Best-effort. */
