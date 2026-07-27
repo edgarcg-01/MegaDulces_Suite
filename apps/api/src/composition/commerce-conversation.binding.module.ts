@@ -9,6 +9,7 @@ import type {
   ConversationMarketHit,
   ConversationProductHit,
   ConversationPromoHit,
+  ConversationReorderCandidate,
   ConversationReservation,
   ConversationSuggestionHit,
   ConversationTrust,
@@ -383,6 +384,57 @@ class CatalogSearchCommerceAdapter implements CommerceConversationPort {
 
   async marketTrending(opts?: { limit?: number }): Promise<ConversationMarketHit[]> {
     return this.marketRanking('units_30d', 'en tendencia', opts);
+  }
+
+  /**
+   * FIQ.10 — Clientes debidos para reorden: atrasados vs su cadencia (customer_360)
+   * + su producto habitual (recommended_baskets), solo contactables. tenant_id
+   * explícito. El MOTOR decide a quién; el agente compone y respeta opt-in.
+   */
+  async listDueForReorder(opts?: { limit?: number; minOverdueDays?: number }): Promise<ConversationReorderCandidate[]> {
+    const limit = Math.min(200, Math.max(1, opts?.limit ?? 50));
+    const minOverdue = Math.max(0, Math.floor(opts?.minOverdueDays ?? 1));
+    const rows: any[] = await this.tk.run(async (trx) => {
+      const r = await trx.raw(
+        `SELECT c360.customer_id, cu.name,
+                COALESCE(public.mx_normalize_phone(cu.whatsapp), public.mx_normalize_phone(cu.phone)) AS phone,
+                (c360.recency_days - c360.cadence_days) AS days_overdue, c360.cadence_days, rb.items
+           FROM commercial.customer_360 c360
+           JOIN commercial.customers cu ON cu.id = c360.customer_id AND cu.tenant_id = c360.tenant_id
+           LEFT JOIN commercial.recommended_baskets rb
+             ON rb.customer_id = c360.customer_id AND rb.tenant_id = c360.tenant_id
+          WHERE c360.tenant_id = public.current_tenant_id()
+            AND cu.deleted_at IS NULL
+            AND c360.cadence_days IS NOT NULL AND c360.cadence_days > 0
+            AND c360.recency_days > c360.cadence_days + ?
+            AND c360.lifecycle_stage IN ('active','at_risk')
+            AND COALESCE(cu.whatsapp, cu.phone) IS NOT NULL
+          ORDER BY (c360.recency_days - c360.cadence_days) DESC
+          LIMIT ?`,
+        [minOverdue, limit],
+      );
+      return r.rows;
+    });
+    return rows
+      .filter((r) => r.phone)
+      .map((r) => ({
+        customer_id: r.customer_id,
+        name: r.name,
+        phone: r.phone,
+        days_overdue: Number(r.days_overdue) || 0,
+        cadence_days: Number(r.cadence_days) || 0,
+        top_product: this.topBasketProduct(r.items),
+      }));
+  }
+
+  /** Producto habitual del cliente desde recommended_baskets.items (base > mayor score). */
+  private topBasketProduct(items: any): string | null {
+    const arr = typeof items === 'string' ? JSON.parse(items) : items;
+    if (!Array.isArray(arr) || !arr.length) return null;
+    const base = arr.filter((i) => i?.category === 'base');
+    const pool = base.length ? base : arr;
+    const best = pool.reduce((a, b) => ((Number(b?.score) || 0) > (Number(a?.score) || 0) ? b : a));
+    return best?.name || best?.nombre || best?.product_name || null;
   }
 
   async createHomeDeliveryOrder(dto: ConversationOrderDto): Promise<ConversationOrderResult> {

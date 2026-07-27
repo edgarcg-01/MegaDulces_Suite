@@ -13,6 +13,7 @@ import { WhatsAppPromoService } from './promos/whatsapp-promo.service';
 import { WhatsAppPromoController } from './promos/whatsapp-promo.controller';
 import { WhatsAppOptinService } from './broadcast/whatsapp-optin.service';
 import { WhatsAppCampaignService } from './broadcast/whatsapp-campaign.service';
+import { WhatsAppReorderService } from './broadcast/whatsapp-reorder.service';
 import { WhatsAppBroadcastController } from './broadcast/whatsapp-broadcast.controller';
 
 /**
@@ -51,6 +52,7 @@ const whatsAppPortProvider = {
     WhatsAppPromoService,
     WhatsAppOptinService,
     WhatsAppCampaignService,
+    WhatsAppReorderService,
   ],
   exports: [WHATSAPP_PORT, WhatsAppQueueService, ConversationThreadService, ConversationOrchestratorService, WhatsAppIngestService],
 })

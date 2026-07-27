@@ -74,6 +74,40 @@ export class WhatsAppCampaignService {
     });
   }
 
+  /**
+   * FIQ.10 — Como create() pero con destinatarios EXPLÍCITOS (subconjunto dirigido,
+   * p. ej. clientes debidos para reorden). Se intersecta con opted-in por seguridad
+   * (Meta banea el número si mandás marketing sin consentimiento).
+   */
+  async createTargeted(dto: CreateCampaignDto, phones: string[]) {
+    if (!dto?.name?.trim()) throw new BadRequestException('name requerido');
+    if (!dto?.template_name?.trim()) throw new BadRequestException('template_name requerido (plantilla aprobada en Meta)');
+    const optedIn = new Set(await this.optin.listOptedInPhones());
+    const targets = [...new Set(phones)].filter((p) => optedIn.has(p));
+    return this.tk.run(async (trx) => {
+      const [c] = await trx('whatsapp.campaigns')
+        .insert({
+          tenant_id: trx.raw('public.current_tenant_id()'),
+          name: dto.name.trim(),
+          template_name: dto.template_name.trim(),
+          language: dto.language || 'es_MX',
+          image_url: dto.image_url || null,
+          body_params: JSON.stringify(dto.body_params || []),
+          status: 'draft',
+          total: targets.length,
+          created_by: this.tenantCtx.get()?.userId || null,
+        })
+        .returning(['id', 'name', 'total']);
+      if (targets.length) {
+        await trx('whatsapp.campaign_recipients')
+          .insert(targets.map((phone) => ({ tenant_id: trx.raw('public.current_tenant_id()'), campaign_id: c.id, phone, status: 'pending' })))
+          .onConflict(['tenant_id', 'campaign_id', 'phone'])
+          .ignore();
+      }
+      return { campaign_id: c.id, name: c.name, recipients: c.total };
+    });
+  }
+
   /** Dispara el envío (fan-out en segundo plano). Devuelve de inmediato. */
   async send(campaignId: string) {
     const tenantId = this.tenantCtx.requireTenantId();

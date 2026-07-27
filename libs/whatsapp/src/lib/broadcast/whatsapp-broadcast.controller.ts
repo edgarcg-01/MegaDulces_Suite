@@ -8,6 +8,7 @@ import {
 } from '@megadulces/platform-core';
 import { CreateCampaignDto, WhatsAppCampaignService } from './whatsapp-campaign.service';
 import { WhatsAppOptinService } from './whatsapp-optin.service';
+import { WhatsAppReorderService } from './whatsapp-reorder.service';
 
 /**
  * F.8 — Broadcast de promos + opt-in. VER = ver campañas/opt-in; GESTIONAR =
@@ -22,7 +23,23 @@ export class WhatsAppBroadcastController {
   constructor(
     private readonly campaigns: WhatsAppCampaignService,
     private readonly optin: WhatsAppOptinService,
+    private readonly reorder: WhatsAppReorderService,
   ) {}
+
+  // ── Reorden proactivo (FIQ.10) ──
+  @Get('reorder/preview')
+  @RequirePermissions(Permission.WHATSAPP_BOT_VER)
+  @ApiOperation({ summary: 'Plan de reorden (clientes atrasados vs cadencia ∩ opt-in ∩ no nudgeados). No envía.' })
+  reorderPreview() {
+    return this.reorder.preview({ limit: 100 });
+  }
+
+  @Post('reorder/run')
+  @RequirePermissions(Permission.WHATSAPP_BOT_GESTIONAR)
+  @ApiOperation({ summary: 'Ejecuta el nudge de reorden. dryRun=true solo planea; el envío exige WHATSAPP_REORDER_TEMPLATE aprobada.' })
+  reorderRun(@Body() body: { limit?: number; minOverdueDays?: number; dryRun?: boolean }) {
+    return this.reorder.run({ limit: body?.limit ?? 100, minOverdueDays: body?.minOverdueDays, dryRun: body?.dryRun });
+  }
 
   // ── Campañas ──
   @Post('campaigns')
