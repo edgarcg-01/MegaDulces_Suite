@@ -43,6 +43,7 @@ const SELECT_VELOCITY = `
      AND m.movement_kind = 'entrada' AND m.genero = 'X' AND m.doc_type = '40'
      AND m.doc_date >= current_date - $2::int
      AND m.qty > 0
+     AND m.product_id IS NOT NULL AND m.warehouse_id IS NOT NULL
    GROUP BY m.warehouse_id, m.product_id
   HAVING SUM(m.qty) > 0`;
 
@@ -70,7 +71,7 @@ const SELECT_VELOCITY = `
       SELECT $1, v.warehouse_id, v.product_id,
              round(v.qty_win / $2::numeric, 4),
              round(v.qty_win, 2),
-             round(v.amt_win / NULLIF(v.qty_win, 0), 4),
+             COALESCE(round(v.amt_win / NULLIF(v.qty_win, 0), 4), 0),
              v.order_days, v.last_purchase, now()
         FROM (${SELECT_VELOCITY}) v`, [M, WINDOW]);
     await db.query('COMMIT');

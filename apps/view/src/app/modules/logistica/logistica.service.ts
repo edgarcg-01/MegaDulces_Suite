@@ -579,6 +579,21 @@ export interface TrackerLive {
   last_synced_at: string | null;
 }
 
+export interface FleetAlertRow {
+  id: string;
+  tracker_id: string;
+  vehicle_id: string | null;
+  kind: 'offline' | 'speed';
+  severity: 'warn' | 'danger';
+  message: string;
+  value: number | null;
+  status: 'open' | 'ack' | 'resolved';
+  external_name: string | null;
+  route_code: string | null;
+  first_seen_at: string;
+  last_seen_at: string;
+}
+
 export interface TrackerHistoryPoint {
   captured_at: string;
   lat: number;
@@ -989,6 +1004,12 @@ export class LogisticaService {
   }
   trackingBootstrapVehicles(): Observable<{ created: number; linked: number; skipped: number }> {
     return this.http.post<{ created: number; linked: number; skipped: number }>(`${this.base}/tracking/bootstrap-vehicles`, {});
+  }
+  fleetAlerts(): Observable<FleetAlertRow[]> {
+    return this.http.get<FleetAlertRow[]>(`${this.base}/tracking/alerts`);
+  }
+  ackFleetAlert(id: string): Observable<{ id: string; status: string }> {
+    return this.http.patch<{ id: string; status: string }>(`${this.base}/tracking/alerts/${id}/ack`, {});
   }
   linkTracker(trackerId: string, vehicleId: string | null): Observable<{ id: string; vehicle_id: string | null }> {
     return this.http.patch<{ id: string; vehicle_id: string | null }>(`${this.base}/tracking/trackers/${trackerId}/link`, { vehicle_id: vehicleId });

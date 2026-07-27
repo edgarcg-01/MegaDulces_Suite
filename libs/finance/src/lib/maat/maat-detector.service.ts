@@ -60,6 +60,7 @@ const RULES: RuleMeta[] = [
   { rule_key: 'prov_203_orfano', clase: 'error_captura', nombre: 'Provisión 203 sin descargar', descripcion: 'Provisiones en la cuenta 203 que nunca se descargan (nómina/IMSS/SAT).', params: {} },
   { rule_key: 'anticipo_stale', clase: 'error_captura', nombre: 'Anticipo 107 sin aplicar', descripcion: 'Anticipos a proveedores (107) que nunca se aplican contra factura.', params: {} },
   { rule_key: 'compra_sin_rfc', clase: 'error_captura', nombre: 'Compra/gasto sin RFC de proveedor', descripcion: 'Documentos de compra (XA2001) o gasto (XA1001) sin RFC del proveedor capturado: no son deducibles, no entran a DIOT y no permiten armar la materialidad del CFDI.', params: { min_monto: 10000 } },
+  { rule_key: 'contpaqi_proveedor_efos', clase: 'riesgo', nombre: 'Proveedor en lista negra del SAT (EFOS/69)', descripcion: 'Proveedor de la contabilidad (ContPAQi) cuyo RFC está en la lista negra del SAT: 69B = EFOS (facturan operaciones simuladas → CFDI no deducible, foco de auditoría), 69 = art. 69 CFF (incumplido / no localizado / cancelado). Cruce por RFC exacto sobre los proveedores reales de los libros.', params: {} },
   { rule_key: 'spread_proveedor_sku', clase: 'oportunidad', nombre: 'Ahorro por spread de precio', descripcion: 'Mismo SKU comprado a 2+ proveedores con diferencia de precio relevante — ahorro potencial.', params: { min_spread_pct: 15, min_proveedores: 2, min_compras: 2 } },
   // MIQ.3 — meta-detectores (delegan en Coverage/DataQuality): vigilan al propio motor y a sus feeds.
   { rule_key: 'cobertura_punto_ciego', clase: 'riesgo', nombre: 'Punto ciego de cobertura', descripcion: 'Una categoría de riesgo financiero no tiene ningún detector activo (faltante, deshabilitado o auto-suprimido) — nadie vigila ese riesgo.', params: {} },
@@ -156,6 +157,7 @@ export class MaatDetectorService {
       case 'proveedor_nuevo_grande': return this.detProveedorNuevo(trx, tenantId, params);
       case 'spread_proveedor_sku': return this.detSpread(trx, tenantId, params);
       case 'compra_sin_rfc': return this.detCompraSinRfc(trx, tenantId, params);
+      case 'contpaqi_proveedor_efos': return this.detContpaqiEfos(trx, tenantId);
       case 'benford_importes': return this.anomaly.detBenford(trx, tenantId, params);
       case 'peer_group_outlier': return this.anomaly.detPeerGroup(trx, tenantId, params);
       case 'nivel_nuevo_serie': return this.anomaly.detNivelNuevo(trx, tenantId, params);
@@ -219,6 +221,36 @@ export class MaatDetectorService {
         importe: Number(r.monto),
         evidencia: { num_docs: r.n, proveedores_muestra: r.proveedores, fuente: 'analytics.expense_documents', regla: "rfc IS NULL OR ''" },
         dedup_key: `compra_sin_rfc|${r.doc_tipo}`,
+      };
+    });
+  }
+
+  // ── riesgo (CP.3): proveedor de la contabilidad ContPAQi en la lista negra del SAT ──
+  // Cruza analytics.contpaqi_suppliers.rfc × fiscal.sat_list_rfcs (69/69B). Un hallazgo por
+  // (rfc, lista): 69B (EFOS) = crítico; 69 (art.69 CFF) = warn. Sin importe (es un flag de riesgo).
+  private async detContpaqiEfos(trx: any, tenantId: string): Promise<RawFinding[]> {
+    const rows = await trx('analytics.contpaqi_suppliers as s')
+      .join('fiscal.sat_list_rfcs as l', 'l.rfc', 's.rfc')
+      .where('s.tenant_id', tenantId).whereNotNull('s.rfc')
+      .groupBy('s.rfc', 'l.lista')
+      .select('s.rfc', 'l.lista',
+        trx.raw('MAX(s.nombre) AS nombre'),
+        trx.raw('MIN(s.codigo) AS codigo'),
+        trx.raw('MAX(l.situacion) AS situacion'));
+    return rows.map((r: any) => {
+      const efos = r.lista === '69B';
+      return {
+        rule_key: 'contpaqi_proveedor_efos',
+        severity: (efos ? 'critical' : 'warn') as 'critical' | 'warn',
+        score: efos ? 0.95 : 0.6,
+        titulo: `Proveedor en lista SAT ${r.lista} — ${r.nombre || r.rfc}`,
+        resumen: efos
+          ? `${r.nombre || r.rfc} (RFC ${r.rfc}) está en la lista 69B del SAT (EFOS: factura operaciones simuladas; situación "${r.situacion}"). Los CFDI que te haya emitido NO son deducibles y son foco de auditoría — revisa la materialidad y evalúa dejar de operarlo.`
+          : `${r.nombre || r.rfc} (RFC ${r.rfc}) aparece en la lista art. 69 CFF del SAT ("${r.situacion}"): incumplido / no localizado / cancelado. Verifica su estatus antes de seguir facturándole.`,
+        entity: { rfc: r.rfc, codigo: String(r.codigo || '').trim(), lista: r.lista, situacion: r.situacion, fuente: 'ContPAQi' },
+        periodo: null, importe: 0,
+        evidencia: { lista: r.lista, situacion: r.situacion, fuente: 'analytics.contpaqi_suppliers × fiscal.sat_list_rfcs' },
+        dedup_key: `contpaqi_proveedor_efos|${r.rfc}|${r.lista}`,
       };
     });
   }

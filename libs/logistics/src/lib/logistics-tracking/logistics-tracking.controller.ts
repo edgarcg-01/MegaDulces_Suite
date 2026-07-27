@@ -11,12 +11,38 @@ import {
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
 import { LogisticsTrackingService } from './logistics-tracking.service';
+import { FleetAlertsService } from './fleet-alerts.service';
 
 @ApiTags('logistics-tracking')
 @UseGuards(RolesGuard)
 @Controller('logistics/tracking')
 export class LogisticsTrackingController {
-  constructor(private readonly service: LogisticsTrackingService) {}
+  constructor(
+    private readonly service: LogisticsTrackingService,
+    private readonly alerts: FleetAlertsService,
+  ) {}
+
+  // ── Alertas de flota (server-side, persistidas) ────────────────────────────
+  @Get('alerts')
+  @RequirePermissions(Permission.LOGISTICS_FLEET_VER)
+  @ApiOperation({ summary: 'Alertas de flota activas (offline / velocidad)' })
+  listAlerts() {
+    return this.alerts.listActive();
+  }
+
+  @Post('alerts/scan-now')
+  @RequirePermissions(Permission.LOGISTICS_FLEET_GESTIONAR)
+  @ApiOperation({ summary: 'Correr el scanner de alertas ahora' })
+  scanAlerts() {
+    return this.alerts.scan();
+  }
+
+  @Patch('alerts/:id/ack')
+  @RequirePermissions(Permission.LOGISTICS_FLEET_GESTIONAR)
+  @ApiOperation({ summary: 'Reconocer (silenciar) una alerta' })
+  ackAlert(@Param('id') id: string) {
+    return this.alerts.acknowledge(id);
+  }
 
   @Get('live')
   @RequirePermissions(Permission.LOGISTICS_FLEET_VER)
