@@ -306,8 +306,11 @@ export class CommercialOrdersService {
         .first();
       if (existing) {
         const newQty = Number(existing.quantity) + dto.quantity;
-        const exUnit = Number(existing.unit_price);
-        const exTax = Number(existing.tax_rate);
+        // FIQ.3: re-tarificar por el NUEVO total — el tier de volumen puede bajar
+        // el precio/pza al acumular (pieza→caja). Fallback al snapshot si no resuelve.
+        const pi = await this.pricing.resolvePriceForQty(dto.product_id, newQty);
+        const exUnit = pi.price != null ? Number(pi.price) : Number(existing.unit_price);
+        const exTax = pi.price != null ? Number(pi.tax_rate) : Number(existing.tax_rate);
         const exDiscount = Number(existing.discount_percent) || 0;
         const exSubtotal = +(newQty * exUnit * (1 - exDiscount)).toFixed(2);
         const exLineTax = +(exSubtotal * exTax).toFixed(2);
@@ -318,6 +321,8 @@ export class CommercialOrdersService {
             quantity: newQty,
             // draft-only (requireDraft arriba): la cantidad pedida sigue al carrito.
             requested_quantity: newQty,
+            unit_price: exUnit,
+            tax_rate: exTax,
             line_subtotal: exSubtotal,
             line_tax: exLineTax,
             line_total: exTotal,
@@ -327,19 +332,17 @@ export class CommercialOrdersService {
         return merged;
       }
 
-      // Línea nueva: resolver precio del customer + validar MOQ + insertar.
-      const priceInfo = await this.pricing.resolvePriceForCustomer(
-        dto.product_id,
-        order.customer_id,
-      );
+      // Línea nueva: precio por CANTIDAD (tier de volumen, FIQ.3) + validar MOQ.
+      // El precio/pza depende de la cantidad pedida (pieza suelta vs caja).
+      const priceInfo = await this.pricing.resolvePriceForQty(dto.product_id, dto.quantity);
       if (priceInfo.price === null) {
+        if (priceInfo.source === 'below_min') {
+          throw new ConflictException(
+            `Cantidad mínima ${priceInfo.min_purchase} para este producto`,
+          );
+        }
         throw new ConflictException(
-          `Producto ${dto.product_id} sin precio configurado para el cliente`,
-        );
-      }
-      if (dto.quantity < (priceInfo.min_qty || 1)) {
-        throw new ConflictException(
-          `Cantidad mínima ${priceInfo.min_qty} para este producto`,
+          `Producto ${dto.product_id} sin precio configurado`,
         );
       }
 
@@ -410,8 +413,10 @@ export class CommercialOrdersService {
       const skipped: { product_id: string; reason: string }[] = [];
       let lineNumber = 0;
       for (const [productId, info] of merged) {
-        const priceInfo = await this.pricing.resolvePriceForCustomer(productId, order.customer_id);
-        if (priceInfo.price === null) {
+        // FIQ.3: precio por CANTIDAD (tier de volumen). Resolver mínimo, bumpear qty
+        // al mínimo si hace falta, y tarificar al qty efectivo (el tier puede cambiar).
+        const first = await this.pricing.resolvePriceForQty(productId, info.quantity);
+        if (first.min_purchase == null) {
           skipped.push({ product_id: productId, reason: 'sin precio' });
           continue;
         }
@@ -420,8 +425,13 @@ export class CommercialOrdersService {
           skipped.push({ product_id: productId, reason: 'descuento inválido' });
           continue;
         }
-        const minQty = priceInfo.min_qty || 1;
+        const minQty = first.min_purchase || 1;
         const qty = info.quantity < minQty ? minQty : info.quantity;
+        const priceInfo = qty === info.quantity ? first : await this.pricing.resolvePriceForQty(productId, qty);
+        if (priceInfo.price === null) {
+          skipped.push({ product_id: productId, reason: 'sin precio' });
+          continue;
+        }
         const unitPrice = Number(priceInfo.price);
         const taxRate = Number(priceInfo.tax_rate);
         const lineSubtotal = +(qty * unitPrice * (1 - discount)).toFixed(2);

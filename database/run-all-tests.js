@@ -25,6 +25,7 @@ const TESTS = [
   { file: 'test-newdb-ra-network.js', label: 'RA-PRO.6 DRP multi-echelon (CEDIS por demanda dependiente: media Σ + σ=√Σσ² risk pooling + guard self-source)', needsApi: false },
   { file: 'test-newdb-purchase-chain.js', label: 'RA.15 cadena de compra (RQ→OC→OE recepción parcial mueve stock + fill rate + RQ→received + traspaso +dst/−src + folios)', needsApi: false },
   { file: 'test-newdb-fiq0-phone-identity.js', label: 'FIQ.0 identidad por teléfono (mx_normalize_phone paridad SQL↔TS + índices funcionales + resolveCustomerByPhone 4 formatos + dedup casual + seed tenant map)', needsApi: false },
+  { file: 'test-newdb-fiq3-volume-pricing.js', label: 'FIQ.3 precio por cantidad (tiers de volumen: mejor precio con min_qty≤qty, caja≤suelto, bajo-mínimo sin tier — paridad SQL↔JS vs data real)', needsApi: false },
   { file: 'test-auto-received-matching.js', label: 'RA.15.1 auto-received matching (X-A-40↔OC por presencia sku+almacén+fecha, dedup folio, OC vieja primero, cap pendiente)', needsApi: false },
   { file: 'test-newdb-fiscal-efos.js', label: 'FISCAL.0/1/1.1 motor listas SAT (69B+69) + validación RFC + bridge Maat (cruce×sat_list_rfcs+idempotencia+triage+formato_invalido+FK rule_registry+dedup finance.findings+L2 suprimida)', needsApi: false },
   { file: 'test-newdb-fiscal-diagnostics.js', label: 'FD.0/2 Diagnóstico facturación (emission_errors RLS + fix bug estatus_sat CHECK + captura idempotente por dedup_key + auto-reapertura)', needsApi: false },
