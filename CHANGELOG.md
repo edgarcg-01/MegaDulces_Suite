@@ -10,6 +10,16 @@
 
 ## [Unreleased]
 
+### Added — Fase FIQ: bot de WhatsApp 10x (6 sprints) (2026-07-27)
+- **FIQ.6 apartado con TTL** — "apártame esto" reserva stock (folio `AP-YYYY-NNNNN`), cron `@5min` libera vencidos y devuelve el inventario. Tools apartar/consultar/cancelar. Reusa el motor de stock (guard anti-conteo-físico). ADR-038.
+- **FIQ.7 trust-score + gate** — detector CERO LLM de "solo juegan"/no-show/deuda → tier `block/require_deposit/allow` en el confirm; el LLM nunca acusa. Feature store + umbrales por tenant + cold-start neutro. `require_deposit`=transferencia/handoff (no cobro online). ADR-037.
+- **FIQ.1 cerebro + candados** — model-tiering Haiku→Sonnet, throttle/budget-guard (canal público), auditoría por turno `whatsapp.bot_chat_log`. ADR-035.
+- **FIQ.8 análisis de mercado** — tools `top_productos`/`tendencias_mercado` (demanda real, tenant explícito, sin revenue) como prueba social.
+- **FIQ.5 geolocalización (core)** — pin de WhatsApp → coords en `delivery_address` → el geofence de última milla ya valida la entrega. ETA/geocode diferido a GEO_PORT/Mapbox. ADR-039.
+- **FIQ.10 outbound reorden (NBA)** — motor de "a quién nudgear" (atrasados vs cadencia) + compose determinista + opt-in + cooldown anti-spam (`whatsapp.reorder_nudges`) + envío por campaña dirigida. Envío gated por plantilla Meta aprobada.
+- **Cross-channel:** FIQ.3 (precio por cantidad/tiers) ya toca `OrdersService.addLine` → portal/vendedor/televenta cobran el tier correcto (commit previo). Regresión `run-all-tests` exit 0: DB-direct verdes (incl. `orders-with-testdata` que valida `OrderStockService`); los 19 rojos son suites `needsApi` sin API arriba (esperado).
+- **Migs:** `20260727140000/150000/160000/170000` (local Batch 212-215). ADRs **035-039**. 6 smokes nuevos integrados a la regresión (fiq1/5/6/7/8/10). **Pendiente prod:** aplicar migs al boot + redeploy + creds Meta (`WHATSAPP_APP_SECRET`/`PHONE_NUMBER_ID`) + `WHATSAPP_PRICE_LIST_CODE=MAYOREO` + (opcional) `WHATSAPP_SONNET_MODEL`/`WHATSAPP_REORDER_TEMPLATE` + validación en vivo. Diferido: FIQ.9 visión (media Graph), FIQ.4 few-shot/summary, cadencia ERP para reorden.
+
 ### Added — MA.11: tareas de conciliación explícitas (dónde está / cómo / más detalles) (2026-07-24)
 - Cada tarea ahora dice **dónde está el error y si de verdad lo es**: columna **"Dónde está"** con tag de causa en la lista, y al abrir la tarea un detalle **muy explícito** por movimiento — **Dónde está** (estado de cuenta, banco, cuenta, fecha, monto, concepto), **Cómo resolverlo** (pasos numerados en Kepler: cuenta 201/102, doc XD2601) y **Más detalles** expandible (cadena de compra + folios del 102 del proveedor).
 - Nueva causa **`financiamiento`**: factoraje/crédito se marca "No es error de Kepler" (no va al 102 → márcala No aplica), en vez de tratarlo como pendiente de captura. Cada movimiento trae bandera **es_error** (verde/rojo).

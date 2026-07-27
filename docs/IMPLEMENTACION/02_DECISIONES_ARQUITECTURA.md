@@ -1016,6 +1016,58 @@ Extracción en **2 etapas** (desacopla la dependencia Jet del load PG): (A) Powe
 
 ---
 
+## ADR-035 — **Bot WhatsApp avanzado** (Fase FIQ): model-tiering + candados de canal público, el motor sigue poniendo los números
+
+**Fecha:** 2026-07-27 · **Estado:** Aceptado · Implementado (local) · Hereda ADR-007 (Claude tool-use), ADR-016 (motor decide dinero) y ADR-034 (bot arma / humano confirma).
+
+**Decisión:** subir la inteligencia del bot SIN mover el dinero al LLM. (1) **Model-tiering** Haiku→Sonnet por heurística barata (mensaje largo, hilo extenso, ambigüedad/comparación/negociación/mayoreo/factura) — Haiku conduce el grueso, Sonnet los turnos difíciles. (2) **Auditoría por turno** `whatsapp.bot_chat_log` (modelo/tools/iteraciones/latencia + feedback ±1) = observabilidad + fuente del throttle + futura few-shot. (3) **Throttle/budget-guard** (`WHATSAPP_DAILY_TURN_CAP`, def 50 turnos/24h por teléfono → handoff + template, sin LLM): un canal público sin techo es vector de gasto/DoS. (4) **Opt-out (BAJA/STOP) antes del orquestador** (ya existía, ADR-034/F.8): compliance Meta = ban si se ignora. El loop vive en `libs/whatsapp`; los datos entran por `COMMERCE_CONVERSATION_PORT` (sin acoplar a commercial). Las tools de mercado (FIQ.8: `top_productos`/`tendencias_mercado`, prueba social sobre demanda real, tenant explícito) heredan este ADR.
+
+**Consecuencias:** ✅ mejores respuestas donde pagan + techo de costo/abuso + trazabilidad. ⚠️ `claude-sonnet-5` debe existir para la cuenta (configurable `WHATSAPP_SONNET_MODEL`; si falla, el turno degrada a handoff). Diferido: few-shot por similitud, captura de 👍/👎, extended thinking.
+
+---
+
+## ADR-036 — **Identidad del contacto por E.164 canónico** (Fase FIQ, raíz del 10x)
+
+**Fecha:** 2026-07-27 · **Estado:** Aceptado · Implementado (local) · Hereda ADR-010 (multi-tenant).
+
+**Decisión:** resolver `customer_id` por teléfono NORMALIZADO (`52XXXXXXXXXX`) contra `customers.whatsapp` (índice funcional `mx_normalize_phone`), no por `phone` legacy ni match exacto. Un solo formato en todo el pipeline (inbound `521…`, envío `52…`, storage `+52…`) vía util compartido `mx-phone` + fn SQL espejo. Enrutamiento inbound multi-tenant por `whatsapp.phone_number_tenant_map` (deprecar `WHATSAPP_TENANT_ID` hardcodeado). Es la **palanca raíz**: sin esto, mayoreo/historial/trust/personalización/reorden quedan vacíos en silencio → el backfill+normalización de `customers.whatsapp` es definición-de-done, no pendiente.
+
+**Consecuencias:** ✅ desbloquea FIQ.3/4/7/10 de golpe; casual reconocido la próxima. ⚠️ cobertura del backfill de `whatsapp` es la métrica crítica.
+
+---
+
+## ADR-037 — **Trust-score determinista + gate** (Fase FIQ): el motor decide, el LLM comunica y nunca acusa
+
+**Fecha:** 2026-07-27 · **Estado:** Aceptado · Implementado (local) · Hereda ADR-016 y ADR-020/021 (Horus: motor decide / feedback L2).
+
+**Decisión:** detectar contactos que "solo juegan" (charlan y nunca compran) o "no reciben pedidos" (no-show/rechazo real) con un motor **CERO LLM** (`ContactTrustEngineService`) que agrega señales reales por teléfono (cancelaciones, entregas fallidas, conversaciones-sin-pedido, apartados vencidos, deuda) → tier `neutral/allow/require_deposit/block` con umbrales por tenant (`commercial.trust_thresholds`) + guard `min_observations` (cold-start neutro, no penaliza nuevos). El gate vive en `confirmar_pedido`: `block`→handoff humano, `require_deposit`→pedir anticipo/transferencia. El LLM comunica con calidez y **NUNCA** revela el score, acusa, ni menciona historial. `require_deposit` **NO es cobro online** (no hay pasarela; Fase H diferida; orders cash-only por CHECK): se resuelve como transferencia verificada por humano o handoff; el gate no toca el CHECK cash-only.
+
+**Consecuencias:** ✅ filtra abuso sin bloquear clientes buenos ni nuevos; auditable/overridable (feature store `commercial.contact_trust_features`). ⚠️ emisión a `commercial.commercial_findings` (bandeja ops) diferida para no chocar el resolve-stale del cron de customer_360 (usar `source` distinto).
+
+---
+
+## ADR-038 — **Apartado con TTL** (Fase FIQ): reserva temporal de stock, el motor reserva y un cron libera
+
+**Fecha:** 2026-07-27 · **Estado:** Aceptado · Implementado (local) · Hereda ADR-016 y clona el patrón `lead_reservations` (Fase E).
+
+**Decisión:** "apártame esto" = reserva de stock con TTL, anclada al teléfono (aun sin `customer_id`). `commercial.stock_reservations`/`_lines` + folio `AP-YYYY-NNNNN` (`reservation_sequences`). El apartado **incrementa `reserved_quantity`** reusando `OrderStockService.reserve` (con `referenceType='reservation'` + guard anti-congelamiento de inventario físico) — atómico todo-o-nada. Un cron `@Cron('30 */5')` con `KNEX_NEW_DB_ADMIN` libera vencidos (keyed por `tenant_id` propio, bypass RLS) y devuelve el stock. Apartar vacía el carrito de trabajo → no doble-reserva si luego confirma. NO crea orden ni cobra (ADR-034).
+
+**Consecuencias:** ✅ evita sobreventa del producto apartado; auditable (movimientos `reserve`/`release`). ⚠️ conversión apartado→orden es manual (humano libera y coloca); cron no expuesto por HTTP.
+
+---
+
+## ADR-039 — **Geolocalización del pedido** (Fase FIQ): captura de pin en `delivery_address`, ETA/geocode diferido a GEO_PORT
+
+**Fecha:** 2026-07-27 · **Estado:** Aceptado (core) · Implementado (local) · Hereda ADR-027 (última milla).
+
+**Decisión:** aceptar el pin de ubicación de WhatsApp (`type=location`): el adapter de Meta extrae `lat/lng` a `InboundMessage.location`, el ingest lo pasa al orquestador y éste mete las coords en `delivery_address` (`{lat,lng,street}`) — que el **geofence de última milla ya lee** (`parseCoords`, validación de entrega a 20 m). Sin tabla ni columna nuevas (reúso del JSONB de dirección). El **ETA** (`route_eta_min`) y el **geocode de texto** se difieren a un **GEO_PORT** (promover `MapboxService` a puerto inyectable) porque (a) requieren `MAPBOX_TOKEN` y (b) el ETA "post-dispatch" no es computable al momento del pedido sin auto-asignación de repartidor (dispatch manual hoy). Notas de voz (STT) diferidas con ADR explícito.
+
+**Consecuencias:** ✅ el repartidor llega por GPS aunque el cliente no sepa su calle; cero dependencia externa para el core. ⚠️ un pin sin dirección deja `street` placeholder → el prompt pide calle/referencia igual.
+
+> **Nota FIQ.10 (outbound reorden):** no requiere ADR propio — hereda ADR-016 (el motor decide a quién/qué) y ADR-034/F.8 (envío por plantilla Meta aprobada + opt-in). El envío está gated por `WHATSAPP_REORDER_TEMPLATE`.
+
+---
+
 ## Cómo agregar un ADR nuevo
 
 1. Copiar `ADR-000` (la plantilla) renombrando al siguiente número correlativo.
