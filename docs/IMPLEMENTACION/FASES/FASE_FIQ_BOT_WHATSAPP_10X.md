@@ -1,6 +1,19 @@
 # Fase FIQ — Bot de WhatsApp 10x (comercio conversacional inteligente)
 
-> Investigación profunda del repo (workflow 10 agentes, ~1.15M tokens, 8 subsistemas + síntesis + crítica adversarial) realizada 2026-07-25. Este doc es el plan de implementación. Estado: **🔨 DISEÑADO (planeación)**. Sin código aún.
+> Investigación profunda del repo (workflow 10 agentes, ~1.15M tokens, 8 subsistemas + síntesis + crítica adversarial) realizada 2026-07-25. Este doc es el plan de implementación.
+
+## Estado de ejecución (2026-07-27)
+
+| Sprint | Estado | Nota |
+|---|---|---|
+| **FIQ.0** identidad por teléfono | ✅ **HECHO** (local) | Smoke `test-newdb-fiq0` 22/22 + review adversarial (3 fixes). Migs 20260727120000/120500 aplicadas local. Build api+view OK. |
+| **FIQ.2** existencia por buckets | ✅ **HECHO** (local) | `availability` (agotado/pocas/disponible) en el adapter; el bot no revela el total. Build OK. Validación runtime sim pendiente. |
+| **FIQ.4** personalización | 🔨 **PARCIAL** (local) | Core `mi_historial` ("lo de siempre") ✅. Diferido: sugeridos IA + upsell + `promociones_activas` + `contact_profile` (memoria). |
+| FIQ.1, FIQ.3, FIQ.5–FIQ.11 | ⬜ TODO | Ver plan abajo. |
+
+**Pendiente de despliegue:** los commits FIQ.0/2/4 están **locales, sin push**. Para verlo en vivo: push a `origin/main` + Railway aplica migs al boot + redeploy. Runtime sim validation (FIQ.2/4) pendiente hasta que corra el API.
+
+---
 
 ## Tesis (el hallazgo raíz)
 
