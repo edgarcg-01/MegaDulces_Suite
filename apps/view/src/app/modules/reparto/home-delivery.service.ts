@@ -77,6 +77,16 @@ export class HomeDeliveryService {
     return this.http.post(`${this.api}/commercial/home-delivery/dispatch-from-kepler`, payload);
   }
 
+  /** Pedidos a domicilio de intake (bot/portal/tel) confirmados y SIN despachar. */
+  listPendingOrders(): Observable<PendingOrder[]> {
+    return this.http.get<PendingOrder[]>(`${this.api}/commercial/home-delivery/orders-pending`);
+  }
+
+  /** Despacha un pedido de intake ya existente (crea la parada + asigna repartidor+moto). */
+  dispatchOrder(orderId: string, payload: { rider_user_id: string; vehicle_id?: string; shipment_date: string }): Observable<any> {
+    return this.http.post(`${this.api}/commercial/home-delivery/dispatch/${orderId}`, payload);
+  }
+
   /** Repartidores asignables (usuarios con rol repartidor; opcional scope por sucursal). */
   listRiders(warehouseCode?: string): Observable<Rider[]> {
     let p = new HttpParams();
@@ -120,6 +130,23 @@ export class HomeDeliveryService {
       params: new HttpParams().set('lat', String(lat)).set('lng', String(lng)),
     });
   }
+}
+
+/** Pedido de intake a domicilio confirmado y sin despachar (bandeja "por despachar"). */
+export interface PendingOrder {
+  order_id: string;
+  code: string;
+  status: string;
+  channel?: string | null;
+  customer_name: string;
+  phone?: string | null;
+  street?: string | null;
+  references?: string | null;
+  lat?: number | null;
+  lng?: number | null;
+  total: number;
+  amount_to_collect: number;
+  created_at: string;
 }
 
 export interface GeocodeResult { lat: number; lng: number; place_name: string; relevance: number; }

@@ -46,6 +46,14 @@ export class CommercialHomeDeliveryController {
     return this.dispatch.listRiders({ warehouse_code: warehouseCode });
   }
 
+  /** Pedidos a domicilio de intake (bot/portal/tel) confirmados y SIN despachar. */
+  @Get('orders-pending')
+  @RequirePermissions(Permission.REPARTO_DESPACHAR)
+  @ApiOperation({ summary: 'Pedidos a domicilio (intake) confirmados sin parada de reparto — bandeja "por despachar".' })
+  listPendingOrders() {
+    return this.dispatch.listPendingOrders();
+  }
+
   /** Despacha un pedido de intake propio (commercial.orders home_delivery). */
   @Post('dispatch/:orderId')
   @RequirePermissions(Permission.REPARTO_DESPACHAR)

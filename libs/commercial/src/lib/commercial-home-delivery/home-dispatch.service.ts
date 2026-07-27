@@ -337,6 +337,57 @@ export class HomeDispatchService {
   }
 
   /**
+   * Pedidos a domicilio de INTAKE (bot/portal/tel) confirmados que AÚN no se
+   * despacharon (sin parada `home_deliveries`). Es la bandeja "por despachar" de
+   * /reparto/asignar — el hueco que faltaba: el flujo Kepler ya se listaba, pero
+   * los pedidos de intake (p. ej. los que arma el bot de WhatsApp) quedaban
+   * creados e invisibles. Ordena por más viejo primero (FIFO de despacho).
+   */
+  async listPendingOrders() {
+    return this.tk.run(async (trx) => {
+      const rows = await trx('commercial.orders as o')
+        .leftJoin('commercial.customers as c', 'c.id', 'o.customer_id')
+        .leftJoin('commercial.home_deliveries as d', function () {
+          this.on('d.order_id', '=', 'o.id').andOnNull('d.deleted_at');
+        })
+        .where('o.delivery_type', 'home_delivery')
+        .whereIn('o.status', ['confirmed', 'pending_approval'])
+        .whereNull('o.deleted_at')
+        .whereNull('d.id') // sin parada de reparto todavía
+        .orderBy('o.created_at', 'asc')
+        .select(
+          'o.id as order_id',
+          'o.code',
+          'o.status',
+          'o.delivery_channel',
+          'o.delivery_address',
+          'o.total',
+          'o.balance_due',
+          'o.created_at',
+          'c.name as customer_name',
+        );
+      return rows.map((r: any) => {
+        const a = typeof r.delivery_address === 'string' ? safeJson(r.delivery_address) : r.delivery_address;
+        return {
+          order_id: r.order_id,
+          code: r.code,
+          status: r.status,
+          channel: r.delivery_channel || null,
+          customer_name: a?.recipient_name || r.customer_name || `Pedido ${r.code}`,
+          phone: a?.phone || null,
+          street: a?.street || null,
+          references: a?.references || null,
+          lat: a?.lat ?? null,
+          lng: a?.lng ?? null,
+          total: Number(r.total) || 0,
+          amount_to_collect: Number(r.balance_due) || Number(r.total) || 0,
+          created_at: r.created_at,
+        };
+      });
+    });
+  }
+
+  /**
    * Fase LM.8 — KPIs de última milla (§13 SOP) en un rango de fechas.
    * Tiempo de entrega = delivered_at − dispatched_at. El cuadre de efectivo
    * sale de los cortes cerrados (rider_liquidations).
