@@ -45,7 +45,11 @@ export class ConversationOrchestratorService {
   ) {}
 
   /** Procesa un mensaje del cliente y devuelve la respuesta (persiste el hilo). */
-  async handleTurn(threadId: string, userText: string): Promise<TurnResult> {
+  async handleTurn(
+    threadId: string,
+    userText: string,
+    opts?: { location?: { lat: number; lng: number; name?: string | null; address?: string | null } },
+  ): Promise<TurnResult> {
     const thread = await this.threads.getById(threadId);
     if (!thread) {
       return { reply: 'Perdón, no encontramos tu conversación. Intenta de nuevo.', handoff: false, state: 'greeting' };
@@ -101,6 +105,20 @@ export class ConversationOrchestratorService {
       knownAddress,
       phone: thread.phone as string, // FIQ.6: ancla del apartado (E.164 canónico).
     };
+    // FIQ.5: pin de ubicación → coords en delivery_address (habilita el geofence
+    // de entrega de última milla, que lee delivery_address.lat/lng). El motor
+    // guarda las coords; el LLM confirma la dirección y pide calle/referencias.
+    if (opts?.location && Number.isFinite(opts.location.lat) && Number.isFinite(opts.location.lng)) {
+      const loc = opts.location;
+      work.address = {
+        ...(work.address || {}),
+        lat: loc.lat,
+        lng: loc.lng,
+        street: (work.address && work.address.street) || loc.address || loc.name || 'Ubicación compartida (pin)',
+      };
+      if (work.state === 'greeting' || work.state === 'shopping') work.state = 'address';
+      this.logger.debug(`FIQ.5: ubicación capturada (${loc.lat},${loc.lng}) en thread ${threadId}.`);
+    }
     // Productos vistos en ESTE turno (product_id → hit). El precio del carrito
     // sale de aquí, no del LLM.
     const seen = new Map<string, ConversationProductHit>();
@@ -598,6 +616,7 @@ export class ConversationOrchestratorService {
       '- UPSELL (con tacto): si el cliente está reconocido y por cerrar o dudando, ofrecé 1-2 productos de sugeridos_para_ti (con su motivo) o de promociones_activas. Nunca insistas ni satures; máximo una sugerencia por turno.',
       '- QUÉ COMPRAR/MERCADO: si el cliente es NUEVO, está indeciso, o pregunta "¿qué me recomiendas?"/"¿qué es lo más vendido?"/"¿qué está de moda?", usá top_productos (los más pedidos) o tendencias_mercado (lo de temporada) como prueba social. Funciona también para casual sin historial. Preséntalo natural ("de lo que más se llevan es...") sin dar cifras de ventas.',
       '- APARTADO: si el cliente quiere que le GUARDES/RESERVES producto para que no se agote (sin entregarlo aún, o porque lo recoge después, o no está listo para dar domicilio), armá el carrito y usá apartar_pedido. Dale el folio AP-... y decile hasta cuándo se lo guardás. El apartado NO es una entrega: si además quiere que se lo lleven, eso es un pedido aparte (domicilio + confirmar_pedido). Puede consultar (consultar_apartado) o cancelar (cancelar_apartado) su apartado.',
+      '- UBICACIÓN: si el cliente comparte su ubicación (pin de WhatsApp), YA guardé sus coordenadas para la entrega. Confirmale que la recibiste y pedile calle/número y una referencia (color de casa, entre calles) para que el repartidor llegue bien.',
       '- Antes de confirmar necesitás: al menos 1 producto en el carrito Y el domicilio (calle y número).',
       '- Al confirmar, avisá que un asesor de Mega Dulces revisa y confirma el pedido (no lo cierres vos).',
       '- CONFIANZA/PAGO: si confirmar_pedido te devuelve una instrucción de pedir anticipo/transferencia o de derivar a un asesor, seguila con calidez y SIN explicaciones negativas. NUNCA menciones el historial del cliente, "bloqueo", deuda ni desconfianza.',
