@@ -60,6 +60,17 @@ export interface ConversationPromoHit extends ConversationProductHit {
   promo_type: string;
 }
 
+/**
+ * Producto en un ranking de mercado (FIQ.8 / requisito 2) — demanda REAL agregada
+ * (analytics.product_sales_stats), no personalizada. Sirve como prueba social para
+ * casual/nuevo. Customer-safe: rank + etiqueta cualitativa, SIN revenue ni unidades
+ * exactas (el motor filtra tenant_id explícito; analytics.* no tiene RLS).
+ */
+export interface ConversationMarketHit extends ConversationProductHit {
+  market_label: string; // "de lo más pedido" | "en tendencia"
+  rank: number;
+}
+
 /** Alta de un pedido a domicilio desde una conversación aprobada (F.3). */
 export interface ConversationOrderDto {
   /** Cliente casual (alta rápida / dedupe por teléfono). */
@@ -197,6 +208,20 @@ export interface CommerceConversationPort {
    * online). Determinista, CERO LLM. Scope de tenant (CLS) ya establecido.
    */
   assessContactTrust(phone: string): Promise<ConversationTrust>;
+
+  /**
+   * Ranking de productos por demanda REAL (FIQ.8 / requisito 2) — los más pedidos
+   * (365d). Prueba social para casual/nuevo. Enriquecidos con precio+existencia
+   * (para ofrecer y agregar). `brand` opcional filtra por marca. Motor filtra
+   * tenant_id explícito. Scope de tenant (CLS) ya establecido.
+   */
+  marketTopProducts(opts?: { brand?: string; limit?: number }): Promise<ConversationMarketHit[]>;
+
+  /**
+   * Productos EN TENDENCIA (FIQ.8) — más movimiento reciente (30d) = "lo de
+   * temporada". Mismo enriquecimiento y garantías que marketTopProducts.
+   */
+  marketTrending(opts?: { limit?: number }): Promise<ConversationMarketHit[]>;
 }
 
 /** Veredicto de confianza del contacto (FIQ.7). El gate actúa; el LLM comunica sin acusar. */

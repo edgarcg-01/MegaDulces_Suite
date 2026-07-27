@@ -281,6 +281,26 @@ export class ConversationOrchestratorService {
           }),
         };
       }
+      case 'top_productos': {
+        // FIQ.8: los más pedidos (demanda real agregada) — prueba social para
+        // indecisos/nuevos. El motor filtra tenant explícito.
+        const hits = await this.commerce!.marketTopProducts({
+          brand: input.marca ? String(input.marca) : undefined,
+          limit: 5,
+        });
+        for (const h of hits) seen.set(h.product_id, h);
+        if (work.state === 'greeting') work.state = 'shopping';
+        if (hits.length === 0) return { info: 'Aún no tengo datos de lo más vendido.' };
+        return { top: hits.map((h) => this.marketView(h)) };
+      }
+      case 'tendencias_mercado': {
+        // FIQ.8: lo que más se mueve últimamente ("de temporada").
+        const hits = await this.commerce!.marketTrending({ limit: 5 });
+        for (const h of hits) seen.set(h.product_id, h);
+        if (work.state === 'greeting') work.state = 'shopping';
+        if (hits.length === 0) return { info: 'Sin tendencias claras por ahora.' };
+        return { tendencias: hits.map((h) => this.marketView(h)) };
+      }
       case 'buscar_producto': {
         // FIQ.3: precio de la lista del cliente reconocido (mayoreo).
         const hits = await this.commerce!.searchProducts(String(input.query || ''), {
@@ -463,6 +483,23 @@ export class ConversationOrchestratorService {
     }
   }
 
+  /** FIQ.8: vista customer-safe de un hit de mercado (sin revenue ni unidades exactas). */
+  private marketView(h: ConversationProductHit & { market_label?: string; rank?: number }) {
+    const factor = h.pieces_per_package || 1;
+    return {
+      product_id: h.product_id,
+      nombre: h.name,
+      marca: h.brand_name,
+      precio_pieza: h.unit_price,
+      precio_paquete: factor > 1 ? h.price_per_package : null,
+      piezas_por_paquete: factor,
+      se_vende_por: factor > 1 ? 'pieza o paquete' : 'pieza',
+      disponibilidad: h.availability,
+      etiqueta: h.market_label,
+      posicion: h.rank,
+    };
+  }
+
   private cartView(cart: CartItem[]) {
     const items = cart.map((c) => {
       const factor = c.pieces_per_package || 1;
@@ -559,6 +596,7 @@ export class ConversationOrchestratorService {
       '- UNIDADES: los productos se venden por PIEZA y a veces por PAQUETE/CAJA (piezas_por_paquete). Cuando el cliente diga "una caja", "un paquete" o "una bolsa", agregá con unidad="paquete"; cuando diga piezas sueltas, unidad="pieza". Aclarale al cliente cómo viene (ej. "viene en paquete de 40 piezas, ¿cuántos paquetes?") y confirmá siempre la cantidad en piezas y paquetes.',
       '- MAYOREO/PRECIOS: los precios que te da buscar_producto YA son los del cliente (de mayoreo si está reconocido) — nunca inventes ni cambies un precio. Cuando el producto viene en caja (piezas_por_paquete > 1), ofrecé SIEMPRE el precio por CAJA (precio_paquete) además del de pieza, ej. "la caja de 40 te sale a $precio_paquete ($precio_pieza c/u)". Respetá minimo_piezas (cantidad mínima de compra) al cerrar.',
       '- UPSELL (con tacto): si el cliente está reconocido y por cerrar o dudando, ofrecé 1-2 productos de sugeridos_para_ti (con su motivo) o de promociones_activas. Nunca insistas ni satures; máximo una sugerencia por turno.',
+      '- QUÉ COMPRAR/MERCADO: si el cliente es NUEVO, está indeciso, o pregunta "¿qué me recomiendas?"/"¿qué es lo más vendido?"/"¿qué está de moda?", usá top_productos (los más pedidos) o tendencias_mercado (lo de temporada) como prueba social. Funciona también para casual sin historial. Preséntalo natural ("de lo que más se llevan es...") sin dar cifras de ventas.',
       '- APARTADO: si el cliente quiere que le GUARDES/RESERVES producto para que no se agote (sin entregarlo aún, o porque lo recoge después, o no está listo para dar domicilio), armá el carrito y usá apartar_pedido. Dale el folio AP-... y decile hasta cuándo se lo guardás. El apartado NO es una entrega: si además quiere que se lo lleven, eso es un pedido aparte (domicilio + confirmar_pedido). Puede consultar (consultar_apartado) o cancelar (cancelar_apartado) su apartado.',
       '- Antes de confirmar necesitás: al menos 1 producto en el carrito Y el domicilio (calle y número).',
       '- Al confirmar, avisá que un asesor de Mega Dulces revisa y confirma el pedido (no lo cierres vos).',
@@ -584,6 +622,16 @@ export class ConversationOrchestratorService {
       {
         name: 'promociones_activas',
         description: 'Lista productos con promoción/oferta vigente para el cliente. Úsalo cuando pregunte por ofertas/promociones o para tentarlo con lo que está en promo. product_id sirven para agregar_al_carrito.',
+        input_schema: { type: 'object', properties: {} },
+      },
+      {
+        name: 'top_productos',
+        description: 'Lista los productos MÁS PEDIDOS/vendidos (prueba social por demanda real). Úsalo cuando el cliente pregunte "¿qué es lo más vendido?", "¿qué me recomiendas?", "¿qué llevan más?", o para orientar a alguien indeciso o nuevo. Opcional filtrar por marca. Los product_id sirven para agregar_al_carrito.',
+        input_schema: { type: 'object', properties: { marca: { type: 'string', description: 'Filtrar por marca (opcional)' } } },
+      },
+      {
+        name: 'tendencias_mercado',
+        description: 'Lista los productos EN TENDENCIA (más movimiento reciente / lo de temporada). Úsalo para "¿qué está de moda?", "¿qué se vende ahorita?", o para tentar con lo que está pegando. Los product_id sirven para agregar_al_carrito.',
         input_schema: { type: 'object', properties: {} },
       },
       {

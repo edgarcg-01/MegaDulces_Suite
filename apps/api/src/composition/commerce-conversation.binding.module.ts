@@ -6,6 +6,7 @@ import type {
   ConversationHistoryHit,
   ConversationOrderDto,
   ConversationOrderResult,
+  ConversationMarketHit,
   ConversationProductHit,
   ConversationPromoHit,
   ConversationReservation,
@@ -334,6 +335,54 @@ class CatalogSearchCommerceAdapter implements CommerceConversationPort {
   async assessContactTrust(phone: string): Promise<ConversationTrust> {
     const a = await this.trust.assess(phone);
     return { tier: a.tier, risk_score: a.risk_score, reasons: a.reasons };
+  }
+
+  /**
+   * FIQ.8 (requisito 2) — Ranking de productos por demanda REAL agregada
+   * (analytics.product_sales_stats, tenant_id EXPLÍCITO — analytics.* no tiene
+   * RLS). Enriquecido con precio+existencia como la búsqueda. Customer-safe: rank
+   * + etiqueta, SIN revenue ni unidades exactas. `orderCol` es whitelist interna.
+   */
+  private async marketRanking(
+    orderCol: 'units_365d' | 'units_30d',
+    label: string,
+    opts?: { brand?: string; limit?: number },
+  ): Promise<ConversationMarketHit[]> {
+    const limit = Math.min(20, Math.max(1, opts?.limit ?? 5));
+    const brand = opts?.brand?.trim();
+    const rows: any[] = await this.tk.run(async (trx) => {
+      const r = await trx.raw(
+        `SELECT p.id AS product_id, p.nombre AS product_name, b.nombre AS brand_name, pp.price
+           FROM analytics.product_sales_stats s
+           JOIN catalog.products p ON p.id = s.product_id AND p.tenant_id = s.tenant_id
+           LEFT JOIN catalog.brands b ON b.id = p.brand_id AND b.tenant_id = p.tenant_id
+           JOIN LATERAL (
+             SELECT price FROM commercial.product_prices pp
+             WHERE pp.product_id = p.id AND pp.tenant_id = p.tenant_id AND pp.deleted_at IS NULL
+             ORDER BY pp.min_qty ASC LIMIT 1
+           ) pp ON true
+          WHERE s.tenant_id = public.current_tenant_id()
+            AND p.deleted_at IS NULL AND COALESCE(p.is_promo, false) = false
+            AND COALESCE(s.${orderCol}, 0) > 0
+            ${brand ? 'AND b.nombre ILIKE ?' : ''}
+          ORDER BY s.${orderCol} DESC
+          LIMIT ?`,
+        brand ? [`%${brand}%`, limit] : [limit],
+      );
+      return r.rows;
+    });
+    const priced = rows.filter((r) => r.price != null);
+    if (!priced.length) return [];
+    const meta = await this.enrichMeta(priced.map((r) => r.product_id));
+    return priced.map((r, i) => ({ ...this.toHit(r, meta), market_label: label, rank: i + 1 }));
+  }
+
+  async marketTopProducts(opts?: { brand?: string; limit?: number }): Promise<ConversationMarketHit[]> {
+    return this.marketRanking('units_365d', 'de lo más pedido', opts);
+  }
+
+  async marketTrending(opts?: { limit?: number }): Promise<ConversationMarketHit[]> {
+    return this.marketRanking('units_30d', 'en tendencia', opts);
   }
 
   async createHomeDeliveryOrder(dto: ConversationOrderDto): Promise<ConversationOrderResult> {
