@@ -17,8 +17,12 @@
  * Kepler contra qué doble-contar, la venta a bordo Wincaja de PH se incluye completa.
  * (El reporte /comercial/ventas-por-ruta ya filtra 'WIN-%' → solo rutas reales.)
  *
- * Idempotente: DELETE route_code LIKE 'WIN-%' del rango + INSERT (reload full,
- * NO GREATEST — el bronze Wincaja es snapshot completo, no purga como Kepler).
+ * Idempotente: UPSERT (ON CONFLICT DO UPDATE) por (tenant, warehouse, route_code, month)
+ * — sobreescribe SOLO las combinaciones de SU snapshot. NO borra el namespace 'WIN-%'
+ * completo, así NO pisa las filas que otro feed escribe en el mismo namespace pero en
+ * meses que Wincaja no cubre (ej. las rutas de PH que migraron al PUSH .249 →
+ * import-route-push-monthly.js, que escribe WIN-<NN> de julio en adelante). El bronze
+ * Wincaja es snapshot completo (no purga), por eso overwrite directo (no GREATEST).
  * NO toca las filas Kepler (route_code sin prefijo). analytics.* sin RLS (filtro
  * tenant explícito). Corre como owner (DATABASE_URL_NEW).
  *
@@ -83,12 +87,6 @@ const SRC = `
       const whs = await trx('commercial.warehouses').where({ tenant_id: TENANT }).whereNull('deleted_at').select('id', 'code');
       const whTo = new Map(whs.map((w) => [w.code, w.id]));
 
-      const del = await trx('analytics.sales_by_route_monthly')
-        .where({ tenant_id: TENANT })
-        .whereRaw(`route_code LIKE 'WIN-%'`)
-        .andWhere('month', '>=', from).andWhere('month', '<', to)
-        .del();
-
       const payload = rows.filter((r) => whTo.has(r.wcode)).map((r) => ({
         tenant_id: TENANT,
         warehouse_id: whTo.get(r.wcode),
@@ -98,14 +96,20 @@ const SRC = `
         units: r.units,
         revenue: r.revenue,
         tickets: r.tickets,
+        updated_at: trx.fn.now(),
       }));
+      // UPSERT (overwrite) por combinación — NO borra el namespace 'WIN-%' completo, así
+      // no pisa el mes que el feed del PUSH (.249) escribe en las rutas migradas de PH.
       let ins = 0;
       for (let i = 0; i < payload.length; i += 500) {
         const chunk = payload.slice(i, i + 500);
-        await trx('analytics.sales_by_route_monthly').insert(chunk);
+        await trx('analytics.sales_by_route_monthly')
+          .insert(chunk)
+          .onConflict(['tenant_id', 'warehouse_id', 'route_code', 'month'])
+          .merge(['route_no', 'units', 'revenue', 'tickets', 'updated_at']);
         ins += chunk.length;
       }
-      console.log(`analytics.sales_by_route_monthly: -${del} (WIN-%) +${ins} filas`);
+      console.log(`analytics.sales_by_route_monthly: upsert ${ins} filas (WIN-%, overwrite por combinación)`);
     });
 
     const chk = (await db.raw(
