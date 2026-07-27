@@ -37,6 +37,15 @@ export interface ConversationProductHit {
   pieces_per_package: number;
 }
 
+/**
+ * Producto del historial del cliente (FIQ.4 / requisito 8) — un hit normal +
+ * cuántas veces lo pidió y cuándo fue la última. Para "lo de siempre" / reorden.
+ */
+export interface ConversationHistoryHit extends ConversationProductHit {
+  times_ordered: number;
+  last_ordered_at: string | null;
+}
+
 /** Alta de un pedido a domicilio desde una conversación aprobada (F.3). */
 export interface ConversationOrderDto {
   /** Cliente casual (alta rápida / dedupe por teléfono). */
@@ -85,6 +94,13 @@ export interface CommerceConversationPort {
    * de un scope de tenant (CLS) ya establecido.
    */
   resolveCustomerByPhone(phone: string): Promise<ConversationCustomer | null>;
+
+  /**
+   * Historial de compra del cliente (FIQ.4 / requisito 8) para "lo de siempre" /
+   * reorden. `customerId` resuelto por FIQ.0. Devuelve top productos por frecuencia
+   * con precio + existencia (bucket). [] si no tiene historial. Scope de tenant (CLS).
+   */
+  customerHistory(customerId: string, opts?: { limit?: number; days?: number }): Promise<ConversationHistoryHit[]>;
 
   /**
    * Crea el pedido a domicilio (canal whatsapp) cuando un HUMANO aprueba la

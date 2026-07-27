@@ -3,6 +3,7 @@ import { COMMERCE_CONVERSATION_PORT } from '@megadulces/contracts';
 import type {
   CommerceConversationPort,
   ConversationCustomer,
+  ConversationHistoryHit,
   ConversationOrderDto,
   ConversationOrderResult,
   ConversationProductHit,
@@ -74,12 +75,47 @@ class CatalogSearchCommerceAdapter implements CommerceConversationPort {
     const { results } = await this.search.search({ query: q, limit: opts?.limit ?? 5, customerId: null });
     const priced = results.filter((r) => r.price != null);
     if (priced.length === 0) return [];
+    const meta = await this.enrichMeta(priced.map((r) => r.product_id));
+    return priced.map((r) => this.toHit(r, meta));
+  }
 
-    // F.5 — Enriquecer con existencia (almacén de surtido = default activo) +
-    // empaque (factor_sale = piezas por caja). El bot NUNCA promete agotados y
-    // maneja pieza/paquete. Todo cuantitativo sale de acá, no del LLM (ADR-016).
-    const ids = priced.map((r) => r.product_id);
-    const meta = await this.tk.run(async (trx) => {
+  /**
+   * FIQ.4 (requisito 8) — Historial de compra del cliente (reconocido por teléfono
+   * en FIQ.0) para "lo de siempre" / reorden. Reusa getMyHistory del motor (con
+   * customerId explícito, sin JWT) + enriquece con precio/existencia/empaque como
+   * la búsqueda. El bot ofrece re-agregar; el motor pone todos los números.
+   */
+  async customerHistory(
+    customerId: string,
+    opts?: { limit?: number; days?: number },
+  ): Promise<ConversationHistoryHit[]> {
+    if (!customerId) return [];
+    const rows: any[] = await this.search.getMyHistory({
+      customerId,
+      warehouseId: null,
+      days: opts?.days,
+      limit: opts?.limit ?? 8,
+    });
+    const priced = rows.filter((r) => r.price != null);
+    if (priced.length === 0) return [];
+    const meta = await this.enrichMeta(priced.map((r) => r.product_id));
+    return priced.map((r) => ({
+      ...this.toHit(r, meta),
+      times_ordered: Number(r.times_ordered) || 0,
+      last_ordered_at: r.last_ordered_at ?? null,
+    }));
+  }
+
+  /**
+   * Enriquecimiento común (F.5): por cada product_id, existencia del almacén de
+   * surtido (default activo, quantity − reserved) + empaque (factor_sale). Es el
+   * MISMO almacén que usará el pedido → los buckets/topes son consistentes.
+   */
+  private async enrichMeta(
+    ids: string[],
+  ): Promise<Map<string, { pieces_per_package: number; stock_pieces: number }>> {
+    if (!ids.length) return new Map();
+    return this.tk.run(async (trx) => {
       const rows = await trx.raw(
         `SELECT p.id AS product_id,
                 GREATEST(COALESCE(p.factor_sale, 1), 1) AS pieces_per_package,
@@ -108,22 +144,26 @@ class CatalogSearchCommerceAdapter implements CommerceConversationPort {
       }
       return m;
     });
+  }
 
-    return priced.map((r) => {
-      const mx = meta.get(r.product_id);
-      const stock = mx?.stock_pieces ?? 0;
-      const factor = mx?.pieces_per_package ?? 1;
-      return {
-        product_id: r.product_id,
-        name: r.product_name,
-        brand_name: r.brand_name ?? null,
-        unit_price: Number(r.price),
-        min_qty: Number(r.min_qty) || 1,
-        stock_pieces: stock,
-        availability: this.stockBucket(stock, factor),
-        pieces_per_package: factor,
-      };
-    });
+  /** Mapea una fila con precio (search o historial) a un hit con bucket de existencia. */
+  private toHit(
+    r: any,
+    meta: Map<string, { pieces_per_package: number; stock_pieces: number }>,
+  ): ConversationProductHit {
+    const mx = meta.get(r.product_id);
+    const stock = mx?.stock_pieces ?? 0;
+    const factor = mx?.pieces_per_package ?? 1;
+    return {
+      product_id: r.product_id,
+      name: r.product_name,
+      brand_name: r.brand_name ?? null,
+      unit_price: Number(r.price),
+      min_qty: Number(r.min_qty) || 1,
+      stock_pieces: stock,
+      availability: this.stockBucket(stock, factor),
+      pieces_per_package: factor,
+    };
   }
 
   /**
