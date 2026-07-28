@@ -14,6 +14,7 @@ import { IconFieldModule } from 'primeng/iconfield';
 import { InputIconModule } from 'primeng/inputicon';
 import { CheckboxModule } from 'primeng/checkbox';
 import { TagModule } from 'primeng/tag';
+import { DialogModule } from 'primeng/dialog';
 import { MessageService } from 'primeng/api';
 import {
   ComprasService, PurchaseSuggestionRow, PurchaseSuggestionResponse, ReplenishmentFilters,
@@ -38,7 +39,7 @@ interface TRow extends TransferSuggestionRow { _mover: number; _sel: boolean; }
   standalone: true,
   imports: [
     CommonModule, FormsModule, RouterLink, ButtonModule, TableModule, ToastModule, SelectModule,
-    InputNumberModule, InputTextModule, IconFieldModule, InputIconModule, CheckboxModule, TagModule, MetricStripComponent,
+    InputNumberModule, InputTextModule, IconFieldModule, InputIconModule, CheckboxModule, TagModule, DialogModule, MetricStripComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
@@ -132,8 +133,12 @@ interface TRow extends TransferSuggestionRow { _mover: number; _sel: boolean; }
                     @if (r.abc_class) { <p-tag [value]="r.abc_class" [severity]="abcSev(r.abc_class)" styleClass="pr-abc"></p-tag> }
                     @if (r.sales_rank != null) { <span class="pr-rank" title="Ranking por venta $ en el filtro">#{{ r.sales_rank }}</span> }
                     @if (r.unit_source && r.unit_source !== 'catalog') {
-                      <p-tag [value]="unitLabel(r.unit_source)" [severity]="r.unit_source === 'revisar' ? 'warn' : 'contrast'" styleClass="pr-abc"
-                             [title]="'Unidad de venta ' + unitLabel(r.unit_source) + (r.price_ratio ? ' · ratio precio ' + (r.price_ratio | number:'1.0-1') + '×' : '') + ((r.stock_unit_factor || 1) > 1 ? ' · demanda ÷' + (r.stock_unit_factor | number:'1.0-1') : '')"></p-tag>
+                      <button type="button" class="pr-unit-btn" (click)="openUnit(r)"
+                              [title]="'Unidad de venta ' + unitLabel(r.unit_source) + (r.price_ratio ? ' · ratio precio ' + (r.price_ratio | number:'1.0-1') + '×' : '') + ((r.stock_unit_factor || 1) > 1 ? ' · demanda ÷' + (r.stock_unit_factor | number:'1.0-1') : '') + ' · clic para ajustar'">
+                        <p-tag [value]="unitLabel(r.unit_source)" [severity]="r.unit_source === 'revisar' ? 'warn' : 'contrast'" styleClass="pr-abc"></p-tag>
+                      </button>
+                    } @else {
+                      <button type="button" class="pr-unit-btn pr-unit-ghost" (click)="openUnit(r)" title="Ajustar unidad de venta">unidad</button>
                     }
                   </div>
                 </td>
@@ -183,6 +188,35 @@ interface TRow extends TransferSuggestionRow { _mover: number; _sel: boolean; }
             <button pButton type="button" [label]="saving() ? 'Armando…' : 'Armar requisición'" icon="pi pi-check" class="p-button-sm" (click)="createReq()" [disabled]="saving()"></button>
           </div>
         }
+
+        <!-- RA-PRO.28 — override manual de unidad de venta -->
+        <p-dialog [(visible)]="unitVisible" [modal]="true" [style]="{ width: '32rem' }" [dismissableMask]="true" header="Unidad de venta">
+          @if (unitRow(); as u) {
+            <div class="pr-uov">
+              <p class="pr-uov-prod"><strong>{{ u.nombre }}</strong> <span class="pr-sku">{{ u.sku }}</span></p>
+              <p class="pr-uov-hint">
+                El motor detectó <strong>{{ unitLabel(u.unit_source) || 'catálogo' }}</strong>@if (u.price_ratio) { · ratio de precio mayoreo/retail <strong>{{ u.price_ratio | number:'1.0-1' }}×</strong> }.
+                Ajusta solo si el pedido sale en la unidad equivocada. Deja vacío para volver al automático.
+              </p>
+              <label class="pr-uov-f">
+                <span>Sub-unidades por unidad de stock (SUF)</span>
+                <input pInputText type="number" min="1" step="0.1" [(ngModel)]="ovSuf" placeholder="auto" />
+                <small>Para granel: kg (o piezas) por cubeta/bulto. Ej. cobertura 20K → 20.</small>
+              </label>
+              <label class="pr-uov-f">
+                <span>Unidades de stock por caja de pedido (BF)</span>
+                <input pInputText type="number" min="1" step="1" [(ngModel)]="ovBf" placeholder="auto" />
+                <small>Cuántas unidades de stock trae una caja de compra. Granel = 1.</small>
+              </label>
+              <div class="pr-uov-actions">
+                <button pButton type="button" label="Volver a automático" class="p-button-sm p-button-text" (click)="clearUnit()" [disabled]="unitSaving()"></button>
+                <span class="pr-bulk-sp"></span>
+                <button pButton type="button" label="Cancelar" class="p-button-sm p-button-text" (click)="unitVisible=false"></button>
+                <button pButton type="button" [label]="unitSaving() ? 'Guardando…' : 'Guardar'" icon="pi pi-check" class="p-button-sm" (click)="saveUnit()" [disabled]="unitSaving()"></button>
+              </div>
+            </div>
+          }
+        </p-dialog>
       } @else if (mode()==='traspaso') {
         <!-- TRASPASOS: déficit de sucursal ← stock del CEDIS que la surte (topología) -->
         <app-metric-strip [items]="tKpiItems()" ariaLabel="Resumen de traspasos" />
@@ -364,6 +398,17 @@ interface TRow extends TransferSuggestionRow { _mover: number; _sel: boolean; }
     .pr-prod-meta { display: flex; align-items: center; gap: .4rem; margin-top: .1rem; }
     .pr-sku { font-family: var(--font-mono, ui-monospace, monospace); font-size: .7rem; color: var(--text-faint); }
     .pr-rank { font-size: .68rem; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+    .pr-unit-btn { border: 0; background: transparent; padding: 0; cursor: pointer; }
+    .pr-unit-ghost { font-size: .62rem; color: var(--text-faint); border: 1px dashed var(--border-color); border-radius: var(--r-pill, 999px); padding: .02rem .35rem; opacity: 0; transition: opacity .12s; }
+    tr:hover .pr-unit-ghost { opacity: 1; }
+    .pr-unit-ghost:hover { color: var(--action); border-color: var(--action); }
+    .pr-uov-prod { margin: 0 0 .5rem; }
+    .pr-uov-hint { font-size: .78rem; color: var(--text-muted); margin: 0 0 1rem; line-height: 1.4; }
+    .pr-uov-f { display: block; margin-bottom: .9rem; }
+    .pr-uov-f > span { display: block; font-size: .8rem; font-weight: 600; margin-bottom: .25rem; }
+    .pr-uov-f input { width: 100%; }
+    .pr-uov-f small { display: block; font-size: .7rem; color: var(--text-muted); margin-top: .2rem; }
+    .pr-uov-actions { display: flex; align-items: center; gap: .4rem; margin-top: .5rem; }
     :host ::ng-deep .pr-abc { font-size: .6rem; padding: .02rem .3rem; line-height: 1.3; }
     .pr-hub { font-size: .58rem; text-transform: uppercase; letter-spacing: .05em; color: var(--action); margin-left: .3rem; vertical-align: middle; }
     .pr-link { color: var(--action); cursor: pointer; text-decoration: underline; }
@@ -605,6 +650,32 @@ export class ComprasPedidoRealComponent implements OnInit {
   unitLabel(src: string | undefined): string {
     return src === 'granel' ? 'granel' : src === 'revisar' ? 'revisar unidad' : src === 'manual' ? 'unidad fija' : '';
   }
+
+  // RA-PRO.28 — override de unidad de venta
+  unitVisible = false;
+  unitRow = signal<Row | null>(null);
+  unitSaving = signal(false);
+  ovSuf: number | null = null;
+  ovBf: number | null = null;
+
+  openUnit(r: Row): void {
+    this.unitRow.set(r);
+    this.ovSuf = r.unit_source === 'manual' && r.stock_unit_factor && r.stock_unit_factor > 1 ? Number(r.stock_unit_factor) : null;
+    this.ovBf = r.unit_source === 'manual' ? Number(r.uxc) || null : null;
+    this.unitVisible = true;
+  }
+  saveUnit(): void {
+    const r = this.unitRow(); if (!r) return;
+    this.unitSaving.set(true);
+    this.api.setProductUnitOverride(r.product_id, {
+      pieces_per_unit: this.ovSuf != null && Number(this.ovSuf) > 0 ? Number(this.ovSuf) : null,
+      box_factor: this.ovBf != null && Number(this.ovBf) > 0 ? Number(this.ovBf) : null,
+    }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: () => { this.unitSaving.set(false); this.unitVisible = false; this.toast.add({ severity: 'success', summary: 'Unidad actualizada', detail: r.sku }); this.reload(); },
+      error: (e) => { this.unitSaving.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudo guardar.' }); },
+    });
+  }
+  clearUnit(): void { this.ovSuf = null; this.ovBf = null; this.saveUnit(); }
 
   coverSev(d: number | null): Sev {
     if (d == null) return 'secondary';
