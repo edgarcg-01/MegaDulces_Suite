@@ -154,6 +154,11 @@ const CHANNEL_OPTS = [
           <app-segmented [options]="promoOpts" [value]="promo()" (valueChange)="setPromo($event)" ariaLabel="Filtro de promociones" />
         </div>
 
+        <div class="so-field">
+          <label>Concentrar por</label>
+          <app-segmented [options]="concentrarOpts" [value]="concentrar()" (valueChange)="setConcentrar($event)" ariaLabel="Concentrado por dimensión" />
+        </div>
+
         @if (reportMode() === 'canal') {
           <div class="so-field so-toggles">
             @if (view() !== 'month_columns') {
@@ -237,12 +242,27 @@ const CHANNEL_OPTS = [
         <!-- KPIs (MetricStrip compartido, sin caja) -->
         <app-metric-strip [items]="kpiItems()" ariaLabel="Resumen del sell-out" />
 
+        @if (concentrar()) {
+          <!-- CONCENTRADO: un total consolidado por dimensión (colapsa el detalle) -->
+          <div class="card-premium card-flat so-conc">
+            <div class="so-conc-head">
+              <span class="so-conc-badge">Concentrado por {{ concentrarLabel() }}</span>
+              <span class="so-conc-scope">{{ concentradoCount() }} {{ concentradoNoun().toLowerCase() }} con venta · {{ (meta()?.period) || '' }}</span>
+            </div>
+            <div class="so-conc-grid">
+              <div class="so-conc-kpi"><span class="k-lbl">Monto consolidado</span><span class="k-val">{{ r.grand_total.monto | currency:'MXN':'symbol-narrow':'1.0-0' }}</span></div>
+              <div class="so-conc-kpi"><span class="k-lbl">Cajas</span><span class="k-val">{{ r.grand_total.cajas | number:'1.0-1' }}</span></div>
+              <div class="so-conc-kpi"><span class="k-lbl">{{ concentradoNoun() }}</span><span class="k-val">{{ concentradoCount() }}</span></div>
+              <div class="so-conc-kpi"><span class="k-lbl">Productos</span><span class="k-val">{{ r.rows.length | number }}</span></div>
+            </div>
+          </div>
+        }
 
         @if (r.coverage.note) {
           <p class="so-note"><i class="pi pi-info-circle"></i> {{ r.coverage.note }}</p>
         }
 
-        @if (r.rows.length) {
+        @if (r.rows.length && !concentrar()) {
           <!-- Matriz (dentro de card premium, como las secciones de reports) -->
           <div class="card-premium card-flat so-matrix-card">
             <div class="so-matrix-head">
@@ -309,7 +329,7 @@ const CHANNEL_OPTS = [
             </table>
           </div>
           </div>
-        } @else {
+        } @else if (!concentrar()) {
           <div class="comm-empty"><div class="comm-empty-icon"><i class="pi pi-inbox"></i></div>
             <h3>Sin venta en el periodo</h3><p>No hay ventas de esta empresa en el rango elegido.</p></div>
         }
@@ -375,6 +395,15 @@ const CHANNEL_OPTS = [
     app-metric-strip { display:block; margin-bottom:1rem; }
     .so-note { font-size:.78rem; color:var(--text-muted); background:var(--layout-bg); border:1px solid var(--border-color);
       border-radius:var(--r-sm); padding:.5rem .7rem; margin:0 0 1rem; display:flex; gap:.4rem; align-items:baseline; }
+    /* Concentrado: total consolidado por dimensión */
+    .so-conc { padding:1.25rem 1.5rem; margin-top:1rem; }
+    .so-conc-head { display:flex; align-items:baseline; gap:.75rem; flex-wrap:wrap; margin-bottom:1rem; }
+    .so-conc-badge { font-size:var(--fs-sm,.8rem); font-weight:700; letter-spacing:.02em; color:var(--action); text-transform:uppercase; }
+    .so-conc-scope { font-size:var(--fs-xs,.75rem); color:var(--text-faint); }
+    .so-conc-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:1rem; }
+    .so-conc-kpi { display:flex; flex-direction:column; gap:.2rem; }
+    .so-conc-kpi .k-lbl { font-size:var(--fs-xs,.72rem); color:var(--text-faint); text-transform:uppercase; letter-spacing:.03em; }
+    .so-conc-kpi .k-val { font-size:1.6rem; font-weight:700; color:var(--text-main); line-height:1.1; }
     .so-matrix-card { padding:1.25rem; }
     .so-matrix-head { display:flex; align-items:center; justify-content:space-between; gap:.75rem; margin-bottom:.75rem; flex-wrap:wrap; }
     .so-matrix-tools { display:flex; align-items:center; gap:1rem; }
@@ -521,6 +550,27 @@ export class ComercialSellOutComponent {
     { label: 'Todo', value: 'todo' },
   ];
   setPromo(p: string) { this.promo.set(p as 'sin' | 'solo' | 'todo'); this.generate(); }
+  // RS — CONCENTRADO: colapsa el detalle y muestra UN total consolidado por dimensión.
+  // '' = off (matriz normal). 'ruta' además acota el alcance al canal ruta.
+  concentrar = signal<'' | 'ruta' | 'canal' | 'sucursal' | 'empresa'>('');
+  readonly concentrarOpts = [
+    { label: 'Ninguno', value: '' },
+    { label: 'Ruta', value: 'ruta' },
+    { label: 'Canal', value: 'canal' },
+    { label: 'Sucursal', value: 'sucursal' },
+    { label: 'Empresa', value: 'empresa' },
+  ];
+  setConcentrar(v: string) { this.concentrar.set(v as '' | 'ruta' | 'canal' | 'sucursal' | 'empresa'); this.generate(); }
+  private readonly concLabels: Record<string, string> = { ruta: 'Rutas', canal: 'Canales', sucursal: 'Sucursales', empresa: 'Empresas' };
+  concentrarLabel = computed(() => (this.concLabels[this.concentrar()] ?? '').toUpperCase());
+  concentradoNoun = computed(() => this.concLabels[this.concentrar()] ?? '');
+  concentradoCount = computed(() => {
+    const r = this.report(); const dim = this.concentrar();
+    if (!r || !dim) return 0;
+    if (dim === 'canal') return new Set(r.columns.map((c) => c.channel).filter(Boolean)).size;
+    if (dim === 'sucursal' || dim === 'ruta') return new Set(r.columns.map((c) => c.branch_code)).size;
+    return r.row_dim === 'brand' ? r.rows.length : 1; // empresa
+  });
   // RS.2 — vista del reporte: por producto (default) / mes en columnas / resumen mensual.
   view = signal<SellOutView>('product');
   readonly viewOpts = [
@@ -707,7 +757,7 @@ export class ComercialSellOutComponent {
       to: this.curTo,
       group_by: this.byChannel ? 'branch_channel' : 'branch',
       view: this.view(),
-      channels: this.channels.length ? this.channels : undefined,
+      channels: this.concentrar() === 'ruta' ? ['ruta'] : (this.channels.length ? this.channels : undefined),
       warehouses: this.warehouses.length ? this.warehouses : undefined,
       cells: this.selectedCells().size ? Array.from(this.selectedCells()) : undefined,
       mode: this.reportMode(),

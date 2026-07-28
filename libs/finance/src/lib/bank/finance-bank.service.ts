@@ -1378,11 +1378,28 @@ export class FinanceBankService {
       const byAmt = new Map<number, any[]>();
       for (const p of posts) { const k = cents(p.importe); (byAmt.get(k) || byAmt.set(k, []).get(k))!.push(p); }
 
+      // CB.22 — margen de conciliación de ±$1.00: Kepler y Excel a veces difieren por
+      // redondeo de centavos (ej. Kepler $1.30 vs banco $1.60 = $0.30). Si no hay match
+      // EXACTO, se aceptan candidatos dentro de ±100 centavos (rango de 201 claves →
+      // lookups directos al índice, barato). El exacto SIEMPRE tiene prioridad.
+      const AMT_TOL = 100; // ±$1.00 en centavos
+      const candsInTol = (targetCents: number) => {
+        const out: any[] = [];
+        for (let d = -AMT_TOL; d <= AMT_TOL; d++) {
+          const arr = byAmt.get(targetCents + d);
+          if (arr) for (const p of arr) if (!p.used) out.push(p);
+        }
+        return out;
+      };
+
       const matches: any[] = []; const matchedIds: string[] = [];
       const matchedSet = new Set<string>();
-      // 1er pase: monto exacto + fecha ±7d (greedy por fecha más cercana).
+      // 1er pase: monto (exacto → o ±$1) + fecha ±7d (greedy por fecha más cercana).
       for (const mv of bankMovs) {
-        const cands = (byAmt.get(cents(n(mv.amount_out))) || []).filter((p) => !p.used);
+        const tc = cents(n(mv.amount_out));
+        let cands = (byAmt.get(tc) || []).filter((p) => !p.used);
+        const exact = cands.length > 0;
+        if (!exact) cands = candsInTol(tc); // ±$1 solo si no hubo exacto
         if (!cands.length) continue;
         let best: any = null, bestD = 8;
         for (const p of cands) { const d = p.fecha ? days(mv.movement_date, p.fecha) : 99; if (d < bestD) { best = p; bestD = d; } }
@@ -1390,7 +1407,7 @@ export class FinanceBankService {
         best.used = true; matchedIds.push(mv.id); matchedSet.add(mv.id);
         matches.push({ tenant_id: tenantId, bank_movement_id: mv.id, kepler_doc_tipo: best.doc_tipo,
           kepler_doc_folio: best.folio, kepler_cuenta: '102', kepler_amount: best.importe,
-          match_type: 'inferred', match_confidence: bestD === 0 ? 0.95 : 0.75, matched_by: 'motor' });
+          match_type: 'inferred', match_confidence: !exact ? 0.7 : (bestD === 0 ? 0.95 : 0.75), matched_by: exact ? 'motor' : 'motor-tol' });
       }
       // 2º pase (CB.8): retiros materiales (≥$10k) aún sin casar, por monto exacto
       // SIN tope de fecha (elige el post de fecha más cercana). Confianza menor.
@@ -1400,7 +1417,9 @@ export class FinanceBankService {
       let secondPass = 0;
       for (const mv of bankMovs) {
         if (matchedSet.has(mv.id) || n(mv.amount_out) < SECOND_PASS_MIN) continue;
-        const cands = (byAmt.get(cents(n(mv.amount_out))) || []).filter((p) => !p.used);
+        const tc = cents(n(mv.amount_out));
+        let cands = (byAmt.get(tc) || []).filter((p) => !p.used);
+        if (!cands.length) cands = candsInTol(tc); // ±$1 (CB.22)
         if (!cands.length) continue;
         let best: any = null, bestD = Infinity;
         for (const p of cands) { const d = p.fecha ? days(mv.movement_date, p.fecha) : 999; if (d < bestD) { best = p; bestD = d; } }
