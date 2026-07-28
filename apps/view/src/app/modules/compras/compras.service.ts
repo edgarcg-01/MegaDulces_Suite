@@ -84,6 +84,24 @@ export interface PurchaseSuggestionQuery {
   search?: string; coverage_days?: number; bucket?: string; scope?: string; page?: number; pageSize?: number;
 }
 
+// RA-PRO.20 — traspaso preciso CEDIS→sucursal
+export interface TransferSuggestionRow {
+  product_id: string; sku: string; nombre: string;
+  to_warehouse_id: string; to_code: string; to_name: string;
+  from_warehouse_id: string; from_code: string;
+  supplier_name: string | null; uxc: number;
+  deficit_pieces: number; deficit_cajas: number;
+  transfer_pieces: number; transfer_cajas: number; shortfall_pieces: number;
+  unit_cost: number; transfer_value: number;
+}
+export interface TransferSuggestionResponse {
+  total: number; total_valor: number; total_cajas: number; page: number; pageSize: number; coverage_days: number;
+  rows: TransferSuggestionRow[];
+}
+export interface TransferSuggestionQuery {
+  warehouse_id?: string; supplier_id?: string; category_id?: string; search?: string; coverage_days?: number; page?: number; pageSize?: number;
+}
+
 export interface CriticalStockResponse {
   total: number;
   page: number;
@@ -471,6 +489,20 @@ export class ComprasService {
     if (q.pageSize) p.set('pageSize', String(q.pageSize));
     const qs = p.toString();
     return this.http.get<PurchaseSuggestionResponse>(`${this.base}/purchase-suggestion${qs ? '?' + qs : ''}`);
+  }
+
+  /** RA-PRO.20 — traspaso preciso CEDIS→sucursal (topología). */
+  transferSuggestion(q: TransferSuggestionQuery): Observable<TransferSuggestionResponse> {
+    const p = new URLSearchParams();
+    if (q.warehouse_id) p.set('warehouse_id', q.warehouse_id);
+    if (q.supplier_id) p.set('supplier_id', q.supplier_id);
+    if (q.category_id) p.set('category_id', q.category_id);
+    if (q.search) p.set('search', q.search);
+    if (q.coverage_days) p.set('coverage_days', String(q.coverage_days));
+    if (q.page) p.set('page', String(q.page));
+    if (q.pageSize) p.set('pageSize', String(q.pageSize));
+    const qs = p.toString();
+    return this.http.get<TransferSuggestionResponse>(`${this.base}/transfer-suggestion${qs ? '?' + qs : ''}`);
   }
 
   /** Export XLSX con diseño (mismos filtros; exporta TODO el filtro, sin paginar). */

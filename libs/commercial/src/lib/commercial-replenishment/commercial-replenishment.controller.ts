@@ -76,6 +76,21 @@ export class CommercialReplenishmentController {
     return this.svc.purchaseSuggestion({ warehouse_id, warehouse_ids, supplier_id, category_id, search, coverage_days: coverage_days ? Number(coverage_days) : undefined, bucket, scope, page: page ? Number(page) : undefined, pageSize: pageSize ? Number(pageSize) : undefined });
   }
 
+  @Get('transfer-suggestion')
+  @RequirePermissions(Permission.COMPRAS_VER)
+  @ApiOperation({ summary: 'RA-PRO.20 — traspaso preciso (topología): déficit de sucursal ← stock del CEDIS que la surte. transfer = déficit × min(1, stock_cedis/Σdéficit), en cajas al costo real. Filtros: warehouse_id(destino), supplier_id, category_id, search, coverage_days(=30).' })
+  transferSuggestion(
+    @Query('warehouse_id') warehouse_id?: string,
+    @Query('supplier_id') supplier_id?: string,
+    @Query('category_id') category_id?: string,
+    @Query('search') search?: string,
+    @Query('coverage_days') coverage_days?: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+  ) {
+    return this.svc.transferPlan({ warehouse_id, supplier_id, category_id, search, coverage_days: coverage_days ? Number(coverage_days) : undefined, page: page ? Number(page) : undefined, pageSize: pageSize ? Number(pageSize) : undefined });
+  }
+
   @Get('critical-stock.xlsx')
   @RequirePermissions(Permission.COMPRAS_VER)
   @ApiOperation({ summary: 'Existencia crítica → Excel con diseño (mismos filtros que /critical-stock; exporta TODAS las filas del filtro, sin paginar).' })

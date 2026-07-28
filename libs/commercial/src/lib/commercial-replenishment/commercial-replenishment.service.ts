@@ -67,6 +67,18 @@ export interface PurchaseSuggestionQuery {
   export?: boolean;
 }
 
+// RA-PRO.20 — Traspaso preciso (topología-aware): déficit de sucursal ← superávit del CEDIS que la surte.
+export interface TransferSuggestionQuery {
+  warehouse_id?: string;    // filtro por sucursal DESTINO
+  supplier_id?: string;
+  category_id?: string;
+  search?: string;
+  coverage_days?: number;   // horizonte del déficit de la sucursal (default 30)
+  page?: number;
+  pageSize?: number;
+  export?: boolean;
+}
+
 interface RequisitionLineDto {
   product_id: string;
   supplier_id?: string | null;
@@ -547,6 +559,121 @@ export class CommercialReplenishmentService {
         needed: Number(totalRow?.needed || 0),
         total_valor: Number(totalRow?.total_valor || 0),
         total_revenue: Number(totalRow?.total_revenue || 0),
+        page, pageSize, coverage_days: cov, rows,
+      };
+    });
+  }
+
+  // ── RA-PRO.20 — Traspaso preciso (topología-aware) ────────────────────
+  /**
+   * Sugiere TRASPASOS CEDIS→sucursal para cubrir el déficit de cada sucursal con el stock
+   * del CEDIS que la surte (warehouses.source_warehouse_id). Grano = (producto × sucursal
+   * destino). Todo por almacén (usa la demanda LIMPIA de analytics.product_demand):
+   *
+   *   déficit_sucursal   = max(0, venta_diaria(sucursal) × cobertura − existencia(sucursal))   [piezas]
+   *   disponible_cedis   = existencia del CEDIS del producto                                    [piezas]
+   *   traspaso           = déficit × min(1, disponible_cedis / Σ déficit de las sucursales)     (reparto
+   *                        proporcional cuando el CEDIS no alcanza para todas)
+   *   faltante (comprar) = déficit − traspaso  (lo que el CEDIS no puede cubrir → compra, RA-PRO.17)
+   *
+   * Unidad de salida = CAJAS (÷uxc) valuada al costo REAL de compra (purchase_velocity), igual
+   * que la compra sugerida — así traspaso y compra hablan el mismo idioma. NO usa cost_with_tax ×
+   * piezas (costo mixto pieza/caja → valores inflados).
+   */
+  async transferPlan(q: TransferSuggestionQuery) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const cov = Math.min(120, Math.max(1, Number(q.coverage_days) || 30));
+    const page = Math.max(1, Number(q.page) || 1);
+    const cap = q.export ? 100000 : 500;
+    const pageSize = Math.min(cap, Math.max(1, Number(q.pageSize) || (q.export ? cap : 50)));
+    return this.tk.run(async (trx) => {
+      const binds: Record<string, unknown> = { t: tenantId, cov };
+      const filters: string[] = ['pr.activo = true', 'bd.transfer_pz > 0'];
+      if (q.warehouse_id && UUID_RX.test(q.warehouse_id)) { filters.push('bd.wh = :dw'); binds.dw = q.warehouse_id; }
+      if (q.supplier_id && UUID_RX.test(q.supplier_id)) { filters.push('pr.supplier_id = :sid'); binds.sid = q.supplier_id; }
+      if (q.category_id && UUID_RX.test(q.category_id)) { filters.push('pr.category_id = :cat'); binds.cat = q.category_id; }
+      if (q.search && q.search.trim()) { filters.push('(pr.sku ILIKE :s OR pr.nombre ILIKE :s)'); binds.s = `%${q.search.trim()}%`; }
+      const where = filters.join(' AND ');
+
+      // uxc + costo real de caja (mismos que la compra sugerida) → una tabla por producto.
+      // deficit por (sucursal, producto), disponible del CEDIS por producto, reparto proporcional.
+      const cte = `
+        WITH dem AS (SELECT product_id, warehouse_id, daily_pieces FROM analytics.product_demand WHERE tenant_id = :t AND window_days = 30),
+        stk AS (SELECT product_id, warehouse_id, quantity FROM commercial.stock WHERE tenant_id = :t),
+        econ AS (
+          SELECT p.id AS product_id,
+                 GREATEST(CASE WHEN p.factor_sale > 1 THEN p.factor_sale WHEN l.bs > 1 THEN l.bs ELSE 1 END, 1) AS uxc,
+                 COALESCE(pv.cost, p.cost_with_tax, 0) AS caja_cost
+            FROM catalog.products p
+            LEFT JOIN (SELECT tenant_id, product_id, max(box_size) bs FROM commercial.product_label_prices GROUP BY tenant_id, product_id) l
+                   ON l.tenant_id = :t AND l.product_id = p.id
+            LEFT JOIN (SELECT product_id, sum(qty_90d * real_unit_cost) / NULLIF(sum(qty_90d),0) AS cost FROM analytics.purchase_velocity WHERE tenant_id = :t GROUP BY product_id) pv
+                   ON pv.product_id = p.id
+           WHERE p.tenant_id = :t
+        ),
+        -- déficit por sucursal (source_warehouse_id set) × producto
+        def AS (
+          SELECT w.id AS wh, w.source_warehouse_id AS src, d.product_id,
+                 GREATEST(0, COALESCE(d.daily_pieces,0) * :cov - COALESCE(s.quantity,0)) AS deficit_pz
+            FROM commercial.warehouses w
+            JOIN dem d ON d.warehouse_id = w.id
+            LEFT JOIN stk s ON s.warehouse_id = w.id AND s.product_id = d.product_id
+           WHERE w.tenant_id = :t AND w.source_warehouse_id IS NOT NULL AND w.deleted_at IS NULL
+        ),
+        -- por (CEDIS origen, producto): stock disponible del CEDIS + Σ déficit de sus sucursales
+        hub AS (
+          SELECT def.src, def.product_id,
+                 COALESCE(cs.quantity, 0) AS avail_pz,
+                 SUM(def.deficit_pz) AS def_total
+            FROM def
+            LEFT JOIN stk cs ON cs.warehouse_id = def.src AND cs.product_id = def.product_id
+           WHERE def.deficit_pz > 0
+           GROUP BY def.src, def.product_id, cs.quantity
+        ),
+        -- reparto proporcional del stock del CEDIS entre sus sucursales con déficit
+        bd AS (
+          SELECT def.wh, def.src, def.product_id, def.deficit_pz,
+                 def.deficit_pz * LEAST(1.0, CASE WHEN h.def_total > 0 THEN h.avail_pz / h.def_total ELSE 0 END) AS transfer_pz
+            FROM def
+            JOIN hub h ON h.src = def.src AND h.product_id = def.product_id
+           WHERE def.deficit_pz > 0
+        )`;
+      const from = `
+        FROM bd
+        JOIN catalog.products pr ON pr.tenant_id = :t AND pr.id = bd.product_id
+        JOIN econ e ON e.product_id = bd.product_id
+        JOIN commercial.warehouses dw ON dw.tenant_id = :t AND dw.id = bd.wh
+        JOIN commercial.warehouses sw ON sw.tenant_id = :t AND sw.id = bd.src
+        LEFT JOIN catalog.suppliers sup ON sup.tenant_id = :t AND sup.id = pr.supplier_id
+        WHERE ${where}`;
+
+      const totalRow = (await trx.raw(
+        `${cte} SELECT count(*)::int c,
+                round(SUM((bd.transfer_pz / e.uxc) * e.caja_cost)::numeric, 2) total_valor,
+                round(SUM(bd.transfer_pz / e.uxc)::numeric, 0) total_cajas ${from}`, binds)).rows[0];
+
+      const rows = (await trx.raw(`
+        ${cte}
+        SELECT pr.id AS product_id, pr.sku, pr.nombre,
+               bd.wh AS to_warehouse_id, dw.code AS to_code, dw.name AS to_name,
+               bd.src AS from_warehouse_id, sw.code AS from_code,
+               sup.name AS supplier_name,
+               e.uxc,
+               round(bd.deficit_pz::numeric, 0) AS deficit_pieces,
+               round((bd.deficit_pz / e.uxc)::numeric, 1) AS deficit_cajas,
+               round(bd.transfer_pz::numeric, 0) AS transfer_pieces,
+               round((bd.transfer_pz / e.uxc)::numeric, 1) AS transfer_cajas,
+               round(GREATEST(0, bd.deficit_pz - bd.transfer_pz)::numeric, 0) AS shortfall_pieces,
+               round(e.caja_cost::numeric, 4) AS unit_cost,
+               round(((bd.transfer_pz / e.uxc) * e.caja_cost)::numeric, 2) AS transfer_value
+        ${from}
+        ORDER BY (bd.transfer_pz / e.uxc) * e.caja_cost DESC
+        LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`, binds)).rows;
+
+      return {
+        total: Number(totalRow?.c || 0),
+        total_valor: Number(totalRow?.total_valor || 0),
+        total_cajas: Number(totalRow?.total_cajas || 0),
         page, pageSize, coverage_days: cov, rows,
       };
     });

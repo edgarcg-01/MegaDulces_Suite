@@ -18,11 +18,14 @@ import { MessageService } from 'primeng/api';
 import {
   ComprasService, PurchaseSuggestionRow, PurchaseSuggestionResponse, ReplenishmentFilters,
   DeadStockRow, CreateRequisitionDto, CreateRequisitionLine, PedidoExportLine, saveXlsxResponse,
+  TransferSuggestionRow, TransferSuggestionResponse,
 } from '../compras.service';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 
 type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
+type Mode = 'pedir' | 'traspaso' | 'muerto';
 interface Row extends PurchaseSuggestionRow { _pedir: number; _sel: boolean; }
+interface TRow extends TransferSuggestionRow { _mover: number; _sel: boolean; }
 
 /**
  * RA-PRO.17 — PEDIDO (vista unificada de Compras). Fusiona las 3 vistas previas (pedido / compra
@@ -48,12 +51,13 @@ interface Row extends PurchaseSuggestionRow { _pedir: number; _sel: boolean; }
           <p class="surf-page-sub">La <strong>venta real de la red</strong> fija el reorden: <strong>pedir = venta diaria × cobertura − existencia − en tránsito</strong>, al costo real de compra. Lo sobrestockeado no se re-pide. Selecciona líneas → arma la requisición o exporta.</p>
         </div>
         <div class="pr-mode" role="tablist" aria-label="Vista">
-          <button role="tab" [attr.aria-selected]="!dead()" class="pr-tab" [class.pr-tab-on]="!dead()" (click)="setDead(false)">Por pedir</button>
-          <button role="tab" [attr.aria-selected]="dead()" class="pr-tab" [class.pr-tab-on]="dead()" (click)="setDead(true)">Stock muerto</button>
+          <button role="tab" [attr.aria-selected]="mode()==='pedir'" class="pr-tab" [class.pr-tab-on]="mode()==='pedir'" (click)="setMode('pedir')">Comprar</button>
+          <button role="tab" [attr.aria-selected]="mode()==='traspaso'" class="pr-tab" [class.pr-tab-on]="mode()==='traspaso'" (click)="setMode('traspaso')">Traspasos</button>
+          <button role="tab" [attr.aria-selected]="mode()==='muerto'" class="pr-tab" [class.pr-tab-on]="mode()==='muerto'" (click)="setMode('muerto')">Stock muerto</button>
         </div>
       </header>
 
-      @if (!dead()) {
+      @if (mode()==='pedir') {
         <app-metric-strip [items]="kpiItems()" ariaLabel="Resumen del pedido" />
 
         <div class="pr-filters">
@@ -166,6 +170,64 @@ interface Row extends PurchaseSuggestionRow { _pedir: number; _sel: boolean; }
             <button pButton type="button" [label]="saving() ? 'Armando…' : 'Armar requisición'" icon="pi pi-check" class="p-button-sm" (click)="createReq()" [disabled]="saving()"></button>
           </div>
         }
+      } @else if (mode()==='traspaso') {
+        <!-- TRASPASOS: déficit de sucursal ← stock del CEDIS que la surte (topología) -->
+        <app-metric-strip [items]="tKpiItems()" ariaLabel="Resumen de traspasos" />
+        <div class="pr-filters">
+          <p-select [options]="warehouseOpts()" [(ngModel)]="tWarehouse" (onChange)="loadTransfer()"
+                    optionLabel="label" optionValue="value" placeholder="Todas las sucursales destino" [showClear]="true"
+                    styleClass="pr-sel" ariaLabel="Filtrar por sucursal destino"></p-select>
+          <p-select [options]="supplierOpts()" [(ngModel)]="tSupplier" (onChange)="loadTransfer()"
+                    optionLabel="label" optionValue="value" placeholder="Todos los proveedores" [showClear]="true"
+                    [filter]="true" filterBy="label" [virtualScroll]="true" [virtualScrollItemSize]="34"
+                    styleClass="pr-sel-wide" ariaLabel="Filtrar por proveedor"></p-select>
+          <p-iconfield styleClass="pr-search">
+            <p-inputicon styleClass="pi pi-search" />
+            <input pInputText type="text" [(ngModel)]="search" (keyup.enter)="loadTransfer()" placeholder="SKU o producto…" aria-label="Buscar producto" />
+          </p-iconfield>
+        </div>
+        <p-table [value]="tRows()" [loading]="loading()" [scrollable]="true" scrollHeight="flex"
+                 [paginator]="true" [rows]="50" [rowsPerPageOptions]="[50, 100, 200]"
+                 styleClass="p-datatable-sm pr-table" [tableStyle]="{ 'min-width': '72rem' }">
+          <ng-template pTemplate="header">
+            <tr>
+              <th style="width:2.5rem"><p-checkbox [binary]="true" [ngModel]="tAllSel()" (onChange)="tToggleAll($event.checked)" ariaLabel="Seleccionar todo"></p-checkbox></th>
+              <th style="min-width:15rem">Producto</th>
+              <th style="width:6rem" title="Sucursal que recibe">Destino</th>
+              <th style="width:5.5rem" title="CEDIS que surte">Origen</th>
+              <th class="pr-r" title="Faltante de la sucursal para la cobertura (cajas)">Déficit</th>
+              <th class="pr-r pr-sug" title="Cajas a traspasar (editable; tope = lo que el CEDIS puede cubrir)">Mover</th>
+              <th class="pr-r pr-muted-h" title="Piezas = cajas × UXC">Piezas</th>
+              <th class="pr-r" title="Costo real por caja">Costo</th>
+              <th class="pr-r pr-val" title="Valor = mover × costo real">Valor</th>
+            </tr>
+          </ng-template>
+          <ng-template pTemplate="body" let-r>
+            <tr [class.pr-row-sel]="r._sel">
+              <td><p-checkbox [binary]="true" [(ngModel)]="r._sel" (onChange)="tOnSel()" [ariaLabel]="'Seleccionar ' + r.sku"></p-checkbox></td>
+              <td><div class="pr-prod">{{ r.nombre }}</div><div class="pr-sku">{{ r.sku }}</div></td>
+              <td class="pr-mono">{{ r.to_code }}</td>
+              <td class="pr-mono pr-muted">{{ r.from_code }}</td>
+              <td class="pr-r pr-muted">{{ r.deficit_cajas | number:'1.0-1' }}</td>
+              <td class="pr-r pr-sug"><input pInputText type="number" min="0" [(ngModel)]="r._mover" (ngModelChange)="tOnSel()" class="pr-qty" [attr.aria-label]="'Cajas a mover de ' + r.sku" /></td>
+              <td class="pr-r pr-muted-h">{{ (r._mover * r.uxc) | number:'1.0-0' }}</td>
+              <td class="pr-r pr-muted">{{ money(r.unit_cost) }}</td>
+              <td class="pr-r pr-val pr-strong">{{ money(r._mover * r.unit_cost) }}</td>
+            </tr>
+          </ng-template>
+          <ng-template pTemplate="emptymessage">
+            <tr><td colspan="9" class="pr-empty"><i class="pi pi-inbox"></i><p>Sin traspasos sugeridos.</p>
+              <span>Ninguna sucursal tiene déficit cubrible por su CEDIS con estos filtros. Verifica la topología en <a routerLink="/compras/red">Red de abasto</a>.</span></td></tr>
+          </ng-template>
+        </p-table>
+        <p class="pr-foot">El CEDIS que surte a cada sucursal se define en <a routerLink="/compras/red">Red de abasto</a>. Mover = déficit acotado a lo que el CEDIS puede cubrir (reparto proporcional entre sucursales). El faltante no cubrible se compra.</p>
+        @if (tSelCount() > 0) {
+          <div class="pr-bulk" role="region" aria-label="Acciones de traspaso">
+            <span class="pr-bulk-n">{{ tSelCount() }} {{ tSelCount() === 1 ? 'traspaso' : 'traspasos' }} · <strong>{{ money(tSelValor()) }}</strong></span>
+            <span class="pr-bulk-sp"></span>
+            <button pButton type="button" [label]="saving() ? 'Armando…' : 'Armar traspaso'" icon="pi pi-arrow-right-arrow-left" class="p-button-sm" (click)="createTransfer()" [disabled]="saving()"></button>
+          </div>
+        }
       } @else {
         <!-- STOCK MUERTO: productos activos SIN rotación (capital inmovilizado) -->
         <div class="pr-filters">
@@ -261,17 +323,24 @@ export class ComprasPedidoRealComponent implements OnInit {
   private readonly destroyRef = inject(DestroyRef);
 
   rows = signal<Row[]>([]);
+  tRows = signal<TRow[]>([]);
   deadRows = signal<DeadStockRow[]>([]);
   loading = signal(false);
   error = signal(false);
   dl = signal(false);
   saving = signal(false);
-  dead = signal(false);
+  mode = signal<Mode>('pedir');
   deadValue = signal(0);
   totalValor = signal(0);
   totalRevenue = signal(0);
   totalLines = signal(0);
+  tTotalValor = signal(0);
+  tTotalCajas = signal(0);
+  tTotalMoves = signal(0);
+  tWarehouse: string | null = null;
+  tSupplier: string | null = null;
   private readonly selTick = signal(0); // fuerza recompute de KPIs de selección al editar
+  private readonly tSelTick = signal(0);
 
   fSupplier: string | null = null;
   fWarehouse: string | null = null;
@@ -299,7 +368,82 @@ export class ComprasPedidoRealComponent implements OnInit {
     this.reload();
   }
 
-  setDead(v: boolean): void { if (this.dead() === v) return; this.dead.set(v); v ? this.loadDead() : this.reload(); }
+  setMode(m: Mode): void {
+    if (this.mode() === m) return;
+    this.mode.set(m);
+    if (m === 'pedir') this.reload();
+    else if (m === 'traspaso') this.loadTransfer();
+    else this.loadDead();
+  }
+
+  loadTransfer(): void {
+    this.loading.set(true); this.error.set(false);
+    this.api.transferSuggestion({
+      warehouse_id: this.tWarehouse || undefined, supplier_id: this.tSupplier || undefined,
+      search: this.search.trim() || undefined, coverage_days: this.coverage, pageSize: 500,
+    }).pipe(
+      catchError(() => { this.error.set(true); return of(null as TransferSuggestionResponse | null); }),
+      takeUntilDestroyed(this.destroyRef),
+    ).subscribe((r) => {
+      this.loading.set(false);
+      if (!r) { this.tRows.set([]); this.tTotalValor.set(0); this.tTotalCajas.set(0); this.tTotalMoves.set(0); return; }
+      this.tRows.set(r.rows.map((x) => ({ ...x, _mover: Math.round(Number(x.transfer_cajas) || 0), _sel: false })));
+      this.tTotalValor.set(Number(r.total_valor) || 0);
+      this.tTotalCajas.set(Number(r.total_cajas) || 0);
+      this.tTotalMoves.set(Number(r.total) || 0);
+      this.tSelTick.update((n) => n + 1);
+    });
+  }
+
+  tOnSel(): void { this.tSelTick.update((n) => n + 1); }
+  tAllSel(): boolean { const r = this.tRows(); return r.length > 0 && r.every((x) => x._sel); }
+  tToggleAll(v: boolean): void { this.tRows().forEach((x) => (x._sel = v)); this.tOnSel(); }
+  private tSelected(): TRow[] { this.tSelTick(); return this.tRows().filter((x) => x._sel && Number(x._mover) > 0); }
+  tSelCount = computed(() => { this.tSelTick(); return this.tRows().filter((x) => x._sel && Number(x._mover) > 0).length; });
+  tSelValor = computed(() => { this.tSelTick(); return this.tRows().filter((x) => x._sel).reduce((s, x) => s + Number(x._mover) * Number(x.unit_cost || 0), 0); });
+
+  tKpiItems(): MetricStripItem[] {
+    return [
+      { label: 'Valor a traspasar', value: this.tTotalValor(), format: 'currency', tone: 'brand' },
+      { label: 'Cajas', value: this.tTotalCajas(), sub: 'del CEDIS a sucursal' },
+      { label: 'Movimientos', value: this.tTotalMoves(), sub: 'producto × sucursal' },
+      { label: 'Cobertura', value: this.coverage, sub: 'días objetivo' },
+    ];
+  }
+
+  /** Arma traspaso(s): agrupa lo seleccionado por (sucursal destino × CEDIS origen) → una requisición transfer por grupo. */
+  createTransfer(): void {
+    const sel = this.tSelected();
+    if (!sel.length) { this.toast.add({ severity: 'warn', summary: 'Nada seleccionado', detail: 'Marca líneas con cantidad a mover.' }); return; }
+    const groups = new Map<string, TRow[]>();
+    for (const r of sel) { const k = `${r.to_warehouse_id}|${r.from_warehouse_id}`; (groups.get(k) ?? groups.set(k, []).get(k)!).push(r); }
+    this.saving.set(true);
+    const dtos: CreateRequisitionDto[] = [...groups.values()].map((rs) => ({
+      warehouse_id: rs[0].to_warehouse_id,
+      supplier_id: null,
+      source_type: 'branch',
+      source_warehouse_id: rs[0].from_warehouse_id,
+      notes: 'Traspaso CEDIS→sucursal (déficit × cobertura)',
+      lines: rs.map<CreateRequisitionLine>((r) => ({
+        product_id: r.product_id, source_type: 'branch', source_warehouse_id: r.from_warehouse_id,
+        suggested_qty: Math.round(Number(r.transfer_cajas) || 0),
+        final_qty: Math.round(Number(r._mover) || 0), unit_cost: Number(r.unit_cost) || 0,
+      })),
+    }));
+    let done = 0; const folios: string[] = []; let failed = 0;
+    const finish = () => {
+      this.saving.set(false);
+      if (folios.length) this.toast.add({ severity: 'success', summary: `${folios.length} traspaso(s)`, detail: folios.join(', ') });
+      if (failed) this.toast.add({ severity: 'error', summary: 'Error parcial', detail: `${failed} no se pudieron crear.` });
+      if (folios.length) this.loadTransfer();
+    };
+    dtos.forEach((dto) => {
+      this.api.createRequisition(dto).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+        next: (r) => { folios.push(r.folio); if (++done === dtos.length) finish(); },
+        error: () => { failed++; if (++done === dtos.length) finish(); },
+      });
+    });
+  }
 
   reload(): void {
     this.loading.set(true); this.error.set(false);
@@ -329,7 +473,7 @@ export class ComprasPedidoRealComponent implements OnInit {
       .subscribe((r) => { this.loading.set(false); this.deadRows.set(r?.rows ?? []); this.deadValue.set(Number(r?.total_value) || 0); });
   }
 
-  setCoverage(d: number): void { this.coverage = d; this.reload(); }
+  setCoverage(d: number): void { this.coverage = d; this.mode() === 'traspaso' ? this.loadTransfer() : this.reload(); }
   onSel(): void { this.selTick.update((n) => n + 1); }
   allSel(): boolean { const r = this.rows(); return r.length > 0 && r.every((x) => x._sel); }
   toggleAll(v: boolean): void { this.rows().forEach((x) => (x._sel = v)); this.onSel(); }
