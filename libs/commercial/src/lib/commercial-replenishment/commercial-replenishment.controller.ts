@@ -345,6 +345,13 @@ export class CommercialReplenishmentController {
     return this.svc.updateReplenishmentSettings(body ?? {});
   }
 
+  @Post('products/:id/unit-override')
+  @RequirePermissions(Permission.COMPRAS_GESTIONAR)
+  @ApiOperation({ summary: 'RA-PRO.28 — override manual de unidad de venta. body { pieces_per_unit, box_factor, sold_as, note }. Ambos null = borra (vuelve a auto).' })
+  setProductUnitOverride(@Param('id') id: string, @Body() body: { pieces_per_unit?: number | null; box_factor?: number | null; sold_as?: string | null; note?: string | null }) {
+    return this.svc.setProductUnitOverride(id, body ?? {});
+  }
+
   @Get('suppliers/:id/order')
   @RequirePermissions(Permission.COMPRAS_VER)
   @ApiOperation({ summary: 'RA-PRO.10 — pedido consolidado al proveedor (todos sus almacenes de compra), horizonte cadencia+colchón, subido al mínimo (por proveedor total) repartiendo en los que más rotan.' })

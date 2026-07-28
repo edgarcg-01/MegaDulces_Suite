@@ -148,6 +148,55 @@ export class CommercialReplenishmentService {
   }
   private readonly DEFAULT_SETTINGS = { fill_window_days: 180, fill_min_lines: 3, fill_max_inflate: 1.30, default_coverage_days: 30 };
 
+  // RA-PRO.28 — verificación de UNIDAD DE VENTA para no inflar pedidos. Un SKU se vende en
+  // unidades distintas por canal (retail pieza/kg, mayoreo caja/cubeta); el ratio de precio
+  // implícito (mayoreo $/u ÷ retail $/u) revela el factor real. Deriva dos factores:
+  //   SUF = sub-unidades de demanda por UNIDAD DE STOCK (granel=ratio, normal=1) → alinea
+  //         la demanda (kg) con la existencia (cubetas).
+  //   BF  = unidades de stock por CAJA de pedido (granel=1, bad-fs=round(ratio), normal=factor_sale).
+  // Override manual por SKU en commercial.product_unit_overrides (respaldo).
+  private uovReady: boolean | null = null;
+  private async unitOverrideReady(trx: any): Promise<boolean> {
+    if (this.uovReady != null) return this.uovReady;
+    try {
+      const r = await trx.raw(`SELECT to_regclass('commercial.product_unit_overrides') IS NOT NULL AS t`);
+      this.uovReady = !!r.rows[0]?.t;
+    } catch { this.uovReady = false; }
+    return this.uovReady;
+  }
+  /** SQL compartido: JOINs (ratio de precio + override) + expresiones SUF/BF, dado el alias del producto y la uxc base. */
+  private unitAnalysis(uxcBase: string, prodCol: string, ovReady: boolean) {
+    const ratio = 'pur.ratio';
+    const sufOv = ovReady ? 'uov.pieces_per_unit' : 'NULL::numeric';
+    const bfOv = ovReady ? 'uov.box_factor' : 'NULL::numeric';
+    // GRANEL: producto sin caja definida (factor_sale≤1) que en mayoreo se vende como bulto
+    // (ratio≥3). La demanda queda en sub-unidad (kg) pero la existencia en unidad-entera (cubeta)
+    // → alinear dividiendo la demanda por el ratio (SUF). Es DE-inflación monótona (nunca infla
+    // de más), aunque el ratio subestime el factor real → precisión fina vía override.
+    const isGranel = `(${uxcBase} <= 1 AND ${ratio} >= 3)`;
+    // Caja con factor_sale sospechoso (mayoreo vende bulto ≥3× pero factor_sale muy distinto):
+    // solo se MARCA para revisión/override; NO se reescribe automático (el ratio es ruidoso y
+    // podría meter error nuevo / sobre-pedir). El catálogo manda salvo override manual.
+    const isBadFs = `(${uxcBase} > 1 AND ${ratio} >= 3 AND (${ratio}/${uxcBase} < 0.5 OR ${ratio}/${uxcBase} > 2))`;
+    const SUF = `GREATEST(COALESCE(${sufOv}, CASE WHEN ${isGranel} THEN ${ratio} ELSE 1 END), 1)`;
+    const BF = `GREATEST(COALESCE(${bfOv}, CASE WHEN ${isGranel} THEN 1 ELSE ${uxcBase} END), 1)`;
+    const join = `
+        LEFT JOIN (
+          SELECT z.product_id,
+                 (sum(z.rev) FILTER (WHERE z.ch='mayoreo')/NULLIF(sum(z.u) FILTER (WHERE z.ch='mayoreo'),0))
+                 / NULLIF(sum(z.rev) FILTER (WHERE z.ch='retail')/NULLIF(sum(z.u) FILTER (WHERE z.ch='retail'),0),0) AS ratio
+            FROM (SELECT sd.product_id,
+                         CASE WHEN w.code LIKE 'MD-%' THEN 'mayoreo' WHEN w.code ~ '^[0-9]+$' AND w.code<>'00' THEN 'retail' ELSE 'other' END AS ch,
+                         sum(sd.units) u, sum(sd.revenue) rev
+                    FROM analytics.sales_daily sd
+                    JOIN commercial.warehouses w ON w.id=sd.warehouse_id AND w.tenant_id=sd.tenant_id
+                   WHERE sd.tenant_id = :t AND sd.sale_date >= now() - interval '90 days' AND sd.units > 0 AND sd.revenue > 0
+                   GROUP BY sd.product_id, ch) z
+           GROUP BY z.product_id) pur ON pur.product_id = ${prodCol}${ovReady ? `
+        LEFT JOIN commercial.product_unit_overrides uov ON uov.tenant_id = :t AND uov.product_id = ${prodCol} AND uov.deleted_at IS NULL` : ''}`;
+    return { SUF, BF, ratio, isGranel, isBadFs, join };
+  }
+
   private basis(v?: string): TargetBasis {
     return BASES.includes(v as TargetBasis) ? (v as TargetBasis) : 'max';
   }
@@ -502,6 +551,11 @@ export class CommercialReplenishmentService {
       const fmin = Math.max(1, Number(st?.fill_min_lines) || 3);        // mínimo de recepciones para confiar
       const maxinf = Math.min(3, Math.max(1, Number(st?.fill_max_inflate) || 1.30)); // tope de inflado
       const uxc = `GREATEST(CASE WHEN pr.factor_sale > 1 THEN pr.factor_sale WHEN lbl.bs > 1 THEN lbl.bs ELSE 1 END, 1)`;
+      // RA-PRO.28 — verificación de unidad de venta (ver unitAnalysis): SUF alinea demanda↔stock,
+      // BF = unidad de stock por caja. Para producto de un solo canal → SUF=1, BF=uxc (sin cambio).
+      const ovReady = await this.unitOverrideReady(trx);
+      const ua = this.unitAnalysis(uxc, 'pr.id', ovReady);
+      const SUF = ua.SUF, BF = ua.BF;
       // Unidad = CAJAS. venta/existencia (kdil) vienen en PIEZAS → /uxc. en_tránsito (OC) ya en cajas.
       const sellDayPz = `(COALESCE(sv.s30,0) / 30.0)`;            // venta diaria de la RED (piezas)
       const stockPz = `COALESCE(nst.qty,0)`;                      // existencia de la RED (piezas)
@@ -530,7 +584,8 @@ export class CommercialReplenishmentService {
       const safetySource = `CASE WHEN ${colSafety} IS NOT NULL THEN 'manual' WHEN ${autoSafety} > 0 THEN 'auto' ELSE 'none' END`;
       // sugerido = (necesidad ÷ fill, tope inflado) × (1 + colchón% efectivo)
       const fillFactor = `(1.0 / GREATEST(${fillRate}, 1.0 / :maxinf)) * (1 + ${safetyEff}/100.0)`;
-      const needBase = `GREATEST(0, ${sellDayPz} * ${covEff} / ${uxc} - ${stockPz} / ${uxc} - ${transit})`; // necesidad neta (sin fill)
+      // En CAJAS: demanda (sub-unidades) ÷ SUF ÷ BF; existencia (unidades de stock) ÷ BF; tránsito ya en cajas.
+      const needBase = `GREATEST(0, ${sellDayPz} * ${covEff} / (${SUF} * ${BF}) - ${stockPz} / ${BF} - ${transit})`; // necesidad neta (sin fill)
       const sug = `(${needBase} * ${fillFactor})`;                                                          // sugerido personalizado
       const filters: string[] = ['pr.tenant_id = :t', 'pr.activo = true'];
       const binds: Record<string, unknown> = { t: tenantId, cov, fwin, fmin, maxinf };
@@ -559,7 +614,7 @@ export class CommercialReplenishmentService {
       // Bucket por COBERTURA (días que aguanta la red vendiendo): agotado / crítico(<7) / bajo(<cobertura) /
       // sano / sobrestock(>90). DEFAULT = TODOS los productos (visibilidad total); scope='needed' o un
       // bucket lo acotan. Ordenado por valor del sugerido → lo accionable arriba, lo cubierto abajo.
-      const cover = `(${stockPz} / NULLIF(${sellDayPz}, 0))`;
+      const cover = `(${stockPz} * ${SUF} / NULLIF(${sellDayPz}, 0))`; // días: existencia(stock) ÷ demanda diaria en unidades de stock (sellDayPz/SUF)
       const bucketExpr = `CASE WHEN ${stockPz} <= 0 AND ${sellDayPz} <= 0 THEN 'sin_dato' WHEN ${stockPz} <= 0 THEN 'agotado' WHEN ${cover} < 7 THEN 'critico' WHEN ${cover} < ${covEff} THEN 'bajo' WHEN ${cover} > 90 THEN 'sobrestock' ELSE 'sano' END`;
       if (q.bucket && ['agotado', 'critico', 'bajo', 'sano', 'sobrestock', 'sin_dato'].includes(q.bucket)) { filters.push(`${bucketExpr} = :bkt`); binds.bkt = q.bucket; }
       else if (q.scope === 'needed') { filters.push(`${sug} > 0`); }
@@ -615,7 +670,7 @@ export class CommercialReplenishmentService {
            WHERE po.tenant_id = :t AND po.source_type = 'supplier' AND po.estado IN ('received','partial')
              AND po.closed_at IS NOT NULL AND po.closed_at >= now() - make_interval(days => :fwin::int)
            GROUP BY po.supplier_id
-        ) scad ON scad.supplier_id = pr.supplier_id
+        ) scad ON scad.supplier_id = pr.supplier_id${ua.join}
         LEFT JOIN commercial.warehouses w ON w.tenant_id = :t AND w.id = COALESCE(:selwh::uuid, pl.primary_wh)
         LEFT JOIN (SELECT tenant_id, product_id, max(box_size) bs FROM commercial.product_label_prices GROUP BY tenant_id, product_id) lbl
                ON lbl.tenant_id = :t AND lbl.product_id = pr.id
@@ -654,14 +709,20 @@ export class CommercialReplenishmentService {
         FROM (
           SELECT pr.id AS product_id, COALESCE(:selwh::uuid, pl.primary_wh) AS warehouse_id, w.code AS warehouse_code,
                  pr.sku, pr.nombre, sup.id AS supplier_id, sup.name AS supplier_name,
-                 ${uxc} AS uxc,
+                 ${BF} AS uxc,
+                 round((${SUF})::numeric, 2) AS stock_unit_factor,
+                 round(${ua.ratio}::numeric, 1) AS price_ratio,
+                 CASE WHEN ${ovReady ? 'uov.product_id IS NOT NULL' : 'false'} THEN 'manual'
+                      WHEN ${ua.isGranel} THEN 'granel'
+                      WHEN ${ua.isBadFs} THEN 'revisar'
+                      ELSE 'catalog' END AS unit_source,
                  round(COALESCE(pl.buy_rate,0)::numeric, 3) AS daily_rate,
                  pl.order_days, pl.last_purchase,
-                 round(${stockPz}::numeric, 1) AS on_hand_pieces,
-                 round((${stockPz} / ${uxc})::numeric, 2) AS on_hand_units,
+                 round((${stockPz} / ${BF})::numeric, 1) AS on_hand_pieces,
+                 round((${stockPz} / ${BF})::numeric, 2) AS on_hand_units,
                  ${transit} AS in_transit_units,
                  round(${costE}::numeric, 4) AS unit_cost,
-                 round((${sellDayPz} * ${covEff} / ${uxc})::numeric, 2) AS target_units,
+                 round((${sellDayPz} * ${covEff} / (${SUF} * ${BF}))::numeric, 2) AS target_units,
                  round(${sug}::numeric, 2) AS suggested_units,
                  round(${needBase}::numeric, 2) AS base_units,
                  round((${fillRate})::numeric, 3) AS fill_rate,
@@ -670,12 +731,12 @@ export class CommercialReplenishmentService {
                  ${covSource} AS coverage_source,
                  round((${safetyEff})::numeric, 0) AS safety_pct_eff,
                  ${safetySource} AS safety_source,
-                 round((${sug} * ${uxc})::numeric, 0) AS suggested_pieces,
+                 round((${sug} * ${BF})::numeric, 0) AS suggested_pieces,
                  round((${sug} * ${costE})::numeric, 2) AS suggested_cost,
-                 round((${sellDayPz} / ${uxc})::numeric, 2) AS sell_daily_cajas,
-                 round((COALESCE(sv.s30,0) / ${uxc})::numeric, 0) AS sell_month_cajas,
+                 round((${sellDayPz} / (${SUF} * ${BF}))::numeric, 2) AS sell_daily_cajas,
+                 round((COALESCE(sv.s30,0) / (${SUF} * ${BF}))::numeric, 0) AS sell_month_cajas,
                  round(COALESCE(sv.rev30,0)::numeric, 2) AS sell_month_mxn,
-                 round((${stockPz} / NULLIF(${sellDayPz}, 0))::numeric, 0) AS days_cover,
+                 round((${stockPz} * ${SUF} / NULLIF(${sellDayPz}, 0))::numeric, 0) AS days_cover,
                  ${bucketExpr} AS bucket
           ${from}
         ) z
@@ -1482,6 +1543,29 @@ export class CommercialReplenishmentService {
          WHERE s.tenant_id = :t`, { t: tenantId, fmin, fwin })).rows;
       const byId = new Map(auto.map((a) => [a.supplier_id, a]));
       return rows.map((r) => ({ ...r, ...(byId.get(r.id) || {}) }));
+    });
+  }
+
+  // ── RA-PRO.28 — Override manual de unidad de venta por producto ───────
+  /** Fija/borra SUF (pieces_per_unit) y BF (box_factor) de un producto. null en ambos = borra. */
+  async setProductUnitOverride(productId: string, patch: { pieces_per_unit?: number | null; box_factor?: number | null; sold_as?: string | null; note?: string | null }) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    if (!UUID_RX.test(productId)) throw new BadRequestException('product_id inválido');
+    return this.tk.run(async (trx) => {
+      if (!(await this.unitOverrideReady(trx))) throw new BadRequestException('Override de unidad no disponible: falta aplicar la migración 20260728180000.');
+      const num = (v: unknown) => v == null || Number.isNaN(Number(v)) || Number(v) <= 0 ? null : Number(v);
+      const suf = num(patch.pieces_per_unit), bf = num(patch.box_factor);
+      const userId = this.tenantCtx.get()?.userId ?? null;
+      if (suf == null && bf == null) {
+        await trx('commercial.product_unit_overrides').where({ tenant_id: tenantId, product_id: productId }).update({ deleted_at: trx.fn.now() });
+        return { product_id: productId, cleared: true };
+      }
+      const existing = await trx('commercial.product_unit_overrides')
+        .where({ tenant_id: tenantId, product_id: productId }).whereNull('deleted_at').first('id');
+      const vals = { pieces_per_unit: suf, box_factor: bf, sold_as: patch.sold_as ?? null, note: patch.note ?? null, updated_at: trx.fn.now(), deleted_at: null };
+      if (existing) await trx('commercial.product_unit_overrides').where({ id: existing.id }).update(vals);
+      else await trx('commercial.product_unit_overrides').insert({ tenant_id: tenantId, product_id: productId, created_by: userId, ...vals });
+      return { product_id: productId, pieces_per_unit: suf, box_factor: bf };
     });
   }
 
