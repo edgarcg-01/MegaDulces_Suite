@@ -203,6 +203,36 @@ export class AlertsService {
     // TODO Fase F (ADR-006): notificar al cliente por WhatsApp ("tu pedido fue entregado").
   }
 
+  /**
+   * Salud de datos: una fuente falló (feed caído / tabla congelada) o se recuperó.
+   * `event`: 'opened' (empezó a fallar) · 'escalated' (warn→critical) · 'resolved' (volvió a ok).
+   * Emitido por DbHealthScannerService solo en transiciones (no cada ciclo → sin spam).
+   */
+  emitDbHealth(tenantId: string, params: {
+    source_key: string;
+    source_label: string;
+    event: 'opened' | 'escalated' | 'resolved';
+    status: 'warn' | 'critical' | 'ok';
+    note?: string | null;
+    age_human?: string | null;
+  }): void {
+    const resolved = params.event === 'resolved';
+    const severity: AlertSeverity = resolved ? 'info' : (params.status === 'critical' ? 'critical' : 'warn');
+    const title = resolved
+      ? `Fuente recuperada: ${params.source_label}`
+      : `${params.status === 'critical' ? 'Falla CRÍTICA' : 'Advertencia'} de datos: ${params.source_label}`;
+    const message = resolved
+      ? `${params.source_label} volvió a actualizarse con normalidad.`
+      : `${params.note || 'Sin actualizar'}${params.age_human ? ` · desactualizada hace ${params.age_human}` : ''}`;
+    this.emit(tenantId, {
+      type: 'db_health',
+      severity,
+      title,
+      message,
+      data: params,
+    });
+  }
+
   /** Test manual para smoke. */
   emitTest(tenantId: string, message?: string): void {
     this.emit(tenantId, {
