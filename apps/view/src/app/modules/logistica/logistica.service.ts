@@ -566,6 +566,8 @@ export interface TrackerLive {
   external_name: string | null;
   protocol: string | null;
   route_code: string | null;
+  route_number: number | null;
+  vendor_name: string | null;
   vehicle_id: string | null;
   vehicle_plate: string | null;
   last_lat: number | null;
@@ -1097,6 +1099,9 @@ export class LogisticaService {
   }
   linkTracker(trackerId: string, vehicleId: string | null): Observable<{ id: string; vehicle_id: string | null }> {
     return this.http.patch<{ id: string; vehicle_id: string | null }>(`${this.base}/tracking/trackers/${trackerId}/link`, { vehicle_id: vehicleId });
+  }
+  setTrackerRoute(trackerId: string, routeNumber: number | null): Observable<{ id: string; route_number: number | null; route_manual: boolean }> {
+    return this.http.patch<{ id: string; route_number: number | null; route_manual: boolean }>(`${this.base}/tracking/trackers/${trackerId}/route`, { route_number: routeNumber });
   }
   // ── LTV.0 / LTV.5 Actividad de flota ───────────────────────────────────────
   fleetProductivity(date: string): Observable<FleetProductivityRow[]> {

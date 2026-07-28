@@ -52,16 +52,13 @@ export class RouteAdherenceService {
     const end = `${day}T23:59:59.999-06:00`;
 
     return this.tk.run(async (trx) => {
-      const withRoute: Array<{ vehicle_id: string }> = await trx('logistics.shipments')
-        .where('shipment_date', day)
-        .whereNotNull('vehicle_id')
-        .whereNotNull('route_id')
-        .distinct('vehicle_id');
+      // Candidatos: vehículos con actividad GPS ese día (los que realmente
+      // manejaron). El plan de cada uno sale de su tracker (route_number).
       const withActivity: Array<{ vehicle_id: string }> = await trx('logistics.vehicle_day_summary')
         .where('day', day)
         .whereNotNull('vehicle_id')
         .distinct('vehicle_id');
-      const ids = Array.from(new Set([...withRoute, ...withActivity].map((r) => r.vehicle_id)));
+      const ids = Array.from(new Set(withActivity.map((r) => r.vehicle_id)));
       if (!ids.length) return [];
 
       const plateRows = await trx('logistics.vehicles').whereIn('id', ids).select('id', 'plate');
@@ -89,21 +86,25 @@ export class RouteAdherenceService {
     end: string,
   ): Promise<AdherenceResult> {
     {
-      // Rutas que la unidad sirvió ese día (por embarques).
-      const shipRoutes: Array<{ route_id: string }> = await trx('logistics.shipments')
-        .where({ vehicle_id: vehicleId, shipment_date: day })
-        .whereNotNull('route_id')
-        .distinct('route_id');
-      const routeIds = shipRoutes.map((r) => r.route_id);
+      // "Unidad de ruta": el número de ruta viene del tracker del vehículo (GPS
+      // "R-21" o asignado a mano). El plan son los clientes de esa ruta, cuyo
+      // vínculo real es el texto sales_route ("RUTA 21"), no route_id (vacío).
+      const trk = await trx('logistics.trackers')
+        .where({ vehicle_id: vehicleId })
+        .whereNotNull('route_number')
+        .first('route_number');
+      const routeNumber: number | null = trk?.route_number ?? null;
 
-      // Plan: clientes de esas rutas, ordenados por visit_sequence.
-      const planned = routeIds.length
+      // Plan: clientes cuya sales_route normaliza al mismo número. El regex tolera
+      // "RUTA 21" / "R-21" / "R0021" / "21" sin capturar "121".
+      const planned = routeNumber != null
         ? await trx('commercial.customers')
-            .whereIn('route_id', routeIds)
             .whereNull('deleted_at')
+            .whereRaw(`sales_route ~* ('(^|[^0-9])0*' || ?::text || '([^0-9]|$)')`, [String(routeNumber)])
             .select('id as customer_id', 'code', 'name', 'visit_sequence', 'latitude')
             .orderByRaw('visit_sequence asc nulls last')
         : [];
+      const routeIds = routeNumber != null ? [`R-${routeNumber}`] : [];
 
       // Real: paradas matcheadas a cliente ese día.
       const stops = await trx('logistics.vehicle_stops')

@@ -99,8 +99,11 @@ interface VendorDayKpis {
               <button class="row" [class.sel]="selVeh() === v.id" (click)="focusVehicle(v)">
                 <span class="dot" [style.background]="vehColor(v)"></span>
                 <span class="who">
-                  <span class="name">{{ vehName(v) }}</span>
-                  <span class="meta">{{ vehStatusLabel(v) }} · {{ (v.last_speed_kmh || 0) | number:'1.0-0' }} km/h · {{ vehAge(v) }}</span>
+                  <span class="name">
+                    @if (v.route_number != null) { <span class="veh-route">R-{{ v.route_number }}</span> }
+                    {{ v.vendor_name || vehName(v) }}
+                  </span>
+                  <span class="meta">{{ v.vendor_name ? vehName(v) + ' · ' : '' }}{{ vehStatusLabel(v) }} · {{ (v.last_speed_kmh || 0) | number:'1.0-0' }} km/h</span>
                 </span>
                 @if (selVeh() === v.id) { <span class="watching">observando</span> }
               </button>
@@ -144,12 +147,13 @@ interface VendorDayKpis {
       }
     </app-side-peek>
 
-    <app-side-peek [open]="!!selVeh()" [title]="selVehPos()?.external_name || selVehPos()?.vehicle_plate || 'Vehículo'" [subtitle]="selVehSub()" (openChange)="onVehPeek($event)">
+    <app-side-peek [open]="!!selVeh()" [title]="selVehPos() ? vehTitle(selVehPos()!) : 'Vehículo'" [subtitle]="selVehSub()" (openChange)="onVehPeek($event)">
       @if (selVehPos(); as v) {
         <div class="sp-status" [class]="'st-veh-' + vehStatus(v)">{{ vehStatusLabel(v) }}</div>
         <dl class="sp-grid">
+          <div><dt>Ruta</dt><dd>{{ v.route_number != null ? 'R-' + v.route_number : '—' }}</dd></div>
+          <div><dt>Vendedor</dt><dd>{{ v.vendor_name || '—' }}</dd></div>
           <div><dt>Placa</dt><dd>{{ v.vehicle_plate || '—' }}</dd></div>
-          <div><dt>Ruta</dt><dd>{{ v.route_code || '—' }}</dd></div>
           <div><dt>Velocidad</dt><dd>{{ (v.last_speed_kmh || 0) | number:'1.0-0' }} km/h</dd></div>
           <div><dt>Última señal</dt><dd>{{ vehAge(v) }}</dd></div>
         </dl>
@@ -210,6 +214,7 @@ interface VendorDayKpis {
     .lm-sub-h { display:flex; align-items:center; gap:.35rem; margin:var(--sp-3) 0 var(--sp-1); padding:0 var(--sp-2); font:700 .68rem/1 'Hanken Grotesk',sans-serif; letter-spacing:.04em; text-transform:uppercase; color:var(--text-muted); }
     .lm-sub-h .pi { font-size:.7rem; }
     .lm-sub-h span { font-weight:600; }
+    .veh-route { display:inline-block; font-size:.62rem; font-weight:700; padding:.05rem .3rem; border-radius:4px; background:var(--info-soft-bg); color:var(--info-soft-fg); margin-right:.25rem; vertical-align:middle; }
     /* SidePeek */
     .sp-status { display:inline-block; font:700 .8rem 'Hanken Grotesk',sans-serif; padding:var(--sp-1) var(--sp-3); border-radius:999px; margin-bottom:var(--sp-4); }
     .sp-status.st-moving { background:var(--info-soft-bg); color:var(--info-soft-fg); }
@@ -327,7 +332,7 @@ export class LiveMapComponent implements AfterViewInit, OnDestroy {
         kind: 'truck' as const,
         color: this.vehColor(v),
         ring: this.vehStatus(v) === 'moving',
-        title: `${this.vehName(v)} · ${this.vehStatusLabel(v)} · ${Math.round(Number(v.last_speed_kmh) || 0)} km/h`,
+        title: `${this.vehTitle(v)} · ${this.vehStatusLabel(v)} · ${Math.round(Number(v.last_speed_kmh) || 0)} km/h`,
       })),
   );
 
@@ -489,7 +494,14 @@ export class LiveMapComponent implements AfterViewInit, OnDestroy {
     return { moving: 'var(--ok-fg)', stopped: 'var(--warn-fg)', offline: 'var(--neutral-400)' }[this.vehStatus(v)];
   }
   protected vehName(v: TrackerLive): string {
-    return v.external_name || v.vehicle_plate || v.imei || 'Vehículo';
+    return v.vehicle_plate || v.external_name || v.imei || 'Vehículo';
+  }
+  /** Título "unidad de ruta": R-21 · Vendedor (o placa/nombre si no hay ruta). */
+  protected vehTitle(v: TrackerLive): string {
+    const parts: string[] = [];
+    if (v.route_number != null) parts.push(`R-${v.route_number}`);
+    parts.push(v.vendor_name || this.vehName(v));
+    return parts.join(' · ');
   }
   protected vehAge(v: TrackerLive): string {
     if (!v.last_seen_at) return 'sin señal';
