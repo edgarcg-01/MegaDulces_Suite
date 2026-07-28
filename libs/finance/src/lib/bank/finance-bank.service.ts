@@ -166,6 +166,54 @@ export class FinanceBankService {
   }
 
   /**
+   * Catálogo de cuentas contables de banco en ContPAQi (102xxx) para el selector de enlace
+   * manual. Marca `taken` la que ya está enlazada a alguna cuenta y por quién. GESTIONAR.
+   */
+  async contpaqiBankAccounts() {
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      const cpq = await trx('analytics.contpaqi_bank_movements')
+        .where('tenant_id', tenantId)
+        .select('cuenta', 'cuenta_nombre').count('* as movs')
+        .groupBy('cuenta', 'cuenta_nombre').orderBy('cuenta_nombre');
+      const links = await trx('finance.bank_accounts').whereNotNull('contpaqi_cuenta')
+        .select('bank', 'account_label', 'contpaqi_cuenta');
+      const takenBy = new Map(links.map((l: any) => [l.contpaqi_cuenta, `${l.bank} ${l.account_label}`]));
+      return cpq.map((c: any) => ({
+        cuenta: c.cuenta, cuenta_nombre: String(c.cuenta_nombre).trim(), movs: Number(c.movs),
+        taken: takenBy.has(c.cuenta), taken_by: takenBy.get(c.cuenta) ?? null,
+      }));
+    });
+  }
+
+  /**
+   * Enlace manual de una cuenta de banco a una cuenta contable ContPAQi (cuando el auto-match
+   * no la casa por distinta convención de número, p.ej. Santander 1604 ↔ CH 50730160). Pasar
+   * `contpaqi_cuenta=null` desenlaza. GESTIONAR.
+   */
+  async manualLinkContpaqi(bankAccountId: string, contpaqiCuenta: string | null) {
+    if (!bankAccountId) throw new BadRequestException('bank_account_id requerido');
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      const acct = await trx('finance.bank_accounts').where('id', bankAccountId).first();
+      if (!acct) throw new BadRequestException('cuenta de banco no encontrada');
+      let nombre: string | null = null;
+      if (contpaqiCuenta) {
+        const row = await trx('analytics.contpaqi_bank_movements')
+          .where('tenant_id', tenantId).andWhere('cuenta', contpaqiCuenta)
+          .select('cuenta_nombre').first();
+        if (!row) throw new BadRequestException(`cuenta ContPAQi ${contpaqiCuenta} no existe`);
+        nombre = String(row.cuenta_nombre).trim();
+      }
+      await trx('finance.bank_accounts').where('id', bankAccountId).update({
+        contpaqi_cuenta: contpaqiCuenta, contpaqi_cuenta_nombre: nombre, updated_at: trx.fn.now(),
+      });
+      this.logger.log(`ContPAQi manual link: ${acct.bank} ${acct.account_label} -> ${contpaqiCuenta ?? 'NULL'}`);
+      return { bank_account_id: bankAccountId, contpaqi_cuenta: contpaqiCuenta, contpaqi_cuenta_nombre: nombre };
+    });
+  }
+
+  /**
    * Comparación por cuenta: el estado de cuenta del periodo (Excel/finance) vs los LIBROS de
    * ContPAQi (analytics.contpaqi_bank_movements) — la 3ª columna de verdad (contabilidad, no
    * proxy). Ancla en todas las cuentas; Excel = 0 si no hay estado de cuenta. Requiere linkContpaqi.
@@ -192,7 +240,7 @@ export class FinanceBankService {
         const exIn = n(st?.total_in), exOut = n(st?.total_out);
         const cpIn = c ? n(c.dep) : 0, cpOut = c ? n(c.ret) : 0;
         return {
-          bank: a.bank, account_label: a.account_label, alias: a.alias, kind: a.kind,
+          id: a.id, bank: a.bank, account_label: a.account_label, alias: a.alias, kind: a.kind,
           contpaqi_cuenta: a.contpaqi_cuenta, contpaqi_cuenta_nombre: a.contpaqi_cuenta_nombre, linked: !!a.contpaqi_cuenta,
           excel_in: exIn, excel_out: exOut, contpaqi_in: cpIn, contpaqi_out: cpOut,
           delta_in: r2(exIn - cpIn), delta_out: r2(exOut - cpOut), contpaqi_movs: c ? Number(c.movs) : 0,

@@ -16,6 +16,7 @@ export const CONTABILIDAD_TABS: PageTab[] = [
   { label: 'Descarga CFDI', route: '/contabilidad/descarga', icon: 'pi pi-cloud-download', permission: Permission.FISCAL_DESCARGA_VER },
   { label: 'Materialidad', route: '/contabilidad/materialidad', icon: 'pi pi-folder-open', permission: Permission.FISCAL_LISTAS_VER },
   { label: 'Contabilidad e.', route: '/contabilidad/contabilidad', icon: 'pi pi-book', permission: Permission.FISCAL_CONTAB_VER },
+  { label: 'ContPAQi', route: '/contabilidad/contpaqi', icon: 'pi pi-database', permission: Permission.FISCAL_CONTAB_VER },
   { label: 'Provisionales', route: '/contabilidad/impuestos', icon: 'pi pi-calculator', permission: Permission.FISCAL_DIOT_VER },
   { label: 'e.firma', route: '/contabilidad/credenciales', icon: 'pi pi-key', permission: Permission.FISCAL_CREDENCIALES_GESTIONAR },
 ];

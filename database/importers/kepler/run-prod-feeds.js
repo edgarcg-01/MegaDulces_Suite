@@ -66,6 +66,7 @@ const STEPS = {
     path.join(K, 'import-sales-by-route-monthly.js'), // RR.2 venta mensual x RUTA (serie c63; upsert acumulativo)
     path.join(K, 'import-route-push-monthly.js'), // RR — venta en ruta del PUSH (.249 mart.ventas ruta_NN) → WIN-<NN> (PH migró de .mdb al push, jul→)
     path.join(K, 'import-route-push-lines.js'), // RR — line-level del push (.249) → route_push_lines (drill-down del reporte; incremental)
+    path.join(K, 'import-kepler-vecinal-routes.js'), // RR — rutas VECINALES de Kepler (md_01, kdm1.c12=1V0NN) separadas de mostrador → WIN-<code> + route_push_lines
     path.join(K, 'import-transfers-monthly.js'), // T — traspasos NO-venta (salida CEDIS U/D/13 + consolidación UD06 + recepción UA50; upsert acumulativo)
     path.join(K, 'import-expenses-polizas.js'), // GX — egresos contables (pólizas gastos 6xx + compras 5xx) desde kdc2YYMM
     path.join(K, 'import-ap-findings.js'),      // GX v3 — auxiliar de proveedores (201) + hallazgos (iva_bug/203/107)

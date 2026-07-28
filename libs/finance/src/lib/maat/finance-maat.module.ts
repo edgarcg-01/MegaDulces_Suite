@@ -27,6 +27,7 @@ import { MaatDiscoveryService } from './maat-discovery.service';
 import { MaatDiscoveryController } from './maat-discovery.controller';
 import { MaatReconTasksService } from './maat-recon-tasks.service';
 import { MaatReconTasksController } from './maat-recon-tasks.controller';
+import { ContabilidadContpaqiController } from './contabilidad-contpaqi.controller';
 import { FinanceBankModule } from '../bank/finance-bank.module';
 
 /**
@@ -39,7 +40,7 @@ import { FinanceBankModule } from '../bank/finance-bank.module';
  */
 @Module({
   imports: [FinanceBankModule],
-  controllers: [MaatKnowledgeController, MaatChatController, MaatFindingsController, MaatActionsController, MaatLearningController, MaatDiscoveryController, MaatReconTasksController],
+  controllers: [MaatKnowledgeController, MaatChatController, MaatFindingsController, MaatActionsController, MaatLearningController, MaatDiscoveryController, MaatReconTasksController, ContabilidadContpaqiController],
   providers: [
     MaatKnowledgeService, MaatToolsService, MaatChatService, MaatBriefingService,
     MaatDetectorService, MaatAnomalyService, MaatCoverageService, MaatDataQualityService, MaatEntityService,

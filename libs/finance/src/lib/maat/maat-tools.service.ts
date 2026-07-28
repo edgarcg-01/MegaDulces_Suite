@@ -662,7 +662,7 @@ Tienes acceso a: **balanza de comprobación completa** (familias 1-9, cargos/abo
   // ── CP.1 (Fase CP, ADR-040) — Balanza de los libros fiscales ContPAQi ──
   // analytics.contpaqi_ledger_monthly = balanza CONSOLIDADA de la entidad (sin sucursal;
   // la contabilidad casi no segmenta). Verdad fiscal; sin RLS → tenant explícito.
-  private async contpaqiBalanza(q: any) {
+  async contpaqiBalanza(q: any) {
     const DIMS: Record<string, { group: string; label: string }> = {
       cuenta: { group: 'l.cuenta, l.cuenta_nombre', label: "l.cuenta || ' ' || COALESCE(l.cuenta_nombre,'')" },
       familia: { group: 'l.familia', label: "CASE l.familia WHEN '1' THEN '1 Activo' WHEN '2' THEN '2 Pasivo' WHEN '3' THEN '3 Capital' WHEN '4' THEN '4 Ingresos' WHEN '5' THEN '5 Costos/Gastos' WHEN '6' THEN '6 Otros' ELSE l.familia END" },
@@ -698,7 +698,7 @@ Tienes acceso a: **balanza de comprobación completa** (familias 1-9, cargos/abo
   // ── CP.2 (Fase CP, ADR-040) — Auxiliar bancario por banco (libros ContPAQi) ──
   // analytics.contpaqi_bank_movements = movimientos de póliza sobre cuentas 102xxx (por banco).
   // Llena el hueco "los 17 bancos comparten el 102" de Kepler. Sin RLS → tenant explícito.
-  private async contpaqiBanco(q: any) {
+  async contpaqiBanco(q: any) {
     const { from_mes, to_mes } = this.mesRange(q);
     const limit = Math.min(200, Math.max(1, Number(q.limit) || 40));
     const byMes = q.group_by === 'mes';
@@ -729,7 +729,7 @@ Tienes acceso a: **balanza de comprobación completa** (familias 1-9, cargos/abo
   // ── CP.3 (Fase CP, ADR-040) — Riesgo fiscal: proveedores ContPAQi vs lista negra SAT ──
   // Cruza analytics.contpaqi_suppliers.rfc contra fiscal.sat_list_rfcs (69/69B). Ambas sin RLS
   // por-tenant (sat_list_rfcs es catálogo global); app_runtime tiene SELECT en las dos.
-  private async contpaqiEfos(q: any) {
+  async contpaqiEfos(q: any) {
     const limit = Math.min(200, Math.max(1, Number(q.limit) || 50));
     const tenantId = this.tenantId();
     return this.tk.run(async (trx) => {
@@ -759,7 +759,7 @@ Tienes acceso a: **balanza de comprobación completa** (familias 1-9, cargos/abo
   // El gap es típicamente estructural (IVA / alcance de la entidad fiscal / timing) → el
   // `nota` obliga a narrar sin gritar fraude. Solo ingresos (fam4 es limpio en ambos; los
   // egresos NO se comparan aquí porque las familias 5/6/7 no mapean 1:1 entre los dos sistemas).
-  private async librosVsOperacion(q: any) {
+  async librosVsOperacion(q: any) {
     const { from_mes, to_mes } = this.mesRange(q);
     const suc = q.sucursal || '00';
     const tenantId = this.tenantId();

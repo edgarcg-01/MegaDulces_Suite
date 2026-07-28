@@ -323,6 +323,11 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.FISCAL_CONTAB_VER)]
       },
       {
+        path: 'contpaqi',
+        loadComponent: () => import('./modules/contabilidad/pages/contabilidad-contpaqi.component').then(m => m.ContabilidadContpaqiComponent),
+        canActivate: [permissionGuard(Permission.FISCAL_CONTAB_VER)]
+      },
+      {
         path: 'impuestos',
         loadComponent: () => import('./modules/contabilidad/pages/contabilidad-impuestos.component').then(m => m.ContabilidadImpuestosComponent),
         canActivate: [permissionGuard(Permission.FISCAL_DIOT_VER)]
