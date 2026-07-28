@@ -594,6 +594,22 @@ export interface FleetAlertRow {
   last_seen_at: string;
 }
 
+export interface RouteAdherence {
+  vehicle_id: string;
+  day: string;
+  route_ids: string[];
+  evaluable: boolean;
+  planned_count: number;
+  planned_with_coords: number;
+  visited_count: number;
+  skipped_count: number;
+  off_route_count: number;
+  coverage_pct: number | null;
+  planned: Array<{ customer_id: string; code: string | null; name: string | null; visit_sequence: number | null; has_coords: boolean; visited: boolean }>;
+  skipped: Array<{ customer_id: string; code: string | null; name: string | null }>;
+  off_route_stops: Array<{ arrived_at: string; minutes: number; lat: number; lng: number }>;
+}
+
 export interface TrackerHistoryPoint {
   captured_at: string;
   lat: number;
@@ -1004,6 +1020,10 @@ export class LogisticaService {
   }
   trackingBootstrapVehicles(): Observable<{ created: number; linked: number; skipped: number }> {
     return this.http.post<{ created: number; linked: number; skipped: number }>(`${this.base}/tracking/bootstrap-vehicles`, {});
+  }
+  trackAdherence(vehicleId: string, date: string): Observable<RouteAdherence> {
+    let params = new HttpParams().set('vehicle_id', vehicleId).set('date', date);
+    return this.http.get<RouteAdherence>(`${this.base}/tracking/adherence`, { params });
   }
   fleetAlerts(): Observable<FleetAlertRow[]> {
     return this.http.get<FleetAlertRow[]>(`${this.base}/tracking/alerts`);

@@ -18,6 +18,7 @@ import {
   TrackerLive,
   TrackerStatus,
   FleetAlertRow,
+  RouteAdherence,
   Vehicle,
 } from '../logistica.service';
 
@@ -149,6 +150,29 @@ const STATUS_META: Record<TrackerStatus, { label: string; sev: Sev; color: strin
                     [icon]="loadingTrail() ? 'pi pi-spin pi-spinner' : 'pi pi-directions'"
                     [label]="showTrail() ? 'Ocultar recorrido' : 'Ver recorrido de hoy'"
                     (click)="toggleTrail(s)"></button>
+            <button pButton size="small" severity="secondary" [text]="true"
+                    [icon]="loadingAdh() ? 'pi pi-spin pi-spinner' : 'pi pi-check-circle'"
+                    label="Cumplimiento" (click)="loadAdherence(s)"></button>
+          </div>
+
+          <!-- LTV.1 Cumplimiento de ruta -->
+          <div class="rk-adh" *ngIf="adherence() as adh">
+            <div *ngIf="!adh.evaluable" class="rk-adh-na">
+              <i class="pi pi-info-circle" aria-hidden="true"></i>
+              Sin plan evaluable hoy — falta el embarque del día o coordenadas de los clientes de la ruta.
+            </div>
+            <div *ngIf="adh.evaluable">
+              <div class="rk-adh-bar"><span [style.width.%]="adh.coverage_pct ?? 0"></span></div>
+              <div class="rk-adh-head">
+                <b>{{ adh.coverage_pct }}%</b> cumplimiento ·
+                {{ adh.visited_count }}/{{ adh.planned_with_coords }} visitados
+                <span *ngIf="adh.off_route_count"> · {{ adh.off_route_count }} fuera de ruta</span>
+              </div>
+              <div class="rk-adh-skipped" *ngIf="adh.skipped.length">
+                <span class="rk-adh-lbl">Saltados:</span>
+                <span class="comm-code" *ngFor="let sk of adh.skipped">{{ sk.code || sk.name }}</span>
+              </div>
+            </div>
           </div>
         </article>
 
@@ -228,7 +252,15 @@ const STATUS_META: Record<TrackerStatus, { label: string; sev: Sev; color: strin
     .rk-link select { padding:.4rem .5rem; border:1px solid var(--border-color); border-radius:var(--r-md,8px); background:var(--card-bg); color:var(--text-1,var(--c-text-1)); font:inherit; font-size:var(--fs-sm); }
     .rk-link select:focus-visible { outline:2px solid var(--action); outline-offset:1px; }
 
-    .rk-detail-actions { display:flex; gap:.4rem; }
+    .rk-detail-actions { display:flex; gap:.4rem; flex-wrap:wrap; }
+    .rk-adh { margin-top:.6rem; border-top:1px solid var(--c-divider); padding-top:.6rem; font-size:var(--fs-sm); }
+    .rk-adh-na { color:var(--c-text-3); display:flex; gap:.4rem; align-items:flex-start; }
+    .rk-adh-bar { height:6px; border-radius:99px; background:var(--c-surface-2); overflow:hidden; margin-bottom:.4rem; }
+    .rk-adh-bar span { display:block; height:100%; background:var(--ok-fg); transition:width .3s ease-out; }
+    .rk-adh-head { color:var(--c-text-2); }
+    .rk-adh-head b { color:var(--c-text-1); font-variant-numeric:tabular-nums; }
+    .rk-adh-skipped { margin-top:.4rem; display:flex; flex-wrap:wrap; gap:.3rem; align-items:center; }
+    .rk-adh-lbl { color:var(--c-text-3); font-size:var(--fs-micro); text-transform:uppercase; letter-spacing:.06em; }
     .rk-pick { text-align:center; color:var(--c-text-3); padding:2rem 1rem; font-size:var(--fs-sm); }
     .rk-pick i { font-size:1.4rem; display:block; margin-bottom:.5rem; }
 
@@ -254,6 +286,8 @@ export class LogisticaRastreoComponent {
   readonly showTrail = signal(false);
   readonly loadingTrail = signal(false);
   readonly trailPath = signal<{ lat: number; lng: number }[]>([]);
+  readonly adherence = signal<RouteAdherence | null>(null);
+  readonly loadingAdh = signal(false);
   private lastSynced = signal<number>(0);
 
   readonly selected = computed(() => this.units().find((u) => u.id === this.selectedId()) ?? null);
@@ -331,11 +365,22 @@ export class LogisticaRastreoComponent {
     });
   }
 
+  loadAdherence(u: TrackerLive) {
+    if (!u.vehicle_id) { this.adherence.set({ evaluable: false } as RouteAdherence); return; }
+    const day = new Date(Date.now() - 6 * 3600 * 1000).toISOString().slice(0, 10);
+    this.loadingAdh.set(true);
+    this.api.trackAdherence(u.vehicle_id, day).subscribe({
+      next: (r) => { this.adherence.set(r); this.loadingAdh.set(false); },
+      error: () => { this.loadingAdh.set(false); },
+    });
+  }
+
   select(id: string | number | null | undefined) {
     if (id == null) return;
     this.selectedId.set(id);
     this.showTrail.set(false);
     this.trailPath.set([]);
+    this.adherence.set(null);
     const u = this.units().find((x) => x.id === id);
     if (u?.last_lat != null && u.last_lng != null) this.map?.panTo(Number(u.last_lat), Number(u.last_lng));
   }
