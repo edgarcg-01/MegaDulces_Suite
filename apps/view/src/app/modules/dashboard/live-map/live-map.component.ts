@@ -17,6 +17,7 @@ import { SidePeekComponent } from '../../../shared/components/side-peek/side-pee
 import { FieldAlert, WebSocketService } from '../../../core/services/websocket.service';
 import { environment } from '../../../../environments/environment';
 import { LivePosition, MapLiveLayerService } from '../../../core/services/map-live-layer.service';
+import { LogisticaService, TrackerLive } from '../../logistica/logistica.service';
 
 interface StoreGeo { id: string; nombre: string; lat: number; lng: number; }
 interface VendorDayKpis {
@@ -48,6 +49,9 @@ interface VendorDayKpis {
           <span class="chip on">{{ svc.counts().online }} <span class="chip-lbl">en línea</span></span>
           <span class="chip idle">{{ svc.counts().idle }} <span class="chip-lbl">inactivos</span></span>
           <span class="chip stale">{{ svc.counts().stale }} <span class="chip-lbl">sin señal</span></span>
+          @if (vehicles().length) {
+            <span class="chip veh" title="Flota GPS · en movimiento / total"><i class="pi pi-truck" aria-hidden="true"></i> {{ vehicleCounts().moving }}<span class="chip-lbl">/{{ vehicles().length }} flota</span></span>
+          }
           <span class="ws" [class.ok]="ws.connected()" [title]="ws.connected() ? 'WS conectado' : 'WS desconectado'"></span>
           <button class="recenter" (click)="recenter()">Centrar</button>
         </div>
@@ -88,6 +92,20 @@ interface VendorDayKpis {
               @if (selected() === p.user_id) { <span class="watching">observando</span> }
             </button>
           }
+
+          @if (showFleet() && filteredVehicles().length) {
+            <div class="lm-sub-h"><i class="pi pi-truck" aria-hidden="true"></i> Flota GPS <span>({{ filteredVehicles().length }})</span></div>
+            @for (v of filteredVehicles(); track v.id) {
+              <button class="row" [class.sel]="selVeh() === v.id" (click)="focusVehicle(v)">
+                <span class="dot" [style.background]="vehColor(v)"></span>
+                <span class="who">
+                  <span class="name">{{ vehName(v) }}</span>
+                  <span class="meta">{{ vehStatusLabel(v) }} · {{ (v.last_speed_kmh || 0) | number:'1.0-0' }} km/h · {{ vehAge(v) }}</span>
+                </span>
+                @if (selVeh() === v.id) { <span class="watching">observando</span> }
+              </button>
+            }
+          }
         </aside>
         <div class="lm-map-col">
           <div class="lm-legend">
@@ -125,6 +143,25 @@ interface VendorDayKpis {
         </a>
       }
     </app-side-peek>
+
+    <app-side-peek [open]="!!selVeh()" [title]="selVehPos()?.external_name || selVehPos()?.vehicle_plate || 'Vehículo'" [subtitle]="selVehSub()" (openChange)="onVehPeek($event)">
+      @if (selVehPos(); as v) {
+        <div class="sp-status" [class]="'st-veh-' + vehStatus(v)">{{ vehStatusLabel(v) }}</div>
+        <dl class="sp-grid">
+          <div><dt>Placa</dt><dd>{{ v.vehicle_plate || '—' }}</dd></div>
+          <div><dt>Ruta</dt><dd>{{ v.route_code || '—' }}</dd></div>
+          <div><dt>Velocidad</dt><dd>{{ (v.last_speed_kmh || 0) | number:'1.0-0' }} km/h</dd></div>
+          <div><dt>Última señal</dt><dd>{{ vehAge(v) }}</dd></div>
+        </dl>
+        <dl class="sp-grid">
+          <div><dt>Ignición</dt><dd>{{ v.last_ignition == null ? '—' : (v.last_ignition ? 'Encendida' : 'Apagada') }}</dd></div>
+          <div><dt>GPS</dt><dd>{{ v.protocol || 'MagniTracking' }}</dd></div>
+        </dl>
+        <a class="sp-action" routerLink="/logistica/rastreo">
+          <i class="pi pi-compass" aria-hidden="true"></i>&nbsp;Ver en Rastreo GPS
+        </a>
+      }
+    </app-side-peek>
   `,
   styles: [`
     :host { display:block; }
@@ -138,6 +175,8 @@ interface VendorDayKpis {
     .chip.on { background:var(--ok-soft-bg); color:var(--ok-soft-fg); }
     .chip.idle { background:var(--warn-soft-bg); color:var(--warn-soft-fg); }
     .chip.stale { background:var(--neutral-100); color:var(--text-muted); }
+    .chip.veh { background:var(--info-soft-bg); color:var(--info-soft-fg); display:inline-flex; align-items:center; gap:.25rem; }
+    .chip.veh .pi { font-size:.72rem; }
     .ws { width:9px; height:9px; border-radius:50%; background:var(--bad-fg); flex:0 0 auto; }
     .ws.ok { background:var(--ok-fg); }
     .recenter { font-size:.72rem; padding:var(--sp-1) var(--sp-2); border:1px solid var(--border-color); border-radius:var(--r-sm); background:var(--card-bg); color:var(--text-main); cursor:pointer; }
@@ -168,11 +207,17 @@ interface VendorDayKpis {
     .name { font-size:.84rem; font-weight:600; color:var(--text-main); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
     .meta { font-size:.72rem; color:var(--text-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
     .watching { font-size:.65rem; font-weight:700; color:var(--action); text-transform:uppercase; }
+    .lm-sub-h { display:flex; align-items:center; gap:.35rem; margin:var(--sp-3) 0 var(--sp-1); padding:0 var(--sp-2); font:700 .68rem/1 'Hanken Grotesk',sans-serif; letter-spacing:.04em; text-transform:uppercase; color:var(--text-muted); }
+    .lm-sub-h .pi { font-size:.7rem; }
+    .lm-sub-h span { font-weight:600; }
     /* SidePeek */
     .sp-status { display:inline-block; font:700 .8rem 'Hanken Grotesk',sans-serif; padding:var(--sp-1) var(--sp-3); border-radius:999px; margin-bottom:var(--sp-4); }
     .sp-status.st-moving { background:var(--info-soft-bg); color:var(--info-soft-fg); }
     .sp-status.st-instore { background:var(--ok-soft-bg); color:var(--ok-soft-fg); }
     .sp-status.st-idle { background:var(--neutral-100); color:var(--text-muted); }
+    .sp-status.st-veh-moving { background:var(--ok-soft-bg); color:var(--ok-soft-fg); }
+    .sp-status.st-veh-stopped { background:var(--warn-soft-bg); color:var(--warn-soft-fg); }
+    .sp-status.st-veh-offline { background:var(--neutral-100); color:var(--text-muted); }
     .sp-grid { display:grid; grid-template-columns:1fr 1fr; gap:var(--sp-3); margin:0 0 var(--sp-4); }
     .sp-grid dt { font-size:.7rem; color:var(--text-muted); }
     .sp-grid dd { margin:.1rem 0 0; font:700 1rem 'Hanken Grotesk',sans-serif; color:var(--text-main); font-variant-numeric:tabular-nums; }
@@ -196,9 +241,11 @@ export class LiveMapComponent implements AfterViewInit, OnDestroy {
   protected svc = inject(MapLiveLayerService);
   protected ws = inject(WebSocketService);
   private http = inject(HttpClient);
+  private logi = inject(LogisticaService);
   readonly today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Mexico_City' });
 
   private watchTimer: any = null;
+  private fleetTimer: any = null;
   private onResize = () => this.map?.invalidate();
   private alertSub: { unsubscribe(): void } | null = null;
   protected selected = signal<string | null>(null);
@@ -220,6 +267,10 @@ export class LiveMapComponent implements AfterViewInit, OnDestroy {
   private stores = signal<StoreGeo[]>([]);
   protected showStores = signal(false);
   protected showPersonal = signal(true);
+  // Flota GPS (MagniTracking) — se refresca por polling.
+  protected vehicles = signal<TrackerLive[]>([]);
+  protected showFleet = signal(true);
+  protected selVeh = signal<string | null>(null);
   // Trail del seleccionado (recorrido de hoy).
   private trail = signal<{ points: { lat: number; lng: number }[]; color?: string }[]>([]);
   private trailStops = signal<MapMarker[]>([]);
@@ -241,8 +292,48 @@ export class LiveMapComponent implements AfterViewInit, OnDestroy {
       .sort((a, b) => order[this.svc.freshness(a)] - order[this.svc.freshness(b)] || a.username.localeCompare(b.username));
   });
 
+  // ── Flota GPS ──────────────────────────────────────────────────────────────
+  protected vehicleCounts = computed(() => {
+    let moving = 0, stopped = 0, offline = 0;
+    for (const v of this.vehicles()) {
+      const s = this.vehStatus(v);
+      if (s === 'moving') moving++; else if (s === 'stopped') stopped++; else offline++;
+    }
+    return { moving, stopped, offline };
+  });
+
+  protected filteredVehicles = computed(() => {
+    const q = this.search().trim().toLowerCase();
+    const order = { moving: 0, stopped: 1, offline: 2 };
+    return [...this.vehicles()]
+      .filter((v) => v.last_lat != null && v.last_lng != null)
+      .filter((v) => !q || this.vehName(v).toLowerCase().includes(q) || (v.route_code || '').toLowerCase().includes(q))
+      .sort((a, b) => order[this.vehStatus(a)] - order[this.vehStatus(b)] || this.vehName(a).localeCompare(this.vehName(b)));
+  });
+
+  protected selVehPos = computed(() => this.vehicles().find((v) => v.id === this.selVeh()) || null);
+  protected selVehSub = computed(() => {
+    const v = this.selVehPos();
+    return v ? `${this.vehStatusLabel(v)} · ${this.vehAge(v)}` : null;
+  });
+
+  private vehicleMarkers = computed<MapMarker[]>(() =>
+    this.vehicles()
+      .filter((v) => v.last_lat != null && v.last_lng != null)
+      .map((v) => ({
+        id: 'v:' + v.id,
+        lat: Number(v.last_lat),
+        lng: Number(v.last_lng),
+        kind: 'truck' as const,
+        color: this.vehColor(v),
+        ring: this.vehStatus(v) === 'moving',
+        title: `${this.vehName(v)} · ${this.vehStatusLabel(v)} · ${Math.round(Number(v.last_speed_kmh) || 0)} km/h`,
+      })),
+  );
+
   protected legend = computed<LegendLayer[]>(() => [
     { id: 'personal', label: 'Personal', color: 'var(--ok-fg, #16a34a)', count: this.svc.counts().total, visible: this.showPersonal() },
+    { id: 'fleet', label: 'Flota GPS', color: 'var(--info-soft-fg, #2563eb)', count: this.vehicles().length, visible: this.showFleet() },
     { id: 'stores', label: 'Tiendas', color: 'var(--neutral-400, #9ca3af)', count: this.stores().length, visible: this.showStores() },
   ]);
 
@@ -255,6 +346,7 @@ export class LiveMapComponent implements AfterViewInit, OnDestroy {
     if (this.showStores()) layers.push({ id: 'stores', visible: true, markers: this.storeMarkers() });
     if (this.selected() && (this.trail().length || this.trailStops().length))
       layers.push({ id: 'trail', visible: true, tracks: this.trail(), markers: this.trailStops() });
+    if (this.showFleet()) layers.push({ id: 'fleet', persistent: true, visible: true, markers: this.vehicleMarkers() });
     if (this.showPersonal()) layers.push({ id: 'live', persistent: true, visible: true, markers: this.svc.markers() });
     return layers;
   });
@@ -263,6 +355,8 @@ export class LiveMapComponent implements AfterViewInit, OnDestroy {
     window.addEventListener('resize', this.onResize);
     void this.svc.start();
     this.loadStores();
+    this.loadFleet();
+    this.fleetTimer = setInterval(() => this.loadFleet(), 30_000);
     // Alertas en vivo: upsert por (usuario, tipo); el TTL las purga vía activeAlerts().
     this.alertSub = this.ws.fieldAlert.subscribe((a) => {
       const key = (x: FieldAlert) => `${x.userId}:${x.type}`;
@@ -322,6 +416,12 @@ export class LiveMapComponent implements AfterViewInit, OnDestroy {
   }
 
   protected onMarkerClick(m: MapMarker): void {
+    if (m.kind === 'truck') {
+      const id = String(m.id).replace(/^v:/, '');
+      const v = this.vehicles().find((x) => x.id === id);
+      if (v) this.focusVehicle(v);
+      return;
+    }
     if (m.kind !== 'user') return; // tiendas/paradas no abren detalle
     const p = this.svc.positions().find((x) => x.user_id === m.id);
     if (p) this.focus(p);
@@ -330,10 +430,12 @@ export class LiveMapComponent implements AfterViewInit, OnDestroy {
   protected onToggle(id: string): void {
     if (id === 'stores') this.showStores.update((v) => !v);
     else if (id === 'personal') this.showPersonal.update((v) => !v);
+    else if (id === 'fleet') this.showFleet.update((v) => !v);
   }
 
   protected focus(p: LivePosition): void {
     const id = this.selected() === p.user_id ? null : p.user_id;
+    this.selVeh.set(null);
     this.selected.set(id);
     this.svc.watch(id ? [id] : []);
     if (this.watchTimer) { clearInterval(this.watchTimer); this.watchTimer = null; }
@@ -365,6 +467,52 @@ export class LiveMapComponent implements AfterViewInit, OnDestroy {
       next: (r) => this.stores.set(r?.stores || []),
       error: () => this.stores.set([]),
     });
+  }
+
+  private loadFleet(): void {
+    this.logi.liveTracking().subscribe({
+      next: (rows) => this.vehicles.set(rows || []),
+      error: () => { /* sin flota / endpoint no disponible → deja la capa vacía */ },
+    });
+  }
+
+  /** Estado del vehículo derivado del último status del tracker. */
+  protected vehStatus(v: TrackerLive): 'moving' | 'stopped' | 'offline' {
+    if (v.last_status === 'moving') return 'moving';
+    if (v.last_status === 'stopped') return 'stopped';
+    return 'offline';
+  }
+  protected vehStatusLabel(v: TrackerLive): string {
+    return { moving: 'En movimiento', stopped: 'Detenido', offline: 'Sin señal' }[this.vehStatus(v)];
+  }
+  protected vehColor(v: TrackerLive): string {
+    return { moving: 'var(--ok-fg)', stopped: 'var(--warn-fg)', offline: 'var(--neutral-400)' }[this.vehStatus(v)];
+  }
+  protected vehName(v: TrackerLive): string {
+    return v.external_name || v.vehicle_plate || v.imei || 'Vehículo';
+  }
+  protected vehAge(v: TrackerLive): string {
+    if (!v.last_seen_at) return 'sin señal';
+    const mins = Math.floor((Date.now() - new Date(v.last_seen_at).getTime()) / 60000);
+    if (mins < 1) return 'ahora';
+    if (mins < 60) return `hace ${mins} min`;
+    const h = Math.floor(mins / 60);
+    return h < 24 ? `hace ${h} h` : `hace ${Math.floor(h / 24)} d`;
+  }
+
+  protected focusVehicle(v: TrackerLive): void {
+    const id = this.selVeh() === v.id ? null : v.id;
+    // Cierra el detalle de persona (un solo SidePeek a la vez).
+    if (this.selected()) { this.selected.set(null); this.svc.watch([]); this.clearTrail(); }
+    this.selVeh.set(id);
+    if (id && v.last_lat != null && v.last_lng != null) {
+      if (this.mobileTab() !== 'map') { this.setTab('map'); setTimeout(() => this.map?.panTo(Number(v.last_lat), Number(v.last_lng)), 0); }
+      else this.map?.panTo(Number(v.last_lat), Number(v.last_lng));
+    }
+  }
+
+  protected onVehPeek(open: boolean): void {
+    if (!open) this.selVeh.set(null);
   }
 
   private loadTrail(userId: string): void {
@@ -407,6 +555,7 @@ export class LiveMapComponent implements AfterViewInit, OnDestroy {
   ngOnDestroy(): void {
     window.removeEventListener('resize', this.onResize);
     if (this.watchTimer) { clearInterval(this.watchTimer); this.watchTimer = null; }
+    if (this.fleetTimer) { clearInterval(this.fleetTimer); this.fleetTimer = null; }
     this.alertSub?.unsubscribe();
     this.svc.watch([]);
     this.svc.stop();
