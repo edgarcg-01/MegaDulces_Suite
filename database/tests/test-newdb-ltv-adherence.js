@@ -43,12 +43,12 @@ const assert = (c, m) => { assertions++; if (!c) throw new Error('ASSERT FAIL: '
       `insert into logistics.shipments (tenant_id,folio,shipment_date,vehicle_id,route_id) values (public.current_tenant_id(),$1,$2,$3,$4)`,
       [`LTVADH-${DAY}`, DAY, veh.id, route.id]);
 
-    // paradas: A visitado + una fuera de ruta (sin cliente)
-    const mkStop = async (min, lat, lng, matched) => client.query(
+    // paradas: A visitado + una fuera de ruta (sin cliente) — arrived_at distinto
+    const mkStop = async (hour, mins, lat, lng, matched) => client.query(
       `insert into logistics.vehicle_stops (tenant_id,vehicle_id,arrived_at,left_at,minutes,lat,lng,matched_customer_id,is_customer) values (public.current_tenant_id(),$1,$2,$3,$4,$5,$6,$7,$8)`,
-      [veh.id, new Date(`${DAY}T15:00:00-06:00`).toISOString(), new Date(`${DAY}T15:${min}:00-06:00`).toISOString(), min, lat, lng, matched, !!matched]);
-    await mkStop(10, 19.7, -101.2, cA.id);
-    await mkStop(20, 20.5, -102.5, null); // fuera de ruta
+      [veh.id, new Date(`${DAY}T${hour}:00:00-06:00`).toISOString(), new Date(`${DAY}T${hour}:${String(mins).padStart(2, '0')}:00-06:00`).toISOString(), mins, lat, lng, matched, !!matched]);
+    await mkStop(15, 10, 19.7, -101.2, cA.id);
+    await mkStop(16, 20, 20.5, -102.5, null); // fuera de ruta
 
     // ── replica de RouteAdherenceService.forVehicleDay ──
     const routeIds = (await q("select distinct route_id from logistics.shipments where vehicle_id=$1 and shipment_date=$2 and route_id is not null", [veh.id, DAY])).map(r => r.route_id);
