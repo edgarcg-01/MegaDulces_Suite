@@ -584,7 +584,12 @@ export class CommercialReplenishmentService {
       // La DEMANDA manda el reorden: objetivo = venta_diaria_red × cobertura; sugerido = objetivo −
       // existencia − tránsito. Si la existencia ya cubre el horizonte (sobrestock) → 0: no re-compra
       // lo que no rota (antes, anclado en el ritmo de compra, sobre-sugería lo sobrestockeado).
-      const costE = `COALESCE(pl.cost, pr.cost_with_tax, 0)`; // costo real de compra; fallback a catálogo si nunca se compró
+      const costE = `COALESCE(pl.cost, pr.cost_with_tax, 0)`; // costo real de compra POR UNIDAD DE STOCK (pieza normal / cubeta granel); fallback a catálogo si nunca se compró
+      // RA-PRO.28.4 — el sugerido va en CAJAS; costE es por unidad de stock (pieza/cubeta) → el
+      // costo por CAJA = costE × BF (BF = unidades de stock por caja). Valorizar cajas × costE
+      // subvaluaba el pedido ~BF× (ej. 43 cj de pasta a $30/pieza en vez de $423/caja). El frontend
+      // ya asume unit_cost por caja; supplierOrder lo usa para el padding de mínimo.
+      const costCaja = `(${costE} * ${BF})`;
       // RA-PRO.27 — FILL RATE PERSONALIZADO. Infla el sugerido para compensar surtido incompleto.
       // Precedencia: override manual del proveedor → historia SKU×proveedor → historia proveedor →
       // 100% (sin historia). El fill rate se toma de OCs recibidas/parciales en la ventana (fwin);
@@ -712,7 +717,7 @@ export class CommercialReplenishmentService {
                ON tr.product_id = pr.id
         WHERE ${where}`;
 
-      const totalRow = (await trx.raw(`SELECT count(*)::int c, count(*) FILTER (WHERE ${sug} > 0)::int needed, round(SUM(${sug} * ${costE})::numeric,2) total_valor, round(SUM(COALESCE(sv.rev30,0))::numeric,2) total_revenue ${from}`, binds)).rows[0];
+      const totalRow = (await trx.raw(`SELECT count(*)::int c, count(*) FILTER (WHERE ${sug} > 0)::int needed, round(SUM(${sug} * ${costCaja})::numeric,2) total_valor, round(SUM(COALESCE(sv.rev30,0))::numeric,2) total_revenue ${from}`, binds)).rows[0];
 
       // RA-PRO.18 — ranking (#) y ABC de RED se calculan como WINDOWS sobre TODO el universo
       // filtrado (no la página): rank por venta $ 30d; ABC = Pareto por venta $ (A≤80% acum,
@@ -742,7 +747,7 @@ export class CommercialReplenishmentService {
                  round((${stockPz} / ${BF})::numeric, 1) AS on_hand_pieces,
                  round((${stockPz} / ${BF})::numeric, 2) AS on_hand_units,
                  ${transit} AS in_transit_units,
-                 round(${costE}::numeric, 4) AS unit_cost,
+                 round((${costCaja})::numeric, 4) AS unit_cost,
                  round((${sellDayPz} * ${covEff} / (${SUF} * ${BF}))::numeric, 2) AS target_units,
                  round(${sug}::numeric, 2) AS suggested_units,
                  round(${needBase}::numeric, 2) AS base_units,
@@ -753,7 +758,7 @@ export class CommercialReplenishmentService {
                  round((${safetyEff})::numeric, 0) AS safety_pct_eff,
                  ${safetySource} AS safety_source,
                  round((${sug} * ${BF})::numeric, 0) AS suggested_pieces,
-                 round((${sug} * ${costE})::numeric, 2) AS suggested_cost,
+                 round((${sug} * ${costCaja})::numeric, 2) AS suggested_cost,
                  round((${sellDayPz} / (${SUF} * ${BF}))::numeric, 2) AS sell_daily_cajas,
                  round((COALESCE(sv.s30,0) / (${SUF} * ${BF}))::numeric, 0) AS sell_month_cajas,
                  round(COALESCE(sv.rev30,0)::numeric, 2) AS sell_month_mxn,
@@ -824,7 +829,7 @@ export class CommercialReplenishmentService {
           SELECT p.id AS product_id,
                  ${suf} AS suf,
                  ${bf} AS uxc,
-                 COALESCE(pv.cost, p.cost_with_tax, 0) AS caja_cost
+                 COALESCE(pv.cost, p.cost_with_tax, 0) * (${bf}) AS caja_cost -- RA-PRO.28.4: costo POR CAJA (costE por unidad de stock × BF)
             FROM catalog.products p
             LEFT JOIN (SELECT tenant_id, product_id, max(box_size) bs FROM commercial.product_label_prices GROUP BY tenant_id, product_id) l
                    ON l.tenant_id = :t AND l.product_id = p.id
@@ -948,7 +953,7 @@ export class CommercialReplenishmentService {
           SELECT p.id AS product_id,
                  ${suf} AS suf,
                  ${bf} AS uxc,
-                 COALESCE(pv.cost, p.cost_with_tax, 0) AS caja_cost
+                 COALESCE(pv.cost, p.cost_with_tax, 0) * (${bf}) AS caja_cost -- RA-PRO.28.4: costo POR CAJA (costE por unidad de stock × BF)
             FROM catalog.products p
             LEFT JOIN (SELECT tenant_id, product_id, max(box_size) bs FROM commercial.product_label_prices GROUP BY tenant_id, product_id) l ON l.tenant_id = :t AND l.product_id = p.id
             LEFT JOIN (SELECT product_id, sum(qty_90d * real_unit_cost) / NULLIF(sum(qty_90d),0) AS cost FROM analytics.purchase_velocity WHERE tenant_id = :t GROUP BY product_id) pv ON pv.product_id = p.id
