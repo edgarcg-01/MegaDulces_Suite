@@ -1731,41 +1731,23 @@ export class CommercialReplenishmentService {
   async supplierOrder(supplierId: string) {
     const tenantId = this.tenantCtx.requireTenantId();
     if (!UUID_RX.test(supplierId)) throw new BadRequestException('supplier_id inválido');
-    return this.tk.run(async (trx) => {
-      const sup = await trx('catalog.suppliers').where({ tenant_id: tenantId, id: supplierId })
-        .first('id', 'name', 'cadence_days_override', 'colchon_days', 'min_order_boxes', 'min_order_amount', 'lead_time_days') as any;
-      if (!sup) throw new NotFoundException('Proveedor no encontrado');
-      const oh = this.onHand(); const it = this.inTransit();
-      const leadDefault = Number(sup.lead_time_days) || 7;
-      const cadTarget = `COALESCE(
-        CASE
-          WHEN :cadOv::int IS NOT NULL THEN ceil(COALESCE(ih.avg_daily_units,0) * (:cadOv::int + COALESCE(:colc::int,0)))
-          WHEN rc.cadence_days IS NOT NULL THEN ceil(COALESCE(ih.avg_daily_units,0) * (rc.cadence_days + COALESCE(rc.lead_time_days, ${leadDefault})) + COALESCE(rp.safety_stock,0))
-        END, rp.max_stock)`;
-      const raw = await trx.raw(`
-        SELECT w.code AS warehouse_code, w.id AS warehouse_id, pr.id AS product_id, pr.sku, pr.nombre,
-               ${oh} AS on_hand, COALESCE(ih.avg_daily_units,0) AS avg_daily,
-               -- piezas/caja canónico: factor_sale si >1, si no box_size (etiquetera), si no 1.
-               GREATEST(CASE WHEN pr.factor_sale > 1 THEN pr.factor_sale WHEN lbl.bs > 1 THEN lbl.bs ELSE 1 END, 1) AS uxc,
-               COALESCE(pr.cost_with_tax, pr.cost_base, 0) AS unit_cost,
-               GREATEST(0, ${cadTarget} - ${oh} - ${it}) AS suggested
-          FROM commercial.reorder_policy rp
-          JOIN catalog.products pr ON pr.tenant_id=rp.tenant_id AND pr.id=rp.product_id AND pr.supplier_id=:sid AND pr.activo=true
-          LEFT JOIN (SELECT tenant_id, product_id, max(box_size) bs FROM commercial.product_label_prices GROUP BY tenant_id, product_id) lbl ON lbl.tenant_id=pr.tenant_id AND lbl.product_id=pr.id
-          JOIN commercial.warehouses w ON w.tenant_id=rp.tenant_id AND w.id=rp.warehouse_id AND w.deleted_at IS NULL AND w.kind<>'truck'
-          LEFT JOIN commercial.stock s ON s.tenant_id=rp.tenant_id AND s.warehouse_id=rp.warehouse_id AND s.product_id=rp.product_id
-          LEFT JOIN analytics.inventory_health ih ON ih.tenant_id=rp.tenant_id AND ih.warehouse_id=rp.warehouse_id AND ih.product_id=rp.product_id
-          LEFT JOIN analytics.purchase_in_transit pit ON pit.tenant_id=rp.tenant_id AND pit.warehouse_id=rp.warehouse_id AND pit.product_id=rp.product_id
-          LEFT JOIN commercial.replenishment_channel rc ON rc.tenant_id=rp.tenant_id AND rc.warehouse_id=rp.warehouse_id AND rc.supplier_id=pr.supplier_id
-         WHERE rp.tenant_id=:t AND COALESCE(rc.via,'purchase')='purchase'`,
-        { t: tenantId, sid: supplierId, cadOv: sup.cadence_days_override, colc: sup.colchon_days });
-      const lines = (raw.rows as any[])
-        .map((r) => ({
-          warehouse_code: r.warehouse_code, warehouse_id: r.warehouse_id, product_id: r.product_id, sku: r.sku, nombre: r.nombre,
-          on_hand: Number(r.on_hand), avg_daily: Number(r.avg_daily), uxc: Number(r.uxc) || 1, unit_cost: Number(r.unit_cost) || 0,
-          suggested: Math.round(Number(r.suggested)), final: Math.round(Number(r.suggested)),
-        }))
-        .filter((l) => l.suggested > 0);
+    // RA-PRO.28.2 — "Ver pedido" reutiliza EXACTAMENTE el motor de /compras/pedido
+    // (purchaseSuggestion): demanda limpia + verificación de unidad SUF/BF + fill rate +
+    // costo real de caja. Antes usaba inventory_health.avg_daily_units (unidad contaminada)
+    // y factor_sale sin corregir → inflaba granel y no cuadraba con /pedido. Sobre esas líneas
+    // (grano RED por producto) se aplica el mínimo de compra del proveedor.
+    const sup = await this.tk.run(async (trx) =>
+      trx('catalog.suppliers').where({ tenant_id: tenantId, id: supplierId })
+        .first('id', 'name', 'cadence_days_override', 'colchon_days', 'min_order_boxes', 'min_order_amount', 'lead_time_days')) as any;
+    if (!sup) throw new NotFoundException('Proveedor no encontrado');
+    {
+      const res = await this.purchaseSuggestion({ supplier_id: supplierId, scope: 'needed', pageSize: 100000, export: true });
+      const lines = res.rows.map((r: any) => ({
+        warehouse_code: r.warehouse_code, warehouse_id: r.warehouse_id, product_id: r.product_id, sku: r.sku, nombre: r.nombre,
+        on_hand: Math.round(Number(r.on_hand_units) || 0), avg_daily: Number(r.sell_daily_cajas) || 0,
+        uxc: Number(r.uxc) || 1, unit_cost: Number(r.unit_cost) || 0,
+        suggested: Math.round(Number(r.suggested_units) || 0), final: Math.round(Number(r.suggested_units) || 0),
+      })).filter((l: any) => l.suggested > 0);
 
       const minBoxes = sup.min_order_boxes != null ? Number(sup.min_order_boxes) : null;
       const minAmount = sup.min_order_amount != null ? Number(sup.min_order_amount) : null;
@@ -1795,7 +1777,7 @@ export class CommercialReplenishmentService {
                   suggested_cajas: Math.round(before.cajas * 10) / 10, suggested_amount: Math.round(before.amount * 100) / 100 },
         lines: lines.map((l) => ({ ...l, cajas: l.final, piezas: l.final * l.uxc, line_cost: Math.round(l.final * l.unit_cost * 100) / 100 })),
       };
-    });
+    }
   }
 
   /**
