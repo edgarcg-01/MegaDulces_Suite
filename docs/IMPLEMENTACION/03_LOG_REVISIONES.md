@@ -25,6 +25,26 @@
 
 Build api verde (todos los cambios). **Pendiente: redeploy API para servir el drill/dropdowns nuevos** (datos + vista ya en prod). Los 2 feeds de ruta (rollup + line-level) en el nightly.
 
+## 2026-07-27 — Fase CP (Conector ContPAQi): CP.0–CP.4 en código (local), ADR-040
+
+**Contexto:** Edgar preguntó si conviene conectarse con ContPAQi o construir uno propio. Respuesta (ADR-040): **integrar, no construir** — ContPAQi = SoR contable/fiscal, la plataforma = engagement. Descubrimiento en vivo: ContPAQi corre en **SQL Server 2022, instancia `COMPAC` @ `192.168.0.35`** (server `SERVCONTABILIDA`), 1 empresa de Contabilidad `ctLUIS_FRANCISCO_LOPEZ_GUTIERREZ` (persona física, el mismo "Luis Francisco" de las cuentas de la Fase CB). Login read-only `platform_ro`/`superoot` creado (`00-create-readonly-login.sql`). Driver `mssql` con `instanceName` (puerto dinámico).
+
+**Entregado (todo local + verde, sin commitear a la espera del OK por auto-push):**
+
+- **CP.0** — decode completo del esquema ContPAQi Contabilidad (Cuentas/Polizas/MovimientosPoliza/SaldosCuentas + Bancos/Egresos/AsocCFDIs/AgrupadoresSAT). Hallazgo que calibró el plan: la contabilidad **casi no segmenta por sucursal** (~2%) → verdad fiscal **consolidada**, no per-branch.
+- **CP.1** — `analytics.contpaqi_ledger_monthly` (importer `import-contpaqi-ledger.js`, filtra `Afectable=1` para no duplicar padres): **56,821 filas**, cuadre Σcargos≈Σabonos **$24.88B**. Tool Maat `maat_contpaqi_balanza`. Smoke 18/18.
+- **CP.2** — `analytics.contpaqi_bank_movements` (147,952 movs sobre cuentas 102xxx; Egresos/Cheques resultaron muertos desde 2019). Crosswalk `finance.bank_accounts.contpaqi_cuenta` (16/18 auto-enlazan) + endpoints `POST /finance/bank/contpaqi/link` + `GET /finance/bank/contpaqi-compare` + **tab UI "vs ContPAQi"** en `/finanzas/bancos` + tool `maat_contpaqi_banco` (auxiliar por banco, cierra el hueco "17 bancos comparten el 102"). Validado vs workbook CB: enero 2026 ContPAQi 4,848 movs ≈ workbook 4,865. Smokes 17/17 + 6/6.
+- **CP.3** — `analytics.contpaqi_suppliers` (3,411 proveedores, 99.6% con RFC) + cruce vs `fiscal.sat_list_rfcs`: **109 en listas SAT, 6 EFOS (69B)**. Tool `maat_contpaqi_efos` + **detector persistente `contpaqi_proveedor_efos`** en `MaatDetectorService` (→ bandeja `/finanzas/hallazgos`, 69B crítico). Smoke 9/9.
+- **CP.4** — tool `maat_libros_vs_operacion`: ingresos fiscales (ContPAQi) vs operación (Kepler) mes a mes. Hallazgo: gap estable **~$12M/mes (~78%)**, estructural (IVA/alcance entidad), el `nota` obliga a Maat a no gritar fraude.
+
+**Verificación:** 5 smokes CP (50 aserciones) verde + builds api+view verde. Regression: los CP smokes pasan en-suite; los 19 fallos son suites API-dependientes (server no arriba), dominios ajenos.
+
+**Lecciones:** (1) los libros ContPAQi son la verdad fiscal *consolidada* — el detalle por sucursal se queda en Kepler; (2) `SaldosCuentas` guarda saldos de TODAS las cuentas (incl. padres) → filtrar `Afectable=1` para cuadrar; (3) el gap fiscal-vs-operación es estructural, se narra con caveat; (4) `platform_ro` con `db_datareader` = read-only seguro sobre el SoR (jamás escribir).
+
+**Pendiente prod:** aplicar 4 migraciones newdb a Railway + correr los 3 importers en la máquina de feeds (`CONTPAQI_SQL_PASSWORD` en `.env`) + redeploy api+view + poblar el crosswalk (`contpaqi/link`). Diferidos: CP.5 push pólizas, materialidad CFDI↔póliza, CP.6 puerto, CP.7 SDK.
+
+---
+
 ## 2026-07-27 — Auditoría del módulo `/compras` (Fase RA): 4 correcciones + doc al día
 
 **Contexto:** el usuario pidió analizar todo el módulo `/compras` y corregir las observaciones encontradas. Mapa: backend `libs/commercial/commercial-replenishment` (2 controllers + `CommercialReplenishmentService` 1075 L + `CommercialPurchaseOrdersService` + `ReplenishmentScannerService` + export XLSX), frontend 12 páginas en `/compras/*` + `compras.service.ts` (618 L). Alcance real = superset de RA.0–RA.14: también RA-PRO.1/2/3/6/8/9/10/12/13 + RA.15/ADR-031 (cadena OC→OE que mueve stock) + asistente conversacional.

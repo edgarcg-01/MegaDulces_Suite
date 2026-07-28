@@ -1,6 +1,6 @@
 /* eslint-disable no-console */
 /**
- * CP.3 (Fase CP, ADR-035) — Proveedores de ContPAQi → analytics.contpaqi_suppliers.
+ * CP.3 (Fase CP, ADR-040) — Proveedores de ContPAQi → analytics.contpaqi_suppliers.
  * Origen (READ-ONLY): ContPAQi `Proveedores` (RFC + retenciones). UPSERT idempotente por codigo.
  * Sirve para el cruce contra la lista negra del SAT (fiscal.sat_list_rfcs).
  *

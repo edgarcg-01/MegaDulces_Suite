@@ -6,7 +6,7 @@ import { ContpaqiCompare, ContpaqiCompareRow } from '../../bank.service';
 import { cuadra, money0 } from './bancos-shared';
 
 /**
- * CP.2 (Fase CP, ADR-035) — Vista "vs ContPAQi". Compara el estado de cuenta (Excel/finance)
+ * CP.2 (Fase CP, ADR-040) — Vista "vs ContPAQi". Compara el estado de cuenta (Excel/finance)
  * contra los LIBROS de ContPAQi (analytics.contpaqi_bank_movements) por cuenta y periodo.
  * A diferencia de "Conciliación" (que cruza contra el proxy Kepler-102), esto cruza contra la
  * contabilidad REAL con folio de póliza → la 3ª columna de verdad. Presentacional: recibe el

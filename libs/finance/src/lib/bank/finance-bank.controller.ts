@@ -82,7 +82,7 @@ export class FinanceBankController {
   @ApiOperation({ summary: 'Empuja las diferencias de conciliación a la bandeja de hallazgos de Maat.' })
   syncFindings(@Body() body: { period?: string }) { return this.svc.syncFindings(body?.period); }
 
-  // ── CP.2 (Fase CP, ADR-035) — Comparación con la contabilidad ContPAQi ──
+  // ── CP.2 (Fase CP, ADR-040) — Comparación con la contabilidad ContPAQi ──
 
   @Post('contpaqi/link')
   @RequirePermissions(Permission.FINANCE_BANK_GESTIONAR)

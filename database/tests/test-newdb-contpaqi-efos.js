@@ -1,6 +1,6 @@
 /* eslint-disable no-console */
 /**
- * CP.3 — Smoke: proveedores ContPAQi + cruce EFOS (Fase CP, ADR-035). DB-direct.
+ * CP.3 — Smoke: proveedores ContPAQi + cruce EFOS (Fase CP, ADR-040). DB-direct.
  * Valida el schema del staging de proveedores y que el cruce contra fiscal.sat_list_rfcs
  * (69/69B) produce resultados + que app_runtime puede leer ambas tablas (el tool corre así).
  * Tolerante: si no se importaron proveedores o no hay lista SAT, skip de las aserciones de data.

@@ -1,5 +1,5 @@
 /**
- * CP.3 (Fase CP, ADR-035) — Catálogo de proveedores de ContPAQi → analytics.contpaqi_suppliers.
+ * CP.3 (Fase CP, ADR-040) — Catálogo de proveedores de ContPAQi → analytics.contpaqi_suppliers.
  *
  * Los proveedores de la CONTABILIDAD (ContPAQi `Proveedores`, con RFC + config de retención)
  * para cruzarlos contra la lista negra del SAT (`fiscal.sat_list_rfcs`, EFOS 69-B / 69) → riesgo

@@ -1,6 +1,6 @@
 # FASE CP — Conector ContPAQi (SoR contable externo)
 
-> **Estado:** 🔨 DISEÑADO (planeación) — 2026-07-27 · **ADR:** ADR-035 (propuesto) · Sin código aún.
+> **Estado:** 🔨 DISEÑADO (planeación) — 2026-07-27 · **ADR:** ADR-040 (propuesto) · Sin código aún.
 > **Tesis:** ContPAQi es el **system of record contable/fiscal**; la plataforma es el **system of engagement/inteligencia**. NO reinventamos la contabilidad (contabilidad electrónica / DIOT / estados financieros = commodity regulado, moving-target del SAT, cero diferenciación). Integramos: **pull** por lectura de DB (balanza + catálogo → Maat/CB) y **push** por importación de archivo (pólizas armadas por el motor, importadas por el contador). **Jamás escritura directa a la DB de ContPAQi.** Hereda ADR-016/028 (motor arma / humano aprueba-importa / LLM fuera del libro).
 > **Pedido de Edgar:** "¿existe forma de conectarnos con ContPAQi? ¿algún valor agregado que podamos tomar? ¿es mejor hacer nuestro propio 'ContPAQi' o tratar de que haya un funcionamiento igual?" → respuesta: integrar, no construir; SoR externo + engagement propio.
 
@@ -58,7 +58,7 @@ Migraciones idempotentes (`database/migrations-newdb/`), grants `app_runtime`, s
 ## 5. Sprints
 
 ### CP.0 — Cimientos + decode ✅ COMPLETADO 2026-07-27
-- `libs/contpaqi` + esquema `contpaqi.*` (staging) + ADR-035 + este doc.
+- `libs/contpaqi` + esquema `contpaqi.*` (staging) + ADR-040 + este doc.
 - **Conexión CONFIRMADA + decodificada:** ContPAQi sobre **SQL Server 2022** — servidor `SERVCONTABILIDA` (`192.168.0.35`), **instancia `COMPAC`**, puerto TCP dinámico (resolver por SQL Browser UDP 1434 — `options.instanceName='COMPAC'`, no hardcodear puerto). Driver **`mssql`** v12 (verificado conectando desde la LAN de feeds).
 - **Credenciales:** login read-only `platform_ro` / `superoot` creado en la instancia (`db_datareader` en todas las DBs + `VIEW ANY DATABASE/DEFINITION`; `CHECK_POLICY=OFF`). Script versionado en `database/importers/contpaqi/00-create-readonly-login.sql` (pendiente de guardar).
 - **Topología decodificada:** `GeneralesSQL` (sistema Contabilidad), **`ctLUIS_FRANCISCO_LOPEZ_GUTIERREZ` = la Contabilidad real** (el mismo "Luis Francisco" de las cuentas bancarias de la Fase CB), `ctLFLG` = Nóminas (tablas `nom*`), `nomGenerales` = sistema Nóminas, `ADD_Catalogos`+`document_*`/`other_*` = ADD (repositorio CFDI XML/PDF). **No hay Comercial (`ad*`)** en este server.
@@ -116,6 +116,7 @@ Migraciones idempotentes (`database/migrations-newdb/`), grants `app_runtime`, s
 - **Migración** `20260727150000_analytics_contpaqi_suppliers.js` (Batch 221) + **importer** `import-contpaqi-suppliers.js`: `analytics.contpaqi_suppliers` (RFC + retenciones). **Cargado: 3,411 proveedores, 3,398 con RFC** (99.6%).
 - **Tool Maat `maat_contpaqi_efos`**: cruza los proveedores de la contabilidad vs `fiscal.sat_list_rfcs` (69/69B). El `nota` prioriza **69B = EFOS** (operaciones simuladas, CFDI no deducible, riesgo alto).
 - **Hallazgo fiscal real:** **109 proveedores en listas SAT — 103 en '69' + 6 en '69B' (EFOS)**. Grants `app_runtime` verificados en ambas tablas del cruce. Smoke `test-newdb-contpaqi-efos.js` **9/9** + en `run-all-tests`. `nx build api` verde.
+- **Detector persistente `contpaqi_proveedor_efos` en `MaatDetectorService`** (regla + case + `detContpaqiEfos`): el cron nocturno de Maat empuja un hallazgo por (rfc, lista) a `finance.findings` — **69B = crítico**, 69 = warn. Así los EFOS aparecen en la bandeja `/finanzas/hallazgos` (HITL), no solo en el chat. Auto-registrado vía `ensureRules`. `nx build api` verde.
 - **Diferido:** materialidad CFDI↔póliza vía `DocumentosAdministrativos`(UUID) + `AsocCFDIs` (integración con el módulo MAT — surface más grande). Los XML/PDF del ADD quedan disponibles.
 
 ### CP.4 — "Libros vs Operación" en Maat 🔨 TOOL ✅ 2026-07-27 (local)

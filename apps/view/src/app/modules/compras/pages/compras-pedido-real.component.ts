@@ -38,8 +38,8 @@ import { MetricStripComponent, MetricStripItem } from '../../../shared/component
       <p-toast></p-toast>
       <header class="surf-page-head">
         <div class="surf-page-head-text">
-          <h1>Compra sugerida <span class="pr-badge">ritmo real</span></h1>
-          <p class="surf-page-sub">Anclado en tus compras reales al proveedor (entrada X-A-40), no en un estimado: <strong>sugerido = ritmo de compra × cobertura − existencia − en tránsito</strong>, valuado al costo real. Solo almacenes que compran directo; el resto va por traspaso.</p>
+          <h1>Compra sugerida <span class="pr-badge">demanda</span></h1>
+          <p class="surf-page-sub">La <strong>venta real de la red</strong> fija el reorden: <strong>pedir = venta diaria × cobertura − existencia − en tránsito</strong>, valuado al costo real de compra. Lo que ya está sobrestockeado no se re-pide. Un renglón por producto (entra al hub y se distribuye).</p>
         </div>
       </header>
 
@@ -83,15 +83,17 @@ import { MetricStripComponent, MetricStripItem } from '../../../shared/component
       } @else {
         <p-table [value]="rows()" [loading]="loading()" [scrollable]="true" scrollHeight="flex"
                  [paginator]="true" [rows]="50" [rowsPerPageOptions]="[50, 100, 200]"
-                 styleClass="p-datatable-sm pr-table" [tableStyle]="{ 'min-width': '68rem' }">
+                 styleClass="p-datatable-sm pr-table" [tableStyle]="{ 'min-width': '80rem' }">
           <ng-template pTemplate="header">
             <tr>
               <th style="min-width:16rem">Producto</th>
-              <th style="width:5rem">Almacén</th>
+              <th style="width:5rem" title="Almacén donde se compra directo (entra y se distribuye)">Compra en</th>
               <th style="min-width:11rem">Proveedor</th>
-              <th class="pr-r" title="Ritmo de compra real (cajas/día, entrada X-A-40 90d)">Ritmo/d</th>
+              <th class="pr-r pr-sell" title="Venta de la RED en cajas, últimos 30 días (sell-through de todas las sucursales). Es la demanda real que fija el reorden.">Venta 30d</th>
+              <th class="pr-r pr-sell" title="Venta diaria de la red (cajas/día)">Venta/d</th>
+              <th class="pr-r" title="Ritmo de compra real (cajas/día, entrada X-A-40 90d)">Compra/d</th>
               <th class="pr-r" title="Existencia actual en cajas (piezas ÷ UXC)">Exist.</th>
-              <th class="pr-r" title="Días que cubre la existencia al ritmo actual">Cobertura</th>
+              <th class="pr-r" title="Cobertura REAL de la red = existencia de red ÷ venta diaria de red (días hasta agotarse)">Cobertura</th>
               <th class="pr-r pr-sug" title="Cajas a pedir = ritmo × cobertura − existencia − tránsito">Pedir (cja)</th>
               <th class="pr-r pr-muted-h" title="Equivalente en piezas (cajas × UXC)">Piezas</th>
               <th class="pr-r" title="Costo real por caja (de la entrada)">Costo</th>
@@ -106,6 +108,8 @@ import { MetricStripComponent, MetricStripItem } from '../../../shared/component
               </td>
               <td class="pr-mono pr-muted">{{ r.warehouse_code }}</td>
               <td class="pr-supp">{{ r.supplier_name || '—' }}</td>
+              <td class="pr-r pr-sell pr-strong">{{ r.sell_month_cajas | number:'1.0-0' }}</td>
+              <td class="pr-r pr-sell">{{ r.sell_daily_cajas | number:'1.0-1' }}</td>
               <td class="pr-r pr-muted">{{ r.daily_rate | number:'1.0-2' }}</td>
               <td class="pr-r pr-muted">{{ r.on_hand_units | number:'1.0-1' }}</td>
               <td class="pr-r">
@@ -121,7 +125,7 @@ import { MetricStripComponent, MetricStripItem } from '../../../shared/component
           </ng-template>
           <ng-template pTemplate="emptymessage">
             <tr>
-              <td colspan="10" class="pr-empty">
+              <td colspan="12" class="pr-empty">
                 <i class="pi pi-inbox"></i>
                 <p>Nada por pedir con estos filtros.</p>
                 <span>Solo se listan productos con historial de compra directa al proveedor. Ajusta el proveedor, el almacén o sube la cobertura.</span>
@@ -158,6 +162,8 @@ import { MetricStripComponent, MetricStripItem } from '../../../shared/component
     .pr-mono { font-family: var(--font-mono, ui-monospace, monospace); font-size: .78rem; }
     .pr-strong { font-weight: 700; }
     .pr-sug { background: var(--overlay-selected, transparent); }
+    th.pr-sell, td.pr-sell { background: var(--overlay-hover, transparent); }
+    td.pr-sell { color: var(--text-main); }
     .pr-val { color: var(--text-main); }
     :host ::ng-deep .pr-cov-tag { font-variant-numeric: tabular-nums; }
     .pr-empty { text-align: center; color: var(--text-muted); padding: 2rem 1rem; }

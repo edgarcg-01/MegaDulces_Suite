@@ -69,6 +69,7 @@ export interface PurchaseSuggestionRow {
   on_hand_pieces: number; on_hand_units: number; in_transit_units: number;
   unit_cost: number; target_units: number; suggested_units: number; suggested_pieces: number;
   suggested_cost: number; days_cover: number | null;
+  sell_daily_cajas: number; sell_month_cajas: number; // venta de la red (30d): la señal del reorden
 }
 export interface PurchaseSuggestionResponse {
   total: number; total_valor: number; page: number; pageSize: number; coverage_days: number;

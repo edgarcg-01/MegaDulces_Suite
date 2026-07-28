@@ -1,4 +1,4 @@
--- Fase CP (ADR-035) — Login SQL de SOLO LECTURA para el conector ContPAQi.
+-- Fase CP (ADR-040) — Login SQL de SOLO LECTURA para el conector ContPAQi.
 -- Ejecutar UNA vez en la instancia SQL Server de ContPAQi como sysadmin (sa o admin del server):
 --   sqlcmd -S ".\COMPAC" -E -i 00-create-readonly-login.sql          (auth Windows, en el server)
 --   sqlcmd -S "192.168.0.35\COMPAC" -U sa -P <clave> -i 00-create-readonly-login.sql
