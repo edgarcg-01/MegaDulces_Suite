@@ -91,31 +91,31 @@ const CHANNEL_OPTS = [
             <div class="so-field">
               <label>Mes</label>
               <p-datePicker [(ngModel)]="monthDate" view="month" dateFormat="MM yy" [showIcon]="true"
-                            appendTo="body" (onSelect)="syncPeriod()" (onClose)="syncPeriod()" />
+                            appendTo="body" (onSelect)="refreshPeriod()" (onClose)="refreshPeriod()" />
             </div>
           }
           @case ('quarter') {
             <div class="so-field">
               <label>Trimestre</label>
               <p-select [options]="quarterOpts" [(ngModel)]="quarter" optionLabel="label" optionValue="value"
-                        appendTo="body" (onChange)="syncPeriod()" />
+                        appendTo="body" (onChange)="refreshPeriod()" />
             </div>
             <div class="so-field so-year">
               <label>Año</label>
-              <p-select [options]="yearOpts()" [(ngModel)]="year" appendTo="body" (onChange)="syncPeriod()" />
+              <p-select [options]="yearOpts()" [(ngModel)]="year" appendTo="body" (onChange)="refreshPeriod()" />
             </div>
           }
           @case ('year') {
             <div class="so-field so-year">
               <label>Año</label>
-              <p-select [options]="yearOpts()" [(ngModel)]="year" appendTo="body" (onChange)="syncPeriod()" />
+              <p-select [options]="yearOpts()" [(ngModel)]="year" appendTo="body" (onChange)="refreshPeriod()" />
             </div>
           }
           @case ('range') {
             <div class="so-field">
               <label>Rango</label>
               <p-datePicker [(ngModel)]="rangeDates" selectionMode="range" dateFormat="dd/mm/yy"
-                            [showIcon]="true" appendTo="body" (onSelect)="syncPeriod()" (onClose)="syncPeriod()" />
+                            [showIcon]="true" appendTo="body" (onSelect)="refreshPeriod()" (onClose)="refreshPeriod()" />
             </div>
           }
         }
@@ -649,7 +649,11 @@ export class ComercialSellOutComponent {
       });
   }
 
-  setMode(m: string) { this.periodMode.set(m as PeriodMode); this.syncPeriod(); }
+  setMode(m: string) { this.periodMode.set(m as PeriodMode); this.refreshPeriod(); }
+
+  /** Cambio de periodo/selector → recalcula rango y RE-GENERA solo (como Vista/Promos),
+   *  salvo rango incompleto (from/to vacíos → espera a que el usuario complete + Generar). */
+  refreshPeriod() { this.syncPeriod(); if (this.curFrom && this.curTo) this.generate(); }
 
   private iso(d: Date): string {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -669,9 +673,11 @@ export class ComercialSellOutComponent {
     } else if (mode === 'year') {
       this.curFrom = this.iso(new Date(this.year, 0, 1));
       this.curTo = this.iso(new Date(this.year, 11, 31));
-    } else if (mode === 'range' && this.rangeDates?.[0] && this.rangeDates?.[1]) {
-      this.curFrom = this.iso(this.rangeDates[0]);
-      this.curTo = this.iso(this.rangeDates[1]);
+    } else if (mode === 'range') {
+      if (this.rangeDates?.[0] && this.rangeDates?.[1]) {
+        this.curFrom = this.iso(this.rangeDates[0]);
+        this.curTo = this.iso(this.rangeDates[1]);
+      } else { this.curFrom = ''; this.curTo = ''; } // rango incompleto → no re-generar
     }
   }
 
