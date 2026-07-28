@@ -1,6 +1,17 @@
 # Fase LTV — Valor sobre la flota (lo que MagniTracking no da)
 
-> **Estado:** 🔨 DISEÑADO (planeación) 2026-07-28. Depende de Fase LT (rastreo ✅).
+> **Estado:** 🟢 LTV.0 + LTV.1 + LTV.3 CONSTRUIDOS (beta) local 2026-07-28 · LTV.2/4/5/6/7
+> 🔨 diseñados (planeación). Depende de Fase LT (rastreo ✅).
+>
+> **Construido (2026-07-28):** LTV.0 keystone (`logistics.vehicle_stops` +
+> `vehicle_day_summary`, mig `20260728120000`, `TripBuilderService` + cron nocturno +
+> endpoints; smoke 8/8) · LTV.1 cumplimiento (`RouteAdherenceService`, endpoint
+> `GET /logistics/tracking/adherence` + panel en `/logistica/rastreo`; smoke 7/7) ·
+> LTV.3 POD georef (`PodGeoAuditService` en libs/trade → `supervisor_findings`
+> `pod_far_from_customer`/`pod_no_gps`, cron nocturno, ADR-020 bandeja-only; smoke 5/5).
+> Commits ff0d1d7d/b71f90b2/a3219a03/733333d9. **Pendiente prod:** aplicar mig
+> `20260728120000` a Railway (las de LT ya están). **Bloqueo de valor #1:** solo
+> 5/2970 clientes tienen coords → geocodificar la cartera de reparto activa el match.
 > **Tesis:** el GPS crudo es commodity (MagniTracking lo vende igual a todos). Nuestro moat
 > es **fusionar la posición con el cerebro comercial/logístico** — pedidos, clientes, rutas
 > planeadas, POD, costos, ventas. Ellos saben *dónde está la unidad*; nosotros *qué lleva, a
