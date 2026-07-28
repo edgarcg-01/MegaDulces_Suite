@@ -485,10 +485,22 @@ export class CommercialReplenishmentService {
       const sug = `GREATEST(0, ${sellDayPz} * :cov / ${uxc} - ${stockPz} / ${uxc} - ${transit})`;
       const filters: string[] = ['pr.tenant_id = :t', 'pr.activo = true'];
       const binds: Record<string, unknown> = { t: tenantId, cov };
-      // Filtro de almacén de COMPRA: producto comprado en ese(s) almacén(es) (vía el ledger).
+      // Almacén: seleccionar almacén en Comprar = PEDIDO PER-SUCURSAL (demanda + existencia de
+      // ESE almacén), NO "productos comprados ahí". Los proveedores DIRECTOS a sucursal (Ferrero)
+      // no tienen fila en el ledger de compras del almacén → con el filtro viejo (pl.product_id IS
+      // NOT NULL) el pedido de una sucursal salía VACÍO. El ledger (pl) queda a nivel RED solo para
+      // el costo real y el almacén primario; el scope por almacén va sobre demanda/existencia/tránsito.
       const whIds = this.whIds(q);
-      let plWhere = 'pv.tenant_id = :t';
-      if (whIds.length) { plWhere += ` AND pv.warehouse_id IN (${whIds.map((_, i) => `:w${i}`).join(',')})`; whIds.forEach((w, i) => { binds[`w${i}`] = w; }); filters.push('pl.product_id IS NOT NULL'); }
+      const plWhere = 'pv.tenant_id = :t';
+      binds.selwh = whIds.length === 1 ? whIds[0] : null; // "Compra en" = la sucursal filtrada
+      let demWh = '', stkWh = '', trWh = '';
+      if (whIds.length) {
+        const inList = whIds.map((_, i) => `:w${i}`).join(',');
+        whIds.forEach((w, i) => { binds[`w${i}`] = w; });
+        demWh = ` AND pd.warehouse_id IN (${inList})`;
+        stkWh = ` AND s.warehouse_id IN (${inList})`;
+        trWh = ` AND pit.warehouse_id IN (${inList})`;
+      }
       if (q.supplier_id && UUID_RX.test(q.supplier_id)) { filters.push('pr.supplier_id = :sid'); binds.sid = q.supplier_id; }
       if (q.category_id && UUID_RX.test(q.category_id)) { filters.push('pr.category_id = :cat'); binds.cat = q.category_id; }
       if (q.search && q.search.trim()) { filters.push('(pr.sku ILIKE :s OR pr.nombre ILIKE :s)'); binds.s = `%${q.search.trim()}%`; }
@@ -521,23 +533,23 @@ export class CommercialReplenishmentService {
            WHERE ${plWhere} GROUP BY 1
         ) pl ON pl.product_id = pr.id
         LEFT JOIN catalog.suppliers sup ON sup.tenant_id = :t AND sup.id = pr.supplier_id
-        LEFT JOIN commercial.warehouses w ON w.tenant_id = :t AND w.id = pl.primary_wh
+        LEFT JOIN commercial.warehouses w ON w.tenant_id = :t AND w.id = COALESCE(:selwh::uuid, pl.primary_wh)
         LEFT JOIN (SELECT tenant_id, product_id, max(box_size) bs FROM commercial.product_label_prices GROUP BY tenant_id, product_id) lbl
                ON lbl.tenant_id = :t AND lbl.product_id = pr.id
         LEFT JOIN (SELECT COALESCE(al.canonical_product_id, pd.product_id) AS product_id, sum(pd.pieces) s30, sum(pd.revenue) rev30
                      FROM analytics.product_demand pd
                      LEFT JOIN commercial.product_aliases al ON al.tenant_id = pd.tenant_id AND al.alias_product_id = pd.product_id AND al.deleted_at IS NULL
-                    WHERE pd.tenant_id = :t AND pd.window_days = 30 GROUP BY 1) sv
+                    WHERE pd.tenant_id = :t AND pd.window_days = 30${demWh} GROUP BY 1) sv
                ON sv.product_id = pr.id
         LEFT JOIN (SELECT COALESCE(al.canonical_product_id, s.product_id) AS product_id, sum(s.quantity) qty
                      FROM commercial.stock s
                      LEFT JOIN commercial.product_aliases al ON al.tenant_id = s.tenant_id AND al.alias_product_id = s.product_id AND al.deleted_at IS NULL
-                    WHERE s.tenant_id = :t GROUP BY 1) nst
+                    WHERE s.tenant_id = :t${stkWh} GROUP BY 1) nst
                ON nst.product_id = pr.id
         LEFT JOIN (SELECT COALESCE(al.canonical_product_id, pit.product_id) AS product_id, sum(pit.qty_in_transit) t
                      FROM analytics.purchase_in_transit pit
                      LEFT JOIN commercial.product_aliases al ON al.tenant_id = pit.tenant_id AND al.alias_product_id = pit.product_id AND al.deleted_at IS NULL
-                    WHERE pit.tenant_id = :t GROUP BY 1) tr
+                    WHERE pit.tenant_id = :t${trWh} GROUP BY 1) tr
                ON tr.product_id = pr.id
         WHERE ${where}`;
 
@@ -557,7 +569,7 @@ export class CommercialReplenishmentService {
                       / NULLIF(SUM(z.sell_month_mxn) OVER (), 0) <= 0.95 THEN 'B'
                  ELSE 'C' END AS abc_class
         FROM (
-          SELECT pr.id AS product_id, pl.primary_wh AS warehouse_id, w.code AS warehouse_code,
+          SELECT pr.id AS product_id, COALESCE(:selwh::uuid, pl.primary_wh) AS warehouse_id, w.code AS warehouse_code,
                  pr.sku, pr.nombre, sup.id AS supplier_id, sup.name AS supplier_name,
                  ${uxc} AS uxc,
                  round(COALESCE(pl.buy_rate,0)::numeric, 3) AS daily_rate,
