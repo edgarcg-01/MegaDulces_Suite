@@ -70,6 +70,7 @@ export interface PurchaseSuggestionRow {
   unit_cost: number; target_units: number; suggested_units: number; suggested_pieces: number;
   suggested_cost: number; days_cover: number | null;
   sell_daily_cajas: number; sell_month_cajas: number; // venta de la red (30d): la señal del reorden
+  bucket: string; // agotado | critico | bajo | sano | sobrestock (por cobertura)
 }
 export interface PurchaseSuggestionResponse {
   total: number; total_valor: number; page: number; pageSize: number; coverage_days: number;
@@ -77,7 +78,7 @@ export interface PurchaseSuggestionResponse {
 }
 export interface PurchaseSuggestionQuery {
   warehouse_id?: string; warehouse_ids?: string[]; supplier_id?: string; category_id?: string;
-  search?: string; coverage_days?: number; page?: number; pageSize?: number;
+  search?: string; coverage_days?: number; bucket?: string; scope?: string; page?: number; pageSize?: number;
 }
 
 export interface CriticalStockResponse {
@@ -461,6 +462,8 @@ export class ComprasService {
     if (q.category_id) p.set('category_id', q.category_id);
     if (q.search) p.set('search', q.search);
     if (q.coverage_days) p.set('coverage_days', String(q.coverage_days));
+    if (q.bucket) p.set('bucket', q.bucket);
+    if (q.scope) p.set('scope', q.scope);
     if (q.page) p.set('page', String(q.page));
     if (q.pageSize) p.set('pageSize', String(q.pageSize));
     const qs = p.toString();

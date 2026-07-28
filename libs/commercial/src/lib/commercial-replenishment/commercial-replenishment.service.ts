@@ -60,6 +60,8 @@ export interface PurchaseSuggestionQuery {
   category_id?: string;
   search?: string;
   coverage_days?: number;   // horizonte de cobertura (default 30 ≈ ciclo mensual real)
+  bucket?: string;          // agotado | critico | bajo | sano | sobrestock (por cobertura de red)
+  scope?: string;           // 'all' = incluye lo cubierto; default = solo lo que necesita pedido (sug>0)
   page?: number;
   pageSize?: number;
   export?: boolean;
@@ -465,6 +467,12 @@ export class CommercialReplenishmentService {
       if (q.supplier_id && UUID_RX.test(q.supplier_id)) { filters.push('pr.supplier_id = :sid'); binds.sid = q.supplier_id; }
       if (q.category_id && UUID_RX.test(q.category_id)) { filters.push('pr.category_id = :cat'); binds.cat = q.category_id; }
       if (q.search && q.search.trim()) { filters.push('(pr.sku ILIKE :s OR pr.nombre ILIKE :s)'); binds.s = `%${q.search.trim()}%`; }
+      // Bucket por COBERTURA (días que aguanta la red vendiendo): agotado / crítico(<7) / bajo(<cobertura) /
+      // sano / sobrestock(>90). Default = solo lo que necesita pedido (sug>0); bucket o scope='all' lo abren.
+      const cover = `(${stockPz} / NULLIF(${sellDayPz}, 0))`;
+      const bucketExpr = `CASE WHEN ${stockPz} <= 0 THEN 'agotado' WHEN ${cover} < 7 THEN 'critico' WHEN ${cover} < :cov THEN 'bajo' WHEN ${cover} > 90 THEN 'sobrestock' ELSE 'sano' END`;
+      if (q.bucket && ['agotado', 'critico', 'bajo', 'sano', 'sobrestock'].includes(q.bucket)) { filters.push(`${bucketExpr} = :bkt`); binds.bkt = q.bucket; }
+      else if (q.scope !== 'all') { filters.push(`${sug} > 0`); }
       const where = filters.join(' AND ');
 
       // Grano = PRODUCTO (red): el pedido a proveedor es total por producto (entra al hub y se distribuye).
@@ -515,7 +523,8 @@ export class CommercialReplenishmentService {
                round((${sellDayPz} / ${uxc})::numeric, 2) AS sell_daily_cajas,
                round((COALESCE(sv.s30,0) / ${uxc})::numeric, 0) AS sell_month_cajas,
                -- Cobertura REAL de la red = existencia_red / venta_diaria_red (días hasta agotarse)
-               round((${stockPz} / NULLIF(${sellDayPz}, 0))::numeric, 0) AS days_cover
+               round((${stockPz} / NULLIF(${sellDayPz}, 0))::numeric, 0) AS days_cover,
+               ${bucketExpr} AS bucket
         ${from}
         ORDER BY (${sug} * COALESCE(pl.cost,0)) DESC, ${sellDayPz} DESC
         LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`, binds)).rows;

@@ -342,23 +342,17 @@ export const routes: Routes = [
     canActivate: [authGuard],
     component: LayoutComponent,
     children: [
-      { path: '', redirectTo: 'existencia-critica', pathMatch: 'full' },
+      { path: '', redirectTo: 'pedido', pathMatch: 'full' },
       {
-        path: 'existencia-critica',
-        loadComponent: () => import('./modules/compras/pages/compras-existencia-critica.component').then(m => m.ComprasExistenciaCriticaComponent),
-        canActivate: [permissionGuard(Permission.COMPRAS_VER)]
-      },
-      {
+        // RA-PRO.17 — Pedido UNIFICADO (demand-driven + requisición + export + stock muerto).
+        // Fusiona las 3 vistas previas: pedido(que-toca) + compra-sugerida + existencia-critica.
         path: 'pedido',
-        loadComponent: () => import('./modules/compras/pages/compras-que-toca.component').then(m => m.ComprasQueTocaComponent),
-        canActivate: [permissionGuard(Permission.COMPRAS_VER)]
-      },
-      { path: 'que-toca', redirectTo: 'pedido', pathMatch: 'full' }, // renombrado a "Pedido"
-      {
-        path: 'pedido-real',
         loadComponent: () => import('./modules/compras/pages/compras-pedido-real.component').then(m => m.ComprasPedidoRealComponent),
         canActivate: [permissionGuard(Permission.COMPRAS_VER)]
       },
+      { path: 'que-toca', redirectTo: 'pedido', pathMatch: 'full' },
+      { path: 'pedido-real', redirectTo: 'pedido', pathMatch: 'full' },        // fusionada en Pedido
+      { path: 'existencia-critica', redirectTo: 'pedido', pathMatch: 'full' }, // fusionada en Pedido
       {
         path: 'asistente',
         loadComponent: () => import('./modules/compras/pages/compras-asistente.component').then(m => m.ComprasAsistenteComponent),

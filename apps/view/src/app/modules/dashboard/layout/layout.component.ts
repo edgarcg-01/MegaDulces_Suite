@@ -425,9 +425,7 @@ export class LayoutComponent implements OnInit, OnDestroy {
   // requisición (HITL). Proyecto propio; nav gateado por COMPRAS_VER.
   private comprasNavItems: NavItem[] = [
     { label: 'Pedido',             icon: 'pi pi-cart-plus',            route: '/compras/pedido',             permission: Permission.COMPRAS_VER },
-    { label: 'Compra sugerida',    icon: 'pi pi-bolt',                 route: '/compras/pedido-real',        permission: Permission.COMPRAS_VER },
     { label: 'Asistente (Thot)',   icon: 'pi pi-comments',             route: '/compras/asistente',          permission: Permission.COMPRAS_GESTIONAR },
-    { label: 'Existencia crítica', icon: 'pi pi-exclamation-triangle', route: '/compras/existencia-critica', permission: Permission.COMPRAS_VER },
     { label: 'Requisiciones',      icon: 'pi pi-file-edit',            route: '/compras/requisiciones',      permission: Permission.COMPRAS_VER },
     { label: 'Órdenes de compra',  icon: 'pi pi-shopping-cart',        route: '/compras/ordenes',            permission: Permission.COMPRAS_VER },
     { label: 'Hallazgos',          icon: 'pi pi-flag',                 route: '/compras/hallazgos',          permission: Permission.COMPRAS_VER },

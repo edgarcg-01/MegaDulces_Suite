@@ -68,10 +68,12 @@ export class CommercialReplenishmentController {
     @Query('category_id') category_id?: string,
     @Query('search') search?: string,
     @Query('coverage_days') coverage_days?: string,
+    @Query('bucket') bucket?: string,
+    @Query('scope') scope?: string,
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
   ) {
-    return this.svc.purchaseSuggestion({ warehouse_id, warehouse_ids, supplier_id, category_id, search, coverage_days: coverage_days ? Number(coverage_days) : undefined, page: page ? Number(page) : undefined, pageSize: pageSize ? Number(pageSize) : undefined });
+    return this.svc.purchaseSuggestion({ warehouse_id, warehouse_ids, supplier_id, category_id, search, coverage_days: coverage_days ? Number(coverage_days) : undefined, bucket, scope, page: page ? Number(page) : undefined, pageSize: pageSize ? Number(pageSize) : undefined });
   }
 
   @Get('critical-stock.xlsx')
