@@ -7,6 +7,7 @@ import { FleetAlertsScannerService } from './fleet-alerts-scanner.service';
 import { TripBuilderService } from './trip-builder.service';
 import { TripBuilderScannerService } from './trip-builder-scanner.service';
 import { RouteAdherenceService } from './route-adherence.service';
+import { FleetProductivityService } from './fleet-productivity.service';
 import { MagniTrackingAdapter } from './magnitracking.adapter';
 import { FLEET_PROVIDER_PORT } from './fleet-provider.port';
 
@@ -24,6 +25,7 @@ import { FLEET_PROVIDER_PORT } from './fleet-provider.port';
     TripBuilderService,
     TripBuilderScannerService,
     RouteAdherenceService,
+    FleetProductivityService,
     MagniTrackingAdapter,
     { provide: FLEET_PROVIDER_PORT, useExisting: MagniTrackingAdapter },
   ],
