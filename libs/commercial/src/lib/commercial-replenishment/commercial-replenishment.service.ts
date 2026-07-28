@@ -494,7 +494,7 @@ export class CommercialReplenishmentService {
         LEFT JOIN commercial.warehouses w ON w.tenant_id = :t AND w.id = pl.primary_wh
         LEFT JOIN (SELECT tenant_id, product_id, max(box_size) bs FROM commercial.product_label_prices GROUP BY tenant_id, product_id) lbl
                ON lbl.tenant_id = :t AND lbl.product_id = pr.id
-        LEFT JOIN (SELECT product_id, sum(pieces) s30 FROM analytics.product_demand
+        LEFT JOIN (SELECT product_id, sum(pieces) s30, sum(revenue) rev30 FROM analytics.product_demand
                     WHERE tenant_id = :t AND window_days = 30 GROUP BY product_id) sv
                ON sv.product_id = pr.id
         LEFT JOIN (SELECT product_id, sum(quantity) qty FROM commercial.stock WHERE tenant_id = :t GROUP BY product_id) nst
@@ -503,34 +503,50 @@ export class CommercialReplenishmentService {
                ON tr.product_id = pr.id
         WHERE ${where}`;
 
-      const totalRow = (await trx.raw(`SELECT count(*)::int c, count(*) FILTER (WHERE ${sug} > 0)::int needed, round(SUM(${sug} * ${costE})::numeric,2) total_valor ${from}`, binds)).rows[0];
+      const totalRow = (await trx.raw(`SELECT count(*)::int c, count(*) FILTER (WHERE ${sug} > 0)::int needed, round(SUM(${sug} * ${costE})::numeric,2) total_valor, round(SUM(COALESCE(sv.rev30,0))::numeric,2) total_revenue ${from}`, binds)).rows[0];
 
+      // RA-PRO.18 — ranking (#) y ABC de RED se calculan como WINDOWS sobre TODO el universo
+      // filtrado (no la página): rank por venta $ 30d; ABC = Pareto por venta $ (A≤80% acum,
+      // B≤95%, C resto). Capa interna = todas las columnas + rev30; capa externa pagina.
       const rows = (await trx.raw(`
-        SELECT pr.id AS product_id, pl.primary_wh AS warehouse_id, w.code AS warehouse_code,
-               pr.sku, pr.nombre, sup.id AS supplier_id, sup.name AS supplier_name,
-               ${uxc} AS uxc,
-               round(COALESCE(pl.buy_rate,0)::numeric, 3) AS daily_rate,
-               pl.order_days, pl.last_purchase,
-               round(${stockPz}::numeric, 1) AS on_hand_pieces,
-               round((${stockPz} / ${uxc})::numeric, 2) AS on_hand_units,
-               ${transit} AS in_transit_units,
-               round(${costE}::numeric, 4) AS unit_cost,
-               round((${sellDayPz} * :cov / ${uxc})::numeric, 2) AS target_units,
-               round(${sug}::numeric, 2) AS suggested_units,
-               round((${sug} * ${uxc})::numeric, 0) AS suggested_pieces,
-               round((${sug} * ${costE})::numeric, 2) AS suggested_cost,
-               round((${sellDayPz} / ${uxc})::numeric, 2) AS sell_daily_cajas,
-               round((COALESCE(sv.s30,0) / ${uxc})::numeric, 0) AS sell_month_cajas,
-               round((${stockPz} / NULLIF(${sellDayPz}, 0))::numeric, 0) AS days_cover,
-               ${bucketExpr} AS bucket
-        ${from}
-        ORDER BY (${sug} * ${costE}) DESC, ${sellDayPz} DESC, ${stockPz} DESC
+        SELECT z.*,
+               RANK() OVER (ORDER BY z.sell_month_mxn DESC NULLS LAST) AS sales_rank,
+               CASE
+                 WHEN COALESCE(SUM(z.sell_month_mxn) OVER (), 0) = 0 THEN 'C'
+                 WHEN SUM(z.sell_month_mxn) OVER (ORDER BY z.sell_month_mxn DESC ROWS UNBOUNDED PRECEDING)
+                      / NULLIF(SUM(z.sell_month_mxn) OVER (), 0) <= 0.80 THEN 'A'
+                 WHEN SUM(z.sell_month_mxn) OVER (ORDER BY z.sell_month_mxn DESC ROWS UNBOUNDED PRECEDING)
+                      / NULLIF(SUM(z.sell_month_mxn) OVER (), 0) <= 0.95 THEN 'B'
+                 ELSE 'C' END AS abc_class
+        FROM (
+          SELECT pr.id AS product_id, pl.primary_wh AS warehouse_id, w.code AS warehouse_code,
+                 pr.sku, pr.nombre, sup.id AS supplier_id, sup.name AS supplier_name,
+                 ${uxc} AS uxc,
+                 round(COALESCE(pl.buy_rate,0)::numeric, 3) AS daily_rate,
+                 pl.order_days, pl.last_purchase,
+                 round(${stockPz}::numeric, 1) AS on_hand_pieces,
+                 round((${stockPz} / ${uxc})::numeric, 2) AS on_hand_units,
+                 ${transit} AS in_transit_units,
+                 round(${costE}::numeric, 4) AS unit_cost,
+                 round((${sellDayPz} * :cov / ${uxc})::numeric, 2) AS target_units,
+                 round(${sug}::numeric, 2) AS suggested_units,
+                 round((${sug} * ${uxc})::numeric, 0) AS suggested_pieces,
+                 round((${sug} * ${costE})::numeric, 2) AS suggested_cost,
+                 round((${sellDayPz} / ${uxc})::numeric, 2) AS sell_daily_cajas,
+                 round((COALESCE(sv.s30,0) / ${uxc})::numeric, 0) AS sell_month_cajas,
+                 round(COALESCE(sv.rev30,0)::numeric, 2) AS sell_month_mxn,
+                 round((${stockPz} / NULLIF(${sellDayPz}, 0))::numeric, 0) AS days_cover,
+                 ${bucketExpr} AS bucket
+          ${from}
+        ) z
+        ORDER BY z.suggested_cost DESC, z.sell_month_mxn DESC, z.on_hand_pieces DESC
         LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`, binds)).rows;
 
       return {
         total: Number(totalRow?.c || 0),
         needed: Number(totalRow?.needed || 0),
         total_valor: Number(totalRow?.total_valor || 0),
+        total_revenue: Number(totalRow?.total_revenue || 0),
         page, pageSize, coverage_days: cov, rows,
       };
     });
