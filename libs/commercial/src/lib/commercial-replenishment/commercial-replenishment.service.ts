@@ -131,6 +131,23 @@ export class CommercialReplenishmentService {
     private readonly scanner: ReplenishmentScannerService,
   ) {}
 
+  // RA-PRO.27 — la migración 20260728170000 (settings + columnas de override) puede ir por
+  // detrás del deploy del código (o quedar bloqueada por otra migración del batch). Este check
+  // cacheado deja que la personalización DEGRADE a auto+global sin 500 hasta que exista el schema,
+  // y se auto-cure cuando aplique. null = aún sin verificar en este proceso.
+  private raPro27Ready: boolean | null = null;
+  private async personalizationReady(trx: any): Promise<boolean> {
+    if (this.raPro27Ready != null) return this.raPro27Ready;
+    try {
+      const r = await trx.raw(`SELECT to_regclass('commercial.replenishment_settings') IS NOT NULL AS t,
+        EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema='catalog' AND table_name='suppliers' AND column_name='fill_rate_override') AS c`);
+      this.raPro27Ready = !!(r.rows[0]?.t && r.rows[0]?.c);
+    } catch { this.raPro27Ready = false; }
+    if (!this.raPro27Ready) this.logger.warn('RA-PRO.27: schema de personalización ausente — pedido en modo auto+global (aplica la migración 20260728170000).');
+    return this.raPro27Ready;
+  }
+  private readonly DEFAULT_SETTINGS = { fill_window_days: 180, fill_min_lines: 3, fill_max_inflate: 1.30, default_coverage_days: 30 };
+
   private basis(v?: string): TargetBasis {
     return BASES.includes(v as TargetBasis) ? (v as TargetBasis) : 'max';
   }
@@ -474,7 +491,12 @@ export class CommercialReplenishmentService {
     const pageSize = Math.min(cap, Math.max(1, Number(q.pageSize) || (q.export ? cap : 50)));
     return this.tk.run(async (trx) => {
       // RA-PRO.27 — parámetros globales del pedido (fill rate + cobertura) configurables por tenant.
-      const st: any = await trx('commercial.replenishment_settings').where({ tenant_id: tenantId }).first();
+      // Degrada a defaults + sin columnas de override si la migración aún no aplicó (no 500).
+      const ready = await this.personalizationReady(trx);
+      const st: any = ready ? await trx('commercial.replenishment_settings').where({ tenant_id: tenantId }).first() : this.DEFAULT_SETTINGS;
+      const colFill = ready ? 'sup.fill_rate_override' : 'NULL::numeric';
+      const colSafety = ready ? 'sup.safety_pct' : 'NULL::numeric';
+      const colCov = ready ? 'sup.coverage_days_override' : 'NULL::int';
       const cov = covReq ?? Math.min(120, Math.max(1, Number(st?.default_coverage_days) || 30));
       const fwin = Math.max(30, Number(st?.fill_window_days) || 180);   // ventana de historia del fill rate
       const fmin = Math.max(1, Number(st?.fill_min_lines) || 3);        // mínimo de recepciones para confiar
@@ -498,14 +520,14 @@ export class CommercialReplenishmentService {
       // Precedencia (ambos): override manual del proveedor → valor auto del análisis → global.
       const autoCov = `CASE WHEN scad.recs >= 2 AND scad.cadence > 0 THEN ceil(scad.cadence + COALESCE(sup.lead_time_days, 7)) END`;
       const autoSafety = `CASE WHEN scv.cv >= 1.0 THEN 20 WHEN scv.cv >= 0.5 THEN 10 ELSE 0 END`;
-      const covEff = `COALESCE(sup.coverage_days_override, ${autoCov}, :cov)`;
-      const safetyEff = `COALESCE(sup.safety_pct, ${autoSafety}, 0)`;
+      const covEff = `COALESCE(${colCov}, ${autoCov}, :cov)`;
+      const safetyEff = `COALESCE(${colSafety}, ${autoSafety}, 0)`;
       const frSku = `CASE WHEN COALESCE(frp.n,0) >= :fmin AND COALESCE(frp.ord,0) > 0 THEN LEAST(1.0, frp.recv::numeric / frp.ord) END`;
       const frSup = `CASE WHEN COALESCE(frs.n,0) >= :fmin AND COALESCE(frs.ord,0) > 0 THEN LEAST(1.0, frs.recv::numeric / frs.ord) END`;
-      const fillRate = `COALESCE(sup.fill_rate_override, ${frSku}, ${frSup}, 1.0)`;
-      const fillSource = `CASE WHEN sup.fill_rate_override IS NOT NULL THEN 'override' WHEN ${frSku} IS NOT NULL THEN 'sku' WHEN ${frSup} IS NOT NULL THEN 'supplier' ELSE 'default' END`;
-      const covSource = `CASE WHEN sup.coverage_days_override IS NOT NULL THEN 'manual' WHEN ${autoCov} IS NOT NULL THEN 'auto' ELSE 'global' END`;
-      const safetySource = `CASE WHEN sup.safety_pct IS NOT NULL THEN 'manual' WHEN ${autoSafety} > 0 THEN 'auto' ELSE 'none' END`;
+      const fillRate = `COALESCE(${colFill}, ${frSku}, ${frSup}, 1.0)`;
+      const fillSource = `CASE WHEN ${colFill} IS NOT NULL THEN 'override' WHEN ${frSku} IS NOT NULL THEN 'sku' WHEN ${frSup} IS NOT NULL THEN 'supplier' ELSE 'default' END`;
+      const covSource = `CASE WHEN ${colCov} IS NOT NULL THEN 'manual' WHEN ${autoCov} IS NOT NULL THEN 'auto' ELSE 'global' END`;
+      const safetySource = `CASE WHEN ${colSafety} IS NOT NULL THEN 'manual' WHEN ${autoSafety} > 0 THEN 'auto' ELSE 'none' END`;
       // sugerido = (necesidad ÷ fill, tope inflado) × (1 + colchón% efectivo)
       const fillFactor = `(1.0 / GREATEST(${fillRate}, 1.0 / :maxinf)) * (1 + ${safetyEff}/100.0)`;
       const needBase = `GREATEST(0, ${sellDayPz} * ${covEff} / ${uxc} - ${stockPz} / ${uxc} - ${transit})`; // necesidad neta (sin fill)
@@ -1409,25 +1431,29 @@ export class CommercialReplenishmentService {
   async listSuppliers(q?: { search?: string }) {
     const tenantId = this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
-      const st: any = await trx('commercial.replenishment_settings').where({ tenant_id: tenantId }).first();
+      const ready = await this.personalizationReady(trx);
+      const st: any = ready ? await trx('commercial.replenishment_settings').where({ tenant_id: tenantId }).first() : this.DEFAULT_SETTINGS;
       const fwin = Math.max(30, Number(st?.fill_window_days) || 180);
       const fmin = Math.max(1, Number(st?.fill_min_lines) || 3);
+      // Columnas de override: reales si la migración aplicó, si no NULL (degradado a auto+global).
+      const ovCols = ready
+        ? ['sup.fill_rate_override', 'sup.safety_pct', 'sup.coverage_days_override']
+        : ['NULL::numeric AS fill_rate_override', 'NULL::numeric AS safety_pct', 'NULL::int AS coverage_days_override'];
+      const groupCols = ['sup.id', 'sup.name', 'sup.lead_time_days', 'sup.min_order_boxes', 'sup.cadence_days_override', 'sup.colchon_days', 'sup.min_order_amount', ...(ready ? ['sup.fill_rate_override', 'sup.safety_pct', 'sup.coverage_days_override'] : [])];
       const base = trx('catalog.suppliers as sup')
         .leftJoin('catalog.products as pr', (j) => j.on('pr.tenant_id', 'sup.tenant_id').andOn('pr.supplier_id', 'sup.id'))
         .where('sup.tenant_id', tenantId);
       if (q?.search && q.search.trim()) base.andWhereILike('sup.name', `%${q.search.trim()}%`);
       const rows: any[] = await base
-        .groupBy('sup.id', 'sup.name', 'sup.lead_time_days', 'sup.min_order_boxes', 'sup.cadence_days_override', 'sup.colchon_days', 'sup.min_order_amount', 'sup.fill_rate_override', 'sup.safety_pct', 'sup.coverage_days_override')
+        .groupBy(groupCols)
         .select('sup.id', 'sup.name',
           trx.raw('sup.lead_time_days AS lead_time_days'),
           trx.raw('sup.min_order_boxes AS min_order_boxes'),
           trx.raw('sup.cadence_days_override AS cadence_days_override'),
           trx.raw('sup.colchon_days AS colchon_days'),
           trx.raw('sup.min_order_amount AS min_order_amount'),
-          // RA-PRO.27 — personalización del pedido (override manual)
-          trx.raw('sup.fill_rate_override AS fill_rate_override'),
-          trx.raw('sup.safety_pct AS safety_pct'),
-          trx.raw('sup.coverage_days_override AS coverage_days_override'),
+          // RA-PRO.27 — personalización del pedido (override manual; NULL si migración pendiente)
+          trx.raw(ovCols[0]), trx.raw(ovCols[1]), trx.raw(ovCols[2]),
           trx.raw('COUNT(pr.id)::int AS product_count'))
         .orderBy('sup.name');
 
@@ -1527,15 +1553,16 @@ export class CommercialReplenishmentService {
     // fill rate manual en 0..1: acepta también 0..100 (%) y lo normaliza.
     const clampFill = (v: unknown) => { if (v == null || Number.isNaN(Number(v))) return null; let n = Number(v); if (n > 1) n = n / 100; return Math.min(1, Math.max(0.01, n)); };
     return this.tk.run(async (trx) => {
+      const ready = await this.personalizationReady(trx);
       const upd: Record<string, unknown> = { updated_at: trx.fn.now() };
       if ('cadence_days_override' in patch) upd.cadence_days_override = clampInt(patch.cadence_days_override, 365);
       if ('colchon_days' in patch) upd.colchon_days = clampInt(patch.colchon_days, 365);
       if ('min_order_amount' in patch) upd.min_order_amount = clampNum(patch.min_order_amount);
       if ('min_order_boxes' in patch) upd.min_order_boxes = clampInt(patch.min_order_boxes, 1000000);
-      // RA-PRO.27 — personalización del pedido por proveedor.
-      if ('fill_rate_override' in patch) upd.fill_rate_override = clampFill(patch.fill_rate_override);
-      if ('safety_pct' in patch) upd.safety_pct = patch.safety_pct == null || Number.isNaN(Number(patch.safety_pct)) ? null : Math.min(100, Math.max(0, Number(patch.safety_pct)));
-      if ('coverage_days_override' in patch) upd.coverage_days_override = clampInt(patch.coverage_days_override, 120);
+      // RA-PRO.27 — personalización del pedido por proveedor (solo si la migración ya aplicó).
+      if (ready && 'fill_rate_override' in patch) upd.fill_rate_override = clampFill(patch.fill_rate_override);
+      if (ready && 'safety_pct' in patch) upd.safety_pct = patch.safety_pct == null || Number.isNaN(Number(patch.safety_pct)) ? null : Math.min(100, Math.max(0, Number(patch.safety_pct)));
+      if (ready && 'coverage_days_override' in patch) upd.coverage_days_override = clampInt(patch.coverage_days_override, 120);
       const n = await trx('catalog.suppliers').where({ tenant_id: tenantId, id: supplierId }).update(upd);
       if (!n) throw new NotFoundException('Proveedor no encontrado');
       return { id: supplierId, ...upd, updated_at: undefined };
@@ -1546,6 +1573,7 @@ export class CommercialReplenishmentService {
   async getReplenishmentSettings() {
     const tenantId = this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
+      if (!(await this.personalizationReady(trx))) return this.DEFAULT_SETTINGS; // migración pendiente → defaults
       let row: any = await trx('commercial.replenishment_settings').where({ tenant_id: tenantId }).first();
       if (!row) {
         await trx('commercial.replenishment_settings').insert({ tenant_id: tenantId }).onConflict('tenant_id').ignore();
@@ -1559,6 +1587,7 @@ export class CommercialReplenishmentService {
     const tenantId = this.tenantCtx.requireTenantId();
     const userId = this.tenantCtx.get()?.userId ?? null;
     return this.tk.run(async (trx) => {
+      if (!(await this.personalizationReady(trx))) throw new BadRequestException('Parámetros globales no disponibles aún: falta aplicar la migración 20260728170000 en este entorno.');
       const upd: Record<string, unknown> = { updated_at: trx.fn.now(), updated_by: userId };
       if ('fill_window_days' in patch) upd.fill_window_days = Math.min(730, Math.max(30, Math.round(Number(patch.fill_window_days) || 180)));
       if ('fill_min_lines' in patch) upd.fill_min_lines = Math.min(50, Math.max(1, Math.round(Number(patch.fill_min_lines) || 3)));
