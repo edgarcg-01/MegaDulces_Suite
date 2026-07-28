@@ -640,9 +640,9 @@ export const routes: Routes = [
         loadComponent: () => import('./modules/logistica/pages/logistica-actividad.component').then(m => m.LogisticaActividadComponent),
         canActivate: [permissionGuard(Permission.LOGISTICS_FLEET_VER)]
       },
-      // LTV.1 — Auditoría de ruta (plan vs real, flota completa por día)
+      // LTV.1 — Cumplimiento de reparto (plan vs real de la flota por día)
       {
-        path: 'auditoria-ruta',
+        path: 'cumplimiento-reparto',
         loadComponent: () => import('./modules/logistica/pages/logistica-auditoria-ruta.component').then(m => m.LogisticaAuditoriaRutaComponent),
         canActivate: [permissionGuard(Permission.LOGISTICS_FLEET_VER)]
       },

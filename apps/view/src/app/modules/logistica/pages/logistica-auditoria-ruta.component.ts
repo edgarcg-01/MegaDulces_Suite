@@ -28,7 +28,7 @@ import { LogisticaService, FleetAdherenceRow } from '../logistica.service';
       <header class="surf-page-head">
         <div class="surf-page-head-text">
           <span class="rk-eyebrow"><i class="pi pi-check-circle" aria-hidden="true"></i> Logística</span>
-          <h1>Auditoría de ruta</h1>
+          <h1>Cumplimiento de reparto</h1>
           <p class="surf-page-sub">
             {{ evaluables().length }} de {{ rows().length }} unidad{{ rows().length === 1 ? '' : 'es' }} evaluable{{ evaluables().length === 1 ? '' : 's' }}
             <span class="rk-muted">· plan vs. recorrido real del día</span>
