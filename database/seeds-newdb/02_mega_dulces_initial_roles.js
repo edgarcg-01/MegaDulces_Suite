@@ -115,6 +115,8 @@ exports.seed = async function (knex) {
     FINANCE_BANK_GESTIONAR: true,
     // MA (ADR-028/016) — reparto de tareas de conciliación (líder de Finanzas)
     FINANCE_RECON_ASIGNAR: true,
+    // MA — marca "recibe tareas de conciliación" (pool del área de Finanzas)
+    FINANCE_RECON_RECIBIR: true,
     // Supervisor de Movimientos (ADR-029) — cuadre caja/inventario
     RECONCILIATION_VER: true,
     RECONCILIATION_GESTIONAR: true,

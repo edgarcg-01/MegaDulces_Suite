@@ -166,6 +166,8 @@ export enum Permission {
   FINANCE_BANK_GESTIONAR = 'FINANCE_BANK_GESTIONAR',
   // MA (ADR-028/016) — reparto de tareas de conciliación (líder de Finanzas).
   FINANCE_RECON_ASIGNAR = 'FINANCE_RECON_ASIGNAR',
+  // MA — marca "recibe tareas de conciliación": el pool del área de Finanzas.
+  FINANCE_RECON_RECIBIR = 'FINANCE_RECON_RECIBIR',
 
   // ── Supervisor de Movimientos (cuadre / reconciliación) — ADR-029 ─────
   RECONCILIATION_VER = 'RECONCILIATION_VER',
