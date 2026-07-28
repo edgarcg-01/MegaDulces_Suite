@@ -218,6 +218,22 @@ export class CommercialReplenishmentService {
     return { suf, bf, uovJoin };
   }
 
+  /**
+   * RA-PRO.30 — factor de caja CANÓNICO (piezas/caja). Regla determinista que reemplaza los
+   * overrides reactivos: box_size (Pz/Cja de la etiqueta CJA de Kepler) MANDA cuando la etiqueta
+   * es internamente consistente (box_size = factor_sale × pack_size, pack_size>1). En ese caso
+   * factor_sale son PAQUETES por caja, no piezas — usarlo infla el pedido ~pack_size× (bug EFFEM/
+   * NUTRESA). Si la etiqueta no es consistente, factor_sale (piezas/caja real, caso SARAMEL/salsas
+   * — no-op porque box_size=factor_sale). Último recurso: box_size suelto (factor_sale<=1) → 1.
+   */
+  private uxcExpr(fs: string, bs: string, ps: string): string {
+    return `GREATEST(CASE
+        WHEN ${bs} > 1 AND ${ps} > 1 AND ${bs} = ${fs} * ${ps} THEN ${bs}
+        WHEN ${fs} > 1 THEN ${fs}
+        WHEN ${bs} > 1 THEN ${bs}
+        ELSE 1 END, 1)`;
+  }
+
   private basis(v?: string): TargetBasis {
     return BASES.includes(v as TargetBasis) ? (v as TargetBasis) : 'max';
   }
@@ -330,7 +346,7 @@ export class CommercialReplenishmentService {
           j.on('srcw.tenant_id', 'rp.tenant_id').andOn('srcw.id', 'rc.source_warehouse_id'))
         // Box factor de la etiquetera (fallback de factor_sale para uxc canónico; ver reference_box_factor_factor_sale)
         .leftJoin(
-          trx.raw(`(SELECT tenant_id, product_id, max(box_size) AS bs FROM commercial.product_label_prices GROUP BY tenant_id, product_id) as lbl`),
+          trx.raw(`(SELECT tenant_id, product_id, max(box_size) AS bs, max(pack_size) AS ps FROM commercial.product_label_prices GROUP BY tenant_id, product_id) as lbl`),
           (j: any) => j.on('lbl.tenant_id', 'rp.tenant_id').andOn('lbl.product_id', 'rp.product_id'))
         // RA-PRO.16 — SUPERÁVIT DE RED por producto: Σ (existencia − máximo) en TODAS las sucursales del tenant.
         // Sirve para cubrir el déficit de una sucursal con el sobrante de otra (traspaso) ANTES de comprar.
@@ -406,6 +422,7 @@ export class CommercialReplenishmentService {
           trx.raw('pr.factor_purchase AS factor_purchase'),
           trx.raw('pr.factor_sale AS factor_sale'), // piezas/caja REAL (factor_purchase está roto); ver reference_box_factor_factor_sale
           trx.raw('lbl.bs AS box_size'),            // fallback de factor_sale para uxc (etiquetera)
+          trx.raw('lbl.ps AS pack_size'),           // RA-PRO.30 — Pz/Paq; prueba box_size=factor_sale×pack_size
 
           trx.raw('COALESCE(abc.abc_class, rp.abc_class) AS abc_class'),
           trx.raw(`${this.costUnit()} AS unit_cost`),
@@ -571,7 +588,7 @@ export class CommercialReplenishmentService {
       const fwin = Math.max(30, Number(st?.fill_window_days) || 180);   // ventana de historia del fill rate
       const fmin = Math.max(1, Number(st?.fill_min_lines) || 3);        // mínimo de recepciones para confiar
       const maxinf = Math.min(3, Math.max(1, Number(st?.fill_max_inflate) || 1.30)); // tope de inflado
-      const uxc = `GREATEST(CASE WHEN pr.factor_sale > 1 THEN pr.factor_sale WHEN lbl.bs > 1 THEN lbl.bs ELSE 1 END, 1)`;
+      const uxc = this.uxcExpr('pr.factor_sale', 'lbl.bs', 'lbl.ps');
       // RA-PRO.28 — verificación de unidad de venta (ver unitAnalysis): SUF alinea demanda↔stock,
       // BF = unidad de stock por caja. Para producto de un solo canal → SUF=1, BF=uxc (sin cambio).
       const ovReady = await this.unitOverrideReady(trx);
@@ -698,7 +715,7 @@ export class CommercialReplenishmentService {
            GROUP BY po.supplier_id
         ) scad ON scad.supplier_id = pr.supplier_id${ua.join}
         LEFT JOIN commercial.warehouses w ON w.tenant_id = :t AND w.id = COALESCE(:selwh::uuid, pl.primary_wh)
-        LEFT JOIN (SELECT tenant_id, product_id, max(box_size) bs FROM commercial.product_label_prices GROUP BY tenant_id, product_id) lbl
+        LEFT JOIN (SELECT tenant_id, product_id, max(box_size) bs, max(pack_size) ps FROM commercial.product_label_prices GROUP BY tenant_id, product_id) lbl
                ON lbl.tenant_id = :t AND lbl.product_id = pr.id
         LEFT JOIN (SELECT COALESCE(al.canonical_product_id, pd.product_id) AS product_id, sum(pd.pieces) s30, sum(pd.revenue) rev30
                      FROM analytics.product_demand pd
@@ -813,7 +830,7 @@ export class CommercialReplenishmentService {
 
       // RA-PRO.28 — SUF/BF por producto (misma verificación de unidad que Comprar). El déficit se
       // computa en UNIDADES DE STOCK: demanda(sub-unidad)/SUF vs existencia(stock). bf = caja.
-      const uxcBaseT = `GREATEST(CASE WHEN p.factor_sale > 1 THEN p.factor_sale WHEN l.bs > 1 THEN l.bs ELSE 1 END, 1)`;
+      const uxcBaseT = this.uxcExpr('p.factor_sale', 'l.bs', 'l.ps');
       const { suf, bf, uovJoin } = this.sufBfCte(ovReady, uxcBaseT);
       const cte = `
         WITH ur AS (${this.unitRatioCteBody()}),
@@ -831,7 +848,7 @@ export class CommercialReplenishmentService {
                  ${bf} AS uxc,
                  COALESCE(pv.cost, p.cost_with_tax, 0) * (${bf}) AS caja_cost -- RA-PRO.28.4: costo POR CAJA (costE por unidad de stock × BF)
             FROM catalog.products p
-            LEFT JOIN (SELECT tenant_id, product_id, max(box_size) bs FROM commercial.product_label_prices GROUP BY tenant_id, product_id) l
+            LEFT JOIN (SELECT tenant_id, product_id, max(box_size) bs, max(pack_size) ps FROM commercial.product_label_prices GROUP BY tenant_id, product_id) l
                    ON l.tenant_id = :t AND l.product_id = p.id
             LEFT JOIN (SELECT product_id, sum(qty_90d * real_unit_cost) / NULLIF(sum(qty_90d),0) AS cost FROM analytics.purchase_velocity WHERE tenant_id = :t GROUP BY product_id) pv
                    ON pv.product_id = p.id
@@ -932,7 +949,7 @@ export class CommercialReplenishmentService {
 
       // RA-PRO.28 — SUF/BF por producto. El excedente se mide en UNIDADES DE STOCK: existencia
       // vs demanda(sub-unidad)/SUF × over_days. bf = caja para valuar.
-      const uxcBaseO = `GREATEST(CASE WHEN p.factor_sale > 1 THEN p.factor_sale WHEN l.bs > 1 THEN l.bs ELSE 1 END, 1)`;
+      const uxcBaseO = this.uxcExpr('p.factor_sale', 'l.bs', 'l.ps');
       const { suf, bf, uovJoin } = this.sufBfCte(ovReady, uxcBaseO);
       const cte = `
         WITH ur AS (${this.unitRatioCteBody()}),
@@ -950,7 +967,7 @@ export class CommercialReplenishmentService {
                  ${bf} AS uxc,
                  COALESCE(pv.cost, p.cost_with_tax, 0) * (${bf}) AS caja_cost -- RA-PRO.28.4: costo POR CAJA (costE por unidad de stock × BF)
             FROM catalog.products p
-            LEFT JOIN (SELECT tenant_id, product_id, max(box_size) bs FROM commercial.product_label_prices GROUP BY tenant_id, product_id) l ON l.tenant_id = :t AND l.product_id = p.id
+            LEFT JOIN (SELECT tenant_id, product_id, max(box_size) bs, max(pack_size) ps FROM commercial.product_label_prices GROUP BY tenant_id, product_id) l ON l.tenant_id = :t AND l.product_id = p.id
             LEFT JOIN (SELECT product_id, sum(qty_90d * real_unit_cost) / NULLIF(sum(qty_90d),0) AS cost FROM analytics.purchase_velocity WHERE tenant_id = :t GROUP BY product_id) pv ON pv.product_id = p.id
             LEFT JOIN ur ON ur.product_id = p.id
             ${uovJoin}

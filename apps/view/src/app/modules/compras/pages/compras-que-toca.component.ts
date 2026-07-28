@@ -606,9 +606,12 @@ export class ComprasQueTocaComponent implements OnInit {
 
   touch(): void { this.touchTick.update((n) => n + 1); }
   objetivo(l: DetailLine): number { return Math.round(Number(l.on_hand) + Number(l.in_transit) + Number(l.suggested_qty)); }
-  // uxc canónico: factor_sale → box_size (etiquetera) → 1 (igual que sales_boxes_monthly).
+  // RA-PRO.30 — uxc CANÓNICO: box_size (Pz/Cja) MANDA si la etiqueta es consistente
+  // (box_size=factor_sale×pack_size, pack_size>1 → factor_sale son PAQUETES, no piezas); si no,
+  // factor_sale (piezas/caja); último recurso box_size suelto / factor_purchase → 1. Espeja uxcExpr() del motor.
   private uxc(l: CriticalStockRow): number {
-    const fs = Number(l.factor_sale), bs = Number(l.box_size), fp = Number(l.factor_purchase);
+    const fs = Number(l.factor_sale), bs = Number(l.box_size), ps = Number(l.pack_size), fp = Number(l.factor_purchase);
+    if (bs > 1 && ps > 1 && bs === fs * ps) return bs;
     return fs > 1 ? fs : (bs > 1 ? bs : (fp > 1 ? fp : 1));
   }
   pzOf(l: DetailLine): number { return Math.round(Number(l.finalCajas || 0) * (l.uxc || 1)); }
