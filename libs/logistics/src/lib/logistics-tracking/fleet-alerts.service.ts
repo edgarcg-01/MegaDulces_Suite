@@ -35,11 +35,31 @@ export class FleetAlertsService {
     return this.tk.run(tenantId, async (trx) => {
       const trackers = await trx('logistics.trackers')
         .whereNull('deleted_at')
-        .select('id', 'vehicle_id', 'last_seen_at', 'last_speed_kmh');
+        .select('id', 'vehicle_id', 'last_seen_at', 'last_speed_kmh', 'last_status');
       let opened = 0;
       let resolved = 0;
 
+      // LTV.7 — pedidos pendientes por vehículo en embarques de hoy (para
+      // 'stopped_with_pending'). Una query, sin coords.
+      const pendingRows = await trx('logistics.shipments as s')
+        .join('logistics.delivery_guides as g', function () {
+          this.on('g.tenant_id', 's.tenant_id').andOn('g.shipment_id', 's.id');
+        })
+        .join('logistics.guide_recipients as gr', function () {
+          this.on('gr.tenant_id', 'g.tenant_id').andOn('gr.guide_id', 'g.id');
+        })
+        .whereRaw('s.shipment_date = current_date')
+        .whereNotNull('s.vehicle_id')
+        .where('gr.status', 'pendiente')
+        .groupBy('s.vehicle_id')
+        .select('s.vehicle_id')
+        .count({ pending: 'gr.id' });
+      const pendingByVehicle = new Map<string, number>(
+        pendingRows.map((r: any) => [r.vehicle_id, Number(r.pending) || 0]),
+      );
+
       for (const t of trackers) {
+        const pending = t.vehicle_id ? pendingByVehicle.get(t.vehicle_id) ?? 0 : 0;
         const mins = t.last_seen_at
           ? Math.floor((now - new Date(t.last_seen_at).getTime()) / 60000)
           : null;
@@ -57,6 +77,14 @@ export class FleetAlertsService {
             severity: 'warn',
             value: t.last_speed_kmh ?? 0,
             message: `Exceso de velocidad: ${t.last_speed_kmh} km/h`,
+          },
+          {
+            // LTV.7 — detenida con pedidos sin entregar en su embarque de hoy.
+            kind: 'stopped_with_pending',
+            on: t.last_status === 'stopped' && pending > 0,
+            severity: 'warn',
+            value: pending,
+            message: `Detenida con ${pending} pedido${pending === 1 ? '' : 's'} sin entregar`,
           },
         ];
 
