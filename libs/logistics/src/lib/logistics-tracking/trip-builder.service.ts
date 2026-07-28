@@ -37,6 +37,28 @@ function dayBoundsIso(day: string): { start: string; end: string } {
   return { start: `${day}T00:00:00-06:00`, end: `${day}T23:59:59.999-06:00` };
 }
 
+/**
+ * Separación estricta ruta ↔ logística sobre queries por vehicle_id.
+ * 'route' = vehículo con algún tracker con route_number; 'logistics' = sin él.
+ * `vehicleCol` es un identificador interno (no input de usuario) → seguro en raw.
+ */
+export function applyFleetFilter(
+  qb: Knex.QueryBuilder,
+  trx: Knex,
+  fleet: 'route' | 'logistics' | undefined,
+  vehicleCol: string,
+): void {
+  if (fleet !== 'route' && fleet !== 'logistics') return;
+  const sub = function (this: Knex.QueryBuilder) {
+    this.select(trx.raw('1'))
+      .from('logistics.trackers as tr')
+      .whereRaw(`tr.vehicle_id = ${vehicleCol}`)
+      .whereNotNull('tr.route_number');
+  };
+  if (fleet === 'route') qb.whereExists(sub);
+  else qb.whereNotExists(sub);
+}
+
 @Injectable()
 export class TripBuilderService {
   private readonly logger = new Logger(TripBuilderService.name);
@@ -194,14 +216,19 @@ export class TripBuilderService {
     return { vehicle_id: vehicleId, day, fixes: fixes.length, stops: stopRows.length, customer_stops: customerStops, km_driven: kmDriven };
   }
 
-  /** Resumen diario de todos los vehículos con actividad en `day`. */
-  async listDaySummary(day: string) {
+  /**
+   * Resumen diario de vehículos con actividad en `day`.
+   * `fleet`: 'route' = solo unidades de ruta; 'logistics' = solo flota logística
+   * (separación estricta por logistics.trackers.route_number).
+   */
+  async listDaySummary(day: string, fleet?: 'route' | 'logistics') {
     return this.tk.run(async (trx) => {
       return trx('logistics.vehicle_day_summary as s')
         .leftJoin('logistics.vehicles as v', function () {
           this.on('v.tenant_id', 's.tenant_id').andOn('v.id', 's.vehicle_id');
         })
         .where('s.day', day)
+        .modify((qb) => applyFleetFilter(qb, trx, fleet, 's.vehicle_id'))
         .select('s.*', 'v.plate as vehicle_plate')
         .orderBy('s.km_driven', 'desc');
     });

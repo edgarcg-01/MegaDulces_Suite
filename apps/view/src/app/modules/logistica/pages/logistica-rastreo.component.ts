@@ -9,7 +9,7 @@ import {
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { RouterModule } from '@angular/router';
+import { ActivatedRoute, RouterModule } from '@angular/router';
 import { ButtonModule } from 'primeng/button';
 import { TagModule } from 'primeng/tag';
 import { TooltipModule } from 'primeng/tooltip';
@@ -39,8 +39,8 @@ const STATUS_META: Record<TrackerStatus, { label: string; sev: Sev; color: strin
     <div class="surf-page">
       <header class="surf-page-head">
         <div class="surf-page-head-text">
-          <span class="rk-eyebrow"><i class="pi pi-map-marker" aria-hidden="true"></i> Logística</span>
-          <h1>Rastreo de flota</h1>
+          <span class="rk-eyebrow"><i class="pi pi-map-marker" aria-hidden="true"></i> {{ fleet === 'route' ? 'Auditoría en Ruta' : 'Logística' }}</span>
+          <h1>{{ fleet === 'route' ? 'Rastreo de ruta' : 'Rastreo de flota' }}</h1>
           <p class="surf-page-sub">
             {{ units().length }} unidad{{ units().length === 1 ? '' : 'es' }}
             <span class="rk-dot" [class.on]="counts().moving > 0" aria-hidden="true"></span>
@@ -112,8 +112,8 @@ const STATUS_META: Record<TrackerStatus, { label: string; sev: Sev; color: strin
               <div class="rk-row-main">
                 <span class="rk-row-name">{{ displayName(u) }}</span>
                 <span class="rk-row-sub">
-                  <span *ngIf="u.route_number != null" class="comm-code">R-{{ u.route_number }}</span>
-                  <span *ngIf="u.vendor_name">{{ u.vendor_name }} ·</span>
+                  <span *ngIf="fleet === 'route' && u.route_number != null" class="comm-code">R-{{ u.route_number }}</span>
+                  <span *ngIf="fleet === 'route' && u.vendor_name">{{ u.vendor_name }} ·</span>
                   <span>{{ statusMeta(u).label }}</span>
                   <span *ngIf="u.last_speed_kmh">· {{ u.last_speed_kmh }} km/h</span>
                 </span>
@@ -129,8 +129,8 @@ const STATUS_META: Record<TrackerStatus, { label: string; sev: Sev; color: strin
             <h3>{{ displayName(s) }}</h3>
           </div>
           <dl class="rk-kv">
-            <div><dt>Ruta</dt><dd>{{ routeLabel(s) }}</dd></div>
-            <div><dt>Vendedor</dt><dd>{{ s.vendor_name || '—' }}</dd></div>
+            <div *ngIf="fleet === 'route'"><dt>Ruta</dt><dd>{{ routeLabel(s) }}</dd></div>
+            <div *ngIf="fleet === 'route'"><dt>Vendedor</dt><dd>{{ s.vendor_name || '—' }}</dd></div>
             <div><dt>Velocidad</dt><dd class="num">{{ s.last_speed_kmh ?? 0 }} km/h</dd></div>
             <div><dt>Encendido</dt><dd>{{ s.last_ignition === null ? '—' : (s.last_ignition ? 'Sí' : 'No') }}</dd></div>
             <div><dt>Último reporte</dt><dd>{{ ago(s.last_seen_at) }}</dd></div>
@@ -147,7 +147,7 @@ const STATUS_META: Record<TrackerStatus, { label: string; sev: Sev; color: strin
             </select>
           </div>
 
-          <div class="rk-link">
+          <div class="rk-link" *ngIf="fleet === 'route'">
             <label [attr.for]="'rt-' + s.id">Ruta (número)</label>
             <input [id]="'rt-' + s.id" type="number" min="0" max="999" inputmode="numeric"
                    placeholder="ej. 21 — vacío = automático del GPS"
@@ -160,9 +160,9 @@ const STATUS_META: Record<TrackerStatus, { label: string; sev: Sev; color: strin
                     [icon]="loadingTrail() ? 'pi pi-spin pi-spinner' : 'pi pi-directions'"
                     [label]="showTrail() ? 'Ocultar recorrido' : 'Ver recorrido de hoy'"
                     (click)="toggleTrail(s)"></button>
-            <a pButton size="small" severity="secondary" [text]="true"
-               icon="pi pi-check-circle" label="Cumplimiento de reparto"
-               routerLink="/logistica/cumplimiento-reparto"></a>
+            <a *ngIf="fleet === 'route'" pButton size="small" severity="secondary" [text]="true"
+               icon="pi pi-check-circle" label="Cumplimiento de ruta"
+               routerLink="/dashboard/route-compliance"></a>
           </div>
         </article>
 
@@ -265,6 +265,8 @@ const STATUS_META: Record<TrackerStatus, { label: string; sev: Sev; color: strin
 export class LogisticaRastreoComponent {
   private readonly api = inject(LogisticaService);
   private readonly destroyRef = inject(DestroyRef);
+  /** Alcance: 'route' (camionetas de ruta, Auditoría en Ruta) o 'logistics'. */
+  readonly fleet: 'route' | 'logistics' = inject(ActivatedRoute).snapshot.data['fleet'] ?? 'logistics';
   @ViewChild('map') map?: MapComponent;
 
   readonly units = signal<TrackerLive[]>([]);
@@ -318,7 +320,7 @@ export class LogisticaRastreoComponent {
 
   refresh() {
     this.loading.set(true);
-    this.api.liveTracking().subscribe({
+    this.api.liveTracking(this.fleet).subscribe({
       next: (r) => { this.units.set(r || []); this.errored.set(false); this.loading.set(false); if (r?.length) this.lastSynced.set(Date.now()); },
       error: () => { this.errored.set(true); this.loading.set(false); },
     });

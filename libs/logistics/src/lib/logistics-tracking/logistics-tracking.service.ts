@@ -154,8 +154,13 @@ export class LogisticsTrackingService {
     return { objects: objects.length, created, updated, linked, positions, ms };
   }
 
-  /** Última posición de cada tracker (para el mapa en vivo). Scoped por RLS. */
-  async listLive() {
+  /**
+   * Última posición de cada tracker (para el mapa en vivo). Scoped por RLS.
+   * `fleet`: 'route' = solo camionetas de ruta (route_number no nulo, dominio
+   * Auditoría en Ruta); 'logistics' = solo flota logística (route_number nulo);
+   * undefined = todas. Es la separación estricta ruta ↔ logística.
+   */
+  async listLive(fleet?: 'route' | 'logistics') {
     return this.tk.run(async (trx) => {
       const rows = await trx('logistics.trackers as t')
         .leftJoin('logistics.vehicles as v', function () {
@@ -163,6 +168,10 @@ export class LogisticsTrackingService {
         })
         .where('t.active', true)
         .whereNull('t.deleted_at')
+        .modify((qb) => {
+          if (fleet === 'route') qb.whereNotNull('t.route_number');
+          else if (fleet === 'logistics') qb.whereNull('t.route_number');
+        })
         .select(
           't.id',
           't.imei',

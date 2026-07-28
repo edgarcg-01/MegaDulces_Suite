@@ -35,6 +35,10 @@ export const routes: Routes = [
       { path: 'seguimiento', loadComponent: () => import('./modules/dashboard/seguimiento/seguimiento.component').then(m => m.SeguimientoComponent), canActivate: [permissionGuard(Permission.VER_SEGUIMIENTO)] },
       { path: 'routes', loadComponent: () => import('./modules/dashboard/routes-analysis/routes-analysis.component').then(m => m.RoutesAnalysisComponent), canActivate: [permissionGuard(Permission.RUTAS_VER)] },
       { path: 'live-map', loadComponent: () => import('./modules/dashboard/live-map/live-map.component').then(m => m.LiveMapComponent), canActivate: [permissionGuard(Permission.RUTAS_VER)] },
+      // LTV — Flota de RUTA (camionetas R-NN + vendedor). Dominio Auditoría en Ruta, separado de Logística.
+      { path: 'route-tracking', data: { fleet: 'route' }, loadComponent: () => import('../app/modules/logistica/pages/logistica-rastreo.component').then(m => m.LogisticaRastreoComponent), canActivate: [permissionGuard(Permission.RUTAS_VER)] },
+      { path: 'route-activity', data: { fleet: 'route' }, loadComponent: () => import('../app/modules/logistica/pages/logistica-actividad.component').then(m => m.LogisticaActividadComponent), canActivate: [permissionGuard(Permission.RUTAS_VER)] },
+      { path: 'route-compliance', loadComponent: () => import('../app/modules/logistica/pages/logistica-auditoria-ruta.component').then(m => m.LogisticaAuditoriaRutaComponent), canActivate: [permissionGuard(Permission.RUTAS_VER)] },
       { path: 'field-map', loadComponent: () => import('./modules/dashboard/field-map/field-map.component').then(m => m.FieldMapComponent), canActivate: [anyPermissionGuard(Permission.RUTAS_VER, Permission.COMMERCIAL_MAP_VER)] },
       { path: 'vendor-history', loadComponent: () => import('./modules/dashboard/vendor-history/vendor-history.component').then(m => m.VendorHistoryComponent), canActivate: [permissionGuard(Permission.RUTAS_VER)] },
       { path: 'commercial-map', loadComponent: () => import('./modules/dashboard/commercial-map/commercial-map.component').then(m => m.CommercialMapComponent), canActivate: [permissionGuard(Permission.COMMERCIAL_MAP_VER)] },
@@ -628,22 +632,18 @@ export const routes: Routes = [
         loadComponent: () => import('./modules/logistica/pages/logistica-live.component').then(m => m.LogisticaLiveComponent),
         canActivate: [permissionGuard(Permission.LOGISTICS_FLEET_VER)]
       },
-      // LT — Rastreo de flota GPS (MagniTracking): posiciones reales de los trackers
+      // LT — Rastreo de flota logística (foráneas/embarques/motos). Solo route_number IS NULL.
       {
         path: 'rastreo',
+        data: { fleet: 'logistics' },
         loadComponent: () => import('./modules/logistica/pages/logistica-rastreo.component').then(m => m.LogisticaRastreoComponent),
         canActivate: [permissionGuard(Permission.LOGISTICS_FLEET_VER)]
       },
-      // LTV.0 + LTV.5 — Actividad de flota (viajes/paradas + productividad del día)
+      // LTV.0 + LTV.5 — Actividad de la flota logística
       {
         path: 'actividad',
+        data: { fleet: 'logistics' },
         loadComponent: () => import('./modules/logistica/pages/logistica-actividad.component').then(m => m.LogisticaActividadComponent),
-        canActivate: [permissionGuard(Permission.LOGISTICS_FLEET_VER)]
-      },
-      // LTV.1 — Cumplimiento de reparto (plan vs real de la flota por día)
-      {
-        path: 'cumplimiento-reparto',
-        loadComponent: () => import('./modules/logistica/pages/logistica-auditoria-ruta.component').then(m => m.LogisticaAuditoriaRutaComponent),
         canActivate: [permissionGuard(Permission.LOGISTICS_FLEET_VER)]
       },
       // J12.3 — Planeador de ruta (mapa + optimización)
