@@ -620,6 +620,62 @@ export interface TrackerHistoryPoint {
   status: TrackerStatus | null;
 }
 
+// ── LTV.0 Viajes/paradas + LTV.5 Productividad ───────────────────────────────
+export interface VehicleDaySummary {
+  vehicle_id: string;
+  vehicle_plate: string | null;
+  day: string;
+  km_driven: number;
+  moving_min: number;
+  stopped_min: number;
+  offline_min: number;
+  stops_count: number;
+  customer_stops: number;
+  first_move_at: string | null;
+  last_stop_at: string | null;
+  max_speed_kmh: number | null;
+}
+
+export interface FleetProductivityRow {
+  vehicle_id: string;
+  vehicle_plate: string | null;
+  day: string;
+  km_driven: number;
+  moving_min: number;
+  stopped_min: number;
+  dead_min: number;
+  offline_min: number;
+  stops_count: number;
+  customer_stops: number;
+  dead_stops: number;
+  km_per_customer_stop: number | null;
+}
+
+export interface VehicleStop {
+  id: string;
+  vehicle_id: string;
+  arrived_at: string;
+  left_at: string;
+  minutes: number;
+  lat: number;
+  lng: number;
+  matched_customer_id: string | null;
+  matched_store_id: string | null;
+  match_distance_m: number | null;
+  is_customer: boolean;
+  customer_name: string | null;
+  customer_code: string | null;
+}
+
+export interface RebuildResult {
+  vehicle_id: string;
+  day: string;
+  fixes: number;
+  stops: number;
+  customer_stops: number;
+  km_driven: number;
+}
+
 @Injectable({ providedIn: 'root' })
 export class LogisticaService {
   private readonly http = inject(HttpClient);
@@ -1033,6 +1089,24 @@ export class LogisticaService {
   }
   linkTracker(trackerId: string, vehicleId: string | null): Observable<{ id: string; vehicle_id: string | null }> {
     return this.http.patch<{ id: string; vehicle_id: string | null }>(`${this.base}/tracking/trackers/${trackerId}/link`, { vehicle_id: vehicleId });
+  }
+  // ── LTV.0 / LTV.5 Actividad de flota ───────────────────────────────────────
+  fleetProductivity(date: string): Observable<FleetProductivityRow[]> {
+    const params = new HttpParams().set('date', date);
+    return this.http.get<FleetProductivityRow[]>(`${this.base}/tracking/productivity`, { params });
+  }
+  fleetDaySummary(date: string): Observable<VehicleDaySummary[]> {
+    const params = new HttpParams().set('date', date);
+    return this.http.get<VehicleDaySummary[]>(`${this.base}/tracking/trips/day-summary`, { params });
+  }
+  vehicleStops(vehicleId: string, date: string): Observable<VehicleStop[]> {
+    const params = new HttpParams().set('date', date);
+    return this.http.get<VehicleStop[]>(`${this.base}/tracking/trips/${vehicleId}/stops`, { params });
+  }
+  rebuildTrips(date: string, vehicleId?: string): Observable<RebuildResult[] | RebuildResult> {
+    let params = new HttpParams().set('date', date);
+    if (vehicleId) params = params.set('vehicle_id', vehicleId);
+    return this.http.post<RebuildResult[] | RebuildResult>(`${this.base}/tracking/trips/rebuild`, {}, { params });
   }
 
   // ── J12.3 Optimización de ruta ─────────────────────────────────────────────

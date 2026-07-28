@@ -634,6 +634,12 @@ export const routes: Routes = [
         loadComponent: () => import('./modules/logistica/pages/logistica-rastreo.component').then(m => m.LogisticaRastreoComponent),
         canActivate: [permissionGuard(Permission.LOGISTICS_FLEET_VER)]
       },
+      // LTV.0 + LTV.5 — Actividad de flota (viajes/paradas + productividad del día)
+      {
+        path: 'actividad',
+        loadComponent: () => import('./modules/logistica/pages/logistica-actividad.component').then(m => m.LogisticaActividadComponent),
+        canActivate: [permissionGuard(Permission.LOGISTICS_FLEET_VER)]
+      },
       // J12.3 — Planeador de ruta (mapa + optimización)
       {
         path: 'planner',
