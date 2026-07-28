@@ -115,7 +115,8 @@ interface TRow extends TransferSuggestionRow { _mover: number; _sel: boolean; }
                 <th class="pr-r pr-sell" title="Venta diaria de la red (cajas/día)">Venta/d</th>
                 <th class="pr-r" title="Días hasta agotarse = existencia de red ÷ venta diaria de red">Cobertura</th>
                 <th class="pr-r" title="Existencia de la red en cajas">Exist.</th>
-                <th class="pr-r pr-sug" title="Cajas a pedir (editable)">Pedir</th>
+                <th class="pr-r" title="Fill rate del proveedor (recibido ÷ pedido, últimos 180 d). Debajo de 100% infla el sugerido para compensar surtido incompleto (tope 1.3x). — = sin historia suficiente (no infla).">Fill</th>
+                <th class="pr-r pr-sug" title="Cajas a pedir (editable). Ya incluye el ajuste por fill rate del proveedor.">Pedir</th>
                 <th class="pr-r pr-muted-h" title="Piezas = cajas × UXC">Piezas</th>
                 <th class="pr-r" title="Costo real por caja">Costo</th>
                 <th class="pr-r pr-val" title="Valor = pedir × costo real">Valor</th>
@@ -143,6 +144,13 @@ interface TRow extends TransferSuggestionRow { _mover: number; _sel: boolean; }
                   } @else { <span class="pr-muted">—</span> }
                 </td>
                 <td class="pr-r pr-muted">{{ r.on_hand_units | number:'1.0-0' }}</td>
+                <td class="pr-r">
+                  @if (r.fill_rate != null && r.fill_rate < 0.999) {
+                    <span [title]="'Necesidad ' + (r.base_units | number:'1.0-0') + ' → ' + (r.suggested_units | number:'1.0-0') + ' cajas (÷ fill ' + (r.fill_rate * 100 | number:'1.0-0') + '%)'">
+                      <p-tag [value]="(r.fill_rate * 100 | number:'1.0-0') + '%'" [severity]="fillSev(r.fill_rate)" styleClass="pr-cov-tag"></p-tag>
+                    </span>
+                  } @else { <span class="pr-muted">—</span> }
+                </td>
                 <td class="pr-r pr-sug">
                   <input pInputText type="number" min="0" [(ngModel)]="r._pedir" (ngModelChange)="onSel()" class="pr-qty" [attr.aria-label]="'Cajas a pedir de ' + r.sku" />
                 </td>
@@ -152,7 +160,7 @@ interface TRow extends TransferSuggestionRow { _mover: number; _sel: boolean; }
               </tr>
             </ng-template>
             <ng-template pTemplate="emptymessage">
-              <tr><td colspan="13" class="pr-empty">
+              <tr><td colspan="14" class="pr-empty">
                 <i class="pi pi-inbox"></i>
                 <p>Sin productos con estos filtros.</p>
                 <span>Ajusta proveedor, almacén, bucket o búsqueda. Quita "Solo por pedir" para ver todos los productos.</span>
@@ -595,6 +603,14 @@ export class ComprasPedidoRealComponent implements OnInit {
     if (d < 30) return 'warn';
     if (d > 90) return 'info';
     return 'success';
+  }
+
+  /** Fill rate: <80% malo (danger) · <95% flojo (warn) · resto ok (secondary, ya casi 100%). */
+  fillSev(f: number | null | undefined): Sev {
+    if (f == null) return 'secondary';
+    if (f < 0.80) return 'danger';
+    if (f < 0.95) return 'warn';
+    return 'secondary';
   }
 
   /** Arma requisición(es): agrupa lo seleccionado por (proveedor × almacén de compra) → una por grupo. */
