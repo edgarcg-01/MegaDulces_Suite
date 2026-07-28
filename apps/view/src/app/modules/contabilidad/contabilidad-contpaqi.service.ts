@@ -27,6 +27,21 @@ export interface LibrosVsOpResp { concepto: string; from_mes: string; to_mes: st
 export type BalanzaGroupBy = 'familia' | 'cuenta' | 'mes' | 'agrupador_sat';
 export type BankGroupBy = 'banco' | 'mes';
 
+export type CfdiRiesgo = 'efos' | 'lista69' | 'no_registrado' | 'ok';
+export interface CfdiVsContabRow {
+  rfc: string; nombre: string; num_cfdis: number; base: number; iva: number; total: number;
+  en_contpaqi: boolean; codigo: string | null; sat_lista: string | null; sat_situacion: string | null; riesgo: CfdiRiesgo;
+}
+export interface CfdiVsContabResp {
+  period: string;
+  summary: {
+    proveedores: number; cfdi_count: number; cfdi_total: number; registrados: number;
+    no_registrados: number; no_registrados_monto: number;
+    efos_count: number; efos_monto: number; lista69_count: number; lista69_monto: number;
+  };
+  rows: CfdiVsContabRow[];
+}
+
 @Injectable({ providedIn: 'root' })
 export class ContabilidadContpaqiService {
   private readonly http = inject(HttpClient);
@@ -65,5 +80,10 @@ export class ContabilidadContpaqiService {
     if (q?.to_mes) p.set('to_mes', q.to_mes);
     const qs = p.toString();
     return this.http.get<any>(`${this.base}/libros-vs-operacion${qs ? '?' + qs : ''}`).pipe(map((o) => this.rows<LibrosVsOpResp>(o)));
+  }
+
+  // CP.8 — CFDI recibidos vs padrón de proveedores ContPAQi + lista SAT. Endpoint plano (no col()).
+  cfdiVsContab(period: string): Observable<CfdiVsContabResp> {
+    return this.http.get<CfdiVsContabResp>(`${environment.apiUrl}/contabilidad/cfdi-vs-contabilidad?period=${encodeURIComponent(period)}`);
   }
 }

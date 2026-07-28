@@ -18,7 +18,7 @@ import { LoadStateComponent } from '../../../shared/components/load-state/load-s
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import { FINANZAS_TABS } from '../finanzas-tabs';
-import { BankService, BankAccount, MovementCategory, BankStatement, BankMovement, Concentrado, Reconciliation, MatchResult, Differences, Balances, Diagnostico, KeplerAccount, SideBySide, ContpaqiCompare, ContpaqiBankAccount } from '../bank.service';
+import { BankService, BankAccount, MovementCategory, BankStatement, BankMovement, Concentrado, Reconciliation, MatchResult, Differences, Balances, Diagnostico, KeplerAccount, SideBySide, ContpaqiCompare, ContpaqiBankAccount, FactorajeCompare } from '../bank.service';
 import {
   BankView as View, MONTHS_ES, WORK_VIEWS,
   GROUP_LABELS, GROUP_ORDER,
@@ -163,7 +163,7 @@ import { BancosContpaqiComponent } from './bancos/bancos-contpaqi.component';
         } @else if (cpqLoading()) {
           <div class="fb-skeleton" aria-busy="true">@for (i of [1,2,3,4,5,6]; track i) { <div class="fb-skel-row"></div> }</div>
         } @else {
-          <bancos-contpaqi [compare]="contpaqiCompare()" [linking]="cpqLinking()" [period]="period()" [available]="cpqAccounts()" (link)="linkContpaqi()" (manualLink)="manualLinkContpaqi($event)" />
+          <bancos-contpaqi [compare]="contpaqiCompare()" [linking]="cpqLinking()" [period]="period()" [available]="cpqAccounts()" [factoraje]="factorajeCompare()" (link)="linkContpaqi()" (manualLink)="manualLinkContpaqi($event)" />
         }
       }
 
@@ -415,6 +415,7 @@ export class FinanzasBancosComponent implements OnInit {
   readonly cpqError = signal<string | null>(null);
   readonly cpqLinking = signal(false);
   readonly cpqAccounts = signal<ContpaqiBankAccount[]>([]);
+  readonly factorajeCompare = signal<FactorajeCompare | null>(null);
 
   // Filtros de Movimientos (el shell los posee para poder recargar al cambiar de periodo).
   readonly fAccount = signal('');
@@ -517,6 +518,8 @@ export class FinanzasBancosComponent implements OnInit {
       this.api.contpaqiAccounts().pipe(takeUntilDestroyed(this.destroyRef))
         .subscribe({ next: (as) => this.cpqAccounts.set(as), error: () => { /* selector opcional */ } });
     }
+    this.api.factorajeCompare(p).pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({ next: (f) => this.factorajeCompare.set(f), error: () => { /* factoraje opcional */ } });
   }
 
   /** CP.2 — enlace manual de una cuenta (Santander 1604/1621) a su cuenta contable ContPAQi. */
@@ -564,6 +567,7 @@ export class FinanzasBancosComponent implements OnInit {
     this.sideBySide.set(null);
     this.sbsError.set(null);
     this.contpaqiCompare.set(null);
+    this.factorajeCompare.set(null);
     this.cpqError.set(null);
     const p = this.period();
     if (this.view() === 'contpaqi') this.loadContpaqi();

@@ -542,9 +542,10 @@ export class CommercialAnalyticsController {
     @Query('search') search?: string,
     @Query('view') view?: string,
     @Query('cells') cells?: string,
+    @Query('promo') promo?: string,
   ) {
     return this.service.sellOut(
-      this.parseSellOutQuery(brandId, from, to, groupBy, channels, warehouses, includeZeros, search, view, cells),
+      this.parseSellOutQuery(brandId, from, to, groupBy, channels, warehouses, includeZeros, search, view, cells, promo),
     );
   }
 
@@ -560,9 +561,10 @@ export class CommercialAnalyticsController {
     @Query('to') to: string,
     @Query('search') search?: string,
     @Query('cells') cells?: string,
+    @Query('promo') promo?: string,
   ) {
     return this.service.sellOutByVendor(
-      this.parseSellOutQuery(brandId, from, to, undefined, undefined, undefined, undefined, search, undefined, cells),
+      this.parseSellOutQuery(brandId, from, to, undefined, undefined, undefined, undefined, search, undefined, cells, promo),
     );
   }
 
@@ -582,8 +584,9 @@ export class CommercialAnalyticsController {
     @Query('view') view?: string,
     @Query('cells') cells?: string,
     @Query('mode') mode?: string,
+    @Query('promo') promo?: string,
   ) {
-    const q = this.parseSellOutQuery(brandId, from, to, groupBy, channels, warehouses, includeZeros, search, view, cells);
+    const q = this.parseSellOutQuery(brandId, from, to, groupBy, channels, warehouses, includeZeros, search, view, cells, promo);
     const report = mode === 'vendedor' ? await this.service.sellOutByVendor(q) : await this.service.sellOut(q);
     const buf = await this.exporter.buildXlsx(report);
     this.sendFile(res, buf, this.exporter.fileName(report, 'xlsx'),
@@ -606,8 +609,9 @@ export class CommercialAnalyticsController {
     @Query('view') view?: string,
     @Query('cells') cells?: string,
     @Query('mode') mode?: string,
+    @Query('promo') promo?: string,
   ) {
-    const q = this.parseSellOutQuery(brandId, from, to, groupBy, channels, warehouses, includeZeros, search, view, cells);
+    const q = this.parseSellOutQuery(brandId, from, to, groupBy, channels, warehouses, includeZeros, search, view, cells, promo);
     const report = mode === 'vendedor' ? await this.service.sellOutByVendor(q) : await this.service.sellOut(q);
     const buf = await this.exporter.buildPdf(report);
     this.sendFile(res, buf, this.exporter.fileName(report, 'pdf'), 'application/pdf');
@@ -800,6 +804,7 @@ export class CommercialAnalyticsController {
     search?: string,
     view?: string,
     cells?: string,
+    promo?: string,
   ) {
     const csv = (s?: string) => (s ? s.split(',').map((v) => v.trim()).filter(Boolean) : undefined);
     const parsedView = view === 'month_columns' || view === 'month_summary'
@@ -816,6 +821,7 @@ export class CommercialAnalyticsController {
       cells: csv(cells),
       include_zeros: includeZeros === 'true',
       search: search?.trim() || undefined,
+      promo: (promo === 'solo' || promo === 'todo') ? (promo as 'solo' | 'todo') : undefined,
     };
   }
 

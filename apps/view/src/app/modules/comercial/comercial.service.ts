@@ -1144,6 +1144,7 @@ export class ComercialService {
     if (opts.mode) params = params.set('mode', opts.mode);
     if (opts.include_zeros) params = params.set('include_zeros', 'true');
     if (opts.search?.trim()) params = params.set('search', opts.search.trim());
+    if (opts.promo && opts.promo !== 'sin') params = params.set('promo', opts.promo);
     return params;
   }
 
@@ -1298,6 +1299,8 @@ export interface SellOutParams {
   mode?: 'canal' | 'vendedor';
   include_zeros?: boolean;
   search?: string;
+  /** RS — filtro de promos: 'sin' (default) | 'solo' | 'todo'. */
+  promo?: 'sin' | 'solo' | 'todo';
 }
 
 export interface SellOutWarehouseRow {

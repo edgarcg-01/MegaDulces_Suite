@@ -94,7 +94,28 @@ const PLS = [
         UPDATE catalog.products p SET is_promo = np.promo, updated_at = now()
         FROM (SELECT product_id, (max(price) <= 0.05) AS promo FROM stg_px GROUP BY product_id) np
         WHERE p.id = np.product_id AND p.tenant_id = $1 AND p.is_promo IS DISTINCT FROM np.promo`, [M]);
-      promoMsg = `is_promo recalculado en ${promo.rowCount} productos`;
+      // Pase por COSTO: las claves promo/regalo Kepler ($0.01 placeholder, ej. "…= GRATIS 1…")
+      // no siempre traen precio en product_prices → el pase por precio de arriba nunca las
+      // evalúa (join a stg_px) y quedan is_promo=false. Costo en (0, 0.05] es señal precisa
+      // de esas claves. Se EXCLUYE costo=0.00 a propósito: ahí suele ser costo FALTANTE de un
+      // producto real (GLOBO, RICOLINO…), no una promo. Solo marca true (nunca limpia acá).
+      const promoCost = await db.query(`
+        UPDATE catalog.products SET is_promo = true, updated_at = now()
+        WHERE tenant_id = $1 AND deleted_at IS NULL AND is_promo = false
+          AND cost_base IS NOT NULL AND cost_base > 0 AND cost_base <= 0.05`, [M]);
+      // Pase por NOMBRE: las claves de trade-promo "compra X = GRATIS Y" no traen ni precio
+      // ni costo (la normalización de marca a veces deja viva la gemela sin datos, ej. 95489)
+      // → escapan a los dos pases numéricos. El patrón '= GRATIS' es la firma inequívoca de
+      // esas claves. OJO: se exige el '=' a propósito — "MAYONESA 30% GRATIS" / "+172ML GRATIS"
+      // son PRODUCTOS REALES con bonificación (sin '='), NO promos → no se tocan.
+      // Guard de costo: si tiene costo real (>$0.05) es un producto/combo vendible aunque el
+      // nombre diga "= GRATIS" (ej. "COMBO 4 PROD FERRERO = GRATIS 1 PELUCHE" $550) → no tocar.
+      const promoName = await db.query(`
+        UPDATE catalog.products SET is_promo = true, updated_at = now()
+        WHERE tenant_id = $1 AND deleted_at IS NULL AND is_promo = false
+          AND upper(nombre) LIKE '%= GRATIS%'
+          AND (cost_base IS NULL OR cost_base <= 0.05)`, [M]);
+      promoMsg = `is_promo recalculado en ${promo.rowCount} (precio) + ${promoCost.rowCount} (costo ≤$0.05) + ${promoName.rowCount} (nombre "= GRATIS")`;
     }
     await db.query('COMMIT');
     console.log(`\n[APPLY] COMMIT — ${up.rowCount} precios upserted · ${promoMsg}.`);

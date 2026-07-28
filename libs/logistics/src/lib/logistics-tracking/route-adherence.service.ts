@@ -1,4 +1,5 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
+import { Knex } from 'knex';
 import { TenantKnexService } from '@megadulces/platform-core';
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -36,8 +37,58 @@ export class RouteAdherenceService {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(day || '')) throw new BadRequestException('date inválida (YYYY-MM-DD)');
     const start = `${day}T00:00:00-06:00`;
     const end = `${day}T23:59:59.999-06:00`;
+    return this.tk.run((trx) => this.computeForVehicle(trx, vehicleId, day, start, end));
+  }
+
+  /**
+   * LTV.1 batch — cumplimiento de TODA la flota en un día. Une los vehículos que
+   * tuvieron embarque con ruta ese día + los que tuvieron actividad GPS, y calcula
+   * el cumplimiento de cada uno en una sola transacción. Ordena por peor
+   * cumplimiento (evaluables primero). Es la fuente de "Auditoría de ruta".
+   */
+  async forFleetDay(day: string): Promise<Array<AdherenceResult & { vehicle_plate: string | null }>> {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(day || '')) throw new BadRequestException('date inválida (YYYY-MM-DD)');
+    const start = `${day}T00:00:00-06:00`;
+    const end = `${day}T23:59:59.999-06:00`;
 
     return this.tk.run(async (trx) => {
+      const withRoute: Array<{ vehicle_id: string }> = await trx('logistics.shipments')
+        .where('shipment_date', day)
+        .whereNotNull('vehicle_id')
+        .whereNotNull('route_id')
+        .distinct('vehicle_id');
+      const withActivity: Array<{ vehicle_id: string }> = await trx('logistics.vehicle_day_summary')
+        .where('day', day)
+        .whereNotNull('vehicle_id')
+        .distinct('vehicle_id');
+      const ids = Array.from(new Set([...withRoute, ...withActivity].map((r) => r.vehicle_id)));
+      if (!ids.length) return [];
+
+      const plateRows = await trx('logistics.vehicles').whereIn('id', ids).select('id', 'plate');
+      const plateById = new Map(plateRows.map((v: any) => [v.id, v.plate ?? null]));
+
+      const out: Array<AdherenceResult & { vehicle_plate: string | null }> = [];
+      for (const id of ids) {
+        const r = await this.computeForVehicle(trx, id, day, start, end);
+        out.push({ ...r, vehicle_plate: plateById.get(id) ?? null });
+      }
+      // Evaluables primero, dentro de esos por peor cobertura; luego no-evaluables.
+      return out.sort((a, b) => {
+        if (a.evaluable !== b.evaluable) return a.evaluable ? -1 : 1;
+        return (a.coverage_pct ?? 101) - (b.coverage_pct ?? 101);
+      });
+    });
+  }
+
+  /** Núcleo reutilizable: cumplimiento de un vehículo en un día (dentro de un trx dado). */
+  private async computeForVehicle(
+    trx: Knex.Transaction,
+    vehicleId: string,
+    day: string,
+    start: string,
+    end: string,
+  ): Promise<AdherenceResult> {
+    {
       // Rutas que la unidad sirvió ese día (por embarques).
       const shipRoutes: Array<{ route_id: string }> = await trx('logistics.shipments')
         .where({ vehicle_id: vehicleId, shipment_date: day })
@@ -95,6 +146,6 @@ export class RouteAdherenceService {
         skipped,
         off_route_stops: offRoute,
       };
-    });
+    }
   }
 }
