@@ -457,80 +457,79 @@ export class CommercialReplenishmentService {
       // La DEMANDA manda el reorden: objetivo = venta_diaria_red × cobertura; sugerido = objetivo −
       // existencia − tránsito. Si la existencia ya cubre el horizonte (sobrestock) → 0: no re-compra
       // lo que no rota (antes, anclado en el ritmo de compra, sobre-sugería lo sobrestockeado).
+      const costE = `COALESCE(pl.cost, pr.cost_with_tax, 0)`; // costo real de compra; fallback a catálogo si nunca se compró
       const sug = `GREATEST(0, ${sellDayPz} * :cov / ${uxc} - ${stockPz} / ${uxc} - ${transit})`;
-      const filters: string[] = ['pr.activo = true'];
+      const filters: string[] = ['pr.tenant_id = :t', 'pr.activo = true'];
       const binds: Record<string, unknown> = { t: tenantId, cov };
       // Filtro de almacén de COMPRA: producto comprado en ese(s) almacén(es) (vía el ledger).
       const whIds = this.whIds(q);
       let plWhere = 'tenant_id = :t';
-      if (whIds.length) { plWhere += ` AND warehouse_id IN (${whIds.map((_, i) => `:w${i}`).join(',')})`; whIds.forEach((w, i) => { binds[`w${i}`] = w; }); }
+      if (whIds.length) { plWhere += ` AND warehouse_id IN (${whIds.map((_, i) => `:w${i}`).join(',')})`; whIds.forEach((w, i) => { binds[`w${i}`] = w; }); filters.push('pl.product_id IS NOT NULL'); }
       if (q.supplier_id && UUID_RX.test(q.supplier_id)) { filters.push('pr.supplier_id = :sid'); binds.sid = q.supplier_id; }
       if (q.category_id && UUID_RX.test(q.category_id)) { filters.push('pr.category_id = :cat'); binds.cat = q.category_id; }
       if (q.search && q.search.trim()) { filters.push('(pr.sku ILIKE :s OR pr.nombre ILIKE :s)'); binds.s = `%${q.search.trim()}%`; }
       // Bucket por COBERTURA (días que aguanta la red vendiendo): agotado / crítico(<7) / bajo(<cobertura) /
-      // sano / sobrestock(>90). Default = solo lo que necesita pedido (sug>0); bucket o scope='all' lo abren.
+      // sano / sobrestock(>90). DEFAULT = TODOS los productos (visibilidad total); scope='needed' o un
+      // bucket lo acotan. Ordenado por valor del sugerido → lo accionable arriba, lo cubierto abajo.
       const cover = `(${stockPz} / NULLIF(${sellDayPz}, 0))`;
-      const bucketExpr = `CASE WHEN ${stockPz} <= 0 THEN 'agotado' WHEN ${cover} < 7 THEN 'critico' WHEN ${cover} < :cov THEN 'bajo' WHEN ${cover} > 90 THEN 'sobrestock' ELSE 'sano' END`;
-      if (q.bucket && ['agotado', 'critico', 'bajo', 'sano', 'sobrestock'].includes(q.bucket)) { filters.push(`${bucketExpr} = :bkt`); binds.bkt = q.bucket; }
-      else if (q.scope !== 'all') { filters.push(`${sug} > 0`); }
+      const bucketExpr = `CASE WHEN ${stockPz} <= 0 AND ${sellDayPz} <= 0 THEN 'sin_dato' WHEN ${stockPz} <= 0 THEN 'agotado' WHEN ${cover} < 7 THEN 'critico' WHEN ${cover} < :cov THEN 'bajo' WHEN ${cover} > 90 THEN 'sobrestock' ELSE 'sano' END`;
+      if (q.bucket && ['agotado', 'critico', 'bajo', 'sano', 'sobrestock', 'sin_dato'].includes(q.bucket)) { filters.push(`${bucketExpr} = :bkt`); binds.bkt = q.bucket; }
+      else if (q.scope === 'needed') { filters.push(`${sug} > 0`); }
       const where = filters.join(' AND ');
 
-      // Grano = PRODUCTO (red): el pedido a proveedor es total por producto (entra al hub y se distribuye).
-      // El ledger se agrega por producto (costo real ponderado, ritmo de compra ref, almacén primario de
-      // compra); la demanda/existencia/tránsito son de la RED. Así no se doble-cuenta cuando un producto
-      // se compra en 2 hubs.
+      // ANCLA = TODO EL CATÁLOGO (activo): así se ven TODOS los productos, no solo los que necesitan pedido
+      // ni solo los que ya se compraron. El ledger de compras (analytics.purchase_velocity) se une por LEFT
+      // (costo real ponderado + ritmo de compra ref + almacén primario); si el producto nunca se compró, el
+      // costo cae a cost_with_tax. Grano = PRODUCTO (red): demanda/existencia/tránsito son de la RED.
       const from = `
-        FROM (
+        FROM catalog.products pr
+        LEFT JOIN (
           SELECT product_id, sum(qty_90d) AS qty90, sum(daily_rate) AS buy_rate,
                  sum(qty_90d * real_unit_cost) / NULLIF(sum(qty_90d),0) AS cost,
                  max(last_purchase) AS last_purchase, max(order_days) AS order_days,
                  (array_agg(warehouse_id ORDER BY qty_90d DESC))[1] AS primary_wh
-            FROM analytics.purchase_velocity
-           WHERE ${plWhere}
-           GROUP BY product_id
-        ) pl
-        JOIN catalog.products pr ON pr.tenant_id = :t AND pr.id = pl.product_id
+            FROM analytics.purchase_velocity WHERE ${plWhere} GROUP BY product_id
+        ) pl ON pl.product_id = pr.id
         LEFT JOIN catalog.suppliers sup ON sup.tenant_id = :t AND sup.id = pr.supplier_id
         LEFT JOIN commercial.warehouses w ON w.tenant_id = :t AND w.id = pl.primary_wh
         LEFT JOIN (SELECT tenant_id, product_id, max(box_size) bs FROM commercial.product_label_prices GROUP BY tenant_id, product_id) lbl
-               ON lbl.tenant_id = :t AND lbl.product_id = pl.product_id
-        LEFT JOIN (SELECT product_id, sum(units) s30 FROM analytics.sales_daily
-                    WHERE tenant_id = :t AND sale_date >= current_date - 30 AND units > 0 GROUP BY product_id) sv
-               ON sv.product_id = pl.product_id
+               ON lbl.tenant_id = :t AND lbl.product_id = pr.id
+        LEFT JOIN (SELECT product_id, sum(pieces) s30 FROM analytics.product_demand
+                    WHERE tenant_id = :t AND window_days = 30 GROUP BY product_id) sv
+               ON sv.product_id = pr.id
         LEFT JOIN (SELECT product_id, sum(quantity) qty FROM commercial.stock WHERE tenant_id = :t GROUP BY product_id) nst
-               ON nst.product_id = pl.product_id
+               ON nst.product_id = pr.id
         LEFT JOIN (SELECT product_id, sum(qty_in_transit) t FROM analytics.purchase_in_transit WHERE tenant_id = :t GROUP BY product_id) tr
-               ON tr.product_id = pl.product_id
+               ON tr.product_id = pr.id
         WHERE ${where}`;
 
-      const totalRow = (await trx.raw(`SELECT count(*) FILTER (WHERE ${sug} > 0)::int c, round(SUM(${sug} * COALESCE(pl.cost,0))::numeric,2) total_valor ${from}`, binds)).rows[0];
+      const totalRow = (await trx.raw(`SELECT count(*)::int c, count(*) FILTER (WHERE ${sug} > 0)::int needed, round(SUM(${sug} * ${costE})::numeric,2) total_valor ${from}`, binds)).rows[0];
 
       const rows = (await trx.raw(`
-        SELECT pl.product_id, pl.primary_wh AS warehouse_id, w.code AS warehouse_code,
+        SELECT pr.id AS product_id, pl.primary_wh AS warehouse_id, w.code AS warehouse_code,
                pr.sku, pr.nombre, sup.id AS supplier_id, sup.name AS supplier_name,
                ${uxc} AS uxc,
-               round(pl.buy_rate::numeric, 3) AS daily_rate,
+               round(COALESCE(pl.buy_rate,0)::numeric, 3) AS daily_rate,
                pl.order_days, pl.last_purchase,
                round(${stockPz}::numeric, 1) AS on_hand_pieces,
                round((${stockPz} / ${uxc})::numeric, 2) AS on_hand_units,
                ${transit} AS in_transit_units,
-               round(COALESCE(pl.cost,0)::numeric, 4) AS unit_cost,
+               round(${costE}::numeric, 4) AS unit_cost,
                round((${sellDayPz} * :cov / ${uxc})::numeric, 2) AS target_units,
                round(${sug}::numeric, 2) AS suggested_units,
                round((${sug} * ${uxc})::numeric, 0) AS suggested_pieces,
-               round((${sug} * COALESCE(pl.cost,0))::numeric, 2) AS suggested_cost,
-               -- VENTA de la red (la señal del reorden)
+               round((${sug} * ${costE})::numeric, 2) AS suggested_cost,
                round((${sellDayPz} / ${uxc})::numeric, 2) AS sell_daily_cajas,
                round((COALESCE(sv.s30,0) / ${uxc})::numeric, 0) AS sell_month_cajas,
-               -- Cobertura REAL de la red = existencia_red / venta_diaria_red (días hasta agotarse)
                round((${stockPz} / NULLIF(${sellDayPz}, 0))::numeric, 0) AS days_cover,
                ${bucketExpr} AS bucket
         ${from}
-        ORDER BY (${sug} * COALESCE(pl.cost,0)) DESC, ${sellDayPz} DESC
+        ORDER BY (${sug} * ${costE}) DESC, ${sellDayPz} DESC, ${stockPz} DESC
         LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`, binds)).rows;
 
       return {
         total: Number(totalRow?.c || 0),
+        needed: Number(totalRow?.needed || 0),
         total_valor: Number(totalRow?.total_valor || 0),
         page, pageSize, coverage_days: cov, rows,
       };
