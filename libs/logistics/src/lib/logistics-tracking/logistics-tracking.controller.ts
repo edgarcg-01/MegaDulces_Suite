@@ -12,6 +12,7 @@ import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
 import { LogisticsTrackingService } from './logistics-tracking.service';
 import { FleetAlertsService } from './fleet-alerts.service';
+import { TripBuilderService } from './trip-builder.service';
 
 @ApiTags('logistics-tracking')
 @UseGuards(RolesGuard)
@@ -20,7 +21,30 @@ export class LogisticsTrackingController {
   constructor(
     private readonly service: LogisticsTrackingService,
     private readonly alerts: FleetAlertsService,
+    private readonly trips: TripBuilderService,
   ) {}
+
+  // ── LTV.0 Viajes / paradas reconstruidas ───────────────────────────────────
+  @Get('trips/day-summary')
+  @RequirePermissions(Permission.LOGISTICS_FLEET_VER)
+  @ApiOperation({ summary: 'Resumen diario por vehículo (km, paradas, tiempos)' })
+  daySummary(@Query('date') date: string) {
+    return this.trips.listDaySummary(date);
+  }
+
+  @Get('trips/:vehicleId/stops')
+  @RequirePermissions(Permission.LOGISTICS_FLEET_VER)
+  @ApiOperation({ summary: 'Paradas de un vehículo en un día' })
+  stops(@Param('vehicleId') vehicleId: string, @Query('date') date: string) {
+    return this.trips.listStops(vehicleId, date);
+  }
+
+  @Post('trips/rebuild')
+  @RequirePermissions(Permission.LOGISTICS_FLEET_GESTIONAR)
+  @ApiOperation({ summary: 'Reconstruir viajes/paradas de una fecha (o un vehículo)' })
+  rebuild(@Query('date') date: string, @Query('vehicle_id') vehicleId?: string) {
+    return vehicleId ? this.trips.buildForVehicleDay(vehicleId, date) : this.trips.buildForDate(date);
+  }
 
   // ── Alertas de flota (server-side, persistidas) ────────────────────────────
   @Get('alerts')

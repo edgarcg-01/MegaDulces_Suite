@@ -4,6 +4,8 @@ import { LogisticsTrackingController } from './logistics-tracking.controller';
 import { FleetPollerService } from './fleet-poller.service';
 import { FleetAlertsService } from './fleet-alerts.service';
 import { FleetAlertsScannerService } from './fleet-alerts-scanner.service';
+import { TripBuilderService } from './trip-builder.service';
+import { TripBuilderScannerService } from './trip-builder-scanner.service';
 import { MagniTrackingAdapter } from './magnitracking.adapter';
 import { FLEET_PROVIDER_PORT } from './fleet-provider.port';
 
@@ -18,9 +20,11 @@ import { FLEET_PROVIDER_PORT } from './fleet-provider.port';
     FleetPollerService,
     FleetAlertsService,
     FleetAlertsScannerService,
+    TripBuilderService,
+    TripBuilderScannerService,
     MagniTrackingAdapter,
     { provide: FLEET_PROVIDER_PORT, useExisting: MagniTrackingAdapter },
   ],
-  exports: [LogisticsTrackingService, FleetAlertsService],
+  exports: [LogisticsTrackingService, FleetAlertsService, TripBuilderService],
 })
 export class LogisticsTrackingModule {}
