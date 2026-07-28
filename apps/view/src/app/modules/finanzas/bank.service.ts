@@ -165,6 +165,21 @@ export interface ContpaqiBankAccount {
   cuenta: string; cuenta_nombre: string; movs: number; taken: boolean; taken_by: string | null;
 }
 
+/** CP.2 drill — ¿dónde está el descuadre de una cuenta? Huérfanos de cada lado. */
+export interface CpqBankOnly { id: string; fecha: string; importe: number; concepto: string | null; tipo: string | null; codigo: string | null; categoria: string | null; }
+export interface CpqPolizaOnly { id: number; fecha: string; importe: number; concepto: string | null; poliza_tipo: number | null; poliza_folio: number | null; }
+export interface CpqReconSide {
+  bank_total: number; contpaqi_total: number; delta: number;
+  matched_count: number; matched_amount: number;
+  bank_only: CpqBankOnly[]; contpaqi_only: CpqPolizaOnly[];
+  bank_only_amount: number; contpaqi_only_amount: number;
+}
+export interface ContpaqiDetail {
+  period: string;
+  account: { id: string; bank: string; account_label: string; alias: string | null; contpaqi_cuenta: string | null; contpaqi_cuenta_nombre: string | null; linked: boolean };
+  deposits: CpqReconSide; withdrawals: CpqReconSide;
+}
+
 export interface MovementsQuery {
   period?: string; account_id?: string; category_id?: string; group_key?: string;
   uncategorized?: boolean; recon_status?: string; search?: string; limit?: number; offset?: number;
@@ -215,6 +230,9 @@ export class BankService {
   }
   contpaqiAccounts(): Observable<ContpaqiBankAccount[]> {
     return this.http.get<ContpaqiBankAccount[]>(`${this.base}/contpaqi-accounts`);
+  }
+  contpaqiDetail(period: string, accountId: string): Observable<ContpaqiDetail> {
+    return this.http.get<ContpaqiDetail>(`${this.base}/contpaqi-detail?period=${encodeURIComponent(period)}&account_id=${encodeURIComponent(accountId)}`);
   }
   manualLinkContpaqi(bankAccountId: string, contpaqiCuenta: string | null): Observable<unknown> {
     return this.http.post(`${this.base}/contpaqi/manual-link`, { bank_account_id: bankAccountId, contpaqi_cuenta: contpaqiCuenta });

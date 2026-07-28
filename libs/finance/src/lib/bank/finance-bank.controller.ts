@@ -106,6 +106,13 @@ export class FinanceBankController {
   @ApiOperation({ summary: 'Excel/estado de cuenta vs LIBROS ContPAQi por cuenta y periodo (la 3ª columna de verdad + deltas).' })
   contpaqiCompare(@Query('period') period?: string) { return this.svc.contpaqiCompare(period); }
 
+  @Get('contpaqi-detail')
+  @RequirePermissions(Permission.FINANCE_BANK_VER)
+  @ApiOperation({ summary: '¿DÓNDE está el descuadre? Movimiento a movimiento banco vs póliza ContPAQi de una cuenta: huérfanos de cada lado.' })
+  contpaqiDetail(@Query('period') period?: string, @Query('account_id') accountId?: string) {
+    return this.svc.contpaqiAccountDetail(period, accountId);
+  }
+
   @Get('movements')
   @RequirePermissions(Permission.FINANCE_BANK_VER)
   @ApiOperation({ summary: 'Movimientos filtrados (grid), paginados.' })

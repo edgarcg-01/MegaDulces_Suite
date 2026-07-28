@@ -13,6 +13,7 @@ import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform
 import { LogisticsTrackingService } from './logistics-tracking.service';
 import { FleetAlertsService } from './fleet-alerts.service';
 import { TripBuilderService } from './trip-builder.service';
+import { RouteAdherenceService } from './route-adherence.service';
 
 @ApiTags('logistics-tracking')
 @UseGuards(RolesGuard)
@@ -22,7 +23,16 @@ export class LogisticsTrackingController {
     private readonly service: LogisticsTrackingService,
     private readonly alerts: FleetAlertsService,
     private readonly trips: TripBuilderService,
+    private readonly adherence: RouteAdherenceService,
   ) {}
+
+  // ── LTV.1 Cumplimiento de ruta (plan vs real) ──────────────────────────────
+  @Get('adherence')
+  @RequirePermissions(Permission.LOGISTICS_FLEET_VER)
+  @ApiOperation({ summary: 'Cumplimiento de ruta de un vehículo en un día' })
+  adherenceForVehicle(@Query('vehicle_id') vehicleId: string, @Query('date') date: string) {
+    return this.adherence.forVehicleDay(vehicleId, date);
+  }
 
   // ── LTV.0 Viajes / paradas reconstruidas ───────────────────────────────────
   @Get('trips/day-summary')
