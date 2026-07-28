@@ -482,7 +482,14 @@ export class CommercialReplenishmentService {
       // existencia − tránsito. Si la existencia ya cubre el horizonte (sobrestock) → 0: no re-compra
       // lo que no rota (antes, anclado en el ritmo de compra, sobre-sugería lo sobrestockeado).
       const costE = `COALESCE(pl.cost, pr.cost_with_tax, 0)`; // costo real de compra; fallback a catálogo si nunca se compró
-      const sug = `GREATEST(0, ${sellDayPz} * :cov / ${uxc} - ${stockPz} / ${uxc} - ${transit})`;
+      // RA-PRO.27 — FILL RATE del proveedor (recibido/pedido de OCs recibidas o parciales, 180d).
+      // Con ≥3 líneas recibidas: infla el sugerido para compensar surtido incompleto
+      // (pedir = necesidad ÷ fill_rate), con piso 0.77 → tope de inflado 1.30x. Sin historia
+      // suficiente → 100% (no infla). Mide confiabilidad del PROVEEDOR, no del SKU individual.
+      const fillRate = `CASE WHEN COALESCE(fr.n,0) >= 3 AND COALESCE(fr.ord,0) > 0 THEN LEAST(1.0, fr.recv::numeric / fr.ord) ELSE 1.0 END`;
+      const fillFactor = `(1.0 / GREATEST(${fillRate}, 0.77))`;
+      const needBase = `GREATEST(0, ${sellDayPz} * :cov / ${uxc} - ${stockPz} / ${uxc} - ${transit})`; // necesidad neta (sin fill)
+      const sug = `(${needBase} * ${fillFactor})`;                                                     // sugerido = necesidad ÷ fill_rate (cap 1.3x)
       const filters: string[] = ['pr.tenant_id = :t', 'pr.activo = true'];
       const binds: Record<string, unknown> = { t: tenantId, cov };
       // Almacén: seleccionar almacén en Comprar = PEDIDO PER-SUCURSAL (demanda + existencia de
@@ -533,6 +540,15 @@ export class CommercialReplenishmentService {
            WHERE ${plWhere} GROUP BY 1
         ) pl ON pl.product_id = pr.id
         LEFT JOIN catalog.suppliers sup ON sup.tenant_id = :t AND sup.id = pr.supplier_id
+        LEFT JOIN (
+          SELECT po.supplier_id, SUM(pol.received_qty) AS recv, SUM(pol.ordered_qty) AS ord, COUNT(*) AS n
+            FROM commercial.purchase_orders po
+            JOIN commercial.purchase_order_lines pol ON pol.tenant_id = po.tenant_id AND pol.purchase_order_id = po.id
+           WHERE po.tenant_id = :t AND po.source_type = 'supplier' AND po.estado IN ('received','partial')
+             AND po.supplier_id IS NOT NULL
+             AND COALESCE(po.closed_at, po.created_at) >= now() - interval '180 days'
+           GROUP BY po.supplier_id
+        ) fr ON fr.supplier_id = pr.supplier_id
         LEFT JOIN commercial.warehouses w ON w.tenant_id = :t AND w.id = COALESCE(:selwh::uuid, pl.primary_wh)
         LEFT JOIN (SELECT tenant_id, product_id, max(box_size) bs FROM commercial.product_label_prices GROUP BY tenant_id, product_id) lbl
                ON lbl.tenant_id = :t AND lbl.product_id = pr.id
@@ -580,6 +596,8 @@ export class CommercialReplenishmentService {
                  round(${costE}::numeric, 4) AS unit_cost,
                  round((${sellDayPz} * :cov / ${uxc})::numeric, 2) AS target_units,
                  round(${sug}::numeric, 2) AS suggested_units,
+                 round(${needBase}::numeric, 2) AS base_units,
+                 round((${fillRate})::numeric, 3) AS fill_rate,
                  round((${sug} * ${uxc})::numeric, 0) AS suggested_pieces,
                  round((${sug} * ${costE})::numeric, 2) AS suggested_cost,
                  round((${sellDayPz} / ${uxc})::numeric, 2) AS sell_daily_cajas,

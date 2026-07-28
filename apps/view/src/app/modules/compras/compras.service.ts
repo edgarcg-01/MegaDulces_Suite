@@ -68,6 +68,8 @@ export interface PurchaseSuggestionRow {
   uxc: number; daily_rate: number; order_days: number; last_purchase: string | null;
   on_hand_pieces: number; on_hand_units: number; in_transit_units: number;
   unit_cost: number; target_units: number; suggested_units: number; suggested_pieces: number;
+  base_units?: number;   // RA-PRO.27 — necesidad neta ANTES de inflar por fill rate
+  fill_rate?: number;    // RA-PRO.27 — surtido histórico del proveedor (0..1); <1 infla el sugerido
   suggested_cost: number; days_cover: number | null;
   sell_daily_cajas: number; sell_month_cajas: number; // venta de la red (30d): la señal del reorden
   sell_month_mxn: number; // RA-PRO.18 — venta 30d en $
