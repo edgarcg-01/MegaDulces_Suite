@@ -50,7 +50,7 @@ interface VendorDayKpis {
           <span class="chip idle">{{ svc.counts().idle }} <span class="chip-lbl">inactivos</span></span>
           <span class="chip stale">{{ svc.counts().stale }} <span class="chip-lbl">sin señal</span></span>
           @if (vehicles().length) {
-            <span class="chip veh" title="Flota GPS · en movimiento / total"><i class="pi pi-truck" aria-hidden="true"></i> {{ vehicleCounts().moving }}<span class="chip-lbl">/{{ vehicles().length }} flota</span></span>
+            <span class="chip veh" title="Unidades de ruta · en movimiento / total"><i class="pi pi-truck" aria-hidden="true"></i> {{ vehicleCounts().moving }}<span class="chip-lbl">/{{ vehicles().length }} ruta</span></span>
           }
           <span class="ws" [class.ok]="ws.connected()" [title]="ws.connected() ? 'WS conectado' : 'WS desconectado'"></span>
           <button class="recenter" (click)="recenter()">Centrar</button>
@@ -94,7 +94,7 @@ interface VendorDayKpis {
           }
 
           @if (showFleet() && filteredVehicles().length) {
-            <div class="lm-sub-h"><i class="pi pi-truck" aria-hidden="true"></i> Flota GPS <span>({{ filteredVehicles().length }})</span></div>
+            <div class="lm-sub-h"><i class="pi pi-truck" aria-hidden="true"></i> Unidades de ruta <span>({{ filteredVehicles().length }})</span></div>
             @for (v of filteredVehicles(); track v.id) {
               <button class="row" [class.sel]="selVeh() === v.id" (click)="focusVehicle(v)">
                 <span class="dot" [style.background]="vehColor(v)"></span>
@@ -338,7 +338,7 @@ export class LiveMapComponent implements AfterViewInit, OnDestroy {
 
   protected legend = computed<LegendLayer[]>(() => [
     { id: 'personal', label: 'Personal', color: 'var(--ok-fg, #16a34a)', count: this.svc.counts().total, visible: this.showPersonal() },
-    { id: 'fleet', label: 'Flota GPS', color: 'var(--info-soft-fg, #2563eb)', count: this.vehicles().length, visible: this.showFleet() },
+    { id: 'fleet', label: 'Unidades de ruta', color: 'var(--info-soft-fg, #2563eb)', count: this.vehicles().length, visible: this.showFleet() },
     { id: 'stores', label: 'Tiendas', color: 'var(--neutral-400, #9ca3af)', count: this.stores().length, visible: this.showStores() },
   ]);
 
@@ -475,7 +475,8 @@ export class LiveMapComponent implements AfterViewInit, OnDestroy {
   }
 
   private loadFleet(): void {
-    this.logi.liveTracking().subscribe({
+    // Solo camionetas de ruta (Auditoría en Ruta). La flota logística vive en /logistica.
+    this.logi.liveTracking('route').subscribe({
       next: (rows) => this.vehicles.set(rows || []),
       error: () => { /* sin flota / endpoint no disponible → deja la capa vacía */ },
     });

@@ -1,5 +1,6 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
 import { TenantKnexService } from '@megadulces/platform-core';
+import { applyFleetFilter } from './trip-builder.service';
 
 // Parada improductiva: detenido ≥ este umbral SIN cliente matcheado (mismo criterio
 // que IDLE_DEAD_THRESHOLD_MIN de reports.service para vendedores).
@@ -29,7 +30,7 @@ export interface ProductivityRow {
 export class FleetProductivityService {
   constructor(private readonly tk: TenantKnexService) {}
 
-  async forFleetDay(day: string): Promise<ProductivityRow[]> {
+  async forFleetDay(day: string, fleet?: 'route' | 'logistics'): Promise<ProductivityRow[]> {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(day || '')) throw new BadRequestException('date inválida (YYYY-MM-DD)');
     const start = `${day}T00:00:00-06:00`;
     const end = `${day}T23:59:59.999-06:00`;
@@ -40,6 +41,7 @@ export class FleetProductivityService {
           this.on('v.tenant_id', 's.tenant_id').andOn('v.id', 's.vehicle_id');
         })
         .where('s.day', day)
+        .modify((qb) => applyFleetFilter(qb, trx, fleet, 's.vehicle_id'))
         .select('s.vehicle_id', 'v.plate as vehicle_plate', 's.km_driven', 's.moving_min', 's.stopped_min', 's.offline_min', 's.stops_count', 's.customer_stops');
 
       // Paradas muertas: no cliente + duración ≥ umbral.

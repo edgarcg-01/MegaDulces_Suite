@@ -1068,8 +1068,12 @@ export class LogisticaService {
   }
 
   // ── LT Rastreo de flota GPS (MagniTracking) ────────────────────────────────
-  liveTracking(): Observable<TrackerLive[]> {
-    return this.http.get<TrackerLive[]>(`${this.base}/tracking/live`);
+  // fleet: 'route' = camionetas de ruta (dominio Auditoría en Ruta),
+  // 'logistics' = flota logística (foráneas/embarques). Separación estricta.
+  liveTracking(fleet?: 'route' | 'logistics'): Observable<TrackerLive[]> {
+    let params = new HttpParams();
+    if (fleet) params = params.set('fleet', fleet);
+    return this.http.get<TrackerLive[]>(`${this.base}/tracking/live`, { params });
   }
   trackerHistory(trackerId: string, from?: string, to?: string): Observable<TrackerHistoryPoint[]> {
     let params = new HttpParams();
@@ -1104,12 +1108,14 @@ export class LogisticaService {
     return this.http.patch<{ id: string; route_number: number | null; route_manual: boolean }>(`${this.base}/tracking/trackers/${trackerId}/route`, { route_number: routeNumber });
   }
   // ── LTV.0 / LTV.5 Actividad de flota ───────────────────────────────────────
-  fleetProductivity(date: string): Observable<FleetProductivityRow[]> {
-    const params = new HttpParams().set('date', date);
+  fleetProductivity(date: string, fleet?: 'route' | 'logistics'): Observable<FleetProductivityRow[]> {
+    let params = new HttpParams().set('date', date);
+    if (fleet) params = params.set('fleet', fleet);
     return this.http.get<FleetProductivityRow[]>(`${this.base}/tracking/productivity`, { params });
   }
-  fleetDaySummary(date: string): Observable<VehicleDaySummary[]> {
-    const params = new HttpParams().set('date', date);
+  fleetDaySummary(date: string, fleet?: 'route' | 'logistics'): Observable<VehicleDaySummary[]> {
+    let params = new HttpParams().set('date', date);
+    if (fleet) params = params.set('fleet', fleet);
     return this.http.get<VehicleDaySummary[]>(`${this.base}/tracking/trips/day-summary`, { params });
   }
   vehicleStops(vehicleId: string, date: string): Observable<VehicleStop[]> {

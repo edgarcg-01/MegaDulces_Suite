@@ -9,7 +9,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
-import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
+import { RolesGuard, RequirePermissions, RequireAnyPermission, Permission } from '@megadulces/platform-core';
 import { LogisticsTrackingService } from './logistics-tracking.service';
 import { FleetAlertsService } from './fleet-alerts.service';
 import { TripBuilderService } from './trip-builder.service';
@@ -30,22 +30,22 @@ export class LogisticsTrackingController {
 
   // ── LTV.5 Productividad / tiempos muertos ──────────────────────────────────
   @Get('productivity')
-  @RequirePermissions(Permission.LOGISTICS_FLEET_VER)
+  @RequireAnyPermission(Permission.LOGISTICS_FLEET_VER, Permission.RUTAS_VER)
   @ApiOperation({ summary: 'Productividad de la flota en un día (tiempos muertos, km/entrega)' })
-  productivityForDay(@Query('date') date: string) {
-    return this.productivity.forFleetDay(date);
+  productivityForDay(@Query('date') date: string, @Query('fleet') fleet?: 'route' | 'logistics') {
+    return this.productivity.forFleetDay(date, fleet);
   }
 
   // ── LTV.1 Cumplimiento de ruta (plan vs real) ──────────────────────────────
   @Get('adherence')
-  @RequirePermissions(Permission.LOGISTICS_FLEET_VER)
+  @RequireAnyPermission(Permission.LOGISTICS_FLEET_VER, Permission.RUTAS_VER)
   @ApiOperation({ summary: 'Cumplimiento de ruta de un vehículo en un día' })
   adherenceForVehicle(@Query('vehicle_id') vehicleId: string, @Query('date') date: string) {
     return this.adherence.forVehicleDay(vehicleId, date);
   }
 
   @Get('adherence/day')
-  @RequirePermissions(Permission.LOGISTICS_FLEET_VER)
+  @RequireAnyPermission(Permission.LOGISTICS_FLEET_VER, Permission.RUTAS_VER)
   @ApiOperation({ summary: 'Cumplimiento de ruta de toda la flota en un día (auditoría)' })
   adherenceForFleet(@Query('date') date: string) {
     return this.adherence.forFleetDay(date);
@@ -53,14 +53,14 @@ export class LogisticsTrackingController {
 
   // ── LTV.0 Viajes / paradas reconstruidas ───────────────────────────────────
   @Get('trips/day-summary')
-  @RequirePermissions(Permission.LOGISTICS_FLEET_VER)
+  @RequireAnyPermission(Permission.LOGISTICS_FLEET_VER, Permission.RUTAS_VER)
   @ApiOperation({ summary: 'Resumen diario por vehículo (km, paradas, tiempos)' })
-  daySummary(@Query('date') date: string) {
-    return this.trips.listDaySummary(date);
+  daySummary(@Query('date') date: string, @Query('fleet') fleet?: 'route' | 'logistics') {
+    return this.trips.listDaySummary(date, fleet);
   }
 
   @Get('trips/:vehicleId/stops')
-  @RequirePermissions(Permission.LOGISTICS_FLEET_VER)
+  @RequireAnyPermission(Permission.LOGISTICS_FLEET_VER, Permission.RUTAS_VER)
   @ApiOperation({ summary: 'Paradas de un vehículo en un día' })
   stops(@Param('vehicleId') vehicleId: string, @Query('date') date: string) {
     return this.trips.listStops(vehicleId, date);
@@ -75,7 +75,7 @@ export class LogisticsTrackingController {
 
   // ── Alertas de flota (server-side, persistidas) ────────────────────────────
   @Get('alerts')
-  @RequirePermissions(Permission.LOGISTICS_FLEET_VER)
+  @RequireAnyPermission(Permission.LOGISTICS_FLEET_VER, Permission.RUTAS_VER)
   @ApiOperation({ summary: 'Alertas de flota activas (offline / velocidad)' })
   listAlerts() {
     return this.alerts.listActive();
@@ -96,21 +96,21 @@ export class LogisticsTrackingController {
   }
 
   @Get('live')
-  @RequirePermissions(Permission.LOGISTICS_FLEET_VER)
+  @RequireAnyPermission(Permission.LOGISTICS_FLEET_VER, Permission.RUTAS_VER)
   @ApiOperation({ summary: 'Última posición de cada tracker (mapa en vivo)' })
-  live() {
-    return this.service.listLive();
+  live(@Query('fleet') fleet?: 'route' | 'logistics') {
+    return this.service.listLive(fleet);
   }
 
   @Get('trackers')
-  @RequirePermissions(Permission.LOGISTICS_FLEET_VER)
+  @RequireAnyPermission(Permission.LOGISTICS_FLEET_VER, Permission.RUTAS_VER)
   @ApiOperation({ summary: 'Registro de dispositivos GPS' })
   trackers() {
     return this.service.listTrackers();
   }
 
   @Get('trackers/:id/history')
-  @RequirePermissions(Permission.LOGISTICS_FLEET_VER)
+  @RequireAnyPermission(Permission.LOGISTICS_FLEET_VER, Permission.RUTAS_VER)
   @ApiOperation({ summary: 'Recorrido histórico (breadcrumbs) de un tracker' })
   history(
     @Param('id') id: string,
@@ -142,7 +142,7 @@ export class LogisticsTrackingController {
   }
 
   @Patch('trackers/:id/route')
-  @RequirePermissions(Permission.LOGISTICS_FLEET_GESTIONAR)
+  @RequireAnyPermission(Permission.LOGISTICS_FLEET_GESTIONAR, Permission.RUTAS_VER)
   @ApiOperation({ summary: 'Asignar manualmente la ruta de un tracker (null = automático)' })
   setRoute(@Param('id') id: string, @Body() body: { route_number: number | null }) {
     return this.service.setRoute(id, body?.route_number ?? null);

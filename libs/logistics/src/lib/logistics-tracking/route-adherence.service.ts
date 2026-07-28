@@ -1,6 +1,7 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
 import { Knex } from 'knex';
 import { TenantKnexService } from '@megadulces/platform-core';
+import { applyFleetFilter } from './trip-builder.service';
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -54,10 +55,11 @@ export class RouteAdherenceService {
     return this.tk.run(async (trx) => {
       // Candidatos: vehículos con actividad GPS ese día (los que realmente
       // manejaron). El plan de cada uno sale de su tracker (route_number).
-      const withActivity: Array<{ vehicle_id: string }> = await trx('logistics.vehicle_day_summary')
-        .where('day', day)
-        .whereNotNull('vehicle_id')
-        .distinct('vehicle_id');
+      const withActivity: Array<{ vehicle_id: string }> = await trx('logistics.vehicle_day_summary as s')
+        .where('s.day', day)
+        .whereNotNull('s.vehicle_id')
+        .modify((qb) => applyFleetFilter(qb, trx, 'route', 's.vehicle_id'))
+        .distinct('s.vehicle_id as vehicle_id');
       const ids = Array.from(new Set(withActivity.map((r) => r.vehicle_id)));
       if (!ids.length) return [];
 

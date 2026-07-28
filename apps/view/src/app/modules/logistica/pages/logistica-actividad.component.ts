@@ -8,6 +8,7 @@ import {
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { ActivatedRoute } from '@angular/router';
 import { ButtonModule } from 'primeng/button';
 import { TagModule } from 'primeng/tag';
 import { TooltipModule } from 'primeng/tooltip';
@@ -32,8 +33,8 @@ import {
     <div class="surf-page">
       <header class="surf-page-head">
         <div class="surf-page-head-text">
-          <span class="rk-eyebrow"><i class="pi pi-chart-bar" aria-hidden="true"></i> Logística</span>
-          <h1>Actividad de flota</h1>
+          <span class="rk-eyebrow"><i class="pi pi-chart-bar" aria-hidden="true"></i> {{ fleet === 'route' ? 'Auditoría en Ruta' : 'Logística' }}</span>
+          <h1>{{ fleet === 'route' ? 'Actividad de ruta' : 'Actividad de flota' }}</h1>
           <p class="surf-page-sub">
             {{ rows().length }} unidad{{ rows().length === 1 ? '' : 'es' }} con actividad
             <span class="rk-muted">· productividad y tiempos muertos del día</span>
@@ -225,6 +226,8 @@ import {
 export class LogisticaActividadComponent {
   private readonly api = inject(LogisticaService);
   private readonly destroyRef = inject(DestroyRef);
+  /** Alcance de flota: 'route' (Auditoría en Ruta) o 'logistics' (Logística). */
+  readonly fleet: 'route' | 'logistics' = inject(ActivatedRoute).snapshot.data['fleet'] ?? 'logistics';
 
   readonly today = new Date(Date.now() - 6 * 3600 * 1000).toISOString().slice(0, 10);
   readonly date = signal<string>(this.today);
@@ -262,7 +265,7 @@ export class LogisticaActividadComponent {
 
   refresh() {
     this.loading.set(true);
-    this.api.fleetProductivity(this.date()).subscribe({
+    this.api.fleetProductivity(this.date(), this.fleet).subscribe({
       next: (r) => { this.rows.set(r || []); this.errored.set(false); this.loading.set(false); },
       error: () => { this.errored.set(true); this.loading.set(false); },
     });
