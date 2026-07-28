@@ -60,6 +60,7 @@ export class LogisticsTrackingService {
       for (const o of objects) {
         if (!o.imei) continue;
         const routeCode = parseRoute(o.name);
+        const routeNumber = normalizeRouteNumber(o.name);
         const matchId = matchVehicle(o.name, vehicles);
 
         const mergeable = {
@@ -82,13 +83,15 @@ export class LogisticsTrackingService {
 
         const existing = await trx('logistics.trackers')
           .where({ imei: o.imei })
-          .first('id', 'vehicle_id');
+          .first('id', 'vehicle_id', 'route_manual');
 
         let trackerId: string;
         let effectiveVehicleId: string | null;
 
         if (existing) {
-          await trx('logistics.trackers').where({ id: existing.id }).update(mergeable);
+          // route_number auto solo si no está asignado a mano.
+          const upd = existing.route_manual ? mergeable : { ...mergeable, route_number: routeNumber };
+          await trx('logistics.trackers').where({ id: existing.id }).update(upd);
           updated++;
           trackerId = existing.id;
           effectiveVehicleId = existing.vehicle_id || null;
@@ -108,6 +111,8 @@ export class LogisticsTrackingService {
               imei: o.imei,
               vehicle_id: matchId,
               active: true,
+              route_number: routeNumber,
+              route_manual: false,
               ...mergeable,
             })
             .returning(['id']);
@@ -152,7 +157,7 @@ export class LogisticsTrackingService {
   /** Última posición de cada tracker (para el mapa en vivo). Scoped por RLS. */
   async listLive() {
     return this.tk.run(async (trx) => {
-      return trx('logistics.trackers as t')
+      const rows = await trx('logistics.trackers as t')
         .leftJoin('logistics.vehicles as v', function () {
           this.on('v.tenant_id', 't.tenant_id').andOn('v.id', 't.vehicle_id');
         })
@@ -164,6 +169,7 @@ export class LogisticsTrackingService {
           't.external_name',
           't.protocol',
           't.route_code',
+          't.route_number',
           't.vehicle_id',
           'v.plate as vehicle_plate',
           't.last_lat',
@@ -177,7 +183,28 @@ export class LogisticsTrackingService {
           't.last_synced_at',
         )
         .orderBy('t.external_name', 'asc');
+
+      // Unidad de ruta: adjunta el vendedor asignado a la ruta del tracker.
+      const vendorByRoute = await this.routeVendorMap(trx);
+      return rows.map((r: any) => ({
+        ...r,
+        vendor_name: r.route_number != null ? vendorByRoute.get(r.route_number) ?? null : null,
+      }));
     });
+  }
+
+  /** Mapa número-de-ruta → nombre del vendedor asignado (vendor_sales_routes). */
+  private async routeVendorMap(trx: Knex.Transaction): Promise<Map<number, string>> {
+    const rows = await trx('commercial.vendor_sales_routes as vsr')
+      .leftJoin('public.users as u', 'u.id', 'vsr.user_id')
+      .whereNotNull('vsr.sales_route')
+      .select('vsr.sales_route', trx.raw('COALESCE(u.nombre, u.username) as vendor_name'));
+    const map = new Map<number, string>();
+    for (const r of rows as any[]) {
+      const n = normalizeRouteNumber(r.sales_route);
+      if (n != null && r.vendor_name && !map.has(n)) map.set(n, r.vendor_name);
+    }
+    return map;
   }
 
   /** Registro de dispositivos (admin / vinculación). Scoped por RLS. */
@@ -278,6 +305,27 @@ export class LogisticsTrackingService {
       return row;
     });
   }
+
+  /**
+   * Asigna manualmente la ruta de un tracker (para los camiones cuyo nombre de
+   * GPS no trae ruta). `routeNumber = null` revierte a automático (se recalcula
+   * del nombre en el próximo sync). Marca route_manual para que el sync no pise.
+   */
+  async setRoute(trackerId: string, routeNumber: number | null) {
+    if (!UUID_REGEX.test(trackerId)) throw new BadRequestException('trackerId inválido');
+    if (routeNumber != null && (!Number.isInteger(routeNumber) || routeNumber < 0 || routeNumber > 999))
+      throw new BadRequestException('route_number inválido (0–999)');
+    return this.tk.run(async (trx) => {
+      const t = await trx('logistics.trackers').where({ id: trackerId }).first('id', 'external_name');
+      if (!t) throw new NotFoundException('Tracker no encontrado');
+      const patch = routeNumber != null
+        ? { route_number: routeNumber, route_manual: true, updated_at: trx.fn.now() }
+        : { route_number: normalizeRouteNumber(t.external_name), route_manual: false, updated_at: trx.fn.now() };
+      const [row] = await trx('logistics.trackers').where({ id: trackerId }).update(patch)
+        .returning(['id', 'route_number', 'route_manual']);
+      return row;
+    });
+  }
 }
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -286,6 +334,18 @@ export class LogisticsTrackingService {
 export function parseRoute(name: string): string | null {
   const m = (name || '').match(/R[\s-]?(\d{1,3})\b/i);
   return m ? `R-${m[1]}` : null;
+}
+
+/**
+ * Número canónico de ruta desde cualquiera de las 3 grafías:
+ *   "R-21" / "R21" / "RUTA 21" / "R0021" → 21.
+ * Requiere R (o RUTA) seguido de separador/ceros opcionales y 1–3 dígitos, así
+ * "RAM 700" o "RANGER" NO matchean como ruta.
+ */
+export function normalizeRouteNumber(text: string | null): number | null {
+  if (!text) return null;
+  const m = text.toUpperCase().match(/R(?:UTA)?[\s-]*0*(\d{1,3})\b/);
+  return m ? parseInt(m[1], 10) : null;
 }
 
 const KNOWN_BRANDS = [

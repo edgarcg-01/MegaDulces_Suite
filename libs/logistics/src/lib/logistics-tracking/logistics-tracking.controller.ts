@@ -140,4 +140,11 @@ export class LogisticsTrackingController {
   link(@Param('id') id: string, @Body() body: { vehicle_id: string | null }) {
     return this.service.linkTracker(id, body?.vehicle_id ?? null);
   }
+
+  @Patch('trackers/:id/route')
+  @RequirePermissions(Permission.LOGISTICS_FLEET_GESTIONAR)
+  @ApiOperation({ summary: 'Asignar manualmente la ruta de un tracker (null = automático)' })
+  setRoute(@Param('id') id: string, @Body() body: { route_number: number | null }) {
+    return this.service.setRoute(id, body?.route_number ?? null);
+  }
 }

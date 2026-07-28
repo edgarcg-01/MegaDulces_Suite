@@ -112,7 +112,8 @@ const STATUS_META: Record<TrackerStatus, { label: string; sev: Sev; color: strin
               <div class="rk-row-main">
                 <span class="rk-row-name">{{ displayName(u) }}</span>
                 <span class="rk-row-sub">
-                  <span *ngIf="u.route_code" class="comm-code">{{ u.route_code }}</span>
+                  <span *ngIf="u.route_number != null" class="comm-code">R-{{ u.route_number }}</span>
+                  <span *ngIf="u.vendor_name">{{ u.vendor_name }} ·</span>
                   <span>{{ statusMeta(u).label }}</span>
                   <span *ngIf="u.last_speed_kmh">· {{ u.last_speed_kmh }} km/h</span>
                 </span>
@@ -128,7 +129,8 @@ const STATUS_META: Record<TrackerStatus, { label: string; sev: Sev; color: strin
             <h3>{{ displayName(s) }}</h3>
           </div>
           <dl class="rk-kv">
-            <div><dt>Ruta</dt><dd>{{ s.route_code || '—' }}</dd></div>
+            <div><dt>Ruta</dt><dd>{{ routeLabel(s) }}</dd></div>
+            <div><dt>Vendedor</dt><dd>{{ s.vendor_name || '—' }}</dd></div>
             <div><dt>Velocidad</dt><dd class="num">{{ s.last_speed_kmh ?? 0 }} km/h</dd></div>
             <div><dt>Encendido</dt><dd>{{ s.last_ignition === null ? '—' : (s.last_ignition ? 'Sí' : 'No') }}</dd></div>
             <div><dt>Último reporte</dt><dd>{{ ago(s.last_seen_at) }}</dd></div>
@@ -143,6 +145,14 @@ const STATUS_META: Record<TrackerStatus, { label: string; sev: Sev; color: strin
               <option value="">— Sin vincular —</option>
               <option *ngFor="let v of vehicles()" [value]="v.id">{{ v.plate }}{{ v.brand ? ' · ' + v.brand : '' }}</option>
             </select>
+          </div>
+
+          <div class="rk-link">
+            <label [attr.for]="'rt-' + s.id">Ruta (número)</label>
+            <input [id]="'rt-' + s.id" type="number" min="0" max="999" inputmode="numeric"
+                   placeholder="ej. 21 — vacío = automático del GPS"
+                   [ngModel]="s.route_number" (ngModelChange)="setRoute(s, $event)" />
+            <small class="rk-hint">{{ s.route_number != null ? 'Ruta ' + s.route_number : 'Sin ruta' }}{{ s.vendor_name ? ' · ' + s.vendor_name : '' }}</small>
           </div>
 
           <div class="rk-detail-actions">
@@ -229,8 +239,9 @@ const STATUS_META: Record<TrackerStatus, { label: string; sev: Sev; color: strin
 
     .rk-link { display:flex; flex-direction:column; gap:.25rem; margin-bottom:.75rem; }
     .rk-link label { font-size:var(--fs-micro); text-transform:uppercase; letter-spacing:.06em; color:var(--c-text-3); }
-    .rk-link select { padding:.4rem .5rem; border:1px solid var(--border-color); border-radius:var(--r-md,8px); background:var(--card-bg); color:var(--text-1,var(--c-text-1)); font:inherit; font-size:var(--fs-sm); }
-    .rk-link select:focus-visible { outline:2px solid var(--action); outline-offset:1px; }
+    .rk-link select, .rk-link input { padding:.4rem .5rem; border:1px solid var(--border-color); border-radius:var(--r-md,8px); background:var(--card-bg); color:var(--text-1,var(--c-text-1)); font:inherit; font-size:var(--fs-sm); }
+    .rk-link select:focus-visible, .rk-link input:focus-visible { outline:2px solid var(--action); outline-offset:1px; }
+    .rk-hint { font-size:var(--fs-micro); color:var(--c-text-3); }
 
     .rk-detail-actions { display:flex; gap:.4rem; flex-wrap:wrap; }
     .rk-adh { margin-top:.6rem; border-top:1px solid var(--c-divider); padding-top:.6rem; font-size:var(--fs-sm); }
@@ -372,6 +383,18 @@ export class LogisticaRastreoComponent {
       next: () => this.units.update((list) => list.map((x) => (x.id === u.id ? { ...x, vehicle_id: val, vehicle_plate: this.vehicles().find((v) => v.id === val)?.plate ?? null } : x))),
       error: () => {},
     });
+  }
+
+  setRoute(u: TrackerLive, value: number | string | null) {
+    const rn = value === '' || value == null ? null : Number(value);
+    this.api.setTrackerRoute(u.id, Number.isNaN(rn as number) ? null : rn).subscribe({
+      next: (r) => this.units.update((list) => list.map((x) => (x.id === u.id ? { ...x, route_number: r.route_number } : x))),
+      error: () => {},
+    });
+  }
+
+  routeLabel(u: TrackerLive): string {
+    return u.route_number != null ? `R-${u.route_number}` : (u.route_code || '—');
   }
 
   // ── helpers ────────────────────────────────────────────────────────────────
