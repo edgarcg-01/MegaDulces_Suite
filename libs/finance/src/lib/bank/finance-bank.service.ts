@@ -264,6 +264,101 @@ export class FinanceBankService {
     });
   }
 
+  /**
+   * CP.2 drill — ¿DÓNDE está el descuadre de una cuenta? Enfrenta movimiento a movimiento el
+   * estado de cuenta del banco (finance.bank_movements) contra las pólizas de ContPAQi
+   * (analytics.contpaqi_bank_movements) para el periodo, casa por importe exacto dentro de cada
+   * dirección (depósito/retiro) y devuelve los HUÉRFANOS de cada lado:
+   *   • banco sin póliza  → la contabilidad no registró ese movimiento (o va en otra cuenta).
+   *   • póliza sin banco   → la contabilidad registró algo que el banco no movió (o mes distinto).
+   * La suma de huérfanos explica el Δ. Requiere la cuenta enlazada (contpaqi_cuenta).
+   */
+  async contpaqiAccountDetail(period?: string, accountId?: string) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    if (!period) throw new BadRequestException('period requerido (YYYY-MM)');
+    if (!accountId) throw new BadRequestException('account_id requerido');
+    return this.tk.run(async (trx) => {
+      const acct = await trx('finance.bank_accounts').where('id', accountId).first();
+      if (!acct) throw new BadRequestException('cuenta de banco no encontrada');
+
+      const bankRows = await trx('finance.bank_movements as bm')
+        .join('finance.bank_statements as st', 'st.id', 'bm.statement_id')
+        .leftJoin('finance.movement_categories as mc', 'mc.id', 'bm.category_id')
+        .where('st.period', period).andWhere('bm.bank_account_id', accountId)
+        .select('bm.id', 'bm.movement_date', 'bm.amount_in', 'bm.amount_out', 'bm.concept',
+          'bm.raw_type', 'bm.raw_code', 'mc.name as category_name')
+        .orderBy([{ column: 'bm.movement_date' }, { column: 'bm.id' }]);
+
+      const cpqRows = acct.contpaqi_cuenta
+        ? await trx('analytics.contpaqi_bank_movements')
+            .where({ tenant_id: tenantId, anio_mes: period, cuenta: acct.contpaqi_cuenta })
+            .select('id_movimiento', 'fecha', 'flujo', 'importe', 'poliza_tipo', 'poliza_folio', 'concepto')
+            .orderBy([{ column: 'fecha' }, { column: 'poliza_folio' }])
+        : [];
+
+      const r2 = (v: number) => Math.round(v * 100) / 100;
+      const key = (v: any) => String(Math.round(n(v) * 100)); // centavos → clave de casado exacto
+
+      // Reconciliación greedy por importe exacto dentro de una dirección.
+      const reconcile = (
+        bankSide: any[], cpqSide: any[],
+        bankAmt: (r: any) => number,
+      ) => {
+        const cpqByAmt = new Map<string, any[]>();
+        for (const c of cpqSide) {
+          const k = key(c.importe);
+          (cpqByAmt.get(k) ?? cpqByAmt.set(k, []).get(k)!).push(c);
+        }
+        const bankOnly: any[] = []; let matched = 0, matchedAmt = 0;
+        for (const b of bankSide) {
+          const k = key(bankAmt(b));
+          const bucket = cpqByAmt.get(k);
+          if (bucket && bucket.length) {
+            bucket.shift(); matched++; matchedAmt += bankAmt(b);
+          } else {
+            bankOnly.push({
+              id: b.id, fecha: b.movement_date, importe: r2(bankAmt(b)),
+              concepto: b.concept || null, tipo: b.raw_type || null, codigo: b.raw_code || null, categoria: b.category_name || null,
+            });
+          }
+        }
+        const cpqOnly: any[] = [];
+        for (const arr of cpqByAmt.values()) for (const c of arr) cpqOnly.push({
+          id: c.id_movimiento, fecha: c.fecha, importe: r2(n(c.importe)),
+          concepto: c.concepto || null, poliza_tipo: c.poliza_tipo, poliza_folio: c.poliza_folio,
+        });
+        cpqOnly.sort((a, b) => String(a.fecha).localeCompare(String(b.fecha)));
+        const bankTotal = r2(bankSide.reduce((s, r) => s + bankAmt(r), 0));
+        const cpqTotal = r2(cpqSide.reduce((s, r) => s + n(r.importe), 0));
+        return {
+          bank_total: bankTotal, contpaqi_total: cpqTotal, delta: r2(bankTotal - cpqTotal),
+          matched_count: matched, matched_amount: r2(matchedAmt),
+          bank_only: bankOnly, contpaqi_only: cpqOnly,
+          bank_only_amount: r2(bankOnly.reduce((s, r) => s + r.importe, 0)),
+          contpaqi_only_amount: r2(cpqOnly.reduce((s, r) => s + r.importe, 0)),
+        };
+      };
+
+      const depBank = bankRows.filter((b: any) => n(b.amount_in) > 0);
+      const retBank = bankRows.filter((b: any) => n(b.amount_out) > 0);
+      const depCpq = cpqRows.filter((c: any) => c.flujo === 'deposito');
+      const retCpq = cpqRows.filter((c: any) => c.flujo === 'retiro');
+
+      const deposits = reconcile(depBank, depCpq, (r) => n(r.amount_in));
+      const withdrawals = reconcile(retBank, retCpq, (r) => n(r.amount_out));
+
+      return {
+        period,
+        account: {
+          id: acct.id, bank: acct.bank, account_label: acct.account_label, alias: acct.alias,
+          contpaqi_cuenta: acct.contpaqi_cuenta, contpaqi_cuenta_nombre: acct.contpaqi_cuenta_nombre,
+          linked: !!acct.contpaqi_cuenta,
+        },
+        deposits, withdrawals,
+      };
+    });
+  }
+
   /** Catálogo de categorías limpias (alineado a Kepler). */
   async categories() {
     this.tenantCtx.requireTenantId();

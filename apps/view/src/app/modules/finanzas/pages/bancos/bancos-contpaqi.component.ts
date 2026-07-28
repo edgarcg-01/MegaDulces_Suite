@@ -1,10 +1,12 @@
-import { ChangeDetectionStrategy, Component, EventEmitter, Output, computed, input } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, EventEmitter, Output, computed, inject, signal, input } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
 import { SelectModule } from 'primeng/select';
-import { ContpaqiCompare, ContpaqiCompareRow, ContpaqiBankAccount } from '../../bank.service';
+import { DialogModule } from 'primeng/dialog';
+import { BankService, ContpaqiCompare, ContpaqiCompareRow, ContpaqiBankAccount, ContpaqiDetail, CpqReconSide } from '../../bank.service';
 import { cuadra, money0 } from './bancos-shared';
 
 /**
@@ -17,7 +19,7 @@ import { cuadra, money0 } from './bancos-shared';
 @Component({
   selector: 'bancos-contpaqi',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, TableModule, SelectModule],
+  imports: [CommonModule, FormsModule, ButtonModule, TableModule, SelectModule, DialogModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (compare(); as c) {
@@ -91,6 +93,7 @@ import { cuadra, money0 } from './bancos-shared';
               <th class="ta-r" title="Retiros que la contabilidad registró en pólizas (ContPAQi)">Ret. ContPAQi</th>
               <th class="ta-r" title="Diferencia de retiros: banco − libros. $0 = cuadra">Δ ret.</th>
               <th class="ta-c" title="✓ cuadra · ⚠ no cuadra · sin enlazar · sin Excel">Estado</th>
+              <th class="ta-c" title="Abre el detalle movimiento a movimiento: dónde está el error"></th>
             </tr>
           </ng-template>
           <ng-template pTemplate="body" let-r>
@@ -114,14 +117,91 @@ import { cuadra, money0 } from './bancos-shared';
                 @else if (cuad(r.delta_in) && cuad(r.delta_out)) { <i class="pi pi-check-circle ok" title="Cuadra"></i> }
                 @else { <i class="pi pi-exclamation-triangle bad" title="No cuadra"></i> }
               </td>
+              <td class="ta-c">
+                @if (r.linked) {
+                  <button pButton type="button" icon="pi pi-search-plus" class="p-button-text p-button-sm btn-where"
+                          [label]="(!cuad(r.delta_in) || !cuad(r.delta_out)) ? 'Ver dónde' : ''"
+                          (click)="openDetail(r)" title="Detalle movimiento a movimiento: dónde está el descuadre"></button>
+                }
+              </td>
             </tr>
           </ng-template>
-          <ng-template pTemplate="emptymessage"><tr><td colspan="9"><div class="surf-empty"><i class="pi pi-inbox"></i><p>Sin cuentas.</p></div></td></tr></ng-template>
+          <ng-template pTemplate="emptymessage"><tr><td colspan="10"><div class="surf-empty"><i class="pi pi-inbox"></i><p>Sin cuentas.</p></div></td></tr></ng-template>
         </p-table>
       </div>
     } @else {
       <div class="surf-empty"><i class="pi pi-inbox"></i><p>Sin comparación para {{ period() }}.</p></div>
     }
+
+    <!-- Drill: DÓNDE está el descuadre — movimiento a movimiento, huérfanos de cada lado. -->
+    <p-dialog [visible]="detailOpen()" (visibleChange)="detailOpen.set($event)" [modal]="true" [dismissableMask]="true"
+              [style]="{ width: '62rem', maxWidth: '96vw' }" [draggable]="false" [header]="detailTitle()">
+      @if (detailLoading()) {
+        <div class="surf-empty"><i class="pi pi-spin pi-spinner"></i><p>Cargando movimientos…</p></div>
+      } @else if (detailErr()) {
+        <div class="surf-empty"><i class="pi pi-exclamation-triangle bad"></i><p>{{ detailErr() }}</p></div>
+      } @else if (detail()) {
+        @if (detail(); as d) {
+        <p class="dlg-lead">Enfrentamos cada movimiento del <b>banco</b> contra las <b>pólizas de ContPAQi</b> de esta cuenta en {{ d.period }}. Lo que casa por importe desaparece; <b>lo que queda es el descuadre</b>: o el banco lo movió y la contabilidad no lo registró, o la contabilidad registró algo que el banco no movió.</p>
+
+        @for (side of sides(d); track side.key) {
+          <div class="dlg-side">
+            <div class="dlg-side-head">
+              <h4><i [class]="side.icon"></i> {{ side.title }}</h4>
+              @if (cuad(side.data.delta)) {
+                <span class="cpq-tag ok-tag"><i class="pi pi-check"></i> Cuadra</span>
+              } @else {
+                <span class="cpq-tag bad-tag">Δ {{ side.data.delta | currency:'MXN':'symbol-narrow':'1.0-2' }}</span>
+              }
+            </div>
+            <p class="dlg-side-sub muted">
+              Banco {{ side.data.bank_total | currency:'MXN':'symbol-narrow':'1.0-0' }} ·
+              ContPAQi {{ side.data.contpaqi_total | currency:'MXN':'symbol-narrow':'1.0-0' }} ·
+              {{ side.data.matched_count }} movs casados
+            </p>
+
+            @if (!side.data.bank_only.length && !side.data.contpaqi_only.length) {
+              <p class="dlg-clean muted"><i class="pi pi-check-circle ok"></i> Todo casa: cada movimiento del banco tiene su póliza.</p>
+            } @else {
+              <div class="dlg-cols">
+                <!-- Banco sin póliza -->
+                <div class="dlg-col">
+                  <div class="dlg-col-head bank"><i class="pi pi-building"></i> En el banco, <b>sin póliza</b> ({{ side.data.bank_only.length }}) · {{ side.data.bank_only_amount | currency:'MXN':'symbol-narrow':'1.0-0' }}</div>
+                  <p class="dlg-col-hint muted">La contabilidad no registró estos movimientos (o los puso en otra cuenta/mes).</p>
+                  @if (side.data.bank_only.length) {
+                    <table class="dlg-mini"><tbody>
+                      @for (m of side.data.bank_only; track m.id) {
+                        <tr><td class="mono nowrap">{{ m.fecha | date:'dd/MM' }}</td>
+                            <td class="mono ta-r">{{ m.importe | currency:'MXN':'symbol-narrow':'1.0-2' }}</td>
+                            <td class="dlg-concept" [title]="m.concepto || ''">{{ m.concepto || m.categoria || '—' }}</td></tr>
+                      }
+                    </tbody></table>
+                  } @else { <p class="dlg-none muted">— nada —</p> }
+                </div>
+                <!-- Póliza sin banco -->
+                <div class="dlg-col">
+                  <div class="dlg-col-head book"><i class="pi pi-book"></i> En ContPAQi, <b>sin banco</b> ({{ side.data.contpaqi_only.length }}) · {{ side.data.contpaqi_only_amount | currency:'MXN':'symbol-narrow':'1.0-0' }}</div>
+                  <p class="dlg-col-hint muted">La contabilidad registró estas pólizas que el banco no movió (registro de más, o de otro mes).</p>
+                  @if (side.data.contpaqi_only.length) {
+                    <table class="dlg-mini"><tbody>
+                      @for (m of side.data.contpaqi_only; track m.id) {
+                        <tr><td class="mono nowrap">{{ m.fecha | date:'dd/MM' }}</td>
+                            <td class="mono ta-r">{{ m.importe | currency:'MXN':'symbol-narrow':'1.0-2' }}</td>
+                            <td class="dlg-concept" [title]="m.concepto || ''">
+                              @if (m.poliza_folio) { <span class="muted mono">#{{ m.poliza_folio }}</span> }
+                              {{ m.concepto || '—' }}
+                            </td></tr>
+                      }
+                    </tbody></table>
+                  } @else { <p class="dlg-none muted">— nada —</p> }
+                </div>
+              </div>
+            }
+          </div>
+        }
+        }
+      }
+    </p-dialog>
   `,
   styles: [`
     :host { display: block; }
@@ -152,8 +232,30 @@ import { cuadra, money0 } from './bancos-shared';
     .fb-out-ico { color: var(--text-faint); font-size: .8rem; margin-right: 4px; }
     .cpq-tag { display: inline-block; font-size: var(--fs-2xs, .7rem); font-weight: 700; padding: 1px var(--sp-2); border-radius: var(--r-pill); text-transform: uppercase; letter-spacing: .03em; }
     .muted-tag { background: color-mix(in srgb, var(--text-faint) 15%, transparent); color: var(--text-muted); }
+    .ok-tag { background: color-mix(in srgb, var(--ok-fg) 16%, transparent); color: var(--ok-fg); }
+    .bad-tag { background: color-mix(in srgb, var(--bad-fg) 16%, transparent); color: var(--bad-fg); font-variant-numeric: tabular-nums; }
+    .btn-where :is(.p-button-label) { font-size: var(--fs-xs); }
     .surf-empty { display: flex; flex-direction: column; align-items: center; gap: var(--sp-2); padding: var(--sp-8); color: var(--text-muted); }
     .surf-empty i { font-size: 1.5rem; }
+    /* Drill dialog */
+    .dlg-lead { font-size: var(--fs-sm); color: var(--text-main); line-height: 1.5; margin: 0 0 var(--sp-4); }
+    .dlg-side { margin-bottom: var(--sp-5); }
+    .dlg-side-head { display: flex; align-items: center; gap: var(--sp-2); }
+    .dlg-side-head h4 { font-size: var(--fs-sm); font-weight: 700; color: var(--text-main); margin: 0; }
+    .dlg-side-sub { font-size: var(--fs-xs); margin: 2px 0 var(--sp-2); }
+    .dlg-clean { font-size: var(--fs-sm); margin: var(--sp-2) 0; }
+    .dlg-cols { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-3); }
+    @media (max-width: 720px) { .dlg-cols { grid-template-columns: 1fr; } }
+    .dlg-col { border: 1px solid var(--border-color); border-radius: var(--r-md, 8px); overflow: hidden; }
+    .dlg-col-head { font-size: var(--fs-xs); font-weight: 700; padding: var(--sp-2) var(--sp-3); border-bottom: 1px solid var(--border-color); }
+    .dlg-col-head.bank { background: color-mix(in srgb, var(--action, #d97706) 10%, transparent); color: var(--text-main); }
+    .dlg-col-head.book { background: color-mix(in srgb, var(--text-faint) 10%, transparent); color: var(--text-main); }
+    .dlg-col-hint { font-size: var(--fs-2xs, .7rem); margin: var(--sp-2) var(--sp-3) 0; line-height: 1.35; }
+    .dlg-mini { width: 100%; border-collapse: collapse; font-size: var(--fs-xs); margin-top: var(--sp-2); }
+    .dlg-mini td { padding: 3px var(--sp-3); border-top: 1px solid var(--border-color); vertical-align: top; }
+    .dlg-concept { color: var(--text-muted); max-width: 16rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .dlg-none { font-size: var(--fs-xs); padding: var(--sp-2) var(--sp-3); }
+    .nowrap { white-space: nowrap; }
   `],
 })
 export class BancosContpaqiComponent {
@@ -164,8 +266,42 @@ export class BancosContpaqiComponent {
   @Output() link = new EventEmitter<void>();
   @Output() manualLink = new EventEmitter<{ bankAccountId: string; cuenta: string | null }>();
 
+  private readonly api = inject(BankService);
+  private readonly destroyRef = inject(DestroyRef);
+
   cuad = cuadra;
   noExcel(r: ContpaqiCompareRow): boolean { return r.excel_in === 0 && r.excel_out === 0; }
+
+  // Drill "¿dónde está el error?" — carga bajo demanda al abrir el diálogo.
+  readonly detailOpen = signal(false);
+  readonly detailLoading = signal(false);
+  readonly detailErr = signal<string | null>(null);
+  readonly detail = signal<ContpaqiDetail | null>(null);
+  private readonly detailRow = signal<ContpaqiCompareRow | null>(null);
+
+  readonly detailTitle = computed(() => {
+    const r = this.detailRow();
+    return r ? `¿Dónde está el descuadre? — ${r.bank} ${r.account_label}` : 'Detalle';
+  });
+
+  sides(d: ContpaqiDetail): { key: string; title: string; icon: string; data: CpqReconSide }[] {
+    return [
+      { key: 'dep', title: 'Depósitos (entra)', icon: 'pi pi-arrow-down-left ok', data: d.deposits },
+      { key: 'ret', title: 'Retiros (sale)', icon: 'pi pi-arrow-up-right', data: d.withdrawals },
+    ];
+  }
+
+  openDetail(r: ContpaqiCompareRow): void {
+    this.detailRow.set(r);
+    this.detail.set(null);
+    this.detailErr.set(null);
+    this.detailOpen.set(true);
+    this.detailLoading.set(true);
+    this.api.contpaqiDetail(this.period(), r.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (d) => { this.detail.set(d); this.detailLoading.set(false); },
+      error: () => { this.detailErr.set('No se pudo cargar el detalle de la cuenta.'); this.detailLoading.set(false); },
+    });
+  }
 
   /** Opciones del selector manual: cuentas ContPAQi de banco aún libres (más movs primero). */
   readonly availOpts = computed(() =>
