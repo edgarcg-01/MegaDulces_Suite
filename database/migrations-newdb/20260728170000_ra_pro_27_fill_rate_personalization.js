@@ -49,10 +49,16 @@ exports.up = async function (knex) {
     await knex.raw(`ALTER TABLE commercial.replenishment_settings ENABLE ROW LEVEL SECURITY`);
     await knex.raw(`ALTER TABLE commercial.replenishment_settings FORCE ROW LEVEL SECURITY`);
     await knex.raw(`CREATE POLICY tenant_isolation ON commercial.replenishment_settings USING (tenant_id = public.current_tenant_id()) WITH CHECK (tenant_id = public.current_tenant_id())`);
+    // Trigger opcional: solo si la función existe (nuestros INSERT ya pasan tenant_id explícito),
+    // así esta migración no falla ni bloquea el batch en entornos donde el helper aún no esté.
     await knex.raw(`
-      DROP TRIGGER IF EXISTS trg_auto_populate_tenant_id ON commercial.replenishment_settings;
-      CREATE TRIGGER trg_auto_populate_tenant_id BEFORE INSERT ON commercial.replenishment_settings
-        FOR EACH ROW EXECUTE FUNCTION public.auto_populate_tenant_id()`);
+      DO $$ BEGIN
+        IF EXISTS (SELECT 1 FROM pg_proc WHERE proname = 'auto_populate_tenant_id') THEN
+          DROP TRIGGER IF EXISTS trg_auto_populate_tenant_id ON commercial.replenishment_settings;
+          CREATE TRIGGER trg_auto_populate_tenant_id BEFORE INSERT ON commercial.replenishment_settings
+            FOR EACH ROW EXECUTE FUNCTION public.auto_populate_tenant_id();
+        END IF;
+      END $$;`);
     await knex.raw(`GRANT SELECT, INSERT, UPDATE ON commercial.replenishment_settings TO app_runtime`);
     await knex.raw(`COMMENT ON TABLE commercial.replenishment_settings IS 'RA-PRO.27 — parámetros globales del pedido sugerido (fill rate + cobertura) por tenant.'`);
   }
