@@ -1,7 +1,15 @@
 # Fase LTV — Valor sobre la flota (lo que MagniTracking no da)
 
-> **Estado:** 🟢 LTV.0 + LTV.1 + LTV.3 CONSTRUIDOS (beta) local 2026-07-28 · LTV.2/4/5/6/7
-> 🔨 diseñados (planeación). Depende de Fase LT (rastreo ✅).
+> **Estado:** 🟢 LTV.0 + LTV.1 + LTV.3 + LTV.5 + LTV.7 CONSTRUIDOS (beta) local 2026-07-28 ·
+> LTV.2/4/6 🔨 diseñados (planeación, gated por data). Depende de Fase LT (rastreo ✅).
+>
+> **LTV.5 productividad** (commit 96d0b81d): `FleetProductivityService` deriva de LTV.0 —
+> tiempos muertos (paradas ≥20min sin cliente), productivas vs muertas, km/entrega.
+> `GET /logistics/tracking/productivity?date`. Smoke 3/3.
+> **LTV.7 alertas de negocio** (commit 1c1dd9ef): regla `stopped_with_pending` en el
+> scanner de `fleet_alerts` (detenida + su embarque de hoy con recipients pendientes).
+> Mig `20260728160000` amplía el CHECK de kind. Smoke 3/3. Diferidos (gated por coords/
+> config): off_route_zone, late_dispatch, returned_incomplete.
 >
 > **Construido (2026-07-28):** LTV.0 keystone (`logistics.vehicle_stops` +
 > `vehicle_day_summary`, mig `20260728120000`, `TripBuilderService` + cron nocturno +
