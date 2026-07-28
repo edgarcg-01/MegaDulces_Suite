@@ -610,6 +610,10 @@ export interface RouteAdherence {
   off_route_stops: Array<{ arrived_at: string; minutes: number; lat: number; lng: number }>;
 }
 
+export interface FleetAdherenceRow extends RouteAdherence {
+  vehicle_plate: string | null;
+}
+
 export interface TrackerHistoryPoint {
   captured_at: string;
   lat: number;
@@ -1080,6 +1084,10 @@ export class LogisticaService {
   trackAdherence(vehicleId: string, date: string): Observable<RouteAdherence> {
     let params = new HttpParams().set('vehicle_id', vehicleId).set('date', date);
     return this.http.get<RouteAdherence>(`${this.base}/tracking/adherence`, { params });
+  }
+  fleetAdherence(date: string): Observable<FleetAdherenceRow[]> {
+    const params = new HttpParams().set('date', date);
+    return this.http.get<FleetAdherenceRow[]>(`${this.base}/tracking/adherence/day`, { params });
   }
   fleetAlerts(): Observable<FleetAlertRow[]> {
     return this.http.get<FleetAlertRow[]>(`${this.base}/tracking/alerts`);

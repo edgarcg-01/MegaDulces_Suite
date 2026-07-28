@@ -44,6 +44,13 @@ export class LogisticsTrackingController {
     return this.adherence.forVehicleDay(vehicleId, date);
   }
 
+  @Get('adherence/day')
+  @RequirePermissions(Permission.LOGISTICS_FLEET_VER)
+  @ApiOperation({ summary: 'Cumplimiento de ruta de toda la flota en un día (auditoría)' })
+  adherenceForFleet(@Query('date') date: string) {
+    return this.adherence.forFleetDay(date);
+  }
+
   // ── LTV.0 Viajes / paradas reconstruidas ───────────────────────────────────
   @Get('trips/day-summary')
   @RequirePermissions(Permission.LOGISTICS_FLEET_VER)

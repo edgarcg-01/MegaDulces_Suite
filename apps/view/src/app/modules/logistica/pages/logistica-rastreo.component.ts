@@ -9,6 +9,7 @@ import {
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { RouterModule } from '@angular/router';
 import { ButtonModule } from 'primeng/button';
 import { TagModule } from 'primeng/tag';
 import { TooltipModule } from 'primeng/tooltip';
@@ -18,7 +19,6 @@ import {
   TrackerLive,
   TrackerStatus,
   FleetAlertRow,
-  RouteAdherence,
   Vehicle,
 } from '../logistica.service';
 
@@ -34,7 +34,7 @@ const STATUS_META: Record<TrackerStatus, { label: string; sev: Sev; color: strin
 @Component({
   selector: 'app-logistica-rastreo',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, TagModule, TooltipModule, MapComponent],
+  imports: [CommonModule, FormsModule, RouterModule, ButtonModule, TagModule, TooltipModule, MapComponent],
   template: `
     <div class="surf-page">
       <header class="surf-page-head">
@@ -150,29 +150,9 @@ const STATUS_META: Record<TrackerStatus, { label: string; sev: Sev; color: strin
                     [icon]="loadingTrail() ? 'pi pi-spin pi-spinner' : 'pi pi-directions'"
                     [label]="showTrail() ? 'Ocultar recorrido' : 'Ver recorrido de hoy'"
                     (click)="toggleTrail(s)"></button>
-            <button pButton size="small" severity="secondary" [text]="true"
-                    [icon]="loadingAdh() ? 'pi pi-spin pi-spinner' : 'pi pi-check-circle'"
-                    label="Cumplimiento" (click)="loadAdherence(s)"></button>
-          </div>
-
-          <!-- LTV.1 Cumplimiento de ruta -->
-          <div class="rk-adh" *ngIf="adherence() as adh">
-            <div *ngIf="!adh.evaluable" class="rk-adh-na">
-              <i class="pi pi-info-circle" aria-hidden="true"></i>
-              Sin plan evaluable hoy — falta el embarque del día o coordenadas de los clientes de la ruta.
-            </div>
-            <div *ngIf="adh.evaluable">
-              <div class="rk-adh-bar"><span [style.width.%]="adh.coverage_pct ?? 0"></span></div>
-              <div class="rk-adh-head">
-                <b>{{ adh.coverage_pct }}%</b> cumplimiento ·
-                {{ adh.visited_count }}/{{ adh.planned_with_coords }} visitados
-                <span *ngIf="adh.off_route_count"> · {{ adh.off_route_count }} fuera de ruta</span>
-              </div>
-              <div class="rk-adh-skipped" *ngIf="adh.skipped.length">
-                <span class="rk-adh-lbl">Saltados:</span>
-                <span class="comm-code" *ngFor="let sk of adh.skipped">{{ sk.code || sk.name }}</span>
-              </div>
-            </div>
+            <a pButton size="small" severity="secondary" [text]="true"
+               icon="pi pi-check-circle" label="Auditoría de ruta"
+               routerLink="/logistica/auditoria-ruta"></a>
           </div>
         </article>
 
@@ -286,8 +266,6 @@ export class LogisticaRastreoComponent {
   readonly showTrail = signal(false);
   readonly loadingTrail = signal(false);
   readonly trailPath = signal<{ lat: number; lng: number }[]>([]);
-  readonly adherence = signal<RouteAdherence | null>(null);
-  readonly loadingAdh = signal(false);
   private lastSynced = signal<number>(0);
 
   readonly selected = computed(() => this.units().find((u) => u.id === this.selectedId()) ?? null);
@@ -365,22 +343,11 @@ export class LogisticaRastreoComponent {
     });
   }
 
-  loadAdherence(u: TrackerLive) {
-    if (!u.vehicle_id) { this.adherence.set({ evaluable: false } as RouteAdherence); return; }
-    const day = new Date(Date.now() - 6 * 3600 * 1000).toISOString().slice(0, 10);
-    this.loadingAdh.set(true);
-    this.api.trackAdherence(u.vehicle_id, day).subscribe({
-      next: (r) => { this.adherence.set(r); this.loadingAdh.set(false); },
-      error: () => { this.loadingAdh.set(false); },
-    });
-  }
-
   select(id: string | number | null | undefined) {
     if (id == null) return;
     this.selectedId.set(id);
     this.showTrail.set(false);
     this.trailPath.set([]);
-    this.adherence.set(null);
     const u = this.units().find((x) => x.id === id);
     if (u?.last_lat != null && u.last_lng != null) this.map?.panTo(Number(u.last_lat), Number(u.last_lng));
   }
