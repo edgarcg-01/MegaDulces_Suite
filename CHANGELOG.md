@@ -10,6 +10,13 @@
 
 ## [Unreleased]
 
+### Added — Fase LTV: valor sobre la flota (bloque LTV.0/1/3) (2026-07-28)
+- **Tesis:** el GPS crudo es commodity; el moat es fusionarlo con el cerebro comercial/logístico (pedidos, clientes, rutas, POD). Plan completo (7 puntos) en [`FASE_LTV`](docs/IMPLEMENTACION/FASES/FASE_LTV_VALOR_FLOTA.md).
+- **LTV.0 (keystone):** `logistics.vehicle_stops` + `vehicle_day_summary` (mig `20260728120000`, RLS). `TripBuilderService` segmenta `vehicle_positions` en paradas (haversine, 40m/≥5min) + resumen diario (km, movimiento/detenido, paradas), matchea paradas a clientes geocodificados (≤90m). `@Cron` nocturno + endpoints. Smoke 8/8.
+- **LTV.1 cumplimiento de ruta:** `RouteAdherenceService` cruza plan (clientes de la ruta servida) vs real (paradas matcheadas) → visitados/saltados/fuera-de-ruta/coverage%. `GET /logistics/tracking/adherence` + panel en `/logistica/rastreo`. Smoke 7/7.
+- **LTV.3 POD georreferenciado:** `PodGeoAuditService` (libs/trade) cruza el GPS del POD (`guide_recipients`) vs domicilio del cliente → hallazgos `pod_far_from_customer`/`pod_no_gps` en la bandeja Horus (`supervisor_findings`, source=fraud). `@Cron` nocturno. ADR-020: detecta, no acusa. Smoke 5/5.
+- **Bloqueo de valor #1:** solo 5/2970 clientes tienen coordenadas → geocodificar la cartera de reparto activa el matching. **Pendiente prod:** aplicar mig `20260728120000` a Railway + redeploy. Diferido: LTV.2/4/5/6/7.
+
 ### Changed — RA-PRO.17-20: demanda limpia + topología + traspaso preciso + sobrestock/ranking en /compras/pedido (2026-07-28)
 - **Raíz corregida — unidad de venta mixta.** `analytics.sales_daily.units` estaba contaminado ~190x: el mayoreo (MD-30/32/50) vende por CAJA y el retail/ruta (01-05) por PIEZA, pero ambos quedaban `unit_kind='piece'` (factor caja 40-260x, incomparable entre almacenes) + SKUs basura precio-$0. El **revenue es agnóstico a la unidad** → **RA-PRO.17.1**: nueva `analytics.product_demand` con `piezas_limpias = revenue / precio_pieza`, `precio_pieza(prod) = MIN($/u implícito)` entre almacenes. Feed `import-demand-clean.js` (al nightly+live). El motor de compra sugerida ahora lee de aquí: sugerido de red $1.58M (crudo, sub-contaba mayoreo) → **$11.1M** (limpio).
 - **RA-PRO.17.2 topología** — `warehouses.source_warehouse_id` sembrado desde evidencia real (`transfers_monthly` `salida_cedis`): las 8 sucursales con stock reciben del CEDIS `00`. UI de edición ya existe en `/compras/red`.
