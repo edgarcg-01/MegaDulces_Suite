@@ -137,7 +137,7 @@ export class FinanceBankService {
   async linkContpaqi() {
     const tenantId = this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
-      const accounts = await trx('finance.bank_accounts').select('id', 'bank', 'account_label', 'kind');
+      const accounts = await trx('finance.bank_accounts').select('id', 'bank', 'account_label', 'kind', 'contpaqi_cuenta', 'contpaqi_cuenta_nombre');
       const cpq = await trx('analytics.contpaqi_bank_movements')
         .where('tenant_id', tenantId)
         .select('cuenta', 'cuenta_nombre').count('* as movs')
@@ -152,12 +152,19 @@ export class FinanceBankService {
             .filter((c: any) => rx.test(c.cuenta_nombre || '') && String(c.cuenta_nombre).replace(/\D/g, '').includes(label))
             .sort((x: any, y: any) => Number(y.movs) - Number(x.movs))[0] || null;
         }
-        await trx('finance.bank_accounts').where('id', a.id).update({
-          contpaqi_cuenta: best ? best.cuenta : null,
-          contpaqi_cuenta_nombre: best ? String(best.cuenta_nombre).trim() : null,
-          updated_at: trx.fn.now(),
-        });
-        results.push({ bank: a.bank, account_label: a.account_label, contpaqi_cuenta: best?.cuenta ?? null, contpaqi_cuenta_nombre: best ? String(best.cuenta_nombre).trim() : null });
+        // Solo ESCRIBE cuando el auto-match encuentra cuenta. Nunca pone en NULL un
+        // enlace existente — así los enlaces MANUALES (p.ej. Santander 1604↔CH 50730160,
+        // que no comparten número) sobreviven a re-correr el auto-enlace. Idempotente.
+        if (best) {
+          await trx('finance.bank_accounts').where('id', a.id).update({
+            contpaqi_cuenta: best.cuenta,
+            contpaqi_cuenta_nombre: String(best.cuenta_nombre).trim(),
+            updated_at: trx.fn.now(),
+          });
+          results.push({ bank: a.bank, account_label: a.account_label, contpaqi_cuenta: best.cuenta, contpaqi_cuenta_nombre: String(best.cuenta_nombre).trim() });
+        } else {
+          results.push({ bank: a.bank, account_label: a.account_label, contpaqi_cuenta: a.contpaqi_cuenta ?? null, contpaqi_cuenta_nombre: a.contpaqi_cuenta_nombre ?? null });
+        }
       }
       const linked = results.filter((r) => r.contpaqi_cuenta).length;
       this.logger.log(`ContPAQi link: ${linked}/${accounts.length} cuentas enlazadas`);
