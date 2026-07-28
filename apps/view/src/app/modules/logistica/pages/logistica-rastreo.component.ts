@@ -151,8 +151,8 @@ const STATUS_META: Record<TrackerStatus, { label: string; sev: Sev; color: strin
                     [label]="showTrail() ? 'Ocultar recorrido' : 'Ver recorrido de hoy'"
                     (click)="toggleTrail(s)"></button>
             <a pButton size="small" severity="secondary" [text]="true"
-               icon="pi pi-check-circle" label="Auditoría de ruta"
-               routerLink="/logistica/auditoria-ruta"></a>
+               icon="pi pi-check-circle" label="Cumplimiento de reparto"
+               routerLink="/logistica/cumplimiento-reparto"></a>
           </div>
         </article>
 
