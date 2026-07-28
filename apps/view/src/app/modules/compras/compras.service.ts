@@ -72,6 +72,9 @@ export interface PurchaseSuggestionRow {
   fill_rate?: number;    // RA-PRO.27 — surtido histórico del proveedor (0..1); <1 infla el sugerido
   fill_source?: string;  // RA-PRO.27 — override | sku | supplier | default
   coverage_days_eff?: number; // RA-PRO.27 — cobertura aplicada (override del proveedor o global)
+  coverage_source?: string;   // RA-PRO.27 — manual | auto | global
+  safety_pct_eff?: number;    // RA-PRO.27 — colchón % aplicado
+  safety_source?: string;     // RA-PRO.27 — manual | auto | none
   suggested_cost: number; days_cover: number | null;
   sell_daily_cajas: number; sell_month_cajas: number; // venta de la red (30d): la señal del reorden
   sell_month_mxn: number; // RA-PRO.18 — venta 30d en $
@@ -285,6 +288,11 @@ export interface SupplierParam {
   safety_pct: number | null;            // RA-PRO.27 — colchón adicional % sobre el sugerido
   coverage_days_override: number | null; // RA-PRO.27 — días de cobertura propios del proveedor
   product_count: number;
+  // RA-PRO.27.2 — ANÁLISIS AUTOMÁTICO (valor vigente cuando no hay override manual)
+  auto_coverage_days?: number | null;  // cadencia real de compra + lead time
+  auto_safety_pct?: number | null;     // colchón por variabilidad de demanda
+  fill_rate_auto?: number | null;      // fill rate por historia de recepciones (0..1)
+  fill_receptions?: number;            // # recepciones en la ventana (confianza del dato)
   fill_pct?: number | null; // UI-only: fill_rate_override expresado en % (0..100)
 }
 export interface SupplierOrderParamsDto {

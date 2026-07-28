@@ -33,7 +33,7 @@ import { ComprasService, SupplierParam, SupplierOrder, SupplierOrderParamsDto, R
       <header class="surf-page-head">
         <div class="surf-page-head-text">
           <h1>Parámetros de compra</h1>
-          <p class="surf-page-sub">Lead time, ciclo de pedido (cadencia + colchón) y mínimo de compra por proveedor. Alimentan el sugerido del motor. El mínimo se evalúa por proveedor y sube el pedido si queda corto.</p>
+          <p class="surf-page-sub">El motor <strong>analiza y fija solo</strong> el fill rate, la cobertura y el colchón por proveedor (del histórico de recepciones, cadencia de compra y variabilidad de demanda). Los campos muestran el valor <em>auto</em> como placeholder; captura solo si quieres <strong>forzar</strong> un override manual.</p>
         </div>
       </header>
 
@@ -88,9 +88,13 @@ import { ComprasService, SupplierParam, SupplierOrder, SupplierOrderParamsDto, R
             <td class="cp-r"><input pInputText type="number" min="0" max="365" [(ngModel)]="r.colchon_days" (change)="saveParam(r, { colchon_days: numOrNull(r.colchon_days) })" class="cp-num" [class.cp-unset]="r.colchon_days == null" placeholder="—" /></td>
             <td class="cp-r"><input pInputText type="number" min="0" [(ngModel)]="r.min_order_boxes" (change)="saveParam(r, { min_order_boxes: numOrNull(r.min_order_boxes) })" class="cp-num" [class.cp-unset]="r.min_order_boxes == null" placeholder="—" /></td>
             <td class="cp-r"><p-inputNumber [(ngModel)]="r.min_order_amount" (onBlur)="saveParam(r, { min_order_amount: numOrNull(r.min_order_amount) })" mode="currency" currency="MXN" locale="es-MX" [maxFractionDigits]="0" [min]="0" [showButtons]="false" inputStyleClass="cp-num" placeholder="—" /></td>
-            <td class="cp-r cp-sep"><input pInputText type="number" min="1" max="100" [(ngModel)]="r.fill_pct" (change)="saveParam(r, { fill_rate_override: r.fill_pct == null || r.fill_pct === undefined ? null : numOrNull(r.fill_pct)! / 100 })" class="cp-num" [class.cp-unset]="r.fill_pct == null" placeholder="auto" /></td>
-            <td class="cp-r"><input pInputText type="number" min="0" max="100" [(ngModel)]="r.safety_pct" (change)="saveParam(r, { safety_pct: numOrNull(r.safety_pct) })" class="cp-num" [class.cp-unset]="r.safety_pct == null" placeholder="—" /></td>
-            <td class="cp-r"><input pInputText type="number" min="1" max="120" [(ngModel)]="r.coverage_days_override" (change)="saveParam(r, { coverage_days_override: numOrNull(r.coverage_days_override) })" class="cp-num" [class.cp-unset]="r.coverage_days_override == null" placeholder="global" /></td>
+            <td class="cp-r cp-sep">
+              <input pInputText type="number" min="1" max="100" [(ngModel)]="r.fill_pct" (change)="saveParam(r, { fill_rate_override: r.fill_pct == null || r.fill_pct === undefined ? null : numOrNull(r.fill_pct)! / 100 })" class="cp-num" [class.cp-unset]="r.fill_pct == null"
+                     [placeholder]="r.fill_rate_auto != null ? ((r.fill_rate_auto * 100 | number:'1.0-0') + '% auto') : 'auto'"
+                     [title]="r.fill_receptions ? (r.fill_receptions + ' recepciones en la ventana') : 'sin historia — asume 100%'" />
+            </td>
+            <td class="cp-r"><input pInputText type="number" min="0" max="100" [(ngModel)]="r.safety_pct" (change)="saveParam(r, { safety_pct: numOrNull(r.safety_pct) })" class="cp-num" [class.cp-unset]="r.safety_pct == null" [placeholder]="r.auto_safety_pct ? (r.auto_safety_pct + '% auto') : '0'" /></td>
+            <td class="cp-r"><input pInputText type="number" min="1" max="120" [(ngModel)]="r.coverage_days_override" (change)="saveParam(r, { coverage_days_override: numOrNull(r.coverage_days_override) })" class="cp-num" [class.cp-unset]="r.coverage_days_override == null" [placeholder]="r.auto_coverage_days ? (r.auto_coverage_days + ' auto') : 'global'" /></td>
             <td class="cp-r"><button pButton type="button" label="Ver pedido" icon="pi pi-list" class="p-button-sm p-button-text" (click)="openOrder(r)"></button></td>
             <td class="cp-r">@if (savedId() === r.id) { <i class="pi pi-check cp-ok"></i> }</td>
           </tr>
@@ -99,7 +103,7 @@ import { ComprasService, SupplierParam, SupplierOrder, SupplierOrderParamsDto, R
           <tr><td colspan="12" class="cp-empty">Sin proveedores.</td></tr>
         </ng-template>
       </p-table>
-      <p class="cp-foot">* Sin lead time capturado, el motor usa 7 días. Cadencia "auto" = derivada del histórico. Con cadencia manual, horizonte = cadencia + colchón. <strong>Fill %</strong> vacío = el motor lo calcula de las recepciones; capturado = gana sobre el histórico. <strong>Cobertura</strong> "global" = usa la del filtro del pedido.</p>
+      <p class="cp-foot">Los placeholders <em>"… auto"</em> son lo que el <strong>análisis</strong> calculó y ya aplica el motor: <strong>Fill %</strong> del histórico de recepciones · <strong>Colchón %</strong> de la variabilidad (estable 0 / medio 10 / volátil 20) · <strong>Cobertura</strong> de la cadencia real de compra + lead time. Escribe un valor solo para <strong>forzar</strong> un override manual (gana sobre el auto). Los parámetros globales de arriba controlan la ventana y el tope del análisis.</p>
 
       <p-dialog [(visible)]="orderVisible" [modal]="true" [style]="{ width: '54rem' }" [dismissableMask]="true" [header]="order()?.supplier?.name || 'Pedido consolidado'">
         @if (orderLoading()) { <div class="cp-dlg-msg">Calculando…</div> }

@@ -492,14 +492,22 @@ export class CommercialReplenishmentService {
       // Precedencia: override manual del proveedor → historia SKU×proveedor → historia proveedor →
       // 100% (sin historia). El fill rate se toma de OCs recibidas/parciales en la ventana (fwin);
       // requiere ≥ fmin líneas para confiar; el inflado se topa en maxinf (piso del fill = 1/maxinf).
-      // covEff = cobertura propia del proveedor (coverage_days_override) o la global del filtro.
-      const covEff = `COALESCE(sup.coverage_days_override, :cov)`;
+      // AUTOMÁTICO BAJO ANÁLISIS: cobertura y colchón se derivan de datos, sin captura manual.
+      //   auto cobertura = cadencia real de compra (OCs recibidas en la ventana) + lead time.
+      //   auto colchón%  = variabilidad de demanda (CV de reorder_policy): estable 0 / medio 10 / volátil 20.
+      // Precedencia (ambos): override manual del proveedor → valor auto del análisis → global.
+      const autoCov = `CASE WHEN scad.recs >= 2 AND scad.cadence > 0 THEN ceil(scad.cadence + COALESCE(sup.lead_time_days, 7)) END`;
+      const autoSafety = `CASE WHEN scv.cv >= 1.0 THEN 20 WHEN scv.cv >= 0.5 THEN 10 ELSE 0 END`;
+      const covEff = `COALESCE(sup.coverage_days_override, ${autoCov}, :cov)`;
+      const safetyEff = `COALESCE(sup.safety_pct, ${autoSafety}, 0)`;
       const frSku = `CASE WHEN COALESCE(frp.n,0) >= :fmin AND COALESCE(frp.ord,0) > 0 THEN LEAST(1.0, frp.recv::numeric / frp.ord) END`;
       const frSup = `CASE WHEN COALESCE(frs.n,0) >= :fmin AND COALESCE(frs.ord,0) > 0 THEN LEAST(1.0, frs.recv::numeric / frs.ord) END`;
       const fillRate = `COALESCE(sup.fill_rate_override, ${frSku}, ${frSup}, 1.0)`;
       const fillSource = `CASE WHEN sup.fill_rate_override IS NOT NULL THEN 'override' WHEN ${frSku} IS NOT NULL THEN 'sku' WHEN ${frSup} IS NOT NULL THEN 'supplier' ELSE 'default' END`;
-      // sugerido = (necesidad ÷ fill, tope inflado) × (1 + colchón% del proveedor)
-      const fillFactor = `(1.0 / GREATEST(${fillRate}, 1.0 / :maxinf)) * (1 + COALESCE(sup.safety_pct,0)/100.0)`;
+      const covSource = `CASE WHEN sup.coverage_days_override IS NOT NULL THEN 'manual' WHEN ${autoCov} IS NOT NULL THEN 'auto' ELSE 'global' END`;
+      const safetySource = `CASE WHEN sup.safety_pct IS NOT NULL THEN 'manual' WHEN ${autoSafety} > 0 THEN 'auto' ELSE 'none' END`;
+      // sugerido = (necesidad ÷ fill, tope inflado) × (1 + colchón% efectivo)
+      const fillFactor = `(1.0 / GREATEST(${fillRate}, 1.0 / :maxinf)) * (1 + ${safetyEff}/100.0)`;
       const needBase = `GREATEST(0, ${sellDayPz} * ${covEff} / ${uxc} - ${stockPz} / ${uxc} - ${transit})`; // necesidad neta (sin fill)
       const sug = `(${needBase} * ${fillFactor})`;                                                          // sugerido personalizado
       const filters: string[] = ['pr.tenant_id = :t', 'pr.activo = true'];
@@ -570,6 +578,22 @@ export class CommercialReplenishmentService {
              AND COALESCE(po.closed_at, po.created_at) >= now() - make_interval(days => :fwin::int)
            GROUP BY po.supplier_id, pol.product_id
         ) frp ON frp.supplier_id = pr.supplier_id AND frp.product_id = pr.id
+        LEFT JOIN (
+          SELECT p.supplier_id, avg(rp.demand_cv) AS cv
+            FROM catalog.products p
+            JOIN commercial.reorder_policy rp ON rp.tenant_id = p.tenant_id AND rp.product_id = p.id
+           WHERE p.tenant_id = :t AND p.supplier_id IS NOT NULL AND rp.demand_cv IS NOT NULL
+           GROUP BY p.supplier_id
+        ) scv ON scv.supplier_id = pr.supplier_id
+        LEFT JOIN (
+          SELECT po.supplier_id,
+                 (max(po.closed_at::date) - min(po.closed_at::date))::numeric / NULLIF(count(*) - 1, 0) AS cadence,
+                 count(*) AS recs
+            FROM commercial.purchase_orders po
+           WHERE po.tenant_id = :t AND po.source_type = 'supplier' AND po.estado IN ('received','partial')
+             AND po.closed_at IS NOT NULL AND po.closed_at >= now() - make_interval(days => :fwin::int)
+           GROUP BY po.supplier_id
+        ) scad ON scad.supplier_id = pr.supplier_id
         LEFT JOIN commercial.warehouses w ON w.tenant_id = :t AND w.id = COALESCE(:selwh::uuid, pl.primary_wh)
         LEFT JOIN (SELECT tenant_id, product_id, max(box_size) bs FROM commercial.product_label_prices GROUP BY tenant_id, product_id) lbl
                ON lbl.tenant_id = :t AND lbl.product_id = pr.id
@@ -621,6 +645,9 @@ export class CommercialReplenishmentService {
                  round((${fillRate})::numeric, 3) AS fill_rate,
                  ${fillSource} AS fill_source,
                  ${covEff} AS coverage_days_eff,
+                 ${covSource} AS coverage_source,
+                 round((${safetyEff})::numeric, 0) AS safety_pct_eff,
+                 ${safetySource} AS safety_source,
                  round((${sug} * ${uxc})::numeric, 0) AS suggested_pieces,
                  round((${sug} * ${costE})::numeric, 2) AS suggested_cost,
                  round((${sellDayPz} / ${uxc})::numeric, 2) AS sell_daily_cajas,
@@ -1382,11 +1409,14 @@ export class CommercialReplenishmentService {
   async listSuppliers(q?: { search?: string }) {
     const tenantId = this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
+      const st: any = await trx('commercial.replenishment_settings').where({ tenant_id: tenantId }).first();
+      const fwin = Math.max(30, Number(st?.fill_window_days) || 180);
+      const fmin = Math.max(1, Number(st?.fill_min_lines) || 3);
       const base = trx('catalog.suppliers as sup')
         .leftJoin('catalog.products as pr', (j) => j.on('pr.tenant_id', 'sup.tenant_id').andOn('pr.supplier_id', 'sup.id'))
         .where('sup.tenant_id', tenantId);
       if (q?.search && q.search.trim()) base.andWhereILike('sup.name', `%${q.search.trim()}%`);
-      return base
+      const rows: any[] = await base
         .groupBy('sup.id', 'sup.name', 'sup.lead_time_days', 'sup.min_order_boxes', 'sup.cadence_days_override', 'sup.colchon_days', 'sup.min_order_amount', 'sup.fill_rate_override', 'sup.safety_pct', 'sup.coverage_days_override')
         .select('sup.id', 'sup.name',
           trx.raw('sup.lead_time_days AS lead_time_days'),
@@ -1394,12 +1424,38 @@ export class CommercialReplenishmentService {
           trx.raw('sup.cadence_days_override AS cadence_days_override'),
           trx.raw('sup.colchon_days AS colchon_days'),
           trx.raw('sup.min_order_amount AS min_order_amount'),
-          // RA-PRO.27 — personalización del pedido
+          // RA-PRO.27 — personalización del pedido (override manual)
           trx.raw('sup.fill_rate_override AS fill_rate_override'),
           trx.raw('sup.safety_pct AS safety_pct'),
           trx.raw('sup.coverage_days_override AS coverage_days_override'),
           trx.raw('COUNT(pr.id)::int AS product_count'))
         .orderBy('sup.name');
+
+      // RA-PRO.27.2 — ANÁLISIS AUTOMÁTICO por proveedor (mismo que usa el motor): fill rate por
+      // historia, cobertura por cadencia+lead, colchón por variabilidad. Se muestra como el valor
+      // vigente cuando no hay override manual.
+      const auto: any[] = (await trx.raw(`
+        SELECT s.id AS supplier_id,
+               CASE WHEN cad.recs >= 2 AND cad.cadence > 0 THEN ceil(cad.cadence + COALESCE(s.lead_time_days, 7)) END AS auto_coverage_days,
+               CASE WHEN cv.cv >= 1.0 THEN 20 WHEN cv.cv >= 0.5 THEN 10 ELSE 0 END AS auto_safety_pct,
+               CASE WHEN fr.n >= :fmin AND fr.ord > 0 THEN round(LEAST(1.0, fr.recv::numeric / fr.ord), 3) END AS fill_rate_auto,
+               COALESCE(fr.n, 0)::int AS fill_receptions
+          FROM catalog.suppliers s
+          LEFT JOIN (SELECT p.supplier_id, avg(rp.demand_cv) cv FROM catalog.products p
+                       JOIN commercial.reorder_policy rp ON rp.tenant_id = p.tenant_id AND rp.product_id = p.id
+                      WHERE p.tenant_id = :t AND p.supplier_id IS NOT NULL AND rp.demand_cv IS NOT NULL GROUP BY p.supplier_id) cv ON cv.supplier_id = s.id
+          LEFT JOIN (SELECT po.supplier_id,
+                            (max(po.closed_at::date) - min(po.closed_at::date))::numeric / NULLIF(count(*) - 1, 0) cadence, count(*) recs
+                       FROM commercial.purchase_orders po
+                      WHERE po.tenant_id = :t AND po.source_type = 'supplier' AND po.estado IN ('received','partial')
+                        AND po.closed_at IS NOT NULL AND po.closed_at >= now() - make_interval(days => :fwin::int) GROUP BY po.supplier_id) cad ON cad.supplier_id = s.id
+          LEFT JOIN (SELECT po.supplier_id, SUM(pol.received_qty) recv, SUM(pol.ordered_qty) ord, COUNT(*) n
+                       FROM commercial.purchase_orders po JOIN commercial.purchase_order_lines pol ON pol.tenant_id = po.tenant_id AND pol.purchase_order_id = po.id
+                      WHERE po.tenant_id = :t AND po.source_type = 'supplier' AND po.estado IN ('received','partial') AND po.supplier_id IS NOT NULL
+                        AND COALESCE(po.closed_at, po.created_at) >= now() - make_interval(days => :fwin::int) GROUP BY po.supplier_id) fr ON fr.supplier_id = s.id
+         WHERE s.tenant_id = :t`, { t: tenantId, fmin, fwin })).rows;
+      const byId = new Map(auto.map((a) => [a.supplier_id, a]));
+      return rows.map((r) => ({ ...r, ...(byId.get(r.id) || {}) }));
     });
   }
 
