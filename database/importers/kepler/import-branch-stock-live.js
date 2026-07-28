@@ -42,7 +42,10 @@ const SNAP_PATH = process.env.STOCK_SNAPSHOT_PATH || path.join(__dirname, '.stoc
 const MAP = process.env.STOCK_BRANCH_MAP
   ? JSON.parse(process.env.STOCK_BRANCH_MAP)
   : [
-      { code: '00', url: 'postgresql://platform_ro:kepler123@192.168.9.95:5432/md_00' },
+      // RA-PRO.24 — el CEDIS '00' YA NO se surte de Kepler md_00 (cargaba pseudo-SKUs
+      // contables 00001/00022 que inflaban el hub). Su existencia física viene de Wincaja
+      // Irapuato vía import-cedis-stock-wincaja.js. NO reactivar '00' aquí sin coordinar.
+      // { code: '00', url: 'postgresql://platform_ro:kepler123@192.168.9.95:5432/md_00' },
       { code: '01', url: 'postgresql://platform_ro:kepler123@192.168.10.10:1977/md_01' },
       { code: '02', url: 'postgresql://platform_ro:kepler123@192.168.42.42:5432/md_02' },
       { code: '03', url: 'postgresql://platform_ro:kepler123@192.168.40.40:5432/md_03' },
