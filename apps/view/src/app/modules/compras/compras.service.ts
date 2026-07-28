@@ -31,7 +31,8 @@ export interface CriticalStockRow {
   supplier_min_amount: number | null; // RA-PRO.10 — pedido mínimo del proveedor en $
   factor_purchase: number | null;     // ⚠ roto (todo 1/null) — NO usar para cajas
   factor_sale: number | null;         // piezas/caja REAL (usar este); ver reference_box_factor_factor_sale
-  box_size: number | null;            // pack de la etiquetera — fallback de factor_sale para uxc
+  box_size: number | null;            // Pz/Cja de la etiquetera CJA; MANDA si box_size=factor_sale×pack_size
+  pack_size: number | null;           // RA-PRO.30 — Pz/Paq; prueba de consistencia de la etiqueta
   abc_class: string | null;
   // RA-PRO.1/2 — política profesional (safety stock por nivel de servicio + XYZ)
   xyz_class: string | null;          // X estable · Y variable · Z errático
