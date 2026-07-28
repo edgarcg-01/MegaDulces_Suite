@@ -10,6 +10,7 @@ import { SupervisorActionsService } from './supervisor-actions.service';
 import { OpportunityEngineService } from './opportunity-engine.service';
 import { PhotoAuditService } from './photo-audit.service';
 import { FraudEngineService } from './fraud-engine.service';
+import { PodGeoAuditService } from './pod-geo-audit.service';
 import { ScoringEngineService } from './scoring-engine.service';
 import { SalesExecutionService } from './sales-execution.service';
 import { RuleCalibrationService } from './rule-calibration.service';
@@ -46,6 +47,7 @@ import { WebSocketModule } from '../websocket/websocket.module';
     OpportunityEngineService,
     PhotoAuditService,
     FraudEngineService,
+    PodGeoAuditService,
     ScoringEngineService,
     SalesExecutionService,
     RuleCalibrationService,
