@@ -64,6 +64,7 @@ try {
   Run-Node 'GOLD sales+MV' @('importers/wincaja/import-wincaja-analytics.js', '--apply')
   Run-Node 'GOLD stock'    @('importers/wincaja/import-wincaja-stock.js', '--apply')
   Run-Node 'GOLD stock CEDIS' @('importers/wincaja/import-cedis-stock-wincaja.js', '--apply')  # RA-PRO.24 — existencia CEDIS '00' = Irapuato (no Kepler)
+  Run-Node 'GOLD cadencia CEDIS' @('importers/wincaja/import-cedis-cadence-wincaja.js', '--apply')  # RA-PRO.25 — cadencia surtido CEDIS→sucursal
   Run-Node 'GOLD rutas mensual' @('importers/wincaja/import-wincaja-routes-monthly.js', '--apply')
   Run-Node 'GOLD venta/producto' @('importers/wincaja/import-wincaja-product-sales.js', '--apply')
   Run-Node 'GOLD movimientos'    @('importers/wincaja/import-wincaja-stock-movements.js', '--apply')

@@ -1353,12 +1353,19 @@ export class CommercialReplenishmentService {
     return this.tk.run(async (trx) => {
       const rows = await trx('commercial.warehouses as w')
         .leftJoin('commercial.warehouses as src', (j) => j.on('src.tenant_id', 'w.tenant_id').andOn('src.id', 'w.source_warehouse_id'))
+        // RA-PRO.25 — cadencia REAL de surtido del CEDIS (Wincaja Irapuato, caja 99) por sucursal.
+        .leftJoin('analytics.cedis_supply_cadence as cc', (j) =>
+          j.on('cc.tenant_id', 'w.tenant_id').andOn('cc.warehouse_id', 'w.id').andOnVal('cc.window_year', new Date().getFullYear()))
         .where('w.tenant_id', tenantId).whereNull('w.deleted_at').andWhere('w.kind', '<>', 'truck')
         // Excluye almacenes efímeros de tests/procesos (conteo, equipos, caducidad, ventas).
         .andWhereRaw(`w.code !~ '^(INV|TEAMWH|EXPALERT|SOLDEXP|TRUCK)'`)
         .select('w.id', 'w.code', 'w.name', 'w.source_warehouse_id',
           trx.raw('src.code AS source_code'),
-          trx.raw(`EXISTS (SELECT 1 FROM commercial.warehouses c WHERE c.tenant_id=w.tenant_id AND c.source_warehouse_id=w.id AND c.deleted_at IS NULL) AS is_cedis`))
+          trx.raw(`EXISTS (SELECT 1 FROM commercial.warehouses c WHERE c.tenant_id=w.tenant_id AND c.source_warehouse_id=w.id AND c.deleted_at IS NULL) AS is_cedis`),
+          trx.raw('cc.cadence_days AS supply_cadence_days'),       // cada cuántos días lo surte el CEDIS
+          trx.raw('cc.shipments AS supply_shipments'),             // # envíos en el año
+          trx.raw('cc.last_shipment AS supply_last'),              // último surtido
+          trx.raw('cc.avg_shipment_value AS supply_avg_value'))    // $ costo promedio por envío
         .orderBy('w.code');
       return rows;
     });

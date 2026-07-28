@@ -262,6 +262,11 @@ export interface NetworkNode {
   source_warehouse_id: string | null;
   source_code: string | null;
   is_cedis: boolean;
+  // RA-PRO.25 — cadencia real de surtido del CEDIS (Wincaja Irapuato)
+  supply_cadence_days: number | null;
+  supply_shipments: number | null;
+  supply_last: string | null;
+  supply_avg_value: number | null;
 }
 
 export interface SupplierParam {
