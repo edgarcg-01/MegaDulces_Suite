@@ -7,6 +7,8 @@
  *
  *   precio_pieza(producto) = MIN( revenue/units )  entre almacenes con venta real
  *                            (la pieza es siempre la unidad más granular → menor $/u)
+ *   RA-PRO.29.2: para BOXED (factor_sale>1) el precio_pieza = MAX(MIN, cost_with_tax) — piso de
+ *                costo que evita contar sub-porciones cuando el dulce se vende suelto en retail.
  *   piezas_limpias(almacén, producto) = revenue(almacén) / precio_pieza(producto)
  *
  * Guardas: solo filas con units≥3 y revenue≥0.5 cuentan para el MIN (mata SKUs basura
@@ -47,11 +49,25 @@ const DAYS = di !== -1 ? Number(process.argv[di + 1]) : 30;
          WHERE tenant_id = $1 AND sale_date >= current_date - $2::int
          GROUP BY product_id, warehouse_id
       ),
+      pf AS (
+        SELECT id AS product_id, COALESCE(factor_sale, 1)::numeric AS fs,
+               COALESCE(cost_with_tax, 0)::numeric AS cwt
+          FROM catalog.products WHERE tenant_id = $1
+      ),
       pp AS (
-        SELECT product_id, min(rev / u) AS piece_price
-          FROM wp
-         WHERE u >= 3 AND rev >= 0.5
-         GROUP BY product_id
+        -- RA-PRO.29.2 — PISO DE COSTO para no inflar boxed vendido suelto. El MIN($/u) toma la
+        -- unidad más granular; para un dulce BOXED (fs>1) que además se vende SUELTO en retail
+        -- (nucita/chocolate a $1.5/u vs paquete a $22/u), el MIN cae por debajo del costo por
+        -- paquete (cost_with_tax) → cuenta sub-porciones e infla las piezas ~15×. Fix: para fs>1
+        -- el precio-pieza = MAX(MIN, cost_with_tax). Granel (fs<=1, unidad kg/cubeta con SUF) y
+        -- retail-que-vende-el-paquete (MIN>=costo, ej. pasta SARAMEL) quedan intactos.
+        SELECT wp.product_id,
+               CASE WHEN COALESCE(pf.fs, 1) > 1 AND COALESCE(pf.cwt, 0) > 0
+                    THEN GREATEST(min(wp.rev / wp.u), pf.cwt)
+                    ELSE min(wp.rev / wp.u) END AS piece_price
+          FROM wp LEFT JOIN pf ON pf.product_id = wp.product_id
+         WHERE wp.u >= 3 AND wp.rev >= 0.5
+         GROUP BY wp.product_id, pf.fs, pf.cwt
       )`;
     const WHERE = `WHERE pp.piece_price > 0 AND wp.rev > 0`;
 
