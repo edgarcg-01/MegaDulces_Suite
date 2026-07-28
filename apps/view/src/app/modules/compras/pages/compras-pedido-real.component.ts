@@ -18,12 +18,12 @@ import { MessageService } from 'primeng/api';
 import {
   ComprasService, PurchaseSuggestionRow, PurchaseSuggestionResponse, ReplenishmentFilters,
   DeadStockRow, CreateRequisitionDto, CreateRequisitionLine, PedidoExportLine, saveXlsxResponse,
-  TransferSuggestionRow, TransferSuggestionResponse,
+  TransferSuggestionRow, TransferSuggestionResponse, OverstockRow, OverstockResponse,
 } from '../compras.service';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 
 type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
-type Mode = 'pedir' | 'traspaso' | 'muerto';
+type Mode = 'pedir' | 'traspaso' | 'sobrestock' | 'muerto';
 interface Row extends PurchaseSuggestionRow { _pedir: number; _sel: boolean; }
 interface TRow extends TransferSuggestionRow { _mover: number; _sel: boolean; }
 
@@ -53,6 +53,7 @@ interface TRow extends TransferSuggestionRow { _mover: number; _sel: boolean; }
         <div class="pr-mode" role="tablist" aria-label="Vista">
           <button role="tab" [attr.aria-selected]="mode()==='pedir'" class="pr-tab" [class.pr-tab-on]="mode()==='pedir'" (click)="setMode('pedir')">Comprar</button>
           <button role="tab" [attr.aria-selected]="mode()==='traspaso'" class="pr-tab" [class.pr-tab-on]="mode()==='traspaso'" (click)="setMode('traspaso')">Traspasos</button>
+          <button role="tab" [attr.aria-selected]="mode()==='sobrestock'" class="pr-tab" [class.pr-tab-on]="mode()==='sobrestock'" (click)="setMode('sobrestock')">Sobrestock</button>
           <button role="tab" [attr.aria-selected]="mode()==='muerto'" class="pr-tab" [class.pr-tab-on]="mode()==='muerto'" (click)="setMode('muerto')">Stock muerto</button>
         </div>
       </header>
@@ -228,6 +229,65 @@ interface TRow extends TransferSuggestionRow { _mover: number; _sel: boolean; }
             <button pButton type="button" [label]="saving() ? 'Armando…' : 'Armar traspaso'" icon="pi pi-arrow-right-arrow-left" class="p-button-sm" (click)="createTransfer()" [disabled]="saving()"></button>
           </div>
         }
+      } @else if (mode()==='sobrestock') {
+        <!-- SOBRESTOCK: stock que excede N días de cobertura → capital inmovilizado (topología-aware) -->
+        <app-metric-strip [items]="oKpiItems()" ariaLabel="Resumen de sobrestock" />
+        <div class="pr-filters">
+          <p-select [options]="warehouseOpts()" [(ngModel)]="oWarehouse" (onChange)="loadOverstock()"
+                    optionLabel="label" optionValue="value" placeholder="Todos los almacenes" [showClear]="true"
+                    styleClass="pr-sel" ariaLabel="Filtrar por almacén"></p-select>
+          <p-select [options]="supplierOpts()" [(ngModel)]="oSupplier" (onChange)="loadOverstock()"
+                    optionLabel="label" optionValue="value" placeholder="Todos los proveedores" [showClear]="true"
+                    [filter]="true" filterBy="label" [virtualScroll]="true" [virtualScrollItemSize]="34"
+                    styleClass="pr-sel-wide" ariaLabel="Filtrar por proveedor"></p-select>
+          <p-iconfield styleClass="pr-search">
+            <p-inputicon styleClass="pi pi-search" />
+            <input pInputText type="text" [(ngModel)]="search" (keyup.enter)="loadOverstock()" placeholder="SKU o producto…" aria-label="Buscar producto" />
+          </p-iconfield>
+          <label class="pr-cov">
+            <span>Excede</span>
+            <p-inputNumber [(ngModel)]="overDays" (onBlur)="loadOverstock()" [min]="7" [max]="365" [showButtons]="true"
+                           buttonLayout="horizontal" [step]="15" suffix=" d" inputStyleClass="pr-cov-in"
+                           decrementButtonClass="p-button-text" incrementButtonClass="p-button-text"
+                           incrementButtonIcon="pi pi-plus" decrementButtonIcon="pi pi-minus" ariaLabel="Días de cobertura umbral"></p-inputNumber>
+          </label>
+        </div>
+        <p-table [value]="oRows()" [loading]="loading()" [scrollable]="true" scrollHeight="flex"
+                 [paginator]="true" [rows]="50" [rowsPerPageOptions]="[50, 100, 200]"
+                 styleClass="p-datatable-sm pr-table" [tableStyle]="{ 'min-width': '70rem' }">
+          <ng-template pTemplate="header">
+            <tr>
+              <th style="min-width:15rem">Producto</th>
+              <th style="width:6rem">Almacén</th>
+              <th style="min-width:9rem">Proveedor</th>
+              <th class="pr-r" title="Existencia total (cajas)">Existencia</th>
+              <th class="pr-r" title="Días que dura la existencia a la venta actual (de red si es CEDIS)">Cobertura</th>
+              <th class="pr-r pr-sell" title="Cajas por encima del umbral (excedente)">Excedente</th>
+              <th class="pr-r">Costo</th>
+              <th class="pr-r pr-val" title="Capital inmovilizado = excedente × costo real">Inmovilizado</th>
+            </tr>
+          </ng-template>
+          <ng-template pTemplate="body" let-r>
+            <tr>
+              <td><div class="pr-prod">{{ r.nombre }}</div><div class="pr-sku">{{ r.sku }}</div></td>
+              <td class="pr-mono">{{ r.warehouse_code }}@if (r.is_hub) { <span class="pr-hub" title="CEDIS (medido vs demanda de red)">CEDIS</span> }</td>
+              <td class="pr-supp">{{ r.supplier_name || '—' }}</td>
+              <td class="pr-r pr-muted">{{ r.on_hand_cajas | number:'1.0-0' }}</td>
+              <td class="pr-r">
+                @if (r.days_on_hand != null) { <p-tag [value]="(r.days_on_hand | number:'1.0-0') + ' d'" severity="info" styleClass="pr-cov-tag"></p-tag> }
+                @else { <span class="pr-muted">—</span> }
+              </td>
+              <td class="pr-r pr-sell pr-strong">{{ r.surplus_cajas | number:'1.0-0' }}</td>
+              <td class="pr-r pr-muted">{{ money(r.unit_cost) }}</td>
+              <td class="pr-r pr-val pr-strong">{{ money(r.immobilized_value) }}</td>
+            </tr>
+          </ng-template>
+          <ng-template pTemplate="emptymessage">
+            <tr><td colspan="8" class="pr-empty"><i class="pi pi-inbox"></i><p>Sin sobrestock.</p>
+              <span>Ningún producto excede {{ overDays }} días de cobertura con estos filtros.</span></td></tr>
+          </ng-template>
+        </p-table>
+        <p class="pr-foot">Excedente = existencia − demanda × {{ overDays }}d. El CEDIS se mide contra la demanda de RED (Σ sucursales que surte), no su venta directa. Valuado en cajas al costo real. Considera <a (click)="setMode('traspaso')" class="pr-link">traspasar</a> lo que falta en otra sucursal.</p>
       } @else {
         <!-- STOCK MUERTO: productos activos SIN rotación (capital inmovilizado) -->
         <div class="pr-filters">
@@ -293,6 +353,8 @@ interface TRow extends TransferSuggestionRow { _mover: number; _sel: boolean; }
     .pr-sku { font-family: var(--font-mono, ui-monospace, monospace); font-size: .7rem; color: var(--text-faint); }
     .pr-rank { font-size: .68rem; color: var(--text-muted); font-variant-numeric: tabular-nums; }
     :host ::ng-deep .pr-abc { font-size: .6rem; padding: .02rem .3rem; line-height: 1.3; }
+    .pr-hub { font-size: .58rem; text-transform: uppercase; letter-spacing: .05em; color: var(--action); margin-left: .3rem; vertical-align: middle; }
+    .pr-link { color: var(--action); cursor: pointer; text-decoration: underline; }
     .pr-supp { color: var(--text-muted); font-size: .8rem; }
     .pr-mono { font-family: var(--font-mono, ui-monospace, monospace); font-size: .78rem; }
     .pr-strong { font-weight: 700; }
@@ -339,6 +401,13 @@ export class ComprasPedidoRealComponent implements OnInit {
   tTotalMoves = signal(0);
   tWarehouse: string | null = null;
   tSupplier: string | null = null;
+  oRows = signal<OverstockRow[]>([]);
+  oTotalValor = signal(0);
+  oTotalCajas = signal(0);
+  oTotalProds = signal(0);
+  oWarehouse: string | null = null;
+  oSupplier: string | null = null;
+  overDays = 90;
   private readonly selTick = signal(0); // fuerza recompute de KPIs de selección al editar
   private readonly tSelTick = signal(0);
 
@@ -373,7 +442,35 @@ export class ComprasPedidoRealComponent implements OnInit {
     this.mode.set(m);
     if (m === 'pedir') this.reload();
     else if (m === 'traspaso') this.loadTransfer();
+    else if (m === 'sobrestock') this.loadOverstock();
     else this.loadDead();
+  }
+
+  loadOverstock(): void {
+    this.loading.set(true); this.error.set(false);
+    this.api.overstock({
+      warehouse_id: this.oWarehouse || undefined, supplier_id: this.oSupplier || undefined,
+      search: this.search.trim() || undefined, over_days: this.overDays, pageSize: 500,
+    }).pipe(
+      catchError(() => { this.error.set(true); return of(null as OverstockResponse | null); }),
+      takeUntilDestroyed(this.destroyRef),
+    ).subscribe((r) => {
+      this.loading.set(false);
+      if (!r) { this.oRows.set([]); this.oTotalValor.set(0); this.oTotalCajas.set(0); this.oTotalProds.set(0); return; }
+      this.oRows.set(r.rows);
+      this.oTotalValor.set(Number(r.total_valor) || 0);
+      this.oTotalCajas.set(Number(r.total_cajas) || 0);
+      this.oTotalProds.set(Number(r.total) || 0);
+    });
+  }
+
+  oKpiItems(): MetricStripItem[] {
+    return [
+      { label: 'Capital inmovilizado', value: this.oTotalValor(), format: 'currency', tone: 'warn' },
+      { label: 'Cajas excedentes', value: this.oTotalCajas(), sub: '> ' + this.overDays + 'd cobertura' },
+      { label: 'Productos', value: this.oTotalProds(), sub: 'sobrestockeados' },
+      { label: 'Umbral', value: this.overDays, sub: 'días cobertura' },
+    ];
   }
 
   loadTransfer(): void {

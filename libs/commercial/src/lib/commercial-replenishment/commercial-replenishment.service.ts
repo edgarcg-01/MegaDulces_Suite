@@ -79,6 +79,18 @@ export interface TransferSuggestionQuery {
   export?: boolean;
 }
 
+// RA-PRO.19 — Sobrestock (capital inmovilizado), topología-aware (el CEDIS se mide vs demanda de red).
+export interface OverstockQuery {
+  warehouse_id?: string;
+  supplier_id?: string;
+  category_id?: string;
+  search?: string;
+  over_days?: number;       // umbral de sobrestock: stock que excede N días de cobertura (default 90)
+  page?: number;
+  pageSize?: number;
+  export?: boolean;
+}
+
 interface RequisitionLineDto {
   product_id: string;
   supplier_id?: string | null;
@@ -675,6 +687,102 @@ export class CommercialReplenishmentService {
         total_valor: Number(totalRow?.total_valor || 0),
         total_cajas: Number(totalRow?.total_cajas || 0),
         page, pageSize, coverage_days: cov, rows,
+      };
+    });
+  }
+
+  // ── RA-PRO.19 — Sobrestock (capital inmovilizado) ─────────────────────
+  /**
+   * Productos con stock por ENCIMA de `over_days` de cobertura, por almacén, con el CAPITAL
+   * INMOVILIZADO ($). Topología-aware: una sucursal se mide contra SU venta; el CEDIS contra
+   * la DEMANDA DE RED (Σ de las sucursales que surte) — si no, el hub (venta directa ≈ 0)
+   * saldría 100% sobrestockeado cuando en realidad es buffer de distribución.
+   *
+   *   demanda_efectiva = sucursal→su venta diaria · CEDIS→Σ venta diaria de sus sucursales
+   *   excedente_pz     = max(0, existencia − demanda_efectiva × over_days)
+   *   inmovilizado     = (excedente_pz / uxc) × costo_real_de_caja   (mismo costo que compra/traspaso)
+   */
+  async overstockList(q: OverstockQuery) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const over = Math.min(365, Math.max(7, Number(q.over_days) || 90));
+    const page = Math.max(1, Number(q.page) || 1);
+    const cap = q.export ? 100000 : 500;
+    const pageSize = Math.min(cap, Math.max(1, Number(q.pageSize) || (q.export ? cap : 50)));
+    return this.tk.run(async (trx) => {
+      const binds: Record<string, unknown> = { t: tenantId, over };
+      const filters: string[] = ['pr.activo = true', 'ov.surplus_pz > 0'];
+      if (q.warehouse_id && UUID_RX.test(q.warehouse_id)) { filters.push('ov.wh = :dw'); binds.dw = q.warehouse_id; }
+      if (q.supplier_id && UUID_RX.test(q.supplier_id)) { filters.push('pr.supplier_id = :sid'); binds.sid = q.supplier_id; }
+      if (q.category_id && UUID_RX.test(q.category_id)) { filters.push('pr.category_id = :cat'); binds.cat = q.category_id; }
+      if (q.search && q.search.trim()) { filters.push('(pr.sku ILIKE :s OR pr.nombre ILIKE :s)'); binds.s = `%${q.search.trim()}%`; }
+      const where = filters.join(' AND ');
+
+      const cte = `
+        WITH dem AS (SELECT product_id, warehouse_id, daily_pieces FROM analytics.product_demand WHERE tenant_id = :t AND window_days = 30),
+        econ AS (
+          SELECT p.id AS product_id,
+                 GREATEST(CASE WHEN p.factor_sale > 1 THEN p.factor_sale WHEN l.bs > 1 THEN l.bs ELSE 1 END, 1) AS uxc,
+                 COALESCE(pv.cost, p.cost_with_tax, 0) AS caja_cost
+            FROM catalog.products p
+            LEFT JOIN (SELECT tenant_id, product_id, max(box_size) bs FROM commercial.product_label_prices GROUP BY tenant_id, product_id) l ON l.tenant_id = :t AND l.product_id = p.id
+            LEFT JOIN (SELECT product_id, sum(qty_90d * real_unit_cost) / NULLIF(sum(qty_90d),0) AS cost FROM analytics.purchase_velocity WHERE tenant_id = :t GROUP BY product_id) pv ON pv.product_id = p.id
+           WHERE p.tenant_id = :t
+        ),
+        -- demanda efectiva por almacén×producto: sucursal = su venta; CEDIS = Σ de las sucursales que surte
+        eff AS (
+          SELECT w.id AS wh, d.product_id, COALESCE(d.daily_pieces,0) AS eff_daily
+            FROM commercial.warehouses w JOIN dem d ON d.warehouse_id = w.id
+           WHERE w.tenant_id = :t AND w.source_warehouse_id IS NOT NULL AND w.deleted_at IS NULL
+          UNION ALL
+          SELECT h.id AS wh, bd.product_id, SUM(COALESCE(bd.daily_pieces,0)) AS eff_daily
+            FROM commercial.warehouses h
+            JOIN commercial.warehouses b ON b.tenant_id = h.tenant_id AND b.source_warehouse_id = h.id AND b.deleted_at IS NULL
+            JOIN dem bd ON bd.warehouse_id = b.id
+           WHERE h.tenant_id = :t AND h.source_warehouse_id IS NULL AND h.deleted_at IS NULL
+           GROUP BY h.id, bd.product_id
+        ),
+        ov AS (
+          SELECT eff.wh, eff.product_id, eff.eff_daily,
+                 COALESCE(s.quantity,0) AS stock_pz,
+                 GREATEST(0, COALESCE(s.quantity,0) - eff.eff_daily * :over) AS surplus_pz
+            FROM eff
+            LEFT JOIN commercial.stock s ON s.tenant_id = :t AND s.warehouse_id = eff.wh AND s.product_id = eff.product_id
+        )`;
+      const from = `
+        FROM ov
+        JOIN catalog.products pr ON pr.tenant_id = :t AND pr.id = ov.product_id
+        JOIN econ e ON e.product_id = ov.product_id
+        JOIN commercial.warehouses w ON w.tenant_id = :t AND w.id = ov.wh
+        LEFT JOIN catalog.suppliers sup ON sup.tenant_id = :t AND sup.id = pr.supplier_id
+        WHERE ${where}`;
+
+      const totalRow = (await trx.raw(
+        `${cte} SELECT count(*)::int c,
+                round(SUM((ov.surplus_pz / e.uxc) * e.caja_cost)::numeric, 2) total_valor,
+                round(SUM(ov.surplus_pz / e.uxc)::numeric, 0) total_cajas ${from}`, binds)).rows[0];
+
+      const rows = (await trx.raw(`
+        ${cte}
+        SELECT pr.id AS product_id, pr.sku, pr.nombre,
+               ov.wh AS warehouse_id, w.code AS warehouse_code, w.name AS warehouse_name,
+               (w.source_warehouse_id IS NULL) AS is_hub,
+               sup.name AS supplier_name, e.uxc,
+               round(ov.stock_pz::numeric, 0) AS on_hand_pieces,
+               round((ov.stock_pz / e.uxc)::numeric, 1) AS on_hand_cajas,
+               round((ov.surplus_pz / e.uxc)::numeric, 1) AS surplus_cajas,
+               round(ov.surplus_pz::numeric, 0) AS surplus_pieces,
+               CASE WHEN ov.eff_daily > 0 THEN round((ov.stock_pz / ov.eff_daily)::numeric, 0) END AS days_on_hand,
+               round(e.caja_cost::numeric, 4) AS unit_cost,
+               round(((ov.surplus_pz / e.uxc) * e.caja_cost)::numeric, 2) AS immobilized_value
+        ${from}
+        ORDER BY (ov.surplus_pz / e.uxc) * e.caja_cost DESC
+        LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`, binds)).rows;
+
+      return {
+        total: Number(totalRow?.c || 0),
+        total_valor: Number(totalRow?.total_valor || 0),
+        total_cajas: Number(totalRow?.total_cajas || 0),
+        page, pageSize, over_days: over, rows,
       };
     });
   }

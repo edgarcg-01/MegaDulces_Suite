@@ -102,6 +102,23 @@ export interface TransferSuggestionQuery {
   warehouse_id?: string; supplier_id?: string; category_id?: string; search?: string; coverage_days?: number; page?: number; pageSize?: number;
 }
 
+// RA-PRO.19 — sobrestock / capital inmovilizado
+export interface OverstockRow {
+  product_id: string; sku: string; nombre: string;
+  warehouse_id: string; warehouse_code: string; warehouse_name: string; is_hub: boolean;
+  supplier_name: string | null; uxc: number;
+  on_hand_pieces: number; on_hand_cajas: number;
+  surplus_cajas: number; surplus_pieces: number; days_on_hand: number | null;
+  unit_cost: number; immobilized_value: number;
+}
+export interface OverstockResponse {
+  total: number; total_valor: number; total_cajas: number; page: number; pageSize: number; over_days: number;
+  rows: OverstockRow[];
+}
+export interface OverstockQuery {
+  warehouse_id?: string; supplier_id?: string; category_id?: string; search?: string; over_days?: number; page?: number; pageSize?: number;
+}
+
 export interface CriticalStockResponse {
   total: number;
   page: number;
@@ -503,6 +520,20 @@ export class ComprasService {
     if (q.pageSize) p.set('pageSize', String(q.pageSize));
     const qs = p.toString();
     return this.http.get<TransferSuggestionResponse>(`${this.base}/transfer-suggestion${qs ? '?' + qs : ''}`);
+  }
+
+  /** RA-PRO.19 — sobrestock (capital inmovilizado) topología-aware. */
+  overstock(q: OverstockQuery): Observable<OverstockResponse> {
+    const p = new URLSearchParams();
+    if (q.warehouse_id) p.set('warehouse_id', q.warehouse_id);
+    if (q.supplier_id) p.set('supplier_id', q.supplier_id);
+    if (q.category_id) p.set('category_id', q.category_id);
+    if (q.search) p.set('search', q.search);
+    if (q.over_days) p.set('over_days', String(q.over_days));
+    if (q.page) p.set('page', String(q.page));
+    if (q.pageSize) p.set('pageSize', String(q.pageSize));
+    const qs = p.toString();
+    return this.http.get<OverstockResponse>(`${this.base}/overstock${qs ? '?' + qs : ''}`);
   }
 
   /** Export XLSX con diseño (mismos filtros; exporta TODO el filtro, sin paginar). */

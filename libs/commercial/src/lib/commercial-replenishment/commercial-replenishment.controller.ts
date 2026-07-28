@@ -91,6 +91,21 @@ export class CommercialReplenishmentController {
     return this.svc.transferPlan({ warehouse_id, supplier_id, category_id, search, coverage_days: coverage_days ? Number(coverage_days) : undefined, page: page ? Number(page) : undefined, pageSize: pageSize ? Number(pageSize) : undefined });
   }
 
+  @Get('overstock')
+  @RequirePermissions(Permission.COMPRAS_VER)
+  @ApiOperation({ summary: 'RA-PRO.19 — sobrestock (capital inmovilizado) por almacén, topología-aware (CEDIS vs demanda de red). excedente = max(0, stock − demanda_efectiva × over_days), valuado en cajas al costo real. Filtros: warehouse_id, supplier_id, category_id, search, over_days(=90).' })
+  overstock(
+    @Query('warehouse_id') warehouse_id?: string,
+    @Query('supplier_id') supplier_id?: string,
+    @Query('category_id') category_id?: string,
+    @Query('search') search?: string,
+    @Query('over_days') over_days?: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+  ) {
+    return this.svc.overstockList({ warehouse_id, supplier_id, category_id, search, over_days: over_days ? Number(over_days) : undefined, page: page ? Number(page) : undefined, pageSize: pageSize ? Number(pageSize) : undefined });
+  }
+
   @Get('critical-stock.xlsx')
   @RequirePermissions(Permission.COMPRAS_VER)
   @ApiOperation({ summary: 'Existencia crítica → Excel con diseño (mismos filtros que /critical-stock; exporta TODAS las filas del filtro, sin paginar).' })
