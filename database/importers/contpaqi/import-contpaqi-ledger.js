@@ -1,6 +1,6 @@
 /* eslint-disable no-console */
 /**
- * CP.1 (Fase CP, ADR-035) — Balanza de ContPAQi Contabilidad → analytics.contpaqi_ledger_monthly.
+ * CP.1 (Fase CP, ADR-040) — Balanza de ContPAQi Contabilidad → analytics.contpaqi_ledger_monthly.
  *
  * Origen (READ-ONLY): SQL Server ContPAQi instancia COMPAC, empresa
  * `ctLUIS_FRANCISCO_LOPEZ_GUTIERREZ`. Lee la balanza pre-agregada:

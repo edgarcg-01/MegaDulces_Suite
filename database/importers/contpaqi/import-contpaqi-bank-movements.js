@@ -1,6 +1,6 @@
 /* eslint-disable no-console */
 /**
- * CP.2 (Fase CP, ADR-035) — Ledger bancario ContPAQi → analytics.contpaqi_bank_movements.
+ * CP.2 (Fase CP, ADR-040) — Ledger bancario ContPAQi → analytics.contpaqi_bank_movements.
  *
  * Origen (READ-ONLY): MovimientosPoliza sobre cuentas de banco `102xxxxxxx` (afectable)
  *   ⋈ Cuentas (nombre con número de cuenta) ⋈ Polizas (concepto header).

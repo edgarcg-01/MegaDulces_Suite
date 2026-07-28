@@ -118,7 +118,7 @@ export class FinanceBankService {
     });
   }
 
-  // ── CP.2 (Fase CP, ADR-035) — Enlace + comparación con la contabilidad ContPAQi ──
+  // ── CP.2 (Fase CP, ADR-040) — Enlace + comparación con la contabilidad ContPAQi ──
 
   /** Patrón de nombre de banco en ContPAQi por código de cuenta CB. */
   private static readonly CPQ_BANK_RX: Record<string, RegExp> = {

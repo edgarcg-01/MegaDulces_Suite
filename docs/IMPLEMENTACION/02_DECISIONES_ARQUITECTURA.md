@@ -1068,6 +1068,18 @@ Extracción en **2 etapas** (desacopla la dependencia Jet del load PG): (A) Powe
 
 ---
 
+## ADR-040 — **Conector ContPAQi** (Fase CP): ContPAQi = SoR contable externo, la plataforma = engagement
+
+**Fecha:** 2026-07-27 · **Estado:** Aceptado · CP.0–CP.4 implementados (local) · Hereda ADR-016/028.
+
+**Decisión:** NO construir "nuestro ContPAQi" (contabilidad electrónica / DIOT / estados financieros = commodity regulado, moving-target del SAT, cero diferenciación — el mismo núcleo que Maat decidió no tocar). En su lugar, **integrar**: ContPAQi es el **system of record contable/fiscal**; la plataforma es el **system of engagement** (lee del SoR, agrega Maat + CB + analytics, y —a futuro— empuja pólizas por importación de archivo). **Jamás escritura directa a la DB de ContPAQi** (la corrompe); el push va por el import soportado (TXT/Excel) con HITL (contador importa). Conexión decodificada: **SQL Server 2022, instancia `COMPAC` en `192.168.0.35`** (servidor `SERVCONTABILIDA`), 1 empresa de Contabilidad (`ctLUIS_FRANCISCO_LOPEZ_GUTIERREZ`, persona física), driver `mssql` con `instanceName`, login read-only `platform_ro`.
+
+**Alternativas:** (a) construir contabilidad propia → rechazada (regulada, sin moat); (b) SDK COM two-way → diferido (CP.7, solo si el file-import no basta); (c) API cloud ContPAQi → limitada.
+
+**Consecuencias:** ✅ Maat lee los **libros fiscales reales** (balanza consolidada `analytics.contpaqi_ledger_monthly`) sin reconstruir desde Kepler; ✅ conciliación bancaria anclada en la contabilidad real (auxiliar por banco, resuelve "los 17 bancos comparten el 102"); ✅ riesgo fiscal EFOS sobre los proveedores de los libros (109 en listas SAT, 6 EFOS → bandeja de hallazgos). ⚠️ segmentación por sucursal NO confiable (~2% de movimientos con segmento) → ContPAQi es la verdad fiscal **consolidada**, el detalle por sucursal se queda en Kepler; el gap fiscal-vs-operación (~$12M/mes) es estructural (IVA/alcance de la entidad), no error. Diferidos: CP.5 push de pólizas (necesita spec del formato de importación), materialidad CFDI↔póliza, CP.6 puerto genérico, CP.7 SDK. Plan en [`FASES/FASE_CP_CONTPAQI.md`](FASES/FASE_CP_CONTPAQI.md).
+
+---
+
 ## Cómo agregar un ADR nuevo
 
 1. Copiar `ADR-000` (la plantilla) renombrando al siguiente número correlativo.

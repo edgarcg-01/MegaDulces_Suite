@@ -1,6 +1,6 @@
 /* eslint-disable no-console */
 /**
- * CP.1 — Smoke de la balanza ContPAQi (Fase CP, ADR-035). DB-direct sobre la nueva DB
+ * CP.1 — Smoke de la balanza ContPAQi (Fase CP, ADR-040). DB-direct sobre la nueva DB
  * (NO toca el SQL Server de ContPAQi; valida lo YA importado en analytics.contpaqi_ledger_monthly).
  *
  * Cubre: schema (tabla + columnas + PK) · si hay data importada → cuadre Σcargos≈Σabonos,

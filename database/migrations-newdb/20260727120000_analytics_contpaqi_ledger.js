@@ -1,5 +1,5 @@
 /**
- * CP.1 — Balanza CONSOLIDADA de ContPAQi Contabilidad (Fase CP, ADR-035).
+ * CP.1 — Balanza CONSOLIDADA de ContPAQi Contabilidad (Fase CP, ADR-040).
  *
  * `analytics.contpaqi_ledger_monthly` = balanza de comprobación de los LIBROS FISCALES
  * (SQL Server ContPAQi COMPAC, empresa `ctLUIS_FRANCISCO_LOPEZ_GUTIERREZ`), a nivel

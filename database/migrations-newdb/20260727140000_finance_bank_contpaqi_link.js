@@ -1,5 +1,5 @@
 /**
- * CP.2 (Fase CP, ADR-035) — Crosswalk cuenta de banco CB ↔ cuenta contable ContPAQi.
+ * CP.2 (Fase CP, ADR-040) — Crosswalk cuenta de banco CB ↔ cuenta contable ContPAQi.
  *
  * Agrega a `finance.bank_accounts` el enlace a la cuenta `102xxxxxxx` de ContPAQi
  * (analytics.contpaqi_bank_movements), para conciliar el workbook/estado de cuenta contra

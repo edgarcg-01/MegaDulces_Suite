@@ -659,7 +659,7 @@ Tienes acceso a: **balanza de comprobación completa** (familias 1-9, cargos/abo
     });
   }
 
-  // ── CP.1 (Fase CP, ADR-035) — Balanza de los libros fiscales ContPAQi ──
+  // ── CP.1 (Fase CP, ADR-040) — Balanza de los libros fiscales ContPAQi ──
   // analytics.contpaqi_ledger_monthly = balanza CONSOLIDADA de la entidad (sin sucursal;
   // la contabilidad casi no segmenta). Verdad fiscal; sin RLS → tenant explícito.
   private async contpaqiBalanza(q: any) {
@@ -695,7 +695,7 @@ Tienes acceso a: **balanza de comprobación completa** (familias 1-9, cargos/abo
     });
   }
 
-  // ── CP.2 (Fase CP, ADR-035) — Auxiliar bancario por banco (libros ContPAQi) ──
+  // ── CP.2 (Fase CP, ADR-040) — Auxiliar bancario por banco (libros ContPAQi) ──
   // analytics.contpaqi_bank_movements = movimientos de póliza sobre cuentas 102xxx (por banco).
   // Llena el hueco "los 17 bancos comparten el 102" de Kepler. Sin RLS → tenant explícito.
   private async contpaqiBanco(q: any) {
@@ -726,7 +726,7 @@ Tienes acceso a: **balanza de comprobación completa** (familias 1-9, cargos/abo
     });
   }
 
-  // ── CP.3 (Fase CP, ADR-035) — Riesgo fiscal: proveedores ContPAQi vs lista negra SAT ──
+  // ── CP.3 (Fase CP, ADR-040) — Riesgo fiscal: proveedores ContPAQi vs lista negra SAT ──
   // Cruza analytics.contpaqi_suppliers.rfc contra fiscal.sat_list_rfcs (69/69B). Ambas sin RLS
   // por-tenant (sat_list_rfcs es catálogo global); app_runtime tiene SELECT en las dos.
   private async contpaqiEfos(q: any) {
@@ -754,7 +754,7 @@ Tienes acceso a: **balanza de comprobación completa** (familias 1-9, cargos/abo
     });
   }
 
-  // ── CP.4 (Fase CP, ADR-035) — Contraste libros (ContPAQi) vs operación (Kepler) ──
+  // ── CP.4 (Fase CP, ADR-040) — Contraste libros (ContPAQi) vs operación (Kepler) ──
   // Ingresos fam4 mes a mes: Kepler operativo (venta consolidada CEDIS) vs ContPAQi fiscal.
   // El gap es típicamente estructural (IVA / alcance de la entidad fiscal / timing) → el
   // `nota` obliga a narrar sin gritar fraude. Solo ingresos (fam4 es limpio en ambos; los

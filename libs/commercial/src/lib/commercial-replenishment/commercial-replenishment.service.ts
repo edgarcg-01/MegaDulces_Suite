@@ -426,20 +426,19 @@ export class CommercialReplenishmentService {
 
   // ── RA-PRO.17 — Compra sugerida (ritmo de compra REAL) ────────────────
   /**
-   * Sugerido de compra anclado en el LEDGER de compras reales (analytics.purchase_velocity,
-   * entrada X-A-40). Reemplaza la valuación derivada demanda×política×costo — que en el granel
-   * se rompía por unidades mezcladas (venta piezas / compra cajas / costo per-caja o per-pieza).
-   * El ledger es la única fuente auto-consistente y en dinero real. Validado: a 30d de cobertura
-   * reproduce el gasto mensual real por proveedor (Fabricas Selectas $206k ≈ $220k real).
+   * Compra sugerida DEMAND-DRIVEN: la VENTA REAL de la red fija el reorden (RA-PRO.17).
    *
-   *   sugerido_compra = max(0, ritmo_diario × cobertura − existencia/uxc − en_tránsito)
-   *   valor           = sugerido_compra × costo_real_entrada
+   *   sugerido = max(0, venta_diaria_red × cobertura − existencia_red − en_tránsito)   [en cajas]
+   *   valor    = sugerido × costo_real (del ledger de compras, ponderado)
    *
-   * Grano = producto × almacén QUE COMPRA (solo esos tienen purchase_velocity) → el sugerido a
-   * proveedor sale donde de verdad se compra (CEDIS/hubs); las sucursales van por traspaso.
-   * Unidades: purchase_velocity.daily_rate y en_tránsito están en la UNIDAD DE COMPRA de Kepler
-   * (caja); la existencia (kdil) está en piezas → se divide por uxc (factor_sale, o box_size de la
-   * etiquetera) para llevarla a la misma unidad. `piezas` = sugerido × uxc (display).
+   * Evolución: primero se ancló en el RITMO DE COMPRA real (entrada X-A-40) para VALIDAR contra el
+   * gasto mensual real — pero eso sobre-sugería lo sobrestockeado (compraba lo que ya no rota). La
+   * demanda es la señal correcta: si la existencia ya cubre el horizonte → sugerido 0. El ledger de
+   * compras (analytics.purchase_velocity) se conserva solo para el COSTO REAL y el almacén de compra.
+   *
+   * Grano = PRODUCTO (red): el pedido a proveedor es total por producto (entra al hub y se distribuye);
+   * agregarlo evita doble-conteo cuando un producto se compra en 2 hubs. Unidades: venta/existencia
+   * (kdil) en PIEZAS → /uxc (factor_sale o box_size); en_tránsito (OC) ya en cajas. `piezas` = cajas × uxc.
    */
   async purchaseSuggestion(q: PurchaseSuggestionQuery) {
     const tenantId = this.tenantCtx.requireTenantId();
@@ -449,49 +448,76 @@ export class CommercialReplenishmentService {
     const pageSize = Math.min(cap, Math.max(1, Number(q.pageSize) || (q.export ? cap : 50)));
     return this.tk.run(async (trx) => {
       const uxc = `GREATEST(CASE WHEN pr.factor_sale > 1 THEN pr.factor_sale WHEN lbl.bs > 1 THEN lbl.bs ELSE 1 END, 1)`;
-      const oh = `(COALESCE(s.quantity,0) - COALESCE(s.reserved_quantity,0))`;
-      const it = `COALESCE(pit.qty_in_transit, 0)`;              // ya en unidad de compra (caja)
-      const ohU = `(${oh} / ${uxc})`;                            // existencia → unidad de compra
-      const sug = `GREATEST(0, pv.daily_rate * :cov - ${ohU} - ${it})`;
-      const filters: string[] = ['pv.tenant_id = :t', 'pv.daily_rate > 0', 'pr.activo = true'];
+      // Unidad = CAJAS. venta/existencia (kdil) vienen en PIEZAS → /uxc. en_tránsito (OC) ya en cajas.
+      const sellDayPz = `(COALESCE(sv.s30,0) / 30.0)`;            // venta diaria de la RED (piezas)
+      const stockPz = `COALESCE(nst.qty,0)`;                      // existencia de la RED (piezas)
+      const transit = `COALESCE(tr.t,0)`;                         // OC en tránsito de la red (cajas)
+      // La DEMANDA manda el reorden: objetivo = venta_diaria_red × cobertura; sugerido = objetivo −
+      // existencia − tránsito. Si la existencia ya cubre el horizonte (sobrestock) → 0: no re-compra
+      // lo que no rota (antes, anclado en el ritmo de compra, sobre-sugería lo sobrestockeado).
+      const sug = `GREATEST(0, ${sellDayPz} * :cov / ${uxc} - ${stockPz} / ${uxc} - ${transit})`;
+      const filters: string[] = ['pr.activo = true'];
       const binds: Record<string, unknown> = { t: tenantId, cov };
+      // Filtro de almacén de COMPRA: producto comprado en ese(s) almacén(es) (vía el ledger).
       const whIds = this.whIds(q);
-      if (whIds.length) { filters.push(`pv.warehouse_id IN (${whIds.map((_, i) => `:w${i}`).join(',')})`); whIds.forEach((w, i) => { binds[`w${i}`] = w; }); }
+      let plWhere = 'tenant_id = :t';
+      if (whIds.length) { plWhere += ` AND warehouse_id IN (${whIds.map((_, i) => `:w${i}`).join(',')})`; whIds.forEach((w, i) => { binds[`w${i}`] = w; }); }
       if (q.supplier_id && UUID_RX.test(q.supplier_id)) { filters.push('pr.supplier_id = :sid'); binds.sid = q.supplier_id; }
       if (q.category_id && UUID_RX.test(q.category_id)) { filters.push('pr.category_id = :cat'); binds.cat = q.category_id; }
       if (q.search && q.search.trim()) { filters.push('(pr.sku ILIKE :s OR pr.nombre ILIKE :s)'); binds.s = `%${q.search.trim()}%`; }
       const where = filters.join(' AND ');
 
+      // Grano = PRODUCTO (red): el pedido a proveedor es total por producto (entra al hub y se distribuye).
+      // El ledger se agrega por producto (costo real ponderado, ritmo de compra ref, almacén primario de
+      // compra); la demanda/existencia/tránsito son de la RED. Así no se doble-cuenta cuando un producto
+      // se compra en 2 hubs.
       const from = `
-        FROM analytics.purchase_velocity pv
-        JOIN catalog.products pr ON pr.tenant_id = pv.tenant_id AND pr.id = pv.product_id
-        JOIN commercial.warehouses w ON w.tenant_id = pv.tenant_id AND w.id = pv.warehouse_id
-        LEFT JOIN catalog.suppliers sup ON sup.tenant_id = pr.tenant_id AND sup.id = pr.supplier_id
-        LEFT JOIN commercial.stock s ON s.tenant_id = pv.tenant_id AND s.warehouse_id = pv.warehouse_id AND s.product_id = pv.product_id
-        LEFT JOIN analytics.purchase_in_transit pit ON pit.tenant_id = pv.tenant_id AND pit.warehouse_id = pv.warehouse_id AND pit.product_id = pv.product_id
+        FROM (
+          SELECT product_id, sum(qty_90d) AS qty90, sum(daily_rate) AS buy_rate,
+                 sum(qty_90d * real_unit_cost) / NULLIF(sum(qty_90d),0) AS cost,
+                 max(last_purchase) AS last_purchase, max(order_days) AS order_days,
+                 (array_agg(warehouse_id ORDER BY qty_90d DESC))[1] AS primary_wh
+            FROM analytics.purchase_velocity
+           WHERE ${plWhere}
+           GROUP BY product_id
+        ) pl
+        JOIN catalog.products pr ON pr.tenant_id = :t AND pr.id = pl.product_id
+        LEFT JOIN catalog.suppliers sup ON sup.tenant_id = :t AND sup.id = pr.supplier_id
+        LEFT JOIN commercial.warehouses w ON w.tenant_id = :t AND w.id = pl.primary_wh
         LEFT JOIN (SELECT tenant_id, product_id, max(box_size) bs FROM commercial.product_label_prices GROUP BY tenant_id, product_id) lbl
-               ON lbl.tenant_id = pv.tenant_id AND lbl.product_id = pv.product_id
+               ON lbl.tenant_id = :t AND lbl.product_id = pl.product_id
+        LEFT JOIN (SELECT product_id, sum(units) s30 FROM analytics.sales_daily
+                    WHERE tenant_id = :t AND sale_date >= current_date - 30 AND units > 0 GROUP BY product_id) sv
+               ON sv.product_id = pl.product_id
+        LEFT JOIN (SELECT product_id, sum(quantity) qty FROM commercial.stock WHERE tenant_id = :t GROUP BY product_id) nst
+               ON nst.product_id = pl.product_id
+        LEFT JOIN (SELECT product_id, sum(qty_in_transit) t FROM analytics.purchase_in_transit WHERE tenant_id = :t GROUP BY product_id) tr
+               ON tr.product_id = pl.product_id
         WHERE ${where}`;
 
-      const totalRow = (await trx.raw(`SELECT count(*)::int c, round(SUM(${sug} * pv.real_unit_cost)::numeric,2) total_valor ${from}`, binds)).rows[0];
+      const totalRow = (await trx.raw(`SELECT count(*) FILTER (WHERE ${sug} > 0)::int c, round(SUM(${sug} * COALESCE(pl.cost,0))::numeric,2) total_valor ${from}`, binds)).rows[0];
 
       const rows = (await trx.raw(`
-        SELECT pv.product_id, pv.warehouse_id, w.code AS warehouse_code,
+        SELECT pl.product_id, pl.primary_wh AS warehouse_id, w.code AS warehouse_code,
                pr.sku, pr.nombre, sup.id AS supplier_id, sup.name AS supplier_name,
                ${uxc} AS uxc,
-               round(pv.daily_rate::numeric, 3) AS daily_rate,
-               pv.order_days, pv.last_purchase,
-               round(${oh}::numeric, 1) AS on_hand_pieces,
-               round(${ohU}::numeric, 2) AS on_hand_units,
-               ${it} AS in_transit_units,
-               round(pv.real_unit_cost::numeric, 4) AS unit_cost,
-               round((pv.daily_rate * :cov)::numeric, 2) AS target_units,
+               round(pl.buy_rate::numeric, 3) AS daily_rate,
+               pl.order_days, pl.last_purchase,
+               round(${stockPz}::numeric, 1) AS on_hand_pieces,
+               round((${stockPz} / ${uxc})::numeric, 2) AS on_hand_units,
+               ${transit} AS in_transit_units,
+               round(COALESCE(pl.cost,0)::numeric, 4) AS unit_cost,
+               round((${sellDayPz} * :cov / ${uxc})::numeric, 2) AS target_units,
                round(${sug}::numeric, 2) AS suggested_units,
                round((${sug} * ${uxc})::numeric, 0) AS suggested_pieces,
-               round((${sug} * pv.real_unit_cost)::numeric, 2) AS suggested_cost,
-               round((${ohU} / NULLIF(pv.daily_rate,0))::numeric, 1) AS days_cover
+               round((${sug} * COALESCE(pl.cost,0))::numeric, 2) AS suggested_cost,
+               -- VENTA de la red (la señal del reorden)
+               round((${sellDayPz} / ${uxc})::numeric, 2) AS sell_daily_cajas,
+               round((COALESCE(sv.s30,0) / ${uxc})::numeric, 0) AS sell_month_cajas,
+               -- Cobertura REAL de la red = existencia_red / venta_diaria_red (días hasta agotarse)
+               round((${stockPz} / NULLIF(${sellDayPz}, 0))::numeric, 0) AS days_cover
         ${from}
-        ORDER BY (${sug} * pv.real_unit_cost) DESC, pv.daily_rate DESC
+        ORDER BY (${sug} * COALESCE(pl.cost,0)) DESC, ${sellDayPz} DESC
         LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`, binds)).rows;
 
       return {

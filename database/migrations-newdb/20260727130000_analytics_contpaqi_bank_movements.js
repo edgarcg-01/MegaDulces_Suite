@@ -1,5 +1,5 @@
 /**
- * CP.2 — Ledger bancario VIVO de ContPAQi → analytics.contpaqi_bank_movements (Fase CP, ADR-035).
+ * CP.2 — Ledger bancario VIVO de ContPAQi → analytics.contpaqi_bank_movements (Fase CP, ADR-040).
  *
  * El lado-banco autoritativo de la contabilidad: cada movimiento de póliza sobre una cuenta de
  * banco `102xxxxxxx` (afectable) = un depósito (cargo) o retiro (abono), con fecha, importe,

@@ -1,6 +1,6 @@
 /* eslint-disable no-console */
 /**
- * CP.2 — Smoke del ledger bancario ContPAQi (Fase CP, ADR-035). DB-direct sobre la nueva DB
+ * CP.2 — Smoke del ledger bancario ContPAQi (Fase CP, ADR-040). DB-direct sobre la nueva DB
  * (NO toca SQL Server; valida lo importado en analytics.contpaqi_bank_movements).
  *
  * Cubre: schema (tabla + columnas + PK por id_movimiento) · si hay data → todas las cuentas
