@@ -1,5 +1,5 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
-import { KNEX_NEW_DB_ADMIN } from '@megadulces/platform-core';
+import { KNEX_NEW_DB_ADMIN, TenantContextService } from '@megadulces/platform-core';
 import type { Knex } from 'knex';
 import { Client } from 'pg';
 
@@ -49,8 +49,16 @@ const EXT_SOURCES: ExtCfg[] = [
   {
     key: 'consolidado', label: 'Consolidado Kepler (surte a prod)',
     envVars: ['DATABASE_URL_KEPLER_CONSOLIDADO'], db: 'Docker :5433 / kepler_consolidado',
-    sql: `SELECT max(fecha)::timestamptz AS last_update FROM mart.ventas`,
-    warnH: 30, critH: 54, cadence: 'intradía (sync Kepler)',
+    // Heartbeat REAL: `mart.refresh_state.last_checked` se actualiza en CADA corrida del
+    // refresh (cada 2 min), haya o no ventas nuevas → prueba que el pipeline está vivo.
+    // Antes usábamos `max(fecha)`, pero `fecha` es DATE (solo día) → siempre se veía ~1 día
+    // viejo aunque estuviera al día (falso "23h"). `last_refreshed` = última venta traída.
+    sql: `SELECT max(last_checked) AS last_update,
+                 (count(*) FILTER (WHERE last_checked > now() - interval '10 min'))::text || '/' ||
+                 count(*)::text || ' sucursales al día · última venta ' ||
+                 coalesce(to_char(max(last_refreshed),'DD/MM HH24:MI'),'—') AS note_extra
+          FROM mart.refresh_state`,
+    warnH: 0.25, critH: 1, cadence: 'cada 2 min (tarea RefreshConsolidado)',
   },
   {
     key: 'kp_concentrada', label: 'KP_CONCENTRADA (ODS crudo)',
@@ -86,7 +94,42 @@ export interface DbHealthReport {
 export class DbHealthService {
   private readonly logger = new Logger(DbHealthService.name);
 
-  constructor(@Inject(KNEX_NEW_DB_ADMIN) private readonly knex: Knex | null) {}
+  constructor(
+    @Inject(KNEX_NEW_DB_ADMIN) private readonly knex: Knex | null,
+    private readonly tenantCtx: TenantContextService,
+  ) {}
+
+  /**
+   * Bandeja de alertas de salud (persistidas por DbHealthScannerService): las ABIERTAS
+   * primero (críticas antes que warn) + las resueltas en los últimos 7 días. Scopeado al
+   * tenant del request (admin knex bypass RLS → filtro explícito).
+   */
+  async listAlerts(): Promise<{ open: any[]; recent_resolved: any[] }> {
+    if (!this.knex) return { open: [], recent_resolved: [] };
+    const tenantId = this.tenantCtx.requireTenantId();
+    const reg = await this.knex.raw(`SELECT to_regclass('analytics.db_health_alerts') AS t`);
+    if (!reg.rows[0]?.t) return { open: [], recent_resolved: [] };
+    const cols = ['id', 'source_key', 'source_label', 'group_key', 'status', 'age_seconds',
+      'last_update', 'note', 'first_seen_at', 'last_seen_at', 'resolved_at', 'acknowledged_at'];
+    const open = await this.knex('analytics.db_health_alerts')
+      .where({ tenant_id: tenantId }).whereNull('resolved_at').select(cols)
+      .orderByRaw(`CASE status WHEN 'critical' THEN 0 ELSE 1 END, last_seen_at DESC`);
+    const recent_resolved = await this.knex('analytics.db_health_alerts')
+      .where({ tenant_id: tenantId }).whereNotNull('resolved_at')
+      .where('resolved_at', '>', this.knex.raw(`now() - interval '7 days'`))
+      .select(cols).orderBy('resolved_at', 'desc').limit(50);
+    return { open, recent_resolved };
+  }
+
+  /** Marca una alerta abierta como reconocida (ack). No la resuelve — eso lo hace el scanner. */
+  async ackAlert(id: string): Promise<{ ok: boolean }> {
+    if (!this.knex) return { ok: false };
+    const tenantId = this.tenantCtx.requireTenantId();
+    const n = await this.knex('analytics.db_health_alerts')
+      .where({ id, tenant_id: tenantId })
+      .update({ acknowledged_at: this.knex.fn.now(), updated_at: this.knex.fn.now() });
+    return { ok: n > 0 };
+  }
 
   private dbLabel(): string {
     const conn = this.knex?.client?.config?.connection as { host?: string; connectionString?: string } | string | undefined;

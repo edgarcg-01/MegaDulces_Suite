@@ -26,6 +26,26 @@ export interface DbHealthReport {
   sources: SourceHealth[];
 }
 
+export interface HealthAlert {
+  id: string;
+  source_key: string;
+  source_label: string;
+  group_key: string | null;
+  status: 'warn' | 'critical';
+  age_seconds: number | null;
+  last_update: string | null;
+  note: string | null;
+  first_seen_at: string;
+  last_seen_at: string;
+  resolved_at: string | null;
+  acknowledged_at: string | null;
+}
+
+export interface HealthAlertsResponse {
+  open: HealthAlert[];
+  recent_resolved: HealthAlert[];
+}
+
 @Injectable({ providedIn: 'root' })
 export class DbHealthService {
   private http = inject(HttpClient);
@@ -33,5 +53,17 @@ export class DbHealthService {
 
   getReport(): Observable<DbHealthReport> {
     return this.http.get<DbHealthReport>(this.apiUrl);
+  }
+
+  listAlerts(): Observable<HealthAlertsResponse> {
+    return this.http.get<HealthAlertsResponse>(`${this.apiUrl}/alerts`);
+  }
+
+  ackAlert(id: string): Observable<{ ok: boolean }> {
+    return this.http.post<{ ok: boolean }>(`${this.apiUrl}/alerts/${id}/ack`, {});
+  }
+
+  scanNow(): Observable<{ opened: number; escalated: number; resolved: number; failing: number }> {
+    return this.http.post<{ opened: number; escalated: number; resolved: number; failing: number }>(`${this.apiUrl}/scan-now`, {});
   }
 }

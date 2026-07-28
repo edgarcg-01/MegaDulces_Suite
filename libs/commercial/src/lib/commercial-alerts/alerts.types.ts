@@ -16,6 +16,7 @@ export type AlertType =
   | 'order_fulfilled'    // every order fulfill (informativo)
   | 'delivery_assigned'  // entrega a domicilio asignada a un repartidor (Reparto)
   | 'delivery_delivered' // entrega a domicilio completada (Reparto)
+  | 'db_health'          // una fuente de datos falló/se recuperó (feed caído, tabla congelada)
   | 'test';              // manual trigger para smoke testing
 
 export type AlertSeverity = 'info' | 'warn' | 'critical';

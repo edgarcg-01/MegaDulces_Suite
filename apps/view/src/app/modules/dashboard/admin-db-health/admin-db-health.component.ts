@@ -3,7 +3,7 @@ import { CommonModule } from '@angular/common';
 import { TableModule } from 'primeng/table';
 import { TagModule } from 'primeng/tag';
 import { ButtonModule } from 'primeng/button';
-import { DbHealthService, DbHealthReport, HealthStatus, SourceHealth } from './db-health.service';
+import { DbHealthService, DbHealthReport, HealthStatus, SourceHealth, HealthAlert } from './db-health.service';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 
 type Sev = 'success' | 'warn' | 'danger' | 'secondary';
@@ -27,6 +27,8 @@ type Sev = 'success' | 'warn' | 'danger' | 'secondary';
             <app-freshness-pill [since]="r.checked_at" label="verificado" [staleAfterSec]="300" />
             <p-tag [severity]="sev(r.overall)" [value]="'Global: ' + statusLabel(r.overall)" [rounded]="true" />
           }
+          <button pButton type="button" icon="pi pi-bolt" label="Escanear ahora"
+                  [loading]="scanning()" (click)="scan()" size="small" class="p-button-outlined"></button>
           <button pButton type="button" icon="pi pi-refresh" label="Refrescar"
                   [loading]="loading()" (click)="load()" size="small"></button>
         </div>
@@ -42,6 +44,47 @@ type Sev = 'success' | 'warn' | 'danger' | 'secondary';
           <i class="pi pi-times-circle"></i>
           Hay fuentes <strong>sin actualizarse</strong> más allá de su cadencia. Revisá el feed correspondiente.
         </div>
+      }
+
+      <!-- Bandeja PERSISTENTE de alertas (abre/resuelve el scanner cada 5 min) -->
+      <h2 class="sec">Bandeja de alertas
+        <span class="cnt" [class.bad]="openAlerts().length">{{ openAlerts().length }} abierta(s)</span></h2>
+      <div class="card">
+        <p-table [value]="openAlerts()" styleClass="p-datatable-sm" [tableStyle]="{ 'min-width': '48rem' }">
+          <ng-template pTemplate="header">
+            <tr><th>Fuente</th><th>Estado</th><th class="num">Desactualizada</th><th>Detectada</th><th></th></tr>
+          </ng-template>
+          <ng-template pTemplate="body" let-a>
+            <tr [class.row-ack]="a.acknowledged_at">
+              <td>
+                <div class="src">{{ a.source_label }}</div>
+                @if (a.note) { <div class="note2">{{ a.note }}</div> }
+              </td>
+              <td><p-tag [severity]="a.status==='critical' ? 'danger' : 'warn'" [value]="a.status==='critical' ? 'Crítico' : 'Atrasado'" /></td>
+              <td class="num" [class.txt-warn]="a.status==='warn'" [class.txt-crit]="a.status==='critical'">{{ relAge(a.age_seconds) }}</td>
+              <td><span class="when">{{ a.first_seen_at | date: 'dd/MM HH:mm' }}</span></td>
+              <td class="num">
+                @if (a.acknowledged_at) { <span class="ackd"><i class="pi pi-check"></i> visto</span> }
+                @else { <button pButton type="button" label="Marcar visto" size="small" class="p-button-text p-button-sm"
+                                (click)="ack(a)"></button> }
+              </td>
+            </tr>
+          </ng-template>
+          <ng-template pTemplate="emptymessage">
+            <tr><td colspan="5" class="empty ok-empty"><i class="pi pi-check-circle"></i> Sin alertas abiertas — todo sano.</td></tr>
+          </ng-template>
+        </p-table>
+      </div>
+      @if (resolvedAlerts().length) {
+        <details class="resolved">
+          <summary>Resueltas recientes ({{ resolvedAlerts().length }})</summary>
+          @for (a of resolvedAlerts(); track a.id) {
+            <div class="rrow">
+              <span class="src">{{ a.source_label }}</span>
+              <span class="muted">falló {{ a.first_seen_at | date: 'dd/MM HH:mm' }} → recuperada {{ a.resolved_at | date: 'dd/MM HH:mm' }}</span>
+            </div>
+          }
+        </details>
       }
 
       <ng-container *ngTemplateOutlet="tbl; context: { $implicit: appRows(), title: 'DB de la app', firstCol: 'Tabla' }"></ng-container>
@@ -123,8 +166,18 @@ type Sev = 'success' | 'warn' | 'danger' | 'secondary';
     .cadence { font-size: .76rem; color: var(--text-faint); }
     .note { font-size: .68rem; color: var(--text-faint); margin-left: .4rem; }
     .empty { text-align: center; color: var(--text-faint); padding: 1rem; font-size: .8rem; }
+    .ok-empty { color: var(--ok-fg, #16A34A); }
     .foot { font-size: .7rem; color: var(--text-faint); margin-top: .8rem; }
     .foot code { font-family: var(--font-mono, monospace); }
+    .cnt { font-size: .7rem; font-weight: 600; color: var(--text-faint); margin-left: .4rem; }
+    .cnt.bad { color: var(--danger-fg, #DC2626); }
+    .note2 { font-size: .68rem; color: var(--text-faint); margin-top: 1px; }
+    .row-ack { opacity: .6; }
+    .ackd { font-size: .7rem; color: var(--ok-fg, #16A34A); }
+    .resolved { margin-top: .6rem; font-size: .76rem; }
+    .resolved summary { cursor: pointer; color: var(--text-faint); }
+    .rrow { display: flex; gap: .6rem; padding: .25rem 0 .25rem .8rem; align-items: baseline; }
+    .rrow .muted { color: var(--text-faint); font-size: .72rem; }
   `],
 })
 export class AdminDbHealthComponent implements OnInit {
@@ -132,7 +185,10 @@ export class AdminDbHealthComponent implements OnInit {
 
   readonly report = signal<DbHealthReport | null>(null);
   readonly loading = signal(false);
+  readonly scanning = signal(false);
   readonly error = signal<string | null>(null);
+  readonly openAlerts = signal<HealthAlert[]>([]);
+  readonly resolvedAlerts = signal<HealthAlert[]>([]);
 
   readonly appRows = computed<SourceHealth[]>(() => (this.report()?.sources ?? []).filter((s) => s.group === 'app'));
   readonly sourceRows = computed<SourceHealth[]>(() => (this.report()?.sources ?? []).filter((s) => s.group === 'source'));
@@ -146,6 +202,26 @@ export class AdminDbHealthComponent implements OnInit {
       next: (r) => { this.report.set(r); this.loading.set(false); },
       error: (e) => { this.error.set(e?.error?.message || e?.message || 'Error de red'); this.loading.set(false); },
     });
+    this.loadAlerts();
+  }
+
+  loadAlerts(): void {
+    this.svc.listAlerts().subscribe({
+      next: (r) => { this.openAlerts.set(r.open ?? []); this.resolvedAlerts.set(r.recent_resolved ?? []); },
+      error: () => { /* la tabla puede no existir pre-deploy; no romper la vista */ },
+    });
+  }
+
+  scan(): void {
+    this.scanning.set(true);
+    this.svc.scanNow().subscribe({
+      next: () => { this.scanning.set(false); this.load(); },
+      error: () => { this.scanning.set(false); },
+    });
+  }
+
+  ack(a: HealthAlert): void {
+    this.svc.ackAlert(a.id).subscribe({ next: () => this.loadAlerts() });
   }
 
   sev(s: HealthStatus): Sev {

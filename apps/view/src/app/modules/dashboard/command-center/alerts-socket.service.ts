@@ -10,6 +10,7 @@ export type AlertType =
   | 'vip_inactive'
   | 'order_confirmed'
   | 'order_fulfilled'
+  | 'db_health'
   | 'test';
 
 export interface CommercialAlert {

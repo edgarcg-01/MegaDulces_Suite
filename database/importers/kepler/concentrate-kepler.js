@@ -46,6 +46,16 @@ const TABLE_FILTER = ONLY_TABLES ? new Set(ONLY_TABLES.split(',').map((s) => s.t
 const EXCLUDE = new Set((process.env.KP_EXCLUDE || '').split(',').map((s) => s.trim()).filter(Boolean));
 const READ_BATCH = 5000;
 
+// Timeouts anti-zombie: sin esto un read a una sucursal por VPN puede colgarse
+// para siempre (pasó 2026-07-26: full run trabado 2 días en la suc 03). Con esto
+// un branch inalcanzable o una query lenta aborta y la corrida termina/continúa.
+const CONN_OPTS = {
+  connectionTimeoutMillis: 15000, // establecer conexión
+  statement_timeout: 300000,      // 5 min por query (server-side)
+  query_timeout: 300000,          // 5 min (client-side)
+  keepAlive: true,                // detecta TCP muerto (VPN caída) antes
+};
+
 const BRANCHES = process.env.KP_BRANCH_MAP
   ? JSON.parse(process.env.KP_BRANCH_MAP)
   : [
@@ -210,7 +220,7 @@ async function copyRows(src, dest, table, cols, branch, whereSql, whereParams) {
 
   if (CREATE_DB) { console.log('\n-- Verificar/crear DB --'); await ensureDatabase(); }
 
-  const dest = new Client({ connectionString: DEST_URL });
+  const dest = new Client({ connectionString: DEST_URL, ...CONN_OPTS });
   try { await dest.connect(); }
   catch (e) { console.error(`\nNo conecta al destino KP_CONCENTRADA: ${e.message}\n(¿existe la DB? corré con --create-db --apply)`); process.exit(1); }
   await ensureBase(dest);
@@ -218,7 +228,7 @@ async function copyRows(src, dest, table, cols, branch, whereSql, whereParams) {
   const summary = [];
   for (const b of BRANCHES) {
     if (ONLY_BRANCH && b.code !== ONLY_BRANCH) continue;
-    const src = new Client({ connectionString: b.url });
+    const src = new Client({ connectionString: b.url, ...CONN_OPTS });
     try { await src.connect(); }
     catch (e) { console.log(`\n⚠ sucursal ${b.code}: no conecta (${e.message.slice(0, 60)}) — skip`); continue; }
     console.log(`\n── Sucursal ${b.code} ──`);
