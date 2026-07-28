@@ -28,6 +28,14 @@ import { cuadra, money0 } from './bancos-shared';
           <button pButton type="button" label="Enlazar cuentas" icon="pi pi-link" class="p-button-sm p-button-text"
                   [loading]="linking()" (click)="link.emit()" title="Auto-enlaza cada cuenta de banco con su cuenta contable 102xxx de ContPAQi"></button>
         </div>
+
+        <!-- Qué significa cada columna (comprehension-first: explicar antes de comparar). -->
+        <dl class="cpq-legend">
+          <div><dt><i class="pi pi-building fb-in-ico"></i> Excel (banco)</dt><dd>Lo que <b>realmente se movió</b> en la cuenta según tu estado de cuenta del banco (el workbook que subiste). Es la realidad del dinero.</dd></div>
+          <div><dt><i class="pi pi-book"></i> ContPAQi (libros)</dt><dd>Lo que <b>la contabilidad registró</b> en pólizas para esa misma cuenta (cuenta 102xxx). Es la verdad fiscal, con folio de póliza.</dd></div>
+          <div><dt><i class="pi pi-arrows-h"></i> Diferencia (Δ)</dt><dd>Banco − libros. Si es <b>$0 cuadra</b>: ambos dicen lo mismo. Si no, la contabilidad registró de más o de menos que el banco.</dd></div>
+          <div><dt><i class="pi pi-arrow-down-left fb-in-ico"></i> Depósitos / <i class="pi pi-arrow-up-right fb-out-ico"></i> Retiros</dt><dd>Dinero que <b>entró</b> (depósitos) y que <b>salió</b> (retiros) de la cuenta en {{ c.period }}.</dd></div>
+        </dl>
         <div class="fb-kve-wrap">
           <table class="fb-kve">
             <thead>
@@ -74,10 +82,15 @@ import { cuadra, money0 } from './bancos-shared';
         <p-table [value]="c.rows" styleClass="p-datatable-sm" [rowHover]="true" [scrollable]="true" scrollHeight="52vh">
           <ng-template pTemplate="header">
             <tr>
-              <th>Cuenta</th><th>Libro ContPAQi</th>
-              <th class="ta-r">Dep. Excel</th><th class="ta-r">Dep. ContPAQi</th><th class="ta-r">Δ dep.</th>
-              <th class="ta-r">Ret. Excel</th><th class="ta-r">Ret. ContPAQi</th><th class="ta-r">Δ ret.</th>
-              <th class="ta-c">Estado</th>
+              <th title="Banco y número de cuenta (según tu Excel bancario)">Cuenta</th>
+              <th title="Cuenta contable 102xxx de ContPAQi enlazada a esta cuenta de banco">Libro ContPAQi</th>
+              <th class="ta-r" title="Depósitos según tu estado de cuenta del banco (Excel)">Dep. Excel</th>
+              <th class="ta-r" title="Depósitos que la contabilidad registró en pólizas (ContPAQi)">Dep. ContPAQi</th>
+              <th class="ta-r" title="Diferencia de depósitos: banco − libros. $0 = cuadra">Δ dep.</th>
+              <th class="ta-r" title="Retiros según tu estado de cuenta del banco (Excel)">Ret. Excel</th>
+              <th class="ta-r" title="Retiros que la contabilidad registró en pólizas (ContPAQi)">Ret. ContPAQi</th>
+              <th class="ta-r" title="Diferencia de retiros: banco − libros. $0 = cuadra">Δ ret.</th>
+              <th class="ta-c" title="✓ cuadra · ⚠ no cuadra · sin enlazar · sin Excel">Estado</th>
             </tr>
           </ng-template>
           <ng-template pTemplate="body" let-r>
@@ -125,6 +138,11 @@ import { cuadra, money0 } from './bancos-shared';
     .fb-kve { margin-bottom: var(--sp-3); }
     .fb-kve-wrap { overflow-x: auto; }
     .cpq-head { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); flex-wrap: wrap; }
+    .cpq-legend { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: var(--sp-2) var(--sp-4); margin: 0 0 var(--sp-3); padding: var(--sp-3); background: var(--surface-sunken, color-mix(in srgb, var(--text-faint) 6%, transparent)); border: 1px solid var(--border-color); border-radius: var(--r-md, 8px); }
+    .cpq-legend > div { display: flex; flex-direction: column; gap: 2px; }
+    .cpq-legend dt { font-size: var(--fs-xs); font-weight: 700; color: var(--text-main); }
+    .cpq-legend dt i { margin-right: 4px; }
+    .cpq-legend dd { margin: 0; font-size: var(--fs-xs); color: var(--text-muted); line-height: 1.4; }
     table.fb-kve { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); }
     table.fb-kve th, table.fb-kve td { padding: var(--sp-2) var(--sp-3); border-bottom: 1px solid var(--border-color); }
     table.fb-kve thead th { font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: .04em; color: var(--text-faint); font-weight: 700; white-space: nowrap; }
