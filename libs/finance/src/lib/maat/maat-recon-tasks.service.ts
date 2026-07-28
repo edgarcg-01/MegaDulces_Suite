@@ -124,7 +124,12 @@ export class MaatReconTasksService {
     });
   }
 
-  /** Usuarios de Finanzas candidatos (los que pueden resolver: FINANCE_BANK_GESTIONAR). */
+  /**
+   * Usuarios del ÁREA DE FINANZAS = pool de reparto de conciliación. Es quien tiene
+   * FINANCE_RECON_RECIBIR (marca "recibe tareas de conciliación") — NO cualquiera con
+   * acceso a Bancos. Editable desde /admin/roles: quita el permiso a un rol y deja de
+   * recibir tareas. Así el reparto cae SOLO en el equipo real de finanzas.
+   */
   async financeUsers(): Promise<{ id: string; username: string; full_name: string | null }[]> {
     return this.tk.run(async (trx) =>
       trx('users as u')
@@ -133,7 +138,7 @@ export class MaatReconTasksService {
         })
         .where('u.activo', true)
         .whereNot('u.role_name', 'customer_b2b')
-        .whereRaw(`COALESCE((rp.permissions->>'FINANCE_BANK_GESTIONAR')::boolean, false) = true`)
+        .whereRaw(`COALESCE((rp.permissions->>'FINANCE_RECON_RECIBIR')::boolean, false) = true`)
         .select('u.id', 'u.username', trx.raw('u.nombre AS full_name'))
         .orderBy('u.id'),
     );
