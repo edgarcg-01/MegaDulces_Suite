@@ -12,7 +12,7 @@ import { InputIconModule } from 'primeng/inputicon';
 import { DialogModule } from 'primeng/dialog';
 import { TagModule } from 'primeng/tag';
 import { MessageService } from 'primeng/api';
-import { ComprasService, SupplierParam, SupplierOrder, SupplierOrderParamsDto } from '../compras.service';
+import { ComprasService, SupplierParam, SupplierOrder, SupplierOrderParamsDto, ReplenishmentSettings } from '../compras.service';
 
 /**
  * RA-PRO.3/10 — Parámetros de pedido por proveedor. Kepler NO codifica lead time real; se
@@ -37,6 +37,21 @@ import { ComprasService, SupplierParam, SupplierOrder, SupplierOrderParamsDto } 
         </div>
       </header>
 
+      <!-- RA-PRO.27 — parámetros globales del fill rate (aplican a todo el pedido) -->
+      @if (settings(); as s) {
+        <div class="cp-settings" role="group" aria-label="Parámetros globales del fill rate">
+          <span class="cp-settings-title"><i class="pi pi-sliders-h"></i> Fill rate global</span>
+          <label title="Meses de historia de recepciones para calcular el fill rate">Ventana
+            <input pInputText type="number" min="30" max="730" [(ngModel)]="s.fill_window_days" (change)="saveSettings()" class="cp-num" /> d</label>
+          <label title="Recepciones mínimas de un proveedor para confiar en su fill rate; con menos, se asume 100%">Mín. recepciones
+            <input pInputText type="number" min="1" max="50" [(ngModel)]="s.fill_min_lines" (change)="saveSettings()" class="cp-num" /></label>
+          <label title="Tope de inflado del pedido (piso del fill rate = 1 ÷ tope)">Tope inflado
+            <input pInputText type="number" min="1" max="3" step="0.05" [(ngModel)]="s.fill_max_inflate" (change)="saveSettings()" class="cp-num" />×</label>
+          <label title="Días de cobertura cuando el pedido no trae uno explícito">Cobertura default
+            <input pInputText type="number" min="1" max="120" [(ngModel)]="s.default_coverage_days" (change)="saveSettings()" class="cp-num" /> d</label>
+        </div>
+      }
+
       <div class="cp-filters">
         <p-iconfield styleClass="cp-search">
           <p-inputicon styleClass="pi pi-search" />
@@ -57,6 +72,9 @@ import { ComprasService, SupplierParam, SupplierOrder, SupplierOrderParamsDto } 
             <th class="cp-r" title="Colchón en días de demanda; horizonte = cadencia + colchón">Colchón (d)</th>
             <th class="cp-r" title="Mínimo de compra en cajas">Mín cajas</th>
             <th class="cp-r" title="Mínimo de compra en $">Mín $</th>
+            <th class="cp-r cp-sep" title="RA-PRO.27 — fill rate manual (%): gana sobre el histórico. Vacío = automático por recepciones.">Fill %</th>
+            <th class="cp-r" title="RA-PRO.27 — colchón adicional % sobre el sugerido de este proveedor">Colchón %</th>
+            <th class="cp-r" title="RA-PRO.27 — días de cobertura propios (reemplazan el global del filtro)">Cobertura (d)</th>
             <th class="cp-r" style="width:6rem"></th>
             <th style="width:2rem"></th>
           </tr>
@@ -70,15 +88,18 @@ import { ComprasService, SupplierParam, SupplierOrder, SupplierOrderParamsDto } 
             <td class="cp-r"><input pInputText type="number" min="0" max="365" [(ngModel)]="r.colchon_days" (change)="saveParam(r, { colchon_days: numOrNull(r.colchon_days) })" class="cp-num" [class.cp-unset]="r.colchon_days == null" placeholder="—" /></td>
             <td class="cp-r"><input pInputText type="number" min="0" [(ngModel)]="r.min_order_boxes" (change)="saveParam(r, { min_order_boxes: numOrNull(r.min_order_boxes) })" class="cp-num" [class.cp-unset]="r.min_order_boxes == null" placeholder="—" /></td>
             <td class="cp-r"><p-inputNumber [(ngModel)]="r.min_order_amount" (onBlur)="saveParam(r, { min_order_amount: numOrNull(r.min_order_amount) })" mode="currency" currency="MXN" locale="es-MX" [maxFractionDigits]="0" [min]="0" [showButtons]="false" inputStyleClass="cp-num" placeholder="—" /></td>
+            <td class="cp-r cp-sep"><input pInputText type="number" min="1" max="100" [(ngModel)]="r.fill_pct" (change)="saveParam(r, { fill_rate_override: r.fill_pct == null || r.fill_pct === undefined ? null : numOrNull(r.fill_pct)! / 100 })" class="cp-num" [class.cp-unset]="r.fill_pct == null" placeholder="auto" /></td>
+            <td class="cp-r"><input pInputText type="number" min="0" max="100" [(ngModel)]="r.safety_pct" (change)="saveParam(r, { safety_pct: numOrNull(r.safety_pct) })" class="cp-num" [class.cp-unset]="r.safety_pct == null" placeholder="—" /></td>
+            <td class="cp-r"><input pInputText type="number" min="1" max="120" [(ngModel)]="r.coverage_days_override" (change)="saveParam(r, { coverage_days_override: numOrNull(r.coverage_days_override) })" class="cp-num" [class.cp-unset]="r.coverage_days_override == null" placeholder="global" /></td>
             <td class="cp-r"><button pButton type="button" label="Ver pedido" icon="pi pi-list" class="p-button-sm p-button-text" (click)="openOrder(r)"></button></td>
             <td class="cp-r">@if (savedId() === r.id) { <i class="pi pi-check cp-ok"></i> }</td>
           </tr>
         </ng-template>
         <ng-template pTemplate="emptymessage">
-          <tr><td colspan="9" class="cp-empty">Sin proveedores.</td></tr>
+          <tr><td colspan="12" class="cp-empty">Sin proveedores.</td></tr>
         </ng-template>
       </p-table>
-      <p class="cp-foot">* Sin lead time capturado, el motor usa 7 días. Cadencia "auto" = derivada del histórico. Con cadencia manual, horizonte = cadencia + colchón.</p>
+      <p class="cp-foot">* Sin lead time capturado, el motor usa 7 días. Cadencia "auto" = derivada del histórico. Con cadencia manual, horizonte = cadencia + colchón. <strong>Fill %</strong> vacío = el motor lo calcula de las recepciones; capturado = gana sobre el histórico. <strong>Cobertura</strong> "global" = usa la del filtro del pedido.</p>
 
       <p-dialog [(visible)]="orderVisible" [modal]="true" [style]="{ width: '54rem' }" [dismissableMask]="true" [header]="order()?.supplier?.name || 'Pedido consolidado'">
         @if (orderLoading()) { <div class="cp-dlg-msg">Calculando…</div> }
@@ -123,6 +144,12 @@ import { ComprasService, SupplierParam, SupplierOrder, SupplierOrderParamsDto } 
   `,
   styles: [`
     :host { display: block; }
+    .cp-settings { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; margin-bottom: .75rem; padding: .6rem .9rem;
+      border: 1px solid var(--border-color); border-radius: var(--r-md, 12px); background: var(--card-bg); }
+    .cp-settings-title { font-size: .78rem; font-weight: 600; color: var(--text-main); display: inline-flex; align-items: center; gap: .35rem; }
+    .cp-settings label { font-size: .76rem; color: var(--text-muted); display: inline-flex; align-items: center; gap: .35rem; }
+    :host ::ng-deep .cp-settings .cp-num { width: 4.5rem; min-width: 4.5rem; }
+    th.cp-sep, td.cp-sep { border-left: 2px solid var(--border-color); }
     .cp-filters { display: flex; gap: .5rem; align-items: center; margin-bottom: .75rem; }
     :host ::ng-deep .cp-search input { min-width: 16rem; }
     .cp-count { margin-left: auto; font-size: .8rem; color: var(--text-muted); }
@@ -161,18 +188,35 @@ export class ComprasProveedoresComponent implements OnInit {
   loading = signal(false);
   savedId = signal<string | null>(null);
   search = '';
+  settings = signal<ReplenishmentSettings | null>(null); // RA-PRO.27 — parámetros globales
 
   orderVisible = false;
   order = signal<SupplierOrder | null>(null);
   orderLoading = signal(false);
 
-  ngOnInit(): void { this.load(); }
+  ngOnInit(): void { this.load(); this.loadSettings(); }
 
   load(): void {
     this.loading.set(true);
     this.api.listSuppliers(this.search || undefined).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (r) => { this.rows.set(r); this.loading.set(false); },
+      // fill_pct = fill_rate_override en % para editar cómodo (se reconvierte a fracción al guardar).
+      next: (r) => { this.rows.set(r.map((s) => ({ ...s, fill_pct: s.fill_rate_override == null ? null : Math.round(s.fill_rate_override * 100) }))); this.loading.set(false); },
       error: () => { this.loading.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudieron cargar los proveedores.' }); },
+    });
+  }
+
+  loadSettings(): void {
+    this.api.getReplenishmentSettings().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (s) => this.settings.set(s), error: () => {},
+    });
+  }
+
+  saveSettings(): void {
+    const s = this.settings();
+    if (!s) return;
+    this.api.updateReplenishmentSettings(s).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => { this.settings.set(r); this.toast.add({ severity: 'success', summary: 'Guardado', detail: 'Parámetros globales actualizados.' }); },
+      error: () => this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudieron guardar los parámetros.' }),
     });
   }
 
