@@ -65,8 +65,12 @@ interface Row extends PurchaseSuggestionRow { _pedir: number; _sel: boolean; }
                     optionLabel="label" optionValue="value" placeholder="Todos los almacenes" [showClear]="true"
                     styleClass="pr-sel" ariaLabel="Filtrar por almacén"></p-select>
           <p-select [options]="bucketOpts" [(ngModel)]="fBucket" (onChange)="reload()"
-                    optionLabel="label" optionValue="value" placeholder="Todo lo por pedir" [showClear]="true"
+                    optionLabel="label" optionValue="value" placeholder="Todos los buckets" [showClear]="true"
                     styleClass="pr-sel-sm" ariaLabel="Filtrar por cobertura"></p-select>
+          <label class="pr-toggle" title="Muestra solo los productos que necesitan pedido (cobertura por debajo de la meta)">
+            <p-checkbox [binary]="true" [(ngModel)]="onlyNeeded" (onChange)="reload()" inputId="onlyNeeded"></p-checkbox>
+            <span>Solo por pedir</span>
+          </label>
           <p-iconfield styleClass="pr-search">
             <p-inputicon styleClass="pi pi-search" />
             <input pInputText type="text" [(ngModel)]="search" (keyup.enter)="reload()" placeholder="SKU o producto…" aria-label="Buscar producto" />
@@ -100,8 +104,9 @@ interface Row extends PurchaseSuggestionRow { _pedir: number; _sel: boolean; }
                 <th style="width:2.5rem"><p-checkbox [binary]="true" [ngModel]="allSel()" (onChange)="toggleAll($event.checked)" ariaLabel="Seleccionar todo"></p-checkbox></th>
                 <th style="min-width:15rem">Producto</th>
                 <th style="width:5rem" title="Almacén donde se compra directo">Compra en</th>
-                <th style="min-width:10rem">Proveedor</th>
-                <th class="pr-r pr-sell" title="Venta de la RED, 30 días (cajas). La demanda que fija el reorden.">Venta 30d</th>
+                <th style="min-width:9rem">Proveedor</th>
+                <th class="pr-r pr-sell" title="Venta de la RED, 30 días (en dinero)">Venta $ 30d</th>
+                <th class="pr-r pr-sell" title="Venta de la RED, 30 días (cajas). La demanda que fija el reorden.">Cajas 30d</th>
                 <th class="pr-r pr-sell" title="Venta diaria de la red (cajas/día)">Venta/d</th>
                 <th class="pr-r" title="Días hasta agotarse = existencia de red ÷ venta diaria de red">Cobertura</th>
                 <th class="pr-r" title="Existencia de la red en cajas">Exist.</th>
@@ -116,11 +121,16 @@ interface Row extends PurchaseSuggestionRow { _pedir: number; _sel: boolean; }
                 <td><p-checkbox [binary]="true" [(ngModel)]="r._sel" (onChange)="onSel()" [ariaLabel]="'Seleccionar ' + r.sku"></p-checkbox></td>
                 <td>
                   <div class="pr-prod">{{ r.nombre }}</div>
-                  <div class="pr-sku">{{ r.sku }}</div>
+                  <div class="pr-prod-meta">
+                    <span class="pr-sku">{{ r.sku }}</span>
+                    @if (r.abc_class) { <p-tag [value]="r.abc_class" [severity]="abcSev(r.abc_class)" styleClass="pr-abc"></p-tag> }
+                    @if (r.sales_rank != null) { <span class="pr-rank" title="Ranking por venta $ en el filtro">#{{ r.sales_rank }}</span> }
+                  </div>
                 </td>
                 <td class="pr-mono pr-muted">{{ r.warehouse_code }}</td>
                 <td class="pr-supp">{{ r.supplier_name || '—' }}</td>
-                <td class="pr-r pr-sell pr-strong">{{ r.sell_month_cajas | number:'1.0-0' }}</td>
+                <td class="pr-r pr-sell pr-strong">{{ money(r.sell_month_mxn) }}</td>
+                <td class="pr-r pr-sell">{{ r.sell_month_cajas | number:'1.0-0' }}</td>
                 <td class="pr-r pr-sell">{{ r.sell_daily_cajas | number:'1.0-1' }}</td>
                 <td class="pr-r">
                   @if (r.days_cover != null) {
@@ -137,10 +147,10 @@ interface Row extends PurchaseSuggestionRow { _pedir: number; _sel: boolean; }
               </tr>
             </ng-template>
             <ng-template pTemplate="emptymessage">
-              <tr><td colspan="12" class="pr-empty">
-                <i class="pi pi-check-circle"></i>
-                <p>Nada por pedir con estos filtros.</p>
-                <span>Todo lo que rota está cubierto. Ajusta el proveedor, el bucket o sube la cobertura para ver más.</span>
+              <tr><td colspan="13" class="pr-empty">
+                <i class="pi pi-inbox"></i>
+                <p>Sin productos con estos filtros.</p>
+                <span>Ajusta proveedor, almacén, bucket o búsqueda. Quita "Solo por pedir" para ver todos los productos.</span>
               </td></tr>
             </ng-template>
           </p-table>
@@ -207,6 +217,7 @@ interface Row extends PurchaseSuggestionRow { _pedir: number; _sel: boolean; }
     .pr-count { margin-left: auto; font-size: .8rem; color: var(--text-muted); }
     .pr-cov { display: inline-flex; align-items: center; gap: .4rem; font-size: .8rem; color: var(--text-muted); }
     :host ::ng-deep .pr-cov-in { width: 4.5rem; text-align: right; font-variant-numeric: tabular-nums; }
+    .pr-toggle { display: inline-flex; align-items: center; gap: .35rem; font-size: .8rem; color: var(--text-muted); cursor: pointer; }
     .pr-presets { display: inline-flex; gap: .25rem; }
     .pr-chip { font-size: .74rem; padding: .2rem .5rem; border: 1px solid var(--border-color); background: transparent; color: var(--text-muted);
       border-radius: var(--r-sm, 8px); cursor: pointer; font-variant-numeric: tabular-nums; }
@@ -216,7 +227,10 @@ interface Row extends PurchaseSuggestionRow { _pedir: number; _sel: boolean; }
     .pr-r { text-align: right; font-variant-numeric: tabular-nums; }
     .pr-muted, .pr-muted-h { color: var(--text-muted); }
     .pr-prod { line-height: 1.2; }
+    .pr-prod-meta { display: flex; align-items: center; gap: .4rem; margin-top: .1rem; }
     .pr-sku { font-family: var(--font-mono, ui-monospace, monospace); font-size: .7rem; color: var(--text-faint); }
+    .pr-rank { font-size: .68rem; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+    :host ::ng-deep .pr-abc { font-size: .6rem; padding: .02rem .3rem; line-height: 1.3; }
     .pr-supp { color: var(--text-muted); font-size: .8rem; }
     .pr-mono { font-family: var(--font-mono, ui-monospace, monospace); font-size: .78rem; }
     .pr-strong { font-weight: 700; }
@@ -255,14 +269,17 @@ export class ComprasPedidoRealComponent implements OnInit {
   dead = signal(false);
   deadValue = signal(0);
   totalValor = signal(0);
+  totalRevenue = signal(0);
   totalLines = signal(0);
   private readonly selTick = signal(0); // fuerza recompute de KPIs de selección al editar
 
   fSupplier: string | null = null;
   fWarehouse: string | null = null;
   fBucket: string | null = null;
+  onlyNeeded = false;
   search = '';
   coverage = 30;
+  neededCount = signal(0);
 
   readonly bucketOpts = [
     { label: 'Agotado', value: 'agotado' },
@@ -270,6 +287,7 @@ export class ComprasPedidoRealComponent implements OnInit {
     { label: 'Bajo (< cobertura)', value: 'bajo' },
     { label: 'Sano', value: 'sano' },
     { label: 'Sobrestock (>90 d)', value: 'sobrestock' },
+    { label: 'Sin venta ni stock', value: 'sin_dato' },
   ];
 
   private readonly filters = signal<ReplenishmentFilters | null>(null);
@@ -287,17 +305,19 @@ export class ComprasPedidoRealComponent implements OnInit {
     this.loading.set(true); this.error.set(false);
     this.api.purchaseSuggestion({
       supplier_id: this.fSupplier || undefined, warehouse_id: this.fWarehouse || undefined,
-      bucket: this.fBucket || undefined, search: this.search.trim() || undefined,
-      coverage_days: this.coverage, pageSize: 500,
+      bucket: this.fBucket || undefined, scope: this.onlyNeeded ? 'needed' : undefined,
+      search: this.search.trim() || undefined, coverage_days: this.coverage, pageSize: 500,
     }).pipe(
       catchError(() => { this.error.set(true); return of(null as PurchaseSuggestionResponse | null); }),
       takeUntilDestroyed(this.destroyRef),
     ).subscribe((r) => {
       this.loading.set(false);
-      if (!r) { this.rows.set([]); this.totalValor.set(0); this.totalLines.set(0); return; }
+      if (!r) { this.rows.set([]); this.totalValor.set(0); this.totalLines.set(0); this.neededCount.set(0); return; }
       this.rows.set(r.rows.map((x) => ({ ...x, _pedir: Math.round(Number(x.suggested_units) || 0), _sel: false })));
       this.totalValor.set(Number(r.total_valor) || 0);
+      this.totalRevenue.set(Number(r.total_revenue) || 0);
       this.totalLines.set(Number(r.total) || 0);
+      this.neededCount.set(Number(r.needed ?? r.total) || 0);
       this.selTick.update((n) => n + 1);
     });
   }
@@ -321,9 +341,15 @@ export class ComprasPedidoRealComponent implements OnInit {
   kpiItems(): MetricStripItem[] {
     return [
       { label: 'Valor del pedido', value: this.totalValor(), format: 'currency', tone: 'brand' },
-      { label: 'Líneas por pedir', value: this.totalLines() },
+      { label: 'Venta 30d', value: this.totalRevenue(), format: 'currency', sub: 'del filtro' },
+      { label: 'Por pedir', value: this.neededCount(), tone: this.neededCount() > 0 ? 'warn' : 'default', sub: 'bajo cobertura' },
+      { label: 'Productos', value: this.totalLines(), sub: 'en el filtro' },
       { label: 'Cobertura', value: this.coverage, sub: 'días objetivo' },
     ];
+  }
+
+  abcSev(c: string | null): Sev {
+    return c === 'A' ? 'success' : c === 'B' ? 'info' : c === 'C' ? 'secondary' : 'secondary';
   }
 
   coverSev(d: number | null): Sev {

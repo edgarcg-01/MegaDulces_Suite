@@ -70,10 +70,13 @@ export interface PurchaseSuggestionRow {
   unit_cost: number; target_units: number; suggested_units: number; suggested_pieces: number;
   suggested_cost: number; days_cover: number | null;
   sell_daily_cajas: number; sell_month_cajas: number; // venta de la red (30d): la señal del reorden
+  sell_month_mxn: number; // RA-PRO.18 — venta 30d en $
+  sales_rank: number | null; // RA-PRO.18 — ranking por venta $ (red)
+  abc_class: string | null;  // RA-PRO.18 — ABC de red (Pareto por venta $)
   bucket: string; // agotado | critico | bajo | sano | sobrestock (por cobertura)
 }
 export interface PurchaseSuggestionResponse {
-  total: number; total_valor: number; page: number; pageSize: number; coverage_days: number;
+  total: number; needed?: number; total_valor: number; total_revenue?: number; page: number; pageSize: number; coverage_days: number;
   rows: PurchaseSuggestionRow[];
 }
 export interface PurchaseSuggestionQuery {
