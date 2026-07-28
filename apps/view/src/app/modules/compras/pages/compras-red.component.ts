@@ -38,7 +38,10 @@ import { MetricStripComponent, MetricStripItem } from '../../../shared/component
 
       <p-table [value]="nodes()" [loading]="loading()" styleClass="p-datatable-sm cr-table">
         <ng-template pTemplate="header">
-          <tr><th>Almacén</th><th>Rol</th><th>Se surte de</th></tr>
+          <tr><th>Almacén</th><th>Rol</th><th>Se surte de</th>
+            <th class="cr-r" title="Cada cuántos días lo surte el CEDIS (Wincaja Irapuato, 2026)">Cadencia surtido</th>
+            <th class="cr-r" title="Último surtido registrado">Último</th>
+            <th class="cr-r" title="Costo promedio por envío del CEDIS">$/envío</th></tr>
         </ng-template>
         <ng-template pTemplate="body" let-n>
           <tr>
@@ -52,19 +55,29 @@ import { MetricStripComponent, MetricStripItem } from '../../../shared/component
               <p-select [options]="sourceOptsFor(n)" [(ngModel)]="n.source_warehouse_id" (onChange)="save(n)"
                         optionLabel="label" optionValue="value" placeholder="Proveedores (es CEDIS)" [showClear]="true" styleClass="cr-sel"></p-select>
             </td>
+            <td class="cr-r">
+              @if (n.supply_cadence_days != null) {
+                <p-tag [value]="'cada ' + (n.supply_cadence_days | number:'1.0-1') + ' d'" [severity]="cadenceSev(n.supply_cadence_days)"></p-tag>
+                <span class="cr-sub">{{ n.supply_shipments }} envíos</span>
+              } @else if (!n.is_cedis) { <span class="cr-muted">—</span> }
+            </td>
+            <td class="cr-r cr-muted">{{ n.supply_last ? (n.supply_last | date:'dd/MM/yy') : '' }}</td>
+            <td class="cr-r cr-muted">{{ n.supply_avg_value ? money(n.supply_avg_value) : '' }}</td>
           </tr>
         </ng-template>
-        <ng-template pTemplate="emptymessage"><tr><td colspan="3" class="cr-empty">Sin almacenes.</td></tr></ng-template>
+        <ng-template pTemplate="emptymessage"><tr><td colspan="6" class="cr-empty">Sin almacenes.</td></tr></ng-template>
       </p-table>
-      <p class="cr-foot">El reorden del CEDIS se recalcula en el proceso nocturno con la demanda agregada de sus sucursales (media Σ, varianza combinada).</p>
+      <p class="cr-foot">Cadencia = frecuencia real con la que el CEDIS (Wincaja Irapuato) surtió a cada sucursal en 2026 (movimientos caja 99). El reorden del CEDIS se recalcula de noche con la demanda agregada de sus sucursales.</p>
     </div>
   `,
   styles: [`
     :host { display: block; }
     app-metric-strip { display:block; margin-bottom: 1rem; }
-    .cr-table { font-size: .84rem; max-width: 60rem; }
+    .cr-table { font-size: .84rem; max-width: 80rem; }
     .cr-mono { font-family: var(--font-mono, ui-monospace, monospace); font-size: .8rem; }
     .cr-muted { color: var(--text-muted); }
+    .cr-r { text-align: right; font-variant-numeric: tabular-nums; }
+    .cr-sub { display: block; font-size: .68rem; color: var(--text-faint); }
     .cr-sel { min-width: 16rem; }
     .cr-empty { color: var(--text-muted); padding: 1rem; text-align: center; }
     .cr-foot { font-size: .72rem; color: var(--text-muted); margin-top: .5rem; }
@@ -107,5 +120,17 @@ export class ComprasRedComponent implements OnInit {
       next: () => { this.toast.add({ severity: 'success', summary: 'Guardado', detail: n.code }); this.load(); },
       error: (e) => { this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudo guardar.' }); this.load(); },
     });
+  }
+
+  /** Severidad por cadencia: ≤3d rápida (verde) · ≤10d ok (azul) · >10d lenta (ámbar). */
+  cadenceSev(d: number | null): 'success' | 'info' | 'warn' | 'secondary' {
+    if (d == null) return 'secondary';
+    if (d <= 3) return 'success';
+    if (d <= 10) return 'info';
+    return 'warn';
+  }
+
+  money(v: number | null | undefined): string {
+    return (Number(v ?? 0) || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 });
   }
 }

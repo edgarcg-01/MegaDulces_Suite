@@ -86,7 +86,9 @@ function saveSnap(obj) {
         // → filtrar SIEMPRE por la sucursal propia (derivada del dbname md_XX).
         const suc = (m.url.match(/md_(\d{2})\b/) || [])[1];
         if (!suc) { console.log(`  ⚠ ${m.code}: no pude derivar sucursal de la URL — skip`); continue; }
-        const stock = (await src.query(`SELECT c3 AS sku, (c4+c8-c9)::numeric AS qty FROM md.kdil WHERE c3 IS NOT NULL AND c1 = $1`, [suc])).rows;
+        // RA-PRO.24 — excluir pseudo-SKUs de SERVICIO/contables (no inventario físico):
+        // 00001 VENTAS AL 0%, 00002, 00022 TIEMPO AIRE. Inflaban stock/sobrestock en todas las sucursales.
+        const stock = (await src.query(`SELECT c3 AS sku, (c4+c8-c9)::numeric AS qty FROM md.kdil WHERE c3 IS NOT NULL AND c1 = $1 AND c3 <> ALL(ARRAY['00001','00002','00022'])`, [suc])).rows;
         let matched = 0, unmatched = 0;
         for (const r of stock) {
           const pid = skuToId.get(r.sku);
