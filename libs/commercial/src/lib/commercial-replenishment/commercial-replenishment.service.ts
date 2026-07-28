@@ -487,11 +487,14 @@ export class CommercialReplenishmentService {
       const binds: Record<string, unknown> = { t: tenantId, cov };
       // Filtro de almacén de COMPRA: producto comprado en ese(s) almacén(es) (vía el ledger).
       const whIds = this.whIds(q);
-      let plWhere = 'tenant_id = :t';
-      if (whIds.length) { plWhere += ` AND warehouse_id IN (${whIds.map((_, i) => `:w${i}`).join(',')})`; whIds.forEach((w, i) => { binds[`w${i}`] = w; }); filters.push('pl.product_id IS NOT NULL'); }
+      let plWhere = 'pv.tenant_id = :t';
+      if (whIds.length) { plWhere += ` AND pv.warehouse_id IN (${whIds.map((_, i) => `:w${i}`).join(',')})`; whIds.forEach((w, i) => { binds[`w${i}`] = w; }); filters.push('pl.product_id IS NOT NULL'); }
       if (q.supplier_id && UUID_RX.test(q.supplier_id)) { filters.push('pr.supplier_id = :sid'); binds.sid = q.supplier_id; }
       if (q.category_id && UUID_RX.test(q.category_id)) { filters.push('pr.category_id = :cat'); binds.cat = q.category_id; }
       if (q.search && q.search.trim()) { filters.push('(pr.sku ILIKE :s OR pr.nombre ILIKE :s)'); binds.s = `%${q.search.trim()}%`; }
+      // RA-PRO.23 — no listar los SKUs ALIAS (in-and-out); su demanda/existencia/velocidad
+      // se pliega en el canónico (abajo, vía commercial.product_aliases).
+      filters.push('NOT EXISTS (SELECT 1 FROM commercial.product_aliases pa WHERE pa.tenant_id = :t AND pa.alias_product_id = pr.id AND pa.deleted_at IS NULL)');
       // Bucket por COBERTURA (días que aguanta la red vendiendo): agotado / crítico(<7) / bajo(<cobertura) /
       // sano / sobrestock(>90). DEFAULT = TODOS los productos (visibilidad total); scope='needed' o un
       // bucket lo acotan. Ordenado por valor del sugerido → lo accionable arriba, lo cubierto abajo.
@@ -508,22 +511,33 @@ export class CommercialReplenishmentService {
       const from = `
         FROM catalog.products pr
         LEFT JOIN (
-          SELECT product_id, sum(qty_90d) AS qty90, sum(daily_rate) AS buy_rate,
-                 sum(qty_90d * real_unit_cost) / NULLIF(sum(qty_90d),0) AS cost,
-                 max(last_purchase) AS last_purchase, max(order_days) AS order_days,
-                 (array_agg(warehouse_id ORDER BY qty_90d DESC))[1] AS primary_wh
-            FROM analytics.purchase_velocity WHERE ${plWhere} GROUP BY product_id
+          SELECT COALESCE(al.canonical_product_id, pv.product_id) AS product_id,
+                 sum(pv.qty_90d) AS qty90, sum(pv.daily_rate) AS buy_rate,
+                 sum(pv.qty_90d * pv.real_unit_cost) / NULLIF(sum(pv.qty_90d),0) AS cost,
+                 max(pv.last_purchase) AS last_purchase, max(pv.order_days) AS order_days,
+                 (array_agg(pv.warehouse_id ORDER BY pv.qty_90d DESC))[1] AS primary_wh
+            FROM analytics.purchase_velocity pv
+            LEFT JOIN commercial.product_aliases al ON al.tenant_id = pv.tenant_id AND al.alias_product_id = pv.product_id AND al.deleted_at IS NULL
+           WHERE ${plWhere} GROUP BY 1
         ) pl ON pl.product_id = pr.id
         LEFT JOIN catalog.suppliers sup ON sup.tenant_id = :t AND sup.id = pr.supplier_id
         LEFT JOIN commercial.warehouses w ON w.tenant_id = :t AND w.id = pl.primary_wh
         LEFT JOIN (SELECT tenant_id, product_id, max(box_size) bs FROM commercial.product_label_prices GROUP BY tenant_id, product_id) lbl
                ON lbl.tenant_id = :t AND lbl.product_id = pr.id
-        LEFT JOIN (SELECT product_id, sum(pieces) s30, sum(revenue) rev30 FROM analytics.product_demand
-                    WHERE tenant_id = :t AND window_days = 30 GROUP BY product_id) sv
+        LEFT JOIN (SELECT COALESCE(al.canonical_product_id, pd.product_id) AS product_id, sum(pd.pieces) s30, sum(pd.revenue) rev30
+                     FROM analytics.product_demand pd
+                     LEFT JOIN commercial.product_aliases al ON al.tenant_id = pd.tenant_id AND al.alias_product_id = pd.product_id AND al.deleted_at IS NULL
+                    WHERE pd.tenant_id = :t AND pd.window_days = 30 GROUP BY 1) sv
                ON sv.product_id = pr.id
-        LEFT JOIN (SELECT product_id, sum(quantity) qty FROM commercial.stock WHERE tenant_id = :t GROUP BY product_id) nst
+        LEFT JOIN (SELECT COALESCE(al.canonical_product_id, s.product_id) AS product_id, sum(s.quantity) qty
+                     FROM commercial.stock s
+                     LEFT JOIN commercial.product_aliases al ON al.tenant_id = s.tenant_id AND al.alias_product_id = s.product_id AND al.deleted_at IS NULL
+                    WHERE s.tenant_id = :t GROUP BY 1) nst
                ON nst.product_id = pr.id
-        LEFT JOIN (SELECT product_id, sum(qty_in_transit) t FROM analytics.purchase_in_transit WHERE tenant_id = :t GROUP BY product_id) tr
+        LEFT JOIN (SELECT COALESCE(al.canonical_product_id, pit.product_id) AS product_id, sum(pit.qty_in_transit) t
+                     FROM analytics.purchase_in_transit pit
+                     LEFT JOIN commercial.product_aliases al ON al.tenant_id = pit.tenant_id AND al.alias_product_id = pit.product_id AND al.deleted_at IS NULL
+                    WHERE pit.tenant_id = :t GROUP BY 1) tr
                ON tr.product_id = pr.id
         WHERE ${where}`;
 
@@ -610,8 +624,14 @@ export class CommercialReplenishmentService {
       // uxc + costo real de caja (mismos que la compra sugerida) → una tabla por producto.
       // deficit por (sucursal, producto), disponible del CEDIS por producto, reparto proporcional.
       const cte = `
-        WITH dem AS (SELECT product_id, warehouse_id, daily_pieces FROM analytics.product_demand WHERE tenant_id = :t AND window_days = 30),
-        stk AS (SELECT product_id, warehouse_id, quantity FROM commercial.stock WHERE tenant_id = :t),
+        WITH dem AS (SELECT COALESCE(al.canonical_product_id, pd.product_id) AS product_id, pd.warehouse_id, sum(pd.daily_pieces) AS daily_pieces
+                       FROM analytics.product_demand pd
+                       LEFT JOIN commercial.product_aliases al ON al.tenant_id = pd.tenant_id AND al.alias_product_id = pd.product_id AND al.deleted_at IS NULL
+                      WHERE pd.tenant_id = :t AND pd.window_days = 30 GROUP BY 1, 2),
+        stk AS (SELECT COALESCE(al.canonical_product_id, s.product_id) AS product_id, s.warehouse_id, sum(s.quantity) AS quantity
+                  FROM commercial.stock s
+                  LEFT JOIN commercial.product_aliases al ON al.tenant_id = s.tenant_id AND al.alias_product_id = s.product_id AND al.deleted_at IS NULL
+                 WHERE s.tenant_id = :t GROUP BY 1, 2),
         econ AS (
           SELECT p.id AS product_id,
                  GREATEST(CASE WHEN p.factor_sale > 1 THEN p.factor_sale WHEN l.bs > 1 THEN l.bs ELSE 1 END, 1) AS uxc,
@@ -718,7 +738,14 @@ export class CommercialReplenishmentService {
       const where = filters.join(' AND ');
 
       const cte = `
-        WITH dem AS (SELECT product_id, warehouse_id, daily_pieces FROM analytics.product_demand WHERE tenant_id = :t AND window_days = 30),
+        WITH dem AS (SELECT COALESCE(al.canonical_product_id, pd.product_id) AS product_id, pd.warehouse_id, sum(pd.daily_pieces) AS daily_pieces
+                       FROM analytics.product_demand pd
+                       LEFT JOIN commercial.product_aliases al ON al.tenant_id = pd.tenant_id AND al.alias_product_id = pd.product_id AND al.deleted_at IS NULL
+                      WHERE pd.tenant_id = :t AND pd.window_days = 30 GROUP BY 1, 2),
+        stk AS (SELECT COALESCE(al.canonical_product_id, s.product_id) AS product_id, s.warehouse_id, sum(s.quantity) AS quantity
+                  FROM commercial.stock s
+                  LEFT JOIN commercial.product_aliases al ON al.tenant_id = s.tenant_id AND al.alias_product_id = s.product_id AND al.deleted_at IS NULL
+                 WHERE s.tenant_id = :t GROUP BY 1, 2),
         econ AS (
           SELECT p.id AS product_id,
                  GREATEST(CASE WHEN p.factor_sale > 1 THEN p.factor_sale WHEN l.bs > 1 THEN l.bs ELSE 1 END, 1) AS uxc,
@@ -746,7 +773,7 @@ export class CommercialReplenishmentService {
                  COALESCE(s.quantity,0) AS stock_pz,
                  GREATEST(0, COALESCE(s.quantity,0) - eff.eff_daily * :over) AS surplus_pz
             FROM eff
-            LEFT JOIN commercial.stock s ON s.tenant_id = :t AND s.warehouse_id = eff.wh AND s.product_id = eff.product_id
+            LEFT JOIN stk s ON s.warehouse_id = eff.wh AND s.product_id = eff.product_id
         )`;
       const from = `
         FROM ov
