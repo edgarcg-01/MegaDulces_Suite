@@ -70,6 +70,8 @@ export interface PurchaseSuggestionRow {
   unit_cost: number; target_units: number; suggested_units: number; suggested_pieces: number;
   base_units?: number;   // RA-PRO.27 — necesidad neta ANTES de inflar por fill rate
   fill_rate?: number;    // RA-PRO.27 — surtido histórico del proveedor (0..1); <1 infla el sugerido
+  fill_source?: string;  // RA-PRO.27 — override | sku | supplier | default
+  coverage_days_eff?: number; // RA-PRO.27 — cobertura aplicada (override del proveedor o global)
   suggested_cost: number; days_cover: number | null;
   sell_daily_cajas: number; sell_month_cajas: number; // venta de la red (30d): la señal del reorden
   sell_month_mxn: number; // RA-PRO.18 — venta 30d en $
@@ -279,13 +281,27 @@ export interface SupplierParam {
   cadence_days_override: number | null; // RA-PRO.10 — ciclo de pedido manual (días)
   colchon_days: number | null;          // RA-PRO.10 — colchón en días de demanda
   min_order_amount: number | null;      // RA-PRO.10 — mínimo de compra en $
+  fill_rate_override: number | null;    // RA-PRO.27 — fill rate manual (0..1) que gana sobre el histórico
+  safety_pct: number | null;            // RA-PRO.27 — colchón adicional % sobre el sugerido
+  coverage_days_override: number | null; // RA-PRO.27 — días de cobertura propios del proveedor
   product_count: number;
+  fill_pct?: number | null; // UI-only: fill_rate_override expresado en % (0..100)
 }
 export interface SupplierOrderParamsDto {
   cadence_days_override?: number | null;
   colchon_days?: number | null;
   min_order_amount?: number | null;
   min_order_boxes?: number | null;
+  fill_rate_override?: number | null;   // RA-PRO.27
+  safety_pct?: number | null;           // RA-PRO.27
+  coverage_days_override?: number | null; // RA-PRO.27
+}
+// RA-PRO.27 — parámetros globales del pedido (fill rate + cobertura) por tenant.
+export interface ReplenishmentSettings {
+  fill_window_days: number;
+  fill_min_lines: number;
+  fill_max_inflate: number;
+  default_coverage_days: number;
 }
 export interface SupplierOrderLine {
   warehouse_code: string; warehouse_id: string; product_id: string; sku: string; nombre: string;
@@ -661,9 +677,16 @@ export class ComprasService {
   setSupplierLeadTime(supplierId: string, days: number | null): Observable<{ id: string; lead_time_days: number | null }> {
     return this.http.post<{ id: string; lead_time_days: number | null }>(`${this.base}/suppliers/${supplierId}/lead-time`, { days });
   }
-  /** RA-PRO.10 — parámetros de pedido (cadencia override + colchón + mínimo $/cajas). */
+  /** RA-PRO.10/27 — parámetros de pedido (cadencia/colchón/mínimo + fill rate/colchón%/cobertura). */
   setSupplierOrderParams(supplierId: string, patch: SupplierOrderParamsDto): Observable<{ id: string }> {
     return this.http.post<{ id: string }>(`${this.base}/suppliers/${supplierId}/order-params`, patch);
+  }
+  /** RA-PRO.27 — parámetros globales del pedido (fill rate + cobertura). */
+  getReplenishmentSettings(): Observable<ReplenishmentSettings> {
+    return this.http.get<ReplenishmentSettings>(`${this.base}/settings`);
+  }
+  updateReplenishmentSettings(patch: Partial<ReplenishmentSettings>): Observable<ReplenishmentSettings> {
+    return this.http.post<ReplenishmentSettings>(`${this.base}/settings`, patch);
   }
   /** RA-PRO.10 — pedido consolidado al proveedor (cadencia+colchón, subido al mínimo). */
   supplierOrder(supplierId: string): Observable<SupplierOrder> {

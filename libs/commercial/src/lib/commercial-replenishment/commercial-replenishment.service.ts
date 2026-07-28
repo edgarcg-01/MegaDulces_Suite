@@ -468,11 +468,17 @@ export class CommercialReplenishmentService {
    */
   async purchaseSuggestion(q: PurchaseSuggestionQuery) {
     const tenantId = this.tenantCtx.requireTenantId();
-    const cov = Math.min(120, Math.max(1, Number(q.coverage_days) || 30));
+    const covReq = Number(q.coverage_days) > 0 ? Math.min(120, Math.max(1, Number(q.coverage_days))) : null;
     const page = Math.max(1, Number(q.page) || 1);
     const cap = q.export ? 100000 : 500;
     const pageSize = Math.min(cap, Math.max(1, Number(q.pageSize) || (q.export ? cap : 50)));
     return this.tk.run(async (trx) => {
+      // RA-PRO.27 — parámetros globales del pedido (fill rate + cobertura) configurables por tenant.
+      const st: any = await trx('commercial.replenishment_settings').where({ tenant_id: tenantId }).first();
+      const cov = covReq ?? Math.min(120, Math.max(1, Number(st?.default_coverage_days) || 30));
+      const fwin = Math.max(30, Number(st?.fill_window_days) || 180);   // ventana de historia del fill rate
+      const fmin = Math.max(1, Number(st?.fill_min_lines) || 3);        // mínimo de recepciones para confiar
+      const maxinf = Math.min(3, Math.max(1, Number(st?.fill_max_inflate) || 1.30)); // tope de inflado
       const uxc = `GREATEST(CASE WHEN pr.factor_sale > 1 THEN pr.factor_sale WHEN lbl.bs > 1 THEN lbl.bs ELSE 1 END, 1)`;
       // Unidad = CAJAS. venta/existencia (kdil) vienen en PIEZAS → /uxc. en_tránsito (OC) ya en cajas.
       const sellDayPz = `(COALESCE(sv.s30,0) / 30.0)`;            // venta diaria de la RED (piezas)
@@ -482,16 +488,22 @@ export class CommercialReplenishmentService {
       // existencia − tránsito. Si la existencia ya cubre el horizonte (sobrestock) → 0: no re-compra
       // lo que no rota (antes, anclado en el ritmo de compra, sobre-sugería lo sobrestockeado).
       const costE = `COALESCE(pl.cost, pr.cost_with_tax, 0)`; // costo real de compra; fallback a catálogo si nunca se compró
-      // RA-PRO.27 — FILL RATE del proveedor (recibido/pedido de OCs recibidas o parciales, 180d).
-      // Con ≥3 líneas recibidas: infla el sugerido para compensar surtido incompleto
-      // (pedir = necesidad ÷ fill_rate), con piso 0.77 → tope de inflado 1.30x. Sin historia
-      // suficiente → 100% (no infla). Mide confiabilidad del PROVEEDOR, no del SKU individual.
-      const fillRate = `CASE WHEN COALESCE(fr.n,0) >= 3 AND COALESCE(fr.ord,0) > 0 THEN LEAST(1.0, fr.recv::numeric / fr.ord) ELSE 1.0 END`;
-      const fillFactor = `(1.0 / GREATEST(${fillRate}, 0.77))`;
-      const needBase = `GREATEST(0, ${sellDayPz} * :cov / ${uxc} - ${stockPz} / ${uxc} - ${transit})`; // necesidad neta (sin fill)
-      const sug = `(${needBase} * ${fillFactor})`;                                                     // sugerido = necesidad ÷ fill_rate (cap 1.3x)
+      // RA-PRO.27 — FILL RATE PERSONALIZADO. Infla el sugerido para compensar surtido incompleto.
+      // Precedencia: override manual del proveedor → historia SKU×proveedor → historia proveedor →
+      // 100% (sin historia). El fill rate se toma de OCs recibidas/parciales en la ventana (fwin);
+      // requiere ≥ fmin líneas para confiar; el inflado se topa en maxinf (piso del fill = 1/maxinf).
+      // covEff = cobertura propia del proveedor (coverage_days_override) o la global del filtro.
+      const covEff = `COALESCE(sup.coverage_days_override, :cov)`;
+      const frSku = `CASE WHEN COALESCE(frp.n,0) >= :fmin AND COALESCE(frp.ord,0) > 0 THEN LEAST(1.0, frp.recv::numeric / frp.ord) END`;
+      const frSup = `CASE WHEN COALESCE(frs.n,0) >= :fmin AND COALESCE(frs.ord,0) > 0 THEN LEAST(1.0, frs.recv::numeric / frs.ord) END`;
+      const fillRate = `COALESCE(sup.fill_rate_override, ${frSku}, ${frSup}, 1.0)`;
+      const fillSource = `CASE WHEN sup.fill_rate_override IS NOT NULL THEN 'override' WHEN ${frSku} IS NOT NULL THEN 'sku' WHEN ${frSup} IS NOT NULL THEN 'supplier' ELSE 'default' END`;
+      // sugerido = (necesidad ÷ fill, tope inflado) × (1 + colchón% del proveedor)
+      const fillFactor = `(1.0 / GREATEST(${fillRate}, 1.0 / :maxinf)) * (1 + COALESCE(sup.safety_pct,0)/100.0)`;
+      const needBase = `GREATEST(0, ${sellDayPz} * ${covEff} / ${uxc} - ${stockPz} / ${uxc} - ${transit})`; // necesidad neta (sin fill)
+      const sug = `(${needBase} * ${fillFactor})`;                                                          // sugerido personalizado
       const filters: string[] = ['pr.tenant_id = :t', 'pr.activo = true'];
-      const binds: Record<string, unknown> = { t: tenantId, cov };
+      const binds: Record<string, unknown> = { t: tenantId, cov, fwin, fmin, maxinf };
       // Almacén: seleccionar almacén en Comprar = PEDIDO PER-SUCURSAL (demanda + existencia de
       // ESE almacén), NO "productos comprados ahí". Los proveedores DIRECTOS a sucursal (Ferrero)
       // no tienen fila en el ledger de compras del almacén → con el filtro viejo (pl.product_id IS
@@ -518,7 +530,7 @@ export class CommercialReplenishmentService {
       // sano / sobrestock(>90). DEFAULT = TODOS los productos (visibilidad total); scope='needed' o un
       // bucket lo acotan. Ordenado por valor del sugerido → lo accionable arriba, lo cubierto abajo.
       const cover = `(${stockPz} / NULLIF(${sellDayPz}, 0))`;
-      const bucketExpr = `CASE WHEN ${stockPz} <= 0 AND ${sellDayPz} <= 0 THEN 'sin_dato' WHEN ${stockPz} <= 0 THEN 'agotado' WHEN ${cover} < 7 THEN 'critico' WHEN ${cover} < :cov THEN 'bajo' WHEN ${cover} > 90 THEN 'sobrestock' ELSE 'sano' END`;
+      const bucketExpr = `CASE WHEN ${stockPz} <= 0 AND ${sellDayPz} <= 0 THEN 'sin_dato' WHEN ${stockPz} <= 0 THEN 'agotado' WHEN ${cover} < 7 THEN 'critico' WHEN ${cover} < ${covEff} THEN 'bajo' WHEN ${cover} > 90 THEN 'sobrestock' ELSE 'sano' END`;
       if (q.bucket && ['agotado', 'critico', 'bajo', 'sano', 'sobrestock', 'sin_dato'].includes(q.bucket)) { filters.push(`${bucketExpr} = :bkt`); binds.bkt = q.bucket; }
       else if (q.scope === 'needed') { filters.push(`${sug} > 0`); }
       const where = filters.join(' AND ');
@@ -546,9 +558,18 @@ export class CommercialReplenishmentService {
             JOIN commercial.purchase_order_lines pol ON pol.tenant_id = po.tenant_id AND pol.purchase_order_id = po.id
            WHERE po.tenant_id = :t AND po.source_type = 'supplier' AND po.estado IN ('received','partial')
              AND po.supplier_id IS NOT NULL
-             AND COALESCE(po.closed_at, po.created_at) >= now() - interval '180 days'
+             AND COALESCE(po.closed_at, po.created_at) >= now() - make_interval(days => :fwin::int)
            GROUP BY po.supplier_id
-        ) fr ON fr.supplier_id = pr.supplier_id
+        ) frs ON frs.supplier_id = pr.supplier_id
+        LEFT JOIN (
+          SELECT po.supplier_id, pol.product_id, SUM(pol.received_qty) AS recv, SUM(pol.ordered_qty) AS ord, COUNT(*) AS n
+            FROM commercial.purchase_orders po
+            JOIN commercial.purchase_order_lines pol ON pol.tenant_id = po.tenant_id AND pol.purchase_order_id = po.id
+           WHERE po.tenant_id = :t AND po.source_type = 'supplier' AND po.estado IN ('received','partial')
+             AND po.supplier_id IS NOT NULL
+             AND COALESCE(po.closed_at, po.created_at) >= now() - make_interval(days => :fwin::int)
+           GROUP BY po.supplier_id, pol.product_id
+        ) frp ON frp.supplier_id = pr.supplier_id AND frp.product_id = pr.id
         LEFT JOIN commercial.warehouses w ON w.tenant_id = :t AND w.id = COALESCE(:selwh::uuid, pl.primary_wh)
         LEFT JOIN (SELECT tenant_id, product_id, max(box_size) bs FROM commercial.product_label_prices GROUP BY tenant_id, product_id) lbl
                ON lbl.tenant_id = :t AND lbl.product_id = pr.id
@@ -594,10 +615,12 @@ export class CommercialReplenishmentService {
                  round((${stockPz} / ${uxc})::numeric, 2) AS on_hand_units,
                  ${transit} AS in_transit_units,
                  round(${costE}::numeric, 4) AS unit_cost,
-                 round((${sellDayPz} * :cov / ${uxc})::numeric, 2) AS target_units,
+                 round((${sellDayPz} * ${covEff} / ${uxc})::numeric, 2) AS target_units,
                  round(${sug}::numeric, 2) AS suggested_units,
                  round(${needBase}::numeric, 2) AS base_units,
                  round((${fillRate})::numeric, 3) AS fill_rate,
+                 ${fillSource} AS fill_source,
+                 ${covEff} AS coverage_days_eff,
                  round((${sug} * ${uxc})::numeric, 0) AS suggested_pieces,
                  round((${sug} * ${costE})::numeric, 2) AS suggested_cost,
                  round((${sellDayPz} / ${uxc})::numeric, 2) AS sell_daily_cajas,
@@ -1364,13 +1387,17 @@ export class CommercialReplenishmentService {
         .where('sup.tenant_id', tenantId);
       if (q?.search && q.search.trim()) base.andWhereILike('sup.name', `%${q.search.trim()}%`);
       return base
-        .groupBy('sup.id', 'sup.name', 'sup.lead_time_days', 'sup.min_order_boxes', 'sup.cadence_days_override', 'sup.colchon_days', 'sup.min_order_amount')
+        .groupBy('sup.id', 'sup.name', 'sup.lead_time_days', 'sup.min_order_boxes', 'sup.cadence_days_override', 'sup.colchon_days', 'sup.min_order_amount', 'sup.fill_rate_override', 'sup.safety_pct', 'sup.coverage_days_override')
         .select('sup.id', 'sup.name',
           trx.raw('sup.lead_time_days AS lead_time_days'),
           trx.raw('sup.min_order_boxes AS min_order_boxes'),
           trx.raw('sup.cadence_days_override AS cadence_days_override'),
           trx.raw('sup.colchon_days AS colchon_days'),
           trx.raw('sup.min_order_amount AS min_order_amount'),
+          // RA-PRO.27 — personalización del pedido
+          trx.raw('sup.fill_rate_override AS fill_rate_override'),
+          trx.raw('sup.safety_pct AS safety_pct'),
+          trx.raw('sup.coverage_days_override AS coverage_days_override'),
           trx.raw('COUNT(pr.id)::int AS product_count'))
         .orderBy('sup.name');
     });
@@ -1436,20 +1463,55 @@ export class CommercialReplenishmentService {
 
   // ── RA-PRO.10 — Parámetros de pedido + pedido consolidado con mínimo ──
   /** Captura por proveedor: cadencia override (días) + colchón (días) + mínimo en $ y/o cajas. */
-  async setSupplierOrderParams(supplierId: string, patch: { cadence_days_override?: number | null; colchon_days?: number | null; min_order_amount?: number | null; min_order_boxes?: number | null }) {
+  async setSupplierOrderParams(supplierId: string, patch: { cadence_days_override?: number | null; colchon_days?: number | null; min_order_amount?: number | null; min_order_boxes?: number | null; fill_rate_override?: number | null; safety_pct?: number | null; coverage_days_override?: number | null }) {
     const tenantId = this.tenantCtx.requireTenantId();
     if (!UUID_RX.test(supplierId)) throw new BadRequestException('supplier_id inválido');
     const clampInt = (v: unknown, max: number) => v == null || Number.isNaN(Number(v)) ? null : Math.min(max, Math.max(0, Math.round(Number(v))));
     const clampNum = (v: unknown) => v == null || Number.isNaN(Number(v)) ? null : Math.max(0, Number(v));
+    // fill rate manual en 0..1: acepta también 0..100 (%) y lo normaliza.
+    const clampFill = (v: unknown) => { if (v == null || Number.isNaN(Number(v))) return null; let n = Number(v); if (n > 1) n = n / 100; return Math.min(1, Math.max(0.01, n)); };
     return this.tk.run(async (trx) => {
       const upd: Record<string, unknown> = { updated_at: trx.fn.now() };
       if ('cadence_days_override' in patch) upd.cadence_days_override = clampInt(patch.cadence_days_override, 365);
       if ('colchon_days' in patch) upd.colchon_days = clampInt(patch.colchon_days, 365);
       if ('min_order_amount' in patch) upd.min_order_amount = clampNum(patch.min_order_amount);
       if ('min_order_boxes' in patch) upd.min_order_boxes = clampInt(patch.min_order_boxes, 1000000);
+      // RA-PRO.27 — personalización del pedido por proveedor.
+      if ('fill_rate_override' in patch) upd.fill_rate_override = clampFill(patch.fill_rate_override);
+      if ('safety_pct' in patch) upd.safety_pct = patch.safety_pct == null || Number.isNaN(Number(patch.safety_pct)) ? null : Math.min(100, Math.max(0, Number(patch.safety_pct)));
+      if ('coverage_days_override' in patch) upd.coverage_days_override = clampInt(patch.coverage_days_override, 120);
       const n = await trx('catalog.suppliers').where({ tenant_id: tenantId, id: supplierId }).update(upd);
       if (!n) throw new NotFoundException('Proveedor no encontrado');
       return { id: supplierId, ...upd, updated_at: undefined };
+    });
+  }
+
+  // ── RA-PRO.27 — Parámetros GLOBALES del pedido (fill rate + cobertura) ──
+  async getReplenishmentSettings() {
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      let row: any = await trx('commercial.replenishment_settings').where({ tenant_id: tenantId }).first();
+      if (!row) {
+        await trx('commercial.replenishment_settings').insert({ tenant_id: tenantId }).onConflict('tenant_id').ignore();
+        row = await trx('commercial.replenishment_settings').where({ tenant_id: tenantId }).first();
+      }
+      return row;
+    });
+  }
+
+  async updateReplenishmentSettings(patch: { fill_window_days?: number; fill_min_lines?: number; fill_max_inflate?: number; default_coverage_days?: number }) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const userId = this.tenantCtx.get()?.userId ?? null;
+    return this.tk.run(async (trx) => {
+      const upd: Record<string, unknown> = { updated_at: trx.fn.now(), updated_by: userId };
+      if ('fill_window_days' in patch) upd.fill_window_days = Math.min(730, Math.max(30, Math.round(Number(patch.fill_window_days) || 180)));
+      if ('fill_min_lines' in patch) upd.fill_min_lines = Math.min(50, Math.max(1, Math.round(Number(patch.fill_min_lines) || 3)));
+      if ('fill_max_inflate' in patch) upd.fill_max_inflate = Math.min(3, Math.max(1, Number(patch.fill_max_inflate) || 1.30));
+      if ('default_coverage_days' in patch) upd.default_coverage_days = Math.min(120, Math.max(1, Math.round(Number(patch.default_coverage_days) || 30)));
+      await trx('commercial.replenishment_settings')
+        .insert({ tenant_id: tenantId, ...upd })
+        .onConflict('tenant_id').merge(upd);
+      return trx('commercial.replenishment_settings').where({ tenant_id: tenantId }).first();
     });
   }
 

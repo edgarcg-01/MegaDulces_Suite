@@ -327,9 +327,22 @@ export class CommercialReplenishmentController {
 
   @Post('suppliers/:id/order-params')
   @RequirePermissions(Permission.COMPRAS_GESTIONAR)
-  @ApiOperation({ summary: 'RA-PRO.10 — parámetros de pedido: cadencia override (días), colchón (días), mínimo de compra en $ y/o cajas. body { cadence_days_override, colchon_days, min_order_amount, min_order_boxes }.' })
-  setSupplierOrderParams(@Param('id') id: string, @Body() body: { cadence_days_override?: number | null; colchon_days?: number | null; min_order_amount?: number | null; min_order_boxes?: number | null }) {
+  @ApiOperation({ summary: 'RA-PRO.10/27 — parámetros de pedido por proveedor: cadencia/colchón (días), mínimo en $/cajas, y personalización RA-PRO.27: fill_rate_override (0..1 o %), safety_pct (0..100), coverage_days_override.' })
+  setSupplierOrderParams(@Param('id') id: string, @Body() body: { cadence_days_override?: number | null; colchon_days?: number | null; min_order_amount?: number | null; min_order_boxes?: number | null; fill_rate_override?: number | null; safety_pct?: number | null; coverage_days_override?: number | null }) {
     return this.svc.setSupplierOrderParams(id, body ?? {});
+  }
+
+  // ── RA-PRO.27 — parámetros globales del pedido (fill rate + cobertura) ──
+  @Get('settings')
+  @RequirePermissions(Permission.COMPRAS_VER)
+  @ApiOperation({ summary: 'RA-PRO.27 — parámetros globales del pedido sugerido (ventana/mínimo/tope del fill rate + cobertura default).' })
+  getSettings() { return this.svc.getReplenishmentSettings(); }
+
+  @Post('settings')
+  @RequirePermissions(Permission.COMPRAS_GESTIONAR)
+  @ApiOperation({ summary: 'RA-PRO.27 — edita los parámetros globales. body { fill_window_days, fill_min_lines, fill_max_inflate, default_coverage_days }.' })
+  updateSettings(@Body() body: { fill_window_days?: number; fill_min_lines?: number; fill_max_inflate?: number; default_coverage_days?: number }) {
+    return this.svc.updateReplenishmentSettings(body ?? {});
   }
 
   @Get('suppliers/:id/order')
