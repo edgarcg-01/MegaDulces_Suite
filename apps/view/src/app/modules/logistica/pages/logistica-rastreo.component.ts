@@ -270,10 +270,10 @@ export class LogisticaRastreoComponent {
 
   readonly markers = computed<MapMarker[]>(() =>
     this.units()
-      .filter((u) => u.last_lat != null && u.last_lng != null)
+      .filter((u) => u.last_lat != null && u.last_lng != null && !isNaN(Number(u.last_lat)))
       .map((u) => ({
-        lat: u.last_lat as number,
-        lng: u.last_lng as number,
+        lat: Number(u.last_lat),
+        lng: Number(u.last_lng),
         id: u.id,
         kind: 'truck' as const,
         color: this.statusColor(u),
@@ -337,7 +337,7 @@ export class LogisticaRastreoComponent {
     this.showTrail.set(false);
     this.trailPath.set([]);
     const u = this.units().find((x) => x.id === id);
-    if (u?.last_lat != null && u.last_lng != null) this.map?.panTo(u.last_lat, u.last_lng);
+    if (u?.last_lat != null && u.last_lng != null) this.map?.panTo(Number(u.last_lat), Number(u.last_lng));
   }
 
   toggleTrail(u: TrackerLive) {
@@ -346,7 +346,7 @@ export class LogisticaRastreoComponent {
     this.loadingTrail.set(true);
     this.api.trackerHistory(u.id, from.toISOString()).subscribe({
       next: (pts) => {
-        this.trailPath.set((pts || []).filter((p) => p.lat != null && p.lng != null).map((p) => ({ lat: p.lat, lng: p.lng })));
+        this.trailPath.set((pts || []).filter((p) => p.lat != null && p.lng != null && !isNaN(Number(p.lat))).map((p) => ({ lat: Number(p.lat), lng: Number(p.lng) })));
         this.showTrail.set(true);
         this.loadingTrail.set(false);
       },
