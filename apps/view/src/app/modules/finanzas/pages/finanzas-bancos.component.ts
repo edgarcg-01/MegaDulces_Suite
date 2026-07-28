@@ -18,7 +18,7 @@ import { LoadStateComponent } from '../../../shared/components/load-state/load-s
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import { FINANZAS_TABS } from '../finanzas-tabs';
-import { BankService, BankAccount, MovementCategory, BankStatement, BankMovement, Concentrado, Reconciliation, MatchResult, Differences, Balances, Diagnostico, KeplerAccount, SideBySide, ContpaqiCompare } from '../bank.service';
+import { BankService, BankAccount, MovementCategory, BankStatement, BankMovement, Concentrado, Reconciliation, MatchResult, Differences, Balances, Diagnostico, KeplerAccount, SideBySide, ContpaqiCompare, ContpaqiBankAccount } from '../bank.service';
 import {
   BankView as View, MONTHS_ES, WORK_VIEWS,
   GROUP_LABELS, GROUP_ORDER,
@@ -163,7 +163,7 @@ import { BancosContpaqiComponent } from './bancos/bancos-contpaqi.component';
         } @else if (cpqLoading()) {
           <div class="fb-skeleton" aria-busy="true">@for (i of [1,2,3,4,5,6]; track i) { <div class="fb-skel-row"></div> }</div>
         } @else {
-          <bancos-contpaqi [compare]="contpaqiCompare()" [linking]="cpqLinking()" [period]="period()" (link)="linkContpaqi()" />
+          <bancos-contpaqi [compare]="contpaqiCompare()" [linking]="cpqLinking()" [period]="period()" [available]="cpqAccounts()" (link)="linkContpaqi()" (manualLink)="manualLinkContpaqi($event)" />
         }
       }
 
@@ -414,6 +414,7 @@ export class FinanzasBancosComponent implements OnInit {
   readonly cpqLoading = signal(false);
   readonly cpqError = signal<string | null>(null);
   readonly cpqLinking = signal(false);
+  readonly cpqAccounts = signal<ContpaqiBankAccount[]>([]);
 
   // Filtros de Movimientos (el shell los posee para poder recargar al cambiar de periodo).
   readonly fAccount = signal('');
@@ -511,6 +512,22 @@ export class FinanzasBancosComponent implements OnInit {
     this.api.contpaqiCompare(p).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (c) => { this.contpaqiCompare.set(c); this.cpqLoading.set(false); },
       error: () => { this.cpqError.set('No se pudo cargar la comparación vs ContPAQi.'); this.cpqLoading.set(false); },
+    });
+    if (!this.cpqAccounts().length) {
+      this.api.contpaqiAccounts().pipe(takeUntilDestroyed(this.destroyRef))
+        .subscribe({ next: (as) => this.cpqAccounts.set(as), error: () => { /* selector opcional */ } });
+    }
+  }
+
+  /** CP.2 — enlace manual de una cuenta (Santander 1604/1621) a su cuenta contable ContPAQi. */
+  manualLinkContpaqi(e: { bankAccountId: string; cuenta: string | null }): void {
+    this.api.manualLinkContpaqi(e.bankAccountId, e.cuenta).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: () => {
+        this.toast.add({ severity: 'success', summary: 'Cuenta enlazada', detail: 'Se guardó el enlace manual a ContPAQi', life: 2500 });
+        this.cpqAccounts.set([]);
+        this.loadContpaqi();
+      },
+      error: () => this.fail('No se pudo enlazar la cuenta con ContPAQi.'),
     });
   }
 

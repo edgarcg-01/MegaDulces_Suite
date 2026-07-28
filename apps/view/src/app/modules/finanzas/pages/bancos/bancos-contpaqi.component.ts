@@ -1,8 +1,10 @@
-import { ChangeDetectionStrategy, Component, EventEmitter, Output, input } from '@angular/core';
+import { ChangeDetectionStrategy, Component, EventEmitter, Output, computed, input } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { FormsModule } from '@angular/forms';
 import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
-import { ContpaqiCompare, ContpaqiCompareRow } from '../../bank.service';
+import { SelectModule } from 'primeng/select';
+import { ContpaqiCompare, ContpaqiCompareRow, ContpaqiBankAccount } from '../../bank.service';
 import { cuadra, money0 } from './bancos-shared';
 
 /**
@@ -15,7 +17,7 @@ import { cuadra, money0 } from './bancos-shared';
 @Component({
   selector: 'bancos-contpaqi',
   standalone: true,
-  imports: [CommonModule, ButtonModule, TableModule],
+  imports: [CommonModule, FormsModule, ButtonModule, TableModule, SelectModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (compare(); as c) {
@@ -60,6 +62,9 @@ import { cuadra, money0 } from './bancos-shared';
           <p class="fb-recon-note muted"><i class="pi pi-exclamation-triangle"></i> Ninguna cuenta está enlazada a ContPAQi todavía. Presiona <b>Enlazar cuentas</b> para casar cada banco con su cuenta contable 102xxx.</p>
         } @else {
           <p class="fb-recon-note muted"><i class="pi pi-info-circle"></i> <b>{{ c.linked }}</b> de {{ c.rows.length }} cuentas enlazadas a ContPAQi. ContPAQi son tus <b>libros fiscales</b> (con folio de póliza), no un proxy — por eso el Δ vs banco es el que importa.</p>
+          @if (c.linked < c.rows.length) {
+            <p class="fb-recon-note muted"><i class="pi pi-link"></i> Quedan <b>{{ c.rows.length - c.linked }}</b> sin enlazar automáticamente (distinta convención de número entre el Excel y ContPAQi). Enlázalas a mano con el selector de la columna <b>Estado</b>.</p>
+          }
         }
       </div>
 
@@ -86,7 +91,12 @@ import { cuadra, money0 } from './bancos-shared';
               <td class="ta-r mono">{{ r.contpaqi_out | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
               <td class="ta-r mono" [class.bad]="r.linked && !cuad(r.delta_out)">{{ r.delta_out | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
               <td class="ta-c">
-                @if (!r.linked) { <span class="cpq-tag muted-tag" title="Sin cuenta ContPAQi enlazada">sin enlazar</span> }
+                @if (!r.linked) {
+                  <p-select [options]="availOpts()" [ngModel]="null" (onChange)="onPick(r, $event.value)"
+                            placeholder="Enlazar a…" appendTo="body" [filter]="true" filterBy="label"
+                            styleClass="cpq-picker" [style]="{ minWidth: '15rem' }" scrollHeight="16rem"
+                            emptyMessage="Sin cuentas ContPAQi disponibles" title="Elige la cuenta contable ContPAQi que corresponde a este banco"></p-select>
+                }
                 @else if (noExcel(r)) { <span class="cpq-tag muted-tag" title="No hay estado de cuenta cargado para el periodo">sin Excel</span> }
                 @else if (cuad(r.delta_in) && cuad(r.delta_out)) { <i class="pi pi-check-circle ok" title="Cuadra"></i> }
                 @else { <i class="pi pi-exclamation-triangle bad" title="No cuadra"></i> }
@@ -132,10 +142,24 @@ export class BancosContpaqiComponent {
   readonly compare = input.required<ContpaqiCompare | null>();
   readonly linking = input<boolean>(false);
   readonly period = input<string>('');
+  readonly available = input<ContpaqiBankAccount[]>([]);
   @Output() link = new EventEmitter<void>();
+  @Output() manualLink = new EventEmitter<{ bankAccountId: string; cuenta: string | null }>();
 
   cuad = cuadra;
   noExcel(r: ContpaqiCompareRow): boolean { return r.excel_in === 0 && r.excel_out === 0; }
+
+  /** Opciones del selector manual: cuentas ContPAQi de banco aún libres (más movs primero). */
+  readonly availOpts = computed(() =>
+    this.available()
+      .filter((a) => !a.taken)
+      .sort((x, y) => y.movs - x.movs)
+      .map((a) => ({ label: `${a.cuenta_nombre} · ${a.movs} movs`, value: a.cuenta })));
+
+  onPick(r: ContpaqiCompareRow, cuenta: string | null): void {
+    if (!cuenta) return;
+    this.manualLink.emit({ bankAccountId: r.id, cuenta });
+  }
 
   read(c: ContpaqiCompare): string {
     if (c.linked === 0) return 'Enlaza las cuentas para comparar el estado de cuenta contra los libros de ContPAQi.';

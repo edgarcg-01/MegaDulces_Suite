@@ -89,6 +89,18 @@ export class FinanceBankController {
   @ApiOperation({ summary: 'Auto-enlaza las cuentas de banco con su cuenta contable ContPAQi (102xxx) por familia + número.' })
   contpaqiLink() { return this.svc.linkContpaqi(); }
 
+  @Get('contpaqi-accounts')
+  @RequirePermissions(Permission.FINANCE_BANK_GESTIONAR)
+  @ApiOperation({ summary: 'Catálogo de cuentas contables de banco ContPAQi (102xxx) para el selector de enlace manual.' })
+  contpaqiAccounts() { return this.svc.contpaqiBankAccounts(); }
+
+  @Post('contpaqi/manual-link')
+  @RequirePermissions(Permission.FINANCE_BANK_GESTIONAR)
+  @ApiOperation({ summary: 'Enlace manual cuenta de banco ↔ cuenta contable ContPAQi (cuando el auto-match no casa por distinto número).' })
+  contpaqiManualLink(@Body() body: { bank_account_id: string; contpaqi_cuenta: string | null }) {
+    return this.svc.manualLinkContpaqi(body?.bank_account_id, body?.contpaqi_cuenta ?? null);
+  }
+
   @Get('contpaqi-compare')
   @RequirePermissions(Permission.FINANCE_BANK_VER)
   @ApiOperation({ summary: 'Excel/estado de cuenta vs LIBROS ContPAQi por cuenta y periodo (la 3ª columna de verdad + deltas).' })

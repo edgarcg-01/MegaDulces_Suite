@@ -147,7 +147,7 @@ export interface SideBySide { period: string; excel: SideExcelRow[]; kepler: Sid
 
 /** CP.2 (Fase CP) — Comparación banco (Excel) vs LIBROS de ContPAQi por cuenta. */
 export interface ContpaqiCompareRow {
-  bank: string; account_label: string; alias: string | null; kind: string;
+  id: string; bank: string; account_label: string; alias: string | null; kind: string;
   contpaqi_cuenta: string | null; contpaqi_cuenta_nombre: string | null; linked: boolean;
   excel_in: number; excel_out: number; contpaqi_in: number; contpaqi_out: number;
   delta_in: number; delta_out: number; contpaqi_movs: number;
@@ -159,6 +159,10 @@ export interface ContpaqiCompare {
 export interface ContpaqiLinkResult {
   linked: number; total: number;
   results: { bank: string; account_label: string; contpaqi_cuenta: string | null; contpaqi_cuenta_nombre: string | null }[];
+}
+/** CP.2 — cuenta contable de banco ContPAQi disponible para el selector de enlace manual. */
+export interface ContpaqiBankAccount {
+  cuenta: string; cuenta_nombre: string; movs: number; taken: boolean; taken_by: string | null;
 }
 
 export interface MovementsQuery {
@@ -208,6 +212,12 @@ export class BankService {
   }
   linkContpaqi(): Observable<ContpaqiLinkResult> {
     return this.http.post<ContpaqiLinkResult>(`${this.base}/contpaqi/link`, {});
+  }
+  contpaqiAccounts(): Observable<ContpaqiBankAccount[]> {
+    return this.http.get<ContpaqiBankAccount[]>(`${this.base}/contpaqi-accounts`);
+  }
+  manualLinkContpaqi(bankAccountId: string, contpaqiCuenta: string | null): Observable<unknown> {
+    return this.http.post(`${this.base}/contpaqi/manual-link`, { bank_account_id: bankAccountId, contpaqi_cuenta: contpaqiCuenta });
   }
 
   reclassify(id: string, categoryId: string | null): Observable<unknown> {
