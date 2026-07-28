@@ -95,6 +95,20 @@ import { MapComponent } from '../../../shared/components/map/map.component';
               </tr>
             </ng-template>
           </p-table>
+
+          <!-- Mapa de los pedidos con ubicación compartida (pin del cliente). -->
+          @if (pendingMarkers().length) {
+            <div class="rd-mt">
+              <app-map [markers]="pendingMarkers()" height="260px" />
+            </div>
+          }
+          @if (pendingWithoutCoords() > 0) {
+            <p class="rd-geo-hint rd-mt">
+              <i class="pi pi-info-circle"></i>
+              {{ pendingWithoutCoords() }} pedido(s) sin ubicación en el mapa (dirección capturada a mano).
+              Cuando el cliente comparte su ubicación por WhatsApp, el pedido aparece con su pin.
+            </p>
+          }
           @if (assignError()) { <p class="rd-err"><i class="pi pi-exclamation-circle"></i> {{ assignError() }}</p> }
           @if (assignOk()) { <p class="rd-geo-ok rd-mt"><i class="pi pi-check-circle"></i> {{ assignOk() }}</p> }
         </div>
@@ -393,6 +407,21 @@ export class HomeDeliveryDispatchComponent implements OnInit {
   readonly assignError = signal<string | null>(null);
   readonly assignOk = signal<string | null>(null);
   assignRider: Record<string, string> = {};
+
+  /** Pines de los pedidos por despachar QUE tienen coordenadas (pin del cliente). */
+  readonly pendingMarkers = computed(() =>
+    this.pendingOrders()
+      .filter((o) => Number.isFinite(Number(o.lat)) && Number.isFinite(Number(o.lng)))
+      .map((o) => ({
+        id: o.order_id,
+        lat: Number(o.lat),
+        lng: Number(o.lng),
+        title: `${o.customer_name} · ${o.code}`,
+        kind: 'pin' as const,
+      })),
+  );
+  /** Cuántos pedidos por despachar NO tienen coordenadas (dirección a mano). */
+  readonly pendingWithoutCoords = computed(() => this.pendingOrders().length - this.pendingMarkers().length);
 
   readonly step = computed(() => (this.result() ? 2 : this.ticket() ? 1 : 0));
 
