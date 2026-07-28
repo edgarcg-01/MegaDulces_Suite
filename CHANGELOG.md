@@ -10,10 +10,15 @@
 
 ## [Unreleased]
 
+### Changed — Margen de conciliación ±$1 en Bancos (CB.22) (2026-07-28)
+- **La conciliación por transacción (`/finanzas/bancos` → Conciliación) exigía monto EXACTO al centavo** (banco vs pago del 102 en Kepler). Diferencias de redondeo (ej. Kepler $1.30 vs Excel $1.60 = $0.30) dejaban el retiro y el pago como "sin conciliar" en ambos lados aunque fueran el mismo movimiento.
+- **Fix (`finance-bank.service.runMatch`):** margen de **±$1.00** (100 centavos). Los pases 1 (monto+fecha ±7d) y 2 (≥$10k sin tope de fecha) ahora, si no hay match EXACTO, buscan candidatos dentro de ±100 centavos (helper `candsInTol`, rango de 201 claves → lookups directos al índice, barato). **El exacto siempre tiene prioridad** (solo cae a tolerancia cuando no hubo exacto); confianza menor (0.7, `matched_by='motor-tol'`) para los casados por margen. Los ±$1 quedan marcados `matched` → salen automáticamente de las listas "sin conciliar" y del cuadre de diferencias. Build api verde. **Pendiente: redeploy api.**
+
 ### Added — Filtro de promos en Sell-Out (Sin / Solo / Todo) (2026-07-28)
 - **El reporte Sell-Out siempre excluía las claves promo** (`is_promo`, marcadores $0.01) → no había forma de verlas. Nuevo filtro de 3 estados: **Sin promos** (default, comportamiento previo) · **Solo promos** · **Todo**.
 - **Backend** (`commercial-analytics.service`): helper `promoFilter(qb, mode)` reemplaza los `is_promo=false` hardcodeados en `sellOut()` y `sellOutByVendor()` (todas las ramas: boxes fast-path, sales_daily, wincaja rollup + on-the-fly). Param `promo` en `/commercial/analytics/sell-out`, `/sell-out/by-vendor`, `.xlsx`, `.pdf` (vía `parseSellOutQuery`). Los demás reportes (network/command-center) siguen excluyendo promos siempre.
 - **Frontend** (`comercial-sell-out.component`): control `<app-segmented>` "Promos" junto a Medida; se pasa a report + exports. Builds api+view verdes. **Pendiente: redeploy** para verlo en prod.
+- **Concentrado (total consolidado por dimensión):** nuevo selector "Concentrar por" (Ninguno / Ruta / Canal / Sucursal / Empresa). Al elegir una dimensión, el reporte colapsa el detalle y muestra **un solo total consolidado** (Monto, Cajas, # de esa dimensión con venta, # productos) para los filtros actuales — sin matriz. `Ruta` además acota el alcance al canal ruta (`channels=['ruta']`). Frontend-only (reusa `grand_total` + `columns`/`coverage`/`rows` del reporte); build view verde. **Pendiente: redeploy.**
 - **UX — el periodo ahora re-genera solo:** cambiar **Mes / Trimestre / Año** (o completar un **Rango**) vuelve a consultar automáticamente, igual que Vista/Promos (antes había que apretar Generar → confundía: al pasar Mes→Año seguía mostrando el resultado viejo). `setMode` + selectores llaman `refreshPeriod()` (syncPeriod + generate si el rango es válido; rango incompleto no dispara). Nota de dato: un SKU promo a $0.01 (ej. `95489`) rinde ~$0 en **monto** pero sí muestra volumen en **cajas** (195 en 2026) — el $0 del monto es correcto, no es que falte venta.
 
 ### Fixed — Relleno de precio base desde KP_CONCENTRADA (productos sin precio) (2026-07-28)
