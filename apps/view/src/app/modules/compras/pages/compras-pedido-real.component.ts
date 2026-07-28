@@ -175,10 +175,10 @@ interface TRow extends TransferSuggestionRow { _mover: number; _sel: boolean; }
         <!-- TRASPASOS: déficit de sucursal ← stock del CEDIS que la surte (topología) -->
         <app-metric-strip [items]="tKpiItems()" ariaLabel="Resumen de traspasos" />
         <div class="pr-filters">
-          <p-select [options]="warehouseOpts()" [(ngModel)]="tWarehouse" (onChange)="loadTransfer()"
+          <p-select [options]="warehouseOpts()" [(ngModel)]="fWarehouse" (onChange)="loadTransfer()"
                     optionLabel="label" optionValue="value" placeholder="Todas las sucursales destino" [showClear]="true"
                     styleClass="pr-sel" ariaLabel="Filtrar por sucursal destino"></p-select>
-          <p-select [options]="supplierOpts()" [(ngModel)]="tSupplier" (onChange)="loadTransfer()"
+          <p-select [options]="supplierOpts()" [(ngModel)]="fSupplier" (onChange)="loadTransfer()"
                     optionLabel="label" optionValue="value" placeholder="Todos los proveedores" [showClear]="true"
                     [filter]="true" filterBy="label" [virtualScroll]="true" [virtualScrollItemSize]="34"
                     styleClass="pr-sel-wide" ariaLabel="Filtrar por proveedor"></p-select>
@@ -233,10 +233,10 @@ interface TRow extends TransferSuggestionRow { _mover: number; _sel: boolean; }
         <!-- SOBRESTOCK: stock que excede N días de cobertura → capital inmovilizado (topología-aware) -->
         <app-metric-strip [items]="oKpiItems()" ariaLabel="Resumen de sobrestock" />
         <div class="pr-filters">
-          <p-select [options]="warehouseOpts()" [(ngModel)]="oWarehouse" (onChange)="loadOverstock()"
+          <p-select [options]="warehouseOpts()" [(ngModel)]="fWarehouse" (onChange)="loadOverstock()"
                     optionLabel="label" optionValue="value" placeholder="Todos los almacenes" [showClear]="true"
                     styleClass="pr-sel" ariaLabel="Filtrar por almacén"></p-select>
-          <p-select [options]="supplierOpts()" [(ngModel)]="oSupplier" (onChange)="loadOverstock()"
+          <p-select [options]="supplierOpts()" [(ngModel)]="fSupplier" (onChange)="loadOverstock()"
                     optionLabel="label" optionValue="value" placeholder="Todos los proveedores" [showClear]="true"
                     [filter]="true" filterBy="label" [virtualScroll]="true" [virtualScrollItemSize]="34"
                     styleClass="pr-sel-wide" ariaLabel="Filtrar por proveedor"></p-select>
@@ -399,14 +399,10 @@ export class ComprasPedidoRealComponent implements OnInit {
   tTotalValor = signal(0);
   tTotalCajas = signal(0);
   tTotalMoves = signal(0);
-  tWarehouse: string | null = null;
-  tSupplier: string | null = null;
   oRows = signal<OverstockRow[]>([]);
   oTotalValor = signal(0);
   oTotalCajas = signal(0);
   oTotalProds = signal(0);
-  oWarehouse: string | null = null;
-  oSupplier: string | null = null;
   overDays = 90;
   private readonly selTick = signal(0); // fuerza recompute de KPIs de selección al editar
   private readonly tSelTick = signal(0);
@@ -449,7 +445,7 @@ export class ComprasPedidoRealComponent implements OnInit {
   loadOverstock(): void {
     this.loading.set(true); this.error.set(false);
     this.api.overstock({
-      warehouse_id: this.oWarehouse || undefined, supplier_id: this.oSupplier || undefined,
+      warehouse_id: this.fWarehouse || undefined, supplier_id: this.fSupplier || undefined,
       search: this.search.trim() || undefined, over_days: this.overDays, pageSize: 500,
     }).pipe(
       catchError(() => { this.error.set(true); return of(null as OverstockResponse | null); }),
@@ -476,7 +472,7 @@ export class ComprasPedidoRealComponent implements OnInit {
   loadTransfer(): void {
     this.loading.set(true); this.error.set(false);
     this.api.transferSuggestion({
-      warehouse_id: this.tWarehouse || undefined, supplier_id: this.tSupplier || undefined,
+      warehouse_id: this.fWarehouse || undefined, supplier_id: this.fSupplier || undefined,
       search: this.search.trim() || undefined, coverage_days: this.coverage, pageSize: 500,
     }).pipe(
       catchError(() => { this.error.set(true); return of(null as TransferSuggestionResponse | null); }),

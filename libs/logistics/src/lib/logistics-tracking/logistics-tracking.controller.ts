@@ -14,6 +14,7 @@ import { LogisticsTrackingService } from './logistics-tracking.service';
 import { FleetAlertsService } from './fleet-alerts.service';
 import { TripBuilderService } from './trip-builder.service';
 import { RouteAdherenceService } from './route-adherence.service';
+import { FleetProductivityService } from './fleet-productivity.service';
 
 @ApiTags('logistics-tracking')
 @UseGuards(RolesGuard)
@@ -24,7 +25,16 @@ export class LogisticsTrackingController {
     private readonly alerts: FleetAlertsService,
     private readonly trips: TripBuilderService,
     private readonly adherence: RouteAdherenceService,
+    private readonly productivity: FleetProductivityService,
   ) {}
+
+  // ── LTV.5 Productividad / tiempos muertos ──────────────────────────────────
+  @Get('productivity')
+  @RequirePermissions(Permission.LOGISTICS_FLEET_VER)
+  @ApiOperation({ summary: 'Productividad de la flota en un día (tiempos muertos, km/entrega)' })
+  productivityForDay(@Query('date') date: string) {
+    return this.productivity.forFleetDay(date);
+  }
 
   // ── LTV.1 Cumplimiento de ruta (plan vs real) ──────────────────────────────
   @Get('adherence')
