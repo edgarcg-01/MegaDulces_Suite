@@ -67,9 +67,7 @@ import { ComprasService, SupplierParam, SupplierOrder, SupplierOrderParamsDto, R
           <tr>
             <th>Proveedor</th>
             <th class="cp-r">Prod.</th>
-            <th class="cp-r" title="Días de entrega (pedido→recepción)">Lead (d)</th>
-            <th class="cp-r" title="Ciclo de pedido manual — override de la cadencia derivada">Cadencia (d)</th>
-            <th class="cp-r" title="Colchón en días de demanda; horizonte = cadencia + colchón">Colchón (d)</th>
+            <th class="cp-r" title="Días de entrega (pedido→recepción). Alimenta la cobertura automática (cadencia de compra + lead).">Lead (d)</th>
             <th class="cp-r" title="Mínimo de compra en cajas">Mín cajas</th>
             <th class="cp-r" title="Mínimo de compra en $">Mín $</th>
             <th class="cp-r cp-sep" title="RA-PRO.27 — fill rate manual (%): gana sobre el histórico. Vacío = automático por recepciones.">Fill %</th>
@@ -84,8 +82,6 @@ import { ComprasService, SupplierParam, SupplierOrder, SupplierOrderParamsDto, R
             <td>{{ r.name }}</td>
             <td class="cp-r cp-muted">{{ r.product_count | number }}</td>
             <td class="cp-r"><input pInputText type="number" min="0" max="365" [(ngModel)]="r.lead_time_days" (change)="saveLead(r)" class="cp-num" [class.cp-unset]="r.lead_time_days == null" placeholder="7*" /></td>
-            <td class="cp-r"><input pInputText type="number" min="0" max="365" [(ngModel)]="r.cadence_days_override" (change)="saveParam(r, { cadence_days_override: numOrNull(r.cadence_days_override) })" class="cp-num" [class.cp-unset]="r.cadence_days_override == null" placeholder="auto" /></td>
-            <td class="cp-r"><input pInputText type="number" min="0" max="365" [(ngModel)]="r.colchon_days" (change)="saveParam(r, { colchon_days: numOrNull(r.colchon_days) })" class="cp-num" [class.cp-unset]="r.colchon_days == null" placeholder="—" /></td>
             <td class="cp-r"><input pInputText type="number" min="0" [(ngModel)]="r.min_order_boxes" (change)="saveParam(r, { min_order_boxes: numOrNull(r.min_order_boxes) })" class="cp-num" [class.cp-unset]="r.min_order_boxes == null" placeholder="—" /></td>
             <td class="cp-r"><p-inputNumber [(ngModel)]="r.min_order_amount" (onBlur)="saveParam(r, { min_order_amount: numOrNull(r.min_order_amount) })" mode="currency" currency="MXN" locale="es-MX" [maxFractionDigits]="0" [min]="0" [showButtons]="false" inputStyleClass="cp-num" placeholder="—" /></td>
             <td class="cp-r cp-sep">
@@ -100,10 +96,10 @@ import { ComprasService, SupplierParam, SupplierOrder, SupplierOrderParamsDto, R
           </tr>
         </ng-template>
         <ng-template pTemplate="emptymessage">
-          <tr><td colspan="12" class="cp-empty">Sin proveedores.</td></tr>
+          <tr><td colspan="10" class="cp-empty">Sin proveedores.</td></tr>
         </ng-template>
       </p-table>
-      <p class="cp-foot">Los placeholders <em>"… auto"</em> son lo que el <strong>análisis</strong> calculó y ya aplica el motor: <strong>Fill %</strong> del histórico de recepciones · <strong>Colchón %</strong> de la variabilidad (estable 0 / medio 10 / volátil 20) · <strong>Cobertura</strong> de la cadencia real de compra + lead time. Escribe un valor solo para <strong>forzar</strong> un override manual (gana sobre el auto). Los parámetros globales de arriba controlan la ventana y el tope del análisis.</p>
+      <p class="cp-foot">Estos parámetros son EXACTAMENTE los que usa <strong>/compras/pedido</strong> (mismo motor). Los placeholders <em>"… auto"</em> son lo que el <strong>análisis</strong> calculó y ya aplica: <strong>Fill %</strong> del histórico de recepciones · <strong>Colchón %</strong> de la variabilidad (estable 0 / medio 10 / volátil 20) · <strong>Cobertura</strong> de la cadencia real de compra + lead time. Escribe un valor solo para <strong>forzar</strong> un override (gana sobre el auto). <strong>Lead</strong> y <strong>Mín</strong> afinan la cobertura automática y el mínimo de compra. Los globales de arriba controlan la ventana y el tope del análisis.</p>
 
       <p-dialog [(visible)]="orderVisible" [modal]="true" [style]="{ width: '54rem' }" [dismissableMask]="true" [header]="order()?.supplier?.name || 'Pedido consolidado'">
         @if (orderLoading()) { <div class="cp-dlg-msg">Calculando…</div> }
