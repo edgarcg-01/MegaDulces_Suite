@@ -2,6 +2,8 @@ import { Module } from '@nestjs/common';
 import { MaterialidadService } from './materialidad.service';
 import { MaterialidadAssignmentsService } from './materialidad-assignments.service';
 import { MaterialidadController } from './materialidad.controller';
+import { CfdiContabilidadService } from './cfdi-contabilidad.service';
+import { ContabilidadCfdiController } from './contabilidad-cfdi.controller';
 
 /**
  * FISCAL.10.1 (libs/fiscal) — Expediente de materialidad.
@@ -10,8 +12,8 @@ import { MaterialidadController } from './materialidad.controller';
  * CFDI↔operación confirmada por humano (fiscal.cfdi_assignments).
  */
 @Module({
-  controllers: [MaterialidadController],
-  providers: [MaterialidadService, MaterialidadAssignmentsService],
+  controllers: [MaterialidadController, ContabilidadCfdiController],
+  providers: [MaterialidadService, MaterialidadAssignmentsService, CfdiContabilidadService],
   exports: [MaterialidadService, MaterialidadAssignmentsService],
 })
 export class FiscalMaterialidadModule {}

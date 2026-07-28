@@ -180,6 +180,17 @@ export interface ContpaqiDetail {
   deposits: CpqReconSide; withdrawals: CpqReconSide;
 }
 
+/** CP.2 factoraje — compras factoradas del Excel por proveedor vs su CxP/costo en ContPAQi. */
+export interface FactorajeRow {
+  proveedor: string; excel_in: number; excel_out: number; movs: number;
+  cxp_cuenta: string | null; cxp_nombre: string | null; cxp_saldo_ini: number; cxp_cargos: number; cxp_abonos: number;
+  costo_cargos: number; costo_cuentas: number; match_score: number; matched: boolean;
+}
+export interface FactorajeCompare {
+  period: string; proveedores: number; matched: number; rows: FactorajeRow[];
+  totals: { excel_in: number; excel_out: number; costo_cargos: number };
+}
+
 export interface MovementsQuery {
   period?: string; account_id?: string; category_id?: string; group_key?: string;
   uncategorized?: boolean; recon_status?: string; search?: string; limit?: number; offset?: number;
@@ -233,6 +244,9 @@ export class BankService {
   }
   contpaqiDetail(period: string, accountId: string): Observable<ContpaqiDetail> {
     return this.http.get<ContpaqiDetail>(`${this.base}/contpaqi-detail?period=${encodeURIComponent(period)}&account_id=${encodeURIComponent(accountId)}`);
+  }
+  factorajeCompare(period: string): Observable<FactorajeCompare> {
+    return this.http.get<FactorajeCompare>(`${this.base}/factoraje-compare?period=${encodeURIComponent(period)}`);
   }
   manualLinkContpaqi(bankAccountId: string, contpaqiCuenta: string | null): Observable<unknown> {
     return this.http.post(`${this.base}/contpaqi/manual-link`, { bank_account_id: bankAccountId, contpaqi_cuenta: contpaqiCuenta });

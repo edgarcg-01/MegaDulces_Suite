@@ -113,6 +113,11 @@ export class FinanceBankController {
     return this.svc.contpaqiAccountDetail(period, accountId);
   }
 
+  @Get('factoraje-compare')
+  @RequirePermissions(Permission.FINANCE_BANK_VER)
+  @ApiOperation({ summary: 'Factoraje a proveedores: compras factoradas del Excel POR PROVEEDOR vs su CxP (212x) y costo (50x) en ContPAQi.' })
+  factorajeCompare(@Query('period') period?: string) { return this.svc.factorajeCompare(period); }
+
   @Get('movements')
   @RequirePermissions(Permission.FINANCE_BANK_VER)
   @ApiOperation({ summary: 'Movimientos filtrados (grid), paginados.' })

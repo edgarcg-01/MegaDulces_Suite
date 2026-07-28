@@ -6,7 +6,7 @@ import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
 import { SelectModule } from 'primeng/select';
 import { DialogModule } from 'primeng/dialog';
-import { BankService, ContpaqiCompare, ContpaqiCompareRow, ContpaqiBankAccount, ContpaqiDetail, CpqReconSide } from '../../bank.service';
+import { BankService, ContpaqiCompare, ContpaqiCompareRow, ContpaqiBankAccount, ContpaqiDetail, CpqReconSide, FactorajeCompare } from '../../bank.service';
 import { cuadra, money0 } from './bancos-shared';
 
 /**
@@ -76,6 +76,7 @@ import { cuadra, money0 } from './bancos-shared';
             <p class="fb-recon-note muted"><i class="pi pi-link"></i> Quedan <b>{{ c.rows.length - c.linked }}</b> sin enlazar automáticamente (distinta convención de número entre el Excel y ContPAQi). Enlázalas a mano con el selector de la columna <b>Estado</b>.</p>
           }
         }
+        <p class="fb-recon-note muted"><i class="pi pi-info-circle"></i> Se comparan solo <b>cuentas bancarias</b>. <b>CAJA</b> (efectivo) y <b>FACTORAJE</b> (financiamiento) quedan fuera: no son cuentas de banco 102xxx en ContPAQi, así que se concilian en sus propios flujos.</p>
       </div>
 
       <!-- Detalle por cuenta -->
@@ -129,6 +130,51 @@ import { cuadra, money0 } from './bancos-shared';
           <ng-template pTemplate="emptymessage"><tr><td colspan="10"><div class="surf-empty"><i class="pi pi-inbox"></i><p>Sin cuentas.</p></div></td></tr></ng-template>
         </p-table>
       </div>
+
+      <!-- Factoraje a proveedores: compras factoradas del Excel vs el proveedor en ContPAQi. -->
+      @if (factoraje(); as f) {
+        <div class="card-premium card-flat fb-tablewrap">
+          <h3 class="fb-card-title fb-pnl-title">Factoraje a proveedores <span class="muted">— compras liquidadas por factoraje (no tocan banco), contra el proveedor en ContPAQi</span></h3>
+          <p class="fb-plain fjt-lead">El factoraje del Excel son <b>compras con factoraje</b> a proveedores: se pagan vía una línea de factoraje, no desde un banco, por eso no están en «Banco vs Contabilidad». Aquí las contrastamos contra ese proveedor en ContPAQi (su costo y su cuenta por pagar). Es <b>contexto</b> —los montos difieren por IVA y momento de registro—, no un cuadre exacto.</p>
+          @if (!f.rows.length) {
+            <div class="surf-empty"><i class="pi pi-inbox"></i><p>Sin compras con factoraje en {{ f.period }}.</p></div>
+          } @else {
+            <p-table [value]="f.rows" styleClass="p-datatable-sm" [rowHover]="true" [scrollable]="true" scrollHeight="40vh">
+              <ng-template pTemplate="header">
+                <tr>
+                  <th title="Proveedor al que se le compró con factoraje (según el Excel)">Proveedor</th>
+                  <th class="ta-r" title="Total de compras con factoraje del Excel en el mes">Factoraje (Excel)</th>
+                  <th class="ta-c" title="Número de movimientos factorados">Movs</th>
+                  <th title="Cuenta por pagar del proveedor en ContPAQi (212x)">CxP ContPAQi</th>
+                  <th class="ta-r" title="Compra registrada en la cuenta de costo del proveedor (50x) en el mes">Costo ContPAQi</th>
+                  <th class="ta-c" title="¿Se identificó el proveedor en ContPAQi?">Match</th>
+                </tr>
+              </ng-template>
+              <ng-template pTemplate="body" let-r>
+                <tr>
+                  <td><span class="fb-strong">{{ r.proveedor }}</span></td>
+                  <td class="ta-r mono">{{ r.excel_out | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+                  <td class="ta-c mono muted">{{ r.movs }}</td>
+                  <td class="mono muted" [title]="r.cxp_nombre || ''">
+                    @if (r.cxp_cuenta) { {{ r.cxp_cuenta }} <span class="fjt-mini">(mes: {{ r.cxp_cargos | currency:'MXN':'symbol-narrow':'1.0-0' }})</span> }
+                    @else { — }
+                  </td>
+                  <td class="ta-r mono">
+                    @if (r.costo_cuentas) { {{ r.costo_cargos | currency:'MXN':'symbol-narrow':'1.0-0' }} }
+                    @else { <span class="muted">—</span> }
+                  </td>
+                  <td class="ta-c">
+                    @if (r.matched) { <i class="pi pi-check-circle ok" title="Proveedor identificado en ContPAQi"></i> }
+                    @else { <span class="cpq-tag muted-tag" title="No se encontró el proveedor en ContPAQi">sin match</span> }
+                  </td>
+                </tr>
+              </ng-template>
+              <ng-template pTemplate="emptymessage"><tr><td colspan="6"><div class="surf-empty"><i class="pi pi-inbox"></i><p>Sin factoraje.</p></div></td></tr></ng-template>
+            </p-table>
+            <p class="fb-recon-note muted fjt-foot"><i class="pi pi-info-circle"></i> <b>{{ f.matched }}</b> de {{ f.rows.length }} proveedores identificados en ContPAQi · Total factoraje Excel {{ f.totals.excel_out | currency:'MXN':'symbol-narrow':'1.0-0' }} · Costo ContPAQi de esos proveedores {{ f.totals.costo_cargos | currency:'MXN':'symbol-narrow':'1.0-0' }}.</p>
+          }
+        </div>
+      }
     } @else {
       <div class="surf-empty"><i class="pi pi-inbox"></i><p>Sin comparación para {{ period() }}.</p></div>
     }
@@ -256,6 +302,10 @@ import { cuadra, money0 } from './bancos-shared';
     .dlg-concept { color: var(--text-muted); max-width: 16rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .dlg-none { font-size: var(--fs-xs); padding: var(--sp-2) var(--sp-3); }
     .nowrap { white-space: nowrap; }
+    /* Factoraje */
+    .fjt-lead { padding: 0 var(--sp-3); margin: 0 0 var(--sp-3); }
+    .fjt-mini { font-size: var(--fs-2xs, .7rem); color: var(--text-faint); }
+    .fjt-foot { padding: 0 var(--sp-3) var(--sp-3); }
   `],
 })
 export class BancosContpaqiComponent {
@@ -263,6 +313,7 @@ export class BancosContpaqiComponent {
   readonly linking = input<boolean>(false);
   readonly period = input<string>('');
   readonly available = input<ContpaqiBankAccount[]>([]);
+  readonly factoraje = input<FactorajeCompare | null>(null);
   @Output() link = new EventEmitter<void>();
   @Output() manualLink = new EventEmitter<{ bankAccountId: string; cuenta: string | null }>();
 

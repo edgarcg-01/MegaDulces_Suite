@@ -137,7 +137,9 @@ export class FinanceBankService {
   async linkContpaqi() {
     const tenantId = this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
-      const accounts = await trx('finance.bank_accounts').select('id', 'bank', 'account_label', 'kind', 'contpaqi_cuenta', 'contpaqi_cuenta_nombre');
+      // Solo cuentas BANCARIAS son enlazables al 102xxx de ContPAQi (CAJA/FACTORAJE no aplican).
+      const accounts = await trx('finance.bank_accounts').where('kind', 'bank')
+        .select('id', 'bank', 'account_label', 'kind', 'contpaqi_cuenta', 'contpaqi_cuenta_nombre');
       const cpq = await trx('analytics.contpaqi_bank_movements')
         .where('tenant_id', tenantId)
         .select('cuenta', 'cuenta_nombre').count('* as movs')
@@ -229,7 +231,11 @@ export class FinanceBankService {
     const tenantId = this.tenantCtx.requireTenantId();
     if (!period) throw new BadRequestException('period requerido (YYYY-MM)');
     return this.tk.run(async (trx) => {
+      // Solo cuentas BANCARIAS: el ledger ContPAQi (contpaqi_bank_movements) solo tiene 102xxx.
+      // CAJA (efectivo, ~101) y FACTORAJE (financiamiento, ~210) no viven ahí → incluirlas
+      // metía un Δ fantasma igual a todo su monto Excel. Se concilian en sus propios flujos.
       const accounts = await trx('finance.bank_accounts')
+        .where('kind', 'bank')
         .select('id', 'bank', 'account_label', 'alias', 'kind', 'contpaqi_cuenta', 'contpaqi_cuenta_nombre');
       const stmts = await trx('finance.bank_statements').where('period', period)
         .select('bank_account_id', 'total_in', 'total_out');
@@ -355,6 +361,78 @@ export class FinanceBankService {
           linked: !!acct.contpaqi_cuenta,
         },
         deposits, withdrawals,
+      };
+    });
+  }
+
+  /**
+   * CP.2 factoraje — El "FACTORAJE" del Excel NO es una cuenta de banco 102 ni un préstamo SOFOM:
+   * son "compras con factoraje" a PROVEEDORES (factoraje a proveedores / reverse factoring). Por eso
+   * se cuadra por PROVEEDOR, no contra una cuenta: agrupa las compras factoradas del Excel por
+   * proveedor y las contrasta contra ese proveedor en ContPAQi — su CxP (212xxx) y su costo (50xxx),
+   * casando por nombre. Es CONTEXTO honesto ("¿la compra factorada está en libros?"), no un cuadre
+   * $0: los montos difieren por IVA/bruto-neto/timing. Requiere movimientos en la cuenta kind=factoraje.
+   */
+  async factorajeCompare(period?: string) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    if (!period) throw new BadRequestException('period requerido (YYYY-MM)');
+    return this.tk.run(async (trx) => {
+      const r2 = (v: number) => Math.round(v * 100) / 100;
+
+      // Excel: movimientos de la cuenta de factoraje, agrupados por proveedor (concepto).
+      const excelRows = await trx('finance.bank_movements as bm')
+        .join('finance.bank_statements as st', 'st.id', 'bm.statement_id')
+        .join('finance.bank_accounts as ba', 'ba.id', 'bm.bank_account_id')
+        .where('st.period', period).andWhere('ba.kind', 'factoraje')
+        .select('bm.concept', 'bm.amount_in', 'bm.amount_out');
+      const byProv = new Map<string, { proveedor: string; excel_in: number; excel_out: number; movs: number }>();
+      for (const r of excelRows as any[]) {
+        const nombre = String(r.concept || '(sin proveedor)').trim();
+        const k = normKey(nombre);
+        const acc = byProv.get(k) ?? { proveedor: nombre, excel_in: 0, excel_out: 0, movs: 0 };
+        acc.excel_in += n(r.amount_in); acc.excel_out += n(r.amount_out); acc.movs++;
+        byProv.set(k, acc);
+      }
+
+      // Identidad de las CxP de proveedor (212x) — de TODOS los periodos, para identificar al
+      // proveedor aunque su CxP no tenga movimiento en el mes (p.ej. Bolsas empieza a mover en mayo).
+      const cxpIdent = await trx('analytics.contpaqi_ledger_monthly')
+        .where('tenant_id', tenantId).andWhere('cuenta', 'like', '212%')
+        .distinct('cuenta', 'cuenta_nombre');
+      const cxpRich = (cxpIdent as any[]).map((c) => ({ cuenta: c.cuenta, nombre: String(c.cuenta_nombre).trim(), tokens: nameTokens(c.cuenta_nombre) }));
+
+      // Movimiento del periodo (CxP 212x + costo 50x) para poblar los montos.
+      const periodMov = await trx('analytics.contpaqi_ledger_monthly')
+        .where({ tenant_id: tenantId, anio_mes: period })
+        .andWhere((q: any) => q.where('cuenta', 'like', '212%').orWhere('cuenta', 'like', '50%'))
+        .select('cuenta', 'cuenta_nombre', 'saldo_ini', 'cargos', 'abonos');
+      const movByCuenta = new Map<string, any>((periodMov as any[]).map((m) => [m.cuenta, m]));
+      const costoRich = (periodMov as any[]).filter((m) => String(m.cuenta).startsWith('50')).map((m) => ({ ...m, tokens: nameTokens(m.cuenta_nombre) }));
+
+      const rows = [...byProv.values()].map((p) => {
+        const tk = nameTokens(p.proveedor);
+        let cxp: any = null, cxpScore = 0;
+        for (const c of cxpRich) { const sc = nameScore(tk, c.tokens); if (sc >= 0.6 && sc > cxpScore) { cxpScore = sc; cxp = c; } }
+        const mov = cxp ? movByCuenta.get(cxp.cuenta) : null;
+        let costoCargos = 0, costoCtas = 0;
+        for (const c of costoRich) { if (nameScore(tk, c.tokens) >= 0.6) { costoCargos += n(c.cargos); costoCtas++; } }
+        return {
+          proveedor: p.proveedor, excel_in: r2(p.excel_in), excel_out: r2(p.excel_out), movs: p.movs,
+          cxp_cuenta: cxp?.cuenta ?? null, cxp_nombre: cxp ? cxp.nombre : null,
+          cxp_saldo_ini: mov ? r2(n(mov.saldo_ini)) : 0, cxp_cargos: mov ? r2(n(mov.cargos)) : 0, cxp_abonos: mov ? r2(n(mov.abonos)) : 0,
+          costo_cargos: r2(costoCargos), costo_cuentas: costoCtas,
+          match_score: r2(cxpScore), matched: !!cxp || costoCtas > 0,
+        };
+      }).sort((a, b) => b.excel_out - a.excel_out);
+
+      const tot = rows.reduce((s, r) => ({
+        excel_in: s.excel_in + r.excel_in, excel_out: s.excel_out + r.excel_out,
+        costo_cargos: s.costo_cargos + r.costo_cargos,
+      }), { excel_in: 0, excel_out: 0, costo_cargos: 0 });
+
+      return {
+        period, proveedores: rows.length, matched: rows.filter((r) => r.matched).length, rows,
+        totals: { excel_in: r2(tot.excel_in), excel_out: r2(tot.excel_out), costo_cargos: r2(tot.costo_cargos) },
       };
     });
   }

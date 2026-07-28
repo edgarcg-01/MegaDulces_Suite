@@ -149,6 +149,11 @@ const CHANNEL_OPTS = [
           <app-segmented [options]="measureOpts" [value]="measure()" (valueChange)="setMeasure($event)" ariaLabel="Medida" />
         </div>
 
+        <div class="so-field">
+          <label>Promos</label>
+          <app-segmented [options]="promoOpts" [value]="promo()" (valueChange)="setPromo($event)" ariaLabel="Filtro de promociones" />
+        </div>
+
         @if (reportMode() === 'canal') {
           <div class="so-field so-toggles">
             @if (view() !== 'month_columns') {
@@ -508,6 +513,14 @@ export class ComercialSellOutComponent {
   showMonto = computed(() => this.measure() !== 'cajas');
   grpColspan = computed(() => (this.measure() === 'ambas' ? 2 : 1));
   setMeasure(m: string) { this.measure.set(m as Measure); }
+  // RS — filtro de promos: sin (default, excluye marcadores $0.01) / solo / todo.
+  promo = signal<'sin' | 'solo' | 'todo'>('sin');
+  readonly promoOpts = [
+    { label: 'Sin promos', value: 'sin' },
+    { label: 'Solo promos', value: 'solo' },
+    { label: 'Todo', value: 'todo' },
+  ];
+  setPromo(p: string) { this.promo.set(p as 'sin' | 'solo' | 'todo'); this.generate(); }
   // RS.2 — vista del reporte: por producto (default) / mes en columnas / resumen mensual.
   view = signal<SellOutView>('product');
   readonly viewOpts = [
@@ -694,6 +707,7 @@ export class ComercialSellOutComponent {
       mode: this.reportMode(),
       include_zeros: this.includeZeros,
       search: this.search() || undefined,
+      promo: this.promo() !== 'sin' ? this.promo() : undefined,
     };
   }
 

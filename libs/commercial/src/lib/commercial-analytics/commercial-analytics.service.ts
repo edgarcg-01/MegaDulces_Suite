@@ -51,7 +51,11 @@ export interface SellOutQuery {
   include_zeros?: boolean;
   /** Filtro por producto (SKU o nombre, ILIKE) — aplica en todas las empresas. */
   search?: string;
+  /** RS — filtro de promos: `sin` (default, excluye marcadores $0.01) · `solo` (solo promos) · `todo` (ambos). */
+  promo?: SellOutPromo;
 }
+
+export type SellOutPromo = 'sin' | 'solo' | 'todo';
 
 export interface SellOutWarehouseRow {
   code: string;
@@ -2054,8 +2058,16 @@ export class CommercialAnalyticsService {
    * Columnas DINÁMICAS: solo aparecen las sucursales×canales con venta en el
    * periodo. Canal Wincaja preserva sub-canal (mostrador/credito/preventa/ruta).
    */
+  /** RS — aplica el filtro de promos a un query que joinea `catalog.products as p`.
+   *  `sin` (default) excluye is_promo; `solo` deja solo promos; `todo` no filtra. */
+  private promoFilter(qb: any, mode: SellOutPromo) {
+    if (mode === 'solo') qb.andWhere('p.is_promo', true);
+    else if (mode !== 'todo') qb.andWhere('p.is_promo', false);
+  }
+
   async sellOut(q: SellOutQuery): Promise<SellOutReport> {
     const brandId = (q.brand_id || '').trim();
+    const promoMode: SellOutPromo = q.promo === 'solo' || q.promo === 'todo' ? q.promo : 'sin';
     if (brandId && !RS_UUID.test(brandId)) throw new BadRequestException('brand_id inválido');
     const search = (q.search || '').trim();
     // RS.2 — vista: producto (default) / mes en columnas / resumen mensual.
@@ -2122,7 +2134,7 @@ export class CommercialAnalyticsService {
         ? await trx('catalog.products as p')
             .where('p.brand_id', brandId)
             .whereNull('p.deleted_at')
-            .andWhere('p.is_promo', false)
+            .modify((qb) => this.promoFilter(qb, promoMode))
             .modify((qb) => { if (search) qb.whereRaw('(p.sku ILIKE ? OR p.nombre ILIKE ?)', [`%${search}%`, `%${search}%`]); })
             .select('p.id', 'p.sku', 'p.nombre', 'p.factor_sale')
             .orderBy('p.nombre')
@@ -2146,7 +2158,7 @@ export class CommercialAnalyticsService {
             .join('commercial.warehouses as w', 'w.id', 'sd.warehouse_id')
             .where('sd.tenant_id', tenantId)
             .andWhereRaw(`sd.channel NOT LIKE 'wincaja_%'`)
-            .andWhere('p.is_promo', false)
+            .modify((qb) => this.promoFilter(qb, promoMode))
             .modify((qb) => {
               if (brandId) qb.andWhere('p.brand_id', brandId);
               if (search) qb.andWhereRaw('(p.sku ILIKE ? OR p.nombre ILIKE ?)', [`%${search}%`, `%${search}%`]);
@@ -2187,7 +2199,7 @@ export class CommercialAnalyticsService {
             })
             .where('sd.tenant_id', tenantId)
             .andWhereRaw(`sd.channel NOT LIKE 'wincaja_%'`)
-            .andWhere('p.is_promo', false)
+            .modify((qb) => this.promoFilter(qb, promoMode))
             .modify((qb) => {
               if (brandId) qb.andWhere('p.brand_id', brandId);
               if (search) qb.andWhereRaw('(p.sku ILIKE ? OR p.nombre ILIKE ?)', [`%${search}%`, `%${search}%`]);
@@ -2232,7 +2244,7 @@ export class CommercialAnalyticsService {
             .leftJoin('catalog.brands as b', 'b.id', 'p.brand_id')
             .join('commercial.warehouses as w', 'w.id', 'sd.warehouse_id')
             .leftJoin('commercial.product_label_prices as lp', function () { this.on('lp.product_id', '=', 'p.id').andOn('lp.tenant_id', '=', 'p.tenant_id'); })
-            .where('sd.tenant_id', tenantId).andWhere('p.is_promo', false).whereNull('p.deleted_at')
+            .where('sd.tenant_id', tenantId).whereNull('p.deleted_at').modify((qb) => this.promoFilter(qb, promoMode))
             .andWhere('sd.year_month', '>=', from.slice(0, 7)).andWhere('sd.year_month', '<=', to.slice(0, 7))
             .modify((qb) => {
               if (brandId) qb.andWhere('p.brand_id', brandId);
@@ -2282,7 +2294,7 @@ export class CommercialAnalyticsService {
         .joinRaw(`JOIN commercial.warehouses w ON w.tenant_id = vl.tenant_id AND w.deleted_at IS NULL AND w.code = ${winWhExpr}`)
         .leftJoin('am', 'am.sku', 'vl.sku')
         .leftJoin('ven', function () { this.on('ven.source_branch', '=', 'vl.source_branch').andOn('ven.vendedor', '=', 'vl.vendedor'); })
-        .where('vl.tenant_id', tenantId).andWhere('p.is_promo', false).whereNull('p.deleted_at')
+        .where('vl.tenant_id', tenantId).whereNull('p.deleted_at').modify((qb) => this.promoFilter(qb, promoMode))
         .andWhereRaw(`(vl.wincaja_only = true OR (vl.source_branch = '10' AND vl.business_date < DATE '2026-07-01') OR (vl.source_branch = '42' AND vl.business_date < DATE '2025-10-01'))`)
         .andWhere('vl.business_date', '>=', from).andWhere('vl.business_date', '<=', to)
         .modify((qb) => {
@@ -2497,6 +2509,7 @@ export class CommercialAnalyticsService {
     if (from > to) throw new BadRequestException('from posterior a to');
     const cellFilter = (q.cells && q.cells.length) ? new Set(q.cells.map((c) => c.trim().toLowerCase())) : null;
     const tenantId = this.tenantCtx.requireTenantId();
+    const promoMode: SellOutPromo = q.promo === 'solo' || q.promo === 'todo' ? q.promo : 'sin';
     // RS.9 — fast path por rollup si el rango son meses completos (ver sellOut()).
     const monthAligned = this.isMonthAligned(from, to);
     // mayoreo_credito → 'mayoreo' · ruta_venta → 'ruta' (RD) · preventa_vecinal → 'preventa' (RV)
@@ -2517,7 +2530,7 @@ export class CommercialAnalyticsService {
             .join('catalog.products as p', 'p.id', 'sd.product_id')
             .leftJoin('catalog.brands as b', 'b.id', 'p.brand_id')
             .leftJoin('commercial.product_label_prices as lp', function () { this.on('lp.product_id', '=', 'p.id').andOn('lp.tenant_id', '=', 'p.tenant_id'); })
-            .where('sd.tenant_id', tenantId).andWhere('p.is_promo', false).whereNull('p.deleted_at')
+            .where('sd.tenant_id', tenantId).whereNull('p.deleted_at').modify((qb) => this.promoFilter(qb, promoMode))
             .andWhere('sd.year_month', '>=', from.slice(0, 7)).andWhere('sd.year_month', '<=', to.slice(0, 7))
             .whereIn('sd.sale_channel', ['mayoreo_credito', 'ruta_venta', 'preventa_vecinal'])
             .modify((qb) => { if (brandId) qb.andWhere('p.brand_id', brandId); if (search) qb.andWhereRaw('(p.sku ILIKE ? OR p.nombre ILIKE ?)', [`%${search}%`, `%${search}%`]); })
@@ -2557,8 +2570,8 @@ export class CommercialAnalyticsService {
         .leftJoin('commercial.product_label_prices as lp', function () { this.on('lp.product_id', '=', 'p.id').andOn('lp.tenant_id', '=', 'p.tenant_id'); })
         .leftJoin('am', 'am.sku', 'vl.sku')
         .leftJoin('ven', function () { this.on('ven.source_branch', '=', 'vl.source_branch').andOn('ven.vendedor', '=', 'vl.vendedor'); })
-        .where('vl.tenant_id', tenantId).andWhere('p.is_promo', false)
-        .whereNull('p.deleted_at')
+        .where('vl.tenant_id', tenantId)
+        .whereNull('p.deleted_at').modify((qb) => this.promoFilter(qb, promoMode))
         // Mismo BLEND que el feed (import-wincaja-analytics): las wincaja_only (30/32/50)
         // + PH(10) pre-2026-07-01 + La Piedad(42) pre-2025-10-01. Sin esto se caían los
         // telemarketers de PH (Yareth, Sergio) porque PH es sucursal COMPARTIDA (wincaja_only=false).
