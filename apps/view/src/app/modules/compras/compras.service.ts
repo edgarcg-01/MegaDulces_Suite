@@ -71,6 +71,10 @@ export interface PurchaseSuggestionRow {
   base_units?: number;   // RA-PRO.27 — necesidad neta ANTES de inflar por fill rate
   fill_rate?: number;    // RA-PRO.27 — surtido histórico del proveedor (0..1); <1 infla el sugerido
   fill_source?: string;  // RA-PRO.27 — override | sku | supplier | default
+  // RA-PRO.28 — verificación de unidad de venta
+  stock_unit_factor?: number; // SUF: sub-unidades de demanda por unidad de stock (>1 = granel corregido)
+  price_ratio?: number;       // ratio mayoreo $/u ÷ retail $/u (señal de unidad)
+  unit_source?: string;       // manual | granel | revisar | catalog
   coverage_days_eff?: number; // RA-PRO.27 — cobertura aplicada (override del proveedor o global)
   coverage_source?: string;   // RA-PRO.27 — manual | auto | global
   safety_pct_eff?: number;    // RA-PRO.27 — colchón % aplicado
@@ -688,6 +692,10 @@ export class ComprasService {
   /** RA-PRO.10/27 — parámetros de pedido (cadencia/colchón/mínimo + fill rate/colchón%/cobertura). */
   setSupplierOrderParams(supplierId: string, patch: SupplierOrderParamsDto): Observable<{ id: string }> {
     return this.http.post<{ id: string }>(`${this.base}/suppliers/${supplierId}/order-params`, patch);
+  }
+  /** RA-PRO.28 — override manual de unidad de venta (SUF/BF). Ambos null = vuelve a auto. */
+  setProductUnitOverride(productId: string, patch: { pieces_per_unit?: number | null; box_factor?: number | null; sold_as?: string | null; note?: string | null }): Observable<{ product_id: string }> {
+    return this.http.post<{ product_id: string }>(`${this.base}/products/${productId}/unit-override`, patch);
   }
   /** RA-PRO.27 — parámetros globales del pedido (fill rate + cobertura). */
   getReplenishmentSettings(): Observable<ReplenishmentSettings> {

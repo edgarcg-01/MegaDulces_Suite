@@ -131,6 +131,10 @@ interface TRow extends TransferSuggestionRow { _mover: number; _sel: boolean; }
                     <span class="pr-sku">{{ r.sku }}</span>
                     @if (r.abc_class) { <p-tag [value]="r.abc_class" [severity]="abcSev(r.abc_class)" styleClass="pr-abc"></p-tag> }
                     @if (r.sales_rank != null) { <span class="pr-rank" title="Ranking por venta $ en el filtro">#{{ r.sales_rank }}</span> }
+                    @if (r.unit_source && r.unit_source !== 'catalog') {
+                      <p-tag [value]="unitLabel(r.unit_source)" [severity]="r.unit_source === 'revisar' ? 'warn' : 'contrast'" styleClass="pr-abc"
+                             [title]="'Unidad de venta ' + unitLabel(r.unit_source) + (r.price_ratio ? ' · ratio precio ' + (r.price_ratio | number:'1.0-1') + '×' : '') + ((r.stock_unit_factor || 1) > 1 ? ' · demanda ÷' + (r.stock_unit_factor | number:'1.0-1') : '')"></p-tag>
+                    }
                   </div>
                 </td>
                 <td class="pr-mono pr-muted">{{ r.warehouse_code }}</td>
@@ -595,6 +599,11 @@ export class ComprasPedidoRealComponent implements OnInit {
 
   abcSev(c: string | null): Sev {
     return c === 'A' ? 'success' : c === 'B' ? 'info' : c === 'C' ? 'secondary' : 'secondary';
+  }
+
+  /** RA-PRO.28 — etiqueta de la unidad de venta detectada. */
+  unitLabel(src: string | undefined): string {
+    return src === 'granel' ? 'granel' : src === 'revisar' ? 'revisar unidad' : src === 'manual' ? 'unidad fija' : '';
   }
 
   coverSev(d: number | null): Sev {
