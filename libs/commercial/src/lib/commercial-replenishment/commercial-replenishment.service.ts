@@ -839,33 +839,28 @@ export class CommercialReplenishmentService {
             ${uovJoin}
            WHERE p.tenant_id = :t
         ),
-        -- déficit por sucursal (source_warehouse_id set) × producto, EN UNIDADES DE STOCK (demanda/SUF)
+        -- déficit por sucursal (source_warehouse_id set) × producto, EN UNIDADES DE STOCK (demanda/SUF);
+        -- avail_pz = stock del CEDIS origen (constante por src×producto), traído en el mismo pase.
         def AS (
           SELECT w.id AS wh, w.source_warehouse_id AS src, d.product_id,
-                 GREATEST(0, COALESCE(d.daily_pieces,0) / e.suf * :cov - COALESCE(s.quantity,0)) AS deficit_pz
+                 GREATEST(0, COALESCE(d.daily_pieces,0) / e.suf * :cov - COALESCE(s.quantity,0)) AS deficit_pz,
+                 COALESCE(cs.quantity, 0) AS avail_pz
             FROM commercial.warehouses w
             JOIN dem d ON d.warehouse_id = w.id
             JOIN econ e ON e.product_id = d.product_id
             LEFT JOIN stk s ON s.warehouse_id = w.id AND s.product_id = d.product_id
+            LEFT JOIN stk cs ON cs.warehouse_id = w.source_warehouse_id AND cs.product_id = d.product_id
            WHERE w.tenant_id = :t AND w.source_warehouse_id IS NOT NULL AND w.deleted_at IS NULL
         ),
-        -- por (CEDIS origen, producto): stock disponible del CEDIS + Σ déficit de sus sucursales
-        hub AS (
-          SELECT def.src, def.product_id,
-                 COALESCE(cs.quantity, 0) AS avail_pz,
-                 SUM(def.deficit_pz) AS def_total
-            FROM def
-            LEFT JOIN stk cs ON cs.warehouse_id = def.src AND cs.product_id = def.product_id
-           WHERE def.deficit_pz > 0
-           GROUP BY def.src, def.product_id, cs.quantity
-        ),
-        -- reparto proporcional del stock del CEDIS entre sus sucursales con déficit
+        -- RA-PRO.29.1 — reparto proporcional del stock del CEDIS entre sus sucursales con déficit.
+        -- Window SUM en vez del self-join def×hub, que el planner resolvía como merge-join y explotaba
+        -- a ~155M filas (transfer-suggestion 20s → 1.3s). Mismo resultado (5176 filas / $18.2M).
         bd AS (
-          SELECT def.wh, def.src, def.product_id, def.deficit_pz,
-                 def.deficit_pz * LEAST(1.0, CASE WHEN h.def_total > 0 THEN h.avail_pz / h.def_total ELSE 0 END) AS transfer_pz
+          SELECT wh, src, product_id, deficit_pz,
+                 deficit_pz * LEAST(1.0, CASE WHEN SUM(deficit_pz) OVER (PARTITION BY src, product_id) > 0
+                                              THEN avail_pz / SUM(deficit_pz) OVER (PARTITION BY src, product_id) ELSE 0 END) AS transfer_pz
             FROM def
-            JOIN hub h ON h.src = def.src AND h.product_id = def.product_id
-           WHERE def.deficit_pz > 0
+           WHERE deficit_pz > 0
         )`;
       const from = `
         FROM bd
