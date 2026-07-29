@@ -1,4 +1,4 @@
-import { Component, computed, inject, signal, OnInit } from '@angular/core';
+import { Component, computed, inject, signal, OnInit, ChangeDetectionStrategy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { SelectModule } from 'primeng/select';
@@ -52,7 +52,7 @@ import { MapComponent } from '../../../shared/components/map/map.component';
           <div class="rd-grid">
             <div class="rd-field">
               <label for="psd">Fecha de entrega</label>
-              <p-datePicker inputId="psd" [(ngModel)]="shipmentDate" dateFormat="dd/mm/yy"
+              <p-datepicker inputId="psd" [(ngModel)]="shipmentDate" dateFormat="dd/mm/yy"
                 [minDate]="today" [showIcon]="true" appendTo="body" styleClass="rd-full" />
               </div>
             </div>
@@ -293,7 +293,7 @@ import { MapComponent } from '../../../shared/components/map/map.component';
                   <div class="rd-grid rd-mt">
                     <div class="rd-field">
                       <label for="sd">Fecha de entrega</label>
-                      <p-datePicker inputId="sd" [(ngModel)]="shipmentDate" dateFormat="dd/mm/yy"
+                      <p-datepicker inputId="sd" [(ngModel)]="shipmentDate" dateFormat="dd/mm/yy"
                         [minDate]="today" [showIcon]="true" appendTo="body" styleClass="rd-full" />
                       </div>
                     </div>
@@ -329,6 +329,7 @@ import { MapComponent } from '../../../shared/components/map/map.component';
                 }
               </div>
     `,
+  changeDetection: ChangeDetectionStrategy.Eager,
   styles: [`
     :host { display:block; }
     .rd { max-width: 860px; }

@@ -1,13 +1,13 @@
 <div class="p-6 pb-[calc(56px+env(safe-area-inset-bottom)+1.5rem)] lg:pb-6 space-y-6 min-h-[100dvh]">
   <p-toast position="top-right"></p-toast>
 
-  <p-confirmDialog
+  <p-confirmdialog
     header="Confirmar"
     icon="pi pi-exclamation-triangle"
     [style]="{width: '450px'}"
     acceptButtonStyleClass="p-button-danger"
     rejectButtonStyleClass="p-button-secondary"
-  ></p-confirmDialog>
+  ></p-confirmdialog>
 
   <header class="flex flex-col md:flex-row md:items-end md:justify-between gap-3">
     <div>
@@ -312,7 +312,7 @@
                   optionLabel="label" optionValue="value" class="w-full" styleClass="w-full"></p-select>
     </div>
 
-    @if (isSupervisedRole(userForm.get('role_name')?.value)) {
+    @if (isSupervisedRole($safeNavigationMigration(userForm.get('role_name')?.value))) {
       <div class="flex flex-col gap-2 animate-in fade-in slide-in-from-top-2 duration-300">
         <label for="supervisor_id" class="text-label text-content-muted">Jefe / Supervisor de Ventas</label>
         <p-select id="supervisor_id" [options]="supervisors()" formControlName="supervisor_id" placeholder="Asigna un supervisor"

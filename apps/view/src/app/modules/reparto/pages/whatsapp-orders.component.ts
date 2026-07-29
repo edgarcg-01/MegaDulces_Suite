@@ -35,7 +35,7 @@ import { WhatsAppOrdersService, WhatsAppPendingOrder } from '../whatsapp-orders.
   template: `
     <div class="surf-page in">
       <p-toast position="top-center"></p-toast>
-      <p-confirmDialog></p-confirmDialog>
+      <p-confirmdialog></p-confirmdialog>
 
       <header class="surf-page-head">
         <div class="surf-page-head-text">

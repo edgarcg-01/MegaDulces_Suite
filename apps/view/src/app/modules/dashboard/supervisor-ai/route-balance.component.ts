@@ -144,7 +144,7 @@ import { SupervisorAiService, RouteBalanceSim } from './supervisor-ai.service';
       }
 
       <p-toast />
-      <p-confirmDialog />
+      <p-confirmdialog />
     </div>
   `,
   styles: [

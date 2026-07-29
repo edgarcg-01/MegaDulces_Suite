@@ -28,7 +28,11 @@
       "@megadulces/shared-scoring": ["libs/shared-scoring/index.ts"],
       "@megadulces/trade": ["libs/trade/src/index.ts"],
       "@megadulces/whatsapp": ["libs/whatsapp/src/index.ts"]
-    }
+    },
+    "strict": false,
+    "noUncheckedSideEffectImports": false,
+    "types": ["*"],
+    "ignoreDeprecations": "6.0"
   },
   "exclude": ["node_modules", "dist"]
 }

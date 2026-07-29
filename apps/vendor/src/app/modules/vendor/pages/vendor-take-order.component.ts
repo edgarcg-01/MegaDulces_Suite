@@ -55,7 +55,7 @@ const foldText = (s: string | null | undefined): string =>
   ],
   providers: [ConfirmationService, MessageService],
   template: `
-    <p-confirmDialog></p-confirmDialog>
+    <p-confirmdialog></p-confirmdialog>
     
     <!-- Header sticky -->
     @if (customer(); as c) {

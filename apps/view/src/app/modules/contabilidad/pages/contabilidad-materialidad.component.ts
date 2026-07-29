@@ -121,7 +121,7 @@ import { Permission } from '../../../core/constants/permissions';
                 <p-inputicon styleClass="pi pi-search" />
                 <input type="text" pInputText placeholder="Buscar RFC o proveedor…" [ngModel]="provSearch()" (ngModelChange)="onProvSearch($event)" aria-label="Buscar proveedor" />
               </p-iconfield>
-              <p-selectButton styleClass="sb-liquid" [options]="riesgoOpts" [ngModel]="provRiesgo()" (ngModelChange)="setProvRiesgo($event)" optionLabel="label" optionValue="value" [allowEmpty]="false" ariaLabel="Filtrar por riesgo" />
+              <p-selectbutton styleClass="sb-liquid" [options]="riesgoOpts" [ngModel]="provRiesgo()" (ngModelChange)="setProvRiesgo($event)" optionLabel="label" optionValue="value" [allowEmpty]="false" ariaLabel="Filtrar por riesgo" />
             </div>
           </div>
           @if (searched() && !dossier()) { <div class="mt-warn"><i class="pi pi-exclamation-triangle"></i> No se pudo armar el expediente de {{ rfc }}. Elegí uno de la lista.</div> }
@@ -170,9 +170,9 @@ import { Permission } from '../../../core/constants/permissions';
         </ng-template>
 
         @if (dossier(); as d) {
-        <p-selectButton [options]="dlgTabOpts(d)" [ngModel]="dlgTab()" (ngModelChange)="setDlgTab($event)" optionValue="value" [allowEmpty]="false" ariaLabel="Vista de documentos" styleClass="mt-dlg-sb sb-liquid">
+        <p-selectbutton [options]="dlgTabOpts(d)" [ngModel]="dlgTab()" (ngModelChange)="setDlgTab($event)" optionValue="value" [allowEmpty]="false" ariaLabel="Vista de documentos" styleClass="mt-dlg-sb sb-liquid">
           <ng-template let-opt pTemplate="item"><i class="pi" [ngClass]="opt.icon"></i>&nbsp;{{ opt.label }} <span class="mt-tab-n">{{ opt.count }}</span></ng-template>
-        </p-selectButton>
+        </p-selectbutton>
         }
 
         @if (dlgTab() === 'oper') {
@@ -293,7 +293,7 @@ import { Permission } from '../../../core/constants/permissions';
                     @case ('confirmed') {
                       <div class="mt-asg">
                         <span class="mt-est e-vigente" title="Asignada por {{ c.assignment?.by || '—' }}"><i class="pi pi-check"></i> {{ c.assignment?.doc_folio }}</span>
-                        <span class="muted cf-sub">{{ c.assignment?.sucursal }} · Δ {{ money(c.assignment?.diff_importe) }}@if (c.assignment?.diff_days != null) { · {{ c.assignment?.diff_days }}d }</span>
+                        <span class="muted cf-sub">{{ c.assignment?.sucursal }} · Δ {{ money($safeNavigationMigration(c.assignment?.diff_importe)) }}@if (c.assignment?.diff_days != null) { · {{ c.assignment?.diff_days }}d }</span>
                         @if (canManage) { <button pButton type="button" label="Quitar" class="p-button-text p-button-sm mt-asg-x" [disabled]="busy() === c.cfdi_id" (click)="unassignRow(c)"></button> }
                       </div>
                     }
@@ -304,7 +304,7 @@ import { Permission } from '../../../core/constants/permissions';
                         } @else {
                           <span class="mt-conf c-inferred" title="Sugerida por RFC + importe + fecha"><i class="pi pi-sparkles"></i> {{ c.suggestion?.doc_folio }}</span>
                         }
-                        <span class="muted cf-sub">{{ c.suggestion?.sucursal }} · Δ {{ money(c.suggestion?.diff_importe) }}@if (c.suggestion?.diff_days != null) { · {{ c.suggestion?.diff_days }}d }@if (c.suggestion?.strength === 'weak') { · <b class="warn">sin RFC</b> }</span>
+                        <span class="muted cf-sub">{{ c.suggestion?.sucursal }} · Δ {{ money($safeNavigationMigration(c.suggestion?.diff_importe)) }}@if (c.suggestion?.diff_days != null) { · {{ c.suggestion?.diff_days }}d }@if (c.suggestion?.strength === 'weak') { · <b class="warn">sin RFC</b> }</span>
                         @if (c.suggestion?.strength === 'weak' && c.suggestion?.beneficiario) {
                           <span class="mt-asg-benef" title="Nombre en la operación — verifica que coincida con el proveedor"><i class="pi pi-user"></i> {{ c.suggestion?.beneficiario }}</span>
                         }

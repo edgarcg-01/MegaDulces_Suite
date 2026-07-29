@@ -59,7 +59,7 @@ import { CUSTOMERS_TABS } from '../customers-tabs';
   template: `
     <div class="surf-page cu">
       <p-toast></p-toast>
-      <p-confirmDialog></p-confirmDialog>
+      <p-confirmdialog></p-confirmdialog>
       <app-page-tabs [tabs]="customerTabs" />
     
       <!-- PAGE HEAD edge-to-edge -->

@@ -36,7 +36,7 @@ import { ProductSearchComponent, ProductHit } from '../components/product-search
   template: `
     <div class="surf-page in">
       <p-toast></p-toast>
-      <p-confirmDialog></p-confirmDialog>
+      <p-confirmdialog></p-confirmdialog>
 
       <app-page-tabs [tabs]="inventoryTabs" />
 
@@ -90,8 +90,8 @@ import { ProductSearchComponent, ProductHit } from '../components/product-search
       </div>
 
       <!-- Toggle de vista -->
-      <p-selectButton [options]="views" [(ngModel)]="view" optionLabel="label" optionValue="value"
-                      [allowEmpty]="false" styleClass="abc-views sb-liquid" ariaLabel="Cambiar vista"></p-selectButton>
+      <p-selectbutton [options]="views" [(ngModel)]="view" optionLabel="label" optionValue="value"
+                      [allowEmpty]="false" styleClass="abc-views sb-liquid" ariaLabel="Cambiar vista"></p-selectbutton>
 
       @if (view() === 'due') {
         <!-- AGENDA: qué toca contar -->

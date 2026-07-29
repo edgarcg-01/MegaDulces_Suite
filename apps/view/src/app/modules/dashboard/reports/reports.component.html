@@ -357,7 +357,7 @@
                               <td class="font-medium text-content-main">{{ visit.captured_by_username }}</td>
                               <td><span class="bg-surface-ground border border-divider px-2 py-0.5 rounded text-xs uppercase font-bold text-content-muted">{{ visit.zona_captura }}</span></td>
                               <td class="text-center">
-                                <span class="font-black status-text">{{ fmtScore(visit.stats?.puntuacionTotal) }}</span>
+                                <span class="font-black status-text">{{ fmtScore($safeNavigationMigration(visit.stats?.puntuacionTotal)) }}</span>
                               </td>
                               <td class="text-center">
                                 <span class="status-chip uppercase">{{ statusLabel(visitScoreStatus(visit)) }}</span>
@@ -728,7 +728,7 @@
                    [class]="'status-' + visitScoreStatus(selectedRow)"
                    style="border-color: var(--status-fg)">
                 <div class="text-xs uppercase font-black opacity-70">Score</div>
-                <div class="text-2xl font-black status-text">{{ fmtScore(selectedRow.stats?.puntuacionTotal) }}</div>
+                <div class="text-2xl font-black status-text">{{ fmtScore($safeNavigationMigration(selectedRow.stats?.puntuacionTotal)) }}</div>
                 <div class="text-xs font-bold uppercase opacity-70">{{ statusLabel(visitScoreStatus(selectedRow)) }}</div>
               </div>
               <p-button label="Exportar PDF" icon="pi pi-file-pdf" severity="contrast" size="small" (click)="exportSingleVisitPdf(selectedRow)"></p-button>
@@ -848,14 +848,14 @@
       @if (isSupervisor()) {
         <div>
           <label class="block text-sm font-medium mb-2">Seleccionar usuarios</label>
-          <p-multiSelect
+          <p-multiselect
             [options]="availableUsers()"
             [(ngModel)]="selectedRouteUsers"
             optionLabel="username"
             optionValue="id"
             placeholder="Selecciona usuarios..."
             class="w-full">
-          </p-multiSelect>
+          </p-multiselect>
           <p class="text-xs text-content-muted mt-1">Deja vacío para seleccionar todos tus usuarios</p>
         </div>
       } @else {
@@ -872,7 +872,7 @@
   </p-dialog>
 
   <p-toast></p-toast>
-  <p-confirmDialog></p-confirmDialog>
+  <p-confirmdialog></p-confirmdialog>
 
   <ng-template #tabSkeleton>
     <div class="pt-4 space-y-4">
@@ -930,15 +930,15 @@
                 <div class="flex flex-col gap-1">
                   <label class="text-xs font-bold text-content-faint uppercase">Meta mínima</label>
                   <div class="w-full">
-                    <p-inputNumber [(ngModel)]="r.min" [min]="0" [max]="r.opt - 1" [showButtons]="false" size="small"
-                      decrementButtonClass="p-button-secondary" incrementButtonClass="p-button-secondary" [suffix]="r.unit ? ' ' + r.unit : ''"></p-inputNumber>
+                    <p-inputnumber [(ngModel)]="r.min" [min]="0" [max]="r.opt - 1" [showButtons]="false" size="small"
+                      decrementButtonClass="p-button-secondary" incrementButtonClass="p-button-secondary" [suffix]="r.unit ? ' ' + r.unit : ''"></p-inputnumber>
                   </div>
                 </div>
                 <div class="flex flex-col gap-1">
                   <label class="text-xs font-bold text-content-faint uppercase">Meta óptima</label>
                   <div class="w-full">
-                    <p-inputNumber [(ngModel)]="r.opt" [min]="r.min + 1" [showButtons]="false" size="small"
-                      decrementButtonClass="p-button-secondary" incrementButtonClass="p-button-secondary" [suffix]="r.unit ? ' ' + r.unit : ''"></p-inputNumber>
+                    <p-inputnumber [(ngModel)]="r.opt" [min]="r.min + 1" [showButtons]="false" size="small"
+                      decrementButtonClass="p-button-secondary" incrementButtonClass="p-button-secondary" [suffix]="r.unit ? ' ' + r.unit : ''"></p-inputnumber>
                   </div>
                 </div>
               </div>

@@ -39,7 +39,7 @@ import { makeLazyLoad, makeDebouncedSearch } from '../../../shared/util';
   template: `
     <div class="surf-page pr">
       <p-toast></p-toast>
-      <p-confirmDialog></p-confirmDialog>
+      <p-confirmdialog></p-confirmdialog>
     
       <!-- PAGE HEAD -->
       <header class="surf-page-head">

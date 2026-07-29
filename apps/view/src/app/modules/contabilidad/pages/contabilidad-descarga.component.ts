@@ -114,10 +114,10 @@ import { CredencialesService } from '../credenciales.service';
         <div class="dz-form">
           <label class="dz-f"><span>RFC solicitante *</span><input type="text" pInputText [(ngModel)]="form.rfcSolicitante" placeholder="XAXX010101000" maxlength="13" style="text-transform:uppercase" /></label>
           <label class="dz-f"><span>Rol *</span>
-            <p-selectButton [options]="rolOpts" [(ngModel)]="form.rol" optionLabel="label" optionValue="value" [allowEmpty]="false" styleClass="dz-sb sb-liquid" ariaLabel="Rol" />
+            <p-selectbutton [options]="rolOpts" [(ngModel)]="form.rol" optionLabel="label" optionValue="value" [allowEmpty]="false" styleClass="dz-sb sb-liquid" ariaLabel="Rol" />
           </label>
           <label class="dz-f"><span>Tipo</span>
-            <p-selectButton [options]="tipoOpts" [(ngModel)]="form.tipo" optionLabel="label" optionValue="value" [allowEmpty]="false" styleClass="dz-sb sb-liquid" ariaLabel="Tipo de solicitud" />
+            <p-selectbutton [options]="tipoOpts" [(ngModel)]="form.tipo" optionLabel="label" optionValue="value" [allowEmpty]="false" styleClass="dz-sb sb-liquid" ariaLabel="Tipo de solicitud" />
           </label>
           <div class="dz-row">
             <label class="dz-f"><span>Desde *</span><p-datepicker [(ngModel)]="form.fechaIni" dateFormat="yy-mm-dd" [showIcon]="true" appendTo="body" placeholder="Desde" styleClass="dz-dp" /></label>

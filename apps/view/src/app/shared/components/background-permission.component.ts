@@ -1,4 +1,4 @@
-import { Component, EventEmitter, Input, Output, computed, inject, signal } from '@angular/core';
+import { Component, EventEmitter, Input, Output, computed, inject, signal, ChangeDetectionStrategy } from '@angular/core';
 
 import { DialogModule } from 'primeng/dialog';
 import { ButtonModule } from 'primeng/button';
@@ -8,6 +8,7 @@ import { TrackingService } from '../../core/services/tracking.service';
   selector: 'app-background-permission',
   standalone: true,
   imports: [DialogModule, ButtonModule],
+  changeDetection: ChangeDetectionStrategy.Eager,
   template: `
     <p-dialog
       [(visible)]="visible"

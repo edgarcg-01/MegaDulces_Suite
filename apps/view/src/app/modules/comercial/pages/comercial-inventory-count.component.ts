@@ -205,7 +205,7 @@ interface FeedEntry {
             }
 
             <label class="ic-label" for="ic-qty">Cantidad física</label>
-            <p-inputNumber
+            <p-inputnumber
               #qtyInput
               inputId="ic-qty"
               [(ngModel)]="qty"
@@ -217,7 +217,7 @@ interface FeedEntry {
               inputStyleClass="ic-input ic-input-qty"
               (onKeyDown)="onQtyKey($event)"
               placeholder="0"
-            ></p-inputNumber>
+            ></p-inputnumber>
 
             <button
               pButton

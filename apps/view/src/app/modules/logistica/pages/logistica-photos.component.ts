@@ -28,7 +28,7 @@ import {
   providers: [MessageService, ConfirmationService],
   template: `
     <p-toast></p-toast>
-    <p-confirmDialog></p-confirmDialog>
+    <p-confirmdialog></p-confirmdialog>
     
     @if (shipment(); as s) {
       <header class="surf-page-head">

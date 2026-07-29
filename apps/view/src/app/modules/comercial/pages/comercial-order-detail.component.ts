@@ -42,7 +42,7 @@ import { Permission } from '../../../core/constants/permissions';
   providers: [MessageService, ConfirmationService],
   template: `
     <p-toast></p-toast>
-    <p-confirmDialog></p-confirmDialog>
+    <p-confirmdialog></p-confirmdialog>
     
     <div class="surf-page">
       <div class="topbar">
@@ -144,9 +144,9 @@ import { Permission } from '../../../core/constants/permissions';
                 @if (o.status === 'pending_approval') {
                   <td class="comm-num">
                     <div class="qty-edit">
-                      <p-inputNumber
+                      <p-inputnumber
                         [ngModel]="l.quantity"
-                        (onBlur)="onLineQtyBlur(l, $any($event).target?.value, o)"
+                        (onBlur)="onLineQtyBlur(l, $safeNavigationMigration($any($event).target?.value), o)"
                         (onKeyDown)="$any($event).key === 'Enter' && $any($event).target.blur()"
                         [min]="1"
                         [max]="approvableMax(l)"
@@ -157,7 +157,7 @@ import { Permission } from '../../../core/constants/permissions';
                         decrementButtonIcon="pi pi-minus"
                         inputStyleClass="qty-input"
                         [disabled]="savingLineId() === l.id"
-                      ></p-inputNumber>
+                      ></p-inputnumber>
                       @if (savingLineId() === l.id) {
                         <i class="pi pi-spin pi-spinner saving-spinner"></i>
                       }

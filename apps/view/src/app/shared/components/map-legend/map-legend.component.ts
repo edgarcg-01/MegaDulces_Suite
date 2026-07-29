@@ -1,4 +1,4 @@
-import { Component, input, output } from '@angular/core';
+import { Component, input, output, ChangeDetectionStrategy } from '@angular/core';
 
 
 export interface LegendLayer {
@@ -37,6 +37,7 @@ export interface LegendLayer {
       }
     </div>
   `,
+  changeDetection: ChangeDetectionStrategy.Eager,
   styles: [`
     .legend { display:flex; align-items:center; gap:.4rem; flex-wrap:wrap; }
     .chip { display:inline-flex; align-items:center; gap:.4rem; padding:.25rem .6rem; border:1px solid var(--border-color); border-radius:999px; background:var(--card-bg,#fff); cursor:pointer; font:600 .74rem 'Hanken Grotesk',sans-serif; color:var(--text,#1c1917); }

@@ -42,9 +42,9 @@ import { ComprobacionesService } from '../comprobaciones.service';
       <!-- Filtros -->
       <div class="so-filters card-premium card-flat">
         <div class="so-field"><label>Rango</label>
-          <p-datePicker [(ngModel)]="rangeDates" selectionMode="range" dateFormat="dd/mm/yy" [showIcon]="true" appendTo="body" (onClose)="queue()" /></div>
+          <p-datepicker [(ngModel)]="rangeDates" selectionMode="range" dateFormat="dd/mm/yy" [showIcon]="true" appendTo="body" (onClose)="queue()" /></div>
         <div class="so-field"><label>Sucursales</label>
-          <p-multiSelect [options]="sucursales()" [(ngModel)]="sucursal" optionLabel="label" optionValue="code" placeholder="Todas" [showClear]="true" appendTo="body" styleClass="w-full" (onPanelHide)="queue()" /></div>
+          <p-multiselect [options]="sucursales()" [(ngModel)]="sucursal" optionLabel="label" optionValue="code" placeholder="Todas" [showClear]="true" appendTo="body" styleClass="w-full" (onPanelHide)="queue()" /></div>
         <div class="so-field"><label>Estado</label>
           <app-segmented [options]="aplicadaOpts" [value]="aplicadaSel()" (valueChange)="setAplicada($event)" ariaLabel="Aplicación" /></div>
         <div class="so-field"><label>Estatus doc</label>
@@ -70,16 +70,16 @@ import { ComprobacionesService } from '../comprobaciones.service';
                  sortField="fecha" [sortOrder]="-1">
           <ng-template pTemplate="header">
             <tr>
-              <th pSortableColumn="fecha" style="width:6rem">Fecha <p-sortIcon field="fecha" /></th>
-              <th pSortableColumn="folio" style="width:6rem">Folio <p-sortIcon field="folio" /></th>
+              <th pSortableColumn="fecha" style="width:6rem">Fecha <p-sorticon field="fecha" /></th>
+              <th pSortableColumn="folio" style="width:6rem">Folio <p-sorticon field="folio" /></th>
               <th>Sucursal</th>
-              <th pSortableColumn="solicitante">Solicitante <p-sortIcon field="solicitante" /></th>
+              <th pSortableColumn="solicitante">Solicitante <p-sorticon field="solicitante" /></th>
               <th>Beneficiario</th>
               <th>Concepto</th>
-              <th class="ta-r" pSortableColumn="importe" style="width:9rem">Importe <p-sortIcon field="importe" /></th>
+              <th class="ta-r" pSortableColumn="importe" style="width:9rem">Importe <p-sorticon field="importe" /></th>
               <th style="width:7rem">Estatus</th>
               <th style="width:9rem">Aplicación</th>
-              <th class="ta-r" pSortableColumn="lead_days" style="width:5rem">Días <p-sortIcon field="lead_days" /></th>
+              <th class="ta-r" pSortableColumn="lead_days" style="width:5rem">Días <p-sorticon field="lead_days" /></th>
             </tr>
           </ng-template>
           <ng-template pTemplate="body" let-r>

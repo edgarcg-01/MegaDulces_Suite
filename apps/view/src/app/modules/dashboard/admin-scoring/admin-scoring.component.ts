@@ -1,4 +1,4 @@
-import { Component, inject, signal, OnInit } from '@angular/core';
+import { Component, inject, signal, OnInit, ChangeDetectionStrategy } from '@angular/core';
 
 import { Router } from '@angular/router';
 import { FormsModule } from '@angular/forms';
@@ -28,6 +28,7 @@ import { Permission } from '../../../core/constants/permissions';
 ],
   providers: [MessageService, ConfirmationService],
   templateUrl: './admin-scoring.component.html',
+  changeDetection: ChangeDetectionStrategy.Eager,
   styleUrls: ['./admin-scoring.component.css']
 })
 export class AdminScoringComponent implements OnInit {

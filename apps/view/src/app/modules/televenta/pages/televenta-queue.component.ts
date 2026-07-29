@@ -42,7 +42,7 @@ const REASON_SEVERITY: Record<QueueItem['reason'], 'danger' | 'warn' | 'info' | 
     
       @if (loading()) {
         <div class="loading" aria-live="polite">
-          <p-progressSpinner styleClass="w-12 h-12"></p-progressSpinner>
+          <p-progressspinner styleClass="w-12 h-12"></p-progressspinner>
         </div>
       }
     

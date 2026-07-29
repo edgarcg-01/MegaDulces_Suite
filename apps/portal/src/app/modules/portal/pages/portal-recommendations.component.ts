@@ -52,7 +52,7 @@ const EXAMPLES = [
   ],
   providers: [ConfirmationService],
   template: `
-    <p-confirmDialog></p-confirmDialog>
+    <p-confirmdialog></p-confirmdialog>
     
     @if (isAdmin()) {
       <div class="portal-banner" role="status">

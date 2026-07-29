@@ -3,13 +3,13 @@
   <p-toast position="top-right"></p-toast>
 
   <!-- Confirm Dialog -->
-  <p-confirmDialog
+  <p-confirmdialog
     header="Confirmar"
     icon="pi pi-exclamation-triangle"
     [style]="{width: '450px'}"
     acceptButtonStyleClass="p-button-danger"
     rejectButtonStyleClass="p-button-secondary">
-  </p-confirmDialog>
+  </p-confirmdialog>
 
   <!-- Encabezado -->
   <div class="flex justify-between items-center mb-6">
@@ -36,7 +36,7 @@
             <div class="flex items-center justify-between gap-3 p-2 rounded bg-surface-ground/50 border border-transparent hover:border-divider transition-colors">
               <span class="text-sm font-medium text-content-main capitalize">{{ key }}</span>
               <div class="flex items-center gap-2">
-                <p-inputNumber [ngModel]="config().pesos_posicion[key]" (ngModelChange)="updateValue('pesos_posicion', key, $event)" [min]="0" styleClass="w-20"></p-inputNumber>
+                <p-inputnumber [ngModel]="config().pesos_posicion[key]" (ngModelChange)="updateValue('pesos_posicion', key, $event)" [min]="0" styleClass="w-20"></p-inputnumber>
                 <p-button icon="pi pi-times" severity="danger" [text]="true" size="small" (onClick)="removeKey('pesos_posicion', key)"></p-button>
               </div>
             </div>
@@ -55,7 +55,7 @@
             <div class="flex items-center justify-between gap-3 p-2 rounded bg-surface-ground/50 border border-transparent hover:border-divider transition-colors">
               <span class="text-sm font-medium text-content-main capitalize">{{ key }}</span>
               <div class="flex items-center gap-2">
-                <p-inputNumber [ngModel]="config().tipos_exhibicion[key]" (ngModelChange)="updateValue('tipos_exhibicion', key, $event)" [min]="0" [step]="0.1" styleClass="w-20"></p-inputNumber>
+                <p-inputnumber [ngModel]="config().tipos_exhibicion[key]" (ngModelChange)="updateValue('tipos_exhibicion', key, $event)" [min]="0" [step]="0.1" styleClass="w-20"></p-inputnumber>
                 <p-button icon="pi pi-times" severity="danger" [text]="true" size="small" (onClick)="removeKey('tipos_exhibicion', key)"></p-button>
               </div>
             </div>
@@ -74,7 +74,7 @@
             <div class="flex items-center justify-between gap-3 p-2 rounded bg-surface-ground/50 border border-transparent hover:border-divider transition-colors">
               <span class="text-sm font-medium text-content-main capitalize">{{ key }}</span>
               <div class="flex items-center gap-2">
-                <p-inputNumber [ngModel]="config().niveles_ejecucion[key]" (ngModelChange)="updateValue('niveles_ejecucion', key, $event)" [min]="0" [step]="0.1" styleClass="w-20"></p-inputNumber>
+                <p-inputnumber [ngModel]="config().niveles_ejecucion[key]" (ngModelChange)="updateValue('niveles_ejecucion', key, $event)" [min]="0" [step]="0.1" styleClass="w-20"></p-inputnumber>
                 <p-button icon="pi pi-times" severity="danger" [text]="true" size="small" (onClick)="removeKey('niveles_ejecucion', key)"></p-button>
               </div>
             </div>

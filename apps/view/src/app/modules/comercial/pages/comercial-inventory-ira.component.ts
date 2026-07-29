@@ -38,7 +38,7 @@ import { INV_COUNT_TABS } from '../inventory-tabs';
           styleClass="ira-wh"></p-select>
         <span class="ira-tol">
           <label>Tolerancia %</label>
-          <p-inputNumber [(ngModel)]="tolerancePct" [min]="0" [max]="100" [maxFractionDigits]="2" (onBlur)="load()"></p-inputNumber>
+          <p-inputnumber [(ngModel)]="tolerancePct" [min]="0" [max]="100" [maxFractionDigits]="2" (onBlur)="load()"></p-inputnumber>
         </span>
         <button pButton label="Actualizar" icon="pi pi-refresh" [text]="true" (click)="load()"></button>
       </div>

@@ -90,7 +90,7 @@ interface OfferCard {
   ],
   providers: [ConfirmationService],
   template: `
-    <p-confirmDialog></p-confirmDialog>
+    <p-confirmdialog></p-confirmdialog>
     <p-toast position="top-right"></p-toast>
     
     @if (isAdmin()) {

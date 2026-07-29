@@ -1,4 +1,4 @@
-import { Component } from '@angular/core';
+import { Component, ChangeDetectionStrategy } from '@angular/core';
 import { RouterOutlet } from '@angular/router';
 import { OfflineBannerComponent } from './core/connectivity/offline-banner.component';
 import { PwaUpdateBannerComponent } from './core/pwa/pwa-update-banner.component';
@@ -15,6 +15,7 @@ import { PushPromptComponent } from './core/pwa/push-prompt.component';
     PwaInstallPromptComponent,
     PushPromptComponent,
   ],
+  changeDetection: ChangeDetectionStrategy.Eager,
   template: `
     <router-outlet></router-outlet>
     <app-offline-banner></app-offline-banner>

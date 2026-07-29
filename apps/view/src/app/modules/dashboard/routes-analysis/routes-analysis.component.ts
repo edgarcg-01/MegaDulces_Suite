@@ -1,4 +1,4 @@
-import { Component, computed, inject, signal, OnInit, OnDestroy } from '@angular/core';
+import { Component, computed, inject, signal, OnInit, OnDestroy, ChangeDetectionStrategy } from '@angular/core';
 
 import { FormsModule } from '@angular/forms';
 import { HttpClient, HttpParams } from '@angular/common/http';
@@ -336,6 +336,7 @@ interface RouteTrack {
     /* ── sidebar min height ──────────────────────────────────── */
     .ru-sidebar { min-height: 120px; }
   `],
+  changeDetection: ChangeDetectionStrategy.Eager,
   template: `
     <div class="surf-page">
 
@@ -611,11 +612,11 @@ interface RouteTrack {
                   <th style="width:2.5rem">#</th>
                   <th>Tienda</th>
                   <th>Vendedor</th>
-                  <th pSortableColumn="hora_inicio">Inicio <p-sortIcon field="hora_inicio"></p-sortIcon></th>
+                  <th pSortableColumn="hora_inicio">Inicio <p-sorticon field="hora_inicio"></p-sorticon></th>
                   <th>Fin</th>
-                  <th pSortableColumn="duration_min">Dur. <p-sortIcon field="duration_min"></p-sortIcon></th>
+                  <th pSortableColumn="duration_min">Dur. <p-sorticon field="duration_min"></p-sorticon></th>
                   <th>Muerto antes</th>
-                  <th pSortableColumn="score" style="text-align:right">Score <p-sortIcon field="score"></p-sortIcon></th>
+                  <th pSortableColumn="score" style="text-align:right">Score <p-sorticon field="score"></p-sorticon></th>
                 </tr>
               </ng-template>
               <ng-template pTemplate="body" let-v let-i="rowIndex">

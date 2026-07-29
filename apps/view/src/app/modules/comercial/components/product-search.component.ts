@@ -19,7 +19,7 @@ export interface ProductHit { id: string; label: string; sku: string | null; bra
   imports: [FormsModule, AutoCompleteModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <p-autoComplete
+    <p-autocomplete
       [(ngModel)]="selected"
       [suggestions]="suggestions()"
       (completeMethod)="search($event)"
@@ -43,7 +43,7 @@ export interface ProductHit { id: string; label: string; sku: string | null; bra
         </div>
       </ng-template>
       <ng-template pTemplate="empty"><div class="ps-empty">Sin coincidencias</div></ng-template>
-    </p-autoComplete>
+    </p-autocomplete>
   `,
   styles: [`
     :host { display: inline-block; }

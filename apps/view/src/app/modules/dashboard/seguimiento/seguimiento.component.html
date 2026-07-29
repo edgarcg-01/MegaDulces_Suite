@@ -283,7 +283,7 @@
                 } @else {
                   <div class="flex flex-col items-center justify-center w-14 h-14 rounded-xl shrink-0 bg-surface-card border border-divider status-text"
                        [class]="'status-' + visitScoreStatus(visit)">
-                    <span class="text-lg font-bold leading-none tabular-nums">{{ fmtScore(visit.stats?.puntuacionTotal) }}</span>
+                    <span class="text-lg font-bold leading-none tabular-nums">{{ fmtScore($safeNavigationMigration(visit.stats?.puntuacionTotal)) }}</span>
                     <span class="text-[10px] font-medium mt-0.5 opacity-70 uppercase tracking-wider">pts</span>
                   </div>
                 }
@@ -313,7 +313,7 @@
                   <span class="font-semibold text-content-main tabular-nums">{{ visit.exhibiciones?.length ?? 0 }}</span> exhib.
                   @if (visit.stats?.ventaTotal) {
                     <span class="text-content-faint mx-1">·</span>
-                    <span class="font-semibold text-content-main tabular-nums">${{ visit.stats?.ventaTotal | number:'1.0-0' }}</span>
+                    <span class="font-semibold text-content-main tabular-nums">${{ $safeNavigationMigration(visit.stats?.ventaTotal) | number:'1.0-0' }}</span>
                   }
                 </span>
                 <i class="pi pi-chevron-right text-xs text-content-faint" aria-hidden="true"></i>
@@ -360,7 +360,7 @@
                     @if (isVendorVisit(v)) {
                       <span class="text-content-faint">—</span>
                     } @else {
-                      {{ fmtScore(v.stats?.puntuacionTotal) }}
+                      {{ fmtScore($safeNavigationMigration(v.stats?.puntuacionTotal)) }}
                     }
                   </td>
                 }
@@ -455,7 +455,7 @@
               </div>
             } @else {
               <div class="text-right" [class]="'status-' + visitScoreStatus(selectedRow)">
-                <div class="text-3xl font-extrabold text-content-main leading-none">{{ fmtScore(selectedRow.stats?.puntuacionTotal) }}</div>
+                <div class="text-3xl font-extrabold text-content-main leading-none">{{ fmtScore($safeNavigationMigration(selectedRow.stats?.puntuacionTotal)) }}</div>
                 <div class="text-xs font-bold uppercase tracking-wide mt-0.5 status-text">
                   {{ scoreStatusLabel(selectedRow) }}
                 </div>
@@ -704,11 +704,11 @@
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
               <div class="flex flex-col gap-1">
                 <label class="text-xs font-bold text-content-faint uppercase">Meta mínima</label>
-                <p-inputNumber [(ngModel)]="r.min" [min]="0" [max]="r.opt - 1" [showButtons]="true" buttonLayout="horizontal" decrementButtonClass="p-button-secondary" incrementButtonClass="p-button-secondary" [suffix]="r.unit ? ' ' + r.unit : ''" class="w-full" />
+                <p-inputnumber [(ngModel)]="r.min" [min]="0" [max]="r.opt - 1" [showButtons]="true" buttonLayout="horizontal" decrementButtonClass="p-button-secondary" incrementButtonClass="p-button-secondary" [suffix]="r.unit ? ' ' + r.unit : ''" class="w-full" />
               </div>
               <div class="flex flex-col gap-1">
                 <label class="text-xs font-bold text-content-faint uppercase">Meta óptima</label>
-                <p-inputNumber [(ngModel)]="r.opt" [min]="r.min + 1" [showButtons]="true" buttonLayout="horizontal" decrementButtonClass="p-button-secondary" incrementButtonClass="p-button-secondary" [suffix]="r.unit ? ' ' + r.unit : ''" class="w-full" />
+                <p-inputnumber [(ngModel)]="r.opt" [min]="r.min + 1" [showButtons]="true" buttonLayout="horizontal" decrementButtonClass="p-button-secondary" incrementButtonClass="p-button-secondary" [suffix]="r.unit ? ' ' + r.unit : ''" class="w-full" />
               </div>
             </div>
             <div class="mt-3 h-2 rounded-full overflow-hidden flex">
@@ -731,5 +731,5 @@
 
 <!-- Toast y ConfirmDialog necesarios para los `MessageService`/`ConfirmationService` inyectados. -->
 <p-toast></p-toast>
-<p-confirmDialog></p-confirmDialog>
+<p-confirmdialog></p-confirmdialog>
 

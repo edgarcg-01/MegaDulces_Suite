@@ -118,20 +118,20 @@ import { forkJoin } from 'rxjs';
           </div>
 
           <label>Umbral de recuento (%)</label>
-          <p-inputNumber [(ngModel)]="formThreshold" [min]="0" [max]="100" [maxFractionDigits]="2" styleClass="in-w-full"></p-inputNumber>
+          <p-inputnumber [(ngModel)]="formThreshold" [min]="0" [max]="100" [maxFractionDigits]="2" styleClass="in-w-full"></p-inputnumber>
           <small>0 = sin umbral. Si dos conteos coinciden pero difieren del teórico más que este %, el SKU queda como discrepancia (recuento/revisión) en vez de auto-resolverse.</small>
 
           @if (canAssign()) {
             <label>Contadores (quiénes van a contar)</label>
-            <p-multiSelect [options]="counterOpts()" [(ngModel)]="selCounters" optionLabel="label" optionValue="value"
+            <p-multiselect [options]="counterOpts()" [(ngModel)]="selCounters" optionLabel="label" optionValue="value"
                            placeholder="Todos los que tengan permiso (folio abierto)" [filter]="true" display="chip"
                            styleClass="in-w-full" appendTo="body" scrollHeight="45vh"
-                           [panelStyle]="{ maxWidth: '92vw' }"></p-multiSelect>
+                           [panelStyle]="{ maxWidth: '92vw' }"></p-multiselect>
             <label>Supervisores responsables</label>
-            <p-multiSelect [options]="supervisorOpts()" [(ngModel)]="selSupervisors" optionLabel="label" optionValue="value"
+            <p-multiselect [options]="supervisorOpts()" [(ngModel)]="selSupervisors" optionLabel="label" optionValue="value"
                            placeholder="Sin asignar" [filter]="true" display="chip"
                            styleClass="in-w-full" appendTo="body" scrollHeight="45vh"
-                           [panelStyle]="{ maxWidth: '92vw' }"></p-multiSelect>
+                           [panelStyle]="{ maxWidth: '92vw' }"></p-multiselect>
           }
         </div>
         <ng-template pTemplate="footer">

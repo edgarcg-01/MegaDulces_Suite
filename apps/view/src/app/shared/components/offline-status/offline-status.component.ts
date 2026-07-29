@@ -1,4 +1,4 @@
-import { Component, OnInit, OnDestroy, inject } from '@angular/core';
+import { Component, OnInit, OnDestroy, inject, ChangeDetectionStrategy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Subscription } from 'rxjs';
 import { ButtonModule } from 'primeng/button';
@@ -11,6 +11,7 @@ import { OfflineSyncService } from '../../../core/services/offline-sync.service'
   standalone: true,
   imports: [CommonModule, ButtonModule],
   templateUrl: './offline-status.component.html',
+  changeDetection: ChangeDetectionStrategy.Eager,
   styleUrls: ['./offline-status.component.scss']
 })
 export class OfflineStatusComponent implements OnInit, OnDestroy {

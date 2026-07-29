@@ -31,7 +31,7 @@ import { INV_COUNT_TABS } from '../inventory-tabs';
   template: `
     <div class="surf-page in">
       <p-toast></p-toast>
-      <p-confirmDialog></p-confirmDialog>
+      <p-confirmdialog></p-confirmdialog>
       <app-page-tabs [tabs]="inventoryTabs" />
 
       <header class="surf-page-head">
@@ -89,8 +89,8 @@ import { INV_COUNT_TABS } from '../inventory-tabs';
                 <input pInputText [(ngModel)]="editName" />
               </label>
               <div class="pa-fld-row">
-                <label class="pa-fld">Fila <p-inputNumber [(ngModel)]="editRow" [min]="0" [showButtons]="false" inputStyleClass="pa-num"></p-inputNumber></label>
-                <label class="pa-fld">Col <p-inputNumber [(ngModel)]="editCol" [min]="0" [showButtons]="false" inputStyleClass="pa-num"></p-inputNumber></label>
+                <label class="pa-fld">Fila <p-inputnumber [(ngModel)]="editRow" [min]="0" [showButtons]="false" inputStyleClass="pa-num"></p-inputnumber></label>
+                <label class="pa-fld">Col <p-inputnumber [(ngModel)]="editCol" [min]="0" [showButtons]="false" inputStyleClass="pa-num"></p-inputnumber></label>
               </div>
               <div class="pa-panel-actions">
                 <button pButton type="button" label="Guardar" icon="pi pi-check" size="small" (click)="saveEdit()" [loading]="working()"></button>
@@ -131,8 +131,8 @@ import { INV_COUNT_TABS } from '../inventory-tabs';
           <label class="pa-fld">Código <input pInputText [(ngModel)]="newCode" placeholder="P-01" /></label>
           <label class="pa-fld">Nombre <input pInputText [(ngModel)]="newName" placeholder="Pasillo 1" /></label>
           <div class="pa-fld-row">
-            <label class="pa-fld">Fila <p-inputNumber [(ngModel)]="newRow" [min]="0" inputStyleClass="pa-num"></p-inputNumber></label>
-            <label class="pa-fld">Col <p-inputNumber [(ngModel)]="newCol" [min]="0" inputStyleClass="pa-num"></p-inputNumber></label>
+            <label class="pa-fld">Fila <p-inputnumber [(ngModel)]="newRow" [min]="0" inputStyleClass="pa-num"></p-inputnumber></label>
+            <label class="pa-fld">Col <p-inputnumber [(ngModel)]="newCol" [min]="0" inputStyleClass="pa-num"></p-inputnumber></label>
           </div>
         </div>
         <ng-template pTemplate="footer">

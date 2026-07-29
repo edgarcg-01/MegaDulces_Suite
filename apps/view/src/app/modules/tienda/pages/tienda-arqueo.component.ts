@@ -54,7 +54,7 @@ import { HasUnsavedChanges } from '../../../core/guards/unsaved-changes.guard';
         <!-- Captura -->
         <div class="card-premium card-flat arq-panel">
           <h3 class="arq-card-title">Nuevo arqueo</h3>
-          <p-selectButton [options]="tipoOptions" [ngModel]="aTipo()" (ngModelChange)="aTipo.set($event); dirty.set(true)"
+          <p-selectbutton [options]="tipoOptions" [ngModel]="aTipo()" (ngModelChange)="aTipo.set($event); dirty.set(true)"
                           optionLabel="label" optionValue="value" [allowEmpty]="false" styleClass="sb-liquid arq-seg" />
 
           <div class="arq-head">
@@ -78,7 +78,7 @@ import { HasUnsavedChanges } from '../../../core/guards/unsaved-changes.guard';
               <tr>
                 <td class="arq-denom-lbl">{{ d >= 1 ? '$' + d : (d*100) + '¢' }}</td>
                 <td class="ta-r">
-                  <p-inputNumber [(ngModel)]="denomCount[d]" (ngModelChange)="recalc()" [min]="0" [showButtons]="false"
+                  <p-inputnumber [(ngModel)]="denomCount[d]" (ngModelChange)="recalc()" [min]="0" [showButtons]="false"
                                  [useGrouping]="false" inputmode="numeric" inputStyleClass="arq-num" [placeholder]="'0'" />
                 </td>
                 <td class="ta-r muted">{{ money((denomCount[d] || 0) * d) }}</td>

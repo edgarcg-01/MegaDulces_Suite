@@ -105,11 +105,11 @@ import { SAT_REGIMENES, SAT_USOS_CFDI, SatCatItem } from '../../../shared/consta
           </label>
           <label>
             <span>Límite de crédito (MXN)</span>
-            <p-inputNumber formControlName="credit_limit" mode="currency" currency="MXN" locale="es-MX" />
+            <p-inputnumber formControlName="credit_limit" mode="currency" currency="MXN" locale="es-MX" />
           </label>
           <label>
             <span>Días de pago</span>
-            <p-inputNumber formControlName="payment_terms_days" [min]="0" [max]="180" />
+            <p-inputnumber formControlName="payment_terms_days" [min]="0" [max]="180" />
           </label>
           <label class="full">
             <span>Ruta de reparto</span>

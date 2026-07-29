@@ -1,4 +1,4 @@
-import { Component, inject, signal, OnInit, output } from '@angular/core';
+import { Component, inject, signal, OnInit, output, ChangeDetectionStrategy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { SelectModule } from 'primeng/select';
@@ -90,7 +90,7 @@ interface DropOption {
                   </div>
                   <div class="flex flex-col gap-0.5">
                     <label class="filter-label">Vendedor</label>
-                    <p-multiSelect
+                    <p-multiselect
                       [options]="sellers"
                       [(ngModel)]="selectedSellerIds"
                       optionLabel="label" optionValue="value"
@@ -105,6 +105,7 @@ interface DropOption {
                 }
               </div>
     `,
+  changeDetection: ChangeDetectionStrategy.Eager,
   styles: [`
     :host { display: block; }
     :host ::ng-deep .filter-label {

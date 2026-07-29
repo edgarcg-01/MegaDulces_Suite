@@ -9,6 +9,7 @@ import {
   ViewChild,
   ElementRef,
   DestroyRef,
+  ChangeDetectionStrategy
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
@@ -570,7 +571,7 @@ interface PdfSection {
                                       'text-bad-fg':
                                         visitScoreStatus(visit) === 'bad',
                                     }"
-                                                                  >{{ fmtScore(visit.stats?.puntuacionTotal) }}</span
+                                                                  >{{ fmtScore($safeNavigationMigration(visit.stats?.puntuacionTotal)) }}</span
                                                                   >
                                                                 </td>
                                                                 <td class="text-center">
@@ -706,7 +707,7 @@ interface PdfSection {
                             visitScoreStatus(visit) === 'bad',
                         }"
                                                                     >
-                                                                    {{ fmtScore(visit.stats?.puntuacionTotal) }}
+                                                                    {{ fmtScore($safeNavigationMigration(visit.stats?.puntuacionTotal)) }}
                                                                   </div>
                                                                 </div>
                                                                 <div class="flex gap-2">
@@ -771,7 +772,7 @@ interface PdfSection {
                               'text-bad-fg': visitScoreStatus(v) === 'bad',
                             }"
                                                                                 >
-                                                                                {{ fmtScore(v.stats?.puntuacionTotal) }}
+                                                                                {{ fmtScore($safeNavigationMigration(v.stats?.puntuacionTotal)) }}
                                                                               </td>
                                                                             }
                                                                           </tr>
@@ -958,7 +959,7 @@ interface PdfSection {
                     'text-bad-fg': visitScoreStatus(selectedRow) === 'bad',
                   }"
                                                                             >
-                                                                            {{ fmtScore(selectedRow.stats?.puntuacionTotal) }}
+                                                                            {{ fmtScore($safeNavigationMigration(selectedRow.stats?.puntuacionTotal)) }}
                                                                           </div>
                                                                           <div class="text-[9px] font-bold uppercase opacity-60">
                                                                             {{ statusLabel(visitScoreStatus(selectedRow)) }}
@@ -1104,6 +1105,7 @@ interface PdfSection {
                                                                     <p-toast />
                                                                   </main>
     `,
+  changeDetection: ChangeDetectionStrategy.Eager,
   styles: [
     `
       :host ::ng-deep .p-datatable-sm .p-datatable-tbody > tr > td {

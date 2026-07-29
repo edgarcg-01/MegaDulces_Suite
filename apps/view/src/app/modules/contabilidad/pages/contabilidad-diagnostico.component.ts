@@ -78,7 +78,7 @@ import { FacturasService } from '../facturas.service';
 
       <!-- Filtros -->
       <div class="di-filters">
-        <p-selectButton styleClass="sb-liquid" [options]="statusOpts" [ngModel]="fStatus()" (ngModelChange)="setStatus($event)" optionLabel="label" optionValue="value" [allowEmpty]="false" ariaLabel="Estado del error" />
+        <p-selectbutton styleClass="sb-liquid" [options]="statusOpts" [ngModel]="fStatus()" (ngModelChange)="setStatus($event)" optionLabel="label" optionValue="value" [allowEmpty]="false" ariaLabel="Estado del error" />
         <p-select [options]="kindOpts" [ngModel]="fKind()" (ngModelChange)="setKind($event)" optionLabel="label" optionValue="value" appendTo="body" styleClass="di-sel sel-liquid" ariaLabel="Tipo de error" />
       </div>
 

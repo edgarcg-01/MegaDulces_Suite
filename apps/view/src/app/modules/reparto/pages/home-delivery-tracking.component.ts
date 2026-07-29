@@ -31,7 +31,7 @@ import { WebSocketService } from '../../../core/services/websocket.service';
           <p class="sub">Dónde va cada pedido despachado hoy</p>
         </div>
         <div class="head-actions">
-          <p-selectButton [options]="filters" [(ngModel)]="statusFilter" optionLabel="label" optionValue="value"
+          <p-selectbutton [options]="filters" [(ngModel)]="statusFilter" optionLabel="label" optionValue="value"
             (onChange)="load()" [allowEmpty]="false" styleClass="sb-liquid" />
             <button pButton icon="pi pi-refresh" [label]="loading() ? 'Actualizando…' : 'Actualizar'"
             size="small" severity="secondary" (click)="load()" [disabled]="loading()"></button>

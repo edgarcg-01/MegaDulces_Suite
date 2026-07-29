@@ -276,7 +276,7 @@ import { Permission } from '../../../core/constants/permissions';
           </div>
           <label class="adjust-field">
             <span>Nuevo saldo on_hand</span>
-            <p-inputNumber [(ngModel)]="newQuantity" [min]="0" [showButtons]="true" />
+            <p-inputnumber [(ngModel)]="newQuantity" [min]="0" [showButtons]="true" />
           </label>
           <label class="adjust-field">
             <span>Notas (auditoría física, etc.)</span>

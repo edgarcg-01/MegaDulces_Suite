@@ -73,8 +73,8 @@ interface SolicitudSug extends ExpenseRequestRow { label: string; }
                  [paginator]="rows().length > 100" [rows]="100" [loading]="loading()" sortField="created_at" [sortOrder]="-1">
           <ng-template pTemplate="header">
             <tr>
-              <th pSortableColumn="created_at" style="width:6rem">Fecha <p-sortIcon field="created_at" /></th>
-              <th pSortableColumn="folio_solicitud" style="width:7rem">Folio sol. <p-sortIcon field="folio_solicitud" /></th>
+              <th pSortableColumn="created_at" style="width:6rem">Fecha <p-sorticon field="created_at" /></th>
+              <th pSortableColumn="folio_solicitud" style="width:7rem">Folio sol. <p-sorticon field="folio_solicitud" /></th>
               <th>Solicitante</th>
               <th>Departamento</th>
               <th>Proveedor</th>
@@ -123,7 +123,7 @@ interface SolicitudSug extends ExpenseRequestRow { label: string; }
     <p-dialog [(visible)]="showForm" [modal]="true" [style]="{ width: '40rem' }" [draggable]="false" header="Nueva solicitud de reembolso">
       <div class="cp-form">
         <label class="cp-f"><span>Solicitud de gasto (Kepler XA1501) *</span>
-          <p-autoComplete [(ngModel)]="solicitudSel" [suggestions]="solicitudSug()" (completeMethod)="searchSolicitud($event)"
+          <p-autocomplete [(ngModel)]="solicitudSel" [suggestions]="solicitudSug()" (completeMethod)="searchSolicitud($event)"
             field="label" [forceSelection]="false" [minLength]="2" placeholder="Busca por folio o proveedor…" appendTo="body"
             styleClass="w-full" (onSelect)="onSolicitudSelect($event)" [delay]="250" />
           <small class="cp-hint">Elige la solicitud para auto-rellenar proveedor, fecha e importe.</small></label>
@@ -141,10 +141,10 @@ interface SolicitudSug extends ExpenseRequestRow { label: string; }
           <label class="cp-f"><span>Nombre proveedor *</span>
             <input pInputText [(ngModel)]="form.proveedor" /></label>
           <label class="cp-f"><span>Fecha del gasto *</span>
-            <p-datePicker [(ngModel)]="fechaGasto" dateFormat="dd/mm/yy" [showIcon]="true" appendTo="body" styleClass="w-full" /></label>
+            <p-datepicker [(ngModel)]="fechaGasto" dateFormat="dd/mm/yy" [showIcon]="true" appendTo="body" styleClass="w-full" /></label>
         </div>
         <label class="cp-f"><span>Importe</span>
-          <p-inputNumber [(ngModel)]="form.importe" mode="currency" currency="MXN" locale="es-MX" styleClass="w-full" /></label>
+          <p-inputnumber [(ngModel)]="form.importe" mode="currency" currency="MXN" locale="es-MX" styleClass="w-full" /></label>
 
         <div class="cp-files-head">Comprobantes</div>
         @for (slot of fileSlots; track slot.role) {

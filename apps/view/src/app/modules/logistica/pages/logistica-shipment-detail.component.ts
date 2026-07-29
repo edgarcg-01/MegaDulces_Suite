@@ -36,7 +36,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
   template: `
     <div class="surf-page shd">
       <p-toast></p-toast>
-      <p-confirmDialog></p-confirmDialog>
+      <p-confirmdialog></p-confirmdialog>
     
       @if (shipment(); as s) {
         <!-- BACK LINK -->
@@ -351,22 +351,22 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
               <span class="cell-label">Conceptos de gasto operativo</span>
               <form [formGroup]="expForm" class="shd-exp-form">
                 <div class="shd-exp-row">
-                  <label><span>Combustible</span><p-inputNumber formControlName="fuel" mode="currency" currency="MXN" locale="es-MX"></p-inputNumber></label>
-                  <label><span>Casetas</span><p-inputNumber formControlName="tolls" mode="currency" currency="MXN" locale="es-MX"></p-inputNumber></label>
-                  <label><span>Hospedaje</span><p-inputNumber formControlName="lodging" mode="currency" currency="MXN" locale="es-MX"></p-inputNumber></label>
+                  <label><span>Combustible</span><p-inputnumber formControlName="fuel" mode="currency" currency="MXN" locale="es-MX"></p-inputnumber></label>
+                  <label><span>Casetas</span><p-inputnumber formControlName="tolls" mode="currency" currency="MXN" locale="es-MX"></p-inputnumber></label>
+                  <label><span>Hospedaje</span><p-inputnumber formControlName="lodging" mode="currency" currency="MXN" locale="es-MX"></p-inputnumber></label>
                 </div>
                 <div class="shd-exp-row">
-                  <label><span>Pensiones</span><p-inputNumber formControlName="parking" mode="currency" currency="MXN" locale="es-MX"></p-inputNumber></label>
-                  <label><span>Permisos</span><p-inputNumber formControlName="permits" mode="currency" currency="MXN" locale="es-MX"></p-inputNumber></label>
-                  <label><span>Talachas</span><p-inputNumber formControlName="repairs" mode="currency" currency="MXN" locale="es-MX"></p-inputNumber></label>
+                  <label><span>Pensiones</span><p-inputnumber formControlName="parking" mode="currency" currency="MXN" locale="es-MX"></p-inputnumber></label>
+                  <label><span>Permisos</span><p-inputnumber formControlName="permits" mode="currency" currency="MXN" locale="es-MX"></p-inputnumber></label>
+                  <label><span>Talachas</span><p-inputnumber formControlName="repairs" mode="currency" currency="MXN" locale="es-MX"></p-inputnumber></label>
                 </div>
                 <div class="shd-exp-row">
-                  <label><span>Ayudantes ext.</span><p-inputNumber formControlName="external_helpers" mode="currency" currency="MXN" locale="es-MX"></p-inputNumber></label>
-                  <label><span>Maniobras</span><p-inputNumber formControlName="handling" mode="currency" currency="MXN" locale="es-MX"></p-inputNumber></label>
-                  <label><span>Viáticos guía</span><p-inputNumber formControlName="driver_per_diem" mode="currency" currency="MXN" locale="es-MX"></p-inputNumber></label>
+                  <label><span>Ayudantes ext.</span><p-inputnumber formControlName="external_helpers" mode="currency" currency="MXN" locale="es-MX"></p-inputnumber></label>
+                  <label><span>Maniobras</span><p-inputnumber formControlName="handling" mode="currency" currency="MXN" locale="es-MX"></p-inputnumber></label>
+                  <label><span>Viáticos guía</span><p-inputnumber formControlName="driver_per_diem" mode="currency" currency="MXN" locale="es-MX"></p-inputnumber></label>
                 </div>
                 <div class="shd-exp-row">
-                  <label><span>Otros</span><p-inputNumber formControlName="other" mode="currency" currency="MXN" locale="es-MX"></p-inputNumber></label>
+                  <label><span>Otros</span><p-inputnumber formControlName="other" mode="currency" currency="MXN" locale="es-MX"></p-inputnumber></label>
                   <label class="shd-check-line shd-check-span-2">
                     <p-checkbox formControlName="apply_config_km" [binary]="true" inputId="apply_km"></p-checkbox>
                     <span>Aplicar costo km de configuración (recalcula total)</span>
@@ -475,11 +475,11 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
         <form [formGroup]="metricsForm" class="comm-form">
           <label>
             <span>Km recorridos</span>
-            <p-inputNumber formControlName="actual_km"></p-inputNumber>
+            <p-inputnumber formControlName="actual_km"></p-inputnumber>
           </label>
           <label>
             <span>Flete cobrado</span>
-            <p-inputNumber formControlName="freight_revenue" mode="currency" currency="MXN" locale="es-MX"></p-inputNumber>
+            <p-inputnumber formControlName="freight_revenue" mode="currency" currency="MXN" locale="es-MX"></p-inputnumber>
           </label>
         </form>
         <ng-template pTemplate="footer">
@@ -508,19 +508,19 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
           </label>
           <label>
             <span>Comisión chofer</span>
-            <p-inputNumber formControlName="driver_commission" mode="currency" currency="MXN" locale="es-MX"></p-inputNumber>
+            <p-inputnumber formControlName="driver_commission" mode="currency" currency="MXN" locale="es-MX"></p-inputnumber>
           </label>
           <label>
             <span>Comisión ayudante 1</span>
-            <p-inputNumber formControlName="helper1_commission" mode="currency" currency="MXN" locale="es-MX"></p-inputNumber>
+            <p-inputnumber formControlName="helper1_commission" mode="currency" currency="MXN" locale="es-MX"></p-inputnumber>
           </label>
           <label>
             <span>Comisión ayudante 2</span>
-            <p-inputNumber formControlName="helper2_commission" mode="currency" currency="MXN" locale="es-MX"></p-inputNumber>
+            <p-inputnumber formControlName="helper2_commission" mode="currency" currency="MXN" locale="es-MX"></p-inputnumber>
           </label>
           <label>
             <span>Viáticos totales</span>
-            <p-inputNumber formControlName="per_diem_total" mode="currency" currency="MXN" locale="es-MX"></p-inputNumber>
+            <p-inputnumber formControlName="per_diem_total" mode="currency" currency="MXN" locale="es-MX"></p-inputnumber>
           </label>
           <label class="checkbox-line full">
             <p-checkbox formControlName="overnight" [binary]="true" inputId="ov"></p-checkbox>
@@ -586,9 +586,9 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
                 </div>
                 <label class="full">
                   <span>Buscar cliente</span>
-                  <p-autoComplete [suggestions]="customerSuggestions()" (completeMethod)="searchCustomer($event)"
+                  <p-autocomplete [suggestions]="customerSuggestions()" (completeMethod)="searchCustomer($event)"
                     (onSelect)="onCustomerSelect($event)" field="name" [forceSelection]="false"
-                  placeholder="Nombre, código o RFC…" appendTo="body" styleClass="w-full"></p-autoComplete>
+                  placeholder="Nombre, código o RFC…" appendTo="body" styleClass="w-full"></p-autocomplete>
                 </label>
                 @if (customerOrders().length) {
                   <label class="full">
@@ -604,11 +604,11 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
                 </label>
                 <label>
                   <span>Cajas</span>
-                  <p-inputNumber formControlName="boxes_count"></p-inputNumber>
+                  <p-inputnumber formControlName="boxes_count"></p-inputnumber>
                 </label>
                 <label>
                   <span>Valor</span>
-                  <p-inputNumber formControlName="value" mode="currency" currency="MXN" locale="es-MX"></p-inputNumber>
+                  <p-inputnumber formControlName="value" mode="currency" currency="MXN" locale="es-MX"></p-inputnumber>
                 </label>
                 <label class="full">
                   <span>Dirección</span>

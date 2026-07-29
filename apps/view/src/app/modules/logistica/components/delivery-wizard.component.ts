@@ -81,7 +81,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
     
       <!-- Progress bar -->
       <div class="progress-wrap">
-        <p-progressBar [value]="progress()" [showValue]="false"></p-progressBar>
+        <p-progressbar [value]="progress()" [showValue]="false"></p-progressbar>
         <span class="progress-label">{{ stepLabel() }} · {{ progress() }}%</span>
       </div>
     
@@ -111,13 +111,13 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
                 }
               </div>
               <div class="item-controls">
-                <p-selectButton
+                <p-selectbutton
                   [options]="okOptions"
                   [(ngModel)]="responsesSalida[item.id].ok"
                   optionLabel="label"
                   optionValue="value"
                   styleClass="sb-liquid"
-                ></p-selectButton>
+                ></p-selectbutton>
                 <input
                   pInputText
                   [(ngModel)]="responsesSalida[item.id].comment"
@@ -143,7 +143,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
                 <p class="muted">Destino: <strong>{{ shipment()?.destination }}</strong></p>
               }
               @if (shipment()?.departure_at) {
-                <p class="muted">Salida: {{ shipment()?.departure_at | date:'short' }}</p>
+                <p class="muted">Salida: {{ $safeNavigationMigration(shipment()?.departure_at) | date:'short' }}</p>
               }
             </div>
             <div class="step-actions">
@@ -192,13 +192,13 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
                   }
                 </div>
                 <div class="item-controls">
-                  <p-selectButton
+                  <p-selectbutton
                     [options]="okOptions"
                     [(ngModel)]="responsesLlegada[item.id].ok"
                     optionLabel="label"
                     optionValue="value"
                     styleClass="sb-liquid"
-                  ></p-selectButton>
+                  ></p-selectbutton>
                   <input
                     pInputText
                     [(ngModel)]="responsesLlegada[item.id].comment"

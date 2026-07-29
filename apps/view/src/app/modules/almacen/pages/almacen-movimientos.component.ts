@@ -56,13 +56,13 @@ import { Permission } from '../../../core/constants/permissions';
 
       <!-- Filtros -->
       <div class="dm-filters">
-        <p-multiSelect [options]="destKindOpts" [(ngModel)]="fDestKinds" (onChange)="reload()"
+        <p-multiselect [options]="destKindOpts" [(ngModel)]="fDestKinds" (onChange)="reload()"
                        optionLabel="label" optionValue="value" placeholder="Destino"
                        [showClear]="false" [showToggleAll]="false" styleClass="dm-sel-sm"
-                       title="Destino de los traspasos. Por defecto solo sucursales; agregá Rutas para incluir reparto."></p-multiSelect>
-        <p-multiSelect [options]="warehouseOpts()" [(ngModel)]="fWarehouses" (onChange)="reload()"
+                       title="Destino de los traspasos. Por defecto solo sucursales; agregá Rutas para incluir reparto."></p-multiselect>
+        <p-multiselect [options]="warehouseOpts()" [(ngModel)]="fWarehouses" (onChange)="reload()"
                        optionLabel="label" optionValue="value" placeholder="Todos los almacenes" [showClear]="true"
-                       [maxSelectedLabels]="2" selectedItemsLabel="{0} almacenes" styleClass="dm-sel"></p-multiSelect>
+                       [maxSelectedLabels]="2" selectedItemsLabel="{0} almacenes" styleClass="dm-sel"></p-multiselect>
         <p-datepicker [(ngModel)]="fFrom" (onSelect)="reload()" dateFormat="yy-mm-dd" placeholder="Desde" [showIcon]="true" styleClass="dm-date" appendTo="body"></p-datepicker>
         <p-datepicker [(ngModel)]="fTo" (onSelect)="reload()" dateFormat="yy-mm-dd" placeholder="Hasta" [showIcon]="true" styleClass="dm-date" appendTo="body"></p-datepicker>
         <p-select [options]="kindOpts" [(ngModel)]="fKind" (onChange)="reload()"
@@ -71,10 +71,10 @@ import { Permission } from '../../../core/constants/permissions';
                   optionLabel="label" optionValue="value" placeholder="Tipo de documento" [showClear]="true" styleClass="dm-sel"></p-select>
         <p-select [options]="estadoOpts" [(ngModel)]="fEstado" (onChange)="reload()"
                   optionLabel="label" optionValue="value" placeholder="Estado (traspasos)" [showClear]="true" styleClass="dm-sel"></p-select>
-        <p-multiSelect [options]="warehouseOpts()" [(ngModel)]="fTransferWhs" (onChange)="reload()"
+        <p-multiselect [options]="warehouseOpts()" [(ngModel)]="fTransferWhs" (onChange)="reload()"
                        optionLabel="label" optionValue="value" placeholder="Origen/Destino (traspasos)" [showClear]="true"
                        [maxSelectedLabels]="2" selectedItemsLabel="{0} orígenes/destinos" styleClass="dm-sel"
-                       title="Solo documentos de traspaso donde el origen o el destino esté en la selección"></p-multiSelect>
+                       title="Solo documentos de traspaso donde el origen o el destino esté en la selección"></p-multiselect>
         <span class="dm-search">
           <input pInputText type="text" [(ngModel)]="fSearch" (keyup.enter)="reload()" placeholder="SKU o producto…" aria-label="Buscar por SKU o producto" />
         </span>

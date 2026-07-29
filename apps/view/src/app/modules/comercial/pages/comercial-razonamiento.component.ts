@@ -157,9 +157,9 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
                 <tr [class.rz-kill]="p.action_type==='__global__'">
                   <td class="rz-strong">{{ p.action_type==='__global__' ? 'GLOBAL (kill-switch)' : p.action_type }}</td>
                   <td><p-select [options]="modeOpts" [(ngModel)]="p.mode" optionLabel="label" optionValue="value" styleClass="rz-sel-sm"></p-select></td>
-                  <td class="rz-r"><p-inputNumber [(ngModel)]="p.min_confidence" [min]="0" [max]="1" mode="decimal" [minFractionDigits]="0" [maxFractionDigits]="2" inputStyleClass="rz-num"></p-inputNumber></td>
-                  <td class="rz-r"><p-inputNumber [(ngModel)]="p.daily_cap" [min]="0" inputStyleClass="rz-num"></p-inputNumber></td>
-                  <td class="rz-r"><p-inputNumber [(ngModel)]="p.value_cap_mxn" [min]="0" inputStyleClass="rz-num"></p-inputNumber></td>
+                  <td class="rz-r"><p-inputnumber [(ngModel)]="p.min_confidence" [min]="0" [max]="1" mode="decimal" [minFractionDigits]="0" [maxFractionDigits]="2" inputStyleClass="rz-num"></p-inputnumber></td>
+                  <td class="rz-r"><p-inputnumber [(ngModel)]="p.daily_cap" [min]="0" inputStyleClass="rz-num"></p-inputnumber></td>
+                  <td class="rz-r"><p-inputnumber [(ngModel)]="p.value_cap_mxn" [min]="0" inputStyleClass="rz-num"></p-inputnumber></td>
                   <td><button pButton type="button" icon="pi pi-save" class="p-button-sm p-button-text" pTooltip="Guardar" (click)="savePolicy(p)"></button></td>
                 </tr>
               </ng-template>

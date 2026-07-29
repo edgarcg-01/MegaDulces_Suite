@@ -12,6 +12,7 @@ import {
   computed,
   effect,
   untracked,
+  ChangeDetectionStrategy
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
@@ -126,6 +127,7 @@ interface PdfSection {
   ],
   providers: [MessageService, ConfirmationService],
   templateUrl: './reports.component.html',
+  changeDetection: ChangeDetectionStrategy.Eager,
   styles: [
     `
       :host ::ng-deep .p-datatable-sm .p-datatable-tbody > tr > td {

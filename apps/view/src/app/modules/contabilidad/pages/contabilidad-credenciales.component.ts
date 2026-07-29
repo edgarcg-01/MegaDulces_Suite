@@ -32,7 +32,7 @@ import { CredencialesService, CredStatus } from '../credenciales.service';
   template: `
     <div class="surf-page in">
       <p-toast></p-toast>
-      <p-confirmDialog></p-confirmDialog>
+      <p-confirmdialog></p-confirmdialog>
       <app-page-tabs [tabs]="tabs" variant="liquid" />
 
       <header class="surf-page-head cr-head">
