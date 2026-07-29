@@ -77,9 +77,9 @@ type CatLine = CriticalStockRow & { uxc: number; cajas: number; piezas: number; 
 
       <div class="qt-filters">
         <div class="qt-wh">
-          <p-multiSelect [options]="warehouses()" [(ngModel)]="fWh" (onChange)="reload()"
+          <p-multiselect [options]="warehouses()" [(ngModel)]="fWh" (onChange)="reload()"
                          optionLabel="label" optionValue="id" placeholder="Todos los almacenes" [showClear]="true"
-                         [maxSelectedLabels]="2" selectedItemsLabel="{0} almacenes" styleClass="qt-sel"></p-multiSelect>
+                         [maxSelectedLabels]="2" selectedItemsLabel="{0} almacenes" styleClass="qt-sel"></p-multiselect>
           <div class="qt-atajos">
             <span class="qt-atajos-lbl">Atajos:</span>
             <button type="button" class="qt-atajo" [class.on]="!fWh.length" (click)="clearWh()">Todos</button>
@@ -131,7 +131,7 @@ type CatLine = CriticalStockRow & { uxc: number; cajas: number; piezas: number; 
                styleClass="p-datatable-sm qt-table">
         <ng-template pTemplate="header">
           <tr>
-            <th style="width:2.2rem"><p-tableHeaderCheckbox /></th>
+            <th style="width:2.2rem"><p-tableheadercheckbox /></th>
             <th style="width:2.5rem"></th>
             <th>Estado</th><th>Próximo</th><th>Proveedor</th><th>Almacén</th><th>Canal</th>
             <th class="qt-r">Cadencia</th><th>Última</th><th class="qt-r">SKUs</th>
@@ -140,7 +140,7 @@ type CatLine = CriticalStockRow & { uxc: number; cajas: number; piezas: number; 
         </ng-template>
         <ng-template pTemplate="body" let-r let-expanded="expanded">
           <tr>
-            <td><p-tableCheckbox [value]="r" /></td>
+            <td><p-tablecheckbox [value]="r" /></td>
             <td>
               <button type="button" pButton [pRowToggler]="r" [text]="true" [rounded]="true"
                       class="p-button-sm" [icon]="expanded ? 'pi pi-chevron-down' : 'pi pi-chevron-right'"></button>
@@ -237,7 +237,7 @@ type CatLine = CriticalStockRow & { uxc: number; cajas: number; piezas: number; 
                             <td class="qt-r qt-muted">{{ objetivo(l) | number:'1.0-0' }}</td>
                             <td class="qt-r">{{ l.suggested_qty | number:'1.0-0' }}</td>
                             <td class="qt-r" [class.qt-muted]="!(l.transfer_in)" [class.qt-transfer]="(l.transfer_in || 0) > 0" [pTooltip]="(l.surplus_network || 0) > 0 ? ('Sobrante en la red: ' + (l.surplus_network | number:'1.0-0') + ' — traspasa en vez de comprar') : ''">{{ (l.transfer_in || 0) > 0 ? (l.transfer_in | number:'1.0-0') : '—' }}</td>
-                            <td class="qt-r qt-pedir"><p-inputNumber [ngModel]="orderUnit()==='cajas' ? l.finalCajas : pzOf(l)" (ngModelChange)="setQty(l, $event)" [min]="0" [showButtons]="false" inputStyleClass="qt-qty"></p-inputNumber></td>
+                            <td class="qt-r qt-pedir"><p-inputnumber [ngModel]="orderUnit()==='cajas' ? l.finalCajas : pzOf(l)" (ngModelChange)="setQty(l, $event)" [min]="0" [showButtons]="false" inputStyleClass="qt-qty"></p-inputnumber></td>
                             <td class="qt-r qt-muted">{{ (orderUnit()==='cajas' ? pzOf(l) : l.finalCajas) | number:'1.0-0' }}</td>
                             <td class="qt-r">{{ money(lineCost(l)) }}</td>
                           </tr>

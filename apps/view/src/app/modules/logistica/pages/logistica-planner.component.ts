@@ -33,9 +33,9 @@ import { LogisticaService, RoutePlan, PendingOrder, Vehicle } from '../logistica
           <div class="pl-build-row">
             <p-select [options]="vehicleOptions()" [(ngModel)]="buildVehicle" optionLabel="label" optionValue="value"
             [filter]="true" placeholder="Unidad" styleClass="pl-select" appendTo="body"></p-select>
-            <p-multiSelect [options]="orderOptions()" [(ngModel)]="buildOrders" optionLabel="label" optionValue="value"
+            <p-multiselect [options]="orderOptions()" [(ngModel)]="buildOrders" optionLabel="label" optionValue="value"
               [filter]="true" placeholder="Pedidos pendientes" styleClass="pl-select" appendTo="body"
-            [maxSelectedLabels]="3" selectedItemsLabel="{0} pedidos"></p-multiSelect>
+            [maxSelectedLabels]="3" selectedItemsLabel="{0} pedidos"></p-multiselect>
             <button pButton icon="pi pi-box" label="Crear embarque optimizado" size="small"
             [loading]="building()" [disabled]="!buildVehicle || !buildOrders.length" (click)="build()"></button>
           </div>

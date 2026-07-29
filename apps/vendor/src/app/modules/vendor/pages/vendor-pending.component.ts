@@ -38,7 +38,7 @@ import { OrderLine } from '../../portal/portal.service';
   ],
   providers: [ConfirmationService],
   template: `
-    <p-confirmDialog></p-confirmDialog>
+    <p-confirmdialog></p-confirmdialog>
     
     <div class="page-head">
       <div>

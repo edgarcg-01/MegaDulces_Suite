@@ -90,7 +90,7 @@ const CHANNEL_OPTS = [
           @case ('month') {
             <div class="so-field">
               <label>Mes</label>
-              <p-datePicker [(ngModel)]="monthDate" view="month" dateFormat="MM yy" [showIcon]="true"
+              <p-datepicker [(ngModel)]="monthDate" view="month" dateFormat="MM yy" [showIcon]="true"
                             appendTo="body" (onSelect)="refreshPeriod()" (onClose)="refreshPeriod()" />
             </div>
           }
@@ -114,7 +114,7 @@ const CHANNEL_OPTS = [
           @case ('range') {
             <div class="so-field">
               <label>Rango</label>
-              <p-datePicker [(ngModel)]="rangeDates" selectionMode="range" dateFormat="dd/mm/yy"
+              <p-datepicker [(ngModel)]="rangeDates" selectionMode="range" dateFormat="dd/mm/yy"
                             [showIcon]="true" appendTo="body" (onSelect)="refreshPeriod()" (onClose)="refreshPeriod()" />
             </div>
           }
@@ -162,10 +162,10 @@ const CHANNEL_OPTS = [
         @if (reportMode() === 'canal') {
           <div class="so-field so-toggles">
             @if (view() !== 'month_columns') {
-              <label class="so-toggle"><p-toggleSwitch [(ngModel)]="byChannel" /> <span>Desglosar canal</span></label>
+              <label class="so-toggle"><p-toggleswitch [(ngModel)]="byChannel" /> <span>Desglosar canal</span></label>
             }
             @if (view() !== 'month_summary') {
-              <label class="so-toggle"><p-toggleSwitch [(ngModel)]="includeZeros" /> <span>Incluir sin venta</span></label>
+              <label class="so-toggle"><p-toggleswitch [(ngModel)]="includeZeros" /> <span>Incluir sin venta</span></label>
             }
           </div>
         }

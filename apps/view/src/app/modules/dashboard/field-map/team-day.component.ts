@@ -1,4 +1,4 @@
-import { Component, OnInit, inject, output, signal } from '@angular/core';
+import { Component, OnInit, inject, output, signal, ChangeDetectionStrategy } from '@angular/core';
 
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { SkeletonModule } from 'primeng/skeleton';
@@ -79,6 +79,7 @@ const STATUS_LABEL: Record<string, string> = {
       }
     </div>
   `,
+  changeDetection: ChangeDetectionStrategy.Eager,
   styles: [`
     :host { display:block; }
     .td-wrap { padding:1rem; display:flex; flex-direction:column; gap:.8rem; }

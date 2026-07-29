@@ -1,4 +1,4 @@
-import { Component, OnInit, computed, inject, signal } from '@angular/core';
+import { Component, OnInit, computed, inject, signal, ChangeDetectionStrategy } from '@angular/core';
 
 import { ActivatedRoute, Router } from '@angular/router';
 import { RoutesAnalysisComponent } from '../routes-analysis/routes-analysis.component';
@@ -55,6 +55,7 @@ type FieldView = 'equipo' | 'ruta' | 'vendedor' | 'comercial';
       </div>
     </div>
   `,
+  changeDetection: ChangeDetectionStrategy.Eager,
   styles: [`
     :host { display:block; }
     .fm-wrap { display:flex; flex-direction:column; min-height:calc(100vh - var(--app-header-h, 56px)); }

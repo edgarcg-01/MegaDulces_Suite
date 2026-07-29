@@ -39,7 +39,7 @@ import { INV_STOCK_TABS } from '../inventory-tabs';
   template: `
     <div class="surf-page wh">
       <p-toast></p-toast>
-      <p-confirmDialog></p-confirmDialog>
+      <p-confirmdialog></p-confirmdialog>
       <app-page-tabs [tabs]="inventoryTabs" />
     
       <!-- PAGE HEAD -->

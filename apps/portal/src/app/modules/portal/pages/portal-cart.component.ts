@@ -39,7 +39,7 @@ import { CountUpDirective } from '../ui/count-up.directive';
   ],
   providers: [ConfirmationService, CurrencyPipe],
   template: `
-    <p-confirmDialog></p-confirmDialog>
+    <p-confirmdialog></p-confirmdialog>
     
     <header class="portal-page-head">
       <div class="portal-page-head-text">

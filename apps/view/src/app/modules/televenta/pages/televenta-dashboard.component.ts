@@ -88,7 +88,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
                 <p-tag [value]="outcomeLabel(o.outcome)" [severity]="outcomeSeverity(o.outcome)"></p-tag>
                 <span class="outcome-count">{{ o.count }}</span>
               </div>
-              <p-progressBar [value]="outcomePct(o, d)" [showValue]="false"></p-progressBar>
+              <p-progressbar [value]="outcomePct(o, d)" [showValue]="false"></p-progressbar>
             </div>
           }
           @if (d.outcomes_7d.length === 0) {

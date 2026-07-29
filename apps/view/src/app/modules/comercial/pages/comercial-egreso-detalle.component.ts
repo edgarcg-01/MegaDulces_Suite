@@ -83,13 +83,13 @@ interface Constraint { type: SliceType; key: string; label: string; }
       <!-- Filtros propios del detalle -->
       <div class="ed-filters card-premium card-flat">
         <div class="ed-field"><label>Rango</label>
-          <p-datePicker [(ngModel)]="rangeDates" selectionMode="range" dateFormat="dd/mm/yy" [showIcon]="true" appendTo="body" (onClose)="applyFilters()" /></div>
+          <p-datepicker [(ngModel)]="rangeDates" selectionMode="range" dateFormat="dd/mm/yy" [showIcon]="true" appendTo="body" (onClose)="applyFilters()" /></div>
         <div class="ed-field"><label>Sucursales</label>
-          <p-multiSelect [options]="sucursales()" [(ngModel)]="sucursal" optionLabel="label" optionValue="code" placeholder="Todas" [showClear]="true" appendTo="body" styleClass="w-full" (onPanelHide)="applyFilters()" /></div>
+          <p-multiselect [options]="sucursales()" [(ngModel)]="sucursal" optionLabel="label" optionValue="code" placeholder="Todas" [showClear]="true" appendTo="body" styleClass="w-full" (onPanelHide)="applyFilters()" /></div>
         <div class="ed-field"><label>Beneficiario</label>
           <input pInputText [(ngModel)]="beneficiario" placeholder="Buscar…" (keyup.enter)="reload()" (blur)="queueReload()" /></div>
         <div class="ed-field ed-narrow"><label>Monto ≥</label>
-          <p-inputNumber [(ngModel)]="minImporte" mode="currency" currency="MXN" [min]="0" (onBlur)="queueReload()" /></div>
+          <p-inputnumber [(ngModel)]="minImporte" mode="currency" currency="MXN" [min]="0" (onBlur)="queueReload()" /></div>
       </div>
 
       @if (loading()) {

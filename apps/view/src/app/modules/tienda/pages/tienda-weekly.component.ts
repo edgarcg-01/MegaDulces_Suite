@@ -45,7 +45,7 @@ type TrendMetric = 'revenue' | 'units';
                     [ngModel]="weekSel()" (ngModelChange)="onWeek($event)" styleClass="sel-liquid wk-select" appendTo="body"></p-select>
         </label>
         <label class="wk-ctl">Tendencia
-          <p-selectButton [options]="weeksOptions" optionLabel="label" optionValue="value" [allowEmpty]="false"
+          <p-selectbutton [options]="weeksOptions" optionLabel="label" optionValue="value" [allowEmpty]="false"
                           [ngModel]="weeksN()" (ngModelChange)="onWeeks($event)" styleClass="sb-liquid" />
         </label>
       </div>
@@ -64,7 +64,7 @@ type TrendMetric = 'revenue' | 'units';
         <div class="card-premium card-flat wk-panel">
           <div class="wk-panel-head">
             <h3 class="wk-card-title">Tendencia — últimas {{ r.weeks }} semanas</h3>
-            <p-selectButton [options]="metricOptions" optionLabel="label" optionValue="value" [allowEmpty]="false"
+            <p-selectbutton [options]="metricOptions" optionLabel="label" optionValue="value" [allowEmpty]="false"
                             [ngModel]="metric()" (ngModelChange)="metric.set($event)" styleClass="sb-liquid sb-liquid-sm" />
           </div>
           @if (r.series.length) {

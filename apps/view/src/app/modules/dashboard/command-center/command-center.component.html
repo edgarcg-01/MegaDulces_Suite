@@ -63,7 +63,7 @@
             </span>
           }
           <span class="cc-hero-meta">
-            Margen {{ fmtNumber(overview()?.revenue?.margin_pct, 1) }}% · {{ fmtNumber(overview()?.units) }} unidades
+            Margen {{ fmtNumber($safeNavigationMigration(overview()?.revenue?.margin_pct), 1) }}% · {{ fmtNumber($safeNavigationMigration(overview()?.units)) }} unidades
           </span>
         </span>
         @if (revenueSpark(); as s) {
@@ -89,7 +89,7 @@
         <span class="cell-label">Margen bruto · 30d</span>
         <span class="cell-value" [appCountUp]="overview()?.revenue?.margin ?? 0" countUpFormat="money-short"></span>
         <span class="cell-sub">
-          {{ fmtNumber(overview()?.revenue?.margin_pct, 1) }}% del ingreso · costo {{ fmtMoneyShort(overview()?.revenue?.cost) }}
+          {{ fmtNumber($safeNavigationMigration(overview()?.revenue?.margin_pct), 1) }}% del ingreso · costo {{ fmtMoneyShort($safeNavigationMigration(overview()?.revenue?.cost)) }}
         </span>
       </article>
       <article class="cell cell-span-3">
@@ -99,7 +99,7 @@
         <span class="cell-label">Tickets · 30d</span>
         <span class="cell-value" [appCountUp]="overview()?.tickets ?? 0" countUpFormat="int"></span>
         <span class="cell-sub">
-          Ticket prom {{ fmtMoneyShort(overview()?.avg_ticket) }}
+          Ticket prom {{ fmtMoneyShort($safeNavigationMigration(overview()?.avg_ticket)) }}
         </span>
         @if (ticketsBars(); as b) {
           <div class="cc-minibars" aria-hidden="true">
@@ -135,7 +135,7 @@
         <span class="cell-label">En curso · B2B</span>
         <span class="cell-value" [appCountUp]="overview()?.pipeline?.confirmed ?? 0" countUpFormat="int"></span>
         <span class="cell-sub">
-          {{ fmtNumber(overview()?.pipeline?.draft) }} borradores · {{ fmtNumber(overview()?.pipeline?.cancelled) }} cancelados
+          {{ fmtNumber($safeNavigationMigration(overview()?.pipeline?.draft)) }} borradores · {{ fmtNumber($safeNavigationMigration(overview()?.pipeline?.cancelled)) }} cancelados
         </span>
         @if (pipelineStack(); as p) {
           <div class="cc-stack" aria-hidden="true">

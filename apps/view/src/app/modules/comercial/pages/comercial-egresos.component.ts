@@ -71,12 +71,12 @@ import { egresChartOptions, egresChartSeries } from './egresos-chart-opts';
            reportes de egresos (árbol/tabla/tendencia). Proveedores/Hallazgos no los usan. -->
       <div class="ex-filters card-premium card-flat">
         <div class="ex-field"><label>Sucursales</label>
-          <p-multiSelect [options]="sucursales()" [(ngModel)]="sucursal" optionLabel="label" optionValue="code" placeholder="Todas" [showClear]="true" appendTo="body" styleClass="w-full" (onPanelHide)="queueFilter()" /></div>
+          <p-multiselect [options]="sucursales()" [(ngModel)]="sucursal" optionLabel="label" optionValue="code" placeholder="Todas" [showClear]="true" appendTo="body" styleClass="w-full" (onPanelHide)="queueFilter()" /></div>
         @if (isReportView()) {
           <div class="ex-field"><label>Mes</label>
             <p-select [options]="mesOpts" [(ngModel)]="mesSel" optionLabel="label" optionValue="value" [showClear]="true" placeholder="—" appendTo="body" (onChange)="pickMes($event.value)" styleClass="w-full" [filter]="true" /></div>
           <div class="ex-field"><label>Rango</label>
-            <p-datePicker [(ngModel)]="rangeDates" selectionMode="range" dateFormat="dd/mm/yy" [showIcon]="true" appendTo="body" (onClose)="onRangeChange()" /></div>
+            <p-datepicker [(ngModel)]="rangeDates" selectionMode="range" dateFormat="dd/mm/yy" [showIcon]="true" appendTo="body" (onClose)="onRangeChange()" /></div>
           <div class="ex-field"><label>Tipo</label>
             <app-segmented [options]="familiaOpts" [value]="familia()" (valueChange)="setStr(familia, $event)" ariaLabel="Tipo de egreso" /></div>
           <div class="ex-field"><label>Tipo doc</label>
@@ -90,9 +90,9 @@ import { egresChartOptions, egresChartSeries } from './egresos-chart-opts';
           <div class="ex-field"><label>Beneficiario</label>
             <input pInputText [(ngModel)]="beneficiario" placeholder="Buscar…" (keyup.enter)="applyFilters()" (blur)="queueFilter()" /></div>
           <div class="ex-field ex-narrow"><label>Monto ≥</label>
-            <p-inputNumber [(ngModel)]="minImporte" mode="currency" currency="MXN" [min]="0" (onBlur)="queueFilter()" /></div>
+            <p-inputnumber [(ngModel)]="minImporte" mode="currency" currency="MXN" [min]="0" (onBlur)="queueFilter()" /></div>
           <div class="ex-field ex-toggle"><label>Comparar</label>
-            <p-toggleSwitch [(ngModel)]="compare" (ngModelChange)="queueFilter()" /></div>
+            <p-toggleswitch [(ngModel)]="compare" (ngModelChange)="queueFilter()" /></div>
         }
       </div>
 
@@ -119,7 +119,7 @@ import { egresChartOptions, egresChartSeries } from './egresos-chart-opts';
       } @else {
         <!-- ÁRBOL -->
         @if (view() === 'arbol') {
-          <p-treeTable [value]="treeNodes()" [scrollable]="true" styleClass="p-treetable-sm ex-table">
+          <p-treetable [value]="treeNodes()" [scrollable]="true" styleClass="p-treetable-sm ex-table">
             <ng-template pTemplate="header">
               <tr><th>Concepto</th><th class="ta-r" style="width:8rem">Movs</th><th class="ta-r" style="width:12rem">Importe</th><th class="ta-r" style="width:7rem">%</th></tr>
             </ng-template>
@@ -130,7 +130,7 @@ import { egresChartOptions, egresChartSeries } from './egresos-chart-opts';
                   (click)="rowData.level === 'cuenta' && openCuenta(rowData.key, rowData.label)"
                   (keydown.enter)="rowData.level === 'cuenta' && openCuenta(rowData.key, rowData.label)">
                 <td>
-                  <p-treeTableToggler [rowNode]="rowNode" />
+                  <p-treetabletoggler [rowNode]="rowNode" />
                   <span [class.strong]="rowData.level === 'familia'" [class.muted]="rowData.level === 'cuenta'">{{ rowData.label }}</span>
                   @if (rowData.level === 'cuenta') { <span class="mono ex-code">{{ rowData.key }}</span> }
                 </td>
@@ -140,7 +140,7 @@ import { egresChartOptions, egresChartSeries } from './egresos-chart-opts';
               </tr>
             </ng-template>
             <ng-template pTemplate="emptymessage"><tr><td colspan="4" class="ex-empty">Sin egresos.</td></tr></ng-template>
-          </p-treeTable>
+          </p-treetable>
         }
 
         <!-- TABLA DINÁMICA -->

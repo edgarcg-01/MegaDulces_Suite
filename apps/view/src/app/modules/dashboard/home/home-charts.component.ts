@@ -1,4 +1,4 @@
-import { Component, Input, ViewEncapsulation } from '@angular/core';
+import { Component, Input, ViewEncapsulation, ChangeDetectionStrategy } from '@angular/core';
 import { ChartModule } from 'primeng/chart';
 
 @Component({
@@ -22,6 +22,7 @@ import { ChartModule } from 'primeng/chart';
       </div>
     </div>
   `,
+  changeDetection: ChangeDetectionStrategy.Eager,
   encapsulation: ViewEncapsulation.None,
 })
 export class HomeChartsComponent {

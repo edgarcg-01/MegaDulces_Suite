@@ -1,4 +1,4 @@
-import { Component, computed, inject, signal, OnInit } from '@angular/core';
+import { Component, computed, inject, signal, OnInit, ChangeDetectionStrategy } from '@angular/core';
 
 import { FormsModule } from '@angular/forms';
 import { SelectModule } from 'primeng/select';
@@ -54,7 +54,7 @@ const DENOMS = [1000, 500, 200, 100, 50, 20, 10, 5, 2, 1, 0.5];
         <div class="liq-form">
           <div class="liq-field">
             <label for="bd">Fecha</label>
-            <p-datePicker inputId="bd" [(ngModel)]="businessDate" dateFormat="dd/mm/yy" [showIcon]="true"
+            <p-datepicker inputId="bd" [(ngModel)]="businessDate" dateFormat="dd/mm/yy" [showIcon]="true"
                           [maxDate]="today" appendTo="body" styleClass="liq-full" (onSelect)="refreshList()" (onClose)="refreshList()" />
           </div>
           <div class="liq-field">
@@ -88,7 +88,7 @@ const DENOMS = [1000, 500, 200, 100, 50, 20, 10, 5, 2, 1, 0.5];
               @for (d of denoms; track d) {
                 <div class="liq-denom">
                   <label [for]="'d' + d">{{ money(d) }}</label>
-                  <p-inputNumber [inputId]="'d' + d" [ngModel]="counts[d] || 0" (ngModelChange)="setCount(d, $event)"
+                  <p-inputnumber [inputId]="'d' + d" [ngModel]="counts[d] || 0" (ngModelChange)="setCount(d, $event)"
                                  [min]="0" [useGrouping]="false" styleClass="liq-full" inputStyleClass="liq-in" />
                 </div>
               }
@@ -167,6 +167,7 @@ const DENOMS = [1000, 500, 200, 100, 50, 20, 10, 5, 2, 1, 0.5];
       </div>
     </div>
   `,
+  changeDetection: ChangeDetectionStrategy.Eager,
   styles: [`
     :host { display:block; }
 

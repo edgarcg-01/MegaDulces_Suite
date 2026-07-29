@@ -63,7 +63,7 @@ function severityForStatus(s: ShipmentStatus): Severity {
   template: `
     <div class="surf-page sh">
       <p-toast></p-toast>
-      <p-confirmDialog></p-confirmDialog>
+      <p-confirmdialog></p-confirmdialog>
     
       <!-- PAGE HEAD -->
       <header class="surf-page-head">

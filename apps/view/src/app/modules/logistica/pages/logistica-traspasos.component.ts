@@ -53,7 +53,7 @@ const MES: Record<string, string> = {
         </div>
         <div class="tr-field tr-wh">
           <label>Sucursales</label>
-          <p-multiSelect [options]="warehouseOpts()" [(ngModel)]="warehouses" optionLabel="name" optionValue="code"
+          <p-multiselect [options]="warehouseOpts()" [(ngModel)]="warehouses" optionLabel="name" optionValue="code"
                          placeholder="Todas" [showClear]="true" appendTo="body" styleClass="w-full" (onPanelHide)="load()" />
         </div>
         <div class="tr-actions">

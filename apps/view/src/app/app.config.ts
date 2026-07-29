@@ -11,7 +11,7 @@ const isCapacitorNative = (): boolean =>
     !!(window as any).Capacitor?.isNativePlatform?.());
 
 import { provideRouter, withPreloading } from '@angular/router';
-import { provideHttpClient, withInterceptors } from '@angular/common/http';
+import { provideHttpClient, withInterceptors, withXhr } from '@angular/common/http';
 import { provideAnimationsAsync } from '@angular/platform-browser/animations/async';
 import { provideServiceWorker } from '@angular/service-worker';
 import { routes } from './app.routes';
@@ -28,7 +28,7 @@ export const appConfig: ApplicationConfig = {
     { provide: LOCALE_ID, useValue: 'es-MX' },
     provideRouter(routes, withPreloading(SelectivePreloadStrategy)),
     provideAnimationsAsync(),
-    provideHttpClient(
+    provideHttpClient(withXhr(), 
       withInterceptors([authInterceptor])
     ),
     providePrimeNG({

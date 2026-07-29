@@ -1,4 +1,4 @@
-import { Component, ElementRef, computed, inject, signal, OnInit, OnDestroy, ViewChild } from '@angular/core';
+import { Component, ElementRef, computed, inject, signal, OnInit, OnDestroy, ViewChild, ChangeDetectionStrategy } from '@angular/core';
 
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
@@ -153,6 +153,7 @@ type Mode = 'deliver' | 'incident';
     }
     </section>
     `,
+  changeDetection: ChangeDetectionStrategy.Eager,
   styles: [`
     .deliveries { padding: 1rem; max-width: 640px; margin: 0 auto; }
     .head { display: flex; justify-content: space-between; align-items: center; }

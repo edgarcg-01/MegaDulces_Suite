@@ -9,6 +9,7 @@ import {
   inject,
   signal,
   untracked,
+  ChangeDetectionStrategy
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
@@ -97,6 +98,7 @@ interface KpiCard {
     GlobalFiltersComponent,
   ],
   providers: [MessageService],
+  changeDetection: ChangeDetectionStrategy.Eager,
   template: `
     <div class="dashboard-container w-full min-h-screen text-content-main pt-8">
       <!-- ── Header ─────────────────────────────────────────────────── -->
@@ -500,7 +502,7 @@ interface KpiCard {
                           ) === 'bad',
                       }"
                                                   >
-                                                  {{ fmtScore(cap.stats?.puntuacionTotal) }}
+                                                  {{ fmtScore($safeNavigationMigration(cap.stats?.puntuacionTotal)) }}
                                                 </span>
                                               </div>
                                             </div>
@@ -614,7 +616,7 @@ interface KpiCard {
                                                   class="text-[10px] font-bold text-content-faint uppercase"
                                                   >Meta mínima</label
                                                   >
-                                                  <p-inputNumber
+                                                  <p-inputnumber
                                                     [(ngModel)]="r.min"
                                                     [min]="0"
                                                     [max]="r.opt - 1"
@@ -631,7 +633,7 @@ interface KpiCard {
                                                       class="text-[10px] font-bold text-content-faint uppercase"
                                                       >Meta óptima</label
                                                       >
-                                                      <p-inputNumber
+                                                      <p-inputnumber
                                                         [(ngModel)]="r.opt"
                                                         [min]="r.min + 1"
                                                         [showButtons]="true"
@@ -674,7 +676,7 @@ interface KpiCard {
                                                       <span class="font-medium text-sm">{{ f.label }}</span>
                                                     </div>
                                                     <div class="w-28">
-                                                      <p-inputNumber
+                                                      <p-inputnumber
                                                         [(ngModel)]="f.target"
                                                         [min]="0"
                                                         [showButtons]="true"

@@ -40,7 +40,7 @@ interface ConceptoRow { descripcion: string; cantidad: number; valor_unitario: n
   template: `
     <div class="surf-page in">
       <p-toast></p-toast>
-      <p-confirmDialog></p-confirmDialog>
+      <p-confirmdialog></p-confirmdialog>
       <app-page-tabs [tabs]="tabs" variant="liquid" />
 
       <header class="surf-page-head fa-head">
@@ -138,7 +138,7 @@ interface ConceptoRow { descripcion: string; cantidad: number; valor_unitario: n
       <p-dialog [visible]="showEmit" (visibleChange)="showEmit=$event" [modal]="true" [style]="{ width: '46rem' }" header="Nueva factura" [draggable]="false" [closable]="false" [closeOnEscape]="false">
         <div class="fa-form">
           <label class="fa-f"><span>Tipo *</span>
-            <p-selectButton [options]="tipoOpts" [(ngModel)]="form.tipo" optionLabel="label" optionValue="value" [allowEmpty]="false" styleClass="fa-sb sb-liquid" ariaLabel="Tipo de factura" />
+            <p-selectbutton [options]="tipoOpts" [(ngModel)]="form.tipo" optionLabel="label" optionValue="value" [allowEmpty]="false" styleClass="fa-sb sb-liquid" ariaLabel="Tipo de factura" />
           </label>
 
           @if (form.tipo === 'nominativa') {

@@ -79,7 +79,7 @@ import { SAT_COD_AGRUPADOR } from '../../../shared/constants/sat-cod-agrupador';
           <div class="cb-card-desc">Mapea cada cuenta mayor a la clave del catálogo del SAT. El catálogo de cuentas XML usa este mapeo; las cuentas sin mapear caen al placeholder (la propia cuenta mayor).</div>
         </div>
         <div class="cb-map-actions">
-          <p-selectButton [options]="mapFilterOpts" [ngModel]="onlyUnmapped()" (ngModelChange)="onlyUnmapped.set($event)" optionLabel="label" optionValue="value" [allowEmpty]="false" styleClass="cb-sb sb-liquid" ariaLabel="Filtrar cuentas por mapeo" />
+          <p-selectbutton [options]="mapFilterOpts" [ngModel]="onlyUnmapped()" (ngModelChange)="onlyUnmapped.set($event)" optionLabel="label" optionValue="value" [allowEmpty]="false" styleClass="cb-sb sb-liquid" ariaLabel="Filtrar cuentas por mapeo" />
           <span class="cb-cover" [class.is-full]="coverage().unmapped === 0" [class.is-empty]="coverage().total === 0">
             <i class="pi" [ngClass]="coverage().unmapped === 0 && coverage().total > 0 ? 'pi-check-circle' : 'pi-exclamation-circle'"></i>
             {{ coverage().mapped }}/{{ coverage().total }} mapeadas

@@ -43,7 +43,7 @@ import { CfdiService, CfdiRow, CfdiStats, CfdiFilters } from '../cfdi.service';
           <p class="surf-page-sub">Almacén de comprobantes 4.0 descargados del SAT. Se pobla al correr la descarga masiva. Cifras en flujo de emisión.</p>
         </div>
         <div class="cf-head-actions">
-          <p-selectButton [options]="rolOpts" [ngModel]="rol()" (ngModelChange)="setRol($event)" optionLabel="label" optionValue="value" [allowEmpty]="false" styleClass="cf-sb sb-liquid" ariaLabel="Rol de los comprobantes" />
+          <p-selectbutton [options]="rolOpts" [ngModel]="rol()" (ngModelChange)="setRol($event)" optionLabel="label" optionValue="value" [allowEmpty]="false" styleClass="cf-sb sb-liquid" ariaLabel="Rol de los comprobantes" />
           @if (loadedAt()) { <app-freshness-pill [since]="loadedAt()" /> }
         </div>
       </header>
@@ -63,7 +63,7 @@ import { CfdiService, CfdiRow, CfdiStats, CfdiFilters } from '../cfdi.service';
         <label class="cf-field"><span>Hasta</span>
           <p-datepicker [(ngModel)]="toD" (onSelect)="applyFilters()" (onClear)="applyFilters()" dateFormat="yy-mm-dd" [showIcon]="true" [showClear]="true" appendTo="body" placeholder="Hasta" styleClass="cf-dp" />
         </label>
-        <p-selectButton [options]="tipoOpts" [ngModel]="tipo()" (ngModelChange)="setTipo($event)" optionLabel="label" optionValue="value" [allowEmpty]="false" styleClass="cf-sb sb-liquid" ariaLabel="Tipo de comprobante" />
+        <p-selectbutton [options]="tipoOpts" [ngModel]="tipo()" (ngModelChange)="setTipo($event)" optionLabel="label" optionValue="value" [allowEmpty]="false" styleClass="cf-sb sb-liquid" ariaLabel="Tipo de comprobante" />
         <label class="cf-field"><span>Estatus</span>
           <p-select [options]="estatusOpts" [ngModel]="estatus()" (ngModelChange)="setEstatus($event)" optionLabel="label" optionValue="value" styleClass="cf-sel sel-liquid" ariaLabel="Estatus SAT" />
         </label>

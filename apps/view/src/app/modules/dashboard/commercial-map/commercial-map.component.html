@@ -31,7 +31,7 @@
     <!-- Superbuscador de productos (autocomplete · siempre inteligente) -->
     <div class="cm-pb-row">
       <i class="pi pi-search cm-pb-icon" aria-hidden="true"></i>
-      <p-autoComplete
+      <p-autocomplete
         [(ngModel)]="acModel"
         [suggestions]="productSuggestions()"
         (completeMethod)="completeProducts($event)"
@@ -53,7 +53,7 @@
             @if (p.brand_name) { <span class="cm-ac-brand">{{ p.brand_name }}</span> }
           </div>
         </ng-template>
-      </p-autoComplete>
+      </p-autocomplete>
       @if (searching()) {
         <i class="pi pi-spin pi-spinner cm-pb-spin" aria-hidden="true"></i>
       }

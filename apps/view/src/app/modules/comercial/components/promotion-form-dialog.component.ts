@@ -1,4 +1,4 @@
-import { Component, EventEmitter, Input, Output } from '@angular/core';
+import { Component, EventEmitter, Input, Output, ChangeDetectionStrategy } from '@angular/core';
 
 import { FormGroup, FormsModule, ReactiveFormsModule } from '@angular/forms';
 import { DialogModule } from 'primeng/dialog';
@@ -153,18 +153,18 @@ interface BundleItem {
                 </label>
                 <label>
                   <span>Descuento (%) <em>*</em></span>
-                  <p-inputNumber formControlName="percent" [min]="1" [max]="100" suffix=" %" />
+                  <p-inputnumber formControlName="percent" [min]="1" [max]="100" suffix=" %" />
                 </label>
               }
               <!-- percent_off_basket -->
               @case ('percent_off_basket') {
                 <label>
                   <span>Descuento (%) <em>*</em></span>
-                  <p-inputNumber formControlName="percent" [min]="1" [max]="100" suffix=" %" />
+                  <p-inputnumber formControlName="percent" [min]="1" [max]="100" suffix=" %" />
                 </label>
                 <label>
                   <span>Mínimo de pedido (opcional)</span>
-                  <p-inputNumber formControlName="min_order_amount" mode="currency" currency="MXN" locale="es-MX" [min]="0" placeholder="Sin mínimo" />
+                  <p-inputnumber formControlName="min_order_amount" mode="currency" currency="MXN" locale="es-MX" [min]="0" placeholder="Sin mínimo" />
                 </label>
               }
               <!-- nxm -->
@@ -175,11 +175,11 @@ interface BundleItem {
                 </label>
                 <label>
                   <span>Compra (N) <em>*</em></span>
-                  <p-inputNumber formControlName="n_buy" [min]="2" [showButtons]="true" />
+                  <p-inputnumber formControlName="n_buy" [min]="2" [showButtons]="true" />
                 </label>
                 <label>
                   <span>Paga (M) <em>*</em></span>
-                  <p-inputNumber formControlName="m_pay" [min]="1" [showButtons]="true" />
+                  <p-inputnumber formControlName="m_pay" [min]="1" [showButtons]="true" />
                 </label>
                 @if (form.value.n_buy && form.value.m_pay) {
                   <div class="comm-form-hint full">
@@ -204,9 +204,9 @@ interface BundleItem {
                     @for (t of tiers; track t; let i = $index) {
                       <div class="tier-row">
                         <span class="tier-from">Desde</span>
-                        <p-inputNumber [(ngModel)]="t.min_qty" [ngModelOptions]="{ standalone: true }" [min]="1" suffix=" und" />
+                        <p-inputnumber [(ngModel)]="t.min_qty" [ngModelOptions]="{ standalone: true }" [min]="1" suffix=" und" />
                         <span class="tier-arrow">→</span>
-                        <p-inputNumber [(ngModel)]="t.percent" [ngModelOptions]="{ standalone: true }" [min]="1" [max]="100" suffix=" %" />
+                        <p-inputnumber [(ngModel)]="t.percent" [ngModelOptions]="{ standalone: true }" [min]="1" [max]="100" suffix=" %" />
                         <button pButton type="button" icon="pi pi-trash" size="small" severity="secondary" [text]="true" (click)="removeTier.emit(i)"></button>
                       </div>
                     }
@@ -239,7 +239,7 @@ interface BundleItem {
                           styleClass="bundle-product"
                         ></p-select>
                         <span>×</span>
-                        <p-inputNumber [(ngModel)]="it.quantity" [ngModelOptions]="{ standalone: true }" [min]="1" suffix=" und" />
+                        <p-inputnumber [(ngModel)]="it.quantity" [ngModelOptions]="{ standalone: true }" [min]="1" suffix=" und" />
                         <button pButton type="button" icon="pi pi-trash" size="small" severity="secondary" [text]="true" (click)="removeBundleItem.emit(i)"></button>
                       </div>
                     }
@@ -250,7 +250,7 @@ interface BundleItem {
                 </div>
                 <label class="full">
                   <span>Precio fijo del pack <em>*</em></span>
-                  <p-inputNumber formControlName="price" mode="currency" currency="MXN" locale="es-MX" [min]="1" />
+                  <p-inputnumber formControlName="price" mode="currency" currency="MXN" locale="es-MX" [min]="1" />
                 </label>
               }
               <!-- cross_sell_discount -->
@@ -265,7 +265,7 @@ interface BundleItem {
                 </label>
                 <label>
                   <span>Descuento (%) <em>*</em></span>
-                  <p-inputNumber formControlName="percent" [min]="1" [max]="100" suffix=" %" />
+                  <p-inputnumber formControlName="percent" [min]="1" [max]="100" suffix=" %" />
                 </label>
               }
             }
@@ -281,11 +281,11 @@ interface BundleItem {
             </label>
             <label>
               <span>Prioridad</span>
-              <p-inputNumber formControlName="priority" [min]="0" [max]="1000" [showButtons]="true" />
+              <p-inputnumber formControlName="priority" [min]="0" [max]="1000" [showButtons]="true" />
             </label>
             <label>
               <span>Tope global de usos</span>
-              <p-inputNumber formControlName="usage_limit" [min]="1" placeholder="Ilimitado" />
+              <p-inputnumber formControlName="usage_limit" [min]="1" placeholder="Ilimitado" />
             </label>
             <label class="checkbox-line full">
               <p-toggleswitch formControlName="active" />
@@ -312,6 +312,7 @@ interface BundleItem {
         </ng-template>
       </p-dialog>
     `,
+  changeDetection: ChangeDetectionStrategy.Eager,
   styles: [
     `
       .promo-banner-preview {

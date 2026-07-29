@@ -58,7 +58,7 @@ function severityForDriverStatus(s: string): Severity {
   template: `
     <div class="surf-page logf">
       <p-toast></p-toast>
-      <p-confirmDialog></p-confirmDialog>
+      <p-confirmdialog></p-confirmdialog>
     
       <header class="surf-page-head">
         <div class="surf-page-head-text">
@@ -244,9 +244,9 @@ function severityForDriverStatus(s: string): Severity {
             <h3 class="fuel-title">Combustible — registrar carga</h3>
             <form [formGroup]="fuelForm" class="fuel-form">
               <p-select formControlName="vehicle_id" [options]="vehicleOptions()" optionLabel="label" optionValue="value" [filter]="true" placeholder="Unidad *" appendTo="body"></p-select>
-              <p-inputNumber formControlName="liters" placeholder="Litros *" [minFractionDigits]="0" [maxFractionDigits]="2"></p-inputNumber>
-              <p-inputNumber formControlName="amount" mode="currency" currency="MXN" locale="es-MX" placeholder="Monto"></p-inputNumber>
-              <p-inputNumber formControlName="odometer_km" placeholder="Odómetro km"></p-inputNumber>
+              <p-inputnumber formControlName="liters" placeholder="Litros *" [minFractionDigits]="0" [maxFractionDigits]="2"></p-inputnumber>
+              <p-inputnumber formControlName="amount" mode="currency" currency="MXN" locale="es-MX" placeholder="Monto"></p-inputnumber>
+              <p-inputnumber formControlName="odometer_km" placeholder="Odómetro km"></p-inputnumber>
               <input pInputText formControlName="station" placeholder="Estación" />
               <button pButton icon="pi pi-plus" label="Registrar" size="small" [loading]="savingFuel()" [disabled]="fuelForm.invalid" (click)="registerFuel()"></button>
             </form>
@@ -324,7 +324,7 @@ function severityForDriverStatus(s: string): Severity {
         </label>
         <label>
           <span>Km inicial *</span>
-          <p-inputNumber formControlName="check_in_km" [min]="0" [useGrouping]="false"></p-inputNumber>
+          <p-inputnumber formControlName="check_in_km" [min]="0" [useGrouping]="false"></p-inputnumber>
         </label>
         <label>
           <span>Notas</span>
@@ -348,11 +348,11 @@ function severityForDriverStatus(s: string): Severity {
       <form [formGroup]="checkOutForm" class="form">
         <label>
           <span>Km final *</span>
-          <p-inputNumber formControlName="check_out_km" [min]="0" [useGrouping]="false"></p-inputNumber>
+          <p-inputnumber formControlName="check_out_km" [min]="0" [useGrouping]="false"></p-inputnumber>
         </label>
         <label>
           <span>Combustible cargado (L)</span>
-          <p-inputNumber formControlName="fuel_loaded_liters" [minFractionDigits]="2"></p-inputNumber>
+          <p-inputnumber formControlName="fuel_loaded_liters" [minFractionDigits]="2"></p-inputnumber>
         </label>
         <label>
           <span>Notas</span>
@@ -381,11 +381,11 @@ function severityForDriverStatus(s: string): Severity {
         <div class="row">
           <label>
             <span>Fecha *</span>
-            <p-datePicker formControlName="service_date" dateFormat="yy-mm-dd" appendTo="body"></p-datePicker>
+            <p-datepicker formControlName="service_date" dateFormat="yy-mm-dd" appendTo="body"></p-datepicker>
           </label>
           <label>
             <span>Km al servicio</span>
-            <p-inputNumber formControlName="km_at_service" [useGrouping]="false"></p-inputNumber>
+            <p-inputnumber formControlName="km_at_service" [useGrouping]="false"></p-inputnumber>
           </label>
         </div>
         <label>
@@ -399,17 +399,17 @@ function severityForDriverStatus(s: string): Severity {
           </label>
           <label>
             <span>Costo</span>
-            <p-inputNumber formControlName="cost" mode="currency" currency="MXN" locale="es-MX"></p-inputNumber>
+            <p-inputnumber formControlName="cost" mode="currency" currency="MXN" locale="es-MX"></p-inputnumber>
           </label>
         </div>
         <div class="row">
           <label>
             <span>Próximo servicio (fecha)</span>
-            <p-datePicker formControlName="next_service_date" dateFormat="yy-mm-dd" appendTo="body"></p-datePicker>
+            <p-datepicker formControlName="next_service_date" dateFormat="yy-mm-dd" appendTo="body"></p-datepicker>
           </label>
           <label>
             <span>Próximo servicio (km)</span>
-            <p-inputNumber formControlName="next_service_km" [useGrouping]="false"></p-inputNumber>
+            <p-inputnumber formControlName="next_service_km" [useGrouping]="false"></p-inputnumber>
           </label>
         </div>
         <label>
@@ -435,7 +435,7 @@ function severityForDriverStatus(s: string): Severity {
             </label>
             <label>
               <span>Año</span>
-              <p-inputNumber formControlName="year" [showButtons]="false" [useGrouping]="false"></p-inputNumber>
+              <p-inputnumber formControlName="year" [showButtons]="false" [useGrouping]="false"></p-inputnumber>
             </label>
           </div>
           <div class="row">
@@ -451,17 +451,17 @@ function severityForDriverStatus(s: string): Severity {
           <div class="row">
             <label>
               <span>Capacidad (cajas)</span>
-              <p-inputNumber formControlName="capacity_boxes"></p-inputNumber>
+              <p-inputnumber formControlName="capacity_boxes"></p-inputnumber>
             </label>
             <label>
               <span>Capacidad (kg)</span>
-              <p-inputNumber formControlName="capacity_kg"></p-inputNumber>
+              <p-inputnumber formControlName="capacity_kg"></p-inputnumber>
             </label>
           </div>
           <div class="row">
             <label>
               <span>Rendimiento (km/l)</span>
-              <p-inputNumber formControlName="fuel_efficiency_km_l" [maxFractionDigits]="2" mode="decimal"></p-inputNumber>
+              <p-inputnumber formControlName="fuel_efficiency_km_l" [maxFractionDigits]="2" mode="decimal"></p-inputnumber>
             </label>
             <label>
               <span>Estado</span>
@@ -492,8 +492,8 @@ function severityForDriverStatus(s: string): Severity {
           </label>
           <label>
             <span>Roles <em>*</em></span>
-            <p-multiSelect formControlName="roles" [options]="driverRoleOptions" optionLabel="label" optionValue="value"
-            display="chip" placeholder="Seleccionar"></p-multiSelect>
+            <p-multiselect formControlName="roles" [options]="driverRoleOptions" optionLabel="label" optionValue="value"
+            display="chip" placeholder="Seleccionar"></p-multiselect>
           </label>
           <div class="row">
             <label>

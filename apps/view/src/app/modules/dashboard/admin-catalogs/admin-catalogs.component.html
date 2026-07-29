@@ -3,7 +3,7 @@
   <p-toast position="bottom-right" [breakpoints]="{'640px': {width: '100%', right: '0', left: '0'}}"></p-toast>
 
   <!-- Confirm Dialog -->
-  <p-confirmDialog
+  <p-confirmdialog
     header="Confirmar"
     icon="pi pi-exclamation-triangle"
     [style]="{width: '90vw', maxWidth: '450px'}"
@@ -11,7 +11,7 @@
     appendTo="body"
     acceptButtonStyleClass="p-button-danger"
     rejectButtonStyleClass="p-button-secondary">
-  </p-confirmDialog>
+  </p-confirmdialog>
 
   <!-- Encabezado -->
   <div class="flex flex-col gap-4">
@@ -495,12 +495,12 @@
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
             <div class="flex flex-col gap-2">
               <label for="catalog-item-order" class="text-xs font-bold text-content-muted">Orden</label>
-              <p-inputNumber inputId="catalog-item-order" [(ngModel)]="newItemOrder" class="w-full" mode="decimal"></p-inputNumber>
+              <p-inputnumber inputId="catalog-item-order" [(ngModel)]="newItemOrder" class="w-full" mode="decimal"></p-inputnumber>
             </div>
             @if (hasScoring()) {
               <div class="flex flex-col gap-2">
                 <label for="catalog-item-score" class="text-xs font-bold text-content-muted">Puntuación</label>
-                <p-inputNumber
+                <p-inputnumber
                   inputId="catalog-item-score"
                   [(ngModel)]="newItemScore"
                   [step]="0.1"
@@ -509,7 +509,7 @@
                   [maxFractionDigits]="2"
                   placeholder="Ej: 0.7"
                   class="w-full">
-                </p-inputNumber>
+                </p-inputnumber>
               </div>
             }
           </div>
@@ -563,7 +563,7 @@
 
             <div class="flex flex-col gap-2">
               <label class="text-xs font-bold text-content-muted">Orden</label>
-              <p-inputNumber [(ngModel)]="newItemOrder" class="w-full" mode="decimal"></p-inputNumber>
+              <p-inputnumber [(ngModel)]="newItemOrder" class="w-full" mode="decimal"></p-inputnumber>
             </div>
           </div>
           <ng-template pTemplate="footer">

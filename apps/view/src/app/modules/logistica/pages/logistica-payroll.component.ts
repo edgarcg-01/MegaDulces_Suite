@@ -46,7 +46,7 @@ function severityLiq(s: LiquidationStatus): Severity {
   template: `
     <div class="surf-page logp">
       <p-toast></p-toast>
-      <p-confirmDialog></p-confirmDialog>
+      <p-confirmdialog></p-confirmdialog>
     
       <header class="surf-page-head">
         <div class="surf-page-head-text">
@@ -190,12 +190,12 @@ function severityLiq(s: LiquidationStatus): Severity {
             <p-select formControlName="type" [options]="adjTypeOptions" optionLabel="label" optionValue="value" appendTo="body"></p-select>
           </label>
           <label><span>Monto <em>*</em></span>
-          <p-inputNumber formControlName="amount" mode="currency" currency="MXN" locale="es-MX" [min]="0.01"></p-inputNumber>
+          <p-inputnumber formControlName="amount" mode="currency" currency="MXN" locale="es-MX" [min]="0.01"></p-inputnumber>
         </label>
       </div>
       <div class="row">
         <label><span>Fecha <em>*</em></span>
-        <p-datePicker formControlName="date" dateFormat="yy-mm-dd" appendTo="body"></p-datePicker>
+        <p-datepicker formControlName="date" dateFormat="yy-mm-dd" appendTo="body"></p-datepicker>
       </label>
       <label><span>Notas</span><input pInputText formControlName="notes" /></label>
     </div>
@@ -217,12 +217,12 @@ function severityLiq(s: LiquidationStatus): Severity {
     <p-dialog [(visible)]="periodDialog" [modal]="true" [draggable]="false" [style]="{ width: '500px' }" header="Nuevo período">
       <form [formGroup]="periodForm" class="form">
         <div class="row">
-          <label><span>Año <em>*</em></span><p-inputNumber formControlName="year" [useGrouping]="false"></p-inputNumber></label>
-          <label><span>Número de catorcena <em>*</em></span><p-inputNumber formControlName="number"></p-inputNumber></label>
+          <label><span>Año <em>*</em></span><p-inputnumber formControlName="year" [useGrouping]="false"></p-inputnumber></label>
+          <label><span>Número de catorcena <em>*</em></span><p-inputnumber formControlName="number"></p-inputnumber></label>
         </div>
-        <label><span>Inicio <em>*</em></span><p-datePicker formControlName="start_date" dateFormat="yy-mm-dd" appendTo="body"></p-datePicker></label>
-        <label><span>Fin <em>*</em></span><p-datePicker formControlName="end_date" dateFormat="yy-mm-dd" appendTo="body"></p-datePicker></label>
-        <label><span>Pago <em>*</em></span><p-datePicker formControlName="payment_date" dateFormat="yy-mm-dd" appendTo="body"></p-datePicker></label>
+        <label><span>Inicio <em>*</em></span><p-datepicker formControlName="start_date" dateFormat="yy-mm-dd" appendTo="body"></p-datepicker></label>
+        <label><span>Fin <em>*</em></span><p-datepicker formControlName="end_date" dateFormat="yy-mm-dd" appendTo="body"></p-datepicker></label>
+        <label><span>Pago <em>*</em></span><p-datepicker formControlName="payment_date" dateFormat="yy-mm-dd" appendTo="body"></p-datepicker></label>
         <label><span>Notas</span><input pInputText formControlName="notes" /></label>
       </form>
       <ng-template pTemplate="footer">
@@ -242,8 +242,8 @@ function severityLiq(s: LiquidationStatus): Severity {
             <div><span class="label">Carga/desc</span><strong class="num">\${{ l.load_unload_amount | number:'1.2-2' }}</strong></div>
           </div>
           <div class="row">
-            <label><span>Bonos</span><p-inputNumber formControlName="bonuses" mode="currency" currency="MXN" locale="es-MX"></p-inputNumber></label>
-            <label><span>Deducciones</span><p-inputNumber formControlName="deductions" mode="currency" currency="MXN" locale="es-MX"></p-inputNumber></label>
+            <label><span>Bonos</span><p-inputnumber formControlName="bonuses" mode="currency" currency="MXN" locale="es-MX"></p-inputnumber></label>
+            <label><span>Deducciones</span><p-inputnumber formControlName="deductions" mode="currency" currency="MXN" locale="es-MX"></p-inputnumber></label>
           </div>
           <label><span>Estado</span>
           <p-select formControlName="status" [options]="liqStatusOptions" optionLabel="label" optionValue="value" appendTo="body"></p-select>

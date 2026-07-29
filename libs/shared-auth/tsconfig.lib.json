@@ -7,8 +7,13 @@
     "inlineSources": true,
     "types": [],
     "moduleResolution": "bundler",
-    "module": "preserve"
+    "module": "preserve",
+    "ignoreDeprecations": "6.0",
+    "rootDir": "."
   },
   "include": ["**/*.ts"],
-  "exclude": ["**/*.spec.ts"]
+  "exclude": ["**/*.spec.ts"],
+  "angularCompilerOptions": {
+    "strictTemplates": false
+  }
 }

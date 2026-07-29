@@ -52,13 +52,13 @@ interface LiveCountEntry {
   template: `
     <div class="surf-page in">
       <p-toast></p-toast>
-      <p-confirmDialog></p-confirmDialog>
+      <p-confirmdialog></p-confirmdialog>
 
       <header class="surf-page-head">
         <div class="surf-page-head-text">
           <h1>{{ progress()?.folio || 'Folio' }}</h1>
           <p class="surf-page-sub">
-            <p-tag [value]="statusLabel(progress()?.status)" [severity]="statusSeverity(progress()?.status)"></p-tag>
+            <p-tag [value]="statusLabel($safeNavigationMigration(progress()?.status))" [severity]="statusSeverity($safeNavigationMigration(progress()?.status))"></p-tag>
           </p>
         </div>
         <div class="in-head-actions">
@@ -147,18 +147,18 @@ interface LiveCountEntry {
         <div class="in-assign">
           <div class="in-assign-col">
             <label>Contadores asignados</label>
-            <p-multiSelect [options]="counterOpts()" [(ngModel)]="selCounters" optionLabel="label" optionValue="value"
+            <p-multiselect [options]="counterOpts()" [(ngModel)]="selCounters" optionLabel="label" optionValue="value"
                            placeholder="Todos (folio abierto)" [filter]="true" display="chip" styleClass="in-ms"
                            appendTo="body" scrollHeight="45vh" [panelStyle]="{ maxWidth: '92vw' }"
-                           (onPanelHide)="saveAssign('counter')"></p-multiSelect>
+                           (onPanelHide)="saveAssign('counter')"></p-multiselect>
             <small>Si no asignás ninguno, cualquiera con permiso de contar puede contar este folio.</small>
           </div>
           <div class="in-assign-col">
             <label>Supervisores asignados</label>
-            <p-multiSelect [options]="supervisorOpts()" [(ngModel)]="selSupervisors" optionLabel="label" optionValue="value"
+            <p-multiselect [options]="supervisorOpts()" [(ngModel)]="selSupervisors" optionLabel="label" optionValue="value"
                            placeholder="Sin asignar" [filter]="true" display="chip" styleClass="in-ms"
                            appendTo="body" scrollHeight="45vh" [panelStyle]="{ maxWidth: '92vw' }"
-                           (onPanelHide)="saveAssign('supervisor')"></p-multiSelect>
+                           (onPanelHide)="saveAssign('supervisor')"></p-multiselect>
             <small>Responsables de este inventario (informativo).</small>
           </div>
         </div>
@@ -221,7 +221,7 @@ interface LiveCountEntry {
 
       <!-- Filtro -->
       <div class="in-filter">
-        <p-selectButton [options]="filterOptions" [(ngModel)]="filter" (onChange)="load()" optionLabel="label" optionValue="value" styleClass="sb-liquid"></p-selectButton>
+        <p-selectbutton [options]="filterOptions" [(ngModel)]="filter" (onChange)="load()" optionLabel="label" optionValue="value" styleClass="sb-liquid"></p-selectbutton>
       </div>
 
       <!-- Tabla de items -->
@@ -268,7 +268,7 @@ interface LiveCountEntry {
             <p class="in-resolve-name">{{ resolveItem()?.product_name }}</p>
             <p class="in-resolve-meta">Teórico: <b>{{ resolveItem()?.expected_qty }}</b> · C1: {{ resolveItem()?.count_1 ?? '—' }} · C2: {{ resolveItem()?.count_2 ?? '—' }} · C3: {{ resolveItem()?.count_3 ?? '—' }}</p>
             <label>Cantidad física final</label>
-            <p-inputNumber [(ngModel)]="resolveQty" [min]="0" styleClass="in-w-full"></p-inputNumber>
+            <p-inputnumber [(ngModel)]="resolveQty" [min]="0" styleClass="in-w-full"></p-inputnumber>
             <label>Motivo de la varianza</label>
             <p-select [options]="reasonCodes()" optionLabel="label" optionValue="code" [(ngModel)]="resolveReason" placeholder="Clasificar (opcional)" [showClear]="true" appendTo="body" styleClass="in-w-full"></p-select>
             <label>Nota (detalle libre)</label>

@@ -369,7 +369,7 @@ type ActiveFilter = 'all' | 'active' | 'inactive';
               </div>
               <label>
                 <span>Puntos de fidelidad</span>
-                <p-inputNumber formControlName="loyalty_points" [min]="0" [showButtons]="true"></p-inputNumber>
+                <p-inputnumber formControlName="loyalty_points" [min]="0" [showButtons]="true"></p-inputnumber>
               </label>
               <label class="pp-toggle-line">
                 <p-toggleswitch formControlName="activo"></p-toggleswitch>

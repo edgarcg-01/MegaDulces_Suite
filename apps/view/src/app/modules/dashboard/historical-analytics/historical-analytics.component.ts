@@ -144,7 +144,7 @@ const QUARTERS: Quarter[] = [
               }
             </div>
     
-            <p-datePicker
+            <p-datepicker
               selectionMode="range"
               [(ngModel)]="customDates"
               (onSelect)="onCustomRange()"
@@ -158,7 +158,7 @@ const QUARTERS: Quarter[] = [
               placeholder="Personalizado…"
               styleClass="ha-date"
               [class.is-active]="preset() === 'custom'"
-            ></p-datePicker>
+            ></p-datepicker>
     
             <div class="ha-field">
               <p-select

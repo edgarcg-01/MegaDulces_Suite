@@ -68,7 +68,7 @@ const MES: Record<string, string> = {
         </div>
         <div class="rr-field rr-wh">
           <label>Rutas</label>
-          <p-multiSelect [options]="routeOpts()" [(ngModel)]="routes" optionLabel="label" optionValue="value"
+          <p-multiselect [options]="routeOpts()" [(ngModel)]="routes" optionLabel="label" optionValue="value"
                          placeholder="Todas" [showClear]="true" [filter]="true" appendTo="body" styleClass="w-full" (onPanelHide)="load()" />
         </div>
         <div class="rr-field rr-prodf">
@@ -93,7 +93,7 @@ const MES: Record<string, string> = {
       <!-- Filtros de vista (client-side, instantáneos sobre lo cargado) -->
       @if (report()?.rows?.length) {
         <div class="rr-viewfilters">
-          <p-multiSelect [options]="branchOpts()" [ngModel]="fBranch()" (ngModelChange)="fBranch.set($event)"
+          <p-multiselect [options]="branchOpts()" [ngModel]="fBranch()" (ngModelChange)="fBranch.set($event)"
                          optionLabel="label" optionValue="value" placeholder="Todas las sucursales" [showClear]="true"
                          [filter]="true" filterBy="label" filterPlaceholder="Buscar sucursal…" appendTo="body"
                          [maxSelectedLabels]="2" selectedItemsLabel="{0} sucursales" styleClass="rr-vf-branch" ariaLabel="Filtrar por sucursal" />
@@ -111,10 +111,10 @@ const MES: Record<string, string> = {
             @if (fQuery()) { <p-inputicon styleClass="pi pi-times rr-vf-clear" (click)="fQuery.set('')" role="button" ariaLabel="Limpiar búsqueda" /> }
           </p-iconfield>
           <div class="rr-vf-money" role="group" aria-label="Rango de venta">
-            <p-inputNumber [ngModel]="fMinRevenue()" (ngModelChange)="fMinRevenue.set($event)" mode="currency" currency="MXN"
+            <p-inputnumber [ngModel]="fMinRevenue()" (ngModelChange)="fMinRevenue.set($event)" mode="currency" currency="MXN"
                            [maxFractionDigits]="0" [showButtons]="false" placeholder="Venta mín" inputStyleClass="rr-vf-num" ariaLabel="Venta mínima" />
             <span class="rr-vf-dash">–</span>
-            <p-inputNumber [ngModel]="fMaxRevenue()" (ngModelChange)="fMaxRevenue.set($event)" mode="currency" currency="MXN"
+            <p-inputnumber [ngModel]="fMaxRevenue()" (ngModelChange)="fMaxRevenue.set($event)" mode="currency" currency="MXN"
                            [maxFractionDigits]="0" [showButtons]="false" placeholder="Venta máx" inputStyleClass="rr-vf-num" ariaLabel="Venta máxima" />
           </div>
           <label class="rr-vf-chk"><p-checkbox [binary]="true" [ngModel]="fOnlyWithSales()" (ngModelChange)="fOnlyWithSales.set($event)" inputId="rr-only" /> Solo con venta</label>
@@ -151,14 +151,14 @@ const MES: Record<string, string> = {
                      styleClass="p-datatable-sm surf-table rr-ptable">
               <ng-template pTemplate="header">
                 <tr>
-                  <th scope="col" pFrozenColumn style="min-width:150px" pSortableColumn="warehouse_name">Sucursal <p-sortIcon field="warehouse_name" /></th>
-                  <th scope="col" pFrozenColumn style="min-width:120px" pSortableColumn="route_no">Ruta <p-sortIcon field="route_no" /></th>
+                  <th scope="col" pFrozenColumn style="min-width:150px" pSortableColumn="warehouse_name">Sucursal <p-sorticon field="warehouse_name" /></th>
+                  <th scope="col" pFrozenColumn style="min-width:120px" pSortableColumn="route_no">Ruta <p-sorticon field="route_no" /></th>
                   @for (m of visibleMonths(); track m) {
-                    <th scope="col" class="comm-num" [pSortableColumn]="'monthly.' + m + '.revenue'">{{ mes(m) }} <p-sortIcon [field]="'monthly.' + m + '.revenue'" /></th>
+                    <th scope="col" class="comm-num" [pSortableColumn]="'monthly.' + m + '.revenue'">{{ mes(m) }} <p-sorticon [field]="'monthly.' + m + '.revenue'" /></th>
                   }
-                  <th scope="col" class="comm-num rr-strong" pSortableColumn="_revenue">Total <p-sortIcon field="_revenue" /></th>
-                  <th scope="col" class="comm-num" pSortableColumn="_share">Share <p-sortIcon field="_share" /></th>
-                  <th scope="col" class="comm-num" pSortableColumn="_tickets">Tickets <p-sortIcon field="_tickets" /></th>
+                  <th scope="col" class="comm-num rr-strong" pSortableColumn="_revenue">Total <p-sorticon field="_revenue" /></th>
+                  <th scope="col" class="comm-num" pSortableColumn="_share">Share <p-sorticon field="_share" /></th>
+                  <th scope="col" class="comm-num" pSortableColumn="_tickets">Tickets <p-sorticon field="_tickets" /></th>
                 </tr>
               </ng-template>
               <ng-template pTemplate="body" let-row>

@@ -3,8 +3,17 @@
   "compilerOptions": {
     "outDir": "./out-tsc/app",
     "types": [],
-    "moduleResolution": "bundler"
+    "moduleResolution": "bundler",
+    "rootDir": "../.."
   },
   "files": ["src/main.ts"],
-  "include": ["src/**/*.ts", "src/**/*.d.ts"]
+  "include": ["src/**/*.ts", "src/**/*.d.ts"],
+  "angularCompilerOptions": {
+    "extendedDiagnostics": {
+      "checks": {
+        "nullishCoalescingNotNullable": "suppress",
+        "optionalChainNotNullable": "suppress"
+      }
+    }
+  }
 }

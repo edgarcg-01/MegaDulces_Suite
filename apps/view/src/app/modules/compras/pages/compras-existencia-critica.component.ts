@@ -83,10 +83,10 @@ interface DraftLine {
       <!-- Filtros -->
       <div class="ec-filters">
         <div class="ec-wh">
-          <p-multiSelect [options]="warehouseOpts()" [(ngModel)]="fWarehouses" (onChange)="reload()"
+          <p-multiselect [options]="warehouseOpts()" [(ngModel)]="fWarehouses" (onChange)="reload()"
                          optionLabel="label" optionValue="value" placeholder="Todos los almacenes" [showClear]="true"
                          [filter]="true" filterBy="label" filterPlaceholder="Buscar almacén…"
-                         [maxSelectedLabels]="2" selectedItemsLabel="{0} almacenes" styleClass="ec-sel"></p-multiSelect>
+                         [maxSelectedLabels]="2" selectedItemsLabel="{0} almacenes" styleClass="ec-sel"></p-multiselect>
           <div class="ec-atajos">
             <span class="ec-atajos-lbl">Atajos:</span>
             <button type="button" class="ec-atajo" [class.on]="!fWarehouses.length" (click)="clearWh()">Todos</button>
@@ -126,25 +126,25 @@ interface DraftLine {
         <ng-template pTemplate="header">
           <tr>
             <th pFrozenColumn style="width:2.5rem"><p-checkbox [binary]="true" [ngModel]="allSelected()" (onChange)="toggleAll($event)" ariaLabel="Seleccionar todo" /></th>
-            <th pFrozenColumn style="min-width:7rem" pSortableColumn="sku">SKU <p-sortIcon field="sku" /></th>
-            <th pSortableColumn="nombre">Producto <p-sortIcon field="nombre" /></th>
-            <th pSortableColumn="warehouse_code">Almacén <p-sortIcon field="warehouse_code" /></th>
-            <th pSortableColumn="abc_class">Clase <p-sortIcon field="abc_class" /></th>
-            <th class="ec-r" pSortableColumn="sales_rank" title="Ranking por venta EN DINERO (venta/mes) del proveedor en la sucursal — #1 = el que más te vende en $ = más importante pedir. Coincide con ordenar por Venta/mes.">Rank vta <p-sortIcon field="sales_rank" /></th>
-            <th class="ec-r" pSortableColumn="monthly_revenue" title="Venta mensual estimada ($) = demanda diaria × 30 × precio de venta. El peso en dinero del producto: cuánto representa en venta.">Venta/mes <p-sortIcon field="monthly_revenue" /></th>
-            <th class="ec-r" pSortableColumn="on_hand">Existencia <p-sortIcon field="on_hand" /></th>
-            <th class="ec-r" pSortableColumn="min_stock">Mín <p-sortIcon field="min_stock" /></th>
-            <th class="ec-r" pSortableColumn="reorder_point">Reorden <p-sortIcon field="reorder_point" /></th>
-            <th class="ec-r" pSortableColumn="max_stock">Máx <p-sortIcon field="max_stock" /></th>
-            <th class="ec-r" pSortableColumn="safety_stock">Colchón <p-sortIcon field="safety_stock" /></th>
-            <th class="ec-r" pSortableColumn="in_transit">OC a recibir <p-sortIcon field="in_transit" /></th>
-            <th class="ec-r" pSortableColumn="suggested_qty">Sugerido <p-sortIcon field="suggested_qty" /></th>
-            <th class="ec-r" pSortableColumn="transfer_in" title="Del sugerido, cuánto puedes cubrir con SOBRANTE de otra sucursal (traspaso) en vez de comprar.">Traspaso <p-sortIcon field="transfer_in" /></th>
-            <th class="ec-r" pSortableColumn="buy_qty" title="Compra REAL = sugerido − traspaso posible. Lo que de verdad hay que pedir al proveedor.">Comprar <p-sortIcon field="buy_qty" /></th>
-            <th pSortableColumn="accion">Acción <p-sortIcon field="accion" /></th>
+            <th pFrozenColumn style="min-width:7rem" pSortableColumn="sku">SKU <p-sorticon field="sku" /></th>
+            <th pSortableColumn="nombre">Producto <p-sorticon field="nombre" /></th>
+            <th pSortableColumn="warehouse_code">Almacén <p-sorticon field="warehouse_code" /></th>
+            <th pSortableColumn="abc_class">Clase <p-sorticon field="abc_class" /></th>
+            <th class="ec-r" pSortableColumn="sales_rank" title="Ranking por venta EN DINERO (venta/mes) del proveedor en la sucursal — #1 = el que más te vende en $ = más importante pedir. Coincide con ordenar por Venta/mes.">Rank vta <p-sorticon field="sales_rank" /></th>
+            <th class="ec-r" pSortableColumn="monthly_revenue" title="Venta mensual estimada ($) = demanda diaria × 30 × precio de venta. El peso en dinero del producto: cuánto representa en venta.">Venta/mes <p-sorticon field="monthly_revenue" /></th>
+            <th class="ec-r" pSortableColumn="on_hand">Existencia <p-sorticon field="on_hand" /></th>
+            <th class="ec-r" pSortableColumn="min_stock">Mín <p-sorticon field="min_stock" /></th>
+            <th class="ec-r" pSortableColumn="reorder_point">Reorden <p-sorticon field="reorder_point" /></th>
+            <th class="ec-r" pSortableColumn="max_stock">Máx <p-sorticon field="max_stock" /></th>
+            <th class="ec-r" pSortableColumn="safety_stock">Colchón <p-sorticon field="safety_stock" /></th>
+            <th class="ec-r" pSortableColumn="in_transit">OC a recibir <p-sorticon field="in_transit" /></th>
+            <th class="ec-r" pSortableColumn="suggested_qty">Sugerido <p-sorticon field="suggested_qty" /></th>
+            <th class="ec-r" pSortableColumn="transfer_in" title="Del sugerido, cuánto puedes cubrir con SOBRANTE de otra sucursal (traspaso) en vez de comprar.">Traspaso <p-sorticon field="transfer_in" /></th>
+            <th class="ec-r" pSortableColumn="buy_qty" title="Compra REAL = sugerido − traspaso posible. Lo que de verdad hay que pedir al proveedor.">Comprar <p-sorticon field="buy_qty" /></th>
+            <th pSortableColumn="accion">Acción <p-sorticon field="accion" /></th>
             <th>Estado</th>
-            <th pSortableColumn="supplier_name">Proveedor <p-sortIcon field="supplier_name" /></th>
-            <th class="ec-r" pSortableColumn="suggested_cost">Costo est. <p-sortIcon field="suggested_cost" /></th>
+            <th pSortableColumn="supplier_name">Proveedor <p-sorticon field="supplier_name" /></th>
+            <th class="ec-r" pSortableColumn="suggested_cost">Costo est. <p-sorticon field="suggested_cost" /></th>
             <th>Origen</th>
             <th title="Cómo se surte (compra/traspaso) y cada cuánto — deriva del histórico">Ciclo</th>
           </tr>

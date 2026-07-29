@@ -165,7 +165,7 @@ const OUTCOMES: OutcomeOption[] = [
       </section>
     } @else {
       <div class="loading" aria-live="polite">
-        <p-progressSpinner styleClass="w-12 h-12"></p-progressSpinner>
+        <p-progressspinner styleClass="w-12 h-12"></p-progressspinner>
       </div>
     }
     
@@ -221,14 +221,14 @@ const OUTCOMES: OutcomeOption[] = [
     
         <label>
           <span>Duración (minutos)</span>
-          <p-inputNumber
+          <p-inputnumber
             [(ngModel)]="logDuration"
             name="duration"
             [min]="0"
             [max]="999"
             [showButtons]="true"
             [style]="{ width: '100%' }"
-          ></p-inputNumber>
+          ></p-inputnumber>
         </label>
     
         <label class="checkbox-row">

@@ -105,3 +105,4 @@ database/importers/kepler/.stock-live-snapshot.json
 .claude/worktrees
 .nx/polygraph
 .nx/self-healing
+.nx/migrate-runs

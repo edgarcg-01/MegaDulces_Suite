@@ -67,12 +67,12 @@ import { GROUP_ORDER, groupLabel, groupColorVar, dmy, dmShort, money0 } from './
                [paginator]="movements().length > 50" [rows]="50" [rowsPerPageOptions]="[50, 100, 200]">
         <ng-template pTemplate="header">
           <tr>
-            <th class="col-w6" pSortableColumn="movement_date">Fecha <p-sortIcon field="movement_date" /></th>
+            <th class="col-w6" pSortableColumn="movement_date">Fecha <p-sorticon field="movement_date" /></th>
             <th class="col-w7">Cuenta</th>
             <th>Concepto</th>
             <th class="col-w11">Categoría</th>
-            <th class="ta-r col-w8" pSortableColumn="amount_in">Depósito <p-sortIcon field="amount_in" /></th>
-            <th class="ta-r col-w8" pSortableColumn="amount_out">Retiro <p-sortIcon field="amount_out" /></th>
+            <th class="ta-r col-w8" pSortableColumn="amount_in">Depósito <p-sorticon field="amount_in" /></th>
+            <th class="ta-r col-w8" pSortableColumn="amount_out">Retiro <p-sorticon field="amount_out" /></th>
             <th class="col-w25" title="Conciliación"></th>
           </tr>
         </ng-template>

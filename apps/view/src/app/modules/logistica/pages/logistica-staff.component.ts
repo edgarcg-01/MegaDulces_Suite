@@ -55,7 +55,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
   template: `
     <div class="surf-page logs">
       <p-toast></p-toast>
-      <p-confirmDialog></p-confirmDialog>
+      <p-confirmdialog></p-confirmdialog>
     
       <header class="surf-page-head">
         <div class="surf-page-head-text">

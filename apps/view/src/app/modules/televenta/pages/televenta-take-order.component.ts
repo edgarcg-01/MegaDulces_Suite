@@ -41,7 +41,7 @@ interface CartRow {
   providers: [ConfirmationService],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <p-confirmDialog></p-confirmDialog>
+    <p-confirmdialog></p-confirmdialog>
     
     @if (!loading() && customer()) {
       <section class="page">
@@ -94,7 +94,7 @@ interface CartRow {
                     </p>
                   </div>
                   <div class="prod-actions">
-                    <p-inputNumber
+                    <p-inputnumber
                       [(ngModel)]="r.quantity"
                       [min]="0"
                       [max]="9999"
@@ -104,7 +104,7 @@ interface CartRow {
                       inputStyleClass="qty-input"
                       [step]="1"
                       (onInput)="onQtyChange()"
-                    ></p-inputNumber>
+                    ></p-inputnumber>
                   </div>
                 </article>
               }
@@ -128,7 +128,7 @@ interface CartRow {
         </section>
       } @else {
         <div class="loading" aria-live="polite">
-          <p-progressSpinner styleClass="w-12 h-12"></p-progressSpinner>
+          <p-progressspinner styleClass="w-12 h-12"></p-progressspinner>
         </div>
       }
     

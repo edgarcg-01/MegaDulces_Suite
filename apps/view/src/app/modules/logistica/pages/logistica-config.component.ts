@@ -42,7 +42,7 @@ import { ConfigCategory, ConfigItem, LogisticaService, Route } from '../logistic
   template: `
     <div class="surf-page logcfg">
       <p-toast></p-toast>
-      <p-confirmDialog></p-confirmDialog>
+      <p-confirmdialog></p-confirmdialog>
     
       <header class="surf-page-head">
         <div class="surf-page-head-text">
@@ -73,10 +73,10 @@ import { ConfigCategory, ConfigItem, LogisticaService, Route } from '../logistic
                   <p-table [value]="filteredRoutes()" [loading]="loading()" responsiveLayout="scroll" styleClass="surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra p-datatable-sm" [paginator]="true" [rows]="25" [rowsPerPageOptions]="[25, 50, 100, 200]" sortMode="single">
                     <ng-template pTemplate="header">
                       <tr>
-                        <th scope="col" pSortableColumn="name">Destino <p-sortIcon field="name"></p-sortIcon></th>
-                        <th scope="col" pSortableColumn="estimated_km" class="num">Km <p-sortIcon field="estimated_km"></p-sortIcon></th>
-                        <th scope="col" pSortableColumn="driver_commission" class="num">Chofer <p-sortIcon field="driver_commission"></p-sortIcon></th>
-                        <th scope="col" pSortableColumn="helper_commission" class="num">Ayudante <p-sortIcon field="helper_commission"></p-sortIcon></th>
+                        <th scope="col" pSortableColumn="name">Destino <p-sorticon field="name"></p-sorticon></th>
+                        <th scope="col" pSortableColumn="estimated_km" class="num">Km <p-sorticon field="estimated_km"></p-sorticon></th>
+                        <th scope="col" pSortableColumn="driver_commission" class="num">Chofer <p-sorticon field="driver_commission"></p-sorticon></th>
+                        <th scope="col" pSortableColumn="helper_commission" class="num">Ayudante <p-sorticon field="helper_commission"></p-sorticon></th>
                         <th scope="col">Estado</th>
                         <th scope="col"><span class="sr-only">Acciones</span></th>
                       </tr>

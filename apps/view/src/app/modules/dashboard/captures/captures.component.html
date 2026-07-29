@@ -101,7 +101,7 @@ Y el bottom nav del shell tapa el FAB. En desktop solo `pb-6`.
           <div class="text-[10px] sm:text-xs font-semibold uppercase tracking-[0.15em] text-brand mb-1">¿En qué ruta estás hoy?</div>
           <p-select
             [options]="svc.zoneRoutes()"
-            [ngModel]="svc.activeRoute()?.id"
+            [ngModel]="$safeNavigationMigration(svc.activeRoute()?.id)"
             (onChange)="onSelectRoute($event.value)"
             optionLabel="label"
             optionValue="value"
@@ -451,7 +451,7 @@ Y el bottom nav del shell tapa el FAB. En desktop solo `pb-6`.
 
               <td class="text-right font-bold text-brand-orange font-mono">${{visita.stats?.ventaTotal?.toLocaleString()}}</td>
 
-              <td class="text-center font-bold text-content-main">{{ fmtScore(visita.stats?.puntuacionTotal) }}</td>
+              <td class="text-center font-bold text-content-main">{{ fmtScore($safeNavigationMigration(visita.stats?.puntuacionTotal)) }}</td>
 
               <td>
 
@@ -1301,7 +1301,7 @@ Y el bottom nav del shell tapa el FAB. En desktop solo `pb-6`.
 
                     <div class="space-y-2">
                       <label for="impacto-venta" class="text-xs font-black text-content-muted uppercase tracking-widest">Monto de Venta Extra Obtenido</label>
-                      <p-inputNumber
+                      <p-inputnumber
                         inputId="impacto-venta"
                         [(ngModel)]="impactoVentaAdicional"
                         (ngModelChange)="onImpactoVentaChange($event)"
@@ -1316,7 +1316,7 @@ Y el bottom nav del shell tapa el FAB. En desktop solo `pb-6`.
                         class="w-full"
                         inputStyleClass="w-full text-lg p-3"
                         [useGrouping]="true"
-                      [inputStyle]="{'font-size': '1.125rem'}"></p-inputNumber>
+                      [inputStyle]="{'font-size': '1.125rem'}"></p-inputnumber>
                     </div>
 
 
@@ -1420,7 +1420,7 @@ Y el bottom nav del shell tapa el FAB. En desktop solo `pb-6`.
 
               <p-toast></p-toast>
 
-              <p-confirmDialog></p-confirmDialog>
+              <p-confirmdialog></p-confirmdialog>
 
               <!-- Fase K — AI product picker dialog (paso 5 del wizard) -->
               <p-dialog

@@ -119,7 +119,7 @@ interface RouteOption {
           </label>
           <label>
             Entrega *
-            <p-selectButton formControlName="delivery_type" [options]="deliveryTypeOptions" optionLabel="label" optionValue="value" styleClass="sb-liquid"></p-selectButton>
+            <p-selectbutton formControlName="delivery_type" [options]="deliveryTypeOptions" optionLabel="label" optionValue="value" styleClass="sb-liquid"></p-selectbutton>
           </label>
         </div>
     

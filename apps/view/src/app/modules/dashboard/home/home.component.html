@@ -434,15 +434,15 @@
               <div class="flex flex-col gap-1">
                 <label class="text-[10px] font-bold text-content-faint uppercase">Meta mínima</label>
                 <div class="w-full">
-                  <p-inputNumber [(ngModel)]="r.min" [min]="0" [max]="r.opt - 1" [showButtons]="false" size="small"
-                    decrementButtonClass="p-button-secondary" incrementButtonClass="p-button-secondary" [suffix]="r.unit ? ' ' + r.unit : ''"></p-inputNumber>
+                  <p-inputnumber [(ngModel)]="r.min" [min]="0" [max]="r.opt - 1" [showButtons]="false" size="small"
+                    decrementButtonClass="p-button-secondary" incrementButtonClass="p-button-secondary" [suffix]="r.unit ? ' ' + r.unit : ''"></p-inputnumber>
                 </div>
               </div>
               <div class="flex flex-col gap-1">
                 <label class="text-[10px] font-bold text-content-faint uppercase">Meta óptima</label>
                 <div class="w-full">
-                  <p-inputNumber [(ngModel)]="r.opt" [min]="r.min + 1" [showButtons]="false" size="small"
-                    decrementButtonClass="p-button-secondary" incrementButtonClass="p-button-secondary" [suffix]="r.unit ? ' ' + r.unit : ''"></p-inputNumber>
+                  <p-inputnumber [(ngModel)]="r.opt" [min]="r.min + 1" [showButtons]="false" size="small"
+                    decrementButtonClass="p-button-secondary" incrementButtonClass="p-button-secondary" [suffix]="r.unit ? ' ' + r.unit : ''"></p-inputnumber>
                 </div>
               </div>
             </div>

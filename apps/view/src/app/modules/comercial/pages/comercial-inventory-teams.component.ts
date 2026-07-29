@@ -44,13 +44,13 @@ interface Opt { label: string; value: string; }
       <div class="tm-pool">
         <div class="tm-pool-col">
           <label for="tm-sup">Supervisores disponibles</label>
-          <p-multiSelect inputId="tm-sup" [options]="supOptions()" [(ngModel)]="selSup" optionLabel="label" optionValue="value"
-                         placeholder="Ninguno" [filter]="true" display="chip" styleClass="tm-ms" appendTo="body"></p-multiSelect>
+          <p-multiselect inputId="tm-sup" [options]="supOptions()" [(ngModel)]="selSup" optionLabel="label" optionValue="value"
+                         placeholder="Ninguno" [filter]="true" display="chip" styleClass="tm-ms" appendTo="body"></p-multiselect>
         </div>
         <div class="tm-pool-col">
           <label for="tm-cnt">Contadores disponibles</label>
-          <p-multiSelect inputId="tm-cnt" [options]="cntOptions()" [(ngModel)]="selCnt" optionLabel="label" optionValue="value"
-                         placeholder="Ninguno" [filter]="true" display="chip" styleClass="tm-ms" appendTo="body"></p-multiSelect>
+          <p-multiselect inputId="tm-cnt" [options]="cntOptions()" [(ngModel)]="selCnt" optionLabel="label" optionValue="value"
+                         placeholder="Ninguno" [filter]="true" display="chip" styleClass="tm-ms" appendTo="body"></p-multiselect>
         </div>
         <button pButton label="Auto-generar (parejo)" icon="pi pi-bolt" class="tm-gen-btn"
                 [loading]="working()" [disabled]="!selCnt().length || !board().length" (click)="autoGenerate()"></button>
@@ -99,8 +99,8 @@ interface Opt { label: string; value: string; }
               <p-select inputId="tm-psup" [options]="supOptions()" [(ngModel)]="panelSup" optionLabel="label" optionValue="value"
                         placeholder="Sin supervisor" [showClear]="true" [filter]="true" appendTo="body" styleClass="tm-w-full"></p-select>
               <label class="tm-fld" for="tm-pcnt">Contadores</label>
-              <p-multiSelect inputId="tm-pcnt" [options]="cntOptions()" [(ngModel)]="panelCnt" optionLabel="label" optionValue="value"
-                             placeholder="Ninguno" [filter]="true" display="chip" appendTo="body" styleClass="tm-w-full"></p-multiSelect>
+              <p-multiselect inputId="tm-pcnt" [options]="cntOptions()" [(ngModel)]="panelCnt" optionLabel="label" optionValue="value"
+                             placeholder="Ninguno" [filter]="true" display="chip" appendTo="body" styleClass="tm-w-full"></p-multiselect>
               <button pButton label="Aplicar a este pasillo" icon="pi pi-check" size="small" class="tm-apply"
                       [loading]="working()" (click)="applyAisle()"></button>
             </aside>

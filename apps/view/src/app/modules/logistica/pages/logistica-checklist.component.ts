@@ -33,7 +33,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
   providers: [MessageService, ConfirmationService],
   template: `
     <p-toast></p-toast>
-    <p-confirmDialog></p-confirmDialog>
+    <p-confirmdialog></p-confirmdialog>
     
     @if (shipment(); as s) {
       <header class="surf-page-head">
@@ -50,13 +50,13 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
       <p-card>
         <h3>Nuevo checklist</h3>
         <div class="new-row">
-          <p-selectButton
+          <p-selectbutton
             [options]="typeOptions"
             [(ngModel)]="newType"
             optionLabel="label"
             optionValue="value"
             styleClass="sb-liquid"
-          ></p-selectButton>
+          ></p-selectbutton>
           <button pButton icon="pi pi-plus" label="Crear checklist" (click)="createNew()" [loading]="creating()"></button>
         </div>
       </p-card>
@@ -95,13 +95,13 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
                 </div>
                 @if (cl.status === 'pendiente') {
                   <div class="item-controls">
-                    <p-selectButton
+                    <p-selectbutton
                       [options]="okOptions"
                       [(ngModel)]="responses[cl.id][item.id].ok"
                       optionLabel="label"
                       optionValue="value"
                       styleClass="sb-liquid"
-                    ></p-selectButton>
+                    ></p-selectbutton>
                     <input
                       pInputText
                       [(ngModel)]="responses[cl.id][item.id].comment"

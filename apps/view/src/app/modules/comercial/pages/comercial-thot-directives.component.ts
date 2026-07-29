@@ -66,7 +66,7 @@ interface BrandOpt { id: string; nombre: string; products: number; }
   template: `
     <div class="surf-page td">
       <p-toast></p-toast>
-      <p-confirmDialog></p-confirmDialog>
+      <p-confirmdialog></p-confirmdialog>
 
       <!-- PAGE HEAD -->
       <header class="surf-page-head">
@@ -162,7 +162,7 @@ interface BrandOpt { id: string; nombre: string; products: number; }
 
         <label class="td-field">
           <span>Marca <em>*</em></span>
-          <p-autoComplete [(ngModel)]="brandModel" [suggestions]="brandSuggestions()"
+          <p-autocomplete [(ngModel)]="brandModel" [suggestions]="brandSuggestions()"
                           (completeMethod)="searchBrands($event)" (onSelect)="onBrandSelect($event)"
                           (onClear)="selectedBrand.set(null)" field="nombre" [delay]="250"
                           [forceSelection]="true" placeholder="Buscar marca…" appendTo="body"
@@ -170,7 +170,7 @@ interface BrandOpt { id: string; nombre: string; products: number; }
             <ng-template let-b pTemplate="item">
               <div class="td-ac-item"><span>{{ b.nombre }}</span><small>{{ b.products }} prod.</small></div>
             </ng-template>
-          </p-autoComplete>
+          </p-autocomplete>
         </label>
 
         <label class="td-field">
@@ -181,8 +181,8 @@ interface BrandOpt { id: string; nombre: string; products: number; }
         <div class="td-row">
           <label class="td-field">
             <span>Empuje (boost)</span>
-            <p-inputNumber [(ngModel)]="boost" [min]="0" [max]="5" [step]="0.25" [minFractionDigits]="2"
-                           [showButtons]="true" styleClass="td-w-full"></p-inputNumber>
+            <p-inputnumber [(ngModel)]="boost" [min]="0" [max]="5" [step]="0.25" [minFractionDigits]="2"
+                           [showButtons]="true" styleClass="td-w-full"></p-inputnumber>
             <small class="td-hint">0.5 moderado · 1 fuerte · 2 dominante</small>
           </label>
           <label class="td-field">
@@ -194,13 +194,13 @@ interface BrandOpt { id: string; nombre: string; products: number; }
         <div class="td-row">
           <label class="td-field">
             <span>Vigencia desde</span>
-            <p-datePicker [(ngModel)]="validFrom" dateFormat="dd/mm/yy" [showIcon]="true" appendTo="body"
-                          styleClass="td-w-full" placeholder="∞"></p-datePicker>
+            <p-datepicker [(ngModel)]="validFrom" dateFormat="dd/mm/yy" [showIcon]="true" appendTo="body"
+                          styleClass="td-w-full" placeholder="∞"></p-datepicker>
           </label>
           <label class="td-field">
             <span>Vigencia hasta</span>
-            <p-datePicker [(ngModel)]="validTo" dateFormat="dd/mm/yy" [showIcon]="true" appendTo="body"
-                          styleClass="td-w-full" placeholder="∞"></p-datePicker>
+            <p-datepicker [(ngModel)]="validTo" dateFormat="dd/mm/yy" [showIcon]="true" appendTo="body"
+                          styleClass="td-w-full" placeholder="∞"></p-datepicker>
           </label>
         </div>
       </div>

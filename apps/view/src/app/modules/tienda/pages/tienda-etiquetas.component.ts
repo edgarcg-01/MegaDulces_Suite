@@ -141,10 +141,10 @@ type Msg = { text: string; kind: 'info' | 'ok' | 'error' | 'warn' };
           <h1>Etiquetas de anaquel</h1>
           <p>Arma la cola e imprime en hoja Carta · etiqueta 100×40&nbsp;mm</p>
         </div>
-        <p-multiSelect [options]="sectionOptions" [ngModel]="sections()" (ngModelChange)="sections.set($event)"
+        <p-multiselect [options]="sectionOptions" [ngModel]="sections()" (ngModelChange)="sections.set($event)"
           optionLabel="label" optionValue="value" [showToggleAll]="true" [filter]="false"
           placeholder="Secciones a mostrar" selectedItemsLabel="{0} secciones"
-          ariaLabel="Secciones visibles de la etiqueta" [style]="{ minWidth: '15rem' }"></p-multiSelect>
+          ariaLabel="Secciones visibles de la etiqueta" [style]="{ minWidth: '15rem' }"></p-multiselect>
         <p-button [label]="printBtnLabel()" icon="pi pi-print" [loading]="printing()"
           [disabled]="!totalLabels()" (onClick)="print()"></p-button>
       </div>
@@ -170,7 +170,7 @@ type Msg = { text: string; kind: 'info' | 'ok' | 'error' | 'warn' };
       <div class="etqp-inputs">
         <div class="etqp-card">
           <label for="etqp-search">Buscar en catálogo</label>
-          <p-autoComplete inputId="etqp-search" styleClass="etqp-ac" [(ngModel)]="acSelected"
+          <p-autocomplete inputId="etqp-search" styleClass="etqp-ac" [(ngModel)]="acSelected"
             [suggestions]="results()" (completeMethod)="searchAc($event)" (onSelect)="onPick($event)"
             optionLabel="name" [delay]="250" [minLength]="2" [showClear]="true" appendTo="body"
             placeholder="Nombre, SKU o código de barras…">
@@ -178,7 +178,7 @@ type Msg = { text: string; kind: 'info' | 'ok' | 'error' | 'warn' };
               <div class="etqp-hit"><span class="nm">{{ h.name }}</span><span class="sku">{{ h.sku }}</span></div>
             </ng-template>
             <ng-template pTemplate="empty"><div class="etqp-empty-hit">Sin coincidencias</div></ng-template>
-          </p-autoComplete>
+          </p-autocomplete>
         </div>
 
         <div class="etqp-card">
@@ -226,10 +226,10 @@ type Msg = { text: string; kind: 'info' | 'ok' | 'error' | 'warn' };
                       [ariaLabel]="'Precio grande de ' + it.model.name"></p-select>
                   </td>
                   <td class="etqp-cnum">
-                    <p-inputNumber styleClass="etqp-num" [ngModel]="it.copies" (ngModelChange)="setCopies(i, $event)"
+                    <p-inputnumber styleClass="etqp-num" [ngModel]="it.copies" (ngModelChange)="setCopies(i, $event)"
                       [showButtons]="true" buttonLayout="horizontal" [min]="1" [step]="1" [inputStyle]="{ width: '3rem', textAlign: 'center' }"
                       incrementButtonIcon="pi pi-plus" decrementButtonIcon="pi pi-minus"
-                      [ariaLabel]="'Copias de ' + it.model.name"></p-inputNumber>
+                      [ariaLabel]="'Copias de ' + it.model.name"></p-inputnumber>
                   </td>
                   <td class="etqp-cact">
                     <p-button icon="pi pi-times" [text]="true" [rounded]="true" severity="danger" size="small"

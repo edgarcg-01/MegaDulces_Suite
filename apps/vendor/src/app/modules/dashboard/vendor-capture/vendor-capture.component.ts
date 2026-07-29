@@ -117,7 +117,7 @@ const ALLOWED_IMAGE_TYPES = [
               <div class="text-[10px] sm:text-xs font-semibold uppercase tracking-[0.15em] text-brand mb-1">¿En qué ruta estás hoy?</div>
               <p-select
                 [options]="zoneRoutes()"
-                [ngModel]="route()?.id"
+                [ngModel]="$safeNavigationMigration(route()?.id)"
                 (onChange)="onSelectRoute($event.value)"
                 optionLabel="label"
                 optionValue="value"

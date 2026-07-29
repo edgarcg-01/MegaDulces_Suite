@@ -62,7 +62,7 @@ interface ProductOption {
   template: `
     <div class="surf-page pm">
       <p-toast></p-toast>
-      <p-confirmDialog></p-confirmDialog>
+      <p-confirmdialog></p-confirmdialog>
       <app-page-tabs [tabs]="promoTabs" />
     
       <!-- PAGE HEAD -->

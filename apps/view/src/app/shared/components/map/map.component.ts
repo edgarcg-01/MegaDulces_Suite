@@ -9,6 +9,7 @@ import {
   effect,
   signal,
   inject,
+  ChangeDetectionStrategy
 } from '@angular/core';
 import * as L from 'leaflet';
 import { environment } from '../../../../environments/environment';
@@ -77,6 +78,7 @@ export interface MapLayer {
       }
     </div>
   `,
+  changeDetection: ChangeDetectionStrategy.Eager,
   styles: [`
     :host { display:block; }
     .map-shell { position:relative; }

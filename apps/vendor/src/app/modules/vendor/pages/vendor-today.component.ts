@@ -26,7 +26,7 @@ import { OfflineOrderService, PendingOrderSummary } from '../../../core/services
   imports: [CommonModule, RouterLink, CardModule, SkeletonModule, ButtonModule, ConfirmDialogModule],
   providers: [ConfirmationService],
   template: `
-    <p-confirmDialog></p-confirmDialog>
+    <p-confirmdialog></p-confirmdialog>
     @if (!loading()) {
       <section class="hero">
         <button

@@ -93,10 +93,10 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
           </div>
           <label class="pr-cov">
             <span>Cobertura</span>
-            <p-inputNumber [(ngModel)]="coverage" (onBlur)="loadAll()" [min]="1" [max]="120" [showButtons]="true"
+            <p-inputnumber [(ngModel)]="coverage" (onBlur)="loadAll()" [min]="1" [max]="120" [showButtons]="true"
                            buttonLayout="horizontal" [step]="1" suffix=" d" inputStyleClass="pr-cov-in"
                            decrementButtonClass="p-button-text" incrementButtonClass="p-button-text"
-                           incrementButtonIcon="pi pi-plus" decrementButtonIcon="pi pi-minus" ariaLabel="Días de cobertura"></p-inputNumber>
+                           incrementButtonIcon="pi pi-plus" decrementButtonIcon="pi pi-minus" ariaLabel="Días de cobertura"></p-inputnumber>
           </label>
           <div class="pr-presets" role="group" aria-label="Cobertura rápida">
             @for (p of [14, 30, 45]; track p) {

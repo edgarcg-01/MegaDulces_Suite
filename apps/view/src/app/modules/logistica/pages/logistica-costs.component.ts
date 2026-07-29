@@ -145,7 +145,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
         @if (editing()) {
           <div class="edit-header">
             <strong><code>{{ editing()?.shipment_folio }}</code></strong>
-            <span class="muted">· {{ editing()?.destination || '—' }} · {{ editing()?.shipment_date | date:'shortDate' }}</span>
+            <span class="muted">· {{ editing()?.destination || '—' }} · {{ $safeNavigationMigration(editing()?.shipment_date) | date:'shortDate' }}</span>
           </div>
         }
         <form [formGroup]="form" class="form-grid">

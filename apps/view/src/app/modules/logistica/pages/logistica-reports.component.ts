@@ -132,14 +132,14 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
                 <p-table [value]="shipmentRows()" [loading]="loading()" responsiveLayout="scroll" styleClass="surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra p-datatable-sm" [paginator]="true" [rows]="25" [rowsPerPageOptions]="[25, 50, 100, 200]" sortMode="single">
                   <ng-template pTemplate="header">
                     <tr>
-                      <th scope="col" pSortableColumn="folio">Folio <p-sortIcon field="folio"></p-sortIcon></th>
-                      <th scope="col" pSortableColumn="shipment_date">Fecha <p-sortIcon field="shipment_date"></p-sortIcon></th>
+                      <th scope="col" pSortableColumn="folio">Folio <p-sorticon field="folio"></p-sorticon></th>
+                      <th scope="col" pSortableColumn="shipment_date">Fecha <p-sorticon field="shipment_date"></p-sorticon></th>
                       <th scope="col">Ruta</th>
-                      <th scope="col" pSortableColumn="km" class="comm-num">Km <p-sortIcon field="km"></p-sortIcon></th>
-                      <th scope="col" pSortableColumn="revenue" class="comm-num">Ingreso <p-sortIcon field="revenue"></p-sortIcon></th>
-                      <th scope="col" pSortableColumn="cost" class="comm-num">Costo <p-sortIcon field="cost"></p-sortIcon></th>
-                      <th scope="col" pSortableColumn="margin" class="comm-num">Margen <p-sortIcon field="margin"></p-sortIcon></th>
-                      <th scope="col" pSortableColumn="margin_pct" class="comm-num">% Margen <p-sortIcon field="margin_pct"></p-sortIcon></th>
+                      <th scope="col" pSortableColumn="km" class="comm-num">Km <p-sorticon field="km"></p-sorticon></th>
+                      <th scope="col" pSortableColumn="revenue" class="comm-num">Ingreso <p-sorticon field="revenue"></p-sorticon></th>
+                      <th scope="col" pSortableColumn="cost" class="comm-num">Costo <p-sorticon field="cost"></p-sorticon></th>
+                      <th scope="col" pSortableColumn="margin" class="comm-num">Margen <p-sorticon field="margin"></p-sorticon></th>
+                      <th scope="col" pSortableColumn="margin_pct" class="comm-num">% Margen <p-sorticon field="margin_pct"></p-sorticon></th>
                       <th scope="col" class="comm-num">Ing/km</th>
                     </tr>
                   </ng-template>
@@ -183,13 +183,13 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
                 <p-table [value]="fleetRows()" [loading]="loading()" responsiveLayout="scroll" styleClass="surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra p-datatable-sm" sortMode="single">
                   <ng-template pTemplate="header">
                     <tr>
-                      <th scope="col" pSortableColumn="plate">Placa <p-sortIcon field="plate"></p-sortIcon></th>
+                      <th scope="col" pSortableColumn="plate">Placa <p-sorticon field="plate"></p-sorticon></th>
                       <th scope="col">Modelo</th>
-                      <th scope="col" pSortableColumn="shipments_count" class="comm-num"># Embarques <p-sortIcon field="shipments_count"></p-sortIcon></th>
-                      <th scope="col" pSortableColumn="total_km" class="comm-num">Km <p-sortIcon field="total_km"></p-sortIcon></th>
-                      <th scope="col" pSortableColumn="total_revenue" class="comm-num">Ingreso <p-sortIcon field="total_revenue"></p-sortIcon></th>
-                      <th scope="col" pSortableColumn="total_cost" class="comm-num">Costo <p-sortIcon field="total_cost"></p-sortIcon></th>
-                      <th scope="col" pSortableColumn="margin" class="comm-num">Margen <p-sortIcon field="margin"></p-sortIcon></th>
+                      <th scope="col" pSortableColumn="shipments_count" class="comm-num"># Embarques <p-sorticon field="shipments_count"></p-sorticon></th>
+                      <th scope="col" pSortableColumn="total_km" class="comm-num">Km <p-sorticon field="total_km"></p-sorticon></th>
+                      <th scope="col" pSortableColumn="total_revenue" class="comm-num">Ingreso <p-sorticon field="total_revenue"></p-sorticon></th>
+                      <th scope="col" pSortableColumn="total_cost" class="comm-num">Costo <p-sorticon field="total_cost"></p-sorticon></th>
+                      <th scope="col" pSortableColumn="margin" class="comm-num">Margen <p-sorticon field="margin"></p-sorticon></th>
                       <th scope="col" class="comm-num">Ing/km</th>
                     </tr>
                   </ng-template>
@@ -297,9 +297,9 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
                     <ng-template pTemplate="header">
                       <tr>
                         <th scope="col">{{ erpDimLabel() }}</th>
-                        <th scope="col" pSortableColumn="folios" class="comm-num">Folios <p-sortIcon field="folios"></p-sortIcon></th>
-                        <th scope="col" pSortableColumn="units" class="comm-num">Unidades <p-sortIcon field="units"></p-sortIcon></th>
-                        <th scope="col" pSortableColumn="lines" class="comm-num">Líneas <p-sortIcon field="lines"></p-sortIcon></th>
+                        <th scope="col" pSortableColumn="folios" class="comm-num">Folios <p-sorticon field="folios"></p-sorticon></th>
+                        <th scope="col" pSortableColumn="units" class="comm-num">Unidades <p-sorticon field="units"></p-sorticon></th>
+                        <th scope="col" pSortableColumn="lines" class="comm-num">Líneas <p-sorticon field="lines"></p-sorticon></th>
                       </tr>
                     </ng-template>
                     <ng-template pTemplate="body" let-r>

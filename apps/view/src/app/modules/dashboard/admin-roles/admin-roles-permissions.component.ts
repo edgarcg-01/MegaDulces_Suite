@@ -69,7 +69,7 @@ const CRITICAL_PERMISSIONS: readonly string[] = [
   template: `
     <div class="p-6 max-w-4xl mx-auto">
       <p-toast></p-toast>
-      <p-confirmDialog></p-confirmDialog>
+      <p-confirmdialog></p-confirmdialog>
 
       <div class="flex justify-between items-center mb-6">
         <div>
