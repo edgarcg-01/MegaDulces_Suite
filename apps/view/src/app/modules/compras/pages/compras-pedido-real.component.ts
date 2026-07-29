@@ -122,7 +122,7 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
           }
           <p-table [value]="flatRows()" [loading]="loading()"
                    rowGroupMode="subheader" groupRowsBy="warehouse_code"
-                   [expandableRowGroups]="true" [(expandedRowGroups)]="expandedGroups" dataKey="warehouse_code"
+                   [expandedRowKeys]="expandedGroups" dataKey="warehouse_code"
                    styleClass="p-datatable-sm pr-table" [tableStyle]="tableStyle">
             <ng-template pTemplate="header">
               <tr>
