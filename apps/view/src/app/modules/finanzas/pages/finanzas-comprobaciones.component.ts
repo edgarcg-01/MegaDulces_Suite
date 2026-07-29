@@ -2,7 +2,7 @@ import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signa
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute } from '@angular/router';
-import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { rxResource, takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { forkJoin, of, catchError, map } from 'rxjs';
 import { TableModule } from 'primeng/table';
 import { SelectModule } from 'primeng/select';
@@ -251,7 +251,17 @@ export class FinanzasComprobacionesComponent {
   readonly showForm = signal(false);
   readonly fileNames = signal<Record<string, string>>({});
   readonly formError = signal<string>('');
-  readonly solicitudSug = signal<SolicitudSug[]>([]);
+  private readonly solicitudQuery = signal<string | null>(null);
+  private readonly solicitudRes = rxResource({
+    params: () => { const q = this.solicitudQuery(); return q && q.length >= 2 ? q : undefined; },
+    stream: ({ params }) => this.comercial.expenseRequests({ search: params }).pipe(
+      map((r) => (r.rows || [])
+        .filter((row) => row.estado !== 'C')
+        .slice(0, 20)
+        .map((row) => ({ ...row, label: `${row.folio} · ${row.beneficiario || '—'} · ${this.money(row.importe)}${row.aplicada ? ' · aplicada' : ''}` }))),
+    ),
+  });
+  readonly solicitudSug = computed<SolicitudSug[]>(() => this.solicitudRes.value() ?? []);
   solicitudSel: SolicitudSug | string | null = null;
   fechaGasto: Date | null = null;
   form: CreateExpenseProof = {};
@@ -298,13 +308,7 @@ export class FinanzasComprobacionesComponent {
 
   // (A) Autocomplete de solicitud Kepler (XA1501); excluye canceladas.
   searchSolicitud(ev: { query: string }) {
-    const q = (ev.query || '').trim();
-    if (q.length < 2) { this.solicitudSug.set([]); return; }
-    this.comercial.expenseRequests({ search: q }).pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe((r) => this.solicitudSug.set((r.rows || [])
-        .filter((row) => row.estado !== 'C')
-        .slice(0, 20)
-        .map((row) => ({ ...row, label: `${row.folio} · ${row.beneficiario || '—'} · ${this.money(row.importe)}${row.aplicada ? ' · aplicada' : ''}` }))));
+    this.solicitudQuery.set((ev.query || '').trim());
   }
 
   // (B) Auto-relleno desde la solicitud elegida.

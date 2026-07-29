@@ -1,4 +1,5 @@
-import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, effect, inject, signal } from '@angular/core';
+import { rxResource } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { FormBuilder, FormGroup, FormsModule, ReactiveFormsModule, Validators } from '@angular/forms';
 import { ButtonModule } from 'primeng/button';
@@ -547,16 +548,27 @@ export class ComercialPricingComponent {
   readonly rows = signal<PriceList[]>([]);
   readonly loading = signal(false);
   readonly selected = signal<PriceList | null>(null);
-  readonly prices = signal<ProductPrice[]>([]);
-  readonly loadingPrices = signal(false);
-
   // Paginación + search del detail table — necesario para listas grandes
   // (post-importer Mega_Dulces: ~6500 SKUs en MAYOREO).
   readonly pricesPage = signal(1);
   readonly pricesPageSize = signal(50);
-  readonly pricesTotal = signal(0);
   pricesSearch = '';
   readonly pricesSearchSignal = signal('');
+
+  // Detalle de precios (lectura reactiva): recarga sola al cambiar lista/página/búsqueda
+  // y cancela la petición vieja (evita mostrar la página equivocada al teclear rápido).
+  private readonly pricesRes = rxResource({
+    params: () => {
+      const sel = this.selected();
+      return sel
+        ? { id: sel.id, page: this.pricesPage(), pageSize: this.pricesPageSize(), search: this.pricesSearchSignal() || undefined }
+        : undefined;
+    },
+    stream: ({ params }) => this.api.listPrices(params.id, { page: params.page, pageSize: params.pageSize, search: params.search }),
+  });
+  readonly prices = computed<ProductPrice[]>(() => this.pricesRes.value()?.data ?? []);
+  readonly pricesTotal = computed(() => this.pricesRes.value()?.pagination?.total ?? 0);
+  readonly loadingPrices = computed(() => this.pricesRes.isLoading());
 
   readonly editing = signal<PriceList | null>(null);
   readonly saving = signal(false);
@@ -571,6 +583,12 @@ export class ComercialPricingComponent {
 
   constructor() {
     this.load();
+    // Toast en error de la lectura de precios (equivale al catch del subscribe viejo).
+    effect(() => {
+      if (this.pricesRes.error()) {
+        this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudieron cargar precios' });
+      }
+    });
   }
 
   load(): void {
@@ -595,33 +613,15 @@ export class ComercialPricingComponent {
     this.pricesPage.set(1);
     this.pricesSearch = '';
     this.pricesSearchSignal.set('');
-    this.loadPricesPage();
   }
 
+  /** Fuerza recarga del detalle (tras borrar un precio); el resto reacciona a las señales. */
   loadPricesPage(): void {
-    const sel = this.selected();
-    if (!sel) return;
-    this.loadingPrices.set(true);
-    this.api
-      .listPrices(sel.id, {
-        page: this.pricesPage(),
-        pageSize: this.pricesPageSize(),
-        search: this.pricesSearchSignal() || undefined,
-      })
-      .subscribe({
-        next: (r) => {
-          this.prices.set(r.data || []);
-          this.pricesTotal.set(r.pagination?.total || 0);
-          this.loadingPrices.set(false);
-        },
-        error: () => {
-          this.loadingPrices.set(false);
-          this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudieron cargar precios' });
-        },
-      });
+    this.pricesRes.reload();
   }
 
-  readonly onPricesLazyLoad = makeLazyLoad(this.pricesPage, this.pricesPageSize, () => this.loadPricesPage());
+  // El evento lazy solo actualiza page/pageSize (señales); el rxResource reacciona → no-op.
+  readonly onPricesLazyLoad = makeLazyLoad(this.pricesPage, this.pricesPageSize, () => {});
 
   onPricesSearchChange(v: string): void {
     this.pricesSearch = v;
@@ -630,14 +630,12 @@ export class ComercialPricingComponent {
   private readonly pricesSearchDebounced = makeDebouncedSearch((v) => {
     this.pricesSearchSignal.set((v || '').trim());
     this.pricesPage.set(1);
-    this.loadPricesPage();
   });
 
   clearPricesSearch(): void {
     this.pricesSearch = '';
     this.pricesSearchSignal.set('');
     this.pricesPage.set(1);
-    this.loadPricesPage();
   }
 
   openCreate(): void {

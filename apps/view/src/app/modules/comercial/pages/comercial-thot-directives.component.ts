@@ -2,7 +2,7 @@ import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, computed, injec
 
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
-import { HttpClient, HttpParams } from '@angular/common/http';
+import { HttpClient, httpResource } from '@angular/common/http';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
@@ -246,7 +246,15 @@ export class ComercialThotDirectivesComponent implements OnInit {
   private readonly base = environment.apiUrl + '/commercial/intelligence/directives';
 
   readonly directives = signal<Directive[]>([]);
-  readonly brandSuggestions = signal<BrandOpt[]>([]);
+  private readonly brandQuery = signal<string | null>(null);
+  private readonly brandsRes = httpResource<BrandOpt[]>(
+    () => {
+      const q = this.brandQuery();
+      return q === null ? undefined : { url: `${this.base}/brands`, params: { search: q } };
+    },
+    { defaultValue: [] },
+  );
+  readonly brandSuggestions = computed<BrandOpt[]>(() => this.brandsRes.value() ?? []);
   readonly selectedBrand = signal<BrandOpt | null>(null);
   readonly loading = signal(true);
   readonly creating = signal(false);
@@ -281,9 +289,7 @@ export class ComercialThotDirectivesComponent implements OnInit {
   }
 
   searchBrands(e: { query: string }): void {
-    this.http.get<BrandOpt[]>(`${this.base}/brands`, { params: new HttpParams().set('search', e.query || '') })
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({ next: (b) => this.brandSuggestions.set(b || []), error: () => this.brandSuggestions.set([]) });
+    this.brandQuery.set(e.query ?? '');
   }
 
   onBrandSelect(e: { value: BrandOpt }): void {

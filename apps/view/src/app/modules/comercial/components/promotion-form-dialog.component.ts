@@ -9,7 +9,6 @@ import { ToggleSwitchModule } from 'primeng/toggleswitch';
 import { SelectModule } from 'primeng/select';
 import { DatePickerModule } from 'primeng/datepicker';
 import { TextareaModule } from 'primeng/textarea';
-import { SharedModule } from 'primeng/api';
 import { Promotion, PromotionType } from '../comercial.service';
 import { PROMOTION_META, PromotionMeta } from '../promotions-meta';
 
@@ -52,8 +51,7 @@ interface BundleItem {
     ToggleSwitchModule,
     SelectModule,
     DatePickerModule,
-    TextareaModule,
-    SharedModule
+    TextareaModule
 ],
   template: `
     <p-dialog

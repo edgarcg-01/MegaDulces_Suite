@@ -15,7 +15,7 @@ import { TextareaModule } from 'primeng/textarea';
 import { ToastModule } from 'primeng/toast';
 import { ConfirmDialogModule } from 'primeng/confirmdialog';
 import { TooltipModule } from 'primeng/tooltip';
-import { MessageService, ConfirmationService, SharedModule } from 'primeng/api';
+import { MessageService, ConfirmationService } from 'primeng/api';
 import {
   ComercialService,
   Promotion,
@@ -56,7 +56,6 @@ interface ProductOption {
     TooltipModule,
     PromotionFormDialogComponent,
     PageTabsComponent,
-    SharedModule,
   ],
   providers: [MessageService, ConfirmationService],
   template: `

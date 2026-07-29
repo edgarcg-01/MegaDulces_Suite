@@ -3,6 +3,7 @@ import {
   Component,
   DestroyRef,
   computed,
+  effect,
   inject,
   signal,
 } from '@angular/core';
@@ -20,8 +21,8 @@ import { TagModule } from 'primeng/tag';
 import { ToastModule } from 'primeng/toast';
 import { TooltipModule } from 'primeng/tooltip';
 import { SkeletonModule } from 'primeng/skeleton';
-import { MessageService, SharedModule } from 'primeng/api';
-import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { MessageService } from 'primeng/api';
+import { rxResource, takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ComercialService, Product, ProductStats, ProductSupplierOption, UpdateProductDto } from '../comercial.service';
 import { makeLazyLoad, makeDebouncedSearch } from '../../../shared/util';
 import { MetricCardComponent } from '../../../shared/components/metric-card/metric-card.component';
@@ -48,7 +49,6 @@ type ActiveFilter = 'all' | 'active' | 'inactive';
     TooltipModule,
     SkeletonModule,
     MetricCardComponent,
-    SharedModule,
   ],
   providers: [MessageService],
   template: `
@@ -71,7 +71,7 @@ type ActiveFilter = 'all' | 'active' | 'inactive';
             [text]="true"
             severity="secondary"
             size="small"
-            (click)="load()"
+            (click)="refresh()"
             [loading]="loading()"
             pTooltip="Refrescar"
           ></button>
@@ -145,7 +145,7 @@ type ActiveFilter = 'all' | 'active' | 'inactive';
     
               <!-- Only with cost (importer validation) -->
               <label class="pp-toggle">
-                <p-toggleswitch [(ngModel)]="onlyWithCost" (onChange)="reload()"></p-toggleswitch>
+                <p-toggleswitch [ngModel]="onlyWithCost()" (ngModelChange)="onOnlyWithCostChange($event)"></p-toggleswitch>
                 <span>Sólo con costo</span>
               </label>
     
@@ -550,13 +550,11 @@ export class ComercialProductsComponent {
   private readonly toast = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);
 
-  readonly rows = signal<Product[]>([]);
-  readonly total = signal(0);
+  // Paginación
   readonly page = signal(1);
   readonly pageSize = signal(50);
-  readonly loading = signal(false);
 
-  // Filtros
+  // Filtros (todas señales → alimentan los rxResource)
   searchInput = '';
   readonly searchSignal = signal('');
 
@@ -566,16 +564,42 @@ export class ComercialProductsComponent {
     { key: 'active',   label: 'Activos' },
     { key: 'inactive', label: 'Inactivos' },
   ];
-  onlyWithCost = false;
-
-  // Filtro por proveedor (dropdown searchable).
-  readonly suppliers = signal<ProductSupplierOption[]>([]);
+  readonly onlyWithCost = signal(false);
   readonly selectedSupplier = signal<string | null>(null);
 
-  /** Agregados catálogo-wide (no del paginado). Honra el search. */
-  readonly stats = signal<ProductStats | null>(null);
+  // ── Lecturas reactivas (Resource API, Angular 22) ──
+  // Listado paginado: se recarga solo cuando cambia cualquier filtro/página y
+  // cancela la petición vieja si otra la reemplaza.
+  private readonly listRes = rxResource({
+    params: () => ({
+      page: this.page(),
+      pageSize: this.pageSize(),
+      search: this.searchSignal() || undefined,
+      supplier_id: this.selectedSupplier() || undefined,
+      active: this.activeFilter() === 'all' ? undefined : this.activeFilter() === 'active',
+      with_cost: this.onlyWithCost() || undefined,
+    }),
+    stream: ({ params }) => this.api.listProducts(params),
+  });
+  readonly rows = computed<Product[]>(() => this.listRes.value()?.data ?? []);
+  readonly total = computed(() => this.listRes.value()?.pagination?.total ?? 0);
+  readonly loading = computed(() => this.listRes.isLoading());
+
+  // Agregados catálogo-wide: solo dependen del search (no del segmento/costo ni del paginado).
+  private readonly statsRes = rxResource({
+    params: () => this.searchSignal(),
+    stream: ({ params }) => this.api.productStats(params || undefined),
+  });
+  readonly stats = computed<ProductStats | null>(() => this.statsRes.value() ?? null);
   readonly brandSeries = computed(() => this.stats()?.top_brands.map((b) => b.sku_count) ?? []);
   readonly brandLabels = computed(() => this.stats()?.top_brands.map((b) => b.name) ?? []);
+
+  // Proveedores para el dropdown (one-shot).
+  private readonly suppliersRes = rxResource({
+    params: () => true,
+    stream: () => this.api.productSuppliers(),
+  });
+  readonly suppliers = computed<ProductSupplierOption[]>(() => this.suppliersRes.value() ?? []);
 
   // Edit dialog
   readonly editing = signal<Product | null>(null);
@@ -590,16 +614,18 @@ export class ComercialProductsComponent {
   });
 
   constructor() {
-    this.load();
-    this.loadStats();
-    this.loadSuppliers();
+    // Toast en error de la lectura principal (equivale al catch del subscribe viejo).
+    effect(() => {
+      if (this.listRes.error()) {
+        this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudieron cargar productos' });
+      }
+    });
   }
 
-  private loadSuppliers(): void {
-    this.api
-      .productSuppliers()
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({ next: (s) => this.suppliers.set(s || []), error: () => this.suppliers.set([]) });
+  /** Fuerza recarga manual (botón refrescar / tras guardar). */
+  refresh(): void {
+    this.listRes.reload();
+    this.statsRes.reload();
   }
 
   onSupplierChange(id: string | null): void {
@@ -607,47 +633,9 @@ export class ComercialProductsComponent {
     this.reload();
   }
 
-  /** Agregados catálogo-wide. Solo depende del search (no del segmento/costo ni del paginado). */
-  private loadStats(): void {
-    this.api
-      .productStats(this.searchSignal() || undefined)
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({ next: (s) => this.stats.set(s), error: () => this.stats.set(null) });
-  }
-
-  load(): void {
-    this.loading.set(true);
-    const activeFilter = this.activeFilter();
-    this.api
-      .listProducts({
-        page: this.page(),
-        pageSize: this.pageSize(),
-        search: this.searchSignal() || undefined,
-        supplier_id: this.selectedSupplier() || undefined,
-        active: activeFilter === 'all' ? undefined : activeFilter === 'active',
-        with_cost: this.onlyWithCost || undefined,
-      })
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({
-        next: (r) => {
-          this.rows.set(r.data || []);
-          this.total.set(r.pagination?.total || 0);
-          this.loading.set(false);
-        },
-        error: () => {
-          this.loading.set(false);
-          this.toast.add({
-            severity: 'error',
-            summary: 'Error',
-            detail: 'No se pudieron cargar productos',
-          });
-        },
-      });
-  }
-
+  /** Vuelve a la primera página; los rxResource se recargan solos al cambiar la señal. */
   reload(): void {
     this.page.set(1);
-    this.load();
   }
 
   onSearchChange(v: string): void {
@@ -656,15 +644,13 @@ export class ComercialProductsComponent {
   }
   private readonly searchDebounced = makeDebouncedSearch((v) => {
     this.searchSignal.set((v || '').trim());
-    this.reload();
-    this.loadStats();
+    this.page.set(1);
   });
 
   clearSearch(): void {
     this.searchInput = '';
     this.searchSignal.set('');
-    this.reload();
-    this.loadStats();
+    this.page.set(1);
   }
 
   setActiveFilter(key: ActiveFilter): void {
@@ -673,21 +659,26 @@ export class ComercialProductsComponent {
     this.reload();
   }
 
+  onOnlyWithCostChange(v: boolean): void {
+    this.onlyWithCost.set(v);
+    this.reload();
+  }
+
   resetFilters(): void {
     this.searchInput = '';
     this.searchSignal.set('');
     this.activeFilter.set('all');
-    this.onlyWithCost = false;
+    this.onlyWithCost.set(false);
     this.selectedSupplier.set(null);
-    this.reload();
-    this.loadStats();
+    this.page.set(1);
   }
 
   hasActiveFilters(): boolean {
-    return !!this.searchSignal() || this.activeFilter() !== 'all' || this.onlyWithCost || !!this.selectedSupplier();
+    return !!this.searchSignal() || this.activeFilter() !== 'all' || this.onlyWithCost() || !!this.selectedSupplier();
   }
 
-  readonly onLazyLoad = makeLazyLoad(this.page, this.pageSize, () => this.load());
+  // El evento lazy solo actualiza page/pageSize (señales); el rxResource reacciona → no-op.
+  readonly onLazyLoad = makeLazyLoad(this.page, this.pageSize, () => {});
 
   openEdit(p: Product): void {
     // Buscar el detalle completo para traer prices_count, total_available.
@@ -724,8 +715,7 @@ export class ComercialProductsComponent {
         this.saving.set(false);
         this.dialogVisible = false;
         this.toast.add({ severity: 'success', summary: 'Producto actualizado' });
-        this.load();
-        this.loadStats();
+        this.refresh();
       },
       error: (err) => {
         this.saving.set(false);

@@ -1,4 +1,5 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
+import { rxResource } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { FormBuilder, FormGroup, FormsModule, ReactiveFormsModule, Validators } from '@angular/forms';
@@ -929,7 +930,12 @@ export class LogisticaShipmentDetailComponent {
     boxes_count: [0],
     value: [0],
   });
-  readonly customerSuggestions = signal<CustomerLite[]>([]);
+  private readonly customerQuery = signal<string | null>(null);
+  private readonly customerRes = rxResource({
+    params: () => this.customerQuery() === null ? undefined : this.customerQuery()!,
+    stream: ({ params }) => this.api.searchCustomers(params),
+  });
+  readonly customerSuggestions = computed<CustomerLite[]>(() => this.customerRes.value() ?? []);
   readonly customerOrders = signal<OrderLite[]>([]);
 
   expForm: FormGroup = this.fb.group({
@@ -1217,7 +1223,7 @@ export class LogisticaShipmentDetailComponent {
       next: (full) => {
         this.selectedGuide.set(full);
         this.recipientForm.reset({ customer_id: null, order_id: null, customer_name: '', address: '', boxes_count: 0, value: 0 });
-        this.customerSuggestions.set([]);
+        this.customerQuery.set(null);
         this.customerOrders.set([]);
         this.guideDetailDialog = true;
       },
@@ -1246,10 +1252,7 @@ export class LogisticaShipmentDetailComponent {
 
   // ── Destinatario: búsqueda de cliente (autorelleno) ─────────────────
   searchCustomer(e: { query: string }) {
-    this.api.searchCustomers(e.query).subscribe({
-      next: (cs) => this.customerSuggestions.set(cs || []),
-      error: () => this.customerSuggestions.set([]),
-    });
+    this.customerQuery.set(e.query ?? '');
   }
   onCustomerSelect(e: any) {
     const c: CustomerLite = e?.value ?? e;
