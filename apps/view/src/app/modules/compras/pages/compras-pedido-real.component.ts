@@ -135,32 +135,33 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
               </tr>
             </ng-template>
 
-            <ng-template pTemplate="groupheader" let-r let-expanded="expanded">
-              <tr pRowGroupHeader class="pr-grp">
-                <td colspan="8">
-                  <div class="pr-grp-in">
-                    <button type="button" pButton [pRowToggler]="r" class="p-button-text p-button-sm pr-grp-tog"
-                            [icon]="expanded ? 'pi pi-chevron-down' : 'pi pi-chevron-right'"
-                            [attr.aria-label]="(expanded ? 'Colapsar ' : 'Desplegar ') + r.warehouse_code"></button>
-                    <span class="pr-grp-name"><span class="pr-mono">{{ r.warehouse_code }}</span> {{ nameOf(r.warehouse_code) }}</span>
-                    @if (grp(r.warehouse_code); as g) {
-                      <span class="pr-grp-n">{{ g.n }} prod.</span>
-                      <span class="pr-grp-sub">
-                        @if (g.buy > 0) { <span class="pr-gs pr-gs-buy" title="A comprar">comprar {{ money(g.buy) }}</span> }
-                        @if (g.tr > 0) { <span class="pr-gs pr-gs-tr" title="A traspasar desde su CEDIS">traspaso {{ money(g.tr) }}</span> }
-                        @if (g.over > 0) { <span class="pr-gs pr-gs-over" title="Capital inmovilizado (sobrestock)">sobre {{ money(g.over) }}</span> }
-                      </span>
-                      <span class="pr-grp-sp"></span>
-                      <button pButton type="button" label="XLSX" icon="pi pi-file-excel" class="p-button-sm p-button-text pr-grp-btn" (click)="exportScope(r.warehouse_code)" [disabled]="dl() || (g.buy + g.tr) <= 0"></button>
-                      <button pButton type="button" label="Requisición" icon="pi pi-check" class="p-button-sm pr-grp-btn" (click)="buildReq(r.warehouse_code)" [disabled]="saving() || (g.buy + g.tr) <= 0"></button>
-                    }
-                  </div>
-                </td>
-              </tr>
-            </ng-template>
-
             <ng-template pTemplate="body" let-r>
-              <tr [class.pr-row-over]="r.type==='sobre'">
+              @if (r.__header) {
+                <tr class="pr-grp">
+                  <td colspan="8">
+                    <div class="pr-grp-in">
+                      <button type="button" pButton class="p-button-text p-button-sm pr-grp-tog" (click)="toggle(r.warehouse_code)"
+                              [icon]="isExpanded(r.warehouse_code) ? 'pi pi-chevron-down' : 'pi pi-chevron-right'"
+                              [attr.aria-label]="(isExpanded(r.warehouse_code) ? 'Colapsar ' : 'Desplegar ') + r.warehouse_code"></button>
+                      <button type="button" class="pr-grp-name-btn" (click)="toggle(r.warehouse_code)">
+                        <span class="pr-grp-name"><span class="pr-mono">{{ r.warehouse_code }}</span> {{ nameOf(r.warehouse_code) }}</span>
+                      </button>
+                      @if (grp(r.warehouse_code); as g) {
+                        <span class="pr-grp-n">{{ g.n }} prod.</span>
+                        <span class="pr-grp-sub">
+                          @if (g.buy > 0) { <span class="pr-gs pr-gs-buy" title="A comprar">comprar {{ money(g.buy) }}</span> }
+                          @if (g.tr > 0) { <span class="pr-gs pr-gs-tr" title="A traspasar desde su CEDIS">traspaso {{ money(g.tr) }}</span> }
+                          @if (g.over > 0) { <span class="pr-gs pr-gs-over" title="Capital inmovilizado (sobrestock)">sobre {{ money(g.over) }}</span> }
+                        </span>
+                        <span class="pr-grp-sp"></span>
+                        <button pButton type="button" label="XLSX" icon="pi pi-file-excel" class="p-button-sm p-button-text pr-grp-btn" (click)="exportScope(r.warehouse_code)" [disabled]="dl() || (g.buy + g.tr) <= 0"></button>
+                        <button pButton type="button" label="Requisición" icon="pi pi-check" class="p-button-sm pr-grp-btn" (click)="buildReq(r.warehouse_code)" [disabled]="saving() || (g.buy + g.tr) <= 0"></button>
+                      }
+                    </div>
+                  </td>
+                </tr>
+              } @else {
+                <tr [class.pr-row-over]="r.type==='sobre'">
                 <td>
                   <div class="pr-prod">{{ r.nombre }}</div>
                   <div class="pr-prod-meta">
@@ -199,6 +200,7 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
                   {{ r.type==='sobre' ? money(r.qty * r.unit_cost) : money(r.qty * r.unit_cost) }}
                 </td>
               </tr>
+              }
             </ng-template>
 
             <ng-template pTemplate="emptymessage">
@@ -258,9 +260,9 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
           </p-iconfield>
           @if (deadValue() > 0) { <span class="pr-count">{{ money(deadValue()) }} inmovilizado</span> }
         </div>
-        <p-table [value]="deadRows()" [loading]="loading()" [scrollable]="true" scrollHeight="flex"
+        <p-table [value]="deadRows()" [loading]="loading()"
                  [paginator]="true" [rows]="50" [rowsPerPageOptions]="[50, 100, 200]"
-                 styleClass="p-datatable-sm pr-table" [tableStyle]="{ 'min-width': '60rem' }">
+                 styleClass="p-datatable-sm pr-table" [tableStyle]="deadTableStyle">
           <ng-template pTemplate="header">
             <tr><th style="min-width:16rem">Producto</th><th style="width:5rem">Almacén</th><th class="pr-r">Existencia</th>
               <th class="pr-r">Costo</th><th class="pr-r pr-val">Inmovilizado</th><th>Última actividad</th><th>Proveedor</th></tr>
@@ -324,6 +326,7 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
     .pr-grp td { background: var(--overlay-hover, var(--hover-bg)); border-top: 1px solid var(--border-color); }
     .pr-grp-in { display: flex; align-items: center; gap: .6rem; padding: .15rem 0; }
     .pr-grp-name { font-weight: 700; color: var(--text-main); font-size: .82rem; }
+    .pr-grp-name-btn { border: 0; background: transparent; padding: 0; cursor: pointer; text-align: left; }
     :host ::ng-deep .pr-grp-tog { color: var(--text-muted); width: 1.7rem; height: 1.7rem; padding: 0; }
     .pr-grp-n { font-size: .68rem; color: var(--text-faint); font-variant-numeric: tabular-nums; }
     .pr-exp-bar { display: flex; align-items: center; gap: .4rem; margin-bottom: .5rem; }
@@ -384,12 +387,16 @@ export class ComprasPedidoRealComponent implements OnInit {
   search = '';
   coverage = 30;
 
-  // Condensado por sucursal: vacío = todas colapsadas (default). Clic en el chevron despliega productos.
-  expandedGroups: Record<string, boolean> = {};
-  // Ref ESTABLE (no objeto literal en el template → evita ExpressionChanged/loop de CD en prod).
+  // Condensado por sucursal (colapso MANUAL — PrimeNG 18 no trae grupos colapsables): signal para
+  // que displayRows() reaccione. Vacío = TODAS colapsadas por default. Clic en el chevron despliega.
+  private readonly expandedGroups = signal<Record<string, boolean>>({});
+  // Ref ESTABLE (no objeto literal en el template → evita ExpressionChanged/loop de CD).
   readonly tableStyle = { 'min-width': '78rem' };
-  expandAll(): void { const e: Record<string, boolean> = {}; this.subs().forEach((_g, code) => (e[code] = true)); this.expandedGroups = e; }
-  collapseAll(): void { this.expandedGroups = {}; }
+  readonly deadTableStyle = { 'min-width': '60rem' };
+  isExpanded(code: string): boolean { return !!this.expandedGroups()[code]; }
+  toggle(code: string): void { this.expandedGroups.update((m) => ({ ...m, [code]: !m[code] })); }
+  expandAll(): void { const e: Record<string, boolean> = {}; this.subs().forEach((_g, code) => (e[code] = true)); this.expandedGroups.set(e); }
+  collapseAll(): void { this.expandedGroups.set({}); }
 
   private readonly filters = signal<ReplenishmentFilters | null>(null);
   supplierOpts = computed(() => (this.filters()?.suppliers ?? []).map((s) => ({ label: s.name, value: s.id })));
@@ -508,6 +515,24 @@ export class ComprasPedidoRealComponent implements OnInit {
   });
   grp(code: string): Grp | undefined { return this.subs().get(code); }
   grpCount = computed(() => this.subs().size);
+
+  // Renglones de la tabla: por cada sucursal un __header (siempre visible) y, si está EXPANDIDA,
+  // sus productos debajo. Colapso manual (PrimeNG 18 no tiene expandableRowGroups). flatRows ya
+  // viene ordenado por warehouse_code → los grupos quedan contiguos (Map preserva orden de inserción).
+  readonly displayRows = computed<Array<URow | { __header: true; warehouse_code: string }>>(() => {
+    const exp = this.expandedGroups();
+    const byGroup = new Map<string, URow[]>();
+    for (const r of this.flatRows()) {
+      const arr = byGroup.get(r.warehouse_code);
+      if (arr) arr.push(r); else byGroup.set(r.warehouse_code, [r]);
+    }
+    const out: Array<URow | { __header: true; warehouse_code: string }> = [];
+    for (const [code, rows] of byGroup) {
+      out.push({ __header: true, warehouse_code: code });
+      if (exp[code]) out.push(...rows);
+    }
+    return out;
+  });
   totBuy = computed(() => { let s = 0; this.subs().forEach((g) => (s += g.buy)); return s; });
   totTr = computed(() => { let s = 0; this.subs().forEach((g) => (s += g.tr)); return s; });
   totOver = computed(() => { let s = 0; this.subs().forEach((g) => (s += g.over)); return s; });
