@@ -164,75 +164,9 @@ export class CommercialReplenishmentService {
     } catch { this.uovReady = false; }
     return this.uovReady;
   }
-  /** SQL compartido: JOINs (ratio de precio + override) + expresiones SUF/BF, dado el alias del producto y la uxc base. */
-  private unitAnalysis(uxcBase: string, prodCol: string, ovReady: boolean) {
-    const ratio = 'pur.ratio';
-    const sufOv = ovReady ? 'uov.pieces_per_unit' : 'NULL::numeric';
-    const bfOv = ovReady ? 'uov.box_factor' : 'NULL::numeric';
-    // GRANEL: producto sin caja definida (factor_sale≤1) que en mayoreo se vende como bulto
-    // (ratio≥3). La demanda queda en sub-unidad (kg) pero la existencia en unidad-entera (cubeta)
-    // → alinear dividiendo la demanda por el ratio (SUF). Es DE-inflación monótona (nunca infla
-    // de más), aunque el ratio subestime el factor real → precisión fina vía override.
-    const isGranel = `(${uxcBase} <= 1 AND ${ratio} >= 3)`;
-    // Caja con factor_sale sospechoso (mayoreo vende bulto ≥3× pero factor_sale muy distinto):
-    // solo se MARCA para revisión/override; NO se reescribe automático (el ratio es ruidoso y
-    // podría meter error nuevo / sobre-pedir). El catálogo manda salvo override manual.
-    const isBadFs = `(${uxcBase} > 1 AND ${ratio} >= 3 AND (${ratio}/${uxcBase} < 0.5 OR ${ratio}/${uxcBase} > 2))`;
-    const SUF = `GREATEST(COALESCE(${sufOv}, CASE WHEN ${isGranel} THEN ${ratio} ELSE 1 END), 1)`;
-    const BF = `GREATEST(COALESCE(${bfOv}, CASE WHEN ${isGranel} THEN 1 ELSE ${uxcBase} END), 1)`;
-    const join = `
-        LEFT JOIN (
-          SELECT z.product_id,
-                 (sum(z.rev) FILTER (WHERE z.ch='mayoreo')/NULLIF(sum(z.u) FILTER (WHERE z.ch='mayoreo'),0))
-                 / NULLIF(sum(z.rev) FILTER (WHERE z.ch='retail')/NULLIF(sum(z.u) FILTER (WHERE z.ch='retail'),0),0) AS ratio
-            FROM (SELECT sd.product_id,
-                         CASE WHEN w.code LIKE 'MD-%' THEN 'mayoreo' WHEN w.code ~ '^[0-9]+$' AND w.code<>'00' THEN 'retail' ELSE 'other' END AS ch,
-                         sum(sd.units) u, sum(sd.revenue) rev
-                    FROM analytics.sales_daily sd
-                    JOIN commercial.warehouses w ON w.id=sd.warehouse_id AND w.tenant_id=sd.tenant_id
-                   WHERE sd.tenant_id = :t AND sd.sale_date >= now() - interval '90 days' AND sd.units > 0 AND sd.revenue > 0
-                   GROUP BY sd.product_id, ch) z
-           GROUP BY z.product_id) pur ON pur.product_id = ${prodCol}${ovReady ? `
-        LEFT JOIN commercial.product_unit_overrides uov ON uov.tenant_id = :t AND uov.product_id = ${prodCol} AND uov.deleted_at IS NULL` : ''}`;
-    return { SUF, BF, ratio, isGranel, isBadFs, join };
-  }
-  /** Cuerpo del CTE `ur` (ratio de precio por producto) — reutilizado por transferPlan/overstock. */
-  private unitRatioCteBody(): string {
-    return `SELECT z.product_id,
-             (sum(z.rev) FILTER (WHERE z.ch='mayoreo')/NULLIF(sum(z.u) FILTER (WHERE z.ch='mayoreo'),0))
-             / NULLIF(sum(z.rev) FILTER (WHERE z.ch='retail')/NULLIF(sum(z.u) FILTER (WHERE z.ch='retail'),0),0) AS ratio
-        FROM (SELECT sd.product_id,
-                     CASE WHEN w.code LIKE 'MD-%' THEN 'mayoreo' WHEN w.code ~ '^[0-9]+$' AND w.code<>'00' THEN 'retail' ELSE 'other' END AS ch,
-                     sum(sd.units) u, sum(sd.revenue) rev
-                FROM analytics.sales_daily sd
-                JOIN commercial.warehouses w ON w.id=sd.warehouse_id AND w.tenant_id=sd.tenant_id
-               WHERE sd.tenant_id = :t AND sd.sale_date >= now() - interval '90 days' AND sd.units > 0 AND sd.revenue > 0
-               GROUP BY sd.product_id, ch) z
-       GROUP BY z.product_id`;
-  }
-  /** Expresiones SUF/BF para CTE econ (alias uov requerido si ovReady). uxcBase inline. */
-  private sufBfCte(ovReady: boolean, uxcBase: string) {
-    const suf = `GREATEST(COALESCE(${ovReady ? 'uov.pieces_per_unit' : 'NULL::numeric'}, CASE WHEN ${uxcBase} <= 1 AND ur.ratio >= 3 THEN ur.ratio ELSE 1 END), 1)`;
-    const bf = `GREATEST(COALESCE(${ovReady ? 'uov.box_factor' : 'NULL::numeric'}, CASE WHEN ${uxcBase} <= 1 AND ur.ratio >= 3 THEN 1 ELSE ${uxcBase} END), 1)`;
-    const uovJoin = ovReady ? `LEFT JOIN commercial.product_unit_overrides uov ON uov.tenant_id = :t AND uov.product_id = p.id AND uov.deleted_at IS NULL` : '';
-    return { suf, bf, uovJoin };
-  }
-
-  /**
-   * RA-PRO.30 — factor de caja CANÓNICO (piezas/caja). Regla determinista que reemplaza los
-   * overrides reactivos: box_size (Pz/Cja de la etiqueta CJA de Kepler) MANDA cuando la etiqueta
-   * es internamente consistente (box_size = factor_sale × pack_size, pack_size>1). En ese caso
-   * factor_sale son PAQUETES por caja, no piezas — usarlo infla el pedido ~pack_size× (bug EFFEM/
-   * NUTRESA). Si la etiqueta no es consistente, factor_sale (piezas/caja real, caso SARAMEL/salsas
-   * — no-op porque box_size=factor_sale). Último recurso: box_size suelto (factor_sale<=1) → 1.
-   */
-  private uxcExpr(fs: string, bs: string, ps: string): string {
-    return `GREATEST(CASE
-        WHEN ${bs} > 1 AND ${ps} > 1 AND ${bs} = ${fs} * ${ps} THEN ${bs}
-        WHEN ${fs} > 1 THEN ${fs}
-        WHEN ${bs} > 1 THEN ${bs}
-        ELSE 1 END, 1)`;
-  }
+  // RA-PRO.31 — la lógica de ratio de canal, SUF/BF y el factor de caja canónico (RA-PRO.30)
+  // vive ahora en el feed database/importers/kepler/import-replenishment-plan.js, que precomputa
+  // el fact analytics.replenishment_plan que leen purchaseSuggestion/transferPlan/overstockList.
 
   private basis(v?: string): TargetBasis {
     return BASES.includes(v as TargetBasis) ? (v as TargetBasis) : 'max';
@@ -588,25 +522,17 @@ export class CommercialReplenishmentService {
       const fwin = Math.max(30, Number(st?.fill_window_days) || 180);   // ventana de historia del fill rate
       const fmin = Math.max(1, Number(st?.fill_min_lines) || 3);        // mínimo de recepciones para confiar
       const maxinf = Math.min(3, Math.max(1, Number(st?.fill_max_inflate) || 1.30)); // tope de inflado
-      const uxc = this.uxcExpr('pr.factor_sale', 'lbl.bs', 'lbl.ps');
-      // RA-PRO.28 — verificación de unidad de venta (ver unitAnalysis): SUF alinea demanda↔stock,
-      // BF = unidad de stock por caja. Para producto de un solo canal → SUF=1, BF=uxc (sin cambio).
-      const ovReady = await this.unitOverrideReady(trx);
-      const ua = this.unitAnalysis(uxc, 'pr.id', ovReady);
-      const SUF = ua.SUF, BF = ua.BF;
-      // Unidad = CAJAS. venta/existencia (kdil) vienen en PIEZAS → /uxc. en_tránsito (OC) ya en cajas.
-      const sellDayPz = `(COALESCE(sv.s30,0) / 30.0)`;            // venta diaria de la RED (piezas)
-      const stockPz = `COALESCE(nst.qty,0)`;                      // existencia de la RED (piezas)
-      const transit = `COALESCE(tr.t,0)`;                         // OC en tránsito de la red (cajas)
-      // La DEMANDA manda el reorden: objetivo = venta_diaria_red × cobertura; sugerido = objetivo −
-      // existencia − tránsito. Si la existencia ya cubre el horizonte (sobrestock) → 0: no re-compra
-      // lo que no rota (antes, anclado en el ritmo de compra, sobre-sugería lo sobrestockeado).
-      const costE = `COALESCE(pl.cost, pr.cost_with_tax, 0)`; // costo real de compra POR UNIDAD DE STOCK (pieza normal / cubeta granel); fallback a catálogo si nunca se compró
-      // RA-PRO.28.4 — el sugerido va en CAJAS; costE es por unidad de stock (pieza/cubeta) → el
-      // costo por CAJA = costE × BF (BF = unidades de stock por caja). Valorizar cajas × costE
-      // subvaluaba el pedido ~BF× (ej. 43 cj de pasta a $30/pieza en vez de $423/caja). El frontend
-      // ya asume unit_cost por caja; supplierOrder lo usa para el padding de mínimo.
-      const costCaja = `(${costE} * ${BF})`;
+      // RA-PRO.31 — LEE del fact precomputado (analytics.replenishment_plan) agregado a grano RED
+      // (o por sucursal si hay filtro de almacén). suf/bf/caja_cost/price_ratio/unit_source ya vienen
+      // resueltos por producto; demanda/existencia/tránsito/revenue se SUMAN sobre los almacenes del scope.
+      const SUF = 'COALESCE(plan.suf, 1)';
+      const BF = 'COALESCE(plan.bf, 1)';
+      const sellDayPz = 'COALESCE(plan.sell_day_pz, 0)';   // venta diaria (red o sucursal) en piezas
+      const stockPz = 'COALESCE(plan.stock_pz, 0)';         // existencia (unidades de stock)
+      const transit = 'COALESCE(plan.transit, 0)';          // OC en tránsito (cajas)
+      // costo real POR CAJA — en el fact ya = costE(unidad de stock) × BF. La DEMANDA manda el reorden:
+      // objetivo = venta_diaria × cobertura; sugerido = objetivo − existencia − tránsito (0 si ya cubre).
+      const costCaja = 'COALESCE(plan.caja_cost, 0)';
       // RA-PRO.27 — FILL RATE PERSONALIZADO. Infla el sugerido para compensar surtido incompleto.
       // Precedencia: override manual del proveedor → historia SKU×proveedor → historia proveedor →
       // 100% (sin historia). El fill rate se toma de OCs recibidas/parciales en la ventana (fwin);
@@ -638,15 +564,12 @@ export class CommercialReplenishmentService {
       // NOT NULL) el pedido de una sucursal salía VACÍO. El ledger (pl) queda a nivel RED solo para
       // el costo real y el almacén primario; el scope por almacén va sobre demanda/existencia/tránsito.
       const whIds = this.whIds(q);
-      const plWhere = 'pv.tenant_id = :t';
       binds.selwh = whIds.length === 1 ? whIds[0] : null; // "Compra en" = la sucursal filtrada
-      let demWh = '', stkWh = '', trWh = '';
+      let planWh = ''; // scope por almacén sobre el fact (demanda/existencia/tránsito por sucursal)
       if (whIds.length) {
         const inList = whIds.map((_, i) => `:w${i}`).join(',');
         whIds.forEach((w, i) => { binds[`w${i}`] = w; });
-        demWh = ` AND pd.warehouse_id IN (${inList})`;
-        stkWh = ` AND s.warehouse_id IN (${inList})`;
-        trWh = ` AND pit.warehouse_id IN (${inList})`;
+        planWh = ` AND warehouse_id IN (${inList})`;
       }
       if (q.supplier_id && UUID_RX.test(q.supplier_id)) { filters.push('pr.supplier_id = :sid'); binds.sid = q.supplier_id; }
       if (q.category_id && UUID_RX.test(q.category_id)) { filters.push('pr.category_id = :cat'); binds.cat = q.category_id; }
@@ -663,22 +586,24 @@ export class CommercialReplenishmentService {
       else if (q.scope === 'needed') { filters.push(`${sug} > 0`); }
       const where = filters.join(' AND ');
 
-      // ANCLA = TODO EL CATÁLOGO (activo): así se ven TODOS los productos, no solo los que necesitan pedido
-      // ni solo los que ya se compraron. El ledger de compras (analytics.purchase_velocity) se une por LEFT
-      // (costo real ponderado + ritmo de compra ref + almacén primario); si el producto nunca se compró, el
-      // costo cae a cost_with_tax. Grano = PRODUCTO (red): demanda/existencia/tránsito son de la RED.
+      // ANCLA = TODO EL CATÁLOGO (activo): así se ven TODOS los productos (scope=all), no solo los que
+      // necesitan pedido. RA-PRO.31: las primitivas pesadas (demanda/existencia/tránsito/econ/ratio/costo)
+      // vienen del FACT precomputado agregado a grano producto (o por sucursal si hay filtro de almacén);
+      // el ledger, el fill rate y la cadencia (frs/frp/scv/scad, joins chicos a nivel proveedor) van live.
       const from = `
         FROM catalog.products pr
         LEFT JOIN (
-          SELECT COALESCE(al.canonical_product_id, pv.product_id) AS product_id,
-                 sum(pv.qty_90d) AS qty90, sum(pv.daily_rate) AS buy_rate,
-                 sum(pv.qty_90d * pv.real_unit_cost) / NULLIF(sum(pv.qty_90d),0) AS cost,
-                 max(pv.last_purchase) AS last_purchase, max(pv.order_days) AS order_days,
-                 (array_agg(pv.warehouse_id ORDER BY pv.qty_90d DESC))[1] AS primary_wh
-            FROM analytics.purchase_velocity pv
-            LEFT JOIN commercial.product_aliases al ON al.tenant_id = pv.tenant_id AND al.alias_product_id = pv.product_id AND al.deleted_at IS NULL
-           WHERE ${plWhere} GROUP BY 1
-        ) pl ON pl.product_id = pr.id
+          SELECT product_id,
+                 sum(daily_pieces) AS sell_day_pz, sum(stock_pz) AS stock_pz, sum(transit_cajas) AS transit,
+                 sum(revenue30) AS rev30,
+                 max(suf) AS suf, max(bf) AS bf, max(caja_cost) AS caja_cost,
+                 max(price_ratio) AS price_ratio, max(unit_source) AS unit_source,
+                 max(buy_rate) AS buy_rate, max(order_days) AS order_days, max(last_purchase) AS last_purchase,
+                 min(primary_wh::text)::uuid AS primary_wh
+            FROM analytics.replenishment_plan
+           WHERE tenant_id = :t${planWh}
+           GROUP BY product_id
+        ) plan ON plan.product_id = pr.id
         LEFT JOIN catalog.suppliers sup ON sup.tenant_id = :t AND sup.id = pr.supplier_id
         LEFT JOIN (
           SELECT po.supplier_id, SUM(pol.received_qty) AS recv, SUM(pol.ordered_qty) AS ord, COUNT(*) AS n
@@ -713,28 +638,11 @@ export class CommercialReplenishmentService {
            WHERE po.tenant_id = :t AND po.source_type = 'supplier' AND po.estado IN ('received','partial')
              AND po.closed_at IS NOT NULL AND po.closed_at >= now() - make_interval(days => :fwin::int)
            GROUP BY po.supplier_id
-        ) scad ON scad.supplier_id = pr.supplier_id${ua.join}
-        LEFT JOIN commercial.warehouses w ON w.tenant_id = :t AND w.id = COALESCE(:selwh::uuid, pl.primary_wh)
-        LEFT JOIN (SELECT tenant_id, product_id, max(box_size) bs, max(pack_size) ps FROM commercial.product_label_prices GROUP BY tenant_id, product_id) lbl
-               ON lbl.tenant_id = :t AND lbl.product_id = pr.id
-        LEFT JOIN (SELECT COALESCE(al.canonical_product_id, pd.product_id) AS product_id, sum(pd.pieces) s30, sum(pd.revenue) rev30
-                     FROM analytics.product_demand pd
-                     LEFT JOIN commercial.product_aliases al ON al.tenant_id = pd.tenant_id AND al.alias_product_id = pd.product_id AND al.deleted_at IS NULL
-                    WHERE pd.tenant_id = :t AND pd.window_days = 30${demWh} GROUP BY 1) sv
-               ON sv.product_id = pr.id
-        LEFT JOIN (SELECT COALESCE(al.canonical_product_id, s.product_id) AS product_id, sum(s.quantity) qty
-                     FROM commercial.stock s
-                     LEFT JOIN commercial.product_aliases al ON al.tenant_id = s.tenant_id AND al.alias_product_id = s.product_id AND al.deleted_at IS NULL
-                    WHERE s.tenant_id = :t${stkWh} GROUP BY 1) nst
-               ON nst.product_id = pr.id
-        LEFT JOIN (SELECT COALESCE(al.canonical_product_id, pit.product_id) AS product_id, sum(pit.qty_in_transit) t
-                     FROM analytics.purchase_in_transit pit
-                     LEFT JOIN commercial.product_aliases al ON al.tenant_id = pit.tenant_id AND al.alias_product_id = pit.product_id AND al.deleted_at IS NULL
-                    WHERE pit.tenant_id = :t${trWh} GROUP BY 1) tr
-               ON tr.product_id = pr.id
+        ) scad ON scad.supplier_id = pr.supplier_id
+        LEFT JOIN commercial.warehouses w ON w.tenant_id = :t AND w.id = COALESCE(:selwh::uuid, plan.primary_wh)
         WHERE ${where}`;
 
-      const totalRow = (await trx.raw(`SELECT count(*)::int c, count(*) FILTER (WHERE ${sug} > 0)::int needed, round(SUM(${sug} * ${costCaja})::numeric,2) total_valor, round(SUM(COALESCE(sv.rev30,0))::numeric,2) total_revenue ${from}`, binds)).rows[0];
+      const totalRow = (await trx.raw(`SELECT count(*)::int c, count(*) FILTER (WHERE ${sug} > 0)::int needed, round(SUM(${sug} * ${costCaja})::numeric,2) total_valor, round(SUM(COALESCE(plan.rev30,0))::numeric,2) total_revenue ${from}`, binds)).rows[0];
 
       // RA-PRO.18 — ranking (#) y ABC de RED se calculan como WINDOWS sobre TODO el universo
       // filtrado (no la página): rank por venta $ 30d; ABC = Pareto por venta $ (A≤80% acum,
@@ -750,17 +658,14 @@ export class CommercialReplenishmentService {
                       / NULLIF(SUM(z.sell_month_mxn) OVER (), 0) <= 0.95 THEN 'B'
                  ELSE 'C' END AS abc_class
         FROM (
-          SELECT pr.id AS product_id, COALESCE(:selwh::uuid, pl.primary_wh) AS warehouse_id, w.code AS warehouse_code,
+          SELECT pr.id AS product_id, COALESCE(:selwh::uuid, plan.primary_wh) AS warehouse_id, w.code AS warehouse_code,
                  pr.sku, pr.nombre, sup.id AS supplier_id, sup.name AS supplier_name,
                  ${BF} AS uxc,
                  round((${SUF})::numeric, 2) AS stock_unit_factor,
-                 round(${ua.ratio}::numeric, 1) AS price_ratio,
-                 CASE WHEN ${ovReady ? 'uov.product_id IS NOT NULL' : 'false'} THEN 'manual'
-                      WHEN ${ua.isGranel} THEN 'granel'
-                      WHEN ${ua.isBadFs} THEN 'revisar'
-                      ELSE 'catalog' END AS unit_source,
-                 round(COALESCE(pl.buy_rate,0)::numeric, 3) AS daily_rate,
-                 pl.order_days, pl.last_purchase,
+                 round(COALESCE(plan.price_ratio, 0)::numeric, 1) AS price_ratio,
+                 COALESCE(plan.unit_source, 'catalog') AS unit_source,
+                 round(COALESCE(plan.buy_rate,0)::numeric, 3) AS daily_rate,
+                 plan.order_days, plan.last_purchase,
                  round((${stockPz} / ${BF})::numeric, 1) AS on_hand_pieces,
                  round((${stockPz} / ${BF})::numeric, 2) AS on_hand_units,
                  ${transit} AS in_transit_units,
@@ -777,8 +682,8 @@ export class CommercialReplenishmentService {
                  round((${sug} * ${BF})::numeric, 0) AS suggested_pieces,
                  round((${sug} * ${costCaja})::numeric, 2) AS suggested_cost,
                  round((${sellDayPz} / (${SUF} * ${BF}))::numeric, 2) AS sell_daily_cajas,
-                 round((COALESCE(sv.s30,0) / (${SUF} * ${BF}))::numeric, 0) AS sell_month_cajas,
-                 round(COALESCE(sv.rev30,0)::numeric, 2) AS sell_month_mxn,
+                 round((${sellDayPz} * 30 / (${SUF} * ${BF}))::numeric, 0) AS sell_month_cajas,
+                 round(COALESCE(plan.rev30,0)::numeric, 2) AS sell_month_mxn,
                  round((${stockPz} * ${SUF} / NULLIF(${sellDayPz}, 0))::numeric, 0) AS days_cover,
                  ${bucketExpr} AS bucket
           ${from}
@@ -819,96 +724,61 @@ export class CommercialReplenishmentService {
     const cap = q.export ? 100000 : 500;
     const pageSize = Math.min(cap, Math.max(1, Number(q.pageSize) || (q.export ? cap : 50)));
     return this.tk.run(async (trx) => {
-      const ovReady = await this.unitOverrideReady(trx);
       const binds: Record<string, unknown> = { t: tenantId, cov };
-      const filters: string[] = ['pr.activo = true', 'bd.transfer_pz > 0'];
+      const filters: string[] = ['bd.transfer_pz > 0'];
       if (q.warehouse_id && UUID_RX.test(q.warehouse_id)) { filters.push('bd.wh = :dw'); binds.dw = q.warehouse_id; }
-      if (q.supplier_id && UUID_RX.test(q.supplier_id)) { filters.push('pr.supplier_id = :sid'); binds.sid = q.supplier_id; }
-      if (q.category_id && UUID_RX.test(q.category_id)) { filters.push('pr.category_id = :cat'); binds.cat = q.category_id; }
-      if (q.search && q.search.trim()) { filters.push('(pr.sku ILIKE :s OR pr.nombre ILIKE :s)'); binds.s = `%${q.search.trim()}%`; }
+      if (q.supplier_id && UUID_RX.test(q.supplier_id)) { filters.push('bd.supplier_id = :sid'); binds.sid = q.supplier_id; }
+      if (q.category_id && UUID_RX.test(q.category_id)) { filters.push('bd.category_id = :cat'); binds.cat = q.category_id; }
+      if (q.search && q.search.trim()) { filters.push('(bd.sku ILIKE :s OR bd.nombre ILIKE :s)'); binds.s = `%${q.search.trim()}%`; }
       const where = filters.join(' AND ');
 
-      // RA-PRO.28 — SUF/BF por producto (misma verificación de unidad que Comprar). El déficit se
-      // computa en UNIDADES DE STOCK: demanda(sub-unidad)/SUF vs existencia(stock). bf = caja.
-      const uxcBaseT = this.uxcExpr('p.factor_sale', 'l.bs', 'l.ps');
-      const { suf, bf, uovJoin } = this.sufBfCte(ovReady, uxcBaseT);
-      const cte = `
-        WITH ur AS (${this.unitRatioCteBody()}),
-        dem AS (SELECT COALESCE(al.canonical_product_id, pd.product_id) AS product_id, pd.warehouse_id, sum(pd.daily_pieces) AS daily_pieces
-                       FROM analytics.product_demand pd
-                       LEFT JOIN commercial.product_aliases al ON al.tenant_id = pd.tenant_id AND al.alias_product_id = pd.product_id AND al.deleted_at IS NULL
-                      WHERE pd.tenant_id = :t AND pd.window_days = 30 GROUP BY 1, 2),
-        stk AS (SELECT COALESCE(al.canonical_product_id, s.product_id) AS product_id, s.warehouse_id, sum(s.quantity) AS quantity
-                  FROM commercial.stock s
-                  LEFT JOIN commercial.product_aliases al ON al.tenant_id = s.tenant_id AND al.alias_product_id = s.product_id AND al.deleted_at IS NULL
-                 WHERE s.tenant_id = :t GROUP BY 1, 2),
-        econ AS (
-          SELECT p.id AS product_id,
-                 ${suf} AS suf,
-                 ${bf} AS uxc,
-                 COALESCE(pv.cost, p.cost_with_tax, 0) * (${bf}) AS caja_cost -- RA-PRO.28.4: costo POR CAJA (costE por unidad de stock × BF)
-            FROM catalog.products p
-            LEFT JOIN (SELECT tenant_id, product_id, max(box_size) bs, max(pack_size) ps FROM commercial.product_label_prices GROUP BY tenant_id, product_id) l
-                   ON l.tenant_id = :t AND l.product_id = p.id
-            LEFT JOIN (SELECT product_id, sum(qty_90d * real_unit_cost) / NULLIF(sum(qty_90d),0) AS cost FROM analytics.purchase_velocity WHERE tenant_id = :t GROUP BY product_id) pv
-                   ON pv.product_id = p.id
-            LEFT JOIN ur ON ur.product_id = p.id
-            ${uovJoin}
-           WHERE p.tenant_id = :t
-        ),
-        -- déficit por sucursal (source_warehouse_id set) × producto, EN UNIDADES DE STOCK (demanda/SUF);
-        -- avail_pz = stock del CEDIS origen (constante por src×producto), traído en el mismo pase.
-        def AS (
-          SELECT w.id AS wh, w.source_warehouse_id AS src, d.product_id,
-                 GREATEST(0, COALESCE(d.daily_pieces,0) / e.suf * :cov - COALESCE(s.quantity,0)) AS deficit_pz,
-                 COALESCE(cs.quantity, 0) AS avail_pz
-            FROM commercial.warehouses w
-            JOIN dem d ON d.warehouse_id = w.id
-            JOIN econ e ON e.product_id = d.product_id
-            LEFT JOIN stk s ON s.warehouse_id = w.id AND s.product_id = d.product_id
-            LEFT JOIN stk cs ON cs.warehouse_id = w.source_warehouse_id AND cs.product_id = d.product_id
-           WHERE w.tenant_id = :t AND w.source_warehouse_id IS NOT NULL AND w.deleted_at IS NULL
-        ),
-        -- RA-PRO.29.1 — reparto proporcional del stock del CEDIS entre sus sucursales con déficit.
-        -- Window SUM en vez del self-join def×hub, que el planner resolvía como merge-join y explotaba
-        -- a ~155M filas (transfer-suggestion 20s → 1.3s). Mismo resultado (5176 filas / $18.2M).
-        bd AS (
-          SELECT wh, src, product_id, deficit_pz,
-                 deficit_pz * LEAST(1.0, CASE WHEN SUM(deficit_pz) OVER (PARTITION BY src, product_id) > 0
-                                              THEN avail_pz / SUM(deficit_pz) OVER (PARTITION BY src, product_id) ELSE 0 END) AS transfer_pz
-            FROM def
-           WHERE deficit_pz > 0
-        )`;
+      // RA-PRO.31 — LEE del fact precomputado. déficit sucursal = demanda(pieza)/suf×cov − existencia
+      // (unidades de stock); avail_pz = stock del CEDIS origen (misma fila-fact del source_warehouse_id).
+      // Reparto proporcional del stock del CEDIS vía window SUM (RA-PRO.29.1). suf/bf/caja_cost del fact.
+      const cte = `WITH def AS (
+        SELECT rp.warehouse_id AS wh, rp.source_warehouse_id AS src, rp.product_id, rp.sku, rp.nombre,
+               rp.supplier_id, rp.category_id, rp.bf AS uxc, rp.caja_cost,
+               GREATEST(0, rp.daily_pieces / rp.suf * :cov - rp.stock_pz) AS deficit_pz,
+               COALESCE(cs.stock_pz, 0) AS avail_pz
+          FROM analytics.replenishment_plan rp
+          LEFT JOIN analytics.replenishment_plan cs
+                 ON cs.tenant_id = rp.tenant_id AND cs.warehouse_id = rp.source_warehouse_id AND cs.product_id = rp.product_id
+         WHERE rp.tenant_id = :t AND rp.source_warehouse_id IS NOT NULL
+      ),
+      bd AS (
+        SELECT wh, src, product_id, sku, nombre, supplier_id, category_id, uxc, caja_cost, deficit_pz,
+               deficit_pz * LEAST(1.0, CASE WHEN SUM(deficit_pz) OVER (PARTITION BY src, product_id) > 0
+                                            THEN avail_pz / SUM(deficit_pz) OVER (PARTITION BY src, product_id) ELSE 0 END) AS transfer_pz
+          FROM def WHERE deficit_pz > 0
+      )`;
       const from = `
         FROM bd
-        JOIN catalog.products pr ON pr.tenant_id = :t AND pr.id = bd.product_id
-        JOIN econ e ON e.product_id = bd.product_id
         JOIN commercial.warehouses dw ON dw.tenant_id = :t AND dw.id = bd.wh
         JOIN commercial.warehouses sw ON sw.tenant_id = :t AND sw.id = bd.src
-        LEFT JOIN catalog.suppliers sup ON sup.tenant_id = :t AND sup.id = pr.supplier_id
+        LEFT JOIN catalog.suppliers sup ON sup.tenant_id = :t AND sup.id = bd.supplier_id
         WHERE ${where}`;
 
       const totalRow = (await trx.raw(
         `${cte} SELECT count(*)::int c,
-                round(SUM((bd.transfer_pz / e.uxc) * e.caja_cost)::numeric, 2) total_valor,
-                round(SUM(bd.transfer_pz / e.uxc)::numeric, 0) total_cajas ${from}`, binds)).rows[0];
+                round(SUM((bd.transfer_pz / bd.uxc) * bd.caja_cost)::numeric, 2) total_valor,
+                round(SUM(bd.transfer_pz / bd.uxc)::numeric, 0) total_cajas ${from}`, binds)).rows[0];
 
       const rows = (await trx.raw(`
         ${cte}
-        SELECT pr.id AS product_id, pr.sku, pr.nombre,
+        SELECT bd.product_id, bd.sku, bd.nombre,
                bd.wh AS to_warehouse_id, dw.code AS to_code, dw.name AS to_name,
                bd.src AS from_warehouse_id, sw.code AS from_code,
                sup.name AS supplier_name,
-               e.uxc,
+               bd.uxc,
                round(bd.deficit_pz::numeric, 0) AS deficit_pieces,
-               round((bd.deficit_pz / e.uxc)::numeric, 1) AS deficit_cajas,
+               round((bd.deficit_pz / bd.uxc)::numeric, 1) AS deficit_cajas,
                round(bd.transfer_pz::numeric, 0) AS transfer_pieces,
-               round((bd.transfer_pz / e.uxc)::numeric, 1) AS transfer_cajas,
+               round((bd.transfer_pz / bd.uxc)::numeric, 1) AS transfer_cajas,
                round(GREATEST(0, bd.deficit_pz - bd.transfer_pz)::numeric, 0) AS shortfall_pieces,
-               round(e.caja_cost::numeric, 4) AS unit_cost,
-               round(((bd.transfer_pz / e.uxc) * e.caja_cost)::numeric, 2) AS transfer_value
+               round(bd.caja_cost::numeric, 4) AS unit_cost,
+               round(((bd.transfer_pz / bd.uxc) * bd.caja_cost)::numeric, 2) AS transfer_value
         ${from}
-        ORDER BY (bd.transfer_pz / e.uxc) * e.caja_cost DESC
+        ORDER BY (bd.transfer_pz / bd.uxc) * bd.caja_cost DESC
         LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`, binds)).rows;
 
       return {
@@ -938,90 +808,53 @@ export class CommercialReplenishmentService {
     const cap = q.export ? 100000 : 500;
     const pageSize = Math.min(cap, Math.max(1, Number(q.pageSize) || (q.export ? cap : 50)));
     return this.tk.run(async (trx) => {
-      const ovReady = await this.unitOverrideReady(trx);
       const binds: Record<string, unknown> = { t: tenantId, over };
-      const filters: string[] = ['pr.activo = true', 'ov.surplus_pz > 0'];
+      const filters: string[] = ['ov.surplus_pz > 0'];
       if (q.warehouse_id && UUID_RX.test(q.warehouse_id)) { filters.push('ov.wh = :dw'); binds.dw = q.warehouse_id; }
-      if (q.supplier_id && UUID_RX.test(q.supplier_id)) { filters.push('pr.supplier_id = :sid'); binds.sid = q.supplier_id; }
-      if (q.category_id && UUID_RX.test(q.category_id)) { filters.push('pr.category_id = :cat'); binds.cat = q.category_id; }
-      if (q.search && q.search.trim()) { filters.push('(pr.sku ILIKE :s OR pr.nombre ILIKE :s)'); binds.s = `%${q.search.trim()}%`; }
+      if (q.supplier_id && UUID_RX.test(q.supplier_id)) { filters.push('ov.supplier_id = :sid'); binds.sid = q.supplier_id; }
+      if (q.category_id && UUID_RX.test(q.category_id)) { filters.push('ov.category_id = :cat'); binds.cat = q.category_id; }
+      if (q.search && q.search.trim()) { filters.push('(ov.sku ILIKE :s OR ov.nombre ILIKE :s)'); binds.s = `%${q.search.trim()}%`; }
       const where = filters.join(' AND ');
 
-      // RA-PRO.28 — SUF/BF por producto. El excedente se mide en UNIDADES DE STOCK: existencia
-      // vs demanda(sub-unidad)/SUF × over_days. bf = caja para valuar.
-      const uxcBaseO = this.uxcExpr('p.factor_sale', 'l.bs', 'l.ps');
-      const { suf, bf, uovJoin } = this.sufBfCte(ovReady, uxcBaseO);
-      const cte = `
-        WITH ur AS (${this.unitRatioCteBody()}),
-        dem AS (SELECT COALESCE(al.canonical_product_id, pd.product_id) AS product_id, pd.warehouse_id, sum(pd.daily_pieces) AS daily_pieces
-                       FROM analytics.product_demand pd
-                       LEFT JOIN commercial.product_aliases al ON al.tenant_id = pd.tenant_id AND al.alias_product_id = pd.product_id AND al.deleted_at IS NULL
-                      WHERE pd.tenant_id = :t AND pd.window_days = 30 GROUP BY 1, 2),
-        stk AS (SELECT COALESCE(al.canonical_product_id, s.product_id) AS product_id, s.warehouse_id, sum(s.quantity) AS quantity
-                  FROM commercial.stock s
-                  LEFT JOIN commercial.product_aliases al ON al.tenant_id = s.tenant_id AND al.alias_product_id = s.product_id AND al.deleted_at IS NULL
-                 WHERE s.tenant_id = :t GROUP BY 1, 2),
-        econ AS (
-          SELECT p.id AS product_id,
-                 ${suf} AS suf,
-                 ${bf} AS uxc,
-                 COALESCE(pv.cost, p.cost_with_tax, 0) * (${bf}) AS caja_cost -- RA-PRO.28.4: costo POR CAJA (costE por unidad de stock × BF)
-            FROM catalog.products p
-            LEFT JOIN (SELECT tenant_id, product_id, max(box_size) bs, max(pack_size) ps FROM commercial.product_label_prices GROUP BY tenant_id, product_id) l ON l.tenant_id = :t AND l.product_id = p.id
-            LEFT JOIN (SELECT product_id, sum(qty_90d * real_unit_cost) / NULLIF(sum(qty_90d),0) AS cost FROM analytics.purchase_velocity WHERE tenant_id = :t GROUP BY product_id) pv ON pv.product_id = p.id
-            LEFT JOIN ur ON ur.product_id = p.id
-            ${uovJoin}
-           WHERE p.tenant_id = :t
-        ),
-        -- demanda efectiva por almacén×producto: sucursal = su venta; CEDIS = Σ de las sucursales que surte
-        eff AS (
-          SELECT w.id AS wh, d.product_id, COALESCE(d.daily_pieces,0) AS eff_daily
-            FROM commercial.warehouses w JOIN dem d ON d.warehouse_id = w.id
-           WHERE w.tenant_id = :t AND w.source_warehouse_id IS NOT NULL AND w.deleted_at IS NULL
-          UNION ALL
-          SELECT h.id AS wh, bd.product_id, SUM(COALESCE(bd.daily_pieces,0)) AS eff_daily
-            FROM commercial.warehouses h
-            JOIN commercial.warehouses b ON b.tenant_id = h.tenant_id AND b.source_warehouse_id = h.id AND b.deleted_at IS NULL
-            JOIN dem bd ON bd.warehouse_id = b.id
-           WHERE h.tenant_id = :t AND h.source_warehouse_id IS NULL AND h.deleted_at IS NULL
-           GROUP BY h.id, bd.product_id
-        ),
-        ov AS (
-          SELECT eff.wh, eff.product_id, eff.eff_daily / ec.suf AS eff_daily,
-                 COALESCE(s.quantity,0) AS stock_pz,
-                 GREATEST(0, COALESCE(s.quantity,0) - eff.eff_daily / ec.suf * :over) AS surplus_pz
-            FROM eff
-            JOIN econ ec ON ec.product_id = eff.product_id
-            LEFT JOIN stk s ON s.warehouse_id = eff.wh AND s.product_id = eff.product_id
-        )`;
+      // RA-PRO.31 — LEE del fact precomputado (analytics.replenishment_plan) en vez de recomputar
+      // ur/dem/stk/econ/eff (el runner lo refresca). suf/bf/caja_cost/eff_daily ya vienen resueltos.
+      // Universo = sucursales (source set) + hubs reales (is_hub), SOLO con demanda (eff_daily>0);
+      // el stock sin venta va a la pestaña "Stock muerto", no a sobrestock. eff_daily en el fact es
+      // demanda en PIEZAS → /suf = unidades de stock/día (igual que el recompute ov.eff_daily).
+      const cte = `WITH ov AS (
+        SELECT rp.warehouse_id AS wh, rp.product_id, rp.sku, rp.nombre, rp.supplier_id, rp.category_id,
+               rp.bf AS uxc, rp.caja_cost, rp.source_warehouse_id,
+               rp.eff_daily / rp.suf AS eff_daily, rp.stock_pz,
+               GREATEST(0, rp.stock_pz - rp.eff_daily / rp.suf * :over) AS surplus_pz
+          FROM analytics.replenishment_plan rp
+         WHERE rp.tenant_id = :t AND (rp.source_warehouse_id IS NOT NULL OR rp.is_hub) AND rp.eff_daily > 0
+      )`;
       const from = `
         FROM ov
-        JOIN catalog.products pr ON pr.tenant_id = :t AND pr.id = ov.product_id
-        JOIN econ e ON e.product_id = ov.product_id
         JOIN commercial.warehouses w ON w.tenant_id = :t AND w.id = ov.wh
-        LEFT JOIN catalog.suppliers sup ON sup.tenant_id = :t AND sup.id = pr.supplier_id
+        LEFT JOIN catalog.suppliers sup ON sup.tenant_id = :t AND sup.id = ov.supplier_id
         WHERE ${where}`;
 
       const totalRow = (await trx.raw(
         `${cte} SELECT count(*)::int c,
-                round(SUM((ov.surplus_pz / e.uxc) * e.caja_cost)::numeric, 2) total_valor,
-                round(SUM(ov.surplus_pz / e.uxc)::numeric, 0) total_cajas ${from}`, binds)).rows[0];
+                round(SUM((ov.surplus_pz / ov.uxc) * ov.caja_cost)::numeric, 2) total_valor,
+                round(SUM(ov.surplus_pz / ov.uxc)::numeric, 0) total_cajas ${from}`, binds)).rows[0];
 
       const rows = (await trx.raw(`
         ${cte}
-        SELECT pr.id AS product_id, pr.sku, pr.nombre,
+        SELECT ov.product_id, ov.sku, ov.nombre,
                ov.wh AS warehouse_id, w.code AS warehouse_code, w.name AS warehouse_name,
                (w.source_warehouse_id IS NULL) AS is_hub,
-               sup.name AS supplier_name, e.uxc,
+               sup.name AS supplier_name, ov.uxc,
                round(ov.stock_pz::numeric, 0) AS on_hand_pieces,
-               round((ov.stock_pz / e.uxc)::numeric, 1) AS on_hand_cajas,
-               round((ov.surplus_pz / e.uxc)::numeric, 1) AS surplus_cajas,
+               round((ov.stock_pz / ov.uxc)::numeric, 1) AS on_hand_cajas,
+               round((ov.surplus_pz / ov.uxc)::numeric, 1) AS surplus_cajas,
                round(ov.surplus_pz::numeric, 0) AS surplus_pieces,
                CASE WHEN ov.eff_daily > 0 THEN round((ov.stock_pz / ov.eff_daily)::numeric, 0) END AS days_on_hand,
-               round(e.caja_cost::numeric, 4) AS unit_cost,
-               round(((ov.surplus_pz / e.uxc) * e.caja_cost)::numeric, 2) AS immobilized_value
+               round(ov.caja_cost::numeric, 4) AS unit_cost,
+               round(((ov.surplus_pz / ov.uxc) * ov.caja_cost)::numeric, 2) AS immobilized_value
         ${from}
-        ORDER BY (ov.surplus_pz / e.uxc) * e.caja_cost DESC
+        ORDER BY (ov.surplus_pz / ov.uxc) * ov.caja_cost DESC
         LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`, binds)).rows;
 
       return {

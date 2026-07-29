@@ -39,8 +39,12 @@ const STEPS = {
     path.join(K, 'import-sales-fact.js'),  // mart.ventas_enriched → analytics.sales_daily (Command Center)
     path.join(K, 'import-sales-stats.js'), // sales_daily → ABC/share
     path.join(K, 'import-demand-clean.js'), // RA-PRO.17.1 demanda LIMPIA (revenue÷precio_pieza) → analytics.product_demand (compra/traspaso/ranking) — tras sales-fact
+    path.join(K, 'import-replenishment-plan.js'), // RA-PRO.31 fact del pedido (almacén×producto) → /compras/pedido lee de aquí — tras demanda
   ],
-  stock:   [path.join(K, 'import-branch-stock-live.js')],
+  stock:   [
+    path.join(K, 'import-branch-stock-live.js'),
+    path.join(K, 'import-replenishment-plan.js'), // RA-PRO.31 refresca el fact tras cambiar existencia
+  ],
   nightly: [
     path.join(K, 'import-rotation-from-consolidado.js'),
     path.join(K, 'import-top-sellers-from-consolidado.js'),
@@ -81,6 +85,7 @@ const STEPS = {
     // + presencia en PdV. Alimentan el score de suggest (afinidad/zona/whitespace) y los findings de distribución.
     path.join(SCRIPTS, 'thot-build-features.js'),     // intelligence.product_affinity (lift market-basket) + zone_demand
     path.join(SCRIPTS, 'thot-build-pdv-presence.js'), // intelligence.pdv_presence (desde capturas Trade)
+    path.join(K, 'import-replenishment-plan.js'), // RA-PRO.31 fact del pedido — AL FINAL (tras demanda/stock/velocity/tránsito/reorden)
   ],
   catalog: [
     path.join(K, 'import-brands-lineas.js'), // líneas kdig → brands nuevas (si falta la línea, el producto se descarta abajo)
