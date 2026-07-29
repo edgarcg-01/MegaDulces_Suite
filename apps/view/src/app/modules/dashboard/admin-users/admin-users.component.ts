@@ -4,6 +4,7 @@ import {
   DestroyRef,
   OnInit,
   computed,
+  effect,
   inject,
   signal,
 } from '@angular/core';
@@ -24,11 +25,12 @@ import { InputTextModule } from 'primeng/inputtext';
 import { SelectModule } from 'primeng/select';
 import { ToggleSwitchModule } from 'primeng/toggleswitch';
 import { ToastModule } from 'primeng/toast';
-import { MessageService, ConfirmationService, SharedModule } from 'primeng/api';
+import { MessageService, ConfirmationService } from 'primeng/api';
 import { ConfirmDialogModule } from 'primeng/confirmdialog';
 import { IconFieldModule } from 'primeng/iconfield';
 import { InputIconModule } from 'primeng/inputicon';
 import {
+  rxResource,
   takeUntilDestroyed,
   toObservable,
   toSignal,
@@ -80,8 +82,7 @@ interface ZoneOption {
     ConfirmDialogModule,
     IconFieldModule,
     InputIconModule,
-    FormsModule,
-    SharedModule
+    FormsModule
 ],
   providers: [MessageService, ConfirmationService],
   templateUrl: './admin-users.component.html',
@@ -99,8 +100,15 @@ export class AdminUsersComponent implements OnInit {
   private router = inject(Router);
   private destroyRef = inject(DestroyRef);
 
-  users = signal<User[]>([]);
-  loading = signal<boolean>(true);
+  // Lectura reactiva: búsqueda client-side (filteredUsers) → el padrón se carga entero
+  // una vez; recarga por tick tras alta/edición/baja.
+  private readonly usersTick = signal(0);
+  private readonly usersRes = rxResource({
+    params: () => this.usersTick(),
+    stream: () => this.usersService.findAll(),
+  });
+  readonly users = computed<User[]>(() => this.usersRes.value() ?? []);
+  readonly loading = computed(() => this.usersRes.isLoading());
   displayDialog = signal<boolean>(false);
   isEditing = signal<boolean>(false);
   currentUserId = signal<string | null>(null);
@@ -206,6 +214,9 @@ export class AdminUsersComponent implements OnInit {
       activo: [true],
     });
 
+    // Toast en error de la carga del padrón (equivale al catch del subscribe viejo).
+    effect(() => { if (this.usersRes.error()) this.messageService.add({ severity: 'error', summary: 'Error', detail: 'No se pudo cargar el padrón.' }); });
+
     this.userForm
       .get('role_name')
       ?.valueChanges.pipe(takeUntilDestroyed(this.destroyRef))
@@ -250,7 +261,6 @@ export class AdminUsersComponent implements OnInit {
     }
 
     this.loadRoles();
-    this.loadUsers();
     this.loadSupervisors();
     this.loadZones();
   }
@@ -315,24 +325,7 @@ export class AdminUsersComponent implements OnInit {
   }
 
   loadUsers(): void {
-    this.loading.set(true);
-    this.usersService
-      .findAll()
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({
-        next: (data) => {
-          this.users.set(data);
-          this.loading.set(false);
-        },
-        error: () => {
-          this.loading.set(false);
-          this.messageService.add({
-            severity: 'error',
-            summary: 'Error',
-            detail: 'No se pudo cargar el padrón.',
-          });
-        },
-      });
+    this.usersTick.update((t) => t + 1);
   }
 
   openNewDialog(): void {

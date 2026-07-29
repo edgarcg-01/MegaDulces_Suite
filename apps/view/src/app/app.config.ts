@@ -10,7 +10,7 @@ const isCapacitorNative = (): boolean =>
   (window.location.protocol === 'capacitor:' ||
     !!(window as any).Capacitor?.isNativePlatform?.());
 
-import { provideRouter, withPreloading } from '@angular/router';
+import { provideRouter, withPreloading, withRouterConfig } from '@angular/router';
 import { provideHttpClient, withInterceptors, withXhr } from '@angular/common/http';
 import { provideAnimationsAsync } from '@angular/platform-browser/animations/async';
 import { provideServiceWorker } from '@angular/service-worker';
@@ -26,7 +26,13 @@ export const appConfig: ApplicationConfig = {
   providers: [
     provideZoneChangeDetection({ eventCoalescing: true }),
     { provide: LOCALE_ID, useValue: 'es-MX' },
-    provideRouter(routes, withPreloading(SelectivePreloadStrategy)),
+    // v22 cambió el default de paramsInheritanceStrategy a 'always'; preservamos
+    // 'emptyOnly' (comportamiento Angular 18) para no heredar params de rutas padre.
+    provideRouter(
+      routes,
+      withPreloading(SelectivePreloadStrategy),
+      withRouterConfig({ paramsInheritanceStrategy: 'emptyOnly' }),
+    ),
     provideAnimationsAsync(),
     provideHttpClient(withXhr(), 
       withInterceptors([authInterceptor])

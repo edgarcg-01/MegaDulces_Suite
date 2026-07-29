@@ -1,7 +1,7 @@
-import { ChangeDetectionStrategy, Component, ElementRef, ViewChild, ViewEncapsulation, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, ElementRef, ViewChild, ViewEncapsulation, computed, effect, inject, signal } from '@angular/core';
+import { rxResource } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { catchError, of } from 'rxjs';
 import { MultiSelectModule } from 'primeng/multiselect';
 import { AutoCompleteModule, AutoCompleteCompleteEvent, AutoCompleteSelectEvent } from 'primeng/autocomplete';
 import { InputNumberModule } from 'primeng/inputnumber';
@@ -274,7 +274,12 @@ export class TiendaEtiquetasComponent {
 
   @ViewChild('scanInput') scanInput?: ElementRef<HTMLInputElement>;
 
-  results = signal<SearchHit[]>([]);
+  private readonly acQuery = signal<string | null>(null);
+  private readonly acRes = rxResource({
+    params: () => { const q = this.acQuery(); return q && q.length >= 2 ? q : undefined; },
+    stream: ({ params }) => this.svc.search(params),
+  });
+  readonly results = computed<SearchHit[]>(() => this.acRes.value() ?? []);
   acSelected: SearchHit | string | null = null;
   bulk = signal('');
   queue = signal<QueueItem[]>([]);
@@ -283,6 +288,14 @@ export class TiendaEtiquetasComponent {
   msg = signal<Msg | null>(null);
   printLabels = signal<SheetLabel[]>([]);
   printing = signal(false);
+
+  constructor() {
+    // Mensaje en error de la búsqueda (equivale al catchError viejo).
+    effect(() => {
+      const err = this.acRes.error();
+      if (err) this.msg.set({ text: this.httpMsg('Búsqueda', err), kind: 'error' });
+    });
+  }
 
   totalLabels = computed(() => this.queue().reduce((s, it) => s + (it.copies || 0), 0));
   printBtnLabel = computed(() => {
@@ -337,15 +350,13 @@ export class TiendaEtiquetasComponent {
   }
 
   searchAc(e: AutoCompleteCompleteEvent): void {
-    this.svc.search(e.query)
-      .pipe(catchError((err) => { this.msg.set({ text: this.httpMsg('Búsqueda', err), kind: 'error' }); return of([] as SearchHit[]); }))
-      .subscribe((hits) => this.results.set(hits || []));
+    this.acQuery.set(e.query ?? '');
   }
 
   onPick(e: AutoCompleteSelectEvent): void {
     const h = e.value as SearchHit;
     this.acSelected = null;
-    this.results.set([]);
+    this.acQuery.set(null);
     this.msg.set(null);
     const code = h.sku || h.barcode;
     if (!code) { this.msg.set({ text: 'El producto no tiene SKU ni código de barras.', kind: 'warn' }); return; }

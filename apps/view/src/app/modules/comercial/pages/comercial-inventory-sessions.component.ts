@@ -12,7 +12,7 @@ import { ToggleSwitchModule } from 'primeng/toggleswitch';
 import { InputNumberModule } from 'primeng/inputnumber';
 import { MultiSelectModule } from 'primeng/multiselect';
 import { ToastModule } from 'primeng/toast';
-import { MessageService, SharedModule } from 'primeng/api';
+import { MessageService } from 'primeng/api';
 import { ComercialService, InventoryCount, Warehouse, AssignableUser } from '../comercial.service';
 import { AuthService } from '../../../core/services/auth.service';
 import { Permission } from '../../../core/constants/permissions';
@@ -28,7 +28,7 @@ import { forkJoin } from 'rxjs';
   standalone: true,
   imports: [
     CommonModule, FormsModule, RouterModule,
-    ButtonModule, TableModule, TagModule, SelectModule, DialogModule, ToggleSwitchModule, InputNumberModule, MultiSelectModule, ToastModule, PageTabsComponent, SharedModule,
+    ButtonModule, TableModule, TagModule, SelectModule, DialogModule, ToggleSwitchModule, InputNumberModule, MultiSelectModule, ToastModule, PageTabsComponent,
   ],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,

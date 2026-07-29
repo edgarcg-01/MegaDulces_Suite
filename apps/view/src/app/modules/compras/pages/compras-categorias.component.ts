@@ -1,5 +1,5 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
-import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, computed, effect, inject, signal } from '@angular/core';
+import { rxResource, takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Subject } from 'rxjs';
@@ -165,8 +165,14 @@ export class ComprasCategoriasComponent implements OnInit {
   private readonly toast = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);
 
-  rows = signal<CategoryAdmin[]>([]);
-  loading = signal(false);
+  // Lectura reactiva: search es campo plano → disparo por tick. rows solo lo produce el resource.
+  private readonly tick = signal(0);
+  private readonly catRes = rxResource({
+    params: () => this.tick(),
+    stream: () => this.api.listCategories(this.search || undefined),
+  });
+  readonly rows = computed<CategoryAdmin[]>(() => this.catRes.value() ?? []);
+  readonly loading = computed(() => this.catRes.isLoading());
   search = '';
   private selected = signal<Set<string>>(new Set());
   selCount = computed(() => this.selected().size);
@@ -190,18 +196,18 @@ export class ComprasCategoriasComponent implements OnInit {
     ];
   });
 
+  constructor() {
+    effect(() => { if (this.catRes.error()) this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudieron cargar las categorías.' }); });
+  }
+
   ngOnInit(): void {
     this.search$.pipe(debounceTime(300), distinctUntilChanged(), takeUntilDestroyed(this.destroyRef)).subscribe(() => this.load());
-    this.load();
+    // El listado se auto-carga por el rxResource (tick inicial = 0).
   }
 
   private load(): void {
-    this.loading.set(true);
     this.selected.set(new Set());
-    this.api.listCategories(this.search || undefined).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (r) => { this.rows.set(r); this.loading.set(false); },
-      error: () => { this.loading.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudieron cargar las categorías.' }); },
-    });
+    this.tick.update((t) => t + 1);
   }
 
   onSearch(v: string): void { this.search$.next((v ?? '').trim()); }

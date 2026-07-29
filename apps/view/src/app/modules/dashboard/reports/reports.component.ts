@@ -42,7 +42,7 @@ import { CheckboxModule } from 'primeng/checkbox';
 import { ChipModule } from 'primeng/chip';
 import { MultiSelectModule } from 'primeng/multiselect';
 import { SelectModule } from 'primeng/select';
-import { MessageService, ConfirmationService, SharedModule } from 'primeng/api';
+import { MessageService, ConfirmationService } from 'primeng/api';
 import { ConfirmDialogModule } from 'primeng/confirmdialog';
 import { SkeletonModule } from 'primeng/skeleton';
 import { MenuModule } from 'primeng/menu';
@@ -105,7 +105,6 @@ interface PdfSection {
     TagModule,
     ButtonModule,
     ChartModule,
-    SharedModule,
     ToastModule,
     TabsModule,
     IconFieldModule,

@@ -1,5 +1,5 @@
-import { ChangeDetectionStrategy, Component, computed, DestroyRef, inject, signal } from '@angular/core';
-import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { ChangeDetectionStrategy, Component, computed, DestroyRef, effect, inject, signal } from '@angular/core';
+import { rxResource, takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { FormBuilder, FormGroup, FormsModule, ReactiveFormsModule, Validators } from '@angular/forms';
 import { ButtonModule } from 'primeng/button';
@@ -16,7 +16,7 @@ import { SelectModule } from 'primeng/select';
 import { ToastModule } from 'primeng/toast';
 import { TooltipModule } from 'primeng/tooltip';
 import { ConfirmDialogModule } from 'primeng/confirmdialog';
-import { MessageService, ConfirmationService, SharedModule } from 'primeng/api';
+import { MessageService, ConfirmationService } from 'primeng/api';
 import { ComercialService, Customer, Store } from '../comercial.service';
 import { LogisticaService, Route } from '../../logistica/logistica.service';
 import { makeLazyLoad, makeDebouncedSearch } from '../../../shared/util';
@@ -53,7 +53,6 @@ import { CUSTOMERS_TABS } from '../customers-tabs';
     Customer360PanelComponent,
     CountUpDirective,
     PageTabsComponent,
-    SharedModule,
   ],
   providers: [MessageService, ConfirmationService],
   template: `
@@ -611,14 +610,20 @@ export class ComercialCustomersComponent {
   private readonly confirm = inject(ConfirmationService);
   private readonly destroyRef = inject(DestroyRef);
 
-  readonly rows = signal<Customer[]>([]);
-  readonly total = signal(0);
   readonly page = signal(1);
   readonly pageSize = signal(25);
-  readonly loading = signal(false);
   readonly searchTerm = signal('');
   onlyActiveValue = true;
   readonly onlyActive = signal(true);
+
+  // Listado principal (lectura reactiva): recarga solo al cambiar filtro/página.
+  private readonly listRes = rxResource({
+    params: () => ({ page: this.page(), pageSize: this.pageSize(), search: this.searchTerm() || undefined, active: this.onlyActive() ? true : undefined }),
+    stream: ({ params }) => this.api.listCustomers(params),
+  });
+  readonly rows = computed<Customer[]>(() => this.listRes.value()?.data ?? []);
+  readonly total = computed(() => this.listRes.value()?.pagination?.total ?? 0);
+  readonly loading = computed(() => this.listRes.isLoading());
 
   // Side-peek: drill-down 360° (contenido en Customer360PanelComponent)
   readonly peekOpen = signal(false);
@@ -715,8 +720,13 @@ export class ComercialCustomersComponent {
   constructor() {
     this.loadStores();
     this.loadRoutes();
-    this.load();
     this.loadSummary();
+    // El listado principal se auto-carga por el rxResource. Toast en error (= catch viejo).
+    effect(() => {
+      if (this.listRes.error()) {
+        this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudieron cargar clientes' });
+      }
+    });
   }
 
   private loadSummary(): void {
@@ -741,7 +751,6 @@ export class ComercialCustomersComponent {
   clearSearch(): void {
     this.searchTerm.set('');
     this.page.set(1);
-    this.load();
   }
 
   setActive(active: boolean): void {
@@ -749,7 +758,6 @@ export class ComercialCustomersComponent {
     this.onlyActiveValue = active;
     this.onlyActive.set(active);
     this.page.set(1);
-    this.load();
   }
 
   private loadRoutes(): void {
@@ -784,35 +792,17 @@ export class ComercialCustomersComponent {
     return this.storesById.get(id)?.nombre || 'Tienda no encontrada';
   }
 
+  /** Fuerza recarga del listado (tras guardar/eliminar); filtros/página reaccionan solos. */
   load(): void {
-    this.loading.set(true);
-    this.api
-      .listCustomers({
-        page: this.page(),
-        pageSize: this.pageSize(),
-        search: this.searchTerm() || undefined,
-        active: this.onlyActive() ? true : undefined,
-      })
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({
-        next: (r) => {
-          this.rows.set(r.data || []);
-          this.total.set(r.pagination?.total || 0);
-          this.loading.set(false);
-        },
-        error: () => {
-          this.loading.set(false);
-          this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudieron cargar clientes' });
-        },
-      });
+    this.listRes.reload();
   }
 
-  readonly onLazyLoad = makeLazyLoad(this.page, this.pageSize, () => this.load());
+  // El evento lazy solo actualiza page/pageSize (señales); el rxResource reacciona → no-op.
+  readonly onLazyLoad = makeLazyLoad(this.page, this.pageSize, () => {});
 
   readonly onSearchChange = makeDebouncedSearch((v) => {
     this.searchTerm.set(v.trim());
     this.page.set(1);
-    this.load();
   });
 
   /** Abre el side-peek con el 360° del cliente (clic en fila). */

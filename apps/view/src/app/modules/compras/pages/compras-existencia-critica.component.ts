@@ -1,5 +1,5 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
-import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, computed, effect, inject, signal } from '@angular/core';
+import { rxResource, takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
@@ -364,9 +364,34 @@ export class ComprasExistenciaCriticaComponent implements OnInit {
   private readonly destroyRef = inject(DestroyRef);
 
   readonly pageSize = 50;
-  rows = signal<CriticalStockRow[]>([]);
-  total = signal(0);
-  summary = signal<ReplenishmentSummary | null>(null);
+  // Lecturas reactivas (Resource API). Los filtros son campos planos → el disparo
+  // es explícito vía `tick` (no rewire de los [(ngModel)]). Gana cancelación + teardown.
+  private readonly tick = signal(0);
+  private readonly deadTick = signal(0);
+
+  private readonly listRes = rxResource({
+    params: () => this.tick(),
+    stream: () => {
+      const scope = this.fBucket === '__all' ? 'all' : undefined;
+      const bucket = this.fBucket && this.fBucket !== '__all' ? this.fBucket : undefined;
+      return this.api.criticalStock({
+        warehouse_ids: this.fWarehouses.length ? this.fWarehouses : undefined, supplier_id: this.fSupplier || undefined,
+        category_id: this.fCategory || undefined,
+        abc: this.fAbc || undefined, xyz: this.fXyz || undefined,
+        bucket, scope, target_basis: this.fBasis, search: this.fSearch || undefined,
+        sort_by: this.fSortBy || undefined, sort_dir: this.fSortBy ? this.fSortDir : undefined,
+        page: this.page(), pageSize: this.pageSize,
+      });
+    },
+  });
+  readonly rows = computed<CriticalStockRow[]>(() => this.listRes.value()?.rows ?? []);
+  readonly total = computed(() => this.listRes.value()?.total ?? 0);
+
+  private readonly summaryRes = rxResource({
+    params: () => this.tick(),
+    stream: () => this.api.summary({ warehouse_ids: this.fWarehouses.length ? this.fWarehouses : undefined, supplier_id: this.fSupplier || undefined, target_basis: this.fBasis }),
+  });
+  readonly summary = computed<ReplenishmentSummary | null>(() => this.summaryRes.value() ?? null);
 
   kpiItems(s: ReplenishmentSummary): MetricStripItem[] {
     return [
@@ -381,17 +406,26 @@ export class ComprasExistenciaCriticaComponent implements OnInit {
   }
   accionLabel(a?: string) { return ({ sobrante: 'Sobrante · traspasar', traspaso: 'Traspaso', traspaso_parcial: 'Traspaso + compra', comprar: 'Comprar', ok: 'OK' } as Record<string, string>)[a || 'ok'] || a; }
   accionSev(a?: string): Sev { return ({ sobrante: 'secondary', traspaso: 'success', traspaso_parcial: 'warn', comprar: 'info', ok: 'contrast' } as Record<string, Sev>)[a || 'ok'] || 'info'; }
-  loading = signal(false);
+  readonly loading = computed(() => this.listRes.isLoading());
   dl = signal(false);
   saving = signal(false);
   page = signal(1);
   readonly loadedAt = signal<number | null>(null); // §14 frescura
 
   // Stock muerto (existencia sin política de reorden = capital inmovilizado sin rotación).
-  deadRows = signal<DeadStockRow[]>([]);
-  deadTotal = signal(0);
-  deadValue = signal(0);
-  deadLoading = signal(false);
+  private readonly deadRes = rxResource({
+    params: () => this.deadOpen() ? this.deadTick() : undefined,
+    stream: () => this.api.deadStock({
+      warehouse_ids: this.fWarehouses.length ? this.fWarehouses : undefined,
+      supplier_id: this.fSupplier || undefined,
+      search: this.fSearch || undefined,
+      page: this.deadPage(), pageSize: this.pageSize,
+    }),
+  });
+  readonly deadRows = computed<DeadStockRow[]>(() => this.deadRes.value()?.rows ?? []);
+  readonly deadTotal = computed(() => this.deadRes.value()?.total ?? 0);
+  readonly deadValue = computed(() => this.deadRes.value()?.total_value ?? 0);
+  readonly deadLoading = computed(() => this.deadRes.isLoading());
   deadOpen = signal(false);
   deadPage = signal(1);
   aboutOpen = signal(false);
@@ -465,6 +499,14 @@ export class ComprasExistenciaCriticaComponent implements OnInit {
   // habilitaría). Ver [[feedback_vendor_ux_best_practices]].
   canRequire = computed(() => this.selCount() > 0);
 
+  constructor() {
+    // Sella la frescura en cada carga resuelta del listado (reemplaza loadedAt.set del next viejo).
+    effect(() => { if (this.listRes.value() !== undefined) this.loadedAt.set(Date.now()); });
+    // Toasts de error (equivalen a los catch de los subscribe viejos).
+    effect(() => { if (this.listRes.error()) this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo cargar la existencia crítica.' }); });
+    effect(() => { if (this.deadRes.error()) this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo cargar el stock muerto.' }); });
+  }
+
   ngOnInit(): void {
     this.api.filters().pipe(takeUntilDestroyed(this.destroyRef)).subscribe((f) => {
       this.warehouseOpts.set(f.warehouses.map((w) => ({ label: `${w.code} · ${w.name}`, value: w.id, code: w.code })));
@@ -475,7 +517,7 @@ export class ComprasExistenciaCriticaComponent implements OnInit {
     // Búsqueda en vivo: debounce 300ms + distinct para no reconsultar con el mismo texto.
     this.search$.pipe(debounceTime(300), distinctUntilChanged(), takeUntilDestroyed(this.destroyRef))
       .subscribe(() => this.reload());
-    this.reload();
+    // El listado + resumen se auto-cargan por sus rxResource (tick inicial = 0).
   }
 
   onSearchChange(v: string): void { this.search$.next((v ?? '').trim()); }
@@ -489,51 +531,21 @@ export class ComprasExistenciaCriticaComponent implements OnInit {
     this.selected.clear();
     this.selCount.set(0);
     this.page.set(1);
-    this.load();
-    this.loadSummary();
     this.deadPage.set(1);
-    if (this.deadOpen()) this.loadDead();
+    this.tick.update((t) => t + 1);                 // refetch listado + resumen
+    if (this.deadOpen()) this.deadTick.update((t) => t + 1);
   }
 
   toggleDead(): void {
     const open = !this.deadOpen();
     this.deadOpen.set(open);
-    if (open) { this.deadPage.set(1); this.loadDead(); }
+    if (open) { this.deadPage.set(1); this.deadTick.update((t) => t + 1); }
   }
   openAbout(e: Event): void { e.stopPropagation(); this.aboutOpen.set(true); }
   onDeadPage(e: TableLazyLoadEvent): void {
     const size = e.rows || this.pageSize;
     this.deadPage.set(Math.floor((e.first || 0) / size) + 1);
-    this.loadDead();
-  }
-  private loadDead(): void {
-    this.deadLoading.set(true);
-    this.api.deadStock({
-      warehouse_ids: this.fWarehouses.length ? this.fWarehouses : undefined,
-      supplier_id: this.fSupplier || undefined,
-      search: this.fSearch || undefined,
-      page: this.deadPage(), pageSize: this.pageSize,
-    }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (r) => { this.deadRows.set(r.rows); this.deadTotal.set(r.total); this.deadValue.set(r.total_value); this.deadLoading.set(false); },
-      error: () => { this.deadLoading.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo cargar el stock muerto.' }); },
-    });
-  }
-
-  private load(): void {
-    this.loading.set(true);
-    const scope = this.fBucket === '__all' ? 'all' : undefined;
-    const bucket = this.fBucket && this.fBucket !== '__all' ? this.fBucket : undefined;
-    this.api.criticalStock({
-      warehouse_ids: this.fWarehouses.length ? this.fWarehouses : undefined, supplier_id: this.fSupplier || undefined,
-      category_id: this.fCategory || undefined,
-      abc: this.fAbc || undefined, xyz: this.fXyz || undefined,
-      bucket, scope, target_basis: this.fBasis, search: this.fSearch || undefined,
-      sort_by: this.fSortBy || undefined, sort_dir: this.fSortBy ? this.fSortDir : undefined,
-      page: this.page(), pageSize: this.pageSize,
-    }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (r) => { this.rows.set(r.rows); this.total.set(r.total); this.loading.set(false); this.loadedAt.set(Date.now()); },
-      error: () => { this.loading.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo cargar la existencia crítica.' }); },
-    });
+    this.deadTick.update((t) => t + 1);
   }
 
   /** Export XLSX con diseño: mismos filtros de la vista, todas las filas del filtro. */
@@ -564,11 +576,6 @@ export class ComprasExistenciaCriticaComponent implements OnInit {
     });
   }
 
-  private loadSummary(): void {
-    this.api.summary({ warehouse_ids: this.fWarehouses.length ? this.fWarehouses : undefined, supplier_id: this.fSupplier || undefined, target_basis: this.fBasis })
-      .pipe(takeUntilDestroyed(this.destroyRef)).subscribe((s) => this.summary.set(s));
-  }
-
   onPage(e: TableLazyLoadEvent): void {
     const size = e.rows || this.pageSize;
     this.page.set(Math.floor((e.first || 0) / size) + 1);
@@ -576,7 +583,7 @@ export class ComprasExistenciaCriticaComponent implements OnInit {
     const field = Array.isArray(e.sortField) ? e.sortField[0] : e.sortField;
     this.fSortBy = field || null;
     this.fSortDir = e.sortOrder === 1 ? 'asc' : 'desc';
-    this.load();
+    this.tick.update((t) => t + 1);
   }
 
   // Selección — key = producto|almacén.

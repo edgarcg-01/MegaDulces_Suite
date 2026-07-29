@@ -1,5 +1,6 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, EventEmitter, Input, Output, inject, signal } from '@angular/core';
-import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { ChangeDetectionStrategy, Component, EventEmitter, Input, Output, computed, inject, signal } from '@angular/core';
+import { rxResource } from '@angular/core/rxjs-interop';
+import { map } from 'rxjs/operators';
 
 import { FormsModule } from '@angular/forms';
 import { AutoCompleteModule, AutoCompleteCompleteEvent, AutoCompleteSelectEvent } from 'primeng/autocomplete';
@@ -12,6 +13,9 @@ export interface ProductHit { id: string; label: string; sku: string | null; bra
  * catalog.products (nombre o SKU) y muestra un menú de coincidencias. Al elegir una,
  * emite `productSelected` con el hit (o null al limpiar). Reutilizable en cualquier
  * pantalla Operations que quiera "mostrar un producto en específico".
+ *
+ * Data reactiva vía rxResource (Angular 22): el `query` signal dispara el fetch y la
+ * Resource API cancela sola las peticiones viejas (mata las race conditions del typeahead).
  */
 @Component({
   selector: 'app-product-search',
@@ -60,20 +64,28 @@ export class ProductSearchComponent {
   @Output() productSelected = new EventEmitter<ProductHit | null>();
 
   private readonly svc = inject(ComercialService);
-  private readonly destroyRef = inject(DestroyRef);
 
-  suggestions = signal<ProductHit[]>([]);
+  private readonly query = signal<string>('');
   selected: ProductHit | string | null = null;
 
+  private readonly productsRes = rxResource({
+    params: () => {
+      const q = this.query();
+      return q.length >= 2 ? q : undefined; // undefined => resource idle, sin fetch
+    },
+    stream: ({ params }) =>
+      this.svc.listProducts({ search: params, pageSize: 12, active: true }).pipe(
+        map((r) => (r.data || []).map((p): ProductHit => ({
+          id: p.id, label: p.nombre, sku: p.sku, brand: p.brand_name ?? null,
+        }))),
+      ),
+    defaultValue: [] as ProductHit[],
+  });
+
+  readonly suggestions = computed<ProductHit[]>(() => this.productsRes.value() ?? []);
+
   search(e: AutoCompleteCompleteEvent): void {
-    this.svc.listProducts({ search: e.query, pageSize: 12, active: true })
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({
-        next: (r) => this.suggestions.set(
-          (r.data || []).map((p) => ({ id: p.id, label: p.nombre, sku: p.sku, brand: p.brand_name ?? null })),
-        ),
-        error: () => this.suggestions.set([]),
-      });
+    this.query.set(e.query);
   }
 
   onSelect(e: AutoCompleteSelectEvent): void {
@@ -82,6 +94,7 @@ export class ProductSearchComponent {
 
   onClear(): void {
     this.selected = null;
+    this.query.set('');
     this.productSelected.emit(null);
   }
 }
