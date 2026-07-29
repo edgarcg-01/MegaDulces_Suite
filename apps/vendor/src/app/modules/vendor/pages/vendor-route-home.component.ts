@@ -10,8 +10,9 @@ import {
   computed,
   inject,
   signal,
+  DOCUMENT
 } from '@angular/core';
-import { CommonModule, DOCUMENT } from '@angular/common';
+import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 import { CardModule } from 'primeng/card';
@@ -45,223 +46,267 @@ import { GeolocationService } from '../../../core/services/geolocation.service';
   ],
   template: `
     <!-- Hero full-bleed -->
-    <section class="hero" *ngIf="!loading() && !showError()">
-      <button
-        type="button"
-        class="hero-refresh"
-        [class.spinning]="refreshing()"
-        [disabled]="refreshing()"
-        (click)="refresh()"
-        aria-label="Actualizar mi ruta"
-      >
-        <i class="pi pi-refresh"></i>
-      </button>
-      <div class="hero-main">
-        <div class="ring" [style.--pct]="progressPct()">
-          <div class="inner"><b>{{ visitedCount() }}</b><span>/{{ customers().length }}</span></div>
+    @if (!loading() && !showError()) {
+      <section class="hero">
+        <button
+          type="button"
+          class="hero-refresh"
+          [class.spinning]="refreshing()"
+          [disabled]="refreshing()"
+          (click)="refresh()"
+          aria-label="Actualizar mi ruta"
+          >
+          <i class="pi pi-refresh"></i>
+        </button>
+        <div class="hero-main">
+          <div class="ring" [style.--pct]="progressPct()">
+            <div class="inner"><b>{{ visitedCount() }}</b><span>/{{ customers().length }}</span></div>
+          </div>
+          <div class="hero-h">
+            <div class="ey">Hoy · {{ todayLabel }}</div>
+            <h1>{{ routeLabel() || 'Mi ruta' }}</h1>
+            <div class="sub">{{ pendingVisits() }} por visitar</div>
+          </div>
         </div>
-        <div class="hero-h">
-          <div class="ey">Hoy · {{ todayLabel }}</div>
-          <h1>{{ routeLabel() || 'Mi ruta' }}</h1>
-          <div class="sub">{{ pendingVisits() }} por visitar</div>
-        </div>
-      </div>
-      <div class="kpis" *ngIf="customers().length > 0">
-        <div class="kpi"><div class="v">{{ pedidosHoy() }}</div><div class="l">Pedidos</div></div>
-        <div class="kpi hl"><div class="v">{{ fmtMoney(vendidoHoy()) }}</div><div class="l">Vendido</div></div>
-        <div class="kpi"><div class="v">{{ porEntregar() }}</div><div class="l">Entregar</div></div>
-      </div>
-    </section>
-
+        @if (customers().length > 0) {
+          <div class="kpis">
+            <div class="kpi"><div class="v">{{ pedidosHoy() }}</div><div class="l">Pedidos</div></div>
+            <div class="kpi hl"><div class="v">{{ fmtMoney(vendidoHoy()) }}</div><div class="l">Vendido</div></div>
+            <div class="kpi"><div class="v">{{ porEntregar() }}</div><div class="l">Entregar</div></div>
+          </div>
+        }
+      </section>
+    }
+    
     <div class="body-pad">
       <!-- Banner de llegada: autodetección GPS del cliente más cercano de la cartera -->
-      <button
-        type="button"
-        class="arrival"
-        *ngIf="!loading() && detected() as d"
-        [class.has-pending]="arrivalCustomer()?.pending_count"
-        (click)="openSheetById(d.id)"
-      >
-        <span class="pin"><i class="pi pi-map-marker"></i></span>
-        <span class="a-body">
-          <span class="a-top">Estás en <b>{{ d.name }}</b> · {{ d.distance_m }} m</span>
-          <span class="a-sub" *ngIf="arrivalCustomer() as ac">
-            <ng-container *ngIf="ac.pending_count > 0; else noPend">
-              <i class="pi" [ngClass]="ac.has_preventa_pending ? 'pi-inbox' : 'pi-clock'"></i>
-              {{ ac.has_preventa_pending ? 'Ya tiene preventa' : 'Ya tiene pedido' }}
-              {{ fmtMoney(ac.pending_total) }} — entregar / ver
-            </ng-container>
-            <ng-template #noPend>
-              <span class="muted"><i class="pi pi-bolt"></i> Tocá para tomar pedido</span>
-            </ng-template>
-          </span>
-        </span>
-        <i class="pi pi-chevron-right go-chev"></i>
-      </button>
-
-      <div class="geo-hint" *ngIf="!loading() && geoStatus() === 'locating'">
-        <i class="pi pi-spin pi-spinner"></i> Buscando tu ubicación…
-      </div>
-      <button
-        type="button"
-        class="geo-hint retry"
-        *ngIf="!loading() && (geoStatus() === 'denied' || (geoStatus() === 'found' && !detected()))"
-        (click)="detectArrival()"
-      >
-        <i class="pi pi-map-marker"></i>
-        {{ geoStatus() === 'denied' ? 'Activá la ubicación para detectar dónde estás' : 'Ningún cliente cerca · reintentar' }}
-      </button>
-
-      <button
-        type="button"
-        class="smart"
-        *ngIf="!loading() && dueCount() > 0"
-        [class.active]="onlyDue()"
-        (click)="toggleOnlyDue()"
-      >
-        <span class="spark"><i class="pi pi-sparkles"></i></span>
-        <span class="t">
-          <b>{{ dueCount() }} {{ dueCount() === 1 ? 'cliente' : 'clientes' }} para reordenar hoy</b>
-          <span>Según su ritmo de compra · IA</span>
-        </span>
-        <span class="go">{{ onlyDue() ? 'Ver todos' : 'Ver ›' }}</span>
-      </button>
-
-      <div class="search-bar" *ngIf="!loading() && customers().length > 0">
-        <span class="search-wrap">
-          <i class="pi pi-search"></i>
-          <input
-            pInputText
-            type="search"
-            placeholder="Filtrar mi ruta"
-            [ngModel]="search()"
-            (ngModelChange)="search.set($event)"
-            inputmode="search"
-            enterkeyhint="search"
-            autocapitalize="none"
-            autocorrect="off"
-            spellcheck="false"
-          />
-        </span>
-        <button type="button" class="add-client" (click)="addCustomer()" aria-label="Agregar cliente nuevo">
-          <i class="pi pi-user-plus"></i>
-        </button>
-      </div>
-
-      <p-skeleton *ngIf="loading()" height="500px"></p-skeleton>
-
-      <!-- Estado de error de red (distinto del vacío real) -->
-      <p-card *ngIf="showError()">
-        <div class="empty">
-          <i class="pi pi-cloud"></i>
-          <p>No se pudo cargar tu ruta.</p>
-          <p class="hint">Revisá tu conexión e intentá de nuevo.</p>
-          <button pButton label="Reintentar" icon="pi pi-refresh" (click)="load()"></button>
-        </div>
-      </p-card>
-
-      <!-- Vacío real: sin clientes en la ronda de hoy -->
-      <p-card *ngIf="showEmpty()">
-        <div class="empty">
-          <i class="pi pi-sitemap"></i>
-          <p>No hay clientes en tu ronda de hoy.</p>
-          <p class="hint">Agregá un cliente nuevo o pedile a tu supervisor que te asigne rutas.</p>
-          <div class="empty-actions">
-            <button pButton label="Agregar cliente" icon="pi pi-plus" (click)="addCustomer()"></button>
-            <a pButton label="Buscar un cliente" icon="pi pi-search" severity="secondary" [text]="true" routerLink="/vendor/search"></a>
-          </div>
-        </div>
-      </p-card>
-
-      <div *ngIf="!loading() && customers().length > 0" class="list">
+      @if (!loading() && detected(); as d) {
         <button
-          *ngFor="let c of filtered(); let i = index; trackBy: trackId"
-          class="client"
-          [style.animation-delay.ms]="(i > 9 ? 9 : i) * 35"
-          [class.visited]="c.visited_today"
-          [class.preventa]="!c.visited_today && c.has_preventa_pending"
-          [class.due]="!c.visited_today && !c.has_preventa_pending && isDue(c)"
-          (click)="openSheet(c)"
-        >
-          <span class="seq" [class.ok]="c.visited_today">
-            <i *ngIf="c.visited_today" class="pi pi-check"></i>
-            <ng-container *ngIf="!c.visited_today">{{ c.visit_sequence ?? '·' }}</ng-container>
-          </span>
-          <span class="cbody">
-            <span class="nm">{{ c.name }}</span>
-            <span class="chips">
-              <span class="chip pre" *ngIf="c.has_preventa_pending">
-                <i class="pi pi-inbox"></i> Preventa {{ fmtMoney(c.pending_total) }}
+          type="button"
+          class="arrival"
+          [class.has-pending]="arrivalCustomer()?.pending_count"
+          (click)="openSheetById(d.id)"
+          >
+          <span class="pin"><i class="pi pi-map-marker"></i></span>
+          <span class="a-body">
+            <span class="a-top">Estás en <b>{{ d.name }}</b> · {{ d.distance_m }} m</span>
+            @if (arrivalCustomer(); as ac) {
+              <span class="a-sub">
+                @if (ac.pending_count > 0) {
+                  <i class="pi" [ngClass]="ac.has_preventa_pending ? 'pi-inbox' : 'pi-clock'"></i>
+                  {{ ac.has_preventa_pending ? 'Ya tiene preventa' : 'Ya tiene pedido' }}
+                  {{ fmtMoney(ac.pending_total) }} — entregar / ver
+                } @else {
+                  <span class="muted"><i class="pi pi-bolt"></i> Tocá para tomar pedido</span>
+                }
               </span>
-              <span class="chip pend" *ngIf="!c.has_preventa_pending && c.pending_count > 0">
-                {{ c.pending_count }} por entregar
-              </span>
-              <span class="chip due" *ngIf="!c.has_preventa_pending && isDue(c)"><i class="pi pi-sparkles"></i> Reordenar</span>
-              <span class="chip ok" *ngIf="c.ordered_today">Pedido hoy</span>
-            </span>
+            }
           </span>
-          <i class="pi pi-ellipsis-v more"></i>
+          <i class="pi pi-chevron-right go-chev"></i>
         </button>
-        <div class="filter-empty" *ngIf="filtered().length === 0">Sin resultados para "{{ search() }}".</div>
-      </div>
-    </div>
-
-    <!-- FAB: tomar pedido del próximo cliente (zona del pulgar) -->
-    <button class="fab" *ngIf="!loading() && customers().length > 0" (click)="fabOrder()">
-      <i class="pi pi-plus"></i> Pedido
-    </button>
-
-    <!-- Bottom-sheet de acciones por cliente -->
-    <ng-container *ngIf="sheet() as c">
-      <div class="sheet-backdrop" [class.closing]="sheetClosing()" (click)="closeSheet()"></div>
-      <div
-        #sheetEl
-        class="sheet"
-        [class.closing]="sheetClosing()"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="vsheet-title"
-        tabindex="-1"
-        (keydown)="trapFocus($event)"
-      >
-        <div class="sheet-handle"></div>
-        <div class="sheet-head">
-          <span class="av">{{ initials(c.name) }}</span>
-          <div>
-            <span class="n" id="vsheet-title">{{ c.name }}</span>
-            <span class="cd">{{ c.code }}<ng-container *ngIf="c.sales_route"> · {{ c.sales_route }}</ng-container></span>
-          </div>
+      }
+    
+      @if (!loading() && geoStatus() === 'locating') {
+        <div class="geo-hint">
+          <i class="pi pi-spin pi-spinner"></i> Buscando tu ubicación…
         </div>
-
-        <button class="sheet-primary" (click)="goOrder(c, 'futuro')">
-          <i class="pi pi-shopping-cart"></i> Tomar pedido
-        </button>
-
-        <button class="action" *ngIf="c.pending_count > 0" (click)="goPending()">
-          <i class="pi pi-inbox"></i>
-          <span class="lbl">Ver pedido pendiente</span>
-          <span class="badge">{{ fmtMoney(c.pending_total) }}</span>
-        </button>
-
-        <button class="action" *ngIf="!c.visited_today" [disabled]="checking()" (click)="markVisit(c)">
+      }
+      @if (!loading() && (geoStatus() === 'denied' || (geoStatus() === 'found' && !detected()))) {
+        <button
+          type="button"
+          class="geo-hint retry"
+          (click)="detectArrival()"
+          >
           <i class="pi pi-map-marker"></i>
-          <span class="lbl">Marcar visita</span>
+          {{ geoStatus() === 'denied' ? 'Activá la ubicación para detectar dónde estás' : 'Ningún cliente cerca · reintentar' }}
         </button>
-
-        <button class="action" (click)="goCapture(c)">
-          <i class="pi pi-camera"></i>
-          <span class="lbl">Capturar exhibición</span>
+      }
+    
+      @if (!loading() && dueCount() > 0) {
+        <button
+          type="button"
+          class="smart"
+          [class.active]="onlyDue()"
+          (click)="toggleOnlyDue()"
+          >
+          <span class="spark"><i class="pi pi-sparkles"></i></span>
+          <span class="t">
+            <b>{{ dueCount() }} {{ dueCount() === 1 ? 'cliente' : 'clientes' }} para reordenar hoy</b>
+            <span>Según su ritmo de compra · IA</span>
+          </span>
+          <span class="go">{{ onlyDue() ? 'Ver todos' : 'Ver ›' }}</span>
         </button>
-
-        <div class="contact" *ngIf="c.phone || c.whatsapp">
-          <a *ngIf="c.phone" class="contact-btn" [href]="'tel:' + c.phone"><i class="pi pi-phone"></i> Llamar</a>
-          <a *ngIf="c.whatsapp" class="contact-btn wa" [href]="waLink(c.whatsapp)" target="_blank" rel="noopener">
-            <i class="pi pi-whatsapp"></i> WhatsApp
-          </a>
-        </div>
+      }
+    
+      @if (!loading() && customers().length > 0) {
+        <div class="search-bar">
+          <span class="search-wrap">
+            <i class="pi pi-search"></i>
+            <input
+              pInputText
+              type="search"
+              placeholder="Filtrar mi ruta"
+              [ngModel]="search()"
+              (ngModelChange)="search.set($event)"
+              inputmode="search"
+              enterkeyhint="search"
+              autocapitalize="none"
+              autocorrect="off"
+              spellcheck="false"
+              />
+            </span>
+            <button type="button" class="add-client" (click)="addCustomer()" aria-label="Agregar cliente nuevo">
+              <i class="pi pi-user-plus"></i>
+            </button>
+          </div>
+        }
+    
+        @if (loading()) {
+          <p-skeleton height="500px"></p-skeleton>
+        }
+    
+        <!-- Estado de error de red (distinto del vacío real) -->
+        @if (showError()) {
+          <p-card>
+            <div class="empty">
+              <i class="pi pi-cloud"></i>
+              <p>No se pudo cargar tu ruta.</p>
+              <p class="hint">Revisá tu conexión e intentá de nuevo.</p>
+              <button pButton label="Reintentar" icon="pi pi-refresh" (click)="load()"></button>
+            </div>
+          </p-card>
+        }
+    
+        <!-- Vacío real: sin clientes en la ronda de hoy -->
+        @if (showEmpty()) {
+          <p-card>
+            <div class="empty">
+              <i class="pi pi-sitemap"></i>
+              <p>No hay clientes en tu ronda de hoy.</p>
+              <p class="hint">Agregá un cliente nuevo o pedile a tu supervisor que te asigne rutas.</p>
+              <div class="empty-actions">
+                <button pButton label="Agregar cliente" icon="pi pi-plus" (click)="addCustomer()"></button>
+                <a pButton label="Buscar un cliente" icon="pi pi-search" severity="secondary" [text]="true" routerLink="/vendor/search"></a>
+              </div>
+            </div>
+          </p-card>
+        }
+    
+        @if (!loading() && customers().length > 0) {
+          <div class="list">
+            @for (c of filtered(); track trackId(i, c); let i = $index) {
+              <button
+                class="client"
+                [style.animation-delay.ms]="(i > 9 ? 9 : i) * 35"
+                [class.visited]="c.visited_today"
+                [class.preventa]="!c.visited_today && c.has_preventa_pending"
+                [class.due]="!c.visited_today && !c.has_preventa_pending && isDue(c)"
+                (click)="openSheet(c)"
+                >
+                <span class="seq" [class.ok]="c.visited_today">
+                  @if (c.visited_today) {
+                    <i class="pi pi-check"></i>
+                  }
+                  @if (!c.visited_today) {
+                    {{ c.visit_sequence ?? '·' }}
+                  }
+                </span>
+                <span class="cbody">
+                  <span class="nm">{{ c.name }}</span>
+                  <span class="chips">
+                    @if (c.has_preventa_pending) {
+                      <span class="chip pre">
+                        <i class="pi pi-inbox"></i> Preventa {{ fmtMoney(c.pending_total) }}
+                      </span>
+                    }
+                    @if (!c.has_preventa_pending && c.pending_count > 0) {
+                      <span class="chip pend">
+                        {{ c.pending_count }} por entregar
+                      </span>
+                    }
+                    @if (!c.has_preventa_pending && isDue(c)) {
+                      <span class="chip due"><i class="pi pi-sparkles"></i> Reordenar</span>
+                    }
+                    @if (c.ordered_today) {
+                      <span class="chip ok">Pedido hoy</span>
+                    }
+                  </span>
+                </span>
+                <i class="pi pi-ellipsis-v more"></i>
+              </button>
+            }
+            @if (filtered().length === 0) {
+              <div class="filter-empty">Sin resultados para "{{ search() }}".</div>
+            }
+          </div>
+        }
       </div>
-    </ng-container>
-  `,
+    
+      <!-- FAB: tomar pedido del próximo cliente (zona del pulgar) -->
+      @if (!loading() && customers().length > 0) {
+        <button class="fab" (click)="fabOrder()">
+          <i class="pi pi-plus"></i> Pedido
+        </button>
+      }
+    
+      <!-- Bottom-sheet de acciones por cliente -->
+      @if (sheet(); as c) {
+        <div class="sheet-backdrop" [class.closing]="sheetClosing()" (click)="closeSheet()"></div>
+        <div
+          #sheetEl
+          class="sheet"
+          [class.closing]="sheetClosing()"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="vsheet-title"
+          tabindex="-1"
+          (keydown)="trapFocus($event)"
+          >
+          <div class="sheet-handle"></div>
+          <div class="sheet-head">
+            <span class="av">{{ initials(c.name) }}</span>
+            <div>
+              <span class="n" id="vsheet-title">{{ c.name }}</span>
+              <span class="cd">{{ c.code }}@if (c.sales_route) {
+                · {{ c.sales_route }}
+              }</span>
+            </div>
+          </div>
+          <button class="sheet-primary" (click)="goOrder(c, 'futuro')">
+            <i class="pi pi-shopping-cart"></i> Tomar pedido
+          </button>
+          @if (c.pending_count > 0) {
+            <button class="action" (click)="goPending()">
+              <i class="pi pi-inbox"></i>
+              <span class="lbl">Ver pedido pendiente</span>
+              <span class="badge">{{ fmtMoney(c.pending_total) }}</span>
+            </button>
+          }
+          @if (!c.visited_today) {
+            <button class="action" [disabled]="checking()" (click)="markVisit(c)">
+              <i class="pi pi-map-marker"></i>
+              <span class="lbl">Marcar visita</span>
+            </button>
+          }
+          <button class="action" (click)="goCapture(c)">
+            <i class="pi pi-camera"></i>
+            <span class="lbl">Capturar exhibición</span>
+          </button>
+          @if (c.phone || c.whatsapp) {
+            <div class="contact">
+              @if (c.phone) {
+                <a class="contact-btn" [href]="'tel:' + c.phone"><i class="pi pi-phone"></i> Llamar</a>
+              }
+              @if (c.whatsapp) {
+                <a class="contact-btn wa" [href]="waLink(c.whatsapp)" target="_blank" rel="noopener">
+                  <i class="pi pi-whatsapp"></i> WhatsApp
+                </a>
+              }
+            </div>
+          }
+        </div>
+      }
+    `,
   styles: [
     `
       :host { display: block; }

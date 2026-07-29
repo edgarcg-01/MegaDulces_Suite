@@ -1,5 +1,5 @@
 import { ChangeDetectionStrategy, Component, EventEmitter, Output, input, signal } from '@angular/core';
-import { CommonModule } from '@angular/common';
+
 import { FormsModule } from '@angular/forms';
 import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
@@ -19,7 +19,7 @@ import { BankAdminTab } from './bancos-shared';
 @Component({
   selector: 'bancos-admin',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, TableModule, SelectModule, CheckboxModule, InputTextModule, IconFieldModule, InputIconModule],
+  imports: [FormsModule, ButtonModule, TableModule, SelectModule, CheckboxModule, InputTextModule, IconFieldModule, InputIconModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="fb-adminseg" role="tablist">

@@ -57,171 +57,189 @@ function severityForDriverStatus(s: string): Severity {
   providers: [MessageService, ConfirmationService],
   template: `
     <div class="surf-page logf">
-    <p-toast></p-toast>
-    <p-confirmDialog></p-confirmDialog>
-
-    <header class="surf-page-head">
-      <div class="surf-page-head-text">
-        <h1>Flotilla y personal</h1>
-        <p class="surf-page-sub">Unidades, colaboradores, uso (check-in/out) y mantenimiento.</p>
-      </div>
-    </header>
-
-    <p-tabs value="vehicles">
-      <p-tablist>
-        <p-tab value="vehicles"><i class="pi pi-truck"></i> Unidades ({{ vehicles().length }})</p-tab>
-        <p-tab value="drivers"><i class="pi pi-id-card"></i> Choferes / ayudantes ({{ drivers().length }})</p-tab>
-        <p-tab value="usage"><i class="pi pi-clock"></i> Uso ({{ usageLogs().length }})</p-tab>
-        <p-tab value="maintenance"><i class="pi pi-wrench"></i> Mantenimiento ({{ maintenance().length }})</p-tab>
-      </p-tablist>
-      <p-tabpanels>
-        <p-tabpanel value="vehicles">
-          <div class="tab-actions"><button pButton icon="pi pi-plus" label="Nueva unidad" (click)="openVehicleCreate()"></button></div>
-          <p-card>
-            <p-table [value]="vehicles()" [loading]="loadingV()" responsiveLayout="scroll" styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra">
-              <ng-template pTemplate="header">
-                <tr>
-                  <th scope="col">Placa</th><th scope="col">Marca/Modelo</th><th scope="col">Año</th>
-                  <th scope="col">Cap. cajas</th><th scope="col">Rendim.</th><th scope="col">Estado</th>
-                  <th scope="col"><span class="sr-only">Acciones</span></th>
-                </tr>
-              </ng-template>
-              <ng-template pTemplate="body" let-v>
-                <tr>
-                  <td><code>{{ v.plate }}</code></td>
-                  <td>{{ (v.brand || '—') + ' / ' + (v.model || '—') }}</td>
-                  <td class="num">{{ v.year || '—' }}</td>
-                  <td class="num">{{ v.capacity_boxes || '—' }}</td>
-                  <td class="num">{{ v.fuel_efficiency_km_l ? (v.fuel_efficiency_km_l + ' km/l') : '—' }}</td>
-                  <td><p-tag [severity]="severityVeh(v.status)" [value]="vStatusLabel(v.status)"></p-tag></td>
-                  <td class="actions">
-                    <button pButton icon="pi pi-pencil" size="small" severity="secondary" [text]="true" (click)="openVehicleEdit(v)"></button>
-                    <button pButton icon="pi pi-trash" size="small" severity="secondary" [text]="true" (click)="confirmDeleteVehicle(v)" *ngIf="v.active"></button>
-                  </td>
-                </tr>
-              </ng-template>
-              <ng-template pTemplate="emptymessage">
-                <tr><td colspan="7" class="comm-empty-cell"><div class="comm-empty"><div class="comm-empty-icon"><i class="pi pi-truck" aria-hidden="true"></i></div><h3>Sin unidades</h3><p>Aún no hay unidades registradas.</p></div></td></tr>
-              </ng-template>
-            </p-table>
-          </p-card>
-        </p-tabpanel>
-
-        <p-tabpanel value="drivers">
-          <div class="tab-actions"><button pButton icon="pi pi-plus" label="Nuevo colaborador" (click)="openDriverCreate()"></button></div>
-          <p-card>
-            <p-table [value]="drivers()" [loading]="loadingD()" responsiveLayout="scroll" styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra">
-              <ng-template pTemplate="header">
-                <tr>
-                  <th scope="col">Nombre</th><th scope="col">Roles</th><th scope="col">Tipo</th>
-                  <th scope="col">Teléfono</th><th scope="col">Estado</th>
-                  <th scope="col"><span class="sr-only">Acciones</span></th>
-                </tr>
-              </ng-template>
-              <ng-template pTemplate="body" let-d>
-                <tr>
-                  <td class="strong">{{ d.full_name }}</td>
-                  <td>
-                    <p-tag *ngFor="let r of d.roles" [value]="r" severity="secondary" class="role-tag"></p-tag>
-                  </td>
-                  <td>{{ d.employee_type }}</td>
-                  <td>{{ d.phone || '—' }}</td>
-                  <td><p-tag [severity]="severityDrv(d.status)" [value]="d.status"></p-tag></td>
-                  <td class="actions">
-                    <button pButton icon="pi pi-pencil" size="small" severity="secondary" [text]="true" (click)="openDriverEdit(d)"></button>
-                    <button pButton icon="pi pi-trash" size="small" severity="secondary" [text]="true" (click)="confirmDeleteDriver(d)" *ngIf="d.active"></button>
-                  </td>
-                </tr>
-              </ng-template>
-              <ng-template pTemplate="emptymessage">
-                <tr><td colspan="6" class="comm-empty-cell"><div class="comm-empty"><div class="comm-empty-icon"><i class="pi pi-id-card" aria-hidden="true"></i></div><h3>Sin colaboradores</h3><p>Aún no hay colaboradores registrados.</p></div></td></tr>
-              </ng-template>
-            </p-table>
-          </p-card>
-        </p-tabpanel>
-
-        <!-- ──── J.9.9 Tab Uso (check-in/check-out) ──── -->
-        <p-tabpanel value="usage">
-          <div class="tab-actions">
-            <button pButton icon="pi pi-sign-out" label="Nuevo check-in" (click)="openCheckIn()"></button>
-          </div>
-          <p-card>
-            <p-table [value]="usageLogs()" [loading]="loadingUsage()" responsiveLayout="scroll" styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra">
-              <ng-template pTemplate="header">
-                <tr>
-                  <th scope="col">Vehículo</th>
-                  <th scope="col">Chofer</th>
-                  <th scope="col">Salida</th>
-                  <th scope="col" class="num">Km inicial</th>
-                  <th scope="col">Regreso</th>
-                  <th scope="col" class="num">Km final</th>
-                  <th scope="col" class="num">Combustible (L)</th>
-                  <th scope="col">Estado</th>
-                  <th scope="col"><span class="sr-only">Acciones</span></th>
-                </tr>
-              </ng-template>
-              <ng-template pTemplate="body" let-u>
-                <tr>
-                  <td><code>{{ u.vehicle_plate }}</code></td>
-                  <td>{{ u.driver_name || '—' }}</td>
-                  <td>{{ u.check_in_at | date:'short' }}</td>
-                  <td class="num">{{ u.check_in_km | number:'1.0-0' }}</td>
-                  <td>{{ u.check_out_at ? (u.check_out_at | date:'short') : '—' }}</td>
-                  <td class="num">{{ u.check_out_km !== null ? (u.check_out_km | number:'1.0-0') : '—' }}</td>
-                  <td class="num">{{ u.fuel_loaded_liters !== null ? (u.fuel_loaded_liters | number:'1.2-2') : '—' }}</td>
-                  <td>
-                    <p-tag [severity]="u.status === 'en_uso' ? 'warn' : 'success'" [value]="u.status === 'en_uso' ? 'En uso' : 'Cerrado'"></p-tag>
-                  </td>
-                  <td class="actions">
-                    <button pButton icon="pi pi-sign-in" size="small" label="Check-out" (click)="openCheckOut(u)" *ngIf="u.status === 'en_uso'"></button>
-                  </td>
-                </tr>
-              </ng-template>
-              <ng-template pTemplate="emptymessage">
-                <tr><td colspan="9" class="comm-empty-cell"><div class="comm-empty"><div class="comm-empty-icon"><i class="pi pi-clock" aria-hidden="true"></i></div><h3>Sin historial de uso</h3><p>Aún no hay check-ins registrados.</p></div></td></tr>
-              </ng-template>
-            </p-table>
-          </p-card>
-        </p-tabpanel>
-
-        <!-- ──── J.9.9 Tab Mantenimiento ──── -->
-        <p-tabpanel value="maintenance">
-          <div class="tab-actions">
-            <button pButton icon="pi pi-plus" label="Nuevo mantenimiento" (click)="openMaintenance()"></button>
-          </div>
-          <div class="maint-due" *ngIf="maintDue().length">
-            <div class="maint-due-head"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+      <p-toast></p-toast>
+      <p-confirmDialog></p-confirmDialog>
+    
+      <header class="surf-page-head">
+        <div class="surf-page-head-text">
+          <h1>Flotilla y personal</h1>
+          <p class="surf-page-sub">Unidades, colaboradores, uso (check-in/out) y mantenimiento.</p>
+        </div>
+      </header>
+    
+      <p-tabs value="vehicles">
+        <p-tablist>
+          <p-tab value="vehicles"><i class="pi pi-truck"></i> Unidades ({{ vehicles().length }})</p-tab>
+          <p-tab value="drivers"><i class="pi pi-id-card"></i> Choferes / ayudantes ({{ drivers().length }})</p-tab>
+          <p-tab value="usage"><i class="pi pi-clock"></i> Uso ({{ usageLogs().length }})</p-tab>
+          <p-tab value="maintenance"><i class="pi pi-wrench"></i> Mantenimiento ({{ maintenance().length }})</p-tab>
+        </p-tablist>
+        <p-tabpanels>
+          <p-tabpanel value="vehicles">
+            <div class="tab-actions"><button pButton icon="pi pi-plus" label="Nueva unidad" (click)="openVehicleCreate()"></button></div>
+            <p-card>
+              <p-table [value]="vehicles()" [loading]="loadingV()" responsiveLayout="scroll" styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra">
+                <ng-template pTemplate="header">
+                  <tr>
+                    <th scope="col">Placa</th><th scope="col">Marca/Modelo</th><th scope="col">Año</th>
+                    <th scope="col">Cap. cajas</th><th scope="col">Rendim.</th><th scope="col">Estado</th>
+                    <th scope="col"><span class="sr-only">Acciones</span></th>
+                  </tr>
+                </ng-template>
+                <ng-template pTemplate="body" let-v>
+                  <tr>
+                    <td><code>{{ v.plate }}</code></td>
+                    <td>{{ (v.brand || '—') + ' / ' + (v.model || '—') }}</td>
+                    <td class="num">{{ v.year || '—' }}</td>
+                    <td class="num">{{ v.capacity_boxes || '—' }}</td>
+                    <td class="num">{{ v.fuel_efficiency_km_l ? (v.fuel_efficiency_km_l + ' km/l') : '—' }}</td>
+                    <td><p-tag [severity]="severityVeh(v.status)" [value]="vStatusLabel(v.status)"></p-tag></td>
+                    <td class="actions">
+                      <button pButton icon="pi pi-pencil" size="small" severity="secondary" [text]="true" (click)="openVehicleEdit(v)"></button>
+                      @if (v.active) {
+                        <button pButton icon="pi pi-trash" size="small" severity="secondary" [text]="true" (click)="confirmDeleteVehicle(v)"></button>
+                      }
+                    </td>
+                  </tr>
+                </ng-template>
+                <ng-template pTemplate="emptymessage">
+                  <tr><td colspan="7" class="comm-empty-cell"><div class="comm-empty"><div class="comm-empty-icon"><i class="pi pi-truck" aria-hidden="true"></i></div><h3>Sin unidades</h3><p>Aún no hay unidades registradas.</p></div></td></tr>
+                </ng-template>
+              </p-table>
+            </p-card>
+          </p-tabpanel>
+    
+          <p-tabpanel value="drivers">
+            <div class="tab-actions"><button pButton icon="pi pi-plus" label="Nuevo colaborador" (click)="openDriverCreate()"></button></div>
+            <p-card>
+              <p-table [value]="drivers()" [loading]="loadingD()" responsiveLayout="scroll" styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra">
+                <ng-template pTemplate="header">
+                  <tr>
+                    <th scope="col">Nombre</th><th scope="col">Roles</th><th scope="col">Tipo</th>
+                    <th scope="col">Teléfono</th><th scope="col">Estado</th>
+                    <th scope="col"><span class="sr-only">Acciones</span></th>
+                  </tr>
+                </ng-template>
+                <ng-template pTemplate="body" let-d>
+                  <tr>
+                    <td class="strong">{{ d.full_name }}</td>
+                    <td>
+                      @for (r of d.roles; track r) {
+                        <p-tag [value]="r" severity="secondary" class="role-tag"></p-tag>
+                      }
+                    </td>
+                    <td>{{ d.employee_type }}</td>
+                    <td>{{ d.phone || '—' }}</td>
+                    <td><p-tag [severity]="severityDrv(d.status)" [value]="d.status"></p-tag></td>
+                    <td class="actions">
+                      <button pButton icon="pi pi-pencil" size="small" severity="secondary" [text]="true" (click)="openDriverEdit(d)"></button>
+                      @if (d.active) {
+                        <button pButton icon="pi pi-trash" size="small" severity="secondary" [text]="true" (click)="confirmDeleteDriver(d)"></button>
+                      }
+                    </td>
+                  </tr>
+                </ng-template>
+                <ng-template pTemplate="emptymessage">
+                  <tr><td colspan="6" class="comm-empty-cell"><div class="comm-empty"><div class="comm-empty-icon"><i class="pi pi-id-card" aria-hidden="true"></i></div><h3>Sin colaboradores</h3><p>Aún no hay colaboradores registrados.</p></div></td></tr>
+                </ng-template>
+              </p-table>
+            </p-card>
+          </p-tabpanel>
+    
+          <!-- ──── J.9.9 Tab Uso (check-in/check-out) ──── -->
+          <p-tabpanel value="usage">
+            <div class="tab-actions">
+              <button pButton icon="pi pi-sign-out" label="Nuevo check-in" (click)="openCheckIn()"></button>
+            </div>
+            <p-card>
+              <p-table [value]="usageLogs()" [loading]="loadingUsage()" responsiveLayout="scroll" styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra">
+                <ng-template pTemplate="header">
+                  <tr>
+                    <th scope="col">Vehículo</th>
+                    <th scope="col">Chofer</th>
+                    <th scope="col">Salida</th>
+                    <th scope="col" class="num">Km inicial</th>
+                    <th scope="col">Regreso</th>
+                    <th scope="col" class="num">Km final</th>
+                    <th scope="col" class="num">Combustible (L)</th>
+                    <th scope="col">Estado</th>
+                    <th scope="col"><span class="sr-only">Acciones</span></th>
+                  </tr>
+                </ng-template>
+                <ng-template pTemplate="body" let-u>
+                  <tr>
+                    <td><code>{{ u.vehicle_plate }}</code></td>
+                    <td>{{ u.driver_name || '—' }}</td>
+                    <td>{{ u.check_in_at | date:'short' }}</td>
+                    <td class="num">{{ u.check_in_km | number:'1.0-0' }}</td>
+                    <td>{{ u.check_out_at ? (u.check_out_at | date:'short') : '—' }}</td>
+                    <td class="num">{{ u.check_out_km !== null ? (u.check_out_km | number:'1.0-0') : '—' }}</td>
+                    <td class="num">{{ u.fuel_loaded_liters !== null ? (u.fuel_loaded_liters | number:'1.2-2') : '—' }}</td>
+                    <td>
+                      <p-tag [severity]="u.status === 'en_uso' ? 'warn' : 'success'" [value]="u.status === 'en_uso' ? 'En uso' : 'Cerrado'"></p-tag>
+                    </td>
+                    <td class="actions">
+                      @if (u.status === 'en_uso') {
+                        <button pButton icon="pi pi-sign-in" size="small" label="Check-out" (click)="openCheckOut(u)"></button>
+                      }
+                    </td>
+                  </tr>
+                </ng-template>
+                <ng-template pTemplate="emptymessage">
+                  <tr><td colspan="9" class="comm-empty-cell"><div class="comm-empty"><div class="comm-empty-icon"><i class="pi pi-clock" aria-hidden="true"></i></div><h3>Sin historial de uso</h3><p>Aún no hay check-ins registrados.</p></div></td></tr>
+                </ng-template>
+              </p-table>
+            </p-card>
+          </p-tabpanel>
+    
+          <!-- ──── J.9.9 Tab Mantenimiento ──── -->
+          <p-tabpanel value="maintenance">
+            <div class="tab-actions">
+              <button pButton icon="pi pi-plus" label="Nuevo mantenimiento" (click)="openMaintenance()"></button>
+            </div>
+            @if (maintDue().length) {
+              <div class="maint-due">
+                <div class="maint-due-head"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
               {{ maintDue().length }} unidad{{ maintDue().length === 1 ? '' : 'es' }} con servicio vencido</div>
-            <ul>
-              <li *ngFor="let d of maintDue()">
-                <code>{{ d.plate }}</code> {{ d.model || '' }}
-                <span class="maint-due-reason">{{ d.reasons.join(' · ') }}</span>
-              </li>
-            </ul>
-          </div>
-
-          <p-card *ngIf="fuelEff().length" class="fuel-card">
-            <h3 class="fuel-title">Rendimiento de combustible (real vs spec)</h3>
-            <p-table [value]="fuelEff()" responsiveLayout="scroll" styleClass="p-datatable-sm surf-table surf-table--sticky">
-              <ng-template pTemplate="header">
-                <tr><th scope="col">Vehículo</th><th scope="col" class="num">Km</th><th scope="col" class="num">Litros</th><th scope="col" class="num">Real km/l</th><th scope="col" class="num">Spec</th><th scope="col" class="num">Desv.</th></tr>
-              </ng-template>
-              <ng-template pTemplate="body" let-f>
-                <tr [class.fuel-flag]="f.flag">
-                  <td><code>{{ f.plate }}</code></td>
-                  <td class="num">{{ f.km | number:'1.0-0' }}</td>
-                  <td class="num">{{ f.liters | number:'1.0-1' }}</td>
-                  <td class="num">{{ f.real_km_l != null ? (f.real_km_l | number:'1.1-2') : '—' }}</td>
-                  <td class="num">{{ f.spec_km_l != null ? (f.spec_km_l | number:'1.1-2') : '—' }}</td>
-                  <td class="num">
-                    <span *ngIf="f.deviation_pct != null" [class.fuel-bad]="f.flag">{{ f.deviation_pct > 0 ? '+' : '' }}{{ f.deviation_pct }}%</span>
-                    <span *ngIf="f.deviation_pct == null">—</span>
-                  </td>
-                </tr>
-              </ng-template>
-            </p-table>
-          </p-card>
-
+              <ul>
+                @for (d of maintDue(); track d) {
+                  <li>
+                    <code>{{ d.plate }}</code> {{ d.model || '' }}
+                    <span class="maint-due-reason">{{ d.reasons.join(' · ') }}</span>
+                  </li>
+                }
+              </ul>
+            </div>
+          }
+    
+          @if (fuelEff().length) {
+            <p-card class="fuel-card">
+              <h3 class="fuel-title">Rendimiento de combustible (real vs spec)</h3>
+              <p-table [value]="fuelEff()" responsiveLayout="scroll" styleClass="p-datatable-sm surf-table surf-table--sticky">
+                <ng-template pTemplate="header">
+                  <tr><th scope="col">Vehículo</th><th scope="col" class="num">Km</th><th scope="col" class="num">Litros</th><th scope="col" class="num">Real km/l</th><th scope="col" class="num">Spec</th><th scope="col" class="num">Desv.</th></tr>
+                </ng-template>
+                <ng-template pTemplate="body" let-f>
+                  <tr [class.fuel-flag]="f.flag">
+                    <td><code>{{ f.plate }}</code></td>
+                    <td class="num">{{ f.km | number:'1.0-0' }}</td>
+                    <td class="num">{{ f.liters | number:'1.0-1' }}</td>
+                    <td class="num">{{ f.real_km_l != null ? (f.real_km_l | number:'1.1-2') : '—' }}</td>
+                    <td class="num">{{ f.spec_km_l != null ? (f.spec_km_l | number:'1.1-2') : '—' }}</td>
+                    <td class="num">
+                      @if (f.deviation_pct != null) {
+                        <span [class.fuel-bad]="f.flag">{{ f.deviation_pct > 0 ? '+' : '' }}{{ f.deviation_pct }}%</span>
+                      }
+                      @if (f.deviation_pct == null) {
+                        <span>—</span>
+                      }
+                    </td>
+                  </tr>
+                </ng-template>
+              </p-table>
+            </p-card>
+          }
+    
           <p-card class="fuel-card">
             <h3 class="fuel-title">Combustible — registrar carga</h3>
             <form [formGroup]="fuelForm" class="fuel-form">
@@ -250,7 +268,7 @@ function severityForDriverStatus(s: string): Severity {
               <ng-template pTemplate="emptymessage"><tr><td colspan="7" class="comm-empty-cell"><div class="comm-empty"><div class="comm-empty-icon"><i class="pi pi-bolt" aria-hidden="true"></i></div><h3>Sin cargas registradas</h3><p>Aún no hay cargas de combustible.</p></div></td></tr></ng-template>
             </p-table>
           </p-card>
-
+    
           <p-card>
             <p-table [value]="maintenance()" [loading]="loadingMaint()" responsiveLayout="scroll" styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra">
               <ng-template pTemplate="header">
@@ -292,7 +310,7 @@ function severityForDriverStatus(s: string): Severity {
       </p-tabpanels>
     </p-tabs>
     </div>
-
+    
     <!-- ──── J.9.9 Check-in dialog ──── -->
     <p-dialog [(visible)]="checkInDialog" [modal]="true" [style]="{ width: '480px' }" header="Nuevo check-in de vehículo">
       <form [formGroup]="checkInForm" class="form">
@@ -318,13 +336,15 @@ function severityForDriverStatus(s: string): Severity {
         <button pButton label="Registrar salida" icon="pi pi-check" [loading]="savingUsage()" [disabled]="checkInForm.invalid" (click)="submitCheckIn()"></button>
       </ng-template>
     </p-dialog>
-
+    
     <!-- ──── J.9.9 Check-out dialog ──── -->
     <p-dialog [(visible)]="checkOutDialog" [modal]="true" [style]="{ width: '480px' }" header="Check-out de vehículo">
-      <div *ngIf="checkingOutUsage() as u" class="muted small" style="margin-bottom: 1rem;">
-        <p>Vehículo: <strong>{{ u.vehicle_plate }}</strong></p>
-        <p>Km inicial: <strong>{{ u.check_in_km | number:'1.0-0' }}</strong></p>
-      </div>
+      @if (checkingOutUsage(); as u) {
+        <div class="muted small" style="margin-bottom: 1rem;">
+          <p>Vehículo: <strong>{{ u.vehicle_plate }}</strong></p>
+          <p>Km inicial: <strong>{{ u.check_in_km | number:'1.0-0' }}</strong></p>
+        </div>
+      }
       <form [formGroup]="checkOutForm" class="form">
         <label>
           <span>Km final *</span>
@@ -344,7 +364,7 @@ function severityForDriverStatus(s: string): Severity {
         <button pButton label="Cerrar uso" icon="pi pi-check" [loading]="savingUsage()" [disabled]="checkOutForm.invalid" (click)="submitCheckOut()"></button>
       </ng-template>
     </p-dialog>
-
+    
     <!-- ──── J.9.9 Maintenance dialog ──── -->
     <p-dialog [(visible)]="maintenanceDialog" [modal]="true" [style]="{ width: '560px' }" header="Nuevo mantenimiento">
       <form [formGroup]="maintenanceForm" class="form">
@@ -402,112 +422,116 @@ function severityForDriverStatus(s: string): Severity {
         <button pButton label="Registrar" icon="pi pi-check" [loading]="savingMaint()" [disabled]="maintenanceForm.invalid" (click)="submitMaintenance()"></button>
       </ng-template>
     </p-dialog>
-
+    
     <!-- Vehicle dialog -->
     <p-dialog [(visible)]="vDialog" [modal]="true" [draggable]="false" [style]="{ width: '560px' }"
-              [header]="editingV() ? 'Editar unidad' : 'Nueva unidad'">
-      <form [formGroup]="vForm" class="form" *ngIf="vForm">
-        <div class="row">
+      [header]="editingV() ? 'Editar unidad' : 'Nueva unidad'">
+      @if (vForm) {
+        <form [formGroup]="vForm" class="form">
+          <div class="row">
+            <label>
+              <span>Placa <em>*</em></span>
+              <input pInputText formControlName="plate" placeholder="ABC-1234" />
+            </label>
+            <label>
+              <span>Año</span>
+              <p-inputNumber formControlName="year" [showButtons]="false" [useGrouping]="false"></p-inputNumber>
+            </label>
+          </div>
+          <div class="row">
+            <label>
+              <span>Marca</span>
+              <input pInputText formControlName="brand" />
+            </label>
+            <label>
+              <span>Modelo</span>
+              <input pInputText formControlName="model" />
+            </label>
+          </div>
+          <div class="row">
+            <label>
+              <span>Capacidad (cajas)</span>
+              <p-inputNumber formControlName="capacity_boxes"></p-inputNumber>
+            </label>
+            <label>
+              <span>Capacidad (kg)</span>
+              <p-inputNumber formControlName="capacity_kg"></p-inputNumber>
+            </label>
+          </div>
+          <div class="row">
+            <label>
+              <span>Rendimiento (km/l)</span>
+              <p-inputNumber formControlName="fuel_efficiency_km_l" [maxFractionDigits]="2" mode="decimal"></p-inputNumber>
+            </label>
+            <label>
+              <span>Estado</span>
+              <p-select formControlName="status" [options]="vehicleStatusOptions" optionLabel="label" optionValue="value"></p-select>
+            </label>
+          </div>
           <label>
-            <span>Placa <em>*</em></span>
-            <input pInputText formControlName="plate" placeholder="ABC-1234" />
+            <span>Notas</span>
+            <input pInputText formControlName="notes" />
           </label>
-          <label>
-            <span>Año</span>
-            <p-inputNumber formControlName="year" [showButtons]="false" [useGrouping]="false"></p-inputNumber>
-          </label>
-        </div>
-        <div class="row">
-          <label>
-            <span>Marca</span>
-            <input pInputText formControlName="brand" />
-          </label>
-          <label>
-            <span>Modelo</span>
-            <input pInputText formControlName="model" />
-          </label>
-        </div>
-        <div class="row">
-          <label>
-            <span>Capacidad (cajas)</span>
-            <p-inputNumber formControlName="capacity_boxes"></p-inputNumber>
-          </label>
-          <label>
-            <span>Capacidad (kg)</span>
-            <p-inputNumber formControlName="capacity_kg"></p-inputNumber>
-          </label>
-        </div>
-        <div class="row">
-          <label>
-            <span>Rendimiento (km/l)</span>
-            <p-inputNumber formControlName="fuel_efficiency_km_l" [maxFractionDigits]="2" mode="decimal"></p-inputNumber>
-          </label>
-          <label>
-            <span>Estado</span>
-            <p-select formControlName="status" [options]="vehicleStatusOptions" optionLabel="label" optionValue="value"></p-select>
-          </label>
-        </div>
-        <label>
-          <span>Notas</span>
-          <input pInputText formControlName="notes" />
-        </label>
-      </form>
+        </form>
+      }
       <ng-template pTemplate="footer">
         <button pButton label="Cancelar" severity="secondary" [outlined]="true" (click)="vDialog = false"></button>
         <button pButton [label]="editingV() ? 'Guardar' : 'Crear'" icon="pi pi-check"
-                [loading]="savingV()" [disabled]="vForm.invalid" (click)="saveVehicle()"></button>
+        [loading]="savingV()" [disabled]="vForm.invalid" (click)="saveVehicle()"></button>
       </ng-template>
     </p-dialog>
-
+    
     <!-- Driver dialog -->
     <p-dialog [(visible)]="dDialog" [modal]="true" [draggable]="false" [style]="{ width: '560px' }"
-              [header]="editingD() ? 'Editar colaborador' : 'Nuevo colaborador'">
-      <form [formGroup]="dForm" class="form" *ngIf="dForm">
-        <label>
-          <span>Nombre completo <em>*</em></span>
-          <input pInputText formControlName="full_name" />
-        </label>
-        <label>
-          <span>Roles <em>*</em></span>
-          <p-multiSelect formControlName="roles" [options]="driverRoleOptions" optionLabel="label" optionValue="value"
-                         display="chip" placeholder="Seleccionar"></p-multiSelect>
-        </label>
-        <div class="row">
+      [header]="editingD() ? 'Editar colaborador' : 'Nuevo colaborador'">
+      @if (dForm) {
+        <form [formGroup]="dForm" class="form">
           <label>
-            <span>Tipo</span>
-            <p-select formControlName="employee_type" [options]="employeeTypes" optionLabel="label" optionValue="value"></p-select>
+            <span>Nombre completo <em>*</em></span>
+            <input pInputText formControlName="full_name" />
           </label>
           <label>
-            <span>Estado</span>
-            <p-select formControlName="status" [options]="driverStatusOptions" optionLabel="label" optionValue="value"></p-select>
+            <span>Roles <em>*</em></span>
+            <p-multiSelect formControlName="roles" [options]="driverRoleOptions" optionLabel="label" optionValue="value"
+            display="chip" placeholder="Seleccionar"></p-multiSelect>
           </label>
-        </div>
-        <div class="row">
+          <div class="row">
+            <label>
+              <span>Tipo</span>
+              <p-select formControlName="employee_type" [options]="employeeTypes" optionLabel="label" optionValue="value"></p-select>
+            </label>
+            <label>
+              <span>Estado</span>
+              <p-select formControlName="status" [options]="driverStatusOptions" optionLabel="label" optionValue="value"></p-select>
+            </label>
+          </div>
+          <div class="row">
+            <label>
+              <span>Teléfono</span>
+              <input pInputText formControlName="phone" />
+            </label>
+            <label>
+              <span>NSS</span>
+              <input pInputText formControlName="nss" />
+            </label>
+          </div>
           <label>
-            <span>Teléfono</span>
-            <input pInputText formControlName="phone" />
+            <span>Contacto emergencia</span>
+            <input pInputText formControlName="emergency_contact" />
           </label>
           <label>
-            <span>NSS</span>
-            <input pInputText formControlName="nss" />
+            <span>Notas</span>
+            <input pInputText formControlName="notes" />
           </label>
-        </div>
-        <label>
-          <span>Contacto emergencia</span>
-          <input pInputText formControlName="emergency_contact" />
-        </label>
-        <label>
-          <span>Notas</span>
-          <input pInputText formControlName="notes" />
-        </label>
-      </form>
+        </form>
+      }
       <ng-template pTemplate="footer">
         <button pButton label="Cancelar" severity="secondary" [outlined]="true" (click)="dDialog = false"></button>
         <button pButton [label]="editingD() ? 'Guardar' : 'Crear'" icon="pi pi-check"
-                [loading]="savingD()" [disabled]="dForm.invalid" (click)="saveDriver()"></button>
+        [loading]="savingD()" [disabled]="dForm.invalid" (click)="saveDriver()"></button>
       </ng-template>
     </p-dialog>
-  `,
+    `,
   styles: [`
     :host { display:block; }
     .tab-actions { display:flex; justify-content:flex-end; margin: .5rem 0; }

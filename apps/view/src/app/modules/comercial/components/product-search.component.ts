@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, EventEmitter, Input, Output, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { CommonModule } from '@angular/common';
+
 import { FormsModule } from '@angular/forms';
 import { AutoCompleteModule, AutoCompleteCompleteEvent, AutoCompleteSelectEvent } from 'primeng/autocomplete';
 import { ComercialService } from '../comercial.service';
@@ -16,7 +16,7 @@ export interface ProductHit { id: string; label: string; sku: string | null; bra
 @Component({
   selector: 'app-product-search',
   standalone: true,
-  imports: [CommonModule, FormsModule, AutoCompleteModule],
+  imports: [FormsModule, AutoCompleteModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <p-autoComplete

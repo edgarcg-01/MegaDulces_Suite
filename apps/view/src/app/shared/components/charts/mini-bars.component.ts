@@ -1,5 +1,5 @@
 import { ChangeDetectionStrategy, Component, computed, input, signal } from '@angular/core';
-import { CommonModule } from '@angular/common';
+
 
 const NUM = new Intl.NumberFormat('es-MX', { maximumFractionDigits: 0 });
 
@@ -11,21 +11,24 @@ const NUM = new Intl.NumberFormat('es-MX', { maximumFractionDigits: 0 });
 @Component({
   selector: 'app-mini-bars',
   standalone: true,
-  imports: [CommonModule],
+  imports: [],
   template: `
     <div class="mb" (pointerleave)="active.set(-1)">
-      <span
-        class="mb-bar"
-        *ngFor="let b of bars(); let i = index"
-        [class.is-active]="active() === i"
-        [style.height.%]="b"
-        [style.background]="(highlightLast() && i === bars().length - 1) ? highlightColor() : color()"
-        [style.animation-delay.ms]="i * 45"
-        (pointerenter)="active.set(i)"
-      ></span>
-      <div *ngIf="active() >= 0" class="mb-tip" [style.left.%]="tipLeft()">{{ activeLabel() }}</div>
+      @for (b of bars(); track b; let i = $index) {
+        <span
+          class="mb-bar"
+          [class.is-active]="active() === i"
+          [style.height.%]="b"
+          [style.background]="(highlightLast() && i === bars().length - 1) ? highlightColor() : color()"
+          [style.animation-delay.ms]="i * 45"
+          (pointerenter)="active.set(i)"
+        ></span>
+      }
+      @if (active() >= 0) {
+        <div class="mb-tip" [style.left.%]="tipLeft()">{{ activeLabel() }}</div>
+      }
     </div>
-  `,
+    `,
   styles: [`
     :host { display:block; width:100%; }
     .mb { position:relative; display:flex; align-items:flex-end; gap: 3px; height: var(--mb-h, 40px); }

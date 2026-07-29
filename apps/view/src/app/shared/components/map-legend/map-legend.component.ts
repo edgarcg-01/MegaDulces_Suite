@@ -1,5 +1,5 @@
 import { Component, input, output } from '@angular/core';
-import { CommonModule } from '@angular/common';
+
 
 export interface LegendLayer {
   id: string;
@@ -19,7 +19,7 @@ export interface LegendLayer {
 @Component({
   selector: 'app-map-legend',
   standalone: true,
-  imports: [CommonModule],
+  imports: [],
   template: `
     <div class="legend">
       @for (l of layers(); track l.id) {

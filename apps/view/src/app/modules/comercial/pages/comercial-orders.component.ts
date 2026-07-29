@@ -76,7 +76,7 @@ const DATE_PRESETS: { key: string; label: string; days: number | 'today' | 'all'
   template: `
     <div class="surf-page co">
       <p-toast></p-toast>
-
+    
       <!-- PAGE HEAD edge-to-edge -->
       <header class="surf-page-head">
         <div class="surf-page-head-text">
@@ -87,7 +87,7 @@ const DATE_PRESETS: { key: string; label: string; days: number | 'today' | 'all'
             {{ dateRangeLabel() }}
           </p>
         </div>
-
+    
         <!-- Tab nav: separa la cola de aprobación del archivo histórico. -->
         <nav class="co-mode-tabs" role="tablist" aria-label="Vista de pedidos">
           <button
@@ -97,7 +97,7 @@ const DATE_PRESETS: { key: string; label: string; days: number | 'today' | 'all'
             role="tab"
             [attr.aria-selected]="mode === 'pending'"
             (click)="switchMode('pending')"
-          >
+            >
             <i class="pi pi-hourglass" aria-hidden="true"></i>
             <span>Por aprobar</span>
           </button>
@@ -108,12 +108,12 @@ const DATE_PRESETS: { key: string; label: string; days: number | 'today' | 'all'
             role="tab"
             [attr.aria-selected]="mode === 'history'"
             (click)="switchMode('history')"
-          >
+            >
             <i class="pi pi-history" aria-hidden="true"></i>
             <span>Historial</span>
           </button>
         </nav>
-
+    
         <div class="co-head-actions">
           <button
             pButton
@@ -127,7 +127,7 @@ const DATE_PRESETS: { key: string; label: string; days: number | 'today' | 'all'
           ></button>
         </div>
       </header>
-
+    
       <!-- SHEET 1: KPI STRIP ventana actual (adaptativo por modo) -->
       <app-order-kpis
         [loading]="loadingKpis()"
@@ -136,121 +136,128 @@ const DATE_PRESETS: { key: string; label: string; days: number | 'today' | 'all'
         [total]="total()"
         [statusCounts]="statusCounts()"
         [series]="amountSeries()"
-      />
-
-      <!-- SHEET 2: FILTERS — toolbar densa (extraída a app-order-filters, CV.3) -->
-      <app-order-filters
-        [filters]="filters()"
-        [statusFilter]="statusFilter()"
-        [statusCounts]="statusCounts()"
-        [presets]="presets"
-        [datePreset]="datePreset()"
-        [fromDate]="fromDate"
-        [toDate]="toDate"
-        [folioSearch]="folioSearch"
-        [hasActiveFilters]="hasActiveFilters()"
-        (statusChange)="setStatus($any($event))"
-        (presetChange)="setPreset($event)"
-        (fromDateChange)="fromDate = $event; onDateManualChange()"
-        (toDateChange)="toDate = $event; onDateManualChange()"
-        (searchChange)="folioSearch = $event; onSearchChange($event)"
-        (clearSearch)="clearSearch()"
-        (resetFilters)="resetFilters()"
-      />
-
-      <!-- SHEET 3: TABLE flush, edge-to-edge -->
-      <div class="sheet cols-12">
-        <article class="cell cell-span-12 is-flush">
-          <p-table
-            [value]="visibleRows()"
-            [loading]="loading()"
-            [lazy]="true"
-            [paginator]="true"
-            [rows]="pageSize()"
-            [totalRecords]="visibleTotal()"
-            [first]="(page() - 1) * pageSize()"
-            [rowsPerPageOptions]="[25, 50, 100, 200]"
-            (onLazyLoad)="onLazyLoad($event)"
-            responsiveLayout="scroll"
-            styleClass="p-datatable-sm co-table surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra"
-            [rowHover]="true"
-          >
-            <ng-template pTemplate="header">
-              <tr>
-                <th scope="col">Folio</th>
-                <th scope="col">Cliente</th>
-                <th scope="col">Estado</th>
-                <th scope="col">Entrega</th>
-                <th scope="col" class="comm-num">Total</th>
-                <th scope="col">Fecha</th>
-              </tr>
-            </ng-template>
-            <ng-template pTemplate="body" let-o>
-              <tr (click)="goDetail(o)" (keydown.enter)="goDetail(o)" (keydown.space)="$event.preventDefault(); goDetail(o)"
-                  tabindex="0" role="button"
-                  [attr.aria-label]="'Ver pedido ' + o.folio" class="comm-row-clickable">
-                <td><code class="comm-code">{{ o.folio }}</code></td>
-                <td>
-                  <div class="comm-cell-strong">{{ o.customer_name || o.customer_id }}</div>
-                  <div class="comm-muted is-small co-cell-meta">
-                    <span *ngIf="o.route_name">
-                      <i class="pi pi-directions" aria-hidden="true"></i>
-                      {{ o.route_name }}
-                    </span>
-                    <span *ngIf="o.warehouse_name">
-                      <i class="pi pi-box" aria-hidden="true"></i>
-                      {{ o.warehouse_name }}
-                    </span>
-                    <span *ngIf="o.user_username">
-                      <i class="pi pi-user" aria-hidden="true"></i>
-                      {{ o.user_username }}
-                    </span>
-                  </div>
-                </td>
-                <td>
-                  <span class="portal-status-pill" [class]="'is-' + o.status">
-                    {{ statusLabel(o.status) }}
-                  </span>
-                </td>
-                <td>
-                  <span class="co-delivery">
-                    <i [class]="o.delivery_type === 'long_trip' ? 'pi pi-globe' : 'pi pi-truck'" aria-hidden="true"></i>
-                    {{ o.delivery_type === 'long_trip' ? 'Viaje largo' : 'Por ruta' }}
-                  </span>
-                </td>
-                <td class="comm-num is-strong">{{ o.total | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
-                <td>
-                  <span class="co-date">{{ o.created_at | date:'dd MMM · HH:mm' }}</span>
-                </td>
-              </tr>
-            </ng-template>
-            <ng-template pTemplate="emptymessage">
-              <tr>
-                <td colspan="6" class="comm-empty-cell">
-                  <div class="comm-empty">
-                    <div class="comm-empty-icon"><i [class]="emptyIcon()" aria-hidden="true"></i></div>
-                    <h3>{{ emptyTitle() }}</h3>
-                    <p>{{ emptyMessage() }}</p>
-                    <button
-                      *ngIf="hasActiveFilters()"
-                      type="button"
-                      pButton
-                      icon="pi pi-refresh"
-                      severity="secondary"
-                      [outlined]="true"
-                      size="small"
-                      label="Limpiar filtros"
-                      (click)="resetFilters()"
-                    ></button>
-                  </div>
-                </td>
-              </tr>
-            </ng-template>
-          </p-table>
-        </article>
-      </div>
-    </div>
-  `,
+        />
+    
+        <!-- SHEET 2: FILTERS — toolbar densa (extraída a app-order-filters, CV.3) -->
+        <app-order-filters
+          [filters]="filters()"
+          [statusFilter]="statusFilter()"
+          [statusCounts]="statusCounts()"
+          [presets]="presets"
+          [datePreset]="datePreset()"
+          [fromDate]="fromDate"
+          [toDate]="toDate"
+          [folioSearch]="folioSearch"
+          [hasActiveFilters]="hasActiveFilters()"
+          (statusChange)="setStatus($any($event))"
+          (presetChange)="setPreset($event)"
+          (fromDateChange)="fromDate = $event; onDateManualChange()"
+          (toDateChange)="toDate = $event; onDateManualChange()"
+          (searchChange)="folioSearch = $event; onSearchChange($event)"
+          (clearSearch)="clearSearch()"
+          (resetFilters)="resetFilters()"
+          />
+    
+          <!-- SHEET 3: TABLE flush, edge-to-edge -->
+          <div class="sheet cols-12">
+            <article class="cell cell-span-12 is-flush">
+              <p-table
+                [value]="visibleRows()"
+                [loading]="loading()"
+                [lazy]="true"
+                [paginator]="true"
+                [rows]="pageSize()"
+                [totalRecords]="visibleTotal()"
+                [first]="(page() - 1) * pageSize()"
+                [rowsPerPageOptions]="[25, 50, 100, 200]"
+                (onLazyLoad)="onLazyLoad($event)"
+                responsiveLayout="scroll"
+                styleClass="p-datatable-sm co-table surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra"
+                [rowHover]="true"
+                >
+                <ng-template pTemplate="header">
+                  <tr>
+                    <th scope="col">Folio</th>
+                    <th scope="col">Cliente</th>
+                    <th scope="col">Estado</th>
+                    <th scope="col">Entrega</th>
+                    <th scope="col" class="comm-num">Total</th>
+                    <th scope="col">Fecha</th>
+                  </tr>
+                </ng-template>
+                <ng-template pTemplate="body" let-o>
+                  <tr (click)="goDetail(o)" (keydown.enter)="goDetail(o)" (keydown.space)="$event.preventDefault(); goDetail(o)"
+                    tabindex="0" role="button"
+                    [attr.aria-label]="'Ver pedido ' + o.folio" class="comm-row-clickable">
+                    <td><code class="comm-code">{{ o.folio }}</code></td>
+                    <td>
+                      <div class="comm-cell-strong">{{ o.customer_name || o.customer_id }}</div>
+                      <div class="comm-muted is-small co-cell-meta">
+                        @if (o.route_name) {
+                          <span>
+                            <i class="pi pi-directions" aria-hidden="true"></i>
+                            {{ o.route_name }}
+                          </span>
+                        }
+                        @if (o.warehouse_name) {
+                          <span>
+                            <i class="pi pi-box" aria-hidden="true"></i>
+                            {{ o.warehouse_name }}
+                          </span>
+                        }
+                        @if (o.user_username) {
+                          <span>
+                            <i class="pi pi-user" aria-hidden="true"></i>
+                            {{ o.user_username }}
+                          </span>
+                        }
+                      </div>
+                    </td>
+                    <td>
+                      <span class="portal-status-pill" [class]="'is-' + o.status">
+                        {{ statusLabel(o.status) }}
+                      </span>
+                    </td>
+                    <td>
+                      <span class="co-delivery">
+                        <i [class]="o.delivery_type === 'long_trip' ? 'pi pi-globe' : 'pi pi-truck'" aria-hidden="true"></i>
+                        {{ o.delivery_type === 'long_trip' ? 'Viaje largo' : 'Por ruta' }}
+                      </span>
+                    </td>
+                    <td class="comm-num is-strong">{{ o.total | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+                    <td>
+                      <span class="co-date">{{ o.created_at | date:'dd MMM · HH:mm' }}</span>
+                    </td>
+                  </tr>
+                </ng-template>
+                <ng-template pTemplate="emptymessage">
+                  <tr>
+                    <td colspan="6" class="comm-empty-cell">
+                      <div class="comm-empty">
+                        <div class="comm-empty-icon"><i [class]="emptyIcon()" aria-hidden="true"></i></div>
+                        <h3>{{ emptyTitle() }}</h3>
+                        <p>{{ emptyMessage() }}</p>
+                        @if (hasActiveFilters()) {
+                          <button
+                            type="button"
+                            pButton
+                            icon="pi pi-refresh"
+                            severity="secondary"
+                            [outlined]="true"
+                            size="small"
+                            label="Limpiar filtros"
+                            (click)="resetFilters()"
+                          ></button>
+                        }
+                      </div>
+                    </td>
+                  </tr>
+                </ng-template>
+              </p-table>
+            </article>
+          </div>
+        </div>
+    `,
   styles: [`
     :host { display:block; }
 

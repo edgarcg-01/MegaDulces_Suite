@@ -40,7 +40,7 @@ import { CountUpDirective } from '../ui/count-up.directive';
   providers: [ConfirmationService, CurrencyPipe],
   template: `
     <p-confirmDialog></p-confirmDialog>
-
+    
     <header class="portal-page-head">
       <div class="portal-page-head-text">
         <span class="portal-eyebrow">
@@ -48,227 +48,243 @@ import { CountUpDirective } from '../ui/count-up.directive';
           Tu carrito
         </span>
         <h1>Revisa tu pedido</h1>
-        <p class="portal-page-sub" *ngIf="cart() as c">
-          <span class="ca-code">{{ c.code }}</span>
-          <span class="ca-sep">·</span>
-          <span>creado {{ fmtDate(c.created_at) }}</span>
-        </p>
+        @if (cart(); as c) {
+          <p class="portal-page-sub">
+            <span class="ca-code">{{ c.code }}</span>
+            <span class="ca-sep">·</span>
+            <span>creado {{ fmtDate(c.created_at) }}</span>
+          </p>
+        }
       </div>
       <button
         type="button"
         class="portal-btn-ghost"
         (click)="goCatalog()"
-      >
+        >
         <i class="pi pi-arrow-left" aria-hidden="true"></i> Seguir comprando
       </button>
     </header>
-
-    <div *ngIf="loading()" class="ca-skel ca-layout" aria-hidden="true">
-      <div class="ca-skel-lines">
-        <div class="ca-skel-line" *ngFor="let i of [1, 2, 3, 4]">
-          <p-skeleton width="56px" height="56px" borderRadius="12px"></p-skeleton>
-          <div class="ca-skel-body">
-            <p-skeleton width="35%" height="0.6rem"></p-skeleton>
-            <p-skeleton width="72%" height="0.95rem"></p-skeleton>
-          </div>
-          <p-skeleton width="128px" height="44px" borderRadius="12px"></p-skeleton>
+    
+    @if (loading()) {
+      <div class="ca-skel ca-layout" aria-hidden="true">
+        <div class="ca-skel-lines">
+          @for (i of [1, 2, 3, 4]; track i) {
+            <div class="ca-skel-line">
+              <p-skeleton width="56px" height="56px" borderRadius="12px"></p-skeleton>
+              <div class="ca-skel-body">
+                <p-skeleton width="35%" height="0.6rem"></p-skeleton>
+                <p-skeleton width="72%" height="0.95rem"></p-skeleton>
+              </div>
+              <p-skeleton width="128px" height="44px" borderRadius="12px"></p-skeleton>
+            </div>
+          }
+        </div>
+        <div class="ca-skel-sum">
+          <p-skeleton width="45%" height="1rem"></p-skeleton>
+          <p-skeleton width="100%" height="0.8rem"></p-skeleton>
+          <p-skeleton width="100%" height="0.8rem"></p-skeleton>
+          <p-skeleton width="100%" height="3rem" borderRadius="12px"></p-skeleton>
+          <p-skeleton width="100%" height="2.9rem" borderRadius="999px"></p-skeleton>
         </div>
       </div>
-      <div class="ca-skel-sum">
-        <p-skeleton width="45%" height="1rem"></p-skeleton>
-        <p-skeleton width="100%" height="0.8rem"></p-skeleton>
-        <p-skeleton width="100%" height="0.8rem"></p-skeleton>
-        <p-skeleton width="100%" height="3rem" borderRadius="12px"></p-skeleton>
-        <p-skeleton width="100%" height="2.9rem" borderRadius="999px"></p-skeleton>
-      </div>
-    </div>
-
+    }
+    
     <!-- Empty state -->
-    <div *ngIf="!loading() && !cart()" class="portal-empty">
-      <div class="portal-empty-icon">
-        <i class="pi pi-shopping-cart" aria-hidden="true"></i>
+    @if (!loading() && !cart()) {
+      <div class="portal-empty">
+        <div class="portal-empty-icon">
+          <i class="pi pi-shopping-cart" aria-hidden="true"></i>
+        </div>
+        <h2>Tu carrito está vacío</h2>
+        <p>Explora el catálogo y arma tu pedido en minutos.</p>
+        <div class="portal-empty-actions">
+          <button type="button" class="portal-btn-primary" (click)="goCatalog()">
+            <i class="pi pi-th-large" aria-hidden="true"></i> Ir al catálogo
+          </button>
+          <button type="button" class="portal-btn-ghost" (click)="goAi()">
+            <i class="pi pi-bolt" aria-hidden="true"></i> Pedir con IA
+          </button>
+        </div>
       </div>
-      <h2>Tu carrito está vacío</h2>
-      <p>Explora el catálogo y arma tu pedido en minutos.</p>
-      <div class="portal-empty-actions">
-        <button type="button" class="portal-btn-primary" (click)="goCatalog()">
-          <i class="pi pi-th-large" aria-hidden="true"></i> Ir al catálogo
-        </button>
-        <button type="button" class="portal-btn-ghost" (click)="goAi()">
-          <i class="pi pi-bolt" aria-hidden="true"></i> Pedir con IA
-        </button>
-      </div>
-    </div>
-
+    }
+    
     <!-- Cart content -->
-    <ng-container *ngIf="!loading() && cart() as c">
+    @if (!loading() && cart(); as c) {
       <div class="ca-layout">
         <section class="ca-lines" aria-label="Líneas del carrito">
-          <div
-            *ngFor="let line of (c.lines || []); trackBy: trackByLine"
-            class="ca-line"
-          >
+          @for (line of (c.lines || []); track trackByLine($index, line)) {
             <div
-              class="ca-line-avatar"
-              [class.has-photo]="lineImg(line)"
-              [style.background]="lineImg(line) ? null : linePh(line)"
-            >
-              <img *ngIf="lineImg(line) as src" [src]="src" [alt]="line.product_name || ''" loading="lazy" decoding="async" />
-              <span *ngIf="!lineImg(line)" class="ca-line-mono" aria-hidden="true">{{ lineInitials(line) }}</span>
-            </div>
-
-            <div class="ca-line-body">
-              <span class="ca-line-brand" *ngIf="line.brand_name">{{ line.brand_name }}</span>
-              <span class="ca-line-name">{{ line.product_name || shortId(line.product_id) }}</span>
-              <div class="ca-line-meta">
-                <span class="ca-meta-item">
-                  <i class="pi pi-tag"></i>
-                  {{ line.unit_price | currency:'MXN':'symbol-narrow':'1.2-2' }}/u
-                </span>
-                <span class="ca-meta-item">
-                  IVA {{ taxPct(line.tax_rate) }}%
-                </span>
-                <span class="ca-meta-item ca-meta-promo" *ngIf="line.applied_promo_code">
-                  <i class="pi pi-megaphone"></i>
-                  {{ line.applied_promo_code }}
-                  <em *ngIf="lineSavings(line) > 0">
-                    −{{ lineSavings(line) | currency:'MXN':'symbol-narrow':'1.2-2' }}
-                  </em>
-                </span>
+              class="ca-line"
+              >
+              <div
+                class="ca-line-avatar"
+                [class.has-photo]="lineImg(line)"
+                [style.background]="lineImg(line) ? null : linePh(line)"
+                >
+                @if (lineImg(line); as src) {
+                  <img [src]="src" [alt]="line.product_name || ''" loading="lazy" decoding="async" />
+                }
+                @if (!lineImg(line)) {
+                  <span class="ca-line-mono" aria-hidden="true">{{ lineInitials(line) }}</span>
+                }
               </div>
-            </div>
-
-            <div class="ca-line-qty">
+              <div class="ca-line-body">
+                @if (line.brand_name) {
+                  <span class="ca-line-brand">{{ line.brand_name }}</span>
+                }
+                <span class="ca-line-name">{{ line.product_name || shortId(line.product_id) }}</span>
+                <div class="ca-line-meta">
+                  <span class="ca-meta-item">
+                    <i class="pi pi-tag"></i>
+                    {{ line.unit_price | currency:'MXN':'symbol-narrow':'1.2-2' }}/u
+                  </span>
+                  <span class="ca-meta-item">
+                    IVA {{ taxPct(line.tax_rate) }}%
+                  </span>
+                  @if (line.applied_promo_code) {
+                    <span class="ca-meta-item ca-meta-promo">
+                      <i class="pi pi-megaphone"></i>
+                      {{ line.applied_promo_code }}
+                      @if (lineSavings(line) > 0) {
+                        <em>
+                          −{{ lineSavings(line) | currency:'MXN':'symbol-narrow':'1.2-2' }}
+                        </em>
+                      }
+                    </span>
+                  }
+                </div>
+              </div>
+              <div class="ca-line-qty">
+                <button
+                  type="button"
+                  class="ca-qty-btn"
+                  (click)="updateQty(line, +line.quantity - 1)"
+                  [disabled]="+line.quantity <= 1 || !!updatingLine[line.id]"
+                  [attr.aria-label]="'Disminuir cantidad de línea ' + line.line_number"
+                >−</button>
+                <input
+                  type="number"
+                  inputmode="numeric"
+                  [ngModel]="+line.quantity"
+                  (ngModelChange)="updateQty(line, $event)"
+                  min="1"
+                  [disabled]="!!updatingLine[line.id]"
+                  [attr.aria-label]="'Cantidad de línea ' + line.line_number"
+                  />
+                  <button
+                    type="button"
+                    class="ca-qty-btn"
+                    (click)="updateQty(line, +line.quantity + 1)"
+                    [disabled]="!!updatingLine[line.id]"
+                    [attr.aria-label]="'Aumentar cantidad de línea ' + line.line_number"
+                  >+</button>
+                </div>
+                <div class="ca-line-total">
+                  <span class="ca-line-label">Total</span>
+                  <b>{{ line.line_total | currency:'MXN':'symbol-narrow':'1.2-2' }}</b>
+                </div>
+                <button
+                  type="button"
+                  class="ca-line-remove"
+                  (click)="removeLine(line.id)"
+                  pTooltip="Quitar del carrito"
+                  tooltipPosition="left"
+                  aria-label="Quitar"
+                  >
+                  <i class="pi pi-trash"></i>
+                </button>
+              </div>
+            }
+            @if ((c.lines || []).length === 0) {
+              <div class="ca-no-lines">
+                <i class="pi pi-info-circle"></i>
+                <p>Tu carrito no tiene líneas todavía.</p>
+                <button pButton type="button" label="Agregar productos" icon="pi pi-arrow-right" (click)="goCatalog()"></button>
+              </div>
+            }
+          </section>
+          <!-- Summary card -->
+          <aside class="ca-summary" aria-label="Resumen del pedido">
+            <div class="ca-summary-inner">
+              <h3 class="ca-summary-title">Resumen</h3>
+              <div class="ca-summary-rows">
+                <div class="ca-summary-row">
+                  <span>Productos</span>
+                  <b>{{ (c.lines || []).length }}</b>
+                </div>
+                <div class="ca-summary-row">
+                  <span>Unidades</span>
+                  <b>{{ totalUnits() }}</b>
+                </div>
+                <div class="ca-summary-row">
+                  <span>Subtotal</span>
+                  <b [countUp]="+(c.subtotal || 0)"></b>
+                </div>
+                <div class="ca-summary-row">
+                  <span>IVA</span>
+                  <b>{{ c.tax_total | currency:'MXN':'symbol-narrow':'1.2-2' }}</b>
+                </div>
+                @if (totalLineSavings() > 0) {
+                  <div class="ca-summary-row ca-summary-savings">
+                    <span>
+                      <i class="pi pi-tag"></i> Ahorro promos
+                    </span>
+                    <b>−{{ totalLineSavings() | currency:'MXN':'symbol-narrow':'1.2-2' }}</b>
+                  </div>
+                }
+                @if (basketDiscount() > 0) {
+                  <div class="ca-summary-row ca-summary-savings">
+                    <span>
+                      <i class="pi pi-megaphone"></i> {{ c.basket_promo_code }}
+                    </span>
+                    <b>−{{ basketDiscount() | currency:'MXN':'symbol-narrow':'1.2-2' }}</b>
+                  </div>
+                }
+              </div>
+              <!-- Upsell de mínimo: convierte la restricción en oportunidad (P1 #6). -->
+              @if (minRemaining() > 0) {
+                <div class="ca-min-upsell">
+                  <span class="ca-min-icon"><i class="pi pi-arrow-up" aria-hidden="true"></i></span>
+                  <div class="ca-min-text">
+                    Te faltan <b>{{ minRemaining() | currency:'MXN':'symbol-narrow':'1.2-2' }}</b>
+                    para el mínimo de {{ MIN_ORDER | currency:'MXN':'symbol-narrow':'1.0-0' }}.
+                    <span class="ca-min-prog"><i [style.width.%]="minPct()"></i></span>
+                  </div>
+                  <button type="button" class="ca-min-btn" (click)="goCatalog()">
+                    <i class="pi pi-plus" aria-hidden="true"></i> Sugerir
+                  </button>
+                </div>
+              }
+              <div class="ca-summary-total">
+                <span>Total</span>
+                <b [countUp]="+(c.total || 0)"></b>
+              </div>
               <button
                 type="button"
-                class="ca-qty-btn"
-                (click)="updateQty(line, +line.quantity - 1)"
-                [disabled]="+line.quantity <= 1 || !!updatingLine[line.id]"
-                [attr.aria-label]="'Disminuir cantidad de línea ' + line.line_number"
-              >−</button>
-              <input
-                type="number"
-                inputmode="numeric"
-                [ngModel]="+line.quantity"
-                (ngModelChange)="updateQty(line, $event)"
-                min="1"
-                [disabled]="!!updatingLine[line.id]"
-                [attr.aria-label]="'Cantidad de línea ' + line.line_number"
-              />
-              <button
-                type="button"
-                class="ca-qty-btn"
-                (click)="updateQty(line, +line.quantity + 1)"
-                [disabled]="!!updatingLine[line.id]"
-                [attr.aria-label]="'Aumentar cantidad de línea ' + line.line_number"
-              >+</button>
-            </div>
-
-            <div class="ca-line-total">
-              <span class="ca-line-label">Total</span>
-              <b>{{ line.line_total | currency:'MXN':'symbol-narrow':'1.2-2' }}</b>
-            </div>
-
-            <button
-              type="button"
-              class="ca-line-remove"
-              (click)="removeLine(line.id)"
-              pTooltip="Quitar del carrito"
-              tooltipPosition="left"
-              aria-label="Quitar"
-            >
-              <i class="pi pi-trash"></i>
-            </button>
-          </div>
-
-          <div *ngIf="(c.lines || []).length === 0" class="ca-no-lines">
-            <i class="pi pi-info-circle"></i>
-            <p>Tu carrito no tiene líneas todavía.</p>
-            <button pButton type="button" label="Agregar productos" icon="pi pi-arrow-right" (click)="goCatalog()"></button>
-          </div>
-        </section>
-
-        <!-- Summary card -->
-        <aside class="ca-summary" aria-label="Resumen del pedido">
-          <div class="ca-summary-inner">
-            <h3 class="ca-summary-title">Resumen</h3>
-            <div class="ca-summary-rows">
-              <div class="ca-summary-row">
-                <span>Productos</span>
-                <b>{{ (c.lines || []).length }}</b>
-              </div>
-              <div class="ca-summary-row">
-                <span>Unidades</span>
-                <b>{{ totalUnits() }}</b>
-              </div>
-              <div class="ca-summary-row">
-                <span>Subtotal</span>
-                <b [countUp]="+(c.subtotal || 0)"></b>
-              </div>
-              <div class="ca-summary-row">
-                <span>IVA</span>
-                <b>{{ c.tax_total | currency:'MXN':'symbol-narrow':'1.2-2' }}</b>
-              </div>
-              <div class="ca-summary-row ca-summary-savings" *ngIf="totalLineSavings() > 0">
-                <span>
-                  <i class="pi pi-tag"></i> Ahorro promos
-                </span>
-                <b>−{{ totalLineSavings() | currency:'MXN':'symbol-narrow':'1.2-2' }}</b>
-              </div>
-              <div class="ca-summary-row ca-summary-savings" *ngIf="basketDiscount() > 0">
-                <span>
-                  <i class="pi pi-megaphone"></i> {{ c.basket_promo_code }}
-                </span>
-                <b>−{{ basketDiscount() | currency:'MXN':'symbol-narrow':'1.2-2' }}</b>
-              </div>
-            </div>
-
-            <!-- Upsell de mínimo: convierte la restricción en oportunidad (P1 #6). -->
-            <div class="ca-min-upsell" *ngIf="minRemaining() > 0">
-              <span class="ca-min-icon"><i class="pi pi-arrow-up" aria-hidden="true"></i></span>
-              <div class="ca-min-text">
-                Te faltan <b>{{ minRemaining() | currency:'MXN':'symbol-narrow':'1.2-2' }}</b>
-                para el mínimo de {{ MIN_ORDER | currency:'MXN':'symbol-narrow':'1.0-0' }}.
-                <span class="ca-min-prog"><i [style.width.%]="minPct()"></i></span>
-              </div>
-              <button type="button" class="ca-min-btn" (click)="goCatalog()">
-                <i class="pi pi-plus" aria-hidden="true"></i> Sugerir
+                class="portal-btn-primary portal-btn-primary-lg"
+                [disabled]="confirming() || (c.lines || []).length === 0"
+                (click)="confirm()"
+                >
+                <i [class]="confirming() ? 'pi pi-spin pi-spinner' : 'pi pi-check-circle'" aria-hidden="true"></i>
+                {{ confirming() ? 'Confirmando…' : 'Confirmar pedido' }}
               </button>
+              <button
+                type="button"
+                class="ca-cancel"
+                [disabled]="confirming()"
+                (click)="cancelDraft()"
+                >
+                <i class="pi pi-times"></i> Vaciar carrito
+              </button>
+              <p class="ca-summary-note">
+                <i class="pi pi-info-circle"></i>
+                Al confirmar reservamos el stock automáticamente.
+              </p>
             </div>
-
-            <div class="ca-summary-total">
-              <span>Total</span>
-              <b [countUp]="+(c.total || 0)"></b>
-            </div>
-
-            <button
-              type="button"
-              class="portal-btn-primary portal-btn-primary-lg"
-              [disabled]="confirming() || (c.lines || []).length === 0"
-              (click)="confirm()"
-            >
-              <i [class]="confirming() ? 'pi pi-spin pi-spinner' : 'pi pi-check-circle'" aria-hidden="true"></i>
-              {{ confirming() ? 'Confirmando…' : 'Confirmar pedido' }}
-            </button>
-
-            <button
-              type="button"
-              class="ca-cancel"
-              [disabled]="confirming()"
-              (click)="cancelDraft()"
-            >
-              <i class="pi pi-times"></i> Vaciar carrito
-            </button>
-
-            <p class="ca-summary-note">
-              <i class="pi pi-info-circle"></i>
-              Al confirmar reservamos el stock automáticamente.
-            </p>
-          </div>
-        </aside>
-      </div>
-    </ng-container>
-  `,
+          </aside>
+        </div>
+      }
+    `,
   styles: [
     `
       :host { display: block; }

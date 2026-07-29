@@ -1,5 +1,5 @@
 import { ChangeDetectionStrategy, Component, OnInit, inject, signal } from '@angular/core';
-import { CommonModule } from '@angular/common';
+
 import { FormsModule } from '@angular/forms';
 import { TableModule } from 'primeng/table';
 import { ButtonModule } from 'primeng/button';
@@ -19,9 +19,15 @@ import { CarteraService, SalesRouteRow, VendorOption, RouteCustomer } from '../c
   selector: 'app-comercial-cartera',
   standalone: true,
   imports: [
-    CommonModule, FormsModule, TableModule, ButtonModule, SelectModule,
-    TagModule, ToastModule, TooltipModule, SkeletonModule,
-  ],
+    FormsModule,
+    TableModule,
+    ButtonModule,
+    SelectModule,
+    TagModule,
+    ToastModule,
+    TooltipModule,
+    SkeletonModule
+],
   providers: [MessageService],
   template: `
     <div class="surf-page ca">
@@ -33,94 +39,114 @@ import { CarteraService, SalesRouteRow, VendorOption, RouteCustomer } from '../c
         </div>
         <button pButton icon="pi pi-refresh" [text]="true" severity="secondary" size="small" (click)="load()" [loading]="loading()" pTooltip="Refrescar"></button>
       </header>
-
+    
       <div class="ca-grid">
         <!-- RUTAS + ASIGNACION -->
         <article class="ca-panel">
           <div class="ca-panel-head"><i class="pi pi-directions"></i> Rutas de venta</div>
-          <p-skeleton *ngIf="loading()" height="220px"></p-skeleton>
-          <p-table *ngIf="!loading()" [value]="routes()" styleClass="p-datatable-sm" [scrollable]="true" scrollHeight="60vh">
-            <ng-template pTemplate="header">
-              <tr><th scope="col">Ruta</th><th scope="col" class="comm-num">Clientes</th><th scope="col">Asignada a</th><th scope="col"><span class="sr-only">Asignar vendedor</span></th></tr>
-            </ng-template>
-            <ng-template pTemplate="body" let-r>
-              <tr [class.ca-row-active]="selectedRoute() === r.sales_route">
-                <td>
-                  <button type="button" class="ca-route-link" (click)="selectRoute(r.sales_route)" pTooltip="Ordenar sus clientes">
-                    <i class="pi pi-directions" aria-hidden="true"></i> {{ r.sales_route }}
-                  </button>
-                </td>
-                <td class="comm-num">{{ r.customer_count }}</td>
-                <td>
-                  <span *ngIf="r.assigned_to.length === 0" class="comm-muted is-small">— sin asignar —</span>
-                  <span *ngFor="let a of r.assigned_to" class="ca-chip">
-                    {{ a.username }}
-                    <button type="button" class="ca-chip-x" (click)="unassign(a.id)" pTooltip="Quitar"><i class="pi pi-times"></i></button>
-                  </span>
-                </td>
-                <td class="ca-assign">
-                  <p-select
-                    [options]="vendors()" [(ngModel)]="assignVendor[r.sales_route]"
-                    optionLabel="username" optionValue="id" placeholder="Vendedor…"
-                    [filter]="true" filterBy="username" appendTo="body" styleClass="ca-vendor-select"
-                  ></p-select>
-                  <button pButton icon="pi pi-plus" size="small" severity="contrast"
-                          [disabled]="!assignVendor[r.sales_route] || assigningRoute() === r.sales_route"
-                          [loading]="assigningRoute() === r.sales_route"
-                          (click)="assign(r.sales_route)" pTooltip="Asignar ruta a vendedor"></button>
-                </td>
-              </tr>
-            </ng-template>
-            <ng-template pTemplate="emptymessage">
-              <tr><td colspan="4" class="comm-muted" style="padding:1.5rem;text-align:center">No hay rutas de venta. Se generan desde la ruta (sales_route) de los clientes.</td></tr>
-            </ng-template>
-          </p-table>
+          @if (loading()) {
+            <p-skeleton height="220px"></p-skeleton>
+          }
+          @if (!loading()) {
+            <p-table [value]="routes()" styleClass="p-datatable-sm" [scrollable]="true" scrollHeight="60vh">
+              <ng-template pTemplate="header">
+                <tr><th scope="col">Ruta</th><th scope="col" class="comm-num">Clientes</th><th scope="col">Asignada a</th><th scope="col"><span class="sr-only">Asignar vendedor</span></th></tr>
+              </ng-template>
+              <ng-template pTemplate="body" let-r>
+                <tr [class.ca-row-active]="selectedRoute() === r.sales_route">
+                  <td>
+                    <button type="button" class="ca-route-link" (click)="selectRoute(r.sales_route)" pTooltip="Ordenar sus clientes">
+                      <i class="pi pi-directions" aria-hidden="true"></i> {{ r.sales_route }}
+                    </button>
+                  </td>
+                  <td class="comm-num">{{ r.customer_count }}</td>
+                  <td>
+                    @if (r.assigned_to.length === 0) {
+                      <span class="comm-muted is-small">— sin asignar —</span>
+                    }
+                    @for (a of r.assigned_to; track a) {
+                      <span class="ca-chip">
+                        {{ a.username }}
+                        <button type="button" class="ca-chip-x" (click)="unassign(a.id)" pTooltip="Quitar"><i class="pi pi-times"></i></button>
+                      </span>
+                    }
+                  </td>
+                  <td class="ca-assign">
+                    <p-select
+                      [options]="vendors()" [(ngModel)]="assignVendor[r.sales_route]"
+                      optionLabel="username" optionValue="id" placeholder="Vendedor…"
+                      [filter]="true" filterBy="username" appendTo="body" styleClass="ca-vendor-select"
+                    ></p-select>
+                    <button pButton icon="pi pi-plus" size="small" severity="contrast"
+                      [disabled]="!assignVendor[r.sales_route] || assigningRoute() === r.sales_route"
+                      [loading]="assigningRoute() === r.sales_route"
+                    (click)="assign(r.sales_route)" pTooltip="Asignar ruta a vendedor"></button>
+                  </td>
+                </tr>
+              </ng-template>
+              <ng-template pTemplate="emptymessage">
+                <tr><td colspan="4" class="comm-muted" style="padding:1.5rem;text-align:center">No hay rutas de venta. Se generan desde la ruta (sales_route) de los clientes.</td></tr>
+              </ng-template>
+            </p-table>
+          }
         </article>
-
+    
         <!-- ORDEN DE VISITA (drag&drop) -->
         <article class="ca-panel">
           <div class="ca-panel-head">
             <i class="pi pi-sort-alt"></i> Orden de visita
-            <span *ngIf="selectedRoute()" class="ca-route-badge">{{ selectedRoute() }}</span>
+            @if (selectedRoute()) {
+              <span class="ca-route-badge">{{ selectedRoute() }}</span>
+            }
             <span class="ca-spacer"></span>
-            <button *ngIf="selectedRoute()" pButton label="Guardar orden" icon="pi pi-check" size="small"
-                    [disabled]="!orderDirty() || savingOrder()" [loading]="savingOrder()" (click)="saveOrder()"></button>
+            @if (selectedRoute()) {
+              <button pButton label="Guardar orden" icon="pi pi-check" size="small"
+              [disabled]="!orderDirty() || savingOrder()" [loading]="savingOrder()" (click)="saveOrder()"></button>
+            }
           </div>
-
-          <div *ngIf="!selectedRoute()" class="ca-empty">
-            <i class="pi pi-arrow-left"></i>
-            <p>Elegí una ruta para ordenar la secuencia de visita de sus clientes (arrastrá las filas).</p>
-          </div>
-
-          <p-skeleton *ngIf="selectedRoute() && loadingCustomers()" height="220px"></p-skeleton>
-
-          <p-table *ngIf="selectedRoute() && !loadingCustomers()" [value]="customersList" styleClass="p-datatable-sm surf-table surf-table--zebra"
-                   [scrollable]="true" scrollHeight="60vh">
-            <ng-template pTemplate="header">
-              <tr><th scope="col" style="width:3rem">#</th><th scope="col">Cliente</th><th scope="col">Código</th><th scope="col" style="width:5rem"><span class="sr-only">Reordenar</span></th></tr>
-            </ng-template>
-            <ng-template pTemplate="body" let-c let-i="rowIndex">
-              <tr>
-                <td class="ca-seq">{{ i + 1 }}</td>
-                <td>
-                  <div class="comm-cell-strong">{{ c.name }}</div>
-                  <div class="comm-muted is-small" *ngIf="c.whatsapp || c.phone">{{ c.whatsapp || c.phone }}</div>
-                </td>
-                <td><code class="comm-code">{{ c.code }}</code></td>
-                <td class="ca-move">
-                  <button pButton icon="pi pi-chevron-up" [text]="true" size="small" severity="secondary" [disabled]="i === 0" (click)="moveUp(i)" pTooltip="Subir"></button>
-                  <button pButton icon="pi pi-chevron-down" [text]="true" size="small" severity="secondary" [disabled]="i === customersList.length - 1" (click)="moveDown(i)" pTooltip="Bajar"></button>
-                </td>
-              </tr>
-            </ng-template>
-            <ng-template pTemplate="emptymessage">
-              <tr><td colspan="4" class="comm-muted" style="padding:1.5rem;text-align:center">La ruta no tiene clientes.</td></tr>
-            </ng-template>
-          </p-table>
+    
+          @if (!selectedRoute()) {
+            <div class="ca-empty">
+              <i class="pi pi-arrow-left"></i>
+              <p>Elegí una ruta para ordenar la secuencia de visita de sus clientes (arrastrá las filas).</p>
+            </div>
+          }
+    
+          @if (selectedRoute() && loadingCustomers()) {
+            <p-skeleton height="220px"></p-skeleton>
+          }
+    
+          @if (selectedRoute() && !loadingCustomers()) {
+            <p-table [value]="customersList" styleClass="p-datatable-sm surf-table surf-table--zebra"
+              [scrollable]="true" scrollHeight="60vh">
+              <ng-template pTemplate="header">
+                <tr><th scope="col" style="width:3rem">#</th><th scope="col">Cliente</th><th scope="col">Código</th><th scope="col" style="width:5rem"><span class="sr-only">Reordenar</span></th></tr>
+              </ng-template>
+              <ng-template pTemplate="body" let-c let-i="rowIndex">
+                <tr>
+                  <td class="ca-seq">{{ i + 1 }}</td>
+                  <td>
+                    <div class="comm-cell-strong">{{ c.name }}</div>
+                    @if (c.whatsapp || c.phone) {
+                      <div class="comm-muted is-small">{{ c.whatsapp || c.phone }}</div>
+                    }
+                  </td>
+                  <td><code class="comm-code">{{ c.code }}</code></td>
+                  <td class="ca-move">
+                    <button pButton icon="pi pi-chevron-up" [text]="true" size="small" severity="secondary" [disabled]="i === 0" (click)="moveUp(i)" pTooltip="Subir"></button>
+                    <button pButton icon="pi pi-chevron-down" [text]="true" size="small" severity="secondary" [disabled]="i === customersList.length - 1" (click)="moveDown(i)" pTooltip="Bajar"></button>
+                  </td>
+                </tr>
+              </ng-template>
+              <ng-template pTemplate="emptymessage">
+                <tr><td colspan="4" class="comm-muted" style="padding:1.5rem;text-align:center">La ruta no tiene clientes.</td></tr>
+              </ng-template>
+            </p-table>
+          }
         </article>
       </div>
     </div>
-  `,
+    `,
   styles: [`
     :host { display:block; }
     .ca-grid { display:grid; grid-template-columns: 1fr 1fr; gap:1rem; align-items:start; }

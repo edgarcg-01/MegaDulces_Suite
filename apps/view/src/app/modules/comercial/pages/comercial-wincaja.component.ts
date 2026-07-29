@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { CommonModule } from '@angular/common';
+
 import { TableModule } from 'primeng/table';
 import { TagModule } from 'primeng/tag';
 import { ButtonModule } from 'primeng/button';
@@ -16,7 +16,7 @@ import { ComercialService, WincajaBranchKpi } from '../comercial.service';
 @Component({
   selector: 'app-comercial-wincaja',
   standalone: true,
-  imports: [CommonModule, TableModule, TagModule, ButtonModule, TooltipModule],
+  imports: [TableModule, TagModule, ButtonModule, TooltipModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="surf-page in">

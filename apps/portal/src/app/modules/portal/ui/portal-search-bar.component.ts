@@ -7,7 +7,7 @@ import {
   model,
   output,
 } from '@angular/core';
-import { CommonModule } from '@angular/common';
+
 import { FormsModule } from '@angular/forms';
 import { TypeHintDirective } from './type-hint.directive';
 
@@ -21,7 +21,7 @@ import { TypeHintDirective } from './type-hint.directive';
 @Component({
   selector: 'portal-search-bar',
   standalone: true,
-  imports: [CommonModule, FormsModule, TypeHintDirective],
+  imports: [FormsModule, TypeHintDirective],
   template: `
     @if (mode() === 'trigger') {
       <button type="button" class="psb psb-trigger" (click)="activate.emit()" [attr.aria-label]="hintBase()">

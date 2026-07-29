@@ -54,108 +54,122 @@ const OUTCOMES: OutcomeOption[] = [
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <section *ngIf="!loading() && snapshot() as snap; else loadingTpl" class="lead">
-      <a routerLink="/televenta/queue" class="back-link">
-        <i class="pi pi-arrow-left" aria-hidden="true"></i> Volver a la cola
-      </a>
-
-      <header class="card head">
-        <div>
-          <p class="code">{{ snap.customer.code }}</p>
-          <h1>{{ snap.customer.name }}</h1>
-          <div class="contact">
-            <a *ngIf="snap.customer.phone" [href]="'tel:' + snap.customer.phone">
-              <i class="pi pi-phone" aria-hidden="true"></i> {{ snap.customer.phone }}
-            </a>
-            <a *ngIf="snap.customer.email" [href]="'mailto:' + snap.customer.email">
-              <i class="pi pi-envelope" aria-hidden="true"></i> {{ snap.customer.email }}
-            </a>
-          </div>
-        </div>
-        <div *ngIf="snap.reservation as res" class="reservation">
-          <p class="ttl-label">Reservado por vos · vence en</p>
-          <p class="ttl">{{ formatTtl(res.expires_in_seconds) }}</p>
-        </div>
-      </header>
-
-      <!-- Acciones principales -->
-      <div class="actions-row">
-        <button
-          pButton
-          icon="pi pi-shopping-cart"
-          label="Tomar pedido"
-          (click)="takeOrder(snap.customer.id)"
-        ></button>
-        <button
-          pButton
-          icon="pi pi-pencil"
-          label="Registrar llamada"
-          severity="secondary"
-          (click)="openLogModal()"
-        ></button>
-      </div>
-
-      <!-- Info comercial -->
-      <div class="card">
-        <h2>Datos comerciales</h2>
-        <dl class="kv">
+    @if (!loading() && snapshot(); as snap) {
+      <section class="lead">
+        <a routerLink="/televenta/queue" class="back-link">
+          <i class="pi pi-arrow-left" aria-hidden="true"></i> Volver a la cola
+        </a>
+        <header class="card head">
           <div>
-            <dt>Límite de crédito</dt>
-            <dd>\${{ (snap.customer.credit_limit ?? 0) | number:'1.0-2' }} MXN</dd>
-          </div>
-          <div>
-            <dt>Saldo actual</dt>
-            <dd [class.over]="(snap.customer.balance ?? 0) > (snap.customer.credit_limit ?? 0)">
-              \${{ (snap.customer.balance ?? 0) | number:'1.0-2' }} MXN
-            </dd>
-          </div>
-          <div>
-            <dt>Plazo de pago</dt>
-            <dd>{{ snap.customer.payment_terms_days ?? 0 }} días</dd>
-          </div>
-        </dl>
-        <p *ngIf="snap.customer.notes" class="notes">
-          <i class="pi pi-info-circle" aria-hidden="true"></i> {{ snap.customer.notes }}
-        </p>
-      </div>
-
-      <!-- Recent orders -->
-      <div class="card">
-        <h2>Últimos pedidos <span class="count">({{ snap.recent_orders.length }})</span></h2>
-        <div *ngIf="snap.recent_orders.length === 0" class="empty-mini">Sin pedidos recientes.</div>
-        <ul class="orders">
-          <li *ngFor="let o of snap.recent_orders" class="order">
-            <span class="o-code">{{ o.code }}</span>
-            <p-tag [value]="o.status" [severity]="orderSeverity(o.status)"></p-tag>
-            <span class="o-total">\${{ o.total | number:'1.0-2' }}</span>
-            <time class="o-date">{{ o.created_at | date:'short' }}</time>
-          </li>
-        </ul>
-      </div>
-
-      <!-- Recent calls -->
-      <div class="card">
-        <h2>Historial de llamadas <span class="count">({{ snap.recent_calls.length }})</span></h2>
-        <div *ngIf="snap.recent_calls.length === 0" class="empty-mini">Sin llamadas previas.</div>
-        <ul class="calls">
-          <li *ngFor="let c of snap.recent_calls" class="call">
-            <div class="call-head">
-              <p-tag [value]="outcomeLabel(c.outcome)" [severity]="outcomeSeverity(c.outcome)"></p-tag>
-              <time>{{ c.called_at | date:'short' }}</time>
+            <p class="code">{{ snap.customer.code }}</p>
+            <h1>{{ snap.customer.name }}</h1>
+            <div class="contact">
+              @if (snap.customer.phone) {
+                <a [href]="'tel:' + snap.customer.phone">
+                  <i class="pi pi-phone" aria-hidden="true"></i> {{ snap.customer.phone }}
+                </a>
+              }
+              @if (snap.customer.email) {
+                <a [href]="'mailto:' + snap.customer.email">
+                  <i class="pi pi-envelope" aria-hidden="true"></i> {{ snap.customer.email }}
+                </a>
+              }
             </div>
-            <p *ngIf="c.notes" class="call-notes">{{ c.notes }}</p>
-            <p class="call-meta">Por {{ c.operator_username || '—' }}</p>
-          </li>
-        </ul>
-      </div>
-    </section>
-
-    <ng-template #loadingTpl>
+          </div>
+          @if (snap.reservation; as res) {
+            <div class="reservation">
+              <p class="ttl-label">Reservado por vos · vence en</p>
+              <p class="ttl">{{ formatTtl(res.expires_in_seconds) }}</p>
+            </div>
+          }
+        </header>
+        <!-- Acciones principales -->
+        <div class="actions-row">
+          <button
+            pButton
+            icon="pi pi-shopping-cart"
+            label="Tomar pedido"
+            (click)="takeOrder(snap.customer.id)"
+          ></button>
+          <button
+            pButton
+            icon="pi pi-pencil"
+            label="Registrar llamada"
+            severity="secondary"
+            (click)="openLogModal()"
+          ></button>
+        </div>
+        <!-- Info comercial -->
+        <div class="card">
+          <h2>Datos comerciales</h2>
+          <dl class="kv">
+            <div>
+              <dt>Límite de crédito</dt>
+              <dd>\${{ (snap.customer.credit_limit ?? 0) | number:'1.0-2' }} MXN</dd>
+            </div>
+            <div>
+              <dt>Saldo actual</dt>
+              <dd [class.over]="(snap.customer.balance ?? 0) > (snap.customer.credit_limit ?? 0)">
+                \${{ (snap.customer.balance ?? 0) | number:'1.0-2' }} MXN
+              </dd>
+            </div>
+            <div>
+              <dt>Plazo de pago</dt>
+              <dd>{{ snap.customer.payment_terms_days ?? 0 }} días</dd>
+            </div>
+          </dl>
+          @if (snap.customer.notes) {
+            <p class="notes">
+              <i class="pi pi-info-circle" aria-hidden="true"></i> {{ snap.customer.notes }}
+            </p>
+          }
+        </div>
+        <!-- Recent orders -->
+        <div class="card">
+          <h2>Últimos pedidos <span class="count">({{ snap.recent_orders.length }})</span></h2>
+          @if (snap.recent_orders.length === 0) {
+            <div class="empty-mini">Sin pedidos recientes.</div>
+          }
+          <ul class="orders">
+            @for (o of snap.recent_orders; track o) {
+              <li class="order">
+                <span class="o-code">{{ o.code }}</span>
+                <p-tag [value]="o.status" [severity]="orderSeverity(o.status)"></p-tag>
+                <span class="o-total">\${{ o.total | number:'1.0-2' }}</span>
+                <time class="o-date">{{ o.created_at | date:'short' }}</time>
+              </li>
+            }
+          </ul>
+        </div>
+        <!-- Recent calls -->
+        <div class="card">
+          <h2>Historial de llamadas <span class="count">({{ snap.recent_calls.length }})</span></h2>
+          @if (snap.recent_calls.length === 0) {
+            <div class="empty-mini">Sin llamadas previas.</div>
+          }
+          <ul class="calls">
+            @for (c of snap.recent_calls; track c) {
+              <li class="call">
+                <div class="call-head">
+                  <p-tag [value]="outcomeLabel(c.outcome)" [severity]="outcomeSeverity(c.outcome)"></p-tag>
+                  <time>{{ c.called_at | date:'short' }}</time>
+                </div>
+                @if (c.notes) {
+                  <p class="call-notes">{{ c.notes }}</p>
+                }
+                <p class="call-meta">Por {{ c.operator_username || '—' }}</p>
+              </li>
+            }
+          </ul>
+        </div>
+      </section>
+    } @else {
       <div class="loading" aria-live="polite">
         <p-progressSpinner styleClass="w-12 h-12"></p-progressSpinner>
       </div>
-    </ng-template>
-
+    }
+    
+    
     <!-- Modal: Registrar llamada -->
     <p-dialog
       [(visible)]="showLogModalRef"
@@ -163,7 +177,7 @@ const OUTCOMES: OutcomeOption[] = [
       [closable]="!saving()"
       header="Registrar resultado de la llamada"
       [style]="{ width: '92vw', maxWidth: '480px' }"
-    >
+      >
       <form class="log-form" (submit)="submitLog($event)">
         <label>
           <span>Resultado</span>
@@ -178,20 +192,22 @@ const OUTCOMES: OutcomeOption[] = [
             appendTo="body"
           ></p-select>
         </label>
-
-        <label *ngIf="logOutcome === 'callback_scheduled'">
-          <span>Cuándo volver a llamar</span>
-          <p-datepicker
-            [(ngModel)]="logNextAction"
-            name="next_action_at"
-            [showTime]="true"
-            hourFormat="24"
-            [minDate]="nowDate"
-            [style]="{ width: '100%' }"
-            appendTo="body"
-          ></p-datepicker>
-        </label>
-
+    
+        @if (logOutcome === 'callback_scheduled') {
+          <label>
+            <span>Cuándo volver a llamar</span>
+            <p-datepicker
+              [(ngModel)]="logNextAction"
+              name="next_action_at"
+              [showTime]="true"
+              hourFormat="24"
+              [minDate]="nowDate"
+              [style]="{ width: '100%' }"
+              appendTo="body"
+            ></p-datepicker>
+          </label>
+        }
+    
         <label>
           <span>Notas</span>
           <textarea
@@ -202,7 +218,7 @@ const OUTCOMES: OutcomeOption[] = [
             placeholder="Detalle del resultado, comentarios del cliente..."
           ></textarea>
         </label>
-
+    
         <label>
           <span>Duración (minutos)</span>
           <p-inputNumber
@@ -214,7 +230,7 @@ const OUTCOMES: OutcomeOption[] = [
             [style]="{ width: '100%' }"
           ></p-inputNumber>
         </label>
-
+    
         <label class="checkbox-row">
           <p-checkbox
             [(ngModel)]="logReleaseRes"
@@ -224,7 +240,7 @@ const OUTCOMES: OutcomeOption[] = [
           ></p-checkbox>
           <span for="release">Liberar reserva al guardar</span>
         </label>
-
+    
         <div class="modal-actions">
           <button
             pButton
@@ -246,7 +262,7 @@ const OUTCOMES: OutcomeOption[] = [
         </div>
       </form>
     </p-dialog>
-  `,
+    `,
   styles: [
     `
       .lead { display: flex; flex-direction: column; gap: 1rem; }

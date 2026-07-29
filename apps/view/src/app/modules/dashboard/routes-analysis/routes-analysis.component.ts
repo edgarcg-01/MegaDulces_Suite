@@ -1,5 +1,5 @@
 import { Component, computed, inject, signal, OnInit, OnDestroy } from '@angular/core';
-import { CommonModule } from '@angular/common';
+
 import { FormsModule } from '@angular/forms';
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { RouterModule } from '@angular/router';
@@ -88,7 +88,7 @@ interface RouteTrack {
 @Component({
   selector: 'app-routes-analysis',
   standalone: true,
-  imports: [CommonModule, FormsModule, RouterModule, TableModule, TagModule, SkeletonModule, SelectModule, MapComponent, MapLegendComponent],
+  imports: [FormsModule, RouterModule, TableModule, TagModule, SkeletonModule, SelectModule, MapComponent, MapLegendComponent],
   providers: [MapLiveLayerService],
   styles: [`
     /* ── layout ──────────────────────────────────────────────── */

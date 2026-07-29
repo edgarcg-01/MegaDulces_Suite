@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, ViewChild, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { CommonModule } from '@angular/common';
+
 import { FormsModule } from '@angular/forms';
 import { ButtonModule } from 'primeng/button';
 import { SelectModule } from 'primeng/select';
@@ -40,7 +40,6 @@ interface FeedEntry {
   selector: 'app-comercial-inventory-count',
   standalone: true,
   imports: [
-    CommonModule,
     FormsModule,
     ButtonModule,
     SelectModule,
@@ -49,8 +48,8 @@ interface FeedEntry {
     TagModule,
     ToastModule,
     TooltipModule,
-    PageTabsComponent,
-  ],
+    PageTabsComponent
+],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `

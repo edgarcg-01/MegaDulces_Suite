@@ -9,7 +9,7 @@ import {
   OnDestroy,
   inject,
 } from '@angular/core';
-import { CommonModule } from '@angular/common';
+
 import { RouterModule } from '@angular/router';
 
 /**
@@ -21,41 +21,44 @@ import { RouterModule } from '@angular/router';
 @Component({
   selector: 'portal-featured-promo',
   standalone: true,
-  imports: [CommonModule, RouterModule],
+  imports: [RouterModule],
   template: `
-    <section class="fp" *ngIf="images.length">
-      <div class="fp-text">
-        <span class="fp-eyebrow"><i class="pi pi-bolt" aria-hidden="true"></i> {{ eyebrow }}</span>
-        <h2 class="fp-title">{{ title }}</h2>
-        <svg class="fp-underline" viewBox="0 0 220 16" aria-hidden="true" preserveAspectRatio="none">
-          <path d="M5 9 C 55 2, 130 2, 215 7" fill="none" stroke="var(--brand-700)" stroke-width="3.5" stroke-linecap="round" />
-        </svg>
-        <p class="fp-lead">{{ lead }}</p>
-        <div class="fp-row">
-          <span class="fp-badge">{{ badge }}</span>
-          <a class="fp-cta" [routerLink]="ctaLink" [attr.aria-label]="ctaLabel">
-            {{ ctaLabel }}
-            <i class="pi pi-arrow-right" aria-hidden="true"></i>
-          </a>
+    @if (images.length) {
+      <section class="fp">
+        <div class="fp-text">
+          <span class="fp-eyebrow"><i class="pi pi-bolt" aria-hidden="true"></i> {{ eyebrow }}</span>
+          <h2 class="fp-title">{{ title }}</h2>
+          <svg class="fp-underline" viewBox="0 0 220 16" aria-hidden="true" preserveAspectRatio="none">
+            <path d="M5 9 C 55 2, 130 2, 215 7" fill="none" stroke="var(--brand-700)" stroke-width="3.5" stroke-linecap="round" />
+          </svg>
+          <p class="fp-lead">{{ lead }}</p>
+          <div class="fp-row">
+            <span class="fp-badge">{{ badge }}</span>
+            <a class="fp-cta" [routerLink]="ctaLink" [attr.aria-label]="ctaLabel">
+              {{ ctaLabel }}
+              <i class="pi pi-arrow-right" aria-hidden="true"></i>
+            </a>
+          </div>
         </div>
-      </div>
-
-      <div class="fp-stage" aria-hidden="true">
-        <span class="fp-shadow"></span>
-        <img class="fp-jar" alt="" decoding="async" />
-      </div>
-
-      <div class="fp-dots" *ngIf="images.length > 1" role="tablist" aria-label="Productos de la promo">
-        <button
-          *ngFor="let im of images; let i = index"
-          type="button"
-          class="fp-dot"
-          (click)="goTo(i)"
-          [attr.aria-label]="'Ver producto ' + (i + 1)"
-        ></button>
-      </div>
-    </section>
-  `,
+        <div class="fp-stage" aria-hidden="true">
+          <span class="fp-shadow"></span>
+          <img class="fp-jar" alt="" decoding="async" />
+        </div>
+        @if (images.length > 1) {
+          <div class="fp-dots" role="tablist" aria-label="Productos de la promo">
+            @for (im of images; track im; let i = $index) {
+              <button
+                type="button"
+                class="fp-dot"
+                (click)="goTo(i)"
+                [attr.aria-label]="'Ver producto ' + (i + 1)"
+              ></button>
+            }
+          </div>
+        }
+      </section>
+    }
+    `,
   styles: [
     `
       :host { display: block; }

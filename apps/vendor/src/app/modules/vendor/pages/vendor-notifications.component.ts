@@ -7,7 +7,7 @@ import {
   inject,
   signal,
 } from '@angular/core';
-import { CommonModule } from '@angular/common';
+
 import { Router } from '@angular/router';
 import { CardModule } from 'primeng/card';
 import { SkeletonModule } from 'primeng/skeleton';
@@ -32,46 +32,55 @@ import { Order } from '../../portal/portal.service';
 @Component({
   selector: 'app-vendor-notifications',
   standalone: true,
-  imports: [CommonModule, CardModule, SkeletonModule, ButtonModule],
+  imports: [CardModule, SkeletonModule, ButtonModule],
   template: `
     <div class="page-head">
       <div>
         <h1 class="page-title">Notificaciones</h1>
-        <p class="subtitle" *ngIf="!loading() && !loadError()">{{ totalCount() }} {{ totalCount() === 1 ? 'aviso' : 'avisos' }}</p>
+        @if (!loading() && !loadError()) {
+          <p class="subtitle">{{ totalCount() }} {{ totalCount() === 1 ? 'aviso' : 'avisos' }}</p>
+        }
       </div>
-      <button
-        type="button"
-        class="refresh"
-        *ngIf="!loading()"
-        [class.spinning]="refreshing()"
-        [disabled]="refreshing()"
-        (click)="refresh()"
-        aria-label="Actualizar notificaciones"
-      >
-        <i class="pi pi-refresh"></i>
-      </button>
+      @if (!loading()) {
+        <button
+          type="button"
+          class="refresh"
+          [class.spinning]="refreshing()"
+          [disabled]="refreshing()"
+          (click)="refresh()"
+          aria-label="Actualizar notificaciones"
+          >
+          <i class="pi pi-refresh"></i>
+        </button>
+      }
     </div>
-
-    <p-skeleton *ngIf="loading()" height="400px"></p-skeleton>
-
+    
+    @if (loading()) {
+      <p-skeleton height="400px"></p-skeleton>
+    }
+    
     <!-- Sin red: todas las fuentes fallaron (distinto de "vas al día") -->
-    <p-card *ngIf="!loading() && loadError()">
-      <div class="empty">
-        <i class="pi pi-cloud"></i>
-        <p>No se pudieron cargar tus avisos.</p>
-        <button pButton label="Reintentar" icon="pi pi-refresh" severity="secondary" [text]="true" (click)="load()"></button>
-      </div>
-    </p-card>
-
-    <p-card *ngIf="!loading() && !loadError() && totalCount() === 0">
-      <div class="empty">
-        <i class="pi pi-check-circle"></i>
-        <p>Sin pendientes. Vas al día.</p>
-      </div>
-    </p-card>
-
-    <ng-container *ngIf="!loading() && totalCount() > 0">
-      <ng-container *ngIf="carga().length > 0">
+    @if (!loading() && loadError()) {
+      <p-card>
+        <div class="empty">
+          <i class="pi pi-cloud"></i>
+          <p>No se pudieron cargar tus avisos.</p>
+          <button pButton label="Reintentar" icon="pi pi-refresh" severity="secondary" [text]="true" (click)="load()"></button>
+        </div>
+      </p-card>
+    }
+    
+    @if (!loading() && !loadError() && totalCount() === 0) {
+      <p-card>
+        <div class="empty">
+          <i class="pi pi-check-circle"></i>
+          <p>Sin pendientes. Vas al día.</p>
+        </div>
+      </p-card>
+    }
+    
+    @if (!loading() && totalCount() > 0) {
+      @if (carga().length > 0) {
         <div class="group">Para cargar</div>
         <button class="nrow" (click)="goCarga()">
           <span class="nic warn"><i class="pi pi-truck"></i></span>
@@ -81,64 +90,70 @@ import { Order } from '../../portal/portal.service';
           </span>
           <i class="pi pi-chevron-right go"></i>
         </button>
-      </ng-container>
-
-      <ng-container *ngIf="preventa().length > 0">
+      }
+      @if (preventa().length > 0) {
         <div class="group">Requieren acción</div>
-        <button class="nrow" *ngFor="let p of preventa()" (click)="goPending()">
-          <span class="nic warn"><i class="pi pi-inbox"></i></span>
-          <span class="nb">
-            <span class="nt">Nueva preventa · {{ p.name }}</span>
-            <span class="nd">Pidió {{ fmtMoney(p.pending_total) }} por el Portal. Revisá y aprobá.</span>
-          </span>
-          <i class="pi pi-chevron-right go"></i>
-        </button>
-      </ng-container>
-
-      <ng-container *ngIf="supCoaching().length > 0 || supTasks().length > 0">
+        @for (p of preventa(); track p) {
+          <button class="nrow" (click)="goPending()">
+            <span class="nic warn"><i class="pi pi-inbox"></i></span>
+            <span class="nb">
+              <span class="nt">Nueva preventa · {{ p.name }}</span>
+              <span class="nd">Pidió {{ fmtMoney(p.pending_total) }} por el Portal. Revisá y aprobá.</span>
+            </span>
+            <i class="pi pi-chevron-right go"></i>
+          </button>
+        }
+      }
+      @if (supCoaching().length > 0 || supTasks().length > 0) {
         <div class="group">De tu supervisor · IA</div>
-        <button class="nrow" *ngFor="let c of supCoaching()" (click)="ackCoaching(c)">
-          <span class="nic ai"><i class="pi pi-comment"></i></span>
-          <span class="nb">
-            <span class="nt">Coaching</span>
-            <span class="nd">{{ c.message }}</span>
-          </span>
-          <span class="ack">Visto</span>
-        </button>
-        <button class="nrow" *ngFor="let t of supTasks()" (click)="ackTask(t)">
-          <span class="nic warn"><i [class]="taskIcon(t.task_type)"></i></span>
-          <span class="nb">
-            <span class="nt">{{ t.title }}</span>
-            <span class="nd">Tarea de campo · tocá para marcar hecha</span>
-          </span>
-          <span class="ack">Hecho</span>
-        </button>
-      </ng-container>
-
-      <ng-container *ngIf="due().length > 0">
+        @for (c of supCoaching(); track c) {
+          <button class="nrow" (click)="ackCoaching(c)">
+            <span class="nic ai"><i class="pi pi-comment"></i></span>
+            <span class="nb">
+              <span class="nt">Coaching</span>
+              <span class="nd">{{ c.message }}</span>
+            </span>
+            <span class="ack">Visto</span>
+          </button>
+        }
+        @for (t of supTasks(); track t) {
+          <button class="nrow" (click)="ackTask(t)">
+            <span class="nic warn"><i [class]="taskIcon(t.task_type)"></i></span>
+            <span class="nb">
+              <span class="nt">{{ t.title }}</span>
+              <span class="nd">Tarea de campo · tocá para marcar hecha</span>
+            </span>
+            <span class="ack">Hecho</span>
+          </button>
+        }
+      }
+      @if (due().length > 0) {
         <div class="group">Para reordenar hoy · IA</div>
-        <button class="nrow" *ngFor="let d of due()" (click)="goReorder(d)">
-          <span class="nic ai"><i class="pi pi-sparkles"></i></span>
-          <span class="nb">
-            <span class="nt">{{ d.name || 'Cliente' }}</span>
-            <span class="nd">{{ dueLabel(d) }}</span>
-          </span>
-          <i class="pi pi-chevron-right go"></i>
-        </button>
-      </ng-container>
-
-      <ng-container *ngIf="todayOrders().length > 0">
+        @for (d of due(); track d) {
+          <button class="nrow" (click)="goReorder(d)">
+            <span class="nic ai"><i class="pi pi-sparkles"></i></span>
+            <span class="nb">
+              <span class="nt">{{ d.name || 'Cliente' }}</span>
+              <span class="nd">{{ dueLabel(d) }}</span>
+            </span>
+            <i class="pi pi-chevron-right go"></i>
+          </button>
+        }
+      }
+      @if (todayOrders().length > 0) {
         <div class="group">Hoy</div>
-        <div class="nrow flat" *ngFor="let o of todayOrders()">
-          <span class="nic ok"><i class="pi pi-check-circle"></i></span>
-          <span class="nb">
-            <span class="nt">Pedido {{ o.code }}</span>
-            <span class="nd">{{ statusLabel(o.status) }} · {{ fmtMoney(o.total) }}</span>
-          </span>
-        </div>
-      </ng-container>
-    </ng-container>
-  `,
+        @for (o of todayOrders(); track o) {
+          <div class="nrow flat">
+            <span class="nic ok"><i class="pi pi-check-circle"></i></span>
+            <span class="nb">
+              <span class="nt">Pedido {{ o.code }}</span>
+              <span class="nd">{{ statusLabel(o.status) }} · {{ fmtMoney(o.total) }}</span>
+            </span>
+          </div>
+        }
+      }
+    }
+    `,
   styles: [
     `
       .page-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 0.75rem; }

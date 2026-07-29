@@ -39,124 +39,145 @@ import { OrderLine } from '../../portal/portal.service';
   providers: [ConfirmationService],
   template: `
     <p-confirmDialog></p-confirmDialog>
-
+    
     <div class="page-head">
       <div>
         <h1 class="page-title">Por entregar</h1>
-        <p class="subtitle" *ngIf="!loading() && !loadError()">
-          {{ toApprove().length }} por aprobar · {{ toDeliver().length }} por entregar
-        </p>
+        @if (!loading() && !loadError()) {
+          <p class="subtitle">
+            {{ toApprove().length }} por aprobar · {{ toDeliver().length }} por entregar
+          </p>
+        }
       </div>
-      <button
-        type="button"
-        class="refresh"
-        *ngIf="!loading()"
-        [class.spinning]="refreshing()"
-        [disabled]="refreshing()"
-        (click)="refresh()"
-        aria-label="Actualizar pendientes"
-      >
-        <i class="pi pi-refresh"></i>
-      </button>
+      @if (!loading()) {
+        <button
+          type="button"
+          class="refresh"
+          [class.spinning]="refreshing()"
+          [disabled]="refreshing()"
+          (click)="refresh()"
+          aria-label="Actualizar pendientes"
+          >
+          <i class="pi pi-refresh"></i>
+        </button>
+      }
     </div>
-
-    <p-skeleton *ngIf="loading()" height="400px"></p-skeleton>
-
+    
+    @if (loading()) {
+      <p-skeleton height="400px"></p-skeleton>
+    }
+    
     <!-- Fallo de red (distinto de "sin pendientes") -->
-    <p-card *ngIf="!loading() && loadError() && orders().length === 0">
-      <div class="empty">
-        <i class="pi pi-cloud"></i>
-        <p>No se pudo cargar los pendientes.</p>
-        <button pButton label="Reintentar" icon="pi pi-refresh" size="small" [text]="true" (click)="reload()"></button>
-      </div>
-    </p-card>
-
-    <p-card *ngIf="!loading() && !loadError() && orders().length === 0">
-      <div class="empty">
-        <i class="pi pi-check-circle"></i>
-        <p>No tenés pedidos pendientes en tu cartera.</p>
-      </div>
-    </p-card>
-
-    <ng-container *ngIf="!loading() && orders().length > 0">
+    @if (!loading() && loadError() && orders().length === 0) {
+      <p-card>
+        <div class="empty">
+          <i class="pi pi-cloud"></i>
+          <p>No se pudo cargar los pendientes.</p>
+          <button pButton label="Reintentar" icon="pi pi-refresh" size="small" [text]="true" (click)="reload()"></button>
+        </div>
+      </p-card>
+    }
+    
+    @if (!loading() && !loadError() && orders().length === 0) {
+      <p-card>
+        <div class="empty">
+          <i class="pi pi-check-circle"></i>
+          <p>No tenés pedidos pendientes en tu cartera.</p>
+        </div>
+      </p-card>
+    }
+    
+    @if (!loading() && orders().length > 0) {
       <ng-container
         *ngTemplateOutlet="section; context: { title: 'Por aprobar', list: toApprove(), kind: 'approve' }"
       ></ng-container>
       <ng-container
         *ngTemplateOutlet="section; context: { title: 'Listos para entregar', list: toDeliver(), kind: 'deliver' }"
       ></ng-container>
-    </ng-container>
-
+    }
+    
     <ng-template #section let-title="title" let-list="list" let-kind="kind">
-      <div *ngIf="list.length > 0" class="section">
-        <h2 class="section-title">{{ title }}</h2>
-        <div class="order-list">
-          <p-card *ngFor="let o of list" styleClass="order-card">
-            <div
-              class="order-head"
-              role="button"
-              tabindex="0"
-              [attr.aria-expanded]="isOpen(o.id)"
-              (click)="toggle(o)"
-              (keydown.enter)="toggle(o)"
-              (keydown.space)="$event.preventDefault(); toggle(o)"
-            >
-              <div class="info">
-                <div class="customer">{{ o.customer_name || '—' }}</div>
-                <div class="sub">
-                  <span class="folio">{{ o.folio || o.code }}</span>
-                  <span class="time">{{ fmtTime(o.created_at) }}</span>
+      @if (list.length > 0) {
+        <div class="section">
+          <h2 class="section-title">{{ title }}</h2>
+          <div class="order-list">
+            @for (o of list; track o) {
+              <p-card styleClass="order-card">
+                <div
+                  class="order-head"
+                  role="button"
+                  tabindex="0"
+                  [attr.aria-expanded]="isOpen(o.id)"
+                  (click)="toggle(o)"
+                  (keydown.enter)="toggle(o)"
+                  (keydown.space)="$event.preventDefault(); toggle(o)"
+                  >
+                  <div class="info">
+                    <div class="customer">{{ o.customer_name || '—' }}</div>
+                    <div class="sub">
+                      <span class="folio">{{ o.folio || o.code }}</span>
+                      <span class="time">{{ fmtTime(o.created_at) }}</span>
+                    </div>
+                  </div>
+                  <div class="right">
+                    <p-tag
+                      [value]="o.is_preventa ? 'Preventa' : 'Campo'"
+                      [severity]="o.is_preventa ? 'info' : 'secondary'"
+                      styleClass="origin-tag"
+                    ></p-tag>
+                    <div class="total">{{ fmtMoney(o.total) }}</div>
+                  </div>
+                  <i class="pi chevron" [ngClass]="isOpen(o.id) ? 'pi-chevron-up' : 'pi-chevron-down'"></i>
                 </div>
-              </div>
-              <div class="right">
-                <p-tag
-                  [value]="o.is_preventa ? 'Preventa' : 'Campo'"
-                  [severity]="o.is_preventa ? 'info' : 'secondary'"
-                  styleClass="origin-tag"
-                ></p-tag>
-                <div class="total">{{ fmtMoney(o.total) }}</div>
-              </div>
-              <i class="pi chevron" [ngClass]="isOpen(o.id) ? 'pi-chevron-up' : 'pi-chevron-down'"></i>
-            </div>
-
-            <div class="lines" *ngIf="isOpen(o.id)">
-              <p-skeleton *ngIf="linesLoading().has(o.id)" height="60px"></p-skeleton>
-              <ng-container *ngIf="!linesLoading().has(o.id)">
-                <div class="line" *ngFor="let l of linesOf(o.id)">
-                  <span class="qty">{{ l.quantity }}×</span>
-                  <span class="pname">{{ l.product_name || l.product_id }}</span>
-                  <span class="ltotal">{{ fmtMoney(l.line_total) }}</span>
+                @if (isOpen(o.id)) {
+                  <div class="lines">
+                    @if (linesLoading().has(o.id)) {
+                      <p-skeleton height="60px"></p-skeleton>
+                    }
+                    @if (!linesLoading().has(o.id)) {
+                      @for (l of linesOf(o.id); track l) {
+                        <div class="line">
+                          <span class="qty">{{ l.quantity }}×</span>
+                          <span class="pname">{{ l.product_name || l.product_id }}</span>
+                          <span class="ltotal">{{ fmtMoney(l.line_total) }}</span>
+                        </div>
+                      }
+                      @if (linesOf(o.id).length === 0) {
+                        <div class="line empty-line">Sin líneas.</div>
+                      }
+                    }
+                  </div>
+                }
+                <div class="actions">
+                  @if (kind === 'approve') {
+                    <button
+                      pButton
+                      label="Aprobar"
+                      icon="pi pi-check"
+                      size="small"
+                      [loading]="processing().has(o.id)"
+                      (click)="askApprove(o)"
+                    ></button>
+                  }
+                  @if (kind === 'deliver') {
+                    <button
+                      pButton
+                      label="Marcar entregado"
+                      icon="pi pi-truck"
+                      severity="success"
+                      size="small"
+                      [loading]="processing().has(o.id)"
+                      (click)="askFulfill(o)"
+                    ></button>
+                  }
                 </div>
-                <div class="line empty-line" *ngIf="linesOf(o.id).length === 0">Sin líneas.</div>
-              </ng-container>
-            </div>
-
-            <div class="actions">
-              <button
-                *ngIf="kind === 'approve'"
-                pButton
-                label="Aprobar"
-                icon="pi pi-check"
-                size="small"
-                [loading]="processing().has(o.id)"
-                (click)="askApprove(o)"
-              ></button>
-              <button
-                *ngIf="kind === 'deliver'"
-                pButton
-                label="Marcar entregado"
-                icon="pi pi-truck"
-                severity="success"
-                size="small"
-                [loading]="processing().has(o.id)"
-                (click)="askFulfill(o)"
-              ></button>
-            </div>
-          </p-card>
+              </p-card>
+            }
+          </div>
         </div>
-      </div>
+      }
     </ng-template>
-  `,
+    `,
   styles: [
     `
       .page-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 0.75rem; }

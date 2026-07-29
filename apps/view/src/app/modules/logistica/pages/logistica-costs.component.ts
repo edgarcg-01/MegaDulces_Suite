@@ -43,166 +43,168 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
   providers: [MessageService],
   template: `
     <div class="surf-page logc">
-    <p-toast></p-toast>
-
-    <header class="surf-page-head">
-      <div class="surf-page-head-text">
-        <h1>Control de Costos</h1>
-        <p class="surf-page-sub">Desglose financiero por embarque. Combustible, casetas, viáticos, maniobras.</p>
-      </div>
-      <div class="filter-bar">
-        <p-datepicker [(ngModel)]="from" dateFormat="yy-mm-dd" placeholder="Desde" [showButtonBar]="true"></p-datepicker>
-        <p-datepicker [(ngModel)]="to" dateFormat="yy-mm-dd" placeholder="Hasta" [showButtonBar]="true"></p-datepicker>
-        <button pButton icon="pi pi-refresh" label="Aplicar" (click)="reload()" [loading]="loading()"></button>
-      </div>
-    </header>
-
-    <!-- KPIs (J14/J15: jerarquía + color + count-up) -->
-    <div class="surf-grid">
-      <app-metric-card class="panel-col-6" [large]="true"
-        label="Total costos" [value]="summary()?.total_cost || totalAcumulado()" format="currency"
+      <p-toast></p-toast>
+    
+      <header class="surf-page-head">
+        <div class="surf-page-head-text">
+          <h1>Control de Costos</h1>
+          <p class="surf-page-sub">Desglose financiero por embarque. Combustible, casetas, viáticos, maniobras.</p>
+        </div>
+        <div class="filter-bar">
+          <p-datepicker [(ngModel)]="from" dateFormat="yy-mm-dd" placeholder="Desde" [showButtonBar]="true"></p-datepicker>
+          <p-datepicker [(ngModel)]="to" dateFormat="yy-mm-dd" placeholder="Hasta" [showButtonBar]="true"></p-datepicker>
+          <button pButton icon="pi pi-refresh" label="Aplicar" (click)="reload()" [loading]="loading()"></button>
+        </div>
+      </header>
+    
+      <!-- KPIs (J14/J15: jerarquía + color + count-up) -->
+      <div class="surf-grid">
+        <app-metric-card class="panel-col-6" [large]="true"
+          label="Total costos" [value]="summary()?.total_cost || totalAcumulado()" format="currency"
         accent="var(--chart-3)" sub="costo operativo del período"></app-metric-card>
-      <app-metric-card class="panel-col-3"
+        <app-metric-card class="panel-col-3"
         label="Combustible" [value]="summary()?.fuel || 0" format="currency" accent="var(--chart-2)"></app-metric-card>
-      <app-metric-card class="panel-col-3"
+        <app-metric-card class="panel-col-3"
         label="Casetas" [value]="summary()?.tolls || 0" format="currency" accent="var(--warn-fg)"></app-metric-card>
-      <app-metric-card class="panel-col-6"
+        <app-metric-card class="panel-col-6"
         label="Viáticos chofer" [value]="summary()?.driver_per_diem || 0" format="currency" accent="var(--chart-6)"></app-metric-card>
-      <app-metric-card class="panel-col-6"
+        <app-metric-card class="panel-col-6"
         label="Embarques con costos" [value]="summary()?.count || 0" format="number" accent="var(--c-text-3)"></app-metric-card>
-    </div>
-
-    <!-- Tabla -->
-    <div class="filter-row">
-      <input pInputText type="search" [(ngModel)]="search" placeholder="Buscar por folio o destino"
-             inputmode="search" enterkeyhint="search" autocapitalize="none" autocorrect="off" spellcheck="false" />
-      <span class="muted small">{{ filtered().length }} / {{ expenses().length }}</span>
-    </div>
-
-    <section class="surf-panel">
-      <div class="surf-panel-body is-flush">
-      <p-table [value]="filtered()" [loading]="loading()" responsiveLayout="scroll" styleClass="surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra p-datatable-sm" [paginator]="true" [rows]="25" [rowsPerPageOptions]="[25, 50, 100, 200]">
-        <ng-template pTemplate="header">
-          <tr>
-            <th scope="col">Folio</th>
-            <th scope="col">Fecha</th>
-            <th scope="col">Destino</th>
-            <th scope="col">Placa</th>
-            <th scope="col" class="num">Km</th>
-            <th scope="col" class="num">Combustible</th>
-            <th scope="col" class="num">Casetas</th>
-            <th scope="col" class="num">Viáticos</th>
-            <th scope="col" class="num">Maniobras</th>
-            <th scope="col" class="num">Operativo</th>
-            <th scope="col" class="num">$/km</th>
-            <th scope="col" class="num">TOTAL</th>
-            <th scope="col">Estado</th>
-            <th scope="col"><span class="sr-only">Acciones</span></th>
-          </tr>
-        </ng-template>
-        <ng-template pTemplate="body" let-e>
-          <tr>
-            <td><code class="comm-code">{{ e.shipment_folio }}</code></td>
-            <td>{{ e.shipment_date | date:'shortDate' }}</td>
-            <td>{{ e.destination || '—' }}</td>
-            <td>{{ e.vehicle_plate || '—' }}</td>
-            <td class="num">{{ e.actual_km || 0 | number:'1.0-0' }}</td>
-            <td class="num">{{ e.fuel | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
-            <td class="num">{{ e.tolls | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
-            <td class="num">{{ e.driver_per_diem | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
-            <td class="num">{{ e.handling | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
-            <td class="num">{{ e.operating_subtotal | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
-            <td class="num">{{ e.fixed_cost_per_km | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
-            <td class="num strong">{{ e.total_cost | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
-            <td><p-tag [severity]="severityStatus(e.shipment_status)" [value]="e.shipment_status"></p-tag></td>
-            <td class="actions">
-              <button pButton icon="pi pi-pencil" size="small" severity="secondary" [text]="true"
-                      (click)="openEdit(e)" pTooltip="Editar costos"></button>
-              <a pButton icon="pi pi-eye" size="small" severity="secondary" [text]="true"
-                 [routerLink]="['/logistica/shipments', e.shipment_id]"></a>
-            </td>
-          </tr>
-        </ng-template>
-        <ng-template pTemplate="emptymessage">
-          <tr>
-            <td colspan="14" class="comm-empty-cell">
-              <div class="comm-empty">
-                <i class="pi pi-receipt comm-empty-icon" aria-hidden="true"></i>
-                <strong>Sin costos en este rango.</strong>
-                <span class="muted small">Los costos (combustible, casetas, viáticos) se cargan desde cada embarque cerrado. Probá ampliar el rango de fechas o abrir un embarque.</span>
-              </div>
-            </td>
-          </tr>
-        </ng-template>
-      </p-table>
       </div>
-    </section>
-    </div>
-
-    <!-- Edit Dialog -->
-    <p-dialog [(visible)]="editDialog" [modal]="true" [style]="{ width: '720px' }"
-              header="Editar costos del embarque" [closable]="!saving()">
-      <div *ngIf="editing()" class="edit-header">
-        <strong><code>{{ editing()?.shipment_folio }}</code></strong>
-        <span class="muted">· {{ editing()?.destination || '—' }} · {{ editing()?.shipment_date | date:'shortDate' }}</span>
+    
+      <!-- Tabla -->
+      <div class="filter-row">
+        <input pInputText type="search" [(ngModel)]="search" placeholder="Buscar por folio o destino"
+          inputmode="search" enterkeyhint="search" autocapitalize="none" autocorrect="off" spellcheck="false" />
+          <span class="muted small">{{ filtered().length }} / {{ expenses().length }}</span>
+        </div>
+    
+        <section class="surf-panel">
+          <div class="surf-panel-body is-flush">
+            <p-table [value]="filtered()" [loading]="loading()" responsiveLayout="scroll" styleClass="surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra p-datatable-sm" [paginator]="true" [rows]="25" [rowsPerPageOptions]="[25, 50, 100, 200]">
+              <ng-template pTemplate="header">
+                <tr>
+                  <th scope="col">Folio</th>
+                  <th scope="col">Fecha</th>
+                  <th scope="col">Destino</th>
+                  <th scope="col">Placa</th>
+                  <th scope="col" class="num">Km</th>
+                  <th scope="col" class="num">Combustible</th>
+                  <th scope="col" class="num">Casetas</th>
+                  <th scope="col" class="num">Viáticos</th>
+                  <th scope="col" class="num">Maniobras</th>
+                  <th scope="col" class="num">Operativo</th>
+                  <th scope="col" class="num">$/km</th>
+                  <th scope="col" class="num">TOTAL</th>
+                  <th scope="col">Estado</th>
+                  <th scope="col"><span class="sr-only">Acciones</span></th>
+                </tr>
+              </ng-template>
+              <ng-template pTemplate="body" let-e>
+                <tr>
+                  <td><code class="comm-code">{{ e.shipment_folio }}</code></td>
+                  <td>{{ e.shipment_date | date:'shortDate' }}</td>
+                  <td>{{ e.destination || '—' }}</td>
+                  <td>{{ e.vehicle_plate || '—' }}</td>
+                  <td class="num">{{ e.actual_km || 0 | number:'1.0-0' }}</td>
+                  <td class="num">{{ e.fuel | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+                  <td class="num">{{ e.tolls | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+                  <td class="num">{{ e.driver_per_diem | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+                  <td class="num">{{ e.handling | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+                  <td class="num">{{ e.operating_subtotal | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+                  <td class="num">{{ e.fixed_cost_per_km | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+                  <td class="num strong">{{ e.total_cost | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+                  <td><p-tag [severity]="severityStatus(e.shipment_status)" [value]="e.shipment_status"></p-tag></td>
+                  <td class="actions">
+                    <button pButton icon="pi pi-pencil" size="small" severity="secondary" [text]="true"
+                    (click)="openEdit(e)" pTooltip="Editar costos"></button>
+                    <a pButton icon="pi pi-eye" size="small" severity="secondary" [text]="true"
+                    [routerLink]="['/logistica/shipments', e.shipment_id]"></a>
+                  </td>
+                </tr>
+              </ng-template>
+              <ng-template pTemplate="emptymessage">
+                <tr>
+                  <td colspan="14" class="comm-empty-cell">
+                    <div class="comm-empty">
+                      <i class="pi pi-receipt comm-empty-icon" aria-hidden="true"></i>
+                      <strong>Sin costos en este rango.</strong>
+                      <span class="muted small">Los costos (combustible, casetas, viáticos) se cargan desde cada embarque cerrado. Probá ampliar el rango de fechas o abrir un embarque.</span>
+                    </div>
+                  </td>
+                </tr>
+              </ng-template>
+            </p-table>
+          </div>
+        </section>
       </div>
-      <form [formGroup]="form" class="form-grid">
-        <label>
-          Combustible
-          <p-inputnumber formControlName="fuel" mode="currency" currency="MXN" locale="es-MX" [minFractionDigits]="2"></p-inputnumber>
-        </label>
-        <label>
-          Casetas
-          <p-inputnumber formControlName="tolls" mode="currency" currency="MXN" locale="es-MX" [minFractionDigits]="2"></p-inputnumber>
-        </label>
-        <label>
-          Hospedaje
-          <p-inputnumber formControlName="lodging" mode="currency" currency="MXN" locale="es-MX" [minFractionDigits]="2"></p-inputnumber>
-        </label>
-        <label>
-          Pensiones
-          <p-inputnumber formControlName="parking" mode="currency" currency="MXN" locale="es-MX" [minFractionDigits]="2"></p-inputnumber>
-        </label>
-        <label>
-          Permisos
-          <p-inputnumber formControlName="permits" mode="currency" currency="MXN" locale="es-MX" [minFractionDigits]="2"></p-inputnumber>
-        </label>
-        <label>
-          Reparaciones
-          <p-inputnumber formControlName="repairs" mode="currency" currency="MXN" locale="es-MX" [minFractionDigits]="2"></p-inputnumber>
-        </label>
-        <label>
-          Ayudantes externos
-          <p-inputnumber formControlName="external_helpers" mode="currency" currency="MXN" locale="es-MX" [minFractionDigits]="2"></p-inputnumber>
-        </label>
-        <label>
-          Maniobras
-          <p-inputnumber formControlName="handling" mode="currency" currency="MXN" locale="es-MX" [minFractionDigits]="2"></p-inputnumber>
-        </label>
-        <label>
-          Viáticos chofer
-          <p-inputnumber formControlName="driver_per_diem" mode="currency" currency="MXN" locale="es-MX" [minFractionDigits]="2"></p-inputnumber>
-        </label>
-        <label>
-          Otros
-          <p-inputnumber formControlName="other" mode="currency" currency="MXN" locale="es-MX" [minFractionDigits]="2"></p-inputnumber>
-        </label>
-        <label class="full">
-          Aplicar costo $/km del catálogo (intenta match por modelo del vehículo: HINO 500, INTERNATIONAL, etc. — si no encuentra, usa <code>costo_km_estandar</code>)
-          <p-select formControlName="apply_config_km" [options]="boolOptions" optionLabel="label" optionValue="value"></p-select>
-        </label>
-        <label class="full">
-          Notas
-          <textarea pTextarea rows="2" formControlName="notes"></textarea>
-        </label>
-      </form>
-
-      <ng-template pTemplate="footer">
-        <button pButton label="Cancelar" severity="secondary" [text]="true" (click)="editDialog = false" [disabled]="saving()"></button>
-        <button pButton label="Guardar" icon="pi pi-check" (click)="save()" [loading]="saving()"></button>
-      </ng-template>
-    </p-dialog>
-  `,
+    
+      <!-- Edit Dialog -->
+      <p-dialog [(visible)]="editDialog" [modal]="true" [style]="{ width: '720px' }"
+        header="Editar costos del embarque" [closable]="!saving()">
+        @if (editing()) {
+          <div class="edit-header">
+            <strong><code>{{ editing()?.shipment_folio }}</code></strong>
+            <span class="muted">· {{ editing()?.destination || '—' }} · {{ editing()?.shipment_date | date:'shortDate' }}</span>
+          </div>
+        }
+        <form [formGroup]="form" class="form-grid">
+          <label>
+            Combustible
+            <p-inputnumber formControlName="fuel" mode="currency" currency="MXN" locale="es-MX" [minFractionDigits]="2"></p-inputnumber>
+          </label>
+          <label>
+            Casetas
+            <p-inputnumber formControlName="tolls" mode="currency" currency="MXN" locale="es-MX" [minFractionDigits]="2"></p-inputnumber>
+          </label>
+          <label>
+            Hospedaje
+            <p-inputnumber formControlName="lodging" mode="currency" currency="MXN" locale="es-MX" [minFractionDigits]="2"></p-inputnumber>
+          </label>
+          <label>
+            Pensiones
+            <p-inputnumber formControlName="parking" mode="currency" currency="MXN" locale="es-MX" [minFractionDigits]="2"></p-inputnumber>
+          </label>
+          <label>
+            Permisos
+            <p-inputnumber formControlName="permits" mode="currency" currency="MXN" locale="es-MX" [minFractionDigits]="2"></p-inputnumber>
+          </label>
+          <label>
+            Reparaciones
+            <p-inputnumber formControlName="repairs" mode="currency" currency="MXN" locale="es-MX" [minFractionDigits]="2"></p-inputnumber>
+          </label>
+          <label>
+            Ayudantes externos
+            <p-inputnumber formControlName="external_helpers" mode="currency" currency="MXN" locale="es-MX" [minFractionDigits]="2"></p-inputnumber>
+          </label>
+          <label>
+            Maniobras
+            <p-inputnumber formControlName="handling" mode="currency" currency="MXN" locale="es-MX" [minFractionDigits]="2"></p-inputnumber>
+          </label>
+          <label>
+            Viáticos chofer
+            <p-inputnumber formControlName="driver_per_diem" mode="currency" currency="MXN" locale="es-MX" [minFractionDigits]="2"></p-inputnumber>
+          </label>
+          <label>
+            Otros
+            <p-inputnumber formControlName="other" mode="currency" currency="MXN" locale="es-MX" [minFractionDigits]="2"></p-inputnumber>
+          </label>
+          <label class="full">
+            Aplicar costo $/km del catálogo (intenta match por modelo del vehículo: HINO 500, INTERNATIONAL, etc. — si no encuentra, usa <code>costo_km_estandar</code>)
+            <p-select formControlName="apply_config_km" [options]="boolOptions" optionLabel="label" optionValue="value"></p-select>
+          </label>
+          <label class="full">
+            Notas
+            <textarea pTextarea rows="2" formControlName="notes"></textarea>
+          </label>
+        </form>
+    
+        <ng-template pTemplate="footer">
+          <button pButton label="Cancelar" severity="secondary" [text]="true" (click)="editDialog = false" [disabled]="saving()"></button>
+          <button pButton label="Guardar" icon="pi pi-check" (click)="save()" [loading]="saving()"></button>
+        </ng-template>
+      </p-dialog>
+    `,
   styles: [`
     :host { display:block; }
     .muted { color: var(--c-text-2); font-size: var(--fs-sm); margin:0; }

@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { CommonModule } from '@angular/common';
+
 import { FormBuilder, FormGroup, FormsModule, ReactiveFormsModule, Validators } from '@angular/forms';
 import { ButtonModule } from 'primeng/button';
 import { CardModule } from 'primeng/card';
@@ -21,7 +21,6 @@ import { INV_STOCK_TABS } from '../inventory-tabs';
   selector: 'app-comercial-warehouses',
   standalone: true,
   imports: [
-    CommonModule,
     FormsModule,
     ReactiveFormsModule,
     ButtonModule,
@@ -34,15 +33,15 @@ import { INV_STOCK_TABS } from '../inventory-tabs';
     ToastModule,
     TooltipModule,
     ConfirmDialogModule,
-    PageTabsComponent,
-  ],
+    PageTabsComponent
+],
   providers: [MessageService, ConfirmationService],
   template: `
     <div class="surf-page wh">
       <p-toast></p-toast>
       <p-confirmDialog></p-confirmDialog>
       <app-page-tabs [tabs]="inventoryTabs" />
-
+    
       <!-- PAGE HEAD -->
       <header class="surf-page-head">
         <div class="surf-page-head-text">
@@ -74,12 +73,12 @@ import { INV_STOCK_TABS } from '../inventory-tabs';
           ></button>
         </div>
       </header>
-
+    
       <!-- TABLA flush -->
       <div class="sheet cols-12">
         <article class="cell cell-span-12 is-flush">
           <p-table [value]="rows()" [loading]="loading()" responsiveLayout="scroll"
-                   styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra">
+            styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra">
             <ng-template pTemplate="header">
               <tr>
                 <th scope="col">Código</th>
@@ -101,11 +100,15 @@ import { INV_STOCK_TABS } from '../inventory-tabs';
                 </td>
                 <td>{{ w.address || '—' }}</td>
                 <td>
-                  <span *ngIf="w.is_default" class="wh-default-badge">
-                    <i class="pi pi-bookmark-fill" aria-hidden="true"></i>
-                    Default
-                  </span>
-                  <span *ngIf="!w.is_default" class="comm-muted">—</span>
+                  @if (w.is_default) {
+                    <span class="wh-default-badge">
+                      <i class="pi pi-bookmark-fill" aria-hidden="true"></i>
+                      Default
+                    </span>
+                  }
+                  @if (!w.is_default) {
+                    <span class="comm-muted">—</span>
+                  }
                 </td>
                 <td>
                   <span class="wh-status" [class.is-on]="w.active !== false">
@@ -115,9 +118,11 @@ import { INV_STOCK_TABS } from '../inventory-tabs';
                 </td>
                 <td class="comm-actions">
                   <button pButton icon="pi pi-pencil" size="small" severity="secondary" [text]="true"
-                          (click)="openEdit(w)" pTooltip="Editar"></button>
-                  <button pButton icon="pi pi-trash" size="small" severity="secondary" [text]="true"
-                          (click)="confirmDelete(w)" *ngIf="w.active !== false" pTooltip="Desactivar"></button>
+                  (click)="openEdit(w)" pTooltip="Editar"></button>
+                  @if (w.active !== false) {
+                    <button pButton icon="pi pi-trash" size="small" severity="secondary" [text]="true"
+                    (click)="confirmDelete(w)" pTooltip="Desactivar"></button>
+                  }
                 </td>
               </tr>
             </ng-template>
@@ -145,45 +150,49 @@ import { INV_STOCK_TABS } from '../inventory-tabs';
         </article>
       </div>
     </div>
-
+    
     <p-dialog
       [(visible)]="dialogVisible"
       [modal]="true"
       [draggable]="false"
       [style]="{ width: '480px' }"
       [header]="editing() ? 'Editar almacén' : 'Nuevo almacén'"
-    >
-      <form [formGroup]="form" class="comm-form" *ngIf="form">
-        <label>
-          <span>Código <em>*</em></span>
-          <input pInputText formControlName="code" placeholder="ej: MD-CENTRAL" />
-        </label>
-        <label>
-          <span>Nombre <em>*</em></span>
-          <input pInputText formControlName="name" />
-        </label>
-        <label>
-          <span>Dirección</span>
-          <input pInputText formControlName="address" />
-        </label>
-        <label class="checkbox-line">
-          <p-checkbox formControlName="is_default" [binary]="true" inputId="is_default"></p-checkbox>
-          <span>Almacén por defecto del tenant</span>
-        </label>
-        <div class="comm-form-hint" *ngIf="form.value.is_default">
-          <i class="pi pi-info-circle"></i>
-          Solo puede haber 1 default; al activar éste, el anterior se desactivará automáticamente.
-        </div>
-      </form>
+      >
+      @if (form) {
+        <form [formGroup]="form" class="comm-form">
+          <label>
+            <span>Código <em>*</em></span>
+            <input pInputText formControlName="code" placeholder="ej: MD-CENTRAL" />
+          </label>
+          <label>
+            <span>Nombre <em>*</em></span>
+            <input pInputText formControlName="name" />
+          </label>
+          <label>
+            <span>Dirección</span>
+            <input pInputText formControlName="address" />
+          </label>
+          <label class="checkbox-line">
+            <p-checkbox formControlName="is_default" [binary]="true" inputId="is_default"></p-checkbox>
+            <span>Almacén por defecto del tenant</span>
+          </label>
+          @if (form.value.is_default) {
+            <div class="comm-form-hint">
+              <i class="pi pi-info-circle"></i>
+              Solo puede haber 1 default; al activar éste, el anterior se desactivará automáticamente.
+            </div>
+          }
+        </form>
+      }
       <ng-template pTemplate="footer">
         <button pButton label="Cancelar" severity="secondary" [outlined]="true" (click)="dialogVisible = false"></button>
         <button pButton [label]="editing() ? 'Guardar' : 'Crear'" icon="pi pi-check"
-                [loading]="saving()"
-                [disabled]="form.invalid"
-                (click)="save()"></button>
+          [loading]="saving()"
+          [disabled]="form.invalid"
+        (click)="save()"></button>
       </ng-template>
     </p-dialog>
-  `,
+    `,
   styles: [`
     :host { display:block; }
 

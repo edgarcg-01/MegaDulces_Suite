@@ -29,17 +29,19 @@ import {
   template: `
     <p-toast></p-toast>
     <p-confirmDialog></p-confirmDialog>
-
-    <header class="surf-page-head" *ngIf="shipment() as s">
-      <div class="surf-page-head-text">
-        <a [routerLink]="['/logistica/shipments', s.id]" class="back">
-          <i class="pi pi-arrow-left"></i> Volver al embarque
-        </a>
-        <h1>Fotos — <code>{{ s.folio }}</code></h1>
-        <p class="surf-page-sub">Sube fotos categorizadas. GPS y captura desde cámara disponibles en mobile.</p>
-      </div>
-    </header>
-
+    
+    @if (shipment(); as s) {
+      <header class="surf-page-head">
+        <div class="surf-page-head-text">
+          <a [routerLink]="['/logistica/shipments', s.id]" class="back">
+            <i class="pi pi-arrow-left"></i> Volver al embarque
+          </a>
+          <h1>Fotos — <code>{{ s.folio }}</code></h1>
+          <p class="surf-page-sub">Sube fotos categorizadas. GPS y captura desde cámara disponibles en mobile.</p>
+        </div>
+      </header>
+    }
+    
     <!-- Upload form -->
     <p-card>
       <h3>Nueva foto</h3>
@@ -66,21 +68,23 @@ import {
           </div>
         </label>
       </div>
-
+    
       <div class="capture-row">
         <button pButton icon="pi pi-camera" label="Tomar foto (Capacitor)" (click)="takePhoto()" [loading]="capturing()"></button>
         <span class="muted">o</span>
         <input type="file" accept="image/*" (change)="onFileSelected($event)" #fileInput hidden />
         <button pButton icon="pi pi-upload" label="Elegir archivo" severity="secondary" (click)="fileInput.click()"></button>
       </div>
-
-      <div class="preview" *ngIf="previewBase64()">
-        <img [src]="previewBase64()" alt="preview" />
-        <button pButton icon="pi pi-check" label="Subir" (click)="upload()" [loading]="uploading()"></button>
-        <button pButton icon="pi pi-times" label="Descartar" severity="secondary" [text]="true" (click)="clearPreview()"></button>
-      </div>
+    
+      @if (previewBase64()) {
+        <div class="preview">
+          <img [src]="previewBase64()" alt="preview" />
+          <button pButton icon="pi pi-check" label="Subir" (click)="upload()" [loading]="uploading()"></button>
+          <button pButton icon="pi pi-times" label="Descartar" severity="secondary" [text]="true" (click)="clearPreview()"></button>
+        </div>
+      }
     </p-card>
-
+    
     <!-- Filter + grid -->
     <p-card class="grid-card">
       <div class="filter-row">
@@ -97,24 +101,32 @@ import {
         </label>
         <span class="muted">{{ photos().length }} fotos</span>
       </div>
-
+    
       <div class="photos-grid">
-        <div *ngFor="let p of photos()" class="photo-card">
-          <a [href]="p.url" target="_blank"><img [src]="p.url" alt="" /></a>
-          <div class="photo-meta">
-            <p-tag [value]="p.category" severity="secondary"></p-tag>
-            <span class="muted">{{ p.uploaded_at | date:'short' }}</span>
+        @for (p of photos(); track p) {
+          <div class="photo-card">
+            <a [href]="p.url" target="_blank"><img [src]="p.url" alt="" /></a>
+            <div class="photo-meta">
+              <p-tag [value]="p.category" severity="secondary"></p-tag>
+              <span class="muted">{{ p.uploaded_at | date:'short' }}</span>
+            </div>
+            @if (p.description) {
+              <p class="desc">{{ p.description }}</p>
+            }
+            @if (p.gps_lat && p.gps_lng) {
+              <p class="gps">
+                📍 {{ p.gps_lat }}, {{ p.gps_lng }}
+              </p>
+            }
+            <button pButton icon="pi pi-trash" size="small" severity="secondary" [text]="true" (click)="confirmDelete(p)" label="Borrar"></button>
           </div>
-          <p *ngIf="p.description" class="desc">{{ p.description }}</p>
-          <p *ngIf="p.gps_lat && p.gps_lng" class="gps">
-            📍 {{ p.gps_lat }}, {{ p.gps_lng }}
-          </p>
-          <button pButton icon="pi pi-trash" size="small" severity="secondary" [text]="true" (click)="confirmDelete(p)" label="Borrar"></button>
-        </div>
-        <div *ngIf="!photos().length" class="empty">No hay fotos en esta categoría.</div>
+        }
+        @if (!photos().length) {
+          <div class="empty">No hay fotos en esta categoría.</div>
+        }
       </div>
     </p-card>
-  `,
+    `,
   styles: [`
     :host { display:block; }
     .back { color: var(--primary-color); text-decoration:none; font-size:.85rem; }

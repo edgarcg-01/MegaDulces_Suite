@@ -1,5 +1,5 @@
 import { Component, computed, inject, signal, OnInit } from '@angular/core';
-import { CommonModule } from '@angular/common';
+
 import { FormsModule } from '@angular/forms';
 import { SelectModule } from 'primeng/select';
 import { DatePickerModule } from 'primeng/datepicker';
@@ -27,9 +27,15 @@ const DENOMS = [1000, 500, 200, 100, 50, 20, 10, 5, 2, 1, 0.5];
   selector: 'app-rider-liquidation',
   standalone: true,
   imports: [
-    CommonModule, FormsModule, SelectModule, DatePickerModule, InputNumberModule,
-    TableModule, TagModule, ButtonModule, MetricStripComponent,
-  ],
+    FormsModule,
+    SelectModule,
+    DatePickerModule,
+    InputNumberModule,
+    TableModule,
+    TagModule,
+    ButtonModule,
+    MetricStripComponent
+],
   template: `
     <div class="surf-page in liq">
       <header class="surf-page-head">

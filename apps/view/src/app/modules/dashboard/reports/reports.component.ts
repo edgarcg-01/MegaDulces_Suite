@@ -40,8 +40,8 @@ import { ImageModule } from 'primeng/image';
 import { CheckboxModule } from 'primeng/checkbox';
 import { ChipModule } from 'primeng/chip';
 import { MultiSelectModule } from 'primeng/multiselect';
-import { DropdownModule } from 'primeng/dropdown';
-import { MessageService, ConfirmationService } from 'primeng/api';
+import { SelectModule } from 'primeng/select';
+import { MessageService, ConfirmationService, SharedModule } from 'primeng/api';
 import { ConfirmDialogModule } from 'primeng/confirmdialog';
 import { SkeletonModule } from 'primeng/skeleton';
 import { MenuModule } from 'primeng/menu';
@@ -104,6 +104,7 @@ interface PdfSection {
     TagModule,
     ButtonModule,
     ChartModule,
+    SharedModule,
     ToastModule,
     TabsModule,
     IconFieldModule,
@@ -115,7 +116,7 @@ interface PdfSection {
     CheckboxModule,
     ChipModule,
     MultiSelectModule,
-    DropdownModule,
+    SelectModule,
     GlobalFiltersComponent,
     StoresTabComponent,
     RoutesTabComponent,

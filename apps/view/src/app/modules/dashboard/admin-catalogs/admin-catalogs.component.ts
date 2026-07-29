@@ -15,7 +15,7 @@ import {
   untracked,
 } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
-import { CommonModule } from '@angular/common';
+
 import { FormsModule } from '@angular/forms';
 import { TableModule } from 'primeng/table';
 import { ButtonModule } from 'primeng/button';
@@ -50,7 +50,6 @@ const SCORING_TYPES: CatalogType[] = ['conceptos', 'ubicaciones', 'niveles'];
   selector: 'app-admin-catalogs',
   standalone: true,
   imports: [
-    CommonModule,
     FormsModule,
     TableModule,
     ButtonModule,
@@ -60,8 +59,8 @@ const SCORING_TYPES: CatalogType[] = ['conceptos', 'ubicaciones', 'niveles'];
     ToastModule,
     ConfirmDialogModule,
     TooltipModule,
-    AdminRolesGridComponent,
-  ],
+    AdminRolesGridComponent
+],
   providers: [MessageService, ConfirmationService],
   templateUrl: './admin-catalogs.component.html',
   styleUrls: ['./admin-catalogs.component.css'],

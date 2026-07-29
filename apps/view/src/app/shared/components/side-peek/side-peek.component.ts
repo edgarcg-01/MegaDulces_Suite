@@ -8,8 +8,9 @@ import {
   input,
   model,
   viewChild,
+  DOCUMENT
 } from '@angular/core';
-import { CommonModule, DOCUMENT } from '@angular/common';
+
 
 /**
  * Side-peek drawer — organismo canónico de detalle (DESIGN.md regla #8).
@@ -25,7 +26,7 @@ import { CommonModule, DOCUMENT } from '@angular/common';
 @Component({
   selector: 'app-side-peek',
   standalone: true,
-  imports: [CommonModule],
+  imports: [],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="sp-root" [class.is-open]="open()">

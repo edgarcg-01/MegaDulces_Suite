@@ -1,5 +1,5 @@
 import { Component, EventEmitter, Input, Output, computed, inject, signal } from '@angular/core';
-import { CommonModule } from '@angular/common';
+
 import { DialogModule } from 'primeng/dialog';
 import { ButtonModule } from 'primeng/button';
 import { TrackingService } from '../../core/services/tracking.service';
@@ -7,7 +7,7 @@ import { TrackingService } from '../../core/services/tracking.service';
 @Component({
   selector: 'app-background-permission',
   standalone: true,
-  imports: [CommonModule, DialogModule, ButtonModule],
+  imports: [DialogModule, ButtonModule],
   template: `
     <p-dialog
       [(visible)]="visible"

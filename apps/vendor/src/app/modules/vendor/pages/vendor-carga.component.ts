@@ -52,52 +52,64 @@ const NOT_LOADED_REASONS: { key: string; label: string }[] = [
     <div class="page-head">
       <div>
         <h1 class="page-title">Carga</h1>
-        <p class="subtitle" *ngIf="!loading()">Para entregar {{ deliveryLabel }}</p>
+        @if (!loading()) {
+          <p class="subtitle">Para entregar {{ deliveryLabel }}</p>
+        }
       </div>
-      <button
-        type="button"
-        class="refresh"
-        *ngIf="!loading()"
-        [class.spinning]="refreshing()"
-        [disabled]="refreshing()"
-        (click)="refresh()"
-        aria-label="Actualizar carga"
-      >
-        <i class="pi pi-refresh"></i>
-      </button>
+      @if (!loading()) {
+        <button
+          type="button"
+          class="refresh"
+          [class.spinning]="refreshing()"
+          [disabled]="refreshing()"
+          (click)="refresh()"
+          aria-label="Actualizar carga"
+          >
+          <i class="pi pi-refresh"></i>
+        </button>
+      }
     </div>
-
-    <p-skeleton *ngIf="loading()" height="420px"></p-skeleton>
-
-    <ng-container *ngIf="!loading()">
-      <div *ngIf="loadError() && orders().length === 0" class="empty">
-        <i class="pi pi-cloud"></i>
-        <p>No se pudo cargar.</p>
-        <span class="hint">Revisá tu conexión e intentá de nuevo.</span>
-        <button type="button" class="retry-btn" (click)="load()"><i class="pi pi-refresh"></i> Reintentar</button>
-      </div>
-
-      <div *ngIf="!loadError() && orders().length === 0" class="empty">
-        <i class="pi pi-truck"></i>
-        <p>Nada para cargar {{ deliveryLabel }}.</p>
-        <span class="hint">Aparecen acá los pedidos confirmados de tu cartera.</span>
-      </div>
-
-      <ng-container *ngIf="orders().length > 0">
+    
+    @if (loading()) {
+      <p-skeleton height="420px"></p-skeleton>
+    }
+    
+    @if (!loading()) {
+      @if (loadError() && orders().length === 0) {
+        <div class="empty">
+          <i class="pi pi-cloud"></i>
+          <p>No se pudo cargar.</p>
+          <span class="hint">Revisá tu conexión e intentá de nuevo.</span>
+          <button type="button" class="retry-btn" (click)="load()"><i class="pi pi-refresh"></i> Reintentar</button>
+        </div>
+      }
+      @if (!loadError() && orders().length === 0) {
+        <div class="empty">
+          <i class="pi pi-truck"></i>
+          <p>Nada para cargar {{ deliveryLabel }}.</p>
+          <span class="hint">Aparecen acá los pedidos confirmados de tu cartera.</span>
+        </div>
+      }
+      @if (orders().length > 0) {
         <!-- Banner: resumen de la carga -->
         <div class="cbanner" [class.done]="allResolved()">
           <span class="cic"><i class="pi" [ngClass]="allResolved() ? 'pi-check-circle' : 'pi-box'"></i></span>
           <div class="ct">
-            <b *ngIf="!allResolved()">Resolvé la carga · {{ pendingLines() }} {{ pendingLines() === 1 ? 'línea' : 'líneas' }} pendientes</b>
-            <b *ngIf="allResolved()">Carga resuelta · {{ orders().length }} {{ orders().length === 1 ? 'pedido' : 'pedidos' }}</b>
+            @if (!allResolved()) {
+              <b>Resolvé la carga · {{ pendingLines() }} {{ pendingLines() === 1 ? 'línea' : 'líneas' }} pendientes</b>
+            }
+            @if (allResolved()) {
+              <b>Carga resuelta · {{ orders().length }} {{ orders().length === 1 ? 'pedido' : 'pedidos' }}</b>
+            }
             <span>
               <i class="pi pi-check dot ok"></i> {{ loadedUnits() }} cargados
               · <i class="pi pi-times dot no"></i> {{ notLoadedUnits() }} no se cargan
-              <ng-container *ngIf="!allResolved()"> · {{ pendingUnits() }} pendientes</ng-container>
+              @if (!allResolved()) {
+                · {{ pendingUnits() }} pendientes
+              }
             </span>
           </div>
         </div>
-
         <!-- Toggle de vista -->
         <div class="seg" role="tablist" aria-label="Vista de carga">
           <button type="button" role="tab" [attr.aria-selected]="view() === 'orders'" [class.on]="view() === 'orders'" (click)="view.set('orders')">
@@ -107,54 +119,66 @@ const NOT_LOADED_REASONS: { key: string; label: string }[] = [
             <i class="pi pi-box"></i> Productos
           </button>
         </div>
-
         <!-- POR PEDIDO -->
-        <div *ngIf="view() === 'orders'" class="list">
-          <div class="ocard" *ngFor="let o of orders()" [class.done]="orderResolved(o)">
-            <div class="ohead">
-              <span class="oinfo">
-                <span class="nm">{{ o.customer_name || '—' }}</span>
-                <span class="sub">{{ o.folio || o.code }} · {{ orderLoaded(o) }}✓ / {{ orderNotLoaded(o) }}✗ de {{ o.lines.length }}</span>
-              </span>
-              <button type="button" class="loadall" (click)="markOrderAllLoaded(o)">
-                {{ orderAllLoaded(o) ? 'Quitar todo' : 'Cargar todo' }}
-              </button>
-            </div>
-            <ul class="olines">
-              <li *ngFor="let l of o.lines" [class.loaded]="lineState(o.id, l.product_id) === 'loaded'" [class.noload]="lineState(o.id, l.product_id) === 'not_loaded'">
-                <div class="lmain">
-                  <span class="qty">{{ num(l.quantity) }}×</span>
-                  <span class="lname">{{ l.product_name || l.product_id }}</span>
-                  <span class="lacts">
-                    <button type="button" class="act ok" [class.on]="lineState(o.id, l.product_id) === 'loaded'" (click)="markLine(o, l, 'loaded')" [attr.aria-label]="'Sí cargamos ' + (l.product_name || '')" aria-pressed="false"><i class="pi pi-check"></i></button>
-                    <button type="button" class="act no" [class.on]="lineState(o.id, l.product_id) === 'not_loaded'" (click)="markLine(o, l, 'not_loaded')" [attr.aria-label]="'No cargamos ' + (l.product_name || '')"><i class="pi pi-times"></i></button>
+        @if (view() === 'orders') {
+          <div class="list">
+            @for (o of orders(); track o) {
+              <div class="ocard" [class.done]="orderResolved(o)">
+                <div class="ohead">
+                  <span class="oinfo">
+                    <span class="nm">{{ o.customer_name || '—' }}</span>
+                    <span class="sub">{{ o.folio || o.code }} · {{ orderLoaded(o) }}✓ / {{ orderNotLoaded(o) }}✗ de {{ o.lines.length }}</span>
                   </span>
+                  <button type="button" class="loadall" (click)="markOrderAllLoaded(o)">
+                    {{ orderAllLoaded(o) ? 'Quitar todo' : 'Cargar todo' }}
+                  </button>
                 </div>
-                <div class="reasons-row" *ngIf="lineState(o.id, l.product_id) === 'not_loaded'">
-                  <span class="rlabel">Motivo:</span>
-                  <button type="button" *ngFor="let r of notLoadedReasons" class="rchip" [class.on]="lineReason(o.id, l.product_id) === r.key" (click)="setLineReason(o, l, r.key)">{{ r.label }}</button>
-                </div>
-              </li>
-            </ul>
+                <ul class="olines">
+                  @for (l of o.lines; track l) {
+                    <li [class.loaded]="lineState(o.id, l.product_id) === 'loaded'" [class.noload]="lineState(o.id, l.product_id) === 'not_loaded'">
+                      <div class="lmain">
+                        <span class="qty">{{ num(l.quantity) }}×</span>
+                        <span class="lname">{{ l.product_name || l.product_id }}</span>
+                        <span class="lacts">
+                          <button type="button" class="act ok" [class.on]="lineState(o.id, l.product_id) === 'loaded'" (click)="markLine(o, l, 'loaded')" [attr.aria-label]="'Sí cargamos ' + (l.product_name || '')" aria-pressed="false"><i class="pi pi-check"></i></button>
+                          <button type="button" class="act no" [class.on]="lineState(o.id, l.product_id) === 'not_loaded'" (click)="markLine(o, l, 'not_loaded')" [attr.aria-label]="'No cargamos ' + (l.product_name || '')"><i class="pi pi-times"></i></button>
+                        </span>
+                      </div>
+                      @if (lineState(o.id, l.product_id) === 'not_loaded') {
+                        <div class="reasons-row">
+                          <span class="rlabel">Motivo:</span>
+                          @for (r of notLoadedReasons; track r) {
+                            <button type="button" class="rchip" [class.on]="lineReason(o.id, l.product_id) === r.key" (click)="setLineReason(o, l, r.key)">{{ r.label }}</button>
+                          }
+                        </div>
+                      }
+                    </li>
+                  }
+                </ul>
+              </div>
+            }
           </div>
-        </div>
-
+        }
         <!-- PRODUCTOS EN TOTAL -->
-        <div *ngIf="view() === 'products'" class="list">
-          <div class="prow" *ngFor="let p of productTotals()" [class.loaded]="productState(p) === 'loaded'" [class.noload]="productState(p) === 'not_loaded'">
-            <span class="pinfo">
-              <span class="nm">{{ p.product_name }}</span>
-              <span class="sub">{{ p.orders }} {{ p.orders === 1 ? 'pedido' : 'pedidos' }} · {{ p.total }} u</span>
-            </span>
-            <span class="lacts">
-              <button type="button" class="act ok" [class.on]="productState(p) === 'loaded'" (click)="markProduct(p, 'loaded')" [attr.aria-label]="'Sí cargamos ' + p.product_name"><i class="pi pi-check"></i></button>
-              <button type="button" class="act no" [class.on]="productState(p) === 'not_loaded'" (click)="markProduct(p, 'not_loaded')" [attr.aria-label]="'No cargamos ' + p.product_name"><i class="pi pi-times"></i></button>
-            </span>
+        @if (view() === 'products') {
+          <div class="list">
+            @for (p of productTotals(); track p) {
+              <div class="prow" [class.loaded]="productState(p) === 'loaded'" [class.noload]="productState(p) === 'not_loaded'">
+                <span class="pinfo">
+                  <span class="nm">{{ p.product_name }}</span>
+                  <span class="sub">{{ p.orders }} {{ p.orders === 1 ? 'pedido' : 'pedidos' }} · {{ p.total }} u</span>
+                </span>
+                <span class="lacts">
+                  <button type="button" class="act ok" [class.on]="productState(p) === 'loaded'" (click)="markProduct(p, 'loaded')" [attr.aria-label]="'Sí cargamos ' + p.product_name"><i class="pi pi-check"></i></button>
+                  <button type="button" class="act no" [class.on]="productState(p) === 'not_loaded'" (click)="markProduct(p, 'not_loaded')" [attr.aria-label]="'No cargamos ' + p.product_name"><i class="pi pi-times"></i></button>
+                </span>
+              </div>
+            }
           </div>
-        </div>
-      </ng-container>
-    </ng-container>
-  `,
+        }
+      }
+    }
+    `,
   styles: [
     `
       :host { display: block; }

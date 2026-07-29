@@ -8,11 +8,11 @@ import { TableModule } from 'primeng/table';
 import { TagModule } from 'primeng/tag';
 import { SelectModule } from 'primeng/select';
 import { DialogModule } from 'primeng/dialog';
-import { InputSwitchModule } from 'primeng/inputswitch';
+import { ToggleSwitchModule } from 'primeng/toggleswitch';
 import { InputNumberModule } from 'primeng/inputnumber';
 import { MultiSelectModule } from 'primeng/multiselect';
 import { ToastModule } from 'primeng/toast';
-import { MessageService } from 'primeng/api';
+import { MessageService, SharedModule } from 'primeng/api';
 import { ComercialService, InventoryCount, Warehouse, AssignableUser } from '../comercial.service';
 import { AuthService } from '../../../core/services/auth.service';
 import { Permission } from '../../../core/constants/permissions';
@@ -28,7 +28,7 @@ import { forkJoin } from 'rxjs';
   standalone: true,
   imports: [
     CommonModule, FormsModule, RouterModule,
-    ButtonModule, TableModule, TagModule, SelectModule, DialogModule, InputSwitchModule, InputNumberModule, MultiSelectModule, ToastModule, PageTabsComponent,
+    ButtonModule, TableModule, TagModule, SelectModule, DialogModule, ToggleSwitchModule, InputNumberModule, MultiSelectModule, ToastModule, PageTabsComponent, SharedModule,
   ],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -103,14 +103,14 @@ import { forkJoin } from 'rxjs';
           <p-select [options]="typeOptions" [(ngModel)]="formType" optionLabel="label" optionValue="value" styleClass="in-w-full" appendTo="body"></p-select>
 
           <div class="in-toggle-row">
-            <p-inputSwitch [(ngModel)]="formFreeze"></p-inputSwitch>
+            <p-toggleswitch [(ngModel)]="formFreeze"></p-toggleswitch>
             <div>
               <span class="in-toggle-label">Congelar movimientos</span>
               <small>Bloquea pedidos/ajustes en este almacén durante el conteo (recomendado).</small>
             </div>
           </div>
           <div class="in-toggle-row">
-            <p-inputSwitch [(ngModel)]="formBlind"></p-inputSwitch>
+            <p-toggleswitch [(ngModel)]="formBlind"></p-toggleswitch>
             <div>
               <span class="in-toggle-label">Doble conteo ciego</span>
               <small>Cada SKU lo cuentan dos personas distintas; las diferencias escalan a reconteo.</small>

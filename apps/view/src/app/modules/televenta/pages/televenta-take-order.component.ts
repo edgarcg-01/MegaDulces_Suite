@@ -42,93 +42,97 @@ interface CartRow {
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <p-confirmDialog></p-confirmDialog>
-
-    <section class="page" *ngIf="!loading() && customer(); else loadingTpl">
-      <a [routerLink]="['/televenta/lead', customerId]" class="back-link">
-        <i class="pi pi-arrow-left" aria-hidden="true"></i> Volver al cliente
-      </a>
-
-      <header class="head card">
-        <div>
-          <p class="code">{{ customer()?.code }}</p>
-          <h1>Pedido para {{ customer()?.name }}</h1>
-        </div>
-        <div class="cart-total">
-          <span class="label">Total</span>
-          <span class="amount">\${{ cartTotal() | number:'1.2-2' }}</span>
-        </div>
-      </header>
-
-      <!-- Catálogo + cantidades -->
-      <div class="card">
-        <h2>Catálogo del cliente <span class="count">({{ rows().length }} productos)</span></h2>
-        <input
-          type="search"
-          [(ngModel)]="searchTerm"
-          (ngModelChange)="onSearch($event)"
-          placeholder="Buscar producto..."
-          class="search"
-          aria-label="Buscar producto"
-          inputmode="search"
-          enterkeyhint="search"
-          autocapitalize="none"
-          autocorrect="off"
-          spellcheck="false"
-        />
-
-        <div *ngIf="filteredRows().length === 0" class="empty-mini">Sin productos.</div>
-
-        <div class="grid">
-          <article *ngFor="let r of filteredRows(); trackBy: trackPid" class="prod"
-                   [class.selected]="r.quantity > 0">
-            <div class="prod-info">
-              <p class="prod-name">{{ r.name }}</p>
-              <p class="prod-meta">
-                <span *ngIf="r.brand">{{ r.brand }}</span>
-                <span>\${{ r.unit_price | number:'1.2-2' }}</span>
-                <span *ngIf="r.stock_available !== null">{{ r.stock_available }} disp</span>
-              </p>
+    
+    @if (!loading() && customer()) {
+      <section class="page">
+        <a [routerLink]="['/televenta/lead', customerId]" class="back-link">
+          <i class="pi pi-arrow-left" aria-hidden="true"></i> Volver al cliente
+        </a>
+        <header class="head card">
+          <div>
+            <p class="code">{{ customer()?.code }}</p>
+            <h1>Pedido para {{ customer()?.name }}</h1>
+          </div>
+          <div class="cart-total">
+            <span class="label">Total</span>
+            <span class="amount">\${{ cartTotal() | number:'1.2-2' }}</span>
+          </div>
+        </header>
+        <!-- Catálogo + cantidades -->
+        <div class="card">
+          <h2>Catálogo del cliente <span class="count">({{ rows().length }} productos)</span></h2>
+          <input
+            type="search"
+            [(ngModel)]="searchTerm"
+            (ngModelChange)="onSearch($event)"
+            placeholder="Buscar producto..."
+            class="search"
+            aria-label="Buscar producto"
+            inputmode="search"
+            enterkeyhint="search"
+            autocapitalize="none"
+            autocorrect="off"
+            spellcheck="false"
+            />
+            @if (filteredRows().length === 0) {
+              <div class="empty-mini">Sin productos.</div>
+            }
+            <div class="grid">
+              @for (r of filteredRows(); track trackPid($index, r)) {
+                <article class="prod"
+                  [class.selected]="r.quantity > 0">
+                  <div class="prod-info">
+                    <p class="prod-name">{{ r.name }}</p>
+                    <p class="prod-meta">
+                      @if (r.brand) {
+                        <span>{{ r.brand }}</span>
+                      }
+                      <span>\${{ r.unit_price | number:'1.2-2' }}</span>
+                      @if (r.stock_available !== null) {
+                        <span>{{ r.stock_available }} disp</span>
+                      }
+                    </p>
+                  </div>
+                  <div class="prod-actions">
+                    <p-inputNumber
+                      [(ngModel)]="r.quantity"
+                      [min]="0"
+                      [max]="9999"
+                      [showButtons]="true"
+                      buttonLayout="horizontal"
+                      spinnerMode="horizontal"
+                      inputStyleClass="qty-input"
+                      [step]="1"
+                      (onInput)="onQtyChange()"
+                    ></p-inputNumber>
+                  </div>
+                </article>
+              }
             </div>
-            <div class="prod-actions">
-              <p-inputNumber
-                [(ngModel)]="r.quantity"
-                [min]="0"
-                [max]="9999"
-                [showButtons]="true"
-                buttonLayout="horizontal"
-                spinnerMode="horizontal"
-                inputStyleClass="qty-input"
-                [step]="1"
-                (onInput)="onQtyChange()"
-              ></p-inputNumber>
+          </div>
+          <!-- Sticky footer con confirm -->
+          <div class="sticky-footer">
+            <div class="summary">
+              <span>{{ cartCount() }} items</span>
+              <span class="total">\${{ cartTotal() | number:'1.2-2' }}</span>
             </div>
-          </article>
+            <button
+              pButton
+              icon="pi pi-check"
+              label="Confirmar pedido + registrar venta"
+              [disabled]="cartCount() === 0 || saving()"
+              [loading]="saving()"
+              (click)="confirmOrder()"
+            ></button>
+          </div>
+        </section>
+      } @else {
+        <div class="loading" aria-live="polite">
+          <p-progressSpinner styleClass="w-12 h-12"></p-progressSpinner>
         </div>
-      </div>
-
-      <!-- Sticky footer con confirm -->
-      <div class="sticky-footer">
-        <div class="summary">
-          <span>{{ cartCount() }} items</span>
-          <span class="total">\${{ cartTotal() | number:'1.2-2' }}</span>
-        </div>
-        <button
-          pButton
-          icon="pi pi-check"
-          label="Confirmar pedido + registrar venta"
-          [disabled]="cartCount() === 0 || saving()"
-          [loading]="saving()"
-          (click)="confirmOrder()"
-        ></button>
-      </div>
-    </section>
-
-    <ng-template #loadingTpl>
-      <div class="loading" aria-live="polite">
-        <p-progressSpinner styleClass="w-12 h-12"></p-progressSpinner>
-      </div>
-    </ng-template>
-  `,
+      }
+    
+    `,
   styles: [
     `
       .page { display: flex; flex-direction: column; gap: 1rem; padding-bottom: 6rem; }

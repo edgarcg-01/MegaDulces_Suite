@@ -42,170 +42,184 @@ import {
         </div>
         <div class="rk-actions">
           <input type="date" class="rk-date" [ngModel]="date()" (ngModelChange)="setDate($event)"
-                 [max]="today" aria-label="Fecha de actividad" />
-          <button pButton icon="pi pi-cog" label="Reconstruir día" severity="secondary" size="small" [text]="true"
-                  [loading]="rebuilding()" (click)="rebuild()"
-                  pTooltip="Recalcula paradas y resumen desde el rastro GPS (por si el proceso nocturno aún no corrió)"></button>
-          <button pButton icon="pi pi-refresh" label="Actualizar" [text]="true" size="small"
-                  [loading]="loading()" (click)="refresh()" aria-label="Refrescar"></button>
+            [max]="today" aria-label="Fecha de actividad" />
+            <button pButton icon="pi pi-cog" label="Reconstruir día" severity="secondary" size="small" [text]="true"
+              [loading]="rebuilding()" (click)="rebuild()"
+            pTooltip="Recalcula paradas y resumen desde el rastro GPS (por si el proceso nocturno aún no corrió)"></button>
+            <button pButton icon="pi pi-refresh" label="Actualizar" [text]="true" size="small"
+            [loading]="loading()" (click)="refresh()" aria-label="Refrescar"></button>
+          </div>
+        </header>
+    
+        <!-- KPIs del día -->
+        <div class="sheet cols-12 rk-kpis">
+          <article class="cell cell-span-3 rk-kpi">
+            <span class="rk-kpi-n">{{ totals().km | number:'1.0-0' }}</span>
+            <span class="rk-kpi-l">Km recorridos</span>
+          </article>
+          @if (fleet === 'route') {
+            <article class="cell cell-span-3 rk-kpi">
+              <span class="rk-kpi-n">{{ totals().storeStops }}</span>
+              <span class="rk-kpi-l">Paradas en tienda</span>
+            </article>
+            <article class="cell cell-span-3 rk-kpi">
+              <span class="rk-kpi-n" style="color:var(--ok-fg)">{{ totals().captured }}</span>
+              <span class="rk-kpi-l">Con captura</span>
+            </article>
+            <article class="cell cell-span-3 rk-kpi">
+              <span class="rk-kpi-n" style="color:var(--warn-fg)">{{ totals().uncaptured }}</span>
+              <span class="rk-kpi-l">Sin captura</span>
+            </article>
+          } @else {
+            <article class="cell cell-span-3 rk-kpi">
+              <span class="rk-kpi-n" style="color:var(--ok-fg)">{{ totals().customerStops }}</span>
+              <span class="rk-kpi-l">Paradas con cliente</span>
+            </article>
+            <article class="cell cell-span-3 rk-kpi">
+              <span class="rk-kpi-n" style="color:var(--warn-fg)">{{ fmtMin(totals().deadMin) }}</span>
+              <span class="rk-kpi-l">Tiempo muerto</span>
+            </article>
+            <article class="cell cell-span-3 rk-kpi">
+              <span class="rk-kpi-n rk-dim">{{ totals().deadStops }}</span>
+              <span class="rk-kpi-l">Paradas muertas</span>
+            </article>
+          }
         </div>
-      </header>
-
-      <!-- KPIs del día -->
-      <div class="sheet cols-12 rk-kpis">
-        <article class="cell cell-span-3 rk-kpi">
-          <span class="rk-kpi-n">{{ totals().km | number:'1.0-0' }}</span>
-          <span class="rk-kpi-l">Km recorridos</span>
-        </article>
-        @if (fleet === 'route') {
-          <article class="cell cell-span-3 rk-kpi">
-            <span class="rk-kpi-n">{{ totals().storeStops }}</span>
-            <span class="rk-kpi-l">Paradas en tienda</span>
-          </article>
-          <article class="cell cell-span-3 rk-kpi">
-            <span class="rk-kpi-n" style="color:var(--ok-fg)">{{ totals().captured }}</span>
-            <span class="rk-kpi-l">Con captura</span>
-          </article>
-          <article class="cell cell-span-3 rk-kpi">
-            <span class="rk-kpi-n" style="color:var(--warn-fg)">{{ totals().uncaptured }}</span>
-            <span class="rk-kpi-l">Sin captura</span>
-          </article>
-        } @else {
-          <article class="cell cell-span-3 rk-kpi">
-            <span class="rk-kpi-n" style="color:var(--ok-fg)">{{ totals().customerStops }}</span>
-            <span class="rk-kpi-l">Paradas con cliente</span>
-          </article>
-          <article class="cell cell-span-3 rk-kpi">
-            <span class="rk-kpi-n" style="color:var(--warn-fg)">{{ fmtMin(totals().deadMin) }}</span>
-            <span class="rk-kpi-l">Tiempo muerto</span>
-          </article>
-          <article class="cell cell-span-3 rk-kpi">
-            <span class="rk-kpi-n rk-dim">{{ totals().deadStops }}</span>
-            <span class="rk-kpi-l">Paradas muertas</span>
-          </article>
-        }
-      </div>
-
-      <!-- Master-detail -->
-      <div class="sheet cols-12" *ngIf="rows().length; else empty">
-        <article class="cell cell-span-7 is-flush">
-          <div class="rk-table-wrap">
-            <table class="rk-table">
-              <thead>
-                <tr>
-                  <th>Unidad</th>
-                  <th class="num">Km</th>
-                  <th class="num" pTooltip="En movimiento">Mov.</th>
-                  <th class="num" pTooltip="Detenido improductivo (paradas ≥20 min sin cliente)">Muerto</th>
-                  <ng-container *ngIf="fleet === 'route'">
-                    <th class="num" pTooltip="Paradas en tienda de trade">Tiendas</th>
-                    <th class="num" pTooltip="Tiendas con captura de auditoría / paradas en tienda">Auditadas</th>
-                    <th class="num" pTooltip="Paró en tienda pero no capturó">Sin capt.</th>
-                  </ng-container>
-                  <ng-container *ngIf="fleet !== 'route'">
-                    <th class="num" pTooltip="Paradas con cliente / total">Paradas</th>
-                    <th class="num" pTooltip="Km por entrega (parada con cliente)">Km/ent.</th>
-                  </ng-container>
-                </tr>
-              </thead>
-              <tbody>
-                <tr *ngFor="let r of rows(); trackBy: trackById"
-                    class="rk-tr" [class.sel]="r.vehicle_id === selectedId()" (click)="select(r)">
-                  <td class="rk-unit">{{ r.vehicle_plate || shortId(r.vehicle_id) }}</td>
-                  <td class="num">{{ r.km_driven | number:'1.0-1' }}</td>
-                  <td class="num">{{ fmtMin(r.moving_min) }}</td>
-                  <td class="num" [class.rk-warn]="r.dead_min > 0">{{ r.dead_min ? fmtMin(r.dead_min) : '—' }}</td>
-                  <ng-container *ngIf="fleet === 'route'">
-                    <td class="num">{{ r.store_stops }}</td>
-                    <td class="num"><b style="color:var(--ok-fg)">{{ r.captured_stops }}</b><span class="rk-of">/{{ r.store_stops }}</span></td>
-                    <td class="num" [class.rk-warn]="r.uncaptured_stops > 0">{{ r.uncaptured_stops || '—' }}</td>
-                  </ng-container>
-                  <ng-container *ngIf="fleet !== 'route'">
-                    <td class="num"><b>{{ r.customer_stops }}</b><span class="rk-of">/{{ r.stops_count }}</span></td>
-                    <td class="num">{{ r.km_per_customer_stop != null ? (r.km_per_customer_stop | number:'1.0-1') : '—' }}</td>
-                  </ng-container>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </article>
-
-        <article class="cell cell-span-5" *ngIf="selected() as s; else pickHint">
-          <div class="rk-detail-head">
-            <h3>{{ s.vehicle_plate || shortId(s.vehicle_id) }}</h3>
-            <span class="rk-muted">Paradas del {{ date() }}</span>
-          </div>
-          <dl class="rk-kv">
-            <div><dt>En movimiento</dt><dd class="num">{{ fmtMin(s.moving_min) }}</dd></div>
-            <div><dt>Detenido</dt><dd class="num">{{ fmtMin(s.stopped_min) }}</dd></div>
-            <div><dt>Tiempo muerto</dt><dd class="num">{{ fmtMin(s.dead_min) }}</dd></div>
-            <div><dt>Sin señal</dt><dd class="num">{{ fmtMin(s.offline_min) }}</dd></div>
-          </dl>
-
-          <h4 class="rk-sub-h">Recorrido de paradas</h4>
-          <div *ngIf="loadingStops()" class="rk-muted rk-pad">Cargando paradas…</div>
-          <div *ngIf="!loadingStops() && stops().length === 0" class="rk-muted rk-pad">Sin paradas registradas.</div>
-          <ol class="rk-stops" *ngIf="!loadingStops() && stops().length">
-            <li *ngFor="let st of stops(); trackBy: trackStop" class="rk-stop" [class.cust]="st.matched_store_id || st.is_customer">
-              <span class="rk-stop-time">{{ hm(st.arrived_at) }}</span>
-              <span class="rk-stop-dot"></span>
-              <span class="rk-stop-body">
-                <span class="rk-stop-name">
-                  <ng-container *ngIf="st.store_name || st.matched_store_id; else other">
-                    <i class="pi pi-shop" aria-hidden="true"></i>
-                    {{ st.store_name || 'Tienda' }}
-                    <span class="rk-stop-dist" *ngIf="st.match_distance_m != null">· {{ st.match_distance_m }} m</span>
-                  </ng-container>
-                  <ng-template #other>
-                    <ng-container *ngIf="st.is_customer; else nocust">
-                      <i class="pi pi-user" aria-hidden="true"></i>
-                      {{ st.customer_name || st.customer_code || 'Cliente' }}
-                    </ng-container>
-                    <ng-template #nocust><i class="pi pi-pause-circle" aria-hidden="true"></i> Parada</ng-template>
-                  </ng-template>
-                </span>
-                <span class="rk-stop-meta">
-                  {{ st.minutes }} min
-                  <span *ngIf="st.matched_store_id" class="rk-cap" [class.no]="!st.captured">
-                    · {{ st.captured ? 'capturada' : 'sin captura' }}
-                  </span>
-                </span>
-              </span>
-            </li>
-          </ol>
-        </article>
-
-        <ng-template #pickHint>
-          <article class="cell cell-span-5">
-            <div class="rk-pick"><i class="pi pi-list" aria-hidden="true"></i>
-              <p>Seleccioná una unidad para ver el detalle de sus paradas del día.</p>
-            </div>
-          </article>
-        </ng-template>
-      </div>
-
-      <ng-template #empty>
+    
+        <!-- Master-detail -->
+        @if (rows().length) {
+          <div class="sheet cols-12">
+            <article class="cell cell-span-7 is-flush">
+              <div class="rk-table-wrap">
+                <table class="rk-table">
+                  <thead>
+                    <tr>
+                      <th>Unidad</th>
+                      <th class="num">Km</th>
+                      <th class="num" pTooltip="En movimiento">Mov.</th>
+                      <th class="num" pTooltip="Detenido improductivo (paradas ≥20 min sin cliente)">Muerto</th>
+                      @if (fleet === 'route') {
+                        <th class="num" pTooltip="Paradas en tienda de trade">Tiendas</th>
+                        <th class="num" pTooltip="Tiendas con captura de auditoría / paradas en tienda">Auditadas</th>
+                        <th class="num" pTooltip="Paró en tienda pero no capturó">Sin capt.</th>
+                      }
+                      @if (fleet !== 'route') {
+                        <th class="num" pTooltip="Paradas con cliente / total">Paradas</th>
+                        <th class="num" pTooltip="Km por entrega (parada con cliente)">Km/ent.</th>
+                      }
+                    </tr>
+                  </thead>
+                  <tbody>
+                    @for (r of rows(); track trackById($index, r)) {
+                      <tr
+                        class="rk-tr" [class.sel]="r.vehicle_id === selectedId()" (click)="select(r)">
+                        <td class="rk-unit">{{ r.vehicle_plate || shortId(r.vehicle_id) }}</td>
+                        <td class="num">{{ r.km_driven | number:'1.0-1' }}</td>
+                        <td class="num">{{ fmtMin(r.moving_min) }}</td>
+                        <td class="num" [class.rk-warn]="r.dead_min > 0">{{ r.dead_min ? fmtMin(r.dead_min) : '—' }}</td>
+                        @if (fleet === 'route') {
+                          <td class="num">{{ r.store_stops }}</td>
+                          <td class="num"><b style="color:var(--ok-fg)">{{ r.captured_stops }}</b><span class="rk-of">/{{ r.store_stops }}</span></td>
+                          <td class="num" [class.rk-warn]="r.uncaptured_stops > 0">{{ r.uncaptured_stops || '—' }}</td>
+                        }
+                        @if (fleet !== 'route') {
+                          <td class="num"><b>{{ r.customer_stops }}</b><span class="rk-of">/{{ r.stops_count }}</span></td>
+                          <td class="num">{{ r.km_per_customer_stop != null ? (r.km_per_customer_stop | number:'1.0-1') : '—' }}</td>
+                        }
+                      </tr>
+                    }
+                  </tbody>
+                </table>
+              </div>
+            </article>
+            @if (selected(); as s) {
+              <article class="cell cell-span-5">
+                <div class="rk-detail-head">
+                  <h3>{{ s.vehicle_plate || shortId(s.vehicle_id) }}</h3>
+                  <span class="rk-muted">Paradas del {{ date() }}</span>
+                </div>
+                <dl class="rk-kv">
+                  <div><dt>En movimiento</dt><dd class="num">{{ fmtMin(s.moving_min) }}</dd></div>
+                  <div><dt>Detenido</dt><dd class="num">{{ fmtMin(s.stopped_min) }}</dd></div>
+                  <div><dt>Tiempo muerto</dt><dd class="num">{{ fmtMin(s.dead_min) }}</dd></div>
+                  <div><dt>Sin señal</dt><dd class="num">{{ fmtMin(s.offline_min) }}</dd></div>
+                </dl>
+                <h4 class="rk-sub-h">Recorrido de paradas</h4>
+                @if (loadingStops()) {
+                  <div class="rk-muted rk-pad">Cargando paradas…</div>
+                }
+                @if (!loadingStops() && stops().length === 0) {
+                  <div class="rk-muted rk-pad">Sin paradas registradas.</div>
+                }
+                @if (!loadingStops() && stops().length) {
+                  <ol class="rk-stops">
+                    @for (st of stops(); track trackStop($index, st)) {
+                      <li class="rk-stop" [class.cust]="st.matched_store_id || st.is_customer">
+                        <span class="rk-stop-time">{{ hm(st.arrived_at) }}</span>
+                        <span class="rk-stop-dot"></span>
+                        <span class="rk-stop-body">
+                          <span class="rk-stop-name">
+                            @if (st.store_name || st.matched_store_id) {
+                              <i class="pi pi-shop" aria-hidden="true"></i>
+                              {{ st.store_name || 'Tienda' }}
+                              @if (st.match_distance_m != null) {
+                                <span class="rk-stop-dist">· {{ st.match_distance_m }} m</span>
+                              }
+                            } @else {
+                              @if (st.is_customer) {
+                                <i class="pi pi-user" aria-hidden="true"></i>
+                                {{ st.customer_name || st.customer_code || 'Cliente' }}
+                              } @else {
+                                <i class="pi pi-pause-circle" aria-hidden="true"></i> Parada
+                              }
+                            }
+                          </span>
+                          <span class="rk-stop-meta">
+                            {{ st.minutes }} min
+                            @if (st.matched_store_id) {
+                              <span class="rk-cap" [class.no]="!st.captured">
+                                · {{ st.captured ? 'capturada' : 'sin captura' }}
+                              </span>
+                            }
+                          </span>
+                        </span>
+                      </li>
+                    }
+                  </ol>
+                }
+              </article>
+            } @else {
+              <article class="cell cell-span-5">
+                <div class="rk-pick"><i class="pi pi-list" aria-hidden="true"></i>
+                <p>Seleccioná una unidad para ver el detalle de sus paradas del día.</p>
+              </div>
+            </article>
+          }
+        </div>
+      } @else {
         <div class="sheet cols-12">
           <article class="cell cell-span-12">
-            <div class="rk-empty" *ngIf="!errored(); else errBox">
-              <div class="rk-empty-icon"><i class="pi pi-chart-bar" aria-hidden="true"></i></div>
-              <h3>Sin actividad reconstruida</h3>
-              <p>No hay viajes para <b>{{ date() }}</b>. Si ya hubo rastreo ese día, probá <b>Reconstruir día</b>.</p>
-              <button pButton size="small" label="Reconstruir día" [loading]="rebuilding()" (click)="rebuild()"></button>
-            </div>
-            <ng-template #errBox>
+            @if (!errored()) {
+              <div class="rk-empty">
+                <div class="rk-empty-icon"><i class="pi pi-chart-bar" aria-hidden="true"></i></div>
+                <h3>Sin actividad reconstruida</h3>
+                <p>No hay viajes para <b>{{ date() }}</b>. Si ya hubo rastreo ese día, probá <b>Reconstruir día</b>.</p>
+                <button pButton size="small" label="Reconstruir día" [loading]="rebuilding()" (click)="rebuild()"></button>
+              </div>
+            } @else {
               <div class="rk-empty">
                 <div class="rk-empty-icon"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i></div>
                 <h3>No se pudo cargar la actividad</h3>
                 <p>Revisá tu conexión y reintentá.</p>
                 <button pButton size="small" label="Reintentar" (click)="refresh()"></button>
               </div>
-            </ng-template>
+            }
           </article>
         </div>
-      </ng-template>
+      }
+    
     </div>
-  `,
+    `,
   styles: [`
     :host { display:block; }
     .rk-eyebrow { display:inline-flex; align-items:center; gap:.35rem; font-size:var(--fs-micro); font-weight:var(--fw-bold); text-transform:uppercase; letter-spacing:.08em; color:var(--c-text-2); margin-bottom:.35rem; }

@@ -64,7 +64,7 @@ function severityForStatus(s: ShipmentStatus): Severity {
     <div class="surf-page sh">
       <p-toast></p-toast>
       <p-confirmDialog></p-confirmDialog>
-
+    
       <!-- PAGE HEAD -->
       <header class="surf-page-head">
         <div class="surf-page-head-text">
@@ -95,47 +95,48 @@ function severityForStatus(s: ShipmentStatus): Severity {
           ></button>
         </div>
       </header>
-
+    
       <!-- KPI STRIP -->
-      <p-skeleton *ngIf="loadingStats()" height="120px"></p-skeleton>
-      <div *ngIf="!loadingStats() && stats() as st" class="sheet cols-12">
-        <article class="cell cell-span-3">
-          <span class="cell-icon" aria-hidden="true">
-            <i class="pi pi-truck"></i>
-          </span>
-          <span class="cell-label">Total embarques</span>
-          <span class="cell-value is-headline">{{ st.total }}</span>
-          <span class="cell-sub">registrados en el tenant</span>
-        </article>
-
-        <article class="cell cell-span-3">
-          <span class="cell-icon" aria-hidden="true">
-            <i class="pi pi-send"></i>
-          </span>
-          <span class="cell-label">En ruta</span>
-          <span class="cell-value">{{ st.enRuta }}</span>
-          <span class="cell-sub">en tránsito</span>
-        </article>
-
-        <article class="cell cell-span-3">
-          <span class="cell-icon" aria-hidden="true">
-            <i class="pi pi-check-circle"></i>
-          </span>
-          <span class="cell-label">Entregados</span>
-          <span class="cell-value">{{ st.entregados }}</span>
-          <span class="cell-sub">completados</span>
-        </article>
-
-        <article class="cell cell-span-3">
-          <span class="cell-icon" aria-hidden="true">
-            <i class="pi pi-inbox"></i>
-          </span>
-          <span class="cell-label">Pendientes</span>
-          <span class="cell-value">{{ pendingOrders().length }}</span>
-          <span class="cell-sub">esperando programar</span>
-        </article>
-      </div>
-
+      @if (loadingStats()) {
+        <p-skeleton height="120px"></p-skeleton>
+      }
+      @if (!loadingStats() && stats(); as st) {
+        <div class="sheet cols-12">
+          <article class="cell cell-span-3">
+            <span class="cell-icon" aria-hidden="true">
+              <i class="pi pi-truck"></i>
+            </span>
+            <span class="cell-label">Total embarques</span>
+            <span class="cell-value is-headline">{{ st.total }}</span>
+            <span class="cell-sub">registrados en el tenant</span>
+          </article>
+          <article class="cell cell-span-3">
+            <span class="cell-icon" aria-hidden="true">
+              <i class="pi pi-send"></i>
+            </span>
+            <span class="cell-label">En ruta</span>
+            <span class="cell-value">{{ st.enRuta }}</span>
+            <span class="cell-sub">en tránsito</span>
+          </article>
+          <article class="cell cell-span-3">
+            <span class="cell-icon" aria-hidden="true">
+              <i class="pi pi-check-circle"></i>
+            </span>
+            <span class="cell-label">Entregados</span>
+            <span class="cell-value">{{ st.entregados }}</span>
+            <span class="cell-sub">completados</span>
+          </article>
+          <article class="cell cell-span-3">
+            <span class="cell-icon" aria-hidden="true">
+              <i class="pi pi-inbox"></i>
+            </span>
+            <span class="cell-label">Pendientes</span>
+            <span class="cell-value">{{ pendingOrders().length }}</span>
+            <span class="cell-sub">esperando programar</span>
+          </article>
+        </div>
+      }
+    
       <!-- MODE TABS sheet propio -->
       <div class="sheet cols-12">
         <article class="cell cell-span-12 is-flush sh-tabs-cell">
@@ -147,7 +148,7 @@ function severityForStatus(s: ShipmentStatus): Severity {
               role="tab"
               [attr.aria-selected]="mode() === 'shipments'"
               (click)="setMode('shipments')"
-            >
+              >
               <i class="pi pi-truck" aria-hidden="true"></i>
               <span>Embarques</span>
               <span class="sh-mode-count">{{ page().total }}</span>
@@ -159,43 +160,45 @@ function severityForStatus(s: ShipmentStatus): Severity {
               role="tab"
               [attr.aria-selected]="mode() === 'pending'"
               (click)="setMode('pending')"
-            >
+              >
               <i class="pi pi-inbox" aria-hidden="true"></i>
               <span>Pendientes</span>
-              <span class="sh-mode-count is-warn" *ngIf="pendingOrders().length > 0">
-                {{ pendingOrders().length }}
-              </span>
+              @if (pendingOrders().length > 0) {
+                <span class="sh-mode-count is-warn">
+                  {{ pendingOrders().length }}
+                </span>
+              }
             </button>
           </nav>
         </article>
       </div>
-
+    
       <!-- ── MODE: SHIPMENTS ── -->
-      <ng-container *ngIf="mode() === 'shipments'">
+      @if (mode() === 'shipments') {
         <!-- Status-chip strip (filtro 1-click + conteo por estado) -->
         <div class="sh-chipbar" role="tablist" aria-label="Filtrar por estado">
-          <button
-            *ngFor="let c of statusChips()"
-            type="button"
-            [class]="'sh-chip ' + c.pillClass + (statusFilter() === c.value ? ' active' : '')"
-            role="tab"
-            [attr.aria-selected]="statusFilter() === c.value"
-            (click)="setStatusFilter(c.value)"
-          >
-            <span class="sh-chip-dot" aria-hidden="true"></span>
-            <span class="sh-chip-label">{{ c.label }}</span>
-            <span class="sh-chip-count">{{ c.count }}</span>
-          </button>
+          @for (c of statusChips(); track c) {
+            <button
+              type="button"
+              [class]="'sh-chip ' + c.pillClass + (statusFilter() === c.value ? ' active' : '')"
+              role="tab"
+              [attr.aria-selected]="statusFilter() === c.value"
+              (click)="setStatusFilter(c.value)"
+              >
+              <span class="sh-chip-dot" aria-hidden="true"></span>
+              <span class="sh-chip-label">{{ c.label }}</span>
+              <span class="sh-chip-count">{{ c.count }}</span>
+            </button>
+          }
         </div>
-
         <!-- Tabla flush -->
         <div class="sheet cols-12">
           <article class="cell cell-span-12 is-flush">
             <p-table [value]="page().items" [loading]="loading()" responsiveLayout="scroll"
-                     styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra"
-                     [paginator]="true" [rows]="page().pageSize" [totalRecords]="page().total" [lazy]="true"
-                     [rowsPerPageOptions]="[25, 50, 100, 200]"
-                     (onLazyLoad)="onPageChange($event)">
+              styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra"
+              [paginator]="true" [rows]="page().pageSize" [totalRecords]="page().total" [lazy]="true"
+              [rowsPerPageOptions]="[25, 50, 100, 200]"
+              (onLazyLoad)="onPageChange($event)">
               <ng-template pTemplate="header">
                 <tr>
                   <th scope="col">Folio</th>
@@ -210,12 +213,12 @@ function severityForStatus(s: ShipmentStatus): Severity {
               </ng-template>
               <ng-template pTemplate="body" let-s>
                 <tr (click)="goDetail(s)"
-                    class="comm-row-clickable"
-                    role="button"
-                    tabindex="0"
-                    [attr.aria-label]="'Ver embarque ' + s.folio"
-                    (keydown.enter)="goDetail(s)"
-                    (keydown.space)="$event.preventDefault(); goDetail(s)">
+                  class="comm-row-clickable"
+                  role="button"
+                  tabindex="0"
+                  [attr.aria-label]="'Ver embarque ' + s.folio"
+                  (keydown.enter)="goDetail(s)"
+                  (keydown.space)="$event.preventDefault(); goDetail(s)">
                   <td><code class="comm-code">{{ s.folio }}</code></td>
                   <td>{{ s.shipment_date | date:'dd MMM' }}</td>
                   <td>{{ typeLabel(s.type) }}</td>
@@ -228,14 +231,22 @@ function severityForStatus(s: ShipmentStatus): Severity {
                     </span>
                   </td>
                   <td class="comm-actions" (click)="$event.stopPropagation()">
-                    <button pButton *ngIf="s.status === 'programado'" icon="pi pi-send" size="small" severity="secondary" [text]="true"
-                            pTooltip="Marcar en ruta" (click)="action(s, 'depart')"></button>
-                    <button pButton *ngIf="s.status === 'en_ruta'" icon="pi pi-check" size="small" severity="secondary" [text]="true"
-                            pTooltip="Marcar entregado" (click)="action(s, 'deliver')"></button>
-                    <button pButton *ngIf="s.status === 'entregado'" icon="pi pi-lock" size="small" severity="secondary" [text]="true"
-                            pTooltip="Cerrar" (click)="action(s, 'close')"></button>
-                    <button pButton *ngIf="s.status === 'programado' || s.status === 'en_ruta'" icon="pi pi-times" size="small" severity="secondary" [text]="true"
-                            pTooltip="Cancelar" (click)="confirmCancel(s)"></button>
+                    @if (s.status === 'programado') {
+                      <button pButton icon="pi pi-send" size="small" severity="secondary" [text]="true"
+                      pTooltip="Marcar en ruta" (click)="action(s, 'depart')"></button>
+                    }
+                    @if (s.status === 'en_ruta') {
+                      <button pButton icon="pi pi-check" size="small" severity="secondary" [text]="true"
+                      pTooltip="Marcar entregado" (click)="action(s, 'deliver')"></button>
+                    }
+                    @if (s.status === 'entregado') {
+                      <button pButton icon="pi pi-lock" size="small" severity="secondary" [text]="true"
+                      pTooltip="Cerrar" (click)="action(s, 'close')"></button>
+                    }
+                    @if (s.status === 'programado' || s.status === 'en_ruta') {
+                      <button pButton icon="pi pi-times" size="small" severity="secondary" [text]="true"
+                      pTooltip="Cancelar" (click)="confirmCancel(s)"></button>
+                    }
                   </td>
                 </tr>
               </ng-template>
@@ -262,15 +273,15 @@ function severityForStatus(s: ShipmentStatus): Severity {
             </p-table>
           </article>
         </div>
-      </ng-container>
-
+      }
+    
       <!-- ── MODE: PENDING ── -->
-      <ng-container *ngIf="mode() === 'pending'">
+      @if (mode() === 'pending') {
         <!-- Tabla pendientes flush -->
         <div class="sheet cols-12">
           <article class="cell cell-span-12 is-flush">
             <p-table [value]="pendingOrders()" [loading]="loadingPending()" responsiveLayout="scroll"
-                     styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--zebra">
+              styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--zebra">
               <ng-template pTemplate="header">
                 <tr>
                   <th scope="col">Folio</th>
@@ -291,7 +302,9 @@ function severityForStatus(s: ShipmentStatus): Severity {
                   </td>
                   <td>
                     <div class="comm-cell-strong">{{ o.customer_name || o.customer_id }}</div>
-                    <div class="comm-muted is-small" *ngIf="o.customer_code">{{ o.customer_code }}</div>
+                    @if (o.customer_code) {
+                      <div class="comm-muted is-small">{{ o.customer_code }}</div>
+                    }
                   </td>
                   <td>{{ o.warehouse_name || '—' }}</td>
                   <td>
@@ -303,7 +316,7 @@ function severityForStatus(s: ShipmentStatus): Severity {
                   <td class="comm-num is-strong">{{ o.total | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
                   <td class="comm-actions">
                     <button pButton icon="pi pi-plus" label="Crear" size="small" severity="primary"
-                            (click)="openCreateForOrder(o)" pTooltip="Crear embarque"></button>
+                    (click)="openCreateForOrder(o)" pTooltip="Crear embarque"></button>
                   </td>
                 </tr>
               </ng-template>
@@ -321,8 +334,8 @@ function severityForStatus(s: ShipmentStatus): Severity {
             </p-table>
           </article>
         </div>
-      </ng-container>
-
+      }
+    
       <!-- J.9.10 — Shipment Form rico -->
       <app-shipment-form-dialog
         [visible]="dialogVisible"
@@ -331,7 +344,7 @@ function severityForStatus(s: ShipmentStatus): Severity {
         (saved)="onShipmentCreated($event)"
       ></app-shipment-form-dialog>
     </div>
-  `,
+    `,
   styles: [`
     :host { display:block; }
 

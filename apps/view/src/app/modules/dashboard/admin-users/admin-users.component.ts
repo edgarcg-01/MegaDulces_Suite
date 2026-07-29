@@ -7,7 +7,7 @@ import {
   inject,
   signal,
 } from '@angular/core';
-import { CommonModule } from '@angular/common';
+
 import { Router } from '@angular/router';
 import {
   FormBuilder,
@@ -22,9 +22,9 @@ import { TagModule } from 'primeng/tag';
 import { DialogModule } from 'primeng/dialog';
 import { InputTextModule } from 'primeng/inputtext';
 import { SelectModule } from 'primeng/select';
-import { InputSwitchModule } from 'primeng/inputswitch';
+import { ToggleSwitchModule } from 'primeng/toggleswitch';
 import { ToastModule } from 'primeng/toast';
-import { MessageService, ConfirmationService } from 'primeng/api';
+import { MessageService, ConfirmationService, SharedModule } from 'primeng/api';
 import { ConfirmDialogModule } from 'primeng/confirmdialog';
 import { IconFieldModule } from 'primeng/iconfield';
 import { InputIconModule } from 'primeng/inputicon';
@@ -68,7 +68,6 @@ interface ZoneOption {
   selector: 'app-admin-users',
   standalone: true,
   imports: [
-    CommonModule,
     ReactiveFormsModule,
     TableModule,
     ButtonModule,
@@ -76,13 +75,14 @@ interface ZoneOption {
     DialogModule,
     InputTextModule,
     SelectModule,
-    InputSwitchModule,
+    ToggleSwitchModule,
     ToastModule,
     ConfirmDialogModule,
     IconFieldModule,
     InputIconModule,
     FormsModule,
-  ],
+    SharedModule
+],
   providers: [MessageService, ConfirmationService],
   templateUrl: './admin-users.component.html',
   styleUrls: ['./admin-users.component.css'],

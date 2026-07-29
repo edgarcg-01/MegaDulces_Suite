@@ -7,7 +7,7 @@ import {
   inject,
   signal,
 } from '@angular/core';
-import { CommonModule } from '@angular/common';
+
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, RouterModule } from '@angular/router';
 import { ButtonModule } from 'primeng/button';
@@ -34,7 +34,7 @@ const STATUS_META: Record<TrackerStatus, { label: string; sev: Sev; color: strin
 @Component({
   selector: 'app-logistica-rastreo',
   standalone: true,
-  imports: [CommonModule, FormsModule, RouterModule, ButtonModule, TagModule, TooltipModule, MapComponent],
+  imports: [FormsModule, RouterModule, ButtonModule, TagModule, TooltipModule, MapComponent],
   template: `
     <div class="surf-page">
       <header class="surf-page-head">
@@ -49,30 +49,36 @@ const STATUS_META: Record<TrackerStatus, { label: string; sev: Sev; color: strin
         </div>
         <div class="rk-actions">
           <button pButton icon="pi pi-link" label="Vincular por placa" severity="secondary" size="small" [text]="true"
-                  [loading]="bootstrapping()" (click)="bootstrap()" aria-label="Crear y vincular vehículos por placa"
-                  pTooltip="Crea vehículos desde los nombres del GPS y los vincula por placa"></button>
+            [loading]="bootstrapping()" (click)="bootstrap()" aria-label="Crear y vincular vehículos por placa"
+          pTooltip="Crea vehículos desde los nombres del GPS y los vincula por placa"></button>
           <button pButton icon="pi pi-sync" label="Sincronizar" severity="secondary" size="small"
-                  [loading]="syncing()" (click)="syncNow()" aria-label="Forzar sincronización con el proveedor"></button>
+          [loading]="syncing()" (click)="syncNow()" aria-label="Forzar sincronización con el proveedor"></button>
           <button pButton icon="pi pi-refresh" label="Actualizar" [text]="true" size="small"
-                  [loading]="loading()" (click)="refresh()" aria-label="Refrescar posiciones"></button>
+          [loading]="loading()" (click)="refresh()" aria-label="Refrescar posiciones"></button>
         </div>
       </header>
-
+    
       <!-- Alertas persistidas (scanner server-side: sin señal / exceso de velocidad) -->
-      <div class="sheet cols-12" *ngIf="alerts().length">
-        <article class="cell cell-span-12 rk-alerts">
-          <div class="rk-alert" *ngFor="let a of alerts(); trackBy: trackAlert" [class.ackd]="a.status === 'ack'">
-            <button type="button" class="rk-alert-main" (click)="select(a.tracker_id)">
-              <p-tag [value]="alertLabel(a.kind)" [severity]="a.severity" [rounded]="true"></p-tag>
-              <span class="rk-alert-detail">{{ a.external_name || a.route_code || '—' }} · {{ a.message }}</span>
-            </button>
-            <button pButton icon="pi pi-check" [text]="true" size="small" severity="secondary"
-                    *ngIf="a.status !== 'ack'" (click)="ackAlert(a.id)"
-                    pTooltip="Reconocer" aria-label="Reconocer alerta"></button>
-          </div>
-        </article>
-      </div>
-
+      @if (alerts().length) {
+        <div class="sheet cols-12">
+          <article class="cell cell-span-12 rk-alerts">
+            @for (a of alerts(); track trackAlert($index, a)) {
+              <div class="rk-alert" [class.ackd]="a.status === 'ack'">
+                <button type="button" class="rk-alert-main" (click)="select(a.tracker_id)">
+                  <p-tag [value]="alertLabel(a.kind)" [severity]="a.severity" [rounded]="true"></p-tag>
+                  <span class="rk-alert-detail">{{ a.external_name || a.route_code || '—' }} · {{ a.message }}</span>
+                </button>
+                @if (a.status !== 'ack') {
+                  <button pButton icon="pi pi-check" [text]="true" size="small" severity="secondary"
+                    (click)="ackAlert(a.id)"
+                  pTooltip="Reconocer" aria-label="Reconocer alerta"></button>
+                }
+              </div>
+            }
+          </article>
+        </div>
+      }
+    
       <!-- KPIs -->
       <div class="sheet cols-12 rk-kpis">
         <article class="cell cell-span-3 rk-kpi">
@@ -92,110 +98,125 @@ const STATUS_META: Record<TrackerStatus, { label: string; sev: Sev; color: strin
           <span class="rk-kpi-l">Vinculados</span>
         </article>
       </div>
-
+    
       <!-- Mapa -->
       <div class="sheet cols-12">
         <article class="cell cell-span-12 is-flush">
           <app-map #map [markers]="markers()" [path]="trailPath()" autoFit="once"
-                   height="480px" (markerClick)="select($event.id)"></app-map>
+          height="480px" (markerClick)="select($event.id)"></app-map>
         </article>
       </div>
-
+    
       <!-- Master-detail -->
-      <div class="sheet cols-12" *ngIf="units().length; else empty">
-        <article class="cell cell-span-7 is-flush">
-          <div class="rk-list" role="list">
-            <button type="button" class="rk-row" role="listitem"
-                    *ngFor="let u of units(); trackBy: trackById"
-                    [class.sel]="u.id === selectedId()" (click)="select(u.id)">
-              <span class="rk-status-dot" [style.background]="statusColor(u)"></span>
-              <div class="rk-row-main">
-                <span class="rk-row-name">{{ displayName(u) }}</span>
-                <span class="rk-row-sub">
-                  <span *ngIf="fleet === 'route' && u.route_number != null" class="comm-code">R-{{ u.route_number }}</span>
-                  <span *ngIf="fleet === 'route' && u.vendor_name">{{ u.vendor_name }} ·</span>
-                  <span>{{ statusMeta(u).label }}</span>
-                  <span *ngIf="u.last_speed_kmh">· {{ u.last_speed_kmh }} km/h</span>
-                </span>
-              </div>
-              <span class="rk-ago">{{ ago(u.last_seen_at) }}</span>
-            </button>
-          </div>
-        </article>
-
-        <article class="cell cell-span-5" *ngIf="selected() as s; else pickHint">
-          <div class="rk-detail-head">
-            <p-tag [value]="statusMeta(s).label" [severity]="statusMeta(s).sev" [rounded]="true"></p-tag>
-            <h3>{{ displayName(s) }}</h3>
-          </div>
-          <dl class="rk-kv">
-            <div *ngIf="fleet === 'route'"><dt>Ruta</dt><dd>{{ routeLabel(s) }}</dd></div>
-            <div *ngIf="fleet === 'route'"><dt>Vendedor</dt><dd>{{ s.vendor_name || '—' }}</dd></div>
-            <div><dt>Velocidad</dt><dd class="num">{{ s.last_speed_kmh ?? 0 }} km/h</dd></div>
-            <div><dt>Encendido</dt><dd>{{ s.last_ignition === null ? '—' : (s.last_ignition ? 'Sí' : 'No') }}</dd></div>
-            <div><dt>Último reporte</dt><dd>{{ ago(s.last_seen_at) }}</dd></div>
-            <div><dt>Protocolo</dt><dd>{{ s.protocol || '—' }}</dd></div>
-            <div><dt>Coordenadas</dt><dd class="num">{{ s.last_lat }}, {{ s.last_lng }}</dd></div>
-            <div><dt>Estado (proveedor)</dt><dd>{{ s.last_status_text || '—' }}</dd></div>
-          </dl>
-
-          <div class="rk-link">
-            <label [attr.for]="'veh-' + s.id">Vehículo vinculado</label>
-            <select [id]="'veh-' + s.id" [ngModel]="s.vehicle_id || ''" (ngModelChange)="link(s, $event)">
-              <option value="">— Sin vincular —</option>
-              <option *ngFor="let v of vehicles()" [value]="v.id">{{ v.plate }}{{ v.brand ? ' · ' + v.brand : '' }}</option>
-            </select>
-          </div>
-
-          <div class="rk-link" *ngIf="fleet === 'route'">
-            <label [attr.for]="'rt-' + s.id">Ruta (número)</label>
-            <input [id]="'rt-' + s.id" type="number" min="0" max="999" inputmode="numeric"
-                   placeholder="ej. 21 — vacío = automático del GPS"
-                   [ngModel]="s.route_number" (ngModelChange)="setRoute(s, $event)" />
-            <small class="rk-hint">{{ s.route_number != null ? 'Ruta ' + s.route_number : 'Sin ruta' }}{{ s.vendor_name ? ' · ' + s.vendor_name : '' }}</small>
-          </div>
-
-          <div class="rk-detail-actions">
-            <button pButton size="small" [severity]="showTrail() ? 'primary' : 'secondary'"
-                    [icon]="loadingTrail() ? 'pi pi-spin pi-spinner' : 'pi pi-directions'"
-                    [label]="showTrail() ? 'Ocultar recorrido' : 'Ver recorrido de hoy'"
-                    (click)="toggleTrail(s)"></button>
-            <a *ngIf="fleet === 'route'" pButton size="small" severity="secondary" [text]="true"
-               icon="pi pi-check-circle" label="Cumplimiento de ruta"
-               routerLink="/dashboard/route-compliance"></a>
-          </div>
-        </article>
-
-        <ng-template #pickHint>
-          <article class="cell cell-span-5">
-            <div class="rk-pick"><i class="pi pi-map-marker" aria-hidden="true"></i>
-              <p>Seleccioná una unidad de la lista o del mapa para ver su detalle y recorrido.</p>
+      @if (units().length) {
+        <div class="sheet cols-12">
+          <article class="cell cell-span-7 is-flush">
+            <div class="rk-list" role="list">
+              @for (u of units(); track trackById($index, u)) {
+                <button type="button" class="rk-row" role="listitem"
+                  [class.sel]="u.id === selectedId()" (click)="select(u.id)">
+                  <span class="rk-status-dot" [style.background]="statusColor(u)"></span>
+                  <div class="rk-row-main">
+                    <span class="rk-row-name">{{ displayName(u) }}</span>
+                    <span class="rk-row-sub">
+                      @if (fleet === 'route' && u.route_number != null) {
+                        <span class="comm-code">R-{{ u.route_number }}</span>
+                      }
+                      @if (fleet === 'route' && u.vendor_name) {
+                        <span>{{ u.vendor_name }} ·</span>
+                      }
+                      <span>{{ statusMeta(u).label }}</span>
+                      @if (u.last_speed_kmh) {
+                        <span>· {{ u.last_speed_kmh }} km/h</span>
+                      }
+                    </span>
+                  </div>
+                  <span class="rk-ago">{{ ago(u.last_seen_at) }}</span>
+                </button>
+              }
             </div>
           </article>
-        </ng-template>
-      </div>
-
-      <ng-template #empty>
+          @if (selected(); as s) {
+            <article class="cell cell-span-5">
+              <div class="rk-detail-head">
+                <p-tag [value]="statusMeta(s).label" [severity]="statusMeta(s).sev" [rounded]="true"></p-tag>
+                <h3>{{ displayName(s) }}</h3>
+              </div>
+              <dl class="rk-kv">
+                @if (fleet === 'route') {
+                  <div><dt>Ruta</dt><dd>{{ routeLabel(s) }}</dd></div>
+                }
+                @if (fleet === 'route') {
+                  <div><dt>Vendedor</dt><dd>{{ s.vendor_name || '—' }}</dd></div>
+                }
+                <div><dt>Velocidad</dt><dd class="num">{{ s.last_speed_kmh ?? 0 }} km/h</dd></div>
+                <div><dt>Encendido</dt><dd>{{ s.last_ignition === null ? '—' : (s.last_ignition ? 'Sí' : 'No') }}</dd></div>
+                <div><dt>Último reporte</dt><dd>{{ ago(s.last_seen_at) }}</dd></div>
+                <div><dt>Protocolo</dt><dd>{{ s.protocol || '—' }}</dd></div>
+                <div><dt>Coordenadas</dt><dd class="num">{{ s.last_lat }}, {{ s.last_lng }}</dd></div>
+                <div><dt>Estado (proveedor)</dt><dd>{{ s.last_status_text || '—' }}</dd></div>
+              </dl>
+              <div class="rk-link">
+                <label [attr.for]="'veh-' + s.id">Vehículo vinculado</label>
+                <select [id]="'veh-' + s.id" [ngModel]="s.vehicle_id || ''" (ngModelChange)="link(s, $event)">
+                  <option value="">— Sin vincular —</option>
+                  @for (v of vehicles(); track v) {
+                    <option [value]="v.id">{{ v.plate }}{{ v.brand ? ' · ' + v.brand : '' }}</option>
+                  }
+                </select>
+              </div>
+              @if (fleet === 'route') {
+                <div class="rk-link">
+                  <label [attr.for]="'rt-' + s.id">Ruta (número)</label>
+                  <input [id]="'rt-' + s.id" type="number" min="0" max="999" inputmode="numeric"
+                    placeholder="ej. 21 — vacío = automático del GPS"
+                    [ngModel]="s.route_number" (ngModelChange)="setRoute(s, $event)" />
+                    <small class="rk-hint">{{ s.route_number != null ? 'Ruta ' + s.route_number : 'Sin ruta' }}{{ s.vendor_name ? ' · ' + s.vendor_name : '' }}</small>
+                  </div>
+                }
+                <div class="rk-detail-actions">
+                  <button pButton size="small" [severity]="showTrail() ? 'primary' : 'secondary'"
+                    [icon]="loadingTrail() ? 'pi pi-spin pi-spinner' : 'pi pi-directions'"
+                    [label]="showTrail() ? 'Ocultar recorrido' : 'Ver recorrido de hoy'"
+                  (click)="toggleTrail(s)"></button>
+                  @if (fleet === 'route') {
+                    <a pButton size="small" severity="secondary" [text]="true"
+                      icon="pi pi-check-circle" label="Cumplimiento de ruta"
+                    routerLink="/dashboard/route-compliance"></a>
+                  }
+                </div>
+              </article>
+            } @else {
+              <article class="cell cell-span-5">
+                <div class="rk-pick"><i class="pi pi-map-marker" aria-hidden="true"></i>
+                <p>Seleccioná una unidad de la lista o del mapa para ver su detalle y recorrido.</p>
+              </div>
+            </article>
+          }
+        </div>
+      } @else {
         <div class="sheet cols-12">
           <article class="cell cell-span-12">
-            <div class="rk-empty" *ngIf="!errored(); else errBox">
-              <div class="rk-empty-icon"><i class="pi pi-truck" aria-hidden="true"></i></div>
-              <h3>Sin unidades</h3>
-              <p>Cuando el proveedor reporte dispositivos aparecerán aquí. Probá <b>Sincronizar</b>.</p>
-            </div>
-            <ng-template #errBox>
+            @if (!errored()) {
+              <div class="rk-empty">
+                <div class="rk-empty-icon"><i class="pi pi-truck" aria-hidden="true"></i></div>
+                <h3>Sin unidades</h3>
+                <p>Cuando el proveedor reporte dispositivos aparecerán aquí. Probá <b>Sincronizar</b>.</p>
+              </div>
+            } @else {
               <div class="rk-empty">
                 <div class="rk-empty-icon"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i></div>
                 <h3>No se pudo cargar el rastreo</h3>
                 <p>Revisá tu conexión y reintentá.</p>
                 <button pButton size="small" label="Reintentar" (click)="refresh()"></button>
               </div>
-            </ng-template>
+            }
           </article>
         </div>
-      </ng-template>
+      }
+    
     </div>
-  `,
+    `,
   styles: [`
     :host { display:block; }
     .rk-eyebrow { display:inline-flex; align-items:center; gap:.35rem; font-size:var(--fs-micro); font-weight:var(--fw-bold); text-transform:uppercase; letter-spacing:.08em; color:var(--c-text-2); margin-bottom:.35rem; }

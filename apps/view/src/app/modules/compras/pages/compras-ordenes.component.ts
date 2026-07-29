@@ -38,7 +38,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
       <p-table [value]="rows()" [loading]="loading()" [scrollable]="true" scrollHeight="flex"
                [paginator]="true" [rows]="pageSize" [totalRecords]="total()" [lazy]="true" (onLazyLoad)="onPage($event)"
                styleClass="p-datatable-sm oc-table" [rowsPerPageOptions]="[50, 100, 200]"
-               [rowHover]="true" (onRowSelect)="open($event.data)" selectionMode="single">
+               [rowHover]="true" (onRowSelect)="open($any($event.data))" selectionMode="single">
         <ng-template pTemplate="header">
           <tr>
             <th>Folio</th><th>Estado</th><th>Origen</th><th>Proveedor / origen</th><th>Almacén</th>
