@@ -75,7 +75,7 @@ export class TenantContextInterceptor implements NestInterceptor {
         username: payload.username,
         roleName: payload.role_name,
       };
-      this.logger.log(`[${reqId}] ${method} ${url} → CLS only (skipTx) tenant=${tenantId}`);
+      this.logger.debug(`[${reqId}] ${method} ${url} → CLS only (skipTx) tenant=${tenantId}`);
       return from(this.tenantCtx.run(ctx, () => firstValueFrom(next.handle())));
     }
 
@@ -83,11 +83,11 @@ export class TenantContextInterceptor implements NestInterceptor {
     // Nest sabe consumir.
     const handlerPromise = (async () => {
       const t0 = Date.now();
-      this.logger.log(`[${reqId}] ${method} ${url} → BEGIN tx tenant=${tenantId}`);
+      this.logger.debug(`[${reqId}] ${method} ${url} → BEGIN tx tenant=${tenantId}`);
       try {
         const result = await this.legacyRawKnex.transaction(async (tx) => {
           await tx.raw(`SELECT set_config('app.tenant_id', ?, true)`, [tenantId]);
-          this.logger.log(`[${reqId}] set_config OK (+${Date.now() - t0}ms), invocando handler`);
+          this.logger.debug(`[${reqId}] set_config OK (+${Date.now() - t0}ms), invocando handler`);
           const value = await this.tenantCtx.run(
             {
               tenantId,
@@ -100,10 +100,10 @@ export class TenantContextInterceptor implements NestInterceptor {
                 firstValueFrom(next.handle()),
               ),
           );
-          this.logger.log(`[${reqId}] handler resolved (+${Date.now() - t0}ms), pre-COMMIT`);
+          this.logger.debug(`[${reqId}] handler resolved (+${Date.now() - t0}ms), pre-COMMIT`);
           return value;
         });
-        this.logger.log(`[${reqId}] tx COMMITTED (+${Date.now() - t0}ms), returning to Nest`);
+        this.logger.debug(`[${reqId}] tx COMMITTED (+${Date.now() - t0}ms), returning to Nest`);
         return result;
       } catch (err: any) {
         this.logger.error(`[${reqId}] tx failed (+${Date.now() - t0}ms): ${err?.message ?? err}`);
