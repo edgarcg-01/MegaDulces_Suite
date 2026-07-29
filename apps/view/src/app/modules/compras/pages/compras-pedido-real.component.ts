@@ -120,9 +120,7 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
               <button type="button" class="pr-chip" (click)="collapseAll()">Colapsar todo</button>
             </div>
           }
-          <p-table [value]="flatRows()" [loading]="loading()"
-                   rowGroupMode="subheader" groupRowsBy="warehouse_code"
-                   [expandableRowGroups]="true" [(expandedRowGroups)]="expandedGroups" dataKey="warehouse_code"
+          <p-table [value]="displayRows()" [loading]="loading()"
                    styleClass="p-datatable-sm pr-table" [tableStyle]="tableStyle">
             <ng-template pTemplate="header">
               <tr>
