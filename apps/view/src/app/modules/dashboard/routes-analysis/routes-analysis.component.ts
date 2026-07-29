@@ -607,7 +607,7 @@ interface RouteTrack {
             <p-table [value]="filteredVisits()" [loading]="loadingDetail()"
               styleClass="p-datatable-sm"
               sortField="hora_inicio" [sortOrder]="1">
-              <ng-template pTemplate="header">
+              <ng-template #header>
                 <tr>
                   <th style="width:2.5rem">#</th>
                   <th>Tienda</th>
@@ -619,7 +619,7 @@ interface RouteTrack {
                   <th pSortableColumn="score" style="text-align:right">Score <p-sorticon field="score"></p-sorticon></th>
                 </tr>
               </ng-template>
-              <ng-template pTemplate="body" let-v let-i="rowIndex">
+              <ng-template #body let-v let-i="rowIndex">
                 <tr>
                   <td class="comm-muted" style="font-size:0.75rem">{{ i + 1 }}</td>
                   <td>
@@ -649,7 +649,7 @@ interface RouteTrack {
                   </td>
                 </tr>
               </ng-template>
-              <ng-template pTemplate="emptymessage">
+              <ng-template #emptymessage>
                 <tr><td colspan="8" class="ru-table-empty">
                   @if (stores().length > 0) { 0 visitas — {{ stores().length }} tiendas asignadas aparecen abajo. }
                   @else { Sin visitas en este rango. }
@@ -668,14 +668,14 @@ interface RouteTrack {
           <div class="surf-panel-body is-flush ru-table-scroll">
             <p-table [value]="stores()" [loading]="loadingDetail()"
               styleClass="p-datatable-sm">
-              <ng-template pTemplate="header">
+              <ng-template #header>
                 <tr>
                   <th>Tienda</th>
                   <th>Zona</th>
                   <th style="width:7rem">Estado</th>
                 </tr>
               </ng-template>
-              <ng-template pTemplate="body" let-s>
+              <ng-template #body let-s>
                 <tr>
                   <td>
                     <a [routerLink]="['/dashboard/stores']" [queryParams]="{ q: s.nombre }"
@@ -688,7 +688,7 @@ interface RouteTrack {
                   </td>
                 </tr>
               </ng-template>
-              <ng-template pTemplate="emptymessage">
+              <ng-template #emptymessage>
                 <tr><td colspan="3" class="ru-table-empty">
                   @if (visits().length > 0) { Visitas sin maestro de tiendas — revisar asignación de la ruta. }
                   @else { Esta ruta no tiene tiendas asignadas. }

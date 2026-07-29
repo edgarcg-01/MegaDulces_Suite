@@ -95,7 +95,7 @@ interface BrandOpt { id: string; nombre: string; products: number; }
         <article class="cell cell-span-12 is-flush">
           <p-table [value]="directives()" [loading]="loading()" responsiveLayout="scroll"
                    styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--frozen-first">
-            <ng-template pTemplate="header">
+            <ng-template #header>
               <tr>
                 <th scope="col">Target</th>
                 <th scope="col">Razón</th>
@@ -106,7 +106,7 @@ interface BrandOpt { id: string; nombre: string; products: number; }
                 <th scope="col"><span class="sr-only">Acciones</span></th>
               </tr>
             </ng-template>
-            <ng-template pTemplate="body" let-d>
+            <ng-template #body let-d>
               <tr [class.td-off]="!d.active">
                 <td>
                   <span class="comm-cell-strong">{{ d.target_name || '—' }}</span>
@@ -132,7 +132,7 @@ interface BrandOpt { id: string; nombre: string; products: number; }
                 </td>
               </tr>
             </ng-template>
-            <ng-template pTemplate="emptymessage">
+            <ng-template #emptymessage>
               <tr>
                 <td colspan="7" class="comm-empty-cell">
                   <div class="comm-empty">
@@ -167,7 +167,7 @@ interface BrandOpt { id: string; nombre: string; products: number; }
                           (onClear)="selectedBrand.set(null)" field="nombre" [delay]="250"
                           [forceSelection]="true" placeholder="Buscar marca…" appendTo="body"
                           styleClass="td-w-full">
-            <ng-template let-b pTemplate="item">
+            <ng-template let-b #item>
               <div class="td-ac-item"><span>{{ b.nombre }}</span><small>{{ b.products }} prod.</small></div>
             </ng-template>
           </p-autocomplete>
@@ -204,7 +204,7 @@ interface BrandOpt { id: string; nombre: string; products: number; }
           </label>
         </div>
       </div>
-      <ng-template pTemplate="footer">
+      <ng-template #footer>
         <button pButton label="Cancelar" severity="secondary" [outlined]="true" (click)="dialogVisible = false"></button>
         <button pButton label="Crear directriz" icon="pi pi-check" [loading]="creating()"
                 [disabled]="!canCreate()" (click)="create()"></button>

@@ -63,7 +63,7 @@ import { ComprasService, SupplierParam, SupplierOrder, SupplierOrderParamsDto, R
       <p-table [value]="rows()" [loading]="loading()" [scrollable]="true" scrollHeight="flex"
                [paginator]="true" [rows]="50" [rowsPerPageOptions]="[50, 100, 200]"
                styleClass="p-datatable-sm cp-table">
-        <ng-template pTemplate="header">
+        <ng-template #header>
           <tr>
             <th>Proveedor</th>
             <th class="cp-r">Prod.</th>
@@ -77,7 +77,7 @@ import { ComprasService, SupplierParam, SupplierOrder, SupplierOrderParamsDto, R
             <th style="width:2rem"></th>
           </tr>
         </ng-template>
-        <ng-template pTemplate="body" let-r>
+        <ng-template #body let-r>
           <tr>
             <td>{{ r.name }}</td>
             <td class="cp-r cp-muted">{{ r.product_count | number }}</td>
@@ -95,7 +95,7 @@ import { ComprasService, SupplierParam, SupplierOrder, SupplierOrderParamsDto, R
             <td class="cp-r">@if (savedId() === r.id) { <i class="pi pi-check cp-ok"></i> }</td>
           </tr>
         </ng-template>
-        <ng-template pTemplate="emptymessage">
+        <ng-template #emptymessage>
           <tr><td colspan="10" class="cp-empty">Sin proveedores.</td></tr>
         </ng-template>
       </p-table>

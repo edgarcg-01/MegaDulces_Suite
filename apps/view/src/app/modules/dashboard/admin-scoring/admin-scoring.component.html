@@ -100,7 +100,7 @@
       <input pInputText [(ngModel)]="newKeyName" />
     </div>
   </div>
-  <ng-template pTemplate="footer">
+  <ng-template #footer>
     <p-button label="Cancelar" [text]="true" severity="secondary" (onClick)="showAddKeyDialog = false"></p-button>
     <p-button label="Agregar" styleClass="p-button-brand" (onClick)="addKey()"></p-button>
   </ng-template>

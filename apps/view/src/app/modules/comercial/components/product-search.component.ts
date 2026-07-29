@@ -36,7 +36,7 @@ export interface ProductHit { id: string; label: string; sku: string | null; bra
       [placeholder]="placeholder"
       appendTo="body"
     >
-      <ng-template let-p pTemplate="item">
+      <ng-template let-p #item>
         <div class="ps-item">
           <span class="ps-name">{{ p.label }}</span>
           <span class="ps-meta">
@@ -45,7 +45,7 @@ export interface ProductHit { id: string; label: string; sku: string | null; bra
           </span>
         </div>
       </ng-template>
-      <ng-template pTemplate="empty"><div class="ps-empty">Sin coincidencias</div></ng-template>
+      <ng-template #empty><div class="ps-empty">Sin coincidencias</div></ng-template>
     </p-autocomplete>
   `,
   styles: [`

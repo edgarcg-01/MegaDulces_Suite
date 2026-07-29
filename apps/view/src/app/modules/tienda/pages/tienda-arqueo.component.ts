@@ -71,10 +71,10 @@ import { HasUnsavedChanges } from '../../../core/guards/unsaved-changes.guard';
           </div>
 
           <p-table [value]="denoms" styleClass="p-datatable-sm arq-denoms-tbl">
-            <ng-template pTemplate="header">
+            <ng-template #header>
               <tr><th>Denominación</th><th class="ta-r">Cantidad</th><th class="ta-r">Subtotal</th></tr>
             </ng-template>
-            <ng-template pTemplate="body" let-d>
+            <ng-template #body let-d>
               <tr>
                 <td class="arq-denom-lbl">{{ d >= 1 ? '$' + d : (d*100) + '¢' }}</td>
                 <td class="ta-r">
@@ -84,7 +84,7 @@ import { HasUnsavedChanges } from '../../../core/guards/unsaved-changes.guard';
                 <td class="ta-r muted">{{ money((denomCount[d] || 0) * d) }}</td>
               </tr>
             </ng-template>
-            <ng-template pTemplate="footer">
+            <ng-template #footer>
               <tr class="arq-total-row"><td>Total contado</td><td></td><td class="ta-r strong">{{ money(arqTotal()) }}</td></tr>
             </ng-template>
           </p-table>
@@ -114,8 +114,8 @@ import { HasUnsavedChanges } from '../../../core/guards/unsaved-changes.guard';
         <div class="card-premium card-flat arq-panel">
           <h3 class="arq-card-title">Arqueos recientes</h3>
           <p-table [value]="rows()" styleClass="p-datatable-sm arq-table" [rowHover]="true" [loading]="loading()">
-            <ng-template pTemplate="header"><tr><th>Fecha</th><th>Tipo</th><th>Caja</th><th>Cajero</th><th class="ta-r">Contado</th><th class="ta-r">Diferencia</th></tr></ng-template>
-            <ng-template pTemplate="body" let-b>
+            <ng-template #header><tr><th>Fecha</th><th>Tipo</th><th>Caja</th><th>Cajero</th><th class="ta-r">Contado</th><th class="ta-r">Diferencia</th></tr></ng-template>
+            <ng-template #body let-b>
               <tr>
                 <td>{{ b.business_date | date:'dd/MM/yy' }}</td>
                 <td><p-tag [value]="b.tipo === 'relevo' ? 'Relevo' : 'Cierre'" [severity]="b.tipo === 'relevo' ? 'info' : 'secondary'" /></td>
@@ -125,7 +125,7 @@ import { HasUnsavedChanges } from '../../../core/guards/unsaved-changes.guard';
                 <td class="ta-r strong" [class.bad]="(b.diff_real||0)>0" [class.ok]="(b.diff_real||0)<0">{{ b.diff_real != null ? signed(b.diff_real) : '—' }}</td>
               </tr>
             </ng-template>
-            <ng-template pTemplate="emptymessage"><tr><td colspan="6" class="arq-empty">Sin arqueos aún. Capturá el primero a la izquierda.</td></tr></ng-template>
+            <ng-template #emptymessage><tr><td colspan="6" class="arq-empty">Sin arqueos aún. Capturá el primero a la izquierda.</td></tr></ng-template>
           </p-table>
         </div>
       </div>

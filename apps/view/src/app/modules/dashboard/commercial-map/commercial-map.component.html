@@ -47,7 +47,7 @@
         appendTo="body"
         ariaLabel="Buscar producto"
       >
-        <ng-template let-p pTemplate="item">
+        <ng-template let-p #item>
           <div class="cm-ac-item">
             <span class="cm-ac-name">{{ p.nombre }}</span>
             @if (p.brand_name) { <span class="cm-ac-brand">{{ p.brand_name }}</span> }

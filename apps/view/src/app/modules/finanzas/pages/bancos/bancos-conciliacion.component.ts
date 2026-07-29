@@ -102,13 +102,13 @@ import { amtPct, cuadra, money0, dmy, groupLabel } from './bancos-shared';
               <app-context-help topic="bancos_retiros_sin_casar" /></h3>
             <p-table [value]="df.bank_unmatched" styleClass="p-datatable-sm" [rowHover]="true" [scrollable]="true" scrollHeight="40vh"
                      [paginator]="df.bank_unmatched.length > 25" [rows]="25" [rowsPerPageOptions]="[25, 50, 100]">
-              <ng-template pTemplate="header"><tr><th class="col-w6">Fecha</th><th>Concepto</th><th>Categoría</th><th class="ta-r">Monto</th></tr></ng-template>
-              <ng-template pTemplate="body" let-r>
+              <ng-template #header><tr><th class="col-w6">Fecha</th><th>Concepto</th><th>Categoría</th><th class="ta-r">Monto</th></tr></ng-template>
+              <ng-template #body let-r>
                 <tr class="fb-row-click" (click)="openBank(r)" tabindex="0" role="button" (keyup.enter)="openBank(r)">
                   <td class="mono">{{ dm(r.movement_date) }}</td><td class="fb-concept" [title]="r.concept">{{ r.concept || '—' }}</td>
                   <td class="muted">{{ r.category_name || 'sin clasificar' }}</td><td class="ta-r mono">{{ r.amount_out | currency:'MXN':'symbol-narrow':'1.0-0' }}</td></tr>
               </ng-template>
-              <ng-template pTemplate="emptymessage"><tr><td colspan="4"><div class="surf-empty"><i class="pi pi-check-circle"></i><p>Todo conciliado.</p></div></td></tr></ng-template>
+              <ng-template #emptymessage><tr><td colspan="4"><div class="surf-empty"><i class="pi pi-check-circle"></i><p>Todo conciliado.</p></div></td></tr></ng-template>
             </p-table>
           </div>
           <div class="card-premium card-flat fb-tablewrap">
@@ -117,13 +117,13 @@ import { amtPct, cuadra, money0, dmy, groupLabel } from './bancos-shared';
               <app-context-help topic="bancos_kepler_sin_casar" /></h3>
             <p-table [value]="df.kepler_unmatched" styleClass="p-datatable-sm" [rowHover]="true" [scrollable]="true" scrollHeight="40vh"
                      [paginator]="df.kepler_unmatched.length > 25" [rows]="25" [rowsPerPageOptions]="[25, 50, 100]">
-              <ng-template pTemplate="header"><tr><th class="col-w6">Fecha</th><th>Beneficiario</th><th class="col-w5">Doc</th><th class="ta-r">Monto</th></tr></ng-template>
-              <ng-template pTemplate="body" let-r>
+              <ng-template #header><tr><th class="col-w6">Fecha</th><th>Beneficiario</th><th class="col-w5">Doc</th><th class="ta-r">Monto</th></tr></ng-template>
+              <ng-template #body let-r>
                 <tr class="fb-row-click" (click)="openKepler(r)" tabindex="0" role="button" (keyup.enter)="openKepler(r)">
                   <td class="mono">{{ dm(r.fecha) }}</td><td class="fb-concept" [title]="r.contraparte">{{ r.contraparte || '—' }}</td>
                   <td class="mono muted">{{ r.doc_tipo }} {{ r.folio }}</td><td class="ta-r mono">{{ r.importe | currency:'MXN':'symbol-narrow':'1.0-0' }}</td></tr>
               </ng-template>
-              <ng-template pTemplate="emptymessage"><tr><td colspan="4"><div class="surf-empty"><i class="pi pi-check-circle"></i><p>Todo conciliado.</p></div></td></tr></ng-template>
+              <ng-template #emptymessage><tr><td colspan="4"><div class="surf-empty"><i class="pi pi-check-circle"></i><p>Todo conciliado.</p></div></td></tr></ng-template>
             </p-table>
           </div>
         </div>

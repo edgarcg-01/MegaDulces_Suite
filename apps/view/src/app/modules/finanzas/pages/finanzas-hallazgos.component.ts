@@ -84,10 +84,10 @@ import { ActionsService, ProposedAction } from '../actions.service';
         <div class="card-premium card-flat fh-rules">
           <h3 class="fh-card-title">Salud de las reglas <span class="muted">(precisión = confirmados / veredictos)</span></h3>
           <p-table [value]="rules()" styleClass="p-datatable-sm" [rowHover]="true">
-            <ng-template pTemplate="header">
+            <ng-template #header>
               <tr><th>Regla</th><th>Clase</th><th class="ta-r">Hallazgos</th><th class="ta-r">✓ / ✗</th><th class="ta-r">Precisión</th><th>Estado</th><th style="width:5rem"></th></tr>
             </ng-template>
-            <ng-template pTemplate="body" let-r>
+            <ng-template #body let-r>
               <tr [class.fh-suppressed]="r.suppressed_auto">
                 <td>{{ r.nombre }}</td>
                 <td><span class="fh-tag" [ngClass]="'cls-' + r.clase">{{ claseLabel(r.clase) }}</span></td>
@@ -129,10 +129,10 @@ import { ActionsService, ProposedAction } from '../actions.service';
       <div class="card-premium card-flat">
         <p-table [value]="findings()" styleClass="p-datatable-sm fh-table" [rowHover]="true" [loading]="loading()"
                  dataKey="id" [expandedRowKeys]="expanded()" [scrollable]="true" scrollHeight="560px" [paginator]="findings().length > 50" [rows]="50">
-          <ng-template pTemplate="header">
+          <ng-template #header>
             <tr><th style="width:2.5rem"></th><th style="width:6rem">Severidad</th><th>Hallazgo</th><th style="width:8rem">Clase</th><th class="ta-r" style="width:9rem">Importe</th><th style="width:13rem">Acciones</th></tr>
           </ng-template>
-          <ng-template pTemplate="body" let-f let-expanded="expanded">
+          <ng-template #body let-f let-expanded="expanded">
             <tr>
               <td><p-button pButton type="button" [icon]="expanded ? 'pi pi-chevron-down' : 'pi pi-chevron-right'" styleClass="p-button-text p-button-sm" (click)="toggle(f)"></p-button></td>
               <td><span class="fh-sev" [ngClass]="'sev-' + f.severity">{{ sevLabel(f.severity) }}</span></td>
@@ -155,7 +155,7 @@ import { ActionsService, ProposedAction } from '../actions.service';
               </td>
             </tr>
           </ng-template>
-          <ng-template pTemplate="rowexpansion" let-f>
+          <ng-template #expandedrow let-f>
             <tr><td colspan="6" class="fh-ev">
               <div class="fh-ev-grid">
                 @for (kv of evidenceRows(f); track kv.k) { <div><span class="fh-ev-k">{{ kv.k }}</span><span class="fh-ev-v mono">{{ kv.v }}</span></div> }
@@ -163,7 +163,7 @@ import { ActionsService, ProposedAction } from '../actions.service';
               <div class="fh-ev-meta muted">Regla: {{ f.regla || f.rule_key }} · detectado {{ f.first_seen | date:'dd/MM/yy' }} · visto {{ f.last_seen | date:'dd/MM/yy' }}</div>
             </td></tr>
           </ng-template>
-          <ng-template pTemplate="emptymessage"><tr><td colspan="6" class="fh-empty">
+          <ng-template #emptymessage><tr><td colspan="6" class="fh-empty">
             @if (loading()) { Cargando… } @else { Sin hallazgos {{ status() === 'pendientes' ? 'pendientes' : '' }}. Corre "Escanear ahora" o revisa otro filtro. }
           </td></tr></ng-template>
         </p-table>
@@ -179,8 +179,8 @@ import { ActionsService, ProposedAction } from '../actions.service';
           </div>
           @if (coverage(); as c) {
             <p-table [value]="c.categorias" styleClass="p-datatable-sm" [rowHover]="true">
-              <ng-template pTemplate="header"><tr><th>Categoría</th><th class="ta-r" style="width:7rem">Activos</th><th class="ta-r" style="width:7rem">Hallazgos</th><th style="width:11rem">Estado</th></tr></ng-template>
-              <ng-template pTemplate="body" let-cat>
+              <ng-template #header><tr><th>Categoría</th><th class="ta-r" style="width:7rem">Activos</th><th class="ta-r" style="width:7rem">Hallazgos</th><th style="width:11rem">Estado</th></tr></ng-template>
+              <ng-template #body let-cat>
                 <tr [class.fh-blind]="cat.activos === 0">
                   <td><span class="fh-titulo">{{ cat.nombre }}</span>@if (cat.critica) { <span class="fh-tag cls-riesgo">crítica</span> }<div class="muted fh-cov-rules">{{ cat.rules.join(', ') }}</div></td>
                   <td class="ta-r mono">{{ cat.activos }}/{{ cat.rules.length }}</td>
@@ -188,7 +188,7 @@ import { ActionsService, ProposedAction } from '../actions.service';
                   <td>@if (cat.activos === 0) { <span class="fh-tag cls-riesgo">PUNTO CIEGO</span> } @else if (cat.suprimidos > 0) { <span class="fh-tag cls-error_captura">{{ cat.suprimidos }} suprimida(s)</span> } @else { <span class="fh-tag cls-oportunidad">cubierta</span> }</td>
                 </tr>
               </ng-template>
-              <ng-template pTemplate="emptymessage"><tr><td colspan="4" class="fh-empty">@if (loadingMiq()) { Cargando… } @else { Corre "Escanear ahora" para registrar las reglas. }</td></tr></ng-template>
+              <ng-template #emptymessage><tr><td colspan="4" class="fh-empty">@if (loadingMiq()) { Cargando… } @else { Corre "Escanear ahora" para registrar las reglas. }</td></tr></ng-template>
             </p-table>
           } @else if (loadingMiq()) { <div class="fh-empty">Cargando cobertura…</div> }
         </div>
@@ -202,8 +202,8 @@ import { ActionsService, ProposedAction } from '../actions.service';
           </div>
           @if (dq(); as d) {
             <p-table [value]="d.dimensiones" styleClass="p-datatable-sm" [rowHover]="true">
-              <ng-template pTemplate="header"><tr><th>Dimensión</th><th style="width:9rem">Score</th><th class="ta-r" style="width:10rem">$ afectado</th><th>Detalle</th></tr></ng-template>
-              <ng-template pTemplate="body" let-dim>
+              <ng-template #header><tr><th>Dimensión</th><th style="width:9rem">Score</th><th class="ta-r" style="width:10rem">$ afectado</th><th>Detalle</th></tr></ng-template>
+              <ng-template #body let-dim>
                 <tr>
                   <td class="fh-titulo">{{ dim.nombre }}</td>
                   <td><span class="fh-bar"><span class="fh-bar-fill" [ngClass]="scoreTone(dim.score)" [style.width.%]="dim.score"></span></span><span class="fh-bar-n mono">{{ dim.score }}</span></td>

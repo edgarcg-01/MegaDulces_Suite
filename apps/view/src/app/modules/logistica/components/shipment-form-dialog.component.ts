@@ -313,7 +313,7 @@ interface RouteOption {
         </label>
       </form>
     
-      <ng-template pTemplate="footer">
+      <ng-template #footer>
         <button pButton label="Cancelar" severity="secondary" [text]="true" (click)="cancel()" [disabled]="saving()"></button>
         <button pButton label="Crear embarque" icon="pi pi-check" [loading]="saving()" [disabled]="form.invalid" (click)="submit()"></button>
       </ng-template>

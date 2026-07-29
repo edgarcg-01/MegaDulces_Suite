@@ -104,7 +104,7 @@ import { Permission } from '../../../core/constants/permissions';
             </div>
           }
           <p-table [value]="o.lines" responsiveLayout="scroll" styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra">
-            <ng-template pTemplate="header">
+            <ng-template #header>
               <tr>
                 <th scope="col">Producto</th>
                 <th scope="col" class="comm-num">Cantidad pedida</th>
@@ -120,7 +120,7 @@ import { Permission } from '../../../core/constants/permissions';
                 }
               </tr>
             </ng-template>
-            <ng-template pTemplate="body" let-l>
+            <ng-template #body let-l>
               <tr [class.line-shortfall]="lineShortfall(l, o)">
                 <td>
                   <div class="comm-cell-strong">{{ l.product_name || l.product_id }}</div>
@@ -182,7 +182,7 @@ import { Permission } from '../../../core/constants/permissions';
                 }
               </tr>
             </ng-template>
-            <ng-template pTemplate="emptymessage">
+            <ng-template #emptymessage>
               <tr><td [attr.colspan]="o.status === 'pending_approval' ? 8 : 6" class="comm-muted">Sin líneas en este pedido.</td></tr>
             </ng-template>
           </p-table>
@@ -230,7 +230,7 @@ import { Permission } from '../../../core/constants/permissions';
         <!-- Logística: embarques asociados (solo si user tiene LOGISTICS_SHIPMENTS_VER) -->
         @if (canSeeLogistics()) {
           <p-card styleClass="logistics-card">
-            <ng-template pTemplate="header">
+            <ng-template #header>
               <div class="logistics-header">
                 <div>
                   <i class="pi pi-truck" aria-hidden="true"></i>
@@ -248,7 +248,7 @@ import { Permission } from '../../../core/constants/permissions';
               </div>
             </ng-template>
             <p-table [value]="shipments()" [loading]="loadingShipments()" responsiveLayout="scroll" styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--zebra">
-              <ng-template pTemplate="header">
+              <ng-template #header>
                 <tr>
                   <th scope="col">Folio</th>
                   <th scope="col">Fecha</th>
@@ -258,7 +258,7 @@ import { Permission } from '../../../core/constants/permissions';
                   <th scope="col"><span class="sr-only">Acciones</span></th>
                 </tr>
               </ng-template>
-              <ng-template pTemplate="body" let-s>
+              <ng-template #body let-s>
                 <tr class="comm-row-clickable"
                   role="link" [tabindex]="0"
                   [attr.aria-label]="'Ver embarque ' + s.folio"
@@ -277,7 +277,7 @@ import { Permission } from '../../../core/constants/permissions';
                   </td>
                 </tr>
               </ng-template>
-              <ng-template pTemplate="emptymessage">
+              <ng-template #emptymessage>
                 <tr><td colspan="6" class="comm-muted">
                   {{ canCreateShipment(o) ? 'Sin embarques. Crear uno para enviar este pedido.' : 'Sin embarques registrados.' }}
                 </td></tr>
@@ -287,7 +287,7 @@ import { Permission } from '../../../core/constants/permissions';
         }
         <p-card header="Historial de cambios" styleClass="history-card">
           <p-timeline [value]="history()" align="left" styleClass="status-timeline">
-            <ng-template pTemplate="content" let-event>
+            <ng-template #content let-event>
               <div class="event">
                 <div class="event-headline">
                   <p-tag [severity]="severity(event.to_status)" [value]="statusLabel(event.to_status)"></p-tag>

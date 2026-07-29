@@ -79,8 +79,8 @@ type TrendMetric = 'revenue' | 'units';
           <div class="card-premium card-flat wk-panel">
             <h3 class="wk-card-title">Por sucursal</h3>
             <p-table [value]="r.by_branch" styleClass="p-datatable-sm wk-table" [rowHover]="true">
-              <ng-template pTemplate="header"><tr><th>Sucursal</th><th class="ta-r">Venta</th><th class="ta-r">Δ%</th><th class="ta-r">Margen</th><th class="ta-r">Unidades</th><th class="ta-r">Δ%</th></tr></ng-template>
-              <ng-template pTemplate="body" let-b>
+              <ng-template #header><tr><th>Sucursal</th><th class="ta-r">Venta</th><th class="ta-r">Δ%</th><th class="ta-r">Margen</th><th class="ta-r">Unidades</th><th class="ta-r">Δ%</th></tr></ng-template>
+              <ng-template #body let-b>
                 <tr>
                   <td>{{ b.name || b.code }}</td>
                   <td class="ta-r strong">{{ money(b.revenue) }}</td>
@@ -98,8 +98,8 @@ type TrendMetric = 'revenue' | 'units';
         <div class="card-premium card-flat wk-panel">
           <h3 class="wk-card-title">Top productos de la semana</h3>
           <p-table [value]="r.by_product" styleClass="p-datatable-sm wk-table" [rowHover]="true" [scrollable]="true" scrollHeight="480px">
-            <ng-template pTemplate="header"><tr><th>Producto</th><th>Marca</th><th class="ta-r">Venta</th><th class="ta-r">Δ% vs sem. ant.</th><th class="ta-r">Unidades</th></tr></ng-template>
-            <ng-template pTemplate="body" let-p>
+            <ng-template #header><tr><th>Producto</th><th>Marca</th><th class="ta-r">Venta</th><th class="ta-r">Δ% vs sem. ant.</th><th class="ta-r">Unidades</th></tr></ng-template>
+            <ng-template #body let-p>
               <tr>
                 <td><span class="wk-prod">{{ p.nombre }}</span><span class="wk-sku">{{ p.sku }}</span></td>
                 <td class="muted">{{ p.brand || '—' }}</td>
@@ -108,7 +108,7 @@ type TrendMetric = 'revenue' | 'units';
                 <td class="ta-r">{{ num(p.units) }}</td>
               </tr>
             </ng-template>
-            <ng-template pTemplate="emptymessage"><tr><td colspan="5" class="wk-empty">Sin venta en la semana seleccionada.</td></tr></ng-template>
+            <ng-template #emptymessage><tr><td colspan="5" class="wk-empty">Sin venta en la semana seleccionada.</td></tr></ng-template>
           </p-table>
         </div>
       } @else if (!error()) {

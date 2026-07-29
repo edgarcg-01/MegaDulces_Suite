@@ -196,7 +196,7 @@
           <p-table [value]="filteredItems()" [loading]="loading()" responsiveLayout="scroll" styleClass="p-datatable-sm p-datatable-striped"
             [paginator]="filteredItems().length > 20" [rows]="20" [rowsPerPageOptions]="[10,20,50,100]"
             [sortField]="'orden'" [sortOrder]="1">
-            <ng-template pTemplate="header">
+            <ng-template #header>
               <tr class="text-xs text-content-muted uppercase bg-surface-ground border-b border-divider">
                 <th style="width: 10%">Orden</th>
                 <th>Valor / Nombre</th>
@@ -209,7 +209,7 @@
                 <th class="text-center w-28">Acciones</th>
               </tr>
             </ng-template>
-            <ng-template pTemplate="body" let-item>
+            <ng-template #body let-item>
               <tr
                 class="text-sm border-b border-divider hover:bg-surface-hover"
                 [class.opacity-50]="hasScoring() && item.activo === false"
@@ -260,7 +260,7 @@
                 </td>
               </tr>
             </ng-template>
-            <ng-template pTemplate="emptymessage">
+            <ng-template #emptymessage>
               <tr>
                 <td colspan="5" class="text-center py-12 text-content-muted">
                   <div class="flex flex-col items-center gap-2">
@@ -525,7 +525,7 @@
             </div>
           }
         </div>
-        <ng-template pTemplate="footer">
+        <ng-template #footer>
           <p-button label="Cancelar" [text]="true" severity="secondary" (onClick)="closeAddDialog()" [disabled]="saving()"></p-button>
           <p-button [label]="isEditMode() ? 'Actualizar' : 'Agregar'" (onClick)="saveItem()" [disabled]="saving() || !newItemValue.trim()" [loading]="saving()" styleClass="p-button-brand"></p-button>
         </ng-template>
@@ -566,7 +566,7 @@
               <p-inputnumber [(ngModel)]="newItemOrder" class="w-full" mode="decimal"></p-inputnumber>
             </div>
           </div>
-          <ng-template pTemplate="footer">
+          <ng-template #footer>
             <p-button label="Cancelar" [text]="true" severity="secondary" (onClick)="closeRouteDialog()" [disabled]="saving()"></p-button>
             <p-button [label]="isEditMode() ? 'Actualizar' : 'Agregar'" (onClick)="saveRoute()" [disabled]="saving() || !newItemValue.trim()" [loading]="saving()" styleClass="p-button-brand"></p-button>
           </ng-template>

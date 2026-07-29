@@ -50,12 +50,12 @@ import { forkJoin } from 'rxjs';
       </header>
 
       <p-table [value]="counts()" [loading]="loading()" styleClass="p-datatable-sm surf-table surf-table--zebra" [scrollable]="true">
-        <ng-template pTemplate="header">
+        <ng-template #header>
           <tr>
             <th scope="col">Folio</th><th scope="col">Almacén</th><th scope="col">Tipo</th><th scope="col">Estado</th><th scope="col">Inicio</th><th scope="col"><span class="sr-only">Acciones</span></th>
           </tr>
         </ng-template>
-        <ng-template pTemplate="body" let-c>
+        <ng-template #body let-c>
           <tr
             class="comm-row-clickable"
             role="button"
@@ -79,7 +79,7 @@ import { forkJoin } from 'rxjs';
             </td>
           </tr>
         </ng-template>
-        <ng-template pTemplate="emptymessage">
+        <ng-template #emptymessage>
           <tr><td colspan="6" class="comm-empty-cell">
             <div class="comm-empty">
               <i class="pi pi-clipboard comm-empty-icon"></i>
@@ -134,7 +134,7 @@ import { forkJoin } from 'rxjs';
                            [panelStyle]="{ maxWidth: '92vw' }"></p-multiselect>
           }
         </div>
-        <ng-template pTemplate="footer">
+        <ng-template #footer>
           <button pButton label="Cancelar" [text]="true" severity="secondary" (click)="dialogVisible.set(false)"></button>
           <button pButton label="Abrir" icon="pi pi-check" [loading]="opening()" [disabled]="!formWarehouse()" (click)="open()"></button>
         </ng-template>

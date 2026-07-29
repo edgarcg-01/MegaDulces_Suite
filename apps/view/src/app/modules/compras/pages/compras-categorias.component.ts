@@ -62,7 +62,7 @@ import { MetricStripComponent, MetricStripItem } from '../../../shared/component
       </div>
 
       <p-table [value]="rows()" [loading]="loading()" [scrollable]="true" scrollHeight="flex" styleClass="p-datatable-sm cat-table">
-        <ng-template pTemplate="header">
+        <ng-template #header>
           <tr>
             <th style="width:2.5rem"><p-checkbox [binary]="true" [ngModel]="allSel()" (onChange)="toggleAll($event)" ariaLabel="Seleccionar todo" /></th>
             <th style="width:6rem">Código</th>
@@ -72,7 +72,7 @@ import { MetricStripComponent, MetricStripItem } from '../../../shared/component
             <th style="width:3rem"></th>
           </tr>
         </ng-template>
-        <ng-template pTemplate="body" let-c>
+        <ng-template #body let-c>
           <tr [class.cat-sel]="isSel(c.id)">
             <td><p-checkbox [binary]="true" [ngModel]="isSel(c.id)" (onChange)="toggle(c.id)" [ariaLabel]="'Seleccionar ' + c.name" /></td>
             <td class="cat-mono">{{ c.code || '—' }}</td>
@@ -97,7 +97,7 @@ import { MetricStripComponent, MetricStripItem } from '../../../shared/component
             </td>
           </tr>
         </ng-template>
-        <ng-template pTemplate="emptymessage"><tr><td colspan="6" class="cat-empty">Sin categorías con ese filtro.</td></tr></ng-template>
+        <ng-template #emptymessage><tr><td colspan="6" class="cat-empty">Sin categorías con ese filtro.</td></tr></ng-template>
       </p-table>
     </div>
 
@@ -115,7 +115,7 @@ import { MetricStripComponent, MetricStripItem } from '../../../shared/component
           </label>
         }
       </div>
-      <ng-template pTemplate="footer">
+      <ng-template #footer>
         <button pButton type="button" label="Cancelar" class="p-button-text p-button-sm" (click)="mergeVisible.set(false)"></button>
         <button pButton type="button" label="Fusionar" icon="pi pi-object-group" class="p-button-sm" [loading]="merging()" [disabled]="!mergeInto" (click)="doMerge()"></button>
       </ng-template>
@@ -125,7 +125,7 @@ import { MetricStripComponent, MetricStripItem } from '../../../shared/component
     <p-dialog [visible]="dedupeVisible()" (visibleChange)="dedupeVisible.set($event)" [modal]="true" appendTo="body"
               [style]="{ width: '34rem', maxWidth: '95vw' }" header="Auto-fusionar duplicados" [dismissableMask]="true">
       <p class="cat-dlg-sub">Fusiona automáticamente las categorías de <strong>nombre idéntico</strong>: conserva la de más productos, mueve sus productos y desactiva las demás. <strong>No toca nombres distintos</strong> (Guadalajara y Guadalajara 2 quedan separadas).</p>
-      <ng-template pTemplate="footer">
+      <ng-template #footer>
         <button pButton type="button" label="Cancelar" class="p-button-text p-button-sm" (click)="dedupeVisible.set(false)"></button>
         <button pButton type="button" label="Fusionar duplicados" icon="pi pi-clone" class="p-button-sm" [loading]="deduping()" (click)="doAutoDedupe()"></button>
       </ng-template>

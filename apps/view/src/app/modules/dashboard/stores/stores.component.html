@@ -106,7 +106,7 @@
               [sortOrder]="1"
               styleClass="p-datatable-sm"
               >
-              <ng-template pTemplate="header">
+              <ng-template #header>
                 <tr>
                   <th pSortableColumn="nombre" class="text-left">Nombre <p-sorticon field="nombre" /></th>
                   <th pSortableColumn="direccion" class="text-left">Dirección <p-sorticon field="direccion" /></th>
@@ -116,7 +116,7 @@
                   <th class="text-center">Acciones</th>
                 </tr>
               </ng-template>
-              <ng-template pTemplate="body" let-store>
+              <ng-template #body let-store>
                 <tr>
                   <td class="font-medium">{{ store.nombre }}</td>
                   <td class="text-content-muted">
@@ -181,7 +181,7 @@
                     </td>
                   </tr>
                 </ng-template>
-                <ng-template pTemplate="emptydata">
+                <ng-template #emptymessage>
                   <tr>
                     <td colspan="6" class="text-center py-8 text-content-muted">
                       No se encontraron tiendas para esta zona.
@@ -206,7 +206,7 @@
           [resizable]="false"
           appendTo="body"
           >
-          <ng-template pTemplate="content">
+          <ng-template #content>
             <div class="flex flex-col gap-5 p-2">
               @if (editingStore(); as store) {
                 <div class="mb-2">
@@ -244,7 +244,7 @@
                   }
                 </div>
               </ng-template>
-              <ng-template pTemplate="footer">
+              <ng-template #footer>
                 <div class="flex flex-col sm:flex-row justify-end gap-2 sm:gap-3 p-2">
                   <p-button label="Cancelar" severity="secondary" [text]="true" [disabled]="saving()" (click)="closeEditDialog()" class="w-full sm:w-auto" />
                   <p-button label="Guardar" severity="contrast" [disabled]="saving()" [loading]="saving()" (click)="saveStore()" class="w-full sm:w-auto" />

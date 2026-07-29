@@ -53,14 +53,14 @@ import { INV_ANALYTICS_TABS } from '../inventory-tabs';
 
       <p-table [value]="items()" [loading]="loading()" styleClass="p-datatable-sm surf-table"
                [scrollable]="true" scrollHeight="flex" [paginator]="true" [rows]="25" [rowsPerPageOptions]="[25,50,100,200]">
-        <ng-template pTemplate="header">
+        <ng-template #header>
           <tr>
             <th scope="col">Almacén</th><th scope="col">SKU</th><th scope="col">Producto</th><th scope="col">Marca</th>
             <th scope="col" class="ih-num">Existencia</th><th scope="col" class="ih-num">Venta/día</th>
             <th scope="col" class="ih-num">Días cob.</th><th scope="col">Status</th>
           </tr>
         </ng-template>
-        <ng-template pTemplate="body" let-it>
+        <ng-template #body let-it>
           <tr>
             <td class="ih-mono">{{ it.warehouse_code }}</td>
             <td class="ih-mono">{{ it.sku }}</td>
@@ -72,7 +72,7 @@ import { INV_ANALYTICS_TABS } from '../inventory-tabs';
             <td><p-tag [value]="it.status" [severity]="sev(it.status)"></p-tag></td>
           </tr>
         </ng-template>
-        <ng-template pTemplate="emptymessage">
+        <ng-template #emptymessage>
           <tr><td colspan="8" class="comm-empty-cell">
             <div class="comm-empty"><div class="comm-empty-icon"><i class="pi pi-box" aria-hidden="true"></i></div>
               <h3>Sin datos</h3><p>Aún no se computó la salud de inventario.</p></div>

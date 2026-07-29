@@ -117,7 +117,7 @@ const MES: Record<string, string> = {
                      [paginator]="true" [rows]="50" [rowsPerPageOptions]="[50, 100, 200]"
                      sortField="venta_total" [sortOrder]="-1"
                      styleClass="p-datatable-sm surf-table sl-ptable">
-              <ng-template pTemplate="header">
+              <ng-template #header>
                 <tr>
                   <th scope="col" pFrozenColumn style="min-width:150px" pSortableColumn="warehouse_name">Sucursal <p-sorticon field="warehouse_name" /></th>
                   <th scope="col" pFrozenColumn style="min-width:110px" pSortableColumn="sku">Clave <p-sorticon field="sku" /></th>
@@ -149,7 +149,7 @@ const MES: Record<string, string> = {
                   <th scope="col" class="comm-num" pSortableColumn="dias_cobertura">Cobertura <p-sorticon field="dias_cobertura" /></th>
                 </tr>
               </ng-template>
-              <ng-template pTemplate="body" let-row>
+              <ng-template #body let-row>
                 <tr>
                   <td pFrozenColumn class="comm-cell-strong">{{ row.warehouse_name }}</td>
                   <td pFrozenColumn><code class="comm-code">{{ row.sku }}</code></td>

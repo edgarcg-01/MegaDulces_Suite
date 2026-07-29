@@ -135,7 +135,7 @@ type ActiveFilter = 'all' | 'active' | 'inactive';
                 appendTo="body"
                 scrollHeight="320px"
                 >
-                <ng-template let-s pTemplate="item">
+                <ng-template let-s #item>
                   <div class="pp-sup-opt">
                     <span class="pp-sup-name">{{ s.name }}</span>
                     <span class="pp-sup-count">{{ s.product_count }}</span>
@@ -207,7 +207,7 @@ type ActiveFilter = 'all' | 'active' | 'inactive';
               styleClass="p-datatable-sm pp-table surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra"
               [rowHover]="true"
               >
-              <ng-template pTemplate="header">
+              <ng-template #header>
                 <tr>
                   <th scope="col">Producto</th>
                   <th scope="col">SKU</th>
@@ -221,7 +221,7 @@ type ActiveFilter = 'all' | 'active' | 'inactive';
                   <th scope="col"><span class="sr-only">Acciones</span></th>
                 </tr>
               </ng-template>
-              <ng-template pTemplate="body" let-p>
+              <ng-template #body let-p>
                 <tr (click)="openEdit(p)" (keydown.enter)="openEdit(p)" (keydown.space)="$event.preventDefault(); openEdit(p)"
                   tabindex="0" role="button" [attr.aria-label]="'Editar ' + p.nombre" class="comm-row-clickable">
                   <td>
@@ -302,7 +302,7 @@ type ActiveFilter = 'all' | 'active' | 'inactive';
                   </td>
                 </tr>
               </ng-template>
-              <ng-template pTemplate="emptymessage">
+              <ng-template #emptymessage>
                 <tr>
                   <td colspan="10" class="comm-empty-cell">
                     <div class="comm-empty">
@@ -379,7 +379,7 @@ type ActiveFilter = 'all' | 'active' | 'inactive';
             </form>
           </div>
         }
-        <ng-template pTemplate="footer">
+        <ng-template #footer>
           <button pButton label="Cancelar" severity="secondary" [outlined]="true" (click)="dialogVisible = false"></button>
           <button pButton label="Guardar" icon="pi pi-check" [loading]="saving()" [disabled]="form.invalid" (click)="save()"></button>
         </ng-template>

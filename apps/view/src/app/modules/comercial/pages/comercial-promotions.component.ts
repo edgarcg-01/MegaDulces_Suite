@@ -164,7 +164,7 @@ interface ProductOption {
             responsiveLayout="scroll"
             styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra"
             >
-            <ng-template pTemplate="header">
+            <ng-template #header>
               <tr>
                 <th scope="col">Código</th>
                 <th scope="col">Nombre</th>
@@ -176,7 +176,7 @@ interface ProductOption {
                 <th scope="col"><span class="sr-only">Acciones</span></th>
               </tr>
             </ng-template>
-            <ng-template pTemplate="body" let-p>
+            <ng-template #body let-p>
               <tr>
                 <td><code class="comm-code">{{ p.code }}</code></td>
                 <td>
@@ -218,7 +218,7 @@ interface ProductOption {
                 </td>
               </tr>
             </ng-template>
-            <ng-template pTemplate="emptymessage">
+            <ng-template #emptymessage>
               <tr>
                 <td colspan="8" class="comm-empty-cell">
                   <div class="comm-empty">

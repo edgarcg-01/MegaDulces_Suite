@@ -97,13 +97,13 @@ import { ProductSearchComponent, ProductHit } from '../components/product-search
         <!-- AGENDA: qué toca contar -->
         <p-table [value]="dueItems()" [loading]="loading()" styleClass="p-datatable-sm surf-table surf-table--zebra"
                  [scrollable]="true" scrollHeight="flex" [paginator]="true" [rows]="25" [rowsPerPageOptions]="[25, 50, 100, 200]">
-          <ng-template pTemplate="header">
+          <ng-template #header>
             <tr>
               <th scope="col">Clase</th><th scope="col">SKU</th><th scope="col">Producto</th><th scope="col">Almacén</th>
               <th scope="col">Último conteo</th><th scope="col" class="abc-num">Cadencia</th><th scope="col">Estado</th>
             </tr>
           </ng-template>
-          <ng-template pTemplate="body" let-it>
+          <ng-template #body let-it>
             <tr>
               <td><p-tag [value]="it.abc_class" [severity]="classSeverity(it.abc_class)"></p-tag></td>
               <td class="abc-mono">{{ it.sku || '—' }}</td>
@@ -114,7 +114,7 @@ import { ProductSearchComponent, ProductHit } from '../components/product-search
               <td><p-tag [value]="dueLabel(it)" [severity]="dueSeverity(it)"></p-tag></td>
             </tr>
           </ng-template>
-          <ng-template pTemplate="emptymessage">
+          <ng-template #emptymessage>
             <tr><td colspan="7" class="comm-empty-cell">
               <div class="comm-empty">
                 <span class="comm-empty-icon"><i class="pi pi-check-circle"></i></span>
@@ -128,13 +128,13 @@ import { ProductSearchComponent, ProductHit } from '../components/product-search
         <!-- CLASIFICACIÓN ABC -->
         <p-table [value]="classRows()" [loading]="loading()" styleClass="p-datatable-sm surf-table surf-table--zebra"
                  [scrollable]="true" scrollHeight="flex" [paginator]="true" [rows]="25" [rowsPerPageOptions]="[25, 50, 100, 200]">
-          <ng-template pTemplate="header">
+          <ng-template #header>
             <tr>
               <th scope="col">Clase</th><th scope="col">SKU</th><th scope="col">Producto</th><th scope="col">Almacén</th>
               <th scope="col" class="abc-num">Valor anual</th><th scope="col" class="abc-num">Unidades</th><th scope="col" class="abc-num">% acum.</th>
             </tr>
           </ng-template>
-          <ng-template pTemplate="body" let-it>
+          <ng-template #body let-it>
             <tr>
               <td><p-tag [value]="it.abc_class" [severity]="classSeverity(it.abc_class)"></p-tag></td>
               <td class="abc-mono">{{ it.sku || '—' }}</td>
@@ -145,7 +145,7 @@ import { ProductSearchComponent, ProductHit } from '../components/product-search
               <td class="abc-num">{{ (+it.value_share * 100) | number:'1.0-1' }}%</td>
             </tr>
           </ng-template>
-          <ng-template pTemplate="emptymessage">
+          <ng-template #emptymessage>
             <tr><td colspan="7" class="comm-empty-cell">
               <div class="comm-empty">
                 <span class="comm-empty-icon"><i class="pi pi-sort-amount-down"></i></span>

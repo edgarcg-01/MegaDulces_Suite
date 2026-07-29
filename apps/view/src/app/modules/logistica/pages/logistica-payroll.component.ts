@@ -64,13 +64,13 @@ function severityLiq(s: LiquidationStatus): Severity {
               styleClass="surf-table surf-table--sticky p-datatable-sm"
               selectionMode="single" [(selection)]="selectedPeriod" (onRowSelect)="onPeriodSelect()"
               [dataKey]="'id'">
-              <ng-template pTemplate="header">
+              <ng-template #header>
                 <tr>
                   <th scope="col">Período</th><th scope="col">Rango</th><th scope="col">Pago</th><th scope="col">Estado</th>
                   <th scope="col"><span class="sr-only">Acciones</span></th>
                 </tr>
               </ng-template>
-              <ng-template pTemplate="body" let-p>
+              <ng-template #body let-p>
                 <tr [pSelectableRow]="p">
                   <td><strong>{{ p.year }}/{{ p.number }}</strong></td>
                   <td class="muted">{{ p.start_date | date:'shortDate' }} → {{ p.end_date | date:'shortDate' }}</td>
@@ -83,7 +83,7 @@ function severityLiq(s: LiquidationStatus): Severity {
                   </td>
                 </tr>
               </ng-template>
-              <ng-template pTemplate="emptymessage">
+              <ng-template #emptymessage>
                 <tr><td colspan="5">
                   <div class="comm-empty">
                     <i class="pi pi-calendar comm-empty-icon" aria-hidden="true"></i>
@@ -100,7 +100,7 @@ function severityLiq(s: LiquidationStatus): Severity {
           <div class="surf-panel-body is-flush">
             <p-table [value]="liquidations()" [loading]="loadingL()" responsiveLayout="scroll"
               styleClass="surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra p-datatable-sm">
-              <ng-template pTemplate="header">
+              <ng-template #header>
                 <tr>
                   <th scope="col">Colaborador</th><th scope="col">Tipo</th>
                   <th scope="col" class="num">Comisiones</th><th scope="col" class="num">Viáticos</th><th scope="col" class="num">Carga/desc</th>
@@ -109,7 +109,7 @@ function severityLiq(s: LiquidationStatus): Severity {
                   <th scope="col"><span class="sr-only">Acciones</span></th>
                 </tr>
               </ng-template>
-              <ng-template pTemplate="body" let-l>
+              <ng-template #body let-l>
                 <tr>
                   <td class="strong">{{ l.driver_name }}</td>
                   <td>{{ l.employee_type }}</td>
@@ -127,7 +127,7 @@ function severityLiq(s: LiquidationStatus): Severity {
                   </td>
                 </tr>
               </ng-template>
-              <ng-template pTemplate="emptymessage">
+              <ng-template #emptymessage>
                 <tr><td colspan="10">
                   <div class="comm-empty">
                     <i class="pi pi-wallet comm-empty-icon" aria-hidden="true"></i>
@@ -155,13 +155,13 @@ function severityLiq(s: LiquidationStatus): Severity {
     
       <p-table [value]="adjustments()" [loading]="loadingAdj()" responsiveLayout="scroll"
         styleClass="surf-table surf-table--sticky surf-table--zebra p-datatable-sm adj-table">
-        <ng-template pTemplate="header">
+        <ng-template #header>
           <tr>
             <th scope="col">Fecha</th><th scope="col">Tipo</th><th scope="col" class="num">Monto</th><th scope="col">Notas</th>
             <th scope="col"><span class="sr-only">Acciones</span></th>
           </tr>
         </ng-template>
-        <ng-template pTemplate="body" let-a>
+        <ng-template #body let-a>
           <tr>
             <td class="muted">{{ a.date | date:'shortDate' }}</td>
             <td><p-tag [severity]="sevAdj(a.type)" [value]="a.type"></p-tag></td>
@@ -173,7 +173,7 @@ function severityLiq(s: LiquidationStatus): Severity {
             </td>
           </tr>
         </ng-template>
-        <ng-template pTemplate="emptymessage">
+        <ng-template #emptymessage>
           <tr><td colspan="5">
             <div class="comm-empty">
               <i class="pi pi-list comm-empty-icon" aria-hidden="true"></i>
@@ -208,7 +208,7 @@ function severityLiq(s: LiquidationStatus): Severity {
       <div class="muted adj-locked">Período pagado/cerrado — no se pueden agregar ni borrar ajustes.</div>
     }
     
-    <ng-template pTemplate="footer">
+    <ng-template #footer>
       <button pButton label="Cerrar" severity="secondary" [outlined]="true" (click)="adjDialog = false"></button>
     </ng-template>
     </p-dialog>
@@ -225,7 +225,7 @@ function severityLiq(s: LiquidationStatus): Severity {
         <label><span>Pago <em>*</em></span><p-datepicker formControlName="payment_date" dateFormat="yy-mm-dd" appendTo="body"></p-datepicker></label>
         <label><span>Notas</span><input pInputText formControlName="notes" /></label>
       </form>
-      <ng-template pTemplate="footer">
+      <ng-template #footer>
         <button pButton label="Cancelar" severity="secondary" [outlined]="true" (click)="periodDialog = false"></button>
         <button pButton label="Crear" icon="pi pi-check" [loading]="savingP()" [disabled]="periodForm.invalid" (click)="createPeriod()"></button>
       </ng-template>
@@ -251,7 +251,7 @@ function severityLiq(s: LiquidationStatus): Severity {
         <label><span>Notas</span><input pInputText formControlName="notes" /></label>
       </form>
     }
-    <ng-template pTemplate="footer">
+    <ng-template #footer>
       <button pButton label="Cancelar" severity="secondary" [outlined]="true" (click)="liqDialog = false"></button>
       <button pButton label="Guardar" icon="pi pi-check" [loading]="savingL()" (click)="saveLiquidation()"></button>
     </ng-template>

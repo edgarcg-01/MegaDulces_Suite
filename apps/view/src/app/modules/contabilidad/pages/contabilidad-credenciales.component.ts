@@ -53,10 +53,10 @@ import { CredencialesService, CredStatus } from '../credenciales.service';
 
       <div class="card-premium card-flat">
         <p-table [value]="rows()" styleClass="p-datatable-sm cr-table" [rowHover]="true" [loading]="loading()">
-          <ng-template pTemplate="header">
+          <ng-template #header>
             <tr><th>RFC</th><th>Razón social</th><th style="width:9rem">Vigencia cert.</th><th class="ta-r" style="width:8rem">Días</th><th style="width:7rem">Estado</th><th style="width:5rem"></th></tr>
           </ng-template>
-          <ng-template pTemplate="body" let-c>
+          <ng-template #body let-c>
             <tr>
               <td class="mono strong">{{ c.rfc }}</td>
               <td>{{ c.razon_social || '—' }}</td>
@@ -66,7 +66,7 @@ import { CredencialesService, CredStatus } from '../credenciales.service';
               <td>@if (canManage) { <button pButton type="button" icon="pi pi-trash" class="p-button-sm p-button-text p-button-danger" [attr.aria-label]="'Eliminar ' + c.rfc" (click)="confirmDelete(c)"></button> }</td>
             </tr>
           </ng-template>
-          <ng-template pTemplate="emptymessage"><tr><td colspan="6" class="cr-empty">
+          <ng-template #emptymessage><tr><td colspan="6" class="cr-empty">
             @if (loading()) { Cargando… }
             @else if (errored()) { <i class="pi pi-exclamation-triangle"></i> No se pudo cargar el estado. <button pButton type="button" label="Reintentar" class="p-button-sm p-button-text" (click)="reload()"></button> }
             @else { <i class="pi pi-key"></i> Sin e.firma cargada. @if (canManage) { Carga una con "Cargar e.firma" para habilitar la descarga masiva. } @else { Requiere permiso de gestión. } }
@@ -84,7 +84,7 @@ import { CredencialesService, CredStatus } from '../credenciales.service';
           <label class="cr-f"><span>CIEC (opcional)</span><input type="password" pInputText [(ngModel)]="form.ciec" autocomplete="off" /></label>
           <p class="cr-note"><i class="pi pi-lock"></i> El .key y la contraseña se cifran en reposo y solo se descifran efímeramente al firmar ante el SAT.</p>
         </div>
-        <ng-template pTemplate="footer">
+        <ng-template #footer>
           <button pButton type="button" label="Cancelar" class="p-button-text p-button-sm" (click)="tryCloseNew()"></button>
           <button pButton type="button" label="Guardar" icon="pi pi-check" class="p-button-sm" [loading]="saving()" [disabled]="!formValid()" (click)="save()"></button>
         </ng-template>

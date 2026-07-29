@@ -68,7 +68,7 @@ import { ComprobacionesService } from '../comprobaciones.service';
         <p-table [value]="rows()" styleClass="p-datatable-sm so-table" [rowHover]="true" [scrollable]="true" scrollHeight="60vh"
                  [paginator]="rows().length > 100" [rows]="100" [loading]="loading()"
                  sortField="fecha" [sortOrder]="-1">
-          <ng-template pTemplate="header">
+          <ng-template #header>
             <tr>
               <th pSortableColumn="fecha" style="width:6rem">Fecha <p-sorticon field="fecha" /></th>
               <th pSortableColumn="folio" style="width:6rem">Folio <p-sorticon field="folio" /></th>
@@ -82,7 +82,7 @@ import { ComprobacionesService } from '../comprobaciones.service';
               <th class="ta-r" pSortableColumn="lead_days" style="width:5rem">Días <p-sorticon field="lead_days" /></th>
             </tr>
           </ng-template>
-          <ng-template pTemplate="body" let-r>
+          <ng-template #body let-r>
             <tr>
               <td>{{ r.fecha | date:'dd/MM/yy' }}</td>
               <td class="mono">{{ r.folio }}</td>
@@ -109,7 +109,7 @@ import { ComprobacionesService } from '../comprobaciones.service';
               <td class="ta-r muted">{{ r.lead_days != null ? r.lead_days : '—' }}</td>
             </tr>
           </ng-template>
-          <ng-template pTemplate="emptymessage"><tr><td colspan="10" class="so-empty">Sin solicitudes para el filtro. (¿corrió el feed?)</td></tr></ng-template>
+          <ng-template #emptymessage><tr><td colspan="10" class="so-empty">Sin solicitudes para el filtro. (¿corrió el feed?)</td></tr></ng-template>
         </p-table>
       </div>
       }

@@ -88,7 +88,7 @@ import { ListasSatService, SatListMatch, RfcIssue, ListasStats, ListStatus, Expe
         <p-table [value]="filteredMatches()" styleClass="p-datatable-sm ls-table" [rowHover]="true" [loading]="loading()"
                  dataKey="id" [expandedRowKeys]="expanded()" [scrollable]="true" scrollHeight="520px"
                  [paginator]="filteredMatches().length > 50" [rows]="50">
-          <ng-template pTemplate="header">
+          <ng-template #header>
             <tr>
               <th style="width:2.5rem"></th>
               <th style="width:6rem">Situación</th>
@@ -99,7 +99,7 @@ import { ListasSatService, SatListMatch, RfcIssue, ListasStats, ListStatus, Expe
               <th style="width:13rem">Acciones</th>
             </tr>
           </ng-template>
-          <ng-template pTemplate="body" let-m let-expanded="expanded">
+          <ng-template #body let-m let-expanded="expanded">
             <tr>
               <td><p-button pButton type="button" [icon]="expanded ? 'pi pi-chevron-down' : 'pi pi-chevron-right'" styleClass="p-button-text p-button-sm" [attr.aria-label]="expanded ? 'Ocultar documentos' : 'Ver documentos'" (click)="toggle(m)"></p-button></td>
               <td><p-tag [value]="m.situacion" [severity]="sevSev(m.situacion)" styleClass="ls-chip" /></td>
@@ -123,14 +123,14 @@ import { ListasSatService, SatListMatch, RfcIssue, ListasStats, ListStatus, Expe
               </td>
             </tr>
           </ng-template>
-          <ng-template pTemplate="rowexpansion" let-m>
+          <ng-template #expandedrow let-m>
             <tr><td colspan="7" class="ls-ev">
               @if (docsLoading()[m.rfc]) {
                 <div class="ls-ev-loading">Cargando documentos…</div>
               } @else if (docs()[m.rfc]?.length) {
                 <p-table [value]="docs()[m.rfc] || []" styleClass="p-datatable-sm ls-docs-tbl" [rowHover]="true">
-                  <ng-template pTemplate="header"><tr><th>Fecha</th><th>Sucursal</th><th>Documento</th><th>Concepto</th><th class="ta-r">Importe</th></tr></ng-template>
-                  <ng-template pTemplate="body" let-d>
+                  <ng-template #header><tr><th>Fecha</th><th>Sucursal</th><th>Documento</th><th>Concepto</th><th class="ta-r">Importe</th></tr></ng-template>
+                  <ng-template #body let-d>
                     <tr>
                       <td class="mono">{{ d.fecha | date:'dd/MM/yy' }}</td>
                       <td>{{ d.sucursal }}</td>
@@ -145,7 +145,7 @@ import { ListasSatService, SatListMatch, RfcIssue, ListasStats, ListStatus, Expe
               }
             </td></tr>
           </ng-template>
-          <ng-template pTemplate="emptymessage"><tr><td colspan="7" class="ls-empty">
+          <ng-template #emptymessage><tr><td colspan="7" class="ls-empty">
             @if (loading()) { Cargando… }
             @else { Ningún proveedor coincide con {{ lista() === 'all' ? 'las listas SAT' : listaLabel(lista()) }} en estado "{{ estado() }}". Corre "Escanear" o revisa otro filtro. }
           </td></tr></ng-template>
@@ -157,10 +157,10 @@ import { ListasSatService, SatListMatch, RfcIssue, ListasStats, ListStatus, Expe
         <div class="card-premium card-flat ls-issues">
           <h3 class="ls-card-title">RFC de proveedor con problema <span class="muted">({{ rfcIssues().length }})</span></h3>
           <p-table [value]="rfcIssues()" styleClass="p-datatable-sm ls-table" [rowHover]="true">
-            <ng-template pTemplate="header">
+            <ng-template #header>
               <tr><th>RFC</th><th style="width:11rem">Problema</th><th class="ta-r" style="width:5rem">Docs</th><th class="ta-r" style="width:9rem">Importe</th><th style="width:11rem">Acciones</th></tr>
             </ng-template>
-            <ng-template pTemplate="body" let-it>
+            <ng-template #body let-it>
               <tr>
                 <td class="mono">{{ it.rfc }}</td>
                 <td><p-tag [value]="issueLabel(it.issue_type)" severity="warn" styleClass="ls-chip" /></td>

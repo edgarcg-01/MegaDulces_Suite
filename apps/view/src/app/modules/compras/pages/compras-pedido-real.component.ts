@@ -122,7 +122,7 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
           }
           <p-table [value]="displayRows()" [loading]="loading()"
                    styleClass="p-datatable-sm pr-table" [tableStyle]="tableStyle">
-            <ng-template pTemplate="header">
+            <ng-template #header>
               <tr>
                 <th style="min-width:16rem">Producto</th>
                 <th style="min-width:9rem">Proveedor / Origen</th>
@@ -135,7 +135,7 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
               </tr>
             </ng-template>
 
-            <ng-template pTemplate="body" let-r>
+            <ng-template #body let-r>
               @if (r.__header) {
                 <tr class="pr-grp">
                   <td colspan="8">
@@ -203,7 +203,7 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
               }
             </ng-template>
 
-            <ng-template pTemplate="emptymessage">
+            <ng-template #emptymessage>
               <tr><td colspan="8" class="pr-empty">
                 <i class="pi pi-inbox"></i>
                 <p>Sin nada accionable con estos filtros.</p>
@@ -263,11 +263,11 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
         <p-table [value]="deadRows()" [loading]="loading()"
                  [paginator]="true" [rows]="50" [rowsPerPageOptions]="[50, 100, 200]"
                  styleClass="p-datatable-sm pr-table" [tableStyle]="deadTableStyle">
-          <ng-template pTemplate="header">
+          <ng-template #header>
             <tr><th style="min-width:16rem">Producto</th><th style="width:5rem">Almacén</th><th class="pr-r">Existencia</th>
               <th class="pr-r">Costo</th><th class="pr-r pr-val">Inmovilizado</th><th>Última actividad</th><th>Proveedor</th></tr>
           </ng-template>
-          <ng-template pTemplate="body" let-r>
+          <ng-template #body let-r>
             <tr>
               <td><div class="pr-prod">{{ r.nombre }}</div><div class="pr-sku">{{ r.sku }}</div></td>
               <td class="pr-mono pr-muted">{{ r.warehouse_code }}</td>
@@ -278,7 +278,7 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
               <td class="pr-supp">{{ r.supplier_name || '—' }}</td>
             </tr>
           </ng-template>
-          <ng-template pTemplate="emptymessage">
+          <ng-template #emptymessage>
             <tr><td colspan="7" class="pr-empty"><i class="pi pi-inbox"></i><p>Sin stock muerto.</p><span>Ningún producto activo con existencia y sin rotación.</span></td></tr>
           </ng-template>
         </p-table>

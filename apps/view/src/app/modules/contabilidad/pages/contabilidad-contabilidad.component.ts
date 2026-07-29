@@ -101,7 +101,7 @@ import { SAT_COD_AGRUPADOR } from '../../../shared/constants/sat-cod-agrupador';
     
       <p-table [value]="displayRows()" [loading]="loadingMap()" responsiveLayout="scroll"
         styleClass="p-datatable-sm surf-table surf-table--sticky" [scrollable]="true" scrollHeight="440px">
-        <ng-template pTemplate="header">
+        <ng-template #header>
           <tr>
             <th scope="col">Cuenta mayor</th>
             <th scope="col">Nombre</th>
@@ -111,7 +111,7 @@ import { SAT_COD_AGRUPADOR } from '../../../shared/constants/sat-cod-agrupador';
             <th scope="col" class="cb-c-src">Origen</th>
           </tr>
         </ng-template>
-        <ng-template pTemplate="body" let-r>
+        <ng-template #body let-r>
           <tr [class.cb-unmapped]="!r.cod_agrupador">
             <td><code class="comm-code">{{ r.cuenta_mayor }}</code></td>
             <td class="cb-name">{{ r.nombre || '—' }}</td>
@@ -141,7 +141,7 @@ import { SAT_COD_AGRUPADOR } from '../../../shared/constants/sat-cod-agrupador';
             </td>
           </tr>
         </ng-template>
-        <ng-template pTemplate="emptymessage">
+        <ng-template #emptymessage>
           <tr><td colspan="6" class="comm-muted" style="padding:1rem;text-align:center;">
             @if (onlyUnmapped() && mapRows().length) { <i class="pi pi-check-circle"></i> Todas las cuentas están mapeadas. <button pButton type="button" label="Ver todas" class="p-button-sm p-button-text" (click)="onlyUnmapped.set(false)"></button> }
             @else { Sin balanza cargada (analytics.ledger_monthly vacío para este tenant). }

@@ -86,7 +86,7 @@ interface ConceptoRow { descripcion: string; cantidad: number; valor_unitario: n
       <div class="card-premium card-flat">
         <p-table [value]="rows()" styleClass="p-datatable-sm fa-table" [rowHover]="true" [loading]="loading()"
                  [scrollable]="true" scrollHeight="560px" [lazy]="true" [paginator]="total() > 50" [rows]="50" [first]="offset()" [totalRecords]="total()" (onLazyLoad)="onPage($event)">
-          <ng-template pTemplate="header">
+          <ng-template #header>
             <tr>
               <th style="width:8rem">Folio</th>
               <th style="width:9rem">Fecha</th>
@@ -98,7 +98,7 @@ interface ConceptoRow { descripcion: string; cantidad: number; valor_unitario: n
               <th style="width:6rem"></th>
             </tr>
           </ng-template>
-          <ng-template pTemplate="body" let-r>
+          <ng-template #body let-r>
             <tr>
               <td class="mono">{{ r.serie }}{{ r.folio }}@if (r.tipo_comprobante === 'E') {<span class="fa-nc" pTooltip="Nota de crédito (Egreso)">NC</span>}@if (r.tipo_comprobante === 'P') {<span class="fa-rep" pTooltip="Complemento de Pago (REP)">REP</span>}</td>
               <td class="mono">{{ r.fecha_timbrado || r.fecha | date:'dd/MM/yy HH:mm' }}</td>
@@ -125,7 +125,7 @@ interface ConceptoRow { descripcion: string; cantidad: number; valor_unitario: n
               </td>
             </tr>
           </ng-template>
-          <ng-template pTemplate="emptymessage"><tr><td colspan="8" class="fa-empty">
+          <ng-template #emptymessage><tr><td colspan="8" class="fa-empty">
             @if (loading()) { Cargando… }
             @else if (errored()) { <i class="pi pi-exclamation-triangle"></i> No se pudo cargar. <button pButton type="button" label="Reintentar" class="p-button-sm p-button-text" (click)="reload()"></button> }
             @else if (hasFilters()) { <i class="pi pi-filter-slash"></i> Sin facturas para este filtro. <button pButton type="button" label="Limpiar filtros" class="p-button-sm p-button-text" (click)="clearFilters()"></button> }
@@ -155,8 +155,8 @@ interface ConceptoRow { descripcion: string; cantidad: number; valor_unitario: n
 
           <div class="fa-concept-head"><span>Conceptos *</span><button pButton type="button" label="Agregar" icon="pi pi-plus" class="p-button-text p-button-sm" (click)="addConcepto()"></button></div>
           <p-table [value]="conceptos()" styleClass="p-datatable-sm fa-concepts-tbl">
-            <ng-template pTemplate="header"><tr><th>Descripción</th><th style="width:5rem">Cant.</th><th style="width:8rem">P. Unit.</th><th class="ta-r" style="width:7rem">Importe</th><th style="width:2rem"></th></tr></ng-template>
-            <ng-template pTemplate="body" let-c let-i="rowIndex">
+            <ng-template #header><tr><th>Descripción</th><th style="width:5rem">Cant.</th><th style="width:8rem">P. Unit.</th><th class="ta-r" style="width:7rem">Importe</th><th style="width:2rem"></th></tr></ng-template>
+            <ng-template #body let-c let-i="rowIndex">
               <tr>
                 <td><input pInputText [(ngModel)]="c.descripcion" placeholder="Dulces surtidos" /></td>
                 <td><input pInputText type="number" min="0" step="1" [(ngModel)]="c.cantidad" /></td>
@@ -183,7 +183,7 @@ interface ConceptoRow { descripcion: string; cantidad: number; valor_unitario: n
             <span class="fa-grand">Total <strong class="mono">{{ mzn(totals().total) }}</strong></span>
           </div>
         </div>
-        <ng-template pTemplate="footer">
+        <ng-template #footer>
           <button pButton type="button" label="Cancelar" class="p-button-text p-button-sm" (click)="tryCloseEmit()"></button>
           <button pButton type="button" label="Emitir y timbrar" icon="pi pi-check" class="p-button-sm" [loading]="emitting()" [disabled]="!emitValid()" (click)="emit()"></button>
         </ng-template>
@@ -202,7 +202,7 @@ interface ConceptoRow { descripcion: string; cantidad: number; valor_unitario: n
           <label class="fa-check"><p-checkbox [(ngModel)]="issuerForm.is_default" [binary]="true" inputId="fa-issuer-default" /> <span>Emisor por defecto</span></label>
           <p class="fa-note"><i class="pi pi-info-circle"></i> El CSD (sello) vive en la cuenta del PAC (Conectia/SW); aquí solo van los datos del comprobante. Deben coincidir <strong>exacto</strong> con tu Constancia de Situación Fiscal.</p>
         </div>
-        <ng-template pTemplate="footer">
+        <ng-template #footer>
           <button pButton type="button" label="Cancelar" class="p-button-text p-button-sm" (click)="showIssuer=false"></button>
           <button pButton type="button" label="Guardar" icon="pi pi-check" class="p-button-sm" [loading]="savingIssuer()" [disabled]="!issuerValid()" (click)="saveIssuer()"></button>
         </ng-template>
@@ -225,7 +225,7 @@ interface ConceptoRow { descripcion: string; cantidad: number; valor_unitario: n
               <input pInputText [(ngModel)]="cancelForm.reason" placeholder="Motivo/observación para auditoría" />
             </label>
           </div>
-          <ng-template pTemplate="footer">
+          <ng-template #footer>
             <button pButton type="button" label="Volver" class="p-button-text p-button-sm" (click)="showCancel=false"></button>
             <button pButton type="button" label="Cancelar factura" icon="pi pi-times" class="p-button-sm p-button-danger" [loading]="cancelling()" [disabled]="cancelForm.motivo==='01' && !isUuid(cancelForm.folioSustitucion)" (click)="confirmCancel()"></button>
           </ng-template>
@@ -239,8 +239,8 @@ interface ConceptoRow { descripcion: string; cantidad: number; valor_unitario: n
             <p class="fa-note"><i class="pi pi-info-circle"></i> CFDI de <strong>Egreso</strong> relacionado (01) a <strong>{{ r.serie }}{{ r.folio }}</strong> · {{ r.receptor_nombre || 'Público general' }} ({{ r.receptor_rfc }}). Captura lo que se devuelve/bonifica.</p>
             <div class="fa-concept-head"><span>Conceptos *</span><button pButton type="button" label="Agregar" icon="pi pi-plus" class="p-button-text p-button-sm" (click)="addNcConcepto()"></button></div>
             <p-table [value]="ncConceptos()" styleClass="p-datatable-sm fa-concepts-tbl">
-              <ng-template pTemplate="header"><tr><th>Descripción</th><th style="width:5rem">Cant.</th><th style="width:8rem">P. Unit.</th><th class="ta-r" style="width:7rem">Importe</th><th style="width:2rem"></th></tr></ng-template>
-              <ng-template pTemplate="body" let-c let-i="rowIndex">
+              <ng-template #header><tr><th>Descripción</th><th style="width:5rem">Cant.</th><th style="width:8rem">P. Unit.</th><th class="ta-r" style="width:7rem">Importe</th><th style="width:2rem"></th></tr></ng-template>
+              <ng-template #body let-c let-i="rowIndex">
                 <tr>
                   <td><input pInputText [(ngModel)]="c.descripcion" placeholder="Devolución de mercancía" /></td>
                   <td><input pInputText type="number" min="0" step="1" [(ngModel)]="c.cantidad" /></td>
@@ -256,7 +256,7 @@ interface ConceptoRow { descripcion: string; cantidad: number; valor_unitario: n
               <span class="fa-grand">Total NC <strong class="mono">{{ mzn(ncTotals().total) }}</strong></span>
             </div>
           </div>
-          <ng-template pTemplate="footer">
+          <ng-template #footer>
             <button pButton type="button" label="Volver" class="p-button-text p-button-sm" (click)="tryCloseNc()"></button>
             <button pButton type="button" label="Emitir nota de crédito" icon="pi pi-check" class="p-button-sm" [loading]="ncEmitting()" [disabled]="!ncValid()" (click)="emitNc()"></button>
           </ng-template>
@@ -282,8 +282,8 @@ interface ConceptoRow { descripcion: string; cantidad: number; valor_unitario: n
                 <p class="fa-note fa-note-ok"><i class="pi pi-check-circle"></i> Sin pendientes: todos los pedidos con datos fiscales fueron facturados.</p>
               } @else {
                 <p-table [value]="rec.pending_nominativa" styleClass="p-datatable-sm fa-cont-tbl" [rowHover]="true">
-                  <ng-template pTemplate="header"><tr><th>Pedido</th><th>Cliente</th><th class="ta-r">Total</th><th class="ta-r">Int.</th><th>Último error</th></tr></ng-template>
-                  <ng-template pTemplate="body" let-o>
+                  <ng-template #header><tr><th>Pedido</th><th>Cliente</th><th class="ta-r">Total</th><th class="ta-r">Int.</th><th>Último error</th></tr></ng-template>
+                  <ng-template #body let-o>
                     <tr>
                       <td class="mono">{{ o.code }}</td>
                       <td>{{ o.customer_name || o.customer_id }}</td>
@@ -303,8 +303,8 @@ interface ConceptoRow { descripcion: string; cantidad: number; valor_unitario: n
                 <p class="fa-note fa-note-ok"><i class="pi pi-check-circle"></i> Sin mostrador pendiente de factura global.</p>
               } @else {
                 <p-table [value]="rec.pending_global_by_day" styleClass="p-datatable-sm fa-cont-tbl" [rowHover]="true">
-                  <ng-template pTemplate="header"><tr><th>Día</th><th class="ta-r">Pedidos</th><th class="ta-r">Total</th><th></th></tr></ng-template>
-                  <ng-template pTemplate="body" let-d>
+                  <ng-template #header><tr><th>Día</th><th class="ta-r">Pedidos</th><th class="ta-r">Total</th><th></th></tr></ng-template>
+                  <ng-template #body let-d>
                     <tr>
                       <td class="mono">{{ d.day | date:'dd/MM/yy' }}</td>
                       <td class="ta-r mono">{{ d.orders }}</td>
@@ -321,7 +321,7 @@ interface ConceptoRow { descripcion: string; cantidad: number; valor_unitario: n
             <p class="fa-note fa-note-warn"><i class="pi pi-exclamation-triangle"></i> No se pudo cargar el reporte.</p>
           }
         </div>
-        <ng-template pTemplate="footer">
+        <ng-template #footer>
           <button pButton type="button" label="Cerrar" class="p-button-text p-button-sm" (click)="showContingencia=false"></button>
         </ng-template>
       </p-dialog>

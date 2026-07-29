@@ -120,10 +120,10 @@ import { egresChartOptions, egresChartSeries } from './egresos-chart-opts';
         <!-- ÁRBOL -->
         @if (view() === 'arbol') {
           <p-treetable [value]="treeNodes()" [scrollable]="true" styleClass="p-treetable-sm ex-table">
-            <ng-template pTemplate="header">
+            <ng-template #header>
               <tr><th>Concepto</th><th class="ta-r" style="width:8rem">Movs</th><th class="ta-r" style="width:12rem">Importe</th><th class="ta-r" style="width:7rem">%</th></tr>
             </ng-template>
-            <ng-template pTemplate="body" let-rowNode let-rowData="rowData">
+            <ng-template #body let-rowNode let-rowData="rowData">
               <tr [ttRow]="rowNode" [class.ex-clickable]="rowData.level === 'cuenta'"
                   [attr.tabindex]="rowData.level === 'cuenta' ? 0 : null"
                   [attr.role]="rowData.level === 'cuenta' ? 'button' : null"
@@ -139,7 +139,7 @@ import { egresChartOptions, egresChartSeries } from './egresos-chart-opts';
                 <td class="ta-r muted">{{ rowData.share_pct }}%</td>
               </tr>
             </ng-template>
-            <ng-template pTemplate="emptymessage"><tr><td colspan="4" class="ex-empty">Sin egresos.</td></tr></ng-template>
+            <ng-template #emptymessage><tr><td colspan="4" class="ex-empty">Sin egresos.</td></tr></ng-template>
           </p-treetable>
         }
 
@@ -147,7 +147,7 @@ import { egresChartOptions, egresChartSeries } from './egresos-chart-opts';
         @if (view() === 'tabla' && report(); as r) {
           <p-table [value]="r.rows" [scrollable]="true" scrollHeight="flex" styleClass="p-datatable-sm ex-table" [rowHover]="true"
                    [paginator]="r.rows.length > 50" [rows]="50" sortField="total" [sortOrder]="-1">
-            <ng-template pTemplate="header">
+            <ng-template #header>
               <tr>
                 <th pSortableColumn="label">{{ groupByLabel() }}</th>
                 <th class="ta-r" style="width:7rem" pSortableColumn="movs">Movs</th>
@@ -157,7 +157,7 @@ import { egresChartOptions, egresChartSeries } from './egresos-chart-opts';
                 <th style="width:3rem"></th>
               </tr>
             </ng-template>
-            <ng-template pTemplate="body" let-row>
+            <ng-template #body let-row>
               <tr class="ex-clickable" tabindex="0" role="button" [attr.aria-label]="'Ver detalle de ' + row.label"
                   (click)="drillRow(row)" (keydown.enter)="drillRow(row)" (keydown.space)="$event.preventDefault(); drillRow(row)">
                 <td>
@@ -176,7 +176,7 @@ import { egresChartOptions, egresChartSeries } from './egresos-chart-opts';
                 <td class="ta-r"><i class="pi pi-angle-right muted"></i></td>
               </tr>
             </ng-template>
-            <ng-template pTemplate="emptymessage"><tr><td [attr.colspan]="compare() ? 6 : 5" class="ex-empty">Sin egresos en el período.</td></tr></ng-template>
+            <ng-template #emptymessage><tr><td [attr.colspan]="compare() ? 6 : 5" class="ex-empty">Sin egresos en el período.</td></tr></ng-template>
           </p-table>
         }
 
@@ -199,7 +199,7 @@ import { egresChartOptions, egresChartSeries } from './egresos-chart-opts';
         <div class="card-premium card-flat">
           <p-table [value]="providers()" styleClass="p-datatable-sm ex-table" [rowHover]="true" [scrollable]="true" scrollHeight="520px"
                    [paginator]="providers().length > 50" [rows]="50">
-            <ng-template pTemplate="header">
+            <ng-template #header>
               <tr>
                 <th>Proveedor</th>
                 <th class="ta-r" style="width:9rem" pSortableColumn="compra_12m">Compra 12m</th>
@@ -211,7 +211,7 @@ import { egresChartOptions, egresChartSeries } from './egresos-chart-opts';
                 <th style="width:6rem">Últ. compra</th>
               </tr>
             </ng-template>
-            <ng-template pTemplate="body" let-p>
+            <ng-template #body let-p>
               <tr>
                 <td>{{ p.proveedor }}</td>
                 <td class="ta-r strong">{{ money(p.compra_12m) }}</td>
@@ -223,7 +223,7 @@ import { egresChartOptions, egresChartSeries } from './egresos-chart-opts';
                 <td>{{ p.ultima_compra | date:'dd/MM/yy' }}</td>
               </tr>
             </ng-template>
-            <ng-template pTemplate="emptymessage"><tr><td colspan="8" class="ex-empty">Sin proveedores (¿corrió el feed de AP?).</td></tr></ng-template>
+            <ng-template #emptymessage><tr><td colspan="8" class="ex-empty">Sin proveedores (¿corrió el feed de AP?).</td></tr></ng-template>
           </p-table>
         </div>
       }
@@ -246,10 +246,10 @@ import { egresChartOptions, egresChartSeries } from './egresos-chart-opts';
             <div class="card-premium card-flat">
               <p-table [value]="f.rows" styleClass="p-datatable-sm ex-table" [rowHover]="true" [scrollable]="true" scrollHeight="480px"
                        [paginator]="f.rows.length > 100" [rows]="100">
-                <ng-template pTemplate="header">
+                <ng-template #header>
                   <tr><th style="width:6rem">Fecha</th><th>Documento</th><th>Sucursal</th><th>Beneficiario</th><th>Cuenta</th><th class="ta-r" style="width:9rem">Importe</th><th>Nota</th></tr>
                 </ng-template>
-                <ng-template pTemplate="body" let-r>
+                <ng-template #body let-r>
                   <tr>
                     <td>{{ r.fecha | date:'dd/MM/yy' }}</td>
                     <td class="mono">{{ r.doc_tipo }}-{{ r.doc_folio }}</td>
@@ -260,7 +260,7 @@ import { egresChartOptions, egresChartSeries } from './egresos-chart-opts';
                     <td class="muted">{{ r.nota || '' }}</td>
                   </tr>
                 </ng-template>
-                <ng-template pTemplate="emptymessage"><tr><td colspan="7" class="ex-empty">Sin filas.</td></tr></ng-template>
+                <ng-template #emptymessage><tr><td colspan="7" class="ex-empty">Sin filas.</td></tr></ng-template>
               </p-table>
             </div>
           } @else {

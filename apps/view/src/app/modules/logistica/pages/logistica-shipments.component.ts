@@ -199,7 +199,7 @@ function severityForStatus(s: ShipmentStatus): Severity {
               [paginator]="true" [rows]="page().pageSize" [totalRecords]="page().total" [lazy]="true"
               [rowsPerPageOptions]="[25, 50, 100, 200]"
               (onLazyLoad)="onPageChange($event)">
-              <ng-template pTemplate="header">
+              <ng-template #header>
                 <tr>
                   <th scope="col">Folio</th>
                   <th scope="col">Fecha</th>
@@ -211,7 +211,7 @@ function severityForStatus(s: ShipmentStatus): Severity {
                   <th scope="col"><span class="sr-only">Acciones</span></th>
                 </tr>
               </ng-template>
-              <ng-template pTemplate="body" let-s>
+              <ng-template #body let-s>
                 <tr (click)="goDetail(s)"
                   class="comm-row-clickable"
                   role="button"
@@ -250,7 +250,7 @@ function severityForStatus(s: ShipmentStatus): Severity {
                   </td>
                 </tr>
               </ng-template>
-              <ng-template pTemplate="emptymessage">
+              <ng-template #emptymessage>
                 <tr>
                   <td colspan="8" class="comm-empty-cell">
                     <div class="comm-empty">
@@ -282,7 +282,7 @@ function severityForStatus(s: ShipmentStatus): Severity {
           <article class="cell cell-span-12 is-flush">
             <p-table [value]="pendingOrders()" [loading]="loadingPending()" responsiveLayout="scroll"
               styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--zebra">
-              <ng-template pTemplate="header">
+              <ng-template #header>
                 <tr>
                   <th scope="col">Folio</th>
                   <th scope="col">Confirmado</th>
@@ -293,7 +293,7 @@ function severityForStatus(s: ShipmentStatus): Severity {
                   <th scope="col"><span class="sr-only">Acciones</span></th>
                 </tr>
               </ng-template>
-              <ng-template pTemplate="body" let-o>
+              <ng-template #body let-o>
                 <tr>
                   <td><code class="comm-code">{{ o.code }}</code></td>
                   <td>
@@ -320,7 +320,7 @@ function severityForStatus(s: ShipmentStatus): Severity {
                   </td>
                 </tr>
               </ng-template>
-              <ng-template pTemplate="emptymessage">
+              <ng-template #emptymessage>
                 <tr>
                   <td colspan="7" class="comm-empty-cell">
                     <div class="comm-empty">

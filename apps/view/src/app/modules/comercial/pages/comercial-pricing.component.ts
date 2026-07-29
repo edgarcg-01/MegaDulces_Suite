@@ -78,7 +78,7 @@ import { makeLazyLoad, makeDebouncedSearch } from '../../../shared/util';
       <div class="sheet cols-12">
         <article class="cell cell-span-12 is-flush">
           <p-table [value]="rows()" [loading]="loading()" responsiveLayout="scroll" styleClass="p-datatable-sm pr-master surf-table surf-table--sticky">
-            <ng-template pTemplate="header">
+            <ng-template #header>
               <tr>
                 <th scope="col">Código</th>
                 <th scope="col">Nombre</th>
@@ -88,7 +88,7 @@ import { makeLazyLoad, makeDebouncedSearch } from '../../../shared/util';
                 <th scope="col"><span class="sr-only">Acciones</span></th>
               </tr>
             </ng-template>
-            <ng-template pTemplate="body" let-pl>
+            <ng-template #body let-pl>
               <tr [class.pr-selected]="selected()?.id === pl.id" (click)="selectPriceList(pl)"
                 (keydown.enter)="selectPriceList(pl)" (keydown.space)="$event.preventDefault(); selectPriceList(pl)"
                 tabindex="0" role="button" [attr.aria-label]="'Ver precios de ' + pl.name" class="comm-row-clickable">
@@ -123,7 +123,7 @@ import { makeLazyLoad, makeDebouncedSearch } from '../../../shared/util';
                 </td>
               </tr>
             </ng-template>
-            <ng-template pTemplate="emptymessage">
+            <ng-template #emptymessage>
               <tr>
                 <td colspan="6" class="comm-empty-cell">
                   <div class="comm-empty">
@@ -211,7 +211,7 @@ import { makeLazyLoad, makeDebouncedSearch } from '../../../shared/util';
                 responsiveLayout="scroll"
                 styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra"
                 >
-                <ng-template pTemplate="header">
+                <ng-template #header>
                   <tr>
                     <th scope="col">Producto</th>
                     <th scope="col">SKU</th>
@@ -224,7 +224,7 @@ import { makeLazyLoad, makeDebouncedSearch } from '../../../shared/util';
                     <th scope="col"><span class="sr-only">Acciones</span></th>
                   </tr>
                 </ng-template>
-                <ng-template pTemplate="body" let-p>
+                <ng-template #body let-p>
                   <tr>
                     <td>
                       <div class="comm-cell-strong" [pTooltip]="p.product_description || ''" tooltipPosition="right" [tooltipDisabled]="!p.product_description">
@@ -289,7 +289,7 @@ import { makeLazyLoad, makeDebouncedSearch } from '../../../shared/util';
                     </td>
                   </tr>
                 </ng-template>
-                <ng-template pTemplate="emptymessage">
+                <ng-template #emptymessage>
                   <tr>
                     <td colspan="9" class="comm-empty-cell">
                       <div class="comm-empty">
@@ -341,7 +341,7 @@ import { makeLazyLoad, makeDebouncedSearch } from '../../../shared/util';
             </label>
           </form>
         }
-        <ng-template pTemplate="footer">
+        <ng-template #footer>
           <button pButton label="Cancelar" severity="secondary" [outlined]="true" (click)="dialogVisible = false"></button>
           <p-button pButton [label]="editing() ? 'Guardar' : 'Crear'" icon="pi pi-check"
             [loading]="saving()"

@@ -79,7 +79,7 @@ import { INV_STOCK_TABS } from '../inventory-tabs';
         <article class="cell cell-span-12 is-flush">
           <p-table [value]="rows()" [loading]="loading()" responsiveLayout="scroll"
             styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra">
-            <ng-template pTemplate="header">
+            <ng-template #header>
               <tr>
                 <th scope="col">Código</th>
                 <th scope="col">Nombre</th>
@@ -89,7 +89,7 @@ import { INV_STOCK_TABS } from '../inventory-tabs';
                 <th scope="col"><span class="sr-only">Acciones</span></th>
               </tr>
             </ng-template>
-            <ng-template pTemplate="body" let-w>
+            <ng-template #body let-w>
               <tr>
                 <td><code class="comm-code">{{ w.code }}</code></td>
                 <td>
@@ -126,7 +126,7 @@ import { INV_STOCK_TABS } from '../inventory-tabs';
                 </td>
               </tr>
             </ng-template>
-            <ng-template pTemplate="emptymessage">
+            <ng-template #emptymessage>
               <tr>
                 <td colspan="6" class="comm-empty-cell">
                   <div class="comm-empty">
@@ -184,7 +184,7 @@ import { INV_STOCK_TABS } from '../inventory-tabs';
           }
         </form>
       }
-      <ng-template pTemplate="footer">
+      <ng-template #footer>
         <button pButton label="Cancelar" severity="secondary" [outlined]="true" (click)="dialogVisible = false"></button>
         <p-button pButton [label]="editing() ? 'Guardar' : 'Crear'" icon="pi pi-check"
           [loading]="saving()"

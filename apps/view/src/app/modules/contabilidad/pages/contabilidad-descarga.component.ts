@@ -62,7 +62,7 @@ import { CredencialesService } from '../credenciales.service';
       <div class="card-premium card-flat">
         <p-table [value]="rows()" styleClass="p-datatable-sm dz-table" [rowHover]="true" [loading]="loading()"
                  dataKey="id" [expandedRowKeys]="expanded()" [scrollable]="true" scrollHeight="560px" [paginator]="rows().length > 50" [rows]="50">
-          <ng-template pTemplate="header">
+          <ng-template #header>
             <tr>
               <th style="width:2.5rem"></th>
               <th style="width:7rem">Estado</th>
@@ -74,7 +74,7 @@ import { CredencialesService } from '../credenciales.service';
               <th style="width:8rem">Creada</th>
             </tr>
           </ng-template>
-          <ng-template pTemplate="body" let-r let-expanded="expanded">
+          <ng-template #body let-r let-expanded="expanded">
             <tr>
               <td><p-button pButton type="button" [icon]="expanded ? 'pi pi-chevron-down' : 'pi pi-chevron-right'" styleClass="p-button-text p-button-sm" [attr.aria-label]="expanded ? 'Ocultar paquetes' : 'Ver paquetes'" (click)="toggle(r)"></p-button></td>
               <td><p-tag [value]="estadoLabel(r.estado)" [severity]="estadoSev(r.estado)" styleClass="dz-chip" /></td>
@@ -86,13 +86,13 @@ import { CredencialesService } from '../credenciales.service';
               <td class="mono">{{ r.created_at | date:'dd/MM HH:mm' }}</td>
             </tr>
           </ng-template>
-          <ng-template pTemplate="rowexpansion" let-r>
+          <ng-template #expandedrow let-r>
             <tr><td colspan="8" class="dz-ev">
               @if (pkgLoading()[r.id]) { <div class="dz-ev-msg">Cargando paquetes…</div> }
               @else if (packages()[r.id]?.length) {
                 <p-table [value]="packages()[r.id] || []" styleClass="p-datatable-sm dz-pkgs-tbl" [rowHover]="true">
-                  <ng-template pTemplate="header"><tr><th>Paquete</th><th style="width:8rem">Estado</th><th class="ta-r" style="width:6rem">CFDI</th><th>Detalle</th></tr></ng-template>
-                  <ng-template pTemplate="body" let-p>
+                  <ng-template #header><tr><th>Paquete</th><th style="width:8rem">Estado</th><th class="ta-r" style="width:6rem">CFDI</th><th>Detalle</th></tr></ng-template>
+                  <ng-template #body let-p>
                     <tr><td class="mono">{{ p.id_paquete }}</td><td><p-tag [value]="p.estado" [severity]="estadoSev(p.estado)" styleClass="dz-chip" /></td><td class="ta-r mono">{{ p.num_cfdis != null ? (p.num_cfdis | number) : '—' }}</td><td class="dz-err">{{ p.last_error || '—' }}</td></tr>
                   </ng-template>
                 </p-table>
@@ -101,7 +101,7 @@ import { CredencialesService } from '../credenciales.service';
               }
             </td></tr>
           </ng-template>
-          <ng-template pTemplate="emptymessage"><tr><td colspan="8" class="dz-empty">
+          <ng-template #emptymessage><tr><td colspan="8" class="dz-empty">
             @if (loading()) { Cargando… }
             @else if (errored()) { <i class="pi pi-exclamation-triangle"></i> No se pudo cargar la bandeja. <button pButton type="button" label="Reintentar" class="p-button-sm p-button-text" (click)="reload()"></button> }
             @else if (estado() !== 'all') { <i class="pi pi-filter-slash"></i> Sin descargas en estado "{{ estadoLabel(estado()) }}". <button pButton type="button" label="Ver todas" class="p-button-sm p-button-text" (click)="setEstado('all')"></button> }
@@ -125,7 +125,7 @@ import { CredencialesService } from '../credenciales.service';
           </div>
           <p class="dz-note"><i class="pi pi-info-circle"></i> Requiere la e.firma del RFC cargada en <strong>Credenciales</strong>. El SAT limita a 72h para descargar los paquetes generados.</p>
         </div>
-        <ng-template pTemplate="footer">
+        <ng-template #footer>
           <button pButton type="button" label="Cancelar" class="p-button-text p-button-sm" (click)="showNew=false"></button>
           <button pButton type="button" label="Crear y solicitar" icon="pi pi-check" class="p-button-sm" [loading]="creating()" [disabled]="!formValid()" (click)="crear()"></button>
         </ng-template>

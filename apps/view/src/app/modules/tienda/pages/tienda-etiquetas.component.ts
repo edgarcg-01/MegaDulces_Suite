@@ -174,10 +174,10 @@ type Msg = { text: string; kind: 'info' | 'ok' | 'error' | 'warn' };
             [suggestions]="results()" (completeMethod)="searchAc($event)" (onSelect)="onPick($event)"
             optionLabel="name" [delay]="250" [minQueryLength]="2" [showClear]="true" appendTo="body"
             placeholder="Nombre, SKU o código de barras…">
-            <ng-template let-h pTemplate="item">
+            <ng-template let-h #item>
               <div class="etqp-hit"><span class="nm">{{ h.name }}</span><span class="sku">{{ h.sku }}</span></div>
             </ng-template>
-            <ng-template pTemplate="empty"><div class="etqp-empty-hit">Sin coincidencias</div></ng-template>
+            <ng-template #empty><div class="etqp-empty-hit">Sin coincidencias</div></ng-template>
           </p-autocomplete>
         </div>
 
@@ -197,14 +197,14 @@ type Msg = { text: string; kind: 'info' | 'ok' | 'error' | 'warn' };
         <div class="etqp-work">
           <div class="etqp-tablewrap">
             <p-table [value]="queue()" styleClass="p-datatable-sm" [scrollable]="true" scrollHeight="440px" dataKey="model.product_id">
-              <ng-template pTemplate="caption">
+              <ng-template #caption>
                 <div class="etqp-tcap">
                   <span class="lbl">Cola</span>
                   <span class="count">{{ queue().length }} producto{{ queue().length === 1 ? '' : 's' }} · {{ totalLabels() }} etiqueta{{ totalLabels() === 1 ? '' : 's' }}</span>
                   <p-button label="Vaciar" icon="pi pi-trash" [text]="true" severity="secondary" size="small" (onClick)="clearQueue()"></p-button>
                 </div>
               </ng-template>
-              <ng-template pTemplate="header">
+              <ng-template #header>
                 <tr>
                   <th>Producto</th>
                   <th>Precio grande</th>
@@ -212,7 +212,7 @@ type Msg = { text: string; kind: 'info' | 'ok' | 'error' | 'warn' };
                   <th class="etqp-cact"></th>
                 </tr>
               </ng-template>
-              <ng-template pTemplate="body" let-it let-i="rowIndex">
+              <ng-template #body let-it let-i="rowIndex">
                 <tr>
                   <td>
                     <div class="etqp-qname">

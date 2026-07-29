@@ -65,13 +65,13 @@ import { ProductSearchComponent, ProductHit } from '../components/product-search
     
       <p-table [value]="filteredLots()" [loading]="loading()" styleClass="p-datatable-sm surf-table surf-table--zebra"
         [scrollable]="true" scrollHeight="flex" [paginator]="true" [rows]="25" [rowsPerPageOptions]="[25, 50, 100, 200]">
-        <ng-template pTemplate="header">
+        <ng-template #header>
           <tr>
             <th scope="col">Almacén</th><th scope="col">SKU</th><th scope="col">Producto</th><th scope="col">Lote</th><th scope="col">Caduca</th>
             <th scope="col" class="num">Días</th><th scope="col" class="num">Cantidad</th><th scope="col" class="num">Valor en riesgo</th>
           </tr>
         </ng-template>
-        <ng-template pTemplate="body" let-it>
+        <ng-template #body let-it>
           <tr [class.ex-row-expired]="+it.days_to_expiry < 0">
             <td class="ex-mono">{{ it.warehouse_code }}</td>
             <td class="ex-mono">{{ it.sku || '—' }}</td>
@@ -85,7 +85,7 @@ import { ProductSearchComponent, ProductHit } from '../components/product-search
             <td class="num ex-cap">{{ it.value_at_cost | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
           </tr>
         </ng-template>
-        <ng-template pTemplate="emptymessage">
+        <ng-template #emptymessage>
           <tr><td colspan="8" class="comm-empty-cell"><div class="comm-empty"><div class="comm-empty-icon"><i class="pi pi-calendar-times" aria-hidden="true"></i></div><h3>Sin lotes por vencer</h3><p>No hay lotes por vencer en esta ventana. Capturá caducidad al recibir mercancía para verlos aquí.</p></div></td></tr>
         </ng-template>
       </p-table>

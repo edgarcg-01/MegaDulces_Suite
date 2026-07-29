@@ -123,7 +123,7 @@ interface DraftLine {
       <p-table [value]="rows()" [loading]="loading()" [scrollable]="true" scrollHeight="flex"
                [paginator]="true" [rows]="pageSize" [totalRecords]="total()" [lazy]="true" (onLazyLoad)="onPage($event)"
                styleClass="p-datatable-sm ec-table" [rowsPerPageOptions]="[50, 100, 200]">
-        <ng-template pTemplate="header">
+        <ng-template #header>
           <tr>
             <th pFrozenColumn style="width:2.5rem"><p-checkbox [binary]="true" [ngModel]="allSelected()" (onChange)="toggleAll($event)" ariaLabel="Seleccionar todo" /></th>
             <th pFrozenColumn style="min-width:7rem" pSortableColumn="sku">SKU <p-sorticon field="sku" /></th>
@@ -149,7 +149,7 @@ interface DraftLine {
             <th title="Cómo se surte (compra/traspaso) y cada cuánto — deriva del histórico">Ciclo</th>
           </tr>
         </ng-template>
-        <ng-template pTemplate="body" let-r>
+        <ng-template #body let-r>
           <tr [class.ec-sel-row]="isSelected(r)">
             <td pFrozenColumn><p-checkbox [binary]="true" [ngModel]="isSelected(r)" (onChange)="toggle(r)" [ariaLabel]="'Seleccionar ' + r.sku" /></td>
             <td pFrozenColumn class="ec-mono">{{ r.sku }}</td>
@@ -192,7 +192,7 @@ interface DraftLine {
             </td>
           </tr>
         </ng-template>
-        <ng-template pTemplate="emptymessage">
+        <ng-template #emptymessage>
           <tr><td colspan="18" class="ec-empty">Sin productos que reponer con estos filtros.</td></tr>
         </ng-template>
       </p-table>
@@ -213,7 +213,7 @@ interface DraftLine {
         <p-table [value]="deadRows()" [loading]="deadLoading()" [scrollable]="true"
                  [paginator]="true" [rows]="pageSize" [totalRecords]="deadTotal()" [lazy]="true" (onLazyLoad)="onDeadPage($event)"
                  styleClass="p-datatable-sm ec-table" [rowsPerPageOptions]="[50, 100, 200]">
-          <ng-template pTemplate="header">
+          <ng-template #header>
             <tr>
               <th>SKU</th>
               <th>Producto</th>
@@ -226,7 +226,7 @@ interface DraftLine {
               <th>Proveedor</th>
             </tr>
           </ng-template>
-          <ng-template pTemplate="body" let-r>
+          <ng-template #body let-r>
             <tr>
               <td class="ec-mono">{{ r.sku }}</td>
               <td>{{ r.nombre }}</td>
@@ -242,7 +242,7 @@ interface DraftLine {
               <td class="ec-muted">{{ r.supplier_name || '—' }}</td>
             </tr>
           </ng-template>
-          <ng-template pTemplate="emptymessage">
+          <ng-template #emptymessage>
             <tr><td colspan="9" class="ec-empty">Sin productos sin rotación con estos filtros. 🎉</td></tr>
           </ng-template>
         </p-table>
@@ -292,7 +292,7 @@ interface DraftLine {
         </div>
         <input pInputText type="text" [(ngModel)]="notes" placeholder="Nota (opcional)" class="ec-dlg-notes" />
       </div>
-      <ng-template pTemplate="footer">
+      <ng-template #footer>
         <button pButton type="button" label="Cancelar" class="p-button-text p-button-sm" [disabled]="saving()" (click)="dialogOpen.set(false)"></button>
         <button pButton type="button" label="Crear requisición" icon="pi pi-check" class="p-button-sm" [loading]="saving()" [disabled]="saving()" (click)="create()"></button>
       </ng-template>

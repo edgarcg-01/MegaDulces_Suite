@@ -130,7 +130,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
             <section class="surf-panel">
               <div class="surf-panel-body is-flush">
                 <p-table [value]="shipmentRows()" [loading]="loading()" responsiveLayout="scroll" styleClass="surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra p-datatable-sm" [paginator]="true" [rows]="25" [rowsPerPageOptions]="[25, 50, 100, 200]" sortMode="single">
-                  <ng-template pTemplate="header">
+                  <ng-template #header>
                     <tr>
                       <th scope="col" pSortableColumn="folio">Folio <p-sorticon field="folio"></p-sorticon></th>
                       <th scope="col" pSortableColumn="shipment_date">Fecha <p-sorticon field="shipment_date"></p-sorticon></th>
@@ -143,7 +143,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
                       <th scope="col" class="comm-num">Ing/km</th>
                     </tr>
                   </ng-template>
-                  <ng-template pTemplate="body" let-r>
+                  <ng-template #body let-r>
                     <tr>
                       <td><code class="comm-code">{{ r.folio }}</code></td>
                       <td>{{ r.shipment_date | date:'shortDate' }}</td>
@@ -156,7 +156,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
                       <td class="comm-num">{{ revenuePerKm(r) | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
                     </tr>
                   </ng-template>
-                  <ng-template pTemplate="emptymessage">
+                  <ng-template #emptymessage>
                     <tr>
                       <td colspan="9" class="comm-empty-cell">
                         <div class="comm-empty">
@@ -181,7 +181,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
             <section class="surf-panel">
               <div class="surf-panel-body is-flush">
                 <p-table [value]="fleetRows()" [loading]="loading()" responsiveLayout="scroll" styleClass="surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra p-datatable-sm" sortMode="single">
-                  <ng-template pTemplate="header">
+                  <ng-template #header>
                     <tr>
                       <th scope="col" pSortableColumn="plate">Placa <p-sorticon field="plate"></p-sorticon></th>
                       <th scope="col">Modelo</th>
@@ -193,7 +193,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
                       <th scope="col" class="comm-num">Ing/km</th>
                     </tr>
                   </ng-template>
-                  <ng-template pTemplate="body" let-v>
+                  <ng-template #body let-v>
                     <tr>
                       <td><code class="comm-code">{{ v.plate }}</code></td>
                       <td class="is-small">{{ v.model || '—' }}</td>
@@ -205,7 +205,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
                       <td class="comm-num">{{ revenuePerKmFleet(v) | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
                     </tr>
                   </ng-template>
-                  <ng-template pTemplate="emptymessage">
+                  <ng-template #emptymessage>
                     <tr>
                       <td colspan="8" class="comm-empty-cell">
                         <div class="comm-empty">
@@ -294,7 +294,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
               <section class="surf-panel" style="margin-top:1rem;">
                 <div class="surf-panel-body is-flush">
                   <p-table [value]="e.rows" [loading]="erpLoading()" responsiveLayout="scroll" styleClass="surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra p-datatable-sm" [paginator]="e.rows.length > 25" [rows]="25" sortMode="single">
-                    <ng-template pTemplate="header">
+                    <ng-template #header>
                       <tr>
                         <th scope="col">{{ erpDimLabel() }}</th>
                         <th scope="col" pSortableColumn="folios" class="comm-num">Folios <p-sorticon field="folios"></p-sorticon></th>
@@ -302,7 +302,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
                         <th scope="col" pSortableColumn="lines" class="comm-num">Líneas <p-sorticon field="lines"></p-sorticon></th>
                       </tr>
                     </ng-template>
-                    <ng-template pTemplate="body" let-r>
+                    <ng-template #body let-r>
                       <tr>
                         <td>{{ r.label }}</td>
                         <td class="comm-num">{{ r.folios | number:'1.0-0' }}</td>
@@ -310,7 +310,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
                         <td class="comm-num">{{ r.lines | number:'1.0-0' }}</td>
                       </tr>
                     </ng-template>
-                    <ng-template pTemplate="emptymessage">
+                    <ng-template #emptymessage>
                       <tr>
                         <td colspan="4" class="comm-empty-cell">
                           <div class="comm-empty">

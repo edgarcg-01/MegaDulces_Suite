@@ -135,7 +135,7 @@ import { INV_COUNT_TABS } from '../inventory-tabs';
             <label class="pa-fld">Col <p-inputnumber [(ngModel)]="newCol" [min]="0" inputStyleClass="pa-num"></p-inputnumber></label>
           </div>
         </div>
-        <ng-template pTemplate="footer">
+        <ng-template #footer>
           <button pButton type="button" label="Cancelar" [text]="true" size="small" (click)="showCreate.set(false)"></button>
           <button pButton type="button" label="Crear" icon="pi pi-check" size="small" (click)="saveCreate()" [loading]="working()" [disabled]="!newCode().trim()"></button>
         </ng-template>

@@ -78,7 +78,7 @@ import { CfdiService, CfdiRow, CfdiStats, CfdiFilters } from '../cfdi.service';
         <p-table [value]="rows()" styleClass="p-datatable-sm cf-table" [rowHover]="true" [loading]="loading()"
                  [scrollable]="true" scrollHeight="560px" [paginator]="total() > 50" [rows]="50" [totalRecords]="total()"
                  [lazy]="true" (onLazyLoad)="onPage($event)">
-          <ng-template pTemplate="header">
+          <ng-template #header>
             <tr>
               <th style="width:4rem">Tipo</th>
               <th>Emisor</th>
@@ -90,7 +90,7 @@ import { CfdiService, CfdiRow, CfdiStats, CfdiFilters } from '../cfdi.service';
               <th style="width:3rem"></th>
             </tr>
           </ng-template>
-          <ng-template pTemplate="body" let-c>
+          <ng-template #body let-c>
             <tr>
               <td><span class="cf-tipo" [ngClass]="'t-' + (c.tipo_comprobante || 'x')">{{ c.tipo_comprobante || '—' }}</span></td>
               <td><div class="cf-name">{{ c.emisor_nombre || c.emisor_rfc || '—' }}</div><div class="cf-rfc mono">{{ c.emisor_rfc }}</div></td>
@@ -102,7 +102,7 @@ import { CfdiService, CfdiRow, CfdiStats, CfdiFilters } from '../cfdi.service';
               <td class="ta-r">@if (c.has_xml) { <button pButton type="button" icon="pi pi-download" class="p-button-text p-button-sm" title="Descargar XML" aria-label="Descargar XML" (click)="downloadXml(c)"></button> }</td>
             </tr>
           </ng-template>
-          <ng-template pTemplate="emptymessage"><tr><td colspan="8" class="cf-empty">
+          <ng-template #emptymessage><tr><td colspan="8" class="cf-empty">
             @if (loading()) { Cargando… }
             @else if (errored()) { <i class="pi pi-exclamation-triangle"></i> No se pudieron cargar los CFDI. <button pButton type="button" label="Reintentar" class="p-button-sm p-button-text" (click)="reload()"></button> }
             @else { <i class="pi pi-inbox"></i> Sin CFDI en este filtro. El almacén se llena al correr la <strong>descarga masiva</strong> del SAT. }

@@ -54,7 +54,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
         <p-card>
           <h3>Top operadores · hoy</h3>
           <p-table [value]="d.top_operators" responsiveLayout="scroll" styleClass="p-datatable-sm">
-            <ng-template pTemplate="header">
+            <ng-template #header>
               <tr>
                 <th>#</th>
                 <th>Operador</th>
@@ -64,7 +64,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
                 <th class="num">Conv.</th>
               </tr>
             </ng-template>
-            <ng-template pTemplate="body" let-op let-i="rowIndex">
+            <ng-template #body let-op let-i="rowIndex">
               <tr>
                 <td><strong>{{ i + 1 }}</strong></td>
                 <td>{{ op.username || '—' }}</td>
@@ -74,7 +74,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
                 <td class="num">{{ opConversion(op) | number:'1.1-1' }}%</td>
               </tr>
             </ng-template>
-            <ng-template pTemplate="emptymessage">
+            <ng-template #emptymessage>
               <tr><td colspan="6" class="muted">Sin actividad hoy.</td></tr>
             </ng-template>
           </p-table>
@@ -103,7 +103,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
           <a pButton routerLink="/televenta/queue" label="Ver cola completa" icon="pi pi-arrow-right" iconPos="right" severity="secondary" [text]="true" size="small"></a>
         </div>
         <p-table [value]="d.queue_preview" responsiveLayout="scroll" styleClass="p-datatable-sm">
-          <ng-template pTemplate="header">
+          <ng-template #header>
             <tr>
               <th>Código</th>
               <th>Cliente</th>
@@ -112,7 +112,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
               <th></th>
             </tr>
           </ng-template>
-          <ng-template pTemplate="body" let-c>
+          <ng-template #body let-c>
             <tr>
               <td><code>{{ c.code }}</code></td>
               <td><strong>{{ c.name }}</strong></td>
@@ -121,7 +121,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
               <td><a pButton [routerLink]="['/televenta/lead', c.id]" label="Tomar" icon="pi pi-phone" size="small" [text]="true"></a></td>
             </tr>
           </ng-template>
-          <ng-template pTemplate="emptymessage">
+          <ng-template #emptymessage>
             <tr><td colspan="5" class="muted">Cola al día 🎉</td></tr>
           </ng-template>
         </p-table>

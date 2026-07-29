@@ -84,7 +84,7 @@ interface GuideRow extends DeliveryGuide {
         <section class="surf-panel">
           <div class="surf-panel-body is-flush">
             <p-table [value]="filtered()" [loading]="loading()" responsiveLayout="scroll" styleClass="surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra" [paginator]="true" [rows]="25" [rowsPerPageOptions]="[25, 50, 100, 200]">
-              <ng-template pTemplate="header">
+              <ng-template #header>
                 <tr>
                   <th scope="col">Número</th>
                   <th scope="col">Embarque</th>
@@ -96,7 +96,7 @@ interface GuideRow extends DeliveryGuide {
                   <th scope="col"><span class="sr-only">Acciones</span></th>
                 </tr>
               </ng-template>
-              <ng-template pTemplate="body" let-g>
+              <ng-template #body let-g>
                 <tr>
                   <td><code class="comm-code">{{ g.number }}</code></td>
                   <td>
@@ -122,7 +122,7 @@ interface GuideRow extends DeliveryGuide {
                   </td>
                 </tr>
               </ng-template>
-              <ng-template pTemplate="emptymessage">
+              <ng-template #emptymessage>
                 <tr>
                   <td colspan="8">
                     <div class="comm-empty">

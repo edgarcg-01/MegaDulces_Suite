@@ -51,10 +51,10 @@ type Sev = 'success' | 'warn' | 'danger' | 'secondary';
         <span class="cnt" [class.bad]="openAlerts().length">{{ openAlerts().length }} abierta(s)</span></h2>
       <div class="card">
         <p-table [value]="openAlerts()" styleClass="p-datatable-sm" [tableStyle]="{ 'min-width': '48rem' }">
-          <ng-template pTemplate="header">
+          <ng-template #header>
             <tr><th>Fuente</th><th>Estado</th><th class="num">Desactualizada</th><th>Detectada</th><th></th></tr>
           </ng-template>
-          <ng-template pTemplate="body" let-a>
+          <ng-template #body let-a>
             <tr [class.row-ack]="a.acknowledged_at">
               <td>
                 <div class="src">{{ a.source_label }}</div>
@@ -70,7 +70,7 @@ type Sev = 'success' | 'warn' | 'danger' | 'secondary';
               </td>
             </tr>
           </ng-template>
-          <ng-template pTemplate="emptymessage">
+          <ng-template #emptymessage>
             <tr><td colspan="5" class="empty ok-empty"><i class="pi pi-check-circle"></i> Sin alertas abiertas — todo sano.</td></tr>
           </ng-template>
         </p-table>
@@ -94,7 +94,7 @@ type Sev = 'success' | 'warn' | 'danger' | 'secondary';
         <h2 class="sec">{{ title }}</h2>
         <div class="card">
           <p-table [value]="data" [loading]="false" styleClass="p-datatable-sm" [tableStyle]="{ 'min-width': '48rem' }">
-            <ng-template pTemplate="header">
+            <ng-template #header>
               <tr>
                 <th>{{ firstCol }}</th>
                 <th>Última actualización</th>
@@ -104,7 +104,7 @@ type Sev = 'success' | 'warn' | 'danger' | 'secondary';
                 <th class="num">Filas</th>
               </tr>
             </ng-template>
-            <ng-template pTemplate="body" let-s>
+            <ng-template #body let-s>
               <tr>
                 <td>
                   <div class="src">{{ s.label }}</div>
@@ -128,7 +128,7 @@ type Sev = 'success' | 'warn' | 'danger' | 'secondary';
                 <td class="num tnum">{{ s.rows != null ? (s.rows | number) : '—' }}</td>
               </tr>
             </ng-template>
-            <ng-template pTemplate="emptymessage">
+            <ng-template #emptymessage>
               <tr><td colspan="6" class="empty">
                 @if (loading()) { Cargando… } @else { Sin fuentes. }
               </td></tr>

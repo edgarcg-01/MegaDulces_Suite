@@ -89,7 +89,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
         <section class="surf-panel">
           <div class="surf-panel-body is-flush">
             <p-table [value]="drivers()" [loading]="loading()" responsiveLayout="scroll" styleClass="surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra p-datatable-sm">
-              <ng-template pTemplate="header">
+              <ng-template #header>
                 <tr>
                   <th scope="col"><span class="sr-only">Avatar</span></th>
                   <th scope="col">Nombre</th>
@@ -101,7 +101,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
                   <th scope="col"><span class="sr-only">Acciones</span></th>
                 </tr>
               </ng-template>
-              <ng-template pTemplate="body" let-d>
+              <ng-template #body let-d>
                 <tr>
                   <td>
                     <p-avatar [label]="initials(d.full_name)" shape="circle"
@@ -125,7 +125,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
                   </td>
                 </tr>
               </ng-template>
-              <ng-template pTemplate="emptymessage">
+              <ng-template #emptymessage>
                 <tr><td colspan="8" class="comm-empty-cell">
                   <div class="comm-empty">
                     <i class="pi pi-users comm-empty-icon"></i>
@@ -208,7 +208,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
           </label>
         </form>
     
-        <ng-template pTemplate="footer">
+        <ng-template #footer>
           <button pButton label="Cancelar" severity="secondary" [text]="true" (click)="dialogVisible = false" [disabled]="saving()"></button>
           <p-button pButton [label]="editing() ? 'Guardar cambios' : 'Crear'" icon="pi pi-check" (click)="save()" [loading]="saving()" [disabled]="form.invalid"></p-button>
         </ng-template>

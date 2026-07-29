@@ -44,14 +44,14 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
 
       <p-table [value]="rows()" [loading]="loading()" [scrollable]="true" scrollHeight="flex"
                styleClass="p-datatable-sm hz-table">
-        <ng-template pTemplate="header">
+        <ng-template #header>
           <tr>
             <th>Severidad</th><th>SKU</th><th>Producto</th><th>Almacén</th><th>ABC</th>
             <th class="hz-r">Existencia</th><th class="hz-r">Reorden</th><th class="hz-r">OC a recibir</th>
             <th class="hz-r">Sugerido</th><th class="hz-r">Costo est.</th><th>Proveedor</th><th>Detectado</th>
           </tr>
         </ng-template>
-        <ng-template pTemplate="body" let-f>
+        <ng-template #body let-f>
           <tr>
             <td><p-tag [value]="sevLabel(f.severity)" [severity]="sevTag(f.severity)"></p-tag></td>
             <td class="hz-mono">{{ f.sku }}</td>
@@ -67,7 +67,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
             <td class="hz-muted">{{ f.first_seen_at | date:'dd/MM/yy' }}</td>
           </tr>
         </ng-template>
-        <ng-template pTemplate="emptymessage">
+        <ng-template #emptymessage>
           <tr><td colspan="12" class="hz-empty">Sin hallazgos {{ fStatus === 'open' ? 'abiertos' : '' }}. Corre "Escanear ahora" para detectar.</td></tr>
         </ng-template>
       </p-table>

@@ -160,7 +160,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
             <p-table [value]="shipments()" [loading]="loading()" responsiveLayout="scroll"
               styleClass="surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra"
               [paginator]="true" [rows]="25" [rowsPerPageOptions]="[25, 50, 100, 200]">
-              <ng-template pTemplate="header">
+              <ng-template #header>
                 <tr>
                   <th scope="col">Folio</th>
                   <th scope="col">Fecha</th>
@@ -171,7 +171,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
                   <th scope="col"><span class="sr-only">Acciones</span></th>
                 </tr>
               </ng-template>
-              <ng-template pTemplate="body" let-s>
+              <ng-template #body let-s>
                 <tr (click)="openWizard(s)" class="comm-row-clickable"
                   role="button" tabindex="0"
                   [attr.aria-label]="'Abrir entrega ' + s.folio"
