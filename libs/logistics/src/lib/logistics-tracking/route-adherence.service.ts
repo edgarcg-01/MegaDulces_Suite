@@ -8,15 +8,16 @@ const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12
 export interface AdherenceResult {
   vehicle_id: string;
   day: string;
-  route_ids: string[];
-  evaluable: boolean; // false si ningún cliente del plan tiene coords
+  route_ids: string[]; // nombre(s) de la ruta trade servida
+  evaluable: boolean; // false si la unidad no tocó ninguna tienda geolocalizada
   planned_count: number;
   planned_with_coords: number;
   visited_count: number;
+  captured_count: number; // de las visitadas, cuántas tuvieron captura de auditoría
   skipped_count: number;
   off_route_count: number;
   coverage_pct: number | null; // visitados / plan-con-coords
-  planned: Array<{ customer_id: string; code: string | null; name: string | null; visit_sequence: number | null; has_coords: boolean; visited: boolean }>;
+  planned: Array<{ customer_id: string; code: string | null; name: string | null; visit_sequence: number | null; has_coords: boolean; visited: boolean; captured: boolean }>;
   skipped: Array<{ customer_id: string; code: string | null; name: string | null }>;
   off_route_stops: Array<{ arrived_at: string; minutes: number; lat: number; lng: number }>;
 }
@@ -88,60 +89,87 @@ export class RouteAdherenceService {
     end: string,
   ): Promise<AdherenceResult> {
     {
-      // "Unidad de ruta": el número de ruta viene del tracker del vehículo (GPS
-      // "R-21" o asignado a mano). El plan son los clientes de esa ruta, cuyo
-      // vínculo real es el texto sales_route ("RUTA 21"), no route_id (vacío).
-      const trk = await trx('logistics.trackers')
-        .where({ vehicle_id: vehicleId })
-        .whereNotNull('route_number')
-        .first('route_number');
-      const routeNumber: number | null = trk?.route_number ?? null;
+      // Cumplimiento en el dominio AUDITORÍA: plan = tiendas de trade (stores) de
+      // la ruta que la unidad sirvió; real = tiendas donde el camión se detuvo;
+      // captura = si además hubo una captura de auditoría ahí. La ruta se infiere
+      // de la ruta dominante (stores.ruta_id) entre las tiendas que tocó — no se
+      // depende de puentes de modelos de ruta.
+      const stopRows = await trx('logistics.vehicle_stops as st')
+        .leftJoin('public.stores as s', 's.id', 'st.matched_store_id')
+        .where('st.vehicle_id', vehicleId)
+        .whereBetween('st.arrived_at', [start, end])
+        .whereNotNull('st.matched_store_id')
+        .select(
+          'st.matched_store_id as store_id',
+          's.ruta_id',
+          'st.arrived_at',
+          'st.minutes',
+          'st.lat',
+          'st.lng',
+          trx.raw(`EXISTS (
+            SELECT 1 FROM public.daily_captures dc
+            WHERE dc.hora_inicio BETWEEN st.arrived_at - interval '10 minutes' AND st.left_at + interval '10 minutes'
+              AND dc.latitud IS NOT NULL AND dc.longitud IS NOT NULL
+              AND 2 * 6371000 * asin(sqrt(
+                power(sin(radians(dc.latitud::float8 - st.lat::float8) / 2), 2) +
+                cos(radians(st.lat::float8)) * cos(radians(dc.latitud::float8)) *
+                power(sin(radians(dc.longitud::float8 - st.lng::float8) / 2), 2)
+              )) <= 150
+          ) as captured`),
+        );
 
-      // Plan: clientes cuya sales_route normaliza al mismo número. El regex tolera
-      // "RUTA 21" / "R-21" / "R0021" / "21" sin capturar "121".
-      const planned = routeNumber != null
-        ? await trx('commercial.customers')
+      // Ruta dominante = la ruta_id más frecuente entre las tiendas visitadas.
+      const routeCount = new Map<string, number>();
+      for (const s of stopRows as any[]) if (s.ruta_id) routeCount.set(s.ruta_id, (routeCount.get(s.ruta_id) || 0) + 1);
+      let dominantRoute: string | null = null;
+      let bestCount = 0;
+      for (const [rid, cnt] of routeCount) if (cnt > bestCount) { bestCount = cnt; dominantRoute = rid; }
+
+      const visitedStore = new Set((stopRows as any[]).map((s) => s.store_id));
+      const capturedStore = new Set((stopRows as any[]).filter((s) => s.captured).map((s) => s.store_id));
+
+      // Plan = tiendas activas de la ruta dominante.
+      const planned = dominantRoute
+        ? await trx('public.stores')
+            .where('ruta_id', dominantRoute)
             .whereNull('deleted_at')
-            .whereRaw(`sales_route ~* ('(^|[^0-9])0*' || ?::text || '([^0-9]|$)')`, [String(routeNumber)])
-            .select('id as customer_id', 'code', 'name', 'visit_sequence', 'latitude')
-            .orderByRaw('visit_sequence asc nulls last')
+            .select('id as store_id', 'nombre as name', 'latitud')
+            .orderBy('nombre', 'asc')
         : [];
-      const routeIds = routeNumber != null ? [`R-${routeNumber}`] : [];
+      const routeName = dominantRoute
+        ? (await trx('catalogs').where('id', dominantRoute).first('value'))?.value ?? null
+        : null;
 
-      // Real: paradas matcheadas a cliente ese día.
-      const stops = await trx('logistics.vehicle_stops')
-        .where({ vehicle_id: vehicleId })
-        .whereBetween('arrived_at', [start, end])
-        .select('matched_customer_id', 'arrived_at', 'minutes', 'lat', 'lng', 'is_customer');
-      const visitedIds = new Set(stops.filter((s: any) => s.matched_customer_id).map((s: any) => s.matched_customer_id));
-      const plannedIds = new Set(planned.map((p: any) => p.customer_id));
-
-      const plannedRows = planned.map((p: any) => ({
-        customer_id: p.customer_id,
-        code: p.code ?? null,
+      const plannedRows = (planned as any[]).map((p) => ({
+        customer_id: p.store_id,
+        code: null,
         name: p.name ?? null,
-        visit_sequence: p.visit_sequence ?? null,
-        has_coords: p.latitude != null,
-        visited: visitedIds.has(p.customer_id),
+        visit_sequence: null,
+        has_coords: p.latitud != null,
+        visited: visitedStore.has(p.store_id),
+        captured: capturedStore.has(p.store_id),
       }));
       const plannedWithCoords = plannedRows.filter((p) => p.has_coords);
       const skipped = plannedWithCoords.filter((p) => !p.visited).map((p) => ({ customer_id: p.customer_id, code: p.code, name: p.name }));
       const visitedCount = plannedWithCoords.filter((p) => p.visited).length;
+      const capturedCount = plannedWithCoords.filter((p) => p.captured).length;
+      const plannedIds = new Set(plannedRows.map((p) => p.customer_id));
 
-      // Paradas fuera de ruta: parada real cuyo cliente no está en el plan (o sin cliente).
-      const offRoute = stops
-        .filter((s: any) => !s.matched_customer_id || !plannedIds.has(s.matched_customer_id))
-        .map((s: any) => ({ arrived_at: s.arrived_at, minutes: s.minutes, lat: Number(s.lat), lng: Number(s.lng) }));
+      // Paradas fuera de ruta: tienda visitada que no pertenece a la ruta dominante.
+      const offRoute = (stopRows as any[])
+        .filter((s) => !plannedIds.has(s.store_id))
+        .map((s) => ({ arrived_at: s.arrived_at, minutes: s.minutes, lat: Number(s.lat), lng: Number(s.lng) }));
 
       const evaluable = plannedWithCoords.length > 0;
       return {
         vehicle_id: vehicleId,
         day,
-        route_ids: routeIds,
+        route_ids: routeName ? [routeName] : [],
         evaluable,
         planned_count: plannedRows.length,
         planned_with_coords: plannedWithCoords.length,
         visited_count: visitedCount,
+        captured_count: capturedCount,
         skipped_count: skipped.length,
         off_route_count: offRoute.length,
         coverage_pct: evaluable ? Math.round((visitedCount / plannedWithCoords.length) * 100) : null,

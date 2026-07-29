@@ -57,18 +57,33 @@ import {
           <span class="rk-kpi-n">{{ totals().km | number:'1.0-0' }}</span>
           <span class="rk-kpi-l">Km recorridos</span>
         </article>
-        <article class="cell cell-span-3 rk-kpi">
-          <span class="rk-kpi-n" style="color:var(--ok-fg)">{{ totals().customerStops }}</span>
-          <span class="rk-kpi-l">Paradas con cliente</span>
-        </article>
-        <article class="cell cell-span-3 rk-kpi">
-          <span class="rk-kpi-n" style="color:var(--warn-fg)">{{ fmtMin(totals().deadMin) }}</span>
-          <span class="rk-kpi-l">Tiempo muerto</span>
-        </article>
-        <article class="cell cell-span-3 rk-kpi">
-          <span class="rk-kpi-n rk-dim">{{ totals().deadStops }}</span>
-          <span class="rk-kpi-l">Paradas muertas</span>
-        </article>
+        @if (fleet === 'route') {
+          <article class="cell cell-span-3 rk-kpi">
+            <span class="rk-kpi-n">{{ totals().storeStops }}</span>
+            <span class="rk-kpi-l">Paradas en tienda</span>
+          </article>
+          <article class="cell cell-span-3 rk-kpi">
+            <span class="rk-kpi-n" style="color:var(--ok-fg)">{{ totals().captured }}</span>
+            <span class="rk-kpi-l">Con captura</span>
+          </article>
+          <article class="cell cell-span-3 rk-kpi">
+            <span class="rk-kpi-n" style="color:var(--warn-fg)">{{ totals().uncaptured }}</span>
+            <span class="rk-kpi-l">Sin captura</span>
+          </article>
+        } @else {
+          <article class="cell cell-span-3 rk-kpi">
+            <span class="rk-kpi-n" style="color:var(--ok-fg)">{{ totals().customerStops }}</span>
+            <span class="rk-kpi-l">Paradas con cliente</span>
+          </article>
+          <article class="cell cell-span-3 rk-kpi">
+            <span class="rk-kpi-n" style="color:var(--warn-fg)">{{ fmtMin(totals().deadMin) }}</span>
+            <span class="rk-kpi-l">Tiempo muerto</span>
+          </article>
+          <article class="cell cell-span-3 rk-kpi">
+            <span class="rk-kpi-n rk-dim">{{ totals().deadStops }}</span>
+            <span class="rk-kpi-l">Paradas muertas</span>
+          </article>
+        }
       </div>
 
       <!-- Master-detail -->
@@ -82,8 +97,15 @@ import {
                   <th class="num">Km</th>
                   <th class="num" pTooltip="En movimiento">Mov.</th>
                   <th class="num" pTooltip="Detenido improductivo (paradas ≥20 min sin cliente)">Muerto</th>
-                  <th class="num" pTooltip="Paradas con cliente / total">Paradas</th>
-                  <th class="num" pTooltip="Km por entrega (parada con cliente)">Km/ent.</th>
+                  <ng-container *ngIf="fleet === 'route'">
+                    <th class="num" pTooltip="Paradas en tienda de trade">Tiendas</th>
+                    <th class="num" pTooltip="Tiendas con captura de auditoría / paradas en tienda">Auditadas</th>
+                    <th class="num" pTooltip="Paró en tienda pero no capturó">Sin capt.</th>
+                  </ng-container>
+                  <ng-container *ngIf="fleet !== 'route'">
+                    <th class="num" pTooltip="Paradas con cliente / total">Paradas</th>
+                    <th class="num" pTooltip="Km por entrega (parada con cliente)">Km/ent.</th>
+                  </ng-container>
                 </tr>
               </thead>
               <tbody>
@@ -93,8 +115,15 @@ import {
                   <td class="num">{{ r.km_driven | number:'1.0-1' }}</td>
                   <td class="num">{{ fmtMin(r.moving_min) }}</td>
                   <td class="num" [class.rk-warn]="r.dead_min > 0">{{ r.dead_min ? fmtMin(r.dead_min) : '—' }}</td>
-                  <td class="num"><b>{{ r.customer_stops }}</b><span class="rk-of">/{{ r.stops_count }}</span></td>
-                  <td class="num">{{ r.km_per_customer_stop != null ? (r.km_per_customer_stop | number:'1.0-1') : '—' }}</td>
+                  <ng-container *ngIf="fleet === 'route'">
+                    <td class="num">{{ r.store_stops }}</td>
+                    <td class="num"><b style="color:var(--ok-fg)">{{ r.captured_stops }}</b><span class="rk-of">/{{ r.store_stops }}</span></td>
+                    <td class="num" [class.rk-warn]="r.uncaptured_stops > 0">{{ r.uncaptured_stops || '—' }}</td>
+                  </ng-container>
+                  <ng-container *ngIf="fleet !== 'route'">
+                    <td class="num"><b>{{ r.customer_stops }}</b><span class="rk-of">/{{ r.stops_count }}</span></td>
+                    <td class="num">{{ r.km_per_customer_stop != null ? (r.km_per_customer_stop | number:'1.0-1') : '—' }}</td>
+                  </ng-container>
                 </tr>
               </tbody>
             </table>
@@ -117,19 +146,30 @@ import {
           <div *ngIf="loadingStops()" class="rk-muted rk-pad">Cargando paradas…</div>
           <div *ngIf="!loadingStops() && stops().length === 0" class="rk-muted rk-pad">Sin paradas registradas.</div>
           <ol class="rk-stops" *ngIf="!loadingStops() && stops().length">
-            <li *ngFor="let st of stops(); trackBy: trackStop" class="rk-stop" [class.cust]="st.is_customer">
+            <li *ngFor="let st of stops(); trackBy: trackStop" class="rk-stop" [class.cust]="st.matched_store_id || st.is_customer">
               <span class="rk-stop-time">{{ hm(st.arrived_at) }}</span>
               <span class="rk-stop-dot"></span>
               <span class="rk-stop-body">
                 <span class="rk-stop-name">
-                  <ng-container *ngIf="st.is_customer; else nocust">
+                  <ng-container *ngIf="st.store_name || st.matched_store_id; else other">
                     <i class="pi pi-shop" aria-hidden="true"></i>
-                    {{ st.customer_name || st.customer_code || 'Cliente' }}
+                    {{ st.store_name || 'Tienda' }}
                     <span class="rk-stop-dist" *ngIf="st.match_distance_m != null">· {{ st.match_distance_m }} m</span>
                   </ng-container>
-                  <ng-template #nocust><i class="pi pi-pause-circle" aria-hidden="true"></i> Parada</ng-template>
+                  <ng-template #other>
+                    <ng-container *ngIf="st.is_customer; else nocust">
+                      <i class="pi pi-user" aria-hidden="true"></i>
+                      {{ st.customer_name || st.customer_code || 'Cliente' }}
+                    </ng-container>
+                    <ng-template #nocust><i class="pi pi-pause-circle" aria-hidden="true"></i> Parada</ng-template>
+                  </ng-template>
                 </span>
-                <span class="rk-stop-meta">{{ st.minutes }} min</span>
+                <span class="rk-stop-meta">
+                  {{ st.minutes }} min
+                  <span *ngIf="st.matched_store_id" class="rk-cap" [class.no]="!st.captured">
+                    · {{ st.captured ? 'capturada' : 'sin captura' }}
+                  </span>
+                </span>
               </span>
             </li>
           </ol>
@@ -213,6 +253,8 @@ import {
     .rk-stop.cust .rk-stop-name .pi { color:var(--ok-fg); }
     .rk-stop-dist { color:var(--c-text-3); font-size:var(--fs-micro); }
     .rk-stop-meta { font-size:var(--fs-micro); color:var(--c-text-3); font-variant-numeric:tabular-nums; }
+    .rk-cap { color:var(--ok-fg); font-weight:var(--fw-medium); }
+    .rk-cap.no { color:var(--warn-fg); }
 
     .rk-pick { text-align:center; color:var(--c-text-3); padding:2rem 1rem; font-size:var(--fs-sm); }
     .rk-pick i { font-size:1.4rem; display:block; margin-bottom:.5rem; }
@@ -248,6 +290,9 @@ export class LogisticaActividadComponent {
       customerStops: r.reduce((a, x) => a + (x.customer_stops || 0), 0),
       deadMin: r.reduce((a, x) => a + (x.dead_min || 0), 0),
       deadStops: r.reduce((a, x) => a + (x.dead_stops || 0), 0),
+      storeStops: r.reduce((a, x) => a + (x.store_stops || 0), 0),
+      captured: r.reduce((a, x) => a + (x.captured_stops || 0), 0),
+      uncaptured: r.reduce((a, x) => a + (x.uncaptured_stops || 0), 0),
     };
   });
 
