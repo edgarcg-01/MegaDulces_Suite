@@ -46,19 +46,19 @@ import { LogisticaService, FleetAdherenceRow } from '../logistica.service';
       <div class="sheet cols-12 rk-kpis">
         <article class="cell cell-span-3 rk-kpi">
           <span class="rk-kpi-n" [style.color]="coverageColor(fleetCoverage())">{{ fleetCoverage() != null ? fleetCoverage() + '%' : '—' }}</span>
-          <span class="rk-kpi-l">Cumplimiento de flota</span>
+          <span class="rk-kpi-l">Cobertura de tiendas</span>
         </article>
         <article class="cell cell-span-3 rk-kpi">
           <span class="rk-kpi-n" style="color:var(--ok-fg)">{{ totals().visited }}</span>
-          <span class="rk-kpi-l">Clientes visitados</span>
+          <span class="rk-kpi-l">Tiendas visitadas</span>
+        </article>
+        <article class="cell cell-span-3 rk-kpi">
+          <span class="rk-kpi-n" style="color:var(--ok-fg)">{{ totals().captured }}</span>
+          <span class="rk-kpi-l">Con captura</span>
         </article>
         <article class="cell cell-span-3 rk-kpi">
           <span class="rk-kpi-n" style="color:var(--warn-fg)">{{ totals().skipped }}</span>
-          <span class="rk-kpi-l">Clientes saltados</span>
-        </article>
-        <article class="cell cell-span-3 rk-kpi">
-          <span class="rk-kpi-n rk-dim">{{ totals().offRoute }}</span>
-          <span class="rk-kpi-l">Paradas fuera de ruta</span>
+          <span class="rk-kpi-l">Tiendas saltadas</span>
         </article>
       </div>
 
@@ -71,9 +71,10 @@ import { LogisticaService, FleetAdherenceRow } from '../logistica.service';
                 <tr>
                   <th>Unidad</th>
                   <th style="width:34%">Cumplimiento</th>
-                  <th class="num" pTooltip="Visitados / plan con coordenadas">Visitados</th>
-                  <th class="num" pTooltip="Clientes del plan que no visitó">Saltados</th>
-                  <th class="num" pTooltip="Paradas que no corresponden a un cliente del plan">Fuera</th>
+                  <th class="num" pTooltip="Tiendas visitadas / plan con coordenadas">Visitadas</th>
+                  <th class="num" pTooltip="Tiendas visitadas donde además hubo captura de auditoría">Auditadas</th>
+                  <th class="num" pTooltip="Tiendas del plan que no visitó">Saltadas</th>
+                  <th class="num" pTooltip="Paradas en tiendas fuera de la ruta">Fuera</th>
                 </tr>
               </thead>
               <tbody>
@@ -90,6 +91,7 @@ import { LogisticaService, FleetAdherenceRow } from '../logistica.service';
                     <ng-template #naCell><span class="rk-na">sin plan evaluable</span></ng-template>
                   </td>
                   <td class="num">{{ r.evaluable ? r.visited_count + '/' + r.planned_with_coords : '—' }}</td>
+                  <td class="num"><b style="color:var(--ok-fg)" *ngIf="r.evaluable">{{ r.captured_count }}</b><span *ngIf="!r.evaluable">—</span></td>
                   <td class="num" [class.rk-warn]="r.skipped_count > 0">{{ r.evaluable ? r.skipped_count : '—' }}</td>
                   <td class="num rk-dim">{{ r.off_route_count }}</td>
                 </tr>
@@ -106,27 +108,28 @@ import { LogisticaService, FleetAdherenceRow } from '../logistica.service';
 
           <div *ngIf="!s.evaluable" class="rk-na-box">
             <i class="pi pi-info-circle" aria-hidden="true"></i>
-            Sin plan evaluable: falta el embarque con ruta del día o los clientes de la ruta no tienen coordenadas
-            <span *ngIf="s.planned_count"> ({{ s.planned_count }} clientes en el plan, {{ s.planned_with_coords }} con coordenadas)</span>.
+            Sin plan evaluable: la unidad no se detuvo en tiendas geolocalizadas de una ruta
+            <span *ngIf="s.planned_count"> ({{ s.planned_count }} tiendas en el plan, {{ s.planned_with_coords }} con coordenadas)</span>.
           </div>
 
           <ng-container *ngIf="s.evaluable">
             <div class="rk-adh-summary">
               <div class="rk-bar rk-bar-lg"><span [style.width.%]="s.coverage_pct ?? 0" [style.background]="coverageColor(s.coverage_pct)"></span></div>
-              <p><b>{{ s.coverage_pct }}%</b> · {{ s.visited_count }}/{{ s.planned_with_coords }} visitados
+              <p><b>{{ s.coverage_pct }}%</b> · {{ s.visited_count }}/{{ s.planned_with_coords }} visitadas · {{ s.captured_count }} con captura
                 <span *ngIf="s.off_route_count"> · {{ s.off_route_count }} fuera de ruta</span></p>
             </div>
 
-            <h4 class="rk-sub-h">Clientes del plan</h4>
+            <h4 class="rk-sub-h">Tiendas del plan{{ s.route_ids.length ? ' · ' + s.route_ids[0] : '' }}</h4>
             <ol class="rk-plan">
               <li *ngFor="let p of s.planned; trackBy: trackPlan" class="rk-plan-row"
                   [class.visited]="p.visited" [class.nocoord]="!p.has_coords">
-                <span class="rk-plan-seq">{{ p.visit_sequence ?? '·' }}</span>
                 <i class="pi" [class.pi-check-circle]="p.visited" [class.pi-times-circle]="!p.visited && p.has_coords"
                    [class.pi-minus-circle]="!p.has_coords" aria-hidden="true"></i>
-                <span class="rk-plan-name">{{ p.name || p.code || 'Cliente' }}</span>
+                <span class="rk-plan-name">{{ p.name || 'Tienda' }}</span>
+                <span class="rk-plan-tag cap" *ngIf="p.captured">capturada</span>
+                <span class="rk-plan-tag" *ngIf="p.visited && !p.captured">sin captura</span>
                 <span class="rk-plan-tag" *ngIf="!p.has_coords">sin coords</span>
-                <span class="rk-plan-tag skip" *ngIf="p.has_coords && !p.visited">saltado</span>
+                <span class="rk-plan-tag skip" *ngIf="p.has_coords && !p.visited">saltada</span>
               </li>
             </ol>
           </ng-container>
@@ -147,7 +150,7 @@ import { LogisticaService, FleetAdherenceRow } from '../logistica.service';
             <div class="rk-empty" *ngIf="!errored(); else errBox">
               <div class="rk-empty-icon"><i class="pi pi-check-circle" aria-hidden="true"></i></div>
               <h3>Sin rutas para auditar</h3>
-              <p>No hay embarques con ruta ni actividad GPS para <b>{{ date() }}</b>. La auditoría cruza los embarques del día con el recorrido real.</p>
+              <p>Ninguna unidad de ruta se detuvo en tiendas geolocalizadas el <b>{{ date() }}</b>. El cumplimiento cruza dónde paró el camión con las tiendas de su ruta y las capturas de auditoría.</p>
             </div>
             <ng-template #errBox>
               <div class="rk-empty">
@@ -213,6 +216,7 @@ import { LogisticaService, FleetAdherenceRow } from '../logistica.service';
     .rk-plan-row.nocoord .rk-plan-name { color:var(--c-text-3); }
     .rk-plan-tag { font-size:var(--fs-micro); color:var(--c-text-3); text-transform:uppercase; letter-spacing:.04em; flex:0 0 auto; }
     .rk-plan-tag.skip { color:var(--warn-fg); }
+    .rk-plan-tag.cap { color:var(--ok-fg); font-weight:var(--fw-bold); }
 
     .rk-pick { text-align:center; color:var(--c-text-3); padding:2rem 1rem; font-size:var(--fs-sm); }
     .rk-pick i { font-size:1.4rem; display:block; margin-bottom:.5rem; }
@@ -240,6 +244,7 @@ export class LogisticaAuditoriaRutaComponent {
     const r = this.evaluables();
     return {
       visited: r.reduce((a, x) => a + (x.visited_count || 0), 0),
+      captured: r.reduce((a, x) => a + (x.captured_count || 0), 0),
       skipped: r.reduce((a, x) => a + (x.skipped_count || 0), 0),
       plannedWithCoords: r.reduce((a, x) => a + (x.planned_with_coords || 0), 0),
       offRoute: this.rows().reduce((a, x) => a + (x.off_route_count || 0), 0),

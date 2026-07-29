@@ -604,10 +604,11 @@ export interface RouteAdherence {
   planned_count: number;
   planned_with_coords: number;
   visited_count: number;
+  captured_count: number;
   skipped_count: number;
   off_route_count: number;
   coverage_pct: number | null;
-  planned: Array<{ customer_id: string; code: string | null; name: string | null; visit_sequence: number | null; has_coords: boolean; visited: boolean }>;
+  planned: Array<{ customer_id: string; code: string | null; name: string | null; visit_sequence: number | null; has_coords: boolean; visited: boolean; captured: boolean }>;
   skipped: Array<{ customer_id: string; code: string | null; name: string | null }>;
   off_route_stops: Array<{ arrived_at: string; minutes: number; lat: number; lng: number }>;
 }
@@ -655,6 +656,9 @@ export interface FleetProductivityRow {
   customer_stops: number;
   dead_stops: number;
   km_per_customer_stop: number | null;
+  store_stops: number;
+  captured_stops: number;
+  uncaptured_stops: number;
 }
 
 export interface VehicleStop {
@@ -671,6 +675,8 @@ export interface VehicleStop {
   is_customer: boolean;
   customer_name: string | null;
   customer_code: string | null;
+  store_name: string | null;
+  captured: boolean;
 }
 
 export interface RebuildResult {

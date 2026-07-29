@@ -75,9 +75,10 @@ export class TripBuilderService {
         .whereBetween('captured_at', [start, end])
         .distinct('vehicle_id');
       const customers = await this.loadCustomers(trx);
+      const stores = await this.loadStores(trx);
       const out: DayBuildResult[] = [];
       for (const v of vehicles) {
-        out.push(await this.buildOne(trx, v.vehicle_id, day, start, end, customers));
+        out.push(await this.buildOne(trx, v.vehicle_id, day, start, end, customers, stores));
       }
       this.logger.log(`buildForDate ${day}: ${out.length} vehículos, ${out.reduce((a, r) => a + r.stops, 0)} paradas`);
       return out;
@@ -89,7 +90,8 @@ export class TripBuilderService {
     const { start, end } = dayBoundsIso(day);
     return this.tk.run(tenantId, async (trx) => {
       const customers = await this.loadCustomers(trx);
-      return this.buildOne(trx, vehicleId, day, start, end, customers);
+      const stores = await this.loadStores(trx);
+      return this.buildOne(trx, vehicleId, day, start, end, customers, stores);
     });
   }
 
@@ -103,6 +105,17 @@ export class TripBuilderService {
       .filter((c) => Number.isFinite(c.lat) && Number.isFinite(c.lng));
   }
 
+  /** Tiendas de trade con coords (para matchear paradas del camión ↔ PdV de auditoría). */
+  private async loadStores(trx: Knex.Transaction): Promise<Array<{ id: string; lat: number; lng: number }>> {
+    const rows = await trx('public.stores')
+      .whereNotNull('latitud')
+      .whereNull('deleted_at')
+      .select('id', 'latitud', 'longitud');
+    return rows
+      .map((r: any) => ({ id: r.id, lat: Number(r.latitud), lng: Number(r.longitud) }))
+      .filter((s) => Number.isFinite(s.lat) && Number.isFinite(s.lng));
+  }
+
   private async buildOne(
     trx: Knex.Transaction,
     vehicleId: string,
@@ -110,6 +123,7 @@ export class TripBuilderService {
     start: string,
     end: string,
     customers: Array<{ id: string; lat: number; lng: number }>,
+    stores: Array<{ id: string; lat: number; lng: number }>,
   ): Promise<DayBuildResult> {
     const rows = await trx('logistics.vehicle_positions')
       .whereRaw('tenant_id = public.current_tenant_id()')
@@ -161,14 +175,25 @@ export class TripBuilderService {
     const stoppedMin = stops.reduce((a, s) => a + s.minutes, 0);
     const movingMin = Math.max(0, Math.round(spanMin - stoppedMin - offlineMin));
 
-    // ── matchear paradas a clientes ──
-    const stopRows = stops.map((s) => {
+    // ── matchear paradas a clientes (comercial) + tiendas (trade) ──
+    const nearest = (s: { lat: number; lng: number }, pts: Array<{ id: string; lat: number; lng: number }>) => {
       let best: { id: string; d: number } | null = null;
-      for (const c of customers) {
-        const d = haversineM(s.lat, s.lng, c.lat, c.lng);
-        if (d <= GEOFENCE_M && (!best || d < best.d)) best = { id: c.id, d };
+      for (const p of pts) {
+        const d = haversineM(s.lat, s.lng, p.lat, p.lng);
+        if (d <= GEOFENCE_M && (!best || d < best.d)) best = { id: p.id, d };
       }
-      return { ...s, matched_customer_id: best?.id ?? null, match_distance_m: best ? Math.round(best.d) : null, is_customer: !!best };
+      return best;
+    };
+    const stopRows = stops.map((s) => {
+      const bc = nearest(s, customers);
+      const bs = nearest(s, stores);
+      return {
+        ...s,
+        matched_customer_id: bc?.id ?? null,
+        matched_store_id: bs?.id ?? null,
+        match_distance_m: bc ? Math.round(bc.d) : bs ? Math.round(bs.d) : null,
+        is_customer: !!bc,
+      };
     });
     const customerStops = stopRows.filter((s) => s.is_customer).length;
 
@@ -188,6 +213,7 @@ export class TripBuilderService {
           lat: s.lat,
           lng: s.lng,
           matched_customer_id: s.matched_customer_id,
+          matched_store_id: s.matched_store_id,
           match_distance_m: s.match_distance_m,
           is_customer: s.is_customer,
         })),
@@ -234,7 +260,12 @@ export class TripBuilderService {
     });
   }
 
-  /** Paradas de un vehículo en un día, con nombre del cliente matcheado. */
+  /**
+   * Paradas de un vehículo en un día, con cliente + tienda matcheados y un flag
+   * `captured`: ¿hubo una captura de auditoría en esa parada? Se cruza por
+   * cercanía GPS (≤150 m del punto de la parada) dentro de la ventana temporal
+   * (±10 min) — robusto ante daily_captures.store_id poco poblado.
+   */
   async listStops(vehicleId: string, day: string) {
     const { start, end } = dayBoundsIso(day);
     return this.tk.run(async (trx) => {
@@ -242,9 +273,25 @@ export class TripBuilderService {
         .leftJoin('commercial.customers as c', function () {
           this.on('c.tenant_id', 'st.tenant_id').andOn('c.id', 'st.matched_customer_id');
         })
+        .leftJoin('public.stores as s', 's.id', 'st.matched_store_id')
         .where('st.vehicle_id', vehicleId)
         .whereBetween('st.arrived_at', [start, end])
-        .select('st.*', 'c.name as customer_name', 'c.code as customer_code')
+        .select(
+          'st.*',
+          'c.name as customer_name',
+          'c.code as customer_code',
+          's.nombre as store_name',
+          trx.raw(`EXISTS (
+            SELECT 1 FROM public.daily_captures dc
+            WHERE dc.hora_inicio BETWEEN st.arrived_at - interval '10 minutes' AND st.left_at + interval '10 minutes'
+              AND dc.latitud IS NOT NULL AND dc.longitud IS NOT NULL
+              AND 2 * 6371000 * asin(sqrt(
+                power(sin(radians(dc.latitud::float8 - st.lat::float8) / 2), 2) +
+                cos(radians(st.lat::float8)) * cos(radians(dc.latitud::float8)) *
+                power(sin(radians(dc.longitud::float8 - st.lng::float8) / 2), 2)
+              )) <= 150
+          ) as captured`),
+        )
         .orderBy('st.arrived_at', 'asc');
     });
   }

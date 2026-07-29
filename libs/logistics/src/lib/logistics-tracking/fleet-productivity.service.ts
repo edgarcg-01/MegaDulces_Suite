@@ -19,6 +19,10 @@ export interface ProductivityRow {
   customer_stops: number;
   dead_stops: number;
   km_per_customer_stop: number | null;
+  // Fusión con auditoría (LTV.13): paradas en tienda de trade y si hubo captura.
+  store_stops: number;
+  captured_stops: number;
+  uncaptured_stops: number;
 }
 
 /**
@@ -55,9 +59,29 @@ export class FleetProductivityService {
         .count({ dead_stops: '*' });
       const deadByVeh = new Map(dead.map((d: any) => [d.vehicle_id, { dead_min: Number(d.dead_min) || 0, dead_stops: Number(d.dead_stops) || 0 }]));
 
+      // Paradas en tienda de trade + si hubo captura de auditoría (cercanía GPS ≤150m + ventana).
+      const storeStops = await trx('logistics.vehicle_stops as st')
+        .whereBetween('st.arrived_at', [start, end])
+        .whereNotNull('st.matched_store_id')
+        .groupBy('st.vehicle_id')
+        .select('st.vehicle_id')
+        .count({ store_stops: '*' })
+        .select(trx.raw(`count(*) FILTER (WHERE EXISTS (
+          SELECT 1 FROM public.daily_captures dc
+          WHERE dc.hora_inicio BETWEEN st.arrived_at - interval '10 minutes' AND st.left_at + interval '10 minutes'
+            AND dc.latitud IS NOT NULL AND dc.longitud IS NOT NULL
+            AND 2 * 6371000 * asin(sqrt(
+              power(sin(radians(dc.latitud::float8 - st.lat::float8) / 2), 2) +
+              cos(radians(st.lat::float8)) * cos(radians(dc.latitud::float8)) *
+              power(sin(radians(dc.longitud::float8 - st.lng::float8) / 2), 2)
+            )) <= 150
+        ))::int as captured_stops`));
+      const storeByVeh = new Map(storeStops.map((r: any) => [r.vehicle_id, { store_stops: Number(r.store_stops) || 0, captured_stops: Number(r.captured_stops) || 0 }]));
+
       return summaries
         .map((s: any) => {
           const d = deadByVeh.get(s.vehicle_id) || { dead_min: 0, dead_stops: 0 };
+          const st = storeByVeh.get(s.vehicle_id) || { store_stops: 0, captured_stops: 0 };
           const km = Number(s.km_driven) || 0;
           const custStops = Number(s.customer_stops) || 0;
           return {
@@ -73,6 +97,9 @@ export class FleetProductivityService {
             customer_stops: custStops,
             dead_stops: d.dead_stops,
             km_per_customer_stop: custStops > 0 ? Math.round((km / custStops) * 100) / 100 : null,
+            store_stops: st.store_stops,
+            captured_stops: st.captured_stops,
+            uncaptured_stops: Math.max(0, st.store_stops - st.captured_stops),
           };
         })
         .sort((a, b) => b.dead_min - a.dead_min);
