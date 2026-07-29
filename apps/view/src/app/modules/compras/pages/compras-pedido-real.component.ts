@@ -112,8 +112,17 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
               <button pButton type="button" label="Reintentar" icon="pi pi-refresh" class="p-button-sm p-button-text" (click)="loadAll()"></button></div>
           </div>
         } @else {
+          @if (flatRows().length) {
+            <div class="pr-exp-bar">
+              <span class="pr-exp-hint">{{ grpCount() }} sucursal(es) — clic para desplegar productos</span>
+              <span class="pr-grp-sp"></span>
+              <button type="button" class="pr-chip" (click)="expandAll()">Expandir todo</button>
+              <button type="button" class="pr-chip" (click)="collapseAll()">Colapsar todo</button>
+            </div>
+          }
           <p-table [value]="flatRows()" [loading]="loading()" [scrollable]="true" scrollHeight="flex"
                    rowGroupMode="subheader" groupRowsBy="warehouse_code"
+                   [expandedRowKeys]="expandedGroups" dataKey="warehouse_code"
                    styleClass="p-datatable-sm pr-table" [tableStyle]="{ 'min-width': '78rem' }">
             <ng-template pTemplate="header">
               <tr>
@@ -128,12 +137,16 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
               </tr>
             </ng-template>
 
-            <ng-template pTemplate="groupheader" let-r>
-              <tr class="pr-grp">
+            <ng-template pTemplate="groupheader" let-r let-expanded="expanded">
+              <tr pRowGroupHeader class="pr-grp">
                 <td colspan="8">
                   <div class="pr-grp-in">
+                    <button type="button" pButton [pRowToggler]="r" class="p-button-text p-button-sm pr-grp-tog"
+                            [icon]="expanded ? 'pi pi-chevron-down' : 'pi pi-chevron-right'"
+                            [attr.aria-label]="(expanded ? 'Colapsar ' : 'Desplegar ') + r.warehouse_code"></button>
                     <span class="pr-grp-name"><span class="pr-mono">{{ r.warehouse_code }}</span> {{ nameOf(r.warehouse_code) }}</span>
                     @if (grp(r.warehouse_code); as g) {
+                      <span class="pr-grp-n">{{ g.n }} prod.</span>
                       <span class="pr-grp-sub">
                         @if (g.buy > 0) { <span class="pr-gs pr-gs-buy" title="A comprar">comprar {{ money(g.buy) }}</span> }
                         @if (g.tr > 0) { <span class="pr-gs pr-gs-tr" title="A traspasar desde su CEDIS">traspaso {{ money(g.tr) }}</span> }
@@ -313,6 +326,10 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
     .pr-grp td { background: var(--overlay-hover, var(--hover-bg)); border-top: 1px solid var(--border-color); }
     .pr-grp-in { display: flex; align-items: center; gap: .6rem; padding: .15rem 0; }
     .pr-grp-name { font-weight: 700; color: var(--text-main); font-size: .82rem; }
+    :host ::ng-deep .pr-grp-tog { color: var(--text-muted); width: 1.7rem; height: 1.7rem; padding: 0; }
+    .pr-grp-n { font-size: .68rem; color: var(--text-faint); font-variant-numeric: tabular-nums; }
+    .pr-exp-bar { display: flex; align-items: center; gap: .4rem; margin-bottom: .5rem; }
+    .pr-exp-hint { font-size: .74rem; color: var(--text-muted); }
     .pr-grp-sub { display: inline-flex; gap: .5rem; font-size: .72rem; }
     .pr-gs { font-variant-numeric: tabular-nums; }
     .pr-gs-buy { color: var(--action); } .pr-gs-tr { color: var(--text-main); } .pr-gs-over { color: var(--warn-fg, var(--text-muted)); }
@@ -368,6 +385,11 @@ export class ComprasPedidoRealComponent implements OnInit {
   fWarehouse: string | null = null;
   search = '';
   coverage = 30;
+
+  // Condensado por sucursal: vacío = todas colapsadas (default). Clic en el chevron despliega productos.
+  expandedGroups: Record<string, boolean> = {};
+  expandAll(): void { const e: Record<string, boolean> = {}; this.subs().forEach((_g, code) => (e[code] = true)); this.expandedGroups = e; }
+  collapseAll(): void { this.expandedGroups = {}; }
 
   private readonly filters = signal<ReplenishmentFilters | null>(null);
   supplierOpts = computed(() => (this.filters()?.suppliers ?? []).map((s) => ({ label: s.name, value: s.id })));
