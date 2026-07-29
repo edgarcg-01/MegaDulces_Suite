@@ -1,4 +1,4 @@
-import { Component, computed, inject, signal, OnInit, ChangeDetectionStrategy } from '@angular/core';
+import { Component, computed, inject, signal, OnInit, ChangeDetectionStrategy, ChangeDetectorRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { SelectModule } from 'primeng/select';
@@ -404,6 +404,7 @@ import { MapComponent } from '../../../shared/components/map/map.component';
 })
 export class HomeDeliveryDispatchComponent implements OnInit {
   private readonly svc = inject(HomeDeliveryService);
+  private readonly cdr = inject(ChangeDetectorRef); // zoneless: CD tras callbacks async imperativos
 
   readonly ticket = signal<KeplerTicket | null>(null);
   readonly riders = signal<Rider[]>([]);
@@ -565,7 +566,7 @@ export class HomeDeliveryDispatchComponent implements OnInit {
   onPick(p: { lat: number; lng: number }): void {
     this.picked.set(p);
     this.svc.reverseGeocode(p.lat, p.lng).subscribe({
-      next: (r) => { if (r?.place_name && !this.street.trim()) this.street = r.place_name; },
+      next: (r) => { if (r?.place_name && !this.street.trim()) { this.street = r.place_name; this.cdr.markForCheck(); } },
       error: () => {},
     });
   }
