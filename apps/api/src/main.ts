@@ -98,6 +98,13 @@ class ReportsIoAdapter extends IoAdapter {
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
     bodyParser: false,
+    // Log level: default PROD-quiet (sin debug/verbose) para no saturar el límite de
+    // Railway (500 logs/s → tira mensajes reales) ni la factura de logging. El trace
+    // per-request del TenantContextInterceptor y otros debug quedan disponibles con
+    // LOG_LEVEL=debug (local/troubleshooting). error/warn/log siempre.
+    logger: process.env.LOG_LEVEL === 'debug'
+      ? ['error', 'warn', 'log', 'debug', 'verbose']
+      : ['error', 'warn', 'log'],
   });
 
   // Detrás de nginx (mismo container) y del edge de Railway: confiar en el
