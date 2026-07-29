@@ -120,10 +120,10 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
               <button type="button" class="pr-chip" (click)="collapseAll()">Colapsar todo</button>
             </div>
           }
-          <p-table [value]="flatRows()" [loading]="loading()" [scrollable]="true" scrollHeight="flex"
+          <p-table [value]="flatRows()" [loading]="loading()"
                    rowGroupMode="subheader" groupRowsBy="warehouse_code"
-                   [expandedRowKeys]="expandedGroups" dataKey="warehouse_code"
-                   styleClass="p-datatable-sm pr-table" [tableStyle]="{ 'min-width': '78rem' }">
+                   [expandableRowGroups]="true" [(expandedRowGroups)]="expandedGroups" dataKey="warehouse_code"
+                   styleClass="p-datatable-sm pr-table" [tableStyle]="tableStyle">
             <ng-template pTemplate="header">
               <tr>
                 <th style="min-width:16rem">Producto</th>
@@ -388,6 +388,8 @@ export class ComprasPedidoRealComponent implements OnInit {
 
   // Condensado por sucursal: vacío = todas colapsadas (default). Clic en el chevron despliega productos.
   expandedGroups: Record<string, boolean> = {};
+  // Ref ESTABLE (no objeto literal en el template → evita ExpressionChanged/loop de CD en prod).
+  readonly tableStyle = { 'min-width': '78rem' };
   expandAll(): void { const e: Record<string, boolean> = {}; this.subs().forEach((_g, code) => (e[code] = true)); this.expandedGroups = e; }
   collapseAll(): void { this.expandedGroups = {}; }
 
