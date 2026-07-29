@@ -40,7 +40,7 @@
         optionLabel="nombre"
         [forceSelection]="true"
         [delay]="350"
-        [minLength]="2"
+        [minQueryLength]="2"
         [showClear]="true"
         placeholder="Buscar un producto y ver en qué visitas aparece…"
         styleClass="cm-ac"
@@ -228,7 +228,7 @@
           <h3>
             <i class="pi pi-shop" aria-hidden="true"></i>&nbsp;{{ detail()?.store?.nombre || 'Tienda' }}
           </h3>
-          <button
+          <p-button
             pButton
             type="button"
             [icon]="searchActive() ? 'pi pi-arrow-left' : 'pi pi-times'"
@@ -237,7 +237,7 @@
             size="small"
             (click)="closeDetail()"
             [attr.aria-label]="searchActive() ? 'Volver a resultados' : 'Cerrar detalle'"
-          ></button>
+          ></p-button>
         </div>
         <div class="surf-panel-body cm-side-body">
           @if (loadingDetail()) {

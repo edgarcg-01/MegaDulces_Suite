@@ -121,9 +121,9 @@
         @if (chartData(); as cd) {
           <p-chart
             type="bar"
-            [data]="cd"
+            [data]="$any(cd)"
             [options]="chartOptions()"
-            [plugins]="chartPlugins"
+            [plugins]="$any(chartPlugins)"
             height="100%"
           />
         } @else {
@@ -135,9 +135,9 @@
         @if (altChartData(); as ad) {
           <p-chart
             type="bar"
-            [data]="ad"
+            [data]="$any(ad)"
             [options]="altChartOptions()"
-            [plugins]="chartPlugins"
+            [plugins]="$any(chartPlugins)"
             height="100%"
           />
         } @else {

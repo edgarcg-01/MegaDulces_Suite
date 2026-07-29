@@ -54,8 +54,8 @@ import { CUSTOMERS_TABS } from '../customers-tabs';
         <ng-template pTemplate="body" let-c let-expanded="expanded">
           <tr>
             <td>
-              <button type="button" pButton [text]="true" size="small" [icon]="expanded ? 'pi pi-chevron-down' : 'pi pi-chevron-right'"
-                      [pRowToggler]="c" (click)="onExpand(c)"></button>
+              <p-button type="button" pButton [text]="true" size="small" [icon]="expanded ? 'pi pi-chevron-down' : 'pi pi-chevron-right'"
+                      [pRowToggler]="c" (click)="onExpand(c)"></p-button>
             </td>
             <td class="c3-name">{{ c.name }}</td>
             <td class="c3-mono">{{ c.erp_code }}</td>

@@ -104,8 +104,8 @@ import { Permission } from '../../../core/constants/permissions';
         </ng-template>
         <ng-template pTemplate="body" let-day let-expanded="expanded">
           <tr class="dm-day-row">
-            <td><button type="button" pButton [pRowToggler]="day" class="p-button-text p-button-sm p-button-rounded"
-                        [icon]="expanded ? 'pi pi-chevron-down' : 'pi pi-chevron-right'"></button></td>
+            <td><p-button type="button" pButton [pRowToggler]="day" styleClass="p-button-text p-button-sm p-button-rounded"
+                        [icon]="expanded ? 'pi pi-chevron-down' : 'pi pi-chevron-right'"></p-button></td>
             <td class="dm-strong">{{ dayLabel(day.key) }}</td>
             <td class="dm-r dm-muted">{{ day.documentos | number }}</td>
             <td class="dm-r up">{{ day.entradas ? ('+' + (day.entradas | number:'1.0-2')) : '—' }}</td>
@@ -237,7 +237,7 @@ import { Permission } from '../../../core/constants/permissions';
               <span class="dm-audited-note"><i class="pi pi-verified"></i> Auditado por {{ h.audited_by || '—' }} · {{ h.audited_at | date:'yyyy-MM-dd HH:mm' }}</span>
               <button pButton type="button" class="p-button-sm p-button-text p-button-secondary" label="Quitar auditoría" [disabled]="!canAudit" (click)="toggleAuditDoc(h)"></button>
             } @else {
-              <button pButton type="button" class="dm-audit-btn" icon="pi pi-check-circle" [label]="auditLabel(h)" [disabled]="!canAudit" (click)="toggleAuditDoc(h)"></button>
+              <p-button pButton type="button" styleClass="dm-audit-btn" icon="pi pi-check-circle" [label]="auditLabel(h)" [disabled]="!canAudit" (click)="toggleAuditDoc(h)"></p-button>
             }
           </div>
         } @else { <div class="dm-empty">Documento sin líneas.</div> }

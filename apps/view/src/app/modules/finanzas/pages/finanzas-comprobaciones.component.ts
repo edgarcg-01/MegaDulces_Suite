@@ -124,7 +124,7 @@ interface SolicitudSug extends ExpenseRequestRow { label: string; }
       <div class="cp-form">
         <label class="cp-f"><span>Solicitud de gasto (Kepler XA1501) *</span>
           <p-autocomplete [(ngModel)]="solicitudSel" [suggestions]="solicitudSug()" (completeMethod)="searchSolicitud($event)"
-            field="label" [forceSelection]="false" [minLength]="2" placeholder="Busca por folio o proveedor…" appendTo="body"
+            field="label" [forceSelection]="false" [minQueryLength]="2" placeholder="Busca por folio o proveedor…" appendTo="body"
             styleClass="w-full" (onSelect)="onSolicitudSelect($event)" [delay]="250" />
           <small class="cp-hint">Elige la solicitud para auto-rellenar proveedor, fecha e importe.</small></label>
 

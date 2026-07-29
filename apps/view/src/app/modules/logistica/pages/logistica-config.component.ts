@@ -180,7 +180,7 @@ import { ConfigCategory, ConfigItem, LogisticaService, Route } from '../logistic
             @if (!routeForm.value.active) {
               <p-tag value="Inactiva" severity="secondary"></p-tag>
             }
-            <button pButton [label]="routeForm.value.active ? 'Desactivar' : 'Activar'" size="small" severity="secondary" [text]="true" type="button" (click)="toggleRouteActive()"></button>
+            <p-button pButton [label]="routeForm.value.active ? 'Desactivar' : 'Activar'" size="small" severity="secondary" [text]="true" type="button" (click)="toggleRouteActive()"></p-button>
           </label>
           <label>
             Comisión chofer
@@ -197,7 +197,7 @@ import { ConfigCategory, ConfigItem, LogisticaService, Route } from '../logistic
         </form>
         <ng-template pTemplate="footer">
           <button pButton label="Cancelar" severity="secondary" [text]="true" (click)="routeDialog = false" [disabled]="savingRoute()"></button>
-          <button pButton [label]="editingRoute() ? 'Guardar' : 'Crear'" icon="pi pi-check" (click)="saveRoute()" [loading]="savingRoute()" [disabled]="routeForm.invalid"></button>
+          <p-button pButton [label]="editingRoute() ? 'Guardar' : 'Crear'" icon="pi pi-check" (click)="saveRoute()" [loading]="savingRoute()" [disabled]="routeForm.invalid"></p-button>
         </ng-template>
       </p-dialog>
     
@@ -228,7 +228,7 @@ import { ConfigCategory, ConfigItem, LogisticaService, Route } from '../logistic
         </form>
         <ng-template pTemplate="footer">
           <button pButton label="Cancelar" severity="secondary" [text]="true" (click)="configDialog = false" [disabled]="savingConfig()"></button>
-          <button pButton [label]="editingConfig() ? 'Guardar' : 'Crear'" icon="pi pi-check" (click)="saveConfig()" [loading]="savingConfig()" [disabled]="configForm.invalid"></button>
+          <p-button pButton [label]="editingConfig() ? 'Guardar' : 'Crear'" icon="pi pi-check" (click)="saveConfig()" [loading]="savingConfig()" [disabled]="configForm.invalid"></p-button>
         </ng-template>
       </p-dialog>
     `,

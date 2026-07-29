@@ -64,14 +64,14 @@ import { SupervisorAiService, RouteBalanceSim } from './supervisor-ai.service';
           </div>
 
           <div class="actions">
-            <button
+            <p-button
               pButton
               type="button"
               [disabled]="m.moved === 0 || busy()"
               [label]="busy() ? 'Aplicando…' : 'Aplicar rebalanceo'"
               icon="pi pi-check"
               (click)="confirmApply()"
-            ></button>
+            ></p-button>
             <button
               pButton
               type="button"

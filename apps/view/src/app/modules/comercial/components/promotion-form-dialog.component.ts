@@ -297,14 +297,14 @@ interface BundleItem {
         <ng-template pTemplate="footer">
           @if (wizardStep === 'configure') {
             <button pButton label="Cancelar" severity="secondary" [outlined]="true" (click)="cancel.emit()"></button>
-            <button
+            <p-button
               pButton
               [label]="editing ? 'Guardar' : 'Crear promoción'"
               icon="pi pi-check"
               [loading]="saving"
               [disabled]="!canSave"
               (click)="save.emit()"
-            ></button>
+            ></p-button>
           }
           @if (wizardStep === 'choose-type') {
             <button pButton label="Cancelar" severity="secondary" [outlined]="true" (click)="cancel.emit()"></button>

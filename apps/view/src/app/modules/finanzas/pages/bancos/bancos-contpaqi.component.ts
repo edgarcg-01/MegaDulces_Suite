@@ -120,9 +120,9 @@ import { cuadra, money0 } from './bancos-shared';
               </td>
               <td class="ta-c">
                 @if (r.linked) {
-                  <button pButton type="button" icon="pi pi-search-plus" class="p-button-text p-button-sm btn-where"
+                  <p-button pButton type="button" icon="pi pi-search-plus" styleClass="p-button-text p-button-sm btn-where"
                           [label]="(!cuad(r.delta_in) || !cuad(r.delta_out)) ? 'Ver dónde' : ''"
-                          (click)="openDetail(r)" title="Detalle movimiento a movimiento: dónde está el descuadre"></button>
+                          (click)="openDetail(r)" title="Detalle movimiento a movimiento: dónde está el descuadre"></p-button>
                 }
               </td>
             </tr>

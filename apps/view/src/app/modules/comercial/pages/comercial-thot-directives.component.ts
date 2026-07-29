@@ -124,9 +124,9 @@ interface BrandOpt { id: string; nombre: string; products: number; }
                   </span>
                 </td>
                 <td class="comm-actions">
-                  <button pButton [icon]="d.active ? 'pi pi-pause' : 'pi pi-play'" size="small" [text]="true"
+                  <p-button pButton [icon]="d.active ? 'pi pi-pause' : 'pi pi-play'" size="small" [text]="true"
                           severity="secondary" (click)="toggle(d)"
-                          [pTooltip]="d.active ? 'Pausar' : 'Activar'"></button>
+                          [pTooltip]="d.active ? 'Pausar' : 'Activar'"></p-button>
                   <button pButton icon="pi pi-trash" size="small" [text]="true" severity="secondary"
                           class="icon-btn-ghost-bad" (click)="confirmRemove(d)" pTooltip="Eliminar"></button>
                 </td>

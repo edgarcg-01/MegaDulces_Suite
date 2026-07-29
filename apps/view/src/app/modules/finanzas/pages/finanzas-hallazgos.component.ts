@@ -39,7 +39,7 @@ import { ActionsService, ProposedAction } from '../actions.service';
           <p class="surf-page-sub">Patrones que el motor detecta en los libros: riesgos, errores de captura y oportunidades. Confirma o descarta — Maat aprende de cada veredicto.</p>
         </div>
         <div class="fh-head-actions">
-          <button pButton type="button" [label]="rulesOpen() ? 'Ocultar reglas' : 'Reglas'" icon="pi pi-sliders-h" class="p-button-sm p-button-text" (click)="rulesOpen.set(!rulesOpen())"></button>
+          <p-button pButton type="button" [label]="rulesOpen() ? 'Ocultar reglas' : 'Reglas'" icon="pi pi-sliders-h" styleClass="p-button-sm p-button-text" (click)="rulesOpen.set(!rulesOpen())"></p-button>
           <button pButton type="button" label="Escanear ahora" icon="pi pi-bolt" class="p-button-sm p-button-outlined" [loading]="scanning()" (click)="scan()"></button>
         </div>
       </header>
@@ -100,7 +100,7 @@ import { ActionsService, ProposedAction } from '../actions.service';
                   @else if (r.pinned) { <span class="fh-tag cls-pin">fijada</span> }
                   @else { <span class="muted">activa</span> }
                 </td>
-                <td class="ta-r"><button pButton type="button" [icon]="r.pinned ? 'pi pi-bookmark-fill' : 'pi pi-bookmark'" class="p-button-text p-button-sm" [title]="r.pinned ? 'Desfijar' : 'Fijar (nunca auto-suprimir)'" (click)="pin(r)"></button></td>
+                <td class="ta-r"><p-button pButton type="button" [icon]="r.pinned ? 'pi pi-bookmark-fill' : 'pi pi-bookmark'" styleClass="p-button-text p-button-sm" [title]="r.pinned ? 'Desfijar' : 'Fijar (nunca auto-suprimir)'" (click)="pin(r)"></p-button></td>
               </tr>
             </ng-template>
           </p-table>
@@ -134,7 +134,7 @@ import { ActionsService, ProposedAction } from '../actions.service';
           </ng-template>
           <ng-template pTemplate="body" let-f let-expanded="expanded">
             <tr>
-              <td><button pButton type="button" [icon]="expanded ? 'pi pi-chevron-down' : 'pi pi-chevron-right'" class="p-button-text p-button-sm" (click)="toggle(f)"></button></td>
+              <td><p-button pButton type="button" [icon]="expanded ? 'pi pi-chevron-down' : 'pi pi-chevron-right'" styleClass="p-button-text p-button-sm" (click)="toggle(f)"></p-button></td>
               <td><span class="fh-sev" [ngClass]="'sev-' + f.severity">{{ sevLabel(f.severity) }}</span></td>
               <td>
                 <div class="fh-titulo">{{ f.titulo }}</div>

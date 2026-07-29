@@ -109,7 +109,7 @@ import { ANALYTICS_TABS } from '../analytics-tabs';
             <td><span class="tcur-tools">{{ toolNames(e.tools) }}</span></td>
             <td><p-tag [value]="e.enabled ? 'Activo' : 'Pausado'" [severity]="e.enabled ? 'success' : 'secondary'"></p-tag></td>
             <td class="tcur-right">
-              <button pButton [icon]="e.enabled ? 'pi pi-pause' : 'pi pi-play'" size="small" [text]="true" severity="secondary" (click)="toggle(e)"></button>
+              <p-button pButton [icon]="e.enabled ? 'pi pi-pause' : 'pi pi-play'" size="small" [text]="true" severity="secondary" (click)="toggle(e)"></p-button>
             </td>
           </tr>
         </ng-template>

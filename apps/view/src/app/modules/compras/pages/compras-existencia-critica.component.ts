@@ -70,8 +70,8 @@ interface DraftLine {
           <a pButton routerLink="/compras/pedido" label="Pedido" icon="pi pi-cart-plus" class="p-button-sm p-button-text" title="Armar el pedido por proveedor y ciclo de reabasto"></a>
           <button pButton type="button" label="Excel" icon="pi pi-file-excel" class="p-button-sm p-button-outlined p-button-secondary"
                   [loading]="dl()" [disabled]="dl() || total() === 0" (click)="downloadXlsx()"></button>
-          <button pButton type="button" [label]="'Generar requisición' + (selCount() ? ' (' + selCount() + ')' : '')" icon="pi pi-file-edit"
-                  class="p-button-sm" [disabled]="!canRequire()" (click)="openDialog()"></button>
+          <p-button pButton type="button" [label]="'Generar requisición' + (selCount() ? ' (' + selCount() + ')' : '')" icon="pi pi-file-edit"
+                  styleClass="p-button-sm" [disabled]="!canRequire()" (click)="openDialog()"></p-button>
         </div>
       </header>
 

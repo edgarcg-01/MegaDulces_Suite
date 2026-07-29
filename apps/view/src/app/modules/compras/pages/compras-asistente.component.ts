@@ -42,7 +42,7 @@ interface Msg { role: 'user' | 'assistant'; content: string; pending?: boolean; 
             <div class="ca-bubble" [class.ca-err]="m.error">
               @if (m.pending) { <span class="ca-dots"><i></i><i></i><i></i></span> }
               @else { <div class="ca-text">{{ m.content }}</div>
-                @if (m.download) { <button pButton type="button" icon="pi pi-file-excel" [label]="'Descargar ' + m.download.folio + ' (Excel)'" class="p-button-sm ca-dl" [loading]="downloading()===m.download.id" (click)="download(m.download!)"></button> }
+                @if (m.download) { <p-button pButton type="button" icon="pi pi-file-excel" [label]="'Descargar ' + m.download.folio + ' (Excel)'" styleClass="p-button-sm ca-dl" [loading]="downloading()===m.download.id" (click)="download(m.download!)"></p-button> }
                 @if (m.tools?.length) { <div class="ca-tools">{{ m.tools!.join(' · ') }}</div> } }
             </div>
           </div>

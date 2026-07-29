@@ -476,8 +476,8 @@ function severityForDriverStatus(s: string): Severity {
       }
       <ng-template pTemplate="footer">
         <button pButton label="Cancelar" severity="secondary" [outlined]="true" (click)="vDialog = false"></button>
-        <button pButton [label]="editingV() ? 'Guardar' : 'Crear'" icon="pi pi-check"
-        [loading]="savingV()" [disabled]="vForm.invalid" (click)="saveVehicle()"></button>
+        <p-button pButton [label]="editingV() ? 'Guardar' : 'Crear'" icon="pi pi-check"
+        [loading]="savingV()" [disabled]="vForm.invalid" (click)="saveVehicle()"></p-button>
       </ng-template>
     </p-dialog>
     
@@ -527,8 +527,8 @@ function severityForDriverStatus(s: string): Severity {
       }
       <ng-template pTemplate="footer">
         <button pButton label="Cancelar" severity="secondary" [outlined]="true" (click)="dDialog = false"></button>
-        <button pButton [label]="editingD() ? 'Guardar' : 'Crear'" icon="pi pi-check"
-        [loading]="savingD()" [disabled]="dForm.invalid" (click)="saveDriver()"></button>
+        <p-button pButton [label]="editingD() ? 'Guardar' : 'Crear'" icon="pi pi-check"
+        [loading]="savingD()" [disabled]="dForm.invalid" (click)="saveDriver()"></p-button>
       </ng-template>
     </p-dialog>
     `,

@@ -142,8 +142,8 @@ type CatLine = CriticalStockRow & { uxc: number; cajas: number; piezas: number; 
           <tr>
             <td><p-tablecheckbox [value]="r" /></td>
             <td>
-              <button type="button" pButton [pRowToggler]="r" [text]="true" [rounded]="true"
-                      class="p-button-sm" [icon]="expanded ? 'pi pi-chevron-down' : 'pi pi-chevron-right'"></button>
+              <p-button type="button" pButton [pRowToggler]="r" [text]="true" [rounded]="true"
+                      styleClass="p-button-sm" [icon]="expanded ? 'pi pi-chevron-down' : 'pi pi-chevron-right'"></p-button>
             </td>
             <td><p-tag [value]="estLabel(r)" [severity]="estSev(r)"></p-tag></td>
             <td class="qt-nowrap" [class.qt-bad]="(r.days_to_due ?? 0) < 0">
@@ -257,10 +257,10 @@ type CatLine = CriticalStockRow & { uxc: number; cajas: number; piezas: number; 
                       </span>
                       <button pButton label="Exportar" icon="pi pi-download" class="p-button-sm p-button-text"
                               [loading]="exporting()" [disabled]="countToOrder(r._key)===0" (click)="exportRow(r)"></button>
-                      <button pButton [label]="r.via==='transfer' ? 'Crear traspaso' : 'Crear requisición'"
-                              icon="pi pi-file-edit" class="p-button-sm"
+                      <p-button pButton [label]="r.via==='transfer' ? 'Crear traspaso' : 'Crear requisición'"
+                              icon="pi pi-file-edit" styleClass="p-button-sm"
                               [loading]="st.creating" [disabled]="countToOrder(r._key)===0"
-                              (click)="createReq(r)"></button>
+                              (click)="createReq(r)"></p-button>
                     </div>
                   } @else {
                     <div class="qt-det-msg">Sin SKUs por pedir con base “{{ basisLabel(st.basis) }}” (todo cubierto).</div>
@@ -288,8 +288,8 @@ type CatLine = CriticalStockRow & { uxc: number; cajas: number; piezas: number; 
           <div class="qt-cons-wh">
             <span class="qt-basis-lbl">Almacenes:</span>
             @for (w of consWhs(); track w.id) {
-              <button pButton type="button" [label]="w.code + ' · ' + w.n" class="p-button-sm"
-                      [ngClass]="isWhIncluded(w.id) ? 'p-button-outlined' : 'p-button-text'" (click)="toggleWh(w.id)"></button>
+              <p-button pButton type="button" [label]="w.code + ' · ' + w.n" styleClass="p-button-sm"
+                      [ngClass]="isWhIncluded(w.id) ? 'p-button-outlined' : 'p-button-text'" (click)="toggleWh(w.id)"></p-button>
             }
           </div>
           @if (consLinesFiltered().length) {
