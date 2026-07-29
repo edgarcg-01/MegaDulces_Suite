@@ -53,12 +53,14 @@ const EXAMPLES = [
   providers: [ConfirmationService],
   template: `
     <p-confirmDialog></p-confirmDialog>
-
-    <div *ngIf="isAdmin()" class="portal-banner" role="status">
-      <i class="pi pi-eye" aria-hidden="true"></i>
-      <span><b>Vista administrador</b> — el chat usa el catálogo default del tenant. Las acciones de carrito están deshabilitadas.</span>
-    </div>
-
+    
+    @if (isAdmin()) {
+      <div class="portal-banner" role="status">
+        <i class="pi pi-eye" aria-hidden="true"></i>
+        <span><b>Vista administrador</b> — el chat usa el catálogo default del tenant. Las acciones de carrito están deshabilitadas.</span>
+      </div>
+    }
+    
     <div class="ai-chat">
       <header class="ai-head">
         <div class="ai-head-icon"><i class="pi pi-bolt"></i></div>
@@ -71,200 +73,204 @@ const EXAMPLES = [
           type="button"
           class="ai-manual"
           (click)="goManual()"
-        >
+          >
           <i class="pi pi-th-large"></i>
           <span>Modo manual</span>
         </button>
       </header>
-
+    
       <div class="ai-body" #scroll>
         <!-- Welcome / empty state -->
-        <div *ngIf="turns().length === 0" class="ai-welcome">
-          <div class="ai-welcome-icon">
-            <i class="pi pi-sparkles"></i>
+        @if (turns().length === 0) {
+          <div class="ai-welcome">
+            <div class="ai-welcome-icon">
+              <i class="pi pi-sparkles"></i>
+            </div>
+            <h2>¿Qué vas a pedir hoy?</h2>
+            <p>Escríbeme en lenguaje natural lo que necesitas. Te sugiero productos de tu catálogo con precios reales.</p>
+            <span class="ai-welcome-label">Prueba con:</span>
+            <div class="ai-examples">
+              @for (ex of examples; track ex) {
+                <button
+                  type="button"
+                  class="ai-ex-chip"
+                  (click)="sendMessage(ex)"
+                  >
+                  <i class="pi pi-comments"></i>
+                  <span>{{ ex }}</span>
+                </button>
+              }
+            </div>
           </div>
-          <h2>¿Qué vas a pedir hoy?</h2>
-          <p>Escríbeme en lenguaje natural lo que necesitas. Te sugiero productos de tu catálogo con precios reales.</p>
-
-          <span class="ai-welcome-label">Prueba con:</span>
-          <div class="ai-examples">
-            <button
-              *ngFor="let ex of examples"
-              type="button"
-              class="ai-ex-chip"
-              (click)="sendMessage(ex)"
-            >
-              <i class="pi pi-comments"></i>
-              <span>{{ ex }}</span>
-            </button>
-          </div>
-        </div>
-
+        }
+    
         <!-- Turns -->
-        <article
-          *ngFor="let t of turns(); let i = index; trackBy: trackByTurn"
-          class="ai-turn"
-          [class.ai-turn-user]="t.role === 'user'"
-          [class.ai-turn-asst]="t.role === 'assistant'"
-        >
-          <div class="ai-avatar" [class.ai-avatar-user]="t.role === 'user'">
-            <i [class]="t.role === 'user' ? 'pi pi-user' : 'pi pi-bolt'"></i>
-          </div>
-
-          <div class="ai-bubble-wrap">
-            <span class="ai-bubble-role">
-              {{ t.role === 'user' ? 'Tú' : 'Asistente' }}
-            </span>
-            <div class="ai-bubble">
-              <div class="ai-bubble-text">{{ t.content }}</div>
+        @for (t of turns(); track trackByTurn(i, t); let i = $index) {
+          <article
+            class="ai-turn"
+            [class.ai-turn-user]="t.role === 'user'"
+            [class.ai-turn-asst]="t.role === 'assistant'"
+            >
+            <div class="ai-avatar" [class.ai-avatar-user]="t.role === 'user'">
+              <i [class]="t.role === 'user' ? 'pi pi-user' : 'pi pi-bolt'"></i>
             </div>
-
-            <!-- Suggestions -->
-            <div *ngIf="t.suggestions && t.suggestions.length > 0" class="ai-sug-block">
-              <header class="ai-sug-block-head">
-                <i class="pi pi-shopping-bag"></i>
-                <span>{{ t.suggestions.length }} sugerencia(s)</span>
-              </header>
-
-              <div class="ai-sug-list">
-                <div
-                  class="ai-sug"
-                  *ngFor="let s of t.suggestions; let si = index"
-                >
-                  <div
-                    class="ai-sug-avatar"
-                    [style.background]="sugGradient(s.product_id)"
-                  >{{ sugInitials(s.product_name) }}</div>
-
-                  <div class="ai-sug-info">
-                    <span class="ai-sug-brand">{{ s.brand_name || 'Sin marca' }}</span>
-                    <div class="ai-sug-name" [title]="s.product_name">{{ s.product_name }}</div>
-                    <div class="ai-sug-reason" *ngIf="s.reason">
-                      <i class="pi pi-info-circle"></i>
-                      {{ s.reason }}
-                    </div>
-                    <div class="ai-sug-price">
-                      {{ s.unit_price | currency:'MXN':'symbol-narrow':'1.2-2' }}/u
-                    </div>
-                  </div>
-
-                  <div class="ai-sug-controls">
-                    <div
-                      class="ai-sug-qty"
-                      role="group"
-                      [attr.aria-label]="'Cantidad de ' + s.product_name"
-                    >
-                      <button
-                        type="button"
-                        class="ai-qty-btn"
-                        (click)="changeQty(i, si, -1)"
-                        [disabled]="s.qty <= (s.min_qty || 1)"
-                        [attr.aria-label]="'Disminuir cantidad de ' + s.product_name"
-                      >−</button>
-                      <input
-                        type="number"
-                        min="1"
-                        [(ngModel)]="t.suggestions![si].qty"
-                        (change)="onQtyChange(i, si)"
-                        [attr.aria-label]="'Cantidad de ' + s.product_name"
-                      />
-                      <button
-                        type="button"
-                        class="ai-qty-btn"
-                        (click)="changeQty(i, si, 1)"
-                        [attr.aria-label]="'Aumentar cantidad de ' + s.product_name"
-                      >+</button>
-                    </div>
-                    <div class="ai-sug-subtotal">
-                      {{ (s.qty * s.unit_price) | currency:'MXN':'symbol-narrow':'1.2-2' }}
-                    </div>
-                    <button
-                      type="button"
-                      class="ai-sug-remove"
-                      (click)="removeSuggestion(i, si)"
-                      pTooltip="Quitar"
-                      aria-label="Quitar sugerencia"
-                    >
-                      <i class="pi pi-times"></i>
-                    </button>
-                  </div>
-                </div>
+            <div class="ai-bubble-wrap">
+              <span class="ai-bubble-role">
+                {{ t.role === 'user' ? 'Tú' : 'Asistente' }}
+              </span>
+              <div class="ai-bubble">
+                <div class="ai-bubble-text">{{ t.content }}</div>
               </div>
-
-              <footer class="ai-sug-foot">
-                <div class="ai-sug-foot-row">
-                  <div class="ai-sug-total">
-                    <span class="ai-total-label">Total estimado</span>
-                    <b [countUp]="totalOf(t.suggestions!)"></b>
+              <!-- Suggestions -->
+              @if (t.suggestions && t.suggestions.length > 0) {
+                <div class="ai-sug-block">
+                  <header class="ai-sug-block-head">
+                    <i class="pi pi-shopping-bag"></i>
+                    <span>{{ t.suggestions.length }} sugerencia(s)</span>
+                  </header>
+                  <div class="ai-sug-list">
+                    @for (s of t.suggestions; track s; let si = $index) {
+                      <div
+                        class="ai-sug"
+                        >
+                        <div
+                          class="ai-sug-avatar"
+                          [style.background]="sugGradient(s.product_id)"
+                        >{{ sugInitials(s.product_name) }}</div>
+                        <div class="ai-sug-info">
+                          <span class="ai-sug-brand">{{ s.brand_name || 'Sin marca' }}</span>
+                          <div class="ai-sug-name" [title]="s.product_name">{{ s.product_name }}</div>
+                          @if (s.reason) {
+                            <div class="ai-sug-reason">
+                              <i class="pi pi-info-circle"></i>
+                              {{ s.reason }}
+                            </div>
+                          }
+                          <div class="ai-sug-price">
+                            {{ s.unit_price | currency:'MXN':'symbol-narrow':'1.2-2' }}/u
+                          </div>
+                        </div>
+                        <div class="ai-sug-controls">
+                          <div
+                            class="ai-sug-qty"
+                            role="group"
+                            [attr.aria-label]="'Cantidad de ' + s.product_name"
+                            >
+                            <button
+                              type="button"
+                              class="ai-qty-btn"
+                              (click)="changeQty(i, si, -1)"
+                              [disabled]="s.qty <= (s.min_qty || 1)"
+                              [attr.aria-label]="'Disminuir cantidad de ' + s.product_name"
+                            >−</button>
+                            <input
+                              type="number"
+                              min="1"
+                              [(ngModel)]="t.suggestions![si].qty"
+                              (change)="onQtyChange(i, si)"
+                              [attr.aria-label]="'Cantidad de ' + s.product_name"
+                              />
+                              <button
+                                type="button"
+                                class="ai-qty-btn"
+                                (click)="changeQty(i, si, 1)"
+                                [attr.aria-label]="'Aumentar cantidad de ' + s.product_name"
+                              >+</button>
+                            </div>
+                            <div class="ai-sug-subtotal">
+                              {{ (s.qty * s.unit_price) | currency:'MXN':'symbol-narrow':'1.2-2' }}
+                            </div>
+                            <button
+                              type="button"
+                              class="ai-sug-remove"
+                              (click)="removeSuggestion(i, si)"
+                              pTooltip="Quitar"
+                              aria-label="Quitar sugerencia"
+                              >
+                              <i class="pi pi-times"></i>
+                            </button>
+                          </div>
+                        </div>
+                      }
+                    </div>
+                    <footer class="ai-sug-foot">
+                      <div class="ai-sug-foot-row">
+                        <div class="ai-sug-total">
+                          <span class="ai-total-label">Total estimado</span>
+                          <b [countUp]="totalOf(t.suggestions!)"></b>
+                        </div>
+                        <button
+                          type="button"
+                          class="ai-add-cart"
+                          [disabled]="adding() || isAdmin() || t.suggestions!.length === 0"
+                          (click)="confirmToCart(t.suggestions!)"
+                          [pTooltip]="isAdmin() ? 'Vista admin — solo lectura' : ''"
+                          >
+                          <i [class]="adding() ? 'pi pi-spin pi-spinner' : 'pi pi-shopping-cart'"></i>
+                          {{ adding() ? 'Agregando…' : 'Agregar todo' }}
+                        </button>
+                      </div>
+                      <div class="ai-sug-bulk">
+                        <button
+                          type="button"
+                          class="ai-sug-bulk-btn"
+                          [disabled]="isAdmin() || t.suggestions!.length === 0"
+                          (click)="bumpAllQty(i, 1)"
+                          >
+                          <i class="pi pi-plus"></i>
+                          Aumentar cantidades
+                        </button>
+                        <button
+                          type="button"
+                          class="ai-sug-bulk-btn ai-sug-bulk-btn-danger"
+                          [disabled]="t.suggestions!.length === 0"
+                          (click)="clearSuggestions(i)"
+                          >
+                          <i class="pi pi-times"></i>
+                          Descartar
+                        </button>
+                      </div>
+                    </footer>
                   </div>
-                  <button
-                    type="button"
-                    class="ai-add-cart"
-                    [disabled]="adding() || isAdmin() || t.suggestions!.length === 0"
-                    (click)="confirmToCart(t.suggestions!)"
-                    [pTooltip]="isAdmin() ? 'Vista admin — solo lectura' : ''"
-                  >
-                    <i [class]="adding() ? 'pi pi-spin pi-spinner' : 'pi pi-shopping-cart'"></i>
-                    {{ adding() ? 'Agregando…' : 'Agregar todo' }}
-                  </button>
-                </div>
-                <div class="ai-sug-bulk">
-                  <button
-                    type="button"
-                    class="ai-sug-bulk-btn"
-                    [disabled]="isAdmin() || t.suggestions!.length === 0"
-                    (click)="bumpAllQty(i, 1)"
-                  >
-                    <i class="pi pi-plus"></i>
-                    Aumentar cantidades
-                  </button>
-                  <button
-                    type="button"
-                    class="ai-sug-bulk-btn ai-sug-bulk-btn-danger"
-                    [disabled]="t.suggestions!.length === 0"
-                    (click)="clearSuggestions(i)"
-                  >
-                    <i class="pi pi-times"></i>
-                    Descartar
-                  </button>
-                </div>
-              </footer>
+                }
+              </div>
+            </article>
+          }
+    
+          <!-- Typing dots -->
+          @if (loading()) {
+            <div class="ai-typing">
+              <div class="ai-avatar"><i class="pi pi-bolt"></i></div>
+              <div class="ai-typing-bubble">
+                <span class="ai-typing-dot"></span>
+                <span class="ai-typing-dot"></span>
+                <span class="ai-typing-dot"></span>
+              </div>
             </div>
-          </div>
-        </article>
-
-        <!-- Typing dots -->
-        <div *ngIf="loading()" class="ai-typing">
-          <div class="ai-avatar"><i class="pi pi-bolt"></i></div>
-          <div class="ai-typing-bubble">
-            <span class="ai-typing-dot"></span>
-            <span class="ai-typing-dot"></span>
-            <span class="ai-typing-dot"></span>
-          </div>
+          }
         </div>
+    
+        <footer class="ai-input">
+          <textarea
+            [(ngModel)]="input"
+            rows="1"
+            placeholder="Escribe lo que necesitas… (ej: 5 cajas de chocolate y 3 de paletas)"
+            (keydown.enter)="handleEnter($event)"
+            [disabled]="loading()"
+            class="ai-input-field"
+          ></textarea>
+          <button
+            type="button"
+            class="ai-input-send"
+            (click)="sendMessage()"
+            [disabled]="!input.trim() || loading()"
+            aria-label="Enviar"
+            >
+            <i class="pi pi-send"></i>
+          </button>
+        </footer>
       </div>
-
-      <footer class="ai-input">
-        <textarea
-          [(ngModel)]="input"
-          rows="1"
-          placeholder="Escribe lo que necesitas… (ej: 5 cajas de chocolate y 3 de paletas)"
-          (keydown.enter)="handleEnter($event)"
-          [disabled]="loading()"
-          class="ai-input-field"
-        ></textarea>
-        <button
-          type="button"
-          class="ai-input-send"
-          (click)="sendMessage()"
-          [disabled]="!input.trim() || loading()"
-          aria-label="Enviar"
-        >
-          <i class="pi pi-send"></i>
-        </button>
-      </footer>
-    </div>
-  `,
+    `,
   styles: [
     `
       :host { display: block; }

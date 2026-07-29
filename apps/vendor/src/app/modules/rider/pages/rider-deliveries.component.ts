@@ -1,5 +1,5 @@
 import { Component, ElementRef, computed, inject, signal, OnInit, OnDestroy, ViewChild } from '@angular/core';
-import { CommonModule } from '@angular/common';
+
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 import { GeofenceService } from '../geofence.service';
@@ -20,20 +20,20 @@ type Mode = 'deliver' | 'incident';
 @Component({
   selector: 'app-rider-deliveries',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [FormsModule],
   template: `
     <section class="deliveries">
       <header class="head">
         <h1>Mis entregas</h1>
         <button class="ghost" (click)="load()" [disabled]="loading()">↻</button>
       </header>
-
+    
       @if (pendingCount() > 0) {
         <button class="carry" (click)="goRun()">
           🛵 Llevar pedidos ({{ pendingCount() }})
         </button>
       }
-
+    
       @if (loading()) {
         <p class="muted">Cargando…</p>
       } @else if (items().length === 0) {
@@ -74,12 +74,12 @@ type Mode = 'deliver' | 'incident';
           }
         </ul>
       }
-
+    
       @if (active(); as d) {
         <div class="modal-bg" (click)="close()">
           <div class="modal" (click)="$event.stopPropagation()">
             <h2>{{ mode() === 'deliver' ? 'Entregar' : 'Incidencia' }} — {{ d.customer_name }}</h2>
-
+    
             @if (mode() === 'deliver') {
               @if (mustCollect(d)) {
                 <div class="collect-fixed">
@@ -104,53 +104,55 @@ type Mode = 'deliver' | 'incident';
               } @else {
                 <div class="collect-fixed paid"><span>Ya pagado en tienda</span><strong>No se cobra</strong></div>
               }
-
+    
               <!-- Validación de ubicación: sin estar en el domicilio no se entrega. -->
               @if (hasCoords(d)) {
                 <div class="geo" [class.near]="geo.arrived()">
                   @if (geo.geoError()) { <span>{{ geo.geoError() }}</span> }
                   @else if (geo.distanceM() == null) { <span>📍 Buscando señal GPS…</span> }
                   @else if (geo.arrived()) { <span>✅ Estás en el domicilio</span> }
-                  @else { <span>Acércate al domicilio · a <b>{{ geo.distanceM() }} m</b><span class="acc" *ngIf="geo.accuracyM()"> ±{{ geo.accuracyM() }} m</span></span> }
-                </div>
-              } @else {
-                <label class="chk">
-                  <input type="checkbox" [(ngModel)]="arrivedManual" />
-                  Confirmo que llegué al domicilio (parada sin ubicación en mapa)
-                </label>
-              }
-
-              <label>Firma del cliente <span class="req">(obligatoria)</span></label>
-              <canvas #sig class="sigpad"
-                      (pointerdown)="sigStart($event)" (pointermove)="sigMove($event)"
-                      (pointerup)="sigEnd()" (pointerleave)="sigEnd()"></canvas>
-              <button type="button" class="ghost sig-clear" (click)="clearSig()">Limpiar firma</button>
+                  @else { <span>Acércate al domicilio · a <b>{{ geo.distanceM() }} m</b>@if (geo.accuracyM()) {
+                  <span class="acc"> ±{{ geo.accuracyM() }} m</span>
+                }</span> }
+              </div>
             } @else {
-              <label>Tipo de incidencia</label>
-              <select [(ngModel)]="incidentType">
-                <option value="not_located">Cliente no localizado</option>
-                <option value="wrong_address">Dirección incorrecta</option>
-                <option value="customer_rejected">Cliente rechaza pedido</option>
-                <option value="missing_product">Producto faltante</option>
-                <option value="other">Otro</option>
-              </select>
-              <label>Motivo / notas {{ incidentType === 'customer_rejected' ? '(obligatorio)' : '' }}</label>
-              <textarea [(ngModel)]="incidentNotes" rows="3"></textarea>
+              <label class="chk">
+                <input type="checkbox" [(ngModel)]="arrivedManual" />
+                Confirmo que llegué al domicilio (parada sin ubicación en mapa)
+              </label>
             }
-
-            @if (error()) { <p class="err">{{ error() }}</p> }
-
-            <div class="modal-actions">
-              <button class="ghost" (click)="close()" [disabled]="saving()">Cancelar</button>
-              <button class="primary" (click)="submit()" [disabled]="saving() || !canConfirm(d)">
-                {{ saving() ? 'Guardando…' : (canConfirm(d) ? 'Confirmar' : 'Acércate al domicilio') }}
-              </button>
-            </div>
+    
+            <label>Firma del cliente <span class="req">(obligatoria)</span></label>
+            <canvas #sig class="sigpad"
+              (pointerdown)="sigStart($event)" (pointermove)="sigMove($event)"
+            (pointerup)="sigEnd()" (pointerleave)="sigEnd()"></canvas>
+            <button type="button" class="ghost sig-clear" (click)="clearSig()">Limpiar firma</button>
+          } @else {
+            <label>Tipo de incidencia</label>
+            <select [(ngModel)]="incidentType">
+              <option value="not_located">Cliente no localizado</option>
+              <option value="wrong_address">Dirección incorrecta</option>
+              <option value="customer_rejected">Cliente rechaza pedido</option>
+              <option value="missing_product">Producto faltante</option>
+              <option value="other">Otro</option>
+            </select>
+            <label>Motivo / notas {{ incidentType === 'customer_rejected' ? '(obligatorio)' : '' }}</label>
+            <textarea [(ngModel)]="incidentNotes" rows="3"></textarea>
+          }
+    
+          @if (error()) { <p class="err">{{ error() }}</p> }
+    
+          <div class="modal-actions">
+            <button class="ghost" (click)="close()" [disabled]="saving()">Cancelar</button>
+            <button class="primary" (click)="submit()" [disabled]="saving() || !canConfirm(d)">
+              {{ saving() ? 'Guardando…' : (canConfirm(d) ? 'Confirmar' : 'Acércate al domicilio') }}
+            </button>
           </div>
         </div>
-      }
+      </div>
+    }
     </section>
-  `,
+    `,
   styles: [`
     .deliveries { padding: 1rem; max-width: 640px; margin: 0 auto; }
     .head { display: flex; justify-content: space-between; align-items: center; }

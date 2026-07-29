@@ -76,7 +76,9 @@ interface DiagProbe {
               routerLinkActive="header-active"
               [attr.aria-label]="pendingOrders() > 0 ? 'Mi día — ' + pendingOrders() + ' pedidos sin enviar' : 'Mi día'"
             ></a>
-            <span class="hdr-dot" *ngIf="pendingOrders() > 0">{{ pendingOrders() }}</span>
+            @if (pendingOrders() > 0) {
+              <span class="hdr-dot">{{ pendingOrders() }}</span>
+            }
           </span>
           <button
             pButton
@@ -89,53 +91,64 @@ interface DiagProbe {
           ></button>
         </div>
       </header>
-
+    
       <!-- Aviso de salud del tracking: el GPS puede cortarse con la pantalla bloqueada -->
-      <button
-        class="bg-banner"
-        *ngIf="routePing.trackingHealth() === 'permission' || routePing.trackingHealth() === 'inactive'"
-        (click)="openBgHelp()"
-      >
-        <i class="pi pi-exclamation-triangle"></i>
-        <span *ngIf="routePing.trackingHealth() === 'permission'">
-          Tu ubicación deja de registrarse al bloquear. Falta permiso <b>"Permitir todo el tiempo"</b>. <u>Arreglar</u>
-        </span>
-        <span *ngIf="routePing.trackingHealth() === 'inactive'">
-          El rastreo en segundo plano no está activo. <u>Arreglar</u>
-        </span>
-      </button>
-
+      @if (routePing.trackingHealth() === 'permission' || routePing.trackingHealth() === 'inactive') {
+        <button
+          class="bg-banner"
+          (click)="openBgHelp()"
+          >
+          <i class="pi pi-exclamation-triangle"></i>
+          @if (routePing.trackingHealth() === 'permission') {
+            <span>
+              Tu ubicación deja de registrarse al bloquear. Falta permiso <b>"Permitir todo el tiempo"</b>. <u>Arreglar</u>
+            </span>
+          }
+          @if (routePing.trackingHealth() === 'inactive') {
+            <span>
+              El rastreo en segundo plano no está activo. <u>Arreglar</u>
+            </span>
+          }
+        </button>
+      }
+    
       <!-- Panel de configuración (modo oscuro + cerrar sesión) -->
-      <div class="settings-backdrop" *ngIf="settingsOpen()" (click)="settingsOpen.set(false)"></div>
-      <div class="settings-panel" *ngIf="settingsOpen()">
-        <button class="set-row" (click)="theme.toggleMonochrome()">
-          <i class="pi" [ngClass]="theme.isMonochrome() ? 'pi-moon' : 'pi-sun'"></i>
-          <span class="lbl">Modo oscuro</span>
-          <span class="switch" [class.on]="theme.isMonochrome()"><span class="knob"></span></span>
-        </button>
-        <button class="set-row" (click)="openBgHelp()">
-          <i class="pi pi-map-marker"></i>
-          <span class="lbl">Ubicación y batería</span>
-        </button>
-        <button class="set-row" (click)="openDiag()">
-          <i class="pi pi-info-circle"></i>
-          <span class="lbl">Diagnóstico PWA</span>
-        </button>
-        <button class="set-row" *ngIf="push.supported" (click)="enablePush()" [disabled]="pushBusy()">
-          <i class="pi pi-bell"></i>
-          <span class="lbl">{{ push.permission() === 'granted' ? 'Avisos activados' : 'Activar avisos de cierre' }}</span>
-          <i class="pi" [ngClass]="pushBusy() ? 'pi-spin pi-spinner' : (push.permission() === 'granted' ? 'pi-check' : 'pi-chevron-right')"></i>
-        </button>
-        <button class="set-row danger" (click)="logout()">
-          <i class="pi pi-sign-out"></i>
-          <span class="lbl">Cerrar sesión</span>
-        </button>
-      </div>
-
+      @if (settingsOpen()) {
+        <div class="settings-backdrop" (click)="settingsOpen.set(false)"></div>
+      }
+      @if (settingsOpen()) {
+        <div class="settings-panel">
+          <button class="set-row" (click)="theme.toggleMonochrome()">
+            <i class="pi" [ngClass]="theme.isMonochrome() ? 'pi-moon' : 'pi-sun'"></i>
+            <span class="lbl">Modo oscuro</span>
+            <span class="switch" [class.on]="theme.isMonochrome()"><span class="knob"></span></span>
+          </button>
+          <button class="set-row" (click)="openBgHelp()">
+            <i class="pi pi-map-marker"></i>
+            <span class="lbl">Ubicación y batería</span>
+          </button>
+          <button class="set-row" (click)="openDiag()">
+            <i class="pi pi-info-circle"></i>
+            <span class="lbl">Diagnóstico PWA</span>
+          </button>
+          @if (push.supported) {
+            <button class="set-row" (click)="enablePush()" [disabled]="pushBusy()">
+              <i class="pi pi-bell"></i>
+              <span class="lbl">{{ push.permission() === 'granted' ? 'Avisos activados' : 'Activar avisos de cierre' }}</span>
+              <i class="pi" [ngClass]="pushBusy() ? 'pi-spin pi-spinner' : (push.permission() === 'granted' ? 'pi-check' : 'pi-chevron-right')"></i>
+            </button>
+          }
+          <button class="set-row danger" (click)="logout()">
+            <i class="pi pi-sign-out"></i>
+            <span class="lbl">Cerrar sesión</span>
+          </button>
+        </div>
+      }
+    
       <main class="vendor-main">
         <router-outlet></router-outlet>
       </main>
-
+    
       <nav class="vendor-bottom-nav">
         <a routerLink="route-home" routerLinkActive="active">
           <i class="pi pi-map"></i>
@@ -154,54 +167,64 @@ interface DiagProbe {
           <span>Thot</span>
         </a>
       </nav>
-
+    
       <!-- Overlay de diagnóstico PWA (Ajustes → Diagnóstico PWA): la verdad del device -->
-      <div class="diag-overlay" *ngIf="diagOpen()" (click)="closeDiag()">
-        <div class="diag-panel" (click)="$event.stopPropagation()">
-          <div class="diag-head">
-            <b>Diagnóstico PWA</b>
-            <span class="diag-actions">
-              <button type="button" (click)="copyDiag()">{{ copied() ? '✓ Copiado' : 'Copiar' }}</button>
-              <button type="button" (click)="closeDiag()">Cerrar</button>
-            </span>
+      @if (diagOpen()) {
+        <div class="diag-overlay" (click)="closeDiag()">
+          <div class="diag-panel" (click)="$event.stopPropagation()">
+            <div class="diag-head">
+              <b>Diagnóstico PWA</b>
+              <span class="diag-actions">
+                <button type="button" (click)="copyDiag()">{{ copied() ? '✓ Copiado' : 'Copiar' }}</button>
+                <button type="button" (click)="closeDiag()">Cerrar</button>
+              </span>
+            </div>
+            @if (diag(); as d) {
+              <div class="diag-key">
+                <div>build <b>{{ d.build.commit }}</b> · {{ d.build.ts }}</div>
+                <div>standalone <b [class.bad]="!d.displayMode.standalone_mq">{{ d.displayMode.standalone_mq }}</b></div>
+                <div>safe-area bottom <b>{{ d.safeAreaInset.bottom }}</b></div>
+                <div>nav gap <b [class.bad]="d.bottomNav && d.bottomNav.gapToScreenBottom > 2">{{ d.bottomNav?.gapToScreenBottom }}px</b></div>
+                <div>innerH {{ d.viewport.innerH }} · screenH {{ d.viewport.screenH }} · dpr {{ d.viewport.dpr }}</div>
+                <div>nav bg <b>{{ d.bgColors.nav }}</b> · pad-b <b>{{ d.navPaddingBottom }}</b></div>
+                <div>viewport gap <b [class.bad]="d.bottomViewportGap > 2">{{ d.bottomViewportGap }}px</b></div>
+                <div>borde inf: {{ d.elementAt.viewportBottom }}</div>
+              </div>
+            }
+            <pre class="diag-json">{{ diag() | json }}</pre>
           </div>
-          <div class="diag-key" *ngIf="diag() as d">
-            <div>build <b>{{ d.build.commit }}</b> · {{ d.build.ts }}</div>
-            <div>standalone <b [class.bad]="!d.displayMode.standalone_mq">{{ d.displayMode.standalone_mq }}</b></div>
-            <div>safe-area bottom <b>{{ d.safeAreaInset.bottom }}</b></div>
-            <div>nav gap <b [class.bad]="d.bottomNav && d.bottomNav.gapToScreenBottom > 2">{{ d.bottomNav?.gapToScreenBottom }}px</b></div>
-            <div>innerH {{ d.viewport.innerH }} · screenH {{ d.viewport.screenH }} · dpr {{ d.viewport.dpr }}</div>
-            <div>nav bg <b>{{ d.bgColors.nav }}</b> · pad-b <b>{{ d.navPaddingBottom }}</b></div>
-            <div>viewport gap <b [class.bad]="d.bottomViewportGap > 2">{{ d.bottomViewportGap }}px</b></div>
-            <div>borde inf: {{ d.elementAt.viewportBottom }}</div>
-          </div>
-          <pre class="diag-json">{{ diag() | json }}</pre>
         </div>
-      </div>
-
+      }
+    
       <!-- Guía de ubicación en segundo plano (onboarding + banner + ajustes) -->
-      <div class="diag-overlay" *ngIf="bgHelpOpen()" (click)="bgHelpOpen.set(false)">
-        <div class="diag-panel bg-help" (click)="$event.stopPropagation()">
-          <div class="diag-head">
-            <b>Ubicación en segundo plano</b>
-            <span class="diag-actions"><button type="button" (click)="bgHelpOpen.set(false)">Cerrar</button></span>
+      @if (bgHelpOpen()) {
+        <div class="diag-overlay" (click)="bgHelpOpen.set(false)">
+          <div class="diag-panel bg-help" (click)="$event.stopPropagation()">
+            <div class="diag-head">
+              <b>Ubicación en segundo plano</b>
+              <span class="diag-actions"><button type="button" (click)="bgHelpOpen.set(false)">Cerrar</button></span>
+            </div>
+            <p class="bg-intro">Para que tu recorrido se siga registrando con la pantalla bloqueada, revisá estos 3 puntos en tu teléfono:</p>
+            <ol class="bg-steps">
+              <li><b>Permiso de ubicación:</b> elegí <b>"Permitir todo el tiempo"</b> (no solo "mientras se usa la app").</li>
+              <li><b>Batería:</b> poné la app en <b>"Sin restricciones"</b> / desactivá el ahorro de batería para Vendedor.</li>
+              <li><b>Inicio automático</b> (Xiaomi, Huawei, Oppo, Vivo, Honor): activá <b>"Autostart"</b> para esta app.</li>
+            </ol>
+            <button class="bg-cta" (click)="openLocationSettings()">
+              <i class="pi pi-cog"></i>&nbsp;Abrir ajustes de la app
+            </button>
+            <p class="bg-note">En la pantalla de ajustes: <b>Permisos → Ubicación</b> y <b>Batería</b>. Después volvé a la app.</p>
+            @if (routePing.bgError(); as err) {
+              <p class="bg-diag">Diagnóstico: <code>{{ err }}</code></p>
+            }
+            @if (!routePing.bgError() && routePing.bgActive()) {
+              <p class="bg-diag">Estado: rastreo en segundo plano <b>activo</b>.</p>
+            }
           </div>
-          <p class="bg-intro">Para que tu recorrido se siga registrando con la pantalla bloqueada, revisá estos 3 puntos en tu teléfono:</p>
-          <ol class="bg-steps">
-            <li><b>Permiso de ubicación:</b> elegí <b>"Permitir todo el tiempo"</b> (no solo "mientras se usa la app").</li>
-            <li><b>Batería:</b> poné la app en <b>"Sin restricciones"</b> / desactivá el ahorro de batería para Vendedor.</li>
-            <li><b>Inicio automático</b> (Xiaomi, Huawei, Oppo, Vivo, Honor): activá <b>"Autostart"</b> para esta app.</li>
-          </ol>
-          <button class="bg-cta" (click)="openLocationSettings()">
-            <i class="pi pi-cog"></i>&nbsp;Abrir ajustes de la app
-          </button>
-          <p class="bg-note">En la pantalla de ajustes: <b>Permisos → Ubicación</b> y <b>Batería</b>. Después volvé a la app.</p>
-          <p class="bg-diag" *ngIf="routePing.bgError() as err">Diagnóstico: <code>{{ err }}</code></p>
-          <p class="bg-diag" *ngIf="!routePing.bgError() && routePing.bgActive()">Estado: rastreo en segundo plano <b>activo</b>.</p>
         </div>
-      </div>
+      }
     </div>
-  `,
+    `,
   styles: [
     `
       .vendor-shell {

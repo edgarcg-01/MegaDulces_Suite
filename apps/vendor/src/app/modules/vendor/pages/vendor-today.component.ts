@@ -27,81 +27,99 @@ import { OfflineOrderService, PendingOrderSummary } from '../../../core/services
   providers: [ConfirmationService],
   template: `
     <p-confirmDialog></p-confirmDialog>
-    <section class="hero" *ngIf="!loading()">
-      <button
-        type="button"
-        class="hero-refresh"
-        [class.spinning]="refreshing()"
-        [disabled]="refreshing()"
-        (click)="refresh()"
-        aria-label="Actualizar mi día"
-      >
-        <i class="pi pi-refresh"></i>
-      </button>
-      <div class="hero-h">
-        <div class="ey">Hoy · {{ todayLabel }}</div>
-        <h1>Mi día</h1>
-      </div>
-      <div class="kpis">
-        <div class="kpi"><div class="v">{{ orders().length }}</div><div class="l">Pedidos</div></div>
-        <div class="kpi hl"><div class="v">{{ fmtMoney(totalRevenue()) }}</div><div class="l">Vendido</div></div>
-        <div class="kpi"><div class="v">{{ fulfilledCount() }}</div><div class="l">Entregados</div></div>
-      </div>
-    </section>
-
-    <div class="body-pad">
-      <p-skeleton *ngIf="loading()" height="400px"></p-skeleton>
-
-      <!-- Pedidos confirmados offline en espera de sincronizar -->
-      <div *ngIf="!loading() && pendingOffline().length > 0" class="pending-sync">
-        <div class="seclab"><i class="pi pi-cloud-upload"></i> Pedidos sin enviar ({{ pendingOffline().length }})</div>
-        <div class="psrow" *ngFor="let p of pendingOffline()" [class.dead]="p.dead">
-          <div class="psinfo">
-            <div class="psname">{{ p.customerName }}</div>
-            <div class="psmeta">{{ p.units }} u · {{ fmtMoney(p.total) }}</div>
-          </div>
-          <div class="psright">
-            <span class="chip" [ngClass]="p.dead ? 'bad' : 'warn'">{{ p.dead ? 'No se pudo enviar' : 'En cola' }}</span>
-            <div class="psactions" *ngIf="p.dead">
-              <button class="ps-retry" (click)="retryPending(p)"><i class="pi pi-refresh"></i> Reintentar</button>
-              <button class="ps-discard" (click)="discardPending(p)" aria-label="Descartar pedido"><i class="pi pi-trash"></i></button>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Fallo de red (distinto de "sin pedidos hoy") -->
-      <p-card *ngIf="!loading() && loadError() && orders().length === 0">
-        <div class="empty">
-          <i class="pi pi-cloud"></i>
-          <p>No se pudo cargar tu día.</p>
-          <button pButton label="Reintentar" icon="pi pi-refresh" severity="secondary" [text]="true" (click)="load()"></button>
-        </div>
-      </p-card>
-
-      <p-card *ngIf="!loading() && !loadError() && orders().length === 0 && pendingOffline().length === 0">
-        <div class="empty">
-          <i class="pi pi-calendar"></i>
-          <p>Aún no tomaste pedidos hoy.</p>
-          <a pButton label="Tomar un pedido" icon="pi pi-arrow-right" severity="secondary" [text]="true" routerLink="/vendor/route-home"></a>
-        </div>
-      </p-card>
-
-      <div *ngIf="!loading() && orders().length > 0" class="list">
-        <div class="seclab">Pedidos de hoy</div>
-        <button class="orow" *ngFor="let o of orders()" (click)="goToOrder(o)">
-          <span class="oc">
-            <span class="code">{{ o.code }}</span>
-            <span class="time">{{ fmtTime(o.created_at) }}</span>
-          </span>
-          <span class="oright">
-            <span class="chip" [ngClass]="statusClass(o.status)">{{ statusLabel(o.status) }}</span>
-            <span class="total">{{ fmtMoney(o.total) }}</span>
-          </span>
+    @if (!loading()) {
+      <section class="hero">
+        <button
+          type="button"
+          class="hero-refresh"
+          [class.spinning]="refreshing()"
+          [disabled]="refreshing()"
+          (click)="refresh()"
+          aria-label="Actualizar mi día"
+          >
+          <i class="pi pi-refresh"></i>
         </button>
-      </div>
+        <div class="hero-h">
+          <div class="ey">Hoy · {{ todayLabel }}</div>
+          <h1>Mi día</h1>
+        </div>
+        <div class="kpis">
+          <div class="kpi"><div class="v">{{ orders().length }}</div><div class="l">Pedidos</div></div>
+          <div class="kpi hl"><div class="v">{{ fmtMoney(totalRevenue()) }}</div><div class="l">Vendido</div></div>
+          <div class="kpi"><div class="v">{{ fulfilledCount() }}</div><div class="l">Entregados</div></div>
+        </div>
+      </section>
+    }
+    
+    <div class="body-pad">
+      @if (loading()) {
+        <p-skeleton height="400px"></p-skeleton>
+      }
+    
+      <!-- Pedidos confirmados offline en espera de sincronizar -->
+      @if (!loading() && pendingOffline().length > 0) {
+        <div class="pending-sync">
+          <div class="seclab"><i class="pi pi-cloud-upload"></i> Pedidos sin enviar ({{ pendingOffline().length }})</div>
+          @for (p of pendingOffline(); track p) {
+            <div class="psrow" [class.dead]="p.dead">
+              <div class="psinfo">
+                <div class="psname">{{ p.customerName }}</div>
+                <div class="psmeta">{{ p.units }} u · {{ fmtMoney(p.total) }}</div>
+              </div>
+              <div class="psright">
+                <span class="chip" [ngClass]="p.dead ? 'bad' : 'warn'">{{ p.dead ? 'No se pudo enviar' : 'En cola' }}</span>
+                @if (p.dead) {
+                  <div class="psactions">
+                    <button class="ps-retry" (click)="retryPending(p)"><i class="pi pi-refresh"></i> Reintentar</button>
+                    <button class="ps-discard" (click)="discardPending(p)" aria-label="Descartar pedido"><i class="pi pi-trash"></i></button>
+                  </div>
+                }
+              </div>
+            </div>
+          }
+        </div>
+      }
+    
+      <!-- Fallo de red (distinto de "sin pedidos hoy") -->
+      @if (!loading() && loadError() && orders().length === 0) {
+        <p-card>
+          <div class="empty">
+            <i class="pi pi-cloud"></i>
+            <p>No se pudo cargar tu día.</p>
+            <button pButton label="Reintentar" icon="pi pi-refresh" severity="secondary" [text]="true" (click)="load()"></button>
+          </div>
+        </p-card>
+      }
+    
+      @if (!loading() && !loadError() && orders().length === 0 && pendingOffline().length === 0) {
+        <p-card>
+          <div class="empty">
+            <i class="pi pi-calendar"></i>
+            <p>Aún no tomaste pedidos hoy.</p>
+            <a pButton label="Tomar un pedido" icon="pi pi-arrow-right" severity="secondary" [text]="true" routerLink="/vendor/route-home"></a>
+          </div>
+        </p-card>
+      }
+    
+      @if (!loading() && orders().length > 0) {
+        <div class="list">
+          <div class="seclab">Pedidos de hoy</div>
+          @for (o of orders(); track o) {
+            <button class="orow" (click)="goToOrder(o)">
+              <span class="oc">
+                <span class="code">{{ o.code }}</span>
+                <span class="time">{{ fmtTime(o.created_at) }}</span>
+              </span>
+              <span class="oright">
+                <span class="chip" [ngClass]="statusClass(o.status)">{{ statusLabel(o.status) }}</span>
+                <span class="total">{{ fmtMoney(o.total) }}</span>
+              </span>
+            </button>
+          }
+        </div>
+      }
     </div>
-  `,
+    `,
   styles: [
     `
       :host { display: block; }

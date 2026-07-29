@@ -43,250 +43,287 @@ import { Permission } from '../../../core/constants/permissions';
   template: `
     <p-toast></p-toast>
     <p-confirmDialog></p-confirmDialog>
-
+    
     <div class="surf-page">
-    <div class="topbar">
-      <button pButton icon="pi pi-arrow-left" label="Volver" severity="secondary" [text]="true" (click)="back()"></button>
-    </div>
-
-    <div class="od-loading" *ngIf="loading()" aria-hidden="true">
-      <p-skeleton width="30%" height="1.5rem"></p-skeleton>
-      <div class="grid">
-        <p-skeleton height="74px" borderRadius="10px"></p-skeleton>
-        <p-skeleton height="74px" borderRadius="10px"></p-skeleton>
-        <p-skeleton height="74px" borderRadius="10px"></p-skeleton>
+      <div class="topbar">
+        <button pButton icon="pi pi-arrow-left" label="Volver" severity="secondary" [text]="true" (click)="back()"></button>
       </div>
-      <p-skeleton height="220px" borderRadius="12px"></p-skeleton>
-    </div>
-
-    <ng-container *ngIf="order() as o">
-      <header class="surf-page-head">
-        <div class="surf-page-head-text">
-          <h1><code class="comm-code">{{ o.folio }}</code></h1>
-          <p class="surf-page-sub">Creado {{ o.created_at | date:'medium' }} por <strong>{{ o.user_username || '—' }}</strong></p>
+    
+      @if (loading()) {
+        <div class="od-loading" aria-hidden="true">
+          <p-skeleton width="30%" height="1.5rem"></p-skeleton>
+          <div class="grid">
+            <p-skeleton height="74px" borderRadius="10px"></p-skeleton>
+            <p-skeleton height="74px" borderRadius="10px"></p-skeleton>
+            <p-skeleton height="74px" borderRadius="10px"></p-skeleton>
+          </div>
+          <p-skeleton height="220px" borderRadius="12px"></p-skeleton>
         </div>
-        <div class="hero-tags">
-          <p-tag
-            *ngIf="o.route_name"
-            severity="contrast"
-            [value]="o.route_name"
-            icon="pi pi-directions"
-            pTooltip="Ruta de reparto asignada al cliente"
-          ></p-tag>
-          <p-tag
-            severity="secondary"
-            [value]="o.delivery_type === 'long_trip' ? 'Viaje largo' : 'Por ruta'"
-            [icon]="o.delivery_type === 'long_trip' ? 'pi pi-globe' : 'pi pi-truck'"
-          ></p-tag>
-          <p-tag [severity]="severity(o.status)" [value]="statusLabel(o.status)" styleClass="status-tag"></p-tag>
-          <p-tag
-            *ngIf="o.cfdi_uuid"
-            severity="success"
-            icon="pi pi-file-check"
-            [value]="'CFDI ' + shortUuid(o.cfdi_uuid)"
-            [pTooltip]="'Facturado · UUID ' + o.cfdi_uuid"
-          ></p-tag>
-        </div>
-      </header>
-
-      <app-metric-strip [items]="headItems(o)" ariaLabel="Resumen del pedido" />
-
-
-      <p-card header="Líneas">
-        <div class="lines-banner" *ngIf="o.status === 'pending_approval'">
-          <i class="pi pi-info-circle" aria-hidden="true"></i>
-          <span>
-            Revisá producto por producto. Ajustá la cantidad según stock disponible,
-            o eliminá la línea si no se puede surtir. Cuando todo esté listo, aprobá el pedido.
-          </span>
-        </div>
-        <p-table [value]="o.lines" responsiveLayout="scroll" styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra">
-          <ng-template pTemplate="header">
-            <tr>
-              <th scope="col">Producto</th>
-              <th scope="col" class="comm-num">Cantidad pedida</th>
-              <th scope="col" class="comm-num">Stock disponible</th>
-              <th scope="col" class="comm-num" *ngIf="o.status === 'pending_approval'">Cantidad a aprobar</th>
-              <th scope="col" class="comm-num">Precio unit</th>
-              <th scope="col" class="comm-num">Desc%</th>
-              <th scope="col" class="comm-num">Total línea</th>
-              <th scope="col" *ngIf="o.status === 'pending_approval'"><span class="sr-only">Acciones</span></th>
-            </tr>
-          </ng-template>
-          <ng-template pTemplate="body" let-l>
-            <tr [class.line-shortfall]="lineShortfall(l, o)">
-              <td>
-                <div class="comm-cell-strong">{{ l.product_name || l.product_id }}</div>
-                <div class="comm-muted is-small" *ngIf="l.brand_name">{{ l.brand_name }}</div>
-              </td>
-              <td class="comm-num">
-                <strong>{{ requestedQty(l) }}</strong>
-                <div class="comm-muted is-small" *ngIf="o.status === 'pending_approval' && Number(l.quantity) < requestedQty(l)">
-                  recortado a {{ l.quantity }}
-                </div>
-              </td>
-              <td class="comm-num">
-                <span class="stock-chip" [class.is-short]="lineShortfall(l, o)">
-                  {{ stockAvailableNum(l) }}
-                </span>
-              </td>
-              <td class="comm-num" *ngIf="o.status === 'pending_approval'">
-                <div class="qty-edit">
-                  <p-inputNumber
-                    [ngModel]="l.quantity"
-                    (onBlur)="onLineQtyBlur(l, $any($event).target?.value, o)"
-                    (onKeyDown)="$any($event).key === 'Enter' && $any($event).target.blur()"
-                    [min]="1"
-                    [max]="approvableMax(l)"
-                    [showButtons]="true"
-                    buttonLayout="horizontal"
-                    spinnerMode="horizontal"
-                    incrementButtonIcon="pi pi-plus"
-                    decrementButtonIcon="pi pi-minus"
-                    inputStyleClass="qty-input"
-                    [disabled]="savingLineId() === l.id"
-                  ></p-inputNumber>
-                  <i *ngIf="savingLineId() === l.id" class="pi pi-spin pi-spinner saving-spinner"></i>
-                </div>
-                <div class="comm-muted is-small">
-                  tope: {{ approvableMax(l) }} / {{ requestedQty(l) }}
-                </div>
-              </td>
-              <td class="comm-num">{{ l.unit_price | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
-              <td class="comm-num">{{ (l.discount_percent * 100) | number:'1.0-1' }}%</td>
-              <td class="comm-num is-strong">{{ l.line_total | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
-              <td *ngIf="o.status === 'pending_approval'" class="comm-actions">
-                <button pButton icon="pi pi-trash"
-                        size="small" severity="secondary" [text]="true"
-                        [disabled]="savingLineId() === l.id"
-                        (click)="confirmRemoveLine(l, o)"
-                        aria-label="Quitar línea del pedido"
-                        pTooltip="Quitar línea (libera reserva)"></button>
-              </td>
-            </tr>
-          </ng-template>
-          <ng-template pTemplate="emptymessage">
-            <tr><td [attr.colspan]="o.status === 'pending_approval' ? 8 : 6" class="comm-muted">Sin líneas en este pedido.</td></tr>
-          </ng-template>
-        </p-table>
-      </p-card>
-
-      <div class="action-bar" *ngIf="o.status === 'draft' || o.status === 'pending_approval' || o.status === 'confirmed'">
-        <button pButton *ngIf="o.status === 'draft'" label="Confirmar pedido" icon="pi pi-check"
-                [loading]="actioning()"
+      }
+    
+      @if (order(); as o) {
+        <header class="surf-page-head">
+          <div class="surf-page-head-text">
+            <h1><code class="comm-code">{{ o.folio }}</code></h1>
+            <p class="surf-page-sub">Creado {{ o.created_at | date:'medium' }} por <strong>{{ o.user_username || '—' }}</strong></p>
+          </div>
+          <div class="hero-tags">
+            @if (o.route_name) {
+              <p-tag
                 severity="contrast"
-                (click)="confirmTransition('confirm', o)"></button>
-        <button pButton *ngIf="o.status === 'pending_approval'" label="Aprobar pedido" icon="pi pi-check-circle"
-                [loading]="actioning()"
-                severity="contrast"
-                (click)="confirmTransition('approve', o)"></button>
-        <button pButton *ngIf="o.status === 'confirmed'" label="Marcar entregado" icon="pi pi-truck"
-                [loading]="actioning()"
-                severity="contrast"
-                (click)="confirmTransition('fulfill', o)"></button>
-        <button pButton label="Cancelar pedido" icon="pi pi-times"
-                [loading]="actioning()"
-                severity="danger" [outlined]="true"
-                (click)="confirmTransition('cancel', o)"></button>
-      </div>
-
-      <!-- FE.5: facturar pedido entregado. El auto-invoice al entregar es best-effort;
-           este botón es el fallback manual (y para clientes con datos fiscales recién
-           capturados). Idempotente en backend (409 si ya tiene CFDI). -->
-      <div class="action-bar" *ngIf="o.status === 'fulfilled' && !o.cfdi_uuid && canFacturar()">
-        <button pButton label="Facturar (CFDI)" icon="pi pi-file-edit"
-                [loading]="facturando()"
-                severity="contrast"
-                (click)="facturar(o)"></button>
-        <span class="comm-muted is-small fa-hint">
-          Emite la factura nominativa. Requiere RFC, razón social, régimen, uso CFDI y CP fiscal del cliente.
-        </span>
-      </div>
-
-      <!-- Logística: embarques asociados (solo si user tiene LOGISTICS_SHIPMENTS_VER) -->
-      <p-card *ngIf="canSeeLogistics()" styleClass="logistics-card">
-        <ng-template pTemplate="header">
-          <div class="logistics-header">
-            <div>
-              <i class="pi pi-truck" aria-hidden="true"></i>
-              <strong>Embarques de logística</strong>
-              <span class="comm-muted is-small" *ngIf="shipments().length"> · {{ shipments().length }} asociados</span>
+                [value]="o.route_name"
+                icon="pi pi-directions"
+                pTooltip="Ruta de reparto asignada al cliente"
+              ></p-tag>
+            }
+            <p-tag
+              severity="secondary"
+              [value]="o.delivery_type === 'long_trip' ? 'Viaje largo' : 'Por ruta'"
+              [icon]="o.delivery_type === 'long_trip' ? 'pi pi-globe' : 'pi pi-truck'"
+            ></p-tag>
+            <p-tag [severity]="severity(o.status)" [value]="statusLabel(o.status)" styleClass="status-tag"></p-tag>
+            @if (o.cfdi_uuid) {
+              <p-tag
+                severity="success"
+                icon="pi pi-file-check"
+                [value]="'CFDI ' + shortUuid(o.cfdi_uuid)"
+                [pTooltip]="'Facturado · UUID ' + o.cfdi_uuid"
+              ></p-tag>
+            }
+          </div>
+        </header>
+        <app-metric-strip [items]="headItems(o)" ariaLabel="Resumen del pedido" />
+        <p-card header="Líneas">
+          @if (o.status === 'pending_approval') {
+            <div class="lines-banner">
+              <i class="pi pi-info-circle" aria-hidden="true"></i>
+              <span>
+                Revisá producto por producto. Ajustá la cantidad según stock disponible,
+                o eliminá la línea si no se puede surtir. Cuando todo esté listo, aprobá el pedido.
+              </span>
             </div>
-            <button pButton *ngIf="canCreateShipment(o)" icon="pi pi-plus" label="Crear embarque"
+          }
+          <p-table [value]="o.lines" responsiveLayout="scroll" styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra">
+            <ng-template pTemplate="header">
+              <tr>
+                <th scope="col">Producto</th>
+                <th scope="col" class="comm-num">Cantidad pedida</th>
+                <th scope="col" class="comm-num">Stock disponible</th>
+                @if (o.status === 'pending_approval') {
+                  <th scope="col" class="comm-num">Cantidad a aprobar</th>
+                }
+                <th scope="col" class="comm-num">Precio unit</th>
+                <th scope="col" class="comm-num">Desc%</th>
+                <th scope="col" class="comm-num">Total línea</th>
+                @if (o.status === 'pending_approval') {
+                  <th scope="col"><span class="sr-only">Acciones</span></th>
+                }
+              </tr>
+            </ng-template>
+            <ng-template pTemplate="body" let-l>
+              <tr [class.line-shortfall]="lineShortfall(l, o)">
+                <td>
+                  <div class="comm-cell-strong">{{ l.product_name || l.product_id }}</div>
+                  @if (l.brand_name) {
+                    <div class="comm-muted is-small">{{ l.brand_name }}</div>
+                  }
+                </td>
+                <td class="comm-num">
+                  <strong>{{ requestedQty(l) }}</strong>
+                  @if (o.status === 'pending_approval' && Number(l.quantity) < requestedQty(l)) {
+                    <div class="comm-muted is-small">
+                      recortado a {{ l.quantity }}
+                    </div>
+                  }
+                </td>
+                <td class="comm-num">
+                  <span class="stock-chip" [class.is-short]="lineShortfall(l, o)">
+                    {{ stockAvailableNum(l) }}
+                  </span>
+                </td>
+                @if (o.status === 'pending_approval') {
+                  <td class="comm-num">
+                    <div class="qty-edit">
+                      <p-inputNumber
+                        [ngModel]="l.quantity"
+                        (onBlur)="onLineQtyBlur(l, $any($event).target?.value, o)"
+                        (onKeyDown)="$any($event).key === 'Enter' && $any($event).target.blur()"
+                        [min]="1"
+                        [max]="approvableMax(l)"
+                        [showButtons]="true"
+                        buttonLayout="horizontal"
+                        spinnerMode="horizontal"
+                        incrementButtonIcon="pi pi-plus"
+                        decrementButtonIcon="pi pi-minus"
+                        inputStyleClass="qty-input"
+                        [disabled]="savingLineId() === l.id"
+                      ></p-inputNumber>
+                      @if (savingLineId() === l.id) {
+                        <i class="pi pi-spin pi-spinner saving-spinner"></i>
+                      }
+                    </div>
+                    <div class="comm-muted is-small">
+                      tope: {{ approvableMax(l) }} / {{ requestedQty(l) }}
+                    </div>
+                  </td>
+                }
+                <td class="comm-num">{{ l.unit_price | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+                <td class="comm-num">{{ (l.discount_percent * 100) | number:'1.0-1' }}%</td>
+                <td class="comm-num is-strong">{{ l.line_total | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+                @if (o.status === 'pending_approval') {
+                  <td class="comm-actions">
+                    <button pButton icon="pi pi-trash"
+                      size="small" severity="secondary" [text]="true"
+                      [disabled]="savingLineId() === l.id"
+                      (click)="confirmRemoveLine(l, o)"
+                      aria-label="Quitar línea del pedido"
+                    pTooltip="Quitar línea (libera reserva)"></button>
+                  </td>
+                }
+              </tr>
+            </ng-template>
+            <ng-template pTemplate="emptymessage">
+              <tr><td [attr.colspan]="o.status === 'pending_approval' ? 8 : 6" class="comm-muted">Sin líneas en este pedido.</td></tr>
+            </ng-template>
+          </p-table>
+        </p-card>
+        @if (o.status === 'draft' || o.status === 'pending_approval' || o.status === 'confirmed') {
+          <div class="action-bar">
+            @if (o.status === 'draft') {
+              <button pButton label="Confirmar pedido" icon="pi pi-check"
+                [loading]="actioning()"
+                severity="contrast"
+              (click)="confirmTransition('confirm', o)"></button>
+            }
+            @if (o.status === 'pending_approval') {
+              <button pButton label="Aprobar pedido" icon="pi pi-check-circle"
+                [loading]="actioning()"
+                severity="contrast"
+              (click)="confirmTransition('approve', o)"></button>
+            }
+            @if (o.status === 'confirmed') {
+              <button pButton label="Marcar entregado" icon="pi pi-truck"
+                [loading]="actioning()"
+                severity="contrast"
+              (click)="confirmTransition('fulfill', o)"></button>
+            }
+            <button pButton label="Cancelar pedido" icon="pi pi-times"
+              [loading]="actioning()"
+              severity="danger" [outlined]="true"
+            (click)="confirmTransition('cancel', o)"></button>
+          </div>
+        }
+        <!-- FE.5: facturar pedido entregado. El auto-invoice al entregar es best-effort;
+        este botón es el fallback manual (y para clientes con datos fiscales recién
+        capturados). Idempotente en backend (409 si ya tiene CFDI). -->
+        @if (o.status === 'fulfilled' && !o.cfdi_uuid && canFacturar()) {
+          <div class="action-bar">
+            <button pButton label="Facturar (CFDI)" icon="pi pi-file-edit"
+              [loading]="facturando()"
+              severity="contrast"
+            (click)="facturar(o)"></button>
+            <span class="comm-muted is-small fa-hint">
+              Emite la factura nominativa. Requiere RFC, razón social, régimen, uso CFDI y CP fiscal del cliente.
+            </span>
+          </div>
+        }
+        <!-- Logística: embarques asociados (solo si user tiene LOGISTICS_SHIPMENTS_VER) -->
+        @if (canSeeLogistics()) {
+          <p-card styleClass="logistics-card">
+            <ng-template pTemplate="header">
+              <div class="logistics-header">
+                <div>
+                  <i class="pi pi-truck" aria-hidden="true"></i>
+                  <strong>Embarques de logística</strong>
+                  @if (shipments().length) {
+                    <span class="comm-muted is-small"> · {{ shipments().length }} asociados</span>
+                  }
+                </div>
+                @if (canCreateShipment(o)) {
+                  <button pButton icon="pi pi-plus" label="Crear embarque"
                     size="small"
                     [routerLink]="['/logistica/shipments']"
-                    [queryParams]="{ order_id: o.id }"></button>
-          </div>
-        </ng-template>
-        <p-table [value]="shipments()" [loading]="loadingShipments()" responsiveLayout="scroll" styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--zebra">
-          <ng-template pTemplate="header">
-            <tr>
-              <th scope="col">Folio</th>
-              <th scope="col">Fecha</th>
-              <th scope="col">Tipo</th>
-              <th scope="col">Origen → Destino</th>
-              <th scope="col">Estado</th>
-              <th scope="col"><span class="sr-only">Acciones</span></th>
-            </tr>
-          </ng-template>
-          <ng-template pTemplate="body" let-s>
-            <tr class="comm-row-clickable"
-                role="link" [tabindex]="0"
-                [attr.aria-label]="'Ver embarque ' + s.folio"
-                (click)="goShipment(s.id)"
-                (keydown.enter)="goShipment(s.id)"
-                (keydown.space)="$event.preventDefault(); goShipment(s.id)">
-              <td><code class="comm-code">{{ s.folio }}</code></td>
-              <td>{{ s.shipment_date | date:'shortDate' }}</td>
-              <td>{{ s.type }}</td>
-              <td class="comm-muted">{{ (s.origin || '—') + ' → ' + (s.destination || '—') }}</td>
-              <td><p-tag [severity]="sevShip(s.status)" [value]="s.status"></p-tag></td>
-              <td class="comm-actions">
-                <a pButton icon="pi pi-arrow-right" size="small" [text]="true"
-                   (click)="$event.stopPropagation()"
-                   [routerLink]="['/logistica/shipments', s.id]" aria-label="Ver embarque" pTooltip="Ver embarque"></a>
-              </td>
-            </tr>
-          </ng-template>
-          <ng-template pTemplate="emptymessage">
-            <tr><td colspan="6" class="comm-muted">
-              {{ canCreateShipment(o) ? 'Sin embarques. Crear uno para enviar este pedido.' : 'Sin embarques registrados.' }}
-            </td></tr>
-          </ng-template>
-        </p-table>
-      </p-card>
-
-      <p-card header="Historial de cambios" styleClass="history-card">
-        <p-timeline [value]="history()" align="left" styleClass="status-timeline">
-          <ng-template pTemplate="content" let-event>
-            <div class="event">
-              <div class="event-headline">
-                <p-tag [severity]="severity(event.to_status)" [value]="statusLabel(event.to_status)"></p-tag>
-                <span class="comm-muted is-small" *ngIf="event.from_status">desde {{ statusLabel(event.from_status) }}</span>
-                <span class="comm-muted is-small" *ngIf="!event.from_status">creación</span>
+                  [queryParams]="{ order_id: o.id }"></button>
+                }
               </div>
-              <div class="event-meta">
-                <span><i class="pi pi-user" aria-hidden="true"></i> {{ event.changed_by_username }}</span>
-                <span><i class="pi pi-clock" aria-hidden="true"></i> {{ event.created_at | date:'medium' }}</span>
+            </ng-template>
+            <p-table [value]="shipments()" [loading]="loadingShipments()" responsiveLayout="scroll" styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--zebra">
+              <ng-template pTemplate="header">
+                <tr>
+                  <th scope="col">Folio</th>
+                  <th scope="col">Fecha</th>
+                  <th scope="col">Tipo</th>
+                  <th scope="col">Origen → Destino</th>
+                  <th scope="col">Estado</th>
+                  <th scope="col"><span class="sr-only">Acciones</span></th>
+                </tr>
+              </ng-template>
+              <ng-template pTemplate="body" let-s>
+                <tr class="comm-row-clickable"
+                  role="link" [tabindex]="0"
+                  [attr.aria-label]="'Ver embarque ' + s.folio"
+                  (click)="goShipment(s.id)"
+                  (keydown.enter)="goShipment(s.id)"
+                  (keydown.space)="$event.preventDefault(); goShipment(s.id)">
+                  <td><code class="comm-code">{{ s.folio }}</code></td>
+                  <td>{{ s.shipment_date | date:'shortDate' }}</td>
+                  <td>{{ s.type }}</td>
+                  <td class="comm-muted">{{ (s.origin || '—') + ' → ' + (s.destination || '—') }}</td>
+                  <td><p-tag [severity]="sevShip(s.status)" [value]="s.status"></p-tag></td>
+                  <td class="comm-actions">
+                    <a pButton icon="pi pi-arrow-right" size="small" [text]="true"
+                      (click)="$event.stopPropagation()"
+                    [routerLink]="['/logistica/shipments', s.id]" aria-label="Ver embarque" pTooltip="Ver embarque"></a>
+                  </td>
+                </tr>
+              </ng-template>
+              <ng-template pTemplate="emptymessage">
+                <tr><td colspan="6" class="comm-muted">
+                  {{ canCreateShipment(o) ? 'Sin embarques. Crear uno para enviar este pedido.' : 'Sin embarques registrados.' }}
+                </td></tr>
+              </ng-template>
+            </p-table>
+          </p-card>
+        }
+        <p-card header="Historial de cambios" styleClass="history-card">
+          <p-timeline [value]="history()" align="left" styleClass="status-timeline">
+            <ng-template pTemplate="content" let-event>
+              <div class="event">
+                <div class="event-headline">
+                  <p-tag [severity]="severity(event.to_status)" [value]="statusLabel(event.to_status)"></p-tag>
+                  @if (event.from_status) {
+                    <span class="comm-muted is-small">desde {{ statusLabel(event.from_status) }}</span>
+                  }
+                  @if (!event.from_status) {
+                    <span class="comm-muted is-small">creación</span>
+                  }
+                </div>
+                <div class="event-meta">
+                  <span><i class="pi pi-user" aria-hidden="true"></i> {{ event.changed_by_username }}</span>
+                  <span><i class="pi pi-clock" aria-hidden="true"></i> {{ event.created_at | date:'medium' }}</span>
+                </div>
+                @if (event.reason) {
+                  <div class="event-reason">{{ event.reason }}</div>
+                }
               </div>
-              <div *ngIf="event.reason" class="event-reason">{{ event.reason }}</div>
-            </div>
-          </ng-template>
-        </p-timeline>
-        <div *ngIf="history().length === 0" class="comm-muted">Sin historial registrado.</div>
-      </p-card>
-    </ng-container>
-
-    <ng-container *ngIf="!order() && !loading()">
-      <div class="comm-empty">
-        <i class="pi pi-exclamation-circle comm-empty-icon" aria-hidden="true"></i>
-        <h3>Pedido no encontrado</h3>
-        <p>No pudimos encontrar este pedido.</p>
-        <button pButton label="Volver" (click)="back()"></button>
-      </div>
-    </ng-container>
+            </ng-template>
+          </p-timeline>
+          @if (history().length === 0) {
+            <div class="comm-muted">Sin historial registrado.</div>
+          }
+        </p-card>
+      }
+    
+      @if (!order() && !loading()) {
+        <div class="comm-empty">
+          <i class="pi pi-exclamation-circle comm-empty-icon" aria-hidden="true"></i>
+          <h3>Pedido no encontrado</h3>
+          <p>No pudimos encontrar este pedido.</p>
+          <button pButton label="Volver" (click)="back()"></button>
+        </div>
+      }
     </div>
-  `,
+    `,
   styles: [`
     :host { display:block; }
     /* Ritmo y padding de página vienen de .surf-page (gap:1rem, padding:0 1.5rem 2rem),

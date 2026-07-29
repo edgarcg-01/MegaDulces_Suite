@@ -2,7 +2,7 @@ import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, OnInit, com
 import { ActivatedRoute } from '@angular/router';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { trigger, transition, style, animate } from '@angular/animations';
-import { CommonModule } from '@angular/common';
+
 import { FormsModule } from '@angular/forms';
 import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 import { ButtonModule } from 'primeng/button';
@@ -51,7 +51,7 @@ const SUGGESTIONS = [
 @Component({
   selector: 'app-comercial-thot-chat',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, PageTabsComponent, ThotAiInputComponent],
+  imports: [FormsModule, ButtonModule, PageTabsComponent, ThotAiInputComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   animations: [
     // Entrada/salida de mensajes — "materializan" con blur-rise + leve overshoot

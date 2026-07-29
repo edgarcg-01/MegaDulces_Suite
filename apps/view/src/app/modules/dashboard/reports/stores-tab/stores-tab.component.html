@@ -2,67 +2,68 @@
   <!-- Header -->
   <div class="flex items-center justify-between mb-4">
     <h3 class="text-sm font-bold text-content-main uppercase tracking-wide">Resumen por Tienda</h3>
-    <span *ngIf="loading()" class="text-xs text-content-muted"><i class="pi pi-spin pi-spinner mr-1"></i>Cargando...</span>
+    @if (loading()) {
+      <span class="text-xs text-content-muted"><i class="pi pi-spin pi-spinner mr-1"></i>Cargando...</span>
+    }
   </div>
 
   <!-- KPI Summary — rings con valor central -->
-  <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4" *ngIf="data()?.kpiGlobales as kg">
-    <!-- Score promedio: ring 0–100 por severidad -->
-    <div class="st-card">
-      <div class="st-ring-wrap">
-        <svg viewBox="0 0 40 40" class="st-ring" aria-hidden="true">
-          <circle cx="20" cy="20" r="16" class="st-ring-track"></circle>
-          <circle cx="20" cy="20" r="16" class="st-ring-arc" [class]="'is-' + scoreSev(kg.scorePromedio)"
+  @if (data()?.kpiGlobales; as kg) {
+    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+      <!-- Score promedio: ring 0–100 por severidad -->
+      <div class="st-card">
+        <div class="st-ring-wrap">
+          <svg viewBox="0 0 40 40" class="st-ring" aria-hidden="true">
+            <circle cx="20" cy="20" r="16" class="st-ring-track"></circle>
+            <circle cx="20" cy="20" r="16" class="st-ring-arc" [class]="'is-' + scoreSev(kg.scorePromedio)"
             [attr.stroke-dasharray]="ringDash(kg.scorePromedio)"></circle>
-        </svg>
-        <span class="st-ring-val">{{ kg.scorePromedio }}</span>
+          </svg>
+          <span class="st-ring-val">{{ kg.scorePromedio }}</span>
+        </div>
+        <div class="st-label">Score promedio</div>
+        <div class="st-sub">{{ kg.totalTiendas }} tiendas</div>
       </div>
-      <div class="st-label">Score promedio</div>
-      <div class="st-sub">{{ kg.totalTiendas }} tiendas</div>
-    </div>
-
-    <!-- Prod./visita: ring vs meta 3, por severidad -->
-    <div class="st-card">
-      <div class="st-ring-wrap">
-        <svg viewBox="0 0 40 40" class="st-ring" aria-hidden="true">
-          <circle cx="20" cy="20" r="16" class="st-ring-track"></circle>
-          <circle cx="20" cy="20" r="16" class="st-ring-arc" [class]="'is-' + surtidoSev(kg.productosPorVisitaPromedio)"
+      <!-- Prod./visita: ring vs meta 3, por severidad -->
+      <div class="st-card">
+        <div class="st-ring-wrap">
+          <svg viewBox="0 0 40 40" class="st-ring" aria-hidden="true">
+            <circle cx="20" cy="20" r="16" class="st-ring-track"></circle>
+            <circle cx="20" cy="20" r="16" class="st-ring-arc" [class]="'is-' + surtidoSev(kg.productosPorVisitaPromedio)"
             [attr.stroke-dasharray]="ringDash(fracPct(kg.productosPorVisitaPromedio, 3))"></circle>
-        </svg>
-        <span class="st-ring-val">{{ kg.productosPorVisitaPromedio }}</span>
+          </svg>
+          <span class="st-ring-val">{{ kg.productosPorVisitaPromedio }}</span>
+        </div>
+        <div class="st-label">Prod./visita</div>
+        <div class="st-sub">surtido promedio</div>
       </div>
-      <div class="st-label">Prod./visita</div>
-      <div class="st-sub">surtido promedio</div>
-    </div>
-
-    <!-- Sin visita 7d+: ring de proporción en riesgo (warn) -->
-    <div class="st-card">
-      <div class="st-ring-wrap">
-        <svg viewBox="0 0 40 40" class="st-ring" aria-hidden="true">
-          <circle cx="20" cy="20" r="16" class="st-ring-track"></circle>
-          <circle cx="20" cy="20" r="16" class="st-ring-arc is-warn"
+      <!-- Sin visita 7d+: ring de proporción en riesgo (warn) -->
+      <div class="st-card">
+        <div class="st-ring-wrap">
+          <svg viewBox="0 0 40 40" class="st-ring" aria-hidden="true">
+            <circle cx="20" cy="20" r="16" class="st-ring-track"></circle>
+            <circle cx="20" cy="20" r="16" class="st-ring-arc is-warn"
             [attr.stroke-dasharray]="ringDash(fracPct(kg.tiendasSinVisita7d, kg.totalTiendas))"></circle>
-        </svg>
-        <span class="st-ring-val">{{ kg.tiendasSinVisita7d }}</span>
+          </svg>
+          <span class="st-ring-val">{{ kg.tiendasSinVisita7d }}</span>
+        </div>
+        <div class="st-label">Sin visita 7d+</div>
+        <div class="st-sub">tiendas en riesgo</div>
       </div>
-      <div class="st-label">Sin visita 7d+</div>
-      <div class="st-sub">tiendas en riesgo</div>
-    </div>
-
-    <!-- Oportunidades: ring de proporción (acción) -->
-    <div class="st-card">
-      <div class="st-ring-wrap">
-        <svg viewBox="0 0 40 40" class="st-ring" aria-hidden="true">
-          <circle cx="20" cy="20" r="16" class="st-ring-track"></circle>
-          <circle cx="20" cy="20" r="16" class="st-ring-arc is-brand"
+      <!-- Oportunidades: ring de proporción (acción) -->
+      <div class="st-card">
+        <div class="st-ring-wrap">
+          <svg viewBox="0 0 40 40" class="st-ring" aria-hidden="true">
+            <circle cx="20" cy="20" r="16" class="st-ring-track"></circle>
+            <circle cx="20" cy="20" r="16" class="st-ring-arc is-brand"
             [attr.stroke-dasharray]="ringDash(fracPct(data()?.oportunidades?.length || 0, kg.totalTiendas))"></circle>
-        </svg>
-        <span class="st-ring-val">{{ data()?.oportunidades?.length || 0 }}</span>
+          </svg>
+          <span class="st-ring-val">{{ data()?.oportunidades?.length || 0 }}</span>
+        </div>
+        <div class="st-label">Oportunidades</div>
+        <div class="st-sub">requieren atención</div>
       </div>
-      <div class="st-label">Oportunidades</div>
-      <div class="st-sub">requieren atención</div>
     </div>
-  </div>
+  }
 
   <!-- Search & Table -->
   <div class="bg-surface-card border border-divider rounded-xl overflow-hidden">
@@ -70,42 +71,42 @@
       <div class="flex items-center gap-2">
         <i class="pi pi-search text-content-faint text-xs"></i>
         <input pInputText type="search" [(ngModel)]="searchQuery" placeholder="Buscar tienda o zona..."
-               inputmode="search" enterkeyhint="search" autocapitalize="none" autocorrect="off" spellcheck="false"
-               class="w-full text-sm bg-transparent border-0 outline-none p-0" />
+          inputmode="search" enterkeyhint="search" autocapitalize="none" autocorrect="off" spellcheck="false"
+          class="w-full text-sm bg-transparent border-0 outline-none p-0" />
+        </div>
       </div>
+      <p-table [value]="filteredStores()" [rows]="10" [paginator]="true"
+        sortField="score" [sortOrder]="-1" styleClass="p-datatable-sm">
+        <ng-template pTemplate="header">
+          <tr class="text-[9px] uppercase text-content-faint bg-surface-ground">
+            <th pSortableColumn="nombre" class="text-left">Tienda <p-sortIcon field="nombre" /></th>
+            <th pSortableColumn="zona" class="text-left">Zona <p-sortIcon field="zona" /></th>
+            <th pSortableColumn="score" class="text-center">Score <p-sortIcon field="score" /></th>
+            <th class="text-center">Visitas</th>
+            <th class="text-center">Rango Compra</th>
+            <th class="text-center">Prod./visita</th>
+            <th class="text-center">Última Visita</th>
+          </tr>
+        </ng-template>
+        <ng-template pTemplate="body" let-store>
+          <tr class="hover:bg-surface-hover text-xs">
+            <td class="font-medium text-content-main">{{ store.nombre }}</td>
+            <td><p-tag [value]="store.zona" severity="info" [rounded]="true" styleClass="text-[9px]" /></td>
+            <td class="text-center font-black" [ngClass]="{'text-ok-fg': store.score >= 80, 'text-warn-fg': store.score >= 50 && store.score < 80, 'text-bad-fg': store.score < 50}">{{ store.score }}</td>
+            <td class="text-center text-content-muted">{{ store.totalVisitas }}</td>
+            <td class="text-center"><span class="text-[10px] font-bold text-brand-orange">{{ store.rangoCompraPromedio || '—' }}</span></td>
+            <td class="text-center"><span class="text-[10px] font-bold" [ngClass]="{'text-ok-fg': store.productsPerVisit >= 3, 'text-warn-fg': store.productsPerVisit >= 1 && store.productsPerVisit < 3, 'text-bad-fg': store.productsPerVisit < 1}">{{ store.productsPerVisit }}</span></td>
+            <td class="text-center text-content-dim text-[10px]">{{ store.ultimaVisita || '—' }}</td>
+          </tr>
+        </ng-template>
+        <ng-template pTemplate="emptydata">
+          <tr>
+            <td colspan="7" class="text-center py-8 text-content-muted text-sm">
+              <i class="pi pi-inbox text-2xl block mb-2"></i>
+              No hay datos de tiendas para el período seleccionado.
+            </td>
+          </tr>
+        </ng-template>
+      </p-table>
     </div>
-    <p-table [value]="filteredStores()" [rows]="10" [paginator]="true"
-             sortField="score" [sortOrder]="-1" styleClass="p-datatable-sm">
-      <ng-template pTemplate="header">
-        <tr class="text-[9px] uppercase text-content-faint bg-surface-ground">
-          <th pSortableColumn="nombre" class="text-left">Tienda <p-sortIcon field="nombre" /></th>
-          <th pSortableColumn="zona" class="text-left">Zona <p-sortIcon field="zona" /></th>
-          <th pSortableColumn="score" class="text-center">Score <p-sortIcon field="score" /></th>
-          <th class="text-center">Visitas</th>
-          <th class="text-center">Rango Compra</th>
-          <th class="text-center">Prod./visita</th>
-          <th class="text-center">Última Visita</th>
-        </tr>
-      </ng-template>
-      <ng-template pTemplate="body" let-store>
-        <tr class="hover:bg-surface-hover text-xs">
-          <td class="font-medium text-content-main">{{ store.nombre }}</td>
-          <td><p-tag [value]="store.zona" severity="info" [rounded]="true" styleClass="text-[9px]" /></td>
-          <td class="text-center font-black" [ngClass]="{'text-ok-fg': store.score >= 80, 'text-warn-fg': store.score >= 50 && store.score < 80, 'text-bad-fg': store.score < 50}">{{ store.score }}</td>
-          <td class="text-center text-content-muted">{{ store.totalVisitas }}</td>
-          <td class="text-center"><span class="text-[10px] font-bold text-brand-orange">{{ store.rangoCompraPromedio || '—' }}</span></td>
-          <td class="text-center"><span class="text-[10px] font-bold" [ngClass]="{'text-ok-fg': store.productsPerVisit >= 3, 'text-warn-fg': store.productsPerVisit >= 1 && store.productsPerVisit < 3, 'text-bad-fg': store.productsPerVisit < 1}">{{ store.productsPerVisit }}</span></td>
-          <td class="text-center text-content-dim text-[10px]">{{ store.ultimaVisita || '—' }}</td>
-        </tr>
-      </ng-template>
-      <ng-template pTemplate="emptydata">
-        <tr>
-          <td colspan="7" class="text-center py-8 text-content-muted text-sm">
-            <i class="pi pi-inbox text-2xl block mb-2"></i>
-            No hay datos de tiendas para el período seleccionado.
-          </td>
-        </tr>
-      </ng-template>
-    </p-table>
   </div>
-</div>

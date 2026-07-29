@@ -61,202 +61,232 @@ const PROMOTION_TYPE_LABELS: Record<string, string> = {
           <strong>{{ username() || 'cliente' }}</strong>
         </span>
       </div>
-      <a *ngIf="ongoingOrder() as oo" class="ph-ribbon-live" [routerLink]="['/portal/orders', oo.id]">
-        <span class="ph-ribbon-live-text">{{ ongoingBannerCopy().title }}</span>
-        <i class="pi pi-arrow-right" aria-hidden="true"></i>
-      </a>
+      @if (ongoingOrder(); as oo) {
+        <a class="ph-ribbon-live" [routerLink]="['/portal/orders', oo.id]">
+          <span class="ph-ribbon-live-text">{{ ongoingBannerCopy().title }}</span>
+          <i class="pi pi-arrow-right" aria-hidden="true"></i>
+        </a>
+      }
     </div>
-
+    
     <!-- [REABASTECIMIENTO PREDICTIVO] recurrentes que llevan tiempo sin pedirse -->
-    <section *ngIf="restockProducts().length > 0" class="ph-section ph-restock ph-reveal">
-      <header class="ph-section-head">
-        <h2>Hora de reabastecer</h2>
-      </header>
-      <div class="ph-restock-strip" role="list">
-        <article
-          *ngFor="let p of restockProducts(); trackBy: trackByProduct"
-          class="ph-restock-card"
-          role="listitem"
-          (click)="openMonthly(p)"
-        >
-          <div
-            class="ph-restock-media"
-            [class.is-ph]="!hasImg(p)"
-            [style.background]="hasImg(p) ? null : phStyle(p)"
-          >
-            <img *ngIf="hasImg(p)" [src]="thumb(p.image_url)" [alt]="p.product_name" loading="lazy" decoding="async" (error)="onImgError(p)" />
-            <span *ngIf="!hasImg(p)" class="ph-restock-initials">{{ initials(p) }}</span>
-          </div>
-          <div class="ph-restock-body">
-            <span class="ph-restock-name" [title]="p.product_name">{{ p.product_name }}</span>
-            <span class="ph-restock-ago">
-              <i class="pi pi-history" aria-hidden="true"></i>
-              hace {{ daysSince(p.last_ordered_at) }} días
-            </span>
-          </div>
-          <button
-            type="button"
-            class="ph-restock-add"
-            [class.is-added]="addedIds().has(p.product_id)"
-            [disabled]="addingId() === p.product_id"
-            (click)="$event.stopPropagation(); reorderAdd(p, $event)"
-            [attr.aria-label]="'Reordenar ' + p.product_name"
-          >
-            <i *ngIf="addingId() === p.product_id" class="pi pi-spin pi-spinner" aria-hidden="true"></i>
-            <i *ngIf="addingId() !== p.product_id && addedIds().has(p.product_id)" class="pi pi-check" aria-hidden="true"></i>
-            <i *ngIf="addingId() !== p.product_id && !addedIds().has(p.product_id)" class="pi pi-refresh" aria-hidden="true"></i>
-          </button>
-        </article>
-      </div>
-    </section>
-
+    @if (restockProducts().length > 0) {
+      <section class="ph-section ph-restock ph-reveal">
+        <header class="ph-section-head">
+          <h2>Hora de reabastecer</h2>
+        </header>
+        <div class="ph-restock-strip" role="list">
+          @for (p of restockProducts(); track trackByProduct($index, p)) {
+            <article
+              class="ph-restock-card"
+              role="listitem"
+              (click)="openMonthly(p)"
+              >
+              <div
+                class="ph-restock-media"
+                [class.is-ph]="!hasImg(p)"
+                [style.background]="hasImg(p) ? null : phStyle(p)"
+                >
+                @if (hasImg(p)) {
+                  <img [src]="thumb(p.image_url)" [alt]="p.product_name" loading="lazy" decoding="async" (error)="onImgError(p)" />
+                }
+                @if (!hasImg(p)) {
+                  <span class="ph-restock-initials">{{ initials(p) }}</span>
+                }
+              </div>
+              <div class="ph-restock-body">
+                <span class="ph-restock-name" [title]="p.product_name">{{ p.product_name }}</span>
+                <span class="ph-restock-ago">
+                  <i class="pi pi-history" aria-hidden="true"></i>
+                  hace {{ daysSince(p.last_ordered_at) }} días
+                </span>
+              </div>
+              <button
+                type="button"
+                class="ph-restock-add"
+                [class.is-added]="addedIds().has(p.product_id)"
+                [disabled]="addingId() === p.product_id"
+                (click)="$event.stopPropagation(); reorderAdd(p, $event)"
+                [attr.aria-label]="'Reordenar ' + p.product_name"
+                >
+                @if (addingId() === p.product_id) {
+                  <i class="pi pi-spin pi-spinner" aria-hidden="true"></i>
+                }
+                @if (addingId() !== p.product_id && addedIds().has(p.product_id)) {
+                  <i class="pi pi-check" aria-hidden="true"></i>
+                }
+                @if (addingId() !== p.product_id && !addedIds().has(p.product_id)) {
+                  <i class="pi pi-refresh" aria-hidden="true"></i>
+                }
+              </button>
+            </article>
+          }
+        </div>
+      </section>
+    }
+    
     <!-- [REORDEN-PRIMERO] "Comprar de nuevo" sube al primer pliegue, sobre el
-         hero (Baymard: el cliente B2B es transaccional, no exploratorio). -->
-    <section *ngIf="frequentProducts().length > 0" class="ph-section ph-section-reorder ph-reveal">
-      <header class="ph-section-head">
-        <h2>Comprar de nuevo</h2>
-        <a routerLink="/portal/catalog" class="ph-section-link">Ver catálogo →</a>
-      </header>
-      <div class="ph-reorder-strip" role="list">
-        <article *ngFor="let p of frequentProducts(); trackBy: trackByProduct" class="ph-reorder-card" role="listitem">
-          <div
-            class="ph-reorder-media"
-            [class.is-ph]="!hasImg(p)"
-            [style.background]="hasImg(p) ? null : phStyle(p)"
-          >
-            <img *ngIf="hasImg(p)" [src]="thumb(p.image_url)" [alt]="p.product_name" loading="lazy" decoding="async" (error)="onImgError(p)" />
-            <span *ngIf="!hasImg(p)" class="ph-reorder-initials">{{ initials(p) }}</span>
-            <span *ngIf="p.times_ordered > 1" class="ph-reorder-freq">{{ p.times_ordered }}×</span>
-          </div>
-          <div class="ph-reorder-body">
-            <span class="ph-reorder-brand">{{ p.brand_name || 'Sin marca' }}</span>
-            <span class="ph-reorder-name" [title]="p.product_name">{{ p.product_name }}</span>
-            <span class="ph-reorder-price">{{ +(p.price || 0) | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
-          </div>
-          <button
-            type="button"
-            class="ph-reorder-add"
-            [class.is-added]="addedIds().has(p.product_id)"
-            [disabled]="addingId() === p.product_id"
-            (click)="reorderAdd(p, $event)"
-            [attr.aria-label]="'Agregar ' + p.product_name"
-          >
-            <i *ngIf="addingId() === p.product_id" class="pi pi-spin pi-spinner" aria-hidden="true"></i>
-            <i *ngIf="addingId() !== p.product_id && addedIds().has(p.product_id)" class="pi pi-check" aria-hidden="true"></i>
-            <i *ngIf="addingId() !== p.product_id && !addedIds().has(p.product_id)" class="pi pi-plus" aria-hidden="true"></i>
-            {{ addedIds().has(p.product_id) ? 'Agregado' : 'Agregar' }}
-          </button>
-        </article>
-      </div>
-    </section>
-
+    hero (Baymard: el cliente B2B es transaccional, no exploratorio). -->
+    @if (frequentProducts().length > 0) {
+      <section class="ph-section ph-section-reorder ph-reveal">
+        <header class="ph-section-head">
+          <h2>Comprar de nuevo</h2>
+          <a routerLink="/portal/catalog" class="ph-section-link">Ver catálogo →</a>
+        </header>
+        <div class="ph-reorder-strip" role="list">
+          @for (p of frequentProducts(); track trackByProduct($index, p)) {
+            <article class="ph-reorder-card" role="listitem">
+              <div
+                class="ph-reorder-media"
+                [class.is-ph]="!hasImg(p)"
+                [style.background]="hasImg(p) ? null : phStyle(p)"
+                >
+                @if (hasImg(p)) {
+                  <img [src]="thumb(p.image_url)" [alt]="p.product_name" loading="lazy" decoding="async" (error)="onImgError(p)" />
+                }
+                @if (!hasImg(p)) {
+                  <span class="ph-reorder-initials">{{ initials(p) }}</span>
+                }
+                @if (p.times_ordered > 1) {
+                  <span class="ph-reorder-freq">{{ p.times_ordered }}×</span>
+                }
+              </div>
+              <div class="ph-reorder-body">
+                <span class="ph-reorder-brand">{{ p.brand_name || 'Sin marca' }}</span>
+                <span class="ph-reorder-name" [title]="p.product_name">{{ p.product_name }}</span>
+                <span class="ph-reorder-price">{{ +(p.price || 0) | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
+              </div>
+              <button
+                type="button"
+                class="ph-reorder-add"
+                [class.is-added]="addedIds().has(p.product_id)"
+                [disabled]="addingId() === p.product_id"
+                (click)="reorderAdd(p, $event)"
+                [attr.aria-label]="'Agregar ' + p.product_name"
+                >
+                @if (addingId() === p.product_id) {
+                  <i class="pi pi-spin pi-spinner" aria-hidden="true"></i>
+                }
+                @if (addingId() !== p.product_id && addedIds().has(p.product_id)) {
+                  <i class="pi pi-check" aria-hidden="true"></i>
+                }
+                @if (addingId() !== p.product_id && !addedIds().has(p.product_id)) {
+                  <i class="pi pi-plus" aria-hidden="true"></i>
+                }
+                {{ addedIds().has(p.product_id) ? 'Agregado' : 'Agregar' }}
+              </button>
+            </article>
+          }
+        </div>
+      </section>
+    }
+    
     <!-- [MARCAS TOP] marquee auto-scroll (GSAP) — incita a explorar por marca -->
     <portal-brands-carousel [brands]="topBrands()"></portal-brands-carousel>
-
+    
     <!-- [1.5] BANNER DE MARKETING (arte propio de una promo activa) -->
-    <a
-      *ngIf="bannerPromo() as bp"
-      class="ph-banner ph-reveal"
-      routerLink="/portal/promotions"
-      [attr.aria-label]="'Ver promoción: ' + bp.name"
-    >
-      <img [src]="thumb(bp.banner_url, 1120)" [alt]="bp.name" class="ph-banner-img" loading="lazy" decoding="async" />
-    </a>
-
+    @if (bannerPromo(); as bp) {
+      <a
+        class="ph-banner ph-reveal"
+        routerLink="/portal/promotions"
+        [attr.aria-label]="'Ver promoción: ' + bp.name"
+        >
+        <img [src]="thumb(bp.banner_url, 1120)" [alt]="bp.name" class="ph-banner-img" loading="lazy" decoding="async" />
+      </a>
+    }
+    
     <!-- [PROMO DESTACADA] "Escaparate vivo" — productos Nutresa que rotan -->
     <portal-featured-promo
       [images]="['/assets/brands/nucita.webp', '/assets/brands/creminobi4.png']"
     ></portal-featured-promo>
-
+    
     <!-- [2] HERO EDITORIAL — desactivado: lo reemplaza la promo destacada de arriba.
-         Se conserva como fallback genérico (catálogo) por si se reactiva. -->
-    <section
-      *ngIf="false"
-      class="ph-hero"
-      [class.ph-hero-promo]="!loadingPromos() && featuredPromo()"
-      role="region"
-      aria-label="Bienvenida"
-      (click)="onHeroClick()"
-    >
-      <div class="ph-hero-text">
-        <span class="ph-hero-eyebrow">
-          @if (featuredPromo()) {
-            <i class="pi pi-bolt" aria-hidden="true"></i>
-            Promo destacada
-          } @else {
-            Catálogo Mega Dulces
+    Se conserva como fallback genérico (catálogo) por si se reactiva. -->
+    @if (false) {
+      <section
+        class="ph-hero"
+        [class.ph-hero-promo]="!loadingPromos() && featuredPromo()"
+        role="region"
+        aria-label="Bienvenida"
+        (click)="onHeroClick()"
+        >
+        <div class="ph-hero-text">
+          <span class="ph-hero-eyebrow">
+            @if (featuredPromo()) {
+              <i class="pi pi-bolt" aria-hidden="true"></i>
+              Promo destacada
+            } @else {
+              Catálogo Mega Dulces
+            }
+          </span>
+          <h1 class="ph-hero-h1">
+            @if (featuredPromo()) {
+              Aprovecha la promo<br>del mes.
+            } @else {
+              Reabastece tu tienda<br>en minutos.
+            }
+          </h1>
+          @if (featuredPromo(); as fp) {
+            <div class="ph-hero-promo-name">{{ titleCase(fp.name) }}</div>
           }
-        </span>
-        <h1 class="ph-hero-h1">
-          @if (featuredPromo()) {
-            Aprovecha la promo<br>del mes.
-          } @else {
-            Reabastece tu tienda<br>en minutos.
-          }
-        </h1>
-        @if (featuredPromo(); as fp) {
-          <div class="ph-hero-promo-name">{{ titleCase(fp.name) }}</div>
-        }
-        <p class="ph-hero-lead">
-          @if (featuredPromo()?.description) {
-            {{ featuredPromo()!.description }}
-          } @else {
-            Más de 500 SKUs de dulces, chocolates y snacks listos para tu próximo pedido.
-          }
-        </p>
-        <div class="ph-hero-actions">
-          <button type="button" class="portal-btn-hero portal-btn-pill" (click)="goCatalog(); $event.stopPropagation()">
-            <i class="pi pi-shopping-cart" aria-hidden="true"></i>
-            Ver catálogo
-          </button>
-          <button *ngIf="featuredPromo()" type="button" class="portal-btn-ghost portal-btn-pill ph-btn-ghost" (click)="goPromos(); $event.stopPropagation()">
-            Ver promo
-            <i class="pi pi-arrow-right" aria-hidden="true"></i>
-          </button>
+          <p class="ph-hero-lead">
+            @if (featuredPromo()?.description) {
+              {{ featuredPromo()!.description }}
+            } @else {
+              Más de 500 SKUs de dulces, chocolates y snacks listos para tu próximo pedido.
+            }
+          </p>
+          <div class="ph-hero-actions">
+            <button type="button" class="portal-btn-hero portal-btn-pill" (click)="goCatalog(); $event.stopPropagation()">
+              <i class="pi pi-shopping-cart" aria-hidden="true"></i>
+              Ver catálogo
+            </button>
+            @if (featuredPromo()) {
+              <button type="button" class="portal-btn-ghost portal-btn-pill ph-btn-ghost" (click)="goPromos(); $event.stopPropagation()">
+                Ver promo
+                <i class="pi pi-arrow-right" aria-hidden="true"></i>
+              </button>
+            }
+          </div>
         </div>
-      </div>
-
-      <!-- Ilustración SVG propia (sin fotos reales) -->
-      <div class="ph-hero-illust" aria-hidden="true">
-        <svg viewBox="0 0 280 220" xmlns="http://www.w3.org/2000/svg">
-          <!-- background blob warm -->
-          <circle cx="200" cy="120" r="110" fill="var(--brand-100)" opacity="0.55"/>
-          <!-- sparkle decorativos -->
-          <g stroke="var(--brand-700)" stroke-width="2" stroke-linecap="round" fill="none">
-            <path d="M50 40 L50 56 M42 48 L58 48"/>
-            <path d="M250 180 L250 196 M242 188 L258 188"/>
-          </g>
-          <circle cx="60" cy="160" r="4" fill="var(--brand-700)"/>
-          <circle cx="240" cy="50" r="3" fill="var(--brand-700)"/>
-
-          <!-- caramelo wrapped (envoltura twist a los lados) -->
-          <g transform="translate(70, 95) rotate(-12)">
-            <path d="M-30 0 L-15 -8 L-12 0 L-15 8 Z" fill="var(--brand-200)"/>
-            <path d="M30 0 L15 -8 L12 0 L15 8 Z" fill="var(--brand-200)"/>
-            <ellipse cx="0" cy="0" rx="22" ry="14" fill="var(--brand-700)"/>
-            <ellipse cx="-6" cy="-4" rx="6" ry="3" fill="var(--brand-400)" opacity="0.6"/>
-          </g>
-
-          <!-- paleta (lollipop) -->
-          <g transform="translate(170, 110)">
-            <rect x="-1.5" y="0" width="3" height="58" fill="var(--neutral-800)" rx="1.5"/>
-            <circle cx="0" cy="0" r="32" fill="var(--brand-400)"/>
-            <circle cx="0" cy="0" r="32" fill="none" stroke="var(--brand-700)" stroke-width="3" stroke-dasharray="8 6" opacity="0.6"/>
-            <circle cx="-8" cy="-8" r="8" fill="var(--brand-100)" opacity="0.7"/>
-          </g>
-
-          <!-- bonbon pequeño -->
-          <g transform="translate(220, 170)">
-            <circle cx="0" cy="0" r="14" fill="var(--brand-600)"/>
-            <circle cx="-4" cy="-4" r="4" fill="var(--brand-300)" opacity="0.7"/>
-          </g>
-
-          <!-- estrella grande -->
-          <path d="M120 30 L125 42 L138 42 L128 50 L132 62 L120 54 L108 62 L112 50 L102 42 L115 42 Z" fill="var(--brand-400)" stroke="var(--brand-700)" stroke-width="1.5" stroke-linejoin="round"/>
-        </svg>
-      </div>
-    </section>
-
+        <!-- Ilustración SVG propia (sin fotos reales) -->
+        <div class="ph-hero-illust" aria-hidden="true">
+          <svg viewBox="0 0 280 220" xmlns="http://www.w3.org/2000/svg">
+            <!-- background blob warm -->
+            <circle cx="200" cy="120" r="110" fill="var(--brand-100)" opacity="0.55"/>
+            <!-- sparkle decorativos -->
+            <g stroke="var(--brand-700)" stroke-width="2" stroke-linecap="round" fill="none">
+              <path d="M50 40 L50 56 M42 48 L58 48"/>
+              <path d="M250 180 L250 196 M242 188 L258 188"/>
+            </g>
+            <circle cx="60" cy="160" r="4" fill="var(--brand-700)"/>
+            <circle cx="240" cy="50" r="3" fill="var(--brand-700)"/>
+            <!-- caramelo wrapped (envoltura twist a los lados) -->
+            <g transform="translate(70, 95) rotate(-12)">
+              <path d="M-30 0 L-15 -8 L-12 0 L-15 8 Z" fill="var(--brand-200)"/>
+              <path d="M30 0 L15 -8 L12 0 L15 8 Z" fill="var(--brand-200)"/>
+              <ellipse cx="0" cy="0" rx="22" ry="14" fill="var(--brand-700)"/>
+              <ellipse cx="-6" cy="-4" rx="6" ry="3" fill="var(--brand-400)" opacity="0.6"/>
+            </g>
+            <!-- paleta (lollipop) -->
+            <g transform="translate(170, 110)">
+              <rect x="-1.5" y="0" width="3" height="58" fill="var(--neutral-800)" rx="1.5"/>
+              <circle cx="0" cy="0" r="32" fill="var(--brand-400)"/>
+              <circle cx="0" cy="0" r="32" fill="none" stroke="var(--brand-700)" stroke-width="3" stroke-dasharray="8 6" opacity="0.6"/>
+              <circle cx="-8" cy="-8" r="8" fill="var(--brand-100)" opacity="0.7"/>
+            </g>
+            <!-- bonbon pequeño -->
+            <g transform="translate(220, 170)">
+              <circle cx="0" cy="0" r="14" fill="var(--brand-600)"/>
+              <circle cx="-4" cy="-4" r="4" fill="var(--brand-300)" opacity="0.7"/>
+            </g>
+            <!-- estrella grande -->
+            <path d="M120 30 L125 42 L138 42 L128 50 L132 62 L120 54 L108 62 L112 50 L102 42 L115 42 Z" fill="var(--brand-400)" stroke="var(--brand-700)" stroke-width="1.5" stroke-linejoin="round"/>
+          </svg>
+        </div>
+      </section>
+    }
+    
     <!-- [3] SEARCH BAR + chips trending — mismo componente que /catalog -->
     <portal-search-bar
       class="ph-search"
@@ -268,14 +298,15 @@ const PROMOTION_TYPE_LABELS: Record<string, string> = {
       (activate)="goSearch()"
     ></portal-search-bar>
     <nav class="ph-chips" aria-label="Categorías más buscadas">
-      <button
-        *ngFor="let chip of trendingChips"
-        type="button"
-        class="ph-chip"
-        (click)="goCategory(chip.term)"
-      >{{ chip.label }}</button>
+      @for (chip of trendingChips; track chip) {
+        <button
+          type="button"
+          class="ph-chip"
+          (click)="goCategory(chip.term)"
+        >{{ chip.label }}</button>
+      }
     </nav>
-
+    
     <!-- [4] TRUST STRIP — datos operativos B2B -->
     <section class="ph-trust ph-reveal" aria-label="Información de servicio">
       <div class="ph-trust-item">
@@ -332,114 +363,129 @@ const PROMOTION_TYPE_LABELS: Record<string, string> = {
         </div>
       </div>
     </section>
-
+    
     <!-- [SUGERIDOS IA] canasta D.4 con razón por producto -->
-    <portal-top-products
-      *ngIf="suggestedProducts().length > 0"
-      class="ph-suggested"
-      [products]="suggestedProducts()"
-      [notes]="suggestedNotes()"
-      eyebrow="Para ti"
-      heading="Sugeridos para ti"
-      meta="Según tu historial"
-      [showRank]="false"
-      [addingId]="addingId()"
-      [addedIds]="addedIds()"
-      [cartQty]="cartQtyMap()"
-      (open)="openMonthly($event)"
-      (add)="addMonthly($event)"
-      (inc)="incRail($event)"
-      (dec)="decRail($event)"
-    ></portal-top-products>
-
+    @if (suggestedProducts().length > 0) {
+      <portal-top-products
+        class="ph-suggested"
+        [products]="suggestedProducts()"
+        [notes]="suggestedNotes()"
+        eyebrow="Para ti"
+        heading="Sugeridos para ti"
+        meta="Según tu historial"
+        [showRank]="false"
+        [addingId]="addingId()"
+        [addedIds]="addedIds()"
+        [cartQty]="cartQtyMap()"
+        (open)="openMonthly($event)"
+        (add)="addMonthly($event)"
+        (inc)="incRail($event)"
+        (dec)="decRail($event)"
+      ></portal-top-products>
+    }
+    
     <!-- [4.5] PRODUCTOS TOP — tendencia del mercado MX cruzada con el catálogo -->
-    <portal-top-products
-      *ngIf="trendProducts().length > 0"
-      class="ph-toptrends"
-      [products]="trendProducts()"
-      [notes]="trendNotes()"
-      [addingId]="addingId()"
-      [addedIds]="addedIds()"
-      [cartQty]="cartQtyMap()"
-      (open)="openMonthly($event)"
-      (add)="addMonthly($event)"
-      (inc)="incRail($event)"
-      (dec)="decRail($event)"
-    ></portal-top-products>
-
+    @if (trendProducts().length > 0) {
+      <portal-top-products
+        class="ph-toptrends"
+        [products]="trendProducts()"
+        [notes]="trendNotes()"
+        [addingId]="addingId()"
+        [addedIds]="addedIds()"
+        [cartQty]="cartQtyMap()"
+        (open)="openMonthly($event)"
+        (add)="addMonthly($event)"
+        (inc)="incRail($event)"
+        (dec)="decRail($event)"
+      ></portal-top-products>
+    }
+    
     <!-- [PRODUCTOS DEL MES] carrusel top-sellers con capa de motion GSAP -->
-    <portal-products-of-month
-      *ngIf="monthlyProducts().length > 0"
-      [products]="monthlyProducts()"
-      [addingId]="addingId()"
-      [addedIds]="addedIds()"
-      [cartQty]="cartQtyMap()"
-      (open)="openMonthly($event)"
-      (add)="addMonthly($event)"
-      (inc)="incRail($event)"
-      (dec)="decRail($event)"
-    ></portal-products-of-month>
-
+    @if (monthlyProducts().length > 0) {
+      <portal-products-of-month
+        [products]="monthlyProducts()"
+        [addingId]="addingId()"
+        [addedIds]="addedIds()"
+        [cartQty]="cartQtyMap()"
+        (open)="openMonthly($event)"
+        (add)="addMonthly($event)"
+        (inc)="incRail($event)"
+        (dec)="decRail($event)"
+      ></portal-products-of-month>
+    }
+    
     <!-- [5] PROMOS DEL MES — rail swipeable con capa de motion GSAP -->
-    <portal-promos-carousel
-      *ngIf="!loadingPromos() && promotions().length > 0"
-      [promos]="promotions()"
-    ></portal-promos-carousel>
-
-    <div *ngIf="loadingPromos()" class="ph-skel-grid">
-      <p-skeleton width="100%" height="200px" borderRadius="20px"></p-skeleton>
-    </div>
-
-    <!-- [7] HISTORIAL — últimos 3 pedidos compactos -->
-    <section class="ph-section ph-history ph-reveal" *ngIf="!loadingOrders()">
-      <header class="ph-section-head">
-        <h2>Tu historial</h2>
-        <a routerLink="/portal/orders" class="ph-section-link">Ver todos →</a>
-      </header>
-
-      <div *ngIf="orders().length === 0" class="ph-empty">
-        <h3>Aún no tienes pedidos</h3>
-        <p>Explora el catálogo y arma tu primer pedido en minutos.</p>
-        <button type="button" class="portal-btn-hero portal-btn-pill" (click)="goCatalog()">
-          Explorar catálogo
-          <i class="pi pi-arrow-right" aria-hidden="true"></i>
-        </button>
+    @if (!loadingPromos() && promotions().length > 0) {
+      <portal-promos-carousel
+        [promos]="promotions()"
+      ></portal-promos-carousel>
+    }
+    
+    @if (loadingPromos()) {
+      <div class="ph-skel-grid">
+        <p-skeleton width="100%" height="200px" borderRadius="20px"></p-skeleton>
       </div>
-
-      <ul *ngIf="orders().length > 0" class="ph-history-list" role="list">
-        <li
-          *ngFor="let o of orders().slice(0, 3)"
-          class="ph-history-row"
-          (click)="onOrderAction(o)"
-          role="button"
-          tabindex="0"
-          [attr.aria-label]="'Ver pedido ' + o.code"
-          (keydown.enter)="onOrderAction(o)"
-          (keydown.space)="onOrderAction(o); $event.preventDefault()"
-        >
-          <span class="ph-history-status" [class]="'is-' + o.status">
-            <i [class]="statusIcon(o.status)" aria-hidden="true"></i>
-          </span>
-          <div class="ph-history-info">
-            <span class="ph-history-summary">{{ orderSummary(o) }}</span>
-            <span class="ph-history-meta">
-              <code>{{ o.code }}</code>
-              <span class="ph-history-dot" aria-hidden="true">·</span>
-              {{ o.created_at | date:'dd MMM' }}
-              <span class="ph-history-dot" aria-hidden="true">·</span>
-              {{ statusLabel(o.status) }}
-            </span>
+    }
+    
+    <!-- [7] HISTORIAL — últimos 3 pedidos compactos -->
+    @if (!loadingOrders()) {
+      <section class="ph-section ph-history ph-reveal">
+        <header class="ph-section-head">
+          <h2>Tu historial</h2>
+          <a routerLink="/portal/orders" class="ph-section-link">Ver todos →</a>
+        </header>
+        @if (orders().length === 0) {
+          <div class="ph-empty">
+            <h3>Aún no tienes pedidos</h3>
+            <p>Explora el catálogo y arma tu primer pedido en minutos.</p>
+            <button type="button" class="portal-btn-hero portal-btn-pill" (click)="goCatalog()">
+              Explorar catálogo
+              <i class="pi pi-arrow-right" aria-hidden="true"></i>
+            </button>
           </div>
-          <span class="ph-history-total">{{ +o.total | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
-          <i class="pi pi-chevron-right ph-history-chevron" aria-hidden="true"></i>
-        </li>
-      </ul>
-    </section>
-
-    <div *ngIf="loadingOrders()" class="ph-skel-list">
-      <p-skeleton *ngFor="let i of [1,2,3]" width="100%" height="64px" borderRadius="14px"></p-skeleton>
-    </div>
-
+        }
+        @if (orders().length > 0) {
+          <ul class="ph-history-list" role="list">
+            @for (o of orders().slice(0, 3); track o) {
+              <li
+                class="ph-history-row"
+                (click)="onOrderAction(o)"
+                role="button"
+                tabindex="0"
+                [attr.aria-label]="'Ver pedido ' + o.code"
+                (keydown.enter)="onOrderAction(o)"
+                (keydown.space)="onOrderAction(o); $event.preventDefault()"
+                >
+                <span class="ph-history-status" [class]="'is-' + o.status">
+                  <i [class]="statusIcon(o.status)" aria-hidden="true"></i>
+                </span>
+                <div class="ph-history-info">
+                  <span class="ph-history-summary">{{ orderSummary(o) }}</span>
+                  <span class="ph-history-meta">
+                    <code>{{ o.code }}</code>
+                    <span class="ph-history-dot" aria-hidden="true">·</span>
+                    {{ o.created_at | date:'dd MMM' }}
+                    <span class="ph-history-dot" aria-hidden="true">·</span>
+                    {{ statusLabel(o.status) }}
+                  </span>
+                </div>
+                <span class="ph-history-total">{{ +o.total | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
+                <i class="pi pi-chevron-right ph-history-chevron" aria-hidden="true"></i>
+              </li>
+            }
+          </ul>
+        }
+      </section>
+    }
+    
+    @if (loadingOrders()) {
+      <div class="ph-skel-list">
+        @for (i of [1,2,3]; track i) {
+          <p-skeleton width="100%" height="64px" borderRadius="14px"></p-skeleton>
+        }
+      </div>
+    }
+    
     <!-- [FEED] descubrimiento casi infinito: rails por marca/categoría + grilla -->
     <portal-home-feed
       [brands]="topBrands()"
@@ -450,7 +496,7 @@ const PROMOTION_TYPE_LABELS: Record<string, string> = {
       (open)="openMonthly($event)"
       (add)="addMonthly($event)"
     ></portal-home-feed>
-
+    
     <!-- Volver arriba (aparece tras scrollear el feed) -->
     <button
       type="button"
@@ -459,10 +505,10 @@ const PROMOTION_TYPE_LABELS: Record<string, string> = {
       (click)="scrollTop()"
       aria-label="Volver arriba"
       [attr.tabindex]="showTop() ? 0 : -1"
-    >
+      >
       <i class="pi pi-arrow-up" aria-hidden="true"></i>
     </button>
-
+    
     <!-- TOP-SHEET de detalle de producto (baja desde arriba al tocar un card) -->
     <portal-product-sheet
       [product]="sheetProduct()"
@@ -471,7 +517,7 @@ const PROMOTION_TYPE_LABELS: Record<string, string> = {
       (close)="closeSheet()"
       (add)="addFromSheet($event)"
     ></portal-product-sheet>
-
+    
     <!-- [8] FOOTER OPERATIVO -->
     <footer class="ph-foot ph-reveal">
       <div class="ph-foot-item">
@@ -491,7 +537,7 @@ const PROMOTION_TYPE_LABELS: Record<string, string> = {
         <span>Producto dañado únicamente</span>
       </div>
     </footer>
-  `,
+    `,
   styles: [
     `
       :host {

@@ -36,7 +36,7 @@ import { SAT_COD_AGRUPADOR } from '../../../shared/constants/sat-cod-agrupador';
     <div class="surf-page in">
       <p-toast></p-toast>
       <app-page-tabs [tabs]="tabs" variant="liquid" />
-
+    
       <header class="surf-page-head cb-head">
         <div class="surf-page-head-text">
           <h1 class="cb-h1">Contabilidad electrónica <app-context-help topic="contabilidad-e" /></h1>
@@ -44,101 +44,114 @@ import { SAT_COD_AGRUPADOR } from '../../../shared/constants/sat-cod-agrupador';
         </div>
         @if (loadedAt()) { <span class="cb-head-fresh"><app-freshness-pill [since]="loadedAt()" /></span> }
       </header>
-
+    
       <div class="card-premium card-flat cb-panel">
         <div class="cb-form">
           <label class="cb-f"><span>Periodo</span><p-datepicker [(ngModel)]="periodD" (onSelect)="syncPeriod()" view="month" dateFormat="mm/yy" [showIcon]="true" appendTo="body" ariaLabel="Periodo (mes)" styleClass="cb-dp" /></label>
           <label class="cb-f"><span>RFC (opcional)</span><input type="text" pInputText [(ngModel)]="rfc" placeholder="e.firma activa si vacío" maxlength="13" style="text-transform:uppercase" /></label>
           <label class="cb-f"><span>Tipo de envío (balanza)</span>
-            <p-select [options]="tipoEnvioOpts" [(ngModel)]="tipoEnvio" optionLabel="label" optionValue="value" styleClass="cb-sel sel-liquid" ariaLabel="Tipo de envío de la balanza" />
-          </label>
-        </div>
-        <div class="cb-cards">
-          <div class="cb-card">
-            <div class="cb-card-body">
-              <i class="pi pi-book"></i>
-              <div><div class="cb-card-title">Catálogo de cuentas</div><div class="cb-card-desc">Estructura de cuentas con nivel, naturaleza y código agrupador SAT (1.3).</div></div>
-            </div>
-            <button pButton type="button" label="Descargar XML" icon="pi pi-download" class="p-button-sm p-button-outlined" [loading]="dl()==='catalogo'" (click)="descargar('catalogo')"></button>
-          </div>
-          <div class="cb-card">
-            <div class="cb-card-body">
-              <i class="pi pi-list"></i>
-              <div><div class="cb-card-title">Balanza de comprobación</div><div class="cb-card-desc">SaldoIni / Debe / Haber / SaldoFin por cuenta (BCE 1.3).</div></div>
-            </div>
-            <button pButton type="button" label="Descargar XML" icon="pi pi-download" class="p-button-sm p-button-outlined" [loading]="dl()==='balanza'" (click)="descargar('balanza')"></button>
-          </div>
-        </div>
+          <p-select [options]="tipoEnvioOpts" [(ngModel)]="tipoEnvio" optionLabel="label" optionValue="value" styleClass="cb-sel sel-liquid" ariaLabel="Tipo de envío de la balanza" />
+        </label>
       </div>
-
-      <!-- FE.11 — Mapeo cuenta mayor → código agrupador SAT -->
-      <div class="card-premium card-flat cb-panel">
-        <div class="cb-map-head">
-          <div>
-            <div class="cb-card-title">Código agrupador SAT</div>
-            <div class="cb-card-desc">Mapea cada cuenta mayor a la clave del catálogo del SAT. El catálogo de cuentas XML usa este mapeo; las cuentas sin mapear caen al placeholder (la propia cuenta mayor).</div>
+      <div class="cb-cards">
+        <div class="cb-card">
+          <div class="cb-card-body">
+            <i class="pi pi-book"></i>
+            <div><div class="cb-card-title">Catálogo de cuentas</div><div class="cb-card-desc">Estructura de cuentas con nivel, naturaleza y código agrupador SAT (1.3).</div></div>
           </div>
-          <div class="cb-map-actions">
-            <p-selectButton [options]="mapFilterOpts" [ngModel]="onlyUnmapped()" (ngModelChange)="onlyUnmapped.set($event)" optionLabel="label" optionValue="value" [allowEmpty]="false" styleClass="cb-sb sb-liquid" ariaLabel="Filtrar cuentas por mapeo" />
-            <span class="cb-cover" [class.is-full]="coverage().unmapped === 0" [class.is-empty]="coverage().total === 0">
-              <i class="pi" [ngClass]="coverage().unmapped === 0 && coverage().total > 0 ? 'pi-check-circle' : 'pi-exclamation-circle'"></i>
-              {{ coverage().mapped }}/{{ coverage().total }} mapeadas
-            </span>
-            <button *ngIf="canManage()" pButton type="button" label="Auto-sugerir faltantes" icon="pi pi-bolt"
-                    class="p-button-sm p-button-outlined" [loading]="suggesting()" [disabled]="coverage().unmapped === 0"
-                    (click)="autoSuggest()"></button>
-            <button pButton type="button" icon="pi pi-refresh" class="p-button-sm p-button-text" [loading]="loadingMap()" (click)="loadMap()" pTooltip="Refrescar"></button>
-          </div>
+          <button pButton type="button" label="Descargar XML" icon="pi pi-download" class="p-button-sm p-button-outlined" [loading]="dl()==='catalogo'" (click)="descargar('catalogo')"></button>
         </div>
-
-        <datalist id="sat-agrup">
-          <option *ngFor="let c of satCodes" [value]="c.code">{{ c.label }}</option>
-        </datalist>
-
-        <p-table [value]="displayRows()" [loading]="loadingMap()" responsiveLayout="scroll"
-                 styleClass="p-datatable-sm surf-table surf-table--sticky" [scrollable]="true" scrollHeight="440px">
-          <ng-template pTemplate="header">
-            <tr>
-              <th scope="col">Cuenta mayor</th>
-              <th scope="col">Nombre</th>
-              <th scope="col" class="cb-c-fam">Fam.</th>
-              <th scope="col">Código agrupador SAT</th>
-              <th scope="col" class="cb-c-nat">Natur.</th>
-              <th scope="col" class="cb-c-src">Origen</th>
-            </tr>
-          </ng-template>
-          <ng-template pTemplate="body" let-r>
-            <tr [class.cb-unmapped]="!r.cod_agrupador">
-              <td><code class="comm-code">{{ r.cuenta_mayor }}</code></td>
-              <td class="cb-name">{{ r.nombre || '—' }}</td>
-              <td class="cb-c-fam">{{ r.familia }}</td>
-              <td>
-                <input *ngIf="canManage(); else roCode" type="text" pInputText list="sat-agrup"
-                       class="cb-code-input" [(ngModel)]="r.cod_agrupador"
-                       placeholder="ej. 105.01" inputmode="decimal"
-                       (blur)="saveRow(r)"
-                       (keydown.enter)="$any($event.target).blur()" />
-                <ng-template #roCode><span [class.comm-muted]="!r.cod_agrupador">{{ r.cod_agrupador || '— sin mapear —' }}</span></ng-template>
-              </td>
-              <td class="cb-c-nat">{{ r.natur || r.natur_default }}</td>
-              <td class="cb-c-src">
-                <p-tag *ngIf="r.source === 'manual'" severity="success" value="manual"></p-tag>
-                <p-tag *ngIf="r.source === 'auto'" severity="warn" value="auto"></p-tag>
-                <span *ngIf="!r.source" class="comm-muted is-small">—</span>
-              </td>
-            </tr>
-          </ng-template>
-          <ng-template pTemplate="emptymessage">
-            <tr><td colspan="6" class="comm-muted" style="padding:1rem;text-align:center;">
-              @if (onlyUnmapped() && mapRows().length) { <i class="pi pi-check-circle"></i> Todas las cuentas están mapeadas. <button pButton type="button" label="Ver todas" class="p-button-sm p-button-text" (click)="onlyUnmapped.set(false)"></button> }
-              @else { Sin balanza cargada (analytics.ledger_monthly vacío para este tenant). }
-            </td></tr>
-          </ng-template>
-        </p-table>
-        <p class="cb-note"><i class="pi pi-info-circle"></i> El código agrupador debe ser una clave del catálogo del SAT (formato <code>NNN</code> o <code>NNN.NN</code>). El campo sugiere claves comunes; podés escribir cualquiera válida.</p>
+        <div class="cb-card">
+          <div class="cb-card-body">
+            <i class="pi pi-list"></i>
+            <div><div class="cb-card-title">Balanza de comprobación</div><div class="cb-card-desc">SaldoIni / Debe / Haber / SaldoFin por cuenta (BCE 1.3).</div></div>
+          </div>
+          <button pButton type="button" label="Descargar XML" icon="pi pi-download" class="p-button-sm p-button-outlined" [loading]="dl()==='balanza'" (click)="descargar('balanza')"></button>
+        </div>
       </div>
     </div>
-  `,
+    
+    <!-- FE.11 — Mapeo cuenta mayor → código agrupador SAT -->
+    <div class="card-premium card-flat cb-panel">
+      <div class="cb-map-head">
+        <div>
+          <div class="cb-card-title">Código agrupador SAT</div>
+          <div class="cb-card-desc">Mapea cada cuenta mayor a la clave del catálogo del SAT. El catálogo de cuentas XML usa este mapeo; las cuentas sin mapear caen al placeholder (la propia cuenta mayor).</div>
+        </div>
+        <div class="cb-map-actions">
+          <p-selectButton [options]="mapFilterOpts" [ngModel]="onlyUnmapped()" (ngModelChange)="onlyUnmapped.set($event)" optionLabel="label" optionValue="value" [allowEmpty]="false" styleClass="cb-sb sb-liquid" ariaLabel="Filtrar cuentas por mapeo" />
+          <span class="cb-cover" [class.is-full]="coverage().unmapped === 0" [class.is-empty]="coverage().total === 0">
+            <i class="pi" [ngClass]="coverage().unmapped === 0 && coverage().total > 0 ? 'pi-check-circle' : 'pi-exclamation-circle'"></i>
+            {{ coverage().mapped }}/{{ coverage().total }} mapeadas
+          </span>
+          @if (canManage()) {
+            <button pButton type="button" label="Auto-sugerir faltantes" icon="pi pi-bolt"
+              class="p-button-sm p-button-outlined" [loading]="suggesting()" [disabled]="coverage().unmapped === 0"
+            (click)="autoSuggest()"></button>
+          }
+          <button pButton type="button" icon="pi pi-refresh" class="p-button-sm p-button-text" [loading]="loadingMap()" (click)="loadMap()" pTooltip="Refrescar"></button>
+        </div>
+      </div>
+    
+      <datalist id="sat-agrup">
+        @for (c of satCodes; track c) {
+          <option [value]="c.code">{{ c.label }}</option>
+        }
+      </datalist>
+    
+      <p-table [value]="displayRows()" [loading]="loadingMap()" responsiveLayout="scroll"
+        styleClass="p-datatable-sm surf-table surf-table--sticky" [scrollable]="true" scrollHeight="440px">
+        <ng-template pTemplate="header">
+          <tr>
+            <th scope="col">Cuenta mayor</th>
+            <th scope="col">Nombre</th>
+            <th scope="col" class="cb-c-fam">Fam.</th>
+            <th scope="col">Código agrupador SAT</th>
+            <th scope="col" class="cb-c-nat">Natur.</th>
+            <th scope="col" class="cb-c-src">Origen</th>
+          </tr>
+        </ng-template>
+        <ng-template pTemplate="body" let-r>
+          <tr [class.cb-unmapped]="!r.cod_agrupador">
+            <td><code class="comm-code">{{ r.cuenta_mayor }}</code></td>
+            <td class="cb-name">{{ r.nombre || '—' }}</td>
+            <td class="cb-c-fam">{{ r.familia }}</td>
+            <td>
+              @if (canManage()) {
+                <input type="text" pInputText list="sat-agrup"
+                  class="cb-code-input" [(ngModel)]="r.cod_agrupador"
+                  placeholder="ej. 105.01" inputmode="decimal"
+                  (blur)="saveRow(r)"
+                  (keydown.enter)="$any($event.target).blur()" />
+              } @else {
+                <span [class.comm-muted]="!r.cod_agrupador">{{ r.cod_agrupador || '— sin mapear —' }}</span>
+              }
+            </td>
+            <td class="cb-c-nat">{{ r.natur || r.natur_default }}</td>
+            <td class="cb-c-src">
+              @if (r.source === 'manual') {
+                <p-tag severity="success" value="manual"></p-tag>
+              }
+              @if (r.source === 'auto') {
+                <p-tag severity="warn" value="auto"></p-tag>
+              }
+              @if (!r.source) {
+                <span class="comm-muted is-small">—</span>
+              }
+            </td>
+          </tr>
+        </ng-template>
+        <ng-template pTemplate="emptymessage">
+          <tr><td colspan="6" class="comm-muted" style="padding:1rem;text-align:center;">
+            @if (onlyUnmapped() && mapRows().length) { <i class="pi pi-check-circle"></i> Todas las cuentas están mapeadas. <button pButton type="button" label="Ver todas" class="p-button-sm p-button-text" (click)="onlyUnmapped.set(false)"></button> }
+            @else { Sin balanza cargada (analytics.ledger_monthly vacío para este tenant). }
+          </td></tr>
+        </ng-template>
+      </p-table>
+      <p class="cb-note"><i class="pi pi-info-circle"></i> El código agrupador debe ser una clave del catálogo del SAT (formato <code>NNN</code> o <code>NNN.NN</code>). El campo sugiere claves comunes; podés escribir cualquiera válida.</p>
+    </div>
+    </div>
+    `,
   styles: [`
     :host { display: block; }
     .cb-head { display: flex; align-items: flex-start; gap: 1rem; }

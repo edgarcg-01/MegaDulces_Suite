@@ -20,340 +20,346 @@
           autocorrect="off"
           spellcheck="false"
           class="w-full sm:w-64" />
-      </p-iconfield>
-      <label class="flex items-center gap-2 text-xs text-content-muted cursor-pointer whitespace-nowrap">
-        <input
-          type="checkbox"
-          [checked]="showInactive()"
-          (change)="toggleShowInactive($any($event.target).checked)"
-          class="accent-brand"
-        />
-        Mostrar inactivos
-      </label>
-      @if (canManage()) {
-        <label class="flex items-center gap-2 text-xs text-content-muted cursor-pointer whitespace-nowrap" pTooltip="Muestra el catálogo ERP completo para agregar productos al planograma">
+        </p-iconfield>
+        <label class="flex items-center gap-2 text-xs text-content-muted cursor-pointer whitespace-nowrap">
           <input
             type="checkbox"
-            [checked]="catalogMode()"
-            (change)="toggleCatalogMode($any($event.target).checked)"
+            [checked]="showInactive()"
+            (change)="toggleShowInactive($any($event.target).checked)"
             class="accent-brand"
-          />
-          Catálogo completo (agregar)
-        </label>
-      }
-      @if (canManage()) {
-        <p-button label="Nueva Marca" icon="pi pi-plus" (onClick)="openAddBrand()" styleClass="p-button-brand"></p-button>
-      }
-    </div>
-  </div>
-
-  <!-- Tabla de Marcas con Expansión -->
-  <div class="bg-surface-card border border-divider shadow-sm rounded-xl overflow-hidden">
-    <p-table [value]="filteredBrands()" [loading]="loading()" dataKey="id" [expandedRowKeys]="expandedRows()" responsiveLayout="scroll" styleClass="p-datatable-sm p-datatable-striped">
-      <ng-template pTemplate="header">
-        <tr class="text-xs text-content-muted uppercase bg-surface-ground border-b border-divider">
-          <th style="width: 3rem"></th>
-          <th>Marca / Fabricante</th>
-          <th class="text-center">Productos</th>
-          <th class="text-center">Estado</th>
-          <th class="text-center w-28">Acciones</th>
-        </tr>
-      </ng-template>
-      <ng-template pTemplate="body" let-brand let-expanded="expanded">
-        <tr class="text-sm border-b border-divider hover:bg-surface-hover" [class.opacity-50]="brand.activo === false">
-          <td>
-            <button type="button" pButton pRipple [pRowToggler]="brand" class="p-button-text p-button-rounded p-button-plain" [icon]="expanded ? 'pi pi-chevron-down' : 'pi pi-chevron-right'"></button>
-          </td>
-          <td class="font-bold text-content-main uppercase tracking-wider">
-            {{ brand.nombre }}
-            @if (brand.activo === false) {
-              <span class="ml-2 text-[10px] uppercase tracking-wider text-bad-fg border border-bad-border rounded px-1.5 py-0.5" pTooltip="Marca inactiva — referenciada en capturas históricas">Inactiva</span>
-            }
-          </td>
-          <td class="text-center font-mono">
-            {{ brand.productos?.length || 0 }}
-          </td>
-          <td class="text-center">
-            <p-tag
-              [value]="brand.activo === false ? 'Inactiva' : 'Activa'"
-              [severity]="brand.activo === false ? 'danger' : 'success'"
-              [rounded]="true" />
-          </td>
-          <td class="text-center">
-            <div class="flex justify-center gap-1">
-              @if (canManage() && brand.activo === false) {
-                <button type="button" class="icon-btn-ghost icon-btn-ghost-ok" (click)="reactivateBrand(brand)" pTooltip="Reactivar" aria-label="Reactivar marca">
-                  <i class="pi pi-replay" aria-hidden="true"></i>
-                </button>
-              }
-              @if (canManage()) {
-                <button type="button" class="icon-btn-ghost icon-btn-ghost-info" (click)="openAddProduct(brand)" pTooltip="Agregar producto" aria-label="Agregar producto">
-                  <i class="pi pi-plus" aria-hidden="true"></i>
-                </button>
-                <button type="button" class="icon-btn-ghost" (click)="openEditBrand(brand)" pTooltip="Editar marca" aria-label="Editar marca">
-                  <i class="pi pi-pencil" aria-hidden="true"></i>
-                </button>
-                <button type="button" class="icon-btn-ghost icon-btn-ghost-bad" (click)="deleteBrand(brand.id)" [disabled]="brand.activo === false" [pTooltip]="brand.activo === false ? 'Ya está inactiva' : 'Eliminar'" aria-label="Eliminar marca">
-                  <i class="pi pi-trash" aria-hidden="true"></i>
-                </button>
-              }
-            </div>
-          </td>
-        </tr>
-      </ng-template>
-
-      <!-- Expansión de Productos -->
-      <ng-template pTemplate="rowexpansion" let-brand>
-        <tr>
-          <td colspan="5" class="p-4 bg-surface-ground">
-            <div class="p-3 border border-divider bg-surface-card rounded-lg shadow-inner">
-               <h4 class="text-xs font-bold text-content-muted uppercase mb-3">Productos de {{ brand.nombre }}</h4>
-               <p-table [value]="brand.productos || []" styleClass="p-datatable-sm p-datatable-striped">
-                  <ng-template pTemplate="header">
-                    <tr class="text-[11px] uppercase tracking-wider text-content-muted border-b">
-                       <th>Nombre del Producto</th>
-                       <th class="text-center w-20">Estado</th>
-                       <th class="text-center w-28">Acciones</th>
-                    </tr>
-                  </ng-template>
-                  <ng-template pTemplate="body" let-product>
-                    <tr class="text-xs" [class.opacity-50]="product.activo === false">
-                       <td class="font-medium text-content-main">{{ product.nombre }}</td>
-                       <td class="text-center">
-                         <p-tag
-                           [value]="product.activo === false ? 'Inactivo' : 'Activo'"
-                           [severity]="product.activo === false ? 'danger' : 'success'"
-                           [rounded]="true" />
-                       </td>
-                       <td class="text-center">
-                          <div class="flex justify-center gap-1">
-                             @if (canManage() && product.activo === false) {
-                               <button type="button" class="icon-btn-ghost icon-btn-ghost-ok" (click)="reactivateProduct(product)" pTooltip="Reactivar" aria-label="Reactivar producto">
-                                 <i class="pi pi-replay" aria-hidden="true"></i>
-                               </button>
-                             }
-                             @if (canManage()) {
-                               <button type="button" class="icon-btn-ghost" [class.icon-btn-ghost-ok]="product.in_planogram" (click)="togglePlanogram(product)" [disabled]="saving()" [pTooltip]="product.in_planogram ? 'Quitar del planograma' : 'Agregar al planograma'" aria-label="Planograma">
-                                 <i class="pi" [ngClass]="product.in_planogram ? 'pi-star-fill' : 'pi-star'" aria-hidden="true"></i>
-                               </button>
-                               <button type="button" class="icon-btn-ghost" (click)="openEditProduct(product)" pTooltip="Editar producto" aria-label="Editar producto">
-                                 <i class="pi pi-pencil" aria-hidden="true"></i>
-                               </button>
-                               <button type="button" class="icon-btn-ghost icon-btn-ghost-bad" (click)="deleteProduct(product.id)" [disabled]="product.activo === false" [pTooltip]="product.activo === false ? 'Ya está inactivo' : 'Eliminar'" aria-label="Eliminar producto">
-                                 <i class="pi pi-trash" aria-hidden="true"></i>
-                               </button>
-                             }
-                          </div>
-                       </td>
-                    </tr>
-                  </ng-template>
-                  <ng-template pTemplate="emptymessage">
-                    <tr><td colspan="3" class="text-center p-4 text-xs text-content-muted italic">No hay productos en esta marca.</td></tr>
-                  </ng-template>
-               </p-table>
-            </div>
-          </td>
-        </tr>
-      </ng-template>
-      <ng-template pTemplate="emptymessage">
-        <tr>
-          <td colspan="5" class="text-center p-8 text-content-muted">
-            No hay marcas configuradas.
-          </td>
-        </tr>
-      </ng-template>
-    </p-table>
-  </div>
-
-  <!-- Mobile Card View -->
-  <div class="lg:hidden space-y-4 mt-4">
-    <div *ngFor="let brand of filteredBrands()" class="bg-surface-card border border-divider rounded-xl p-4 shadow-sm" [class.ring-2]="brand._highlight" [class.ring-brand]="brand._highlight" [class.opacity-60]="brand.activo === false">
-      <div class="flex items-center justify-between mb-3">
-        <div class="flex items-center gap-3">
-          <h3 class="text-sm font-bold text-content-main uppercase">{{ brand.nombre }}</h3>
-          @if (brand.activo === false) {
-            <span class="text-[10px] uppercase tracking-wider text-bad-fg border border-bad-border rounded px-1.5 py-0.5">Inactiva</span>
-          }
-        </div>
-        <div class="flex gap-1">
-          @if (canManage() && brand.activo === false) {
-            <button type="button" class="icon-btn-ghost icon-btn-ghost-ok" (click)="reactivateBrand(brand)" aria-label="Reactivar marca">
-              <i class="pi pi-replay" aria-hidden="true"></i>
-            </button>
-          }
+            />
+            Mostrar inactivos
+          </label>
           @if (canManage()) {
-            <button type="button" class="icon-btn-ghost icon-btn-ghost-info" (click)="openAddProduct(brand)" aria-label="Agregar producto">
-              <i class="pi pi-plus" aria-hidden="true"></i>
-            </button>
-            <button type="button" class="icon-btn-ghost" (click)="openEditBrand(brand)" aria-label="Editar marca">
-              <i class="pi pi-pencil" aria-hidden="true"></i>
-            </button>
-            <button type="button" class="icon-btn-ghost icon-btn-ghost-bad" (click)="deleteBrand(brand.id)" [disabled]="brand.activo === false" aria-label="Eliminar marca">
-              <i class="pi pi-trash" aria-hidden="true"></i>
-            </button>
-          }
+            <label class="flex items-center gap-2 text-xs text-content-muted cursor-pointer whitespace-nowrap" pTooltip="Muestra el catálogo ERP completo para agregar productos al planograma">
+              <input
+                type="checkbox"
+                [checked]="catalogMode()"
+                (change)="toggleCatalogMode($any($event.target).checked)"
+                class="accent-brand"
+                />
+                Catálogo completo (agregar)
+              </label>
+            }
+            @if (canManage()) {
+              <p-button label="Nueva Marca" icon="pi pi-plus" (onClick)="openAddBrand()" styleClass="p-button-brand"></p-button>
+            }
+          </div>
         </div>
-      </div>
-      <div class="space-y-2">
-        <div class="flex items-center gap-2">
-          <span class="text-xs text-content-muted">Productos:</span>
-          <span class="text-sm font-medium text-content-main">{{ brand.productos?.length || 0 }} items</span>
-        </div>
-      </div>
-      <!-- Expandable products details -->
-      @if (isRowExpanded(brand.id)) {
-        <div class="mt-4 pt-4 border-t border-divider">
-          <div class="text-xs font-bold text-content-muted mb-3">PRODUCTOS:</div>
-          <div class="space-y-2">
-            <div *ngFor="let product of brand.productos || []" class="bg-surface-ground p-3 rounded-lg border border-divider" [class.opacity-60]="product.activo === false">
-              <div class="flex justify-between items-center">
-                <span class="text-xs font-medium text-content-main">
-                  {{ product.nombre }}
-                  @if (product.activo === false) {
-                    <span class="ml-1 text-[10px] uppercase text-bad-fg">Inactivo</span>
+
+        <!-- Tabla de Marcas con Expansión -->
+        <div class="bg-surface-card border border-divider shadow-sm rounded-xl overflow-hidden">
+          <p-table [value]="filteredBrands()" [loading]="loading()" dataKey="id" [expandedRowKeys]="expandedRows()" responsiveLayout="scroll" styleClass="p-datatable-sm p-datatable-striped">
+            <ng-template pTemplate="header">
+              <tr class="text-xs text-content-muted uppercase bg-surface-ground border-b border-divider">
+                <th style="width: 3rem"></th>
+                <th>Marca / Fabricante</th>
+                <th class="text-center">Productos</th>
+                <th class="text-center">Estado</th>
+                <th class="text-center w-28">Acciones</th>
+              </tr>
+            </ng-template>
+            <ng-template pTemplate="body" let-brand let-expanded="expanded">
+              <tr class="text-sm border-b border-divider hover:bg-surface-hover" [class.opacity-50]="brand.activo === false">
+                <td>
+                  <button type="button" pButton pRipple [pRowToggler]="brand" class="p-button-text p-button-rounded p-button-plain" [icon]="expanded ? 'pi pi-chevron-down' : 'pi pi-chevron-right'"></button>
+                </td>
+                <td class="font-bold text-content-main uppercase tracking-wider">
+                  {{ brand.nombre }}
+                  @if (brand.activo === false) {
+                    <span class="ml-2 text-[10px] uppercase tracking-wider text-bad-fg border border-bad-border rounded px-1.5 py-0.5" pTooltip="Marca inactiva — referenciada en capturas históricas">Inactiva</span>
                   }
-                </span>
-                <div class="flex gap-1">
-                  @if (canManage() && product.activo === false) {
-                    <button type="button" class="icon-btn-ghost icon-btn-ghost-ok" (click)="reactivateProduct(product)" aria-label="Reactivar producto">
-                      <i class="pi pi-replay" aria-hidden="true"></i>
-                    </button>
+                </td>
+                <td class="text-center font-mono">
+                  {{ brand.productos?.length || 0 }}
+                </td>
+                <td class="text-center">
+                  <p-tag
+                    [value]="brand.activo === false ? 'Inactiva' : 'Activa'"
+                    [severity]="brand.activo === false ? 'danger' : 'success'"
+                    [rounded]="true" />
+                  </td>
+                  <td class="text-center">
+                    <div class="flex justify-center gap-1">
+                      @if (canManage() && brand.activo === false) {
+                        <button type="button" class="icon-btn-ghost icon-btn-ghost-ok" (click)="reactivateBrand(brand)" pTooltip="Reactivar" aria-label="Reactivar marca">
+                          <i class="pi pi-replay" aria-hidden="true"></i>
+                        </button>
+                      }
+                      @if (canManage()) {
+                        <button type="button" class="icon-btn-ghost icon-btn-ghost-info" (click)="openAddProduct(brand)" pTooltip="Agregar producto" aria-label="Agregar producto">
+                          <i class="pi pi-plus" aria-hidden="true"></i>
+                        </button>
+                        <button type="button" class="icon-btn-ghost" (click)="openEditBrand(brand)" pTooltip="Editar marca" aria-label="Editar marca">
+                          <i class="pi pi-pencil" aria-hidden="true"></i>
+                        </button>
+                        <button type="button" class="icon-btn-ghost icon-btn-ghost-bad" (click)="deleteBrand(brand.id)" [disabled]="brand.activo === false" [pTooltip]="brand.activo === false ? 'Ya está inactiva' : 'Eliminar'" aria-label="Eliminar marca">
+                          <i class="pi pi-trash" aria-hidden="true"></i>
+                        </button>
+                      }
+                    </div>
+                  </td>
+                </tr>
+              </ng-template>
+
+              <!-- Expansión de Productos -->
+              <ng-template pTemplate="rowexpansion" let-brand>
+                <tr>
+                  <td colspan="5" class="p-4 bg-surface-ground">
+                    <div class="p-3 border border-divider bg-surface-card rounded-lg shadow-inner">
+                      <h4 class="text-xs font-bold text-content-muted uppercase mb-3">Productos de {{ brand.nombre }}</h4>
+                      <p-table [value]="brand.productos || []" styleClass="p-datatable-sm p-datatable-striped">
+                        <ng-template pTemplate="header">
+                          <tr class="text-[11px] uppercase tracking-wider text-content-muted border-b">
+                            <th>Nombre del Producto</th>
+                            <th class="text-center w-20">Estado</th>
+                            <th class="text-center w-28">Acciones</th>
+                          </tr>
+                        </ng-template>
+                        <ng-template pTemplate="body" let-product>
+                          <tr class="text-xs" [class.opacity-50]="product.activo === false">
+                            <td class="font-medium text-content-main">{{ product.nombre }}</td>
+                            <td class="text-center">
+                              <p-tag
+                                [value]="product.activo === false ? 'Inactivo' : 'Activo'"
+                                [severity]="product.activo === false ? 'danger' : 'success'"
+                                [rounded]="true" />
+                              </td>
+                              <td class="text-center">
+                                <div class="flex justify-center gap-1">
+                                  @if (canManage() && product.activo === false) {
+                                    <button type="button" class="icon-btn-ghost icon-btn-ghost-ok" (click)="reactivateProduct(product)" pTooltip="Reactivar" aria-label="Reactivar producto">
+                                      <i class="pi pi-replay" aria-hidden="true"></i>
+                                    </button>
+                                  }
+                                  @if (canManage()) {
+                                    <button type="button" class="icon-btn-ghost" [class.icon-btn-ghost-ok]="product.in_planogram" (click)="togglePlanogram(product)" [disabled]="saving()" [pTooltip]="product.in_planogram ? 'Quitar del planograma' : 'Agregar al planograma'" aria-label="Planograma">
+                                      <i class="pi" [ngClass]="product.in_planogram ? 'pi-star-fill' : 'pi-star'" aria-hidden="true"></i>
+                                    </button>
+                                    <button type="button" class="icon-btn-ghost" (click)="openEditProduct(product)" pTooltip="Editar producto" aria-label="Editar producto">
+                                      <i class="pi pi-pencil" aria-hidden="true"></i>
+                                    </button>
+                                    <button type="button" class="icon-btn-ghost icon-btn-ghost-bad" (click)="deleteProduct(product.id)" [disabled]="product.activo === false" [pTooltip]="product.activo === false ? 'Ya está inactivo' : 'Eliminar'" aria-label="Eliminar producto">
+                                      <i class="pi pi-trash" aria-hidden="true"></i>
+                                    </button>
+                                  }
+                                </div>
+                              </td>
+                            </tr>
+                          </ng-template>
+                          <ng-template pTemplate="emptymessage">
+                            <tr><td colspan="3" class="text-center p-4 text-xs text-content-muted italic">No hay productos en esta marca.</td></tr>
+                          </ng-template>
+                        </p-table>
+                      </div>
+                    </td>
+                  </tr>
+                </ng-template>
+                <ng-template pTemplate="emptymessage">
+                  <tr>
+                    <td colspan="5" class="text-center p-8 text-content-muted">
+                      No hay marcas configuradas.
+                    </td>
+                  </tr>
+                </ng-template>
+              </p-table>
+            </div>
+
+            <!-- Mobile Card View -->
+            <div class="lg:hidden space-y-4 mt-4">
+              @for (brand of filteredBrands(); track brand) {
+                <div class="bg-surface-card border border-divider rounded-xl p-4 shadow-sm" [class.ring-2]="brand._highlight" [class.ring-brand]="brand._highlight" [class.opacity-60]="brand.activo === false">
+                  <div class="flex items-center justify-between mb-3">
+                    <div class="flex items-center gap-3">
+                      <h3 class="text-sm font-bold text-content-main uppercase">{{ brand.nombre }}</h3>
+                      @if (brand.activo === false) {
+                        <span class="text-[10px] uppercase tracking-wider text-bad-fg border border-bad-border rounded px-1.5 py-0.5">Inactiva</span>
+                      }
+                    </div>
+                    <div class="flex gap-1">
+                      @if (canManage() && brand.activo === false) {
+                        <button type="button" class="icon-btn-ghost icon-btn-ghost-ok" (click)="reactivateBrand(brand)" aria-label="Reactivar marca">
+                          <i class="pi pi-replay" aria-hidden="true"></i>
+                        </button>
+                      }
+                      @if (canManage()) {
+                        <button type="button" class="icon-btn-ghost icon-btn-ghost-info" (click)="openAddProduct(brand)" aria-label="Agregar producto">
+                          <i class="pi pi-plus" aria-hidden="true"></i>
+                        </button>
+                        <button type="button" class="icon-btn-ghost" (click)="openEditBrand(brand)" aria-label="Editar marca">
+                          <i class="pi pi-pencil" aria-hidden="true"></i>
+                        </button>
+                        <button type="button" class="icon-btn-ghost icon-btn-ghost-bad" (click)="deleteBrand(brand.id)" [disabled]="brand.activo === false" aria-label="Eliminar marca">
+                          <i class="pi pi-trash" aria-hidden="true"></i>
+                        </button>
+                      }
+                    </div>
+                  </div>
+                  <div class="space-y-2">
+                    <div class="flex items-center gap-2">
+                      <span class="text-xs text-content-muted">Productos:</span>
+                      <span class="text-sm font-medium text-content-main">{{ brand.productos?.length || 0 }} items</span>
+                    </div>
+                  </div>
+                  <!-- Expandable products details -->
+                  @if (isRowExpanded(brand.id)) {
+                    <div class="mt-4 pt-4 border-t border-divider">
+                      <div class="text-xs font-bold text-content-muted mb-3">PRODUCTOS:</div>
+                      <div class="space-y-2">
+                        @for (product of brand.productos || []; track product) {
+                          <div class="bg-surface-ground p-3 rounded-lg border border-divider" [class.opacity-60]="product.activo === false">
+                            <div class="flex justify-between items-center">
+                              <span class="text-xs font-medium text-content-main">
+                                {{ product.nombre }}
+                                @if (product.activo === false) {
+                                  <span class="ml-1 text-[10px] uppercase text-bad-fg">Inactivo</span>
+                                }
+                              </span>
+                              <div class="flex gap-1">
+                                @if (canManage() && product.activo === false) {
+                                  <button type="button" class="icon-btn-ghost icon-btn-ghost-ok" (click)="reactivateProduct(product)" aria-label="Reactivar producto">
+                                    <i class="pi pi-replay" aria-hidden="true"></i>
+                                  </button>
+                                }
+                                @if (canManage()) {
+                                  <button type="button" class="icon-btn-ghost" [class.icon-btn-ghost-ok]="product.in_planogram" (click)="togglePlanogram(product)" [disabled]="saving()" [attr.aria-label]="product.in_planogram ? 'Quitar del planograma' : 'Agregar al planograma'">
+                                    <i class="pi" [ngClass]="product.in_planogram ? 'pi-star-fill' : 'pi-star'" aria-hidden="true"></i>
+                                  </button>
+                                  <button type="button" class="icon-btn-ghost" (click)="openEditProduct(product)" aria-label="Editar producto">
+                                    <i class="pi pi-pencil" aria-hidden="true"></i>
+                                  </button>
+                                  <button type="button" class="icon-btn-ghost icon-btn-ghost-bad" (click)="deleteProduct(product.id)" [disabled]="product.activo === false" aria-label="Eliminar producto">
+                                    <i class="pi pi-trash" aria-hidden="true"></i>
+                                  </button>
+                                }
+                              </div>
+                            </div>
+                          </div>
+                        }
+                      </div>
+                      @if (!brand.productos || brand.productos.length === 0) {
+                        <div class="text-xs text-content-muted italic p-3 bg-surface-ground rounded-lg">
+                          No hay productos en esta marca.
+                        </div>
+                      }
+                    </div>
                   }
-                  @if (canManage()) {
-                    <button type="button" class="icon-btn-ghost" [class.icon-btn-ghost-ok]="product.in_planogram" (click)="togglePlanogram(product)" [disabled]="saving()" [attr.aria-label]="product.in_planogram ? 'Quitar del planograma' : 'Agregar al planograma'">
-                      <i class="pi" [ngClass]="product.in_planogram ? 'pi-star-fill' : 'pi-star'" aria-hidden="true"></i>
-                    </button>
-                    <button type="button" class="icon-btn-ghost" (click)="openEditProduct(product)" aria-label="Editar producto">
-                      <i class="pi pi-pencil" aria-hidden="true"></i>
-                    </button>
-                    <button type="button" class="icon-btn-ghost icon-btn-ghost-bad" (click)="deleteProduct(product.id)" [disabled]="product.activo === false" aria-label="Eliminar producto">
-                      <i class="pi pi-trash" aria-hidden="true"></i>
-                    </button>
-                  }
+                  <div class="mt-3 pt-3 border-t border-divider">
+                    <p-button type="button" [text]="true" [rounded]="true" severity="secondary"
+                      [icon]="isRowExpanded(brand.id) ? 'pi pi-chevron-up' : 'pi pi-chevron-down'"
+                      (onClick)="toggleRowExpansion(brand)"
+                    label="Ver Productos"></p-button>
+                  </div>
                 </div>
+              }
+            </div>
+          </div>
+
+          <!-- Diálogos de Marca -->
+          <p-dialog
+            header="Nueva Marca"
+            [visible]="showAddBrandDialog()"
+            (visibleChange)="showAddBrandDialog.set($event)"
+            [modal]="true"
+            [style]="{width: '350px'}"
+            [breakpoints]="{'640px': '100vw'}"
+            [blockScroll]="true"
+            [focusOnShow]="false"
+            [draggable]="false"
+            [resizable]="false"
+            appendTo="body"
+            styleClass="surface-card border-divider rounded-xl"
+            [contentStyleClass]="'bg-surface-card text-content-main'">
+            <div class="flex flex-col gap-4 py-4">
+              <div class="flex flex-col gap-2">
+                <label class="text-xs font-bold text-content-muted uppercase">Nombre de Marca</label>
+                <input pInputText [(ngModel)]="newBrandName" class="uppercase min-h-11" autocapitalize="characters" autocorrect="off" spellcheck="false" enterkeyhint="done" />
               </div>
             </div>
-          </div>
-          <div *ngIf="!brand.productos || brand.productos.length === 0" class="text-xs text-content-muted italic p-3 bg-surface-ground rounded-lg">
-            No hay productos en esta marca.
-          </div>
-        </div>
-      }
-      <div class="mt-3 pt-3 border-t border-divider">
-        <p-button type="button" [text]="true" [rounded]="true" severity="secondary"
-                  [icon]="isRowExpanded(brand.id) ? 'pi pi-chevron-up' : 'pi pi-chevron-down'"
-                  (onClick)="toggleRowExpansion(brand)"
-                  label="Ver Productos"></p-button>
-      </div>
-    </div>
-  </div>
-</div>
+            <ng-template pTemplate="footer">
+              <p-button label="Cancelar" [text]="true" severity="secondary" (onClick)="closeAddBrand()" [disabled]="saving()"></p-button>
+              <p-button label="Guardar" styleClass="p-button-brand" (onClick)="createBrand()" [disabled]="saving()" [loading]="saving()"></p-button>
+            </ng-template>
+          </p-dialog>
 
-<!-- Diálogos de Marca -->
-<p-dialog
-  header="Nueva Marca"
-  [visible]="showAddBrandDialog()"
-  (visibleChange)="showAddBrandDialog.set($event)"
-  [modal]="true"
-  [style]="{width: '350px'}"
-  [breakpoints]="{'640px': '100vw'}"
-  [blockScroll]="true"
-  [focusOnShow]="false"
-  [draggable]="false"
-  [resizable]="false"
-  appendTo="body"
-  styleClass="surface-card border-divider rounded-xl"
-  [contentStyleClass]="'bg-surface-card text-content-main'">
-  <div class="flex flex-col gap-4 py-4">
-    <div class="flex flex-col gap-2">
-      <label class="text-xs font-bold text-content-muted uppercase">Nombre de Marca</label>
-      <input pInputText [(ngModel)]="newBrandName" class="uppercase min-h-11" autocapitalize="characters" autocorrect="off" spellcheck="false" enterkeyhint="done" />
-    </div>
-  </div>
-  <ng-template pTemplate="footer">
-    <p-button label="Cancelar" [text]="true" severity="secondary" (onClick)="closeAddBrand()" [disabled]="saving()"></p-button>
-    <p-button label="Guardar" styleClass="p-button-brand" (onClick)="createBrand()" [disabled]="saving()" [loading]="saving()"></p-button>
-  </ng-template>
-</p-dialog>
+          <p-dialog
+            header="Editar Marca"
+            [visible]="showEditBrandDialog()"
+            (visibleChange)="showEditBrandDialog.set($event)"
+            [modal]="true"
+            [style]="{width: '350px'}"
+            [breakpoints]="{'640px': '100vw'}"
+            [blockScroll]="true"
+            [focusOnShow]="false"
+            [draggable]="false"
+            [resizable]="false"
+            appendTo="body"
+            styleClass="surface-card border-divider rounded-xl"
+            [contentStyleClass]="'bg-surface-card text-content-main'">
+            <div class="flex flex-col gap-4 py-4">
+              <div class="flex flex-col gap-2">
+                <label class="text-xs font-bold text-content-muted uppercase">Actualizar Nombre</label>
+                <input pInputText [(ngModel)]="editBrandName" class="uppercase min-h-11" autocapitalize="characters" autocorrect="off" spellcheck="false" enterkeyhint="done" />
+              </div>
+            </div>
+            <ng-template pTemplate="footer">
+              <p-button label="Cancelar" [text]="true" severity="secondary" (onClick)="closeEditBrand()" [disabled]="saving()"></p-button>
+              <p-button label="Actualizar" styleClass="p-button-brand" (onClick)="updateBrand()" [disabled]="saving()" [loading]="saving()"></p-button>
+            </ng-template>
+          </p-dialog>
 
-<p-dialog
-  header="Editar Marca"
-  [visible]="showEditBrandDialog()"
-  (visibleChange)="showEditBrandDialog.set($event)"
-  [modal]="true"
-  [style]="{width: '350px'}"
-  [breakpoints]="{'640px': '100vw'}"
-  [blockScroll]="true"
-  [focusOnShow]="false"
-  [draggable]="false"
-  [resizable]="false"
-  appendTo="body"
-  styleClass="surface-card border-divider rounded-xl"
-  [contentStyleClass]="'bg-surface-card text-content-main'">
-  <div class="flex flex-col gap-4 py-4">
-    <div class="flex flex-col gap-2">
-      <label class="text-xs font-bold text-content-muted uppercase">Actualizar Nombre</label>
-      <input pInputText [(ngModel)]="editBrandName" class="uppercase min-h-11" autocapitalize="characters" autocorrect="off" spellcheck="false" enterkeyhint="done" />
-    </div>
-  </div>
-  <ng-template pTemplate="footer">
-    <p-button label="Cancelar" [text]="true" severity="secondary" (onClick)="closeEditBrand()" [disabled]="saving()"></p-button>
-    <p-button label="Actualizar" styleClass="p-button-brand" (onClick)="updateBrand()" [disabled]="saving()" [loading]="saving()"></p-button>
-  </ng-template>
-</p-dialog>
+          <!-- Diálogos de Producto -->
+          <p-dialog
+            header="Nuevo Producto"
+            [visible]="showAddProductDialog()"
+            (visibleChange)="showAddProductDialog.set($event)"
+            [modal]="true"
+            [style]="{width: '350px'}"
+            [breakpoints]="{'640px': '100vw'}"
+            [blockScroll]="true"
+            [focusOnShow]="false"
+            [draggable]="false"
+            [resizable]="false"
+            appendTo="body"
+            styleClass="surface-card border-divider rounded-xl"
+            [contentStyleClass]="'bg-surface-card text-content-main'">
+            <div class="flex flex-col gap-4 py-4">
+              <div class="flex flex-col gap-2">
+                <label class="text-xs font-bold text-content-muted uppercase">Nombre SKU</label>
+                <input pInputText [(ngModel)]="newProductName" class="min-h-11" autocapitalize="sentences" autocorrect="on" enterkeyhint="done" />
+              </div>
+            </div>
+            <ng-template pTemplate="footer">
+              <p-button label="Cancelar" [text]="true" severity="secondary" (onClick)="closeAddProduct()" [disabled]="saving()"></p-button>
+              <p-button label="Guardar" styleClass="p-button-brand" (onClick)="addProduct()" [disabled]="saving()" [loading]="saving()"></p-button>
+            </ng-template>
+          </p-dialog>
 
-<!-- Diálogos de Producto -->
-<p-dialog
-  header="Nuevo Producto"
-  [visible]="showAddProductDialog()"
-  (visibleChange)="showAddProductDialog.set($event)"
-  [modal]="true"
-  [style]="{width: '350px'}"
-  [breakpoints]="{'640px': '100vw'}"
-  [blockScroll]="true"
-  [focusOnShow]="false"
-  [draggable]="false"
-  [resizable]="false"
-  appendTo="body"
-  styleClass="surface-card border-divider rounded-xl"
-  [contentStyleClass]="'bg-surface-card text-content-main'">
-  <div class="flex flex-col gap-4 py-4">
-    <div class="flex flex-col gap-2">
-      <label class="text-xs font-bold text-content-muted uppercase">Nombre SKU</label>
-      <input pInputText [(ngModel)]="newProductName" class="min-h-11" autocapitalize="sentences" autocorrect="on" enterkeyhint="done" />
-    </div>
-  </div>
-  <ng-template pTemplate="footer">
-    <p-button label="Cancelar" [text]="true" severity="secondary" (onClick)="closeAddProduct()" [disabled]="saving()"></p-button>
-    <p-button label="Guardar" styleClass="p-button-brand" (onClick)="addProduct()" [disabled]="saving()" [loading]="saving()"></p-button>
-  </ng-template>
-</p-dialog>
+          <p-dialog
+            header="Editar Producto"
+            [visible]="showEditProductDialog()"
+            (visibleChange)="showEditProductDialog.set($event)"
+            [modal]="true"
+            [style]="{width: '350px'}"
+            [breakpoints]="{'640px': '100vw'}"
+            [blockScroll]="true"
+            [focusOnShow]="false"
+            [draggable]="false"
+            [resizable]="false"
+            appendTo="body"
+            styleClass="surface-card border-divider rounded-xl"
+            [contentStyleClass]="'bg-surface-card text-content-main'">
+            <div class="flex flex-col gap-4 py-4">
+              <div class="flex flex-col gap-2">
+                <label class="text-xs font-bold text-content-muted uppercase">Nombre del Producto</label>
+                <input pInputText [(ngModel)]="editProductName" class="min-h-11" autocapitalize="sentences" autocorrect="on" enterkeyhint="done" />
+              </div>
+            </div>
+            <ng-template pTemplate="footer">
+              <p-button label="Cancelar" [text]="true" severity="secondary" (onClick)="closeEditProduct()" [disabled]="saving()"></p-button>
+              <p-button label="Actualizar" styleClass="p-button-brand" (onClick)="updateProduct()" [disabled]="saving()" [loading]="saving()"></p-button>
+            </ng-template>
+          </p-dialog>
 
-<p-dialog
-  header="Editar Producto"
-  [visible]="showEditProductDialog()"
-  (visibleChange)="showEditProductDialog.set($event)"
-  [modal]="true"
-  [style]="{width: '350px'}"
-  [breakpoints]="{'640px': '100vw'}"
-  [blockScroll]="true"
-  [focusOnShow]="false"
-  [draggable]="false"
-  [resizable]="false"
-  appendTo="body"
-  styleClass="surface-card border-divider rounded-xl"
-  [contentStyleClass]="'bg-surface-card text-content-main'">
-  <div class="flex flex-col gap-4 py-4">
-    <div class="flex flex-col gap-2">
-      <label class="text-xs font-bold text-content-muted uppercase">Nombre del Producto</label>
-      <input pInputText [(ngModel)]="editProductName" class="min-h-11" autocapitalize="sentences" autocorrect="on" enterkeyhint="done" />
-    </div>
-  </div>
-  <ng-template pTemplate="footer">
-    <p-button label="Cancelar" [text]="true" severity="secondary" (onClick)="closeEditProduct()" [disabled]="saving()"></p-button>
-    <p-button label="Actualizar" styleClass="p-button-brand" (onClick)="updateProduct()" [disabled]="saving()" [loading]="saving()"></p-button>
-  </ng-template>
-</p-dialog>
-
-<p-toast></p-toast>
-<p-confirmDialog></p-confirmDialog>
+          <p-toast></p-toast>
+          <p-confirmDialog></p-confirmDialog>

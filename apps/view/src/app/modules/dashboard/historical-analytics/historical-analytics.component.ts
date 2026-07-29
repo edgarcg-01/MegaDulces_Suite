@@ -6,7 +6,7 @@ import {
   inject,
   signal,
 } from '@angular/core';
-import { CommonModule } from '@angular/common';
+
 import { FormsModule } from '@angular/forms';
 import { ButtonModule } from 'primeng/button';
 import { ChartModule } from 'primeng/chart';
@@ -53,7 +53,6 @@ const QUARTERS: Quarter[] = [
   selector: 'app-historical-analytics',
   standalone: true,
   imports: [
-    CommonModule,
     FormsModule,
     ButtonModule,
     ChartModule,
@@ -63,15 +62,15 @@ const QUARTERS: Quarter[] = [
     TableModule,
     ToastModule,
     TooltipModule,
-    PageTabsComponent,
-  ],
+    PageTabsComponent
+],
   providers: [MessageService],
   template: `
     <div class="surf-page ha">
       <p-toast></p-toast>
-
+    
       <app-page-tabs [tabs]="analyticsTabs" />
-
+    
       <header class="surf-page-head">
         <div class="surf-page-head-text">
           <h1>Ventas históricas — ERP</h1>
@@ -82,8 +81,12 @@ const QUARTERS: Quarter[] = [
             </span>
             <span class="ha-divider" aria-hidden="true">·</span>
             {{ rangeLabel() }}
-            <span *ngIf="zonaFilter()" class="ha-divider" aria-hidden="true">·</span>
-            <span *ngIf="zonaFilter()">zona {{ zonaFilter() }}</span>
+            @if (zonaFilter()) {
+              <span class="ha-divider" aria-hidden="true">·</span>
+            }
+            @if (zonaFilter()) {
+              <span>zona {{ zonaFilter() }}</span>
+            }
           </p>
         </div>
         <div class="ha-head-actions">
@@ -100,21 +103,22 @@ const QUARTERS: Quarter[] = [
           ></button>
         </div>
       </header>
-
+    
       <!-- TOOLBAR: presets + zona filter -->
       <div class="sheet cols-12">
         <article class="cell cell-span-12 is-flush ha-filters-cell">
           <div class="ha-toolbar">
             <div class="ha-segment" role="group" aria-label="Rango rápido">
-              <button
-                *ngFor="let p of presets"
-                type="button"
-                class="ha-seg-btn"
-                [class.active]="preset() === p.key"
-                (click)="setPreset(p.key)"
-              >{{ p.label }}</button>
+              @for (p of presets; track p) {
+                <button
+                  type="button"
+                  class="ha-seg-btn"
+                  [class.active]="preset() === p.key"
+                  (click)="setPreset(p.key)"
+                >{{ p.label }}</button>
+              }
             </div>
-
+    
             <p-select
               [options]="yearOptions"
               [ngModel]="quarterYear()"
@@ -126,19 +130,20 @@ const QUARTERS: Quarter[] = [
               [pTooltip]="'Año de los trimestres'"
               tooltipPosition="top"
             ></p-select>
-
+    
             <div class="ha-segment" role="group" [attr.aria-label]="'Trimestre ' + quarterYear()">
-              <button
-                *ngFor="let q of quarters"
-                type="button"
-                class="ha-seg-btn"
-                [class.active]="preset() === q.key"
-                (click)="setQuarter(q)"
-                [pTooltip]="q.label + ' ' + quarterYear()"
-                tooltipPosition="top"
-              >{{ q.label }}</button>
+              @for (q of quarters; track q) {
+                <button
+                  type="button"
+                  class="ha-seg-btn"
+                  [class.active]="preset() === q.key"
+                  (click)="setQuarter(q)"
+                  [pTooltip]="q.label + ' ' + quarterYear()"
+                  tooltipPosition="top"
+                >{{ q.label }}</button>
+              }
             </div>
-
+    
             <p-datePicker
               selectionMode="range"
               [(ngModel)]="customDates"
@@ -154,7 +159,7 @@ const QUARTERS: Quarter[] = [
               styleClass="ha-date"
               [class.is-active]="preset() === 'custom'"
             ></p-datePicker>
-
+    
             <div class="ha-field">
               <p-select
                 [options]="zonaOptions()"
@@ -168,244 +173,278 @@ const QUARTERS: Quarter[] = [
                 appendTo="body"
               ></p-select>
             </div>
-
+    
             <div class="ha-toolbar-spacer"></div>
           </div>
         </article>
       </div>
-
+    
       <!-- KPIs -->
-      <div *ngIf="loading()" class="ha-skeletons" aria-hidden="true">
-        <p-skeleton height="116px" borderRadius="10px"></p-skeleton>
-        <p-skeleton height="312px" borderRadius="10px"></p-skeleton>
-        <p-skeleton height="280px" borderRadius="10px"></p-skeleton>
-      </div>
-      <div *ngIf="!loading()" class="sheet cols-12">
-        <article class="cell cell-span-3">
-          <span class="cell-icon is-accent" aria-hidden="true"><i class="pi pi-dollar"></i></span>
-          <span class="cell-label">Revenue</span>
-          <span class="cell-value is-headline">{{ fmtMoneyShort(totals().revenue) }}</span>
-          <span class="cell-sub">{{ fmtNumber(totals().lines) }} líneas</span>
-        </article>
-        <article class="cell cell-span-3">
-          <span class="cell-icon is-info" aria-hidden="true"><i class="pi pi-box"></i></span>
-          <span class="cell-label">Unidades</span>
-          <span class="cell-value">{{ fmtNumber(totals().units, 0) }}</span>
-          <span class="cell-sub">Vendidas en período</span>
-        </article>
-        <article class="cell cell-span-3">
-          <span class="cell-icon is-ok" aria-hidden="true"><i class="pi pi-chart-line"></i></span>
-          <span class="cell-label">Margen</span>
-          <span class="cell-value">{{ fmtMoneyShort(totals().margin) }}</span>
-          <span class="cell-sub">{{ fmtNumber(marginPct(), 1) }}% sobre revenue</span>
-        </article>
-        <article class="cell cell-span-3">
-          <span class="cell-icon" aria-hidden="true"><i class="pi pi-users"></i></span>
-          <span class="cell-label">Tickets</span>
-          <span class="cell-value">{{ fmtNumber(zonaTotals().tickets) }}</span>
-          <span class="cell-sub">{{ fmtNumber(zonaTotals().unique_customers) }} clientes únicos</span>
-        </article>
-      </div>
-
+      @if (loading()) {
+        <div class="ha-skeletons" aria-hidden="true">
+          <p-skeleton height="116px" borderRadius="10px"></p-skeleton>
+          <p-skeleton height="312px" borderRadius="10px"></p-skeleton>
+          <p-skeleton height="280px" borderRadius="10px"></p-skeleton>
+        </div>
+      }
+      @if (!loading()) {
+        <div class="sheet cols-12">
+          <article class="cell cell-span-3">
+            <span class="cell-icon is-accent" aria-hidden="true"><i class="pi pi-dollar"></i></span>
+            <span class="cell-label">Revenue</span>
+            <span class="cell-value is-headline">{{ fmtMoneyShort(totals().revenue) }}</span>
+            <span class="cell-sub">{{ fmtNumber(totals().lines) }} líneas</span>
+          </article>
+          <article class="cell cell-span-3">
+            <span class="cell-icon is-info" aria-hidden="true"><i class="pi pi-box"></i></span>
+            <span class="cell-label">Unidades</span>
+            <span class="cell-value">{{ fmtNumber(totals().units, 0) }}</span>
+            <span class="cell-sub">Vendidas en período</span>
+          </article>
+          <article class="cell cell-span-3">
+            <span class="cell-icon is-ok" aria-hidden="true"><i class="pi pi-chart-line"></i></span>
+            <span class="cell-label">Margen</span>
+            <span class="cell-value">{{ fmtMoneyShort(totals().margin) }}</span>
+            <span class="cell-sub">{{ fmtNumber(marginPct(), 1) }}% sobre revenue</span>
+          </article>
+          <article class="cell cell-span-3">
+            <span class="cell-icon" aria-hidden="true"><i class="pi pi-users"></i></span>
+            <span class="cell-label">Tickets</span>
+            <span class="cell-value">{{ fmtNumber(zonaTotals().tickets) }}</span>
+            <span class="cell-sub">{{ fmtNumber(zonaTotals().unique_customers) }} clientes únicos</span>
+          </article>
+        </div>
+      }
+    
       <!-- Daily chart -->
-      <div *ngIf="!loading() && daily().length > 0" class="sheet cols-12">
-        <article class="cell cell-span-12 is-flush">
-          <div class="cell-head">
-            <span class="cell-label">Revenue diario</span>
-            <span class="comm-muted is-small">{{ daily().length }} días con ventas</span>
-          </div>
-          <div class="ha-chart-wrap">
-            <p-chart type="bar" [data]="chartData()" [options]="chartOptions()" height="280px"></p-chart>
-          </div>
-        </article>
-      </div>
-
+      @if (!loading() && daily().length > 0) {
+        <div class="sheet cols-12">
+          <article class="cell cell-span-12 is-flush">
+            <div class="cell-head">
+              <span class="cell-label">Revenue diario</span>
+              <span class="comm-muted is-small">{{ daily().length }} días con ventas</span>
+            </div>
+            <div class="ha-chart-wrap">
+              <p-chart type="bar" [data]="chartData()" [options]="chartOptions()" height="280px"></p-chart>
+            </div>
+          </article>
+        </div>
+      }
+    
       <!-- Top productos + by zona -->
-      <div *ngIf="!loading()" class="sheet cols-12">
-        <article class="cell cell-span-6 is-flush">
-          <div class="cell-head ha-top-head">
-            <span class="cell-label">Top productos · revenue</span>
-            <div class="ha-source-toggle" role="tablist" aria-label="Fuente del ranking">
-              <button
-                type="button"
-                class="ha-toggle-btn"
-                [class.active]="topSource() === 'period'"
-                role="tab"
-                [attr.aria-selected]="topSource() === 'period'"
-                (click)="topSource.set('period')"
-                pTooltip="Ventas calculadas en el rango seleccionado"
-                tooltipPosition="top"
-              >Período</button>
-              <button
-                type="button"
-                class="ha-toggle-btn"
-                [class.active]="topSource() === 'erp'"
-                role="tab"
-                [attr.aria-selected]="topSource() === 'erp'"
-                (click)="topSource.set('erp')"
-                pTooltip="Ranking pre-calculado por el ERP (ventana propia)"
-                tooltipPosition="top"
-              >ERP all-time</button>
+      @if (!loading()) {
+        <div class="sheet cols-12">
+          <article class="cell cell-span-6 is-flush">
+            <div class="cell-head ha-top-head">
+              <span class="cell-label">Top productos · revenue</span>
+              <div class="ha-source-toggle" role="tablist" aria-label="Fuente del ranking">
+                <button
+                  type="button"
+                  class="ha-toggle-btn"
+                  [class.active]="topSource() === 'period'"
+                  role="tab"
+                  [attr.aria-selected]="topSource() === 'period'"
+                  (click)="topSource.set('period')"
+                  pTooltip="Ventas calculadas en el rango seleccionado"
+                  tooltipPosition="top"
+                >Período</button>
+                <button
+                  type="button"
+                  class="ha-toggle-btn"
+                  [class.active]="topSource() === 'erp'"
+                  role="tab"
+                  [attr.aria-selected]="topSource() === 'erp'"
+                  (click)="topSource.set('erp')"
+                  pTooltip="Ranking pre-calculado por el ERP (ventana propia)"
+                  tooltipPosition="top"
+                >ERP all-time</button>
+              </div>
             </div>
-          </div>
-          <div class="data-table-wrap" *ngIf="topSource() === 'period'">
-            <table class="data-table">
-              <thead>
-                <tr>
-                  <th style="width:36px">#</th>
-                  <th>Producto</th>
-                  <th class="num">Units</th>
-                  <th class="num">Revenue</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr *ngFor="let p of topProducts(); let i = index">
-                  <td><span class="cc-rank-badge">{{ i + 1 }}</span></td>
-                  <td>
-                    <div class="strong">{{ p.producto }}</div>
-                    <div class="muted small">{{ p.subfamilia || '—' }}</div>
-                  </td>
-                  <td class="num">{{ fmtNumber(p.units, 0) }}</td>
-                  <td class="num strong">{{ fmtMoney(p.revenue) }}</td>
-                </tr>
-                <tr *ngIf="topProducts().length === 0">
-                  <td colspan="4" class="cc-table-empty">
-                    <i class="pi pi-box"></i>Sin ventas en el período
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-
-          <div class="data-table-wrap" *ngIf="topSource() === 'erp'">
-            <table class="data-table">
-              <thead>
-                <tr>
-                  <th style="width:36px">#</th>
-                  <th>Producto</th>
-                  <th class="num">Cajas</th>
-                  <th class="num">Piezas</th>
-                  <th class="num">Revenue</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr *ngFor="let p of rankingErp()">
-                  <td><span class="cc-rank-badge">{{ p.posicion }}</span></td>
-                  <td>
-                    <div class="strong">{{ p.nombre }}</div>
-                    <div class="muted small"><code class="comm-code">{{ p.articulo }}</code></div>
-                  </td>
-                  <td class="num">{{ fmtNumber(p.total_cajas, 0) }}</td>
-                  <td class="num">{{ fmtNumber(p.total_piezas_totales, 0) }}</td>
-                  <td class="num strong">{{ fmtMoney(p.total_venta) }}</td>
-                </tr>
-                <tr *ngIf="rankingErp().length === 0">
-                  <td colspan="5" class="cc-table-empty">
-                    <i class="pi pi-database"></i>Ranking ERP no disponible
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </article>
-
-        <article class="cell cell-span-6 is-flush">
-          <div class="cell-head">
-            <span class="cell-label">Por zona / sucursal</span>
-            <span class="comm-muted is-small">{{ byZona().length }}</span>
-          </div>
-          <div class="data-table-wrap">
-            <table class="data-table">
-              <thead>
-                <tr>
-                  <th>Sucursal</th>
-                  <th class="num">Tickets</th>
-                  <th class="num">Clientes</th>
-                  <th class="num">Revenue</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr *ngFor="let z of byZona()">
-                  <td>
-                    <div class="strong">{{ z.almacen }}</div>
-                    <div class="muted small">{{ z.zona }}</div>
-                  </td>
-                  <td class="num">{{ fmtNumber(z.tickets) }}</td>
-                  <td class="num">{{ fmtNumber(z.unique_customers) }}</td>
-                  <td class="num strong">{{ fmtMoney(z.revenue) }}</td>
-                </tr>
-                <tr *ngIf="byZona().length === 0">
-                  <td colspan="4" class="cc-table-empty">
-                    <i class="pi pi-map-marker"></i>Sin data por zona
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </article>
-      </div>
-
+            @if (topSource() === 'period') {
+              <div class="data-table-wrap">
+                <table class="data-table">
+                  <thead>
+                    <tr>
+                      <th style="width:36px">#</th>
+                      <th>Producto</th>
+                      <th class="num">Units</th>
+                      <th class="num">Revenue</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    @for (p of topProducts(); track p; let i = $index) {
+                      <tr>
+                        <td><span class="cc-rank-badge">{{ i + 1 }}</span></td>
+                        <td>
+                          <div class="strong">{{ p.producto }}</div>
+                          <div class="muted small">{{ p.subfamilia || '—' }}</div>
+                        </td>
+                        <td class="num">{{ fmtNumber(p.units, 0) }}</td>
+                        <td class="num strong">{{ fmtMoney(p.revenue) }}</td>
+                      </tr>
+                    }
+                    @if (topProducts().length === 0) {
+                      <tr>
+                        <td colspan="4" class="cc-table-empty">
+                          <i class="pi pi-box"></i>Sin ventas en el período
+                        </td>
+                      </tr>
+                    }
+                  </tbody>
+                </table>
+              </div>
+            }
+            @if (topSource() === 'erp') {
+              <div class="data-table-wrap">
+                <table class="data-table">
+                  <thead>
+                    <tr>
+                      <th style="width:36px">#</th>
+                      <th>Producto</th>
+                      <th class="num">Cajas</th>
+                      <th class="num">Piezas</th>
+                      <th class="num">Revenue</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    @for (p of rankingErp(); track p) {
+                      <tr>
+                        <td><span class="cc-rank-badge">{{ p.posicion }}</span></td>
+                        <td>
+                          <div class="strong">{{ p.nombre }}</div>
+                          <div class="muted small"><code class="comm-code">{{ p.articulo }}</code></div>
+                        </td>
+                        <td class="num">{{ fmtNumber(p.total_cajas, 0) }}</td>
+                        <td class="num">{{ fmtNumber(p.total_piezas_totales, 0) }}</td>
+                        <td class="num strong">{{ fmtMoney(p.total_venta) }}</td>
+                      </tr>
+                    }
+                    @if (rankingErp().length === 0) {
+                      <tr>
+                        <td colspan="5" class="cc-table-empty">
+                          <i class="pi pi-database"></i>Ranking ERP no disponible
+                        </td>
+                      </tr>
+                    }
+                  </tbody>
+                </table>
+              </div>
+            }
+          </article>
+          <article class="cell cell-span-6 is-flush">
+            <div class="cell-head">
+              <span class="cell-label">Por zona / sucursal</span>
+              <span class="comm-muted is-small">{{ byZona().length }}</span>
+            </div>
+            <div class="data-table-wrap">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Sucursal</th>
+                    <th class="num">Tickets</th>
+                    <th class="num">Clientes</th>
+                    <th class="num">Revenue</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (z of byZona(); track z) {
+                    <tr>
+                      <td>
+                        <div class="strong">{{ z.almacen }}</div>
+                        <div class="muted small">{{ z.zona }}</div>
+                      </td>
+                      <td class="num">{{ fmtNumber(z.tickets) }}</td>
+                      <td class="num">{{ fmtNumber(z.unique_customers) }}</td>
+                      <td class="num strong">{{ fmtMoney(z.revenue) }}</td>
+                    </tr>
+                  }
+                  @if (byZona().length === 0) {
+                    <tr>
+                      <td colspan="4" class="cc-table-empty">
+                        <i class="pi pi-map-marker"></i>Sin data por zona
+                      </td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+          </article>
+        </div>
+      }
+    
       <!-- Margen por categoría — joinea ventas (FDW) ↔ products.cost_base -->
-      <div *ngIf="!loading()" class="sheet cols-12">
-        <article class="cell cell-span-12 is-flush">
-          <div class="cell-head ha-margin-head">
-            <span class="cell-label">Margen por categoría</span>
-            <div class="ha-margin-summary" *ngIf="marginByCat().length > 0">
-              <span class="ha-margin-mini">
-                <span class="comm-muted is-small">Revenue total</span>
-                <strong>{{ fmtMoneyShort(marginTotals().revenue) }}</strong>
-              </span>
-              <span class="ha-margin-mini">
-                <span class="comm-muted is-small">Costo</span>
-                <strong>{{ fmtMoneyShort(marginTotals().cost) }}</strong>
-              </span>
-              <span class="ha-margin-mini">
-                <span class="comm-muted is-small">Margen</span>
-                <strong [class]="marginClass(marginTotals().margin_pct)">
-                  {{ fmtMoneyShort(marginTotals().margin) }}
-                  <span class="ha-margin-pct">({{ fmtNumber(marginTotals().margin_pct, 1) }}%)</span>
-                </strong>
-              </span>
+      @if (!loading()) {
+        <div class="sheet cols-12">
+          <article class="cell cell-span-12 is-flush">
+            <div class="cell-head ha-margin-head">
+              <span class="cell-label">Margen por categoría</span>
+              @if (marginByCat().length > 0) {
+                <div class="ha-margin-summary">
+                  <span class="ha-margin-mini">
+                    <span class="comm-muted is-small">Revenue total</span>
+                    <strong>{{ fmtMoneyShort(marginTotals().revenue) }}</strong>
+                  </span>
+                  <span class="ha-margin-mini">
+                    <span class="comm-muted is-small">Costo</span>
+                    <strong>{{ fmtMoneyShort(marginTotals().cost) }}</strong>
+                  </span>
+                  <span class="ha-margin-mini">
+                    <span class="comm-muted is-small">Margen</span>
+                    <strong [class]="marginClass(marginTotals().margin_pct)">
+                      {{ fmtMoneyShort(marginTotals().margin) }}
+                      <span class="ha-margin-pct">({{ fmtNumber(marginTotals().margin_pct, 1) }}%)</span>
+                    </strong>
+                  </span>
+                </div>
+              }
             </div>
-          </div>
-          <div class="data-table-wrap">
-            <table class="data-table">
-              <thead>
-                <tr>
-                  <th>Categoría</th>
-                  <th class="num">SKUs</th>
-                  <th class="num">Unidades</th>
-                  <th class="num">Revenue</th>
-                  <th class="num">Costo</th>
-                  <th class="num">Margen $</th>
-                  <th class="num">Margen %</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr *ngFor="let m of marginByCat()">
-                  <td><div class="strong">{{ m.category }}</div></td>
-                  <td class="num">{{ fmtNumber(m.products) }}</td>
-                  <td class="num">{{ fmtNumber(m.units, 0) }}</td>
-                  <td class="num strong">{{ fmtMoney(m.revenue) }}</td>
-                  <td class="num">{{ fmtMoney(m.cost) }}</td>
-                  <td class="num strong" [class]="marginClass(m.margin_pct)">{{ fmtMoney(m.margin) }}</td>
-                  <td class="num" [class]="marginClass(m.margin_pct)">
-                    <span *ngIf="m.margin_pct != null">{{ fmtNumber(m.margin_pct, 1) }}%</span>
-                    <span *ngIf="m.margin_pct == null" class="comm-muted">—</span>
-                  </td>
-                </tr>
-                <tr *ngIf="marginByCat().length === 0">
-                  <td colspan="7" class="cc-table-empty">
-                    <i class="pi pi-percentage"></i>Sin data de margen en el período
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </article>
-      </div>
+            <div class="data-table-wrap">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Categoría</th>
+                    <th class="num">SKUs</th>
+                    <th class="num">Unidades</th>
+                    <th class="num">Revenue</th>
+                    <th class="num">Costo</th>
+                    <th class="num">Margen $</th>
+                    <th class="num">Margen %</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (m of marginByCat(); track m) {
+                    <tr>
+                      <td><div class="strong">{{ m.category }}</div></td>
+                      <td class="num">{{ fmtNumber(m.products) }}</td>
+                      <td class="num">{{ fmtNumber(m.units, 0) }}</td>
+                      <td class="num strong">{{ fmtMoney(m.revenue) }}</td>
+                      <td class="num">{{ fmtMoney(m.cost) }}</td>
+                      <td class="num strong" [class]="marginClass(m.margin_pct)">{{ fmtMoney(m.margin) }}</td>
+                      <td class="num" [class]="marginClass(m.margin_pct)">
+                        @if (m.margin_pct != null) {
+                          <span>{{ fmtNumber(m.margin_pct, 1) }}%</span>
+                        }
+                        @if (m.margin_pct == null) {
+                          <span class="comm-muted">—</span>
+                        }
+                      </td>
+                    </tr>
+                  }
+                  @if (marginByCat().length === 0) {
+                    <tr>
+                      <td colspan="7" class="cc-table-empty">
+                        <i class="pi pi-percentage"></i>Sin data de margen en el período
+                      </td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+          </article>
+        </div>
+      }
     </div>
-  `,
+    `,
   styles: [`
     :host { display:block; }
 

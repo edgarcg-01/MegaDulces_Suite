@@ -1,5 +1,5 @@
 import { Component, OnInit, computed, inject, signal } from '@angular/core';
-import { CommonModule } from '@angular/common';
+
 import { ActivatedRoute, Router } from '@angular/router';
 import { RoutesAnalysisComponent } from '../routes-analysis/routes-analysis.component';
 import { VendorHistoryComponent } from '../vendor-history/vendor-history.component';
@@ -24,7 +24,7 @@ type FieldView = 'equipo' | 'ruta' | 'vendedor' | 'comercial';
 @Component({
   selector: 'app-field-map',
   standalone: true,
-  imports: [CommonModule, RoutesAnalysisComponent, VendorHistoryComponent, CommercialMapComponent, TeamDayComponent],
+  imports: [RoutesAnalysisComponent, VendorHistoryComponent, CommercialMapComponent, TeamDayComponent],
   template: `
     <div class="fm-wrap">
       <nav class="fm-tabs" role="tablist">

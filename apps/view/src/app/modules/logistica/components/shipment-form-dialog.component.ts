@@ -86,7 +86,7 @@ interface RouteOption {
   providers: [MessageService],
   template: `
     <p-toast position="bottom-right"></p-toast>
-
+    
     <p-dialog
       [visible]="visible()"
       (visibleChange)="visibleChange.emit($event)"
@@ -95,17 +95,17 @@ interface RouteOption {
       [style]="{ width: '90vw', maxWidth: '800px' }"
       [draggable]="false"
       header="Nuevo embarque"
-    >
+      >
       <form [formGroup]="form" class="form">
-
+    
         <!-- ─── Info banner: folio + status ─── -->
         <div class="info-banner">
           <i class="pi pi-info-circle"></i>
           <span>El folio se asignará automáticamente al crear (formato <code>EMB-{{ currentYear }}-NNNNN</code>). El estado inicial será <strong>programado</strong>.</span>
         </div>
-
+    
         <p-divider></p-divider>
-
+    
         <!-- ─── Datos generales ─── -->
         <h4 class="section-title">Datos generales</h4>
         <div class="row three">
@@ -122,7 +122,7 @@ interface RouteOption {
             <p-selectButton formControlName="delivery_type" [options]="deliveryTypeOptions" optionLabel="label" optionValue="value" styleClass="sb-liquid"></p-selectButton>
           </label>
         </div>
-
+    
         <div class="row two">
           <label>
             Vehículo
@@ -133,7 +133,7 @@ interface RouteOption {
             <p-select formControlName="route_id" [options]="routeOptions()" optionLabel="name" optionValue="id" [showClear]="true" [filter]="true" placeholder="Sin ruta"></p-select>
           </label>
         </div>
-
+    
         <div class="row two">
           <label>
             Origen
@@ -144,7 +144,7 @@ interface RouteOption {
             <input pInputText formControlName="destination" placeholder="Cliente / sucursal" />
           </label>
         </div>
-
+    
         <!-- ─── Métricas + flete ─── -->
         <h4 class="section-title">Carga y flete</h4>
         <div class="row three">
@@ -161,7 +161,7 @@ interface RouteOption {
             <p-inputnumber formControlName="actual_km" [min]="0" [minFractionDigits]="0"></p-inputnumber>
           </label>
         </div>
-
+    
         <div class="row two">
           <label>
             Valor mercancía
@@ -172,105 +172,116 @@ interface RouteOption {
             <p-inputnumber formControlName="freight_revenue" mode="currency" currency="MXN" locale="es-MX" [minFractionDigits]="2"></p-inputnumber>
           </label>
         </div>
-
+    
         <!-- ─── Opcional: vincular order del comercial ─── -->
         <p-divider></p-divider>
         <h4 class="section-title">Vínculo con pedido (opcional)</h4>
-        <div class="link-banner" *ngIf="form.get('order_id')?.value">
-          <i class="pi pi-link"></i>
-          <span>Pre-vinculado al pedido. Al cerrar el embarque, el pedido pasará a <strong>fulfilled</strong> automáticamente.</span>
-        </div>
+        @if (form.get('order_id')?.value) {
+          <div class="link-banner">
+            <i class="pi pi-link"></i>
+            <span>Pre-vinculado al pedido. Al cerrar el embarque, el pedido pasará a <strong>fulfilled</strong> automáticamente.</span>
+          </div>
+        }
         <label>
           Order ID (pegar UUID o dejar vacío)
           <input pInputText formControlName="order_id" placeholder="UUID del pedido confirmed (opcional)" />
         </label>
-
+    
         <!-- ─── Sección expandible: asignar guía + comisiones ─── -->
         <p-divider></p-divider>
         <div class="expandable-header" role="button" tabindex="0"
-             [attr.aria-expanded]="includeGuide()"
-             (click)="toggleGuideSection()" (keydown.enter)="toggleGuideSection()" (keydown.space)="$event.preventDefault(); toggleGuideSection()">
+          [attr.aria-expanded]="includeGuide()"
+          (click)="toggleGuideSection()" (keydown.enter)="toggleGuideSection()" (keydown.space)="$event.preventDefault(); toggleGuideSection()">
           <i class="pi" [class.pi-chevron-down]="includeGuide()" [class.pi-chevron-right]="!includeGuide()"></i>
           <h4 class="section-title inline">Asignar guía + comisiones (opcional)</h4>
           <p-checkbox [binary]="true" [ngModel]="includeGuide()" (onChange)="setIncludeGuide($event.checked)" [ngModelOptions]="{ standalone: true }"></p-checkbox>
         </div>
-
-        <div *ngIf="includeGuide()" class="guide-section" formGroupName="guide">
-          <p class="muted small">Se creará una delivery_guide vinculada al embarque tras crearlo. Comisiones sugeridas desde la ruta seleccionada.</p>
-          <div class="row two">
-            <label>
-              Chofer *
-              <p-select formControlName="driver_id" [options]="driverOptions()" optionLabel="full_name" optionValue="id" [filter]="true" placeholder="Seleccionar chofer"></p-select>
-            </label>
-            <label>
-              Comisión chofer
-              <p-inputnumber formControlName="driver_commission" mode="currency" currency="MXN" locale="es-MX" [minFractionDigits]="2"></p-inputnumber>
-            </label>
+    
+        @if (includeGuide()) {
+          <div class="guide-section" formGroupName="guide">
+            <p class="muted small">Se creará una delivery_guide vinculada al embarque tras crearlo. Comisiones sugeridas desde la ruta seleccionada.</p>
+            <div class="row two">
+              <label>
+                Chofer *
+                <p-select formControlName="driver_id" [options]="driverOptions()" optionLabel="full_name" optionValue="id" [filter]="true" placeholder="Seleccionar chofer"></p-select>
+              </label>
+              <label>
+                Comisión chofer
+                <p-inputnumber formControlName="driver_commission" mode="currency" currency="MXN" locale="es-MX" [minFractionDigits]="2"></p-inputnumber>
+              </label>
+            </div>
+            <div class="row two">
+              <label>
+                Ayudante 1
+                <p-select formControlName="helper1_id" [options]="helperOptions()" optionLabel="full_name" optionValue="id" [filter]="true" [showClear]="true" placeholder="Sin ayudante"></p-select>
+              </label>
+              <label>
+                Comisión ayudante 1
+                <p-inputnumber formControlName="helper1_commission" mode="currency" currency="MXN" locale="es-MX" [minFractionDigits]="2"></p-inputnumber>
+              </label>
+            </div>
+            <div class="row two">
+              <label>
+                Ayudante 2
+                <p-select formControlName="helper2_id" [options]="helperOptions()" optionLabel="full_name" optionValue="id" [filter]="true" [showClear]="true" placeholder="Sin ayudante"></p-select>
+              </label>
+              <label>
+                Comisión ayudante 2
+                <p-inputnumber formControlName="helper2_commission" mode="currency" currency="MXN" locale="es-MX" [minFractionDigits]="2"></p-inputnumber>
+              </label>
+            </div>
+            <div class="row two">
+              <label>
+                Viáticos totales
+                <p-inputnumber formControlName="per_diem_total" mode="currency" currency="MXN" locale="es-MX" [minFractionDigits]="2" [readonly]="autoPerDiem()"></p-inputnumber>
+              </label>
+              <label class="checkbox-label">
+                <p-checkbox formControlName="overnight" [binary]="true" inputId="overnight"></p-checkbox>
+                Pernocta (chofer duerme fuera)
+              </label>
+            </div>
+            <!-- Viáticos: checklist auto-cálculo -->
+            <div class="per-diem-toggle">
+              <label class="checkbox-label">
+                <p-checkbox [(ngModel)]="autoPerDiemModel" [ngModelOptions]="{ standalone: true }" [binary]="true" inputId="auto-per-diem" (onChange)="onAutoPerDiemToggle($event.checked)"></p-checkbox>
+                Calcular viáticos automáticamente desde checklist (café / desayuno / comida / cena por persona)
+              </label>
+            </div>
+            @if (autoPerDiem()) {
+              <div class="per-diem-checklist">
+                <table class="pd-table">
+                  <thead>
+                    <tr>
+                      <th scope="col">Persona</th>
+                      @for (m of mealColumns; track m) {
+                        <th scope="col" class="meal-col">
+                          {{ m.label }}<br>
+                          <small>\${{ viaticoRate(m.key) | number:'1.2-2' }}</small>
+                        </th>
+                      }
+                      <th scope="col" class="num">Subtotal</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    @for (p of personRows; track p) {
+                      <tr>
+                        <td>{{ p.label }}</td>
+                        @for (m of mealColumns; track m) {
+                          <td class="meal-col">
+                            <p-checkbox [(ngModel)]="perDiemCheck()[p.key][m.key]" [ngModelOptions]="{ standalone: true }" [binary]="true" (onChange)="recalcPerDiem()"></p-checkbox>
+                          </td>
+                        }
+                        <td class="num">\${{ perDiemSubtotal(p.key) | number:'1.2-2' }}</td>
+                      </tr>
+                    }
+                  </tbody>
+                </table>
+                <p class="muted small">Tarifas de <code>config_finance.viatico_*</code>. El backend recalcula al guardar — este preview es solo informativo.</p>
+              </div>
+            }
           </div>
-          <div class="row two">
-            <label>
-              Ayudante 1
-              <p-select formControlName="helper1_id" [options]="helperOptions()" optionLabel="full_name" optionValue="id" [filter]="true" [showClear]="true" placeholder="Sin ayudante"></p-select>
-            </label>
-            <label>
-              Comisión ayudante 1
-              <p-inputnumber formControlName="helper1_commission" mode="currency" currency="MXN" locale="es-MX" [minFractionDigits]="2"></p-inputnumber>
-            </label>
-          </div>
-          <div class="row two">
-            <label>
-              Ayudante 2
-              <p-select formControlName="helper2_id" [options]="helperOptions()" optionLabel="full_name" optionValue="id" [filter]="true" [showClear]="true" placeholder="Sin ayudante"></p-select>
-            </label>
-            <label>
-              Comisión ayudante 2
-              <p-inputnumber formControlName="helper2_commission" mode="currency" currency="MXN" locale="es-MX" [minFractionDigits]="2"></p-inputnumber>
-            </label>
-          </div>
-          <div class="row two">
-            <label>
-              Viáticos totales
-              <p-inputnumber formControlName="per_diem_total" mode="currency" currency="MXN" locale="es-MX" [minFractionDigits]="2" [readonly]="autoPerDiem()"></p-inputnumber>
-            </label>
-            <label class="checkbox-label">
-              <p-checkbox formControlName="overnight" [binary]="true" inputId="overnight"></p-checkbox>
-              Pernocta (chofer duerme fuera)
-            </label>
-          </div>
-
-          <!-- Viáticos: checklist auto-cálculo -->
-          <div class="per-diem-toggle">
-            <label class="checkbox-label">
-              <p-checkbox [(ngModel)]="autoPerDiemModel" [ngModelOptions]="{ standalone: true }" [binary]="true" inputId="auto-per-diem" (onChange)="onAutoPerDiemToggle($event.checked)"></p-checkbox>
-              Calcular viáticos automáticamente desde checklist (café / desayuno / comida / cena por persona)
-            </label>
-          </div>
-          <div class="per-diem-checklist" *ngIf="autoPerDiem()">
-            <table class="pd-table">
-              <thead>
-                <tr>
-                  <th scope="col">Persona</th>
-                  <th scope="col" *ngFor="let m of mealColumns" class="meal-col">
-                    {{ m.label }}<br>
-                    <small>\${{ viaticoRate(m.key) | number:'1.2-2' }}</small>
-                  </th>
-                  <th scope="col" class="num">Subtotal</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr *ngFor="let p of personRows">
-                  <td>{{ p.label }}</td>
-                  <td *ngFor="let m of mealColumns" class="meal-col">
-                    <p-checkbox [(ngModel)]="perDiemCheck()[p.key][m.key]" [ngModelOptions]="{ standalone: true }" [binary]="true" (onChange)="recalcPerDiem()"></p-checkbox>
-                  </td>
-                  <td class="num">\${{ perDiemSubtotal(p.key) | number:'1.2-2' }}</td>
-                </tr>
-              </tbody>
-            </table>
-            <p class="muted small">Tarifas de <code>config_finance.viatico_*</code>. El backend recalcula al guardar — este preview es solo informativo.</p>
-          </div>
-        </div>
-
+        }
+    
         <!-- ─── Cálculo de margen estimado ─── -->
         <p-divider></p-divider>
         <div class="margin-summary">
@@ -293,7 +304,7 @@ interface RouteOption {
           </div>
           <p class="muted small" style="margin-top:.5rem">No incluye combustible/casetas (se cargan al cerrar el embarque).</p>
         </div>
-
+    
         <!-- ─── Notas ─── -->
         <p-divider></p-divider>
         <label>
@@ -301,13 +312,13 @@ interface RouteOption {
           <textarea pTextarea rows="2" formControlName="notes"></textarea>
         </label>
       </form>
-
+    
       <ng-template pTemplate="footer">
         <button pButton label="Cancelar" severity="secondary" [text]="true" (click)="cancel()" [disabled]="saving()"></button>
         <button pButton label="Crear embarque" icon="pi pi-check" [loading]="saving()" [disabled]="form.invalid" (click)="submit()"></button>
       </ng-template>
     </p-dialog>
-  `,
+    `,
   styles: [`
     :host { display:contents; }
     .form { display:flex; flex-direction:column; gap:.75rem; }

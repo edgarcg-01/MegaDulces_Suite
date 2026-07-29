@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { CommonModule } from '@angular/common';
+
 import { FormsModule } from '@angular/forms';
 import { ButtonModule } from 'primeng/button';
 import { SelectModule } from 'primeng/select';
@@ -25,7 +25,7 @@ import { INV_COUNT_TABS } from '../inventory-tabs';
 @Component({
   selector: 'app-comercial-inventory-aisles',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, SelectModule, DialogModule, InputTextModule, InputNumberModule, TagModule, ToastModule, ConfirmDialogModule, PageTabsComponent],
+  imports: [FormsModule, ButtonModule, SelectModule, DialogModule, InputTextModule, InputNumberModule, TagModule, ToastModule, ConfirmDialogModule, PageTabsComponent],
   providers: [MessageService, ConfirmationService],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `

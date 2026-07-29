@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, ViewChild, inject, signal, computed } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { CommonModule } from '@angular/common';
+
 import { FormsModule } from '@angular/forms';
 import { ButtonModule } from 'primeng/button';
 import { ComprasService, saveXlsxResponse } from '../compras.service';
@@ -15,7 +15,7 @@ interface Msg { role: 'user' | 'assistant'; content: string; pending?: boolean; 
 @Component({
   selector: 'app-compras-asistente',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule],
+  imports: [FormsModule, ButtonModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="surf-page in ca-page">

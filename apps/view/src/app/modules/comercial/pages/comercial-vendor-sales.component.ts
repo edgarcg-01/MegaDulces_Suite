@@ -1,5 +1,5 @@
 import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal } from '@angular/core';
-import { CommonModule } from '@angular/common';
+
 import { FormsModule } from '@angular/forms';
 import { TableModule } from 'primeng/table';
 import { TagModule } from 'primeng/tag';
@@ -18,7 +18,7 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
 @Component({
   selector: 'app-comercial-vendor-sales',
   standalone: true,
-  imports: [CommonModule, FormsModule, TableModule, TagModule, ButtonModule, DialogModule, MetricCardComponent],
+  imports: [FormsModule, TableModule, TagModule, ButtonModule, DialogModule, MetricCardComponent],
   template: `
     <div class="surf-page vs">
       <header class="surf-page-head">
@@ -27,32 +27,32 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
           <p class="surf-page-sub">Tickets de venta capturados por OCR en la visita del vendedor</p>
         </div>
       </header>
-
+    
       <div class="filters">
         <input type="date" [(ngModel)]="dateFrom" (change)="reload()" aria-label="Desde" />
         <span>→</span>
         <input type="date" [(ngModel)]="dateTo" (change)="reload()" aria-label="Hasta" />
         <button pButton icon="pi pi-refresh" severity="secondary" [text]="true" (click)="reload()" aria-label="Recargar"></button>
       </div>
-
+    
       <div class="surf-grid vs-bento">
         <app-metric-card class="panel-col-6" [large]="true"
           label="Tickets" [value]="captures().length" format="number"
           accent="var(--action)"
           [variant]="daily().values.length > 1 ? 'sparkline' : 'plain'"
           [series]="daily().values" [seriesLabels]="daily().labels"
-          sub="capturados por OCR en el rango"></app-metric-card>
+        sub="capturados por OCR en el rango"></app-metric-card>
         <app-metric-card class="panel-col-3"
           label="Líneas" [value]="totalLineas()" format="number"
-          accent="var(--chart-2)" sub="productos detectados"></app-metric-card>
+        accent="var(--chart-2)" sub="productos detectados"></app-metric-card>
         <app-metric-card class="panel-col-3"
           label="Unidades" [value]="totalUnidades()" format="number"
-          accent="var(--chart-6)" sub="piezas vendidas"></app-metric-card>
+        accent="var(--chart-6)" sub="piezas vendidas"></app-metric-card>
       </div>
-
+    
       <p-table [value]="captures()" [loading]="loading()" responsiveLayout="scroll"
-               styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra"
-               [paginator]="captures().length > 25" [rows]="25" [rowsPerPageOptions]="[25, 50, 100]">
+        styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra"
+        [paginator]="captures().length > 25" [rows]="25" [rowsPerPageOptions]="[25, 50, 100]">
         <ng-template pTemplate="header">
           <tr>
             <th scope="col">Fecha</th><th scope="col">Tienda</th><th scope="col">Vendedor</th><th scope="col">Ruta</th>
@@ -61,7 +61,7 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
         </ng-template>
         <ng-template pTemplate="body" let-c>
           <tr (click)="openDetail(c)" (keydown.enter)="openDetail(c)" (keydown.space)="$event.preventDefault(); openDetail(c)"
-              tabindex="0" role="button" [attr.aria-label]="'Ver ticket de ' + (c.store_name || 'tienda')" class="comm-row-clickable">
+            tabindex="0" role="button" [attr.aria-label]="'Ver ticket de ' + (c.store_name || 'tienda')" class="comm-row-clickable">
             <td>{{ c.sale_date }}</td>
             <td class="strong">{{ c.store_name || '—' }}</td>
             <td>{{ c.vendor_name || c.vendor_username || '—' }}</td>
@@ -70,7 +70,7 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
             <td class="num">{{ +c.unidades }}</td>
             <td class="actions" (click)="$event.stopPropagation()">
               <button pButton size="small" [text]="true" icon="pi pi-receipt" label="Ver ticket"
-                      (click)="openDetail(c)"></button>
+              (click)="openDetail(c)"></button>
             </td>
           </tr>
         </ng-template>
@@ -87,47 +87,51 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
         </ng-template>
       </p-table>
     </div>
-
+    
     <p-dialog [(visible)]="detailOpen" [modal]="true" [style]="{ width: '46rem', maxWidth: '95vw' }"
-              [draggable]="false" header="Ticket de venta">
-      <div class="detail" *ngIf="selected() as c">
-        <div class="detail-meta">
-          <div><span class="dl">Tienda</span><span class="dv">{{ c.store_name || '—' }}</span></div>
-          <div><span class="dl">Vendedor</span><span class="dv">{{ c.vendor_name || c.vendor_username || '—' }}</span></div>
-          <div><span class="dl">Fecha</span><span class="dv">{{ c.sale_date }}</span></div>
-          <div><span class="dl">Ruta</span><span class="dv">{{ c.route_name || '—' }}</span></div>
-        </div>
-
-        <div class="detail-grid">
-          <div class="ticket-photo">
-            <a *ngIf="c.ticket_photo_url" [href]="c.ticket_photo_url" target="_blank" rel="noopener">
-              <img [src]="c.ticket_photo_url" alt="Foto del ticket de venta" />
-            </a>
-            <div *ngIf="!c.ticket_photo_url" class="no-photo">Sin foto de ticket</div>
+      [draggable]="false" header="Ticket de venta">
+      @if (selected(); as c) {
+        <div class="detail">
+          <div class="detail-meta">
+            <div><span class="dl">Tienda</span><span class="dv">{{ c.store_name || '—' }}</span></div>
+            <div><span class="dl">Vendedor</span><span class="dv">{{ c.vendor_name || c.vendor_username || '—' }}</span></div>
+            <div><span class="dl">Fecha</span><span class="dv">{{ c.sale_date }}</span></div>
+            <div><span class="dl">Ruta</span><span class="dv">{{ c.route_name || '—' }}</span></div>
           </div>
-
-          <div class="lines">
-            <h3>Productos detectados</h3>
-            <p-table [value]="lines()" [loading]="loadingLines()" styleClass="p-datatable-sm surf-table surf-table--zebra" [scrollable]="true" scrollHeight="320px">
-              <ng-template pTemplate="header">
-                <tr><th scope="col">SKU</th><th scope="col">Producto</th><th scope="col" class="num">Cant.</th></tr>
-              </ng-template>
-              <ng-template pTemplate="body" let-l>
-                <tr>
-                  <td class="mono">{{ l.sku }}</td>
-                  <td>{{ l.product_name || '—' }}</td>
-                  <td class="num">{{ +l.quantity }}</td>
-                </tr>
-              </ng-template>
-              <ng-template pTemplate="emptymessage">
-                <tr><td colspan="3" class="empty">Sin líneas.</td></tr>
-              </ng-template>
-            </p-table>
+          <div class="detail-grid">
+            <div class="ticket-photo">
+              @if (c.ticket_photo_url) {
+                <a [href]="c.ticket_photo_url" target="_blank" rel="noopener">
+                  <img [src]="c.ticket_photo_url" alt="Foto del ticket de venta" />
+                </a>
+              }
+              @if (!c.ticket_photo_url) {
+                <div class="no-photo">Sin foto de ticket</div>
+              }
+            </div>
+            <div class="lines">
+              <h3>Productos detectados</h3>
+              <p-table [value]="lines()" [loading]="loadingLines()" styleClass="p-datatable-sm surf-table surf-table--zebra" [scrollable]="true" scrollHeight="320px">
+                <ng-template pTemplate="header">
+                  <tr><th scope="col">SKU</th><th scope="col">Producto</th><th scope="col" class="num">Cant.</th></tr>
+                </ng-template>
+                <ng-template pTemplate="body" let-l>
+                  <tr>
+                    <td class="mono">{{ l.sku }}</td>
+                    <td>{{ l.product_name || '—' }}</td>
+                    <td class="num">{{ +l.quantity }}</td>
+                  </tr>
+                </ng-template>
+                <ng-template pTemplate="emptymessage">
+                  <tr><td colspan="3" class="empty">Sin líneas.</td></tr>
+                </ng-template>
+              </p-table>
+            </div>
           </div>
         </div>
-      </div>
+      }
     </p-dialog>
-  `,
+    `,
   styles: [
     `
       .filters { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 1rem; }

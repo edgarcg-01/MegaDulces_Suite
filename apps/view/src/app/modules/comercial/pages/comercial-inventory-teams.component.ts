@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { CommonModule } from '@angular/common';
+
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, RouterModule } from '@angular/router';
 import { ButtonModule } from 'primeng/button';
@@ -22,7 +22,7 @@ interface Opt { label: string; value: string; }
 @Component({
   selector: 'app-comercial-inventory-teams',
   standalone: true,
-  imports: [CommonModule, FormsModule, RouterModule, ButtonModule, SelectModule, MultiSelectModule, TagModule, ToastModule],
+  imports: [FormsModule, RouterModule, ButtonModule, SelectModule, MultiSelectModule, TagModule, ToastModule],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `

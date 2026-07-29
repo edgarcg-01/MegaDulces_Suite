@@ -1,5 +1,5 @@
 import { Component, OnDestroy, OnInit, ViewChild, computed, inject, signal } from '@angular/core';
-import { CommonModule } from '@angular/common';
+
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute } from '@angular/router';
 import { HttpClient, HttpParams } from '@angular/common/http';
@@ -43,7 +43,7 @@ interface VendorDay {
 @Component({
   selector: 'app-vendor-history',
   standalone: true,
-  imports: [CommonModule, FormsModule, SelectModule, SkeletonModule, MapComponent, MetricStripComponent],
+  imports: [FormsModule, SelectModule, SkeletonModule, MapComponent, MetricStripComponent],
   template: `
     <div class="vh-wrap">
       <header class="vh-head">

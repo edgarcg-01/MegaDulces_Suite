@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { CommonModule } from '@angular/common';
+
 import { FormsModule } from '@angular/forms';
 import { ButtonModule } from 'primeng/button';
 import { ToastModule } from 'primeng/toast';
@@ -22,7 +22,7 @@ import { ImpuestosService, ProvisionalResult } from '../impuestos.service';
 @Component({
   selector: 'app-contabilidad-impuestos',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, ToastModule, InputTextModule, DatePickerModule, PageTabsComponent, MetricStripComponent, FreshnessPillComponent, ContextHelpComponent],
+  imports: [FormsModule, ButtonModule, ToastModule, InputTextModule, DatePickerModule, PageTabsComponent, MetricStripComponent, FreshnessPillComponent, ContextHelpComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `

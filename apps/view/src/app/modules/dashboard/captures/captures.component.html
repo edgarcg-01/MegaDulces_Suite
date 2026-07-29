@@ -1,7 +1,7 @@
 <!--
-  pb mobile = bottom nav (56px) + safe-area-bottom + FAB clearance (5rem).
-  Sin este cálculo el FAB sticky tapa el contenido al hacer scroll al fondo
-  Y el bottom nav del shell tapa el FAB. En desktop solo `pb-6`.
+pb mobile = bottom nav (56px) + safe-area-bottom + FAB clearance (5rem).
+Sin este cálculo el FAB sticky tapa el contenido al hacer scroll al fondo
+Y el bottom nav del shell tapa el FAB. En desktop solo `pb-6`.
 -->
 <div class="px-6 pt-6 pb-[calc(56px+env(safe-area-inset-bottom)+5rem)] md:pb-6 space-y-6">
 
@@ -32,11 +32,11 @@
 
         <p class="text-xs md:text-sm text-content-dim">
 
-           Capturador: <span class="font-bold text-content-main">{{ user()?.username }}</span> 
+          Capturador: <span class="font-bold text-content-main">{{ user()?.username }}</span>
 
-           <span class="mx-2 opacity-30">|</span> 
+          <span class="mx-2 opacity-30">|</span>
 
-           Inicio: <span class="font-bold text-content-main">{{ formatDate(svc.horaInicio() || '') }}</span>
+          Inicio: <span class="font-bold text-content-main">{{ formatDate(svc.horaInicio() || '') }}</span>
 
         </p>
 
@@ -46,25 +46,29 @@
 
     <div class="flex gap-2 w-full md:w-auto">
 
-      <p-button *ngIf="!svc.hasActiveVisit()" label="Iniciar Visita" icon="pi pi-play" (onClick)="onIniciarVisita()" [disabled]="needsRoute() || isStartingVisita()" styleClass="p-button-brand w-full md:w-auto"></p-button>
+      @if (!svc.hasActiveVisit()) {
+        <p-button label="Iniciar Visita" icon="pi pi-play" (onClick)="onIniciarVisita()" [disabled]="needsRoute() || isStartingVisita()" styleClass="p-button-brand w-full md:w-auto"></p-button>
+      }
 
       <!--
-        Sobre desktop mostramos el botón aquí arriba (junto al header).
-        En mobile lo escondemos porque el usuario lo accede vía el FAB sticky
-        al pie de la página (ver al final del archivo) — evita scroll hasta
-        arriba después de cada exhibidor.
+      Sobre desktop mostramos el botón aquí arriba (junto al header).
+      En mobile lo escondemos porque el usuario lo accede vía el FAB sticky
+      al pie de la página (ver al final del archivo) — evita scroll hasta
+      arriba después de cada exhibidor.
 
-        Se deshabilita mientras `needsStore()` sea true (visita activa SIN
-        tienda vinculada). El tooltip explica por qué.
+      Se deshabilita mientras `needsStore()` sea true (visita activa SIN
+      tienda vinculada). El tooltip explica por qué.
       -->
-      <div *ngIf="svc.hasActiveVisit()" class="hidden md:inline-flex">
-        <p-button label="Auditar Exhibidor" icon="pi pi-plus"
-                  (onClick)="startWizard()"
-                  [disabled]="needsStore()"
-                  [pTooltip]="needsStore() ? 'Primero confirma la tienda donde estás' : ''"
-                  tooltipPosition="bottom"
-                  styleClass="p-button-brand"></p-button>
-      </div>
+      @if (svc.hasActiveVisit()) {
+        <div class="hidden md:inline-flex">
+          <p-button label="Auditar Exhibidor" icon="pi pi-plus"
+            (onClick)="startWizard()"
+            [disabled]="needsStore()"
+            [pTooltip]="needsStore() ? 'Primero confirma la tienda donde estás' : ''"
+            tooltipPosition="bottom"
+          styleClass="p-button-brand"></p-button>
+        </div>
+      }
 
     </div>
 
@@ -73,693 +77,528 @@
 
 
   <!-- Ruta de hoy (self-service): el colaborador/vendedor declara en qué ruta
-       está antes de iniciar. Etiqueta todas las capturas del día. -->
+  está antes de iniciar. Etiqueta todas las capturas del día. -->
   <div class="mb-6 bg-brand/10 border border-brand/20 p-3 sm:p-4 rounded-2xl flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 animate-in fade-in slide-in-from-top-4 duration-500">
 
     <div class="flex items-center gap-3 min-w-0 flex-1">
 
-        <div class="w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-brand/20 flex items-center justify-center text-brand shrink-0">
-            <i class="pi pi-map text-lg sm:text-xl"></i>
-        </div>
+      <div class="w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-brand/20 flex items-center justify-center text-brand shrink-0">
+        <i class="pi pi-map text-lg sm:text-xl"></i>
+      </div>
 
-        <!-- Ruta activa: mostrar nombre + botón cambiar -->
-        <div *ngIf="svc.activeRoute() && !changingRoute()" class="min-w-0">
-            <div class="text-[10px] sm:text-xs font-semibold uppercase tracking-[0.15em] text-brand truncate">Ruta de Hoy</div>
-            <div class="text-sm sm:text-lg font-black text-content-main uppercase truncate">{{ svc.activeRoute()?.name }}</div>
-            <button type="button" (click)="changingRoute.set(true)" class="btn-ghost btn-ghost-brand mt-1 text-xs" aria-label="Cambiar ruta">Cambiar ruta</button>
+      <!-- Ruta activa: mostrar nombre + botón cambiar -->
+      @if (svc.activeRoute() && !changingRoute()) {
+        <div class="min-w-0">
+          <div class="text-[10px] sm:text-xs font-semibold uppercase tracking-[0.15em] text-brand truncate">Ruta de Hoy</div>
+          <div class="text-sm sm:text-lg font-black text-content-main uppercase truncate">{{ svc.activeRoute()?.name }}</div>
+          <button type="button" (click)="changingRoute.set(true)" class="btn-ghost btn-ghost-brand mt-1 text-xs" aria-label="Cambiar ruta">Cambiar ruta</button>
         </div>
+      }
 
-        <!-- Sin ruta activa o cambiando: selector -->
-        <div *ngIf="!svc.activeRoute() || changingRoute()" class="min-w-0 flex-1">
-            <div class="text-[10px] sm:text-xs font-semibold uppercase tracking-[0.15em] text-brand mb-1">¿En qué ruta estás hoy?</div>
-            <p-select
-                [options]="svc.zoneRoutes()"
-                [ngModel]="svc.activeRoute()?.id"
-                (onChange)="onSelectRoute($event.value)"
-                optionLabel="label"
-                optionValue="value"
-                placeholder="Seleccioná tu ruta"
-                appendTo="body"
-                styleClass="w-full sm:w-64"
-                [filter]="svc.zoneRoutes().length > 8"></p-select>
-            <div *ngIf="svc.zoneRoutes().length === 0" class="text-[10px] sm:text-xs text-content-muted mt-1">
-                No hay rutas para tu zona. Avisá a tu supervisor.
+      <!-- Sin ruta activa o cambiando: selector -->
+      @if (!svc.activeRoute() || changingRoute()) {
+        <div class="min-w-0 flex-1">
+          <div class="text-[10px] sm:text-xs font-semibold uppercase tracking-[0.15em] text-brand mb-1">¿En qué ruta estás hoy?</div>
+          <p-select
+            [options]="svc.zoneRoutes()"
+            [ngModel]="svc.activeRoute()?.id"
+            (onChange)="onSelectRoute($event.value)"
+            optionLabel="label"
+            optionValue="value"
+            placeholder="Seleccioná tu ruta"
+            appendTo="body"
+            styleClass="w-full sm:w-64"
+          [filter]="svc.zoneRoutes().length > 8"></p-select>
+          @if (svc.zoneRoutes().length === 0) {
+            <div class="text-[10px] sm:text-xs text-content-muted mt-1">
+              No hay rutas para tu zona. Avisá a tu supervisor.
             </div>
+          }
         </div>
+      }
 
     </div>
 
-    <div *ngIf="svc.currentAssignment() || visitaNumero() > 1" class="bg-surface-card px-3 py-2 rounded-xl border border-divider shadow-sm flex items-center gap-3 self-start sm:self-auto">
+    @if (svc.currentAssignment() || visitaNumero() > 1) {
+      <div class="bg-surface-card px-3 py-2 rounded-xl border border-divider shadow-sm flex items-center gap-3 self-start sm:self-auto">
         <div class="flex flex-col items-end">
-            <span class="text-[10px] sm:text-xs font-semibold text-content-faint uppercase tracking-[0.12em]">Progreso de Jornada</span>
-            <span class="text-xs sm:text-sm font-bold text-content-main">Visita #{{ visitaNumero() }}</span>
+          <span class="text-[10px] sm:text-xs font-semibold text-content-faint uppercase tracking-[0.12em]">Progreso de Jornada</span>
+          <span class="text-xs sm:text-sm font-bold text-content-main">Visita #{{ visitaNumero() }}</span>
         </div>
         <div class="w-2 h-6 sm:h-8 bg-brand/20 rounded-full overflow-hidden">
-            <div class="w-full bg-brand motion-safe:transition-[height] motion-safe:duration-700" [style.height]="(visitaNumero() * 10) + '%'"></div>
+          <div class="w-full bg-brand motion-safe:transition-[height] motion-safe:duration-700" [style.height]="(visitaNumero() * 10) + '%'"></div>
         </div>
-    </div>
+      </div>
+    }
 
   </div>
 
   <!-- Banner de Tienda Detectada -->
-  <div *ngIf="svc.hasActiveVisit() && svc.detectedStore()" data-store-banner
-       role="status" aria-live="polite" aria-atomic="true"
-       class="mb-6 bg-ok-soft-bg border border-ok-border p-3 sm:p-4 rounded-2xl flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 animate-in fade-in slide-in-from-top-4 duration-500">
-    <div class="flex items-center gap-3">
-      <div class="w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-surface-card border border-ok-border flex items-center justify-center text-ok-fg shrink-0">
-        <i class="pi pi-check-circle text-lg sm:text-xl"></i>
+  @if (svc.hasActiveVisit() && svc.detectedStore()) {
+    <div data-store-banner
+      role="status" aria-live="polite" aria-atomic="true"
+      class="mb-6 bg-ok-soft-bg border border-ok-border p-3 sm:p-4 rounded-2xl flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 animate-in fade-in slide-in-from-top-4 duration-500">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-surface-card border border-ok-border flex items-center justify-center text-ok-fg shrink-0">
+          <i class="pi pi-check-circle text-lg sm:text-xl"></i>
+        </div>
+        <div class="min-w-0">
+          <div class="text-[10px] sm:text-xs font-semibold uppercase tracking-[0.15em] text-ok-fg truncate">Tienda Detectada</div>
+          <div class="text-sm sm:text-lg font-black text-content-main uppercase truncate">{{ svc.detectedStore()?.nombre }}</div>
+        </div>
       </div>
-      <div class="min-w-0">
-        <div class="text-[10px] sm:text-xs font-semibold uppercase tracking-[0.15em] text-ok-fg truncate">Tienda Detectada</div>
-        <div class="text-sm sm:text-lg font-black text-content-main uppercase truncate">{{ svc.detectedStore()?.nombre }}</div>
+      <div class="flex items-center gap-2 self-start sm:self-auto">
+        <span class="text-[10px] sm:text-xs text-content-muted font-mono">{{ svc.detectedStore()?.distance }}m</span>
+        <p-button icon="pi pi-refresh" [text]="true" [rounded]="true" severity="secondary" size="small"
+        (onClick)="onReDetectarTienda()" pTooltip="Re-detectar tienda"></p-button>
       </div>
     </div>
-    <div class="flex items-center gap-2 self-start sm:self-auto">
-      <span class="text-[10px] sm:text-xs text-content-muted font-mono">{{ svc.detectedStore()?.distance }}m</span>
-      <p-button icon="pi pi-refresh" [text]="true" [rounded]="true" severity="secondary" size="small"
-                (onClick)="onReDetectarTienda()" pTooltip="Re-detectar tienda"></p-button>
-    </div>
-  </div>
+  }
 
   <!-- Banner Múltiples Tiendas Cercanas -->
-  <div *ngIf="svc.hasActiveVisit() && !svc.detectedStore() && svc.nearbyStores().length > 1" data-store-banner
-       role="status" aria-live="polite" aria-atomic="true"
-       class="mb-6 bg-warn-soft-bg border border-warn-border p-3 sm:p-4 rounded-2xl animate-in fade-in slide-in-from-top-4 duration-500">
-    <div class="flex flex-col gap-2">
-      <div class="flex items-center justify-between gap-2 text-warn-fg">
-        <div class="flex items-center gap-2">
-          <i class="pi pi-question-circle text-lg"></i>
-          <span class="text-xs font-black uppercase tracking-wide">Selecciona la tienda</span>
+  @if (svc.hasActiveVisit() && !svc.detectedStore() && svc.nearbyStores().length > 1) {
+    <div data-store-banner
+      role="status" aria-live="polite" aria-atomic="true"
+      class="mb-6 bg-warn-soft-bg border border-warn-border p-3 sm:p-4 rounded-2xl animate-in fade-in slide-in-from-top-4 duration-500">
+      <div class="flex flex-col gap-2">
+        <div class="flex items-center justify-between gap-2 text-warn-fg">
+          <div class="flex items-center gap-2">
+            <i class="pi pi-question-circle text-lg"></i>
+            <span class="text-xs font-black uppercase tracking-wide">Selecciona la tienda</span>
+          </div>
+          <span class="status-chip status-warn">Obligatorio</span>
         </div>
-        <span class="status-chip status-warn">Obligatorio</span>
-      </div>
-      <div class="flex flex-wrap gap-2">
-        <p-button *ngFor="let store of svc.nearbyStores()"
-                  [label]="store.nombre + ' (' + store.distance + 'm)'"
-                  severity="warn" size="small" [outlined]="true"
-                  (onClick)="onSelectStore(store)"></p-button>
-        <p-button label="Ninguna / Otra tienda" severity="secondary" size="small" [text]="true"
-                  (onClick)="detectionStatus.set('not-found')"></p-button>
+        <div class="flex flex-wrap gap-2">
+          @for (store of svc.nearbyStores(); track store) {
+            <p-button
+              [label]="store.nombre + ' (' + store.distance + 'm)'"
+              severity="warn" size="small" [outlined]="true"
+            (onClick)="onSelectStore(store)"></p-button>
+          }
+          <p-button label="Ninguna / Otra tienda" severity="secondary" size="small" [text]="true"
+          (onClick)="detectionStatus.set('not-found')"></p-button>
+        </div>
       </div>
     </div>
-  </div>
+  }
 
   <!-- Banner Tienda No Encontrada -->
-  <div *ngIf="svc.hasActiveVisit() && !svc.detectedStore() && svc.nearbyStores().length === 0 && detectionStatus() === 'not-found'" data-store-banner
-       role="status" aria-live="polite" aria-atomic="true"
-       class="mb-6 bg-info-soft-bg border-2 border-info-border p-3 sm:p-4 rounded-2xl animate-in fade-in slide-in-from-top-4 duration-500 shadow-md">
-    <div class="flex flex-col gap-3">
-      <div class="flex items-center justify-between gap-2 text-info-fg">
-        <div class="flex items-center gap-2">
-          <i class="pi pi-map-marker text-lg"></i>
-          <span class="text-xs font-black uppercase tracking-wide">Registra la tienda</span>
-        </div>
-        <span class="chip-info text-[10px] font-bold uppercase tracking-wider">Obligatorio</span>
-      </div>
-      <p class="text-xs sm:text-sm text-content-muted">
-        No se encontró una tienda registrada cerca. El nombre es <span class="font-bold text-content-main">requerido</span> para poder capturar exhibidores y terminar la visita.
-      </p>
-      <div class="flex flex-col sm:flex-row gap-2">
-        <input pInputText type="text" placeholder="Nombre de la tienda *" class="flex-1"
-               required aria-required="true"
-               inputmode="text"
-               autocomplete="off"
-               autocapitalize="words"
-               autocorrect="off"
-               enterkeyhint="go"
-               [ngModel]="newStoreName()" (ngModelChange)="newStoreName.set($event)"
-               (keydown.enter)="newStoreName().trim() && onCreateStore()" />
-        <p-button label="Registrar" icon="pi pi-save" size="small"
-                  styleClass="p-button-brand"
-                  [disabled]="!newStoreName().trim() || creatingStore()"
-                  [loading]="creatingStore()"
-                  (onClick)="onCreateStore()"></p-button>
-        <p-button label="Re-detectar" severity="secondary" size="small" [text]="true"
-                  [disabled]="creatingStore()"
-                  (onClick)="onReDetectarTienda()"></p-button>
-      </div>
-    </div>
-  </div>
-
-  <!-- Contenido Activo de la Visita -->
-
-  <ng-container *ngIf="svc.hasActiveVisit()">
-
-    <!-- Stats del Día -->
-
-    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-
-      <div *ngFor="let stat of statCards()" class="p-4 bg-surface-card border border-divider rounded-xl shadow-sm flex items-center gap-4">
-
-        <div class="w-12 h-12 rounded-lg bg-surface-ground flex items-center justify-center flex-shrink-0 border border-divider">
-
-          <i [class]="stat.icon" class="text-xl" [style.color]="stat.valueColor"></i>
-
-        </div>
-
-        <div class="flex-1">
-
-          <div class="text-xs uppercase font-bold text-content-muted tracking-wider">{{stat.label}}</div>
-
-          <div class="text-xl font-bold font-mono" [style.color]="stat.valueColor">{{stat.value}}</div>
-
-          <div class="text-xs text-content-dim">{{stat.description}}</div>
-
-          <!-- Progress Bar for Score -->
-
-          <!-- Progress Bar for Score (Hidden for absolute points) -->
-
-        </div>
-
-      </div>
-
-    </div>
-
-
-
-    <!-- Exhibidores Auditados - Desktop Table -->
-
-    <div class="hidden md:block bg-surface-card border border-divider rounded-2xl shadow-sm overflow-hidden mb-6">
-
-      <div class="p-4 border-b border-divider bg-surface-ground flex justify-between items-center">
-
-        <h3 class="font-bold text-content-main"><i class="pi pi-box mr-2"></i>Exhibidores en esta Vista</h3>
-
-        <span class="text-xs font-mono text-content-muted">ID: {{svc.horaInicio() | date:'hhmm'}}</span>
-
-      </div>
-
-
-
-      <p-table [value]="svc.activeExhibiciones()" styleClass="p-datatable-sm" responsiveLayout="scroll">
-
-        <ng-template pTemplate="header">
-
-          <tr class="text-xs text-content-muted uppercase">
-
-            <th class="pl-4">Ubicación</th>
-
-            <th>Tipo / Formato</th>
-
-            <th>Nivel</th>
-
-            <th class="text-right">Venta Add</th>
-
-            <th class="text-center">Score</th>
-
-            <th class="text-center">Evidencia</th>
-
-            <th class="text-center w-20"></th>
-
-          </tr>
-
-        </ng-template>
-
-        <ng-template pTemplate="body" let-ex>
-
-          <tr class="text-sm hover:bg-surface-ground transition-colors">
-
-            <td class="pl-4 font-medium text-content-main">{{ getUbicacionNombre(ex.ubicacionId) }}</td>
-
-            <td>
-
-              <span class="flex items-center gap-3">
-
-                <div class="w-8 h-8 rounded-lg bg-surface-layout border border-divider flex items-center justify-center text-sm text-content-faint shadow-sm">
-
-                  <i [class]="getConceptIcon(ex.conceptoId)"></i>
-
-                </div>
-
-                <span class="font-bold text-content-main text-xs uppercase tracking-tight">{{ getConceptNombre(ex.conceptoId) }}</span>
-
-              </span>
-
-            </td>
-
-            <td>
-
-              <p-tag [severity]="ex.nivelEjecucion?.toLowerCase() === 'alto' || ex.nivelEjecucion?.toLowerCase() === 'excelente' || ex.nivelEjecucion?.toLowerCase() === 'optimo' ? 'success' : ex.nivelEjecucion?.toLowerCase() === 'medio' || ex.nivelEjecucion?.toLowerCase() === 'regular' ? 'warn' : 'danger'" [value]="(ex.nivelEjecucion || '') | titlecase" [rounded]="true"></p-tag>
-
-            </td>
-
-            <td class="text-right font-mono text-brand-orange font-bold border-r border-divider/30 px-4">{{ ex.ventaAdicional ? '$' + ex.ventaAdicional : '—' }}</td>
-
-            <td class="text-center bg-surface-ground/50">
-
-               <span class="font-bold font-mono text-brand-orange">
-
-                 {{ ex.puntuacionCalculada }} pts
-
-               </span>
-
-            </td>
-
-            <td class="text-center">
-
-              <i *ngIf="ex.fotoBase64" class="pi pi-image text-brand" title="Evidencia Guardada"></i>
-
-            </td>
-
-            <td class="text-center">
-
-              <p-button icon="pi pi-trash" severity="danger" [text]="true" (onClick)="onRemoveExhibicion(ex.id)"></p-button>
-
-            </td>
-
-          </tr>
-
-        </ng-template>
-
-        <ng-template pTemplate="emptymessage">
-
-          <tr>
-
-            <td colspan="7" class="text-center p-12 text-content-dim">
-
-              <i class="pi pi-info-circle text-2xl mb-2 opacity-20"></i>
-
-              <p>No se han auditado exhibidores. Haz clic en "Auditar Exhibidor" arriba.</p>
-
-            </td>
-
-          </tr>
-
-        </ng-template>
-
-      </p-table>
-
-    </div>
-
-
-
-    <!-- Exhibidores Auditados - Mobile Cards -->
-
-    <div class="md:hidden space-y-3 mb-6">
-
-      <div class="p-3 bg-surface-card border border-divider rounded-2xl">
-
-        <div class="flex justify-between items-center mb-3">
-
-          <h3 class="font-bold text-content-main text-sm"><i class="pi pi-box mr-2 text-brand"></i>Exhibidores en esta Vista</h3>
-
-          <span class="text-[10px] font-mono text-content-muted">ID: {{svc.horaInicio() | date:'hhmm'}}</span>
-
-        </div>
-
-        <div *ngIf="svc.activeExhibiciones().length === 0" class="text-center py-8 text-content-dim">
-
-          <i class="pi pi-info-circle text-2xl mb-2 opacity-20"></i>
-
-          <p class="text-xs">No se han auditado exhibidores</p>
-
-        </div>
-
-        <div *ngFor="let ex of svc.activeExhibiciones()" class="bg-surface-ground border border-divider rounded-xl p-3 mb-3 last:mb-0">
-
-          <div class="flex justify-between items-start mb-2">
-
-            <div class="flex items-center gap-2">
-
-              <div class="w-8 h-8 rounded-lg bg-surface-card border border-divider flex items-center justify-center text-xs text-content-faint">
-
-                <i [class]="getConceptIcon(ex.conceptoId)"></i>
-
-              </div>
-
-              <div>
-
-                <div class="text-xs font-black text-content-main uppercase">{{ getConceptNombre(ex.conceptoId) }}</div>
-
-                <div class="text-[10px] text-content-dim flex items-center gap-1">
-
-                  <i class="pi pi-map-marker text-[8px]"></i> {{ getUbicacionNombre(ex.ubicacionId) }}
-
-                </div>
-
-              </div>
-
-            </div>
-
-            <p-button icon="pi pi-trash" severity="danger" [text]="true" size="small" (onClick)="onRemoveExhibicion(ex.id)"></p-button>
-
+  @if (svc.hasActiveVisit() && !svc.detectedStore() && svc.nearbyStores().length === 0 && detectionStatus() === 'not-found') {
+    <div data-store-banner
+      role="status" aria-live="polite" aria-atomic="true"
+      class="mb-6 bg-info-soft-bg border-2 border-info-border p-3 sm:p-4 rounded-2xl animate-in fade-in slide-in-from-top-4 duration-500 shadow-md">
+      <div class="flex flex-col gap-3">
+        <div class="flex items-center justify-between gap-2 text-info-fg">
+          <div class="flex items-center gap-2">
+            <i class="pi pi-map-marker text-lg"></i>
+            <span class="text-xs font-black uppercase tracking-wide">Registra la tienda</span>
           </div>
-
-          <div class="flex items-center justify-between mt-2 pt-2 border-t border-divider/50">
-
-            <p-tag [severity]="ex.nivelEjecucion?.toLowerCase() === 'alto' || ex.nivelEjecucion?.toLowerCase() === 'excelente' || ex.nivelEjecucion?.toLowerCase() === 'optimo' ? 'success' : ex.nivelEjecucion?.toLowerCase() === 'medio' || ex.nivelEjecucion?.toLowerCase() === 'regular' ? 'warn' : 'danger'"
-
-                   [value]="(ex.nivelEjecucion || '') | titlecase" [rounded]="true" styleClass="text-[10px]"></p-tag>
-
-            <div class="flex items-center gap-3">
-
-              <span class="text-xs font-bold font-mono text-brand-orange">{{ ex.puntuacionCalculada }} pts</span>
-
-              <span class="text-xs font-mono text-content-dim">{{ ex.ventaAdicional ? '$' + ex.ventaAdicional : '—' }}</span>
-
-              <i *ngIf="ex.fotoBase64" class="pi pi-image text-brand text-xs"></i>
-
-            </div>
-
-          </div>
-
+          <span class="chip-info text-[10px] font-bold uppercase tracking-wider">Obligatorio</span>
         </div>
-
-      </div>
-
-    </div>
-
-
-
-    <!-- Finalizar / Cancelar -->
-    <div class="mt-6 flex flex-col items-stretch md:items-end gap-2">
-      <div class="flex justify-end gap-3 w-full">
-        <p-button label="Cancelar Visita" severity="secondary" [outlined]="true"
-                  (onClick)="onCancelarVisita()"
-                  styleClass="flex-1 md:flex-none"></p-button>
-        <p-button label="Terminar Visita" icon="pi pi-check-circle" styleClass="p-button-brand flex-1 md:flex-none"
-                  (onClick)="openImpactDialog()"
-                  [disabled]="svc.activeExhibiciones().length === 0 || needsStore() || isSaving()"
-                  [loading]="isSaving()"></p-button>
-      </div>
-      @if (needsStore()) {
-        <p class="text-xs status-bad status-text italic flex items-center gap-1.5 self-end">
-          <i class="pi pi-info-circle"></i>
-          Registra el nombre de la tienda antes de terminar la visita
+        <p class="text-xs sm:text-sm text-content-muted">
+          No se encontró una tienda registrada cerca. El nombre es <span class="font-bold text-content-main">requerido</span> para poder capturar exhibidores y terminar la visita.
         </p>
-      } @else if (svc.activeExhibiciones().length === 0) {
-        <p class="text-xs text-content-muted italic flex items-center gap-1.5 self-end">
-          <i class="pi pi-info-circle text-content-faint"></i>
-          Captura al menos un exhibidor para poder terminar la visita
-        </p>
-      }
-    </div>
-
-  </ng-container>
-
-
-
-  <ng-container *ngIf="!svc.hasActiveVisit()">
-
-    <div class="p-12 text-center bg-surface-card border border-divider rounded-xl mt-6">
-
-      <div class="w-16 h-16 rounded-full bg-surface-ground border border-divider flex items-center justify-center mx-auto mb-4 text-content-muted shadow-inner">
-
-        <i class="pi pi-map-marker text-2xl"></i>
-
+        <div class="flex flex-col sm:flex-row gap-2">
+          <input pInputText type="text" placeholder="Nombre de la tienda *" class="flex-1"
+            required aria-required="true"
+            inputmode="text"
+            autocomplete="off"
+            autocapitalize="words"
+            autocorrect="off"
+            enterkeyhint="go"
+            [ngModel]="newStoreName()" (ngModelChange)="newStoreName.set($event)"
+            (keydown.enter)="newStoreName().trim() && onCreateStore()" />
+            <p-button label="Registrar" icon="pi pi-save" size="small"
+              styleClass="p-button-brand"
+              [disabled]="!newStoreName().trim() || creatingStore()"
+              [loading]="creatingStore()"
+            (onClick)="onCreateStore()"></p-button>
+            <p-button label="Re-detectar" severity="secondary" size="small" [text]="true"
+              [disabled]="creatingStore()"
+            (onClick)="onReDetectarTienda()"></p-button>
+          </div>
+        </div>
       </div>
-
-      <h3 class="text-lg font-bold text-content-main mb-2">Listo para iniciar tu ruta</h3>
-
-      <p class="text-sm text-content-dim mb-6 max-w-sm mx-auto">Para capturar ejecución comercial, primero inicia una visita. El sistema capturará tu ubicación GPS.</p>
-
-      <p-button label="Iniciar Visita de Campo" icon="pi pi-play" (onClick)="onIniciarVisita()" [disabled]="needsRoute() || isStartingVisita()" styleClass="p-button-brand"></p-button>
-
-    </div>
-
-  </ng-container>
-
-
-
-  <!-- SECCIÓN: HISTORIAL DE VISITAS DEL DÍA -->
-
-  <div class="mt-12">
-
-    <div class="flex items-center gap-2 mb-4">
-
-      <i class="pi pi-history text-brand-orange"></i>
-
-       <h3 class="text-lg font-bold text-content-main uppercase tracking-tight">Historial de Visitas Hoy</h3>
-
-    </div>
-
-
-
-    <div class="bg-surface-card border border-divider rounded-2xl shadow-sm overflow-hidden hidden md:block">
-
-      <p-table [value]="svc.visitasHoy()" dataKey="folio" [expandedRowKeys]="expandedRows" styleClass="p-datatable-sm" responsiveLayout="scroll">
-
-        <ng-template pTemplate="header">
-
-          <tr class="text-xs text-content-muted uppercase bg-surface-ground border-b border-divider">
-
-            <th style="width: 3rem"></th>
-
-            <th>Folio</th>
-
-            <th>Finalizada</th>
-
-            <th>Exhibiciones</th>
-
-            <th class="text-right">Venta Total</th>
-
-            <th class="text-center">Score</th>
-
-            <th>Estado</th>
-
-          </tr>
-
-        </ng-template>
-
-        <ng-template pTemplate="body" let-visita let-expanded="expanded">
-
-          <tr class="text-sm border-b border-divider hover:bg-surface-hover/30 transition-colors">
-
-            <td>
-
-              <p-button type="button" [pRowToggler]="visita" [text]="true" [rounded]="true" severity="secondary"
-
-                        [icon]="expanded ? 'pi pi-chevron-down' : 'pi pi-chevron-right'"></p-button>
-
-            </td>
-
-            <td class="font-bold text-content-main font-mono">#{{visita.folio}}</td>
-
-            <td class="text-content-dim">{{ formatDate(visita.horaFin) }}</td>
-
-            <td>
-
-               <span class="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-brand-light text-brand-sunset">
-
-                 {{visita.exhibiciones?.length}} items
-
-               </span>
-
-            </td>
-
-            <td class="text-right font-bold text-brand-orange font-mono">${{visita.stats?.ventaTotal?.toLocaleString()}}</td>
-
-            <td class="text-center font-bold text-content-main">{{ fmtScore(visita.stats?.puntuacionTotal) }}</td>
-
-            <td>
-
-              <p-tag severity="success" value="SINCRONIZADO" [rounded]="true"></p-tag>
-
-            </td>
-
-          </tr>
-
-        </ng-template>
-
-
-
-        <!-- Expansión de la Fila (Detalle por Visita) -->
-
-        <ng-template pTemplate="rowexpansion" let-visita>
-
-          <tr>
-
-            <td colspan="7" class="p-6 bg-surface-ground">
-
-              <div class="mb-4">
-
-                <h4 class="text-xs font-black text-content-muted uppercase tracking-[0.2em]">Detalle de Exhibidores Registrados</h4>
-
-              </div>
-
-              <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-
-                <div *ngFor="let ex of visita.exhibiciones" class="bg-surface-card p-3 rounded-lg border border-divider shadow-sm">
-
-                  <div class="flex justify-between items-start mb-2">
-
-                    <div class="w-8 h-8 rounded-md bg-surface-layout border border-divider flex items-center justify-center text-xs text-content-faint">
-
-                      <i [class]="getConceptIcon(ex.conceptoId)"></i>
-
-                    </div>
-
-                    <span class="text-xs font-bold text-content-muted bg-surface-layout px-2 py-0.5 rounded border border-divider shadow-inner">{{ ex.puntuacionCalculada }} pts</span>
-
-                  </div>
-
-                  <div class="text-xs font-black text-content-main uppercase mb-1 tracking-tighter">{{ getConceptNombre(ex.conceptoId) }}</div>
-
-                  <div class="text-xs text-content-dim flex items-center gap-1 mb-2">
-
-                    <i class="pi pi-map-marker text-[8px]"></i> {{ getUbicacionNombre(ex.ubicacionId) }}
-
-                  </div>
-
-                  <div class="flex items-center justify-between mt-2 pt-2 border-t border-divider/50">
-
-                    <p-tag [severity]="ex.nivelEjecucion?.toLowerCase() === 'alto' || ex.nivelEjecucion?.toLowerCase() === 'excelente' || ex.nivelEjecucion?.toLowerCase() === 'optimo' ? 'success' : ex.nivelEjecucion?.toLowerCase() === 'medio' || ex.nivelEjecucion?.toLowerCase() === 'regular' ? 'warn' : 'danger'" [value]="(ex.nivelEjecucion || '') | titlecase" styleClass="text-[9px]"></p-tag>
-
-                    <span class="font-mono text-xs text-brand-orange font-bold">${{ex.ventaAdicional || 0}}</span>
-
-                  </div>
-
-                </div>
-
-              </div>
-
-            </td>
-
-          </tr>
-
-        </ng-template>
-
-
-
-        <ng-template pTemplate="emptymessage">
-
-          <tr>
-
-            <td colspan="7" class="text-center p-10 text-content-dim italic bg-surface-card text-xs">
-
-              No tienes visitas guardadas el día de hoy.
-
-            </td>
-
-          </tr>
-
-        </ng-template>
-
-      </p-table>
-
-    </div>
-
-
-
-    <!-- Mobile Card View for Visit History -->
-
-    <div class="md:hidden space-y-4 mt-4">
-
-      <div *ngFor="let visita of svc.visitasHoy()" class="bg-surface-card border border-divider rounded-2xl p-4 shadow-sm active:scale-[0.98] transition-transform">
-
-        <div class="flex items-center justify-between mb-3">
-
-          <div class="flex items-center gap-3">
-
-            <span class="text-xs font-mono text-content-dim bg-surface-ground px-2 py-1 rounded">#{{visita.folio}}</span>
-
-            <h3 class="text-sm font-bold text-content-main">{{ formatDate(visita.horaFin) }}</h3>
-
+    }
+
+    <!-- Contenido Activo de la Visita -->
+
+    @if (svc.hasActiveVisit()) {
+      <!-- Stats del Día -->
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+        @for (stat of statCards(); track stat) {
+          <div class="p-4 bg-surface-card border border-divider rounded-xl shadow-sm flex items-center gap-4">
+            <div class="w-12 h-12 rounded-lg bg-surface-ground flex items-center justify-center flex-shrink-0 border border-divider">
+              <i [class]="stat.icon" class="text-xl" [style.color]="stat.valueColor"></i>
+            </div>
+            <div class="flex-1">
+              <div class="text-xs uppercase font-bold text-content-muted tracking-wider">{{stat.label}}</div>
+              <div class="text-xl font-bold font-mono" [style.color]="stat.valueColor">{{stat.value}}</div>
+              <div class="text-xs text-content-dim">{{stat.description}}</div>
+              <!-- Progress Bar for Score -->
+              <!-- Progress Bar for Score (Hidden for absolute points) -->
+            </div>
           </div>
-
-          <p-tag severity="success" value="SINCRONIZADO" [rounded]="true" styleClass="text-xs"></p-tag>
-
+        }
+      </div>
+      <!-- Exhibidores Auditados - Desktop Table -->
+      <div class="hidden md:block bg-surface-card border border-divider rounded-2xl shadow-sm overflow-hidden mb-6">
+        <div class="p-4 border-b border-divider bg-surface-ground flex justify-between items-center">
+          <h3 class="font-bold text-content-main"><i class="pi pi-box mr-2"></i>Exhibidores en esta Vista</h3>
+          <span class="text-xs font-mono text-content-muted">ID: {{svc.horaInicio() | date:'hhmm'}}</span>
         </div>
-
-        <div class="space-y-2">
-
-          <div class="flex items-center gap-2">
-
-            <span class="text-xs text-content-muted">Exhibiciones:</span>
-
-            <span class="text-sm font-medium text-content-main">{{visita.exhibiciones.length}} items</span>
-
-          </div>
-
-          <div class="flex items-center gap-2">
-
-            <span class="text-xs text-content-muted">Venta Total:</span>
-
-            <span class="text-sm font-bold text-brand-orange">${{visita.stats.ventaTotal.toLocaleString()}}</span>
-
-          </div>
-
-          <div class="flex items-center gap-2">
-
-            <span class="text-xs text-content-muted">Score:</span>
-
-            <span class="text-sm font-bold text-content-main">{{ fmtScore(visita.stats.puntuacionTotal) }}</span>
-
-          </div>
-
-        </div>
-
-        <!-- Expandable exhibiciones details -->
-
-        <div *ngIf="expandedRows[visita.folio]" class="mt-4 pt-4 border-t border-divider animate-in fade-in slide-in-from-top-2 duration-300">
-
-          <div class="text-[10px] font-black text-content-faint uppercase tracking-[0.2em] mb-3">Auditoría Técnica:</div>
-
-          <div class="grid grid-cols-1 gap-3">
-
-            <div *ngFor="let ex of visita.exhibiciones" class="bg-surface-ground/50 p-3 rounded-xl border border-divider/50">
-
-              <div class="flex justify-between items-start mb-2">
-
-                <div class="flex items-center gap-2">
-
-                  <div class="w-8 h-8 rounded-lg bg-surface-card border border-divider flex items-center justify-center text-xs text-content-faint shadow-sm">
-
+        <p-table [value]="svc.activeExhibiciones()" styleClass="p-datatable-sm" responsiveLayout="scroll">
+          <ng-template pTemplate="header">
+            <tr class="text-xs text-content-muted uppercase">
+              <th class="pl-4">Ubicación</th>
+              <th>Tipo / Formato</th>
+              <th>Nivel</th>
+              <th class="text-right">Venta Add</th>
+              <th class="text-center">Score</th>
+              <th class="text-center">Evidencia</th>
+              <th class="text-center w-20"></th>
+            </tr>
+          </ng-template>
+          <ng-template pTemplate="body" let-ex>
+            <tr class="text-sm hover:bg-surface-ground transition-colors">
+              <td class="pl-4 font-medium text-content-main">{{ getUbicacionNombre(ex.ubicacionId) }}</td>
+              <td>
+                <span class="flex items-center gap-3">
+                  <div class="w-8 h-8 rounded-lg bg-surface-layout border border-divider flex items-center justify-center text-sm text-content-faint shadow-sm">
                     <i [class]="getConceptIcon(ex.conceptoId)"></i>
-
                   </div>
-
-                  <div class="flex flex-col">
-
-                    <span class="text-xs font-black text-content-main uppercase tracking-tight">{{ getConceptNombre(ex.conceptoId) }}</span>
-
-                    <span class="text-[9px] text-content-dim flex items-center gap-1">
-
-                      <i class="pi pi-map-marker text-[8px]"></i> {{ getUbicacionNombre(ex.ubicacionId) }}
-
-                    </span>
-
-                  </div>
-
-                </div>
-
-                <div class="flex flex-col items-end">
-
-                  <span class="text-[9px] font-bold text-brand-orange">{{ ex.puntuacionCalculada }} pts</span>
-
-                  <p-tag [severity]="ex.nivelEjecucion?.toLowerCase() === 'alto' || ex.nivelEjecucion?.toLowerCase() === 'excelente' || ex.nivelEjecucion?.toLowerCase() === 'optimo' ? 'success' : ex.nivelEjecucion?.toLowerCase() === 'medio' || ex.nivelEjecucion?.toLowerCase() === 'regular' ? 'warn' : 'danger'" [value]="(ex.nivelEjecucion || '') | titlecase" styleClass="text-[8px] px-1 py-0 px-2 mt-1"></p-tag>
-
-                </div>
-
-              </div>
-
-              <div class="flex items-center justify-between mt-2 pt-2 border-t border-divider/10">
-
-                <span class="text-[9px] text-content-faint italic">Impacto Venta:</span>
-
-                <span class="font-mono text-xs text-brand-orange font-bold">${{ex.ventaAdicional || 0}}</span>
-
-              </div>
-
-            </div>
-
+                  <span class="font-bold text-content-main text-xs uppercase tracking-tight">{{ getConceptNombre(ex.conceptoId) }}</span>
+                </span>
+              </td>
+              <td>
+                <p-tag [severity]="ex.nivelEjecucion?.toLowerCase() === 'alto' || ex.nivelEjecucion?.toLowerCase() === 'excelente' || ex.nivelEjecucion?.toLowerCase() === 'optimo' ? 'success' : ex.nivelEjecucion?.toLowerCase() === 'medio' || ex.nivelEjecucion?.toLowerCase() === 'regular' ? 'warn' : 'danger'" [value]="(ex.nivelEjecucion || '') | titlecase" [rounded]="true"></p-tag>
+              </td>
+              <td class="text-right font-mono text-brand-orange font-bold border-r border-divider/30 px-4">{{ ex.ventaAdicional ? '$' + ex.ventaAdicional : '—' }}</td>
+              <td class="text-center bg-surface-ground/50">
+                <span class="font-bold font-mono text-brand-orange">
+                  {{ ex.puntuacionCalculada }} pts
+                </span>
+              </td>
+              <td class="text-center">
+                @if (ex.fotoBase64) {
+                  <i class="pi pi-image text-brand" title="Evidencia Guardada"></i>
+                }
+              </td>
+              <td class="text-center">
+                <p-button icon="pi pi-trash" severity="danger" [text]="true" (onClick)="onRemoveExhibicion(ex.id)"></p-button>
+              </td>
+            </tr>
+          </ng-template>
+          <ng-template pTemplate="emptymessage">
+            <tr>
+              <td colspan="7" class="text-center p-12 text-content-dim">
+                <i class="pi pi-info-circle text-2xl mb-2 opacity-20"></i>
+                <p>No se han auditado exhibidores. Haz clic en "Auditar Exhibidor" arriba.</p>
+              </td>
+            </tr>
+          </ng-template>
+        </p-table>
+      </div>
+      <!-- Exhibidores Auditados - Mobile Cards -->
+      <div class="md:hidden space-y-3 mb-6">
+        <div class="p-3 bg-surface-card border border-divider rounded-2xl">
+          <div class="flex justify-between items-center mb-3">
+            <h3 class="font-bold text-content-main text-sm"><i class="pi pi-box mr-2 text-brand"></i>Exhibidores en esta Vista</h3>
+            <span class="text-[10px] font-mono text-content-muted">ID: {{svc.horaInicio() | date:'hhmm'}}</span>
           </div>
-
+          @if (svc.activeExhibiciones().length === 0) {
+            <div class="text-center py-8 text-content-dim">
+              <i class="pi pi-info-circle text-2xl mb-2 opacity-20"></i>
+              <p class="text-xs">No se han auditado exhibidores</p>
+            </div>
+          }
+          @for (ex of svc.activeExhibiciones(); track ex) {
+            <div class="bg-surface-ground border border-divider rounded-xl p-3 mb-3 last:mb-0">
+              <div class="flex justify-between items-start mb-2">
+                <div class="flex items-center gap-2">
+                  <div class="w-8 h-8 rounded-lg bg-surface-card border border-divider flex items-center justify-center text-xs text-content-faint">
+                    <i [class]="getConceptIcon(ex.conceptoId)"></i>
+                  </div>
+                  <div>
+                    <div class="text-xs font-black text-content-main uppercase">{{ getConceptNombre(ex.conceptoId) }}</div>
+                    <div class="text-[10px] text-content-dim flex items-center gap-1">
+                      <i class="pi pi-map-marker text-[8px]"></i> {{ getUbicacionNombre(ex.ubicacionId) }}
+                    </div>
+                  </div>
+                </div>
+                <p-button icon="pi pi-trash" severity="danger" [text]="true" size="small" (onClick)="onRemoveExhibicion(ex.id)"></p-button>
+              </div>
+              <div class="flex items-center justify-between mt-2 pt-2 border-t border-divider/50">
+                <p-tag [severity]="ex.nivelEjecucion?.toLowerCase() === 'alto' || ex.nivelEjecucion?.toLowerCase() === 'excelente' || ex.nivelEjecucion?.toLowerCase() === 'optimo' ? 'success' : ex.nivelEjecucion?.toLowerCase() === 'medio' || ex.nivelEjecucion?.toLowerCase() === 'regular' ? 'warn' : 'danger'"
+                [value]="(ex.nivelEjecucion || '') | titlecase" [rounded]="true" styleClass="text-[10px]"></p-tag>
+                <div class="flex items-center gap-3">
+                  <span class="text-xs font-bold font-mono text-brand-orange">{{ ex.puntuacionCalculada }} pts</span>
+                  <span class="text-xs font-mono text-content-dim">{{ ex.ventaAdicional ? '$' + ex.ventaAdicional : '—' }}</span>
+                  @if (ex.fotoBase64) {
+                    <i class="pi pi-image text-brand text-xs"></i>
+                  }
+                </div>
+              </div>
+            </div>
+          }
         </div>
-
-        <div class="mt-3 pt-3 border-t border-divider flex justify-center">
-
-          <p-button type="button" [text]="true" [rounded]="true" severity="secondary"
-
-                    [icon]="expandedRows[visita.folio] ? 'pi pi-chevron-up' : 'pi pi-chevron-down'"
-
-                    (onClick)="toggleRowExpansion(visita)"
-
-                    [label]="expandedRows[visita.folio] ? 'Cerrar Detalles' : 'Ver Detalles del Reporte'"
-
-                    styleClass="text-xs font-bold text-brand uppercase tracking-wider"></p-button>
-
+      </div>
+      <!-- Finalizar / Cancelar -->
+      <div class="mt-6 flex flex-col items-stretch md:items-end gap-2">
+        <div class="flex justify-end gap-3 w-full">
+          <p-button label="Cancelar Visita" severity="secondary" [outlined]="true"
+            (onClick)="onCancelarVisita()"
+          styleClass="flex-1 md:flex-none"></p-button>
+          <p-button label="Terminar Visita" icon="pi pi-check-circle" styleClass="p-button-brand flex-1 md:flex-none"
+            (onClick)="openImpactDialog()"
+            [disabled]="svc.activeExhibiciones().length === 0 || needsStore() || isSaving()"
+          [loading]="isSaving()"></p-button>
         </div>
+        @if (needsStore()) {
+          <p class="text-xs status-bad status-text italic flex items-center gap-1.5 self-end">
+            <i class="pi pi-info-circle"></i>
+            Registra el nombre de la tienda antes de terminar la visita
+          </p>
+        } @else if (svc.activeExhibiciones().length === 0) {
+          <p class="text-xs text-content-muted italic flex items-center gap-1.5 self-end">
+            <i class="pi pi-info-circle text-content-faint"></i>
+            Captura al menos un exhibidor para poder terminar la visita
+          </p>
+        }
+      </div>
+    }
+
+
+
+    @if (!svc.hasActiveVisit()) {
+      <div class="p-12 text-center bg-surface-card border border-divider rounded-xl mt-6">
+        <div class="w-16 h-16 rounded-full bg-surface-ground border border-divider flex items-center justify-center mx-auto mb-4 text-content-muted shadow-inner">
+          <i class="pi pi-map-marker text-2xl"></i>
+        </div>
+        <h3 class="text-lg font-bold text-content-main mb-2">Listo para iniciar tu ruta</h3>
+        <p class="text-sm text-content-dim mb-6 max-w-sm mx-auto">Para capturar ejecución comercial, primero inicia una visita. El sistema capturará tu ubicación GPS.</p>
+        <p-button label="Iniciar Visita de Campo" icon="pi pi-play" (onClick)="onIniciarVisita()" [disabled]="needsRoute() || isStartingVisita()" styleClass="p-button-brand"></p-button>
+      </div>
+    }
+
+
+
+    <!-- SECCIÓN: HISTORIAL DE VISITAS DEL DÍA -->
+
+    <div class="mt-12">
+
+      <div class="flex items-center gap-2 mb-4">
+
+        <i class="pi pi-history text-brand-orange"></i>
+
+        <h3 class="text-lg font-bold text-content-main uppercase tracking-tight">Historial de Visitas Hoy</h3>
+
+      </div>
+
+
+
+      <div class="bg-surface-card border border-divider rounded-2xl shadow-sm overflow-hidden hidden md:block">
+
+        <p-table [value]="svc.visitasHoy()" dataKey="folio" [expandedRowKeys]="expandedRows" styleClass="p-datatable-sm" responsiveLayout="scroll">
+
+          <ng-template pTemplate="header">
+
+            <tr class="text-xs text-content-muted uppercase bg-surface-ground border-b border-divider">
+
+              <th style="width: 3rem"></th>
+
+              <th>Folio</th>
+
+              <th>Finalizada</th>
+
+              <th>Exhibiciones</th>
+
+              <th class="text-right">Venta Total</th>
+
+              <th class="text-center">Score</th>
+
+              <th>Estado</th>
+
+            </tr>
+
+          </ng-template>
+
+          <ng-template pTemplate="body" let-visita let-expanded="expanded">
+
+            <tr class="text-sm border-b border-divider hover:bg-surface-hover/30 transition-colors">
+
+              <td>
+
+                <p-button type="button" [pRowToggler]="visita" [text]="true" [rounded]="true" severity="secondary"
+
+                [icon]="expanded ? 'pi pi-chevron-down' : 'pi pi-chevron-right'"></p-button>
+
+              </td>
+
+              <td class="font-bold text-content-main font-mono">#{{visita.folio}}</td>
+
+              <td class="text-content-dim">{{ formatDate(visita.horaFin) }}</td>
+
+              <td>
+
+                <span class="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-brand-light text-brand-sunset">
+
+                  {{visita.exhibiciones?.length}} items
+
+                </span>
+
+              </td>
+
+              <td class="text-right font-bold text-brand-orange font-mono">${{visita.stats?.ventaTotal?.toLocaleString()}}</td>
+
+              <td class="text-center font-bold text-content-main">{{ fmtScore(visita.stats?.puntuacionTotal) }}</td>
+
+              <td>
+
+                <p-tag severity="success" value="SINCRONIZADO" [rounded]="true"></p-tag>
+
+              </td>
+
+            </tr>
+
+          </ng-template>
+
+
+
+          <!-- Expansión de la Fila (Detalle por Visita) -->
+
+          <ng-template pTemplate="rowexpansion" let-visita>
+
+            <tr>
+
+              <td colspan="7" class="p-6 bg-surface-ground">
+
+                <div class="mb-4">
+
+                  <h4 class="text-xs font-black text-content-muted uppercase tracking-[0.2em]">Detalle de Exhibidores Registrados</h4>
+
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+
+                  @for (ex of visita.exhibiciones; track ex) {
+                    <div class="bg-surface-card p-3 rounded-lg border border-divider shadow-sm">
+                      <div class="flex justify-between items-start mb-2">
+                        <div class="w-8 h-8 rounded-md bg-surface-layout border border-divider flex items-center justify-center text-xs text-content-faint">
+                          <i [class]="getConceptIcon(ex.conceptoId)"></i>
+                        </div>
+                        <span class="text-xs font-bold text-content-muted bg-surface-layout px-2 py-0.5 rounded border border-divider shadow-inner">{{ ex.puntuacionCalculada }} pts</span>
+                      </div>
+                      <div class="text-xs font-black text-content-main uppercase mb-1 tracking-tighter">{{ getConceptNombre(ex.conceptoId) }}</div>
+                      <div class="text-xs text-content-dim flex items-center gap-1 mb-2">
+                        <i class="pi pi-map-marker text-[8px]"></i> {{ getUbicacionNombre(ex.ubicacionId) }}
+                      </div>
+                      <div class="flex items-center justify-between mt-2 pt-2 border-t border-divider/50">
+                        <p-tag [severity]="ex.nivelEjecucion?.toLowerCase() === 'alto' || ex.nivelEjecucion?.toLowerCase() === 'excelente' || ex.nivelEjecucion?.toLowerCase() === 'optimo' ? 'success' : ex.nivelEjecucion?.toLowerCase() === 'medio' || ex.nivelEjecucion?.toLowerCase() === 'regular' ? 'warn' : 'danger'" [value]="(ex.nivelEjecucion || '') | titlecase" styleClass="text-[9px]"></p-tag>
+                        <span class="font-mono text-xs text-brand-orange font-bold">${{ex.ventaAdicional || 0}}</span>
+                      </div>
+                    </div>
+                  }
+
+                </div>
+
+              </td>
+
+            </tr>
+
+          </ng-template>
+
+
+
+          <ng-template pTemplate="emptymessage">
+
+            <tr>
+
+              <td colspan="7" class="text-center p-10 text-content-dim italic bg-surface-card text-xs">
+
+                No tienes visitas guardadas el día de hoy.
+
+              </td>
+
+            </tr>
+
+          </ng-template>
+
+        </p-table>
+
+      </div>
+
+
+
+      <!-- Mobile Card View for Visit History -->
+
+      <div class="md:hidden space-y-4 mt-4">
+
+        @for (visita of svc.visitasHoy(); track visita) {
+          <div class="bg-surface-card border border-divider rounded-2xl p-4 shadow-sm active:scale-[0.98] transition-transform">
+            <div class="flex items-center justify-between mb-3">
+              <div class="flex items-center gap-3">
+                <span class="text-xs font-mono text-content-dim bg-surface-ground px-2 py-1 rounded">#{{visita.folio}}</span>
+                <h3 class="text-sm font-bold text-content-main">{{ formatDate(visita.horaFin) }}</h3>
+              </div>
+              <p-tag severity="success" value="SINCRONIZADO" [rounded]="true" styleClass="text-xs"></p-tag>
+            </div>
+            <div class="space-y-2">
+              <div class="flex items-center gap-2">
+                <span class="text-xs text-content-muted">Exhibiciones:</span>
+                <span class="text-sm font-medium text-content-main">{{visita.exhibiciones.length}} items</span>
+              </div>
+              <div class="flex items-center gap-2">
+                <span class="text-xs text-content-muted">Venta Total:</span>
+                <span class="text-sm font-bold text-brand-orange">${{visita.stats.ventaTotal.toLocaleString()}}</span>
+              </div>
+              <div class="flex items-center gap-2">
+                <span class="text-xs text-content-muted">Score:</span>
+                <span class="text-sm font-bold text-content-main">{{ fmtScore(visita.stats.puntuacionTotal) }}</span>
+              </div>
+            </div>
+            <!-- Expandable exhibiciones details -->
+            @if (expandedRows[visita.folio]) {
+              <div class="mt-4 pt-4 border-t border-divider animate-in fade-in slide-in-from-top-2 duration-300">
+                <div class="text-[10px] font-black text-content-faint uppercase tracking-[0.2em] mb-3">Auditoría Técnica:</div>
+                <div class="grid grid-cols-1 gap-3">
+                  @for (ex of visita.exhibiciones; track ex) {
+                    <div class="bg-surface-ground/50 p-3 rounded-xl border border-divider/50">
+                      <div class="flex justify-between items-start mb-2">
+                        <div class="flex items-center gap-2">
+                          <div class="w-8 h-8 rounded-lg bg-surface-card border border-divider flex items-center justify-center text-xs text-content-faint shadow-sm">
+                            <i [class]="getConceptIcon(ex.conceptoId)"></i>
+                          </div>
+                          <div class="flex flex-col">
+                            <span class="text-xs font-black text-content-main uppercase tracking-tight">{{ getConceptNombre(ex.conceptoId) }}</span>
+                            <span class="text-[9px] text-content-dim flex items-center gap-1">
+                              <i class="pi pi-map-marker text-[8px]"></i> {{ getUbicacionNombre(ex.ubicacionId) }}
+                            </span>
+                          </div>
+                        </div>
+                        <div class="flex flex-col items-end">
+                          <span class="text-[9px] font-bold text-brand-orange">{{ ex.puntuacionCalculada }} pts</span>
+                          <p-tag [severity]="ex.nivelEjecucion?.toLowerCase() === 'alto' || ex.nivelEjecucion?.toLowerCase() === 'excelente' || ex.nivelEjecucion?.toLowerCase() === 'optimo' ? 'success' : ex.nivelEjecucion?.toLowerCase() === 'medio' || ex.nivelEjecucion?.toLowerCase() === 'regular' ? 'warn' : 'danger'" [value]="(ex.nivelEjecucion || '') | titlecase" styleClass="text-[8px] px-1 py-0 px-2 mt-1"></p-tag>
+                        </div>
+                      </div>
+                      <div class="flex items-center justify-between mt-2 pt-2 border-t border-divider/10">
+                        <span class="text-[9px] text-content-faint italic">Impacto Venta:</span>
+                        <span class="font-mono text-xs text-brand-orange font-bold">${{ex.ventaAdicional || 0}}</span>
+                      </div>
+                    </div>
+                  }
+                </div>
+              </div>
+            }
+            <div class="mt-3 pt-3 border-t border-divider flex justify-center">
+              <p-button type="button" [text]="true" [rounded]="true" severity="secondary"
+                [icon]="expandedRows[visita.folio] ? 'pi pi-chevron-up' : 'pi pi-chevron-down'"
+                (onClick)="toggleRowExpansion(visita)"
+                [label]="expandedRows[visita.folio] ? 'Cerrar Detalles' : 'Ver Detalles del Reporte'"
+              styleClass="text-xs font-bold text-brand uppercase tracking-wider"></p-button>
+            </div>
+          </div>
+        }
 
       </div>
 
@@ -767,16 +606,14 @@
 
   </div>
 
-</div>
 
 
-
-<!--
+  <!--
   FAB sticky de "Auditar Exhibidor" — solo mobile, solo durante visita activa.
   Evita el scroll-to-top después de cada captura. Se posiciona respetando el
   safe-area-inset de iPhones (notch + home indicator) usando `env()`.
--->
-<!--
+  -->
+  <!--
   FAB sticky mobile. Se deshabilita visualmente cuando `needsStore()` (visita
   activa sin tienda) — el click muestra un toast guiando al banner de tienda.
   No usamos `*ngIf="!needsStore()"` para no esconderlo de golpe: queremos que
@@ -785,133 +622,140 @@
   Las clases con `/` (yellow-400/50, etc.) van por `[ngClass]` en lugar de
   `[class.X]` porque Angular no acepta `/` como parte del nombre de clase
   en la sintaxis `[class.foo\/50]`.
--->
-<button
-  *ngIf="svc.hasActiveVisit() && !showWizard"
-  type="button"
-  (click)="startWizard()"
-  [attr.aria-disabled]="needsStore() ? 'true' : null"
-  [attr.aria-label]="needsStore() ? 'Auditar exhibidor (primero confirma la tienda)' : 'Auditar nuevo exhibidor'"
-  class="md:hidden fab-bottom inline-flex items-center gap-2 px-5 py-4 rounded-full shadow-2xl font-bold text-sm active:scale-95 transition-all focus-visible:outline-none focus-visible:ring-4"
+  -->
+  @if (svc.hasActiveVisit() && !showWizard) {
+    <button
+      type="button"
+      (click)="startWizard()"
+      [attr.aria-disabled]="needsStore() ? 'true' : null"
+      [attr.aria-label]="needsStore() ? 'Auditar exhibidor (primero confirma la tienda)' : 'Auditar nuevo exhibidor'"
+      class="md:hidden fab-bottom inline-flex items-center gap-2 px-5 py-4 rounded-full shadow-2xl font-bold text-sm active:scale-95 transition-all focus-visible:outline-none focus-visible:ring-4"
   [ngClass]="needsStore()
     ? 'bg-surface-layout text-content-faint shadow-lg cursor-not-allowed opacity-70 focus-visible:ring-content-faint/30'
     : 'bg-brand text-black shadow-lg focus-visible:ring-brand-300'">
-  <i class="pi text-base" aria-hidden="true" [ngClass]="needsStore() ? 'pi-lock' : 'pi-plus'"></i>
-  <span>{{ needsStore() ? 'Falta tienda' : 'Auditar exhibidor' }}</span>
-</button>
+      <i class="pi text-base" aria-hidden="true" [ngClass]="needsStore() ? 'pi-lock' : 'pi-plus'"></i>
+      <span>{{ needsStore() ? 'Falta tienda' : 'Auditar exhibidor' }}</span>
+    </button>
+  }
 
-<!-- CAPTURE WIZARD DIALOG -->
+  <!-- CAPTURE WIZARD DIALOG -->
 
-<p-dialog [(visible)]="showWizard" [modal]="true" appendTo="body" header="Auditoría de Exhibidor"
-          [style]="{width: '90vw', maxWidth: '600px'}"
-          [breakpoints]="{'640px': '100vw'}"
-          [blockScroll]="true"
-          [draggable]="false"
-          [resizable]="false"
-          styleClass="surface-card border-divider rounded-2xl wizard-dialog-mobile"
-          [contentStyleClass]="'bg-surface-card text-content-main'"
-          (onHide)="onWizardHide()">
+  <p-dialog [(visible)]="showWizard" [modal]="true" appendTo="body" header="Auditoría de Exhibidor"
+    [style]="{width: '90vw', maxWidth: '600px'}"
+    [breakpoints]="{'640px': '100vw'}"
+    [blockScroll]="true"
+    [draggable]="false"
+    [resizable]="false"
+    styleClass="surface-card border-divider rounded-2xl wizard-dialog-mobile"
+    [contentStyleClass]="'bg-surface-card text-content-main'"
+    (onHide)="onWizardHide()">
 
-  <ng-container *ngIf="showWizard">
-
-    <!-- Progress Indicator -->
-    <!-- Vendedor: solo 2 dots (foto exhibidor + foto ticket). Mapeo: wizardStep 6→1, 7→2 -->
-    <div class="mb-6 mt-2 px-2" *ngIf="isVendedor()">
-      <div class="flex justify-between items-center relative max-w-[180px] mx-auto" role="progressbar"
-           [attr.aria-valuenow]="wizardStep === 6 ? 1 : 2" aria-valuemin="1" aria-valuemax="2"
-           [attr.aria-label]="'Paso ' + (wizardStep === 6 ? 1 : 2) + ' de 2'">
-        <div class="absolute top-1/2 left-0 right-0 h-px bg-surface-ground border border-divider -z-10 -translate-y-1/2" aria-hidden="true"></div>
-        <div class="absolute top-1/2 left-0 h-px bg-brand-orange -z-10 -translate-y-1/2 motion-safe:transition-all motion-safe:duration-300"
-             [style.width]="wizardStep === 7 ? '100%' : '0%'" aria-hidden="true"></div>
-
-        <div *ngFor="let s of [1, 2]"
-             class="w-9 h-9 rounded-full flex items-center justify-center text-sm font-semibold bg-surface-card motion-safe:transition-colors z-10 border"
+    @if (showWizard) {
+      <!-- Progress Indicator -->
+      <!-- Vendedor: solo 2 dots (foto exhibidor + foto ticket). Mapeo: wizardStep 6→1, 7→2 -->
+      @if (isVendedor()) {
+        <div class="mb-6 mt-2 px-2">
+          <div class="flex justify-between items-center relative max-w-[180px] mx-auto" role="progressbar"
+            [attr.aria-valuenow]="wizardStep === 6 ? 1 : 2" aria-valuemin="1" aria-valuemax="2"
+            [attr.aria-label]="'Paso ' + (wizardStep === 6 ? 1 : 2) + ' de 2'">
+            <div class="absolute top-1/2 left-0 right-0 h-px bg-surface-ground border border-divider -z-10 -translate-y-1/2" aria-hidden="true"></div>
+            <div class="absolute top-1/2 left-0 h-px bg-brand-orange -z-10 -translate-y-1/2 motion-safe:transition-all motion-safe:duration-300"
+            [style.width]="wizardStep === 7 ? '100%' : '0%'" aria-hidden="true"></div>
+            @for (s of [1, 2]; track s) {
+              <div
+                class="w-9 h-9 rounded-full flex items-center justify-center text-sm font-semibold bg-surface-card motion-safe:transition-colors z-10 border"
              [ngClass]="(s === 1 && wizardStep === 7) ? 'border-brand-orange bg-brand-orange text-white'
                        : (s === 1 && wizardStep === 6) || (s === 2 && wizardStep === 7) ? 'border-brand-orange text-brand-orange'
                        : 'border-divider text-content-muted'">
-          {{s}}
+                {{s}}
+              </div>
+            }
+          </div>
         </div>
-      </div>
-    </div>
-
-    <!-- Trade marketing: 6 dots originales -->
-    <div class="mb-6 mt-2 px-2" *ngIf="!isVendedor()">
-      <div class="flex justify-between items-center relative" role="progressbar" [attr.aria-valuenow]="wizardStep" aria-valuemin="1" aria-valuemax="6" [attr.aria-label]="'Paso ' + wizardStep + ' de 6'">
-        <div class="absolute top-1/2 left-0 right-0 h-px bg-surface-ground border border-divider -z-10 -translate-y-1/2" aria-hidden="true"></div>
-        <div class="absolute top-1/2 left-0 h-px bg-brand-orange -z-10 -translate-y-1/2 motion-safe:transition-all motion-safe:duration-300" [style.width]="((wizardStep-1)/5)*100 + '%'" aria-hidden="true"></div>
-
-        <div *ngFor="let s of [1,2,3,4,5,6]"
-             class="w-9 h-9 rounded-full flex items-center justify-center text-sm font-semibold bg-surface-card motion-safe:transition-colors z-10 border"
+      }
+      <!-- Trade marketing: 6 dots originales -->
+      @if (!isVendedor()) {
+        <div class="mb-6 mt-2 px-2">
+          <div class="flex justify-between items-center relative" role="progressbar" [attr.aria-valuenow]="wizardStep" aria-valuemin="1" aria-valuemax="6" [attr.aria-label]="'Paso ' + wizardStep + ' de 6'">
+            <div class="absolute top-1/2 left-0 right-0 h-px bg-surface-ground border border-divider -z-10 -translate-y-1/2" aria-hidden="true"></div>
+            <div class="absolute top-1/2 left-0 h-px bg-brand-orange -z-10 -translate-y-1/2 motion-safe:transition-all motion-safe:duration-300" [style.width]="((wizardStep-1)/5)*100 + '%'" aria-hidden="true"></div>
+            @for (s of [1,2,3,4,5,6]; track s) {
+              <div
+                class="w-9 h-9 rounded-full flex items-center justify-center text-sm font-semibold bg-surface-card motion-safe:transition-colors z-10 border"
              [ngClass]="s < wizardStep
                ? 'border-brand-orange bg-brand-orange text-white'
                : s === wizardStep
                  ? 'border-brand-orange text-brand-orange'
                  : 'border-divider text-content-muted'"
-             [attr.aria-current]="s === wizardStep ? 'step' : null">
-          {{s}}
+                [attr.aria-current]="s === wizardStep ? 'step' : null">
+                {{s}}
+              </div>
+            }
+          </div>
         </div>
-      </div>
-    </div>
-
-    <div class="py-2 px-1" style="min-height: 360px;">
-
-      <!-- Step 1: Ubicación (oculto para vendedor — defaults silentes) -->
-      <div *ngIf="wizardStep === 1 && !isVendedor()" class="space-y-5 motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-2 motion-safe:duration-300">
-
-        <!-- Heading + hint -->
-        <header class="space-y-1">
-          <h2 class="text-base font-semibold text-content-main">¿Dónde está la exhibición?</h2>
-          <p class="text-xs text-content-muted leading-relaxed">Selecciona la ubicación exacta dentro de la tienda. Esto ayuda a evaluar el impacto comercial.</p>
-        </header>
-
-        <div *ngIf="configPosiciones().length > 0"
-             class="grid grid-cols-1 sm:grid-cols-2 gap-2"
-             role="radiogroup"
-             aria-label="Ubicación del exhibidor">
-          <button *ngFor="let ubi of configPosiciones()"
-                  type="button"
-                  role="radio"
-                  [attr.aria-checked]="currentExhibicion().ubicacionId === ubi.id"
-                  (click)="onUbicacionSelect(ubi.id)"
-                  class="min-h-[56px] flex items-center gap-3 p-4 rounded-xl border bg-surface-card text-left motion-safe:transition-colors hover:border-brand-orange/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-orange focus-visible:ring-offset-2"
+      }
+      <div class="py-2 px-1" style="min-height: 360px;">
+        <!-- Step 1: Ubicación (oculto para vendedor — defaults silentes) -->
+        @if (wizardStep === 1 && !isVendedor()) {
+          <div class="space-y-5 motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-2 motion-safe:duration-300">
+            <!-- Heading + hint -->
+            <header class="space-y-1">
+              <h2 class="text-base font-semibold text-content-main">¿Dónde está la exhibición?</h2>
+              <p class="text-xs text-content-muted leading-relaxed">Selecciona la ubicación exacta dentro de la tienda. Esto ayuda a evaluar el impacto comercial.</p>
+            </header>
+            @if (configPosiciones().length > 0) {
+              <div
+                class="grid grid-cols-1 sm:grid-cols-2 gap-2"
+                role="radiogroup"
+                aria-label="Ubicación del exhibidor">
+                @for (ubi of configPosiciones(); track ubi) {
+                  <button
+                    type="button"
+                    role="radio"
+                    [attr.aria-checked]="currentExhibicion().ubicacionId === ubi.id"
+                    (click)="onUbicacionSelect(ubi.id)"
+                    class="min-h-[56px] flex items-center gap-3 p-4 rounded-xl border bg-surface-card text-left motion-safe:transition-colors hover:border-brand-orange/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-orange focus-visible:ring-offset-2"
                   [ngClass]="currentExhibicion().ubicacionId === ubi.id
                     ? 'border-brand-orange bg-brand-orange/5'
                     : 'border-divider'">
-            <i class="pi pi-map-marker text-base shrink-0"
-               [ngClass]="currentExhibicion().ubicacionId === ubi.id ? 'text-brand-orange' : 'text-content-muted'"
-               aria-hidden="true"></i>
-            <span class="text-sm flex-1"
-                  [ngClass]="currentExhibicion().ubicacionId === ubi.id ? 'text-brand-orange font-medium' : 'text-content-main'">
-              {{ ubi.nombre }}
-            </span>
-            <i *ngIf="currentExhibicion().ubicacionId === ubi.id" class="pi pi-check text-brand-orange shrink-0" aria-hidden="true"></i>
-          </button>
-        </div>
-
-        <!-- Empty / loading -->
-        <div *ngIf="configPosiciones().length === 0"
-             class="p-8 text-center bg-surface-ground rounded-xl border border-dashed border-divider"
-             aria-live="polite">
-          <i class="pi pi-spin pi-spinner text-xl mb-3 text-content-muted block" aria-hidden="true"></i>
-          <p class="text-xs text-content-muted mb-4">Cargando ubicaciones disponibles...</p>
-          <p-button label="Reintentar" icon="pi pi-refresh" severity="secondary" [text]="true" size="small" (onClick)="svc.refreshAll()"></p-button>
-        </div>
-      </div>
-
-
-
-      <!-- Step 2: Formato del mueble (oculto para vendedor) -->
-      <div *ngIf="wizardStep === 2 && !isVendedor()" class="space-y-5 motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-2 motion-safe:duration-300">
-
-        <header class="space-y-1">
-          <h2 class="text-base font-semibold text-content-main">Formato del mueble</h2>
-          <p class="text-xs text-content-muted leading-relaxed">Identifica el tipo de exhibidor. Cada formato pesa distinto en la evaluación.</p>
-        </header>
-
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2"
-             role="radiogroup"
-             aria-label="Formato del mueble">
-          <button *ngFor="let tip of configTipos()"
+                    <i class="pi pi-map-marker text-base shrink-0"
+                      [ngClass]="currentExhibicion().ubicacionId === ubi.id ? 'text-brand-orange' : 'text-content-muted'"
+                    aria-hidden="true"></i>
+                    <span class="text-sm flex-1"
+                      [ngClass]="currentExhibicion().ubicacionId === ubi.id ? 'text-brand-orange font-medium' : 'text-content-main'">
+                      {{ ubi.nombre }}
+                    </span>
+                    @if (currentExhibicion().ubicacionId === ubi.id) {
+                      <i class="pi pi-check text-brand-orange shrink-0" aria-hidden="true"></i>
+                    }
+                  </button>
+                }
+              </div>
+            }
+            <!-- Empty / loading -->
+            @if (configPosiciones().length === 0) {
+              <div
+                class="p-8 text-center bg-surface-ground rounded-xl border border-dashed border-divider"
+                aria-live="polite">
+                <i class="pi pi-spin pi-spinner text-xl mb-3 text-content-muted block" aria-hidden="true"></i>
+                <p class="text-xs text-content-muted mb-4">Cargando ubicaciones disponibles...</p>
+                <p-button label="Reintentar" icon="pi pi-refresh" severity="secondary" [text]="true" size="small" (onClick)="svc.refreshAll()"></p-button>
+              </div>
+            }
+          </div>
+        }
+        <!-- Step 2: Formato del mueble (oculto para vendedor) -->
+        @if (wizardStep === 2 && !isVendedor()) {
+          <div class="space-y-5 motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-2 motion-safe:duration-300">
+            <header class="space-y-1">
+              <h2 class="text-base font-semibold text-content-main">Formato del mueble</h2>
+              <p class="text-xs text-content-muted leading-relaxed">Identifica el tipo de exhibidor. Cada formato pesa distinto en la evaluación.</p>
+            </header>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2"
+              role="radiogroup"
+              aria-label="Formato del mueble">
+              @for (tip of configTipos(); track tip) {
+                <button
                   type="button"
                   role="radio"
                   [attr.aria-checked]="currentExhibicion().conceptoId === tip.id"
@@ -920,80 +764,77 @@
                   [ngClass]="currentExhibicion().conceptoId === tip.id
                     ? 'border-brand-orange bg-brand-orange/5'
                     : 'border-divider'">
-            <i [class]="tip.icono + ' text-lg shrink-0'"
-               [ngClass]="currentExhibicion().conceptoId === tip.id ? 'text-brand-orange' : 'text-content-muted'"
-               aria-hidden="true"></i>
-            <span class="text-sm flex-1 truncate"
-                  [ngClass]="currentExhibicion().conceptoId === tip.id ? 'text-brand-orange font-medium' : 'text-content-main'">
-              {{ tip.nombre }}
-            </span>
-            <i *ngIf="currentExhibicion().conceptoId === tip.id" class="pi pi-check text-brand-orange shrink-0" aria-hidden="true"></i>
-          </button>
-        </div>
-      </div>
-
-
-
-      <!-- Step 3: Pertenece a Mega Dulces (oculto para vendedor) -->
-      <div *ngIf="wizardStep === 3 && !isVendedor()" class="space-y-5 motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-2 motion-safe:duration-300">
-
-        <header class="space-y-1">
-          <h2 class="text-base font-semibold text-content-main">¿Pertenece a Mega Dulces?</h2>
-          <p class="text-xs text-content-muted leading-relaxed">Indica si el exhibidor es propio o de la competencia.</p>
-        </header>
-
-        <div class="flex flex-col gap-2" role="radiogroup" aria-label="Propiedad del exhibidor">
-          <button type="button"
-                  role="radio"
-                  [attr.aria-checked]="currentExhibicion().perteneceMegaDulces === true"
-                  (click)="onPerteneceMegaDulcesSelect(true)"
-                  class="min-h-[56px] w-full flex items-center justify-between gap-3 p-4 rounded-xl border bg-surface-card text-left motion-safe:transition-colors hover:border-brand-orange/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-orange focus-visible:ring-offset-2"
+                  <i [class]="tip.icono + ' text-lg shrink-0'"
+                    [ngClass]="currentExhibicion().conceptoId === tip.id ? 'text-brand-orange' : 'text-content-muted'"
+                  aria-hidden="true"></i>
+                  <span class="text-sm flex-1 truncate"
+                    [ngClass]="currentExhibicion().conceptoId === tip.id ? 'text-brand-orange font-medium' : 'text-content-main'">
+                    {{ tip.nombre }}
+                  </span>
+                  @if (currentExhibicion().conceptoId === tip.id) {
+                    <i class="pi pi-check text-brand-orange shrink-0" aria-hidden="true"></i>
+                  }
+                </button>
+              }
+            </div>
+          </div>
+        }
+        <!-- Step 3: Pertenece a Mega Dulces (oculto para vendedor) -->
+        @if (wizardStep === 3 && !isVendedor()) {
+          <div class="space-y-5 motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-2 motion-safe:duration-300">
+            <header class="space-y-1">
+              <h2 class="text-base font-semibold text-content-main">¿Pertenece a Mega Dulces?</h2>
+              <p class="text-xs text-content-muted leading-relaxed">Indica si el exhibidor es propio o de la competencia.</p>
+            </header>
+            <div class="flex flex-col gap-2" role="radiogroup" aria-label="Propiedad del exhibidor">
+              <button type="button"
+                role="radio"
+                [attr.aria-checked]="currentExhibicion().perteneceMegaDulces === true"
+                (click)="onPerteneceMegaDulcesSelect(true)"
+                class="min-h-[56px] w-full flex items-center justify-between gap-3 p-4 rounded-xl border bg-surface-card text-left motion-safe:transition-colors hover:border-brand-orange/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-orange focus-visible:ring-offset-2"
                   [ngClass]="currentExhibicion().perteneceMegaDulces === true
                     ? 'border-brand-orange bg-brand-orange/5'
                     : 'border-divider'">
-            <span class="text-sm"
+                <span class="text-sm"
                   [ngClass]="currentExhibicion().perteneceMegaDulces === true ? 'text-brand-orange font-medium' : 'text-content-main'">
-              Sí, pertenece a Mega Dulces
-            </span>
-            <i class="pi shrink-0"
-               [ngClass]="currentExhibicion().perteneceMegaDulces === true ? 'pi-check-circle text-brand-orange' : 'pi-circle text-content-muted'"
-               aria-hidden="true"></i>
-          </button>
-
-          <button type="button"
-                  role="radio"
-                  [attr.aria-checked]="currentExhibicion().perteneceMegaDulces === false"
-                  (click)="onPerteneceMegaDulcesSelect(false)"
-                  class="min-h-[56px] w-full flex items-center justify-between gap-3 p-4 rounded-xl border bg-surface-card text-left motion-safe:transition-colors hover:border-brand-orange/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-orange focus-visible:ring-offset-2"
+                  Sí, pertenece a Mega Dulces
+                </span>
+                <i class="pi shrink-0"
+                  [ngClass]="currentExhibicion().perteneceMegaDulces === true ? 'pi-check-circle text-brand-orange' : 'pi-circle text-content-muted'"
+                aria-hidden="true"></i>
+              </button>
+              <button type="button"
+                role="radio"
+                [attr.aria-checked]="currentExhibicion().perteneceMegaDulces === false"
+                (click)="onPerteneceMegaDulcesSelect(false)"
+                class="min-h-[56px] w-full flex items-center justify-between gap-3 p-4 rounded-xl border bg-surface-card text-left motion-safe:transition-colors hover:border-brand-orange/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-orange focus-visible:ring-offset-2"
                   [ngClass]="currentExhibicion().perteneceMegaDulces === false
                     ? 'border-brand-orange bg-brand-orange/5'
                     : 'border-divider'">
-            <span class="text-sm"
+                <span class="text-sm"
                   [ngClass]="currentExhibicion().perteneceMegaDulces === false ? 'text-brand-orange font-medium' : 'text-content-main'">
-              No, es de la competencia
-            </span>
-            <i class="pi shrink-0"
-               [ngClass]="currentExhibicion().perteneceMegaDulces === false ? 'pi-check-circle text-brand-orange' : 'pi-circle text-content-muted'"
-               aria-hidden="true"></i>
-          </button>
-        </div>
-      </div>
-
-
-
-      <!-- Step 4: Nivel de ejecución (oculto para vendedor) -->
-      <div *ngIf="wizardStep === 4 && !isVendedor()" class="space-y-5 motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-2 motion-safe:duration-300">
-
-        <header class="space-y-1">
-          <h2 class="text-base font-semibold text-content-main">Calidad de la ejecución</h2>
-          <p class="text-xs text-content-muted leading-relaxed">
-            <span class="font-medium text-content-main">Bajo</span>: espacios vacíos.
-            <span class="font-medium text-content-main">Alto</span>: lleno con productos correctos.
-          </p>
-        </header>
-
-        <div class="flex flex-col gap-2" role="radiogroup" aria-label="Nivel de ejecución">
-          <button *ngFor="let niv of configNiveles()"
+                  No, es de la competencia
+                </span>
+                <i class="pi shrink-0"
+                  [ngClass]="currentExhibicion().perteneceMegaDulces === false ? 'pi-check-circle text-brand-orange' : 'pi-circle text-content-muted'"
+                aria-hidden="true"></i>
+              </button>
+            </div>
+          </div>
+        }
+        <!-- Step 4: Nivel de ejecución (oculto para vendedor) -->
+        @if (wizardStep === 4 && !isVendedor()) {
+          <div class="space-y-5 motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-2 motion-safe:duration-300">
+            <header class="space-y-1">
+              <h2 class="text-base font-semibold text-content-main">Calidad de la ejecución</h2>
+              <p class="text-xs text-content-muted leading-relaxed">
+                <span class="font-medium text-content-main">Bajo</span>: espacios vacíos.
+                <span class="font-medium text-content-main">Alto</span>: lleno con productos correctos.
+              </p>
+            </header>
+            <div class="flex flex-col gap-2" role="radiogroup" aria-label="Nivel de ejecución">
+              @for (niv of configNiveles(); track niv) {
+                <button
                   type="button"
                   role="radio"
                   [attr.aria-checked]="currentExhibicion().nivelEjecucion === niv.value.toLowerCase()"
@@ -1002,53 +843,53 @@
                   [ngClass]="currentExhibicion().nivelEjecucion === niv.value.toLowerCase()
                     ? 'border-brand-orange bg-brand-orange/5'
                     : 'border-divider'">
-            <span class="text-sm"
-                  [ngClass]="currentExhibicion().nivelEjecucion === niv.value.toLowerCase() ? 'text-brand-orange font-medium' : 'text-content-main'">
-              {{ niv.value | titlecase }}
-            </span>
-            <i class="pi shrink-0"
-               [ngClass]="currentExhibicion().nivelEjecucion === niv.value.toLowerCase() ? 'pi-check-circle text-brand-orange' : 'pi-circle text-content-muted'"
-               aria-hidden="true"></i>
-          </button>
-        </div>
-      </div>
-
-
-
-      <!-- Step 5: Productos (oculto para vendedor — los marca el OCR del ticket en step 7) -->
-      <div *ngIf="wizardStep === 5 && !isVendedor()" class="flex flex-col h-full -mx-2 px-2" id="step-5-container">
-
-        <header class="space-y-1 mb-4">
-          <h2 class="text-base font-semibold text-content-main">Productos en el exhibidor</h2>
-          <p class="text-xs text-content-muted leading-relaxed">Marca los productos que están en exhibición. Podés escribir una lista o buscar por marca.</p>
-        </header>
-
-        <!-- Fase K — Agregar con AI (requiere red) -->
-        <button *ngIf="isOnline()"
+                  <span class="text-sm"
+                    [ngClass]="currentExhibicion().nivelEjecucion === niv.value.toLowerCase() ? 'text-brand-orange font-medium' : 'text-content-main'">
+                    {{ niv.value | titlecase }}
+                  </span>
+                  <i class="pi shrink-0"
+                    [ngClass]="currentExhibicion().nivelEjecucion === niv.value.toLowerCase() ? 'pi-check-circle text-brand-orange' : 'pi-circle text-content-muted'"
+                  aria-hidden="true"></i>
+                </button>
+              }
+            </div>
+          </div>
+        }
+        <!-- Step 5: Productos (oculto para vendedor — los marca el OCR del ticket en step 7) -->
+        @if (wizardStep === 5 && !isVendedor()) {
+          <div class="flex flex-col h-full -mx-2 px-2" id="step-5-container">
+            <header class="space-y-1 mb-4">
+              <h2 class="text-base font-semibold text-content-main">Productos en el exhibidor</h2>
+              <p class="text-xs text-content-muted leading-relaxed">Marca los productos que están en exhibición. Podés escribir una lista o buscar por marca.</p>
+            </header>
+            <!-- Fase K — Agregar con AI (requiere red) -->
+            @if (isOnline()) {
+              <button
                 type="button"
                 (click)="openAiPicker()"
                 aria-label="Reconocer productos con AI desde una lista de texto"
                 class="w-full mb-3 min-h-[48px] flex items-center justify-center gap-2 px-4 py-3 bg-surface-card border border-brand-orange/40 text-brand-orange rounded-xl text-sm font-medium motion-safe:transition-colors hover:bg-brand-orange/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-orange focus-visible:ring-offset-2">
-          <i class="pi pi-sparkles" aria-hidden="true"></i>
-          <span>Reconocer con AI</span>
-          <span class="text-xs text-content-muted font-normal hidden sm:inline">— pegá tu lista</span>
-        </button>
-
-        <!--
-          Frecuentes — atajo del top-N productos marcados por el usuario en
-          últ. 30d (scope a tienda detectada cuando aplica). Reduce 20+ clicks
-          del flujo "expandir marca → tap producto" a 1 tap por chip. Solo
-          aparece si hay frecuentes disponibles.
-        -->
-        <div *ngIf="frequentDisplay().length > 0" class="mb-3" aria-label="Productos frecuentes">
-          <div class="flex items-center gap-2 mb-2 px-1">
-            <i class="pi pi-star-fill text-brand-orange text-xs" aria-hidden="true"></i>
-            <h3 class="text-[11px] font-semibold uppercase tracking-wider text-content-muted">{{ frequentByStore() ? 'Frecuentes de esta tienda' : 'Tus frecuentes' }}</h3>
-            <span class="text-[11px] text-content-faint">· toca para agregar</span>
-          </div>
-          <div class="flex flex-wrap gap-1.5">
-            @for (f of frequentDisplay(); track f.product_id) {
-              <button type="button"
+                <i class="pi pi-sparkles" aria-hidden="true"></i>
+                <span>Reconocer con AI</span>
+                <span class="text-xs text-content-muted font-normal hidden sm:inline">— pegá tu lista</span>
+              </button>
+            }
+            <!--
+            Frecuentes — atajo del top-N productos marcados por el usuario en
+            últ. 30d (scope a tienda detectada cuando aplica). Reduce 20+ clicks
+            del flujo "expandir marca → tap producto" a 1 tap por chip. Solo
+            aparece si hay frecuentes disponibles.
+            -->
+            @if (frequentDisplay().length > 0) {
+              <div class="mb-3" aria-label="Productos frecuentes">
+                <div class="flex items-center gap-2 mb-2 px-1">
+                  <i class="pi pi-star-fill text-brand-orange text-xs" aria-hidden="true"></i>
+                  <h3 class="text-[11px] font-semibold uppercase tracking-wider text-content-muted">{{ frequentByStore() ? 'Frecuentes de esta tienda' : 'Tus frecuentes' }}</h3>
+                  <span class="text-[11px] text-content-faint">· toca para agregar</span>
+                </div>
+                <div class="flex flex-wrap gap-1.5">
+                  @for (f of frequentDisplay(); track f.product_id) {
+                    <button type="button"
                       (click)="toggleProducto(f.product_id)"
                       [attr.aria-pressed]="isProductSelected(f.product_id)"
                       [attr.aria-label]="(isProductSelected(f.product_id) ? 'Quitar ' : 'Agregar ') + f.brand + ' ' + f.name"
@@ -1056,539 +897,553 @@
                       [ngClass]="isProductSelected(f.product_id)
                         ? 'bg-brand-orange text-white border border-brand-orange'
                         : 'bg-surface-card border border-divider text-content-main hover:border-brand-orange/50 hover:bg-brand-orange/5'">
-                <span class="truncate max-w-[140px]">{{ f.name }}</span>
-                <i class="pi text-[10px]" [class.pi-check]="isProductSelected(f.product_id)" [class.pi-plus]="!isProductSelected(f.product_id)" aria-hidden="true"></i>
-              </button>
+                      <span class="truncate max-w-[140px]">{{ f.name }}</span>
+                      <i class="pi text-[10px]" [class.pi-check]="isProductSelected(f.product_id)" [class.pi-plus]="!isProductSelected(f.product_id)" aria-hidden="true"></i>
+                    </button>
+                  }
+                </div>
+              </div>
             }
-          </div>
-        </div>
-
-        <!-- Search Bar -->
-        <div class="relative mb-3">
-          <label for="capture-search" class="sr-only">Buscar producto o marca</label>
-          <i class="pi pi-search text-base text-content-muted absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none" aria-hidden="true"></i>
-          <input id="capture-search"
-                 type="search"
-                 inputmode="search"
-                 enterkeyhint="search"
-                 [ngModel]="searchQuery()"
-                 (ngModelChange)="onSearchChange($event)"
-                 placeholder="Buscar marca o producto..."
-                 class="w-full min-h-[48px] pl-11 pr-11 py-3 bg-surface-card border border-divider rounded-xl text-base focus:outline-none focus:border-brand-orange focus:ring-2 focus:ring-brand-orange/20 motion-safe:transition-colors"
-                 autocomplete="off"
-                 autocorrect="off"
-                 autocapitalize="off"
-                 spellcheck="false">
-          <button *ngIf="searchQuery()"
-                  type="button"
-                  (click)="clearSearch()"
-                  aria-label="Limpiar búsqueda"
-                  class="absolute right-1.5 top-1/2 -translate-y-1/2 w-11 h-11 rounded-lg flex items-center justify-center text-content-muted hover:bg-surface-ground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-orange motion-safe:transition-colors">
-            <i class="pi pi-times text-base" aria-hidden="true"></i>
-          </button>
-        </div>
-
-        <!-- Selected Products Chips -->
-        <div *ngIf="currentExhibicion() as exhibicion"
-             class="mb-3"
-             [class.hidden]="(exhibicion.productosMarcados?.length || 0) === 0">
-          <div class="flex flex-wrap gap-1.5 p-2 bg-surface-ground rounded-xl border border-divider" aria-live="polite">
-            <p-chip *ngFor="let pid of (exhibicion.productosMarcados?.slice(0, 3) || []); trackBy: trackByPid"
-                    [label]="getProductName(pid)"
-                    (onRemove)="removeProducto(pid)"
-                    removable="true"
-                    styleClass="text-xs"
-                    class="touch-manipulation max-w-full"></p-chip>
-            <button *ngIf="exhibicion.productosMarcados && exhibicion.productosMarcados.length > 3"
+            <!-- Search Bar -->
+            <div class="relative mb-3">
+              <label for="capture-search" class="sr-only">Buscar producto o marca</label>
+              <i class="pi pi-search text-base text-content-muted absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none" aria-hidden="true"></i>
+              <input id="capture-search"
+                type="search"
+                inputmode="search"
+                enterkeyhint="search"
+                [ngModel]="searchQuery()"
+                (ngModelChange)="onSearchChange($event)"
+                placeholder="Buscar marca o producto..."
+                class="w-full min-h-[48px] pl-11 pr-11 py-3 bg-surface-card border border-divider rounded-xl text-base focus:outline-none focus:border-brand-orange focus:ring-2 focus:ring-brand-orange/20 motion-safe:transition-colors"
+                autocomplete="off"
+                autocorrect="off"
+                autocapitalize="off"
+                spellcheck="false">
+                @if (searchQuery()) {
+                  <button
                     type="button"
-                    (click)="showMoreProducts = !showMoreProducts"
-                    class="text-xs font-medium text-brand-orange px-2 min-h-[28px] rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-orange">
-              +{{exhibicion.productosMarcados.length - 3}} más
-            </button>
-          </div>
-        </div>
-
-        <!-- Products by Brand -->
-        <div class="flex-1 overflow-y-auto -mx-1 px-1 pb-24 space-y-2">
-          <div *ngFor="let brand of filteredBrands(); trackBy: trackByMarca"
-               class="border border-divider rounded-xl overflow-hidden bg-surface-card">
-
-            <!-- Brand Header -->
-            <button type="button"
-                    (click)="toggleBrandExpansion(brand.marca)"
-                    [attr.aria-expanded]="isBrandExpanded(brand.marca)"
-                    [attr.aria-label]="brand.marca + ': ' + getSelectedCountInBrand(brand) + ' de ' + brand.items.length + ' productos seleccionados'"
-                    class="w-full min-h-[52px] px-3 py-2 flex justify-between items-center motion-safe:transition-colors hover:bg-surface-ground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-orange focus-visible:ring-offset-[-2px]">
-              <div class="flex items-center gap-3 min-w-0">
-                <p-checkbox [ngModel]="isBrandFullySelected(brand)"
-                            (onChange)="toggleBrandSelection(brand, $event.checked)"
-                            binary="true"
-                            [indeterminate]="isBrandPartiallySelected(brand)"
-                            (click)="$event.stopPropagation()"
-                            [attr.aria-label]="'Seleccionar todos los productos de ' + brand.marca"></p-checkbox>
-                <span class="text-sm font-medium text-content-main truncate">{{brand.marca}}</span>
+                    (click)="clearSearch()"
+                    aria-label="Limpiar búsqueda"
+                    class="absolute right-1.5 top-1/2 -translate-y-1/2 w-11 h-11 rounded-lg flex items-center justify-center text-content-muted hover:bg-surface-ground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-orange motion-safe:transition-colors">
+                    <i class="pi pi-times text-base" aria-hidden="true"></i>
+                  </button>
+                }
               </div>
-              <div class="flex items-center gap-3 shrink-0">
-                <span class="text-xs text-content-muted tabular-nums">{{getSelectedCountInBrand(brand)}}/{{brand.items.length}}</span>
-                <i class="pi text-sm text-content-muted motion-safe:transition-transform motion-safe:duration-200"
-                   [class.pi-chevron-down]="isBrandExpanded(brand.marca)"
-                   [class.pi-chevron-right]="!isBrandExpanded(brand.marca)"
-                   aria-hidden="true"></i>
-              </div>
-            </button>
-
-            <!-- Products List -->
-            <div *ngIf="isBrandExpanded(brand.marca)"
-                 class="border-t border-divider motion-safe:animate-in motion-safe:fade-in motion-safe:duration-200">
-              <button *ngFor="let prod of brand.items | slice:0:productsVisibleCount(brand.marca, brand.items.length); trackBy: trackByPid"
-                      type="button"
-                      (click)="toggleProducto(prod.pid)"
-                      [attr.aria-pressed]="isProductSelected(prod.pid)"
-                      class="w-full min-h-[48px] flex items-center gap-3 px-4 py-2 text-left motion-safe:transition-colors hover:bg-surface-ground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-orange focus-visible:ring-offset-[-2px]"
-                      [ngClass]="{'bg-brand-orange/5': isProductSelected(prod.pid)}">
-                <p-checkbox [ngModel]="isProductSelected(prod.pid)"
-                            (onChange)="toggleProducto(prod.pid, $event.checked)"
-                            binary="true"
-                            (click)="$event.stopPropagation()"
+              <!-- Selected Products Chips -->
+              @if (currentExhibicion(); as exhibicion) {
+                <div
+                  class="mb-3"
+                  [class.hidden]="(exhibicion.productosMarcados?.length || 0) === 0">
+                  <div class="flex flex-wrap gap-1.5 p-2 bg-surface-ground rounded-xl border border-divider" aria-live="polite">
+                    @for (pid of (exhibicion.productosMarcados?.slice(0, 3) || []); track trackByPid($index, pid)) {
+                      <p-chip
+                        [label]="getProductName(pid)"
+                        (onRemove)="removeProducto(pid)"
+                        removable="true"
+                        styleClass="text-xs"
+                      class="touch-manipulation max-w-full"></p-chip>
+                    }
+                    @if (exhibicion.productosMarcados && exhibicion.productosMarcados.length > 3) {
+                      <button
+                        type="button"
+                        (click)="showMoreProducts = !showMoreProducts"
+                        class="text-xs font-medium text-brand-orange px-2 min-h-[28px] rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-orange">
+                        +{{exhibicion.productosMarcados.length - 3}} más
+                      </button>
+                    }
+                  </div>
+                </div>
+              }
+              <!-- Products by Brand -->
+              <div class="flex-1 overflow-y-auto -mx-1 px-1 pb-24 space-y-2">
+                @for (brand of filteredBrands(); track trackByMarca($index, brand)) {
+                  <div
+                    class="border border-divider rounded-xl overflow-hidden bg-surface-card">
+                    <!-- Brand Header -->
+                    <button type="button"
+                      (click)="toggleBrandExpansion(brand.marca)"
+                      [attr.aria-expanded]="isBrandExpanded(brand.marca)"
+                      [attr.aria-label]="brand.marca + ': ' + getSelectedCountInBrand(brand) + ' de ' + brand.items.length + ' productos seleccionados'"
+                      class="w-full min-h-[52px] px-3 py-2 flex justify-between items-center motion-safe:transition-colors hover:bg-surface-ground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-orange focus-visible:ring-offset-[-2px]">
+                      <div class="flex items-center gap-3 min-w-0">
+                        <p-checkbox [ngModel]="isBrandFullySelected(brand)"
+                          (onChange)="toggleBrandSelection(brand, $event.checked)"
+                          binary="true"
+                          [indeterminate]="isBrandPartiallySelected(brand)"
+                          (click)="$event.stopPropagation()"
+                        [attr.aria-label]="'Seleccionar todos los productos de ' + brand.marca"></p-checkbox>
+                        <span class="text-sm font-medium text-content-main truncate">{{brand.marca}}</span>
+                      </div>
+                      <div class="flex items-center gap-3 shrink-0">
+                        <span class="text-xs text-content-muted tabular-nums">{{getSelectedCountInBrand(brand)}}/{{brand.items.length}}</span>
+                        <i class="pi text-sm text-content-muted motion-safe:transition-transform motion-safe:duration-200"
+                          [class.pi-chevron-down]="isBrandExpanded(brand.marca)"
+                          [class.pi-chevron-right]="!isBrandExpanded(brand.marca)"
+                        aria-hidden="true"></i>
+                      </div>
+                    </button>
+                    <!-- Products List -->
+                    @if (isBrandExpanded(brand.marca)) {
+                      <div
+                        class="border-t border-divider motion-safe:animate-in motion-safe:fade-in motion-safe:duration-200">
+                        @for (prod of brand.items | slice:0:productsVisibleCount(brand.marca, brand.items.length); track trackByPid($index, prod)) {
+                          <button
+                            type="button"
+                            (click)="toggleProducto(prod.pid)"
+                            [attr.aria-pressed]="isProductSelected(prod.pid)"
+                            class="w-full min-h-[48px] flex items-center gap-3 px-4 py-2 text-left motion-safe:transition-colors hover:bg-surface-ground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-orange focus-visible:ring-offset-[-2px]"
+                            [ngClass]="{'bg-brand-orange/5': isProductSelected(prod.pid)}">
+                            <p-checkbox [ngModel]="isProductSelected(prod.pid)"
+                              (onChange)="toggleProducto(prod.pid, $event.checked)"
+                              binary="true"
+                              (click)="$event.stopPropagation()"
                             [attr.aria-label]="prod.name"></p-checkbox>
-                <span class="text-sm text-content-main flex-1 leading-snug">{{prod.name}}</span>
-              </button>
-
-              <button *ngIf="productsRemaining(brand.marca, brand.items.length) > 0"
-                      type="button"
-                      (click)="showMoreInBrand(brand.marca, brand.items.length)"
-                      class="w-full min-h-[48px] flex items-center justify-center gap-1.5 px-4 py-3 text-sm font-medium text-brand-orange border-t border-divider hover:bg-surface-ground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-orange focus-visible:ring-offset-[-2px] motion-safe:transition-colors"
-                      [attr.aria-label]="'Mostrar ' + nextPageSize(brand.marca, brand.items.length) + ' productos más de ' + brand.marca">
-                <i class="pi pi-chevron-down text-xs" aria-hidden="true"></i>
-                <span>Mostrar {{ nextPageSize(brand.marca, brand.items.length) }} más</span>
-                <span class="text-xs text-content-muted">· {{ productsRemaining(brand.marca, brand.items.length) }} restantes</span>
-              </button>
+                            <span class="text-sm text-content-main flex-1 leading-snug">{{prod.name}}</span>
+                          </button>
+                        }
+                        @if (productsRemaining(brand.marca, brand.items.length) > 0) {
+                          <button
+                            type="button"
+                            (click)="showMoreInBrand(brand.marca, brand.items.length)"
+                            class="w-full min-h-[48px] flex items-center justify-center gap-1.5 px-4 py-3 text-sm font-medium text-brand-orange border-t border-divider hover:bg-surface-ground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-orange focus-visible:ring-offset-[-2px] motion-safe:transition-colors"
+                            [attr.aria-label]="'Mostrar ' + nextPageSize(brand.marca, brand.items.length) + ' productos más de ' + brand.marca">
+                            <i class="pi pi-chevron-down text-xs" aria-hidden="true"></i>
+                            <span>Mostrar {{ nextPageSize(brand.marca, brand.items.length) }} más</span>
+                            <span class="text-xs text-content-muted">· {{ productsRemaining(brand.marca, brand.items.length) }} restantes</span>
+                          </button>
+                        }
+                      </div>
+                    }
+                  </div>
+                }
+                <!-- Empty State -->
+                @if (filteredBrands().length === 0) {
+                  <div class="p-10 text-center" aria-live="polite">
+                    <div class="w-14 h-14 rounded-full bg-surface-ground flex items-center justify-center mx-auto mb-3">
+                      <i class="pi pi-search text-xl text-content-muted" aria-hidden="true"></i>
+                    </div>
+                    <p class="text-sm font-medium text-content-main mb-1">Sin resultados</p>
+                    <p class="text-xs text-content-muted">Probá con otra búsqueda o usa "Reconocer con AI".</p>
+                  </div>
+                }
+              </div>
+              <!-- Sticky Footer -->
+              @if (currentExhibicion(); as exhibicion) {
+                <div
+                  class="sticky -mx-2 px-3 py-3 bg-surface-card border-t border-divider flex justify-between items-center z-10"
+                  style="bottom: calc(-1rem + env(safe-area-inset-bottom, 0px));">
+                  <div class="flex items-baseline gap-2">
+                    <span class="text-2xl font-semibold text-content-main tabular-nums">{{exhibicion.productosMarcados?.length || 0}}</span>
+                    <span class="text-xs text-content-muted">seleccionados</span>
+                  </div>
+                  <p-button label="Continuar" icon="pi pi-arrow-right" iconPos="right" (onClick)="nextStep()" size="small" styleClass="p-button-brand"></p-button>
+                </div>
+              }
             </div>
-          </div>
-
-          <!-- Empty State -->
-          <div *ngIf="filteredBrands().length === 0" class="p-10 text-center" aria-live="polite">
-            <div class="w-14 h-14 rounded-full bg-surface-ground flex items-center justify-center mx-auto mb-3">
-              <i class="pi pi-search text-xl text-content-muted" aria-hidden="true"></i>
-            </div>
-            <p class="text-sm font-medium text-content-main mb-1">Sin resultados</p>
-            <p class="text-xs text-content-muted">Probá con otra búsqueda o usa "Reconocer con AI".</p>
-          </div>
-        </div>
-
-        <!-- Sticky Footer -->
-        <div *ngIf="currentExhibicion() as exhibicion"
-             class="sticky -mx-2 px-3 py-3 bg-surface-card border-t border-divider flex justify-between items-center z-10"
-             style="bottom: calc(-1rem + env(safe-area-inset-bottom, 0px));">
-          <div class="flex items-baseline gap-2">
-            <span class="text-2xl font-semibold text-content-main tabular-nums">{{exhibicion.productosMarcados?.length || 0}}</span>
-            <span class="text-xs text-content-muted">seleccionados</span>
-          </div>
-          <p-button label="Continuar" icon="pi pi-arrow-right" iconPos="right" (onClick)="nextStep()" size="small" styleClass="p-button-brand"></p-button>
-        </div>
-      </div>
-
-
-
-      <!-- Step 6: Evidencia -->
-      <div *ngIf="wizardStep === 6" class="space-y-5 motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-2 motion-safe:duration-300">
-
-        <header class="space-y-1">
-          <h2 class="text-base font-semibold text-content-main">Evidencia fotográfica</h2>
-          <p class="text-xs text-content-muted leading-relaxed">Una foto del exhibidor es obligatoria para validar la auditoría.</p>
-        </header>
-
-        <!-- Upload state -->
-        <label *ngIf="!currentExhibicion().fotoBase64"
-               class="block border-2 border-dashed border-divider rounded-xl p-8 text-center bg-surface-ground/40 motion-safe:transition-colors hover:bg-surface-ground hover:border-brand-orange/40 cursor-pointer relative focus-within:ring-2 focus-within:ring-brand-orange focus-within:ring-offset-2">
-          <input type="file"
-                 accept="image/*"
-                 capture="environment"
-                 (change)="onFileSelected($event)"
-                 class="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
-                 aria-label="Tomar fotografía del exhibidor">
-          <div class="w-14 h-14 rounded-full bg-brand-orange/10 text-brand-orange flex items-center justify-center mx-auto mb-4">
-            <i class="pi pi-camera text-2xl" aria-hidden="true"></i>
-          </div>
-          <p class="text-sm font-medium text-content-main">Tomar fotografía</p>
-          <p class="text-xs text-content-muted mt-1">Toca para abrir la cámara</p>
-        </label>
-
-        <!-- Preview state -->
-        <div *ngIf="currentExhibicion().fotoBase64" class="space-y-3">
-          <div class="relative rounded-xl border border-divider overflow-hidden bg-black max-w-sm mx-auto">
-            <img [src]="currentExhibicion().fotoBase64"
-                 alt="Vista previa del exhibidor capturado"
-                 class="w-full h-64 object-cover">
-          </div>
-          <div class="flex justify-center">
-            <p-button icon="pi pi-refresh" label="Cambiar foto" severity="secondary" [outlined]="true" size="small" (onClick)="removeFoto()"></p-button>
-          </div>
-        </div>
-      </div>
-
-      <!-- Step 7: Foto del ticket + AI extraction (solo vendedor) -->
-      <div *ngIf="wizardStep === 7 && isVendedor()" class="space-y-4 motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-2 motion-safe:duration-300">
-
-        <header class="space-y-1">
-          <h2 class="text-base font-semibold text-content-main">Foto del ticket</h2>
-          <p class="text-xs text-content-muted leading-relaxed">Tomá la foto del ticket y la IA detecta los productos automáticamente. Con una foto alcanza; si el ticket es muy largo podés agregar más (opcional). Vos confirmás cuáles van al exhibidor.</p>
-        </header>
-
-        <!-- Upload state -->
-        <label *ngIf="!ticketPreview()"
-               class="block border-2 border-dashed border-divider rounded-xl p-8 text-center bg-surface-ground/40 motion-safe:transition-colors hover:bg-surface-ground hover:border-brand-orange/40 cursor-pointer relative focus-within:ring-2 focus-within:ring-brand-orange focus-within:ring-offset-2">
-          <input type="file"
-                 accept="image/*"
-                 capture="environment"
-                 (change)="onTicketSelected($event)"
-                 class="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
-                 aria-label="Tomar fotografía del ticket">
-          <div class="w-14 h-14 rounded-full bg-brand-orange/10 text-brand-orange flex items-center justify-center mx-auto mb-4">
-            <i class="pi pi-receipt text-2xl" aria-hidden="true"></i>
-          </div>
-          <p class="text-sm font-medium text-content-main">Tomar foto del ticket</p>
-          <p class="text-xs text-content-muted mt-1">Toca para abrir la cámara</p>
-        </label>
-
-        <!-- Preview + acciones secundarias (opcionales) -->
-        <div *ngIf="ticketPreview()" class="space-y-2">
-          <div class="relative rounded-xl border border-divider overflow-hidden bg-black max-w-sm mx-auto">
-            <img [src]="ticketPreview()" alt="Ticket" class="w-full max-h-64 object-cover">
-          </div>
-          <div class="flex justify-center items-center gap-5 text-xs">
-            <label class="inline-flex items-center gap-1.5 text-content-muted hover:text-brand-orange cursor-pointer motion-safe:transition-colors"
-                   [class.opacity-50]="ticketExtracting()" [class.pointer-events-none]="ticketExtracting()">
-              <input type="file" accept="image/*" capture="environment" (change)="onTicketSelected($event)"
-                     class="hidden" [disabled]="ticketExtracting()" aria-label="Agregar otra foto del ticket (opcional)">
-              <i class="pi pi-plus" aria-hidden="true"></i> Agregar otra foto (opcional)
-            </label>
-            <button type="button"
-                    class="inline-flex items-center gap-1.5 text-content-muted hover:text-content-main cursor-pointer disabled:opacity-50"
-                    [disabled]="ticketExtracting()"
-                    (click)="clearTicket()">
-              <i class="pi pi-refresh" aria-hidden="true"></i> Volver a tomar
-            </button>
-          </div>
-        </div>
-
-        <!-- Loading state -->
-        <div *ngIf="ticketExtracting()" class="flex items-center gap-3 p-4 bg-surface-ground rounded-xl">
-          <i class="pi pi-spin pi-spinner text-brand-orange text-xl"></i>
-          <span class="text-sm text-content-muted">Leyendo ticket...</span>
-        </div>
-
-        <!-- Deferred state (sin red): foto guardada, OCR diferido al sync -->
-        <div *ngIf="ticketDeferred() && !ticketExtracting()"
-             class="flex items-start gap-3 p-3 rounded-xl border border-sky-500/30 bg-sky-500/5">
-          <i class="pi pi-clock text-sky-500 text-xl mt-0.5" aria-hidden="true"></i>
-          <div class="text-sm">
-            <div class="font-semibold text-content-main">Ticket guardado (sin conexión)</div>
-            <div class="text-xs text-content-muted mt-0.5">
-              La foto del ticket se guardó. Se analizará automáticamente cuando vuelva la conexión. Tocá Finalizar para guardar la visita.
-            </div>
-          </div>
-        </div>
-
-        <!-- AI Results -->
-        <div *ngIf="ticketResult() && !ticketExtracting()" class="space-y-2">
-          <div class="flex items-center justify-between text-sm">
-            <span><strong>{{ ticketConfirmed().size }}</strong> de {{ ticketResult().match.items.length }} confirmados</span>
-            <span class="text-xs text-content-muted">{{ ticketResult().match.meta.elapsed_ms }}ms</span>
-          </div>
-
-          <ul class="flex flex-col gap-1.5 list-none p-0 m-0 max-h-80 overflow-y-auto">
-            <li *ngFor="let it of ticketResult().match.items; let i = index"
-                class="rounded-lg p-2.5 border"
+          }
+          <!-- Step 6: Evidencia -->
+          @if (wizardStep === 6) {
+            <div class="space-y-5 motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-2 motion-safe:duration-300">
+              <header class="space-y-1">
+                <h2 class="text-base font-semibold text-content-main">Evidencia fotográfica</h2>
+                <p class="text-xs text-content-muted leading-relaxed">Una foto del exhibidor es obligatoria para validar la auditoría.</p>
+              </header>
+              <!-- Upload state -->
+              @if (!currentExhibicion().fotoBase64) {
+                <label
+                  class="block border-2 border-dashed border-divider rounded-xl p-8 text-center bg-surface-ground/40 motion-safe:transition-colors hover:bg-surface-ground hover:border-brand-orange/40 cursor-pointer relative focus-within:ring-2 focus-within:ring-brand-orange focus-within:ring-offset-2">
+                  <input type="file"
+                    accept="image/*"
+                    capture="environment"
+                    (change)="onFileSelected($event)"
+                    class="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+                    aria-label="Tomar fotografía del exhibidor">
+                    <div class="w-14 h-14 rounded-full bg-brand-orange/10 text-brand-orange flex items-center justify-center mx-auto mb-4">
+                      <i class="pi pi-camera text-2xl" aria-hidden="true"></i>
+                    </div>
+                    <p class="text-sm font-medium text-content-main">Tomar fotografía</p>
+                    <p class="text-xs text-content-muted mt-1">Toca para abrir la cámara</p>
+                  </label>
+                }
+                <!-- Preview state -->
+                @if (currentExhibicion().fotoBase64) {
+                  <div class="space-y-3">
+                    <div class="relative rounded-xl border border-divider overflow-hidden bg-black max-w-sm mx-auto">
+                      <img [src]="currentExhibicion().fotoBase64"
+                        alt="Vista previa del exhibidor capturado"
+                        class="w-full h-64 object-cover">
+                      </div>
+                      <div class="flex justify-center">
+                        <p-button icon="pi pi-refresh" label="Cambiar foto" severity="secondary" [outlined]="true" size="small" (onClick)="removeFoto()"></p-button>
+                      </div>
+                    </div>
+                  }
+                </div>
+              }
+              <!-- Step 7: Foto del ticket + AI extraction (solo vendedor) -->
+              @if (wizardStep === 7 && isVendedor()) {
+                <div class="space-y-4 motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-2 motion-safe:duration-300">
+                  <header class="space-y-1">
+                    <h2 class="text-base font-semibold text-content-main">Foto del ticket</h2>
+                    <p class="text-xs text-content-muted leading-relaxed">Tomá la foto del ticket y la IA detecta los productos automáticamente. Con una foto alcanza; si el ticket es muy largo podés agregar más (opcional). Vos confirmás cuáles van al exhibidor.</p>
+                  </header>
+                  <!-- Upload state -->
+                  @if (!ticketPreview()) {
+                    <label
+                      class="block border-2 border-dashed border-divider rounded-xl p-8 text-center bg-surface-ground/40 motion-safe:transition-colors hover:bg-surface-ground hover:border-brand-orange/40 cursor-pointer relative focus-within:ring-2 focus-within:ring-brand-orange focus-within:ring-offset-2">
+                      <input type="file"
+                        accept="image/*"
+                        capture="environment"
+                        (change)="onTicketSelected($event)"
+                        class="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+                        aria-label="Tomar fotografía del ticket">
+                        <div class="w-14 h-14 rounded-full bg-brand-orange/10 text-brand-orange flex items-center justify-center mx-auto mb-4">
+                          <i class="pi pi-receipt text-2xl" aria-hidden="true"></i>
+                        </div>
+                        <p class="text-sm font-medium text-content-main">Tomar foto del ticket</p>
+                        <p class="text-xs text-content-muted mt-1">Toca para abrir la cámara</p>
+                      </label>
+                    }
+                    <!-- Preview + acciones secundarias (opcionales) -->
+                    @if (ticketPreview()) {
+                      <div class="space-y-2">
+                        <div class="relative rounded-xl border border-divider overflow-hidden bg-black max-w-sm mx-auto">
+                          <img [src]="ticketPreview()" alt="Ticket" class="w-full max-h-64 object-cover">
+                        </div>
+                        <div class="flex justify-center items-center gap-5 text-xs">
+                          <label class="inline-flex items-center gap-1.5 text-content-muted hover:text-brand-orange cursor-pointer motion-safe:transition-colors"
+                            [class.opacity-50]="ticketExtracting()" [class.pointer-events-none]="ticketExtracting()">
+                            <input type="file" accept="image/*" capture="environment" (change)="onTicketSelected($event)"
+                              class="hidden" [disabled]="ticketExtracting()" aria-label="Agregar otra foto del ticket (opcional)">
+                              <i class="pi pi-plus" aria-hidden="true"></i> Agregar otra foto (opcional)
+                            </label>
+                            <button type="button"
+                              class="inline-flex items-center gap-1.5 text-content-muted hover:text-content-main cursor-pointer disabled:opacity-50"
+                              [disabled]="ticketExtracting()"
+                              (click)="clearTicket()">
+                              <i class="pi pi-refresh" aria-hidden="true"></i> Volver a tomar
+                            </button>
+                          </div>
+                        </div>
+                      }
+                      <!-- Loading state -->
+                      @if (ticketExtracting()) {
+                        <div class="flex items-center gap-3 p-4 bg-surface-ground rounded-xl">
+                          <i class="pi pi-spin pi-spinner text-brand-orange text-xl"></i>
+                          <span class="text-sm text-content-muted">Leyendo ticket...</span>
+                        </div>
+                      }
+                      <!-- Deferred state (sin red): foto guardada, OCR diferido al sync -->
+                      @if (ticketDeferred() && !ticketExtracting()) {
+                        <div
+                          class="flex items-start gap-3 p-3 rounded-xl border border-sky-500/30 bg-sky-500/5">
+                          <i class="pi pi-clock text-sky-500 text-xl mt-0.5" aria-hidden="true"></i>
+                          <div class="text-sm">
+                            <div class="font-semibold text-content-main">Ticket guardado (sin conexión)</div>
+                            <div class="text-xs text-content-muted mt-0.5">
+                              La foto del ticket se guardó. Se analizará automáticamente cuando vuelva la conexión. Tocá Finalizar para guardar la visita.
+                            </div>
+                          </div>
+                        </div>
+                      }
+                      <!-- AI Results -->
+                      @if (ticketResult() && !ticketExtracting()) {
+                        <div class="space-y-2">
+                          <div class="flex items-center justify-between text-sm">
+                            <span><strong>{{ ticketConfirmed().size }}</strong> de {{ ticketResult().match.items.length }} confirmados</span>
+                            <span class="text-xs text-content-muted">{{ ticketResult().match.meta.elapsed_ms }}ms</span>
+                          </div>
+                          <ul class="flex flex-col gap-1.5 list-none p-0 m-0 max-h-80 overflow-y-auto">
+                            @for (it of ticketResult().match.items; track it; let i = $index) {
+                              <li
+                                class="rounded-lg p-2.5 border"
                 [ngClass]="isTicketConfirmed(i)
                   ? 'border-brand-orange/40 bg-brand-orange/5'
                   : it.confidence === 'no_match' ? 'border-divider bg-surface-ground/40 opacity-60' : 'border-divider bg-surface-card'">
-              <label class="flex gap-3 items-start cursor-pointer">
-                <input type="checkbox"
-                       [checked]="isTicketConfirmed(i)"
-                       [disabled]="!it.suggested"
-                       (change)="toggleTicketItem(i, $any($event.target).checked)"
-                       class="mt-1 w-4 h-4 accent-brand-orange shrink-0" />
-                <div class="flex-1 min-w-0">
-                  <div class="text-sm font-medium text-content-main truncate">
-                    {{ it.suggested?.product_name || '— sin match —' }}
+                                <label class="flex gap-3 items-start cursor-pointer">
+                                  <input type="checkbox"
+                                    [checked]="isTicketConfirmed(i)"
+                                    [disabled]="!it.suggested"
+                                    (change)="toggleTicketItem(i, $any($event.target).checked)"
+                                    class="mt-1 w-4 h-4 accent-brand-orange shrink-0" />
+                                    <div class="flex-1 min-w-0">
+                                      <div class="text-sm font-medium text-content-main truncate">
+                                        {{ it.suggested?.product_name || '— sin match —' }}
+                                      </div>
+                                      @if (it.suggested?.brand_name) {
+                                        <div class="text-xs text-content-muted mt-0.5">
+                                          {{ it.suggested?.brand_name }}
+                                        </div>
+                                      }
+                                      <div class="flex items-center gap-1.5 mt-1 flex-wrap">
+                                        <span class="text-[10px] text-content-muted italic truncate">«{{ it.raw }}»</span>
+                                        <p-tag [severity]="ticketSev(it.confidence)" [value]="ticketConfLabel(it.confidence)" styleClass="text-[9px] py-0 px-1.5"></p-tag>
+                                        @if (it.quantity > 1) {
+                                          <span class="text-[10px] bg-brand-orange text-white px-1.5 py-0 rounded font-semibold">×{{ it.quantity }}</span>
+                                        }
+                                      </div>
+                                    </div>
+                                  </label>
+                                </li>
+                              }
+                            </ul>
+                          </div>
+                        }
+                      </div>
+                    }
                   </div>
-                  <div class="text-xs text-content-muted mt-0.5" *ngIf="it.suggested?.brand_name">
-                    {{ it.suggested?.brand_name }}
+                  <!-- Navigation -->
+                  <nav class="flex justify-between items-center gap-2 pt-5 mt-5 border-t border-divider" aria-label="Navegación del wizard">
+                    <p-button label="Atrás"
+                      icon="pi pi-arrow-left"
+                      severity="secondary"
+                      [text]="true"
+                      (onClick)="prevStep()"
+                    [disabled]="wizardStep === 1 || (isVendedor() && wizardStep === 6)"></p-button>
+                    <!-- Trade marketing: 1-4 → Continuar, 5 → Evidencia, 6 → Finalizar/Otro -->
+                    @if (!isVendedor()) {
+                      @if (wizardStep < 5) {
+                        <p-button
+                          label="Continuar"
+                          icon="pi pi-arrow-right"
+                          iconPos="right"
+                          styleClass="p-button-brand"
+                        (onClick)="nextStep()"></p-button>
+                      }
+                      @if (wizardStep === 5) {
+                        <p-button
+                          label="Evidencia"
+                          icon="pi pi-arrow-right"
+                          iconPos="right"
+                          styleClass="p-button-brand"
+                        (onClick)="nextStep()"></p-button>
+                      }
+                      @if (wizardStep === 6) {
+                        <div class="flex gap-2 flex-wrap justify-end">
+                          <p-button label="Otro exhibidor"
+                            icon="pi pi-plus"
+                            severity="secondary"
+                            [outlined]="true"
+                            size="small"
+                          (onClick)="finishWizard(true)"></p-button>
+                          <p-button label="Finalizar"
+                            icon="pi pi-check"
+                            styleClass="p-button-brand"
+                          (onClick)="finishWizard(false)"></p-button>
+                        </div>
+                      }
+                    }
+                    <!-- Vendedor: 6 → Continuar al ticket, 7 → Finalizar -->
+                    @if (isVendedor()) {
+                      @if (wizardStep === 6) {
+                        <p-button
+                          label="Continuar"
+                          icon="pi pi-arrow-right"
+                          iconPos="right"
+                          styleClass="p-button-brand"
+                          [disabled]="!currentExhibicion().fotoBase64"
+                        (onClick)="nextStep()"></p-button>
+                      }
+                      @if (wizardStep === 7) {
+                        <p-button
+                          label="Finalizar"
+                          icon="pi pi-check"
+                          styleClass="p-button-brand"
+                          [disabled]="(!ticketResult() && !ticketDeferred()) || ticketExtracting()"
+                        (onClick)="finishWizard(false)"></p-button>
+                      }
+                    }
+                  </nav>
+                }
+
+              </p-dialog>
+
+
+
+              <!-- IMPACTO COMERCIAL DIALOG -->
+
+              <p-dialog [(visible)]="showImpactDialog" [modal]="true" appendTo="body" header="Impacto Comercial de la Visita" [style]="{width: '90vw', maxWidth: '500px'}" styleClass="surface-card border-divider rounded-2xl" [contentStyleClass]="'bg-surface-card text-content-main'">
+
+                <div class="space-y-6 py-4">
+
+                  <!-- Info Card -->
+
+                  <p-card styleClass="bg-brand/5 border-brand/20">
+
+                    <ng-template pTemplate="content">
+
+                      <div class="flex items-start gap-3">
+
+                        <div class="w-10 h-10 rounded-lg bg-brand/20 flex items-center justify-center text-brand shrink-0">
+
+                          <i class="pi pi-info-circle text-lg"></i>
+
+                        </div>
+
+                        <div>
+
+                          <h5 class="font-bold text-brand text-sm mb-1">Impacto Comercial</h5>
+
+                          <p class="text-xs text-content-dim leading-relaxed">Registra el impacto comercial total de esta visita: el monto de venta adicional obtenido y el rango de compra del socio.</p>
+
+                        </div>
+
+                      </div>
+
+                    </ng-template>
+
+                  </p-card>
+
+
+
+                  <div class="grid grid-cols-1 gap-4">
+
+                    <div class="space-y-2">
+                      <label for="impacto-venta" class="text-xs font-black text-content-muted uppercase tracking-widest">Monto de Venta Extra Obtenido</label>
+                      <p-inputNumber
+                        inputId="impacto-venta"
+                        [(ngModel)]="impactoVentaAdicional"
+                        (ngModelChange)="onImpactoVentaChange($event)"
+                        [min]="0"
+                        [max]="999999"
+                        [step]="100"
+                        [minFractionDigits]="0"
+                        [maxFractionDigits]="2"
+                        mode="decimal"
+                        placeholder="0.00"
+                        prefix="$"
+                        class="w-full"
+                        inputStyleClass="w-full text-lg p-3"
+                        [useGrouping]="true"
+                      [inputStyle]="{'font-size': '1.125rem'}"></p-inputNumber>
+                    </div>
+
+
+
+                    <div class="space-y-2">
+
+                      <label class="text-xs font-black text-content-muted uppercase tracking-widest">Rango de Compra del Socio</label>
+
+                      <p-select
+
+                        [options]="RANGOS_COMPRA"
+
+                        [(ngModel)]="impactoRangoCompra"
+
+                        (ngModelChange)="onImpactoRangoChange($event)"
+
+                        placeholder="Seleccionar Rango..."
+
+                        class="w-full"
+
+                        styleClass="w-full p-3"
+
+                      appendTo="body"></p-select>
+
+                    </div>
+
                   </div>
-                  <div class="flex items-center gap-1.5 mt-1 flex-wrap">
-                    <span class="text-[10px] text-content-muted italic truncate">«{{ it.raw }}»</span>
-                    <p-tag [severity]="ticketSev(it.confidence)" [value]="ticketConfLabel(it.confidence)" styleClass="text-[9px] py-0 px-1.5"></p-tag>
-                    <span *ngIf="it.quantity > 1" class="text-[10px] bg-brand-orange text-white px-1.5 py-0 rounded font-semibold">×{{ it.quantity }}</span>
-                  </div>
+
                 </div>
-              </label>
-            </li>
-          </ul>
-        </div>
-      </div>
 
 
 
-    </div>
-
-
-
-    <!-- Navigation -->
-    <nav class="flex justify-between items-center gap-2 pt-5 mt-5 border-t border-divider" aria-label="Navegación del wizard">
-      <p-button label="Atrás"
-                icon="pi pi-arrow-left"
-                severity="secondary"
-                [text]="true"
-                (onClick)="prevStep()"
-                [disabled]="wizardStep === 1 || (isVendedor() && wizardStep === 6)"></p-button>
-
-      <!-- Trade marketing: 1-4 → Continuar, 5 → Evidencia, 6 → Finalizar/Otro -->
-      <ng-container *ngIf="!isVendedor()">
-        <p-button *ngIf="wizardStep < 5"
-                  label="Continuar"
-                  icon="pi pi-arrow-right"
-                  iconPos="right"
-                  styleClass="p-button-brand"
-                  (onClick)="nextStep()"></p-button>
-
-        <p-button *ngIf="wizardStep === 5"
-                  label="Evidencia"
-                  icon="pi pi-arrow-right"
-                  iconPos="right"
-                  styleClass="p-button-brand"
-                  (onClick)="nextStep()"></p-button>
-
-        <div *ngIf="wizardStep === 6" class="flex gap-2 flex-wrap justify-end">
-          <p-button label="Otro exhibidor"
-                    icon="pi pi-plus"
-                    severity="secondary"
-                    [outlined]="true"
-                    size="small"
-                    (onClick)="finishWizard(true)"></p-button>
-          <p-button label="Finalizar"
-                    icon="pi pi-check"
-                    styleClass="p-button-brand"
-                    (onClick)="finishWizard(false)"></p-button>
-        </div>
-      </ng-container>
-
-      <!-- Vendedor: 6 → Continuar al ticket, 7 → Finalizar -->
-      <ng-container *ngIf="isVendedor()">
-        <p-button *ngIf="wizardStep === 6"
-                  label="Continuar"
-                  icon="pi pi-arrow-right"
-                  iconPos="right"
-                  styleClass="p-button-brand"
-                  [disabled]="!currentExhibicion().fotoBase64"
-                  (onClick)="nextStep()"></p-button>
-
-        <p-button *ngIf="wizardStep === 7"
-                  label="Finalizar"
-                  icon="pi pi-check"
-                  styleClass="p-button-brand"
-                  [disabled]="(!ticketResult() && !ticketDeferred()) || ticketExtracting()"
-                  (onClick)="finishWizard(false)"></p-button>
-      </ng-container>
-    </nav>
-
-  </ng-container>
-
-</p-dialog>
-
-
-
-<!-- IMPACTO COMERCIAL DIALOG -->
-
-<p-dialog [(visible)]="showImpactDialog" [modal]="true" appendTo="body" header="Impacto Comercial de la Visita" [style]="{width: '90vw', maxWidth: '500px'}" styleClass="surface-card border-divider rounded-2xl" [contentStyleClass]="'bg-surface-card text-content-main'">
-
-  <div class="space-y-6 py-4">
-
-    <!-- Info Card -->
-
-    <p-card styleClass="bg-brand/5 border-brand/20">
-
-      <ng-template pTemplate="content">
-
-        <div class="flex items-start gap-3">
-
-          <div class="w-10 h-10 rounded-lg bg-brand/20 flex items-center justify-center text-brand shrink-0">
-
-            <i class="pi pi-info-circle text-lg"></i>
-
-          </div>
-
-          <div>
-
-            <h5 class="font-bold text-brand text-sm mb-1">Impacto Comercial</h5>
-
-            <p class="text-xs text-content-dim leading-relaxed">Registra el impacto comercial total de esta visita: el monto de venta adicional obtenido y el rango de compra del socio.</p>
-
-          </div>
-
-        </div>
-
-      </ng-template>
-
-    </p-card>
-
-
-
-    <div class="grid grid-cols-1 gap-4">
-
-      <div class="space-y-2">
-        <label for="impacto-venta" class="text-xs font-black text-content-muted uppercase tracking-widest">Monto de Venta Extra Obtenido</label>
-        <p-inputNumber
-           inputId="impacto-venta"
-           [(ngModel)]="impactoVentaAdicional"
-           (ngModelChange)="onImpactoVentaChange($event)"
-           [min]="0"
-           [max]="999999"
-           [step]="100"
-           [minFractionDigits]="0"
-           [maxFractionDigits]="2"
-           mode="decimal"
-           placeholder="0.00"
-           prefix="$"
-           class="w-full"
-           inputStyleClass="w-full text-lg p-3"
-           [useGrouping]="true"
-           [inputStyle]="{'font-size': '1.125rem'}"></p-inputNumber>
-      </div>
-
-
-
-      <div class="space-y-2">
-
-        <label class="text-xs font-black text-content-muted uppercase tracking-widest">Rango de Compra del Socio</label>
-
-        <p-select 
-
-            [options]="RANGOS_COMPRA"
-
-            [(ngModel)]="impactoRangoCompra"
-
-            (ngModelChange)="onImpactoRangoChange($event)"
-
-            placeholder="Seleccionar Rango..."
-
-            class="w-full"
-
-            styleClass="w-full p-3"
-
-            appendTo="body"></p-select>
-
-      </div>
-
-    </div>
-
-  </div>
-
-
-
-  <ng-template pTemplate="footer">
-
-    <div class="flex justify-end gap-3">
-
-      <p-button label="Cancelar" [text]="true" severity="secondary" (onClick)="showImpactDialog = false"></p-button>
-
-      <p-button label="Terminar y Guardar Visita" icon="pi pi-check-circle" styleClass="p-button-brand" (onClick)="onSaveCapturaTotal()" [disabled]="isSaving()" [loading]="isSaving()"></p-button>
-
-    </div>
-
-  </ng-template>
-
-</p-dialog>
-
-
-
-<!-- RESULT DIALOG -->
-
-<p-dialog
-  [(visible)]="showResultDialog"
-  [modal]="true"
-  appendTo="body"
-  [style]="{width: '90vw', maxWidth: '450px'}"
-  [breakpoints]="{'640px': '100vw'}"
-  [blockScroll]="true"
-  [focusOnShow]="false"
-  [draggable]="false"
-  [resizable]="false"
-  (onHide)="lastResult = null"
-  styleClass="surface-card border-divider rounded-2xl"
-  [contentStyleClass]="'bg-surface-card text-content-main'"
-  ariaLabel="Confirmación de visita registrada">
-
-  <div class="py-6 text-center" *ngIf="lastResult">
-
-    <!-- Icon success: tokens ok-* (verde semántico), no brand-light/sunset que daba bajo contraste y semántica equivocada (sunset = warn). -->
-    <div class="w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-6 motion-safe:animate-bounce"
-         style="background: var(--ok-soft-bg); color: var(--ok-fg); box-shadow: 0 12px 32px -8px color-mix(in srgb, var(--ok-fg) 25%, transparent);">
-       <i class="pi pi-check text-4xl"></i>
-    </div>
-
-    <h3 class="text-2xl font-black text-content-main mb-2">¡Visita Registrada!</h3>
-    <p class="text-sm text-content-muted mb-8">Los datos se sincronizaron con la central de Trade Marketing.</p>
-
-    <div class="p-6 bg-surface-ground border border-divider rounded-3xl">
-
-       <div class="text-[11px] text-content-muted uppercase font-bold tracking-wider mb-3">Folio de Operación</div>
-
-       <div class="text-4xl font-black font-mono text-content-main my-2 tracking-tighter">#{{lastResult.folio}}</div>
-
-       <div class="mt-6 flex justify-center gap-4">
-
-          <div class="text-center px-4 py-2 bg-surface-card rounded-xl border border-divider min-w-[80px]">
-             <div class="text-[11px] uppercase text-content-muted font-semibold tracking-wider">Items</div>
-             <div class="text-lg font-bold text-content-main mt-0.5">{{lastResult.exhibiciones.length}}</div>
-          </div>
-
-          <div class="text-center px-4 py-2 bg-surface-card rounded-xl border border-divider min-w-[80px]">
-             <div class="text-[11px] uppercase text-content-muted font-semibold tracking-wider">Score</div>
-             <div class="text-lg font-bold text-brand-orange mt-0.5">{{ fmtScore(lastResult.stats.puntuacionTotal) }}</div>
-          </div>
-
-       </div>
-
-    </div>
-
-  </div>
-
-  <ng-template pTemplate="footer">
-
-    <p-button label="Entendido" (onClick)="showResultDialog = false" class="w-full" styleClass="w-full py-4 font-bold text-lg rounded-xl"></p-button>
-
-  </ng-template>
-
-</p-dialog>
-
-
-
-<p-toast></p-toast>
-
-<p-confirmDialog></p-confirmDialog>
-
-<!-- Fase K — AI product picker dialog (paso 5 del wizard) -->
-<p-dialog
-  [(visible)]="showAiPickerModel"
-  [modal]="true"
-  appendTo="body"
-  header="Reconocer productos con AI"
-  [style]="{width: '92vw', maxWidth: '560px'}"
-  [breakpoints]="{'640px': '100vw'}"
-  [blockScroll]="true"
-  [draggable]="false"
-  [resizable]="false"
-  [contentStyle]="{'max-height': '80dvh', 'overflow': 'hidden', 'display': 'flex', 'flex-direction': 'column'}"
-  styleClass="surface-card border-divider rounded-2xl"
-  [contentStyleClass]="'bg-surface-card text-content-main'"
-  (onHide)="onAiPickerCancelled()">
-  <app-ai-product-picker
-    *ngIf="showAiPicker()"
-    [catalog]="svc.groupedProducts()"
-    [currentSelected]="currentExhibicion().productosMarcados || []"
-    (applied)="onAiPickerApplied($event)"
-    (cancelled)="onAiPickerCancelled()">
-  </app-ai-product-picker>
-</p-dialog>
+                <ng-template pTemplate="footer">
+
+                  <div class="flex justify-end gap-3">
+
+                    <p-button label="Cancelar" [text]="true" severity="secondary" (onClick)="showImpactDialog = false"></p-button>
+
+                    <p-button label="Terminar y Guardar Visita" icon="pi pi-check-circle" styleClass="p-button-brand" (onClick)="onSaveCapturaTotal()" [disabled]="isSaving()" [loading]="isSaving()"></p-button>
+
+                  </div>
+
+                </ng-template>
+
+              </p-dialog>
+
+
+
+              <!-- RESULT DIALOG -->
+
+              <p-dialog
+                [(visible)]="showResultDialog"
+                [modal]="true"
+                appendTo="body"
+                [style]="{width: '90vw', maxWidth: '450px'}"
+                [breakpoints]="{'640px': '100vw'}"
+                [blockScroll]="true"
+                [focusOnShow]="false"
+                [draggable]="false"
+                [resizable]="false"
+                (onHide)="lastResult = null"
+                styleClass="surface-card border-divider rounded-2xl"
+                [contentStyleClass]="'bg-surface-card text-content-main'"
+                ariaLabel="Confirmación de visita registrada">
+
+                @if (lastResult) {
+                  <div class="py-6 text-center">
+                    <!-- Icon success: tokens ok-* (verde semántico), no brand-light/sunset que daba bajo contraste y semántica equivocada (sunset = warn). -->
+                    <div class="w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-6 motion-safe:animate-bounce"
+                      style="background: var(--ok-soft-bg); color: var(--ok-fg); box-shadow: 0 12px 32px -8px color-mix(in srgb, var(--ok-fg) 25%, transparent);">
+                      <i class="pi pi-check text-4xl"></i>
+                    </div>
+                    <h3 class="text-2xl font-black text-content-main mb-2">¡Visita Registrada!</h3>
+                    <p class="text-sm text-content-muted mb-8">Los datos se sincronizaron con la central de Trade Marketing.</p>
+                    <div class="p-6 bg-surface-ground border border-divider rounded-3xl">
+                      <div class="text-[11px] text-content-muted uppercase font-bold tracking-wider mb-3">Folio de Operación</div>
+                      <div class="text-4xl font-black font-mono text-content-main my-2 tracking-tighter">#{{lastResult.folio}}</div>
+                      <div class="mt-6 flex justify-center gap-4">
+                        <div class="text-center px-4 py-2 bg-surface-card rounded-xl border border-divider min-w-[80px]">
+                          <div class="text-[11px] uppercase text-content-muted font-semibold tracking-wider">Items</div>
+                          <div class="text-lg font-bold text-content-main mt-0.5">{{lastResult.exhibiciones.length}}</div>
+                        </div>
+                        <div class="text-center px-4 py-2 bg-surface-card rounded-xl border border-divider min-w-[80px]">
+                          <div class="text-[11px] uppercase text-content-muted font-semibold tracking-wider">Score</div>
+                          <div class="text-lg font-bold text-brand-orange mt-0.5">{{ fmtScore(lastResult.stats.puntuacionTotal) }}</div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                }
+
+                <ng-template pTemplate="footer">
+
+                  <p-button label="Entendido" (onClick)="showResultDialog = false" class="w-full" styleClass="w-full py-4 font-bold text-lg rounded-xl"></p-button>
+
+                </ng-template>
+
+              </p-dialog>
+
+
+
+              <p-toast></p-toast>
+
+              <p-confirmDialog></p-confirmDialog>
+
+              <!-- Fase K — AI product picker dialog (paso 5 del wizard) -->
+              <p-dialog
+                [(visible)]="showAiPickerModel"
+                [modal]="true"
+                appendTo="body"
+                header="Reconocer productos con AI"
+                [style]="{width: '92vw', maxWidth: '560px'}"
+                [breakpoints]="{'640px': '100vw'}"
+                [blockScroll]="true"
+                [draggable]="false"
+                [resizable]="false"
+                [contentStyle]="{'max-height': '80dvh', 'overflow': 'hidden', 'display': 'flex', 'flex-direction': 'column'}"
+                styleClass="surface-card border-divider rounded-2xl"
+                [contentStyleClass]="'bg-surface-card text-content-main'"
+                (onHide)="onAiPickerCancelled()">
+                @if (showAiPicker()) {
+                  <app-ai-product-picker
+                    [catalog]="svc.groupedProducts()"
+                    [currentSelected]="currentExhibicion().productosMarcados || []"
+                    (applied)="onAiPickerApplied($event)"
+                    (cancelled)="onAiPickerCancelled()">
+                  </app-ai-product-picker>
+                }
+              </p-dialog>
 

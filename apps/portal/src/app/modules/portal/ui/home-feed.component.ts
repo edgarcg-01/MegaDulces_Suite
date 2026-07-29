@@ -11,7 +11,7 @@ import {
   inject,
   signal,
 } from '@angular/core';
-import { CommonModule } from '@angular/common';
+
 import { RouterModule } from '@angular/router';
 import { firstValueFrom } from 'rxjs';
 import { PortalService, PriceRow } from '../portal.service';
@@ -56,82 +56,91 @@ interface RailSpec {
 @Component({
   selector: 'portal-home-feed',
   standalone: true,
-  imports: [CommonModule, RouterModule, TopProductsComponent, PortalProductCardComponent],
+  imports: [RouterModule, TopProductsComponent, PortalProductCardComponent],
   template: `
-    <div class="hf" *ngIf="blocks().length || busy()">
-      <ng-container *ngFor="let b of blocks(); trackBy: trackBlock">
-        <div
-          class="hf-block"
-          [class.hf-block-grid]="b.kind === 'grid'"
-          [class.hf-block-hidden]="b.status === 'empty'"
-        >
-          <!-- skeleton mientras carga -->
-          <div *ngIf="b.status === 'loading'" class="hf-skel" aria-hidden="true">
-            <div class="hf-skel-head"></div>
-            <div class="hf-skel-row">
-              <span></span><span></span><span></span>
-            </div>
+    @if (blocks().length || busy()) {
+      <div class="hf">
+        @for (b of blocks(); track trackBlock($index, b)) {
+          <div
+            class="hf-block"
+            [class.hf-block-grid]="b.kind === 'grid'"
+            [class.hf-block-hidden]="b.status === 'empty'"
+            >
+            <!-- skeleton mientras carga -->
+            @if (b.status === 'loading') {
+              <div class="hf-skel" aria-hidden="true">
+                <div class="hf-skel-head"></div>
+                <div class="hf-skel-row">
+                  <span></span><span></span><span></span>
+                </div>
+              </div>
+            }
+            <!-- rail (marca / categoría) -->
+            @if (b.status === 'ready' && b.kind === 'rail') {
+              <portal-top-products
+                [products]="b.products!"
+                [eyebrow]="b.eyebrow!"
+                [heading]="b.heading!"
+                meta=""
+                [showRank]="false"
+                [addingId]="addingId"
+                [addedIds]="addedIds"
+                (open)="open.emit($event)"
+                (add)="add.emit($event)"
+              ></portal-top-products>
+            }
+            <!-- banner de marketing -->
+            @if (b.status === 'ready' && b.kind === 'banner') {
+              <a
+                class="hf-banner"
+                routerLink="/portal/promotions"
+                aria-label="Ver promociones"
+                >
+                <img [src]="b.bannerUrl" alt="Promoción" loading="lazy" decoding="async" />
+              </a>
+            }
+            <!-- grilla paginada (cola infinita) -->
+            @if (b.status === 'ready' && b.kind === 'grid') {
+              <section class="hf-gridsec">
+                @if (b.heading) {
+                  <header class="hf-gridhead">
+                    <span class="hf-eyebrow">{{ b.eyebrow }}</span>
+                    <h2>{{ b.heading }}</h2>
+                  </header>
+                }
+                <div class="hf-grid">
+                  @for (p of b.products!; track trackProd($index, p)) {
+                    <portal-product-card
+                      [product]="p"
+                      [adding]="addingId === p.product_id"
+                      (open)="open.emit(p)"
+                      (add)="add.emit(p)"
+                    ></portal-product-card>
+                  }
+                </div>
+              </section>
+            }
           </div>
-
-          <!-- rail (marca / categoría) -->
-          <portal-top-products
-            *ngIf="b.status === 'ready' && b.kind === 'rail'"
-            [products]="b.products!"
-            [eyebrow]="b.eyebrow!"
-            [heading]="b.heading!"
-            meta=""
-            [showRank]="false"
-            [addingId]="addingId"
-            [addedIds]="addedIds"
-            (open)="open.emit($event)"
-            (add)="add.emit($event)"
-          ></portal-top-products>
-
-          <!-- banner de marketing -->
-          <a
-            *ngIf="b.status === 'ready' && b.kind === 'banner'"
-            class="hf-banner"
-            routerLink="/portal/promotions"
-            aria-label="Ver promociones"
-          >
-            <img [src]="b.bannerUrl" alt="Promoción" loading="lazy" decoding="async" />
-          </a>
-
-          <!-- grilla paginada (cola infinita) -->
-          <section *ngIf="b.status === 'ready' && b.kind === 'grid'" class="hf-gridsec">
-            <header *ngIf="b.heading" class="hf-gridhead">
-              <span class="hf-eyebrow">{{ b.eyebrow }}</span>
-              <h2>{{ b.heading }}</h2>
-            </header>
-            <div class="hf-grid">
-              <portal-product-card
-                *ngFor="let p of b.products!; trackBy: trackProd"
-                [product]="p"
-                [adding]="addingId === p.product_id"
-                (open)="open.emit(p)"
-                (add)="add.emit(p)"
-              ></portal-product-card>
-            </div>
-          </section>
-        </div>
-      </ng-container>
-
-      <div #sentinel class="hf-sentinel" aria-hidden="true"></div>
-
-      <div *ngIf="busy()" class="hf-more" aria-live="polite">
-        <i class="pi pi-spin pi-spinner" aria-hidden="true"></i> Cargando más…
+        }
+        <div #sentinel class="hf-sentinel" aria-hidden="true"></div>
+        @if (busy()) {
+          <div class="hf-more" aria-live="polite">
+            <i class="pi pi-spin pi-spinner" aria-hidden="true"></i> Cargando más…
+          </div>
+        }
+        @if (exhausted() && !busy()) {
+          <div class="hf-end">
+            <span class="hf-end-emoji" aria-hidden="true">🍬</span>
+            <p>Llegaste al final del feed</p>
+            <a routerLink="/portal/catalog" class="portal-btn-primary portal-btn-pill hf-end-cta">
+              Ir al catálogo completo
+              <i class="pi pi-arrow-right" aria-hidden="true"></i>
+            </a>
+          </div>
+        }
       </div>
-
-      <div *ngIf="exhausted() && !busy()" class="hf-end">
-        <span class="hf-end-emoji" aria-hidden="true">🍬</span>
-        <p>Llegaste al final del feed</p>
-        <a routerLink="/portal/catalog" class="portal-btn-primary portal-btn-pill hf-end-cta">
-          Ir al catálogo completo
-          <i class="pi pi-arrow-right" aria-hidden="true"></i>
-        </a>
-      </div>
-    </div>
-  `,
+    }
+    `,
   styles: [
     `
       :host { display: block; }

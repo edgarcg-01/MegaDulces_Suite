@@ -1,5 +1,5 @@
 import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
-import { CommonModule } from '@angular/common';
+
 import { Router, RouterModule, RouterOutlet } from '@angular/router';
 import { ButtonModule } from 'primeng/button';
 import { ToastModule } from 'primeng/toast';
@@ -13,7 +13,7 @@ import { AuthService } from '../../core/services/auth.service';
 @Component({
   selector: 'app-reparto-shell',
   standalone: true,
-  imports: [CommonModule, RouterModule, RouterOutlet, ButtonModule, ToastModule],
+  imports: [RouterModule, RouterOutlet, ButtonModule, ToastModule],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `

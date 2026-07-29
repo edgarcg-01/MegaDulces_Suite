@@ -2,7 +2,7 @@ import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, OnInit, com
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { trigger, transition, style, animate } from '@angular/animations';
-import { CommonModule } from '@angular/common';
+
 import { FormsModule } from '@angular/forms';
 import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 import { ButtonModule } from 'primeng/button';
@@ -52,7 +52,7 @@ const SUGGESTIONS = [
 @Component({
   selector: 'app-supervisor-ai-chat',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, RouterLink, ThotAiInputComponent],
+  imports: [FormsModule, ButtonModule, RouterLink, ThotAiInputComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   animations: [
     trigger('msg', [

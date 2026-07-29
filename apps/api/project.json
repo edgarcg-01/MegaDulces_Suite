@@ -3,6 +3,7 @@
   "$schema": "../../node_modules/nx/schemas/project-schema.json",
   "sourceRoot": "apps/api/src",
   "projectType": "application",
+  "tags": ["scope:api", "type:app"],
   "targets": {
     "build": {
       "executor": "@nx/webpack:webpack",
@@ -61,6 +62,5 @@
         "passWithNoTests": true
       }
     }
-  },
-  "tags": ["scope:api", "type:app"]
+  }
 }

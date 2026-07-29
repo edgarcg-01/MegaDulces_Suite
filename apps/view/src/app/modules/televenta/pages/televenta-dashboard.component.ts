@@ -30,7 +30,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
   providers: [MessageService],
   template: `
     <p-toast></p-toast>
-
+    
     <div class="header-row">
       <div>
         <h2>Dashboard Televenta</h2>
@@ -38,19 +38,16 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
       </div>
       <button pButton icon="pi pi-refresh" label="Actualizar" severity="secondary" (click)="reload()" [loading]="loading()"></button>
     </div>
-
-    <ng-container *ngIf="data() as d">
-
+    
+    @if (data(); as d) {
       <!-- Mi performance (operador) -->
       @if (d.my_stats) {
         <h3 class="section-title"><i class="pi pi-user"></i> Mi performance hoy</h3>
         <app-metric-strip [items]="myItems(d)" ariaLabel="Mi performance de hoy" />
       }
-
       <!-- KPIs del equipo (hoy) -->
       <h3 class="section-title">Equipo · Hoy</h3>
       <app-metric-strip [items]="teamItems(d)" ariaLabel="Métricas del equipo hoy" />
-
       <!-- Two-column -->
       <div class="two-col">
         <!-- Top operadores -->
@@ -82,21 +79,23 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
             </ng-template>
           </p-table>
         </p-card>
-
         <!-- Outcomes breakdown (7d) -->
         <p-card>
           <h3>Outcomes · últimos 7 días</h3>
-          <div class="outcome-row" *ngFor="let o of d.outcomes_7d">
-            <div class="outcome-header">
-              <p-tag [value]="outcomeLabel(o.outcome)" [severity]="outcomeSeverity(o.outcome)"></p-tag>
-              <span class="outcome-count">{{ o.count }}</span>
+          @for (o of d.outcomes_7d; track o) {
+            <div class="outcome-row">
+              <div class="outcome-header">
+                <p-tag [value]="outcomeLabel(o.outcome)" [severity]="outcomeSeverity(o.outcome)"></p-tag>
+                <span class="outcome-count">{{ o.count }}</span>
+              </div>
+              <p-progressBar [value]="outcomePct(o, d)" [showValue]="false"></p-progressBar>
             </div>
-            <p-progressBar [value]="outcomePct(o, d)" [showValue]="false"></p-progressBar>
-          </div>
-          <p *ngIf="d.outcomes_7d.length === 0" class="muted">Sin llamadas registradas en los últimos 7 días.</p>
+          }
+          @if (d.outcomes_7d.length === 0) {
+            <p class="muted">Sin llamadas registradas en los últimos 7 días.</p>
+          }
         </p-card>
       </div>
-
       <!-- Queue preview (top 5 leads urgentes) -->
       <p-card class="queue-preview">
         <div class="card-header-row">
@@ -127,8 +126,8 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
           </ng-template>
         </p-table>
       </p-card>
-    </ng-container>
-  `,
+    }
+    `,
   styles: [`
     :host { display:block; }
     .header-row { display:flex; justify-content:space-between; align-items:flex-end; gap:1rem; flex-wrap:wrap; margin-bottom:1rem; }

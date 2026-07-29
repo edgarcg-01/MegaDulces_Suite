@@ -1,5 +1,5 @@
 import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal } from '@angular/core';
-import { CommonModule } from '@angular/common';
+
 import { FormsModule } from '@angular/forms';
 import { TableModule } from 'primeng/table';
 import { TagModule } from 'primeng/tag';
@@ -21,7 +21,7 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
 @Component({
   selector: 'app-comercial-route-tickets',
   standalone: true,
-  imports: [CommonModule, FormsModule, TableModule, TagModule, ButtonModule, SelectModule, MetricCardComponent],
+  imports: [FormsModule, TableModule, TagModule, ButtonModule, SelectModule, MetricCardComponent],
   template: `
     <div class="surf-page rt">
       <header class="surf-page-head">
@@ -30,7 +30,7 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
           <p class="surf-page-sub">Tickets de venta, carga y combustible que suben los vendedores</p>
         </div>
       </header>
-
+    
       <div class="filters">
         <input type="date" [(ngModel)]="dateFrom" (change)="reload()" />
         <span>→</span>
@@ -47,25 +47,25 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
         ></p-select>
         <button pButton icon="pi pi-refresh" severity="secondary" [text]="true" (click)="reload()"></button>
       </div>
-
+    
       <div class="surf-grid rt-bento">
         <app-metric-card class="panel-col-3"
           label="Ventas (corte)" [value]="resumen()?.ventas ?? 0" format="currency"
-          accent="var(--ok-fg)" sub="suma de cortes de venta"></app-metric-card>
+        accent="var(--ok-fg)" sub="suma de cortes de venta"></app-metric-card>
         <app-metric-card class="panel-col-3"
           label="Combustible" [value]="resumen()?.gasto ?? 0" format="currency"
-          accent="var(--bad-fg)" sub="gasto (carga excluida)"></app-metric-card>
+        accent="var(--bad-fg)" sub="gasto (carga excluida)"></app-metric-card>
         <app-metric-card class="panel-col-3"
           label="Rentabilidad" [value]="resumen()?.rentabilidad ?? 0" format="currency"
-          [accent]="profitAccent()" sub="ventas − combustible"></app-metric-card>
+        [accent]="profitAccent()" sub="ventas − combustible"></app-metric-card>
         <app-metric-card class="panel-col-3"
           label="Tickets" [value]="resumen()?.tickets ?? 0" format="number"
-          accent="var(--chart-2)" sub="en el rango"></app-metric-card>
+        accent="var(--chart-2)" sub="en el rango"></app-metric-card>
       </div>
-
+    
       <p-table [value]="tickets()" [loading]="loading()" responsiveLayout="scroll"
-               styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra"
-               [paginator]="tickets().length > 25" [rows]="25" [rowsPerPageOptions]="[25, 50, 100]">
+        styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra"
+        [paginator]="tickets().length > 25" [rows]="25" [rowsPerPageOptions]="[25, 50, 100]">
         <ng-template pTemplate="header">
           <tr>
             <th scope="col">Tipo</th><th scope="col">Ruta</th><th scope="col">Fecha</th><th scope="col">Vendedor</th>
@@ -77,16 +77,21 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
           <tr>
             <td><p-tag [value]="label(t.ticket_type)" [severity]="sev(t.ticket_type)"></p-tag></td>
             <td>RD{{ t.route_code }}</td>
-            <td>{{ t.ticket_date }}<span class="rt-time" *ngIf="t.ticket_time"> · {{ hhmm(t.ticket_time) }}</span></td>
+            <td>{{ t.ticket_date }}@if (t.ticket_time) {
+              <span class="rt-time"> · {{ hhmm(t.ticket_time) }}</span>
+            }</td>
             <td>{{ t.vendor_name || t.vendor_username || '—' }}</td>
             <td class="num">{{ t.total != null ? money(t.total) : '—' }}</td>
             <td>{{ t.corte_number || t.folio || t.reference || '—' }}</td>
             <td class="num">{{ t.liters != null ? t.liters : '—' }}</td>
             <td>
-              <a *ngIf="t.photo_url; else noPhoto" class="ticket-link" [href]="t.photo_url" target="_blank" rel="noopener" aria-label="Ver foto del ticket">
-                <i class="pi pi-image" aria-hidden="true"></i> Ver
-              </a>
-              <ng-template #noPhoto><span class="ticket-none">—</span></ng-template>
+              @if (t.photo_url) {
+                <a class="ticket-link" [href]="t.photo_url" target="_blank" rel="noopener" aria-label="Ver foto del ticket">
+                  <i class="pi pi-image" aria-hidden="true"></i> Ver
+                </a>
+              } @else {
+                <span class="ticket-none">—</span>
+              }
             </td>
           </tr>
         </ng-template>
@@ -103,7 +108,7 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
         </ng-template>
       </p-table>
     </div>
-  `,
+    `,
   styles: [
     `
       .filters { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 1rem; }

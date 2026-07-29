@@ -1,5 +1,5 @@
 import { ChangeDetectionStrategy, Component, computed, input, signal, AfterViewInit } from '@angular/core';
-import { CommonModule } from '@angular/common';
+
 import { CountUpDirective } from '../../directives/count-up.directive';
 import { SparklineComponent } from '../charts/sparkline.component';
 import { RingGaugeComponent } from '../charts/ring-gauge.component';
@@ -42,7 +42,7 @@ export interface MetricStripItem {
 @Component({
   selector: 'app-metric-strip',
   standalone: true,
-  imports: [CommonModule, CountUpDirective, SparklineComponent, RingGaugeComponent],
+  imports: [CountUpDirective, SparklineComponent, RingGaugeComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="ms" [class]="'ms--' + mode()" role="group" [attr.aria-label]="ariaLabel() || null">
@@ -51,21 +51,23 @@ export interface MetricStripItem {
           <div class="ms-bar" role="img" [attr.aria-label]="ariaLabel() || null">
             @for (it of items(); track it.label) {
               <span class="ms-seg" [class]="'tone-' + (it.tone || 'brand')"
-                    [style.width.%]="mounted() ? segPct(it) : 0" [attr.title]="it.label"></span>
+              [style.width.%]="mounted() ? segPct(it) : 0" [attr.title]="it.label"></span>
             }
           </div>
           <div class="ms-leg">
             @for (it of items(); track it.label) {
               <span><i [class]="'tone-' + (it.tone || 'brand')"></i>{{ it.label }}
-                <b [appCountUp]="num(it)" [countUpFormat]="cu(it)"></b></span>
+              <b [appCountUp]="num(it)" [countUpFormat]="cu(it)"></b></span>
             }
           </div>
         </div>
       } @else {
         @for (it of items(); track it.label) {
           <div class="ms-item" [class]="'tone-' + (it.tone || 'default')">
-            <span class="ms-l">{{ it.label }}<span class="ms-live" *ngIf="it.live" title="En vivo" aria-hidden="true"></span></span>
-
+            <span class="ms-l">{{ it.label }}@if (it.live) {
+              <span class="ms-live" title="En vivo" aria-hidden="true"></span>
+            }</span>
+    
             @if (mode() === 'ring') {
               <div class="ms-ring-row">
                 <app-ring-gauge [value]="it.pct ?? num(it)" [max]="100" [size]="46" [color]="toneColor(it)"></app-ring-gauge>
@@ -82,7 +84,7 @@ export interface MetricStripItem {
                 }
               </div>
             }
-
+    
             @if (mode() === 'bullet') {
               <div class="ms-bullet">
                 <span class="ms-bfill" [class]="'tone-' + (it.tone || 'brand')" [style.width.%]="mounted() ? (it.pct ?? 0) : 0"></span>
@@ -92,13 +94,15 @@ export interface MetricStripItem {
             @if (mode() === 'spark' && (it.series?.length ?? 0) > 1) {
               <app-sparkline class="ms-spark" [data]="it.series!" [area]="true" [color]="toneColor(it)"></app-sparkline>
             }
-
-            <span class="ms-sub" *ngIf="it.sub">{{ it.sub }}</span>
+    
+            @if (it.sub) {
+              <span class="ms-sub">{{ it.sub }}</span>
+            }
           </div>
         }
       }
     </div>
-  `,
+    `,
   styles: [`
     :host { display:block; }
     /* ── fila de métricas sin caja ── */

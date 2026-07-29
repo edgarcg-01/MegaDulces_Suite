@@ -1,5 +1,5 @@
 import { ChangeDetectionStrategy, Component, OnInit, inject, signal } from '@angular/core';
-import { CommonModule } from '@angular/common';
+
 import { FormsModule } from '@angular/forms';
 import { TableModule } from 'primeng/table';
 import { ButtonModule } from 'primeng/button';
@@ -21,9 +21,15 @@ import { WhatsAppOrdersService, WhatsAppPendingOrder } from '../whatsapp-orders.
   selector: 'app-whatsapp-orders',
   standalone: true,
   imports: [
-    CommonModule, FormsModule, TableModule, ButtonModule, TagModule, DialogModule,
-    InputTextModule, ConfirmDialogModule, ToastModule,
-  ],
+    FormsModule,
+    TableModule,
+    ButtonModule,
+    TagModule,
+    DialogModule,
+    InputTextModule,
+    ConfirmDialogModule,
+    ToastModule
+],
   providers: [ConfirmationService, MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `

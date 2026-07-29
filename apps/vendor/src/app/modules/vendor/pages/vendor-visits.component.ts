@@ -7,7 +7,7 @@ import {
   inject,
   signal,
 } from '@angular/core';
-import { CommonModule } from '@angular/common';
+
 import { Router, RouterLink } from '@angular/router';
 import { CardModule } from 'primeng/card';
 import { TagModule } from 'primeng/tag';
@@ -26,81 +26,97 @@ import { VendorService, CoverageCustomer } from '../vendor.service';
   selector: 'app-vendor-visits',
   standalone: true,
   imports: [
-    CommonModule,
     RouterLink,
     CardModule,
     TagModule,
     ButtonModule,
-    SkeletonModule,
-  ],
+    SkeletonModule
+],
   template: `
     <h1 class="page-title">Por visitar</h1>
-
-    <div class="progress" *ngIf="!loading() && customers().length > 0">
-      <div class="progress-text">{{ visitedCount() }} de {{ customers().length }} visitados hoy</div>
-      <div class="progress-track">
-        <div class="progress-fill" [style.transform]="'translateX(' + (progressPct() - 100) + '%)'"></div>
+    
+    @if (!loading() && customers().length > 0) {
+      <div class="progress">
+        <div class="progress-text">{{ visitedCount() }} de {{ customers().length }} visitados hoy</div>
+        <div class="progress-track">
+          <div class="progress-fill" [style.transform]="'translateX(' + (progressPct() - 100) + '%)'"></div>
+        </div>
       </div>
-    </div>
-
-    <p-skeleton *ngIf="loading()" height="500px"></p-skeleton>
-
-    <p-card *ngIf="!loading() && customers().length === 0">
-      <div class="empty">
-        <i class="pi pi-map-marker"></i>
-        <p>No tenés cartera asignada.</p>
-        <p class="hint">Pedile a tu supervisor que te asigne tus rutas de venta.</p>
-      </div>
-    </p-card>
-
-    <div *ngIf="!loading() && customers().length > 0" class="customer-list">
-      <p-card
-        *ngFor="let c of customers()"
-        styleClass="visit-card"
-        [class.done]="c.visited_today"
-      >
-        <div class="visit-row">
-          <div class="seq" [class.unset]="c.visit_sequence == null" [class.ok]="c.visited_today">
-            <i *ngIf="c.visited_today" class="pi pi-check"></i>
-            <span *ngIf="!c.visited_today">{{ c.visit_sequence ?? '·' }}</span>
-          </div>
-          <div class="info">
-            <div class="name">{{ c.name }}</div>
-            <div class="meta">
-              <span class="code">{{ c.code }}</span>
-              <p-tag
-                *ngIf="c.sales_route"
-                [value]="c.sales_route"
-                severity="secondary"
-                styleClass="route-tag"
-              ></p-tag>
-              <span *ngIf="c.visited_today" class="visited-at">Visitado {{ fmtTime(c.last_visit_at) }}</span>
-            </div>
-          </div>
-          <div class="actions">
-            <button
-              *ngIf="!c.visited_today"
-              pButton
-              label="Visita"
-              icon="pi pi-map-marker"
-              size="small"
-              [loading]="processing().has(c.id)"
-              (click)="checkIn(c)"
-            ></button>
-            <a
-              pButton
-              icon="pi pi-shopping-cart"
-              severity="secondary"
-              size="small"
-              [text]="true"
-              [routerLink]="['/vendor/take-order', c.id]"
-              aria-label="Tomar pedido"
-            ></a>
-          </div>
+    }
+    
+    @if (loading()) {
+      <p-skeleton height="500px"></p-skeleton>
+    }
+    
+    @if (!loading() && customers().length === 0) {
+      <p-card>
+        <div class="empty">
+          <i class="pi pi-map-marker"></i>
+          <p>No tenés cartera asignada.</p>
+          <p class="hint">Pedile a tu supervisor que te asigne tus rutas de venta.</p>
         </div>
       </p-card>
-    </div>
-  `,
+    }
+    
+    @if (!loading() && customers().length > 0) {
+      <div class="customer-list">
+        @for (c of customers(); track c) {
+          <p-card
+            styleClass="visit-card"
+            [class.done]="c.visited_today"
+            >
+            <div class="visit-row">
+              <div class="seq" [class.unset]="c.visit_sequence == null" [class.ok]="c.visited_today">
+                @if (c.visited_today) {
+                  <i class="pi pi-check"></i>
+                }
+                @if (!c.visited_today) {
+                  <span>{{ c.visit_sequence ?? '·' }}</span>
+                }
+              </div>
+              <div class="info">
+                <div class="name">{{ c.name }}</div>
+                <div class="meta">
+                  <span class="code">{{ c.code }}</span>
+                  @if (c.sales_route) {
+                    <p-tag
+                      [value]="c.sales_route"
+                      severity="secondary"
+                      styleClass="route-tag"
+                    ></p-tag>
+                  }
+                  @if (c.visited_today) {
+                    <span class="visited-at">Visitado {{ fmtTime(c.last_visit_at) }}</span>
+                  }
+                </div>
+              </div>
+              <div class="actions">
+                @if (!c.visited_today) {
+                  <button
+                    pButton
+                    label="Visita"
+                    icon="pi pi-map-marker"
+                    size="small"
+                    [loading]="processing().has(c.id)"
+                    (click)="checkIn(c)"
+                  ></button>
+                }
+                <a
+                  pButton
+                  icon="pi pi-shopping-cart"
+                  severity="secondary"
+                  size="small"
+                  [text]="true"
+                  [routerLink]="['/vendor/take-order', c.id]"
+                  aria-label="Tomar pedido"
+                ></a>
+              </div>
+            </div>
+          </p-card>
+        }
+      </div>
+    }
+    `,
   styles: [
     `
       .page-title { margin: 0 0 0.75rem; font-size: 1.5rem; color: var(--text-main); }

@@ -35,7 +35,7 @@ import { CountUpDirective } from './count-up.directive';
       (click)="close.emit()"
       aria-hidden="true"
     ></div>
-
+    
     <section
       class="psheet"
       [class.open]="!!product"
@@ -45,70 +45,85 @@ import { CountUpDirective } from './count-up.directive';
       (keydown.escape)="close.emit()"
       (keydown.tab)="trapTab($event, false)"
       (keydown.shift.tab)="trapTab($event, true)"
-    >
-      <ng-container *ngIf="product as p">
+      >
+      @if (product; as p) {
         <div class="psheet-scroll">
           <div
             class="psheet-media"
             [class.has-photo]="hasImg(p)"
             [style.background]="hasImg(p) ? null : ph(p)"
-          >
-            <img *ngIf="hasImg(p)" [src]="img(p)" [alt]="p.product_name" decoding="async" />
-            <span *ngIf="!hasImg(p)" class="psheet-mono">{{ initials(p) }}</span>
+            >
+            @if (hasImg(p)) {
+              <img [src]="img(p)" [alt]="p.product_name" decoding="async" />
+            }
+            @if (!hasImg(p)) {
+              <span class="psheet-mono">{{ initials(p) }}</span>
+            }
             <button type="button" class="psheet-close" (click)="close.emit()" aria-label="Cerrar">
               <i class="pi pi-times" aria-hidden="true"></i>
             </button>
           </div>
-
           <div class="psheet-info">
             <div class="psheet-pricerow">
-              <span class="psheet-price" *ngIf="p.price != null">
-                {{ +p.price | currency:'MXN':'symbol-narrow':'1.2-2' }}
-              </span>
-              <span class="psheet-price psheet-price-na" *ngIf="p.price == null">Sin precio</span>
-              <span class="psheet-min" *ngIf="p.min_qty > 1">Mín. {{ p.min_qty }}</span>
+              @if (p.price != null) {
+                <span class="psheet-price">
+                  {{ +p.price | currency:'MXN':'symbol-narrow':'1.2-2' }}
+                </span>
+              }
+              @if (p.price == null) {
+                <span class="psheet-price psheet-price-na">Sin precio</span>
+              }
+              @if (p.min_qty > 1) {
+                <span class="psheet-min">Mín. {{ p.min_qty }}</span>
+              }
             </div>
-
-            <span *ngIf="note" class="psheet-trend">
-              <i class="pi pi-bolt" aria-hidden="true"></i> {{ note }}
-            </span>
-
+            @if (note) {
+              <span class="psheet-trend">
+                <i class="pi pi-bolt" aria-hidden="true"></i> {{ note }}
+              </span>
+            }
             <span class="psheet-brand">{{ p.brand_name || 'Sin marca' }}</span>
             <h2 class="psheet-name">{{ p.product_name }}</h2>
-
-            <div class="psheet-stock" *ngIf="p.stock_available != null">
-              <i class="pi pi-box" aria-hidden="true"></i>
-              {{ p.stock_available > 0 ? p.stock_available + ' disponibles' : 'Sin stock' }}
-            </div>
-
-            <div class="psheet-cross" *ngIf="crossSell?.length">
-              <span class="psheet-cross-lbl">
-                <i class="pi pi-sparkles" aria-hidden="true"></i> Va bien con esto
-              </span>
-              <div class="psheet-cross-row">
-                <button
-                  type="button"
-                  class="psheet-cross-item"
-                  *ngFor="let x of crossSell; trackBy: trackById"
-                  (click)="openCross.emit(x)"
-                  [attr.aria-label]="'Ver ' + x.product_name"
-                >
-                  <span
-                    class="psheet-cross-th"
-                    [class.has-photo]="hasImg(x)"
-                    [style.background]="hasImg(x) ? null : ph(x)"
-                  >
-                    <img *ngIf="hasImg(x)" [src]="img(x)" [alt]="x.product_name" loading="lazy" decoding="async" />
-                    <span *ngIf="!hasImg(x)">{{ initials(x) }}</span>
-                  </span>
-                  <span class="psheet-cross-nm">{{ x.product_name }}</span>
-                  <span class="psheet-cross-pr">{{ +(x.price || 0) | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
-                </button>
+            @if (p.stock_available != null) {
+              <div class="psheet-stock">
+                <i class="pi pi-box" aria-hidden="true"></i>
+                {{ p.stock_available > 0 ? p.stock_available + ' disponibles' : 'Sin stock' }}
               </div>
-            </div>
+            }
+            @if (crossSell?.length) {
+              <div class="psheet-cross">
+                <span class="psheet-cross-lbl">
+                  <i class="pi pi-sparkles" aria-hidden="true"></i> Va bien con esto
+                </span>
+                <div class="psheet-cross-row">
+                  @for (x of crossSell; track trackById($index, x)) {
+                    <button
+                      type="button"
+                      class="psheet-cross-item"
+                      (click)="openCross.emit(x)"
+                      [attr.aria-label]="'Ver ' + x.product_name"
+                      >
+                      <span
+                        class="psheet-cross-th"
+                        [class.has-photo]="hasImg(x)"
+                        [style.background]="hasImg(x) ? null : ph(x)"
+                        >
+                        @if (hasImg(x)) {
+                          <img [src]="img(x)" [alt]="x.product_name" loading="lazy" decoding="async" />
+                        }
+                        @if (!hasImg(x)) {
+                          <span>{{ initials(x) }}</span>
+                        }
+                      </span>
+                      <span class="psheet-cross-nm">{{ x.product_name }}</span>
+                      <span class="psheet-cross-pr">{{ +(x.price || 0) | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
+                    </button>
+                  }
+                </div>
+              </div>
+            }
           </div>
         </div>
-
         <footer class="psheet-foot">
           <div class="psheet-stepper" role="group" aria-label="Cantidad">
             <button type="button" (click)="dec(p)" [disabled]="qty() <= (p.min_qty || 1)" aria-label="Quitar">
@@ -125,19 +140,23 @@ import { CountUpDirective } from './count-up.directive';
             [disabled]="adding || p.price == null"
             aria-label="Agregar al carrito"
             (click)="onAdd(p)"
-          >
-            <i *ngIf="adding" class="pi pi-spin pi-spinner" aria-hidden="true"></i>
-            <ng-container *ngIf="!adding">
+            >
+            @if (adding) {
+              <i class="pi pi-spin pi-spinner" aria-hidden="true"></i>
+            }
+            @if (!adding) {
               Agregar
-              <span class="psheet-add-sub" *ngIf="p.price != null" aria-hidden="true">
-                · <span [countUp]="qty() * +p.price"></span>
-              </span>
-            </ng-container>
+              @if (p.price != null) {
+                <span class="psheet-add-sub" aria-hidden="true">
+                  · <span [countUp]="qty() * +p.price"></span>
+                </span>
+              }
+            }
           </button>
         </footer>
-      </ng-container>
+      }
     </section>
-  `,
+    `,
   styles: [
     `
       :host { display: contents; }

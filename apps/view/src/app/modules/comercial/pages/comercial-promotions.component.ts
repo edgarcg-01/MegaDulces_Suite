@@ -8,14 +8,14 @@ import { TagModule } from 'primeng/tag';
 import { DialogModule } from 'primeng/dialog';
 import { InputTextModule } from 'primeng/inputtext';
 import { InputNumberModule } from 'primeng/inputnumber';
-import { InputSwitchModule } from 'primeng/inputswitch';
+import { ToggleSwitchModule } from 'primeng/toggleswitch';
 import { SelectModule } from 'primeng/select';
 import { DatePickerModule } from 'primeng/datepicker';
 import { TextareaModule } from 'primeng/textarea';
 import { ToastModule } from 'primeng/toast';
 import { ConfirmDialogModule } from 'primeng/confirmdialog';
 import { TooltipModule } from 'primeng/tooltip';
-import { MessageService, ConfirmationService } from 'primeng/api';
+import { MessageService, ConfirmationService, SharedModule } from 'primeng/api';
 import {
   ComercialService,
   Promotion,
@@ -47,7 +47,7 @@ interface ProductOption {
     DialogModule,
     InputTextModule,
     InputNumberModule,
-    InputSwitchModule,
+    ToggleSwitchModule,
     SelectModule,
     DatePickerModule,
     TextareaModule,
@@ -56,6 +56,7 @@ interface ProductOption {
     TooltipModule,
     PromotionFormDialogComponent,
     PageTabsComponent,
+    SharedModule,
   ],
   providers: [MessageService, ConfirmationService],
   template: `
@@ -63,7 +64,7 @@ interface ProductOption {
       <p-toast></p-toast>
       <p-confirmDialog></p-confirmDialog>
       <app-page-tabs [tabs]="promoTabs" />
-
+    
       <!-- PAGE HEAD -->
       <header class="surf-page-head">
         <div class="surf-page-head-text">
@@ -97,7 +98,7 @@ interface ProductOption {
           ></button>
         </div>
       </header>
-
+    
       <!-- FILTERS toolbar -->
       <div class="sheet cols-12">
         <article class="cell cell-span-12 is-flush pm-filters-cell">
@@ -116,7 +117,7 @@ interface ProductOption {
                 appendTo="body"
               ></p-select>
             </div>
-
+    
             <div class="pm-segment" role="group" aria-label="Estado de vigencia">
               <button
                 type="button"
@@ -131,22 +132,23 @@ interface ProductOption {
                 (click)="setActive(false)"
               >Todas</button>
             </div>
-
+    
             <div class="pm-toolbar-spacer"></div>
-
-            <button
-              *ngIf="typeFilter"
-              type="button"
-              class="pm-reset"
-              (click)="clearFilters()"
-            >
-              <i class="pi pi-refresh" aria-hidden="true"></i>
-              <span>Reset</span>
-            </button>
+    
+            @if (typeFilter) {
+              <button
+                type="button"
+                class="pm-reset"
+                (click)="clearFilters()"
+                >
+                <i class="pi pi-refresh" aria-hidden="true"></i>
+                <span>Reset</span>
+              </button>
+            }
           </div>
         </article>
       </div>
-
+    
       <!-- TABLA flush -->
       <div class="sheet cols-12">
         <article class="cell cell-span-12 is-flush">
@@ -162,7 +164,7 @@ interface ProductOption {
             (onLazyLoad)="onLazyLoad($event)"
             responsiveLayout="scroll"
             styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra"
-          >
+            >
             <ng-template pTemplate="header">
               <tr>
                 <th scope="col">Código</th>
@@ -180,7 +182,9 @@ interface ProductOption {
                 <td><code class="comm-code">{{ p.code }}</code></td>
                 <td>
                   <div class="comm-cell-strong">{{ p.name }}</div>
-                  <div class="comm-muted is-small" *ngIf="p.description">{{ p.description }}</div>
+                  @if (p.description) {
+                    <div class="comm-muted is-small">{{ p.description }}</div>
+                  }
                 </td>
                 <td>
                   <span class="pm-type-chip">
@@ -190,21 +194,24 @@ interface ProductOption {
                 </td>
                 <td class="pm-mechanic">{{ summarize(p) }}</td>
                 <td>
-                  <div *ngIf="p.starts_at || p.ends_at; else noWindow" class="pm-window">
-                    <span class="pm-window-from">{{ p.starts_at ? (p.starts_at | date:'dd MMM') : '∞' }}</span>
-                    <i class="pi pi-arrow-right pm-window-sep" aria-hidden="true"></i>
-                    <span class="pm-window-to">{{ p.ends_at ? (p.ends_at | date:'dd MMM') : '∞' }}</span>
-                  </div>
-                  <ng-template #noWindow><span class="comm-muted">Siempre</span></ng-template>
+                  @if (p.starts_at || p.ends_at) {
+                    <div class="pm-window">
+                      <span class="pm-window-from">{{ p.starts_at ? (p.starts_at | date:'dd MMM') : '∞' }}</span>
+                      <i class="pi pi-arrow-right pm-window-sep" aria-hidden="true"></i>
+                      <span class="pm-window-to">{{ p.ends_at ? (p.ends_at | date:'dd MMM') : '∞' }}</span>
+                    </div>
+                  } @else {
+                    <span class="comm-muted">Siempre</span>
+                  }
                 </td>
                 <td class="comm-num">{{ p.priority }}</td>
                 <td>
-                  <p-inputSwitch
+                  <p-toggleswitch
                     [ngModel]="p.active"
                     [ngModelOptions]="{ standalone: true }"
                     (onChange)="toggleActive(p, $event.checked)"
                     [disabled]="togglingId() === p.id"
-                  ></p-inputSwitch>
+                  ></p-toggleswitch>
                 </td>
                 <td class="comm-actions">
                   <button pButton icon="pi pi-pencil" size="small" severity="secondary" [text]="true" (click)="openEdit(p)" pTooltip="Editar"></button>
@@ -236,7 +243,7 @@ interface ProductOption {
         </article>
       </div>
     </div>
-
+    
     <!-- Dialog: Step 1 (type selector) + Step 2 (config) — extraído a app-promotion-form-dialog (CV.3) -->
     <app-promotion-form-dialog
       [visible]="dialogVisible"
@@ -264,7 +271,7 @@ interface ProductOption {
       (removeBundleItem)="removeBundleItem($event)"
       (bannerError)="bannerPreviewError.set($event)"
     ></app-promotion-form-dialog>
-  `,
+    `,
   styles: [`
     :host { display:block; }
 

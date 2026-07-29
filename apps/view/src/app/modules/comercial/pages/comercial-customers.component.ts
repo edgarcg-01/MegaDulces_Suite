@@ -9,14 +9,14 @@ import { TagModule } from 'primeng/tag';
 import { DialogModule } from 'primeng/dialog';
 import { InputTextModule } from 'primeng/inputtext';
 import { InputNumberModule } from 'primeng/inputnumber';
-import { InputSwitchModule } from 'primeng/inputswitch';
+import { ToggleSwitchModule } from 'primeng/toggleswitch';
 import { IconFieldModule } from 'primeng/iconfield';
 import { InputIconModule } from 'primeng/inputicon';
 import { SelectModule } from 'primeng/select';
 import { ToastModule } from 'primeng/toast';
 import { TooltipModule } from 'primeng/tooltip';
 import { ConfirmDialogModule } from 'primeng/confirmdialog';
-import { MessageService, ConfirmationService } from 'primeng/api';
+import { MessageService, ConfirmationService, SharedModule } from 'primeng/api';
 import { ComercialService, Customer, Store } from '../comercial.service';
 import { LogisticaService, Route } from '../../logistica/logistica.service';
 import { makeLazyLoad, makeDebouncedSearch } from '../../../shared/util';
@@ -41,7 +41,7 @@ import { CUSTOMERS_TABS } from '../customers-tabs';
     DialogModule,
     InputTextModule,
     InputNumberModule,
-    InputSwitchModule,
+    ToggleSwitchModule,
     IconFieldModule,
     InputIconModule,
     SelectModule,
@@ -53,6 +53,7 @@ import { CUSTOMERS_TABS } from '../customers-tabs';
     Customer360PanelComponent,
     CountUpDirective,
     PageTabsComponent,
+    SharedModule,
   ],
   providers: [MessageService, ConfirmationService],
   template: `
@@ -60,7 +61,7 @@ import { CUSTOMERS_TABS } from '../customers-tabs';
       <p-toast></p-toast>
       <p-confirmDialog></p-confirmDialog>
       <app-page-tabs [tabs]="customerTabs" />
-
+    
       <!-- PAGE HEAD edge-to-edge -->
       <header class="surf-page-head">
         <div class="surf-page-head-text">
@@ -90,48 +91,54 @@ import { CUSTOMERS_TABS } from '../customers-tabs';
           ></button>
         </div>
       </header>
-
+    
       <!-- KPI STRIP — resumen del total (no del paginado) -->
-      <div class="sheet cols-12" *ngIf="summaryAll().length > 0">
-        <article class="cell cell-span-3">
-          <span class="cell-icon" aria-hidden="true"><i class="pi pi-users"></i></span>
-          <span class="cell-label">Activos</span>
-          <span class="cell-value is-headline" [appCountUp]="kpis().active" countUpFormat="int"></span>
-          <span class="cell-sub">en la cartera · altas/día 30d</span>
-          <div class="cu-minibars" *ngIf="newBars() as b" aria-hidden="true">
-            <svg [attr.viewBox]="'0 0 ' + b.W + ' ' + b.H" preserveAspectRatio="none">
-              <rect *ngFor="let r of b.rects" [attr.x]="r.x" [attr.y]="r.y" [attr.width]="r.w" [attr.height]="r.h"></rect>
-            </svg>
-          </div>
-        </article>
-        <article class="cell cell-span-3">
-          <span class="cell-icon" aria-hidden="true"><i class="pi pi-directions"></i></span>
-          <span class="cell-label">Con ruta</span>
-          <span class="cell-value" [appCountUp]="kpis().withRoute" countUpFormat="int"></span>
-          <span class="cell-sub">asignada a reparto</span>
-          <div class="cu-ratio" [attr.aria-label]="routeRatio() + '% de activos con ruta'">
-            <div class="cu-ratio-track"><div class="cu-ratio-fill" [style.width.%]="routeRatio()"></div></div>
-            <span class="cu-ratio-pct">{{ routeRatio() }}%</span>
-          </div>
-        </article>
-        <article class="cell cell-span-3">
-          <span class="cell-icon" aria-hidden="true"><i class="pi pi-map-marker"></i></span>
-          <span class="cell-label">Tienda enlazada</span>
-          <span class="cell-value" [appCountUp]="kpis().withStore" countUpFormat="int"></span>
-          <span class="cell-sub">visibles en Trade</span>
-          <div class="cu-ratio" [attr.aria-label]="storeRatio() + '% de activos con tienda'">
-            <div class="cu-ratio-track"><div class="cu-ratio-fill" [style.width.%]="storeRatio()"></div></div>
-            <span class="cu-ratio-pct">{{ storeRatio() }}%</span>
-          </div>
-        </article>
-        <article class="cell cell-span-3">
-          <span class="cell-icon" aria-hidden="true"><i class="pi pi-wallet"></i></span>
-          <span class="cell-label">Crédito asignado</span>
-          <span class="cell-value" [appCountUp]="kpis().totalCredit" countUpFormat="money-short"></span>
-          <span class="cell-sub">suma de límites activos</span>
-        </article>
-      </div>
-
+      @if (summaryAll().length > 0) {
+        <div class="sheet cols-12">
+          <article class="cell cell-span-3">
+            <span class="cell-icon" aria-hidden="true"><i class="pi pi-users"></i></span>
+            <span class="cell-label">Activos</span>
+            <span class="cell-value is-headline" [appCountUp]="kpis().active" countUpFormat="int"></span>
+            <span class="cell-sub">en la cartera · altas/día 30d</span>
+            @if (newBars(); as b) {
+              <div class="cu-minibars" aria-hidden="true">
+                <svg [attr.viewBox]="'0 0 ' + b.W + ' ' + b.H" preserveAspectRatio="none">
+                  @for (r of b.rects; track r) {
+                    <rect [attr.x]="r.x" [attr.y]="r.y" [attr.width]="r.w" [attr.height]="r.h"></rect>
+                  }
+                </svg>
+              </div>
+            }
+          </article>
+          <article class="cell cell-span-3">
+            <span class="cell-icon" aria-hidden="true"><i class="pi pi-directions"></i></span>
+            <span class="cell-label">Con ruta</span>
+            <span class="cell-value" [appCountUp]="kpis().withRoute" countUpFormat="int"></span>
+            <span class="cell-sub">asignada a reparto</span>
+            <div class="cu-ratio" [attr.aria-label]="routeRatio() + '% de activos con ruta'">
+              <div class="cu-ratio-track"><div class="cu-ratio-fill" [style.width.%]="routeRatio()"></div></div>
+              <span class="cu-ratio-pct">{{ routeRatio() }}%</span>
+            </div>
+          </article>
+          <article class="cell cell-span-3">
+            <span class="cell-icon" aria-hidden="true"><i class="pi pi-map-marker"></i></span>
+            <span class="cell-label">Tienda enlazada</span>
+            <span class="cell-value" [appCountUp]="kpis().withStore" countUpFormat="int"></span>
+            <span class="cell-sub">visibles en Trade</span>
+            <div class="cu-ratio" [attr.aria-label]="storeRatio() + '% de activos con tienda'">
+              <div class="cu-ratio-track"><div class="cu-ratio-fill" [style.width.%]="storeRatio()"></div></div>
+              <span class="cu-ratio-pct">{{ storeRatio() }}%</span>
+            </div>
+          </article>
+          <article class="cell cell-span-3">
+            <span class="cell-icon" aria-hidden="true"><i class="pi pi-wallet"></i></span>
+            <span class="cell-label">Crédito asignado</span>
+            <span class="cell-value" [appCountUp]="kpis().totalCredit" countUpFormat="money-short"></span>
+            <span class="cell-sub">suma de límites activos</span>
+          </article>
+        </div>
+      }
+    
       <!-- FILTERS toolbar densa -->
       <div class="sheet cols-12">
         <article class="cell cell-span-12 is-flush cu-filters-cell">
@@ -150,216 +157,242 @@ import { CUSTOMERS_TABS } from '../customers-tabs';
                 autocapitalize="none"
                 spellcheck="false"
                 aria-label="Buscar clientes"
-              />
-              <button
-                *ngIf="searchTerm()"
-                type="button"
-                class="cu-search-clear"
-                (click)="clearSearch()"
-                aria-label="Limpiar búsqueda"
-              >
-                <i class="pi pi-times" aria-hidden="true"></i>
-              </button>
-            </div>
-
-            <!-- Spacer -->
-            <div class="cu-toolbar-spacer"></div>
-
-            <!-- Active toggle: segmented Activos / Todos -->
-            <div class="cu-segment" role="group" aria-label="Filtro de estado">
-              <button
-                type="button"
-                class="cu-seg-btn"
-                [class.active]="onlyActiveValue"
-                (click)="setActive(true)"
-              >Activos</button>
-              <button
-                type="button"
-                class="cu-seg-btn"
-                [class.active]="!onlyActiveValue"
-                (click)="setActive(false)"
-              >Todos</button>
-            </div>
-          </div>
-        </article>
-      </div>
-
-      <!-- TABLA flush -->
-      <div class="sheet cols-12">
-        <article class="cell cell-span-12 is-flush">
-          <p-table
-        [value]="rows()"
-        [loading]="loading()"
-        [lazy]="true"
-        [paginator]="true"
-        [rows]="pageSize()"
-        [totalRecords]="total()"
-        [first]="(page() - 1) * pageSize()"
-        [rowsPerPageOptions]="[25, 50, 100, 200]"
-        (onLazyLoad)="onLazyLoad($event)"
-        responsiveLayout="scroll"
-        styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra"
-      >
-        <ng-template pTemplate="header">
-          <tr>
-            <th scope="col">Código</th>
-            <th scope="col">Cliente</th>
-            <th scope="col">Tienda enlazada</th>
-            <th scope="col">Ruta</th>
-            <th scope="col" class="comm-num">Crédito</th>
-            <th scope="col">Estado</th>
-            <th scope="col"><span class="sr-only">Acciones</span></th>
-          </tr>
-        </ng-template>
-        <ng-template pTemplate="body" let-c>
-          <tr (click)="openCustomer(c)" (keydown.enter)="openCustomer(c)" (keydown.space)="$event.preventDefault(); openCustomer(c)"
-              tabindex="0" role="button"
-              [attr.aria-label]="'Ver 360° de ' + c.name" class="comm-row-clickable">
-            <td><code class="comm-code">{{ c.code }}</code></td>
-            <td>
-              <div class="comm-cell-strong">{{ c.name }}</div>
-              <div class="cu-cell-meta">
-                <span *ngIf="c.legal_name">{{ c.legal_name }}</span>
-                <span *ngIf="c.rfc"><i class="pi pi-id-card" aria-hidden="true"></i>{{ c.rfc }}</span>
-                <span *ngIf="c.email"><i class="pi pi-envelope" aria-hidden="true"></i>{{ c.email }}</span>
-                <span *ngIf="c.phone"><i class="pi pi-phone" aria-hidden="true"></i>{{ c.phone }}</span>
-                <span *ngIf="c.whatsapp"><i class="pi pi-whatsapp" aria-hidden="true"></i>{{ c.whatsapp }}</span>
-                <span *ngIf="c.portal_username" class="cu-portal-chip" pTooltip="Acceso al Portal B2B"><i class="pi pi-key" aria-hidden="true"></i>{{ c.portal_username }}</span>
+                />
+                @if (searchTerm()) {
+                  <button
+                    type="button"
+                    class="cu-search-clear"
+                    (click)="clearSearch()"
+                    aria-label="Limpiar búsqueda"
+                    >
+                    <i class="pi pi-times" aria-hidden="true"></i>
+                  </button>
+                }
               </div>
-            </td>
-            <td class="cu-link-cell">
-              <span *ngIf="c.store_id" class="cu-store-chip" pTooltip="Vínculo 1:1 fijado al alta de la tienda">
-                <i class="pi pi-map-marker" aria-hidden="true"></i>
-                <span>{{ storeName(c.store_id) }}</span>
-              </span>
-              <span *ngIf="!c.store_id" class="comm-muted is-small">—</span>
-            </td>
-            <td class="cu-link-cell">
-              <span *ngIf="c.sales_route" class="cu-store-chip">
-                <i class="pi pi-directions" aria-hidden="true"></i>
-                <span>{{ c.sales_route }}</span>
-              </span>
-              <span *ngIf="!c.sales_route" class="comm-muted is-small">—</span>
-            </td>
-            <td class="comm-num">
-              <div class="comm-cell-strong">{{ c.credit_limit || 0 | currency:'MXN':'symbol-narrow':'1.0-2' }}</div>
-              <div class="comm-muted is-small">{{ c.payment_terms_days ?? 0 }}d pago</div>
-            </td>
-            <td>
-              <span class="cu-status" [class.is-on]="c.active !== false">
-                <span class="cu-status-dot" aria-hidden="true"></span>
-                {{ c.active !== false ? 'Activo' : 'Inactivo' }}
-              </span>
-            </td>
-            <td class="comm-actions" (click)="$event.stopPropagation()">
-              <button pButton icon="pi pi-pencil" size="small" severity="secondary" [text]="true" (click)="openEdit(c)" pTooltip="Editar"></button>
-              @if (c.active !== false) {
-                @if (c.portal_username) {
-                  <button pButton icon="pi pi-refresh" size="small" severity="secondary" [text]="true"
+    
+              <!-- Spacer -->
+              <div class="cu-toolbar-spacer"></div>
+    
+              <!-- Active toggle: segmented Activos / Todos -->
+              <div class="cu-segment" role="group" aria-label="Filtro de estado">
+                <button
+                  type="button"
+                  class="cu-seg-btn"
+                  [class.active]="onlyActiveValue"
+                  (click)="setActive(true)"
+                >Activos</button>
+                <button
+                  type="button"
+                  class="cu-seg-btn"
+                  [class.active]="!onlyActiveValue"
+                  (click)="setActive(false)"
+                >Todos</button>
+              </div>
+            </div>
+          </article>
+        </div>
+    
+        <!-- TABLA flush -->
+        <div class="sheet cols-12">
+          <article class="cell cell-span-12 is-flush">
+            <p-table
+              [value]="rows()"
+              [loading]="loading()"
+              [lazy]="true"
+              [paginator]="true"
+              [rows]="pageSize()"
+              [totalRecords]="total()"
+              [first]="(page() - 1) * pageSize()"
+              [rowsPerPageOptions]="[25, 50, 100, 200]"
+              (onLazyLoad)="onLazyLoad($event)"
+              responsiveLayout="scroll"
+              styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra"
+              >
+              <ng-template pTemplate="header">
+                <tr>
+                  <th scope="col">Código</th>
+                  <th scope="col">Cliente</th>
+                  <th scope="col">Tienda enlazada</th>
+                  <th scope="col">Ruta</th>
+                  <th scope="col" class="comm-num">Crédito</th>
+                  <th scope="col">Estado</th>
+                  <th scope="col"><span class="sr-only">Acciones</span></th>
+                </tr>
+              </ng-template>
+              <ng-template pTemplate="body" let-c>
+                <tr (click)="openCustomer(c)" (keydown.enter)="openCustomer(c)" (keydown.space)="$event.preventDefault(); openCustomer(c)"
+                  tabindex="0" role="button"
+                  [attr.aria-label]="'Ver 360° de ' + c.name" class="comm-row-clickable">
+                  <td><code class="comm-code">{{ c.code }}</code></td>
+                  <td>
+                    <div class="comm-cell-strong">{{ c.name }}</div>
+                    <div class="cu-cell-meta">
+                      @if (c.legal_name) {
+                        <span>{{ c.legal_name }}</span>
+                      }
+                      @if (c.rfc) {
+                        <span><i class="pi pi-id-card" aria-hidden="true"></i>{{ c.rfc }}</span>
+                      }
+                      @if (c.email) {
+                        <span><i class="pi pi-envelope" aria-hidden="true"></i>{{ c.email }}</span>
+                      }
+                      @if (c.phone) {
+                        <span><i class="pi pi-phone" aria-hidden="true"></i>{{ c.phone }}</span>
+                      }
+                      @if (c.whatsapp) {
+                        <span><i class="pi pi-whatsapp" aria-hidden="true"></i>{{ c.whatsapp }}</span>
+                      }
+                      @if (c.portal_username) {
+                        <span class="cu-portal-chip" pTooltip="Acceso al Portal B2B"><i class="pi pi-key" aria-hidden="true"></i>{{ c.portal_username }}</span>
+                      }
+                    </div>
+                  </td>
+                  <td class="cu-link-cell">
+                    @if (c.store_id) {
+                      <span class="cu-store-chip" pTooltip="Vínculo 1:1 fijado al alta de la tienda">
+                        <i class="pi pi-map-marker" aria-hidden="true"></i>
+                        <span>{{ storeName(c.store_id) }}</span>
+                      </span>
+                    }
+                    @if (!c.store_id) {
+                      <span class="comm-muted is-small">—</span>
+                    }
+                  </td>
+                  <td class="cu-link-cell">
+                    @if (c.sales_route) {
+                      <span class="cu-store-chip">
+                        <i class="pi pi-directions" aria-hidden="true"></i>
+                        <span>{{ c.sales_route }}</span>
+                      </span>
+                    }
+                    @if (!c.sales_route) {
+                      <span class="comm-muted is-small">—</span>
+                    }
+                  </td>
+                  <td class="comm-num">
+                    <div class="comm-cell-strong">{{ c.credit_limit || 0 | currency:'MXN':'symbol-narrow':'1.0-2' }}</div>
+                    <div class="comm-muted is-small">{{ c.payment_terms_days ?? 0 }}d pago</div>
+                  </td>
+                  <td>
+                    <span class="cu-status" [class.is-on]="c.active !== false">
+                      <span class="cu-status-dot" aria-hidden="true"></span>
+                      {{ c.active !== false ? 'Activo' : 'Inactivo' }}
+                    </span>
+                  </td>
+                  <td class="comm-actions" (click)="$event.stopPropagation()">
+                    <button pButton icon="pi pi-pencil" size="small" severity="secondary" [text]="true" (click)="openEdit(c)" pTooltip="Editar"></button>
+                    @if (c.active !== false) {
+                      @if (c.portal_username) {
+                        <button pButton icon="pi pi-refresh" size="small" severity="secondary" [text]="true"
                           [disabled]="creatingAccessId() === c.id"
                           (click)="resetPortalAccess(c)"
-                          [pTooltip]="'Resetear contraseña de ' + c.portal_username"></button>
-                } @else {
-                  <button pButton icon="pi pi-key" size="small" severity="secondary" [text]="true"
+                        [pTooltip]="'Resetear contraseña de ' + c.portal_username"></button>
+                      } @else {
+                        <button pButton icon="pi pi-key" size="small" severity="secondary" [text]="true"
                           [disabled]="creatingAccessId() === c.id"
                           (click)="createPortalAccess(c)"
-                          pTooltip="Crear acceso Portal B2B"></button>
-                }
-              }
-              <button pButton icon="pi pi-trash" size="small" severity="secondary" [text]="true" (click)="confirmDelete(c)" *ngIf="c.active !== false" pTooltip="Desactivar"></button>
-            </td>
-          </tr>
-        </ng-template>
-        <ng-template pTemplate="emptymessage">
-          <tr>
-            <td colspan="7" class="comm-empty-cell">
-              <div class="comm-empty">
-                <div class="comm-empty-icon"><i class="pi pi-users" aria-hidden="true"></i></div>
-                <h3>Sin clientes</h3>
-                <p>{{ searchTerm() ? 'No encontramos clientes con esa búsqueda.' : 'Aún no hay clientes registrados.' }}</p>
-                <button
-                  *ngIf="searchTerm()"
-                  type="button"
-                  pButton
-                  icon="pi pi-refresh"
-                  severity="secondary"
-                  [outlined]="true"
-                  size="small"
-                  label="Limpiar búsqueda"
-                  (click)="clearSearch()"
-                ></button>
+                        pTooltip="Crear acceso Portal B2B"></button>
+                      }
+                    }
+                    @if (c.active !== false) {
+                      <button pButton icon="pi pi-trash" size="small" severity="secondary" [text]="true" (click)="confirmDelete(c)" pTooltip="Desactivar"></button>
+                    }
+                  </td>
+                </tr>
+              </ng-template>
+              <ng-template pTemplate="emptymessage">
+                <tr>
+                  <td colspan="7" class="comm-empty-cell">
+                    <div class="comm-empty">
+                      <div class="comm-empty-icon"><i class="pi pi-users" aria-hidden="true"></i></div>
+                      <h3>Sin clientes</h3>
+                      <p>{{ searchTerm() ? 'No encontramos clientes con esa búsqueda.' : 'Aún no hay clientes registrados.' }}</p>
+                      @if (searchTerm()) {
+                        <button
+                          type="button"
+                          pButton
+                          icon="pi pi-refresh"
+                          severity="secondary"
+                          [outlined]="true"
+                          size="small"
+                          label="Limpiar búsqueda"
+                          (click)="clearSearch()"
+                        ></button>
+                      }
+                    </div>
+                  </td>
+                </tr>
+              </ng-template>
+            </p-table>
+          </article>
+        </div>
+      </div>
+    
+      <app-customer-form-dialog
+        [visible]="dialogVisible"
+        (visibleChange)="dialogVisible = $event"
+        [form]="form"
+        [editing]="editing()"
+        [saving]="saving()"
+        [routes]="routes()"
+        [editingStoreName]="editingStoreName()"
+        (save)="save()"
+        (cancel)="closeDialog()"
+      ></app-customer-form-dialog>
+    
+      <!-- J.6.3: dialog que muestra password temporal UNA SOLA VEZ -->
+      <p-dialog
+        [(visible)]="accessDialogVisible"
+        [modal]="true"
+        [closable]="true"
+        [draggable]="false"
+        [style]="{ width: '460px' }"
+        [header]="accessMode() === 'reset' ? 'Contraseña Portal B2B reseteada' : 'Acceso Portal B2B creado'"
+        (onHide)="onCloseAccessDialog()"
+        >
+        @if (lastAccess(); as a) {
+          <div class="access-result">
+            <div class="warn-banner">
+              <i class="pi pi-exclamation-triangle"></i>
+              <span><strong>Copialo ahora.</strong> El password no se mostrará otra vez.</span>
+            </div>
+            <div class="access-field">
+              <label>Usuario</label>
+              <div class="access-value">
+                <code class="comm-code">{{ a.username }}</code>
+                <button pButton icon="pi pi-copy" size="small" severity="secondary" [text]="true"
+                (click)="copyToClipboard(a.username, 'Usuario copiado')"></button>
               </div>
-            </td>
-          </tr>
+            </div>
+            <div class="access-field">
+              <label>Password temporal</label>
+              <div class="access-value">
+                <code class="comm-code pwd">{{ a.temporary_password }}</code>
+                <button pButton icon="pi pi-copy" size="small" severity="secondary" [text]="true"
+                (click)="copyToClipboard(a.temporary_password, 'Password copiado')"></button>
+              </div>
+            </div>
+            <p class="comm-muted is-small">
+              El cliente entra al Portal B2B con tenant_slug <code class="comm-code">mega_dulces</code>.
+              Cuando se loguee, debería cambiar el password desde su perfil.
+            </p>
+          </div>
+        }
+        <ng-template pTemplate="footer">
+          <button pButton label="Cerrar" icon="pi pi-check" (click)="accessDialogVisible = false"></button>
         </ng-template>
-      </p-table>
-        </article>
-      </div>
-    </div>
-
-    <app-customer-form-dialog
-      [visible]="dialogVisible"
-      (visibleChange)="dialogVisible = $event"
-      [form]="form"
-      [editing]="editing()"
-      [saving]="saving()"
-      [routes]="routes()"
-      [editingStoreName]="editingStoreName()"
-      (save)="save()"
-      (cancel)="closeDialog()"
-    ></app-customer-form-dialog>
-
-    <!-- J.6.3: dialog que muestra password temporal UNA SOLA VEZ -->
-    <p-dialog
-      [(visible)]="accessDialogVisible"
-      [modal]="true"
-      [closable]="true"
-      [draggable]="false"
-      [style]="{ width: '460px' }"
-      [header]="accessMode() === 'reset' ? 'Contraseña Portal B2B reseteada' : 'Acceso Portal B2B creado'"
-      (onHide)="onCloseAccessDialog()"
-    >
-      <div class="access-result" *ngIf="lastAccess() as a">
-        <div class="warn-banner">
-          <i class="pi pi-exclamation-triangle"></i>
-          <span><strong>Copialo ahora.</strong> El password no se mostrará otra vez.</span>
-        </div>
-        <div class="access-field">
-          <label>Usuario</label>
-          <div class="access-value">
-            <code class="comm-code">{{ a.username }}</code>
-            <button pButton icon="pi pi-copy" size="small" severity="secondary" [text]="true"
-                    (click)="copyToClipboard(a.username, 'Usuario copiado')"></button>
-          </div>
-        </div>
-        <div class="access-field">
-          <label>Password temporal</label>
-          <div class="access-value">
-            <code class="comm-code pwd">{{ a.temporary_password }}</code>
-            <button pButton icon="pi pi-copy" size="small" severity="secondary" [text]="true"
-                    (click)="copyToClipboard(a.temporary_password, 'Password copiado')"></button>
-          </div>
-        </div>
-        <p class="comm-muted is-small">
-          El cliente entra al Portal B2B con tenant_slug <code class="comm-code">mega_dulces</code>.
-          Cuando se loguee, debería cambiar el password desde su perfil.
-        </p>
-      </div>
-      <ng-template pTemplate="footer">
-        <button pButton label="Cerrar" icon="pi pi-check" (click)="accessDialogVisible = false"></button>
-      </ng-template>
-    </p-dialog>
-
-    <!-- Side-peek: drill-down 360° del cliente (DESIGN.md regla #8) -->
-    <app-side-peek
-      [open]="peekOpen()"
-      (openChange)="peekOpen.set($event)"
-      [title]="peekRow()?.name || 'Cliente'"
-      [subtitle]="peekRow()?.code || null"
-    >
-      <app-customer-360-panel [customerId]="peekRow()?.id || null" />
-    </app-side-peek>
-  `,
+      </p-dialog>
+    
+      <!-- Side-peek: drill-down 360° del cliente (DESIGN.md regla #8) -->
+      <app-side-peek
+        [open]="peekOpen()"
+        (openChange)="peekOpen.set($event)"
+        [title]="peekRow()?.name || 'Cliente'"
+        [subtitle]="peekRow()?.code || null"
+        >
+        <app-customer-360-panel [customerId]="peekRow()?.id || null" />
+      </app-side-peek>
+    `,
   styles: [`
     :host { display:block; }
 

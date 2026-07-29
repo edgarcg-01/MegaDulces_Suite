@@ -1,5 +1,5 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
-import { CommonModule } from '@angular/common';
+
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 import { HttpClient, HttpParams } from '@angular/common/http';
@@ -45,11 +45,23 @@ interface BrandOpt { id: string; nombre: string; products: number; }
   selector: 'app-comercial-thot-directives',
   standalone: true,
   imports: [
-    CommonModule, FormsModule, RouterLink,
-    ButtonModule, TableModule, TagModule, SelectModule, InputTextModule, InputNumberModule,
-    AutoCompleteModule, DatePickerModule, DialogModule, ToastModule, ConfirmDialogModule,
-    TooltipModule, SkeletonModule, ThotAiInputComponent,
-  ],
+    FormsModule,
+    RouterLink,
+    ButtonModule,
+    TableModule,
+    TagModule,
+    SelectModule,
+    InputTextModule,
+    InputNumberModule,
+    AutoCompleteModule,
+    DatePickerModule,
+    DialogModule,
+    ToastModule,
+    ConfirmDialogModule,
+    TooltipModule,
+    SkeletonModule,
+    ThotAiInputComponent
+],
   providers: [MessageService, ConfirmationService],
   template: `
     <div class="surf-page td">

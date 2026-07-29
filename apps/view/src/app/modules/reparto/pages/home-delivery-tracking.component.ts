@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { CommonModule } from '@angular/common';
+
 import { FormsModule } from '@angular/forms';
 import { TableModule } from 'primeng/table';
 import { TagModule } from 'primeng/tag';
@@ -21,7 +21,7 @@ import { WebSocketService } from '../../../core/services/websocket.service';
 @Component({
   selector: 'app-home-delivery-tracking',
   standalone: true,
-  imports: [CommonModule, FormsModule, TableModule, TagModule, ButtonModule, SelectButtonModule, MapComponent, MapLegendComponent, MetricStripComponent],
+  imports: [FormsModule, TableModule, TagModule, ButtonModule, SelectButtonModule, MapComponent, MapLegendComponent, MetricStripComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="trk">
@@ -32,58 +32,62 @@ import { WebSocketService } from '../../../core/services/websocket.service';
         </div>
         <div class="head-actions">
           <p-selectButton [options]="filters" [(ngModel)]="statusFilter" optionLabel="label" optionValue="value"
-                          (onChange)="load()" [allowEmpty]="false" styleClass="sb-liquid" />
-          <button pButton icon="pi pi-refresh" [label]="loading() ? 'Actualizando…' : 'Actualizar'"
-                  size="small" severity="secondary" (click)="load()" [disabled]="loading()"></button>
+            (onChange)="load()" [allowEmpty]="false" styleClass="sb-liquid" />
+            <button pButton icon="pi pi-refresh" [label]="loading() ? 'Actualizando…' : 'Actualizar'"
+            size="small" severity="secondary" (click)="load()" [disabled]="loading()"></button>
+          </div>
+        </header>
+    
+        <app-metric-strip [items]="kpiItems()" ariaLabel="Resumen de entregas de hoy" />
+    
+    
+        <div class="map-wrap">
+          <app-map [layers]="mapLayers()" height="360px" [autoFit]="'once'" />
+          <app-map-legend [layers]="legend()" (toggle)="toggleLayer($event)" />
+          <div class="map-note">
+            <i class="pi pi-circle-fill live" aria-hidden="true"></i> Repartidor en vivo · posición cada ~15 s
+          </div>
         </div>
-      </header>
-
-      <app-metric-strip [items]="kpiItems()" ariaLabel="Resumen de entregas de hoy" />
-
-
-      <div class="map-wrap">
-        <app-map [layers]="mapLayers()" height="360px" [autoFit]="'once'" />
-        <app-map-legend [layers]="legend()" (toggle)="toggleLayer($event)" />
-        <div class="map-note">
-          <i class="pi pi-circle-fill live" aria-hidden="true"></i> Repartidor en vivo · posición cada ~15 s
+    
+        <p-table [value]="rows()" [loading]="loading()" styleClass="p-datatable-sm" [scrollable]="true"
+          [rowHover]="true" dataKey="delivery_id">
+          <ng-template pTemplate="header">
+            <tr>
+              <th>Folio</th>
+              <th>Cliente</th>
+              <th>Domicilio</th>
+              <th>Repartidor</th>
+              <th class="num">Cobro</th>
+              <th>Estado</th>
+              <th>Despachado</th>
+              <th>Entregado</th>
+            </tr>
+          </ng-template>
+          <ng-template pTemplate="body" let-d>
+            <tr>
+              <td class="mono">{{ d.folio }}@if (d.kepler_folio) {
+                <div class="sub2">Kepler {{ d.kepler_folio }}</div>
+              }</td>
+              <td>{{ d.customer_name }}@if (d.phone) {
+                <div class="sub2">{{ d.phone }}</div>
+              }</td>
+              <td class="addr">{{ d.delivery_address?.street || '—' }}</td>
+              <td>{{ d.rider_name || d.rider_username || '—' }}</td>
+              <td class="num">
+                @if (d.collect_on_delivery) { {{ money(d.amount_to_collect) }} }
+                  @else { <span class="paid">pagado</span> }
+                </td>
+                <td><p-tag [value]="statusLabel(d)" [severity]="statusSeverity(d.status)" /></td>
+                <td class="mono">{{ time(d.dispatched_at) }}</td>
+                <td class="mono">{{ d.delivered_at ? time(d.delivered_at) : '—' }}</td>
+              </tr>
+            </ng-template>
+            <ng-template pTemplate="emptymessage">
+              <tr><td colspan="8" class="empty">Sin entregas despachadas hoy.</td></tr>
+            </ng-template>
+          </p-table>
         </div>
-      </div>
-
-      <p-table [value]="rows()" [loading]="loading()" styleClass="p-datatable-sm" [scrollable]="true"
-               [rowHover]="true" dataKey="delivery_id">
-        <ng-template pTemplate="header">
-          <tr>
-            <th>Folio</th>
-            <th>Cliente</th>
-            <th>Domicilio</th>
-            <th>Repartidor</th>
-            <th class="num">Cobro</th>
-            <th>Estado</th>
-            <th>Despachado</th>
-            <th>Entregado</th>
-          </tr>
-        </ng-template>
-        <ng-template pTemplate="body" let-d>
-          <tr>
-            <td class="mono">{{ d.folio }}<div class="sub2" *ngIf="d.kepler_folio">Kepler {{ d.kepler_folio }}</div></td>
-            <td>{{ d.customer_name }}<div class="sub2" *ngIf="d.phone">{{ d.phone }}</div></td>
-            <td class="addr">{{ d.delivery_address?.street || '—' }}</td>
-            <td>{{ d.rider_name || d.rider_username || '—' }}</td>
-            <td class="num">
-              @if (d.collect_on_delivery) { {{ money(d.amount_to_collect) }} }
-              @else { <span class="paid">pagado</span> }
-            </td>
-            <td><p-tag [value]="statusLabel(d)" [severity]="statusSeverity(d.status)" /></td>
-            <td class="mono">{{ time(d.dispatched_at) }}</td>
-            <td class="mono">{{ d.delivered_at ? time(d.delivered_at) : '—' }}</td>
-          </tr>
-        </ng-template>
-        <ng-template pTemplate="emptymessage">
-          <tr><td colspan="8" class="empty">Sin entregas despachadas hoy.</td></tr>
-        </ng-template>
-      </p-table>
-    </div>
-  `,
+    `,
   styles: [`
     :host { display: block; padding: 1rem 1.25rem; }
     .trk-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 1rem; flex-wrap: wrap; }

@@ -39,115 +39,126 @@ interface FilterChip {
           Historial
         </span>
         <h1>Mis pedidos</h1>
-        <p class="portal-page-sub" *ngIf="orders().length > 0">
-          {{ orders().length }} pedido{{ orders().length === 1 ? '' : 's' }} en total
-        </p>
+        @if (orders().length > 0) {
+          <p class="portal-page-sub">
+            {{ orders().length }} pedido{{ orders().length === 1 ? '' : 's' }} en total
+          </p>
+        }
       </div>
       <button
         type="button"
         class="portal-btn-primary"
         (click)="goCatalog()"
-      >
+        >
         <i class="pi pi-plus" aria-hidden="true"></i>
         Nuevo pedido
       </button>
     </header>
-
-    <p-skeleton *ngIf="loading()" height="400px"></p-skeleton>
-
+    
+    @if (loading()) {
+      <p-skeleton height="400px"></p-skeleton>
+    }
+    
     <!-- Empty -->
-    <div *ngIf="!loading() && orders().length === 0" class="portal-empty">
-      <div class="portal-empty-icon"><i class="pi pi-inbox" aria-hidden="true"></i></div>
-      <h2>Sin pedidos aún</h2>
-      <p>Cuando hagas tu primer pedido, lo verás aquí.</p>
-      <div class="portal-empty-actions">
-        <button type="button" class="portal-btn-primary" (click)="goCatalog()">
-          <i class="pi pi-arrow-right" aria-hidden="true"></i>
-          Explorar catálogo
-        </button>
+    @if (!loading() && orders().length === 0) {
+      <div class="portal-empty">
+        <div class="portal-empty-icon"><i class="pi pi-inbox" aria-hidden="true"></i></div>
+        <h2>Sin pedidos aún</h2>
+        <p>Cuando hagas tu primer pedido, lo verás aquí.</p>
+        <div class="portal-empty-actions">
+          <button type="button" class="portal-btn-primary" (click)="goCatalog()">
+            <i class="pi pi-arrow-right" aria-hidden="true"></i>
+            Explorar catálogo
+          </button>
+        </div>
       </div>
-    </div>
-
+    }
+    
     <!-- Filters + list -->
-    <ng-container *ngIf="!loading() && orders().length > 0">
+    @if (!loading() && orders().length > 0) {
       <div class="po-filters" role="tablist" aria-label="Filtrar por estado">
-        <button
-          *ngFor="let f of filters"
-          type="button"
-          class="po-filter"
-          [class.active]="statusFilter() === f.key"
-          (click)="setFilter(f.key)"
-          role="tab"
-          [attr.aria-selected]="statusFilter() === f.key"
-        >
-          {{ f.label }}
-          <span class="po-filter-count">{{ countByStatus(f.key) }}</span>
-        </button>
-      </div>
-
-      <div *ngIf="visibleOrders().length === 0" class="po-no-match">
-        <i [class]="emptyIcon()"></i>
-        <p>{{ emptyMessage() }}</p>
-        <button
-          *ngIf="statusFilter() !== 'all'"
-          type="button"
-          class="po-no-match-btn"
-          (click)="setFilter('all')"
-        >
-          <i class="pi pi-list"></i>
-          Ver todos los pedidos
-        </button>
-      </div>
-
-      <div class="po-list" *ngIf="visibleOrders().length > 0">
-        <a
-          *ngFor="let o of visibleOrders(); trackBy: trackByOrder"
-          class="po-card"
-          [class]="'po-card-status-' + o.status"
-          [routerLink]="['/portal/orders', o.id]"
-        >
-          <div class="po-card-body">
-            <div class="po-card-top">
-              <span class="po-card-code">{{ o.code }}</span>
-              <span class="portal-status-pill" [class]="'is-' + o.status">
-                {{ statusLabel(o.status) }}
-              </span>
-            </div>
-            <div class="po-card-date">
-              <i class="pi pi-calendar"></i>
-              {{ fmtDate(o.created_at) }}
-            </div>
-            <div class="po-card-amounts">
-              <span class="po-amount-row">
-                <span class="po-amount-label">Subtotal</span>
-                <span>{{ +o.subtotal | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
-              </span>
-              <span class="po-amount-row">
-                <span class="po-amount-label">IVA</span>
-                <span>{{ +o.tax_total | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
-              </span>
-            </div>
-          </div>
-
-          <div class="po-card-total">
-            <span class="po-total-label">Total</span>
-            <b>{{ +o.total | currency:'MXN':'symbol-narrow':'1.2-2' }}</b>
-            <button
-              *ngIf="o.status !== 'draft'"
-              type="button"
-              class="po-reorder"
-              [disabled]="reorderingId() === o.id"
-              (click)="reorder(o, $event)"
-              [attr.aria-label]="'Repetir pedido ' + o.code"
+        @for (f of filters; track f) {
+          <button
+            type="button"
+            class="po-filter"
+            [class.active]="statusFilter() === f.key"
+            (click)="setFilter(f.key)"
+            role="tab"
+            [attr.aria-selected]="statusFilter() === f.key"
             >
-              <i [class]="reorderingId() === o.id ? 'pi pi-spin pi-spinner' : 'pi pi-replay'"></i>
-              {{ reorderingId() === o.id ? 'Agregando…' : 'Repetir' }}
-            </button>
-          </div>
-        </a>
+            {{ f.label }}
+            <span class="po-filter-count">{{ countByStatus(f.key) }}</span>
+          </button>
+        }
       </div>
-    </ng-container>
-  `,
+      @if (visibleOrders().length === 0) {
+        <div class="po-no-match">
+          <i [class]="emptyIcon()"></i>
+          <p>{{ emptyMessage() }}</p>
+          @if (statusFilter() !== 'all') {
+            <button
+              type="button"
+              class="po-no-match-btn"
+              (click)="setFilter('all')"
+              >
+              <i class="pi pi-list"></i>
+              Ver todos los pedidos
+            </button>
+          }
+        </div>
+      }
+      @if (visibleOrders().length > 0) {
+        <div class="po-list">
+          @for (o of visibleOrders(); track trackByOrder($index, o)) {
+            <a
+              class="po-card"
+              [class]="'po-card-status-' + o.status"
+              [routerLink]="['/portal/orders', o.id]"
+              >
+              <div class="po-card-body">
+                <div class="po-card-top">
+                  <span class="po-card-code">{{ o.code }}</span>
+                  <span class="portal-status-pill" [class]="'is-' + o.status">
+                    {{ statusLabel(o.status) }}
+                  </span>
+                </div>
+                <div class="po-card-date">
+                  <i class="pi pi-calendar"></i>
+                  {{ fmtDate(o.created_at) }}
+                </div>
+                <div class="po-card-amounts">
+                  <span class="po-amount-row">
+                    <span class="po-amount-label">Subtotal</span>
+                    <span>{{ +o.subtotal | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
+                  </span>
+                  <span class="po-amount-row">
+                    <span class="po-amount-label">IVA</span>
+                    <span>{{ +o.tax_total | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
+                  </span>
+                </div>
+              </div>
+              <div class="po-card-total">
+                <span class="po-total-label">Total</span>
+                <b>{{ +o.total | currency:'MXN':'symbol-narrow':'1.2-2' }}</b>
+                @if (o.status !== 'draft') {
+                  <button
+                    type="button"
+                    class="po-reorder"
+                    [disabled]="reorderingId() === o.id"
+                    (click)="reorder(o, $event)"
+                    [attr.aria-label]="'Repetir pedido ' + o.code"
+                    >
+                    <i [class]="reorderingId() === o.id ? 'pi pi-spin pi-spinner' : 'pi pi-replay'"></i>
+                    {{ reorderingId() === o.id ? 'Agregando…' : 'Repetir' }}
+                  </button>
+                }
+              </div>
+            </a>
+          }
+        </div>
+      }
+    }
+    `,
   styles: [
     `
       :host { display: block; }

@@ -37,13 +37,12 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
     <div class="surf-page shd">
       <p-toast></p-toast>
       <p-confirmDialog></p-confirmDialog>
-
-      <ng-container *ngIf="shipment() as s">
+    
+      @if (shipment(); as s) {
         <!-- BACK LINK -->
         <a routerLink="/logistica/shipments" class="shd-back">
           <i class="pi pi-arrow-left" aria-hidden="true"></i> Volver a embarques
         </a>
-
         <!-- PAGE HEAD -->
         <header class="surf-page-head">
           <div class="surf-page-head-text">
@@ -62,28 +61,32 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
             <span class="comm-pill" [class]="statusPillClass(s.status)">
               {{ statusLabel(s.status) }}
             </span>
-
             <!-- Transiciones de estado (solo las válidas para el estado actual) -->
-            <button pButton *ngIf="canDepart()" icon="pi pi-send" label="Marcar en ruta" size="small"
-                    (click)="transition('depart')"></button>
-            <button pButton *ngIf="canDeliver()" icon="pi pi-check" label="Marcar entregado" size="small"
-                    (click)="transition('deliver')"></button>
-            <button pButton *ngIf="canClose()" icon="pi pi-lock" label="Cerrar embarque" size="small"
-                    (click)="transition('close')"></button>
-            <button pButton *ngIf="canCancel()" icon="pi pi-times" label="Cancelar" size="small"
-                    severity="danger" [text]="true" (click)="confirmCancel()"></button>
-
+            @if (canDepart()) {
+              <button pButton icon="pi pi-send" label="Marcar en ruta" size="small"
+              (click)="transition('depart')"></button>
+            }
+            @if (canDeliver()) {
+              <button pButton icon="pi pi-check" label="Marcar entregado" size="small"
+              (click)="transition('deliver')"></button>
+            }
+            @if (canClose()) {
+              <button pButton icon="pi pi-lock" label="Cerrar embarque" size="small"
+              (click)="transition('close')"></button>
+            }
+            @if (canCancel()) {
+              <button pButton icon="pi pi-times" label="Cancelar" size="small"
+              severity="danger" [text]="true" (click)="confirmCancel()"></button>
+            }
             <span class="shd-head-sep" aria-hidden="true"></span>
-
             <a pButton icon="pi pi-check-square" label="Checklists" severity="secondary" [outlined]="true" size="small"
-               [routerLink]="['/logistica/shipments', s.id, 'checklists']"></a>
+            [routerLink]="['/logistica/shipments', s.id, 'checklists']"></a>
             <a pButton icon="pi pi-camera" label="Fotos" severity="secondary" [outlined]="true" size="small"
-               [routerLink]="['/logistica/shipments', s.id, 'photos']"></a>
+            [routerLink]="['/logistica/shipments', s.id, 'photos']"></a>
             <button pButton icon="pi pi-file-pdf" label="PDF" severity="secondary" [outlined]="true" size="small"
-                    (click)="downloadPdf(s.id)"></button>
+            (click)="downloadPdf(s.id)"></button>
           </div>
         </header>
-
         <!-- MODE TABS -->
         <div class="sheet cols-12">
           <article class="cell cell-span-12 is-flush shd-tabs-cell">
@@ -95,7 +98,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
                 role="tab"
                 [attr.aria-selected]="tab() === 'info'"
                 (click)="setTab('info')"
-              >
+                >
                 <i class="pi pi-info-circle" aria-hidden="true"></i>
                 <span>Información</span>
               </button>
@@ -106,7 +109,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
                 role="tab"
                 [attr.aria-selected]="tab() === 'guides'"
                 (click)="setTab('guides')"
-              >
+                >
                 <i class="pi pi-file-edit" aria-hidden="true"></i>
                 <span>Guías</span>
                 <span class="shd-tab-count">{{ guides().length }}</span>
@@ -118,7 +121,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
                 role="tab"
                 [attr.aria-selected]="tab() === 'expenses'"
                 (click)="setTab('expenses')"
-              >
+                >
                 <i class="pi pi-money-bill" aria-hidden="true"></i>
                 <span>Costos</span>
               </button>
@@ -129,39 +132,41 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
                 role="tab"
                 [attr.aria-selected]="tab() === 'cartaporte'"
                 (click)="setTab('cartaporte')"
-              >
+                >
                 <i class="pi pi-file-check" aria-hidden="true"></i>
                 <span>Carta Porte</span>
               </button>
             </nav>
           </article>
         </div>
-
         <!-- ── TAB INFO ── -->
-        <ng-container *ngIf="tab() === 'info'">
+        @if (tab() === 'info') {
           <!-- Semáforo de preparación del viaje -->
-          <div class="sheet cols-12" *ngIf="readiness() as rd">
-            <article class="cell cell-span-12">
-              <div class="rd-head">
-                <span class="cell-label">Preparación del viaje</span>
-                <span class="rd-pill" [class.ok]="rd.ready">{{ rd.ready ? 'Listo para operar' : 'Faltan datos' }}</span>
-              </div>
-              <div class="rd-progress">
-                <div class="rd-progress-track">
-                  <div class="rd-progress-fill" [class.ok]="rd.ready" [style.width.%]="readinessPct()"></div>
+          @if (readiness(); as rd) {
+            <div class="sheet cols-12">
+              <article class="cell cell-span-12">
+                <div class="rd-head">
+                  <span class="cell-label">Preparación del viaje</span>
+                  <span class="rd-pill" [class.ok]="rd.ready">{{ rd.ready ? 'Listo para operar' : 'Faltan datos' }}</span>
                 </div>
-                <span class="rd-progress-pct">{{ readinessPct() }}%</span>
-              </div>
-              <ul class="rd-list">
-                <li *ngFor="let c of rd.checks" [class]="'rd-' + c.status">
-                  <i class="pi" [class.pi-check-circle]="c.status==='ok'" [class.pi-exclamation-triangle]="c.status==='warn'" [class.pi-circle]="c.status==='pending'" aria-hidden="true"></i>
-                  <span class="rd-label">{{ c.label }}</span>
-                  <span class="rd-detail">{{ c.detail }}</span>
-                </li>
-              </ul>
-            </article>
-          </div>
-
+                <div class="rd-progress">
+                  <div class="rd-progress-track">
+                    <div class="rd-progress-fill" [class.ok]="rd.ready" [style.width.%]="readinessPct()"></div>
+                  </div>
+                  <span class="rd-progress-pct">{{ readinessPct() }}%</span>
+                </div>
+                <ul class="rd-list">
+                  @for (c of rd.checks; track c) {
+                    <li [class]="'rd-' + c.status">
+                      <i class="pi" [class.pi-check-circle]="c.status==='ok'" [class.pi-exclamation-triangle]="c.status==='warn'" [class.pi-circle]="c.status==='pending'" aria-hidden="true"></i>
+                      <span class="rd-label">{{ c.label }}</span>
+                      <span class="rd-detail">{{ c.detail }}</span>
+                    </li>
+                  }
+                </ul>
+              </article>
+            </div>
+          }
           <div class="sheet cols-12">
             <article class="cell cell-span-3">
               <span class="cell-label">Tipo</span>
@@ -179,7 +184,6 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
               <span class="cell-label">Km recorridos</span>
               <span class="cell-value is-medium">{{ s.actual_km || '—' }}</span>
             </article>
-
             <article class="cell cell-span-3">
               <span class="cell-icon" aria-hidden="true"><i class="pi pi-dollar"></i></span>
               <span class="cell-label">Valor carga</span>
@@ -199,41 +203,43 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
               <span class="cell-value is-small">{{ s.arrival_at ? (s.arrival_at | date:'short') : '—' }}</span>
             </article>
           </div>
-
           <!-- Notas (conditional) -->
-          <div *ngIf="s.notes" class="sheet cols-12">
-            <article class="cell cell-span-12">
-              <span class="cell-label">Notas</span>
-              <p class="shd-notes">{{ s.notes }}</p>
-            </article>
-          </div>
-
+          @if (s.notes) {
+            <div class="sheet cols-12">
+              <article class="cell cell-span-12">
+                <span class="cell-label">Notas</span>
+                <p class="shd-notes">{{ s.notes }}</p>
+              </article>
+            </div>
+          }
           <!-- Action: editar metrics -->
-          <div class="shd-info-actions" *ngIf="s.status !== 'cerrado' && s.status !== 'cancelado'">
-            <button pButton icon="pi pi-pencil" label="Editar km / flete"
-                    size="small" severity="secondary" [outlined]="true"
-                    (click)="openEditMetrics()"></button>
-          </div>
-        </ng-container>
-
+          @if (s.status !== 'cerrado' && s.status !== 'cancelado') {
+            <div class="shd-info-actions">
+              <button pButton icon="pi pi-pencil" label="Editar km / flete"
+                size="small" severity="secondary" [outlined]="true"
+              (click)="openEditMetrics()"></button>
+            </div>
+          }
+        }
         <!-- ── TAB GUÍAS ── -->
-        <ng-container *ngIf="tab() === 'guides'">
-          <div class="sheet cols-12" *ngIf="canAddGuide()">
-            <article class="cell cell-span-12 is-flush shd-cta-cell">
-              <span class="comm-muted is-small">
-                Asigná chofer + ayudantes + destinatarios por cada guía de reparto.
-              </span>
-              <div class="shd-cta-actions">
-                <button pButton icon="pi pi-compass" label="Optimizar ruta" size="small"
-                        severity="secondary" [outlined]="true" [loading]="optimizing()"
-                        [disabled]="!guides().length" (click)="optimizeRoute()"
-                        pTooltip="Ordena las paradas por cercanía (menos km)"></button>
-                <button pButton icon="pi pi-plus" label="Nueva guía" size="small"
-                        (click)="openCreateGuide()"></button>
-              </div>
-            </article>
-          </div>
-
+        @if (tab() === 'guides') {
+          @if (canAddGuide()) {
+            <div class="sheet cols-12">
+              <article class="cell cell-span-12 is-flush shd-cta-cell">
+                <span class="comm-muted is-small">
+                  Asigná chofer + ayudantes + destinatarios por cada guía de reparto.
+                </span>
+                <div class="shd-cta-actions">
+                  <button pButton icon="pi pi-compass" label="Optimizar ruta" size="small"
+                    severity="secondary" [outlined]="true" [loading]="optimizing()"
+                    [disabled]="!guides().length" (click)="optimizeRoute()"
+                  pTooltip="Ordena las paradas por cercanía (menos km)"></button>
+                  <button pButton icon="pi pi-plus" label="Nueva guía" size="small"
+                  (click)="openCreateGuide()"></button>
+                </div>
+              </article>
+            </div>
+          }
           <div class="sheet cols-12">
             <article class="cell cell-span-12 is-flush">
               <p-table [value]="guides()" responsiveLayout="scroll" styleClass="surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra p-datatable-sm">
@@ -262,7 +268,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
                     </td>
                     <td class="comm-actions">
                       <button pButton icon="pi pi-eye" size="small" severity="secondary"
-                              [text]="true" (click)="openGuideDetail(g)" pTooltip="Ver destinatarios"></button>
+                      [text]="true" (click)="openGuideDetail(g)" pTooltip="Ver destinatarios"></button>
                     </td>
                   </tr>
                 </ng-template>
@@ -273,9 +279,11 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
                         <div class="comm-empty-icon"><i class="pi pi-file-edit" aria-hidden="true"></i></div>
                         <h3>Sin guías</h3>
                         <p>Agregá una guía para asignar chofer + destinatarios.</p>
-                        <button *ngIf="canAddGuide()" type="button" pButton
-                                icon="pi pi-plus" severity="primary" size="small"
-                                label="Nueva guía" (click)="openCreateGuide()"></button>
+                        @if (canAddGuide()) {
+                          <button type="button" pButton
+                            icon="pi pi-plus" severity="primary" size="small"
+                          label="Nueva guía" (click)="openCreateGuide()"></button>
+                        }
                       </div>
                     </td>
                   </tr>
@@ -283,46 +291,60 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
               </p-table>
             </article>
           </div>
-
           <!-- ETA de ruta (J12.4) -->
-          <div class="sheet cols-12" *ngIf="guides().length">
-            <article class="cell cell-span-12">
-              <div class="shd-eta-head">
-                <div>
-                  <span class="cell-label">ETA de ruta</span>
-                  <p class="comm-muted is-small" *ngIf="eta() as e">
-                    {{ e.stops.length }} paradas pendientes · {{ e.total_km }} km · ~{{ e.total_minutes }} min
-                    <span *ngIf="e.speed_kmh"> · {{ e.speed_kmh }} km/h<span *ngIf="e.speed_source === 'calibrated'"> (calibrada)</span></span>
-                    <span *ngIf="e.from_source === 'first_stop'"> · (sin GPS del chofer, desde 1ª parada)</span>
-                  </p>
+          @if (guides().length) {
+            <div class="sheet cols-12">
+              <article class="cell cell-span-12">
+                <div class="shd-eta-head">
+                  <div>
+                    <span class="cell-label">ETA de ruta</span>
+                    @if (eta(); as e) {
+                      <p class="comm-muted is-small">
+                        {{ e.stops.length }} paradas pendientes · {{ e.total_km }} km · ~{{ e.total_minutes }} min
+                        @if (e.speed_kmh) {
+                          <span> · {{ e.speed_kmh }} km/h@if (e.speed_source === 'calibrated') {
+                            <span> (calibrada)</span>
+                          }</span>
+                        }
+                        @if (e.from_source === 'first_stop') {
+                          <span> · (sin GPS del chofer, desde 1ª parada)</span>
+                        }
+                      </p>
+                    }
+                  </div>
+                  <button pButton icon="pi pi-clock" label="Calcular ETA" size="small" severity="secondary"
+                  [outlined]="true" [loading]="etaLoading()" (click)="loadEta()"></button>
                 </div>
-                <button pButton icon="pi pi-clock" label="Calcular ETA" size="small" severity="secondary"
-                        [outlined]="true" [loading]="etaLoading()" (click)="loadEta()"></button>
-              </div>
-              <div *ngIf="eta() as e">
-                <p-table *ngIf="e.stops.length" [value]="e.stops" responsiveLayout="scroll" styleClass="surf-table surf-table--sticky surf-table--zebra p-datatable-sm">
-                  <ng-template pTemplate="header">
-                    <tr><th scope="col">#</th><th scope="col">Cliente</th><th scope="col" class="comm-num num">Km acum.</th><th scope="col">ETA</th></tr>
-                  </ng-template>
-                  <ng-template pTemplate="body" let-s>
-                    <tr>
-                      <td><span class="shd-eta-seq">{{ s.sequence_order }}</span></td>
-                      <td class="comm-cell-strong">{{ s.customer_name }}</td>
-                      <td class="comm-num">{{ s.cumulative_km }}</td>
-                      <td class="shd-eta-time">{{ s.eta | date:'shortTime' }}</td>
-                    </tr>
-                  </ng-template>
-                </p-table>
-                <p *ngIf="!e.stops.length" class="comm-muted is-small">
-                  Sin paradas con orden + ubicación. Corré "Optimizar ruta" y captura lat/lng de los clientes.
-                </p>
-              </div>
-            </article>
-          </div>
-        </ng-container>
-
+                @if (eta(); as e) {
+                  <div>
+                    @if (e.stops.length) {
+                      <p-table [value]="e.stops" responsiveLayout="scroll" styleClass="surf-table surf-table--sticky surf-table--zebra p-datatable-sm">
+                        <ng-template pTemplate="header">
+                          <tr><th scope="col">#</th><th scope="col">Cliente</th><th scope="col" class="comm-num num">Km acum.</th><th scope="col">ETA</th></tr>
+                        </ng-template>
+                        <ng-template pTemplate="body" let-s>
+                          <tr>
+                            <td><span class="shd-eta-seq">{{ s.sequence_order }}</span></td>
+                            <td class="comm-cell-strong">{{ s.customer_name }}</td>
+                            <td class="comm-num">{{ s.cumulative_km }}</td>
+                            <td class="shd-eta-time">{{ s.eta | date:'shortTime' }}</td>
+                          </tr>
+                        </ng-template>
+                      </p-table>
+                    }
+                    @if (!e.stops.length) {
+                      <p class="comm-muted is-small">
+                        Sin paradas con orden + ubicación. Corré "Optimizar ruta" y captura lat/lng de los clientes.
+                      </p>
+                    }
+                  </div>
+                }
+              </article>
+            </div>
+          }
+        }
         <!-- ── TAB COSTOS ── -->
-        <ng-container *ngIf="tab() === 'expenses'">
+        @if (tab() === 'expenses') {
           <!-- Form de inputs -->
           <div class="sheet cols-12">
             <article class="cell cell-span-12">
@@ -357,54 +379,54 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
               </form>
             </article>
           </div>
-
           <!-- Totales -->
-          <div *ngIf="expense() as e" class="sheet cols-12">
-            <article class="cell cell-span-4">
-              <span class="cell-label">Subtotal operativo</span>
-              <span class="cell-value is-medium">{{ e.operating_subtotal | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
-              <span class="cell-sub">suma de conceptos</span>
-            </article>
-            <article class="cell cell-span-4">
-              <span class="cell-label">Costo por km</span>
-              <span class="cell-value is-medium">{{ (e.total_cost - e.operating_subtotal) | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
-              <span class="cell-sub">× {{ e.fixed_cost_per_km | number:'1.2-4' }} /km</span>
-            </article>
-            <article class="cell cell-span-4">
-              <span class="cell-icon" aria-hidden="true"><i class="pi pi-wallet"></i></span>
-              <span class="cell-label">Total</span>
-              <span class="cell-value is-headline">{{ e.total_cost | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
-            </article>
-          </div>
-
+          @if (expense(); as e) {
+            <div class="sheet cols-12">
+              <article class="cell cell-span-4">
+                <span class="cell-label">Subtotal operativo</span>
+                <span class="cell-value is-medium">{{ e.operating_subtotal | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
+                <span class="cell-sub">suma de conceptos</span>
+              </article>
+              <article class="cell cell-span-4">
+                <span class="cell-label">Costo por km</span>
+                <span class="cell-value is-medium">{{ (e.total_cost - e.operating_subtotal) | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
+                <span class="cell-sub">× {{ e.fixed_cost_per_km | number:'1.2-4' }} /km</span>
+              </article>
+              <article class="cell cell-span-4">
+                <span class="cell-icon" aria-hidden="true"><i class="pi pi-wallet"></i></span>
+                <span class="cell-label">Total</span>
+                <span class="cell-value is-headline">{{ e.total_cost | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
+              </article>
+            </div>
+          }
           <!-- Save action -->
           <div class="shd-info-actions">
             <button pButton icon="pi pi-save" label="Guardar costos"
-                    [loading]="savingExp()" (click)="saveExpense()"></button>
+            [loading]="savingExp()" (click)="saveExpense()"></button>
           </div>
-        </ng-container>
-
+        }
         <!-- ── TAB CARTA PORTE ── -->
-        <ng-container *ngIf="tab() === 'cartaporte'">
+        @if (tab() === 'cartaporte') {
           <!-- Documentos ya timbrados -->
-          <div class="sheet cols-12" *ngIf="cpDocs().length">
-            <article class="cell cell-span-12 is-flush">
-              <p-table [value]="cpDocs()" responsiveLayout="scroll" styleClass="surf-table surf-table--sticky surf-table--zebra p-datatable-sm">
-                <ng-template pTemplate="header">
-                  <tr><th scope="col">Folio fiscal (UUID)</th><th scope="col">Tipo</th><th scope="col">Estado</th><th scope="col">Timbrado</th></tr>
-                </ng-template>
-                <ng-template pTemplate="body" let-d>
-                  <tr>
-                    <td><code class="comm-code">{{ d.uuid_fiscal || '—' }}</code></td>
-                    <td>{{ d.cfdi_type }}</td>
-                    <td><span class="comm-pill" [class]="cpPillClass(d.status)">{{ d.status }}</span></td>
-                    <td class="comm-muted">{{ d.stamped_at ? (d.stamped_at | date:'short') : '—' }}</td>
-                  </tr>
-                </ng-template>
-              </p-table>
-            </article>
-          </div>
-
+          @if (cpDocs().length) {
+            <div class="sheet cols-12">
+              <article class="cell cell-span-12 is-flush">
+                <p-table [value]="cpDocs()" responsiveLayout="scroll" styleClass="surf-table surf-table--sticky surf-table--zebra p-datatable-sm">
+                  <ng-template pTemplate="header">
+                    <tr><th scope="col">Folio fiscal (UUID)</th><th scope="col">Tipo</th><th scope="col">Estado</th><th scope="col">Timbrado</th></tr>
+                  </ng-template>
+                  <ng-template pTemplate="body" let-d>
+                    <tr>
+                      <td><code class="comm-code">{{ d.uuid_fiscal || '—' }}</code></td>
+                      <td>{{ d.cfdi_type }}</td>
+                      <td><span class="comm-pill" [class]="cpPillClass(d.status)">{{ d.status }}</span></td>
+                      <td class="comm-muted">{{ d.stamped_at ? (d.stamped_at | date:'short') : '—' }}</td>
+                    </tr>
+                  </ng-template>
+                </p-table>
+              </article>
+            </div>
+          }
           <!-- Validación + acción -->
           <div class="sheet cols-12">
             <article class="cell cell-span-12">
@@ -415,35 +437,39 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
                 </div>
                 <div class="shd-cp-actions">
                   <button pButton icon="pi pi-search" label="Revisar datos" size="small" severity="secondary"
-                          [outlined]="true" [loading]="cpValidating()" (click)="validateCp()"></button>
+                  [outlined]="true" [loading]="cpValidating()" (click)="validateCp()"></button>
                   <button pButton icon="pi pi-file-check" label="Timbrar Carta Porte" size="small"
-                          [loading]="cpStamping()" [disabled]="!cpReady()" (click)="stampCp()"></button>
+                  [loading]="cpStamping()" [disabled]="!cpReady()" (click)="stampCp()"></button>
                 </div>
               </div>
-
               <!-- Gaps -->
-              <div *ngIf="cpChecked() && cpGaps().length" class="shd-cp-gaps">
-                <div class="shd-cp-gaps-head">
-                  <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
-                  Faltan {{ cpGaps().length }} dato{{ cpGaps().length === 1 ? '' : 's' }} para timbrar
+              @if (cpChecked() && cpGaps().length) {
+                <div class="shd-cp-gaps">
+                  <div class="shd-cp-gaps-head">
+                    <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+                    Faltan {{ cpGaps().length }} dato{{ cpGaps().length === 1 ? '' : 's' }} para timbrar
+                  </div>
+                  <ul>
+                    @for (g of cpGaps(); track g) {
+                      <li>
+                        <code>{{ g.field }}</code> <span>{{ g.detail }}</span>
+                      </li>
+                    }
+                  </ul>
                 </div>
-                <ul>
-                  <li *ngFor="let g of cpGaps()">
-                    <code>{{ g.field }}</code> <span>{{ g.detail }}</span>
-                  </li>
-                </ul>
-              </div>
-
+              }
               <!-- Listo -->
-              <div *ngIf="cpChecked() && !cpGaps().length" class="shd-cp-ready">
-                <i class="pi pi-check-circle" aria-hidden="true"></i>
-                Datos completos — listo para timbrar.
-              </div>
+              @if (cpChecked() && !cpGaps().length) {
+                <div class="shd-cp-ready">
+                  <i class="pi pi-check-circle" aria-hidden="true"></i>
+                  Datos completos — listo para timbrar.
+                </div>
+              }
             </article>
           </div>
-        </ng-container>
-      </ng-container>
-
+        }
+      }
+    
       <!-- Edit metrics dialog -->
       <p-dialog [(visible)]="metricsDialog" [modal]="true" [draggable]="false" [style]="{ width: '420px' }" header="Editar km / flete">
         <form [formGroup]="metricsForm" class="comm-form">
@@ -461,24 +487,24 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
           <button pButton label="Guardar" icon="pi pi-check" (click)="saveMetrics()"></button>
         </ng-template>
       </p-dialog>
-
+    
       <!-- Create guide dialog -->
       <p-dialog [(visible)]="guideDialog" [modal]="true" [draggable]="false" [style]="{ width: '560px' }" header="Nueva guía">
         <form [formGroup]="guideForm" class="comm-form-grid">
           <label class="full">
             <span>Chofer principal</span>
             <p-select formControlName="driver_id" [options]="driverOptions()" optionLabel="label" optionValue="value"
-                      placeholder="Seleccionar" [showClear]="true" appendTo="body"></p-select>
+            placeholder="Seleccionar" [showClear]="true" appendTo="body"></p-select>
           </label>
           <label>
             <span>Ayudante 1</span>
             <p-select formControlName="helper1_id" [options]="driverOptions()" optionLabel="label" optionValue="value"
-                      placeholder="Sin asignar" [showClear]="true" appendTo="body"></p-select>
+            placeholder="Sin asignar" [showClear]="true" appendTo="body"></p-select>
           </label>
           <label>
             <span>Ayudante 2</span>
             <p-select formControlName="helper2_id" [options]="driverOptions()" optionLabel="label" optionValue="value"
-                      placeholder="Sin asignar" [showClear]="true" appendTo="body"></p-select>
+            placeholder="Sin asignar" [showClear]="true" appendTo="body"></p-select>
           </label>
           <label>
             <span>Comisión chofer</span>
@@ -506,92 +532,99 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
           <button pButton label="Crear guía" icon="pi pi-check" [loading]="savingGuide()" (click)="createGuide()"></button>
         </ng-template>
       </p-dialog>
-
+    
       <!-- Guide detail dialog: recipients -->
       <p-dialog [(visible)]="guideDetailDialog" [modal]="true" [draggable]="false" [style]="{ width: '720px' }"
-                [header]="'Guía ' + (selectedGuide()?.number || '')">
-        <div *ngIf="selectedGuide() as g">
-          <div class="shd-recipients-head">
-            <span class="cell-label">Destinatarios</span>
-            <span class="comm-muted is-small">{{ (g.recipients || []).length }} registrado{{ (g.recipients || []).length === 1 ? '' : 's' }}</span>
+        [header]="'Guía ' + (selectedGuide()?.number || '')">
+        @if (selectedGuide(); as g) {
+          <div>
+            <div class="shd-recipients-head">
+              <span class="cell-label">Destinatarios</span>
+              <span class="comm-muted is-small">{{ (g.recipients || []).length }} registrado{{ (g.recipients || []).length === 1 ? '' : 's' }}</span>
+            </div>
+            <p-table [value]="g.recipients || []" responsiveLayout="scroll" styleClass="surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra p-datatable-sm">
+              <ng-template pTemplate="header">
+                <tr>
+                  <th scope="col">#</th>
+                  <th scope="col">Cliente</th>
+                  <th scope="col">Dirección</th>
+                  <th scope="col" class="comm-num num">Cajas</th>
+                  <th scope="col" class="comm-num num">Valor</th>
+                  <th scope="col">Estado</th>
+                  <th scope="col"><span class="sr-only">Acciones</span></th>
+                </tr>
+              </ng-template>
+              <ng-template pTemplate="body" let-r>
+                <tr>
+                  <td><span class="shd-eta-seq">{{ r.sequence_order ?? '—' }}</span></td>
+                  <td class="comm-cell-strong">{{ r.customer_name }}</td>
+                  <td class="comm-muted">{{ r.address || '—' }}</td>
+                  <td class="comm-num">{{ r.boxes_count }}</td>
+                  <td class="comm-num">{{ r.value | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+                  <td>
+                    <span class="comm-pill" [class]="recipientPillClass(r.status)">
+                      {{ recipientLabel(r.status) }}
+                    </span>
+                  </td>
+                  <td class="comm-actions">
+                    @if (r.status === 'pendiente') {
+                      <button pButton icon="pi pi-check" size="small" severity="secondary" [text]="true"
+                      pTooltip="Marcar entregado" (click)="markRecipientDelivered(r)"></button>
+                    }
+                  </td>
+                </tr>
+              </ng-template>
+              <ng-template pTemplate="emptymessage">
+                <tr><td colspan="7" class="comm-muted shd-recip-empty">Sin destinatarios.</td></tr>
+              </ng-template>
+            </p-table>
+            @if (g.status !== 'entregada' && g.status !== 'cancelada') {
+              <form [formGroup]="recipientForm" class="comm-form-grid shd-add-recipient"
+                >
+                <div class="full shd-add-head">
+                  <span class="cell-label">Agregar destinatario</span>
+                </div>
+                <label class="full">
+                  <span>Buscar cliente</span>
+                  <p-autoComplete [suggestions]="customerSuggestions()" (completeMethod)="searchCustomer($event)"
+                    (onSelect)="onCustomerSelect($event)" field="name" [forceSelection]="false"
+                  placeholder="Nombre, código o RFC…" appendTo="body" styleClass="w-full"></p-autoComplete>
+                </label>
+                @if (customerOrders().length) {
+                  <label class="full">
+                    <span>Ligar pedido (opcional)</span>
+                    <p-select formControlName="order_id" [options]="customerOrders()" optionLabel="code" optionValue="id"
+                      placeholder="Sin pedido" [showClear]="true" appendTo="body"
+                    (onChange)="onOrderSelect($event.value)"></p-select>
+                  </label>
+                }
+                <label class="full">
+                  <span>Nombre <em>*</em></span>
+                  <input pInputText formControlName="customer_name" />
+                </label>
+                <label>
+                  <span>Cajas</span>
+                  <p-inputNumber formControlName="boxes_count"></p-inputNumber>
+                </label>
+                <label>
+                  <span>Valor</span>
+                  <p-inputNumber formControlName="value" mode="currency" currency="MXN" locale="es-MX"></p-inputNumber>
+                </label>
+                <label class="full">
+                  <span>Dirección</span>
+                  <input pInputText formControlName="address" />
+                </label>
+                <div class="full shd-add-actions">
+                  <button pButton icon="pi pi-plus" label="Agregar" size="small"
+                  [disabled]="recipientForm.invalid" (click)="addRecipient(g)"></button>
+                </div>
+              </form>
+            }
           </div>
-          <p-table [value]="g.recipients || []" responsiveLayout="scroll" styleClass="surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra p-datatable-sm">
-            <ng-template pTemplate="header">
-              <tr>
-                <th scope="col">#</th>
-                <th scope="col">Cliente</th>
-                <th scope="col">Dirección</th>
-                <th scope="col" class="comm-num num">Cajas</th>
-                <th scope="col" class="comm-num num">Valor</th>
-                <th scope="col">Estado</th>
-                <th scope="col"><span class="sr-only">Acciones</span></th>
-              </tr>
-            </ng-template>
-            <ng-template pTemplate="body" let-r>
-              <tr>
-                <td><span class="shd-eta-seq">{{ r.sequence_order ?? '—' }}</span></td>
-                <td class="comm-cell-strong">{{ r.customer_name }}</td>
-                <td class="comm-muted">{{ r.address || '—' }}</td>
-                <td class="comm-num">{{ r.boxes_count }}</td>
-                <td class="comm-num">{{ r.value | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
-                <td>
-                  <span class="comm-pill" [class]="recipientPillClass(r.status)">
-                    {{ recipientLabel(r.status) }}
-                  </span>
-                </td>
-                <td class="comm-actions">
-                  <button pButton *ngIf="r.status === 'pendiente'" icon="pi pi-check" size="small" severity="secondary" [text]="true"
-                          pTooltip="Marcar entregado" (click)="markRecipientDelivered(r)"></button>
-                </td>
-              </tr>
-            </ng-template>
-            <ng-template pTemplate="emptymessage">
-              <tr><td colspan="7" class="comm-muted shd-recip-empty">Sin destinatarios.</td></tr>
-            </ng-template>
-          </p-table>
-
-          <form [formGroup]="recipientForm" class="comm-form-grid shd-add-recipient"
-                *ngIf="g.status !== 'entregada' && g.status !== 'cancelada'">
-            <div class="full shd-add-head">
-              <span class="cell-label">Agregar destinatario</span>
-            </div>
-            <label class="full">
-              <span>Buscar cliente</span>
-              <p-autoComplete [suggestions]="customerSuggestions()" (completeMethod)="searchCustomer($event)"
-                              (onSelect)="onCustomerSelect($event)" field="name" [forceSelection]="false"
-                              placeholder="Nombre, código o RFC…" appendTo="body" styleClass="w-full"></p-autoComplete>
-            </label>
-            <label class="full" *ngIf="customerOrders().length">
-              <span>Ligar pedido (opcional)</span>
-              <p-select formControlName="order_id" [options]="customerOrders()" optionLabel="code" optionValue="id"
-                        placeholder="Sin pedido" [showClear]="true" appendTo="body"
-                        (onChange)="onOrderSelect($event.value)"></p-select>
-            </label>
-            <label class="full">
-              <span>Nombre <em>*</em></span>
-              <input pInputText formControlName="customer_name" />
-            </label>
-            <label>
-              <span>Cajas</span>
-              <p-inputNumber formControlName="boxes_count"></p-inputNumber>
-            </label>
-            <label>
-              <span>Valor</span>
-              <p-inputNumber formControlName="value" mode="currency" currency="MXN" locale="es-MX"></p-inputNumber>
-            </label>
-            <label class="full">
-              <span>Dirección</span>
-              <input pInputText formControlName="address" />
-            </label>
-            <div class="full shd-add-actions">
-              <button pButton icon="pi pi-plus" label="Agregar" size="small"
-                      [disabled]="recipientForm.invalid" (click)="addRecipient(g)"></button>
-            </div>
-          </form>
-        </div>
+        }
       </p-dialog>
     </div>
-  `,
+    `,
   styles: [`
     :host { display:block; }
 

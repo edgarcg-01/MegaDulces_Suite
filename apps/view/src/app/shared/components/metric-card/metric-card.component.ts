@@ -6,7 +6,7 @@ import {
   input,
   signal,
 } from '@angular/core';
-import { CommonModule } from '@angular/common';
+
 import { SparklineComponent } from '../charts/sparkline.component';
 import { RingGaugeComponent } from '../charts/ring-gauge.component';
 import { MiniBarsComponent } from '../charts/mini-bars.component';
@@ -26,56 +26,67 @@ export type DeltaDir = 'up' | 'down' | 'flat' | 'auto';
 @Component({
   selector: 'app-metric-card',
   standalone: true,
-  imports: [CommonModule, SparklineComponent, RingGaugeComponent, MiniBarsComponent, CountUpDirective],
+  imports: [SparklineComponent, RingGaugeComponent, MiniBarsComponent, CountUpDirective],
   template: `
     <article #card class="mc" [class]="'tone-' + tone()" [class.is-ember]="variant() === 'ember'" [class.is-interactive]="interactive()" [class.is-large]="large()" [class.has-accent]="!!accent()" [class.is-flash]="flash()" [style.--mc-accent]="accentGraph()" (pointermove)="spot($event, card)">
       <header class="mc-head">
-        <span class="mc-label">{{ label() }}<span class="mc-live" *ngIf="live()" title="En vivo" aria-hidden="true"></span></span>
-        <span class="mc-delta" *ngIf="delta() !== null && delta() !== undefined" [class]="'is-' + dir()">
-          <i class="pi" [class.pi-arrow-up-right]="dir()==='up'" [class.pi-arrow-down-right]="dir()==='down'" [class.pi-minus]="dir()==='flat'" aria-hidden="true"></i>
-          {{ deltaText() }}
-        </span>
+        <span class="mc-label">{{ label() }}@if (live()) {
+          <span class="mc-live" title="En vivo" aria-hidden="true"></span>
+        }</span>
+        @if (delta() !== null && delta() !== undefined) {
+          <span class="mc-delta" [class]="'is-' + dir()">
+            <i class="pi" [class.pi-arrow-up-right]="dir()==='up'" [class.pi-arrow-down-right]="dir()==='down'" [class.pi-minus]="dir()==='flat'" aria-hidden="true"></i>
+            {{ deltaText() }}
+          </span>
+        }
       </header>
-
+    
       <!-- GAUGE: anillo + valor/sub al lado -->
-      <ng-container *ngIf="effVariant() === 'gauge'; else stdValue">
+      @if (effVariant() === 'gauge') {
         <div class="mc-gauge-row">
           <app-ring-gauge [value]="value()" [max]="gaugeMax()" [size]="68" [color]="accentGraph()"></app-ring-gauge>
           <div class="mc-gauge-meta">
-            <span class="mc-sub" *ngIf="sub()">{{ sub() }}</span>
+            @if (sub()) {
+              <span class="mc-sub">{{ sub() }}</span>
+            }
           </div>
         </div>
-      </ng-container>
-
-      <ng-template #stdValue>
-        <div class="mc-value" *ngIf="format() === 'text'">{{ valueText() }}</div>
-        <div class="mc-value" *ngIf="format() !== 'text'" [appCountUp]="value()" [countUpFormat]="cuFormat()"
-             [appCountUpLive]="live()" [attr.aria-live]="live() ? 'polite' : null"></div>
-
+      } @else {
+        @if (format() === 'text') {
+          <div class="mc-value">{{ valueText() }}</div>
+        }
+        @if (format() !== 'text') {
+          <div class="mc-value" [appCountUp]="value()" [countUpFormat]="cuFormat()"
+          [appCountUpLive]="live()" [attr.aria-live]="live() ? 'polite' : null"></div>
+        }
         <!-- SPARKLINE / EMBER -->
-        <app-sparkline
-          *ngIf="(effVariant() === 'sparkline' || effVariant() === 'ember')"
-          [data]="series()" [area]="true" [format]="sparkFormat()" [labels]="seriesLabels()"
-          [color]="effVariant() === 'ember' ? '#FFFFFF' : accentGraph()"
-        ></app-sparkline>
-
+        @if ((effVariant() === 'sparkline' || effVariant() === 'ember')) {
+          <app-sparkline
+            [data]="series()" [area]="true" [format]="sparkFormat()" [labels]="seriesLabels()"
+            [color]="effVariant() === 'ember' ? '#FFFFFF' : accentGraph()"
+          ></app-sparkline>
+        }
         <!-- BARS -->
-        <app-mini-bars
-          *ngIf="effVariant() === 'bars'"
-          [data]="series()" [labels]="seriesLabels()" [highlightLast]="highlightLast()"
-          [color]="accentSoft()" [highlightColor]="accentGraph()"
-        ></app-mini-bars>
-
+        @if (effVariant() === 'bars') {
+          <app-mini-bars
+            [data]="series()" [labels]="seriesLabels()" [highlightLast]="highlightLast()"
+            [color]="accentSoft()" [highlightColor]="accentGraph()"
+          ></app-mini-bars>
+        }
         <!-- PROGRESS -->
-        <div class="mc-progress" *ngIf="effVariant() === 'progress'">
-          <div class="mc-progress-track"><div class="mc-progress-fill" [style.width.%]="goalPct()"></div></div>
-          <span class="mc-progress-meta">{{ goalText() }} · {{ goalPct() }}%</span>
-        </div>
-
-        <span class="mc-sub" *ngIf="sub()">{{ sub() }}</span>
-      </ng-template>
+        @if (effVariant() === 'progress') {
+          <div class="mc-progress">
+            <div class="mc-progress-track"><div class="mc-progress-fill" [style.width.%]="goalPct()"></div></div>
+            <span class="mc-progress-meta">{{ goalText() }} · {{ goalPct() }}%</span>
+          </div>
+        }
+        @if (sub()) {
+          <span class="mc-sub">{{ sub() }}</span>
+        }
+      }
+    
     </article>
-  `,
+    `,
   styles: [`
     :host { display:block; min-width:0; }
     .mc {

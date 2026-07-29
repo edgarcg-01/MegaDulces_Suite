@@ -1,5 +1,5 @@
 import { ChangeDetectionStrategy, Component, input, output } from '@angular/core';
-import { CommonModule } from '@angular/common';
+
 
 export interface SegOption { label: string; value: string; }
 
@@ -10,7 +10,7 @@ export interface SegOption { label: string; value: string; }
 @Component({
   selector: 'app-segmented',
   standalone: true,
-  imports: [CommonModule],
+  imports: [],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="seg" role="radiogroup" [attr.aria-label]="ariaLabel()">

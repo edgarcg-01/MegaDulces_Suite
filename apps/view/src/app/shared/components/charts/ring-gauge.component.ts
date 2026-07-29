@@ -1,5 +1,5 @@
 import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
-import { CommonModule } from '@angular/common';
+
 
 /**
  * Anillo de progreso (gauge) SVG inline. Arco que crece animando `stroke-dashoffset`.
@@ -8,7 +8,7 @@ import { CommonModule } from '@angular/common';
 @Component({
   selector: 'app-ring-gauge',
   standalone: true,
-  imports: [CommonModule],
+  imports: [],
   template: `
     <div class="rg" [style.width.px]="size()" [style.height.px]="size()" [style.--rg-size.px]="size()">
       <svg viewBox="0 0 48 48" class="rg-svg" aria-hidden="true">
@@ -21,9 +21,11 @@ import { CommonModule } from '@angular/common';
           transform="rotate(-90 24 24)"
         ></circle>
       </svg>
-      <span class="rg-pct">{{ display() }}<small *ngIf="showSymbol()">%</small></span>
+      <span class="rg-pct">{{ display() }}@if (showSymbol()) {
+        <small>%</small>
+      }</span>
     </div>
-  `,
+    `,
   styles: [`
     :host { display:inline-block; }
     .rg { position:relative; }
