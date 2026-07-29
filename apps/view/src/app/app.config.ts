@@ -40,6 +40,9 @@ export const appConfig: ApplicationConfig = {
       withInterceptors([authInterceptor])
     ),
     providePrimeNG({
+      // PrimeNG 22 (PrimeUI) exige license key offline; Community tier (dev).
+      // Renovación anual confirmando elegibilidad. Sin key → banner "Invalid PrimeUI License".
+      license: 'eyJpZCI6ImZiNDJlODllLTU1MDktNGExYy1iNjM3LTg1MmI3MDkwMmY4ZSIsInByb2R1Y3QiOiJwcmltZXVpIiwidGllciI6ImNvbW11bml0eSIsInR5cGUiOiJkZXYiLCJpYXQiOjE3ODUzNjQxMDIsImV4cCI6MTgxNjkwMDEwMn0.7e5-4WbCFb7qYfs15Y4P471RfDf0mNqncOetfI_JwmQLHfpfYTINngD9SsYybbdvNj9kfCXHfjZQkcim1VUnBQ',
       theme: {
         preset: OperationsPreset,
         options: {
