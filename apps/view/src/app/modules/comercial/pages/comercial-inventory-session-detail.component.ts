@@ -76,9 +76,9 @@ interface LiveCountEntry {
           <div class="in-live-head">
             <span class="in-live-title"><i class="pi pi-bolt"></i> En vivo</span>
             @if (liveFeed().length) { <span class="in-live-count">{{ liveFeed().length }}</span> }
-            <button pButton [icon]="feedCollapsed() ? 'pi pi-chevron-down' : 'pi pi-chevron-up'" [text]="true" severity="secondary" size="small"
-                    class="in-live-toggle" [attr.aria-label]="feedCollapsed() ? 'Mostrar feed en vivo' : 'Ocultar feed en vivo'"
-                    (click)="feedCollapsed.set(!feedCollapsed())"></button>
+            <p-button pButton [icon]="feedCollapsed() ? 'pi pi-chevron-down' : 'pi pi-chevron-up'" [text]="true" severity="secondary" size="small"
+                    styleClass="in-live-toggle" [attr.aria-label]="feedCollapsed() ? 'Mostrar feed en vivo' : 'Ocultar feed en vivo'"
+                    (click)="feedCollapsed.set(!feedCollapsed())"></p-button>
           </div>
           @if (!feedCollapsed()) {
             <div class="in-live-body">
@@ -118,7 +118,7 @@ interface LiveCountEntry {
             <span class="in-phase-cov">{{ progress()?.pass_coverage_pct ?? 0 }}% cubierto</span>
           </div>
           @if (canAdvance()) {
-            <button pButton [label]="advanceLabel()" icon="pi pi-arrow-right" severity="success" size="small" [loading]="advancing()" (click)="advancePass()"></button>
+            <p-button pButton [label]="advanceLabel()" icon="pi pi-arrow-right" severity="success" size="small" [loading]="advancing()" (click)="advancePass()"></p-button>
           } @else {
             <small class="in-phase-hint">Completá el 100% de la pasada para avanzar de fase.</small>
           }

@@ -175,10 +175,10 @@ const STATUS_META: Record<TrackerStatus, { label: string; sev: Sev; color: strin
                   </div>
                 }
                 <div class="rk-detail-actions">
-                  <button pButton size="small" [severity]="showTrail() ? 'primary' : 'secondary'"
+                  <p-button pButton size="small" [severity]="showTrail() ? 'primary' : 'secondary'"
                     [icon]="loadingTrail() ? 'pi pi-spin pi-spinner' : 'pi pi-directions'"
                     [label]="showTrail() ? 'Ocultar recorrido' : 'Ver recorrido de hoy'"
-                  (click)="toggleTrail(s)"></button>
+                  (click)="toggleTrail(s)"></p-button>
                   @if (fleet === 'route') {
                     <a pButton size="small" severity="secondary" [text]="true"
                       icon="pi pi-check-circle" label="Cumplimiento de ruta"

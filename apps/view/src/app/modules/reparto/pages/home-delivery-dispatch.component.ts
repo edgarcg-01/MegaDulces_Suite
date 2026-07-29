@@ -144,8 +144,8 @@ import { MapComponent } from '../../../shared/components/map/map.component';
                 </div>
               </div>
               <div class="rd-actions">
-                <button pButton [label]="loading() ? 'Buscando…' : 'Buscar ticket'" icon="pi pi-search"
-                [loading]="loading()" [disabled]="!folio.trim()" (click)="lookup()"></button>
+                <p-button pButton [label]="loading() ? 'Buscando…' : 'Buscar ticket'" icon="pi pi-search"
+                [loading]="loading()" [disabled]="!folio.trim()" (click)="lookup()"></p-button>
               </div>
               @if (error()) { <p class="rd-err"><i class="pi pi-exclamation-circle"></i> {{ error() }}</p> }
             </div>
@@ -213,9 +213,9 @@ import { MapComponent } from '../../../shared/components/map/map.component';
               <div class="rd-field rd-mt">
                 <label>Ubicación en el mapa <span class="rd-hint">· mejora el orden de reparto</span></label>
                 <div class="rd-geo">
-                  <button pButton type="button" size="small" severity="secondary" [outlined]="true"
+                  <p-button pButton type="button" size="small" severity="secondary" [outlined]="true"
                     icon="pi pi-search-plus" [label]="geocoding() ? 'Buscando…' : 'Ubicar dirección'"
-                  [loading]="geocoding()" [disabled]="!street.trim()" (click)="locate()"></button>
+                  [loading]="geocoding()" [disabled]="!street.trim()" (click)="locate()"></p-button>
                   @if (picked(); as p) {
                     <span class="rd-geo-ok"><i class="pi pi-check-circle"></i> Ubicado ({{ p.lat | number:'1.4-4' }}, {{ p.lng | number:'1.4-4' }})</span>
                   } @else {
@@ -305,8 +305,8 @@ import { MapComponent } from '../../../shared/components/map/map.component';
     
                     @if (dispatchError()) { <p class="rd-err"><i class="pi pi-exclamation-circle"></i> {{ dispatchError() }}</p> }
                     <div class="rd-actions">
-                      <button pButton [label]="saving() ? 'Asignando…' : 'Asignar a repartidor'" icon="pi pi-send"
-                      [loading]="saving()" (click)="dispatch()"></button>
+                      <p-button pButton [label]="saving() ? 'Asignando…' : 'Asignar a repartidor'" icon="pi pi-send"
+                      [loading]="saving()" (click)="dispatch()"></p-button>
                     </div>
                   </div>
                 }

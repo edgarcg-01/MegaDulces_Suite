@@ -141,9 +141,9 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
               <tr pRowGroupHeader class="pr-grp">
                 <td colspan="8">
                   <div class="pr-grp-in">
-                    <button type="button" pButton [pRowToggler]="r" class="p-button-text p-button-sm pr-grp-tog"
+                    <p-button type="button" pButton [pRowToggler]="r" styleClass="p-button-text p-button-sm pr-grp-tog"
                             [icon]="expanded ? 'pi pi-chevron-down' : 'pi pi-chevron-right'"
-                            [attr.aria-label]="(expanded ? 'Colapsar ' : 'Desplegar ') + r.warehouse_code"></button>
+                            [attr.aria-label]="(expanded ? 'Colapsar ' : 'Desplegar ') + r.warehouse_code"></p-button>
                     <span class="pr-grp-name"><span class="pr-mono">{{ r.warehouse_code }}</span> {{ nameOf(r.warehouse_code) }}</span>
                     @if (grp(r.warehouse_code); as g) {
                       <span class="pr-grp-n">{{ g.n }} prod.</span>
@@ -219,7 +219,7 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
             <span class="pr-bulk-n">{{ grpCount() }} sucursal(es) · comprar <strong>{{ money(totBuy()) }}</strong> · traspaso <strong>{{ money(totTr()) }}</strong></span>
             <span class="pr-bulk-sp"></span>
             <button pButton type="button" label="XLSX global" icon="pi pi-file-excel" class="p-button-sm p-button-text" (click)="exportScope()" [disabled]="dl()"></button>
-            <button pButton type="button" [label]="saving() ? 'Armando…' : 'Requisiciones (global)'" icon="pi pi-check" class="p-button-sm" (click)="buildReq()" [disabled]="saving()"></button>
+            <p-button pButton type="button" [label]="saving() ? 'Armando…' : 'Requisiciones (global)'" icon="pi pi-check" styleClass="p-button-sm" (click)="buildReq()" [disabled]="saving()"></p-button>
           </div>
         }
 
@@ -246,7 +246,7 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
                 <button pButton type="button" label="Volver a automático" class="p-button-sm p-button-text" (click)="clearUnit()" [disabled]="unitSaving()"></button>
                 <span class="pr-bulk-sp"></span>
                 <button pButton type="button" label="Cancelar" class="p-button-sm p-button-text" (click)="unitVisible=false"></button>
-                <button pButton type="button" [label]="unitSaving() ? 'Guardando…' : 'Guardar'" icon="pi pi-check" class="p-button-sm" (click)="saveUnit()" [disabled]="unitSaving()"></button>
+                <p-button pButton type="button" [label]="unitSaving() ? 'Guardando…' : 'Guardar'" icon="pi pi-check" styleClass="p-button-sm" (click)="saveUnit()" [disabled]="unitSaving()"></p-button>
               </div>
             </div>
           }

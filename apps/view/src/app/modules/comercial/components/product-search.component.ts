@@ -27,10 +27,9 @@ export interface ProductHit { id: string; label: string; sku: string | null; bra
       (onClear)="onClear()"
       optionLabel="label"
       [delay]="250"
-      [minLength]="2"
+      [minQueryLength]="2"
       [showClear]="true"
       [placeholder]="placeholder"
-      [styleClass]="'ps-ac'"
       appendTo="body"
     >
       <ng-template let-p pTemplate="item">

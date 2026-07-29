@@ -54,8 +54,8 @@ import { cuadra } from './bancos-shared';
                 <span class="fb-diag-title">{{ it.titulo }}</span>
                 @if (helpTopic(it.tipo); as ht) { <app-context-help [topic]="ht" /> }
                 @if (it.importe > 0) { <span class="fb-diag-amt mono">{{ it.importe | currency:'MXN':'symbol-narrow':'1.0-0' }}</span> }
-                <button pButton type="button" class="p-button-sm p-button-outlined fb-diag-cta"
-                        [label]="actionLabel(it)" icon="pi pi-arrow-right" iconPos="right" (click)="itemAction.emit(it)"></button>
+                <p-button pButton type="button" styleClass="p-button-sm p-button-outlined fb-diag-cta"
+                        [label]="actionLabel(it)" icon="pi pi-arrow-right" iconPos="right" (click)="itemAction.emit(it)"></p-button>
               </div>
               <p class="fb-diag-detalle">{{ it.detalle }}</p>
               @if (it.evidencia?.length) {

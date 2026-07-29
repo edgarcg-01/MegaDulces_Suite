@@ -195,7 +195,7 @@ import { Permission } from '../../../core/constants/permissions';
             </ng-template>
             <ng-template pTemplate="body" let-c let-expanded="expanded">
               <tr>
-                <td><button type="button" pButton [pRowToggler]="c" class="p-button-text p-button-sm mt-tog" [icon]="expanded ? 'pi pi-chevron-down' : 'pi pi-chevron-right'" [attr.aria-label]="expanded ? 'Ocultar documentos' : 'Ver documentos'"></button></td>
+                <td><p-button type="button" pButton [pRowToggler]="c" styleClass="p-button-text p-button-sm mt-tog" [icon]="expanded ? 'pi pi-chevron-down' : 'pi pi-chevron-right'" [attr.aria-label]="expanded ? 'Ocultar documentos' : 'Ver documentos'"></p-button></td>
                 <td><div class="strong mono">{{ c.factura_folio }}</div><div class="muted mono cf-sub">{{ c.factura_fecha ? (c.factura_fecha | date:'dd/MM/yy') : '—' }}</div></td>
                 <td class="mono">{{ c.sucursal }}</td>
                 <td class="ta-r strong mono">{{ money(c.total) }}</td>

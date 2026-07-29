@@ -121,17 +121,17 @@ const QUADRANT_LABELS: Record<string, string> = {
             label="Balanceo de carga"
             icon="pi pi-sliders-h"
           ></a>
-          <button
+          <p-button
             pButton
             type="button"
             [disabled]="recomputing()"
             (click)="recompute()"
-            class="p-button-sm"
+            styleClass="p-button-sm"
             severity="secondary"
             [outlined]="true"
             [label]="recomputing() ? 'Recalculando…' : 'Recalcular'"
             icon="pi pi-refresh"
-          ></button>
+          ></p-button>
         </div>
       </header>
 
@@ -255,16 +255,16 @@ const QUADRANT_LABELS: Record<string, string> = {
           <section class="card">
             <div class="vision__head">
               <h2 class="card__title">Auditoría visual de fotos</h2>
-              <button
+              <p-button
                 pButton
                 type="button"
                 [disabled]="scanning() || !vc.has_api_key"
                 (click)="scanVision()"
-                class="p-button-sm p-button-outlined"
+                styleClass="p-button-sm p-button-outlined"
                 [label]="scanning() ? 'Analizando…' : 'Escanear fotos'"
                 icon="pi pi-eye"
                 [pTooltip]="vc.has_api_key ? 'Claude mira las fotos no analizadas (lote acotado)' : 'Falta ANTHROPIC_API_KEY'"
-              ></button>
+              ></p-button>
             </div>
             <div class="chips">
               <span class="chip">{{ vc.analyzed }} / {{ vc.photos_total }} fotos analizadas</span>

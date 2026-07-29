@@ -172,7 +172,7 @@ type Msg = { text: string; kind: 'info' | 'ok' | 'error' | 'warn' };
           <label for="etqp-search">Buscar en catálogo</label>
           <p-autocomplete inputId="etqp-search" styleClass="etqp-ac" [(ngModel)]="acSelected"
             [suggestions]="results()" (completeMethod)="searchAc($event)" (onSelect)="onPick($event)"
-            optionLabel="name" [delay]="250" [minLength]="2" [showClear]="true" appendTo="body"
+            optionLabel="name" [delay]="250" [minQueryLength]="2" [showClear]="true" appendTo="body"
             placeholder="Nombre, SKU o código de barras…">
             <ng-template let-h pTemplate="item">
               <div class="etqp-hit"><span class="nm">{{ h.name }}</span><span class="sku">{{ h.sku }}</span></div>

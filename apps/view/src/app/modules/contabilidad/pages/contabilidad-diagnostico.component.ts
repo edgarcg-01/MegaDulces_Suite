@@ -64,7 +64,7 @@ import { FacturasService } from '../facturas.service';
                 @if (h.solucion) { <div class="di-check-sol">{{ h.solucion }}</div> }
               </div>
               @if (h.deep_link) {
-                <a pButton [routerLink]="h.deep_link" class="p-button-sm p-button-text" [label]="h.fix_label || 'Arreglar'" icon="pi pi-external-link"></a>
+                <a pButton [routerLink]="h.deep_link" class="p-button-sm p-button-text"><i class="pi pi-external-link"></i> {{ h.fix_label || 'Arreglar' }}</a>
               }
             </div>
           }
@@ -99,7 +99,7 @@ import { FacturasService } from '../facturas.service';
           </ng-template>
           <ng-template pTemplate="body" let-r let-expanded="expanded">
             <tr>
-              <td><button type="button" pButton [pRowToggler]="r" class="p-button-text p-button-sm" [icon]="expanded ? 'pi pi-chevron-down' : 'pi pi-chevron-right'" aria-label="Detalle"></button></td>
+              <td><p-button type="button" pButton [pRowToggler]="r" styleClass="p-button-text p-button-sm" [icon]="expanded ? 'pi pi-chevron-down' : 'pi pi-chevron-right'" aria-label="Detalle"></p-button></td>
               <td><p-tag [value]="sevLabel(r.solucion.severity)" [severity]="sevSev(r.solucion.severity)" styleClass="di-chip" /></td>
               <td>{{ kindLabel(r.kind) }}</td>
               <td><div class="di-tit">{{ r.solucion.titulo }}</div></td>
@@ -112,7 +112,7 @@ import { FacturasService } from '../facturas.service';
               <td class="ta-r">
                 @if (r.status === 'open') {
                   @if (r.solucion.deep_link) {
-                    <a pButton [routerLink]="r.solucion.deep_link" class="p-button-text p-button-sm" [label]="r.solucion.fix_label || 'Arreglar'" icon="pi pi-external-link"></a>
+                    <a pButton [routerLink]="r.solucion.deep_link" class="p-button-text p-button-sm"><i class="pi pi-external-link"></i> {{ r.solucion.fix_label || 'Arreglar' }}</a>
                   }
                   @if (canManage) {
                     <button pButton type="button" icon="pi pi-check" class="p-button-text p-button-sm" pTooltip="Descartar (ya atendido)" (click)="dismiss(r)"></button>
@@ -137,7 +137,7 @@ import { FacturasService } from '../facturas.service';
                       <p>{{ r.solucion.solucion }}</p>
                       <div class="di-exp-actions">
                         @if (r.solucion.deep_link) {
-                          <a pButton [routerLink]="r.solucion.deep_link" class="p-button-sm" [label]="r.solucion.fix_label || 'Ir a arreglar'" icon="pi pi-external-link"></a>
+                          <a pButton [routerLink]="r.solucion.deep_link" class="p-button-sm"><i class="pi pi-external-link"></i> {{ r.solucion.fix_label || 'Ir a arreglar' }}</a>
                         }
                         @if (r.can_retry_order && canManage) {
                           <button pButton type="button" label="Reintentar este pedido" icon="pi pi-replay" class="p-button-sm p-button-outlined" [loading]="retrying()" (click)="retryOrders()"></button>

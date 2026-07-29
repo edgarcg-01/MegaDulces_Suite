@@ -430,17 +430,17 @@ interface PdfSection {
                                                     />
                                                   </td>
                                                   <td>
-                                                    <button
+                                                    <p-button
                                                       type="button"
                                                       pButton
                                                       [pRowToggler]="day"
-                                                      class="p-button-text p-button-rounded p-button-plain w-8 h-8"
+                                                      styleClass="p-button-text p-button-rounded p-button-plain w-8 h-8"
                           [icon]="
                             expanded
                               ? 'pi pi-chevron-down'
                               : 'pi pi-chevron-right'
                           "
-                                                    ></button>
+                                                    ></p-button>
                                                   </td>
                                                   <td class="py-4 px-4 font-bold text-content-main">
                                                     {{ day.fecha | date: 'fullDate' : 'UTC' }}

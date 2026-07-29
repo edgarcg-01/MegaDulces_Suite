@@ -257,7 +257,7 @@ function severityForStatus(s: ShipmentStatus): Severity {
                       <div class="comm-empty-icon"><i class="pi pi-truck" aria-hidden="true"></i></div>
                       <h3>Sin embarques</h3>
                       <p>{{ statusFilterValue ? 'No hay embarques en este estado.' : 'Creá tu primer embarque para empezar a operar.' }}</p>
-                      <button
+                      <p-button
                         type="button"
                         pButton
                         [icon]="statusFilterValue ? 'pi pi-refresh' : 'pi pi-plus'"
@@ -265,7 +265,7 @@ function severityForStatus(s: ShipmentStatus): Severity {
                         size="small"
                         [label]="statusFilterValue ? 'Limpiar filtro' : 'Nuevo embarque'"
                         (click)="statusFilterValue ? clearFilter() : openCreate()"
-                      ></button>
+                      ></p-button>
                     </div>
                   </td>
                 </tr>

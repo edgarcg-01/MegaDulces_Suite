@@ -101,7 +101,7 @@ import { ListasSatService, SatListMatch, RfcIssue, ListasStats, ListStatus, Expe
           </ng-template>
           <ng-template pTemplate="body" let-m let-expanded="expanded">
             <tr>
-              <td><button pButton type="button" [icon]="expanded ? 'pi pi-chevron-down' : 'pi pi-chevron-right'" class="p-button-text p-button-sm" [attr.aria-label]="expanded ? 'Ocultar documentos' : 'Ver documentos'" (click)="toggle(m)"></button></td>
+              <td><p-button pButton type="button" [icon]="expanded ? 'pi pi-chevron-down' : 'pi pi-chevron-right'" styleClass="p-button-text p-button-sm" [attr.aria-label]="expanded ? 'Ocultar documentos' : 'Ver documentos'" (click)="toggle(m)"></p-button></td>
               <td><p-tag [value]="m.situacion" [severity]="sevSev(m.situacion)" styleClass="ls-chip" /></td>
               <td>
                 <div class="ls-name">{{ m.nombre || m.rfc }}</div>

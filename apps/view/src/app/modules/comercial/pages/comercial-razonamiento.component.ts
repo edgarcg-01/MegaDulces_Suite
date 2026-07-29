@@ -69,7 +69,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
               <ng-template pTemplate="header"><tr><th style="width:2.5rem"></th><th>Severidad</th><th>Tipo</th><th>Sujeto</th><th class="rz-r">Score</th><th>Explicación</th><th>Detectado</th><th style="width:11rem">Triage</th></tr></ng-template>
               <ng-template pTemplate="body" let-f let-expanded="expanded">
                 <tr [class.rz-done]="f.status!=='open'">
-                  <td><button pButton type="button" [icon]="expanded?'pi pi-chevron-down':'pi pi-chevron-right'" class="p-button-text p-button-sm" [pRowToggler]="f"></button></td>
+                  <td><p-button pButton type="button" [icon]="expanded?'pi pi-chevron-down':'pi pi-chevron-right'" styleClass="p-button-text p-button-sm" [pRowToggler]="f"></p-button></td>
                   <td><p-tag [value]="sevLabel(f.severity)" [severity]="sevTag(f.severity)"></p-tag></td>
                   <td class="rz-strong">{{ typeLabel(f.finding_type) }}</td>
                   <td>{{ f.label }}</td>

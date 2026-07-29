@@ -140,14 +140,14 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
                   <span>{{ s.vehicle_plate }}{{ s.vehicle_model ? ' · ' + s.vehicle_model : '' }}</span>
                 </div>
               }
-              <button
+              <p-button
                 pButton
-                class="da-card-action"
+                styleClass="da-card-action"
                 [label]="actionLabel(s.status)"
                 [icon]="actionIcon(s.status)"
                 size="small"
                 (click)="$event.stopPropagation(); openWizard(s)"
-              ></button>
+              ></p-button>
             </article>
           }
         </div>
@@ -195,8 +195,8 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
                     </span>
                   </td>
                   <td class="comm-actions" (click)="$event.stopPropagation()">
-                    <button pButton [label]="actionLabel(s.status)" [icon]="actionIcon(s.status)"
-                    size="small" (click)="openWizard(s)"></button>
+                    <p-button pButton [label]="actionLabel(s.status)" [icon]="actionIcon(s.status)"
+                    size="small" (click)="openWizard(s)"></p-button>
                   </td>
                 </tr>
               </ng-template>

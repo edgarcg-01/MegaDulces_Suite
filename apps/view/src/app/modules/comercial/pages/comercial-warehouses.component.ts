@@ -186,10 +186,10 @@ import { INV_STOCK_TABS } from '../inventory-tabs';
       }
       <ng-template pTemplate="footer">
         <button pButton label="Cancelar" severity="secondary" [outlined]="true" (click)="dialogVisible = false"></button>
-        <button pButton [label]="editing() ? 'Guardar' : 'Crear'" icon="pi pi-check"
+        <p-button pButton [label]="editing() ? 'Guardar' : 'Crear'" icon="pi pi-check"
           [loading]="saving()"
           [disabled]="form.invalid"
-        (click)="save()"></button>
+        (click)="save()"></p-button>
       </ng-template>
     </p-dialog>
     `,
