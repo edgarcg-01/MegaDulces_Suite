@@ -101,3 +101,7 @@ database/_verify*.js
 database/importers/kepler/.stock-live-snapshot.json
 .cursor/rules/nx-rules.mdc
 .github/instructions/nx.instructions.md
+
+.claude/worktrees
+.nx/polygraph
+.nx/self-healing
