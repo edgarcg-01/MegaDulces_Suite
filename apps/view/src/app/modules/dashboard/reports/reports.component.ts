@@ -12,7 +12,8 @@ import {
   computed,
   effect,
   untracked,
-  ChangeDetectionStrategy
+  ChangeDetectionStrategy,
+  ChangeDetectorRef
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
@@ -154,6 +155,7 @@ export class ReportsComponent implements OnInit, AfterViewInit {
   private perms = inject(PermissionsService);
   private messageService = inject(MessageService);
   private confirmationService = inject(ConfirmationService);
+  private cdr = inject(ChangeDetectorRef); // zoneless: CD tras callbacks async imperativos
   readonly filtersState = inject(FiltersStateService);
   readonly metasConfig = inject(MetasConfigService);
   private dailyCaptureService = inject(DailyCaptureService);
@@ -2560,6 +2562,7 @@ export class ReportsComponent implements OnInit, AfterViewInit {
           document.body.removeChild(a);
           window.URL.revokeObjectURL(url);
           this.brandPdfLoading = false;
+          this.cdr.markForCheck();
           this.messageService.add({
             severity: 'success',
             summary: 'Reporte generado',
@@ -2568,6 +2571,7 @@ export class ReportsComponent implements OnInit, AfterViewInit {
         },
         error: (err: any) => {
           this.brandPdfLoading = false;
+          this.cdr.markForCheck();
           this.messageService.add({
             severity: 'error',
             summary: 'Error',

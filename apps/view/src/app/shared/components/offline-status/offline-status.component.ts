@@ -1,4 +1,4 @@
-import { Component, OnInit, OnDestroy, inject, ChangeDetectionStrategy } from '@angular/core';
+import { Component, OnInit, OnDestroy, inject, ChangeDetectionStrategy, ChangeDetectorRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Subscription } from 'rxjs';
 import { ButtonModule } from 'primeng/button';
@@ -34,7 +34,9 @@ export class OfflineStatusComponent implements OnInit, OnDestroy {
   tiendasOffline = 0;
   catalogosActualizados = false;
   gpsDisponible = false;
-  
+
+  private cdr = inject(ChangeDetectorRef); // zoneless: CD tras callbacks async imperativos
+
   constructor(
     private offlineService: OfflineDailyCaptureService,
     private syncService: OfflineSyncService
@@ -77,6 +79,7 @@ export class OfflineStatusComponent implements OnInit, OnDestroy {
       } else {
         this.stopStuckTicker();
       }
+      this.cdr.markForCheck();
     });
 
     this.subscriptions.push(syncSub);
@@ -86,6 +89,7 @@ export class OfflineStatusComponent implements OnInit, OnDestroy {
     if (this.stuckTicker) return;
     this.stuckTicker = setInterval(() => {
       this.syncStuckMs = this.syncService.getSyncElapsedMs();
+      this.cdr.markForCheck();
     }, 1000);
   }
 
@@ -119,6 +123,7 @@ export class OfflineStatusComponent implements OnInit, OnDestroy {
     this.catalogosActualizados = estado.catalogosActualizados;
     this.gpsDisponible = estado.gpsDisponible;
     this.ultimaSincronizacion = estado.ultimaSincronizacion;
+    this.cdr.markForCheck();
   }
 
   async forzarSincronizacion(): Promise<void> {

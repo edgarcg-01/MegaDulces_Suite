@@ -1,4 +1,4 @@
-import { Component, inject, signal, OnInit, output, ChangeDetectionStrategy } from '@angular/core';
+import { Component, inject, signal, OnInit, output, ChangeDetectionStrategy, ChangeDetectorRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { SelectModule } from 'primeng/select';
@@ -124,6 +124,7 @@ export class GlobalFiltersComponent implements OnInit {
   private filtersState = inject(FiltersStateService);
   private reportsService = inject(ReportsService);
   private perms = inject(PermissionsService);
+  private cdr = inject(ChangeDetectorRef); // zoneless: CD tras callbacks async imperativos
 
   showAdvanced = signal(false);
 
@@ -166,6 +167,7 @@ export class GlobalFiltersComponent implements OnInit {
             value: z.id
           }))
         ];
+        this.cdr.markForCheck();
       },
       error: () => {
         console.warn('No se pudieron cargar las zonas');
@@ -187,6 +189,7 @@ export class GlobalFiltersComponent implements OnInit {
             value: s.id
           }))
         ];
+        this.cdr.markForCheck();
       },
       error: () => {
         console.warn('No se pudieron cargar los supervisores');
@@ -201,6 +204,7 @@ export class GlobalFiltersComponent implements OnInit {
           label: s.full_name || s.name || s.nombre || s.username || s.id,
           value: s.id
         }));
+        this.cdr.markForCheck();
       },
       error: () => {
         console.warn('No se pudieron cargar los vendedores');
