@@ -92,7 +92,7 @@ import { Permission } from '../../../core/constants/permissions';
       <!-- Tabla por DÍA (expandible) -->
       <p-table [value]="days()" [loading]="loading()" dataKey="key" [expandedRowKeys]="expanded"
                (onRowExpand)="onDayExpand($event.data)" styleClass="p-datatable-sm dm-table" [scrollable]="true" scrollHeight="flex">
-        <ng-template pTemplate="header">
+        <ng-template #header>
           <tr>
             <th style="width:2.5rem"></th>
             <th>Día</th>
@@ -102,7 +102,7 @@ import { Permission } from '../../../core/constants/permissions';
             <th class="dm-r" style="width:9rem">Valor</th>
           </tr>
         </ng-template>
-        <ng-template pTemplate="body" let-day let-expanded="expanded">
+        <ng-template #body let-day let-expanded="expanded">
           <tr class="dm-day-row">
             <td><p-button type="button" pButton [pRowToggler]="day" styleClass="p-button-text p-button-sm p-button-rounded"
                         [icon]="expanded ? 'pi pi-chevron-down' : 'pi pi-chevron-right'"></p-button></td>
@@ -113,7 +113,7 @@ import { Permission } from '../../../core/constants/permissions';
             <td class="dm-r dm-strong">{{ money(day.valor || 0) }}</td>
           </tr>
         </ng-template>
-        <ng-template pTemplate="rowexpansion" let-day>
+        <ng-template #expandedrow let-day>
           <tr>
             <td colspan="6" class="dm-exp">
               @if (dayLoading()[day.key]) { <div class="dm-empty">Cargando documentos…</div> }
@@ -161,7 +161,7 @@ import { Permission } from '../../../core/constants/permissions';
             </td>
           </tr>
         </ng-template>
-        <ng-template pTemplate="emptymessage">
+        <ng-template #emptymessage>
           <tr><td colspan="6" class="dm-empty">Sin movimientos en el rango seleccionado.</td></tr>
         </ng-template>
       </p-table>
@@ -169,7 +169,7 @@ import { Permission } from '../../../core/constants/permissions';
 
     <!-- Documento + relación + contraparte -->
     <p-dialog [(visible)]="docOpen" [modal]="true" [style]="{ width: cpDoc() ? '68rem' : '46rem', maxWidth: '96vw' }" [dismissableMask]="true" styleClass="dm-dlg">
-      <ng-template pTemplate="header"><span class="dm-dlg-title">Documento {{ doc()?.header?.folio }}</span></ng-template>
+      <ng-template #header><span class="dm-dlg-title">Documento {{ doc()?.header?.folio }}</span></ng-template>
       @if (docLoading()) { <div class="dm-empty">Cargando documento…</div> }
       @else if (docError()) {
         <div class="dm-error" role="alert">
@@ -247,10 +247,10 @@ import { Permission } from '../../../core/constants/permissions';
     <!-- Tabla de líneas reutilizable -->
     <ng-template #linesTpl let-lines="lines" let-totals="totals">
       <p-table [value]="lines" styleClass="p-datatable-sm dm-dtable" [scrollable]="true" scrollHeight="20rem">
-        <ng-template pTemplate="header">
+        <ng-template #header>
           <tr><th>SKU</th><th>Producto</th><th class="dm-r">Cant.</th><th class="dm-r">Importe</th></tr>
         </ng-template>
-        <ng-template pTemplate="body" let-l>
+        <ng-template #body let-l>
           <tr>
             <td class="dm-mono">{{ l.sku }}</td>
             <td class="dm-dname" [title]="l.product_name">{{ l.product_name || '—' }}</td>

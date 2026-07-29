@@ -57,7 +57,7 @@ import { MapComponent } from '../../../shared/components/map/map.component';
               </div>
             </div>
             <p-table [value]="pendingOrders()" styleClass="p-datatable-sm surf-table rd-mt">
-              <ng-template pTemplate="header">
+              <ng-template #header>
                 <tr>
                   <th scope="col">Cliente</th>
                   <th scope="col">Canal</th>
@@ -67,7 +67,7 @@ import { MapComponent } from '../../../shared/components/map/map.component';
                   <th scope="col"></th>
                 </tr>
               </ng-template>
-              <ng-template pTemplate="body" let-o>
+              <ng-template #body let-o>
                 <tr>
                   <td>
                     <div class="rd-opt-main">{{ o.customer_name }}</div>
@@ -86,8 +86,8 @@ import { MapComponent } from '../../../shared/components/map/map.component';
                   <p-select [options]="riders()" [(ngModel)]="assignRider[o.order_id]" optionValue="rider_user_id"
                     appendTo="body" styleClass="rd-full" placeholder="Repartidor"
                     [filter]="riders().length > 8" filterBy="full_name" [emptyMessage]="'Sin repartidores'">
-                    <ng-template let-d pTemplate="item"><span>{{ d.full_name || d.username }}</span></ng-template>
-                    <ng-template let-d pTemplate="selectedItem">@if (d) {
+                    <ng-template let-d #item><span>{{ d.full_name || d.username }}</span></ng-template>
+                    <ng-template let-d #selectedItem>@if (d) {
                       <span>{{ d.full_name || d.username }}</span>
                     }</ng-template>
                   </p-select>
@@ -163,7 +163,7 @@ import { MapComponent } from '../../../shared/components/map/map.component';
               </div>
     
               <p-table [value]="t.items" styleClass="p-datatable-sm surf-table rd-lines">
-                <ng-template pTemplate="header">
+                <ng-template #header>
                   <tr>
                     <th scope="col">SKU</th>
                     <th scope="col">Producto</th>
@@ -171,7 +171,7 @@ import { MapComponent } from '../../../shared/components/map/map.component';
                     <th scope="col" class="comm-num">Importe</th>
                   </tr>
                 </ng-template>
-                <ng-template pTemplate="body" let-it>
+                <ng-template #body let-it>
                   <tr>
                     <td><code class="comm-code">{{ it.sku }}</code></td>
                     <td>{{ it.nombre }}</td>
@@ -179,7 +179,7 @@ import { MapComponent } from '../../../shared/components/map/map.component';
                     <td class="comm-num">{{ money(it.importe) }}</td>
                   </tr>
                 </ng-template>
-                <ng-template pTemplate="footer">
+                <ng-template #footer>
                   <tr>
                     <td colspan="3" class="comm-num">Total</td>
                     <td class="comm-num"><b>{{ money(t.total) }}</b></td>
@@ -238,7 +238,7 @@ import { MapComponent } from '../../../shared/components/map/map.component';
                       <p-select inputId="drv" [options]="riders()" [(ngModel)]="riderUserId" optionValue="rider_user_id"
                         appendTo="body" styleClass="rd-full" placeholder="Elegí repartidor"
                         [filter]="riders().length > 8" filterBy="full_name" [emptyMessage]="'Sin repartidores activos'">
-                        <ng-template let-d pTemplate="item">
+                        <ng-template let-d #item>
                           <div class="rd-opt">
                             <span class="rd-opt-main">{{ d.full_name || d.username }}</span>
                             @if (d.warehouse_code) {
@@ -246,7 +246,7 @@ import { MapComponent } from '../../../shared/components/map/map.component';
                             }
                           </div>
                         </ng-template>
-                        <ng-template let-d pTemplate="selectedItem">
+                        <ng-template let-d #selectedItem>
                           @if (d) {
                             <span>{{ d.full_name || d.username }}</span>
                           }
@@ -258,7 +258,7 @@ import { MapComponent } from '../../../shared/components/map/map.component';
                       <p-select inputId="veh" [options]="vehicles()" [(ngModel)]="vehicleId" optionValue="id"
                         appendTo="body" styleClass="rd-full" placeholder="Moto (opcional)" [showClear]="true"
                         [emptyMessage]="'Sin motos activas'">
-                        <ng-template let-v pTemplate="item">
+                        <ng-template let-v #item>
                           <div class="rd-opt">
                             <span class="rd-opt-main">{{ v.plate }}</span>
                             <span class="rd-opt-sub">{{ v.model || v.brand || 'moto' }}</span>
@@ -267,7 +267,7 @@ import { MapComponent } from '../../../shared/components/map/map.component';
                             }
                           </div>
                         </ng-template>
-                        <ng-template let-v pTemplate="selectedItem">
+                        <ng-template let-v #selectedItem>
                           @if (v) {
                             <span>{{ v.plate }}<span class="rd-opt-sub"> · {{ v.model || v.brand }}</span></span>
                           }

@@ -85,7 +85,7 @@ import { FacturasService } from '../facturas.service';
       <div class="card-premium card-flat">
         <p-table [value]="rows()" dataKey="id" styleClass="p-datatable-sm di-table" [rowHover]="true" [loading]="loading()"
                  [scrollable]="true" scrollHeight="560px" [paginator]="rows().length > 50" [rows]="50">
-          <ng-template pTemplate="header">
+          <ng-template #header>
             <tr>
               <th style="width:2.5rem"></th>
               <th style="width:6rem">Sev.</th>
@@ -97,7 +97,7 @@ import { FacturasService } from '../facturas.service';
               <th style="width:12rem"></th>
             </tr>
           </ng-template>
-          <ng-template pTemplate="body" let-r let-expanded="expanded">
+          <ng-template #body let-r let-expanded="expanded">
             <tr>
               <td><p-button type="button" pButton [pRowToggler]="r" styleClass="p-button-text p-button-sm" [icon]="expanded ? 'pi pi-chevron-down' : 'pi pi-chevron-right'" aria-label="Detalle"></p-button></td>
               <td><p-tag [value]="sevLabel(r.solucion.severity)" [severity]="sevSev(r.solucion.severity)" styleClass="di-chip" /></td>
@@ -123,7 +123,7 @@ import { FacturasService } from '../facturas.service';
               </td>
             </tr>
           </ng-template>
-          <ng-template pTemplate="rowexpansion" let-r>
+          <ng-template #expandedrow let-r>
             <tr class="di-exp-row">
               <td colspan="8">
                 <div class="di-exp">
@@ -160,7 +160,7 @@ import { FacturasService } from '../facturas.service';
               </td>
             </tr>
           </ng-template>
-          <ng-template pTemplate="emptymessage"><tr><td colspan="8" class="di-empty">
+          <ng-template #emptymessage><tr><td colspan="8" class="di-empty">
             @if (loading()) { Cargando… }
             @else if (errored()) { <i class="pi pi-exclamation-triangle"></i> No se pudo cargar. <button pButton type="button" label="Reintentar" class="p-button-sm p-button-text" (click)="reload()"></button> }
             @else { <i class="pi pi-check-circle di-ok"></i> Sin errores {{ fStatus()==='open' ? 'abiertos' : '' }}. Todo en orden. }

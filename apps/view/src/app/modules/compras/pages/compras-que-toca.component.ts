@@ -129,7 +129,7 @@ type CatLine = CriticalStockRow & { uxc: number; cajas: number; piezas: number; 
                dataKey="_key" (onRowExpand)="onExpand($event.data)"
                [selection]="selectedRows()" (selectionChange)="selectedRows.set($event)" selectionMode="multiple"
                styleClass="p-datatable-sm qt-table">
-        <ng-template pTemplate="header">
+        <ng-template #header>
           <tr>
             <th style="width:2.2rem"><p-tableheadercheckbox /></th>
             <th style="width:2.5rem"></th>
@@ -138,7 +138,7 @@ type CatLine = CriticalStockRow & { uxc: number; cajas: number; piezas: number; 
             <th class="qt-r">Sugerido</th><th class="qt-r">Costo est.</th>
           </tr>
         </ng-template>
-        <ng-template pTemplate="body" let-r let-expanded="expanded">
+        <ng-template #body let-r let-expanded="expanded">
           <tr>
             <td><p-tablecheckbox [value]="r" /></td>
             <td>
@@ -171,7 +171,7 @@ type CatLine = CriticalStockRow & { uxc: number; cajas: number; piezas: number; 
             <td class="qt-r qt-strong">{{ money(r.suggested_cost) }}</td>
           </tr>
         </ng-template>
-        <ng-template pTemplate="rowexpansion" let-r>
+        <ng-template #expandedrow let-r>
           <tr class="qt-detrow">
             <td colspan="12">
               @if (detail()[r._key]; as st) {
@@ -271,7 +271,7 @@ type CatLine = CriticalStockRow & { uxc: number; cajas: number; piezas: number; 
             </td>
           </tr>
         </ng-template>
-        <ng-template pTemplate="emptymessage">
+        <ng-template #emptymessage>
           <tr><td colspan="12" class="qt-empty">Sin ciclos activos con estos filtros. Ajusta el territorio o corre el job de cadencia.</td></tr>
         </ng-template>
       </p-table>

@@ -65,7 +65,7 @@ import { GROUP_ORDER, groupLabel, groupColorVar, dmy, dmShort, money0 } from './
     <div class="card-premium card-flat fb-tablewrap">
       <p-table [value]="movements()" styleClass="p-datatable-sm" [rowHover]="true" [scrollable]="true" scrollHeight="58vh"
                [paginator]="movements().length > 50" [rows]="50" [rowsPerPageOptions]="[50, 100, 200]">
-        <ng-template pTemplate="header">
+        <ng-template #header>
           <tr>
             <th class="col-w6" pSortableColumn="movement_date">Fecha <p-sorticon field="movement_date" /></th>
             <th class="col-w7">Cuenta</th>
@@ -76,7 +76,7 @@ import { GROUP_ORDER, groupLabel, groupColorVar, dmy, dmShort, money0 } from './
             <th class="col-w25" title="Conciliación"></th>
           </tr>
         </ng-template>
-        <ng-template pTemplate="body" let-m>
+        <ng-template #body let-m>
           <tr class="fb-mov-row fb-row-click" [class.fb-colored]="colorByGroup()"
               [style.--g]="colorByGroup() ? color(m.group_key) : null"
               [class.fb-uncat]="!m.category_id && !colorByGroup()"
@@ -96,7 +96,7 @@ import { GROUP_ORDER, groupLabel, groupColorVar, dmy, dmShort, money0 } from './
             </td>
           </tr>
         </ng-template>
-        <ng-template pTemplate="emptymessage">
+        <ng-template #emptymessage>
           <tr><td colspan="7"><div class="surf-empty"><i class="pi pi-inbox"></i><p>Sin movimientos con estos filtros.</p></div></td></tr>
         </ng-template>
       </p-table>

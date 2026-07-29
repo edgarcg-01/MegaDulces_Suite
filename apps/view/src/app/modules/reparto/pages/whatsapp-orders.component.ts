@@ -59,14 +59,14 @@ import { WhatsAppOrdersService, WhatsAppPendingOrder } from '../whatsapp-orders.
           <div class="card-premium wo-list">
             <p-table [value]="orders()" [(selection)]="selected" selectionMode="single" dataKey="thread_id"
                      styleClass="p-datatable-sm surf-table" [scrollable]="true" scrollHeight="60vh">
-              <ng-template pTemplate="header">
+              <ng-template #header>
                 <tr>
                   <th scope="col">Cliente</th>
                   <th scope="col" class="comm-num">Art.</th>
                   <th scope="col" class="comm-num">Total</th>
                 </tr>
               </ng-template>
-              <ng-template pTemplate="body" let-o>
+              <ng-template #body let-o>
                 <tr [pSelectableRow]="o">
                   <td>
                     <div class="wo-cust">{{ o.customer_name || 'Cliente' }}</div>
@@ -92,7 +92,7 @@ import { WhatsAppOrdersService, WhatsAppPendingOrder } from '../whatsapp-orders.
 
               <h2 class="wo-sectitle">Productos</h2>
               <p-table [value]="o.items" styleClass="p-datatable-sm surf-table">
-                <ng-template pTemplate="header">
+                <ng-template #header>
                   <tr>
                     <th scope="col">Producto</th>
                     <th scope="col">Cantidad</th>
@@ -100,7 +100,7 @@ import { WhatsAppOrdersService, WhatsAppPendingOrder } from '../whatsapp-orders.
                     <th scope="col" class="comm-num">Subtotal</th>
                   </tr>
                 </ng-template>
-                <ng-template pTemplate="body" let-it>
+                <ng-template #body let-it>
                   <tr>
                     <td>{{ it.name || '—' }}</td>
                     <td>{{ it.presentation || (it.qty + ' pzas') }}</td>
@@ -108,7 +108,7 @@ import { WhatsAppOrdersService, WhatsAppPendingOrder } from '../whatsapp-orders.
                     <td class="comm-num">{{ money(it.qty * (it.unit_price || 0)) }}</td>
                   </tr>
                 </ng-template>
-                <ng-template pTemplate="footer">
+                <ng-template #footer>
                   <tr>
                     <td colspan="3" class="comm-num">Total</td>
                     <td class="comm-num"><b>{{ money(o.total) }}</b></td>
@@ -150,7 +150,7 @@ import { WhatsAppOrdersService, WhatsAppPendingOrder } from '../whatsapp-orders.
       <p-dialog header="Rechazar pedido" [(visible)]="rejectOpen" [modal]="true" [style]="{ width: '28rem' }">
         <p class="wo-reject-hint">Se avisa al cliente por WhatsApp. Motivo (opcional):</p>
         <input pInputText class="wo-reject-in" [(ngModel)]="rejectReason" placeholder="ej. sin stock, fuera de zona…" />
-        <ng-template pTemplate="footer">
+        <ng-template #footer>
           <button pButton label="Cancelar" severity="secondary" [text]="true" (click)="rejectOpen = false"></button>
           <button pButton label="Rechazar" severity="danger" [loading]="acting()" (click)="doReject()"></button>
         </ng-template>

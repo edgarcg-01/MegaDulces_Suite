@@ -114,7 +114,7 @@ const DENOMS = [1000, 500, 200, 100, 50, 20, 10, 5, 2, 1, 0.5];
           <p class="liq-muted">Nada pendiente.</p>
         } @else {
           <p-table [value]="pending()" styleClass="p-datatable-sm surf-table">
-            <ng-template pTemplate="header">
+            <ng-template #header>
               <tr>
                 <th scope="col">Método</th>
                 <th scope="col">Referencia</th>
@@ -123,7 +123,7 @@ const DENOMS = [1000, 500, 200, 100, 50, 20, 10, 5, 2, 1, 0.5];
                 <th scope="col"><span class="sr-only">Acciones</span></th>
               </tr>
             </ng-template>
-            <ng-template pTemplate="body" let-p>
+            <ng-template #body let-p>
               <tr>
                 <td>{{ p.payment_method }}</td>
                 <td>{{ p.reference || '—' }}</td>
@@ -146,7 +146,7 @@ const DENOMS = [1000, 500, 200, 100, 50, 20, 10, 5, 2, 1, 0.5];
           <p class="liq-muted">Sin cortes.</p>
         } @else {
           <p-table [value]="list()" styleClass="p-datatable-sm surf-table">
-            <ng-template pTemplate="header">
+            <ng-template #header>
               <tr>
                 <th scope="col">Folio</th>
                 <th scope="col" class="comm-num">Entregas</th>
@@ -154,7 +154,7 @@ const DENOMS = [1000, 500, 200, 100, 50, 20, 10, 5, 2, 1, 0.5];
                 <th scope="col">Estado</th>
               </tr>
             </ng-template>
-            <ng-template pTemplate="body" let-l>
+            <ng-template #body let-l>
               <tr>
                 <td><code class="comm-code">{{ l.folio }}</code></td>
                 <td class="comm-num">{{ l.deliveries_count }}</td>

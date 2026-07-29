@@ -394,7 +394,7 @@ interface PdfSection {
                                           [expandedRowKeys]="expandedRows"
                                           styleClass="p-datatable-modern overflow-hidden rounded-2xl border border-divider"
                                           >
-                                          <ng-template pTemplate="header">
+                                          <ng-template #header>
                                             <tr
                                               class="text-xs uppercase text-content-faint bg-surface-ground border-b border-divider"
                                               >
@@ -414,7 +414,7 @@ interface PdfSection {
                                                 <th class="text-right pr-6">Total venta</th>
                                               </tr>
                                             </ng-template>
-                                            <ng-template pTemplate="body" let-day let-expanded="expanded">
+                                            <ng-template #body let-day let-expanded="expanded">
                                               <tr
                                                 class="hover:bg-surface-hover cursor-pointer transition-colors focus-visible:ring-2 focus-visible:ring-info focus-visible:outline-none"
                                                 (click)="toggleExpand(day)"
@@ -515,7 +515,7 @@ interface PdfSection {
                                                   </tr>
                                                 </ng-template>
                                                 <!-- Row expansion con visitas individuales -->
-                                                <ng-template pTemplate="rowexpansion" let-day>
+                                                <ng-template #expandedrow let-day>
                                                   <tr>
                                                     <td
                                                       colspan="7"
@@ -528,7 +528,7 @@ interface PdfSection {
                                                           [value]="day.visits"
                                                           styleClass="p-datatable-sm p-datatable-striped"
                                                           >
-                                                          <ng-template pTemplate="header">
+                                                          <ng-template #header>
                                                             <tr
                                                               class="text-xs uppercase text-content-muted bg-surface-ground"
                                                               >
@@ -540,7 +540,7 @@ interface PdfSection {
                                                               <th class="text-center w-24">Acción</th>
                                                             </tr>
                                                           </ng-template>
-                                                          <ng-template pTemplate="body" let-visit>
+                                                          <ng-template #body let-visit>
                                                             <tr
                                                               class="text-xs hover:bg-surface-hover border-b border-divider last:border-0 cursor-pointer focus-visible:ring-2 focus-visible:ring-info focus-visible:outline-none"
                                                               (click)="viewDetail(visit)"
@@ -889,7 +889,7 @@ interface PdfSection {
                                                               </div>
                                                             </div>
     
-                                                            <ng-template pTemplate="footer">
+                                                            <ng-template #footer>
                                                               <div class="flex justify-end gap-3">
                                                                 <p-button
                                                                   label="Cancelar"
@@ -1060,7 +1060,7 @@ interface PdfSection {
                                                                             [value]="selectedRow.exhibiciones || []"
                                                                             styleClass="p-datatable-sm"
                                                                             >
-                                                                            <ng-template pTemplate="header">
+                                                                            <ng-template #header>
                                                                               <tr
                                                                                 class="text-[10px] bg-surface-ground uppercase text-content-muted"
                                                                                 >
@@ -1070,7 +1070,7 @@ interface PdfSection {
                                                                                 <th class="text-right pr-3">Puntuación</th>
                                                                               </tr>
                                                                             </ng-template>
-                                                                            <ng-template pTemplate="body" let-ex>
+                                                                            <ng-template #body let-ex>
                                                                               <tr class="text-xs">
                                                                                 <td>{{ ex.conceptoId || 'N/A' }}</td>
                                                                                 <td>{{ ex.ubicacionId || 'N/A' }}</td>

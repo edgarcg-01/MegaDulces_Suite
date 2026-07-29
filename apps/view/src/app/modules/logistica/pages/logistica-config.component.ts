@@ -71,7 +71,7 @@ import { ConfigCategory, ConfigItem, LogisticaService, Route } from '../logistic
               <section class="surf-panel">
                 <div class="surf-panel-body is-flush">
                   <p-table [value]="filteredRoutes()" [loading]="loading()" responsiveLayout="scroll" styleClass="surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra p-datatable-sm" [paginator]="true" [rows]="25" [rowsPerPageOptions]="[25, 50, 100, 200]" sortMode="single">
-                    <ng-template pTemplate="header">
+                    <ng-template #header>
                       <tr>
                         <th scope="col" pSortableColumn="name">Destino <p-sorticon field="name"></p-sorticon></th>
                         <th scope="col" pSortableColumn="estimated_km" class="num">Km <p-sorticon field="estimated_km"></p-sorticon></th>
@@ -81,7 +81,7 @@ import { ConfigCategory, ConfigItem, LogisticaService, Route } from '../logistic
                         <th scope="col"><span class="sr-only">Acciones</span></th>
                       </tr>
                     </ng-template>
-                    <ng-template pTemplate="body" let-r>
+                    <ng-template #body let-r>
                       <tr>
                         <td><strong>{{ r.name }}</strong></td>
                         <td class="num">{{ r.estimated_km !== null ? (r.estimated_km | number:'1.0-1') : '—' }}</td>
@@ -94,7 +94,7 @@ import { ConfigCategory, ConfigItem, LogisticaService, Route } from '../logistic
                         </td>
                       </tr>
                     </ng-template>
-                    <ng-template pTemplate="emptymessage">
+                    <ng-template #emptymessage>
                       <tr>
                         <td colspan="6" class="comm-empty-cell">
                           <div class="comm-empty">
@@ -119,7 +119,7 @@ import { ConfigCategory, ConfigItem, LogisticaService, Route } from '../logistic
                 <section class="surf-panel">
                   <div class="surf-panel-body is-flush">
                     <p-table [value]="itemsByCategory(cat)" [loading]="loading()" responsiveLayout="scroll" styleClass="surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra p-datatable-sm">
-                      <ng-template pTemplate="header">
+                      <ng-template #header>
                         <tr>
                           <th scope="col">Clave</th>
                           <th scope="col">Descripción</th>
@@ -129,7 +129,7 @@ import { ConfigCategory, ConfigItem, LogisticaService, Route } from '../logistic
                           <th scope="col"><span class="sr-only">Acciones</span></th>
                         </tr>
                       </ng-template>
-                      <ng-template pTemplate="body" let-c>
+                      <ng-template #body let-c>
                         <tr>
                           <td><code>{{ c.key }}</code></td>
                           <td>{{ c.description || '—' }}</td>
@@ -142,7 +142,7 @@ import { ConfigCategory, ConfigItem, LogisticaService, Route } from '../logistic
                           </td>
                         </tr>
                       </ng-template>
-                      <ng-template pTemplate="emptymessage">
+                      <ng-template #emptymessage>
                         <tr>
                           <td colspan="6" class="comm-empty-cell">
                             <div class="comm-empty">
@@ -195,7 +195,7 @@ import { ConfigCategory, ConfigItem, LogisticaService, Route } from '../logistic
             <input pInputText formControlName="notes" />
           </label>
         </form>
-        <ng-template pTemplate="footer">
+        <ng-template #footer>
           <button pButton label="Cancelar" severity="secondary" [text]="true" (click)="routeDialog = false" [disabled]="savingRoute()"></button>
           <p-button pButton [label]="editingRoute() ? 'Guardar' : 'Crear'" icon="pi pi-check" (click)="saveRoute()" [loading]="savingRoute()" [disabled]="routeForm.invalid"></p-button>
         </ng-template>
@@ -226,7 +226,7 @@ import { ConfigCategory, ConfigItem, LogisticaService, Route } from '../logistic
             <input pInputText formControlName="description" />
           </label>
         </form>
-        <ng-template pTemplate="footer">
+        <ng-template #footer>
           <button pButton label="Cancelar" severity="secondary" [text]="true" (click)="configDialog = false" [disabled]="savingConfig()"></button>
           <p-button pButton [label]="editingConfig() ? 'Guardar' : 'Crear'" icon="pi pi-check" (click)="saveConfig()" [loading]="savingConfig()" [disabled]="configForm.invalid"></p-button>
         </ng-template>

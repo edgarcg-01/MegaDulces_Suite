@@ -197,13 +197,13 @@ interface LiveCountEntry {
         <div class="in-sessions">
           <div class="in-sessions-head"><i class="pi pi-users"></i> Jornadas de conteo del personal</div>
           <p-table [value]="sessions()" responsiveLayout="scroll" styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--zebra">
-            <ng-template pTemplate="header">
+            <ng-template #header>
               <tr>
                 <th scope="col">Contador</th><th scope="col" class="in-num num">Fase</th><th scope="col">Inició</th><th scope="col">Terminó</th><th scope="col">Estado</th>
                 <th scope="col" class="in-num num">SKUs</th><th scope="col" class="in-num num">Unidades</th><th scope="col" class="in-num num">Interrup.</th>
               </tr>
             </ng-template>
-            <ng-template pTemplate="body" let-s>
+            <ng-template #body let-s>
               <tr>
                 <td>{{ s.username || '—' }}</td>
                 <td class="in-num num">{{ s.pass }}</td>
@@ -226,14 +226,14 @@ interface LiveCountEntry {
 
       <!-- Tabla de items -->
       <p-table [value]="items()" [loading]="loading()" styleClass="p-datatable-sm surf-table surf-table--zebra" [scrollable]="true" scrollHeight="flex">
-        <ng-template pTemplate="header">
+        <ng-template #header>
           <tr>
             <th scope="col">SKU</th><th scope="col">Producto</th><th scope="col">Ubic.</th>
             <th scope="col" class="in-num num">Teórico</th><th scope="col" class="in-num num">C1</th><th scope="col" class="in-num num">C2</th><th scope="col" class="in-num num">C3</th>
             <th scope="col" class="in-num num">Final</th><th scope="col" class="in-num num">Var.</th><th scope="col">Estado</th><th scope="col"><span class="sr-only">Acciones</span></th>
           </tr>
         </ng-template>
-        <ng-template pTemplate="body" let-it>
+        <ng-template #body let-it>
           <tr [class.in-row-disc]="it.status === 'discrepancy'">
             <td class="in-mono">{{ it.sku || '—' }}</td>
             <td class="in-name">{{ it.product_name || '—' }}</td>
@@ -254,7 +254,7 @@ interface LiveCountEntry {
             </td>
           </tr>
         </ng-template>
-        <ng-template pTemplate="emptymessage">
+        <ng-template #emptymessage>
           <tr><td colspan="11" class="in-empty">Sin items para este filtro.</td></tr>
         </ng-template>
       </p-table>
@@ -275,7 +275,7 @@ interface LiveCountEntry {
             <input pInputText [(ngModel)]="resolveNotes" class="in-w-full" placeholder="Opcional" />
           </div>
         }
-        <ng-template pTemplate="footer">
+        <ng-template #footer>
           <button pButton label="Cancelar" [text]="true" severity="secondary" (click)="resolveVisible.set(false)"></button>
           <button pButton label="Guardar" icon="pi pi-check" [loading]="resolving()" [disabled]="resolveQty() === null" (click)="saveResolve()"></button>
         </ng-template>

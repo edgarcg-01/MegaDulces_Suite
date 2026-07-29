@@ -71,7 +71,7 @@ interface SolicitudSug extends ExpenseRequestRow { label: string; }
       <div class="card-premium card-flat">
         <p-table [value]="rows()" styleClass="p-datatable-sm cp-table" [rowHover]="true" [scrollable]="true" scrollHeight="60vh"
                  [paginator]="rows().length > 100" [rows]="100" [loading]="loading()" sortField="created_at" [sortOrder]="-1">
-          <ng-template pTemplate="header">
+          <ng-template #header>
             <tr>
               <th pSortableColumn="created_at" style="width:6rem">Fecha <p-sorticon field="created_at" /></th>
               <th pSortableColumn="folio_solicitud" style="width:7rem">Folio sol. <p-sorticon field="folio_solicitud" /></th>
@@ -84,7 +84,7 @@ interface SolicitudSug extends ExpenseRequestRow { label: string; }
               <th style="width:11rem">Acciones</th>
             </tr>
           </ng-template>
-          <ng-template pTemplate="body" let-r>
+          <ng-template #body let-r>
             <tr>
               <td>{{ r.created_at | date:'dd/MM/yy' }}</td>
               <td class="mono">{{ r.folio_solicitud }}</td>
@@ -113,7 +113,7 @@ interface SolicitudSug extends ExpenseRequestRow { label: string; }
               </td>
             </tr>
           </ng-template>
-          <ng-template pTemplate="emptymessage"><tr><td colspan="9" class="cp-empty">Sin solicitudes para el filtro.</td></tr></ng-template>
+          <ng-template #emptymessage><tr><td colspan="9" class="cp-empty">Sin solicitudes para el filtro.</td></tr></ng-template>
         </p-table>
       </div>
       }
@@ -159,7 +159,7 @@ interface SolicitudSug extends ExpenseRequestRow { label: string; }
           <textarea pInputText [(ngModel)]="form.comentarios" rows="2"></textarea></label>
         @if (formError()) { <div class="cp-err">{{ formError() }}</div> }
       </div>
-      <ng-template pTemplate="footer">
+      <ng-template #footer>
         <button pButton type="button" label="Cancelar" text (click)="showForm.set(false)"></button>
         <button pButton type="button" label="Enviar solicitud" icon="pi pi-check" [loading]="saving()" (click)="submit()"></button>
       </ng-template>
@@ -172,7 +172,7 @@ interface SolicitudSug extends ExpenseRequestRow { label: string; }
         <label class="cp-f"><span>Motivo del rechazo *</span>
           <textarea pInputText [(ngModel)]="rejectMotivo" rows="3" placeholder="Ej. comprobante ilegible, no corresponde al folio…"></textarea></label>
       </div>
-      <ng-template pTemplate="footer">
+      <ng-template #footer>
         <button pButton type="button" label="Cancelar" text (click)="showReject.set(false)"></button>
         <button pButton type="button" label="Rechazar" icon="pi pi-times" severity="danger" [loading]="saving()" (click)="doReject()"></button>
       </ng-template>

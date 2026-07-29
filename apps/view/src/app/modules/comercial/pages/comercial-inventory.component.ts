@@ -154,7 +154,7 @@ import { Permission } from '../../../core/constants/permissions';
             responsiveLayout="scroll"
             styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra"
             >
-            <ng-template pTemplate="header">
+            <ng-template #header>
               <tr>
                 <th scope="col">Almacén</th>
                 <th scope="col">Producto</th>
@@ -168,7 +168,7 @@ import { Permission } from '../../../core/constants/permissions';
                 <th scope="col"><span class="sr-only">Acciones</span></th>
               </tr>
             </ng-template>
-            <ng-template pTemplate="body" let-s>
+            <ng-template #body let-s>
               <tr [class.in-row-low]="s.available > 0 && s.available < 20" [class.in-row-zero]="s.available <= 0">
                 <td>
                   <span class="in-warehouse-cell">
@@ -231,7 +231,7 @@ import { Permission } from '../../../core/constants/permissions';
                 </td>
               </tr>
             </ng-template>
-            <ng-template pTemplate="emptymessage">
+            <ng-template #emptymessage>
               <tr>
                 <td colspan="10" class="comm-empty-cell">
                   <div class="comm-empty">
@@ -289,7 +289,7 @@ import { Permission } from '../../../core/constants/permissions';
           }
         </div>
       }
-      <ng-template pTemplate="footer">
+      <ng-template #footer>
         <button pButton label="Cancelar" severity="secondary" [outlined]="true" (click)="dialogVisible = false"></button>
         <button pButton label="Aplicar ajuste" icon="pi pi-check"
           [loading]="saving()"

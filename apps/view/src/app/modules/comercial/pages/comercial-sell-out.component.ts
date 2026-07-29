@@ -69,7 +69,7 @@ const CHANNEL_OPTS = [
                     [filter]="true" filterBy="nombre,code" [showClear]="true" placeholder="Todas las empresas"
                     [loading]="loadingBrands()" appendTo="body" styleClass="w-full"
                     (onChange)="generate()" (onClear)="generate()">
-            <ng-template let-b pTemplate="item">
+            <ng-template let-b #item>
               <span>{{ b.nombre }}</span>
               <span class="so-badge">{{ b.products }}</span>
             </ng-template>

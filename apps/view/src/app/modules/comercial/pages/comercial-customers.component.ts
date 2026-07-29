@@ -207,7 +207,7 @@ import { CUSTOMERS_TABS } from '../customers-tabs';
               responsiveLayout="scroll"
               styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra"
               >
-              <ng-template pTemplate="header">
+              <ng-template #header>
                 <tr>
                   <th scope="col">Código</th>
                   <th scope="col">Cliente</th>
@@ -218,7 +218,7 @@ import { CUSTOMERS_TABS } from '../customers-tabs';
                   <th scope="col"><span class="sr-only">Acciones</span></th>
                 </tr>
               </ng-template>
-              <ng-template pTemplate="body" let-c>
+              <ng-template #body let-c>
                 <tr (click)="openCustomer(c)" (keydown.enter)="openCustomer(c)" (keydown.space)="$event.preventDefault(); openCustomer(c)"
                   tabindex="0" role="button"
                   [attr.aria-label]="'Ver 360° de ' + c.name" class="comm-row-clickable">
@@ -299,7 +299,7 @@ import { CUSTOMERS_TABS } from '../customers-tabs';
                   </td>
                 </tr>
               </ng-template>
-              <ng-template pTemplate="emptymessage">
+              <ng-template #emptymessage>
                 <tr>
                   <td colspan="7" class="comm-empty-cell">
                     <div class="comm-empty">
@@ -377,7 +377,7 @@ import { CUSTOMERS_TABS } from '../customers-tabs';
             </p>
           </div>
         }
-        <ng-template pTemplate="footer">
+        <ng-template #footer>
           <button pButton label="Cerrar" icon="pi pi-check" (click)="accessDialogVisible = false"></button>
         </ng-template>
       </p-dialog>

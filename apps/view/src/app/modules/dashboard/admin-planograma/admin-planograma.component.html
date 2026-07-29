@@ -50,7 +50,7 @@
         <!-- Tabla de Marcas con Expansión -->
         <div class="bg-surface-card border border-divider shadow-sm rounded-xl overflow-hidden">
           <p-table [value]="filteredBrands()" [loading]="loading()" dataKey="id" [expandedRowKeys]="expandedRows()" responsiveLayout="scroll" styleClass="p-datatable-sm p-datatable-striped">
-            <ng-template pTemplate="header">
+            <ng-template #header>
               <tr class="text-xs text-content-muted uppercase bg-surface-ground border-b border-divider">
                 <th style="width: 3rem"></th>
                 <th>Marca / Fabricante</th>
@@ -59,7 +59,7 @@
                 <th class="text-center w-28">Acciones</th>
               </tr>
             </ng-template>
-            <ng-template pTemplate="body" let-brand let-expanded="expanded">
+            <ng-template #body let-brand let-expanded="expanded">
               <tr class="text-sm border-b border-divider hover:bg-surface-hover" [class.opacity-50]="brand.activo === false">
                 <td>
                   <p-button type="button" pButton pRipple [pRowToggler]="brand" styleClass="p-button-text p-button-rounded p-button-plain" [icon]="expanded ? 'pi pi-chevron-down' : 'pi pi-chevron-right'"></p-button>
@@ -103,20 +103,20 @@
               </ng-template>
 
               <!-- Expansión de Productos -->
-              <ng-template pTemplate="rowexpansion" let-brand>
+              <ng-template #expandedrow let-brand>
                 <tr>
                   <td colspan="5" class="p-4 bg-surface-ground">
                     <div class="p-3 border border-divider bg-surface-card rounded-lg shadow-inner">
                       <h4 class="text-xs font-bold text-content-muted uppercase mb-3">Productos de {{ brand.nombre }}</h4>
                       <p-table [value]="brand.productos || []" styleClass="p-datatable-sm p-datatable-striped">
-                        <ng-template pTemplate="header">
+                        <ng-template #header>
                           <tr class="text-[11px] uppercase tracking-wider text-content-muted border-b">
                             <th>Nombre del Producto</th>
                             <th class="text-center w-20">Estado</th>
                             <th class="text-center w-28">Acciones</th>
                           </tr>
                         </ng-template>
-                        <ng-template pTemplate="body" let-product>
+                        <ng-template #body let-product>
                           <tr class="text-xs" [class.opacity-50]="product.activo === false">
                             <td class="font-medium text-content-main">{{ product.nombre }}</td>
                             <td class="text-center">
@@ -147,7 +147,7 @@
                               </td>
                             </tr>
                           </ng-template>
-                          <ng-template pTemplate="emptymessage">
+                          <ng-template #emptymessage>
                             <tr><td colspan="3" class="text-center p-4 text-xs text-content-muted italic">No hay productos en esta marca.</td></tr>
                           </ng-template>
                         </p-table>
@@ -155,7 +155,7 @@
                     </td>
                   </tr>
                 </ng-template>
-                <ng-template pTemplate="emptymessage">
+                <ng-template #emptymessage>
                   <tr>
                     <td colspan="5" class="text-center p-8 text-content-muted">
                       No hay marcas configuradas.
@@ -276,7 +276,7 @@
                 <input pInputText [(ngModel)]="newBrandName" class="uppercase min-h-11" autocapitalize="characters" autocorrect="off" spellcheck="false" enterkeyhint="done" />
               </div>
             </div>
-            <ng-template pTemplate="footer">
+            <ng-template #footer>
               <p-button label="Cancelar" [text]="true" severity="secondary" (onClick)="closeAddBrand()" [disabled]="saving()"></p-button>
               <p-button label="Guardar" styleClass="p-button-brand" (onClick)="createBrand()" [disabled]="saving()" [loading]="saving()"></p-button>
             </ng-template>
@@ -302,7 +302,7 @@
                 <input pInputText [(ngModel)]="editBrandName" class="uppercase min-h-11" autocapitalize="characters" autocorrect="off" spellcheck="false" enterkeyhint="done" />
               </div>
             </div>
-            <ng-template pTemplate="footer">
+            <ng-template #footer>
               <p-button label="Cancelar" [text]="true" severity="secondary" (onClick)="closeEditBrand()" [disabled]="saving()"></p-button>
               <p-button label="Actualizar" styleClass="p-button-brand" (onClick)="updateBrand()" [disabled]="saving()" [loading]="saving()"></p-button>
             </ng-template>
@@ -329,7 +329,7 @@
                 <input pInputText [(ngModel)]="newProductName" class="min-h-11" autocapitalize="sentences" autocorrect="on" enterkeyhint="done" />
               </div>
             </div>
-            <ng-template pTemplate="footer">
+            <ng-template #footer>
               <p-button label="Cancelar" [text]="true" severity="secondary" (onClick)="closeAddProduct()" [disabled]="saving()"></p-button>
               <p-button label="Guardar" styleClass="p-button-brand" (onClick)="addProduct()" [disabled]="saving()" [loading]="saving()"></p-button>
             </ng-template>
@@ -355,7 +355,7 @@
                 <input pInputText [(ngModel)]="editProductName" class="min-h-11" autocapitalize="sentences" autocorrect="on" enterkeyhint="done" />
               </div>
             </div>
-            <ng-template pTemplate="footer">
+            <ng-template #footer>
               <p-button label="Cancelar" [text]="true" severity="secondary" (onClick)="closeEditProduct()" [disabled]="saving()"></p-button>
               <p-button label="Actualizar" styleClass="p-button-brand" (onClick)="updateProduct()" [disabled]="saving()" [loading]="saving()"></p-button>
             </ng-template>

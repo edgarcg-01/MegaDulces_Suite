@@ -55,7 +55,7 @@ interface Pair {
     <div class="card-premium card-flat fb-sbs-tablewrap">
       <p-table [value]="pairs()" styleClass="p-datatable-sm" [rowHover]="true" [scrollable]="true" scrollHeight="60vh"
                [paginator]="pairs().length > 50" [rows]="50" [rowsPerPageOptions]="[50, 100, 200]">
-        <ng-template pTemplate="header">
+        <ng-template #header>
           <tr class="fb-grp-row">
             <th class="fb-grp-tipo" aria-hidden="true"></th>
             <th colspan="4" class="fb-grp fb-grp-excel">Excel (banco)</th>
@@ -72,7 +72,7 @@ interface Pair {
             <th class="col-w6">Fecha</th><th class="col-w7">Doc</th><th>Beneficiario</th><th class="ta-r col-w9">Importe</th>
           </tr>
         </ng-template>
-        <ng-template pTemplate="body" let-p>
+        <ng-template #body let-p>
           <tr class="fb-row-click" [class.fb-sel-row]="isSel(p)" [class.fb-nomatch]="!p.excel || !p.kepler"
               (click)="pick(p)" tabindex="0" role="button" (keyup.enter)="pick(p)">
             <!-- Tipo -->
@@ -101,8 +101,8 @@ interface Pair {
             }
           </tr>
         </ng-template>
-        <ng-template pTemplate="emptymessage"><tr><td colspan="10"><div class="surf-empty"><i class="pi pi-inbox"></i><p>Sin movimientos con estos filtros.</p></div></td></tr></ng-template>
-        <ng-template pTemplate="footer">
+        <ng-template #emptymessage><tr><td colspan="10"><div class="surf-empty"><i class="pi pi-inbox"></i><p>Sin movimientos con estos filtros.</p></div></td></tr></ng-template>
+        <ng-template #footer>
           <tr class="fb-total-row">
             <td></td><td></td>
             <td class="fb-t-lbl">Total banco</td>

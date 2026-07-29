@@ -54,7 +54,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
         <app-metric-strip [items]="kpiItems(r)" ariaLabel="Resumen de la requisición" />
 
         <p-table [value]="r.lines" styleClass="p-datatable-sm rd-table">
-          <ng-template pTemplate="header">
+          <ng-template #header>
             <tr>
               <th>SKU</th><th>Producto</th><th>Origen</th>
               <th class="rd-r">Existencia</th><th class="rd-r">Reorden</th><th class="rd-r">Sugerido</th>
@@ -63,7 +63,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
               <th class="rd-r">Costo unit.</th><th class="rd-r">Importe</th>
             </tr>
           </ng-template>
-          <ng-template pTemplate="body" let-l>
+          <ng-template #body let-l>
             <tr>
               <td class="rd-mono">{{ l.sku }}</td>
               <td>{{ l.nombre }}</td>

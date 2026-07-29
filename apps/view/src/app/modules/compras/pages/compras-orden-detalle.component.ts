@@ -77,10 +77,10 @@ interface RecvLine {
 
         <h2 class="od-h2">Líneas</h2>
         <p-table [value]="p.lines" styleClass="p-datatable-sm od-table">
-          <ng-template pTemplate="header">
+          <ng-template #header>
             <tr><th>SKU</th><th>Producto</th><th class="od-r">Pedido</th><th class="od-r">Recibido</th><th class="od-r">Pendiente</th><th class="od-r">Costo unit.</th><th class="od-r">Importe</th></tr>
           </ng-template>
-          <ng-template pTemplate="body" let-l>
+          <ng-template #body let-l>
             <tr>
               <td class="od-mono">{{ l.sku }}</td>
               <td>{{ l.nombre }}</td>
@@ -96,10 +96,10 @@ interface RecvLine {
         @if (p.receipts.length) {
           <h2 class="od-h2">Recepciones (órdenes de entrada)</h2>
           <p-table [value]="p.receipts" styleClass="p-datatable-sm od-table">
-            <ng-template pTemplate="header">
+            <ng-template #header>
               <tr><th>Folio OE</th><th>Fecha</th><th class="od-r">Unidades</th><th class="od-r">Costo</th><th>Stock</th><th>Nota</th></tr>
             </ng-template>
-            <ng-template pTemplate="body" let-g>
+            <ng-template #body let-g>
               <tr>
                 <td class="od-mono">{{ g.folio }}</td>
                 <td class="od-muted">{{ g.received_at | date:'dd/MM/yy HH:mm' }}</td>
@@ -132,7 +132,7 @@ interface RecvLine {
         </div>
         <input pInputText type="text" [(ngModel)]="recvNotes" placeholder="Nota / referencia de la entrada (opcional)" class="od-dlg-notes" />
       </div>
-      <ng-template pTemplate="footer">
+      <ng-template #footer>
         <button pButton type="button" label="Cancelar" class="p-button-text p-button-sm" (click)="recvOpen.set(false)"></button>
         <button pButton type="button" label="Confirmar recepción" icon="pi pi-check" class="p-button-sm" [loading]="saving()" (click)="confirmReceive()"></button>
       </ng-template>

@@ -292,7 +292,7 @@ interface BundleItem {
           </form>
         }
     
-        <ng-template pTemplate="footer">
+        <ng-template #footer>
           @if (wizardStep === 'configure') {
             <button pButton label="Cancelar" severity="secondary" [outlined]="true" (click)="cancel.emit()"></button>
             <p-button

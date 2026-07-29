@@ -77,7 +77,7 @@
       </div>
       <p-table [value]="filteredStores()" [rows]="10" [paginator]="true"
         sortField="score" [sortOrder]="-1" styleClass="p-datatable-sm">
-        <ng-template pTemplate="header">
+        <ng-template #header>
           <tr class="text-[9px] uppercase text-content-faint bg-surface-ground">
             <th pSortableColumn="nombre" class="text-left">Tienda <p-sorticon field="nombre" /></th>
             <th pSortableColumn="zona" class="text-left">Zona <p-sorticon field="zona" /></th>
@@ -88,7 +88,7 @@
             <th class="text-center">Última Visita</th>
           </tr>
         </ng-template>
-        <ng-template pTemplate="body" let-store>
+        <ng-template #body let-store>
           <tr class="hover:bg-surface-hover text-xs">
             <td class="font-medium text-content-main">{{ store.nombre }}</td>
             <td><p-tag [value]="store.zona" severity="info" [rounded]="true" styleClass="text-[9px]" /></td>
@@ -99,7 +99,7 @@
             <td class="text-center text-content-dim text-[10px]">{{ store.ultimaVisita || '—' }}</td>
           </tr>
         </ng-template>
-        <ng-template pTemplate="emptydata">
+        <ng-template #emptymessage>
           <tr>
             <td colspan="7" class="text-center py-8 text-content-muted text-sm">
               <i class="pi pi-inbox text-2xl block mb-2"></i>

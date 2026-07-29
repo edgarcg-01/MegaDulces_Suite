@@ -51,7 +51,7 @@ import { WebSocketService } from '../../../core/services/websocket.service';
     
         <p-table [value]="rows()" [loading]="loading()" styleClass="p-datatable-sm" [scrollable]="true"
           [rowHover]="true" dataKey="delivery_id">
-          <ng-template pTemplate="header">
+          <ng-template #header>
             <tr>
               <th>Folio</th>
               <th>Cliente</th>
@@ -63,7 +63,7 @@ import { WebSocketService } from '../../../core/services/websocket.service';
               <th>Entregado</th>
             </tr>
           </ng-template>
-          <ng-template pTemplate="body" let-d>
+          <ng-template #body let-d>
             <tr>
               <td class="mono">{{ d.folio }}@if (d.kepler_folio) {
                 <div class="sub2">Kepler {{ d.kepler_folio }}</div>
@@ -82,7 +82,7 @@ import { WebSocketService } from '../../../core/services/websocket.service';
                 <td class="mono">{{ d.delivered_at ? time(d.delivered_at) : '—' }}</td>
               </tr>
             </ng-template>
-            <ng-template pTemplate="emptymessage">
+            <ng-template #emptymessage>
               <tr><td colspan="8" class="empty">Sin entregas despachadas hoy.</td></tr>
             </ng-template>
           </p-table>

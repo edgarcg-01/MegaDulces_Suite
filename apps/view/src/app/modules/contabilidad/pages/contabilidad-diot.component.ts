@@ -65,7 +65,7 @@ import { DiotService, DiotRow, DiotResult, IvaResumen } from '../diot.service';
           </div>
         </div>
         <p-table [value]="filteredRows()" styleClass="p-datatable-sm di-table" [rowHover]="true" [loading]="loading()" [scrollable]="true" scrollHeight="520px" [paginator]="filteredRows().length > 50" [rows]="50">
-          <ng-template pTemplate="header">
+          <ng-template #header>
             <tr>
               <th>Proveedor</th>
               <th style="width:6rem">Tercero</th>
@@ -76,7 +76,7 @@ import { DiotService, DiotRow, DiotResult, IvaResumen } from '../diot.service';
               <th class="ta-r" style="width:5rem">CFDI</th>
             </tr>
           </ng-template>
-          <ng-template pTemplate="body" let-r>
+          <ng-template #body let-r>
             <tr>
               <td><div class="di-name">{{ r.nombre || r.rfc }}</div><div class="di-rfc mono">{{ r.rfc }}</div></td>
               <td><p-tag [value]="terceroLabel(r.tipo_tercero)" severity="secondary" styleClass="di-chip" /></td>
@@ -87,7 +87,7 @@ import { DiotService, DiotRow, DiotResult, IvaResumen } from '../diot.service';
               <td class="ta-r mono">{{ r.num_cfdis | number }}</td>
             </tr>
           </ng-template>
-          <ng-template pTemplate="emptymessage"><tr><td colspan="7" class="di-empty">
+          <ng-template #emptymessage><tr><td colspan="7" class="di-empty">
             @if (loading()) { Cargando… }
             @else if (errored()) { <i class="pi pi-exclamation-triangle"></i> No se pudo calcular la DIOT. <button pButton type="button" label="Reintentar" class="p-button-sm p-button-text" (click)="reload()"></button> }
             @else if (hasFilters()) { <i class="pi pi-filter-slash"></i> Ningún proveedor coincide con el filtro. <button pButton type="button" label="Limpiar" class="p-button-sm p-button-text" (click)="clearFilters()"></button> }

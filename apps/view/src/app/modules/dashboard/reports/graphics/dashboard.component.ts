@@ -692,7 +692,7 @@ interface KpiCard {
                                               </div>
                                             </div>
     
-                                            <ng-template pTemplate="footer">
+                                            <ng-template #footer>
                                               <div class="flex justify-end gap-3">
                                                 <p-button
                                                   label="Cancelar"

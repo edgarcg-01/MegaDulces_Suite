@@ -62,13 +62,13 @@ import { INV_ANALYTICS_TABS } from '../inventory-tabs';
       <!-- Tabla -->
       <p-table [value]="items()" [loading]="loading()" styleClass="p-datatable-sm surf-table surf-table--zebra"
                [scrollable]="true" scrollHeight="flex" [paginator]="true" [rows]="rows()" [rowsPerPageOptions]="[25, 50, 100, 200]">
-        <ng-template pTemplate="header">
+        <ng-template #header>
           <tr>
             <th scope="col">Almacén</th><th scope="col">SKU</th><th scope="col">Producto</th><th scope="col">Marca</th><th scope="col">Rot.</th>
             <th scope="col" class="ds-num">Existencia</th><th scope="col" class="ds-num">Costo</th><th scope="col" class="ds-num">Capital parado</th>
           </tr>
         </ng-template>
-        <ng-template pTemplate="body" let-it>
+        <ng-template #body let-it>
           <tr>
             <td class="ds-mono">{{ it.warehouse_code }}</td>
             <td class="ds-mono">{{ it.sku }}</td>
@@ -80,7 +80,7 @@ import { INV_ANALYTICS_TABS } from '../inventory-tabs';
             <td class="ds-num ds-cap">{{ it.capital_parado | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
           </tr>
         </ng-template>
-        <ng-template pTemplate="emptymessage">
+        <ng-template #emptymessage>
           <tr>
             <td colspan="8" class="comm-empty-cell">
               <div class="comm-empty">

@@ -125,10 +125,10 @@ interface Constraint { type: SliceType; key: string; label: string; }
               </div>
             </div>
             <p-table [value]="topRows()" styleClass="p-datatable-sm ed-table" [rowHover]="true" [scrollable]="true" scrollHeight="300px">
-              <ng-template pTemplate="header">
+              <ng-template #header>
                 <tr><th>{{ breakdownLabel() }}</th><th class="ta-r" style="width:8rem">Importe</th><th class="ta-r" style="width:5rem">%</th><th style="width:2.5rem"></th></tr>
               </ng-template>
-              <ng-template pTemplate="body" let-row>
+              <ng-template #body let-row>
                 <tr class="ed-clickable" tabindex="0" role="button" [attr.aria-label]="'Filtrar por ' + row.label"
                     (click)="drillInto(row)" (keydown.enter)="drillInto(row)" (keydown.space)="$event.preventDefault(); drillInto(row)"
                     [title]="'Agregar filtro: ' + row.label">
@@ -138,7 +138,7 @@ interface Constraint { type: SliceType; key: string; label: string; }
                   <td class="ta-r"><i class="pi pi-filter-fill ed-add"></i></td>
                 </tr>
               </ng-template>
-              <ng-template pTemplate="emptymessage"><tr><td colspan="4" class="ed-empty">Sin datos.</td></tr></ng-template>
+              <ng-template #emptymessage><tr><td colspan="4" class="ed-empty">Sin datos.</td></tr></ng-template>
             </p-table>
           </div>
         </div>
@@ -148,10 +148,10 @@ interface Constraint { type: SliceType; key: string; label: string; }
           <div class="card-premium card-flat ed-card">
             <h3 class="ed-card-title">Top productos que le compras <span class="muted">(top {{ provider360()!.top_products.length }})</span></h3>
             <p-table [value]="provider360()!.top_products" styleClass="p-datatable-sm ed-table" [rowHover]="true" [scrollable]="true" scrollHeight="320px">
-              <ng-template pTemplate="header">
+              <ng-template #header>
                 <tr><th style="width:5rem">SKU</th><th>Producto</th><th class="ta-r" style="width:7rem">Cantidad</th><th class="ta-r" style="width:5rem">Docs</th><th class="ta-r" style="width:9rem">Importe</th></tr>
               </ng-template>
-              <ng-template pTemplate="body" let-p>
+              <ng-template #body let-p>
                 <tr>
                   <td class="mono">{{ p.sku || '—' }}</td>
                   <td>{{ p.producto || '—' }}</td>
@@ -171,10 +171,10 @@ interface Constraint { type: SliceType; key: string; label: string; }
           </div>
           <p-table [value]="docs()" styleClass="p-datatable-sm ed-table" [rowHover]="true" [scrollable]="true" scrollHeight="480px"
                    [paginator]="docs().length > 100" [rows]="100">
-            <ng-template pTemplate="header">
+            <ng-template #header>
               <tr><th style="width:6rem">Fecha</th><th>Documento</th><th>Sucursal</th><th>Cuenta</th><th>Concepto</th><th>Beneficiario</th><th>Comentario</th><th class="ta-r" style="width:9rem">Importe</th><th style="width:2.5rem"></th></tr>
             </ng-template>
-            <ng-template pTemplate="body" let-d>
+            <ng-template #body let-d>
               <tr class="ed-clickable" tabindex="0" role="button" [attr.aria-label]="'Ver documento ' + d.doc_tipo + '-' + d.doc_folio"
                   (click)="openDocument(d)" (keydown.enter)="openDocument(d)" (keydown.space)="$event.preventDefault(); openDocument(d)">
                 <td>{{ d.fecha | date:'dd/MM/yy' }}</td>
@@ -188,7 +188,7 @@ interface Constraint { type: SliceType; key: string; label: string; }
                 <td class="ta-r"><i class="pi pi-angle-right muted"></i></td>
               </tr>
             </ng-template>
-            <ng-template pTemplate="emptymessage"><tr><td colspan="9" class="ed-empty">Sin documentos.</td></tr></ng-template>
+            <ng-template #emptymessage><tr><td colspan="9" class="ed-empty">Sin documentos.</td></tr></ng-template>
           </p-table>
         </div>
         } @else {
@@ -276,10 +276,10 @@ interface Constraint { type: SliceType; key: string; label: string; }
           @if (dd.lines.length) {
             <h4 class="ed-dsec">Productos ({{ dd.lines.length }})</h4>
             <p-table [value]="dd.lines" styleClass="p-datatable-sm ed-table" [scrollable]="true" scrollHeight="280px">
-              <ng-template pTemplate="header">
+              <ng-template #header>
                 <tr><th style="width:5rem">SKU</th><th>Producto</th><th class="ta-r" style="width:6rem">Cant.</th><th style="width:4rem">Pres.</th><th class="ta-r" style="width:7rem">Costo u.</th><th class="ta-r" style="width:8rem">Importe</th></tr>
               </ng-template>
-              <ng-template pTemplate="body" let-l>
+              <ng-template #body let-l>
                 <tr>
                   <td class="mono">{{ l.sku || '—' }}</td><td>{{ l.producto || '—' }}</td>
                   <td class="ta-r">{{ l.cantidad != null ? (l.cantidad | number:'1.0-0') : '—' }}</td>
@@ -295,8 +295,8 @@ interface Constraint { type: SliceType; key: string; label: string; }
           @if (dd.postings.length) {
             <h4 class="ed-dsec">Posturas contables ({{ dd.postings.length }})</h4>
             <p-table [value]="dd.postings" styleClass="p-datatable-sm ed-table">
-              <ng-template pTemplate="header"><tr><th style="width:3rem">#</th><th>Cuenta</th><th class="ta-r" style="width:9rem">Importe</th></tr></ng-template>
-              <ng-template pTemplate="body" let-p>
+              <ng-template #header><tr><th style="width:3rem">#</th><th>Cuenta</th><th class="ta-r" style="width:9rem">Importe</th></tr></ng-template>
+              <ng-template #body let-p>
                 <tr><td class="muted">{{ p.linea }}</td><td><span class="mono">{{ p.cuenta }}</span> <span class="muted">{{ p.cuenta_nombre || '' }}</span></td><td class="ta-r strong">{{ money(p.importe) }}</td></tr>
               </ng-template>
             </p-table>

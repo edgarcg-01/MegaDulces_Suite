@@ -82,7 +82,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
         <section class="surf-panel">
           <div class="surf-panel-body is-flush">
             <p-table [value]="filtered()" [loading]="loading()" responsiveLayout="scroll" styleClass="surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra p-datatable-sm" [paginator]="true" [rows]="25" [rowsPerPageOptions]="[25, 50, 100, 200]">
-              <ng-template pTemplate="header">
+              <ng-template #header>
                 <tr>
                   <th scope="col">Folio</th>
                   <th scope="col">Fecha</th>
@@ -100,7 +100,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
                   <th scope="col"><span class="sr-only">Acciones</span></th>
                 </tr>
               </ng-template>
-              <ng-template pTemplate="body" let-e>
+              <ng-template #body let-e>
                 <tr>
                   <td><code class="comm-code">{{ e.shipment_folio }}</code></td>
                   <td>{{ e.shipment_date | date:'shortDate' }}</td>
@@ -123,7 +123,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
                   </td>
                 </tr>
               </ng-template>
-              <ng-template pTemplate="emptymessage">
+              <ng-template #emptymessage>
                 <tr>
                   <td colspan="14" class="comm-empty-cell">
                     <div class="comm-empty">
@@ -199,7 +199,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
           </label>
         </form>
     
-        <ng-template pTemplate="footer">
+        <ng-template #footer>
           <button pButton label="Cancelar" severity="secondary" [text]="true" (click)="editDialog = false" [disabled]="saving()"></button>
           <button pButton label="Guardar" icon="pi pi-check" (click)="save()" [loading]="saving()"></button>
         </ng-template>

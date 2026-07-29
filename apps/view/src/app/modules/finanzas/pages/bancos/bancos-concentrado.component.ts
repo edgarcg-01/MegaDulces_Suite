@@ -27,7 +27,7 @@ import { GROUP_ORDER, groupLabel, groupColorVar, money0 } from './bancos-shared'
     </div>
     <div class="card-premium card-flat fb-tablewrap">
       <p-table [value]="rows()" styleClass="p-datatable-sm" [rowHover]="true" [scrollable]="true" scrollHeight="60vh">
-        <ng-template pTemplate="header">
+        <ng-template #header>
           <tr>
             <th class="fb-sticky-col">Cuenta</th>
             @for (g of groupCols(); track g) { <th class="ta-r"><span class="fb-ghead"><span class="fb-legend-dot" [style.--g]="color(g)"></span>{{ label(g) }}</span></th> }
@@ -36,7 +36,7 @@ import { GROUP_ORDER, groupLabel, groupColorVar, money0 } from './bancos-shared'
             <th class="ta-c col-cuadre" title="¿El saldo de esta cuenta cierra? (inicial + depósitos − retiros = final)">Cuadre</th>
           </tr>
         </ng-template>
-        <ng-template pTemplate="body" let-a>
+        <ng-template #body let-a>
           <tr [class.fb-nocuadra]="cuadreOf(a).state === 'bad'">
             <td class="fb-sticky-col"><span class="fb-acct">{{ a.bank }} <span class="muted">{{ a.account_label }}</span></span></td>
             @for (g of groupCols(); track g) { <td class="ta-r mono">{{ cellAmount(a, g) | currency:'MXN':'symbol-narrow':'1.0-0' }}</td> }
@@ -51,7 +51,7 @@ import { GROUP_ORDER, groupLabel, groupColorVar, money0 } from './bancos-shared'
             </td>
           </tr>
         </ng-template>
-        <ng-template pTemplate="footer">
+        <ng-template #footer>
           <tr class="fb-total-row">
             <td class="fb-sticky-col">Total</td>
             @for (g of groupCols(); track g) { <td class="ta-r mono">{{ groupTotal(g) | currency:'MXN':'symbol-narrow':'1.0-0' }}</td> }

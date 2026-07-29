@@ -83,7 +83,7 @@ import { cuadra, money0 } from './bancos-shared';
       <div class="card-premium card-flat fb-tablewrap">
         <h3 class="fb-card-title fb-pnl-title">Detalle por cuenta</h3>
         <p-table [value]="c.rows" styleClass="p-datatable-sm" [rowHover]="true" [scrollable]="true" scrollHeight="52vh">
-          <ng-template pTemplate="header">
+          <ng-template #header>
             <tr>
               <th title="Banco y número de cuenta (según tu Excel bancario)">Cuenta</th>
               <th title="Cuenta contable 102xxx de ContPAQi enlazada a esta cuenta de banco">Libro ContPAQi</th>
@@ -97,7 +97,7 @@ import { cuadra, money0 } from './bancos-shared';
               <th class="ta-c" title="Abre el detalle movimiento a movimiento: dónde está el error"></th>
             </tr>
           </ng-template>
-          <ng-template pTemplate="body" let-r>
+          <ng-template #body let-r>
             <tr>
               <td><span class="fb-strong">{{ r.bank }}</span> <span class="muted mono">{{ r.account_label }}</span></td>
               <td class="mono muted" [title]="r.contpaqi_cuenta_nombre || ''">{{ r.contpaqi_cuenta || '—' }}</td>
@@ -127,7 +127,7 @@ import { cuadra, money0 } from './bancos-shared';
               </td>
             </tr>
           </ng-template>
-          <ng-template pTemplate="emptymessage"><tr><td colspan="10"><div class="surf-empty"><i class="pi pi-inbox"></i><p>Sin cuentas.</p></div></td></tr></ng-template>
+          <ng-template #emptymessage><tr><td colspan="10"><div class="surf-empty"><i class="pi pi-inbox"></i><p>Sin cuentas.</p></div></td></tr></ng-template>
         </p-table>
       </div>
 
@@ -140,7 +140,7 @@ import { cuadra, money0 } from './bancos-shared';
             <div class="surf-empty"><i class="pi pi-inbox"></i><p>Sin compras con factoraje en {{ f.period }}.</p></div>
           } @else {
             <p-table [value]="f.rows" styleClass="p-datatable-sm" [rowHover]="true" [scrollable]="true" scrollHeight="40vh">
-              <ng-template pTemplate="header">
+              <ng-template #header>
                 <tr>
                   <th title="Proveedor al que se le compró con factoraje (según el Excel)">Proveedor</th>
                   <th class="ta-r" title="Total de compras con factoraje del Excel en el mes">Factoraje (Excel)</th>
@@ -150,7 +150,7 @@ import { cuadra, money0 } from './bancos-shared';
                   <th class="ta-c" title="¿Se identificó el proveedor en ContPAQi?">Match</th>
                 </tr>
               </ng-template>
-              <ng-template pTemplate="body" let-r>
+              <ng-template #body let-r>
                 <tr>
                   <td><span class="fb-strong">{{ r.proveedor }}</span></td>
                   <td class="ta-r mono">{{ r.excel_out | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
@@ -169,7 +169,7 @@ import { cuadra, money0 } from './bancos-shared';
                   </td>
                 </tr>
               </ng-template>
-              <ng-template pTemplate="emptymessage"><tr><td colspan="6"><div class="surf-empty"><i class="pi pi-inbox"></i><p>Sin factoraje.</p></div></td></tr></ng-template>
+              <ng-template #emptymessage><tr><td colspan="6"><div class="surf-empty"><i class="pi pi-inbox"></i><p>Sin factoraje.</p></div></td></tr></ng-template>
             </p-table>
             <p class="fb-recon-note muted fjt-foot"><i class="pi pi-info-circle"></i> <b>{{ f.matched }}</b> de {{ f.rows.length }} proveedores identificados en ContPAQi · Total factoraje Excel {{ f.totals.excel_out | currency:'MXN':'symbol-narrow':'1.0-0' }} · Costo ContPAQi de esos proveedores {{ f.totals.costo_cargos | currency:'MXN':'symbol-narrow':'1.0-0' }}.</p>
           }

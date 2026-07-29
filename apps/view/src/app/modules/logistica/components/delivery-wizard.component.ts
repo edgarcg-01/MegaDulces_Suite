@@ -72,7 +72,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
       [draggable]="false"
       [resizable]="false"
       >
-      <ng-template pTemplate="header">
+      <ng-template #header>
         <div class="wizard-header">
           <h3>Entrega <code>{{ shipment()?.folio || '—' }}</code></h3>
           <p-tag [severity]="statusSeverity()" [value]="shipment()?.status || ''"></p-tag>

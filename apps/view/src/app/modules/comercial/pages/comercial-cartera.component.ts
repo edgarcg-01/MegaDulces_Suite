@@ -49,10 +49,10 @@ import { CarteraService, SalesRouteRow, VendorOption, RouteCustomer } from '../c
           }
           @if (!loading()) {
             <p-table [value]="routes()" styleClass="p-datatable-sm" [scrollable]="true" scrollHeight="60vh">
-              <ng-template pTemplate="header">
+              <ng-template #header>
                 <tr><th scope="col">Ruta</th><th scope="col" class="comm-num">Clientes</th><th scope="col">Asignada a</th><th scope="col"><span class="sr-only">Asignar vendedor</span></th></tr>
               </ng-template>
-              <ng-template pTemplate="body" let-r>
+              <ng-template #body let-r>
                 <tr [class.ca-row-active]="selectedRoute() === r.sales_route">
                   <td>
                     <button type="button" class="ca-route-link" (click)="selectRoute(r.sales_route)" pTooltip="Ordenar sus clientes">
@@ -84,7 +84,7 @@ import { CarteraService, SalesRouteRow, VendorOption, RouteCustomer } from '../c
                   </td>
                 </tr>
               </ng-template>
-              <ng-template pTemplate="emptymessage">
+              <ng-template #emptymessage>
                 <tr><td colspan="4" class="comm-muted" style="padding:1.5rem;text-align:center">No hay rutas de venta. Se generan desde la ruta (sales_route) de los clientes.</td></tr>
               </ng-template>
             </p-table>
@@ -119,10 +119,10 @@ import { CarteraService, SalesRouteRow, VendorOption, RouteCustomer } from '../c
           @if (selectedRoute() && !loadingCustomers()) {
             <p-table [value]="customersList" styleClass="p-datatable-sm surf-table surf-table--zebra"
               [scrollable]="true" scrollHeight="60vh">
-              <ng-template pTemplate="header">
+              <ng-template #header>
                 <tr><th scope="col" style="width:3rem">#</th><th scope="col">Cliente</th><th scope="col">Código</th><th scope="col" style="width:5rem"><span class="sr-only">Reordenar</span></th></tr>
               </ng-template>
-              <ng-template pTemplate="body" let-c let-i="rowIndex">
+              <ng-template #body let-c let-i="rowIndex">
                 <tr>
                   <td class="ca-seq">{{ i + 1 }}</td>
                   <td>
@@ -138,7 +138,7 @@ import { CarteraService, SalesRouteRow, VendorOption, RouteCustomer } from '../c
                   </td>
                 </tr>
               </ng-template>
-              <ng-template pTemplate="emptymessage">
+              <ng-template #emptymessage>
                 <tr><td colspan="4" class="comm-muted" style="padding:1.5rem;text-align:center">La ruta no tiene clientes.</td></tr>
               </ng-template>
             </p-table>

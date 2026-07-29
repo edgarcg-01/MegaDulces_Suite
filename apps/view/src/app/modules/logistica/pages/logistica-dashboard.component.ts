@@ -120,7 +120,7 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
         </div>
         <div class="surf-panel-body is-flush">
           <p-table [value]="pendingRows()" [loading]="loading()" responsiveLayout="scroll" styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--zebra">
-            <ng-template pTemplate="header">
+            <ng-template #header>
               <tr>
                 <th scope="col">Ruta</th>
                 <th scope="col" class="comm-num">Pedidos</th>
@@ -131,7 +131,7 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
                 <th scope="col"><span class="sr-only">Acciones</span></th>
               </tr>
             </ng-template>
-            <ng-template pTemplate="body" let-r>
+            <ng-template #body let-r>
               <tr>
                 <td>
                   @if (r.route_id) {
@@ -174,7 +174,7 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
                 </td>
               </tr>
             </ng-template>
-            <ng-template pTemplate="emptymessage">
+            <ng-template #emptymessage>
               <tr><td colspan="7" class="comm-muted logd-empty">Nada esperando embarque. Pipeline limpio.</td></tr>
             </ng-template>
           </p-table>
@@ -187,7 +187,7 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
           <div class="surf-panel-head"><h3><i class="pi pi-chart-line" aria-hidden="true"></i> Top embarques por margen</h3></div>
           <div class="surf-panel-body is-flush">
             <p-table [value]="topShipments()" [loading]="loading()" responsiveLayout="scroll" styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--zebra">
-              <ng-template pTemplate="header">
+              <ng-template #header>
                 <tr>
                   <th scope="col">Folio</th>
                   <th scope="col">Ruta</th>
@@ -197,7 +197,7 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
                   <th scope="col" class="comm-num">Margen</th>
                 </tr>
               </ng-template>
-              <ng-template pTemplate="body" let-r>
+              <ng-template #body let-r>
                 <tr>
                   <td><code class="comm-code">{{ r.folio }}</code></td>
                   <td>{{ r.route_name || '—' }}</td>
@@ -210,7 +210,7 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
                   </td>
                 </tr>
               </ng-template>
-              <ng-template pTemplate="emptymessage">
+              <ng-template #emptymessage>
                 <tr><td colspan="6" class="comm-muted logd-empty">Sin embarques cerrados en este rango. Probá ampliar las fechas.</td></tr>
               </ng-template>
             </p-table>
@@ -221,7 +221,7 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
           <div class="surf-panel-head"><h3><i class="pi pi-truck" aria-hidden="true"></i> Utilización por unidad</h3></div>
           <div class="surf-panel-body is-flush">
             <p-table [value]="fleetRows()" [loading]="loading()" responsiveLayout="scroll" styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--zebra">
-              <ng-template pTemplate="header">
+              <ng-template #header>
                 <tr>
                   <th scope="col">Placa</th>
                   <th scope="col" class="comm-num">Embarques</th>
@@ -230,7 +230,7 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
                   <th scope="col" class="comm-num">Margen</th>
                 </tr>
               </ng-template>
-              <ng-template pTemplate="body" let-v>
+              <ng-template #body let-v>
                 <tr>
                   <td><code class="comm-code">{{ v.plate }}</code></td>
                   <td class="comm-num">{{ v.shipments_count }}</td>
@@ -241,7 +241,7 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
                   </td>
                 </tr>
               </ng-template>
-              <ng-template pTemplate="emptymessage">
+              <ng-template #emptymessage>
                 <tr><td colspan="5" class="comm-muted logd-empty">Aún no se asignaron unidades en este período.</td></tr>
               </ng-template>
             </p-table>

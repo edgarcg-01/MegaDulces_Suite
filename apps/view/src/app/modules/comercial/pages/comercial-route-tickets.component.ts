@@ -66,14 +66,14 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
       <p-table [value]="tickets()" [loading]="loading()" responsiveLayout="scroll"
         styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra"
         [paginator]="tickets().length > 25" [rows]="25" [rowsPerPageOptions]="[25, 50, 100]">
-        <ng-template pTemplate="header">
+        <ng-template #header>
           <tr>
             <th scope="col">Tipo</th><th scope="col">Ruta</th><th scope="col">Fecha</th><th scope="col">Vendedor</th>
             <th scope="col" class="num">Total</th><th scope="col">Corte / Folio</th><th scope="col" class="num">Litros</th>
             <th scope="col">Ticket</th>
           </tr>
         </ng-template>
-        <ng-template pTemplate="body" let-t>
+        <ng-template #body let-t>
           <tr>
             <td><p-tag [value]="label(t.ticket_type)" [severity]="sev(t.ticket_type)"></p-tag></td>
             <td>RD{{ t.route_code }}</td>
@@ -95,7 +95,7 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
             </td>
           </tr>
         </ng-template>
-        <ng-template pTemplate="emptymessage">
+        <ng-template #emptymessage>
           <tr>
             <td colspan="8" class="comm-empty-cell">
               <div class="comm-empty">

@@ -149,7 +149,7 @@ const MES: Record<string, string> = {
                      [scrollable]="true" scrollHeight="60vh"
                      sortField="_revenue" [sortOrder]="-1"
                      styleClass="p-datatable-sm surf-table rr-ptable">
-              <ng-template pTemplate="header">
+              <ng-template #header>
                 <tr>
                   <th scope="col" pFrozenColumn style="min-width:150px" pSortableColumn="warehouse_name">Sucursal <p-sorticon field="warehouse_name" /></th>
                   <th scope="col" pFrozenColumn style="min-width:120px" pSortableColumn="route_no">Ruta <p-sorticon field="route_no" /></th>
@@ -161,7 +161,7 @@ const MES: Record<string, string> = {
                   <th scope="col" class="comm-num" pSortableColumn="_tickets">Tickets <p-sorticon field="_tickets" /></th>
                 </tr>
               </ng-template>
-              <ng-template pTemplate="body" let-row>
+              <ng-template #body let-row>
                 <tr class="rr-row" (click)="openRoute(row)" title="Ver desglose de la ruta">
                   <td pFrozenColumn class="comm-cell-strong">{{ row.warehouse_name }}</td>
                   <td pFrozenColumn class="rr-strong">
@@ -177,7 +177,7 @@ const MES: Record<string, string> = {
                   <td class="comm-num">{{ row._tickets | number }}</td>
                 </tr>
               </ng-template>
-              <ng-template pTemplate="footer">
+              <ng-template #footer>
                 <tr class="rr-foot">
                   <td pFrozenColumn>TOTAL</td>
                   <td pFrozenColumn></td>
@@ -232,11 +232,11 @@ const MES: Record<string, string> = {
           @switch (tab()) {
             @case ('productos') {
               <p-table [value]="detail()!.products" styleClass="p-datatable-sm surf-table" [scrollable]="true" scrollHeight="52vh">
-                <ng-template pTemplate="header"><tr>
+                <ng-template #header><tr>
                   <th scope="col">Producto</th><th scope="col" class="comm-num">Unid</th>
                   <th scope="col" class="comm-num">Importe</th><th scope="col" class="comm-num">%</th></tr>
                 </ng-template>
-                <ng-template pTemplate="body" let-p><tr>
+                <ng-template #body let-p><tr>
                   <td class="rr-prod"><span class="rr-sku">{{ p.sku }}</span> {{ p.name }}</td>
                   <td class="comm-num">{{ p.units | number:'1.0-0' }}</td>
                   <td class="comm-num rr-strong">{{ p.revenue | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
@@ -247,11 +247,11 @@ const MES: Record<string, string> = {
             }
             @case ('dias') {
               <p-table [value]="detail()!.daily" styleClass="p-datatable-sm surf-table" [scrollable]="true" scrollHeight="52vh">
-                <ng-template pTemplate="header"><tr>
+                <ng-template #header><tr>
                   <th scope="col">Día</th><th scope="col" class="comm-num">Tickets</th>
                   <th scope="col" class="comm-num">Venta</th><th scope="col" class="rr-barcol"></th></tr>
                 </ng-template>
-                <ng-template pTemplate="body" let-x><tr>
+                <ng-template #body let-x><tr>
                   <td>{{ x.date }}</td>
                   <td class="comm-num">{{ x.tickets | number }}</td>
                   <td class="comm-num rr-strong">{{ x.revenue | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
@@ -261,11 +261,11 @@ const MES: Record<string, string> = {
             }
             @case ('clientes') {
               <p-table [value]="detail()!.clients" styleClass="p-datatable-sm surf-table" [scrollable]="true" scrollHeight="52vh">
-                <ng-template pTemplate="header"><tr>
+                <ng-template #header><tr>
                   <th scope="col">Cliente</th><th scope="col" class="comm-num">Tickets</th>
                   <th scope="col" class="comm-num">Importe</th></tr>
                 </ng-template>
-                <ng-template pTemplate="body" let-c><tr>
+                <ng-template #body let-c><tr>
                   <td>{{ c.name }} @if (c.is_public) {<span class="rr-tag">público</span>}</td>
                   <td class="comm-num">{{ c.tickets | number }}</td>
                   <td class="comm-num rr-strong">{{ c.revenue | currency:'MXN':'symbol-narrow':'1.0-0' }}</td></tr>
@@ -275,11 +275,11 @@ const MES: Record<string, string> = {
             }
             @case ('tickets') {
               <p-table [value]="detail()!.tickets" styleClass="p-datatable-sm surf-table" [scrollable]="true" scrollHeight="52vh">
-                <ng-template pTemplate="header"><tr>
+                <ng-template #header><tr>
                   <th scope="col">Folio</th><th scope="col">Fecha</th>
                   <th scope="col" class="comm-num">Líneas</th><th scope="col" class="comm-num">Importe</th></tr>
                 </ng-template>
-                <ng-template pTemplate="body" let-t><tr>
+                <ng-template #body let-t><tr>
                   <td class="rr-mono">{{ t.folio }}</td><td>{{ t.date }}</td>
                   <td class="comm-num">{{ t.lines | number }}</td>
                   <td class="comm-num rr-strong">{{ t.revenue | currency:'MXN':'symbol-narrow':'1.0-0' }}</td></tr>

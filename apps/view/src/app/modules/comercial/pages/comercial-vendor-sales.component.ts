@@ -53,13 +53,13 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
       <p-table [value]="captures()" [loading]="loading()" responsiveLayout="scroll"
         styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra"
         [paginator]="captures().length > 25" [rows]="25" [rowsPerPageOptions]="[25, 50, 100]">
-        <ng-template pTemplate="header">
+        <ng-template #header>
           <tr>
             <th scope="col">Fecha</th><th scope="col">Tienda</th><th scope="col">Vendedor</th><th scope="col">Ruta</th>
             <th scope="col" class="num">Líneas</th><th scope="col" class="num">Unidades</th><th scope="col"><span class="sr-only">Ver ticket</span></th>
           </tr>
         </ng-template>
-        <ng-template pTemplate="body" let-c>
+        <ng-template #body let-c>
           <tr (click)="openDetail(c)" (keydown.enter)="openDetail(c)" (keydown.space)="$event.preventDefault(); openDetail(c)"
             tabindex="0" role="button" [attr.aria-label]="'Ver ticket de ' + (c.store_name || 'tienda')" class="comm-row-clickable">
             <td>{{ c.sale_date }}</td>
@@ -74,7 +74,7 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
             </td>
           </tr>
         </ng-template>
-        <ng-template pTemplate="emptymessage">
+        <ng-template #emptymessage>
           <tr>
             <td colspan="7" class="comm-empty-cell">
               <div class="comm-empty">
@@ -112,17 +112,17 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
             <div class="lines">
               <h3>Productos detectados</h3>
               <p-table [value]="lines()" [loading]="loadingLines()" styleClass="p-datatable-sm surf-table surf-table--zebra" [scrollable]="true" scrollHeight="320px">
-                <ng-template pTemplate="header">
+                <ng-template #header>
                   <tr><th scope="col">SKU</th><th scope="col">Producto</th><th scope="col" class="num">Cant.</th></tr>
                 </ng-template>
-                <ng-template pTemplate="body" let-l>
+                <ng-template #body let-l>
                   <tr>
                     <td class="mono">{{ l.sku }}</td>
                     <td>{{ l.product_name || '—' }}</td>
                     <td class="num">{{ +l.quantity }}</td>
                   </tr>
                 </ng-template>
-                <ng-template pTemplate="emptymessage">
+                <ng-template #emptymessage>
                   <tr><td colspan="3" class="empty">Sin líneas.</td></tr>
                 </ng-template>
               </p-table>

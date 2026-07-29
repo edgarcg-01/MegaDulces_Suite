@@ -248,7 +248,7 @@ Y el bottom nav del shell tapa el FAB. En desktop solo `pb-6`.
           <span class="text-xs font-mono text-content-muted">ID: {{svc.horaInicio() | date:'hhmm'}}</span>
         </div>
         <p-table [value]="svc.activeExhibiciones()" styleClass="p-datatable-sm" responsiveLayout="scroll">
-          <ng-template pTemplate="header">
+          <ng-template #header>
             <tr class="text-xs text-content-muted uppercase">
               <th class="pl-4">Ubicación</th>
               <th>Tipo / Formato</th>
@@ -259,7 +259,7 @@ Y el bottom nav del shell tapa el FAB. En desktop solo `pb-6`.
               <th class="text-center w-20"></th>
             </tr>
           </ng-template>
-          <ng-template pTemplate="body" let-ex>
+          <ng-template #body let-ex>
             <tr class="text-sm hover:bg-surface-ground transition-colors">
               <td class="pl-4 font-medium text-content-main">{{ getUbicacionNombre(ex.ubicacionId) }}</td>
               <td>
@@ -289,7 +289,7 @@ Y el bottom nav del shell tapa el FAB. En desktop solo `pb-6`.
               </td>
             </tr>
           </ng-template>
-          <ng-template pTemplate="emptymessage">
+          <ng-template #emptymessage>
             <tr>
               <td colspan="7" class="text-center p-12 text-content-dim">
                 <i class="pi pi-info-circle text-2xl mb-2 opacity-20"></i>
@@ -401,7 +401,7 @@ Y el bottom nav del shell tapa el FAB. En desktop solo `pb-6`.
 
         <p-table [value]="svc.visitasHoy()" dataKey="folio" [expandedRowKeys]="expandedRows" styleClass="p-datatable-sm" responsiveLayout="scroll">
 
-          <ng-template pTemplate="header">
+          <ng-template #header>
 
             <tr class="text-xs text-content-muted uppercase bg-surface-ground border-b border-divider">
 
@@ -423,7 +423,7 @@ Y el bottom nav del shell tapa el FAB. En desktop solo `pb-6`.
 
           </ng-template>
 
-          <ng-template pTemplate="body" let-visita let-expanded="expanded">
+          <ng-template #body let-visita let-expanded="expanded">
 
             <tr class="text-sm border-b border-divider hover:bg-surface-hover/30 transition-colors">
 
@@ -467,7 +467,7 @@ Y el bottom nav del shell tapa el FAB. En desktop solo `pb-6`.
 
           <!-- Expansión de la Fila (Detalle por Visita) -->
 
-          <ng-template pTemplate="rowexpansion" let-visita>
+          <ng-template #expandedrow let-visita>
 
             <tr>
 
@@ -510,7 +510,7 @@ Y el bottom nav del shell tapa el FAB. En desktop solo `pb-6`.
 
 
 
-          <ng-template pTemplate="emptymessage">
+          <ng-template #emptymessage>
 
             <tr>
 
@@ -1271,7 +1271,7 @@ Y el bottom nav del shell tapa el FAB. En desktop solo `pb-6`.
 
                   <p-card styleClass="bg-brand/5 border-brand/20">
 
-                    <ng-template pTemplate="content">
+                    <ng-template #content>
 
                       <div class="flex items-start gap-3">
 
@@ -1349,7 +1349,7 @@ Y el bottom nav del shell tapa el FAB. En desktop solo `pb-6`.
 
 
 
-                <ng-template pTemplate="footer">
+                <ng-template #footer>
 
                   <div class="flex justify-end gap-3">
 
@@ -1408,7 +1408,7 @@ Y el bottom nav del shell tapa el FAB. En desktop solo `pb-6`.
                   </div>
                 }
 
-                <ng-template pTemplate="footer">
+                <ng-template #footer>
 
                   <p-button label="Entendido" (onClick)="showResultDialog = false" class="w-full" styleClass="w-full py-4 font-bold text-lg rounded-xl"></p-button>
 

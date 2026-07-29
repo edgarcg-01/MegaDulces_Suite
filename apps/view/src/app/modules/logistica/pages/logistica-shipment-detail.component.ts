@@ -244,7 +244,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
           <div class="sheet cols-12">
             <article class="cell cell-span-12 is-flush">
               <p-table [value]="guides()" responsiveLayout="scroll" styleClass="surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra p-datatable-sm">
-                <ng-template pTemplate="header">
+                <ng-template #header>
                   <tr>
                     <th scope="col">Número</th>
                     <th scope="col">Chofer</th>
@@ -254,7 +254,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
                     <th scope="col"><span class="sr-only">Acciones</span></th>
                   </tr>
                 </ng-template>
-                <ng-template pTemplate="body" let-g>
+                <ng-template #body let-g>
                   <tr>
                     <td><code class="comm-code">{{ g.number }}</code></td>
                     <td class="comm-cell-strong">{{ driverName(g.driver_id) || '—' }}</td>
@@ -273,7 +273,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
                     </td>
                   </tr>
                 </ng-template>
-                <ng-template pTemplate="emptymessage">
+                <ng-template #emptymessage>
                   <tr>
                     <td colspan="6" class="comm-empty-cell">
                       <div class="comm-empty">
@@ -320,10 +320,10 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
                   <div>
                     @if (e.stops.length) {
                       <p-table [value]="e.stops" responsiveLayout="scroll" styleClass="surf-table surf-table--sticky surf-table--zebra p-datatable-sm">
-                        <ng-template pTemplate="header">
+                        <ng-template #header>
                           <tr><th scope="col">#</th><th scope="col">Cliente</th><th scope="col" class="comm-num num">Km acum.</th><th scope="col">ETA</th></tr>
                         </ng-template>
-                        <ng-template pTemplate="body" let-s>
+                        <ng-template #body let-s>
                           <tr>
                             <td><span class="shd-eta-seq">{{ s.sequence_order }}</span></td>
                             <td class="comm-cell-strong">{{ s.customer_name }}</td>
@@ -413,10 +413,10 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
             <div class="sheet cols-12">
               <article class="cell cell-span-12 is-flush">
                 <p-table [value]="cpDocs()" responsiveLayout="scroll" styleClass="surf-table surf-table--sticky surf-table--zebra p-datatable-sm">
-                  <ng-template pTemplate="header">
+                  <ng-template #header>
                     <tr><th scope="col">Folio fiscal (UUID)</th><th scope="col">Tipo</th><th scope="col">Estado</th><th scope="col">Timbrado</th></tr>
                   </ng-template>
-                  <ng-template pTemplate="body" let-d>
+                  <ng-template #body let-d>
                     <tr>
                       <td><code class="comm-code">{{ d.uuid_fiscal || '—' }}</code></td>
                       <td>{{ d.cfdi_type }}</td>
@@ -483,7 +483,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
             <p-inputnumber formControlName="freight_revenue" mode="currency" currency="MXN" locale="es-MX"></p-inputnumber>
           </label>
         </form>
-        <ng-template pTemplate="footer">
+        <ng-template #footer>
           <button pButton label="Cancelar" severity="secondary" [outlined]="true" (click)="metricsDialog = false"></button>
           <button pButton label="Guardar" icon="pi pi-check" (click)="saveMetrics()"></button>
         </ng-template>
@@ -528,7 +528,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
             <span>El chofer duerme fuera (overnight)</span>
           </label>
         </form>
-        <ng-template pTemplate="footer">
+        <ng-template #footer>
           <button pButton label="Cancelar" severity="secondary" [outlined]="true" (click)="guideDialog = false"></button>
           <button pButton label="Crear guía" icon="pi pi-check" [loading]="savingGuide()" (click)="createGuide()"></button>
         </ng-template>
@@ -544,7 +544,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
               <span class="comm-muted is-small">{{ (g.recipients || []).length }} registrado{{ (g.recipients || []).length === 1 ? '' : 's' }}</span>
             </div>
             <p-table [value]="g.recipients || []" responsiveLayout="scroll" styleClass="surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra p-datatable-sm">
-              <ng-template pTemplate="header">
+              <ng-template #header>
                 <tr>
                   <th scope="col">#</th>
                   <th scope="col">Cliente</th>
@@ -555,7 +555,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
                   <th scope="col"><span class="sr-only">Acciones</span></th>
                 </tr>
               </ng-template>
-              <ng-template pTemplate="body" let-r>
+              <ng-template #body let-r>
                 <tr>
                   <td><span class="shd-eta-seq">{{ r.sequence_order ?? '—' }}</span></td>
                   <td class="comm-cell-strong">{{ r.customer_name }}</td>
@@ -575,7 +575,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
                   </td>
                 </tr>
               </ng-template>
-              <ng-template pTemplate="emptymessage">
+              <ng-template #emptymessage>
                 <tr><td colspan="7" class="comm-muted shd-recip-empty">Sin destinatarios.</td></tr>
               </ng-template>
             </p-table>

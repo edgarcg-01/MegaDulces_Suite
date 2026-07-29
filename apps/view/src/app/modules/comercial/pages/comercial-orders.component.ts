@@ -175,7 +175,7 @@ const DATE_PRESETS: { key: string; label: string; days: number | 'today' | 'all'
                 styleClass="p-datatable-sm co-table surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra"
                 [rowHover]="true"
                 >
-                <ng-template pTemplate="header">
+                <ng-template #header>
                   <tr>
                     <th scope="col">Folio</th>
                     <th scope="col">Cliente</th>
@@ -185,7 +185,7 @@ const DATE_PRESETS: { key: string; label: string; days: number | 'today' | 'all'
                     <th scope="col">Fecha</th>
                   </tr>
                 </ng-template>
-                <ng-template pTemplate="body" let-o>
+                <ng-template #body let-o>
                   <tr (click)="goDetail(o)" (keydown.enter)="goDetail(o)" (keydown.space)="$event.preventDefault(); goDetail(o)"
                     tabindex="0" role="button"
                     [attr.aria-label]="'Ver pedido ' + o.folio" class="comm-row-clickable">
@@ -230,7 +230,7 @@ const DATE_PRESETS: { key: string; label: string; days: number | 'today' | 'all'
                     </td>
                   </tr>
                 </ng-template>
-                <ng-template pTemplate="emptymessage">
+                <ng-template #emptymessage>
                   <tr>
                     <td colspan="6" class="comm-empty-cell">
                       <div class="comm-empty">

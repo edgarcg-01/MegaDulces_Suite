@@ -139,7 +139,7 @@
           <div class="exec-table-wrap">
             @let routeAvg = avgScore();
             <p-table [value]="r.execs" [tableStyle]="{'min-width': '500px'}">
-              <ng-template pTemplate="header">
+              <ng-template #header>
                 <tr>
                   <th>Ejecutivo</th>
                   <th pSortableColumn="v">Visitas <p-sorticon field="v" /></th>
@@ -148,7 +148,7 @@
                   <th>vs prom.</th>
                 </tr>
               </ng-template>
-              <ng-template pTemplate="body" let-e>
+              <ng-template #body let-e>
                 <tr>
                   <td>
                     <div style="display:flex;align-items:center;gap:8px">

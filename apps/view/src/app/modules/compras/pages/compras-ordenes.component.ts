@@ -39,14 +39,14 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
                [paginator]="true" [rows]="pageSize" [totalRecords]="total()" [lazy]="true" (onLazyLoad)="onPage($event)"
                styleClass="p-datatable-sm oc-table" [rowsPerPageOptions]="[50, 100, 200]"
                [rowHover]="true" (onRowSelect)="open($any($event.data))" selectionMode="single">
-        <ng-template pTemplate="header">
+        <ng-template #header>
           <tr>
             <th>Folio</th><th>Estado</th><th>Origen</th><th>Proveedor / origen</th><th>Almacén</th>
             <th class="oc-r">Líneas</th><th class="oc-r">Pedido</th><th class="oc-r">Recibido</th><th class="oc-r">Avance</th>
             <th class="oc-r">Costo</th><th>Esperada</th><th>Creada</th>
           </tr>
         </ng-template>
-        <ng-template pTemplate="body" let-r>
+        <ng-template #body let-r>
           <tr [pSelectableRow]="r">
             <td class="oc-mono">{{ r.folio }}</td>
             <td><p-tag [value]="estadoLabel(r.estado)" [severity]="estadoSev(r.estado)"></p-tag></td>
@@ -62,7 +62,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
             <td class="oc-muted">{{ r.created_at | date:'dd/MM/yy' }}</td>
           </tr>
         </ng-template>
-        <ng-template pTemplate="emptymessage">
+        <ng-template #emptymessage>
           <tr><td colspan="12" class="oc-empty">
             @if (error()) {
               <i class="pi pi-exclamation-triangle"></i> No se pudieron cargar las órdenes de compra.
