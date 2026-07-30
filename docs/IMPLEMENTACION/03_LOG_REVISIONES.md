@@ -6,6 +6,14 @@
 
 ---
 
+## 2026-07-30 — Thot/Maat: 3 tools + auto-routing de modelo + cierre forzado (mejoras percibidas)
+
+**Qué (sobre la revisión de conversaciones del mismo día):** (1) **3 tools de Thot** — `thot_sales_by_vendor` / `thot_sales_by_route` / `thot_reorder_policy` (data verificada por smoke read-only contra prod: top vendedor $53.3M Morelia Abastos, ruta vecinal WIN-VEC-PH-H, SKU 80501 con máximo por almacén); prompt rule 8 re-ruteada (mata el "no hay canal ruta"). (2) **Auto-routing de modelo por complejidad** en Thot + Maat (port de FIQ.1 del bot WhatsApp: Haiku 4.5 por defecto, **Sonnet 5** si la pregunta es compleja —análisis/comparación/estrategia/fraude/"analiza todo", >160 chars o hilo ≥8 turnos—, sin depender del toggle "Think") + Auditor forense de Maat **siempre en Sonnet 5**. (3) **Cierre forzado de Maat**: si la tormenta de tools no converge, síntesis final con lo recolectado en vez de "demasiados pasos".
+
+**Incidente (lección reforzada):** el bloque de las 3 tools + prompt + cierre forzado se construyó y validó (build verde + smoke) el mismo día pero quedó **sin commitear** (el usuario redirigió a otra tarea antes del commit). La **automatización concurrente del entorno** (checkout/revert) lo descartó junto con los trackers — detectado al reabrir los archivos (`thot_sales_by_vendor` = 0 en HEAD y working tree). Se re-aplicó desde el historial de la sesión y se **commiteó de inmediato** (`b4598e56`). **Regla:** en este entorno hay que commitear cualquier trabajo verde al instante; nada sin commitear entre turnos (ver `feedback_env_auto_commit_push`). Solo sobrevivió lo que estaba en `f4f89488`.
+
+**Pendiente:** rebuild + redeploy api + validación en chat vivo.
+
 ## 2026-07-30 — Agentes AI: transporte compartido + prompt caching + Think→Sonnet 5
 
 **Contexto:** Edgar pidió analizar los agentes (Thot/Maat/Horus). El análisis encontró duplicación de transporte (~10 `callClaude`/`fetch` a la Messages API, uno por dominio) y el modo Think anclado en `claude-sonnet-4-6` con `budget_tokens` (deprecado, 400 en Sonnet 5).
