@@ -78,12 +78,9 @@ interface BrandOpt { id: string; nombre: string; products: number; }
           </p>
         </div>
         <div class="td-head-actions">
-          <button pButton icon="pi pi-comments" label="Pregúntale a Thot" size="small" [outlined]="true"
-                  routerLink="/comercial/thot-chat" pTooltip="Chat analítico sobre ventas"></button>
-          <button pButton icon="pi pi-refresh" [text]="true" severity="secondary" size="small"
-                  (click)="reload()" [loading]="loading()" pTooltip="Refrescar"></button>
-          <button pButton icon="pi pi-plus" label="Nueva directriz" size="small" severity="contrast"
-                  (click)="openCreate()"></button>
+          <button pButton size="small" [outlined]="true" routerLink="/comercial/thot-chat" pTooltip="Chat analítico sobre ventas"><span class="p-button-icon p-button-icon-left pi pi-comments" aria-hidden="true"></span><span class="p-button-label">Pregúntale a Thot</span></button>
+          <button pButton [text]="true" severity="secondary" size="small" (click)="reload()" [loading]="loading()" pTooltip="Refrescar"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span></button>
+          <button pButton size="small" severity="contrast" (click)="openCreate()"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Nueva directriz</span></button>
         </div>
       </header>
 
@@ -127,8 +124,7 @@ interface BrandOpt { id: string; nombre: string; products: number; }
                   <p-button pButton [icon]="d.active ? 'pi pi-pause' : 'pi pi-play'" size="small" [text]="true"
                           severity="secondary" (click)="toggle(d)"
                           [pTooltip]="d.active ? 'Pausar' : 'Activar'"></p-button>
-                  <button pButton icon="pi pi-trash" size="small" [text]="true" severity="secondary"
-                          class="icon-btn-ghost-bad" (click)="confirmRemove(d)" pTooltip="Eliminar"></button>
+                  <button pButton size="small" [text]="true" severity="secondary" class="icon-btn-ghost-bad" (click)="confirmRemove(d)" pTooltip="Eliminar"><span class="p-button-icon p-button-icon-left pi pi-trash" aria-hidden="true"></span></button>
                 </td>
               </tr>
             </ng-template>
@@ -139,8 +135,7 @@ interface BrandOpt { id: string; nombre: string; products: number; }
                     <div class="comm-empty-icon"><i class="pi pi-megaphone" aria-hidden="true"></i></div>
                     <h3>Sin directrices</h3>
                     <p>Creá una directriz para empezar a empujar una marca foco en la app del vendedor.</p>
-                    <button pButton icon="pi pi-plus" severity="contrast" size="small" label="Nueva directriz"
-                            (click)="openCreate()"></button>
+                    <button pButton severity="contrast" size="small" (click)="openCreate()"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Nueva directriz</span></button>
                   </div>
                 </td>
               </tr>
@@ -205,9 +200,8 @@ interface BrandOpt { id: string; nombre: string; products: number; }
         </div>
       </div>
       <ng-template #footer>
-        <button pButton label="Cancelar" severity="secondary" [outlined]="true" (click)="dialogVisible = false"></button>
-        <button pButton label="Crear directriz" icon="pi pi-check" [loading]="creating()"
-                [disabled]="!canCreate()" (click)="create()"></button>
+        <button pButton severity="secondary" [outlined]="true" (click)="dialogVisible = false"><span class="p-button-label">Cancelar</span></button>
+        <button pButton [loading]="creating()" [disabled]="!canCreate()" (click)="create()"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Crear directriz</span></button>
       </ng-template>
     </p-dialog>
   `,

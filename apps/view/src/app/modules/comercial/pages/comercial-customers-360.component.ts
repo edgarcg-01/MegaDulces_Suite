@@ -38,7 +38,7 @@ import { CUSTOMERS_TABS } from '../customers-tabs';
             <i class="pi pi-search"></i>
             <input pInputText type="text" placeholder="Buscar cliente…" [(ngModel)]="search" (ngModelChange)="search$.next($event)" />
           </span>
-          <button pButton icon="pi pi-refresh" [text]="true" severity="secondary" size="small" (click)="load()" [loading]="loading()"></button>
+          <button pButton [text]="true" severity="secondary" size="small" (click)="load()" [loading]="loading()"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span></button>
         </div>
       </header>
 

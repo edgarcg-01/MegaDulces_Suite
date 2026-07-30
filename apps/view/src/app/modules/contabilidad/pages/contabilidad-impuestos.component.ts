@@ -48,7 +48,7 @@ import { ImpuestosService, ProvisionalResult } from '../impuestos.service';
           <label class="im-f"><span>Pérdidas pend.</span><input type="number" step="0.01" pInputText [(ngModel)]="p.perdidas" placeholder="0" /></label>
           <label class="im-f"><span>Pagos previos</span><input type="number" step="0.01" pInputText [(ngModel)]="p.pagos_previos" placeholder="0" /></label>
           <label class="im-f"><span>ISR retenido</span><input type="number" step="0.01" pInputText [(ngModel)]="p.retenido" placeholder="0" /></label>
-          <button pButton type="button" label="Calcular" icon="pi pi-calculator" class="p-button-sm" [loading]="loading()" [disabled]="!valid()" (click)="calc()"></button>
+          <button pButton type="button" class="p-button-sm" [loading]="loading()" [disabled]="!valid()" (click)="calc()"><span class="p-button-icon p-button-icon-left pi pi-calculator" aria-hidden="true"></span><span class="p-button-label">Calcular</span></button>
         </div>
       </div>
 

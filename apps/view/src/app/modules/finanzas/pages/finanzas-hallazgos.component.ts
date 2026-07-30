@@ -40,7 +40,7 @@ import { ActionsService, ProposedAction } from '../actions.service';
         </div>
         <div class="fh-head-actions">
           <p-button pButton type="button" [label]="rulesOpen() ? 'Ocultar reglas' : 'Reglas'" icon="pi pi-sliders-h" styleClass="p-button-sm p-button-text" (click)="rulesOpen.set(!rulesOpen())"></p-button>
-          <button pButton type="button" label="Escanear ahora" icon="pi pi-bolt" class="p-button-sm p-button-outlined" [loading]="scanning()" (click)="scan()"></button>
+          <button pButton type="button" class="p-button-sm p-button-outlined" [loading]="scanning()" (click)="scan()"><span class="p-button-icon p-button-icon-left pi pi-bolt" aria-hidden="true"></span><span class="p-button-label">Escanear ahora</span></button>
         </div>
       </header>
 
@@ -71,8 +71,8 @@ import { ActionsService, ProposedAction } from '../actions.service';
                 @if (a.efecto) { <span class="fh-action-efecto"><i class="pi pi-arrow-right"></i> {{ a.efecto }}</span> }
               </div>
               <div class="fh-action-acts">
-                <button pButton type="button" icon="pi pi-check" label="Aprobar" class="p-button-sm p-button-success" (click)="approve(a)"></button>
-                <button pButton type="button" icon="pi pi-times" class="p-button-sm p-button-text p-button-danger" title="Rechazar" (click)="reject(a)"></button>
+                <button pButton type="button" class="p-button-sm p-button-success" (click)="approve(a)"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Aprobar</span></button>
+                <button pButton type="button" class="p-button-sm p-button-text p-button-danger" title="Rechazar" (click)="reject(a)"><span class="p-button-icon p-button-icon-left pi pi-times" aria-hidden="true"></span></button>
               </div>
             </div>
           }
@@ -144,10 +144,10 @@ import { ActionsService, ProposedAction } from '../actions.service';
               <td class="ta-r strong">{{ money(f.importe) }}</td>
               <td>
                 <div class="fh-acts">
-                  @if (docUrl(f); as u) { <button pButton type="button" icon="pi pi-external-link" class="p-button-text p-button-sm" title="Ver póliza" (click)="go(u)"></button> }
+                  @if (docUrl(f); as u) { <button pButton type="button" class="p-button-text p-button-sm" title="Ver póliza" (click)="go(u)"><span class="p-button-icon p-button-icon-left pi pi-external-link" aria-hidden="true"></span></button> }
                   @if (f.status === 'nuevo' || f.status === 'en_revision') {
-                    <button pButton type="button" icon="pi pi-check" label="Confirmar" class="p-button-sm p-button-success p-button-text" [disabled]="pending().has(f.id)" (click)="verdict(f, 'util')" title="Es real y útil" aria-label="Confirmar hallazgo"></button>
-                    <button pButton type="button" icon="pi pi-times" class="p-button-sm p-button-danger p-button-text" [disabled]="pending().has(f.id)" (click)="verdict(f, 'falso')" title="Falso positivo" aria-label="Descartar como falso positivo"></button>
+                    <button pButton type="button" class="p-button-sm p-button-success p-button-text" [disabled]="pending().has(f.id)" (click)="verdict(f, 'util')" title="Es real y útil" aria-label="Confirmar hallazgo"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Confirmar</span></button>
+                    <button pButton type="button" class="p-button-sm p-button-danger p-button-text" [disabled]="pending().has(f.id)" (click)="verdict(f, 'falso')" title="Falso positivo" aria-label="Descartar como falso positivo"><span class="p-button-icon p-button-icon-left pi pi-times" aria-hidden="true"></span></button>
                   } @else {
                     <span class="fh-status" [ngClass]="'st-' + f.status">{{ statusLabel(f.status) }}</span>
                   }
@@ -220,7 +220,7 @@ import { ActionsService, ProposedAction } from '../actions.service';
         <div class="card-premium card-flat fh-panel fh-actions">
           <div class="fh-panel-head">
             <h3 class="fh-card-title">Hipótesis de detectores nuevos <span class="muted">(la AI y los mineros proponen, tú apruebas)</span></h3>
-            <button pButton type="button" label="Buscar hipótesis" icon="pi pi-compass" class="p-button-sm p-button-outlined" [loading]="discovering()" (click)="runDiscovery()"></button>
+            <button pButton type="button" class="p-button-sm p-button-outlined" [loading]="discovering()" (click)="runDiscovery()"><span class="p-button-icon p-button-icon-left pi pi-compass" aria-hidden="true"></span><span class="p-button-label">Buscar hipótesis</span></button>
           </div>
           @for (h of hypotheses(); track h.id) {
             <div class="fh-action">
@@ -229,8 +229,8 @@ import { ActionsService, ProposedAction } from '../actions.service';
                 <span class="fh-action-desc">{{ h.descripcion }}</span>
               </div>
               <div class="fh-action-acts">
-                <button pButton type="button" icon="pi pi-check" label="Aprobar" class="p-button-sm p-button-success" (click)="approveHyp(h)"></button>
-                <button pButton type="button" icon="pi pi-times" class="p-button-sm p-button-text p-button-danger" title="Rechazar" (click)="rejectHyp(h)"></button>
+                <button pButton type="button" class="p-button-sm p-button-success" (click)="approveHyp(h)"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Aprobar</span></button>
+                <button pButton type="button" class="p-button-sm p-button-text p-button-danger" title="Rechazar" (click)="rejectHyp(h)"><span class="p-button-icon p-button-icon-left pi pi-times" aria-hidden="true"></span></button>
               </div>
             </div>
           } @empty {
@@ -255,7 +255,7 @@ import { ActionsService, ProposedAction } from '../actions.service';
                 <div class="fh-empty2"><i class="pi pi-hourglass"></i> Cold-start: la bandeja usa el score del detector. El modelo entrena solo al llegar a ≥12 etiquetas (hoy {{ m.dataset.etiquetados }}).</div>
               }
               <div class="fh-model-ds muted">Dataset: {{ m.dataset.etiquetados }}/{{ m.dataset.total }} etiquetados · {{ m.dataset.scoreados }} priorizados</div>
-              <button pButton type="button" label="Entrenar / priorizar ahora" icon="pi pi-sync" class="p-button-sm p-button-outlined" [loading]="training()" (click)="runLearning()"></button>
+              <button pButton type="button" class="p-button-sm p-button-outlined" [loading]="training()" (click)="runLearning()"><span class="p-button-icon p-button-icon-left pi pi-sync" aria-hidden="true"></span><span class="p-button-label">Entrenar / priorizar ahora</span></button>
             } @else if (loadingMiq()) { <div class="fh-empty">Cargando…</div> }
           </div>
 

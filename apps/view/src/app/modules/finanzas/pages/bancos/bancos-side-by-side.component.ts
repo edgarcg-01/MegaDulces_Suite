@@ -183,7 +183,7 @@ interface Pair {
 
         <div class="fb-sbs-flow">
           @if (!flow() && !flowLoading() && flowId()) {
-            <button pButton type="button" label="Ver de dónde viene" icon="pi pi-sitemap" class="p-button-sm p-button-outlined" (click)="loadFlow()"></button>
+            <button pButton type="button" class="p-button-sm p-button-outlined" (click)="loadFlow()"><span class="p-button-icon p-button-icon-left pi pi-sitemap" aria-hidden="true"></span><span class="p-button-label">Ver de dónde viene</span></button>
           }
           @if (flowLoading()) { <p class="muted fb-flow-loading"><i class="pi pi-spin pi-spinner"></i> Rastreando el flujo…</p> }
           @if (flow(); as fl) {

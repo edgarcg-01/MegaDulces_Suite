@@ -53,7 +53,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
         <div class="filter-bar">
           <p-datepicker [(ngModel)]="from" dateFormat="yy-mm-dd" placeholder="Desde" [showButtonBar]="true"></p-datepicker>
           <p-datepicker [(ngModel)]="to" dateFormat="yy-mm-dd" placeholder="Hasta" [showButtonBar]="true"></p-datepicker>
-          <button pButton icon="pi pi-refresh" label="Aplicar" (click)="reload()" [loading]="loading()"></button>
+          <button pButton (click)="reload()" [loading]="loading()"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span><span class="p-button-label">Aplicar</span></button>
         </div>
       </header>
     
@@ -116,10 +116,8 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
                   <td class="num strong">{{ e.total_cost | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
                   <td><p-tag [severity]="severityStatus(e.shipment_status)" [value]="e.shipment_status"></p-tag></td>
                   <td class="actions">
-                    <button pButton icon="pi pi-pencil" size="small" severity="secondary" [text]="true"
-                    (click)="openEdit(e)" pTooltip="Editar costos"></button>
-                    <a pButton icon="pi pi-eye" size="small" severity="secondary" [text]="true"
-                    [routerLink]="['/logistica/shipments', e.shipment_id]"></a>
+                    <button pButton size="small" severity="secondary" [text]="true" (click)="openEdit(e)" pTooltip="Editar costos"><span class="p-button-icon p-button-icon-left pi pi-pencil" aria-hidden="true"></span></button>
+                    <a pButton size="small" severity="secondary" [text]="true" [routerLink]="['/logistica/shipments', e.shipment_id]"><span class="p-button-icon p-button-icon-left pi pi-eye" aria-hidden="true"></span></a>
                   </td>
                 </tr>
               </ng-template>
@@ -200,8 +198,8 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
         </form>
     
         <ng-template #footer>
-          <button pButton label="Cancelar" severity="secondary" [text]="true" (click)="editDialog = false" [disabled]="saving()"></button>
-          <button pButton label="Guardar" icon="pi pi-check" (click)="save()" [loading]="saving()"></button>
+          <button pButton severity="secondary" [text]="true" (click)="editDialog = false" [disabled]="saving()"><span class="p-button-label">Cancelar</span></button>
+          <button pButton (click)="save()" [loading]="saving()"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Guardar</span></button>
         </ng-template>
       </p-dialog>
     `,

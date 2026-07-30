@@ -62,7 +62,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
               </div>
               <div class="rz-actions">
                 <p-select [options]="statusOpts" [(ngModel)]="fStatus" (onChange)="loadFindings()" optionLabel="label" optionValue="value" styleClass="rz-sel"></p-select>
-                <button pButton type="button" label="Recalcular" icon="pi pi-sync" class="p-button-sm p-button-outlined" [loading]="busy()==='findings'" (click)="recompute('findings')"></button>
+                <button pButton type="button" class="p-button-sm p-button-outlined" [loading]="busy()==='findings'" (click)="recompute('findings')"><span class="p-button-icon p-button-icon-left pi pi-sync" aria-hidden="true"></span><span class="p-button-label">Recalcular</span></button>
               </div>
             </div>
             <p-table [value]="findings()" [loading]="loading()==='findings'" styleClass="p-datatable-sm rz-table" dataKey="id">
@@ -78,11 +78,11 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
                   <td class="rz-muted">{{ f.created_at | date:'dd/MM/yy' }}</td>
                   <td>
                     @if (f.status==='open') {
-                      <button pButton type="button" label="Confirmar" icon="pi pi-check" class="p-button-sm p-button-text rz-ok" (click)="reviewFinding(f,'confirmed')"></button>
-                      <button pButton type="button" label="Descartar" icon="pi pi-times" class="p-button-sm p-button-text rz-no" (click)="reviewFinding(f,'dismissed')"></button>
+                      <button pButton type="button" class="p-button-sm p-button-text rz-ok" (click)="reviewFinding(f,'confirmed')"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Confirmar</span></button>
+                      <button pButton type="button" class="p-button-sm p-button-text rz-no" (click)="reviewFinding(f,'dismissed')"><span class="p-button-icon p-button-icon-left pi pi-times" aria-hidden="true"></span><span class="p-button-label">Descartar</span></button>
                     } @else {
                       <span class="rz-status">{{ statusLabel(f.status) }}</span>
-                      <button pButton type="button" icon="pi pi-undo" class="p-button-sm p-button-text" pTooltip="Reabrir" (click)="reviewFinding(f,'open')"></button>
+                      <button pButton type="button" class="p-button-sm p-button-text" pTooltip="Reabrir" (click)="reviewFinding(f,'open')"><span class="p-button-icon p-button-icon-left pi pi-undo" aria-hidden="true"></span></button>
                     }
                   </td>
                 </tr>
@@ -97,7 +97,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
           <!-- ── 1 · DIAGNÓSTICOS ── -->
           <p-tabpanel [value]="1">
             <div class="rz-bar"><span class="rz-count">{{ diagnoses().length }} diagnóstico(s) · causa raíz (≥2 hallazgos correlacionados)</span>
-              <button pButton type="button" label="Recalcular" icon="pi pi-sync" class="p-button-sm p-button-outlined" [loading]="busy()==='diagnoses'" (click)="recompute('diagnoses')"></button></div>
+              <button pButton type="button" class="p-button-sm p-button-outlined" [loading]="busy()==='diagnoses'" (click)="recompute('diagnoses')"><span class="p-button-icon p-button-icon-left pi pi-sync" aria-hidden="true"></span><span class="p-button-label">Recalcular</span></button></div>
             <p-table [value]="diagnoses()" [loading]="loading()==='diagnoses'" styleClass="p-datatable-sm rz-table" dataKey="id">
               <ng-template #header><tr><th>Severidad</th><th>Causa raíz</th><th>Sujeto</th><th class="rz-r">Confianza</th><th>Resumen</th><th>Hallazgos</th><th style="width:9rem">Revisión</th></tr></ng-template>
               <ng-template #body let-d>
@@ -110,8 +110,8 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
                   <td class="rz-muted">{{ (d.finding_types||[]).join(', ') }}</td>
                   <td>
                     @if (d.status==='open') {
-                      <button pButton type="button" icon="pi pi-check" class="p-button-sm p-button-text rz-ok" pTooltip="Confirmar" (click)="reviewDiagnosis(d,'confirmed')"></button>
-                      <button pButton type="button" icon="pi pi-times" class="p-button-sm p-button-text rz-no" pTooltip="Descartar" (click)="reviewDiagnosis(d,'dismissed')"></button>
+                      <button pButton type="button" class="p-button-sm p-button-text rz-ok" pTooltip="Confirmar" (click)="reviewDiagnosis(d,'confirmed')"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span></button>
+                      <button pButton type="button" class="p-button-sm p-button-text rz-no" pTooltip="Descartar" (click)="reviewDiagnosis(d,'dismissed')"><span class="p-button-icon p-button-icon-left pi pi-times" aria-hidden="true"></span></button>
                     } @else { <span class="rz-status">{{ statusLabel(d.status) }}</span> }
                   </td>
                 </tr>
@@ -123,7 +123,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
           <!-- ── 2 · ACCIONES ── -->
           <p-tabpanel [value]="2">
             <div class="rz-bar"><span class="rz-count">{{ actions().length }} acción(es) propuesta(s) · aprobar = efecto real (HITL)</span>
-              <button pButton type="button" label="Proponer" icon="pi pi-bolt" class="p-button-sm p-button-outlined" [loading]="busy()==='actions'" (click)="recompute('actions')"></button></div>
+              <button pButton type="button" class="p-button-sm p-button-outlined" [loading]="busy()==='actions'" (click)="recompute('actions')"><span class="p-button-icon p-button-icon-left pi pi-bolt" aria-hidden="true"></span><span class="p-button-label">Proponer</span></button></div>
             <p-table [value]="actions()" [loading]="loading()==='actions'" styleClass="p-datatable-sm rz-table" dataKey="id">
               <ng-template #header><tr><th class="rz-r">Prioridad</th><th>Tipo</th><th>Acción</th><th class="rz-r">Confianza</th><th>Impacto esperado</th><th>Estado</th><th style="width:14rem"></th></tr></ng-template>
               <ng-template #body let-a>
@@ -135,10 +135,10 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
                   <td class="rz-expl">{{ a.expected_impact || '—' }}</td>
                   <td><p-tag [value]="actionStatusLabel(a.status)" [severity]="actionStatusTag(a.status)"></p-tag>@if (a.auto_executed) { <span class="rz-auto">auto</span> }</td>
                   <td>
-                    <button pButton type="button" icon="pi pi-info-circle" label="Explicar" class="p-button-sm p-button-text" (click)="explain(a)"></button>
+                    <button pButton type="button" class="p-button-sm p-button-text" (click)="explain(a)"><span class="p-button-icon p-button-icon-left pi pi-info-circle" aria-hidden="true"></span><span class="p-button-label">Explicar</span></button>
                     @if (a.status==='pending_approval') {
-                      <button pButton type="button" icon="pi pi-check" class="p-button-sm p-button-text rz-ok" pTooltip="Aprobar" (click)="approve(a)"></button>
-                      <button pButton type="button" icon="pi pi-times" class="p-button-sm p-button-text rz-no" pTooltip="Rechazar" (click)="reject(a)"></button>
+                      <button pButton type="button" class="p-button-sm p-button-text rz-ok" pTooltip="Aprobar" (click)="approve(a)"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span></button>
+                      <button pButton type="button" class="p-button-sm p-button-text rz-no" pTooltip="Rechazar" (click)="reject(a)"><span class="p-button-icon p-button-icon-left pi pi-times" aria-hidden="true"></span></button>
                     }
                   </td>
                 </tr>
@@ -150,7 +150,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
           <!-- ── 3 · AUTONOMÍA ── -->
           <p-tabpanel [value]="3">
             <div class="rz-bar"><span class="rz-count">Dial por tipo de acción · el motor ejecuta sólo lo que habilites (default OFF)</span>
-              <button pButton type="button" label="Ejecutar habilitadas" icon="pi pi-play" class="p-button-sm p-button-outlined" [loading]="busy()==='autonomy'" (click)="runAutonomy()"></button></div>
+              <button pButton type="button" class="p-button-sm p-button-outlined" [loading]="busy()==='autonomy'" (click)="runAutonomy()"><span class="p-button-icon p-button-icon-left pi pi-play" aria-hidden="true"></span><span class="p-button-label">Ejecutar habilitadas</span></button></div>
             <p-table [value]="policies()" [loading]="loading()==='autonomy'" styleClass="p-datatable-sm rz-table">
               <ng-template #header><tr><th>Tipo de acción</th><th style="width:11rem">Modo</th><th class="rz-r">Confianza mín</th><th class="rz-r">Tope diario</th><th class="rz-r">Tope $ (MXN)</th><th style="width:7rem"></th></tr></ng-template>
               <ng-template #body let-p>
@@ -160,7 +160,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
                   <td class="rz-r"><p-inputnumber [(ngModel)]="p.min_confidence" [min]="0" [max]="1" mode="decimal" [minFractionDigits]="0" [maxFractionDigits]="2" inputStyleClass="rz-num"></p-inputnumber></td>
                   <td class="rz-r"><p-inputnumber [(ngModel)]="p.daily_cap" [min]="0" inputStyleClass="rz-num"></p-inputnumber></td>
                   <td class="rz-r"><p-inputnumber [(ngModel)]="p.value_cap_mxn" [min]="0" inputStyleClass="rz-num"></p-inputnumber></td>
-                  <td><button pButton type="button" icon="pi pi-save" class="p-button-sm p-button-text" pTooltip="Guardar" (click)="savePolicy(p)"></button></td>
+                  <td><button pButton type="button" class="p-button-sm p-button-text" pTooltip="Guardar" (click)="savePolicy(p)"><span class="p-button-icon p-button-icon-left pi pi-save" aria-hidden="true"></span></button></td>
                 </tr>
               </ng-template>
               <ng-template #emptymessage><tr><td colspan="6" class="rz-empty">Sin políticas de autonomía configuradas (todo en OFF por default).</td></tr></ng-template>
@@ -170,7 +170,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
           <!-- ── 4 · APRENDIZAJE ── -->
           <p-tabpanel [value]="4">
             <div class="rz-bar"><span class="rz-count">Precisión por regla (L2) · confirmar/descartar entrena qué hallazgos sirven</span>
-              <button pButton type="button" label="Recalcular" icon="pi pi-sync" class="p-button-sm p-button-outlined" [loading]="busy()==='learning'" (click)="recompute('learning')"></button></div>
+              <button pButton type="button" class="p-button-sm p-button-outlined" [loading]="busy()==='learning'" (click)="recompute('learning')"><span class="p-button-icon p-button-icon-left pi pi-sync" aria-hidden="true"></span><span class="p-button-label">Recalcular</span></button></div>
             <p-table [value]="rules()" [loading]="loading()==='learning'" styleClass="p-datatable-sm rz-table">
               <ng-template #header><tr><th>Regla</th><th class="rz-r">Total</th><th class="rz-r">Confirm.</th><th class="rz-r">Descart.</th><th class="rz-r">Precisión</th><th>Estado</th><th style="width:12rem">Override</th></tr></ng-template>
               <ng-template #body let-r>

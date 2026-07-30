@@ -27,7 +27,7 @@ import { PROMOS_TABS } from '../promos-tabs';
           <h1>Promos del ERP</h1>
           <p class="surf-page-sub">Reglas de promoción vigentes en Kepler</p>
         </div>
-        <button pButton icon="pi pi-refresh" [text]="true" severity="secondary" size="small" (click)="load()" [loading]="loading()"></button>
+        <button pButton [text]="true" severity="secondary" size="small" (click)="load()" [loading]="loading()"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span></button>
       </header>
 
       <p-table [value]="rows()" [loading]="loading()" styleClass="p-datatable-sm surf-table"

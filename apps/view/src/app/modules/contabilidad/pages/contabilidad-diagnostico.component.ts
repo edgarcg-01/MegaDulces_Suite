@@ -44,9 +44,9 @@ import { FacturasService } from '../facturas.service';
         </div>
         <div class="di-head-actions">
           @if (loadedAt()) { <app-freshness-pill [since]="loadedAt()" /> }
-          <button pButton type="button" label="Refrescar" icon="pi pi-refresh" class="p-button-sm p-button-text" [loading]="loading()" (click)="reload()"></button>
+          <button pButton type="button" class="p-button-sm p-button-text" [loading]="loading()" (click)="reload()"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span><span class="p-button-label">Refrescar</span></button>
           @if (canManage && stats() && stats()!.open_total > 0) {
-            <button pButton type="button" label="Reintentar timbrado de pedidos" icon="pi pi-replay" class="p-button-sm" [loading]="retrying()" (click)="retryOrders()"></button>
+            <button pButton type="button" class="p-button-sm" [loading]="retrying()" (click)="retryOrders()"><span class="p-button-icon p-button-icon-left pi pi-replay" aria-hidden="true"></span><span class="p-button-label">Reintentar timbrado de pedidos</span></button>
           }
         </div>
       </header>
@@ -115,7 +115,7 @@ import { FacturasService } from '../facturas.service';
                     <a pButton [routerLink]="r.solucion.deep_link" class="p-button-text p-button-sm"><i class="pi pi-external-link"></i> {{ r.solucion.fix_label || 'Arreglar' }}</a>
                   }
                   @if (canManage) {
-                    <button pButton type="button" icon="pi pi-check" class="p-button-text p-button-sm" pTooltip="Descartar (ya atendido)" (click)="dismiss(r)"></button>
+                    <button pButton type="button" class="p-button-text p-button-sm" pTooltip="Descartar (ya atendido)" (click)="dismiss(r)"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span></button>
                   }
                 } @else {
                   <span class="di-resolved"><i class="pi pi-check-circle"></i> Resuelto</span>
@@ -140,7 +140,7 @@ import { FacturasService } from '../facturas.service';
                           <a pButton [routerLink]="r.solucion.deep_link" class="p-button-sm"><i class="pi pi-external-link"></i> {{ r.solucion.fix_label || 'Ir a arreglar' }}</a>
                         }
                         @if (r.can_retry_order && canManage) {
-                          <button pButton type="button" label="Reintentar este pedido" icon="pi pi-replay" class="p-button-sm p-button-outlined" [loading]="retrying()" (click)="retryOrders()"></button>
+                          <button pButton type="button" class="p-button-sm p-button-outlined" [loading]="retrying()" (click)="retryOrders()"><span class="p-button-icon p-button-icon-left pi pi-replay" aria-hidden="true"></span><span class="p-button-label">Reintentar este pedido</span></button>
                         }
                       </div>
                     </div>
@@ -153,7 +153,7 @@ import { FacturasService } from '../facturas.service';
                       <span>Mensaje</span><b>{{ r.error_message || '—' }}</b>
                       @if (r.error_detail) { <span>Detalle</span><b>{{ r.error_detail }}</b> }
                     </div>
-                    <button pButton type="button" label="Ver respuesta cruda" icon="pi pi-code" class="p-button-text p-button-sm" [loading]="rawLoading()===r.id" (click)="loadRaw(r)"></button>
+                    <button pButton type="button" class="p-button-text p-button-sm" [loading]="rawLoading()===r.id" (click)="loadRaw(r)"><span class="p-button-icon p-button-icon-left pi pi-code" aria-hidden="true"></span><span class="p-button-label">Ver respuesta cruda</span></button>
                     @if (rawById()[r.id]) { <pre class="di-raw">{{ rawById()[r.id] }}</pre> }
                   </div>
                 </div>
@@ -162,7 +162,7 @@ import { FacturasService } from '../facturas.service';
           </ng-template>
           <ng-template #emptymessage><tr><td colspan="8" class="di-empty">
             @if (loading()) { Cargando… }
-            @else if (errored()) { <i class="pi pi-exclamation-triangle"></i> No se pudo cargar. <button pButton type="button" label="Reintentar" class="p-button-sm p-button-text" (click)="reload()"></button> }
+            @else if (errored()) { <i class="pi pi-exclamation-triangle"></i> No se pudo cargar. <button pButton type="button" class="p-button-sm p-button-text" (click)="reload()"><span class="p-button-label">Reintentar</span></button> }
             @else { <i class="pi pi-check-circle di-ok"></i> Sin errores {{ fStatus()==='open' ? 'abiertos' : '' }}. Todo en orden. }
           </td></tr></ng-template>
         </p-table>

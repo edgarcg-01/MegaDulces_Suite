@@ -57,7 +57,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
           <tr><td colspan="9" class="rq-empty">
             @if (error()) {
               <i class="pi pi-exclamation-triangle"></i> No se pudieron cargar las requisiciones.
-              <button pButton type="button" label="Reintentar" class="p-button-text p-button-sm" (click)="reload()"></button>
+              <button pButton type="button" class="p-button-text p-button-sm" (click)="reload()"><span class="p-button-label">Reintentar</span></button>
             } @else { Sin requisiciones todavía. Genera una desde Existencia crítica. }
           </td></tr>
         </ng-template>

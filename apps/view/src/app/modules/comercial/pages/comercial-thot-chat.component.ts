@@ -78,7 +78,7 @@ const SUGGESTIONS = [
           <p class="surf-page-sub">Preguntá en lenguaje natural sobre ventas, inventario, clientes y márgenes. Los números salen de datos reales.</p>
         </div>
         @if (messages().length > 0) {
-          <button pButton icon="pi pi-eraser" label="Nueva consulta" [text]="true" severity="secondary" size="small" (click)="reset()"></button>
+          <button pButton [text]="true" severity="secondary" size="small" (click)="reset()"><span class="p-button-icon p-button-icon-left pi pi-eraser" aria-hidden="true"></span><span class="p-button-label">Nueva consulta</span></button>
         }
       </header>
 

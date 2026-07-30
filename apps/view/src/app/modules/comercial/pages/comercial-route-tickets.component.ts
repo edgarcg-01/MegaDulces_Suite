@@ -45,7 +45,7 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
           [showClear]="true"
           styleClass="type-select"
         ></p-select>
-        <button pButton icon="pi pi-refresh" severity="secondary" [text]="true" (click)="reload()"></button>
+        <button pButton severity="secondary" [text]="true" (click)="reload()"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span></button>
       </div>
     
       <div class="surf-grid rt-bento">

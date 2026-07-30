@@ -64,28 +64,21 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
             </span>
             <!-- Transiciones de estado (solo las válidas para el estado actual) -->
             @if (canDepart()) {
-              <button pButton icon="pi pi-send" label="Marcar en ruta" size="small"
-              (click)="transition('depart')"></button>
+              <button pButton size="small" (click)="transition('depart')"><span class="p-button-icon p-button-icon-left pi pi-send" aria-hidden="true"></span><span class="p-button-label">Marcar en ruta</span></button>
             }
             @if (canDeliver()) {
-              <button pButton icon="pi pi-check" label="Marcar entregado" size="small"
-              (click)="transition('deliver')"></button>
+              <button pButton size="small" (click)="transition('deliver')"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Marcar entregado</span></button>
             }
             @if (canClose()) {
-              <button pButton icon="pi pi-lock" label="Cerrar embarque" size="small"
-              (click)="transition('close')"></button>
+              <button pButton size="small" (click)="transition('close')"><span class="p-button-icon p-button-icon-left pi pi-lock" aria-hidden="true"></span><span class="p-button-label">Cerrar embarque</span></button>
             }
             @if (canCancel()) {
-              <button pButton icon="pi pi-times" label="Cancelar" size="small"
-              severity="danger" [text]="true" (click)="confirmCancel()"></button>
+              <button pButton size="small" severity="danger" [text]="true" (click)="confirmCancel()"><span class="p-button-icon p-button-icon-left pi pi-times" aria-hidden="true"></span><span class="p-button-label">Cancelar</span></button>
             }
             <span class="shd-head-sep" aria-hidden="true"></span>
-            <a pButton icon="pi pi-check-square" label="Checklists" severity="secondary" [outlined]="true" size="small"
-            [routerLink]="['/logistica/shipments', s.id, 'checklists']"></a>
-            <a pButton icon="pi pi-camera" label="Fotos" severity="secondary" [outlined]="true" size="small"
-            [routerLink]="['/logistica/shipments', s.id, 'photos']"></a>
-            <button pButton icon="pi pi-file-pdf" label="PDF" severity="secondary" [outlined]="true" size="small"
-            (click)="downloadPdf(s.id)"></button>
+            <a pButton severity="secondary" [outlined]="true" size="small" [routerLink]="['/logistica/shipments', s.id, 'checklists']"><span class="p-button-icon p-button-icon-left pi pi-check-square" aria-hidden="true"></span><span class="p-button-label">Checklists</span></a>
+            <a pButton severity="secondary" [outlined]="true" size="small" [routerLink]="['/logistica/shipments', s.id, 'photos']"><span class="p-button-icon p-button-icon-left pi pi-camera" aria-hidden="true"></span><span class="p-button-label">Fotos</span></a>
+            <button pButton severity="secondary" [outlined]="true" size="small" (click)="downloadPdf(s.id)"><span class="p-button-icon p-button-icon-left pi pi-file-pdf" aria-hidden="true"></span><span class="p-button-label">PDF</span></button>
           </div>
         </header>
         <!-- MODE TABS -->
@@ -216,9 +209,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
           <!-- Action: editar metrics -->
           @if (s.status !== 'cerrado' && s.status !== 'cancelado') {
             <div class="shd-info-actions">
-              <button pButton icon="pi pi-pencil" label="Editar km / flete"
-                size="small" severity="secondary" [outlined]="true"
-              (click)="openEditMetrics()"></button>
+              <button pButton size="small" severity="secondary" [outlined]="true" (click)="openEditMetrics()"><span class="p-button-icon p-button-icon-left pi pi-pencil" aria-hidden="true"></span><span class="p-button-label">Editar km / flete</span></button>
             </div>
           }
         }
@@ -231,12 +222,8 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
                   Asigná chofer + ayudantes + destinatarios por cada guía de reparto.
                 </span>
                 <div class="shd-cta-actions">
-                  <button pButton icon="pi pi-compass" label="Optimizar ruta" size="small"
-                    severity="secondary" [outlined]="true" [loading]="optimizing()"
-                    [disabled]="!guides().length" (click)="optimizeRoute()"
-                  pTooltip="Ordena las paradas por cercanía (menos km)"></button>
-                  <button pButton icon="pi pi-plus" label="Nueva guía" size="small"
-                  (click)="openCreateGuide()"></button>
+                  <button pButton size="small" severity="secondary" [outlined]="true" [loading]="optimizing()" [disabled]="!guides().length" (click)="optimizeRoute()" pTooltip="Ordena las paradas por cercanía (menos km)"><span class="p-button-icon p-button-icon-left pi pi-compass" aria-hidden="true"></span><span class="p-button-label">Optimizar ruta</span></button>
+                  <button pButton size="small" (click)="openCreateGuide()"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Nueva guía</span></button>
                 </div>
               </article>
             </div>
@@ -268,8 +255,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
                       </span>
                     </td>
                     <td class="comm-actions">
-                      <button pButton icon="pi pi-eye" size="small" severity="secondary"
-                      [text]="true" (click)="openGuideDetail(g)" pTooltip="Ver destinatarios"></button>
+                      <button pButton size="small" severity="secondary" [text]="true" (click)="openGuideDetail(g)" pTooltip="Ver destinatarios"><span class="p-button-icon p-button-icon-left pi pi-eye" aria-hidden="true"></span></button>
                     </td>
                   </tr>
                 </ng-template>
@@ -281,9 +267,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
                         <h3>Sin guías</h3>
                         <p>Agregá una guía para asignar chofer + destinatarios.</p>
                         @if (canAddGuide()) {
-                          <button type="button" pButton
-                            icon="pi pi-plus" severity="primary" size="small"
-                          label="Nueva guía" (click)="openCreateGuide()"></button>
+                          <button type="button" pButton severity="primary" size="small" (click)="openCreateGuide()"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Nueva guía</span></button>
                         }
                       </div>
                     </td>
@@ -313,8 +297,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
                       </p>
                     }
                   </div>
-                  <button pButton icon="pi pi-clock" label="Calcular ETA" size="small" severity="secondary"
-                  [outlined]="true" [loading]="etaLoading()" (click)="loadEta()"></button>
+                  <button pButton size="small" severity="secondary" [outlined]="true" [loading]="etaLoading()" (click)="loadEta()"><span class="p-button-icon p-button-icon-left pi pi-clock" aria-hidden="true"></span><span class="p-button-label">Calcular ETA</span></button>
                 </div>
                 @if (eta(); as e) {
                   <div>
@@ -402,8 +385,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
           }
           <!-- Save action -->
           <div class="shd-info-actions">
-            <button pButton icon="pi pi-save" label="Guardar costos"
-            [loading]="savingExp()" (click)="saveExpense()"></button>
+            <button pButton [loading]="savingExp()" (click)="saveExpense()"><span class="p-button-icon p-button-icon-left pi pi-save" aria-hidden="true"></span><span class="p-button-label">Guardar costos</span></button>
           </div>
         }
         <!-- ── TAB CARTA PORTE ── -->
@@ -437,10 +419,8 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
                   <p class="comm-muted is-small">CFDI de Traslado, un complemento por embarque. Revisá datos faltantes antes de timbrar.</p>
                 </div>
                 <div class="shd-cp-actions">
-                  <button pButton icon="pi pi-search" label="Revisar datos" size="small" severity="secondary"
-                  [outlined]="true" [loading]="cpValidating()" (click)="validateCp()"></button>
-                  <button pButton icon="pi pi-file-check" label="Timbrar Carta Porte" size="small"
-                  [loading]="cpStamping()" [disabled]="!cpReady()" (click)="stampCp()"></button>
+                  <button pButton size="small" severity="secondary" [outlined]="true" [loading]="cpValidating()" (click)="validateCp()"><span class="p-button-icon p-button-icon-left pi pi-search" aria-hidden="true"></span><span class="p-button-label">Revisar datos</span></button>
+                  <button pButton size="small" [loading]="cpStamping()" [disabled]="!cpReady()" (click)="stampCp()"><span class="p-button-icon p-button-icon-left pi pi-file-check" aria-hidden="true"></span><span class="p-button-label">Timbrar Carta Porte</span></button>
                 </div>
               </div>
               <!-- Gaps -->
@@ -484,8 +464,8 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
           </label>
         </form>
         <ng-template #footer>
-          <button pButton label="Cancelar" severity="secondary" [outlined]="true" (click)="metricsDialog = false"></button>
-          <button pButton label="Guardar" icon="pi pi-check" (click)="saveMetrics()"></button>
+          <button pButton severity="secondary" [outlined]="true" (click)="metricsDialog = false"><span class="p-button-label">Cancelar</span></button>
+          <button pButton (click)="saveMetrics()"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Guardar</span></button>
         </ng-template>
       </p-dialog>
     
@@ -529,8 +509,8 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
           </label>
         </form>
         <ng-template #footer>
-          <button pButton label="Cancelar" severity="secondary" [outlined]="true" (click)="guideDialog = false"></button>
-          <button pButton label="Crear guía" icon="pi pi-check" [loading]="savingGuide()" (click)="createGuide()"></button>
+          <button pButton severity="secondary" [outlined]="true" (click)="guideDialog = false"><span class="p-button-label">Cancelar</span></button>
+          <button pButton [loading]="savingGuide()" (click)="createGuide()"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Crear guía</span></button>
         </ng-template>
       </p-dialog>
     
@@ -569,8 +549,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
                   </td>
                   <td class="comm-actions">
                     @if (r.status === 'pendiente') {
-                      <button pButton icon="pi pi-check" size="small" severity="secondary" [text]="true"
-                      pTooltip="Marcar entregado" (click)="markRecipientDelivered(r)"></button>
+                      <button pButton size="small" severity="secondary" [text]="true" pTooltip="Marcar entregado" (click)="markRecipientDelivered(r)"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span></button>
                     }
                   </td>
                 </tr>
@@ -616,8 +595,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
                   <input pInputText formControlName="address" />
                 </label>
                 <div class="full shd-add-actions">
-                  <button pButton icon="pi pi-plus" label="Agregar" size="small"
-                  [disabled]="recipientForm.invalid" (click)="addRecipient(g)"></button>
+                  <button pButton size="small" [disabled]="recipientForm.invalid" (click)="addRecipient(g)"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Agregar</span></button>
                 </div>
               </form>
             }

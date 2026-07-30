@@ -76,7 +76,7 @@ function severityForDriverStatus(s: string): Severity {
         </p-tablist>
         <p-tabpanels>
           <p-tabpanel value="vehicles">
-            <div class="tab-actions"><button pButton icon="pi pi-plus" label="Nueva unidad" (click)="openVehicleCreate()"></button></div>
+            <div class="tab-actions"><button pButton (click)="openVehicleCreate()"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Nueva unidad</span></button></div>
             <p-card>
               <p-table [value]="vehicles()" [loading]="loadingV()" responsiveLayout="scroll" styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra">
                 <ng-template #header>
@@ -95,9 +95,9 @@ function severityForDriverStatus(s: string): Severity {
                     <td class="num">{{ v.fuel_efficiency_km_l ? (v.fuel_efficiency_km_l + ' km/l') : '—' }}</td>
                     <td><p-tag [severity]="severityVeh(v.status)" [value]="vStatusLabel(v.status)"></p-tag></td>
                     <td class="actions">
-                      <button pButton icon="pi pi-pencil" size="small" severity="secondary" [text]="true" (click)="openVehicleEdit(v)"></button>
+                      <button pButton size="small" severity="secondary" [text]="true" (click)="openVehicleEdit(v)"><span class="p-button-icon p-button-icon-left pi pi-pencil" aria-hidden="true"></span></button>
                       @if (v.active) {
-                        <button pButton icon="pi pi-trash" size="small" severity="secondary" [text]="true" (click)="confirmDeleteVehicle(v)"></button>
+                        <button pButton size="small" severity="secondary" [text]="true" (click)="confirmDeleteVehicle(v)"><span class="p-button-icon p-button-icon-left pi pi-trash" aria-hidden="true"></span></button>
                       }
                     </td>
                   </tr>
@@ -110,7 +110,7 @@ function severityForDriverStatus(s: string): Severity {
           </p-tabpanel>
     
           <p-tabpanel value="drivers">
-            <div class="tab-actions"><button pButton icon="pi pi-plus" label="Nuevo colaborador" (click)="openDriverCreate()"></button></div>
+            <div class="tab-actions"><button pButton (click)="openDriverCreate()"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Nuevo colaborador</span></button></div>
             <p-card>
               <p-table [value]="drivers()" [loading]="loadingD()" responsiveLayout="scroll" styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra">
                 <ng-template #header>
@@ -132,9 +132,9 @@ function severityForDriverStatus(s: string): Severity {
                     <td>{{ d.phone || '—' }}</td>
                     <td><p-tag [severity]="severityDrv(d.status)" [value]="d.status"></p-tag></td>
                     <td class="actions">
-                      <button pButton icon="pi pi-pencil" size="small" severity="secondary" [text]="true" (click)="openDriverEdit(d)"></button>
+                      <button pButton size="small" severity="secondary" [text]="true" (click)="openDriverEdit(d)"><span class="p-button-icon p-button-icon-left pi pi-pencil" aria-hidden="true"></span></button>
                       @if (d.active) {
-                        <button pButton icon="pi pi-trash" size="small" severity="secondary" [text]="true" (click)="confirmDeleteDriver(d)"></button>
+                        <button pButton size="small" severity="secondary" [text]="true" (click)="confirmDeleteDriver(d)"><span class="p-button-icon p-button-icon-left pi pi-trash" aria-hidden="true"></span></button>
                       }
                     </td>
                   </tr>
@@ -149,7 +149,7 @@ function severityForDriverStatus(s: string): Severity {
           <!-- ──── J.9.9 Tab Uso (check-in/check-out) ──── -->
           <p-tabpanel value="usage">
             <div class="tab-actions">
-              <button pButton icon="pi pi-sign-out" label="Nuevo check-in" (click)="openCheckIn()"></button>
+              <button pButton (click)="openCheckIn()"><span class="p-button-icon p-button-icon-left pi pi-sign-out" aria-hidden="true"></span><span class="p-button-label">Nuevo check-in</span></button>
             </div>
             <p-card>
               <p-table [value]="usageLogs()" [loading]="loadingUsage()" responsiveLayout="scroll" styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra">
@@ -180,7 +180,7 @@ function severityForDriverStatus(s: string): Severity {
                     </td>
                     <td class="actions">
                       @if (u.status === 'en_uso') {
-                        <button pButton icon="pi pi-sign-in" size="small" label="Check-out" (click)="openCheckOut(u)"></button>
+                        <button pButton size="small" (click)="openCheckOut(u)"><span class="p-button-icon p-button-icon-left pi pi-sign-in" aria-hidden="true"></span><span class="p-button-label">Check-out</span></button>
                       }
                     </td>
                   </tr>
@@ -195,7 +195,7 @@ function severityForDriverStatus(s: string): Severity {
           <!-- ──── J.9.9 Tab Mantenimiento ──── -->
           <p-tabpanel value="maintenance">
             <div class="tab-actions">
-              <button pButton icon="pi pi-plus" label="Nuevo mantenimiento" (click)="openMaintenance()"></button>
+              <button pButton (click)="openMaintenance()"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Nuevo mantenimiento</span></button>
             </div>
             @if (maintDue().length) {
               <div class="maint-due">
@@ -248,7 +248,7 @@ function severityForDriverStatus(s: string): Severity {
               <p-inputnumber formControlName="amount" mode="currency" currency="MXN" locale="es-MX" placeholder="Monto"></p-inputnumber>
               <p-inputnumber formControlName="odometer_km" placeholder="Odómetro km"></p-inputnumber>
               <input pInputText formControlName="station" placeholder="Estación" />
-              <button pButton icon="pi pi-plus" label="Registrar" size="small" [loading]="savingFuel()" [disabled]="fuelForm.invalid" (click)="registerFuel()"></button>
+              <button pButton size="small" [loading]="savingFuel()" [disabled]="fuelForm.invalid" (click)="registerFuel()"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Registrar</span></button>
             </form>
             <p-table [value]="fuelTx()" responsiveLayout="scroll" styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra" [paginator]="fuelTx().length > 25" [rows]="25" [rowsPerPageOptions]="[25, 50, 100, 200]">
               <ng-template #header>
@@ -262,7 +262,7 @@ function severityForDriverStatus(s: string): Severity {
                   <td class="num">\${{ f.amount | number:'1.2-2' }}</td>
                   <td class="num">{{ f.odometer_km ? (f.odometer_km | number:'1.0-0') : '—' }}</td>
                   <td class="small">{{ f.station || '—' }}</td>
-                  <td class="actions"><button pButton icon="pi pi-trash" size="small" severity="secondary" [text]="true" (click)="deleteFuel(f)"></button></td>
+                  <td class="actions"><button pButton size="small" severity="secondary" [text]="true" (click)="deleteFuel(f)"><span class="p-button-icon p-button-icon-left pi pi-trash" aria-hidden="true"></span></button></td>
                 </tr>
               </ng-template>
               <ng-template #emptymessage><tr><td colspan="7" class="comm-empty-cell"><div class="comm-empty"><div class="comm-empty-icon"><i class="pi pi-bolt" aria-hidden="true"></i></div><h3>Sin cargas registradas</h3><p>Aún no hay cargas de combustible.</p></div></td></tr></ng-template>
@@ -297,7 +297,7 @@ function severityForDriverStatus(s: string): Severity {
                   <td class="num">\${{ m.cost | number:'1.2-2' }}</td>
                   <td class="small">{{ m.next_service_date ? (m.next_service_date | date:'shortDate') : (m.next_service_km ? (m.next_service_km + ' km') : '—') }}</td>
                   <td class="actions">
-                    <button pButton icon="pi pi-trash" size="small" severity="secondary" [text]="true" (click)="confirmDeleteMaint(m)"></button>
+                    <button pButton size="small" severity="secondary" [text]="true" (click)="confirmDeleteMaint(m)"><span class="p-button-icon p-button-icon-left pi pi-trash" aria-hidden="true"></span></button>
                   </td>
                 </tr>
               </ng-template>
@@ -332,8 +332,8 @@ function severityForDriverStatus(s: string): Severity {
         </label>
       </form>
       <ng-template #footer>
-        <button pButton label="Cancelar" severity="secondary" [text]="true" (click)="checkInDialog = false" [disabled]="savingUsage()"></button>
-        <button pButton label="Registrar salida" icon="pi pi-check" [loading]="savingUsage()" [disabled]="checkInForm.invalid" (click)="submitCheckIn()"></button>
+        <button pButton severity="secondary" [text]="true" (click)="checkInDialog = false" [disabled]="savingUsage()"><span class="p-button-label">Cancelar</span></button>
+        <button pButton [loading]="savingUsage()" [disabled]="checkInForm.invalid" (click)="submitCheckIn()"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Registrar salida</span></button>
       </ng-template>
     </p-dialog>
     
@@ -360,8 +360,8 @@ function severityForDriverStatus(s: string): Severity {
         </label>
       </form>
       <ng-template #footer>
-        <button pButton label="Cancelar" severity="secondary" [text]="true" (click)="checkOutDialog = false" [disabled]="savingUsage()"></button>
-        <button pButton label="Cerrar uso" icon="pi pi-check" [loading]="savingUsage()" [disabled]="checkOutForm.invalid" (click)="submitCheckOut()"></button>
+        <button pButton severity="secondary" [text]="true" (click)="checkOutDialog = false" [disabled]="savingUsage()"><span class="p-button-label">Cancelar</span></button>
+        <button pButton [loading]="savingUsage()" [disabled]="checkOutForm.invalid" (click)="submitCheckOut()"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Cerrar uso</span></button>
       </ng-template>
     </p-dialog>
     
@@ -418,8 +418,8 @@ function severityForDriverStatus(s: string): Severity {
         </label>
       </form>
       <ng-template #footer>
-        <button pButton label="Cancelar" severity="secondary" [text]="true" (click)="maintenanceDialog = false" [disabled]="savingMaint()"></button>
-        <button pButton label="Registrar" icon="pi pi-check" [loading]="savingMaint()" [disabled]="maintenanceForm.invalid" (click)="submitMaintenance()"></button>
+        <button pButton severity="secondary" [text]="true" (click)="maintenanceDialog = false" [disabled]="savingMaint()"><span class="p-button-label">Cancelar</span></button>
+        <button pButton [loading]="savingMaint()" [disabled]="maintenanceForm.invalid" (click)="submitMaintenance()"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Registrar</span></button>
       </ng-template>
     </p-dialog>
     
@@ -475,7 +475,7 @@ function severityForDriverStatus(s: string): Severity {
         </form>
       }
       <ng-template #footer>
-        <button pButton label="Cancelar" severity="secondary" [outlined]="true" (click)="vDialog = false"></button>
+        <button pButton severity="secondary" [outlined]="true" (click)="vDialog = false"><span class="p-button-label">Cancelar</span></button>
         <p-button pButton [label]="editingV() ? 'Guardar' : 'Crear'" icon="pi pi-check"
         [loading]="savingV()" [disabled]="vForm.invalid" (click)="saveVehicle()"></p-button>
       </ng-template>
@@ -526,7 +526,7 @@ function severityForDriverStatus(s: string): Severity {
         </form>
       }
       <ng-template #footer>
-        <button pButton label="Cancelar" severity="secondary" [outlined]="true" (click)="dDialog = false"></button>
+        <button pButton severity="secondary" [outlined]="true" (click)="dDialog = false"><span class="p-button-label">Cancelar</span></button>
         <p-button pButton [label]="editingD() ? 'Guardar' : 'Crear'" icon="pi pi-check"
         [loading]="savingD()" [disabled]="dForm.invalid" (click)="saveDriver()"></p-button>
       </ng-template>

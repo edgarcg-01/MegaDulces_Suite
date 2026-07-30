@@ -58,16 +58,7 @@ import { Permission } from '../../../core/constants/permissions';
           </p>
         </div>
         <div class="in-head-actions">
-          <button
-            pButton
-            icon="pi pi-refresh"
-            [text]="true"
-            severity="secondary"
-            size="small"
-            (click)="load()"
-            [loading]="loading()"
-            pTooltip="Refrescar"
-          ></button>
+          <button pButton [text]="true" severity="secondary" size="small" (click)="load()" [loading]="loading()" pTooltip="Refrescar"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span></button>
         </div>
       </header>
     
@@ -223,10 +214,7 @@ import { Permission } from '../../../core/constants/permissions';
                 </td>
                 <td class="comm-actions">
                   @if (canAdjust()) {
-                    <button pButton icon="pi pi-pencil" size="small" severity="secondary" [text]="true"
-                      [disabled]="!!frozenFolio(s.warehouse_id)"
-                      [pTooltip]="frozenFolio(s.warehouse_id) ? ('Almacén congelado por inventario ' + frozenFolio(s.warehouse_id)) : 'Ajustar saldo'"
-                    (click)="openAdjust(s)"></button>
+                    <button pButton size="small" severity="secondary" [text]="true" [disabled]="!!frozenFolio(s.warehouse_id)" [pTooltip]="frozenFolio(s.warehouse_id) ? ('Almacén congelado por inventario ' + frozenFolio(s.warehouse_id)) : 'Ajustar saldo'" (click)="openAdjust(s)"><span class="p-button-icon p-button-icon-left pi pi-pencil" aria-hidden="true"></span></button>
                   }
                 </td>
               </tr>
@@ -239,16 +227,7 @@ import { Permission } from '../../../core/constants/permissions';
                     <h3>Sin stock registrado</h3>
                     <p>{{ isSpecific() ? 'Este almacén no tiene productos con saldo.' : 'Aún no hay líneas de stock en el tenant.' }}</p>
                     @if (isSpecific()) {
-                      <button
-                        type="button"
-                        pButton
-                        icon="pi pi-refresh"
-                        severity="secondary"
-                        [outlined]="true"
-                        size="small"
-                        label="Ver todos los almacenes"
-                        (click)="clearFilter()"
-                      ></button>
+                      <button type="button" pButton severity="secondary" [outlined]="true" size="small" (click)="clearFilter()"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span><span class="p-button-label">Ver todos los almacenes</span></button>
                     }
                   </div>
                 </td>
@@ -290,11 +269,8 @@ import { Permission } from '../../../core/constants/permissions';
         </div>
       }
       <ng-template #footer>
-        <button pButton label="Cancelar" severity="secondary" [outlined]="true" (click)="dialogVisible = false"></button>
-        <button pButton label="Aplicar ajuste" icon="pi pi-check"
-          [loading]="saving()"
-          [disabled]="newQuantity === null"
-        (click)="applyAdjust()"></button>
+        <button pButton severity="secondary" [outlined]="true" (click)="dialogVisible = false"><span class="p-button-label">Cancelar</span></button>
+        <button pButton [loading]="saving()" [disabled]="newQuantity === null" (click)="applyAdjust()"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Aplicar ajuste</span></button>
       </ng-template>
     </p-dialog>
     `,

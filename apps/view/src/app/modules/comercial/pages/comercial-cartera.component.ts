@@ -37,7 +37,7 @@ import { CarteraService, SalesRouteRow, VendorOption, RouteCustomer } from '../c
           <h1>Cartera de ventas</h1>
           <p class="surf-page-sub">Asigná rutas de venta a cada vendedor y ordená la secuencia de visita de sus clientes.</p>
         </div>
-        <button pButton icon="pi pi-refresh" [text]="true" severity="secondary" size="small" (click)="load()" [loading]="loading()" pTooltip="Refrescar"></button>
+        <button pButton [text]="true" severity="secondary" size="small" (click)="load()" [loading]="loading()" pTooltip="Refrescar"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span></button>
       </header>
     
       <div class="ca-grid">
@@ -77,10 +77,7 @@ import { CarteraService, SalesRouteRow, VendorOption, RouteCustomer } from '../c
                       optionLabel="username" optionValue="id" placeholder="Vendedor…"
                       [filter]="true" filterBy="username" appendTo="body" styleClass="ca-vendor-select"
                     ></p-select>
-                    <button pButton icon="pi pi-plus" size="small" severity="contrast"
-                      [disabled]="!assignVendor[r.sales_route] || assigningRoute() === r.sales_route"
-                      [loading]="assigningRoute() === r.sales_route"
-                    (click)="assign(r.sales_route)" pTooltip="Asignar ruta a vendedor"></button>
+                    <button pButton size="small" severity="contrast" [disabled]="!assignVendor[r.sales_route] || assigningRoute() === r.sales_route" [loading]="assigningRoute() === r.sales_route" (click)="assign(r.sales_route)" pTooltip="Asignar ruta a vendedor"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span></button>
                   </td>
                 </tr>
               </ng-template>
@@ -100,8 +97,7 @@ import { CarteraService, SalesRouteRow, VendorOption, RouteCustomer } from '../c
             }
             <span class="ca-spacer"></span>
             @if (selectedRoute()) {
-              <button pButton label="Guardar orden" icon="pi pi-check" size="small"
-              [disabled]="!orderDirty() || savingOrder()" [loading]="savingOrder()" (click)="saveOrder()"></button>
+              <button pButton size="small" [disabled]="!orderDirty() || savingOrder()" [loading]="savingOrder()" (click)="saveOrder()"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Guardar orden</span></button>
             }
           </div>
     
@@ -133,8 +129,8 @@ import { CarteraService, SalesRouteRow, VendorOption, RouteCustomer } from '../c
                   </td>
                   <td><code class="comm-code">{{ c.code }}</code></td>
                   <td class="ca-move">
-                    <button pButton icon="pi pi-chevron-up" [text]="true" size="small" severity="secondary" [disabled]="i === 0" (click)="moveUp(i)" pTooltip="Subir"></button>
-                    <button pButton icon="pi pi-chevron-down" [text]="true" size="small" severity="secondary" [disabled]="i === customersList.length - 1" (click)="moveDown(i)" pTooltip="Bajar"></button>
+                    <button pButton [text]="true" size="small" severity="secondary" [disabled]="i === 0" (click)="moveUp(i)" pTooltip="Subir"><span class="p-button-icon p-button-icon-left pi pi-chevron-up" aria-hidden="true"></span></button>
+                    <button pButton [text]="true" size="small" severity="secondary" [disabled]="i === customersList.length - 1" (click)="moveDown(i)" pTooltip="Bajar"><span class="p-button-icon p-button-icon-left pi pi-chevron-down" aria-hidden="true"></span></button>
                   </td>
                 </tr>
               </ng-template>

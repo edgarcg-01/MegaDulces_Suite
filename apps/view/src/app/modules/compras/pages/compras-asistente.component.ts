@@ -24,7 +24,7 @@ interface Msg { role: 'user' | 'assistant'; content: string; pending?: boolean; 
           <h1>Asistente de compras</h1>
           <p class="surf-page-sub">Armá la requisición conversando: "¿qué toca pedir?", "arma Fabricas Selectas para Padre Hidalgo a cadencia", "sube el globo dorado a 20 cajas", "créala". El motor pone las cantidades; tú apruebas.</p>
         </div>
-        @if (messages().length) { <button pButton type="button" label="Nueva" icon="pi pi-plus" class="p-button-sm p-button-text" (click)="reset()"></button> }
+        @if (messages().length) { <button pButton type="button" class="p-button-sm p-button-text" (click)="reset()"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Nueva</span></button> }
       </header>
 
       <div class="ca-thread" #thread>
@@ -52,7 +52,7 @@ interface Msg { role: 'user' | 'assistant'; content: string; pending?: boolean; 
       <form class="ca-input" (ngSubmit)="send(draft)">
         <input type="text" [(ngModel)]="draft" name="draft" [disabled]="sending()"
                placeholder="Escribe tu pedido o pregunta…" autocomplete="off" />
-        <button pButton type="submit" icon="pi pi-send" [disabled]="sending() || !draft.trim()" class="p-button-sm"></button>
+        <button pButton type="submit" [disabled]="sending() || !draft.trim()" class="p-button-sm"><span class="p-button-icon p-button-icon-left pi pi-send" aria-hidden="true"></span></button>
       </form>
       <p class="ca-note">El asistente crea la requisición en estado <b>pendiente de aprobación</b>. Nada se pide en firme sin tu confirmación.</p>
     </div>

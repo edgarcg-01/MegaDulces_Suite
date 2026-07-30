@@ -52,7 +52,7 @@ type TrendMetric = 'revenue' | 'units';
 
       @if (error()) {
         <div class="wk-banner"><i class="pi pi-exclamation-triangle"></i> No se pudo cargar el análisis.
-          <button pButton type="button" label="Reintentar" class="p-button-text p-button-sm" (click)="load()"></button></div>
+          <button pButton type="button" class="p-button-text p-button-sm" (click)="load()"><span class="p-button-label">Reintentar</span></button></div>
       }
 
       @if (rep(); as r) {

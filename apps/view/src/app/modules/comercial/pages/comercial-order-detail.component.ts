@@ -46,7 +46,7 @@ import { Permission } from '../../../core/constants/permissions';
     
     <div class="surf-page">
       <div class="topbar">
-        <button pButton icon="pi pi-arrow-left" label="Volver" severity="secondary" [text]="true" (click)="back()"></button>
+        <button pButton severity="secondary" [text]="true" (click)="back()"><span class="p-button-icon p-button-icon-left pi pi-arrow-left" aria-hidden="true"></span><span class="p-button-label">Volver</span></button>
       </div>
     
       @if (loading()) {
@@ -172,12 +172,7 @@ import { Permission } from '../../../core/constants/permissions';
                 <td class="comm-num is-strong">{{ l.line_total | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
                 @if (o.status === 'pending_approval') {
                   <td class="comm-actions">
-                    <button pButton icon="pi pi-trash"
-                      size="small" severity="secondary" [text]="true"
-                      [disabled]="savingLineId() === l.id"
-                      (click)="confirmRemoveLine(l, o)"
-                      aria-label="Quitar línea del pedido"
-                    pTooltip="Quitar línea (libera reserva)"></button>
+                    <button pButton size="small" severity="secondary" [text]="true" [disabled]="savingLineId() === l.id" (click)="confirmRemoveLine(l, o)" aria-label="Quitar línea del pedido" pTooltip="Quitar línea (libera reserva)"><span class="p-button-icon p-button-icon-left pi pi-trash" aria-hidden="true"></span></button>
                   </td>
                 }
               </tr>
@@ -190,27 +185,15 @@ import { Permission } from '../../../core/constants/permissions';
         @if (o.status === 'draft' || o.status === 'pending_approval' || o.status === 'confirmed') {
           <div class="action-bar">
             @if (o.status === 'draft') {
-              <button pButton label="Confirmar pedido" icon="pi pi-check"
-                [loading]="actioning()"
-                severity="contrast"
-              (click)="confirmTransition('confirm', o)"></button>
+              <button pButton [loading]="actioning()" severity="contrast" (click)="confirmTransition('confirm', o)"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Confirmar pedido</span></button>
             }
             @if (o.status === 'pending_approval') {
-              <button pButton label="Aprobar pedido" icon="pi pi-check-circle"
-                [loading]="actioning()"
-                severity="contrast"
-              (click)="confirmTransition('approve', o)"></button>
+              <button pButton [loading]="actioning()" severity="contrast" (click)="confirmTransition('approve', o)"><span class="p-button-icon p-button-icon-left pi pi-check-circle" aria-hidden="true"></span><span class="p-button-label">Aprobar pedido</span></button>
             }
             @if (o.status === 'confirmed') {
-              <button pButton label="Marcar entregado" icon="pi pi-truck"
-                [loading]="actioning()"
-                severity="contrast"
-              (click)="confirmTransition('fulfill', o)"></button>
+              <button pButton [loading]="actioning()" severity="contrast" (click)="confirmTransition('fulfill', o)"><span class="p-button-icon p-button-icon-left pi pi-truck" aria-hidden="true"></span><span class="p-button-label">Marcar entregado</span></button>
             }
-            <button pButton label="Cancelar pedido" icon="pi pi-times"
-              [loading]="actioning()"
-              severity="danger" [outlined]="true"
-            (click)="confirmTransition('cancel', o)"></button>
+            <button pButton [loading]="actioning()" severity="danger" [outlined]="true" (click)="confirmTransition('cancel', o)"><span class="p-button-icon p-button-icon-left pi pi-times" aria-hidden="true"></span><span class="p-button-label">Cancelar pedido</span></button>
           </div>
         }
         <!-- FE.5: facturar pedido entregado. El auto-invoice al entregar es best-effort;
@@ -218,10 +201,7 @@ import { Permission } from '../../../core/constants/permissions';
         capturados). Idempotente en backend (409 si ya tiene CFDI). -->
         @if (o.status === 'fulfilled' && !o.cfdi_uuid && canFacturar()) {
           <div class="action-bar">
-            <button pButton label="Facturar (CFDI)" icon="pi pi-file-edit"
-              [loading]="facturando()"
-              severity="contrast"
-            (click)="facturar(o)"></button>
+            <button pButton [loading]="facturando()" severity="contrast" (click)="facturar(o)"><span class="p-button-icon p-button-icon-left pi pi-file-edit" aria-hidden="true"></span><span class="p-button-label">Facturar (CFDI)</span></button>
             <span class="comm-muted is-small fa-hint">
               Emite la factura nominativa. Requiere RFC, razón social, régimen, uso CFDI y CP fiscal del cliente.
             </span>
@@ -240,10 +220,7 @@ import { Permission } from '../../../core/constants/permissions';
                   }
                 </div>
                 @if (canCreateShipment(o)) {
-                  <button pButton icon="pi pi-plus" label="Crear embarque"
-                    size="small"
-                    [routerLink]="['/logistica/shipments']"
-                  [queryParams]="{ order_id: o.id }"></button>
+                  <button pButton size="small" [routerLink]="['/logistica/shipments']" [queryParams]="{ order_id: o.id }"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Crear embarque</span></button>
                 }
               </div>
             </ng-template>
@@ -271,9 +248,7 @@ import { Permission } from '../../../core/constants/permissions';
                   <td class="comm-muted">{{ (s.origin || '—') + ' → ' + (s.destination || '—') }}</td>
                   <td><p-tag [severity]="sevShip(s.status)" [value]="s.status"></p-tag></td>
                   <td class="comm-actions">
-                    <a pButton icon="pi pi-arrow-right" size="small" [text]="true"
-                      (click)="$event.stopPropagation()"
-                    [routerLink]="['/logistica/shipments', s.id]" aria-label="Ver embarque" pTooltip="Ver embarque"></a>
+                    <a pButton size="small" [text]="true" (click)="$event.stopPropagation()" [routerLink]="['/logistica/shipments', s.id]" aria-label="Ver embarque" pTooltip="Ver embarque"><span class="p-button-icon p-button-icon-left pi pi-arrow-right" aria-hidden="true"></span></a>
                   </td>
                 </tr>
               </ng-template>
@@ -319,7 +294,7 @@ import { Permission } from '../../../core/constants/permissions';
           <i class="pi pi-exclamation-circle comm-empty-icon" aria-hidden="true"></i>
           <h3>Pedido no encontrado</h3>
           <p>No pudimos encontrar este pedido.</p>
-          <button pButton label="Volver" (click)="back()"></button>
+          <button pButton (click)="back()"><span class="p-button-label">Volver</span></button>
         </div>
       }
     </div>

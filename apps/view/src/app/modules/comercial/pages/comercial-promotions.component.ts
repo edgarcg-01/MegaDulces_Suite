@@ -77,24 +77,8 @@ interface ProductOption {
           </p>
         </div>
         <div class="pm-head-actions">
-          <button
-            pButton
-            icon="pi pi-refresh"
-            [text]="true"
-            severity="secondary"
-            size="small"
-            (click)="load()"
-            [loading]="loading()"
-            pTooltip="Refrescar"
-          ></button>
-          <button
-            pButton
-            icon="pi pi-plus"
-            label="Nueva promoción"
-            size="small"
-            severity="contrast"
-            (click)="openCreate()"
-          ></button>
+          <button pButton [text]="true" severity="secondary" size="small" (click)="load()" [loading]="loading()" pTooltip="Refrescar"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span></button>
+          <button pButton size="small" severity="contrast" (click)="openCreate()"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Nueva promoción</span></button>
         </div>
       </header>
     
@@ -213,8 +197,8 @@ interface ProductOption {
                   ></p-toggleswitch>
                 </td>
                 <td class="comm-actions">
-                  <button pButton icon="pi pi-pencil" size="small" severity="secondary" [text]="true" (click)="openEdit(p)" pTooltip="Editar"></button>
-                  <button pButton icon="pi pi-trash" size="small" severity="secondary" [text]="true" (click)="confirmDelete(p)" pTooltip="Eliminar"></button>
+                  <button pButton size="small" severity="secondary" [text]="true" (click)="openEdit(p)" pTooltip="Editar"><span class="p-button-icon p-button-icon-left pi pi-pencil" aria-hidden="true"></span></button>
+                  <button pButton size="small" severity="secondary" [text]="true" (click)="confirmDelete(p)" pTooltip="Eliminar"><span class="p-button-icon p-button-icon-left pi pi-trash" aria-hidden="true"></span></button>
                 </td>
               </tr>
             </ng-template>
@@ -225,15 +209,7 @@ interface ProductOption {
                     <div class="comm-empty-icon"><i class="pi pi-megaphone" aria-hidden="true"></i></div>
                     <h3>Sin promociones</h3>
                     <p>{{ typeFilter ? 'No hay promociones de este tipo.' : 'Creá tu primera promoción para incentivar pedidos.' }}</p>
-                    <button
-                      type="button"
-                      pButton
-                      icon="pi pi-plus"
-                      severity="contrast"
-                      size="small"
-                      label="Nueva promoción"
-                      (click)="openCreate()"
-                    ></button>
+                    <button type="button" pButton severity="contrast" size="small" (click)="openCreate()"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Nueva promoción</span></button>
                   </div>
                 </td>
               </tr>

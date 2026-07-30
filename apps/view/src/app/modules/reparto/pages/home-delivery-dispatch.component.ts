@@ -93,8 +93,7 @@ import { MapComponent } from '../../../shared/components/map/map.component';
                   </p-select>
                 </td>
                 <td>
-                  <button pButton size="small" label="Asignar" icon="pi pi-send"
-                  [loading]="assigningId() === o.order_id" (click)="assignOrder(o)"></button>
+                  <button pButton size="small" [loading]="assigningId() === o.order_id" (click)="assignOrder(o)"><span class="p-button-icon p-button-icon-left pi pi-send" aria-hidden="true"></span><span class="p-button-label">Asignar</span></button>
                 </td>
               </tr>
             </ng-template>
@@ -323,7 +322,7 @@ import { MapComponent } from '../../../shared/components/map/map.component';
                       </div>
                     }
                     <div class="rd-actions">
-                      <button pButton label="Despachar otro" icon="pi pi-plus" severity="secondary" [outlined]="true" (click)="reset()"></button>
+                      <button pButton severity="secondary" [outlined]="true" (click)="reset()"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Despachar otro</span></button>
                     </div>
                   </div>
                 }

@@ -27,7 +27,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
       <p-toast></p-toast>
       <header class="surf-page-head">
         <div class="surf-page-head-text">
-          <button pButton type="button" icon="pi pi-arrow-left" label="Requisiciones" class="p-button-text p-button-sm rd-back" (click)="back()"></button>
+          <button pButton type="button" class="p-button-text p-button-sm rd-back" (click)="back()"><span class="p-button-icon p-button-icon-left pi pi-arrow-left" aria-hidden="true"></span><span class="p-button-label">Requisiciones</span></button>
           @if (req(); as r) {
             <h1>{{ r.folio }} <p-tag [value]="estadoLabel(r.estado)" [severity]="estadoSev(r.estado)"></p-tag></h1>
             <p class="surf-page-sub">{{ r.warehouse_code }} · {{ r.warehouse_name }} · {{ r.total_lines }} líneas · objetivo {{ basisLabel(r.target_basis) }}</p>
@@ -35,15 +35,15 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
         </div>
         @if (req(); as r) {
           <div class="rd-actions">
-            <button pButton type="button" label="Exportar Excel" icon="pi pi-file-excel" class="p-button-sm p-button-outlined p-button-secondary" [loading]="exporting()" (click)="exportXlsx()"></button>
+            <button pButton type="button" class="p-button-sm p-button-outlined p-button-secondary" [loading]="exporting()" (click)="exportXlsx()"><span class="p-button-icon p-button-icon-left pi pi-file-excel" aria-hidden="true"></span><span class="p-button-label">Exportar Excel</span></button>
             @if (canManage) {
               @if (r.estado === 'pending_approval') {
-                <button pButton type="button" label="Rechazar" icon="pi pi-times" class="p-button-sm p-button-outlined p-button-danger" [loading]="busy()" (click)="reject()"></button>
-                <button pButton type="button" label="Aprobar" icon="pi pi-check" class="p-button-sm" [loading]="busy()" (click)="approve()"></button>
+                <button pButton type="button" class="p-button-sm p-button-outlined p-button-danger" [loading]="busy()" (click)="reject()"><span class="p-button-icon p-button-icon-left pi pi-times" aria-hidden="true"></span><span class="p-button-label">Rechazar</span></button>
+                <button pButton type="button" class="p-button-sm" [loading]="busy()" (click)="approve()"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Aprobar</span></button>
               } @else if (r.estado === 'approved') {
-                <button pButton type="button" label="Generar orden de compra" icon="pi pi-shopping-cart" class="p-button-sm" [loading]="busy()" (click)="generatePO()"></button>
+                <button pButton type="button" class="p-button-sm" [loading]="busy()" (click)="generatePO()"><span class="p-button-icon p-button-icon-left pi pi-shopping-cart" aria-hidden="true"></span><span class="p-button-label">Generar orden de compra</span></button>
               } @else if (r.estado === 'ordered' || r.estado === 'received') {
-                <button pButton type="button" label="Ver orden de compra" icon="pi pi-arrow-right" class="p-button-sm p-button-outlined" (click)="goToPO()"></button>
+                <button pButton type="button" class="p-button-sm p-button-outlined" (click)="goToPO()"><span class="p-button-icon p-button-icon-left pi pi-arrow-right" aria-hidden="true"></span><span class="p-button-label">Ver orden de compra</span></button>
               }
             }
           </div>

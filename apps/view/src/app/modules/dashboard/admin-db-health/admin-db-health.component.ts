@@ -27,10 +27,8 @@ type Sev = 'success' | 'warn' | 'danger' | 'secondary';
             <app-freshness-pill [since]="r.checked_at" label="verificado" [staleAfterSec]="300" />
             <p-tag [severity]="sev(r.overall)" [value]="'Global: ' + statusLabel(r.overall)" [rounded]="true" />
           }
-          <button pButton type="button" icon="pi pi-bolt" label="Escanear ahora"
-                  [loading]="scanning()" (click)="scan()" size="small" class="p-button-outlined"></button>
-          <button pButton type="button" icon="pi pi-refresh" label="Refrescar"
-                  [loading]="loading()" (click)="load()" size="small"></button>
+          <button pButton type="button" [loading]="scanning()" (click)="scan()" size="small" class="p-button-outlined"><span class="p-button-icon p-button-icon-left pi pi-bolt" aria-hidden="true"></span><span class="p-button-label">Escanear ahora</span></button>
+          <button pButton type="button" [loading]="loading()" (click)="load()" size="small"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span><span class="p-button-label">Refrescar</span></button>
         </div>
       </header>
 
@@ -65,8 +63,7 @@ type Sev = 'success' | 'warn' | 'danger' | 'secondary';
               <td><span class="when">{{ a.first_seen_at | date: 'dd/MM HH:mm' }}</span></td>
               <td class="num">
                 @if (a.acknowledged_at) { <span class="ackd"><i class="pi pi-check"></i> visto</span> }
-                @else { <button pButton type="button" label="Marcar visto" size="small" class="p-button-text p-button-sm"
-                                (click)="ack(a)"></button> }
+                @else { <button pButton type="button" size="small" class="p-button-text p-button-sm" (click)="ack(a)"><span class="p-button-label">Marcar visto</span></button> }
               </td>
             </tr>
           </ng-template>

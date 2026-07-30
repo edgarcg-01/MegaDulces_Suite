@@ -76,23 +76,8 @@ function severityForStatus(s: ShipmentStatus): Severity {
           </p>
         </div>
         <div class="sh-head-actions">
-          <button
-            pButton
-            icon="pi pi-refresh"
-            [text]="true"
-            severity="secondary"
-            size="small"
-            (click)="reloadCurrent()"
-            [loading]="loading() || loadingPending() || loadingStats()"
-            pTooltip="Refrescar"
-          ></button>
-          <button
-            pButton
-            icon="pi pi-plus"
-            label="Nuevo embarque"
-            size="small"
-            (click)="openCreate()"
-          ></button>
+          <button pButton [text]="true" severity="secondary" size="small" (click)="reloadCurrent()" [loading]="loading() || loadingPending() || loadingStats()" pTooltip="Refrescar"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span></button>
+          <button pButton size="small" (click)="openCreate()"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Nuevo embarque</span></button>
         </div>
       </header>
     
@@ -232,20 +217,16 @@ function severityForStatus(s: ShipmentStatus): Severity {
                   </td>
                   <td class="comm-actions" (click)="$event.stopPropagation()">
                     @if (s.status === 'programado') {
-                      <button pButton icon="pi pi-send" size="small" severity="secondary" [text]="true"
-                      pTooltip="Marcar en ruta" (click)="action(s, 'depart')"></button>
+                      <button pButton size="small" severity="secondary" [text]="true" pTooltip="Marcar en ruta" (click)="action(s, 'depart')"><span class="p-button-icon p-button-icon-left pi pi-send" aria-hidden="true"></span></button>
                     }
                     @if (s.status === 'en_ruta') {
-                      <button pButton icon="pi pi-check" size="small" severity="secondary" [text]="true"
-                      pTooltip="Marcar entregado" (click)="action(s, 'deliver')"></button>
+                      <button pButton size="small" severity="secondary" [text]="true" pTooltip="Marcar entregado" (click)="action(s, 'deliver')"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span></button>
                     }
                     @if (s.status === 'entregado') {
-                      <button pButton icon="pi pi-lock" size="small" severity="secondary" [text]="true"
-                      pTooltip="Cerrar" (click)="action(s, 'close')"></button>
+                      <button pButton size="small" severity="secondary" [text]="true" pTooltip="Cerrar" (click)="action(s, 'close')"><span class="p-button-icon p-button-icon-left pi pi-lock" aria-hidden="true"></span></button>
                     }
                     @if (s.status === 'programado' || s.status === 'en_ruta') {
-                      <button pButton icon="pi pi-times" size="small" severity="secondary" [text]="true"
-                      pTooltip="Cancelar" (click)="confirmCancel(s)"></button>
+                      <button pButton size="small" severity="secondary" [text]="true" pTooltip="Cancelar" (click)="confirmCancel(s)"><span class="p-button-icon p-button-icon-left pi pi-times" aria-hidden="true"></span></button>
                     }
                   </td>
                 </tr>
@@ -315,8 +296,7 @@ function severityForStatus(s: ShipmentStatus): Severity {
                   </td>
                   <td class="comm-num is-strong">{{ o.total | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
                   <td class="comm-actions">
-                    <button pButton icon="pi pi-plus" label="Crear" size="small" severity="primary"
-                    (click)="openCreateForOrder(o)" pTooltip="Crear embarque"></button>
+                    <button pButton size="small" severity="primary" (click)="openCreateForOrder(o)" pTooltip="Crear embarque"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Crear</span></button>
                   </td>
                 </tr>
               </ng-template>

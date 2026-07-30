@@ -21,8 +21,7 @@ import { LiveShipment, LogisticaService } from '../logistica.service';
             <span class="live-muted">· actualiza cada 30 s</span>
           </p>
         </div>
-        <button pButton icon="pi pi-refresh" label="Actualizar" severity="secondary" size="small"
-        [loading]="loading()" (click)="refresh()"></button>
+        <button pButton severity="secondary" size="small" [loading]="loading()" (click)="refresh()"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span><span class="p-button-label">Actualizar</span></button>
       </header>
     
       <div class="sheet cols-12">

@@ -44,8 +44,8 @@ import { forkJoin } from 'rxjs';
           <p class="surf-page-sub"><b>{{ counts().length }}</b> folio{{ counts().length === 1 ? '' : 's' }}</p>
         </div>
         <div class="in-head-actions">
-          <button pButton icon="pi pi-plus" label="Abrir folio" size="small" (click)="openDialog()"></button>
-          <button pButton icon="pi pi-refresh" [text]="true" severity="secondary" size="small" (click)="load()" [loading]="loading()"></button>
+          <button pButton size="small" (click)="openDialog()"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Abrir folio</span></button>
+          <button pButton [text]="true" severity="secondary" size="small" (click)="load()" [loading]="loading()"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span></button>
         </div>
       </header>
 
@@ -75,7 +75,7 @@ import { forkJoin } from 'rxjs';
             </td>
             <td>{{ c.started_at ? (c.started_at | date:'short') : '—' }}</td>
             <td>
-              <button pButton icon="pi pi-arrow-right" label="Abrir" size="small" [text]="true" [routerLink]="['/almacen/inventory/sessions', c.id]" (click)="$event.stopPropagation()"></button>
+              <button pButton size="small" [text]="true" [routerLink]="['/almacen/inventory/sessions', c.id]" (click)="$event.stopPropagation()"><span class="p-button-icon p-button-icon-left pi pi-arrow-right" aria-hidden="true"></span><span class="p-button-label">Abrir</span></button>
             </td>
           </tr>
         </ng-template>
@@ -135,8 +135,8 @@ import { forkJoin } from 'rxjs';
           }
         </div>
         <ng-template #footer>
-          <button pButton label="Cancelar" [text]="true" severity="secondary" (click)="dialogVisible.set(false)"></button>
-          <button pButton label="Abrir" icon="pi pi-check" [loading]="opening()" [disabled]="!formWarehouse()" (click)="open()"></button>
+          <button pButton [text]="true" severity="secondary" (click)="dialogVisible.set(false)"><span class="p-button-label">Cancelar</span></button>
+          <button pButton [loading]="opening()" [disabled]="!formWarehouse()" (click)="open()"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Abrir</span></button>
         </ng-template>
       </p-dialog>
     </div>

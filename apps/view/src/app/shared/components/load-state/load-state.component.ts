@@ -36,8 +36,7 @@ import { SkeletonModule } from 'primeng/skeleton';
           <p class="ls-error-title">{{ errorTitle() }}</p>
           <p class="ls-error-detail">{{ error() }}</p>
         </div>
-        <button pButton type="button" class="p-button-sm p-button-outlined" icon="pi pi-refresh"
-                label="Reintentar" (click)="retry.emit()"></button>
+        <button pButton type="button" class="p-button-sm p-button-outlined" (click)="retry.emit()"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span><span class="p-button-label">Reintentar</span></button>
       </div>
     } @else if (isEmpty()) {
       <div class="ls-empty">

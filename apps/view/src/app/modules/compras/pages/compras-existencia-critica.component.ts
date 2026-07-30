@@ -67,9 +67,8 @@ interface DraftLine {
         </div>
         <div class="ec-head-actions">
           @if (loadedAt()) { <app-freshness-pill [since]="loadedAt()" /> }
-          <a pButton routerLink="/compras/pedido" label="Pedido" icon="pi pi-cart-plus" class="p-button-sm p-button-text" title="Armar el pedido por proveedor y ciclo de reabasto"></a>
-          <button pButton type="button" label="Excel" icon="pi pi-file-excel" class="p-button-sm p-button-outlined p-button-secondary"
-                  [loading]="dl()" [disabled]="dl() || total() === 0" (click)="downloadXlsx()"></button>
+          <a pButton routerLink="/compras/pedido" class="p-button-sm p-button-text" title="Armar el pedido por proveedor y ciclo de reabasto"><span class="p-button-icon p-button-icon-left pi pi-cart-plus" aria-hidden="true"></span><span class="p-button-label">Pedido</span></a>
+          <button pButton type="button" class="p-button-sm p-button-outlined p-button-secondary" [loading]="dl()" [disabled]="dl() || total() === 0" (click)="downloadXlsx()"><span class="p-button-icon p-button-icon-left pi pi-file-excel" aria-hidden="true"></span><span class="p-button-label">Excel</span></button>
           <p-button pButton type="button" [label]="'Generar requisición' + (selCount() ? ' (' + selCount() + ')' : '')" icon="pi pi-file-edit"
                   styleClass="p-button-sm" [disabled]="!canRequire()" (click)="openDialog()"></p-button>
         </div>
@@ -293,8 +292,8 @@ interface DraftLine {
         <input pInputText type="text" [(ngModel)]="notes" placeholder="Nota (opcional)" class="ec-dlg-notes" />
       </div>
       <ng-template #footer>
-        <button pButton type="button" label="Cancelar" class="p-button-text p-button-sm" [disabled]="saving()" (click)="dialogOpen.set(false)"></button>
-        <button pButton type="button" label="Crear requisición" icon="pi pi-check" class="p-button-sm" [loading]="saving()" [disabled]="saving()" (click)="create()"></button>
+        <button pButton type="button" class="p-button-text p-button-sm" [disabled]="saving()" (click)="dialogOpen.set(false)"><span class="p-button-label">Cancelar</span></button>
+        <button pButton type="button" class="p-button-sm" [loading]="saving()" [disabled]="saving()" (click)="create()"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Crear requisición</span></button>
       </ng-template>
     </p-dialog>
   `,

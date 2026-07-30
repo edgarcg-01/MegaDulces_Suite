@@ -53,7 +53,7 @@ function severityLiq(s: LiquidationStatus): Severity {
           <h1>Liquidaciones por período</h1>
           <p class="surf-page-sub">Catorcenas, cálculo automático de comisiones + viáticos por colaborador.</p>
         </div>
-        <button pButton icon="pi pi-plus" label="Nuevo período" (click)="openCreatePeriod()"></button>
+        <button pButton (click)="openCreatePeriod()"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Nuevo período</span></button>
       </header>
     
       <div class="grid">
@@ -77,9 +77,7 @@ function severityLiq(s: LiquidationStatus): Severity {
                   <td>{{ p.payment_date | date:'shortDate' }}</td>
                   <td><p-tag [severity]="sevPeriod(p.status)" [value]="p.status"></p-tag></td>
                   <td class="actions">
-                    <button pButton icon="pi pi-cog" size="small" severity="secondary" [text]="true"
-                      pTooltip="Calcular liquidaciones" (click)="calculate(p)"
-                    [loading]="calculatingId() === p.id"></button>
+                    <button pButton size="small" severity="secondary" [text]="true" pTooltip="Calcular liquidaciones" (click)="calculate(p)" [loading]="calculatingId() === p.id"><span class="p-button-icon p-button-icon-left pi pi-cog" aria-hidden="true"></span></button>
                   </td>
                 </tr>
               </ng-template>
@@ -121,9 +119,8 @@ function severityLiq(s: LiquidationStatus): Severity {
                   <td class="num grand">\${{ l.net_amount | number:'1.2-2' }}</td>
                   <td><p-tag [severity]="sevLiq(l.status)" [value]="l.status"></p-tag></td>
                   <td class="actions">
-                    <button pButton icon="pi pi-list" size="small" severity="secondary" [text]="true"
-                    pTooltip="Ajustes (anticipos / bonos / multas)" (click)="openAdjustments(l)"></button>
-                    <button pButton icon="pi pi-pencil" size="small" severity="secondary" [text]="true" (click)="openEditLiquidation(l)"></button>
+                    <button pButton size="small" severity="secondary" [text]="true" pTooltip="Ajustes (anticipos / bonos / multas)" (click)="openAdjustments(l)"><span class="p-button-icon p-button-icon-left pi pi-list" aria-hidden="true"></span></button>
+                    <button pButton size="small" severity="secondary" [text]="true" (click)="openEditLiquidation(l)"><span class="p-button-icon p-button-icon-left pi pi-pencil" aria-hidden="true"></span></button>
                   </td>
                 </tr>
               </ng-template>
@@ -168,8 +165,7 @@ function severityLiq(s: LiquidationStatus): Severity {
             <td class="num">\${{ a.amount | number:'1.2-2' }}</td>
             <td class="muted">{{ a.notes || '—' }}</td>
             <td class="actions">
-              <button pButton icon="pi pi-trash" size="small" severity="danger" [text]="true"
-              (click)="deleteAdjustment(a)" [disabled]="periodLocked()"></button>
+              <button pButton size="small" severity="danger" [text]="true" (click)="deleteAdjustment(a)" [disabled]="periodLocked()"><span class="p-button-icon p-button-icon-left pi pi-trash" aria-hidden="true"></span></button>
             </td>
           </tr>
         </ng-template>
@@ -200,7 +196,7 @@ function severityLiq(s: LiquidationStatus): Severity {
       <label><span>Notas</span><input pInputText formControlName="notes" /></label>
     </div>
     <div class="adj-form-actions">
-      <button pButton label="Agregar ajuste" icon="pi pi-plus" [loading]="savingAdj()" [disabled]="adjForm.invalid" (click)="createAdjustment()"></button>
+      <button pButton [loading]="savingAdj()" [disabled]="adjForm.invalid" (click)="createAdjustment()"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Agregar ajuste</span></button>
     </div>
     </form>
     }
@@ -209,7 +205,7 @@ function severityLiq(s: LiquidationStatus): Severity {
     }
     
     <ng-template #footer>
-      <button pButton label="Cerrar" severity="secondary" [outlined]="true" (click)="adjDialog = false"></button>
+      <button pButton severity="secondary" [outlined]="true" (click)="adjDialog = false"><span class="p-button-label">Cerrar</span></button>
     </ng-template>
     </p-dialog>
     
@@ -226,8 +222,8 @@ function severityLiq(s: LiquidationStatus): Severity {
         <label><span>Notas</span><input pInputText formControlName="notes" /></label>
       </form>
       <ng-template #footer>
-        <button pButton label="Cancelar" severity="secondary" [outlined]="true" (click)="periodDialog = false"></button>
-        <button pButton label="Crear" icon="pi pi-check" [loading]="savingP()" [disabled]="periodForm.invalid" (click)="createPeriod()"></button>
+        <button pButton severity="secondary" [outlined]="true" (click)="periodDialog = false"><span class="p-button-label">Cancelar</span></button>
+        <button pButton [loading]="savingP()" [disabled]="periodForm.invalid" (click)="createPeriod()"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Crear</span></button>
       </ng-template>
     </p-dialog>
     
@@ -252,8 +248,8 @@ function severityLiq(s: LiquidationStatus): Severity {
       </form>
     }
     <ng-template #footer>
-      <button pButton label="Cancelar" severity="secondary" [outlined]="true" (click)="liqDialog = false"></button>
-      <button pButton label="Guardar" icon="pi pi-check" [loading]="savingL()" (click)="saveLiquidation()"></button>
+      <button pButton severity="secondary" [outlined]="true" (click)="liqDialog = false"><span class="p-button-label">Cancelar</span></button>
+      <button pButton [loading]="savingL()" (click)="saveLiquidation()"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Guardar</span></button>
     </ng-template>
     </p-dialog>
     `,

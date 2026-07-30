@@ -47,10 +47,8 @@ import { Permission } from '../../../core/constants/permissions';
               <span class="dm-strong">{{ money(s.totals.valor) }}</span> · {{ s.totals.documentos | number }} docs
             </div>
           }
-          <button pButton type="button" class="p-button-sm p-button-outlined" icon="pi pi-file-excel" label="Excel"
-                  [loading]="dlXlsx()" (click)="download('xlsx')" title="Documentos + validación de traspasos (filtros actuales)"></button>
-          <button pButton type="button" class="p-button-sm p-button-outlined" icon="pi pi-file-pdf" label="PDF"
-                  [loading]="dlPdf()" (click)="download('pdf')" title="Documentos + validación de traspasos (filtros actuales)"></button>
+          <button pButton type="button" class="p-button-sm p-button-outlined" [loading]="dlXlsx()" (click)="download('xlsx')" title="Documentos + validación de traspasos (filtros actuales)"><span class="p-button-icon p-button-icon-left pi pi-file-excel" aria-hidden="true"></span><span class="p-button-label">Excel</span></button>
+          <button pButton type="button" class="p-button-sm p-button-outlined" [loading]="dlPdf()" (click)="download('pdf')" title="Documentos + validación de traspasos (filtros actuales)"><span class="p-button-icon p-button-icon-left pi pi-file-pdf" aria-hidden="true"></span><span class="p-button-label">PDF</span></button>
         </div>
       </header>
 
@@ -78,14 +76,14 @@ import { Permission } from '../../../core/constants/permissions';
         <span class="dm-search">
           <input pInputText type="text" [(ngModel)]="fSearch" (keyup.enter)="reload()" placeholder="SKU o producto…" aria-label="Buscar por SKU o producto" />
         </span>
-        <button pButton type="button" icon="pi pi-search" class="p-button-sm p-button-text" (click)="reload()" ariaLabel="Buscar"></button>
+        <button pButton type="button" class="p-button-sm p-button-text" (click)="reload()" ariaLabel="Buscar"><span class="p-button-icon p-button-icon-left pi pi-search" aria-hidden="true"></span></button>
       </div>
 
       @if (error()) {
         <div class="dm-error" role="alert">
           <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
           <span>{{ error() }}</span>
-          <button pButton type="button" class="p-button-sm p-button-text" label="Reintentar" (click)="reload()"></button>
+          <button pButton type="button" class="p-button-sm p-button-text" (click)="reload()"><span class="p-button-label">Reintentar</span></button>
         </div>
       }
 
@@ -235,7 +233,7 @@ import { Permission } from '../../../core/constants/permissions';
           <div class="dm-audit-bar">
             @if (h.audited) {
               <span class="dm-audited-note"><i class="pi pi-verified"></i> Auditado por {{ h.audited_by || '—' }} · {{ h.audited_at | date:'yyyy-MM-dd HH:mm' }}</span>
-              <button pButton type="button" class="p-button-sm p-button-text p-button-secondary" label="Quitar auditoría" [disabled]="!canAudit" (click)="toggleAuditDoc(h)"></button>
+              <button pButton type="button" class="p-button-sm p-button-text p-button-secondary" [disabled]="!canAudit" (click)="toggleAuditDoc(h)"><span class="p-button-label">Quitar auditoría</span></button>
             } @else {
               <p-button pButton type="button" styleClass="dm-audit-btn" icon="pi pi-check-circle" [label]="auditLabel(h)" [disabled]="!canAudit" (click)="toggleAuditDoc(h)"></p-button>
             }

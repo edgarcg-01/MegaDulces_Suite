@@ -91,7 +91,7 @@ import { ComprasService, SupplierParam, SupplierOrder, SupplierOrderParamsDto, R
             </td>
             <td class="cp-r"><input pInputText type="number" min="0" max="100" [(ngModel)]="r.safety_pct" (change)="saveParam(r, { safety_pct: numOrNull(r.safety_pct) })" class="cp-num" [class.cp-unset]="r.safety_pct == null" [placeholder]="r.auto_safety_pct ? (r.auto_safety_pct + '% auto') : '0'" /></td>
             <td class="cp-r"><input pInputText type="number" min="1" max="120" [(ngModel)]="r.coverage_days_override" (change)="saveParam(r, { coverage_days_override: numOrNull(r.coverage_days_override) })" class="cp-num" [class.cp-unset]="r.coverage_days_override == null" [placeholder]="r.auto_coverage_days ? (r.auto_coverage_days + ' auto') : 'global'" /></td>
-            <td class="cp-r"><button pButton type="button" label="Ver pedido" icon="pi pi-list" class="p-button-sm p-button-text" (click)="openOrder(r)"></button></td>
+            <td class="cp-r"><button pButton type="button" class="p-button-sm p-button-text" (click)="openOrder(r)"><span class="p-button-icon p-button-icon-left pi pi-list" aria-hidden="true"></span><span class="p-button-label">Ver pedido</span></button></td>
             <td class="cp-r">@if (savedId() === r.id) { <i class="pi pi-check cp-ok"></i> }</td>
           </tr>
         </ng-template>

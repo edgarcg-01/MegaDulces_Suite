@@ -49,11 +49,8 @@ import { ProductSearchComponent, ProductHit } from '../components/product-search
           <p-select [options]="warehouseOptions()" [(ngModel)]="warehouseFilter" optionLabel="label" optionValue="value"
                     (onChange)="load()" styleClass="abc-wh" ariaLabel="Filtrar por almacén"></p-select>
           <app-product-search (productSelected)="prodFilter.set($event)"></app-product-search>
-          <button pButton type="button" label="Recalcular ABC" icon="pi pi-sync" [text]="true" severity="secondary"
-                  size="small" (click)="recalc()" [loading]="working()"></button>
-          <button pButton type="button" label="Generar folios" icon="pi pi-plus" size="small"
-                  (click)="confirmGenerate()" [loading]="working()" [disabled]="!isSpecific()"
-                  [pTooltip]="isSpecific() ? '' : 'Seleccioná un almacén para generar su folio cíclico'"></button>
+          <button pButton type="button" [text]="true" severity="secondary" size="small" (click)="recalc()" [loading]="working()"><span class="p-button-icon p-button-icon-left pi pi-sync" aria-hidden="true"></span><span class="p-button-label">Recalcular ABC</span></button>
+          <button pButton type="button" size="small" (click)="confirmGenerate()" [loading]="working()" [disabled]="!isSpecific()" [pTooltip]="isSpecific() ? '' : 'Seleccioná un almacén para generar su folio cíclico'"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Generar folios</span></button>
         </div>
       </header>
 

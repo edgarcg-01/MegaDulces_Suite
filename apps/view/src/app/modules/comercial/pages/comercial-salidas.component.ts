@@ -97,7 +97,7 @@ const MES: Record<string, string> = {
           <app-product-search placeholder="SKU (5 díg.) o descripción…" (productSelected)="onProductPick($event)" />
         </div>
         <div class="sl-actions">
-          <button pButton label="Consultar" icon="pi pi-search" size="small" [loading]="loading()" (click)="load()"></button>
+          <button pButton size="small" [loading]="loading()" (click)="load()"><span class="p-button-icon p-button-icon-left pi pi-search" aria-hidden="true"></span><span class="p-button-label">Consultar</span></button>
         </div>
       </div>
 
@@ -105,8 +105,7 @@ const MES: Record<string, string> = {
         <div class="so-actions-bar">
           <span class="text-xs text-content-muted">{{ r.rows.length | number }} filas · {{ periodLabel() }}</span>
           <div class="so-dl">
-            <button pButton label="XLSX" icon="pi pi-file-excel" size="small" severity="secondary" [outlined]="true"
-                    [loading]="dl()" (click)="download()"></button>
+            <button pButton size="small" severity="secondary" [outlined]="true" [loading]="dl()" (click)="download()"><span class="p-button-icon p-button-icon-left pi pi-file-excel" aria-hidden="true"></span><span class="p-button-label">XLSX</span></button>
           </div>
         </div>
 

@@ -64,8 +64,7 @@ const DENOMS = [1000, 500, 200, 100, 50, 20, 10, 5, 2, 1, 0.5];
                       [filter]="riders().length > 8" filterBy="full_name" [emptyMessage]="'Sin repartidores'" />
           </div>
           <div class="liq-field liq-action">
-            <button pButton label="Abrir / ver corte" icon="pi pi-folder-open"
-                    [disabled]="!riderUserId" [loading]="busy()" (click)="openCorte()"></button>
+            <button pButton [disabled]="!riderUserId" [loading]="busy()" (click)="openCorte()"><span class="p-button-icon p-button-icon-left pi pi-folder-open" aria-hidden="true"></span><span class="p-button-label">Abrir / ver corte</span></button>
           </div>
         </div>
         @if (error()) { <p class="liq-err"><i class="pi pi-exclamation-circle"></i> {{ error() }}</p> }
@@ -99,7 +98,7 @@ const DENOMS = [1000, 500, 200, 100, 50, 20, 10, 5, 2, 1, 0.5];
             </div>
             @if (closeError()) { <p class="liq-err"><i class="pi pi-exclamation-circle"></i> {{ closeError() }}</p> }
             <div class="liq-actions">
-              <button pButton label="Cerrar corte" icon="pi pi-check" [loading]="busy()" (click)="closeCorte()"></button>
+              <button pButton [loading]="busy()" (click)="closeCorte()"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Cerrar corte</span></button>
             </div>
           } @else {
             <app-metric-strip [items]="corteClosedKpis(c)" ariaLabel="Cierre del corte" />
@@ -130,8 +129,7 @@ const DENOMS = [1000, 500, 200, 100, 50, 20, 10, 5, 2, 1, 0.5];
                 <td class="comm-num">{{ money(p.amount) }}</td>
                 <td>{{ p.order_id ? 'Pedido' : ('Folio ' + (p.kepler_folio || '')) }}</td>
                 <td class="comm-actions">
-                  <button pButton label="Verificar" icon="pi pi-check" size="small" severity="secondary" [outlined]="true"
-                          [disabled]="busy()" (click)="verify(p.id)"></button>
+                  <button pButton size="small" severity="secondary" [outlined]="true" [disabled]="busy()" (click)="verify(p.id)"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Verificar</span></button>
                 </td>
               </tr>
             </ng-template>

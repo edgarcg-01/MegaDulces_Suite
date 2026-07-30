@@ -36,7 +36,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
         <h2>Dashboard Televenta</h2>
         <p class="muted">Productividad del día + conversión 7d + ranking operadores.</p>
       </div>
-      <button pButton icon="pi pi-refresh" label="Actualizar" severity="secondary" (click)="reload()" [loading]="loading()"></button>
+      <button pButton severity="secondary" (click)="reload()" [loading]="loading()"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span><span class="p-button-label">Actualizar</span></button>
     </div>
     
     @if (data(); as d) {
@@ -100,7 +100,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
       <p-card class="queue-preview">
         <div class="card-header-row">
           <h3>Cola priorizada · próximos a llamar</h3>
-          <a pButton routerLink="/televenta/queue" label="Ver cola completa" icon="pi pi-arrow-right" iconPos="right" severity="secondary" [text]="true" size="small"></a>
+          <a pButton routerLink="/televenta/queue" severity="secondary" [text]="true" size="small"><span class="p-button-label">Ver cola completa</span><span class="p-button-icon p-button-icon-right pi pi-arrow-right" aria-hidden="true"></span></a>
         </div>
         <p-table [value]="d.queue_preview" responsiveLayout="scroll" styleClass="p-datatable-sm">
           <ng-template #header>
@@ -118,7 +118,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
               <td><strong>{{ c.name }}</strong></td>
               <td>{{ c.phone || '—' }}</td>
               <td>{{ c.last_order_at ? (c.last_order_at | date:'mediumDate') : '—' }}</td>
-              <td><a pButton [routerLink]="['/televenta/lead', c.id]" label="Tomar" icon="pi pi-phone" size="small" [text]="true"></a></td>
+              <td><a pButton [routerLink]="['/televenta/lead', c.id]" size="small" [text]="true"><span class="p-button-icon p-button-icon-left pi pi-phone" aria-hidden="true"></span><span class="p-button-label">Tomar</span></a></td>
             </tr>
           </ng-template>
           <ng-template #emptymessage>

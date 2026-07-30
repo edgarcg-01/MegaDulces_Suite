@@ -32,7 +32,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
           <p class="surf-page-sub">Lo que el motor detectó crítico: agotados clase A y productos bajo punto de reorden. El scan corre cada noche.</p>
         </div>
         <div class="hz-head-actions">
-          <button pButton type="button" label="Escanear ahora" icon="pi pi-bolt" class="p-button-sm p-button-outlined" [loading]="scanning()" (click)="scan()"></button>
+          <button pButton type="button" class="p-button-sm p-button-outlined" [loading]="scanning()" (click)="scan()"><span class="p-button-icon p-button-icon-left pi pi-bolt" aria-hidden="true"></span><span class="p-button-label">Escanear ahora</span></button>
         </div>
       </header>
 

@@ -40,8 +40,7 @@ import { MetricStripComponent, MetricStripItem } from '../../../shared/component
           <p class="surf-page-sub">Normaliza las categorías (plaza/sourcing). Fusiona duplicados y renombra — alimentan el filtro por categoría en Pedido y Existencia Crítica. Solo se fusionan nombres idénticos (Guadalajara ≠ Guadalajara 2).</p>
         </div>
         <div class="cat-head-actions">
-          <button pButton type="button" label="Auto-fusionar duplicados" icon="pi pi-clone" class="p-button-sm p-button-outlined"
-                  [loading]="deduping()" (click)="dedupeVisible.set(true)"></button>
+          <button pButton type="button" class="p-button-sm p-button-outlined" [loading]="deduping()" (click)="dedupeVisible.set(true)"><span class="p-button-icon p-button-icon-left pi pi-clone" aria-hidden="true"></span><span class="p-button-label">Auto-fusionar duplicados</span></button>
         </div>
       </header>
 
@@ -55,8 +54,8 @@ import { MetricStripComponent, MetricStripItem } from '../../../shared/component
         @if (selCount() >= 2) {
           <div class="cat-mergebar">
             <span class="cat-mergebar-txt"><strong>{{ selCount() }}</strong> seleccionadas</span>
-            <button pButton type="button" label="Fusionar seleccionadas" icon="pi pi-object-group" class="p-button-sm" (click)="openMerge()"></button>
-            <button pButton type="button" label="Limpiar" icon="pi pi-times" class="p-button-sm p-button-text" (click)="clearSel()"></button>
+            <button pButton type="button" class="p-button-sm" (click)="openMerge()"><span class="p-button-icon p-button-icon-left pi pi-object-group" aria-hidden="true"></span><span class="p-button-label">Fusionar seleccionadas</span></button>
+            <button pButton type="button" class="p-button-sm p-button-text" (click)="clearSel()"><span class="p-button-icon p-button-icon-left pi pi-times" aria-hidden="true"></span><span class="p-button-label">Limpiar</span></button>
           </div>
         }
       </div>
@@ -80,8 +79,8 @@ import { MetricStripComponent, MetricStripItem } from '../../../shared/component
               @if (editingId() === c.id) {
                 <span class="cat-edit">
                   <input pInputText type="text" [(ngModel)]="editName" class="cat-edit-input" (keyup.enter)="saveRename(c)" (keyup.escape)="editingId.set(null)" />
-                  <button pButton type="button" icon="pi pi-check" class="p-button-sm p-button-text" [loading]="renaming()" (click)="saveRename(c)"></button>
-                  <button pButton type="button" icon="pi pi-times" class="p-button-sm p-button-text" (click)="editingId.set(null)"></button>
+                  <button pButton type="button" class="p-button-sm p-button-text" [loading]="renaming()" (click)="saveRename(c)"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span></button>
+                  <button pButton type="button" class="p-button-sm p-button-text" (click)="editingId.set(null)"><span class="p-button-icon p-button-icon-left pi pi-times" aria-hidden="true"></span></button>
                 </span>
               } @else {
                 <span class="cat-name">{{ c.name }}</span>
@@ -92,7 +91,7 @@ import { MetricStripComponent, MetricStripItem } from '../../../shared/component
             <td class="cat-r cat-muted">{{ c.n_suppliers | number }}</td>
             <td>
               @if (editingId() !== c.id) {
-                <button pButton type="button" icon="pi pi-pencil" class="p-button-sm p-button-text cat-ghost" (click)="startRename(c)" pTooltip="Renombrar" tooltipPosition="left"></button>
+                <button pButton type="button" class="p-button-sm p-button-text cat-ghost" (click)="startRename(c)" pTooltip="Renombrar" tooltipPosition="left"><span class="p-button-icon p-button-icon-left pi pi-pencil" aria-hidden="true"></span></button>
               }
             </td>
           </tr>
@@ -116,8 +115,8 @@ import { MetricStripComponent, MetricStripItem } from '../../../shared/component
         }
       </div>
       <ng-template #footer>
-        <button pButton type="button" label="Cancelar" class="p-button-text p-button-sm" (click)="mergeVisible.set(false)"></button>
-        <button pButton type="button" label="Fusionar" icon="pi pi-object-group" class="p-button-sm" [loading]="merging()" [disabled]="!mergeInto" (click)="doMerge()"></button>
+        <button pButton type="button" class="p-button-text p-button-sm" (click)="mergeVisible.set(false)"><span class="p-button-label">Cancelar</span></button>
+        <button pButton type="button" class="p-button-sm" [loading]="merging()" [disabled]="!mergeInto" (click)="doMerge()"><span class="p-button-icon p-button-icon-left pi pi-object-group" aria-hidden="true"></span><span class="p-button-label">Fusionar</span></button>
       </ng-template>
     </p-dialog>
 
@@ -126,8 +125,8 @@ import { MetricStripComponent, MetricStripItem } from '../../../shared/component
               [style]="{ width: '34rem', maxWidth: '95vw' }" header="Auto-fusionar duplicados" [dismissableMask]="true">
       <p class="cat-dlg-sub">Fusiona automáticamente las categorías de <strong>nombre idéntico</strong>: conserva la de más productos, mueve sus productos y desactiva las demás. <strong>No toca nombres distintos</strong> (Guadalajara y Guadalajara 2 quedan separadas).</p>
       <ng-template #footer>
-        <button pButton type="button" label="Cancelar" class="p-button-text p-button-sm" (click)="dedupeVisible.set(false)"></button>
-        <button pButton type="button" label="Fusionar duplicados" icon="pi pi-clone" class="p-button-sm" [loading]="deduping()" (click)="doAutoDedupe()"></button>
+        <button pButton type="button" class="p-button-text p-button-sm" (click)="dedupeVisible.set(false)"><span class="p-button-label">Cancelar</span></button>
+        <button pButton type="button" class="p-button-sm" [loading]="deduping()" (click)="doAutoDedupe()"><span class="p-button-icon p-button-icon-left pi pi-clone" aria-hidden="true"></span><span class="p-button-label">Fusionar duplicados</span></button>
       </ng-template>
     </p-dialog>
   `,

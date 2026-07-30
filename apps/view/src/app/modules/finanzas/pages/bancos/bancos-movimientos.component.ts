@@ -114,8 +114,7 @@ import { GROUP_ORDER, groupLabel, groupColorVar, dmy, dmShort, money0 } from './
         <!-- CB.15.2 — de dónde viene: cadena del proveedor (pago) o cómo Kepler tiene la cobranza (depósito) -->
         <div class="fb-flow-sec">
           @if (!flow() && !flowLoading()) {
-            <button pButton type="button" label="Ver de dónde viene" icon="pi pi-sitemap"
-                    class="p-button-sm p-button-outlined" (click)="loadFlow()"></button>
+            <button pButton type="button" class="p-button-sm p-button-outlined" (click)="loadFlow()"><span class="p-button-icon p-button-icon-left pi pi-sitemap" aria-hidden="true"></span><span class="p-button-label">Ver de dónde viene</span></button>
           }
           @if (flowLoading()) { <p class="muted fb-flow-loading"><i class="pi pi-spin pi-spinner"></i> Rastreando el flujo…</p> }
           @if (flow(); as fl) {

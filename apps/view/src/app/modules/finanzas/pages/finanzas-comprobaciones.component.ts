@@ -51,7 +51,7 @@ interface SolicitudSug extends ExpenseRequestRow { label: string; }
           <div style="display:inline-flex;align-items:center;gap:.4rem"><h1>Solicitudes de reembolso</h1><app-context-help topic="reembolsos" /></div>
           <p class="surf-page-sub">Adjunta los comprobantes de una solicitud de gasto (Kepler XA1501) · recibida → validada/rechazada</p>
         </div>
-        <button pButton type="button" icon="pi pi-plus" label="Nueva solicitud" (click)="openNew()"></button>
+        <button pButton type="button" (click)="openNew()"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Nueva solicitud</span></button>
       </header>
 
       <div class="cp-filters card-premium card-flat">
@@ -107,8 +107,8 @@ interface SolicitudSug extends ExpenseRequestRow { label: string; }
               </td>
               <td>
                 @if (canManage()) {
-                  @if (r.status !== 'validada') { <button pButton type="button" size="small" text severity="success" icon="pi pi-check" label="Validar" [loading]="validatingId() === r.id" [disabled]="!!validatingId()" (click)="doValidate(r)"></button> }
-                  @if (r.status !== 'rechazada') { <button pButton type="button" size="small" text severity="danger" icon="pi pi-times" (click)="openReject(r)" title="Rechazar"></button> }
+                  @if (r.status !== 'validada') { <button pButton type="button" size="small" text severity="success" [loading]="validatingId() === r.id" [disabled]="!!validatingId()" (click)="doValidate(r)"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Validar</span></button> }
+                  @if (r.status !== 'rechazada') { <button pButton type="button" size="small" text severity="danger" (click)="openReject(r)" title="Rechazar"><span class="p-button-icon p-button-icon-left pi pi-times" aria-hidden="true"></span></button> }
                 } @else { <span class="muted">—</span> }
               </td>
             </tr>
@@ -160,8 +160,8 @@ interface SolicitudSug extends ExpenseRequestRow { label: string; }
         @if (formError()) { <div class="cp-err">{{ formError() }}</div> }
       </div>
       <ng-template #footer>
-        <button pButton type="button" label="Cancelar" text (click)="showForm.set(false)"></button>
-        <button pButton type="button" label="Enviar solicitud" icon="pi pi-check" [loading]="saving()" (click)="submit()"></button>
+        <button pButton type="button" text (click)="showForm.set(false)"><span class="p-button-label">Cancelar</span></button>
+        <button pButton type="button" [loading]="saving()" (click)="submit()"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Enviar solicitud</span></button>
       </ng-template>
     </p-dialog>
 
@@ -173,8 +173,8 @@ interface SolicitudSug extends ExpenseRequestRow { label: string; }
           <textarea pInputText [(ngModel)]="rejectMotivo" rows="3" placeholder="Ej. comprobante ilegible, no corresponde al folio…"></textarea></label>
       </div>
       <ng-template #footer>
-        <button pButton type="button" label="Cancelar" text (click)="showReject.set(false)"></button>
-        <button pButton type="button" label="Rechazar" icon="pi pi-times" severity="danger" [loading]="saving()" (click)="doReject()"></button>
+        <button pButton type="button" text (click)="showReject.set(false)"><span class="p-button-label">Cancelar</span></button>
+        <button pButton type="button" severity="danger" [loading]="saving()" (click)="doReject()"><span class="p-button-icon p-button-icon-left pi pi-times" aria-hidden="true"></span><span class="p-button-label">Rechazar</span></button>
       </ng-template>
     </p-dialog>
   `,

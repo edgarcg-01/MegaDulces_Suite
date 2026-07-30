@@ -86,7 +86,7 @@ const MES: Record<string, string> = {
                     [virtualScroll]="true" [virtualScrollItemSize]="34" appendTo="body" styleClass="w-full" ariaLabel="Filtrar por cliente" />
         </div>
         <div class="rr-actions">
-          <button pButton label="Consultar" icon="pi pi-search" size="small" [loading]="loading()" (click)="load()"></button>
+          <button pButton size="small" [loading]="loading()" (click)="load()"><span class="p-button-icon p-button-icon-left pi pi-search" aria-hidden="true"></span><span class="p-button-label">Consultar</span></button>
         </div>
       </div>
 
@@ -119,7 +119,7 @@ const MES: Record<string, string> = {
           </div>
           <label class="rr-vf-chk"><p-checkbox [binary]="true" [ngModel]="fOnlyWithSales()" (ngModelChange)="fOnlyWithSales.set($event)" inputId="rr-only" /> Solo con venta</label>
           @if (hasViewFilters()) {
-            <button pButton type="button" label="Limpiar filtros" icon="pi pi-filter-slash" class="p-button-sm p-button-text" (click)="clearViewFilters()"></button>
+            <button pButton type="button" class="p-button-sm p-button-text" (click)="clearViewFilters()"><span class="p-button-icon p-button-icon-left pi pi-filter-slash" aria-hidden="true"></span><span class="p-button-label">Limpiar filtros</span></button>
           }
         </div>
       }
@@ -128,7 +128,7 @@ const MES: Record<string, string> = {
         <div class="rr-error" role="alert">
           <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
           <span>{{ error() }}</span>
-          <button pButton type="button" class="p-button-sm p-button-text" label="Reintentar" (click)="load()"></button>
+          <button pButton type="button" class="p-button-sm p-button-text" (click)="load()"><span class="p-button-label">Reintentar</span></button>
         </div>
       }
 
@@ -139,8 +139,7 @@ const MES: Record<string, string> = {
 
           <div class="so-actions-bar">
             <span class="text-xs text-content-muted">{{ filteredRows().length }}@if (filteredRows().length !== r.rows.length) { de {{ r.rows.length }}} rutas · año {{ r.year }}@if (periodLabel()) { · {{ periodLabel() }}}</span>
-            <button pButton label="XLSX" icon="pi pi-file-excel" size="small" severity="secondary" [outlined]="true"
-                    [loading]="dl()" (click)="download()"></button>
+            <button pButton size="small" severity="secondary" [outlined]="true" [loading]="dl()" (click)="download()"><span class="p-button-icon p-button-icon-left pi pi-file-excel" aria-hidden="true"></span><span class="p-button-label">XLSX</span></button>
           </div>
 
           @if (filteredRows().length) {
@@ -193,7 +192,7 @@ const MES: Record<string, string> = {
           </div>
           } @else {
             <div class="comm-empty"><div class="comm-empty-icon"><i class="pi pi-filter-slash"></i></div>
-              <h3>Sin coincidencias</h3><p>Ninguna ruta coincide con los filtros de vista. <button pButton type="button" class="p-button-sm p-button-text" label="Limpiar filtros" (click)="clearViewFilters()"></button></p></div>
+              <h3>Sin coincidencias</h3><p>Ninguna ruta coincide con los filtros de vista. <button pButton type="button" class="p-button-sm p-button-text" (click)="clearViewFilters()"><span class="p-button-label">Limpiar filtros</span></button></p></div>
           }
         } @else {
           <div class="comm-empty"><div class="comm-empty-icon"><i class="pi pi-inbox"></i></div>

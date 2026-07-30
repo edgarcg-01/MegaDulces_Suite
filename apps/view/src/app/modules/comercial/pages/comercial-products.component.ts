@@ -65,16 +65,7 @@ type ActiveFilter = 'all' | 'active' | 'inactive';
           </p>
         </div>
         <div class="pp-head-actions">
-          <button
-            pButton
-            icon="pi pi-refresh"
-            [text]="true"
-            severity="secondary"
-            size="small"
-            (click)="refresh()"
-            [loading]="loading()"
-            pTooltip="Refrescar"
-          ></button>
+          <button pButton [text]="true" severity="secondary" size="small" (click)="refresh()" [loading]="loading()" pTooltip="Refrescar"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span></button>
         </div>
       </header>
     
@@ -297,8 +288,7 @@ type ActiveFilter = 'all' | 'active' | 'inactive';
                     </span>
                   </td>
                   <td class="comm-actions">
-                    <button pButton icon="pi pi-pencil" size="small" severity="secondary" [text]="true"
-                    (click)="$event.stopPropagation(); openEdit(p)" pTooltip="Editar"></button>
+                    <button pButton size="small" severity="secondary" [text]="true" (click)="$event.stopPropagation(); openEdit(p)" pTooltip="Editar"><span class="p-button-icon p-button-icon-left pi pi-pencil" aria-hidden="true"></span></button>
                   </td>
                 </tr>
               </ng-template>
@@ -380,8 +370,8 @@ type ActiveFilter = 'all' | 'active' | 'inactive';
           </div>
         }
         <ng-template #footer>
-          <button pButton label="Cancelar" severity="secondary" [outlined]="true" (click)="dialogVisible = false"></button>
-          <button pButton label="Guardar" icon="pi pi-check" [loading]="saving()" [disabled]="form.invalid" (click)="save()"></button>
+          <button pButton severity="secondary" [outlined]="true" (click)="dialogVisible = false"><span class="p-button-label">Cancelar</span></button>
+          <button pButton [loading]="saving()" [disabled]="form.invalid" (click)="save()"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Guardar</span></button>
         </ng-template>
       </p-dialog>
     `,

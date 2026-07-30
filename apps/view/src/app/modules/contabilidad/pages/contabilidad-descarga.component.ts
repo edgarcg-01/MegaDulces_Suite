@@ -45,9 +45,9 @@ import { CredencialesService } from '../credenciales.service';
         <div class="dz-head-actions">
           @if (loadedAt()) { <app-freshness-pill [since]="loadedAt()" [staleAfterSec]="120" /> }
           @if (polling()) { <span class="dz-poll" title="Actualizando automáticamente mientras hay descargas en proceso"><i class="pi pi-sync pi-spin"></i> auto</span> }
-          <button pButton type="button" label="Refrescar" icon="pi pi-refresh" class="p-button-sm p-button-text" [loading]="loading()" (click)="reload()"></button>
+          <button pButton type="button" class="p-button-sm p-button-text" [loading]="loading()" (click)="reload()"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span><span class="p-button-label">Refrescar</span></button>
           @if (canManage) {
-            <button pButton type="button" label="Nueva descarga" icon="pi pi-plus" class="p-button-sm" (click)="openNew()"></button>
+            <button pButton type="button" class="p-button-sm" (click)="openNew()"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Nueva descarga</span></button>
           }
         </div>
       </header>
@@ -56,7 +56,7 @@ import { CredencialesService } from '../credenciales.service';
         <label class="dz-fld"><span>Estado</span>
           <p-select [options]="estadoOpts" [ngModel]="estado()" (ngModelChange)="setEstado($event)" optionLabel="label" optionValue="value" styleClass="dz-sel sel-liquid" ariaLabel="Filtrar por estado" />
         </label>
-        @if (estado() !== 'all') { <button pButton type="button" label="Limpiar" icon="pi pi-times" class="p-button-sm p-button-text dz-clear" (click)="setEstado('all')"></button> }
+        @if (estado() !== 'all') { <button pButton type="button" class="p-button-sm p-button-text dz-clear" (click)="setEstado('all')"><span class="p-button-icon p-button-icon-left pi pi-times" aria-hidden="true"></span><span class="p-button-label">Limpiar</span></button> }
       </div>
 
       <div class="card-premium card-flat">
@@ -103,8 +103,8 @@ import { CredencialesService } from '../credenciales.service';
           </ng-template>
           <ng-template #emptymessage><tr><td colspan="8" class="dz-empty">
             @if (loading()) { Cargando… }
-            @else if (errored()) { <i class="pi pi-exclamation-triangle"></i> No se pudo cargar la bandeja. <button pButton type="button" label="Reintentar" class="p-button-sm p-button-text" (click)="reload()"></button> }
-            @else if (estado() !== 'all') { <i class="pi pi-filter-slash"></i> Sin descargas en estado "{{ estadoLabel(estado()) }}". <button pButton type="button" label="Ver todas" class="p-button-sm p-button-text" (click)="setEstado('all')"></button> }
+            @else if (errored()) { <i class="pi pi-exclamation-triangle"></i> No se pudo cargar la bandeja. <button pButton type="button" class="p-button-sm p-button-text" (click)="reload()"><span class="p-button-label">Reintentar</span></button> }
+            @else if (estado() !== 'all') { <i class="pi pi-filter-slash"></i> Sin descargas en estado "{{ estadoLabel(estado()) }}". <button pButton type="button" class="p-button-sm p-button-text" (click)="setEstado('all')"><span class="p-button-label">Ver todas</span></button> }
             @else { <i class="pi pi-cloud-download"></i> Sin solicitudes de descarga. @if (canManage) { Crea una con "Nueva descarga". } @else { Requiere permiso de gestión. } }
           </td></tr></ng-template>
         </p-table>
@@ -126,8 +126,8 @@ import { CredencialesService } from '../credenciales.service';
           <p class="dz-note"><i class="pi pi-info-circle"></i> Requiere la e.firma del RFC cargada en <strong>Credenciales</strong>. El SAT limita a 72h para descargar los paquetes generados.</p>
         </div>
         <ng-template #footer>
-          <button pButton type="button" label="Cancelar" class="p-button-text p-button-sm" (click)="showNew=false"></button>
-          <button pButton type="button" label="Crear y solicitar" icon="pi pi-check" class="p-button-sm" [loading]="creating()" [disabled]="!formValid()" (click)="crear()"></button>
+          <button pButton type="button" class="p-button-text p-button-sm" (click)="showNew=false"><span class="p-button-label">Cancelar</span></button>
+          <button pButton type="button" class="p-button-sm" [loading]="creating()" [disabled]="!formValid()" (click)="crear()"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Crear y solicitar</span></button>
         </ng-template>
       </p-dialog>
     </div>

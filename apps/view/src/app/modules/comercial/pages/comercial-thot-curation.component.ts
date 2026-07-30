@@ -38,9 +38,9 @@ import { ANALYTICS_TABS } from '../analytics-tabs';
         </div>
         <div class="tcur-actions">
           <p-select [options]="profiles" [(ngModel)]="profile" optionLabel="label" optionValue="value" (onChange)="loadExamples()" styleClass="tcur-sel"></p-select>
-          <button pButton icon="pi pi-plus" label="Nuevo ejemplo" size="small" severity="contrast" (click)="openAdd()"></button>
-          <button pButton icon="pi pi-sync" label="Reindexar" size="small" [outlined]="true" (click)="reindex()" [loading]="reindexing()" pTooltip="Re-embeber ejemplos en la DB vector (few-shot semántico)"></button>
-          <button pButton icon="pi pi-refresh" [text]="true" severity="secondary" size="small" (click)="reload()" [loading]="loading()"></button>
+          <button pButton size="small" severity="contrast" (click)="openAdd()"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Nuevo ejemplo</span></button>
+          <button pButton size="small" [outlined]="true" (click)="reindex()" [loading]="reindexing()" pTooltip="Re-embeber ejemplos en la DB vector (few-shot semántico)"><span class="p-button-icon p-button-icon-left pi pi-sync" aria-hidden="true"></span><span class="p-button-label">Reindexar</span></button>
+          <button pButton [text]="true" severity="secondary" size="small" (click)="reload()" [loading]="loading()"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span></button>
         </div>
       </header>
 
@@ -55,7 +55,7 @@ import { ANALYTICS_TABS } from '../analytics-tabs';
         <span class="p-input-icon-left tcur-search">
           <input pInputText [(ngModel)]="convSearch" (keydown.enter)="loadConversations()" placeholder="Buscar en preguntas…" />
         </span>
-        <button pButton icon="pi pi-search" size="small" [text]="true" severity="secondary" (click)="loadConversations()"></button>
+        <button pButton size="small" [text]="true" severity="secondary" (click)="loadConversations()"><span class="p-button-icon p-button-icon-left pi pi-search" aria-hidden="true"></span></button>
       </div>
       <p-table [value]="conversations()" [loading]="convLoading()" styleClass="p-datatable-sm surf-table" [paginator]="conversations().length > 12" [rows]="12">
         <ng-template #header>
@@ -68,7 +68,7 @@ import { ANALYTICS_TABS } from '../analytics-tabs';
             <td class="tcur-q">{{ c.question }}</td>
             <td class="tcur-a">{{ (c.answer || '') | slice:0:100 }}{{ (c.answer || '').length > 100 ? '…' : '' }}</td>
             <td class="tcur-fb">{{ fbIcon(c.feedback) }}@if (c.promoted) { <i class="pi pi-star-fill tcur-star" title="Ya es ejemplo dorado"></i> }</td>
-            <td class="tcur-right"><button pButton icon="pi pi-eye" size="small" [text]="true" severity="secondary" (click)="openConv(c); $event.stopPropagation()"></button></td>
+            <td class="tcur-right"><button pButton size="small" [text]="true" severity="secondary" (click)="openConv(c); $event.stopPropagation()"><span class="p-button-icon p-button-icon-left pi pi-eye" aria-hidden="true"></span></button></td>
           </tr>
         </ng-template>
         <ng-template #emptymessage>
@@ -88,7 +88,7 @@ import { ANALYTICS_TABS } from '../analytics-tabs';
             <td class="tcur-a">{{ (c.answer || '') | slice:0:120 }}…</td>
             <td><span class="tcur-tools">{{ toolNames(c.tools_used) }}</span></td>
             <td>{{ c.user_name || '—' }}</td>
-            <td class="tcur-right"><button pButton icon="pi pi-star" label="Promover" size="small" (click)="promote(c)"></button></td>
+            <td class="tcur-right"><button pButton size="small" (click)="promote(c)"><span class="p-button-icon p-button-icon-left pi pi-star" aria-hidden="true"></span><span class="p-button-label">Promover</span></button></td>
           </tr>
         </ng-template>
         <ng-template #emptymessage>
@@ -138,8 +138,8 @@ import { ANALYTICS_TABS } from '../analytics-tabs';
         </label>
       </div>
       <ng-template #footer>
-        <button pButton label="Cancelar" [text]="true" severity="secondary" (click)="addOpen.set(false)"></button>
-        <button pButton label="Guardar" severity="contrast" [disabled]="!form.question.trim()" (click)="save()"></button>
+        <button pButton [text]="true" severity="secondary" (click)="addOpen.set(false)"><span class="p-button-label">Cancelar</span></button>
+        <button pButton severity="contrast" [disabled]="!form.question.trim()" (click)="save()"><span class="p-button-label">Guardar</span></button>
       </ng-template>
     </p-dialog>
 
@@ -154,9 +154,9 @@ import { ANALYTICS_TABS } from '../analytics-tabs';
         </div>
       }
       <ng-template #footer>
-        <button pButton label="Cerrar" [text]="true" severity="secondary" (click)="conv.set(null)"></button>
+        <button pButton [text]="true" severity="secondary" (click)="conv.set(null)"><span class="p-button-label">Cerrar</span></button>
         @if (conv() && !conv()!.promoted) {
-          <button pButton icon="pi pi-star" label="Promover a ejemplo" severity="contrast" (click)="promoteConv(conv()!)"></button>
+          <button pButton severity="contrast" (click)="promoteConv(conv()!)"><span class="p-button-icon p-button-icon-left pi pi-star" aria-hidden="true"></span><span class="p-button-label">Promover a ejemplo</span></button>
         }
       </ng-template>
     </p-dialog>

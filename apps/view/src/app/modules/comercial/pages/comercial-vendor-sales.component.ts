@@ -32,7 +32,7 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
         <input type="date" [(ngModel)]="dateFrom" (change)="reload()" aria-label="Desde" />
         <span>→</span>
         <input type="date" [(ngModel)]="dateTo" (change)="reload()" aria-label="Hasta" />
-        <button pButton icon="pi pi-refresh" severity="secondary" [text]="true" (click)="reload()" aria-label="Recargar"></button>
+        <button pButton severity="secondary" [text]="true" (click)="reload()" aria-label="Recargar"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span></button>
       </div>
     
       <div class="surf-grid vs-bento">
@@ -69,8 +69,7 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
             <td class="num">{{ +c.lineas }}</td>
             <td class="num">{{ +c.unidades }}</td>
             <td class="actions" (click)="$event.stopPropagation()">
-              <button pButton size="small" [text]="true" icon="pi pi-receipt" label="Ver ticket"
-              (click)="openDetail(c)"></button>
+              <button pButton size="small" [text]="true" (click)="openDetail(c)"><span class="p-button-icon p-button-icon-left pi pi-receipt" aria-hidden="true"></span><span class="p-button-label">Ver ticket</span></button>
             </td>
           </tr>
         </ng-template>
