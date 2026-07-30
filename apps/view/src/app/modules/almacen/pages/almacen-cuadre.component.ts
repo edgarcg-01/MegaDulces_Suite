@@ -719,7 +719,7 @@ export class AlmacenCuadreComponent implements OnInit {
   sevLabel(s: string): string { return s === 'critical' ? 'Crítico' : s === 'warn' ? 'Alerta' : 'Info'; }
   statusLabel(s: string): string { return s === 'confirmado' ? 'Confirmado' : s === 'descartado' ? 'Descartado' : s === 'corregido' ? 'Corregido' : s; }
   causaLabel(c: string | null): string {
-    const m: Record<string, string> = { faltante_caja: 'Faltante de caja', sobrante_caja: 'Sobrante de caja', faltante_recurrente: 'Faltante recurrente', merma: 'Merma', robo: 'Robo', error_captura: 'Error de captura', otro: 'Otro' };
+    const m: Record<string, string> = { faltante_caja: 'Faltante de caja', sobrante_caja: 'Sobrante de caja', faltante_recurrente: 'Faltante recurrente', merma: 'Merma', robo: 'Robo', error_captura: 'Error de captura', barrido_diferencia: 'Barrido por diferencia (plug)', otro: 'Otro' };
     return c ? (m[c] || c.replace(/_/g, ' ')) : '—';
   }
   incidenciaLabel(c: string | null): string {
