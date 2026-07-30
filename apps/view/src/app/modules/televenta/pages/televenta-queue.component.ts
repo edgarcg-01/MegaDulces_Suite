@@ -1,5 +1,5 @@
 import { ChangeDetectionStrategy, Component, OnInit, inject, signal } from '@angular/core';
-import { CommonModule } from '@angular/common';
+
 import { Router, RouterModule } from '@angular/router';
 import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
@@ -31,7 +31,7 @@ const REASON_SEVERITY: Record<QueueItem['reason'], 'danger' | 'warn' | 'info' | 
 @Component({
   selector: 'app-televenta-queue',
   standalone: true,
-  imports: [CommonModule, RouterModule, ButtonModule, TableModule, TagModule, ProgressSpinnerModule],
+  imports: [RouterModule, ButtonModule, TableModule, TagModule, ProgressSpinnerModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <section class="section">
@@ -39,44 +39,49 @@ const REASON_SEVERITY: Record<QueueItem['reason'], 'danger' | 'warn' | 'info' | 
         <h1>Cola priorizada</h1>
         <p>Clientes ordenados por urgencia. Reservá uno para empezar a trabajarlo (TTL 30 min).</p>
       </header>
-
-      <div *ngIf="loading()" class="loading" aria-live="polite">
-        <p-progressSpinner styleClass="w-12 h-12"></p-progressSpinner>
-      </div>
-
-      <ng-container *ngIf="!loading()">
-        <!-- Mis reservas activas -->
-        <div *ngIf="myReservations().length > 0" class="my-card">
-          <h2>Mis reservas activas <span class="count">({{ myReservations().length }})</span></h2>
-          <div class="my-list">
-            <article *ngFor="let r of myReservations()" class="my-item">
-              <div class="my-info">
-                <p class="code">{{ r.customer_code }}</p>
-                <p class="name">{{ r.customer_name }}</p>
-                <p class="ttl">Vence en {{ formatTtl(r.expires_in_seconds) }}</p>
-              </div>
-              <div class="my-actions">
-                <button
-                  pButton
-                  label="Abrir"
-                  icon="pi pi-arrow-right"
-                  size="small"
-                  (click)="open(r.customer_id)"
-                ></button>
-                <button
-                  pButton
-                  label="Liberar"
-                  severity="secondary"
-                  [outlined]="true"
-                  size="small"
-                  (click)="release(r.id)"
-                  [disabled]="releasing() === r.id"
-                ></button>
-              </div>
-            </article>
-          </div>
+    
+      @if (loading()) {
+        <div class="loading" aria-live="polite">
+          <p-progressspinner styleClass="w-12 h-12"></p-progressspinner>
         </div>
-
+      }
+    
+      @if (!loading()) {
+        <!-- Mis reservas activas -->
+        @if (myReservations().length > 0) {
+          <div class="my-card">
+            <h2>Mis reservas activas <span class="count">({{ myReservations().length }})</span></h2>
+            <div class="my-list">
+              @for (r of myReservations(); track r) {
+                <article class="my-item">
+                  <div class="my-info">
+                    <p class="code">{{ r.customer_code }}</p>
+                    <p class="name">{{ r.customer_name }}</p>
+                    <p class="ttl">Vence en {{ formatTtl(r.expires_in_seconds) }}</p>
+                  </div>
+                  <div class="my-actions">
+                    <button
+                      pButton
+                      label="Abrir"
+                      icon="pi pi-arrow-right"
+                      size="small"
+                      (click)="open(r.customer_id)"
+                    ></button>
+                    <button
+                      pButton
+                      label="Liberar"
+                      severity="secondary"
+                      [outlined]="true"
+                      size="small"
+                      (click)="release(r.id)"
+                      [disabled]="releasing() === r.id"
+                    ></button>
+                  </div>
+                </article>
+              }
+            </div>
+          </div>
+        }
         <!-- Cola priorizada -->
         <div class="queue-card">
           <header class="queue-header">
@@ -91,49 +96,58 @@ const REASON_SEVERITY: Record<QueueItem['reason'], 'danger' | 'warn' | 'info' | 
               (click)="refresh()"
             ></button>
           </header>
-
-          <div *ngIf="queue().length === 0" class="empty">
-            <i class="pi pi-check-circle" aria-hidden="true"></i>
-            <p>No hay clientes pendientes en este momento.</p>
-            <small>Revisá tus callbacks programados o esperá nuevos leads.</small>
-          </div>
-
-          <div *ngIf="queue().length > 0" class="queue-table" role="list">
-            <article *ngFor="let item of queue()" class="queue-item" role="listitem">
-              <div class="qi-tag">
-                <p-tag
-                  [value]="reasonLabel(item.reason)"
-                  [severity]="reasonSeverity(item.reason)"
-                ></p-tag>
-              </div>
-              <div class="qi-info">
-                <p class="code">{{ item.code }}</p>
-                <p class="name">{{ item.name }}</p>
-                <p class="meta">
-                  <span *ngIf="item.phone"><i class="pi pi-phone" aria-hidden="true"></i> {{ item.phone }}</span>
-                  <span *ngIf="item.last_order_at; else noOrders">
-                    Último pedido hace {{ item.days_since_last_order }} días
-                  </span>
-                  <ng-template #noOrders>Sin pedidos previos</ng-template>
-                </p>
-              </div>
-              <div class="qi-actions">
-                <button
-                  pButton
-                  label="Tomar"
-                  icon="pi pi-arrow-right"
-                  iconPos="right"
-                  size="small"
-                  (click)="reserve(item)"
-                  [disabled]="reserving() === item.customer_id"
-                ></button>
-              </div>
-            </article>
-          </div>
+          @if (queue().length === 0) {
+            <div class="empty">
+              <i class="pi pi-check-circle" aria-hidden="true"></i>
+              <p>No hay clientes pendientes en este momento.</p>
+              <small>Revisá tus callbacks programados o esperá nuevos leads.</small>
+            </div>
+          }
+          @if (queue().length > 0) {
+            <div class="queue-table" role="list">
+              @for (item of queue(); track item) {
+                <article class="queue-item" role="listitem">
+                  <div class="qi-tag">
+                    <p-tag
+                      [value]="reasonLabel(item.reason)"
+                      [severity]="reasonSeverity(item.reason)"
+                    ></p-tag>
+                  </div>
+                  <div class="qi-info">
+                    <p class="code">{{ item.code }}</p>
+                    <p class="name">{{ item.name }}</p>
+                    <p class="meta">
+                      @if (item.phone) {
+                        <span><i class="pi pi-phone" aria-hidden="true"></i> {{ item.phone }}</span>
+                      }
+                      @if (item.last_order_at) {
+                        <span>
+                          Último pedido hace {{ item.days_since_last_order }} días
+                        </span>
+                      } @else {
+                        Sin pedidos previos
+                      }
+                    </p>
+                  </div>
+                  <div class="qi-actions">
+                    <button
+                      pButton
+                      label="Tomar"
+                      icon="pi pi-arrow-right"
+                      iconPos="right"
+                      size="small"
+                      (click)="reserve(item)"
+                      [disabled]="reserving() === item.customer_id"
+                    ></button>
+                  </div>
+                </article>
+              }
+            </div>
+          }
         </div>
-      </ng-container>
+      }
     </section>
-  `,
+    `,
   styles: [
     `
       .section { display: flex; flex-direction: column; gap: 1.5rem; }

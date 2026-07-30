@@ -1,5 +1,5 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
-import { CommonModule } from '@angular/common';
+
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { ButtonModule } from 'primeng/button';
@@ -21,7 +21,7 @@ import { SupervisorAiService, RouteBalanceSim } from './supervisor-ai.service';
 @Component({
   selector: 'app-route-balance',
   standalone: true,
-  imports: [CommonModule, FormsModule, RouterLink, ButtonModule, SelectModule, SkeletonModule, ToastModule, ConfirmDialogModule],
+  imports: [FormsModule, RouterLink, ButtonModule, SelectModule, SkeletonModule, ToastModule, ConfirmDialogModule],
   providers: [MessageService, ConfirmationService],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -64,14 +64,14 @@ import { SupervisorAiService, RouteBalanceSim } from './supervisor-ai.service';
           </div>
 
           <div class="actions">
-            <button
+            <p-button
               pButton
               type="button"
               [disabled]="m.moved === 0 || busy()"
               [label]="busy() ? 'Aplicando…' : 'Aplicar rebalanceo'"
               icon="pi pi-check"
               (click)="confirmApply()"
-            ></button>
+            ></p-button>
             <button
               pButton
               type="button"
@@ -144,7 +144,7 @@ import { SupervisorAiService, RouteBalanceSim } from './supervisor-ai.service';
       }
 
       <p-toast />
-      <p-confirmDialog />
+      <p-confirmdialog />
     </div>
   `,
   styles: [

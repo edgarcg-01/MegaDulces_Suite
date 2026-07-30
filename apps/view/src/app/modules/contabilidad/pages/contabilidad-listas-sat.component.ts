@@ -43,8 +43,8 @@ import { ListasSatService, SatListMatch, RfcIssue, ListasStats, ListStatus, Expe
         </div>
         <div class="ls-head-actions">
           @if (loadedAt()) { <app-freshness-pill [since]="loadedAt()" /> }
-          <button pButton type="button" label="Escanear" icon="pi pi-bolt" class="p-button-sm p-button-outlined" [loading]="scanning()" (click)="scan()"></button>
-          <button pButton type="button" label="Refrescar listas SAT" icon="pi pi-cloud-download" class="p-button-sm p-button-text" [loading]="refreshing()" (click)="refresh()"></button>
+          <button pButton type="button" class="p-button-sm p-button-outlined" [loading]="scanning()" (click)="scan()"><span class="p-button-icon p-button-icon-left pi pi-bolt" aria-hidden="true"></span><span class="p-button-label">Escanear</span></button>
+          <button pButton type="button" class="p-button-sm p-button-text" [loading]="refreshing()" (click)="refresh()"><span class="p-button-icon p-button-icon-left pi pi-cloud-download" aria-hidden="true"></span><span class="p-button-label">Refrescar listas SAT</span></button>
         </div>
       </header>
 
@@ -72,8 +72,8 @@ import { ListasSatService, SatListMatch, RfcIssue, ListasStats, ListStatus, Expe
 
       <!-- Filtros -->
       <div class="ls-filters">
-        <p-selectButton styleClass="sb-liquid" [options]="listaOpts" [ngModel]="lista()" (ngModelChange)="lista.set($event)" optionLabel="label" optionValue="value" [allowEmpty]="false" ariaLabel="Filtrar por lista" />
-        <p-selectButton styleClass="sb-liquid" [options]="estadoOpts" [ngModel]="estado()" (ngModelChange)="estado.set($event)" optionLabel="label" optionValue="value" [allowEmpty]="false" ariaLabel="Filtrar por estado de triage" />
+        <p-selectbutton styleClass="sb-liquid" [options]="listaOpts" [ngModel]="lista()" (ngModelChange)="lista.set($event)" optionLabel="label" optionValue="value" [allowEmpty]="false" ariaLabel="Filtrar por lista" />
+        <p-selectbutton styleClass="sb-liquid" [options]="estadoOpts" [ngModel]="estado()" (ngModelChange)="estado.set($event)" optionLabel="label" optionValue="value" [allowEmpty]="false" ariaLabel="Filtrar por estado de triage" />
         <p-iconfield iconPosition="left" styleClass="ls-search">
           <p-inputicon styleClass="pi pi-search" />
           <input type="text" pInputText placeholder="Buscar RFC o proveedor…" [ngModel]="search()" (ngModelChange)="search.set($event)" aria-label="Buscar proveedor" />
@@ -88,7 +88,7 @@ import { ListasSatService, SatListMatch, RfcIssue, ListasStats, ListStatus, Expe
         <p-table [value]="filteredMatches()" styleClass="p-datatable-sm ls-table" [rowHover]="true" [loading]="loading()"
                  dataKey="id" [expandedRowKeys]="expanded()" [scrollable]="true" scrollHeight="520px"
                  [paginator]="filteredMatches().length > 50" [rows]="50">
-          <ng-template pTemplate="header">
+          <ng-template #header>
             <tr>
               <th style="width:2.5rem"></th>
               <th style="width:6rem">Situación</th>
@@ -99,9 +99,9 @@ import { ListasSatService, SatListMatch, RfcIssue, ListasStats, ListStatus, Expe
               <th style="width:13rem">Acciones</th>
             </tr>
           </ng-template>
-          <ng-template pTemplate="body" let-m let-expanded="expanded">
+          <ng-template #body let-m let-expanded="expanded">
             <tr>
-              <td><button pButton type="button" [icon]="expanded ? 'pi pi-chevron-down' : 'pi pi-chevron-right'" class="p-button-text p-button-sm" [attr.aria-label]="expanded ? 'Ocultar documentos' : 'Ver documentos'" (click)="toggle(m)"></button></td>
+              <td><p-button pButton type="button" [icon]="expanded ? 'pi pi-chevron-down' : 'pi pi-chevron-right'" styleClass="p-button-text p-button-sm" [attr.aria-label]="expanded ? 'Ocultar documentos' : 'Ver documentos'" (click)="toggle(m)"></p-button></td>
               <td><p-tag [value]="m.situacion" [severity]="sevSev(m.situacion)" styleClass="ls-chip" /></td>
               <td>
                 <div class="ls-name">{{ m.nombre || m.rfc }}</div>
@@ -113,24 +113,24 @@ import { ListasSatService, SatListMatch, RfcIssue, ListasStats, ListStatus, Expe
               <td>
                 <div class="ls-acts">
                   @if (m.estado === 'nuevo' || m.estado === 'en_revision') {
-                    <button pButton type="button" icon="pi pi-check" label="Revisado" class="p-button-sm p-button-success p-button-text" title="Marcar como confirmado" (click)="setEstado(m, 'confirmado')"></button>
-                    <button pButton type="button" icon="pi pi-times" class="p-button-sm p-button-danger p-button-text" title="Descartar (falso positivo / RFC homónimo)" (click)="setEstado(m, 'descartado')"></button>
+                    <button pButton type="button" class="p-button-sm p-button-success p-button-text" title="Marcar como confirmado" (click)="setEstado(m, 'confirmado')"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Revisado</span></button>
+                    <button pButton type="button" class="p-button-sm p-button-danger p-button-text" title="Descartar (falso positivo / RFC homónimo)" (click)="setEstado(m, 'descartado')"><span class="p-button-icon p-button-icon-left pi pi-times" aria-hidden="true"></span></button>
                   } @else {
                     <span class="ls-status-label" [ngClass]="'st-' + m.estado">{{ estadoLabel(m.estado) }}</span>
-                    <button pButton type="button" icon="pi pi-undo" class="p-button-sm p-button-text" title="Reabrir" (click)="setEstado(m, 'nuevo')"></button>
+                    <button pButton type="button" class="p-button-sm p-button-text" title="Reabrir" (click)="setEstado(m, 'nuevo')"><span class="p-button-icon p-button-icon-left pi pi-undo" aria-hidden="true"></span></button>
                   }
                 </div>
               </td>
             </tr>
           </ng-template>
-          <ng-template pTemplate="rowexpansion" let-m>
+          <ng-template #expandedrow let-m>
             <tr><td colspan="7" class="ls-ev">
               @if (docsLoading()[m.rfc]) {
                 <div class="ls-ev-loading">Cargando documentos…</div>
               } @else if (docs()[m.rfc]?.length) {
                 <p-table [value]="docs()[m.rfc] || []" styleClass="p-datatable-sm ls-docs-tbl" [rowHover]="true">
-                  <ng-template pTemplate="header"><tr><th>Fecha</th><th>Sucursal</th><th>Documento</th><th>Concepto</th><th class="ta-r">Importe</th></tr></ng-template>
-                  <ng-template pTemplate="body" let-d>
+                  <ng-template #header><tr><th>Fecha</th><th>Sucursal</th><th>Documento</th><th>Concepto</th><th class="ta-r">Importe</th></tr></ng-template>
+                  <ng-template #body let-d>
                     <tr>
                       <td class="mono">{{ d.fecha | date:'dd/MM/yy' }}</td>
                       <td>{{ d.sucursal }}</td>
@@ -145,7 +145,7 @@ import { ListasSatService, SatListMatch, RfcIssue, ListasStats, ListStatus, Expe
               }
             </td></tr>
           </ng-template>
-          <ng-template pTemplate="emptymessage"><tr><td colspan="7" class="ls-empty">
+          <ng-template #emptymessage><tr><td colspan="7" class="ls-empty">
             @if (loading()) { Cargando… }
             @else { Ningún proveedor coincide con {{ lista() === 'all' ? 'las listas SAT' : listaLabel(lista()) }} en estado "{{ estado() }}". Corre "Escanear" o revisa otro filtro. }
           </td></tr></ng-template>
@@ -157,10 +157,10 @@ import { ListasSatService, SatListMatch, RfcIssue, ListasStats, ListStatus, Expe
         <div class="card-premium card-flat ls-issues">
           <h3 class="ls-card-title">RFC de proveedor con problema <span class="muted">({{ rfcIssues().length }})</span></h3>
           <p-table [value]="rfcIssues()" styleClass="p-datatable-sm ls-table" [rowHover]="true">
-            <ng-template pTemplate="header">
+            <ng-template #header>
               <tr><th>RFC</th><th style="width:11rem">Problema</th><th class="ta-r" style="width:5rem">Docs</th><th class="ta-r" style="width:9rem">Importe</th><th style="width:11rem">Acciones</th></tr>
             </ng-template>
-            <ng-template pTemplate="body" let-it>
+            <ng-template #body let-it>
               <tr>
                 <td class="mono">{{ it.rfc }}</td>
                 <td><p-tag [value]="issueLabel(it.issue_type)" severity="warn" styleClass="ls-chip" /></td>
@@ -168,8 +168,8 @@ import { ListasSatService, SatListMatch, RfcIssue, ListasStats, ListStatus, Expe
                 <td class="ta-r mono">{{ money(it.importe_total) }}</td>
                 <td>
                   @if (it.estado === 'nuevo' || it.estado === 'en_revision') {
-                    <button pButton type="button" icon="pi pi-check" label="Revisado" class="p-button-sm p-button-success p-button-text" (click)="setIssueEstado(it, 'confirmado')"></button>
-                    <button pButton type="button" icon="pi pi-times" class="p-button-sm p-button-danger p-button-text" title="Descartar" (click)="setIssueEstado(it, 'descartado')"></button>
+                    <button pButton type="button" class="p-button-sm p-button-success p-button-text" (click)="setIssueEstado(it, 'confirmado')"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Revisado</span></button>
+                    <button pButton type="button" class="p-button-sm p-button-danger p-button-text" title="Descartar" (click)="setIssueEstado(it, 'descartado')"><span class="p-button-icon p-button-icon-left pi pi-times" aria-hidden="true"></span></button>
                   } @else {
                     <span class="ls-status-label" [ngClass]="'st-' + it.estado">{{ estadoLabel(it.estado) }}</span>
                   }

@@ -1,5 +1,5 @@
 import { ChangeDetectionStrategy, Component, EventEmitter, Input, Output } from '@angular/core';
-import { CommonModule } from '@angular/common';
+
 import { FormsModule } from '@angular/forms';
 import { DatePickerModule } from 'primeng/datepicker';
 import { TooltipModule } from 'primeng/tooltip';
@@ -16,42 +16,46 @@ interface DatePreset { key: string; label: string; }
 @Component({
   selector: 'app-order-filters',
   standalone: true,
-  imports: [CommonModule, FormsModule, DatePickerModule, TooltipModule],
+  imports: [FormsModule, DatePickerModule, TooltipModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="sheet cols-12">
       <article class="cell cell-span-12 is-flush co-filters-cell">
         <!-- Row 1: status chips -->
         <nav class="co-chips" role="tablist" aria-label="Filtrar por estado">
-          <button
-            *ngFor="let f of filters"
-            type="button"
-            class="co-chip"
-            [class.active]="statusFilter === f.key"
-            role="tab"
-            [attr.aria-selected]="statusFilter === f.key"
-            (click)="statusChange.emit(f.key)"
-          >
-            <span>{{ f.label }}</span>
-            <span class="co-chip-count" *ngIf="statusCounts[f.key] !== undefined">
-              {{ statusCounts[f.key] }}
-            </span>
-          </button>
+          @for (f of filters; track f) {
+            <button
+              type="button"
+              class="co-chip"
+              [class.active]="statusFilter === f.key"
+              role="tab"
+              [attr.aria-selected]="statusFilter === f.key"
+              (click)="statusChange.emit(f.key)"
+              >
+              <span>{{ f.label }}</span>
+              @if (statusCounts[f.key] !== undefined) {
+                <span class="co-chip-count">
+                  {{ statusCounts[f.key] }}
+                </span>
+              }
+            </button>
+          }
         </nav>
-
+    
         <!-- Row 2: toolbar compacta — presets · date range · search · reset -->
         <div class="co-toolbar">
           <!-- Presets segment -->
           <div class="co-segment" role="group" aria-label="Rango de fechas">
-            <button
-              *ngFor="let p of presets"
-              type="button"
-              class="co-seg-btn"
-              [class.active]="datePreset === p.key"
-              (click)="presetChange.emit(p.key)"
-            >{{ p.label }}</button>
+            @for (p of presets; track p) {
+              <button
+                type="button"
+                class="co-seg-btn"
+                [class.active]="datePreset === p.key"
+                (click)="presetChange.emit(p.key)"
+              >{{ p.label }}</button>
+            }
           </div>
-
+    
           <!-- Date range inline: from → to -->
           <div class="co-daterange" role="group" aria-label="Rango personalizado">
             <i class="pi pi-calendar co-daterange-icon" aria-hidden="true"></i>
@@ -75,10 +79,10 @@ interface DatePreset { key: string; label: string; }
               styleClass="co-date-input"
             ></p-datepicker>
           </div>
-
+    
           <!-- Spacer -->
           <div class="co-toolbar-spacer"></div>
-
+    
           <!-- Search folio -->
           <div class="co-search">
             <i class="pi pi-search co-search-icon" aria-hidden="true"></i>
@@ -91,33 +95,35 @@ interface DatePreset { key: string; label: string; }
               autocomplete="off"
               autocapitalize="characters"
               aria-label="Buscar por folio"
-            />
-            <button
-              *ngIf="folioSearch"
-              type="button"
-              class="co-search-clear"
-              (click)="clearSearch.emit()"
-              aria-label="Limpiar búsqueda"
-            >
-              <i class="pi pi-times" aria-hidden="true"></i>
-            </button>
+              />
+              @if (folioSearch) {
+                <button
+                  type="button"
+                  class="co-search-clear"
+                  (click)="clearSearch.emit()"
+                  aria-label="Limpiar búsqueda"
+                  >
+                  <i class="pi pi-times" aria-hidden="true"></i>
+                </button>
+              }
+            </div>
+    
+            <!-- Reset si hay filtros activos -->
+            @if (hasActiveFilters) {
+              <button
+                type="button"
+                class="co-reset"
+                (click)="resetFilters.emit()"
+                pTooltip="Limpiar todos los filtros"
+                >
+                <i class="pi pi-refresh" aria-hidden="true"></i>
+                <span>Reset</span>
+              </button>
+            }
           </div>
-
-          <!-- Reset si hay filtros activos -->
-          <button
-            *ngIf="hasActiveFilters"
-            type="button"
-            class="co-reset"
-            (click)="resetFilters.emit()"
-            pTooltip="Limpiar todos los filtros"
-          >
-            <i class="pi pi-refresh" aria-hidden="true"></i>
-            <span>Reset</span>
-          </button>
-        </div>
-      </article>
-    </div>
-  `,
+        </article>
+      </div>
+    `,
   styles: [`
     /* ── FILTERS CELL: chips arriba + toolbar abajo ──
        Estos estilos viven aquí (no en el padre): con encapsulación emulada los

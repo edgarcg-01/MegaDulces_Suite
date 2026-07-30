@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, OnInit, ViewChild, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { CommonModule } from '@angular/common';
+
 import { FormsModule } from '@angular/forms';
 import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
@@ -40,11 +40,7 @@ import { BancosContpaqiComponent } from './bancos/bancos-contpaqi.component';
 @Component({
   selector: 'app-finanzas-bancos',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, TableModule, ToastModule, SelectModule, CheckboxModule,
-    InputNumberModule, InputTextModule, IconFieldModule, InputIconModule,
-    PageTabsComponent, MetricStripComponent, LoadStateComponent, FreshnessPillComponent, ContextHelpComponent,
-    BancosConcentradoComponent, BancosConciliacionComponent, BancosCuentasComponent, BancosCierreComponent,
-    BancosMovimientosComponent, BancosAdminComponent, BancosSideBySideComponent, BancosContpaqiComponent],
+  imports: [FormsModule, ButtonModule, TableModule, ToastModule, SelectModule, CheckboxModule, InputNumberModule, InputTextModule, IconFieldModule, InputIconModule, PageTabsComponent, MetricStripComponent, LoadStateComponent, FreshnessPillComponent, ContextHelpComponent, BancosConcentradoComponent, BancosConciliacionComponent, BancosCuentasComponent, BancosCierreComponent, BancosMovimientosComponent, BancosAdminComponent, BancosSideBySideComponent, BancosContpaqiComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
@@ -64,8 +60,7 @@ import { BancosContpaqiComponent } from './bancos/bancos-contpaqi.component';
                       appendTo="body" styleClass="fb-sel sel-liquid" [style]="{ minWidth: '8rem' }" ariaLabel="Periodo"></p-select>
           </label>
           <input #fileInput type="file" accept=".xlsx" hidden (change)="onFile($event)">
-          <button pButton type="button" label="Subir estado de cuenta" icon="pi pi-upload"
-                  class="p-button-sm p-button-outlined" [loading]="uploading()" (click)="fileInput.click()"></button>
+          <button pButton type="button" class="p-button-sm p-button-outlined" [loading]="uploading()" (click)="fileInput.click()"><span class="p-button-icon p-button-icon-left pi pi-upload" aria-hidden="true"></span><span class="p-button-label">Subir estado de cuenta</span></button>
         </div>
       </header>
 

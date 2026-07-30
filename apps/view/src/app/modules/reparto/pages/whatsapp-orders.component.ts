@@ -1,5 +1,5 @@
 import { ChangeDetectionStrategy, Component, OnInit, inject, signal } from '@angular/core';
-import { CommonModule } from '@angular/common';
+
 import { FormsModule } from '@angular/forms';
 import { TableModule } from 'primeng/table';
 import { ButtonModule } from 'primeng/button';
@@ -21,23 +21,29 @@ import { WhatsAppOrdersService, WhatsAppPendingOrder } from '../whatsapp-orders.
   selector: 'app-whatsapp-orders',
   standalone: true,
   imports: [
-    CommonModule, FormsModule, TableModule, ButtonModule, TagModule, DialogModule,
-    InputTextModule, ConfirmDialogModule, ToastModule,
-  ],
+    FormsModule,
+    TableModule,
+    ButtonModule,
+    TagModule,
+    DialogModule,
+    InputTextModule,
+    ConfirmDialogModule,
+    ToastModule
+],
   providers: [ConfirmationService, MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="surf-page in">
       <p-toast position="top-center"></p-toast>
-      <p-confirmDialog></p-confirmDialog>
+      <p-confirmdialog></p-confirmdialog>
 
       <header class="surf-page-head">
         <div class="surf-page-head-text">
           <h1>Pedidos por WhatsApp</h1>
           <p class="surf-page-sub">Pedidos armados por el asistente, listos para tu revisión. Al confirmar, pasan a "Asignar pedido".</p>
         </div>
-        <button pButton icon="pi pi-refresh" [label]="'Actualizar'" severity="secondary" [outlined]="true"
-                size="small" [loading]="loading()" (click)="load()"></button>
+        <p-button pButton icon="pi pi-refresh" [label]="'Actualizar'" severity="secondary" [outlined]="true"
+                size="small" [loading]="loading()" (click)="load()"></p-button>
       </header>
 
       @if (!loading() && orders().length === 0) {
@@ -53,14 +59,14 @@ import { WhatsAppOrdersService, WhatsAppPendingOrder } from '../whatsapp-orders.
           <div class="card-premium wo-list">
             <p-table [value]="orders()" [(selection)]="selected" selectionMode="single" dataKey="thread_id"
                      styleClass="p-datatable-sm surf-table" [scrollable]="true" scrollHeight="60vh">
-              <ng-template pTemplate="header">
+              <ng-template #header>
                 <tr>
                   <th scope="col">Cliente</th>
                   <th scope="col" class="comm-num">Art.</th>
                   <th scope="col" class="comm-num">Total</th>
                 </tr>
               </ng-template>
-              <ng-template pTemplate="body" let-o>
+              <ng-template #body let-o>
                 <tr [pSelectableRow]="o">
                   <td>
                     <div class="wo-cust">{{ o.customer_name || 'Cliente' }}</div>
@@ -86,7 +92,7 @@ import { WhatsAppOrdersService, WhatsAppPendingOrder } from '../whatsapp-orders.
 
               <h2 class="wo-sectitle">Productos</h2>
               <p-table [value]="o.items" styleClass="p-datatable-sm surf-table">
-                <ng-template pTemplate="header">
+                <ng-template #header>
                   <tr>
                     <th scope="col">Producto</th>
                     <th scope="col">Cantidad</th>
@@ -94,7 +100,7 @@ import { WhatsAppOrdersService, WhatsAppPendingOrder } from '../whatsapp-orders.
                     <th scope="col" class="comm-num">Subtotal</th>
                   </tr>
                 </ng-template>
-                <ng-template pTemplate="body" let-it>
+                <ng-template #body let-it>
                   <tr>
                     <td>{{ it.name || '—' }}</td>
                     <td>{{ it.presentation || (it.qty + ' pzas') }}</td>
@@ -102,7 +108,7 @@ import { WhatsAppOrdersService, WhatsAppPendingOrder } from '../whatsapp-orders.
                     <td class="comm-num">{{ money(it.qty * (it.unit_price || 0)) }}</td>
                   </tr>
                 </ng-template>
-                <ng-template pTemplate="footer">
+                <ng-template #footer>
                   <tr>
                     <td colspan="3" class="comm-num">Total</td>
                     <td class="comm-num"><b>{{ money(o.total) }}</b></td>
@@ -127,11 +133,10 @@ import { WhatsAppOrdersService, WhatsAppPendingOrder } from '../whatsapp-orders.
               </div>
 
               <div class="wo-actions">
-                <button pButton icon="pi pi-check" [label]="acting() ? 'Confirmando…' : 'Confirmar pedido'"
+                <p-button pButton icon="pi pi-check" [label]="acting() ? 'Confirmando…' : 'Confirmar pedido'"
                         [loading]="acting()" [disabled]="!o.delivery_address?.street || o.items.length === 0"
-                        (click)="confirm(o)"></button>
-                <button pButton icon="pi pi-times" label="Rechazar" severity="danger" [outlined]="true"
-                        [disabled]="acting()" (click)="openReject(o)"></button>
+                        (click)="confirm(o)"></p-button>
+                <button pButton severity="danger" [outlined]="true" [disabled]="acting()" (click)="openReject(o)"><span class="p-button-icon p-button-icon-left pi pi-times" aria-hidden="true"></span><span class="p-button-label">Rechazar</span></button>
               </div>
             } @else {
               <div class="wo-pick"><i class="pi pi-arrow-left"></i> Elegí un pedido de la lista para revisarlo.</div>
@@ -144,9 +149,9 @@ import { WhatsAppOrdersService, WhatsAppPendingOrder } from '../whatsapp-orders.
       <p-dialog header="Rechazar pedido" [(visible)]="rejectOpen" [modal]="true" [style]="{ width: '28rem' }">
         <p class="wo-reject-hint">Se avisa al cliente por WhatsApp. Motivo (opcional):</p>
         <input pInputText class="wo-reject-in" [(ngModel)]="rejectReason" placeholder="ej. sin stock, fuera de zona…" />
-        <ng-template pTemplate="footer">
-          <button pButton label="Cancelar" severity="secondary" [text]="true" (click)="rejectOpen = false"></button>
-          <button pButton label="Rechazar" severity="danger" [loading]="acting()" (click)="doReject()"></button>
+        <ng-template #footer>
+          <button pButton severity="secondary" [text]="true" (click)="rejectOpen = false"><span class="p-button-label">Cancelar</span></button>
+          <button pButton severity="danger" [loading]="acting()" (click)="doReject()"><span class="p-button-label">Rechazar</span></button>
         </ng-template>
       </p-dialog>
     </div>

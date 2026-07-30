@@ -65,18 +65,18 @@ import { GROUP_ORDER, groupLabel, groupColorVar, dmy, dmShort, money0 } from './
     <div class="card-premium card-flat fb-tablewrap">
       <p-table [value]="movements()" styleClass="p-datatable-sm" [rowHover]="true" [scrollable]="true" scrollHeight="58vh"
                [paginator]="movements().length > 50" [rows]="50" [rowsPerPageOptions]="[50, 100, 200]">
-        <ng-template pTemplate="header">
+        <ng-template #header>
           <tr>
-            <th class="col-w6" pSortableColumn="movement_date">Fecha <p-sortIcon field="movement_date" /></th>
+            <th class="col-w6" pSortableColumn="movement_date">Fecha <p-sorticon field="movement_date" /></th>
             <th class="col-w7">Cuenta</th>
             <th>Concepto</th>
             <th class="col-w11">Categoría</th>
-            <th class="ta-r col-w8" pSortableColumn="amount_in">Depósito <p-sortIcon field="amount_in" /></th>
-            <th class="ta-r col-w8" pSortableColumn="amount_out">Retiro <p-sortIcon field="amount_out" /></th>
+            <th class="ta-r col-w8" pSortableColumn="amount_in">Depósito <p-sorticon field="amount_in" /></th>
+            <th class="ta-r col-w8" pSortableColumn="amount_out">Retiro <p-sorticon field="amount_out" /></th>
             <th class="col-w25" title="Conciliación"></th>
           </tr>
         </ng-template>
-        <ng-template pTemplate="body" let-m>
+        <ng-template #body let-m>
           <tr class="fb-mov-row fb-row-click" [class.fb-colored]="colorByGroup()"
               [style.--g]="colorByGroup() ? color(m.group_key) : null"
               [class.fb-uncat]="!m.category_id && !colorByGroup()"
@@ -96,7 +96,7 @@ import { GROUP_ORDER, groupLabel, groupColorVar, dmy, dmShort, money0 } from './
             </td>
           </tr>
         </ng-template>
-        <ng-template pTemplate="emptymessage">
+        <ng-template #emptymessage>
           <tr><td colspan="7"><div class="surf-empty"><i class="pi pi-inbox"></i><p>Sin movimientos con estos filtros.</p></div></td></tr>
         </ng-template>
       </p-table>
@@ -114,8 +114,7 @@ import { GROUP_ORDER, groupLabel, groupColorVar, dmy, dmShort, money0 } from './
         <!-- CB.15.2 — de dónde viene: cadena del proveedor (pago) o cómo Kepler tiene la cobranza (depósito) -->
         <div class="fb-flow-sec">
           @if (!flow() && !flowLoading()) {
-            <button pButton type="button" label="Ver de dónde viene" icon="pi pi-sitemap"
-                    class="p-button-sm p-button-outlined" (click)="loadFlow()"></button>
+            <button pButton type="button" class="p-button-sm p-button-outlined" (click)="loadFlow()"><span class="p-button-icon p-button-icon-left pi pi-sitemap" aria-hidden="true"></span><span class="p-button-label">Ver de dónde viene</span></button>
           }
           @if (flowLoading()) { <p class="muted fb-flow-loading"><i class="pi pi-spin pi-spinner"></i> Rastreando el flujo…</p> }
           @if (flow(); as fl) {

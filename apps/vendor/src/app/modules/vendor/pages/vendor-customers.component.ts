@@ -32,10 +32,12 @@ import { AuthService } from '../../../core/services/auth.service';
     ButtonModule,
   ],
   template: `
-    <div *ngIf="notice()" class="notice">
-      <i class="pi pi-cloud-upload"></i> {{ notice() }}
-    </div>
-
+    @if (notice()) {
+      <div class="notice">
+        <i class="pi pi-cloud-upload"></i> {{ notice() }}
+      </div>
+    }
+    
     <div class="head">
       <div>
         <h1 class="page-title">Buscar cliente</h1>
@@ -46,144 +48,163 @@ import { AuthService } from '../../../core/services/auth.service';
         {{ showForm() ? 'Cancelar' : 'Nuevo' }}
       </button>
     </div>
-
+    
     <!-- Alta de cliente nuevo -->
-    <form *ngIf="showForm()" class="new-form" (ngSubmit)="submit(true)">
-      <div *ngIf="formError()" class="form-err">
-        <i class="pi pi-exclamation-circle"></i> {{ formError() }}
-      </div>
-
-      <label class="fld">
-        <span>Nombre del negocio *</span>
-        <input pInputText type="text" name="name" [(ngModel)]="form.name"
-               placeholder="Ej. Abarrotes La Esquina" autocapitalize="words"
-               enterkeyhint="next" required />
-      </label>
-
-      <label class="fld">
-        <span>Teléfono / WhatsApp</span>
-        <input pInputText type="tel" name="phone" [(ngModel)]="form.phone"
-               placeholder="10 dígitos" inputmode="tel" autocomplete="off" />
-      </label>
-
-      <label class="fld">
-        <span>RFC <em>(opcional)</em></span>
-        <input pInputText type="text" name="rfc" [(ngModel)]="form.rfc"
-               placeholder="XAXX010101000" autocapitalize="characters"
-               autocorrect="off" spellcheck="false" />
-      </label>
-
-      <label class="fld">
-        <span>Dirección / referencia</span>
-        <input pInputText type="text" name="notes" [(ngModel)]="form.notes"
-               placeholder="Calle, colonia, entre calles…" autocapitalize="sentences" />
-      </label>
-
-      <button type="button" class="geo-btn" [class.ok]="hasGeo()" [class.err]="geoFailed()" (click)="captureLocation()">
-        <i class="pi" [ngClass]="locating() ? 'pi-spin pi-spinner' : (hasGeo() ? 'pi-check-circle' : (geoFailed() ? 'pi-refresh' : 'pi-map-marker'))"></i>
-        {{ locating() ? 'Obteniendo ubicación…' : (hasGeo() ? 'Ubicación capturada ✓' : (geoFailed() ? 'Reintentar ubicación' : 'Capturar ubicación')) }}
-      </button>
-
-      <div class="form-actions">
-        <button pButton type="submit" class="submit-btn"
-                [disabled]="saving() || !form.name.trim()"
-                [label]="saving() ? 'Guardando…' : 'Crear y tomar pedido'"></button>
-        <button pButton type="button" severity="secondary" [outlined]="true"
-                [disabled]="saving() || !form.name.trim()"
-                label="Solo registrar (sin pedido)" (click)="submit(false)"></button>
-      </div>
-    </form>
-
-    <ng-container *ngIf="!showForm()">
-      <div class="search">
-        <i class="pi" [ngClass]="searching() ? 'pi-spin pi-spinner' : 'pi-search'"></i>
-        <input
-          pInputText
-          type="search"
-          placeholder="Nombre, código o RFC"
-          [(ngModel)]="search"
-          (ngModelChange)="onSearch($event)"
-          inputmode="search"
-          enterkeyhint="search"
-          autocapitalize="none"
-          autocorrect="off"
-          spellcheck="false"
-        />
-      </div>
-
-      <p-skeleton *ngIf="loading()" height="500px"></p-skeleton>
-
-      <!-- Fallo de red sin resultados previos -->
-      <div *ngIf="!loading() && loadError() && customers().length === 0" class="empty">
-        <i class="pi pi-cloud"></i>
-        <p>No se pudo buscar. Revisá tu conexión.</p>
-        <a pButton label="Reintentar" icon="pi pi-refresh" severity="secondary" [text]="true" (click)="retry()"></a>
-      </div>
-
-      <div *ngIf="!loading() && !loadError() && customers().length === 0" class="empty">
-        <i class="pi pi-search"></i>
-        <p *ngIf="search">Sin resultados para "{{ search }}".</p>
-        <p *ngIf="!search">Escribí para buscar un cliente.</p>
-        <a *ngIf="search" pButton label="Crear cliente nuevo" icon="pi pi-plus" severity="secondary" [text]="true" (click)="toggleForm()"></a>
-      </div>
-
-      <!-- Resultados previos en pantalla pero la última búsqueda falló -->
-      <button *ngIf="!loading() && loadError() && customers().length > 0" type="button" class="err-banner" (click)="retry()">
-        <i class="pi pi-exclamation-triangle"></i> No se pudo actualizar — tocá para reintentar
-      </button>
-
-      <div *ngIf="!loading() && customers().length > 0" class="list">
-        <button class="client" *ngFor="let c of customers()" (click)="openSheet(c)">
-          <span class="av">{{ initials(c.name) }}</span>
-          <span class="cbody">
-            <span class="nm">{{ c.name }}</span>
-            <span class="meta">
-              <span class="code">{{ c.code }}</span>
-              <span *ngIf="c.phone">· {{ c.phone }}</span>
-            </span>
-          </span>
-          <i class="pi pi-ellipsis-v action"></i>
-        </button>
-      </div>
-    </ng-container>
-
-    <!-- Menú de opciones del cliente seleccionado -->
-    <ng-container *ngIf="sheet() as c">
-      <div class="sheet-backdrop" [class.closing]="sheetClosing()" (click)="closeSheet()"></div>
-      <div class="sheet" [class.closing]="sheetClosing()" role="dialog" aria-modal="true" aria-label="Opciones del cliente">
-        <div class="sheet-handle"></div>
-        <div class="sheet-head">
-          <span class="av">{{ initials(c.name) }}</span>
-          <div>
-            <span class="n">{{ c.name }}</span>
-            <span class="cd">{{ c.code }}<ng-container *ngIf="c.sales_route"> · {{ c.sales_route }}</ng-container></span>
+    @if (showForm()) {
+      <form class="new-form" (ngSubmit)="submit(true)">
+        @if (formError()) {
+          <div class="form-err">
+            <i class="pi pi-exclamation-circle"></i> {{ formError() }}
           </div>
-        </div>
-
-        <button class="sheet-primary" (click)="goOrder(c)">
-          <i class="pi pi-shopping-cart"></i> Tomar pedido
-        </button>
-
-        <button class="action" (click)="goCapture(c)">
-          <i class="pi pi-camera"></i>
-          <span class="lbl">Capturar exhibición</span>
-        </button>
-
-        <button class="action" (click)="saveLocation(c)" [disabled]="savingLoc()">
-          <i class="pi" [ngClass]="savingLoc() ? 'pi-spin pi-spinner' : 'pi-map-marker'"></i>
-          <span class="lbl">Guardar ubicación de la tienda</span>
-        </button>
-        <p *ngIf="locMsg()" class="loc-msg">{{ locMsg() }}</p>
-
-        <div class="contact" *ngIf="c.phone || c.whatsapp">
-          <a *ngIf="c.phone" class="contact-btn" [href]="'tel:' + c.phone"><i class="pi pi-phone"></i> Llamar</a>
-          <a *ngIf="c.whatsapp" class="contact-btn wa" [href]="waLink(c.whatsapp)" target="_blank" rel="noopener">
-            <i class="pi pi-whatsapp"></i> WhatsApp
-          </a>
-        </div>
-      </div>
-    </ng-container>
-  `,
+        }
+        <label class="fld">
+          <span>Nombre del negocio *</span>
+          <input pInputText type="text" name="name" [(ngModel)]="form.name"
+            placeholder="Ej. Abarrotes La Esquina" autocapitalize="words"
+            enterkeyhint="next" required />
+          </label>
+          <label class="fld">
+            <span>Teléfono / WhatsApp</span>
+            <input pInputText type="tel" name="phone" [(ngModel)]="form.phone"
+              placeholder="10 dígitos" inputmode="tel" autocomplete="off" />
+            </label>
+            <label class="fld">
+              <span>RFC <em>(opcional)</em></span>
+              <input pInputText type="text" name="rfc" [(ngModel)]="form.rfc"
+                placeholder="XAXX010101000" autocapitalize="characters"
+                autocorrect="off" spellcheck="false" />
+              </label>
+              <label class="fld">
+                <span>Dirección / referencia</span>
+                <input pInputText type="text" name="notes" [(ngModel)]="form.notes"
+                  placeholder="Calle, colonia, entre calles…" autocapitalize="sentences" />
+                </label>
+                <button type="button" class="geo-btn" [class.ok]="hasGeo()" [class.err]="geoFailed()" (click)="captureLocation()">
+                  <i class="pi" [ngClass]="locating() ? 'pi-spin pi-spinner' : (hasGeo() ? 'pi-check-circle' : (geoFailed() ? 'pi-refresh' : 'pi-map-marker'))"></i>
+                  {{ locating() ? 'Obteniendo ubicación…' : (hasGeo() ? 'Ubicación capturada ✓' : (geoFailed() ? 'Reintentar ubicación' : 'Capturar ubicación')) }}
+                </button>
+                <div class="form-actions">
+                  <p-button pButton type="submit" styleClass="submit-btn"
+                    [disabled]="saving() || !form.name.trim()"
+                  [label]="saving() ? 'Guardando…' : 'Crear y tomar pedido'"></p-button>
+                  <button pButton type="button" severity="secondary" [outlined]="true"
+                    [disabled]="saving() || !form.name.trim()"
+                  label="Solo registrar (sin pedido)" (click)="submit(false)"></button>
+                </div>
+              </form>
+            }
+    
+            @if (!showForm()) {
+              <div class="search">
+                <i class="pi" [ngClass]="searching() ? 'pi-spin pi-spinner' : 'pi-search'"></i>
+                <input
+                  pInputText
+                  type="search"
+                  placeholder="Nombre, código o RFC"
+                  [(ngModel)]="search"
+                  (ngModelChange)="onSearch($event)"
+                  inputmode="search"
+                  enterkeyhint="search"
+                  autocapitalize="none"
+                  autocorrect="off"
+                  spellcheck="false"
+                  />
+                </div>
+                @if (loading()) {
+                  <p-skeleton height="500px"></p-skeleton>
+                }
+                <!-- Fallo de red sin resultados previos -->
+                @if (!loading() && loadError() && customers().length === 0) {
+                  <div class="empty">
+                    <i class="pi pi-cloud"></i>
+                    <p>No se pudo buscar. Revisá tu conexión.</p>
+                    <a pButton label="Reintentar" icon="pi pi-refresh" severity="secondary" [text]="true" (click)="retry()"></a>
+                  </div>
+                }
+                @if (!loading() && !loadError() && customers().length === 0) {
+                  <div class="empty">
+                    <i class="pi pi-search"></i>
+                    @if (search) {
+                      <p>Sin resultados para "{{ search }}".</p>
+                    }
+                    @if (!search) {
+                      <p>Escribí para buscar un cliente.</p>
+                    }
+                    @if (search) {
+                      <a pButton label="Crear cliente nuevo" icon="pi pi-plus" severity="secondary" [text]="true" (click)="toggleForm()"></a>
+                    }
+                  </div>
+                }
+                <!-- Resultados previos en pantalla pero la última búsqueda falló -->
+                @if (!loading() && loadError() && customers().length > 0) {
+                  <button type="button" class="err-banner" (click)="retry()">
+                    <i class="pi pi-exclamation-triangle"></i> No se pudo actualizar — tocá para reintentar
+                  </button>
+                }
+                @if (!loading() && customers().length > 0) {
+                  <div class="list">
+                    @for (c of customers(); track c) {
+                      <button class="client" (click)="openSheet(c)">
+                        <span class="av">{{ initials(c.name) }}</span>
+                        <span class="cbody">
+                          <span class="nm">{{ c.name }}</span>
+                          <span class="meta">
+                            <span class="code">{{ c.code }}</span>
+                            @if (c.phone) {
+                              <span>· {{ c.phone }}</span>
+                            }
+                          </span>
+                        </span>
+                        <i class="pi pi-ellipsis-v action"></i>
+                      </button>
+                    }
+                  </div>
+                }
+              }
+    
+              <!-- Menú de opciones del cliente seleccionado -->
+              @if (sheet(); as c) {
+                <div class="sheet-backdrop" [class.closing]="sheetClosing()" (click)="closeSheet()"></div>
+                <div class="sheet" [class.closing]="sheetClosing()" role="dialog" aria-modal="true" aria-label="Opciones del cliente">
+                  <div class="sheet-handle"></div>
+                  <div class="sheet-head">
+                    <span class="av">{{ initials(c.name) }}</span>
+                    <div>
+                      <span class="n">{{ c.name }}</span>
+                      <span class="cd">{{ c.code }}@if (c.sales_route) {
+                        · {{ c.sales_route }}
+                      }</span>
+                    </div>
+                  </div>
+                  <button class="sheet-primary" (click)="goOrder(c)">
+                    <i class="pi pi-shopping-cart"></i> Tomar pedido
+                  </button>
+                  <button class="action" (click)="goCapture(c)">
+                    <i class="pi pi-camera"></i>
+                    <span class="lbl">Capturar exhibición</span>
+                  </button>
+                  <button class="action" (click)="saveLocation(c)" [disabled]="savingLoc()">
+                    <i class="pi" [ngClass]="savingLoc() ? 'pi-spin pi-spinner' : 'pi-map-marker'"></i>
+                    <span class="lbl">Guardar ubicación de la tienda</span>
+                  </button>
+                  @if (locMsg()) {
+                    <p class="loc-msg">{{ locMsg() }}</p>
+                  }
+                  @if (c.phone || c.whatsapp) {
+                    <div class="contact">
+                      @if (c.phone) {
+                        <a class="contact-btn" [href]="'tel:' + c.phone"><i class="pi pi-phone"></i> Llamar</a>
+                      }
+                      @if (c.whatsapp) {
+                        <a class="contact-btn wa" [href]="waLink(c.whatsapp)" target="_blank" rel="noopener">
+                          <i class="pi pi-whatsapp"></i> WhatsApp
+                        </a>
+                      }
+                    </div>
+                  }
+                </div>
+              }
+    `,
   styles: [
     `
       :host { display: block; }

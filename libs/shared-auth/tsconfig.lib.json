@@ -5,8 +5,15 @@
     "declaration": true,
     "declarationMap": true,
     "inlineSources": true,
-    "types": []
+    "types": [],
+    "moduleResolution": "bundler",
+    "module": "preserve",
+    "ignoreDeprecations": "6.0",
+    "rootDir": "."
   },
   "include": ["**/*.ts"],
-  "exclude": ["**/*.spec.ts"]
+  "exclude": ["**/*.spec.ts"],
+  "angularCompilerOptions": {
+    "strictTemplates": false
+  }
 }

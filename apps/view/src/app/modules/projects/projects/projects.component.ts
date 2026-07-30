@@ -1,4 +1,4 @@
-import { Component, computed, inject, OnInit } from '@angular/core';
+import { Component, computed, inject, OnInit, ChangeDetectionStrategy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Router } from '@angular/router';
 import { AuthService } from '../../../core/services/auth.service';
@@ -26,6 +26,7 @@ interface ProjectCard {
   standalone: true,
   imports: [CommonModule, ButtonModule],
   templateUrl: './projects.component.html',
+  changeDetection: ChangeDetectionStrategy.Eager,
   styleUrls: ['./projects.component.css'],
 })
 export class ProjectsComponent implements OnInit {

@@ -90,14 +90,16 @@ interface OfferCard {
   ],
   providers: [ConfirmationService],
   template: `
-    <p-confirmDialog></p-confirmDialog>
+    <p-confirmdialog></p-confirmdialog>
     <p-toast position="top-right"></p-toast>
-
-    <div *ngIf="isAdmin()" class="portal-banner" role="status">
-      <i class="pi pi-eye" aria-hidden="true"></i>
-      <span><b>Vista administrador</b> — las acciones de carrito están deshabilitadas. Inicia sesión como cliente para aprovechar promos.</span>
-    </div>
-
+    
+    @if (isAdmin()) {
+      <div class="portal-banner" role="status">
+        <i class="pi pi-eye" aria-hidden="true"></i>
+        <span><b>Vista administrador</b> — las acciones de carrito están deshabilitadas. Inicia sesión como cliente para aprovechar promos.</span>
+      </div>
+    }
+    
     <!-- PAGE HEADER -->
     <header class="portal-page-head">
       <div class="portal-page-head-text">
@@ -106,270 +108,294 @@ interface OfferCard {
           Promociones
         </span>
         <h1>Promociones exclusivas</h1>
-        <p class="portal-page-sub" *ngIf="!loading()">
-          Ofertas diseñadas para tu negocio
-          <span *ngIf="filteredPromos().length > 0">
-            · {{ filteredPromos().length }} vigente{{ filteredPromos().length === 1 ? '' : 's' }}
-          </span>
-        </p>
+        @if (!loading()) {
+          <p class="portal-page-sub">
+            Ofertas diseñadas para tu negocio
+            @if (filteredPromos().length > 0) {
+              <span>
+                · {{ filteredPromos().length }} vigente{{ filteredPromos().length === 1 ? '' : 's' }}
+              </span>
+            }
+          </p>
+        }
       </div>
     </header>
-
+    
     <!-- SEARCH BAR -->
-    <div class="pp-search" *ngIf="!loading() && promos().length > 0">
-      <i class="pi pi-search pp-search-icon" aria-hidden="true"></i>
-      <input
-        type="text"
-        [(ngModel)]="searchTerm"
-        (ngModelChange)="onSearchChange($event)"
-        placeholder="Buscar promociones..."
-        aria-label="Buscar promociones"
-      />
-      <button
-        *ngIf="searchTerm"
-        type="button"
-        class="pp-search-clear"
-        (click)="clearSearch()"
-        aria-label="Limpiar búsqueda"
-      ><i class="pi pi-times" aria-hidden="true"></i></button>
-    </div>
-
-    <!-- CATEGORY FILTER CHIPS -->
-    <nav
-      *ngIf="!loading() && promos().length > 0"
-      class="pp-chip-rail"
-      aria-label="Filtrar por tipo de promoción"
-      role="tablist"
-    >
-      <button
-        *ngFor="let f of filters; trackBy: trackByFilter"
-        type="button"
-        class="pp-chip"
-        [class.active]="filter() === f.key"
-        (click)="setFilter(f.key)"
-        role="tab"
-        [attr.aria-selected]="filter() === f.key"
-      >
-        {{ f.label }}
-        <span class="pp-chip-count" *ngIf="f.count > 0">{{ f.count }}</span>
-      </button>
-    </nav>
-
-    <p-skeleton *ngIf="loading()" height="400px"></p-skeleton>
-
-    <!-- EMPTY (sin promos en absoluto) -->
-    <div *ngIf="!loading() && promos().length === 0" class="portal-empty">
-      <div class="portal-empty-icon"><i class="pi pi-megaphone" aria-hidden="true"></i></div>
-      <h2>Sin promociones vigentes</h2>
-      <p>No hay promociones activas en este momento. Vuelve pronto.</p>
-      <div class="portal-empty-actions">
-        <button type="button" class="portal-btn-primary" (click)="goCatalog()">
-          <i class="pi pi-arrow-right" aria-hidden="true"></i> Ir al catálogo
-        </button>
-      </div>
-    </div>
-
-    <!-- EMPTY (filtro sin resultados) -->
-    <div
-      *ngIf="!loading() && promos().length > 0 && filteredPromos().length === 0"
-      class="portal-empty"
-    >
-      <div class="portal-empty-icon"><i class="pi pi-filter-slash" aria-hidden="true"></i></div>
-      <h2>Sin resultados</h2>
-      <p>No encontramos promociones con esos filtros.</p>
-      <div class="portal-empty-actions">
-        <button type="button" class="portal-btn-ghost" (click)="resetFilters()">
-          <i class="pi pi-refresh" aria-hidden="true"></i> Limpiar filtros
-        </button>
-      </div>
-    </div>
-
-    <ng-container *ngIf="!loading() && filteredPromos().length > 0">
-      <!-- BANNER DE MARKETING (si la promo tiene arte propio) -->
-      <a
-        *ngIf="bannerPromo() as bp"
-        class="pp-banner"
-        (click)="onBentoClick(bp)"
-        role="button"
-        tabindex="0"
-        [attr.aria-label]="'Ver promoción: ' + bp.name"
-        (keydown.enter)="onBentoClick(bp)"
-      >
-        <img [src]="bp.banner_url" [alt]="bp.name" class="pp-banner-img" />
-      </a>
-
-      <!-- HERO BENTO GRID (top 3 promos protagonistas) -->
-      <section class="pp-bento" aria-label="Promociones destacadas">
-        <!-- Main featured (large) -->
-        <article
-          *ngIf="featuredPromo() as fp"
-          class="pp-bento-main"
-          [class.pp-bento-disabled]="!fp.addable && fp.promotion_type !== 'percent_off_basket'"
-          (click)="onBentoClick(fp)"
-          role="button"
-          tabindex="0"
-          [attr.aria-label]="'Promoción destacada: ' + fp.name"
-          (keydown.enter)="onBentoClick(fp)"
-        >
-          <div class="pp-bento-main-bg" aria-hidden="true">
-            <i [class]="fp.icon + ' pp-bento-main-ico'"></i>
+    @if (!loading() && promos().length > 0) {
+      <div class="pp-search">
+        <i class="pi pi-search pp-search-icon" aria-hidden="true"></i>
+        <input
+          type="text"
+          [(ngModel)]="searchTerm"
+          (ngModelChange)="onSearchChange($event)"
+          placeholder="Buscar promociones..."
+          aria-label="Buscar promociones"
+          />
+          @if (searchTerm) {
+            <button
+              type="button"
+              class="pp-search-clear"
+              (click)="clearSearch()"
+              aria-label="Limpiar búsqueda"
+              ><i class="pi pi-times" aria-hidden="true"></i></button>
+            }
           </div>
-          <div class="pp-bento-main-content">
-            <span class="pp-bento-tag">{{ fp.shortBadge }}</span>
-            <h3 class="pp-bento-main-title">{{ heroTitleFor(fp) }}</h3>
-            <p class="pp-bento-main-desc">{{ heroDescFor(fp) }}</p>
-            <span class="pp-bento-main-cta">
-              Ver detalles <i class="pi pi-arrow-right" aria-hidden="true"></i>
-            </span>
-          </div>
-        </article>
-
-        <!-- Secondary 1 -->
-        <article
-          *ngIf="secondaryPromos()[0] as sp1"
-          class="pp-bento-side"
-          (click)="onBentoClick(sp1)"
-          role="button"
-          tabindex="0"
-          [attr.aria-label]="sp1.name"
-          (keydown.enter)="onBentoClick(sp1)"
-        >
-          <div class="pp-bento-side-icon" aria-hidden="true">
-            <i [class]="sp1.icon"></i>
-          </div>
-          <h4 class="pp-bento-side-title">{{ sp1.name }}</h4>
-          <p class="pp-bento-side-sub">{{ sp1.badge }}</p>
-          <span class="pp-bento-side-cta">
-            Ver catálogo <i class="pi pi-arrow-right" aria-hidden="true"></i>
-          </span>
-        </article>
-
-        <!-- Secondary 2 -->
-        <article
-          *ngIf="secondaryPromos()[1] as sp2"
-          class="pp-bento-side pp-bento-side-accent"
-          (click)="onBentoClick(sp2)"
-          role="button"
-          tabindex="0"
-          [attr.aria-label]="sp2.name"
-          (keydown.enter)="onBentoClick(sp2)"
-        >
-          <div class="pp-bento-side-flash">
-            <span class="pp-bento-flash-icon" aria-hidden="true">
-              <i class="pi pi-bolt"></i>
-            </span>
-            <span class="pp-bento-flash-label">Ventas Flash</span>
-          </div>
-          <h4 class="pp-bento-side-title">{{ sp2.name }}</h4>
-          <p class="pp-bento-side-sub">{{ sp2.badge }}</p>
-        </article>
-      </section>
-
-      <!-- OFERTAS DESTACADAS — product cards generados de resolvedItems -->
-      <section class="pp-offers" *ngIf="offerCards().length > 0" aria-label="Ofertas destacadas">
-        <header class="portal-section-head">
-          <h2><i class="pi pi-tag" aria-hidden="true"></i>Ofertas destacadas</h2>
-          <span class="portal-section-count">
-            {{ offerCards().length }} producto{{ offerCards().length === 1 ? '' : 's' }}
-          </span>
-        </header>
-
-        <div class="pp-offers-grid">
-          <article
-            *ngFor="let oc of offerCards(); trackBy: trackByOffer"
-            class="pp-offer"
-          >
-            <!-- Image placeholder con avatar de iniciales -->
-            <div class="pp-offer-cover" aria-hidden="true">
-              <span
-                *ngIf="oc.discountPct > 0"
-                class="pp-offer-discount"
-              >−{{ oc.discountPct }}%</span>
-              <span
-                class="pp-offer-cover-avatar"
-                [style.background]="avatarColor(oc.item.product_id)"
-              >{{ avatarInitials(oc.item.product_name) }}</span>
-            </div>
-
-            <!-- Body -->
-            <div class="pp-offer-body">
-              <span class="pp-offer-brand">{{ oc.item.brand_name || 'Sin marca' }}</span>
-              <h4 class="pp-offer-name" [title]="oc.item.product_name">{{ oc.item.product_name }}</h4>
-              <div class="pp-offer-prices">
-                <span
-                  *ngIf="oc.discountPct > 0"
-                  class="pp-offer-price-old"
-                >{{ oc.originalPrice | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
-                <span class="pp-offer-price-new">
-                  {{ oc.finalPrice | currency:'MXN':'symbol-narrow':'1.2-2' }}
-                </span>
-              </div>
-              <p class="pp-offer-promo-name" *ngIf="oc.promo.ends_at">
-                <i class="pi pi-calendar" aria-hidden="true"></i>
-                Hasta {{ oc.promo.ends_at | date:'dd MMM' }}
-              </p>
-            </div>
-
-            <!-- Footer: stepper + agregar -->
-            <div class="pp-offer-actions">
-              <div class="pp-offer-stepper" role="group" [attr.aria-label]="'Cantidad de ' + oc.item.product_name">
-                <button
-                  type="button"
-                  class="pp-offer-step"
-                  (click)="changeQty(oc, -1); $event.stopPropagation()"
-                  [disabled]="oc.qty <= 1"
-                  [attr.aria-label]="'Disminuir cantidad'"
-                >−</button>
-                <span class="pp-offer-qty">{{ oc.qty }}</span>
-                <button
-                  type="button"
-                  class="pp-offer-step"
-                  (click)="changeQty(oc, 1); $event.stopPropagation()"
-                  [attr.aria-label]="'Aumentar cantidad'"
-                >+</button>
-              </div>
+        }
+    
+        <!-- CATEGORY FILTER CHIPS -->
+        @if (!loading() && promos().length > 0) {
+          <nav
+            class="pp-chip-rail"
+            aria-label="Filtrar por tipo de promoción"
+            role="tablist"
+            >
+            @for (f of filters; track trackByFilter($index, f)) {
               <button
                 type="button"
-                class="portal-btn-primary pp-offer-add"
-                [disabled]="isAdmin() || adding()[oc.promo.id]"
-                (click)="addOffer(oc); $event.stopPropagation()"
-                [pTooltip]="isAdmin() ? 'Vista admin — solo lectura' : ''"
-              >
-                <i [class]="adding()[oc.promo.id] ? 'pi pi-spin pi-spinner' : 'pi pi-plus'" aria-hidden="true"></i>
-                Agregar
+                class="pp-chip"
+                [class.active]="filter() === f.key"
+                (click)="setFilter(f.key)"
+                role="tab"
+                [attr.aria-selected]="filter() === f.key"
+                >
+                {{ f.label }}
+                @if (f.count > 0) {
+                  <span class="pp-chip-count">{{ f.count }}</span>
+                }
+              </button>
+            }
+          </nav>
+        }
+    
+        @if (loading()) {
+          <p-skeleton height="400px"></p-skeleton>
+        }
+    
+        <!-- EMPTY (sin promos en absoluto) -->
+        @if (!loading() && promos().length === 0) {
+          <div class="portal-empty">
+            <div class="portal-empty-icon"><i class="pi pi-megaphone" aria-hidden="true"></i></div>
+            <h2>Sin promociones vigentes</h2>
+            <p>No hay promociones activas en este momento. Vuelve pronto.</p>
+            <div class="portal-empty-actions">
+              <button type="button" class="portal-btn-primary" (click)="goCatalog()">
+                <i class="pi pi-arrow-right" aria-hidden="true"></i> Ir al catálogo
               </button>
             </div>
-          </article>
-        </div>
-      </section>
-
-      <!-- Tipos sin productos resolvibles (basket %) — listado mini -->
-      <section *ngIf="basketPromos().length > 0" class="pp-basket-section" aria-label="Descuentos sobre canasta">
-        <header class="portal-section-head">
-          <h2><i class="pi pi-shopping-bag" aria-hidden="true"></i>Descuentos sobre canasta</h2>
-        </header>
-        <div class="pp-basket-grid">
-          <article
-            *ngFor="let p of basketPromos(); trackBy: trackByPromo"
-            class="pp-basket-card"
-          >
-            <span class="pp-basket-icon" aria-hidden="true">
-              <i [class]="p.icon"></i>
-            </span>
-            <div class="pp-basket-body">
-              <span class="pp-basket-type">{{ p.badge }}</span>
-              <h3 class="pp-basket-name">{{ p.name }}</h3>
-              <p class="pp-basket-desc" *ngIf="p.description">{{ p.description }}</p>
-              <p class="pp-basket-info">
-                <i class="pi pi-info-circle" aria-hidden="true"></i>
-                Se aplica automáticamente al confirmar el pedido.
-              </p>
+          </div>
+        }
+    
+        <!-- EMPTY (filtro sin resultados) -->
+        @if (!loading() && promos().length > 0 && filteredPromos().length === 0) {
+          <div
+            class="portal-empty"
+            >
+            <div class="portal-empty-icon"><i class="pi pi-filter-slash" aria-hidden="true"></i></div>
+            <h2>Sin resultados</h2>
+            <p>No encontramos promociones con esos filtros.</p>
+            <div class="portal-empty-actions">
+              <button type="button" class="portal-btn-ghost" (click)="resetFilters()">
+                <i class="pi pi-refresh" aria-hidden="true"></i> Limpiar filtros
+              </button>
             </div>
-          </article>
-        </div>
-      </section>
-    </ng-container>
-  `,
+          </div>
+        }
+    
+        @if (!loading() && filteredPromos().length > 0) {
+          <!-- BANNER DE MARKETING (si la promo tiene arte propio) -->
+          @if (bannerPromo(); as bp) {
+            <a
+              class="pp-banner"
+              (click)="onBentoClick(bp)"
+              role="button"
+              tabindex="0"
+              [attr.aria-label]="'Ver promoción: ' + bp.name"
+              (keydown.enter)="onBentoClick(bp)"
+              >
+              <img [src]="bp.banner_url" [alt]="bp.name" class="pp-banner-img" />
+            </a>
+          }
+          <!-- HERO BENTO GRID (top 3 promos protagonistas) -->
+          <section class="pp-bento" aria-label="Promociones destacadas">
+            <!-- Main featured (large) -->
+            @if (featuredPromo(); as fp) {
+              <article
+                class="pp-bento-main"
+                [class.pp-bento-disabled]="!fp.addable && fp.promotion_type !== 'percent_off_basket'"
+                (click)="onBentoClick(fp)"
+                role="button"
+                tabindex="0"
+                [attr.aria-label]="'Promoción destacada: ' + fp.name"
+                (keydown.enter)="onBentoClick(fp)"
+                >
+                <div class="pp-bento-main-bg" aria-hidden="true">
+                  <i [class]="fp.icon + ' pp-bento-main-ico'"></i>
+                </div>
+                <div class="pp-bento-main-content">
+                  <span class="pp-bento-tag">{{ fp.shortBadge }}</span>
+                  <h3 class="pp-bento-main-title">{{ heroTitleFor(fp) }}</h3>
+                  <p class="pp-bento-main-desc">{{ heroDescFor(fp) }}</p>
+                  <span class="pp-bento-main-cta">
+                    Ver detalles <i class="pi pi-arrow-right" aria-hidden="true"></i>
+                  </span>
+                </div>
+              </article>
+            }
+            <!-- Secondary 1 -->
+            @if (secondaryPromos()[0]; as sp1) {
+              <article
+                class="pp-bento-side"
+                (click)="onBentoClick(sp1)"
+                role="button"
+                tabindex="0"
+                [attr.aria-label]="sp1.name"
+                (keydown.enter)="onBentoClick(sp1)"
+                >
+                <div class="pp-bento-side-icon" aria-hidden="true">
+                  <i [class]="sp1.icon"></i>
+                </div>
+                <h4 class="pp-bento-side-title">{{ sp1.name }}</h4>
+                <p class="pp-bento-side-sub">{{ sp1.badge }}</p>
+                <span class="pp-bento-side-cta">
+                  Ver catálogo <i class="pi pi-arrow-right" aria-hidden="true"></i>
+                </span>
+              </article>
+            }
+            <!-- Secondary 2 -->
+            @if (secondaryPromos()[1]; as sp2) {
+              <article
+                class="pp-bento-side pp-bento-side-accent"
+                (click)="onBentoClick(sp2)"
+                role="button"
+                tabindex="0"
+                [attr.aria-label]="sp2.name"
+                (keydown.enter)="onBentoClick(sp2)"
+                >
+                <div class="pp-bento-side-flash">
+                  <span class="pp-bento-flash-icon" aria-hidden="true">
+                    <i class="pi pi-bolt"></i>
+                  </span>
+                  <span class="pp-bento-flash-label">Ventas Flash</span>
+                </div>
+                <h4 class="pp-bento-side-title">{{ sp2.name }}</h4>
+                <p class="pp-bento-side-sub">{{ sp2.badge }}</p>
+              </article>
+            }
+          </section>
+          <!-- OFERTAS DESTACADAS — product cards generados de resolvedItems -->
+          @if (offerCards().length > 0) {
+            <section class="pp-offers" aria-label="Ofertas destacadas">
+              <header class="portal-section-head">
+                <h2><i class="pi pi-tag" aria-hidden="true"></i>Ofertas destacadas</h2>
+                <span class="portal-section-count">
+                  {{ offerCards().length }} producto{{ offerCards().length === 1 ? '' : 's' }}
+                </span>
+              </header>
+              <div class="pp-offers-grid">
+                @for (oc of offerCards(); track trackByOffer($index, oc)) {
+                  <article
+                    class="pp-offer"
+                    >
+                    <!-- Image placeholder con avatar de iniciales -->
+                    <div class="pp-offer-cover" aria-hidden="true">
+                      @if (oc.discountPct > 0) {
+                        <span
+                          class="pp-offer-discount"
+                        >−{{ oc.discountPct }}%</span>
+                      }
+                      <span
+                        class="pp-offer-cover-avatar"
+                        [style.background]="avatarColor(oc.item.product_id)"
+                      >{{ avatarInitials(oc.item.product_name) }}</span>
+                    </div>
+                    <!-- Body -->
+                    <div class="pp-offer-body">
+                      <span class="pp-offer-brand">{{ oc.item.brand_name || 'Sin marca' }}</span>
+                      <h4 class="pp-offer-name" [title]="oc.item.product_name">{{ oc.item.product_name }}</h4>
+                      <div class="pp-offer-prices">
+                        @if (oc.discountPct > 0) {
+                          <span
+                            class="pp-offer-price-old"
+                          >{{ oc.originalPrice | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
+                        }
+                        <span class="pp-offer-price-new">
+                          {{ oc.finalPrice | currency:'MXN':'symbol-narrow':'1.2-2' }}
+                        </span>
+                      </div>
+                      @if (oc.promo.ends_at) {
+                        <p class="pp-offer-promo-name">
+                          <i class="pi pi-calendar" aria-hidden="true"></i>
+                          Hasta {{ oc.promo.ends_at | date:'dd MMM' }}
+                        </p>
+                      }
+                    </div>
+                    <!-- Footer: stepper + agregar -->
+                    <div class="pp-offer-actions">
+                      <div class="pp-offer-stepper" role="group" [attr.aria-label]="'Cantidad de ' + oc.item.product_name">
+                        <button
+                          type="button"
+                          class="pp-offer-step"
+                          (click)="changeQty(oc, -1); $event.stopPropagation()"
+                          [disabled]="oc.qty <= 1"
+                          [attr.aria-label]="'Disminuir cantidad'"
+                        >−</button>
+                        <span class="pp-offer-qty">{{ oc.qty }}</span>
+                        <button
+                          type="button"
+                          class="pp-offer-step"
+                          (click)="changeQty(oc, 1); $event.stopPropagation()"
+                          [attr.aria-label]="'Aumentar cantidad'"
+                        >+</button>
+                      </div>
+                      <button
+                        type="button"
+                        class="portal-btn-primary pp-offer-add"
+                        [disabled]="isAdmin() || adding()[oc.promo.id]"
+                        (click)="addOffer(oc); $event.stopPropagation()"
+                        [pTooltip]="isAdmin() ? 'Vista admin — solo lectura' : ''"
+                        >
+                        <i [class]="adding()[oc.promo.id] ? 'pi pi-spin pi-spinner' : 'pi pi-plus'" aria-hidden="true"></i>
+                        Agregar
+                      </button>
+                    </div>
+                  </article>
+                }
+              </div>
+            </section>
+          }
+          <!-- Tipos sin productos resolvibles (basket %) — listado mini -->
+          @if (basketPromos().length > 0) {
+            <section class="pp-basket-section" aria-label="Descuentos sobre canasta">
+              <header class="portal-section-head">
+                <h2><i class="pi pi-shopping-bag" aria-hidden="true"></i>Descuentos sobre canasta</h2>
+              </header>
+              <div class="pp-basket-grid">
+                @for (p of basketPromos(); track trackByPromo($index, p)) {
+                  <article
+                    class="pp-basket-card"
+                    >
+                    <span class="pp-basket-icon" aria-hidden="true">
+                      <i [class]="p.icon"></i>
+                    </span>
+                    <div class="pp-basket-body">
+                      <span class="pp-basket-type">{{ p.badge }}</span>
+                      <h3 class="pp-basket-name">{{ p.name }}</h3>
+                      @if (p.description) {
+                        <p class="pp-basket-desc">{{ p.description }}</p>
+                      }
+                      <p class="pp-basket-info">
+                        <i class="pi pi-info-circle" aria-hidden="true"></i>
+                        Se aplica automáticamente al confirmar el pedido.
+                      </p>
+                    </div>
+                  </article>
+                }
+              </div>
+            </section>
+          }
+        }
+    `,
   styles: [
     `
       :host { display: block; max-width: 1200px; margin: 0 auto; }

@@ -1,5 +1,5 @@
 import { ChangeDetectionStrategy, Component, ElementRef, OnDestroy, OnInit, ViewChild, computed, inject, signal } from '@angular/core';
-import { CommonModule } from '@angular/common';
+
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 import { RiderRoute, RiderRouteStop, RiderService } from '../rider.service';
@@ -24,7 +24,7 @@ const DENOMS = [1000, 500, 200, 100, 50, 20, 10, 5, 2, 1, 0.5];
 @Component({
   selector: 'app-rider-route-run',
   standalone: true,
-  imports: [CommonModule, FormsModule, RiderMapComponent],
+  imports: [FormsModule, RiderMapComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="run">

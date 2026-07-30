@@ -99,3 +99,10 @@ database/_verify*.js
 # Estado local del importer de stock incremental (no versionar)
 .stock-live-snapshot.json
 database/importers/kepler/.stock-live-snapshot.json
+.cursor/rules/nx-rules.mdc
+.github/instructions/nx.instructions.md
+
+.claude/worktrees
+.nx/polygraph
+.nx/self-healing
+.nx/migrate-runs

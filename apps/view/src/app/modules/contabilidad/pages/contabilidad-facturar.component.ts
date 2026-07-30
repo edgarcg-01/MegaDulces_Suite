@@ -40,7 +40,7 @@ interface ConceptoRow { descripcion: string; cantidad: number; valor_unitario: n
   template: `
     <div class="surf-page in">
       <p-toast></p-toast>
-      <p-confirmDialog></p-confirmDialog>
+      <p-confirmdialog></p-confirmdialog>
       <app-page-tabs [tabs]="tabs" variant="liquid" />
 
       <header class="surf-page-head fa-head">
@@ -50,12 +50,12 @@ interface ConceptoRow { descripcion: string; cantidad: number; valor_unitario: n
         </div>
         <div class="fa-head-actions">
           @if (loadedAt()) { <app-freshness-pill [since]="loadedAt()" /> }
-          <button pButton type="button" label="Refrescar" icon="pi pi-refresh" class="p-button-sm p-button-text" [loading]="loading()" (click)="reload()"></button>
-          <button pButton type="button" label="Pendientes" icon="pi pi-inbox" class="p-button-sm p-button-text" pTooltip="Pedidos entregados sin factura (contingencia)" (click)="openContingencia()"></button>
+          <button pButton type="button" class="p-button-sm p-button-text" [loading]="loading()" (click)="reload()"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span><span class="p-button-label">Refrescar</span></button>
+          <button pButton type="button" class="p-button-sm p-button-text" pTooltip="Pedidos entregados sin factura (contingencia)" (click)="openContingencia()"><span class="p-button-icon p-button-icon-left pi pi-inbox" aria-hidden="true"></span><span class="p-button-label">Pendientes</span></button>
           @if (canManage) {
-            <button pButton type="button" label="Emisor" icon="pi pi-id-card" class="p-button-sm p-button-text" (click)="openIssuer()"></button>
-            <button pButton type="button" label="Nueva factura" icon="pi pi-plus" class="p-button-sm" [disabled]="!hasIssuer()" (click)="openEmit()"></button>
-            <button pButton type="button" label="Global del día" icon="pi pi-calendar" class="p-button-sm p-button-text" [disabled]="!hasIssuer()" (click)="globalDia()"></button>
+            <button pButton type="button" class="p-button-sm p-button-text" (click)="openIssuer()"><span class="p-button-icon p-button-icon-left pi pi-id-card" aria-hidden="true"></span><span class="p-button-label">Emisor</span></button>
+            <button pButton type="button" class="p-button-sm" [disabled]="!hasIssuer()" (click)="openEmit()"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Nueva factura</span></button>
+            <button pButton type="button" class="p-button-sm p-button-text" [disabled]="!hasIssuer()" (click)="globalDia()"><span class="p-button-icon p-button-icon-left pi pi-calendar" aria-hidden="true"></span><span class="p-button-label">Global del día</span></button>
           }
         </div>
       </header>
@@ -64,7 +64,7 @@ interface ConceptoRow { descripcion: string; cantidad: number; valor_unitario: n
         <div class="fa-banner">
           <i class="pi pi-info-circle"></i>
           <span>Antes de facturar, configura los datos fiscales del <strong>emisor</strong> (RFC, razón social, régimen, CP).</span>
-          <button pButton type="button" label="Configurar emisor" icon="pi pi-id-card" class="p-button-sm" (click)="openIssuer()"></button>
+          <button pButton type="button" class="p-button-sm" (click)="openIssuer()"><span class="p-button-icon p-button-icon-left pi pi-id-card" aria-hidden="true"></span><span class="p-button-label">Configurar emisor</span></button>
         </div>
       }
 
@@ -79,14 +79,14 @@ interface ConceptoRow { descripcion: string; cantidad: number; valor_unitario: n
         <label class="fa-field"><span>Hasta</span>
           <p-datepicker [(ngModel)]="toD" (onSelect)="applyFilters()" (onClear)="applyFilters()" dateFormat="yy-mm-dd" [showIcon]="true" [showClear]="true" appendTo="body" placeholder="Hasta" />
         </label>
-        <button pButton type="button" label="Buscar" icon="pi pi-filter" class="p-button-sm p-button-outlined" (click)="applyFilters()"></button>
-        @if (hasFilters()) { <button pButton type="button" label="Limpiar" icon="pi pi-times" class="p-button-sm p-button-text" (click)="clearFilters()"></button> }
+        <button pButton type="button" class="p-button-sm p-button-outlined" (click)="applyFilters()"><span class="p-button-icon p-button-icon-left pi pi-filter" aria-hidden="true"></span><span class="p-button-label">Buscar</span></button>
+        @if (hasFilters()) { <button pButton type="button" class="p-button-sm p-button-text" (click)="clearFilters()"><span class="p-button-icon p-button-icon-left pi pi-times" aria-hidden="true"></span><span class="p-button-label">Limpiar</span></button> }
       </div>
 
       <div class="card-premium card-flat">
         <p-table [value]="rows()" styleClass="p-datatable-sm fa-table" [rowHover]="true" [loading]="loading()"
                  [scrollable]="true" scrollHeight="560px" [lazy]="true" [paginator]="total() > 50" [rows]="50" [first]="offset()" [totalRecords]="total()" (onLazyLoad)="onPage($event)">
-          <ng-template pTemplate="header">
+          <ng-template #header>
             <tr>
               <th style="width:8rem">Folio</th>
               <th style="width:9rem">Fecha</th>
@@ -98,7 +98,7 @@ interface ConceptoRow { descripcion: string; cantidad: number; valor_unitario: n
               <th style="width:6rem"></th>
             </tr>
           </ng-template>
-          <ng-template pTemplate="body" let-r>
+          <ng-template #body let-r>
             <tr>
               <td class="mono">{{ r.serie }}{{ r.folio }}@if (r.tipo_comprobante === 'E') {<span class="fa-nc" pTooltip="Nota de crédito (Egreso)">NC</span>}@if (r.tipo_comprobante === 'P') {<span class="fa-rep" pTooltip="Complemento de Pago (REP)">REP</span>}</td>
               <td class="mono">{{ r.fecha_timbrado || r.fecha | date:'dd/MM/yy HH:mm' }}</td>
@@ -108,27 +108,27 @@ interface ConceptoRow { descripcion: string; cantidad: number; valor_unitario: n
               <td class="ta-r mono fa-tot">{{ mzn(r.total) }}</td>
               <td><p-tag [value]="estatusLabel(r.estatus_sat)" [severity]="estatusSev(r.estatus_sat)" styleClass="fa-chip" /></td>
               <td class="ta-r">
-                <button pButton type="button" icon="pi pi-download" class="p-button-text p-button-sm" aria-label="Descargar XML" (click)="downloadXml(r)"></button>
-                <button pButton type="button" icon="pi pi-file-pdf" class="p-button-text p-button-sm" aria-label="Descargar PDF" (click)="downloadPdf(r)"></button>
+                <button pButton type="button" class="p-button-text p-button-sm" aria-label="Descargar XML" (click)="downloadXml(r)"><span class="p-button-icon p-button-icon-left pi pi-download" aria-hidden="true"></span></button>
+                <button pButton type="button" class="p-button-text p-button-sm" aria-label="Descargar PDF" (click)="downloadPdf(r)"><span class="p-button-icon p-button-icon-left pi pi-file-pdf" aria-hidden="true"></span></button>
                 @if (canManage && r.estatus_sat === 'vigente' && r.tipo_comprobante !== 'E') {
-                  <button pButton type="button" icon="pi pi-minus-circle" class="p-button-text p-button-sm" aria-label="Nota de crédito" pTooltip="Nota de crédito" (click)="openNc(r)"></button>
+                  <button pButton type="button" class="p-button-text p-button-sm" aria-label="Nota de crédito" pTooltip="Nota de crédito" (click)="openNc(r)"><span class="p-button-icon p-button-icon-left pi pi-minus-circle" aria-hidden="true"></span></button>
                 }
                 @if (canManage && r.estatus_sat === 'vigente') {
-                  <button pButton type="button" icon="pi pi-times" class="p-button-text p-button-sm p-button-danger" aria-label="Cancelar" (click)="openCancel(r)"></button>
+                  <button pButton type="button" class="p-button-text p-button-sm p-button-danger" aria-label="Cancelar" (click)="openCancel(r)"><span class="p-button-icon p-button-icon-left pi pi-times" aria-hidden="true"></span></button>
                 }
                 @if (r.estatus_sat === 'en_proceso_cancelacion') {
-                  <button pButton type="button" icon="pi pi-sync" class="p-button-text p-button-sm" [loading]="statusChecking()===r.uuid" aria-label="Consultar estatus SAT" pTooltip="Consultar estatus en el SAT" (click)="consultarEstatus(r)"></button>
+                  <button pButton type="button" class="p-button-text p-button-sm" [loading]="statusChecking()===r.uuid" aria-label="Consultar estatus SAT" pTooltip="Consultar estatus en el SAT" (click)="consultarEstatus(r)"><span class="p-button-icon p-button-icon-left pi pi-sync" aria-hidden="true"></span></button>
                 }
                 @if (r.estatus_sat === 'cancelado' || r.estatus_sat === 'en_proceso_cancelacion') {
-                  <button pButton type="button" icon="pi pi-file-o" class="p-button-text p-button-sm" aria-label="Acuse de cancelación" pTooltip="Descargar acuse de cancelación" (click)="downloadAcuse(r)"></button>
+                  <button pButton type="button" class="p-button-text p-button-sm" aria-label="Acuse de cancelación" pTooltip="Descargar acuse de cancelación" (click)="downloadAcuse(r)"><span class="p-button-icon p-button-icon-left pi pi-file-o" aria-hidden="true"></span></button>
                 }
               </td>
             </tr>
           </ng-template>
-          <ng-template pTemplate="emptymessage"><tr><td colspan="8" class="fa-empty">
+          <ng-template #emptymessage><tr><td colspan="8" class="fa-empty">
             @if (loading()) { Cargando… }
-            @else if (errored()) { <i class="pi pi-exclamation-triangle"></i> No se pudo cargar. <button pButton type="button" label="Reintentar" class="p-button-sm p-button-text" (click)="reload()"></button> }
-            @else if (hasFilters()) { <i class="pi pi-filter-slash"></i> Sin facturas para este filtro. <button pButton type="button" label="Limpiar filtros" class="p-button-sm p-button-text" (click)="clearFilters()"></button> }
+            @else if (errored()) { <i class="pi pi-exclamation-triangle"></i> No se pudo cargar. <button pButton type="button" class="p-button-sm p-button-text" (click)="reload()"><span class="p-button-label">Reintentar</span></button> }
+            @else if (hasFilters()) { <i class="pi pi-filter-slash"></i> Sin facturas para este filtro. <button pButton type="button" class="p-button-sm p-button-text" (click)="clearFilters()"><span class="p-button-label">Limpiar filtros</span></button> }
             @else { <i class="pi pi-file-edit"></i> Sin facturas emitidas. @if (canManage && hasIssuer()) { Crea una con "Nueva factura". } }
           </td></tr></ng-template>
         </p-table>
@@ -138,7 +138,7 @@ interface ConceptoRow { descripcion: string; cantidad: number; valor_unitario: n
       <p-dialog [visible]="showEmit" (visibleChange)="showEmit=$event" [modal]="true" [style]="{ width: '46rem' }" header="Nueva factura" [draggable]="false" [closable]="false" [closeOnEscape]="false">
         <div class="fa-form">
           <label class="fa-f"><span>Tipo *</span>
-            <p-selectButton [options]="tipoOpts" [(ngModel)]="form.tipo" optionLabel="label" optionValue="value" [allowEmpty]="false" styleClass="fa-sb sb-liquid" ariaLabel="Tipo de factura" />
+            <p-selectbutton [options]="tipoOpts" [(ngModel)]="form.tipo" optionLabel="label" optionValue="value" [allowEmpty]="false" styleClass="fa-sb sb-liquid" ariaLabel="Tipo de factura" />
           </label>
 
           @if (form.tipo === 'nominativa') {
@@ -153,16 +153,16 @@ interface ConceptoRow { descripcion: string; cantidad: number; valor_unitario: n
             <p class="fa-note"><i class="pi pi-info-circle"></i> Factura global a <strong>PÚBLICO EN GENERAL</strong> (XAXX010101000). Se agrega el nodo Información Global (periodicidad diaria).</p>
           }
 
-          <div class="fa-concept-head"><span>Conceptos *</span><button pButton type="button" label="Agregar" icon="pi pi-plus" class="p-button-text p-button-sm" (click)="addConcepto()"></button></div>
+          <div class="fa-concept-head"><span>Conceptos *</span><button pButton type="button" class="p-button-text p-button-sm" (click)="addConcepto()"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Agregar</span></button></div>
           <p-table [value]="conceptos()" styleClass="p-datatable-sm fa-concepts-tbl">
-            <ng-template pTemplate="header"><tr><th>Descripción</th><th style="width:5rem">Cant.</th><th style="width:8rem">P. Unit.</th><th class="ta-r" style="width:7rem">Importe</th><th style="width:2rem"></th></tr></ng-template>
-            <ng-template pTemplate="body" let-c let-i="rowIndex">
+            <ng-template #header><tr><th>Descripción</th><th style="width:5rem">Cant.</th><th style="width:8rem">P. Unit.</th><th class="ta-r" style="width:7rem">Importe</th><th style="width:2rem"></th></tr></ng-template>
+            <ng-template #body let-c let-i="rowIndex">
               <tr>
                 <td><input pInputText [(ngModel)]="c.descripcion" placeholder="Dulces surtidos" /></td>
                 <td><input pInputText type="number" min="0" step="1" [(ngModel)]="c.cantidad" /></td>
                 <td><input pInputText type="number" min="0" step="0.01" [(ngModel)]="c.valor_unitario" /></td>
                 <td class="ta-r mono">{{ mzn((c.cantidad||0) * (c.valor_unitario||0)) }}</td>
-                <td>@if (conceptos().length > 1) { <button pButton type="button" icon="pi pi-trash" class="p-button-text p-button-sm p-button-danger" aria-label="Quitar" (click)="removeConcepto(i)"></button> }</td>
+                <td>@if (conceptos().length > 1) { <button pButton type="button" class="p-button-text p-button-sm p-button-danger" aria-label="Quitar" (click)="removeConcepto(i)"><span class="p-button-icon p-button-icon-left pi pi-trash" aria-hidden="true"></span></button> }</td>
               </tr>
             </ng-template>
           </p-table>
@@ -183,9 +183,9 @@ interface ConceptoRow { descripcion: string; cantidad: number; valor_unitario: n
             <span class="fa-grand">Total <strong class="mono">{{ mzn(totals().total) }}</strong></span>
           </div>
         </div>
-        <ng-template pTemplate="footer">
-          <button pButton type="button" label="Cancelar" class="p-button-text p-button-sm" (click)="tryCloseEmit()"></button>
-          <button pButton type="button" label="Emitir y timbrar" icon="pi pi-check" class="p-button-sm" [loading]="emitting()" [disabled]="!emitValid()" (click)="emit()"></button>
+        <ng-template #footer>
+          <button pButton type="button" class="p-button-text p-button-sm" (click)="tryCloseEmit()"><span class="p-button-label">Cancelar</span></button>
+          <button pButton type="button" class="p-button-sm" [loading]="emitting()" [disabled]="!emitValid()" (click)="emit()"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Emitir y timbrar</span></button>
         </ng-template>
       </p-dialog>
 
@@ -202,9 +202,9 @@ interface ConceptoRow { descripcion: string; cantidad: number; valor_unitario: n
           <label class="fa-check"><p-checkbox [(ngModel)]="issuerForm.is_default" [binary]="true" inputId="fa-issuer-default" /> <span>Emisor por defecto</span></label>
           <p class="fa-note"><i class="pi pi-info-circle"></i> El CSD (sello) vive en la cuenta del PAC (Conectia/SW); aquí solo van los datos del comprobante. Deben coincidir <strong>exacto</strong> con tu Constancia de Situación Fiscal.</p>
         </div>
-        <ng-template pTemplate="footer">
-          <button pButton type="button" label="Cancelar" class="p-button-text p-button-sm" (click)="showIssuer=false"></button>
-          <button pButton type="button" label="Guardar" icon="pi pi-check" class="p-button-sm" [loading]="savingIssuer()" [disabled]="!issuerValid()" (click)="saveIssuer()"></button>
+        <ng-template #footer>
+          <button pButton type="button" class="p-button-text p-button-sm" (click)="showIssuer=false"><span class="p-button-label">Cancelar</span></button>
+          <button pButton type="button" class="p-button-sm" [loading]="savingIssuer()" [disabled]="!issuerValid()" (click)="saveIssuer()"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Guardar</span></button>
         </ng-template>
       </p-dialog>
 
@@ -225,9 +225,9 @@ interface ConceptoRow { descripcion: string; cantidad: number; valor_unitario: n
               <input pInputText [(ngModel)]="cancelForm.reason" placeholder="Motivo/observación para auditoría" />
             </label>
           </div>
-          <ng-template pTemplate="footer">
-            <button pButton type="button" label="Volver" class="p-button-text p-button-sm" (click)="showCancel=false"></button>
-            <button pButton type="button" label="Cancelar factura" icon="pi pi-times" class="p-button-sm p-button-danger" [loading]="cancelling()" [disabled]="cancelForm.motivo==='01' && !isUuid(cancelForm.folioSustitucion)" (click)="confirmCancel()"></button>
+          <ng-template #footer>
+            <button pButton type="button" class="p-button-text p-button-sm" (click)="showCancel=false"><span class="p-button-label">Volver</span></button>
+            <button pButton type="button" class="p-button-sm p-button-danger" [loading]="cancelling()" [disabled]="cancelForm.motivo==='01' && !isUuid(cancelForm.folioSustitucion)" (click)="confirmCancel()"><span class="p-button-icon p-button-icon-left pi pi-times" aria-hidden="true"></span><span class="p-button-label">Cancelar factura</span></button>
           </ng-template>
         }
       </p-dialog>
@@ -237,16 +237,16 @@ interface ConceptoRow { descripcion: string; cantidad: number; valor_unitario: n
         @if (ncRow(); as r) {
           <div class="fa-form">
             <p class="fa-note"><i class="pi pi-info-circle"></i> CFDI de <strong>Egreso</strong> relacionado (01) a <strong>{{ r.serie }}{{ r.folio }}</strong> · {{ r.receptor_nombre || 'Público general' }} ({{ r.receptor_rfc }}). Captura lo que se devuelve/bonifica.</p>
-            <div class="fa-concept-head"><span>Conceptos *</span><button pButton type="button" label="Agregar" icon="pi pi-plus" class="p-button-text p-button-sm" (click)="addNcConcepto()"></button></div>
+            <div class="fa-concept-head"><span>Conceptos *</span><button pButton type="button" class="p-button-text p-button-sm" (click)="addNcConcepto()"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Agregar</span></button></div>
             <p-table [value]="ncConceptos()" styleClass="p-datatable-sm fa-concepts-tbl">
-              <ng-template pTemplate="header"><tr><th>Descripción</th><th style="width:5rem">Cant.</th><th style="width:8rem">P. Unit.</th><th class="ta-r" style="width:7rem">Importe</th><th style="width:2rem"></th></tr></ng-template>
-              <ng-template pTemplate="body" let-c let-i="rowIndex">
+              <ng-template #header><tr><th>Descripción</th><th style="width:5rem">Cant.</th><th style="width:8rem">P. Unit.</th><th class="ta-r" style="width:7rem">Importe</th><th style="width:2rem"></th></tr></ng-template>
+              <ng-template #body let-c let-i="rowIndex">
                 <tr>
                   <td><input pInputText [(ngModel)]="c.descripcion" placeholder="Devolución de mercancía" /></td>
                   <td><input pInputText type="number" min="0" step="1" [(ngModel)]="c.cantidad" /></td>
                   <td><input pInputText type="number" min="0" step="0.01" [(ngModel)]="c.valor_unitario" /></td>
                   <td class="ta-r mono">{{ mzn((c.cantidad||0) * (c.valor_unitario||0)) }}</td>
-                  <td>@if (ncConceptos().length > 1) { <button pButton type="button" icon="pi pi-trash" class="p-button-text p-button-sm p-button-danger" aria-label="Quitar" (click)="removeNcConcepto(i)"></button> }</td>
+                  <td>@if (ncConceptos().length > 1) { <button pButton type="button" class="p-button-text p-button-sm p-button-danger" aria-label="Quitar" (click)="removeNcConcepto(i)"><span class="p-button-icon p-button-icon-left pi pi-trash" aria-hidden="true"></span></button> }</td>
                 </tr>
               </ng-template>
             </p-table>
@@ -256,9 +256,9 @@ interface ConceptoRow { descripcion: string; cantidad: number; valor_unitario: n
               <span class="fa-grand">Total NC <strong class="mono">{{ mzn(ncTotals().total) }}</strong></span>
             </div>
           </div>
-          <ng-template pTemplate="footer">
-            <button pButton type="button" label="Volver" class="p-button-text p-button-sm" (click)="tryCloseNc()"></button>
-            <button pButton type="button" label="Emitir nota de crédito" icon="pi pi-check" class="p-button-sm" [loading]="ncEmitting()" [disabled]="!ncValid()" (click)="emitNc()"></button>
+          <ng-template #footer>
+            <button pButton type="button" class="p-button-text p-button-sm" (click)="tryCloseNc()"><span class="p-button-label">Volver</span></button>
+            <button pButton type="button" class="p-button-sm" [loading]="ncEmitting()" [disabled]="!ncValid()" (click)="emitNc()"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Emitir nota de crédito</span></button>
           </ng-template>
         }
       </p-dialog>
@@ -275,15 +275,15 @@ interface ConceptoRow { descripcion: string; cantidad: number; valor_unitario: n
               <div class="fa-cont-head">
                 <span><strong>Facturas nominativa pendientes</strong> ({{ rec.counts.nominativa }})</span>
                 @if (canManage && rec.counts.nominativa > 0) {
-                  <button pButton type="button" label="Reintentar todos" icon="pi pi-replay" class="p-button-sm" [loading]="retrying()" (click)="retryPending()"></button>
+                  <button pButton type="button" class="p-button-sm" [loading]="retrying()" (click)="retryPending()"><span class="p-button-icon p-button-icon-left pi pi-replay" aria-hidden="true"></span><span class="p-button-label">Reintentar todos</span></button>
                 }
               </div>
               @if (rec.pending_nominativa.length === 0) {
                 <p class="fa-note fa-note-ok"><i class="pi pi-check-circle"></i> Sin pendientes: todos los pedidos con datos fiscales fueron facturados.</p>
               } @else {
                 <p-table [value]="rec.pending_nominativa" styleClass="p-datatable-sm fa-cont-tbl" [rowHover]="true">
-                  <ng-template pTemplate="header"><tr><th>Pedido</th><th>Cliente</th><th class="ta-r">Total</th><th class="ta-r">Int.</th><th>Último error</th></tr></ng-template>
-                  <ng-template pTemplate="body" let-o>
+                  <ng-template #header><tr><th>Pedido</th><th>Cliente</th><th class="ta-r">Total</th><th class="ta-r">Int.</th><th>Último error</th></tr></ng-template>
+                  <ng-template #body let-o>
                     <tr>
                       <td class="mono">{{ o.code }}</td>
                       <td>{{ o.customer_name || o.customer_id }}</td>
@@ -303,13 +303,13 @@ interface ConceptoRow { descripcion: string; cantidad: number; valor_unitario: n
                 <p class="fa-note fa-note-ok"><i class="pi pi-check-circle"></i> Sin mostrador pendiente de factura global.</p>
               } @else {
                 <p-table [value]="rec.pending_global_by_day" styleClass="p-datatable-sm fa-cont-tbl" [rowHover]="true">
-                  <ng-template pTemplate="header"><tr><th>Día</th><th class="ta-r">Pedidos</th><th class="ta-r">Total</th><th></th></tr></ng-template>
-                  <ng-template pTemplate="body" let-d>
+                  <ng-template #header><tr><th>Día</th><th class="ta-r">Pedidos</th><th class="ta-r">Total</th><th></th></tr></ng-template>
+                  <ng-template #body let-d>
                     <tr>
                       <td class="mono">{{ d.day | date:'dd/MM/yy' }}</td>
                       <td class="ta-r mono">{{ d.orders }}</td>
                       <td class="ta-r mono">{{ mzn(d.total) }}</td>
-                      <td class="ta-r">@if (canManage) { <button pButton type="button" label="Facturar global" icon="pi pi-calendar" class="p-button-text p-button-sm" [loading]="globalDay()===d.day" (click)="globalForDay(d.day)"></button> }</td>
+                      <td class="ta-r">@if (canManage) { <button pButton type="button" class="p-button-text p-button-sm" [loading]="globalDay()===d.day" (click)="globalForDay(d.day)"><span class="p-button-icon p-button-icon-left pi pi-calendar" aria-hidden="true"></span><span class="p-button-label">Facturar global</span></button> }</td>
                     </tr>
                   </ng-template>
                 </p-table>
@@ -321,8 +321,8 @@ interface ConceptoRow { descripcion: string; cantidad: number; valor_unitario: n
             <p class="fa-note fa-note-warn"><i class="pi pi-exclamation-triangle"></i> No se pudo cargar el reporte.</p>
           }
         </div>
-        <ng-template pTemplate="footer">
-          <button pButton type="button" label="Cerrar" class="p-button-text p-button-sm" (click)="showContingencia=false"></button>
+        <ng-template #footer>
+          <button pButton type="button" class="p-button-text p-button-sm" (click)="showContingencia=false"><span class="p-button-label">Cerrar</span></button>
         </ng-template>
       </p-dialog>
     </div>

@@ -77,9 +77,9 @@ type CatLine = CriticalStockRow & { uxc: number; cajas: number; piezas: number; 
 
       <div class="qt-filters">
         <div class="qt-wh">
-          <p-multiSelect [options]="warehouses()" [(ngModel)]="fWh" (onChange)="reload()"
+          <p-multiselect [options]="warehouses()" [(ngModel)]="fWh" (onChange)="reload()"
                          optionLabel="label" optionValue="id" placeholder="Todos los almacenes" [showClear]="true"
-                         [maxSelectedLabels]="2" selectedItemsLabel="{0} almacenes" styleClass="qt-sel"></p-multiSelect>
+                         [maxSelectedLabels]="2" selectedItemsLabel="{0} almacenes" styleClass="qt-sel"></p-multiselect>
           <div class="qt-atajos">
             <span class="qt-atajos-lbl">Atajos:</span>
             <button type="button" class="qt-atajo" [class.on]="!fWh.length" (click)="clearWh()">Todos</button>
@@ -110,8 +110,7 @@ type CatLine = CriticalStockRow & { uxc: number; cajas: number; piezas: number; 
       @if (fCategory) {
         <div class="qt-catbar">
           <span class="qt-catbar-txt"><i class="pi pi-sitemap"></i> Categoría: <strong>{{ catLabel() }}</strong> — todos sus proveedores</span>
-          <button pButton label="Pedido de toda la categoría" icon="pi pi-bolt" class="p-button-sm"
-                  [loading]="catLoading()" (click)="openCategoryOrder()"></button>
+          <button pButton class="p-button-sm" [loading]="catLoading()" (click)="openCategoryOrder()"><span class="p-button-icon p-button-icon-left pi pi-bolt" aria-hidden="true"></span><span class="p-button-label">Pedido de toda la categoría</span></button>
         </div>
       }
 
@@ -119,9 +118,8 @@ type CatLine = CriticalStockRow & { uxc: number; cajas: number; piezas: number; 
       @if (selectedRows().length) {
         <div class="qt-bulk">
           <span class="qt-bulk-txt"><strong>{{ selectedRows().length }}</strong> seleccionado(s) · {{ money(selTotal()) }}</span>
-          <button pButton label="Generar pedido general" icon="pi pi-bolt" class="p-button-sm"
-                  [loading]="bulkGenerating()" (click)="bulkGenerate()"></button>
-          <button pButton label="Limpiar" icon="pi pi-times" class="p-button-sm p-button-text" (click)="selectedRows.set([])"></button>
+          <button pButton class="p-button-sm" [loading]="bulkGenerating()" (click)="bulkGenerate()"><span class="p-button-icon p-button-icon-left pi pi-bolt" aria-hidden="true"></span><span class="p-button-label">Generar pedido general</span></button>
+          <button pButton class="p-button-sm p-button-text" (click)="selectedRows.set([])"><span class="p-button-icon p-button-icon-left pi pi-times" aria-hidden="true"></span><span class="p-button-label">Limpiar</span></button>
         </div>
       }
 
@@ -129,21 +127,21 @@ type CatLine = CriticalStockRow & { uxc: number; cajas: number; piezas: number; 
                dataKey="_key" (onRowExpand)="onExpand($event.data)"
                [selection]="selectedRows()" (selectionChange)="selectedRows.set($event)" selectionMode="multiple"
                styleClass="p-datatable-sm qt-table">
-        <ng-template pTemplate="header">
+        <ng-template #header>
           <tr>
-            <th style="width:2.2rem"><p-tableHeaderCheckbox /></th>
+            <th style="width:2.2rem"><p-tableheadercheckbox /></th>
             <th style="width:2.5rem"></th>
             <th>Estado</th><th>Próximo</th><th>Proveedor</th><th>Almacén</th><th>Canal</th>
             <th class="qt-r">Cadencia</th><th>Última</th><th class="qt-r">SKUs</th>
             <th class="qt-r">Sugerido</th><th class="qt-r">Costo est.</th>
           </tr>
         </ng-template>
-        <ng-template pTemplate="body" let-r let-expanded="expanded">
+        <ng-template #body let-r let-expanded="expanded">
           <tr>
-            <td><p-tableCheckbox [value]="r" /></td>
+            <td><p-tablecheckbox [value]="r" /></td>
             <td>
-              <button type="button" pButton [pRowToggler]="r" [text]="true" [rounded]="true"
-                      class="p-button-sm" [icon]="expanded ? 'pi pi-chevron-down' : 'pi pi-chevron-right'"></button>
+              <p-button type="button" pButton [pRowToggler]="r" [text]="true" [rounded]="true"
+                      styleClass="p-button-sm" [icon]="expanded ? 'pi pi-chevron-down' : 'pi pi-chevron-right'"></p-button>
             </td>
             <td><p-tag [value]="estLabel(r)" [severity]="estSev(r)"></p-tag></td>
             <td class="qt-nowrap" [class.qt-bad]="(r.days_to_due ?? 0) < 0">
@@ -171,7 +169,7 @@ type CatLine = CriticalStockRow & { uxc: number; cajas: number; piezas: number; 
             <td class="qt-r qt-strong">{{ money(r.suggested_cost) }}</td>
           </tr>
         </ng-template>
-        <ng-template pTemplate="rowexpansion" let-r>
+        <ng-template #expandedrow let-r>
           <tr class="qt-detrow">
             <td colspan="12">
               @if (detail()[r._key]; as st) {
@@ -198,8 +196,7 @@ type CatLine = CriticalStockRow & { uxc: number; cajas: number; piezas: number; 
                     <div class="qt-block" role="alert">
                       <i class="pi pi-exclamation-triangle"></i>
                       <span>El hub <strong>{{ r.source_warehouse_code }}</strong> no tiene stock para surtir {{ hubShortCount(r._key) }} línea(s).</span>
-                      <button pButton label="Traspasar disponible + comprar faltante" icon="pi pi-arrows-h"
-                              class="p-button-sm qt-block-btn" [loading]="st.creating" (click)="splitTransfer(r)"></button>
+                      <button pButton class="p-button-sm qt-block-btn" [loading]="st.creating" (click)="splitTransfer(r)"><span class="p-button-icon p-button-icon-left pi pi-arrows-h" aria-hidden="true"></span><span class="p-button-label">Traspasar disponible + comprar faltante</span></button>
                     </div>
                   }
 
@@ -237,7 +234,7 @@ type CatLine = CriticalStockRow & { uxc: number; cajas: number; piezas: number; 
                             <td class="qt-r qt-muted">{{ objetivo(l) | number:'1.0-0' }}</td>
                             <td class="qt-r">{{ l.suggested_qty | number:'1.0-0' }}</td>
                             <td class="qt-r" [class.qt-muted]="!(l.transfer_in)" [class.qt-transfer]="(l.transfer_in || 0) > 0" [pTooltip]="(l.surplus_network || 0) > 0 ? ('Sobrante en la red: ' + (l.surplus_network | number:'1.0-0') + ' — traspasa en vez de comprar') : ''">{{ (l.transfer_in || 0) > 0 ? (l.transfer_in | number:'1.0-0') : '—' }}</td>
-                            <td class="qt-r qt-pedir"><p-inputNumber [ngModel]="orderUnit()==='cajas' ? l.finalCajas : pzOf(l)" (ngModelChange)="setQty(l, $event)" [min]="0" [showButtons]="false" inputStyleClass="qt-qty"></p-inputNumber></td>
+                            <td class="qt-r qt-pedir"><p-inputnumber [ngModel]="orderUnit()==='cajas' ? l.finalCajas : pzOf(l)" (ngModelChange)="setQty(l, $event)" [min]="0" [showButtons]="false" inputStyleClass="qt-qty"></p-inputnumber></td>
                             <td class="qt-r qt-muted">{{ (orderUnit()==='cajas' ? pzOf(l) : l.finalCajas) | number:'1.0-0' }}</td>
                             <td class="qt-r">{{ money(lineCost(l)) }}</td>
                           </tr>
@@ -247,20 +244,18 @@ type CatLine = CriticalStockRow & { uxc: number; cajas: number; piezas: number; 
                     <div class="qt-det-foot">
                       @if (r.via==='purchase' && minWarn(r._key); as mw) {
                         <p-tag severity="warn" [value]="mw" styleClass="qt-mintag" [pTooltip]="'Mínimo de compra del proveedor (captúralo en Proveedores).'"></p-tag>
-                        <button pButton label="Subir al mínimo" icon="pi pi-arrow-up" class="p-button-sm p-button-text" (click)="padToMin(r)"></button>
+                        <button pButton class="p-button-sm p-button-text" (click)="padToMin(r)"><span class="p-button-icon p-button-icon-left pi pi-arrow-up" aria-hidden="true"></span><span class="p-button-label">Subir al mínimo</span></button>
                       }
-                      <button pButton label="Pedido consolidado del proveedor" icon="pi pi-sitemap" class="p-button-sm p-button-text qt-cons-open"
-                              (click)="openConsolidated(r.supplier_id, r.supplier_name)"></button>
+                      <button pButton class="p-button-sm p-button-text qt-cons-open" (click)="openConsolidated(r.supplier_id, r.supplier_name)"><span class="p-button-icon p-button-icon-left pi pi-sitemap" aria-hidden="true"></span><span class="p-button-label">Pedido consolidado del proveedor</span></button>
                       <span class="qt-foot-tot">
                         {{ countToOrder(r._key) }} línea(s) · {{ totalCajas(r._key) | number:'1.0-0' }} cajas ·
                         {{ totalPz(r._key) | number:'1.0-0' }} pz · <strong>{{ money(detailTotal(r._key)) }}</strong>
                       </span>
-                      <button pButton label="Exportar" icon="pi pi-download" class="p-button-sm p-button-text"
-                              [loading]="exporting()" [disabled]="countToOrder(r._key)===0" (click)="exportRow(r)"></button>
-                      <button pButton [label]="r.via==='transfer' ? 'Crear traspaso' : 'Crear requisición'"
-                              icon="pi pi-file-edit" class="p-button-sm"
+                      <button pButton class="p-button-sm p-button-text" [loading]="exporting()" [disabled]="countToOrder(r._key)===0" (click)="exportRow(r)"><span class="p-button-icon p-button-icon-left pi pi-download" aria-hidden="true"></span><span class="p-button-label">Exportar</span></button>
+                      <p-button pButton [label]="r.via==='transfer' ? 'Crear traspaso' : 'Crear requisición'"
+                              icon="pi pi-file-edit" styleClass="p-button-sm"
                               [loading]="st.creating" [disabled]="countToOrder(r._key)===0"
-                              (click)="createReq(r)"></button>
+                              (click)="createReq(r)"></p-button>
                     </div>
                   } @else {
                     <div class="qt-det-msg">Sin SKUs por pedir con base “{{ basisLabel(st.basis) }}” (todo cubierto).</div>
@@ -271,7 +266,7 @@ type CatLine = CriticalStockRow & { uxc: number; cajas: number; piezas: number; 
             </td>
           </tr>
         </ng-template>
-        <ng-template pTemplate="emptymessage">
+        <ng-template #emptymessage>
           <tr><td colspan="12" class="qt-empty">Sin ciclos activos con estos filtros. Ajusta el territorio o corre el job de cadencia.</td></tr>
         </ng-template>
       </p-table>
@@ -288,8 +283,8 @@ type CatLine = CriticalStockRow & { uxc: number; cajas: number; piezas: number; 
           <div class="qt-cons-wh">
             <span class="qt-basis-lbl">Almacenes:</span>
             @for (w of consWhs(); track w.id) {
-              <button pButton type="button" [label]="w.code + ' · ' + w.n" class="p-button-sm"
-                      [ngClass]="isWhIncluded(w.id) ? 'p-button-outlined' : 'p-button-text'" (click)="toggleWh(w.id)"></button>
+              <p-button pButton type="button" [label]="w.code + ' · ' + w.n" styleClass="p-button-sm"
+                      [ngClass]="isWhIncluded(w.id) ? 'p-button-outlined' : 'p-button-text'" (click)="toggleWh(w.id)"></p-button>
             }
           </div>
           @if (consLinesFiltered().length) {
@@ -315,10 +310,8 @@ type CatLine = CriticalStockRow & { uxc: number; cajas: number; piezas: number; 
               <span class="qt-foot-tot">
                 {{ consWhsIncluded() }} almacén(es) · {{ consTotCajas() | number:'1.0-0' }} cajas · <strong>{{ money(consTotAmount()) }}</strong>
               </span>
-              <button pButton label="Exportar" icon="pi pi-download" class="p-button-sm p-button-text"
-                      [loading]="consExporting()" [disabled]="!consLinesFiltered().length" (click)="exportConsolidated()"></button>
-              <button pButton label="Generar requisiciones" icon="pi pi-file-edit" class="p-button-sm"
-                      [loading]="consGenerating()" [disabled]="!consLinesFiltered().length" (click)="generateConsolidated()"></button>
+              <button pButton class="p-button-sm p-button-text" [loading]="consExporting()" [disabled]="!consLinesFiltered().length" (click)="exportConsolidated()"><span class="p-button-icon p-button-icon-left pi pi-download" aria-hidden="true"></span><span class="p-button-label">Exportar</span></button>
+              <button pButton class="p-button-sm" [loading]="consGenerating()" [disabled]="!consLinesFiltered().length" (click)="generateConsolidated()"><span class="p-button-icon p-button-icon-left pi pi-file-edit" aria-hidden="true"></span><span class="p-button-label">Generar requisiciones</span></button>
             </div>
           } @else {
             <div class="qt-det-msg">Sin líneas por pedir (o desactivaste todos los almacenes).</div>
@@ -361,10 +354,8 @@ type CatLine = CriticalStockRow & { uxc: number; cajas: number; piezas: number; 
             <span class="qt-foot-tot">
               {{ catSuppliers() }} proveedor(es) · {{ catRows().length }} líneas · {{ catTotCajas() | number:'1.0-0' }} cajas · <strong>{{ money(catTotAmount()) }}</strong>
             </span>
-            <button pButton label="Exportar" icon="pi pi-download" class="p-button-sm p-button-text"
-                    [loading]="catExporting()" (click)="exportCategoryOrder()"></button>
-            <button pButton label="Generar requisiciones" icon="pi pi-file-edit" class="p-button-sm"
-                    [loading]="catGenerating()" (click)="generateCategoryOrder()"></button>
+            <button pButton class="p-button-sm p-button-text" [loading]="catExporting()" (click)="exportCategoryOrder()"><span class="p-button-icon p-button-icon-left pi pi-download" aria-hidden="true"></span><span class="p-button-label">Exportar</span></button>
+            <button pButton class="p-button-sm" [loading]="catGenerating()" (click)="generateCategoryOrder()"><span class="p-button-icon p-button-icon-left pi pi-file-edit" aria-hidden="true"></span><span class="p-button-label">Generar requisiciones</span></button>
           </div>
         </div>
       } @else {

@@ -68,7 +68,7 @@ const MES: Record<string, string> = {
         </div>
         <div class="rr-field rr-wh">
           <label>Rutas</label>
-          <p-multiSelect [options]="routeOpts()" [(ngModel)]="routes" optionLabel="label" optionValue="value"
+          <p-multiselect [options]="routeOpts()" [(ngModel)]="routes" optionLabel="label" optionValue="value"
                          placeholder="Todas" [showClear]="true" [filter]="true" appendTo="body" styleClass="w-full" (onPanelHide)="load()" />
         </div>
         <div class="rr-field rr-prodf">
@@ -86,14 +86,14 @@ const MES: Record<string, string> = {
                     [virtualScroll]="true" [virtualScrollItemSize]="34" appendTo="body" styleClass="w-full" ariaLabel="Filtrar por cliente" />
         </div>
         <div class="rr-actions">
-          <button pButton label="Consultar" icon="pi pi-search" size="small" [loading]="loading()" (click)="load()"></button>
+          <button pButton size="small" [loading]="loading()" (click)="load()"><span class="p-button-icon p-button-icon-left pi pi-search" aria-hidden="true"></span><span class="p-button-label">Consultar</span></button>
         </div>
       </div>
 
       <!-- Filtros de vista (client-side, instantáneos sobre lo cargado) -->
       @if (report()?.rows?.length) {
         <div class="rr-viewfilters">
-          <p-multiSelect [options]="branchOpts()" [ngModel]="fBranch()" (ngModelChange)="fBranch.set($event)"
+          <p-multiselect [options]="branchOpts()" [ngModel]="fBranch()" (ngModelChange)="fBranch.set($event)"
                          optionLabel="label" optionValue="value" placeholder="Todas las sucursales" [showClear]="true"
                          [filter]="true" filterBy="label" filterPlaceholder="Buscar sucursal…" appendTo="body"
                          [maxSelectedLabels]="2" selectedItemsLabel="{0} sucursales" styleClass="rr-vf-branch" ariaLabel="Filtrar por sucursal" />
@@ -111,15 +111,15 @@ const MES: Record<string, string> = {
             @if (fQuery()) { <p-inputicon styleClass="pi pi-times rr-vf-clear" (click)="fQuery.set('')" role="button" ariaLabel="Limpiar búsqueda" /> }
           </p-iconfield>
           <div class="rr-vf-money" role="group" aria-label="Rango de venta">
-            <p-inputNumber [ngModel]="fMinRevenue()" (ngModelChange)="fMinRevenue.set($event)" mode="currency" currency="MXN"
+            <p-inputnumber [ngModel]="fMinRevenue()" (ngModelChange)="fMinRevenue.set($event)" mode="currency" currency="MXN"
                            [maxFractionDigits]="0" [showButtons]="false" placeholder="Venta mín" inputStyleClass="rr-vf-num" ariaLabel="Venta mínima" />
             <span class="rr-vf-dash">–</span>
-            <p-inputNumber [ngModel]="fMaxRevenue()" (ngModelChange)="fMaxRevenue.set($event)" mode="currency" currency="MXN"
+            <p-inputnumber [ngModel]="fMaxRevenue()" (ngModelChange)="fMaxRevenue.set($event)" mode="currency" currency="MXN"
                            [maxFractionDigits]="0" [showButtons]="false" placeholder="Venta máx" inputStyleClass="rr-vf-num" ariaLabel="Venta máxima" />
           </div>
           <label class="rr-vf-chk"><p-checkbox [binary]="true" [ngModel]="fOnlyWithSales()" (ngModelChange)="fOnlyWithSales.set($event)" inputId="rr-only" /> Solo con venta</label>
           @if (hasViewFilters()) {
-            <button pButton type="button" label="Limpiar filtros" icon="pi pi-filter-slash" class="p-button-sm p-button-text" (click)="clearViewFilters()"></button>
+            <button pButton type="button" class="p-button-sm p-button-text" (click)="clearViewFilters()"><span class="p-button-icon p-button-icon-left pi pi-filter-slash" aria-hidden="true"></span><span class="p-button-label">Limpiar filtros</span></button>
           }
         </div>
       }
@@ -128,7 +128,7 @@ const MES: Record<string, string> = {
         <div class="rr-error" role="alert">
           <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
           <span>{{ error() }}</span>
-          <button pButton type="button" class="p-button-sm p-button-text" label="Reintentar" (click)="load()"></button>
+          <button pButton type="button" class="p-button-sm p-button-text" (click)="load()"><span class="p-button-label">Reintentar</span></button>
         </div>
       }
 
@@ -139,8 +139,7 @@ const MES: Record<string, string> = {
 
           <div class="so-actions-bar">
             <span class="text-xs text-content-muted">{{ filteredRows().length }}@if (filteredRows().length !== r.rows.length) { de {{ r.rows.length }}} rutas · año {{ r.year }}@if (periodLabel()) { · {{ periodLabel() }}}</span>
-            <button pButton label="XLSX" icon="pi pi-file-excel" size="small" severity="secondary" [outlined]="true"
-                    [loading]="dl()" (click)="download()"></button>
+            <button pButton size="small" severity="secondary" [outlined]="true" [loading]="dl()" (click)="download()"><span class="p-button-icon p-button-icon-left pi pi-file-excel" aria-hidden="true"></span><span class="p-button-label">XLSX</span></button>
           </div>
 
           @if (filteredRows().length) {
@@ -149,19 +148,19 @@ const MES: Record<string, string> = {
                      [scrollable]="true" scrollHeight="60vh"
                      sortField="_revenue" [sortOrder]="-1"
                      styleClass="p-datatable-sm surf-table rr-ptable">
-              <ng-template pTemplate="header">
+              <ng-template #header>
                 <tr>
-                  <th scope="col" pFrozenColumn style="min-width:150px" pSortableColumn="warehouse_name">Sucursal <p-sortIcon field="warehouse_name" /></th>
-                  <th scope="col" pFrozenColumn style="min-width:120px" pSortableColumn="route_no">Ruta <p-sortIcon field="route_no" /></th>
+                  <th scope="col" pFrozenColumn style="min-width:150px" pSortableColumn="warehouse_name">Sucursal <p-sorticon field="warehouse_name" /></th>
+                  <th scope="col" pFrozenColumn style="min-width:120px" pSortableColumn="route_no">Ruta <p-sorticon field="route_no" /></th>
                   @for (m of visibleMonths(); track m) {
-                    <th scope="col" class="comm-num" [pSortableColumn]="'monthly.' + m + '.revenue'">{{ mes(m) }} <p-sortIcon [field]="'monthly.' + m + '.revenue'" /></th>
+                    <th scope="col" class="comm-num" [pSortableColumn]="'monthly.' + m + '.revenue'">{{ mes(m) }} <p-sorticon [field]="'monthly.' + m + '.revenue'" /></th>
                   }
-                  <th scope="col" class="comm-num rr-strong" pSortableColumn="_revenue">Total <p-sortIcon field="_revenue" /></th>
-                  <th scope="col" class="comm-num" pSortableColumn="_share">Share <p-sortIcon field="_share" /></th>
-                  <th scope="col" class="comm-num" pSortableColumn="_tickets">Tickets <p-sortIcon field="_tickets" /></th>
+                  <th scope="col" class="comm-num rr-strong" pSortableColumn="_revenue">Total <p-sorticon field="_revenue" /></th>
+                  <th scope="col" class="comm-num" pSortableColumn="_share">Share <p-sorticon field="_share" /></th>
+                  <th scope="col" class="comm-num" pSortableColumn="_tickets">Tickets <p-sorticon field="_tickets" /></th>
                 </tr>
               </ng-template>
-              <ng-template pTemplate="body" let-row>
+              <ng-template #body let-row>
                 <tr class="rr-row" (click)="openRoute(row)" title="Ver desglose de la ruta">
                   <td pFrozenColumn class="comm-cell-strong">{{ row.warehouse_name }}</td>
                   <td pFrozenColumn class="rr-strong">
@@ -177,7 +176,7 @@ const MES: Record<string, string> = {
                   <td class="comm-num">{{ row._tickets | number }}</td>
                 </tr>
               </ng-template>
-              <ng-template pTemplate="footer">
+              <ng-template #footer>
                 <tr class="rr-foot">
                   <td pFrozenColumn>TOTAL</td>
                   <td pFrozenColumn></td>
@@ -193,7 +192,7 @@ const MES: Record<string, string> = {
           </div>
           } @else {
             <div class="comm-empty"><div class="comm-empty-icon"><i class="pi pi-filter-slash"></i></div>
-              <h3>Sin coincidencias</h3><p>Ninguna ruta coincide con los filtros de vista. <button pButton type="button" class="p-button-sm p-button-text" label="Limpiar filtros" (click)="clearViewFilters()"></button></p></div>
+              <h3>Sin coincidencias</h3><p>Ninguna ruta coincide con los filtros de vista. <button pButton type="button" class="p-button-sm p-button-text" (click)="clearViewFilters()"><span class="p-button-label">Limpiar filtros</span></button></p></div>
           }
         } @else {
           <div class="comm-empty"><div class="comm-empty-icon"><i class="pi pi-inbox"></i></div>
@@ -232,11 +231,11 @@ const MES: Record<string, string> = {
           @switch (tab()) {
             @case ('productos') {
               <p-table [value]="detail()!.products" styleClass="p-datatable-sm surf-table" [scrollable]="true" scrollHeight="52vh">
-                <ng-template pTemplate="header"><tr>
+                <ng-template #header><tr>
                   <th scope="col">Producto</th><th scope="col" class="comm-num">Unid</th>
                   <th scope="col" class="comm-num">Importe</th><th scope="col" class="comm-num">%</th></tr>
                 </ng-template>
-                <ng-template pTemplate="body" let-p><tr>
+                <ng-template #body let-p><tr>
                   <td class="rr-prod"><span class="rr-sku">{{ p.sku }}</span> {{ p.name }}</td>
                   <td class="comm-num">{{ p.units | number:'1.0-0' }}</td>
                   <td class="comm-num rr-strong">{{ p.revenue | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
@@ -247,11 +246,11 @@ const MES: Record<string, string> = {
             }
             @case ('dias') {
               <p-table [value]="detail()!.daily" styleClass="p-datatable-sm surf-table" [scrollable]="true" scrollHeight="52vh">
-                <ng-template pTemplate="header"><tr>
+                <ng-template #header><tr>
                   <th scope="col">Día</th><th scope="col" class="comm-num">Tickets</th>
                   <th scope="col" class="comm-num">Venta</th><th scope="col" class="rr-barcol"></th></tr>
                 </ng-template>
-                <ng-template pTemplate="body" let-x><tr>
+                <ng-template #body let-x><tr>
                   <td>{{ x.date }}</td>
                   <td class="comm-num">{{ x.tickets | number }}</td>
                   <td class="comm-num rr-strong">{{ x.revenue | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
@@ -261,11 +260,11 @@ const MES: Record<string, string> = {
             }
             @case ('clientes') {
               <p-table [value]="detail()!.clients" styleClass="p-datatable-sm surf-table" [scrollable]="true" scrollHeight="52vh">
-                <ng-template pTemplate="header"><tr>
+                <ng-template #header><tr>
                   <th scope="col">Cliente</th><th scope="col" class="comm-num">Tickets</th>
                   <th scope="col" class="comm-num">Importe</th></tr>
                 </ng-template>
-                <ng-template pTemplate="body" let-c><tr>
+                <ng-template #body let-c><tr>
                   <td>{{ c.name }} @if (c.is_public) {<span class="rr-tag">público</span>}</td>
                   <td class="comm-num">{{ c.tickets | number }}</td>
                   <td class="comm-num rr-strong">{{ c.revenue | currency:'MXN':'symbol-narrow':'1.0-0' }}</td></tr>
@@ -275,11 +274,11 @@ const MES: Record<string, string> = {
             }
             @case ('tickets') {
               <p-table [value]="detail()!.tickets" styleClass="p-datatable-sm surf-table" [scrollable]="true" scrollHeight="52vh">
-                <ng-template pTemplate="header"><tr>
+                <ng-template #header><tr>
                   <th scope="col">Folio</th><th scope="col">Fecha</th>
                   <th scope="col" class="comm-num">Líneas</th><th scope="col" class="comm-num">Importe</th></tr>
                 </ng-template>
-                <ng-template pTemplate="body" let-t><tr>
+                <ng-template #body let-t><tr>
                   <td class="rr-mono">{{ t.folio }}</td><td>{{ t.date }}</td>
                   <td class="comm-num">{{ t.lines | number }}</td>
                   <td class="comm-num rr-strong">{{ t.revenue | currency:'MXN':'symbol-narrow':'1.0-0' }}</td></tr>

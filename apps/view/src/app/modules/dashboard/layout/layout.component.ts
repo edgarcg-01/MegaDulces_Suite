@@ -9,8 +9,9 @@ import {
   effect,
   inject,
   signal,
+  DOCUMENT
 } from '@angular/core';
-import { CommonModule, DOCUMENT } from '@angular/common';
+import { CommonModule } from '@angular/common';
 import { NavigationEnd, Router, RouterModule } from '@angular/router';
 import { MenuModule } from 'primeng/menu';
 import type { MenuItem } from 'primeng/api';

@@ -43,7 +43,7 @@ import { CfdiService, CfdiRow, CfdiStats, CfdiFilters } from '../cfdi.service';
           <p class="surf-page-sub">Almacén de comprobantes 4.0 descargados del SAT. Se pobla al correr la descarga masiva. Cifras en flujo de emisión.</p>
         </div>
         <div class="cf-head-actions">
-          <p-selectButton [options]="rolOpts" [ngModel]="rol()" (ngModelChange)="setRol($event)" optionLabel="label" optionValue="value" [allowEmpty]="false" styleClass="cf-sb sb-liquid" ariaLabel="Rol de los comprobantes" />
+          <p-selectbutton [options]="rolOpts" [ngModel]="rol()" (ngModelChange)="setRol($event)" optionLabel="label" optionValue="value" [allowEmpty]="false" styleClass="cf-sb sb-liquid" ariaLabel="Rol de los comprobantes" />
           @if (loadedAt()) { <app-freshness-pill [since]="loadedAt()" /> }
         </div>
       </header>
@@ -63,22 +63,22 @@ import { CfdiService, CfdiRow, CfdiStats, CfdiFilters } from '../cfdi.service';
         <label class="cf-field"><span>Hasta</span>
           <p-datepicker [(ngModel)]="toD" (onSelect)="applyFilters()" (onClear)="applyFilters()" dateFormat="yy-mm-dd" [showIcon]="true" [showClear]="true" appendTo="body" placeholder="Hasta" styleClass="cf-dp" />
         </label>
-        <p-selectButton [options]="tipoOpts" [ngModel]="tipo()" (ngModelChange)="setTipo($event)" optionLabel="label" optionValue="value" [allowEmpty]="false" styleClass="cf-sb sb-liquid" ariaLabel="Tipo de comprobante" />
+        <p-selectbutton [options]="tipoOpts" [ngModel]="tipo()" (ngModelChange)="setTipo($event)" optionLabel="label" optionValue="value" [allowEmpty]="false" styleClass="cf-sb sb-liquid" ariaLabel="Tipo de comprobante" />
         <label class="cf-field"><span>Estatus</span>
           <p-select [options]="estatusOpts" [ngModel]="estatus()" (ngModelChange)="setEstatus($event)" optionLabel="label" optionValue="value" styleClass="cf-sel sel-liquid" ariaLabel="Estatus SAT" />
         </label>
         <label class="cf-field"><span>Método</span>
           <p-select [options]="metodoOpts" [ngModel]="metodo()" (ngModelChange)="setMetodo($event)" optionLabel="label" optionValue="value" styleClass="cf-sel sel-liquid" ariaLabel="Método de pago" />
         </label>
-        <button pButton type="button" label="Buscar" icon="pi pi-filter" class="p-button-sm p-button-outlined" (click)="applyFilters()"></button>
-        <button pButton type="button" label="Exportar ZIP" icon="pi pi-download" class="p-button-sm p-button-text" [loading]="exporting()" (click)="exportZip()" title="Descarga los XML del filtro actual, en carpetas por RFC (+ índice CSV)"></button>
+        <button pButton type="button" class="p-button-sm p-button-outlined" (click)="applyFilters()"><span class="p-button-icon p-button-icon-left pi pi-filter" aria-hidden="true"></span><span class="p-button-label">Buscar</span></button>
+        <button pButton type="button" class="p-button-sm p-button-text" [loading]="exporting()" (click)="exportZip()" title="Descarga los XML del filtro actual, en carpetas por RFC (+ índice CSV)"><span class="p-button-icon p-button-icon-left pi pi-download" aria-hidden="true"></span><span class="p-button-label">Exportar ZIP</span></button>
       </div>
 
       <div class="card-premium card-flat">
         <p-table [value]="rows()" styleClass="p-datatable-sm cf-table" [rowHover]="true" [loading]="loading()"
                  [scrollable]="true" scrollHeight="560px" [paginator]="total() > 50" [rows]="50" [totalRecords]="total()"
                  [lazy]="true" (onLazyLoad)="onPage($event)">
-          <ng-template pTemplate="header">
+          <ng-template #header>
             <tr>
               <th style="width:4rem">Tipo</th>
               <th>Emisor</th>
@@ -90,7 +90,7 @@ import { CfdiService, CfdiRow, CfdiStats, CfdiFilters } from '../cfdi.service';
               <th style="width:3rem"></th>
             </tr>
           </ng-template>
-          <ng-template pTemplate="body" let-c>
+          <ng-template #body let-c>
             <tr>
               <td><span class="cf-tipo" [ngClass]="'t-' + (c.tipo_comprobante || 'x')">{{ c.tipo_comprobante || '—' }}</span></td>
               <td><div class="cf-name">{{ c.emisor_nombre || c.emisor_rfc || '—' }}</div><div class="cf-rfc mono">{{ c.emisor_rfc }}</div></td>
@@ -99,12 +99,12 @@ import { CfdiService, CfdiRow, CfdiStats, CfdiFilters } from '../cfdi.service';
               <td>@if (c.metodo_pago) { <p-tag [value]="c.metodo_pago" severity="secondary" styleClass="cf-chip" /> } @else { — }</td>
               <td class="ta-r strong mono">{{ money(c.total) }}</td>
               <td><p-tag [value]="estatusLabel(c.estatus_sat)" [severity]="estatusSev(c.estatus_sat)" styleClass="cf-chip" /></td>
-              <td class="ta-r">@if (c.has_xml) { <button pButton type="button" icon="pi pi-download" class="p-button-text p-button-sm" title="Descargar XML" aria-label="Descargar XML" (click)="downloadXml(c)"></button> }</td>
+              <td class="ta-r">@if (c.has_xml) { <button pButton type="button" class="p-button-text p-button-sm" title="Descargar XML" aria-label="Descargar XML" (click)="downloadXml(c)"><span class="p-button-icon p-button-icon-left pi pi-download" aria-hidden="true"></span></button> }</td>
             </tr>
           </ng-template>
-          <ng-template pTemplate="emptymessage"><tr><td colspan="8" class="cf-empty">
+          <ng-template #emptymessage><tr><td colspan="8" class="cf-empty">
             @if (loading()) { Cargando… }
-            @else if (errored()) { <i class="pi pi-exclamation-triangle"></i> No se pudieron cargar los CFDI. <button pButton type="button" label="Reintentar" class="p-button-sm p-button-text" (click)="reload()"></button> }
+            @else if (errored()) { <i class="pi pi-exclamation-triangle"></i> No se pudieron cargar los CFDI. <button pButton type="button" class="p-button-sm p-button-text" (click)="reload()"><span class="p-button-label">Reintentar</span></button> }
             @else { <i class="pi pi-inbox"></i> Sin CFDI en este filtro. El almacén se llena al correr la <strong>descarga masiva</strong> del SAT. }
           </td></tr></ng-template>
         </p-table>

@@ -3,6 +3,7 @@ import {
   Component,
   DestroyRef,
   computed,
+  effect,
   inject,
   signal,
 } from '@angular/core';
@@ -13,7 +14,7 @@ import { DialogModule } from 'primeng/dialog';
 import { InputTextModule } from 'primeng/inputtext';
 import { InputNumberModule } from 'primeng/inputnumber';
 import { TextareaModule } from 'primeng/textarea';
-import { InputSwitchModule } from 'primeng/inputswitch';
+import { ToggleSwitchModule } from 'primeng/toggleswitch';
 import { SelectModule } from 'primeng/select';
 import { TableModule } from 'primeng/table';
 import { TagModule } from 'primeng/tag';
@@ -21,7 +22,7 @@ import { ToastModule } from 'primeng/toast';
 import { TooltipModule } from 'primeng/tooltip';
 import { SkeletonModule } from 'primeng/skeleton';
 import { MessageService } from 'primeng/api';
-import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { rxResource, takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ComercialService, Product, ProductStats, ProductSupplierOption, UpdateProductDto } from '../comercial.service';
 import { makeLazyLoad, makeDebouncedSearch } from '../../../shared/util';
 import { MetricCardComponent } from '../../../shared/components/metric-card/metric-card.component';
@@ -40,7 +41,7 @@ type ActiveFilter = 'all' | 'active' | 'inactive';
     InputTextModule,
     InputNumberModule,
     TextareaModule,
-    InputSwitchModule,
+    ToggleSwitchModule,
     SelectModule,
     TableModule,
     TagModule,
@@ -53,7 +54,7 @@ type ActiveFilter = 'all' | 'active' | 'inactive';
   template: `
     <div class="surf-page pp">
       <p-toast></p-toast>
-
+    
       <header class="surf-page-head">
         <div class="surf-page-head-text">
           <h1>Catálogo de productos</h1>
@@ -64,19 +65,10 @@ type ActiveFilter = 'all' | 'active' | 'inactive';
           </p>
         </div>
         <div class="pp-head-actions">
-          <button
-            pButton
-            icon="pi pi-refresh"
-            [text]="true"
-            severity="secondary"
-            size="small"
-            (click)="load()"
-            [loading]="loading()"
-            pTooltip="Refrescar"
-          ></button>
+          <button pButton [text]="true" severity="secondary" size="small" (click)="refresh()" [loading]="loading()" pTooltip="Refrescar"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span></button>
         </div>
       </header>
-
+    
       <!-- Toolbar -->
       <div class="sheet cols-12">
         <article class="cell cell-span-12 is-flush pp-filters-cell">
@@ -93,246 +85,296 @@ type ActiveFilter = 'all' | 'active' | 'inactive';
                 autocomplete="off"
                 spellcheck="false"
                 aria-label="Buscar productos"
-              />
-              <button
-                *ngIf="searchInput"
-                type="button"
-                class="pp-search-clear"
-                (click)="clearSearch()"
-                aria-label="Limpiar"
-              >
-                <i class="pi pi-times" aria-hidden="true"></i>
-              </button>
-            </div>
-
-            <!-- Active filter -->
-            <div class="pp-segment" role="group" aria-label="Filtrar por estado">
-              <button
-                *ngFor="let f of activeFilters"
-                type="button"
-                class="pp-seg-btn"
-                [class.active]="activeFilter() === f.key"
-                (click)="setActiveFilter(f.key)"
-              >{{ f.label }}</button>
-            </div>
-
-            <!-- Supplier filter -->
-            <p-select
-              [options]="suppliers()"
-              optionLabel="name"
-              optionValue="id"
-              [ngModel]="selectedSupplier()"
-              (onChange)="onSupplierChange($event.value)"
-              [filter]="true"
-              filterBy="name"
-              [showClear]="true"
-              placeholder="Todos los proveedores"
-              emptyFilterMessage="Sin coincidencias"
-              styleClass="pp-supplier-select"
-              appendTo="body"
-              scrollHeight="320px"
-            >
-              <ng-template let-s pTemplate="item">
-                <div class="pp-sup-opt">
-                  <span class="pp-sup-name">{{ s.name }}</span>
-                  <span class="pp-sup-count">{{ s.product_count }}</span>
-                </div>
-              </ng-template>
-            </p-select>
-
-            <!-- Only with cost (importer validation) -->
-            <label class="pp-toggle">
-              <p-inputSwitch [(ngModel)]="onlyWithCost" (onChange)="reload()"></p-inputSwitch>
-              <span>Sólo con costo</span>
-            </label>
-
-            <div class="pp-toolbar-spacer"></div>
-
-            <!-- Reset -->
-            <button
-              *ngIf="hasActiveFilters()"
-              type="button"
-              class="pp-reset"
-              (click)="resetFilters()"
-            >
-              <i class="pi pi-refresh" aria-hidden="true"></i>
-              <span>Reset</span>
-            </button>
-          </div>
-        </article>
-      </div>
-
-      <!-- KPI BENTO — agregados catálogo-wide (no del paginado) -->
-      <p-skeleton *ngIf="!stats()" height="132px"></p-skeleton>
-      <div *ngIf="stats() as s" class="surf-grid pp-bento">
-        <app-metric-card class="panel-col-3"
-          label="SKUs en catálogo" [value]="s.total" format="number"
-          accent="var(--action)"
-          [variant]="brandSeries().length > 1 ? 'bars' : 'plain'"
-          [series]="brandSeries()" [seriesLabels]="brandLabels()" [highlightLast]="false"
-          [sub]="s.brands + ' marcas · ' + s.categories + ' categorías'"></app-metric-card>
-
-        <app-metric-card class="panel-col-3" variant="progress"
-          label="Activos" [value]="s.active" [goal]="s.total" format="number"
-          accent="var(--ok-fg)" sub="visibles en portal y vendedor"></app-metric-card>
-
-        <app-metric-card class="panel-col-3" variant="progress"
-          label="Con costo" [value]="s.with_cost" [goal]="s.total" format="number"
-          accent="var(--chart-2)" sub="validados desde el ERP"></app-metric-card>
-
-        <app-metric-card class="panel-col-3" variant="progress"
-          label="Con ubicación" [value]="s.with_location" [goal]="s.total" format="number"
-          accent="var(--chart-6)" sub="ubicación asignada"></app-metric-card>
-      </div>
-
-      <!-- Table -->
-      <div class="sheet cols-12">
-        <article class="cell cell-span-12 is-flush">
-          <p-table
-            [value]="rows()"
-            [loading]="loading()"
-            [lazy]="true"
-            [paginator]="true"
-            [rows]="pageSize()"
-            [totalRecords]="total()"
-            [first]="(page() - 1) * pageSize()"
-            [rowsPerPageOptions]="[25, 50, 100, 200]"
-            (onLazyLoad)="onLazyLoad($event)"
-            responsiveLayout="scroll"
-            styleClass="p-datatable-sm pp-table surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra"
-            [rowHover]="true"
-          >
-            <ng-template pTemplate="header">
-              <tr>
-                <th scope="col">Producto</th>
-                <th scope="col">SKU</th>
-                <th scope="col">Marca</th>
-                <th scope="col">Proveedor</th>
-                <th scope="col">Categoría</th>
-                <th scope="col">Ubic.</th>
-                <th scope="col" class="comm-num">Costo</th>
-                <th scope="col" class="comm-num">Unidad</th>
-                <th scope="col">Estado</th>
-                <th scope="col"><span class="sr-only">Acciones</span></th>
-              </tr>
-            </ng-template>
-            <ng-template pTemplate="body" let-p>
-              <tr (click)="openEdit(p)" (keydown.enter)="openEdit(p)" (keydown.space)="$event.preventDefault(); openEdit(p)"
-                  tabindex="0" role="button" [attr.aria-label]="'Editar ' + p.nombre" class="comm-row-clickable">
-                <td>
-                  <div class="comm-cell-strong" [pTooltip]="p.description || ''" tooltipPosition="right" [tooltipDisabled]="!p.description">
-                    {{ p.nombre }}
+                />
+                @if (searchInput) {
+                  <button
+                    type="button"
+                    class="pp-search-clear"
+                    (click)="clearSearch()"
+                    aria-label="Limpiar"
+                    >
+                    <i class="pi pi-times" aria-hidden="true"></i>
+                  </button>
+                }
+              </div>
+    
+              <!-- Active filter -->
+              <div class="pp-segment" role="group" aria-label="Filtrar por estado">
+                @for (f of activeFilters; track f) {
+                  <button
+                    type="button"
+                    class="pp-seg-btn"
+                    [class.active]="activeFilter() === f.key"
+                    (click)="setActiveFilter(f.key)"
+                  >{{ f.label }}</button>
+                }
+              </div>
+    
+              <!-- Supplier filter -->
+              <p-select
+                [options]="suppliers()"
+                optionLabel="name"
+                optionValue="id"
+                [ngModel]="selectedSupplier()"
+                (onChange)="onSupplierChange($event.value)"
+                [filter]="true"
+                filterBy="name"
+                [showClear]="true"
+                placeholder="Todos los proveedores"
+                emptyFilterMessage="Sin coincidencias"
+                styleClass="pp-supplier-select"
+                appendTo="body"
+                scrollHeight="320px"
+                >
+                <ng-template let-s #item>
+                  <div class="pp-sup-opt">
+                    <span class="pp-sup-name">{{ s.name }}</span>
+                    <span class="pp-sup-count">{{ s.product_count }}</span>
                   </div>
-                  <div class="comm-muted is-small" *ngIf="p.barcode">{{ p.barcode }}</div>
-                </td>
-                <td>
-                  <code *ngIf="p.sku" class="comm-code">{{ p.sku }}</code>
-                  <span *ngIf="!p.sku" class="comm-muted">—</span>
-                </td>
-                <td>
-                  <span *ngIf="p.brand_name" class="pp-brand-tag">{{ p.brand_name }}</span>
-                  <span *ngIf="!p.brand_name" class="comm-muted">—</span>
-                </td>
-                <td>
-                  <span *ngIf="p.supplier_name" class="pp-sup-tag" [pTooltip]="p.supplier_name" tooltipPosition="top">{{ p.supplier_name }}</span>
-                  <span *ngIf="!p.supplier_name" class="comm-muted">—</span>
-                </td>
-                <td>
-                  <span *ngIf="p.category_name" class="pp-cat-tag">{{ p.category_name }}</span>
-                  <span *ngIf="!p.category_name" class="comm-muted">—</span>
-                </td>
-                <td>
-                  <code *ngIf="p.location" class="comm-code pp-loc-code">{{ p.location }}</code>
-                  <span *ngIf="!p.location" class="comm-muted">—</span>
-                </td>
-                <td class="comm-num">
-                  <span *ngIf="p.cost_base != null">{{ p.cost_base | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
-                  <span *ngIf="p.cost_base == null" class="comm-muted">—</span>
-                </td>
-                <td class="comm-num">
-                  <span *ngIf="p.unit_sale">{{ p.unit_sale }}<span class="comm-muted is-small" *ngIf="p.factor_sale && p.factor_sale > 1"> × {{ p.factor_sale }}</span></span>
-                  <span *ngIf="!p.unit_sale" class="comm-muted">—</span>
-                </td>
-                <td>
-                  <span class="pp-status" [class.is-on]="p.activo">
-                    <span class="pp-status-dot" aria-hidden="true"></span>
-                    {{ p.activo ? 'Activo' : 'Inactivo' }}
-                  </span>
-                </td>
-                <td class="comm-actions">
-                  <button pButton icon="pi pi-pencil" size="small" severity="secondary" [text]="true"
-                          (click)="$event.stopPropagation(); openEdit(p)" pTooltip="Editar"></button>
-                </td>
-              </tr>
-            </ng-template>
-            <ng-template pTemplate="emptymessage">
-              <tr>
-                <td colspan="10" class="comm-empty-cell">
-                  <div class="comm-empty">
-                    <div class="comm-empty-icon"><i [class]="searchInput ? 'pi pi-search' : 'pi pi-box'" aria-hidden="true"></i></div>
-                    <h3>{{ searchInput ? 'Sin resultados' : 'Sin productos' }}</h3>
-                    <p *ngIf="searchInput">No se encontraron productos con "{{ searchInput }}".</p>
-                    <p *ngIf="!searchInput">Sincronizar desde Mega_Dulces ERP:</p>
-                    <code *ngIf="!searchInput" class="comm-code pp-empty-cmd">database/importers/mega_dulces_sync.js --scope=products</code>
-                  </div>
-                </td>
-              </tr>
-            </ng-template>
-          </p-table>
-        </article>
-      </div>
-    </div>
-
-    <!-- Edit Dialog -->
-    <p-dialog
-      [(visible)]="dialogVisible"
-      [modal]="true"
-      [draggable]="false"
-      [style]="{ width: '560px' }"
-      [header]="editing()?.nombre || 'Editar producto'"
-    >
-      <div class="pp-edit-body" *ngIf="editing() as e">
-        <div class="pp-edit-meta">
-          <div><span class="comm-muted is-small">SKU</span> <code class="comm-code">{{ e.sku || '—' }}</code></div>
-          <div *ngIf="e.brand_name"><span class="comm-muted is-small">Marca</span> <strong>{{ e.brand_name }}</strong></div>
-          <div *ngIf="e.cost_base != null"><span class="comm-muted is-small">Costo base</span> <strong>{{ e.cost_base | currency:'MXN':'symbol-narrow':'1.2-2' }}</strong></div>
-          <div *ngIf="e.prices_count != null"><span class="comm-muted is-small">Precios configurados</span> <strong>{{ e.prices_count }}</strong></div>
-          <div *ngIf="e.total_available != null"><span class="comm-muted is-small">Stock disponible</span> <strong>{{ fmtNumber(e.total_available) }}</strong></div>
+                </ng-template>
+              </p-select>
+    
+              <!-- Only with cost (importer validation) -->
+              <label class="pp-toggle">
+                <p-toggleswitch [ngModel]="onlyWithCost()" (ngModelChange)="onOnlyWithCostChange($event)"></p-toggleswitch>
+                <span>Sólo con costo</span>
+              </label>
+    
+              <div class="pp-toolbar-spacer"></div>
+    
+              <!-- Reset -->
+              @if (hasActiveFilters()) {
+                <button
+                  type="button"
+                  class="pp-reset"
+                  (click)="resetFilters()"
+                  >
+                  <i class="pi pi-refresh" aria-hidden="true"></i>
+                  <span>Reset</span>
+                </button>
+              }
+            </div>
+          </article>
         </div>
-
-        <form [formGroup]="form" class="comm-form">
-          <label>
-            <span>Descripción larga</span>
-            <textarea pInputTextarea rows="3" formControlName="description" maxlength="500"></textarea>
-            <span class="comm-muted is-small">Visible en el Portal y la app de vendedores en hover sobre el nombre.</span>
-          </label>
-          <div class="pp-form-row">
-            <label>
-              <span>Ubicación</span>
-              <input pInputText formControlName="location" maxlength="20" placeholder="ej: Z000" />
-            </label>
-            <label>
-              <span>Ubicación bodega</span>
-              <input pInputText formControlName="location_warehouse" maxlength="20" placeholder="ej: B-12" />
-            </label>
+    
+        <!-- KPI BENTO — agregados catálogo-wide (no del paginado) -->
+        @if (!stats()) {
+          <p-skeleton height="132px"></p-skeleton>
+        }
+        @if (stats(); as s) {
+          <div class="surf-grid pp-bento">
+            <app-metric-card class="panel-col-3"
+              label="SKUs en catálogo" [value]="s.total" format="number"
+              accent="var(--action)"
+              [variant]="brandSeries().length > 1 ? 'bars' : 'plain'"
+              [series]="brandSeries()" [seriesLabels]="brandLabels()" [highlightLast]="false"
+            [sub]="s.brands + ' marcas · ' + s.categories + ' categorías'"></app-metric-card>
+            <app-metric-card class="panel-col-3" variant="progress"
+              label="Activos" [value]="s.active" [goal]="s.total" format="number"
+            accent="var(--ok-fg)" sub="visibles en portal y vendedor"></app-metric-card>
+            <app-metric-card class="panel-col-3" variant="progress"
+              label="Con costo" [value]="s.with_cost" [goal]="s.total" format="number"
+            accent="var(--chart-2)" sub="validados desde el ERP"></app-metric-card>
+            <app-metric-card class="panel-col-3" variant="progress"
+              label="Con ubicación" [value]="s.with_location" [goal]="s.total" format="number"
+            accent="var(--chart-6)" sub="ubicación asignada"></app-metric-card>
           </div>
-          <label>
-            <span>Puntos de fidelidad</span>
-            <p-inputNumber formControlName="loyalty_points" [min]="0" [showButtons]="true"></p-inputNumber>
-          </label>
-          <label class="pp-toggle-line">
-            <p-inputSwitch formControlName="activo"></p-inputSwitch>
-            <span>Activo en catálogo</span>
-            <span class="comm-muted is-small">(si lo desactivás, no aparece en portal ni vendor)</span>
-          </label>
-        </form>
+        }
+    
+        <!-- Table -->
+        <div class="sheet cols-12">
+          <article class="cell cell-span-12 is-flush">
+            <p-table
+              [value]="rows()"
+              [loading]="loading()"
+              [lazy]="true"
+              [paginator]="true"
+              [rows]="pageSize()"
+              [totalRecords]="total()"
+              [first]="(page() - 1) * pageSize()"
+              [rowsPerPageOptions]="[25, 50, 100, 200]"
+              (onLazyLoad)="onLazyLoad($event)"
+              responsiveLayout="scroll"
+              styleClass="p-datatable-sm pp-table surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra"
+              [rowHover]="true"
+              >
+              <ng-template #header>
+                <tr>
+                  <th scope="col">Producto</th>
+                  <th scope="col">SKU</th>
+                  <th scope="col">Marca</th>
+                  <th scope="col">Proveedor</th>
+                  <th scope="col">Categoría</th>
+                  <th scope="col">Ubic.</th>
+                  <th scope="col" class="comm-num">Costo</th>
+                  <th scope="col" class="comm-num">Unidad</th>
+                  <th scope="col">Estado</th>
+                  <th scope="col"><span class="sr-only">Acciones</span></th>
+                </tr>
+              </ng-template>
+              <ng-template #body let-p>
+                <tr (click)="openEdit(p)" (keydown.enter)="openEdit(p)" (keydown.space)="$event.preventDefault(); openEdit(p)"
+                  tabindex="0" role="button" [attr.aria-label]="'Editar ' + p.nombre" class="comm-row-clickable">
+                  <td>
+                    <div class="comm-cell-strong" [pTooltip]="p.description || ''" tooltipPosition="right" [tooltipDisabled]="!p.description">
+                      {{ p.nombre }}
+                    </div>
+                    @if (p.barcode) {
+                      <div class="comm-muted is-small">{{ p.barcode }}</div>
+                    }
+                  </td>
+                  <td>
+                    @if (p.sku) {
+                      <code class="comm-code">{{ p.sku }}</code>
+                    }
+                    @if (!p.sku) {
+                      <span class="comm-muted">—</span>
+                    }
+                  </td>
+                  <td>
+                    @if (p.brand_name) {
+                      <span class="pp-brand-tag">{{ p.brand_name }}</span>
+                    }
+                    @if (!p.brand_name) {
+                      <span class="comm-muted">—</span>
+                    }
+                  </td>
+                  <td>
+                    @if (p.supplier_name) {
+                      <span class="pp-sup-tag" [pTooltip]="p.supplier_name" tooltipPosition="top">{{ p.supplier_name }}</span>
+                    }
+                    @if (!p.supplier_name) {
+                      <span class="comm-muted">—</span>
+                    }
+                  </td>
+                  <td>
+                    @if (p.category_name) {
+                      <span class="pp-cat-tag">{{ p.category_name }}</span>
+                    }
+                    @if (!p.category_name) {
+                      <span class="comm-muted">—</span>
+                    }
+                  </td>
+                  <td>
+                    @if (p.location) {
+                      <code class="comm-code pp-loc-code">{{ p.location }}</code>
+                    }
+                    @if (!p.location) {
+                      <span class="comm-muted">—</span>
+                    }
+                  </td>
+                  <td class="comm-num">
+                    @if (p.cost_base != null) {
+                      <span>{{ p.cost_base | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
+                    }
+                    @if (p.cost_base == null) {
+                      <span class="comm-muted">—</span>
+                    }
+                  </td>
+                  <td class="comm-num">
+                    @if (p.unit_sale) {
+                      <span>{{ p.unit_sale }}@if (p.factor_sale && p.factor_sale > 1) {
+                        <span class="comm-muted is-small"> × {{ p.factor_sale }}</span>
+                      }</span>
+                    }
+                    @if (!p.unit_sale) {
+                      <span class="comm-muted">—</span>
+                    }
+                  </td>
+                  <td>
+                    <span class="pp-status" [class.is-on]="p.activo">
+                      <span class="pp-status-dot" aria-hidden="true"></span>
+                      {{ p.activo ? 'Activo' : 'Inactivo' }}
+                    </span>
+                  </td>
+                  <td class="comm-actions">
+                    <button pButton size="small" severity="secondary" [text]="true" (click)="$event.stopPropagation(); openEdit(p)" pTooltip="Editar"><span class="p-button-icon p-button-icon-left pi pi-pencil" aria-hidden="true"></span></button>
+                  </td>
+                </tr>
+              </ng-template>
+              <ng-template #emptymessage>
+                <tr>
+                  <td colspan="10" class="comm-empty-cell">
+                    <div class="comm-empty">
+                      <div class="comm-empty-icon"><i [class]="searchInput ? 'pi pi-search' : 'pi pi-box'" aria-hidden="true"></i></div>
+                      <h3>{{ searchInput ? 'Sin resultados' : 'Sin productos' }}</h3>
+                      @if (searchInput) {
+                        <p>No se encontraron productos con "{{ searchInput }}".</p>
+                      }
+                      @if (!searchInput) {
+                        <p>Sincronizar desde Mega_Dulces ERP:</p>
+                      }
+                      @if (!searchInput) {
+                        <code class="comm-code pp-empty-cmd">database/importers/mega_dulces_sync.js --scope=products</code>
+                      }
+                    </div>
+                  </td>
+                </tr>
+              </ng-template>
+            </p-table>
+          </article>
+        </div>
       </div>
-      <ng-template pTemplate="footer">
-        <button pButton label="Cancelar" severity="secondary" [outlined]="true" (click)="dialogVisible = false"></button>
-        <button pButton label="Guardar" icon="pi pi-check" [loading]="saving()" [disabled]="form.invalid" (click)="save()"></button>
-      </ng-template>
-    </p-dialog>
-  `,
+    
+      <!-- Edit Dialog -->
+      <p-dialog
+        [(visible)]="dialogVisible"
+        [modal]="true"
+        [draggable]="false"
+        [style]="{ width: '560px' }"
+        [header]="editing()?.nombre || 'Editar producto'"
+        >
+        @if (editing(); as e) {
+          <div class="pp-edit-body">
+            <div class="pp-edit-meta">
+              <div><span class="comm-muted is-small">SKU</span> <code class="comm-code">{{ e.sku || '—' }}</code></div>
+              @if (e.brand_name) {
+                <div><span class="comm-muted is-small">Marca</span> <strong>{{ e.brand_name }}</strong></div>
+              }
+              @if (e.cost_base != null) {
+                <div><span class="comm-muted is-small">Costo base</span> <strong>{{ e.cost_base | currency:'MXN':'symbol-narrow':'1.2-2' }}</strong></div>
+              }
+              @if (e.prices_count != null) {
+                <div><span class="comm-muted is-small">Precios configurados</span> <strong>{{ e.prices_count }}</strong></div>
+              }
+              @if (e.total_available != null) {
+                <div><span class="comm-muted is-small">Stock disponible</span> <strong>{{ fmtNumber(e.total_available) }}</strong></div>
+              }
+            </div>
+            <form [formGroup]="form" class="comm-form">
+              <label>
+                <span>Descripción larga</span>
+                <textarea pInputTextarea rows="3" formControlName="description" maxlength="500"></textarea>
+                <span class="comm-muted is-small">Visible en el Portal y la app de vendedores en hover sobre el nombre.</span>
+              </label>
+              <div class="pp-form-row">
+                <label>
+                  <span>Ubicación</span>
+                  <input pInputText formControlName="location" maxlength="20" placeholder="ej: Z000" />
+                </label>
+                <label>
+                  <span>Ubicación bodega</span>
+                  <input pInputText formControlName="location_warehouse" maxlength="20" placeholder="ej: B-12" />
+                </label>
+              </div>
+              <label>
+                <span>Puntos de fidelidad</span>
+                <p-inputnumber formControlName="loyalty_points" [min]="0" [showButtons]="true"></p-inputnumber>
+              </label>
+              <label class="pp-toggle-line">
+                <p-toggleswitch formControlName="activo"></p-toggleswitch>
+                <span>Activo en catálogo</span>
+                <span class="comm-muted is-small">(si lo desactivás, no aparece en portal ni vendor)</span>
+              </label>
+            </form>
+          </div>
+        }
+        <ng-template #footer>
+          <button pButton severity="secondary" [outlined]="true" (click)="dialogVisible = false"><span class="p-button-label">Cancelar</span></button>
+          <button pButton [loading]="saving()" [disabled]="form.invalid" (click)="save()"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Guardar</span></button>
+        </ng-template>
+      </p-dialog>
+    `,
   styles: [`
     :host { display: block; }
     .pp-head-actions { display: flex; gap: 0.5rem; align-items: center; }
@@ -498,13 +540,11 @@ export class ComercialProductsComponent {
   private readonly toast = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);
 
-  readonly rows = signal<Product[]>([]);
-  readonly total = signal(0);
+  // Paginación
   readonly page = signal(1);
   readonly pageSize = signal(50);
-  readonly loading = signal(false);
 
-  // Filtros
+  // Filtros (todas señales → alimentan los rxResource)
   searchInput = '';
   readonly searchSignal = signal('');
 
@@ -514,16 +554,42 @@ export class ComercialProductsComponent {
     { key: 'active',   label: 'Activos' },
     { key: 'inactive', label: 'Inactivos' },
   ];
-  onlyWithCost = false;
-
-  // Filtro por proveedor (dropdown searchable).
-  readonly suppliers = signal<ProductSupplierOption[]>([]);
+  readonly onlyWithCost = signal(false);
   readonly selectedSupplier = signal<string | null>(null);
 
-  /** Agregados catálogo-wide (no del paginado). Honra el search. */
-  readonly stats = signal<ProductStats | null>(null);
+  // ── Lecturas reactivas (Resource API, Angular 22) ──
+  // Listado paginado: se recarga solo cuando cambia cualquier filtro/página y
+  // cancela la petición vieja si otra la reemplaza.
+  private readonly listRes = rxResource({
+    params: () => ({
+      page: this.page(),
+      pageSize: this.pageSize(),
+      search: this.searchSignal() || undefined,
+      supplier_id: this.selectedSupplier() || undefined,
+      active: this.activeFilter() === 'all' ? undefined : this.activeFilter() === 'active',
+      with_cost: this.onlyWithCost() || undefined,
+    }),
+    stream: ({ params }) => this.api.listProducts(params),
+  });
+  readonly rows = computed<Product[]>(() => this.listRes.value()?.data ?? []);
+  readonly total = computed(() => this.listRes.value()?.pagination?.total ?? 0);
+  readonly loading = computed(() => this.listRes.isLoading());
+
+  // Agregados catálogo-wide: solo dependen del search (no del segmento/costo ni del paginado).
+  private readonly statsRes = rxResource({
+    params: () => this.searchSignal(),
+    stream: ({ params }) => this.api.productStats(params || undefined),
+  });
+  readonly stats = computed<ProductStats | null>(() => this.statsRes.value() ?? null);
   readonly brandSeries = computed(() => this.stats()?.top_brands.map((b) => b.sku_count) ?? []);
   readonly brandLabels = computed(() => this.stats()?.top_brands.map((b) => b.name) ?? []);
+
+  // Proveedores para el dropdown (one-shot).
+  private readonly suppliersRes = rxResource({
+    params: () => true,
+    stream: () => this.api.productSuppliers(),
+  });
+  readonly suppliers = computed<ProductSupplierOption[]>(() => this.suppliersRes.value() ?? []);
 
   // Edit dialog
   readonly editing = signal<Product | null>(null);
@@ -538,16 +604,18 @@ export class ComercialProductsComponent {
   });
 
   constructor() {
-    this.load();
-    this.loadStats();
-    this.loadSuppliers();
+    // Toast en error de la lectura principal (equivale al catch del subscribe viejo).
+    effect(() => {
+      if (this.listRes.error()) {
+        this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudieron cargar productos' });
+      }
+    });
   }
 
-  private loadSuppliers(): void {
-    this.api
-      .productSuppliers()
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({ next: (s) => this.suppliers.set(s || []), error: () => this.suppliers.set([]) });
+  /** Fuerza recarga manual (botón refrescar / tras guardar). */
+  refresh(): void {
+    this.listRes.reload();
+    this.statsRes.reload();
   }
 
   onSupplierChange(id: string | null): void {
@@ -555,47 +623,9 @@ export class ComercialProductsComponent {
     this.reload();
   }
 
-  /** Agregados catálogo-wide. Solo depende del search (no del segmento/costo ni del paginado). */
-  private loadStats(): void {
-    this.api
-      .productStats(this.searchSignal() || undefined)
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({ next: (s) => this.stats.set(s), error: () => this.stats.set(null) });
-  }
-
-  load(): void {
-    this.loading.set(true);
-    const activeFilter = this.activeFilter();
-    this.api
-      .listProducts({
-        page: this.page(),
-        pageSize: this.pageSize(),
-        search: this.searchSignal() || undefined,
-        supplier_id: this.selectedSupplier() || undefined,
-        active: activeFilter === 'all' ? undefined : activeFilter === 'active',
-        with_cost: this.onlyWithCost || undefined,
-      })
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({
-        next: (r) => {
-          this.rows.set(r.data || []);
-          this.total.set(r.pagination?.total || 0);
-          this.loading.set(false);
-        },
-        error: () => {
-          this.loading.set(false);
-          this.toast.add({
-            severity: 'error',
-            summary: 'Error',
-            detail: 'No se pudieron cargar productos',
-          });
-        },
-      });
-  }
-
+  /** Vuelve a la primera página; los rxResource se recargan solos al cambiar la señal. */
   reload(): void {
     this.page.set(1);
-    this.load();
   }
 
   onSearchChange(v: string): void {
@@ -604,15 +634,13 @@ export class ComercialProductsComponent {
   }
   private readonly searchDebounced = makeDebouncedSearch((v) => {
     this.searchSignal.set((v || '').trim());
-    this.reload();
-    this.loadStats();
+    this.page.set(1);
   });
 
   clearSearch(): void {
     this.searchInput = '';
     this.searchSignal.set('');
-    this.reload();
-    this.loadStats();
+    this.page.set(1);
   }
 
   setActiveFilter(key: ActiveFilter): void {
@@ -621,21 +649,26 @@ export class ComercialProductsComponent {
     this.reload();
   }
 
+  onOnlyWithCostChange(v: boolean): void {
+    this.onlyWithCost.set(v);
+    this.reload();
+  }
+
   resetFilters(): void {
     this.searchInput = '';
     this.searchSignal.set('');
     this.activeFilter.set('all');
-    this.onlyWithCost = false;
+    this.onlyWithCost.set(false);
     this.selectedSupplier.set(null);
-    this.reload();
-    this.loadStats();
+    this.page.set(1);
   }
 
   hasActiveFilters(): boolean {
-    return !!this.searchSignal() || this.activeFilter() !== 'all' || this.onlyWithCost || !!this.selectedSupplier();
+    return !!this.searchSignal() || this.activeFilter() !== 'all' || this.onlyWithCost() || !!this.selectedSupplier();
   }
 
-  readonly onLazyLoad = makeLazyLoad(this.page, this.pageSize, () => this.load());
+  // El evento lazy solo actualiza page/pageSize (señales); el rxResource reacciona → no-op.
+  readonly onLazyLoad = makeLazyLoad(this.page, this.pageSize, () => {});
 
   openEdit(p: Product): void {
     // Buscar el detalle completo para traer prices_count, total_available.
@@ -672,8 +705,7 @@ export class ComercialProductsComponent {
         this.saving.set(false);
         this.dialogVisible = false;
         this.toast.add({ severity: 'success', summary: 'Producto actualizado' });
-        this.load();
-        this.loadStats();
+        this.refresh();
       },
       error: (err) => {
         this.saving.set(false);

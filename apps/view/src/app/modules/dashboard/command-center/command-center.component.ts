@@ -7,7 +7,7 @@ import {
   inject,
   signal,
 } from '@angular/core';
-import { CommonModule } from '@angular/common';
+
 import { ButtonModule } from 'primeng/button';
 import { SkeletonModule } from 'primeng/skeleton';
 import { ToastModule } from 'primeng/toast';
@@ -61,7 +61,6 @@ interface ProductPeekRef {
   selector: 'app-command-center',
   standalone: true,
   imports: [
-    CommonModule,
     ButtonModule,
     SkeletonModule,
     ToastModule,
@@ -70,8 +69,8 @@ interface ProductPeekRef {
     Customer360PanelComponent,
     CountUpDirective,
     PageTabsComponent,
-    MetricStripComponent,
-  ],
+    MetricStripComponent
+],
   providers: [MessageService],
   templateUrl: './command-center.component.html',
   styleUrls: ['./command-center.component.css'],

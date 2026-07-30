@@ -1,5 +1,5 @@
-import { Component, computed, inject, signal, OnInit } from '@angular/core';
-import { CommonModule } from '@angular/common';
+import { Component, computed, inject, signal, OnInit, ChangeDetectionStrategy } from '@angular/core';
+
 import { FormsModule } from '@angular/forms';
 import { SelectModule } from 'primeng/select';
 import { DatePickerModule } from 'primeng/datepicker';
@@ -27,9 +27,15 @@ const DENOMS = [1000, 500, 200, 100, 50, 20, 10, 5, 2, 1, 0.5];
   selector: 'app-rider-liquidation',
   standalone: true,
   imports: [
-    CommonModule, FormsModule, SelectModule, DatePickerModule, InputNumberModule,
-    TableModule, TagModule, ButtonModule, MetricStripComponent,
-  ],
+    FormsModule,
+    SelectModule,
+    DatePickerModule,
+    InputNumberModule,
+    TableModule,
+    TagModule,
+    ButtonModule,
+    MetricStripComponent
+],
   template: `
     <div class="surf-page in liq">
       <header class="surf-page-head">
@@ -48,7 +54,7 @@ const DENOMS = [1000, 500, 200, 100, 50, 20, 10, 5, 2, 1, 0.5];
         <div class="liq-form">
           <div class="liq-field">
             <label for="bd">Fecha</label>
-            <p-datePicker inputId="bd" [(ngModel)]="businessDate" dateFormat="dd/mm/yy" [showIcon]="true"
+            <p-datepicker inputId="bd" [(ngModel)]="businessDate" dateFormat="dd/mm/yy" [showIcon]="true"
                           [maxDate]="today" appendTo="body" styleClass="liq-full" (onSelect)="refreshList()" (onClose)="refreshList()" />
           </div>
           <div class="liq-field">
@@ -58,8 +64,7 @@ const DENOMS = [1000, 500, 200, 100, 50, 20, 10, 5, 2, 1, 0.5];
                       [filter]="riders().length > 8" filterBy="full_name" [emptyMessage]="'Sin repartidores'" />
           </div>
           <div class="liq-field liq-action">
-            <button pButton label="Abrir / ver corte" icon="pi pi-folder-open"
-                    [disabled]="!riderUserId" [loading]="busy()" (click)="openCorte()"></button>
+            <button pButton [disabled]="!riderUserId" [loading]="busy()" (click)="openCorte()"><span class="p-button-icon p-button-icon-left pi pi-folder-open" aria-hidden="true"></span><span class="p-button-label">Abrir / ver corte</span></button>
           </div>
         </div>
         @if (error()) { <p class="liq-err"><i class="pi pi-exclamation-circle"></i> {{ error() }}</p> }
@@ -82,7 +87,7 @@ const DENOMS = [1000, 500, 200, 100, 50, 20, 10, 5, 2, 1, 0.5];
               @for (d of denoms; track d) {
                 <div class="liq-denom">
                   <label [for]="'d' + d">{{ money(d) }}</label>
-                  <p-inputNumber [inputId]="'d' + d" [ngModel]="counts[d] || 0" (ngModelChange)="setCount(d, $event)"
+                  <p-inputnumber [inputId]="'d' + d" [ngModel]="counts[d] || 0" (ngModelChange)="setCount(d, $event)"
                                  [min]="0" [useGrouping]="false" styleClass="liq-full" inputStyleClass="liq-in" />
                 </div>
               }
@@ -93,7 +98,7 @@ const DENOMS = [1000, 500, 200, 100, 50, 20, 10, 5, 2, 1, 0.5];
             </div>
             @if (closeError()) { <p class="liq-err"><i class="pi pi-exclamation-circle"></i> {{ closeError() }}</p> }
             <div class="liq-actions">
-              <button pButton label="Cerrar corte" icon="pi pi-check" [loading]="busy()" (click)="closeCorte()"></button>
+              <button pButton [loading]="busy()" (click)="closeCorte()"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Cerrar corte</span></button>
             </div>
           } @else {
             <app-metric-strip [items]="corteClosedKpis(c)" ariaLabel="Cierre del corte" />
@@ -108,7 +113,7 @@ const DENOMS = [1000, 500, 200, 100, 50, 20, 10, 5, 2, 1, 0.5];
           <p class="liq-muted">Nada pendiente.</p>
         } @else {
           <p-table [value]="pending()" styleClass="p-datatable-sm surf-table">
-            <ng-template pTemplate="header">
+            <ng-template #header>
               <tr>
                 <th scope="col">Método</th>
                 <th scope="col">Referencia</th>
@@ -117,15 +122,14 @@ const DENOMS = [1000, 500, 200, 100, 50, 20, 10, 5, 2, 1, 0.5];
                 <th scope="col"><span class="sr-only">Acciones</span></th>
               </tr>
             </ng-template>
-            <ng-template pTemplate="body" let-p>
+            <ng-template #body let-p>
               <tr>
                 <td>{{ p.payment_method }}</td>
                 <td>{{ p.reference || '—' }}</td>
                 <td class="comm-num">{{ money(p.amount) }}</td>
                 <td>{{ p.order_id ? 'Pedido' : ('Folio ' + (p.kepler_folio || '')) }}</td>
                 <td class="comm-actions">
-                  <button pButton label="Verificar" icon="pi pi-check" size="small" severity="secondary" [outlined]="true"
-                          [disabled]="busy()" (click)="verify(p.id)"></button>
+                  <button pButton size="small" severity="secondary" [outlined]="true" [disabled]="busy()" (click)="verify(p.id)"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Verificar</span></button>
                 </td>
               </tr>
             </ng-template>
@@ -140,7 +144,7 @@ const DENOMS = [1000, 500, 200, 100, 50, 20, 10, 5, 2, 1, 0.5];
           <p class="liq-muted">Sin cortes.</p>
         } @else {
           <p-table [value]="list()" styleClass="p-datatable-sm surf-table">
-            <ng-template pTemplate="header">
+            <ng-template #header>
               <tr>
                 <th scope="col">Folio</th>
                 <th scope="col" class="comm-num">Entregas</th>
@@ -148,7 +152,7 @@ const DENOMS = [1000, 500, 200, 100, 50, 20, 10, 5, 2, 1, 0.5];
                 <th scope="col">Estado</th>
               </tr>
             </ng-template>
-            <ng-template pTemplate="body" let-l>
+            <ng-template #body let-l>
               <tr>
                 <td><code class="comm-code">{{ l.folio }}</code></td>
                 <td class="comm-num">{{ l.deliveries_count }}</td>
@@ -161,6 +165,7 @@ const DENOMS = [1000, 500, 200, 100, 50, 20, 10, 5, 2, 1, 0.5];
       </div>
     </div>
   `,
+  changeDetection: ChangeDetectionStrategy.Eager,
   styles: [`
     :host { display:block; }
 

@@ -33,14 +33,14 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
 
       <p-table [value]="rows()" [loading]="loading()" styleClass="p-datatable-sm rq-table"
                [paginator]="true" [rows]="50" [totalRecords]="total()" [lazy]="true" (onLazyLoad)="onPage($event)">
-        <ng-template pTemplate="header">
+        <ng-template #header>
           <tr>
             <th>Folio</th><th>Almacén</th><th>Proveedor</th>
             <th class="rq-r">Líneas</th><th class="rq-r">Unidades</th><th class="rq-r">Costo</th>
             <th>Estado</th><th>Fecha</th><th></th>
           </tr>
         </ng-template>
-        <ng-template pTemplate="body" let-r>
+        <ng-template #body let-r>
           <tr class="rq-row" (click)="open(r)">
             <td class="rq-mono">{{ r.folio }}</td>
             <td>{{ r.warehouse_code || '—' }}</td>
@@ -53,11 +53,11 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
             <td><i class="pi pi-angle-right rq-muted"></i></td>
           </tr>
         </ng-template>
-        <ng-template pTemplate="emptymessage">
+        <ng-template #emptymessage>
           <tr><td colspan="9" class="rq-empty">
             @if (error()) {
               <i class="pi pi-exclamation-triangle"></i> No se pudieron cargar las requisiciones.
-              <button pButton type="button" label="Reintentar" class="p-button-text p-button-sm" (click)="reload()"></button>
+              <button pButton type="button" class="p-button-text p-button-sm" (click)="reload()"><span class="p-button-label">Reintentar</span></button>
             } @else { Sin requisiciones todavía. Genera una desde Existencia crítica. }
           </td></tr>
         </ng-template>

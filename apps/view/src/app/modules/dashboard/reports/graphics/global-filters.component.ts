@@ -1,4 +1,4 @@
-import { Component, inject, signal, OnInit, output } from '@angular/core';
+import { Component, inject, signal, OnInit, output, ChangeDetectionStrategy, ChangeDetectorRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { SelectModule } from 'primeng/select';
@@ -36,75 +36,76 @@ interface DropOption {
             optionLabel="label" optionValue="value"
             (onChange)="onPeriodChange()"
             styleClass="p-input-sm w-full" />
-        </div>
-
-        <div class="flex flex-col gap-0.5">
-          <label class="filter-label">Fechas</label>
-          <p-datepicker
-            [(ngModel)]="dateRange"
-            selectionMode="range"
-            [showIcon]="true"
-            [readonlyInput]="true"
-            [showButtonBar]="true"
-            (onSelect)="onDateChange()"
-            styleClass="p-input-sm w-full" />
-        </div>
-
-        <div class="flex flex-col gap-0.5">
-          <label class="filter-label">Zona</label>
-          <p-select
-            [options]="zones"
-            [(ngModel)]="selectedZone"
-            optionLabel="label" optionValue="value"
-            [showClear]="true"
-            placeholder="Todas"
-            (onChange)="onZoneChange()"
-            (onClear)="onZoneClear()"
-            styleClass="p-input-sm w-full" />
-        </div>
-      </div>
-
-      <!-- Toggle filtros avanzados -->
-      <div class="px-3 pb-2">
-        <button type="button" (click)="showAdvanced.set(!showAdvanced())"
-          class="text-[10px] font-bold text-content-muted hover:text-content-main transition-colors flex items-center gap-1.5 cursor-pointer bg-transparent border-0 p-0">
-          <i class="pi text-[10px]" [ngClass]="showAdvanced() ? 'pi-chevron-up' : 'pi-chevron-down'"></i>
-          Filtros avanzados
-        </button>
-      </div>
-
-      <!-- Panel avanzado colapsable -->
-      <div *ngIf="showAdvanced()" class="border-t border-divider grid grid-cols-1 sm:grid-cols-3 gap-2 p-3 pt-2">
-        <div class="flex flex-col gap-0.5">
-          <label class="filter-label">Encargado</label>
-          <p-select
-            [options]="supervisors"
-            [(ngModel)]="selectedSupervisorId"
-            optionLabel="label" optionValue="value"
-            [showClear]="true"
-            placeholder="Todos"
-            (onChange)="onSupervisorChange()"
-            (onClear)="onSupervisorClear()"
-            styleClass="p-input-sm w-full" />
-        </div>
-
-        <div class="flex flex-col gap-0.5">
-          <label class="filter-label">Vendedor</label>
-          <p-multiSelect
-            [options]="sellers"
-            [(ngModel)]="selectedSellerIds"
-            optionLabel="label" optionValue="value"
-            [filter]="true"
-            filterBy="label"
-            display="chip"
-            placeholder="Todos"
-            (onChange)="onSellerChange()"
-            styleClass="p-input-sm w-full" />
-        </div>
-
-      </div>
-    </div>
-  `,
+          </div>
+    
+          <div class="flex flex-col gap-0.5">
+            <label class="filter-label">Fechas</label>
+            <p-datepicker
+              [(ngModel)]="dateRange"
+              selectionMode="range"
+              [showIcon]="true"
+              [readonlyInput]="true"
+              [showButtonBar]="true"
+              (onSelect)="onDateChange()"
+              styleClass="p-input-sm w-full" />
+            </div>
+    
+            <div class="flex flex-col gap-0.5">
+              <label class="filter-label">Zona</label>
+              <p-select
+                [options]="zones"
+                [(ngModel)]="selectedZone"
+                optionLabel="label" optionValue="value"
+                [showClear]="true"
+                placeholder="Todas"
+                (onChange)="onZoneChange()"
+                (onClear)="onZoneClear()"
+                styleClass="p-input-sm w-full" />
+              </div>
+            </div>
+    
+            <!-- Toggle filtros avanzados -->
+            <div class="px-3 pb-2">
+              <button type="button" (click)="showAdvanced.set(!showAdvanced())"
+                class="text-[10px] font-bold text-content-muted hover:text-content-main transition-colors flex items-center gap-1.5 cursor-pointer bg-transparent border-0 p-0">
+                <i class="pi text-[10px]" [ngClass]="showAdvanced() ? 'pi-chevron-up' : 'pi-chevron-down'"></i>
+                Filtros avanzados
+              </button>
+            </div>
+    
+            <!-- Panel avanzado colapsable -->
+            @if (showAdvanced()) {
+              <div class="border-t border-divider grid grid-cols-1 sm:grid-cols-3 gap-2 p-3 pt-2">
+                <div class="flex flex-col gap-0.5">
+                  <label class="filter-label">Encargado</label>
+                  <p-select
+                    [options]="supervisors"
+                    [(ngModel)]="selectedSupervisorId"
+                    optionLabel="label" optionValue="value"
+                    [showClear]="true"
+                    placeholder="Todos"
+                    (onChange)="onSupervisorChange()"
+                    (onClear)="onSupervisorClear()"
+                    styleClass="p-input-sm w-full" />
+                  </div>
+                  <div class="flex flex-col gap-0.5">
+                    <label class="filter-label">Vendedor</label>
+                    <p-multiselect
+                      [options]="sellers"
+                      [(ngModel)]="selectedSellerIds"
+                      optionLabel="label" optionValue="value"
+                      [filter]="true"
+                      filterBy="label"
+                      display="chip"
+                      placeholder="Todos"
+                      (onChange)="onSellerChange()"
+                      styleClass="p-input-sm w-full" />
+                    </div>
+                  </div>
+                }
+              </div>
+    `,
+  changeDetection: ChangeDetectionStrategy.Eager,
   styles: [`
     :host { display: block; }
     :host ::ng-deep .filter-label {
@@ -123,6 +124,7 @@ export class GlobalFiltersComponent implements OnInit {
   private filtersState = inject(FiltersStateService);
   private reportsService = inject(ReportsService);
   private perms = inject(PermissionsService);
+  private cdr = inject(ChangeDetectorRef); // zoneless: CD tras callbacks async imperativos
 
   showAdvanced = signal(false);
 
@@ -165,6 +167,7 @@ export class GlobalFiltersComponent implements OnInit {
             value: z.id
           }))
         ];
+        this.cdr.markForCheck();
       },
       error: () => {
         console.warn('No se pudieron cargar las zonas');
@@ -186,6 +189,7 @@ export class GlobalFiltersComponent implements OnInit {
             value: s.id
           }))
         ];
+        this.cdr.markForCheck();
       },
       error: () => {
         console.warn('No se pudieron cargar los supervisores');
@@ -200,6 +204,7 @@ export class GlobalFiltersComponent implements OnInit {
           label: s.full_name || s.name || s.nombre || s.username || s.id,
           value: s.id
         }));
+        this.cdr.markForCheck();
       },
       error: () => {
         console.warn('No se pudieron cargar los vendedores');

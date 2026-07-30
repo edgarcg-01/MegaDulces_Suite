@@ -2,7 +2,7 @@ import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, OnInit, com
 import { ActivatedRoute, Router } from '@angular/router';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { trigger, transition, style, animate } from '@angular/animations';
-import { CommonModule } from '@angular/common';
+
 import { FormsModule } from '@angular/forms';
 import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 import { ButtonModule } from 'primeng/button';
@@ -66,7 +66,7 @@ const SUGGESTIONS = [
 @Component({
   selector: 'app-finanzas-maat-chat',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, ChartModule, PageTabsComponent, ThotAiInputComponent],
+  imports: [FormsModule, ButtonModule, ChartModule, PageTabsComponent, ThotAiInputComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   animations: [
     trigger('msg', [
@@ -107,7 +107,7 @@ const SUGGESTIONS = [
           <p class="surf-page-sub">Pregunta en lenguaje natural sobre gastos, compras, proveedores, deuda y hallazgos contables. Los números salen de los libros.</p>
         </div>
         @if (messages().length > 0) {
-          <button pButton icon="pi pi-eraser" label="Nueva consulta" [text]="true" severity="secondary" size="small" (click)="reset()"></button>
+          <button pButton [text]="true" severity="secondary" size="small" (click)="reset()"><span class="p-button-icon p-button-icon-left pi pi-eraser" aria-hidden="true"></span><span class="p-button-label">Nueva consulta</span></button>
         }
       </header>
 

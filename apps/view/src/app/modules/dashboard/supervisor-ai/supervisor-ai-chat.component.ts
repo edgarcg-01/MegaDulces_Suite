@@ -2,7 +2,7 @@ import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, OnInit, com
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { trigger, transition, style, animate } from '@angular/animations';
-import { CommonModule } from '@angular/common';
+
 import { FormsModule } from '@angular/forms';
 import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 import { ButtonModule } from 'primeng/button';
@@ -52,7 +52,7 @@ const SUGGESTIONS = [
 @Component({
   selector: 'app-supervisor-ai-chat',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, RouterLink, ThotAiInputComponent],
+  imports: [FormsModule, ButtonModule, RouterLink, ThotAiInputComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   animations: [
     trigger('msg', [
@@ -75,9 +75,9 @@ const SUGGESTIONS = [
           <p class="surf-page-sub">Preguntá en lenguaje natural sobre la ejecución del equipo: capturas, tiendas, integridad, coaching. Los números salen del motor.</p>
         </div>
         <div class="tc-head-actions">
-          <a pButton icon="pi pi-arrow-left" label="Tablero" [text]="true" severity="secondary" size="small" routerLink="/dashboard/supervisor-ai"></a>
+          <a pButton [text]="true" severity="secondary" size="small" routerLink="/dashboard/supervisor-ai"><span class="p-button-icon p-button-icon-left pi pi-arrow-left" aria-hidden="true"></span><span class="p-button-label">Tablero</span></a>
           @if (messages().length > 0) {
-            <button pButton icon="pi pi-eraser" label="Nueva consulta" [text]="true" severity="secondary" size="small" (click)="reset()"></button>
+            <button pButton [text]="true" severity="secondary" size="small" (click)="reset()"><span class="p-button-icon p-button-icon-left pi pi-eraser" aria-hidden="true"></span><span class="p-button-label">Nueva consulta</span></button>
           }
         </div>
       </header>

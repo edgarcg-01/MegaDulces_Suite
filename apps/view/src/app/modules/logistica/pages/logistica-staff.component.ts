@@ -1,5 +1,5 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
-import { CommonModule } from '@angular/common';
+
 import { FormsModule, ReactiveFormsModule, FormBuilder, Validators } from '@angular/forms';
 import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
@@ -33,173 +33,187 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
   selector: 'app-logistica-staff',
   standalone: true,
   imports: [
-    CommonModule, FormsModule, ReactiveFormsModule,
-    ButtonModule, TableModule, DialogModule,
-    InputTextModule, InputNumberModule, TextareaModule, SelectModule, MultiSelectModule, CheckboxModule, DatePickerModule,
-    TagModule, AvatarModule, ToastModule, ConfirmDialogModule,
-    MetricCardComponent,
-  ],
+    FormsModule,
+    ReactiveFormsModule,
+    ButtonModule,
+    TableModule,
+    DialogModule,
+    InputTextModule,
+    InputNumberModule,
+    TextareaModule,
+    SelectModule,
+    MultiSelectModule,
+    CheckboxModule,
+    DatePickerModule,
+    TagModule,
+    AvatarModule,
+    ToastModule,
+    ConfirmDialogModule,
+    MetricCardComponent
+],
   providers: [MessageService, ConfirmationService],
   template: `
     <div class="surf-page logs">
-    <p-toast></p-toast>
-    <p-confirmDialog></p-confirmDialog>
-
-    <header class="surf-page-head">
-      <div class="surf-page-head-text">
-        <h1>Personal</h1>
-        <p class="surf-page-sub">Choferes, ayudantes y cargadores. Un colaborador puede tener varios roles.</p>
-      </div>
-      <button pButton icon="pi pi-plus" label="Nuevo colaborador" (click)="openCreate()"></button>
-    </header>
-
-    <!-- KPI cards (J14/J15: jerarquía + color + count-up + spotlight) -->
-    <div class="surf-grid">
-      <app-metric-card class="panel-col-6" [large]="true"
-        label="Total colaboradores" [value]="drivers().length" format="number"
+      <p-toast></p-toast>
+      <p-confirmdialog></p-confirmdialog>
+    
+      <header class="surf-page-head">
+        <div class="surf-page-head-text">
+          <h1>Personal</h1>
+          <p class="surf-page-sub">Choferes, ayudantes y cargadores. Un colaborador puede tener varios roles.</p>
+        </div>
+        <button pButton (click)="openCreate()"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Nuevo colaborador</span></button>
+      </header>
+    
+      <!-- KPI cards (J14/J15: jerarquía + color + count-up + spotlight) -->
+      <div class="surf-grid">
+        <app-metric-card class="panel-col-6" [large]="true"
+          label="Total colaboradores" [value]="drivers().length" format="number"
         accent="var(--chart-2)" sub="choferes, ayudantes y cargadores"></app-metric-card>
-      <app-metric-card class="panel-col-2"
+        <app-metric-card class="panel-col-2"
         label="Activos" [value]="activos()" format="number" accent="var(--ok-fg)"></app-metric-card>
-      <app-metric-card class="panel-col-2"
+        <app-metric-card class="panel-col-2"
         label="Suspendidos" [value]="suspendidos()" format="number" accent="var(--warn-fg)"></app-metric-card>
-      <app-metric-card class="panel-col-2"
+        <app-metric-card class="panel-col-2"
         label="Inactivos" [value]="inactivos()" format="number" accent="var(--c-text-3)"></app-metric-card>
-    </div>
-
-    <!-- Filters + tabla -->
-    <div class="filter-row">
-      <input pInputText type="search" [(ngModel)]="search" (input)="onSearch()" placeholder="Buscar por nombre"
-             inputmode="search" enterkeyhint="search" autocapitalize="none" autocorrect="off" spellcheck="false" />
-      <p-select [(ngModel)]="roleFilter" [options]="roleOptions" optionLabel="label" optionValue="value"
-                (onChange)="reload()" placeholder="Rol" [showClear]="true" styleClass="filter-select"></p-select>
-    </div>
-
-    <section class="surf-panel">
-      <div class="surf-panel-body is-flush">
-      <p-table [value]="drivers()" [loading]="loading()" responsiveLayout="scroll" styleClass="surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra p-datatable-sm">
-        <ng-template pTemplate="header">
-          <tr>
-            <th scope="col"><span class="sr-only">Avatar</span></th>
-            <th scope="col">Nombre</th>
-            <th scope="col">Roles</th>
-            <th scope="col">Tipo</th>
-            <th scope="col">Estado</th>
-            <th scope="col">Teléfono</th>
-            <th scope="col">NSS</th>
-            <th scope="col"><span class="sr-only">Acciones</span></th>
-          </tr>
-        </ng-template>
-        <ng-template pTemplate="body" let-d>
-          <tr>
-            <td>
-              <p-avatar [label]="initials(d.full_name)" shape="circle"
-                [style]="{ background: avatarColor(d.full_name), color: '#fff' }"></p-avatar>
-            </td>
-            <td><strong>{{ d.full_name }}</strong></td>
-            <td>
-              <p-tag *ngFor="let r of d.roles" [value]="r" severity="secondary" styleClass="role-tag"></p-tag>
-            </td>
-            <td>{{ d.employee_type }}</td>
-            <td>
-              <p-tag [severity]="severityStatus(d.status)" [value]="d.status"></p-tag>
-            </td>
-            <td>{{ d.phone || '—' }}</td>
-            <td>{{ d.nss || '—' }}</td>
-            <td class="actions">
-              <button pButton icon="pi pi-pencil" size="small" severity="secondary" [text]="true" (click)="openEdit(d)"></button>
-              <button pButton icon="pi pi-trash" size="small" severity="secondary" [text]="true" (click)="confirmDelete(d)"></button>
-            </td>
-          </tr>
-        </ng-template>
-        <ng-template pTemplate="emptymessage">
-          <tr><td colspan="8" class="comm-empty-cell">
-            <div class="comm-empty">
-              <i class="pi pi-users comm-empty-icon"></i>
-              <p>Sin colaboradores. Creá el primero con el botón de arriba.</p>
-            </div>
-          </td></tr>
-        </ng-template>
-      </p-table>
       </div>
-    </section>
-    </div>
-
-    <!-- Create/Edit Dialog -->
-    <p-dialog [(visible)]="dialogVisible" [modal]="true" [style]="{ width: '520px' }"
-              [header]="editing() ? 'Editar colaborador' : 'Nuevo colaborador'" [closable]="!saving()">
-      <form [formGroup]="form" class="form-grid">
-        <label class="full">
-          Nombre completo *
-          <input pInputText formControlName="full_name" />
-        </label>
-        <label class="full">
-          Roles *
-          <p-multiselect formControlName="roles" [options]="roleOptions" optionLabel="label" optionValue="value"
-                         placeholder="Seleccionar roles" styleClass="w-full"></p-multiselect>
-        </label>
-        <label>
-          Tipo empleado
-          <p-select formControlName="employee_type" [options]="employeeTypeOptions" optionLabel="label" optionValue="value"></p-select>
-        </label>
-        <label>
-          Estado
-          <p-select formControlName="status" [options]="statusOptions" optionLabel="label" optionValue="value"></p-select>
-        </label>
-        <label>
-          Teléfono
-          <input pInputText formControlName="phone" />
-        </label>
-        <label>
-          NSS
-          <input pInputText formControlName="nss" />
-        </label>
-        <label>
-          Contacto emergencia (nombre)
-          <input pInputText formControlName="emergency_contact" />
-        </label>
-        <label>
-          Teléfono emergencia
-          <input pInputText formControlName="emergency_phone" inputmode="tel" />
-        </label>
-
-        <div class="form-section full">Datos legales / IMSS</div>
-        <label>
-          CURP
-          <input pInputText formControlName="curp" maxlength="18" style="text-transform: uppercase;" />
-        </label>
-        <label>
-          RFC
-          <input pInputText formControlName="rfc" maxlength="13" style="text-transform: uppercase;" />
-        </label>
-        <label>
-          Tipo de sangre
-          <p-select formControlName="blood_type" [options]="bloodTypeOptions" optionLabel="label" optionValue="value" [showClear]="true" placeholder="—"></p-select>
-        </label>
-        <label>
-          Licencia federal (choferes)
-          <input pInputText formControlName="federal_license" />
-        </label>
-        <label>
-          Fecha de ingreso
-          <input pInputText type="date" formControlName="hire_date" />
-        </label>
-        <label>
-          Sueldo base catorcenal ($)
-          <input pInputText type="number" min="0" step="0.01" formControlName="base_salary_biweekly" />
-        </label>
-
-        <label class="full">
-          Notas
-          <textarea pTextarea rows="2" formControlName="notes"></textarea>
-        </label>
-      </form>
-
-      <ng-template pTemplate="footer">
-        <button pButton label="Cancelar" severity="secondary" [text]="true" (click)="dialogVisible = false" [disabled]="saving()"></button>
-        <button pButton [label]="editing() ? 'Guardar cambios' : 'Crear'" icon="pi pi-check" (click)="save()" [loading]="saving()" [disabled]="form.invalid"></button>
-      </ng-template>
-    </p-dialog>
-  `,
+    
+      <!-- Filters + tabla -->
+      <div class="filter-row">
+        <input pInputText type="search" [(ngModel)]="search" (input)="onSearch()" placeholder="Buscar por nombre"
+          inputmode="search" enterkeyhint="search" autocapitalize="none" autocorrect="off" spellcheck="false" />
+          <p-select [(ngModel)]="roleFilter" [options]="roleOptions" optionLabel="label" optionValue="value"
+          (onChange)="reload()" placeholder="Rol" [showClear]="true" styleClass="filter-select"></p-select>
+        </div>
+    
+        <section class="surf-panel">
+          <div class="surf-panel-body is-flush">
+            <p-table [value]="drivers()" [loading]="loading()" responsiveLayout="scroll" styleClass="surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra p-datatable-sm">
+              <ng-template #header>
+                <tr>
+                  <th scope="col"><span class="sr-only">Avatar</span></th>
+                  <th scope="col">Nombre</th>
+                  <th scope="col">Roles</th>
+                  <th scope="col">Tipo</th>
+                  <th scope="col">Estado</th>
+                  <th scope="col">Teléfono</th>
+                  <th scope="col">NSS</th>
+                  <th scope="col"><span class="sr-only">Acciones</span></th>
+                </tr>
+              </ng-template>
+              <ng-template #body let-d>
+                <tr>
+                  <td>
+                    <p-avatar [label]="initials(d.full_name)" shape="circle"
+                    [style]="{ background: avatarColor(d.full_name), color: '#fff' }"></p-avatar>
+                  </td>
+                  <td><strong>{{ d.full_name }}</strong></td>
+                  <td>
+                    @for (r of d.roles; track r) {
+                      <p-tag [value]="r" severity="secondary" styleClass="role-tag"></p-tag>
+                    }
+                  </td>
+                  <td>{{ d.employee_type }}</td>
+                  <td>
+                    <p-tag [severity]="severityStatus(d.status)" [value]="d.status"></p-tag>
+                  </td>
+                  <td>{{ d.phone || '—' }}</td>
+                  <td>{{ d.nss || '—' }}</td>
+                  <td class="actions">
+                    <button pButton size="small" severity="secondary" [text]="true" (click)="openEdit(d)"><span class="p-button-icon p-button-icon-left pi pi-pencil" aria-hidden="true"></span></button>
+                    <button pButton size="small" severity="secondary" [text]="true" (click)="confirmDelete(d)"><span class="p-button-icon p-button-icon-left pi pi-trash" aria-hidden="true"></span></button>
+                  </td>
+                </tr>
+              </ng-template>
+              <ng-template #emptymessage>
+                <tr><td colspan="8" class="comm-empty-cell">
+                  <div class="comm-empty">
+                    <i class="pi pi-users comm-empty-icon"></i>
+                    <p>Sin colaboradores. Creá el primero con el botón de arriba.</p>
+                  </div>
+                </td></tr>
+              </ng-template>
+            </p-table>
+          </div>
+        </section>
+      </div>
+    
+      <!-- Create/Edit Dialog -->
+      <p-dialog [(visible)]="dialogVisible" [modal]="true" [style]="{ width: '520px' }"
+        [header]="editing() ? 'Editar colaborador' : 'Nuevo colaborador'" [closable]="!saving()">
+        <form [formGroup]="form" class="form-grid">
+          <label class="full">
+            Nombre completo *
+            <input pInputText formControlName="full_name" />
+          </label>
+          <label class="full">
+            Roles *
+            <p-multiselect formControlName="roles" [options]="roleOptions" optionLabel="label" optionValue="value"
+            placeholder="Seleccionar roles" styleClass="w-full"></p-multiselect>
+          </label>
+          <label>
+            Tipo empleado
+            <p-select formControlName="employee_type" [options]="employeeTypeOptions" optionLabel="label" optionValue="value"></p-select>
+          </label>
+          <label>
+            Estado
+            <p-select formControlName="status" [options]="statusOptions" optionLabel="label" optionValue="value"></p-select>
+          </label>
+          <label>
+            Teléfono
+            <input pInputText formControlName="phone" />
+          </label>
+          <label>
+            NSS
+            <input pInputText formControlName="nss" />
+          </label>
+          <label>
+            Contacto emergencia (nombre)
+            <input pInputText formControlName="emergency_contact" />
+          </label>
+          <label>
+            Teléfono emergencia
+            <input pInputText formControlName="emergency_phone" inputmode="tel" />
+          </label>
+    
+          <div class="form-section full">Datos legales / IMSS</div>
+          <label>
+            CURP
+            <input pInputText formControlName="curp" maxlength="18" style="text-transform: uppercase;" />
+          </label>
+          <label>
+            RFC
+            <input pInputText formControlName="rfc" maxlength="13" style="text-transform: uppercase;" />
+          </label>
+          <label>
+            Tipo de sangre
+            <p-select formControlName="blood_type" [options]="bloodTypeOptions" optionLabel="label" optionValue="value" [showClear]="true" placeholder="—"></p-select>
+          </label>
+          <label>
+            Licencia federal (choferes)
+            <input pInputText formControlName="federal_license" />
+          </label>
+          <label>
+            Fecha de ingreso
+            <input pInputText type="date" formControlName="hire_date" />
+          </label>
+          <label>
+            Sueldo base catorcenal ($)
+            <input pInputText type="number" min="0" step="0.01" formControlName="base_salary_biweekly" />
+          </label>
+    
+          <label class="full">
+            Notas
+            <textarea pTextarea rows="2" formControlName="notes"></textarea>
+          </label>
+        </form>
+    
+        <ng-template #footer>
+          <button pButton severity="secondary" [text]="true" (click)="dialogVisible = false" [disabled]="saving()"><span class="p-button-label">Cancelar</span></button>
+          <p-button pButton [label]="editing() ? 'Guardar cambios' : 'Crear'" icon="pi pi-check" (click)="save()" [loading]="saving()" [disabled]="form.invalid"></p-button>
+        </ng-template>
+      </p-dialog>
+    `,
   styles: [`
     :host { display:block; }
 

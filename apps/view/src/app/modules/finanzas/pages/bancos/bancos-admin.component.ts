@@ -1,5 +1,5 @@
 import { ChangeDetectionStrategy, Component, EventEmitter, Output, input, signal } from '@angular/core';
-import { CommonModule } from '@angular/common';
+
 import { FormsModule } from '@angular/forms';
 import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
@@ -19,7 +19,7 @@ import { BankAdminTab } from './bancos-shared';
 @Component({
   selector: 'bancos-admin',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, TableModule, SelectModule, CheckboxModule, InputTextModule, IconFieldModule, InputIconModule],
+  imports: [FormsModule, ButtonModule, TableModule, SelectModule, CheckboxModule, InputTextModule, IconFieldModule, InputIconModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="fb-adminseg" role="tablist">
@@ -38,13 +38,13 @@ import { BankAdminTab } from './bancos-shared';
       </div>
       <div class="card-premium card-flat fb-tablewrap">
         <p-table [value]="keplerAccounts()" styleClass="p-datatable-sm" [rowHover]="true" [scrollable]="true" scrollHeight="60vh">
-          <ng-template pTemplate="header">
+          <ng-template #header>
             <tr><th class="col-w8">Clave</th><th>Descripción</th><th class="col-w6">Mayor</th></tr>
           </ng-template>
-          <ng-template pTemplate="body" let-a>
+          <ng-template #body let-a>
             <tr><td class="mono" [class.ok]="a.es_mayor">{{ a.cuenta }}</td><td>{{ a.cuenta_nombre || '—' }}</td><td class="mono muted">{{ a.cuenta_mayor }}</td></tr>
           </ng-template>
-          <ng-template pTemplate="emptymessage">
+          <ng-template #emptymessage>
             <tr><td colspan="3"><div class="surf-empty"><i class="pi pi-search"></i><p>{{ kaSearch() ? 'Sin resultados.' : 'Escribe para buscar en el catálogo.' }}</p></div></td></tr>
           </ng-template>
         </p-table>
@@ -57,10 +57,10 @@ import { BankAdminTab } from './bancos-shared';
       </div>
       <div class="card-premium card-flat fb-tablewrap">
         <p-table [value]="accounts()" styleClass="p-datatable-sm" [rowHover]="true" [scrollable]="true" scrollHeight="60vh">
-          <ng-template pTemplate="header">
+          <ng-template #header>
             <tr><th class="col-w8">Banco</th><th class="col-w6">Cuenta</th><th class="col-w10">Alias (hoja Excel)</th><th class="col-w7">Tipo</th><th>Vínculo Kepler</th><th class="col-w4 ta-c">Activa</th></tr>
           </ng-template>
-          <ng-template pTemplate="body" let-a>
+          <ng-template #body let-a>
             <tr [class.fb-inactive]="!a.active">
               <td>{{ a.bank }}</td>
               <td class="mono">{{ a.account_label }}</td>
@@ -70,14 +70,14 @@ import { BankAdminTab } from './bancos-shared';
               <td class="ta-c"><p-checkbox [ngModel]="a.active" [binary]="true" (onChange)="patchAccount.emit({ a, patch: { active: $event.checked } })" /></td>
             </tr>
           </ng-template>
-          <ng-template pTemplate="footer">
+          <ng-template #footer>
             <tr class="fb-newrow">
               <td><input pInputText class="fb-pin" [(ngModel)]="naBank" placeholder="BANCO" /></td>
               <td><input pInputText class="fb-pin mono" [(ngModel)]="naLabel" placeholder="0000" /></td>
               <td><input pInputText class="fb-pin mono" [(ngModel)]="naAlias" placeholder="hoja Excel" /></td>
               <td><p-select [options]="kindOpts" optionLabel="label" optionValue="value" [(ngModel)]="naKind" appendTo="body" styleClass="fb-sel sel-liquid" /></td>
               <td><input pInputText class="fb-pin" [(ngModel)]="naKepler" placeholder="opcional" /></td>
-              <td class="ta-c"><button pButton type="button" icon="pi pi-plus" class="p-button-sm p-button-text" [disabled]="addingAcct()" (click)="emitAdd()"></button></td>
+              <td class="ta-c"><button pButton type="button" class="p-button-sm p-button-text" [disabled]="addingAcct()" (click)="emitAdd()"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span></button></td>
             </tr>
           </ng-template>
         </p-table>

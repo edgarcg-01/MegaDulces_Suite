@@ -1,5 +1,5 @@
-import { definePreset } from '@primeng/themes';
-import Aura from '@primeng/themes/aura';
+import { definePreset } from '@primeuix/themes';
+import Aura from '@primeuix/themes/aura';
 
 /**
  * Preset PrimeNG "Operations" — alinea PrimeNG con los tokens del design system

@@ -8,7 +8,7 @@ import {
   NgZone,
   inject,
 } from '@angular/core';
-import { CommonModule } from '@angular/common';
+
 
 /**
  * "Escaparate de bienvenida" del login: un producto real de dulcería CAE con
@@ -21,7 +21,7 @@ import { CommonModule } from '@angular/common';
 @Component({
   selector: 'portal-auth-stage',
   standalone: true,
-  imports: [CommonModule],
+  imports: [],
   template: `
     <div class="as" aria-hidden="true">
       <span class="as-spot"></span>

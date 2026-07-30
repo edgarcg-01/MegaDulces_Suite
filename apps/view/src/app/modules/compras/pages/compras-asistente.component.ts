@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, ViewChild, inject, signal, computed } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { CommonModule } from '@angular/common';
+
 import { FormsModule } from '@angular/forms';
 import { ButtonModule } from 'primeng/button';
 import { ComprasService, saveXlsxResponse } from '../compras.service';
@@ -15,7 +15,7 @@ interface Msg { role: 'user' | 'assistant'; content: string; pending?: boolean; 
 @Component({
   selector: 'app-compras-asistente',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule],
+  imports: [FormsModule, ButtonModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="surf-page in ca-page">
@@ -24,7 +24,7 @@ interface Msg { role: 'user' | 'assistant'; content: string; pending?: boolean; 
           <h1>Asistente de compras</h1>
           <p class="surf-page-sub">Armá la requisición conversando: "¿qué toca pedir?", "arma Fabricas Selectas para Padre Hidalgo a cadencia", "sube el globo dorado a 20 cajas", "créala". El motor pone las cantidades; tú apruebas.</p>
         </div>
-        @if (messages().length) { <button pButton type="button" label="Nueva" icon="pi pi-plus" class="p-button-sm p-button-text" (click)="reset()"></button> }
+        @if (messages().length) { <button pButton type="button" class="p-button-sm p-button-text" (click)="reset()"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Nueva</span></button> }
       </header>
 
       <div class="ca-thread" #thread>
@@ -42,7 +42,7 @@ interface Msg { role: 'user' | 'assistant'; content: string; pending?: boolean; 
             <div class="ca-bubble" [class.ca-err]="m.error">
               @if (m.pending) { <span class="ca-dots"><i></i><i></i><i></i></span> }
               @else { <div class="ca-text">{{ m.content }}</div>
-                @if (m.download) { <button pButton type="button" icon="pi pi-file-excel" [label]="'Descargar ' + m.download.folio + ' (Excel)'" class="p-button-sm ca-dl" [loading]="downloading()===m.download.id" (click)="download(m.download!)"></button> }
+                @if (m.download) { <p-button pButton type="button" icon="pi pi-file-excel" [label]="'Descargar ' + m.download.folio + ' (Excel)'" styleClass="p-button-sm ca-dl" [loading]="downloading()===m.download.id" (click)="download(m.download!)"></p-button> }
                 @if (m.tools?.length) { <div class="ca-tools">{{ m.tools!.join(' · ') }}</div> } }
             </div>
           </div>
@@ -52,7 +52,7 @@ interface Msg { role: 'user' | 'assistant'; content: string; pending?: boolean; 
       <form class="ca-input" (ngSubmit)="send(draft)">
         <input type="text" [(ngModel)]="draft" name="draft" [disabled]="sending()"
                placeholder="Escribe tu pedido o pregunta…" autocomplete="off" />
-        <button pButton type="submit" icon="pi pi-send" [disabled]="sending() || !draft.trim()" class="p-button-sm"></button>
+        <button pButton type="submit" [disabled]="sending() || !draft.trim()" class="p-button-sm"><span class="p-button-icon p-button-icon-left pi pi-send" aria-hidden="true"></span></button>
       </form>
       <p class="ca-note">El asistente crea la requisición en estado <b>pendiente de aprobación</b>. Nada se pide en firme sin tu confirmación.</p>
     </div>

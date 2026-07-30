@@ -49,53 +49,58 @@ import { SAT_REGIMENES, SAT_USOS_CFDI, SatCatItem } from '../../../core/constant
   ],
   template: `
     <!-- Cierre celebratorio: solo al llegar recién confirmado desde el carrito -->
-    <div
-      *ngIf="celebrate()"
-      class="od-celebrate"
-      role="status"
-      aria-live="polite"
-      [@celebrateOverlay]
-      (click)="celebrate.set(false)"
-    >
-      <div class="od-celebrate-card">
-        <span class="od-celebrate-rings" aria-hidden="true"></span>
-        <span class="od-celebrate-check" aria-hidden="true">
-          <svg viewBox="0 0 52 52" width="56" height="56">
-            <circle class="od-celebrate-circle" cx="26" cy="26" r="24" fill="none" />
-            <path class="od-celebrate-tick" fill="none" d="M14 27 l8 8 l16 -18" />
-          </svg>
-        </span>
-        <p class="od-celebrate-title">¡Pedido enviado!</p>
-        <p class="od-celebrate-sub">Ya avisamos a Mega Dulces para aprobarlo.</p>
+    @if (celebrate()) {
+      <div
+        class="od-celebrate"
+        role="status"
+        aria-live="polite"
+        [@celebrateOverlay]
+        (click)="celebrate.set(false)"
+        >
+        <div class="od-celebrate-card">
+          <span class="od-celebrate-rings" aria-hidden="true"></span>
+          <span class="od-celebrate-check" aria-hidden="true">
+            <svg viewBox="0 0 52 52" width="56" height="56">
+              <circle class="od-celebrate-circle" cx="26" cy="26" r="24" fill="none" />
+              <path class="od-celebrate-tick" fill="none" d="M14 27 l8 8 l16 -18" />
+            </svg>
+          </span>
+          <p class="od-celebrate-title">¡Pedido enviado!</p>
+          <p class="od-celebrate-sub">Ya avisamos a Mega Dulces para aprobarlo.</p>
+        </div>
       </div>
-    </div>
-
+    }
+    
     <a routerLink="/portal/orders" class="od-back">
       <i class="pi pi-arrow-left" aria-hidden="true"></i> Volver a mis pedidos
     </a>
-
-    <div *ngIf="loading()" class="od-skel" aria-hidden="true">
-      <p-skeleton width="100%" height="96px" borderRadius="16px"></p-skeleton>
-      <div class="od-skel-layout">
-        <div class="od-skel-lines">
-          <div class="od-skel-line" *ngFor="let i of [1, 2, 3]">
-            <p-skeleton width="48px" height="48px" borderRadius="12px"></p-skeleton>
-            <div class="od-skel-body">
-              <p-skeleton width="35%" height="0.6rem"></p-skeleton>
-              <p-skeleton width="70%" height="0.95rem"></p-skeleton>
-            </div>
-            <p-skeleton width="72px" height="1rem"></p-skeleton>
+    
+    @if (loading()) {
+      <div class="od-skel" aria-hidden="true">
+        <p-skeleton width="100%" height="96px" borderRadius="16px"></p-skeleton>
+        <div class="od-skel-layout">
+          <div class="od-skel-lines">
+            @for (i of [1, 2, 3]; track i) {
+              <div class="od-skel-line">
+                <p-skeleton width="48px" height="48px" borderRadius="12px"></p-skeleton>
+                <div class="od-skel-body">
+                  <p-skeleton width="35%" height="0.6rem"></p-skeleton>
+                  <p-skeleton width="70%" height="0.95rem"></p-skeleton>
+                </div>
+                <p-skeleton width="72px" height="1rem"></p-skeleton>
+              </div>
+            }
+          </div>
+          <div class="od-skel-side">
+            <p-skeleton width="50%" height="0.9rem"></p-skeleton>
+            <p-skeleton width="100%" height="3.25rem" borderRadius="12px"></p-skeleton>
+            <p-skeleton width="100%" height="3.25rem" borderRadius="12px"></p-skeleton>
           </div>
         </div>
-        <div class="od-skel-side">
-          <p-skeleton width="50%" height="0.9rem"></p-skeleton>
-          <p-skeleton width="100%" height="3.25rem" borderRadius="12px"></p-skeleton>
-          <p-skeleton width="100%" height="3.25rem" borderRadius="12px"></p-skeleton>
-        </div>
       </div>
-    </div>
-
-    <ng-container *ngIf="!loading() && order() as o">
+    }
+    
+    @if (!loading() && order(); as o) {
       <!-- Page header consistente -->
       <header class="portal-page-head">
         <div class="portal-page-head-text">
@@ -110,7 +115,6 @@ import { SAT_REGIMENES, SAT_USOS_CFDI, SatCatItem } from '../../../core/constant
           {{ statusLabel(o.status) }}
         </span>
       </header>
-
       <!-- Status hero (con mensaje contextual + total) -->
       <section class="od-hero" [class]="'od-hero-' + o.status">
         <div class="od-hero-icon">
@@ -124,15 +128,21 @@ import { SAT_REGIMENES, SAT_USOS_CFDI, SatCatItem } from '../../../core/constant
             aria-atomic="true"
           >{{ statusMessage(o.status) }}</p>
           <div class="od-hero-meta">
-            <span *ngIf="o.confirmed_at">
-              <i class="pi pi-check" aria-hidden="true"></i> Confirmado {{ fmtDate(o.confirmed_at) }}
-            </span>
-            <span *ngIf="o.fulfilled_at">
-              <i class="pi pi-truck" aria-hidden="true"></i> Entregado {{ fmtDate(o.fulfilled_at) }}
-            </span>
-            <span *ngIf="o.cancelled_at">
-              <i class="pi pi-times" aria-hidden="true"></i> Cancelado {{ fmtDate(o.cancelled_at) }}
-            </span>
+            @if (o.confirmed_at) {
+              <span>
+                <i class="pi pi-check" aria-hidden="true"></i> Confirmado {{ fmtDate(o.confirmed_at) }}
+              </span>
+            }
+            @if (o.fulfilled_at) {
+              <span>
+                <i class="pi pi-truck" aria-hidden="true"></i> Entregado {{ fmtDate(o.fulfilled_at) }}
+              </span>
+            }
+            @if (o.cancelled_at) {
+              <span>
+                <i class="pi pi-times" aria-hidden="true"></i> Cancelado {{ fmtDate(o.cancelled_at) }}
+              </span>
+            }
           </div>
         </div>
         <div class="od-hero-total">
@@ -140,118 +150,133 @@ import { SAT_REGIMENES, SAT_USOS_CFDI, SatCatItem } from '../../../core/constant
           <b [countUp]="+(o.total || 0)"></b>
         </div>
       </section>
-
       <!-- Repetir pedido (1 tap → clona líneas al carrito) -->
-      <div class="od-actions" *ngIf="o.status !== 'draft' && (o.lines || []).length > 0">
-        <button
-          type="button"
-          class="portal-btn-primary od-reorder-btn"
-          [disabled]="reordering()"
-          (click)="reorder(o)"
-        >
-          <i [class]="reordering() ? 'pi pi-spin pi-spinner' : 'pi pi-replay'" aria-hidden="true"></i>
-          {{ reordering() ? 'Agregando al carrito…' : 'Repetir pedido' }}
-        </button>
-        <span class="od-actions-hint">
-          Agrega los {{ (o.lines || []).length }} producto(s) de este pedido a tu carrito.
-        </span>
-      </div>
-      <p *ngIf="reorderError()" class="od-actions-error" role="alert">
-        <i class="pi pi-exclamation-circle" aria-hidden="true"></i> {{ reorderError() }}
-      </p>
-
+      @if (o.status !== 'draft' && (o.lines || []).length > 0) {
+        <div class="od-actions">
+          <button
+            type="button"
+            class="portal-btn-primary od-reorder-btn"
+            [disabled]="reordering()"
+            (click)="reorder(o)"
+            >
+            <i [class]="reordering() ? 'pi pi-spin pi-spinner' : 'pi pi-replay'" aria-hidden="true"></i>
+            {{ reordering() ? 'Agregando al carrito…' : 'Repetir pedido' }}
+          </button>
+          <span class="od-actions-hint">
+            Agrega los {{ (o.lines || []).length }} producto(s) de este pedido a tu carrito.
+          </span>
+        </div>
+      }
+      @if (reorderError()) {
+        <p class="od-actions-error" role="alert">
+          <i class="pi pi-exclamation-circle" aria-hidden="true"></i> {{ reorderError() }}
+        </p>
+      }
       <!-- FE.7 — Factura (CFDI) self-service -->
-      <section class="od-invoice" *ngIf="o.status === 'fulfilled'" aria-label="Factura">
-        <ng-container *ngIf="o.cfdi_uuid; else needInvoice">
-          <div class="od-inv-done">
-            <div class="od-inv-done-head">
-              <i class="pi pi-file-check" aria-hidden="true"></i>
-              <div>
-                <p class="od-inv-title">Factura emitida</p>
-                <p class="od-inv-sub">UUID {{ o.cfdi_uuid }}</p>
+      @if (o.status === 'fulfilled') {
+        <section class="od-invoice" aria-label="Factura">
+          @if (o.cfdi_uuid) {
+            <div class="od-inv-done">
+              <div class="od-inv-done-head">
+                <i class="pi pi-file-check" aria-hidden="true"></i>
+                <div>
+                  <p class="od-inv-title">Factura emitida</p>
+                  <p class="od-inv-sub">UUID {{ o.cfdi_uuid }}</p>
+                </div>
+              </div>
+              <div class="od-inv-dl">
+                <button type="button" class="od-inv-btn" [disabled]="downloadingPdf()" (click)="downloadPdf(o)">
+                  <i [class]="downloadingPdf() ? 'pi pi-spin pi-spinner' : 'pi pi-file-pdf'" aria-hidden="true"></i> PDF
+                </button>
+                <button type="button" class="od-inv-btn" [disabled]="downloadingXml()" (click)="downloadXml(o)">
+                  <i [class]="downloadingXml() ? 'pi pi-spin pi-spinner' : 'pi pi-code'" aria-hidden="true"></i> XML
+                </button>
               </div>
             </div>
-            <div class="od-inv-dl">
-              <button type="button" class="od-inv-btn" [disabled]="downloadingPdf()" (click)="downloadPdf(o)">
-                <i [class]="downloadingPdf() ? 'pi pi-spin pi-spinner' : 'pi pi-file-pdf'" aria-hidden="true"></i> PDF
-              </button>
-              <button type="button" class="od-inv-btn" [disabled]="downloadingXml()" (click)="downloadXml(o)">
-                <i [class]="downloadingXml() ? 'pi pi-spin pi-spinner' : 'pi pi-code'" aria-hidden="true"></i> XML
-              </button>
-            </div>
-          </div>
-        </ng-container>
-
-        <ng-template #needInvoice>
-          <div class="od-inv-cta" *ngIf="!showInvoiceForm()">
-            <div class="od-inv-cta-text">
-              <p class="od-inv-title">¿Necesitas factura?</p>
-              <p class="od-inv-sub">Emite el CFDI de este pedido con tus datos fiscales.</p>
-            </div>
-            <button type="button" class="portal-btn-primary" (click)="openInvoiceForm()">
-              <i class="pi pi-file-edit" aria-hidden="true"></i> Solicitar factura
-            </button>
-          </div>
-
-          <form class="od-inv-form" *ngIf="showInvoiceForm()" (ngSubmit)="submitInvoice(o)">
-            <p class="od-inv-form-title">Datos fiscales</p>
-            <div class="od-inv-grid">
-              <label class="od-fld"><span>RFC</span>
-                <input type="text" [(ngModel)]="fiscal.rfc" name="rfc" maxlength="13" required autocomplete="off" style="text-transform:uppercase" />
-              </label>
-              <label class="od-fld od-fld-full"><span>Razón social</span>
+          } @else {
+            @if (!showInvoiceForm()) {
+              <div class="od-inv-cta">
+                <div class="od-inv-cta-text">
+                  <p class="od-inv-title">¿Necesitas factura?</p>
+                  <p class="od-inv-sub">Emite el CFDI de este pedido con tus datos fiscales.</p>
+                </div>
+                <button type="button" class="portal-btn-primary" (click)="openInvoiceForm()">
+                  <i class="pi pi-file-edit" aria-hidden="true"></i> Solicitar factura
+                </button>
+              </div>
+            }
+            @if (showInvoiceForm()) {
+              <form class="od-inv-form" (ngSubmit)="submitInvoice(o)">
+                <p class="od-inv-form-title">Datos fiscales</p>
+                <div class="od-inv-grid">
+                  <label class="od-fld"><span>RFC</span>
+                  <input type="text" [(ngModel)]="fiscal.rfc" name="rfc" maxlength="13" required autocomplete="off" style="text-transform:uppercase" />
+                </label>
+                <label class="od-fld od-fld-full"><span>Razón social</span>
                 <input type="text" [(ngModel)]="fiscal.legal_name" name="legal_name" required autocomplete="off" />
               </label>
               <label class="od-fld"><span>Régimen fiscal</span>
-                <select [(ngModel)]="fiscal.regimen_fiscal" name="regimen" required>
-                  <option value="">— Seleccionar —</option>
-                  <option *ngFor="let r of regimenes" [value]="r.code">{{ r.display }}</option>
-                </select>
-              </label>
-              <label class="od-fld"><span>Uso CFDI</span>
-                <select [(ngModel)]="fiscal.uso_cfdi" name="uso" required>
-                  <option *ngFor="let u of usos" [value]="u.code">{{ u.display }}</option>
-                </select>
-              </label>
-              <label class="od-fld"><span>CP fiscal</span>
-                <input type="text" [(ngModel)]="fiscal.zip" name="zip" maxlength="5" inputmode="numeric" required autocomplete="off" />
-              </label>
-            </div>
-            <p class="od-inv-err" *ngIf="invoiceError()" role="alert"><i class="pi pi-exclamation-circle" aria-hidden="true"></i> {{ invoiceError() }}</p>
-            <div class="od-inv-form-actions">
-              <button type="button" class="od-inv-btn" (click)="showInvoiceForm.set(false)" [disabled]="invoicing()">Cancelar</button>
-              <button type="submit" class="portal-btn-primary" [disabled]="invoicing()">
-                <i [class]="invoicing() ? 'pi pi-spin pi-spinner' : 'pi pi-check'" aria-hidden="true"></i>
-                {{ invoicing() ? 'Emitiendo…' : 'Emitir factura' }}
-              </button>
-            </div>
-          </form>
-        </ng-template>
-      </section>
-
-      <div class="od-layout">
-        <!-- Lines -->
-        <section class="od-lines-section" aria-label="Líneas del pedido">
-          <header class="od-section-head">
-            <h2><i class="pi pi-list"></i> Líneas del pedido</h2>
-            <span class="od-section-count">
-              {{ (o.lines || []).length }} producto(s)
-            </span>
-          </header>
-
-          <div class="od-lines">
-            <article *ngFor="let l of o.lines || []; trackBy: trackByLine" class="od-line">
+              <select [(ngModel)]="fiscal.regimen_fiscal" name="regimen" required>
+                <option value="">— Seleccionar —</option>
+                @for (r of regimenes; track r) {
+                  <option [value]="r.code">{{ r.display }}</option>
+                }
+              </select>
+            </label>
+            <label class="od-fld"><span>Uso CFDI</span>
+            <select [(ngModel)]="fiscal.uso_cfdi" name="uso" required>
+              @for (u of usos; track u) {
+                <option [value]="u.code">{{ u.display }}</option>
+              }
+            </select>
+          </label>
+          <label class="od-fld"><span>CP fiscal</span>
+          <input type="text" [(ngModel)]="fiscal.zip" name="zip" maxlength="5" inputmode="numeric" required autocomplete="off" />
+        </label>
+      </div>
+      @if (invoiceError()) {
+        <p class="od-inv-err" role="alert"><i class="pi pi-exclamation-circle" aria-hidden="true"></i> {{ invoiceError() }}</p>
+      }
+      <div class="od-inv-form-actions">
+        <button type="button" class="od-inv-btn" (click)="showInvoiceForm.set(false)" [disabled]="invoicing()">Cancelar</button>
+        <button type="submit" class="portal-btn-primary" [disabled]="invoicing()">
+          <i [class]="invoicing() ? 'pi pi-spin pi-spinner' : 'pi pi-check'" aria-hidden="true"></i>
+          {{ invoicing() ? 'Emitiendo…' : 'Emitir factura' }}
+        </button>
+      </div>
+    </form>
+    }
+    }
+    </section>
+    }
+    <div class="od-layout">
+      <!-- Lines -->
+      <section class="od-lines-section" aria-label="Líneas del pedido">
+        <header class="od-section-head">
+          <h2><i class="pi pi-list"></i> Líneas del pedido</h2>
+          <span class="od-section-count">
+            {{ (o.lines || []).length }} producto(s)
+          </span>
+        </header>
+        <div class="od-lines">
+          @for (l of o.lines || []; track trackByLine($index, l)) {
+            <article class="od-line">
               <div
                 class="od-line-avatar"
                 [class.has-photo]="lineImg(l)"
                 [style.background]="lineImg(l) ? null : linePh(l)"
-              >
-                <img *ngIf="lineImg(l) as src" [src]="src" [alt]="l.product_name || ''" loading="lazy" decoding="async" />
-                <span *ngIf="!lineImg(l)" class="od-line-mono" aria-hidden="true">{{ lineInitials(l) }}</span>
+                >
+                @if (lineImg(l); as src) {
+                  <img [src]="src" [alt]="l.product_name || ''" loading="lazy" decoding="async" />
+                }
+                @if (!lineImg(l)) {
+                  <span class="od-line-mono" aria-hidden="true">{{ lineInitials(l) }}</span>
+                }
               </div>
-
               <div class="od-line-body">
-                <span class="od-line-brand" *ngIf="l.brand_name">{{ l.brand_name }}</span>
+                @if (l.brand_name) {
+                  <span class="od-line-brand">{{ l.brand_name }}</span>
+                }
                 <span class="od-line-name">{{ l.product_name || shortId(l.product_id) }}</span>
                 <div class="od-line-meta">
                   <span class="od-meta-item">
@@ -263,99 +288,118 @@ import { SAT_REGIMENES, SAT_USOS_CFDI, SatCatItem } from '../../../core/constant
                   </span>
                 </div>
               </div>
-
               <div class="od-line-total">
                 <span class="od-line-label">Total</span>
                 <b>{{ +l.line_total | currency:'MXN':'symbol-narrow':'1.2-2' }}</b>
               </div>
             </article>
-
-            <p *ngIf="(o.lines || []).length === 0" class="od-empty-lines">
+          }
+          @if ((o.lines || []).length === 0) {
+            <p class="od-empty-lines">
               Este pedido no tiene líneas.
             </p>
+          }
+        </div>
+        <!-- Totals box -->
+        <div class="od-totals">
+          <div class="od-totals-row">
+            <span>Subtotal</span>
+            <b>{{ +o.subtotal | currency:'MXN':'symbol-narrow':'1.2-2' }}</b>
           </div>
-
-          <!-- Totals box -->
-          <div class="od-totals">
-            <div class="od-totals-row">
-              <span>Subtotal</span>
-              <b>{{ +o.subtotal | currency:'MXN':'symbol-narrow':'1.2-2' }}</b>
-            </div>
-            <div class="od-totals-row">
-              <span>IVA</span>
-              <b>{{ +o.tax_total | currency:'MXN':'symbol-narrow':'1.2-2' }}</b>
-            </div>
-            <div class="od-totals-row od-totals-grand">
-              <span>Total</span>
-              <b>{{ +o.total | currency:'MXN':'symbol-narrow':'1.2-2' }}</b>
-            </div>
-            <div class="od-totals-row od-totals-due" *ngIf="+o.balance_due > 0">
+          <div class="od-totals-row">
+            <span>IVA</span>
+            <b>{{ +o.tax_total | currency:'MXN':'symbol-narrow':'1.2-2' }}</b>
+          </div>
+          <div class="od-totals-row od-totals-grand">
+            <span>Total</span>
+            <b>{{ +o.total | currency:'MXN':'symbol-narrow':'1.2-2' }}</b>
+          </div>
+          @if (+o.balance_due > 0) {
+            <div class="od-totals-row od-totals-due">
               <span><i class="pi pi-exclamation-circle"></i> Saldo pendiente</span>
               <b>{{ +o.balance_due | currency:'MXN':'symbol-narrow':'1.2-2' }}</b>
             </div>
-          </div>
-        </section>
-
-        <!-- Tracking de embarques (J.10) -->
-        <section class="od-tracking-section" *ngIf="shipments().length > 0" aria-label="Rastreo de entrega">
+          }
+        </div>
+      </section>
+      <!-- Tracking de embarques (J.10) -->
+      @if (shipments().length > 0) {
+        <section class="od-tracking-section" aria-label="Rastreo de entrega">
           <header class="od-section-head">
             <h2><i class="pi pi-truck"></i> Rastreo</h2>
           </header>
-
           <div class="od-shipments">
-            <article *ngFor="let s of shipments()" class="od-shipment" [class]="'is-' + s.status">
-              <div class="od-ship-head">
-                <code class="od-ship-folio">{{ s.folio }}</code>
-                <span class="od-ship-badge" [class]="'is-' + s.status">
-                  <i [class]="shipStatusIcon(s.status)" aria-hidden="true"></i>
-                  {{ shipStatusLabel(s.status) }}
-                </span>
-              </div>
-              <div class="od-ship-meta">
-                <span *ngIf="s.route_name">
-                  <i class="pi pi-map" aria-hidden="true"></i> {{ s.route_name }}
-                </span>
-                <span *ngIf="s.vehicle_plate">
-                  <i class="pi pi-car" aria-hidden="true"></i> {{ s.vehicle_plate }}
-                </span>
-                <span *ngIf="!s.route_name && !s.vehicle_plate && s.destination">
-                  <i class="pi pi-flag" aria-hidden="true"></i> {{ s.destination }}
-                </span>
-              </div>
-              <div class="od-ship-stamps">
-                <span *ngIf="s.departure_at">
-                  <i class="pi pi-send" aria-hidden="true"></i> Salió {{ fmtDateTime(s.departure_at) }}
-                </span>
-                <span *ngIf="s.arrival_at">
-                  <i class="pi pi-check-circle" aria-hidden="true"></i> Entregado {{ fmtDateTime(s.arrival_at) }}
-                </span>
-                <span *ngIf="!s.departure_at && !s.arrival_at">
-                  <i class="pi pi-calendar" aria-hidden="true"></i> Programado {{ fmtDate(s.shipment_date) }}
-                </span>
-              </div>
-            </article>
+            @for (s of shipments(); track s) {
+              <article class="od-shipment" [class]="'is-' + s.status">
+                <div class="od-ship-head">
+                  <code class="od-ship-folio">{{ s.folio }}</code>
+                  <span class="od-ship-badge" [class]="'is-' + s.status">
+                    <i [class]="shipStatusIcon(s.status)" aria-hidden="true"></i>
+                    {{ shipStatusLabel(s.status) }}
+                  </span>
+                </div>
+                <div class="od-ship-meta">
+                  @if (s.route_name) {
+                    <span>
+                      <i class="pi pi-map" aria-hidden="true"></i> {{ s.route_name }}
+                    </span>
+                  }
+                  @if (s.vehicle_plate) {
+                    <span>
+                      <i class="pi pi-car" aria-hidden="true"></i> {{ s.vehicle_plate }}
+                    </span>
+                  }
+                  @if (!s.route_name && !s.vehicle_plate && s.destination) {
+                    <span>
+                      <i class="pi pi-flag" aria-hidden="true"></i> {{ s.destination }}
+                    </span>
+                  }
+                </div>
+                <div class="od-ship-stamps">
+                  @if (s.departure_at) {
+                    <span>
+                      <i class="pi pi-send" aria-hidden="true"></i> Salió {{ fmtDateTime(s.departure_at) }}
+                    </span>
+                  }
+                  @if (s.arrival_at) {
+                    <span>
+                      <i class="pi pi-check-circle" aria-hidden="true"></i> Entregado {{ fmtDateTime(s.arrival_at) }}
+                    </span>
+                  }
+                  @if (!s.departure_at && !s.arrival_at) {
+                    <span>
+                      <i class="pi pi-calendar" aria-hidden="true"></i> Programado {{ fmtDate(s.shipment_date) }}
+                    </span>
+                  }
+                </div>
+              </article>
+            }
           </div>
         </section>
-
-        <!-- Timeline -->
-        <aside class="od-timeline-section" aria-label="Historial del pedido">
-          <header class="od-section-head">
-            <h2><i class="pi pi-history"></i> Historial</h2>
-          </header>
-
-          <ol class="od-timeline">
-            <li *ngFor="let h of history()" class="od-tl-item">
+      }
+      <!-- Timeline -->
+      <aside class="od-timeline-section" aria-label="Historial del pedido">
+        <header class="od-section-head">
+          <h2><i class="pi pi-history"></i> Historial</h2>
+        </header>
+        <ol class="od-timeline">
+          @for (h of history(); track h) {
+            <li class="od-tl-item">
               <div class="od-tl-dot" [class]="'od-tl-dot-' + h.to_status">
                 <i [class]="statusIcon(h.to_status)"></i>
               </div>
               <div class="od-tl-content">
                 <div class="od-tl-transition">
-                  <span class="od-tl-from" *ngIf="h.from_status">
-                    {{ statusLabel(h.from_status) }}
-                  </span>
-                  <span class="od-tl-from od-tl-from-init" *ngIf="!h.from_status">
-                    Inicio
-                  </span>
+                  @if (h.from_status) {
+                    <span class="od-tl-from">
+                      {{ statusLabel(h.from_status) }}
+                    </span>
+                  }
+                  @if (!h.from_status) {
+                    <span class="od-tl-from od-tl-from-init">
+                      Inicio
+                    </span>
+                  }
                   <i class="pi pi-arrow-right"></i>
                   <span class="od-tl-to">{{ statusLabel(h.to_status) }}</span>
                 </div>
@@ -365,18 +409,23 @@ import { SAT_REGIMENES, SAT_USOS_CFDI, SatCatItem } from '../../../core/constant
                   <span class="od-tl-sep">·</span>
                   {{ fmtDateTime(h.changed_at) }}
                 </div>
-                <p class="od-tl-reason" *ngIf="h.reason">{{ h.reason }}</p>
+                @if (h.reason) {
+                  <p class="od-tl-reason">{{ h.reason }}</p>
+                }
               </div>
             </li>
-            <li *ngIf="history().length === 0" class="od-tl-empty">
+          }
+          @if (history().length === 0) {
+            <li class="od-tl-empty">
               <i class="pi pi-info-circle"></i>
               Sin historial registrado.
             </li>
-          </ol>
-        </aside>
-      </div>
-    </ng-container>
-  `,
+          }
+        </ol>
+      </aside>
+    </div>
+    }
+    `,
   styles: [
     `
       :host { display: block; }
@@ -1088,7 +1137,7 @@ export class PortalOrderDetailComponent implements OnInit {
 
   /** Capturado en construcción: navegar borra `history.state` después. */
   private readonly justConfirmed =
-    !!this.router.getCurrentNavigation()?.extras.state?.['justConfirmed'];
+    !!this.router.currentNavigation()?.extras.state?.['justConfirmed'];
 
   reorder(o: Order): void {
     if (this.reordering()) return;

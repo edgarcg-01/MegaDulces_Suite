@@ -1,5 +1,5 @@
-import { Component, EventEmitter, Input, Output, computed, inject, signal } from '@angular/core';
-import { CommonModule } from '@angular/common';
+import { Component, EventEmitter, Input, Output, computed, inject, signal, ChangeDetectionStrategy } from '@angular/core';
+
 import { DialogModule } from 'primeng/dialog';
 import { ButtonModule } from 'primeng/button';
 import { TrackingService } from '../../core/services/tracking.service';
@@ -7,7 +7,8 @@ import { TrackingService } from '../../core/services/tracking.service';
 @Component({
   selector: 'app-background-permission',
   standalone: true,
-  imports: [CommonModule, DialogModule, ButtonModule],
+  imports: [DialogModule, ButtonModule],
+  changeDetection: ChangeDetectionStrategy.Eager,
   template: `
     <p-dialog
       [(visible)]="visible"
@@ -39,8 +40,8 @@ import { TrackingService } from '../../core/services/tracking.service';
         </div>
 
         <div class="footer-actions">
-          <button pButton label="Más tarde" class="p-button-text" (click)="onCancel()" [disabled]="requesting()"></button>
-          <button pButton [label]="buttonLabel()" (click)="onRequest()" [loading]="requesting()"></button>
+          <button pButton class="p-button-text" (click)="onCancel()" [disabled]="requesting()"><span class="p-button-label">Más tarde</span></button>
+          <p-button pButton [label]="buttonLabel()" (click)="onRequest()" [loading]="requesting()"></p-button>
         </div>
       </div>
 

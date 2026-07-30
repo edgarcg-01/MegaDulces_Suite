@@ -31,10 +31,10 @@ type Tab = 'resumen' | 'focos' | 'cortes' | 'movimientos' | 'arqueo' | 'acciones
           <p class="surf-page-sub">Cuadre de caja e inventario contra los movimientos. Ve todo: la data cruda y los descuadres que el motor detecta.</p>
         </div>
         <div class="cd-head-actions">
-          <button pButton type="button" label="Escanear ahora" icon="pi pi-bolt" class="p-button-sm p-button-outlined" [loading]="scanning()" (click)="scan()"></button>
+          <button pButton type="button" class="p-button-sm p-button-outlined" [loading]="scanning()" (click)="scan()"><span class="p-button-icon p-button-icon-left pi pi-bolt" aria-hidden="true"></span><span class="p-button-label">Escanear ahora</span></button>
         </div>
       </header>
-
+    
       <!-- Tabs -->
       <div class="cd-tabs">
         <button [class.active]="tab() === 'resumen'" (click)="go('resumen')"><i class="pi pi-chart-bar"></i> Resumen</button>
@@ -45,7 +45,7 @@ type Tab = 'resumen' | 'focos' | 'cortes' | 'movimientos' | 'arqueo' | 'acciones
         <button [class.active]="tab() === 'acciones'" (click)="go('acciones')"><i class="pi pi-check-circle"></i> Acciones</button>
         <button [class.active]="tab() === 'descuadres'" (click)="go('descuadres')"><i class="pi pi-flag"></i> Descuadres @if (stats()?.pendientes) { <span class="cd-badge">{{ stats()?.pendientes }}</span> }</button>
       </div>
-
+    
       <!-- ══ RESUMEN ══ -->
       @if (tab() === 'resumen') {
         @if (ov(); as o) {
@@ -56,7 +56,7 @@ type Tab = 'resumen' | 'focos' | 'cortes' | 'movimientos' | 'arqueo' | 'acciones
               <span><strong>{{ o.caja.cuadre_exacto | number }} de {{ o.caja.cortes_monto_alto | number }}</strong> cortes con monto alto cerraron con el efectivo contado <strong>idéntico al esperado, al centavo</strong>. En un conteo físico real eso es casi imposible — el arqueo probablemente no se hace a ciegas, así que un descuadre bajo no garantiza que la caja esté sana. La regla <em>Arqueo no ciego</em> lo señala en Descuadres.</span>
             </div>
           }
-
+    
           <div class="cd-2col">
             <div class="card-premium card-flat cd-panel">
               <h3 class="cd-card-title">Top cajeros con faltante</h3>
@@ -70,22 +70,22 @@ type Tab = 'resumen' | 'focos' | 'cortes' | 'movimientos' | 'arqueo' | 'acciones
                 }
               } @else { <p class="muted">Sin faltantes registrados.</p> }
             </div>
-
+    
             <div class="card-premium card-flat cd-panel">
               <h3 class="cd-card-title">Por sucursal</h3>
               <p-table [value]="o.por_sucursal" styleClass="p-datatable-sm" [rowHover]="true">
-                <ng-template pTemplate="header"><tr><th>Sucursal</th><th class="ta-r">Cortes</th><th class="ta-r">Faltante caja</th><th class="ta-r">Merma</th></tr></ng-template>
-                <ng-template pTemplate="body" let-s>
+                <ng-template #header><tr><th>Sucursal</th><th class="ta-r">Cortes</th><th class="ta-r">Faltante caja</th><th class="ta-r">Merma</th></tr></ng-template>
+                <ng-template #body let-s>
                   <tr><td>{{ s.sucursal }}</td><td class="ta-r">{{ s.cortes | number }}</td>
-                    <td class="ta-r" [class.bad]="s.faltante_caja > 0">{{ money(s.faltante_caja) }}</td>
-                    <td class="ta-r" [class.bad]="s.merma > 0">{{ money(s.merma) }}</td></tr>
+                  <td class="ta-r" [class.bad]="s.faltante_caja > 0">{{ money(s.faltante_caja) }}</td>
+                  <td class="ta-r" [class.bad]="s.merma > 0">{{ money(s.merma) }}</td></tr>
                 </ng-template>
               </p-table>
             </div>
           </div>
         } @else { <p class="cd-empty">{{ loading() ? 'Cargando…' : 'Sin datos. Corre los importers + "Escanear ahora".' }}</p> }
       }
-
+    
       <!-- ══ FOCOS (P4) ══ -->
       @if (tab() === 'focos') {
         <div class="cd-note">
@@ -100,10 +100,10 @@ type Tab = 'resumen' | 'focos' | 'cortes' | 'movimientos' | 'arqueo' | 'acciones
         </div>
         <div class="card-premium card-flat">
           <p-table [value]="focos()" styleClass="p-datatable-sm cd-table" [rowHover]="true" [loading]="loading()">
-            <ng-template pTemplate="header">
+            <ng-template #header>
               <tr><th style="width:2rem">#</th><th>{{ focoScope() === 'cajero' ? 'Cajero' : 'Caja' }}</th><th class="ta-r">Faltante</th><th class="ta-r">Descuadres</th><th class="ta-r">% exacto</th><th class="ta-r">% handoff</th><th class="ta-r">Turnos ≥10h</th><th>Acción recomendada</th></tr>
             </ng-template>
-            <ng-template pTemplate="body" let-f let-i="rowIndex">
+            <ng-template #body let-f let-i="rowIndex">
               <tr>
                 <td class="muted">{{ i + 1 }}</td>
                 <td>
@@ -115,14 +115,14 @@ type Tab = 'resumen' | 'focos' | 'cortes' | 'movimientos' | 'arqueo' | 'acciones
                 <td class="ta-r" [class.bad]="f.pct_exacto >= 80">{{ f.pct_exacto }}%</td>
                 <td class="ta-r" [class.bad]="f.pct_handoff >= 70">{{ f.pct_handoff }}%</td>
                 <td class="ta-r" [class.bad]="f.turnos_largos >= 5">{{ f.turnos_largos }}</td>
-                <td><span class="cd-accion">{{ f.accion }}</span> <button pButton type="button" icon="pi pi-plus" label="Acción" class="p-button-text p-button-sm" (click)="crearAccionDesdeFoco(f)"></button></td>
+                <td><span class="cd-accion">{{ f.accion }}</span> <button pButton type="button" class="p-button-text p-button-sm" (click)="crearAccionDesdeFoco(f)"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Acción</span></button></td>
               </tr>
             </ng-template>
-            <ng-template pTemplate="emptymessage"><tr><td colspan="8" class="cd-empty">{{ loading() ? 'Cargando…' : 'Sin focos (sin faltante registrado).' }}</td></tr></ng-template>
+            <ng-template #emptymessage><tr><td colspan="8" class="cd-empty">{{ loading() ? 'Cargando…' : 'Sin focos (sin faltante registrado).' }}</td></tr></ng-template>
           </p-table>
         </div>
       }
-
+    
       <!-- ══ CORTES DE CAJA ══ -->
       @if (tab() === 'cortes') {
         <div class="cd-filters">
@@ -131,18 +131,18 @@ type Tab = 'resumen' | 'focos' | 'cortes' | 'movimientos' | 'arqueo' | 'acciones
           <label class="cd-lbl">Desde <input class="cd-input cd-input-date" type="date" [(ngModel)]="fFrom" (change)="loadCortes()"></label>
           <label class="cd-lbl">Hasta <input class="cd-input cd-input-date" type="date" [(ngModel)]="fTo" (change)="loadCortes()"></label>
           <label class="cd-check"><input type="checkbox" [(ngModel)]="fSoloDesc" (change)="loadCortes()"> Solo descuadres</label>
-          <button pButton type="button" icon="pi pi-search" label="Filtrar" class="p-button-sm p-button-text" (click)="loadCortes()"></button>
+          <button pButton type="button" class="p-button-sm p-button-text" (click)="loadCortes()"><span class="p-button-icon p-button-icon-left pi pi-search" aria-hidden="true"></span><span class="p-button-label">Filtrar</span></button>
           <span class="cd-count muted">{{ cortes().length }} cortes</span>
         </div>
         <div class="card-premium card-flat">
           <p-table [value]="cortes()" styleClass="p-datatable-sm cd-table" [rowHover]="true" [loading]="loading()" dataKey="id"
-                   [expandedRowKeys]="expandedCortes()" [scrollable]="true" scrollHeight="600px" [paginator]="cortes().length > 100" [rows]="100">
-            <ng-template pTemplate="header">
+            [expandedRowKeys]="expandedCortes()" [scrollable]="true" scrollHeight="600px" [paginator]="cortes().length > 100" [rows]="100">
+            <ng-template #header>
               <tr><th style="width:2.5rem"></th><th>Fecha</th><th>Sucursal</th><th>Caja</th><th>Cajero</th><th class="ta-r">Efvo esperado</th><th class="ta-r">Contado</th><th class="ta-r">Diferencia</th><th class="ta-r">Tarjeta</th><th class="ta-r">Transf.</th><th class="ta-r">Venta total</th></tr>
             </ng-template>
-            <ng-template pTemplate="body" let-c let-expanded="expanded">
+            <ng-template #body let-c let-expanded="expanded">
               <tr [class.cd-row-bad]="abs(c.efectivo_diff) >= 50 || abs(c.tarjeta_diff) >= 50 || abs(c.transfer_diff) >= 50">
-                <td><button pButton type="button" [icon]="expanded ? 'pi pi-chevron-down' : 'pi pi-chevron-right'" class="p-button-text p-button-sm" (click)="toggleCorte(c)"></button></td>
+                <td><p-button pButton type="button" [icon]="expanded ? 'pi pi-chevron-down' : 'pi pi-chevron-right'" styleClass="p-button-text p-button-sm" (click)="toggleCorte(c)"></p-button></td>
                 <td>{{ c.business_date | date:'dd/MM/yy' }}</td>
                 <td>{{ c.warehouse_name || c.warehouse_code }}</td>
                 <td>{{ c.caja }}</td>
@@ -152,12 +152,16 @@ type Tab = 'resumen' | 'focos' | 'cortes' | 'movimientos' | 'arqueo' | 'acciones
                   @if (c.cuadre_exacto) { <i class="pi pi-eye-slash cd-flag" title="Cuadre exacto: contado idéntico al esperado — conteo posiblemente no ciego"></i> }
                 </td>
                 <td class="ta-r strong" [class.bad]="c.efectivo_diff > 0" [class.ok]="c.efectivo_diff < 0">{{ signed(c.efectivo_diff) }}</td>
-                <td class="ta-r" [class.bad]="abs(c.tarjeta_diff) >= 50">{{ money(c.tarjeta_esperado) }}<span class="cd-mini" *ngIf="abs(c.tarjeta_diff) >= 50"> Δ{{ signed(c.tarjeta_diff) }}</span></td>
-                <td class="ta-r" [class.bad]="abs(c.transfer_diff) >= 50">{{ money(c.transfer_esperado) }}<span class="cd-mini" *ngIf="abs(c.transfer_diff) >= 50"> Δ{{ signed(c.transfer_diff) }}</span></td>
+                <td class="ta-r" [class.bad]="abs(c.tarjeta_diff) >= 50">{{ money(c.tarjeta_esperado) }}@if (abs(c.tarjeta_diff) >= 50) {
+                  <span class="cd-mini"> Δ{{ signed(c.tarjeta_diff) }}</span>
+                }</td>
+                <td class="ta-r" [class.bad]="abs(c.transfer_diff) >= 50">{{ money(c.transfer_esperado) }}@if (abs(c.transfer_diff) >= 50) {
+                  <span class="cd-mini"> Δ{{ signed(c.transfer_diff) }}</span>
+                }</td>
                 <td class="ta-r strong">{{ money(c.venta_total) }}</td>
               </tr>
             </ng-template>
-            <ng-template pTemplate="rowexpansion" let-c>
+            <ng-template #expandedrow let-c>
               <tr><td colspan="11" class="cd-ev">
                 <div class="cd-corte-grid">
                   <div class="cd-corte-block">
@@ -188,11 +192,11 @@ type Tab = 'resumen' | 'focos' | 'cortes' | 'movimientos' | 'arqueo' | 'acciones
                 </div>
               </td></tr>
             </ng-template>
-            <ng-template pTemplate="emptymessage"><tr><td colspan="11" class="cd-empty">{{ loading() ? 'Cargando…' : 'Sin cortes. ¿Corriste import-cash-cuts?' }}</td></tr></ng-template>
+            <ng-template #emptymessage><tr><td colspan="11" class="cd-empty">{{ loading() ? 'Cargando…' : 'Sin cortes. ¿Corriste import-cash-cuts?' }}</td></tr></ng-template>
           </p-table>
         </div>
       }
-
+    
       <!-- ══ MOVIMIENTOS ══ -->
       @if (tab() === 'movimientos') {
         <div class="cd-filters">
@@ -207,15 +211,15 @@ type Tab = 'resumen' | 'focos' | 'cortes' | 'movimientos' | 'arqueo' | 'acciones
           <input class="cd-input cd-input-sm" type="text" placeholder="Suc" [(ngModel)]="fSucMov" (keyup.enter)="loadMovs()">
           <label class="cd-lbl">Desde <input class="cd-input cd-input-date" type="date" [(ngModel)]="fMovFrom" (change)="loadMovs()"></label>
           <label class="cd-lbl">Hasta <input class="cd-input cd-input-date" type="date" [(ngModel)]="fMovTo" (change)="loadMovs()"></label>
-          <button pButton type="button" icon="pi pi-search" label="Filtrar" class="p-button-sm p-button-text" (click)="loadMovs()"></button>
+          <button pButton type="button" class="p-button-sm p-button-text" (click)="loadMovs()"><span class="p-button-icon p-button-icon-left pi pi-search" aria-hidden="true"></span><span class="p-button-label">Filtrar</span></button>
           <span class="cd-count muted">{{ movs().length }} movs</span>
         </div>
         <div class="card-premium card-flat">
           <p-table [value]="movs()" styleClass="p-datatable-sm cd-table" [rowHover]="true" [loading]="loading()" [scrollable]="true" scrollHeight="600px" [paginator]="movs().length > 100" [rows]="100">
-            <ng-template pTemplate="header">
+            <ng-template #header>
               <tr><th>Fecha</th><th>Suc</th><th>Producto</th><th>Tipo</th><th>Folio</th><th class="ta-r">Unidades</th><th class="ta-r">Importe</th></tr>
             </ng-template>
-            <ng-template pTemplate="body" let-m>
+            <ng-template #body let-m>
               <tr [class.cd-row-bad]="m.clase_mov === 'merma'">
                 <td>{{ m.fecha | date:'dd/MM/yy' }}</td>
                 <td>{{ m.warehouse_code }}</td>
@@ -226,11 +230,11 @@ type Tab = 'resumen' | 'focos' | 'cortes' | 'movimientos' | 'arqueo' | 'acciones
                 <td class="ta-r strong" [class.bad]="m.clase_mov === 'merma'">{{ money(m.importe) }}</td>
               </tr>
             </ng-template>
-            <ng-template pTemplate="emptymessage"><tr><td colspan="7" class="cd-empty">{{ loading() ? 'Cargando…' : 'Sin movimientos. ¿Corriste import-kardex?' }}</td></tr></ng-template>
+            <ng-template #emptymessage><tr><td colspan="7" class="cd-empty">{{ loading() ? 'Cargando…' : 'Sin movimientos. ¿Corriste import-kardex?' }}</td></tr></ng-template>
           </p-table>
         </div>
       }
-
+    
       <!-- ══ ARQUEO CIEGO (P1) ══ -->
       @if (tab() === 'arqueo') {
         <div class="cd-note">
@@ -263,7 +267,7 @@ type Tab = 'resumen' | 'focos' | 'cortes' | 'movimientos' | 'arqueo' | 'acciones
               <tr class="cd-total-row"><td>Total contado</td><td></td><td class="ta-r strong">{{ money(arqTotal()) }}</td></tr>
             </table>
             <label class="cd-lbl cd-block">Nota <input class="cd-input" [(ngModel)]="aNota" placeholder="opcional"></label>
-            <button pButton type="button" [label]="aTipo() === 'relevo' ? 'Sellar relevo' : 'Guardar y revelar diferencia'" icon="pi pi-lock-open" class="p-button-sm" [disabled]="!aSuc || !aCaja || !aDate || arqTotal()===0" [loading]="arqSaving()" (click)="submitArqueo()"></button>
+            <p-button pButton type="button" [label]="aTipo() === 'relevo' ? 'Sellar relevo' : 'Guardar y revelar diferencia'" icon="pi pi-lock-open" styleClass="p-button-sm" [disabled]="!aSuc || !aCaja || !aDate || arqTotal()===0" [loading]="arqSaving()" (click)="submitArqueo()"></p-button>
             @if (arqResult(); as r) {
               <div class="cd-arq-result" [class.bad]="r.kepler_enmascaro">
                 @if (r.tipo === 'relevo') {
@@ -282,12 +286,12 @@ type Tab = 'resumen' | 'focos' | 'cortes' | 'movimientos' | 'arqueo' | 'acciones
               </div>
             }
           </div>
-
+    
           <div class="card-premium card-flat cd-panel">
             <h3 class="cd-card-title">Arqueos ciegos recientes</h3>
             <p-table [value]="blindRows()" styleClass="p-datatable-sm cd-table" [rowHover]="true" [loading]="loading()">
-              <ng-template pTemplate="header"><tr><th>Fecha</th><th>Tipo</th><th>Suc/Caja</th><th>Cajero</th><th class="ta-r">Ciego</th><th class="ta-r">Real</th></tr></ng-template>
-              <ng-template pTemplate="body" let-b>
+              <ng-template #header><tr><th>Fecha</th><th>Tipo</th><th>Suc/Caja</th><th>Cajero</th><th class="ta-r">Ciego</th><th class="ta-r">Real</th></tr></ng-template>
+              <ng-template #body let-b>
                 <tr [class.cd-row-bad]="b.kepler_enmascaro">
                   <td>{{ b.business_date | date:'dd/MM/yy' }}</td>
                   <td><span class="cd-tag">{{ b.tipo === 'relevo' ? 'Relevo' : 'Cierre' }}</span></td>
@@ -297,12 +301,12 @@ type Tab = 'resumen' | 'focos' | 'cortes' | 'movimientos' | 'arqueo' | 'acciones
                   <td class="ta-r strong" [class.bad]="(b.diff_real||0)>0" [class.ok]="(b.diff_real||0)<0">{{ b.diff_real != null ? signed(b.diff_real) : '—' }}@if (b.kepler_enmascaro) { <i class="pi pi-eye-slash cd-flag"></i> }</td>
                 </tr>
               </ng-template>
-              <ng-template pTemplate="emptymessage"><tr><td colspan="6" class="cd-empty">Sin arqueos ciegos aún.</td></tr></ng-template>
+              <ng-template #emptymessage><tr><td colspan="6" class="cd-empty">Sin arqueos ciegos aún.</td></tr></ng-template>
             </p-table>
           </div>
         </div>
       }
-
+    
       <!-- ══ ACCIONES (P5) ══ -->
       @if (tab() === 'acciones') {
         <div class="cd-note">
@@ -311,10 +315,10 @@ type Tab = 'resumen' | 'focos' | 'cortes' | 'movimientos' | 'arqueo' | 'acciones
         </div>
         <div class="card-premium card-flat">
           <p-table [value]="acciones()" styleClass="p-datatable-sm cd-table" [rowHover]="true" [loading]="loading()">
-            <ng-template pTemplate="header">
+            <ng-template #header>
               <tr><th>Fecha</th><th>Palanca</th><th>Alcance</th><th>Título</th><th class="ta-r">Antes</th><th class="ta-r">Después</th><th class="ta-r">Efecto (DiD)</th><th>Estado</th></tr>
             </ng-template>
-            <ng-template pTemplate="body" let-a>
+            <ng-template #body let-a>
               <tr>
                 <td>{{ a.fecha_intervencion | date:'dd/MM/yy' }}</td>
                 <td><span class="cd-tag">{{ palancaLabel(a.palanca) }}</span></td>
@@ -331,11 +335,11 @@ type Tab = 'resumen' | 'focos' | 'cortes' | 'movimientos' | 'arqueo' | 'acciones
                 </td>
               </tr>
             </ng-template>
-            <ng-template pTemplate="emptymessage"><tr><td colspan="8" class="cd-empty">{{ loading() ? 'Cargando…' : 'Sin acciones. Creá una desde Focos.' }}</td></tr></ng-template>
+            <ng-template #emptymessage><tr><td colspan="8" class="cd-empty">{{ loading() ? 'Cargando…' : 'Sin acciones. Creá una desde Focos.' }}</td></tr></ng-template>
           </p-table>
         </div>
       }
-
+    
       <!-- ══ DESCUADRES (bandeja HITL) ══ -->
       @if (tab() === 'descuadres') {
         @if (stats(); as s) {
@@ -353,36 +357,36 @@ type Tab = 'resumen' | 'focos' | 'cortes' | 'movimientos' | 'arqueo' | 'acciones
             <button [class.active]="dStatus() === 'confirmado'" (click)="setStatus('confirmado')">Confirmados</button>
             <button [class.active]="dStatus() === 'descartado'" (click)="setStatus('descartado')">Descartados</button>
           </div>
-          <button pButton type="button" [label]="rulesOpen() ? 'Ocultar reglas' : 'Reglas'" icon="pi pi-sliders-h" class="p-button-sm p-button-text" (click)="rulesOpen.set(!rulesOpen())"></button>
+          <p-button pButton type="button" [label]="rulesOpen() ? 'Ocultar reglas' : 'Reglas'" icon="pi pi-sliders-h" styleClass="p-button-sm p-button-text" (click)="rulesOpen.set(!rulesOpen())"></p-button>
         </div>
-
+    
         @if (rulesOpen()) {
           <div class="card-premium card-flat cd-panel">
             <h3 class="cd-card-title">Salud de las reglas <span class="muted">(precisión = confirmados / veredictos)</span></h3>
             <p-table [value]="rules()" styleClass="p-datatable-sm" [rowHover]="true">
-              <ng-template pTemplate="header"><tr><th>Regla</th><th>Plano</th><th class="ta-r">Total</th><th class="ta-r">✓/✗</th><th class="ta-r">Precisión</th><th>Estado</th><th style="width:4rem"></th></tr></ng-template>
-              <ng-template pTemplate="body" let-r>
+              <ng-template #header><tr><th>Regla</th><th>Plano</th><th class="ta-r">Total</th><th class="ta-r">✓/✗</th><th class="ta-r">Precisión</th><th>Estado</th><th style="width:4rem"></th></tr></ng-template>
+              <ng-template #body let-r>
                 <tr [class.cd-suppressed]="r.suppressed_auto">
                   <td>{{ r.nombre }}</td><td><span class="cd-tag" [ngClass]="'pl-' + r.plano">{{ planoLabel(r.plano) }}</span></td>
                   <td class="ta-r">{{ r.findings_total | number }}</td><td class="ta-r muted">{{ r.findings_confirmados }}/{{ r.findings_falsos }}</td>
                   <td class="ta-r" [class.bad]="r.precision_score != null && r.precision_score < 0.3">{{ r.precision_score != null ? (r.precision_score * 100 | number:'1.0-0') + '%' : '—' }}</td>
                   <td>@if (r.suppressed_auto) { <span class="cd-tag pl-off">suprimida</span> } @else if (r.pinned) { <span class="cd-tag pl-pin">fijada</span> } @else { <span class="muted">activa</span> }</td>
-                  <td class="ta-r"><button pButton type="button" [icon]="r.pinned ? 'pi pi-bookmark-fill' : 'pi pi-bookmark'" class="p-button-text p-button-sm" (click)="pin(r)"></button></td>
+                  <td class="ta-r"><p-button pButton type="button" [icon]="r.pinned ? 'pi pi-bookmark-fill' : 'pi pi-bookmark'" styleClass="p-button-text p-button-sm" (click)="pin(r)"></p-button></td>
                 </tr>
               </ng-template>
             </p-table>
           </div>
         }
-
+    
         <div class="card-premium card-flat">
           <p-table [value]="items()" styleClass="p-datatable-sm cd-table" [rowHover]="true" [loading]="loading()"
-                   dataKey="id" [expandedRowKeys]="expanded()" [scrollable]="true" scrollHeight="560px" [paginator]="items().length > 50" [rows]="50">
-            <ng-template pTemplate="header">
+            dataKey="id" [expandedRowKeys]="expanded()" [scrollable]="true" scrollHeight="560px" [paginator]="items().length > 50" [rows]="50">
+            <ng-template #header>
               <tr><th style="width:2.5rem"></th><th style="width:6rem">Severidad</th><th>Descuadre</th><th style="width:6rem">Plano</th><th class="ta-r" style="width:9rem">Diferencia</th><th style="width:12rem">Acciones</th></tr>
             </ng-template>
-            <ng-template pTemplate="body" let-d let-expanded="expanded">
+            <ng-template #body let-d let-expanded="expanded">
               <tr>
-                <td><button pButton type="button" [icon]="expanded ? 'pi pi-chevron-down' : 'pi pi-chevron-right'" class="p-button-text p-button-sm" (click)="toggle(d)"></button></td>
+                <td><p-button pButton type="button" [icon]="expanded ? 'pi pi-chevron-down' : 'pi pi-chevron-right'" styleClass="p-button-text p-button-sm" (click)="toggle(d)"></p-button></td>
                 <td><span class="cd-sev" [ngClass]="'sev-' + d.severity">{{ sevLabel(d.severity) }}</span></td>
                 <td><div class="cd-titulo">{{ d.titulo }}</div><div class="cd-resumen">{{ d.resumen }}</div></td>
                 <td><span class="cd-tag" [ngClass]="'pl-' + d.plano">{{ planoLabel(d.plano) }}</span></td>
@@ -390,8 +394,8 @@ type Tab = 'resumen' | 'focos' | 'cortes' | 'movimientos' | 'arqueo' | 'acciones
                 <td>
                   <div class="cd-acts">
                     @if (d.status === 'nuevo' || d.status === 'en_revision') {
-                      <button pButton type="button" icon="pi pi-check" label="Confirmar" class="p-button-sm p-button-success p-button-text" (click)="verdict(d, 'util')" [title]="'Causa: ' + (d.causa_probable || 'otro')"></button>
-                      <button pButton type="button" icon="pi pi-times" class="p-button-sm p-button-danger p-button-text" (click)="verdict(d, 'falso')" title="Falso positivo"></button>
+                      <button pButton type="button" class="p-button-sm p-button-success p-button-text" (click)="verdict(d, 'util')" [title]="'Causa: ' + (d.causa_probable || 'otro')"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Confirmar</span></button>
+                      <button pButton type="button" class="p-button-sm p-button-danger p-button-text" (click)="verdict(d, 'falso')" title="Falso positivo"><span class="p-button-icon p-button-icon-left pi pi-times" aria-hidden="true"></span></button>
                     } @else {
                       <span class="cd-status" [ngClass]="'st-' + d.status">{{ statusLabel(d.status) }}</span>
                       @if (d.causa_confirmada) { <span class="muted cd-causa">· {{ causaLabel(d.causa_confirmada) }}</span> }
@@ -400,18 +404,18 @@ type Tab = 'resumen' | 'focos' | 'cortes' | 'movimientos' | 'arqueo' | 'acciones
                 </td>
               </tr>
             </ng-template>
-            <ng-template pTemplate="rowexpansion" let-d>
+            <ng-template #expandedrow let-d>
               <tr><td colspan="6" class="cd-ev">
                 <div class="cd-ev-grid">@for (kv of evidenceRows(d); track kv.k) { <div><span class="cd-ev-k">{{ kv.k }}</span><span class="cd-ev-v mono">{{ kv.v }}</span></div> }</div>
                 <div class="cd-ev-meta muted">Regla: {{ d.regla || d.rule_key }} · causa probable: {{ causaLabel(d.causa_probable) }} · detectado {{ d.first_seen | date:'dd/MM/yy' }}</div>
               </td></tr>
             </ng-template>
-            <ng-template pTemplate="emptymessage"><tr><td colspan="6" class="cd-empty">{{ loading() ? 'Cargando…' : 'Sin descuadres. Corre "Escanear ahora".' }}</td></tr></ng-template>
+            <ng-template #emptymessage><tr><td colspan="6" class="cd-empty">{{ loading() ? 'Cargando…' : 'Sin descuadres. Corre "Escanear ahora".' }}</td></tr></ng-template>
           </p-table>
         </div>
       }
     </div>
-  `,
+    `,
   styles: [`
     :host { display: block; }
     .cd-head { display: flex; align-items: flex-start; gap: 1rem; }

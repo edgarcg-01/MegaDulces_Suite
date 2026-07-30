@@ -1,4 +1,4 @@
-import { Component, computed, inject, signal, OnInit } from '@angular/core';
+import { Component, computed, inject, signal, OnInit, ChangeDetectionStrategy, ChangeDetectorRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { SelectModule } from 'primeng/select';
@@ -41,9 +41,9 @@ import { MapComponent } from '../../../shared/components/map/map.component';
           <p class="surf-page-sub">Buscá el folio Kepler, capturá el domicilio y asigná repartidor + moto</p>
         </div>
       </header>
-
+    
       <!-- Por despachar: pedidos de intake (bot/portal/tel) confirmados sin asignar.
-           Independiente del flujo Kepler de abajo. -->
+      Independiente del flujo Kepler de abajo. -->
       @if (pendingOrders().length) {
         <div class="card-premium rd-card rd-pending">
           <h2 class="rd-sectitle" style="margin-top:0">
@@ -52,50 +52,53 @@ import { MapComponent } from '../../../shared/components/map/map.component';
           <div class="rd-grid">
             <div class="rd-field">
               <label for="psd">Fecha de entrega</label>
-              <p-datePicker inputId="psd" [(ngModel)]="shipmentDate" dateFormat="dd/mm/yy"
-                            [minDate]="today" [showIcon]="true" appendTo="body" styleClass="rd-full" />
+              <p-datepicker inputId="psd" [(ngModel)]="shipmentDate" dateFormat="dd/mm/yy"
+                [minDate]="today" [showIcon]="true" appendTo="body" styleClass="rd-full" />
+              </div>
             </div>
-          </div>
-          <p-table [value]="pendingOrders()" styleClass="p-datatable-sm surf-table rd-mt">
-            <ng-template pTemplate="header">
-              <tr>
-                <th scope="col">Cliente</th>
-                <th scope="col">Canal</th>
-                <th scope="col">Domicilio</th>
-                <th scope="col" class="comm-num">Cobra</th>
-                <th scope="col">Repartidor</th>
-                <th scope="col"></th>
-              </tr>
-            </ng-template>
-            <ng-template pTemplate="body" let-o>
-              <tr>
-                <td>
-                  <div class="rd-opt-main">{{ o.customer_name }}</div>
-                  <div class="rd-opt-sub">{{ o.phone || 'sin teléfono' }} · {{ o.code }}</div>
-                </td>
-                <td><p-tag [value]="o.channel || 'intake'" severity="info" /></td>
-                <td>
-                  @if (o.street) {
-                    {{ o.street }}<span class="rd-opt-sub" *ngIf="o.references"> · {{ o.references }}</span>
+            <p-table [value]="pendingOrders()" styleClass="p-datatable-sm surf-table rd-mt">
+              <ng-template #header>
+                <tr>
+                  <th scope="col">Cliente</th>
+                  <th scope="col">Canal</th>
+                  <th scope="col">Domicilio</th>
+                  <th scope="col" class="comm-num">Cobra</th>
+                  <th scope="col">Repartidor</th>
+                  <th scope="col"></th>
+                </tr>
+              </ng-template>
+              <ng-template #body let-o>
+                <tr>
+                  <td>
+                    <div class="rd-opt-main">{{ o.customer_name }}</div>
+                    <div class="rd-opt-sub">{{ o.phone || 'sin teléfono' }} · {{ o.code }}</div>
+                  </td>
+                  <td><p-tag [value]="o.channel || 'intake'" severity="info" /></td>
+                  <td>
+                    @if (o.street) {
+                      {{ o.street }}@if (o.references) {
+                      <span class="rd-opt-sub"> · {{ o.references }}</span>
+                    }
                   } @else { <span class="rd-geo-hint">sin domicilio</span> }
                 </td>
                 <td class="comm-num">{{ money(o.amount_to_collect) }}</td>
                 <td>
                   <p-select [options]="riders()" [(ngModel)]="assignRider[o.order_id]" optionValue="rider_user_id"
-                            appendTo="body" styleClass="rd-full" placeholder="Repartidor"
-                            [filter]="riders().length > 8" filterBy="full_name" [emptyMessage]="'Sin repartidores'">
-                    <ng-template let-d pTemplate="item"><span>{{ d.full_name || d.username }}</span></ng-template>
-                    <ng-template let-d pTemplate="selectedItem"><span *ngIf="d">{{ d.full_name || d.username }}</span></ng-template>
+                    appendTo="body" styleClass="rd-full" placeholder="Repartidor"
+                    [filter]="riders().length > 8" filterBy="full_name" [emptyMessage]="'Sin repartidores'">
+                    <ng-template let-d #item><span>{{ d.full_name || d.username }}</span></ng-template>
+                    <ng-template let-d #selectedItem>@if (d) {
+                      <span>{{ d.full_name || d.username }}</span>
+                    }</ng-template>
                   </p-select>
                 </td>
                 <td>
-                  <button pButton size="small" label="Asignar" icon="pi pi-send"
-                          [loading]="assigningId() === o.order_id" (click)="assignOrder(o)"></button>
+                  <button pButton size="small" [loading]="assigningId() === o.order_id" (click)="assignOrder(o)"><span class="p-button-icon p-button-icon-left pi pi-send" aria-hidden="true"></span><span class="p-button-label">Asignar</span></button>
                 </td>
               </tr>
             </ng-template>
           </p-table>
-
+    
           <!-- Mapa de los pedidos con ubicación compartida (pin del cliente). -->
           @if (pendingMarkers().length) {
             <div class="rd-mt">
@@ -113,13 +116,13 @@ import { MapComponent } from '../../../shared/components/map/map.component';
           @if (assignOk()) { <p class="rd-geo-ok rd-mt"><i class="pi pi-check-circle"></i> {{ assignOk() }}</p> }
         </div>
       }
-
+    
       <ol class="rd-steps" aria-label="Progreso">
         <li [class.on]="step() === 0" [class.done]="step() > 0"><span class="rd-num">1</span> Buscar folio</li>
         <li [class.on]="step() === 1" [class.done]="step() > 1"><span class="rd-num">2</span> Domicilio y repartidor</li>
         <li [class.on]="step() === 2"><span class="rd-num">3</span> Confirmado</li>
       </ol>
-
+    
       <!-- Paso 1: buscar folio -->
       @if (!result()) {
         <div class="card-premium rd-card">
@@ -127,196 +130,205 @@ import { MapComponent } from '../../../shared/components/map/map.component';
             <div class="rd-field">
               <label for="wh">Sucursal</label>
               <p-select inputId="wh" [options]="warehouseOpts" [(ngModel)]="warehouse"
-                        optionLabel="label" optionValue="value" appendTo="body" styleClass="rd-full" />
+                optionLabel="label" optionValue="value" appendTo="body" styleClass="rd-full" />
+              </div>
+              <div class="rd-field">
+                <label for="folio">Folio Kepler</label>
+                <input id="folio" pInputText class="rd-in" [(ngModel)]="folio" placeholder="ej. 12345"
+                  (keyup.enter)="lookup()" inputmode="numeric" />
+                </div>
+                <div class="rd-field">
+                  <label for="serie">Serie <span class="rd-hint">(opcional)</span></label>
+                  <input id="serie" pInputText class="rd-in" [(ngModel)]="serie" placeholder="ej. UD0101" />
+                </div>
+              </div>
+              <div class="rd-actions">
+                <p-button pButton [label]="loading() ? 'Buscando…' : 'Buscar ticket'" icon="pi pi-search"
+                [loading]="loading()" [disabled]="!folio.trim()" (click)="lookup()"></p-button>
+              </div>
+              @if (error()) { <p class="rd-err"><i class="pi pi-exclamation-circle"></i> {{ error() }}</p> }
             </div>
-            <div class="rd-field">
-              <label for="folio">Folio Kepler</label>
-              <input id="folio" pInputText class="rd-in" [(ngModel)]="folio" placeholder="ej. 12345"
-                     (keyup.enter)="lookup()" inputmode="numeric" />
+          }
+    
+          <!-- Paso 2: ticket + domicilio + asignación -->
+          @if (ticket(); as t) {
+            <div class="card-premium rd-card">
+              <div class="rd-ticket-head">
+                <div>
+                  <div class="rd-ticket-title">{{ t.warehouse_name }} · Folio {{ t.folio }}</div>
+                  <div class="rd-ticket-total">{{ money(t.total) }}</div>
+                </div>
+                <p-tag severity="warn" value="Contra-entrega" icon="pi pi-wallet" />
+              </div>
+    
+              <p-table [value]="t.items" styleClass="p-datatable-sm surf-table rd-lines">
+                <ng-template #header>
+                  <tr>
+                    <th scope="col">SKU</th>
+                    <th scope="col">Producto</th>
+                    <th scope="col" class="comm-num">Cant</th>
+                    <th scope="col" class="comm-num">Importe</th>
+                  </tr>
+                </ng-template>
+                <ng-template #body let-it>
+                  <tr>
+                    <td><code class="comm-code">{{ it.sku }}</code></td>
+                    <td>{{ it.nombre }}</td>
+                    <td class="comm-num">{{ it.cant }}</td>
+                    <td class="comm-num">{{ money(it.importe) }}</td>
+                  </tr>
+                </ng-template>
+                <ng-template #footer>
+                  <tr>
+                    <td colspan="3" class="comm-num">Total</td>
+                    <td class="comm-num"><b>{{ money(t.total) }}</b></td>
+                  </tr>
+                </ng-template>
+              </p-table>
             </div>
-            <div class="rd-field">
-              <label for="serie">Serie <span class="rd-hint">(opcional)</span></label>
-              <input id="serie" pInputText class="rd-in" [(ngModel)]="serie" placeholder="ej. UD0101" />
-            </div>
-          </div>
-          <div class="rd-actions">
-            <button pButton [label]="loading() ? 'Buscando…' : 'Buscar ticket'" icon="pi pi-search"
-                    [loading]="loading()" [disabled]="!folio.trim()" (click)="lookup()"></button>
-          </div>
-          @if (error()) { <p class="rd-err"><i class="pi pi-exclamation-circle"></i> {{ error() }}</p> }
-        </div>
-      }
-
-      <!-- Paso 2: ticket + domicilio + asignación -->
-      @if (ticket(); as t) {
-        <div class="card-premium rd-card">
-          <div class="rd-ticket-head">
-            <div>
-              <div class="rd-ticket-title">{{ t.warehouse_name }} · Folio {{ t.folio }}</div>
-              <div class="rd-ticket-total">{{ money(t.total) }}</div>
-            </div>
-            <p-tag severity="warn" value="Contra-entrega" icon="pi pi-wallet" />
-          </div>
-
-          <p-table [value]="t.items" styleClass="p-datatable-sm surf-table rd-lines">
-            <ng-template pTemplate="header">
-              <tr>
-                <th scope="col">SKU</th>
-                <th scope="col">Producto</th>
-                <th scope="col" class="comm-num">Cant</th>
-                <th scope="col" class="comm-num">Importe</th>
-              </tr>
-            </ng-template>
-            <ng-template pTemplate="body" let-it>
-              <tr>
-                <td><code class="comm-code">{{ it.sku }}</code></td>
-                <td>{{ it.nombre }}</td>
-                <td class="comm-num">{{ it.cant }}</td>
-                <td class="comm-num">{{ money(it.importe) }}</td>
-              </tr>
-            </ng-template>
-            <ng-template pTemplate="footer">
-              <tr>
-                <td colspan="3" class="comm-num">Total</td>
-                <td class="comm-num"><b>{{ money(t.total) }}</b></td>
-              </tr>
-            </ng-template>
-          </p-table>
-        </div>
-
-        <div class="card-premium rd-card">
-          <h2 class="rd-sectitle">Domicilio de entrega</h2>
-          <div class="rd-grid">
-            <div class="rd-field">
-              <label for="rn">Nombre de quien recibe</label>
-              <input id="rn" pInputText class="rd-in" [(ngModel)]="recipientName" />
-            </div>
-            <div class="rd-field">
-              <label for="ph">Teléfono <span class="req">*</span></label>
-              <input id="ph" pInputText class="rd-in" [(ngModel)]="phone" inputmode="tel" placeholder="10 dígitos" />
-            </div>
-          </div>
-          <div class="rd-field rd-mt">
-            <label for="st">Calle y número <span class="req">*</span></label>
-            <input id="st" pInputText class="rd-in" [(ngModel)]="street" />
-          </div>
-          <div class="rd-field rd-mt">
-            <label for="rf">Referencias</label>
-            <input id="rf" pInputText class="rd-in" [(ngModel)]="references" placeholder="entre calles, color de casa…" />
-          </div>
-
-          <!-- Ubicación en mapa (opcional pero recomendada: habilita la mejor ruta) -->
-          <div class="rd-field rd-mt">
-            <label>Ubicación en el mapa <span class="rd-hint">· mejora el orden de reparto</span></label>
-            <div class="rd-geo">
-              <button pButton type="button" size="small" severity="secondary" [outlined]="true"
-                      icon="pi pi-search-plus" [label]="geocoding() ? 'Buscando…' : 'Ubicar dirección'"
-                      [loading]="geocoding()" [disabled]="!street.trim()" (click)="locate()"></button>
-              @if (picked(); as p) {
-                <span class="rd-geo-ok"><i class="pi pi-check-circle"></i> Ubicado ({{ p.lat | number:'1.4-4' }}, {{ p.lng | number:'1.4-4' }})</span>
-              } @else {
-                <span class="rd-geo-hint">Buscá la dirección o tocá el mapa para fijar el punto.</span>
-              }
-            </div>
-            @if (geoResults().length > 1) {
-              <p-select [options]="geoResults()" [(ngModel)]="chosenGeo" optionLabel="place_name"
-                        appendTo="body" styleClass="rd-full" placeholder="Elegí el match correcto"
-                        (onChange)="chooseGeo($event.value)" />
-            }
-            <app-map [pickable]="true" [pickedPoint]="picked()" (mapClick)="onPick($event)"
-                     height="240px" [autoFit]="'off'" [showBasemapToggle]="false" />
-          </div>
-
-          <h2 class="rd-sectitle">Asignación</h2>
-          <div class="rd-grid">
-            <div class="rd-field">
-              <label for="drv">Repartidor <span class="req">*</span></label>
-              <p-select inputId="drv" [options]="riders()" [(ngModel)]="riderUserId" optionValue="rider_user_id"
+    
+            <div class="card-premium rd-card">
+              <h2 class="rd-sectitle">Domicilio de entrega</h2>
+              <div class="rd-grid">
+                <div class="rd-field">
+                  <label for="rn">Nombre de quien recibe</label>
+                  <input id="rn" pInputText class="rd-in" [(ngModel)]="recipientName" />
+                </div>
+                <div class="rd-field">
+                  <label for="ph">Teléfono <span class="req">*</span></label>
+                  <input id="ph" pInputText class="rd-in" [(ngModel)]="phone" inputmode="tel" placeholder="10 dígitos" />
+                </div>
+              </div>
+              <div class="rd-field rd-mt">
+                <label for="st">Calle y número <span class="req">*</span></label>
+                <input id="st" pInputText class="rd-in" [(ngModel)]="street" />
+              </div>
+              <div class="rd-field rd-mt">
+                <label for="rf">Referencias</label>
+                <input id="rf" pInputText class="rd-in" [(ngModel)]="references" placeholder="entre calles, color de casa…" />
+              </div>
+    
+              <!-- Ubicación en mapa (opcional pero recomendada: habilita la mejor ruta) -->
+              <div class="rd-field rd-mt">
+                <label>Ubicación en el mapa <span class="rd-hint">· mejora el orden de reparto</span></label>
+                <div class="rd-geo">
+                  <p-button pButton type="button" size="small" severity="secondary" [outlined]="true"
+                    icon="pi pi-search-plus" [label]="geocoding() ? 'Buscando…' : 'Ubicar dirección'"
+                  [loading]="geocoding()" [disabled]="!street.trim()" (click)="locate()"></p-button>
+                  @if (picked(); as p) {
+                    <span class="rd-geo-ok"><i class="pi pi-check-circle"></i> Ubicado ({{ p.lat | number:'1.4-4' }}, {{ p.lng | number:'1.4-4' }})</span>
+                  } @else {
+                    <span class="rd-geo-hint">Buscá la dirección o tocá el mapa para fijar el punto.</span>
+                  }
+                </div>
+                @if (geoResults().length > 1) {
+                  <p-select [options]="geoResults()" [(ngModel)]="chosenGeo" optionLabel="place_name"
+                    appendTo="body" styleClass="rd-full" placeholder="Elegí el match correcto"
+                    (onChange)="chooseGeo($event.value)" />
+                  }
+                  <app-map [pickable]="true" [pickedPoint]="picked()" (mapClick)="onPick($event)"
+                    height="240px" [autoFit]="'off'" [showBasemapToggle]="false" />
+                  </div>
+    
+                  <h2 class="rd-sectitle">Asignación</h2>
+                  <div class="rd-grid">
+                    <div class="rd-field">
+                      <label for="drv">Repartidor <span class="req">*</span></label>
+                      <p-select inputId="drv" [options]="riders()" [(ngModel)]="riderUserId" optionValue="rider_user_id"
                         appendTo="body" styleClass="rd-full" placeholder="Elegí repartidor"
                         [filter]="riders().length > 8" filterBy="full_name" [emptyMessage]="'Sin repartidores activos'">
-                <ng-template let-d pTemplate="item">
-                  <div class="rd-opt">
-                    <span class="rd-opt-main">{{ d.full_name || d.username }}</span>
-                    <span class="rd-opt-sub" *ngIf="d.warehouse_code">Suc. {{ d.warehouse_code }}</span>
-                  </div>
-                </ng-template>
-                <ng-template let-d pTemplate="selectedItem">
-                  <span *ngIf="d">{{ d.full_name || d.username }}</span>
-                </ng-template>
-              </p-select>
-            </div>
-            <div class="rd-field">
-              <label for="veh">Moto</label>
-              <p-select inputId="veh" [options]="vehicles()" [(ngModel)]="vehicleId" optionValue="id"
+                        <ng-template let-d #item>
+                          <div class="rd-opt">
+                            <span class="rd-opt-main">{{ d.full_name || d.username }}</span>
+                            @if (d.warehouse_code) {
+                              <span class="rd-opt-sub">Suc. {{ d.warehouse_code }}</span>
+                            }
+                          </div>
+                        </ng-template>
+                        <ng-template let-d #selectedItem>
+                          @if (d) {
+                            <span>{{ d.full_name || d.username }}</span>
+                          }
+                        </ng-template>
+                      </p-select>
+                    </div>
+                    <div class="rd-field">
+                      <label for="veh">Moto</label>
+                      <p-select inputId="veh" [options]="vehicles()" [(ngModel)]="vehicleId" optionValue="id"
                         appendTo="body" styleClass="rd-full" placeholder="Moto (opcional)" [showClear]="true"
                         [emptyMessage]="'Sin motos activas'">
-                <ng-template let-v pTemplate="item">
-                  <div class="rd-opt">
-                    <span class="rd-opt-main">{{ v.plate }}</span>
-                    <span class="rd-opt-sub">{{ v.model || v.brand || 'moto' }}</span>
-                    <span class="rd-cap" *ngIf="v.capacity_boxes != null">{{ v.capacity_boxes }} cajas</span>
+                        <ng-template let-v #item>
+                          <div class="rd-opt">
+                            <span class="rd-opt-main">{{ v.plate }}</span>
+                            <span class="rd-opt-sub">{{ v.model || v.brand || 'moto' }}</span>
+                            @if (v.capacity_boxes != null) {
+                              <span class="rd-cap">{{ v.capacity_boxes }} cajas</span>
+                            }
+                          </div>
+                        </ng-template>
+                        <ng-template let-v #selectedItem>
+                          @if (v) {
+                            <span>{{ v.plate }}<span class="rd-opt-sub"> · {{ v.model || v.brand }}</span></span>
+                          }
+                        </ng-template>
+                      </p-select>
+                    </div>
                   </div>
-                </ng-template>
-                <ng-template let-v pTemplate="selectedItem">
-                  <span *ngIf="v">{{ v.plate }}<span class="rd-opt-sub"> · {{ v.model || v.brand }}</span></span>
-                </ng-template>
-              </p-select>
-            </div>
-          </div>
-
-          @if (capacityInfo(); as ci) {
-            @if (ci.over) {
-              <div class="rd-advisory warn">
-                <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
-                <span>El pedido son ~{{ ci.units }} u y esta moto rinde {{ ci.cap }} cajas. Podría no caber — se valida al asignar (o considerá CEDIS).</span>
+    
+                  @if (capacityInfo(); as ci) {
+                    @if (ci.over) {
+                      <div class="rd-advisory warn">
+                        <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+                        <span>El pedido son ~{{ ci.units }} u y esta moto rinde {{ ci.cap }} cajas. Podría no caber — se valida al asignar (o considerá CEDIS).</span>
+                      </div>
+                    } @else if (ci.cap != null) {
+                      <div class="rd-advisory info">
+                        <i class="pi pi-box" aria-hidden="true"></i>
+                        <span>{{ ci.units }} u en el pedido · capacidad de la moto {{ ci.cap }} cajas.</span>
+                      </div>
+                    }
+                  }
+    
+                  <div class="rd-grid rd-mt">
+                    <div class="rd-field">
+                      <label for="sd">Fecha de entrega</label>
+                      <p-datepicker inputId="sd" [(ngModel)]="shipmentDate" dateFormat="dd/mm/yy"
+                        [minDate]="today" [showIcon]="true" appendTo="body" styleClass="rd-full" />
+                      </div>
+                    </div>
+    
+                    <div class="rd-advisory info">
+                      <i class="pi pi-wallet" aria-hidden="true"></i>
+                      <span>Contra-entrega — el repartidor cobra <b>{{ money(t.total) }}</b> en efectivo al entregar. El monto es fijo del ticket.</span>
+                    </div>
+    
+                    @if (dispatchError()) { <p class="rd-err"><i class="pi pi-exclamation-circle"></i> {{ dispatchError() }}</p> }
+                    <div class="rd-actions">
+                      <p-button pButton [label]="saving() ? 'Asignando…' : 'Asignar a repartidor'" icon="pi pi-send"
+                      [loading]="saving()" (click)="dispatch()"></p-button>
+                    </div>
+                  </div>
+                }
+    
+                <!-- Resultado -->
+                @if (result(); as r) {
+                  <div class="card-premium rd-card rd-ok">
+                    <div class="rd-ok-head"><i class="pi pi-check-circle" aria-hidden="true"></i> Entrega asignada</div>
+                    <div class="rd-ok-meta">Embarque {{ r.folio }} · Guía {{ r.guide_number }}</div>
+                    @if (r.requires_cedis) {
+                      <div class="rd-advisory warn rd-mt">
+                        <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+                        <span>Excede la capacidad de la moto ({{ r.total_units }} u). Considerá surtir desde CEDIS.</span>
+                      </div>
+                    }
+                    <div class="rd-actions">
+                      <button pButton severity="secondary" [outlined]="true" (click)="reset()"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Despachar otro</span></button>
+                    </div>
+                  </div>
+                }
               </div>
-            } @else if (ci.cap != null) {
-              <div class="rd-advisory info">
-                <i class="pi pi-box" aria-hidden="true"></i>
-                <span>{{ ci.units }} u en el pedido · capacidad de la moto {{ ci.cap }} cajas.</span>
-              </div>
-            }
-          }
-
-          <div class="rd-grid rd-mt">
-            <div class="rd-field">
-              <label for="sd">Fecha de entrega</label>
-              <p-datePicker inputId="sd" [(ngModel)]="shipmentDate" dateFormat="dd/mm/yy"
-                            [minDate]="today" [showIcon]="true" appendTo="body" styleClass="rd-full" />
-            </div>
-          </div>
-
-          <div class="rd-advisory info">
-            <i class="pi pi-wallet" aria-hidden="true"></i>
-            <span>Contra-entrega — el repartidor cobra <b>{{ money(t.total) }}</b> en efectivo al entregar. El monto es fijo del ticket.</span>
-          </div>
-
-          @if (dispatchError()) { <p class="rd-err"><i class="pi pi-exclamation-circle"></i> {{ dispatchError() }}</p> }
-          <div class="rd-actions">
-            <button pButton [label]="saving() ? 'Asignando…' : 'Asignar a repartidor'" icon="pi pi-send"
-                    [loading]="saving()" (click)="dispatch()"></button>
-          </div>
-        </div>
-      }
-
-      <!-- Resultado -->
-      @if (result(); as r) {
-        <div class="card-premium rd-card rd-ok">
-          <div class="rd-ok-head"><i class="pi pi-check-circle" aria-hidden="true"></i> Entrega asignada</div>
-          <div class="rd-ok-meta">Embarque {{ r.folio }} · Guía {{ r.guide_number }}</div>
-          @if (r.requires_cedis) {
-            <div class="rd-advisory warn rd-mt">
-              <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
-              <span>Excede la capacidad de la moto ({{ r.total_units }} u). Considerá surtir desde CEDIS.</span>
-            </div>
-          }
-          <div class="rd-actions">
-            <button pButton label="Despachar otro" icon="pi pi-plus" severity="secondary" [outlined]="true" (click)="reset()"></button>
-          </div>
-        </div>
-      }
-    </div>
-  `,
+    `,
+  changeDetection: ChangeDetectionStrategy.Eager,
   styles: [`
     :host { display:block; }
     .rd { max-width: 860px; }
@@ -391,6 +403,7 @@ import { MapComponent } from '../../../shared/components/map/map.component';
 })
 export class HomeDeliveryDispatchComponent implements OnInit {
   private readonly svc = inject(HomeDeliveryService);
+  private readonly cdr = inject(ChangeDetectorRef); // zoneless: CD tras callbacks async imperativos
 
   readonly ticket = signal<KeplerTicket | null>(null);
   readonly riders = signal<Rider[]>([]);
@@ -552,7 +565,7 @@ export class HomeDeliveryDispatchComponent implements OnInit {
   onPick(p: { lat: number; lng: number }): void {
     this.picked.set(p);
     this.svc.reverseGeocode(p.lat, p.lng).subscribe({
-      next: (r) => { if (r?.place_name && !this.street.trim()) this.street = r.place_name; },
+      next: (r) => { if (r?.place_name && !this.street.trim()) { this.street = r.place_name; this.cdr.markForCheck(); } },
       error: () => {},
     });
   }

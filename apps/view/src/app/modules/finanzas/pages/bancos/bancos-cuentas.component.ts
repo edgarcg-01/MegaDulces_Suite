@@ -24,18 +24,18 @@ import { cuadra, kindLabel } from './bancos-shared';
           @else { <span class="fb-bal-badge ok">todo cuadra</span> }
         </h3>
         <p-table [value]="bal.accounts" dataKey="statement_id" styleClass="p-datatable-sm" [rowHover]="true" [scrollable]="true" scrollHeight="60vh">
-          <ng-template pTemplate="header">
+          <ng-template #header>
             <tr><th class="col-w25"></th><th>Cuenta</th><th class="ta-r">Inicial</th><th class="ta-r">Depósitos</th><th class="ta-r">Retiros</th><th class="ta-r">Calculado</th><th class="ta-r">Final</th><th class="ta-r">Δ</th><th class="col-w5 ta-c">Estado</th></tr>
           </ng-template>
-          <ng-template pTemplate="body" let-a let-expanded="expanded">
+          <ng-template #body let-a let-expanded="expanded">
             <tr class="fb-row-click" [class.fb-bal-sinsaldo]="a.sin_saldo" tabindex="0" role="button"
                 (click)="openAccount.emit(a)" (keyup.enter)="openAccount.emit(a)"
                 [attr.aria-label]="'Ver movimientos de ' + a.bank + ' ' + a.account_label">
               <td class="ta-c">
                 @if (!a.cuadra && !a.sin_saldo && breaksFor(a).length) {
-                  <button type="button" pButton [pRowToggler]="a" (click)="$event.stopPropagation()"
+                  <p-button type="button" pButton [pRowToggler]="a" (click)="$event.stopPropagation()"
                           [icon]="expanded ? 'pi pi-chevron-down' : 'pi pi-chevron-right'"
-                          class="p-button-text p-button-sm" aria-label="Ver dónde salta el saldo"></button>
+                          styleClass="p-button-text p-button-sm" aria-label="Ver dónde salta el saldo"></p-button>
                 }
               </td>
               <td>{{ a.bank }} <span class="muted mono">{{ a.account_label }}</span></td>
@@ -55,7 +55,7 @@ import { cuadra, kindLabel } from './bancos-shared';
               </td>
             </tr>
           </ng-template>
-          <ng-template pTemplate="rowexpansion" let-a>
+          <ng-template #expandedrow let-a>
             <tr class="fb-break-row"><td colspan="9">
               <div class="fb-breaks">
                 <span class="fb-breaks-h"><i class="pi pi-search-plus"></i> Dónde salta el saldo</span>
@@ -69,7 +69,7 @@ import { cuadra, kindLabel } from './bancos-shared';
               </div>
             </td></tr>
           </ng-template>
-          <ng-template pTemplate="emptymessage">
+          <ng-template #emptymessage>
             <tr><td colspan="9"><div class="surf-empty"><i class="pi pi-inbox"></i><p>Sin cuentas cargadas para {{ period() }}.</p></div></td></tr>
           </ng-template>
         </p-table>
@@ -83,10 +83,10 @@ import { cuadra, kindLabel } from './bancos-shared';
       <div class="card-premium card-flat fb-tablewrap fb-bal">
         <h3 class="fb-card-title fb-pnl-title">Cuentas del periodo <span class="muted">— estados de cuenta cargados (sin saldos para verificar el cuadre)</span></h3>
         <p-table [value]="statements()" styleClass="p-datatable-sm" [rowHover]="true">
-          <ng-template pTemplate="header">
+          <ng-template #header>
             <tr><th>Banco</th><th>Cuenta</th><th>Tipo</th><th class="ta-r">Depósitos</th><th class="ta-r">Retiros</th><th class="ta-r">Saldo final</th></tr>
           </ng-template>
-          <ng-template pTemplate="body" let-s>
+          <ng-template #body let-s>
             <tr>
               <td>{{ s.bank }}</td>
               <td class="mono">{{ s.account_label }}</td>
@@ -96,7 +96,7 @@ import { cuadra, kindLabel } from './bancos-shared';
               <td class="ta-r mono fb-strong">{{ s.closing_balance | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
             </tr>
           </ng-template>
-          <ng-template pTemplate="emptymessage">
+          <ng-template #emptymessage>
             <tr><td colspan="6"><div class="surf-empty"><i class="pi pi-inbox"></i><p>Sin cuentas cargadas para {{ period() }}.</p></div></td></tr>
           </ng-template>
         </p-table>

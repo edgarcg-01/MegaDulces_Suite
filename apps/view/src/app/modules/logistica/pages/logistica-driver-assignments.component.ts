@@ -49,7 +49,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
   template: `
     <div class="surf-page da">
       <p-toast></p-toast>
-
+    
       <!-- PAGE HEAD -->
       <header class="surf-page-head">
         <div class="surf-page-head-text">
@@ -73,7 +73,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
           ></button>
         </div>
       </header>
-
+    
       <!-- FILTERS toolbar -->
       <div class="sheet cols-12">
         <article class="cell cell-span-12 is-flush da-filters-cell">
@@ -92,127 +92,142 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
                 appendTo="body"
               ></p-select>
             </div>
-
+    
             <div class="da-toolbar-spacer"></div>
-
-            <button
-              *ngIf="statusFilter"
-              type="button"
-              class="da-reset"
-              (click)="clearFilter()"
-            >
-              <i class="pi pi-refresh" aria-hidden="true"></i>
-              <span>Reset</span>
-            </button>
+    
+            @if (statusFilter) {
+              <button
+                type="button"
+                class="da-reset"
+                (click)="clearFilter()"
+                >
+                <i class="pi pi-refresh" aria-hidden="true"></i>
+                <span>Reset</span>
+              </button>
+            }
           </div>
         </article>
       </div>
-
+    
       <!-- ──────────── MOBILE: cards (visible <=600px) ──────────── -->
-      <div class="da-cards-mobile" *ngIf="shipments().length > 0">
-        <article
-          *ngFor="let s of shipments()"
-          class="da-card"
-          [class]="'is-' + statusPillClass(s.status).replace('is-', '')"
-          (click)="openWizard(s)"
-          role="button"
-          tabindex="0"
-        >
-          <header class="da-card-head">
-            <code class="comm-code">{{ s.folio }}</code>
-            <span class="comm-pill" [class]="statusPillClass(s.status)">
-              {{ statusLabel(s.status) }}
-            </span>
-          </header>
-          <div class="da-card-customer">
-            <span class="da-card-name">{{ s.customer_name || s.order_code || '—' }}</span>
-            <span class="comm-muted is-small">{{ s.shipment_date | date:'dd MMM' }}</span>
-          </div>
-          <div class="da-card-row">
-            <i class="pi pi-map-marker" aria-hidden="true"></i>
-            <span>{{ s.origin || '—' }} → {{ s.destination || '—' }}</span>
-          </div>
-          <div class="da-card-row" *ngIf="s.vehicle_plate">
-            <i class="pi pi-truck" aria-hidden="true"></i>
-            <span>{{ s.vehicle_plate }}{{ s.vehicle_model ? ' · ' + s.vehicle_model : '' }}</span>
-          </div>
-          <button
-            pButton
-            class="da-card-action"
-            [label]="actionLabel(s.status)"
-            [icon]="actionIcon(s.status)"
-            size="small"
-            (click)="$event.stopPropagation(); openWizard(s)"
-          ></button>
-        </article>
-      </div>
-
+      @if (shipments().length > 0) {
+        <div class="da-cards-mobile">
+          @for (s of shipments(); track s) {
+            <article
+              class="da-card"
+              [class]="'is-' + statusPillClass(s.status).replace('is-', '')"
+              (click)="openWizard(s)"
+              role="button"
+              tabindex="0"
+              >
+              <header class="da-card-head">
+                <code class="comm-code">{{ s.folio }}</code>
+                <span class="comm-pill" [class]="statusPillClass(s.status)">
+                  {{ statusLabel(s.status) }}
+                </span>
+              </header>
+              <div class="da-card-customer">
+                <span class="da-card-name">{{ s.customer_name || s.order_code || '—' }}</span>
+                <span class="comm-muted is-small">{{ s.shipment_date | date:'dd MMM' }}</span>
+              </div>
+              <div class="da-card-row">
+                <i class="pi pi-map-marker" aria-hidden="true"></i>
+                <span>{{ s.origin || '—' }} → {{ s.destination || '—' }}</span>
+              </div>
+              @if (s.vehicle_plate) {
+                <div class="da-card-row">
+                  <i class="pi pi-truck" aria-hidden="true"></i>
+                  <span>{{ s.vehicle_plate }}{{ s.vehicle_model ? ' · ' + s.vehicle_model : '' }}</span>
+                </div>
+              }
+              <p-button
+                pButton
+                styleClass="da-card-action"
+                [label]="actionLabel(s.status)"
+                [icon]="actionIcon(s.status)"
+                size="small"
+                (click)="$event.stopPropagation(); openWizard(s)"
+              ></p-button>
+            </article>
+          }
+        </div>
+      }
+    
       <!-- ──────────── DESKTOP: tabla flush ──────────── -->
-      <div class="sheet cols-12 da-table-desktop" *ngIf="shipments().length > 0">
-        <article class="cell cell-span-12 is-flush">
-          <p-table [value]="shipments()" [loading]="loading()" responsiveLayout="scroll"
-                   styleClass="surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra"
-                   [paginator]="true" [rows]="25" [rowsPerPageOptions]="[25, 50, 100, 200]">
-            <ng-template pTemplate="header">
-              <tr>
-                <th scope="col">Folio</th>
-                <th scope="col">Fecha</th>
-                <th scope="col">Cliente / Pedido</th>
-                <th scope="col">Ruta</th>
-                <th scope="col">Vehículo</th>
-                <th scope="col">Estado</th>
-                <th scope="col"><span class="sr-only">Acciones</span></th>
-              </tr>
-            </ng-template>
-            <ng-template pTemplate="body" let-s>
-              <tr (click)="openWizard(s)" class="comm-row-clickable"
+      @if (shipments().length > 0) {
+        <div class="sheet cols-12 da-table-desktop">
+          <article class="cell cell-span-12 is-flush">
+            <p-table [value]="shipments()" [loading]="loading()" responsiveLayout="scroll"
+              styleClass="surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra"
+              [paginator]="true" [rows]="25" [rowsPerPageOptions]="[25, 50, 100, 200]">
+              <ng-template #header>
+                <tr>
+                  <th scope="col">Folio</th>
+                  <th scope="col">Fecha</th>
+                  <th scope="col">Cliente / Pedido</th>
+                  <th scope="col">Ruta</th>
+                  <th scope="col">Vehículo</th>
+                  <th scope="col">Estado</th>
+                  <th scope="col"><span class="sr-only">Acciones</span></th>
+                </tr>
+              </ng-template>
+              <ng-template #body let-s>
+                <tr (click)="openWizard(s)" class="comm-row-clickable"
                   role="button" tabindex="0"
                   [attr.aria-label]="'Abrir entrega ' + s.folio"
                   (keydown.enter)="openWizard(s)"
                   (keydown.space)="$event.preventDefault(); openWizard(s)">
-                <td><code class="comm-code">{{ s.folio }}</code></td>
-                <td>{{ s.shipment_date | date:'dd MMM' }}</td>
-                <td class="comm-cell-strong">{{ s.customer_name || s.order_code || '—' }}</td>
-                <td class="comm-muted is-small">{{ s.origin || '—' }} → {{ s.destination || '—' }}</td>
-                <td>
-                  <span *ngIf="s.vehicle_plate">{{ s.vehicle_plate }}</span>
-                  <span *ngIf="!s.vehicle_plate" class="comm-muted">—</span>
-                </td>
-                <td>
-                  <span class="comm-pill" [class]="statusPillClass(s.status)">
-                    {{ statusLabel(s.status) }}
-                  </span>
-                </td>
-                <td class="comm-actions" (click)="$event.stopPropagation()">
-                  <button pButton [label]="actionLabel(s.status)" [icon]="actionIcon(s.status)"
-                          size="small" (click)="openWizard(s)"></button>
-                </td>
-              </tr>
-            </ng-template>
-          </p-table>
-        </article>
-      </div>
-
-      <!-- Empty state -->
-      <div *ngIf="!loading() && shipments().length === 0" class="da-empty-wrap">
-        <div class="da-empty">
-          <div class="da-empty-icon"><i class="pi pi-truck" aria-hidden="true"></i></div>
-          <h3>Sin entregas pendientes</h3>
-          <p>{{ statusFilter ? 'No hay shipments en este estado.' : 'No tenés shipments asignados todavía.' }}</p>
-          <button
-            *ngIf="statusFilter"
-            type="button"
-            pButton
-            icon="pi pi-refresh"
-            severity="secondary"
-            [outlined]="true"
-            size="small"
-            label="Limpiar filtro"
-            (click)="clearFilter()"
-          ></button>
+                  <td><code class="comm-code">{{ s.folio }}</code></td>
+                  <td>{{ s.shipment_date | date:'dd MMM' }}</td>
+                  <td class="comm-cell-strong">{{ s.customer_name || s.order_code || '—' }}</td>
+                  <td class="comm-muted is-small">{{ s.origin || '—' }} → {{ s.destination || '—' }}</td>
+                  <td>
+                    @if (s.vehicle_plate) {
+                      <span>{{ s.vehicle_plate }}</span>
+                    }
+                    @if (!s.vehicle_plate) {
+                      <span class="comm-muted">—</span>
+                    }
+                  </td>
+                  <td>
+                    <span class="comm-pill" [class]="statusPillClass(s.status)">
+                      {{ statusLabel(s.status) }}
+                    </span>
+                  </td>
+                  <td class="comm-actions" (click)="$event.stopPropagation()">
+                    <p-button pButton [label]="actionLabel(s.status)" [icon]="actionIcon(s.status)"
+                    size="small" (click)="openWizard(s)"></p-button>
+                  </td>
+                </tr>
+              </ng-template>
+            </p-table>
+          </article>
         </div>
-      </div>
-
+      }
+    
+      <!-- Empty state -->
+      @if (!loading() && shipments().length === 0) {
+        <div class="da-empty-wrap">
+          <div class="da-empty">
+            <div class="da-empty-icon"><i class="pi pi-truck" aria-hidden="true"></i></div>
+            <h3>Sin entregas pendientes</h3>
+            <p>{{ statusFilter ? 'No hay shipments en este estado.' : 'No tenés shipments asignados todavía.' }}</p>
+            @if (statusFilter) {
+              <button
+                type="button"
+                pButton
+                icon="pi pi-refresh"
+                severity="secondary"
+                [outlined]="true"
+                size="small"
+                label="Limpiar filtro"
+                (click)="clearFilter()"
+              ></button>
+            }
+          </div>
+        </div>
+      }
+    
       <!-- Wizard -->
       <app-delivery-wizard
         [visible]="wizardOpen()"
@@ -221,13 +236,13 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
         (completed)="onDeliveryCompleted()"
         (statusChanged)="onStatusChanged($event)"
       ></app-delivery-wizard>
-
+    
       <!-- Diálogo de Permisos -->
       <app-background-permission
         [(visible)]="showPermissionDialog"
       ></app-background-permission>
     </div>
-  `,
+    `,
   styles: [`
     :host { display:block; }
 

@@ -69,7 +69,7 @@ const CHANNEL_OPTS = [
                     [filter]="true" filterBy="nombre,code" [showClear]="true" placeholder="Todas las empresas"
                     [loading]="loadingBrands()" appendTo="body" styleClass="w-full"
                     (onChange)="generate()" (onClear)="generate()">
-            <ng-template let-b pTemplate="item">
+            <ng-template let-b #item>
               <span>{{ b.nombre }}</span>
               <span class="so-badge">{{ b.products }}</span>
             </ng-template>
@@ -90,7 +90,7 @@ const CHANNEL_OPTS = [
           @case ('month') {
             <div class="so-field">
               <label>Mes</label>
-              <p-datePicker [(ngModel)]="monthDate" view="month" dateFormat="MM yy" [showIcon]="true"
+              <p-datepicker [(ngModel)]="monthDate" view="month" dateFormat="MM yy" [showIcon]="true"
                             appendTo="body" (onSelect)="refreshPeriod()" (onClose)="refreshPeriod()" />
             </div>
           }
@@ -114,7 +114,7 @@ const CHANNEL_OPTS = [
           @case ('range') {
             <div class="so-field">
               <label>Rango</label>
-              <p-datePicker [(ngModel)]="rangeDates" selectionMode="range" dateFormat="dd/mm/yy"
+              <p-datepicker [(ngModel)]="rangeDates" selectionMode="range" dateFormat="dd/mm/yy"
                             [showIcon]="true" appendTo="body" (onSelect)="refreshPeriod()" (onClose)="refreshPeriod()" />
             </div>
           }
@@ -162,10 +162,10 @@ const CHANNEL_OPTS = [
         @if (reportMode() === 'canal') {
           <div class="so-field so-toggles">
             @if (view() !== 'month_columns') {
-              <label class="so-toggle"><p-toggleSwitch [(ngModel)]="byChannel" /> <span>Desglosar canal</span></label>
+              <label class="so-toggle"><p-toggleswitch [(ngModel)]="byChannel" /> <span>Desglosar canal</span></label>
             }
             @if (view() !== 'month_summary') {
-              <label class="so-toggle"><p-toggleSwitch [(ngModel)]="includeZeros" /> <span>Incluir sin venta</span></label>
+              <label class="so-toggle"><p-toggleswitch [(ngModel)]="includeZeros" /> <span>Incluir sin venta</span></label>
             }
           </div>
         }
@@ -203,8 +203,7 @@ const CHANNEL_OPTS = [
       }
 
       <div class="so-actions">
-        <button pButton label="Generar" icon="pi pi-search" size="small"
-                [loading]="loading()" (click)="generate()"></button>
+        <button pButton size="small" [loading]="loading()" (click)="generate()"><span class="p-button-icon p-button-icon-left pi pi-search" aria-hidden="true"></span><span class="p-button-label">Generar</span></button>
       </div>
 
       @if (loading()) {
@@ -232,10 +231,8 @@ const CHANNEL_OPTS = [
             </div>
           }
           <div class="so-dl">
-            <button pButton label="XLSX" icon="pi pi-file-excel" size="small" severity="secondary" [outlined]="true"
-                    [loading]="dl() === 'xlsx'" (click)="download('xlsx')"></button>
-            <button pButton label="PDF" icon="pi pi-file-pdf" size="small" severity="secondary" [outlined]="true"
-                    [loading]="dl() === 'pdf'" (click)="download('pdf')"></button>
+            <button pButton size="small" severity="secondary" [outlined]="true" [loading]="dl() === 'xlsx'" (click)="download('xlsx')"><span class="p-button-icon p-button-icon-left pi pi-file-excel" aria-hidden="true"></span><span class="p-button-label">XLSX</span></button>
+            <button pButton size="small" severity="secondary" [outlined]="true" [loading]="dl() === 'pdf'" (click)="download('pdf')"><span class="p-button-icon p-button-icon-left pi pi-file-pdf" aria-hidden="true"></span><span class="p-button-label">PDF</span></button>
           </div>
         </div>
 

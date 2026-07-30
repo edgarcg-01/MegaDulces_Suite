@@ -13,7 +13,7 @@ import { CanDeactivateFn } from '@angular/router';
  *        onBeforeUnload(e: BeforeUnloadEvent) { if (this.hasUnsavedChanges()) e.preventDefault(); }
  *      (el navegador muestra su prompt nativo; el texto ya no es customizable — es lo esperado.)
  *
- * Usa `window.confirm` a propósito: funciona sin montar <p-confirmDialog> y es
+ * Usa `window.confirm` a propósito: funciona sin montar <p-confirmdialog> y es
  * consistente con el prompt nativo del beforeunload. Una pantalla puede sobre-escribir
  * con un modal propio resolviendo la navegación por su cuenta.
  */

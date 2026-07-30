@@ -49,8 +49,8 @@ import { Permission } from '../../../core/constants/permissions';
           <p-inputicon styleClass="pi pi-search" />
           <input type="text" pInputText placeholder="RFC del proveedor (p.ej. DRO020122GZ9)" [(ngModel)]="rfc" (keyup.enter)="buscar()" maxlength="13" style="text-transform:uppercase;min-width:280px" aria-label="RFC del proveedor" />
         </p-iconfield>
-        <button pButton type="button" label="Armar expediente" icon="pi pi-folder-open" class="p-button-sm" [loading]="loading()" [disabled]="!rfcValid()" (click)="buscar()"></button>
-        @if (dossier() || searched()) { <button pButton type="button" label="Ver proveedores" icon="pi pi-arrow-left" class="p-button-sm p-button-text" (click)="backToList()"></button> }
+        <button pButton type="button" class="p-button-sm" [loading]="loading()" [disabled]="!rfcValid()" (click)="buscar()"><span class="p-button-icon p-button-icon-left pi pi-folder-open" aria-hidden="true"></span><span class="p-button-label">Armar expediente</span></button>
+        @if (dossier() || searched()) { <button pButton type="button" class="p-button-sm p-button-text" (click)="backToList()"><span class="p-button-icon p-button-icon-left pi pi-arrow-left" aria-hidden="true"></span><span class="p-button-label">Ver proveedores</span></button> }
       </div>
 
       @if (loading()) {
@@ -73,8 +73,7 @@ import { Permission } from '../../../core/constants/permissions';
           <div class="card-premium card-flat mt-block">
             <div class="mt-block-head">
               <h3 class="mt-block-title">Cadena de suministro</h3>
-              <button pButton type="button" label="Ver documentos" icon="pi pi-list" class="p-button-sm p-button-text"
-                      [disabled]="d.cadena_suministro.cadenas === 0" (click)="openChains()"></button>
+              <button pButton type="button" class="p-button-sm p-button-text" [disabled]="d.cadena_suministro.cadenas === 0" (click)="openChains()"><span class="p-button-icon p-button-icon-left pi pi-list" aria-hidden="true"></span><span class="p-button-label">Ver documentos</span></button>
             </div>
             <div class="mt-chain" [class.clickable]="d.cadena_suministro.cadenas > 0"
                  [attr.role]="d.cadena_suministro.cadenas > 0 ? 'button' : null"
@@ -121,12 +120,12 @@ import { Permission } from '../../../core/constants/permissions';
                 <p-inputicon styleClass="pi pi-search" />
                 <input type="text" pInputText placeholder="Buscar RFC o proveedor…" [ngModel]="provSearch()" (ngModelChange)="onProvSearch($event)" aria-label="Buscar proveedor" />
               </p-iconfield>
-              <p-selectButton styleClass="sb-liquid" [options]="riesgoOpts" [ngModel]="provRiesgo()" (ngModelChange)="setProvRiesgo($event)" optionLabel="label" optionValue="value" [allowEmpty]="false" ariaLabel="Filtrar por riesgo" />
+              <p-selectbutton styleClass="sb-liquid" [options]="riesgoOpts" [ngModel]="provRiesgo()" (ngModelChange)="setProvRiesgo($event)" optionLabel="label" optionValue="value" [allowEmpty]="false" ariaLabel="Filtrar por riesgo" />
             </div>
           </div>
           @if (searched() && !dossier()) { <div class="mt-warn"><i class="pi pi-exclamation-triangle"></i> No se pudo armar el expediente de {{ rfc }}. Elegí uno de la lista.</div> }
           <p-table [value]="providers()" styleClass="p-datatable-sm mt-disc-table" [rowHover]="true" [loading]="provLoading()" [scrollable]="true" scrollHeight="480px" [paginator]="providers().length > 50" [rows]="50">
-            <ng-template pTemplate="header">
+            <ng-template #header>
               <tr>
                 <th>Proveedor</th>
                 <th class="ta-r" style="width:5rem">Ops</th>
@@ -136,7 +135,7 @@ import { Permission } from '../../../core/constants/permissions';
                 <th style="width:3rem"></th>
               </tr>
             </ng-template>
-            <ng-template pTemplate="body" let-p>
+            <ng-template #body let-p>
               <tr class="mt-disc-row" tabindex="0" [attr.aria-label]="'Armar expediente de ' + (p.beneficiario || p.rfc)" (click)="pickProvider(p.rfc)" (keyup.enter)="pickProvider(p.rfc)">
                 <td><div class="mt-p-name">{{ p.beneficiario || p.rfc }}</div><div class="mt-p-rfc mono">{{ p.rfc }}</div></td>
                 <td class="ta-r mono">{{ p.ops | number }}</td>
@@ -151,7 +150,7 @@ import { Permission } from '../../../core/constants/permissions';
                 <td class="ta-r"><i class="pi pi-chevron-right muted"></i></td>
               </tr>
             </ng-template>
-            <ng-template pTemplate="emptymessage"><tr><td colspan="6" class="mt-empty2">
+            <ng-template #emptymessage><tr><td colspan="6" class="mt-empty2">
               @if (provLoading()) { Cargando… }
               @else if (provSearch() || provRiesgo() !== 'all') { <i class="pi pi-filter-slash"></i> Sin proveedores para este filtro. }
               @else { <i class="pi pi-inbox"></i> Sin proveedores con egresos cargados. }
@@ -162,7 +161,7 @@ import { Permission } from '../../../core/constants/permissions';
 
       <p-dialog [(visible)]="chainsOpen" [modal]="true" [draggable]="false" [dismissableMask]="true"
                 [style]="{ width: 'min(940px, 95vw)' }" [breakpoints]="{ '640px': '100vw' }" styleClass="mt-dialog">
-        <ng-template pTemplate="header">
+        <ng-template #header>
           <div class="mt-dlg-head">
             <span class="mt-dlg-title">Documentos de la cadena de suministro</span>
             @if (dossier(); as d) { <span class="mono muted">{{ d.beneficiario || d.rfc }} · {{ d.rfc }}</span> }
@@ -170,9 +169,9 @@ import { Permission } from '../../../core/constants/permissions';
         </ng-template>
 
         @if (dossier(); as d) {
-        <p-selectButton [options]="dlgTabOpts(d)" [ngModel]="dlgTab()" (ngModelChange)="setDlgTab($event)" optionValue="value" [allowEmpty]="false" ariaLabel="Vista de documentos" styleClass="mt-dlg-sb sb-liquid">
-          <ng-template let-opt pTemplate="item"><i class="pi" [ngClass]="opt.icon"></i>&nbsp;{{ opt.label }} <span class="mt-tab-n">{{ opt.count }}</span></ng-template>
-        </p-selectButton>
+        <p-selectbutton [options]="dlgTabOpts(d)" [ngModel]="dlgTab()" (ngModelChange)="setDlgTab($event)" optionValue="value" [allowEmpty]="false" ariaLabel="Vista de documentos" styleClass="mt-dlg-sb sb-liquid">
+          <ng-template let-opt #item><i class="pi" [ngClass]="opt.icon"></i>&nbsp;{{ opt.label }} <span class="mt-tab-n">{{ opt.count }}</span></ng-template>
+        </p-selectbutton>
         }
 
         @if (dlgTab() === 'oper') {
@@ -183,7 +182,7 @@ import { Permission } from '../../../core/constants/permissions';
         } @else {
           <p-table [value]="chains() || []" dataKey="key" styleClass="p-datatable-sm mt-ctable" [rowHover]="true"
                    [scrollable]="true" scrollHeight="52vh" [paginator]="(chains()?.length || 0) > 25" [rows]="25">
-            <ng-template pTemplate="header">
+            <ng-template #header>
               <tr>
                 <th style="width:2.5rem"></th>
                 <th>Factura</th>
@@ -193,9 +192,9 @@ import { Permission } from '../../../core/constants/permissions';
                 <th style="width:6.5rem">Enlace</th>
               </tr>
             </ng-template>
-            <ng-template pTemplate="body" let-c let-expanded="expanded">
+            <ng-template #body let-c let-expanded="expanded">
               <tr>
-                <td><button type="button" pButton [pRowToggler]="c" class="p-button-text p-button-sm mt-tog" [icon]="expanded ? 'pi pi-chevron-down' : 'pi pi-chevron-right'" [attr.aria-label]="expanded ? 'Ocultar documentos' : 'Ver documentos'"></button></td>
+                <td><p-button type="button" pButton [pRowToggler]="c" styleClass="p-button-text p-button-sm mt-tog" [icon]="expanded ? 'pi pi-chevron-down' : 'pi pi-chevron-right'" [attr.aria-label]="expanded ? 'Ocultar documentos' : 'Ver documentos'"></p-button></td>
                 <td><div class="strong mono">{{ c.factura_folio }}</div><div class="muted mono cf-sub">{{ c.factura_fecha ? (c.factura_fecha | date:'dd/MM/yy') : '—' }}</div></td>
                 <td class="mono">{{ c.sucursal }}</td>
                 <td class="ta-r strong mono">{{ money(c.total) }}</td>
@@ -210,7 +209,7 @@ import { Permission } from '../../../core/constants/permissions';
                 <td><span class="mt-conf" [ngClass]="'c-' + (c.match_confidence || 'na')">{{ confLabel(c.match_confidence) }}</span></td>
               </tr>
             </ng-template>
-            <ng-template pTemplate="rowexpansion" let-c>
+            <ng-template #expandedrow let-c>
               <tr class="mt-exp-row">
                 <td colspan="6">
                   <div class="mt-timeline">
@@ -252,7 +251,7 @@ import { Permission } from '../../../core/constants/permissions';
                 </td>
               </tr>
             </ng-template>
-            <ng-template pTemplate="emptymessage"><tr><td colspan="6" class="mt-dlg-empty">
+            <ng-template #emptymessage><tr><td colspan="6" class="mt-dlg-empty">
               <i class="pi pi-inbox"></i> Sin cadenas de documentos reconstruidas para este RFC.
             </td></tr></ng-template>
           </p-table>
@@ -264,8 +263,7 @@ import { Permission } from '../../../core/constants/permissions';
             <span class="mt-rs ok">✓ {{ rs.confirmed }} asignadas</span>
             <span class="mt-rs warn">◐ {{ rs.suggested }} sugeridas</span>
             <span class="mt-rs muted">○ {{ rs.unmatched }} sin operación</span>
-            <button pButton type="button" label="Descargar ZIP" icon="pi pi-download" class="p-button-sm p-button-outlined mt-dl-btn"
-                    [loading]="exporting()" [disabled]="rs.total === 0" (click)="downloadExpediente()"></button>
+            <button pButton type="button" class="p-button-sm p-button-outlined mt-dl-btn" [loading]="exporting()" [disabled]="rs.total === 0" (click)="downloadExpediente()"><span class="p-button-icon p-button-icon-left pi pi-download" aria-hidden="true"></span><span class="p-button-label">Descargar ZIP</span></button>
           </div>
         }
 
@@ -274,7 +272,7 @@ import { Permission } from '../../../core/constants/permissions';
         } @else {
           <p-table [value]="recon() || []" styleClass="p-datatable-sm mt-ctable" [rowHover]="true"
                    [scrollable]="true" scrollHeight="48vh" [paginator]="(recon()?.length || 0) > 25" [rows]="25">
-            <ng-template pTemplate="header">
+            <ng-template #header>
               <tr>
                 <th style="width:3rem">Tipo</th>
                 <th>CFDI</th>
@@ -283,7 +281,7 @@ import { Permission } from '../../../core/constants/permissions';
                 <th style="width:2.5rem"></th>
               </tr>
             </ng-template>
-            <ng-template pTemplate="body" let-c>
+            <ng-template #body let-c>
               <tr [class.mt-row-busy]="busy() === c.cfdi_id">
                 <td><span class="mt-conf">{{ c.tipo_comprobante || '—' }}</span></td>
                 <td><div class="strong mono">{{ c.serie }}{{ c.folio || '' }} <span class="muted">· {{ c.fecha ? (c.fecha | date:'dd/MM/yy') : '—' }}</span></div><div class="muted mono cf-sub">{{ c.uuid }}</div></td>
@@ -293,8 +291,8 @@ import { Permission } from '../../../core/constants/permissions';
                     @case ('confirmed') {
                       <div class="mt-asg">
                         <span class="mt-est e-vigente" title="Asignada por {{ c.assignment?.by || '—' }}"><i class="pi pi-check"></i> {{ c.assignment?.doc_folio }}</span>
-                        <span class="muted cf-sub">{{ c.assignment?.sucursal }} · Δ {{ money(c.assignment?.diff_importe) }}@if (c.assignment?.diff_days != null) { · {{ c.assignment?.diff_days }}d }</span>
-                        @if (canManage) { <button pButton type="button" label="Quitar" class="p-button-text p-button-sm mt-asg-x" [disabled]="busy() === c.cfdi_id" (click)="unassignRow(c)"></button> }
+                        <span class="muted cf-sub">{{ c.assignment?.sucursal }} · Δ {{ money($safeNavigationMigration(c.assignment?.diff_importe)) }}@if (c.assignment?.diff_days != null) { · {{ c.assignment?.diff_days }}d }</span>
+                        @if (canManage) { <button pButton type="button" class="p-button-text p-button-sm mt-asg-x" [disabled]="busy() === c.cfdi_id" (click)="unassignRow(c)"><span class="p-button-label">Quitar</span></button> }
                       </div>
                     }
                     @case ('suggested') {
@@ -304,14 +302,14 @@ import { Permission } from '../../../core/constants/permissions';
                         } @else {
                           <span class="mt-conf c-inferred" title="Sugerida por RFC + importe + fecha"><i class="pi pi-sparkles"></i> {{ c.suggestion?.doc_folio }}</span>
                         }
-                        <span class="muted cf-sub">{{ c.suggestion?.sucursal }} · Δ {{ money(c.suggestion?.diff_importe) }}@if (c.suggestion?.diff_days != null) { · {{ c.suggestion?.diff_days }}d }@if (c.suggestion?.strength === 'weak') { · <b class="warn">sin RFC</b> }</span>
+                        <span class="muted cf-sub">{{ c.suggestion?.sucursal }} · Δ {{ money($safeNavigationMigration(c.suggestion?.diff_importe)) }}@if (c.suggestion?.diff_days != null) { · {{ c.suggestion?.diff_days }}d }@if (c.suggestion?.strength === 'weak') { · <b class="warn">sin RFC</b> }</span>
                         @if (c.suggestion?.strength === 'weak' && c.suggestion?.beneficiario) {
                           <span class="mt-asg-benef" title="Nombre en la operación — verifica que coincida con el proveedor"><i class="pi pi-user"></i> {{ c.suggestion?.beneficiario }}</span>
                         }
                         @if (canManage) {
                           <span class="mt-asg-acts">
-                            <button pButton type="button" icon="pi pi-check" class="p-button-sm p-button-success mt-ico-btn" title="Confirmar asignación" aria-label="Confirmar" [disabled]="busy() === c.cfdi_id" (click)="confirmSuggestion(c)"></button>
-                            <button pButton type="button" icon="pi pi-times" class="p-button-text p-button-sm p-button-secondary mt-ico-btn" title="Descartar sugerencia" aria-label="Descartar" [disabled]="busy() === c.cfdi_id" (click)="rejectSuggestion(c)"></button>
+                            <button pButton type="button" class="p-button-sm p-button-success mt-ico-btn" title="Confirmar asignación" aria-label="Confirmar" [disabled]="busy() === c.cfdi_id" (click)="confirmSuggestion(c)"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span></button>
+                            <button pButton type="button" class="p-button-text p-button-sm p-button-secondary mt-ico-btn" title="Descartar sugerencia" aria-label="Descartar" [disabled]="busy() === c.cfdi_id" (click)="rejectSuggestion(c)"><span class="p-button-icon p-button-icon-left pi pi-times" aria-hidden="true"></span></button>
                           </span>
                         }
                       </div>
@@ -319,10 +317,10 @@ import { Permission } from '../../../core/constants/permissions';
                     @default { <span class="muted cf-sub"><i class="pi pi-minus-circle"></i> Sin operación en ±$1 / ±5 días</span> }
                   }
                 </td>
-                <td class="ta-r">@if (c.has_xml) { <button pButton type="button" icon="pi pi-download" class="p-button-text p-button-sm" title="Descargar XML" aria-label="Descargar XML" (click)="downloadXml(c)"></button> }</td>
+                <td class="ta-r">@if (c.has_xml) { <button pButton type="button" class="p-button-text p-button-sm" title="Descargar XML" aria-label="Descargar XML" (click)="downloadXml(c)"><span class="p-button-icon p-button-icon-left pi pi-download" aria-hidden="true"></span></button> }</td>
               </tr>
             </ng-template>
-            <ng-template pTemplate="emptymessage"><tr><td colspan="5" class="mt-dlg-empty">
+            <ng-template #emptymessage><tr><td colspan="5" class="mt-dlg-empty">
               <i class="pi pi-inbox"></i> Sin CFDIs recibidos de este RFC. Corre la <strong>descarga masiva</strong> del SAT para poblarlos.
             </td></tr></ng-template>
           </p-table>

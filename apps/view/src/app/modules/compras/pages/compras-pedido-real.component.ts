@@ -93,10 +93,10 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
           </div>
           <label class="pr-cov">
             <span>Cobertura</span>
-            <p-inputNumber [(ngModel)]="coverage" (onBlur)="loadAll()" [min]="1" [max]="120" [showButtons]="true"
+            <p-inputnumber [(ngModel)]="coverage" (onBlur)="loadAll()" [min]="1" [max]="120" [showButtons]="true"
                            buttonLayout="horizontal" [step]="1" suffix=" d" inputStyleClass="pr-cov-in"
                            decrementButtonClass="p-button-text" incrementButtonClass="p-button-text"
-                           incrementButtonIcon="pi pi-plus" decrementButtonIcon="pi pi-minus" ariaLabel="Días de cobertura"></p-inputNumber>
+                           incrementButtonIcon="pi pi-plus" decrementButtonIcon="pi pi-minus" ariaLabel="Días de cobertura"></p-inputnumber>
           </label>
           <div class="pr-presets" role="group" aria-label="Cobertura rápida">
             @for (p of [14, 30, 45]; track p) {
@@ -109,7 +109,7 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
           <div class="pr-state pr-error">
             <i class="pi pi-exclamation-triangle"></i>
             <div><p>No se pudo cargar el pedido.</p>
-              <button pButton type="button" label="Reintentar" icon="pi pi-refresh" class="p-button-sm p-button-text" (click)="loadAll()"></button></div>
+              <p-button type="button" label="Reintentar" icon="pi pi-refresh" styleClass="p-button-sm p-button-text" (click)="loadAll()"></p-button></div>
           </div>
         } @else {
           @if (flatRows().length) {
@@ -122,7 +122,7 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
           }
           <p-table [value]="displayRows()" [loading]="loading()"
                    styleClass="p-datatable-sm pr-table" [tableStyle]="tableStyle">
-            <ng-template pTemplate="header">
+            <ng-template #header>
               <tr>
                 <th style="min-width:16rem">Producto</th>
                 <th style="min-width:9rem">Proveedor / Origen</th>
@@ -135,14 +135,14 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
               </tr>
             </ng-template>
 
-            <ng-template pTemplate="body" let-r>
+            <ng-template #body let-r>
               @if (r.__header) {
                 <tr class="pr-grp">
                   <td colspan="8">
                     <div class="pr-grp-in">
-                      <button type="button" pButton class="p-button-text p-button-sm pr-grp-tog" (click)="toggle(r.warehouse_code)"
+                      <p-button type="button" styleClass="p-button-text p-button-sm pr-grp-tog" (click)="toggle(r.warehouse_code)"
                               [icon]="isExpanded(r.warehouse_code) ? 'pi pi-chevron-down' : 'pi pi-chevron-right'"
-                              [attr.aria-label]="(isExpanded(r.warehouse_code) ? 'Colapsar ' : 'Desplegar ') + r.warehouse_code"></button>
+                              [attr.aria-label]="(isExpanded(r.warehouse_code) ? 'Colapsar ' : 'Desplegar ') + r.warehouse_code"></p-button>
                       <button type="button" class="pr-grp-name-btn" (click)="toggle(r.warehouse_code)">
                         <span class="pr-grp-name"><span class="pr-mono">{{ r.warehouse_code }}</span> {{ nameOf(r.warehouse_code) }}</span>
                       </button>
@@ -154,8 +154,8 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
                           @if (g.over > 0) { <span class="pr-gs pr-gs-over" title="Capital inmovilizado (sobrestock)">sobre {{ money(g.over) }}</span> }
                         </span>
                         <span class="pr-grp-sp"></span>
-                        <button pButton type="button" label="XLSX" icon="pi pi-file-excel" class="p-button-sm p-button-text pr-grp-btn" (click)="exportScope(r.warehouse_code)" [disabled]="dl() || (g.buy + g.tr) <= 0"></button>
-                        <button pButton type="button" label="Requisición" icon="pi pi-check" class="p-button-sm pr-grp-btn" (click)="buildReq(r.warehouse_code)" [disabled]="saving() || (g.buy + g.tr) <= 0"></button>
+                        <p-button type="button" label="XLSX" icon="pi pi-file-excel" styleClass="p-button-sm p-button-text pr-grp-btn" (click)="exportScope(r.warehouse_code)" [disabled]="dl() || (g.buy + g.tr) <= 0"></p-button>
+                        <p-button type="button" label="Requisición" icon="pi pi-check" styleClass="p-button-sm pr-grp-btn" (click)="buildReq(r.warehouse_code)" [disabled]="saving() || (g.buy + g.tr) <= 0"></p-button>
                       }
                     </div>
                   </td>
@@ -203,7 +203,7 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
               }
             </ng-template>
 
-            <ng-template pTemplate="emptymessage">
+            <ng-template #emptymessage>
               <tr><td colspan="8" class="pr-empty">
                 <i class="pi pi-inbox"></i>
                 <p>Sin nada accionable con estos filtros.</p>
@@ -218,8 +218,8 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
           <div class="pr-bulk" role="region" aria-label="Acciones globales">
             <span class="pr-bulk-n">{{ grpCount() }} sucursal(es) · comprar <strong>{{ money(totBuy()) }}</strong> · traspaso <strong>{{ money(totTr()) }}</strong></span>
             <span class="pr-bulk-sp"></span>
-            <button pButton type="button" label="XLSX global" icon="pi pi-file-excel" class="p-button-sm p-button-text" (click)="exportScope()" [disabled]="dl()"></button>
-            <button pButton type="button" [label]="saving() ? 'Armando…' : 'Requisiciones (global)'" icon="pi pi-check" class="p-button-sm" (click)="buildReq()" [disabled]="saving()"></button>
+            <p-button type="button" label="XLSX global" icon="pi pi-file-excel" styleClass="p-button-sm p-button-text" (click)="exportScope()" [disabled]="dl()"></p-button>
+            <p-button type="button" [label]="saving() ? 'Armando…' : 'Requisiciones (global)'" icon="pi pi-check" styleClass="p-button-sm" (click)="buildReq()" [disabled]="saving()"></p-button>
           </div>
         }
 
@@ -243,10 +243,10 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
                 <small>Cuántas unidades de stock trae una caja de compra. Granel = 1.</small>
               </label>
               <div class="pr-uov-actions">
-                <button pButton type="button" label="Volver a automático" class="p-button-sm p-button-text" (click)="clearUnit()" [disabled]="unitSaving()"></button>
+                <p-button type="button" label="Volver a automático" styleClass="p-button-sm p-button-text" (click)="clearUnit()" [disabled]="unitSaving()"></p-button>
                 <span class="pr-bulk-sp"></span>
-                <button pButton type="button" label="Cancelar" class="p-button-sm p-button-text" (click)="unitVisible=false"></button>
-                <button pButton type="button" [label]="unitSaving() ? 'Guardando…' : 'Guardar'" icon="pi pi-check" class="p-button-sm" (click)="saveUnit()" [disabled]="unitSaving()"></button>
+                <p-button type="button" label="Cancelar" styleClass="p-button-sm p-button-text" (click)="unitVisible=false"></p-button>
+                <p-button type="button" [label]="unitSaving() ? 'Guardando…' : 'Guardar'" icon="pi pi-check" styleClass="p-button-sm" (click)="saveUnit()" [disabled]="unitSaving()"></p-button>
               </div>
             </div>
           }
@@ -263,11 +263,11 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
         <p-table [value]="deadRows()" [loading]="loading()"
                  [paginator]="true" [rows]="50" [rowsPerPageOptions]="[50, 100, 200]"
                  styleClass="p-datatable-sm pr-table" [tableStyle]="deadTableStyle">
-          <ng-template pTemplate="header">
+          <ng-template #header>
             <tr><th style="min-width:16rem">Producto</th><th style="width:5rem">Almacén</th><th class="pr-r">Existencia</th>
               <th class="pr-r">Costo</th><th class="pr-r pr-val">Inmovilizado</th><th>Última actividad</th><th>Proveedor</th></tr>
           </ng-template>
-          <ng-template pTemplate="body" let-r>
+          <ng-template #body let-r>
             <tr>
               <td><div class="pr-prod">{{ r.nombre }}</div><div class="pr-sku">{{ r.sku }}</div></td>
               <td class="pr-mono pr-muted">{{ r.warehouse_code }}</td>
@@ -278,7 +278,7 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
               <td class="pr-supp">{{ r.supplier_name || '—' }}</td>
             </tr>
           </ng-template>
-          <ng-template pTemplate="emptymessage">
+          <ng-template #emptymessage>
             <tr><td colspan="7" class="pr-empty"><i class="pi pi-inbox"></i><p>Sin stock muerto.</p><span>Ningún producto activo con existencia y sin rotación.</span></td></tr>
           </ng-template>
         </p-table>

@@ -1,4 +1,4 @@
-import { Component, inject, signal, computed, OnInit, OnDestroy } from '@angular/core';
+import { Component, inject, signal, computed, OnInit, OnDestroy, ChangeDetectionStrategy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { TableModule } from 'primeng/table';
@@ -18,6 +18,7 @@ import { FiltersStateService } from '../graphics/filters-state.service';
     SelectModule, InputTextModule,
   ],
   templateUrl: './stores-tab.component.html',
+  changeDetection: ChangeDetectionStrategy.Eager,
   styleUrls: ['./stores-tab.component.css'],
 })
 export class StoresTabComponent implements OnInit, OnDestroy {

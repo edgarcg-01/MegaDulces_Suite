@@ -54,7 +54,7 @@ import { HasUnsavedChanges } from '../../../core/guards/unsaved-changes.guard';
         <!-- Captura -->
         <div class="card-premium card-flat arq-panel">
           <h3 class="arq-card-title">Nuevo arqueo</h3>
-          <p-selectButton [options]="tipoOptions" [ngModel]="aTipo()" (ngModelChange)="aTipo.set($event); dirty.set(true)"
+          <p-selectbutton [options]="tipoOptions" [ngModel]="aTipo()" (ngModelChange)="aTipo.set($event); dirty.set(true)"
                           optionLabel="label" optionValue="value" [allowEmpty]="false" styleClass="sb-liquid arq-seg" />
 
           <div class="arq-head">
@@ -71,27 +71,27 @@ import { HasUnsavedChanges } from '../../../core/guards/unsaved-changes.guard';
           </div>
 
           <p-table [value]="denoms" styleClass="p-datatable-sm arq-denoms-tbl">
-            <ng-template pTemplate="header">
+            <ng-template #header>
               <tr><th>Denominación</th><th class="ta-r">Cantidad</th><th class="ta-r">Subtotal</th></tr>
             </ng-template>
-            <ng-template pTemplate="body" let-d>
+            <ng-template #body let-d>
               <tr>
                 <td class="arq-denom-lbl">{{ d >= 1 ? '$' + d : (d*100) + '¢' }}</td>
                 <td class="ta-r">
-                  <p-inputNumber [(ngModel)]="denomCount[d]" (ngModelChange)="recalc()" [min]="0" [showButtons]="false"
+                  <p-inputnumber [(ngModel)]="denomCount[d]" (ngModelChange)="recalc()" [min]="0" [showButtons]="false"
                                  [useGrouping]="false" inputmode="numeric" inputStyleClass="arq-num" [placeholder]="'0'" />
                 </td>
                 <td class="ta-r muted">{{ money((denomCount[d] || 0) * d) }}</td>
               </tr>
             </ng-template>
-            <ng-template pTemplate="footer">
+            <ng-template #footer>
               <tr class="arq-total-row"><td>Total contado</td><td></td><td class="ta-r strong">{{ money(arqTotal()) }}</td></tr>
             </ng-template>
           </p-table>
 
           <label class="arq-lbl arq-block">Nota <input pInputText class="arq-fld" [(ngModel)]="aNota" (ngModelChange)="dirty.set(true)" placeholder="opcional"></label>
-          <button pButton type="button" [label]="aTipo() === 'relevo' ? 'Sellar relevo' : 'Guardar y revelar diferencia'" icon="pi pi-lock-open" class="p-button-sm"
-                  [disabled]="!canSubmit() || saving()" [loading]="saving()" (click)="submit()"></button>
+          <p-button pButton type="button" [label]="aTipo() === 'relevo' ? 'Sellar relevo' : 'Guardar y revelar diferencia'" icon="pi pi-lock-open" styleClass="p-button-sm"
+                  [disabled]="!canSubmit() || saving()" [loading]="saving()" (click)="submit()"></p-button>
 
           @if (result(); as r) {
             <div class="arq-result" [class.bad]="(r.diff_real || 0) > 0" [class.ok]="(r.diff_real || 0) < 0">
@@ -114,8 +114,8 @@ import { HasUnsavedChanges } from '../../../core/guards/unsaved-changes.guard';
         <div class="card-premium card-flat arq-panel">
           <h3 class="arq-card-title">Arqueos recientes</h3>
           <p-table [value]="rows()" styleClass="p-datatable-sm arq-table" [rowHover]="true" [loading]="loading()">
-            <ng-template pTemplate="header"><tr><th>Fecha</th><th>Tipo</th><th>Caja</th><th>Cajero</th><th class="ta-r">Contado</th><th class="ta-r">Diferencia</th></tr></ng-template>
-            <ng-template pTemplate="body" let-b>
+            <ng-template #header><tr><th>Fecha</th><th>Tipo</th><th>Caja</th><th>Cajero</th><th class="ta-r">Contado</th><th class="ta-r">Diferencia</th></tr></ng-template>
+            <ng-template #body let-b>
               <tr>
                 <td>{{ b.business_date | date:'dd/MM/yy' }}</td>
                 <td><p-tag [value]="b.tipo === 'relevo' ? 'Relevo' : 'Cierre'" [severity]="b.tipo === 'relevo' ? 'info' : 'secondary'" /></td>
@@ -125,7 +125,7 @@ import { HasUnsavedChanges } from '../../../core/guards/unsaved-changes.guard';
                 <td class="ta-r strong" [class.bad]="(b.diff_real||0)>0" [class.ok]="(b.diff_real||0)<0">{{ b.diff_real != null ? signed(b.diff_real) : '—' }}</td>
               </tr>
             </ng-template>
-            <ng-template pTemplate="emptymessage"><tr><td colspan="6" class="arq-empty">Sin arqueos aún. Capturá el primero a la izquierda.</td></tr></ng-template>
+            <ng-template #emptymessage><tr><td colspan="6" class="arq-empty">Sin arqueos aún. Capturá el primero a la izquierda.</td></tr></ng-template>
           </p-table>
         </div>
       </div>

@@ -45,7 +45,7 @@ import { DiotService, DiotRow, DiotResult, IvaResumen } from '../diot.service';
           <label class="di-period"><span>Periodo</span>
             <p-datepicker [(ngModel)]="periodD" (onSelect)="onPeriod()" view="month" dateFormat="mm/yy" [showIcon]="true" appendTo="body" ariaLabel="Periodo (mes)" styleClass="di-dp" />
           </label>
-          <button pButton type="button" label="Actualizar" icon="pi pi-refresh" class="p-button-sm p-button-outlined" [loading]="loading()" (click)="reload()"></button>
+          <button pButton type="button" class="p-button-sm p-button-outlined" [loading]="loading()" (click)="reload()"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span><span class="p-button-label">Actualizar</span></button>
         </div>
       </header>
 
@@ -65,7 +65,7 @@ import { DiotService, DiotRow, DiotResult, IvaResumen } from '../diot.service';
           </div>
         </div>
         <p-table [value]="filteredRows()" styleClass="p-datatable-sm di-table" [rowHover]="true" [loading]="loading()" [scrollable]="true" scrollHeight="520px" [paginator]="filteredRows().length > 50" [rows]="50">
-          <ng-template pTemplate="header">
+          <ng-template #header>
             <tr>
               <th>Proveedor</th>
               <th style="width:6rem">Tercero</th>
@@ -76,7 +76,7 @@ import { DiotService, DiotRow, DiotResult, IvaResumen } from '../diot.service';
               <th class="ta-r" style="width:5rem">CFDI</th>
             </tr>
           </ng-template>
-          <ng-template pTemplate="body" let-r>
+          <ng-template #body let-r>
             <tr>
               <td><div class="di-name">{{ r.nombre || r.rfc }}</div><div class="di-rfc mono">{{ r.rfc }}</div></td>
               <td><p-tag [value]="terceroLabel(r.tipo_tercero)" severity="secondary" styleClass="di-chip" /></td>
@@ -87,10 +87,10 @@ import { DiotService, DiotRow, DiotResult, IvaResumen } from '../diot.service';
               <td class="ta-r mono">{{ r.num_cfdis | number }}</td>
             </tr>
           </ng-template>
-          <ng-template pTemplate="emptymessage"><tr><td colspan="7" class="di-empty">
+          <ng-template #emptymessage><tr><td colspan="7" class="di-empty">
             @if (loading()) { Cargando… }
-            @else if (errored()) { <i class="pi pi-exclamation-triangle"></i> No se pudo calcular la DIOT. <button pButton type="button" label="Reintentar" class="p-button-sm p-button-text" (click)="reload()"></button> }
-            @else if (hasFilters()) { <i class="pi pi-filter-slash"></i> Ningún proveedor coincide con el filtro. <button pButton type="button" label="Limpiar" class="p-button-sm p-button-text" (click)="clearFilters()"></button> }
+            @else if (errored()) { <i class="pi pi-exclamation-triangle"></i> No se pudo calcular la DIOT. <button pButton type="button" class="p-button-sm p-button-text" (click)="reload()"><span class="p-button-label">Reintentar</span></button> }
+            @else if (hasFilters()) { <i class="pi pi-filter-slash"></i> Ningún proveedor coincide con el filtro. <button pButton type="button" class="p-button-sm p-button-text" (click)="clearFilters()"><span class="p-button-label">Limpiar</span></button> }
             @else { <i class="pi pi-inbox"></i> Sin operaciones con terceros en {{ period }}. Se llena al correr la <strong>descarga masiva</strong> de CFDI. }
           </td></tr></ng-template>
         </p-table>

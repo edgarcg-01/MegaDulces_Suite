@@ -45,13 +45,13 @@ import { ConciliacionService, PpdRow, ConciliacionStats, CruceStats, CfdiSinPoli
           <p class="surf-page-sub">Complementos de pago (REP) y cruce de CFDI contra la póliza contable. Determinista sobre lo descargado del SAT.</p>
         </div>
         <div class="co-head-actions">
-          <button pButton type="button" icon="pi pi-refresh" label="Actualizar" class="p-button-sm p-button-text" [loading]="loading()" (click)="reload()"></button>
+          <button pButton type="button" class="p-button-sm p-button-text" [loading]="loading()" (click)="reload()"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span><span class="p-button-label">Actualizar</span></button>
           @if (loadedAt()) { <app-freshness-pill [since]="loadedAt()" /> }
         </div>
       </header>
 
       <div class="co-viewsel">
-        <p-selectButton styleClass="sb-liquid" [options]="viewOpts" [ngModel]="view()" (ngModelChange)="setView($event)" optionLabel="label" optionValue="value" [allowEmpty]="false" ariaLabel="Vista de conciliación" />
+        <p-selectbutton styleClass="sb-liquid" [options]="viewOpts" [ngModel]="view()" (ngModelChange)="setView($event)" optionLabel="label" optionValue="value" [allowEmpty]="false" ariaLabel="Vista de conciliación" />
       </div>
 
       <div class="co-filters">
@@ -66,10 +66,10 @@ import { ConciliacionService, PpdRow, ConciliacionStats, CruceStats, CfdiSinPoli
           <p-datepicker [(ngModel)]="toD" (onSelect)="applyFilters()" (onClear)="applyFilters()" dateFormat="yy-mm-dd" [showIcon]="true" [showClear]="true" appendTo="body" placeholder="Hasta" />
         </label>
         @if (view() === 'rep') {
-          <p-selectButton styleClass="sb-liquid" [options]="rolOpts" [ngModel]="rol()" (ngModelChange)="setRol($event)" optionLabel="label" optionValue="value" [allowEmpty]="false" ariaLabel="Rol de los comprobantes" />
+          <p-selectbutton styleClass="sb-liquid" [options]="rolOpts" [ngModel]="rol()" (ngModelChange)="setRol($event)" optionLabel="label" optionValue="value" [allowEmpty]="false" ariaLabel="Rol de los comprobantes" />
         }
-        <button pButton type="button" label="Buscar" icon="pi pi-filter" class="p-button-sm p-button-outlined" (click)="applyFilters()"></button>
-        @if (hasFilters()) { <button pButton type="button" label="Limpiar" icon="pi pi-times" class="p-button-sm p-button-text" (click)="clearFilters()"></button> }
+        <button pButton type="button" class="p-button-sm p-button-outlined" (click)="applyFilters()"><span class="p-button-icon p-button-icon-left pi pi-filter" aria-hidden="true"></span><span class="p-button-label">Buscar</span></button>
+        @if (hasFilters()) { <button pButton type="button" class="p-button-sm p-button-text" (click)="clearFilters()"><span class="p-button-icon p-button-icon-left pi pi-times" aria-hidden="true"></span><span class="p-button-label">Limpiar</span></button> }
       </div>
 
       @if (view() === 'rep') {
@@ -77,15 +77,15 @@ import { ConciliacionService, PpdRow, ConciliacionStats, CruceStats, CfdiSinPoli
           <app-metric-strip [items]="repItems(s)" ariaLabel="Resumen REP" />
         }
         <div class="co-subseg">
-          <p-selectButton styleClass="sb-liquid" [options]="repTabOpts" [ngModel]="repTab()" (ngModelChange)="setRepTab($event)" optionLabel="label" optionValue="value" [allowEmpty]="false" ariaLabel="Sub-vista REP" />
+          <p-selectbutton styleClass="sb-liquid" [options]="repTabOpts" [ngModel]="repTab()" (ngModelChange)="setRepTab($event)" optionLabel="label" optionValue="value" [allowEmpty]="false" ariaLabel="Sub-vista REP" />
         </div>
         <div class="card-premium card-flat">
           <p-table [value]="repRows()" styleClass="p-datatable-sm co-table" [rowHover]="true" [loading]="loading()" [scrollable]="true" scrollHeight="520px"
                    [lazy]="true" [paginator]="total() > 50" [rows]="50" [first]="offset()" [totalRecords]="total()" (onLazyLoad)="onPage($event)">
-            <ng-template pTemplate="header">
+            <ng-template #header>
               <tr><th>Proveedor</th><th style="width:12rem">UUID</th><th style="width:7rem">Fecha</th><th class="ta-r" style="width:9rem">Total</th><th class="ta-r" style="width:9rem">Pagado</th><th class="ta-r" style="width:9rem">Saldo</th></tr>
             </ng-template>
-            <ng-template pTemplate="body" let-r>
+            <ng-template #body let-r>
               <tr>
                 <td><div class="co-name">{{ r.emisor_nombre || r.emisor_rfc || '—' }}</div><div class="co-rfc mono">{{ r.emisor_rfc }}</div></td>
                 <td class="mono co-uuid">{{ r.uuid }}</td>
@@ -95,7 +95,7 @@ import { ConciliacionService, PpdRow, ConciliacionStats, CruceStats, CfdiSinPoli
                 <td class="ta-r strong mono" [class.bad]="+r.saldo > 0">{{ money(r.saldo) }}</td>
               </tr>
             </ng-template>
-            <ng-template pTemplate="emptymessage"><tr><td colspan="6" class="co-empty">{{ emptyMsg() }}@if (errored()) { <button pButton type="button" label="Reintentar" class="p-button-sm p-button-text" (click)="reload()"></button> }</td></tr></ng-template>
+            <ng-template #emptymessage><tr><td colspan="6" class="co-empty">{{ emptyMsg() }}@if (errored()) { <button pButton type="button" class="p-button-sm p-button-text" (click)="reload()"><span class="p-button-label">Reintentar</span></button> }</td></tr></ng-template>
           </p-table>
         </div>
       } @else {
@@ -103,33 +103,33 @@ import { ConciliacionService, PpdRow, ConciliacionStats, CruceStats, CfdiSinPoli
           <app-metric-strip [items]="cruceItems(s)" ariaLabel="Resumen cruce pólizas/CFDI" />
         }
         <div class="co-subseg">
-          <p-selectButton styleClass="sb-liquid" [options]="cruceTabOpts" [ngModel]="cruceTab()" (ngModelChange)="setCruceTab($event)" optionLabel="label" optionValue="value" [allowEmpty]="false" ariaLabel="Sub-vista cruce" />
+          <p-selectbutton styleClass="sb-liquid" [options]="cruceTabOpts" [ngModel]="cruceTab()" (ngModelChange)="setCruceTab($event)" optionLabel="label" optionValue="value" [allowEmpty]="false" ariaLabel="Sub-vista cruce" />
         </div>
         <div class="card-premium card-flat">
           @if (cruceTab() === 'poliza') {
             <p-table [value]="polizaSinCfdi()" styleClass="p-datatable-sm co-table" [rowHover]="true" [loading]="loading()" [scrollable]="true" scrollHeight="520px"
                      [lazy]="true" [paginator]="total() > 50" [rows]="50" [first]="offset()" [totalRecords]="total()" (onLazyLoad)="onPage($event)">
-              <ng-template pTemplate="header"><tr><th>Beneficiario</th><th style="width:10rem">Documento</th><th style="width:7rem">Fecha</th><th class="ta-r" style="width:10rem">Importe</th></tr></ng-template>
-              <ng-template pTemplate="body" let-r>
+              <ng-template #header><tr><th>Beneficiario</th><th style="width:10rem">Documento</th><th style="width:7rem">Fecha</th><th class="ta-r" style="width:10rem">Importe</th></tr></ng-template>
+              <ng-template #body let-r>
                 <tr><td><div class="co-name">{{ r.beneficiario || r.rfc || '—' }}</div><div class="co-rfc mono">{{ r.rfc }}</div></td>
                 <td class="mono">{{ r.sucursal }}/{{ r.doc_tipo }}/{{ r.doc_folio }}</td>
                 <td class="mono">{{ r.fecha ? (r.fecha | date:'dd/MM/yy') : '—' }}</td>
                 <td class="ta-r strong mono">{{ money(r.importe) }}</td></tr>
               </ng-template>
-              <ng-template pTemplate="emptymessage"><tr><td colspan="4" class="co-empty">{{ emptyMsg() }}@if (errored()) { <button pButton type="button" label="Reintentar" class="p-button-sm p-button-text" (click)="reload()"></button> }</td></tr></ng-template>
+              <ng-template #emptymessage><tr><td colspan="4" class="co-empty">{{ emptyMsg() }}@if (errored()) { <button pButton type="button" class="p-button-sm p-button-text" (click)="reload()"><span class="p-button-label">Reintentar</span></button> }</td></tr></ng-template>
             </p-table>
           } @else {
             <p-table [value]="cfdiSinPoliza()" styleClass="p-datatable-sm co-table" [rowHover]="true" [loading]="loading()" [scrollable]="true" scrollHeight="520px"
                      [lazy]="true" [paginator]="total() > 50" [rows]="50" [first]="offset()" [totalRecords]="total()" (onLazyLoad)="onPage($event)">
-              <ng-template pTemplate="header"><tr><th>Emisor</th><th style="width:12rem">UUID</th><th style="width:7rem">Fecha</th><th style="width:5rem">Método</th><th class="ta-r" style="width:10rem">Total</th></tr></ng-template>
-              <ng-template pTemplate="body" let-r>
+              <ng-template #header><tr><th>Emisor</th><th style="width:12rem">UUID</th><th style="width:7rem">Fecha</th><th style="width:5rem">Método</th><th class="ta-r" style="width:10rem">Total</th></tr></ng-template>
+              <ng-template #body let-r>
                 <tr><td><div class="co-name">{{ r.emisor_nombre || r.emisor_rfc || '—' }}</div><div class="co-rfc mono">{{ r.emisor_rfc }}</div></td>
                 <td class="mono co-uuid">{{ r.uuid }}</td>
                 <td class="mono">{{ r.fecha ? (r.fecha | date:'dd/MM/yy') : '—' }}</td>
                 <td>@if (r.metodo_pago) { <p-tag [value]="r.metodo_pago" severity="secondary" styleClass="co-chip" /> } @else { — }</td>
                 <td class="ta-r strong mono">{{ money(r.total) }}</td></tr>
               </ng-template>
-              <ng-template pTemplate="emptymessage"><tr><td colspan="5" class="co-empty">{{ emptyMsg() }}@if (errored()) { <button pButton type="button" label="Reintentar" class="p-button-sm p-button-text" (click)="reload()"></button> }</td></tr></ng-template>
+              <ng-template #emptymessage><tr><td colspan="5" class="co-empty">{{ emptyMsg() }}@if (errored()) { <button pButton type="button" class="p-button-sm p-button-text" (click)="reload()"><span class="p-button-label">Reintentar</span></button> }</td></tr></ng-template>
             </p-table>
           }
         </div>

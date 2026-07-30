@@ -16,33 +16,47 @@ import { VendorService } from '../vendor.service';
   imports: [CommonModule],
   template: `
     <div class="ok" [class.fut]="isFuturo()">
-      <span class="confetti" *ngFor="let c of confetti" [style.left.%]="c.l" [style.background]="c.c" [style.animation-delay.s]="c.d"></span>
-
+      @for (c of confetti; track c) {
+        <span class="confetti" [style.left.%]="c.l" [style.background]="c.c" [style.animation-delay.s]="c.d"></span>
+      }
+    
       <div class="ok-check">
-        <svg viewBox="0 0 60 60" *ngIf="!isFuturo()"><path d="M16 31 L26 41 L44 20"/></svg>
-        <i *ngIf="isFuturo()" class="pi pi-calendar-plus"></i>
+        @if (!isFuturo()) {
+          <svg viewBox="0 0 60 60"><path d="M16 31 L26 41 L44 20"/></svg>
+        }
+        @if (isFuturo()) {
+          <i class="pi pi-calendar-plus"></i>
+        }
       </div>
-
+    
       <h2>{{ isFuturo() ? 'Pedido agendado' : 'Entregado' }}</h2>
       <div class="folio">
-        <ng-container *ngIf="offline()"><i class="pi pi-cloud-upload"></i> Se enviará al reconectar</ng-container>
-        <ng-container *ngIf="!offline()">{{ code() }}</ng-container>
-        <ng-container *ngIf="name()"> · {{ name() }}</ng-container>
+        @if (offline()) {
+          <i class="pi pi-cloud-upload"></i> Se enviará al reconectar
+        }
+        @if (!offline()) {
+          {{ code() }}
+        }
+        @if (name()) {
+          · {{ name() }}
+        }
       </div>
       <div class="amt">{{ fmtMoney(total()) }}</div>
       <div class="sub">{{ summary() }}</div>
-
+    
       <div class="acts">
-        <a *ngIf="wa() && !offline()" class="wa" [href]="waLink()" target="_blank" rel="noopener">
-          <i class="pi pi-whatsapp"></i> Enviar ticket por WhatsApp
-        </a>
+        @if (wa() && !offline()) {
+          <a class="wa" [href]="waLink()" target="_blank" rel="noopener">
+            <i class="pi pi-whatsapp"></i> Enviar ticket por WhatsApp
+          </a>
+        }
         <button class="ghost" (click)="goCaptureExhibit()"><i class="pi pi-camera"></i> Capturar exhibición</button>
         <button class="back" [disabled]="finishing()" (click)="finishVisit()">
           <i class="pi" [ngClass]="finishing() ? 'pi-spin pi-spinner' : 'pi-flag'"></i> Finalizar visita
         </button>
       </div>
     </div>
-  `,
+    `,
   styles: [
     `
       :host { display: block; }

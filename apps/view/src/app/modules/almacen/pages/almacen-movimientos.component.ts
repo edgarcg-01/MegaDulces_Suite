@@ -47,22 +47,20 @@ import { Permission } from '../../../core/constants/permissions';
               <span class="dm-strong">{{ money(s.totals.valor) }}</span> · {{ s.totals.documentos | number }} docs
             </div>
           }
-          <button pButton type="button" class="p-button-sm p-button-outlined" icon="pi pi-file-excel" label="Excel"
-                  [loading]="dlXlsx()" (click)="download('xlsx')" title="Documentos + validación de traspasos (filtros actuales)"></button>
-          <button pButton type="button" class="p-button-sm p-button-outlined" icon="pi pi-file-pdf" label="PDF"
-                  [loading]="dlPdf()" (click)="download('pdf')" title="Documentos + validación de traspasos (filtros actuales)"></button>
+          <button pButton type="button" class="p-button-sm p-button-outlined" [loading]="dlXlsx()" (click)="download('xlsx')" title="Documentos + validación de traspasos (filtros actuales)"><span class="p-button-icon p-button-icon-left pi pi-file-excel" aria-hidden="true"></span><span class="p-button-label">Excel</span></button>
+          <button pButton type="button" class="p-button-sm p-button-outlined" [loading]="dlPdf()" (click)="download('pdf')" title="Documentos + validación de traspasos (filtros actuales)"><span class="p-button-icon p-button-icon-left pi pi-file-pdf" aria-hidden="true"></span><span class="p-button-label">PDF</span></button>
         </div>
       </header>
 
       <!-- Filtros -->
       <div class="dm-filters">
-        <p-multiSelect [options]="destKindOpts" [(ngModel)]="fDestKinds" (onChange)="reload()"
+        <p-multiselect [options]="destKindOpts" [(ngModel)]="fDestKinds" (onChange)="reload()"
                        optionLabel="label" optionValue="value" placeholder="Destino"
                        [showClear]="false" [showToggleAll]="false" styleClass="dm-sel-sm"
-                       title="Destino de los traspasos. Por defecto solo sucursales; agregá Rutas para incluir reparto."></p-multiSelect>
-        <p-multiSelect [options]="warehouseOpts()" [(ngModel)]="fWarehouses" (onChange)="reload()"
+                       title="Destino de los traspasos. Por defecto solo sucursales; agregá Rutas para incluir reparto."></p-multiselect>
+        <p-multiselect [options]="warehouseOpts()" [(ngModel)]="fWarehouses" (onChange)="reload()"
                        optionLabel="label" optionValue="value" placeholder="Todos los almacenes" [showClear]="true"
-                       [maxSelectedLabels]="2" selectedItemsLabel="{0} almacenes" styleClass="dm-sel"></p-multiSelect>
+                       [maxSelectedLabels]="2" selectedItemsLabel="{0} almacenes" styleClass="dm-sel"></p-multiselect>
         <p-datepicker [(ngModel)]="fFrom" (onSelect)="reload()" dateFormat="yy-mm-dd" placeholder="Desde" [showIcon]="true" styleClass="dm-date" appendTo="body"></p-datepicker>
         <p-datepicker [(ngModel)]="fTo" (onSelect)="reload()" dateFormat="yy-mm-dd" placeholder="Hasta" [showIcon]="true" styleClass="dm-date" appendTo="body"></p-datepicker>
         <p-select [options]="kindOpts" [(ngModel)]="fKind" (onChange)="reload()"
@@ -71,28 +69,28 @@ import { Permission } from '../../../core/constants/permissions';
                   optionLabel="label" optionValue="value" placeholder="Tipo de documento" [showClear]="true" styleClass="dm-sel"></p-select>
         <p-select [options]="estadoOpts" [(ngModel)]="fEstado" (onChange)="reload()"
                   optionLabel="label" optionValue="value" placeholder="Estado (traspasos)" [showClear]="true" styleClass="dm-sel"></p-select>
-        <p-multiSelect [options]="warehouseOpts()" [(ngModel)]="fTransferWhs" (onChange)="reload()"
+        <p-multiselect [options]="warehouseOpts()" [(ngModel)]="fTransferWhs" (onChange)="reload()"
                        optionLabel="label" optionValue="value" placeholder="Origen/Destino (traspasos)" [showClear]="true"
                        [maxSelectedLabels]="2" selectedItemsLabel="{0} orígenes/destinos" styleClass="dm-sel"
-                       title="Solo documentos de traspaso donde el origen o el destino esté en la selección"></p-multiSelect>
+                       title="Solo documentos de traspaso donde el origen o el destino esté en la selección"></p-multiselect>
         <span class="dm-search">
           <input pInputText type="text" [(ngModel)]="fSearch" (keyup.enter)="reload()" placeholder="SKU o producto…" aria-label="Buscar por SKU o producto" />
         </span>
-        <button pButton type="button" icon="pi pi-search" class="p-button-sm p-button-text" (click)="reload()" ariaLabel="Buscar"></button>
+        <button pButton type="button" class="p-button-sm p-button-text" (click)="reload()" ariaLabel="Buscar"><span class="p-button-icon p-button-icon-left pi pi-search" aria-hidden="true"></span></button>
       </div>
 
       @if (error()) {
         <div class="dm-error" role="alert">
           <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
           <span>{{ error() }}</span>
-          <button pButton type="button" class="p-button-sm p-button-text" label="Reintentar" (click)="reload()"></button>
+          <button pButton type="button" class="p-button-sm p-button-text" (click)="reload()"><span class="p-button-label">Reintentar</span></button>
         </div>
       }
 
       <!-- Tabla por DÍA (expandible) -->
       <p-table [value]="days()" [loading]="loading()" dataKey="key" [expandedRowKeys]="expanded"
                (onRowExpand)="onDayExpand($event.data)" styleClass="p-datatable-sm dm-table" [scrollable]="true" scrollHeight="flex">
-        <ng-template pTemplate="header">
+        <ng-template #header>
           <tr>
             <th style="width:2.5rem"></th>
             <th>Día</th>
@@ -102,10 +100,10 @@ import { Permission } from '../../../core/constants/permissions';
             <th class="dm-r" style="width:9rem">Valor</th>
           </tr>
         </ng-template>
-        <ng-template pTemplate="body" let-day let-expanded="expanded">
+        <ng-template #body let-day let-expanded="expanded">
           <tr class="dm-day-row">
-            <td><button type="button" pButton [pRowToggler]="day" class="p-button-text p-button-sm p-button-rounded"
-                        [icon]="expanded ? 'pi pi-chevron-down' : 'pi pi-chevron-right'"></button></td>
+            <td><p-button type="button" pButton [pRowToggler]="day" styleClass="p-button-text p-button-sm p-button-rounded"
+                        [icon]="expanded ? 'pi pi-chevron-down' : 'pi pi-chevron-right'"></p-button></td>
             <td class="dm-strong">{{ dayLabel(day.key) }}</td>
             <td class="dm-r dm-muted">{{ day.documentos | number }}</td>
             <td class="dm-r up">{{ day.entradas ? ('+' + (day.entradas | number:'1.0-2')) : '—' }}</td>
@@ -113,7 +111,7 @@ import { Permission } from '../../../core/constants/permissions';
             <td class="dm-r dm-strong">{{ money(day.valor || 0) }}</td>
           </tr>
         </ng-template>
-        <ng-template pTemplate="rowexpansion" let-day>
+        <ng-template #expandedrow let-day>
           <tr>
             <td colspan="6" class="dm-exp">
               @if (dayLoading()[day.key]) { <div class="dm-empty">Cargando documentos…</div> }
@@ -161,7 +159,7 @@ import { Permission } from '../../../core/constants/permissions';
             </td>
           </tr>
         </ng-template>
-        <ng-template pTemplate="emptymessage">
+        <ng-template #emptymessage>
           <tr><td colspan="6" class="dm-empty">Sin movimientos en el rango seleccionado.</td></tr>
         </ng-template>
       </p-table>
@@ -169,7 +167,7 @@ import { Permission } from '../../../core/constants/permissions';
 
     <!-- Documento + relación + contraparte -->
     <p-dialog [(visible)]="docOpen" [modal]="true" [style]="{ width: cpDoc() ? '68rem' : '46rem', maxWidth: '96vw' }" [dismissableMask]="true" styleClass="dm-dlg">
-      <ng-template pTemplate="header"><span class="dm-dlg-title">Documento {{ doc()?.header?.folio }}</span></ng-template>
+      <ng-template #header><span class="dm-dlg-title">Documento {{ doc()?.header?.folio }}</span></ng-template>
       @if (docLoading()) { <div class="dm-empty">Cargando documento…</div> }
       @else if (docError()) {
         <div class="dm-error" role="alert">
@@ -235,9 +233,9 @@ import { Permission } from '../../../core/constants/permissions';
           <div class="dm-audit-bar">
             @if (h.audited) {
               <span class="dm-audited-note"><i class="pi pi-verified"></i> Auditado por {{ h.audited_by || '—' }} · {{ h.audited_at | date:'yyyy-MM-dd HH:mm' }}</span>
-              <button pButton type="button" class="p-button-sm p-button-text p-button-secondary" label="Quitar auditoría" [disabled]="!canAudit" (click)="toggleAuditDoc(h)"></button>
+              <button pButton type="button" class="p-button-sm p-button-text p-button-secondary" [disabled]="!canAudit" (click)="toggleAuditDoc(h)"><span class="p-button-label">Quitar auditoría</span></button>
             } @else {
-              <button pButton type="button" class="dm-audit-btn" icon="pi pi-check-circle" [label]="auditLabel(h)" [disabled]="!canAudit" (click)="toggleAuditDoc(h)"></button>
+              <p-button pButton type="button" styleClass="dm-audit-btn" icon="pi pi-check-circle" [label]="auditLabel(h)" [disabled]="!canAudit" (click)="toggleAuditDoc(h)"></p-button>
             }
           </div>
         } @else { <div class="dm-empty">Documento sin líneas.</div> }
@@ -247,10 +245,10 @@ import { Permission } from '../../../core/constants/permissions';
     <!-- Tabla de líneas reutilizable -->
     <ng-template #linesTpl let-lines="lines" let-totals="totals">
       <p-table [value]="lines" styleClass="p-datatable-sm dm-dtable" [scrollable]="true" scrollHeight="20rem">
-        <ng-template pTemplate="header">
+        <ng-template #header>
           <tr><th>SKU</th><th>Producto</th><th class="dm-r">Cant.</th><th class="dm-r">Importe</th></tr>
         </ng-template>
-        <ng-template pTemplate="body" let-l>
+        <ng-template #body let-l>
           <tr>
             <td class="dm-mono">{{ l.sku }}</td>
             <td class="dm-dname" [title]="l.product_name">{{ l.product_name || '—' }}</td>

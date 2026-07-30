@@ -1,110 +1,120 @@
-<div class="offline-status-container" *ngIf="isOffline || isSynchronizing || visitasPendientes > 0 || visitasMuertas > 0 || showDetails">
-  <!-- Estado principal -->
-  <div class="status-bar" [class]="getStatusColor()" (click)="toggleDetails()">
-    <i [class]="getStatusIcon()"></i>
-    <span class="status-text">{{ getStatusText() }}</span>
-    <span class="pending-count" *ngIf="visitasPendientes > 0">
-      {{ visitasPendientes }}
-    </span>
-    <i class="pi pi-chevron-down toggle-icon" [class.rotate]="showDetails"></i>
+@if (isOffline || isSynchronizing || visitasPendientes > 0 || visitasMuertas > 0 || showDetails) {
+  <div class="offline-status-container">
+    <!-- Estado principal -->
+    <div class="status-bar" [class]="getStatusColor()" (click)="toggleDetails()">
+      <i [class]="getStatusIcon()"></i>
+      <span class="status-text">{{ getStatusText() }}</span>
+      @if (visitasPendientes > 0) {
+        <span class="pending-count">
+          {{ visitasPendientes }}
+        </span>
+      }
+      <i class="pi pi-chevron-down toggle-icon" [class.rotate]="showDetails"></i>
+    </div>
+    <!-- Detalles expandidos -->
+    @if (showDetails) {
+      <div class="status-details">
+        <div class="detail-section">
+          <h4>Estado de Conexión</h4>
+          <div class="detail-item">
+            <i class="pi" [class]="isOnline ? 'pi-check-circle text-ok-fg' : 'pi-times-circle text-bad-fg'"></i>
+            <span>{{ isOnline ? 'En línea' : 'Sin conexión' }}</span>
+          </div>
+          <div class="detail-item">
+            <i class="pi pi-clock text-info-fg"></i>
+            <span>Última sincronización: {{ getUltimaSincronizacionText() }}</span>
+          </div>
+        </div>
+        @if (isOffline || visitasPendientes > 0) {
+          <div class="detail-section">
+            <h4>Datos Offline</h4>
+            <div class="detail-item">
+              <i class="pi pi-shopping-bag text-chart-3"></i>
+              <span>Tiendas disponibles: {{ tiendasOffline }}</span>
+            </div>
+            <div class="detail-item">
+              <i class="pi pi-database text-info-fg"></i>
+              <span>Catálogos actualizados: {{ catalogosActualizados ? 'Sí' : 'No' }}</span>
+            </div>
+            <div class="detail-item">
+              <i class="pi pi-map-marker text-ok-fg"></i>
+              <span>GPS disponible: {{ gpsDisponible ? 'Sí' : 'No' }}</span>
+            </div>
+            @if (visitasPendientes > 0) {
+              <div class="detail-item">
+                <i class="pi pi-exclamation-triangle text-warn-fg"></i>
+                <span>Visitas pendientes: {{ visitasPendientes }}</span>
+              </div>
+            }
+            @if (visitasMuertas > 0) {
+              <div class="detail-item">
+                <i class="pi pi-times-circle text-bad-fg"></i>
+                <span>Visitas atascadas (revisión manual): <strong>{{ visitasMuertas }}</strong></span>
+              </div>
+            }
+          </div>
+        }
+        <!-- Watchdog visual: si sync lleva >30s, mostrar duración + acción -->
+        @if (isSynchronizing && syncStuckMs > 5000) {
+          <div class="detail-section">
+            <h4>Sincronizando…</h4>
+            <div class="detail-item">
+              <i class="pi pi-spin pi-spinner text-info-fg"></i>
+              <span>Tiempo transcurrido: {{ (syncStuckMs / 1000) | number:'1.0-0' }}s</span>
+            </div>
+            @if (isSyncStuck) {
+              <div class="detail-item">
+                <i class="pi pi-exclamation-triangle text-warn-fg"></i>
+                <span>Parece colgada. Podés reiniciar y reintentar en el próximo ciclo.</span>
+              </div>
+            }
+          </div>
+        }
+        <div class="actions-section">
+          <button
+            pButton
+            type="button"
+            class="p-button-sm p-button-outlined mr-2"
+            [disabled]="isSynchronizing || !isOnline"
+            (click)="forzarSincronizacion()">
+            <i class="pi" [class]="isSynchronizing ? 'pi-spin pi-spinner' : 'pi-refresh'"></i>
+            <span class="ml-2">{{ isSynchronizing ? 'Sincronizando...' : 'Forzar Sincronización' }}</span>
+          </button>
+          <!-- Reset manual cuando el sync lleva >30s — desbloquea al usuario -->
+          @if (isSyncStuck) {
+            <button
+              pButton
+              type="button"
+              class="p-button-sm p-button-outlined p-button-warning mr-2"
+              (click)="reiniciarSincronizacion()">
+              <i class="pi pi-undo"></i>
+              <span class="ml-2">Reiniciar sincronización</span>
+            </button>
+          }
+          <button
+            pButton
+            type="button"
+            class="p-button-sm p-button-outlined p-button-danger"
+            (click)="limpiarDatosOffline()">
+            <i class="pi pi-trash"></i>
+            <span class="ml-2">Limpiar Datos</span>
+          </button>
+        </div>
+        <!-- Información adicional -->
+        <div class="info-section">
+          <div class="p-message p-message-info">
+            @if (isOffline) {
+              Estás trabajando sin conexión. Los datos se guardarán localmente y se sincronizarán automáticamente cuando vuelvas a estar en línea.
+            }
+            @if (!isOffline && visitasPendientes > 0) {
+              Tienes visitas pendientes de sincronización. Se sincronizarán automáticamente o puedes forzar la sincronización manualmente.
+            }
+            @if (!isOffline && visitasPendientes === 0) {
+              Todos tus datos están sincronizados correctamente.
+            }
+          </div>
+        </div>
+      </div>
+    }
   </div>
-
-  <!-- Detalles expandidos -->
-  <div class="status-details" *ngIf="showDetails">
-    <div class="detail-section">
-      <h4>Estado de Conexión</h4>
-      <div class="detail-item">
-        <i class="pi" [class]="isOnline ? 'pi-check-circle text-ok-fg' : 'pi-times-circle text-bad-fg'"></i>
-        <span>{{ isOnline ? 'En línea' : 'Sin conexión' }}</span>
-      </div>
-      <div class="detail-item">
-        <i class="pi pi-clock text-info-fg"></i>
-        <span>Última sincronización: {{ getUltimaSincronizacionText() }}</span>
-      </div>
-    </div>
-
-    <div class="detail-section" *ngIf="isOffline || visitasPendientes > 0">
-      <h4>Datos Offline</h4>
-      <div class="detail-item">
-        <i class="pi pi-shopping-bag text-chart-3"></i>
-        <span>Tiendas disponibles: {{ tiendasOffline }}</span>
-      </div>
-      <div class="detail-item">
-        <i class="pi pi-database text-info-fg"></i>
-        <span>Catálogos actualizados: {{ catalogosActualizados ? 'Sí' : 'No' }}</span>
-      </div>
-      <div class="detail-item">
-        <i class="pi pi-map-marker text-ok-fg"></i>
-        <span>GPS disponible: {{ gpsDisponible ? 'Sí' : 'No' }}</span>
-      </div>
-      <div class="detail-item" *ngIf="visitasPendientes > 0">
-        <i class="pi pi-exclamation-triangle text-warn-fg"></i>
-        <span>Visitas pendientes: {{ visitasPendientes }}</span>
-      </div>
-      <div class="detail-item" *ngIf="visitasMuertas > 0">
-        <i class="pi pi-times-circle text-bad-fg"></i>
-        <span>Visitas atascadas (revisión manual): <strong>{{ visitasMuertas }}</strong></span>
-      </div>
-    </div>
-
-    <!-- Watchdog visual: si sync lleva >30s, mostrar duración + acción -->
-    <div class="detail-section" *ngIf="isSynchronizing && syncStuckMs > 5000">
-      <h4>Sincronizando…</h4>
-      <div class="detail-item">
-        <i class="pi pi-spin pi-spinner text-info-fg"></i>
-        <span>Tiempo transcurrido: {{ (syncStuckMs / 1000) | number:'1.0-0' }}s</span>
-      </div>
-      <div class="detail-item" *ngIf="isSyncStuck">
-        <i class="pi pi-exclamation-triangle text-warn-fg"></i>
-        <span>Parece colgada. Podés reiniciar y reintentar en el próximo ciclo.</span>
-      </div>
-    </div>
-
-    <div class="actions-section">
-      <button
-        pButton
-        type="button"
-        class="p-button-sm p-button-outlined mr-2"
-        [disabled]="isSynchronizing || !isOnline"
-        (click)="forzarSincronizacion()">
-        <i class="pi" [class]="isSynchronizing ? 'pi-spin pi-spinner' : 'pi-refresh'"></i>
-        <span class="ml-2">{{ isSynchronizing ? 'Sincronizando...' : 'Forzar Sincronización' }}</span>
-      </button>
-
-      <!-- Reset manual cuando el sync lleva >30s — desbloquea al usuario -->
-      <button
-        pButton
-        *ngIf="isSyncStuck"
-        type="button"
-        class="p-button-sm p-button-outlined p-button-warning mr-2"
-        (click)="reiniciarSincronizacion()">
-        <i class="pi pi-undo"></i>
-        <span class="ml-2">Reiniciar sincronización</span>
-      </button>
-
-      <button
-        pButton
-        type="button"
-        class="p-button-sm p-button-outlined p-button-danger"
-        (click)="limpiarDatosOffline()">
-        <i class="pi pi-trash"></i>
-        <span class="ml-2">Limpiar Datos</span>
-      </button>
-    </div>
-
-    <!-- Información adicional -->
-    <div class="info-section">
-      <div class="p-message p-message-info">
-        <ng-container *ngIf="isOffline">
-          Estás trabajando sin conexión. Los datos se guardarán localmente y se sincronizarán automáticamente cuando vuelvas a estar en línea.
-        </ng-container>
-        <ng-container *ngIf="!isOffline && visitasPendientes > 0">
-          Tienes visitas pendientes de sincronización. Se sincronizarán automáticamente o puedes forzar la sincronización manualmente.
-        </ng-container>
-        <ng-container *ngIf="!isOffline && visitasPendientes === 0">
-          Todos tus datos están sincronizados correctamente.
-        </ng-container>
-      </div>
-    </div>
-  </div>
-</div>
+}

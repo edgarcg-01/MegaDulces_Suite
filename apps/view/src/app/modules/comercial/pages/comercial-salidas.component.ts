@@ -71,14 +71,14 @@ const MES: Record<string, string> = {
           @case ('range') {
             <div class="sl-field">
               <label>Rango</label>
-              <p-datePicker [(ngModel)]="rangeDates" selectionMode="range" dateFormat="dd/mm/yy" [showIcon]="true"
+              <p-datepicker [(ngModel)]="rangeDates" selectionMode="range" dateFormat="dd/mm/yy" [showIcon]="true"
                             [maxDate]="today" appendTo="body" (onSelect)="onRangePick()" (onClose)="onRangePick()" />
             </div>
           }
         }
         <div class="sl-field">
           <label>Sucursales</label>
-          <p-multiSelect [options]="warehouseOpts()" [(ngModel)]="warehouses" optionLabel="name" optionValue="code"
+          <p-multiselect [options]="warehouseOpts()" [(ngModel)]="warehouses" optionLabel="name" optionValue="code"
                          placeholder="Todas" [showClear]="true" appendTo="body" styleClass="w-full" (onPanelHide)="load()" />
         </div>
         <div class="sl-field sl-brand">
@@ -104,7 +104,7 @@ const MES: Record<string, string> = {
           <app-product-search placeholder="SKU (5 díg.) o descripción…" (productSelected)="onProductPick($event)" />
         </div>
         <div class="sl-actions">
-          <button pButton label="Consultar" icon="pi pi-search" size="small" [loading]="loading()" (click)="load()"></button>
+          <button pButton size="small" [loading]="loading()" (click)="load()"><span class="p-button-icon p-button-icon-left pi pi-search" aria-hidden="true"></span><span class="p-button-label">Consultar</span></button>
         </div>
       </div>
 
@@ -112,8 +112,7 @@ const MES: Record<string, string> = {
         <div class="so-actions-bar">
           <span class="text-xs text-content-muted">{{ r.rows.length | number }} filas · {{ periodLabel() }}</span>
           <div class="so-dl">
-            <button pButton label="XLSX" icon="pi pi-file-excel" size="small" severity="secondary" [outlined]="true"
-                    [loading]="dl()" (click)="download()"></button>
+            <button pButton size="small" severity="secondary" [outlined]="true" [loading]="dl()" (click)="download()"><span class="p-button-icon p-button-icon-left pi pi-file-excel" aria-hidden="true"></span><span class="p-button-label">XLSX</span></button>
           </div>
         </div>
 
@@ -124,40 +123,40 @@ const MES: Record<string, string> = {
                      [paginator]="true" [rows]="50" [rowsPerPageOptions]="[50, 100, 200]"
                      sortField="venta_total" [sortOrder]="-1"
                      styleClass="p-datatable-sm surf-table sl-ptable">
-              <ng-template pTemplate="header">
+              <ng-template #header>
                 <tr>
-                  <th scope="col" pFrozenColumn style="min-width:150px" pSortableColumn="warehouse_name">Sucursal <p-sortIcon field="warehouse_name" /></th>
-                  <th scope="col" pFrozenColumn style="min-width:110px" pSortableColumn="sku">Clave <p-sortIcon field="sku" /></th>
-                  <th scope="col" pFrozenColumn style="min-width:240px" pSortableColumn="nombre">Descripción <p-sortIcon field="nombre" /></th>
-                  <th scope="col" class="comm-num" pSortableColumn="pack_size" pTooltip="Piezas por paquete (Kepler c81)">Pz/Paq <p-sortIcon field="pack_size" /></th>
-                  <th scope="col" class="comm-num" pSortableColumn="box_size" pTooltip="Piezas por caja (etiqueta c84, o factor de venta) — la unidad con que se calcula Costo x Caja">Pz/Cja <p-sortIcon field="box_size" /></th>
-                  <th scope="col" pSortableColumn="unit_sale">Unidad <p-sortIcon field="unit_sale" /></th>
-                  <th scope="col" pSortableColumn="brand">Marca <p-sortIcon field="brand" /></th>
-                  <th scope="col" pSortableColumn="supplier">Proveedor <p-sortIcon field="supplier" /></th>
-                  <th scope="col" pSortableColumn="categoria">Categoría <p-sortIcon field="categoria" /></th>
-                  <th scope="col" pSortableColumn="rotation_tier">Rot. <p-sortIcon field="rotation_tier" /></th>
-                  <th scope="col" class="comm-num" pSortableColumn="exist_paq">Exist. Pza <p-sortIcon field="exist_paq" /></th>
-                  <th scope="col" class="comm-num" pSortableColumn="exist_paquete">Exist. Paq <p-sortIcon field="exist_paquete" /></th>
-                  <th scope="col" class="comm-num" pSortableColumn="exist_caja">Exist. Cja <p-sortIcon field="exist_caja" /></th>
-                  <th scope="col" class="comm-num" pSortableColumn="costo_caja">Costo x Caja <p-sortIcon field="costo_caja" /></th>
+                  <th scope="col" pFrozenColumn style="min-width:150px" pSortableColumn="warehouse_name">Sucursal <p-sorticon field="warehouse_name" /></th>
+                  <th scope="col" pFrozenColumn style="min-width:110px" pSortableColumn="sku">Clave <p-sorticon field="sku" /></th>
+                  <th scope="col" pFrozenColumn style="min-width:240px" pSortableColumn="nombre">Descripción <p-sorticon field="nombre" /></th>
+                  <th scope="col" class="comm-num" pSortableColumn="pack_size" pTooltip="Piezas por paquete (Kepler c81)">Pz/Paq <p-sorticon field="pack_size" /></th>
+                  <th scope="col" class="comm-num" pSortableColumn="box_size" pTooltip="Piezas por caja (etiqueta c84, o factor de venta) — la unidad con que se calcula Costo x Caja">Pz/Cja <p-sorticon field="box_size" /></th>
+                  <th scope="col" pSortableColumn="unit_sale">Unidad <p-sorticon field="unit_sale" /></th>
+                  <th scope="col" pSortableColumn="brand">Marca <p-sorticon field="brand" /></th>
+                  <th scope="col" pSortableColumn="supplier">Proveedor <p-sorticon field="supplier" /></th>
+                  <th scope="col" pSortableColumn="categoria">Categoría <p-sorticon field="categoria" /></th>
+                  <th scope="col" pSortableColumn="rotation_tier">Rot. <p-sorticon field="rotation_tier" /></th>
+                  <th scope="col" class="comm-num" pSortableColumn="exist_paq">Exist. Pza <p-sorticon field="exist_paq" /></th>
+                  <th scope="col" class="comm-num" pSortableColumn="exist_paquete">Exist. Paq <p-sorticon field="exist_paquete" /></th>
+                  <th scope="col" class="comm-num" pSortableColumn="exist_caja">Exist. Cja <p-sorticon field="exist_caja" /></th>
+                  <th scope="col" class="comm-num" pSortableColumn="costo_caja">Costo x Caja <p-sorticon field="costo_caja" /></th>
                   @if (isRange()) {
-                    <th scope="col" class="comm-num sl-strong" pSortableColumn="venta_total">Venta <p-sortIcon field="venta_total" /></th>
-                    <th scope="col" class="comm-num" pSortableColumn="venta_prev">Anterior <p-sortIcon field="venta_prev" /></th>
-                    <th scope="col" class="comm-num" pSortableColumn="venta_delta_pct">Var % <p-sortIcon field="venta_delta_pct" /></th>
-                    <th scope="col" class="comm-num sl-sec" pSortableColumn="costo_total">Costo <p-sortIcon field="costo_total" /></th>
+                    <th scope="col" class="comm-num sl-strong" pSortableColumn="venta_total">Venta <p-sorticon field="venta_total" /></th>
+                    <th scope="col" class="comm-num" pSortableColumn="venta_prev">Anterior <p-sorticon field="venta_prev" /></th>
+                    <th scope="col" class="comm-num" pSortableColumn="venta_delta_pct">Var % <p-sorticon field="venta_delta_pct" /></th>
+                    <th scope="col" class="comm-num sl-sec" pSortableColumn="costo_total">Costo <p-sorticon field="costo_total" /></th>
                   } @else {
                     @for (m of r.months; track m) {
-                      <th scope="col" class="comm-num" [pSortableColumn]="'monthly.' + m + '.venta'">Venta {{ mes(m) }} <p-sortIcon [field]="'monthly.' + m + '.venta'" /></th>
-                      <th scope="col" class="comm-num sl-sec" [pSortableColumn]="'monthly.' + m + '.costo'">Costo {{ mes(m) }} <p-sortIcon [field]="'monthly.' + m + '.costo'" /></th>
+                      <th scope="col" class="comm-num" [pSortableColumn]="'monthly.' + m + '.venta'">Venta {{ mes(m) }} <p-sorticon [field]="'monthly.' + m + '.venta'" /></th>
+                      <th scope="col" class="comm-num sl-sec" [pSortableColumn]="'monthly.' + m + '.costo'">Costo {{ mes(m) }} <p-sorticon [field]="'monthly.' + m + '.costo'" /></th>
                     }
-                    <th scope="col" class="comm-num sl-strong" pSortableColumn="venta_total">Venta TOTAL <p-sortIcon field="venta_total" /></th>
+                    <th scope="col" class="comm-num sl-strong" pSortableColumn="venta_total">Venta TOTAL <p-sorticon field="venta_total" /></th>
                   }
-                  <th scope="col" class="comm-num" pSortableColumn="venta_paquetes">Venta paq <p-sortIcon field="venta_paquetes" /></th>
-                  <th scope="col" class="comm-num" pSortableColumn="venta_cajas">Venta cja <p-sortIcon field="venta_cajas" /></th>
-                  <th scope="col" class="comm-num" pSortableColumn="dias_cobertura">Cobertura <p-sortIcon field="dias_cobertura" /></th>
+                  <th scope="col" class="comm-num" pSortableColumn="venta_paquetes">Venta paq <p-sorticon field="venta_paquetes" /></th>
+                  <th scope="col" class="comm-num" pSortableColumn="venta_cajas">Venta cja <p-sorticon field="venta_cajas" /></th>
+                  <th scope="col" class="comm-num" pSortableColumn="dias_cobertura">Cobertura <p-sorticon field="dias_cobertura" /></th>
                 </tr>
               </ng-template>
-              <ng-template pTemplate="body" let-row>
+              <ng-template #body let-row>
                 <tr>
                   <td pFrozenColumn class="comm-cell-strong">{{ row.warehouse_name }}</td>
                   <td pFrozenColumn><code class="comm-code">{{ row.sku }}</code></td>

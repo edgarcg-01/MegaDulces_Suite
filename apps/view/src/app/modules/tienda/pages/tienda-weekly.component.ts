@@ -45,14 +45,14 @@ type TrendMetric = 'revenue' | 'units';
                     [ngModel]="weekSel()" (ngModelChange)="onWeek($event)" styleClass="sel-liquid wk-select" appendTo="body"></p-select>
         </label>
         <label class="wk-ctl">Tendencia
-          <p-selectButton [options]="weeksOptions" optionLabel="label" optionValue="value" [allowEmpty]="false"
+          <p-selectbutton [options]="weeksOptions" optionLabel="label" optionValue="value" [allowEmpty]="false"
                           [ngModel]="weeksN()" (ngModelChange)="onWeeks($event)" styleClass="sb-liquid" />
         </label>
       </div>
 
       @if (error()) {
         <div class="wk-banner"><i class="pi pi-exclamation-triangle"></i> No se pudo cargar el análisis.
-          <button pButton type="button" label="Reintentar" class="p-button-text p-button-sm" (click)="load()"></button></div>
+          <button pButton type="button" class="p-button-text p-button-sm" (click)="load()"><span class="p-button-label">Reintentar</span></button></div>
       }
 
       @if (rep(); as r) {
@@ -64,7 +64,7 @@ type TrendMetric = 'revenue' | 'units';
         <div class="card-premium card-flat wk-panel">
           <div class="wk-panel-head">
             <h3 class="wk-card-title">Tendencia — últimas {{ r.weeks }} semanas</h3>
-            <p-selectButton [options]="metricOptions" optionLabel="label" optionValue="value" [allowEmpty]="false"
+            <p-selectbutton [options]="metricOptions" optionLabel="label" optionValue="value" [allowEmpty]="false"
                             [ngModel]="metric()" (ngModelChange)="metric.set($event)" styleClass="sb-liquid sb-liquid-sm" />
           </div>
           @if (r.series.length) {
@@ -79,8 +79,8 @@ type TrendMetric = 'revenue' | 'units';
           <div class="card-premium card-flat wk-panel">
             <h3 class="wk-card-title">Por sucursal</h3>
             <p-table [value]="r.by_branch" styleClass="p-datatable-sm wk-table" [rowHover]="true">
-              <ng-template pTemplate="header"><tr><th>Sucursal</th><th class="ta-r">Venta</th><th class="ta-r">Δ%</th><th class="ta-r">Margen</th><th class="ta-r">Unidades</th><th class="ta-r">Δ%</th></tr></ng-template>
-              <ng-template pTemplate="body" let-b>
+              <ng-template #header><tr><th>Sucursal</th><th class="ta-r">Venta</th><th class="ta-r">Δ%</th><th class="ta-r">Margen</th><th class="ta-r">Unidades</th><th class="ta-r">Δ%</th></tr></ng-template>
+              <ng-template #body let-b>
                 <tr>
                   <td>{{ b.name || b.code }}</td>
                   <td class="ta-r strong">{{ money(b.revenue) }}</td>
@@ -98,8 +98,8 @@ type TrendMetric = 'revenue' | 'units';
         <div class="card-premium card-flat wk-panel">
           <h3 class="wk-card-title">Top productos de la semana</h3>
           <p-table [value]="r.by_product" styleClass="p-datatable-sm wk-table" [rowHover]="true" [scrollable]="true" scrollHeight="480px">
-            <ng-template pTemplate="header"><tr><th>Producto</th><th>Marca</th><th class="ta-r">Venta</th><th class="ta-r">Δ% vs sem. ant.</th><th class="ta-r">Unidades</th></tr></ng-template>
-            <ng-template pTemplate="body" let-p>
+            <ng-template #header><tr><th>Producto</th><th>Marca</th><th class="ta-r">Venta</th><th class="ta-r">Δ% vs sem. ant.</th><th class="ta-r">Unidades</th></tr></ng-template>
+            <ng-template #body let-p>
               <tr>
                 <td><span class="wk-prod">{{ p.nombre }}</span><span class="wk-sku">{{ p.sku }}</span></td>
                 <td class="muted">{{ p.brand || '—' }}</td>
@@ -108,7 +108,7 @@ type TrendMetric = 'revenue' | 'units';
                 <td class="ta-r">{{ num(p.units) }}</td>
               </tr>
             </ng-template>
-            <ng-template pTemplate="emptymessage"><tr><td colspan="5" class="wk-empty">Sin venta en la semana seleccionada.</td></tr></ng-template>
+            <ng-template #emptymessage><tr><td colspan="5" class="wk-empty">Sin venta en la semana seleccionada.</td></tr></ng-template>
           </p-table>
         </div>
       } @else if (!error()) {

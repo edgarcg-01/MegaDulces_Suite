@@ -48,7 +48,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
   template: `
     <div class="surf-page logr">
       <p-toast></p-toast>
-
+    
       <header class="surf-page-head">
         <div class="surf-page-head-text">
           <h1>Reportes Logística</h1>
@@ -57,11 +57,11 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
         <div class="filter-bar">
           <p-datepicker [(ngModel)]="from" dateFormat="yy-mm-dd" placeholder="Desde" [showButtonBar]="true"></p-datepicker>
           <p-datepicker [(ngModel)]="to" dateFormat="yy-mm-dd" placeholder="Hasta" [showButtonBar]="true"></p-datepicker>
-          <button pButton icon="pi pi-refresh" label="Aplicar" (click)="reload()" [loading]="loading()"></button>
-          <button pButton icon="pi pi-file-pdf" label="PDF ejecutivo" severity="secondary" [outlined]="true" (click)="downloadExecutivePdf()"></button>
+          <button pButton (click)="reload()" [loading]="loading()"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span><span class="p-button-label">Aplicar</span></button>
+          <button pButton severity="secondary" [outlined]="true" (click)="downloadExecutivePdf()"><span class="p-button-icon p-button-icon-left pi pi-file-pdf" aria-hidden="true"></span><span class="p-button-label">PDF ejecutivo</span></button>
         </div>
       </header>
-
+    
       <p-tabs value="overview">
         <p-tablist>
           <p-tab value="overview"><i class="pi pi-th-large"></i> Overview</p-tab>
@@ -71,33 +71,32 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
           <p-tab value="erp"><i class="pi pi-database"></i> Embarques ERP</p-tab>
         </p-tablist>
         <p-tabpanels>
-
+    
           <!-- ──── Tab 1: Overview KPI ──── -->
           <p-tabpanel value="overview">
-            <ng-container *ngIf="kpi() as k">
+            @if (kpi(); as k) {
               <div class="surf-grid logr-kpis">
                 <app-metric-card class="panel-col-6" [large]="true"
                   label="Margen del período" variant="sparkline" accent="var(--action)"
                   [value]="k.financial.margen" format="currency"
                   [delta]="kpis()?.margin?.delta_pct ?? null"
                   [series]="kpis()?.margin?.series || []"
-                  sub="Revenue − Costos − Comisiones"></app-metric-card>
+                sub="Revenue − Costos − Comisiones"></app-metric-card>
                 <app-metric-card class="panel-col-3"
                   label="Revenue flete" variant="sparkline" accent="var(--chart-2)"
                   [value]="k.financial.revenue" format="currency"
                   [delta]="kpis()?.revenue?.delta_pct ?? null"
-                  [series]="kpis()?.revenue?.series || []" sub="Fletes cobrados"></app-metric-card>
+                [series]="kpis()?.revenue?.series || []" sub="Fletes cobrados"></app-metric-card>
                 <app-metric-card class="panel-col-3"
                   label="Costo / km" accent="var(--warn-fg)"
                   [value]="k.financial.costo_promedio_km" format="currency"
-                  [sub]="k.operations.km_total + ' km totales'"></app-metric-card>
+                [sub]="k.operations.km_total + ' km totales'"></app-metric-card>
                 <app-metric-card class="panel-col-12"
                   label="Embarques totales" variant="bars" accent="var(--chart-6)"
                   [value]="k.shipments.total" format="number"
                   [series]="kpis()?.shipments?.series || []"
-                  [sub]="'✓ ' + k.shipments.cerrados + ' cerrados · ✕ ' + k.shipments.cancelados + ' cancelados · ⏳ ' + k.shipments.activos + ' activos'"></app-metric-card>
+                [sub]="'✓ ' + k.shipments.cerrados + ' cerrados · ✕ ' + k.shipments.cancelados + ' cancelados · ⏳ ' + k.shipments.activos + ' activos'"></app-metric-card>
               </div>
-
               <div class="surf-grid logr-detail">
                 <section class="surf-panel panel-col-6">
                   <div class="surf-panel-head"><h3><i class="pi pi-cog" aria-hidden="true"></i> Operación</h3></div>
@@ -106,7 +105,6 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
                     <div class="rep-row"><span>Cajas movidas</span><strong>{{ k.operations.cajas }}</strong></div>
                   </div>
                 </section>
-
                 <section class="surf-panel panel-col-6">
                   <div class="surf-panel-head"><h3><i class="pi pi-wallet" aria-hidden="true"></i> Desglose financiero</h3></div>
                   <div class="surf-panel-body">
@@ -119,33 +117,33 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
                   </div>
                 </section>
               </div>
-            </ng-container>
+            }
           </p-tabpanel>
-
+    
           <!-- ──── Tab 2: Por embarque ──── -->
           <p-tabpanel value="shipments">
             <div class="tab-toolbar">
               <span class="comm-muted is-small">{{ shipmentRows().length }} embarques en el período</span>
-              <button pButton icon="pi pi-file-pdf" label="Exportar PDF (cliente)" severity="secondary" [outlined]="true" size="small" (click)="exportShipmentsPdf()"></button>
+              <button pButton severity="secondary" [outlined]="true" size="small" (click)="exportShipmentsPdf()"><span class="p-button-icon p-button-icon-left pi pi-file-pdf" aria-hidden="true"></span><span class="p-button-label">Exportar PDF (cliente)</span></button>
             </div>
-
+    
             <section class="surf-panel">
               <div class="surf-panel-body is-flush">
                 <p-table [value]="shipmentRows()" [loading]="loading()" responsiveLayout="scroll" styleClass="surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra p-datatable-sm" [paginator]="true" [rows]="25" [rowsPerPageOptions]="[25, 50, 100, 200]" sortMode="single">
-                  <ng-template pTemplate="header">
+                  <ng-template #header>
                     <tr>
-                      <th scope="col" pSortableColumn="folio">Folio <p-sortIcon field="folio"></p-sortIcon></th>
-                      <th scope="col" pSortableColumn="shipment_date">Fecha <p-sortIcon field="shipment_date"></p-sortIcon></th>
+                      <th scope="col" pSortableColumn="folio">Folio <p-sorticon field="folio"></p-sorticon></th>
+                      <th scope="col" pSortableColumn="shipment_date">Fecha <p-sorticon field="shipment_date"></p-sorticon></th>
                       <th scope="col">Ruta</th>
-                      <th scope="col" pSortableColumn="km" class="comm-num">Km <p-sortIcon field="km"></p-sortIcon></th>
-                      <th scope="col" pSortableColumn="revenue" class="comm-num">Ingreso <p-sortIcon field="revenue"></p-sortIcon></th>
-                      <th scope="col" pSortableColumn="cost" class="comm-num">Costo <p-sortIcon field="cost"></p-sortIcon></th>
-                      <th scope="col" pSortableColumn="margin" class="comm-num">Margen <p-sortIcon field="margin"></p-sortIcon></th>
-                      <th scope="col" pSortableColumn="margin_pct" class="comm-num">% Margen <p-sortIcon field="margin_pct"></p-sortIcon></th>
+                      <th scope="col" pSortableColumn="km" class="comm-num">Km <p-sorticon field="km"></p-sorticon></th>
+                      <th scope="col" pSortableColumn="revenue" class="comm-num">Ingreso <p-sorticon field="revenue"></p-sorticon></th>
+                      <th scope="col" pSortableColumn="cost" class="comm-num">Costo <p-sorticon field="cost"></p-sorticon></th>
+                      <th scope="col" pSortableColumn="margin" class="comm-num">Margen <p-sorticon field="margin"></p-sorticon></th>
+                      <th scope="col" pSortableColumn="margin_pct" class="comm-num">% Margen <p-sorticon field="margin_pct"></p-sorticon></th>
                       <th scope="col" class="comm-num">Ing/km</th>
                     </tr>
                   </ng-template>
-                  <ng-template pTemplate="body" let-r>
+                  <ng-template #body let-r>
                     <tr>
                       <td><code class="comm-code">{{ r.folio }}</code></td>
                       <td>{{ r.shipment_date | date:'shortDate' }}</td>
@@ -158,7 +156,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
                       <td class="comm-num">{{ revenuePerKm(r) | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
                     </tr>
                   </ng-template>
-                  <ng-template pTemplate="emptymessage">
+                  <ng-template #emptymessage>
                     <tr>
                       <td colspan="9" class="comm-empty-cell">
                         <div class="comm-empty">
@@ -172,30 +170,30 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
               </div>
             </section>
           </p-tabpanel>
-
+    
           <!-- ──── Tab 3: Por unidad ──── -->
           <p-tabpanel value="fleet">
             <div class="tab-toolbar">
               <span class="comm-muted is-small">{{ fleetRows().length }} unidades activas en el período</span>
-              <button pButton icon="pi pi-file-pdf" label="Exportar PDF (cliente)" severity="secondary" [outlined]="true" size="small" (click)="exportFleetPdf()"></button>
+              <button pButton severity="secondary" [outlined]="true" size="small" (click)="exportFleetPdf()"><span class="p-button-icon p-button-icon-left pi pi-file-pdf" aria-hidden="true"></span><span class="p-button-label">Exportar PDF (cliente)</span></button>
             </div>
-
+    
             <section class="surf-panel">
               <div class="surf-panel-body is-flush">
                 <p-table [value]="fleetRows()" [loading]="loading()" responsiveLayout="scroll" styleClass="surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra p-datatable-sm" sortMode="single">
-                  <ng-template pTemplate="header">
+                  <ng-template #header>
                     <tr>
-                      <th scope="col" pSortableColumn="plate">Placa <p-sortIcon field="plate"></p-sortIcon></th>
+                      <th scope="col" pSortableColumn="plate">Placa <p-sorticon field="plate"></p-sorticon></th>
                       <th scope="col">Modelo</th>
-                      <th scope="col" pSortableColumn="shipments_count" class="comm-num"># Embarques <p-sortIcon field="shipments_count"></p-sortIcon></th>
-                      <th scope="col" pSortableColumn="total_km" class="comm-num">Km <p-sortIcon field="total_km"></p-sortIcon></th>
-                      <th scope="col" pSortableColumn="total_revenue" class="comm-num">Ingreso <p-sortIcon field="total_revenue"></p-sortIcon></th>
-                      <th scope="col" pSortableColumn="total_cost" class="comm-num">Costo <p-sortIcon field="total_cost"></p-sortIcon></th>
-                      <th scope="col" pSortableColumn="margin" class="comm-num">Margen <p-sortIcon field="margin"></p-sortIcon></th>
+                      <th scope="col" pSortableColumn="shipments_count" class="comm-num"># Embarques <p-sorticon field="shipments_count"></p-sorticon></th>
+                      <th scope="col" pSortableColumn="total_km" class="comm-num">Km <p-sorticon field="total_km"></p-sorticon></th>
+                      <th scope="col" pSortableColumn="total_revenue" class="comm-num">Ingreso <p-sorticon field="total_revenue"></p-sorticon></th>
+                      <th scope="col" pSortableColumn="total_cost" class="comm-num">Costo <p-sorticon field="total_cost"></p-sorticon></th>
+                      <th scope="col" pSortableColumn="margin" class="comm-num">Margen <p-sorticon field="margin"></p-sorticon></th>
                       <th scope="col" class="comm-num">Ing/km</th>
                     </tr>
                   </ng-template>
-                  <ng-template pTemplate="body" let-v>
+                  <ng-template #body let-v>
                     <tr>
                       <td><code class="comm-code">{{ v.plate }}</code></td>
                       <td class="is-small">{{ v.model || '—' }}</td>
@@ -207,7 +205,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
                       <td class="comm-num">{{ revenuePerKmFleet(v) | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
                     </tr>
                   </ng-template>
-                  <ng-template pTemplate="emptymessage">
+                  <ng-template #emptymessage>
                     <tr>
                       <td colspan="8" class="comm-empty-cell">
                         <div class="comm-empty">
@@ -221,32 +219,33 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
               </div>
             </section>
           </p-tabpanel>
-
+    
           <!-- ──── Tab 4: ROI / historia de ahorro ──── -->
           <p-tabpanel value="roi">
-            <ng-container *ngIf="roi() as r">
+            @if (roi(); as r) {
               <div class="surf-grid logr-kpis">
                 <app-metric-card class="panel-col-6" [large]="true"
                   label="Margen" accent="var(--action)"
                   [value]="r.margin" format="currency"
-                  [sub]="(r.margin_pct | number:'1.1-1') + '% del flete'"></app-metric-card>
+                [sub]="(r.margin_pct | number:'1.1-1') + '% del flete'"></app-metric-card>
                 <app-metric-card class="panel-col-3"
                   label="Costo / km" accent="var(--warn-fg)"
                   [value]="r.cost_per_km" format="currency"
-                  [sub]="(r.km | number:'1.0-0') + ' km · ' + r.shipments + ' embarques'"></app-metric-card>
+                [sub]="(r.km | number:'1.0-0') + ' km · ' + r.shipments + ' embarques'"></app-metric-card>
                 <app-metric-card class="panel-col-3"
                   label="Combustible" accent="var(--chart-2)"
                   [value]="r.fuel_cost" format="currency"
-                  [sub]="(r.fuel_pct_of_operating | number:'1.0-0') + '% del costo operativo'"></app-metric-card>
+                [sub]="(r.fuel_pct_of_operating | number:'1.0-0') + '% del costo operativo'"></app-metric-card>
                 <app-metric-card [class]="r.km_saved_optimization ? 'panel-col-6' : 'panel-col-12'"
                   label="Mantenimiento" accent="var(--c-text-3)"
-                  [value]="r.maintenance_cost" format="currency" sub="Servicios del período"></app-metric-card>
-                <app-metric-card *ngIf="r.km_saved_optimization" class="panel-col-6"
-                  label="Km ahorrados (ruteo)" variant="ember"
-                  [value]="r.km_saved_optimization" format="number" [decimals]="1"
+                [value]="r.maintenance_cost" format="currency" sub="Servicios del período"></app-metric-card>
+                @if (r.km_saved_optimization) {
+                  <app-metric-card class="panel-col-6"
+                    label="Km ahorrados (ruteo)" variant="ember"
+                    [value]="r.km_saved_optimization" format="number" [decimals]="1"
                   sub="vs ruta sin optimizar"></app-metric-card>
+                }
               </div>
-
               <div class="surf-grid logr-detail">
                 <section class="surf-panel panel-col-6">
                   <div class="surf-panel-head"><h3><i class="pi pi-money-bill" aria-hidden="true"></i> Desglose de costo operativo</h3></div>
@@ -269,42 +268,41 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
                   </div>
                 </section>
               </div>
-            </ng-container>
+            }
           </p-tabpanel>
-
+    
           <!-- ──── Tab 5: Embarques ERP (KV.8 — histórico Kepler, read-only) ──── -->
           <p-tabpanel value="erp">
             <div class="tab-toolbar">
               <div class="erp-controls">
                 <p-select [options]="erpDims" [(ngModel)]="erpGroupBy" optionLabel="label" optionValue="value"
-                          (onChange)="loadErp()" styleClass="erp-dim"></p-select>
+                (onChange)="loadErp()" styleClass="erp-dim"></p-select>
                 <span class="comm-muted is-small">Fuente: <strong>ERP Kepler</strong> (embarques reales, read-only). Distinto de los embarques operativos de la app.</span>
               </div>
-              <button pButton icon="pi pi-refresh" [text]="true" severity="secondary" size="small" (click)="loadErp()" [loading]="erpLoading()"></button>
+              <button pButton [text]="true" severity="secondary" size="small" (click)="loadErp()" [loading]="erpLoading()"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span></button>
             </div>
-
-            <ng-container *ngIf="erp() as e">
+    
+            @if (erp(); as e) {
               <div class="surf-grid logr-kpis">
                 <app-metric-card class="panel-col-3" label="Folios de embarque" [value]="e.totals.folios" format="number" accent="var(--action)"
-                  [sub]="e.totals.embarcados + ' EMBARCADO'"></app-metric-card>
+                [sub]="e.totals.embarcados + ' EMBARCADO'"></app-metric-card>
                 <app-metric-card class="panel-col-3" label="Unidades embarcadas" [value]="e.totals.units" format="number" accent="var(--chart-2)"></app-metric-card>
                 <app-metric-card class="panel-col-3" label="Líneas" [value]="e.totals.lines" format="number" accent="var(--chart-6)"></app-metric-card>
                 <app-metric-card class="panel-col-3" label="Rango de datos" [value]="0" format="number" accent="var(--c-text-3)"
-                  [sub]="(e.totals.date_from || '—') + ' → ' + (e.totals.date_to || '—')"></app-metric-card>
+                [sub]="(e.totals.date_from || '—') + ' → ' + (e.totals.date_to || '—')"></app-metric-card>
               </div>
-
               <section class="surf-panel" style="margin-top:1rem;">
                 <div class="surf-panel-body is-flush">
                   <p-table [value]="e.rows" [loading]="erpLoading()" responsiveLayout="scroll" styleClass="surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra p-datatable-sm" [paginator]="e.rows.length > 25" [rows]="25" sortMode="single">
-                    <ng-template pTemplate="header">
+                    <ng-template #header>
                       <tr>
                         <th scope="col">{{ erpDimLabel() }}</th>
-                        <th scope="col" pSortableColumn="folios" class="comm-num">Folios <p-sortIcon field="folios"></p-sortIcon></th>
-                        <th scope="col" pSortableColumn="units" class="comm-num">Unidades <p-sortIcon field="units"></p-sortIcon></th>
-                        <th scope="col" pSortableColumn="lines" class="comm-num">Líneas <p-sortIcon field="lines"></p-sortIcon></th>
+                        <th scope="col" pSortableColumn="folios" class="comm-num">Folios <p-sorticon field="folios"></p-sorticon></th>
+                        <th scope="col" pSortableColumn="units" class="comm-num">Unidades <p-sorticon field="units"></p-sorticon></th>
+                        <th scope="col" pSortableColumn="lines" class="comm-num">Líneas <p-sorticon field="lines"></p-sorticon></th>
                       </tr>
                     </ng-template>
-                    <ng-template pTemplate="body" let-r>
+                    <ng-template #body let-r>
                       <tr>
                         <td>{{ r.label }}</td>
                         <td class="comm-num">{{ r.folios | number:'1.0-0' }}</td>
@@ -312,7 +310,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
                         <td class="comm-num">{{ r.lines | number:'1.0-0' }}</td>
                       </tr>
                     </ng-template>
-                    <ng-template pTemplate="emptymessage">
+                    <ng-template #emptymessage>
                       <tr>
                         <td colspan="4" class="comm-empty-cell">
                           <div class="comm-empty">
@@ -325,12 +323,12 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
                   </p-table>
                 </div>
               </section>
-            </ng-container>
+            }
           </p-tabpanel>
         </p-tabpanels>
       </p-tabs>
     </div>
-  `,
+    `,
   styles: [`
     :host { display:block; }
     .is-small { font-size: var(--fs-xs); color: var(--c-text-2); }

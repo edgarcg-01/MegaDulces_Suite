@@ -1,5 +1,5 @@
-import { Component, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
-import { CommonModule } from '@angular/common';
+import { Component, OnDestroy, OnInit, computed, inject, signal, ChangeDetectionStrategy } from '@angular/core';
+
 import { FormsModule } from '@angular/forms';
 import { SkeletonModule } from 'primeng/skeleton';
 import { TagModule } from 'primeng/tag';
@@ -44,7 +44,6 @@ type Period = 'todo' | 'hoy' | 'semana' | 'mes' | 'custom';
   selector: 'app-commercial-map',
   standalone: true,
   imports: [
-    CommonModule,
     FormsModule,
     SkeletonModule,
     TagModule,
@@ -55,10 +54,11 @@ type Period = 'todo' | 'hoy' | 'semana' | 'mes' | 'custom';
     AutoCompleteModule,
     MapComponent,
     MapLegendComponent,
-    MetricStripComponent,
-  ],
+    MetricStripComponent
+],
   templateUrl: './commercial-map.component.html',
   styleUrl: './commercial-map.component.css',
+  changeDetection: ChangeDetectionStrategy.Eager,
   providers: [MapLiveLayerService],
 })
 export class CommercialMapComponent implements OnInit, OnDestroy {

@@ -17,18 +17,17 @@
     "moduleResolution": "bundler",
     "importHelpers": true,
     "target": "ESNext",
-    "module": "ESNext",
-    "lib": [
-      "ESNext",
-      "dom"
-    ],
+    "module": "preserve",
+    "lib": ["ESNext", "dom"],
     "baseUrl": ".",
     "paths": {
       "@shared-models": ["../../libs/shared-models/src/index.ts"],
       "@shared-auth/core": ["../../libs/shared-auth/core"],
       "@megadulces/shared-scoring": ["../../libs/shared-scoring/index.ts"],
       "@spartan-ng/helm/*": ["src/app/shared/components/ui/*"]
-    }
+    },
+    "ignoreDeprecations": "6.0",
+    "rootDir": "../.."
   },
   "angularCompilerOptions": {
     "enableI18nLegacyMessageIdFormat": false,

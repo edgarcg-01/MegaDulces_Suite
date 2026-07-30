@@ -1,6 +1,6 @@
 import { APP_INITIALIZER, ApplicationConfig, ErrorHandler, provideZoneChangeDetection } from '@angular/core';
 import { provideRouter, withPreloading, withViewTransitions, Router, NavigationEnd } from '@angular/router';
-import { provideHttpClient, withInterceptors } from '@angular/common/http';
+import { provideHttpClient, withInterceptors, withXhr } from '@angular/common/http';
 import { provideAnimationsAsync } from '@angular/platform-browser/animations/async';
 import { providePrimeNG } from 'primeng/config';
 import Aura from '@primeng/themes/aura';
@@ -26,7 +26,7 @@ export const appConfig: ApplicationConfig = {
     // (::view-transition-*). Degrada a corte instantáneo donde no hay soporte.
     provideRouter(appRoutes, withPreloading(SelectivePreloadStrategy), withViewTransitions()),
     provideAnimationsAsync(),
-    provideHttpClient(withInterceptors([authInterceptor])),
+    provideHttpClient(withXhr(), withInterceptors([authInterceptor])),
     providePrimeNG({
       theme: {
         preset: Aura,

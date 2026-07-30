@@ -2,7 +2,7 @@ import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signa
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute } from '@angular/router';
-import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { rxResource, takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { forkJoin, of, catchError, map } from 'rxjs';
 import { TableModule } from 'primeng/table';
 import { SelectModule } from 'primeng/select';
@@ -51,7 +51,7 @@ interface SolicitudSug extends ExpenseRequestRow { label: string; }
           <div style="display:inline-flex;align-items:center;gap:.4rem"><h1>Solicitudes de reembolso</h1><app-context-help topic="reembolsos" /></div>
           <p class="surf-page-sub">Adjunta los comprobantes de una solicitud de gasto (Kepler XA1501) · recibida → validada/rechazada</p>
         </div>
-        <button pButton type="button" icon="pi pi-plus" label="Nueva solicitud" (click)="openNew()"></button>
+        <button pButton type="button" (click)="openNew()"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Nueva solicitud</span></button>
       </header>
 
       <div class="cp-filters card-premium card-flat">
@@ -71,10 +71,10 @@ interface SolicitudSug extends ExpenseRequestRow { label: string; }
       <div class="card-premium card-flat">
         <p-table [value]="rows()" styleClass="p-datatable-sm cp-table" [rowHover]="true" [scrollable]="true" scrollHeight="60vh"
                  [paginator]="rows().length > 100" [rows]="100" [loading]="loading()" sortField="created_at" [sortOrder]="-1">
-          <ng-template pTemplate="header">
+          <ng-template #header>
             <tr>
-              <th pSortableColumn="created_at" style="width:6rem">Fecha <p-sortIcon field="created_at" /></th>
-              <th pSortableColumn="folio_solicitud" style="width:7rem">Folio sol. <p-sortIcon field="folio_solicitud" /></th>
+              <th pSortableColumn="created_at" style="width:6rem">Fecha <p-sorticon field="created_at" /></th>
+              <th pSortableColumn="folio_solicitud" style="width:7rem">Folio sol. <p-sorticon field="folio_solicitud" /></th>
               <th>Solicitante</th>
               <th>Departamento</th>
               <th>Proveedor</th>
@@ -84,7 +84,7 @@ interface SolicitudSug extends ExpenseRequestRow { label: string; }
               <th style="width:11rem">Acciones</th>
             </tr>
           </ng-template>
-          <ng-template pTemplate="body" let-r>
+          <ng-template #body let-r>
             <tr>
               <td>{{ r.created_at | date:'dd/MM/yy' }}</td>
               <td class="mono">{{ r.folio_solicitud }}</td>
@@ -107,13 +107,13 @@ interface SolicitudSug extends ExpenseRequestRow { label: string; }
               </td>
               <td>
                 @if (canManage()) {
-                  @if (r.status !== 'validada') { <button pButton type="button" size="small" text severity="success" icon="pi pi-check" label="Validar" [loading]="validatingId() === r.id" [disabled]="!!validatingId()" (click)="doValidate(r)"></button> }
-                  @if (r.status !== 'rechazada') { <button pButton type="button" size="small" text severity="danger" icon="pi pi-times" (click)="openReject(r)" title="Rechazar"></button> }
+                  @if (r.status !== 'validada') { <button pButton type="button" size="small" text severity="success" [loading]="validatingId() === r.id" [disabled]="!!validatingId()" (click)="doValidate(r)"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Validar</span></button> }
+                  @if (r.status !== 'rechazada') { <button pButton type="button" size="small" text severity="danger" (click)="openReject(r)" title="Rechazar"><span class="p-button-icon p-button-icon-left pi pi-times" aria-hidden="true"></span></button> }
                 } @else { <span class="muted">—</span> }
               </td>
             </tr>
           </ng-template>
-          <ng-template pTemplate="emptymessage"><tr><td colspan="9" class="cp-empty">Sin solicitudes para el filtro.</td></tr></ng-template>
+          <ng-template #emptymessage><tr><td colspan="9" class="cp-empty">Sin solicitudes para el filtro.</td></tr></ng-template>
         </p-table>
       </div>
       }
@@ -123,8 +123,8 @@ interface SolicitudSug extends ExpenseRequestRow { label: string; }
     <p-dialog [(visible)]="showForm" [modal]="true" [style]="{ width: '40rem' }" [draggable]="false" header="Nueva solicitud de reembolso">
       <div class="cp-form">
         <label class="cp-f"><span>Solicitud de gasto (Kepler XA1501) *</span>
-          <p-autoComplete [(ngModel)]="solicitudSel" [suggestions]="solicitudSug()" (completeMethod)="searchSolicitud($event)"
-            field="label" [forceSelection]="false" [minLength]="2" placeholder="Busca por folio o proveedor…" appendTo="body"
+          <p-autocomplete [(ngModel)]="solicitudSel" [suggestions]="solicitudSug()" (completeMethod)="searchSolicitud($event)"
+            field="label" [forceSelection]="false" [minQueryLength]="2" placeholder="Busca por folio o proveedor…" appendTo="body"
             styleClass="w-full" (onSelect)="onSolicitudSelect($event)" [delay]="250" />
           <small class="cp-hint">Elige la solicitud para auto-rellenar proveedor, fecha e importe.</small></label>
 
@@ -141,10 +141,10 @@ interface SolicitudSug extends ExpenseRequestRow { label: string; }
           <label class="cp-f"><span>Nombre proveedor *</span>
             <input pInputText [(ngModel)]="form.proveedor" /></label>
           <label class="cp-f"><span>Fecha del gasto *</span>
-            <p-datePicker [(ngModel)]="fechaGasto" dateFormat="dd/mm/yy" [showIcon]="true" appendTo="body" styleClass="w-full" /></label>
+            <p-datepicker [(ngModel)]="fechaGasto" dateFormat="dd/mm/yy" [showIcon]="true" appendTo="body" styleClass="w-full" /></label>
         </div>
         <label class="cp-f"><span>Importe</span>
-          <p-inputNumber [(ngModel)]="form.importe" mode="currency" currency="MXN" locale="es-MX" styleClass="w-full" /></label>
+          <p-inputnumber [(ngModel)]="form.importe" mode="currency" currency="MXN" locale="es-MX" styleClass="w-full" /></label>
 
         <div class="cp-files-head">Comprobantes</div>
         @for (slot of fileSlots; track slot.role) {
@@ -159,9 +159,9 @@ interface SolicitudSug extends ExpenseRequestRow { label: string; }
           <textarea pInputText [(ngModel)]="form.comentarios" rows="2"></textarea></label>
         @if (formError()) { <div class="cp-err">{{ formError() }}</div> }
       </div>
-      <ng-template pTemplate="footer">
-        <button pButton type="button" label="Cancelar" text (click)="showForm.set(false)"></button>
-        <button pButton type="button" label="Enviar solicitud" icon="pi pi-check" [loading]="saving()" (click)="submit()"></button>
+      <ng-template #footer>
+        <button pButton type="button" text (click)="showForm.set(false)"><span class="p-button-label">Cancelar</span></button>
+        <button pButton type="button" [loading]="saving()" (click)="submit()"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Enviar solicitud</span></button>
       </ng-template>
     </p-dialog>
 
@@ -172,9 +172,9 @@ interface SolicitudSug extends ExpenseRequestRow { label: string; }
         <label class="cp-f"><span>Motivo del rechazo *</span>
           <textarea pInputText [(ngModel)]="rejectMotivo" rows="3" placeholder="Ej. comprobante ilegible, no corresponde al folio…"></textarea></label>
       </div>
-      <ng-template pTemplate="footer">
-        <button pButton type="button" label="Cancelar" text (click)="showReject.set(false)"></button>
-        <button pButton type="button" label="Rechazar" icon="pi pi-times" severity="danger" [loading]="saving()" (click)="doReject()"></button>
+      <ng-template #footer>
+        <button pButton type="button" text (click)="showReject.set(false)"><span class="p-button-label">Cancelar</span></button>
+        <button pButton type="button" severity="danger" [loading]="saving()" (click)="doReject()"><span class="p-button-icon p-button-icon-left pi pi-times" aria-hidden="true"></span><span class="p-button-label">Rechazar</span></button>
       </ng-template>
     </p-dialog>
   `,
@@ -251,7 +251,17 @@ export class FinanzasComprobacionesComponent {
   readonly showForm = signal(false);
   readonly fileNames = signal<Record<string, string>>({});
   readonly formError = signal<string>('');
-  readonly solicitudSug = signal<SolicitudSug[]>([]);
+  private readonly solicitudQuery = signal<string | null>(null);
+  private readonly solicitudRes = rxResource({
+    params: () => { const q = this.solicitudQuery(); return q && q.length >= 2 ? q : undefined; },
+    stream: ({ params }) => this.comercial.expenseRequests({ search: params }).pipe(
+      map((r) => (r.rows || [])
+        .filter((row) => row.estado !== 'C')
+        .slice(0, 20)
+        .map((row) => ({ ...row, label: `${row.folio} · ${row.beneficiario || '—'} · ${this.money(row.importe)}${row.aplicada ? ' · aplicada' : ''}` }))),
+    ),
+  });
+  readonly solicitudSug = computed<SolicitudSug[]>(() => this.solicitudRes.value() ?? []);
   solicitudSel: SolicitudSug | string | null = null;
   fechaGasto: Date | null = null;
   form: CreateExpenseProof = {};
@@ -298,13 +308,7 @@ export class FinanzasComprobacionesComponent {
 
   // (A) Autocomplete de solicitud Kepler (XA1501); excluye canceladas.
   searchSolicitud(ev: { query: string }) {
-    const q = (ev.query || '').trim();
-    if (q.length < 2) { this.solicitudSug.set([]); return; }
-    this.comercial.expenseRequests({ search: q }).pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe((r) => this.solicitudSug.set((r.rows || [])
-        .filter((row) => row.estado !== 'C')
-        .slice(0, 20)
-        .map((row) => ({ ...row, label: `${row.folio} · ${row.beneficiario || '—'} · ${this.money(row.importe)}${row.aplicada ? ' · aplicada' : ''}` }))));
+    this.solicitudQuery.set((ev.query || '').trim());
   }
 
   // (B) Auto-relleno desde la solicitud elegida.

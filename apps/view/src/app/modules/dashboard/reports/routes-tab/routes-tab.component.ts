@@ -1,5 +1,5 @@
-import { Component, inject, signal, computed, effect } from '@angular/core';
-import { CommonModule } from '@angular/common';
+import { Component, inject, signal, computed, effect, ChangeDetectionStrategy } from '@angular/core';
+
 import { FormsModule } from '@angular/forms';
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { environment } from '../../../../../environments/environment';
@@ -36,8 +36,9 @@ interface RouteData {
 @Component({
   selector: 'app-routes-tab',
   standalone: true,
-  imports: [CommonModule, FormsModule, InputTextModule, ButtonModule, TableModule, TagModule, SkeletonModule, ToastModule],
+  imports: [FormsModule, InputTextModule, ButtonModule, TableModule, TagModule, SkeletonModule, ToastModule],
   templateUrl: './routes-tab.component.html',
+  changeDetection: ChangeDetectionStrategy.Eager,
   styleUrls: ['./routes-tab.component.css'],
 })
 export class RoutesTabComponent {

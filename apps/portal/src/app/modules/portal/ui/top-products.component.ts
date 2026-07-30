@@ -31,113 +31,127 @@ import { CartFxService } from '../cart-fx.service';
   standalone: true,
   imports: [CommonModule, CurrencyPipe],
   template: `
-    <section class="tp" *ngIf="products?.length">
-      <header class="tp-head">
-        <div class="tp-title">
-          <span class="tp-eyebrow">{{ eyebrow }}</span>
-          <h2>{{ heading }}</h2>
-        </div>
-        <div class="tp-head-right">
-          <span class="tp-meta">{{ meta }}</span>
-          <div class="tp-nav">
-            <button type="button" class="tp-arrow" (click)="onArrow(-1)" aria-label="Anterior">
-              <i class="pi pi-chevron-left" aria-hidden="true"></i>
-            </button>
-            <button type="button" class="tp-arrow" (click)="onArrow(1)" aria-label="Siguiente">
-              <i class="pi pi-chevron-right" aria-hidden="true"></i>
-            </button>
+    @if (products?.length) {
+      <section class="tp">
+        <header class="tp-head">
+          <div class="tp-title">
+            <span class="tp-eyebrow">{{ eyebrow }}</span>
+            <h2>{{ heading }}</h2>
           </div>
-        </div>
-      </header>
-
-      <div class="tp-rail" role="list">
-        <article
-          *ngFor="let p of products; let i = index; trackBy: trackById"
-          class="tp-card"
-          [class.tp-card-lead]="i === 0"
-          role="listitem"
-          tabindex="0"
-          [attr.aria-label]="'Top ' + (i + 1) + ': ' + p.product_name"
-          (click)="open.emit(p)"
-          (keydown.enter)="open.emit(p)"
-          (keydown.space)="open.emit(p); $event.preventDefault()"
-        >
-          <div
-            class="tp-media"
-            [class.has-photo]="hasImg(p)"
-            [style.background]="hasImg(p) ? null : ph(p)"
-          >
-            <img
-              *ngIf="hasImg(p)"
-              [src]="img(p)"
-              [alt]="p.product_name"
-              loading="lazy"
-              decoding="async"
-              (error)="onImgError(p)"
-            />
-            <span *ngIf="!hasImg(p)" class="tp-mono">{{ initials(p) }}</span>
-            <span *ngIf="showRank" class="tp-rank" [class.is-gold]="i === 0">#{{ i + 1 }}</span>
-          </div>
-
-          <div class="tp-body">
-            <span class="tp-trend">
-              <i class="pi pi-bolt" aria-hidden="true"></i>
-              {{ noteFor(p, i) }}
-            </span>
-            <span class="tp-brand">{{ p.brand_name || 'Sin marca' }}</span>
-            <h3 class="tp-name" [title]="p.product_name">{{ p.product_name }}</h3>
-            <div class="tp-foot">
-              <ng-container *ngIf="!(qtyOf(p) > 0)">
-                <span class="tp-price" *ngIf="p.price != null">
-                  {{ +p.price | currency:'MXN':'symbol-narrow':'1.2-2' }}
-                </span>
-                <span class="tp-price tp-price-na" *ngIf="p.price == null">Sin precio</span>
-                <button
-                  type="button"
-                  class="tp-add"
-                  [disabled]="addingId === p.product_id || p.price == null"
-                  (click)="$event.stopPropagation(); onAdd(p, $event)"
-                  [attr.aria-label]="'Agregar ' + p.product_name"
-                >
-                  <i *ngIf="addingId === p.product_id" class="pi pi-spin pi-spinner" aria-hidden="true"></i>
-                  <i *ngIf="addingId !== p.product_id" class="pi pi-plus" aria-hidden="true"></i>
-                </button>
-              </ng-container>
-
-              <!-- En carrito: stepper (mismo lenguaje que el catálogo). -->
-              <div
-                *ngIf="qtyOf(p) > 0"
-                class="tp-stepper"
-                role="group"
-                [attr.aria-label]="'Cantidad de ' + p.product_name"
-                (click)="$event.stopPropagation()"
-              >
-                <button
-                  type="button"
-                  class="tp-step"
-                  [disabled]="addingId === p.product_id"
-                  (click)="$event.stopPropagation(); dec.emit(p)"
-                  [attr.aria-label]="qtyOf(p) <= (p.min_qty || 1) ? 'Quitar del carrito' : 'Disminuir'"
-                >
-                  <i [class]="qtyOf(p) <= (p.min_qty || 1) ? 'pi pi-trash' : 'pi pi-minus'" aria-hidden="true"></i>
-                </button>
-                <span class="tp-step-val" aria-live="polite">{{ addingId === p.product_id ? '·' : qtyOf(p) }}</span>
-                <button
-                  type="button"
-                  class="tp-step"
-                  [disabled]="addingId === p.product_id"
-                  (click)="$event.stopPropagation(); inc.emit(p)"
-                  aria-label="Aumentar"
-                >
-                  <i class="pi pi-plus" aria-hidden="true"></i>
-                </button>
-              </div>
+          <div class="tp-head-right">
+            <span class="tp-meta">{{ meta }}</span>
+            <div class="tp-nav">
+              <button type="button" class="tp-arrow" (click)="onArrow(-1)" aria-label="Anterior">
+                <i class="pi pi-chevron-left" aria-hidden="true"></i>
+              </button>
+              <button type="button" class="tp-arrow" (click)="onArrow(1)" aria-label="Siguiente">
+                <i class="pi pi-chevron-right" aria-hidden="true"></i>
+              </button>
             </div>
           </div>
-        </article>
-      </div>
-    </section>
-  `,
+        </header>
+        <div class="tp-rail" role="list">
+          @for (p of products; track trackById(i, p); let i = $index) {
+            <article
+              class="tp-card"
+              [class.tp-card-lead]="i === 0"
+              role="listitem"
+              tabindex="0"
+              [attr.aria-label]="'Top ' + (i + 1) + ': ' + p.product_name"
+              (click)="open.emit(p)"
+              (keydown.enter)="open.emit(p)"
+              (keydown.space)="open.emit(p); $event.preventDefault()"
+              >
+              <div
+                class="tp-media"
+                [class.has-photo]="hasImg(p)"
+                [style.background]="hasImg(p) ? null : ph(p)"
+                >
+                @if (hasImg(p)) {
+                  <img
+                    [src]="img(p)"
+                    [alt]="p.product_name"
+                    loading="lazy"
+                    decoding="async"
+                    (error)="onImgError(p)"
+                    />
+                }
+                @if (!hasImg(p)) {
+                  <span class="tp-mono">{{ initials(p) }}</span>
+                }
+                @if (showRank) {
+                  <span class="tp-rank" [class.is-gold]="i === 0">#{{ i + 1 }}</span>
+                }
+              </div>
+              <div class="tp-body">
+                <span class="tp-trend">
+                  <i class="pi pi-bolt" aria-hidden="true"></i>
+                  {{ noteFor(p, i) }}
+                </span>
+                <span class="tp-brand">{{ p.brand_name || 'Sin marca' }}</span>
+                <h3 class="tp-name" [title]="p.product_name">{{ p.product_name }}</h3>
+                <div class="tp-foot">
+                  @if (!(qtyOf(p) > 0)) {
+                    @if (p.price != null) {
+                      <span class="tp-price">
+                        {{ +p.price | currency:'MXN':'symbol-narrow':'1.2-2' }}
+                      </span>
+                    }
+                    @if (p.price == null) {
+                      <span class="tp-price tp-price-na">Sin precio</span>
+                    }
+                    <button
+                      type="button"
+                      class="tp-add"
+                      [disabled]="addingId === p.product_id || p.price == null"
+                      (click)="$event.stopPropagation(); onAdd(p, $event)"
+                      [attr.aria-label]="'Agregar ' + p.product_name"
+                      >
+                      @if (addingId === p.product_id) {
+                        <i class="pi pi-spin pi-spinner" aria-hidden="true"></i>
+                      }
+                      @if (addingId !== p.product_id) {
+                        <i class="pi pi-plus" aria-hidden="true"></i>
+                      }
+                    </button>
+                  }
+                  <!-- En carrito: stepper (mismo lenguaje que el catálogo). -->
+                  @if (qtyOf(p) > 0) {
+                    <div
+                      class="tp-stepper"
+                      role="group"
+                      [attr.aria-label]="'Cantidad de ' + p.product_name"
+                      (click)="$event.stopPropagation()"
+                      >
+                      <button
+                        type="button"
+                        class="tp-step"
+                        [disabled]="addingId === p.product_id"
+                        (click)="$event.stopPropagation(); dec.emit(p)"
+                        [attr.aria-label]="qtyOf(p) <= (p.min_qty || 1) ? 'Quitar del carrito' : 'Disminuir'"
+                        >
+                        <i [class]="qtyOf(p) <= (p.min_qty || 1) ? 'pi pi-trash' : 'pi pi-minus'" aria-hidden="true"></i>
+                      </button>
+                      <span class="tp-step-val" aria-live="polite">{{ addingId === p.product_id ? '·' : qtyOf(p) }}</span>
+                      <button
+                        type="button"
+                        class="tp-step"
+                        [disabled]="addingId === p.product_id"
+                        (click)="$event.stopPropagation(); inc.emit(p)"
+                        aria-label="Aumentar"
+                        >
+                        <i class="pi pi-plus" aria-hidden="true"></i>
+                      </button>
+                    </div>
+                  }
+                </div>
+              </div>
+            </article>
+          }
+        </div>
+      </section>
+    }
+    `,
   styles: [
     `
       :host { display: block; margin-bottom: 2.75rem; }

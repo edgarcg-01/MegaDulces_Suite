@@ -1,4 +1,4 @@
-import { Component, inject, signal, OnInit } from '@angular/core';
+import { Component, inject, signal, OnInit, ChangeDetectionStrategy, ChangeDetectorRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { AuthService } from '../../../core/services/auth.service';
@@ -11,6 +11,7 @@ import { Router } from '@angular/router';
   standalone: true,
   imports: [CommonModule, ReactiveFormsModule],
   templateUrl: './login.component.html',
+  changeDetection: ChangeDetectionStrategy.Eager,
   styleUrls: ['./login.component.css'],
 })
 export class LoginComponent implements OnInit {
@@ -19,6 +20,7 @@ export class LoginComponent implements OnInit {
   private router = inject(Router);
   public themeService = inject(ThemeService);
   private haptic = inject(HapticService);
+  private cdr = inject(ChangeDetectorRef); // zoneless: CD tras callbacks async imperativos
 
   loginForm = this.fb.group({
     username: ['', [Validators.required]],
@@ -82,6 +84,7 @@ export class LoginComponent implements OnInit {
           } else {
             this.errorMessage = 'Error de conexión. Inténtalo de nuevo.';
           }
+          this.cdr.markForCheck();
         },
       });
   }

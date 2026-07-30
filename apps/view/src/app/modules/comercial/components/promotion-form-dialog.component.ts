@@ -1,11 +1,11 @@
-import { Component, EventEmitter, Input, Output } from '@angular/core';
-import { CommonModule } from '@angular/common';
+import { Component, EventEmitter, Input, Output, ChangeDetectionStrategy } from '@angular/core';
+
 import { FormGroup, FormsModule, ReactiveFormsModule } from '@angular/forms';
 import { DialogModule } from 'primeng/dialog';
 import { ButtonModule } from 'primeng/button';
 import { InputTextModule } from 'primeng/inputtext';
 import { InputNumberModule } from 'primeng/inputnumber';
-import { InputSwitchModule } from 'primeng/inputswitch';
+import { ToggleSwitchModule } from 'primeng/toggleswitch';
 import { SelectModule } from 'primeng/select';
 import { DatePickerModule } from 'primeng/datepicker';
 import { TextareaModule } from 'primeng/textarea';
@@ -42,18 +42,17 @@ interface BundleItem {
   selector: 'app-promotion-form-dialog',
   standalone: true,
   imports: [
-    CommonModule,
     FormsModule,
     ReactiveFormsModule,
     DialogModule,
     ButtonModule,
     InputTextModule,
     InputNumberModule,
-    InputSwitchModule,
+    ToggleSwitchModule,
     SelectModule,
     DatePickerModule,
-    TextareaModule,
-  ],
+    TextareaModule
+],
   template: `
     <p-dialog
       [visible]="visible"
@@ -63,39 +62,41 @@ interface BundleItem {
       [style]="{ width: '720px' }"
       [header]="header"
       (onHide)="hide.emit()"
-    >
+      >
       <!-- STEP 1: Type selector -->
-      <ng-container *ngIf="wizardStep === 'choose-type'">
+      @if (wizardStep === 'choose-type') {
         <p class="step-intro">Elegí el tipo de promoción que querés crear:</p>
         <div class="type-grid">
-          <button
-            *ngFor="let m of metaList"
-            type="button"
-            class="type-card"
-            (click)="chooseType.emit(m.type)"
-          >
-            <div class="type-icon" [style.background]="m.color">
-              <i [class]="m.icon"></i>
-            </div>
-            <div class="type-body">
-              <div class="type-title">{{ m.label }}</div>
-              <div class="type-desc">{{ m.description }}</div>
-              <div class="type-example"><i class="pi pi-info-circle"></i> {{ m.example }}</div>
-            </div>
-          </button>
+          @for (m of metaList; track m) {
+            <button
+              type="button"
+              class="type-card"
+              (click)="chooseType.emit(m.type)"
+              >
+              <div class="type-icon" [style.background]="m.color">
+                <i [class]="m.icon"></i>
+              </div>
+              <div class="type-body">
+                <div class="type-title">{{ m.label }}</div>
+                <div class="type-desc">{{ m.description }}</div>
+                <div class="type-example"><i class="pi pi-info-circle"></i> {{ m.example }}</div>
+              </div>
+            </button>
+          }
         </div>
-      </ng-container>
-
+      }
+    
       <!-- STEP 2: Configure -->
-      <ng-container *ngIf="wizardStep === 'configure' && form">
-        <div class="step-header" *ngIf="!editing">
-          <button pButton icon="pi pi-arrow-left" label="Cambiar tipo" severity="secondary" [text]="true" size="small" (click)="backToChoose.emit()"></button>
-          <span class="pm-type-chip">
-            <i [class]="meta(selectedType!).icon" aria-hidden="true"></i>
-            {{ meta(selectedType!).label }}
-          </span>
-        </div>
-
+      @if (wizardStep === 'configure' && form) {
+        @if (!editing) {
+          <div class="step-header">
+            <button pButton severity="secondary" [text]="true" size="small" (click)="backToChoose.emit()"><span class="p-button-icon p-button-icon-left pi pi-arrow-left" aria-hidden="true"></span><span class="p-button-label">Cambiar tipo</span></button>
+            <span class="pm-type-chip">
+              <i [class]="meta(selectedType!).icon" aria-hidden="true"></i>
+              {{ meta(selectedType!).label }}
+            </span>
+          </div>
+        }
         <form [formGroup]="form" class="comm-form-grid">
           <!-- Comunes -->
           <label>
@@ -115,193 +116,201 @@ interface BundleItem {
             <input pInputText formControlName="banner_url" placeholder="https://res.cloudinary.com/.../banner.png" />
             <small class="comm-muted is-small">Opcional. Se muestra como portada en el portal (home + promociones). Subí la imagen a Cloudinary y pegá la URL.</small>
           </label>
-          <div class="full" *ngIf="form.value.banner_url">
-            <img
-              [src]="form.value.banner_url"
-              alt="Vista previa del banner"
-              class="promo-banner-preview"
-              (error)="bannerError.emit(true)"
-              (load)="bannerError.emit(false)"
-            />
-            <small class="comm-muted is-small" *ngIf="bannerPreviewError">
-              No se pudo cargar la imagen. Verificá la URL.
-            </small>
-          </div>
-
-          <!-- Type-specific fields -->
-          <ng-container [ngSwitch]="selectedType">
-            <!-- percent_off_product -->
-            <ng-container *ngSwitchCase="'percent_off_product'">
-              <label class="full">
-                <span>Producto <em>*</em></span>
-                <p-select
-                  formControlName="product_id"
-                  [options]="productOptions"
-                  optionLabel="nombre"
-                  optionValue="id"
-                  [filter]="true"
-                  filterBy="nombre,brand"
-                  placeholder="Buscar producto…"
-                  appendTo="body"
-                ></p-select>
-              </label>
-              <label>
-                <span>Descuento (%) <em>*</em></span>
-                <p-inputNumber formControlName="percent" [min]="1" [max]="100" suffix=" %" />
-              </label>
-            </ng-container>
-
-            <!-- percent_off_basket -->
-            <ng-container *ngSwitchCase="'percent_off_basket'">
-              <label>
-                <span>Descuento (%) <em>*</em></span>
-                <p-inputNumber formControlName="percent" [min]="1" [max]="100" suffix=" %" />
-              </label>
-              <label>
-                <span>Mínimo de pedido (opcional)</span>
-                <p-inputNumber formControlName="min_order_amount" mode="currency" currency="MXN" locale="es-MX" [min]="0" placeholder="Sin mínimo" />
-              </label>
-            </ng-container>
-
-            <!-- nxm -->
-            <ng-container *ngSwitchCase="'nxm'">
-              <label class="full">
-                <span>Producto <em>*</em></span>
-                <p-select formControlName="product_id" [options]="productOptions" optionLabel="nombre" optionValue="id" [filter]="true" filterBy="nombre,brand" placeholder="Buscar producto…" appendTo="body"></p-select>
-              </label>
-              <label>
-                <span>Compra (N) <em>*</em></span>
-                <p-inputNumber formControlName="n_buy" [min]="2" [showButtons]="true" />
-              </label>
-              <label>
-                <span>Paga (M) <em>*</em></span>
-                <p-inputNumber formControlName="m_pay" [min]="1" [showButtons]="true" />
-              </label>
-              <div class="comm-form-hint full" *ngIf="form.value.n_buy && form.value.m_pay">
-                <i class="pi pi-info-circle"></i>
-                Cliente lleva <b>{{ form.value.n_buy }}</b> unidades, paga sólo <b>{{ form.value.m_pay }}</b>.
-                Ahorro = {{ form.value.n_buy - form.value.m_pay }} unidad(es) gratis.
+          @if (form.value.banner_url) {
+            <div class="full">
+              <img
+                [src]="form.value.banner_url"
+                alt="Vista previa del banner"
+                class="promo-banner-preview"
+                (error)="bannerError.emit(true)"
+                (load)="bannerError.emit(false)"
+                />
+                @if (bannerPreviewError) {
+                  <small class="comm-muted is-small">
+                    No se pudo cargar la imagen. Verificá la URL.
+                  </small>
+                }
               </div>
-            </ng-container>
-
-            <!-- volume_discount -->
-            <ng-container *ngSwitchCase="'volume_discount'">
-              <label class="full">
-                <span>Producto <em>*</em></span>
-                <p-select formControlName="product_id" [options]="productOptions" optionLabel="nombre" optionValue="id" [filter]="true" filterBy="nombre,brand" placeholder="Buscar producto…" appendTo="body"></p-select>
-              </label>
-              <div class="tiers-section full">
-                <div class="tiers-header">
-                  <span>Tiers de descuento <em>*</em></span>
-                  <button pButton type="button" icon="pi pi-plus" label="Agregar tier" size="small" severity="secondary" (click)="addTier.emit()"></button>
-                </div>
-                <div class="tiers-list">
-                  <div *ngFor="let t of tiers; let i = index" class="tier-row">
-                    <span class="tier-from">Desde</span>
-                    <p-inputNumber [(ngModel)]="t.min_qty" [ngModelOptions]="{ standalone: true }" [min]="1" suffix=" und" />
-                    <span class="tier-arrow">→</span>
-                    <p-inputNumber [(ngModel)]="t.percent" [ngModelOptions]="{ standalone: true }" [min]="1" [max]="100" suffix=" %" />
-                    <button pButton type="button" icon="pi pi-trash" size="small" severity="secondary" [text]="true" (click)="removeTier.emit(i)"></button>
+            }
+            <!-- Type-specific fields -->
+            @switch (selectedType) {
+              <!-- percent_off_product -->
+              @case ('percent_off_product') {
+                <label class="full">
+                  <span>Producto <em>*</em></span>
+                  <p-select
+                    formControlName="product_id"
+                    [options]="productOptions"
+                    optionLabel="nombre"
+                    optionValue="id"
+                    [filter]="true"
+                    filterBy="nombre,brand"
+                    placeholder="Buscar producto…"
+                    appendTo="body"
+                  ></p-select>
+                </label>
+                <label>
+                  <span>Descuento (%) <em>*</em></span>
+                  <p-inputnumber formControlName="percent" [min]="1" [max]="100" suffix=" %" />
+                </label>
+              }
+              <!-- percent_off_basket -->
+              @case ('percent_off_basket') {
+                <label>
+                  <span>Descuento (%) <em>*</em></span>
+                  <p-inputnumber formControlName="percent" [min]="1" [max]="100" suffix=" %" />
+                </label>
+                <label>
+                  <span>Mínimo de pedido (opcional)</span>
+                  <p-inputnumber formControlName="min_order_amount" mode="currency" currency="MXN" locale="es-MX" [min]="0" placeholder="Sin mínimo" />
+                </label>
+              }
+              <!-- nxm -->
+              @case ('nxm') {
+                <label class="full">
+                  <span>Producto <em>*</em></span>
+                  <p-select formControlName="product_id" [options]="productOptions" optionLabel="nombre" optionValue="id" [filter]="true" filterBy="nombre,brand" placeholder="Buscar producto…" appendTo="body"></p-select>
+                </label>
+                <label>
+                  <span>Compra (N) <em>*</em></span>
+                  <p-inputnumber formControlName="n_buy" [min]="2" [showButtons]="true" />
+                </label>
+                <label>
+                  <span>Paga (M) <em>*</em></span>
+                  <p-inputnumber formControlName="m_pay" [min]="1" [showButtons]="true" />
+                </label>
+                @if (form.value.n_buy && form.value.m_pay) {
+                  <div class="comm-form-hint full">
+                    <i class="pi pi-info-circle"></i>
+                    Cliente lleva <b>{{ form.value.n_buy }}</b> unidades, paga sólo <b>{{ form.value.m_pay }}</b>.
+                    Ahorro = {{ form.value.n_buy - form.value.m_pay }} unidad(es) gratis.
                   </div>
-                  <div *ngIf="tiers.length === 0" class="muted">Sin tiers. Agregá al menos uno.</div>
-                </div>
-              </div>
-            </ng-container>
-
-            <!-- bundle_fixed_price -->
-            <ng-container *ngSwitchCase="'bundle_fixed_price'">
-              <div class="tiers-section full">
-                <div class="tiers-header">
-                  <span>Productos del pack <em>*</em></span>
-                  <button pButton type="button" icon="pi pi-plus" label="Agregar producto" size="small" severity="secondary" (click)="addBundleItem.emit()"></button>
-                </div>
-                <div class="tiers-list">
-                  <div *ngFor="let it of bundle; let i = index" class="bundle-row">
-                    <p-select
-                      [(ngModel)]="it.product_id"
-                      [ngModelOptions]="{ standalone: true }"
-                      [options]="productOptions"
-                      optionLabel="nombre"
-                      optionValue="id"
-                      [filter]="true"
-                      filterBy="nombre,brand"
-                      placeholder="Producto…"
-                      appendTo="body"
-                      styleClass="bundle-product"
-                    ></p-select>
-                    <span>×</span>
-                    <p-inputNumber [(ngModel)]="it.quantity" [ngModelOptions]="{ standalone: true }" [min]="1" suffix=" und" />
-                    <button pButton type="button" icon="pi pi-trash" size="small" severity="secondary" [text]="true" (click)="removeBundleItem.emit(i)"></button>
+                }
+              }
+              <!-- volume_discount -->
+              @case ('volume_discount') {
+                <label class="full">
+                  <span>Producto <em>*</em></span>
+                  <p-select formControlName="product_id" [options]="productOptions" optionLabel="nombre" optionValue="id" [filter]="true" filterBy="nombre,brand" placeholder="Buscar producto…" appendTo="body"></p-select>
+                </label>
+                <div class="tiers-section full">
+                  <div class="tiers-header">
+                    <span>Tiers de descuento <em>*</em></span>
+                    <button pButton type="button" size="small" severity="secondary" (click)="addTier.emit()"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Agregar tier</span></button>
                   </div>
-                  <div *ngIf="bundle.length === 0" class="muted">Agregá al menos 2 productos.</div>
+                  <div class="tiers-list">
+                    @for (t of tiers; track t; let i = $index) {
+                      <div class="tier-row">
+                        <span class="tier-from">Desde</span>
+                        <p-inputnumber [(ngModel)]="t.min_qty" [ngModelOptions]="{ standalone: true }" [min]="1" suffix=" und" />
+                        <span class="tier-arrow">→</span>
+                        <p-inputnumber [(ngModel)]="t.percent" [ngModelOptions]="{ standalone: true }" [min]="1" [max]="100" suffix=" %" />
+                        <button pButton type="button" size="small" severity="secondary" [text]="true" (click)="removeTier.emit(i)"><span class="p-button-icon p-button-icon-left pi pi-trash" aria-hidden="true"></span></button>
+                      </div>
+                    }
+                    @if (tiers.length === 0) {
+                      <div class="muted">Sin tiers. Agregá al menos uno.</div>
+                    }
+                  </div>
                 </div>
-              </div>
-              <label class="full">
-                <span>Precio fijo del pack <em>*</em></span>
-                <p-inputNumber formControlName="price" mode="currency" currency="MXN" locale="es-MX" [min]="1" />
-              </label>
-            </ng-container>
-
-            <!-- cross_sell_discount -->
-            <ng-container *ngSwitchCase="'cross_sell_discount'">
-              <label class="full">
-                <span>Si compra (trigger) <em>*</em></span>
-                <p-select formControlName="trigger_product_id" [options]="productOptions" optionLabel="nombre" optionValue="id" [filter]="true" filterBy="nombre,brand" placeholder="Producto que dispara…" appendTo="body"></p-select>
-              </label>
-              <label class="full">
-                <span>Descuento en (target) <em>*</em></span>
-                <p-select formControlName="target_product_id" [options]="productOptions" optionLabel="nombre" optionValue="id" [filter]="true" filterBy="nombre,brand" placeholder="Producto descontado…" appendTo="body"></p-select>
-              </label>
-              <label>
-                <span>Descuento (%) <em>*</em></span>
-                <p-inputNumber formControlName="percent" [min]="1" [max]="100" suffix=" %" />
-              </label>
-            </ng-container>
-          </ng-container>
-
-          <!-- Comunes: vigencia y configuración -->
-          <div class="full divider"><span>Vigencia y configuración</span></div>
-          <label>
-            <span>Desde</span>
-            <p-datepicker formControlName="starts_at" [showIcon]="true" placeholder="Sin fecha — desde siempre" appendTo="body"></p-datepicker>
-          </label>
-          <label>
-            <span>Hasta</span>
-            <p-datepicker formControlName="ends_at" [showIcon]="true" placeholder="Sin fecha — sin fin" appendTo="body"></p-datepicker>
-          </label>
-          <label>
-            <span>Prioridad</span>
-            <p-inputNumber formControlName="priority" [min]="0" [max]="1000" [showButtons]="true" />
-          </label>
-          <label>
-            <span>Tope global de usos</span>
-            <p-inputNumber formControlName="usage_limit" [min]="1" placeholder="Ilimitado" />
-          </label>
-          <label class="checkbox-line full">
-            <p-inputSwitch formControlName="active" />
-            <span>Activa al guardar</span>
-          </label>
-        </form>
-      </ng-container>
-
-      <ng-template pTemplate="footer">
-        <ng-container *ngIf="wizardStep === 'configure'">
-          <button pButton label="Cancelar" severity="secondary" [outlined]="true" (click)="cancel.emit()"></button>
-          <button
-            pButton
-            [label]="editing ? 'Guardar' : 'Crear promoción'"
-            icon="pi pi-check"
-            [loading]="saving"
-            [disabled]="!canSave"
-            (click)="save.emit()"
-          ></button>
-        </ng-container>
-        <ng-container *ngIf="wizardStep === 'choose-type'">
-          <button pButton label="Cancelar" severity="secondary" [outlined]="true" (click)="cancel.emit()"></button>
-        </ng-container>
-      </ng-template>
-    </p-dialog>
-  `,
+              }
+              <!-- bundle_fixed_price -->
+              @case ('bundle_fixed_price') {
+                <div class="tiers-section full">
+                  <div class="tiers-header">
+                    <span>Productos del pack <em>*</em></span>
+                    <button pButton type="button" size="small" severity="secondary" (click)="addBundleItem.emit()"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Agregar producto</span></button>
+                  </div>
+                  <div class="tiers-list">
+                    @for (it of bundle; track it; let i = $index) {
+                      <div class="bundle-row">
+                        <p-select
+                          [(ngModel)]="it.product_id"
+                          [ngModelOptions]="{ standalone: true }"
+                          [options]="productOptions"
+                          optionLabel="nombre"
+                          optionValue="id"
+                          [filter]="true"
+                          filterBy="nombre,brand"
+                          placeholder="Producto…"
+                          appendTo="body"
+                          styleClass="bundle-product"
+                        ></p-select>
+                        <span>×</span>
+                        <p-inputnumber [(ngModel)]="it.quantity" [ngModelOptions]="{ standalone: true }" [min]="1" suffix=" und" />
+                        <button pButton type="button" size="small" severity="secondary" [text]="true" (click)="removeBundleItem.emit(i)"><span class="p-button-icon p-button-icon-left pi pi-trash" aria-hidden="true"></span></button>
+                      </div>
+                    }
+                    @if (bundle.length === 0) {
+                      <div class="muted">Agregá al menos 2 productos.</div>
+                    }
+                  </div>
+                </div>
+                <label class="full">
+                  <span>Precio fijo del pack <em>*</em></span>
+                  <p-inputnumber formControlName="price" mode="currency" currency="MXN" locale="es-MX" [min]="1" />
+                </label>
+              }
+              <!-- cross_sell_discount -->
+              @case ('cross_sell_discount') {
+                <label class="full">
+                  <span>Si compra (trigger) <em>*</em></span>
+                  <p-select formControlName="trigger_product_id" [options]="productOptions" optionLabel="nombre" optionValue="id" [filter]="true" filterBy="nombre,brand" placeholder="Producto que dispara…" appendTo="body"></p-select>
+                </label>
+                <label class="full">
+                  <span>Descuento en (target) <em>*</em></span>
+                  <p-select formControlName="target_product_id" [options]="productOptions" optionLabel="nombre" optionValue="id" [filter]="true" filterBy="nombre,brand" placeholder="Producto descontado…" appendTo="body"></p-select>
+                </label>
+                <label>
+                  <span>Descuento (%) <em>*</em></span>
+                  <p-inputnumber formControlName="percent" [min]="1" [max]="100" suffix=" %" />
+                </label>
+              }
+            }
+            <!-- Comunes: vigencia y configuración -->
+            <div class="full divider"><span>Vigencia y configuración</span></div>
+            <label>
+              <span>Desde</span>
+              <p-datepicker formControlName="starts_at" [showIcon]="true" placeholder="Sin fecha — desde siempre" appendTo="body"></p-datepicker>
+            </label>
+            <label>
+              <span>Hasta</span>
+              <p-datepicker formControlName="ends_at" [showIcon]="true" placeholder="Sin fecha — sin fin" appendTo="body"></p-datepicker>
+            </label>
+            <label>
+              <span>Prioridad</span>
+              <p-inputnumber formControlName="priority" [min]="0" [max]="1000" [showButtons]="true" />
+            </label>
+            <label>
+              <span>Tope global de usos</span>
+              <p-inputnumber formControlName="usage_limit" [min]="1" placeholder="Ilimitado" />
+            </label>
+            <label class="checkbox-line full">
+              <p-toggleswitch formControlName="active" />
+              <span>Activa al guardar</span>
+            </label>
+          </form>
+        }
+    
+        <ng-template #footer>
+          @if (wizardStep === 'configure') {
+            <button pButton severity="secondary" [outlined]="true" (click)="cancel.emit()"><span class="p-button-label">Cancelar</span></button>
+            <p-button
+              pButton
+              [label]="editing ? 'Guardar' : 'Crear promoción'"
+              icon="pi pi-check"
+              [loading]="saving"
+              [disabled]="!canSave"
+              (click)="save.emit()"
+            ></p-button>
+          }
+          @if (wizardStep === 'choose-type') {
+            <button pButton severity="secondary" [outlined]="true" (click)="cancel.emit()"><span class="p-button-label">Cancelar</span></button>
+          }
+        </ng-template>
+      </p-dialog>
+    `,
+  changeDetection: ChangeDetectionStrategy.Eager,
   styles: [
     `
       .promo-banner-preview {

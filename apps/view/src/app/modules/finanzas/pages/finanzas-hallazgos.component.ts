@@ -39,8 +39,8 @@ import { ActionsService, ProposedAction } from '../actions.service';
           <p class="surf-page-sub">Patrones que el motor detecta en los libros: riesgos, errores de captura y oportunidades. Confirma o descarta — Maat aprende de cada veredicto.</p>
         </div>
         <div class="fh-head-actions">
-          <button pButton type="button" [label]="rulesOpen() ? 'Ocultar reglas' : 'Reglas'" icon="pi pi-sliders-h" class="p-button-sm p-button-text" (click)="rulesOpen.set(!rulesOpen())"></button>
-          <button pButton type="button" label="Escanear ahora" icon="pi pi-bolt" class="p-button-sm p-button-outlined" [loading]="scanning()" (click)="scan()"></button>
+          <p-button pButton type="button" [label]="rulesOpen() ? 'Ocultar reglas' : 'Reglas'" icon="pi pi-sliders-h" styleClass="p-button-sm p-button-text" (click)="rulesOpen.set(!rulesOpen())"></p-button>
+          <button pButton type="button" class="p-button-sm p-button-outlined" [loading]="scanning()" (click)="scan()"><span class="p-button-icon p-button-icon-left pi pi-bolt" aria-hidden="true"></span><span class="p-button-label">Escanear ahora</span></button>
         </div>
       </header>
 
@@ -71,8 +71,8 @@ import { ActionsService, ProposedAction } from '../actions.service';
                 @if (a.efecto) { <span class="fh-action-efecto"><i class="pi pi-arrow-right"></i> {{ a.efecto }}</span> }
               </div>
               <div class="fh-action-acts">
-                <button pButton type="button" icon="pi pi-check" label="Aprobar" class="p-button-sm p-button-success" (click)="approve(a)"></button>
-                <button pButton type="button" icon="pi pi-times" class="p-button-sm p-button-text p-button-danger" title="Rechazar" (click)="reject(a)"></button>
+                <button pButton type="button" class="p-button-sm p-button-success" (click)="approve(a)"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Aprobar</span></button>
+                <button pButton type="button" class="p-button-sm p-button-text p-button-danger" title="Rechazar" (click)="reject(a)"><span class="p-button-icon p-button-icon-left pi pi-times" aria-hidden="true"></span></button>
               </div>
             </div>
           }
@@ -84,10 +84,10 @@ import { ActionsService, ProposedAction } from '../actions.service';
         <div class="card-premium card-flat fh-rules">
           <h3 class="fh-card-title">Salud de las reglas <span class="muted">(precisión = confirmados / veredictos)</span></h3>
           <p-table [value]="rules()" styleClass="p-datatable-sm" [rowHover]="true">
-            <ng-template pTemplate="header">
+            <ng-template #header>
               <tr><th>Regla</th><th>Clase</th><th class="ta-r">Hallazgos</th><th class="ta-r">✓ / ✗</th><th class="ta-r">Precisión</th><th>Estado</th><th style="width:5rem"></th></tr>
             </ng-template>
-            <ng-template pTemplate="body" let-r>
+            <ng-template #body let-r>
               <tr [class.fh-suppressed]="r.suppressed_auto">
                 <td>{{ r.nombre }}</td>
                 <td><span class="fh-tag" [ngClass]="'cls-' + r.clase">{{ claseLabel(r.clase) }}</span></td>
@@ -100,7 +100,7 @@ import { ActionsService, ProposedAction } from '../actions.service';
                   @else if (r.pinned) { <span class="fh-tag cls-pin">fijada</span> }
                   @else { <span class="muted">activa</span> }
                 </td>
-                <td class="ta-r"><button pButton type="button" [icon]="r.pinned ? 'pi pi-bookmark-fill' : 'pi pi-bookmark'" class="p-button-text p-button-sm" [title]="r.pinned ? 'Desfijar' : 'Fijar (nunca auto-suprimir)'" (click)="pin(r)"></button></td>
+                <td class="ta-r"><p-button pButton type="button" [icon]="r.pinned ? 'pi pi-bookmark-fill' : 'pi pi-bookmark'" styleClass="p-button-text p-button-sm" [title]="r.pinned ? 'Desfijar' : 'Fijar (nunca auto-suprimir)'" (click)="pin(r)"></p-button></td>
               </tr>
             </ng-template>
           </p-table>
@@ -129,12 +129,12 @@ import { ActionsService, ProposedAction } from '../actions.service';
       <div class="card-premium card-flat">
         <p-table [value]="findings()" styleClass="p-datatable-sm fh-table" [rowHover]="true" [loading]="loading()"
                  dataKey="id" [expandedRowKeys]="expanded()" [scrollable]="true" scrollHeight="560px" [paginator]="findings().length > 50" [rows]="50">
-          <ng-template pTemplate="header">
+          <ng-template #header>
             <tr><th style="width:2.5rem"></th><th style="width:6rem">Severidad</th><th>Hallazgo</th><th style="width:8rem">Clase</th><th class="ta-r" style="width:9rem">Importe</th><th style="width:13rem">Acciones</th></tr>
           </ng-template>
-          <ng-template pTemplate="body" let-f let-expanded="expanded">
+          <ng-template #body let-f let-expanded="expanded">
             <tr>
-              <td><button pButton type="button" [icon]="expanded ? 'pi pi-chevron-down' : 'pi pi-chevron-right'" class="p-button-text p-button-sm" (click)="toggle(f)"></button></td>
+              <td><p-button pButton type="button" [icon]="expanded ? 'pi pi-chevron-down' : 'pi pi-chevron-right'" styleClass="p-button-text p-button-sm" (click)="toggle(f)"></p-button></td>
               <td><span class="fh-sev" [ngClass]="'sev-' + f.severity">{{ sevLabel(f.severity) }}</span></td>
               <td>
                 <div class="fh-titulo">{{ f.titulo }}</div>
@@ -144,10 +144,10 @@ import { ActionsService, ProposedAction } from '../actions.service';
               <td class="ta-r strong">{{ money(f.importe) }}</td>
               <td>
                 <div class="fh-acts">
-                  @if (docUrl(f); as u) { <button pButton type="button" icon="pi pi-external-link" class="p-button-text p-button-sm" title="Ver póliza" (click)="go(u)"></button> }
+                  @if (docUrl(f); as u) { <button pButton type="button" class="p-button-text p-button-sm" title="Ver póliza" (click)="go(u)"><span class="p-button-icon p-button-icon-left pi pi-external-link" aria-hidden="true"></span></button> }
                   @if (f.status === 'nuevo' || f.status === 'en_revision') {
-                    <button pButton type="button" icon="pi pi-check" label="Confirmar" class="p-button-sm p-button-success p-button-text" [disabled]="pending().has(f.id)" (click)="verdict(f, 'util')" title="Es real y útil" aria-label="Confirmar hallazgo"></button>
-                    <button pButton type="button" icon="pi pi-times" class="p-button-sm p-button-danger p-button-text" [disabled]="pending().has(f.id)" (click)="verdict(f, 'falso')" title="Falso positivo" aria-label="Descartar como falso positivo"></button>
+                    <button pButton type="button" class="p-button-sm p-button-success p-button-text" [disabled]="pending().has(f.id)" (click)="verdict(f, 'util')" title="Es real y útil" aria-label="Confirmar hallazgo"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Confirmar</span></button>
+                    <button pButton type="button" class="p-button-sm p-button-danger p-button-text" [disabled]="pending().has(f.id)" (click)="verdict(f, 'falso')" title="Falso positivo" aria-label="Descartar como falso positivo"><span class="p-button-icon p-button-icon-left pi pi-times" aria-hidden="true"></span></button>
                   } @else {
                     <span class="fh-status" [ngClass]="'st-' + f.status">{{ statusLabel(f.status) }}</span>
                   }
@@ -155,7 +155,7 @@ import { ActionsService, ProposedAction } from '../actions.service';
               </td>
             </tr>
           </ng-template>
-          <ng-template pTemplate="rowexpansion" let-f>
+          <ng-template #expandedrow let-f>
             <tr><td colspan="6" class="fh-ev">
               <div class="fh-ev-grid">
                 @for (kv of evidenceRows(f); track kv.k) { <div><span class="fh-ev-k">{{ kv.k }}</span><span class="fh-ev-v mono">{{ kv.v }}</span></div> }
@@ -163,7 +163,7 @@ import { ActionsService, ProposedAction } from '../actions.service';
               <div class="fh-ev-meta muted">Regla: {{ f.regla || f.rule_key }} · detectado {{ f.first_seen | date:'dd/MM/yy' }} · visto {{ f.last_seen | date:'dd/MM/yy' }}</div>
             </td></tr>
           </ng-template>
-          <ng-template pTemplate="emptymessage"><tr><td colspan="6" class="fh-empty">
+          <ng-template #emptymessage><tr><td colspan="6" class="fh-empty">
             @if (loading()) { Cargando… } @else { Sin hallazgos {{ status() === 'pendientes' ? 'pendientes' : '' }}. Corre "Escanear ahora" o revisa otro filtro. }
           </td></tr></ng-template>
         </p-table>
@@ -179,8 +179,8 @@ import { ActionsService, ProposedAction } from '../actions.service';
           </div>
           @if (coverage(); as c) {
             <p-table [value]="c.categorias" styleClass="p-datatable-sm" [rowHover]="true">
-              <ng-template pTemplate="header"><tr><th>Categoría</th><th class="ta-r" style="width:7rem">Activos</th><th class="ta-r" style="width:7rem">Hallazgos</th><th style="width:11rem">Estado</th></tr></ng-template>
-              <ng-template pTemplate="body" let-cat>
+              <ng-template #header><tr><th>Categoría</th><th class="ta-r" style="width:7rem">Activos</th><th class="ta-r" style="width:7rem">Hallazgos</th><th style="width:11rem">Estado</th></tr></ng-template>
+              <ng-template #body let-cat>
                 <tr [class.fh-blind]="cat.activos === 0">
                   <td><span class="fh-titulo">{{ cat.nombre }}</span>@if (cat.critica) { <span class="fh-tag cls-riesgo">crítica</span> }<div class="muted fh-cov-rules">{{ cat.rules.join(', ') }}</div></td>
                   <td class="ta-r mono">{{ cat.activos }}/{{ cat.rules.length }}</td>
@@ -188,7 +188,7 @@ import { ActionsService, ProposedAction } from '../actions.service';
                   <td>@if (cat.activos === 0) { <span class="fh-tag cls-riesgo">PUNTO CIEGO</span> } @else if (cat.suprimidos > 0) { <span class="fh-tag cls-error_captura">{{ cat.suprimidos }} suprimida(s)</span> } @else { <span class="fh-tag cls-oportunidad">cubierta</span> }</td>
                 </tr>
               </ng-template>
-              <ng-template pTemplate="emptymessage"><tr><td colspan="4" class="fh-empty">@if (loadingMiq()) { Cargando… } @else { Corre "Escanear ahora" para registrar las reglas. }</td></tr></ng-template>
+              <ng-template #emptymessage><tr><td colspan="4" class="fh-empty">@if (loadingMiq()) { Cargando… } @else { Corre "Escanear ahora" para registrar las reglas. }</td></tr></ng-template>
             </p-table>
           } @else if (loadingMiq()) { <div class="fh-empty">Cargando cobertura…</div> }
         </div>
@@ -202,8 +202,8 @@ import { ActionsService, ProposedAction } from '../actions.service';
           </div>
           @if (dq(); as d) {
             <p-table [value]="d.dimensiones" styleClass="p-datatable-sm" [rowHover]="true">
-              <ng-template pTemplate="header"><tr><th>Dimensión</th><th style="width:9rem">Score</th><th class="ta-r" style="width:10rem">$ afectado</th><th>Detalle</th></tr></ng-template>
-              <ng-template pTemplate="body" let-dim>
+              <ng-template #header><tr><th>Dimensión</th><th style="width:9rem">Score</th><th class="ta-r" style="width:10rem">$ afectado</th><th>Detalle</th></tr></ng-template>
+              <ng-template #body let-dim>
                 <tr>
                   <td class="fh-titulo">{{ dim.nombre }}</td>
                   <td><span class="fh-bar"><span class="fh-bar-fill" [ngClass]="scoreTone(dim.score)" [style.width.%]="dim.score"></span></span><span class="fh-bar-n mono">{{ dim.score }}</span></td>
@@ -220,7 +220,7 @@ import { ActionsService, ProposedAction } from '../actions.service';
         <div class="card-premium card-flat fh-panel fh-actions">
           <div class="fh-panel-head">
             <h3 class="fh-card-title">Hipótesis de detectores nuevos <span class="muted">(la AI y los mineros proponen, tú apruebas)</span></h3>
-            <button pButton type="button" label="Buscar hipótesis" icon="pi pi-compass" class="p-button-sm p-button-outlined" [loading]="discovering()" (click)="runDiscovery()"></button>
+            <button pButton type="button" class="p-button-sm p-button-outlined" [loading]="discovering()" (click)="runDiscovery()"><span class="p-button-icon p-button-icon-left pi pi-compass" aria-hidden="true"></span><span class="p-button-label">Buscar hipótesis</span></button>
           </div>
           @for (h of hypotheses(); track h.id) {
             <div class="fh-action">
@@ -229,8 +229,8 @@ import { ActionsService, ProposedAction } from '../actions.service';
                 <span class="fh-action-desc">{{ h.descripcion }}</span>
               </div>
               <div class="fh-action-acts">
-                <button pButton type="button" icon="pi pi-check" label="Aprobar" class="p-button-sm p-button-success" (click)="approveHyp(h)"></button>
-                <button pButton type="button" icon="pi pi-times" class="p-button-sm p-button-text p-button-danger" title="Rechazar" (click)="rejectHyp(h)"></button>
+                <button pButton type="button" class="p-button-sm p-button-success" (click)="approveHyp(h)"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Aprobar</span></button>
+                <button pButton type="button" class="p-button-sm p-button-text p-button-danger" title="Rechazar" (click)="rejectHyp(h)"><span class="p-button-icon p-button-icon-left pi pi-times" aria-hidden="true"></span></button>
               </div>
             </div>
           } @empty {
@@ -255,7 +255,7 @@ import { ActionsService, ProposedAction } from '../actions.service';
                 <div class="fh-empty2"><i class="pi pi-hourglass"></i> Cold-start: la bandeja usa el score del detector. El modelo entrena solo al llegar a ≥12 etiquetas (hoy {{ m.dataset.etiquetados }}).</div>
               }
               <div class="fh-model-ds muted">Dataset: {{ m.dataset.etiquetados }}/{{ m.dataset.total }} etiquetados · {{ m.dataset.scoreados }} priorizados</div>
-              <button pButton type="button" label="Entrenar / priorizar ahora" icon="pi pi-sync" class="p-button-sm p-button-outlined" [loading]="training()" (click)="runLearning()"></button>
+              <button pButton type="button" class="p-button-sm p-button-outlined" [loading]="training()" (click)="runLearning()"><span class="p-button-icon p-button-icon-left pi pi-sync" aria-hidden="true"></span><span class="p-button-label">Entrenar / priorizar ahora</span></button>
             } @else if (loadingMiq()) { <div class="fh-empty">Cargando…</div> }
           </div>
 
