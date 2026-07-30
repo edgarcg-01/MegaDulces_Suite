@@ -97,7 +97,7 @@ import { SAT_COD_AGRUPADOR } from '../../../shared/constants/sat-cod-agrupador';
         }
       </datalist>
     
-      <p-table [value]="displayRows()" [loading]="loadingMap()" responsiveLayout="scroll"
+      <p-table [value]="displayRows()" [loading]="loadingMap()"
         styleClass="p-datatable-sm surf-table surf-table--sticky" [scrollable]="true" scrollHeight="440px">
         <ng-template #header>
           <tr>

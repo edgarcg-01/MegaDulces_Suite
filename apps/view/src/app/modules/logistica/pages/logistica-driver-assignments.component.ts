@@ -157,7 +157,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
       @if (shipments().length > 0) {
         <div class="sheet cols-12 da-table-desktop">
           <article class="cell cell-span-12 is-flush">
-            <p-table [value]="shipments()" [loading]="loading()" responsiveLayout="scroll"
+            <p-table [value]="shipments()" [loading]="loading()"
               styleClass="surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra"
               [paginator]="true" [rows]="25" [rowsPerPageOptions]="[25, 50, 100, 200]">
               <ng-template #header>

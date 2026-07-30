@@ -61,7 +61,7 @@ import { INV_STOCK_TABS } from '../inventory-tabs';
       <!-- TABLA flush -->
       <div class="sheet cols-12">
         <article class="cell cell-span-12 is-flush">
-          <p-table [value]="rows()" [loading]="loading()" responsiveLayout="scroll"
+          <p-table [value]="rows()" [loading]="loading()"
             styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra">
             <ng-template #header>
               <tr>

@@ -60,7 +60,7 @@ function severityLiq(s: LiquidationStatus): Severity {
         <section class="surf-panel periods-card">
           <div class="surf-panel-head"><h3><i class="pi pi-calendar" aria-hidden="true"></i> Períodos</h3></div>
           <div class="surf-panel-body is-flush">
-            <p-table [value]="periods()" [loading]="loadingP()" responsiveLayout="scroll"
+            <p-table [value]="periods()" [loading]="loadingP()"
               styleClass="surf-table surf-table--sticky p-datatable-sm"
               selectionMode="single" [(selection)]="selectedPeriod" (onRowSelect)="onPeriodSelect()"
               [dataKey]="'id'">
@@ -96,7 +96,7 @@ function severityLiq(s: LiquidationStatus): Severity {
         <section class="surf-panel liq-card">
           <div class="surf-panel-head"><h3><i class="pi pi-wallet" aria-hidden="true"></i> {{ liqHeader() }}</h3></div>
           <div class="surf-panel-body is-flush">
-            <p-table [value]="liquidations()" [loading]="loadingL()" responsiveLayout="scroll"
+            <p-table [value]="liquidations()" [loading]="loadingL()"
               styleClass="surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra p-datatable-sm">
               <ng-template #header>
                 <tr>
@@ -150,7 +150,7 @@ function severityLiq(s: LiquidationStatus): Severity {
         </div>
       }
     
-      <p-table [value]="adjustments()" [loading]="loadingAdj()" responsiveLayout="scroll"
+      <p-table [value]="adjustments()" [loading]="loadingAdj()"
         styleClass="surf-table surf-table--sticky surf-table--zebra p-datatable-sm adj-table">
         <ng-template #header>
           <tr>

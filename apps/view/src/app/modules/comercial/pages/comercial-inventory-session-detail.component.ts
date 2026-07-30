@@ -195,7 +195,7 @@ interface LiveCountEntry {
       @if (sessions().length) {
         <div class="in-sessions">
           <div class="in-sessions-head"><i class="pi pi-users"></i> Jornadas de conteo del personal</div>
-          <p-table [value]="sessions()" responsiveLayout="scroll" styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--zebra">
+          <p-table [value]="sessions()" styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--zebra">
             <ng-template #header>
               <tr>
                 <th scope="col">Contador</th><th scope="col" class="in-num num">Fase</th><th scope="col">Inició</th><th scope="col">Terminó</th><th scope="col">Estado</th>

@@ -70,7 +70,7 @@ import { ConfigCategory, ConfigItem, LogisticaService, Route } from '../logistic
               </div>
               <section class="surf-panel">
                 <div class="surf-panel-body is-flush">
-                  <p-table [value]="filteredRoutes()" [loading]="loading()" responsiveLayout="scroll" styleClass="surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra p-datatable-sm" [paginator]="true" [rows]="25" [rowsPerPageOptions]="[25, 50, 100, 200]" sortMode="single">
+                  <p-table [value]="filteredRoutes()" [loading]="loading()" styleClass="surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra p-datatable-sm" [paginator]="true" [rows]="25" [rowsPerPageOptions]="[25, 50, 100, 200]" sortMode="single">
                     <ng-template #header>
                       <tr>
                         <th scope="col" pSortableColumn="name">Destino <p-sorticon field="name"></p-sorticon></th>
@@ -118,7 +118,7 @@ import { ConfigCategory, ConfigItem, LogisticaService, Route } from '../logistic
                 </div>
                 <section class="surf-panel">
                   <div class="surf-panel-body is-flush">
-                    <p-table [value]="itemsByCategory(cat)" [loading]="loading()" responsiveLayout="scroll" styleClass="surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra p-datatable-sm">
+                    <p-table [value]="itemsByCategory(cat)" [loading]="loading()" styleClass="surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra p-datatable-sm">
                       <ng-template #header>
                         <tr>
                           <th scope="col">Clave</th>

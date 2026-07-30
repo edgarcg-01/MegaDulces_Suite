@@ -119,7 +119,7 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
           }
         </div>
         <div class="surf-panel-body is-flush">
-          <p-table [value]="pendingRows()" [loading]="loading()" responsiveLayout="scroll" styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--zebra">
+          <p-table [value]="pendingRows()" [loading]="loading()" styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--zebra">
             <ng-template #header>
               <tr>
                 <th scope="col">Ruta</th>
@@ -181,7 +181,7 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
         <section class="surf-panel panel-col-6">
           <div class="surf-panel-head"><h3><i class="pi pi-chart-line" aria-hidden="true"></i> Top embarques por margen</h3></div>
           <div class="surf-panel-body is-flush">
-            <p-table [value]="topShipments()" [loading]="loading()" responsiveLayout="scroll" styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--zebra">
+            <p-table [value]="topShipments()" [loading]="loading()" styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--zebra">
               <ng-template #header>
                 <tr>
                   <th scope="col">Folio</th>
@@ -215,7 +215,7 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
         <section class="surf-panel panel-col-6">
           <div class="surf-panel-head"><h3><i class="pi pi-truck" aria-hidden="true"></i> Utilización por unidad</h3></div>
           <div class="surf-panel-body is-flush">
-            <p-table [value]="fleetRows()" [loading]="loading()" responsiveLayout="scroll" styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--zebra">
+            <p-table [value]="fleetRows()" [loading]="loading()" styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--zebra">
               <ng-template #header>
                 <tr>
                   <th scope="col">Placa</th>

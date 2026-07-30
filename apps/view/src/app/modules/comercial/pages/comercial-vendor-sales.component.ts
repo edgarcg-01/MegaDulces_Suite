@@ -50,7 +50,7 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
         accent="var(--chart-6)" sub="piezas vendidas"></app-metric-card>
       </div>
     
-      <p-table [value]="captures()" [loading]="loading()" responsiveLayout="scroll"
+      <p-table [value]="captures()" [loading]="loading()"
         styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra"
         [paginator]="captures().length > 25" [rows]="25" [rowsPerPageOptions]="[25, 50, 100]">
         <ng-template #header>

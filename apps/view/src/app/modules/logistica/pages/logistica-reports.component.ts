@@ -129,7 +129,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
     
             <section class="surf-panel">
               <div class="surf-panel-body is-flush">
-                <p-table [value]="shipmentRows()" [loading]="loading()" responsiveLayout="scroll" styleClass="surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra p-datatable-sm" [paginator]="true" [rows]="25" [rowsPerPageOptions]="[25, 50, 100, 200]" sortMode="single">
+                <p-table [value]="shipmentRows()" [loading]="loading()" styleClass="surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra p-datatable-sm" [paginator]="true" [rows]="25" [rowsPerPageOptions]="[25, 50, 100, 200]" sortMode="single">
                   <ng-template #header>
                     <tr>
                       <th scope="col" pSortableColumn="folio">Folio <p-sorticon field="folio"></p-sorticon></th>
@@ -180,7 +180,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
     
             <section class="surf-panel">
               <div class="surf-panel-body is-flush">
-                <p-table [value]="fleetRows()" [loading]="loading()" responsiveLayout="scroll" styleClass="surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra p-datatable-sm" sortMode="single">
+                <p-table [value]="fleetRows()" [loading]="loading()" styleClass="surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra p-datatable-sm" sortMode="single">
                   <ng-template #header>
                     <tr>
                       <th scope="col" pSortableColumn="plate">Placa <p-sorticon field="plate"></p-sorticon></th>
@@ -293,7 +293,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
               </div>
               <section class="surf-panel" style="margin-top:1rem;">
                 <div class="surf-panel-body is-flush">
-                  <p-table [value]="e.rows" [loading]="erpLoading()" responsiveLayout="scroll" styleClass="surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra p-datatable-sm" [paginator]="e.rows.length > 25" [rows]="25" sortMode="single">
+                  <p-table [value]="e.rows" [loading]="erpLoading()" styleClass="surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra p-datatable-sm" [paginator]="e.rows.length > 25" [rows]="25" sortMode="single">
                     <ng-template #header>
                       <tr>
                         <th scope="col">{{ erpDimLabel() }}</th>

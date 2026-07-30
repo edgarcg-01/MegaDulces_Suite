@@ -230,7 +230,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
           }
           <div class="sheet cols-12">
             <article class="cell cell-span-12 is-flush">
-              <p-table [value]="guides()" responsiveLayout="scroll" styleClass="surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra p-datatable-sm">
+              <p-table [value]="guides()" styleClass="surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra p-datatable-sm">
                 <ng-template #header>
                   <tr>
                     <th scope="col">Número</th>
@@ -302,7 +302,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
                 @if (eta(); as e) {
                   <div>
                     @if (e.stops.length) {
-                      <p-table [value]="e.stops" responsiveLayout="scroll" styleClass="surf-table surf-table--sticky surf-table--zebra p-datatable-sm">
+                      <p-table [value]="e.stops" styleClass="surf-table surf-table--sticky surf-table--zebra p-datatable-sm">
                         <ng-template #header>
                           <tr><th scope="col">#</th><th scope="col">Cliente</th><th scope="col" class="comm-num num">Km acum.</th><th scope="col">ETA</th></tr>
                         </ng-template>
@@ -394,7 +394,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
           @if (cpDocs().length) {
             <div class="sheet cols-12">
               <article class="cell cell-span-12 is-flush">
-                <p-table [value]="cpDocs()" responsiveLayout="scroll" styleClass="surf-table surf-table--sticky surf-table--zebra p-datatable-sm">
+                <p-table [value]="cpDocs()" styleClass="surf-table surf-table--sticky surf-table--zebra p-datatable-sm">
                   <ng-template #header>
                     <tr><th scope="col">Folio fiscal (UUID)</th><th scope="col">Tipo</th><th scope="col">Estado</th><th scope="col">Timbrado</th></tr>
                   </ng-template>
@@ -523,7 +523,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
               <span class="cell-label">Destinatarios</span>
               <span class="comm-muted is-small">{{ (g.recipients || []).length }} registrado{{ (g.recipients || []).length === 1 ? '' : 's' }}</span>
             </div>
-            <p-table [value]="g.recipients || []" responsiveLayout="scroll" styleClass="surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra p-datatable-sm">
+            <p-table [value]="g.recipients || []" styleClass="surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra p-datatable-sm">
               <ng-template #header>
                 <tr>
                   <th scope="col">#</th>

@@ -193,7 +193,7 @@
       } @else if (selectedType() !== 'roles') {
         <!-- Tabla normal para otros catálogos -->
         <div class="bg-surface-card border border-divider shadow-sm rounded-xl overflow-hidden hidden lg:block">
-          <p-table [value]="filteredItems()" [loading]="loading()" responsiveLayout="scroll" styleClass="p-datatable-sm p-datatable-striped"
+          <p-table [value]="filteredItems()" [loading]="loading()" styleClass="p-datatable-sm p-datatable-striped"
             [paginator]="filteredItems().length > 20" [rows]="20" [rowsPerPageOptions]="[10,20,50,100]"
             [sortField]="'orden'" [sortOrder]="1">
             <ng-template #header>
