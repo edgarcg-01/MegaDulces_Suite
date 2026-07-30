@@ -11,6 +11,7 @@
     "test": "nx run-many -t test",
     "lint": "nx run-many -t lint",
     "api": "nx serve api",
+    "api:dev": "nx build api && concurrently -k -n build,api -c blue,green \"nx build api --watch\" \"node --watch dist/apps/api/main.js\"",
     "view": "nx serve view",
     "generate:openapi": "ts-node scripts/generate-openapi.ts",
     "generate:client": "openapi-generator-cli generate -i swagger.json -g typescript-angular -o apps/view/src/app/core/api --additional-properties=stringEnums=true -c openapi-config.json",
