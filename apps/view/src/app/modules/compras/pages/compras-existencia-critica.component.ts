@@ -499,6 +499,8 @@ export class ComprasExistenciaCriticaComponent implements OnInit {
   canRequire = computed(() => this.selCount() > 0);
 
   constructor() {
+    // Restaura filtros ANTES del primer fetch del rxResource (sobrevive cambio de tab / nav / reload).
+    this.restoreFilters();
     // Sella la frescura en cada carga resuelta del listado (reemplaza loadedAt.set del next viejo).
     effect(() => { if (this.listRes.value() !== undefined) this.loadedAt.set(Date.now()); });
     // Toasts de error (equivalen a los catch de los subscribe viejos).
@@ -527,12 +529,42 @@ export class ComprasExistenciaCriticaComponent implements OnInit {
   private idsForCodes(codes: string[]): string[] { return this.warehouseOpts().filter((w) => codes.includes(w.code)).map((w) => w.value); }
 
   reload(): void {
+    this.saveFilters();
     this.selected.clear();
     this.selCount.set(0);
     this.page.set(1);
     this.deadPage.set(1);
     this.tick.update((t) => t + 1);                 // refetch listado + resumen
     if (this.deadOpen()) this.deadTick.update((t) => t + 1);
+  }
+
+  // Persistencia de filtros en localStorage (mismo patrón que /compras/pedido).
+  private readonly FKEY = 'existencia-critica-filters:v1';
+  private saveFilters(): void {
+    try {
+      localStorage.setItem(this.FKEY, JSON.stringify({
+        fWarehouses: this.fWarehouses, fBucket: this.fBucket, fBasis: this.fBasis,
+        fSupplier: this.fSupplier, fCategory: this.fCategory, fAbc: this.fAbc, fXyz: this.fXyz,
+        fSearch: this.fSearch, fSortBy: this.fSortBy, fSortDir: this.fSortDir,
+      }));
+    } catch { /* localStorage no disponible */ }
+  }
+  private restoreFilters(): void {
+    try {
+      const raw = localStorage.getItem(this.FKEY);
+      if (!raw) return;
+      const s = JSON.parse(raw);
+      if (Array.isArray(s.fWarehouses)) this.fWarehouses = s.fWarehouses;
+      if (typeof s.fBucket === 'string') this.fBucket = s.fBucket;
+      if (typeof s.fBasis === 'string') this.fBasis = s.fBasis as TargetBasis;
+      if (typeof s.fSupplier === 'string') this.fSupplier = s.fSupplier;
+      if (typeof s.fCategory === 'string') this.fCategory = s.fCategory;
+      if (typeof s.fAbc === 'string') this.fAbc = s.fAbc;
+      if (typeof s.fXyz === 'string') this.fXyz = s.fXyz;
+      if (typeof s.fSearch === 'string') this.fSearch = s.fSearch;
+      if (s.fSortBy === null || typeof s.fSortBy === 'string') this.fSortBy = s.fSortBy;
+      if (s.fSortDir === 'asc' || s.fSortDir === 'desc') this.fSortDir = s.fSortDir;
+    } catch { /* JSON inválido */ }
   }
 
   toggleDead(): void {
