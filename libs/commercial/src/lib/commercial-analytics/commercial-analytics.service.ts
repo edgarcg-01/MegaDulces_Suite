@@ -2746,14 +2746,18 @@ export class CommercialAnalyticsService {
   /** SAL — categorías de compra con productos activos (para el filtro de Salidas). */
   async salidasCategories() {
     const tenantId = this.tenantCtx.requireTenantId();
+    // Mismo CONJUNTO que /compras/categorias (commercial-replenishment.listCategories):
+    // LEFT join → TODAS las categorías no borradas del tenant, con `code` + conteo de
+    // productos activos. Antes era INNER + p.activo y sin code → el filtro de salidas no
+    // podía buscarse por código (ej "874").
     return this.tk.run(async (trx) =>
       trx('catalog.categories as c')
-        .join('catalog.products as p', (j: any) => j.on('p.tenant_id', 'c.tenant_id').andOn('p.category_id', 'c.id'))
-        .where('c.tenant_id', tenantId).andWhere('p.activo', true).whereNull('c.deleted_at')
-        .groupBy('c.id', 'c.name')
-        .select('c.id as id', 'c.name as name')
-        .count('p.id as n_products')
-        .orderBy('c.name'),
+        .leftJoin('catalog.products as p', (j: any) => j.on('p.tenant_id', 'c.tenant_id').andOn('p.category_id', 'c.id'))
+        .where('c.tenant_id', tenantId).whereNull('c.deleted_at')
+        .groupBy('c.id', 'c.code', 'c.name')
+        .select('c.id as id', 'c.code as code', 'c.name as name')
+        .select(trx.raw('count(DISTINCT p.id) FILTER (WHERE p.activo)::int as n_products'))
+        .orderByRaw('count(DISTINCT p.id) FILTER (WHERE p.activo) DESC, c.name ASC'),
     );
   }
 

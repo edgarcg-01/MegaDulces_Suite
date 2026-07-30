@@ -281,7 +281,7 @@ export class ComercialSalidasComponent {
     this.svc.productSuppliers().pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({ next: (s) => this.suppliers.set(s), error: () => undefined });
     this.svc.salidasCategories().pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({ next: (c) => this.categoryOpts.set(c.map((x) => ({ id: x.id, label: `${x.name} · ${x.n_products}` }))), error: () => undefined });
+      .subscribe({ next: (c) => this.categoryOpts.set(c.map((x) => ({ id: x.id, label: `${x.code ? x.code + ' · ' : ''}${x.name}` }))), error: () => undefined });
     this.load();
   }
 

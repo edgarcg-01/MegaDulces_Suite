@@ -1327,7 +1327,7 @@ export interface SalidasParams {
   category_id?: string; // RA-PRO.12 — categoría de compra (sourcing)
   search?: string;
 }
-export interface SalidasCategoryOption { id: string; name: string; n_products: number; }
+export interface SalidasCategoryOption { id: string; code?: string | null; name: string; n_products: number; }
 
 export interface SalidasRow {
   warehouse_code: string;
