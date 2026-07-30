@@ -3465,6 +3465,17 @@ export class CommercialAnalyticsService {
   private isMonthAligned(from: string, to: string): boolean {
     if (from.slice(8, 10) !== '01') return false;
     const d = new Date(`${to}T00:00:00Z`);
-    return new Date(d.getTime() + 86400000).getUTCDate() === 1;
+    if (new Date(d.getTime() + 86400000).getUTCDate() !== 1) return false;
+    // El rollup mensual (sales_boxes_monthly / sales_by_vendor_monthly) solo es confiable
+    // para meses YA CERRADOS: para el mes en curso el rollup va atrás de las tablas crudas
+    // (el feed lo reconstruye month-to-date y se queda corto) → subcontaba el sell-out.
+    // Si el período toca el mes actual o futuro, forzar cálculo EN VIVO (on-the-fly).
+    return to < this.currentMonthStartMx();
+  }
+
+  // Inicio del mes actual en TZ MX (UTC-6 fijo, MX abolió DST en 2023). Formato YYYY-MM-01.
+  private currentMonthStartMx(): string {
+    const mx = new Date(Date.now() - 6 * 3600 * 1000);
+    return `${mx.getUTCFullYear()}-${String(mx.getUTCMonth() + 1).padStart(2, '0')}-01`;
   }
 }
