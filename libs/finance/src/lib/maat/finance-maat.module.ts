@@ -1,5 +1,5 @@
 import { Module } from '@nestjs/common';
-import { EmbeddingsService } from '@megadulces/platform-core';
+import { EmbeddingsService, AnthropicService } from '@megadulces/platform-core';
 import { MaatKnowledgeService } from './maat-knowledge.service';
 import { MaatKnowledgeVectorService } from './maat-knowledge-vector.service';
 import { MaatProviderGraphService } from './maat-provider-graph.service';
@@ -45,7 +45,7 @@ import { FinanceBankModule } from '../bank/finance-bank.module';
     MaatKnowledgeService, MaatToolsService, MaatChatService, MaatBriefingService,
     MaatDetectorService, MaatAnomalyService, MaatCoverageService, MaatDataQualityService, MaatEntityService,
     MaatFindingsService, MaatScannerService, MaatActionsService,
-    EmbeddingsService, MaatKnowledgeVectorService, MaatProviderGraphService,
+    EmbeddingsService, AnthropicService, MaatKnowledgeVectorService, MaatProviderGraphService,
     MaatFindingsSinkService, MaatLearningService, MaatEvalService,
     MaatSkepticService, MaatDiscoveryService,
     MaatReconTasksService,

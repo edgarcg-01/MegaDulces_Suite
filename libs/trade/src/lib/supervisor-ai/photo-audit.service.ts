@@ -1,6 +1,6 @@
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { Knex } from 'knex';
-import { KNEX_CONNECTION, TenantContextService } from '@megadulces/platform-core';
+import { KNEX_CONNECTION, TenantContextService, AnthropicService } from '@megadulces/platform-core';
 
 /**
  * Horus — Capa de VISIÓN (Sprint H2.2).
@@ -76,13 +76,13 @@ function distinctBrands(list: ProductSeen[]): number {
 @Injectable()
 export class PhotoAuditService {
   private readonly logger = new Logger(PhotoAuditService.name);
-  private readonly endpoint = 'https://api.anthropic.com/v1/messages';
   private readonly model = 'claude-haiku-4-5-20251001';
   private readonly apiKey = process.env.ANTHROPIC_API_KEY || '';
   private readonly timeoutMs = 30_000;
 
   constructor(
     @Inject(KNEX_CONNECTION) private readonly knex: Knex,
+    private readonly anthropic: AnthropicService,
     @Optional() private readonly tenantContext?: TenantContextService,
   ) {}
 
@@ -305,22 +305,12 @@ export class PhotoAuditService {
   }
 
   private async callVision(base64: string, mediaType: string): Promise<Verdict | null> {
-    const ctrl = new AbortController();
-    const tId = setTimeout(() => ctrl.abort(), this.timeoutMs);
-    let res: Response;
-    try {
-      res = await fetch(this.endpoint, {
-        method: 'POST',
-        headers: {
-          'x-api-key': this.apiKey,
-          'anthropic-version': '2023-06-01',
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          model: this.model,
-          max_tokens: 1200, // HV.1: la lista products_seen agrega output
-          tool_choice: { type: 'tool', name: 'audit_exhibition_photo' },
-          tools: [
+    const json = (await this.anthropic.messages(
+      {
+        model: this.model,
+        maxTokens: 1200, // HV.1: la lista products_seen agrega output
+        toolChoice: { type: 'tool', name: 'audit_exhibition_photo' },
+        tools: [
             {
               name: 'audit_exhibition_photo',
               description:
@@ -362,29 +352,21 @@ export class PhotoAuditService {
               },
             },
           ],
-          messages: [
-            {
-              role: 'user',
-              content: [
-                { type: 'image', source: { type: 'base64', media_type: mediaType, data: base64 } },
-                {
-                  type: 'text',
-                  text: 'Sos un supervisor de trade marketing auditando la ejecución en punto de venta. Analizá esta foto de una exhibición de dulces y completá la herramienta audit_exhibition_photo con lo que REALMENTE ves.',
-                },
-              ],
-            },
-          ],
-        }),
-        signal: ctrl.signal,
-      });
-    } finally {
-      clearTimeout(tId);
-    }
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`Anthropic ${res.status}: ${body.slice(0, 160)}`);
-    }
-    const json = (await res.json()) as { content: Array<{ type: string; name?: string; input?: any }> };
+        messages: [
+          {
+            role: 'user',
+            content: [
+              { type: 'image', source: { type: 'base64', media_type: mediaType, data: base64 } },
+              {
+                type: 'text',
+                text: 'Sos un supervisor de trade marketing auditando la ejecución en punto de venta. Analizá esta foto de una exhibición de dulces y completá la herramienta audit_exhibition_photo con lo que REALMENTE ves.',
+              },
+            ],
+          },
+        ],
+      },
+      { timeoutMs: this.timeoutMs },
+    )) as { content: Array<{ type: string; name?: string; input?: any }> };
     const tool = json.content?.find((c) => c.type === 'tool_use' && c.name === 'audit_exhibition_photo');
     if (!tool) return null;
     const i = tool.input || {};

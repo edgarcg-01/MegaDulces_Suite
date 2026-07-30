@@ -7,7 +7,7 @@ import {
   Optional,
 } from '@nestjs/common';
 import { Knex } from 'knex';
-import { KNEX_CONNECTION, TenantContextService } from '@megadulces/platform-core';
+import { KNEX_CONNECTION, TenantContextService, AnthropicService } from '@megadulces/platform-core';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -72,13 +72,13 @@ const SEVERITIES = ['info', 'warn', 'critical'];
 @Injectable()
 export class SupervisorAgentService {
   private readonly logger = new Logger(SupervisorAgentService.name);
-  private readonly endpoint = 'https://api.anthropic.com/v1/messages';
   private readonly model = 'claude-haiku-4-5-20251001';
   private readonly apiKey = process.env.ANTHROPIC_API_KEY || '';
   private readonly timeoutMs = 20_000;
 
   constructor(
     @Inject(KNEX_CONNECTION) private readonly knex: Knex,
+    private readonly anthropic: AnthropicService,
     @Optional() private readonly tenantContext?: TenantContextService,
   ) {}
 
@@ -420,22 +420,12 @@ export class SupervisorAgentService {
       'Cadena de razonamiento (motor, determinista):',
       ...chain.map((c) => `- ${c.step}: ${c.text}`),
     ];
-    const ctrl = new AbortController();
-    const tId = setTimeout(() => ctrl.abort(), this.timeoutMs);
-    let res: Response;
-    try {
-      res = await fetch(this.endpoint, {
-        method: 'POST',
-        headers: {
-          'x-api-key': this.apiKey,
-          'anthropic-version': '2023-06-01',
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          model: this.model,
-          max_tokens: 512,
-          tool_choice: { type: 'tool', name: 'explain_recommendation' },
-          tools: [
+    const json = (await this.anthropic.messages(
+      {
+        model: this.model,
+        maxTokens: 512,
+        toolChoice: { type: 'tool', name: 'explain_recommendation' },
+        tools: [
             {
               name: 'explain_recommendation',
               description:
@@ -452,19 +442,11 @@ export class SupervisorAgentService {
                 required: ['explanation'],
               },
             },
-          ],
-          messages: [{ role: 'user', content: lines.join('\n') }],
-        }),
-        signal: ctrl.signal,
-      });
-    } finally {
-      clearTimeout(tId);
-    }
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`Anthropic ${res.status}: ${body.slice(0, 200)}`);
-    }
-    const json = (await res.json()) as { content: Array<{ type: string; name?: string; input?: any }> };
+        ],
+        messages: [{ role: 'user', content: lines.join('\n') }],
+      },
+      { timeoutMs: this.timeoutMs },
+    )) as { content: Array<{ type: string; name?: string; input?: any }> };
     const toolUse = json.content?.find((c) => c.type === 'tool_use' && c.name === 'explain_recommendation');
     const txt = toolUse?.input?.explanation;
     if (typeof txt !== 'string' || !txt.trim()) throw new Error('Claude no devolvió explanation');
@@ -594,22 +576,12 @@ export class SupervisorAgentService {
     comparison: Comparison,
   ): Promise<Pick<Briefing, 'headline' | 'summary' | 'attention'>> {
     const prompt = this.buildPrompt(findings, stats, comparison);
-    const ctrl = new AbortController();
-    const tId = setTimeout(() => ctrl.abort(), this.timeoutMs);
-    let res: Response;
-    try {
-      res = await fetch(this.endpoint, {
-        method: 'POST',
-        headers: {
-          'x-api-key': this.apiKey,
-          'anthropic-version': '2023-06-01',
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          model: this.model,
-          max_tokens: 1024,
-          tool_choice: { type: 'tool', name: 'daily_briefing' },
-          tools: [
+    const json = (await this.anthropic.messages(
+      {
+        model: this.model,
+        maxTokens: 1024,
+        toolChoice: { type: 'tool', name: 'daily_briefing' },
+        tools: [
             {
               name: 'daily_briefing',
               description:
@@ -638,19 +610,10 @@ export class SupervisorAgentService {
               },
             },
           ],
-          messages: [{ role: 'user', content: prompt }],
-        }),
-        signal: ctrl.signal,
-      });
-    } finally {
-      clearTimeout(tId);
-    }
-
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`Anthropic ${res.status}: ${body.slice(0, 200)}`);
-    }
-    const json = (await res.json()) as {
+        messages: [{ role: 'user', content: prompt }],
+      },
+      { timeoutMs: this.timeoutMs },
+    )) as {
       content: Array<{ type: string; name?: string; input?: any }>;
     };
     const toolUse = json.content?.find((c) => c.type === 'tool_use' && c.name === 'daily_briefing');

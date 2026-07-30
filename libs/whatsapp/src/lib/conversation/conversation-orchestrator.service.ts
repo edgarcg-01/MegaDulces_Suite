@@ -4,6 +4,7 @@ import type {
   ConversationProductHit,
 } from '@megadulces/contracts';
 import { COMMERCE_CONVERSATION_PORT } from '@megadulces/contracts';
+import { AnthropicService } from '@megadulces/platform-core';
 import { CartItem, ConversationThreadService, ThreadState } from './conversation-thread.service';
 
 /** Resultado de un turno: la respuesta a enviar + si hay que derivar a humano. */
@@ -30,7 +31,6 @@ export interface TurnResult {
 @Injectable()
 export class ConversationOrchestratorService {
   private readonly logger = new Logger(ConversationOrchestratorService.name);
-  private readonly endpoint = 'https://api.anthropic.com/v1/messages';
   // FIQ.1 — model tiering: Haiku enruta el grueso; Sonnet toma los turnos
   // "difíciles" (mensajes largos, ambigüedad, comparación/negociación, mayoreo).
   private readonly model = 'claude-haiku-4-5-20251001';
@@ -41,6 +41,7 @@ export class ConversationOrchestratorService {
 
   constructor(
     private readonly threads: ConversationThreadService,
+    private readonly anthropic: AnthropicService,
     @Optional() @Inject(COMMERCE_CONVERSATION_PORT) private readonly commerce?: CommerceConversationPort,
   ) {}
 
@@ -542,30 +543,18 @@ export class ConversationOrchestratorService {
     work: { cart: CartItem[]; address: any; state: ThreadState; customerName?: string | null; knownAddress?: any },
     model: string,
   ): Promise<any> {
-    const ctrl = new AbortController();
-    const tId = setTimeout(() => ctrl.abort(), this.timeoutMs);
-    try {
-      const res = await fetch(this.endpoint, {
-        method: 'POST',
-        headers: {
-          'x-api-key': this.apiKey,
-          'anthropic-version': '2023-06-01',
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          model,
-          max_tokens: 1024,
-          system: this.systemPrompt(work),
-          tools: this.toolDefs(),
-          messages,
-        }),
-        signal: ctrl.signal,
-      });
-      if (!res.ok) throw new Error(`Anthropic ${res.status}: ${await res.text()}`);
-      return await res.json();
-    } finally {
-      clearTimeout(tId);
-    }
+    // Transporte compartido. cachePrefix OFF a propósito: el system se recomputa
+    // cada iteración con el estado del carrito → no habría hit de caché de prefijo.
+    return this.anthropic.messages(
+      {
+        model,
+        maxTokens: 1024,
+        system: this.systemPrompt(work),
+        tools: this.toolDefs(),
+        messages,
+      },
+      { timeoutMs: this.timeoutMs },
+    );
   }
 
   /**

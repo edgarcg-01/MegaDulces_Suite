@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 import { PortalAiOrderController } from './portal-ai-order.controller';
 import { PortalAiOrderService } from './portal-ai-order.service';
-import { TenantKnexService } from '@megadulces/platform-core';
+import { TenantKnexService, AnthropicService } from '@megadulces/platform-core';
 
 /**
  * Portal B2B — AI Order builder.
@@ -15,6 +15,6 @@ import { TenantKnexService } from '@megadulces/platform-core';
  */
 @Module({
   controllers: [PortalAiOrderController],
-  providers: [PortalAiOrderService, TenantKnexService],
+  providers: [PortalAiOrderService, TenantKnexService, AnthropicService],
 })
 export class PortalAiOrderModule {}
