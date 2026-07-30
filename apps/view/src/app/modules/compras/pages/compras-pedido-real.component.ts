@@ -120,7 +120,7 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
               <button type="button" class="pr-chip" (click)="collapseAll()">Colapsar todo</button>
             </div>
           }
-          <p-table [value]="displayRows()" [loading]="loading()"
+          <p-table [value]="displayRows()" [loading]="loading()" [rowTrackBy]="rowKey"
                    styleClass="p-datatable-sm pr-table" [tableStyle]="tableStyle">
             <ng-template #header>
               <tr>
@@ -397,6 +397,11 @@ export class ComprasPedidoRealComponent implements OnInit {
   toggle(code: string): void { this.expandedGroups.update((m) => ({ ...m, [code]: !m[code] })); }
   expandAll(): void { const e: Record<string, boolean> = {}; this.subs().forEach((_g, code) => (e[code] = true)); this.expandedGroups.set(e); }
   collapseAll(): void { this.expandedGroups.set({}); }
+  /** trackBy estable → p-table reusa el DOM al expandir/colapsar (aplica solo el delta, no re-crea todas las filas). */
+  rowKey = (_i: number, r: URow | { __header: true; warehouse_code: string }): string =>
+    (r as { __header?: boolean }).__header
+      ? 'h:' + r.warehouse_code
+      : (r as URow).type + ':' + (r as URow).product_id + ':' + r.warehouse_code;
 
   private readonly filters = signal<ReplenishmentFilters | null>(null);
   supplierOpts = computed(() => (this.filters()?.suppliers ?? []).map((s) => ({ label: s.name, value: s.id })));

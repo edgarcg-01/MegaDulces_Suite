@@ -73,7 +73,7 @@ import { OrderLine } from '../../portal/portal.service';
         <div class="empty">
           <i class="pi pi-cloud"></i>
           <p>No se pudo cargar los pendientes.</p>
-          <button pButton label="Reintentar" icon="pi pi-refresh" size="small" [text]="true" (click)="reload()"></button>
+          <button pButton size="small" [text]="true" (click)="reload()"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span><span class="p-button-label">Reintentar</span></button>
         </div>
       </p-card>
     }
@@ -150,25 +150,10 @@ import { OrderLine } from '../../portal/portal.service';
                 }
                 <div class="actions">
                   @if (kind === 'approve') {
-                    <button
-                      pButton
-                      label="Aprobar"
-                      icon="pi pi-check"
-                      size="small"
-                      [loading]="processing().has(o.id)"
-                      (click)="askApprove(o)"
-                    ></button>
+                    <button pButton size="small" [loading]="processing().has(o.id)" (click)="askApprove(o)"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Aprobar</span></button>
                   }
                   @if (kind === 'deliver') {
-                    <button
-                      pButton
-                      label="Marcar entregado"
-                      icon="pi pi-truck"
-                      severity="success"
-                      size="small"
-                      [loading]="processing().has(o.id)"
-                      (click)="askFulfill(o)"
-                    ></button>
+                    <button pButton severity="success" size="small" [loading]="processing().has(o.id)" (click)="askFulfill(o)"><span class="p-button-icon p-button-icon-left pi pi-truck" aria-hidden="true"></span><span class="p-button-label">Marcar entregado</span></button>
                   }
                 </div>
               </p-card>
