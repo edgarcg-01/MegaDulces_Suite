@@ -195,7 +195,10 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
                 <td class="pr-r pr-muted">{{ r.on_hand | number:'1.0-0' }}</td>
                 <td class="pr-r pr-sug">
                   @if (r.editable) {
-                    <input pInputText type="number" min="0" [(ngModel)]="r.qty" (ngModelChange)="tick()" class="pr-qty" [attr.aria-label]="'Cantidad de ' + r.sku" />
+                    <!-- input PLANO (sin pInputText): la directiva de PrimeNG 22 en celdas de
+                         tabla con muchas filas dispara "Maximum call stack" (primeng#12522).
+                         Estilamos .pr-qty a mano con tokens. -->
+                    <input type="number" min="0" [(ngModel)]="r.qty" (ngModelChange)="tick()" class="pr-qty" [attr.aria-label]="'Cantidad de ' + r.sku" />
                   } @else { <span class="pr-muted">{{ r.qty | number:'1.0-0' }}</span> }
                 </td>
                 <td class="pr-r pr-muted-h">{{ (r.qty * r.uxc) | number:'1.0-0' }}</td>
@@ -468,7 +471,11 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
     .pr-val { color: var(--text-main); }
     .pr-over-val { color: var(--warn-fg, var(--text-muted)); }
     .pr-row-over td { color: var(--text-muted); }
-    :host ::ng-deep .pr-qty { width: 4.5rem; text-align: right; font-variant-numeric: tabular-nums; padding: .2rem .35rem; }
+    /* input de cantidad — estilo propio (ya no depende de pInputText; ver primeng#12522). */
+    .pr-qty { width: 4.5rem; text-align: right; font-variant-numeric: tabular-nums; padding: .2rem .35rem;
+      border: 1px solid var(--border-color); border-radius: var(--r-sm, 8px); background: var(--card-bg);
+      color: var(--text-main); font-size: .84rem; font-family: inherit; }
+    .pr-qty:focus { outline: none; border-color: var(--action); box-shadow: 0 0 0 2px var(--action-ring); }
     :host ::ng-deep .pr-cov-tag { font-variant-numeric: tabular-nums; }
     .pr-empty { text-align: center; color: var(--text-muted); padding: 2rem 1rem; }
     .pr-empty i { font-size: 1.6rem; display: block; margin-bottom: .5rem; color: var(--text-faint); }
