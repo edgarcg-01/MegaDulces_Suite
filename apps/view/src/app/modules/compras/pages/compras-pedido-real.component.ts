@@ -18,12 +18,12 @@ import { MessageService } from 'primeng/api';
 import {
   ComprasService, PurchaseSuggestionRow, PurchaseSuggestionResponse, ReplenishmentFilters,
   DeadStockRow, CreateRequisitionDto, CreateRequisitionLine, PedidoExportLine, saveXlsxResponse,
-  TransferSuggestionRow, TransferSuggestionResponse, OverstockRow, OverstockResponse,
+  TransferSuggestionRow, TransferSuggestionResponse, OverstockRow, OverstockResponse, WorkbookRow, WorkbookResponse,
 } from '../compras.service';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 
 type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
-type Mode = 'consolidado' | 'muerto';
+type Mode = 'consolidado' | 'excel' | 'muerto';
 type UType = 'comprar' | 'traspaso' | 'sobre';
 
 /** Renglón unificado de la vista consolidada por sucursal. */
@@ -67,6 +67,7 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
         </div>
         <div class="pr-mode" role="tablist" aria-label="Vista">
           <button role="tab" [attr.aria-selected]="mode()==='consolidado'" class="pr-tab" [class.pr-tab-on]="mode()==='consolidado'" (click)="setMode('consolidado')">Por sucursal</button>
+          <button role="tab" [attr.aria-selected]="mode()==='excel'" class="pr-tab" [class.pr-tab-on]="mode()==='excel'" (click)="setMode('excel')">Vista Excel</button>
           <button role="tab" [attr.aria-selected]="mode()==='muerto'" class="pr-tab" [class.pr-tab-on]="mode()==='muerto'" (click)="setMode('muerto')">Stock muerto</button>
         </div>
       </header>
@@ -251,6 +252,89 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
             </div>
           }
         </p-dialog>
+      } @else if (mode()==='excel') {
+        <!-- RA-PRO.32 — RÉPLICA DEL WORKBOOK DEL COMPRADOR (una fila por SKU, columnas por punto de compra) -->
+        <app-metric-strip [items]="wbKpi()" ariaLabel="Resumen del workbook de compra" />
+        <div class="pr-filters">
+          <p-select [options]="supplierOpts()" [(ngModel)]="fSupplier" (onChange)="loadWorkbook()"
+                    optionLabel="label" optionValue="value" placeholder="Todos los proveedores" [showClear]="true"
+                    [filter]="true" filterBy="label" [virtualScroll]="true" [virtualScrollItemSize]="34"
+                    styleClass="pr-sel-wide" ariaLabel="Filtrar por proveedor"></p-select>
+          <p-iconfield styleClass="pr-search">
+            <p-inputicon styleClass="pi pi-search" />
+            <input pInputText type="text" [(ngModel)]="search" (keyup.enter)="loadWorkbook()" placeholder="SKU o producto…" aria-label="Buscar producto" />
+          </p-iconfield>
+          <label class="pr-cov">
+            <span>Cobertura</span>
+            <p-inputnumber [(ngModel)]="coverage" (onBlur)="loadWorkbook()" [min]="1" [max]="120" [showButtons]="true"
+                           buttonLayout="horizontal" [step]="1" suffix=" d" inputStyleClass="pr-cov-in"
+                           decrementButtonClass="p-button-text" incrementButtonClass="p-button-text"
+                           incrementButtonIcon="pi pi-plus" decrementButtonIcon="pi pi-minus" ariaLabel="Días de cobertura"></p-inputnumber>
+          </label>
+          <div class="pr-presets" role="group" aria-label="Cobertura rápida">
+            @for (p of [14, 30, 45]; track p) {
+              <button type="button" class="pr-chip" [class.pr-chip-on]="coverage === p" (click)="coverage = p; loadWorkbook()">{{ p }}d</button>
+            }
+          </div>
+          <button type="button" class="pr-chip" [class.pr-chip-on]="wbScopeNeeded()" (click)="wbScopeNeeded.set(!wbScopeNeeded()); loadWorkbook()">Solo con pedido</button>
+        </div>
+
+        @if (error()) {
+          <div class="pr-state pr-error">
+            <i class="pi pi-exclamation-triangle"></i>
+            <div><p>No se pudo cargar el workbook.</p>
+              <p-button type="button" label="Reintentar" icon="pi pi-refresh" styleClass="p-button-sm p-button-text" (click)="loadWorkbook()"></p-button></div>
+          </div>
+        } @else {
+          <div class="pr-wb-scroll">
+            <p-table [value]="wbRows()" [loading]="loading()" [paginator]="true" [rows]="50" [rowsPerPageOptions]="[50, 100, 200]"
+                     styleClass="p-datatable-sm pr-table pr-wb" [tableStyle]="wbTableStyle">
+              <ng-template #header>
+                <tr>
+                  <th rowspan="2" style="min-width:15rem">Producto</th>
+                  <th rowspan="2" class="pr-r" title="Unidades por caja (factor de caja)">UXC</th>
+                  <th rowspan="2" class="pr-r">Costo/Cja</th>
+                  <th colspan="3" class="pr-grp-h">PH · La Piedad</th>
+                  <th colspan="3" class="pr-grp-h">Morelia</th>
+                  <th colspan="3" class="pr-grp-h">Zamora</th>
+                  <th rowspan="2" class="pr-r">CEDIS<br/>exist.</th>
+                  <th rowspan="2" class="pr-r">Σ Ped.<br/>cajas</th>
+                  <th rowspan="2" class="pr-r pr-val">$ Pedido</th>
+                  <th rowspan="2" class="pr-r">Valor<br/>venta</th>
+                  <th rowspan="2" class="pr-r">Valor<br/>exist.</th>
+                </tr>
+                <tr class="pr-sub-row">
+                  <th class="pr-r pr-sub-h">Vta</th><th class="pr-r pr-sub-h">Exist.</th><th class="pr-r pr-sub-h pr-ped-h">Pedido</th>
+                  <th class="pr-r pr-sub-h">Vta</th><th class="pr-r pr-sub-h">Exist.</th><th class="pr-r pr-sub-h pr-ped-h">Pedido</th>
+                  <th class="pr-r pr-sub-h">Vta</th><th class="pr-r pr-sub-h">Exist.</th><th class="pr-r pr-sub-h pr-ped-h">Pedido</th>
+                </tr>
+              </ng-template>
+              <ng-template #body let-r>
+                <tr>
+                  <td><div class="pr-prod">{{ r.nombre }}</div><div class="pr-prod-meta"><span class="pr-sku">{{ r.sku }}</span> <span class="pr-supp">{{ r.supplier_name || '—' }}</span></div></td>
+                  <td class="pr-r pr-muted">{{ r.uxc | number:'1.0-0' }}</td>
+                  <td class="pr-r pr-muted">{{ money(r.caja_cost) }}</td>
+                  <td class="pr-r pr-muted">{{ r.ph_vta | number:'1.0-1' }}</td><td class="pr-r pr-muted">{{ r.ph_exis | number:'1.0-1' }}</td><td class="pr-r pr-ped" [class.pr-ped-on]="r.ph_ped>0">{{ r.ph_ped | number:'1.0-1' }}</td>
+                  <td class="pr-r pr-muted">{{ r.mor_vta | number:'1.0-1' }}</td><td class="pr-r pr-muted">{{ r.mor_exis | number:'1.0-1' }}</td><td class="pr-r pr-ped" [class.pr-ped-on]="r.mor_ped>0">{{ r.mor_ped | number:'1.0-1' }}</td>
+                  <td class="pr-r pr-muted">{{ r.zam_vta | number:'1.0-1' }}</td><td class="pr-r pr-muted">{{ r.zam_exis | number:'1.0-1' }}</td><td class="pr-r pr-ped" [class.pr-ped-on]="r.zam_ped>0">{{ r.zam_ped | number:'1.0-1' }}</td>
+                  <td class="pr-r pr-muted">{{ r.cedis_exis | number:'1.0-1' }}</td>
+                  <td class="pr-r pr-strong">{{ r.suma_pedido_cajas | number:'1.0-1' }}</td>
+                  <td class="pr-r pr-val pr-strong">{{ money(r.pedido_valor) }}</td>
+                  <td class="pr-r pr-muted">{{ money(r.valor_venta) }}</td>
+                  <td class="pr-r pr-muted">{{ money(r.valor_exis) }}</td>
+                </tr>
+              </ng-template>
+              <ng-template #emptymessage>
+                <tr><td colspan="16" class="pr-empty">
+                  <i class="pi pi-inbox"></i>
+                  <p>Sin datos en los puntos de compra.</p>
+                  <span>Ajusta proveedor o búsqueda. Requiere el fact del pedido cargado (almacenes MD-10 / MD-30 / MD-32 / MD-50 / MD-CEDIS).</span>
+                </td></tr>
+              </ng-template>
+            </p-table>
+          </div>
+          <p class="pr-foot">Réplica del workbook del comprador. <strong>Vta</strong> = venta 30 días en cajas · <strong>Exist.</strong> = existencia en cajas · <strong>Pedido</strong> = venta diaria × cobertura − existencia − tránsito. Puntos de compra: PH = <span class="pr-mono">MD-10</span> · Morelia = <span class="pr-mono">MD-30+MD-32</span> · Zamora = <span class="pr-mono">MD-50</span> · CEDIS = <span class="pr-mono">MD-CEDIS</span>.</p>
+        }
       } @else {
         <!-- STOCK MUERTO: productos activos SIN rotación (capital inmovilizado) -->
         <div class="pr-filters">
@@ -357,6 +441,14 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
       background: var(--card-bg); border: 1px solid var(--border-color); border-radius: var(--r-md, 12px); box-shadow: var(--shadow-sm, 0 1px 3px rgba(0,0,0,.08)); }
     .pr-bulk-n { font-size: .84rem; color: var(--text-main); font-variant-numeric: tabular-nums; }
     .pr-bulk-sp { flex: 1; }
+    /* RA-PRO.32 — vista Excel (workbook) */
+    .pr-wb-scroll { overflow-x: auto; }
+    :host ::ng-deep .pr-wb { font-size: .8rem; }
+    :host ::ng-deep .pr-wb th.pr-grp-h { text-align: center; border-left: 1px solid var(--border-color); font-size: .68rem; text-transform: uppercase; letter-spacing: .05em; color: var(--text-muted); font-weight: 700; }
+    :host ::ng-deep .pr-wb th.pr-sub-h { font-size: .66rem; font-weight: 600; color: var(--text-faint); }
+    :host ::ng-deep .pr-wb th.pr-ped-h { color: var(--action); }
+    .pr-ped { font-variant-numeric: tabular-nums; }
+    .pr-ped-on { color: var(--action); font-weight: 600; }
   `],
 })
 export class ComprasPedidoRealComponent implements OnInit {
@@ -377,6 +469,13 @@ export class ComprasPedidoRealComponent implements OnInit {
   saving = signal(false);
   mode = signal<Mode>('consolidado');
   deadValue = signal(0);
+
+  // RA-PRO.32 — Vista Excel (réplica del workbook del comprador, una fila por SKU × punto de compra).
+  wbRows = signal<WorkbookRow[]>([]);
+  wbTotals = signal<{ pedido: number; venta: number; exis: number }>({ pedido: 0, venta: 0, exis: 0 });
+  wbTotal = signal(0);
+  wbScopeNeeded = signal(false);
+  readonly wbTableStyle = { 'min-width': '96rem' };
 
   cBuy = signal(true);
   cTr = signal(true);
@@ -422,7 +521,33 @@ export class ComprasPedidoRealComponent implements OnInit {
     if (this.mode() === m) return;
     this.mode.set(m);
     if (m === 'consolidado') this.loadAll();
+    else if (m === 'excel') this.loadWorkbook();
     else this.loadDead();
+  }
+
+  /** RA-PRO.32 — carga la réplica del workbook (fila por SKU, columnas por punto de compra). */
+  loadWorkbook(): void {
+    this.loading.set(true); this.error.set(false);
+    this.api.workbook({
+      supplier_id: this.fSupplier || undefined, search: this.search.trim() || undefined,
+      coverage_days: this.coverage, scope: this.wbScopeNeeded() ? 'needed' : undefined, pageSize: 1000,
+    }).pipe(catchError(() => of(null as WorkbookResponse | null)), takeUntilDestroyed(this.destroyRef))
+      .subscribe((r) => {
+        this.loading.set(false);
+        if (!r) { this.error.set(true); this.wbRows.set([]); return; }
+        this.wbRows.set(r.rows); this.wbTotals.set(r.totals); this.wbTotal.set(r.total);
+      });
+  }
+
+  wbKpi(): MetricStripItem[] {
+    const t = this.wbTotals();
+    return [
+      { label: '$ Pedido', value: t.pedido, format: 'currency', tone: 'brand' },
+      { label: 'Valor venta 30d', value: t.venta, format: 'currency' },
+      { label: 'Valor existencia', value: t.exis, format: 'currency', tone: 'warn', sub: 'inmovilizado' },
+      { label: 'SKUs', value: this.wbTotal(), sub: 'en los 4 puntos' },
+      { label: 'Cobertura', value: this.coverage, sub: 'días objetivo' },
+    ];
   }
 
   setCoverage(d: number): void { this.coverage = d; this.loadAll(); }

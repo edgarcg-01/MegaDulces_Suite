@@ -131,6 +131,26 @@ export interface OverstockQuery {
   warehouse_id?: string; supplier_id?: string; category_id?: string; search?: string; over_days?: number; page?: number; pageSize?: number;
 }
 
+// RA-PRO.32 — réplica del workbook del comprador (una fila por SKU, columnas por punto de compra).
+export interface WorkbookRow {
+  product_id: string; sku: string; nombre: string; supplier_name: string | null;
+  uxc: number; caja_cost: number;
+  ph_vta: number; ph_exis: number; ph_ped: number;      // Padre Hidalgo (MD-10)
+  mor_vta: number; mor_exis: number; mor_ped: number;   // Morelia (MD-30 + MD-32)
+  zam_vta: number; zam_exis: number; zam_ped: number;   // Zamora (MD-50)
+  cedis_exis: number;                                    // CEDIS (MD-CEDIS)
+  suma_pedido_cajas: number; pedido_valor: number;
+  valor_venta: number; valor_exis: number;
+}
+export interface WorkbookResponse {
+  total: number; page: number; pageSize: number; coverage_days: number;
+  totals: { pedido: number; venta: number; exis: number };
+  rows: WorkbookRow[];
+}
+export interface WorkbookQuery {
+  supplier_id?: string; category_id?: string; search?: string; coverage_days?: number; scope?: string; page?: number; pageSize?: number;
+}
+
 export interface CriticalStockResponse {
   total: number;
   page: number;
@@ -542,6 +562,20 @@ export class ComprasService {
     if (q.pageSize) p.set('pageSize', String(q.pageSize));
     const qs = p.toString();
     return this.http.get<PurchaseSuggestionResponse>(`${this.base}/purchase-suggestion${qs ? '?' + qs : ''}`);
+  }
+
+  /** RA-PRO.32 — réplica del workbook del comprador (fila por SKU, columnas por punto de compra). */
+  workbook(q: WorkbookQuery): Observable<WorkbookResponse> {
+    const p = new URLSearchParams();
+    if (q.supplier_id) p.set('supplier_id', q.supplier_id);
+    if (q.category_id) p.set('category_id', q.category_id);
+    if (q.search) p.set('search', q.search);
+    if (q.coverage_days) p.set('coverage_days', String(q.coverage_days));
+    if (q.scope) p.set('scope', q.scope);
+    if (q.page) p.set('page', String(q.page));
+    if (q.pageSize) p.set('pageSize', String(q.pageSize));
+    const qs = p.toString();
+    return this.http.get<WorkbookResponse>(`${this.base}/workbook${qs ? '?' + qs : ''}`);
   }
 
   /** RA-PRO.20 — traspaso preciso CEDIS→sucursal (topología). */
