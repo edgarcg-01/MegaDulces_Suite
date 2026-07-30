@@ -744,54 +744,89 @@ export class CommercialReplenishmentService {
       if (q.search && q.search.trim()) { filters.push('(pr.sku ILIKE :s OR pr.nombre ILIKE :s)'); binds.s = `%${q.search.trim()}%`; }
       const where = filters.join(' AND ');
 
-      // Punto de compra por código de almacén (ver reference_kepler_supply_network_topology).
+      // Territorio = PUNTO DE COMPRA (raíz de abasto), resuelto por TOPOLOGÍA (source_warehouse_id):
+      // una raíz (sin source) es punto de compra; sus spokes ruedan hacia ella. NO se hardcodea ningún
+      // código de almacén → funciona igual en local (MD-*) y prod (00/01/…). Sin topología (source NULL)
+      // cada almacén es su propia raíz (degrada sin romper). Columnas de territorio DINÁMICAS.
       const SUF = 'COALESCE(max(b.suf),1)';
       const BF = 'COALESCE(max(b.bf),1)';
-      const dp = (t: string) => `COALESCE(sum(b.daily_pieces) FILTER (WHERE b.terr='${t}'),0)`;
-      const sp = (t: string) => `COALESCE(sum(b.stock_pz) FILTER (WHERE b.terr='${t}'),0)`;
-      const tc = (t: string) => `COALESCE(sum(b.transit_cajas) FILTER (WHERE b.terr='${t}'),0)`;
-      const vta = (t: string) => `round((${dp(t)} * 30 / (${SUF} * ${BF}))::numeric, 1)`;      // venta 30d en cajas
-      const exis = (t: string) => `round((${sp(t)} / ${BF})::numeric, 1)`;                       // existencia en cajas
-      const ped = (t: string) => `round(GREATEST(0, ${dp(t)} * :cov / (${SUF} * ${BF}) - ${sp(t)} / ${BF} - ${tc(t)})::numeric, 1)`;
-
-      const inner = `
-        WITH base AS (
-          SELECT rp.product_id, pr.sku, pr.nombre, pr.supplier_id,
+      // roots = cadena source_warehouse_id → raíz; stockroots = raíces que SOSTIENEN inventario
+      // (= puntos de compra/almacenamiento). Excluye rutas/vehículos/almacenes de conteo (venta sin
+      // stock) de las columnas — sin hardcodear ningún código.
+      const rootsCte = `
+        WITH RECURSIVE roots AS (
+          SELECT id, id AS root_id FROM commercial.warehouses
+           WHERE tenant_id = :t AND deleted_at IS NULL AND source_warehouse_id IS NULL
+          UNION ALL
+          SELECT ch.id, r.root_id FROM commercial.warehouses ch
+            JOIN roots r ON ch.source_warehouse_id = r.id
+           WHERE ch.tenant_id = :t AND ch.deleted_at IS NULL
+        ),
+        stockroots AS (
+          SELECT COALESCE(rt.root_id, rp.warehouse_id) AS root_id
+            FROM analytics.replenishment_plan rp
+            LEFT JOIN roots rt ON rt.id = rp.warehouse_id
+           WHERE rp.tenant_id = :t
+           GROUP BY COALESCE(rt.root_id, rp.warehouse_id)
+          HAVING SUM(rp.stock_pz) > 0
+        )`;
+      const inner = `${rootsCte},
+        base AS (
+          SELECT pr.id AS product_id, pr.sku, pr.nombre, pr.supplier_id,
                  rp.suf, rp.bf, rp.caja_cost, rp.daily_pieces, rp.stock_pz, rp.transit_cajas, rp.revenue30,
-                 CASE WHEN w.code = 'MD-10' THEN 'PH'
-                      WHEN w.code IN ('MD-30','MD-32') THEN 'MOR'
-                      WHEN w.code = 'MD-50' THEN 'ZAM'
-                      WHEN w.code = 'MD-CEDIS' THEN 'CEDIS' END AS terr
+                 rw.code AS root_code
             FROM catalog.products pr
             JOIN analytics.replenishment_plan rp ON rp.tenant_id = pr.tenant_id AND rp.product_id = pr.id
-            JOIN commercial.warehouses w ON w.tenant_id = rp.tenant_id AND w.id = rp.warehouse_id
-           WHERE ${where} AND w.code IN ('MD-10','MD-30','MD-32','MD-50','MD-CEDIS')
+            LEFT JOIN roots rt ON rt.id = rp.warehouse_id
+            JOIN commercial.warehouses rw ON rw.tenant_id = :t AND rw.id = COALESCE(rt.root_id, rp.warehouse_id)
+            JOIN stockroots sr ON sr.root_id = rw.id
+           WHERE ${where}
+             AND (rp.stock_pz > 0 OR rp.daily_pieces > 0 OR rp.transit_cajas > 0)
         ),
-        agg AS (
-          SELECT b.product_id, b.sku, b.nombre, b.supplier_id,
-                 ${BF} AS uxc, round(COALESCE(max(b.caja_cost),0)::numeric, 2) AS caja_cost,
-                 ${vta('PH')}  AS ph_vta,  ${exis('PH')}  AS ph_exis,  ${ped('PH')}  AS ph_ped,
-                 ${vta('MOR')} AS mor_vta, ${exis('MOR')} AS mor_exis, ${ped('MOR')} AS mor_ped,
-                 ${vta('ZAM')} AS zam_vta, ${exis('ZAM')} AS zam_exis, ${ped('ZAM')} AS zam_ped,
-                 ${exis('CEDIS')} AS cedis_exis,
-                 round(COALESCE(sum(b.revenue30),0)::numeric, 2) AS valor_venta,
-                 round((COALESCE(sum(b.stock_pz),0) / ${BF} * COALESCE(max(b.caja_cost),0))::numeric, 2) AS valor_exis
+        per AS (
+          SELECT b.product_id, b.sku, b.nombre, b.supplier_id, b.root_code,
+                 ${BF} AS bf, round(COALESCE(max(b.caja_cost),0)::numeric, 2) AS caja_cost,
+                 round((COALESCE(sum(b.daily_pieces),0) * 30 / (${SUF} * ${BF}))::numeric, 1) AS vta,
+                 round((COALESCE(sum(b.stock_pz),0) / ${BF})::numeric, 1) AS exis,
+                 round(GREATEST(0, COALESCE(sum(b.daily_pieces),0) * :cov / (${SUF} * ${BF}) - COALESCE(sum(b.stock_pz),0) / ${BF} - COALESCE(sum(b.transit_cajas),0))::numeric, 1) AS ped,
+                 COALESCE(sum(b.revenue30),0) AS rev, COALESCE(sum(b.stock_pz),0) AS stock_pz
             FROM base b
-           GROUP BY b.product_id, b.sku, b.nombre, b.supplier_id
+           GROUP BY b.product_id, b.sku, b.nombre, b.supplier_id, b.root_code
+        ),
+        prod AS (
+          SELECT product_id, sku, nombre, supplier_id,
+                 max(bf) AS uxc, round(max(caja_cost)::numeric, 2) AS caja_cost,
+                 jsonb_object_agg(root_code, jsonb_build_object('vta', vta, 'exis', exis, 'ped', ped)) AS cells,
+                 round(sum(ped)::numeric, 1) AS suma_pedido_cajas,
+                 round(sum(ped * caja_cost)::numeric, 2) AS pedido_valor,
+                 round(sum(rev)::numeric, 2) AS valor_venta,
+                 round((sum(stock_pz) / max(bf) * max(caja_cost))::numeric, 2) AS valor_exis
+            FROM per
+           GROUP BY product_id, sku, nombre, supplier_id
         )
-        SELECT a.*, sup.name AS supplier_name,
-               (a.ph_ped + a.mor_ped + a.zam_ped) AS suma_pedido_cajas,
-               round(((a.ph_ped + a.mor_ped + a.zam_ped) * a.caja_cost)::numeric, 2) AS pedido_valor
-          FROM agg a
-          LEFT JOIN catalog.suppliers sup ON sup.tenant_id = :t AND sup.id = a.supplier_id
-         ${q.scope === 'needed' ? 'WHERE (a.ph_ped + a.mor_ped + a.zam_ped) > 0' : ''}`;
+        SELECT p.*, sup.name AS supplier_name
+          FROM prod p
+          LEFT JOIN catalog.suppliers sup ON sup.tenant_id = :t AND sup.id = p.supplier_id
+         ${q.scope === 'needed' ? 'WHERE p.suma_pedido_cajas > 0' : ''}`;
 
       const rows = (await trx.raw(`${inner} ORDER BY valor_venta DESC NULLS LAST, sku LIMIT ${pageSize} OFFSET ${offset}`, binds)).rows;
       const tot = (await trx.raw(`SELECT count(*)::int c, round(SUM(pedido_valor)::numeric,2) total_pedido, round(SUM(valor_venta)::numeric,2) total_venta, round(SUM(valor_exis)::numeric,2) total_exis FROM (${inner}) z`, binds)).rows[0];
+      // Territorios (puntos de compra) presentes para el filtro, ordenados por venta desc → columnas dinámicas.
+      const territories = (await trx.raw(`${rootsCte}
+        SELECT rw.code, max(rw.name) AS name
+          FROM catalog.products pr
+          JOIN analytics.replenishment_plan rp ON rp.tenant_id = pr.tenant_id AND rp.product_id = pr.id
+          LEFT JOIN roots rt ON rt.id = rp.warehouse_id
+          JOIN commercial.warehouses rw ON rw.tenant_id = :t AND rw.id = COALESCE(rt.root_id, rp.warehouse_id)
+          JOIN stockroots sr ON sr.root_id = rw.id
+         WHERE ${where} AND (rp.stock_pz > 0 OR rp.daily_pieces > 0 OR rp.transit_cajas > 0)
+         GROUP BY rw.code
+         ORDER BY SUM(rp.revenue30) DESC NULLS LAST, SUM(rp.stock_pz) DESC`, binds)).rows;
 
       return {
         total: Number(tot?.c || 0),
         page, pageSize, coverage_days: cov,
+        territories: territories.map((t: { code: string; name: string }) => ({ code: t.code, name: t.name })),
         totals: {
           pedido: Number(tot?.total_pedido || 0),
           venta: Number(tot?.total_venta || 0),
@@ -804,7 +839,7 @@ export class CommercialReplenishmentService {
 
   /**
    * RA-PRO.32 — Detalle (drill-down) de un SKU de la Vista Excel: economía del producto +
-   * desglose POR ALMACÉN de los 4 puntos de compra (Morelia se abre en MD-30 y MD-32).
+   * desglose POR ALMACÉN (con su punto de compra/raíz resuelto por topología, sin hardcodear códigos).
    */
   async workbookDetail(productId: string, coverageDays?: number) {
     const tenantId = this.tenantCtx.requireTenantId();
@@ -827,11 +862,13 @@ export class CommercialReplenishmentService {
          GROUP BY pr.sku, pr.nombre, sup.name`, { t: tenantId, pid: productId })).rows[0] || null;
 
       const rows = (await trx.raw(`
+        WITH RECURSIVE roots AS (
+          SELECT id, id AS root_id FROM commercial.warehouses WHERE tenant_id = :t AND deleted_at IS NULL AND source_warehouse_id IS NULL
+          UNION ALL
+          SELECT ch.id, r.root_id FROM commercial.warehouses ch JOIN roots r ON ch.source_warehouse_id = r.id WHERE ch.tenant_id = :t AND ch.deleted_at IS NULL
+        )
         SELECT w.code AS warehouse_code, w.name AS warehouse_name,
-               CASE WHEN w.code = 'MD-10' THEN 'PH'
-                    WHEN w.code IN ('MD-30','MD-32') THEN 'Morelia'
-                    WHEN w.code = 'MD-50' THEN 'Zamora'
-                    WHEN w.code = 'MD-CEDIS' THEN 'CEDIS' END AS territory,
+               rw.name AS territory,
                round((rp.daily_pieces * 30 / (${suf} * ${bf}))::numeric, 1) AS venta_cajas,
                round((rp.stock_pz / ${bf})::numeric, 1) AS existencia_cajas,
                round(rp.transit_cajas::numeric, 1) AS transito_cajas,
@@ -839,9 +876,11 @@ export class CommercialReplenishmentService {
                round((rp.stock_pz * ${suf} / NULLIF(rp.daily_pieces, 0))::numeric, 0) AS cover_days
           FROM analytics.replenishment_plan rp
           JOIN commercial.warehouses w ON w.tenant_id = rp.tenant_id AND w.id = rp.warehouse_id
+          LEFT JOIN roots rt ON rt.id = rp.warehouse_id
+          LEFT JOIN commercial.warehouses rw ON rw.tenant_id = :t AND rw.id = COALESCE(rt.root_id, rp.warehouse_id)
          WHERE rp.tenant_id = :t AND rp.product_id = :pid
-           AND w.code IN ('MD-10','MD-30','MD-32','MD-50','MD-CEDIS')
-         ORDER BY array_position(ARRAY['MD-10','MD-30','MD-32','MD-50','MD-CEDIS']::text[], w.code)`,
+           AND (rp.stock_pz > 0 OR rp.daily_pieces > 0 OR rp.transit_cajas > 0)
+         ORDER BY rw.code, w.code`,
         { t: tenantId, pid: productId, cov })).rows;
 
       return { product, coverage_days: cov, rows };

@@ -19,7 +19,7 @@ import {
   ComprasService, PurchaseSuggestionRow, PurchaseSuggestionResponse, ReplenishmentFilters,
   DeadStockRow, CreateRequisitionDto, CreateRequisitionLine, PedidoExportLine, saveXlsxResponse,
   TransferSuggestionRow, TransferSuggestionResponse, OverstockRow, OverstockResponse, WorkbookRow, WorkbookResponse,
-  WorkbookDetailResponse,
+  WorkbookDetailResponse, WorkbookTerritory,
 } from '../compras.service';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { SidePeekComponent } from '../../../shared/components/side-peek/side-peek.component';
@@ -294,25 +294,24 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
         } @else {
           <div class="pr-wb-scroll">
             <p-table [value]="wbRows()" [loading]="loading()" [paginator]="true" [rows]="50" [rowsPerPageOptions]="[50, 100, 200]"
-                     styleClass="p-datatable-sm pr-table pr-wb" [tableStyle]="wbTableStyle">
+                     styleClass="p-datatable-sm pr-table pr-wb" [tableStyle]="wbTableStyle()">
               <ng-template #header>
                 <tr>
                   <th rowspan="2" style="min-width:15rem">Producto</th>
                   <th rowspan="2" class="pr-r" title="Unidades por caja (factor de caja)">UXC</th>
                   <th rowspan="2" class="pr-r">Costo/Cja</th>
-                  <th colspan="3" class="pr-grp-h">PH · La Piedad</th>
-                  <th colspan="3" class="pr-grp-h">Morelia</th>
-                  <th colspan="3" class="pr-grp-h">Zamora</th>
-                  <th rowspan="2" class="pr-r">CEDIS<br/>exist.</th>
+                  @for (t of wbTerritories(); track t.code) {
+                    <th colspan="3" class="pr-grp-h" [title]="t.code">{{ t.name }}</th>
+                  }
                   <th rowspan="2" class="pr-r">Σ Ped.<br/>cajas</th>
                   <th rowspan="2" class="pr-r pr-val">$ Pedido</th>
                   <th rowspan="2" class="pr-r">Valor<br/>venta</th>
                   <th rowspan="2" class="pr-r">Valor<br/>exist.</th>
                 </tr>
                 <tr class="pr-sub-row">
-                  <th class="pr-r pr-sub-h">Vta</th><th class="pr-r pr-sub-h">Exist.</th><th class="pr-r pr-sub-h pr-ped-h">Pedido</th>
-                  <th class="pr-r pr-sub-h">Vta</th><th class="pr-r pr-sub-h">Exist.</th><th class="pr-r pr-sub-h pr-ped-h">Pedido</th>
-                  <th class="pr-r pr-sub-h">Vta</th><th class="pr-r pr-sub-h">Exist.</th><th class="pr-r pr-sub-h pr-ped-h">Pedido</th>
+                  @for (t of wbTerritories(); track t.code) {
+                    <th class="pr-r pr-sub-h">Vta</th><th class="pr-r pr-sub-h">Exist.</th><th class="pr-r pr-sub-h pr-ped-h">Pedido</th>
+                  }
                 </tr>
               </ng-template>
               <ng-template #body let-r>
@@ -320,10 +319,11 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
                   <td><div class="pr-prod">{{ r.nombre }} <i class="pi pi-angle-right pr-wb-go"></i></div><div class="pr-prod-meta"><span class="pr-sku">{{ r.sku }}</span> <span class="pr-supp">{{ r.supplier_name || '—' }}</span></div></td>
                   <td class="pr-r pr-muted">{{ r.uxc | number:'1.0-0' }}</td>
                   <td class="pr-r pr-muted">{{ money(r.caja_cost) }}</td>
-                  <td class="pr-r pr-muted">{{ r.ph_vta | number:'1.0-1' }}</td><td class="pr-r pr-muted">{{ r.ph_exis | number:'1.0-1' }}</td><td class="pr-r pr-ped" [class.pr-ped-on]="r.ph_ped>0">{{ r.ph_ped | number:'1.0-1' }}</td>
-                  <td class="pr-r pr-muted">{{ r.mor_vta | number:'1.0-1' }}</td><td class="pr-r pr-muted">{{ r.mor_exis | number:'1.0-1' }}</td><td class="pr-r pr-ped" [class.pr-ped-on]="r.mor_ped>0">{{ r.mor_ped | number:'1.0-1' }}</td>
-                  <td class="pr-r pr-muted">{{ r.zam_vta | number:'1.0-1' }}</td><td class="pr-r pr-muted">{{ r.zam_exis | number:'1.0-1' }}</td><td class="pr-r pr-ped" [class.pr-ped-on]="r.zam_ped>0">{{ r.zam_ped | number:'1.0-1' }}</td>
-                  <td class="pr-r pr-muted">{{ r.cedis_exis | number:'1.0-1' }}</td>
+                  @for (t of wbTerritories(); track t.code) {
+                    <td class="pr-r pr-muted">{{ cellVal(r, t.code, 'vta') | number:'1.0-1' }}</td>
+                    <td class="pr-r pr-muted">{{ cellVal(r, t.code, 'exis') | number:'1.0-1' }}</td>
+                    <td class="pr-r pr-ped" [class.pr-ped-on]="cellVal(r, t.code, 'ped') > 0">{{ cellVal(r, t.code, 'ped') | number:'1.0-1' }}</td>
+                  }
                   <td class="pr-r pr-strong">{{ r.suma_pedido_cajas | number:'1.0-1' }}</td>
                   <td class="pr-r pr-val pr-strong">{{ money(r.pedido_valor) }}</td>
                   <td class="pr-r pr-muted">{{ money(r.valor_venta) }}</td>
@@ -331,15 +331,15 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
                 </tr>
               </ng-template>
               <ng-template #emptymessage>
-                <tr><td colspan="16" class="pr-empty">
+                <tr><td [attr.colspan]="wbColCount()" class="pr-empty">
                   <i class="pi pi-inbox"></i>
                   <p>Sin datos en los puntos de compra.</p>
-                  <span>Ajusta proveedor o búsqueda. Requiere el fact del pedido cargado (almacenes MD-10 / MD-30 / MD-32 / MD-50 / MD-CEDIS).</span>
+                  <span>Ajusta proveedor o búsqueda. Requiere el fact del pedido cargado + la topología de abasto configurada.</span>
                 </td></tr>
               </ng-template>
             </p-table>
           </div>
-          <p class="pr-foot">Réplica del workbook del comprador. <strong>Vta</strong> = venta 30 días en cajas · <strong>Exist.</strong> = existencia en cajas · <strong>Pedido</strong> = venta diaria × cobertura − existencia − tránsito. Puntos de compra: PH = <span class="pr-mono">MD-10</span> · Morelia = <span class="pr-mono">MD-30+MD-32</span> · Zamora = <span class="pr-mono">MD-50</span> · CEDIS = <span class="pr-mono">MD-CEDIS</span>. <em>Clic en una fila para ver el desglose por almacén.</em></p>
+          <p class="pr-foot">Réplica del workbook del comprador. <strong>Vta</strong> = venta 30 días en cajas · <strong>Exist.</strong> = existencia en cajas · <strong>Pedido</strong> = venta diaria × cobertura − existencia − tránsito. Cada bloque es un <strong>punto de compra</strong> (raíz de abasto, resuelta por topología): @for (t of wbTerritories(); track t.code) {<span class="pr-mono">{{ t.code }}</span>&nbsp;}. <em>Clic en una fila para ver el desglose por almacén.</em></p>
         }
 
         <app-side-peek [open]="peekOpen()" (openChange)="peekOpen.set($event)" [title]="peekTitle()" [subtitle]="peekSub()">
@@ -533,10 +533,16 @@ export class ComprasPedidoRealComponent implements OnInit {
 
   // RA-PRO.32 — Vista Excel (réplica del workbook del comprador, una fila por SKU × punto de compra).
   wbRows = signal<WorkbookRow[]>([]);
+  wbTerritories = signal<WorkbookTerritory[]>([]);   // puntos de compra (columnas dinámicas)
   wbTotals = signal<{ pedido: number; venta: number; exis: number }>({ pedido: 0, venta: 0, exis: 0 });
   wbTotal = signal(0);
   wbScopeNeeded = signal(false);
-  readonly wbTableStyle = { 'min-width': '96rem' };
+  // Ancho dinámico según nº de territorios (3 fijas + 3 por territorio + 4 de cierre). computed →
+  // referencia estable entre cargas (evita ExpressionChanged).
+  wbTableStyle = computed(() => ({ 'min-width': (34 + this.wbTerritories().length * 13) + 'rem' }));
+  wbColCount = computed(() => 3 + this.wbTerritories().length * 3 + 4);
+  /** Valor de una celda territorio×métrica (0 si el SKU no tiene datos en ese punto de compra). */
+  cellVal(r: WorkbookRow, code: string, key: 'vta' | 'exis' | 'ped'): number { return r.cells?.[code]?.[key] ?? 0; }
   // Drill-down (SidePeek): desglose por almacén + economía del SKU clickeado.
   peekOpen = signal(false);
   peekLoading = signal(false);
@@ -608,8 +614,8 @@ export class ComprasPedidoRealComponent implements OnInit {
     }).pipe(catchError(() => of(null as WorkbookResponse | null)), takeUntilDestroyed(this.destroyRef))
       .subscribe((r) => {
         this.loading.set(false);
-        if (!r) { this.error.set(true); this.wbRows.set([]); return; }
-        this.wbRows.set(r.rows); this.wbTotals.set(r.totals); this.wbTotal.set(r.total);
+        if (!r) { this.error.set(true); this.wbRows.set([]); this.wbTerritories.set([]); return; }
+        this.wbRows.set(r.rows); this.wbTerritories.set(r.territories ?? []); this.wbTotals.set(r.totals); this.wbTotal.set(r.total);
       });
   }
 
