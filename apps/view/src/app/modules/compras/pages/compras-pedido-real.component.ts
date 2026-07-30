@@ -272,10 +272,10 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
             <button type="button" class="pr-tab" [class.pr-tab-on]="wbGroup()==='general'" (click)="wbGroup.set('general'); loadWorkbook()">General</button>
           </div>
           @if (wbGroup()==='branch') {
-            <p-multiSelect [options]="warehouseOpts()" [(ngModel)]="wbWarehouses" (onChange)="loadWorkbook()"
+            <p-multiselect [options]="warehouseOpts()" [(ngModel)]="wbWarehouses" (onChange)="loadWorkbook()"
                            optionLabel="label" optionValue="value" placeholder="Todas las sucursales" [showClear]="true"
                            [filter]="true" filterBy="label" [maxSelectedLabels]="2" selectedItemsLabel="{0} sucursales"
-                           styleClass="pr-sel" ariaLabel="Sucursales a mostrar como columnas"></p-multiSelect>
+                           styleClass="pr-sel" ariaLabel="Sucursales a mostrar como columnas"></p-multiselect>
           }
           <p-iconfield styleClass="pr-search">
             <p-inputicon styleClass="pi pi-search" />
