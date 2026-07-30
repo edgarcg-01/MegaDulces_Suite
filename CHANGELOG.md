@@ -10,6 +10,12 @@
 
 ## [Unreleased]
 
+### Fixed — Costo del catálogo: neto vs bruto consistente (cost_base = sin IVA) (2026-07-29)
+- **Disparador:** el costo por caja del SKU 94157 salía $145 (con IVA) mientras Kepler mostraba $12.50/pza; se veía como "discrepancia" pero era el MISMO costo con/sin IVA ($12.50 × 1.16 = $14.50).
+- **Bug raíz en `import-catalog-bulk.js`:** las 3 columnas de costo se llenaban inconsistentes según qué rama ganara. `cost_with_tax` recibía el costo **neto** cuando aplicaba el overlay vivo `kdik.c16` (que ya es neto) pero el **bruto** `costo_civa` cuando caía al snapshot externo `Mega_Dulces` → margen/Thot (que dividen por `1+tax` asumiendo bruto) quedaban sesgados. Y `cost_base` recibía `costo_matriz` (una referencia con IVA), no el costo real → valuación de inventario / ABC / capital parado inflados por el IVA.
+- **Fix:** en ambas ramas (main + delta), `cost_base` = **costo NETO (sin IVA)** siempre (kdik neto directo, o `costo_civa/(1+IVA)` en fallback); `cost_with_tax` = **bruto** = neto×(1+IVA); `cost_per_case` = bruto×factor. Así el costo es idéntico venga del overlay vivo o del snapshot.
+- **Validado en local (corrida real, 14,193 productos):** 94157 → `cost_base` $12.50 / `cost_with_tax` $14.50 / `cost_per_case` $145. Consistencia global 8,686/8,735 (99.4%) cumplen `cost_with_tax = cost_base×(1+IVA)`; los 49 restantes son productos con IEPS (el bruto lleva IEPS además del IVA — limitación pre-existente del modelo). **Pendiente prod: re-correr `catalog-bulk` contra Railway (rewrite completo del catálogo) → baja la valuación de inventario ~IVA, que es lo correcto.**
+
 ### Added — Alertas de salud de la BD: bandeja persistente + toast realtime (2026-07-28)
 - **Necesidad (Edgar):** ser avisado cuando algo falle en la BD y poder verlo desde prod. Antes `db-health` solo mostraba el reporte si abrías la página Admin — no avisaba ni dejaba registro.
 - **Scanner `DbHealthScannerService` (@Cron cada 5 min):** corre el reporte de frescura de todas las fuentes y mantiene `analytics.db_health_alerts` (mig 20260728190000, RLS forzado, UNIQUE parcial `(tenant, source_key) WHERE resolved_at IS NULL` = una sola alerta abierta por fuente). Abre cuando una fuente pasa a **warn/critical**, escala warn→critical, y **resuelve** cuando vuelve a ok. Emite WS solo en transiciones (abrir/escalar/resolver) → sin spam.

@@ -82,6 +82,22 @@ const COLS = [
     const brandsByName = new Map();
     for (const b of (await db.query(`SELECT id, btrim(upper(nombre)) AS nombre FROM catalog.brands WHERE tenant_id=$1 AND deleted_at IS NULL`, [M])).rows)
       brandsByName.set(b.nombre, b.id);
+    // Marca FALLBACK para líneas HUÉRFANAS: un código en kdii.c3 que NO existe en kdig ni
+    // como brand. Antes esos productos se DESCARTABAN ("skip sin-brand", ~249 productos
+    // invisibles en toda la plataforma; ej. línea 689 = "MIA CAM NEGRA" / prov Distribuciones
+    // Ayari). Ahora se asignan a "SIN LÍNEA" para que ENTREN al catálogo (se ven en salidas,
+    // inventario, etc.). Si la línea luego se da de alta en kdig, el próximo run los reasigna
+    // a su marca real (el UPDATE por nombre pisa brand_id).
+    let FALLBACK_BRAND = (await db.query(
+      `SELECT id FROM catalog.brands WHERE tenant_id=$1 AND code='SIN-LINEA' AND deleted_at IS NULL LIMIT 1`, [M])).rows[0]?.id || null;
+    if (!FALLBACK_BRAND && APPLY) {
+      FALLBACK_BRAND = (await db.query(
+        `INSERT INTO catalog.brands (id, tenant_id, code, nombre, created_at, updated_at)
+         VALUES (gen_random_uuid(), $1, 'SIN-LINEA', 'SIN LÍNEA', now(), now()) RETURNING id`, [M])).rows[0].id;
+      console.log('  marca fallback "SIN LÍNEA" creada (para líneas huérfanas)');
+    }
+    if (FALLBACK_BRAND) brandsByCode.set('SIN-LINEA', FALLBACK_BRAND);
+
     const lineaName = new Map();
     for (const burl of KDIG_BRANCHES) {
       const k = new Client({ connectionString: burl, connectionTimeoutMillis: 6000 });
@@ -247,29 +263,35 @@ const COLS = [
     };
 
     // Transformar (mismo mapeo que mega_dulces_sync) + skips.
-    const recs = []; let skipName = 0, skipBrand = 0, deltaAdds = 0, costChanged = 0, taxChanged = 0, factorChanged = 0, costOutlierFixed = 0, factorOverride1 = 0;
+    const recs = []; let skipName = 0, skipBrand = 0, fallbackBrand = 0, deltaAdds = 0, costChanged = 0, taxChanged = 0, factorChanged = 0, costOutlierFixed = 0, factorOverride1 = 0;
     const resolveBrand = (lineaCode) => {
       let brand_id = brandsByCode.get(lineaCode);
       if (!brand_id) {
         const nm = lineaName.get(lineaCode);
         if (nm) brand_id = brandsByName.get(nm);
       }
+      // línea huérfana (ni brand por code ni por nombre) → marca fallback "SIN LÍNEA"
+      // (en vez de descartar el producto). Solo cae a null si el fallback aún no existe
+      // (dry-run sin haber corrido nunca en apply).
+      if (!brand_id && FALLBACK_BRAND) { fallbackBrand++; return FALLBACK_BRAND; }
       return brand_id || null;
     };
     for (const d of deltaRows.values()) {
       const brand_id = resolveBrand(clean(d.linea));
       if (!brand_id) { skipBrand++; continue; }
-      const cost = liveCost(d.sku);
+      const cost = liveCost(d.sku); // kdik.c16 NETO
       const tv = liveTax(d.sku);
       const boxF = liveBox(d.sku);
+      const dIva = Number(tv?.iva ?? 0) || 0;
+      const dGross = cost != null ? cost * (1 + dIva) : null; // con IVA → cost_with_tax
       recs.push([
         d.sku, clean(d.barcode), brand_id, null, d.nombre, null, null, clean(d.unidad),
-        null, boxF, tv?.iva ?? null, tv?.ieps ?? null, cost, cost != null && boxF ? cost * boxF : null,
-        null, null, null, null, null, null, true,
+        null, boxF, tv?.iva ?? null, tv?.ieps ?? null, dGross, dGross != null && boxF ? dGross * boxF : null,
+        cost, null, null, null, null, null, true,
       ]);
       deltaAdds++;
     }
-    if (deltaRows.size) console.log(`  delta kdii transformado: ${deltaAdds} altas (skip sin-brand: ${deltaRows.size - deltaAdds})`);
+    if (deltaRows.size) console.log(`  delta kdii transformado: ${deltaAdds} altas (skip sin-brand: ${deltaRows.size - deltaAdds}; incluye líneas huérfanas → SIN LÍNEA)`);
     for (const r of srcRows) {
       const sku = clean(r.articulo), nombre = clean(r.nombre);
       if (!sku || !nombre) { skipName++; continue; }
@@ -287,18 +309,27 @@ const COLS = [
       const snapFsRaw = numOr(r.factor_venta);
       const boxF = liveBox(sku); // c81 (paquete de venta), fallback c84
       const factorSale = snapFsRaw && snapFsRaw > 1 ? snapFsRaw : (boxF ?? snapFsRaw);
-      const baseCost = cost ?? numOr(r.costo_civa);
-      const costPerCase = baseCost != null && factorSale > 0 ? baseCost * factorSale
-        : (baseCost != null && uxc ? baseCost * uxc : numOr(r.costo_x_caja));
       const tv = liveTax(sku);
       const snapIva = r.iva_venta != null ? Number(r.iva_venta)/100 : null;
       const snapIeps = r.ieps_venta != null ? Number(r.ieps_venta)/100 : null;
+      // Costo unitario NETO (sin IVA) = canónico → cost_base (valuación/ABC/inventario lo usan
+      // crudo como costo). El overlay vivo kdik.c16 YA viene NETO; el snapshot (costo_civa /
+      // costo_matriz) es CON IVA → netear dividiendo por (1+IVA). Antes se mezclaban netos
+      // (kdik) y brutos (costo_civa) en el MISMO campo según qué rama ganara → cost_base
+      // inconsistente entre productos y margen/valuación sesgados por el IVA.
+      const ivaR = Number(tv?.iva ?? snapIva ?? 0) || 0;
+      const netFromSnap = numOr(r.costo_civa) != null ? Number(r.costo_civa) / (1 + ivaR)
+        : (numOr(r.costo_matriz) != null ? Number(r.costo_matriz) / (1 + ivaR) : null);
+      const costNet = cost ?? netFromSnap;                              // sin IVA → cost_base
+      const costGross = costNet != null ? costNet * (1 + ivaR) : null;  // con IVA → cost_with_tax
+      const costPerCase = costGross != null && factorSale > 0 ? costGross * factorSale
+        : (costGross != null && uxc ? costGross * uxc : numOr(r.costo_x_caja));
       recs.push([
         sku, clean(r.codigo_barras) || (lv?.barcode || null), brand_id, catsByCode.get(clean(r.categoria_codigo)) || null,
         nombre, clean(r.descripcion), clean(r.unidad_compra), clean(r.unidad_venta) || (lv?.unidad || null),
         numOr(r.factor_compra), factorSale,
         tv?.iva ?? snapIva, tv?.ieps ?? snapIeps,
-        baseCost, costPerCase, numOr(r.costo_matriz),
+        costGross, costPerCase, costNet,
         clean(r.ubicacion), clean(r.ubicacion_bodega),
         r.iva_compra != null ? Number(r.iva_compra)/100 : null, r.ieps_compra != null ? Number(r.ieps_compra)/100 : null,
         numOr(r.ptos_frecuencia), r.is_activo === true && r.en_existencia !== false,
@@ -314,9 +345,9 @@ const COLS = [
       }
       if (cost != null && numOr(r.costo_civa) != null && Number(r.costo_civa) > 0 && Number(r.costo_civa) / cost >= 3) costOutlierFixed++;
       if (process.env.DEBUG_SKUS && process.env.DEBUG_SKUS.split(',').includes(sku))
-        console.log(`  [dbg] ${sku} fs:${snapFs}→${factorSale} cost:${numOr(r.costo_civa)}→${baseCost} xcaja:${numOr(r.costo_x_caja)}→${costPerCase} | ${nombre}`);
+        console.log(`  [dbg] ${sku} fs:${snapFs}→${factorSale} costNet:${numOr(r.costo_civa)}(civa)→${costNet} civa:${costGross} xcaja:${numOr(r.costo_x_caja)}→${costPerCase} | ${nombre}`);
     }
-    console.log(`  transformados: ${recs.length} (skip sin-nombre: ${skipName}, sin-brand: ${skipBrand})`);
+    console.log(`  transformados: ${recs.length} (skip sin-nombre: ${skipName}, sin-brand: ${skipBrand}, líneas huérfanas → SIN LÍNEA: ${fallbackBrand})`);
     console.log(`  overlay costo vivo: ${costChanged} productos con costo distinto al snapshot (${costOutlierFixed} outliers >=3x corregidos por mediana)`);
     console.log(`  overlay factor caja vivo (c84→c81): ${factorChanged} productos con factor_sale distinto al snapshot (${factorOverride1} sobre un factor previo >1)`);
     console.log(`  overlay IVA/IEPS facturado: ${taxChanged} productos con tasa distinta al snapshot`);

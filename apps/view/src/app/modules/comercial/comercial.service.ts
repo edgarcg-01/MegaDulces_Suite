@@ -1038,6 +1038,7 @@ export class ComercialService {
     else params = params.set('year', String(p.year ?? new Date().getFullYear()));
     if (p.warehouses?.length) params = params.set('warehouses', p.warehouses.join(','));
     if (p.brand_id) params = params.set('brand_id', p.brand_id);
+    if (p.supplier_id) params = params.set('supplier_id', p.supplier_id);
     if (p.category_id) params = params.set('category_id', p.category_id);
     if (p.search) params = params.set('search', p.search);
     return params;
@@ -1322,6 +1323,7 @@ export interface SalidasParams {
   to?: string;
   warehouses?: string[];
   brand_id?: string;
+  supplier_id?: string;
   category_id?: string; // RA-PRO.12 — categoría de compra (sourcing)
   search?: string;
 }
