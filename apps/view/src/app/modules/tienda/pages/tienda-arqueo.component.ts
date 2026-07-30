@@ -89,6 +89,18 @@ import { HasUnsavedChanges } from '../../../core/guards/unsaved-changes.guard';
             </ng-template>
           </p-table>
 
+          @if (aTipo() === 'cierre') {
+            <label class="arq-lbl arq-block">Incidencia <span class="muted">(opcional — si hubo un motivo)</span>
+              <select class="arq-fld arq-sel" [(ngModel)]="aIncidencia" (ngModelChange)="dirty.set(true)">
+                <option value="">Ninguna</option>
+                <option value="faltante_justificado">Faltante justificado</option>
+                <option value="billete_falso">Billete falso</option>
+                <option value="robo">Robo</option>
+                <option value="error_cobro">Error de cobro</option>
+                <option value="otro">Otro</option>
+              </select>
+            </label>
+          }
           <label class="arq-lbl arq-block">Nota <input pInputText class="arq-fld" [(ngModel)]="aNota" (ngModelChange)="dirty.set(true)" placeholder="opcional"></label>
           <p-button pButton type="button" [label]="aTipo() === 'relevo' ? 'Sellar relevo' : 'Guardar y revelar diferencia'" icon="pi pi-lock-open" styleClass="p-button-sm"
                   [disabled]="!canSubmit() || saving()" [loading]="saving()" (click)="submit()"></p-button>
@@ -148,6 +160,7 @@ import { HasUnsavedChanges } from '../../../core/guards/unsaved-changes.guard';
     :host ::ng-deep .arq-num { width: 5rem; text-align: right; font-variant-numeric: tabular-nums; padding: .25rem .4rem; }
     :host ::ng-deep .arq-date .p-datepicker-input { width: 8.5rem; }
     .arq-block { display: block; margin: .8rem 0; }
+    .arq-sel { display: block; width: 100%; margin-top: .2rem; font-size: .82rem; padding: .35rem .6rem; border: 1px solid var(--border-color); border-radius: var(--r-sm, 8px); background: var(--card-bg); color: var(--text-main); }
     :host ::ng-deep .arq-block .arq-fld { display: block; width: 100%; margin-top: .2rem; }
     :host ::ng-deep .arq-denoms-tbl { font-variant-numeric: tabular-nums; margin-bottom: .8rem; }
     :host ::ng-deep .arq-denoms-tbl .p-datatable-tbody > tr > td { padding: .2rem .5rem; }
@@ -183,7 +196,7 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
   readonly denoms = [1000, 500, 200, 100, 50, 20, 10, 5, 2, 1, 0.5];
   denomCount: Record<number, number> = {};
   readonly aTipo = signal<'cierre' | 'relevo'>('cierre');
-  aSuc = ''; aCaja = ''; aDate: Date = new Date(); aCajero = ''; aEntrante = ''; aNota = '';
+  aSuc = ''; aCaja = ''; aDate: Date = new Date(); aCajero = ''; aEntrante = ''; aNota = ''; aIncidencia = '';
   readonly arqTotal = signal(0);
   readonly saving = signal(false);
   readonly loading = signal(false);
@@ -221,6 +234,7 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
       cajero_code: this.aCajero.trim() || undefined,
       cajero_entrante: relevo ? (this.aEntrante.trim() || undefined) : undefined,
       denominations, nota: this.aNota.trim() || undefined,
+      incidencia_tipo: !relevo && this.aIncidencia ? this.aIncidencia : undefined,
     }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (r) => {
         this.saving.set(false); this.result.set(r); this.dirty.set(false);

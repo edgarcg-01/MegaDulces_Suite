@@ -1,16 +1,28 @@
-import { Injectable, Logger, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException, Inject, Optional } from '@nestjs/common';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
+import { RECON_NOTIFIER_PORT, ReconNotifierPort } from '@megadulces/contracts';
+import { MovementReconcileService, RawDiscrepancy } from './movement-reconcile.service';
 
 /**
  * SM.8 / P1 — Arqueo ciego. El cajero captura el conteo físico por denominación
  * ANTES de ver el esperado; recién al guardar el motor revela la diferencia REAL
  * (total ciego vs efectivo esperado de Kepler), independiente del c25 contaminado.
  *
+ * SM.9 — Autolineado: al capturar un cierre divergente, el arqueo se convierte al
+ * INSTANTE en un descuadre `arqueo_ciego_divergente` en la bandeja del supervisor
+ * (/almacen/cuadre), sin esperar al scan nocturno, + alerta WS best-effort.
+ *
  * `reconciliation.blind_counts` tiene RLS forzado → TenantKnexService.run().
  */
 
 /** Denominaciones MXN válidas (billetes + monedas). */
 const DENOMS = [1000, 500, 200, 100, 50, 20, 10, 5, 2, 1, 0.5];
+/** Motivos tipificados de incidencia (opcional, alineado al CHECK de la migración SM.9). */
+const INCIDENCIAS = ['faltante_justificado', 'billete_falso', 'robo', 'error_cobro', 'otro'];
+/** Umbrales del descuadre autolineado (espejan la regla `arqueo_ciego_divergente`). */
+const ARQ_UMBRAL = 50;
+const ARQ_CRITICO = 1000;
+const money = (n: number) => Number(n || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 });
 
 export interface BlindCountDto {
   warehouse_code: string;
@@ -23,6 +35,7 @@ export interface BlindCountDto {
   denominations: Record<string, number>;  // {"1000":2,"0.5":10,…}
   nota?: string;
   photo_url?: string;
+  incidencia_tipo?: string;       // SM.9: motivo cualitativo del descuadre (opcional)
 }
 
 @Injectable()
@@ -32,6 +45,8 @@ export class BlindCountService {
   constructor(
     private readonly tk: TenantKnexService,
     private readonly tenantCtx: TenantContextService,
+    private readonly engine: MovementReconcileService,
+    @Optional() @Inject(RECON_NOTIFIER_PORT) private readonly notifier?: ReconNotifierPort,
   ) {}
 
   private computeTotal(denoms: Record<string, number>): number {
@@ -53,27 +68,79 @@ export class BlindCountService {
     const tenantId = this.tenantCtx.requireTenantId();
     const total = this.computeTotal(dto.denominations || {});
     const tipo = dto.tipo === 'relevo' ? 'relevo' : 'cierre';
-    return this.tk.run(async (trx) => {
+    const incidencia = dto.incidencia_tipo && INCIDENCIAS.includes(dto.incidencia_tipo) ? dto.incidencia_tipo : null;
+    if (dto.incidencia_tipo && !incidencia) throw new BadRequestException(`incidencia_tipo inválido (${INCIDENCIAS.join('|')})`);
+
+    const { result, badCut } = await this.tk.run(async (trx) => {
       const row = {
         tenant_id: tenantId, tipo,
         warehouse_code: dto.warehouse_code, caja: dto.caja, business_date: dto.business_date,
         turno: dto.turno || null, cajero_code: dto.cajero_code || null, cajero_entrante: dto.cajero_entrante || null,
         denominations: JSON.stringify(dto.denominations || {}), total_contado: total,
         nota: dto.nota || null, photo_url: dto.photo_url || null, captured_by: username || null,
+        incidencia_tipo: incidencia,
       };
       await trx('reconciliation.blind_counts')
         .insert(row)
         .onConflict(trx.raw("(tenant_id, warehouse_code, caja, business_date, COALESCE(cajero_code,''), tipo)"))
-        .merge({ denominations: row.denominations, total_contado: total, cajero_entrante: row.cajero_entrante, nota: row.nota, photo_url: row.photo_url, captured_by: row.captured_by, captured_at: trx.fn.now() });
+        .merge({ denominations: row.denominations, total_contado: total, cajero_entrante: row.cajero_entrante, nota: row.nota, photo_url: row.photo_url, captured_by: row.captured_by, incidencia_tipo: incidencia, captured_at: trx.fn.now() });
       // El relevo no se compara contra el corte del día (es intra-turno): solo sella el traspaso.
       if (tipo === 'relevo') {
         this.logger.log(`arqueo relevo suc${dto.warehouse_code} caja${dto.caja} ${dto.business_date}: ${dto.cajero_code || '?'}→${dto.cajero_entrante || '?'} entregó ${total}`);
-        return { tipo, total_contado: total, matched: false, esperado: null, kepler_contado: null, kepler_diff: null, diff_real: null, kepler_enmascaro: false };
+        return { result: { tipo, total_contado: total, matched: false, esperado: null, kepler_contado: null, kepler_diff: null, diff_real: null, kepler_enmascaro: false }, badCut: null as any };
       }
       const cmp = await this.compare(trx, tenantId, dto, total);
       this.logger.log(`arqueo cierre suc${dto.warehouse_code} caja${dto.caja} ${dto.business_date}: contado ${total} vs esperado ${cmp.esperado ?? '?'}`);
-      return { tipo, total_contado: total, ...cmp };
+      // SM.9 — Autolineado: cierre divergente → descuadre al instante en la bandeja del supervisor.
+      const badCut = await this.raiseIfDivergent(trx, tenantId, dto, total, cmp, incidencia, username);
+      return { result: { tipo, total_contado: total, ...cmp }, badCut };
     });
+
+    // WS best-effort FUERA de la transacción (no bloquea ni revierte la captura).
+    if (badCut && this.notifier) {
+      this.notifier.notifyBadCut(tenantId, badCut).catch((e) => this.logger.warn(`notifyBadCut falló: ${e?.message || e}`));
+    }
+    return result;
+  }
+
+  /**
+   * SM.9 — Si el cierre matchea corte y diverge ≥ umbral, levanta (UPSERT idempotente)
+   * el descuadre `arqueo_ciego_divergente` al instante y devuelve el payload de la alerta
+   * cuando es crítico (Kepler enmascaró o supera el crítico). Espeja el detector homónimo.
+   */
+  private async raiseIfDivergent(trx: any, tenantId: string, dto: BlindCountDto, total: number, cmp: any, incidencia: string | null, username?: string) {
+    if (!cmp?.matched || cmp.diff_real == null) return null;
+    const diffReal = Number(cmp.diff_real);
+    if (Math.abs(diffReal) < ARQ_UMBRAL) return null;
+    const abs = Math.abs(diffReal);
+    const esperado = Number(cmp.esperado);
+    const keplerDiff = Number(cmp.kepler_diff || 0);
+    const enmascaro = !!cmp.kepler_enmascaro;
+    const faltante = diffReal > 0;
+    const critical = enmascaro || abs >= ARQ_CRITICO;
+    const fecha = dto.business_date; // ya 'YYYY-MM-DD' (sin corrimiento TZ)
+    const cajero = dto.cajero_code || '?';
+    const incTxt = incidencia ? ` Incidencia: ${incidencia.replace(/_/g, ' ')}.` : '';
+    const d: RawDiscrepancy = {
+      rule_key: 'arqueo_ciego_divergente', plano: 'caja',
+      severity: critical ? 'critical' : 'warn',
+      score: Math.min(1, abs / (ARQ_CRITICO * 2)),
+      titulo: `Arqueo ciego: ${faltante ? 'faltan' : 'sobran'} ${money(abs)} — suc ${dto.warehouse_code} caja ${dto.caja}${enmascaro ? ' (Kepler lo dio por cuadrado)' : ''}`,
+      resumen: `Corte ${fecha} (${cajero}): conteo ciego ${money(total)} vs esperado ${money(esperado)} = ${faltante ? 'faltante' : 'sobrante'} real ${money(abs)}.${enmascaro ? ` Kepler reportó diff ${money(keplerDiff)} — el arqueo ciego destapa lo que el corte ocultó.` : ''}${incTxt}`,
+      entity: { sucursal: dto.warehouse_code, caja: dto.caja, cajero: dto.cajero_code || null, folio: cmp.folio || null, fecha, incidencia_tipo: incidencia },
+      periodo: fecha,
+      esperado, observado: total, diferencia: diffReal,
+      importe: abs,
+      causa_probable: enmascaro ? 'arqueo_no_ciego' : (faltante ? 'faltante_caja' : 'sobrante_caja'),
+      evidencia: { params: { umbral: ARQ_UMBRAL, critico: ARQ_CRITICO }, contado_ciego: total, esperado, kepler_diff: keplerDiff, kepler_enmascaro: enmascaro, incidencia_tipo: incidencia, origen: 'arqueo_captura' },
+      dedup_key: `arqueo_ciego_divergente:${dto.warehouse_code}:${dto.caja}:${fecha}:${cmp.folio || 's-folio'}`,
+    };
+    await this.engine.ensureRule(trx, tenantId, 'arqueo_ciego_divergente');
+    await this.engine.upsertDiscrepancy(trx, tenantId, d);
+    this.logger.log(`autolineado: descuadre ${d.severity} suc${dto.warehouse_code} caja${dto.caja} ${fecha} = ${money(abs)}`);
+    return critical
+      ? { warehouse_code: dto.warehouse_code, caja: dto.caja, business_date: fecha, cajero: dto.cajero_code || null, diff_real: diffReal, kepler_enmascaro: enmascaro, captured_by: username || null, incidencia_tipo: incidencia }
+      : null;
   }
 
   /** Compara el total ciego vs el corte de Kepler (matchea por suc/caja/fecha[/cajero]). */
@@ -108,7 +175,7 @@ export class BlindCountService {
         })
         .select('bc.id', 'bc.tipo', 'bc.warehouse_code', 'bc.caja', 'bc.business_date', 'bc.turno', 'bc.cajero_code', 'bc.cajero_entrante',
           trx.raw('pc.nombre AS cajero_nombre'), trx.raw('bc.total_contado::numeric AS total_contado'),
-          'bc.captured_by', 'bc.captured_at', 'bc.nota',
+          'bc.captured_by', 'bc.captured_at', 'bc.nota', 'bc.incidencia_tipo',
           trx.raw('cc.efectivo_esperado::numeric AS esperado'), trx.raw('cc.efectivo_diff::numeric AS kepler_diff'))
         .orderBy('bc.captured_at', 'desc').limit(limit);
       if (q.warehouse_code) b.where('bc.warehouse_code', q.warehouse_code);
@@ -124,7 +191,7 @@ export class BlindCountService {
         return {
           id: r.id, tipo: r.tipo, warehouse_code: r.warehouse_code, caja: r.caja, business_date: r.business_date, turno: r.turno,
           cajero_code: r.cajero_code, cajero_entrante: r.cajero_entrante || null, cajero_nombre: r.cajero_nombre || null, total_contado: total,
-          captured_by: r.captured_by, captured_at: r.captured_at, nota: r.nota,
+          captured_by: r.captured_by, captured_at: r.captured_at, nota: r.nota, incidencia_tipo: r.incidencia_tipo || null,
           esperado, kepler_diff: keplerDiff, diff_real: diffReal,
           kepler_enmascaro: keplerDiff != null && diffReal != null && Math.abs(keplerDiff) < 50 && Math.abs(diffReal) >= 50,
         };

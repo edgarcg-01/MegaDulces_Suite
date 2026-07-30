@@ -192,6 +192,19 @@ El motor corre **10 reglas** (caja_descuadre, cajero_faltante_recurrente, descua
 
 **Ruta crítica:** SM.0 → SM.1 (caja) entrega valor en la primera rebanada (detecta faltantes por cajero con data real — 90 cortes ≥$50 en md_02 sola).
 
+## SM.9 — Lazo /tienda/arqueo ↔ /almacen/cuadre (✅ local 2026-07-30)
+
+Cierra el enlace entre la **captura de la cajera** (`/tienda/arqueo`) y la **consola del supervisor** (`/almacen/cuadre`). Antes compartían `reconciliation.blind_counts` pero el puente era **batch** (solo el `scan` nocturno/manual lo cruzaba).
+
+- **Autolineado (instantáneo).** `BlindCountService.submit`: al capturar un `cierre` que matchea corte y diverge `≥$50`, levanta al instante el descuadre `arqueo_ciego_divergente` (UPSERT idempotente por `dedup_key`, espeja el detector). El arqueo de la cajera aparece en la bandeja del supervisor **sin esperar al cron**, crítico si Kepler enmascaró. Engine expone `ensureRule` + `upsertDiscrepancy` públicos (reusados por `scanAll`).
+- **Corte malo visible.** `cashCuts` hace `leftJoin` a `blind_counts` (tipo=cierre) → columna **"Arqueo ciego"** en el tab Cortes: *sin arqueo · cuadra ciego · **corte malo Δ$** (+ incidencia)*.
+- **Incidencia tipificada.** Mig `20260730120000` añade `blind_counts.incidencia_tipo` (CHECK: faltante_justificado/billete_falso/robo/error_cobro/otro). Selector en `/tienda/arqueo` (solo cierre) → viaja como evidencia del descuadre.
+- **Alerta WS.** `RECON_NOTIFIER_PORT` (contracts) + `ReconNotifierBindingModule` (composition root) → alerta `recon_bad_cut` al supervisor, ruta `/almacen/cuadre` (separado del `FINANCE_NOTIFIER_PORT`/Maat que rutea a finanzas). Best-effort, fuera de la transacción.
+
+Builds api+view OK. Smoke DB verde: join liga arqueo→corte (diff_real $500, incidencia robo, divergente=true) + UPSERT idempotente por `dedup_key`.
+
+**Pendiente prod:** mig `20260730120000` a Railway + redeploy api+view + re-login.
+
 ## Gotchas (bakeados)
 
 - `kdil.c4=0` → existencia teórica del kardex; conteo físico = verdad periódica.

@@ -22,7 +22,7 @@ interface RuleMeta {
   params: Record<string, any>;
 }
 
-interface RawDiscrepancy {
+export interface RawDiscrepancy {
   rule_key: string;
   plano: 'inventario' | 'caja' | 'cruce';
   severity: 'info' | 'warn' | 'critical';
@@ -105,12 +105,36 @@ export class MovementReconcileService {
   ) {}
 
   private async ensureRules(trx: any, tenantId: string) {
-    for (const r of RULES) {
-      await trx('reconciliation.rule_registry')
-        .insert({ tenant_id: tenantId, rule_key: r.rule_key, nombre: r.nombre, descripcion: r.descripcion, plano: r.plano, params: JSON.stringify(r.params) })
-        .onConflict(['tenant_id', 'rule_key'])
-        .merge({ nombre: r.nombre, descripcion: r.descripcion, plano: r.plano, updated_at: trx.fn.now() });
-    }
+    for (const r of RULES) await this.ensureRule(trx, tenantId, r.rule_key);
+  }
+
+  /** Registra (upsert) una sola regla del catálogo. Público: lo usa el autolineado del arqueo (SM.9). */
+  async ensureRule(trx: any, tenantId: string, ruleKey: string) {
+    const r = RULES.find((x) => x.rule_key === ruleKey);
+    if (!r) return;
+    await trx('reconciliation.rule_registry')
+      .insert({ tenant_id: tenantId, rule_key: r.rule_key, nombre: r.nombre, descripcion: r.descripcion, plano: r.plano, params: JSON.stringify(r.params) })
+      .onConflict(['tenant_id', 'rule_key'])
+      .merge({ nombre: r.nombre, descripcion: r.descripcion, plano: r.plano, updated_at: trx.fn.now() });
+  }
+
+  /** UPSERT idempotente de un descuadre por dedup_key. Devuelve true si fue INSERT nuevo. Público (SM.9). */
+  async upsertDiscrepancy(trx: any, tenantId: string, d: RawDiscrepancy): Promise<boolean> {
+    const res = await trx.raw(
+      `INSERT INTO reconciliation.discrepancies
+         (tenant_id, rule_key, plano, severity, status, score, titulo, resumen, entity, periodo,
+          esperado, observado, diferencia, importe, causa_probable, evidencia, dedup_key,
+          first_seen, last_seen, created_at, updated_at)
+       VALUES (?, ?, ?, ?, 'nuevo', ?, ?, ?, ?::jsonb, ?, ?, ?, ?, ?, ?, ?::jsonb, ?, now(), now(), now(), now())
+       ON CONFLICT (tenant_id, dedup_key) DO UPDATE
+         SET last_seen = now(), importe = EXCLUDED.importe, resumen = EXCLUDED.resumen,
+             severity = EXCLUDED.severity, esperado = EXCLUDED.esperado, observado = EXCLUDED.observado,
+             diferencia = EXCLUDED.diferencia, evidencia = EXCLUDED.evidencia, score = EXCLUDED.score, updated_at = now()
+       RETURNING (xmax = 0) AS is_insert`,
+      [tenantId, d.rule_key, d.plano, d.severity, d.score, d.titulo, d.resumen, JSON.stringify(d.entity),
+        d.periodo, d.esperado, d.observado, d.diferencia, d.importe, d.causa_probable, JSON.stringify(d.evidencia), d.dedup_key],
+    );
+    return !!res.rows?.[0]?.is_insert;
   }
 
   /** Corre los detectores habilitados y no suprimidos; UPSERT idempotente por dedup_key. */
@@ -137,21 +161,8 @@ export class MovementReconcileService {
         }
         let nuevos = 0;
         for (const d of found) {
-          const res = await trx.raw(
-            `INSERT INTO reconciliation.discrepancies
-               (tenant_id, rule_key, plano, severity, status, score, titulo, resumen, entity, periodo,
-                esperado, observado, diferencia, importe, causa_probable, evidencia, dedup_key,
-                first_seen, last_seen, created_at, updated_at)
-             VALUES (?, ?, ?, ?, 'nuevo', ?, ?, ?, ?::jsonb, ?, ?, ?, ?, ?, ?, ?::jsonb, ?, now(), now(), now(), now())
-             ON CONFLICT (tenant_id, dedup_key) DO UPDATE
-               SET last_seen = now(), importe = EXCLUDED.importe, resumen = EXCLUDED.resumen,
-                   severity = EXCLUDED.severity, esperado = EXCLUDED.esperado, observado = EXCLUDED.observado,
-                   diferencia = EXCLUDED.diferencia, evidencia = EXCLUDED.evidencia, score = EXCLUDED.score, updated_at = now()
-             RETURNING (xmax = 0) AS is_insert`,
-            [tenantId, d.rule_key, d.plano, d.severity, d.score, d.titulo, d.resumen, JSON.stringify(d.entity),
-              d.periodo, d.esperado, d.observado, d.diferencia, d.importe, d.causa_probable, JSON.stringify(d.evidencia), d.dedup_key],
-          );
-          if (res.rows?.[0]?.is_insert) {
+          const isInsert = await this.upsertDiscrepancy(trx, tenantId, d);
+          if (isInsert) {
             nuevos++;
             if (d.severity === 'critical') nuevosCriticos.push({ rule_key: d.rule_key, titulo: d.titulo, importe: d.importe });
           }

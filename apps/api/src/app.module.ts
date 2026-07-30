@@ -124,6 +124,7 @@ import { WhatsAppModule } from '@megadulces/whatsapp';
 import { CommerceConversationBindingModule } from './composition/commerce-conversation.binding.module';
 // MAAT.9 (3.0 P2) — binding del Port de notificación de Maat → canal de alertas commercial.
 import { FinanceNotifierBindingModule } from './composition/finance-notifier.binding.module';
+import { ReconNotifierBindingModule } from './composition/recon-notifier.binding.module';
 // FISCAL.1.1 — binding del Port de consolidación de hallazgos → Maat (finance.findings).
 import { FinanceFindingsSinkBindingModule } from './composition/finance-findings-sink.binding.module';
 import { InvoiceIssuerBindingModule } from './composition/invoice-issuer.binding.module';
@@ -191,6 +192,7 @@ const multitenantModules = process.env.ENABLE_MULTITENANT === 'true'
       LogisticsTrackingModule,
       MegaDulcesSyncModule,
       FinanceNotifierBindingModule,
+      ReconNotifierBindingModule,
       FinanceMaatModule,
       FinanceExpenseProofsModule,
       FinanceBankModule,

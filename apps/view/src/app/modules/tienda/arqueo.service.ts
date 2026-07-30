@@ -20,6 +20,7 @@ export interface ArqueoDto {
   cajero_entrante?: string;
   denominations: Record<string, number>;
   nota?: string;
+  incidencia_tipo?: string; // SM.9: motivo cualitativo del descuadre (opcional)
 }
 
 export interface ArqueoResult {
@@ -34,7 +35,7 @@ export interface ArqueoResult {
 export interface ArqueoRow {
   id: string; tipo: ArqueoTipo; warehouse_code: string; caja: string; business_date: string; turno: string | null;
   cajero_code: string | null; cajero_entrante: string | null; cajero_nombre: string | null; total_contado: number;
-  captured_by: string | null; captured_at: string; nota: string | null;
+  captured_by: string | null; captured_at: string; nota: string | null; incidencia_tipo: string | null;
   esperado: number | null; diff_real: number | null;
 }
 
