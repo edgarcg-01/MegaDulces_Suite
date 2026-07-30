@@ -172,7 +172,7 @@ import { GeolocationService } from '../../../core/services/geolocation.service';
               <i class="pi pi-cloud"></i>
               <p>No se pudo cargar tu ruta.</p>
               <p class="hint">Revisá tu conexión e intentá de nuevo.</p>
-              <button pButton label="Reintentar" icon="pi pi-refresh" (click)="load()"></button>
+              <button pButton (click)="load()"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span><span class="p-button-label">Reintentar</span></button>
             </div>
           </p-card>
         }
@@ -185,8 +185,8 @@ import { GeolocationService } from '../../../core/services/geolocation.service';
               <p>No hay clientes en tu ronda de hoy.</p>
               <p class="hint">Agregá un cliente nuevo o pedile a tu supervisor que te asigne rutas.</p>
               <div class="empty-actions">
-                <button pButton label="Agregar cliente" icon="pi pi-plus" (click)="addCustomer()"></button>
-                <a pButton label="Buscar un cliente" icon="pi pi-search" severity="secondary" [text]="true" routerLink="/vendor/search"></a>
+                <button pButton (click)="addCustomer()"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Agregar cliente</span></button>
+                <a pButton severity="secondary" [text]="true" routerLink="/vendor/search"><span class="p-button-icon p-button-icon-left pi pi-search" aria-hidden="true"></span><span class="p-button-label">Buscar un cliente</span></a>
               </div>
             </div>
           </p-card>

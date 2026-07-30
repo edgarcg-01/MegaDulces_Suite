@@ -199,7 +199,7 @@ import { CountUpDirective } from '../ui/count-up.directive';
               <div class="ca-no-lines">
                 <i class="pi pi-info-circle"></i>
                 <p>Tu carrito no tiene líneas todavía.</p>
-                <button pButton type="button" label="Agregar productos" icon="pi pi-arrow-right" (click)="goCatalog()"></button>
+                <button pButton type="button" (click)="goCatalog()"><span class="p-button-icon p-button-icon-left pi pi-arrow-right" aria-hidden="true"></span><span class="p-button-label">Agregar productos</span></button>
               </div>
             }
           </section>
