@@ -1,5 +1,5 @@
-import { Component, OnInit, inject, output, signal } from '@angular/core';
-import { CommonModule } from '@angular/common';
+import { Component, OnInit, inject, output, signal, ChangeDetectionStrategy } from '@angular/core';
+
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { SkeletonModule } from 'primeng/skeleton';
 import { environment } from '../../../../environments/environment';
@@ -29,7 +29,7 @@ const STATUS_LABEL: Record<string, string> = {
 @Component({
   selector: 'app-team-day',
   standalone: true,
-  imports: [CommonModule, SkeletonModule],
+  imports: [SkeletonModule],
   template: `
     <div class="td-wrap">
       <header class="td-head">
@@ -79,6 +79,7 @@ const STATUS_LABEL: Record<string, string> = {
       }
     </div>
   `,
+  changeDetection: ChangeDetectionStrategy.Eager,
   styles: [`
     :host { display:block; }
     .td-wrap { padding:1rem; display:flex; flex-direction:column; gap:.8rem; }

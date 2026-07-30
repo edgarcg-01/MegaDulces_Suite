@@ -9,6 +9,7 @@ import {
   ViewChild,
   ElementRef,
   DestroyRef,
+  ChangeDetectionStrategy
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
@@ -86,9 +87,9 @@ interface PdfSection {
       <!-- ── Header ──────────────────────────────────────────────────── -->
       <div
         class="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-4"
-      >
+        >
         <div>
-           <h1 class="text-3xl font-bold tracking-tight text-content-main flex items-center gap-3">
+          <h1 class="text-3xl font-bold tracking-tight text-content-main flex items-center gap-3">
             <i class="pi pi-chart-bar text-content-main"></i> Mercadeo Inteligente
           </h1>
           <p class="text-content-muted text-sm">
@@ -104,351 +105,349 @@ interface PdfSection {
             (onClick)="resetAll()"
             [disabled]="loadingMetrics() || loadingCharts() || loadingTable()"
             pTooltip="Resetear filtros"
-          />
-          <p-button
-            label="CSV"
-            icon="pi pi-file-excel"
-            severity="secondary"
-            (onClick)="exportCsv()"
-            [disabled]="loadingMetrics() || loadingCharts() || loadingTable()"
-          />
-          <p-button
-            label="PDF"
-            icon="pi pi-file-pdf"
-            styleClass="p-button-brand"
-            (onClick)="showPdfBuilder = true"
-            [disabled]="loadingMetrics() || loadingCharts() || loadingTable()"
-          />
-        </div>
-      </div>
-
-      <!-- ── Filtros globales ─────────────────────────────────────────── -->
-      <app-global-filters #globalFilters (filtersChanged)="reloadAll()" />
-
-      <!-- ── Tabs ─────────────────────────────────────────────────────── -->
-      <div class="modern-tabs-wrapper">
-        <p-tabs [value]="0">
-          <p-tablist>
-            <p-tab [value]="0">Resumen</p-tab>
-            
-            <p-tab [value]="1">Registros</p-tab>
-            <p-tab [value]="2">Visitas individuales</p-tab>
-          </p-tablist>
-
-          <p-tabpanels>
-            <!-- ──────────────────── TAB 0: MÉTRICAS ──────────────────── -->
-            <p-tabpanel [value]="0">
-              <div class="pt-4 space-y-6" *ngIf="reportsData() as data">
-                <!-- 5 KPI cards con semáforo -->
-                <div
-                  class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4"
-                >
-                  <div
-                    *ngFor="let k of kpiCards()"
-                    class="card-premium flex flex-col gap-2 border-l-4"
+            />
+            <p-button
+              label="CSV"
+              icon="pi pi-file-excel"
+              severity="secondary"
+              (onClick)="exportCsv()"
+              [disabled]="loadingMetrics() || loadingCharts() || loadingTable()"
+              />
+              <p-button
+                label="PDF"
+                icon="pi pi-file-pdf"
+                styleClass="p-button-brand"
+                (onClick)="showPdfBuilder = true"
+                [disabled]="loadingMetrics() || loadingCharts() || loadingTable()"
+                />
+              </div>
+            </div>
+    
+            <!-- ── Filtros globales ─────────────────────────────────────────── -->
+            <app-global-filters #globalFilters (filtersChanged)="reloadAll()" />
+    
+            <!-- ── Tabs ─────────────────────────────────────────────────────── -->
+            <div class="modern-tabs-wrapper">
+              <p-tabs [value]="0">
+                <p-tablist>
+                  <p-tab [value]="0">Resumen</p-tab>
+    
+                  <p-tab [value]="1">Registros</p-tab>
+                  <p-tab [value]="2">Visitas individuales</p-tab>
+                </p-tablist>
+    
+                <p-tabpanels>
+                  <!-- ──────────────────── TAB 0: MÉTRICAS ──────────────────── -->
+                  <p-tabpanel [value]="0">
+                    @if (reportsData(); as data) {
+                      <div class="pt-4 space-y-6">
+                        <!-- 5 KPI cards con semáforo -->
+                        <div
+                          class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4"
+                          >
+                          @for (k of kpiCards(); track k) {
+                            <div
+                              class="card-premium flex flex-col gap-2 border-l-4"
                     [ngClass]="{
                       'border-l-ok': k.status === 'ok',
                       'border-l-warn': k.status === 'warn',
                       'border-l-bad': k.status === 'bad',
                     }"
-                  >
-                    <div class="flex items-center justify-between">
-                      <span
-class="text-xs font-bold text-content-faint uppercase"
-                        >{{ k.label }}</span
-                      >
-                      <span
-                        class="text-[11px] px-1.5 py-0.5 rounded-full font-bold"
+                              >
+                              <div class="flex items-center justify-between">
+                                <span
+                                  class="text-xs font-bold text-content-faint uppercase"
+                                  >{{ k.label }}</span
+                                  >
+                                  <span
+                                    class="text-[11px] px-1.5 py-0.5 rounded-full font-bold"
                         [ngClass]="{
                           'bg-ok-soft-bg text-ok-fg': k.status === 'ok',
                           'bg-warn-soft-bg text-warn-fg': k.status === 'warn',
                           'bg-bad-soft-bg text-bad-fg': k.status === 'bad',
                         }"
-                        >{{ statusLabel(k.status) }}</span
-                      >
-                    </div>
-                    <div class="text-2xl font-bold text-content-main">
-                      {{ k.value }}
-                    </div>
-                    <div
-                      class="text-xs"
+                                    >{{ statusLabel(k.status) }}</span
+                                    >
+                                  </div>
+                                  <div class="text-2xl font-bold text-content-main">
+                                    {{ k.value }}
+                                  </div>
+                                  <div
+                                    class="text-xs"
                       [ngClass]="{
                         'text-ok-fg': k.deltaDir === 'up',
                         'text-bad-fg': k.deltaDir === 'down',
                         'text-content-faint': k.deltaDir === 'flat',
                       }"
-                    >
-                      {{ k.delta }}
-                    </div>
-                    <div
-                      class="h-1 rounded-full bg-surface-layout overflow-hidden"
-                    >
-                      <div
-                        class="h-full rounded-full"
-                        [style.width.%]="k.pct"
+                                    >
+                                    {{ k.delta }}
+                                  </div>
+                                  <div
+                                    class="h-1 rounded-full bg-surface-layout overflow-hidden"
+                                    >
+                                    <div
+                                      class="h-full rounded-full"
+                                      [style.width.%]="k.pct"
                         [ngClass]="{
                           'bg-ok': k.status === 'ok',
                           'bg-warn': k.status === 'warn',
                           'bg-bad': k.status === 'bad',
                         }"
-                      ></div>
-                    </div>
-                    <div class="text-[11px] text-content-faint">
-                      Meta: {{ k.meta }}
-                    </div>
-                  </div>
-                </div>
-
-                <!-- Gráfica de tendencia principal -->
-                <div class="card-premium">
-                  <div class="flex items-center justify-between mb-4">
-                    <h3 class="text-sm font-bold text-content-main">
-                      Tendencia del período
-                    </h3>
-                    <div class="flex gap-3 text-[11px] text-content-muted">
-                      <span class="flex items-center gap-1">
-                        <span class="w-3 h-0.5 bg-info inline-block"></span
-                        >Visitas
-                      </span>
-                      <span class="flex items-center gap-1">
-                        <span
-                          class="w-3 h-0.5 bg-warn inline-block"
-                          style="border-top:2px dashed var(--warn-fg)"
-                        ></span
-                        >Score
-                      </span>
-                      <span class="flex items-center gap-1">
-                        <span
-                          class="w-3 h-0.5 bg-bad inline-block"
-                          style="border-top:2px dashed var(--bad-fg)"
-                        ></span
-                        >Meta
-                      </span>
-                    </div>
-                  </div>
-                  <div class="h-[300px]" #chartContainer>
-                    <p-chart
-                      #mainChart
-                      type="line"
-                      [data]="chartData"
-                      [options]="chartOptions"
-                      height="100%"
-                      *ngIf="chartData"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              <!-- Separador -->
-              <div class="mt-10 pt-6 border-t border-divider"></div>
-
-              <ng-container *ngIf="!loadingCharts(); else tabSkeleton1">
-                <div class="pt-4 space-y-6">
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <!-- Score por zona -->
-                  <div class="card-premium">
-                    <div class="flex items-center justify-between mb-4">
-                      <h3 class="text-sm font-bold">Score por zona</h3>
-                      <button
-                        (click)="captureChartAndExport('zona')"
-                        class="text-[11px] px-2 py-1 rounded border border-divider text-content-muted hover:bg-surface-layout"
-                      >
-                        + PDF
-                      </button>
-                    </div>
-                    <div class="h-[220px]">
-                      <p-chart
-                        type="bar"
-                        [data]="zoneChartData"
-                        [options]="zoneChartOptions"
-                        height="100%"
-                        *ngIf="zoneChartData"
-                      />
-                    </div>
-                  </div>
-
-                  <!-- Top vendedores -->
-                  <div class="card-premium">
-                    <div class="flex items-center justify-between mb-4">
-                      <h3 class="text-sm font-bold">Top vendedores</h3>
-                      <button
-                        (click)="captureChartAndExport('seller')"
-                        class="text-[11px] px-2 py-1 rounded border border-divider text-content-muted hover:bg-surface-layout"
-                      >
-                        + PDF
-                      </button>
-                    </div>
-                    <div class="h-[220px]">
-                      <p-chart
-                        type="bar"
-                        [data]="sellerChartData"
-                        [options]="horizontalChartOptions"
-                        height="100%"
-                        *ngIf="sellerChartData"
-                      />
-                    </div>
-                  </div>
-
-                  <!-- Distribución de scores -->
-                  <div class="card-premium">
-                    <div class="flex items-center justify-between mb-4">
-                      <h3 class="text-sm font-bold">Distribución de scores</h3>
-                    </div>
-                    <div class="h-[220px]">
-                      <p-chart
-                        type="bar"
-                        [data]="scoreDistData"
-                        [options]="scoreDistOptions"
-                        height="100%"
-                        *ngIf="scoreDistData"
-                      />
-                    </div>
-                  </div>
-
-                  <!-- Visitas por día de la semana -->
-                  <div class="card-premium">
-                    <div class="flex items-center justify-between mb-4">
-                      <h3 class="text-sm font-bold">Visitas por día</h3>
-                    </div>
-                    <div class="h-[220px]">
-                      <p-chart
-                        type="line"
-                        [data]="chartData"
-                        [options]="chartOptions"
-                        height="100%"
-                        *ngIf="chartData"
-                      />
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </ng-container>
-            <ng-template #tabSkeleton1>
-              <div class="pt-4 space-y-4">
-                <div class="card-premium animate-pulse">
-                  <p-skeleton height="3rem" styleClass="mb-2"></p-skeleton>
-                  <p-skeleton height="2rem" styleClass="mb-2"></p-skeleton>
-                  <p-skeleton height="2rem"></p-skeleton>
-                </div>
-              </div>
-            </ng-template>
-            </p-tabpanel>
-
-            <!-- ──────────────────── TAB 1: REGISTROS ────────────────── -->
-            <p-tabpanel [value]="1">
-              <ng-container *ngIf="!loadingTable(); else tabSkeleton2">
-                <div class="pt-4 space-y-4">
-                <!-- Barra de acciones sobre selección -->
-                <div
-                  *ngIf="selectedDayCount() > 0"
-                  class="flex items-center gap-3 p-3 bg-surface-layout rounded-xl border border-divider"
-                >
-                  <span class="text-xs text-content-muted flex-1">
-                    {{ selectedDayCount() }} jornada(s) seleccionada(s)
-                  </span>
-                  <p-button
-                    label="CSV selección"
-                    icon="pi pi-file-excel"
-                    severity="secondary"
-                    size="small"
-                    (onClick)="exportSelectedCsv()"
-                  />
-                  <p-button
-                    label="PDF selección"
-                    icon="pi pi-file-pdf"
-                    severity="secondary"
-                    size="small"
-                    (onClick)="exportSelectedPdf()"
-                  />
-                </div>
-
-                <!-- Busqueda -->
-                <div class="flex items-center justify-between">
-                  <p class="text-xs text-content-muted italic">
-                    Desglose de visitas por fecha.
-                  </p>
-                  <label for="searchInput" class="sr-only">Buscar visitas</label>
-                  <p-iconfield>
-                    <p-inputicon class="pi pi-search" />
-                    <input
-                      pInputText
-                      type="text"
-                      id="searchInput"
-                      [(ngModel)]="searchText"
-                      placeholder="Buscar día o folio..."
-                      (input)="dt.filterGlobal(searchText, 'contains')"
-                    />
-                  </p-iconfield>
-                </div>
-
-                <p-table
-                  #dt
-                  [value]="groupedRows()"
-                  [paginator]="true"
-                  [rows]="25"
-                  [rowsPerPageOptions]="[10, 25, 50, 100]"
-                  dataKey="id"
-                  [expandedRowKeys]="expandedRows"
-                  styleClass="p-datatable-modern overflow-hidden rounded-2xl border border-divider"
-                >
-                  <ng-template pTemplate="header">
-                    <tr
-                      class="text-xs uppercase text-content-faint bg-surface-ground border-b border-divider"
-                    >
-                      <th style="width:3rem">
-                        <input
-                          type="checkbox"
-                          (change)="toggleSelectAll($event)"
-                          class="focus-visible:ring-2 focus-visible:ring-info focus-visible:outline-none"
-                          style="accent-color:var(--ok-fg)"
-                        />
-                      </th>
-                      <th style="width:3rem"></th>
-                      <th class="py-3 px-4">Jornada / Fecha</th>
-                      <th class="text-center">Visitas</th>
-                      <th class="text-center">Avg Score</th>
-                      <th class="text-center">Score vs meta</th>
-                      <th class="text-right pr-6">Total venta</th>
-                    </tr>
-                  </ng-template>
-
-                  <ng-template pTemplate="body" let-day let-expanded="expanded">
-                    <tr
-                      class="hover:bg-surface-hover cursor-pointer transition-colors focus-visible:ring-2 focus-visible:ring-info focus-visible:outline-none"
-                      (click)="toggleExpand(day)"
-                    >
-                      <!-- Checkbox de selección -->
-                      <td (click)="$event.stopPropagation()">
-                        <input
-                          type="checkbox"
-                          [checked]="selectedDayIds().has(day.id)"
-                          (change)="toggleDaySelection(day.id, $event)"
-                          class="focus-visible:ring-2 focus-visible:ring-info focus-visible:outline-none"
-                          style="accent-color:var(--ok-fg)"
-                        />
-                      </td>
-
-                      <td>
-                        <button
-                          type="button"
-                          pButton
-                          [pRowToggler]="day"
-                          class="p-button-text p-button-rounded p-button-plain w-8 h-8"
+                                    ></div>
+                                  </div>
+                                  <div class="text-[11px] text-content-faint">
+                                    Meta: {{ k.meta }}
+                                  </div>
+                                </div>
+                              }
+                            </div>
+                            <!-- Gráfica de tendencia principal -->
+                            <div class="card-premium">
+                              <div class="flex items-center justify-between mb-4">
+                                <h3 class="text-sm font-bold text-content-main">
+                                  Tendencia del período
+                                </h3>
+                                <div class="flex gap-3 text-[11px] text-content-muted">
+                                  <span class="flex items-center gap-1">
+                                    <span class="w-3 h-0.5 bg-info inline-block"></span
+                                      >Visitas
+                                    </span>
+                                    <span class="flex items-center gap-1">
+                                      <span
+                                        class="w-3 h-0.5 bg-warn inline-block"
+                                        style="border-top:2px dashed var(--warn-fg)"
+                                        ></span
+                                        >Score
+                                      </span>
+                                      <span class="flex items-center gap-1">
+                                        <span
+                                          class="w-3 h-0.5 bg-bad inline-block"
+                                          style="border-top:2px dashed var(--bad-fg)"
+                                          ></span
+                                          >Meta
+                                        </span>
+                                      </div>
+                                    </div>
+                                    <div class="h-[300px]" #chartContainer>
+                                      @if (chartData) {
+                                        <p-chart
+                                          #mainChart
+                                          type="line"
+                                          [data]="chartData"
+                                          [options]="chartOptions"
+                                          height="100%"
+                                          />
+                                      }
+                                    </div>
+                                  </div>
+                                </div>
+                              }
+    
+                              <!-- Separador -->
+                              <div class="mt-10 pt-6 border-t border-divider"></div>
+    
+                              @if (!loadingCharts()) {
+                                <div class="pt-4 space-y-6">
+                                  <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <!-- Score por zona -->
+                                    <div class="card-premium">
+                                      <div class="flex items-center justify-between mb-4">
+                                        <h3 class="text-sm font-bold">Score por zona</h3>
+                                        <button
+                                          (click)="captureChartAndExport('zona')"
+                                          class="text-[11px] px-2 py-1 rounded border border-divider text-content-muted hover:bg-surface-layout"
+                                          >
+                                          + PDF
+                                        </button>
+                                      </div>
+                                      <div class="h-[220px]">
+                                        @if (zoneChartData) {
+                                          <p-chart
+                                            type="bar"
+                                            [data]="zoneChartData"
+                                            [options]="zoneChartOptions"
+                                            height="100%"
+                                            />
+                                        }
+                                      </div>
+                                    </div>
+                                    <!-- Top vendedores -->
+                                    <div class="card-premium">
+                                      <div class="flex items-center justify-between mb-4">
+                                        <h3 class="text-sm font-bold">Top vendedores</h3>
+                                        <button
+                                          (click)="captureChartAndExport('seller')"
+                                          class="text-[11px] px-2 py-1 rounded border border-divider text-content-muted hover:bg-surface-layout"
+                                          >
+                                          + PDF
+                                        </button>
+                                      </div>
+                                      <div class="h-[220px]">
+                                        @if (sellerChartData) {
+                                          <p-chart
+                                            type="bar"
+                                            [data]="sellerChartData"
+                                            [options]="horizontalChartOptions"
+                                            height="100%"
+                                            />
+                                        }
+                                      </div>
+                                    </div>
+                                    <!-- Distribución de scores -->
+                                    <div class="card-premium">
+                                      <div class="flex items-center justify-between mb-4">
+                                        <h3 class="text-sm font-bold">Distribución de scores</h3>
+                                      </div>
+                                      <div class="h-[220px]">
+                                        @if (scoreDistData) {
+                                          <p-chart
+                                            type="bar"
+                                            [data]="scoreDistData"
+                                            [options]="scoreDistOptions"
+                                            height="100%"
+                                            />
+                                        }
+                                      </div>
+                                    </div>
+                                    <!-- Visitas por día de la semana -->
+                                    <div class="card-premium">
+                                      <div class="flex items-center justify-between mb-4">
+                                        <h3 class="text-sm font-bold">Visitas por día</h3>
+                                      </div>
+                                      <div class="h-[220px]">
+                                        @if (chartData) {
+                                          <p-chart
+                                            type="line"
+                                            [data]="chartData"
+                                            [options]="chartOptions"
+                                            height="100%"
+                                            />
+                                        }
+                                      </div>
+                                    </div>
+                                  </div>
+                                </div>
+                              } @else {
+                                <div class="pt-4 space-y-4">
+                                  <div class="card-premium animate-pulse">
+                                    <p-skeleton height="3rem" styleClass="mb-2"></p-skeleton>
+                                    <p-skeleton height="2rem" styleClass="mb-2"></p-skeleton>
+                                    <p-skeleton height="2rem"></p-skeleton>
+                                  </div>
+                                </div>
+                              }
+                            </p-tabpanel>
+    
+                            <!-- ──────────────────── TAB 1: REGISTROS ────────────────── -->
+                            <p-tabpanel [value]="1">
+                              @if (!loadingTable()) {
+                                <div class="pt-4 space-y-4">
+                                  <!-- Barra de acciones sobre selección -->
+                                  @if (selectedDayCount() > 0) {
+                                    <div
+                                      class="flex items-center gap-3 p-3 bg-surface-layout rounded-xl border border-divider"
+                                      >
+                                      <span class="text-xs text-content-muted flex-1">
+                                        {{ selectedDayCount() }} jornada(s) seleccionada(s)
+                                      </span>
+                                      <p-button
+                                        label="CSV selección"
+                                        icon="pi pi-file-excel"
+                                        severity="secondary"
+                                        size="small"
+                                        (onClick)="exportSelectedCsv()"
+                                        />
+                                        <p-button
+                                          label="PDF selección"
+                                          icon="pi pi-file-pdf"
+                                          severity="secondary"
+                                          size="small"
+                                          (onClick)="exportSelectedPdf()"
+                                          />
+                                        </div>
+                                      }
+                                      <!-- Busqueda -->
+                                      <div class="flex items-center justify-between">
+                                        <p class="text-xs text-content-muted italic">
+                                          Desglose de visitas por fecha.
+                                        </p>
+                                        <label for="searchInput" class="sr-only">Buscar visitas</label>
+                                        <p-iconfield>
+                                          <p-inputicon class="pi pi-search" />
+                                          <input
+                                            pInputText
+                                            type="text"
+                                            id="searchInput"
+                                            [(ngModel)]="searchText"
+                                            placeholder="Buscar día o folio..."
+                                            (input)="dt.filterGlobal(searchText, 'contains')"
+                                            />
+                                          </p-iconfield>
+                                        </div>
+                                        <p-table
+                                          #dt
+                                          [value]="groupedRows()"
+                                          [paginator]="true"
+                                          [rows]="25"
+                                          [rowsPerPageOptions]="[10, 25, 50, 100]"
+                                          dataKey="id"
+                                          [expandedRowKeys]="expandedRows"
+                                          styleClass="p-datatable-modern overflow-hidden rounded-2xl border border-divider"
+                                          >
+                                          <ng-template #header>
+                                            <tr
+                                              class="text-xs uppercase text-content-faint bg-surface-ground border-b border-divider"
+                                              >
+                                              <th style="width:3rem">
+                                                <input
+                                                  type="checkbox"
+                                                  (change)="toggleSelectAll($event)"
+                                                  class="focus-visible:ring-2 focus-visible:ring-info focus-visible:outline-none"
+                                                  style="accent-color:var(--ok-fg)"
+                                                  />
+                                                </th>
+                                                <th style="width:3rem"></th>
+                                                <th class="py-3 px-4">Jornada / Fecha</th>
+                                                <th class="text-center">Visitas</th>
+                                                <th class="text-center">Avg Score</th>
+                                                <th class="text-center">Score vs meta</th>
+                                                <th class="text-right pr-6">Total venta</th>
+                                              </tr>
+                                            </ng-template>
+                                            <ng-template #body let-day let-expanded="expanded">
+                                              <tr
+                                                class="hover:bg-surface-hover cursor-pointer transition-colors focus-visible:ring-2 focus-visible:ring-info focus-visible:outline-none"
+                                                (click)="toggleExpand(day)"
+                                                >
+                                                <!-- Checkbox de selección -->
+                                                <td (click)="$event.stopPropagation()">
+                                                  <input
+                                                    type="checkbox"
+                                                    [checked]="selectedDayIds().has(day.id)"
+                                                    (change)="toggleDaySelection(day.id, $event)"
+                                                    class="focus-visible:ring-2 focus-visible:ring-info focus-visible:outline-none"
+                                                    style="accent-color:var(--ok-fg)"
+                                                    />
+                                                  </td>
+                                                  <td>
+                                                    <p-button
+                                                      type="button"
+                                                      pButton
+                                                      [pRowToggler]="day"
+                                                      styleClass="p-button-text p-button-rounded p-button-plain w-8 h-8"
                           [icon]="
                             expanded
                               ? 'pi pi-chevron-down'
                               : 'pi pi-chevron-right'
                           "
-                        ></button>
-                      </td>
-
-                      <td class="py-4 px-4 font-bold text-content-main">
-                        {{ day.fecha | date: 'fullDate' : 'UTC' }}
-                      </td>
-
-                      <td class="text-center">
-                        <span
-                          class="px-2.5 py-0.5 rounded-full text-xs font-bold"
+                                                    ></p-button>
+                                                  </td>
+                                                  <td class="py-4 px-4 font-bold text-content-main">
+                                                    {{ day.fecha | date: 'fullDate' : 'UTC' }}
+                                                  </td>
+                                                  <td class="text-center">
+                                                    <span
+                                                      class="px-2.5 py-0.5 rounded-full text-xs font-bold"
                           [ngClass]="{
                             'bg-ok-soft-bg text-ok-fg':
                               day.visitasStatus === 'ok',
@@ -457,42 +456,40 @@ class="text-xs font-bold text-content-faint uppercase"
                             'bg-bad-soft-bg text-bad-fg':
                               day.visitasStatus === 'bad',
                           }"
-                        >
-                          {{ day.totalVisitas }}
-                        </span>
-                      </td>
-
-                      <td class="text-center">
-                        <div class="flex flex-col items-center gap-1">
-                          <span
-                            class="font-black"
+                                                      >
+                                                      {{ day.totalVisitas }}
+                                                    </span>
+                                                  </td>
+                                                  <td class="text-center">
+                                                    <div class="flex flex-col items-center gap-1">
+                                                      <span
+                                                        class="font-black"
                             [ngClass]="{
                               'text-ok-fg': day.scoreStatus === 'ok',
                               'text-warn-fg': day.scoreStatus === 'warn',
                               'text-bad-fg': day.scoreStatus === 'bad',
                             }"
-                            >{{ day.avgScore }} pts</span
-                          >
-                          <div
-                            class="w-16 h-1 bg-surface-ground rounded-full overflow-hidden"
-                          >
-                            <div
-                              class="h-full rounded-full"
-                              [style.width.%]="day.avgScore > 100 ? 100 : day.avgScore"
+                                                        >{{ day.avgScore }} pts</span
+                                                        >
+                                                        <div
+                                                          class="w-16 h-1 bg-surface-ground rounded-full overflow-hidden"
+                                                          >
+                                                          <div
+                                                            class="h-full rounded-full"
+                                                            [style.width.%]="day.avgScore > 100 ? 100 : day.avgScore"
                               [ngClass]="{
                                 'bg-ok': day.scoreStatus === 'ok',
                                 'bg-warn': day.scoreStatus === 'warn',
                                 'bg-bad': day.scoreStatus === 'bad',
                               }"
-                            ></div>
-                          </div>
-                        </div>
-                      </td>
-
-                      <!-- Score vs meta -->
-                      <td class="text-center">
-                        <span
-                          class="text-xs px-2 py-0.5 rounded-full font-bold"
+                                                          ></div>
+                                                        </div>
+                                                      </div>
+                                                    </td>
+                                                    <!-- Score vs meta -->
+                                                    <td class="text-center">
+                                                      <span
+                                                        class="text-xs px-2 py-0.5 rounded-full font-bold"
                           [ngClass]="{
                             'bg-ok-soft-bg text-ok-fg':
                               day.scoreStatus === 'ok',
@@ -501,73 +498,71 @@ class="text-xs font-bold text-content-faint uppercase"
                             'bg-bad-soft-bg text-bad-fg':
                               day.scoreStatus === 'bad',
                           }"
-                        >
-                          {{ statusLabel(day.scoreStatus) }}
-                        </span>
-                      </td>
-
-                      <td
-                        class="text-right pr-6 font-black"
+                                                        >
+                                                        {{ statusLabel(day.scoreStatus) }}
+                                                      </span>
+                                                    </td>
+                                                    <td
+                                                      class="text-right pr-6 font-black"
                         [ngClass]="{
                           'text-ok-fg': day.scoreStatus === 'ok',
                           'text-warn-fg': day.scoreStatus === 'warn',
                           'text-bad-fg': day.scoreStatus === 'bad',
                         }"
-                      >
-                        {{ day.totalVenta | number: '1.0-0' }}
-                      </td>
-                    </tr>
-                  </ng-template>
-
-                  <!-- Row expansion con visitas individuales -->
-                  <ng-template pTemplate="rowexpansion" let-day>
-                    <tr>
-                      <td
-                        colspan="7"
-                        class="bg-surface-ground p-4 border-b border-divider"
-                      >
-                        <div
-                          class="bg-surface-card rounded-xl border border-divider shadow-sm overflow-hidden"
-                        >
-                          <p-table
-                            [value]="day.visits"
-                            styleClass="p-datatable-sm p-datatable-striped"
-                          >
-                            <ng-template pTemplate="header">
-                              <tr
-                                class="text-xs uppercase text-content-muted bg-surface-ground"
-                              >
-                                <th class="pl-4 py-2 w-24">Folio</th>
-                                <th>Ejecutivo</th>
-                                <th class="w-32">Zona</th>
-                                <th class="text-center w-24">Score</th>
-                                <th class="text-center w-24">Estado</th>
-                                <th class="text-center w-24">Acción</th>
-                              </tr>
-                            </ng-template>
-                            <ng-template pTemplate="body" let-visit>
-                              <tr
-                                class="text-xs hover:bg-surface-hover border-b border-divider last:border-0 cursor-pointer focus-visible:ring-2 focus-visible:ring-info focus-visible:outline-none"
-                                (click)="viewDetail(visit)"
-                              >
-                                <td
-                                  class="pl-4 font-black text-content-main py-3"
-                                >
-                                  #{{ visit.folio }}
-                                </td>
-                                <td class="font-medium text-content-main">
-                                  {{ visit.captured_by_username }}
-                                </td>
-                                <td>
-                                  <span
-                                    class="bg-surface-ground border border-divider px-2 py-0.5 rounded text-[11px] uppercase font-bold text-content-muted"
-                                  >
-                                    {{ visit.zona_captura }}
-                                  </span>
-                                </td>
-                                <td class="text-center">
-                                  <span
-                                    class="font-black"
+                                                      >
+                                                      {{ day.totalVenta | number: '1.0-0' }}
+                                                    </td>
+                                                  </tr>
+                                                </ng-template>
+                                                <!-- Row expansion con visitas individuales -->
+                                                <ng-template #expandedrow let-day>
+                                                  <tr>
+                                                    <td
+                                                      colspan="7"
+                                                      class="bg-surface-ground p-4 border-b border-divider"
+                                                      >
+                                                      <div
+                                                        class="bg-surface-card rounded-xl border border-divider shadow-sm overflow-hidden"
+                                                        >
+                                                        <p-table
+                                                          [value]="day.visits"
+                                                          styleClass="p-datatable-sm p-datatable-striped"
+                                                          >
+                                                          <ng-template #header>
+                                                            <tr
+                                                              class="text-xs uppercase text-content-muted bg-surface-ground"
+                                                              >
+                                                              <th class="pl-4 py-2 w-24">Folio</th>
+                                                              <th>Ejecutivo</th>
+                                                              <th class="w-32">Zona</th>
+                                                              <th class="text-center w-24">Score</th>
+                                                              <th class="text-center w-24">Estado</th>
+                                                              <th class="text-center w-24">Acción</th>
+                                                            </tr>
+                                                          </ng-template>
+                                                          <ng-template #body let-visit>
+                                                            <tr
+                                                              class="text-xs hover:bg-surface-hover border-b border-divider last:border-0 cursor-pointer focus-visible:ring-2 focus-visible:ring-info focus-visible:outline-none"
+                                                              (click)="viewDetail(visit)"
+                                                              >
+                                                              <td
+                                                                class="pl-4 font-black text-content-main py-3"
+                                                                >
+                                                                #{{ visit.folio }}
+                                                              </td>
+                                                              <td class="font-medium text-content-main">
+                                                                {{ visit.captured_by_username }}
+                                                              </td>
+                                                              <td>
+                                                                <span
+                                                                  class="bg-surface-ground border border-divider px-2 py-0.5 rounded text-[11px] uppercase font-bold text-content-muted"
+                                                                  >
+                                                                  {{ visit.zona_captura }}
+                                                                </span>
+                                                              </td>
+                                                              <td class="text-center">
+                                                                <span
+                                                                  class="font-black"
                                     [ngClass]="{
                                       'text-ok-fg':
                                         visitScoreStatus(visit) === 'ok',
@@ -576,12 +571,12 @@ class="text-xs font-bold text-content-faint uppercase"
                                       'text-bad-fg':
                                         visitScoreStatus(visit) === 'bad',
                                     }"
-                                    >{{ fmtScore(visit.stats?.puntuacionTotal) }}</span
-                                  >
-                                </td>
-                                <td class="text-center">
-                                  <span
-                                    class="text-[11px] px-2 py-0.5 rounded-full font-bold"
+                                                                  >{{ fmtScore($safeNavigationMigration(visit.stats?.puntuacionTotal)) }}</span
+                                                                  >
+                                                                </td>
+                                                                <td class="text-center">
+                                                                  <span
+                                                                    class="text-[11px] px-2 py-0.5 rounded-full font-bold"
                                     [ngClass]="{
                                       'bg-ok-soft-bg text-ok-fg':
                                         visitScoreStatus(visit) === 'ok',
@@ -590,119 +585,119 @@ class="text-xs font-bold text-content-faint uppercase"
                                       'bg-bad-soft-bg text-bad-fg':
                                         visitScoreStatus(visit) === 'bad',
                                     }"
-                                    >{{
-                                      statusLabel(visitScoreStatus(visit))
-                                    }}</span
-                                  >
-                                </td>
-                                <td class="text-center">
-                                  <p-button
-                                    icon="pi pi-eye"
-                                    [text]="true"
-                                    [rounded]="true"
-                                    severity="info"
-                                    size="small"
+                                                                    >{{
+                                                                    statusLabel(visitScoreStatus(visit))
+                                                                    }}</span
+                                                                    >
+                                                                  </td>
+                                                                  <td class="text-center">
+                                                                    <p-button
+                                                                      icon="pi pi-eye"
+                                                                      [text]="true"
+                                                                      [rounded]="true"
+                                                                      severity="info"
+                                                                      size="small"
                                     (click)="
                                       viewDetail(visit);
                                       $event.stopPropagation()
                                     "
-                                  />
-                                </td>
-                              </tr>
-                            </ng-template>
-                          </p-table>
-                        </div>
-                      </td>
-                    </tr>
-                  </ng-template>
-                </p-table>
-              </div>
-            </ng-container>
-            <ng-template #tabSkeleton2>
-              <div class="pt-4 space-y-4">
-                <div class="card-premium animate-pulse">
-                  <p-skeleton height="3rem" styleClass="mb-2"></p-skeleton>
-                  <p-skeleton height="2rem" styleClass="mb-2"></p-skeleton>
-                  <p-skeleton height="2rem"></p-skeleton>
-                </div>
-              </div>
-            </ng-template>
-            </p-tabpanel>
-
-            <!-- ──────────────────── TAB 2: VISITAS INDIVIDUALES ──────── -->
-            <p-tabpanel [value]="2">
-              <ng-container *ngIf="!loadingTable(); else tabSkeleton3">
-                <div class="pt-4 space-y-4">
-                <!-- Barra de acciones -->
-                <div
-                  *ngIf="selectedVisitsCount() > 0"
-                  class="flex items-center gap-3 p-3 bg-surface-layout rounded-xl border border-divider"
-                >
-                  <span class="text-xs text-content-muted flex-1">
-                    {{ selectedVisitsCount() }} visita(s) seleccionada(s)
-                  </span>
-                  <p-button
-                    label="Comparar"
-                    icon="pi pi-sliders-h"
-                    severity="secondary"
-                    size="small"
-                    (onClick)="showComparison = true"
-                  />
-                  <p-button
-                    label="PDF conjunto"
-                    icon="pi pi-file-pdf"
-                    styleClass="p-button-brand"
-                    size="small"
-                    (onClick)="exportSelectedVisitsPdf()"
-                  />
-                </div>
-
-                <!-- Grid de tarjetas de visita -->
-                <div
-                  class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4"
-                >
-                  <div
-                    *ngFor="let visit of allVisits()"
-                    class="card-premium cursor-pointer hover:border-content-muted/30 transition-all focus-visible:ring-2 focus-visible:ring-info focus-visible:outline-none"
-                    [class.ring-2]="selectedVisitIds().has(visit.folio)"
-                    [class.ring-info]="selectedVisitIds().has(visit.folio)"
-                  >
-                    <div class="flex items-start gap-3 mb-4">
-                      <input
-                        type="checkbox"
-                        [checked]="selectedVisitIds().has(visit.folio)"
-                        (change)="toggleVisitSelection(visit.folio, $event)"
-                        (click)="$event.stopPropagation()"
-                        class="focus-visible:ring-2 focus-visible:ring-info focus-visible:outline-none"
-                        style="accent-color:var(--ok-fg);margin-top:3px"
-                      />
-                      <div class="flex-1 min-w-0">
-                        <div class="text-xs text-content-faint mb-0.5">
-                          #{{ visit.folio }} ·
-                          {{ visit.fecha | date: 'dd MMM' : 'UTC' }}
-                        </div>
-                        <div
-                          class="font-bold text-sm text-content-main truncate"
-                        >
-                          {{ visit.captured_by_username }}
-                        </div>
-                        <div class="flex gap-1.5 mt-1 flex-wrap">
-                          <span
-                            class="text-[11px] px-1.5 py-0.5 rounded bg-surface-layout border border-divider text-content-muted uppercase font-bold"
-                          >
-                            {{ visit.zona_captura }}
-                          </span>
-                          <span
-                            *ngIf="visit.latitud"
-                            class="text-[11px] px-1.5 py-0.5 rounded bg-info-soft-bg text-info-fg border border-info-border font-bold"
-                          >
-                            GPS
-                          </span>
-                        </div>
-                      </div>
-                      <!-- Score ring con semáforo -->
-                      <div
-                        class="w-16 h-16 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0 border-2"
+                                                                      />
+                                                                    </td>
+                                                                  </tr>
+                                                                </ng-template>
+                                                              </p-table>
+                                                            </div>
+                                                          </td>
+                                                        </tr>
+                                                      </ng-template>
+                                                    </p-table>
+                                                  </div>
+                                                } @else {
+                                                  <div class="pt-4 space-y-4">
+                                                    <div class="card-premium animate-pulse">
+                                                      <p-skeleton height="3rem" styleClass="mb-2"></p-skeleton>
+                                                      <p-skeleton height="2rem" styleClass="mb-2"></p-skeleton>
+                                                      <p-skeleton height="2rem"></p-skeleton>
+                                                    </div>
+                                                  </div>
+                                                }
+                                              </p-tabpanel>
+    
+                                              <!-- ──────────────────── TAB 2: VISITAS INDIVIDUALES ──────── -->
+                                              <p-tabpanel [value]="2">
+                                                @if (!loadingTable()) {
+                                                  <div class="pt-4 space-y-4">
+                                                    <!-- Barra de acciones -->
+                                                    @if (selectedVisitsCount() > 0) {
+                                                      <div
+                                                        class="flex items-center gap-3 p-3 bg-surface-layout rounded-xl border border-divider"
+                                                        >
+                                                        <span class="text-xs text-content-muted flex-1">
+                                                          {{ selectedVisitsCount() }} visita(s) seleccionada(s)
+                                                        </span>
+                                                        <p-button
+                                                          label="Comparar"
+                                                          icon="pi pi-sliders-h"
+                                                          severity="secondary"
+                                                          size="small"
+                                                          (onClick)="showComparison = true"
+                                                          />
+                                                          <p-button
+                                                            label="PDF conjunto"
+                                                            icon="pi pi-file-pdf"
+                                                            styleClass="p-button-brand"
+                                                            size="small"
+                                                            (onClick)="exportSelectedVisitsPdf()"
+                                                            />
+                                                          </div>
+                                                        }
+                                                        <!-- Grid de tarjetas de visita -->
+                                                        <div
+                                                          class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4"
+                                                          >
+                                                          @for (visit of allVisits(); track visit) {
+                                                            <div
+                                                              class="card-premium cursor-pointer hover:border-content-muted/30 transition-all focus-visible:ring-2 focus-visible:ring-info focus-visible:outline-none"
+                                                              [class.ring-2]="selectedVisitIds().has(visit.folio)"
+                                                              [class.ring-info]="selectedVisitIds().has(visit.folio)"
+                                                              >
+                                                              <div class="flex items-start gap-3 mb-4">
+                                                                <input
+                                                                  type="checkbox"
+                                                                  [checked]="selectedVisitIds().has(visit.folio)"
+                                                                  (change)="toggleVisitSelection(visit.folio, $event)"
+                                                                  (click)="$event.stopPropagation()"
+                                                                  class="focus-visible:ring-2 focus-visible:ring-info focus-visible:outline-none"
+                                                                  style="accent-color:var(--ok-fg);margin-top:3px"
+                                                                  />
+                                                                  <div class="flex-1 min-w-0">
+                                                                    <div class="text-xs text-content-faint mb-0.5">
+                                                                      #{{ visit.folio }} ·
+                                                                      {{ visit.fecha | date: 'dd MMM' : 'UTC' }}
+                                                                    </div>
+                                                                    <div
+                                                                      class="font-bold text-sm text-content-main truncate"
+                                                                      >
+                                                                      {{ visit.captured_by_username }}
+                                                                    </div>
+                                                                    <div class="flex gap-1.5 mt-1 flex-wrap">
+                                                                      <span
+                                                                        class="text-[11px] px-1.5 py-0.5 rounded bg-surface-layout border border-divider text-content-muted uppercase font-bold"
+                                                                        >
+                                                                        {{ visit.zona_captura }}
+                                                                      </span>
+                                                                      @if (visit.latitud) {
+                                                                        <span
+                                                                          class="text-[11px] px-1.5 py-0.5 rounded bg-info-soft-bg text-info-fg border border-info-border font-bold"
+                                                                          >
+                                                                          GPS
+                                                                        </span>
+                                                                      }
+                                                                    </div>
+                                                                  </div>
+                                                                  <!-- Score ring con semáforo -->
+                                                                  <div
+                                                                    class="w-16 h-16 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0 border-2"
                         [ngClass]="{
                           'border-ok-border text-ok-fg':
                             visitScoreStatus(visit) === 'ok',
@@ -711,232 +706,239 @@ class="text-xs font-bold text-content-faint uppercase"
                           'border-bad-border text-bad-fg':
                             visitScoreStatus(visit) === 'bad',
                         }"
-                      >
-                         {{ fmtScore(visit.stats?.puntuacionTotal) }}
-                       </div>
-                     </div>
-
-                     <div class="flex gap-2">
-                       <p-button
-                         label="Ver detalle"
-                         icon="pi pi-eye"
-                         severity="secondary"
-                         size="small"
-                         styleClass="flex-1 justify-center"
-                         (onClick)="viewDetail(visit)"
-                       />
-                       <p-button
-                         icon="pi pi-file-pdf"
-                         [text]="true"
-                         size="small"
+                                                                    >
+                                                                    {{ fmtScore($safeNavigationMigration(visit.stats?.puntuacionTotal)) }}
+                                                                  </div>
+                                                                </div>
+                                                                <div class="flex gap-2">
+                                                                  <p-button
+                                                                    label="Ver detalle"
+                                                                    icon="pi pi-eye"
+                                                                    severity="secondary"
+                                                                    size="small"
+                                                                    styleClass="flex-1 justify-center"
+                                                                    (onClick)="viewDetail(visit)"
+                                                                    />
+                                                                    <p-button
+                                                                      icon="pi pi-file-pdf"
+                                                                      [text]="true"
+                                                                      size="small"
                          (onClick)="
                            exportSingleVisitPdf(visit); $event.stopPropagation()
                          "
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                <!-- Tabla comparativa cuando hay 2+ seleccionadas -->
-                <div
-                  *ngIf="selectedVisitsCount() >= 2"
-                  class="card-premium mt-4"
-                >
-                  <h3 class="text-sm font-bold mb-4 text-content-main">
-                    Vista comparativa
-                  </h3>
-                  <div class="overflow-x-auto">
-                    <table class="w-full border-collapse text-sm">
-                      <thead>
-                        <tr
-                          class="text-xs uppercase text-content-muted border-b border-divider"
-                        >
-                          <th class="py-2 text-left">Métrica</th>
-                          <th
-                            *ngFor="let v of selectedVisits()"
-                            class="py-2 text-center"
-                          >
-                            <span class="font-bold text-content-main"
-                              >#{{ v.folio }}</span
-                            ><br />
-                            <span class="text-[11px] font-normal">{{
-                              v.captured_by_username
-                            }}</span>
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        <tr class="border-b border-divider/50">
-                          <td class="py-2 text-content-muted">Score final</td>
-                          <td
-                            *ngFor="let v of selectedVisits()"
-                            class="py-2 text-center font-bold"
+                                                                      />
+                                                                    </div>
+                                                                  </div>
+                                                                }
+                                                              </div>
+                                                              <!-- Tabla comparativa cuando hay 2+ seleccionadas -->
+                                                              @if (selectedVisitsCount() >= 2) {
+                                                                <div
+                                                                  class="card-premium mt-4"
+                                                                  >
+                                                                  <h3 class="text-sm font-bold mb-4 text-content-main">
+                                                                    Vista comparativa
+                                                                  </h3>
+                                                                  <div class="overflow-x-auto">
+                                                                    <table class="w-full border-collapse text-sm">
+                                                                      <thead>
+                                                                        <tr
+                                                                          class="text-xs uppercase text-content-muted border-b border-divider"
+                                                                          >
+                                                                          <th class="py-2 text-left">Métrica</th>
+                                                                          @for (v of selectedVisits(); track v) {
+                                                                            <th
+                                                                              class="py-2 text-center"
+                                                                              >
+                                                                              <span class="font-bold text-content-main"
+                                                                                >#{{ v.folio }}</span
+                                                                                ><br />
+                                                                                <span class="text-[11px] font-normal">{{
+                                                                                  v.captured_by_username
+                                                                                }}</span>
+                                                                              </th>
+                                                                            }
+                                                                          </tr>
+                                                                        </thead>
+                                                                        <tbody>
+                                                                          <tr class="border-b border-divider/50">
+                                                                            <td class="py-2 text-content-muted">Score final</td>
+                                                                            @for (v of selectedVisits(); track v) {
+                                                                              <td
+                                                                                class="py-2 text-center font-bold"
                             [ngClass]="{
                               'text-ok-fg': visitScoreStatus(v) === 'ok',
                               'text-warn-fg': visitScoreStatus(v) === 'warn',
                               'text-bad-fg': visitScoreStatus(v) === 'bad',
                             }"
-                          >
-                             {{ fmtScore(v.stats?.puntuacionTotal) }}
-                           </td>
-                         </tr>
-                         <tr class="border-b border-divider/50">
-                           <td class="py-2 text-content-muted">Exhibiciones</td>
-                          <td
-                            *ngFor="let v of selectedVisits()"
-                            class="py-2 text-center"
-                          >
-                            {{ v.exhibiciones?.length ?? 0 }}
-                          </td>
-                        </tr>
-                        <tr class="border-b border-divider/50">
-                          <td class="py-2 text-content-muted">Zona</td>
-                          <td
-                            *ngFor="let v of selectedVisits()"
-                            class="py-2 text-center text-content-muted text-xs uppercase"
-                          >
-                            {{ v.zona_captura }}
-                          </td>
-                        </tr>
-                        <tr class="border-b border-divider/50">
-                          <td class="py-2 text-content-muted">GPS</td>
-                          <td
-                            *ngFor="let v of selectedVisits()"
-                            class="py-2 text-center"
-                          >
-                            <span
+                                                                                >
+                                                                                {{ fmtScore($safeNavigationMigration(v.stats?.puntuacionTotal)) }}
+                                                                              </td>
+                                                                            }
+                                                                          </tr>
+                                                                          <tr class="border-b border-divider/50">
+                                                                            <td class="py-2 text-content-muted">Exhibiciones</td>
+                                                                            @for (v of selectedVisits(); track v) {
+                                                                              <td
+                                                                                class="py-2 text-center"
+                                                                                >
+                                                                                {{ v.exhibiciones?.length ?? 0 }}
+                                                                              </td>
+                                                                            }
+                                                                          </tr>
+                                                                          <tr class="border-b border-divider/50">
+                                                                            <td class="py-2 text-content-muted">Zona</td>
+                                                                            @for (v of selectedVisits(); track v) {
+                                                                              <td
+                                                                                class="py-2 text-center text-content-muted text-xs uppercase"
+                                                                                >
+                                                                                {{ v.zona_captura }}
+                                                                              </td>
+                                                                            }
+                                                                          </tr>
+                                                                          <tr class="border-b border-divider/50">
+                                                                            <td class="py-2 text-content-muted">GPS</td>
+                                                                            @for (v of selectedVisits(); track v) {
+                                                                              <td
+                                                                                class="py-2 text-center"
+                                                                                >
+                                                                                <span
                               [ngClass]="
                                 v.latitud ? 'text-ok-fg' : 'text-bad-fg'
                               "
-                              class="font-bold text-xs"
-                            >
-                              {{ v.latitud ? 'Sí' : 'No' }}
-                            </span>
-                          </td>
-                        </tr>
-                        <tr>
-                          <td class="py-2 text-content-muted">Venta total</td>
-                          <td
-                            *ngFor="let v of selectedVisits()"
-                            class="py-2 text-center font-bold"
-                          >
-                            {{ v.stats?.ventaTotal ?? 0 | number: '1.0-0' }}
-                          </td>
-                        </tr>
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              </div>
-            </ng-container>
-            <ng-template #tabSkeleton3>
-              <div class="pt-4 space-y-4">
-                <div class="card-premium animate-pulse">
-                  <p-skeleton height="3rem" styleClass="mb-2"></p-skeleton>
-                  <p-skeleton height="2rem" styleClass="mb-2"></p-skeleton>
-                  <p-skeleton height="2rem"></p-skeleton>
-                </div>
-              </div>
-            </ng-template>
-            </p-tabpanel>
-          </p-tabpanels>
-        </p-tabs>
-      </div>
-
-      <!-- ═══════════════════════════════════════════════════════════════
-       DIALOG: CONSTRUCTOR DE PDF
-  ═══════════════════════════════════════════════════════════════════ -->
-      <p-dialog
-        header="Construir reporte PDF"
-        [(visible)]="showPdfBuilder"
-        [modal]="true"
-        appendTo="body"
-        [style]="{ width: '90vw', maxWidth: '500px' }"
-        styleClass="surface-card rounded-2xl"
-        [contentStyleClass]="'bg-surface-card'"
-      >
-        <div class="space-y-4 pt-2">
-          <p class="text-sm text-content-muted">
-            Selecciona las secciones a incluir. El PDF se genera con los filtros
-            activos.
-          </p>
-
-          <div class="space-y-2">
-            <div
-              *ngFor="let s of pdfSections"
-              class="flex items-center justify-between p-3 rounded-xl border border-divider bg-surface-layout"
-            >
-              <span class="text-sm font-medium">{{ s.label }}</span>
-              <input
-                type="checkbox"
-                [(ngModel)]="s.checked"
-                class="focus-visible:ring-2 focus-visible:ring-info focus-visible:outline-none"
-                style="accent-color:var(--ok-fg);width:16px;height:16px"
-              />
-            </div>
-          </div>
-
-          <div class="flex flex-col gap-1 mt-2">
-            <label class="text-[10px] font-bold text-content-faint uppercase"
-              >Título del reporte</label
-            >
-            <input
-              type="text"
-              [(ngModel)]="pdfTitle"
-              class="border border-divider rounded-lg p-2 text-sm bg-surface-card text-content-main"
-            />
-          </div>
-        </div>
-
-        <ng-template pTemplate="footer">
-          <div class="flex justify-end gap-3">
-            <p-button
-              label="Cancelar"
-              severity="secondary"
-              (click)="showPdfBuilder = false"
-            />
-            <p-button
-              label="Generar PDF"
-              icon="pi pi-file-pdf"
-              styleClass="p-button-brand"
-              (click)="exportBuiltPdf()"
-            />
-          </div>
-        </ng-template>
-      </p-dialog>
-
-      <!-- ═══════════════════════════════════════════════════════════════
-       DIALOG: DETALLE DE VISITA
-  ═══════════════════════════════════════════════════════════════════ -->
-      <p-dialog
-        header="Detalle visita"
-        [(visible)]="showDetail"
-        [modal]="true"
-        appendTo="body"
-        [style]="{ width: '90vw', maxWidth: '600px' }"
-        styleClass="surface-card rounded-2xl"
-        [contentStyleClass]="'bg-surface-card text-content-main'"
-      >
-        <div *ngIf="selectedRow" class="space-y-4 pt-2">
-          <!-- Cabecera folio + export -->
-          <div
+                                                                                  class="font-bold text-xs"
+                                                                                  >
+                                                                                  {{ v.latitud ? 'Sí' : 'No' }}
+                                                                                </span>
+                                                                              </td>
+                                                                            }
+                                                                          </tr>
+                                                                          <tr>
+                                                                            <td class="py-2 text-content-muted">Venta total</td>
+                                                                            @for (v of selectedVisits(); track v) {
+                                                                              <td
+                                                                                class="py-2 text-center font-bold"
+                                                                                >
+                                                                                {{ v.stats?.ventaTotal ?? 0 | number: '1.0-0' }}
+                                                                              </td>
+                                                                            }
+                                                                          </tr>
+                                                                        </tbody>
+                                                                      </table>
+                                                                    </div>
+                                                                  </div>
+                                                                }
+                                                              </div>
+                                                            } @else {
+                                                              <div class="pt-4 space-y-4">
+                                                                <div class="card-premium animate-pulse">
+                                                                  <p-skeleton height="3rem" styleClass="mb-2"></p-skeleton>
+                                                                  <p-skeleton height="2rem" styleClass="mb-2"></p-skeleton>
+                                                                  <p-skeleton height="2rem"></p-skeleton>
+                                                                </div>
+                                                              </div>
+                                                            }
+                                                          </p-tabpanel>
+                                                        </p-tabpanels>
+                                                      </p-tabs>
+                                                    </div>
+    
+                                                    <!-- ═══════════════════════════════════════════════════════════════
+                                                    DIALOG: CONSTRUCTOR DE PDF
+                                                    ═══════════════════════════════════════════════════════════════════ -->
+                                                    <p-dialog
+                                                      header="Construir reporte PDF"
+                                                      [(visible)]="showPdfBuilder"
+                                                      [modal]="true"
+                                                      appendTo="body"
+                                                      [style]="{ width: '90vw', maxWidth: '500px' }"
+                                                      styleClass="surface-card rounded-2xl"
+                                                      [contentStyleClass]="'bg-surface-card'"
+                                                      >
+                                                      <div class="space-y-4 pt-2">
+                                                        <p class="text-sm text-content-muted">
+                                                          Selecciona las secciones a incluir. El PDF se genera con los filtros
+                                                          activos.
+                                                        </p>
+    
+                                                        <div class="space-y-2">
+                                                          @for (s of pdfSections; track s) {
+                                                            <div
+                                                              class="flex items-center justify-between p-3 rounded-xl border border-divider bg-surface-layout"
+                                                              >
+                                                              <span class="text-sm font-medium">{{ s.label }}</span>
+                                                              <input
+                                                                type="checkbox"
+                                                                [(ngModel)]="s.checked"
+                                                                class="focus-visible:ring-2 focus-visible:ring-info focus-visible:outline-none"
+                                                                style="accent-color:var(--ok-fg);width:16px;height:16px"
+                                                                />
+                                                              </div>
+                                                            }
+                                                          </div>
+    
+                                                          <div class="flex flex-col gap-1 mt-2">
+                                                            <label class="text-[10px] font-bold text-content-faint uppercase"
+                                                              >Título del reporte</label
+                                                              >
+                                                              <input
+                                                                type="text"
+                                                                [(ngModel)]="pdfTitle"
+                                                                class="border border-divider rounded-lg p-2 text-sm bg-surface-card text-content-main"
+                                                                />
+                                                              </div>
+                                                            </div>
+    
+                                                            <ng-template #footer>
+                                                              <div class="flex justify-end gap-3">
+                                                                <p-button
+                                                                  label="Cancelar"
+                                                                  severity="secondary"
+                                                                  (click)="showPdfBuilder = false"
+                                                                  />
+                                                                  <p-button
+                                                                    label="Generar PDF"
+                                                                    icon="pi pi-file-pdf"
+                                                                    styleClass="p-button-brand"
+                                                                    (click)="exportBuiltPdf()"
+                                                                    />
+                                                                  </div>
+                                                                </ng-template>
+                                                              </p-dialog>
+    
+                                                              <!-- ═══════════════════════════════════════════════════════════════
+                                                              DIALOG: DETALLE DE VISITA
+                                                              ═══════════════════════════════════════════════════════════════════ -->
+                                                              <p-dialog
+                                                                header="Detalle visita"
+                                                                [(visible)]="showDetail"
+                                                                [modal]="true"
+                                                                appendTo="body"
+                                                                [style]="{ width: '90vw', maxWidth: '600px' }"
+                                                                styleClass="surface-card rounded-2xl"
+                                                                [contentStyleClass]="'bg-surface-card text-content-main'"
+                                                                >
+                                                                @if (selectedRow) {
+                                                                  <div class="space-y-4 pt-2">
+                                                                    <!-- Cabecera folio + export -->
+                                                                    <div
             class="flex flex-col sm:flex-row justify-between items-start sm:items-center
                   bg-surface-ground p-4 rounded-2xl border border-divider gap-3"
-          >
-            <div>
-              <div
-                class="text-[10px] font-black text-content-faint uppercase tracking-widest"
-              >
-                Visita Folio
-              </div>
-              <div class="text-xl font-black text-content-main">
-                #{{ selectedRow.folio }}
-              </div>
-            </div>
-            <!-- Score con semáforo -->
-            <div class="flex items-center gap-3">
-              <div
-                class="text-center px-4 py-2 rounded-xl border-2"
+                                                                      >
+                                                                      <div>
+                                                                        <div
+                                                                          class="text-[10px] font-black text-content-faint uppercase tracking-widest"
+                                                                          >
+                                                                          Visita Folio
+                                                                        </div>
+                                                                        <div class="text-xl font-black text-content-main">
+                                                                          #{{ selectedRow.folio }}
+                                                                        </div>
+                                                                      </div>
+                                                                      <!-- Score con semáforo -->
+                                                                      <div class="flex items-center gap-3">
+                                                                        <div
+                                                                          class="text-center px-4 py-2 rounded-xl border-2"
                 [ngClass]="{
                   'border-ok-border bg-ok-soft-bg':
                     visitScoreStatus(selectedRow) === 'ok',
@@ -945,161 +947,165 @@ class="text-xs font-bold text-content-faint uppercase"
                   'border-bad-border bg-bad-soft-bg':
                     visitScoreStatus(selectedRow) === 'bad',
                 }"
-              >
-                <div class="text-[9px] uppercase font-black opacity-60">
-                  Score
-                </div>
-                <div
-                  class="text-2xl font-black"
+                                                                          >
+                                                                          <div class="text-[9px] uppercase font-black opacity-60">
+                                                                            Score
+                                                                          </div>
+                                                                          <div
+                                                                            class="text-2xl font-black"
                   [ngClass]="{
                     'text-ok-fg': visitScoreStatus(selectedRow) === 'ok',
                     'text-warn-fg': visitScoreStatus(selectedRow) === 'warn',
                     'text-bad-fg': visitScoreStatus(selectedRow) === 'bad',
                   }"
-                >
-                   {{ fmtScore(selectedRow.stats?.puntuacionTotal) }}
-                 </div>
-                 <div class="text-[9px] font-bold uppercase opacity-60">
-                   {{ statusLabel(visitScoreStatus(selectedRow)) }}
-                 </div>
-               </div>
-               <p-button
-                 label="Exportar PDF"
-                 icon="pi pi-file-pdf"
-                 severity="contrast"
-                 size="small"
-                (onClick)="exportSingleVisitPdf(selectedRow)"
-              />
-            </div>
-          </div>
-
-          <!-- Datos -->
-          <div class="grid grid-cols-2 gap-4 text-sm">
-            <div class="space-y-2">
-              <p>
-                <span class="text-content-muted">Ejecutivo: </span
-                ><span class="font-bold">{{
-                  selectedRow.captured_by_username
-                }}</span>
-              </p>
-              <p>
-                <span class="text-content-muted">Zona: </span
-                ><span class="font-bold">{{ selectedRow.zona_captura }}</span>
-              </p>
-              <p>
-                <span class="text-content-muted">Fecha: </span
-                ><span class="font-bold">{{
-                  selectedRow.fecha | date: 'mediumDate'
-                }}</span>
-              </p>
-              <p>
-                <span class="text-content-muted">Hora inicio: </span
-                ><span class="font-bold">{{
-                  selectedRow.hora_inicio | date: 'shortTime'
-                }}</span>
-              </p>
-              <p>
-                <span class="text-content-muted">Hora fin: </span
-                ><span class="font-bold">{{
-                  selectedRow.hora_fin | date: 'shortTime'
-                }}</span>
-              </p>
-              <p>
-                <span class="text-content-muted">Exhibiciones: </span
-                ><span class="font-bold">{{
-                  selectedRow.exhibiciones?.length ?? 0
-                }}</span>
-              </p>
-            </div>
-          </div>
-
-          <!-- GPS -->
-          <div
-            class="flex items-center justify-between p-4 border border-divider bg-surface-ground rounded-2xl"
-          >
-            <div class="flex items-center gap-3">
-              <div
-                class="w-10 h-10 rounded-full bg-surface-hover flex items-center justify-center"
-              >
-                <i class="pi pi-map-marker text-content-main"></i>
-              </div>
-              <div>
-                <div class="text-[10px] font-bold uppercase">
-                  Ubicación geo-referenciada
-                </div>
-                <div
-                  class="text-xs font-mono text-content-dim"
-                  *ngIf="selectedRow.latitud"
-                >
-                  {{ selectedRow.latitud | number: '1.6-6' }},
-                  {{ selectedRow.longitud | number: '1.6-6' }}
-                </div>
-                <div
-                  class="text-xs text-content-faint font-bold"
-                  *ngIf="!selectedRow.latitud"
-                >
-                  No se capturó GPS
-                </div>
-              </div>
-            </div>
-            <p-button
-              *ngIf="selectedRow.latitud"
-              label="Ver mapa"
-              icon="pi pi-external-link"
-              [text]="true"
-              size="small"
-              (onClick)="openMap(selectedRow.latitud, selectedRow.longitud)"
-            />
-          </div>
-
-          <!-- Exhibiciones -->
-          <div class="border border-divider rounded-2xl overflow-hidden">
-            <p-table
-              [value]="selectedRow.exhibiciones || []"
-              styleClass="p-datatable-sm"
-            >
-              <ng-template pTemplate="header">
-                <tr
-                  class="text-[10px] bg-surface-ground uppercase text-content-muted"
-                >
-                  <th>Concepto</th>
-                  <th>Ubicación</th>
-                  <th class="text-center">Imagen</th>
-                  <th class="text-right pr-3">Puntuación</th>
-                </tr>
-              </ng-template>
-              <ng-template pTemplate="body" let-ex>
-                <tr class="text-xs">
-                  <td>{{ ex.conceptoId || 'N/A' }}</td>
-                  <td>{{ ex.ubicacionId || 'N/A' }}</td>
-                  <td class="text-center">
-                    <p-image
-                      *ngIf="ex.fotoUrl"
-                      [src]="getImageUrl(ex.fotoUrl)"
-                      alt="Exhibición"
-                      width="50"
-                      [preview]="true"
-                      class="rounded shadow-sm cursor-zoom-in"
-                    />
-                    <span
-                      *ngIf="!ex.fotoUrl"
-                      class="text-[11px] text-content-faint"
-                      >Sin foto</span
-                    >
-                  </td>
-                  <td class="text-right pr-3 font-bold">
-                    {{ ex.puntuacionCalculada || 0 }}
-                  </td>
-                </tr>
-              </ng-template>
-            </p-table>
-          </div>
-        </div>
-      </p-dialog>
-
-      <p-toast />
-    </main>
-  `,
+                                                                            >
+                                                                            {{ fmtScore($safeNavigationMigration(selectedRow.stats?.puntuacionTotal)) }}
+                                                                          </div>
+                                                                          <div class="text-[9px] font-bold uppercase opacity-60">
+                                                                            {{ statusLabel(visitScoreStatus(selectedRow)) }}
+                                                                          </div>
+                                                                        </div>
+                                                                        <p-button
+                                                                          label="Exportar PDF"
+                                                                          icon="pi pi-file-pdf"
+                                                                          severity="contrast"
+                                                                          size="small"
+                                                                          (onClick)="exportSingleVisitPdf(selectedRow)"
+                                                                          />
+                                                                        </div>
+                                                                      </div>
+                                                                      <!-- Datos -->
+                                                                      <div class="grid grid-cols-2 gap-4 text-sm">
+                                                                        <div class="space-y-2">
+                                                                          <p>
+                                                                            <span class="text-content-muted">Ejecutivo: </span
+                                                                              ><span class="font-bold">{{
+                                                                              selectedRow.captured_by_username
+                                                                            }}</span>
+                                                                          </p>
+                                                                          <p>
+                                                                            <span class="text-content-muted">Zona: </span
+                                                                              ><span class="font-bold">{{ selectedRow.zona_captura }}</span>
+                                                                            </p>
+                                                                            <p>
+                                                                              <span class="text-content-muted">Fecha: </span
+                                                                                ><span class="font-bold">{{
+                                                                                selectedRow.fecha | date: 'mediumDate'
+                                                                              }}</span>
+                                                                            </p>
+                                                                            <p>
+                                                                              <span class="text-content-muted">Hora inicio: </span
+                                                                                ><span class="font-bold">{{
+                                                                                selectedRow.hora_inicio | date: 'shortTime'
+                                                                              }}</span>
+                                                                            </p>
+                                                                            <p>
+                                                                              <span class="text-content-muted">Hora fin: </span
+                                                                                ><span class="font-bold">{{
+                                                                                selectedRow.hora_fin | date: 'shortTime'
+                                                                              }}</span>
+                                                                            </p>
+                                                                            <p>
+                                                                              <span class="text-content-muted">Exhibiciones: </span
+                                                                                ><span class="font-bold">{{
+                                                                                selectedRow.exhibiciones?.length ?? 0
+                                                                              }}</span>
+                                                                            </p>
+                                                                          </div>
+                                                                        </div>
+                                                                        <!-- GPS -->
+                                                                        <div
+                                                                          class="flex items-center justify-between p-4 border border-divider bg-surface-ground rounded-2xl"
+                                                                          >
+                                                                          <div class="flex items-center gap-3">
+                                                                            <div
+                                                                              class="w-10 h-10 rounded-full bg-surface-hover flex items-center justify-center"
+                                                                              >
+                                                                              <i class="pi pi-map-marker text-content-main"></i>
+                                                                            </div>
+                                                                            <div>
+                                                                              <div class="text-[10px] font-bold uppercase">
+                                                                                Ubicación geo-referenciada
+                                                                              </div>
+                                                                              @if (selectedRow.latitud) {
+                                                                                <div
+                                                                                  class="text-xs font-mono text-content-dim"
+                                                                                  >
+                                                                                  {{ selectedRow.latitud | number: '1.6-6' }},
+                                                                                  {{ selectedRow.longitud | number: '1.6-6' }}
+                                                                                </div>
+                                                                              }
+                                                                              @if (!selectedRow.latitud) {
+                                                                                <div
+                                                                                  class="text-xs text-content-faint font-bold"
+                                                                                  >
+                                                                                  No se capturó GPS
+                                                                                </div>
+                                                                              }
+                                                                            </div>
+                                                                          </div>
+                                                                          @if (selectedRow.latitud) {
+                                                                            <p-button
+                                                                              label="Ver mapa"
+                                                                              icon="pi pi-external-link"
+                                                                              [text]="true"
+                                                                              size="small"
+                                                                              (onClick)="openMap(selectedRow.latitud, selectedRow.longitud)"
+                                                                              />
+                                                                          }
+                                                                        </div>
+                                                                        <!-- Exhibiciones -->
+                                                                        <div class="border border-divider rounded-2xl overflow-hidden">
+                                                                          <p-table
+                                                                            [value]="selectedRow.exhibiciones || []"
+                                                                            styleClass="p-datatable-sm"
+                                                                            >
+                                                                            <ng-template #header>
+                                                                              <tr
+                                                                                class="text-[10px] bg-surface-ground uppercase text-content-muted"
+                                                                                >
+                                                                                <th>Concepto</th>
+                                                                                <th>Ubicación</th>
+                                                                                <th class="text-center">Imagen</th>
+                                                                                <th class="text-right pr-3">Puntuación</th>
+                                                                              </tr>
+                                                                            </ng-template>
+                                                                            <ng-template #body let-ex>
+                                                                              <tr class="text-xs">
+                                                                                <td>{{ ex.conceptoId || 'N/A' }}</td>
+                                                                                <td>{{ ex.ubicacionId || 'N/A' }}</td>
+                                                                                <td class="text-center">
+                                                                                  @if (ex.fotoUrl) {
+                                                                                    <p-image
+                                                                                      [src]="getImageUrl(ex.fotoUrl)"
+                                                                                      alt="Exhibición"
+                                                                                      width="50"
+                                                                                      [preview]="true"
+                                                                                      class="rounded shadow-sm cursor-zoom-in"
+                                                                                      />
+                                                                                  }
+                                                                                  @if (!ex.fotoUrl) {
+                                                                                    <span
+                                                                                      class="text-[11px] text-content-faint"
+                                                                                      >Sin foto</span
+                                                                                      >
+                                                                                    }
+                                                                                  </td>
+                                                                                  <td class="text-right pr-3 font-bold">
+                                                                                    {{ ex.puntuacionCalculada || 0 }}
+                                                                                  </td>
+                                                                                </tr>
+                                                                              </ng-template>
+                                                                            </p-table>
+                                                                          </div>
+                                                                        </div>
+                                                                      }
+                                                                    </p-dialog>
+    
+                                                                    <p-toast />
+                                                                  </main>
+    `,
+  changeDetection: ChangeDetectionStrategy.Eager,
   styles: [
     `
       :host ::ng-deep .p-datatable-sm .p-datatable-tbody > tr > td {

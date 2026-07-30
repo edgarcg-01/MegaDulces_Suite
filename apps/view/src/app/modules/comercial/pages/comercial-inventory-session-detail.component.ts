@@ -52,21 +52,21 @@ interface LiveCountEntry {
   template: `
     <div class="surf-page in">
       <p-toast></p-toast>
-      <p-confirmDialog></p-confirmDialog>
+      <p-confirmdialog></p-confirmdialog>
 
       <header class="surf-page-head">
         <div class="surf-page-head-text">
           <h1>{{ progress()?.folio || 'Folio' }}</h1>
           <p class="surf-page-sub">
-            <p-tag [value]="statusLabel(progress()?.status)" [severity]="statusSeverity(progress()?.status)"></p-tag>
+            <p-tag [value]="statusLabel($safeNavigationMigration(progress()?.status))" [severity]="statusSeverity($safeNavigationMigration(progress()?.status))"></p-tag>
           </p>
         </div>
         <div class="in-head-actions">
           @if (live()) {
             <span class="in-live" title="Monitoreo en vivo activo"><span class="in-live-dot"></span> EN VIVO</span>
           }
-          <button pButton icon="pi pi-arrow-left" label="Volver" [text]="true" severity="secondary" size="small" routerLink="/almacen/inventory/sessions"></button>
-          <button pButton icon="pi pi-refresh" [text]="true" severity="secondary" size="small" (click)="load()" [loading]="loading()"></button>
+          <button pButton [text]="true" severity="secondary" size="small" routerLink="/almacen/inventory/sessions"><span class="p-button-icon p-button-icon-left pi pi-arrow-left" aria-hidden="true"></span><span class="p-button-label">Volver</span></button>
+          <button pButton [text]="true" severity="secondary" size="small" (click)="load()" [loading]="loading()"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span></button>
         </div>
       </header>
 
@@ -76,9 +76,9 @@ interface LiveCountEntry {
           <div class="in-live-head">
             <span class="in-live-title"><i class="pi pi-bolt"></i> En vivo</span>
             @if (liveFeed().length) { <span class="in-live-count">{{ liveFeed().length }}</span> }
-            <button pButton [icon]="feedCollapsed() ? 'pi pi-chevron-down' : 'pi pi-chevron-up'" [text]="true" severity="secondary" size="small"
-                    class="in-live-toggle" [attr.aria-label]="feedCollapsed() ? 'Mostrar feed en vivo' : 'Ocultar feed en vivo'"
-                    (click)="feedCollapsed.set(!feedCollapsed())"></button>
+            <p-button pButton [icon]="feedCollapsed() ? 'pi pi-chevron-down' : 'pi pi-chevron-up'" [text]="true" severity="secondary" size="small"
+                    styleClass="in-live-toggle" [attr.aria-label]="feedCollapsed() ? 'Mostrar feed en vivo' : 'Ocultar feed en vivo'"
+                    (click)="feedCollapsed.set(!feedCollapsed())"></p-button>
           </div>
           @if (!feedCollapsed()) {
             <div class="in-live-body">
@@ -118,7 +118,7 @@ interface LiveCountEntry {
             <span class="in-phase-cov">{{ progress()?.pass_coverage_pct ?? 0 }}% cubierto</span>
           </div>
           @if (canAdvance()) {
-            <button pButton [label]="advanceLabel()" icon="pi pi-arrow-right" severity="success" size="small" [loading]="advancing()" (click)="advancePass()"></button>
+            <p-button pButton [label]="advanceLabel()" icon="pi pi-arrow-right" severity="success" size="small" [loading]="advancing()" (click)="advancePass()"></p-button>
           } @else {
             <small class="in-phase-hint">Completá el 100% de la pasada para avanzar de fase.</small>
           }
@@ -128,16 +128,15 @@ interface LiveCountEntry {
       <!-- Acciones -->
       @if (!isTerminal()) {
         <div class="in-actions">
-          <button pButton icon="pi pi-calculator" label="Calcular discrepancias" size="small" severity="secondary" [loading]="computing()" (click)="compute()"></button>
+          <button pButton size="small" severity="secondary" [loading]="computing()" (click)="compute()"><span class="p-button-icon p-button-icon-left pi pi-calculator" aria-hidden="true"></span><span class="p-button-label">Calcular discrepancias</span></button>
           @if (canAssign()) {
-            <button pButton icon="pi pi-users" label="Equipos por pasillo" size="small" [text]="true" severity="secondary"
-                    [routerLink]="['/almacen/inventory/sessions', countId, 'teams']"></button>
+            <button pButton size="small" [text]="true" severity="secondary" [routerLink]="['/almacen/inventory/sessions', countId, 'teams']"><span class="p-button-icon p-button-icon-left pi pi-users" aria-hidden="true"></span><span class="p-button-label">Equipos por pasillo</span></button>
           }
           @if (canReconcile()) {
-            <button pButton icon="pi pi-check-circle" label="Reconciliar" size="small" severity="success" [loading]="reconciling()" (click)="confirmReconcile()"></button>
+            <button pButton size="small" severity="success" [loading]="reconciling()" (click)="confirmReconcile()"><span class="p-button-icon p-button-icon-left pi pi-check-circle" aria-hidden="true"></span><span class="p-button-label">Reconciliar</span></button>
           }
           @if (canReconcile()) {
-            <button pButton icon="pi pi-times" label="Cancelar folio" size="small" [text]="true" severity="danger" (click)="confirmCancel()"></button>
+            <button pButton size="small" [text]="true" severity="danger" (click)="confirmCancel()"><span class="p-button-icon p-button-icon-left pi pi-times" aria-hidden="true"></span><span class="p-button-label">Cancelar folio</span></button>
           }
         </div>
       }
@@ -147,18 +146,18 @@ interface LiveCountEntry {
         <div class="in-assign">
           <div class="in-assign-col">
             <label>Contadores asignados</label>
-            <p-multiSelect [options]="counterOpts()" [(ngModel)]="selCounters" optionLabel="label" optionValue="value"
+            <p-multiselect [options]="counterOpts()" [(ngModel)]="selCounters" optionLabel="label" optionValue="value"
                            placeholder="Todos (folio abierto)" [filter]="true" display="chip" styleClass="in-ms"
                            appendTo="body" scrollHeight="45vh" [panelStyle]="{ maxWidth: '92vw' }"
-                           (onPanelHide)="saveAssign('counter')"></p-multiSelect>
+                           (onPanelHide)="saveAssign('counter')"></p-multiselect>
             <small>Si no asignás ninguno, cualquiera con permiso de contar puede contar este folio.</small>
           </div>
           <div class="in-assign-col">
             <label>Supervisores asignados</label>
-            <p-multiSelect [options]="supervisorOpts()" [(ngModel)]="selSupervisors" optionLabel="label" optionValue="value"
+            <p-multiselect [options]="supervisorOpts()" [(ngModel)]="selSupervisors" optionLabel="label" optionValue="value"
                            placeholder="Sin asignar" [filter]="true" display="chip" styleClass="in-ms"
                            appendTo="body" scrollHeight="45vh" [panelStyle]="{ maxWidth: '92vw' }"
-                           (onPanelHide)="saveAssign('supervisor')"></p-multiSelect>
+                           (onPanelHide)="saveAssign('supervisor')"></p-multiselect>
             <small>Responsables de este inventario (informativo).</small>
           </div>
         </div>
@@ -197,13 +196,13 @@ interface LiveCountEntry {
         <div class="in-sessions">
           <div class="in-sessions-head"><i class="pi pi-users"></i> Jornadas de conteo del personal</div>
           <p-table [value]="sessions()" responsiveLayout="scroll" styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--zebra">
-            <ng-template pTemplate="header">
+            <ng-template #header>
               <tr>
                 <th scope="col">Contador</th><th scope="col" class="in-num num">Fase</th><th scope="col">Inició</th><th scope="col">Terminó</th><th scope="col">Estado</th>
                 <th scope="col" class="in-num num">SKUs</th><th scope="col" class="in-num num">Unidades</th><th scope="col" class="in-num num">Interrup.</th>
               </tr>
             </ng-template>
-            <ng-template pTemplate="body" let-s>
+            <ng-template #body let-s>
               <tr>
                 <td>{{ s.username || '—' }}</td>
                 <td class="in-num num">{{ s.pass }}</td>
@@ -221,19 +220,19 @@ interface LiveCountEntry {
 
       <!-- Filtro -->
       <div class="in-filter">
-        <p-selectButton [options]="filterOptions" [(ngModel)]="filter" (onChange)="load()" optionLabel="label" optionValue="value" styleClass="sb-liquid"></p-selectButton>
+        <p-selectbutton [options]="filterOptions" [(ngModel)]="filter" (onChange)="load()" optionLabel="label" optionValue="value" styleClass="sb-liquid"></p-selectbutton>
       </div>
 
       <!-- Tabla de items -->
       <p-table [value]="items()" [loading]="loading()" styleClass="p-datatable-sm surf-table surf-table--zebra" [scrollable]="true" scrollHeight="flex">
-        <ng-template pTemplate="header">
+        <ng-template #header>
           <tr>
             <th scope="col">SKU</th><th scope="col">Producto</th><th scope="col">Ubic.</th>
             <th scope="col" class="in-num num">Teórico</th><th scope="col" class="in-num num">C1</th><th scope="col" class="in-num num">C2</th><th scope="col" class="in-num num">C3</th>
             <th scope="col" class="in-num num">Final</th><th scope="col" class="in-num num">Var.</th><th scope="col">Estado</th><th scope="col"><span class="sr-only">Acciones</span></th>
           </tr>
         </ng-template>
-        <ng-template pTemplate="body" let-it>
+        <ng-template #body let-it>
           <tr [class.in-row-disc]="it.status === 'discrepancy'">
             <td class="in-mono">{{ it.sku || '—' }}</td>
             <td class="in-name">{{ it.product_name || '—' }}</td>
@@ -249,12 +248,12 @@ interface LiveCountEntry {
             <td><p-tag [value]="itemStatusLabel(it.status)" [severity]="itemStatusSeverity(it.status)"></p-tag></td>
             <td>
               @if (!isTerminal() && it.status !== 'resolved') {
-                <button pButton icon="pi pi-pencil" [text]="true" size="small" (click)="openResolve(it)" pTooltip="Resolver"></button>
+                <button pButton [text]="true" size="small" (click)="openResolve(it)" pTooltip="Resolver"><span class="p-button-icon p-button-icon-left pi pi-pencil" aria-hidden="true"></span></button>
               }
             </td>
           </tr>
         </ng-template>
-        <ng-template pTemplate="emptymessage">
+        <ng-template #emptymessage>
           <tr><td colspan="11" class="in-empty">Sin items para este filtro.</td></tr>
         </ng-template>
       </p-table>
@@ -268,16 +267,16 @@ interface LiveCountEntry {
             <p class="in-resolve-name">{{ resolveItem()?.product_name }}</p>
             <p class="in-resolve-meta">Teórico: <b>{{ resolveItem()?.expected_qty }}</b> · C1: {{ resolveItem()?.count_1 ?? '—' }} · C2: {{ resolveItem()?.count_2 ?? '—' }} · C3: {{ resolveItem()?.count_3 ?? '—' }}</p>
             <label>Cantidad física final</label>
-            <p-inputNumber [(ngModel)]="resolveQty" [min]="0" styleClass="in-w-full"></p-inputNumber>
+            <p-inputnumber [(ngModel)]="resolveQty" [min]="0" styleClass="in-w-full"></p-inputnumber>
             <label>Motivo de la varianza</label>
             <p-select [options]="reasonCodes()" optionLabel="label" optionValue="code" [(ngModel)]="resolveReason" placeholder="Clasificar (opcional)" [showClear]="true" appendTo="body" styleClass="in-w-full"></p-select>
             <label>Nota (detalle libre)</label>
             <input pInputText [(ngModel)]="resolveNotes" class="in-w-full" placeholder="Opcional" />
           </div>
         }
-        <ng-template pTemplate="footer">
-          <button pButton label="Cancelar" [text]="true" severity="secondary" (click)="resolveVisible.set(false)"></button>
-          <button pButton label="Guardar" icon="pi pi-check" [loading]="resolving()" [disabled]="resolveQty() === null" (click)="saveResolve()"></button>
+        <ng-template #footer>
+          <button pButton [text]="true" severity="secondary" (click)="resolveVisible.set(false)"><span class="p-button-label">Cancelar</span></button>
+          <button pButton [loading]="resolving()" [disabled]="resolveQty() === null" (click)="saveResolve()"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Guardar</span></button>
         </ng-template>
       </p-dialog>
     </div>

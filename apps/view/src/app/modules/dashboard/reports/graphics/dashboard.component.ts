@@ -9,6 +9,7 @@ import {
   inject,
   signal,
   untracked,
+  ChangeDetectionStrategy
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
@@ -97,378 +98,392 @@ interface KpiCard {
     GlobalFiltersComponent,
   ],
   providers: [MessageService],
+  changeDetection: ChangeDetectionStrategy.Eager,
   template: `
     <div class="dashboard-container w-full min-h-screen text-content-main pt-8">
       <!-- ── Header ─────────────────────────────────────────────────── -->
       <header
         class="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-10"
-      >
+        >
         <div>
           <h1 class="text-3xl font-bold tracking-tight text-content-main flex items-center gap-3"><i class="pi pi-th-large text-content-main"></i> Dashboard Estratégico</h1>
           <div class="flex items-center gap-3 mt-2">
             <span
               class="px-2 py-0.5 rounded-full bg-accent-brand-light text-[10px] font-black text-brand tracking-widest uppercase"
               >Live Metrics</span
-            >
-            <p class="text-xs text-content-muted font-medium">
-              Visión de campo · {{ filtersState.rangeLabel() }}
-            </p>
+              >
+              <p class="text-xs text-content-muted font-medium">
+                Visión de campo · {{ filtersState.rangeLabel() }}
+              </p>
+            </div>
           </div>
-        </div>
-        <div class="flex items-center gap-2 flex-wrap">
-          <p-button
-            icon="pi pi-refresh"
-            [text]="true"
-            severity="secondary"
-            [rounded]="true"
-            (click)="loadDashboardData()"
-            [loading]="loading()"
-            pTooltip="Refrescar"
-          />
-          <p-button
-            label="Metas"
-            icon="pi pi-sliders-h"
-            styleClass="p-button-brand"
-            size="small"
-            (click)="showMetasDialog = true"
-          />
-          <p-button
-            label="PDF"
-            icon="pi pi-file-pdf"
-            severity="secondary"
-            size="small"
-            (click)="exportPdf()"
-          />
-        </div>
-      </header>
-
-      <!-- ── Filtros globales ────────────────────────────────────────── -->
-      <app-global-filters
-        #globalFilters
-        (filtersChanged)="scheduleLoad()"
-      />
-
-      <!-- ── KPI Cards ──────────────────────────────────────────────── -->
-      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-        <ng-container *ngIf="loading()">
-          <div
-            *ngFor="let i of [1, 2, 3, 4]"
-            class="card-premium animate-pulse h-40"
-          >
-            <p-skeleton width="100%" height="100%" />
-          </div>
-        </ng-container>
-
-        <ng-container *ngIf="!loading()">
-          <div
-            *ngFor="let k of kpiCards()"
-            class="card-premium flex flex-col gap-3 group elevation-hover border-l-4 motion-safe:transition-shadow"
+          <div class="flex items-center gap-2 flex-wrap">
+            <p-button
+              icon="pi pi-refresh"
+              [text]="true"
+              severity="secondary"
+              [rounded]="true"
+              (click)="loadDashboardData()"
+              [loading]="loading()"
+              pTooltip="Refrescar"
+              />
+              <p-button
+                label="Metas"
+                icon="pi pi-sliders-h"
+                styleClass="p-button-brand"
+                size="small"
+                (click)="showMetasDialog = true"
+                />
+                <p-button
+                  label="PDF"
+                  icon="pi pi-file-pdf"
+                  severity="secondary"
+                  size="small"
+                  (click)="exportPdf()"
+                  />
+                </div>
+              </header>
+    
+              <!-- ── Filtros globales ────────────────────────────────────────── -->
+              <app-global-filters
+                #globalFilters
+                (filtersChanged)="scheduleLoad()"
+                />
+    
+                <!-- ── KPI Cards ──────────────────────────────────────────────── -->
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+                  @if (loading()) {
+                    @for (i of [1, 2, 3, 4]; track i) {
+                      <div
+                        class="card-premium animate-pulse h-40"
+                        >
+                        <p-skeleton width="100%" height="100%" />
+                      </div>
+                    }
+                  }
+    
+                  @if (!loading()) {
+                    @for (k of kpiCards(); track k) {
+                      <div
+                        class="card-premium flex flex-col gap-3 group elevation-hover border-l-4 motion-safe:transition-shadow"
             [ngClass]="{
               'border-l-ok-fg': k.status === 'ok',
               'border-l-warn-fg': k.status === 'warn',
               'border-l-bad-fg': k.status === 'bad',
             }"
-          >
-            <div class="flex items-baseline justify-between gap-2">
-              <span class="text-[10px] uppercase tracking-widest font-bold text-content-muted truncate">{{ k.label }}</span>
-              <span class="text-[9px] text-content-faint shrink-0">Meta {{ k.meta }}</span>
-            </div>
-
-            <!-- Variante SPARK: valor grande + delta + sparkbars debajo -->
-            <ng-container *ngIf="k.kind === 'spark'">
-              <div class="flex items-baseline gap-2 flex-wrap">
-                <span class="text-3xl font-extrabold tabular-nums leading-none text-content-main">{{ k.value }}</span>
-                <span class="text-[11px] font-semibold inline-flex items-center gap-0.5"
-                      [ngClass]="{
-                        'text-ok-fg':         k.deltaDir === 'up',
-                        'text-bad-fg':        k.deltaDir === 'down',
-                        'text-content-faint': k.deltaDir === 'flat',
-                      }">
-                  <i class="pi text-[9px]"
-                     [ngClass]="{
-                       'pi-arrow-up':   k.deltaDir === 'up',
-                       'pi-arrow-down': k.deltaDir === 'down',
-                       'pi-minus':      k.deltaDir === 'flat',
-                     }"
-                     aria-hidden="true"></i>
-                  {{ k.delta }}
-                </span>
-              </div>
-
-              <svg *ngIf="k.spark as s" [attr.viewBox]="s.viewBox" preserveAspectRatio="none"
-                   class="w-full h-10 mt-auto kpi-spark"
-                   [attr.aria-label]="s.ariaLabel" role="img">
-                <line *ngIf="s.metaY >= 0"
-                      x1="0" [attr.y1]="s.metaY" x2="100" [attr.y2]="s.metaY"
-                      stroke="var(--text-faint)" stroke-width="0.3"
-                      stroke-dasharray="1.5 1.5" opacity="0.55"></line>
-                <g *ngFor="let b of s.bars; let i = index">
-                  <rect [attr.x]="b.x" [attr.y]="b.y" [attr.width]="b.w" [attr.height]="b.h"
-                        [attr.fill]="b.color" rx="0.4"
-                        [attr.opacity]="b.isToday ? 1 : 0.65"
-                        class="motion-safe:transition-opacity hover:!opacity-100 cursor-help">
-                    <title>{{ b.tooltip }}</title>
-                  </rect>
-                  <circle *ngIf="b.isToday"
-                          [attr.cx]="b.x + b.w / 2" [attr.cy]="b.y - 1.2" r="0.7"
-                          [attr.fill]="b.color"></circle>
-                </g>
-              </svg>
-            </ng-container>
-
-            <!-- Variante GAUGE: donut con valor centrado + delta debajo -->
-            <ng-container *ngIf="k.kind === 'gauge' && k.gauge as g">
-              <div class="flex-1 flex flex-col items-center justify-center gap-1.5 py-1">
-                <div class="relative" role="img" [attr.aria-label]="g.ariaLabel">
-                  <svg viewBox="0 0 40 40" class="w-20 h-20 -rotate-90 motion-safe:transition-transform">
-                    <circle cx="20" cy="20" r="15.5" fill="none"
-                            stroke="var(--layout-bg)" stroke-width="3"></circle>
-                    <circle cx="20" cy="20" r="15.5" fill="none"
-                            [attr.stroke]="g.color" stroke-width="3" stroke-linecap="round"
-                            [attr.stroke-dasharray]="g.circumference"
-                            [attr.stroke-dashoffset]="g.dashoffset"
-                            class="motion-safe:transition-all duration-700">
-                      <title>{{ g.ariaLabel }}</title>
-                    </circle>
-                  </svg>
-                  <div class="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                    <span class="text-xl font-extrabold tabular-nums leading-none text-content-main">{{ g.centerValue }}</span>
-                    <span *ngIf="g.centerUnit" class="text-[9px] text-content-muted uppercase tracking-wider mt-0.5">{{ g.centerUnit }}</span>
-                  </div>
-                </div>
-                <span class="text-[11px] font-semibold inline-flex items-center gap-0.5"
-                      [ngClass]="{
-                        'text-ok-fg':         k.deltaDir === 'up',
-                        'text-bad-fg':        k.deltaDir === 'down',
-                        'text-content-faint': k.deltaDir === 'flat',
-                      }">
-                  <i class="pi text-[9px]"
-                     [ngClass]="{
-                       'pi-arrow-up':   k.deltaDir === 'up',
-                       'pi-arrow-down': k.deltaDir === 'down',
-                       'pi-minus':      k.deltaDir === 'flat',
-                     }"
-                     aria-hidden="true"></i>
-                  {{ k.delta }}
-                </span>
-              </div>
-            </ng-container>
-          </div>
-        </ng-container>
-      </div>
-
-      <!-- ── Main grid ───────────────────────────────────────────────── -->
-      <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        <!-- Izquierda 8 cols -->
-        <div class="lg:col-span-8 space-y-6">
-          <!-- Gráfica con línea de meta -->
-          <div class="card-premium">
-            <div class="flex items-center justify-between mb-6">
-              <h3 class="stat-label">Ejecución semanal vs meta</h3>
-              <div class="flex gap-4 text-[11px] text-content-muted flex-wrap">
-                <span class="flex items-center gap-1.5">
-                  <span class="w-3 h-0.5 bg-content-main inline-block"></span
-                  >Visitas
-                </span>
-                <span class="flex items-center gap-1.5">
-                  <span
-                    class="w-3 h-0.5 bg-warn inline-block"
-                    style="border-top:2px dashed var(--warn-fg)"
-                  ></span
-                  >Score
-                </span>
-                <span class="flex items-center gap-1.5">
-                  <span
-                    class="w-3 h-0.5 bg-bad inline-block"
-                    style="border-top:2px dashed var(--bad-fg)"
-                  ></span
-                  >Meta
-                </span>
-              </div>
-            </div>
-            <div class="h-[280px]">
-              <p-chart
-                type="line"
-                [data]="chartData"
-                [options]="chartOptions"
-                height="100%"
-                *ngIf="chartData && !loading()"
-              />
-              <p-skeleton height="280px" *ngIf="loading()" />
-            </div>
-          </div>
-
-          <!-- Tabla de mobiliario con semáforo -->
-          <div class="card-premium">
-            <div
-              class="flex items-center justify-between mb-6 pb-3 border-b border-divider"
-            >
-              <h3 class="stat-label">Cumplimiento por mobiliario</h3>
-              <span
-                class="text-[10px] text-content-faint uppercase tracking-widest"
-                >Vs metas configuradas</span
-              >
-            </div>
-            <div class="overflow-x-auto">
-              <table class="w-full border-collapse">
-                <thead>
-                  <tr
-                    class="text-[10px] text-content-muted font-black uppercase border-b border-divider"
-                  >
-                    <th class="pb-3 text-left">Activo</th>
-                    <th class="pb-3 text-center">Realizado</th>
-                    <th class="pb-3 text-center">Meta</th>
-                    <th class="pb-3 text-center">Estado</th>
-                    <th class="pb-3 text-right pr-4">Avance</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr
-                    *ngFor="let row of furnitureRows()"
-                    class="border-b border-divider/50 hover:bg-surface-layout transition-colors"
-                  >
-                    <td class="py-4">
-                      <div class="flex items-center gap-3">
-                        <div
-                          class="w-9 h-9 rounded-xl bg-surface-layout border border-divider flex items-center justify-center"
                         >
-                          <i [class]="row.icon" class="text-content-muted"></i>
+                        <div class="flex items-baseline justify-between gap-2">
+                          <span class="text-[10px] uppercase tracking-widest font-bold text-content-muted truncate">{{ k.label }}</span>
+                          <span class="text-[9px] text-content-faint shrink-0">Meta {{ k.meta }}</span>
                         </div>
-                        <span class="text-sm font-bold">{{ row.label }}</span>
+                        <!-- Variante SPARK: valor grande + delta + sparkbars debajo -->
+                        @if (k.kind === 'spark') {
+                          <div class="flex items-baseline gap-2 flex-wrap">
+                            <span class="text-3xl font-extrabold tabular-nums leading-none text-content-main">{{ k.value }}</span>
+                            <span class="text-[11px] font-semibold inline-flex items-center gap-0.5"
+                      [ngClass]="{
+                        'text-ok-fg':         k.deltaDir === 'up',
+                        'text-bad-fg':        k.deltaDir === 'down',
+                        'text-content-faint': k.deltaDir === 'flat',
+                      }">
+                              <i class="pi text-[9px]"
+                     [ngClass]="{
+                       'pi-arrow-up':   k.deltaDir === 'up',
+                       'pi-arrow-down': k.deltaDir === 'down',
+                       'pi-minus':      k.deltaDir === 'flat',
+                     }"
+                              aria-hidden="true"></i>
+                              {{ k.delta }}
+                            </span>
+                          </div>
+                          @if (k.spark; as s) {
+                            <svg [attr.viewBox]="s.viewBox" preserveAspectRatio="none"
+                              class="w-full h-10 mt-auto kpi-spark"
+                              [attr.aria-label]="s.ariaLabel" role="img">
+                              @if (s.metaY >= 0) {
+                                <line
+                                  x1="0" [attr.y1]="s.metaY" x2="100" [attr.y2]="s.metaY"
+                                  stroke="var(--text-faint)" stroke-width="0.3"
+                                stroke-dasharray="1.5 1.5" opacity="0.55"></line>
+                              }
+                              @for (b of s.bars; track b; let i = $index) {
+                                <g>
+                                  <rect [attr.x]="b.x" [attr.y]="b.y" [attr.width]="b.w" [attr.height]="b.h"
+                                    [attr.fill]="b.color" rx="0.4"
+                                    [attr.opacity]="b.isToday ? 1 : 0.65"
+                                    class="motion-safe:transition-opacity hover:!opacity-100 cursor-help">
+                                    <title>{{ b.tooltip }}</title>
+                                  </rect>
+                                  @if (b.isToday) {
+                                    <circle
+                                      [attr.cx]="b.x + b.w / 2" [attr.cy]="b.y - 1.2" r="0.7"
+                                    [attr.fill]="b.color"></circle>
+                                  }
+                                </g>
+                              }
+                            </svg>
+                          }
+                        }
+                        <!-- Variante GAUGE: donut con valor centrado + delta debajo -->
+                        @if (k.kind === 'gauge' && k.gauge; as g) {
+                          <div class="flex-1 flex flex-col items-center justify-center gap-1.5 py-1">
+                            <div class="relative" role="img" [attr.aria-label]="g.ariaLabel">
+                              <svg viewBox="0 0 40 40" class="w-20 h-20 -rotate-90 motion-safe:transition-transform">
+                                <circle cx="20" cy="20" r="15.5" fill="none"
+                                stroke="var(--layout-bg)" stroke-width="3"></circle>
+                                <circle cx="20" cy="20" r="15.5" fill="none"
+                                  [attr.stroke]="g.color" stroke-width="3" stroke-linecap="round"
+                                  [attr.stroke-dasharray]="g.circumference"
+                                  [attr.stroke-dashoffset]="g.dashoffset"
+                                  class="motion-safe:transition-all duration-700">
+                                  <title>{{ g.ariaLabel }}</title>
+                                </circle>
+                              </svg>
+                              <div class="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                                <span class="text-xl font-extrabold tabular-nums leading-none text-content-main">{{ g.centerValue }}</span>
+                                @if (g.centerUnit) {
+                                  <span class="text-[9px] text-content-muted uppercase tracking-wider mt-0.5">{{ g.centerUnit }}</span>
+                                }
+                              </div>
+                            </div>
+                            <span class="text-[11px] font-semibold inline-flex items-center gap-0.5"
+                      [ngClass]="{
+                        'text-ok-fg':         k.deltaDir === 'up',
+                        'text-bad-fg':        k.deltaDir === 'down',
+                        'text-content-faint': k.deltaDir === 'flat',
+                      }">
+                              <i class="pi text-[9px]"
+                     [ngClass]="{
+                       'pi-arrow-up':   k.deltaDir === 'up',
+                       'pi-arrow-down': k.deltaDir === 'down',
+                       'pi-minus':      k.deltaDir === 'flat',
+                     }"
+                              aria-hidden="true"></i>
+                              {{ k.delta }}
+                            </span>
+                          </div>
+                        }
                       </div>
-                    </td>
-                    <td class="py-4 text-center font-mono font-bold">
-                      {{ row.actual }}
-                    </td>
-                    <td class="py-4 text-center font-mono text-content-muted">
-                      {{ row.target }}
-                    </td>
-                    <td class="py-4 text-center">
-                      <span
-                        class="px-2 py-0.5 rounded-full text-[10px] font-bold"
+                    }
+                  }
+                </div>
+    
+                <!-- ── Main grid ───────────────────────────────────────────────── -->
+                <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                  <!-- Izquierda 8 cols -->
+                  <div class="lg:col-span-8 space-y-6">
+                    <!-- Gráfica con línea de meta -->
+                    <div class="card-premium">
+                      <div class="flex items-center justify-between mb-6">
+                        <h3 class="stat-label">Ejecución semanal vs meta</h3>
+                        <div class="flex gap-4 text-[11px] text-content-muted flex-wrap">
+                          <span class="flex items-center gap-1.5">
+                            <span class="w-3 h-0.5 bg-content-main inline-block"></span
+                              >Visitas
+                            </span>
+                            <span class="flex items-center gap-1.5">
+                              <span
+                                class="w-3 h-0.5 bg-warn inline-block"
+                                style="border-top:2px dashed var(--warn-fg)"
+                                ></span
+                                >Score
+                              </span>
+                              <span class="flex items-center gap-1.5">
+                                <span
+                                  class="w-3 h-0.5 bg-bad inline-block"
+                                  style="border-top:2px dashed var(--bad-fg)"
+                                  ></span
+                                  >Meta
+                                </span>
+                              </div>
+                            </div>
+                            <div class="h-[280px]">
+                              @if (chartData && !loading()) {
+                                <p-chart
+                                  type="line"
+                                  [data]="chartData"
+                                  [options]="chartOptions"
+                                  height="100%"
+                                  />
+                              }
+                              @if (loading()) {
+                                <p-skeleton height="280px" />
+                              }
+                            </div>
+                          </div>
+    
+                          <!-- Tabla de mobiliario con semáforo -->
+                          <div class="card-premium">
+                            <div
+                              class="flex items-center justify-between mb-6 pb-3 border-b border-divider"
+                              >
+                              <h3 class="stat-label">Cumplimiento por mobiliario</h3>
+                              <span
+                                class="text-[10px] text-content-faint uppercase tracking-widest"
+                                >Vs metas configuradas</span
+                                >
+                              </div>
+                              <div class="overflow-x-auto">
+                                <table class="w-full border-collapse">
+                                  <thead>
+                                    <tr
+                                      class="text-[10px] text-content-muted font-black uppercase border-b border-divider"
+                                      >
+                                      <th class="pb-3 text-left">Activo</th>
+                                      <th class="pb-3 text-center">Realizado</th>
+                                      <th class="pb-3 text-center">Meta</th>
+                                      <th class="pb-3 text-center">Estado</th>
+                                      <th class="pb-3 text-right pr-4">Avance</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    @for (row of furnitureRows(); track row) {
+                                      <tr
+                                        class="border-b border-divider/50 hover:bg-surface-layout transition-colors"
+                                        >
+                                        <td class="py-4">
+                                          <div class="flex items-center gap-3">
+                                            <div
+                                              class="w-9 h-9 rounded-xl bg-surface-layout border border-divider flex items-center justify-center"
+                                              >
+                                              <i [class]="row.icon" class="text-content-muted"></i>
+                                            </div>
+                                            <span class="text-sm font-bold">{{ row.label }}</span>
+                                          </div>
+                                        </td>
+                                        <td class="py-4 text-center font-mono font-bold">
+                                          {{ row.actual }}
+                                        </td>
+                                        <td class="py-4 text-center font-mono text-content-muted">
+                                          {{ row.target }}
+                                        </td>
+                                        <td class="py-4 text-center">
+                                          <span
+                                            class="px-2 py-0.5 rounded-full text-[10px] font-bold"
                         [ngClass]="{
                           'bg-ok-soft-bg text-ok-fg': row.status === 'ok',
                           'bg-warn-soft-bg text-warn-fg': row.status === 'warn',
                           'bg-bad-soft-bg text-bad-fg': row.status === 'bad',
                         }"
-                      >
-                        {{ statusLabel(row.status) }}
-                      </span>
-                    </td>
-                    <td class="py-4 pr-4">
-                      <div class="flex items-center justify-end gap-3">
-                        <div
-                          class="w-28 h-1.5 bg-surface-layout rounded-full overflow-hidden"
-                        >
-                          <div
-                            class="h-full rounded-full"
-                            [style.width.%]="row.pct"
+                                            >
+                                            {{ statusLabel(row.status) }}
+                                          </span>
+                                        </td>
+                                        <td class="py-4 pr-4">
+                                          <div class="flex items-center justify-end gap-3">
+                                            <div
+                                              class="w-28 h-1.5 bg-surface-layout rounded-full overflow-hidden"
+                                              >
+                                              <div
+                                                class="h-full rounded-full"
+                                                [style.width.%]="row.pct"
                             [ngClass]="{
                               'bg-ok': row.status === 'ok',
                               'bg-warn': row.status === 'warn',
                               'bg-bad': row.status === 'bad',
                             }"
-                          ></div>
-                        </div>
-                        <span class="text-xs font-mono font-bold w-9 text-right"
-                          >{{ row.pct }}%</span
-                        >
-                      </div>
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-
-        <!-- Derecha 4 cols -->
-        <div class="lg:col-span-4 space-y-6">
-          <!-- Insight card (tu diseño original mejorado) -->
-          <div class="card-premium monochrome-highlight shadow-2xl">
-            <div class="flex items-center justify-between mb-6">
-              <div class="stat-label !text-content-faint tracking-widest text-xs">
-                Ejecución crítica
-              </div>
-              <div class="h-2 w-2 rounded-full bg-white animate-pulse"></div>
-            </div>
-            <div class="space-y-4">
-              <div class="p-4 border border-white/10 rounded-2xl bg-white/5">
-                <p
-                  class="text-[10px] uppercase font-black tracking-widest text-content-faint mb-1"
-                >
-                  Mejor ejecutivo
-                </p>
-                <h4 class="text-xl font-extrabold tracking-tighter text-white">
-                  {{ summary()?.mejor_ejecutivo || 'N/A' }}
-                </h4>
-              </div>
-              <div class="p-4 border border-white/10 rounded-2xl bg-white/5">
-                <p
-                  class="text-[10px] uppercase font-black tracking-widest text-content-faint mb-1"
-                >
-                  Evidencias verificadas
-                </p>
-                <div class="flex items-end gap-2">
-                  <span class="text-4xl font-extrabold tracking-tighter">{{
-                    summary()?.total_fotos ?? 0
-                  }}</span>
-                  <span class="text-xs text-content-faint mb-1">fotos</span>
-                </div>
-              </div>
-            </div>
-            <div
-              class="mt-8 pt-4 border-t border-white/10 flex justify-between items-center"
-            >
-              <span class="text-[10px] font-mono text-content-faint uppercase"
-                >Sync v2.5</span
-              >
-              <i class="pi pi-shield text-content-faint"></i>
-            </div>
-          </div>
-
-          <!-- Actividad reciente -->
-          <div class="card-premium">
-            <div
-              class="flex items-center justify-between mb-6 pb-3 border-b border-divider"
-            >
-              <h3 class="stat-label">Actividad reciente</h3>
-              <p-button
-                icon="pi pi-external-link"
-                [text]="true"
-                severity="secondary"
-                size="small"
-                routerLink="/dashboard/reports"
-              />
-            </div>
-            <div class="space-y-4">
-              <div
-                *ngFor="let cap of recentCaptures()"
-                class="flex items-start gap-3 group cursor-pointer hover:translate-x-1 transition-transform"
-              >
-                <div
+                                              ></div>
+                                            </div>
+                                            <span class="text-xs font-mono font-bold w-9 text-right"
+                                              >{{ row.pct }}%</span
+                                              >
+                                            </div>
+                                          </td>
+                                        </tr>
+                                      }
+                                    </tbody>
+                                  </table>
+                                </div>
+                              </div>
+                            </div>
+    
+                            <!-- Derecha 4 cols -->
+                            <div class="lg:col-span-4 space-y-6">
+                              <!-- Insight card (tu diseño original mejorado) -->
+                              <div class="card-premium monochrome-highlight shadow-2xl">
+                                <div class="flex items-center justify-between mb-6">
+                                  <div class="stat-label !text-content-faint tracking-widest text-xs">
+                                    Ejecución crítica
+                                  </div>
+                                  <div class="h-2 w-2 rounded-full bg-white animate-pulse"></div>
+                                </div>
+                                <div class="space-y-4">
+                                  <div class="p-4 border border-white/10 rounded-2xl bg-white/5">
+                                    <p
+                                      class="text-[10px] uppercase font-black tracking-widest text-content-faint mb-1"
+                                      >
+                                      Mejor ejecutivo
+                                    </p>
+                                    <h4 class="text-xl font-extrabold tracking-tighter text-white">
+                                      {{ summary()?.mejor_ejecutivo || 'N/A' }}
+                                    </h4>
+                                  </div>
+                                  <div class="p-4 border border-white/10 rounded-2xl bg-white/5">
+                                    <p
+                                      class="text-[10px] uppercase font-black tracking-widest text-content-faint mb-1"
+                                      >
+                                      Evidencias verificadas
+                                    </p>
+                                    <div class="flex items-end gap-2">
+                                      <span class="text-4xl font-extrabold tracking-tighter">{{
+                                        summary()?.total_fotos ?? 0
+                                      }}</span>
+                                      <span class="text-xs text-content-faint mb-1">fotos</span>
+                                    </div>
+                                  </div>
+                                </div>
+                                <div
+                                  class="mt-8 pt-4 border-t border-white/10 flex justify-between items-center"
+                                  >
+                                  <span class="text-[10px] font-mono text-content-faint uppercase"
+                                    >Sync v2.5</span
+                                    >
+                                    <i class="pi pi-shield text-content-faint"></i>
+                                  </div>
+                                </div>
+    
+                                <!-- Actividad reciente -->
+                                <div class="card-premium">
+                                  <div
+                                    class="flex items-center justify-between mb-6 pb-3 border-b border-divider"
+                                    >
+                                    <h3 class="stat-label">Actividad reciente</h3>
+                                    <p-button
+                                      icon="pi pi-external-link"
+                                      [text]="true"
+                                      severity="secondary"
+                                      size="small"
+                                      routerLink="/dashboard/reports"
+                                      />
+                                    </div>
+                                    <div class="space-y-4">
+                                      @for (cap of recentCaptures(); track cap) {
+                                        <div
+                                          class="flex items-start gap-3 group cursor-pointer hover:translate-x-1 transition-transform"
+                                          >
+                                          <div
                   class="h-9 w-9 shrink-0 rounded-full bg-surface-active text-content-active
                         flex items-center justify-center text-xs font-black uppercase ring-2 ring-surface-layout"
-                >
-                  {{ cap.captured_by_username?.charAt(0) }}
-                </div>
-                <div class="flex-1 min-w-0">
-                  <div class="flex items-center justify-between gap-2 mb-0.5">
-                    <span class="text-xs font-bold truncate">{{
-                      cap.captured_by_username
-                    }}</span>
-                    <span class="text-[9px] font-mono text-content-faint">
-                      {{ cap.fechaCaptura | date: 'shortTime' }}
-                    </span>
-                  </div>
-                  <div class="flex items-center justify-between">
-                    <span
-                      class="text-[10px] text-content-muted uppercase tracking-tight"
-                      >{{ cap.zona_captura }}</span
-                    >
-                    <!-- Score con semáforo -->
-                    <span
-                      class="text-xs font-black"
+                                            >
+                                            {{ cap.captured_by_username?.charAt(0) }}
+                                          </div>
+                                          <div class="flex-1 min-w-0">
+                                            <div class="flex items-center justify-between gap-2 mb-0.5">
+                                              <span class="text-xs font-bold truncate">{{
+                                                cap.captured_by_username
+                                              }}</span>
+                                              <span class="text-[9px] font-mono text-content-faint">
+                                                {{ cap.fechaCaptura | date: 'shortTime' }}
+                                              </span>
+                                            </div>
+                                            <div class="flex items-center justify-between">
+                                              <span
+                                                class="text-[10px] text-content-muted uppercase tracking-tight"
+                                                >{{ cap.zona_captura }}</span
+                                                >
+                                                <!-- Score con semáforo -->
+                                                <span
+                                                  class="text-xs font-black"
                       [ngClass]="{
                         'text-ok-fg':
                           metasConfig.statusFor(
@@ -486,213 +501,217 @@ interface KpiCard {
                             cap.stats?.puntuacionTotal ?? 0
                           ) === 'bad',
                       }"
-                    >
-                      {{ fmtScore(cap.stats?.puntuacionTotal) }}
-                    </span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <!-- Acceso directo -->
-          <div class="card-premium">
-            <h3 class="stat-label mb-4">Operativa directa</h3>
-            <div class="space-y-2">
-              <a
-                *ngFor="let a of quickActions"
-                [routerLink]="a.route"
+                                                  >
+                                                  {{ fmtScore($safeNavigationMigration(cap.stats?.puntuacionTotal)) }}
+                                                </span>
+                                              </div>
+                                            </div>
+                                          </div>
+                                        }
+                                      </div>
+                                    </div>
+    
+                                    <!-- Acceso directo -->
+                                    <div class="card-premium">
+                                      <h3 class="stat-label mb-4">Operativa directa</h3>
+                                      <div class="space-y-2">
+                                        @for (a of quickActions; track a) {
+                                          <a
+                                            [routerLink]="a.route"
                 class="flex items-center justify-between p-3 rounded-xl bg-surface-layout hover:bg-surface-hover
                     transition-all no-underline group border border-transparent hover:border-divider"
-              >
-                <div class="flex items-center gap-3">
-                  <div
+                                            >
+                                            <div class="flex items-center gap-3">
+                                              <div
                     class="w-9 h-9 rounded-xl bg-surface-card border border-divider flex items-center justify-center
                           text-content-muted group-hover:bg-surface-active group-hover:text-content-active transition-colors"
-                  >
-                    <i [class]="a.icon"></i>
-                  </div>
-                  <span class="text-xs font-bold">{{ a.label }}</span>
-                </div>
-                <i
-                  class="pi pi-chevron-right text-xs text-content-faint group-hover:translate-x-1 transition-transform"
-                ></i>
-              </a>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- ═══════════════════════════════════════════════════════════════════
-     DIALOG: METAS Y RANGOS
-═══════════════════════════════════════════════════════════════════ -->
-    <p-dialog
-      header="Metas y rangos de cumplimiento"
-      [(visible)]="showMetasDialog"
-      [modal]="true"
-      [style]="{ width: '90vw', maxWidth: '680px' }"
-      [draggable]="false"
-      [resizable]="false"
-      styleClass="surface-card rounded-2xl"
-      [contentStyleClass]="'bg-surface-card'"
-    >
-      <div class="space-y-6 pt-2">
-        <!-- Explicación de rangos -->
-        <div
-          class="flex gap-3 p-3 bg-surface-layout rounded-xl border border-divider text-xs text-content-muted"
-        >
-          <i class="pi pi-info-circle mt-0.5 text-content-faint"></i>
-          <span
-            >Define dos umbrales por KPI. El dashboard y los reportes usarán
-            estos rangos para colorear el semáforo automáticamente. Los cambios
-            se guardan en el navegador.</span
-          >
-        </div>
-
-        <!-- Leyenda -->
-        <div class="flex gap-4 flex-wrap text-[11px]">
-          <span class="flex items-center gap-1.5">
-            <span class="w-3 h-3 rounded bg-bad-soft-bg inline-block"></span>
-            <span class="text-bad-fg">Por debajo del mínimo</span>
-          </span>
-          <span class="flex items-center gap-1.5">
-            <span class="w-3 h-3 rounded bg-warn-soft-bg inline-block"></span>
-            <span class="text-warn-fg">Entre mínimo y óptimo</span>
-          </span>
-          <span class="flex items-center gap-1.5">
-            <span class="w-3 h-3 rounded bg-ok-soft-bg inline-block"></span>
-            <span class="text-ok-fg">Óptimo o superior</span>
-          </span>
-        </div>
-
-        <!-- Sección KPIs -->
-        <div>
-          <h4
-            class="text-xs font-black uppercase tracking-widest text-content-faint mb-3"
-          >
-            KPIs de ejecución
-          </h4>
-          <div class="space-y-4">
-            <div
-              *ngFor="let r of editableKpi"
-              class="p-4 bg-surface-layout rounded-xl border border-divider"
-            >
-              <div class="flex items-center justify-between mb-3">
-                <span class="font-bold text-sm">{{ r.label }}</span>
-                <div class="flex gap-2 text-[10px]">
-                  <span
-                    class="px-2 py-0.5 rounded-full bg-bad-soft-bg text-bad-fg"
-                  >
-                    &lt; {{ r.min }}{{ r.unit }} = bajo
-                  </span>
-                  <span
-                    class="px-2 py-0.5 rounded-full bg-ok-soft-bg text-ok-fg"
-                  >
-                    ≥ {{ r.opt }}{{ r.unit }} = óptimo
-                  </span>
-                </div>
-              </div>
-              <div class="grid grid-cols-2 gap-4">
-                <div class="flex flex-col gap-1">
-                  <label
-                    class="text-[10px] font-bold text-content-faint uppercase"
-                    >Meta mínima</label
-                  >
-                  <p-inputNumber
-                    [(ngModel)]="r.min"
-                    [min]="0"
-                    [max]="r.opt - 1"
-                    [showButtons]="true"
-                    buttonLayout="horizontal"
-                    decrementButtonClass="p-button-secondary"
-                    incrementButtonClass="p-button-secondary"
-                    [suffix]="r.unit ? ' ' + r.unit : ''"
-                    class="w-full"
-                  />
-                </div>
-                <div class="flex flex-col gap-1">
-                  <label
-                    class="text-[10px] font-bold text-content-faint uppercase"
-                    >Meta óptima</label
-                  >
-                  <p-inputNumber
-                    [(ngModel)]="r.opt"
-                    [min]="r.min + 1"
-                    [showButtons]="true"
-                    buttonLayout="horizontal"
-                    decrementButtonClass="p-button-secondary"
-                    incrementButtonClass="p-button-secondary"
-                    [suffix]="r.unit ? ' ' + r.unit : ''"
-                    class="w-full"
-                  />
-                </div>
-              </div>
-              <!-- Barra visual de rango -->
-              <div class="mt-3 h-2 rounded-full overflow-hidden flex">
-                <div class="bg-bad-soft-bg" [style.flex]="r.min"></div>
-                <div class="bg-warn-soft-bg" [style.flex]="r.opt - r.min"></div>
-                <div class="bg-ok-soft-bg" [style.flex]="r.opt * 0.5"></div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Sección Mobiliario -->
-        <div>
-          <h4
-            class="text-xs font-black uppercase tracking-widest text-content-faint mb-3"
-          >
-            Mobiliario
-          </h4>
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div
-              *ngFor="let f of editableFurniture"
-              class="flex items-center justify-between p-3 bg-surface-layout rounded-xl border border-divider gap-3"
-            >
-              <div class="flex items-center gap-2">
-                <i
-                  [class]="f.icon"
-                  class="text-content-muted w-5 text-center"
-                ></i>
-                <span class="font-medium text-sm">{{ f.label }}</span>
-              </div>
-              <div class="w-28">
-                <p-inputNumber
-                  [(ngModel)]="f.target"
-                  [min]="0"
-                  [showButtons]="true"
-                  buttonLayout="horizontal"
-                  decrementButtonClass="p-button-secondary"
-                  incrementButtonClass="p-button-secondary"
-                  class="w-full"
-                />
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <ng-template pTemplate="footer">
-        <div class="flex justify-end gap-3">
-          <p-button
-            label="Cancelar"
-            icon="pi pi-times"
-            severity="secondary"
-            (click)="cancelMetas()"
-          />
-          <p-button
-            label="Guardar metas"
-            icon="pi pi-check"
-            styleClass="p-button-brand"
-            (click)="saveMetas()"
-          />
-        </div>
-      </ng-template>
-    </p-dialog>
-
-    <p-toast />
-  `,
+                                                >
+                                                <i [class]="a.icon"></i>
+                                              </div>
+                                              <span class="text-xs font-bold">{{ a.label }}</span>
+                                            </div>
+                                            <i
+                                              class="pi pi-chevron-right text-xs text-content-faint group-hover:translate-x-1 transition-transform"
+                                            ></i>
+                                          </a>
+                                        }
+                                      </div>
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+    
+                              <!-- ═══════════════════════════════════════════════════════════════════
+                              DIALOG: METAS Y RANGOS
+                              ═══════════════════════════════════════════════════════════════════ -->
+                              <p-dialog
+                                header="Metas y rangos de cumplimiento"
+                                [(visible)]="showMetasDialog"
+                                [modal]="true"
+                                [style]="{ width: '90vw', maxWidth: '680px' }"
+                                [draggable]="false"
+                                [resizable]="false"
+                                styleClass="surface-card rounded-2xl"
+                                [contentStyleClass]="'bg-surface-card'"
+                                >
+                                <div class="space-y-6 pt-2">
+                                  <!-- Explicación de rangos -->
+                                  <div
+                                    class="flex gap-3 p-3 bg-surface-layout rounded-xl border border-divider text-xs text-content-muted"
+                                    >
+                                    <i class="pi pi-info-circle mt-0.5 text-content-faint"></i>
+                                    <span
+                                      >Define dos umbrales por KPI. El dashboard y los reportes usarán
+                                      estos rangos para colorear el semáforo automáticamente. Los cambios
+                                      se guardan en el navegador.</span
+                                      >
+                                    </div>
+    
+                                    <!-- Leyenda -->
+                                    <div class="flex gap-4 flex-wrap text-[11px]">
+                                      <span class="flex items-center gap-1.5">
+                                        <span class="w-3 h-3 rounded bg-bad-soft-bg inline-block"></span>
+                                        <span class="text-bad-fg">Por debajo del mínimo</span>
+                                      </span>
+                                      <span class="flex items-center gap-1.5">
+                                        <span class="w-3 h-3 rounded bg-warn-soft-bg inline-block"></span>
+                                        <span class="text-warn-fg">Entre mínimo y óptimo</span>
+                                      </span>
+                                      <span class="flex items-center gap-1.5">
+                                        <span class="w-3 h-3 rounded bg-ok-soft-bg inline-block"></span>
+                                        <span class="text-ok-fg">Óptimo o superior</span>
+                                      </span>
+                                    </div>
+    
+                                    <!-- Sección KPIs -->
+                                    <div>
+                                      <h4
+                                        class="text-xs font-black uppercase tracking-widest text-content-faint mb-3"
+                                        >
+                                        KPIs de ejecución
+                                      </h4>
+                                      <div class="space-y-4">
+                                        @for (r of editableKpi; track r) {
+                                          <div
+                                            class="p-4 bg-surface-layout rounded-xl border border-divider"
+                                            >
+                                            <div class="flex items-center justify-between mb-3">
+                                              <span class="font-bold text-sm">{{ r.label }}</span>
+                                              <div class="flex gap-2 text-[10px]">
+                                                <span
+                                                  class="px-2 py-0.5 rounded-full bg-bad-soft-bg text-bad-fg"
+                                                  >
+                                                  &lt; {{ r.min }}{{ r.unit }} = bajo
+                                                </span>
+                                                <span
+                                                  class="px-2 py-0.5 rounded-full bg-ok-soft-bg text-ok-fg"
+                                                  >
+                                                  ≥ {{ r.opt }}{{ r.unit }} = óptimo
+                                                </span>
+                                              </div>
+                                            </div>
+                                            <div class="grid grid-cols-2 gap-4">
+                                              <div class="flex flex-col gap-1">
+                                                <label
+                                                  class="text-[10px] font-bold text-content-faint uppercase"
+                                                  >Meta mínima</label
+                                                  >
+                                                  <p-inputnumber
+                                                    [(ngModel)]="r.min"
+                                                    [min]="0"
+                                                    [max]="r.opt - 1"
+                                                    [showButtons]="true"
+                                                    buttonLayout="horizontal"
+                                                    decrementButtonClass="p-button-secondary"
+                                                    incrementButtonClass="p-button-secondary"
+                                                    [suffix]="r.unit ? ' ' + r.unit : ''"
+                                                    class="w-full"
+                                                    />
+                                                  </div>
+                                                  <div class="flex flex-col gap-1">
+                                                    <label
+                                                      class="text-[10px] font-bold text-content-faint uppercase"
+                                                      >Meta óptima</label
+                                                      >
+                                                      <p-inputnumber
+                                                        [(ngModel)]="r.opt"
+                                                        [min]="r.min + 1"
+                                                        [showButtons]="true"
+                                                        buttonLayout="horizontal"
+                                                        decrementButtonClass="p-button-secondary"
+                                                        incrementButtonClass="p-button-secondary"
+                                                        [suffix]="r.unit ? ' ' + r.unit : ''"
+                                                        class="w-full"
+                                                        />
+                                                      </div>
+                                                    </div>
+                                                    <!-- Barra visual de rango -->
+                                                    <div class="mt-3 h-2 rounded-full overflow-hidden flex">
+                                                      <div class="bg-bad-soft-bg" [style.flex]="r.min"></div>
+                                                      <div class="bg-warn-soft-bg" [style.flex]="r.opt - r.min"></div>
+                                                      <div class="bg-ok-soft-bg" [style.flex]="r.opt * 0.5"></div>
+                                                    </div>
+                                                  </div>
+                                                }
+                                              </div>
+                                            </div>
+    
+                                            <!-- Sección Mobiliario -->
+                                            <div>
+                                              <h4
+                                                class="text-xs font-black uppercase tracking-widest text-content-faint mb-3"
+                                                >
+                                                Mobiliario
+                                              </h4>
+                                              <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                                @for (f of editableFurniture; track f) {
+                                                  <div
+                                                    class="flex items-center justify-between p-3 bg-surface-layout rounded-xl border border-divider gap-3"
+                                                    >
+                                                    <div class="flex items-center gap-2">
+                                                      <i
+                                                        [class]="f.icon"
+                                                        class="text-content-muted w-5 text-center"
+                                                      ></i>
+                                                      <span class="font-medium text-sm">{{ f.label }}</span>
+                                                    </div>
+                                                    <div class="w-28">
+                                                      <p-inputnumber
+                                                        [(ngModel)]="f.target"
+                                                        [min]="0"
+                                                        [showButtons]="true"
+                                                        buttonLayout="horizontal"
+                                                        decrementButtonClass="p-button-secondary"
+                                                        incrementButtonClass="p-button-secondary"
+                                                        class="w-full"
+                                                        />
+                                                      </div>
+                                                    </div>
+                                                  }
+                                                </div>
+                                              </div>
+                                            </div>
+    
+                                            <ng-template #footer>
+                                              <div class="flex justify-end gap-3">
+                                                <p-button
+                                                  label="Cancelar"
+                                                  icon="pi pi-times"
+                                                  severity="secondary"
+                                                  (click)="cancelMetas()"
+                                                  />
+                                                  <p-button
+                                                    label="Guardar metas"
+                                                    icon="pi pi-check"
+                                                    styleClass="p-button-brand"
+                                                    (click)="saveMetas()"
+                                                    />
+                                                  </div>
+                                                </ng-template>
+                                              </p-dialog>
+    
+                                              <p-toast />
+    `,
 })
 export class DashboardComponent implements OnInit, OnDestroy {
   private dashboardService = inject(DashboardService);

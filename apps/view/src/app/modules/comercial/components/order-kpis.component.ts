@@ -1,5 +1,5 @@
 import { ChangeDetectionStrategy, Component, Input } from '@angular/core';
-import { CommonModule } from '@angular/common';
+
 import { SkeletonModule } from 'primeng/skeleton';
 import { MetricCardComponent } from '../../../shared/components/metric-card/metric-card.component';
 
@@ -14,40 +14,42 @@ type OrdersMode = 'pending' | 'history';
 @Component({
   selector: 'app-order-kpis',
   standalone: true,
-  imports: [CommonModule, SkeletonModule, MetricCardComponent],
+  imports: [SkeletonModule, MetricCardComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <p-skeleton *ngIf="showSkeleton" height="172px"></p-skeleton>
-    <div *ngIf="!showSkeleton" class="surf-grid">
-      <!-- HERO: ventas (sparkline de monto diario) -->
-      <app-metric-card class="panel-col-6" [large]="true"
-        [label]="mode === 'pending' ? 'Ventas potenciales' : 'Ventas en la ventana'"
-        [value]="totalAmount" format="currency" accent="var(--action)"
-        [variant]="series.length > 1 ? 'sparkline' : 'plain'" [series]="series"
+    @if (showSkeleton) {
+      <p-skeleton height="172px"></p-skeleton>
+    }
+    @if (!showSkeleton) {
+      <div class="surf-grid">
+        <!-- HERO: ventas (sparkline de monto diario) -->
+        <app-metric-card class="panel-col-6" [large]="true"
+          [label]="mode === 'pending' ? 'Ventas potenciales' : 'Ventas en la ventana'"
+          [value]="totalAmount" format="currency" accent="var(--action)"
+          [variant]="series.length > 1 ? 'sparkline' : 'plain'" [series]="series"
         [sub]="total + (total === 1 ? ' pedido' : ' pedidos') + ' en período'"></app-metric-card>
-
-      <ng-container *ngIf="mode === 'pending'">
-        <app-metric-card class="panel-col-3" variant="progress"
-          label="Por aprobar" [value]="statusCounts['pending_approval'] ?? 0" [goal]="windowTotal"
+        @if (mode === 'pending') {
+          <app-metric-card class="panel-col-3" variant="progress"
+            label="Por aprobar" [value]="statusCounts['pending_approval'] ?? 0" [goal]="windowTotal"
           format="number" accent="var(--warn-fg)" sub="requieren acción"></app-metric-card>
-        <app-metric-card class="panel-col-3" variant="progress"
-          label="Borradores" [value]="statusCounts['draft'] ?? 0" [goal]="windowTotal"
+          <app-metric-card class="panel-col-3" variant="progress"
+            label="Borradores" [value]="statusCounts['draft'] ?? 0" [goal]="windowTotal"
           format="number" accent="var(--c-text-3)" sub="sin enviar a aprobación"></app-metric-card>
-      </ng-container>
-
-      <ng-container *ngIf="mode === 'history'">
-        <app-metric-card class="panel-col-2" variant="progress"
-          label="En curso" [value]="statusCounts['confirmed'] ?? 0" [goal]="windowTotal"
+        }
+        @if (mode === 'history') {
+          <app-metric-card class="panel-col-2" variant="progress"
+            label="En curso" [value]="statusCounts['confirmed'] ?? 0" [goal]="windowTotal"
           format="number" accent="var(--info-fg)" sub="a despachar"></app-metric-card>
-        <app-metric-card class="panel-col-2" variant="progress"
-          label="Entregados" [value]="statusCounts['fulfilled'] ?? 0" [goal]="windowTotal"
+          <app-metric-card class="panel-col-2" variant="progress"
+            label="Entregados" [value]="statusCounts['fulfilled'] ?? 0" [goal]="windowTotal"
           format="number" accent="var(--ok-fg)" sub="cerrados"></app-metric-card>
-        <app-metric-card class="panel-col-2" variant="progress"
-          label="Cancelados" [value]="statusCounts['cancelled'] ?? 0" [goal]="windowTotal"
+          <app-metric-card class="panel-col-2" variant="progress"
+            label="Cancelados" [value]="statusCounts['cancelled'] ?? 0" [goal]="windowTotal"
           format="number" accent="var(--bad-fg)" sub="en el período"></app-metric-card>
-      </ng-container>
-    </div>
-  `,
+        }
+      </div>
+    }
+    `,
   styles: [`:host { display:block; }`],
 })
 export class OrderKpisComponent {

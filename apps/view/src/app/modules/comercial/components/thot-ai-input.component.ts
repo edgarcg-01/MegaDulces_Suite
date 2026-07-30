@@ -12,7 +12,7 @@ import {
   output,
   signal,
 } from '@angular/core';
-import { CommonModule } from '@angular/common';
+
 import { FormsModule } from '@angular/forms';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ComercialService } from '../comercial.service';
@@ -40,7 +40,7 @@ export interface ThotAsk {
 @Component({
   selector: 'app-thot-ai-input',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [FormsModule],
   template: `
     <div class="aci" [class.expanded]="active() || !!value() || !!attached()" [class.has-attach]="!!attached()" (click)="activate()">
       <!-- Fila de input -->

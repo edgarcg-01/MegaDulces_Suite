@@ -8,7 +8,7 @@ import { TagModule } from 'primeng/tag';
 import { DialogModule } from 'primeng/dialog';
 import { InputTextModule } from 'primeng/inputtext';
 import { InputNumberModule } from 'primeng/inputnumber';
-import { InputSwitchModule } from 'primeng/inputswitch';
+import { ToggleSwitchModule } from 'primeng/toggleswitch';
 import { SelectModule } from 'primeng/select';
 import { DatePickerModule } from 'primeng/datepicker';
 import { TextareaModule } from 'primeng/textarea';
@@ -47,7 +47,7 @@ interface ProductOption {
     DialogModule,
     InputTextModule,
     InputNumberModule,
-    InputSwitchModule,
+    ToggleSwitchModule,
     SelectModule,
     DatePickerModule,
     TextareaModule,
@@ -61,9 +61,9 @@ interface ProductOption {
   template: `
     <div class="surf-page pm">
       <p-toast></p-toast>
-      <p-confirmDialog></p-confirmDialog>
+      <p-confirmdialog></p-confirmdialog>
       <app-page-tabs [tabs]="promoTabs" />
-
+    
       <!-- PAGE HEAD -->
       <header class="surf-page-head">
         <div class="surf-page-head-text">
@@ -77,27 +77,11 @@ interface ProductOption {
           </p>
         </div>
         <div class="pm-head-actions">
-          <button
-            pButton
-            icon="pi pi-refresh"
-            [text]="true"
-            severity="secondary"
-            size="small"
-            (click)="load()"
-            [loading]="loading()"
-            pTooltip="Refrescar"
-          ></button>
-          <button
-            pButton
-            icon="pi pi-plus"
-            label="Nueva promoción"
-            size="small"
-            severity="contrast"
-            (click)="openCreate()"
-          ></button>
+          <button pButton [text]="true" severity="secondary" size="small" (click)="load()" [loading]="loading()" pTooltip="Refrescar"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span></button>
+          <button pButton size="small" severity="contrast" (click)="openCreate()"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Nueva promoción</span></button>
         </div>
       </header>
-
+    
       <!-- FILTERS toolbar -->
       <div class="sheet cols-12">
         <article class="cell cell-span-12 is-flush pm-filters-cell">
@@ -116,7 +100,7 @@ interface ProductOption {
                 appendTo="body"
               ></p-select>
             </div>
-
+    
             <div class="pm-segment" role="group" aria-label="Estado de vigencia">
               <button
                 type="button"
@@ -131,22 +115,23 @@ interface ProductOption {
                 (click)="setActive(false)"
               >Todas</button>
             </div>
-
+    
             <div class="pm-toolbar-spacer"></div>
-
-            <button
-              *ngIf="typeFilter"
-              type="button"
-              class="pm-reset"
-              (click)="clearFilters()"
-            >
-              <i class="pi pi-refresh" aria-hidden="true"></i>
-              <span>Reset</span>
-            </button>
+    
+            @if (typeFilter) {
+              <button
+                type="button"
+                class="pm-reset"
+                (click)="clearFilters()"
+                >
+                <i class="pi pi-refresh" aria-hidden="true"></i>
+                <span>Reset</span>
+              </button>
+            }
           </div>
         </article>
       </div>
-
+    
       <!-- TABLA flush -->
       <div class="sheet cols-12">
         <article class="cell cell-span-12 is-flush">
@@ -162,8 +147,8 @@ interface ProductOption {
             (onLazyLoad)="onLazyLoad($event)"
             responsiveLayout="scroll"
             styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra"
-          >
-            <ng-template pTemplate="header">
+            >
+            <ng-template #header>
               <tr>
                 <th scope="col">Código</th>
                 <th scope="col">Nombre</th>
@@ -175,12 +160,14 @@ interface ProductOption {
                 <th scope="col"><span class="sr-only">Acciones</span></th>
               </tr>
             </ng-template>
-            <ng-template pTemplate="body" let-p>
+            <ng-template #body let-p>
               <tr>
                 <td><code class="comm-code">{{ p.code }}</code></td>
                 <td>
                   <div class="comm-cell-strong">{{ p.name }}</div>
-                  <div class="comm-muted is-small" *ngIf="p.description">{{ p.description }}</div>
+                  @if (p.description) {
+                    <div class="comm-muted is-small">{{ p.description }}</div>
+                  }
                 </td>
                 <td>
                   <span class="pm-type-chip">
@@ -190,44 +177,39 @@ interface ProductOption {
                 </td>
                 <td class="pm-mechanic">{{ summarize(p) }}</td>
                 <td>
-                  <div *ngIf="p.starts_at || p.ends_at; else noWindow" class="pm-window">
-                    <span class="pm-window-from">{{ p.starts_at ? (p.starts_at | date:'dd MMM') : '∞' }}</span>
-                    <i class="pi pi-arrow-right pm-window-sep" aria-hidden="true"></i>
-                    <span class="pm-window-to">{{ p.ends_at ? (p.ends_at | date:'dd MMM') : '∞' }}</span>
-                  </div>
-                  <ng-template #noWindow><span class="comm-muted">Siempre</span></ng-template>
+                  @if (p.starts_at || p.ends_at) {
+                    <div class="pm-window">
+                      <span class="pm-window-from">{{ p.starts_at ? (p.starts_at | date:'dd MMM') : '∞' }}</span>
+                      <i class="pi pi-arrow-right pm-window-sep" aria-hidden="true"></i>
+                      <span class="pm-window-to">{{ p.ends_at ? (p.ends_at | date:'dd MMM') : '∞' }}</span>
+                    </div>
+                  } @else {
+                    <span class="comm-muted">Siempre</span>
+                  }
                 </td>
                 <td class="comm-num">{{ p.priority }}</td>
                 <td>
-                  <p-inputSwitch
+                  <p-toggleswitch
                     [ngModel]="p.active"
                     [ngModelOptions]="{ standalone: true }"
                     (onChange)="toggleActive(p, $event.checked)"
                     [disabled]="togglingId() === p.id"
-                  ></p-inputSwitch>
+                  ></p-toggleswitch>
                 </td>
                 <td class="comm-actions">
-                  <button pButton icon="pi pi-pencil" size="small" severity="secondary" [text]="true" (click)="openEdit(p)" pTooltip="Editar"></button>
-                  <button pButton icon="pi pi-trash" size="small" severity="secondary" [text]="true" (click)="confirmDelete(p)" pTooltip="Eliminar"></button>
+                  <button pButton size="small" severity="secondary" [text]="true" (click)="openEdit(p)" pTooltip="Editar"><span class="p-button-icon p-button-icon-left pi pi-pencil" aria-hidden="true"></span></button>
+                  <button pButton size="small" severity="secondary" [text]="true" (click)="confirmDelete(p)" pTooltip="Eliminar"><span class="p-button-icon p-button-icon-left pi pi-trash" aria-hidden="true"></span></button>
                 </td>
               </tr>
             </ng-template>
-            <ng-template pTemplate="emptymessage">
+            <ng-template #emptymessage>
               <tr>
                 <td colspan="8" class="comm-empty-cell">
                   <div class="comm-empty">
                     <div class="comm-empty-icon"><i class="pi pi-megaphone" aria-hidden="true"></i></div>
                     <h3>Sin promociones</h3>
                     <p>{{ typeFilter ? 'No hay promociones de este tipo.' : 'Creá tu primera promoción para incentivar pedidos.' }}</p>
-                    <button
-                      type="button"
-                      pButton
-                      icon="pi pi-plus"
-                      severity="contrast"
-                      size="small"
-                      label="Nueva promoción"
-                      (click)="openCreate()"
-                    ></button>
+                    <button type="button" pButton severity="contrast" size="small" (click)="openCreate()"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Nueva promoción</span></button>
                   </div>
                 </td>
               </tr>
@@ -236,7 +218,7 @@ interface ProductOption {
         </article>
       </div>
     </div>
-
+    
     <!-- Dialog: Step 1 (type selector) + Step 2 (config) — extraído a app-promotion-form-dialog (CV.3) -->
     <app-promotion-form-dialog
       [visible]="dialogVisible"
@@ -264,7 +246,7 @@ interface ProductOption {
       (removeBundleItem)="removeBundleItem($event)"
       (bannerError)="bannerPreviewError.set($event)"
     ></app-promotion-form-dialog>
-  `,
+    `,
   styles: [`
     :host { display:block; }
 

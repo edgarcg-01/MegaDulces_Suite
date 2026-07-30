@@ -5,6 +5,7 @@ import {
   Input,
   OnDestroy,
   ViewChild,
+  ChangeDetectionStrategy
 } from '@angular/core';
 import * as L from 'leaflet';
 import { environment } from '../../../environments/environment';
@@ -28,6 +29,7 @@ export interface RiderMapPoint {
   selector: 'app-rider-map',
   standalone: true,
   template: `<div #host class="rider-map" [style.height]="height"></div>`,
+  changeDetection: ChangeDetectionStrategy.Eager,
   styles: [`
     .rider-map { width: 100%; border-radius: 14px; overflow: hidden; border: 1px solid var(--border-color, #e5e5e5); z-index: 0; }
     :host ::ng-deep .rm-pin { display: grid; place-items: center; width: 26px; height: 26px; border-radius: 50%; color: #fff; font-weight: 700; font-size: .8rem; border: 2px solid #fff; box-shadow: 0 1px 4px rgba(0,0,0,.4); }

@@ -38,9 +38,9 @@ import { INV_COUNT_TABS } from '../inventory-tabs';
           styleClass="ira-wh"></p-select>
         <span class="ira-tol">
           <label>Tolerancia %</label>
-          <p-inputNumber [(ngModel)]="tolerancePct" [min]="0" [max]="100" [maxFractionDigits]="2" (onBlur)="load()"></p-inputNumber>
+          <p-inputnumber [(ngModel)]="tolerancePct" [min]="0" [max]="100" [maxFractionDigits]="2" (onBlur)="load()"></p-inputnumber>
         </span>
-        <button pButton label="Actualizar" icon="pi pi-refresh" [text]="true" (click)="load()"></button>
+        <button pButton [text]="true" (click)="load()"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span><span class="p-button-label">Actualizar</span></button>
       </div>
 
       @if (data(); as d) {
@@ -71,10 +71,10 @@ import { INV_COUNT_TABS } from '../inventory-tabs';
           <h2>Shrinkage por causa</h2>
           @if (d.by_reason.length) {
             <p-table [value]="d.by_reason" responsiveLayout="scroll" styleClass="surf-table surf-table--sticky surf-table--zebra p-datatable-sm" [tableStyle]="{ 'min-width': '32rem' }">
-              <ng-template pTemplate="header">
+              <ng-template #header>
                 <tr><th scope="col">Motivo</th><th scope="col" class="num">Items</th><th scope="col" class="num">Unidades</th><th scope="col" class="num">Valor</th></tr>
               </ng-template>
-              <ng-template pTemplate="body" let-r>
+              <ng-template #body let-r>
                 <tr>
                   <td>{{ reasonLabel(r.reason_code) }}</td>
                   <td class="num">{{ r.items }}</td>
@@ -90,10 +90,10 @@ import { INV_COUNT_TABS } from '../inventory-tabs';
           <h2>Folios recientes</h2>
           @if (d.recent_folios.length) {
             <p-table [value]="d.recent_folios" responsiveLayout="scroll" styleClass="surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra p-datatable-sm" [tableStyle]="{ 'min-width': '40rem' }">
-              <ng-template pTemplate="header">
+              <ng-template #header>
                 <tr><th scope="col">Folio</th><th scope="col">Almacén</th><th scope="col">Reconciliado</th><th scope="col" class="num">IRA</th><th scope="col" class="num">Variación neta</th></tr>
               </ng-template>
-              <ng-template pTemplate="body" let-r>
+              <ng-template #body let-r>
                 <tr>
                   <td><a [routerLink]="['/almacen/inventory/sessions', r.count_id]" class="ira-folio">{{ r.folio }}</a></td>
                   <td>{{ r.warehouse_code || '—' }}</td>

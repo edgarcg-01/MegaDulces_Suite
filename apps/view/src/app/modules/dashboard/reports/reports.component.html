@@ -75,7 +75,7 @@
               (click)="activeTab.set(4)">Tiendas</button>
     </div>
 
-    <p-tabs [value]="activeTab()" (valueChange)="activeTab.set(+$event)" styleClass="liquid-tabs-hide-tablist">
+    <p-tabs [value]="activeTab()" (valueChange)="activeTab.set(+($event ?? 0))" styleClass="liquid-tabs-hide-tablist">
 
       <p-tabpanels>
         <p-tabpanel [value]="0">
@@ -277,7 +277,7 @@
               </div>
 
               <p-table #dt [value]="groupedRows()" [paginator]="true" [rows]="10" dataKey="id" [expandedRowKeys]="expandedRows" [globalFilterFields]="['fecha','visits.folio','visits.captured_by_username','visits.zona_captura']" [filters]="{ global: { value: searchTextDebounced(), matchMode: 'contains' } }" styleClass="p-datatable-modern overflow-hidden rounded-2xl border border-divider">
-                <ng-template pTemplate="header">
+                <ng-template #header>
                   <tr class="text-xs uppercase text-content-faint bg-surface-ground border-b border-divider">
                     <th style="width:3rem">
                       <input type="checkbox" (change)="toggleSelectAll($event)"
@@ -294,7 +294,7 @@
                   </tr>
                 </ng-template>
 
-                <ng-template pTemplate="body" let-day let-expanded="expanded">
+                <ng-template #body let-day let-expanded="expanded">
                   <!--
                     Una sola fila clickable expande/colapsa. El chevron es indicador
                     visual del estado, no un segundo trigger (antes había conflict
@@ -339,17 +339,17 @@
                   </tr>
                 </ng-template>
 
-                <ng-template pTemplate="rowexpansion" let-day>
+                <ng-template #expandedrow let-day>
                   <tr class="focus-visible:ring-2 focus-visible:ring-[color:var(--focus-ring)] focus-visible:outline-none">
                     <td colspan="7" class="bg-surface-ground p-4 border-b border-divider">
                       <div class="bg-surface-card rounded-xl border border-divider shadow-sm overflow-hidden">
                         <p-table [value]="day.visits" styleClass="p-datatable-sm p-datatable-striped">
-                          <ng-template pTemplate="header">
+                          <ng-template #header>
                             <tr class="text-xs uppercase text-content-muted bg-surface-ground">
                               <th class="pl-4 py-2 w-24">Folio</th><th>Ejecutivo</th><th class="w-32">Zona</th><th class="text-center w-24">Score</th><th class="text-center w-24">Estado</th><th class="text-center w-24">Acción</th>
                             </tr>
                           </ng-template>
-                          <ng-template pTemplate="body" let-visit>
+                          <ng-template #body let-visit>
                             <tr class="text-xs hover:bg-surface-hover border-b border-divider last:border-0 cursor-pointer"
                                 [class]="'status-' + visitScoreStatus(visit)"
                                 (click)="viewDetail(visit)">
@@ -357,7 +357,7 @@
                               <td class="font-medium text-content-main">{{ visit.captured_by_username }}</td>
                               <td><span class="bg-surface-ground border border-divider px-2 py-0.5 rounded text-xs uppercase font-bold text-content-muted">{{ visit.zona_captura }}</span></td>
                               <td class="text-center">
-                                <span class="font-black status-text">{{ fmtScore(visit.stats?.puntuacionTotal) }}</span>
+                                <span class="font-black status-text">{{ fmtScore($safeNavigationMigration(visit.stats?.puntuacionTotal)) }}</span>
                               </td>
                               <td class="text-center">
                                 <span class="status-chip uppercase">{{ statusLabel(visitScoreStatus(visit)) }}</span>
@@ -474,13 +474,13 @@
                 </div>
                 <div class="overflow-hidden rounded-xl border border-divider">
                   <p-table [value]="topFaltantes" styleClass="p-datatable-sm">
-                    <ng-template pTemplate="header">
+                    <ng-template #header>
                       <tr class="text-xs uppercase text-content-faint bg-surface-ground">
                         <th class="py-2 px-3">Producto</th>
                         <th class="py-2 px-3 text-right">Tasa de faltantes</th>
                       </tr>
                     </ng-template>
-                    <ng-template pTemplate="body" let-p>
+                    <ng-template #body let-p>
                       <tr class="text-xs border-b border-divider/50 last:border-0"
                           [class]="'status-' + stockoutSeverity(p.stockoutRate)">
                         <td class="py-2 px-3 font-medium text-content-main truncate max-w-[150px]">{{ p.name }}</td>
@@ -507,7 +507,7 @@
                       <p class="text-xs text-content-muted mt-0.5">Frecuencia de aparición en exhibidores móviles y fijos</p>
                     </div>
                     <div class="flex gap-2 w-full sm:w-auto">
-                      <p-dropdown [options]="availableBrands" [(ngModel)]="selectedBrand" (onChange)="applyBrandFilter()" [filter]="true" filterBy="label" styleClass="w-full sm:w-56 text-xs p-dropdown-sm" placeholder="Seleccionar marca"></p-dropdown>
+                      <p-select [options]="availableBrands" [(ngModel)]="selectedBrand" (onChange)="applyBrandFilter()" [filter]="true" filterBy="label" styleClass="w-full sm:w-56 text-xs" placeholder="Seleccionar marca"></p-select>
                       <p-button [icon]="brandPdfLoading ? 'pi pi-spin pi-spinner' : 'pi pi-file-pdf'" severity="secondary" [text]="true" [rounded]="true" (onClick)="exportBrandPdf()" [disabled]="!selectedBrand || brandPdfLoading" pTooltip="Generar reporte profesional de Presencia de Marca (PDF)" ariaLabel="Generar reporte de presencia de marca"></p-button>
                       <p-button icon="pi pi-list" severity="secondary" [text]="true" [rounded]="true" (onClick)="openAllProductsDialog()" pTooltip="Ver todos los productos" ariaLabel="Ver todos los productos"></p-button>
                     </div>
@@ -526,13 +526,13 @@
                       <i class="pi pi-star-fill text-brand" aria-hidden="true"></i> Estrellas del Planograma (Top)
                     </h3>
                     <p-table [value]="topProducts" [rows]="10" styleClass="p-datatable-sm">
-                      <ng-template pTemplate="header">
+                      <ng-template #header>
                         <tr class="text-xs bg-surface-ground uppercase text-content-muted border-b border-divider">
                           <th class="py-2 px-3 text-left">Producto</th>
                           <th class="py-2 px-3 text-center">Frecuencia</th>
                         </tr>
                       </ng-template>
-                      <ng-template pTemplate="body" let-p>
+                      <ng-template #body let-p>
                         <tr class="text-xs border-b border-divider/50 hover:bg-surface-hover">
                           <td class="py-2 px-3 font-bold text-content-main">{{ p.name }}</td>
                           <td class="py-2 px-3 text-center">
@@ -548,13 +548,13 @@
                       <i class="pi pi-exclamation-triangle status-text" aria-hidden="true"></i> Áreas de Oportunidad (Bottom)
                     </h3>
                     <p-table [value]="bottomProducts" [rows]="10" styleClass="p-datatable-sm">
-                      <ng-template pTemplate="header">
+                      <ng-template #header>
                         <tr class="text-xs bg-surface-ground uppercase text-content-muted border-b border-divider">
                           <th class="py-2 px-3 text-left">Producto</th>
                           <th class="py-2 px-3 text-center">Frecuencia</th>
                         </tr>
                       </ng-template>
-                      <ng-template pTemplate="body" let-p>
+                      <ng-template #body let-p>
                         <tr class="text-xs border-b border-divider/50 hover:bg-surface-hover">
                           <td class="py-2 px-3 font-medium text-content-muted">{{ p.name }}</td>
                           <td class="py-2 px-3 text-center">
@@ -665,7 +665,7 @@
         <input type="text" [(ngModel)]="pdfTitle" class="border border-divider rounded-lg p-2 text-sm bg-surface-card text-content-main" />
       </div>
     </div>
-    <ng-template pTemplate="footer">
+    <ng-template #footer>
       <div class="flex justify-end gap-3">
         <p-button label="Cancelar" severity="secondary" (click)="showPdfBuilder = false"></p-button>
         <p-button label="Generar PDF" icon="pi pi-file-pdf" styleClass="p-button-brand" (click)="exportBuiltPdf()"></p-button>
@@ -728,7 +728,7 @@
                    [class]="'status-' + visitScoreStatus(selectedRow)"
                    style="border-color: var(--status-fg)">
                 <div class="text-xs uppercase font-black opacity-70">Score</div>
-                <div class="text-2xl font-black status-text">{{ fmtScore(selectedRow.stats?.puntuacionTotal) }}</div>
+                <div class="text-2xl font-black status-text">{{ fmtScore($safeNavigationMigration(selectedRow.stats?.puntuacionTotal)) }}</div>
                 <div class="text-xs font-bold uppercase opacity-70">{{ statusLabel(visitScoreStatus(selectedRow)) }}</div>
               </div>
               <p-button label="Exportar PDF" icon="pi pi-file-pdf" severity="contrast" size="small" (click)="exportSingleVisitPdf(selectedRow)"></p-button>
@@ -770,12 +770,12 @@
           </div>
           <div class="border border-divider rounded-xl overflow-hidden">
             <p-table [value]="selectedRow.exhibiciones || []" [rows]="10" [paginator]="true">
-              <ng-template pTemplate="header">
+              <ng-template #header>
                 <tr class="text-sm bg-surface-ground uppercase text-content-muted">
                   <th class="py-4 px-5">Formato</th><th class="text-center py-4 px-5">Nivel</th><th class="text-center py-4 px-5">Rango</th><th class="text-center py-4 px-5">Imagen</th><th class="py-4 px-5">Productos</th><th class="text-right pr-5 py-4">Venta</th><th class="text-right pr-5 py-4">Puntos</th>
                 </tr>
               </ng-template>
-              <ng-template pTemplate="body" let-ex>
+              <ng-template #body let-ex>
                 <tr class="text-base">
                   <td class="py-4 px-5">
                     <span class="text-sm px-3 py-2 rounded bg-surface-layout border border-divider font-bold text-content-main">{{ getConceptoName(ex.conceptoId) }}</span>
@@ -848,14 +848,14 @@
       @if (isSupervisor()) {
         <div>
           <label class="block text-sm font-medium mb-2">Seleccionar usuarios</label>
-          <p-multiSelect
+          <p-multiselect
             [options]="availableUsers()"
             [(ngModel)]="selectedRouteUsers"
             optionLabel="username"
             optionValue="id"
             placeholder="Selecciona usuarios..."
             class="w-full">
-          </p-multiSelect>
+          </p-multiselect>
           <p class="text-xs text-content-muted mt-1">Deja vacío para seleccionar todos tus usuarios</p>
         </div>
       } @else {
@@ -865,14 +865,14 @@
       }
     </div>
     
-    <ng-template pTemplate="footer">
+    <ng-template #footer>
       <p-button label="Cancelar" severity="secondary" (onClick)="showRouteReportDialog = false" text></p-button>
       <p-button label="Generar PDF" icon="pi pi-file-pdf" styleClass="p-button-brand" (onClick)="exportRouteReportPdf()"></p-button>
     </ng-template>
   </p-dialog>
 
   <p-toast></p-toast>
-  <p-confirmDialog></p-confirmDialog>
+  <p-confirmdialog></p-confirmdialog>
 
   <ng-template #tabSkeleton>
     <div class="pt-4 space-y-4">
@@ -930,15 +930,15 @@
                 <div class="flex flex-col gap-1">
                   <label class="text-xs font-bold text-content-faint uppercase">Meta mínima</label>
                   <div class="w-full">
-                    <p-inputNumber [(ngModel)]="r.min" [min]="0" [max]="r.opt - 1" [showButtons]="false" size="small"
-                      decrementButtonClass="p-button-secondary" incrementButtonClass="p-button-secondary" [suffix]="r.unit ? ' ' + r.unit : ''"></p-inputNumber>
+                    <p-inputnumber [(ngModel)]="r.min" [min]="0" [max]="r.opt - 1" [showButtons]="false" size="small"
+                      decrementButtonClass="p-button-secondary" incrementButtonClass="p-button-secondary" [suffix]="r.unit ? ' ' + r.unit : ''"></p-inputnumber>
                   </div>
                 </div>
                 <div class="flex flex-col gap-1">
                   <label class="text-xs font-bold text-content-faint uppercase">Meta óptima</label>
                   <div class="w-full">
-                    <p-inputNumber [(ngModel)]="r.opt" [min]="r.min + 1" [showButtons]="false" size="small"
-                      decrementButtonClass="p-button-secondary" incrementButtonClass="p-button-secondary" [suffix]="r.unit ? ' ' + r.unit : ''"></p-inputNumber>
+                    <p-inputnumber [(ngModel)]="r.opt" [min]="r.min + 1" [showButtons]="false" size="small"
+                      decrementButtonClass="p-button-secondary" incrementButtonClass="p-button-secondary" [suffix]="r.unit ? ' ' + r.unit : ''"></p-inputnumber>
                   </div>
                 </div>
               </div>
@@ -972,7 +972,7 @@
       </div>
     </div>
 
-    <ng-template pTemplate="footer">
+    <ng-template #footer>
       <div class="flex flex-col sm:flex-row justify-end gap-2 sm:gap-3 p-2">
         <p-button label="Cancelar" icon="pi pi-times" severity="secondary" (click)="cancelMetas()" class="w-full sm:w-auto"></p-button>
         <p-button label="Guardar metas" icon="pi pi-check" styleClass="p-button-brand" (click)="saveMetas()" class="w-full sm:w-auto"></p-button>
@@ -1015,7 +1015,7 @@
       </div>
       
       <p-table [value]="filteredProductsTable()" [rows]="20" [paginator]="true" [rowsPerPageOptions]="[10, 20, 50, 100]" styleClass="p-datatable-sm">
-        <ng-template pTemplate="header">
+        <ng-template #header>
           <tr class="text-xs uppercase text-content-muted bg-surface-ground">
             <th class="py-2 px-3 text-center w-10">#</th>
             <th class="py-2 px-3 text-left">Producto</th>
@@ -1024,7 +1024,7 @@
             <th class="py-2 px-3 text-left">Exhibidores</th>
           </tr>
         </ng-template>
-        <ng-template pTemplate="body" let-p let-i="rowIndex">
+        <ng-template #body let-p let-i="rowIndex">
           <tr class="text-xs border-b border-divider/50 hover:bg-surface-hover">
             <td class="py-2 px-3 text-center font-bold text-content-muted">{{ i + 1 }}</td>
             <td class="py-2 px-3 font-bold text-content-main">{{ p.name }}</td>
@@ -1045,7 +1045,7 @@
         </ng-template>
       </p-table>
     </div>
-    <ng-template pTemplate="footer">
+    <ng-template #footer>
       <div class="flex justify-end">
         <p-button label="Cerrar" severity="secondary" (click)="showAllProductsDialog = false"></p-button>
       </div>

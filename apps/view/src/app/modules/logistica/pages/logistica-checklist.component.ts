@@ -33,102 +33,117 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
   providers: [MessageService, ConfirmationService],
   template: `
     <p-toast></p-toast>
-    <p-confirmDialog></p-confirmDialog>
-
-    <header class="surf-page-head" *ngIf="shipment() as s">
-      <div class="surf-page-head-text">
-        <a [routerLink]="['/logistica/shipments', s.id]" class="back"><i class="pi pi-arrow-left"></i> Volver al embarque</a>
-        <h1>Checklists — <code>{{ s.folio }}</code></h1>
-        <p class="surf-page-sub">Estado actual: <p-tag [value]="s.status" [severity]="severityStatus(s.status)"></p-tag></p>
-      </div>
-    </header>
-
+    <p-confirmdialog></p-confirmdialog>
+    
+    @if (shipment(); as s) {
+      <header class="surf-page-head">
+        <div class="surf-page-head-text">
+          <a [routerLink]="['/logistica/shipments', s.id]" class="back"><i class="pi pi-arrow-left"></i> Volver al embarque</a>
+          <h1>Checklists — <code>{{ s.folio }}</code></h1>
+          <p class="surf-page-sub">Estado actual: <p-tag [value]="s.status" [severity]="severityStatus(s.status)"></p-tag></p>
+        </div>
+      </header>
+    }
+    
     <!-- Crear nuevo checklist -->
-    <p-card *ngIf="shipment() as s">
-      <h3>Nuevo checklist</h3>
-      <div class="new-row">
-        <p-selectButton
-          [options]="typeOptions"
-          [(ngModel)]="newType"
-          optionLabel="label"
-          optionValue="value"
-          styleClass="sb-liquid"
-        ></p-selectButton>
-        <button pButton icon="pi pi-plus" label="Crear checklist" (click)="createNew()" [loading]="creating()"></button>
-      </div>
-    </p-card>
-
+    @if (shipment(); as s) {
+      <p-card>
+        <h3>Nuevo checklist</h3>
+        <div class="new-row">
+          <p-selectbutton
+            [options]="typeOptions"
+            [(ngModel)]="newType"
+            optionLabel="label"
+            optionValue="value"
+            styleClass="sb-liquid"
+          ></p-selectbutton>
+          <button pButton (click)="createNew()" [loading]="creating()"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Crear checklist</span></button>
+        </div>
+      </p-card>
+    }
+    
     <!-- Lista de checklists del shipment -->
-    <ng-container *ngIf="checklists() as list">
-      <p-card *ngFor="let cl of list" class="checklist-card">
-        <div class="cl-header">
-          <h3>
-            <i [class]="cl.type === 'salida' ? 'pi pi-sign-out' : 'pi pi-sign-in'"></i>
-            Checklist {{ cl.type === 'salida' ? 'de salida' : 'de llegada' }}
-          </h3>
-          <p-tag
-            [value]="cl.status"
-            [severity]="cl.status === 'completado' ? 'success' : 'warn'"
-          ></p-tag>
-        </div>
-        <p class="muted" *ngIf="cl.completed_at">
-          Completado: {{ cl.completed_at | date:'short' }}
-        </p>
-
-        <div class="items-grid">
-          <div *ngFor="let item of cl.items" class="item-row">
-            <div class="item-label">
-              <strong>{{ item.label }}</strong>
-              <span class="req" *ngIf="item.required">*</span>
-              <small *ngIf="item.group" class="group-tag">{{ item.group }}</small>
-            </div>
-            <div class="item-controls" *ngIf="cl.status === 'pendiente'">
-              <p-selectButton
-                [options]="okOptions"
-                [(ngModel)]="responses[cl.id][item.id].ok"
-                optionLabel="label"
-                optionValue="value"
-                styleClass="sb-liquid"
-              ></p-selectButton>
-              <input
-                pInputText
-                [(ngModel)]="responses[cl.id][item.id].comment"
-                placeholder="Comentario (opcional)"
-                class="comment-input"
-              />
-            </div>
-            <div class="item-result" *ngIf="cl.status === 'completado' && cl.responses">
-              <p-tag
-                [value]="responseFor(cl, item.id)?.ok ? 'OK' : 'Issue'"
-                [severity]="responseFor(cl, item.id)?.ok ? 'success' : 'danger'"
-              ></p-tag>
-              <span *ngIf="responseFor(cl, item.id)?.comment" class="comment-shown">
-                {{ responseFor(cl, item.id)?.comment }}
-              </span>
-            </div>
+    @if (checklists(); as list) {
+      @for (cl of list; track cl) {
+        <p-card class="checklist-card">
+          <div class="cl-header">
+            <h3>
+              <i [class]="cl.type === 'salida' ? 'pi pi-sign-out' : 'pi pi-sign-in'"></i>
+              Checklist {{ cl.type === 'salida' ? 'de salida' : 'de llegada' }}
+            </h3>
+            <p-tag
+              [value]="cl.status"
+              [severity]="cl.status === 'completado' ? 'success' : 'warn'"
+            ></p-tag>
           </div>
-        </div>
-
-        <div class="cl-footer" *ngIf="cl.status === 'pendiente'">
-          <label>
-            Notas generales
-            <textarea pTextarea rows="2" [(ngModel)]="notesByChecklist[cl.id]"></textarea>
-          </label>
-          <button
-            pButton
-            icon="pi pi-check"
-            label="Marcar completado"
-            (click)="complete(cl)"
-            [loading]="completing() === cl.id"
-          ></button>
-        </div>
-      </p-card>
-
-      <p-card *ngIf="!list.length">
-        <p class="muted">No hay checklists todavía para este embarque. Crea uno con los botones de arriba.</p>
-      </p-card>
-    </ng-container>
-  `,
+          @if (cl.completed_at) {
+            <p class="muted">
+              Completado: {{ cl.completed_at | date:'short' }}
+            </p>
+          }
+          <div class="items-grid">
+            @for (item of cl.items; track item) {
+              <div class="item-row">
+                <div class="item-label">
+                  <strong>{{ item.label }}</strong>
+                  @if (item.required) {
+                    <span class="req">*</span>
+                  }
+                  @if (item.group) {
+                    <small class="group-tag">{{ item.group }}</small>
+                  }
+                </div>
+                @if (cl.status === 'pendiente') {
+                  <div class="item-controls">
+                    <p-selectbutton
+                      [options]="okOptions"
+                      [(ngModel)]="responses[cl.id][item.id].ok"
+                      optionLabel="label"
+                      optionValue="value"
+                      styleClass="sb-liquid"
+                    ></p-selectbutton>
+                    <input
+                      pInputText
+                      [(ngModel)]="responses[cl.id][item.id].comment"
+                      placeholder="Comentario (opcional)"
+                      class="comment-input"
+                      />
+                    </div>
+                  }
+                  @if (cl.status === 'completado' && cl.responses) {
+                    <div class="item-result">
+                      <p-tag
+                        [value]="responseFor(cl, item.id)?.ok ? 'OK' : 'Issue'"
+                        [severity]="responseFor(cl, item.id)?.ok ? 'success' : 'danger'"
+                      ></p-tag>
+                      @if (responseFor(cl, item.id)?.comment) {
+                        <span class="comment-shown">
+                          {{ responseFor(cl, item.id)?.comment }}
+                        </span>
+                      }
+                    </div>
+                  }
+                </div>
+              }
+            </div>
+            @if (cl.status === 'pendiente') {
+              <div class="cl-footer">
+                <label>
+                  Notas generales
+                  <textarea pTextarea rows="2" [(ngModel)]="notesByChecklist[cl.id]"></textarea>
+                </label>
+                <button pButton (click)="complete(cl)" [loading]="completing() === cl.id"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Marcar completado</span></button>
+              </div>
+            }
+          </p-card>
+        }
+        @if (!list.length) {
+          <p-card>
+            <p class="muted">No hay checklists todavía para este embarque. Crea uno con los botones de arriba.</p>
+          </p-card>
+        }
+      }
+    `,
   styles: [`
     :host { display:block; }
     .back { color: var(--primary-color); text-decoration:none; font-size:.85rem; }

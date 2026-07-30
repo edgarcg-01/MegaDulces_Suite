@@ -30,34 +30,31 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
   providers: [MessageService],
   template: `
     <p-toast></p-toast>
-
+    
     <div class="header-row">
       <div>
         <h2>Dashboard Televenta</h2>
         <p class="muted">Productividad del día + conversión 7d + ranking operadores.</p>
       </div>
-      <button pButton icon="pi pi-refresh" label="Actualizar" severity="secondary" (click)="reload()" [loading]="loading()"></button>
+      <button pButton severity="secondary" (click)="reload()" [loading]="loading()"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span><span class="p-button-label">Actualizar</span></button>
     </div>
-
-    <ng-container *ngIf="data() as d">
-
+    
+    @if (data(); as d) {
       <!-- Mi performance (operador) -->
       @if (d.my_stats) {
         <h3 class="section-title"><i class="pi pi-user"></i> Mi performance hoy</h3>
         <app-metric-strip [items]="myItems(d)" ariaLabel="Mi performance de hoy" />
       }
-
       <!-- KPIs del equipo (hoy) -->
       <h3 class="section-title">Equipo · Hoy</h3>
       <app-metric-strip [items]="teamItems(d)" ariaLabel="Métricas del equipo hoy" />
-
       <!-- Two-column -->
       <div class="two-col">
         <!-- Top operadores -->
         <p-card>
           <h3>Top operadores · hoy</h3>
           <p-table [value]="d.top_operators" responsiveLayout="scroll" styleClass="p-datatable-sm">
-            <ng-template pTemplate="header">
+            <ng-template #header>
               <tr>
                 <th>#</th>
                 <th>Operador</th>
@@ -67,7 +64,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
                 <th class="num">Conv.</th>
               </tr>
             </ng-template>
-            <ng-template pTemplate="body" let-op let-i="rowIndex">
+            <ng-template #body let-op let-i="rowIndex">
               <tr>
                 <td><strong>{{ i + 1 }}</strong></td>
                 <td>{{ op.username || '—' }}</td>
@@ -77,34 +74,36 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
                 <td class="num">{{ opConversion(op) | number:'1.1-1' }}%</td>
               </tr>
             </ng-template>
-            <ng-template pTemplate="emptymessage">
+            <ng-template #emptymessage>
               <tr><td colspan="6" class="muted">Sin actividad hoy.</td></tr>
             </ng-template>
           </p-table>
         </p-card>
-
         <!-- Outcomes breakdown (7d) -->
         <p-card>
           <h3>Outcomes · últimos 7 días</h3>
-          <div class="outcome-row" *ngFor="let o of d.outcomes_7d">
-            <div class="outcome-header">
-              <p-tag [value]="outcomeLabel(o.outcome)" [severity]="outcomeSeverity(o.outcome)"></p-tag>
-              <span class="outcome-count">{{ o.count }}</span>
+          @for (o of d.outcomes_7d; track o) {
+            <div class="outcome-row">
+              <div class="outcome-header">
+                <p-tag [value]="outcomeLabel(o.outcome)" [severity]="outcomeSeverity(o.outcome)"></p-tag>
+                <span class="outcome-count">{{ o.count }}</span>
+              </div>
+              <p-progressbar [value]="outcomePct(o, d)" [showValue]="false"></p-progressbar>
             </div>
-            <p-progressBar [value]="outcomePct(o, d)" [showValue]="false"></p-progressBar>
-          </div>
-          <p *ngIf="d.outcomes_7d.length === 0" class="muted">Sin llamadas registradas en los últimos 7 días.</p>
+          }
+          @if (d.outcomes_7d.length === 0) {
+            <p class="muted">Sin llamadas registradas en los últimos 7 días.</p>
+          }
         </p-card>
       </div>
-
       <!-- Queue preview (top 5 leads urgentes) -->
       <p-card class="queue-preview">
         <div class="card-header-row">
           <h3>Cola priorizada · próximos a llamar</h3>
-          <a pButton routerLink="/televenta/queue" label="Ver cola completa" icon="pi pi-arrow-right" iconPos="right" severity="secondary" [text]="true" size="small"></a>
+          <a pButton routerLink="/televenta/queue" severity="secondary" [text]="true" size="small"><span class="p-button-label">Ver cola completa</span><span class="p-button-icon p-button-icon-right pi pi-arrow-right" aria-hidden="true"></span></a>
         </div>
         <p-table [value]="d.queue_preview" responsiveLayout="scroll" styleClass="p-datatable-sm">
-          <ng-template pTemplate="header">
+          <ng-template #header>
             <tr>
               <th>Código</th>
               <th>Cliente</th>
@@ -113,22 +112,22 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
               <th></th>
             </tr>
           </ng-template>
-          <ng-template pTemplate="body" let-c>
+          <ng-template #body let-c>
             <tr>
               <td><code>{{ c.code }}</code></td>
               <td><strong>{{ c.name }}</strong></td>
               <td>{{ c.phone || '—' }}</td>
               <td>{{ c.last_order_at ? (c.last_order_at | date:'mediumDate') : '—' }}</td>
-              <td><a pButton [routerLink]="['/televenta/lead', c.id]" label="Tomar" icon="pi pi-phone" size="small" [text]="true"></a></td>
+              <td><a pButton [routerLink]="['/televenta/lead', c.id]" size="small" [text]="true"><span class="p-button-icon p-button-icon-left pi pi-phone" aria-hidden="true"></span><span class="p-button-label">Tomar</span></a></td>
             </tr>
           </ng-template>
-          <ng-template pTemplate="emptymessage">
+          <ng-template #emptymessage>
             <tr><td colspan="5" class="muted">Cola al día 🎉</td></tr>
           </ng-template>
         </p-table>
       </p-card>
-    </ng-container>
-  `,
+    }
+    `,
   styles: [`
     :host { display:block; }
     .header-row { display:flex; justify-content:space-between; align-items:flex-end; gap:1rem; flex-wrap:wrap; margin-bottom:1rem; }

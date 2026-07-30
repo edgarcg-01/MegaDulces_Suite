@@ -8,7 +8,9 @@
       <h1>Centro de control</h1>
       <p class="surf-page-sub">
         Venta real de la red · últimos 30 días
-        <span *ngIf="overview()?.updated_at as u" class="comm-muted is-small">· datos al {{ fmtDate(u) }}</span>
+        @if (overview()?.updated_at; as u) {
+          <span class="comm-muted is-small">· datos al {{ fmtDate(u) }}</span>
+        }
       </p>
     </div>
     <div class="cc-head-actions">
@@ -29,446 +31,511 @@
     </div>
   </header>
 
-  <div *ngIf="loading()" class="cc-skeletons" aria-hidden="true">
-    <p-skeleton height="190px" borderRadius="12px"></p-skeleton>
-    <p-skeleton height="120px" borderRadius="12px"></p-skeleton>
-    <p-skeleton height="320px" borderRadius="12px"></p-skeleton>
-    <p-skeleton height="280px" borderRadius="12px"></p-skeleton>
-  </div>
+  @if (loading()) {
+    <div class="cc-skeletons" aria-hidden="true">
+      <p-skeleton height="190px" borderRadius="12px"></p-skeleton>
+      <p-skeleton height="120px" borderRadius="12px"></p-skeleton>
+      <p-skeleton height="320px" borderRadius="12px"></p-skeleton>
+      <p-skeleton height="280px" borderRadius="12px"></p-skeleton>
+    </div>
+  }
 
   <!-- SHEET 1: Hero Ventas + Margen + Tickets + Clientes + Pipeline -->
-  <div *ngIf="!loading()" class="sheet cols-12">
-    <article class="cell cell-span-6 cell-row-2 cc-hero">
-      <span class="cell-icon" aria-hidden="true">
-        <i class="pi pi-dollar"></i>
-      </span>
-      <span class="cell-label">Venta bruta · 30d</span>
-      <span class="cell-value is-headline cc-hero-value" [appCountUp]="overview()?.revenue?.gross ?? 0" countUpFormat="money-short"></span>
-      <span class="cell-sub cc-hero-sub">
-        <span
-          *ngIf="revenueDelta() as d"
-          class="cc-delta"
-          [class.is-up]="d.direction === 'up'"
-          [class.is-down]="d.direction === 'down'"
-          [pTooltip]="'Δ vs primera mitad del período'"
-          tooltipPosition="top"
-        >
-          <i [class]="d.direction === 'up' ? 'pi pi-arrow-up-right' : 'pi pi-arrow-down-right'" aria-hidden="true"></i>
-          {{ fmtNumber(d.pct >= 0 ? d.pct : -d.pct, 1) }}%
+  @if (!loading()) {
+    <div class="sheet cols-12">
+      <article class="cell cell-span-6 cell-row-2 cc-hero">
+        <span class="cell-icon" aria-hidden="true">
+          <i class="pi pi-dollar"></i>
         </span>
-        <span class="cc-hero-meta">
-          Margen {{ fmtNumber(overview()?.revenue?.margin_pct, 1) }}% · {{ fmtNumber(overview()?.units) }} unidades
+        <span class="cell-label">Venta bruta · 30d</span>
+        <span class="cell-value is-headline cc-hero-value" [appCountUp]="overview()?.revenue?.gross ?? 0" countUpFormat="money-short"></span>
+        <span class="cell-sub cc-hero-sub">
+          @if (revenueDelta(); as d) {
+            <span
+              class="cc-delta"
+              [class.is-up]="d.direction === 'up'"
+              [class.is-down]="d.direction === 'down'"
+              [pTooltip]="'Δ vs primera mitad del período'"
+              tooltipPosition="top"
+              >
+              <i [class]="d.direction === 'up' ? 'pi pi-arrow-up-right' : 'pi pi-arrow-down-right'" aria-hidden="true"></i>
+              {{ fmtNumber(d.pct >= 0 ? d.pct : -d.pct, 1) }}%
+            </span>
+          }
+          <span class="cc-hero-meta">
+            Margen {{ fmtNumber($safeNavigationMigration(overview()?.revenue?.margin_pct), 1) }}% · {{ fmtNumber($safeNavigationMigration(overview()?.units)) }} unidades
+          </span>
         </span>
-      </span>
-
-      <div class="cc-spark" *ngIf="revenueSpark() as s" aria-hidden="true">
-        <svg [attr.viewBox]="'0 0 ' + s.W + ' ' + s.H" preserveAspectRatio="none">
-          <defs>
-            <linearGradient id="ccSparkFill" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stop-color="var(--action)" stop-opacity="0.18"/>
-              <stop offset="100%" stop-color="var(--action)" stop-opacity="0"/>
-            </linearGradient>
-          </defs>
-          <path [attr.d]="s.area" fill="url(#ccSparkFill)"/>
-          <path [attr.d]="s.line" fill="none" stroke="var(--action)" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>
-          <circle [attr.cx]="s.last.x" [attr.cy]="s.last.y" r="2.5" fill="var(--action)"/>
-        </svg>
-      </div>
-    </article>
-
-    <article class="cell cell-span-3">
-      <span class="cell-icon" aria-hidden="true">
-        <i class="pi pi-wallet"></i>
-      </span>
-      <span class="cell-label">Margen bruto · 30d</span>
-      <span class="cell-value" [appCountUp]="overview()?.revenue?.margin ?? 0" countUpFormat="money-short"></span>
-      <span class="cell-sub">
-        {{ fmtNumber(overview()?.revenue?.margin_pct, 1) }}% del ingreso · costo {{ fmtMoneyShort(overview()?.revenue?.cost) }}
-      </span>
-    </article>
-
-    <article class="cell cell-span-3">
-      <span class="cell-icon" aria-hidden="true">
-        <i class="pi pi-receipt"></i>
-      </span>
-      <span class="cell-label">Tickets · 30d</span>
-      <span class="cell-value" [appCountUp]="overview()?.tickets ?? 0" countUpFormat="int"></span>
-      <span class="cell-sub">
-        Ticket prom {{ fmtMoneyShort(overview()?.avg_ticket) }}
-      </span>
-      <div class="cc-minibars" *ngIf="ticketsBars() as b" aria-hidden="true">
-        <svg [attr.viewBox]="'0 0 ' + b.W + ' ' + b.H" preserveAspectRatio="none">
-          <rect *ngFor="let r of b.rects" [attr.x]="r.x" [attr.y]="r.y" [attr.width]="r.w" [attr.height]="r.h"></rect>
-        </svg>
-      </div>
-    </article>
-
-    <article class="cell cell-span-3">
-      <span class="cell-icon" aria-hidden="true">
-        <i class="pi pi-users"></i>
-      </span>
-      <span class="cell-label">Clientes activos · 30d</span>
-      <span class="cell-value" [appCountUp]="overview()?.unique_customers ?? 0" countUpFormat="int"></span>
-      <span class="cell-sub">Compraron en la red en los últimos 30 días</span>
-      <div class="cc-minibars" *ngIf="unitsBars() as b" aria-hidden="true">
-        <svg [attr.viewBox]="'0 0 ' + b.W + ' ' + b.H" preserveAspectRatio="none">
-          <rect *ngFor="let r of b.rects" [attr.x]="r.x" [attr.y]="r.y" [attr.width]="r.w" [attr.height]="r.h"></rect>
-        </svg>
-      </div>
-    </article>
-
-    <article class="cell cell-span-3">
-      <span class="cell-icon" aria-hidden="true">
-        <i class="pi pi-sync"></i>
-      </span>
-      <span class="cell-label">En curso · B2B</span>
-      <span class="cell-value" [appCountUp]="overview()?.pipeline?.confirmed ?? 0" countUpFormat="int"></span>
-      <span class="cell-sub">
-        {{ fmtNumber(overview()?.pipeline?.draft) }} borradores · {{ fmtNumber(overview()?.pipeline?.cancelled) }} cancelados
-      </span>
-      <div class="cc-stack" *ngIf="pipelineStack() as p" aria-hidden="true">
-        <span class="cc-stack-seg is-confirmed" [style.width.%]="p.confirmedPct"></span>
-        <span class="cc-stack-seg is-draft" [style.width.%]="p.draftPct"></span>
-        <span class="cc-stack-seg is-cancelled" [style.width.%]="p.cancelledPct"></span>
-      </div>
-    </article>
-  </div>
+        @if (revenueSpark(); as s) {
+          <div class="cc-spark" aria-hidden="true">
+            <svg [attr.viewBox]="'0 0 ' + s.W + ' ' + s.H" preserveAspectRatio="none">
+              <defs>
+                <linearGradient id="ccSparkFill" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stop-color="var(--action)" stop-opacity="0.18"/>
+                  <stop offset="100%" stop-color="var(--action)" stop-opacity="0"/>
+                </linearGradient>
+              </defs>
+              <path [attr.d]="s.area" fill="url(#ccSparkFill)"/>
+              <path [attr.d]="s.line" fill="none" stroke="var(--action)" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>
+              <circle [attr.cx]="s.last.x" [attr.cy]="s.last.y" r="2.5" fill="var(--action)"/>
+            </svg>
+          </div>
+        }
+      </article>
+      <article class="cell cell-span-3">
+        <span class="cell-icon" aria-hidden="true">
+          <i class="pi pi-wallet"></i>
+        </span>
+        <span class="cell-label">Margen bruto · 30d</span>
+        <span class="cell-value" [appCountUp]="overview()?.revenue?.margin ?? 0" countUpFormat="money-short"></span>
+        <span class="cell-sub">
+          {{ fmtNumber($safeNavigationMigration(overview()?.revenue?.margin_pct), 1) }}% del ingreso · costo {{ fmtMoneyShort($safeNavigationMigration(overview()?.revenue?.cost)) }}
+        </span>
+      </article>
+      <article class="cell cell-span-3">
+        <span class="cell-icon" aria-hidden="true">
+          <i class="pi pi-receipt"></i>
+        </span>
+        <span class="cell-label">Tickets · 30d</span>
+        <span class="cell-value" [appCountUp]="overview()?.tickets ?? 0" countUpFormat="int"></span>
+        <span class="cell-sub">
+          Ticket prom {{ fmtMoneyShort($safeNavigationMigration(overview()?.avg_ticket)) }}
+        </span>
+        @if (ticketsBars(); as b) {
+          <div class="cc-minibars" aria-hidden="true">
+            <svg [attr.viewBox]="'0 0 ' + b.W + ' ' + b.H" preserveAspectRatio="none">
+              @for (r of b.rects; track r) {
+                <rect [attr.x]="r.x" [attr.y]="r.y" [attr.width]="r.w" [attr.height]="r.h"></rect>
+              }
+            </svg>
+          </div>
+        }
+      </article>
+      <article class="cell cell-span-3">
+        <span class="cell-icon" aria-hidden="true">
+          <i class="pi pi-users"></i>
+        </span>
+        <span class="cell-label">Clientes activos · 30d</span>
+        <span class="cell-value" [appCountUp]="overview()?.unique_customers ?? 0" countUpFormat="int"></span>
+        <span class="cell-sub">Compraron en la red en los últimos 30 días</span>
+        @if (unitsBars(); as b) {
+          <div class="cc-minibars" aria-hidden="true">
+            <svg [attr.viewBox]="'0 0 ' + b.W + ' ' + b.H" preserveAspectRatio="none">
+              @for (r of b.rects; track r) {
+                <rect [attr.x]="r.x" [attr.y]="r.y" [attr.width]="r.w" [attr.height]="r.h"></rect>
+              }
+            </svg>
+          </div>
+        }
+      </article>
+      <article class="cell cell-span-3">
+        <span class="cell-icon" aria-hidden="true">
+          <i class="pi pi-sync"></i>
+        </span>
+        <span class="cell-label">En curso · B2B</span>
+        <span class="cell-value" [appCountUp]="overview()?.pipeline?.confirmed ?? 0" countUpFormat="int"></span>
+        <span class="cell-sub">
+          {{ fmtNumber($safeNavigationMigration(overview()?.pipeline?.draft)) }} borradores · {{ fmtNumber($safeNavigationMigration(overview()?.pipeline?.cancelled)) }} cancelados
+        </span>
+        @if (pipelineStack(); as p) {
+          <div class="cc-stack" aria-hidden="true">
+            <span class="cc-stack-seg is-confirmed" [style.width.%]="p.confirmedPct"></span>
+            <span class="cc-stack-seg is-draft" [style.width.%]="p.draftPct"></span>
+            <span class="cc-stack-seg is-cancelled" [style.width.%]="p.cancelledPct"></span>
+          </div>
+        }
+      </article>
+    </div>
+  }
 
   <!-- SHEET 1.4: Ventas por canal (ruta vs mostrador vs preventa) -->
-  <div *ngIf="!loading() && channels().length > 0" class="sheet cols-12">
-    <article class="cell cell-span-12 is-flush">
-      <div class="cell-head">
-        <span class="cell-label">Ventas por canal · 30d</span>
-        <span class="comm-muted is-small">{{ channels().length }} canales</span>
-      </div>
-      <div class="cc-brand-list">
-        <div *ngFor="let c of channels()" class="cc-brand-row">
-          <div class="cc-brand-head">
-            <span class="cc-brand-name">{{ channelLabel(c.channel) }}</span>
-            <span class="cc-brand-share">
-              <b>{{ fmtNumber(c.share_pct, 1) }}%</b>
-              <span class="comm-muted is-small">{{ fmtMoneyShort(c.revenue) }} · {{ fmtNumber(c.tickets) }} tickets</span>
-            </span>
-          </div>
-          <div class="cc-bar" [style.--pct]="c.share_pct + '%'">
-            <div class="cc-bar-fill"></div>
-          </div>
+  @if (!loading() && channels().length > 0) {
+    <div class="sheet cols-12">
+      <article class="cell cell-span-12 is-flush">
+        <div class="cell-head">
+          <span class="cell-label">Ventas por canal · 30d</span>
+          <span class="comm-muted is-small">{{ channels().length }} canales</span>
         </div>
-      </div>
-    </article>
-  </div>
+        <div class="cc-brand-list">
+          @for (c of channels(); track c) {
+            <div class="cc-brand-row">
+              <div class="cc-brand-head">
+                <span class="cc-brand-name">{{ channelLabel(c.channel) }}</span>
+                <span class="cc-brand-share">
+                  <b>{{ fmtNumber(c.share_pct, 1) }}%</b>
+                  <span class="comm-muted is-small">{{ fmtMoneyShort(c.revenue) }} · {{ fmtNumber(c.tickets) }} tickets</span>
+                </span>
+              </div>
+              <div class="cc-bar" [style.--pct]="c.share_pct + '%'">
+                <div class="cc-bar-fill"></div>
+              </div>
+            </div>
+          }
+        </div>
+      </article>
+    </div>
+  }
 
   <!-- SHEET 1.5: Motor de Inteligencia — reorden + conversión (Fase M) -->
-  <div *ngIf="!loading() && conversion() as conv" class="sheet cols-12">
-    <article class="cell cell-span-3">
-      <span class="cell-icon" aria-hidden="true"><i class="pi pi-refresh"></i></span>
-      <span class="cell-label">Reorden hoy</span>
-      <span class="cell-value" [appCountUp]="dueCount() ?? 0" countUpFormat="int"></span>
-      <span class="cell-sub">Clientes due-for-reorder</span>
-    </article>
-    <article class="cell cell-span-3">
-      <span class="cell-icon" aria-hidden="true"><i class="pi pi-megaphone"></i></span>
-      <span class="cell-label">Ofertas · {{ conv.window_days }}d</span>
-      <span class="cell-value" [appCountUp]="conv.offers ?? 0" countUpFormat="int"></span>
-      <span class="cell-sub">Nudges mostrados/enviados</span>
-      <div class="cc-minibars" *ngIf="offersBars() as b" aria-hidden="true">
-        <svg [attr.viewBox]="'0 0 ' + b.W + ' ' + b.H" preserveAspectRatio="none">
-          <rect *ngFor="let r of b.rects" [attr.x]="r.x" [attr.y]="r.y" [attr.width]="r.w" [attr.height]="r.h"></rect>
-        </svg>
-      </div>
-    </article>
-    <article class="cell cell-span-3">
-      <span class="cell-icon" aria-hidden="true"><i class="pi pi-check-circle"></i></span>
-      <span class="cell-label">Convertidas</span>
-      <span class="cell-value" [appCountUp]="conv.converted ?? 0" countUpFormat="int"></span>
-      <span class="cell-sub">Con pedido dentro de 7 días</span>
-      <div class="cc-minibars" *ngIf="convertedBars() as b" aria-hidden="true">
-        <svg [attr.viewBox]="'0 0 ' + b.W + ' ' + b.H" preserveAspectRatio="none">
-          <rect *ngFor="let r of b.rects" [attr.x]="r.x" [attr.y]="r.y" [attr.width]="r.w" [attr.height]="r.h"></rect>
-        </svg>
-      </div>
-    </article>
-    <article class="cell cell-span-3">
-      <span class="cell-icon" aria-hidden="true"><i class="pi pi-percentage"></i></span>
-      <span class="cell-label">Conversión</span>
-      <span class="cell-value" [appCountUp]="conv.conversion_pct ?? 0" countUpFormat="percent1"></span>
-      <span class="cell-sub">Oferta → pedido</span>
-      <div class="cc-spark-mini" *ngIf="conversionSpark() as s" aria-hidden="true">
-        <svg [attr.viewBox]="'0 0 ' + s.W + ' ' + s.H" preserveAspectRatio="none">
-          <path [attr.d]="s.area" fill="var(--action)" fill-opacity="0.10"/>
-          <path [attr.d]="s.line" fill="none" stroke="var(--action)" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>
-          <circle [attr.cx]="s.last.x" [attr.cy]="s.last.y" r="2" fill="var(--action)"/>
-        </svg>
-      </div>
-    </article>
-  </div>
+  @if (!loading() && conversion(); as conv) {
+    <div class="sheet cols-12">
+      <article class="cell cell-span-3">
+        <span class="cell-icon" aria-hidden="true"><i class="pi pi-refresh"></i></span>
+        <span class="cell-label">Reorden hoy</span>
+        <span class="cell-value" [appCountUp]="dueCount() ?? 0" countUpFormat="int"></span>
+        <span class="cell-sub">Clientes due-for-reorder</span>
+      </article>
+      <article class="cell cell-span-3">
+        <span class="cell-icon" aria-hidden="true"><i class="pi pi-megaphone"></i></span>
+        <span class="cell-label">Ofertas · {{ conv.window_days }}d</span>
+        <span class="cell-value" [appCountUp]="conv.offers ?? 0" countUpFormat="int"></span>
+        <span class="cell-sub">Nudges mostrados/enviados</span>
+        @if (offersBars(); as b) {
+          <div class="cc-minibars" aria-hidden="true">
+            <svg [attr.viewBox]="'0 0 ' + b.W + ' ' + b.H" preserveAspectRatio="none">
+              @for (r of b.rects; track r) {
+                <rect [attr.x]="r.x" [attr.y]="r.y" [attr.width]="r.w" [attr.height]="r.h"></rect>
+              }
+            </svg>
+          </div>
+        }
+      </article>
+      <article class="cell cell-span-3">
+        <span class="cell-icon" aria-hidden="true"><i class="pi pi-check-circle"></i></span>
+        <span class="cell-label">Convertidas</span>
+        <span class="cell-value" [appCountUp]="conv.converted ?? 0" countUpFormat="int"></span>
+        <span class="cell-sub">Con pedido dentro de 7 días</span>
+        @if (convertedBars(); as b) {
+          <div class="cc-minibars" aria-hidden="true">
+            <svg [attr.viewBox]="'0 0 ' + b.W + ' ' + b.H" preserveAspectRatio="none">
+              @for (r of b.rects; track r) {
+                <rect [attr.x]="r.x" [attr.y]="r.y" [attr.width]="r.w" [attr.height]="r.h"></rect>
+              }
+            </svg>
+          </div>
+        }
+      </article>
+      <article class="cell cell-span-3">
+        <span class="cell-icon" aria-hidden="true"><i class="pi pi-percentage"></i></span>
+        <span class="cell-label">Conversión</span>
+        <span class="cell-value" [appCountUp]="conv.conversion_pct ?? 0" countUpFormat="percent1"></span>
+        <span class="cell-sub">Oferta → pedido</span>
+        @if (conversionSpark(); as s) {
+          <div class="cc-spark-mini" aria-hidden="true">
+            <svg [attr.viewBox]="'0 0 ' + s.W + ' ' + s.H" preserveAspectRatio="none">
+              <path [attr.d]="s.area" fill="var(--action)" fill-opacity="0.10"/>
+              <path [attr.d]="s.line" fill="none" stroke="var(--action)" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>
+              <circle [attr.cx]="s.last.x" [attr.cy]="s.last.y" r="2" fill="var(--action)"/>
+            </svg>
+          </div>
+        }
+      </article>
+    </div>
+  }
 
   <!-- SHEET 2: Mix por marca (venta real) -->
-  <div *ngIf="!loading()" class="sheet cols-12">
-    <article class="cell cell-span-12 is-flush">
-      <div class="cell-head">
-        <span class="cell-label">Mix por marca · % de venta real 30d</span>
-        <span class="comm-muted is-small">{{ salesByBrand().length }} marcas</span>
-      </div>
-      <div class="cc-brand-list">
-        <div *ngFor="let b of salesByBrand(); let i = index" class="cc-brand-row">
-          <div class="cc-brand-head">
-            <span class="cc-brand-name">
-              <span class="cc-rank-badge is-sm">{{ i + 1 }}</span>
-              {{ b.brand_name }}
-            </span>
-            <span class="cc-brand-share">
-              <b>{{ fmtNumber(b.share_pct, 1) }}%</b>
-              <span class="comm-muted is-small">{{ fmtMoneyShort(b.revenue) }}</span>
-            </span>
-          </div>
-          <div class="cc-bar" [style.--pct]="b.share_pct + '%'">
-            <div class="cc-bar-fill"></div>
-          </div>
+  @if (!loading()) {
+    <div class="sheet cols-12">
+      <article class="cell cell-span-12 is-flush">
+        <div class="cell-head">
+          <span class="cell-label">Mix por marca · % de venta real 30d</span>
+          <span class="comm-muted is-small">{{ salesByBrand().length }} marcas</span>
         </div>
-        <div *ngIf="salesByBrand().length === 0" class="cc-table-empty">
-          <i class="pi pi-chart-pie"></i>Sin venta real por marca
+        <div class="cc-brand-list">
+          @for (b of salesByBrand(); track b; let i = $index) {
+            <div class="cc-brand-row">
+              <div class="cc-brand-head">
+                <span class="cc-brand-name">
+                  <span class="cc-rank-badge is-sm">{{ i + 1 }}</span>
+                  {{ b.brand_name }}
+                </span>
+                <span class="cc-brand-share">
+                  <b>{{ fmtNumber(b.share_pct, 1) }}%</b>
+                  <span class="comm-muted is-small">{{ fmtMoneyShort(b.revenue) }}</span>
+                </span>
+              </div>
+              <div class="cc-bar" [style.--pct]="b.share_pct + '%'">
+                <div class="cc-bar-fill"></div>
+              </div>
+            </div>
+          }
+          @if (salesByBrand().length === 0) {
+            <div class="cc-table-empty">
+              <i class="pi pi-chart-pie"></i>Sin venta real por marca
+            </div>
+          }
         </div>
-      </div>
-    </article>
-  </div>
+      </article>
+    </div>
+  }
 
   <!-- SHEET 3: Top productos (venta real) + Top clientes (red) -->
-  <div *ngIf="!loading()" class="sheet cols-12">
-    <article class="cell cell-span-6 is-flush">
-      <div class="cell-head">
-        <span class="cell-label">Top productos · venta real 30d</span>
-        <span class="comm-muted is-small">{{ topProducts().length }}</span>
-      </div>
-      <div class="data-table-wrap">
-        <table class="data-table" aria-label="Top productos por venta real 30 días">
-          <thead>
-            <tr>
-              <th scope="col" style="width:36px">#</th>
-              <th scope="col">Producto</th>
-              <th scope="col" class="num">Unidades</th>
-              <th scope="col" class="num">Ventas</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr
-              *ngFor="let r of topProducts(); let i = index"
-              class="is-clickable"
-              role="button"
-              tabindex="0"
-              [attr.aria-label]="'Ver stock de ' + r.product_name"
-              (click)="openProduct(r)"
-              (keydown.enter)="openProduct(r)"
-              (keydown.space)="$event.preventDefault(); openProduct(r)"
-            >
-              <td><span class="cc-rank-badge">{{ r.rank_by_revenue || i + 1 }}</span></td>
-              <td>
-                <div class="strong">
-                  {{ r.product_name }}
-                  <span *ngIf="r.abc_class" class="comm-pill no-dot cc-abc" [class]="abcTone(r.abc_class)">{{ r.abc_class }}</span>
-                </div>
-                <div class="muted small">{{ r.brand_name }}</div>
-              </td>
-              <td class="num">{{ fmtNumber(r.units_sold, 0) }}</td>
-              <td class="num">
-                <div class="strong">{{ fmtMoney(r.revenue) }}</div>
-                <div class="muted small">{{ fmtNumber(topShareProduct(r.revenue), 1) }}%</div>
-              </td>
-            </tr>
-            <tr *ngIf="topProducts().length === 0">
-              <td colspan="4" class="cc-table-empty">
-                <i class="pi pi-box"></i>Sin venta real en el período
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </article>
-
-    <article class="cell cell-span-6 is-flush">
-      <div class="cell-head">
-        <span class="cell-label">Top clientes · red 180d</span>
-        <span class="comm-muted is-small">{{ netCustomers().length }}</span>
-      </div>
-      <div class="data-table-wrap">
-        <table class="data-table" aria-label="Top clientes reales de la red">
-          <thead>
-            <tr>
-              <th scope="col" style="width:36px">#</th>
-              <th scope="col">Cliente</th>
-              <th scope="col">Última compra</th>
-              <th scope="col" class="num">Ventas 180d</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr *ngFor="let c of netCustomers(); let i = index">
-              <td><span class="cc-rank-badge">{{ i + 1 }}</span></td>
-              <td>
-                <div class="strong">{{ c.name }}</div>
-                <div class="muted small">{{ c.city || c.erp_code }}</div>
-              </td>
-              <td>{{ fmtDate(c.last_purchase) }}</td>
-              <td class="num strong">{{ fmtMoney(c.rev_180d) }}</td>
-            </tr>
-            <tr *ngIf="netCustomers().length === 0">
-              <td colspan="4" class="cc-table-empty">
-                <i class="pi pi-users"></i>Sin clientes en la red
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </article>
-  </div>
+  @if (!loading()) {
+    <div class="sheet cols-12">
+      <article class="cell cell-span-6 is-flush">
+        <div class="cell-head">
+          <span class="cell-label">Top productos · venta real 30d</span>
+          <span class="comm-muted is-small">{{ topProducts().length }}</span>
+        </div>
+        <div class="data-table-wrap">
+          <table class="data-table" aria-label="Top productos por venta real 30 días">
+            <thead>
+              <tr>
+                <th scope="col" style="width:36px">#</th>
+                <th scope="col">Producto</th>
+                <th scope="col" class="num">Unidades</th>
+                <th scope="col" class="num">Ventas</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (r of topProducts(); track r; let i = $index) {
+                <tr
+                  class="is-clickable"
+                  role="button"
+                  tabindex="0"
+                  [attr.aria-label]="'Ver stock de ' + r.product_name"
+                  (click)="openProduct(r)"
+                  (keydown.enter)="openProduct(r)"
+                  (keydown.space)="$event.preventDefault(); openProduct(r)"
+                  >
+                  <td><span class="cc-rank-badge">{{ r.rank_by_revenue || i + 1 }}</span></td>
+                  <td>
+                    <div class="strong">
+                      {{ r.product_name }}
+                      @if (r.abc_class) {
+                        <span class="comm-pill no-dot cc-abc" [class]="abcTone(r.abc_class)">{{ r.abc_class }}</span>
+                      }
+                    </div>
+                    <div class="muted small">{{ r.brand_name }}</div>
+                  </td>
+                  <td class="num">{{ fmtNumber(r.units_sold, 0) }}</td>
+                  <td class="num">
+                    <div class="strong">{{ fmtMoney(r.revenue) }}</div>
+                    <div class="muted small">{{ fmtNumber(topShareProduct(r.revenue), 1) }}%</div>
+                  </td>
+                </tr>
+              }
+              @if (topProducts().length === 0) {
+                <tr>
+                  <td colspan="4" class="cc-table-empty">
+                    <i class="pi pi-box"></i>Sin venta real en el período
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+      </article>
+      <article class="cell cell-span-6 is-flush">
+        <div class="cell-head">
+          <span class="cell-label">Top clientes · red 180d</span>
+          <span class="comm-muted is-small">{{ netCustomers().length }}</span>
+        </div>
+        <div class="data-table-wrap">
+          <table class="data-table" aria-label="Top clientes reales de la red">
+            <thead>
+              <tr>
+                <th scope="col" style="width:36px">#</th>
+                <th scope="col">Cliente</th>
+                <th scope="col">Última compra</th>
+                <th scope="col" class="num">Ventas 180d</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (c of netCustomers(); track c; let i = $index) {
+                <tr>
+                  <td><span class="cc-rank-badge">{{ i + 1 }}</span></td>
+                  <td>
+                    <div class="strong">{{ c.name }}</div>
+                    <div class="muted small">{{ c.city || c.erp_code }}</div>
+                  </td>
+                  <td>{{ fmtDate(c.last_purchase) }}</td>
+                  <td class="num strong">{{ fmtMoney(c.rev_180d) }}</td>
+                </tr>
+              }
+              @if (netCustomers().length === 0) {
+                <tr>
+                  <td colspan="4" class="cc-table-empty">
+                    <i class="pi pi-users"></i>Sin clientes en la red
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+      </article>
+    </div>
+  }
 
   <!-- SHEET 5: Stock bajo + Inactivos B2B -->
-  <div *ngIf="!loading()" class="sheet cols-12">
-    <article class="cell cell-span-6 is-flush">
-      <div class="cell-head">
-        <span class="cell-label">Stock bajo · disponible &lt; 200</span>
-        <span class="comm-pill is-warn no-dot" *ngIf="lowStock()">
-          {{ lowStock()!.total }}
-        </span>
-      </div>
-      <div *ngIf="lowStock()" class="data-table-wrap">
-        <table class="data-table" aria-label="Productos con stock bajo">
-          <thead>
-            <tr>
-              <th scope="col">Producto</th>
-              <th scope="col" class="num">Disp.</th>
-              <th scope="col" class="num">Reserv.</th>
-              <th scope="col">Almacén</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr
-              *ngFor="let i of lowStock()!.items"
-              class="is-clickable"
-              role="button"
-              tabindex="0"
-              [attr.aria-label]="'Ver stock de ' + i.product_name"
-              (click)="openProduct(i)"
-              (keydown.enter)="openProduct(i)"
-              (keydown.space)="$event.preventDefault(); openProduct(i)"
-            >
-              <td>
-                <div class="strong">{{ i.product_name }}</div>
-                <div class="muted small">{{ i.brand_name }}</div>
-              </td>
-              <td class="num">
-                <span class="comm-pill no-dot" [class]="stockPillClass(i.available_quantity)">
-                  {{ fmtNumber(i.available_quantity) }}
-                </span>
-              </td>
-              <td class="num">{{ fmtNumber(i.reserved_quantity) }}</td>
-              <td><code class="comm-code">{{ i.warehouse_code }}</code></td>
-            </tr>
-            <tr *ngIf="lowStock()!.total > lowStock()!.items.length">
-              <td colspan="4" class="muted small" style="text-align:center">
-                +{{ lowStock()!.total - lowStock()!.items.length }} más — mostrando los {{ lowStock()!.items.length }} más críticos
-              </td>
-            </tr>
-            <tr *ngIf="lowStock()!.items.length === 0">
-              <td colspan="4" class="cc-table-empty">
-                <i class="pi pi-check"></i>Sin alertas
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </article>
-
-    <article class="cell cell-span-6 is-flush">
-      <div class="cell-head">
-        <span class="cell-label">Clientes B2B inactivos · &gt; 30 días</span>
-        <span class="comm-pill is-info no-dot" *ngIf="inactiveCustomers()">
-          {{ inactiveCustomers()!.customers.length }}
-        </span>
-      </div>
-      <div *ngIf="inactiveCustomers()" class="data-table-wrap">
-        <table class="data-table" aria-label="Clientes inactivos más de 30 días">
-          <thead>
-            <tr>
-              <th scope="col">Cliente</th>
-              <th scope="col" class="num">Días sin compra</th>
-              <th scope="col">Teléfono</th>
-              <th scope="col" class="num">Crédito</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr
-              *ngFor="let c of inactiveCustomers()!.customers"
-              class="is-clickable"
-              role="button"
-              tabindex="0"
-              [attr.aria-label]="'Ver 360° de ' + c.name"
-              (click)="openCustomer(c)"
-              (keydown.enter)="openCustomer(c)"
-              (keydown.space)="$event.preventDefault(); openCustomer(c)"
-            >
-              <td>
-                <div class="strong">{{ c.name }}</div>
-                <div class="muted small">{{ c.code }}</div>
-              </td>
-              <td class="num">
-                <span class="strong">
-                  {{ c.days_since_last_order !== null ? fmtNumber(c.days_since_last_order) + 'd' : 'Nunca' }}
-                </span>
-              </td>
-              <td>{{ c.phone || '—' }}</td>
-              <td class="num">{{ fmtMoney(c.credit_limit) }}</td>
-            </tr>
-            <tr *ngIf="inactiveCustomers()!.customers.length === 0">
-              <td colspan="4" class="cc-table-empty">
-                <i class="pi pi-check"></i>Todos activos
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </article>
-  </div>
+  @if (!loading()) {
+    <div class="sheet cols-12">
+      <article class="cell cell-span-6 is-flush">
+        <div class="cell-head">
+          <span class="cell-label">Stock bajo · disponible &lt; 200</span>
+          @if (lowStock()) {
+            <span class="comm-pill is-warn no-dot">
+              {{ lowStock()!.total }}
+            </span>
+          }
+        </div>
+        @if (lowStock()) {
+          <div class="data-table-wrap">
+            <table class="data-table" aria-label="Productos con stock bajo">
+              <thead>
+                <tr>
+                  <th scope="col">Producto</th>
+                  <th scope="col" class="num">Disp.</th>
+                  <th scope="col" class="num">Reserv.</th>
+                  <th scope="col">Almacén</th>
+                </tr>
+              </thead>
+              <tbody>
+                @for (i of lowStock()!.items; track i) {
+                  <tr
+                    class="is-clickable"
+                    role="button"
+                    tabindex="0"
+                    [attr.aria-label]="'Ver stock de ' + i.product_name"
+                    (click)="openProduct(i)"
+                    (keydown.enter)="openProduct(i)"
+                    (keydown.space)="$event.preventDefault(); openProduct(i)"
+                    >
+                    <td>
+                      <div class="strong">{{ i.product_name }}</div>
+                      <div class="muted small">{{ i.brand_name }}</div>
+                    </td>
+                    <td class="num">
+                      <span class="comm-pill no-dot" [class]="stockPillClass(i.available_quantity)">
+                        {{ fmtNumber(i.available_quantity) }}
+                      </span>
+                    </td>
+                    <td class="num">{{ fmtNumber(i.reserved_quantity) }}</td>
+                    <td><code class="comm-code">{{ i.warehouse_code }}</code></td>
+                  </tr>
+                }
+                @if (lowStock()!.total > lowStock()!.items.length) {
+                  <tr>
+                    <td colspan="4" class="muted small" style="text-align:center">
+                      +{{ lowStock()!.total - lowStock()!.items.length }} más — mostrando los {{ lowStock()!.items.length }} más críticos
+                    </td>
+                  </tr>
+                }
+                @if (lowStock()!.items.length === 0) {
+                  <tr>
+                    <td colspan="4" class="cc-table-empty">
+                      <i class="pi pi-check"></i>Sin alertas
+                    </td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          </div>
+        }
+      </article>
+      <article class="cell cell-span-6 is-flush">
+        <div class="cell-head">
+          <span class="cell-label">Clientes B2B inactivos · &gt; 30 días</span>
+          @if (inactiveCustomers()) {
+            <span class="comm-pill is-info no-dot">
+              {{ inactiveCustomers()!.customers.length }}
+            </span>
+          }
+        </div>
+        @if (inactiveCustomers()) {
+          <div class="data-table-wrap">
+            <table class="data-table" aria-label="Clientes inactivos más de 30 días">
+              <thead>
+                <tr>
+                  <th scope="col">Cliente</th>
+                  <th scope="col" class="num">Días sin compra</th>
+                  <th scope="col">Teléfono</th>
+                  <th scope="col" class="num">Crédito</th>
+                </tr>
+              </thead>
+              <tbody>
+                @for (c of inactiveCustomers()!.customers; track c) {
+                  <tr
+                    class="is-clickable"
+                    role="button"
+                    tabindex="0"
+                    [attr.aria-label]="'Ver 360° de ' + c.name"
+                    (click)="openCustomer(c)"
+                    (keydown.enter)="openCustomer(c)"
+                    (keydown.space)="$event.preventDefault(); openCustomer(c)"
+                    >
+                    <td>
+                      <div class="strong">{{ c.name }}</div>
+                      <div class="muted small">{{ c.code }}</div>
+                    </td>
+                    <td class="num">
+                      <span class="strong">
+                        {{ c.days_since_last_order !== null ? fmtNumber(c.days_since_last_order) + 'd' : 'Nunca' }}
+                      </span>
+                    </td>
+                    <td>{{ c.phone || '—' }}</td>
+                    <td class="num">{{ fmtMoney(c.credit_limit) }}</td>
+                  </tr>
+                }
+                @if (inactiveCustomers()!.customers.length === 0) {
+                  <tr>
+                    <td colspan="4" class="cc-table-empty">
+                      <i class="pi pi-check"></i>Todos activos
+                    </td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          </div>
+        }
+      </article>
+    </div>
+  }
 
   <!-- M.6.3 — Ranking ERP × stock 0: oportunidad de venta perdida -->
-  <div *ngIf="!loading() && rankingOOS().length > 0" class="sheet cols-12">
-    <article class="cell cell-span-12 is-flush">
-      <div class="cell-head">
-        <span class="cell-label">
-          <i class="pi pi-exclamation-triangle cc-ico-bad" aria-hidden="true"></i>
-          Best-sellers ERP sin stock
-        </span>
-        <span class="comm-pill is-bad no-dot">{{ rankingOOS().length }}</span>
-      </div>
-      <div class="data-table-wrap">
-        <table class="data-table" aria-label="Best-sellers del ERP sin stock disponible">
-          <thead>
-            <tr>
-              <th scope="col" style="width:50px">Pos ERP</th>
-              <th scope="col">Producto</th>
-              <th scope="col" class="num">Vendido (ERP)</th>
-              <th scope="col" class="num">Disponible</th>
-              <th scope="col" class="num">Reservado</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr *ngFor="let r of rankingOOS()">
-              <td><span class="cc-rank-badge is-bad">#{{ r.posicion }}</span></td>
-              <td>
-                <div class="strong">{{ r.nombre }}</div>
-                <div class="muted small"><code class="comm-code">{{ r.articulo }}</code></div>
-              </td>
-              <td class="num">
-                <div>{{ fmtMoney(r.total_venta) }}</div>
-                <div class="muted small">{{ fmtNumber(r.total_piezas_totales) }} pzas</div>
-              </td>
-              <td class="num strong">{{ fmtNumber(r.available) }}</td>
-              <td class="num">{{ fmtNumber(r.total_reserved) }}</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </article>
-  </div>
+  @if (!loading() && rankingOOS().length > 0) {
+    <div class="sheet cols-12">
+      <article class="cell cell-span-12 is-flush">
+        <div class="cell-head">
+          <span class="cell-label">
+            <i class="pi pi-exclamation-triangle cc-ico-bad" aria-hidden="true"></i>
+            Best-sellers ERP sin stock
+          </span>
+          <span class="comm-pill is-bad no-dot">{{ rankingOOS().length }}</span>
+        </div>
+        <div class="data-table-wrap">
+          <table class="data-table" aria-label="Best-sellers del ERP sin stock disponible">
+            <thead>
+              <tr>
+                <th scope="col" style="width:50px">Pos ERP</th>
+                <th scope="col">Producto</th>
+                <th scope="col" class="num">Vendido (ERP)</th>
+                <th scope="col" class="num">Disponible</th>
+                <th scope="col" class="num">Reservado</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (r of rankingOOS(); track r) {
+                <tr>
+                  <td><span class="cc-rank-badge is-bad">#{{ r.posicion }}</span></td>
+                  <td>
+                    <div class="strong">{{ r.nombre }}</div>
+                    <div class="muted small"><code class="comm-code">{{ r.articulo }}</code></div>
+                  </td>
+                  <td class="num">
+                    <div>{{ fmtMoney(r.total_venta) }}</div>
+                    <div class="muted small">{{ fmtNumber(r.total_piezas_totales) }} pzas</div>
+                  </td>
+                  <td class="num strong">{{ fmtNumber(r.available) }}</td>
+                  <td class="num">{{ fmtNumber(r.total_reserved) }}</td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+      </article>
+    </div>
+  }
 
   <!-- Side-peek: drill-down 360° del cliente B2B (inactivos) -->
   <app-side-peek
@@ -476,60 +543,62 @@
     (openChange)="peekOpen.set($event)"
     [title]="peekRow()?.name || 'Cliente'"
     [subtitle]="peekRow()?.code || null"
-  >
+    >
     <app-customer-360-panel
       [customerId]="peekRow()?.customer_id || null"
       [revenue30d]="peekRow()?.revenue ?? null"
-    />
-  </app-side-peek>
+      />
+    </app-side-peek>
 
-  <!-- Side-peek: drill-down de producto (stock por almacén) -->
-  <app-side-peek
-    [open]="prodOpen()"
-    (openChange)="prodOpen.set($event)"
-    [title]="prodRow()?.product_name || 'Producto'"
-    [subtitle]="prodRow()?.brand_name || null"
-  >
-    @if (prodRow(); as p) {
-      <app-metric-strip [items]="peekKpis(p)" ariaLabel="Métricas del producto" />
-    }
+    <!-- Side-peek: drill-down de producto (stock por almacén) -->
+    <app-side-peek
+      [open]="prodOpen()"
+      (openChange)="prodOpen.set($event)"
+      [title]="prodRow()?.product_name || 'Producto'"
+      [subtitle]="prodRow()?.brand_name || null"
+      >
+      @if (prodRow(); as p) {
+        <app-metric-strip [items]="peekKpis(p)" ariaLabel="Métricas del producto" />
+      }
 
-    <div class="cc-peek-section-label">Stock por almacén</div>
-    @if (prodLoading()) {
-      <p-skeleton height="120px" borderRadius="12px"></p-skeleton>
-    } @else if (prodStock().length > 0) {
-      <div class="data-table-wrap">
-        <table class="data-table">
-          <thead>
-            <tr>
-              <th>Almacén</th>
-              <th class="num">Disp.</th>
-              <th class="num">Reserv.</th>
-              <th class="num">Total</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr *ngFor="let s of prodStock()">
-              <td>
-                <div class="strong">{{ s.warehouse_name }}</div>
-                <div class="muted small"><code class="comm-code">{{ s.warehouse_code }}</code></div>
-              </td>
-              <td class="num">
-                <span class="comm-pill no-dot" [class]="stockPillClass(s.available_quantity)">
-                  {{ fmtNumber(s.available_quantity) }}
-                </span>
-              </td>
-              <td class="num">{{ fmtNumber(s.reserved_quantity) }}</td>
-              <td class="num">{{ fmtNumber(s.quantity) }}</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    } @else {
-      <div class="cc-peek-empty">
-        <i class="pi pi-box" aria-hidden="true"></i>
-        <span>Sin stock registrado en almacenes.</span>
-      </div>
-    }
-  </app-side-peek>
-</div>
+      <div class="cc-peek-section-label">Stock por almacén</div>
+      @if (prodLoading()) {
+        <p-skeleton height="120px" borderRadius="12px"></p-skeleton>
+      } @else if (prodStock().length > 0) {
+        <div class="data-table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Almacén</th>
+                <th class="num">Disp.</th>
+                <th class="num">Reserv.</th>
+                <th class="num">Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (s of prodStock(); track s) {
+                <tr>
+                  <td>
+                    <div class="strong">{{ s.warehouse_name }}</div>
+                    <div class="muted small"><code class="comm-code">{{ s.warehouse_code }}</code></div>
+                  </td>
+                  <td class="num">
+                    <span class="comm-pill no-dot" [class]="stockPillClass(s.available_quantity)">
+                      {{ fmtNumber(s.available_quantity) }}
+                    </span>
+                  </td>
+                  <td class="num">{{ fmtNumber(s.reserved_quantity) }}</td>
+                  <td class="num">{{ fmtNumber(s.quantity) }}</td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+      } @else {
+        <div class="cc-peek-empty">
+          <i class="pi pi-box" aria-hidden="true"></i>
+          <span>Sin stock registrado en almacenes.</span>
+        </div>
+      }
+    </app-side-peek>
+  </div>

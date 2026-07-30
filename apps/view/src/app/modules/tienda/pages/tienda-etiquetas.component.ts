@@ -1,7 +1,7 @@
-import { ChangeDetectionStrategy, Component, ElementRef, ViewChild, ViewEncapsulation, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, ElementRef, ViewChild, ViewEncapsulation, computed, effect, inject, signal } from '@angular/core';
+import { rxResource } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { catchError, of } from 'rxjs';
 import { MultiSelectModule } from 'primeng/multiselect';
 import { AutoCompleteModule, AutoCompleteCompleteEvent, AutoCompleteSelectEvent } from 'primeng/autocomplete';
 import { InputNumberModule } from 'primeng/inputnumber';
@@ -141,10 +141,10 @@ type Msg = { text: string; kind: 'info' | 'ok' | 'error' | 'warn' };
           <h1>Etiquetas de anaquel</h1>
           <p>Arma la cola e imprime en hoja Carta · etiqueta 100×40&nbsp;mm</p>
         </div>
-        <p-multiSelect [options]="sectionOptions" [ngModel]="sections()" (ngModelChange)="sections.set($event)"
+        <p-multiselect [options]="sectionOptions" [ngModel]="sections()" (ngModelChange)="sections.set($event)"
           optionLabel="label" optionValue="value" [showToggleAll]="true" [filter]="false"
           placeholder="Secciones a mostrar" selectedItemsLabel="{0} secciones"
-          ariaLabel="Secciones visibles de la etiqueta" [style]="{ minWidth: '15rem' }"></p-multiSelect>
+          ariaLabel="Secciones visibles de la etiqueta" [style]="{ minWidth: '15rem' }"></p-multiselect>
         <p-button [label]="printBtnLabel()" icon="pi pi-print" [loading]="printing()"
           [disabled]="!totalLabels()" (onClick)="print()"></p-button>
       </div>
@@ -170,15 +170,15 @@ type Msg = { text: string; kind: 'info' | 'ok' | 'error' | 'warn' };
       <div class="etqp-inputs">
         <div class="etqp-card">
           <label for="etqp-search">Buscar en catálogo</label>
-          <p-autoComplete inputId="etqp-search" styleClass="etqp-ac" [(ngModel)]="acSelected"
+          <p-autocomplete inputId="etqp-search" styleClass="etqp-ac" [(ngModel)]="acSelected"
             [suggestions]="results()" (completeMethod)="searchAc($event)" (onSelect)="onPick($event)"
-            optionLabel="name" [delay]="250" [minLength]="2" [showClear]="true" appendTo="body"
+            optionLabel="name" [delay]="250" [minQueryLength]="2" [showClear]="true" appendTo="body"
             placeholder="Nombre, SKU o código de barras…">
-            <ng-template let-h pTemplate="item">
+            <ng-template let-h #item>
               <div class="etqp-hit"><span class="nm">{{ h.name }}</span><span class="sku">{{ h.sku }}</span></div>
             </ng-template>
-            <ng-template pTemplate="empty"><div class="etqp-empty-hit">Sin coincidencias</div></ng-template>
-          </p-autoComplete>
+            <ng-template #empty><div class="etqp-empty-hit">Sin coincidencias</div></ng-template>
+          </p-autocomplete>
         </div>
 
         <div class="etqp-card">
@@ -197,14 +197,14 @@ type Msg = { text: string; kind: 'info' | 'ok' | 'error' | 'warn' };
         <div class="etqp-work">
           <div class="etqp-tablewrap">
             <p-table [value]="queue()" styleClass="p-datatable-sm" [scrollable]="true" scrollHeight="440px" dataKey="model.product_id">
-              <ng-template pTemplate="caption">
+              <ng-template #caption>
                 <div class="etqp-tcap">
                   <span class="lbl">Cola</span>
                   <span class="count">{{ queue().length }} producto{{ queue().length === 1 ? '' : 's' }} · {{ totalLabels() }} etiqueta{{ totalLabels() === 1 ? '' : 's' }}</span>
                   <p-button label="Vaciar" icon="pi pi-trash" [text]="true" severity="secondary" size="small" (onClick)="clearQueue()"></p-button>
                 </div>
               </ng-template>
-              <ng-template pTemplate="header">
+              <ng-template #header>
                 <tr>
                   <th>Producto</th>
                   <th>Precio grande</th>
@@ -212,7 +212,7 @@ type Msg = { text: string; kind: 'info' | 'ok' | 'error' | 'warn' };
                   <th class="etqp-cact"></th>
                 </tr>
               </ng-template>
-              <ng-template pTemplate="body" let-it let-i="rowIndex">
+              <ng-template #body let-it let-i="rowIndex">
                 <tr>
                   <td>
                     <div class="etqp-qname">
@@ -226,10 +226,10 @@ type Msg = { text: string; kind: 'info' | 'ok' | 'error' | 'warn' };
                       [ariaLabel]="'Precio grande de ' + it.model.name"></p-select>
                   </td>
                   <td class="etqp-cnum">
-                    <p-inputNumber styleClass="etqp-num" [ngModel]="it.copies" (ngModelChange)="setCopies(i, $event)"
+                    <p-inputnumber styleClass="etqp-num" [ngModel]="it.copies" (ngModelChange)="setCopies(i, $event)"
                       [showButtons]="true" buttonLayout="horizontal" [min]="1" [step]="1" [inputStyle]="{ width: '3rem', textAlign: 'center' }"
                       incrementButtonIcon="pi pi-plus" decrementButtonIcon="pi pi-minus"
-                      [ariaLabel]="'Copias de ' + it.model.name"></p-inputNumber>
+                      [ariaLabel]="'Copias de ' + it.model.name"></p-inputnumber>
                   </td>
                   <td class="etqp-cact">
                     <p-button icon="pi pi-times" [text]="true" [rounded]="true" severity="danger" size="small"
@@ -274,7 +274,12 @@ export class TiendaEtiquetasComponent {
 
   @ViewChild('scanInput') scanInput?: ElementRef<HTMLInputElement>;
 
-  results = signal<SearchHit[]>([]);
+  private readonly acQuery = signal<string | null>(null);
+  private readonly acRes = rxResource({
+    params: () => { const q = this.acQuery(); return q && q.length >= 2 ? q : undefined; },
+    stream: ({ params }) => this.svc.search(params),
+  });
+  readonly results = computed<SearchHit[]>(() => this.acRes.value() ?? []);
   acSelected: SearchHit | string | null = null;
   bulk = signal('');
   queue = signal<QueueItem[]>([]);
@@ -283,6 +288,14 @@ export class TiendaEtiquetasComponent {
   msg = signal<Msg | null>(null);
   printLabels = signal<SheetLabel[]>([]);
   printing = signal(false);
+
+  constructor() {
+    // Mensaje en error de la búsqueda (equivale al catchError viejo).
+    effect(() => {
+      const err = this.acRes.error();
+      if (err) this.msg.set({ text: this.httpMsg('Búsqueda', err), kind: 'error' });
+    });
+  }
 
   totalLabels = computed(() => this.queue().reduce((s, it) => s + (it.copies || 0), 0));
   printBtnLabel = computed(() => {
@@ -337,15 +350,13 @@ export class TiendaEtiquetasComponent {
   }
 
   searchAc(e: AutoCompleteCompleteEvent): void {
-    this.svc.search(e.query)
-      .pipe(catchError((err) => { this.msg.set({ text: this.httpMsg('Búsqueda', err), kind: 'error' }); return of([] as SearchHit[]); }))
-      .subscribe((hits) => this.results.set(hits || []));
+    this.acQuery.set(e.query ?? '');
   }
 
   onPick(e: AutoCompleteSelectEvent): void {
     const h = e.value as SearchHit;
     this.acSelected = null;
-    this.results.set([]);
+    this.acQuery.set(null);
     this.msg.set(null);
     const code = h.sku || h.barcode;
     if (!code) { this.msg.set({ text: 'El producto no tiene SKU ni código de barras.', kind: 'warn' }); return; }

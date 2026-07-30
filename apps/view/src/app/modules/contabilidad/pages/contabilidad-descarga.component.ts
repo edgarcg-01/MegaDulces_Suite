@@ -45,9 +45,9 @@ import { CredencialesService } from '../credenciales.service';
         <div class="dz-head-actions">
           @if (loadedAt()) { <app-freshness-pill [since]="loadedAt()" [staleAfterSec]="120" /> }
           @if (polling()) { <span class="dz-poll" title="Actualizando automáticamente mientras hay descargas en proceso"><i class="pi pi-sync pi-spin"></i> auto</span> }
-          <button pButton type="button" label="Refrescar" icon="pi pi-refresh" class="p-button-sm p-button-text" [loading]="loading()" (click)="reload()"></button>
+          <button pButton type="button" class="p-button-sm p-button-text" [loading]="loading()" (click)="reload()"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span><span class="p-button-label">Refrescar</span></button>
           @if (canManage) {
-            <button pButton type="button" label="Nueva descarga" icon="pi pi-plus" class="p-button-sm" (click)="openNew()"></button>
+            <button pButton type="button" class="p-button-sm" (click)="openNew()"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Nueva descarga</span></button>
           }
         </div>
       </header>
@@ -56,13 +56,13 @@ import { CredencialesService } from '../credenciales.service';
         <label class="dz-fld"><span>Estado</span>
           <p-select [options]="estadoOpts" [ngModel]="estado()" (ngModelChange)="setEstado($event)" optionLabel="label" optionValue="value" styleClass="dz-sel sel-liquid" ariaLabel="Filtrar por estado" />
         </label>
-        @if (estado() !== 'all') { <button pButton type="button" label="Limpiar" icon="pi pi-times" class="p-button-sm p-button-text dz-clear" (click)="setEstado('all')"></button> }
+        @if (estado() !== 'all') { <button pButton type="button" class="p-button-sm p-button-text dz-clear" (click)="setEstado('all')"><span class="p-button-icon p-button-icon-left pi pi-times" aria-hidden="true"></span><span class="p-button-label">Limpiar</span></button> }
       </div>
 
       <div class="card-premium card-flat">
         <p-table [value]="rows()" styleClass="p-datatable-sm dz-table" [rowHover]="true" [loading]="loading()"
                  dataKey="id" [expandedRowKeys]="expanded()" [scrollable]="true" scrollHeight="560px" [paginator]="rows().length > 50" [rows]="50">
-          <ng-template pTemplate="header">
+          <ng-template #header>
             <tr>
               <th style="width:2.5rem"></th>
               <th style="width:7rem">Estado</th>
@@ -74,9 +74,9 @@ import { CredencialesService } from '../credenciales.service';
               <th style="width:8rem">Creada</th>
             </tr>
           </ng-template>
-          <ng-template pTemplate="body" let-r let-expanded="expanded">
+          <ng-template #body let-r let-expanded="expanded">
             <tr>
-              <td><button pButton type="button" [icon]="expanded ? 'pi pi-chevron-down' : 'pi pi-chevron-right'" class="p-button-text p-button-sm" [attr.aria-label]="expanded ? 'Ocultar paquetes' : 'Ver paquetes'" (click)="toggle(r)"></button></td>
+              <td><p-button pButton type="button" [icon]="expanded ? 'pi pi-chevron-down' : 'pi pi-chevron-right'" styleClass="p-button-text p-button-sm" [attr.aria-label]="expanded ? 'Ocultar paquetes' : 'Ver paquetes'" (click)="toggle(r)"></p-button></td>
               <td><p-tag [value]="estadoLabel(r.estado)" [severity]="estadoSev(r.estado)" styleClass="dz-chip" /></td>
               <td class="mono">{{ r.rfc_solicitante }}</td>
               <td>{{ r.rol }}</td>
@@ -86,13 +86,13 @@ import { CredencialesService } from '../credenciales.service';
               <td class="mono">{{ r.created_at | date:'dd/MM HH:mm' }}</td>
             </tr>
           </ng-template>
-          <ng-template pTemplate="rowexpansion" let-r>
+          <ng-template #expandedrow let-r>
             <tr><td colspan="8" class="dz-ev">
               @if (pkgLoading()[r.id]) { <div class="dz-ev-msg">Cargando paquetes…</div> }
               @else if (packages()[r.id]?.length) {
                 <p-table [value]="packages()[r.id] || []" styleClass="p-datatable-sm dz-pkgs-tbl" [rowHover]="true">
-                  <ng-template pTemplate="header"><tr><th>Paquete</th><th style="width:8rem">Estado</th><th class="ta-r" style="width:6rem">CFDI</th><th>Detalle</th></tr></ng-template>
-                  <ng-template pTemplate="body" let-p>
+                  <ng-template #header><tr><th>Paquete</th><th style="width:8rem">Estado</th><th class="ta-r" style="width:6rem">CFDI</th><th>Detalle</th></tr></ng-template>
+                  <ng-template #body let-p>
                     <tr><td class="mono">{{ p.id_paquete }}</td><td><p-tag [value]="p.estado" [severity]="estadoSev(p.estado)" styleClass="dz-chip" /></td><td class="ta-r mono">{{ p.num_cfdis != null ? (p.num_cfdis | number) : '—' }}</td><td class="dz-err">{{ p.last_error || '—' }}</td></tr>
                   </ng-template>
                 </p-table>
@@ -101,10 +101,10 @@ import { CredencialesService } from '../credenciales.service';
               }
             </td></tr>
           </ng-template>
-          <ng-template pTemplate="emptymessage"><tr><td colspan="8" class="dz-empty">
+          <ng-template #emptymessage><tr><td colspan="8" class="dz-empty">
             @if (loading()) { Cargando… }
-            @else if (errored()) { <i class="pi pi-exclamation-triangle"></i> No se pudo cargar la bandeja. <button pButton type="button" label="Reintentar" class="p-button-sm p-button-text" (click)="reload()"></button> }
-            @else if (estado() !== 'all') { <i class="pi pi-filter-slash"></i> Sin descargas en estado "{{ estadoLabel(estado()) }}". <button pButton type="button" label="Ver todas" class="p-button-sm p-button-text" (click)="setEstado('all')"></button> }
+            @else if (errored()) { <i class="pi pi-exclamation-triangle"></i> No se pudo cargar la bandeja. <button pButton type="button" class="p-button-sm p-button-text" (click)="reload()"><span class="p-button-label">Reintentar</span></button> }
+            @else if (estado() !== 'all') { <i class="pi pi-filter-slash"></i> Sin descargas en estado "{{ estadoLabel(estado()) }}". <button pButton type="button" class="p-button-sm p-button-text" (click)="setEstado('all')"><span class="p-button-label">Ver todas</span></button> }
             @else { <i class="pi pi-cloud-download"></i> Sin solicitudes de descarga. @if (canManage) { Crea una con "Nueva descarga". } @else { Requiere permiso de gestión. } }
           </td></tr></ng-template>
         </p-table>
@@ -114,10 +114,10 @@ import { CredencialesService } from '../credenciales.service';
         <div class="dz-form">
           <label class="dz-f"><span>RFC solicitante *</span><input type="text" pInputText [(ngModel)]="form.rfcSolicitante" placeholder="XAXX010101000" maxlength="13" style="text-transform:uppercase" /></label>
           <label class="dz-f"><span>Rol *</span>
-            <p-selectButton [options]="rolOpts" [(ngModel)]="form.rol" optionLabel="label" optionValue="value" [allowEmpty]="false" styleClass="dz-sb sb-liquid" ariaLabel="Rol" />
+            <p-selectbutton [options]="rolOpts" [(ngModel)]="form.rol" optionLabel="label" optionValue="value" [allowEmpty]="false" styleClass="dz-sb sb-liquid" ariaLabel="Rol" />
           </label>
           <label class="dz-f"><span>Tipo</span>
-            <p-selectButton [options]="tipoOpts" [(ngModel)]="form.tipo" optionLabel="label" optionValue="value" [allowEmpty]="false" styleClass="dz-sb sb-liquid" ariaLabel="Tipo de solicitud" />
+            <p-selectbutton [options]="tipoOpts" [(ngModel)]="form.tipo" optionLabel="label" optionValue="value" [allowEmpty]="false" styleClass="dz-sb sb-liquid" ariaLabel="Tipo de solicitud" />
           </label>
           <div class="dz-row">
             <label class="dz-f"><span>Desde *</span><p-datepicker [(ngModel)]="form.fechaIni" dateFormat="yy-mm-dd" [showIcon]="true" appendTo="body" placeholder="Desde" styleClass="dz-dp" /></label>
@@ -125,9 +125,9 @@ import { CredencialesService } from '../credenciales.service';
           </div>
           <p class="dz-note"><i class="pi pi-info-circle"></i> Requiere la e.firma del RFC cargada en <strong>Credenciales</strong>. El SAT limita a 72h para descargar los paquetes generados.</p>
         </div>
-        <ng-template pTemplate="footer">
-          <button pButton type="button" label="Cancelar" class="p-button-text p-button-sm" (click)="showNew=false"></button>
-          <button pButton type="button" label="Crear y solicitar" icon="pi pi-check" class="p-button-sm" [loading]="creating()" [disabled]="!formValid()" (click)="crear()"></button>
+        <ng-template #footer>
+          <button pButton type="button" class="p-button-text p-button-sm" (click)="showNew=false"><span class="p-button-label">Cancelar</span></button>
+          <button pButton type="button" class="p-button-sm" [loading]="creating()" [disabled]="!formValid()" (click)="crear()"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Crear y solicitar</span></button>
         </ng-template>
       </p-dialog>
     </div>

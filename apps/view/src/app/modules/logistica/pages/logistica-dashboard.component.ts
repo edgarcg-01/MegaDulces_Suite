@@ -39,7 +39,7 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
   template: `
     <div class="surf-page logd">
       <p-toast></p-toast>
-
+    
       <header class="surf-page-head">
         <div class="surf-page-head-text">
           <h1>Dashboard Operativo</h1>
@@ -53,71 +53,74 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
             <label class="filter-label" for="ld-to">Hasta</label>
             <p-datepicker inputId="ld-to" [(ngModel)]="to" dateFormat="yy-mm-dd" placeholder="Hasta" [showButtonBar]="true"></p-datepicker>
           </div>
-          <button pButton icon="pi pi-refresh" label="Actualizar" styleClass="btn-spin-hover" (click)="reload()" [loading]="loading()"></button>
+          <button pButton styleClass="btn-spin-hover" (click)="reload()" [loading]="loading()"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span><span class="p-button-label">Actualizar</span></button>
         </div>
       </header>
-
+    
       <!-- KPI Grid (J14: tarjetas ricas con micro-gráficas, jerarquía bento) -->
-      <p-skeleton *ngIf="loading()" height="172px"></p-skeleton>
-      <div *ngIf="!loading()" class="surf-grid">
-        <!-- HERO: Margen (bottom line) — col-6 + large -->
-        <app-metric-card class="panel-col-6"
-          label="Margen operativo" variant="sparkline" [large]="true"
-          accent="var(--action)"
-          [value]="kpis()?.margin?.value || (overview()?.margin?.gross || 0)"
-          format="currency"
-          [delta]="kpis()?.margin?.delta_pct ?? null"
-          [series]="kpis()?.margin?.series || []"
-          [sub]="(kpis()?.margin?.pct ?? overview()?.margin?.gross_pct ?? 0 | number:'1.1-1') + '% margen bruto'">
-        </app-metric-card>
-
-        <!-- Secundarias chicas -->
-        <app-metric-card class="panel-col-3"
-          label="Ingreso flete" variant="sparkline" accent="var(--chart-2)"
-          [value]="kpis()?.revenue?.value || (overview()?.revenue?.freight || 0)"
-          format="currency"
-          [delta]="kpis()?.revenue?.delta_pct ?? null"
-          [series]="kpis()?.revenue?.series || []"
-          sub="Flete cobrado">
-        </app-metric-card>
-
-        <app-metric-card class="panel-col-3"
-          label="Volumen operativo" variant="bars" accent="var(--chart-6)"
-          [value]="kpis()?.shipments?.value || (overview()?.shipments?.count || 0)"
-          format="number"
-          [delta]="kpis()?.shipments?.delta_pct ?? null"
-          [series]="(kpis()?.shipments?.series || []).slice(-10)"
-          [sub]="(overview()?.shipments?.total_boxes || 0) + ' cajas'">
-        </app-metric-card>
-
-        <!-- Banner ancho: Costo (tendencia larga) — col-12 -->
-        <app-metric-card class="panel-col-12"
-          label="Costo operativo" variant="sparkline" accent="var(--chart-3)"
-          [value]="kpis()?.cost?.value || (overview()?.cost?.total || 0)"
-          format="currency"
-          [series]="kpis()?.cost?.series || []"
-          [sub]="(overview()?.cost?.per_km || 0 | currency:'MXN':'symbol-narrow':'1.2-2') + '/km · tendencia del período'">
-        </app-metric-card>
-      </div>
-
+      @if (loading()) {
+        <p-skeleton height="172px"></p-skeleton>
+      }
+      @if (!loading()) {
+        <div class="surf-grid">
+          <!-- HERO: Margen (bottom line) — col-6 + large -->
+          <app-metric-card class="panel-col-6"
+            label="Margen operativo" variant="sparkline" [large]="true"
+            accent="var(--action)"
+            [value]="kpis()?.margin?.value || (overview()?.margin?.gross || 0)"
+            format="currency"
+            [delta]="kpis()?.margin?.delta_pct ?? null"
+            [series]="kpis()?.margin?.series || []"
+            [sub]="(kpis()?.margin?.pct ?? overview()?.margin?.gross_pct ?? 0 | number:'1.1-1') + '% margen bruto'">
+          </app-metric-card>
+          <!-- Secundarias chicas -->
+          <app-metric-card class="panel-col-3"
+            label="Ingreso flete" variant="sparkline" accent="var(--chart-2)"
+            [value]="kpis()?.revenue?.value || (overview()?.revenue?.freight || 0)"
+            format="currency"
+            [delta]="kpis()?.revenue?.delta_pct ?? null"
+            [series]="kpis()?.revenue?.series || []"
+            sub="Flete cobrado">
+          </app-metric-card>
+          <app-metric-card class="panel-col-3"
+            label="Volumen operativo" variant="bars" accent="var(--chart-6)"
+            [value]="kpis()?.shipments?.value || (overview()?.shipments?.count || 0)"
+            format="number"
+            [delta]="kpis()?.shipments?.delta_pct ?? null"
+            [series]="(kpis()?.shipments?.series || []).slice(-10)"
+            [sub]="(overview()?.shipments?.total_boxes || 0) + ' cajas'">
+          </app-metric-card>
+          <!-- Banner ancho: Costo (tendencia larga) — col-12 -->
+          <app-metric-card class="panel-col-12"
+            label="Costo operativo" variant="sparkline" accent="var(--chart-3)"
+            [value]="kpis()?.cost?.value || (overview()?.cost?.total || 0)"
+            format="currency"
+            [series]="kpis()?.cost?.series || []"
+            [sub]="(overview()?.cost?.per_km || 0 | currency:'MXN':'symbol-narrow':'1.2-2') + '/km · tendencia del período'">
+          </app-metric-card>
+        </div>
+      }
+    
       <!-- Pipeline: pedidos confirmados/por aprobar sin embarque, agrupados por ruta -->
       <section class="surf-panel">
         <div class="surf-panel-head logd-pipe-head">
           <h3><i class="pi pi-inbox" aria-hidden="true"></i> Pedidos por embarcar</h3>
-          <div class="pipeline-totals" *ngIf="!loading()">
-            <div class="pt-block">
-              <span class="pt-label">Pedidos</span>
-              <span class="pt-value">{{ pipelineTotals().count }}</span>
+          @if (!loading()) {
+            <div class="pipeline-totals">
+              <div class="pt-block">
+                <span class="pt-label">Pedidos</span>
+                <span class="pt-value">{{ pipelineTotals().count }}</span>
+              </div>
+              <div class="pt-block">
+                <span class="pt-label">Valor</span>
+                <span class="pt-value">{{ pipelineTotals().value | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
+              </div>
             </div>
-            <div class="pt-block">
-              <span class="pt-label">Valor</span>
-              <span class="pt-value">{{ pipelineTotals().value | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
-            </div>
-          </div>
+          }
         </div>
         <div class="surf-panel-body is-flush">
           <p-table [value]="pendingRows()" [loading]="loading()" responsiveLayout="scroll" styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--zebra">
-            <ng-template pTemplate="header">
+            <ng-template #header>
               <tr>
                 <th scope="col">Ruta</th>
                 <th scope="col" class="comm-num">Pedidos</th>
@@ -128,19 +131,27 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
                 <th scope="col"><span class="sr-only">Acciones</span></th>
               </tr>
             </ng-template>
-            <ng-template pTemplate="body" let-r>
+            <ng-template #body let-r>
               <tr>
                 <td>
-                  <strong *ngIf="r.route_id">{{ r.route_name }}</strong>
-                  <span class="comm-muted" *ngIf="!r.route_id">{{ r.route_name }}</span>
+                  @if (r.route_id) {
+                    <strong>{{ r.route_name }}</strong>
+                  }
+                  @if (!r.route_id) {
+                    <span class="comm-muted">{{ r.route_name }}</span>
+                  }
                 </td>
                 <td class="comm-num is-strong">{{ r.orders_count }}</td>
                 <td class="comm-num">{{ r.orders_confirmed }}</td>
                 <td class="comm-num">
-                  <span *ngIf="r.orders_pending_approval > 0" class="comm-pill is-warn no-dot">
-                    {{ r.orders_pending_approval }}
-                  </span>
-                  <span *ngIf="r.orders_pending_approval === 0" class="comm-muted">0</span>
+                  @if (r.orders_pending_approval > 0) {
+                    <span class="comm-pill is-warn no-dot">
+                      {{ r.orders_pending_approval }}
+                    </span>
+                  }
+                  @if (r.orders_pending_approval === 0) {
+                    <span class="comm-muted">0</span>
+                  }
                 </td>
                 <td class="comm-num">{{ r.total_value | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
                 <td>
@@ -149,30 +160,29 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
                   </span>
                 </td>
                 <td class="comm-num">
-                  <a *ngIf="r.route_id" pButton
-                     icon="pi pi-plus" label="Embarque"
-                     size="small"
-                     [routerLink]="['/logistica/shipments']"
-                     [queryParams]="{ route_id: r.route_id }"
-                     pTooltip="Crear embarque para esta ruta"></a>
-                  <span *ngIf="!r.route_id" class="comm-muted is-small">Asigná ruta al cliente</span>
+                  @if (r.route_id) {
+                    <a pButton size="small" [routerLink]="['/logistica/shipments']" [queryParams]="{ route_id: r.route_id }" pTooltip="Crear embarque para esta ruta"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Embarque</span></a>
+                  }
+                  @if (!r.route_id) {
+                    <span class="comm-muted is-small">Asigná ruta al cliente</span>
+                  }
                 </td>
               </tr>
             </ng-template>
-            <ng-template pTemplate="emptymessage">
+            <ng-template #emptymessage>
               <tr><td colspan="7" class="comm-muted logd-empty">Nada esperando embarque. Pipeline limpio.</td></tr>
             </ng-template>
           </p-table>
         </div>
       </section>
-
+    
       <!-- Two-column section -->
       <div class="surf-grid">
         <section class="surf-panel panel-col-6">
           <div class="surf-panel-head"><h3><i class="pi pi-chart-line" aria-hidden="true"></i> Top embarques por margen</h3></div>
           <div class="surf-panel-body is-flush">
             <p-table [value]="topShipments()" [loading]="loading()" responsiveLayout="scroll" styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--zebra">
-              <ng-template pTemplate="header">
+              <ng-template #header>
                 <tr>
                   <th scope="col">Folio</th>
                   <th scope="col">Ruta</th>
@@ -182,7 +192,7 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
                   <th scope="col" class="comm-num">Margen</th>
                 </tr>
               </ng-template>
-              <ng-template pTemplate="body" let-r>
+              <ng-template #body let-r>
                 <tr>
                   <td><code class="comm-code">{{ r.folio }}</code></td>
                   <td>{{ r.route_name || '—' }}</td>
@@ -195,18 +205,18 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
                   </td>
                 </tr>
               </ng-template>
-              <ng-template pTemplate="emptymessage">
+              <ng-template #emptymessage>
                 <tr><td colspan="6" class="comm-muted logd-empty">Sin embarques cerrados en este rango. Probá ampliar las fechas.</td></tr>
               </ng-template>
             </p-table>
           </div>
         </section>
-
+    
         <section class="surf-panel panel-col-6">
           <div class="surf-panel-head"><h3><i class="pi pi-truck" aria-hidden="true"></i> Utilización por unidad</h3></div>
           <div class="surf-panel-body is-flush">
             <p-table [value]="fleetRows()" [loading]="loading()" responsiveLayout="scroll" styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--zebra">
-              <ng-template pTemplate="header">
+              <ng-template #header>
                 <tr>
                   <th scope="col">Placa</th>
                   <th scope="col" class="comm-num">Embarques</th>
@@ -215,7 +225,7 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
                   <th scope="col" class="comm-num">Margen</th>
                 </tr>
               </ng-template>
-              <ng-template pTemplate="body" let-v>
+              <ng-template #body let-v>
                 <tr>
                   <td><code class="comm-code">{{ v.plate }}</code></td>
                   <td class="comm-num">{{ v.shipments_count }}</td>
@@ -226,7 +236,7 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
                   </td>
                 </tr>
               </ng-template>
-              <ng-template pTemplate="emptymessage">
+              <ng-template #emptymessage>
                 <tr><td colspan="5" class="comm-muted logd-empty">Aún no se asignaron unidades en este período.</td></tr>
               </ng-template>
             </p-table>
@@ -234,7 +244,7 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
         </section>
       </div>
     </div>
-  `,
+    `,
   styles: [`
     :host { display:block; }
 

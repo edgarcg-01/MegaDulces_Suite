@@ -1,5 +1,5 @@
-import { Component, computed, inject, signal, OnInit, OnDestroy } from '@angular/core';
-import { CommonModule } from '@angular/common';
+import { Component, computed, inject, signal, OnInit, OnDestroy, ChangeDetectionStrategy } from '@angular/core';
+
 import { FormsModule } from '@angular/forms';
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { RouterModule } from '@angular/router';
@@ -88,7 +88,7 @@ interface RouteTrack {
 @Component({
   selector: 'app-routes-analysis',
   standalone: true,
-  imports: [CommonModule, FormsModule, RouterModule, TableModule, TagModule, SkeletonModule, SelectModule, MapComponent, MapLegendComponent],
+  imports: [FormsModule, RouterModule, TableModule, TagModule, SkeletonModule, SelectModule, MapComponent, MapLegendComponent],
   providers: [MapLiveLayerService],
   styles: [`
     /* ── layout ──────────────────────────────────────────────── */
@@ -336,6 +336,7 @@ interface RouteTrack {
     /* ── sidebar min height ──────────────────────────────────── */
     .ru-sidebar { min-height: 120px; }
   `],
+  changeDetection: ChangeDetectionStrategy.Eager,
   template: `
     <div class="surf-page">
 
@@ -606,19 +607,19 @@ interface RouteTrack {
             <p-table [value]="filteredVisits()" [loading]="loadingDetail()"
               styleClass="p-datatable-sm"
               sortField="hora_inicio" [sortOrder]="1">
-              <ng-template pTemplate="header">
+              <ng-template #header>
                 <tr>
                   <th style="width:2.5rem">#</th>
                   <th>Tienda</th>
                   <th>Vendedor</th>
-                  <th pSortableColumn="hora_inicio">Inicio <p-sortIcon field="hora_inicio"></p-sortIcon></th>
+                  <th pSortableColumn="hora_inicio">Inicio <p-sorticon field="hora_inicio"></p-sorticon></th>
                   <th>Fin</th>
-                  <th pSortableColumn="duration_min">Dur. <p-sortIcon field="duration_min"></p-sortIcon></th>
+                  <th pSortableColumn="duration_min">Dur. <p-sorticon field="duration_min"></p-sorticon></th>
                   <th>Muerto antes</th>
-                  <th pSortableColumn="score" style="text-align:right">Score <p-sortIcon field="score"></p-sortIcon></th>
+                  <th pSortableColumn="score" style="text-align:right">Score <p-sorticon field="score"></p-sorticon></th>
                 </tr>
               </ng-template>
-              <ng-template pTemplate="body" let-v let-i="rowIndex">
+              <ng-template #body let-v let-i="rowIndex">
                 <tr>
                   <td class="comm-muted" style="font-size:0.75rem">{{ i + 1 }}</td>
                   <td>
@@ -648,7 +649,7 @@ interface RouteTrack {
                   </td>
                 </tr>
               </ng-template>
-              <ng-template pTemplate="emptymessage">
+              <ng-template #emptymessage>
                 <tr><td colspan="8" class="ru-table-empty">
                   @if (stores().length > 0) { 0 visitas — {{ stores().length }} tiendas asignadas aparecen abajo. }
                   @else { Sin visitas en este rango. }
@@ -667,14 +668,14 @@ interface RouteTrack {
           <div class="surf-panel-body is-flush ru-table-scroll">
             <p-table [value]="stores()" [loading]="loadingDetail()"
               styleClass="p-datatable-sm">
-              <ng-template pTemplate="header">
+              <ng-template #header>
                 <tr>
                   <th>Tienda</th>
                   <th>Zona</th>
                   <th style="width:7rem">Estado</th>
                 </tr>
               </ng-template>
-              <ng-template pTemplate="body" let-s>
+              <ng-template #body let-s>
                 <tr>
                   <td>
                     <a [routerLink]="['/dashboard/stores']" [queryParams]="{ q: s.nombre }"
@@ -687,7 +688,7 @@ interface RouteTrack {
                   </td>
                 </tr>
               </ng-template>
-              <ng-template pTemplate="emptymessage">
+              <ng-template #emptymessage>
                 <tr><td colspan="3" class="ru-table-empty">
                   @if (visits().length > 0) { Visitas sin maestro de tiendas — revisar asignación de la ruta. }
                   @else { Esta ruta no tiene tiendas asignadas. }

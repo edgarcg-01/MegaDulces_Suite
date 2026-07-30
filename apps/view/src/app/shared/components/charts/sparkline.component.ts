@@ -1,5 +1,5 @@
 import { ChangeDetectionStrategy, Component, computed, input, signal } from '@angular/core';
-import { CommonModule } from '@angular/common';
+
 
 let _spkSeq = 0;
 
@@ -15,10 +15,10 @@ const NUM = new Intl.NumberFormat('es-MX', { maximumFractionDigits: 0 });
 @Component({
   selector: 'app-sparkline',
   standalone: true,
-  imports: [CommonModule],
+  imports: [],
   template: `
     <div class="spk-wrap" #wrap
-         (pointermove)="onMove($event, wrap)" (pointerleave)="active.set(-1)">
+      (pointermove)="onMove($event, wrap)" (pointerleave)="active.set(-1)">
       <svg class="spk" viewBox="0 0 100 40" preserveAspectRatio="none" aria-hidden="true">
         <defs>
           <linearGradient [attr.id]="gid" x1="0" y1="0" x2="0" y2="1">
@@ -26,7 +26,9 @@ const NUM = new Intl.NumberFormat('es-MX', { maximumFractionDigits: 0 });
             <stop offset="100%" [attr.stop-color]="color()" stop-opacity="0" />
           </linearGradient>
         </defs>
-        <path *ngIf="area() && areaPath()" [attr.d]="areaPath()" [attr.fill]="'url(#' + gid + ')'" stroke="none"></path>
+        @if (area() && areaPath()) {
+          <path [attr.d]="areaPath()" [attr.fill]="'url(#' + gid + ')'" stroke="none"></path>
+        }
         <path
           class="spk-line"
           [attr.d]="linePath()"
@@ -34,15 +36,21 @@ const NUM = new Intl.NumberFormat('es-MX', { maximumFractionDigits: 0 });
           fill="none" stroke-width="2" vector-effect="non-scaling-stroke"
           pathLength="100" stroke-linecap="round" stroke-linejoin="round"
         ></path>
-        <line *ngIf="activePt() as p" class="spk-guide" [attr.x1]="p.x" [attr.x2]="p.x" y1="0" y2="40" vector-effect="non-scaling-stroke"></line>
-        <circle *ngIf="activePt() as p" class="spk-dot" [attr.cx]="p.x" [attr.cy]="p.y" r="3"
-                [attr.fill]="color()" vector-effect="non-scaling-stroke"></circle>
+        @if (activePt(); as p) {
+          <line class="spk-guide" [attr.x1]="p.x" [attr.x2]="p.x" y1="0" y2="40" vector-effect="non-scaling-stroke"></line>
+        }
+        @if (activePt(); as p) {
+          <circle class="spk-dot" [attr.cx]="p.x" [attr.cy]="p.y" r="3"
+          [attr.fill]="color()" vector-effect="non-scaling-stroke"></circle>
+        }
       </svg>
-      <div *ngIf="activePt() as p" class="spk-tip" [style.left.%]="p.x" [style.top.%]="(p.y / 40) * 100">
-        {{ activeLabel() }}
-      </div>
+      @if (activePt(); as p) {
+        <div class="spk-tip" [style.left.%]="p.x" [style.top.%]="(p.y / 40) * 100">
+          {{ activeLabel() }}
+        </div>
+      }
     </div>
-  `,
+    `,
   styles: [`
     :host { display:block; width:100%; }
     .spk-wrap { position:relative; width:100%; height: var(--spk-h, 40px); }

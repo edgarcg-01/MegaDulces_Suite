@@ -38,24 +38,24 @@ import { CUSTOMERS_TABS } from '../customers-tabs';
             <i class="pi pi-search"></i>
             <input pInputText type="text" placeholder="Buscar cliente…" [(ngModel)]="search" (ngModelChange)="search$.next($event)" />
           </span>
-          <button pButton icon="pi pi-refresh" [text]="true" severity="secondary" size="small" (click)="load()" [loading]="loading()"></button>
+          <button pButton [text]="true" severity="secondary" size="small" (click)="load()" [loading]="loading()"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span></button>
         </div>
       </header>
 
       <p-table [value]="rows()" [loading]="loading()" dataKey="erp_code" styleClass="p-datatable-sm surf-table"
                [scrollable]="true" scrollHeight="flex" [paginator]="true" [rows]="25" [rowsPerPageOptions]="[25,50,100]">
-        <ng-template pTemplate="header">
+        <ng-template #header>
           <tr>
             <th scope="col" style="width:3rem"></th>
             <th scope="col">Cliente</th><th scope="col">Código</th><th scope="col">RFC</th><th scope="col">Ciudad</th>
             <th scope="col" class="c3-num">Productos</th><th scope="col" class="c3-num">Compra 180d</th><th scope="col">Última</th>
           </tr>
         </ng-template>
-        <ng-template pTemplate="body" let-c let-expanded="expanded">
+        <ng-template #body let-c let-expanded="expanded">
           <tr>
             <td>
-              <button type="button" pButton [text]="true" size="small" [icon]="expanded ? 'pi pi-chevron-down' : 'pi pi-chevron-right'"
-                      [pRowToggler]="c" (click)="onExpand(c)"></button>
+              <p-button type="button" pButton [text]="true" size="small" [icon]="expanded ? 'pi pi-chevron-down' : 'pi pi-chevron-right'"
+                      [pRowToggler]="c" (click)="onExpand(c)"></p-button>
             </td>
             <td class="c3-name">{{ c.name }}</td>
             <td class="c3-mono">{{ c.erp_code }}</td>
@@ -66,18 +66,18 @@ import { CUSTOMERS_TABS } from '../customers-tabs';
             <td>{{ c.last_purchase ? (c.last_purchase | date:'dd/MM/yy') : '—' }}</td>
           </tr>
         </ng-template>
-        <ng-template pTemplate="rowexpansion" let-c>
+        <ng-template #expandedrow let-c>
           <tr>
             <td colspan="8" class="c3-detail">
               @if (productsLoading()) { <div class="c3-loading"><i class="pi pi-spin pi-spinner"></i> Cargando productos…</div> }
               @else {
                 <p-table [value]="products()" styleClass="p-datatable-sm" [scrollable]="true" scrollHeight="320px">
-                  <ng-template pTemplate="header">
+                  <ng-template #header>
                     <tr><th scope="col">SKU</th><th scope="col">Producto</th>
                       <th scope="col" class="c3-num">U. 90d</th><th scope="col" class="c3-num">$ 90d</th>
                       <th scope="col" class="c3-num">U. 180d</th><th scope="col" class="c3-num">$ 180d</th><th scope="col">Última</th></tr>
                   </ng-template>
-                  <ng-template pTemplate="body" let-p>
+                  <ng-template #body let-p>
                     <tr>
                       <td class="c3-mono">{{ p.sku }}</td>
                       <td class="c3-name">{{ p.product_name }}</td>
@@ -88,13 +88,13 @@ import { CUSTOMERS_TABS } from '../customers-tabs';
                       <td>{{ p.last_purchase_date ? (p.last_purchase_date | date:'dd/MM/yy') : '—' }}</td>
                     </tr>
                   </ng-template>
-                  <ng-template pTemplate="emptymessage"><tr><td colspan="7" class="c3-muted">Sin compras.</td></tr></ng-template>
+                  <ng-template #emptymessage><tr><td colspan="7" class="c3-muted">Sin compras.</td></tr></ng-template>
                 </p-table>
               }
             </td>
           </tr>
         </ng-template>
-        <ng-template pTemplate="emptymessage">
+        <ng-template #emptymessage>
           <tr><td colspan="8" class="comm-empty-cell">
             <div class="comm-empty"><div class="comm-empty-icon"><i class="pi pi-users" aria-hidden="true"></i></div>
               <h3>Sin clientes</h3><p>No hay clientes con venta real.</p></div>

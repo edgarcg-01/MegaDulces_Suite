@@ -61,7 +61,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
   providers: [MessageService],
   template: `
     <p-toast position="bottom-center"></p-toast>
-
+    
     <p-dialog
       [visible]="visible()"
       (visibleChange)="visibleChange.emit($event)"
@@ -71,139 +71,151 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
       [contentStyle]="{ padding: '0' }"
       [draggable]="false"
       [resizable]="false"
-    >
-      <ng-template pTemplate="header">
+      >
+      <ng-template #header>
         <div class="wizard-header">
           <h3>Entrega <code>{{ shipment()?.folio || '—' }}</code></h3>
           <p-tag [severity]="statusSeverity()" [value]="shipment()?.status || ''"></p-tag>
         </div>
       </ng-template>
-
+    
       <!-- Progress bar -->
       <div class="progress-wrap">
-        <p-progressBar [value]="progress()" [showValue]="false"></p-progressBar>
+        <p-progressbar [value]="progress()" [showValue]="false"></p-progressbar>
         <span class="progress-label">{{ stepLabel() }} · {{ progress() }}%</span>
       </div>
-
+    
       <!-- Step indicator -->
       <div class="steps-wrap">
-        <div class="step" *ngFor="let s of stepsList; let i = index"
-             [class.active]="currentStepIdx() === i"
-             [class.done]="currentStepIdx() > i">
-          <div class="step-num">{{ i + 1 }}</div>
-          <div class="step-label">{{ s.label }}</div>
-        </div>
+        @for (s of stepsList; track s; let i = $index) {
+          <div class="step"
+            [class.active]="currentStepIdx() === i"
+            [class.done]="currentStepIdx() > i">
+            <div class="step-num">{{ i + 1 }}</div>
+            <div class="step-label">{{ s.label }}</div>
+          </div>
+        }
       </div>
-
+    
       <div class="step-body">
         <!-- ──────────── STEP 1: Checklist Salida ──────────── -->
-        <ng-container *ngIf="currentStepIdx() === 0">
+        @if (currentStepIdx() === 0) {
           <h4><i class="pi pi-clipboard-check"></i> Checklist de inspección — Salida</h4>
           <p class="muted">Marcá cada item como OK o Issue. Los items con * son obligatorios.</p>
-
-          <div *ngFor="let item of templateSalida()?.items || []" class="item-row">
-            <div class="item-label">
-              <strong>{{ item.label }}</strong>
-              <span *ngIf="item.required" class="req">*</span>
+          @for (item of templateSalida()?.items || []; track item) {
+            <div class="item-row">
+              <div class="item-label">
+                <strong>{{ item.label }}</strong>
+                @if (item.required) {
+                  <span class="req">*</span>
+                }
+              </div>
+              <div class="item-controls">
+                <p-selectbutton
+                  [options]="okOptions"
+                  [(ngModel)]="responsesSalida[item.id].ok"
+                  optionLabel="label"
+                  optionValue="value"
+                  styleClass="sb-liquid"
+                ></p-selectbutton>
+                <input
+                  pInputText
+                  [(ngModel)]="responsesSalida[item.id].comment"
+                  placeholder="Comentario (opcional)"
+                  class="comment-input"
+                  />
+                </div>
+              </div>
+            }
+            <div class="step-actions">
+              <button pButton severity="secondary" [text]="true" (click)="skipToDepart()" [disabled]="busy()"><span class="p-button-label">Saltar paso</span></button>
+              <button pButton (click)="completeSalidaChecklistAndDepart()" [loading]="busy()"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Completar y salir</span></button>
             </div>
-            <div class="item-controls">
-              <p-selectButton
-                [options]="okOptions"
-                [(ngModel)]="responsesSalida[item.id].ok"
-                optionLabel="label"
-                optionValue="value"
-                styleClass="sb-liquid"
-              ></p-selectButton>
-              <input
-                pInputText
-                [(ngModel)]="responsesSalida[item.id].comment"
-                placeholder="Comentario (opcional)"
-                class="comment-input"
-              />
+          }
+    
+          <!-- ──────────── STEP 2: En tránsito ──────────── -->
+          @if (currentStepIdx() === 1) {
+            <h4><i class="pi pi-send"></i> En tránsito</h4>
+            <div class="transit-card">
+              <i class="pi pi-truck transit-icon"></i>
+              <p>Dirigite al destino. Cuando llegues, marcá como entregado.</p>
+              @if (shipment()?.destination) {
+                <p class="muted">Destino: <strong>{{ shipment()?.destination }}</strong></p>
+              }
+              @if (shipment()?.departure_at) {
+                <p class="muted">Salida: {{ $safeNavigationMigration(shipment()?.departure_at) | date:'short' }}</p>
+              }
             </div>
-          </div>
-
-          <div class="step-actions">
-            <button pButton severity="secondary" [text]="true" label="Saltar paso" (click)="skipToDepart()" [disabled]="busy()"></button>
-            <button pButton label="Completar y salir" icon="pi pi-check" (click)="completeSalidaChecklistAndDepart()" [loading]="busy()"></button>
-          </div>
-        </ng-container>
-
-        <!-- ──────────── STEP 2: En tránsito ──────────── -->
-        <ng-container *ngIf="currentStepIdx() === 1">
-          <h4><i class="pi pi-send"></i> En tránsito</h4>
-          <div class="transit-card">
-            <i class="pi pi-truck transit-icon"></i>
-            <p>Dirigite al destino. Cuando llegues, marcá como entregado.</p>
-            <p class="muted" *ngIf="shipment()?.destination">Destino: <strong>{{ shipment()?.destination }}</strong></p>
-            <p class="muted" *ngIf="shipment()?.departure_at">Salida: {{ shipment()?.departure_at | date:'short' }}</p>
-          </div>
-
-          <div class="step-actions">
-            <button pButton label="Llegué al destino" icon="pi pi-map-marker" (click)="markDelivered()" [loading]="busy()"></button>
-          </div>
-        </ng-container>
-
-        <!-- ──────────── STEP 3: Llegada + Fotos ──────────── -->
-        <ng-container *ngIf="currentStepIdx() === 2">
-          <h4><i class="pi pi-camera"></i> Fotos de entrega</h4>
-          <p class="muted">Capturá fotos de la entrega (firma, evidencia, INE receptor). Mínimo 1.</p>
-
-          <div class="photo-actions">
-            <button pButton label="Tomar foto (cámara)" icon="pi pi-camera" severity="secondary" (click)="takePhoto()" [loading]="capturingPhoto()"></button>
-            <input type="file" accept="image/*" (change)="onFileSelected($event)" #fileInput hidden />
-            <button pButton label="Elegir archivo" icon="pi pi-upload" severity="secondary" [text]="true" (click)="fileInput.click()"></button>
-          </div>
-
-          <div class="photos-grid" *ngIf="uploadedPhotos().length > 0">
-            <div *ngFor="let p of uploadedPhotos()" class="photo-thumb">
-              <img [src]="p.url" alt="" />
-              <span class="muted small">{{ p.category }}</span>
+            <div class="step-actions">
+              <button pButton (click)="markDelivered()" [loading]="busy()"><span class="p-button-icon p-button-icon-left pi pi-map-marker" aria-hidden="true"></span><span class="p-button-label">Llegué al destino</span></button>
             </div>
-          </div>
-          <p *ngIf="uploadedPhotos().length === 0" class="muted small empty-photos">Sin fotos cargadas todavía.</p>
-
-          <div class="step-actions">
-            <button pButton severity="secondary" [text]="true" label="Saltar" (click)="skipToLlegadaChecklist()" [disabled]="busy()"></button>
-            <button pButton label="Continuar a checklist llegada" icon="pi pi-arrow-right" (click)="continueToLlegada()" [loading]="busy()"></button>
-          </div>
-        </ng-container>
-
-        <!-- ──────────── STEP 4: Checklist Llegada ──────────── -->
-        <ng-container *ngIf="currentStepIdx() === 3">
-          <h4><i class="pi pi-flag"></i> Checklist de inspección — Llegada</h4>
-          <p class="muted">Inspección post-entrega. Daños, devoluciones, observaciones.</p>
-
-          <div *ngFor="let item of templateLlegada()?.items || []" class="item-row">
-            <div class="item-label">
-              <strong>{{ item.label }}</strong>
-              <span *ngIf="item.required" class="req">*</span>
+          }
+    
+          <!-- ──────────── STEP 3: Llegada + Fotos ──────────── -->
+          @if (currentStepIdx() === 2) {
+            <h4><i class="pi pi-camera"></i> Fotos de entrega</h4>
+            <p class="muted">Capturá fotos de la entrega (firma, evidencia, INE receptor). Mínimo 1.</p>
+            <div class="photo-actions">
+              <button pButton severity="secondary" (click)="takePhoto()" [loading]="capturingPhoto()"><span class="p-button-icon p-button-icon-left pi pi-camera" aria-hidden="true"></span><span class="p-button-label">Tomar foto (cámara)</span></button>
+              <input type="file" accept="image/*" (change)="onFileSelected($event)" #fileInput hidden />
+              <button pButton severity="secondary" [text]="true" (click)="fileInput.click()"><span class="p-button-icon p-button-icon-left pi pi-upload" aria-hidden="true"></span><span class="p-button-label">Elegir archivo</span></button>
             </div>
-            <div class="item-controls">
-              <p-selectButton
-                [options]="okOptions"
-                [(ngModel)]="responsesLlegada[item.id].ok"
-                optionLabel="label"
-                optionValue="value"
-                styleClass="sb-liquid"
-              ></p-selectButton>
-              <input
-                pInputText
-                [(ngModel)]="responsesLlegada[item.id].comment"
-                placeholder="Comentario (opcional)"
-                class="comment-input"
-              />
+            @if (uploadedPhotos().length > 0) {
+              <div class="photos-grid">
+                @for (p of uploadedPhotos(); track p) {
+                  <div class="photo-thumb">
+                    <img [src]="p.url" alt="" />
+                    <span class="muted small">{{ p.category }}</span>
+                  </div>
+                }
+              </div>
+            }
+            @if (uploadedPhotos().length === 0) {
+              <p class="muted small empty-photos">Sin fotos cargadas todavía.</p>
+            }
+            <div class="step-actions">
+              <button pButton severity="secondary" [text]="true" (click)="skipToLlegadaChecklist()" [disabled]="busy()"><span class="p-button-label">Saltar</span></button>
+              <button pButton (click)="continueToLlegada()" [loading]="busy()"><span class="p-button-icon p-button-icon-left pi pi-arrow-right" aria-hidden="true"></span><span class="p-button-label">Continuar a checklist llegada</span></button>
             </div>
+          }
+    
+          <!-- ──────────── STEP 4: Checklist Llegada ──────────── -->
+          @if (currentStepIdx() === 3) {
+            <h4><i class="pi pi-flag"></i> Checklist de inspección — Llegada</h4>
+            <p class="muted">Inspección post-entrega. Daños, devoluciones, observaciones.</p>
+            @for (item of templateLlegada()?.items || []; track item) {
+              <div class="item-row">
+                <div class="item-label">
+                  <strong>{{ item.label }}</strong>
+                  @if (item.required) {
+                    <span class="req">*</span>
+                  }
+                </div>
+                <div class="item-controls">
+                  <p-selectbutton
+                    [options]="okOptions"
+                    [(ngModel)]="responsesLlegada[item.id].ok"
+                    optionLabel="label"
+                    optionValue="value"
+                    styleClass="sb-liquid"
+                  ></p-selectbutton>
+                  <input
+                    pInputText
+                    [(ngModel)]="responsesLlegada[item.id].comment"
+                    placeholder="Comentario (opcional)"
+                    class="comment-input"
+                    />
+                  </div>
+                </div>
+              }
+              <div class="step-actions">
+                <button pButton severity="secondary" [text]="true" (click)="closeWithoutChecklist()" [disabled]="busy()"><span class="p-button-label">Cerrar sin checklist</span></button>
+                <button pButton severity="success" (click)="completeLlegadaAndClose()" [loading]="busy()"><span class="p-button-icon p-button-icon-left pi pi-check-circle" aria-hidden="true"></span><span class="p-button-label">Completar y cerrar entrega</span></button>
+              </div>
+            }
           </div>
-
-          <div class="step-actions">
-            <button pButton severity="secondary" [text]="true" label="Cerrar sin checklist" (click)="closeWithoutChecklist()" [disabled]="busy()"></button>
-            <button pButton label="Completar y cerrar entrega" icon="pi pi-check-circle" severity="success" (click)="completeLlegadaAndClose()" [loading]="busy()"></button>
-          </div>
-        </ng-container>
-      </div>
-    </p-dialog>
-  `,
+        </p-dialog>
+    `,
   styles: [`
     :host { display: contents; }
 

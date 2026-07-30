@@ -45,133 +45,131 @@ function severityLiq(s: LiquidationStatus): Severity {
   providers: [MessageService, ConfirmationService],
   template: `
     <div class="surf-page logp">
-    <p-toast></p-toast>
-    <p-confirmDialog></p-confirmDialog>
-
-    <header class="surf-page-head">
-      <div class="surf-page-head-text">
-        <h1>Liquidaciones por período</h1>
-        <p class="surf-page-sub">Catorcenas, cálculo automático de comisiones + viáticos por colaborador.</p>
+      <p-toast></p-toast>
+      <p-confirmdialog></p-confirmdialog>
+    
+      <header class="surf-page-head">
+        <div class="surf-page-head-text">
+          <h1>Liquidaciones por período</h1>
+          <p class="surf-page-sub">Catorcenas, cálculo automático de comisiones + viáticos por colaborador.</p>
+        </div>
+        <button pButton (click)="openCreatePeriod()"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Nuevo período</span></button>
+      </header>
+    
+      <div class="grid">
+        <section class="surf-panel periods-card">
+          <div class="surf-panel-head"><h3><i class="pi pi-calendar" aria-hidden="true"></i> Períodos</h3></div>
+          <div class="surf-panel-body is-flush">
+            <p-table [value]="periods()" [loading]="loadingP()" responsiveLayout="scroll"
+              styleClass="surf-table surf-table--sticky p-datatable-sm"
+              selectionMode="single" [(selection)]="selectedPeriod" (onRowSelect)="onPeriodSelect()"
+              [dataKey]="'id'">
+              <ng-template #header>
+                <tr>
+                  <th scope="col">Período</th><th scope="col">Rango</th><th scope="col">Pago</th><th scope="col">Estado</th>
+                  <th scope="col"><span class="sr-only">Acciones</span></th>
+                </tr>
+              </ng-template>
+              <ng-template #body let-p>
+                <tr [pSelectableRow]="p">
+                  <td><strong>{{ p.year }}/{{ p.number }}</strong></td>
+                  <td class="muted">{{ p.start_date | date:'shortDate' }} → {{ p.end_date | date:'shortDate' }}</td>
+                  <td>{{ p.payment_date | date:'shortDate' }}</td>
+                  <td><p-tag [severity]="sevPeriod(p.status)" [value]="p.status"></p-tag></td>
+                  <td class="actions">
+                    <button pButton size="small" severity="secondary" [text]="true" pTooltip="Calcular liquidaciones" (click)="calculate(p)" [loading]="calculatingId() === p.id"><span class="p-button-icon p-button-icon-left pi pi-cog" aria-hidden="true"></span></button>
+                  </td>
+                </tr>
+              </ng-template>
+              <ng-template #emptymessage>
+                <tr><td colspan="5">
+                  <div class="comm-empty">
+                    <i class="pi pi-calendar comm-empty-icon" aria-hidden="true"></i>
+                    <span>Sin períodos. Crear el primero.</span>
+                  </div>
+                </td></tr>
+              </ng-template>
+            </p-table>
+          </div>
+        </section>
+    
+        <section class="surf-panel liq-card">
+          <div class="surf-panel-head"><h3><i class="pi pi-wallet" aria-hidden="true"></i> {{ liqHeader() }}</h3></div>
+          <div class="surf-panel-body is-flush">
+            <p-table [value]="liquidations()" [loading]="loadingL()" responsiveLayout="scroll"
+              styleClass="surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra p-datatable-sm">
+              <ng-template #header>
+                <tr>
+                  <th scope="col">Colaborador</th><th scope="col">Tipo</th>
+                  <th scope="col" class="num">Comisiones</th><th scope="col" class="num">Viáticos</th><th scope="col" class="num">Carga/desc</th>
+                  <th scope="col" class="num">Bonos</th><th scope="col" class="num">Deducciones</th>
+                  <th scope="col" class="num">Neto</th><th scope="col">Estado</th>
+                  <th scope="col"><span class="sr-only">Acciones</span></th>
+                </tr>
+              </ng-template>
+              <ng-template #body let-l>
+                <tr>
+                  <td class="strong">{{ l.driver_name }}</td>
+                  <td>{{ l.employee_type }}</td>
+                  <td class="num">\${{ l.commissions_amount | number:'1.2-2' }}</td>
+                  <td class="num">\${{ l.per_diem_amount | number:'1.2-2' }}</td>
+                  <td class="num">\${{ l.load_unload_amount | number:'1.2-2' }}</td>
+                  <td class="num">\${{ l.bonuses | number:'1.2-2' }}</td>
+                  <td class="num">\${{ l.deductions | number:'1.2-2' }}</td>
+                  <td class="num grand">\${{ l.net_amount | number:'1.2-2' }}</td>
+                  <td><p-tag [severity]="sevLiq(l.status)" [value]="l.status"></p-tag></td>
+                  <td class="actions">
+                    <button pButton size="small" severity="secondary" [text]="true" pTooltip="Ajustes (anticipos / bonos / multas)" (click)="openAdjustments(l)"><span class="p-button-icon p-button-icon-left pi pi-list" aria-hidden="true"></span></button>
+                    <button pButton size="small" severity="secondary" [text]="true" (click)="openEditLiquidation(l)"><span class="p-button-icon p-button-icon-left pi pi-pencil" aria-hidden="true"></span></button>
+                  </td>
+                </tr>
+              </ng-template>
+              <ng-template #emptymessage>
+                <tr><td colspan="10">
+                  <div class="comm-empty">
+                    <i class="pi pi-wallet comm-empty-icon" aria-hidden="true"></i>
+                    <span>{{ selectedPeriod ? 'Sin liquidaciones para este período. Calcular para generar.' : 'Selecciona un período.' }}</span>
+                  </div>
+                </td></tr>
+              </ng-template>
+            </p-table>
+          </div>
+        </section>
       </div>
-      <button pButton icon="pi pi-plus" label="Nuevo período" (click)="openCreatePeriod()"></button>
-    </header>
-
-    <div class="grid">
-      <section class="surf-panel periods-card">
-        <div class="surf-panel-head"><h3><i class="pi pi-calendar" aria-hidden="true"></i> Períodos</h3></div>
-        <div class="surf-panel-body is-flush">
-        <p-table [value]="periods()" [loading]="loadingP()" responsiveLayout="scroll"
-                 styleClass="surf-table surf-table--sticky p-datatable-sm"
-                 selectionMode="single" [(selection)]="selectedPeriod" (onRowSelect)="onPeriodSelect()"
-                 [dataKey]="'id'">
-          <ng-template pTemplate="header">
-            <tr>
-              <th scope="col">Período</th><th scope="col">Rango</th><th scope="col">Pago</th><th scope="col">Estado</th>
-              <th scope="col"><span class="sr-only">Acciones</span></th>
-            </tr>
-          </ng-template>
-          <ng-template pTemplate="body" let-p>
-            <tr [pSelectableRow]="p">
-              <td><strong>{{ p.year }}/{{ p.number }}</strong></td>
-              <td class="muted">{{ p.start_date | date:'shortDate' }} → {{ p.end_date | date:'shortDate' }}</td>
-              <td>{{ p.payment_date | date:'shortDate' }}</td>
-              <td><p-tag [severity]="sevPeriod(p.status)" [value]="p.status"></p-tag></td>
-              <td class="actions">
-                <button pButton icon="pi pi-cog" size="small" severity="secondary" [text]="true"
-                        pTooltip="Calcular liquidaciones" (click)="calculate(p)"
-                        [loading]="calculatingId() === p.id"></button>
-              </td>
-            </tr>
-          </ng-template>
-          <ng-template pTemplate="emptymessage">
-            <tr><td colspan="5">
-              <div class="comm-empty">
-                <i class="pi pi-calendar comm-empty-icon" aria-hidden="true"></i>
-                <span>Sin períodos. Crear el primero.</span>
-              </div>
-            </td></tr>
-          </ng-template>
-        </p-table>
-        </div>
-      </section>
-
-      <section class="surf-panel liq-card">
-        <div class="surf-panel-head"><h3><i class="pi pi-wallet" aria-hidden="true"></i> {{ liqHeader() }}</h3></div>
-        <div class="surf-panel-body is-flush">
-        <p-table [value]="liquidations()" [loading]="loadingL()" responsiveLayout="scroll"
-                 styleClass="surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra p-datatable-sm">
-          <ng-template pTemplate="header">
-            <tr>
-              <th scope="col">Colaborador</th><th scope="col">Tipo</th>
-              <th scope="col" class="num">Comisiones</th><th scope="col" class="num">Viáticos</th><th scope="col" class="num">Carga/desc</th>
-              <th scope="col" class="num">Bonos</th><th scope="col" class="num">Deducciones</th>
-              <th scope="col" class="num">Neto</th><th scope="col">Estado</th>
-              <th scope="col"><span class="sr-only">Acciones</span></th>
-            </tr>
-          </ng-template>
-          <ng-template pTemplate="body" let-l>
-            <tr>
-              <td class="strong">{{ l.driver_name }}</td>
-              <td>{{ l.employee_type }}</td>
-              <td class="num">\${{ l.commissions_amount | number:'1.2-2' }}</td>
-              <td class="num">\${{ l.per_diem_amount | number:'1.2-2' }}</td>
-              <td class="num">\${{ l.load_unload_amount | number:'1.2-2' }}</td>
-              <td class="num">\${{ l.bonuses | number:'1.2-2' }}</td>
-              <td class="num">\${{ l.deductions | number:'1.2-2' }}</td>
-              <td class="num grand">\${{ l.net_amount | number:'1.2-2' }}</td>
-              <td><p-tag [severity]="sevLiq(l.status)" [value]="l.status"></p-tag></td>
-              <td class="actions">
-                <button pButton icon="pi pi-list" size="small" severity="secondary" [text]="true"
-                        pTooltip="Ajustes (anticipos / bonos / multas)" (click)="openAdjustments(l)"></button>
-                <button pButton icon="pi pi-pencil" size="small" severity="secondary" [text]="true" (click)="openEditLiquidation(l)"></button>
-              </td>
-            </tr>
-          </ng-template>
-          <ng-template pTemplate="emptymessage">
-            <tr><td colspan="10">
-              <div class="comm-empty">
-                <i class="pi pi-wallet comm-empty-icon" aria-hidden="true"></i>
-                <span>{{ selectedPeriod ? 'Sin liquidaciones para este período. Calcular para generar.' : 'Selecciona un período.' }}</span>
-              </div>
-            </td></tr>
-          </ng-template>
-        </p-table>
-        </div>
-      </section>
     </div>
-    </div>
-
+    
     <!-- Adjustments dialog -->
     <p-dialog [(visible)]="adjDialog" [modal]="true" [draggable]="false" [style]="{ width: '720px' }"
-              [header]="'Ajustes · ' + (adjDriverName() || '')">
-      <div *ngIf="editingLiq() as l" class="adj-summary">
-        <div><span class="label">Subtotal devengado</span><strong class="num">\${{ l.subtotal | number:'1.2-2' }}</strong></div>
-        <div><span class="label">Bonos</span><strong class="num pos">+\${{ l.bonuses | number:'1.2-2' }}</strong></div>
-        <div><span class="label">Deducciones</span><strong class="num neg">-\${{ l.deductions | number:'1.2-2' }}</strong></div>
-        <div><span class="label">Neto</span><strong class="num grand">\${{ l.net_amount | number:'1.2-2' }}</strong></div>
-      </div>
-
+      [header]="'Ajustes · ' + (adjDriverName() || '')">
+      @if (editingLiq(); as l) {
+        <div class="adj-summary">
+          <div><span class="label">Subtotal devengado</span><strong class="num">\${{ l.subtotal | number:'1.2-2' }}</strong></div>
+          <div><span class="label">Bonos</span><strong class="num pos">+\${{ l.bonuses | number:'1.2-2' }}</strong></div>
+          <div><span class="label">Deducciones</span><strong class="num neg">-\${{ l.deductions | number:'1.2-2' }}</strong></div>
+          <div><span class="label">Neto</span><strong class="num grand">\${{ l.net_amount | number:'1.2-2' }}</strong></div>
+        </div>
+      }
+    
       <p-table [value]="adjustments()" [loading]="loadingAdj()" responsiveLayout="scroll"
-               styleClass="surf-table surf-table--sticky surf-table--zebra p-datatable-sm adj-table">
-        <ng-template pTemplate="header">
+        styleClass="surf-table surf-table--sticky surf-table--zebra p-datatable-sm adj-table">
+        <ng-template #header>
           <tr>
             <th scope="col">Fecha</th><th scope="col">Tipo</th><th scope="col" class="num">Monto</th><th scope="col">Notas</th>
             <th scope="col"><span class="sr-only">Acciones</span></th>
           </tr>
         </ng-template>
-        <ng-template pTemplate="body" let-a>
+        <ng-template #body let-a>
           <tr>
             <td class="muted">{{ a.date | date:'shortDate' }}</td>
             <td><p-tag [severity]="sevAdj(a.type)" [value]="a.type"></p-tag></td>
             <td class="num">\${{ a.amount | number:'1.2-2' }}</td>
             <td class="muted">{{ a.notes || '—' }}</td>
             <td class="actions">
-              <button pButton icon="pi pi-trash" size="small" severity="danger" [text]="true"
-                      (click)="deleteAdjustment(a)" [disabled]="periodLocked()"></button>
+              <button pButton size="small" severity="danger" [text]="true" (click)="deleteAdjustment(a)" [disabled]="periodLocked()"><span class="p-button-icon p-button-icon-left pi pi-trash" aria-hidden="true"></span></button>
             </td>
           </tr>
         </ng-template>
-        <ng-template pTemplate="emptymessage">
+        <ng-template #emptymessage>
           <tr><td colspan="5">
             <div class="comm-empty">
               <i class="pi pi-list comm-empty-icon" aria-hidden="true"></i>
@@ -180,75 +178,81 @@ function severityLiq(s: LiquidationStatus): Severity {
           </td></tr>
         </ng-template>
       </p-table>
-
-      <form [formGroup]="adjForm" class="form adj-form" *ngIf="!periodLocked()">
-        <div class="row">
-          <label><span>Tipo <em>*</em></span>
+    
+      @if (!periodLocked()) {
+        <form [formGroup]="adjForm" class="form adj-form">
+          <div class="row">
+            <label><span>Tipo <em>*</em></span>
             <p-select formControlName="type" [options]="adjTypeOptions" optionLabel="label" optionValue="value" appendTo="body"></p-select>
           </label>
           <label><span>Monto <em>*</em></span>
-            <p-inputNumber formControlName="amount" mode="currency" currency="MXN" locale="es-MX" [min]="0.01"></p-inputNumber>
-          </label>
-        </div>
-        <div class="row">
-          <label><span>Fecha <em>*</em></span>
-            <p-datePicker formControlName="date" dateFormat="yy-mm-dd" appendTo="body"></p-datePicker>
-          </label>
-          <label><span>Notas</span><input pInputText formControlName="notes" /></label>
-        </div>
-        <div class="adj-form-actions">
-          <button pButton label="Agregar ajuste" icon="pi pi-plus" [loading]="savingAdj()" [disabled]="adjForm.invalid" (click)="createAdjustment()"></button>
-        </div>
-      </form>
-      <div *ngIf="periodLocked()" class="muted adj-locked">Período pagado/cerrado — no se pueden agregar ni borrar ajustes.</div>
-
-      <ng-template pTemplate="footer">
-        <button pButton label="Cerrar" severity="secondary" [outlined]="true" (click)="adjDialog = false"></button>
-      </ng-template>
+          <p-inputnumber formControlName="amount" mode="currency" currency="MXN" locale="es-MX" [min]="0.01"></p-inputnumber>
+        </label>
+      </div>
+      <div class="row">
+        <label><span>Fecha <em>*</em></span>
+        <p-datepicker formControlName="date" dateFormat="yy-mm-dd" appendTo="body"></p-datepicker>
+      </label>
+      <label><span>Notas</span><input pInputText formControlName="notes" /></label>
+    </div>
+    <div class="adj-form-actions">
+      <button pButton [loading]="savingAdj()" [disabled]="adjForm.invalid" (click)="createAdjustment()"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Agregar ajuste</span></button>
+    </div>
+    </form>
+    }
+    @if (periodLocked()) {
+      <div class="muted adj-locked">Período pagado/cerrado — no se pueden agregar ni borrar ajustes.</div>
+    }
+    
+    <ng-template #footer>
+      <button pButton severity="secondary" [outlined]="true" (click)="adjDialog = false"><span class="p-button-label">Cerrar</span></button>
+    </ng-template>
     </p-dialog>
-
+    
     <!-- Period dialog -->
     <p-dialog [(visible)]="periodDialog" [modal]="true" [draggable]="false" [style]="{ width: '500px' }" header="Nuevo período">
       <form [formGroup]="periodForm" class="form">
         <div class="row">
-          <label><span>Año <em>*</em></span><p-inputNumber formControlName="year" [useGrouping]="false"></p-inputNumber></label>
-          <label><span>Número de catorcena <em>*</em></span><p-inputNumber formControlName="number"></p-inputNumber></label>
+          <label><span>Año <em>*</em></span><p-inputnumber formControlName="year" [useGrouping]="false"></p-inputnumber></label>
+          <label><span>Número de catorcena <em>*</em></span><p-inputnumber formControlName="number"></p-inputnumber></label>
         </div>
-        <label><span>Inicio <em>*</em></span><p-datePicker formControlName="start_date" dateFormat="yy-mm-dd" appendTo="body"></p-datePicker></label>
-        <label><span>Fin <em>*</em></span><p-datePicker formControlName="end_date" dateFormat="yy-mm-dd" appendTo="body"></p-datePicker></label>
-        <label><span>Pago <em>*</em></span><p-datePicker formControlName="payment_date" dateFormat="yy-mm-dd" appendTo="body"></p-datePicker></label>
+        <label><span>Inicio <em>*</em></span><p-datepicker formControlName="start_date" dateFormat="yy-mm-dd" appendTo="body"></p-datepicker></label>
+        <label><span>Fin <em>*</em></span><p-datepicker formControlName="end_date" dateFormat="yy-mm-dd" appendTo="body"></p-datepicker></label>
+        <label><span>Pago <em>*</em></span><p-datepicker formControlName="payment_date" dateFormat="yy-mm-dd" appendTo="body"></p-datepicker></label>
         <label><span>Notas</span><input pInputText formControlName="notes" /></label>
       </form>
-      <ng-template pTemplate="footer">
-        <button pButton label="Cancelar" severity="secondary" [outlined]="true" (click)="periodDialog = false"></button>
-        <button pButton label="Crear" icon="pi pi-check" [loading]="savingP()" [disabled]="periodForm.invalid" (click)="createPeriod()"></button>
+      <ng-template #footer>
+        <button pButton severity="secondary" [outlined]="true" (click)="periodDialog = false"><span class="p-button-label">Cancelar</span></button>
+        <button pButton [loading]="savingP()" [disabled]="periodForm.invalid" (click)="createPeriod()"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Crear</span></button>
       </ng-template>
     </p-dialog>
-
+    
     <!-- Liquidation edit dialog -->
     <p-dialog [(visible)]="liqDialog" [modal]="true" [draggable]="false" [style]="{ width: '480px' }"
-              [header]="'Liquidación: ' + (editingLiq()?.driver_name || '')">
-      <form [formGroup]="liqForm" class="form" *ngIf="editingLiq() as l">
-        <div class="info-grid">
-          <div><span class="label">Comisiones</span><strong class="num">\${{ l.commissions_amount | number:'1.2-2' }}</strong></div>
-          <div><span class="label">Viáticos</span><strong class="num">\${{ l.per_diem_amount | number:'1.2-2' }}</strong></div>
-          <div><span class="label">Carga/desc</span><strong class="num">\${{ l.load_unload_amount | number:'1.2-2' }}</strong></div>
-        </div>
-        <div class="row">
-          <label><span>Bonos</span><p-inputNumber formControlName="bonuses" mode="currency" currency="MXN" locale="es-MX"></p-inputNumber></label>
-          <label><span>Deducciones</span><p-inputNumber formControlName="deductions" mode="currency" currency="MXN" locale="es-MX"></p-inputNumber></label>
-        </div>
-        <label><span>Estado</span>
+      [header]="'Liquidación: ' + (editingLiq()?.driver_name || '')">
+      @if (editingLiq(); as l) {
+        <form [formGroup]="liqForm" class="form">
+          <div class="info-grid">
+            <div><span class="label">Comisiones</span><strong class="num">\${{ l.commissions_amount | number:'1.2-2' }}</strong></div>
+            <div><span class="label">Viáticos</span><strong class="num">\${{ l.per_diem_amount | number:'1.2-2' }}</strong></div>
+            <div><span class="label">Carga/desc</span><strong class="num">\${{ l.load_unload_amount | number:'1.2-2' }}</strong></div>
+          </div>
+          <div class="row">
+            <label><span>Bonos</span><p-inputnumber formControlName="bonuses" mode="currency" currency="MXN" locale="es-MX"></p-inputnumber></label>
+            <label><span>Deducciones</span><p-inputnumber formControlName="deductions" mode="currency" currency="MXN" locale="es-MX"></p-inputnumber></label>
+          </div>
+          <label><span>Estado</span>
           <p-select formControlName="status" [options]="liqStatusOptions" optionLabel="label" optionValue="value" appendTo="body"></p-select>
         </label>
         <label><span>Notas</span><input pInputText formControlName="notes" /></label>
       </form>
-      <ng-template pTemplate="footer">
-        <button pButton label="Cancelar" severity="secondary" [outlined]="true" (click)="liqDialog = false"></button>
-        <button pButton label="Guardar" icon="pi pi-check" [loading]="savingL()" (click)="saveLiquidation()"></button>
-      </ng-template>
+    }
+    <ng-template #footer>
+      <button pButton severity="secondary" [outlined]="true" (click)="liqDialog = false"><span class="p-button-label">Cancelar</span></button>
+      <button pButton [loading]="savingL()" (click)="saveLiquidation()"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Guardar</span></button>
+    </ng-template>
     </p-dialog>
-  `,
+    `,
   styles: [`
     :host { display:block; }
     .muted { color: var(--c-text-2); font-size: var(--fs-sm); margin:0; }

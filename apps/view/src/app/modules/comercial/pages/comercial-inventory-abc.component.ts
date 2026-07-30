@@ -36,7 +36,7 @@ import { ProductSearchComponent, ProductHit } from '../components/product-search
   template: `
     <div class="surf-page in">
       <p-toast></p-toast>
-      <p-confirmDialog></p-confirmDialog>
+      <p-confirmdialog></p-confirmdialog>
 
       <app-page-tabs [tabs]="inventoryTabs" />
 
@@ -49,11 +49,8 @@ import { ProductSearchComponent, ProductHit } from '../components/product-search
           <p-select [options]="warehouseOptions()" [(ngModel)]="warehouseFilter" optionLabel="label" optionValue="value"
                     (onChange)="load()" styleClass="abc-wh" ariaLabel="Filtrar por almacén"></p-select>
           <app-product-search (productSelected)="prodFilter.set($event)"></app-product-search>
-          <button pButton type="button" label="Recalcular ABC" icon="pi pi-sync" [text]="true" severity="secondary"
-                  size="small" (click)="recalc()" [loading]="working()"></button>
-          <button pButton type="button" label="Generar folios" icon="pi pi-plus" size="small"
-                  (click)="confirmGenerate()" [loading]="working()" [disabled]="!isSpecific()"
-                  [pTooltip]="isSpecific() ? '' : 'Seleccioná un almacén para generar su folio cíclico'"></button>
+          <button pButton type="button" [text]="true" severity="secondary" size="small" (click)="recalc()" [loading]="working()"><span class="p-button-icon p-button-icon-left pi pi-sync" aria-hidden="true"></span><span class="p-button-label">Recalcular ABC</span></button>
+          <button pButton type="button" size="small" (click)="confirmGenerate()" [loading]="working()" [disabled]="!isSpecific()" [pTooltip]="isSpecific() ? '' : 'Seleccioná un almacén para generar su folio cíclico'"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Generar folios</span></button>
         </div>
       </header>
 
@@ -90,20 +87,20 @@ import { ProductSearchComponent, ProductHit } from '../components/product-search
       </div>
 
       <!-- Toggle de vista -->
-      <p-selectButton [options]="views" [(ngModel)]="view" optionLabel="label" optionValue="value"
-                      [allowEmpty]="false" styleClass="abc-views sb-liquid" ariaLabel="Cambiar vista"></p-selectButton>
+      <p-selectbutton [options]="views" [(ngModel)]="view" optionLabel="label" optionValue="value"
+                      [allowEmpty]="false" styleClass="abc-views sb-liquid" ariaLabel="Cambiar vista"></p-selectbutton>
 
       @if (view() === 'due') {
         <!-- AGENDA: qué toca contar -->
         <p-table [value]="dueItems()" [loading]="loading()" styleClass="p-datatable-sm surf-table surf-table--zebra"
                  [scrollable]="true" scrollHeight="flex" [paginator]="true" [rows]="25" [rowsPerPageOptions]="[25, 50, 100, 200]">
-          <ng-template pTemplate="header">
+          <ng-template #header>
             <tr>
               <th scope="col">Clase</th><th scope="col">SKU</th><th scope="col">Producto</th><th scope="col">Almacén</th>
               <th scope="col">Último conteo</th><th scope="col" class="abc-num">Cadencia</th><th scope="col">Estado</th>
             </tr>
           </ng-template>
-          <ng-template pTemplate="body" let-it>
+          <ng-template #body let-it>
             <tr>
               <td><p-tag [value]="it.abc_class" [severity]="classSeverity(it.abc_class)"></p-tag></td>
               <td class="abc-mono">{{ it.sku || '—' }}</td>
@@ -114,7 +111,7 @@ import { ProductSearchComponent, ProductHit } from '../components/product-search
               <td><p-tag [value]="dueLabel(it)" [severity]="dueSeverity(it)"></p-tag></td>
             </tr>
           </ng-template>
-          <ng-template pTemplate="emptymessage">
+          <ng-template #emptymessage>
             <tr><td colspan="7" class="comm-empty-cell">
               <div class="comm-empty">
                 <span class="comm-empty-icon"><i class="pi pi-check-circle"></i></span>
@@ -128,13 +125,13 @@ import { ProductSearchComponent, ProductHit } from '../components/product-search
         <!-- CLASIFICACIÓN ABC -->
         <p-table [value]="classRows()" [loading]="loading()" styleClass="p-datatable-sm surf-table surf-table--zebra"
                  [scrollable]="true" scrollHeight="flex" [paginator]="true" [rows]="25" [rowsPerPageOptions]="[25, 50, 100, 200]">
-          <ng-template pTemplate="header">
+          <ng-template #header>
             <tr>
               <th scope="col">Clase</th><th scope="col">SKU</th><th scope="col">Producto</th><th scope="col">Almacén</th>
               <th scope="col" class="abc-num">Valor anual</th><th scope="col" class="abc-num">Unidades</th><th scope="col" class="abc-num">% acum.</th>
             </tr>
           </ng-template>
-          <ng-template pTemplate="body" let-it>
+          <ng-template #body let-it>
             <tr>
               <td><p-tag [value]="it.abc_class" [severity]="classSeverity(it.abc_class)"></p-tag></td>
               <td class="abc-mono">{{ it.sku || '—' }}</td>
@@ -145,7 +142,7 @@ import { ProductSearchComponent, ProductHit } from '../components/product-search
               <td class="abc-num">{{ (+it.value_share * 100) | number:'1.0-1' }}%</td>
             </tr>
           </ng-template>
-          <ng-template pTemplate="emptymessage">
+          <ng-template #emptymessage>
             <tr><td colspan="7" class="comm-empty-cell">
               <div class="comm-empty">
                 <span class="comm-empty-icon"><i class="pi pi-sort-amount-down"></i></span>

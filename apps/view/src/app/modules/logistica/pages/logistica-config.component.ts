@@ -41,191 +41,197 @@ import { ConfigCategory, ConfigItem, LogisticaService, Route } from '../logistic
   providers: [MessageService, ConfirmationService],
   template: `
     <div class="surf-page logcfg">
-    <p-toast></p-toast>
-    <p-confirmDialog></p-confirmDialog>
-
-    <header class="surf-page-head">
-      <div class="surf-page-head-text">
-        <h1>Configuración logística</h1>
-        <p class="surf-page-sub">Parametrización del sistema. Cambios aplicables a próximos embarques.</p>
+      <p-toast></p-toast>
+      <p-confirmdialog></p-confirmdialog>
+    
+      <header class="surf-page-head">
+        <div class="surf-page-head-text">
+          <h1>Configuración logística</h1>
+          <p class="surf-page-sub">Parametrización del sistema. Cambios aplicables a próximos embarques.</p>
+        </div>
+      </header>
+    
+      <p-tabs value="routes">
+        <p-tablist>
+          <p-tab value="routes"><i class="pi pi-map"></i> Comisiones ({{ routes().length }})</p-tab>
+          <p-tab value="factor"><i class="pi pi-percentage"></i> Factores ({{ countCat('factor') }})</p-tab>
+          <p-tab value="costo_km"><i class="pi pi-car"></i> Costos km ({{ countCat('costo_km') }})</p-tab>
+          <p-tab value="tarifa_maniobra"><i class="pi pi-box"></i> Maniobras ({{ countCat('tarifa_maniobra') }})</p-tab>
+          <p-tab value="viatico"><i class="pi pi-wallet"></i> Viáticos ({{ countCat('viatico') }})</p-tab>
+        </p-tablist>
+        <p-tabpanels>
+    
+          <!-- ──── Tab 1: Comisiones por ruta ──── -->
+          <p-tabpanel value="routes">
+            <div class="tab-toolbar">
+              <input pInputText type="search" [(ngModel)]="routeSearch" (input)="onRouteSearch()" placeholder="Buscar destino..."
+                inputmode="search" enterkeyhint="search" autocapitalize="none" autocorrect="off" spellcheck="false" />
+                <button pButton (click)="openRouteDialog()"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Nueva ruta</span></button>
+              </div>
+              <section class="surf-panel">
+                <div class="surf-panel-body is-flush">
+                  <p-table [value]="filteredRoutes()" [loading]="loading()" responsiveLayout="scroll" styleClass="surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra p-datatable-sm" [paginator]="true" [rows]="25" [rowsPerPageOptions]="[25, 50, 100, 200]" sortMode="single">
+                    <ng-template #header>
+                      <tr>
+                        <th scope="col" pSortableColumn="name">Destino <p-sorticon field="name"></p-sorticon></th>
+                        <th scope="col" pSortableColumn="estimated_km" class="num">Km <p-sorticon field="estimated_km"></p-sorticon></th>
+                        <th scope="col" pSortableColumn="driver_commission" class="num">Chofer <p-sorticon field="driver_commission"></p-sorticon></th>
+                        <th scope="col" pSortableColumn="helper_commission" class="num">Ayudante <p-sorticon field="helper_commission"></p-sorticon></th>
+                        <th scope="col">Estado</th>
+                        <th scope="col"><span class="sr-only">Acciones</span></th>
+                      </tr>
+                    </ng-template>
+                    <ng-template #body let-r>
+                      <tr>
+                        <td><strong>{{ r.name }}</strong></td>
+                        <td class="num">{{ r.estimated_km !== null ? (r.estimated_km | number:'1.0-1') : '—' }}</td>
+                        <td class="num">\${{ r.driver_commission | number:'1.2-2' }}</td>
+                        <td class="num">\${{ r.helper_commission | number:'1.2-2' }}</td>
+                        <td><p-tag [value]="r.active ? 'Activa' : 'Inactiva'" [severity]="r.active ? 'success' : 'secondary'"></p-tag></td>
+                        <td class="actions">
+                          <button pButton size="small" severity="secondary" [text]="true" (click)="openRouteDialog(r)"><span class="p-button-icon p-button-icon-left pi pi-pencil" aria-hidden="true"></span></button>
+                          <button pButton size="small" severity="secondary" [text]="true" (click)="confirmDeleteRoute(r)"><span class="p-button-icon p-button-icon-left pi pi-trash" aria-hidden="true"></span></button>
+                        </td>
+                      </tr>
+                    </ng-template>
+                    <ng-template #emptymessage>
+                      <tr>
+                        <td colspan="6" class="comm-empty-cell">
+                          <div class="comm-empty">
+                            <i class="pi pi-map comm-empty-icon"></i>
+                            <span>Sin rutas. Corré <code>logistics_baseline.js</code> para cargar 96 destinos reales.</span>
+                          </div>
+                        </td>
+                      </tr>
+                    </ng-template>
+                  </p-table>
+                </div>
+              </section>
+            </p-tabpanel>
+    
+            <!-- ──── Tab 2-5: config_finance por categoría ──── -->
+            @for (cat of configCategories; track cat) {
+              <p-tabpanel [value]="cat">
+                <div class="tab-toolbar">
+                  <span class="muted small">{{ countCat(cat) }} items en categoría "{{ catLabel(cat) }}"</span>
+                  <button pButton (click)="openConfigDialog(undefined, cat)"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Nuevo item</span></button>
+                </div>
+                <section class="surf-panel">
+                  <div class="surf-panel-body is-flush">
+                    <p-table [value]="itemsByCategory(cat)" [loading]="loading()" responsiveLayout="scroll" styleClass="surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra p-datatable-sm">
+                      <ng-template #header>
+                        <tr>
+                          <th scope="col">Clave</th>
+                          <th scope="col">Descripción</th>
+                          <th scope="col" class="num">Valor</th>
+                          <th scope="col">Unidad</th>
+                          <th scope="col">Estado</th>
+                          <th scope="col"><span class="sr-only">Acciones</span></th>
+                        </tr>
+                      </ng-template>
+                      <ng-template #body let-c>
+                        <tr>
+                          <td><code>{{ c.key }}</code></td>
+                          <td>{{ c.description || '—' }}</td>
+                          <td class="num"><strong>{{ c.value | number:'1.2-4' }}</strong></td>
+                          <td class="muted">{{ c.unit || '—' }}</td>
+                          <td><p-tag [value]="c.active ? 'Activo' : 'Inactivo'" [severity]="c.active ? 'success' : 'secondary'"></p-tag></td>
+                          <td class="actions">
+                            <button pButton size="small" severity="secondary" [text]="true" (click)="openConfigDialog(c)"><span class="p-button-icon p-button-icon-left pi pi-pencil" aria-hidden="true"></span></button>
+                            <button pButton size="small" severity="secondary" [text]="true" (click)="confirmDeleteConfig(c)"><span class="p-button-icon p-button-icon-left pi pi-trash" aria-hidden="true"></span></button>
+                          </td>
+                        </tr>
+                      </ng-template>
+                      <ng-template #emptymessage>
+                        <tr>
+                          <td colspan="6" class="comm-empty-cell">
+                            <div class="comm-empty">
+                              <i class="pi pi-sliders-h comm-empty-icon"></i>
+                              <span>Sin items en esta categoría. Creá uno con el botón de arriba.</span>
+                            </div>
+                          </td>
+                        </tr>
+                      </ng-template>
+                    </p-table>
+                  </div>
+                </section>
+              </p-tabpanel>
+            }
+          </p-tabpanels>
+        </p-tabs>
       </div>
-    </header>
-
-    <p-tabs value="routes">
-      <p-tablist>
-        <p-tab value="routes"><i class="pi pi-map"></i> Comisiones ({{ routes().length }})</p-tab>
-        <p-tab value="factor"><i class="pi pi-percentage"></i> Factores ({{ countCat('factor') }})</p-tab>
-        <p-tab value="costo_km"><i class="pi pi-car"></i> Costos km ({{ countCat('costo_km') }})</p-tab>
-        <p-tab value="tarifa_maniobra"><i class="pi pi-box"></i> Maniobras ({{ countCat('tarifa_maniobra') }})</p-tab>
-        <p-tab value="viatico"><i class="pi pi-wallet"></i> Viáticos ({{ countCat('viatico') }})</p-tab>
-      </p-tablist>
-      <p-tabpanels>
-
-        <!-- ──── Tab 1: Comisiones por ruta ──── -->
-        <p-tabpanel value="routes">
-          <div class="tab-toolbar">
-            <input pInputText type="search" [(ngModel)]="routeSearch" (input)="onRouteSearch()" placeholder="Buscar destino..."
-                   inputmode="search" enterkeyhint="search" autocapitalize="none" autocorrect="off" spellcheck="false" />
-            <button pButton icon="pi pi-plus" label="Nueva ruta" (click)="openRouteDialog()"></button>
-          </div>
-          <section class="surf-panel">
-            <div class="surf-panel-body is-flush">
-            <p-table [value]="filteredRoutes()" [loading]="loading()" responsiveLayout="scroll" styleClass="surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra p-datatable-sm" [paginator]="true" [rows]="25" [rowsPerPageOptions]="[25, 50, 100, 200]" sortMode="single">
-              <ng-template pTemplate="header">
-                <tr>
-                  <th scope="col" pSortableColumn="name">Destino <p-sortIcon field="name"></p-sortIcon></th>
-                  <th scope="col" pSortableColumn="estimated_km" class="num">Km <p-sortIcon field="estimated_km"></p-sortIcon></th>
-                  <th scope="col" pSortableColumn="driver_commission" class="num">Chofer <p-sortIcon field="driver_commission"></p-sortIcon></th>
-                  <th scope="col" pSortableColumn="helper_commission" class="num">Ayudante <p-sortIcon field="helper_commission"></p-sortIcon></th>
-                  <th scope="col">Estado</th>
-                  <th scope="col"><span class="sr-only">Acciones</span></th>
-                </tr>
-              </ng-template>
-              <ng-template pTemplate="body" let-r>
-                <tr>
-                  <td><strong>{{ r.name }}</strong></td>
-                  <td class="num">{{ r.estimated_km !== null ? (r.estimated_km | number:'1.0-1') : '—' }}</td>
-                  <td class="num">\${{ r.driver_commission | number:'1.2-2' }}</td>
-                  <td class="num">\${{ r.helper_commission | number:'1.2-2' }}</td>
-                  <td><p-tag [value]="r.active ? 'Activa' : 'Inactiva'" [severity]="r.active ? 'success' : 'secondary'"></p-tag></td>
-                  <td class="actions">
-                    <button pButton icon="pi pi-pencil" size="small" severity="secondary" [text]="true" (click)="openRouteDialog(r)"></button>
-                    <button pButton icon="pi pi-trash" size="small" severity="secondary" [text]="true" (click)="confirmDeleteRoute(r)"></button>
-                  </td>
-                </tr>
-              </ng-template>
-              <ng-template pTemplate="emptymessage">
-                <tr>
-                  <td colspan="6" class="comm-empty-cell">
-                    <div class="comm-empty">
-                      <i class="pi pi-map comm-empty-icon"></i>
-                      <span>Sin rutas. Corré <code>logistics_baseline.js</code> para cargar 96 destinos reales.</span>
-                    </div>
-                  </td>
-                </tr>
-              </ng-template>
-            </p-table>
-            </div>
-          </section>
-        </p-tabpanel>
-
-        <!-- ──── Tab 2-5: config_finance por categoría ──── -->
-        <p-tabpanel *ngFor="let cat of configCategories" [value]="cat">
-          <div class="tab-toolbar">
-            <span class="muted small">{{ countCat(cat) }} items en categoría "{{ catLabel(cat) }}"</span>
-            <button pButton icon="pi pi-plus" label="Nuevo item" (click)="openConfigDialog(undefined, cat)"></button>
-          </div>
-          <section class="surf-panel">
-            <div class="surf-panel-body is-flush">
-            <p-table [value]="itemsByCategory(cat)" [loading]="loading()" responsiveLayout="scroll" styleClass="surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra p-datatable-sm">
-              <ng-template pTemplate="header">
-                <tr>
-                  <th scope="col">Clave</th>
-                  <th scope="col">Descripción</th>
-                  <th scope="col" class="num">Valor</th>
-                  <th scope="col">Unidad</th>
-                  <th scope="col">Estado</th>
-                  <th scope="col"><span class="sr-only">Acciones</span></th>
-                </tr>
-              </ng-template>
-              <ng-template pTemplate="body" let-c>
-                <tr>
-                  <td><code>{{ c.key }}</code></td>
-                  <td>{{ c.description || '—' }}</td>
-                  <td class="num"><strong>{{ c.value | number:'1.2-4' }}</strong></td>
-                  <td class="muted">{{ c.unit || '—' }}</td>
-                  <td><p-tag [value]="c.active ? 'Activo' : 'Inactivo'" [severity]="c.active ? 'success' : 'secondary'"></p-tag></td>
-                  <td class="actions">
-                    <button pButton icon="pi pi-pencil" size="small" severity="secondary" [text]="true" (click)="openConfigDialog(c)"></button>
-                    <button pButton icon="pi pi-trash" size="small" severity="secondary" [text]="true" (click)="confirmDeleteConfig(c)"></button>
-                  </td>
-                </tr>
-              </ng-template>
-              <ng-template pTemplate="emptymessage">
-                <tr>
-                  <td colspan="6" class="comm-empty-cell">
-                    <div class="comm-empty">
-                      <i class="pi pi-sliders-h comm-empty-icon"></i>
-                      <span>Sin items en esta categoría. Creá uno con el botón de arriba.</span>
-                    </div>
-                  </td>
-                </tr>
-              </ng-template>
-            </p-table>
-            </div>
-          </section>
-        </p-tabpanel>
-      </p-tabpanels>
-    </p-tabs>
-    </div>
-
-    <!-- Dialog Route -->
-    <p-dialog [(visible)]="routeDialog" [modal]="true" [style]="{ width: '520px' }" [closable]="!savingRoute()"
-              [header]="editingRoute() ? 'Editar ruta' : 'Nueva ruta'">
-      <form [formGroup]="routeForm" class="form-grid">
-        <label class="full">
-          Destino *
-          <input pInputText formControlName="name" placeholder="Ej: ZAMORA" />
-        </label>
-        <label>
-          Km estimados
-          <p-inputnumber formControlName="estimated_km" [minFractionDigits]="0" [maxFractionDigits]="2"></p-inputnumber>
-        </label>
-        <label>
-          <p-tag value="Activa" severity="success" *ngIf="routeForm.value.active"></p-tag>
-          <p-tag value="Inactiva" severity="secondary" *ngIf="!routeForm.value.active"></p-tag>
-          <button pButton [label]="routeForm.value.active ? 'Desactivar' : 'Activar'" size="small" severity="secondary" [text]="true" type="button" (click)="toggleRouteActive()"></button>
-        </label>
-        <label>
-          Comisión chofer
-          <p-inputnumber formControlName="driver_commission" mode="currency" currency="MXN" locale="es-MX" [minFractionDigits]="2"></p-inputnumber>
-        </label>
-        <label>
-          Comisión ayudante
-          <p-inputnumber formControlName="helper_commission" mode="currency" currency="MXN" locale="es-MX" [minFractionDigits]="2"></p-inputnumber>
-        </label>
-        <label class="full">
-          Notas
-          <input pInputText formControlName="notes" />
-        </label>
-      </form>
-      <ng-template pTemplate="footer">
-        <button pButton label="Cancelar" severity="secondary" [text]="true" (click)="routeDialog = false" [disabled]="savingRoute()"></button>
-        <button pButton [label]="editingRoute() ? 'Guardar' : 'Crear'" icon="pi pi-check" (click)="saveRoute()" [loading]="savingRoute()" [disabled]="routeForm.invalid"></button>
-      </ng-template>
-    </p-dialog>
-
-    <!-- Dialog Config -->
-    <p-dialog [(visible)]="configDialog" [modal]="true" [style]="{ width: '480px' }" [closable]="!savingConfig()"
-              [header]="editingConfig() ? 'Editar config' : 'Nuevo config (' + catLabel(configForm.value.category || 'otro') + ')'">
-      <form [formGroup]="configForm" class="form-grid">
-        <label class="full">
-          Clave * <i class="pi pi-info-circle" pTooltip="snake_case. Ej: costo_km_freightliner_auto"></i>
-          <input pInputText formControlName="key" placeholder="costo_km_..." />
-        </label>
-        <label>
-          Categoría *
-          <p-select formControlName="category" [options]="categoryOptions" optionLabel="label" optionValue="value"></p-select>
-        </label>
-        <label>
-          Valor *
-          <p-inputnumber formControlName="value" [minFractionDigits]="0" [maxFractionDigits]="4"></p-inputnumber>
-        </label>
-        <label>
-          Unidad
-          <input pInputText formControlName="unit" placeholder="mxn/km, pct, mxn" />
-        </label>
-        <label class="full">
-          Descripción
-          <input pInputText formControlName="description" />
-        </label>
-      </form>
-      <ng-template pTemplate="footer">
-        <button pButton label="Cancelar" severity="secondary" [text]="true" (click)="configDialog = false" [disabled]="savingConfig()"></button>
-        <button pButton [label]="editingConfig() ? 'Guardar' : 'Crear'" icon="pi pi-check" (click)="saveConfig()" [loading]="savingConfig()" [disabled]="configForm.invalid"></button>
-      </ng-template>
-    </p-dialog>
-  `,
+    
+      <!-- Dialog Route -->
+      <p-dialog [(visible)]="routeDialog" [modal]="true" [style]="{ width: '520px' }" [closable]="!savingRoute()"
+        [header]="editingRoute() ? 'Editar ruta' : 'Nueva ruta'">
+        <form [formGroup]="routeForm" class="form-grid">
+          <label class="full">
+            Destino *
+            <input pInputText formControlName="name" placeholder="Ej: ZAMORA" />
+          </label>
+          <label>
+            Km estimados
+            <p-inputnumber formControlName="estimated_km" [minFractionDigits]="0" [maxFractionDigits]="2"></p-inputnumber>
+          </label>
+          <label>
+            @if (routeForm.value.active) {
+              <p-tag value="Activa" severity="success"></p-tag>
+            }
+            @if (!routeForm.value.active) {
+              <p-tag value="Inactiva" severity="secondary"></p-tag>
+            }
+            <p-button pButton [label]="routeForm.value.active ? 'Desactivar' : 'Activar'" size="small" severity="secondary" [text]="true" type="button" (click)="toggleRouteActive()"></p-button>
+          </label>
+          <label>
+            Comisión chofer
+            <p-inputnumber formControlName="driver_commission" mode="currency" currency="MXN" locale="es-MX" [minFractionDigits]="2"></p-inputnumber>
+          </label>
+          <label>
+            Comisión ayudante
+            <p-inputnumber formControlName="helper_commission" mode="currency" currency="MXN" locale="es-MX" [minFractionDigits]="2"></p-inputnumber>
+          </label>
+          <label class="full">
+            Notas
+            <input pInputText formControlName="notes" />
+          </label>
+        </form>
+        <ng-template #footer>
+          <button pButton severity="secondary" [text]="true" (click)="routeDialog = false" [disabled]="savingRoute()"><span class="p-button-label">Cancelar</span></button>
+          <p-button pButton [label]="editingRoute() ? 'Guardar' : 'Crear'" icon="pi pi-check" (click)="saveRoute()" [loading]="savingRoute()" [disabled]="routeForm.invalid"></p-button>
+        </ng-template>
+      </p-dialog>
+    
+      <!-- Dialog Config -->
+      <p-dialog [(visible)]="configDialog" [modal]="true" [style]="{ width: '480px' }" [closable]="!savingConfig()"
+        [header]="editingConfig() ? 'Editar config' : 'Nuevo config (' + catLabel(configForm.value.category || 'otro') + ')'">
+        <form [formGroup]="configForm" class="form-grid">
+          <label class="full">
+            Clave * <i class="pi pi-info-circle" pTooltip="snake_case. Ej: costo_km_freightliner_auto"></i>
+            <input pInputText formControlName="key" placeholder="costo_km_..." />
+          </label>
+          <label>
+            Categoría *
+            <p-select formControlName="category" [options]="categoryOptions" optionLabel="label" optionValue="value"></p-select>
+          </label>
+          <label>
+            Valor *
+            <p-inputnumber formControlName="value" [minFractionDigits]="0" [maxFractionDigits]="4"></p-inputnumber>
+          </label>
+          <label>
+            Unidad
+            <input pInputText formControlName="unit" placeholder="mxn/km, pct, mxn" />
+          </label>
+          <label class="full">
+            Descripción
+            <input pInputText formControlName="description" />
+          </label>
+        </form>
+        <ng-template #footer>
+          <button pButton severity="secondary" [text]="true" (click)="configDialog = false" [disabled]="savingConfig()"><span class="p-button-label">Cancelar</span></button>
+          <p-button pButton [label]="editingConfig() ? 'Guardar' : 'Crear'" icon="pi pi-check" (click)="saveConfig()" [loading]="savingConfig()" [disabled]="configForm.invalid"></p-button>
+        </ng-template>
+      </p-dialog>
+    `,
   styles: [`
     :host { display:block; }
     .muted { color: var(--c-text-2); font-size: var(--fs-sm); }

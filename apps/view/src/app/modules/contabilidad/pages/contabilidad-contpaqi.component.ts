@@ -64,8 +64,8 @@ type View = 'balanza' | 'bancos' | 'efos' | 'libros' | 'cfdi';
         @if (balanza(); as b) {
           <div class="card-premium card-flat cp-tablewrap">
             <p-table [value]="b.rows" styleClass="p-datatable-sm" [rowHover]="true" [scrollable]="true" scrollHeight="60vh" [paginator]="b.rows.length > 50" [rows]="50">
-              <ng-template pTemplate="header"><tr><th>{{ balanzaBy() }}</th><th class="ta-r">Cargos</th><th class="ta-r">Abonos</th><th class="ta-r">Neto</th></tr></ng-template>
-              <ng-template pTemplate="body" let-r>
+              <ng-template #header><tr><th>{{ balanzaBy() }}</th><th class="ta-r">Cargos</th><th class="ta-r">Abonos</th><th class="ta-r">Neto</th></tr></ng-template>
+              <ng-template #body let-r>
                 <tr>
                   <td class="cp-key">{{ r[balanzaBy()] }}</td>
                   <td class="ta-r mono">{{ r.cargos | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
@@ -73,7 +73,7 @@ type View = 'balanza' | 'bancos' | 'efos' | 'libros' | 'cfdi';
                   <td class="ta-r mono" [class.bad]="r.neto < 0">{{ r.neto | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
                 </tr>
               </ng-template>
-              <ng-template pTemplate="emptymessage"><tr><td colspan="4"><div class="surf-empty"><i class="pi pi-inbox"></i><p>Sin datos. ¿Corriste el importer de balanza?</p></div></td></tr></ng-template>
+              <ng-template #emptymessage><tr><td colspan="4"><div class="surf-empty"><i class="pi pi-inbox"></i><p>Sin datos. ¿Corriste el importer de balanza?</p></div></td></tr></ng-template>
             </p-table>
             <p class="cp-note muted">{{ b.fuente }} · {{ b.from_mes }} → {{ b.to_mes }}</p>
           </div>
@@ -90,8 +90,8 @@ type View = 'balanza' | 'bancos' | 'efos' | 'libros' | 'cfdi';
         @if (bank(); as b) {
           <div class="card-premium card-flat cp-tablewrap">
             <p-table [value]="b.rows" styleClass="p-datatable-sm" [rowHover]="true" [scrollable]="true" scrollHeight="60vh">
-              <ng-template pTemplate="header"><tr><th>{{ bankBy()==='mes' ? 'Mes' : 'Banco' }}</th><th class="ta-r">Depósitos</th><th class="ta-r">Retiros</th><th class="ta-r">Neto</th><th class="ta-r">Movs</th></tr></ng-template>
-              <ng-template pTemplate="body" let-r>
+              <ng-template #header><tr><th>{{ bankBy()==='mes' ? 'Mes' : 'Banco' }}</th><th class="ta-r">Depósitos</th><th class="ta-r">Retiros</th><th class="ta-r">Neto</th><th class="ta-r">Movs</th></tr></ng-template>
+              <ng-template #body let-r>
                 <tr>
                   <td class="cp-key">{{ bankBy()==='mes' ? r.mes : r.banco }}</td>
                   <td class="ta-r mono">{{ r.depositos | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
@@ -100,7 +100,7 @@ type View = 'balanza' | 'bancos' | 'efos' | 'libros' | 'cfdi';
                   <td class="ta-r mono muted">{{ r.movs | number }}</td>
                 </tr>
               </ng-template>
-              <ng-template pTemplate="emptymessage"><tr><td colspan="5"><div class="surf-empty"><i class="pi pi-inbox"></i><p>Sin movimientos bancarios importados.</p></div></td></tr></ng-template>
+              <ng-template #emptymessage><tr><td colspan="5"><div class="surf-empty"><i class="pi pi-inbox"></i><p>Sin movimientos bancarios importados.</p></div></td></tr></ng-template>
             </p-table>
             <p class="cp-note muted">Resuelve el "17 bancos comparten el 102" de Kepler · {{ b.from_mes }} → {{ b.to_mes }}</p>
           </div>
@@ -120,8 +120,8 @@ type View = 'balanza' | 'bancos' | 'efos' | 'libros' | 'cfdi';
           </div>
           <div class="card-premium card-flat cp-tablewrap">
             <p-table [value]="e.rows" styleClass="p-datatable-sm" [rowHover]="true" [scrollable]="true" scrollHeight="55vh" [paginator]="e.rows.length > 50" [rows]="50">
-              <ng-template pTemplate="header"><tr><th class="col-lista">Lista</th><th>RFC</th><th>Proveedor</th><th>Situación SAT</th></tr></ng-template>
-              <ng-template pTemplate="body" let-r>
+              <ng-template #header><tr><th class="col-lista">Lista</th><th>RFC</th><th>Proveedor</th><th>Situación SAT</th></tr></ng-template>
+              <ng-template #body let-r>
                 <tr [class.cp-efos]="r.lista==='69B'">
                   <td><span class="cp-tag" [class.crit]="r.lista==='69B'">{{ r.lista }}</span></td>
                   <td class="mono">{{ r.rfc }}</td>
@@ -129,7 +129,7 @@ type View = 'balanza' | 'bancos' | 'efos' | 'libros' | 'cfdi';
                   <td class="muted">{{ r.situacion }}</td>
                 </tr>
               </ng-template>
-              <ng-template pTemplate="emptymessage"><tr><td colspan="4"><div class="surf-empty"><i class="pi pi-check-circle"></i><p>Ningún proveedor en listas del SAT.</p></div></td></tr></ng-template>
+              <ng-template #emptymessage><tr><td colspan="4"><div class="surf-empty"><i class="pi pi-check-circle"></i><p>Ningún proveedor en listas del SAT.</p></div></td></tr></ng-template>
             </p-table>
           </div>
         }
@@ -147,8 +147,8 @@ type View = 'balanza' | 'bancos' | 'efos' | 'libros' | 'cfdi';
           </div>
           <div class="card-premium card-flat cp-tablewrap">
             <p-table [value]="l.rows" styleClass="p-datatable-sm" [rowHover]="true">
-              <ng-template pTemplate="header"><tr><th>Mes</th><th class="ta-r">Operación (Kepler)</th><th class="ta-r">Libros (ContPAQi)</th><th class="ta-r">Δ</th><th class="ta-r">Ratio</th></tr></ng-template>
-              <ng-template pTemplate="body" let-r>
+              <ng-template #header><tr><th>Mes</th><th class="ta-r">Operación (Kepler)</th><th class="ta-r">Libros (ContPAQi)</th><th class="ta-r">Δ</th><th class="ta-r">Ratio</th></tr></ng-template>
+              <ng-template #body let-r>
                 <tr>
                   <td class="mono">{{ r.mes }}</td>
                   <td class="ta-r mono">{{ r.operacion_kepler | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
@@ -157,7 +157,7 @@ type View = 'balanza' | 'bancos' | 'efos' | 'libros' | 'cfdi';
                   <td class="ta-r mono">{{ r.ratio_pct }}%</td>
                 </tr>
               </ng-template>
-              <ng-template pTemplate="emptymessage"><tr><td colspan="5"><div class="surf-empty"><i class="pi pi-inbox"></i><p>Sin datos para el contraste.</p></div></td></tr></ng-template>
+              <ng-template #emptymessage><tr><td colspan="5"><div class="surf-empty"><i class="pi pi-inbox"></i><p>Sin datos para el contraste.</p></div></td></tr></ng-template>
             </p-table>
           </div>
         }
@@ -195,14 +195,14 @@ type View = 'balanza' | 'bancos' | 'efos' | 'libros' | 'cfdi';
               <label class="cp-check"><input type="checkbox" [ngModel]="soloRiesgoCfdi()" (ngModelChange)="setSoloRiesgoCfdi($event)"> Solo riesgo</label>
             </div>
             <p-table [value]="cfdiRows(d)" styleClass="p-datatable-sm" [rowHover]="true" [scrollable]="true" scrollHeight="52vh" [paginator]="cfdiRows(d).length > 50" [rows]="50">
-              <ng-template pTemplate="header">
+              <ng-template #header>
                 <tr>
                   <th class="col-riesgo">Riesgo</th><th>RFC</th><th>Proveedor</th>
                   <th class="ta-r">CFDIs</th><th class="ta-r">Total</th>
                   <th class="ta-c">En ContPAQi</th><th>Situación SAT</th>
                 </tr>
               </ng-template>
-              <ng-template pTemplate="body" let-r>
+              <ng-template #body let-r>
                 <tr [class.cp-efos]="r.riesgo==='efos'">
                   <td>
                     @switch (r.riesgo) {
@@ -223,7 +223,7 @@ type View = 'balanza' | 'bancos' | 'efos' | 'libros' | 'cfdi';
                   <td class="muted">{{ r.sat_situacion || '—' }}</td>
                 </tr>
               </ng-template>
-              <ng-template pTemplate="emptymessage"><tr><td colspan="7"><div class="surf-empty"><i class="pi pi-inbox"></i><p>Sin CFDI recibidos en {{ d.period }}.</p></div></td></tr></ng-template>
+              <ng-template #emptymessage><tr><td colspan="7"><div class="surf-empty"><i class="pi pi-inbox"></i><p>Sin CFDI recibidos en {{ d.period }}.</p></div></td></tr></ng-template>
             </p-table>
             <p class="cp-note muted"><i class="pi pi-info-circle"></i> Cruza los CFDI recibidos ({{ d.period }}) contra el padrón de proveedores de ContPAQi y la lista negra del SAT. Un CFDI de proveedor <b>EFOS (69B) no es deducible</b> ni acreditable de IVA.</p>
           </div>

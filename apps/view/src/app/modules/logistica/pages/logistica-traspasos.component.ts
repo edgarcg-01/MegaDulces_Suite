@@ -53,11 +53,11 @@ const MES: Record<string, string> = {
         </div>
         <div class="tr-field tr-wh">
           <label>Sucursales</label>
-          <p-multiSelect [options]="warehouseOpts()" [(ngModel)]="warehouses" optionLabel="name" optionValue="code"
+          <p-multiselect [options]="warehouseOpts()" [(ngModel)]="warehouses" optionLabel="name" optionValue="code"
                          placeholder="Todas" [showClear]="true" appendTo="body" styleClass="w-full" (onPanelHide)="load()" />
         </div>
         <div class="tr-actions">
-          <button pButton label="Consultar" icon="pi pi-search" size="small" [loading]="loading()" (click)="load()"></button>
+          <button pButton size="small" [loading]="loading()" (click)="load()"><span class="p-button-icon p-button-icon-left pi pi-search" aria-hidden="true"></span><span class="p-button-label">Consultar</span></button>
         </div>
       </div>
 
@@ -67,8 +67,7 @@ const MES: Record<string, string> = {
 
           <div class="so-actions-bar">
             <span class="text-xs text-content-muted">Año {{ r.year }}</span>
-            <button pButton label="XLSX" icon="pi pi-file-excel" size="small" severity="secondary" [outlined]="true"
-                    [loading]="dl()" (click)="download()"></button>
+            <button pButton size="small" severity="secondary" [outlined]="true" [loading]="dl()" (click)="download()"><span class="p-button-icon p-button-icon-left pi pi-file-excel" aria-hidden="true"></span><span class="p-button-label">XLSX</span></button>
           </div>
 
           <!-- ① Distribución CEDIS → destino (salida_cedis: suma válida dentro de la sección) -->

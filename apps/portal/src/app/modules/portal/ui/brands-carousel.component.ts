@@ -10,7 +10,7 @@ import {
   OnDestroy,
   inject,
 } from '@angular/core';
-import { CommonModule } from '@angular/common';
+
 import { RouterModule } from '@angular/router';
 
 export interface BrandFacet {
@@ -27,43 +27,49 @@ export interface BrandFacet {
 @Component({
   selector: 'portal-brands-carousel',
   standalone: true,
-  imports: [CommonModule, RouterModule],
+  imports: [RouterModule],
   template: `
-    <section class="bc" *ngIf="loop.length">
-      <header class="bc-head">
-        <h2>Marcas top</h2>
-        <a routerLink="/portal/catalog" class="bc-link">Ver todas →</a>
-      </header>
-      <div class="bc-viewport">
-        <div class="bc-track">
-          <a
-            *ngFor="let b of loop; let i = index; trackBy: trackByIdx"
-            class="bc-card"
-            [class.is-fallback]="isFallback(b)"
-            [style.--bc]="brandColor(b.brand_name)"
-            [style.--bc-ink]="brandInk(b.brand_name)"
-            [style.background]="isFallback(b) ? null : logoBg(b.brand_name)"
-            [routerLink]="['/portal/catalog']"
-            [queryParams]="{ brand: b.brand_id }"
-            [attr.aria-hidden]="i >= half ? 'true' : null"
-            [attr.tabindex]="i >= half ? -1 : null"
-            [attr.aria-label]="'Ver productos de ' + label(b.brand_name)"
-          >
-            <img
-              *ngIf="!isFallback(b)"
-              [src]="srcFor(b)"
-              [alt]="label(b.brand_name)"
-              [style.padding.px]="logoPad(b.brand_name)"
-              loading="lazy"
-              decoding="async"
-              (error)="onErr(b, $event)"
-            />
-            <span *ngIf="isFallback(b)" class="bc-mono">{{ mono(b.brand_name) }}</span>
-          </a>
+    @if (loop.length) {
+      <section class="bc">
+        <header class="bc-head">
+          <h2>Marcas top</h2>
+          <a routerLink="/portal/catalog" class="bc-link">Ver todas →</a>
+        </header>
+        <div class="bc-viewport">
+          <div class="bc-track">
+            @for (b of loop; track trackByIdx(i, b); let i = $index) {
+              <a
+                class="bc-card"
+                [class.is-fallback]="isFallback(b)"
+                [style.--bc]="brandColor(b.brand_name)"
+                [style.--bc-ink]="brandInk(b.brand_name)"
+                [style.background]="isFallback(b) ? null : logoBg(b.brand_name)"
+                [routerLink]="['/portal/catalog']"
+                [queryParams]="{ brand: b.brand_id }"
+                [attr.aria-hidden]="i >= half ? 'true' : null"
+                [attr.tabindex]="i >= half ? -1 : null"
+                [attr.aria-label]="'Ver productos de ' + label(b.brand_name)"
+                >
+                @if (!isFallback(b)) {
+                  <img
+                    [src]="srcFor(b)"
+                    [alt]="label(b.brand_name)"
+                    [style.padding.px]="logoPad(b.brand_name)"
+                    loading="lazy"
+                    decoding="async"
+                    (error)="onErr(b, $event)"
+                    />
+                }
+                @if (isFallback(b)) {
+                  <span class="bc-mono">{{ mono(b.brand_name) }}</span>
+                }
+              </a>
+            }
+          </div>
         </div>
-      </div>
-    </section>
-  `,
+      </section>
+    }
+    `,
   styles: [
     `
       :host { display: block; margin-bottom: 1.5rem; }

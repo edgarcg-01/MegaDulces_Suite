@@ -1,5 +1,5 @@
-import { Component, inject, signal, OnInit } from '@angular/core';
-import { CommonModule } from '@angular/common';
+import { Component, inject, signal, OnInit, ChangeDetectionStrategy } from '@angular/core';
+
 import { Router } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { ButtonModule } from 'primeng/button';
@@ -18,7 +18,6 @@ import { Permission } from '../../../core/constants/permissions';
   selector: 'app-admin-scoring',
   standalone: true,
   imports: [
-    CommonModule,
     FormsModule,
     ButtonModule,
     InputNumberModule,
@@ -26,9 +25,10 @@ import { Permission } from '../../../core/constants/permissions';
     ToastModule,
     DialogModule,
     ConfirmDialogModule
-  ],
+],
   providers: [MessageService, ConfirmationService],
   templateUrl: './admin-scoring.component.html',
+  changeDetection: ChangeDetectionStrategy.Eager,
   styleUrls: ['./admin-scoring.component.css']
 })
 export class AdminScoringComponent implements OnInit {

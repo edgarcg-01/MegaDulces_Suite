@@ -59,7 +59,7 @@ import { TiendaStateService } from '../tienda-state.service';
 
       @if (s.error()) {
         <div class="tda-banner" role="alert"><i class="pi pi-exclamation-triangle"></i> No se pudo cargar el ritmo del día.
-          <button pButton type="button" label="Reintentar" class="p-button-text p-button-sm" (click)="s.retry()"></button></div>
+          <button pButton type="button" class="p-button-text p-button-sm" (click)="s.retry()"><span class="p-button-label">Reintentar</span></button></div>
       }
 
       <div class="pace-kpis">

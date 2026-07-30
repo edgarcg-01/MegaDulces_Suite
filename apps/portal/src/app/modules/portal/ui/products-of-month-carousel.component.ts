@@ -29,106 +29,118 @@ import { CartFxService } from '../cart-fx.service';
   standalone: true,
   imports: [CommonModule, CurrencyPipe],
   template: `
-    <section class="pom" *ngIf="products?.length">
-      <header class="pom-head">
-        <div class="pom-title">
-          <span class="pom-eyebrow">Top ventas</span>
-          <h2>Productos del mes</h2>
+    @if (products?.length) {
+      <section class="pom">
+        <header class="pom-head">
+          <div class="pom-title">
+            <span class="pom-eyebrow">Top ventas</span>
+            <h2>Productos del mes</h2>
+          </div>
+          <div class="pom-head-right">
+            <span class="pom-meta">Últimos 90 días</span>
+            <div class="pom-nav">
+              <button type="button" class="pom-arrow" (click)="onArrow(-1)" aria-label="Anterior">
+                <i class="pi pi-chevron-left" aria-hidden="true"></i>
+              </button>
+              <button type="button" class="pom-arrow" (click)="onArrow(1)" aria-label="Siguiente">
+                <i class="pi pi-chevron-right" aria-hidden="true"></i>
+              </button>
+            </div>
+          </div>
+        </header>
+        <div class="pom-rail" role="list">
+          @for (p of products; track trackById(i, p); let i = $index) {
+            <article
+              class="pom-card"
+              role="listitem"
+              tabindex="0"
+              [attr.aria-label]="'Top ' + (i + 1) + ': ' + p.product_name"
+              (click)="open.emit(p)"
+              (keydown.enter)="open.emit(p)"
+              (keydown.space)="open.emit(p); $event.preventDefault()"
+              >
+              <div
+                class="pom-media"
+                [class.has-photo]="hasImg(p)"
+                [style.background]="hasImg(p) ? null : ph(p)"
+                >
+                @if (hasImg(p)) {
+                  <img
+                    [src]="img(p)"
+                    [alt]="p.product_name"
+                    loading="lazy"
+                    decoding="async"
+                    (error)="onImgError(p)"
+                    />
+                }
+                @if (!hasImg(p)) {
+                  <span class="pom-mono">{{ initials(p) }}</span>
+                }
+                <span class="pom-rank">#{{ i + 1 }}</span>
+              </div>
+              <div class="pom-body">
+                <span class="pom-brand">{{ p.brand_name || 'Sin marca' }}</span>
+                <span class="pom-name" [title]="p.product_name">{{ p.product_name }}</span>
+                @if (p.price != null) {
+                  <span class="pom-price">
+                    {{ +p.price | currency:'MXN':'symbol-narrow':'1.2-2' }}
+                  </span>
+                }
+                @if (p.price == null) {
+                  <span class="pom-price pom-price-na">Sin precio</span>
+                }
+              </div>
+              @if (!(qtyOf(p) > 0)) {
+                <button
+                  type="button"
+                  class="pom-add"
+                  [disabled]="addingId === p.product_id || p.price == null"
+                  (click)="$event.stopPropagation(); onAdd(p, $event)"
+                  [attr.aria-label]="'Agregar ' + p.product_name"
+                  >
+                  @if (addingId === p.product_id) {
+                    <i class="pi pi-spin pi-spinner" aria-hidden="true"></i>
+                  }
+                  @if (addingId !== p.product_id) {
+                    <i class="pi pi-plus" aria-hidden="true"></i>
+                  }
+                </button>
+              }
+              <!-- En carrito: stepper flotante (mismo lenguaje que el catálogo). -->
+              @if (qtyOf(p) > 0) {
+                <div
+                  class="pom-stepper"
+                  role="group"
+                  [attr.aria-label]="'Cantidad de ' + p.product_name"
+                  (click)="$event.stopPropagation()"
+                  >
+                  <button
+                    type="button"
+                    class="pom-step"
+                    [disabled]="addingId === p.product_id"
+                    (click)="$event.stopPropagation(); dec.emit(p)"
+                    [attr.aria-label]="qtyOf(p) <= (p.min_qty || 1) ? 'Quitar del carrito' : 'Disminuir'"
+                    >
+                    <i [class]="qtyOf(p) <= (p.min_qty || 1) ? 'pi pi-trash' : 'pi pi-minus'" aria-hidden="true"></i>
+                  </button>
+                  <span class="pom-step-val" aria-live="polite">{{ addingId === p.product_id ? '·' : qtyOf(p) }}</span>
+                  <button
+                    type="button"
+                    class="pom-step"
+                    [disabled]="addingId === p.product_id"
+                    (click)="$event.stopPropagation(); inc.emit(p)"
+                    aria-label="Aumentar"
+                    >
+                    <i class="pi pi-plus" aria-hidden="true"></i>
+                  </button>
+                </div>
+              }
+            </article>
+          }
         </div>
-        <div class="pom-head-right">
-          <span class="pom-meta">Últimos 90 días</span>
-          <div class="pom-nav">
-            <button type="button" class="pom-arrow" (click)="onArrow(-1)" aria-label="Anterior">
-              <i class="pi pi-chevron-left" aria-hidden="true"></i>
-            </button>
-            <button type="button" class="pom-arrow" (click)="onArrow(1)" aria-label="Siguiente">
-              <i class="pi pi-chevron-right" aria-hidden="true"></i>
-            </button>
-          </div>
-        </div>
-      </header>
-
-      <div class="pom-rail" role="list">
-        <article
-          *ngFor="let p of products; let i = index; trackBy: trackById"
-          class="pom-card"
-          role="listitem"
-          tabindex="0"
-          [attr.aria-label]="'Top ' + (i + 1) + ': ' + p.product_name"
-          (click)="open.emit(p)"
-          (keydown.enter)="open.emit(p)"
-          (keydown.space)="open.emit(p); $event.preventDefault()"
-        >
-          <div
-            class="pom-media"
-            [class.has-photo]="hasImg(p)"
-            [style.background]="hasImg(p) ? null : ph(p)"
-          >
-            <img
-              *ngIf="hasImg(p)"
-              [src]="img(p)"
-              [alt]="p.product_name"
-              loading="lazy"
-              decoding="async"
-              (error)="onImgError(p)"
-            />
-            <span *ngIf="!hasImg(p)" class="pom-mono">{{ initials(p) }}</span>
-            <span class="pom-rank">#{{ i + 1 }}</span>
-          </div>
-
-          <div class="pom-body">
-            <span class="pom-brand">{{ p.brand_name || 'Sin marca' }}</span>
-            <span class="pom-name" [title]="p.product_name">{{ p.product_name }}</span>
-            <span class="pom-price" *ngIf="p.price != null">
-              {{ +p.price | currency:'MXN':'symbol-narrow':'1.2-2' }}
-            </span>
-            <span class="pom-price pom-price-na" *ngIf="p.price == null">Sin precio</span>
-          </div>
-
-          <button
-            *ngIf="!(qtyOf(p) > 0)"
-            type="button"
-            class="pom-add"
-            [disabled]="addingId === p.product_id || p.price == null"
-            (click)="$event.stopPropagation(); onAdd(p, $event)"
-            [attr.aria-label]="'Agregar ' + p.product_name"
-          >
-            <i *ngIf="addingId === p.product_id" class="pi pi-spin pi-spinner" aria-hidden="true"></i>
-            <i *ngIf="addingId !== p.product_id" class="pi pi-plus" aria-hidden="true"></i>
-          </button>
-
-          <!-- En carrito: stepper flotante (mismo lenguaje que el catálogo). -->
-          <div
-            *ngIf="qtyOf(p) > 0"
-            class="pom-stepper"
-            role="group"
-            [attr.aria-label]="'Cantidad de ' + p.product_name"
-            (click)="$event.stopPropagation()"
-          >
-            <button
-              type="button"
-              class="pom-step"
-              [disabled]="addingId === p.product_id"
-              (click)="$event.stopPropagation(); dec.emit(p)"
-              [attr.aria-label]="qtyOf(p) <= (p.min_qty || 1) ? 'Quitar del carrito' : 'Disminuir'"
-            >
-              <i [class]="qtyOf(p) <= (p.min_qty || 1) ? 'pi pi-trash' : 'pi pi-minus'" aria-hidden="true"></i>
-            </button>
-            <span class="pom-step-val" aria-live="polite">{{ addingId === p.product_id ? '·' : qtyOf(p) }}</span>
-            <button
-              type="button"
-              class="pom-step"
-              [disabled]="addingId === p.product_id"
-              (click)="$event.stopPropagation(); inc.emit(p)"
-              aria-label="Aumentar"
-            >
-              <i class="pi pi-plus" aria-hidden="true"></i>
-            </button>
-          </div>
-        </article>
-      </div>
-    </section>
-  `,
+      </section>
+    }
+    `,
   styles: [
     `
       :host { display: block; margin-bottom: 2.5rem; }

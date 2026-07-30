@@ -44,9 +44,9 @@ import { Permission } from '../../../core/constants/permissions';
   template: `
     <div class="surf-page in">
       <p-toast></p-toast>
-
+    
       <app-page-tabs [tabs]="inventoryTabs" />
-
+    
       <!-- PAGE HEAD -->
       <header class="surf-page-head">
         <div class="surf-page-head-text">
@@ -58,54 +58,42 @@ import { Permission } from '../../../core/constants/permissions';
           </p>
         </div>
         <div class="in-head-actions">
-          <button
-            pButton
-            icon="pi pi-refresh"
-            [text]="true"
-            severity="secondary"
-            size="small"
-            (click)="load()"
-            [loading]="loading()"
-            pTooltip="Refrescar"
-          ></button>
+          <button pButton [text]="true" severity="secondary" size="small" (click)="load()" [loading]="loading()" pTooltip="Refrescar"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span></button>
         </div>
       </header>
-
+    
       <!-- KPI BENTO — data-viz del total (independiente del paginado) -->
-      <div class="surf-grid in-bento" *ngIf="summaryAll().length > 0">
-        <!-- HERO: valor del inventario disponible + barras por almacén -->
-        <app-metric-card class="panel-col-6" [large]="true"
-          label="Valor de inventario disponible" [value]="kpis().totalValue" format="currency"
-          accent="var(--action)"
-          [variant]="kpis().valueByWh.length > 1 ? 'bars' : 'plain'"
-          [series]="kpis().valueByWh" [seriesLabels]="kpis().whLabels" [highlightLast]="false"
+      @if (summaryAll().length > 0) {
+        <div class="surf-grid in-bento">
+          <!-- HERO: valor del inventario disponible + barras por almacén -->
+          <app-metric-card class="panel-col-6" [large]="true"
+            label="Valor de inventario disponible" [value]="kpis().totalValue" format="currency"
+            accent="var(--action)"
+            [variant]="kpis().valueByWh.length > 1 ? 'bars' : 'plain'"
+            [series]="kpis().valueByWh" [seriesLabels]="kpis().whLabels" [highlightLast]="false"
           [sub]="'al costo · ' + kpis().whCount + (kpis().whCount === 1 ? ' almacén' : ' almacenes')"></app-metric-card>
-
-        <app-metric-card class="panel-col-3"
-          label="Unidades on-hand" [value]="kpis().totalUnits" format="number"
-          accent="var(--chart-2)"
-          [variant]="kpis().unitsByWh.length > 1 ? 'bars' : 'plain'"
-          [series]="kpis().unitsByWh" [seriesLabels]="kpis().whLabels" [highlightLast]="false"
+          <app-metric-card class="panel-col-3"
+            label="Unidades on-hand" [value]="kpis().totalUnits" format="number"
+            accent="var(--chart-2)"
+            [variant]="kpis().unitsByWh.length > 1 ? 'bars' : 'plain'"
+            [series]="kpis().unitsByWh" [seriesLabels]="kpis().whLabels" [highlightLast]="false"
           sub="suma de todas las líneas"></app-metric-card>
-
-        <app-metric-card class="panel-col-3"
-          label="Líneas de stock" [value]="kpis().lines" format="number"
+          <app-metric-card class="panel-col-3"
+            label="Líneas de stock" [value]="kpis().lines" format="number"
           accent="var(--chart-6)" sub="producto × almacén"></app-metric-card>
-
-        <!-- Triada de salud del stock: % sobre el total de líneas -->
-        <app-metric-card class="panel-col-4" variant="progress"
-          label="Stock saludable" [value]="kpis().healthy" [goal]="kpis().lines" format="number"
+          <!-- Triada de salud del stock: % sobre el total de líneas -->
+          <app-metric-card class="panel-col-4" variant="progress"
+            label="Stock saludable" [value]="kpis().healthy" [goal]="kpis().lines" format="number"
           accent="var(--ok-fg)" sub="disponible ≥ 20"></app-metric-card>
-
-        <app-metric-card class="panel-col-4" variant="progress"
-          label="Stock crítico" [value]="kpis().critical" [goal]="kpis().lines" format="number"
+          <app-metric-card class="panel-col-4" variant="progress"
+            label="Stock crítico" [value]="kpis().critical" [goal]="kpis().lines" format="number"
           accent="var(--warn-fg)" sub="disponible &lt; 20"></app-metric-card>
-
-        <app-metric-card class="panel-col-4" variant="progress"
-          label="Sin stock" [value]="kpis().zero" [goal]="kpis().lines" format="number"
+          <app-metric-card class="panel-col-4" variant="progress"
+            label="Sin stock" [value]="kpis().zero" [goal]="kpis().lines" format="number"
           accent="var(--bad-fg)" sub="requieren reabasto"></app-metric-card>
-      </div>
-
+        </div>
+      }
+    
       <!-- FILTERS toolbar -->
       <div class="sheet cols-12">
         <article class="cell cell-span-12 is-flush in-filters-cell">
@@ -122,24 +110,25 @@ import { Permission } from '../../../core/constants/permissions';
                 appendTo="body"
               ></p-select>
             </div>
-
+    
             <app-product-search class="in-product-search" (productSelected)="onProductSelected($event)"></app-product-search>
-
+    
             <div class="in-toolbar-spacer"></div>
-
-            <button
-              *ngIf="isSpecific()"
-              type="button"
-              class="in-reset"
-              (click)="clearFilter()"
-            >
-              <i class="pi pi-refresh" aria-hidden="true"></i>
-              <span>Reset</span>
-            </button>
+    
+            @if (isSpecific()) {
+              <button
+                type="button"
+                class="in-reset"
+                (click)="clearFilter()"
+                >
+                <i class="pi pi-refresh" aria-hidden="true"></i>
+                <span>Reset</span>
+              </button>
+            }
           </div>
         </article>
       </div>
-
+    
       <!-- TABLA flush -->
       <div class="sheet cols-12">
         <article class="cell cell-span-12 is-flush">
@@ -155,8 +144,8 @@ import { Permission } from '../../../core/constants/permissions';
             (onLazyLoad)="onLazyLoad($event)"
             responsiveLayout="scroll"
             styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra"
-          >
-            <ng-template pTemplate="header">
+            >
+            <ng-template #header>
               <tr>
                 <th scope="col">Almacén</th>
                 <th scope="col">Producto</th>
@@ -170,7 +159,7 @@ import { Permission } from '../../../core/constants/permissions';
                 <th scope="col"><span class="sr-only">Acciones</span></th>
               </tr>
             </ng-template>
-            <ng-template pTemplate="body" let-s>
+            <ng-template #body let-s>
               <tr [class.in-row-low]="s.available > 0 && s.available < 20" [class.in-row-zero]="s.available <= 0">
                 <td>
                   <span class="in-warehouse-cell">
@@ -180,19 +169,33 @@ import { Permission } from '../../../core/constants/permissions';
                 </td>
                 <td>
                   <div class="comm-cell-strong">{{ s.product_name || s.product_id }}</div>
-                  <div class="comm-muted is-small" *ngIf="s.brand_name">{{ s.brand_name }}</div>
+                  @if (s.brand_name) {
+                    <div class="comm-muted is-small">{{ s.brand_name }}</div>
+                  }
                 </td>
                 <td>
-                  <code *ngIf="s.sku" class="comm-code">{{ s.sku }}</code>
-                  <span *ngIf="!s.sku" class="comm-muted">—</span>
+                  @if (s.sku) {
+                    <code class="comm-code">{{ s.sku }}</code>
+                  }
+                  @if (!s.sku) {
+                    <span class="comm-muted">—</span>
+                  }
                 </td>
                 <td>
-                  <code *ngIf="s.location" class="comm-code in-loc-code">{{ s.location }}</code>
-                  <span *ngIf="!s.location" class="comm-muted">—</span>
+                  @if (s.location) {
+                    <code class="comm-code in-loc-code">{{ s.location }}</code>
+                  }
+                  @if (!s.location) {
+                    <span class="comm-muted">—</span>
+                  }
                 </td>
                 <td class="comm-num">
-                  <span *ngIf="s.cost_base != null">{{ s.cost_base | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
-                  <span *ngIf="s.cost_base == null" class="comm-muted">—</span>
+                  @if (s.cost_base != null) {
+                    <span>{{ s.cost_base | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
+                  }
+                  @if (s.cost_base == null) {
+                    <span class="comm-muted">—</span>
+                  }
                 </td>
                 <td class="comm-num in-num-soft">{{ s.on_hand }}</td>
                 <td class="comm-num in-num-soft">{{ s.reserved }}</td>
@@ -202,35 +205,30 @@ import { Permission } from '../../../core/constants/permissions';
                   </span>
                 </td>
                 <td class="comm-num">
-                  <span *ngIf="s.available_value">{{ s.available_value | currency:'MXN':'symbol-narrow':'1.0-0' }}</span>
-                  <span *ngIf="!s.available_value" class="comm-muted">—</span>
+                  @if (s.available_value) {
+                    <span>{{ s.available_value | currency:'MXN':'symbol-narrow':'1.0-0' }}</span>
+                  }
+                  @if (!s.available_value) {
+                    <span class="comm-muted">—</span>
+                  }
                 </td>
                 <td class="comm-actions">
-                  <button *ngIf="canAdjust()" pButton icon="pi pi-pencil" size="small" severity="secondary" [text]="true"
-                          [disabled]="!!frozenFolio(s.warehouse_id)"
-                          [pTooltip]="frozenFolio(s.warehouse_id) ? ('Almacén congelado por inventario ' + frozenFolio(s.warehouse_id)) : 'Ajustar saldo'"
-                          (click)="openAdjust(s)"></button>
+                  @if (canAdjust()) {
+                    <button pButton size="small" severity="secondary" [text]="true" [disabled]="!!frozenFolio(s.warehouse_id)" [pTooltip]="frozenFolio(s.warehouse_id) ? ('Almacén congelado por inventario ' + frozenFolio(s.warehouse_id)) : 'Ajustar saldo'" (click)="openAdjust(s)"><span class="p-button-icon p-button-icon-left pi pi-pencil" aria-hidden="true"></span></button>
+                  }
                 </td>
               </tr>
             </ng-template>
-            <ng-template pTemplate="emptymessage">
+            <ng-template #emptymessage>
               <tr>
                 <td colspan="10" class="comm-empty-cell">
                   <div class="comm-empty">
                     <div class="comm-empty-icon"><i class="pi pi-inbox" aria-hidden="true"></i></div>
                     <h3>Sin stock registrado</h3>
                     <p>{{ isSpecific() ? 'Este almacén no tiene productos con saldo.' : 'Aún no hay líneas de stock en el tenant.' }}</p>
-                    <button
-                      *ngIf="isSpecific()"
-                      type="button"
-                      pButton
-                      icon="pi pi-refresh"
-                      severity="secondary"
-                      [outlined]="true"
-                      size="small"
-                      label="Ver todos los almacenes"
-                      (click)="clearFilter()"
-                    ></button>
+                    @if (isSpecific()) {
+                      <button type="button" pButton severity="secondary" [outlined]="true" size="small" (click)="clearFilter()"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span><span class="p-button-label">Ver todos los almacenes</span></button>
+                    }
                   </div>
                 </td>
               </tr>
@@ -239,42 +237,43 @@ import { Permission } from '../../../core/constants/permissions';
         </article>
       </div>
     </div>
-
+    
     <p-dialog
       [(visible)]="dialogVisible"
       [modal]="true"
       [draggable]="false"
       [style]="{ width: '440px' }"
       header="Ajustar saldo de stock"
-    >
-      <div class="adjust-body" *ngIf="adjusting() as a">
-        <div class="adjust-info">
-          <div><span>Almacén</span> <strong>{{ a.warehouse_name || a.warehouse_id }}</strong></div>
-          <div><span>Producto</span> <strong>{{ a.product_name || a.product_id }}</strong></div>
-          <div><span>Saldo on_hand</span> <strong>{{ a.on_hand }}</strong></div>
-          <div><span>Reservado</span> <strong>{{ a.reserved }}</strong></div>
+      >
+      @if (adjusting(); as a) {
+        <div class="adjust-body">
+          <div class="adjust-info">
+            <div><span>Almacén</span> <strong>{{ a.warehouse_name || a.warehouse_id }}</strong></div>
+            <div><span>Producto</span> <strong>{{ a.product_name || a.product_id }}</strong></div>
+            <div><span>Saldo on_hand</span> <strong>{{ a.on_hand }}</strong></div>
+            <div><span>Reservado</span> <strong>{{ a.reserved }}</strong></div>
+          </div>
+          <label class="adjust-field">
+            <span>Nuevo saldo on_hand</span>
+            <p-inputnumber [(ngModel)]="newQuantity" [min]="0" [showButtons]="true" />
+          </label>
+          <label class="adjust-field">
+            <span>Notas (auditoría física, etc.)</span>
+            <input pInputText [(ngModel)]="adjustNotes" />
+          </label>
+          @if (newQuantity !== null) {
+            <div class="delta-preview">
+              Cambio: <strong [class.up]="delta() > 0" [class.down]="delta() < 0">{{ delta() > 0 ? '+' + delta() : delta() }}</strong> unidades
+            </div>
+          }
         </div>
-        <label class="adjust-field">
-          <span>Nuevo saldo on_hand</span>
-          <p-inputNumber [(ngModel)]="newQuantity" [min]="0" [showButtons]="true" />
-        </label>
-        <label class="adjust-field">
-          <span>Notas (auditoría física, etc.)</span>
-          <input pInputText [(ngModel)]="adjustNotes" />
-        </label>
-        <div class="delta-preview" *ngIf="newQuantity !== null">
-          Cambio: <strong [class.up]="delta() > 0" [class.down]="delta() < 0">{{ delta() > 0 ? '+' + delta() : delta() }}</strong> unidades
-        </div>
-      </div>
-      <ng-template pTemplate="footer">
-        <button pButton label="Cancelar" severity="secondary" [outlined]="true" (click)="dialogVisible = false"></button>
-        <button pButton label="Aplicar ajuste" icon="pi pi-check"
-                [loading]="saving()"
-                [disabled]="newQuantity === null"
-                (click)="applyAdjust()"></button>
+      }
+      <ng-template #footer>
+        <button pButton severity="secondary" [outlined]="true" (click)="dialogVisible = false"><span class="p-button-label">Cancelar</span></button>
+        <button pButton [loading]="saving()" [disabled]="newQuantity === null" (click)="applyAdjust()"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Aplicar ajuste</span></button>
       </ng-template>
     </p-dialog>
-  `,
+    `,
   styles: [`
     :host { display:block; }
 

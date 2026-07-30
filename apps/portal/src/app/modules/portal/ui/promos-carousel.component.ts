@@ -27,53 +27,59 @@ import type { PromotionRow } from '../portal.service';
   standalone: true,
   imports: [CommonModule, RouterModule],
   template: `
-    <section class="pc" *ngIf="promos?.length">
-      <header class="pc-head">
-        <div class="pc-title">
-          <span class="pc-eyebrow">Ofertas</span>
-          <h2>Promos del mes</h2>
-        </div>
-        <div class="pc-head-right">
-          <a routerLink="/portal/promotions" class="pc-link">Ver todas →</a>
-          <div class="pc-nav">
-            <button type="button" class="pc-arrow" (click)="onArrow(-1)" aria-label="Anterior">
-              <i class="pi pi-chevron-left" aria-hidden="true"></i>
-            </button>
-            <button type="button" class="pc-arrow" (click)="onArrow(1)" aria-label="Siguiente">
-              <i class="pi pi-chevron-right" aria-hidden="true"></i>
-            </button>
+    @if (promos?.length) {
+      <section class="pc">
+        <header class="pc-head">
+          <div class="pc-title">
+            <span class="pc-eyebrow">Ofertas</span>
+            <h2>Promos del mes</h2>
           </div>
-        </div>
-      </header>
-
-      <div class="pc-rail" role="list">
-        <article
-          *ngFor="let p of promos; let i = index; trackBy: trackByPromo"
-          class="pc-card"
-          [class.pc-card-lead]="i === 0"
-          role="listitem"
-          routerLink="/portal/promotions"
-        >
-          <div class="pc-top">
-            <span class="pc-icon"><i [class]="promoIcon(p.promotion_type)" aria-hidden="true"></i></span>
-            <span class="pc-badge">{{ tileBadge(p) }}</span>
+          <div class="pc-head-right">
+            <a routerLink="/portal/promotions" class="pc-link">Ver todas →</a>
+            <div class="pc-nav">
+              <button type="button" class="pc-arrow" (click)="onArrow(-1)" aria-label="Anterior">
+                <i class="pi pi-chevron-left" aria-hidden="true"></i>
+              </button>
+              <button type="button" class="pc-arrow" (click)="onArrow(1)" aria-label="Siguiente">
+                <i class="pi pi-chevron-right" aria-hidden="true"></i>
+              </button>
+            </div>
           </div>
-          <h3>{{ p.name }}</h3>
-          <p *ngIf="p.description">{{ p.description }}</p>
-          <footer class="pc-foot">
-            <span *ngIf="endsInfo(p.ends_at) as e" class="pc-exp" [class.is-urgent]="e.urgent">
-              <i class="pi" [ngClass]="e.urgent ? 'pi-bolt' : 'pi-clock'" aria-hidden="true"></i>
-              {{ e.text }}
-            </span>
-            <span class="pc-cta">
-              Aprovechar
-              <i class="pi pi-arrow-right" aria-hidden="true"></i>
-            </span>
-          </footer>
-        </article>
-      </div>
-    </section>
-  `,
+        </header>
+        <div class="pc-rail" role="list">
+          @for (p of promos; track trackByPromo(i, p); let i = $index) {
+            <article
+              class="pc-card"
+              [class.pc-card-lead]="i === 0"
+              role="listitem"
+              routerLink="/portal/promotions"
+              >
+              <div class="pc-top">
+                <span class="pc-icon"><i [class]="promoIcon(p.promotion_type)" aria-hidden="true"></i></span>
+                <span class="pc-badge">{{ tileBadge(p) }}</span>
+              </div>
+              <h3>{{ p.name }}</h3>
+              @if (p.description) {
+                <p>{{ p.description }}</p>
+              }
+              <footer class="pc-foot">
+                @if (endsInfo(p.ends_at); as e) {
+                  <span class="pc-exp" [class.is-urgent]="e.urgent">
+                    <i class="pi" [ngClass]="e.urgent ? 'pi-bolt' : 'pi-clock'" aria-hidden="true"></i>
+                    {{ e.text }}
+                  </span>
+                }
+                <span class="pc-cta">
+                  Aprovechar
+                  <i class="pi pi-arrow-right" aria-hidden="true"></i>
+                </span>
+              </footer>
+            </article>
+          }
+        </div>
+      </section>
+    }
+    `,
   styles: [
     `
       :host { display: block; margin-bottom: 2.5rem; }

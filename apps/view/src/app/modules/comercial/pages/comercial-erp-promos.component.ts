@@ -27,19 +27,19 @@ import { PROMOS_TABS } from '../promos-tabs';
           <h1>Promos del ERP</h1>
           <p class="surf-page-sub">Reglas de promoción vigentes en Kepler</p>
         </div>
-        <button pButton icon="pi pi-refresh" [text]="true" severity="secondary" size="small" (click)="load()" [loading]="loading()"></button>
+        <button pButton [text]="true" severity="secondary" size="small" (click)="load()" [loading]="loading()"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span></button>
       </header>
 
       <p-table [value]="rows()" [loading]="loading()" styleClass="p-datatable-sm surf-table"
                [scrollable]="true" scrollHeight="flex" [paginator]="true" [rows]="50">
-        <ng-template pTemplate="header">
+        <ng-template #header>
           <tr>
             <th scope="col">SKU</th><th scope="col">Producto</th><th scope="col">Tipo</th>
             <th scope="col" class="ep-num">Umbral</th><th scope="col">Beneficio</th>
             <th scope="col">Vigencia</th><th scope="col">Almacén</th>
           </tr>
         </ng-template>
-        <ng-template pTemplate="body" let-p>
+        <ng-template #body let-p>
           <tr>
             <td class="ep-mono">{{ p.sku }}</td>
             <td class="ep-name">{{ p.product_name }}</td>
@@ -50,7 +50,7 @@ import { PROMOS_TABS } from '../promos-tabs';
             <td class="ep-mono">{{ p.warehouse_code || '—' }}</td>
           </tr>
         </ng-template>
-        <ng-template pTemplate="emptymessage">
+        <ng-template #emptymessage>
           <tr><td colspan="7" class="comm-empty-cell">
             <div class="comm-empty"><div class="comm-empty-icon"><i class="pi pi-percentage" aria-hidden="true"></i></div>
               <h3>Sin promos vigentes</h3><p>No hay promociones activas en el ERP.</p></div>

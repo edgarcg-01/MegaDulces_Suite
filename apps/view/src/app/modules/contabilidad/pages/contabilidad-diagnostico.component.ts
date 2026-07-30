@@ -44,9 +44,9 @@ import { FacturasService } from '../facturas.service';
         </div>
         <div class="di-head-actions">
           @if (loadedAt()) { <app-freshness-pill [since]="loadedAt()" /> }
-          <button pButton type="button" label="Refrescar" icon="pi pi-refresh" class="p-button-sm p-button-text" [loading]="loading()" (click)="reload()"></button>
+          <button pButton type="button" class="p-button-sm p-button-text" [loading]="loading()" (click)="reload()"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span><span class="p-button-label">Refrescar</span></button>
           @if (canManage && stats() && stats()!.open_total > 0) {
-            <button pButton type="button" label="Reintentar timbrado de pedidos" icon="pi pi-replay" class="p-button-sm" [loading]="retrying()" (click)="retryOrders()"></button>
+            <button pButton type="button" class="p-button-sm" [loading]="retrying()" (click)="retryOrders()"><span class="p-button-icon p-button-icon-left pi pi-replay" aria-hidden="true"></span><span class="p-button-label">Reintentar timbrado de pedidos</span></button>
           }
         </div>
       </header>
@@ -64,7 +64,7 @@ import { FacturasService } from '../facturas.service';
                 @if (h.solucion) { <div class="di-check-sol">{{ h.solucion }}</div> }
               </div>
               @if (h.deep_link) {
-                <a pButton [routerLink]="h.deep_link" class="p-button-sm p-button-text" [label]="h.fix_label || 'Arreglar'" icon="pi pi-external-link"></a>
+                <a pButton [routerLink]="h.deep_link" class="p-button-sm p-button-text"><i class="pi pi-external-link"></i> {{ h.fix_label || 'Arreglar' }}</a>
               }
             </div>
           }
@@ -78,14 +78,14 @@ import { FacturasService } from '../facturas.service';
 
       <!-- Filtros -->
       <div class="di-filters">
-        <p-selectButton styleClass="sb-liquid" [options]="statusOpts" [ngModel]="fStatus()" (ngModelChange)="setStatus($event)" optionLabel="label" optionValue="value" [allowEmpty]="false" ariaLabel="Estado del error" />
+        <p-selectbutton styleClass="sb-liquid" [options]="statusOpts" [ngModel]="fStatus()" (ngModelChange)="setStatus($event)" optionLabel="label" optionValue="value" [allowEmpty]="false" ariaLabel="Estado del error" />
         <p-select [options]="kindOpts" [ngModel]="fKind()" (ngModelChange)="setKind($event)" optionLabel="label" optionValue="value" appendTo="body" styleClass="di-sel sel-liquid" ariaLabel="Tipo de error" />
       </div>
 
       <div class="card-premium card-flat">
         <p-table [value]="rows()" dataKey="id" styleClass="p-datatable-sm di-table" [rowHover]="true" [loading]="loading()"
                  [scrollable]="true" scrollHeight="560px" [paginator]="rows().length > 50" [rows]="50">
-          <ng-template pTemplate="header">
+          <ng-template #header>
             <tr>
               <th style="width:2.5rem"></th>
               <th style="width:6rem">Sev.</th>
@@ -97,9 +97,9 @@ import { FacturasService } from '../facturas.service';
               <th style="width:12rem"></th>
             </tr>
           </ng-template>
-          <ng-template pTemplate="body" let-r let-expanded="expanded">
+          <ng-template #body let-r let-expanded="expanded">
             <tr>
-              <td><button type="button" pButton [pRowToggler]="r" class="p-button-text p-button-sm" [icon]="expanded ? 'pi pi-chevron-down' : 'pi pi-chevron-right'" aria-label="Detalle"></button></td>
+              <td><p-button type="button" pButton [pRowToggler]="r" styleClass="p-button-text p-button-sm" [icon]="expanded ? 'pi pi-chevron-down' : 'pi pi-chevron-right'" aria-label="Detalle"></p-button></td>
               <td><p-tag [value]="sevLabel(r.solucion.severity)" [severity]="sevSev(r.solucion.severity)" styleClass="di-chip" /></td>
               <td>{{ kindLabel(r.kind) }}</td>
               <td><div class="di-tit">{{ r.solucion.titulo }}</div></td>
@@ -112,10 +112,10 @@ import { FacturasService } from '../facturas.service';
               <td class="ta-r">
                 @if (r.status === 'open') {
                   @if (r.solucion.deep_link) {
-                    <a pButton [routerLink]="r.solucion.deep_link" class="p-button-text p-button-sm" [label]="r.solucion.fix_label || 'Arreglar'" icon="pi pi-external-link"></a>
+                    <a pButton [routerLink]="r.solucion.deep_link" class="p-button-text p-button-sm"><i class="pi pi-external-link"></i> {{ r.solucion.fix_label || 'Arreglar' }}</a>
                   }
                   @if (canManage) {
-                    <button pButton type="button" icon="pi pi-check" class="p-button-text p-button-sm" pTooltip="Descartar (ya atendido)" (click)="dismiss(r)"></button>
+                    <button pButton type="button" class="p-button-text p-button-sm" pTooltip="Descartar (ya atendido)" (click)="dismiss(r)"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span></button>
                   }
                 } @else {
                   <span class="di-resolved"><i class="pi pi-check-circle"></i> Resuelto</span>
@@ -123,7 +123,7 @@ import { FacturasService } from '../facturas.service';
               </td>
             </tr>
           </ng-template>
-          <ng-template pTemplate="rowexpansion" let-r>
+          <ng-template #expandedrow let-r>
             <tr class="di-exp-row">
               <td colspan="8">
                 <div class="di-exp">
@@ -137,10 +137,10 @@ import { FacturasService } from '../facturas.service';
                       <p>{{ r.solucion.solucion }}</p>
                       <div class="di-exp-actions">
                         @if (r.solucion.deep_link) {
-                          <a pButton [routerLink]="r.solucion.deep_link" class="p-button-sm" [label]="r.solucion.fix_label || 'Ir a arreglar'" icon="pi pi-external-link"></a>
+                          <a pButton [routerLink]="r.solucion.deep_link" class="p-button-sm"><i class="pi pi-external-link"></i> {{ r.solucion.fix_label || 'Ir a arreglar' }}</a>
                         }
                         @if (r.can_retry_order && canManage) {
-                          <button pButton type="button" label="Reintentar este pedido" icon="pi pi-replay" class="p-button-sm p-button-outlined" [loading]="retrying()" (click)="retryOrders()"></button>
+                          <button pButton type="button" class="p-button-sm p-button-outlined" [loading]="retrying()" (click)="retryOrders()"><span class="p-button-icon p-button-icon-left pi pi-replay" aria-hidden="true"></span><span class="p-button-label">Reintentar este pedido</span></button>
                         }
                       </div>
                     </div>
@@ -153,16 +153,16 @@ import { FacturasService } from '../facturas.service';
                       <span>Mensaje</span><b>{{ r.error_message || '—' }}</b>
                       @if (r.error_detail) { <span>Detalle</span><b>{{ r.error_detail }}</b> }
                     </div>
-                    <button pButton type="button" label="Ver respuesta cruda" icon="pi pi-code" class="p-button-text p-button-sm" [loading]="rawLoading()===r.id" (click)="loadRaw(r)"></button>
+                    <button pButton type="button" class="p-button-text p-button-sm" [loading]="rawLoading()===r.id" (click)="loadRaw(r)"><span class="p-button-icon p-button-icon-left pi pi-code" aria-hidden="true"></span><span class="p-button-label">Ver respuesta cruda</span></button>
                     @if (rawById()[r.id]) { <pre class="di-raw">{{ rawById()[r.id] }}</pre> }
                   </div>
                 </div>
               </td>
             </tr>
           </ng-template>
-          <ng-template pTemplate="emptymessage"><tr><td colspan="8" class="di-empty">
+          <ng-template #emptymessage><tr><td colspan="8" class="di-empty">
             @if (loading()) { Cargando… }
-            @else if (errored()) { <i class="pi pi-exclamation-triangle"></i> No se pudo cargar. <button pButton type="button" label="Reintentar" class="p-button-sm p-button-text" (click)="reload()"></button> }
+            @else if (errored()) { <i class="pi pi-exclamation-triangle"></i> No se pudo cargar. <button pButton type="button" class="p-button-sm p-button-text" (click)="reload()"><span class="p-button-label">Reintentar</span></button> }
             @else { <i class="pi pi-check-circle di-ok"></i> Sin errores {{ fStatus()==='open' ? 'abiertos' : '' }}. Todo en orden. }
           </td></tr></ng-template>
         </p-table>

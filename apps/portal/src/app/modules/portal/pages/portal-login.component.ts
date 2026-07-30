@@ -1,5 +1,5 @@
 import { AfterViewInit, ChangeDetectionStrategy, Component, ElementRef, NgZone, OnDestroy, inject, signal } from '@angular/core';
-import { CommonModule } from '@angular/common';
+
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { Router } from '@angular/router';
 import { InputTextModule } from 'primeng/inputtext';
@@ -11,12 +11,11 @@ import { AuthStageComponent } from '../ui/auth-stage.component';
   selector: 'app-portal-login',
   standalone: true,
   imports: [
-    CommonModule,
     ReactiveFormsModule,
     InputTextModule,
     MessageModule,
-    AuthStageComponent,
-  ],
+    AuthStageComponent
+],
   template: `
     <div class="pl-wrap">
       <!-- Hero side (desktop) -->
@@ -24,156 +23,166 @@ import { AuthStageComponent } from '../ui/auth-stage.component';
         <div class="pl-hero-deco pl-hero-deco-1"></div>
         <div class="pl-hero-deco pl-hero-deco-2"></div>
         <div class="pl-hero-deco pl-hero-deco-3"></div>
-
+    
         <div class="pl-hero-content">
           <img
             src="/assets/logos/mega-dulces-logo-240.webp"
             alt="Mega Dulces"
             class="pl-hero-logo"
-          />
-          <h1 class="pl-hero-title">
-            Tu dulcería,<br />
-            <span class="pl-hero-accent">surtida en minutos.</span>
-          </h1>
-          <p class="pl-hero-subtitle">
-            Catálogo completo, tus precios, pedidos con IA y entrega coordinada.
-          </p>
-
-          <ul class="pl-hero-bullets">
-            <li><i class="pi pi-check-circle"></i> Tu lista de precios personalizada</li>
-            <li><i class="pi pi-check-circle"></i> Pedido conversacional con IA</li>
-            <li><i class="pi pi-check-circle"></i> Promociones activas en tiempo real</li>
-            <li><i class="pi pi-check-circle"></i> Historial completo de compras</li>
-          </ul>
-        </div>
-      </aside>
-
-      <!-- Form side -->
-      <section class="pl-form-side">
-        <!-- Escaparate de bienvenida (móvil): producto que cae con GSAP -->
-        <portal-auth-stage class="pl-stage" image="/assets/brands/nucita.webp"></portal-auth-stage>
-
-        <header class="pl-form-head">
-          <img
-            src="/assets/logos/mega-dulces-logo-240.webp"
-            alt="Mega Dulces"
-            class="pl-form-logo"
-          />
-          <h1 class="pl-display">Tu dulcería,<br />surtida en <span class="pl-em">minutos.</span></h1>
-          <svg class="pl-underline" viewBox="0 0 200 14" preserveAspectRatio="none" aria-hidden="true">
-            <path d="M5 9 C 55 2, 145 2, 195 7" fill="none" stroke="var(--action)" stroke-width="3.5" stroke-linecap="round" />
-          </svg>
-          <span class="pl-form-eyebrow">Portal B2B</span>
-          <h2 class="pl-form-title">Bienvenido de vuelta</h2>
-          <p class="pl-form-sub">Tu lista de precios, pedidos con IA y entrega coordinada.</p>
-        </header>
-
-        <form [formGroup]="form" (ngSubmit)="submit()" class="pl-form" novalidate>
-          <div class="pl-field" *ngIf="showTenant()">
-            <label for="tenant">Empresa</label>
-            <input
-              pInputText
-              id="tenant"
-              formControlName="tenant_slug"
-              placeholder="mega_dulces"
-              autocomplete="organization"
-              autocapitalize="none"
-              autocorrect="off"
-              spellcheck="false"
-              inputmode="text"
-              enterkeyhint="next"
-              [class.pl-input-invalid]="isInvalid('tenant_slug')"
-              [attr.aria-invalid]="isInvalid('tenant_slug') ? 'true' : null"
-              [attr.aria-describedby]="fieldError('tenant_slug') ? 'tenant-err' : null"
             />
-            <small *ngIf="fieldError('tenant_slug')" id="tenant-err" class="pl-field-err" role="alert">
-              <i class="pi pi-exclamation-circle" aria-hidden="true"></i> {{ fieldError('tenant_slug') }}
-            </small>
+            <h1 class="pl-hero-title">
+              Tu dulcería,<br />
+              <span class="pl-hero-accent">surtida en minutos.</span>
+            </h1>
+            <p class="pl-hero-subtitle">
+              Catálogo completo, tus precios, pedidos con IA y entrega coordinada.
+            </p>
+    
+            <ul class="pl-hero-bullets">
+              <li><i class="pi pi-check-circle"></i> Tu lista de precios personalizada</li>
+              <li><i class="pi pi-check-circle"></i> Pedido conversacional con IA</li>
+              <li><i class="pi pi-check-circle"></i> Promociones activas en tiempo real</li>
+              <li><i class="pi pi-check-circle"></i> Historial completo de compras</li>
+            </ul>
           </div>
-          <button
-            *ngIf="!showTenant()"
-            type="button"
-            class="pl-tenant-toggle"
-            (click)="showTenant.set(true)"
-          >
-            <i class="pi pi-building" aria-hidden="true"></i>
-            ¿Tu cuenta es de otra empresa? Cambiar
-          </button>
-
-          <div class="pl-field">
-            <label for="user">Usuario</label>
-            <input
-              pInputText
-              id="user"
-              formControlName="username"
-              placeholder="Tu nombre de usuario"
-              autocomplete="username"
-              autocapitalize="none"
-              autocorrect="off"
-              spellcheck="false"
-              inputmode="text"
-              enterkeyhint="next"
-              [class.pl-input-invalid]="isInvalid('username')"
-              [attr.aria-invalid]="isInvalid('username') ? 'true' : null"
-              [attr.aria-describedby]="fieldError('username') ? 'user-err' : null"
-            />
-            <small *ngIf="fieldError('username')" id="user-err" class="pl-field-err" role="alert">
-              <i class="pi pi-exclamation-circle" aria-hidden="true"></i> {{ fieldError('username') }}
-            </small>
-          </div>
-
-          <div class="pl-field">
-            <div class="pl-label-row">
-              <label for="pass">Contraseña</label>
-              <button type="button" class="pl-show-pass" (click)="togglePass()">
-                {{ showPass() ? 'Ocultar' : 'Mostrar' }}
-              </button>
-            </div>
-            <input
-              pInputText
-              id="pass"
-              [type]="showPass() ? 'text' : 'password'"
-              formControlName="password"
-              placeholder="Mínimo 4 caracteres"
-              autocomplete="current-password"
-              enterkeyhint="go"
-              [class.pl-input-invalid]="isInvalid('password')"
-              [attr.aria-invalid]="isInvalid('password') ? 'true' : null"
-              [attr.aria-describedby]="fieldError('password') ? 'pass-err' : null"
-            />
-            <small *ngIf="fieldError('password')" id="pass-err" class="pl-field-err" role="alert">
-              <i class="pi pi-exclamation-circle" aria-hidden="true"></i> {{ fieldError('password') }}
-            </small>
-          </div>
-
-          <!-- Error a nivel formulario (HTTP / resumen). aria-live para que el
-               lector lo anuncie sin mover el foco. -->
-          <div class="pl-error-wrap" aria-live="assertive" role="alert">
-            <p-message
-              *ngIf="error()"
-              severity="error"
-              [text]="error()!"
-              styleClass="pl-error"
-            ></p-message>
-          </div>
-
-          <button
-            type="submit"
-            class="portal-btn-primary portal-btn-block portal-btn-primary-lg pl-submit"
-            [disabled]="loading()"
-          >
-            <i [class]="loading() ? 'pi pi-spin pi-spinner' : 'pi pi-arrow-right'" aria-hidden="true"></i>
-            {{ loading() ? 'Ingresando…' : 'Ingresar al portal' }}
-          </button>
-
-          <p class="pl-foot">
-            ¿No tienes acceso?
-            <a href="mailto:soporte@megadulces.com.mx">Solicita tu cuenta</a>
-          </p>
-        </form>
-      </section>
-    </div>
-  `,
+        </aside>
+    
+        <!-- Form side -->
+        <section class="pl-form-side">
+          <!-- Escaparate de bienvenida (móvil): producto que cae con GSAP -->
+          <portal-auth-stage class="pl-stage" image="/assets/brands/nucita.webp"></portal-auth-stage>
+    
+          <header class="pl-form-head">
+            <img
+              src="/assets/logos/mega-dulces-logo-240.webp"
+              alt="Mega Dulces"
+              class="pl-form-logo"
+              />
+              <h1 class="pl-display">Tu dulcería,<br />surtida en <span class="pl-em">minutos.</span></h1>
+              <svg class="pl-underline" viewBox="0 0 200 14" preserveAspectRatio="none" aria-hidden="true">
+                <path d="M5 9 C 55 2, 145 2, 195 7" fill="none" stroke="var(--action)" stroke-width="3.5" stroke-linecap="round" />
+              </svg>
+              <span class="pl-form-eyebrow">Portal B2B</span>
+              <h2 class="pl-form-title">Bienvenido de vuelta</h2>
+              <p class="pl-form-sub">Tu lista de precios, pedidos con IA y entrega coordinada.</p>
+            </header>
+    
+            <form [formGroup]="form" (ngSubmit)="submit()" class="pl-form" novalidate>
+              @if (showTenant()) {
+                <div class="pl-field">
+                  <label for="tenant">Empresa</label>
+                  <input
+                    pInputText
+                    id="tenant"
+                    formControlName="tenant_slug"
+                    placeholder="mega_dulces"
+                    autocomplete="organization"
+                    autocapitalize="none"
+                    autocorrect="off"
+                    spellcheck="false"
+                    inputmode="text"
+                    enterkeyhint="next"
+                    [class.pl-input-invalid]="isInvalid('tenant_slug')"
+                    [attr.aria-invalid]="isInvalid('tenant_slug') ? 'true' : null"
+                    [attr.aria-describedby]="fieldError('tenant_slug') ? 'tenant-err' : null"
+                    />
+                    @if (fieldError('tenant_slug')) {
+                      <small id="tenant-err" class="pl-field-err" role="alert">
+                        <i class="pi pi-exclamation-circle" aria-hidden="true"></i> {{ fieldError('tenant_slug') }}
+                      </small>
+                    }
+                  </div>
+                }
+                @if (!showTenant()) {
+                  <button
+                    type="button"
+                    class="pl-tenant-toggle"
+                    (click)="showTenant.set(true)"
+                    >
+                    <i class="pi pi-building" aria-hidden="true"></i>
+                    ¿Tu cuenta es de otra empresa? Cambiar
+                  </button>
+                }
+    
+                <div class="pl-field">
+                  <label for="user">Usuario</label>
+                  <input
+                    pInputText
+                    id="user"
+                    formControlName="username"
+                    placeholder="Tu nombre de usuario"
+                    autocomplete="username"
+                    autocapitalize="none"
+                    autocorrect="off"
+                    spellcheck="false"
+                    inputmode="text"
+                    enterkeyhint="next"
+                    [class.pl-input-invalid]="isInvalid('username')"
+                    [attr.aria-invalid]="isInvalid('username') ? 'true' : null"
+                    [attr.aria-describedby]="fieldError('username') ? 'user-err' : null"
+                    />
+                    @if (fieldError('username')) {
+                      <small id="user-err" class="pl-field-err" role="alert">
+                        <i class="pi pi-exclamation-circle" aria-hidden="true"></i> {{ fieldError('username') }}
+                      </small>
+                    }
+                  </div>
+    
+                  <div class="pl-field">
+                    <div class="pl-label-row">
+                      <label for="pass">Contraseña</label>
+                      <button type="button" class="pl-show-pass" (click)="togglePass()">
+                        {{ showPass() ? 'Ocultar' : 'Mostrar' }}
+                      </button>
+                    </div>
+                    <input
+                      pInputText
+                      id="pass"
+                      [type]="showPass() ? 'text' : 'password'"
+                      formControlName="password"
+                      placeholder="Mínimo 4 caracteres"
+                      autocomplete="current-password"
+                      enterkeyhint="go"
+                      [class.pl-input-invalid]="isInvalid('password')"
+                      [attr.aria-invalid]="isInvalid('password') ? 'true' : null"
+                      [attr.aria-describedby]="fieldError('password') ? 'pass-err' : null"
+                      />
+                      @if (fieldError('password')) {
+                        <small id="pass-err" class="pl-field-err" role="alert">
+                          <i class="pi pi-exclamation-circle" aria-hidden="true"></i> {{ fieldError('password') }}
+                        </small>
+                      }
+                    </div>
+    
+                    <!-- Error a nivel formulario (HTTP / resumen). aria-live para que el
+                    lector lo anuncie sin mover el foco. -->
+                    <div class="pl-error-wrap" aria-live="assertive" role="alert">
+                      @if (error()) {
+                        <p-message
+                          severity="error"
+                          [text]="error()!"
+                          styleClass="pl-error"
+                        ></p-message>
+                      }
+                    </div>
+    
+                    <button
+                      type="submit"
+                      class="portal-btn-primary portal-btn-block portal-btn-primary-lg pl-submit"
+                      [disabled]="loading()"
+                      >
+                      <i [class]="loading() ? 'pi pi-spin pi-spinner' : 'pi pi-arrow-right'" aria-hidden="true"></i>
+                      {{ loading() ? 'Ingresando…' : 'Ingresar al portal' }}
+                    </button>
+    
+                    <p class="pl-foot">
+                      ¿No tienes acceso?
+                      <a href="mailto:soporte@megadulces.com.mx">Solicita tu cuenta</a>
+                    </p>
+                  </form>
+                </section>
+              </div>
+    `,
   styles: [
     `
       :host { display: block; }

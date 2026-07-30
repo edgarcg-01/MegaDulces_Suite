@@ -24,21 +24,25 @@ import { RoutePingService } from '../../core/services/route-ping.service';
           <i class="pi pi-cog"></i>
         </button>
       </header>
-
-      <div class="settings-backdrop" *ngIf="settingsOpen()" (click)="settingsOpen.set(false)"></div>
-      <div class="settings-panel" *ngIf="settingsOpen()">
-        <button class="set-row" (click)="theme.toggleMonochrome()">
-          <i class="pi" [ngClass]="theme.isMonochrome() ? 'pi-moon' : 'pi-sun'"></i>
-          <span class="lbl">Modo oscuro</span>
-        </button>
-        <button class="set-row danger" (click)="logout()">
-          <i class="pi pi-sign-out"></i>
-          <span class="lbl">Cerrar sesión</span>
-        </button>
-      </div>
-
+    
+      @if (settingsOpen()) {
+        <div class="settings-backdrop" (click)="settingsOpen.set(false)"></div>
+      }
+      @if (settingsOpen()) {
+        <div class="settings-panel">
+          <button class="set-row" (click)="theme.toggleMonochrome()">
+            <i class="pi" [ngClass]="theme.isMonochrome() ? 'pi-moon' : 'pi-sun'"></i>
+            <span class="lbl">Modo oscuro</span>
+          </button>
+          <button class="set-row danger" (click)="logout()">
+            <i class="pi pi-sign-out"></i>
+            <span class="lbl">Cerrar sesión</span>
+          </button>
+        </div>
+      }
+    
       <main class="rider-main"><router-outlet></router-outlet></main>
-
+    
       <nav class="rider-bottom-nav">
         <a routerLink="deliveries" routerLinkActive="active">
           <i class="pi pi-home"></i>
@@ -50,7 +54,7 @@ import { RoutePingService } from '../../core/services/route-ping.service';
         </a>
       </nav>
     </div>
-  `,
+    `,
   styles: [`
     .rider-shell { min-height: 100dvh; display: flex; flex-direction: column; background: var(--layout-bg, #f5f5f4); }
     .rider-header { display: flex; align-items: center; gap: .5rem; padding: .7rem 1rem; background: var(--card-bg, #fff); border-bottom: 1px solid var(--border-color, #e5e5e5); position: sticky; top: 0; z-index: 10; }

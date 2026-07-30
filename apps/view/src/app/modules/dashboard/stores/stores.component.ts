@@ -7,7 +7,7 @@ import {
   inject,
   signal,
 } from '@angular/core';
-import { CommonModule } from '@angular/common';
+
 import { FormsModule } from '@angular/forms';
 import { TableModule } from 'primeng/table';
 import { ButtonModule } from 'primeng/button';
@@ -75,7 +75,6 @@ interface RouteRow {
   selector: 'app-stores',
   standalone: true,
   imports: [
-    CommonModule,
     FormsModule,
     TableModule,
     ButtonModule,
@@ -85,8 +84,8 @@ interface RouteRow {
     ConfirmDialogModule,
     InputTextModule,
     TooltipModule,
-    DialogModule,
-  ],
+    DialogModule
+],
   providers: [MessageService, ConfirmationService],
   templateUrl: './stores.component.html',
   styleUrls: ['./stores.component.css'],

@@ -8,7 +8,7 @@ import { TableModule } from 'primeng/table';
 import { TagModule } from 'primeng/tag';
 import { SelectModule } from 'primeng/select';
 import { DialogModule } from 'primeng/dialog';
-import { InputSwitchModule } from 'primeng/inputswitch';
+import { ToggleSwitchModule } from 'primeng/toggleswitch';
 import { InputNumberModule } from 'primeng/inputnumber';
 import { MultiSelectModule } from 'primeng/multiselect';
 import { ToastModule } from 'primeng/toast';
@@ -28,7 +28,7 @@ import { forkJoin } from 'rxjs';
   standalone: true,
   imports: [
     CommonModule, FormsModule, RouterModule,
-    ButtonModule, TableModule, TagModule, SelectModule, DialogModule, InputSwitchModule, InputNumberModule, MultiSelectModule, ToastModule, PageTabsComponent,
+    ButtonModule, TableModule, TagModule, SelectModule, DialogModule, ToggleSwitchModule, InputNumberModule, MultiSelectModule, ToastModule, PageTabsComponent,
   ],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -44,18 +44,18 @@ import { forkJoin } from 'rxjs';
           <p class="surf-page-sub"><b>{{ counts().length }}</b> folio{{ counts().length === 1 ? '' : 's' }}</p>
         </div>
         <div class="in-head-actions">
-          <button pButton icon="pi pi-plus" label="Abrir folio" size="small" (click)="openDialog()"></button>
-          <button pButton icon="pi pi-refresh" [text]="true" severity="secondary" size="small" (click)="load()" [loading]="loading()"></button>
+          <button pButton size="small" (click)="openDialog()"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Abrir folio</span></button>
+          <button pButton [text]="true" severity="secondary" size="small" (click)="load()" [loading]="loading()"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span></button>
         </div>
       </header>
 
       <p-table [value]="counts()" [loading]="loading()" styleClass="p-datatable-sm surf-table surf-table--zebra" [scrollable]="true">
-        <ng-template pTemplate="header">
+        <ng-template #header>
           <tr>
             <th scope="col">Folio</th><th scope="col">Almacén</th><th scope="col">Tipo</th><th scope="col">Estado</th><th scope="col">Inicio</th><th scope="col"><span class="sr-only">Acciones</span></th>
           </tr>
         </ng-template>
-        <ng-template pTemplate="body" let-c>
+        <ng-template #body let-c>
           <tr
             class="comm-row-clickable"
             role="button"
@@ -75,11 +75,11 @@ import { forkJoin } from 'rxjs';
             </td>
             <td>{{ c.started_at ? (c.started_at | date:'short') : '—' }}</td>
             <td>
-              <button pButton icon="pi pi-arrow-right" label="Abrir" size="small" [text]="true" [routerLink]="['/almacen/inventory/sessions', c.id]" (click)="$event.stopPropagation()"></button>
+              <button pButton size="small" [text]="true" [routerLink]="['/almacen/inventory/sessions', c.id]" (click)="$event.stopPropagation()"><span class="p-button-icon p-button-icon-left pi pi-arrow-right" aria-hidden="true"></span><span class="p-button-label">Abrir</span></button>
             </td>
           </tr>
         </ng-template>
-        <ng-template pTemplate="emptymessage">
+        <ng-template #emptymessage>
           <tr><td colspan="6" class="comm-empty-cell">
             <div class="comm-empty">
               <i class="pi pi-clipboard comm-empty-icon"></i>
@@ -103,14 +103,14 @@ import { forkJoin } from 'rxjs';
           <p-select [options]="typeOptions" [(ngModel)]="formType" optionLabel="label" optionValue="value" styleClass="in-w-full" appendTo="body"></p-select>
 
           <div class="in-toggle-row">
-            <p-inputSwitch [(ngModel)]="formFreeze"></p-inputSwitch>
+            <p-toggleswitch [(ngModel)]="formFreeze"></p-toggleswitch>
             <div>
               <span class="in-toggle-label">Congelar movimientos</span>
               <small>Bloquea pedidos/ajustes en este almacén durante el conteo (recomendado).</small>
             </div>
           </div>
           <div class="in-toggle-row">
-            <p-inputSwitch [(ngModel)]="formBlind"></p-inputSwitch>
+            <p-toggleswitch [(ngModel)]="formBlind"></p-toggleswitch>
             <div>
               <span class="in-toggle-label">Doble conteo ciego</span>
               <small>Cada SKU lo cuentan dos personas distintas; las diferencias escalan a reconteo.</small>
@@ -118,25 +118,25 @@ import { forkJoin } from 'rxjs';
           </div>
 
           <label>Umbral de recuento (%)</label>
-          <p-inputNumber [(ngModel)]="formThreshold" [min]="0" [max]="100" [maxFractionDigits]="2" styleClass="in-w-full"></p-inputNumber>
+          <p-inputnumber [(ngModel)]="formThreshold" [min]="0" [max]="100" [maxFractionDigits]="2" styleClass="in-w-full"></p-inputnumber>
           <small>0 = sin umbral. Si dos conteos coinciden pero difieren del teórico más que este %, el SKU queda como discrepancia (recuento/revisión) en vez de auto-resolverse.</small>
 
           @if (canAssign()) {
             <label>Contadores (quiénes van a contar)</label>
-            <p-multiSelect [options]="counterOpts()" [(ngModel)]="selCounters" optionLabel="label" optionValue="value"
+            <p-multiselect [options]="counterOpts()" [(ngModel)]="selCounters" optionLabel="label" optionValue="value"
                            placeholder="Todos los que tengan permiso (folio abierto)" [filter]="true" display="chip"
                            styleClass="in-w-full" appendTo="body" scrollHeight="45vh"
-                           [panelStyle]="{ maxWidth: '92vw' }"></p-multiSelect>
+                           [panelStyle]="{ maxWidth: '92vw' }"></p-multiselect>
             <label>Supervisores responsables</label>
-            <p-multiSelect [options]="supervisorOpts()" [(ngModel)]="selSupervisors" optionLabel="label" optionValue="value"
+            <p-multiselect [options]="supervisorOpts()" [(ngModel)]="selSupervisors" optionLabel="label" optionValue="value"
                            placeholder="Sin asignar" [filter]="true" display="chip"
                            styleClass="in-w-full" appendTo="body" scrollHeight="45vh"
-                           [panelStyle]="{ maxWidth: '92vw' }"></p-multiSelect>
+                           [panelStyle]="{ maxWidth: '92vw' }"></p-multiselect>
           }
         </div>
-        <ng-template pTemplate="footer">
-          <button pButton label="Cancelar" [text]="true" severity="secondary" (click)="dialogVisible.set(false)"></button>
-          <button pButton label="Abrir" icon="pi pi-check" [loading]="opening()" [disabled]="!formWarehouse()" (click)="open()"></button>
+        <ng-template #footer>
+          <button pButton [text]="true" severity="secondary" (click)="dialogVisible.set(false)"><span class="p-button-label">Cancelar</span></button>
+          <button pButton [loading]="opening()" [disabled]="!formWarehouse()" (click)="open()"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Abrir</span></button>
         </ng-template>
       </p-dialog>
     </div>

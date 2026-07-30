@@ -1,8 +1,8 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
-import { CommonModule } from '@angular/common';
+
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
-import { HttpClient, HttpParams } from '@angular/common/http';
+import { HttpClient, httpResource } from '@angular/common/http';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
@@ -45,16 +45,28 @@ interface BrandOpt { id: string; nombre: string; products: number; }
   selector: 'app-comercial-thot-directives',
   standalone: true,
   imports: [
-    CommonModule, FormsModule, RouterLink,
-    ButtonModule, TableModule, TagModule, SelectModule, InputTextModule, InputNumberModule,
-    AutoCompleteModule, DatePickerModule, DialogModule, ToastModule, ConfirmDialogModule,
-    TooltipModule, SkeletonModule, ThotAiInputComponent,
-  ],
+    FormsModule,
+    RouterLink,
+    ButtonModule,
+    TableModule,
+    TagModule,
+    SelectModule,
+    InputTextModule,
+    InputNumberModule,
+    AutoCompleteModule,
+    DatePickerModule,
+    DialogModule,
+    ToastModule,
+    ConfirmDialogModule,
+    TooltipModule,
+    SkeletonModule,
+    ThotAiInputComponent
+],
   providers: [MessageService, ConfirmationService],
   template: `
     <div class="surf-page td">
       <p-toast></p-toast>
-      <p-confirmDialog></p-confirmDialog>
+      <p-confirmdialog></p-confirmdialog>
 
       <!-- PAGE HEAD -->
       <header class="surf-page-head">
@@ -66,12 +78,9 @@ interface BrandOpt { id: string; nombre: string; products: number; }
           </p>
         </div>
         <div class="td-head-actions">
-          <button pButton icon="pi pi-comments" label="Pregúntale a Thot" size="small" [outlined]="true"
-                  routerLink="/comercial/thot-chat" pTooltip="Chat analítico sobre ventas"></button>
-          <button pButton icon="pi pi-refresh" [text]="true" severity="secondary" size="small"
-                  (click)="reload()" [loading]="loading()" pTooltip="Refrescar"></button>
-          <button pButton icon="pi pi-plus" label="Nueva directriz" size="small" severity="contrast"
-                  (click)="openCreate()"></button>
+          <button pButton size="small" [outlined]="true" routerLink="/comercial/thot-chat" pTooltip="Chat analítico sobre ventas"><span class="p-button-icon p-button-icon-left pi pi-comments" aria-hidden="true"></span><span class="p-button-label">Pregúntale a Thot</span></button>
+          <button pButton [text]="true" severity="secondary" size="small" (click)="reload()" [loading]="loading()" pTooltip="Refrescar"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span></button>
+          <button pButton size="small" severity="contrast" (click)="openCreate()"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Nueva directriz</span></button>
         </div>
       </header>
 
@@ -83,7 +92,7 @@ interface BrandOpt { id: string; nombre: string; products: number; }
         <article class="cell cell-span-12 is-flush">
           <p-table [value]="directives()" [loading]="loading()" responsiveLayout="scroll"
                    styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--frozen-first">
-            <ng-template pTemplate="header">
+            <ng-template #header>
               <tr>
                 <th scope="col">Target</th>
                 <th scope="col">Razón</th>
@@ -94,7 +103,7 @@ interface BrandOpt { id: string; nombre: string; products: number; }
                 <th scope="col"><span class="sr-only">Acciones</span></th>
               </tr>
             </ng-template>
-            <ng-template pTemplate="body" let-d>
+            <ng-template #body let-d>
               <tr [class.td-off]="!d.active">
                 <td>
                   <span class="comm-cell-strong">{{ d.target_name || '—' }}</span>
@@ -112,23 +121,21 @@ interface BrandOpt { id: string; nombre: string; products: number; }
                   </span>
                 </td>
                 <td class="comm-actions">
-                  <button pButton [icon]="d.active ? 'pi pi-pause' : 'pi pi-play'" size="small" [text]="true"
+                  <p-button pButton [icon]="d.active ? 'pi pi-pause' : 'pi pi-play'" size="small" [text]="true"
                           severity="secondary" (click)="toggle(d)"
-                          [pTooltip]="d.active ? 'Pausar' : 'Activar'"></button>
-                  <button pButton icon="pi pi-trash" size="small" [text]="true" severity="secondary"
-                          class="icon-btn-ghost-bad" (click)="confirmRemove(d)" pTooltip="Eliminar"></button>
+                          [pTooltip]="d.active ? 'Pausar' : 'Activar'"></p-button>
+                  <button pButton size="small" [text]="true" severity="secondary" class="icon-btn-ghost-bad" (click)="confirmRemove(d)" pTooltip="Eliminar"><span class="p-button-icon p-button-icon-left pi pi-trash" aria-hidden="true"></span></button>
                 </td>
               </tr>
             </ng-template>
-            <ng-template pTemplate="emptymessage">
+            <ng-template #emptymessage>
               <tr>
                 <td colspan="7" class="comm-empty-cell">
                   <div class="comm-empty">
                     <div class="comm-empty-icon"><i class="pi pi-megaphone" aria-hidden="true"></i></div>
                     <h3>Sin directrices</h3>
                     <p>Creá una directriz para empezar a empujar una marca foco en la app del vendedor.</p>
-                    <button pButton icon="pi pi-plus" severity="contrast" size="small" label="Nueva directriz"
-                            (click)="openCreate()"></button>
+                    <button pButton severity="contrast" size="small" (click)="openCreate()"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Nueva directriz</span></button>
                   </div>
                 </td>
               </tr>
@@ -150,15 +157,15 @@ interface BrandOpt { id: string; nombre: string; products: number; }
 
         <label class="td-field">
           <span>Marca <em>*</em></span>
-          <p-autoComplete [(ngModel)]="brandModel" [suggestions]="brandSuggestions()"
+          <p-autocomplete [(ngModel)]="brandModel" [suggestions]="brandSuggestions()"
                           (completeMethod)="searchBrands($event)" (onSelect)="onBrandSelect($event)"
                           (onClear)="selectedBrand.set(null)" field="nombre" [delay]="250"
                           [forceSelection]="true" placeholder="Buscar marca…" appendTo="body"
                           styleClass="td-w-full">
-            <ng-template let-b pTemplate="item">
+            <ng-template let-b #item>
               <div class="td-ac-item"><span>{{ b.nombre }}</span><small>{{ b.products }} prod.</small></div>
             </ng-template>
-          </p-autoComplete>
+          </p-autocomplete>
         </label>
 
         <label class="td-field">
@@ -169,8 +176,8 @@ interface BrandOpt { id: string; nombre: string; products: number; }
         <div class="td-row">
           <label class="td-field">
             <span>Empuje (boost)</span>
-            <p-inputNumber [(ngModel)]="boost" [min]="0" [max]="5" [step]="0.25" [minFractionDigits]="2"
-                           [showButtons]="true" styleClass="td-w-full"></p-inputNumber>
+            <p-inputnumber [(ngModel)]="boost" [min]="0" [max]="5" [step]="0.25" [minFractionDigits]="2"
+                           [showButtons]="true" styleClass="td-w-full"></p-inputnumber>
             <small class="td-hint">0.5 moderado · 1 fuerte · 2 dominante</small>
           </label>
           <label class="td-field">
@@ -182,20 +189,19 @@ interface BrandOpt { id: string; nombre: string; products: number; }
         <div class="td-row">
           <label class="td-field">
             <span>Vigencia desde</span>
-            <p-datePicker [(ngModel)]="validFrom" dateFormat="dd/mm/yy" [showIcon]="true" appendTo="body"
-                          styleClass="td-w-full" placeholder="∞"></p-datePicker>
+            <p-datepicker [(ngModel)]="validFrom" dateFormat="dd/mm/yy" [showIcon]="true" appendTo="body"
+                          styleClass="td-w-full" placeholder="∞"></p-datepicker>
           </label>
           <label class="td-field">
             <span>Vigencia hasta</span>
-            <p-datePicker [(ngModel)]="validTo" dateFormat="dd/mm/yy" [showIcon]="true" appendTo="body"
-                          styleClass="td-w-full" placeholder="∞"></p-datePicker>
+            <p-datepicker [(ngModel)]="validTo" dateFormat="dd/mm/yy" [showIcon]="true" appendTo="body"
+                          styleClass="td-w-full" placeholder="∞"></p-datepicker>
           </label>
         </div>
       </div>
-      <ng-template pTemplate="footer">
-        <button pButton label="Cancelar" severity="secondary" [outlined]="true" (click)="dialogVisible = false"></button>
-        <button pButton label="Crear directriz" icon="pi pi-check" [loading]="creating()"
-                [disabled]="!canCreate()" (click)="create()"></button>
+      <ng-template #footer>
+        <button pButton severity="secondary" [outlined]="true" (click)="dialogVisible = false"><span class="p-button-label">Cancelar</span></button>
+        <button pButton [loading]="creating()" [disabled]="!canCreate()" (click)="create()"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Crear directriz</span></button>
       </ng-template>
     </p-dialog>
   `,
@@ -234,7 +240,15 @@ export class ComercialThotDirectivesComponent implements OnInit {
   private readonly base = environment.apiUrl + '/commercial/intelligence/directives';
 
   readonly directives = signal<Directive[]>([]);
-  readonly brandSuggestions = signal<BrandOpt[]>([]);
+  private readonly brandQuery = signal<string | null>(null);
+  private readonly brandsRes = httpResource<BrandOpt[]>(
+    () => {
+      const q = this.brandQuery();
+      return q === null ? undefined : { url: `${this.base}/brands`, params: { search: q } };
+    },
+    { defaultValue: [] },
+  );
+  readonly brandSuggestions = computed<BrandOpt[]>(() => this.brandsRes.value() ?? []);
   readonly selectedBrand = signal<BrandOpt | null>(null);
   readonly loading = signal(true);
   readonly creating = signal(false);
@@ -269,9 +283,7 @@ export class ComercialThotDirectivesComponent implements OnInit {
   }
 
   searchBrands(e: { query: string }): void {
-    this.http.get<BrandOpt[]>(`${this.base}/brands`, { params: new HttpParams().set('search', e.query || '') })
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({ next: (b) => this.brandSuggestions.set(b || []), error: () => this.brandSuggestions.set([]) });
+    this.brandQuery.set(e.query ?? '');
   }
 
   onBrandSelect(e: { value: BrandOpt }): void {

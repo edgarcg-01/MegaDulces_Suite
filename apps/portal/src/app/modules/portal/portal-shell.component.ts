@@ -79,7 +79,7 @@ interface NavItem {
   template: `
     <div class="portal-shell">
       <p-toast position="top-right"></p-toast>
-
+    
       <!-- DESKTOP SIDEBAR -->
       <aside class="portal-sidebar" aria-label="Navegación principal">
         <a routerLink="/portal/home" class="portal-brand">
@@ -87,274 +87,278 @@ interface NavItem {
             src="/assets/logos/mega-dulces-logo-240.webp"
             alt="Mega Dulces"
             class="portal-brand-logo"
-          />
-          <div class="portal-brand-text">
-            <span class="portal-brand-name">Mega Dulces</span>
-            <span class="portal-brand-sub">Portal B2B</span>
-          </div>
-        </a>
-
-        <nav class="portal-nav-desktop">
-          <a
-            *ngFor="let item of navItems"
-            [routerLink]="item.path"
-            routerLinkActive="active"
-            class="portal-nav-item"
+            />
+            <div class="portal-brand-text">
+              <span class="portal-brand-name">Mega Dulces</span>
+              <span class="portal-brand-sub">Portal B2B</span>
+            </div>
+          </a>
+    
+          <nav class="portal-nav-desktop">
+            @for (item of navItems; track item) {
+              <a
+                [routerLink]="item.path"
+                routerLinkActive="active"
+                class="portal-nav-item"
             [attr.aria-label]="item.isCart && cart.cartLineCount() > 0
               ? item.label + ': ' + cart.cartLineCount() + ' item(s)'
               : null"
-          >
-            <span class="portal-nav-icon-wrap" [class.cart-fx-target]="item.isCart">
-              <i [class]="item.icon" aria-hidden="true"></i>
-              <span
-                *ngIf="item.isCart && cart.cartLineCount() > 0"
-                class="portal-cart-badge"
-                aria-hidden="true"
-                [@badgePop]="cart.cartLineCount()"
-              >{{ cart.cartLineCount() }}</span>
-            </span>
-            <span class="portal-nav-label">{{ item.label }}</span>
-          </a>
-        </nav>
-
-        <div class="portal-sidebar-foot">
-          <button
-            type="button"
-            class="portal-user-card portal-user-card-btn"
-            (click)="openSettings()"
-            title="Abrir configuración"
-            aria-label="Abrir configuración"
-          >
-            <div class="portal-user-avatar">{{ initial() }}</div>
-            <div class="portal-user-info">
-              <span class="portal-user-name">{{ username() }}</span>
-              <span class="portal-user-role">Cliente B2B</span>
-            </div>
-            <i class="pi pi-cog portal-user-cog" aria-hidden="true"></i>
-          </button>
-        </div>
-      </aside>
-
-      <!-- MAIN COLUMN -->
-      <div class="portal-column">
-        <!-- MOBILE HEADER -->
-        <header class="portal-header-mobile">
-          <a routerLink="/portal/home" class="portal-brand-mobile">
-            <img
-              src="/assets/logos/mega-dulces-logo-240.webp"
-              alt="Mega Dulces"
-              class="portal-brand-logo-mobile"
-            />
-            <span>Mega Dulces</span>
-          </a>
-          <button
-            type="button"
-            class="portal-icon-btn"
-            (click)="openSettings()"
-            title="Configuración"
-            aria-label="Abrir configuración"
-          >
-            <i class="pi pi-cog" aria-hidden="true"></i>
-          </button>
-        </header>
-
-        <!-- CONTENT -->
-        <main class="portal-main">
-          @if (accountUnlinked()) {
-            <div class="portal-unlinked" role="alert">
-              <i class="pi pi-id-card portal-unlinked-ico" aria-hidden="true"></i>
-              <h2 class="portal-unlinked-title">Tu cuenta aún no está vinculada</h2>
-              <p class="portal-unlinked-text">
-                Tu usuario existe pero todavía no está asociado a un cliente, así que aún no
-                puedes ver tus precios ni hacer pedidos. Pídele a tu asesor de Mega Dulces
-                que active tu acceso al portal.
-              </p>
-              <button type="button" class="portal-btn-primary" (click)="logout()">
-                Cerrar sesión
+                >
+                <span class="portal-nav-icon-wrap" [class.cart-fx-target]="item.isCart">
+                  <i [class]="item.icon" aria-hidden="true"></i>
+                  @if (item.isCart && cart.cartLineCount() > 0) {
+                    <span
+                      class="portal-cart-badge"
+                      aria-hidden="true"
+                      [@badgePop]="cart.cartLineCount()"
+                    >{{ cart.cartLineCount() }}</span>
+                  }
+                </span>
+                <span class="portal-nav-label">{{ item.label }}</span>
+              </a>
+            }
+          </nav>
+    
+          <div class="portal-sidebar-foot">
+            <button
+              type="button"
+              class="portal-user-card portal-user-card-btn"
+              (click)="openSettings()"
+              title="Abrir configuración"
+              aria-label="Abrir configuración"
+              >
+              <div class="portal-user-avatar">{{ initial() }}</div>
+              <div class="portal-user-info">
+                <span class="portal-user-name">{{ username() }}</span>
+                <span class="portal-user-role">Cliente B2B</span>
+              </div>
+              <i class="pi pi-cog portal-user-cog" aria-hidden="true"></i>
+            </button>
+          </div>
+        </aside>
+    
+        <!-- MAIN COLUMN -->
+        <div class="portal-column">
+          <!-- MOBILE HEADER -->
+          <header class="portal-header-mobile">
+            <a routerLink="/portal/home" class="portal-brand-mobile">
+              <img
+                src="/assets/logos/mega-dulces-logo-240.webp"
+                alt="Mega Dulces"
+                class="portal-brand-logo-mobile"
+                />
+                <span>Mega Dulces</span>
+              </a>
+              <button
+                type="button"
+                class="portal-icon-btn"
+                (click)="openSettings()"
+                title="Configuración"
+                aria-label="Abrir configuración"
+                >
+                <i class="pi pi-cog" aria-hidden="true"></i>
               </button>
-            </div>
-          } @else {
-            <router-outlet></router-outlet>
-          }
-        </main>
-
-        <!-- MOBILE BOTTOM TAB DOCK (píldora 4 destinos + búsqueda circular, Rappi-style) -->
-        <div class="portal-tabdock">
-          <nav class="portal-tabbar" aria-label="Navegación móvil">
-            <a
-              *ngFor="let item of tabItems"
-              [routerLink]="item.path"
-              routerLinkActive="active"
-              class="portal-tab"
+            </header>
+    
+            <!-- CONTENT -->
+            <main class="portal-main">
+              @if (accountUnlinked()) {
+                <div class="portal-unlinked" role="alert">
+                  <i class="pi pi-id-card portal-unlinked-ico" aria-hidden="true"></i>
+                  <h2 class="portal-unlinked-title">Tu cuenta aún no está vinculada</h2>
+                  <p class="portal-unlinked-text">
+                    Tu usuario existe pero todavía no está asociado a un cliente, así que aún no
+                    puedes ver tus precios ni hacer pedidos. Pídele a tu asesor de Mega Dulces
+                    que active tu acceso al portal.
+                  </p>
+                  <button type="button" class="portal-btn-primary" (click)="logout()">
+                    Cerrar sesión
+                  </button>
+                </div>
+              } @else {
+                <router-outlet></router-outlet>
+              }
+            </main>
+    
+            <!-- MOBILE BOTTOM TAB DOCK (píldora 4 destinos + búsqueda circular, Rappi-style) -->
+            <div class="portal-tabdock">
+              <nav class="portal-tabbar" aria-label="Navegación móvil">
+                @for (item of tabItems; track item) {
+                  <a
+                    [routerLink]="item.path"
+                    routerLinkActive="active"
+                    class="portal-tab"
               [attr.aria-label]="item.isCart && cart.cartLineCount() > 0
                 ? item.label + ': ' + cart.cartLineCount() + ' item(s)'
                 : item.label"
-            >
-              <span class="portal-tab-icon-wrap" [class.cart-fx-target]="item.isCart">
-                <i [class]="item.icon" aria-hidden="true"></i>
-                <span
-                  *ngIf="item.isCart && cart.cartLineCount() > 0"
-                  class="portal-cart-badge-mobile"
-                  aria-hidden="true"
-                  [@badgePop]="cart.cartLineCount()"
-                >{{ cart.cartLineCount() }}</span>
-              </span>
-              <span class="portal-tab-label">{{ item.label }}</span>
-            </a>
-          </nav>
-          <a
-            routerLink="/portal/catalog"
-            [queryParams]="{ focus: 'search' }"
-            class="portal-tabsearch"
-            aria-label="Buscar en el catálogo"
-          >
-            <i class="pi pi-search" aria-hidden="true"></i>
-          </a>
-        </div>
-
-        <!-- STICKY CART BAR (móvil) — flota sobre el dock cuando hay items.
-             Patrón de conversión Rappi/Uber Eats: total + count siempre a mano. -->
-        <button
-          type="button"
-          class="portal-cartbar"
-          [class.show]="cart.cartLineCount() > 0"
-          [attr.aria-hidden]="cart.cartLineCount() === 0"
-          [attr.tabindex]="cart.cartLineCount() === 0 ? -1 : 0"
+                    >
+                    <span class="portal-tab-icon-wrap" [class.cart-fx-target]="item.isCart">
+                      <i [class]="item.icon" aria-hidden="true"></i>
+                      @if (item.isCart && cart.cartLineCount() > 0) {
+                        <span
+                          class="portal-cart-badge-mobile"
+                          aria-hidden="true"
+                          [@badgePop]="cart.cartLineCount()"
+                        >{{ cart.cartLineCount() }}</span>
+                      }
+                    </span>
+                    <span class="portal-tab-label">{{ item.label }}</span>
+                  </a>
+                }
+              </nav>
+              <a
+                routerLink="/portal/catalog"
+                [queryParams]="{ focus: 'search' }"
+                class="portal-tabsearch"
+                aria-label="Buscar en el catálogo"
+                >
+                <i class="pi pi-search" aria-hidden="true"></i>
+              </a>
+            </div>
+    
+            <!-- STICKY CART BAR (móvil) — flota sobre el dock cuando hay items.
+            Patrón de conversión Rappi/Uber Eats: total + count siempre a mano. -->
+            <button
+              type="button"
+              class="portal-cartbar"
+              [class.show]="cart.cartLineCount() > 0"
+              [attr.aria-hidden]="cart.cartLineCount() === 0"
+              [attr.tabindex]="cart.cartLineCount() === 0 ? -1 : 0"
           [attr.aria-label]="cartBelowMin()
             ? 'Carrito: te faltan para el mínimo'
             : 'Ver carrito, ' + cart.cartLineCount() + ' productos'"
-          (click)="goCart()"
-        >
-          <span class="cb-fill" [style.width.%]="cartProgress() * 100" aria-hidden="true"></span>
-          <span class="cb-count" [@badgePop]="cart.cartLineCount()">{{ cart.cartLineCount() }}</span>
-          <span class="cb-label">
-            {{ cartBelowMin() ? 'Te faltan ' + (cartRemaining() | currency:'MXN':'symbol-narrow':'1.0-0') : 'Ver carrito' }}
-          </span>
-          <span class="cb-total" [countUp]="cart.cartTotal()"></span>
-          <i class="pi pi-arrow-right cb-arrow" aria-hidden="true"></i>
-        </button>
-
-      </div>
-
-      <!-- ── SETTINGS PANEL (slide-in derecha) ────────────────────── -->
-      <div
-        class="ps-backdrop"
-        [class.open]="settingsOpen()"
-        (click)="closeSettings()"
-        aria-hidden="true"
-      ></div>
-      <aside
-        class="ps-panel"
-        [class.open]="settingsOpen()"
-        role="dialog"
-        aria-label="Configuración"
-      >
-        <header class="ps-head">
-          <div>
-            <span class="ps-eyebrow">Tu cuenta</span>
-            <h2>Configuración</h2>
+              (click)="goCart()"
+              >
+              <span class="cb-fill" [style.width.%]="cartProgress() * 100" aria-hidden="true"></span>
+              <span class="cb-count" [@badgePop]="cart.cartLineCount()">{{ cart.cartLineCount() }}</span>
+              <span class="cb-label">
+                {{ cartBelowMin() ? 'Te faltan ' + (cartRemaining() | currency:'MXN':'symbol-narrow':'1.0-0') : 'Ver carrito' }}
+              </span>
+              <span class="cb-total" [countUp]="cart.cartTotal()"></span>
+              <i class="pi pi-arrow-right cb-arrow" aria-hidden="true"></i>
+            </button>
+    
           </div>
-          <button
-            type="button"
-            class="ps-close"
+    
+          <!-- ── SETTINGS PANEL (slide-in derecha) ────────────────────── -->
+          <div
+            class="ps-backdrop"
+            [class.open]="settingsOpen()"
             (click)="closeSettings()"
-            aria-label="Cerrar configuración"
-          ><i class="pi pi-times" aria-hidden="true"></i></button>
-        </header>
-
-        <div class="ps-body">
-          <!-- Usuario -->
-          <section class="ps-section">
-            <div class="ps-user">
-              <div class="ps-user-avatar">{{ initial() }}</div>
-              <div class="ps-user-info">
-                <span class="ps-user-name">{{ username() }}</span>
-                <span class="ps-user-role">Cliente B2B · Mega Dulces</span>
+            aria-hidden="true"
+          ></div>
+          <aside
+            class="ps-panel"
+            [class.open]="settingsOpen()"
+            role="dialog"
+            aria-label="Configuración"
+            >
+            <header class="ps-head">
+              <div>
+                <span class="ps-eyebrow">Tu cuenta</span>
+                <h2>Configuración</h2>
               </div>
-            </div>
-          </section>
-
-          <!-- Apariencia -->
-          <section class="ps-section">
-            <h3 class="ps-section-title">
-              <i class="pi pi-palette" aria-hidden="true"></i> Apariencia
-            </h3>
-            <div class="ps-segment" role="radiogroup" aria-label="Tema">
               <button
                 type="button"
-                class="ps-segment-btn"
-                [class.active]="themeMode() === 'system'"
-                (click)="setTheme('system')"
-                role="radio"
-                [attr.aria-checked]="themeMode() === 'system'"
-              >
-                <i class="pi pi-desktop"></i>
-                <span>Sistema</span>
-              </button>
-              <button
-                type="button"
-                class="ps-segment-btn"
-                [class.active]="themeMode() === 'light'"
-                (click)="setTheme('light')"
-                role="radio"
-                [attr.aria-checked]="themeMode() === 'light'"
-              >
-                <i class="pi pi-sun"></i>
-                <span>Claro</span>
-              </button>
-              <button
-                type="button"
-                class="ps-segment-btn"
-                [class.active]="themeMode() === 'dark'"
-                (click)="setTheme('dark')"
-                role="radio"
-                [attr.aria-checked]="themeMode() === 'dark'"
-              >
-                <i class="pi pi-moon"></i>
-                <span>Oscuro</span>
-              </button>
-            </div>
-            <p class="ps-hint">
-              "Sistema" sigue las preferencias de tu dispositivo automáticamente.
-            </p>
-          </section>
-
-          <!-- Notificaciones -->
-          <section class="ps-section">
-            <h3 class="ps-section-title">
-              <i class="pi pi-bell" aria-hidden="true"></i> Notificaciones
-            </h3>
-
-            <ul class="ps-notif-list">
-              <li class="ps-notif-item">
-                <span class="ps-notif-icon"><i class="pi pi-receipt" aria-hidden="true"></i></span>
-                <div class="ps-notif-text">
-                  <span class="ps-notif-title">Estado de pedidos</span>
-                  <span class="ps-notif-desc">Aviso en tiempo real cuando confirmen o entreguen tu pedido.</span>
+                class="ps-close"
+                (click)="closeSettings()"
+                aria-label="Cerrar configuración"
+                ><i class="pi pi-times" aria-hidden="true"></i></button>
+              </header>
+    
+              <div class="ps-body">
+                <!-- Usuario -->
+                <section class="ps-section">
+                  <div class="ps-user">
+                    <div class="ps-user-avatar">{{ initial() }}</div>
+                    <div class="ps-user-info">
+                      <span class="ps-user-name">{{ username() }}</span>
+                      <span class="ps-user-role">Cliente B2B · Mega Dulces</span>
+                    </div>
+                  </div>
+                </section>
+    
+                <!-- Apariencia -->
+                <section class="ps-section">
+                  <h3 class="ps-section-title">
+                    <i class="pi pi-palette" aria-hidden="true"></i> Apariencia
+                  </h3>
+                  <div class="ps-segment" role="radiogroup" aria-label="Tema">
+                    <button
+                      type="button"
+                      class="ps-segment-btn"
+                      [class.active]="themeMode() === 'system'"
+                      (click)="setTheme('system')"
+                      role="radio"
+                      [attr.aria-checked]="themeMode() === 'system'"
+                      >
+                      <i class="pi pi-desktop"></i>
+                      <span>Sistema</span>
+                    </button>
+                    <button
+                      type="button"
+                      class="ps-segment-btn"
+                      [class.active]="themeMode() === 'light'"
+                      (click)="setTheme('light')"
+                      role="radio"
+                      [attr.aria-checked]="themeMode() === 'light'"
+                      >
+                      <i class="pi pi-sun"></i>
+                      <span>Claro</span>
+                    </button>
+                    <button
+                      type="button"
+                      class="ps-segment-btn"
+                      [class.active]="themeMode() === 'dark'"
+                      (click)="setTheme('dark')"
+                      role="radio"
+                      [attr.aria-checked]="themeMode() === 'dark'"
+                      >
+                      <i class="pi pi-moon"></i>
+                      <span>Oscuro</span>
+                    </button>
+                  </div>
+                  <p class="ps-hint">
+                    "Sistema" sigue las preferencias de tu dispositivo automáticamente.
+                  </p>
+                </section>
+    
+                <!-- Notificaciones -->
+                <section class="ps-section">
+                  <h3 class="ps-section-title">
+                    <i class="pi pi-bell" aria-hidden="true"></i> Notificaciones
+                  </h3>
+    
+                  <ul class="ps-notif-list">
+                    <li class="ps-notif-item">
+                      <span class="ps-notif-icon"><i class="pi pi-receipt" aria-hidden="true"></i></span>
+                      <div class="ps-notif-text">
+                        <span class="ps-notif-title">Estado de pedidos</span>
+                        <span class="ps-notif-desc">Aviso en tiempo real cuando confirmen o entreguen tu pedido.</span>
+                      </div>
+                      <button
+                        type="button"
+                        class="ps-switch"
+                        [class.on]="notif.prefs().orders"
+                        (click)="toggleNotif('orders')"
+                        [attr.aria-checked]="notif.prefs().orders"
+                        role="switch"
+                        [attr.aria-label]="'Notificaciones de pedidos: ' + (notif.prefs().orders ? 'activadas' : 'desactivadas')"
+                        ><span class="ps-switch-thumb" aria-hidden="true"></span></button>
+                      </li>
+                    </ul>
+                  </section>
                 </div>
-                <button
-                  type="button"
-                  class="ps-switch"
-                  [class.on]="notif.prefs().orders"
-                  (click)="toggleNotif('orders')"
-                  [attr.aria-checked]="notif.prefs().orders"
-                  role="switch"
-                  [attr.aria-label]="'Notificaciones de pedidos: ' + (notif.prefs().orders ? 'activadas' : 'desactivadas')"
-                ><span class="ps-switch-thumb" aria-hidden="true"></span></button>
-              </li>
-            </ul>
-          </section>
-        </div>
-
-        <footer class="ps-foot">
-          <button type="button" class="ps-logout" (click)="logout()">
-            <i class="pi pi-sign-out" aria-hidden="true"></i>
-            Cerrar sesión
-          </button>
-        </footer>
-      </aside>
-    </div>
-  `,
+    
+                <footer class="ps-foot">
+                  <button type="button" class="ps-logout" (click)="logout()">
+                    <i class="pi pi-sign-out" aria-hidden="true"></i>
+                    Cerrar sesión
+                  </button>
+                </footer>
+              </aside>
+            </div>
+    `,
   styles: [
     `
       :host { display: block; }

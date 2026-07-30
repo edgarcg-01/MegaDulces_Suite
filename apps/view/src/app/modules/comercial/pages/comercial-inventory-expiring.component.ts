@@ -28,9 +28,9 @@ import { ProductSearchComponent, ProductHit } from '../components/product-search
   template: `
     <div class="surf-page in">
       <p-toast></p-toast>
-
+    
       <app-page-tabs [tabs]="inventoryTabs" />
-
+    
       <header class="surf-page-head">
         <div class="surf-page-head-text">
           <h1>Por vencer</h1>
@@ -38,40 +38,40 @@ import { ProductSearchComponent, ProductHit } from '../components/product-search
         </div>
         <div class="ex-head-actions">
           <p-select [options]="dayOptions" [(ngModel)]="days" optionLabel="label" optionValue="value"
-                    (onChange)="load()" styleClass="ex-days"></p-select>
+          (onChange)="load()" styleClass="ex-days"></p-select>
           <p-select [options]="warehouseOptions()" [(ngModel)]="warehouseFilter" optionLabel="label" optionValue="value"
-                    (onChange)="load()" styleClass="ex-wh"></p-select>
+          (onChange)="load()" styleClass="ex-wh"></p-select>
           <app-product-search (productSelected)="prodFilter.set($event)"></app-product-search>
-          <button pButton icon="pi pi-refresh" [text]="true" severity="secondary" size="small" (click)="load()" [loading]="loading()"></button>
+          <button pButton [text]="true" severity="secondary" size="small" (click)="load()" [loading]="loading()"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span></button>
         </div>
       </header>
-
-      <div class="surf-grid ex-bento" *ngIf="lots().length > 0">
-        <app-metric-card class="panel-col-6" [large]="true"
-          label="Valor en riesgo (costo)" [value]="totalValue()" format="currency"
-          accent="var(--bad-fg)"
-          [variant]="risk().buckets.length > 1 ? 'bars' : 'plain'"
-          [series]="risk().buckets" [seriesLabels]="risk().labels" [highlightLast]="false"
+    
+      @if (lots().length > 0) {
+        <div class="surf-grid ex-bento">
+          <app-metric-card class="panel-col-6" [large]="true"
+            label="Valor en riesgo (costo)" [value]="totalValue()" format="currency"
+            accent="var(--bad-fg)"
+            [variant]="risk().buckets.length > 1 ? 'bars' : 'plain'"
+            [series]="risk().buckets" [seriesLabels]="risk().labels" [highlightLast]="false"
           [sub]="'al costo · ' + lots().length + (lots().length === 1 ? ' lote' : ' lotes')"></app-metric-card>
-
-        <app-metric-card class="panel-col-3"
-          label="Lotes en ventana" [value]="lots().length" format="number"
+          <app-metric-card class="panel-col-3"
+            label="Lotes en ventana" [value]="lots().length" format="number"
           accent="var(--chart-2)" sub="con caducidad capturada"></app-metric-card>
-
-        <app-metric-card class="panel-col-3" variant="progress"
-          label="Ya vencidos" [value]="expiredCount()" [goal]="lots().length" format="number"
+          <app-metric-card class="panel-col-3" variant="progress"
+            label="Ya vencidos" [value]="expiredCount()" [goal]="lots().length" format="number"
           accent="var(--bad-fg)" sub="retirar de inventario"></app-metric-card>
-      </div>
-
+        </div>
+      }
+    
       <p-table [value]="filteredLots()" [loading]="loading()" styleClass="p-datatable-sm surf-table surf-table--zebra"
-               [scrollable]="true" scrollHeight="flex" [paginator]="true" [rows]="25" [rowsPerPageOptions]="[25, 50, 100, 200]">
-        <ng-template pTemplate="header">
+        [scrollable]="true" scrollHeight="flex" [paginator]="true" [rows]="25" [rowsPerPageOptions]="[25, 50, 100, 200]">
+        <ng-template #header>
           <tr>
             <th scope="col">Almacén</th><th scope="col">SKU</th><th scope="col">Producto</th><th scope="col">Lote</th><th scope="col">Caduca</th>
             <th scope="col" class="num">Días</th><th scope="col" class="num">Cantidad</th><th scope="col" class="num">Valor en riesgo</th>
           </tr>
         </ng-template>
-        <ng-template pTemplate="body" let-it>
+        <ng-template #body let-it>
           <tr [class.ex-row-expired]="+it.days_to_expiry < 0">
             <td class="ex-mono">{{ it.warehouse_code }}</td>
             <td class="ex-mono">{{ it.sku || '—' }}</td>
@@ -85,12 +85,12 @@ import { ProductSearchComponent, ProductHit } from '../components/product-search
             <td class="num ex-cap">{{ it.value_at_cost | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
           </tr>
         </ng-template>
-        <ng-template pTemplate="emptymessage">
+        <ng-template #emptymessage>
           <tr><td colspan="8" class="comm-empty-cell"><div class="comm-empty"><div class="comm-empty-icon"><i class="pi pi-calendar-times" aria-hidden="true"></i></div><h3>Sin lotes por vencer</h3><p>No hay lotes por vencer en esta ventana. Capturá caducidad al recibir mercancía para verlos aquí.</p></div></td></tr>
         </ng-template>
       </p-table>
     </div>
-  `,
+    `,
   styles: [`
     .ex-head-actions { display: flex; gap: .5rem; align-items: center; }
     :host ::ng-deep .ex-wh { min-width: 220px; }

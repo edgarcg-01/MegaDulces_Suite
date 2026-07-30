@@ -343,7 +343,7 @@ export class PwaInstallService {
       }
       const subscription = await registration.pushManager.subscribe({
         userVisibleOnly: true,
-        applicationServerKey: this.urlBase64ToUint8Array(vapidKey),
+        applicationServerKey: this.urlBase64ToUint8Array(vapidKey) as BufferSource,
       });
       return {
         success: true,

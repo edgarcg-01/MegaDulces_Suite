@@ -1,4 +1,5 @@
-import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, effect, inject, signal } from '@angular/core';
+import { rxResource } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { FormBuilder, FormGroup, FormsModule, ReactiveFormsModule, Validators } from '@angular/forms';
 import { ButtonModule } from 'primeng/button';
@@ -39,8 +40,8 @@ import { makeLazyLoad, makeDebouncedSearch } from '../../../shared/util';
   template: `
     <div class="surf-page pr">
       <p-toast></p-toast>
-      <p-confirmDialog></p-confirmDialog>
-
+      <p-confirmdialog></p-confirmdialog>
+    
       <!-- PAGE HEAD -->
       <header class="surf-page-head">
         <div class="surf-page-head-text">
@@ -52,32 +53,16 @@ import { makeLazyLoad, makeDebouncedSearch } from '../../../shared/util';
           </p>
         </div>
         <div class="pr-head-actions">
-          <button
-            pButton
-            icon="pi pi-refresh"
-            [text]="true"
-            severity="secondary"
-            size="small"
-            (click)="load()"
-            [loading]="loading()"
-            pTooltip="Refrescar"
-          ></button>
-          <button
-            pButton
-            icon="pi pi-plus"
-            label="Nueva lista"
-            size="small"
-            severity="contrast"
-            (click)="openCreate()"
-          ></button>
+          <button pButton [text]="true" severity="secondary" size="small" (click)="load()" [loading]="loading()" pTooltip="Refrescar"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span></button>
+          <button pButton size="small" severity="contrast" (click)="openCreate()"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Nueva lista</span></button>
         </div>
       </header>
-
+    
       <!-- MASTER: tabla de listas, flush -->
       <div class="sheet cols-12">
         <article class="cell cell-span-12 is-flush">
           <p-table [value]="rows()" [loading]="loading()" responsiveLayout="scroll" styleClass="p-datatable-sm pr-master surf-table surf-table--sticky">
-            <ng-template pTemplate="header">
+            <ng-template #header>
               <tr>
                 <th scope="col">Código</th>
                 <th scope="col">Nombre</th>
@@ -87,19 +72,23 @@ import { makeLazyLoad, makeDebouncedSearch } from '../../../shared/util';
                 <th scope="col"><span class="sr-only">Acciones</span></th>
               </tr>
             </ng-template>
-            <ng-template pTemplate="body" let-pl>
+            <ng-template #body let-pl>
               <tr [class.pr-selected]="selected()?.id === pl.id" (click)="selectPriceList(pl)"
-                  (keydown.enter)="selectPriceList(pl)" (keydown.space)="$event.preventDefault(); selectPriceList(pl)"
-                  tabindex="0" role="button" [attr.aria-label]="'Ver precios de ' + pl.name" class="comm-row-clickable">
+                (keydown.enter)="selectPriceList(pl)" (keydown.space)="$event.preventDefault(); selectPriceList(pl)"
+                tabindex="0" role="button" [attr.aria-label]="'Ver precios de ' + pl.name" class="comm-row-clickable">
                 <td><code class="comm-code">{{ pl.code }}</code></td>
                 <td class="comm-cell-strong">{{ pl.name }}</td>
                 <td>{{ pl.currency || 'MXN' }}</td>
                 <td>
-                  <span *ngIf="pl.is_default" class="pr-default-badge">
-                    <i class="pi pi-bookmark-fill" aria-hidden="true"></i>
-                    Default
-                  </span>
-                  <span *ngIf="!pl.is_default" class="comm-muted">—</span>
+                  @if (pl.is_default) {
+                    <span class="pr-default-badge">
+                      <i class="pi pi-bookmark-fill" aria-hidden="true"></i>
+                      Default
+                    </span>
+                  }
+                  @if (!pl.is_default) {
+                    <span class="comm-muted">—</span>
+                  }
                 </td>
                 <td>
                   <span class="pr-status" [class.is-on]="pl.active !== false">
@@ -108,30 +97,21 @@ import { makeLazyLoad, makeDebouncedSearch } from '../../../shared/util';
                   </span>
                 </td>
                 <td class="comm-actions">
-                  <button pButton icon="pi pi-pencil" size="small" severity="secondary" [text]="true"
-                          (click)="$event.stopPropagation(); openEdit(pl)" pTooltip="Editar"></button>
-                  <button pButton icon="pi pi-trash" size="small" severity="secondary" [text]="true"
-                          (click)="$event.stopPropagation(); confirmDelete(pl)"
-                          *ngIf="pl.active !== false" pTooltip="Desactivar"></button>
+                  <button pButton size="small" severity="secondary" [text]="true" (click)="$event.stopPropagation(); openEdit(pl)" pTooltip="Editar"><span class="p-button-icon p-button-icon-left pi pi-pencil" aria-hidden="true"></span></button>
+                  @if (pl.active !== false) {
+                    <button pButton size="small" severity="secondary" [text]="true" (click)="$event.stopPropagation(); confirmDelete(pl)" pTooltip="Desactivar"><span class="p-button-icon p-button-icon-left pi pi-trash" aria-hidden="true"></span></button>
+                  }
                 </td>
               </tr>
             </ng-template>
-            <ng-template pTemplate="emptymessage">
+            <ng-template #emptymessage>
               <tr>
                 <td colspan="6" class="comm-empty-cell">
                   <div class="comm-empty">
                     <div class="comm-empty-icon"><i class="pi pi-tag" aria-hidden="true"></i></div>
                     <h3>Sin listas de precios</h3>
                     <p>Creá una lista y asignala a clientes para personalizar precios por cuenta.</p>
-                    <button
-                      type="button"
-                      pButton
-                      icon="pi pi-plus"
-                      severity="contrast"
-                      size="small"
-                      label="Nueva lista"
-                      (click)="openCreate()"
-                    ></button>
+                    <button type="button" pButton severity="contrast" size="small" (click)="openCreate()"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Nueva lista</span></button>
                   </div>
                 </td>
               </tr>
@@ -139,173 +119,201 @@ import { makeLazyLoad, makeDebouncedSearch } from '../../../shared/util';
           </p-table>
         </article>
       </div>
-
+    
       <!-- DETAIL: precios de la lista seleccionada (paginado + search) -->
-      <div *ngIf="selected() as sel" class="sheet cols-12 pr-detail">
-        <article class="cell cell-span-12 is-flush">
-          <header class="pr-detail-head">
-            <div class="pr-detail-head-text">
-              <span class="cell-label">Precios de la lista</span>
-              <h3 class="pr-detail-title">{{ sel.name }}</h3>
-              <span class="comm-muted is-small">
-                <b>{{ pricesTotal() }}</b> producto{{ pricesTotal() === 1 ? '' : 's' }}
-                <ng-container *ngIf="pricesSearchSignal()"> · filtrados de toda la lista</ng-container>
-                · {{ sel.currency || 'MXN' }}
-              </span>
-            </div>
-            <div class="pr-detail-actions">
-              <div class="pr-search">
-                <i class="pi pi-search pr-search-icon" aria-hidden="true"></i>
-                <input
-                  type="search"
-                  [value]="pricesSearch"
-                  (input)="onPricesSearchChange($any($event.target).value)"
-                  placeholder="Buscar nombre, SKU o código de barras…"
-                  inputmode="search"
-                  autocomplete="off"
-                  spellcheck="false"
-                  aria-label="Buscar precios"
-                />
-                <button
-                  *ngIf="pricesSearch"
-                  type="button"
-                  class="pr-search-clear"
-                  (click)="clearPricesSearch()"
-                  aria-label="Limpiar"
-                >
-                  <i class="pi pi-times" aria-hidden="true"></i>
-                </button>
+      @if (selected(); as sel) {
+        <div class="sheet cols-12 pr-detail">
+          <article class="cell cell-span-12 is-flush">
+            <header class="pr-detail-head">
+              <div class="pr-detail-head-text">
+                <span class="cell-label">Precios de la lista</span>
+                <h3 class="pr-detail-title">{{ sel.name }}</h3>
+                <span class="comm-muted is-small">
+                  <b>{{ pricesTotal() }}</b> producto{{ pricesTotal() === 1 ? '' : 's' }}
+                  @if (pricesSearchSignal()) {
+                    · filtrados de toda la lista
+                  }
+                  · {{ sel.currency || 'MXN' }}
+                </span>
               </div>
-              <button
-                pButton
-                icon="pi pi-times"
-                [text]="true"
-                severity="secondary"
-                size="small"
-                (click)="selected.set(null)"
-                pTooltip="Cerrar detalle"
-              ></button>
-            </div>
-          </header>
-          <p-table
-            [value]="prices()"
-            [loading]="loadingPrices()"
-            [lazy]="true"
-            [paginator]="true"
-            [rows]="pricesPageSize()"
-            [totalRecords]="pricesTotal()"
-            [first]="(pricesPage() - 1) * pricesPageSize()"
-            [rowsPerPageOptions]="[25, 50, 100, 200]"
-            (onLazyLoad)="onPricesLazyLoad($event)"
-            responsiveLayout="scroll"
-            styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra"
-          >
-            <ng-template pTemplate="header">
-              <tr>
-                <th scope="col">Producto</th>
-                <th scope="col">SKU</th>
-                <th scope="col">Categoría</th>
-                <th scope="col">Ubic.</th>
-                <th scope="col" class="comm-num">Costo</th>
-                <th scope="col" class="comm-num">Precio</th>
-                <th scope="col" class="comm-num">Margen</th>
-                <th scope="col" class="comm-num">Min</th>
-                <th scope="col"><span class="sr-only">Acciones</span></th>
-              </tr>
-            </ng-template>
-            <ng-template pTemplate="body" let-p>
-              <tr>
-                <td>
-                  <div class="comm-cell-strong" [pTooltip]="p.product_description || ''" tooltipPosition="right" [tooltipDisabled]="!p.product_description">
-                    {{ p.product_name || p.product_id }}
+              <div class="pr-detail-actions">
+                <div class="pr-search">
+                  <i class="pi pi-search pr-search-icon" aria-hidden="true"></i>
+                  <input
+                    type="search"
+                    [value]="pricesSearch"
+                    (input)="onPricesSearchChange($any($event.target).value)"
+                    placeholder="Buscar nombre, SKU o código de barras…"
+                    inputmode="search"
+                    autocomplete="off"
+                    spellcheck="false"
+                    aria-label="Buscar precios"
+                    />
+                    @if (pricesSearch) {
+                      <button
+                        type="button"
+                        class="pr-search-clear"
+                        (click)="clearPricesSearch()"
+                        aria-label="Limpiar"
+                        >
+                        <i class="pi pi-times" aria-hidden="true"></i>
+                      </button>
+                    }
                   </div>
-                  <div class="comm-muted is-small" *ngIf="p.brand_name">{{ p.brand_name }}</div>
-                </td>
-                <td>
-                  <code *ngIf="p.sku" class="comm-code">{{ p.sku }}</code>
-                  <span *ngIf="!p.sku" class="comm-muted">—</span>
-                  <div class="comm-muted is-small" *ngIf="p.barcode">{{ p.barcode }}</div>
-                </td>
-                <td>
-                  <span *ngIf="p.category_name" class="pr-cat-tag">{{ p.category_name }}</span>
-                  <span *ngIf="!p.category_name" class="comm-muted">—</span>
-                </td>
-                <td>
-                  <code *ngIf="p.location" class="comm-code pr-loc-code">{{ p.location }}</code>
-                  <span *ngIf="!p.location" class="comm-muted">—</span>
-                </td>
-                <td class="comm-num">
-                  <span *ngIf="p.cost_base != null">{{ p.cost_base | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
-                  <span *ngIf="p.cost_base == null" class="comm-muted">—</span>
-                </td>
-                <td class="comm-num is-strong">{{ p.price | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
-                <td class="comm-num">
-                  <span *ngIf="marginPct(p) as m" class="pr-margin" [class.is-good]="m >= 20" [class.is-warn]="m >= 5 && m < 20" [class.is-bad]="m < 5">
-                    {{ m | number:'1.1-1' }}%
-                  </span>
-                  <span *ngIf="!marginPct(p)" class="comm-muted">—</span>
-                </td>
-                <td class="comm-num">
-                  <span class="pr-min-qty" [class.is-tier]="(p.min_qty || 1) > 1">{{ p.min_qty || p.min_quantity || 1 }}</span>
-                </td>
-                <td class="comm-actions">
-                  <button pButton icon="pi pi-trash" size="small" severity="secondary" [text]="true"
-                          (click)="confirmDeletePrice(p)" pTooltip="Eliminar"></button>
-                </td>
-              </tr>
-            </ng-template>
-            <ng-template pTemplate="emptymessage">
-              <tr>
-                <td colspan="9" class="comm-empty-cell">
-                  <div class="comm-empty">
-                    <div class="comm-empty-icon"><i [class]="pricesSearchSignal() ? 'pi pi-search' : 'pi pi-box'" aria-hidden="true"></i></div>
-                    <h3>{{ pricesSearchSignal() ? 'Sin resultados' : 'Lista vacía' }}</h3>
-                    <p *ngIf="pricesSearchSignal()">No se encontraron precios con "{{ pricesSearchSignal() }}".</p>
-                    <p *ngIf="!pricesSearchSignal()">Esta lista todavía no tiene precios cargados. Sincronizar desde Mega_Dulces ERP via importer:</p>
-                    <code *ngIf="!pricesSearchSignal()" class="comm-code pr-empty-cmd">database/importers/mega_dulces_sync.js --scope=prices</code>
-                  </div>
-                </td>
-              </tr>
-            </ng-template>
-          </p-table>
-        </article>
+                  <button pButton [text]="true" severity="secondary" size="small" (click)="selected.set(null)" pTooltip="Cerrar detalle"><span class="p-button-icon p-button-icon-left pi pi-times" aria-hidden="true"></span></button>
+                </div>
+              </header>
+              <p-table
+                [value]="prices()"
+                [loading]="loadingPrices()"
+                [lazy]="true"
+                [paginator]="true"
+                [rows]="pricesPageSize()"
+                [totalRecords]="pricesTotal()"
+                [first]="(pricesPage() - 1) * pricesPageSize()"
+                [rowsPerPageOptions]="[25, 50, 100, 200]"
+                (onLazyLoad)="onPricesLazyLoad($event)"
+                responsiveLayout="scroll"
+                styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra"
+                >
+                <ng-template #header>
+                  <tr>
+                    <th scope="col">Producto</th>
+                    <th scope="col">SKU</th>
+                    <th scope="col">Categoría</th>
+                    <th scope="col">Ubic.</th>
+                    <th scope="col" class="comm-num">Costo</th>
+                    <th scope="col" class="comm-num">Precio</th>
+                    <th scope="col" class="comm-num">Margen</th>
+                    <th scope="col" class="comm-num">Min</th>
+                    <th scope="col"><span class="sr-only">Acciones</span></th>
+                  </tr>
+                </ng-template>
+                <ng-template #body let-p>
+                  <tr>
+                    <td>
+                      <div class="comm-cell-strong" [pTooltip]="p.product_description || ''" tooltipPosition="right" [tooltipDisabled]="!p.product_description">
+                        {{ p.product_name || p.product_id }}
+                      </div>
+                      @if (p.brand_name) {
+                        <div class="comm-muted is-small">{{ p.brand_name }}</div>
+                      }
+                    </td>
+                    <td>
+                      @if (p.sku) {
+                        <code class="comm-code">{{ p.sku }}</code>
+                      }
+                      @if (!p.sku) {
+                        <span class="comm-muted">—</span>
+                      }
+                      @if (p.barcode) {
+                        <div class="comm-muted is-small">{{ p.barcode }}</div>
+                      }
+                    </td>
+                    <td>
+                      @if (p.category_name) {
+                        <span class="pr-cat-tag">{{ p.category_name }}</span>
+                      }
+                      @if (!p.category_name) {
+                        <span class="comm-muted">—</span>
+                      }
+                    </td>
+                    <td>
+                      @if (p.location) {
+                        <code class="comm-code pr-loc-code">{{ p.location }}</code>
+                      }
+                      @if (!p.location) {
+                        <span class="comm-muted">—</span>
+                      }
+                    </td>
+                    <td class="comm-num">
+                      @if (p.cost_base != null) {
+                        <span>{{ p.cost_base | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
+                      }
+                      @if (p.cost_base == null) {
+                        <span class="comm-muted">—</span>
+                      }
+                    </td>
+                    <td class="comm-num is-strong">{{ p.price | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+                    <td class="comm-num">
+                      @if (marginPct(p); as m) {
+                        <span class="pr-margin" [class.is-good]="m >= 20" [class.is-warn]="m >= 5 && m < 20" [class.is-bad]="m < 5">
+                          {{ m | number:'1.1-1' }}%
+                        </span>
+                      }
+                      @if (!marginPct(p)) {
+                        <span class="comm-muted">—</span>
+                      }
+                    </td>
+                    <td class="comm-num">
+                      <span class="pr-min-qty" [class.is-tier]="(p.min_qty || 1) > 1">{{ p.min_qty || p.min_quantity || 1 }}</span>
+                    </td>
+                    <td class="comm-actions">
+                      <button pButton size="small" severity="secondary" [text]="true" (click)="confirmDeletePrice(p)" pTooltip="Eliminar"><span class="p-button-icon p-button-icon-left pi pi-trash" aria-hidden="true"></span></button>
+                    </td>
+                  </tr>
+                </ng-template>
+                <ng-template #emptymessage>
+                  <tr>
+                    <td colspan="9" class="comm-empty-cell">
+                      <div class="comm-empty">
+                        <div class="comm-empty-icon"><i [class]="pricesSearchSignal() ? 'pi pi-search' : 'pi pi-box'" aria-hidden="true"></i></div>
+                        <h3>{{ pricesSearchSignal() ? 'Sin resultados' : 'Lista vacía' }}</h3>
+                        @if (pricesSearchSignal()) {
+                          <p>No se encontraron precios con "{{ pricesSearchSignal() }}".</p>
+                        }
+                        @if (!pricesSearchSignal()) {
+                          <p>Esta lista todavía no tiene precios cargados. Sincronizar desde Mega_Dulces ERP via importer:</p>
+                        }
+                        @if (!pricesSearchSignal()) {
+                          <code class="comm-code pr-empty-cmd">database/importers/mega_dulces_sync.js --scope=prices</code>
+                        }
+                      </div>
+                    </td>
+                  </tr>
+                </ng-template>
+              </p-table>
+            </article>
+          </div>
+        }
       </div>
-    </div>
-
-    <p-dialog
-      [(visible)]="dialogVisible"
-      [modal]="true"
-      [draggable]="false"
-      [style]="{ width: '440px' }"
-      [header]="editing() ? 'Editar lista de precios' : 'Nueva lista de precios'"
-    >
-      <form [formGroup]="form" class="comm-form" *ngIf="form">
-        <label>
-          <span>Código <em>*</em></span>
-          <input pInputText formControlName="code" placeholder="ej: VIP-MXN" />
-        </label>
-        <label>
-          <span>Nombre <em>*</em></span>
-          <input pInputText formControlName="name" />
-        </label>
-        <label>
-          <span>Moneda</span>
-          <input pInputText formControlName="currency" placeholder="MXN" maxlength="3" style="text-transform:uppercase" />
-        </label>
-        <label class="checkbox-line">
-          <p-checkbox formControlName="is_default" [binary]="true" inputId="pl_default"></p-checkbox>
-          <span>Lista por defecto del tenant</span>
-        </label>
-      </form>
-      <ng-template pTemplate="footer">
-        <button pButton label="Cancelar" severity="secondary" [outlined]="true" (click)="dialogVisible = false"></button>
-        <button pButton [label]="editing() ? 'Guardar' : 'Crear'" icon="pi pi-check"
-                [loading]="saving()"
-                [disabled]="form.invalid"
-                (click)="save()"></button>
-      </ng-template>
-    </p-dialog>
-  `,
+    
+      <p-dialog
+        [(visible)]="dialogVisible"
+        [modal]="true"
+        [draggable]="false"
+        [style]="{ width: '440px' }"
+        [header]="editing() ? 'Editar lista de precios' : 'Nueva lista de precios'"
+        >
+        @if (form) {
+          <form [formGroup]="form" class="comm-form">
+            <label>
+              <span>Código <em>*</em></span>
+              <input pInputText formControlName="code" placeholder="ej: VIP-MXN" />
+            </label>
+            <label>
+              <span>Nombre <em>*</em></span>
+              <input pInputText formControlName="name" />
+            </label>
+            <label>
+              <span>Moneda</span>
+              <input pInputText formControlName="currency" placeholder="MXN" maxlength="3" style="text-transform:uppercase" />
+            </label>
+            <label class="checkbox-line">
+              <p-checkbox formControlName="is_default" [binary]="true" inputId="pl_default"></p-checkbox>
+              <span>Lista por defecto del tenant</span>
+            </label>
+          </form>
+        }
+        <ng-template #footer>
+          <button pButton severity="secondary" [outlined]="true" (click)="dialogVisible = false"><span class="p-button-label">Cancelar</span></button>
+          <p-button pButton [label]="editing() ? 'Guardar' : 'Crear'" icon="pi pi-check"
+            [loading]="saving()"
+            [disabled]="form.invalid"
+          (click)="save()"></p-button>
+        </ng-template>
+      </p-dialog>
+    `,
   styles: [`
     :host { display:block; }
 
@@ -504,16 +512,27 @@ export class ComercialPricingComponent {
   readonly rows = signal<PriceList[]>([]);
   readonly loading = signal(false);
   readonly selected = signal<PriceList | null>(null);
-  readonly prices = signal<ProductPrice[]>([]);
-  readonly loadingPrices = signal(false);
-
   // Paginación + search del detail table — necesario para listas grandes
   // (post-importer Mega_Dulces: ~6500 SKUs en MAYOREO).
   readonly pricesPage = signal(1);
   readonly pricesPageSize = signal(50);
-  readonly pricesTotal = signal(0);
   pricesSearch = '';
   readonly pricesSearchSignal = signal('');
+
+  // Detalle de precios (lectura reactiva): recarga sola al cambiar lista/página/búsqueda
+  // y cancela la petición vieja (evita mostrar la página equivocada al teclear rápido).
+  private readonly pricesRes = rxResource({
+    params: () => {
+      const sel = this.selected();
+      return sel
+        ? { id: sel.id, page: this.pricesPage(), pageSize: this.pricesPageSize(), search: this.pricesSearchSignal() || undefined }
+        : undefined;
+    },
+    stream: ({ params }) => this.api.listPrices(params.id, { page: params.page, pageSize: params.pageSize, search: params.search }),
+  });
+  readonly prices = computed<ProductPrice[]>(() => this.pricesRes.value()?.data ?? []);
+  readonly pricesTotal = computed(() => this.pricesRes.value()?.pagination?.total ?? 0);
+  readonly loadingPrices = computed(() => this.pricesRes.isLoading());
 
   readonly editing = signal<PriceList | null>(null);
   readonly saving = signal(false);
@@ -528,6 +547,12 @@ export class ComercialPricingComponent {
 
   constructor() {
     this.load();
+    // Toast en error de la lectura de precios (equivale al catch del subscribe viejo).
+    effect(() => {
+      if (this.pricesRes.error()) {
+        this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudieron cargar precios' });
+      }
+    });
   }
 
   load(): void {
@@ -552,33 +577,15 @@ export class ComercialPricingComponent {
     this.pricesPage.set(1);
     this.pricesSearch = '';
     this.pricesSearchSignal.set('');
-    this.loadPricesPage();
   }
 
+  /** Fuerza recarga del detalle (tras borrar un precio); el resto reacciona a las señales. */
   loadPricesPage(): void {
-    const sel = this.selected();
-    if (!sel) return;
-    this.loadingPrices.set(true);
-    this.api
-      .listPrices(sel.id, {
-        page: this.pricesPage(),
-        pageSize: this.pricesPageSize(),
-        search: this.pricesSearchSignal() || undefined,
-      })
-      .subscribe({
-        next: (r) => {
-          this.prices.set(r.data || []);
-          this.pricesTotal.set(r.pagination?.total || 0);
-          this.loadingPrices.set(false);
-        },
-        error: () => {
-          this.loadingPrices.set(false);
-          this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudieron cargar precios' });
-        },
-      });
+    this.pricesRes.reload();
   }
 
-  readonly onPricesLazyLoad = makeLazyLoad(this.pricesPage, this.pricesPageSize, () => this.loadPricesPage());
+  // El evento lazy solo actualiza page/pageSize (señales); el rxResource reacciona → no-op.
+  readonly onPricesLazyLoad = makeLazyLoad(this.pricesPage, this.pricesPageSize, () => {});
 
   onPricesSearchChange(v: string): void {
     this.pricesSearch = v;
@@ -587,14 +594,12 @@ export class ComercialPricingComponent {
   private readonly pricesSearchDebounced = makeDebouncedSearch((v) => {
     this.pricesSearchSignal.set((v || '').trim());
     this.pricesPage.set(1);
-    this.loadPricesPage();
   });
 
   clearPricesSearch(): void {
     this.pricesSearch = '';
     this.pricesSearchSignal.set('');
     this.pricesPage.set(1);
-    this.loadPricesPage();
   }
 
   openCreate(): void {

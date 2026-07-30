@@ -1,5 +1,5 @@
 import { ChangeDetectionStrategy, Component, OnDestroy, computed, inject, signal } from '@angular/core';
-import { CommonModule } from '@angular/common';
+
 import { RouterLink } from '@angular/router';
 import { ButtonModule } from 'primeng/button';
 import { MapComponent, MapMarker } from '../../../shared/components/map/map.component';
@@ -8,7 +8,7 @@ import { LiveShipment, LogisticaService } from '../logistica.service';
 @Component({
   selector: 'app-logistica-live',
   standalone: true,
-  imports: [CommonModule, RouterLink, ButtonModule, MapComponent],
+  imports: [RouterLink, ButtonModule, MapComponent],
   template: `
     <div class="surf-page">
       <header class="surf-page-head">
@@ -21,32 +21,37 @@ import { LiveShipment, LogisticaService } from '../logistica.service';
             <span class="live-muted">· actualiza cada 30 s</span>
           </p>
         </div>
-        <button pButton icon="pi pi-refresh" label="Actualizar" severity="secondary" size="small"
-                [loading]="loading()" (click)="refresh()"></button>
+        <button pButton severity="secondary" size="small" [loading]="loading()" (click)="refresh()"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span><span class="p-button-label">Actualizar</span></button>
       </header>
-
+    
       <div class="sheet cols-12">
         <article class="cell cell-span-12 is-flush">
           <app-map [markers]="markers()" height="520px" (markerClick)="focus($event)"></app-map>
         </article>
       </div>
-
-      <div class="sheet cols-12" *ngIf="units().length; else empty">
-        <article class="cell cell-span-12 is-flush">
-          <div class="live-list">
-            <div class="live-row" *ngFor="let u of units()">
-              <span class="live-truck"><i class="pi pi-truck" aria-hidden="true"></i></span>
-              <div class="live-row-main">
-                <a [routerLink]="['/logistica/shipments', u.shipment_id]"><code class="comm-code">{{ u.folio }}</code></a>
-                <span class="live-row-sub">{{ u.driver_name }}<span *ngIf="u.vehicle_plate"> · {{ u.vehicle_plate }}</span><span *ngIf="u.destination"> → {{ u.destination }}</span></span>
-              </div>
-              <span class="live-ago">{{ ago(u.captured_at) }}</span>
+    
+      @if (units().length) {
+        <div class="sheet cols-12">
+          <article class="cell cell-span-12 is-flush">
+            <div class="live-list">
+              @for (u of units(); track u) {
+                <div class="live-row">
+                  <span class="live-truck"><i class="pi pi-truck" aria-hidden="true"></i></span>
+                  <div class="live-row-main">
+                    <a [routerLink]="['/logistica/shipments', u.shipment_id]"><code class="comm-code">{{ u.folio }}</code></a>
+                    <span class="live-row-sub">{{ u.driver_name }}@if (u.vehicle_plate) {
+                      <span> · {{ u.vehicle_plate }}</span>
+                      }@if (u.destination) {
+                      <span> → {{ u.destination }}</span>
+                    }</span>
+                  </div>
+                  <span class="live-ago">{{ ago(u.captured_at) }}</span>
+                </div>
+              }
             </div>
-          </div>
-        </article>
-      </div>
-
-      <ng-template #empty>
+          </article>
+        </div>
+      } @else {
         <div class="sheet cols-12">
           <article class="cell cell-span-12">
             <div class="live-empty">
@@ -56,9 +61,10 @@ import { LiveShipment, LogisticaService } from '../logistica.service';
             </div>
           </article>
         </div>
-      </ng-template>
+      }
+    
     </div>
-  `,
+    `,
   styles: [`
     :host { display:block; }
     .live-eyebrow { display:inline-flex; align-items:center; gap:.35rem; font-size:var(--fs-micro); font-weight:var(--fw-bold); text-transform:uppercase; letter-spacing:.08em; color:var(--c-text-2); margin-bottom:.35rem; }

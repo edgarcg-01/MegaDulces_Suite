@@ -1,5 +1,5 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
-import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, computed, effect, inject, signal } from '@angular/core';
+import { rxResource, takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
@@ -67,11 +67,10 @@ interface DraftLine {
         </div>
         <div class="ec-head-actions">
           @if (loadedAt()) { <app-freshness-pill [since]="loadedAt()" /> }
-          <a pButton routerLink="/compras/pedido" label="Pedido" icon="pi pi-cart-plus" class="p-button-sm p-button-text" title="Armar el pedido por proveedor y ciclo de reabasto"></a>
-          <button pButton type="button" label="Excel" icon="pi pi-file-excel" class="p-button-sm p-button-outlined p-button-secondary"
-                  [loading]="dl()" [disabled]="dl() || total() === 0" (click)="downloadXlsx()"></button>
-          <button pButton type="button" [label]="'Generar requisición' + (selCount() ? ' (' + selCount() + ')' : '')" icon="pi pi-file-edit"
-                  class="p-button-sm" [disabled]="!canRequire()" (click)="openDialog()"></button>
+          <a pButton routerLink="/compras/pedido" class="p-button-sm p-button-text" title="Armar el pedido por proveedor y ciclo de reabasto"><span class="p-button-icon p-button-icon-left pi pi-cart-plus" aria-hidden="true"></span><span class="p-button-label">Pedido</span></a>
+          <button pButton type="button" class="p-button-sm p-button-outlined p-button-secondary" [loading]="dl()" [disabled]="dl() || total() === 0" (click)="downloadXlsx()"><span class="p-button-icon p-button-icon-left pi pi-file-excel" aria-hidden="true"></span><span class="p-button-label">Excel</span></button>
+          <p-button pButton type="button" [label]="'Generar requisición' + (selCount() ? ' (' + selCount() + ')' : '')" icon="pi pi-file-edit"
+                  styleClass="p-button-sm" [disabled]="!canRequire()" (click)="openDialog()"></p-button>
         </div>
       </header>
 
@@ -83,10 +82,10 @@ interface DraftLine {
       <!-- Filtros -->
       <div class="ec-filters">
         <div class="ec-wh">
-          <p-multiSelect [options]="warehouseOpts()" [(ngModel)]="fWarehouses" (onChange)="reload()"
+          <p-multiselect [options]="warehouseOpts()" [(ngModel)]="fWarehouses" (onChange)="reload()"
                          optionLabel="label" optionValue="value" placeholder="Todos los almacenes" [showClear]="true"
                          [filter]="true" filterBy="label" filterPlaceholder="Buscar almacén…"
-                         [maxSelectedLabels]="2" selectedItemsLabel="{0} almacenes" styleClass="ec-sel"></p-multiSelect>
+                         [maxSelectedLabels]="2" selectedItemsLabel="{0} almacenes" styleClass="ec-sel"></p-multiselect>
           <div class="ec-atajos">
             <span class="ec-atajos-lbl">Atajos:</span>
             <button type="button" class="ec-atajo" [class.on]="!fWarehouses.length" (click)="clearWh()">Todos</button>
@@ -123,33 +122,33 @@ interface DraftLine {
       <p-table [value]="rows()" [loading]="loading()" [scrollable]="true" scrollHeight="flex"
                [paginator]="true" [rows]="pageSize" [totalRecords]="total()" [lazy]="true" (onLazyLoad)="onPage($event)"
                styleClass="p-datatable-sm ec-table" [rowsPerPageOptions]="[50, 100, 200]">
-        <ng-template pTemplate="header">
+        <ng-template #header>
           <tr>
             <th pFrozenColumn style="width:2.5rem"><p-checkbox [binary]="true" [ngModel]="allSelected()" (onChange)="toggleAll($event)" ariaLabel="Seleccionar todo" /></th>
-            <th pFrozenColumn style="min-width:7rem" pSortableColumn="sku">SKU <p-sortIcon field="sku" /></th>
-            <th pSortableColumn="nombre">Producto <p-sortIcon field="nombre" /></th>
-            <th pSortableColumn="warehouse_code">Almacén <p-sortIcon field="warehouse_code" /></th>
-            <th pSortableColumn="abc_class">Clase <p-sortIcon field="abc_class" /></th>
-            <th class="ec-r" pSortableColumn="sales_rank" title="Ranking por venta EN DINERO (venta/mes) del proveedor en la sucursal — #1 = el que más te vende en $ = más importante pedir. Coincide con ordenar por Venta/mes.">Rank vta <p-sortIcon field="sales_rank" /></th>
-            <th class="ec-r" pSortableColumn="monthly_revenue" title="Venta mensual estimada ($) = demanda diaria × 30 × precio de venta. El peso en dinero del producto: cuánto representa en venta.">Venta/mes <p-sortIcon field="monthly_revenue" /></th>
-            <th class="ec-r" pSortableColumn="on_hand">Existencia <p-sortIcon field="on_hand" /></th>
-            <th class="ec-r" pSortableColumn="min_stock">Mín <p-sortIcon field="min_stock" /></th>
-            <th class="ec-r" pSortableColumn="reorder_point">Reorden <p-sortIcon field="reorder_point" /></th>
-            <th class="ec-r" pSortableColumn="max_stock">Máx <p-sortIcon field="max_stock" /></th>
-            <th class="ec-r" pSortableColumn="safety_stock">Colchón <p-sortIcon field="safety_stock" /></th>
-            <th class="ec-r" pSortableColumn="in_transit">OC a recibir <p-sortIcon field="in_transit" /></th>
-            <th class="ec-r" pSortableColumn="suggested_qty">Sugerido <p-sortIcon field="suggested_qty" /></th>
-            <th class="ec-r" pSortableColumn="transfer_in" title="Del sugerido, cuánto puedes cubrir con SOBRANTE de otra sucursal (traspaso) en vez de comprar.">Traspaso <p-sortIcon field="transfer_in" /></th>
-            <th class="ec-r" pSortableColumn="buy_qty" title="Compra REAL = sugerido − traspaso posible. Lo que de verdad hay que pedir al proveedor.">Comprar <p-sortIcon field="buy_qty" /></th>
-            <th pSortableColumn="accion">Acción <p-sortIcon field="accion" /></th>
+            <th pFrozenColumn style="min-width:7rem" pSortableColumn="sku">SKU <p-sorticon field="sku" /></th>
+            <th pSortableColumn="nombre">Producto <p-sorticon field="nombre" /></th>
+            <th pSortableColumn="warehouse_code">Almacén <p-sorticon field="warehouse_code" /></th>
+            <th pSortableColumn="abc_class">Clase <p-sorticon field="abc_class" /></th>
+            <th class="ec-r" pSortableColumn="sales_rank" title="Ranking por venta EN DINERO (venta/mes) del proveedor en la sucursal — #1 = el que más te vende en $ = más importante pedir. Coincide con ordenar por Venta/mes.">Rank vta <p-sorticon field="sales_rank" /></th>
+            <th class="ec-r" pSortableColumn="monthly_revenue" title="Venta mensual estimada ($) = demanda diaria × 30 × precio de venta. El peso en dinero del producto: cuánto representa en venta.">Venta/mes <p-sorticon field="monthly_revenue" /></th>
+            <th class="ec-r" pSortableColumn="on_hand">Existencia <p-sorticon field="on_hand" /></th>
+            <th class="ec-r" pSortableColumn="min_stock">Mín <p-sorticon field="min_stock" /></th>
+            <th class="ec-r" pSortableColumn="reorder_point">Reorden <p-sorticon field="reorder_point" /></th>
+            <th class="ec-r" pSortableColumn="max_stock">Máx <p-sorticon field="max_stock" /></th>
+            <th class="ec-r" pSortableColumn="safety_stock">Colchón <p-sorticon field="safety_stock" /></th>
+            <th class="ec-r" pSortableColumn="in_transit">OC a recibir <p-sorticon field="in_transit" /></th>
+            <th class="ec-r" pSortableColumn="suggested_qty">Sugerido <p-sorticon field="suggested_qty" /></th>
+            <th class="ec-r" pSortableColumn="transfer_in" title="Del sugerido, cuánto puedes cubrir con SOBRANTE de otra sucursal (traspaso) en vez de comprar.">Traspaso <p-sorticon field="transfer_in" /></th>
+            <th class="ec-r" pSortableColumn="buy_qty" title="Compra REAL = sugerido − traspaso posible. Lo que de verdad hay que pedir al proveedor.">Comprar <p-sorticon field="buy_qty" /></th>
+            <th pSortableColumn="accion">Acción <p-sorticon field="accion" /></th>
             <th>Estado</th>
-            <th pSortableColumn="supplier_name">Proveedor <p-sortIcon field="supplier_name" /></th>
-            <th class="ec-r" pSortableColumn="suggested_cost">Costo est. <p-sortIcon field="suggested_cost" /></th>
+            <th pSortableColumn="supplier_name">Proveedor <p-sorticon field="supplier_name" /></th>
+            <th class="ec-r" pSortableColumn="suggested_cost">Costo est. <p-sorticon field="suggested_cost" /></th>
             <th>Origen</th>
             <th title="Cómo se surte (compra/traspaso) y cada cuánto — deriva del histórico">Ciclo</th>
           </tr>
         </ng-template>
-        <ng-template pTemplate="body" let-r>
+        <ng-template #body let-r>
           <tr [class.ec-sel-row]="isSelected(r)">
             <td pFrozenColumn><p-checkbox [binary]="true" [ngModel]="isSelected(r)" (onChange)="toggle(r)" [ariaLabel]="'Seleccionar ' + r.sku" /></td>
             <td pFrozenColumn class="ec-mono">{{ r.sku }}</td>
@@ -192,7 +191,7 @@ interface DraftLine {
             </td>
           </tr>
         </ng-template>
-        <ng-template pTemplate="emptymessage">
+        <ng-template #emptymessage>
           <tr><td colspan="18" class="ec-empty">Sin productos que reponer con estos filtros.</td></tr>
         </ng-template>
       </p-table>
@@ -213,7 +212,7 @@ interface DraftLine {
         <p-table [value]="deadRows()" [loading]="deadLoading()" [scrollable]="true"
                  [paginator]="true" [rows]="pageSize" [totalRecords]="deadTotal()" [lazy]="true" (onLazyLoad)="onDeadPage($event)"
                  styleClass="p-datatable-sm ec-table" [rowsPerPageOptions]="[50, 100, 200]">
-          <ng-template pTemplate="header">
+          <ng-template #header>
             <tr>
               <th>SKU</th>
               <th>Producto</th>
@@ -226,7 +225,7 @@ interface DraftLine {
               <th>Proveedor</th>
             </tr>
           </ng-template>
-          <ng-template pTemplate="body" let-r>
+          <ng-template #body let-r>
             <tr>
               <td class="ec-mono">{{ r.sku }}</td>
               <td>{{ r.nombre }}</td>
@@ -242,7 +241,7 @@ interface DraftLine {
               <td class="ec-muted">{{ r.supplier_name || '—' }}</td>
             </tr>
           </ng-template>
-          <ng-template pTemplate="emptymessage">
+          <ng-template #emptymessage>
             <tr><td colspan="9" class="ec-empty">Sin productos sin rotación con estos filtros. 🎉</td></tr>
           </ng-template>
         </p-table>
@@ -292,9 +291,9 @@ interface DraftLine {
         </div>
         <input pInputText type="text" [(ngModel)]="notes" placeholder="Nota (opcional)" class="ec-dlg-notes" />
       </div>
-      <ng-template pTemplate="footer">
-        <button pButton type="button" label="Cancelar" class="p-button-text p-button-sm" [disabled]="saving()" (click)="dialogOpen.set(false)"></button>
-        <button pButton type="button" label="Crear requisición" icon="pi pi-check" class="p-button-sm" [loading]="saving()" [disabled]="saving()" (click)="create()"></button>
+      <ng-template #footer>
+        <button pButton type="button" class="p-button-text p-button-sm" [disabled]="saving()" (click)="dialogOpen.set(false)"><span class="p-button-label">Cancelar</span></button>
+        <button pButton type="button" class="p-button-sm" [loading]="saving()" [disabled]="saving()" (click)="create()"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Crear requisición</span></button>
       </ng-template>
     </p-dialog>
   `,
@@ -364,9 +363,34 @@ export class ComprasExistenciaCriticaComponent implements OnInit {
   private readonly destroyRef = inject(DestroyRef);
 
   readonly pageSize = 50;
-  rows = signal<CriticalStockRow[]>([]);
-  total = signal(0);
-  summary = signal<ReplenishmentSummary | null>(null);
+  // Lecturas reactivas (Resource API). Los filtros son campos planos → el disparo
+  // es explícito vía `tick` (no rewire de los [(ngModel)]). Gana cancelación + teardown.
+  private readonly tick = signal(0);
+  private readonly deadTick = signal(0);
+
+  private readonly listRes = rxResource({
+    params: () => this.tick(),
+    stream: () => {
+      const scope = this.fBucket === '__all' ? 'all' : undefined;
+      const bucket = this.fBucket && this.fBucket !== '__all' ? this.fBucket : undefined;
+      return this.api.criticalStock({
+        warehouse_ids: this.fWarehouses.length ? this.fWarehouses : undefined, supplier_id: this.fSupplier || undefined,
+        category_id: this.fCategory || undefined,
+        abc: this.fAbc || undefined, xyz: this.fXyz || undefined,
+        bucket, scope, target_basis: this.fBasis, search: this.fSearch || undefined,
+        sort_by: this.fSortBy || undefined, sort_dir: this.fSortBy ? this.fSortDir : undefined,
+        page: this.page(), pageSize: this.pageSize,
+      });
+    },
+  });
+  readonly rows = computed<CriticalStockRow[]>(() => this.listRes.value()?.rows ?? []);
+  readonly total = computed(() => this.listRes.value()?.total ?? 0);
+
+  private readonly summaryRes = rxResource({
+    params: () => this.tick(),
+    stream: () => this.api.summary({ warehouse_ids: this.fWarehouses.length ? this.fWarehouses : undefined, supplier_id: this.fSupplier || undefined, target_basis: this.fBasis }),
+  });
+  readonly summary = computed<ReplenishmentSummary | null>(() => this.summaryRes.value() ?? null);
 
   kpiItems(s: ReplenishmentSummary): MetricStripItem[] {
     return [
@@ -381,17 +405,26 @@ export class ComprasExistenciaCriticaComponent implements OnInit {
   }
   accionLabel(a?: string) { return ({ sobrante: 'Sobrante · traspasar', traspaso: 'Traspaso', traspaso_parcial: 'Traspaso + compra', comprar: 'Comprar', ok: 'OK' } as Record<string, string>)[a || 'ok'] || a; }
   accionSev(a?: string): Sev { return ({ sobrante: 'secondary', traspaso: 'success', traspaso_parcial: 'warn', comprar: 'info', ok: 'contrast' } as Record<string, Sev>)[a || 'ok'] || 'info'; }
-  loading = signal(false);
+  readonly loading = computed(() => this.listRes.isLoading());
   dl = signal(false);
   saving = signal(false);
   page = signal(1);
   readonly loadedAt = signal<number | null>(null); // §14 frescura
 
   // Stock muerto (existencia sin política de reorden = capital inmovilizado sin rotación).
-  deadRows = signal<DeadStockRow[]>([]);
-  deadTotal = signal(0);
-  deadValue = signal(0);
-  deadLoading = signal(false);
+  private readonly deadRes = rxResource({
+    params: () => this.deadOpen() ? this.deadTick() : undefined,
+    stream: () => this.api.deadStock({
+      warehouse_ids: this.fWarehouses.length ? this.fWarehouses : undefined,
+      supplier_id: this.fSupplier || undefined,
+      search: this.fSearch || undefined,
+      page: this.deadPage(), pageSize: this.pageSize,
+    }),
+  });
+  readonly deadRows = computed<DeadStockRow[]>(() => this.deadRes.value()?.rows ?? []);
+  readonly deadTotal = computed(() => this.deadRes.value()?.total ?? 0);
+  readonly deadValue = computed(() => this.deadRes.value()?.total_value ?? 0);
+  readonly deadLoading = computed(() => this.deadRes.isLoading());
   deadOpen = signal(false);
   deadPage = signal(1);
   aboutOpen = signal(false);
@@ -465,6 +498,14 @@ export class ComprasExistenciaCriticaComponent implements OnInit {
   // habilitaría). Ver [[feedback_vendor_ux_best_practices]].
   canRequire = computed(() => this.selCount() > 0);
 
+  constructor() {
+    // Sella la frescura en cada carga resuelta del listado (reemplaza loadedAt.set del next viejo).
+    effect(() => { if (this.listRes.value() !== undefined) this.loadedAt.set(Date.now()); });
+    // Toasts de error (equivalen a los catch de los subscribe viejos).
+    effect(() => { if (this.listRes.error()) this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo cargar la existencia crítica.' }); });
+    effect(() => { if (this.deadRes.error()) this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo cargar el stock muerto.' }); });
+  }
+
   ngOnInit(): void {
     this.api.filters().pipe(takeUntilDestroyed(this.destroyRef)).subscribe((f) => {
       this.warehouseOpts.set(f.warehouses.map((w) => ({ label: `${w.code} · ${w.name}`, value: w.id, code: w.code })));
@@ -475,7 +516,7 @@ export class ComprasExistenciaCriticaComponent implements OnInit {
     // Búsqueda en vivo: debounce 300ms + distinct para no reconsultar con el mismo texto.
     this.search$.pipe(debounceTime(300), distinctUntilChanged(), takeUntilDestroyed(this.destroyRef))
       .subscribe(() => this.reload());
-    this.reload();
+    // El listado + resumen se auto-cargan por sus rxResource (tick inicial = 0).
   }
 
   onSearchChange(v: string): void { this.search$.next((v ?? '').trim()); }
@@ -489,51 +530,21 @@ export class ComprasExistenciaCriticaComponent implements OnInit {
     this.selected.clear();
     this.selCount.set(0);
     this.page.set(1);
-    this.load();
-    this.loadSummary();
     this.deadPage.set(1);
-    if (this.deadOpen()) this.loadDead();
+    this.tick.update((t) => t + 1);                 // refetch listado + resumen
+    if (this.deadOpen()) this.deadTick.update((t) => t + 1);
   }
 
   toggleDead(): void {
     const open = !this.deadOpen();
     this.deadOpen.set(open);
-    if (open) { this.deadPage.set(1); this.loadDead(); }
+    if (open) { this.deadPage.set(1); this.deadTick.update((t) => t + 1); }
   }
   openAbout(e: Event): void { e.stopPropagation(); this.aboutOpen.set(true); }
   onDeadPage(e: TableLazyLoadEvent): void {
     const size = e.rows || this.pageSize;
     this.deadPage.set(Math.floor((e.first || 0) / size) + 1);
-    this.loadDead();
-  }
-  private loadDead(): void {
-    this.deadLoading.set(true);
-    this.api.deadStock({
-      warehouse_ids: this.fWarehouses.length ? this.fWarehouses : undefined,
-      supplier_id: this.fSupplier || undefined,
-      search: this.fSearch || undefined,
-      page: this.deadPage(), pageSize: this.pageSize,
-    }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (r) => { this.deadRows.set(r.rows); this.deadTotal.set(r.total); this.deadValue.set(r.total_value); this.deadLoading.set(false); },
-      error: () => { this.deadLoading.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo cargar el stock muerto.' }); },
-    });
-  }
-
-  private load(): void {
-    this.loading.set(true);
-    const scope = this.fBucket === '__all' ? 'all' : undefined;
-    const bucket = this.fBucket && this.fBucket !== '__all' ? this.fBucket : undefined;
-    this.api.criticalStock({
-      warehouse_ids: this.fWarehouses.length ? this.fWarehouses : undefined, supplier_id: this.fSupplier || undefined,
-      category_id: this.fCategory || undefined,
-      abc: this.fAbc || undefined, xyz: this.fXyz || undefined,
-      bucket, scope, target_basis: this.fBasis, search: this.fSearch || undefined,
-      sort_by: this.fSortBy || undefined, sort_dir: this.fSortBy ? this.fSortDir : undefined,
-      page: this.page(), pageSize: this.pageSize,
-    }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (r) => { this.rows.set(r.rows); this.total.set(r.total); this.loading.set(false); this.loadedAt.set(Date.now()); },
-      error: () => { this.loading.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo cargar la existencia crítica.' }); },
-    });
+    this.deadTick.update((t) => t + 1);
   }
 
   /** Export XLSX con diseño: mismos filtros de la vista, todas las filas del filtro. */
@@ -564,11 +575,6 @@ export class ComprasExistenciaCriticaComponent implements OnInit {
     });
   }
 
-  private loadSummary(): void {
-    this.api.summary({ warehouse_ids: this.fWarehouses.length ? this.fWarehouses : undefined, supplier_id: this.fSupplier || undefined, target_basis: this.fBasis })
-      .pipe(takeUntilDestroyed(this.destroyRef)).subscribe((s) => this.summary.set(s));
-  }
-
   onPage(e: TableLazyLoadEvent): void {
     const size = e.rows || this.pageSize;
     this.page.set(Math.floor((e.first || 0) / size) + 1);
@@ -576,7 +582,7 @@ export class ComprasExistenciaCriticaComponent implements OnInit {
     const field = Array.isArray(e.sortField) ? e.sortField[0] : e.sortField;
     this.fSortBy = field || null;
     this.fSortDir = e.sortOrder === 1 ? 'asc' : 'desc';
-    this.load();
+    this.tick.update((t) => t + 1);
   }
 
   // Selección — key = producto|almacén.

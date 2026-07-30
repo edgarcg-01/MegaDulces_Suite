@@ -1,5 +1,5 @@
-import { Component, input, output } from '@angular/core';
-import { CommonModule } from '@angular/common';
+import { Component, input, output, ChangeDetectionStrategy } from '@angular/core';
+
 
 export interface LegendLayer {
   id: string;
@@ -19,7 +19,7 @@ export interface LegendLayer {
 @Component({
   selector: 'app-map-legend',
   standalone: true,
-  imports: [CommonModule],
+  imports: [],
   template: `
     <div class="legend">
       @for (l of layers(); track l.id) {
@@ -37,6 +37,7 @@ export interface LegendLayer {
       }
     </div>
   `,
+  changeDetection: ChangeDetectionStrategy.Eager,
   styles: [`
     .legend { display:flex; align-items:center; gap:.4rem; flex-wrap:wrap; }
     .chip { display:inline-flex; align-items:center; gap:.4rem; padding:.25rem .6rem; border:1px solid var(--border-color); border-radius:999px; background:var(--card-bg,#fff); cursor:pointer; font:600 .74rem 'Hanken Grotesk',sans-serif; color:var(--text,#1c1917); }

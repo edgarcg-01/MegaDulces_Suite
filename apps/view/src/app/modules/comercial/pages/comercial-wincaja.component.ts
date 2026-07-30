@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { CommonModule } from '@angular/common';
+
 import { TableModule } from 'primeng/table';
 import { TagModule } from 'primeng/tag';
 import { ButtonModule } from 'primeng/button';
@@ -16,7 +16,7 @@ import { ComercialService, WincajaBranchKpi } from '../comercial.service';
 @Component({
   selector: 'app-comercial-wincaja',
   standalone: true,
-  imports: [CommonModule, TableModule, TagModule, ButtonModule, TooltipModule],
+  imports: [TableModule, TagModule, ButtonModule, TooltipModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="surf-page in">
@@ -28,20 +28,19 @@ import { ComercialService, WincajaBranchKpi } from '../comercial.service';
             no existen en Kepler — antes invisibles en la plataforma. Montos = mejor esfuerzo (bronze).
           </p>
         </div>
-        <button pButton type="button" icon="pi pi-refresh" [text]="true"
-                aria-label="Recargar" (click)="load()"></button>
+        <button pButton type="button" [text]="true" aria-label="Recargar" (click)="load()"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span></button>
       </header>
 
       @if (error()) {
         <div class="wcj-banner" role="alert">
-          No se pudo cargar la data de Wincaja. <button pButton type="button" label="Reintentar" [text]="true" (click)="load()"></button>
+          No se pudo cargar la data de Wincaja. <button pButton type="button" [text]="true" (click)="load()"><span class="p-button-label">Reintentar</span></button>
         </div>
       }
 
       <div class="card-premium card-flat wcj-wrap">
         <p-table [value]="rows()" [loading]="loading()" styleClass="p-datatable-sm" [scrollable]="true"
                  [tableStyle]="{ 'min-width': '60rem' }">
-          <ng-template pTemplate="header">
+          <ng-template #header>
             <tr>
               <th>Sucursal</th>
               <th>Estado</th>
@@ -53,7 +52,7 @@ import { ComercialService, WincajaBranchKpi } from '../comercial.service';
               <th class="num">Venta perdida</th>
             </tr>
           </ng-template>
-          <ng-template pTemplate="body" let-r>
+          <ng-template #body let-r>
             <tr [class.wcj-blind]="r.wincaja_only">
               <td>
                 <span class="wcj-code">{{ r.warehouse_code }}</span>
@@ -68,7 +67,7 @@ import { ComercialService, WincajaBranchKpi } from '../comercial.service';
               <td class="num" [class.wcj-alert]="r.venta_perdida > 0">{{ money(r.venta_perdida) }}</td>
             </tr>
           </ng-template>
-          <ng-template pTemplate="footer">
+          <ng-template #footer>
             @if (rows().length) {
               <tr class="wcj-total">
                 <td>Red ({{ rows().length }})</td><td></td>
@@ -81,7 +80,7 @@ import { ComercialService, WincajaBranchKpi } from '../comercial.service';
               </tr>
             }
           </ng-template>
-          <ng-template pTemplate="emptymessage">
+          <ng-template #emptymessage>
             <tr><td colspan="8" class="wcj-empty">
               @if (!loading()) { Sin data de Wincaja. Corré el importer en .245 y el feed gold. }
             </td></tr>

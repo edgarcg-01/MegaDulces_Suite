@@ -37,13 +37,13 @@ import { MetricStripComponent, MetricStripItem } from '../../../shared/component
 
 
       <p-table [value]="nodes()" [loading]="loading()" styleClass="p-datatable-sm cr-table">
-        <ng-template pTemplate="header">
+        <ng-template #header>
           <tr><th>Almacén</th><th>Rol</th><th>Se surte de</th>
             <th class="cr-r" title="Cada cuántos días lo surte el CEDIS (Wincaja Irapuato, 2026)">Cadencia surtido</th>
             <th class="cr-r" title="Último surtido registrado">Último</th>
             <th class="cr-r" title="Costo promedio por envío del CEDIS">$/envío</th></tr>
         </ng-template>
-        <ng-template pTemplate="body" let-n>
+        <ng-template #body let-n>
           <tr>
             <td><span class="cr-mono">{{ n.code }}</span> <span class="cr-muted">{{ n.name }}</span></td>
             <td>
@@ -65,7 +65,7 @@ import { MetricStripComponent, MetricStripItem } from '../../../shared/component
             <td class="cr-r cr-muted">{{ n.supply_avg_value ? money(n.supply_avg_value) : '' }}</td>
           </tr>
         </ng-template>
-        <ng-template pTemplate="emptymessage"><tr><td colspan="6" class="cr-empty">Sin almacenes.</td></tr></ng-template>
+        <ng-template #emptymessage><tr><td colspan="6" class="cr-empty">Sin almacenes.</td></tr></ng-template>
       </p-table>
       <p class="cr-foot">Cadencia = frecuencia real con la que el CEDIS (Wincaja Irapuato) surtió a cada sucursal en 2026 (movimientos caja 99). El reorden del CEDIS se recalcula de noche con la demanda agregada de sus sucursales.</p>
     </div>

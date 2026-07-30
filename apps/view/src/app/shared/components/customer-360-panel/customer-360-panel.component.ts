@@ -6,7 +6,7 @@ import {
   input,
   signal,
 } from '@angular/core';
-import { CommonModule } from '@angular/common';
+
 import { HttpClient } from '@angular/common/http';
 import { SkeletonModule } from 'primeng/skeleton';
 import { environment } from '../../../../environments/environment';
@@ -36,7 +36,7 @@ export interface Customer360 {
 @Component({
   selector: 'app-customer-360-panel',
   standalone: true,
-  imports: [CommonModule, SkeletonModule],
+  imports: [SkeletonModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (loading()) {

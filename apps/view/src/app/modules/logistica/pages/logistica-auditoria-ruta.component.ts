@@ -5,7 +5,7 @@ import {
   inject,
   signal,
 } from '@angular/core';
-import { CommonModule } from '@angular/common';
+
 import { FormsModule } from '@angular/forms';
 import { ButtonModule } from 'primeng/button';
 import { TagModule } from 'primeng/tag';
@@ -22,7 +22,7 @@ import { LogisticaService, FleetAdherenceRow } from '../logistica.service';
 @Component({
   selector: 'app-logistica-auditoria-ruta',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, TagModule, TooltipModule],
+  imports: [FormsModule, ButtonModule, TagModule, TooltipModule],
   template: `
     <div class="surf-page">
       <header class="surf-page-head">
@@ -36,135 +36,155 @@ import { LogisticaService, FleetAdherenceRow } from '../logistica.service';
         </div>
         <div class="rk-actions">
           <input type="date" class="rk-date" [ngModel]="date()" (ngModelChange)="setDate($event)"
-                 [max]="today" aria-label="Fecha de auditoría" />
-          <button pButton icon="pi pi-refresh" label="Actualizar" [text]="true" size="small"
-                  [loading]="loading()" (click)="refresh()" aria-label="Refrescar"></button>
-        </div>
-      </header>
-
-      <!-- KPIs del día -->
-      <div class="sheet cols-12 rk-kpis">
-        <article class="cell cell-span-3 rk-kpi">
-          <span class="rk-kpi-n" [style.color]="coverageColor(fleetCoverage())">{{ fleetCoverage() != null ? fleetCoverage() + '%' : '—' }}</span>
-          <span class="rk-kpi-l">Cobertura de tiendas</span>
-        </article>
-        <article class="cell cell-span-3 rk-kpi">
-          <span class="rk-kpi-n" style="color:var(--ok-fg)">{{ totals().visited }}</span>
-          <span class="rk-kpi-l">Tiendas visitadas</span>
-        </article>
-        <article class="cell cell-span-3 rk-kpi">
-          <span class="rk-kpi-n" style="color:var(--ok-fg)">{{ totals().captured }}</span>
-          <span class="rk-kpi-l">Con captura</span>
-        </article>
-        <article class="cell cell-span-3 rk-kpi">
-          <span class="rk-kpi-n" style="color:var(--warn-fg)">{{ totals().skipped }}</span>
-          <span class="rk-kpi-l">Tiendas saltadas</span>
-        </article>
-      </div>
-
-      <!-- Master-detail -->
-      <div class="sheet cols-12" *ngIf="rows().length; else empty">
-        <article class="cell cell-span-7 is-flush">
-          <div class="rk-table-wrap">
-            <table class="rk-table">
-              <thead>
-                <tr>
-                  <th>Unidad</th>
-                  <th style="width:34%">Cumplimiento</th>
-                  <th class="num" pTooltip="Tiendas visitadas / plan con coordenadas">Visitadas</th>
-                  <th class="num" pTooltip="Tiendas visitadas donde además hubo captura de auditoría">Auditadas</th>
-                  <th class="num" pTooltip="Tiendas del plan que no visitó">Saltadas</th>
-                  <th class="num" pTooltip="Paradas en tiendas fuera de la ruta">Fuera</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr *ngFor="let r of rows(); trackBy: trackById"
-                    class="rk-tr" [class.sel]="r.vehicle_id === selectedId()" (click)="select(r)">
-                  <td class="rk-unit">{{ r.vehicle_plate || shortId(r.vehicle_id) }}</td>
-                  <td>
-                    <ng-container *ngIf="r.evaluable; else naCell">
-                      <div class="rk-bar" [attr.aria-label]="r.coverage_pct + '% de cumplimiento'">
-                        <span [style.width.%]="r.coverage_pct ?? 0" [style.background]="coverageColor(r.coverage_pct)"></span>
-                      </div>
-                      <span class="rk-bar-lbl">{{ r.coverage_pct }}%</span>
-                    </ng-container>
-                    <ng-template #naCell><span class="rk-na">sin plan evaluable</span></ng-template>
-                  </td>
-                  <td class="num">{{ r.evaluable ? r.visited_count + '/' + r.planned_with_coords : '—' }}</td>
-                  <td class="num"><b style="color:var(--ok-fg)" *ngIf="r.evaluable">{{ r.captured_count }}</b><span *ngIf="!r.evaluable">—</span></td>
-                  <td class="num" [class.rk-warn]="r.skipped_count > 0">{{ r.evaluable ? r.skipped_count : '—' }}</td>
-                  <td class="num rk-dim">{{ r.off_route_count }}</td>
-                </tr>
-              </tbody>
-            </table>
+            [max]="today" aria-label="Fecha de auditoría" />
+            <button pButton [text]="true" size="small" [loading]="loading()" (click)="refresh()" aria-label="Refrescar"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span><span class="p-button-label">Actualizar</span></button>
           </div>
-        </article>
-
-        <article class="cell cell-span-5" *ngIf="selected() as s; else pickHint">
-          <div class="rk-detail-head">
-            <h3>{{ s.vehicle_plate || shortId(s.vehicle_id) }}</h3>
-            <span class="rk-muted">Plan de ruta · {{ date() }}</span>
-          </div>
-
-          <div *ngIf="!s.evaluable" class="rk-na-box">
-            <i class="pi pi-info-circle" aria-hidden="true"></i>
-            Sin plan evaluable: la unidad no se detuvo en tiendas geolocalizadas de una ruta
-            <span *ngIf="s.planned_count"> ({{ s.planned_count }} tiendas en el plan, {{ s.planned_with_coords }} con coordenadas)</span>.
-          </div>
-
-          <ng-container *ngIf="s.evaluable">
-            <div class="rk-adh-summary">
-              <div class="rk-bar rk-bar-lg"><span [style.width.%]="s.coverage_pct ?? 0" [style.background]="coverageColor(s.coverage_pct)"></span></div>
-              <p><b>{{ s.coverage_pct }}%</b> · {{ s.visited_count }}/{{ s.planned_with_coords }} visitadas · {{ s.captured_count }} con captura
-                <span *ngIf="s.off_route_count"> · {{ s.off_route_count }} fuera de ruta</span></p>
-            </div>
-
-            <h4 class="rk-sub-h">Tiendas del plan{{ s.route_ids.length ? ' · ' + s.route_ids[0] : '' }}</h4>
-            <ol class="rk-plan">
-              <li *ngFor="let p of s.planned; trackBy: trackPlan" class="rk-plan-row"
-                  [class.visited]="p.visited" [class.nocoord]="!p.has_coords">
-                <i class="pi" [class.pi-check-circle]="p.visited" [class.pi-times-circle]="!p.visited && p.has_coords"
-                   [class.pi-minus-circle]="!p.has_coords" aria-hidden="true"></i>
-                <span class="rk-plan-name">{{ p.name || 'Tienda' }}</span>
-                <span class="rk-plan-tag cap" *ngIf="p.captured">capturada</span>
-                <span class="rk-plan-tag" *ngIf="p.visited && !p.captured">sin captura</span>
-                <span class="rk-plan-tag" *ngIf="!p.has_coords">sin coords</span>
-                <span class="rk-plan-tag skip" *ngIf="p.has_coords && !p.visited">saltada</span>
-              </li>
-            </ol>
-          </ng-container>
-        </article>
-
-        <ng-template #pickHint>
-          <article class="cell cell-span-5">
-            <div class="rk-pick"><i class="pi pi-list" aria-hidden="true"></i>
-              <p>Seleccioná una unidad para ver su plan de ruta y qué clientes visitó o saltó.</p>
-            </div>
+        </header>
+    
+        <!-- KPIs del día -->
+        <div class="sheet cols-12 rk-kpis">
+          <article class="cell cell-span-3 rk-kpi">
+            <span class="rk-kpi-n" [style.color]="coverageColor(fleetCoverage())">{{ fleetCoverage() != null ? fleetCoverage() + '%' : '—' }}</span>
+            <span class="rk-kpi-l">Cobertura de tiendas</span>
           </article>
-        </ng-template>
-      </div>
-
-      <ng-template #empty>
-        <div class="sheet cols-12">
-          <article class="cell cell-span-12">
-            <div class="rk-empty" *ngIf="!errored(); else errBox">
-              <div class="rk-empty-icon"><i class="pi pi-check-circle" aria-hidden="true"></i></div>
-              <h3>Sin rutas para auditar</h3>
-              <p>Ninguna unidad de ruta se detuvo en tiendas geolocalizadas el <b>{{ date() }}</b>. El cumplimiento cruza dónde paró el camión con las tiendas de su ruta y las capturas de auditoría.</p>
-            </div>
-            <ng-template #errBox>
-              <div class="rk-empty">
-                <div class="rk-empty-icon"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i></div>
-                <h3>No se pudo cargar la auditoría</h3>
-                <p>Revisá tu conexión y reintentá.</p>
-                <button pButton size="small" label="Reintentar" (click)="refresh()"></button>
+          <article class="cell cell-span-3 rk-kpi">
+            <span class="rk-kpi-n" style="color:var(--ok-fg)">{{ totals().visited }}</span>
+            <span class="rk-kpi-l">Tiendas visitadas</span>
+          </article>
+          <article class="cell cell-span-3 rk-kpi">
+            <span class="rk-kpi-n" style="color:var(--ok-fg)">{{ totals().captured }}</span>
+            <span class="rk-kpi-l">Con captura</span>
+          </article>
+          <article class="cell cell-span-3 rk-kpi">
+            <span class="rk-kpi-n" style="color:var(--warn-fg)">{{ totals().skipped }}</span>
+            <span class="rk-kpi-l">Tiendas saltadas</span>
+          </article>
+        </div>
+    
+        <!-- Master-detail -->
+        @if (rows().length) {
+          <div class="sheet cols-12">
+            <article class="cell cell-span-7 is-flush">
+              <div class="rk-table-wrap">
+                <table class="rk-table">
+                  <thead>
+                    <tr>
+                      <th>Unidad</th>
+                      <th style="width:34%">Cumplimiento</th>
+                      <th class="num" pTooltip="Tiendas visitadas / plan con coordenadas">Visitadas</th>
+                      <th class="num" pTooltip="Tiendas visitadas donde además hubo captura de auditoría">Auditadas</th>
+                      <th class="num" pTooltip="Tiendas del plan que no visitó">Saltadas</th>
+                      <th class="num" pTooltip="Paradas en tiendas fuera de la ruta">Fuera</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    @for (r of rows(); track trackById($index, r)) {
+                      <tr
+                        class="rk-tr" [class.sel]="r.vehicle_id === selectedId()" (click)="select(r)">
+                        <td class="rk-unit">{{ r.vehicle_plate || shortId(r.vehicle_id) }}</td>
+                        <td>
+                          @if (r.evaluable) {
+                            <div class="rk-bar" [attr.aria-label]="r.coverage_pct + '% de cumplimiento'">
+                              <span [style.width.%]="r.coverage_pct ?? 0" [style.background]="coverageColor(r.coverage_pct)"></span>
+                            </div>
+                            <span class="rk-bar-lbl">{{ r.coverage_pct }}%</span>
+                          } @else {
+                            <span class="rk-na">sin plan evaluable</span>
+                          }
+                        </td>
+                        <td class="num">{{ r.evaluable ? r.visited_count + '/' + r.planned_with_coords : '—' }}</td>
+                        <td class="num">@if (r.evaluable) {
+                          <b style="color:var(--ok-fg)">{{ r.captured_count }}</b>
+                          }@if (!r.evaluable) {
+                          <span>—</span>
+                        }</td>
+                        <td class="num" [class.rk-warn]="r.skipped_count > 0">{{ r.evaluable ? r.skipped_count : '—' }}</td>
+                        <td class="num rk-dim">{{ r.off_route_count }}</td>
+                      </tr>
+                    }
+                  </tbody>
+                </table>
               </div>
-            </ng-template>
-          </article>
-        </div>
-      </ng-template>
-    </div>
-  `,
+            </article>
+            @if (selected(); as s) {
+              <article class="cell cell-span-5">
+                <div class="rk-detail-head">
+                  <h3>{{ s.vehicle_plate || shortId(s.vehicle_id) }}</h3>
+                  <span class="rk-muted">Plan de ruta · {{ date() }}</span>
+                </div>
+                @if (!s.evaluable) {
+                  <div class="rk-na-box">
+                    <i class="pi pi-info-circle" aria-hidden="true"></i>
+                    Sin plan evaluable: la unidad no se detuvo en tiendas geolocalizadas de una ruta
+                    @if (s.planned_count) {
+                      <span> ({{ s.planned_count }} tiendas en el plan, {{ s.planned_with_coords }} con coordenadas)</span>
+                      }.
+                    </div>
+                  }
+                  @if (s.evaluable) {
+                    <div class="rk-adh-summary">
+                      <div class="rk-bar rk-bar-lg"><span [style.width.%]="s.coverage_pct ?? 0" [style.background]="coverageColor(s.coverage_pct)"></span></div>
+                      <p><b>{{ s.coverage_pct }}%</b> · {{ s.visited_count }}/{{ s.planned_with_coords }} visitadas · {{ s.captured_count }} con captura
+                      @if (s.off_route_count) {
+                        <span> · {{ s.off_route_count }} fuera de ruta</span>
+                      }</p>
+                    </div>
+                    <h4 class="rk-sub-h">Tiendas del plan{{ s.route_ids.length ? ' · ' + s.route_ids[0] : '' }}</h4>
+                    <ol class="rk-plan">
+                      @for (p of s.planned; track trackPlan($index, p)) {
+                        <li class="rk-plan-row"
+                          [class.visited]="p.visited" [class.nocoord]="!p.has_coords">
+                          <i class="pi" [class.pi-check-circle]="p.visited" [class.pi-times-circle]="!p.visited && p.has_coords"
+                          [class.pi-minus-circle]="!p.has_coords" aria-hidden="true"></i>
+                          <span class="rk-plan-name">{{ p.name || 'Tienda' }}</span>
+                          @if (p.captured) {
+                            <span class="rk-plan-tag cap">capturada</span>
+                          }
+                          @if (p.visited && !p.captured) {
+                            <span class="rk-plan-tag">sin captura</span>
+                          }
+                          @if (!p.has_coords) {
+                            <span class="rk-plan-tag">sin coords</span>
+                          }
+                          @if (p.has_coords && !p.visited) {
+                            <span class="rk-plan-tag skip">saltada</span>
+                          }
+                        </li>
+                      }
+                    </ol>
+                  }
+                </article>
+              } @else {
+                <article class="cell cell-span-5">
+                  <div class="rk-pick"><i class="pi pi-list" aria-hidden="true"></i>
+                  <p>Seleccioná una unidad para ver su plan de ruta y qué clientes visitó o saltó.</p>
+                </div>
+              </article>
+            }
+          </div>
+        } @else {
+          <div class="sheet cols-12">
+            <article class="cell cell-span-12">
+              @if (!errored()) {
+                <div class="rk-empty">
+                  <div class="rk-empty-icon"><i class="pi pi-check-circle" aria-hidden="true"></i></div>
+                  <h3>Sin rutas para auditar</h3>
+                  <p>Ninguna unidad de ruta se detuvo en tiendas geolocalizadas el <b>{{ date() }}</b>. El cumplimiento cruza dónde paró el camión con las tiendas de su ruta y las capturas de auditoría.</p>
+                </div>
+              } @else {
+                <div class="rk-empty">
+                  <div class="rk-empty-icon"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i></div>
+                  <h3>No se pudo cargar la auditoría</h3>
+                  <p>Revisá tu conexión y reintentá.</p>
+                  <button pButton size="small" (click)="refresh()"><span class="p-button-label">Reintentar</span></button>
+                </div>
+              }
+            </article>
+          </div>
+        }
+    
+      </div>
+    `,
   styles: [`
     :host { display:block; }
     .rk-eyebrow { display:inline-flex; align-items:center; gap:.35rem; font-size:var(--fs-micro); font-weight:var(--fw-bold); text-transform:uppercase; letter-spacing:.08em; color:var(--c-text-2); margin-bottom:.35rem; }

@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { CommonModule } from '@angular/common';
+
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, RouterModule } from '@angular/router';
 import { ButtonModule } from 'primeng/button';
@@ -22,7 +22,7 @@ interface Opt { label: string; value: string; }
 @Component({
   selector: 'app-comercial-inventory-teams',
   standalone: true,
-  imports: [CommonModule, FormsModule, RouterModule, ButtonModule, SelectModule, MultiSelectModule, TagModule, ToastModule],
+  imports: [FormsModule, RouterModule, ButtonModule, SelectModule, MultiSelectModule, TagModule, ToastModule],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -35,8 +35,7 @@ interface Opt { label: string; value: string; }
           <p class="surf-page-sub">1 supervisor por pasillo + contadores repartidos parejo. Auto-generá y ajustá a mano.</p>
         </div>
         <div class="tm-head-actions">
-          <button pButton icon="pi pi-arrow-left" label="Volver al folio" [text]="true" severity="secondary" size="small"
-                  [routerLink]="['/almacen/inventory/sessions', countId]"></button>
+          <button pButton [text]="true" severity="secondary" size="small" [routerLink]="['/almacen/inventory/sessions', countId]"><span class="p-button-icon p-button-icon-left pi pi-arrow-left" aria-hidden="true"></span><span class="p-button-label">Volver al folio</span></button>
         </div>
       </header>
 
@@ -44,16 +43,15 @@ interface Opt { label: string; value: string; }
       <div class="tm-pool">
         <div class="tm-pool-col">
           <label for="tm-sup">Supervisores disponibles</label>
-          <p-multiSelect inputId="tm-sup" [options]="supOptions()" [(ngModel)]="selSup" optionLabel="label" optionValue="value"
-                         placeholder="Ninguno" [filter]="true" display="chip" styleClass="tm-ms" appendTo="body"></p-multiSelect>
+          <p-multiselect inputId="tm-sup" [options]="supOptions()" [(ngModel)]="selSup" optionLabel="label" optionValue="value"
+                         placeholder="Ninguno" [filter]="true" display="chip" styleClass="tm-ms" appendTo="body"></p-multiselect>
         </div>
         <div class="tm-pool-col">
           <label for="tm-cnt">Contadores disponibles</label>
-          <p-multiSelect inputId="tm-cnt" [options]="cntOptions()" [(ngModel)]="selCnt" optionLabel="label" optionValue="value"
-                         placeholder="Ninguno" [filter]="true" display="chip" styleClass="tm-ms" appendTo="body"></p-multiSelect>
+          <p-multiselect inputId="tm-cnt" [options]="cntOptions()" [(ngModel)]="selCnt" optionLabel="label" optionValue="value"
+                         placeholder="Ninguno" [filter]="true" display="chip" styleClass="tm-ms" appendTo="body"></p-multiselect>
         </div>
-        <button pButton label="Auto-generar (parejo)" icon="pi pi-bolt" class="tm-gen-btn"
-                [loading]="working()" [disabled]="!selCnt().length || !board().length" (click)="autoGenerate()"></button>
+        <button pButton class="tm-gen-btn" [loading]="working()" [disabled]="!selCnt().length || !board().length" (click)="autoGenerate()"><span class="p-button-icon p-button-icon-left pi pi-bolt" aria-hidden="true"></span><span class="p-button-label">Auto-generar (parejo)</span></button>
       </div>
 
       @if (!loading() && !board().length) {
@@ -93,16 +91,15 @@ interface Opt { label: string; value: string; }
             <aside class="tm-panel">
               <div class="tm-panel-head">
                 <h2>{{ sel.code }}</h2>
-                <button pButton icon="pi pi-times" [text]="true" size="small" (click)="selected.set(null)" aria-label="Cerrar"></button>
+                <button pButton [text]="true" size="small" (click)="selected.set(null)" aria-label="Cerrar"><span class="p-button-icon p-button-icon-left pi pi-times" aria-hidden="true"></span></button>
               </div>
               <label class="tm-fld" for="tm-psup">Supervisor</label>
               <p-select inputId="tm-psup" [options]="supOptions()" [(ngModel)]="panelSup" optionLabel="label" optionValue="value"
                         placeholder="Sin supervisor" [showClear]="true" [filter]="true" appendTo="body" styleClass="tm-w-full"></p-select>
               <label class="tm-fld" for="tm-pcnt">Contadores</label>
-              <p-multiSelect inputId="tm-pcnt" [options]="cntOptions()" [(ngModel)]="panelCnt" optionLabel="label" optionValue="value"
-                             placeholder="Ninguno" [filter]="true" display="chip" appendTo="body" styleClass="tm-w-full"></p-multiSelect>
-              <button pButton label="Aplicar a este pasillo" icon="pi pi-check" size="small" class="tm-apply"
-                      [loading]="working()" (click)="applyAisle()"></button>
+              <p-multiselect inputId="tm-pcnt" [options]="cntOptions()" [(ngModel)]="panelCnt" optionLabel="label" optionValue="value"
+                             placeholder="Ninguno" [filter]="true" display="chip" appendTo="body" styleClass="tm-w-full"></p-multiselect>
+              <button pButton size="small" class="tm-apply" [loading]="working()" (click)="applyAisle()"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Aplicar a este pasillo</span></button>
             </aside>
           }
         </div>

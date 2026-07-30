@@ -4,6 +4,7 @@
   "projectType": "application",
   "sourceRoot": "apps/view/src",
   "prefix": "app",
+  "tags": ["scope:view", "type:app"],
   "targets": {
     "build": {
       "executor": "@nx/angular:browser-esbuild",
@@ -12,14 +13,9 @@
         "outputPath": "dist/apps/view",
         "index": "apps/view/src/index.html",
         "main": "apps/view/src/main.ts",
-        "polyfills": [
-          "apps/view/src/polyfills.ts"
-        ],
+        "polyfills": ["apps/view/src/polyfills.ts"],
         "tsConfig": "apps/view/tsconfig.app.json",
-        "assets": [
-          "apps/view/src/favicon.ico",
-          "apps/view/src/assets"
-        ],
+        "assets": ["apps/view/src/favicon.ico", "apps/view/src/assets"],
         "styles": ["apps/view/src/styles.css"],
         "scripts": [],
         "allowedCommonJsDependencies": ["leaflet", "jsbarcode"],
@@ -27,24 +23,24 @@
         "ngswConfigPath": "apps/view/ngsw-config.json"
       },
       "configurations": {
-  "production": {
-    "aot": true,
-    "buildOptimizer": true,
-    "optimization": true,
-    "budgets": [
-      {
-        "type": "initial",
-        "maximumWarning": "1mb",
-        "maximumError": "1.4mb"
-      },
-      {
-        "type": "anyComponentStyle",
-        "maximumWarning": "28kb",
-        "maximumError": "34kb"
-      }
-    ],
-    "outputHashing": "all"
-  },
+        "production": {
+          "aot": true,
+          "buildOptimizer": true,
+          "optimization": true,
+          "budgets": [
+            {
+              "type": "initial",
+              "maximumWarning": "1mb",
+              "maximumError": "1.4mb"
+            },
+            {
+              "type": "anyComponentStyle",
+              "maximumWarning": "28kb",
+              "maximumError": "34kb"
+            }
+          ],
+          "outputHashing": "all"
+        },
         "development": {
           "optimization": false,
           "extractLicenses": false,
@@ -64,7 +60,8 @@
           "proxyConfig": "apps/view/proxy.conf.json"
         }
       },
-      "defaultConfiguration": "development"
+      "defaultConfiguration": "development",
+      "continuous": true
     },
     "extract-i18n": {
       "executor": "@nx/angular:extract-i18n",
@@ -77,9 +74,9 @@
       "outputs": ["{workspaceRoot}/coverage/apps/view"],
       "options": {
         "jestConfig": "apps/view/jest.config.ts",
-        "passWithNoTests": true
+        "passWithNoTests": true,
+        "tsConfig": "apps/view/tsconfig.spec.json"
       }
     }
-  },
-  "tags": ["scope:view", "type:app"]
+  }
 }

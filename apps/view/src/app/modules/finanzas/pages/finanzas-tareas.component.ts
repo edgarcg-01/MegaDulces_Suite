@@ -49,9 +49,7 @@ import { ReconTasksService, ReconTask, ReconTaskStats, ReconTaskStatus, FinanceU
             <input type="month" [ngModel]="periodo()" (ngModelChange)="setPeriodo($event)" />
           </label>
           @if (canAssign()) {
-            <button pButton type="button" label="Correr motor" icon="pi pi-bolt" class="p-button-sm p-button-outlined"
-                    [loading]="running()" (click)="runEngine()"
-                    pTooltip="Construye tareas del periodo (agrupa por proveedor), verifica cierres y reparte a Finanzas." tooltipPosition="bottom"></button>
+            <button pButton type="button" class="p-button-sm p-button-outlined" [loading]="running()" (click)="runEngine()" pTooltip="Construye tareas del periodo (agrupa por proveedor), verifica cierres y reparte a Finanzas." tooltipPosition="bottom"><span class="p-button-icon p-button-icon-left pi pi-bolt" aria-hidden="true"></span><span class="p-button-label">Correr motor</span></button>
           }
         </div>
       </header>
@@ -86,7 +84,7 @@ import { ReconTasksService, ReconTask, ReconTaskStats, ReconTaskStatus, FinanceU
         emptyHint="Corre el motor para construir y repartir las tareas del periodo, o cambia de vista/periodo."
         (retry)="reload()">
         <p-table [value]="tasks()" styleClass="p-datatable-sm" [rowHover]="true" [scrollable]="true">
-          <ng-template pTemplate="header">
+          <ng-template #header>
             <tr>
               <th>Proveedor / concepto</th>
               <th style="width:6rem" class="ta-c">Movs</th>
@@ -97,7 +95,7 @@ import { ReconTasksService, ReconTask, ReconTaskStats, ReconTaskStatus, FinanceU
               <th style="width:14rem"></th>
             </tr>
           </ng-template>
-          <ng-template pTemplate="body" let-t>
+          <ng-template #body let-t>
             <tr>
               <td>
                 <button type="button" class="ft-prov ft-prov-btn" (click)="openDetail(t)" [attr.aria-label]="'Ver qué hacer con ' + t.proveedor_label">{{ t.proveedor_label }}<i class="pi pi-angle-right"></i></button>
@@ -121,15 +119,15 @@ import { ReconTasksService, ReconTask, ReconTaskStats, ReconTaskStatus, FinanceU
               <td><p-tag [value]="statusLabel(t.status)" [severity]="statusSeverity(t.status)" [rounded]="true" /></td>
               <td class="ta-r">
                 <div class="ft-row-acts">
-                  <button pButton type="button" icon="pi pi-comments" class="p-button-text p-button-sm" [attr.aria-label]="'Hilo de ' + t.proveedor_label" pTooltip="Hilo y verificación" (click)="openChat(t)"></button>
+                  <button pButton type="button" class="p-button-text p-button-sm" [attr.aria-label]="'Hilo de ' + t.proveedor_label" pTooltip="Hilo y verificación" (click)="openChat(t)"><span class="p-button-icon p-button-icon-left pi pi-comments" aria-hidden="true"></span></button>
                   @if (canManage() && t.status === 'pendiente') {
-                    <button pButton type="button" label="Tomar" icon="pi pi-play" class="p-button-text p-button-sm" (click)="quickStatus(t, 'en_proceso')"></button>
+                    <button pButton type="button" class="p-button-text p-button-sm" (click)="quickStatus(t, 'en_proceso')"><span class="p-button-icon p-button-icon-left pi pi-play" aria-hidden="true"></span><span class="p-button-label">Tomar</span></button>
                   }
                   @if (canManage() && (t.status === 'pendiente' || t.status === 'en_proceso')) {
-                    <button pButton type="button" label="Resolver" icon="pi pi-check" class="p-button-text p-button-sm ft-ok" (click)="openResolve(t)"></button>
+                    <button pButton type="button" class="p-button-text p-button-sm ft-ok" (click)="openResolve(t)"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Resolver</span></button>
                   }
                   @if (canAssign()) {
-                    <button pButton type="button" icon="pi pi-user-edit" class="p-button-text p-button-sm" [attr.aria-label]="'Asignar ' + t.proveedor_label" pTooltip="Asignar / reasignar" (click)="openAssign(t)"></button>
+                    <button pButton type="button" class="p-button-text p-button-sm" [attr.aria-label]="'Asignar ' + t.proveedor_label" pTooltip="Asignar / reasignar" (click)="openAssign(t)"><span class="p-button-icon p-button-icon-left pi pi-user-edit" aria-hidden="true"></span></button>
                   }
                 </div>
               </td>
@@ -152,9 +150,9 @@ import { ReconTasksService, ReconTask, ReconTaskStats, ReconTaskStatus, FinanceU
             <input pInputText [(ngModel)]="note" placeholder="Detalle de la resolución" /></label>
         </div>
       }
-      <ng-template pTemplate="footer">
-        <button pButton type="button" label="No aplica" class="p-button-text p-button-sm" (click)="submitResolve('no_aplica')"></button>
-        <button pButton type="button" label="Resuelto" icon="pi pi-check" class="p-button-sm" [loading]="saving()" (click)="submitResolve('resuelto')"></button>
+      <ng-template #footer>
+        <button pButton type="button" class="p-button-text p-button-sm" (click)="submitResolve('no_aplica')"><span class="p-button-label">No aplica</span></button>
+        <button pButton type="button" class="p-button-sm" [loading]="saving()" (click)="submitResolve('resuelto')"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Resuelto</span></button>
       </ng-template>
     </p-dialog>
 
@@ -169,16 +167,16 @@ import { ReconTasksService, ReconTask, ReconTaskStats, ReconTaskStatus, FinanceU
               placeholder="Elegir usuario" [filter]="true" appendTo="body" styleClass="ft-select" /></label>
         </div>
       }
-      <ng-template pTemplate="footer">
-        <button pButton type="button" label="Devolver al pool" class="p-button-text p-button-sm" (click)="submitAssign(null)"></button>
-        <button pButton type="button" label="Asignar" icon="pi pi-check" class="p-button-sm" [loading]="saving()" [disabled]="!selectedUser" (click)="submitAssign(selectedUser)"></button>
+      <ng-template #footer>
+        <button pButton type="button" class="p-button-text p-button-sm" (click)="submitAssign(null)"><span class="p-button-label">Devolver al pool</span></button>
+        <button pButton type="button" class="p-button-sm" [loading]="saving()" [disabled]="!selectedUser" (click)="submitAssign(selectedUser)"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Asignar</span></button>
       </ng-template>
     </p-dialog>
 
     <!-- Dialog: detalle accionable "qué hacer" -->
     <p-dialog [visible]="!!detailTask()" (visibleChange)="onDetailVisible($event)" [modal]="true" [style]="{ width: '42rem' }"
       [dismissableMask]="true" styleClass="ft-detail-dlg">
-      <ng-template pTemplate="header">
+      <ng-template #header>
         @if (detailTask(); as t) {
           <div class="ft-chat-head">
             <span class="ft-chat-title">{{ t.proveedor_label }}</span>
@@ -246,10 +244,10 @@ import { ReconTasksService, ReconTask, ReconTaskStats, ReconTaskStatus, FinanceU
         }
       </app-load-state>
 
-      <ng-template pTemplate="footer">
-        <button pButton type="button" label="Abrir hilo" icon="pi pi-comments" class="p-button-text p-button-sm" (click)="detailToChat()"></button>
+      <ng-template #footer>
+        <button pButton type="button" class="p-button-text p-button-sm" (click)="detailToChat()"><span class="p-button-icon p-button-icon-left pi pi-comments" aria-hidden="true"></span><span class="p-button-label">Abrir hilo</span></button>
         @if (canManage() && detailTask() && (detailTask()!.status === 'pendiente' || detailTask()!.status === 'en_proceso')) {
-          <button pButton type="button" label="Ya lo hice en Kepler" icon="pi pi-check-circle" class="p-button-sm" (click)="detailToChat(true)"></button>
+          <button pButton type="button" class="p-button-sm" (click)="detailToChat(true)"><span class="p-button-icon p-button-icon-left pi pi-check-circle" aria-hidden="true"></span><span class="p-button-label">Ya lo hice en Kepler</span></button>
         }
       </ng-template>
     </p-dialog>
@@ -257,7 +255,7 @@ import { ReconTasksService, ReconTask, ReconTaskStats, ReconTaskStatus, FinanceU
     <!-- Dialog: hilo + verificación -->
     <p-dialog [visible]="!!chatTask()" (visibleChange)="onChatVisible($event)" [modal]="true" [style]="{ width: '34rem' }"
       [dismissableMask]="true" styleClass="ft-chat-dlg">
-      <ng-template pTemplate="header">
+      <ng-template #header>
         @if (chatTask(); as t) {
           <div class="ft-chat-head">
             <span class="ft-chat-title">{{ t.proveedor_label }}</span>
@@ -289,14 +287,13 @@ import { ReconTasksService, ReconTask, ReconTaskStats, ReconTaskStatus, FinanceU
           <div class="ft-msg ft-msg-maat"><div class="ft-msg-who"><i class="pi pi-sparkles"></i> Maat</div><div class="ft-msg-body muted">escribiendo…</div></div>
         }
       </div>
-      <ng-template pTemplate="footer">
+      <ng-template #footer>
         <div class="ft-chat-composer">
           <input pInputText [(ngModel)]="chatDraft" placeholder="Escribe un mensaje…" (keydown.enter)="sendMessage()" [disabled]="reporting()" />
-          <button pButton type="button" icon="pi pi-send" class="p-button-text p-button-sm" [attr.aria-label]="'Enviar'" [disabled]="!chatDraft.trim() || reporting()" (click)="sendMessage()"></button>
+          <button pButton type="button" class="p-button-text p-button-sm" [attr.aria-label]="'Enviar'" [disabled]="!chatDraft.trim() || reporting()" (click)="sendMessage()"><span class="p-button-icon p-button-icon-left pi pi-send" aria-hidden="true"></span></button>
         </div>
         @if (canManage() && chatTask() && (chatTask()!.status === 'pendiente' || chatTask()!.status === 'en_proceso')) {
-          <button pButton type="button" label="Ya lo hice en Kepler" icon="pi pi-check-circle" class="p-button-sm ft-report-btn" [loading]="reporting()" (click)="report()"
-                  pTooltip="Maat verifica que el movimiento ya cruce en el 102 y, si sí, cierra y te pasa la siguiente." tooltipPosition="top"></button>
+          <button pButton type="button" class="p-button-sm ft-report-btn" [loading]="reporting()" (click)="report()" pTooltip="Maat verifica que el movimiento ya cruce en el 102 y, si sí, cierra y te pasa la siguiente." tooltipPosition="top"><span class="p-button-icon p-button-icon-left pi pi-check-circle" aria-hidden="true"></span><span class="p-button-label">Ya lo hice en Kepler</span></button>
         }
       </ng-template>
     </p-dialog>

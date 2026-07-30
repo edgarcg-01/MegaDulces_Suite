@@ -58,7 +58,7 @@ const TYPE_META: Record<RouteTicketType, { label: string; icon: string; desc: st
           </div>
         }
       </header>
-
+    
       <input
         #fileInput
         type="file"
@@ -66,245 +66,291 @@ const TYPE_META: Record<RouteTicketType, { label: string; icon: string; desc: st
         capture="environment"
         hidden
         (change)="onFile($event)"
-      />
-
-      <!-- Requisitos del día: venta + carga obligatorios -->
-      <div *ngIf="step() === 'pick' && !loadingList() && !ocrError()" class="crt-reqs" [class.done]="requiredDone()">
-        <div class="crt-reqs-head">
-          <span class="crt-reqs-title">
-            <i class="pi" [ngClass]="requiredDone() ? 'pi-check-circle' : 'pi-flag'" aria-hidden="true"></i>
-            {{ requiredDone() ? 'Cierre completo' : 'Para cerrar tu día' }}
-          </span>
-          <span class="crt-reqs-status">{{ requiredDone() ? '✓ listo' : 'faltan obligatorios' }}</span>
-        </div>
-        <div class="crt-reqs-items">
-          <span class="crt-req" [class.done]="hasVenta()">
-            <i class="pi" [ngClass]="hasVenta() ? 'pi-check' : 'pi-circle'" aria-hidden="true"></i>
-            Venta <em>obligatorio</em>
-          </span>
-          <span class="crt-req" [class.done]="hasCarga()">
-            <i class="pi" [ngClass]="hasCarga() ? 'pi-check' : 'pi-circle'" aria-hidden="true"></i>
-            Carga <em>obligatorio</em>
-          </span>
-          <span class="crt-req opt" [class.done]="hasCombustible()">
-            <i class="pi" [ngClass]="hasCombustible() ? 'pi-check' : 'pi-circle'" aria-hidden="true"></i>
-            Combustible <em>opcional</em>
-          </span>
-        </div>
-      </div>
-
-      <!-- Tickets capturados sin conexión, en espera de sincronizar -->
-      <div *ngIf="step() === 'pick' && !ocrError() && offlinePending() > 0" class="crt-offline-pending">
-        <i class="pi pi-cloud-upload" aria-hidden="true"></i>
-        <span>
-          {{ offlinePending() }} {{ offlinePending() === 1 ? 'ticket guardado' : 'tickets guardados' }} sin conexión ·
-          se subirán automáticamente al recuperar señal
-        </span>
-      </div>
-
-      <!-- Paso 1: elegir tipo -->
-      <div *ngIf="step() === 'pick' && !ocrError()" class="crt-pick">
-        <button *ngFor="let t of types; let i = index" type="button" class="crt-tile"
-          [attr.data-type]="t" (click)="choose(t)" [style.animation-delay.ms]="i * 80">
-          <span class="crt-tile-glow" aria-hidden="true"></span>
-          <span class="crt-tile-icon"><i class="pi {{ meta[t].icon }}" aria-hidden="true"></i></span>
-          <span class="crt-tile-body">
-            <span class="crt-tile-label">{{ meta[t].label }}</span>
-            <span class="crt-tile-desc">{{ meta[t].desc }}</span>
-          </span>
-          <span class="crt-tile-cta">
-            <i class="pi pi-camera" aria-hidden="true"></i>
-            <span class="crt-tile-cta-text">Tomar foto</span>
-            <i class="pi pi-arrow-right crt-tile-arrow" aria-hidden="true"></i>
-          </span>
-        </button>
-      </div>
-
-      <!-- Procesando OCR -->
-      <div *ngIf="processing()" class="crt-processing" role="status" aria-live="polite">
-        <i class="pi pi-spin pi-spinner" aria-hidden="true"></i>
-        <span>Extrayendo datos del ticket…</span>
-      </div>
-
-      <!-- Falló el OCR: conservamos la foto y dejamos reintentar sin re-capturar -->
-      <div *ngIf="ocrError() && !processing()" class="crt-ocr-error">
-        <img *ngIf="photoPreview()" [src]="photoPreview()!" class="crt-preview" alt="Ticket capturado" />
-        <p class="crt-warn">
-          <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
-          No se pudo leer el ticket. Revisá tu conexión — tu foto sigue acá.
-        </p>
-        <code class="crt-err-detail" *ngIf="ocrErrorDetail()">{{ ocrErrorDetail() }}</code>
-        <button type="button" class="crt-save" (click)="retryOcr()">
-          <i class="pi pi-refresh" aria-hidden="true"></i> Reintentar lectura
-        </button>
-        <button type="button" class="crt-change crt-ocr-defer" (click)="deferTicket()">
-          <i class="pi pi-cloud-upload" aria-hidden="true"></i> Guardar para subir luego
-        </button>
-        <button type="button" class="crt-change crt-ocr-retake" (click)="reset()">
-          <i class="pi pi-camera" aria-hidden="true"></i> Tomar otra foto
-        </button>
-      </div>
-
-      <!-- Paso 2: revisar + guardar -->
-      <div *ngIf="step() === 'review'" class="crt-review">
-        <!-- Identificador GRANDE del tipo: a color, imposible de confundir -->
-        <div class="crt-type-hero" [attr.data-type]="selectedType()" role="status">
-          <span class="cth-icon"><i class="pi {{ meta[selectedType()!].icon }}" aria-hidden="true"></i></span>
-          <div class="cth-text">
-            <span class="cth-eyebrow">Estás subiendo</span>
-            <span class="cth-label">{{ meta[selectedType()!].label }}</span>
-          </div>
-          <button type="button" class="crt-change" (click)="reset()" aria-label="Cambiar tipo de ticket">
-            <i class="pi pi-times" aria-hidden="true"></i> Cambiar
-          </button>
-        </div>
-
-        <img *ngIf="photoPreview()" [src]="photoPreview()!" class="crt-preview" alt="Ticket capturado" />
-
-        <div class="crt-fields">
-          <!-- Ruta: NO editable. La detecta el OCR y la valida el backend contra
-               las rutas reales de la zona del vendedor. -->
-          <div class="crt-field">
-            <span class="crt-field-label">Ruta</span>
-            <div class="crt-route" [class.ok]="routeMatched()" [class.bad]="!routeMatched()">
-              <i class="pi" [ngClass]="routeMatched() ? 'pi-check-circle' : 'pi-exclamation-triangle'" aria-hidden="true"></i>
-              <span class="crt-route-name">{{ routeMatched() ? routeValue() : 'Ruta no reconocida' }}</span>
-              <span class="crt-route-tag">{{ routeMatched() ? (routeInferred() ? 'tu jornada' : 'detectada') : 'reintenta' }}</span>
+        />
+    
+        <!-- Requisitos del día: venta + carga obligatorios -->
+        @if (step() === 'pick' && !loadingList() && !ocrError()) {
+          <div class="crt-reqs" [class.done]="requiredDone()">
+            <div class="crt-reqs-head">
+              <span class="crt-reqs-title">
+                <i class="pi" [ngClass]="requiredDone() ? 'pi-check-circle' : 'pi-flag'" aria-hidden="true"></i>
+                {{ requiredDone() ? 'Cierre completo' : 'Para cerrar tu día' }}
+              </span>
+              <span class="crt-reqs-status">{{ requiredDone() ? '✓ listo' : 'faltan obligatorios' }}</span>
             </div>
-            <!-- Ticket formato MOVIL (sin ruta impresa): la ruta se infirió de la jornada del vendedor. -->
-            <p class="crt-route-hint info" *ngIf="routeMatched() && routeInferred() && selectedType() !== 'combustible'">
-              El ticket no trae la ruta impresa (formato MOVIL); usamos tu ruta del día.
-            </p>
-            <p class="crt-route-hint" *ngIf="!routeMatched() && selectedType() === 'combustible'">
-              El recibo de combustible no trae ruta. Subí primero tu corte de venta o carga de hoy para asignarla.
-            </p>
-            <p class="crt-route-hint" *ngIf="!routeMatched() && selectedType() !== 'combustible'">
-              No pudimos determinar tu ruta: el ticket no la trae legible y no encontramos tu asignación del día.
-              Pedile a tu supervisor que te asigne ruta, o vuelve a tomar la foto si el ticket sí dice "Ruta N".
-            </p>
-          </div>
-
-          <div class="crt-field">
-            <span class="crt-field-label">Fecha y hora</span>
-            <div class="crt-ro" [class.empty]="!form.ticket_date">
-              {{ fmtDate(form.ticket_date) }}<ng-container *ngIf="form.ticket_time"> · {{ form.ticket_time }}</ng-container>
+            <div class="crt-reqs-items">
+              <span class="crt-req" [class.done]="hasVenta()">
+                <i class="pi" [ngClass]="hasVenta() ? 'pi-check' : 'pi-circle'" aria-hidden="true"></i>
+                Venta <em>obligatorio</em>
+              </span>
+              <span class="crt-req" [class.done]="hasCarga()">
+                <i class="pi" [ngClass]="hasCarga() ? 'pi-check' : 'pi-circle'" aria-hidden="true"></i>
+                Carga <em>obligatorio</em>
+              </span>
+              <span class="crt-req opt" [class.done]="hasCombustible()">
+                <i class="pi" [ngClass]="hasCombustible() ? 'pi-check' : 'pi-circle'" aria-hidden="true"></i>
+                Combustible <em>opcional</em>
+              </span>
             </div>
           </div>
-
-          <div class="crt-field">
-            <span class="crt-field-label">Total</span>
-            <div class="crt-ro" [class.empty]="form.total == null">{{ form.total != null ? fmtMoney(form.total) : 'sin detectar' }}</div>
-          </div>
-
-          <div class="crt-field" *ngIf="selectedType() === 'venta'">
-            <span class="crt-field-label">Número de corte</span>
-            <div class="crt-ro" [class.empty]="!form.corte_number">{{ form.corte_number || 'sin detectar' }}</div>
-          </div>
-
-          <div class="crt-field" *ngIf="selectedType() === 'carga'">
-            <span class="crt-field-label">Folio</span>
-            <div class="crt-ro" [class.empty]="!form.folio">{{ form.folio || 'sin detectar' }}</div>
-          </div>
-
-          <div class="crt-field" *ngIf="selectedType() === 'combustible'">
-            <span class="crt-field-label">Litros</span>
-            <div class="crt-ro" [class.empty]="form.liters == null">{{ form.liters != null ? form.liters + ' L' : 'sin detectar' }}</div>
-          </div>
-
-          <div class="crt-field" *ngIf="selectedType() === 'combustible'">
-            <span class="crt-field-label">Referencia / folio</span>
-            <div class="crt-ro" [class.empty]="!form.reference">{{ form.reference || 'sin detectar' }}</div>
-          </div>
-        </div>
-
-        <!-- Carga: productos detectados → descargan al camión (solo lectura) -->
-        <div *ngIf="selectedType() === 'carga'" class="crt-lines">
-          <div class="crt-lines-head">
-            <span>Productos cargados al camión</span>
-            <span class="crt-lines-count">{{ cargaLines().length }}</span>
-          </div>
-          <p class="crt-lines-empty" *ngIf="cargaLines().length === 0">
-            No se detectaron productos. Se guarda solo el total.
-          </p>
-          <div class="crt-line-ro" *ngFor="let l of cargaLines()">
-            <span class="crt-line-name">{{ l.product_name }}</span>
-            <span class="crt-line-qty-ro">×{{ l.quantity }}</span>
-          </div>
-        </div>
-
-        <p class="crt-note">
-          <i class="pi pi-info-circle" aria-hidden="true"></i>
-          Los datos se leen del ticket y no son editables. Si algo está mal, vuelve a tomar la foto.
-        </p>
-
-        <p class="crt-warn" *ngIf="folioInUse()">
-          <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
-          El folio <b>{{ form.folio }}</b> ya fue registrado antes — no se puede reusar. Verificá que sea el ticket correcto.
-        </p>
-        <p class="crt-warn" *ngIf="!folioInUse() && !canSave()">
-          <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
-          No se pudo leer la ruta o la fecha del ticket. Vuelve a tomar la foto.
-        </p>
-
-        <button type="button" class="crt-save" [disabled]="!canSave() || saving()" (click)="save()">
-          <i class="pi" [ngClass]="saving() ? 'pi-spin pi-spinner' : 'pi-check'" aria-hidden="true"></i>
-          Guardar ticket
-        </button>
-      </div>
-
-      <!-- Paso 3: éxito (card animada) -->
-      <div *ngIf="step() === 'success' && savedSummary() as s" class="crt-success">
-        <div class="crt-check" aria-hidden="true">
-          <svg viewBox="0 0 52 52">
-            <circle class="crt-check-ring" cx="26" cy="26" r="24" fill="none"/>
-            <path class="crt-check-mark" fill="none" d="M14 27l8 8 16-17"/>
-          </svg>
-        </div>
-        <h2 class="crt-success-title">Ticket guardado</h2>
-        <span class="crt-type-chip" [attr.data-type]="s.type">
-          <i class="pi {{ meta[s.type].icon }}" aria-hidden="true"></i>{{ meta[s.type].label }}
-        </span>
-        <p class="crt-success-meta">{{ s.route }}<span *ngIf="s.total != null"> · {{ fmtMoney(s.total) }}</span></p>
-        @if (!requiredDone()) {
-          <p class="crt-success-next">
-            Te falta {{ !hasVenta() ? 'el corte de venta' : '' }}{{ !hasVenta() && !hasCarga() ? ' y ' : '' }}{{ !hasCarga() ? 'la carga' : '' }} para cerrar el día.
-          </p>
-        } @else {
-          <p class="crt-success-next ok"><i class="pi pi-check-circle" aria-hidden="true"></i> Cierre del día completo.</p>
         }
-        <button type="button" class="crt-save" (click)="reset()">
-          <i class="pi pi-plus" aria-hidden="true"></i> Subir otro ticket
-        </button>
-      </div>
-
-      <!-- Tickets de hoy -->
-      <section *ngIf="step() === 'pick' && !ocrError()" class="crt-recent">
-        <h2 class="crt-section">Tickets de hoy</h2>
-        <div class="crt-list">
-          <div *ngFor="let t of tickets()" class="crt-ticket" [attr.data-type]="t.ticket_type">
-            <span class="crt-ticket-icon"><i class="pi {{ meta[t.ticket_type].icon }}" aria-hidden="true"></i></span>
-            <div class="crt-ticket-info">
-              <span class="crt-ticket-type">{{ meta[t.ticket_type].label }}</span>
-              <span class="crt-ticket-meta">RD{{ t.route_code }} · {{ t.ticket_date }}</span>
-            </div>
-            <span class="crt-ticket-total">{{ t.total != null ? fmtMoney(t.total) : '—' }}</span>
+    
+        <!-- Tickets capturados sin conexión, en espera de sincronizar -->
+        @if (step() === 'pick' && !ocrError() && offlinePending() > 0) {
+          <div class="crt-offline-pending">
+            <i class="pi pi-cloud-upload" aria-hidden="true"></i>
+            <span>
+              {{ offlinePending() }} {{ offlinePending() === 1 ? 'ticket guardado' : 'tickets guardados' }} sin conexión ·
+              se subirán automáticamente al recuperar señal
+            </span>
           </div>
-          <!-- Fallo de red al cargar la lista (distinto del vacío real) -->
-          <div class="crt-empty" *ngIf="!loadingList() && listError()">
-            <i class="pi pi-cloud" aria-hidden="true"></i>
-            <p>No se pudo cargar la lista.</p>
-            <button type="button" class="crt-change" (click)="retryList()">
-              <i class="pi pi-refresh" aria-hidden="true"></i> Reintentar
+        }
+    
+        <!-- Paso 1: elegir tipo -->
+        @if (step() === 'pick' && !ocrError()) {
+          <div class="crt-pick">
+            @for (t of types; track t; let i = $index) {
+              <button type="button" class="crt-tile"
+                [attr.data-type]="t" (click)="choose(t)" [style.animation-delay.ms]="i * 80">
+                <span class="crt-tile-glow" aria-hidden="true"></span>
+                <span class="crt-tile-icon"><i class="pi {{ meta[t].icon }}" aria-hidden="true"></i></span>
+                <span class="crt-tile-body">
+                  <span class="crt-tile-label">{{ meta[t].label }}</span>
+                  <span class="crt-tile-desc">{{ meta[t].desc }}</span>
+                </span>
+                <span class="crt-tile-cta">
+                  <i class="pi pi-camera" aria-hidden="true"></i>
+                  <span class="crt-tile-cta-text">Tomar foto</span>
+                  <i class="pi pi-arrow-right crt-tile-arrow" aria-hidden="true"></i>
+                </span>
+              </button>
+            }
+          </div>
+        }
+    
+        <!-- Procesando OCR -->
+        @if (processing()) {
+          <div class="crt-processing" role="status" aria-live="polite">
+            <i class="pi pi-spin pi-spinner" aria-hidden="true"></i>
+            <span>Extrayendo datos del ticket…</span>
+          </div>
+        }
+    
+        <!-- Falló el OCR: conservamos la foto y dejamos reintentar sin re-capturar -->
+        @if (ocrError() && !processing()) {
+          <div class="crt-ocr-error">
+            @if (photoPreview()) {
+              <img [src]="photoPreview()!" class="crt-preview" alt="Ticket capturado" />
+            }
+            <p class="crt-warn">
+              <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+              No se pudo leer el ticket. Revisá tu conexión — tu foto sigue acá.
+            </p>
+            @if (ocrErrorDetail()) {
+              <code class="crt-err-detail">{{ ocrErrorDetail() }}</code>
+            }
+            <button type="button" class="crt-save" (click)="retryOcr()">
+              <i class="pi pi-refresh" aria-hidden="true"></i> Reintentar lectura
+            </button>
+            <button type="button" class="crt-change crt-ocr-defer" (click)="deferTicket()">
+              <i class="pi pi-cloud-upload" aria-hidden="true"></i> Guardar para subir luego
+            </button>
+            <button type="button" class="crt-change crt-ocr-retake" (click)="reset()">
+              <i class="pi pi-camera" aria-hidden="true"></i> Tomar otra foto
             </button>
           </div>
-          <div class="crt-empty" *ngIf="!loadingList() && !listError() && tickets().length === 0">
-            <i class="pi pi-receipt" aria-hidden="true"></i>
-            <p>Aún no subiste tickets hoy.</p>
+        }
+    
+        <!-- Paso 2: revisar + guardar -->
+        @if (step() === 'review') {
+          <div class="crt-review">
+            <!-- Identificador GRANDE del tipo: a color, imposible de confundir -->
+            <div class="crt-type-hero" [attr.data-type]="selectedType()" role="status">
+              <span class="cth-icon"><i class="pi {{ meta[selectedType()!].icon }}" aria-hidden="true"></i></span>
+              <div class="cth-text">
+                <span class="cth-eyebrow">Estás subiendo</span>
+                <span class="cth-label">{{ meta[selectedType()!].label }}</span>
+              </div>
+              <button type="button" class="crt-change" (click)="reset()" aria-label="Cambiar tipo de ticket">
+                <i class="pi pi-times" aria-hidden="true"></i> Cambiar
+              </button>
+            </div>
+            @if (photoPreview()) {
+              <img [src]="photoPreview()!" class="crt-preview" alt="Ticket capturado" />
+            }
+            <div class="crt-fields">
+              <!-- Ruta: NO editable. La detecta el OCR y la valida el backend contra
+              las rutas reales de la zona del vendedor. -->
+              <div class="crt-field">
+                <span class="crt-field-label">Ruta</span>
+                <div class="crt-route" [class.ok]="routeMatched()" [class.bad]="!routeMatched()">
+                  <i class="pi" [ngClass]="routeMatched() ? 'pi-check-circle' : 'pi-exclamation-triangle'" aria-hidden="true"></i>
+                  <span class="crt-route-name">{{ routeMatched() ? routeValue() : 'Ruta no reconocida' }}</span>
+                  <span class="crt-route-tag">{{ routeMatched() ? (routeInferred() ? 'tu jornada' : 'detectada') : 'reintenta' }}</span>
+                </div>
+                <!-- Ticket formato MOVIL (sin ruta impresa): la ruta se infirió de la jornada del vendedor. -->
+                @if (routeMatched() && routeInferred() && selectedType() !== 'combustible') {
+                  <p class="crt-route-hint info">
+                    El ticket no trae la ruta impresa (formato MOVIL); usamos tu ruta del día.
+                  </p>
+                }
+                @if (!routeMatched() && selectedType() === 'combustible') {
+                  <p class="crt-route-hint">
+                    El recibo de combustible no trae ruta. Subí primero tu corte de venta o carga de hoy para asignarla.
+                  </p>
+                }
+                @if (!routeMatched() && selectedType() !== 'combustible') {
+                  <p class="crt-route-hint">
+                    No pudimos determinar tu ruta: el ticket no la trae legible y no encontramos tu asignación del día.
+                    Pedile a tu supervisor que te asigne ruta, o vuelve a tomar la foto si el ticket sí dice "Ruta N".
+                  </p>
+                }
+              </div>
+              <div class="crt-field">
+                <span class="crt-field-label">Fecha y hora</span>
+                <div class="crt-ro" [class.empty]="!form.ticket_date">
+                  {{ fmtDate(form.ticket_date) }}@if (form.ticket_time) {
+                  · {{ form.ticket_time }}
+                }
+              </div>
+            </div>
+            <div class="crt-field">
+              <span class="crt-field-label">Total</span>
+              <div class="crt-ro" [class.empty]="form.total == null">{{ form.total != null ? fmtMoney(form.total) : 'sin detectar' }}</div>
+            </div>
+            @if (selectedType() === 'venta') {
+              <div class="crt-field">
+                <span class="crt-field-label">Número de corte</span>
+                <div class="crt-ro" [class.empty]="!form.corte_number">{{ form.corte_number || 'sin detectar' }}</div>
+              </div>
+            }
+            @if (selectedType() === 'carga') {
+              <div class="crt-field">
+                <span class="crt-field-label">Folio</span>
+                <div class="crt-ro" [class.empty]="!form.folio">{{ form.folio || 'sin detectar' }}</div>
+              </div>
+            }
+            @if (selectedType() === 'combustible') {
+              <div class="crt-field">
+                <span class="crt-field-label">Litros</span>
+                <div class="crt-ro" [class.empty]="form.liters == null">{{ form.liters != null ? form.liters + ' L' : 'sin detectar' }}</div>
+              </div>
+            }
+            @if (selectedType() === 'combustible') {
+              <div class="crt-field">
+                <span class="crt-field-label">Referencia / folio</span>
+                <div class="crt-ro" [class.empty]="!form.reference">{{ form.reference || 'sin detectar' }}</div>
+              </div>
+            }
           </div>
+          <!-- Carga: productos detectados → descargan al camión (solo lectura) -->
+          @if (selectedType() === 'carga') {
+            <div class="crt-lines">
+              <div class="crt-lines-head">
+                <span>Productos cargados al camión</span>
+                <span class="crt-lines-count">{{ cargaLines().length }}</span>
+              </div>
+              @if (cargaLines().length === 0) {
+                <p class="crt-lines-empty">
+                  No se detectaron productos. Se guarda solo el total.
+                </p>
+              }
+              @for (l of cargaLines(); track l) {
+                <div class="crt-line-ro">
+                  <span class="crt-line-name">{{ l.product_name }}</span>
+                  <span class="crt-line-qty-ro">×{{ l.quantity }}</span>
+                </div>
+              }
+            </div>
+          }
+          <p class="crt-note">
+            <i class="pi pi-info-circle" aria-hidden="true"></i>
+            Los datos se leen del ticket y no son editables. Si algo está mal, vuelve a tomar la foto.
+          </p>
+          @if (folioInUse()) {
+            <p class="crt-warn">
+              <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+              El folio <b>{{ form.folio }}</b> ya fue registrado antes — no se puede reusar. Verificá que sea el ticket correcto.
+            </p>
+          }
+          @if (!folioInUse() && !canSave()) {
+            <p class="crt-warn">
+              <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+              No se pudo leer la ruta o la fecha del ticket. Vuelve a tomar la foto.
+            </p>
+          }
+          <button type="button" class="crt-save" [disabled]="!canSave() || saving()" (click)="save()">
+            <i class="pi" [ngClass]="saving() ? 'pi-spin pi-spinner' : 'pi-check'" aria-hidden="true"></i>
+            Guardar ticket
+          </button>
         </div>
-      </section>
+      }
+    
+      <!-- Paso 3: éxito (card animada) -->
+      @if (step() === 'success' && savedSummary(); as s) {
+        <div class="crt-success">
+          <div class="crt-check" aria-hidden="true">
+            <svg viewBox="0 0 52 52">
+              <circle class="crt-check-ring" cx="26" cy="26" r="24" fill="none"/>
+              <path class="crt-check-mark" fill="none" d="M14 27l8 8 16-17"/>
+            </svg>
+          </div>
+          <h2 class="crt-success-title">Ticket guardado</h2>
+          <span class="crt-type-chip" [attr.data-type]="s.type">
+            <i class="pi {{ meta[s.type].icon }}" aria-hidden="true"></i>{{ meta[s.type].label }}
+          </span>
+          <p class="crt-success-meta">{{ s.route }}@if (s.total != null) {
+            <span> · {{ fmtMoney(s.total) }}</span>
+          }</p>
+          @if (!requiredDone()) {
+            <p class="crt-success-next">
+              Te falta {{ !hasVenta() ? 'el corte de venta' : '' }}{{ !hasVenta() && !hasCarga() ? ' y ' : '' }}{{ !hasCarga() ? 'la carga' : '' }} para cerrar el día.
+            </p>
+          } @else {
+            <p class="crt-success-next ok"><i class="pi pi-check-circle" aria-hidden="true"></i> Cierre del día completo.</p>
+          }
+          <button type="button" class="crt-save" (click)="reset()">
+            <i class="pi pi-plus" aria-hidden="true"></i> Subir otro ticket
+          </button>
+        </div>
+      }
+    
+      <!-- Tickets de hoy -->
+      @if (step() === 'pick' && !ocrError()) {
+        <section class="crt-recent">
+          <h2 class="crt-section">Tickets de hoy</h2>
+          <div class="crt-list">
+            @for (t of tickets(); track t) {
+              <div class="crt-ticket" [attr.data-type]="t.ticket_type">
+                <span class="crt-ticket-icon"><i class="pi {{ meta[t.ticket_type].icon }}" aria-hidden="true"></i></span>
+                <div class="crt-ticket-info">
+                  <span class="crt-ticket-type">{{ meta[t.ticket_type].label }}</span>
+                  <span class="crt-ticket-meta">RD{{ t.route_code }} · {{ t.ticket_date }}</span>
+                </div>
+                <span class="crt-ticket-total">{{ t.total != null ? fmtMoney(t.total) : '—' }}</span>
+              </div>
+            }
+            <!-- Fallo de red al cargar la lista (distinto del vacío real) -->
+            @if (!loadingList() && listError()) {
+              <div class="crt-empty">
+                <i class="pi pi-cloud" aria-hidden="true"></i>
+                <p>No se pudo cargar la lista.</p>
+                <button type="button" class="crt-change" (click)="retryList()">
+                  <i class="pi pi-refresh" aria-hidden="true"></i> Reintentar
+                </button>
+              </div>
+            }
+            @if (!loadingList() && !listError() && tickets().length === 0) {
+              <div class="crt-empty">
+                <i class="pi pi-receipt" aria-hidden="true"></i>
+                <p>Aún no subiste tickets hoy.</p>
+              </div>
+            }
+          </div>
+        </section>
+      }
     </div>
-  `,
+    `,
   styles: [
     `
       .crt { max-width: 720px; margin: 0 auto; padding: 1.5rem 1rem calc(2rem + env(safe-area-inset-bottom, 0px)); }

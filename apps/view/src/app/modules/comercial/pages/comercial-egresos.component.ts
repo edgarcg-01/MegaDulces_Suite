@@ -63,20 +63,19 @@ import { egresChartOptions, egresChartSeries } from './egresos-chart-opts';
           <div style="display:inline-flex;align-items:center;gap:.4rem"><h1>Egresos contables</h1><app-context-help topic="egresos" /></div>
           <p class="surf-page-sub">Pólizas de gastos (6xx) y compras (5xx) · desglose por cuenta, beneficiario, sucursal y más · fuente Kepler</p>
         </div>
-        <button pButton type="button" label="Exportar CSV" icon="pi pi-download"
-                class="p-button-sm p-button-outlined" (click)="exportCsv()" [disabled]="!report()"></button>
+        <button pButton type="button" class="p-button-sm p-button-outlined" (click)="exportCsv()" [disabled]="!report()"><span class="p-button-icon p-button-icon-left pi pi-download" aria-hidden="true"></span><span class="p-button-label">Exportar CSV</span></button>
       </header>
 
       <!-- Filtros — Sucursales es común a todas las vistas; el resto solo aplica a los
            reportes de egresos (árbol/tabla/tendencia). Proveedores/Hallazgos no los usan. -->
       <div class="ex-filters card-premium card-flat">
         <div class="ex-field"><label>Sucursales</label>
-          <p-multiSelect [options]="sucursales()" [(ngModel)]="sucursal" optionLabel="label" optionValue="code" placeholder="Todas" [showClear]="true" appendTo="body" styleClass="w-full" (onPanelHide)="queueFilter()" /></div>
+          <p-multiselect [options]="sucursales()" [(ngModel)]="sucursal" optionLabel="label" optionValue="code" placeholder="Todas" [showClear]="true" appendTo="body" styleClass="w-full" (onPanelHide)="queueFilter()" /></div>
         @if (isReportView()) {
           <div class="ex-field"><label>Mes</label>
             <p-select [options]="mesOpts" [(ngModel)]="mesSel" optionLabel="label" optionValue="value" [showClear]="true" placeholder="—" appendTo="body" (onChange)="pickMes($event.value)" styleClass="w-full" [filter]="true" /></div>
           <div class="ex-field"><label>Rango</label>
-            <p-datePicker [(ngModel)]="rangeDates" selectionMode="range" dateFormat="dd/mm/yy" [showIcon]="true" appendTo="body" (onClose)="onRangeChange()" /></div>
+            <p-datepicker [(ngModel)]="rangeDates" selectionMode="range" dateFormat="dd/mm/yy" [showIcon]="true" appendTo="body" (onClose)="onRangeChange()" /></div>
           <div class="ex-field"><label>Tipo</label>
             <app-segmented [options]="familiaOpts" [value]="familia()" (valueChange)="setStr(familia, $event)" ariaLabel="Tipo de egreso" /></div>
           <div class="ex-field"><label>Tipo doc</label>
@@ -90,9 +89,9 @@ import { egresChartOptions, egresChartSeries } from './egresos-chart-opts';
           <div class="ex-field"><label>Beneficiario</label>
             <input pInputText [(ngModel)]="beneficiario" placeholder="Buscar…" (keyup.enter)="applyFilters()" (blur)="queueFilter()" /></div>
           <div class="ex-field ex-narrow"><label>Monto ≥</label>
-            <p-inputNumber [(ngModel)]="minImporte" mode="currency" currency="MXN" [min]="0" (onBlur)="queueFilter()" /></div>
+            <p-inputnumber [(ngModel)]="minImporte" mode="currency" currency="MXN" [min]="0" (onBlur)="queueFilter()" /></div>
           <div class="ex-field ex-toggle"><label>Comparar</label>
-            <p-toggleSwitch [(ngModel)]="compare" (ngModelChange)="queueFilter()" /></div>
+            <p-toggleswitch [(ngModel)]="compare" (ngModelChange)="queueFilter()" /></div>
         }
       </div>
 
@@ -119,18 +118,18 @@ import { egresChartOptions, egresChartSeries } from './egresos-chart-opts';
       } @else {
         <!-- ÁRBOL -->
         @if (view() === 'arbol') {
-          <p-treeTable [value]="treeNodes()" [scrollable]="true" styleClass="p-treetable-sm ex-table">
-            <ng-template pTemplate="header">
+          <p-treetable [value]="treeNodes()" [scrollable]="true" styleClass="p-treetable-sm ex-table">
+            <ng-template #header>
               <tr><th>Concepto</th><th class="ta-r" style="width:8rem">Movs</th><th class="ta-r" style="width:12rem">Importe</th><th class="ta-r" style="width:7rem">%</th></tr>
             </ng-template>
-            <ng-template pTemplate="body" let-rowNode let-rowData="rowData">
+            <ng-template #body let-rowNode let-rowData="rowData">
               <tr [ttRow]="rowNode" [class.ex-clickable]="rowData.level === 'cuenta'"
                   [attr.tabindex]="rowData.level === 'cuenta' ? 0 : null"
                   [attr.role]="rowData.level === 'cuenta' ? 'button' : null"
                   (click)="rowData.level === 'cuenta' && openCuenta(rowData.key, rowData.label)"
                   (keydown.enter)="rowData.level === 'cuenta' && openCuenta(rowData.key, rowData.label)">
                 <td>
-                  <p-treeTableToggler [rowNode]="rowNode" />
+                  <p-treetabletoggler [rowNode]="rowNode" />
                   <span [class.strong]="rowData.level === 'familia'" [class.muted]="rowData.level === 'cuenta'">{{ rowData.label }}</span>
                   @if (rowData.level === 'cuenta') { <span class="mono ex-code">{{ rowData.key }}</span> }
                 </td>
@@ -139,15 +138,15 @@ import { egresChartOptions, egresChartSeries } from './egresos-chart-opts';
                 <td class="ta-r muted">{{ rowData.share_pct }}%</td>
               </tr>
             </ng-template>
-            <ng-template pTemplate="emptymessage"><tr><td colspan="4" class="ex-empty">Sin egresos.</td></tr></ng-template>
-          </p-treeTable>
+            <ng-template #emptymessage><tr><td colspan="4" class="ex-empty">Sin egresos.</td></tr></ng-template>
+          </p-treetable>
         }
 
         <!-- TABLA DINÁMICA -->
         @if (view() === 'tabla' && report(); as r) {
           <p-table [value]="r.rows" [scrollable]="true" scrollHeight="flex" styleClass="p-datatable-sm ex-table" [rowHover]="true"
                    [paginator]="r.rows.length > 50" [rows]="50" sortField="total" [sortOrder]="-1">
-            <ng-template pTemplate="header">
+            <ng-template #header>
               <tr>
                 <th pSortableColumn="label">{{ groupByLabel() }}</th>
                 <th class="ta-r" style="width:7rem" pSortableColumn="movs">Movs</th>
@@ -157,7 +156,7 @@ import { egresChartOptions, egresChartSeries } from './egresos-chart-opts';
                 <th style="width:3rem"></th>
               </tr>
             </ng-template>
-            <ng-template pTemplate="body" let-row>
+            <ng-template #body let-row>
               <tr class="ex-clickable" tabindex="0" role="button" [attr.aria-label]="'Ver detalle de ' + row.label"
                   (click)="drillRow(row)" (keydown.enter)="drillRow(row)" (keydown.space)="$event.preventDefault(); drillRow(row)">
                 <td>
@@ -176,7 +175,7 @@ import { egresChartOptions, egresChartSeries } from './egresos-chart-opts';
                 <td class="ta-r"><i class="pi pi-angle-right muted"></i></td>
               </tr>
             </ng-template>
-            <ng-template pTemplate="emptymessage"><tr><td [attr.colspan]="compare() ? 6 : 5" class="ex-empty">Sin egresos en el período.</td></tr></ng-template>
+            <ng-template #emptymessage><tr><td [attr.colspan]="compare() ? 6 : 5" class="ex-empty">Sin egresos en el período.</td></tr></ng-template>
           </p-table>
         }
 
@@ -199,7 +198,7 @@ import { egresChartOptions, egresChartSeries } from './egresos-chart-opts';
         <div class="card-premium card-flat">
           <p-table [value]="providers()" styleClass="p-datatable-sm ex-table" [rowHover]="true" [scrollable]="true" scrollHeight="520px"
                    [paginator]="providers().length > 50" [rows]="50">
-            <ng-template pTemplate="header">
+            <ng-template #header>
               <tr>
                 <th>Proveedor</th>
                 <th class="ta-r" style="width:9rem" pSortableColumn="compra_12m">Compra 12m</th>
@@ -211,7 +210,7 @@ import { egresChartOptions, egresChartSeries } from './egresos-chart-opts';
                 <th style="width:6rem">Últ. compra</th>
               </tr>
             </ng-template>
-            <ng-template pTemplate="body" let-p>
+            <ng-template #body let-p>
               <tr>
                 <td>{{ p.proveedor }}</td>
                 <td class="ta-r strong">{{ money(p.compra_12m) }}</td>
@@ -223,7 +222,7 @@ import { egresChartOptions, egresChartSeries } from './egresos-chart-opts';
                 <td>{{ p.ultima_compra | date:'dd/MM/yy' }}</td>
               </tr>
             </ng-template>
-            <ng-template pTemplate="emptymessage"><tr><td colspan="8" class="ex-empty">Sin proveedores (¿corrió el feed de AP?).</td></tr></ng-template>
+            <ng-template #emptymessage><tr><td colspan="8" class="ex-empty">Sin proveedores (¿corrió el feed de AP?).</td></tr></ng-template>
           </p-table>
         </div>
       }
@@ -246,10 +245,10 @@ import { egresChartOptions, egresChartSeries } from './egresos-chart-opts';
             <div class="card-premium card-flat">
               <p-table [value]="f.rows" styleClass="p-datatable-sm ex-table" [rowHover]="true" [scrollable]="true" scrollHeight="480px"
                        [paginator]="f.rows.length > 100" [rows]="100">
-                <ng-template pTemplate="header">
+                <ng-template #header>
                   <tr><th style="width:6rem">Fecha</th><th>Documento</th><th>Sucursal</th><th>Beneficiario</th><th>Cuenta</th><th class="ta-r" style="width:9rem">Importe</th><th>Nota</th></tr>
                 </ng-template>
-                <ng-template pTemplate="body" let-r>
+                <ng-template #body let-r>
                   <tr>
                     <td>{{ r.fecha | date:'dd/MM/yy' }}</td>
                     <td class="mono">{{ r.doc_tipo }}-{{ r.doc_folio }}</td>
@@ -260,7 +259,7 @@ import { egresChartOptions, egresChartSeries } from './egresos-chart-opts';
                     <td class="muted">{{ r.nota || '' }}</td>
                   </tr>
                 </ng-template>
-                <ng-template pTemplate="emptymessage"><tr><td colspan="7" class="ex-empty">Sin filas.</td></tr></ng-template>
+                <ng-template #emptymessage><tr><td colspan="7" class="ex-empty">Sin filas.</td></tr></ng-template>
               </p-table>
             </div>
           } @else {

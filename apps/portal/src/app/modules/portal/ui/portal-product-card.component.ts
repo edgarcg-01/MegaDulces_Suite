@@ -35,109 +35,121 @@ import { CartFxService } from '../cart-fx.service';
       [attr.aria-label]="'Ver detalles de ' + product.product_name"
       (keydown.enter)="open.emit()"
       (keydown.space)="open.emit(); $event.preventDefault()"
-    >
+      >
       <div
         class="cat-card-img"
         [class.has-photo]="showImg"
         [class.is-ph]="!showImg"
         [style.background]="showImg ? 'var(--card-bg)' : phStyle().bg"
-      >
-        <img
-          *ngIf="showImg"
-          [src]="imgSrc"
-          [alt]="product.product_name"
-          loading="lazy"
-          decoding="async"
-          fetchpriority="low"
-          class="cat-card-img-real"
-          (error)="broken = true"
-        />
-        <ng-container *ngIf="!showImg">
+        >
+        @if (showImg) {
+          <img
+            [src]="imgSrc"
+            [alt]="product.product_name"
+            loading="lazy"
+            decoding="async"
+            fetchpriority="low"
+            class="cat-card-img-real"
+            (error)="broken = true"
+            />
+        }
+        @if (!showImg) {
           <span class="cat-card-ph-monogram" aria-hidden="true">{{ initials() }}</span>
-        </ng-container>
-        <span
-          *ngIf="promo"
-          class="cat-card-promo-pill"
-          [attr.title]="promo.promo_name"
-        >
-          <i class="pi pi-tag"></i>
-          {{ promoLabel(promo.promo_type) }}
-        </span>
-        <span
-          *ngIf="product.stock_available != null && product.stock_available <= 5"
-          class="cat-card-stock-pill"
-        >
-          <i class="pi pi-exclamation-circle"></i>
-          {{ product.stock_available }} en stock
-        </span>
-        <span
-          *ngIf="score && !promo"
-          class="cat-card-score-pill"
-          [attr.title]="'Relevancia semántica: ' + score + '%'"
-        >
-          <i class="pi pi-bolt"></i>
-          {{ score }}%
-        </span>
+        }
+        @if (promo) {
+          <span
+            class="cat-card-promo-pill"
+            [attr.title]="promo.promo_name"
+            >
+            <i class="pi pi-tag"></i>
+            {{ promoLabel(promo.promo_type) }}
+          </span>
+        }
+        @if (product.stock_available != null && product.stock_available <= 5) {
+          <span
+            class="cat-card-stock-pill"
+            >
+            <i class="pi pi-exclamation-circle"></i>
+            {{ product.stock_available }} en stock
+          </span>
+        }
+        @if (score && !promo) {
+          <span
+            class="cat-card-score-pill"
+            [attr.title]="'Relevancia semántica: ' + score + '%'"
+            >
+            <i class="pi pi-bolt"></i>
+            {{ score }}%
+          </span>
+        }
       </div>
-
+    
       <div class="cat-card-body">
         <span class="cat-card-brand">{{ product.brand_name || 'Sin marca' }}</span>
         <h3 class="cat-card-name" [title]="product.product_name">{{ product.product_name }}</h3>
-
+    
         <div class="cat-card-price-row">
-          <span class="cat-card-price" *ngIf="product.price != null">
-            {{ +product.price | currency:'MXN':'symbol-narrow':'1.2-2' }}
-          </span>
-          <span class="cat-card-price cat-card-price-na" *ngIf="product.price == null">
-            Sin precio
-          </span>
-          <span class="cat-card-min" *ngIf="product.min_qty > 1">
-            mín {{ product.min_qty }}
-          </span>
+          @if (product.price != null) {
+            <span class="cat-card-price">
+              {{ +product.price | currency:'MXN':'symbol-narrow':'1.2-2' }}
+            </span>
+          }
+          @if (product.price == null) {
+            <span class="cat-card-price cat-card-price-na">
+              Sin precio
+            </span>
+          }
+          @if (product.min_qty > 1) {
+            <span class="cat-card-min">
+              mín {{ product.min_qty }}
+            </span>
+          }
         </div>
-
-        <button
-          *ngIf="!inCart"
-          type="button"
-          class="cat-add"
-          [disabled]="adding || isAdmin || product.price == null"
-          (click)="$event.stopPropagation(); onAdd()"
-          [attr.aria-label]="'Agregar ' + product.product_name + ' al carrito'"
-          [pTooltip]="isAdmin ? 'Solo lectura (admin)' : (product.price == null ? 'Producto sin precio configurado' : 'Agregar al carrito')"
-        >
-          <i [class]="adding ? 'pi pi-spin pi-spinner' : 'pi pi-plus'"></i>
-        </button>
-
-        <div
-          *ngIf="inCart"
-          class="cat-stepper"
-          role="group"
-          (click)="$event.stopPropagation()"
-          [attr.aria-label]="'Ajustar cantidad de ' + product.product_name"
-        >
+    
+        @if (!inCart) {
           <button
             type="button"
-            class="cat-stepper-btn"
-            [disabled]="adding || isAdmin"
-            (click)="$event.stopPropagation(); dec.emit()"
-            [attr.aria-label]="qty <= (product.min_qty || 1) ? 'Quitar del carrito' : 'Disminuir'"
-          >
-            <i [class]="qty <= (product.min_qty || 1) ? 'pi pi-trash' : 'pi pi-minus'"></i>
+            class="cat-add"
+            [disabled]="adding || isAdmin || product.price == null"
+            (click)="$event.stopPropagation(); onAdd()"
+            [attr.aria-label]="'Agregar ' + product.product_name + ' al carrito'"
+            [pTooltip]="isAdmin ? 'Solo lectura (admin)' : (product.price == null ? 'Producto sin precio configurado' : 'Agregar al carrito')"
+            >
+            <i [class]="adding ? 'pi pi-spin pi-spinner' : 'pi pi-plus'"></i>
           </button>
-          <span class="cat-stepper-val" aria-live="polite">{{ adding ? '…' : qty }}</span>
-          <button
-            type="button"
-            class="cat-stepper-btn"
-            [disabled]="adding || isAdmin"
-            (click)="$event.stopPropagation(); inc.emit()"
-            aria-label="Aumentar"
-          >
-            <i class="pi pi-plus"></i>
-          </button>
-        </div>
+        }
+    
+        @if (inCart) {
+          <div
+            class="cat-stepper"
+            role="group"
+            (click)="$event.stopPropagation()"
+            [attr.aria-label]="'Ajustar cantidad de ' + product.product_name"
+            >
+            <button
+              type="button"
+              class="cat-stepper-btn"
+              [disabled]="adding || isAdmin"
+              (click)="$event.stopPropagation(); dec.emit()"
+              [attr.aria-label]="qty <= (product.min_qty || 1) ? 'Quitar del carrito' : 'Disminuir'"
+              >
+              <i [class]="qty <= (product.min_qty || 1) ? 'pi pi-trash' : 'pi pi-minus'"></i>
+            </button>
+            <span class="cat-stepper-val" aria-live="polite">{{ adding ? '…' : qty }}</span>
+            <button
+              type="button"
+              class="cat-stepper-btn"
+              [disabled]="adding || isAdmin"
+              (click)="$event.stopPropagation(); inc.emit()"
+              aria-label="Aumentar"
+              >
+              <i class="pi pi-plus"></i>
+            </button>
+          </div>
+        }
       </div>
     </article>
-  `,
+    `,
   styles: [
     `
       :host { display: block; }

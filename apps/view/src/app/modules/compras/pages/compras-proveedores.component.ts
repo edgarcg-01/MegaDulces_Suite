@@ -63,7 +63,7 @@ import { ComprasService, SupplierParam, SupplierOrder, SupplierOrderParamsDto, R
       <p-table [value]="rows()" [loading]="loading()" [scrollable]="true" scrollHeight="flex"
                [paginator]="true" [rows]="50" [rowsPerPageOptions]="[50, 100, 200]"
                styleClass="p-datatable-sm cp-table">
-        <ng-template pTemplate="header">
+        <ng-template #header>
           <tr>
             <th>Proveedor</th>
             <th class="cp-r">Prod.</th>
@@ -77,13 +77,13 @@ import { ComprasService, SupplierParam, SupplierOrder, SupplierOrderParamsDto, R
             <th style="width:2rem"></th>
           </tr>
         </ng-template>
-        <ng-template pTemplate="body" let-r>
+        <ng-template #body let-r>
           <tr>
             <td>{{ r.name }}</td>
             <td class="cp-r cp-muted">{{ r.product_count | number }}</td>
             <td class="cp-r"><input pInputText type="number" min="0" max="365" [(ngModel)]="r.lead_time_days" (change)="saveLead(r)" class="cp-num" [class.cp-unset]="r.lead_time_days == null" placeholder="7*" /></td>
             <td class="cp-r"><input pInputText type="number" min="0" [(ngModel)]="r.min_order_boxes" (change)="saveParam(r, { min_order_boxes: numOrNull(r.min_order_boxes) })" class="cp-num" [class.cp-unset]="r.min_order_boxes == null" placeholder="—" /></td>
-            <td class="cp-r"><p-inputNumber [(ngModel)]="r.min_order_amount" (onBlur)="saveParam(r, { min_order_amount: numOrNull(r.min_order_amount) })" mode="currency" currency="MXN" locale="es-MX" [maxFractionDigits]="0" [min]="0" [showButtons]="false" inputStyleClass="cp-num" placeholder="—" /></td>
+            <td class="cp-r"><p-inputnumber [(ngModel)]="r.min_order_amount" (onBlur)="saveParam(r, { min_order_amount: numOrNull(r.min_order_amount) })" mode="currency" currency="MXN" locale="es-MX" [maxFractionDigits]="0" [min]="0" [showButtons]="false" inputStyleClass="cp-num" placeholder="—" /></td>
             <td class="cp-r cp-sep">
               <input pInputText type="number" min="1" max="100" [(ngModel)]="r.fill_pct" (change)="saveParam(r, { fill_rate_override: r.fill_pct == null || r.fill_pct === undefined ? null : numOrNull(r.fill_pct)! / 100 })" class="cp-num" [class.cp-unset]="r.fill_pct == null"
                      [placeholder]="r.fill_rate_auto != null ? ((r.fill_rate_auto * 100 | number:'1.0-0') + '% auto') : 'auto'"
@@ -91,11 +91,11 @@ import { ComprasService, SupplierParam, SupplierOrder, SupplierOrderParamsDto, R
             </td>
             <td class="cp-r"><input pInputText type="number" min="0" max="100" [(ngModel)]="r.safety_pct" (change)="saveParam(r, { safety_pct: numOrNull(r.safety_pct) })" class="cp-num" [class.cp-unset]="r.safety_pct == null" [placeholder]="r.auto_safety_pct ? (r.auto_safety_pct + '% auto') : '0'" /></td>
             <td class="cp-r"><input pInputText type="number" min="1" max="120" [(ngModel)]="r.coverage_days_override" (change)="saveParam(r, { coverage_days_override: numOrNull(r.coverage_days_override) })" class="cp-num" [class.cp-unset]="r.coverage_days_override == null" [placeholder]="r.auto_coverage_days ? (r.auto_coverage_days + ' auto') : 'global'" /></td>
-            <td class="cp-r"><button pButton type="button" label="Ver pedido" icon="pi pi-list" class="p-button-sm p-button-text" (click)="openOrder(r)"></button></td>
+            <td class="cp-r"><button pButton type="button" class="p-button-sm p-button-text" (click)="openOrder(r)"><span class="p-button-icon p-button-icon-left pi pi-list" aria-hidden="true"></span><span class="p-button-label">Ver pedido</span></button></td>
             <td class="cp-r">@if (savedId() === r.id) { <i class="pi pi-check cp-ok"></i> }</td>
           </tr>
         </ng-template>
-        <ng-template pTemplate="emptymessage">
+        <ng-template #emptymessage>
           <tr><td colspan="10" class="cp-empty">Sin proveedores.</td></tr>
         </ng-template>
       </p-table>
@@ -158,7 +158,7 @@ import { ComprasService, SupplierParam, SupplierOrder, SupplierOrderParamsDto, R
     .cp-muted { color: var(--text-muted); }
     /* Auto-ajuste al valor: el input crece con su contenido (acotado), así no se corta
        el dato (ej. Mín $ grande). field-sizing es soportado por el Chromium de la app.
-       ng-deep porque cp-num también viste el input interno de <p-inputNumber> (Mín $). */
+       ng-deep porque cp-num también viste el input interno de <p-inputnumber> (Mín $). */
     :host ::ng-deep .cp-num { field-sizing: content; min-width: 4rem; max-width: 12rem; width: auto; text-align: right; }
     .cp-unset { color: var(--text-muted); }
     .cp-ok { color: var(--ok-fg); }

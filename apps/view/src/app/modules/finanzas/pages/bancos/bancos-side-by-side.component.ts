@@ -55,7 +55,7 @@ interface Pair {
     <div class="card-premium card-flat fb-sbs-tablewrap">
       <p-table [value]="pairs()" styleClass="p-datatable-sm" [rowHover]="true" [scrollable]="true" scrollHeight="60vh"
                [paginator]="pairs().length > 50" [rows]="50" [rowsPerPageOptions]="[50, 100, 200]">
-        <ng-template pTemplate="header">
+        <ng-template #header>
           <tr class="fb-grp-row">
             <th class="fb-grp-tipo" aria-hidden="true"></th>
             <th colspan="4" class="fb-grp fb-grp-excel">Excel (banco)</th>
@@ -63,16 +63,16 @@ interface Pair {
             <th colspan="4" class="fb-grp fb-grp-kepler">Kepler (102)</th>
           </tr>
           <tr>
-            <th class="col-w7" pSortableColumn="esEgreso">Tipo <p-sortIcon field="esEgreso" /></th>
-            <th class="col-w6" pSortableColumn="fecha">Fecha <p-sortIcon field="fecha" /></th>
-            <th pSortableColumn="concepto">Concepto <p-sortIcon field="concepto" /></th>
-            <th class="ta-r col-w9" pSortableColumn="monto">Monto <p-sortIcon field="monto" /></th>
+            <th class="col-w7" pSortableColumn="esEgreso">Tipo <p-sorticon field="esEgreso" /></th>
+            <th class="col-w6" pSortableColumn="fecha">Fecha <p-sorticon field="fecha" /></th>
+            <th pSortableColumn="concepto">Concepto <p-sorticon field="concepto" /></th>
+            <th class="ta-r col-w9" pSortableColumn="monto">Monto <p-sorticon field="monto" /></th>
             <th class="ta-c col-w25"></th>
             <th class="fb-grp-sep" aria-hidden="true"></th>
             <th class="col-w6">Fecha</th><th class="col-w7">Doc</th><th>Beneficiario</th><th class="ta-r col-w9">Importe</th>
           </tr>
         </ng-template>
-        <ng-template pTemplate="body" let-p>
+        <ng-template #body let-p>
           <tr class="fb-row-click" [class.fb-sel-row]="isSel(p)" [class.fb-nomatch]="!p.excel || !p.kepler"
               (click)="pick(p)" tabindex="0" role="button" (keyup.enter)="pick(p)">
             <!-- Tipo -->
@@ -101,8 +101,8 @@ interface Pair {
             }
           </tr>
         </ng-template>
-        <ng-template pTemplate="emptymessage"><tr><td colspan="10"><div class="surf-empty"><i class="pi pi-inbox"></i><p>Sin movimientos con estos filtros.</p></div></td></tr></ng-template>
-        <ng-template pTemplate="footer">
+        <ng-template #emptymessage><tr><td colspan="10"><div class="surf-empty"><i class="pi pi-inbox"></i><p>Sin movimientos con estos filtros.</p></div></td></tr></ng-template>
+        <ng-template #footer>
           <tr class="fb-total-row">
             <td></td><td></td>
             <td class="fb-t-lbl">Total banco</td>
@@ -183,7 +183,7 @@ interface Pair {
 
         <div class="fb-sbs-flow">
           @if (!flow() && !flowLoading() && flowId()) {
-            <button pButton type="button" label="Ver de dónde viene" icon="pi pi-sitemap" class="p-button-sm p-button-outlined" (click)="loadFlow()"></button>
+            <button pButton type="button" class="p-button-sm p-button-outlined" (click)="loadFlow()"><span class="p-button-icon p-button-icon-left pi pi-sitemap" aria-hidden="true"></span><span class="p-button-label">Ver de dónde viene</span></button>
           }
           @if (flowLoading()) { <p class="muted fb-flow-loading"><i class="pi pi-spin pi-spinner"></i> Rastreando el flujo…</p> }
           @if (flow(); as fl) {

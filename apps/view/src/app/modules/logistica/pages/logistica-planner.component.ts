@@ -1,5 +1,5 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
-import { CommonModule } from '@angular/common';
+
 import { FormsModule } from '@angular/forms';
 import { ButtonModule } from 'primeng/button';
 import { SelectModule } from 'primeng/select';
@@ -12,7 +12,7 @@ import { LogisticaService, RoutePlan, PendingOrder, Vehicle } from '../logistica
 @Component({
   selector: 'app-logistica-planner',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, SelectModule, MultiSelectModule, ToastModule, MapComponent],
+  imports: [FormsModule, ButtonModule, SelectModule, MultiSelectModule, ToastModule, MapComponent],
   providers: [MessageService],
   template: `
     <div class="surf-page">
@@ -24,7 +24,7 @@ import { LogisticaService, RoutePlan, PendingOrder, Vehicle } from '../logistica
           <p class="surf-page-sub">Seleccioná un embarque, optimizá el orden de las paradas y velo en el mapa.</p>
         </div>
       </header>
-
+    
       <!-- Armar reparto desde pedidos pendientes -->
       <div class="sheet cols-12">
         <article class="cell cell-span-12 pl-build">
@@ -32,59 +32,66 @@ import { LogisticaService, RoutePlan, PendingOrder, Vehicle } from '../logistica
           <p class="comm-muted is-small" style="margin:.25rem 0 .75rem">Elegí unidad + pedidos pendientes → crea el embarque, la guía y optimiza la ruta.</p>
           <div class="pl-build-row">
             <p-select [options]="vehicleOptions()" [(ngModel)]="buildVehicle" optionLabel="label" optionValue="value"
-                      [filter]="true" placeholder="Unidad" styleClass="pl-select" appendTo="body"></p-select>
-            <p-multiSelect [options]="orderOptions()" [(ngModel)]="buildOrders" optionLabel="label" optionValue="value"
-                           [filter]="true" placeholder="Pedidos pendientes" styleClass="pl-select" appendTo="body"
-                           [maxSelectedLabels]="3" selectedItemsLabel="{0} pedidos"></p-multiSelect>
-            <button pButton icon="pi pi-box" label="Crear embarque optimizado" size="small"
-                    [loading]="building()" [disabled]="!buildVehicle || !buildOrders.length" (click)="build()"></button>
+            [filter]="true" placeholder="Unidad" styleClass="pl-select" appendTo="body"></p-select>
+            <p-multiselect [options]="orderOptions()" [(ngModel)]="buildOrders" optionLabel="label" optionValue="value"
+              [filter]="true" placeholder="Pedidos pendientes" styleClass="pl-select" appendTo="body"
+            [maxSelectedLabels]="3" selectedItemsLabel="{0} pedidos"></p-multiselect>
+            <button pButton size="small" [loading]="building()" [disabled]="!buildVehicle || !buildOrders.length" (click)="build()"><span class="p-button-icon p-button-icon-left pi pi-box" aria-hidden="true"></span><span class="p-button-label">Crear embarque optimizado</span></button>
           </div>
-          <span class="comm-muted is-small" *ngIf="!orderOptions().length">No hay pedidos pendientes por programar.</span>
+          @if (!orderOptions().length) {
+            <span class="comm-muted is-small">No hay pedidos pendientes por programar.</span>
+          }
         </article>
       </div>
-
+    
       <div class="sheet cols-12">
         <article class="cell cell-span-12 is-flush pl-toolbar">
           <p-select [options]="shipmentOptions()" [(ngModel)]="selectedId" optionLabel="label" optionValue="value"
-                    [filter]="true" placeholder="Ver embarque existente" styleClass="pl-select"
-                    (onChange)="loadPlan()" appendTo="body"></p-select>
-          <button pButton icon="pi pi-compass" label="Optimizar ruta" size="small"
-                  [loading]="optimizing()" [disabled]="!selectedId" (click)="optimize()"></button>
+            [filter]="true" placeholder="Ver embarque existente" styleClass="pl-select"
+          (onChange)="loadPlan()" appendTo="body"></p-select>
+          <button pButton size="small" [loading]="optimizing()" [disabled]="!selectedId" (click)="optimize()"><span class="p-button-icon p-button-icon-left pi pi-compass" aria-hidden="true"></span><span class="p-button-label">Optimizar ruta</span></button>
         </article>
       </div>
-
-      <ng-container *ngIf="plan() as p">
+    
+      @if (plan(); as p) {
         <div class="sheet cols-12">
           <article class="cell cell-span-12 is-flush">
             <div class="pl-summary">
               <span><code class="comm-code">{{ p.folio }}</code></span>
               <span class="pl-pill" [class.ok]="p.optimized">{{ p.optimized ? 'Optimizada' : 'Sin optimizar' }}</span>
-              <span class="comm-muted is-small">{{ p.stops.length }} paradas<span *ngIf="p.unlocated"> · {{ p.unlocated }} sin ubicación</span></span>
+              <span class="comm-muted is-small">{{ p.stops.length }} paradas@if (p.unlocated) {
+                <span> · {{ p.unlocated }} sin ubicación</span>
+              }</span>
             </div>
             <app-map [markers]="markers()" [path]="pathPoints()" height="500px"></app-map>
           </article>
         </div>
-
-        <div class="sheet cols-12" *ngIf="p.stops.length">
-          <article class="cell cell-span-12 is-flush">
-            <ol class="pl-stops">
-              <li *ngFor="let s of p.stops">
-                <span class="pl-seq">{{ s.sequence_order ?? '—' }}</span>
-                <span class="pl-name">{{ s.customer_name }}</span>
-                <span class="pl-status" [class.done]="s.status === 'entregado'">{{ s.status }}</span>
-              </li>
-            </ol>
+        @if (p.stops.length) {
+          <div class="sheet cols-12">
+            <article class="cell cell-span-12 is-flush">
+              <ol class="pl-stops">
+                @for (s of p.stops; track s) {
+                  <li>
+                    <span class="pl-seq">{{ s.sequence_order ?? '—' }}</span>
+                    <span class="pl-name">{{ s.customer_name }}</span>
+                    <span class="pl-status" [class.done]="s.status === 'entregado'">{{ s.status }}</span>
+                  </li>
+                }
+              </ol>
+            </article>
+          </div>
+        }
+      }
+    
+      @if (selectedId && plan() && !plan()!.stops.length) {
+        <div class="sheet cols-12">
+          <article class="cell cell-span-12">
+            <p class="comm-muted">Este embarque no tiene destinatarios con ubicación. Captura lat/lng en los clientes.</p>
           </article>
         </div>
-      </ng-container>
-
-      <div class="sheet cols-12" *ngIf="selectedId && plan() && !plan()!.stops.length">
-        <article class="cell cell-span-12">
-          <p class="comm-muted">Este embarque no tiene destinatarios con ubicación. Captura lat/lng en los clientes.</p>
-        </article>
-      </div>
+      }
     </div>
-  `,
+    `,
   styles: [`
     :host { display:block; }
     .pl-eyebrow { display:inline-flex; align-items:center; gap:.35rem; font-size:var(--fs-micro); font-weight:var(--fw-bold); text-transform:uppercase; letter-spacing:.08em; color:var(--c-text-2); margin-bottom:.35rem; }

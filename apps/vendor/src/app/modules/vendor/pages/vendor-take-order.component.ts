@@ -10,8 +10,9 @@ import {
   effect,
   inject,
   signal,
+  DOCUMENT
 } from '@angular/core';
-import { CommonModule, DOCUMENT } from '@angular/common';
+import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
 import { ButtonModule } from 'primeng/button';
@@ -54,82 +55,91 @@ const foldText = (s: string | null | undefined): string =>
   ],
   providers: [ConfirmationService, MessageService],
   template: `
-    <p-confirmDialog></p-confirmDialog>
-
+    <p-confirmdialog></p-confirmdialog>
+    
     <!-- Header sticky -->
-    <header class="to-head" *ngIf="customer() as c">
-      <button class="bk" (click)="back()" aria-label="Volver"><i class="pi pi-arrow-left"></i></button>
-      <span class="av">{{ initials(c.name) }}</span>
-      <div class="ci">
-        <div class="nm">{{ c.name }}</div>
-        <div class="cd">{{ c.code }}</div>
-      </div>
-      <span class="mode fut"><i class="pi pi-calendar"></i> Preventa</span>
-      <button class="more" (click)="actionsOpen.set(true)" aria-label="Más acciones"><i class="pi pi-ellipsis-v"></i></button>
-    </header>
-
-    <p-skeleton *ngIf="loading()" height="500px" styleClass="mt"></p-skeleton>
-
-    <ng-container *ngIf="!loading() && customer()">
+    @if (customer(); as c) {
+      <header class="to-head">
+        <button class="bk" (click)="back()" aria-label="Volver"><i class="pi pi-arrow-left"></i></button>
+        <span class="av">{{ initials(c.name) }}</span>
+        <div class="ci">
+          <div class="nm">{{ c.name }}</div>
+          <div class="cd">{{ c.code }}</div>
+        </div>
+        <span class="mode fut"><i class="pi pi-calendar"></i> Preventa</span>
+        <button class="more" (click)="actionsOpen.set(true)" aria-label="Más acciones"><i class="pi pi-ellipsis-v"></i></button>
+      </header>
+    }
+    
+    @if (loading()) {
+      <p-skeleton height="500px" styleClass="mt"></p-skeleton>
+    }
+    
+    @if (!loading() && customer()) {
       <div class="scroll">
         <!-- Modo offline: el pedido se arma local y se sincroniza al reconectar -->
-        <div class="offline-banner" *ngIf="offlineMode()">
-          <i class="pi pi-cloud-upload"></i>
-          <div class="ob-body">
-            <b>Sin conexión</b>
-            <span>El pedido se guarda y se envía solo al recuperar señal. El total puede ajustarse con promos al sincronizar.</span>
+        @if (offlineMode()) {
+          <div class="offline-banner">
+            <i class="pi pi-cloud-upload"></i>
+            <div class="ob-body">
+              <b>Sin conexión</b>
+              <span>El pedido se guarda y se envía solo al recuperar señal. El total puede ajustarse con promos al sincronizar.</span>
+            </div>
           </div>
-        </div>
-
+        }
         <!-- Aviso: el cliente ya tiene un pedido pendiente (preventa/portal o de campo) -->
-        <div class="pending-warn" *ngIf="!pendingDismissed() && pendingOrders().length > 0">
-          <i class="pi pi-exclamation-triangle"></i>
-          <div class="pw-body">
-            <b>
-              Ya tiene
-              {{ pendingOrders().length === 1 ? (hasPreventa() ? 'una preventa' : 'un pedido') : pendingOrders().length + ' pedidos' }}
-              pendiente{{ pendingOrders().length === 1 ? '' : 's' }}
-            </b>
-            <span>{{ fmtMoney(pendingTotal()) }}{{ hasPreventa() ? ' · del portal' : '' }} — revisá antes de duplicar</span>
+        @if (!pendingDismissed() && pendingOrders().length > 0) {
+          <div class="pending-warn">
+            <i class="pi pi-exclamation-triangle"></i>
+            <div class="pw-body">
+              <b>
+                Ya tiene
+                {{ pendingOrders().length === 1 ? (hasPreventa() ? 'una preventa' : 'un pedido') : pendingOrders().length + ' pedidos' }}
+                pendiente{{ pendingOrders().length === 1 ? '' : 's' }}
+              </b>
+              <span>{{ fmtMoney(pendingTotal()) }}{{ hasPreventa() ? ' · del portal' : '' }} — revisá antes de duplicar</span>
+            </div>
+            <div class="pw-actions">
+              <button class="pw-see" (click)="goPending()">Ver</button>
+              <button class="pw-x" (click)="pendingDismissed.set(true)">Continuar</button>
+            </div>
           </div>
-          <div class="pw-actions">
-            <button class="pw-see" (click)="goPending()">Ver</button>
-            <button class="pw-x" (click)="pendingDismissed.set(true)">Continuar</button>
-          </div>
-        </div>
-
+        }
         <!-- Oferta de pedido sugerido (opt-in: no se arma solo) -->
-        <div class="prefill-note offer" *ngIf="showPrefillOffer()">
-          <i class="pi pi-bolt"></i>
-          <div class="pn-body">
-            <b>¿Cargar pedido sugerido?</b>
-            <span>{{ predictedLines().length }} productos según lo que suele pedir.</span>
+        @if (showPrefillOffer()) {
+          <div class="prefill-note offer">
+            <i class="pi pi-bolt"></i>
+            <div class="pn-body">
+              <b>¿Cargar pedido sugerido?</b>
+              <span>{{ predictedLines().length }} productos según lo que suele pedir.</span>
+            </div>
+            <div class="pn-actions">
+              <button class="pn-yes" (click)="usePrefill()">Cargar</button>
+              <button (click)="prefillDismissed.set(true)">No</button>
+            </div>
           </div>
-          <div class="pn-actions">
-            <button class="pn-yes" (click)="usePrefill()">Cargar</button>
-            <button (click)="prefillDismissed.set(true)">No</button>
-          </div>
-        </div>
-
+        }
         <!-- Pedido sugerido pre-cargado -->
-        <div class="prefill-note loading" *ngIf="prefilling()">
-          <i class="pi pi-spin pi-spinner"></i> Armando pedido sugerido…
-        </div>
-        <div class="prefill-note" *ngIf="prefilled() && !prefilling() && cartLines().length">
-          <i class="pi pi-bolt"></i>
-          <div class="pn-body">
-            <b>Pedido sugerido cargado</b>
-            <span>Según lo que suele pedir. Ajustá cantidades y confirmá.</span>
+        @if (prefilling()) {
+          <div class="prefill-note loading">
+            <i class="pi pi-spin pi-spinner"></i> Armando pedido sugerido…
           </div>
-          <button (click)="clearOrder()">Vaciar</button>
-        </div>
-
+        }
+        @if (prefilled() && !prefilling() && cartLines().length) {
+          <div class="prefill-note">
+            <i class="pi pi-bolt"></i>
+            <div class="pn-body">
+              <b>Pedido sugerido cargado</b>
+              <span>Según lo que suele pedir. Ajustá cantidades y confirmá.</span>
+            </div>
+            <button (click)="clearOrder()">Vaciar</button>
+          </div>
+        }
         <!-- Fecha de entrega (preventa) -->
         <div class="date-row">
           <label><i class="pi pi-calendar"></i> Fecha de entrega</label>
           <input type="date" [(ngModel)]="requestedDate" [min]="minDate" class="date-input" />
         </div>
-
         <!-- Search + dictar pedido -->
         <div class="search">
           <i class="pi pi-search"></i>
@@ -137,276 +147,330 @@ const foldText = (s: string | null | undefined): string =>
             [ngModel]="searchTerm()" (ngModelChange)="searchTerm.set($event)"
             inputmode="search" enterkeyhint="search"
             autocapitalize="none" autocorrect="off" spellcheck="false" />
-          <button *ngIf="voiceSupported && !offlineMode()" class="mic" [class.on]="listening()"
-            (click)="listening() ? stopVoice() : startVoice()"
-            [attr.aria-label]="listening() ? 'Detener dictado' : 'Dictar pedido por voz'">
-            <i class="pi" [ngClass]="listening() ? 'pi-stop-circle' : 'pi-microphone'"></i>
-          </button>
-        </div>
-
-        <!-- Banner de escucha (transcripción en vivo) -->
-        <div class="voice-live" *ngIf="listening()" (click)="stopVoice()">
-          <span class="dot"></span>
-          <span class="vt">{{ voiceTranscript() || 'Escuchando… nombrá producto y cantidad' }}</span>
-          <button (click)="stopVoice(); $event.stopPropagation()">Listo</button>
-        </div>
-
-        <!-- Order pad: con búsqueda → resultados; sin búsqueda → Habituales + Sugeridos -->
-        <ng-container *ngIf="searchTerm().trim(); else padView">
-          <div class="list-head">
-            <span class="lh-t">{{ displayed().length }}{{ searchCapped() ? '+' : '' }} resultado{{ displayed().length === 1 ? '' : 's' }}</span>
-            <span class="lh-s">de {{ pricedCount() }} productos</span>
+            @if (voiceSupported && !offlineMode()) {
+              <button class="mic" [class.on]="listening()"
+                (click)="listening() ? stopVoice() : startVoice()"
+                [attr.aria-label]="listening() ? 'Detener dictado' : 'Dictar pedido por voz'">
+                <i class="pi" [ngClass]="listening() ? 'pi-stop-circle' : 'pi-microphone'"></i>
+              </button>
+            }
           </div>
-          <div class="catalog">
-            <div class="no-res" *ngIf="displayed().length === 0">
-              <i class="pi pi-search"></i>
-              <p>Sin resultados para "{{ searchTerm() }}".</p>
+          <!-- Banner de escucha (transcripción en vivo) -->
+          @if (listening()) {
+            <div class="voice-live" (click)="stopVoice()">
+              <span class="dot"></span>
+              <span class="vt">{{ voiceTranscript() || 'Escuchando… nombrá producto y cantidad' }}</span>
+              <button (click)="stopVoice(); $event.stopPropagation()">Listo</button>
             </div>
-            <ng-container *ngFor="let p of displayed(); trackBy: trackProduct">
-              <ng-container *ngTemplateOutlet="prodRow; context: { $implicit: p }"></ng-container>
-            </ng-container>
-          </div>
-        </ng-container>
-
-        <ng-template #padView>
-          <!-- Lo que suele pedir (habituales del cliente + lo ya agregado) -->
-          <ng-container *ngIf="habitualRows().length">
+          }
+          <!-- Order pad: con búsqueda → resultados; sin búsqueda → Habituales + Sugeridos -->
+          @if (searchTerm().trim()) {
             <div class="list-head">
-              <span class="lh-t"><i class="pi pi-history"></i> Lo que suele pedir</span>
-              <span class="lh-s">{{ habitualRows().length }} · escribí cantidades</span>
+              <span class="lh-t">{{ displayed().length }}{{ searchCapped() ? '+' : '' }} resultado{{ displayed().length === 1 ? '' : 's' }}</span>
+              <span class="lh-s">de {{ pricedCount() }} productos</span>
             </div>
             <div class="catalog">
-              <ng-container *ngFor="let p of habitualRows(); trackBy: trackProduct">
+              @if (displayed().length === 0) {
+                <div class="no-res">
+                  <i class="pi pi-search"></i>
+                  <p>Sin resultados para "{{ searchTerm() }}".</p>
+                </div>
+              }
+              @for (p of displayed(); track trackProduct($index, p)) {
                 <ng-container *ngTemplateOutlet="prodRow; context: { $implicit: p }"></ng-container>
-              </ng-container>
+              }
             </div>
-          </ng-container>
-
-          <!-- Sugeridos (Thot / motor) -->
-          <ng-container *ngIf="suggestRows().length">
-            <div class="list-head sug">
-              <span class="lh-t"><i class="pi pi-sparkles"></i> Sugeridos</span>
-              <span class="lh-s">{{ usingThot() ? 'Thot' : 'motor' }} · buscá para ver los {{ pricedCount() }}</span>
-            </div>
-            <div class="catalog">
-              <ng-container *ngFor="let p of suggestRows(); trackBy: trackProduct">
-                <ng-container *ngTemplateOutlet="prodRow; context: { $implicit: p }"></ng-container>
-              </ng-container>
-            </div>
-          </ng-container>
-
-          <div class="no-res" *ngIf="!habitualRows().length && !suggestRows().length">
-            <i class="pi pi-search"></i>
-            <p>Buscá un producto para empezar el pedido.</p>
-          </div>
-        </ng-template>
-
-        <!-- Fila de producto (reusada en búsqueda / habituales / sugeridos) -->
-        <ng-template #prodRow let-p>
-          <div class="prod" [class.in]="cartQty(p.product_id) > 0">
-            <div class="ph"><i class="pi pi-box"></i></div>
-            <div
-              class="pb"
-              [class.tappable]="hasPitch(p)"
-              [attr.role]="hasPitch(p) ? 'button' : null"
-              [attr.tabindex]="hasPitch(p) ? 0 : null"
-              (click)="hasPitch(p) && openPitch(p)"
-              (keydown.enter)="hasPitch(p) && openPitch(p)"
-              (keydown.space)="hasPitch(p) && openPitch(p); hasPitch(p) && $event.preventDefault()"
-            >
-              <div class="pn">{{ p.product_name }}</div>
-              <div class="pm">
-                <span class="rsn" *ngIf="!searchTerm().trim() && reasonFor(p.product_id) as rsn"><i class="pi pi-sparkles"></i> {{ rsn }}</span>
-                <span class="pr">{{ fmtMoney(p.price) }}</span>
-                <span *ngIf="p.min_qty > 1">· min {{ p.min_qty }}</span>
-                <span class="stk" [ngClass]="stockClass(p)" *ngIf="p.stock_available != null">{{ stockLabel(p) }}</span>
-                <span class="rot" *ngIf="p.rotation_tier === 'alta' && !reasonFor(p.product_id)"><i class="pi pi-bolt"></i> Alta rotación</span>
-                <span class="why" *ngIf="hasPitch(p)"><i class="pi pi-comment"></i> por qué</span>
+          } @else {
+            <!-- Lo que suele pedir (habituales del cliente + lo ya agregado) -->
+            @if (habitualRows().length) {
+              <div class="list-head">
+                <span class="lh-t"><i class="pi pi-history"></i> Lo que suele pedir</span>
+                <span class="lh-s">{{ habitualRows().length }} · escribí cantidades</span>
               </div>
-            </div>
-            <div class="row-stepper" [class.empty]="cartQty(p.product_id) === 0">
-              <button (click)="decProduct(p)" [disabled]="cartQty(p.product_id) === 0" aria-label="Menos">−</button>
-              <input class="qin" type="number" inputmode="numeric" min="0" step="1"
-                [ngModel]="cartQty(p.product_id) || null"
-                (change)="setQtyTyped(p, $any($event.target).value)"
-                (focus)="$any($event.target).select()"
-                placeholder="0" aria-label="Cantidad" />
-              <button (click)="incProduct(p)" [disabled]="!!adding()[p.product_id]" aria-label="Más">+</button>
-            </div>
-          </div>
-        </ng-template>
-
-        <div class="empty-cart" *ngIf="cartLines().length === 0">
-          <i class="pi pi-shopping-cart"></i>
-          <p>Tocá <b>+</b> en un producto para empezar el pedido.</p>
-        </div>
-      </div>
-
-      <!-- Barra de carrito (zona del pulgar): abrir pedido | cobrar -->
-      <div class="cartbar" *ngIf="cartLines().length > 0">
-        <button class="cb-open" (click)="cartOpen.set(true)" aria-label="Ver pedido">
-          <span class="cb-count">{{ cartLines().length }}</span>
-          <span class="cb-info">
-            <b>{{ fmtMoney(cartTotal()) }}</b>
-            <span>{{ cartUnitsTotal() }} u · {{ cartLines().length }} SKU · ver pedido</span>
-          </span>
-          <i class="pi pi-chevron-up"></i>
-        </button>
-        <button class="cb-go" [disabled]="submitting()" (click)="submit()">
-          Agendar
-          <i class="pi" [ngClass]="submitting() ? 'pi-spin pi-spinner' : 'pi-arrow-right'"></i>
-        </button>
-      </div>
-
-      <!-- Sheet de pedido: lo seleccionado, con cantidades editables -->
-      <div class="sheet-backdrop" *ngIf="cartOpen()" (click)="cartOpen.set(false)"></div>
-      <section class="cart-sheet" *ngIf="cartOpen()" role="dialog" aria-modal="true" aria-labelledby="cart-sheet-title" tabindex="-1">
-        <div class="sh-head">
-          <div class="sh-title">
-            <h2 id="cart-sheet-title">Tu pedido</h2>
-            <span>{{ cartLines().length }} SKU · {{ cartUnitsTotal() }} u</span>
-          </div>
-          <button class="sh-x" (click)="cartOpen.set(false)" aria-label="Cerrar"><i class="pi pi-times"></i></button>
-        </div>
-        <div class="sh-lines">
-          <div class="cline" *ngFor="let l of visibleCartLines(); trackBy: trackLine">
-            <div class="cl-info">
-              <div class="cl-n">{{ productNameById(l.product_id) }}</div>
-              <div class="cl-t">{{ fmtMoney(l.line_total) }}</div>
-            </div>
-            <div class="stepper">
-              <button (click)="dec(l)" aria-label="Menos">−</button>
-              <span class="q">{{ cartQty(l.product_id) }}</span>
-              <button (click)="inc(l)" aria-label="Más">+</button>
-            </div>
-            <button class="rm" (click)="removeLine(l)" aria-label="Quitar"><i class="pi pi-trash"></i></button>
-          </div>
-        </div>
-        <div class="sh-foot">
-          <div class="totals">
-            <div class="row"><span>Subtotal</span><b>{{ fmtMoney(cartSubtotal()) }}</b></div>
-            <div class="row"><span>IVA</span><b>{{ fmtMoney(cartTaxTotal()) }}</b></div>
-            <div class="row mg-row" *ngIf="cartMarginPct() !== null"><span>Margen aprox.</span><b [class.neg]="cartMarginPct()! < 0">{{ cartMarginPct() }}%</b></div>
-            <div class="row total"><span>Total</span><b>{{ fmtMoney(cartTotal()) }}</b></div>
-          </div>
-          <button class="sh-go" [disabled]="submitting()" (click)="submit()">
-            Agendar pedido
-            <i class="pi" [ngClass]="submitting() ? 'pi-spin pi-spinner' : 'pi-arrow-right'"></i>
-          </button>
-          <button class="cancel" (click)="cancelDraft()"><i class="pi pi-trash"></i> Cancelar borrador</button>
-        </div>
-      </section>
-
-      <!-- Sheet "por qué ofrecerlo": speech para el vendedor -->
-      <div class="sheet-backdrop" *ngIf="pitch()" (click)="pitch.set(null)"></div>
-      <section class="pitch-sheet" *ngIf="pitch() as pp" role="dialog" aria-modal="true" aria-labelledby="pitch-sheet-title" tabindex="-1">
-        <div class="sh-head">
-          <div class="sh-title"><h2 id="pitch-sheet-title">Por qué ofrecerlo</h2><span>{{ pp.product_name }}</span></div>
-          <button class="sh-x" (click)="pitch.set(null)" aria-label="Cerrar"><i class="pi pi-times"></i></button>
-        </div>
-        <ul class="pitch-lines">
-          <li *ngFor="let l of pitchLines(pp)"><i class="pi pi-check"></i><span>{{ l }}</span></li>
-        </ul>
-        <div class="pitch-phrase">
-          <span class="pp-lbl"><i class="pi pi-comment"></i> Decile al cliente</span>
-          <p>{{ pitchPhrase(pp) }}</p>
-        </div>
-        <button class="sh-go" (click)="addFromPitch(pp)"><i class="pi pi-plus"></i> Agregar al pedido</button>
-      </section>
-
-      <!-- Sheet de confirmación del pedido por voz -->
-      <div class="sheet-backdrop" *ngIf="voiceOpen()" (click)="closeVoice()"></div>
-      <section class="cart-sheet voice-sheet" *ngIf="voiceOpen()" role="dialog" aria-modal="true" aria-labelledby="voice-sheet-title" tabindex="-1">
-        <div class="sh-head">
-          <div class="sh-title">
-            <h2 id="voice-sheet-title">Lo que entendí</h2>
-            <span *ngIf="!voiceLoading()">{{ voiceItems().length }} producto{{ voiceItems().length === 1 ? '' : 's' }}</span>
-          </div>
-          <button class="sh-x" (click)="closeVoice()" aria-label="Cerrar"><i class="pi pi-times"></i></button>
-        </div>
-
-        <div class="voice-transcript" *ngIf="voiceTranscript()"><i class="pi pi-comment"></i> "{{ voiceTranscript() }}"</div>
-        <div class="voice-state" *ngIf="voiceLoading()"><i class="pi pi-spin pi-spinner"></i> Interpretando el dictado…</div>
-        <div class="voice-state err" *ngIf="voiceError()"><i class="pi pi-exclamation-circle"></i> {{ voiceError() }}</div>
-
-        <ng-container *ngIf="!voiceLoading()">
-          <p class="voice-msg" *ngIf="voiceMsg() && !voiceItems().length">{{ voiceMsg() }}</p>
-
-          <div class="sh-lines" *ngIf="voiceItems().length">
-            <div class="cline" *ngFor="let it of voiceItems(); trackBy: trackVoice">
-              <div class="cl-info">
-                <div class="cl-n">{{ it.product_name }}</div>
-                <div class="cl-t">{{ fmtMoney(it.unit_price) }} c/u<span *ngIf="it.min_qty > 1"> · min {{ it.min_qty }}</span></div>
+              <div class="catalog">
+                @for (p of habitualRows(); track trackProduct($index, p)) {
+                  <ng-container *ngTemplateOutlet="prodRow; context: { $implicit: p }"></ng-container>
+                }
               </div>
-              <div class="stepper">
-                <button (click)="voiceDec(it)" aria-label="Menos">−</button>
+            }
+            <!-- Sugeridos (Thot / motor) -->
+            @if (suggestRows().length) {
+              <div class="list-head sug">
+                <span class="lh-t"><i class="pi pi-sparkles"></i> Sugeridos</span>
+                <span class="lh-s">{{ usingThot() ? 'Thot' : 'motor' }} · buscá para ver los {{ pricedCount() }}</span>
+              </div>
+              <div class="catalog">
+                @for (p of suggestRows(); track trackProduct($index, p)) {
+                  <ng-container *ngTemplateOutlet="prodRow; context: { $implicit: p }"></ng-container>
+                }
+              </div>
+            }
+            @if (!habitualRows().length && !suggestRows().length) {
+              <div class="no-res">
+                <i class="pi pi-search"></i>
+                <p>Buscá un producto para empezar el pedido.</p>
+              </div>
+            }
+          }
+          <!-- Fila de producto (reusada en búsqueda / habituales / sugeridos) -->
+          <ng-template #prodRow let-p>
+            <div class="prod" [class.in]="cartQty(p.product_id) > 0">
+              <div class="ph"><i class="pi pi-box"></i></div>
+              <div
+                class="pb"
+                [class.tappable]="hasPitch(p)"
+                [attr.role]="hasPitch(p) ? 'button' : null"
+                [attr.tabindex]="hasPitch(p) ? 0 : null"
+                (click)="hasPitch(p) && openPitch(p)"
+                (keydown.enter)="hasPitch(p) && openPitch(p)"
+                (keydown.space)="hasPitch(p) && openPitch(p); hasPitch(p) && $event.preventDefault()"
+                >
+                <div class="pn">{{ p.product_name }}</div>
+                <div class="pm">
+                  @if (!searchTerm().trim() && reasonFor(p.product_id); as rsn) {
+                    <span class="rsn"><i class="pi pi-sparkles"></i> {{ rsn }}</span>
+                  }
+                  <span class="pr">{{ fmtMoney(p.price) }}</span>
+                  @if (p.min_qty > 1) {
+                    <span>· min {{ p.min_qty }}</span>
+                  }
+                  @if (p.stock_available != null) {
+                    <span class="stk" [ngClass]="stockClass(p)">{{ stockLabel(p) }}</span>
+                  }
+                  @if (p.rotation_tier === 'alta' && !reasonFor(p.product_id)) {
+                    <span class="rot"><i class="pi pi-bolt"></i> Alta rotación</span>
+                  }
+                  @if (hasPitch(p)) {
+                    <span class="why"><i class="pi pi-comment"></i> por qué</span>
+                  }
+                </div>
+              </div>
+              <div class="row-stepper" [class.empty]="cartQty(p.product_id) === 0">
+                <button (click)="decProduct(p)" [disabled]="cartQty(p.product_id) === 0" aria-label="Menos">−</button>
                 <input class="qin" type="number" inputmode="numeric" min="0" step="1"
-                  [ngModel]="it.qty" (change)="voiceSetQty(it, $any($event.target).value)" aria-label="Cantidad" />
-                <button (click)="voiceInc(it)" aria-label="Más">+</button>
+                  [ngModel]="cartQty(p.product_id) || null"
+                  (change)="setQtyTyped(p, $any($event.target).value)"
+                  (focus)="$any($event.target).select()"
+                  placeholder="0" aria-label="Cantidad" />
+                  <button (click)="incProduct(p)" [disabled]="!!adding()[p.product_id]" aria-label="Más">+</button>
+                </div>
               </div>
-              <button class="rm" (click)="voiceRemove(it)" aria-label="Quitar"><i class="pi pi-trash"></i></button>
+            </ng-template>
+            @if (cartLines().length === 0) {
+              <div class="empty-cart">
+                <i class="pi pi-shopping-cart"></i>
+                <p>Tocá <b>+</b> en un producto para empezar el pedido.</p>
+              </div>
+            }
+          </div>
+          <!-- Barra de carrito (zona del pulgar): abrir pedido | cobrar -->
+          @if (cartLines().length > 0) {
+            <div class="cartbar">
+              <button class="cb-open" (click)="cartOpen.set(true)" aria-label="Ver pedido">
+                <span class="cb-count">{{ cartLines().length }}</span>
+                <span class="cb-info">
+                  <b>{{ fmtMoney(cartTotal()) }}</b>
+                  <span>{{ cartUnitsTotal() }} u · {{ cartLines().length }} SKU · ver pedido</span>
+                </span>
+                <i class="pi pi-chevron-up"></i>
+              </button>
+              <button class="cb-go" [disabled]="submitting()" (click)="submit()">
+                Agendar
+                <i class="pi" [ngClass]="submitting() ? 'pi-spin pi-spinner' : 'pi-arrow-right'"></i>
+              </button>
             </div>
-          </div>
-
-          <div class="sh-foot" *ngIf="voiceItems().length">
-            <div class="totals"><div class="row total"><span>Subtotal</span><b>{{ fmtMoney(voiceTotal()) }}</b></div></div>
-            <button class="sh-go" [disabled]="voiceLoading()" (click)="applyVoiceItems()"><i class="pi pi-check"></i> Agregar al pedido</button>
-            <button class="cancel" *ngIf="voiceSupported" (click)="retryVoice()"><i class="pi pi-microphone"></i> Dictar de nuevo</button>
-          </div>
-
-          <div class="voice-empty" *ngIf="!voiceItems().length && !voiceError()">
-            <i class="pi pi-microphone"></i>
-            <p>No entendí productos. Nombrá producto y cantidad, ej. «cinco cajas de paleta payaso».</p>
-            <button class="sh-go" *ngIf="voiceSupported" (click)="retryVoice()"><i class="pi pi-microphone"></i> Dictar de nuevo</button>
-          </div>
-        </ng-container>
-      </section>
-
-      <!-- Sheet de acciones de la visita (···) -->
-      <div class="sheet-backdrop" *ngIf="actionsOpen()" (click)="actionsOpen.set(false)"></div>
-      <section class="act-sheet" *ngIf="actionsOpen()" role="dialog" aria-modal="true" aria-labelledby="act-sheet-title" tabindex="-1">
-        <div class="sh-head">
-          <div class="sh-title"><h2 id="act-sheet-title">Acciones de la visita</h2></div>
-          <button class="sh-x" (click)="actionsOpen.set(false)" aria-label="Cerrar"><i class="pi pi-times"></i></button>
-        </div>
-        <button class="act-row" (click)="goCaptureExhibit()">
-          <i class="pi pi-camera"></i><span class="lbl">Capturar exhibición <small>Foto del punto de venta</small></span><i class="pi pi-chevron-right ch"></i>
-        </button>
-        <button class="act-row danger" (click)="openFinish()">
-          <i class="pi pi-flag"></i><span class="lbl">Finalizar visita <small>Registrar el resultado</small></span><i class="pi pi-chevron-right ch"></i>
-        </button>
-      </section>
-
-      <!-- Sheet de resultado de visita (terminar) -->
-      <div class="sheet-backdrop" *ngIf="finishOpen()" (click)="finishOpen.set(false)"></div>
-      <section class="finish-sheet" *ngIf="finishOpen()" role="dialog" aria-modal="true" aria-labelledby="finish-sheet-title" tabindex="-1">
-        <div class="sh-head">
-          <div class="sh-title"><h2 id="finish-sheet-title">¿Cómo finalizó la visita?</h2></div>
-          <button class="sh-x" (click)="finishOpen.set(false)" aria-label="Cerrar"><i class="pi pi-times"></i></button>
-        </div>
-
-        <button class="fin-opt" [class.on]="finishOutcome() === 'venta'" (click)="finishOutcome.set('venta')">
-          <i class="pi pi-check-circle"></i>
-          <span class="lbl">Venta directa <small>Capturé o voy a capturar el ticket</small></span>
-        </button>
-        <button class="fin-opt" [class.on]="finishOutcome() === 'no_venta'" (click)="finishOutcome.set('no_venta')">
-          <i class="pi pi-times-circle"></i>
-          <span class="lbl">No compró <small>Elegí el motivo</small></span>
-        </button>
-
-        <div class="reasons" *ngIf="finishOutcome() === 'no_venta'">
-          <button *ngFor="let r of noSaleReasons" class="rsn-chip" [class.on]="noSaleReason() === r.key" (click)="noSaleReason.set(r.key)">
-            {{ r.label }}
-          </button>
-        </div>
-
-        <button class="sh-go" [disabled]="finishing() || !canFinish()" (click)="confirmFinish()">
-          <i class="pi" [ngClass]="finishing() ? 'pi-spin pi-spinner' : 'pi-flag'"></i>
-          Finalizar visita
-        </button>
-      </section>
-    </ng-container>
-  `,
+          }
+          <!-- Sheet de pedido: lo seleccionado, con cantidades editables -->
+          @if (cartOpen()) {
+            <div class="sheet-backdrop" (click)="cartOpen.set(false)"></div>
+          }
+          @if (cartOpen()) {
+            <section class="cart-sheet" role="dialog" aria-modal="true" aria-labelledby="cart-sheet-title" tabindex="-1">
+              <div class="sh-head">
+                <div class="sh-title">
+                  <h2 id="cart-sheet-title">Tu pedido</h2>
+                  <span>{{ cartLines().length }} SKU · {{ cartUnitsTotal() }} u</span>
+                </div>
+                <button class="sh-x" (click)="cartOpen.set(false)" aria-label="Cerrar"><i class="pi pi-times"></i></button>
+              </div>
+              <div class="sh-lines">
+                @for (l of visibleCartLines(); track trackLine($index, l)) {
+                  <div class="cline">
+                    <div class="cl-info">
+                      <div class="cl-n">{{ productNameById(l.product_id) }}</div>
+                      <div class="cl-t">{{ fmtMoney(l.line_total) }}</div>
+                    </div>
+                    <div class="stepper">
+                      <button (click)="dec(l)" aria-label="Menos">−</button>
+                      <span class="q">{{ cartQty(l.product_id) }}</span>
+                      <button (click)="inc(l)" aria-label="Más">+</button>
+                    </div>
+                    <button class="rm" (click)="removeLine(l)" aria-label="Quitar"><i class="pi pi-trash"></i></button>
+                  </div>
+                }
+              </div>
+              <div class="sh-foot">
+                <div class="totals">
+                  <div class="row"><span>Subtotal</span><b>{{ fmtMoney(cartSubtotal()) }}</b></div>
+                  <div class="row"><span>IVA</span><b>{{ fmtMoney(cartTaxTotal()) }}</b></div>
+                  @if (cartMarginPct() !== null) {
+                    <div class="row mg-row"><span>Margen aprox.</span><b [class.neg]="cartMarginPct()! < 0">{{ cartMarginPct() }}%</b></div>
+                  }
+                  <div class="row total"><span>Total</span><b>{{ fmtMoney(cartTotal()) }}</b></div>
+                </div>
+                <button class="sh-go" [disabled]="submitting()" (click)="submit()">
+                  Agendar pedido
+                  <i class="pi" [ngClass]="submitting() ? 'pi-spin pi-spinner' : 'pi-arrow-right'"></i>
+                </button>
+                <button class="cancel" (click)="cancelDraft()"><i class="pi pi-trash"></i> Cancelar borrador</button>
+              </div>
+            </section>
+          }
+          <!-- Sheet "por qué ofrecerlo": speech para el vendedor -->
+          @if (pitch()) {
+            <div class="sheet-backdrop" (click)="pitch.set(null)"></div>
+          }
+          @if (pitch(); as pp) {
+            <section class="pitch-sheet" role="dialog" aria-modal="true" aria-labelledby="pitch-sheet-title" tabindex="-1">
+              <div class="sh-head">
+                <div class="sh-title"><h2 id="pitch-sheet-title">Por qué ofrecerlo</h2><span>{{ pp.product_name }}</span></div>
+                <button class="sh-x" (click)="pitch.set(null)" aria-label="Cerrar"><i class="pi pi-times"></i></button>
+              </div>
+              <ul class="pitch-lines">
+                @for (l of pitchLines(pp); track l) {
+                  <li><i class="pi pi-check"></i><span>{{ l }}</span></li>
+                }
+              </ul>
+              <div class="pitch-phrase">
+                <span class="pp-lbl"><i class="pi pi-comment"></i> Decile al cliente</span>
+                <p>{{ pitchPhrase(pp) }}</p>
+              </div>
+              <button class="sh-go" (click)="addFromPitch(pp)"><i class="pi pi-plus"></i> Agregar al pedido</button>
+            </section>
+          }
+          <!-- Sheet de confirmación del pedido por voz -->
+          @if (voiceOpen()) {
+            <div class="sheet-backdrop" (click)="closeVoice()"></div>
+          }
+          @if (voiceOpen()) {
+            <section class="cart-sheet voice-sheet" role="dialog" aria-modal="true" aria-labelledby="voice-sheet-title" tabindex="-1">
+              <div class="sh-head">
+                <div class="sh-title">
+                  <h2 id="voice-sheet-title">Lo que entendí</h2>
+                  @if (!voiceLoading()) {
+                    <span>{{ voiceItems().length }} producto{{ voiceItems().length === 1 ? '' : 's' }}</span>
+                  }
+                </div>
+                <button class="sh-x" (click)="closeVoice()" aria-label="Cerrar"><i class="pi pi-times"></i></button>
+              </div>
+              @if (voiceTranscript()) {
+                <div class="voice-transcript"><i class="pi pi-comment"></i> "{{ voiceTranscript() }}"</div>
+              }
+              @if (voiceLoading()) {
+                <div class="voice-state"><i class="pi pi-spin pi-spinner"></i> Interpretando el dictado…</div>
+              }
+              @if (voiceError()) {
+                <div class="voice-state err"><i class="pi pi-exclamation-circle"></i> {{ voiceError() }}</div>
+              }
+              @if (!voiceLoading()) {
+                @if (voiceMsg() && !voiceItems().length) {
+                  <p class="voice-msg">{{ voiceMsg() }}</p>
+                }
+                @if (voiceItems().length) {
+                  <div class="sh-lines">
+                    @for (it of voiceItems(); track trackVoice($index, it)) {
+                      <div class="cline">
+                        <div class="cl-info">
+                          <div class="cl-n">{{ it.product_name }}</div>
+                          <div class="cl-t">{{ fmtMoney(it.unit_price) }} c/u@if (it.min_qty > 1) {
+                            <span> · min {{ it.min_qty }}</span>
+                          }</div>
+                        </div>
+                        <div class="stepper">
+                          <button (click)="voiceDec(it)" aria-label="Menos">−</button>
+                          <input class="qin" type="number" inputmode="numeric" min="0" step="1"
+                            [ngModel]="it.qty" (change)="voiceSetQty(it, $any($event.target).value)" aria-label="Cantidad" />
+                            <button (click)="voiceInc(it)" aria-label="Más">+</button>
+                          </div>
+                          <button class="rm" (click)="voiceRemove(it)" aria-label="Quitar"><i class="pi pi-trash"></i></button>
+                        </div>
+                      }
+                    </div>
+                  }
+                  @if (voiceItems().length) {
+                    <div class="sh-foot">
+                      <div class="totals"><div class="row total"><span>Subtotal</span><b>{{ fmtMoney(voiceTotal()) }}</b></div></div>
+                      <button class="sh-go" [disabled]="voiceLoading()" (click)="applyVoiceItems()"><i class="pi pi-check"></i> Agregar al pedido</button>
+                      @if (voiceSupported) {
+                        <button class="cancel" (click)="retryVoice()"><i class="pi pi-microphone"></i> Dictar de nuevo</button>
+                      }
+                    </div>
+                  }
+                  @if (!voiceItems().length && !voiceError()) {
+                    <div class="voice-empty">
+                      <i class="pi pi-microphone"></i>
+                      <p>No entendí productos. Nombrá producto y cantidad, ej. «cinco cajas de paleta payaso».</p>
+                      @if (voiceSupported) {
+                        <button class="sh-go" (click)="retryVoice()"><i class="pi pi-microphone"></i> Dictar de nuevo</button>
+                      }
+                    </div>
+                  }
+                }
+              </section>
+            }
+            <!-- Sheet de acciones de la visita (···) -->
+            @if (actionsOpen()) {
+              <div class="sheet-backdrop" (click)="actionsOpen.set(false)"></div>
+            }
+            @if (actionsOpen()) {
+              <section class="act-sheet" role="dialog" aria-modal="true" aria-labelledby="act-sheet-title" tabindex="-1">
+                <div class="sh-head">
+                  <div class="sh-title"><h2 id="act-sheet-title">Acciones de la visita</h2></div>
+                  <button class="sh-x" (click)="actionsOpen.set(false)" aria-label="Cerrar"><i class="pi pi-times"></i></button>
+                </div>
+                <button class="act-row" (click)="goCaptureExhibit()">
+                  <i class="pi pi-camera"></i><span class="lbl">Capturar exhibición <small>Foto del punto de venta</small></span><i class="pi pi-chevron-right ch"></i>
+                </button>
+                <button class="act-row danger" (click)="openFinish()">
+                  <i class="pi pi-flag"></i><span class="lbl">Finalizar visita <small>Registrar el resultado</small></span><i class="pi pi-chevron-right ch"></i>
+                </button>
+              </section>
+            }
+            <!-- Sheet de resultado de visita (terminar) -->
+            @if (finishOpen()) {
+              <div class="sheet-backdrop" (click)="finishOpen.set(false)"></div>
+            }
+            @if (finishOpen()) {
+              <section class="finish-sheet" role="dialog" aria-modal="true" aria-labelledby="finish-sheet-title" tabindex="-1">
+                <div class="sh-head">
+                  <div class="sh-title"><h2 id="finish-sheet-title">¿Cómo finalizó la visita?</h2></div>
+                  <button class="sh-x" (click)="finishOpen.set(false)" aria-label="Cerrar"><i class="pi pi-times"></i></button>
+                </div>
+                <button class="fin-opt" [class.on]="finishOutcome() === 'venta'" (click)="finishOutcome.set('venta')">
+                  <i class="pi pi-check-circle"></i>
+                  <span class="lbl">Venta directa <small>Capturé o voy a capturar el ticket</small></span>
+                </button>
+                <button class="fin-opt" [class.on]="finishOutcome() === 'no_venta'" (click)="finishOutcome.set('no_venta')">
+                  <i class="pi pi-times-circle"></i>
+                  <span class="lbl">No compró <small>Elegí el motivo</small></span>
+                </button>
+                @if (finishOutcome() === 'no_venta') {
+                  <div class="reasons">
+                    @for (r of noSaleReasons; track r) {
+                      <button class="rsn-chip" [class.on]="noSaleReason() === r.key" (click)="noSaleReason.set(r.key)">
+                        {{ r.label }}
+                      </button>
+                    }
+                  </div>
+                }
+                <button class="sh-go" [disabled]="finishing() || !canFinish()" (click)="confirmFinish()">
+                  <i class="pi" [ngClass]="finishing() ? 'pi-spin pi-spinner' : 'pi-flag'"></i>
+                  Finalizar visita
+                </button>
+              </section>
+            }
+          }
+    `,
   styles: [
     `
       :host { display: block; }
