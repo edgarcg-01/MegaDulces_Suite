@@ -86,7 +86,7 @@ import { OfflineOrderService, PendingOrderSummary } from '../../../core/services
           <div class="empty">
             <i class="pi pi-cloud"></i>
             <p>No se pudo cargar tu día.</p>
-            <button pButton label="Reintentar" icon="pi pi-refresh" severity="secondary" [text]="true" (click)="load()"></button>
+            <button pButton severity="secondary" [text]="true" (click)="load()"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span><span class="p-button-label">Reintentar</span></button>
           </div>
         </p-card>
       }
@@ -96,7 +96,7 @@ import { OfflineOrderService, PendingOrderSummary } from '../../../core/services
           <div class="empty">
             <i class="pi pi-calendar"></i>
             <p>Aún no tomaste pedidos hoy.</p>
-            <a pButton label="Tomar un pedido" icon="pi pi-arrow-right" severity="secondary" [text]="true" routerLink="/vendor/route-home"></a>
+            <a pButton severity="secondary" [text]="true" routerLink="/vendor/route-home"><span class="p-button-icon p-button-icon-left pi pi-arrow-right" aria-hidden="true"></span><span class="p-button-label">Tomar un pedido</span></a>
           </div>
         </p-card>
       }

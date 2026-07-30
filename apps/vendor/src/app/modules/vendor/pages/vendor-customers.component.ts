@@ -118,7 +118,7 @@ import { AuthService } from '../../../core/services/auth.service';
                   <div class="empty">
                     <i class="pi pi-cloud"></i>
                     <p>No se pudo buscar. Revisá tu conexión.</p>
-                    <a pButton label="Reintentar" icon="pi pi-refresh" severity="secondary" [text]="true" (click)="retry()"></a>
+                    <a pButton severity="secondary" [text]="true" (click)="retry()"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span><span class="p-button-label">Reintentar</span></a>
                   </div>
                 }
                 @if (!loading() && !loadError() && customers().length === 0) {
@@ -131,7 +131,7 @@ import { AuthService } from '../../../core/services/auth.service';
                       <p>Escribí para buscar un cliente.</p>
                     }
                     @if (search) {
-                      <a pButton label="Crear cliente nuevo" icon="pi pi-plus" severity="secondary" [text]="true" (click)="toggleForm()"></a>
+                      <a pButton severity="secondary" [text]="true" (click)="toggleForm()"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Crear cliente nuevo</span></a>
                     }
                   </div>
                 }

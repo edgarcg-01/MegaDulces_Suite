@@ -160,9 +160,8 @@ import { AuthStageComponent } from '../ui/auth-stage.component';
                       @if (error()) {
                         <p-message
                           severity="error"
-                          [text]="error()!"
                           styleClass="pl-error"
-                        ></p-message>
+                        >{{ error() }}</p-message>
                       }
                     </div>
     
