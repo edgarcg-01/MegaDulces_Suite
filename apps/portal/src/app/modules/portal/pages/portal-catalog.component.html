@@ -490,7 +490,9 @@ Mismo componente que /home (portal-search-bar). -->
                   >
                   <span class="cat-fab-icon">
                     <i class="pi pi-shopping-bag"></i>
-                    <span class="cat-fab-count" [@badgePop]="cart.cartLineCount()">{{ cart.cartLineCount() }}</span>
+                    @for (n of [cart.cartLineCount()]; track n) {
+                      <span class="cat-fab-count" animate.enter="cat-fab-pop">{{ n }}</span>
+                    }
                   </span>
                   <span class="cat-fab-divider" aria-hidden="true"></span>
                   <span class="cat-fab-label">

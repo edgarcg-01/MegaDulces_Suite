@@ -1,7 +1,6 @@
 import { APP_INITIALIZER, ApplicationConfig, ErrorHandler, provideZoneChangeDetection } from '@angular/core';
 import { provideRouter, withPreloading, withViewTransitions, Router, NavigationEnd } from '@angular/router';
 import { provideHttpClient, withInterceptors, withXhr } from '@angular/common/http';
-import { provideAnimationsAsync } from '@angular/platform-browser/animations/async';
 import { providePrimeNG } from 'primeng/config';
 import Aura from '@primeuix/themes/aura';
 import { ConfirmationService, MessageService } from 'primeng/api';
@@ -25,7 +24,6 @@ export const appConfig: ApplicationConfig = {
     // document.startViewTransition(). El look se define en styles.css
     // (::view-transition-*). Degrada a corte instantáneo donde no hay soporte.
     provideRouter(appRoutes, withPreloading(SelectivePreloadStrategy), withViewTransitions()),
-    provideAnimationsAsync(),
     provideHttpClient(withXhr(), withInterceptors([authInterceptor])),
     providePrimeNG({
       // PrimeNG 22 (PrimeUI) exige license key offline; Community tier. Sin key → banner "Invalid PrimeUI License".
