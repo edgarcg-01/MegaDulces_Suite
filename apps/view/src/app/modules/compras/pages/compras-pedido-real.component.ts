@@ -8,6 +8,7 @@ import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
 import { ToastModule } from 'primeng/toast';
 import { SelectModule } from 'primeng/select';
+import { MultiSelectModule } from 'primeng/multiselect';
 import { InputNumberModule } from 'primeng/inputnumber';
 import { InputTextModule } from 'primeng/inputtext';
 import { IconFieldModule } from 'primeng/iconfield';
@@ -54,7 +55,7 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
   selector: 'app-compras-pedido-real',
   standalone: true,
   imports: [
-    CommonModule, FormsModule, RouterLink, ButtonModule, TableModule, ToastModule, SelectModule,
+    CommonModule, FormsModule, RouterLink, ButtonModule, TableModule, ToastModule, SelectModule, MultiSelectModule,
     InputNumberModule, InputTextModule, IconFieldModule, InputIconModule, TagModule, DialogModule, MetricStripComponent,
     SidePeekComponent,
   ],
@@ -266,6 +267,16 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
                     optionLabel="label" optionValue="value" placeholder="Todos los proveedores" [showClear]="true"
                     [filter]="true" filterBy="label" [virtualScroll]="true" [virtualScrollItemSize]="34"
                     styleClass="pr-sel-wide" ariaLabel="Filtrar por proveedor"></p-select>
+          <div class="pr-seg" role="group" aria-label="Agrupar columnas">
+            <button type="button" class="pr-tab" [class.pr-tab-on]="wbGroup()==='branch'" (click)="wbGroup.set('branch'); loadWorkbook()">Por sucursal</button>
+            <button type="button" class="pr-tab" [class.pr-tab-on]="wbGroup()==='general'" (click)="wbGroup.set('general'); loadWorkbook()">General</button>
+          </div>
+          @if (wbGroup()==='branch') {
+            <p-multiSelect [options]="warehouseOpts()" [(ngModel)]="wbWarehouses" (onChange)="loadWorkbook()"
+                           optionLabel="label" optionValue="value" placeholder="Todas las sucursales" [showClear]="true"
+                           [filter]="true" filterBy="label" [maxSelectedLabels]="2" selectedItemsLabel="{0} sucursales"
+                           styleClass="pr-sel" ariaLabel="Sucursales a mostrar como columnas"></p-multiSelect>
+          }
           <p-iconfield styleClass="pr-search">
             <p-inputicon styleClass="pi pi-search" />
             <input pInputText type="text" [(ngModel)]="search" (keyup.enter)="loadWorkbook()" placeholder="SKU o producto…" aria-label="Buscar producto" />
@@ -489,6 +500,7 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
     .pr-bulk-n { font-size: .84rem; color: var(--text-main); font-variant-numeric: tabular-nums; }
     .pr-bulk-sp { flex: 1; }
     /* RA-PRO.32 — vista Excel (workbook) */
+    .pr-seg { display: inline-flex; gap: .15rem; border: 1px solid var(--border-color); border-radius: var(--r-md, 12px); padding: .15rem; }
     .pr-wb-scroll { overflow-x: auto; }
     :host ::ng-deep .pr-wb { font-size: .8rem; }
     :host ::ng-deep .pr-wb th.pr-grp-h { text-align: center; border-left: 1px solid var(--border-color); font-size: .68rem; text-transform: uppercase; letter-spacing: .05em; color: var(--text-muted); font-weight: 700; }
@@ -537,6 +549,8 @@ export class ComprasPedidoRealComponent implements OnInit {
   wbTotals = signal<{ pedido: number; venta: number; exis: number }>({ pedido: 0, venta: 0, exis: 0 });
   wbTotal = signal(0);
   wbScopeNeeded = signal(false);
+  wbGroup = signal<'branch' | 'general'>('general');  // default: 1 columna agregada (red). "Por sucursal" = opt-in
+  wbWarehouses: string[] = [];                          // sucursales elegidas (vacío = todas con stock)
   // Ancho dinámico según nº de territorios (3 fijas + 3 por territorio + 4 de cierre). computed →
   // referencia estable entre cargas (evita ExpressionChanged).
   wbTableStyle = computed(() => ({ 'min-width': (34 + this.wbTerritories().length * 13) + 'rem' }));
@@ -610,7 +624,9 @@ export class ComprasPedidoRealComponent implements OnInit {
     this.loading.set(true); this.error.set(false);
     this.api.workbook({
       supplier_id: this.fSupplier || undefined, search: this.search.trim() || undefined,
-      coverage_days: this.coverage, scope: this.wbScopeNeeded() ? 'needed' : undefined, pageSize: 1000,
+      coverage_days: this.coverage, scope: this.wbScopeNeeded() ? 'needed' : undefined,
+      warehouse_ids: this.wbWarehouses.length ? this.wbWarehouses : undefined, group: this.wbGroup(),
+      pageSize: 1000,
     }).pipe(catchError(() => of(null as WorkbookResponse | null)), takeUntilDestroyed(this.destroyRef))
       .subscribe((r) => {
         this.loading.set(false);

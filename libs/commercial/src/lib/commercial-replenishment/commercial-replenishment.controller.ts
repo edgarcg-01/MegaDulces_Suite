@@ -108,17 +108,19 @@ export class CommercialReplenishmentController {
 
   @Get('workbook')
   @RequirePermissions(Permission.COMPRAS_VER)
-  @ApiOperation({ summary: 'RA-PRO.32 — Réplica del workbook del comprador: una fila por SKU con UXC, costo/caja, y por punto de compra (PH/Morelia/Zamora) su venta 30d/existencia/pedido en cajas + CEDIS existencia + $Pedido/Valor Venta/Valor Existencia. Pivotea el fact por código de almacén. Filtros: supplier_id, category_id, search, coverage_days(=30), scope(needed).' })
+  @ApiOperation({ summary: 'RA-PRO.32 — Réplica del workbook del comprador: una fila por SKU con UXC, costo/caja y, por cada COLUMNA (sucursal o una sola General de red), su venta 30d/existencia/pedido en cajas + $Pedido/Valor Venta/Valor Existencia. Columnas dinámicas por almacén (sin hardcode). Filtros: supplier_id, category_id, search, coverage_days(=30), scope(needed), warehouse_ids(CSV, una/varias), group(general=agregado de red).' })
   workbook(
     @Query('supplier_id') supplier_id?: string,
     @Query('category_id') category_id?: string,
     @Query('search') search?: string,
     @Query('coverage_days') coverage_days?: string,
     @Query('scope') scope?: string,
+    @Query('warehouse_ids') warehouse_ids?: string,
+    @Query('group') group?: string,
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
   ) {
-    return this.svc.workbook({ supplier_id, category_id, search, coverage_days: coverage_days ? Number(coverage_days) : undefined, scope, page: page ? Number(page) : undefined, pageSize: pageSize ? Number(pageSize) : undefined });
+    return this.svc.workbook({ supplier_id, category_id, search, coverage_days: coverage_days ? Number(coverage_days) : undefined, scope, warehouse_ids, group, page: page ? Number(page) : undefined, pageSize: pageSize ? Number(pageSize) : undefined });
   }
 
   @Get('workbook/:productId')

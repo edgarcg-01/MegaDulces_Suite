@@ -100,6 +100,8 @@ export interface WorkbookQuery {
   search?: string;
   coverage_days?: number;
   scope?: string;
+  warehouse_ids?: string;   // CSV de almacenes a mostrar como columnas (una/varias); vacío = todas con stock
+  group?: string;           // 'general' = una sola columna agregada (red); default = por sucursal
   page?: number;
   pageSize?: number;
 }
@@ -744,59 +746,51 @@ export class CommercialReplenishmentService {
       if (q.search && q.search.trim()) { filters.push('(pr.sku ILIKE :s OR pr.nombre ILIKE :s)'); binds.s = `%${q.search.trim()}%`; }
       const where = filters.join(' AND ');
 
-      // Territorio = PUNTO DE COMPRA (raíz de abasto), resuelto por TOPOLOGÍA (source_warehouse_id):
-      // una raíz (sin source) es punto de compra; sus spokes ruedan hacia ella. NO se hardcodea ningún
-      // código de almacén → funciona igual en local (MD-*) y prod (00/01/…). Sin topología (source NULL)
-      // cada almacén es su propia raíz (degrada sin romper). Columnas de territorio DINÁMICAS.
+      // Columnas = SUCURSAL (branch) o una sola GENERAL (red), a elección del usuario. Territorio = el
+      // almacén MISMO (NO se colapsa a raíz — eso sobre-agrupaba todo a CEDIS en prod). Selección de
+      // sucursales por warehouse_ids (una/varias); sin selección = todas las que sostienen inventario
+      // (excluye rutas/vehículos/almacenes de conteo). Cero códigos hardcodeados; columnas dinámicas.
+      const general = q.group === 'general';
+      const whIds = (q.warehouse_ids ?? '').split(',').map((s) => s.trim()).filter((s) => UUID_RX.test(s));
+      let whFilter = '';
+      if (whIds.length) {
+        const inList = whIds.map((_, i) => `:wh${i}`).join(',');
+        whIds.forEach((w, i) => { binds[`wh${i}`] = w; });
+        whFilter = ` AND rp.warehouse_id IN (${inList})`;
+      }
+      // Sin selección explícita: sólo almacenes que sostienen inventario (excluye ventas-sin-stock).
+      const stockJoin = whIds.length ? '' : `JOIN (
+            SELECT warehouse_id FROM analytics.replenishment_plan WHERE tenant_id = :t GROUP BY warehouse_id HAVING SUM(stock_pz) > 0
+          ) sw ON sw.warehouse_id = rp.warehouse_id`;
+      const colExpr = general ? `'GENERAL'` : 'w.code';
       const SUF = 'COALESCE(max(b.suf),1)';
       const BF = 'COALESCE(max(b.bf),1)';
-      // roots = cadena source_warehouse_id → raíz; stockroots = raíces que SOSTIENEN inventario
-      // (= puntos de compra/almacenamiento). Excluye rutas/vehículos/almacenes de conteo (venta sin
-      // stock) de las columnas — sin hardcodear ningún código.
-      const rootsCte = `
-        WITH RECURSIVE roots AS (
-          SELECT id, id AS root_id FROM commercial.warehouses
-           WHERE tenant_id = :t AND deleted_at IS NULL AND source_warehouse_id IS NULL
-          UNION ALL
-          SELECT ch.id, r.root_id FROM commercial.warehouses ch
-            JOIN roots r ON ch.source_warehouse_id = r.id
-           WHERE ch.tenant_id = :t AND ch.deleted_at IS NULL
-        ),
-        stockroots AS (
-          SELECT COALESCE(rt.root_id, rp.warehouse_id) AS root_id
-            FROM analytics.replenishment_plan rp
-            LEFT JOIN roots rt ON rt.id = rp.warehouse_id
-           WHERE rp.tenant_id = :t
-           GROUP BY COALESCE(rt.root_id, rp.warehouse_id)
-          HAVING SUM(rp.stock_pz) > 0
-        )`;
-      const inner = `${rootsCte},
-        base AS (
+      const inner = `
+        WITH base AS (
           SELECT pr.id AS product_id, pr.sku, pr.nombre, pr.supplier_id,
                  rp.suf, rp.bf, rp.caja_cost, rp.daily_pieces, rp.stock_pz, rp.transit_cajas, rp.revenue30,
-                 rw.code AS root_code
+                 ${colExpr} AS col_code
             FROM catalog.products pr
             JOIN analytics.replenishment_plan rp ON rp.tenant_id = pr.tenant_id AND rp.product_id = pr.id
-            LEFT JOIN roots rt ON rt.id = rp.warehouse_id
-            JOIN commercial.warehouses rw ON rw.tenant_id = :t AND rw.id = COALESCE(rt.root_id, rp.warehouse_id)
-            JOIN stockroots sr ON sr.root_id = rw.id
-           WHERE ${where}
+            JOIN commercial.warehouses w ON w.tenant_id = :t AND w.id = rp.warehouse_id
+            ${stockJoin}
+           WHERE ${where}${whFilter}
              AND (rp.stock_pz > 0 OR rp.daily_pieces > 0 OR rp.transit_cajas > 0)
         ),
         per AS (
-          SELECT b.product_id, b.sku, b.nombre, b.supplier_id, b.root_code,
+          SELECT b.product_id, b.sku, b.nombre, b.supplier_id, b.col_code,
                  ${BF} AS bf, round(COALESCE(max(b.caja_cost),0)::numeric, 2) AS caja_cost,
                  round((COALESCE(sum(b.daily_pieces),0) * 30 / (${SUF} * ${BF}))::numeric, 1) AS vta,
                  round((COALESCE(sum(b.stock_pz),0) / ${BF})::numeric, 1) AS exis,
                  round(GREATEST(0, COALESCE(sum(b.daily_pieces),0) * :cov / (${SUF} * ${BF}) - COALESCE(sum(b.stock_pz),0) / ${BF} - COALESCE(sum(b.transit_cajas),0))::numeric, 1) AS ped,
                  COALESCE(sum(b.revenue30),0) AS rev, COALESCE(sum(b.stock_pz),0) AS stock_pz
             FROM base b
-           GROUP BY b.product_id, b.sku, b.nombre, b.supplier_id, b.root_code
+           GROUP BY b.product_id, b.sku, b.nombre, b.supplier_id, b.col_code
         ),
         prod AS (
           SELECT product_id, sku, nombre, supplier_id,
                  max(bf) AS uxc, round(max(caja_cost)::numeric, 2) AS caja_cost,
-                 jsonb_object_agg(root_code, jsonb_build_object('vta', vta, 'exis', exis, 'ped', ped)) AS cells,
+                 jsonb_object_agg(col_code, jsonb_build_object('vta', vta, 'exis', exis, 'ped', ped)) AS cells,
                  round(sum(ped)::numeric, 1) AS suma_pedido_cajas,
                  round(sum(ped * caja_cost)::numeric, 2) AS pedido_valor,
                  round(sum(rev)::numeric, 2) AS valor_venta,
@@ -811,22 +805,24 @@ export class CommercialReplenishmentService {
 
       const rows = (await trx.raw(`${inner} ORDER BY valor_venta DESC NULLS LAST, sku LIMIT ${pageSize} OFFSET ${offset}`, binds)).rows;
       const tot = (await trx.raw(`SELECT count(*)::int c, round(SUM(pedido_valor)::numeric,2) total_pedido, round(SUM(valor_venta)::numeric,2) total_venta, round(SUM(valor_exis)::numeric,2) total_exis FROM (${inner}) z`, binds)).rows[0];
-      // Territorios (puntos de compra) presentes para el filtro, ordenados por venta desc → columnas dinámicas.
-      const territories = (await trx.raw(`${rootsCte}
-        SELECT rw.code, max(rw.name) AS name
-          FROM catalog.products pr
-          JOIN analytics.replenishment_plan rp ON rp.tenant_id = pr.tenant_id AND rp.product_id = pr.id
-          LEFT JOIN roots rt ON rt.id = rp.warehouse_id
-          JOIN commercial.warehouses rw ON rw.tenant_id = :t AND rw.id = COALESCE(rt.root_id, rp.warehouse_id)
-          JOIN stockroots sr ON sr.root_id = rw.id
-         WHERE ${where} AND (rp.stock_pz > 0 OR rp.daily_pieces > 0 OR rp.transit_cajas > 0)
-         GROUP BY rw.code
-         ORDER BY SUM(rp.revenue30) DESC NULLS LAST, SUM(rp.stock_pz) DESC`, binds)).rows;
+      // Columnas presentes → dinámicas. General = 1 columna; por sucursal = 1 almacén por columna.
+      const territories = general
+        ? [{ code: 'GENERAL', name: 'General (red)' }]
+        : (await trx.raw(`
+            SELECT w.code, max(w.name) AS name
+              FROM catalog.products pr
+              JOIN analytics.replenishment_plan rp ON rp.tenant_id = pr.tenant_id AND rp.product_id = pr.id
+              JOIN commercial.warehouses w ON w.tenant_id = :t AND w.id = rp.warehouse_id
+              ${stockJoin}
+             WHERE ${where}${whFilter} AND (rp.stock_pz > 0 OR rp.daily_pieces > 0 OR rp.transit_cajas > 0)
+             GROUP BY w.code
+             ORDER BY SUM(rp.revenue30) DESC NULLS LAST, SUM(rp.stock_pz) DESC`, binds)).rows
+            .map((t: { code: string; name: string }) => ({ code: t.code, name: t.name }));
 
       return {
         total: Number(tot?.c || 0),
         page, pageSize, coverage_days: cov,
-        territories: territories.map((t: { code: string; name: string }) => ({ code: t.code, name: t.name })),
+        territories,
         totals: {
           pedido: Number(tot?.total_pedido || 0),
           venta: Number(tot?.total_venta || 0),
@@ -862,13 +858,8 @@ export class CommercialReplenishmentService {
          GROUP BY pr.sku, pr.nombre, sup.name`, { t: tenantId, pid: productId })).rows[0] || null;
 
       const rows = (await trx.raw(`
-        WITH RECURSIVE roots AS (
-          SELECT id, id AS root_id FROM commercial.warehouses WHERE tenant_id = :t AND deleted_at IS NULL AND source_warehouse_id IS NULL
-          UNION ALL
-          SELECT ch.id, r.root_id FROM commercial.warehouses ch JOIN roots r ON ch.source_warehouse_id = r.id WHERE ch.tenant_id = :t AND ch.deleted_at IS NULL
-        )
         SELECT w.code AS warehouse_code, w.name AS warehouse_name,
-               rw.name AS territory,
+               NULL::text AS territory,
                round((rp.daily_pieces * 30 / (${suf} * ${bf}))::numeric, 1) AS venta_cajas,
                round((rp.stock_pz / ${bf})::numeric, 1) AS existencia_cajas,
                round(rp.transit_cajas::numeric, 1) AS transito_cajas,
@@ -876,11 +867,9 @@ export class CommercialReplenishmentService {
                round((rp.stock_pz * ${suf} / NULLIF(rp.daily_pieces, 0))::numeric, 0) AS cover_days
           FROM analytics.replenishment_plan rp
           JOIN commercial.warehouses w ON w.tenant_id = rp.tenant_id AND w.id = rp.warehouse_id
-          LEFT JOIN roots rt ON rt.id = rp.warehouse_id
-          LEFT JOIN commercial.warehouses rw ON rw.tenant_id = :t AND rw.id = COALESCE(rt.root_id, rp.warehouse_id)
          WHERE rp.tenant_id = :t AND rp.product_id = :pid
            AND (rp.stock_pz > 0 OR rp.daily_pieces > 0 OR rp.transit_cajas > 0)
-         ORDER BY rw.code, w.code`,
+         ORDER BY rp.revenue30 DESC NULLS LAST, w.code`,
         { t: tenantId, pid: productId, cov })).rows;
 
       return { product, coverage_days: cov, rows };
