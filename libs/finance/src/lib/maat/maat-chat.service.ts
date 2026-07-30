@@ -102,6 +102,9 @@ export class MaatChatService {
     if (deep) system += DEEP_DIRECTIVE;
     const toolDefs = this.tools.definitions();
     const messages: any[] = history.map((t) => ({ role: t.role, content: t.content }));
+    // Auto-routing de modelo (FIQ.1): Think (explícito) o pregunta compleja → Sonnet 5.
+    const lastQ = String(history[history.length - 1]?.content || '');
+    const useSonnet = think || this.isComplex(lastQ, history.length);
 
     // Adjunto de imagen (Claude vision): se inyecta en el último turno del usuario
     // — típico: foto de una factura/estado de cuenta para cruzar contra libros.
@@ -124,7 +127,7 @@ export class MaatChatService {
       iterations++;
       let resp: any;
       try {
-        resp = await this.callClaude(system, messages, toolDefs, think);
+        resp = await this.callClaude(system, messages, toolDefs, useSonnet, think);
       } catch (e: any) {
         this.logger.warn(`Claude error: ${e?.message || e}`);
         return {
@@ -149,7 +152,7 @@ export class MaatChatService {
         // truncado y narrative vino vacío. Reintenta UNA vez pidiendo concisión
         // y con techo de tokens más alto, en vez de rendirse con "No pude…".
         if (!narrative && resp.stop_reason === 'max_tokens') {
-          const recovered = await this.retryConcise(system, messages, toolDefs, think);
+          const recovered = await this.retryConcise(system, messages, toolDefs, useSonnet, think);
           narrative = recovered.narrative;
           if (recovered.suggestions.length) sugg = recovered.suggestions;
         }
@@ -164,7 +167,7 @@ export class MaatChatService {
         const raw = content.filter((b: any) => b.type === 'text').map((b: any) => b.text).join('').trim();
         let { text, suggestions } = splitSuggestions(raw);
         if (!text && resp.stop_reason === 'max_tokens') {
-          const recovered = await this.retryConcise(system, messages, toolDefs, think);
+          const recovered = await this.retryConcise(system, messages, toolDefs, useSonnet, think);
           text = recovered.narrative;
           if (recovered.suggestions.length) suggestions = recovered.suggestions;
         }
@@ -191,6 +194,35 @@ export class MaatChatService {
       });
       messages.push({ role: 'user', content: toolResults });
       onStep?.({ label: 'Cruzando los resultados…' });
+    }
+
+    // CIERRE FORZADO: se agotaron las iteraciones sin que el modelo llamara render_response
+    // (típico en "analiza todo": tormenta de tools que no converge → antes se rendía con
+    // "demasiados pasos" aun teniendo toda la data recolectada). Pedimos UNA síntesis final
+    // con lo ya juntado. No forzamos tool_choice (incompatible con extended thinking); un
+    // nudge fuerte basta con Sonnet 5. Extrae render_response o, en su defecto, texto plano.
+    try {
+      const closing = system + '\n\nYA NO LLAMES MÁS TOOLS. Con TODO lo que ya recolectaste en los pasos previos, responde AHORA vía render_response: sintetiza los hallazgos, las cifras clave y una conclusión. NO pidas reformular la pregunta.';
+      const forced = await this.callClaude(closing, messages, toolDefs, useSonnet, think, RETRY_MAX_TOKENS);
+      tokensIn += Number(forced?.usage?.input_tokens || 0);
+      tokensOut += Number(forced?.usage?.output_tokens || 0);
+      const fc = Array.isArray(forced.content) ? forced.content : [];
+      const render = fc.find((b: any) => b.type === 'tool_use' && b.name === 'render_response');
+      let narrative = String(render?.input?.narrative || '').trim();
+      let sugg = Array.isArray(render?.input?.suggested_follow_ups)
+        ? render.input.suggested_follow_ups.map((s: any) => String(s)).filter(Boolean).slice(0, 3)
+        : [];
+      if (!narrative) {
+        const raw = fc.filter((b: any) => b.type === 'text').map((b: any) => b.text).join('').trim();
+        const sp = splitSuggestions(raw);
+        narrative = sp.text;
+        if (sp.suggestions.length) sugg = sp.suggestions;
+      }
+      if (narrative) {
+        return { answer: narrative, source: 'llm', tools_used: traces, iterations, tokens_in: tokensIn, tokens_out: tokensOut, suggestions: sugg };
+      }
+    } catch (e: any) {
+      this.logger.warn(`Cierre forzado de Maat falló: ${e?.message || e}`);
     }
 
     return {
@@ -220,7 +252,8 @@ export class MaatChatService {
     while (iter < 5) {
       iter++;
       let resp: any;
-      try { resp = await this.callClaude(system, messages, toolDefs, false); }
+      // El Auditor forense es SIEMPRE una tarea compleja → Sonnet 5 (useSonnet=true).
+      try { resp = await this.callClaude(system, messages, toolDefs, true); }
       catch { return { dictamen: 'No pude completar la sub-investigación (error del modelo).', pasos: traces }; }
       const content = Array.isArray(resp.content) ? resp.content : [];
       const toolUses = content.filter((b: any) => b.type === 'tool_use');
@@ -304,10 +337,10 @@ export class MaatChatService {
    * Reintenta UNA vez con techo de tokens más alto + instrucción de concisión,
    * y extrae narrative (de render_response o texto plano). Best-effort.
    */
-  private async retryConcise(system: string, messages: any[], tools: any[], think: boolean): Promise<{ narrative: string; suggestions: string[] }> {
+  private async retryConcise(system: string, messages: any[], tools: any[], useSonnet: boolean, think: boolean): Promise<{ narrative: string; suggestions: string[] }> {
     try {
       const nudged = system + '\n\nIMPORTANTE: tu respuesta anterior se cortó por longitud. Responde de nuevo vía render_response pero MÁS CONCISO (máximo ~450 palabras en narrative): prioriza las cifras y conclusiones esenciales, sin relleno.';
-      const resp = await this.callClaude(nudged, messages, tools, think, RETRY_MAX_TOKENS);
+      const resp = await this.callClaude(nudged, messages, tools, useSonnet, think, RETRY_MAX_TOKENS);
       const content = Array.isArray(resp.content) ? resp.content : [];
       const render = content.find((b: any) => b.type === 'tool_use' && b.name === 'render_response');
       if (render?.input) {
@@ -323,13 +356,27 @@ export class MaatChatService {
     }
   }
 
-  private callClaude(system: string, messages: any[], tools: any[], think = false, maxTokensOverride?: number): Promise<any> {
+  /**
+   * FIQ.1 (port de WhatsApp) — auto-routing de modelo por complejidad. Heurístico y
+   * barato: mensajes largos, hilo extenso, o señales de análisis/conciliación/fraude/
+   * investigación → Sonnet 5; el resto, Haiku. Los números salen del motor (ADR-016).
+   */
+  private isComplex(text: string, historyLen: number): boolean {
+    const t = (text || '').toLowerCase();
+    return (
+      t.length > 160 ||
+      historyLen >= 8 ||
+      /(analiz|compar|por qu|porqu|explica|cuadr|concili|fraud|investiga|proyect|proyecci|flujo|patr[oó]n|tendenc|estrateg|recomien|\bplan\b|cruza|relacion|escenario|qu[eé] pasa si|simula|deber[ií]a|an[aá]lisis|profund|a fondo|\btodo\b|desglos)/i.test(t)
+    );
+  }
+
+  private callClaude(system: string, messages: any[], tools: any[], useSonnet = false, think = false, maxTokensOverride?: number): Promise<any> {
     // Transporte compartido (AnthropicService) + prompt caching del prefijo tools+system:
     // en el loop ReAct el system y las defs de tools se reenvían cada iteración → tras el
     // 1er request se cobran ~0.1x. Modelo/thinking los sigue decidiendo Maat (parity).
     return this.anthropic.messages(
       {
-        model: think ? CLAUDE_THINK_MODEL : CLAUDE_MODEL,
+        model: useSonnet ? CLAUDE_THINK_MODEL : CLAUDE_MODEL,
         maxTokens: maxTokensOverride || (think ? THINK_MAX_TOKENS : MAX_TOKENS),
         system,
         tools,
