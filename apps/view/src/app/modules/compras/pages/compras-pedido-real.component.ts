@@ -853,7 +853,26 @@ export class ComprasPedidoRealComponent implements OnInit {
       });
   }
 
+  private _mc = 0;
+  private _mcReset = false;
   money(v: number | string | null | undefined): string {
+    // DIAGNÓSTICO PROD (temporal): /compras/pedido crashea con "Maximum call stack" — una recursión
+    // de render que pasa por money(). El volumen normal (p.ej. expand-all) llama money muchas veces
+    // pero con stack SHALLOW; la recursión lo llama con stack PROFUNDO. Contamos por tick (reset en
+    // microtask) y sólo tras muchas llamadas medimos la profundidad del stack: si es honda, logueamos
+    // el contexto (qué modo/cuántas filas/qué valor) y CORTAMOS con throw para no congelar la pestaña.
+    if (!this._mcReset) { this._mcReset = true; queueMicrotask(() => { this._mc = 0; this._mcReset = false; }); }
+    if (++this._mc > 800) {
+      const depth = (new Error().stack || '').split('\n').length;
+      if (depth > 300) {
+        // eslint-disable-next-line no-console
+        console.error('[pedido][RECURSION] money() stack=' + depth + ' frames; arg=', v, {
+          mode: this.mode(), flat: this.flatRows().length, disp: this.displayRows().length,
+          wb: this.wbRows().length, dead: this.deadRows().length, calls: this._mc,
+        });
+        throw new Error('[pedido] recursion guard @money depth=' + depth + ' mode=' + this.mode());
+      }
+    }
     return (Number(v ?? 0) || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 });
   }
 }
