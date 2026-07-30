@@ -20,6 +20,13 @@ export const environment = {
     styleDark: 'edgarcortes/cmqra591r001101rzdop23b4i', // "Dark 2D" (tema oscuro)
     styleSatellite: 'mapbox/satellite-streets-v12',
   },
+  // PrimeUI: license key de cliente (tier community/dev) para PrimeNG 22+.
+  // Va al bundle por diseño (se verifica client-side). PrimeNG <=21 es MIT y la
+  // ignora; recién con primeng@22 se pasa a providePrimeNG({ license }) para
+  // silenciar el banner "invalid primeui license" (solo aparece en prod).
+  primeui: {
+    license: 'eyJpZCI6ImZiNDJlODllLTU1MDktNGExYy1iNjM3LTg1MmI3MDkwMmY4ZSIsInByb2R1Y3QiOiJwcmltZXVpIiwidGllciI6ImNvbW11bml0eSIsInR5cGUiOiJkZXYiLCJpYXQiOjE3ODUzNjQxMDIsImV4cCI6MTgxNjkwMDEwMn0.7e5-4WbCFb7qYfs15Y4P471RfDf0mNqncOetfI_JwmQLHfpfYTINngD9SsYybbdvNj9kfCXHfjZQkcim1VUnBQ',
+  },
 };
 
 // Debug logging

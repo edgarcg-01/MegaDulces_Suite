@@ -18,6 +18,7 @@ import {
   SalidasCategoryOption,
   SellOutBrandRow,
   SellOutWarehouseRow,
+  ProductSupplierOption,
 } from '../comercial.service';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { SegmentedComponent } from '../../../shared/components/segmented/segmented.component';
@@ -92,6 +93,12 @@ const MES: Record<string, string> = {
                     [filter]="true" filterBy="label" [showClear]="true" placeholder="Todas las categorías" appendTo="body"
                     styleClass="w-full" (onChange)="load()" (onClear)="load()" />
         </div>
+        <div class="sl-field sl-brand">
+          <label>Proveedor</label>
+          <p-select [options]="suppliers()" [(ngModel)]="supplierId" optionLabel="name" optionValue="id"
+                    [filter]="true" filterBy="name" [showClear]="true" placeholder="Todos los proveedores" appendTo="body"
+                    styleClass="w-full" (onChange)="load()" (onClear)="load()" />
+        </div>
         <div class="sl-field sl-search">
           <label>Buscar producto</label>
           <app-product-search placeholder="SKU (5 díg.) o descripción…" (productSelected)="onProductPick($event)" />
@@ -126,6 +133,7 @@ const MES: Record<string, string> = {
                   <th scope="col" class="comm-num" pSortableColumn="box_size" pTooltip="Piezas por caja (etiqueta c84, o factor de venta) — la unidad con que se calcula Costo x Caja">Pz/Cja <p-sortIcon field="box_size" /></th>
                   <th scope="col" pSortableColumn="unit_sale">Unidad <p-sortIcon field="unit_sale" /></th>
                   <th scope="col" pSortableColumn="brand">Marca <p-sortIcon field="brand" /></th>
+                  <th scope="col" pSortableColumn="supplier">Proveedor <p-sortIcon field="supplier" /></th>
                   <th scope="col" pSortableColumn="categoria">Categoría <p-sortIcon field="categoria" /></th>
                   <th scope="col" pSortableColumn="rotation_tier">Rot. <p-sortIcon field="rotation_tier" /></th>
                   <th scope="col" class="comm-num" pSortableColumn="exist_paq">Exist. Pza <p-sortIcon field="exist_paq" /></th>
@@ -158,6 +166,7 @@ const MES: Record<string, string> = {
                   <td class="comm-num comm-muted">{{ row.box_size == null ? '—' : (row.box_size | number:'1.0-0') }}</td>
                   <td class="sl-unit" [class.sl-unit-warn]="!isPieza(row.unit_sale)">{{ row.unit_sale ?? '—' }}</td>
                   <td class="sl-clip">{{ row.brand ?? '—' }}</td>
+                  <td class="sl-clip comm-muted">{{ row.supplier ?? '—' }}</td>
                   <td class="sl-clip comm-muted">{{ row.categoria ?? '—' }}</td>
                   <td class="sl-rot comm-muted">{{ row.rotation_tier ?? '—' }}</td>
                   <td class="comm-num">{{ row.exist_paq | number:'1.0-0' }}</td>
@@ -236,6 +245,7 @@ export class ComercialSalidasComponent {
   ];
 
   brands = signal<SellOutBrandRow[]>([]);
+  suppliers = signal<ProductSupplierOption[]>([]);
   warehouseOpts = signal<SellOutWarehouseRow[]>([]);
   categoryOpts = signal<{ id: string; label: string }[]>([]);
   loading = signal(false);
@@ -247,6 +257,7 @@ export class ComercialSalidasComponent {
   year = new Date().getFullYear();
   warehouses: string[] = [];
   brandId: string | null = null;
+  supplierId: string | null = null;
   categoryId: string | null = null;
   search = '';
   rangeDates: Date[] | null = null;
@@ -266,6 +277,8 @@ export class ComercialSalidasComponent {
       .subscribe({ next: (w) => this.warehouseOpts.set(w), error: () => undefined });
     this.svc.sellOutBrands().pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({ next: (b) => this.brands.set(b), error: () => undefined });
+    this.svc.productSuppliers().pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({ next: (s) => this.suppliers.set(s), error: () => undefined });
     this.svc.salidasCategories().pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({ next: (c) => this.categoryOpts.set(c.map((x) => ({ id: x.id, label: `${x.name} · ${x.n_products}` }))), error: () => undefined });
     this.load();
@@ -309,6 +322,7 @@ export class ComercialSalidasComponent {
       // p-multiSelect con [showClear] deja `warehouses` en null al limpiar → guard con ?.
       warehouses: this.warehouses?.length ? this.warehouses : undefined,
       brand_id: this.brandId ?? undefined,
+      supplier_id: this.supplierId ?? undefined,
       category_id: this.categoryId ?? undefined,
       search: this.search?.trim() || undefined,
     };
