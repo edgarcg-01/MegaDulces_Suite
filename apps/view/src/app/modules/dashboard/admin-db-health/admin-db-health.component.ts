@@ -84,6 +84,7 @@ type Sev = 'success' | 'warn' | 'danger' | 'secondary';
         </details>
       }
 
+      <ng-container *ngTemplateOutlet="tbl; context: { $implicit: cronRows(), title: 'Crons / feeds (estado de ejecución)', firstCol: 'Cron' }"></ng-container>
       <ng-container *ngTemplateOutlet="tbl; context: { $implicit: appRows(), title: 'DB de la app', firstCol: 'Tabla' }"></ng-container>
       <ng-container *ngTemplateOutlet="tbl; context: { $implicit: sourceRows(), title: 'Fuentes / orígenes (se leen desde local; en prod no alcanza la LAN)', firstCol: 'Origen' }"></ng-container>
 
@@ -189,6 +190,7 @@ export class AdminDbHealthComponent implements OnInit {
 
   readonly appRows = computed<SourceHealth[]>(() => (this.report()?.sources ?? []).filter((s) => s.group === 'app'));
   readonly sourceRows = computed<SourceHealth[]>(() => (this.report()?.sources ?? []).filter((s) => s.group === 'source'));
+  readonly cronRows = computed<SourceHealth[]>(() => (this.report()?.sources ?? []).filter((s) => s.group === 'cron'));
 
   ngOnInit(): void { this.load(); }
 

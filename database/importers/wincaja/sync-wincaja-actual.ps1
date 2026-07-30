@@ -59,6 +59,8 @@ function Run-Node($label, [string[]]$nodeArgs) {
 
 Log "########## SYNC WINCAJA actual  ->  destino configurado ##########"
 Push-Location $dbDir
+# Heartbeat de cron → Salud BD (grupo Crons). No debe tumbar el sync si falla.
+try { & node importers/lib/cron-heartbeat.js begin wincaja_sync "Wincaja sync (BRONZE+GOLD)" 2>&1 | Out-Null } catch {}
 try {
   Run-Node 'BRONZE actual' @('importers/wincaja/import-wincaja.js', '--branch', 'all', '--domain', 'all', '--dataset', 'actual', '--apply')
   Run-Node 'GOLD sales+MV' @('importers/wincaja/import-wincaja-analytics.js', '--apply')
@@ -69,8 +71,10 @@ try {
   Run-Node 'GOLD venta/producto' @('importers/wincaja/import-wincaja-product-sales.js', '--apply')
   Run-Node 'GOLD movimientos'    @('importers/wincaja/import-wincaja-stock-movements.js', '--apply')
   Log "########## DONE OK ##########"
+  try { & node importers/lib/cron-heartbeat.js end wincaja_sync ok 2>&1 | Out-Null } catch {}
 } catch {
   Log "########## FALLO: $($_.Exception.Message) ##########"
+  try { & node importers/lib/cron-heartbeat.js end wincaja_sync error "$($_.Exception.Message)" 2>&1 | Out-Null } catch {}
   Pop-Location
   exit 1
 }

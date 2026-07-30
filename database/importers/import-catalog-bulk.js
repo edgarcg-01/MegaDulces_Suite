@@ -19,6 +19,7 @@
  */
 
 const { Client } = require('pg');
+const hb = require('./lib/cron-heartbeat');
 
 const M = '00000000-0000-0000-0000-00000000d01c';
 const SRC = process.env.MEGA_DULCES_URL || 'postgresql://postgres:superoot@192.168.0.245:5432/Mega_Dulces';
@@ -51,6 +52,7 @@ const COLS = [
   await src.connect();
   await db.connect();
   try {
+    if (APPLY) await hb.begin('kepler_catalog_bulk', 'Kepler catálogo (bulk)');
     console.log(`\n=== Catálogo Kepler → products (BULK, ${APPLY ? 'APPLY' : 'DRY-RUN'}) ===\n`);
 
     const { rows: srcRows } = await src.query(`
@@ -442,11 +444,13 @@ const COLS = [
           SELECT 1 FROM catalog.products p3 WHERE p3.tenant_id=$1 AND p3.sku=s.sku)`, [M]);
     await db.query('COMMIT');
     console.log(`\n[APPLY] COMMIT — UPDATE ${upd.rowCount} / INSERT ${ins.rowCount}.`);
+    if (APPLY) await hb.end('kepler_catalog_bulk', { status: 'ok', rows: (upd.rowCount || 0) + (ins.rowCount || 0) });
   } catch (e) {
     await db.query('ROLLBACK').catch(() => {});
     console.error('\nERROR (rollback):', e.message);
     if (e.detail) console.error('  detail:', e.detail);
     if (e.where) console.error('  where:', String(e.where).slice(0, 300));
+    if (APPLY) await hb.end('kepler_catalog_bulk', { status: 'error', error: e.message });
     process.exitCode = 1;
   } finally {
     await src.end();

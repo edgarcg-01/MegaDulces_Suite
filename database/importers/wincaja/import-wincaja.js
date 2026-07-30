@@ -173,6 +173,20 @@ const PK = {
   categorias: ['categoria'], almacenes: ['almacen'], cajeros: ['cajero'], cotizaciones: ['consecutivo'],
 };
 
+// Carga INCREMENTAL: columna de fecha por tabla transaccional. Solo se cargan filas
+// desde el watermark (última fecha ya en la DB) − OVERLAP hacia adelante, con UPSERT y
+// SIN DELETE. Inserta lo nuevo del día + re-lee una ventana corta para pescar ediciones
+// retroactivas (el .mdb es snapshot). Tablas sin fecha aquí (catálogo, pagos_dia, arqueos)
+// → UPSERT completo sin delete (chicas / hijas de corte).
+const DATE_COL = {
+  movimiento_clientes: 'fecha',
+  movimiento_proveedores: 'fecha',
+  cortes: 'fecha_corte',
+  retiros: 'fecha',
+  maestro_mov_almacen: 'fecha',
+};
+const OVERLAP_DAYS = Number(process.env.WINCAJA_OVERLAP_DAYS || 3);
+
 function coerce(type, v) {
   if (v === null || v === undefined) return null;
   if (type === 't') { const s = String(v).trim(); return s === '' ? null : s; }
@@ -231,9 +245,30 @@ async function reload(db, branch, dataset, spec, rows) {
     for (const r of rows) m.set(pk.map((k) => r[k]).join(''), r);
     data = [...m.values()];
   }
+  // INCREMENTAL por fecha (transaccionales con PK): solo el delta desde el watermark, sin borrar.
+  const dcol = DATE_COL[spec.pg];
+  if (dcol && conflict) {
+    // watermark = última fecha ya cargada, ignorando fechas FUTURAS (errores de captura POS).
+    const wm = await withRetry(`watermark ${spec.pg} ${branch}`, () =>
+      db(`wincaja.${spec.pg}`)
+        .where({ tenant_id: TENANT, source_branch: branch, source_dataset: dataset })
+        .whereRaw(`${dcol} <= CURRENT_DATE`)
+        .max(`${dcol} as m`).first());
+    if (wm && wm.m) {
+      const d = new Date(wm.m); d.setDate(d.getDate() - OVERLAP_DAYS);
+      const cutoff = d.toISOString().slice(0, 10);
+      data = data.filter((r) => r[dcol] && String(r[dcol]).slice(0, 10) >= cutoff);
+    } // sin watermark (primera carga) → carga todo el snapshot
+  }
+
+  // UPSERT sin DELETE (honra "nada de delete"; idempotente por onConflict). Solo se conserva
+  // el DELETE en el caso extremo de tabla SIN PK (no debería existir), donde INSERT plano
+  // duplicaría en cada corrida.
   await withRetry(`${spec.pg} suc ${branch}`, () => db.transaction(async (trx) => {
     await trx.raw(`SET LOCAL app.tenant_id = '${TENANT}'`);
-    await trx(`wincaja.${spec.pg}`).where({ tenant_id: TENANT, source_branch: branch, source_dataset: dataset }).del();
+    if (!conflict) {
+      await trx(`wincaja.${spec.pg}`).where({ tenant_id: TENANT, source_branch: branch, source_dataset: dataset }).del();
+    }
     const stamped = data.map((r) => ({ tenant_id: TENANT, source_branch: branch, source_dataset: dataset, ...r }));
     for (let i = 0; i < stamped.length; i += 500) {
       const chunk = stamped.slice(i, i + 500);

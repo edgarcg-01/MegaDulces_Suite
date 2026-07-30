@@ -148,6 +148,22 @@ export class AnalyticsRefreshService {
     } finally {
       this.isRefreshing = false;
     }
+    // Heartbeat → Salud BD (grupo Crons). error si alguna MV real falló (no skip).
+    try {
+      const failed = results.filter((r) => !r.ok && !r.skipped);
+      const ok = results.filter((r) => r.ok && !r.skipped).length;
+      const MEGA = '00000000-0000-0000-0000-00000000d01c';
+      await this.adminKnex!('analytics.cron_runs')
+        .insert({
+          tenant_id: MEGA, job_key: 'analytics_refresh', label: 'Refresh MVs analytics',
+          last_start: this.adminKnex!.fn.now(), last_finish: this.adminKnex!.fn.now(),
+          status: failed.length ? 'error' : 'ok', rows_affected: ok,
+          error: failed.length ? failed.map((f) => f.mv).join(', ').slice(0, 500) : null,
+          host: 'api', updated_at: this.adminKnex!.fn.now(),
+        })
+        .onConflict(['tenant_id', 'job_key'])
+        .merge(['label', 'last_finish', 'status', 'rows_affected', 'error', 'host', 'updated_at']);
+    } catch { /* heartbeat no debe romper el refresh */ }
     return { refreshed_at: new Date().toISOString(), results };
   }
 }
