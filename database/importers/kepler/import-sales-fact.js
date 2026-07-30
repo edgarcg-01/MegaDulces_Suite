@@ -22,6 +22,7 @@
  */
 
 const { Client } = require('pg');
+const hb = require('../lib/cron-heartbeat');
 const { productKind, buildModel, toCanonical } = require('./unit-normalization');
 
 const M = '00000000-0000-0000-0000-00000000d01c';
@@ -51,6 +52,7 @@ const mapAlmacen = (a) => ROUTE_MAP[a] || a;
   await src.connect();
   await db.connect();
   try {
+    if (APPLY) await hb.begin('kepler_sales_fact', 'Kepler ventas (sales-fact)');
     console.log(`\n=== Fact de ventas → analytics.sales_daily (BULK, ${APPLY ? 'APPLY' : 'DRY-RUN'}, ventana ${DAYS ? DAYS + 'd (LIVE)' : MONTHS + 'm'}) ===\n`);
 
     // Lookups del destino + MODELO DE UNIDAD por producto (RS.3).
@@ -171,9 +173,11 @@ const mapAlmacen = (a) => ROUTE_MAP[a] || a;
                      tickets=EXCLUDED.tickets, unit_kind=EXCLUDED.unit_kind, updated_at=now()`, [M]);
     await db.query('COMMIT');
     console.log(`\n[APPLY] COMMIT — ${up.rowCount} filas en analytics.sales_daily.`);
+    if (APPLY) await hb.end('kepler_sales_fact', { status: 'ok', rows: up.rowCount });
   } catch (e) {
     await db.query('ROLLBACK').catch(() => {});
     console.error('\nERROR (rollback):', e.message);
+    if (APPLY) await hb.end('kepler_sales_fact', { status: 'error', error: e.message });
     process.exitCode = 1;
   } finally {
     await src.end();

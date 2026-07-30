@@ -114,10 +114,27 @@ export class DbHealthScannerService {
       if (opened || escalated || resolved) {
         this.logger.log(`db-health: ${failing.length} fallando · abiertas +${opened} · escaladas +${escalated} · resueltas +${resolved}`);
       }
+      // Heartbeat propio (grupo Crons de Salud BD): prueba que este scanner corre.
+      await this.recordCron('db_health_scan', 'Scanner Salud BD', 'ok', failing.length).catch(() => undefined);
       return { tenants: tenants.length, opened, escalated, resolved, failing: failing.length };
     } finally {
       this.running = false;
     }
+  }
+
+  /** Heartbeat de un cron interno del API → analytics.cron_runs (Salud BD grupo Crons). */
+  async recordCron(jobKey: string, label: string, status: 'ok' | 'error', rows?: number, error?: string): Promise<void> {
+    if (!this.knex) return;
+    const MEGA = '00000000-0000-0000-0000-00000000d01c';
+    await this.knex('analytics.cron_runs')
+      .insert({
+        tenant_id: MEGA, job_key: jobKey, label,
+        last_start: this.knex.fn.now(), last_finish: this.knex.fn.now(),
+        status, rows_affected: rows ?? null, error: error ? error.slice(0, 500) : null,
+        host: 'api', updated_at: this.knex.fn.now(),
+      })
+      .onConflict(['tenant_id', 'job_key'])
+      .merge(['label', 'last_finish', 'status', 'rows_affected', 'error', 'host', 'updated_at']);
   }
 
   private ageHuman(sec: number | null): string | null {

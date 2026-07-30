@@ -107,8 +107,26 @@ const EXT_SOURCES: ExtCfg[] = [
 
 const RANK: Record<Status, number> = { ok: 0, warn: 1, unknown: 2, critical: 3 };
 
+/**
+ * Crons/feeds esperados. `warnH/critH` = horas desde la última corrida OK antes de warn/critical
+ * (por cadencia del job). Un job en `error` = critical inmediato. Un job del registro que aún no
+ * reportó = 'unknown' (no alarma hasta que se cablee). El heartbeat lo escribe cron-heartbeat.js.
+ */
+interface CronCfg { key: string; label: string; cadence: string; warnH: number; critH: number; }
+// NOTA: Consolidado (mart.refresh_state) y KP-Concentrate (kp.sync_control) YA se monitorean
+// en el grupo 'source' (EXT_SOURCES) con su heartbeat nativo → no se duplican aquí.
+const CRON_JOBS: CronCfg[] = [
+  // On-prem (insert/update a prod) — heartbeat vía cron-heartbeat.js
+  { key: 'wincaja_sync',        label: 'Wincaja sync (BRONZE+GOLD)', cadence: 'diario 05:00',   warnH: 30,  critH: 50 },
+  { key: 'kepler_sales_fact',   label: 'Kepler ventas (sales-fact)', cadence: 'intradía',        warnH: 6,   critH: 26 },
+  { key: 'kepler_catalog_bulk', label: 'Kepler catálogo (bulk)',     cadence: 'semanal',         warnH: 200, critH: 400 },
+  // Internos del API (@Cron NestJS)
+  { key: 'analytics_refresh',   label: 'Refresh MVs analytics',      cadence: 'cada 15 min',     warnH: 1,   critH: 3 },
+  { key: 'db_health_scan',      label: 'Scanner Salud BD',           cadence: 'cada 5 min',      warnH: 0.5, critH: 2 },
+];
+
 export interface SourceHealth {
-  group: 'app' | 'source';
+  group: 'app' | 'source' | 'cron';
   key: string; label: string; table: string; ts_col: string | null;
   last_update: string | null; age_seconds: number | null;
   status: Status; cadence: string; rows: number | null; note?: string;
@@ -261,16 +279,69 @@ export class DbHealthService {
     }
   }
 
+  // ── Grupo 'cron': estado de ejecución de cada feed (analytics.cron_runs) ────
+  private async checkCronRuns(): Promise<SourceHealth[]> {
+    const out: SourceHealth[] = [];
+    let byKey = new Map<string, any>();
+    try {
+      const reg = await this.knex!.raw(`SELECT to_regclass('analytics.cron_runs') AS t`);
+      if (reg.rows[0]?.t) {
+        const { rows } = await this.knex!.raw(
+          `SELECT job_key, label, last_start, last_finish, status, rows_affected, duration_ms, error
+           FROM analytics.cron_runs`);
+        byKey = new Map(rows.map((r: any) => [r.job_key, r]));
+      }
+    } catch (e) {
+      this.logger.warn(`db-health cron_runs: ${(e as Error).message}`);
+    }
+    // Recorre el registro de jobs esperados + cualquier job extra que haya reportado.
+    const keys = new Set<string>([...CRON_JOBS.map((j) => j.key), ...byKey.keys()]);
+    for (const key of keys) {
+      const cfg = CRON_JOBS.find((j) => j.key === key);
+      const row = byKey.get(key);
+      const base: SourceHealth = {
+        group: 'cron', key, label: cfg?.label || row?.label || key, table: 'analytics.cron_runs',
+        ts_col: 'last_finish', last_update: null, age_seconds: null, status: 'unknown',
+        cadence: cfg?.cadence || '—', rows: null,
+      };
+      if (!row) { out.push({ ...base, note: 'sin reporte aún' }); continue; }
+      const finish = row.last_finish ? new Date(row.last_finish) : null;
+      const ageSec = this.ageOf(finish);
+      let status: Status;
+      let note: string | undefined;
+      if (row.status === 'error') {
+        status = 'critical';
+        note = `última corrida FALLÓ: ${(row.error || '').slice(0, 80)}`;
+      } else if (row.status === 'running') {
+        // Corriendo: ok salvo que lleve demasiado (posible colgado) → warn.
+        const startAge = this.ageOf(row.last_start ? new Date(row.last_start) : null);
+        status = startAge != null && cfg && startAge / 3600 >= cfg.critH ? 'warn' : 'ok';
+        note = 'en ejecución';
+      } else {
+        // ok → clasifica por antigüedad de la última corrida vs cadencia.
+        status = cfg ? this.classify(ageSec, cfg.warnH, cfg.critH) : 'ok';
+        const dur = row.duration_ms != null ? ` · ${Math.round(Number(row.duration_ms) / 1000)}s` : '';
+        note = `OK${dur}${row.rows_affected != null ? ` · ${row.rows_affected} filas` : ''}`;
+      }
+      out.push({
+        ...base, last_update: finish ? finish.toISOString() : null, age_seconds: ageSec,
+        status, rows: row.rows_affected != null ? Number(row.rows_affected) : null, note,
+      });
+    }
+    return out;
+  }
+
   async getReport(): Promise<DbHealthReport> {
     const checked_at = new Date().toISOString();
     if (!this.knex) {
       return { checked_at, db_label: 'no configurada', overall: 'unknown', sources: [] };
     }
-    const [appSources, extSources] = await Promise.all([
+    const [appSources, extSources, cronSources] = await Promise.all([
       this.checkAppSources(),
       Promise.all(EXT_SOURCES.map((s) => this.checkExtSource(s))),
+      this.checkCronRuns(),
     ]);
-    const sources = [...appSources, ...extSources];
+    const sources = [...appSources, ...extSources, ...cronSources];
     // 'unknown' (no configurada / no alcanzable) NO cuenta para el overall — solo
     // ok/warn/critical de fuentes efectivamente evaluadas.
     const overall = sources.reduce<Status>((worst, s) => {
