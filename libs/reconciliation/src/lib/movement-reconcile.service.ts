@@ -87,6 +87,11 @@ const RULES: RuleMeta[] = [
     params: { umbral: 500, critico: 5000 },
   },
   {
+    rule_key: 'barrido_diferencia_multiple', plano: 'caja',
+    nombre: 'Barridos "por diferencia de corte" múltiples', descripcion: 'Más de un retiro de efectivo marcado "por diferencia de corte" el mismo día/caja por el mismo cajero (fuente: Wincaja itemizado). El barrido de cierre legítimo ocurre UNA vez por turno; varios indican retiros-plug a media operación para forzar el cuadre — el corte cuadra por construcción, no por conteo del efectivo. Es el mecanismo detrás del "cuadre exacto" masivo.',
+    params: { min_barridos: 2, critico_barridos: 3, min_monto: 3000 },
+  },
+  {
     rule_key: 'merma_inventario', plano: 'inventario',
     nombre: 'Merma / ajuste de salida alto', descripcion: 'Salidas por ajuste/destrucción (merma) del kardex acumuladas por SKU×sucursal×mes por encima del umbral — inventario que sale sin venta.',
     params: { min_monto: 5000, critico: 100000 },
@@ -187,6 +192,7 @@ export class MovementReconcileService {
       case 'handoff_sin_relevo': return this.detHandoffSinRelevo(trx, tenantId, params);
       case 'turno_largo': return this.detTurnoLargo(trx, tenantId, params);
       case 'venta_vs_tickets': return this.detVentaVsTickets(trx, tenantId, params);
+      case 'barrido_diferencia_multiple': return this.detBarridoDiferencia(trx, tenantId, params);
       case 'merma_inventario': return this.detMermaInventario(trx, tenantId, params);
       default: return [];
     }
@@ -583,6 +589,55 @@ export class MovementReconcileService {
         causa_probable: sinTickets ? 'tickets_faltantes' : 'venta_no_reconcilia',
         evidencia: { params: { umbral, critico }, venta_corte: ventaCorte, venta_tickets: ventaTickets, tickets, diff },
         dedup_key: `venta_vs_tickets:${r.warehouse_code}:${r.cajero_cierre}:${fecha}`,
+      };
+    });
+  }
+
+  /**
+   * SM.9/A — Barridos "por diferencia de corte" múltiples (Wincaja itemizado).
+   * >1 retiro de EFECTIVO marcado por_diferencia_corte, mismo cajero×caja×día. El barrido
+   * de cierre es 1 por turno; varios = retiros-plug que fuerzan el cuadre por construcción.
+   * wincaja.retiros tiene RLS forzado + tenant_id → filtro explícito dentro de tk.run.
+   */
+  private async detBarridoDiferencia(trx: any, tenantId: string, params: any): Promise<RawDiscrepancy[]> {
+    const minB = Number(params.min_barridos) || 2;
+    const critB = Number(params.critico_barridos) || 3;
+    const minM = Number(params.min_monto) || 3000;
+    const rows = await trx('wincaja.retiros as r')
+      .where('r.tenant_id', tenantId)
+      .where('r.forma_de_pago', '1')            // solo efectivo (código estable entre sucursales)
+      .where('r.por_diferencia_corte', true)
+      .leftJoin('wincaja.branches as b', (j: any) => j.on('b.tenant_id', '=', 'r.tenant_id').andOn('b.source_branch', '=', 'r.source_branch'))
+      .groupBy('r.source_branch', 'r.caja', 'r.cajero', 'b.branch_name', 'b.warehouse_code', 'b.is_route')
+      .groupByRaw('r.fecha::date')
+      .havingRaw('COUNT(*) >= ?', [minB])
+      .havingRaw('SUM(r.monto) >= ?', [minM])
+      .select('r.source_branch', 'r.caja', 'r.cajero', trx.raw('b.branch_name AS sucursal'),
+        trx.raw('b.warehouse_code AS warehouse_code'), trx.raw('b.is_route AS is_route'),
+        trx.raw('r.fecha::date AS fecha'),
+        trx.raw('COUNT(*)::int AS n_barridos'),
+        trx.raw('ROUND(SUM(r.monto)::numeric,2) AS monto'),
+        trx.raw('ROUND(MAX(r.monto)::numeric,2) AS max_barrido'))
+      .orderByRaw('COUNT(*) DESC, SUM(r.monto) DESC')
+      .limit(1000);
+    return rows.map((r: any) => {
+      const n = Number(r.n_barridos);
+      const monto = Number(r.monto);
+      const fecha = r.fecha instanceof Date ? r.fecha.toISOString().slice(0, 10) : String(r.fecha).slice(0, 10);
+      const suc = r.sucursal || `suc ${r.source_branch}`;
+      return {
+        rule_key: 'barrido_diferencia_multiple', plano: 'caja' as const,
+        severity: n >= critB ? 'critical' as const : 'warn' as const,
+        score: Math.min(1, n / (critB * 2)),
+        titulo: `${n} barridos "por diferencia" ${money(monto)} — ${suc} caja ${r.caja} (${fecha})`,
+        resumen: `El cajero ${r.cajero} anotó ${n} retiros de efectivo "por diferencia de corte" el mismo día (mayor ${money(Number(r.max_barrido))})${r.is_route ? ' [ruta a bordo]' : ''}. El barrido de cierre es 1 por turno; varios fuerzan el cuadre — el corte cuadra sin verificar el efectivo.`,
+        entity: { sucursal: suc, source_branch: r.source_branch, warehouse_code: r.warehouse_code, caja: r.caja, cajero: r.cajero, fecha, ruta: !!r.is_route, barridos: n },
+        periodo: fecha,
+        esperado: null, observado: null, diferencia: monto,
+        importe: monto,
+        causa_probable: 'barrido_diferencia',
+        evidencia: { params: { min_barridos: minB, critico_barridos: critB }, barridos: n, monto, max_barrido: Number(r.max_barrido), fuente: 'wincaja.retiros' },
+        dedup_key: `barrido_diferencia_multiple:${r.source_branch}:${r.caja}:${r.cajero}:${fecha}`,
       };
     });
   }
