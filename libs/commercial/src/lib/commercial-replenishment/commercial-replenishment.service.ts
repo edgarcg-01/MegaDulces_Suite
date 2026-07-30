@@ -655,13 +655,17 @@ export class CommercialReplenishmentService {
         LEFT JOIN commercial.warehouses w ON w.tenant_id = :t AND w.id = COALESCE(:selwh::uuid, plan.primary_wh)
         WHERE ${where}`;
 
-      const totalRow = (await trx.raw(`SELECT count(*)::int c, count(*) FILTER (WHERE ${sug} > 0)::int needed, round(SUM(${sug} * ${costCaja})::numeric,2) total_valor, round(SUM(COALESCE(plan.rev30,0))::numeric,2) total_revenue ${from}`, binds)).rows[0];
-
       // RA-PRO.18 — ranking (#) y ABC de RED se calculan como WINDOWS sobre TODO el universo
       // filtrado (no la página): rank por venta $ 30d; ABC = Pareto por venta $ (A≤80% acum,
       // B≤95%, C resto). Capa interna = todas las columnas + rev30; capa externa pagina.
+      // PERF: los totales (count/needed/valor/revenue) también salen como WINDOWS aquí en la
+      // MISMA pasada — antes se ejecutaba el `from` pesado (con sus 4 subagregados) 2 veces.
       const rows = (await trx.raw(`
         SELECT z.*,
+               COUNT(*) OVER() AS _total,
+               COUNT(*) FILTER (WHERE z.suggested_units > 0) OVER() AS _needed,
+               ROUND(SUM(z.suggested_cost) OVER()::numeric, 2) AS _total_valor,
+               ROUND(SUM(z.sell_month_mxn) OVER()::numeric, 2) AS _total_revenue,
                RANK() OVER (ORDER BY z.sell_month_mxn DESC NULLS LAST) AS sales_rank,
                CASE
                  WHEN COALESCE(SUM(z.sell_month_mxn) OVER (), 0) = 0 THEN 'C'
@@ -704,11 +708,12 @@ export class CommercialReplenishmentService {
         ORDER BY z.suggested_cost DESC, z.sell_month_mxn DESC, z.on_hand_pieces DESC
         LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`, binds)).rows;
 
+      const agg: any = rows[0] || {};
       return {
-        total: Number(totalRow?.c || 0),
-        needed: Number(totalRow?.needed || 0),
-        total_valor: Number(totalRow?.total_valor || 0),
-        total_revenue: Number(totalRow?.total_revenue || 0),
+        total: Number(agg._total || 0),
+        needed: Number(agg._needed || 0),
+        total_valor: Number(agg._total_valor || 0),
+        total_revenue: Number(agg._total_revenue || 0),
         page, pageSize, coverage_days: cov, rows,
       };
     });
@@ -854,11 +859,6 @@ export class CommercialReplenishmentService {
         LEFT JOIN catalog.suppliers sup ON sup.tenant_id = :t AND sup.id = bd.supplier_id
         WHERE ${where}`;
 
-      const totalRow = (await trx.raw(
-        `${cte} SELECT count(*)::int c,
-                round(SUM((bd.transfer_pz / bd.uxc) * bd.caja_cost)::numeric, 2) total_valor,
-                round(SUM(bd.transfer_pz / bd.uxc)::numeric, 0) total_cajas ${from}`, binds)).rows[0];
-
       const rows = (await trx.raw(`
         ${cte}
         SELECT bd.product_id, bd.sku, bd.nombre,
@@ -872,15 +872,19 @@ export class CommercialReplenishmentService {
                round((bd.transfer_pz / bd.uxc)::numeric, 1) AS transfer_cajas,
                round(GREATEST(0, bd.deficit_pz - bd.transfer_pz)::numeric, 0) AS shortfall_pieces,
                round(bd.caja_cost::numeric, 4) AS unit_cost,
-               round(((bd.transfer_pz / bd.uxc) * bd.caja_cost)::numeric, 2) AS transfer_value
+               round(((bd.transfer_pz / bd.uxc) * bd.caja_cost)::numeric, 2) AS transfer_value,
+               COUNT(*) OVER() AS _total,
+               ROUND(SUM((bd.transfer_pz / bd.uxc) * bd.caja_cost) OVER()::numeric, 2) AS _total_valor,
+               ROUND(SUM(bd.transfer_pz / bd.uxc) OVER()::numeric, 0) AS _total_cajas
         ${from}
         ORDER BY (bd.transfer_pz / bd.uxc) * bd.caja_cost DESC
         LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`, binds)).rows;
 
+      const agg: any = rows[0] || {};
       return {
-        total: Number(totalRow?.c || 0),
-        total_valor: Number(totalRow?.total_valor || 0),
-        total_cajas: Number(totalRow?.total_cajas || 0),
+        total: Number(agg._total || 0),
+        total_valor: Number(agg._total_valor || 0),
+        total_cajas: Number(agg._total_cajas || 0),
         page, pageSize, coverage_days: cov, rows,
       };
     });
@@ -931,11 +935,6 @@ export class CommercialReplenishmentService {
         LEFT JOIN catalog.suppliers sup ON sup.tenant_id = :t AND sup.id = ov.supplier_id
         WHERE ${where}`;
 
-      const totalRow = (await trx.raw(
-        `${cte} SELECT count(*)::int c,
-                round(SUM((ov.surplus_pz / ov.uxc) * ov.caja_cost)::numeric, 2) total_valor,
-                round(SUM(ov.surplus_pz / ov.uxc)::numeric, 0) total_cajas ${from}`, binds)).rows[0];
-
       const rows = (await trx.raw(`
         ${cte}
         SELECT ov.product_id, ov.sku, ov.nombre,
@@ -948,15 +947,19 @@ export class CommercialReplenishmentService {
                round(ov.surplus_pz::numeric, 0) AS surplus_pieces,
                CASE WHEN ov.eff_daily > 0 THEN round((ov.stock_pz / ov.eff_daily)::numeric, 0) END AS days_on_hand,
                round(ov.caja_cost::numeric, 4) AS unit_cost,
-               round(((ov.surplus_pz / ov.uxc) * ov.caja_cost)::numeric, 2) AS immobilized_value
+               round(((ov.surplus_pz / ov.uxc) * ov.caja_cost)::numeric, 2) AS immobilized_value,
+               COUNT(*) OVER() AS _total,
+               ROUND(SUM((ov.surplus_pz / ov.uxc) * ov.caja_cost) OVER()::numeric, 2) AS _total_valor,
+               ROUND(SUM(ov.surplus_pz / ov.uxc) OVER()::numeric, 0) AS _total_cajas
         ${from}
         ORDER BY (ov.surplus_pz / ov.uxc) * ov.caja_cost DESC
         LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`, binds)).rows;
 
+      const agg: any = rows[0] || {};
       return {
-        total: Number(totalRow?.c || 0),
-        total_valor: Number(totalRow?.total_valor || 0),
-        total_cajas: Number(totalRow?.total_cajas || 0),
+        total: Number(agg._total || 0),
+        total_valor: Number(agg._total_valor || 0),
+        total_cajas: Number(agg._total_cajas || 0),
         page, pageSize, over_days: over, rows,
       };
     });
