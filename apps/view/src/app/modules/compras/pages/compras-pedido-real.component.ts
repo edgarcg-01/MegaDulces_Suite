@@ -267,6 +267,9 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
                     optionLabel="label" optionValue="value" placeholder="Todos los proveedores" [showClear]="true"
                     [filter]="true" filterBy="label" [virtualScroll]="true" [virtualScrollItemSize]="34"
                     styleClass="pr-sel-wide" ariaLabel="Filtrar por proveedor"></p-select>
+          <p-select [options]="categoryOpts()" [(ngModel)]="fCategory" (onChange)="loadWorkbook()"
+                    optionLabel="label" optionValue="value" placeholder="Todas las categorías" [showClear]="true"
+                    [filter]="true" filterBy="label" styleClass="pr-sel" ariaLabel="Filtrar por categoría"></p-select>
           <div class="pr-seg" role="group" aria-label="Agrupar columnas">
             <button type="button" class="pr-tab" [class.pr-tab-on]="wbGroup()==='branch'" (click)="wbGroup.set('branch'); loadWorkbook()">Por sucursal</button>
             <button type="button" class="pr-tab" [class.pr-tab-on]="wbGroup()==='general'" (click)="wbGroup.set('general'); loadWorkbook()">General</button>
@@ -577,6 +580,8 @@ export class ComprasPedidoRealComponent implements OnInit {
 
   fSupplier: string | null = null;
   fWarehouse: string | null = null;
+  fCategory: string | null = null;                                    // RA-PRO.12 — categoría de compra
+  categoryOpts = signal<{ label: string; value: string }[]>([]);
   search = '';
   coverage = 30;
 
@@ -608,7 +613,45 @@ export class ComprasPedidoRealComponent implements OnInit {
 
   ngOnInit(): void {
     this.api.filters().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (f) => this.filters.set(f), error: () => {} });
-    this.loadAll();
+    this.api.listCategories().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (cs) => this.categoryOpts.set(cs.map((c) => ({ label: c.name, value: c.id }))), error: () => {},
+    });
+    this.restoreFilters();
+    const m = this.mode();
+    if (m === 'excel') this.loadWorkbook();
+    else if (m === 'muerto') this.loadDead();
+    else this.loadAll();
+  }
+
+  // Persistencia de filtros en localStorage → se mantienen al recargar / navegar / cambiar de pestaña.
+  private readonly FKEY = 'compras-pedido-filters:v1';
+  private saveFilters(): void {
+    try {
+      localStorage.setItem(this.FKEY, JSON.stringify({
+        mode: this.mode(), fSupplier: this.fSupplier, fCategory: this.fCategory, fWarehouse: this.fWarehouse,
+        search: this.search, coverage: this.coverage, cBuy: this.cBuy(), cTr: this.cTr(), cOver: this.cOver(),
+        wbGroup: this.wbGroup(), wbWarehouses: this.wbWarehouses, wbScopeNeeded: this.wbScopeNeeded(),
+      }));
+    } catch { /* localStorage no disponible */ }
+  }
+  private restoreFilters(): void {
+    try {
+      const raw = localStorage.getItem(this.FKEY);
+      if (!raw) return;
+      const s = JSON.parse(raw);
+      if (s.mode === 'consolidado' || s.mode === 'excel' || s.mode === 'muerto') this.mode.set(s.mode);
+      if ('fSupplier' in s) this.fSupplier = s.fSupplier;
+      if ('fCategory' in s) this.fCategory = s.fCategory;
+      if ('fWarehouse' in s) this.fWarehouse = s.fWarehouse;
+      if (typeof s.search === 'string') this.search = s.search;
+      if (typeof s.coverage === 'number') this.coverage = s.coverage;
+      if (typeof s.cBuy === 'boolean') this.cBuy.set(s.cBuy);
+      if (typeof s.cTr === 'boolean') this.cTr.set(s.cTr);
+      if (typeof s.cOver === 'boolean') this.cOver.set(s.cOver);
+      if (s.wbGroup === 'branch' || s.wbGroup === 'general') this.wbGroup.set(s.wbGroup);
+      if (Array.isArray(s.wbWarehouses)) this.wbWarehouses = s.wbWarehouses;
+      if (typeof s.wbScopeNeeded === 'boolean') this.wbScopeNeeded.set(s.wbScopeNeeded);
+    } catch { /* JSON inválido */ }
   }
 
   setMode(m: Mode): void {
@@ -621,9 +664,9 @@ export class ComprasPedidoRealComponent implements OnInit {
 
   /** RA-PRO.32 — carga la réplica del workbook (fila por SKU, columnas por punto de compra). */
   loadWorkbook(): void {
-    this.loading.set(true); this.error.set(false);
+    this.loading.set(true); this.error.set(false); this.saveFilters();
     this.api.workbook({
-      supplier_id: this.fSupplier || undefined, search: this.search.trim() || undefined,
+      supplier_id: this.fSupplier || undefined, category_id: this.fCategory || undefined, search: this.search.trim() || undefined,
       coverage_days: this.coverage, scope: this.wbScopeNeeded() ? 'needed' : undefined,
       warehouse_ids: this.wbWarehouses.length ? this.wbWarehouses : undefined, group: this.wbGroup(),
       pageSize: 1000,
@@ -651,7 +694,7 @@ export class ComprasPedidoRealComponent implements OnInit {
 
   /** Carga las 3 fuentes (compra needed / traspasos / sobrestock) y arma el modelo unificado. */
   loadAll(): void {
-    this.loading.set(true); this.error.set(false);
+    this.loading.set(true); this.error.set(false); this.saveFilters();
     const wh = this.fWarehouse || undefined, sup = this.fSupplier || undefined, s = this.search.trim() || undefined;
     forkJoin({
       buy: this.api.purchaseSuggestion({ supplier_id: sup, warehouse_id: wh, scope: 'needed', search: s, coverage_days: this.coverage, pageSize: 1000 })
@@ -775,7 +818,7 @@ export class ComprasPedidoRealComponent implements OnInit {
   }
 
   loadDead(): void {
-    this.loading.set(true);
+    this.loading.set(true); this.saveFilters();
     this.api.deadStock({ search: this.search.trim() || undefined, pageSize: 200 })
       .pipe(catchError(() => of(null)), takeUntilDestroyed(this.destroyRef))
       .subscribe((r) => { this.loading.set(false); this.deadRows.set(r?.rows ?? []); this.deadValue.set(Number(r?.total_value) || 0); });
