@@ -51,7 +51,7 @@ import { INV_ANALYTICS_TABS } from '../inventory-tabs';
         }
       </div>
 
-      <p-table [value]="items()" [loading]="loading()" styleClass="p-datatable-sm surf-table"
+      <p-table [value]="items()" [loading]="loading()" [rowTrackBy]="trackRow" styleClass="p-datatable-sm surf-table"
                [scrollable]="true" scrollHeight="flex" [paginator]="true" [rows]="25" [rowsPerPageOptions]="[25,50,100,200]">
         <ng-template #header>
           <tr>
@@ -104,6 +104,8 @@ export class ComercialInventoryHealthComponent {
   readonly ALL = '__all__';
   resp = signal<InventoryHealthResponse | null>(null);
   loading = signal(false);
+  /** trackBy estable → p-table reusa filas al filtrar (no re-crea el DOM). */
+  trackRow = (i: number, r: any): unknown => r?.product_id ?? r?.id ?? r?.sku ?? i;
   warehouseFilter = this.ALL;
   statusFilter: string | null = null;
   warehouses = signal<{ label: string; value: string }[]>([]);
