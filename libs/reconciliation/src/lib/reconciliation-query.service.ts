@@ -140,7 +140,15 @@ export class ReconciliationQueryService {
         .leftJoin('analytics.pos_cashiers as pc', function (this: any) {
           this.on('pc.tenant_id', '=', 'cc.tenant_id').andOn('pc.warehouse_code', '=', 'cc.warehouse_code').andOn('pc.cajero_code', '=', 'cc.cajero_cierre');
         })
+        // SM.9 — arqueo ciego (cierre) ligado por suc/caja/fecha/cajero. RLS de blind_counts aplica dentro de tk.run.
+        .leftJoin('reconciliation.blind_counts as bc', function (this: any) {
+          this.on('bc.tenant_id', '=', 'cc.tenant_id').andOn('bc.warehouse_code', '=', 'cc.warehouse_code')
+            .andOn('bc.caja', '=', 'cc.caja').andOn('bc.business_date', '=', 'cc.business_date')
+            .andOn(trx.raw('bc.cajero_code IS NOT DISTINCT FROM cc.cajero_cierre')).andOn(trx.raw("bc.tipo = 'cierre'"));
+        })
         .select('cc.id', 'cc.warehouse_code', 'cc.warehouse_name', 'cc.caja', 'cc.folio', 'cc.business_date',
+          trx.raw('bc.id AS arqueo_id'), trx.raw('bc.total_contado::numeric AS arqueo_contado'), trx.raw('bc.incidencia_tipo AS arqueo_incidencia'),
+          trx.raw('CASE WHEN bc.id IS NULL THEN NULL ELSE ROUND((cc.efectivo_esperado - bc.total_contado)::numeric, 2) END AS arqueo_diff_real'),
           'cc.cajero_cierre', trx.raw('pc.nombre AS cajero_nombre'), 'cc.cajero_apertura', 'cc.turno',
           'cc.hora_apertura', 'cc.hora_cierre', trx.raw('cc.duracion_horas::numeric AS duracion_horas'),
           trx.raw('(cc.cajero_apertura IS DISTINCT FROM cc.cajero_cierre) AS handoff'),
@@ -161,15 +169,24 @@ export class ReconciliationQueryService {
       else if (q.min_diff) b.whereRaw('abs(efectivo_diff) >= ?', [Number(q.min_diff)]);
       const rows = await b;
       const n = (v: any) => Number(v);
-      return rows.map((r: any) => ({
-        ...r,
-        efectivo_esperado: n(r.efectivo_esperado), efectivo_contado: n(r.efectivo_contado), efectivo_diff: n(r.efectivo_diff),
-        tarjeta_esperado: n(r.tarjeta_esperado), tarjeta_contado: n(r.tarjeta_contado), tarjeta_diff: n(r.tarjeta_diff),
-        transfer_esperado: n(r.transfer_esperado), transfer_contado: n(r.transfer_contado), transfer_diff: n(r.transfer_diff),
-        arqueo_billetes: n(r.arqueo_billetes), arqueo_monedas: n(r.arqueo_monedas), arqueo_otros: n(r.arqueo_otros),
-        efectivo_retirado: n(r.efectivo_retirado), venta_total: n(r.venta_total), total_venta: n(r.total_venta),
-        duracion_horas: r.duracion_horas != null ? Number(r.duracion_horas) : null,
-      }));
+      return rows.map((r: any) => {
+        const arqueoDiff = r.arqueo_diff_real != null ? Number(r.arqueo_diff_real) : null;
+        return {
+          ...r,
+          efectivo_esperado: n(r.efectivo_esperado), efectivo_contado: n(r.efectivo_contado), efectivo_diff: n(r.efectivo_diff),
+          tarjeta_esperado: n(r.tarjeta_esperado), tarjeta_contado: n(r.tarjeta_contado), tarjeta_diff: n(r.tarjeta_diff),
+          transfer_esperado: n(r.transfer_esperado), transfer_contado: n(r.transfer_contado), transfer_diff: n(r.transfer_diff),
+          arqueo_billetes: n(r.arqueo_billetes), arqueo_monedas: n(r.arqueo_monedas), arqueo_otros: n(r.arqueo_otros),
+          efectivo_retirado: n(r.efectivo_retirado), venta_total: n(r.venta_total), total_venta: n(r.total_venta),
+          duracion_horas: r.duracion_horas != null ? Number(r.duracion_horas) : null,
+          // SM.9 — arqueo ciego ligado (null si no hay).
+          arqueo_id: r.arqueo_id || null,
+          arqueo_contado: r.arqueo_contado != null ? Number(r.arqueo_contado) : null,
+          arqueo_diff_real: arqueoDiff,
+          arqueo_incidencia: r.arqueo_incidencia || null,
+          arqueo_divergente: arqueoDiff != null && Math.abs(arqueoDiff) >= 50,
+        };
+      });
     });
   }
 

@@ -17,6 +17,7 @@ export type AlertType =
   | 'delivery_assigned'  // entrega a domicilio asignada a un repartidor (Reparto)
   | 'delivery_delivered' // entrega a domicilio completada (Reparto)
   | 'db_health'          // una fuente de datos falló/se recuperó (feed caído, tabla congelada)
+  | 'recon_bad_cut'      // arqueo ciego divergente ("corte malo") capturado en /tienda/arqueo (SM.9)
   | 'test';              // manual trigger para smoke testing
 
 export type AlertSeverity = 'info' | 'warn' | 'critical';

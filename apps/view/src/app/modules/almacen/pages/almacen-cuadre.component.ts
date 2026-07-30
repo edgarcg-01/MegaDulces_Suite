@@ -138,7 +138,7 @@ type Tab = 'resumen' | 'focos' | 'cortes' | 'movimientos' | 'arqueo' | 'acciones
           <p-table [value]="cortes()" styleClass="p-datatable-sm cd-table" [rowHover]="true" [loading]="loading()" dataKey="id"
             [expandedRowKeys]="expandedCortes()" [scrollable]="true" scrollHeight="600px" [paginator]="cortes().length > 100" [rows]="100">
             <ng-template #header>
-              <tr><th style="width:2.5rem"></th><th>Fecha</th><th>Sucursal</th><th>Caja</th><th>Cajero</th><th class="ta-r">Efvo esperado</th><th class="ta-r">Contado</th><th class="ta-r">Diferencia</th><th class="ta-r">Tarjeta</th><th class="ta-r">Transf.</th><th class="ta-r">Venta total</th></tr>
+              <tr><th style="width:2.5rem"></th><th>Fecha</th><th>Sucursal</th><th>Caja</th><th>Cajero</th><th class="ta-r">Efvo esperado</th><th class="ta-r">Contado</th><th class="ta-r">Diferencia</th><th class="ta-r">Tarjeta</th><th class="ta-r">Transf.</th><th class="ta-r">Venta total</th><th>Arqueo ciego</th></tr>
             </ng-template>
             <ng-template #body let-c let-expanded="expanded">
               <tr [class.cd-row-bad]="abs(c.efectivo_diff) >= 50 || abs(c.tarjeta_diff) >= 50 || abs(c.transfer_diff) >= 50">
@@ -159,10 +159,18 @@ type Tab = 'resumen' | 'focos' | 'cortes' | 'movimientos' | 'arqueo' | 'acciones
                   <span class="cd-mini"> Δ{{ signed(c.transfer_diff) }}</span>
                 }</td>
                 <td class="ta-r strong">{{ money(c.venta_total) }}</td>
+                <td>
+                  @if (!c.arqueo_id) { <span class="muted cd-arq-none">sin arqueo</span> }
+                  @else if (c.arqueo_divergente) {
+                    <span class="cd-tag pl-caja" title="El arqueo ciego de la caja diverge del esperado">corte malo {{ signed(c.arqueo_diff_real || 0) }}</span>
+                    @if (c.arqueo_incidencia) { <span class="cd-mini-inc">· {{ incidenciaLabel(c.arqueo_incidencia) }}</span> }
+                  }
+                  @else { <span class="cd-tag pl-ok"><i class="pi pi-check"></i> cuadra ciego</span> }
+                </td>
               </tr>
             </ng-template>
             <ng-template #expandedrow let-c>
-              <tr><td colspan="11" class="cd-ev">
+              <tr><td colspan="12" class="cd-ev">
                 <div class="cd-corte-grid">
                   <div class="cd-corte-block">
                     <h4>Formas de pago</h4>
@@ -192,7 +200,7 @@ type Tab = 'resumen' | 'focos' | 'cortes' | 'movimientos' | 'arqueo' | 'acciones
                 </div>
               </td></tr>
             </ng-template>
-            <ng-template #emptymessage><tr><td colspan="11" class="cd-empty">{{ loading() ? 'Cargando…' : 'Sin cortes. ¿Corriste import-cash-cuts?' }}</td></tr></ng-template>
+            <ng-template #emptymessage><tr><td colspan="12" class="cd-empty">{{ loading() ? 'Cargando…' : 'Sin cortes. ¿Corriste import-cash-cuts?' }}</td></tr></ng-template>
           </p-table>
         </div>
       }
@@ -490,6 +498,9 @@ type Tab = 'resumen' | 'focos' | 'cortes' | 'movimientos' | 'arqueo' | 'acciones
     .mv-ajuste_salida, .mv-ajuste_entrada { background: color-mix(in srgb, #d97706 14%, transparent); color: #b45309; }
     .mv-inv_fisico, .mv-otro { background: var(--surface-hover-bg, #f5f5f4); color: var(--text-muted, #57534e); }
     .pl-off { background: var(--surface-hover-bg, #f5f5f4); color: var(--text-muted, #78716c); }
+    .pl-ok { background: color-mix(in srgb, var(--ok-fg, #16a34a) 14%, transparent); color: var(--ok-fg, #16a34a); }
+    .cd-arq-none { font-size: .72rem; }
+    .cd-mini-inc { font-size: .68rem; color: var(--text-muted, #78716c); margin-left: .25rem; }
     .pl-pin { background: color-mix(in srgb, var(--action, #FB923C) 15%, transparent); color: var(--action, #FB923C); }
     .cd-acts { display: flex; align-items: center; gap: .1rem; }
     .cd-status { font-size: .74rem; font-weight: 600; } .cd-causa { font-size: .72rem; }
@@ -710,5 +721,9 @@ export class AlmacenCuadreComponent implements OnInit {
   causaLabel(c: string | null): string {
     const m: Record<string, string> = { faltante_caja: 'Faltante de caja', sobrante_caja: 'Sobrante de caja', faltante_recurrente: 'Faltante recurrente', merma: 'Merma', robo: 'Robo', error_captura: 'Error de captura', otro: 'Otro' };
     return c ? (m[c] || c.replace(/_/g, ' ')) : '—';
+  }
+  incidenciaLabel(c: string | null): string {
+    const m: Record<string, string> = { faltante_justificado: 'Faltante justificado', billete_falso: 'Billete falso', robo: 'Robo', error_cobro: 'Error de cobro', otro: 'Otro' };
+    return c ? (m[c] || c.replace(/_/g, ' ')) : '';
   }
 }

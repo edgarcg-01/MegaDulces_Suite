@@ -75,6 +75,12 @@ export interface CashCut {
   arqueo_billetes: number; arqueo_monedas: number; arqueo_otros: number;
   efectivo_retirado: number; venta_total: number; total_venta: number;
   cuadre_exacto: boolean;
+  // SM.9 — arqueo ciego ligado a este corte (null si la caja no capturó).
+  arqueo_id: string | null;
+  arqueo_contado: number | null;
+  arqueo_diff_real: number | null;
+  arqueo_incidencia: string | null;
+  arqueo_divergente: boolean;
 }
 
 export interface StockMovement {
