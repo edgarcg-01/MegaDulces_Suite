@@ -65,7 +65,7 @@ import { Order } from '../../portal/portal.service';
         <div class="empty">
           <i class="pi pi-cloud"></i>
           <p>No se pudieron cargar tus avisos.</p>
-          <button pButton label="Reintentar" icon="pi pi-refresh" severity="secondary" [text]="true" (click)="load()"></button>
+          <button pButton severity="secondary" [text]="true" (click)="load()"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span><span class="p-button-label">Reintentar</span></button>
         </div>
       </p-card>
     }

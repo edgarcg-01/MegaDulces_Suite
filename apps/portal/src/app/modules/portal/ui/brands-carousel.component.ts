@@ -37,7 +37,7 @@ export interface BrandFacet {
         </header>
         <div class="bc-viewport">
           <div class="bc-track">
-            @for (b of loop; track trackByIdx(i, b); let i = $index) {
+            @for (b of loop; track trackByIdx(i); let i = $index) {
               <a
                 class="bc-card"
                 [class.is-fallback]="isFallback(b)"
