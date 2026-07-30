@@ -23,6 +23,12 @@ type Status = 'ok' | 'warn' | 'critical' | 'unknown';
 interface SourceCfg {
   key: string; label: string; table: string; tsCandidates: string[];
   warnH: number; critH: number; cadence: string;
+  // Señal de frescura por SQL custom (sobre la DB de la app). Cuando está presente se usa
+  // en vez de max(<tsCandidates>). Sirve para medir la FECHA DEL DATO (business_date/sale_date)
+  // y no solo cuándo se escribió la fila: un feed puede correr a diario y NO avanzar la data
+  // (rollback por ECONNRESET) → updated_at se ve fresco pero el dato está congelado.
+  // Debe devolver { last_update } y opcionalmente { note_extra }.
+  sql?: string;
 }
 
 /** Fuente externa: se conecta a OTRA DB (por env) y evalúa una señal de frescura. */
@@ -43,6 +49,25 @@ const APP_SOURCES: SourceCfg[] = [
   { key: 'sales_stats',     label: 'Sell-out ABC',            table: 'analytics.product_sales_stats',  tsCandidates: ['computed_at', 'updated_at'], warnH: 50,  critH: 96,  cadence: 'nightly' },
   { key: 'reorder_policy',  label: 'Política de reorden',     table: 'commercial.reorder_policy',      tsCandidates: ['updated_at', 'computed_at'], warnH: 200, critH: 400, cadence: 'nightly / semanal' },
   { key: 'products',        label: 'Catálogo de productos',   table: 'catalog.products',               tsCandidates: ['updated_at', 'created_at'],  warnH: 360, critH: 720, cadence: 'semanal' },
+  // ── Frescura por FECHA DEL DATO (detecta feed que corre pero no avanza) ──
+  // Wincaja: el feed on-prem escribe a prod y a veces se congela por ECONNRESET (rollback) →
+  // corre a diario pero la última venta se queda pegada. Medimos max(business_date), no updated_at.
+  {
+    key: 'wincaja_feed', label: 'Feed Wincaja (venta POS)', table: 'wincaja.v_sales_lines', tsCandidates: [],
+    sql: `SELECT max(business_date)::timestamp AS last_update,
+                 'última venta ' || coalesce(to_char(max(business_date),'DD/MM'),'—') ||
+                 ' · ' || count(DISTINCT source_branch)::text || ' sucursales' AS note_extra
+          FROM wincaja.v_sales_lines`,
+    warnH: 48, critH: 96, cadence: 'diario (feed on-prem Wincaja → prod)',
+  },
+  // Venta consolidada (Kepler + Wincaja) por FECHA de venta — que el dato avance día a día.
+  {
+    key: 'sales_daily_date', label: 'Ventas — último día con dato', table: 'analytics.sales_daily', tsCandidates: [],
+    sql: `SELECT max(sale_date)::timestamp AS last_update,
+                 'último día con venta ' || coalesce(to_char(max(sale_date),'DD/MM'),'—') AS note_extra
+          FROM analytics.sales_daily`,
+    warnH: 44, critH: 72, cadence: 'intradía + nightly',
+  },
 ];
 
 const EXT_SOURCES: ExtCfg[] = [
@@ -170,6 +195,18 @@ export class DbHealthService {
       try {
         const reg = await this.knex!.raw(`SELECT to_regclass(?) AS t`, [s.table]);
         if (!reg.rows[0]?.t) { out.push({ ...base, note: 'tabla no existe' }); continue; }
+        // Señal por SQL custom (fecha del dato). Devuelve { last_update, note_extra }.
+        if (s.sql) {
+          const { rows } = await this.knex!.raw(s.sql);
+          const last = rows[0]?.last_update ? new Date(rows[0].last_update) : null;
+          const ageSec = this.ageOf(last);
+          out.push({
+            ...base, ts_col: 'dato', last_update: last ? last.toISOString() : null,
+            age_seconds: ageSec, status: this.classify(ageSec, s.warnH, s.critH),
+            note: rows[0]?.note_extra as string | undefined,
+          });
+          continue;
+        }
         const tsCol = await this.pickTsCol(schema, table, s.tsCandidates);
         if (!tsCol) { out.push({ ...base, note: 'sin columna de fecha' }); continue; }
         const { rows } = await this.knex!.raw(

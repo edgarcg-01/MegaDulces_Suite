@@ -203,6 +203,25 @@ function loadJsonl(file, spec) {
   });
 }
 
+// Errores de red transitorios al escribir a Railway vía el proxy público: la conexión
+// se cae a mitad de la carga masiva. reload() es idempotente (DELETE+INSERT en trx con
+// rollback limpio), así que reintentar con backoff destraba el feed sin duplicar.
+const TRANSIENT = /ECONNRESET|ETIMEDOUT|EPIPE|Connection terminated|termination|socket hang up|ECONNREFUSED|Connection ended|server closed the connection/i;
+async function withRetry(label, fn, tries = 6) {
+  let lastErr;
+  for (let attempt = 1; attempt <= tries; attempt++) {
+    try { return await fn(); }
+    catch (e) {
+      lastErr = e;
+      if (!TRANSIENT.test(String((e && e.message) || '')) || attempt === tries) throw e;
+      const wait = Math.min(30000, 1000 * 2 ** (attempt - 1));
+      console.warn(`  [retry ${attempt}/${tries - 1}] ${label}: ${e.message} -> espera ${wait}ms`);
+      await new Promise((r) => setTimeout(r, wait));
+    }
+  }
+  throw lastErr;
+}
+
 async function reload(db, branch, dataset, spec, rows) {
   const pk = PK[spec.pg];
   const conflict = pk ? ['tenant_id', 'source_branch', 'source_dataset', ...pk] : null;
@@ -212,7 +231,7 @@ async function reload(db, branch, dataset, spec, rows) {
     for (const r of rows) m.set(pk.map((k) => r[k]).join(''), r);
     data = [...m.values()];
   }
-  await db.transaction(async (trx) => {
+  await withRetry(`${spec.pg} suc ${branch}`, () => db.transaction(async (trx) => {
     await trx.raw(`SET LOCAL app.tenant_id = '${TENANT}'`);
     await trx(`wincaja.${spec.pg}`).where({ tenant_id: TENANT, source_branch: branch, source_dataset: dataset }).del();
     const stamped = data.map((r) => ({ tenant_id: TENANT, source_branch: branch, source_dataset: dataset, ...r }));
@@ -221,7 +240,7 @@ async function reload(db, branch, dataset, spec, rows) {
       const q = trx(`wincaja.${spec.pg}`).insert(chunk);
       await (conflict ? q.onConflict(conflict).merge() : q);
     }
-  });
+  }));
   return data.length;
 }
 
@@ -240,7 +259,7 @@ async function reload(db, branch, dataset, spec, rows) {
   let db = null;
   if (APPLY) {
     const cfg = process.env.DATABASE_URL_NEW
-      ? { client: 'pg', connection: { connectionString: process.env.DATABASE_URL_NEW, ssl: /@(localhost|127\.0\.0\.1|192\.168\.)/.test(process.env.DATABASE_URL_NEW) ? false : { rejectUnauthorized: false } }, pool: { min: 0, max: 3 } }
+      ? { client: 'pg', connection: { connectionString: process.env.DATABASE_URL_NEW, ssl: /@(localhost|127\.0\.0\.1|192\.168\.)/.test(process.env.DATABASE_URL_NEW) ? false : { rejectUnauthorized: false }, keepAlive: true, keepAliveInitialDelayMillis: 10000, statement_timeout: 300000, query_timeout: 300000 }, pool: { min: 0, max: 3 }, acquireConnectionTimeout: 60000 }
       : require(path.resolve(__dirname, '..', '..', 'knexfile-newdb.js')).development;
     db = knexLib(cfg);
   }
