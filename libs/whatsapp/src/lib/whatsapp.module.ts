@@ -15,6 +15,7 @@ import { WhatsAppOptinService } from './broadcast/whatsapp-optin.service';
 import { WhatsAppCampaignService } from './broadcast/whatsapp-campaign.service';
 import { WhatsAppReorderService } from './broadcast/whatsapp-reorder.service';
 import { WhatsAppBroadcastController } from './broadcast/whatsapp-broadcast.controller';
+import { AnthropicService } from '@megadulces/platform-core';
 
 /**
  * Fase F (ADR-006/007/034) — Comercio conversacional por WhatsApp.
@@ -47,6 +48,7 @@ const whatsAppPortProvider = {
     WhatsAppQueueService,
     ConversationThreadService,
     ConversationOrchestratorService,
+    AnthropicService,
     WhatsAppIngestService,
     WhatsAppOrdersService,
     WhatsAppPromoService,

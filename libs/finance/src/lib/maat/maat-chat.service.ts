@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { TenantKnexService } from '@megadulces/platform-core';
+import { TenantKnexService, AnthropicService } from '@megadulces/platform-core';
 import { MaatToolsService, MaatScope } from './maat-tools.service';
 
 /**
@@ -15,9 +15,8 @@ import { MaatToolsService, MaatScope } from './maat-tools.service';
  * tool calls y tokens — el 👍/👎 por mensaje es el colector de feedback (L2).
  */
 
-const CLAUDE_ENDPOINT = 'https://api.anthropic.com/v1/messages';
 const CLAUDE_MODEL = process.env.MAAT_CHAT_MODEL || 'claude-haiku-4-5-20251001';
-const CLAUDE_THINK_MODEL = process.env.MAAT_CHAT_THINK_MODEL || 'claude-sonnet-4-6';
+const CLAUDE_THINK_MODEL = process.env.MAAT_CHAT_THINK_MODEL || 'claude-sonnet-5';
 const TIMEOUT_MS = 30_000;
 const MAX_ITERATIONS = 8;
 // max_tokens de la respuesta final. 1500 truncaba las respuestas detalladas
@@ -26,7 +25,6 @@ const MAX_ITERATIONS = 8;
 const MAX_TOKENS = 4096;
 // Reintento cuando aún así se corta por longitud (respuesta excepcional).
 const RETRY_MAX_TOKENS = 8192;
-const THINK_BUDGET = 1536;
 const THINK_MAX_TOKENS = 8192;
 const THINK_TIMEOUT_MS = 60_000;
 const DEEP_ITERATIONS = 12;
@@ -77,6 +75,7 @@ export class MaatChatService {
   constructor(
     private readonly tk: TenantKnexService,
     private readonly tools: MaatToolsService,
+    private readonly anthropic: AnthropicService,
   ) {}
 
   async ask(
@@ -324,29 +323,21 @@ export class MaatChatService {
     }
   }
 
-  private async callClaude(system: string, messages: any[], tools: any[], think = false, maxTokensOverride?: number): Promise<any> {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), think ? THINK_TIMEOUT_MS : TIMEOUT_MS);
-    try {
-      const body: any = {
+  private callClaude(system: string, messages: any[], tools: any[], think = false, maxTokensOverride?: number): Promise<any> {
+    // Transporte compartido (AnthropicService) + prompt caching del prefijo tools+system:
+    // en el loop ReAct el system y las defs de tools se reenvían cada iteración → tras el
+    // 1er request se cobran ~0.1x. Modelo/thinking los sigue decidiendo Maat (parity).
+    return this.anthropic.messages(
+      {
         model: think ? CLAUDE_THINK_MODEL : CLAUDE_MODEL,
-        max_tokens: maxTokensOverride || (think ? THINK_MAX_TOKENS : MAX_TOKENS),
-        system, tools, messages,
-      };
-      if (think) body.thinking = { type: 'enabled', budget_tokens: THINK_BUDGET };
-      const res = await fetch(CLAUDE_ENDPOINT, {
-        method: 'POST',
-        headers: { 'x-api-key': this.apiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
-        signal: controller.signal,
-        body: JSON.stringify(body),
-      });
-      if (!res.ok) {
-        const txt = await res.text().catch(() => '');
-        throw new Error(`Claude HTTP ${res.status}: ${txt.slice(0, 200)}`);
-      }
-      return await res.json();
-    } finally {
-      clearTimeout(timer);
-    }
+        maxTokens: maxTokensOverride || (think ? THINK_MAX_TOKENS : MAX_TOKENS),
+        system,
+        tools,
+        messages,
+        thinking: think ? { type: 'adaptive' } : undefined,
+        effort: think ? 'medium' : undefined,
+      },
+      { timeoutMs: think ? THINK_TIMEOUT_MS : TIMEOUT_MS, cachePrefix: true },
+    );
   }
 }

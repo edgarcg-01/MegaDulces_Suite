@@ -1,4 +1,5 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { AnthropicService } from './anthropic.service';
 
 /**
  * Campos de cabecera extraídos de un ticket de ruta (cierre de ruta).
@@ -40,10 +41,11 @@ export interface RouteTicketFields {
 @Injectable()
 export class LlmExtractorService implements OnModuleInit {
   private readonly logger = new Logger(LlmExtractorService.name);
-  private readonly endpoint = 'https://api.anthropic.com/v1/messages';
   private readonly model = 'claude-haiku-4-5-20251001';
   private readonly apiKey = process.env.ANTHROPIC_API_KEY || '';
   private readonly timeoutMs = 15_000;
+
+  constructor(private readonly anthropic: AnthropicService) {}
 
   onModuleInit(): void {
     if (!this.apiKey) {
@@ -166,23 +168,12 @@ export class LlmExtractorService implements OnModuleInit {
   private async callClaude(
     rawText: string,
   ): Promise<{ raw: string; normalized: string; quantity: number }[]> {
-    const ctrl = new AbortController();
-    const tId = setTimeout(() => ctrl.abort(), this.timeoutMs);
-
-    let res: Response;
-    try {
-      res = await fetch(this.endpoint, {
-        method: 'POST',
-        headers: {
-          'x-api-key': this.apiKey,
-          'anthropic-version': '2023-06-01',
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          model: this.model,
-          max_tokens: 1024,
-          tool_choice: { type: 'tool', name: 'extract_products' },
-          tools: [
+    const json = (await this.anthropic.messages(
+      {
+        model: this.model,
+        maxTokens: 1024,
+        toolChoice: { type: 'tool', name: 'extract_products' },
+        tools: [
             {
               name: 'extract_products',
               description:
@@ -223,28 +214,18 @@ export class LlmExtractorService implements OnModuleInit {
               },
             },
           ],
-          messages: [
-            {
-              role: 'user',
-              content:
-                'Texto del colaborador (lista de productos en una tienda):\n\n' +
-                rawText +
-                '\n\nExtrae cada producto como un item separado usando la herramienta extract_products.',
-            },
-          ],
-        }),
-        signal: ctrl.signal,
-      });
-    } finally {
-      clearTimeout(tId);
-    }
-
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`Anthropic API ${res.status}: ${body.slice(0, 300)}`);
-    }
-
-    const json = (await res.json()) as {
+        messages: [
+          {
+            role: 'user',
+            content:
+              'Texto del colaborador (lista de productos en una tienda):\n\n' +
+              rawText +
+              '\n\nExtrae cada producto como un item separado usando la herramienta extract_products.',
+          },
+        ],
+      },
+      { timeoutMs: this.timeoutMs },
+    )) as {
       content: Array<
         | { type: 'text'; text: string }
         | { type: 'tool_use'; name: string; input: { items?: { raw: string; normalized: string; quantity?: number }[] } }
@@ -289,23 +270,12 @@ export class LlmExtractorService implements OnModuleInit {
     imageBase64: string,
     mediaType: string,
   ): Promise<{ raw: string; normalized: string; quantity: number }[]> {
-    const ctrl = new AbortController();
-    const tId = setTimeout(() => ctrl.abort(), 30_000);
-
-    let res: Response;
-    try {
-      res = await fetch(this.endpoint, {
-        method: 'POST',
-        headers: {
-          'x-api-key': this.apiKey,
-          'anthropic-version': '2023-06-01',
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          model: this.model,
-          max_tokens: 2048,
-          tool_choice: { type: 'tool', name: 'extract_ticket_lines' },
-          tools: [
+    const json = (await this.anthropic.messages(
+      {
+        model: this.model,
+        maxTokens: 2048,
+        toolChoice: { type: 'tool', name: 'extract_ticket_lines' },
+        tools: [
             {
               name: 'extract_ticket_lines',
               description:
@@ -337,36 +307,26 @@ export class LlmExtractorService implements OnModuleInit {
               },
             },
           ],
-          messages: [
-            {
-              role: 'user',
-              content: [
-                {
-                  type: 'image',
-                  source: { type: 'base64', media_type: mediaType, data: imageBase64 },
-                },
-                {
-                  type: 'text',
-                  text:
-                    'Esta es una foto de un ticket de venta de una tiendita mexicana. ' +
-                    'Extrae cada línea de producto usando la herramienta extract_ticket_lines.',
-                },
-              ],
-            },
-          ],
-        }),
-        signal: ctrl.signal,
-      });
-    } finally {
-      clearTimeout(tId);
-    }
-
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`Anthropic vision ${res.status}: ${body.slice(0, 300)}`);
-    }
-
-    const json = (await res.json()) as {
+        messages: [
+          {
+            role: 'user',
+            content: [
+              {
+                type: 'image',
+                source: { type: 'base64', media_type: mediaType, data: imageBase64 },
+              },
+              {
+                type: 'text',
+                text:
+                  'Esta es una foto de un ticket de venta de una tiendita mexicana. ' +
+                  'Extrae cada línea de producto usando la herramienta extract_ticket_lines.',
+              },
+            ],
+          },
+        ],
+      },
+      { timeoutMs: 30_000 },
+    )) as {
       content: Array<
         | { type: 'text'; text: string }
         | { type: 'tool_use'; name: string; input: { items?: { raw: string; normalized: string; quantity?: number }[] } }
@@ -442,22 +402,12 @@ export class LlmExtractorService implements OnModuleInit {
     products: { raw: string; normalized: string; quantity: number }[];
     emptySlots: string[];
   }> {
-    const ctrl = new AbortController();
-    const tId = setTimeout(() => ctrl.abort(), 30_000);
-    let res: Response;
-    try {
-      res = await fetch(this.endpoint, {
-        method: 'POST',
-        headers: {
-          'x-api-key': this.apiKey,
-          'anthropic-version': '2023-06-01',
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          model: this.model,
-          max_tokens: 2048,
-          tool_choice: { type: 'tool', name: 'read_shelf_products' },
-          tools: [
+    const json = (await this.anthropic.messages(
+      {
+        model: this.model,
+        maxTokens: 2048,
+        toolChoice: { type: 'tool', name: 'read_shelf_products' },
+        tools: [
             {
               name: 'read_shelf_products',
               description:
@@ -511,34 +461,26 @@ export class LlmExtractorService implements OnModuleInit {
               },
             },
           ],
-          messages: [
-            {
-              role: 'user',
-              content: [
-                { type: 'image', source: { type: 'base64', media_type: mediaType, data: imageBase64 } },
-                {
-                  type: 'text',
-                  text:
-                    'Esta es una foto de una exhibición de dulces en una tiendita mexicana (surtido de la ' +
-                    'distribuidora Mega Dulces). (1) Listá TODOS los productos que se VEN —marca y tipo—, ' +
-                    'incluyendo el dulce a granel sin marca (describilo por tipo). (2) Además, reportá en ' +
-                    'empty_slots los ESPACIOS con etiqueta de anaquel pero SIN producto (quiebre de stock). ' +
-                    'Sé exhaustivo. Usá la herramienta read_shelf_products.',
-                },
-              ],
-            },
-          ],
-        }),
-        signal: ctrl.signal,
-      });
-    } finally {
-      clearTimeout(tId);
-    }
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`Anthropic vision ${res.status}: ${body.slice(0, 300)}`);
-    }
-    const json = (await res.json()) as {
+        messages: [
+          {
+            role: 'user',
+            content: [
+              { type: 'image', source: { type: 'base64', media_type: mediaType, data: imageBase64 } },
+              {
+                type: 'text',
+                text:
+                  'Esta es una foto de una exhibición de dulces en una tiendita mexicana (surtido de la ' +
+                  'distribuidora Mega Dulces). (1) Listá TODOS los productos que se VEN —marca y tipo—, ' +
+                  'incluyendo el dulce a granel sin marca (describilo por tipo). (2) Además, reportá en ' +
+                  'empty_slots los ESPACIOS con etiqueta de anaquel pero SIN producto (quiebre de stock). ' +
+                  'Sé exhaustivo. Usá la herramienta read_shelf_products.',
+              },
+            ],
+          },
+        ],
+      },
+      { timeoutMs: 30_000 },
+    )) as {
       content: Array<
         | { type: 'text'; text: string }
         | {
@@ -613,23 +555,12 @@ export class LlmExtractorService implements OnModuleInit {
         'corte_number va null.',
     };
 
-    const ctrl = new AbortController();
-    const tId = setTimeout(() => ctrl.abort(), 30_000);
-
-    let res: Response;
-    try {
-      res = await fetch(this.endpoint, {
-        method: 'POST',
-        headers: {
-          'x-api-key': this.apiKey,
-          'anthropic-version': '2023-06-01',
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          model: this.model,
-          max_tokens: 512,
-          tool_choice: { type: 'tool', name: 'extract_route_ticket' },
-          tools: [
+    const json = (await this.anthropic.messages(
+      {
+        model: this.model,
+        maxTokens: 512,
+        toolChoice: { type: 'tool', name: 'extract_route_ticket' },
+        tools: [
             {
               name: 'extract_route_ticket',
               description:
@@ -650,29 +581,19 @@ export class LlmExtractorService implements OnModuleInit {
                 required: ['route_code', 'ticket_date', 'ticket_time', 'total', 'corte_number', 'reference', 'liters', 'folio'],
               },
             },
-          ],
-          messages: [
-            {
-              role: 'user',
-              content: [
-                { type: 'image', source: { type: 'base64', media_type: mediaType, data: imageBase64 } },
-                { type: 'text', text: perType[ticketType] + ' Usa la herramienta extract_route_ticket.' },
-              ],
-            },
-          ],
-        }),
-        signal: ctrl.signal,
-      });
-    } finally {
-      clearTimeout(tId);
-    }
-
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`Anthropic route-ticket ${res.status}: ${body.slice(0, 300)}`);
-    }
-
-    const json = (await res.json()) as {
+        ],
+        messages: [
+          {
+            role: 'user',
+            content: [
+              { type: 'image', source: { type: 'base64', media_type: mediaType, data: imageBase64 } },
+              { type: 'text', text: perType[ticketType] + ' Usa la herramienta extract_route_ticket.' },
+            ],
+          },
+        ],
+      },
+      { timeoutMs: 30_000 },
+    )) as {
       content: Array<
         | { type: 'text'; text: string }
         | { type: 'tool_use'; name: string; input: Partial<RouteTicketFields> }

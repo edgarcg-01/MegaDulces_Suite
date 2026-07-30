@@ -23,6 +23,7 @@ import { HorusChatService } from './horus-chat/horus-chat.service';
 import { HorusToolsService } from './horus-chat/horus-tools.service';
 import { AdaptiveThresholdsService } from './adaptive-thresholds.service';
 import { WebSocketModule } from '../websocket/websocket.module';
+import { AnthropicService } from '@megadulces/platform-core';
 
 /**
  * Horus — Supervisor AI de ejecución (Trade Marketing). Read-only/compute sobre
@@ -60,6 +61,7 @@ import { WebSocketModule } from '../websocket/websocket.module';
     HorusChatService,
     HorusToolsService,
     AdaptiveThresholdsService,
+    AnthropicService,
   ],
   exports: [Execution360Service, FindingsEngineService],
 })

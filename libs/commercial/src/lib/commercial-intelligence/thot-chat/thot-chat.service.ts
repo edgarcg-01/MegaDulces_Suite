@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { TenantKnexService } from '@megadulces/platform-core';
+import { TenantKnexService, AnthropicService } from '@megadulces/platform-core';
 import { ThotToolProvider, ThotScope } from './thot-tool-provider';
 import { ThotExamplesService } from './thot-examples.service';
 
@@ -12,18 +12,17 @@ import { ThotExamplesService } from './thot-examples.service';
  * texto accionable para que reintente. Sin API key → degrada con mensaje claro.
  */
 
-const CLAUDE_ENDPOINT = 'https://api.anthropic.com/v1/messages';
 const CLAUDE_MODEL = process.env.THOT_CHAT_MODEL || 'claude-haiku-4-5-20251001';
-// Modo Think usa un modelo más potente (Sonnet) + extended thinking.
-const CLAUDE_THINK_MODEL = process.env.THOT_CHAT_THINK_MODEL || 'claude-sonnet-4-6';
+// Modo Think usa un modelo más potente (Sonnet 5) + adaptive thinking.
+const CLAUDE_THINK_MODEL = process.env.THOT_CHAT_THINK_MODEL || 'claude-sonnet-5';
 const TIMEOUT_MS = 30_000;
 const MAX_ITERATIONS = 6;
 const MAX_TOKENS = 1500;
 
 // ── Modos opt-in (toggles del input) ──────────────────────────────────────
-// Think = extended thinking de Claude (razona antes de responder).
-const THINK_BUDGET = 1536;          // tokens de razonamiento
-const THINK_MAX_TOKENS = 4096;      // debe ser > THINK_BUDGET
+// Think = adaptive thinking de Claude (Sonnet 5): el modelo decide cuánto razonar;
+// effort 'medium' gobierna profundidad/costo. budget_tokens ya no existe en Sonnet 5.
+const THINK_MAX_TOKENS = 8192;      // headroom para thinking + respuesta
 const THINK_TIMEOUT_MS = 60_000;    // el razonamiento agrega latencia
 // Deep Search = más iteraciones para cruzar más tools + directiva exhaustiva.
 const DEEP_ITERATIONS = 12;
@@ -63,6 +62,7 @@ export class ThotChatService {
   constructor(
     private readonly tk: TenantKnexService,
     private readonly examples: ThotExamplesService,
+    private readonly anthropic: AnthropicService,
   ) {}
 
   /** Registra el intercambio en commercial.thot_chat_log (auditable). Best-effort. Devuelve el id (o null) para el feedback 👍/👎. */
@@ -202,38 +202,23 @@ export class ThotChatService {
     };
   }
 
-  private async callClaude(system: string, messages: any[], tools: any[], think = false): Promise<any> {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), think ? THINK_TIMEOUT_MS : TIMEOUT_MS);
-    try {
-      const body: any = {
+  private callClaude(system: string, messages: any[], tools: any[], think = false): Promise<any> {
+    // Transporte compartido (AnthropicService) + prompt caching del prefijo tools+system:
+    // el system y las defs se reenvían en cada iteración del loop ReAct → tras el 1er
+    // request se cobran ~0.1x. El bloque `thinking` que devuelve Claude se re-emite tal
+    // cual al apilar el turno del assistant (con `content` completo). Modelo/thinking los
+    // sigue decidiendo Thot (parity ADR-016).
+    return this.anthropic.messages(
+      {
         model: think ? CLAUDE_THINK_MODEL : CLAUDE_MODEL,
-        max_tokens: think ? THINK_MAX_TOKENS : MAX_TOKENS,
+        maxTokens: think ? THINK_MAX_TOKENS : MAX_TOKENS,
         system,
         tools,
         messages,
-      };
-      // Extended thinking: razona antes de responder. El bloque `thinking` que
-      // devuelve se re-emite tal cual al apilar el turno del assistant (ya lo
-      // hacemos con `content` completo), requisito de la API con tool-use.
-      if (think) body.thinking = { type: 'enabled', budget_tokens: THINK_BUDGET };
-      const res = await fetch(CLAUDE_ENDPOINT, {
-        method: 'POST',
-        headers: {
-          'x-api-key': this.apiKey,
-          'anthropic-version': '2023-06-01',
-          'content-type': 'application/json',
-        },
-        signal: controller.signal,
-        body: JSON.stringify(body),
-      });
-      if (!res.ok) {
-        const txt = await res.text().catch(() => '');
-        throw new Error(`Claude HTTP ${res.status}: ${txt.slice(0, 200)}`);
-      }
-      return await res.json();
-    } finally {
-      clearTimeout(timer);
-    }
+        thinking: think ? { type: 'adaptive' } : undefined,
+        effort: think ? 'medium' : undefined,
+      },
+      { timeoutMs: think ? THINK_TIMEOUT_MS : TIMEOUT_MS, cachePrefix: true },
+    );
   }
 }

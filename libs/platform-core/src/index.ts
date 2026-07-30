@@ -42,6 +42,7 @@ export * from './lib/decorators/skip-tenant-tx.decorator';
 // roles.decorator.ts deprecado (sin exports) — no se re-exporta.
 
 // ── ai ──
+export * from './lib/ai/anthropic.service';
 export * from './lib/ai/embeddings.service';
 export * from './lib/ai/llm-extractor.service';
 export * from './lib/ai-product-matcher/ai-product-matcher.module';

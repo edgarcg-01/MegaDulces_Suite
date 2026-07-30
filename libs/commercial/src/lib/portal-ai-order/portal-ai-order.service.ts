@@ -3,8 +3,7 @@ import {
   Injectable,
   Logger,
 } from '@nestjs/common';
-import { TenantKnexService } from '@megadulces/platform-core';
-import { TenantContextService } from '@megadulces/platform-core';
+import { TenantKnexService, TenantContextService, AnthropicService } from '@megadulces/platform-core';
 
 interface ChatMessage {
   role: 'user' | 'assistant';
@@ -42,7 +41,6 @@ interface CatalogItem {
   min_qty: number;
 }
 
-const CLAUDE_ENDPOINT = 'https://api.anthropic.com/v1/messages';
 const CLAUDE_MODEL = 'claude-haiku-4-5-20251001';
 const MAX_CATALOG_ITEMS = 300;
 const TIMEOUT_MS = 25_000;
@@ -55,6 +53,7 @@ export class PortalAiOrderService {
   constructor(
     private readonly tk: TenantKnexService,
     private readonly tenantCtx: TenantContextService,
+    private readonly anthropic: AnthropicService,
   ) {}
 
   async suggest(input: SuggestInput) {
@@ -180,24 +179,13 @@ Devolvé tu respuesta SIEMPRE invocando la tool "suggest_order".`;
       { role: 'user', content: message },
     ];
 
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
-
-    try {
-      const res = await fetch(CLAUDE_ENDPOINT, {
-        method: 'POST',
-        headers: {
-          'x-api-key': this.apiKey,
-          'anthropic-version': '2023-06-01',
-          'content-type': 'application/json',
-        },
-        signal: controller.signal,
-        body: JSON.stringify({
-          model: CLAUDE_MODEL,
-          max_tokens: 2048,
-          system,
-          messages,
-          tools: [
+    const json: any = await this.anthropic.messages(
+      {
+        model: CLAUDE_MODEL,
+        maxTokens: 2048,
+        system,
+        messages,
+        tools: [
             {
               name: 'suggest_order',
               description:
@@ -226,17 +214,11 @@ Devolvé tu respuesta SIEMPRE invocando la tool "suggest_order".`;
                 required: ['assistant_message', 'suggestions'],
               },
             },
-          ],
-          tool_choice: { type: 'tool', name: 'suggest_order' },
-        }),
-      });
-
-      if (!res.ok) {
-        const txt = await res.text().catch(() => '');
-        throw new Error(`Claude HTTP ${res.status}: ${txt.slice(0, 200)}`);
-      }
-
-      const json: any = await res.json();
+        ],
+        toolChoice: { type: 'tool', name: 'suggest_order' },
+      },
+      { timeoutMs: TIMEOUT_MS },
+    );
       const toolUse = (json.content || []).find((c: any) => c.type === 'tool_use');
       if (!toolUse) throw new Error('Claude no devolvió tool_use');
       const input = toolUse.input || {};
@@ -263,9 +245,6 @@ Devolvé tu respuesta SIEMPRE invocando la tool "suggest_order".`;
         assistant_message: String(input.assistant_message || ''),
         suggestions,
       };
-    } finally {
-      clearTimeout(timer);
-    }
   }
 
   /**

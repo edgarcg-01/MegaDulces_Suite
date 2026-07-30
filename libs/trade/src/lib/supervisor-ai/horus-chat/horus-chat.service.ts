@@ -1,6 +1,6 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { Knex } from 'knex';
-import { KNEX_CONNECTION } from '@megadulces/platform-core';
+import { KNEX_CONNECTION, AnthropicService } from '@megadulces/platform-core';
 import { HorusToolsService } from './horus-tools.service';
 
 /**
@@ -14,16 +14,14 @@ import { HorusToolsService } from './horus-tools.service';
  * briefing de Horus.2).
  */
 
-const CLAUDE_ENDPOINT = 'https://api.anthropic.com/v1/messages';
 const CLAUDE_MODEL =
   process.env.HORUS_CHAT_MODEL || process.env.THOT_CHAT_MODEL || 'claude-haiku-4-5-20251001';
 const CLAUDE_THINK_MODEL =
-  process.env.HORUS_CHAT_THINK_MODEL || process.env.THOT_CHAT_THINK_MODEL || 'claude-sonnet-4-6';
+  process.env.HORUS_CHAT_THINK_MODEL || process.env.THOT_CHAT_THINK_MODEL || 'claude-sonnet-5';
 const TIMEOUT_MS = 30_000;
 const MAX_ITERATIONS = 6;
 const MAX_TOKENS = 1500;
-const THINK_BUDGET = 1536;
-const THINK_MAX_TOKENS = 4096;
+const THINK_MAX_TOKENS = 8192;
 const THINK_TIMEOUT_MS = 60_000;
 const DEEP_ITERATIONS = 12;
 const DEEP_DIRECTIVE =
@@ -66,6 +64,7 @@ export class HorusChatService {
   constructor(
     @Inject(KNEX_CONNECTION) private readonly knex: Knex,
     private readonly tools: HorusToolsService,
+    private readonly anthropic: AnthropicService,
   ) {}
 
   /** Registra el intercambio en commercial.horus_chat_log (tenant explícito, best-effort). */
@@ -187,35 +186,21 @@ export class HorusChatService {
     };
   }
 
-  private async callClaude(system: string, messages: any[], tools: any[], think = false): Promise<any> {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), think ? THINK_TIMEOUT_MS : TIMEOUT_MS);
-    try {
-      const body: any = {
+  private callClaude(system: string, messages: any[], tools: any[], think = false): Promise<any> {
+    // Transporte compartido (AnthropicService) + prompt caching del prefijo tools+system
+    // (system estable dentro del loop → ~0.1x tras el 1er request). Modelo/thinking los
+    // sigue decidiendo Horus (parity ADR-016/020).
+    return this.anthropic.messages(
+      {
         model: think ? CLAUDE_THINK_MODEL : CLAUDE_MODEL,
-        max_tokens: think ? THINK_MAX_TOKENS : MAX_TOKENS,
+        maxTokens: think ? THINK_MAX_TOKENS : MAX_TOKENS,
         system,
         tools,
         messages,
-      };
-      if (think) body.thinking = { type: 'enabled', budget_tokens: THINK_BUDGET };
-      const res = await fetch(CLAUDE_ENDPOINT, {
-        method: 'POST',
-        headers: {
-          'x-api-key': this.apiKey,
-          'anthropic-version': '2023-06-01',
-          'content-type': 'application/json',
-        },
-        signal: controller.signal,
-        body: JSON.stringify(body),
-      });
-      if (!res.ok) {
-        const txt = await res.text().catch(() => '');
-        throw new Error(`Claude HTTP ${res.status}: ${txt.slice(0, 200)}`);
-      }
-      return await res.json();
-    } finally {
-      clearTimeout(timer);
-    }
+        thinking: think ? { type: 'adaptive' } : undefined,
+        effort: think ? 'medium' : undefined,
+      },
+      { timeoutMs: think ? THINK_TIMEOUT_MS : TIMEOUT_MS, cachePrefix: true },
+    );
   }
 }

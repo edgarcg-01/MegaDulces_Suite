@@ -4,6 +4,7 @@ import { AiProductMatcherService } from './ai-product-matcher.service';
 import { EmbeddingSyncService } from './embedding-sync.service';
 import { EmbeddingsService } from '../ai/embeddings.service';
 import { LlmExtractorService } from '../ai/llm-extractor.service';
+import { AnthropicService } from '../ai/anthropic.service';
 
 /**
  * Fase K — AI product match en captures.
@@ -24,6 +25,7 @@ import { LlmExtractorService } from '../ai/llm-extractor.service';
     AiProductMatcherService,
     EmbeddingsService,
     LlmExtractorService,
+    AnthropicService,
     EmbeddingSyncService,
   ],
   exports: [EmbeddingsService, AiProductMatcherService, LlmExtractorService],

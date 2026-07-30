@@ -6,6 +6,18 @@
 
 ---
 
+## 2026-07-30 — Agentes AI: transporte compartido + prompt caching + Think→Sonnet 5
+
+**Contexto:** Edgar pidió analizar los agentes (Thot/Maat/Horus). El análisis encontró duplicación de transporte (~10 `callClaude`/`fetch` a la Messages API, uno por dominio) y el modo Think anclado en `claude-sonnet-4-6` con `budget_tokens` (deprecado, 400 en Sonnet 5).
+
+**#1 — `AnthropicService` (libs/platform-core/ai):** cliente de transporte único (headers/timeout/error/parse). 17 call-sites en 10 servicios migrados; JSON crudo devuelto → callers sin cambio de contrato. No decide modelo/thinking (parity ADR-016). `cachePrefix` opt-in cachea el prefijo tools+system (ephemeral) → ~0.1x en iteraciones del loop ReAct. ON en Thot/Maat/Horus chat; OFF en WhatsApp orchestrator (system muta) y single-shot. Infra leaf (cero deps de dominio, como EmbeddingsService) → agregado a los `providers` de 6 módulos.
+
+**#3 — Think → Sonnet 5:** los 3 chats suben Think a `claude-sonnet-5` + `thinking:{type:'adaptive'}` + `effort:'medium'` (reemplaza `budget_tokens`), `THINK_MAX_TOKENS`→8192. `effort` nunca en el worker Haiku 4.5 (da 400). WhatsApp ya estaba en Sonnet 5 → ahora consistente.
+
+**Verificación:** 2 builds api verdes (`--skip-nx-cache`), 0 warnings nuevos, DI por grep (cada servicio provisto en exactamente 1 módulo). Pendiente (necesita API vivo): smokes HTTP Thot/Maat/Horus + confirmar `cache_read_input_tokens>0` en la 2ª iteración. Gotcha deploy: envs `*_CHAT_THINK_MODEL` pisan el default de Sonnet 5.
+
+**Lección:** `budget_tokens` da 400 en Sonnet 5/Opus 4.7+ (usar `thinking:{type:'adaptive'}`); `output_config.effort` da 400 en Haiku 4.5 → gatear el effort al path Think. El build de Nx NO detecta providers DI faltantes (error en boot, no en build) → auditar `*.module.ts` por grep al agregar un `@Injectable` nuevo.
+
 ## 2026-07-27 — RR: venta en ruta del PUSH (.249) → reporte (cierra cutover PH)
 
 **Síntoma (reportado):** `/comercial/ventas-por-ruta` mostraba julio casi vacío. Diagnóstico: **cutover a fin de junio** — las rutas de PH (21-28) migraron de las Access `.mdb` de Wincaja (fuente legacy, congelada 06-27) al **PUSH**: cada camioneta corre Kepler local y sube su venta cada 15 min al runner `192.168.0.249:5433/kepler_consolidado` (`mart.ventas`, `sucursal='ruta_NN'`). El push llegaba fresco (ruta_23/26/27 hoy, resto 2 días) pero **no había puente hacia la plataforma** → el reporte seguía leyendo el `.mdb` retirado. (Conexión verificada OK; no era caída.) Confirmado también que las series Kepler `UD100N` de PH son **cajas de mostrador** (5 registradoras, ~5,800 tickets c/u), NO rutas → correcto excluirlas.

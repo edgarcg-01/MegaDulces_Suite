@@ -1,10 +1,9 @@
 import { Injectable, Logger, BadRequestException, NotFoundException } from '@nestjs/common';
-import { TenantKnexService } from '@megadulces/platform-core';
+import { TenantKnexService, AnthropicService } from '@megadulces/platform-core';
 import { DecisionEngineService } from './decision-engine.service';
 import { FeedbackService } from './feedback.service';
 import { ReorderMessage } from './customer-360.types';
 
-const CLAUDE_ENDPOINT = 'https://api.anthropic.com/v1/messages';
 const CLAUDE_MODEL = 'claude-haiku-4-5-20251001';
 const TIMEOUT_MS = 15_000;
 const MAX_BASKET_IN_MSG = 6;
@@ -27,6 +26,7 @@ export class CommerceAgentService {
     private readonly tk: TenantKnexService,
     private readonly engine: DecisionEngineService,
     private readonly feedback: FeedbackService,
+    private readonly anthropic: AnthropicService,
   ) {}
 
   /**
@@ -133,39 +133,22 @@ REGLAS ESTRICTAS:
 
 Devuelve SOLO el mensaje final, sin comillas ni explicación.`;
 
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
-    try {
-      const res = await fetch(CLAUDE_ENDPOINT, {
-        method: 'POST',
-        headers: {
-          'x-api-key': this.apiKey,
-          'anthropic-version': '2023-06-01',
-          'content-type': 'application/json',
-        },
-        signal: controller.signal,
-        body: JSON.stringify({
-          model: CLAUDE_MODEL,
-          max_tokens: 512,
-          system,
-          messages: [{ role: 'user', content: `Borrador a reescribir:\n${draft}` }],
-        }),
-      });
-      if (!res.ok) {
-        const txt = await res.text().catch(() => '');
-        throw new Error(`Claude HTTP ${res.status}: ${txt.slice(0, 200)}`);
-      }
-      const json: any = await res.json();
-      const text = (json.content || [])
-        .filter((c: any) => c.type === 'text')
-        .map((c: any) => c.text)
-        .join('')
-        .trim();
-      if (!text) throw new Error('Claude no devolvió texto');
-      return text;
-    } finally {
-      clearTimeout(timer);
-    }
+    const json: any = await this.anthropic.messages(
+      {
+        model: CLAUDE_MODEL,
+        maxTokens: 512,
+        system,
+        messages: [{ role: 'user', content: `Borrador a reescribir:\n${draft}` }],
+      },
+      { timeoutMs: TIMEOUT_MS },
+    );
+    const text = (json.content || [])
+      .filter((c: any) => c.type === 'text')
+      .map((c: any) => c.text)
+      .join('')
+      .trim();
+    if (!text) throw new Error('Claude no devolvió texto');
+    return text;
   }
 
   // ── T.R3: explicación del razonamiento de UNA acción del co-piloto ──────────
@@ -301,25 +284,12 @@ Devuelve SOLO el mensaje final, sin comillas ni explicación.`;
       ...chain.map((c) => `- ${c.step}: ${c.text}`),
     ].join('\n');
 
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
-    try {
-      const res = await fetch(CLAUDE_ENDPOINT, {
-        method: 'POST',
-        headers: { 'x-api-key': this.apiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
-        signal: controller.signal,
-        body: JSON.stringify({ model: CLAUDE_MODEL, max_tokens: 400, system, messages: [{ role: 'user', content: userMsg }] }),
-      });
-      if (!res.ok) {
-        const txt = await res.text().catch(() => '');
-        throw new Error(`Claude HTTP ${res.status}: ${txt.slice(0, 160)}`);
-      }
-      const json: any = await res.json();
-      const text = (json.content || []).filter((c: any) => c.type === 'text').map((c: any) => c.text).join('').trim();
-      if (!text) throw new Error('Claude no devolvió texto');
-      return text;
-    } finally {
-      clearTimeout(timer);
-    }
+    const json: any = await this.anthropic.messages(
+      { model: CLAUDE_MODEL, maxTokens: 400, system, messages: [{ role: 'user', content: userMsg }] },
+      { timeoutMs: TIMEOUT_MS },
+    );
+    const text = (json.content || []).filter((c: any) => c.type === 'text').map((c: any) => c.text).join('').trim();
+    if (!text) throw new Error('Claude no devolvió texto');
+    return text;
   }
 }

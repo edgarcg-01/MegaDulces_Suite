@@ -1,5 +1,5 @@
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
-import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
+import { TenantKnexService, TenantContextService, AnthropicService } from '@megadulces/platform-core';
 
 /**
  * MAAT-IQ · MIQ.4 — Descubrimiento de detectores (ADR-028 + ADR-013 HITL).
@@ -17,7 +17,6 @@ import { TenantKnexService, TenantContextService } from '@megadulces/platform-co
  * Aprobar = backlog de detector a codificar/activar (marca la decisión, auditable).
  */
 
-const CLAUDE_ENDPOINT = 'https://api.anthropic.com/v1/messages';
 const AI_MODEL = process.env.MAAT_DISCOVERY_MODEL || process.env.MAAT_CHAT_MODEL || 'claude-haiku-4-5-20251001';
 const AI_TIMEOUT_MS = 30_000;
 const norm = (s: any) => String(s || '').toUpperCase().replace(/\s+/g, ' ').trim();
@@ -38,6 +37,7 @@ export class MaatDiscoveryService {
   constructor(
     private readonly tk: TenantKnexService,
     private readonly tenantCtx: TenantContextService,
+    private readonly anthropic: AnthropicService,
   ) {}
 
   /** Corre mineros deterministas + (gated) proponedor AI, UPSERT idempotente. */
@@ -168,19 +168,17 @@ export class MaatDiscoveryService {
 TOP CUENTAS DE GASTO: ${cuentas.map((c: any) => `${c.cuenta_mayor_nombre} (${money(Number(c.neto))})`).join('; ')}
 REGLAS EXISTENTES: ${reglas.map((r: any) => r.rule_key).join(', ')}`;
 
-    const ctrl = new AbortController();
-    const to = setTimeout(() => ctrl.abort(), AI_TIMEOUT_MS);
     let text = '';
     try {
-      const resp = await fetch(CLAUDE_ENDPOINT, {
-        method: 'POST', signal: ctrl.signal,
-        headers: { 'x-api-key': this.apiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
-        body: JSON.stringify({ model: AI_MODEL, max_tokens: 1024, messages: [{ role: 'user', content: prompt }] }),
-      });
-      if (!resp.ok) { this.logger.warn(`AI discovery HTTP ${resp.status}`); return []; }
-      const data: any = await resp.json();
+      const data: any = await this.anthropic.messages(
+        { model: AI_MODEL, maxTokens: 1024, messages: [{ role: 'user', content: prompt }] },
+        { timeoutMs: AI_TIMEOUT_MS },
+      );
       text = data?.content?.[0]?.text || '';
-    } finally { clearTimeout(to); }
+    } catch (e: any) {
+      this.logger.warn(`AI discovery: ${e?.message || e}`);
+      return [];
+    }
 
     const parsed = safeArray(text);
     return parsed.slice(0, 4).map((h: any) => ({

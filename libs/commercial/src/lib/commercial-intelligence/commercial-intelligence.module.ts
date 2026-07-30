@@ -22,7 +22,7 @@ import { VendorThotToolsService } from './thot-chat/vendor-thot-tools.service';
 import { ThotChatService } from './thot-chat/thot-chat.service';
 import { ThotExamplesService } from './thot-chat/thot-examples.service';
 import { ThotExampleVectorService } from './thot-chat/thot-example-vector.service';
-import { EmbeddingsService } from '@megadulces/platform-core';
+import { EmbeddingsService, AnthropicService } from '@megadulces/platform-core';
 import { CommercialIntelligenceController } from './commercial-intelligence.controller';
 
 /**
@@ -58,6 +58,7 @@ import { CommercialIntelligenceController } from './commercial-intelligence.cont
     ThotExamplesService,
     ThotExampleVectorService,
     EmbeddingsService,
+    AnthropicService,
   ],
   exports: [
     Customer360Service,
