@@ -15,7 +15,6 @@ import { SkeletonModule } from 'primeng/skeleton';
 import { TagModule } from 'primeng/tag';
 import { ButtonModule } from 'primeng/button';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { trigger, transition, style, animate } from '@angular/animations';
 import { forkJoin } from 'rxjs';
 import { PortalService, Order, OrderHistoryEntry, OrderShipmentEntry } from '../portal.service';
 import { cldImage } from '../../../core/util/cloudinary';
@@ -36,17 +35,6 @@ import { SAT_REGIMENES, SAT_USOS_CFDI, SatCatItem } from '../../../core/constant
     ButtonModule,
     CountUpDirective,
   ],
-  animations: [
-    trigger('celebrateOverlay', [
-      transition(':enter', [
-        style({ opacity: 0 }),
-        animate('200ms ease-out', style({ opacity: 1 })),
-      ]),
-      transition(':leave', [
-        animate('300ms ease-in', style({ opacity: 0 })),
-      ]),
-    ]),
-  ],
   template: `
     <!-- Cierre celebratorio: solo al llegar recién confirmado desde el carrito -->
     @if (celebrate()) {
@@ -54,7 +42,8 @@ import { SAT_REGIMENES, SAT_USOS_CFDI, SatCatItem } from '../../../core/constant
         class="od-celebrate"
         role="status"
         aria-live="polite"
-        [@celebrateOverlay]
+        animate.enter="od-celeb-enter"
+        animate.leave="od-celeb-leave"
         (click)="celebrate.set(false)"
         >
         <div class="od-celebrate-card">
@@ -441,6 +430,12 @@ import { SAT_REGIMENES, SAT_USOS_CFDI, SatCatItem } from '../../../core/constant
         backdrop-filter: blur(3px);
         cursor: pointer;
       }
+      /* overlay celebratorio (nativas Angular animate.enter/leave). */
+      @keyframes od-celeb-in { from { opacity: 0; } to { opacity: 1; } }
+      @keyframes od-celeb-out { from { opacity: 1; } to { opacity: 0; } }
+      .od-celeb-enter { animation: od-celeb-in 200ms ease-out both; }
+      .od-celeb-leave { animation: od-celeb-out 300ms ease-in both; }
+      @media (prefers-reduced-motion: reduce) { .od-celeb-enter, .od-celeb-leave { animation: none; } }
       .od-celebrate-card {
         position: relative;
         display: flex;

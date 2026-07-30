@@ -1,7 +1,6 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, OnInit, computed, inject, signal, viewChild } from '@angular/core';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { trigger, transition, style, animate } from '@angular/animations';
 
 import { FormsModule } from '@angular/forms';
 import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
@@ -54,19 +53,6 @@ const SUGGESTIONS = [
   standalone: true,
   imports: [FormsModule, ButtonModule, RouterLink, ThotAiInputComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  animations: [
-    trigger('msg', [
-      transition(':enter', [
-        style({ opacity: 0, transform: 'translateY(14px) scale(0.985)', filter: 'blur(7px)' }),
-        animate('440ms cubic-bezier(0.22, 1, 0.36, 1)',
-          style({ opacity: 1, transform: 'none', filter: 'blur(0)' })),
-      ]),
-      transition(':leave', [
-        animate('220ms ease',
-          style({ opacity: 0, transform: 'translateY(-8px) scale(0.97)' })),
-      ]),
-    ]),
-  ],
   template: `
     <div class="surf-page in tc-page">
       <header class="surf-page-head">
@@ -82,7 +68,7 @@ const SUGGESTIONS = [
         </div>
       </header>
 
-      <div class="tc-thread" #thread [@.disabled]="reduce">
+      <div class="tc-thread" #thread>
         @if (messages().length === 0) {
           <div class="tc-empty">
             <div class="tc-empty-icon"><i class="pi pi-eye" aria-hidden="true"></i></div>
@@ -100,7 +86,7 @@ const SUGGESTIONS = [
         }
 
         @for (m of messages(); track $index; let mi = $index) {
-          <div class="tc-msg" @msg [class.tc-user]="m.role === 'user'" [class.tc-bot]="m.role === 'assistant'">
+          <div class="tc-msg" animate.enter="tc-msg-enter" animate.leave="tc-msg-leave" [class.tc-user]="m.role === 'user'" [class.tc-bot]="m.role === 'assistant'">
             <div class="tc-avatar" [class.is-thinking]="m.pending">
               <i [class]="m.role === 'user' ? 'pi pi-user' : 'pi pi-eye'" aria-hidden="true"></i>
             </div>
@@ -316,6 +302,13 @@ const SUGGESTIONS = [
     @media (prefers-reduced-motion: reduce) {
       .tc-reveal, .tc-avatar.is-thinking { animation: none; }
     }
+
+    /* Entrada/salida de mensajes (nativas Angular animate.enter/leave). */
+    @keyframes tc-msg-enter-kf { from { opacity: 0; transform: translateY(14px) scale(0.985); filter: blur(7px); } to { opacity: 1; transform: none; filter: blur(0); } }
+    @keyframes tc-msg-leave-kf { from { opacity: 1; transform: none; } to { opacity: 0; transform: translateY(-8px) scale(0.97); } }
+    .tc-msg-enter { animation: tc-msg-enter-kf 440ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+    .tc-msg-leave { animation: tc-msg-leave-kf 220ms ease both; }
+    @media (prefers-reduced-motion: reduce) { .tc-msg-enter, .tc-msg-leave { animation: none; } }
 
     .tc-composer { display: block; margin-top: var(--sp-3); position: relative; z-index: 2; }
 
