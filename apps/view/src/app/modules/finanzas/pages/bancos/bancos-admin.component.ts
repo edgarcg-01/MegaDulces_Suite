@@ -77,7 +77,7 @@ import { BankAdminTab } from './bancos-shared';
               <td><input pInputText class="fb-pin mono" [(ngModel)]="naAlias" placeholder="hoja Excel" /></td>
               <td><p-select [options]="kindOpts" optionLabel="label" optionValue="value" [(ngModel)]="naKind" appendTo="body" styleClass="fb-sel sel-liquid" /></td>
               <td><input pInputText class="fb-pin" [(ngModel)]="naKepler" placeholder="opcional" /></td>
-              <td class="ta-c"><button pButton type="button" icon="pi pi-plus" class="p-button-sm p-button-text" [disabled]="addingAcct()" (click)="emitAdd()"></button></td>
+              <td class="ta-c"><button pButton type="button" class="p-button-sm p-button-text" [disabled]="addingAcct()" (click)="emitAdd()"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span></button></td>
             </tr>
           </ng-template>
         </p-table>

@@ -65,8 +65,8 @@ interface LiveCountEntry {
           @if (live()) {
             <span class="in-live" title="Monitoreo en vivo activo"><span class="in-live-dot"></span> EN VIVO</span>
           }
-          <button pButton icon="pi pi-arrow-left" label="Volver" [text]="true" severity="secondary" size="small" routerLink="/almacen/inventory/sessions"></button>
-          <button pButton icon="pi pi-refresh" [text]="true" severity="secondary" size="small" (click)="load()" [loading]="loading()"></button>
+          <button pButton [text]="true" severity="secondary" size="small" routerLink="/almacen/inventory/sessions"><span class="p-button-icon p-button-icon-left pi pi-arrow-left" aria-hidden="true"></span><span class="p-button-label">Volver</span></button>
+          <button pButton [text]="true" severity="secondary" size="small" (click)="load()" [loading]="loading()"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span></button>
         </div>
       </header>
 
@@ -128,16 +128,15 @@ interface LiveCountEntry {
       <!-- Acciones -->
       @if (!isTerminal()) {
         <div class="in-actions">
-          <button pButton icon="pi pi-calculator" label="Calcular discrepancias" size="small" severity="secondary" [loading]="computing()" (click)="compute()"></button>
+          <button pButton size="small" severity="secondary" [loading]="computing()" (click)="compute()"><span class="p-button-icon p-button-icon-left pi pi-calculator" aria-hidden="true"></span><span class="p-button-label">Calcular discrepancias</span></button>
           @if (canAssign()) {
-            <button pButton icon="pi pi-users" label="Equipos por pasillo" size="small" [text]="true" severity="secondary"
-                    [routerLink]="['/almacen/inventory/sessions', countId, 'teams']"></button>
+            <button pButton size="small" [text]="true" severity="secondary" [routerLink]="['/almacen/inventory/sessions', countId, 'teams']"><span class="p-button-icon p-button-icon-left pi pi-users" aria-hidden="true"></span><span class="p-button-label">Equipos por pasillo</span></button>
           }
           @if (canReconcile()) {
-            <button pButton icon="pi pi-check-circle" label="Reconciliar" size="small" severity="success" [loading]="reconciling()" (click)="confirmReconcile()"></button>
+            <button pButton size="small" severity="success" [loading]="reconciling()" (click)="confirmReconcile()"><span class="p-button-icon p-button-icon-left pi pi-check-circle" aria-hidden="true"></span><span class="p-button-label">Reconciliar</span></button>
           }
           @if (canReconcile()) {
-            <button pButton icon="pi pi-times" label="Cancelar folio" size="small" [text]="true" severity="danger" (click)="confirmCancel()"></button>
+            <button pButton size="small" [text]="true" severity="danger" (click)="confirmCancel()"><span class="p-button-icon p-button-icon-left pi pi-times" aria-hidden="true"></span><span class="p-button-label">Cancelar folio</span></button>
           }
         </div>
       }
@@ -249,7 +248,7 @@ interface LiveCountEntry {
             <td><p-tag [value]="itemStatusLabel(it.status)" [severity]="itemStatusSeverity(it.status)"></p-tag></td>
             <td>
               @if (!isTerminal() && it.status !== 'resolved') {
-                <button pButton icon="pi pi-pencil" [text]="true" size="small" (click)="openResolve(it)" pTooltip="Resolver"></button>
+                <button pButton [text]="true" size="small" (click)="openResolve(it)" pTooltip="Resolver"><span class="p-button-icon p-button-icon-left pi pi-pencil" aria-hidden="true"></span></button>
               }
             </td>
           </tr>
@@ -276,8 +275,8 @@ interface LiveCountEntry {
           </div>
         }
         <ng-template #footer>
-          <button pButton label="Cancelar" [text]="true" severity="secondary" (click)="resolveVisible.set(false)"></button>
-          <button pButton label="Guardar" icon="pi pi-check" [loading]="resolving()" [disabled]="resolveQty() === null" (click)="saveResolve()"></button>
+          <button pButton [text]="true" severity="secondary" (click)="resolveVisible.set(false)"><span class="p-button-label">Cancelar</span></button>
+          <button pButton [loading]="resolving()" [disabled]="resolveQty() === null" (click)="saveResolve()"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Guardar</span></button>
         </ng-template>
       </p-dialog>
     </div>

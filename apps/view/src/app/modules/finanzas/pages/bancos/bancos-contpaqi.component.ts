@@ -27,8 +27,7 @@ import { cuadra, money0 } from './bancos-shared';
       <div class="card-premium card-flat fb-kve">
         <div class="cpq-head">
           <h3 class="fb-card-title">Banco vs Contabilidad (ContPAQi) <span class="muted">— ¿los libros registran lo mismo que movió el banco en {{ c.period }}?</span></h3>
-          <button pButton type="button" label="Enlazar cuentas" icon="pi pi-link" class="p-button-sm p-button-text"
-                  [loading]="linking()" (click)="link.emit()" title="Auto-enlaza cada cuenta de banco con su cuenta contable 102xxx de ContPAQi"></button>
+          <button pButton type="button" class="p-button-sm p-button-text" [loading]="linking()" (click)="link.emit()" title="Auto-enlaza cada cuenta de banco con su cuenta contable 102xxx de ContPAQi"><span class="p-button-icon p-button-icon-left pi pi-link" aria-hidden="true"></span><span class="p-button-label">Enlazar cuentas</span></button>
         </div>
 
         <!-- Qué significa cada columna (comprehension-first: explicar antes de comparar). -->

@@ -90,7 +90,7 @@ interface BundleItem {
       @if (wizardStep === 'configure' && form) {
         @if (!editing) {
           <div class="step-header">
-            <button pButton icon="pi pi-arrow-left" label="Cambiar tipo" severity="secondary" [text]="true" size="small" (click)="backToChoose.emit()"></button>
+            <button pButton severity="secondary" [text]="true" size="small" (click)="backToChoose.emit()"><span class="p-button-icon p-button-icon-left pi pi-arrow-left" aria-hidden="true"></span><span class="p-button-label">Cambiar tipo</span></button>
             <span class="pm-type-chip">
               <i [class]="meta(selectedType!).icon" aria-hidden="true"></i>
               {{ meta(selectedType!).label }}
@@ -196,7 +196,7 @@ interface BundleItem {
                 <div class="tiers-section full">
                   <div class="tiers-header">
                     <span>Tiers de descuento <em>*</em></span>
-                    <button pButton type="button" icon="pi pi-plus" label="Agregar tier" size="small" severity="secondary" (click)="addTier.emit()"></button>
+                    <button pButton type="button" size="small" severity="secondary" (click)="addTier.emit()"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Agregar tier</span></button>
                   </div>
                   <div class="tiers-list">
                     @for (t of tiers; track t; let i = $index) {
@@ -205,7 +205,7 @@ interface BundleItem {
                         <p-inputnumber [(ngModel)]="t.min_qty" [ngModelOptions]="{ standalone: true }" [min]="1" suffix=" und" />
                         <span class="tier-arrow">→</span>
                         <p-inputnumber [(ngModel)]="t.percent" [ngModelOptions]="{ standalone: true }" [min]="1" [max]="100" suffix=" %" />
-                        <button pButton type="button" icon="pi pi-trash" size="small" severity="secondary" [text]="true" (click)="removeTier.emit(i)"></button>
+                        <button pButton type="button" size="small" severity="secondary" [text]="true" (click)="removeTier.emit(i)"><span class="p-button-icon p-button-icon-left pi pi-trash" aria-hidden="true"></span></button>
                       </div>
                     }
                     @if (tiers.length === 0) {
@@ -219,7 +219,7 @@ interface BundleItem {
                 <div class="tiers-section full">
                   <div class="tiers-header">
                     <span>Productos del pack <em>*</em></span>
-                    <button pButton type="button" icon="pi pi-plus" label="Agregar producto" size="small" severity="secondary" (click)="addBundleItem.emit()"></button>
+                    <button pButton type="button" size="small" severity="secondary" (click)="addBundleItem.emit()"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Agregar producto</span></button>
                   </div>
                   <div class="tiers-list">
                     @for (it of bundle; track it; let i = $index) {
@@ -238,7 +238,7 @@ interface BundleItem {
                         ></p-select>
                         <span>×</span>
                         <p-inputnumber [(ngModel)]="it.quantity" [ngModelOptions]="{ standalone: true }" [min]="1" suffix=" und" />
-                        <button pButton type="button" icon="pi pi-trash" size="small" severity="secondary" [text]="true" (click)="removeBundleItem.emit(i)"></button>
+                        <button pButton type="button" size="small" severity="secondary" [text]="true" (click)="removeBundleItem.emit(i)"><span class="p-button-icon p-button-icon-left pi pi-trash" aria-hidden="true"></span></button>
                       </div>
                     }
                     @if (bundle.length === 0) {
@@ -294,7 +294,7 @@ interface BundleItem {
     
         <ng-template #footer>
           @if (wizardStep === 'configure') {
-            <button pButton label="Cancelar" severity="secondary" [outlined]="true" (click)="cancel.emit()"></button>
+            <button pButton severity="secondary" [outlined]="true" (click)="cancel.emit()"><span class="p-button-label">Cancelar</span></button>
             <p-button
               pButton
               [label]="editing ? 'Guardar' : 'Crear promoción'"
@@ -305,7 +305,7 @@ interface BundleItem {
             ></p-button>
           }
           @if (wizardStep === 'choose-type') {
-            <button pButton label="Cancelar" severity="secondary" [outlined]="true" (click)="cancel.emit()"></button>
+            <button pButton severity="secondary" [outlined]="true" (click)="cancel.emit()"><span class="p-button-label">Cancelar</span></button>
           }
         </ng-template>
       </p-dialog>

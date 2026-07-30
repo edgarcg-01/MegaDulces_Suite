@@ -53,7 +53,7 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
             <label class="filter-label" for="ld-to">Hasta</label>
             <p-datepicker inputId="ld-to" [(ngModel)]="to" dateFormat="yy-mm-dd" placeholder="Hasta" [showButtonBar]="true"></p-datepicker>
           </div>
-          <button pButton icon="pi pi-refresh" label="Actualizar" styleClass="btn-spin-hover" (click)="reload()" [loading]="loading()"></button>
+          <button pButton styleClass="btn-spin-hover" (click)="reload()" [loading]="loading()"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span><span class="p-button-label">Actualizar</span></button>
         </div>
       </header>
     
@@ -161,12 +161,7 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
                 </td>
                 <td class="comm-num">
                   @if (r.route_id) {
-                    <a pButton
-                      icon="pi pi-plus" label="Embarque"
-                      size="small"
-                      [routerLink]="['/logistica/shipments']"
-                      [queryParams]="{ route_id: r.route_id }"
-                    pTooltip="Crear embarque para esta ruta"></a>
+                    <a pButton size="small" [routerLink]="['/logistica/shipments']" [queryParams]="{ route_id: r.route_id }" pTooltip="Crear embarque para esta ruta"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Embarque</span></a>
                   }
                   @if (!r.route_id) {
                     <span class="comm-muted is-small">Asigná ruta al cliente</span>

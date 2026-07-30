@@ -37,7 +37,7 @@ import { INV_ANALYTICS_TABS } from '../inventory-tabs';
           <p-select [options]="warehouseOptions()" [(ngModel)]="warehouseFilter" optionLabel="label" optionValue="value"
                     (onChange)="load()" styleClass="ih-wh"></p-select>
           <app-product-search (productSelected)="prodFilter.set($event)"></app-product-search>
-          <button pButton icon="pi pi-refresh" [text]="true" severity="secondary" size="small" (click)="load()" [loading]="loading()"></button>
+          <button pButton [text]="true" severity="secondary" size="small" (click)="load()" [loading]="loading()"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span></button>
         </div>
       </header>
 

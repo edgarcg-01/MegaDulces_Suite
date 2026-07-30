@@ -110,8 +110,7 @@ type CatLine = CriticalStockRow & { uxc: number; cajas: number; piezas: number; 
       @if (fCategory) {
         <div class="qt-catbar">
           <span class="qt-catbar-txt"><i class="pi pi-sitemap"></i> Categoría: <strong>{{ catLabel() }}</strong> — todos sus proveedores</span>
-          <button pButton label="Pedido de toda la categoría" icon="pi pi-bolt" class="p-button-sm"
-                  [loading]="catLoading()" (click)="openCategoryOrder()"></button>
+          <button pButton class="p-button-sm" [loading]="catLoading()" (click)="openCategoryOrder()"><span class="p-button-icon p-button-icon-left pi pi-bolt" aria-hidden="true"></span><span class="p-button-label">Pedido de toda la categoría</span></button>
         </div>
       }
 
@@ -119,9 +118,8 @@ type CatLine = CriticalStockRow & { uxc: number; cajas: number; piezas: number; 
       @if (selectedRows().length) {
         <div class="qt-bulk">
           <span class="qt-bulk-txt"><strong>{{ selectedRows().length }}</strong> seleccionado(s) · {{ money(selTotal()) }}</span>
-          <button pButton label="Generar pedido general" icon="pi pi-bolt" class="p-button-sm"
-                  [loading]="bulkGenerating()" (click)="bulkGenerate()"></button>
-          <button pButton label="Limpiar" icon="pi pi-times" class="p-button-sm p-button-text" (click)="selectedRows.set([])"></button>
+          <button pButton class="p-button-sm" [loading]="bulkGenerating()" (click)="bulkGenerate()"><span class="p-button-icon p-button-icon-left pi pi-bolt" aria-hidden="true"></span><span class="p-button-label">Generar pedido general</span></button>
+          <button pButton class="p-button-sm p-button-text" (click)="selectedRows.set([])"><span class="p-button-icon p-button-icon-left pi pi-times" aria-hidden="true"></span><span class="p-button-label">Limpiar</span></button>
         </div>
       }
 
@@ -198,8 +196,7 @@ type CatLine = CriticalStockRow & { uxc: number; cajas: number; piezas: number; 
                     <div class="qt-block" role="alert">
                       <i class="pi pi-exclamation-triangle"></i>
                       <span>El hub <strong>{{ r.source_warehouse_code }}</strong> no tiene stock para surtir {{ hubShortCount(r._key) }} línea(s).</span>
-                      <button pButton label="Traspasar disponible + comprar faltante" icon="pi pi-arrows-h"
-                              class="p-button-sm qt-block-btn" [loading]="st.creating" (click)="splitTransfer(r)"></button>
+                      <button pButton class="p-button-sm qt-block-btn" [loading]="st.creating" (click)="splitTransfer(r)"><span class="p-button-icon p-button-icon-left pi pi-arrows-h" aria-hidden="true"></span><span class="p-button-label">Traspasar disponible + comprar faltante</span></button>
                     </div>
                   }
 
@@ -247,16 +244,14 @@ type CatLine = CriticalStockRow & { uxc: number; cajas: number; piezas: number; 
                     <div class="qt-det-foot">
                       @if (r.via==='purchase' && minWarn(r._key); as mw) {
                         <p-tag severity="warn" [value]="mw" styleClass="qt-mintag" [pTooltip]="'Mínimo de compra del proveedor (captúralo en Proveedores).'"></p-tag>
-                        <button pButton label="Subir al mínimo" icon="pi pi-arrow-up" class="p-button-sm p-button-text" (click)="padToMin(r)"></button>
+                        <button pButton class="p-button-sm p-button-text" (click)="padToMin(r)"><span class="p-button-icon p-button-icon-left pi pi-arrow-up" aria-hidden="true"></span><span class="p-button-label">Subir al mínimo</span></button>
                       }
-                      <button pButton label="Pedido consolidado del proveedor" icon="pi pi-sitemap" class="p-button-sm p-button-text qt-cons-open"
-                              (click)="openConsolidated(r.supplier_id, r.supplier_name)"></button>
+                      <button pButton class="p-button-sm p-button-text qt-cons-open" (click)="openConsolidated(r.supplier_id, r.supplier_name)"><span class="p-button-icon p-button-icon-left pi pi-sitemap" aria-hidden="true"></span><span class="p-button-label">Pedido consolidado del proveedor</span></button>
                       <span class="qt-foot-tot">
                         {{ countToOrder(r._key) }} línea(s) · {{ totalCajas(r._key) | number:'1.0-0' }} cajas ·
                         {{ totalPz(r._key) | number:'1.0-0' }} pz · <strong>{{ money(detailTotal(r._key)) }}</strong>
                       </span>
-                      <button pButton label="Exportar" icon="pi pi-download" class="p-button-sm p-button-text"
-                              [loading]="exporting()" [disabled]="countToOrder(r._key)===0" (click)="exportRow(r)"></button>
+                      <button pButton class="p-button-sm p-button-text" [loading]="exporting()" [disabled]="countToOrder(r._key)===0" (click)="exportRow(r)"><span class="p-button-icon p-button-icon-left pi pi-download" aria-hidden="true"></span><span class="p-button-label">Exportar</span></button>
                       <p-button pButton [label]="r.via==='transfer' ? 'Crear traspaso' : 'Crear requisición'"
                               icon="pi pi-file-edit" styleClass="p-button-sm"
                               [loading]="st.creating" [disabled]="countToOrder(r._key)===0"
@@ -315,10 +310,8 @@ type CatLine = CriticalStockRow & { uxc: number; cajas: number; piezas: number; 
               <span class="qt-foot-tot">
                 {{ consWhsIncluded() }} almacén(es) · {{ consTotCajas() | number:'1.0-0' }} cajas · <strong>{{ money(consTotAmount()) }}</strong>
               </span>
-              <button pButton label="Exportar" icon="pi pi-download" class="p-button-sm p-button-text"
-                      [loading]="consExporting()" [disabled]="!consLinesFiltered().length" (click)="exportConsolidated()"></button>
-              <button pButton label="Generar requisiciones" icon="pi pi-file-edit" class="p-button-sm"
-                      [loading]="consGenerating()" [disabled]="!consLinesFiltered().length" (click)="generateConsolidated()"></button>
+              <button pButton class="p-button-sm p-button-text" [loading]="consExporting()" [disabled]="!consLinesFiltered().length" (click)="exportConsolidated()"><span class="p-button-icon p-button-icon-left pi pi-download" aria-hidden="true"></span><span class="p-button-label">Exportar</span></button>
+              <button pButton class="p-button-sm" [loading]="consGenerating()" [disabled]="!consLinesFiltered().length" (click)="generateConsolidated()"><span class="p-button-icon p-button-icon-left pi pi-file-edit" aria-hidden="true"></span><span class="p-button-label">Generar requisiciones</span></button>
             </div>
           } @else {
             <div class="qt-det-msg">Sin líneas por pedir (o desactivaste todos los almacenes).</div>
@@ -361,10 +354,8 @@ type CatLine = CriticalStockRow & { uxc: number; cajas: number; piezas: number; 
             <span class="qt-foot-tot">
               {{ catSuppliers() }} proveedor(es) · {{ catRows().length }} líneas · {{ catTotCajas() | number:'1.0-0' }} cajas · <strong>{{ money(catTotAmount()) }}</strong>
             </span>
-            <button pButton label="Exportar" icon="pi pi-download" class="p-button-sm p-button-text"
-                    [loading]="catExporting()" (click)="exportCategoryOrder()"></button>
-            <button pButton label="Generar requisiciones" icon="pi pi-file-edit" class="p-button-sm"
-                    [loading]="catGenerating()" (click)="generateCategoryOrder()"></button>
+            <button pButton class="p-button-sm p-button-text" [loading]="catExporting()" (click)="exportCategoryOrder()"><span class="p-button-icon p-button-icon-left pi pi-download" aria-hidden="true"></span><span class="p-button-label">Exportar</span></button>
+            <button pButton class="p-button-sm" [loading]="catGenerating()" (click)="generateCategoryOrder()"><span class="p-button-icon p-button-icon-left pi pi-file-edit" aria-hidden="true"></span><span class="p-button-label">Generar requisiciones</span></button>
           </div>
         </div>
       } @else {

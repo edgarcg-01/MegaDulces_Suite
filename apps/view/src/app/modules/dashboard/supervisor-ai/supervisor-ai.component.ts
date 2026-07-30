@@ -139,7 +139,7 @@ const QUADRANT_LABELS: Record<string, string> = {
         <div class="load-error" role="alert">
           <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
           <span>No se pudo cargar: <strong>{{ failedSections().join(' · ') }}</strong>. Los datos mostrados pueden estar incompletos.</span>
-          <button pButton type="button" label="Reintentar" icon="pi pi-refresh" [text]="true" size="small" (click)="reload()"></button>
+          <button pButton type="button" [text]="true" size="small" (click)="reload()"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span><span class="p-button-label">Reintentar</span></button>
         </div>
       }
       @if (loading()) {

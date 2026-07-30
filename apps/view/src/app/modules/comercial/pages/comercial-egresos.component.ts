@@ -63,8 +63,7 @@ import { egresChartOptions, egresChartSeries } from './egresos-chart-opts';
           <div style="display:inline-flex;align-items:center;gap:.4rem"><h1>Egresos contables</h1><app-context-help topic="egresos" /></div>
           <p class="surf-page-sub">Pólizas de gastos (6xx) y compras (5xx) · desglose por cuenta, beneficiario, sucursal y más · fuente Kepler</p>
         </div>
-        <button pButton type="button" label="Exportar CSV" icon="pi pi-download"
-                class="p-button-sm p-button-outlined" (click)="exportCsv()" [disabled]="!report()"></button>
+        <button pButton type="button" class="p-button-sm p-button-outlined" (click)="exportCsv()" [disabled]="!report()"><span class="p-button-icon p-button-icon-left pi pi-download" aria-hidden="true"></span><span class="p-button-label">Exportar CSV</span></button>
       </header>
 
       <!-- Filtros — Sucursales es común a todas las vistas; el resto solo aplica a los

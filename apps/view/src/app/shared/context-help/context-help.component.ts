@@ -20,11 +20,7 @@ import { CONTEXT_HELP } from './context-help.dictionary';
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (t(); as topic) {
-      <button pButton type="button" icon="pi pi-question-circle"
-              class="p-button-text p-button-rounded p-button-sm ch-btn"
-              [attr.aria-label]="'Ayuda: ' + topic.title"
-              pTooltip="¿Qué significan estos campos?" tooltipPosition="bottom"
-              (click)="open.set(true)"></button>
+      <button pButton type="button" class="p-button-text p-button-rounded p-button-sm ch-btn" [attr.aria-label]="'Ayuda: ' + topic.title" pTooltip="¿Qué significan estos campos?" tooltipPosition="bottom" (click)="open.set(true)"><span class="p-button-icon p-button-icon-left pi pi-question-circle" aria-hidden="true"></span></button>
 
       <p-drawer [visible]="open()" (visibleChange)="open.set($event)" position="right"
                 [style]="{ width: '26rem' }" [header]="topic.title" styleClass="ch-drawer" [dismissible]="true">

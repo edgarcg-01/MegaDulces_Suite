@@ -136,8 +136,7 @@ import { WhatsAppOrdersService, WhatsAppPendingOrder } from '../whatsapp-orders.
                 <p-button pButton icon="pi pi-check" [label]="acting() ? 'Confirmando…' : 'Confirmar pedido'"
                         [loading]="acting()" [disabled]="!o.delivery_address?.street || o.items.length === 0"
                         (click)="confirm(o)"></p-button>
-                <button pButton icon="pi pi-times" label="Rechazar" severity="danger" [outlined]="true"
-                        [disabled]="acting()" (click)="openReject(o)"></button>
+                <button pButton severity="danger" [outlined]="true" [disabled]="acting()" (click)="openReject(o)"><span class="p-button-icon p-button-icon-left pi pi-times" aria-hidden="true"></span><span class="p-button-label">Rechazar</span></button>
               </div>
             } @else {
               <div class="wo-pick"><i class="pi pi-arrow-left"></i> Elegí un pedido de la lista para revisarlo.</div>
@@ -151,8 +150,8 @@ import { WhatsAppOrdersService, WhatsAppPendingOrder } from '../whatsapp-orders.
         <p class="wo-reject-hint">Se avisa al cliente por WhatsApp. Motivo (opcional):</p>
         <input pInputText class="wo-reject-in" [(ngModel)]="rejectReason" placeholder="ej. sin stock, fuera de zona…" />
         <ng-template #footer>
-          <button pButton label="Cancelar" severity="secondary" [text]="true" (click)="rejectOpen = false"></button>
-          <button pButton label="Rechazar" severity="danger" [loading]="acting()" (click)="doReject()"></button>
+          <button pButton severity="secondary" [text]="true" (click)="rejectOpen = false"><span class="p-button-label">Cancelar</span></button>
+          <button pButton severity="danger" [loading]="acting()" (click)="doReject()"><span class="p-button-label">Rechazar</span></button>
         </ng-template>
       </p-dialog>
     </div>

@@ -70,24 +70,8 @@ import { CUSTOMERS_TABS } from '../customers-tabs';
           </p>
         </div>
         <div class="cu-head-actions">
-          <button
-            pButton
-            icon="pi pi-refresh"
-            [text]="true"
-            severity="secondary"
-            size="small"
-            (click)="load()"
-            [loading]="loading()"
-            pTooltip="Refrescar"
-          ></button>
-          <button
-            pButton
-            icon="pi pi-plus"
-            label="Nuevo cliente"
-            size="small"
-            severity="contrast"
-            (click)="openCreate()"
-          ></button>
+          <button pButton [text]="true" severity="secondary" size="small" (click)="load()" [loading]="loading()" pTooltip="Refrescar"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span></button>
+          <button pButton size="small" severity="contrast" (click)="openCreate()"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Nuevo cliente</span></button>
         </div>
       </header>
     
@@ -279,22 +263,16 @@ import { CUSTOMERS_TABS } from '../customers-tabs';
                     </span>
                   </td>
                   <td class="comm-actions" (click)="$event.stopPropagation()">
-                    <button pButton icon="pi pi-pencil" size="small" severity="secondary" [text]="true" (click)="openEdit(c)" pTooltip="Editar"></button>
+                    <button pButton size="small" severity="secondary" [text]="true" (click)="openEdit(c)" pTooltip="Editar"><span class="p-button-icon p-button-icon-left pi pi-pencil" aria-hidden="true"></span></button>
                     @if (c.active !== false) {
                       @if (c.portal_username) {
-                        <button pButton icon="pi pi-refresh" size="small" severity="secondary" [text]="true"
-                          [disabled]="creatingAccessId() === c.id"
-                          (click)="resetPortalAccess(c)"
-                        [pTooltip]="'Resetear contraseña de ' + c.portal_username"></button>
+                        <button pButton size="small" severity="secondary" [text]="true" [disabled]="creatingAccessId() === c.id" (click)="resetPortalAccess(c)" [pTooltip]="'Resetear contraseña de ' + c.portal_username"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span></button>
                       } @else {
-                        <button pButton icon="pi pi-key" size="small" severity="secondary" [text]="true"
-                          [disabled]="creatingAccessId() === c.id"
-                          (click)="createPortalAccess(c)"
-                        pTooltip="Crear acceso Portal B2B"></button>
+                        <button pButton size="small" severity="secondary" [text]="true" [disabled]="creatingAccessId() === c.id" (click)="createPortalAccess(c)" pTooltip="Crear acceso Portal B2B"><span class="p-button-icon p-button-icon-left pi pi-key" aria-hidden="true"></span></button>
                       }
                     }
                     @if (c.active !== false) {
-                      <button pButton icon="pi pi-trash" size="small" severity="secondary" [text]="true" (click)="confirmDelete(c)" pTooltip="Desactivar"></button>
+                      <button pButton size="small" severity="secondary" [text]="true" (click)="confirmDelete(c)" pTooltip="Desactivar"><span class="p-button-icon p-button-icon-left pi pi-trash" aria-hidden="true"></span></button>
                     }
                   </td>
                 </tr>
@@ -307,16 +285,7 @@ import { CUSTOMERS_TABS } from '../customers-tabs';
                       <h3>Sin clientes</h3>
                       <p>{{ searchTerm() ? 'No encontramos clientes con esa búsqueda.' : 'Aún no hay clientes registrados.' }}</p>
                       @if (searchTerm()) {
-                        <button
-                          type="button"
-                          pButton
-                          icon="pi pi-refresh"
-                          severity="secondary"
-                          [outlined]="true"
-                          size="small"
-                          label="Limpiar búsqueda"
-                          (click)="clearSearch()"
-                        ></button>
+                        <button type="button" pButton severity="secondary" [outlined]="true" size="small" (click)="clearSearch()"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span><span class="p-button-label">Limpiar búsqueda</span></button>
                       }
                     </div>
                   </td>
@@ -359,16 +328,14 @@ import { CUSTOMERS_TABS } from '../customers-tabs';
               <label>Usuario</label>
               <div class="access-value">
                 <code class="comm-code">{{ a.username }}</code>
-                <button pButton icon="pi pi-copy" size="small" severity="secondary" [text]="true"
-                (click)="copyToClipboard(a.username, 'Usuario copiado')"></button>
+                <button pButton size="small" severity="secondary" [text]="true" (click)="copyToClipboard(a.username, 'Usuario copiado')"><span class="p-button-icon p-button-icon-left pi pi-copy" aria-hidden="true"></span></button>
               </div>
             </div>
             <div class="access-field">
               <label>Password temporal</label>
               <div class="access-value">
                 <code class="comm-code pwd">{{ a.temporary_password }}</code>
-                <button pButton icon="pi pi-copy" size="small" severity="secondary" [text]="true"
-                (click)="copyToClipboard(a.temporary_password, 'Password copiado')"></button>
+                <button pButton size="small" severity="secondary" [text]="true" (click)="copyToClipboard(a.temporary_password, 'Password copiado')"><span class="p-button-icon p-button-icon-left pi pi-copy" aria-hidden="true"></span></button>
               </div>
             </div>
             <p class="comm-muted is-small">
@@ -378,7 +345,7 @@ import { CUSTOMERS_TABS } from '../customers-tabs';
           </div>
         }
         <ng-template #footer>
-          <button pButton label="Cerrar" icon="pi pi-check" (click)="accessDialogVisible = false"></button>
+          <button pButton (click)="accessDialogVisible = false"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Cerrar</span></button>
         </ng-template>
       </p-dialog>
     

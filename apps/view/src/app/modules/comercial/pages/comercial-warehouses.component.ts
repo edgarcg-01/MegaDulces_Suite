@@ -53,24 +53,8 @@ import { INV_STOCK_TABS } from '../inventory-tabs';
           </p>
         </div>
         <div class="wh-head-actions">
-          <button
-            pButton
-            icon="pi pi-refresh"
-            [text]="true"
-            severity="secondary"
-            size="small"
-            (click)="load()"
-            [loading]="loading()"
-            pTooltip="Refrescar"
-          ></button>
-          <button
-            pButton
-            icon="pi pi-plus"
-            label="Nuevo almacén"
-            size="small"
-            severity="contrast"
-            (click)="openCreate()"
-          ></button>
+          <button pButton [text]="true" severity="secondary" size="small" (click)="load()" [loading]="loading()" pTooltip="Refrescar"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span></button>
+          <button pButton size="small" severity="contrast" (click)="openCreate()"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Nuevo almacén</span></button>
         </div>
       </header>
     
@@ -117,11 +101,9 @@ import { INV_STOCK_TABS } from '../inventory-tabs';
                   </span>
                 </td>
                 <td class="comm-actions">
-                  <button pButton icon="pi pi-pencil" size="small" severity="secondary" [text]="true"
-                  (click)="openEdit(w)" pTooltip="Editar"></button>
+                  <button pButton size="small" severity="secondary" [text]="true" (click)="openEdit(w)" pTooltip="Editar"><span class="p-button-icon p-button-icon-left pi pi-pencil" aria-hidden="true"></span></button>
                   @if (w.active !== false) {
-                    <button pButton icon="pi pi-trash" size="small" severity="secondary" [text]="true"
-                    (click)="confirmDelete(w)" pTooltip="Desactivar"></button>
+                    <button pButton size="small" severity="secondary" [text]="true" (click)="confirmDelete(w)" pTooltip="Desactivar"><span class="p-button-icon p-button-icon-left pi pi-trash" aria-hidden="true"></span></button>
                   }
                 </td>
               </tr>
@@ -133,15 +115,7 @@ import { INV_STOCK_TABS } from '../inventory-tabs';
                     <div class="comm-empty-icon"><i class="pi pi-warehouse" aria-hidden="true"></i></div>
                     <h3>Sin almacenes</h3>
                     <p>Creá un almacén para empezar a registrar stock y procesar pedidos.</p>
-                    <button
-                      type="button"
-                      pButton
-                      icon="pi pi-plus"
-                      severity="contrast"
-                      size="small"
-                      label="Nuevo almacén"
-                      (click)="openCreate()"
-                    ></button>
+                    <button type="button" pButton severity="contrast" size="small" (click)="openCreate()"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Nuevo almacén</span></button>
                   </div>
                 </td>
               </tr>
@@ -185,7 +159,7 @@ import { INV_STOCK_TABS } from '../inventory-tabs';
         </form>
       }
       <ng-template #footer>
-        <button pButton label="Cancelar" severity="secondary" [outlined]="true" (click)="dialogVisible = false"></button>
+        <button pButton severity="secondary" [outlined]="true" (click)="dialogVisible = false"><span class="p-button-label">Cancelar</span></button>
         <p-button pButton [label]="editing() ? 'Guardar' : 'Crear'" icon="pi pi-check"
           [loading]="saving()"
           [disabled]="form.invalid"

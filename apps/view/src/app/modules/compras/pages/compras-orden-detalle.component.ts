@@ -46,7 +46,7 @@ interface RecvLine {
       <p-toast></p-toast>
       <header class="surf-page-head">
         <div class="surf-page-head-text">
-          <button pButton type="button" icon="pi pi-arrow-left" label="Órdenes de compra" class="p-button-text p-button-sm od-back" (click)="back()"></button>
+          <button pButton type="button" class="p-button-text p-button-sm od-back" (click)="back()"><span class="p-button-icon p-button-icon-left pi pi-arrow-left" aria-hidden="true"></span><span class="p-button-label">Órdenes de compra</span></button>
           @if (po(); as p) {
             <h1>{{ p.folio }} <p-tag [value]="estadoLabel(p.estado)" [severity]="estadoSev(p.estado)"></p-tag></h1>
             <p class="surf-page-sub">
@@ -59,13 +59,13 @@ interface RecvLine {
         </div>
         @if (po(); as p) {
           <div class="od-actions">
-            <button pButton type="button" label="Exportar Excel" icon="pi pi-file-excel" class="p-button-sm p-button-outlined p-button-secondary" [loading]="exporting()" (click)="exportXlsx()"></button>
+            <button pButton type="button" class="p-button-sm p-button-outlined p-button-secondary" [loading]="exporting()" (click)="exportXlsx()"><span class="p-button-icon p-button-icon-left pi pi-file-excel" aria-hidden="true"></span><span class="p-button-label">Exportar Excel</span></button>
             @if (canManage) {
               @if (p.estado === 'open' || p.estado === 'partial') {
-                <button pButton type="button" label="Registrar recepción" icon="pi pi-inbox" class="p-button-sm" (click)="openReceive()"></button>
+                <button pButton type="button" class="p-button-sm" (click)="openReceive()"><span class="p-button-icon p-button-icon-left pi pi-inbox" aria-hidden="true"></span><span class="p-button-label">Registrar recepción</span></button>
               }
               @if (p.estado === 'open' && p.received_units === 0) {
-                <button pButton type="button" label="Cancelar OC" icon="pi pi-times" class="p-button-sm p-button-outlined p-button-danger" [loading]="busy()" (click)="cancel()"></button>
+                <button pButton type="button" class="p-button-sm p-button-outlined p-button-danger" [loading]="busy()" (click)="cancel()"><span class="p-button-icon p-button-icon-left pi pi-times" aria-hidden="true"></span><span class="p-button-label">Cancelar OC</span></button>
               }
             }
           </div>
@@ -133,8 +133,8 @@ interface RecvLine {
         <input pInputText type="text" [(ngModel)]="recvNotes" placeholder="Nota / referencia de la entrada (opcional)" class="od-dlg-notes" />
       </div>
       <ng-template #footer>
-        <button pButton type="button" label="Cancelar" class="p-button-text p-button-sm" (click)="recvOpen.set(false)"></button>
-        <button pButton type="button" label="Confirmar recepción" icon="pi pi-check" class="p-button-sm" [loading]="saving()" (click)="confirmReceive()"></button>
+        <button pButton type="button" class="p-button-text p-button-sm" (click)="recvOpen.set(false)"><span class="p-button-label">Cancelar</span></button>
+        <button pButton type="button" class="p-button-sm" [loading]="saving()" (click)="confirmReceive()"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Confirmar recepción</span></button>
       </ng-template>
     </p-dialog>
   `,

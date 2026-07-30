@@ -43,8 +43,8 @@ import { ListasSatService, SatListMatch, RfcIssue, ListasStats, ListStatus, Expe
         </div>
         <div class="ls-head-actions">
           @if (loadedAt()) { <app-freshness-pill [since]="loadedAt()" /> }
-          <button pButton type="button" label="Escanear" icon="pi pi-bolt" class="p-button-sm p-button-outlined" [loading]="scanning()" (click)="scan()"></button>
-          <button pButton type="button" label="Refrescar listas SAT" icon="pi pi-cloud-download" class="p-button-sm p-button-text" [loading]="refreshing()" (click)="refresh()"></button>
+          <button pButton type="button" class="p-button-sm p-button-outlined" [loading]="scanning()" (click)="scan()"><span class="p-button-icon p-button-icon-left pi pi-bolt" aria-hidden="true"></span><span class="p-button-label">Escanear</span></button>
+          <button pButton type="button" class="p-button-sm p-button-text" [loading]="refreshing()" (click)="refresh()"><span class="p-button-icon p-button-icon-left pi pi-cloud-download" aria-hidden="true"></span><span class="p-button-label">Refrescar listas SAT</span></button>
         </div>
       </header>
 
@@ -113,11 +113,11 @@ import { ListasSatService, SatListMatch, RfcIssue, ListasStats, ListStatus, Expe
               <td>
                 <div class="ls-acts">
                   @if (m.estado === 'nuevo' || m.estado === 'en_revision') {
-                    <button pButton type="button" icon="pi pi-check" label="Revisado" class="p-button-sm p-button-success p-button-text" title="Marcar como confirmado" (click)="setEstado(m, 'confirmado')"></button>
-                    <button pButton type="button" icon="pi pi-times" class="p-button-sm p-button-danger p-button-text" title="Descartar (falso positivo / RFC homónimo)" (click)="setEstado(m, 'descartado')"></button>
+                    <button pButton type="button" class="p-button-sm p-button-success p-button-text" title="Marcar como confirmado" (click)="setEstado(m, 'confirmado')"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Revisado</span></button>
+                    <button pButton type="button" class="p-button-sm p-button-danger p-button-text" title="Descartar (falso positivo / RFC homónimo)" (click)="setEstado(m, 'descartado')"><span class="p-button-icon p-button-icon-left pi pi-times" aria-hidden="true"></span></button>
                   } @else {
                     <span class="ls-status-label" [ngClass]="'st-' + m.estado">{{ estadoLabel(m.estado) }}</span>
-                    <button pButton type="button" icon="pi pi-undo" class="p-button-sm p-button-text" title="Reabrir" (click)="setEstado(m, 'nuevo')"></button>
+                    <button pButton type="button" class="p-button-sm p-button-text" title="Reabrir" (click)="setEstado(m, 'nuevo')"><span class="p-button-icon p-button-icon-left pi pi-undo" aria-hidden="true"></span></button>
                   }
                 </div>
               </td>
@@ -168,8 +168,8 @@ import { ListasSatService, SatListMatch, RfcIssue, ListasStats, ListStatus, Expe
                 <td class="ta-r mono">{{ money(it.importe_total) }}</td>
                 <td>
                   @if (it.estado === 'nuevo' || it.estado === 'en_revision') {
-                    <button pButton type="button" icon="pi pi-check" label="Revisado" class="p-button-sm p-button-success p-button-text" (click)="setIssueEstado(it, 'confirmado')"></button>
-                    <button pButton type="button" icon="pi pi-times" class="p-button-sm p-button-danger p-button-text" title="Descartar" (click)="setIssueEstado(it, 'descartado')"></button>
+                    <button pButton type="button" class="p-button-sm p-button-success p-button-text" (click)="setIssueEstado(it, 'confirmado')"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Revisado</span></button>
+                    <button pButton type="button" class="p-button-sm p-button-danger p-button-text" title="Descartar" (click)="setIssueEstado(it, 'descartado')"><span class="p-button-icon p-button-icon-left pi pi-times" aria-hidden="true"></span></button>
                   } @else {
                     <span class="ls-status-label" [ngClass]="'st-' + it.estado">{{ estadoLabel(it.estado) }}</span>
                   }

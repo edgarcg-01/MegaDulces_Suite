@@ -66,7 +66,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
           <tr><td colspan="12" class="oc-empty">
             @if (error()) {
               <i class="pi pi-exclamation-triangle"></i> No se pudieron cargar las órdenes de compra.
-              <button pButton type="button" label="Reintentar" class="p-button-text p-button-sm" (click)="reload()"></button>
+              <button pButton type="button" class="p-button-text p-button-sm" (click)="reload()"><span class="p-button-label">Reintentar</span></button>
             } @else { Sin órdenes de compra con estos filtros. Genera una desde una requisición aprobada. }
           </td></tr>
         </ng-template>

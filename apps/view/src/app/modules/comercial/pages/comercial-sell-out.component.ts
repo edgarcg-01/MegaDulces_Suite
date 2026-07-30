@@ -203,8 +203,7 @@ const CHANNEL_OPTS = [
       }
 
       <div class="so-actions">
-        <button pButton label="Generar" icon="pi pi-search" size="small"
-                [loading]="loading()" (click)="generate()"></button>
+        <button pButton size="small" [loading]="loading()" (click)="generate()"><span class="p-button-icon p-button-icon-left pi pi-search" aria-hidden="true"></span><span class="p-button-label">Generar</span></button>
       </div>
 
       @if (loading()) {
@@ -232,10 +231,8 @@ const CHANNEL_OPTS = [
             </div>
           }
           <div class="so-dl">
-            <button pButton label="XLSX" icon="pi pi-file-excel" size="small" severity="secondary" [outlined]="true"
-                    [loading]="dl() === 'xlsx'" (click)="download('xlsx')"></button>
-            <button pButton label="PDF" icon="pi pi-file-pdf" size="small" severity="secondary" [outlined]="true"
-                    [loading]="dl() === 'pdf'" (click)="download('pdf')"></button>
+            <button pButton size="small" severity="secondary" [outlined]="true" [loading]="dl() === 'xlsx'" (click)="download('xlsx')"><span class="p-button-icon p-button-icon-left pi pi-file-excel" aria-hidden="true"></span><span class="p-button-label">XLSX</span></button>
+            <button pButton size="small" severity="secondary" [outlined]="true" [loading]="dl() === 'pdf'" (click)="download('pdf')"><span class="p-button-icon p-button-icon-left pi pi-file-pdf" aria-hidden="true"></span><span class="p-button-label">PDF</span></button>
           </div>
         </div>
 

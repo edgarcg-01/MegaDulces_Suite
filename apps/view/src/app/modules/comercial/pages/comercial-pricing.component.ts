@@ -53,24 +53,8 @@ import { makeLazyLoad, makeDebouncedSearch } from '../../../shared/util';
           </p>
         </div>
         <div class="pr-head-actions">
-          <button
-            pButton
-            icon="pi pi-refresh"
-            [text]="true"
-            severity="secondary"
-            size="small"
-            (click)="load()"
-            [loading]="loading()"
-            pTooltip="Refrescar"
-          ></button>
-          <button
-            pButton
-            icon="pi pi-plus"
-            label="Nueva lista"
-            size="small"
-            severity="contrast"
-            (click)="openCreate()"
-          ></button>
+          <button pButton [text]="true" severity="secondary" size="small" (click)="load()" [loading]="loading()" pTooltip="Refrescar"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span></button>
+          <button pButton size="small" severity="contrast" (click)="openCreate()"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Nueva lista</span></button>
         </div>
       </header>
     
@@ -113,12 +97,9 @@ import { makeLazyLoad, makeDebouncedSearch } from '../../../shared/util';
                   </span>
                 </td>
                 <td class="comm-actions">
-                  <button pButton icon="pi pi-pencil" size="small" severity="secondary" [text]="true"
-                  (click)="$event.stopPropagation(); openEdit(pl)" pTooltip="Editar"></button>
+                  <button pButton size="small" severity="secondary" [text]="true" (click)="$event.stopPropagation(); openEdit(pl)" pTooltip="Editar"><span class="p-button-icon p-button-icon-left pi pi-pencil" aria-hidden="true"></span></button>
                   @if (pl.active !== false) {
-                    <button pButton icon="pi pi-trash" size="small" severity="secondary" [text]="true"
-                      (click)="$event.stopPropagation(); confirmDelete(pl)"
-                    pTooltip="Desactivar"></button>
+                    <button pButton size="small" severity="secondary" [text]="true" (click)="$event.stopPropagation(); confirmDelete(pl)" pTooltip="Desactivar"><span class="p-button-icon p-button-icon-left pi pi-trash" aria-hidden="true"></span></button>
                   }
                 </td>
               </tr>
@@ -130,15 +111,7 @@ import { makeLazyLoad, makeDebouncedSearch } from '../../../shared/util';
                     <div class="comm-empty-icon"><i class="pi pi-tag" aria-hidden="true"></i></div>
                     <h3>Sin listas de precios</h3>
                     <p>Creá una lista y asignala a clientes para personalizar precios por cuenta.</p>
-                    <button
-                      type="button"
-                      pButton
-                      icon="pi pi-plus"
-                      severity="contrast"
-                      size="small"
-                      label="Nueva lista"
-                      (click)="openCreate()"
-                    ></button>
+                    <button type="button" pButton severity="contrast" size="small" (click)="openCreate()"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Nueva lista</span></button>
                   </div>
                 </td>
               </tr>
@@ -187,15 +160,7 @@ import { makeLazyLoad, makeDebouncedSearch } from '../../../shared/util';
                       </button>
                     }
                   </div>
-                  <button
-                    pButton
-                    icon="pi pi-times"
-                    [text]="true"
-                    severity="secondary"
-                    size="small"
-                    (click)="selected.set(null)"
-                    pTooltip="Cerrar detalle"
-                  ></button>
+                  <button pButton [text]="true" severity="secondary" size="small" (click)="selected.set(null)" pTooltip="Cerrar detalle"><span class="p-button-icon p-button-icon-left pi pi-times" aria-hidden="true"></span></button>
                 </div>
               </header>
               <p-table
@@ -284,8 +249,7 @@ import { makeLazyLoad, makeDebouncedSearch } from '../../../shared/util';
                       <span class="pr-min-qty" [class.is-tier]="(p.min_qty || 1) > 1">{{ p.min_qty || p.min_quantity || 1 }}</span>
                     </td>
                     <td class="comm-actions">
-                      <button pButton icon="pi pi-trash" size="small" severity="secondary" [text]="true"
-                      (click)="confirmDeletePrice(p)" pTooltip="Eliminar"></button>
+                      <button pButton size="small" severity="secondary" [text]="true" (click)="confirmDeletePrice(p)" pTooltip="Eliminar"><span class="p-button-icon p-button-icon-left pi pi-trash" aria-hidden="true"></span></button>
                     </td>
                   </tr>
                 </ng-template>
@@ -342,7 +306,7 @@ import { makeLazyLoad, makeDebouncedSearch } from '../../../shared/util';
           </form>
         }
         <ng-template #footer>
-          <button pButton label="Cancelar" severity="secondary" [outlined]="true" (click)="dialogVisible = false"></button>
+          <button pButton severity="secondary" [outlined]="true" (click)="dialogVisible = false"><span class="p-button-label">Cancelar</span></button>
           <p-button pButton [label]="editing() ? 'Guardar' : 'Crear'" icon="pi pi-check"
             [loading]="saving()"
             [disabled]="form.invalid"

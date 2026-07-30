@@ -118,7 +118,7 @@ interface GuideRow extends DeliveryGuide {
                   <td class="num">{{ g.per_diem_total | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
                   <td><p-tag [severity]="severityStatus(g.status)" [value]="g.status"></p-tag></td>
                   <td class="actions">
-                    <a pButton icon="pi pi-eye" size="small" severity="secondary" [text]="true" [routerLink]="['/logistica/shipments', g.shipment_id]"></a>
+                    <a pButton size="small" severity="secondary" [text]="true" [routerLink]="['/logistica/shipments', g.shipment_id]"><span class="p-button-icon p-button-icon-left pi pi-eye" aria-hidden="true"></span></a>
                   </td>
                 </tr>
               </ng-template>

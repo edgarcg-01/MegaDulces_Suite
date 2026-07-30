@@ -57,7 +57,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
             optionValue="value"
             styleClass="sb-liquid"
           ></p-selectbutton>
-          <button pButton icon="pi pi-plus" label="Crear checklist" (click)="createNew()" [loading]="creating()"></button>
+          <button pButton (click)="createNew()" [loading]="creating()"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Crear checklist</span></button>
         </div>
       </p-card>
     }
@@ -132,13 +132,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
                   Notas generales
                   <textarea pTextarea rows="2" [(ngModel)]="notesByChecklist[cl.id]"></textarea>
                 </label>
-                <button
-                  pButton
-                  icon="pi pi-check"
-                  label="Marcar completado"
-                  (click)="complete(cl)"
-                  [loading]="completing() === cl.id"
-                ></button>
+                <button pButton (click)="complete(cl)" [loading]="completing() === cl.id"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Marcar completado</span></button>
               </div>
             }
           </p-card>

@@ -42,8 +42,7 @@ import { INV_COUNT_TABS } from '../inventory-tabs';
         <div class="pa-head-actions">
           <p-select [options]="whOptions()" [(ngModel)]="warehouseId" optionLabel="label" optionValue="value"
                     placeholder="Elegí un almacén" (onChange)="load()" styleClass="pa-wh" ariaLabel="Almacén"></p-select>
-          <button pButton type="button" label="Nuevo pasillo" icon="pi pi-plus" size="small"
-                  (click)="openCreate()" [disabled]="!warehouseId()"></button>
+          <button pButton type="button" size="small" (click)="openCreate()" [disabled]="!warehouseId()"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Nuevo pasillo</span></button>
         </div>
       </header>
 
@@ -81,7 +80,7 @@ import { INV_COUNT_TABS } from '../inventory-tabs';
             <aside class="pa-panel">
               <div class="pa-panel-head">
                 <h2>{{ sel.code }}</h2>
-                <button pButton type="button" icon="pi pi-times" [text]="true" size="small" (click)="selected.set(null)" ariaLabel="Cerrar"></button>
+                <button pButton type="button" [text]="true" size="small" (click)="selected.set(null)" ariaLabel="Cerrar"><span class="p-button-icon p-button-icon-left pi pi-times" aria-hidden="true"></span></button>
               </div>
               <p class="pa-panel-load">{{ sel.units || 0 }} unidades · {{ sel.sku_count || 0 }} SKUs</p>
 
@@ -93,8 +92,8 @@ import { INV_COUNT_TABS } from '../inventory-tabs';
                 <label class="pa-fld">Col <p-inputnumber [(ngModel)]="editCol" [min]="0" [showButtons]="false" inputStyleClass="pa-num"></p-inputnumber></label>
               </div>
               <div class="pa-panel-actions">
-                <button pButton type="button" label="Guardar" icon="pi pi-check" size="small" (click)="saveEdit()" [loading]="working()"></button>
-                <button pButton type="button" label="Borrar" icon="pi pi-trash" [text]="true" severity="danger" size="small" (click)="confirmDelete()"></button>
+                <button pButton type="button" size="small" (click)="saveEdit()" [loading]="working()"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Guardar</span></button>
+                <button pButton type="button" [text]="true" severity="danger" size="small" (click)="confirmDelete()"><span class="p-button-icon p-button-icon-left pi pi-trash" aria-hidden="true"></span><span class="p-button-label">Borrar</span></button>
               </div>
 
               <hr class="pa-sep" />
@@ -117,8 +116,7 @@ import { INV_COUNT_TABS } from '../inventory-tabs';
                 }
               }
               <label class="pa-chk"><input type="checkbox" [(ngModel)]="onlyUnassigned" /> Solo SKUs sin pasillo</label>
-              <button pButton type="button" label="Asignar a este pasillo" icon="pi pi-arrow-right" size="small" class="pa-asg-btn"
-                      (click)="doAssign()" [loading]="working()"></button>
+              <button pButton type="button" size="small" class="pa-asg-btn" (click)="doAssign()" [loading]="working()"><span class="p-button-icon p-button-icon-left pi pi-arrow-right" aria-hidden="true"></span><span class="p-button-label">Asignar a este pasillo</span></button>
               <p class="pa-asg-hint">Mueve los SKUs que matcheen el filtro a <b>{{ sel.code }}</b> (los saca de su pasillo actual).</p>
             </aside>
           }
@@ -136,8 +134,8 @@ import { INV_COUNT_TABS } from '../inventory-tabs';
           </div>
         </div>
         <ng-template #footer>
-          <button pButton type="button" label="Cancelar" [text]="true" size="small" (click)="showCreate.set(false)"></button>
-          <button pButton type="button" label="Crear" icon="pi pi-check" size="small" (click)="saveCreate()" [loading]="working()" [disabled]="!newCode().trim()"></button>
+          <button pButton type="button" [text]="true" size="small" (click)="showCreate.set(false)"><span class="p-button-label">Cancelar</span></button>
+          <button pButton type="button" size="small" (click)="saveCreate()" [loading]="working()" [disabled]="!newCode().trim()"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Crear</span></button>
         </ng-template>
       </p-dialog>
     </div>

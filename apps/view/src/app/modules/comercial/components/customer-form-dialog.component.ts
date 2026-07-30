@@ -151,7 +151,7 @@ import { SAT_REGIMENES, SAT_USOS_CFDI, SatCatItem } from '../../../shared/consta
         </form>
       }
       <ng-template #footer>
-        <button pButton label="Cancelar" severity="secondary" [outlined]="true" (click)="cancel.emit()"></button>
+        <button pButton severity="secondary" [outlined]="true" (click)="cancel.emit()"><span class="p-button-label">Cancelar</span></button>
         <p-button pButton [label]="editing ? 'Guardar' : 'Crear'" icon="pi pi-check"
           [loading]="saving"
           [disabled]="form.invalid"

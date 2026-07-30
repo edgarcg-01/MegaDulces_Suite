@@ -80,8 +80,8 @@ import { amtPct, cuadra, money0, dmy, groupLabel } from './bancos-shared';
         <div class="fb-match-head">
           <h3 class="fb-card-title">Conciliación por transacción <span class="muted">— retiros del banco ↔ pagos del 102 en Kepler</span></h3>
           <div class="fb-match-actions">
-            <button pButton type="button" label="Enviar a Hallazgos" icon="pi pi-flag" class="p-button-sm p-button-text" [loading]="syncing()" (click)="syncFindings.emit()" title="Empuja las diferencias a la bandeja de /finanzas/hallazgos"></button>
-            <button pButton type="button" label="Conciliar" icon="pi pi-bolt" class="p-button-sm p-button-outlined" [loading]="matching()" (click)="runMatch.emit()"></button>
+            <button pButton type="button" class="p-button-sm p-button-text" [loading]="syncing()" (click)="syncFindings.emit()" title="Empuja las diferencias a la bandeja de /finanzas/hallazgos"><span class="p-button-icon p-button-icon-left pi pi-flag" aria-hidden="true"></span><span class="p-button-label">Enviar a Hallazgos</span></button>
+            <button pButton type="button" class="p-button-sm p-button-outlined" [loading]="matching()" (click)="runMatch.emit()"><span class="p-button-icon p-button-icon-left pi pi-bolt" aria-hidden="true"></span><span class="p-button-label">Conciliar</span></button>
           </div>
         </div>
         @if (matchResult(); as mr) {

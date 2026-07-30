@@ -66,7 +66,7 @@ import { ConfigCategory, ConfigItem, LogisticaService, Route } from '../logistic
             <div class="tab-toolbar">
               <input pInputText type="search" [(ngModel)]="routeSearch" (input)="onRouteSearch()" placeholder="Buscar destino..."
                 inputmode="search" enterkeyhint="search" autocapitalize="none" autocorrect="off" spellcheck="false" />
-                <button pButton icon="pi pi-plus" label="Nueva ruta" (click)="openRouteDialog()"></button>
+                <button pButton (click)="openRouteDialog()"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Nueva ruta</span></button>
               </div>
               <section class="surf-panel">
                 <div class="surf-panel-body is-flush">
@@ -89,8 +89,8 @@ import { ConfigCategory, ConfigItem, LogisticaService, Route } from '../logistic
                         <td class="num">\${{ r.helper_commission | number:'1.2-2' }}</td>
                         <td><p-tag [value]="r.active ? 'Activa' : 'Inactiva'" [severity]="r.active ? 'success' : 'secondary'"></p-tag></td>
                         <td class="actions">
-                          <button pButton icon="pi pi-pencil" size="small" severity="secondary" [text]="true" (click)="openRouteDialog(r)"></button>
-                          <button pButton icon="pi pi-trash" size="small" severity="secondary" [text]="true" (click)="confirmDeleteRoute(r)"></button>
+                          <button pButton size="small" severity="secondary" [text]="true" (click)="openRouteDialog(r)"><span class="p-button-icon p-button-icon-left pi pi-pencil" aria-hidden="true"></span></button>
+                          <button pButton size="small" severity="secondary" [text]="true" (click)="confirmDeleteRoute(r)"><span class="p-button-icon p-button-icon-left pi pi-trash" aria-hidden="true"></span></button>
                         </td>
                       </tr>
                     </ng-template>
@@ -114,7 +114,7 @@ import { ConfigCategory, ConfigItem, LogisticaService, Route } from '../logistic
               <p-tabpanel [value]="cat">
                 <div class="tab-toolbar">
                   <span class="muted small">{{ countCat(cat) }} items en categoría "{{ catLabel(cat) }}"</span>
-                  <button pButton icon="pi pi-plus" label="Nuevo item" (click)="openConfigDialog(undefined, cat)"></button>
+                  <button pButton (click)="openConfigDialog(undefined, cat)"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Nuevo item</span></button>
                 </div>
                 <section class="surf-panel">
                   <div class="surf-panel-body is-flush">
@@ -137,8 +137,8 @@ import { ConfigCategory, ConfigItem, LogisticaService, Route } from '../logistic
                           <td class="muted">{{ c.unit || '—' }}</td>
                           <td><p-tag [value]="c.active ? 'Activo' : 'Inactivo'" [severity]="c.active ? 'success' : 'secondary'"></p-tag></td>
                           <td class="actions">
-                            <button pButton icon="pi pi-pencil" size="small" severity="secondary" [text]="true" (click)="openConfigDialog(c)"></button>
-                            <button pButton icon="pi pi-trash" size="small" severity="secondary" [text]="true" (click)="confirmDeleteConfig(c)"></button>
+                            <button pButton size="small" severity="secondary" [text]="true" (click)="openConfigDialog(c)"><span class="p-button-icon p-button-icon-left pi pi-pencil" aria-hidden="true"></span></button>
+                            <button pButton size="small" severity="secondary" [text]="true" (click)="confirmDeleteConfig(c)"><span class="p-button-icon p-button-icon-left pi pi-trash" aria-hidden="true"></span></button>
                           </td>
                         </tr>
                       </ng-template>
@@ -196,7 +196,7 @@ import { ConfigCategory, ConfigItem, LogisticaService, Route } from '../logistic
           </label>
         </form>
         <ng-template #footer>
-          <button pButton label="Cancelar" severity="secondary" [text]="true" (click)="routeDialog = false" [disabled]="savingRoute()"></button>
+          <button pButton severity="secondary" [text]="true" (click)="routeDialog = false" [disabled]="savingRoute()"><span class="p-button-label">Cancelar</span></button>
           <p-button pButton [label]="editingRoute() ? 'Guardar' : 'Crear'" icon="pi pi-check" (click)="saveRoute()" [loading]="savingRoute()" [disabled]="routeForm.invalid"></p-button>
         </ng-template>
       </p-dialog>
@@ -227,7 +227,7 @@ import { ConfigCategory, ConfigItem, LogisticaService, Route } from '../logistic
           </label>
         </form>
         <ng-template #footer>
-          <button pButton label="Cancelar" severity="secondary" [text]="true" (click)="configDialog = false" [disabled]="savingConfig()"></button>
+          <button pButton severity="secondary" [text]="true" (click)="configDialog = false" [disabled]="savingConfig()"><span class="p-button-label">Cancelar</span></button>
           <p-button pButton [label]="editingConfig() ? 'Guardar' : 'Crear'" icon="pi pi-check" (click)="saveConfig()" [loading]="savingConfig()" [disabled]="configForm.invalid"></p-button>
         </ng-template>
       </p-dialog>

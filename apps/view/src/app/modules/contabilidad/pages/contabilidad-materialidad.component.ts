@@ -49,8 +49,8 @@ import { Permission } from '../../../core/constants/permissions';
           <p-inputicon styleClass="pi pi-search" />
           <input type="text" pInputText placeholder="RFC del proveedor (p.ej. DRO020122GZ9)" [(ngModel)]="rfc" (keyup.enter)="buscar()" maxlength="13" style="text-transform:uppercase;min-width:280px" aria-label="RFC del proveedor" />
         </p-iconfield>
-        <button pButton type="button" label="Armar expediente" icon="pi pi-folder-open" class="p-button-sm" [loading]="loading()" [disabled]="!rfcValid()" (click)="buscar()"></button>
-        @if (dossier() || searched()) { <button pButton type="button" label="Ver proveedores" icon="pi pi-arrow-left" class="p-button-sm p-button-text" (click)="backToList()"></button> }
+        <button pButton type="button" class="p-button-sm" [loading]="loading()" [disabled]="!rfcValid()" (click)="buscar()"><span class="p-button-icon p-button-icon-left pi pi-folder-open" aria-hidden="true"></span><span class="p-button-label">Armar expediente</span></button>
+        @if (dossier() || searched()) { <button pButton type="button" class="p-button-sm p-button-text" (click)="backToList()"><span class="p-button-icon p-button-icon-left pi pi-arrow-left" aria-hidden="true"></span><span class="p-button-label">Ver proveedores</span></button> }
       </div>
 
       @if (loading()) {
@@ -73,8 +73,7 @@ import { Permission } from '../../../core/constants/permissions';
           <div class="card-premium card-flat mt-block">
             <div class="mt-block-head">
               <h3 class="mt-block-title">Cadena de suministro</h3>
-              <button pButton type="button" label="Ver documentos" icon="pi pi-list" class="p-button-sm p-button-text"
-                      [disabled]="d.cadena_suministro.cadenas === 0" (click)="openChains()"></button>
+              <button pButton type="button" class="p-button-sm p-button-text" [disabled]="d.cadena_suministro.cadenas === 0" (click)="openChains()"><span class="p-button-icon p-button-icon-left pi pi-list" aria-hidden="true"></span><span class="p-button-label">Ver documentos</span></button>
             </div>
             <div class="mt-chain" [class.clickable]="d.cadena_suministro.cadenas > 0"
                  [attr.role]="d.cadena_suministro.cadenas > 0 ? 'button' : null"
@@ -264,8 +263,7 @@ import { Permission } from '../../../core/constants/permissions';
             <span class="mt-rs ok">✓ {{ rs.confirmed }} asignadas</span>
             <span class="mt-rs warn">◐ {{ rs.suggested }} sugeridas</span>
             <span class="mt-rs muted">○ {{ rs.unmatched }} sin operación</span>
-            <button pButton type="button" label="Descargar ZIP" icon="pi pi-download" class="p-button-sm p-button-outlined mt-dl-btn"
-                    [loading]="exporting()" [disabled]="rs.total === 0" (click)="downloadExpediente()"></button>
+            <button pButton type="button" class="p-button-sm p-button-outlined mt-dl-btn" [loading]="exporting()" [disabled]="rs.total === 0" (click)="downloadExpediente()"><span class="p-button-icon p-button-icon-left pi pi-download" aria-hidden="true"></span><span class="p-button-label">Descargar ZIP</span></button>
           </div>
         }
 
@@ -294,7 +292,7 @@ import { Permission } from '../../../core/constants/permissions';
                       <div class="mt-asg">
                         <span class="mt-est e-vigente" title="Asignada por {{ c.assignment?.by || '—' }}"><i class="pi pi-check"></i> {{ c.assignment?.doc_folio }}</span>
                         <span class="muted cf-sub">{{ c.assignment?.sucursal }} · Δ {{ money($safeNavigationMigration(c.assignment?.diff_importe)) }}@if (c.assignment?.diff_days != null) { · {{ c.assignment?.diff_days }}d }</span>
-                        @if (canManage) { <button pButton type="button" label="Quitar" class="p-button-text p-button-sm mt-asg-x" [disabled]="busy() === c.cfdi_id" (click)="unassignRow(c)"></button> }
+                        @if (canManage) { <button pButton type="button" class="p-button-text p-button-sm mt-asg-x" [disabled]="busy() === c.cfdi_id" (click)="unassignRow(c)"><span class="p-button-label">Quitar</span></button> }
                       </div>
                     }
                     @case ('suggested') {
@@ -310,8 +308,8 @@ import { Permission } from '../../../core/constants/permissions';
                         }
                         @if (canManage) {
                           <span class="mt-asg-acts">
-                            <button pButton type="button" icon="pi pi-check" class="p-button-sm p-button-success mt-ico-btn" title="Confirmar asignación" aria-label="Confirmar" [disabled]="busy() === c.cfdi_id" (click)="confirmSuggestion(c)"></button>
-                            <button pButton type="button" icon="pi pi-times" class="p-button-text p-button-sm p-button-secondary mt-ico-btn" title="Descartar sugerencia" aria-label="Descartar" [disabled]="busy() === c.cfdi_id" (click)="rejectSuggestion(c)"></button>
+                            <button pButton type="button" class="p-button-sm p-button-success mt-ico-btn" title="Confirmar asignación" aria-label="Confirmar" [disabled]="busy() === c.cfdi_id" (click)="confirmSuggestion(c)"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span></button>
+                            <button pButton type="button" class="p-button-text p-button-sm p-button-secondary mt-ico-btn" title="Descartar sugerencia" aria-label="Descartar" [disabled]="busy() === c.cfdi_id" (click)="rejectSuggestion(c)"><span class="p-button-icon p-button-icon-left pi pi-times" aria-hidden="true"></span></button>
                           </span>
                         }
                       </div>
@@ -319,7 +317,7 @@ import { Permission } from '../../../core/constants/permissions';
                     @default { <span class="muted cf-sub"><i class="pi pi-minus-circle"></i> Sin operación en ±$1 / ±5 días</span> }
                   }
                 </td>
-                <td class="ta-r">@if (c.has_xml) { <button pButton type="button" icon="pi pi-download" class="p-button-text p-button-sm" title="Descargar XML" aria-label="Descargar XML" (click)="downloadXml(c)"></button> }</td>
+                <td class="ta-r">@if (c.has_xml) { <button pButton type="button" class="p-button-text p-button-sm" title="Descargar XML" aria-label="Descargar XML" (click)="downloadXml(c)"><span class="p-button-icon p-button-icon-left pi pi-download" aria-hidden="true"></span></button> }</td>
               </tr>
             </ng-template>
             <ng-template #emptymessage><tr><td colspan="5" class="mt-dlg-empty">

@@ -45,7 +45,7 @@ import { ConciliacionService, PpdRow, ConciliacionStats, CruceStats, CfdiSinPoli
           <p class="surf-page-sub">Complementos de pago (REP) y cruce de CFDI contra la póliza contable. Determinista sobre lo descargado del SAT.</p>
         </div>
         <div class="co-head-actions">
-          <button pButton type="button" icon="pi pi-refresh" label="Actualizar" class="p-button-sm p-button-text" [loading]="loading()" (click)="reload()"></button>
+          <button pButton type="button" class="p-button-sm p-button-text" [loading]="loading()" (click)="reload()"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span><span class="p-button-label">Actualizar</span></button>
           @if (loadedAt()) { <app-freshness-pill [since]="loadedAt()" /> }
         </div>
       </header>
@@ -68,8 +68,8 @@ import { ConciliacionService, PpdRow, ConciliacionStats, CruceStats, CfdiSinPoli
         @if (view() === 'rep') {
           <p-selectbutton styleClass="sb-liquid" [options]="rolOpts" [ngModel]="rol()" (ngModelChange)="setRol($event)" optionLabel="label" optionValue="value" [allowEmpty]="false" ariaLabel="Rol de los comprobantes" />
         }
-        <button pButton type="button" label="Buscar" icon="pi pi-filter" class="p-button-sm p-button-outlined" (click)="applyFilters()"></button>
-        @if (hasFilters()) { <button pButton type="button" label="Limpiar" icon="pi pi-times" class="p-button-sm p-button-text" (click)="clearFilters()"></button> }
+        <button pButton type="button" class="p-button-sm p-button-outlined" (click)="applyFilters()"><span class="p-button-icon p-button-icon-left pi pi-filter" aria-hidden="true"></span><span class="p-button-label">Buscar</span></button>
+        @if (hasFilters()) { <button pButton type="button" class="p-button-sm p-button-text" (click)="clearFilters()"><span class="p-button-icon p-button-icon-left pi pi-times" aria-hidden="true"></span><span class="p-button-label">Limpiar</span></button> }
       </div>
 
       @if (view() === 'rep') {
@@ -95,7 +95,7 @@ import { ConciliacionService, PpdRow, ConciliacionStats, CruceStats, CfdiSinPoli
                 <td class="ta-r strong mono" [class.bad]="+r.saldo > 0">{{ money(r.saldo) }}</td>
               </tr>
             </ng-template>
-            <ng-template #emptymessage><tr><td colspan="6" class="co-empty">{{ emptyMsg() }}@if (errored()) { <button pButton type="button" label="Reintentar" class="p-button-sm p-button-text" (click)="reload()"></button> }</td></tr></ng-template>
+            <ng-template #emptymessage><tr><td colspan="6" class="co-empty">{{ emptyMsg() }}@if (errored()) { <button pButton type="button" class="p-button-sm p-button-text" (click)="reload()"><span class="p-button-label">Reintentar</span></button> }</td></tr></ng-template>
           </p-table>
         </div>
       } @else {
@@ -116,7 +116,7 @@ import { ConciliacionService, PpdRow, ConciliacionStats, CruceStats, CfdiSinPoli
                 <td class="mono">{{ r.fecha ? (r.fecha | date:'dd/MM/yy') : '—' }}</td>
                 <td class="ta-r strong mono">{{ money(r.importe) }}</td></tr>
               </ng-template>
-              <ng-template #emptymessage><tr><td colspan="4" class="co-empty">{{ emptyMsg() }}@if (errored()) { <button pButton type="button" label="Reintentar" class="p-button-sm p-button-text" (click)="reload()"></button> }</td></tr></ng-template>
+              <ng-template #emptymessage><tr><td colspan="4" class="co-empty">{{ emptyMsg() }}@if (errored()) { <button pButton type="button" class="p-button-sm p-button-text" (click)="reload()"><span class="p-button-label">Reintentar</span></button> }</td></tr></ng-template>
             </p-table>
           } @else {
             <p-table [value]="cfdiSinPoliza()" styleClass="p-datatable-sm co-table" [rowHover]="true" [loading]="loading()" [scrollable]="true" scrollHeight="520px"
@@ -129,7 +129,7 @@ import { ConciliacionService, PpdRow, ConciliacionStats, CruceStats, CfdiSinPoli
                 <td>@if (r.metodo_pago) { <p-tag [value]="r.metodo_pago" severity="secondary" styleClass="co-chip" /> } @else { — }</td>
                 <td class="ta-r strong mono">{{ money(r.total) }}</td></tr>
               </ng-template>
-              <ng-template #emptymessage><tr><td colspan="5" class="co-empty">{{ emptyMsg() }}@if (errored()) { <button pButton type="button" label="Reintentar" class="p-button-sm p-button-text" (click)="reload()"></button> }</td></tr></ng-template>
+              <ng-template #emptymessage><tr><td colspan="5" class="co-empty">{{ emptyMsg() }}@if (errored()) { <button pButton type="button" class="p-button-sm p-button-text" (click)="reload()"><span class="p-button-label">Reintentar</span></button> }</td></tr></ng-template>
             </p-table>
           }
         </div>

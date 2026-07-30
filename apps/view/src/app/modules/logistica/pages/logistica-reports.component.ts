@@ -57,8 +57,8 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
         <div class="filter-bar">
           <p-datepicker [(ngModel)]="from" dateFormat="yy-mm-dd" placeholder="Desde" [showButtonBar]="true"></p-datepicker>
           <p-datepicker [(ngModel)]="to" dateFormat="yy-mm-dd" placeholder="Hasta" [showButtonBar]="true"></p-datepicker>
-          <button pButton icon="pi pi-refresh" label="Aplicar" (click)="reload()" [loading]="loading()"></button>
-          <button pButton icon="pi pi-file-pdf" label="PDF ejecutivo" severity="secondary" [outlined]="true" (click)="downloadExecutivePdf()"></button>
+          <button pButton (click)="reload()" [loading]="loading()"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span><span class="p-button-label">Aplicar</span></button>
+          <button pButton severity="secondary" [outlined]="true" (click)="downloadExecutivePdf()"><span class="p-button-icon p-button-icon-left pi pi-file-pdf" aria-hidden="true"></span><span class="p-button-label">PDF ejecutivo</span></button>
         </div>
       </header>
     
@@ -124,7 +124,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
           <p-tabpanel value="shipments">
             <div class="tab-toolbar">
               <span class="comm-muted is-small">{{ shipmentRows().length }} embarques en el período</span>
-              <button pButton icon="pi pi-file-pdf" label="Exportar PDF (cliente)" severity="secondary" [outlined]="true" size="small" (click)="exportShipmentsPdf()"></button>
+              <button pButton severity="secondary" [outlined]="true" size="small" (click)="exportShipmentsPdf()"><span class="p-button-icon p-button-icon-left pi pi-file-pdf" aria-hidden="true"></span><span class="p-button-label">Exportar PDF (cliente)</span></button>
             </div>
     
             <section class="surf-panel">
@@ -175,7 +175,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
           <p-tabpanel value="fleet">
             <div class="tab-toolbar">
               <span class="comm-muted is-small">{{ fleetRows().length }} unidades activas en el período</span>
-              <button pButton icon="pi pi-file-pdf" label="Exportar PDF (cliente)" severity="secondary" [outlined]="true" size="small" (click)="exportFleetPdf()"></button>
+              <button pButton severity="secondary" [outlined]="true" size="small" (click)="exportFleetPdf()"><span class="p-button-icon p-button-icon-left pi pi-file-pdf" aria-hidden="true"></span><span class="p-button-label">Exportar PDF (cliente)</span></button>
             </div>
     
             <section class="surf-panel">
@@ -279,7 +279,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
                 (onChange)="loadErp()" styleClass="erp-dim"></p-select>
                 <span class="comm-muted is-small">Fuente: <strong>ERP Kepler</strong> (embarques reales, read-only). Distinto de los embarques operativos de la app.</span>
               </div>
-              <button pButton icon="pi pi-refresh" [text]="true" severity="secondary" size="small" (click)="loadErp()" [loading]="erpLoading()"></button>
+              <button pButton [text]="true" severity="secondary" size="small" (click)="loadErp()" [loading]="erpLoading()"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span></button>
             </div>
     
             @if (erp(); as e) {

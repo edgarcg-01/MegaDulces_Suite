@@ -95,7 +95,7 @@ interface FeedEntry {
             <i class="pi pi-stopwatch"></i>
             <h2>Fase {{ currentPass() }} · {{ currentPass() === 1 ? 'Primer conteo' : 'Segundo conteo (ciego)' }}</h2>
             <p>Al iniciar entrás en modo conteo: la app queda fija en esta pantalla hasta que toques <b>Terminar</b>.</p>
-            <button pButton label="Iniciar conteo" icon="pi pi-play" class="ic-start-btn" [loading]="starting()" (click)="startCount()"></button>
+            <button pButton class="ic-start-btn" [loading]="starting()" (click)="startCount()"><span class="p-button-icon p-button-icon-left pi pi-play" aria-hidden="true"></span><span class="p-button-label">Iniciar conteo</span></button>
           </div>
         }
 
@@ -105,14 +105,14 @@ interface FeedEntry {
             <i class="pi pi-check-circle"></i>
             <h2>Fase {{ justFinishedPass() }} terminada</h2>
             <p>Registramos tu conteo. Esperá a que el supervisor habilite la siguiente fase o cierre el folio.</p>
-            <button pButton label="Volver a contar esta fase" icon="pi pi-replay" [text]="true" severity="secondary" (click)="startCount()"></button>
+            <button pButton [text]="true" severity="secondary" (click)="startCount()"><span class="p-button-icon p-button-icon-left pi pi-replay" aria-hidden="true"></span><span class="p-button-label">Volver a contar esta fase</span></button>
           </div>
         }
 
         @if (sessionActive()) {
           <div class="ic-phase-banner">
             <span><i class="pi pi-stopwatch"></i> Conteo en curso · Fase {{ currentPass() }}</span>
-            <button pButton label="Terminar" icon="pi pi-flag-fill" severity="success" size="small" [loading]="finishing()" (click)="finishCount()"></button>
+            <button pButton severity="success" size="small" [loading]="finishing()" (click)="finishCount()"><span class="p-button-icon p-button-icon-left pi pi-flag-fill" aria-hidden="true"></span><span class="p-button-label">Terminar</span></button>
           </div>
           <!-- Estado de red (offline-first): los conteos se encolan; cero pérdida. -->
           @if (!offline.online() || offline.pending() > 0) {
@@ -121,7 +121,7 @@ interface FeedEntry {
                 <span><i class="pi pi-wifi"></i> Sin conexión — los conteos se guardan y se suben al reconectar.</span>
               } @else {
                 <span><i class="pi pi-sync pi-spin"></i> Subiendo {{ offline.pending() }} pendiente(s)…</span>
-                <button pButton label="Reintentar" icon="pi pi-refresh" [text]="true" size="small" class="ic-net-retry" (click)="retrySync()"></button>
+                <button pButton [text]="true" size="small" class="ic-net-retry" (click)="retrySync()"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span><span class="p-button-label">Reintentar</span></button>
               }
             </div>
           }
@@ -167,9 +167,7 @@ interface FeedEntry {
                 class="ic-input ic-input-code"
               />
               @if (scanSupported()) {
-                <button pButton type="button" icon="pi pi-camera" class="ic-scan-btn"
-                        aria-label="Escanear con la cámara"
-                        pTooltip="Escanear con la cámara" (click)="startScan()"></button>
+                <button pButton type="button" class="ic-scan-btn" aria-label="Escanear con la cámara" pTooltip="Escanear con la cámara" (click)="startScan()"><span class="p-button-icon p-button-icon-left pi pi-camera" aria-hidden="true"></span></button>
               }
             </div>
 
@@ -181,7 +179,7 @@ interface FeedEntry {
                   <div class="ic-scan-frame"></div>
                   <p class="ic-scan-hint">Apuntá al código de barras</p>
                 </div>
-                <button #scanCancel pButton label="Cancelar" icon="pi pi-times" class="ic-scan-cancel" (click)="stopScan()"></button>
+                <button #scanCancel pButton class="ic-scan-cancel" (click)="stopScan()"><span class="p-button-icon p-button-icon-left pi pi-times" aria-hidden="true"></span><span class="p-button-label">Cancelar</span></button>
               </div>
             }
 
@@ -219,15 +217,7 @@ interface FeedEntry {
               placeholder="0"
             ></p-inputnumber>
 
-            <button
-              pButton
-              label="Registrar conteo"
-              icon="pi pi-check"
-              class="ic-submit"
-              [loading]="submitting()"
-              [disabled]="!code() || qty() === null || qty() === undefined"
-              (click)="submit()"
-            ></button>
+            <button pButton class="ic-submit" [loading]="submitting()" [disabled]="!code() || qty() === null || qty() === undefined" (click)="submit()"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Registrar conteo</span></button>
           </div>
 
           <!-- Feed de últimos conteos -->

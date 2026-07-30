@@ -36,8 +36,7 @@ import { LogisticaService, RoutePlan, PendingOrder, Vehicle } from '../logistica
             <p-multiselect [options]="orderOptions()" [(ngModel)]="buildOrders" optionLabel="label" optionValue="value"
               [filter]="true" placeholder="Pedidos pendientes" styleClass="pl-select" appendTo="body"
             [maxSelectedLabels]="3" selectedItemsLabel="{0} pedidos"></p-multiselect>
-            <button pButton icon="pi pi-box" label="Crear embarque optimizado" size="small"
-            [loading]="building()" [disabled]="!buildVehicle || !buildOrders.length" (click)="build()"></button>
+            <button pButton size="small" [loading]="building()" [disabled]="!buildVehicle || !buildOrders.length" (click)="build()"><span class="p-button-icon p-button-icon-left pi pi-box" aria-hidden="true"></span><span class="p-button-label">Crear embarque optimizado</span></button>
           </div>
           @if (!orderOptions().length) {
             <span class="comm-muted is-small">No hay pedidos pendientes por programar.</span>
@@ -50,8 +49,7 @@ import { LogisticaService, RoutePlan, PendingOrder, Vehicle } from '../logistica
           <p-select [options]="shipmentOptions()" [(ngModel)]="selectedId" optionLabel="label" optionValue="value"
             [filter]="true" placeholder="Ver embarque existente" styleClass="pl-select"
           (onChange)="loadPlan()" appendTo="body"></p-select>
-          <button pButton icon="pi pi-compass" label="Optimizar ruta" size="small"
-          [loading]="optimizing()" [disabled]="!selectedId" (click)="optimize()"></button>
+          <button pButton size="small" [loading]="optimizing()" [disabled]="!selectedId" (click)="optimize()"><span class="p-button-icon p-button-icon-left pi pi-compass" aria-hidden="true"></span><span class="p-button-label">Optimizar ruta</span></button>
         </article>
       </div>
     

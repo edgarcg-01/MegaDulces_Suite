@@ -37,8 +37,7 @@ import { LogisticaService, FleetAdherenceRow } from '../logistica.service';
         <div class="rk-actions">
           <input type="date" class="rk-date" [ngModel]="date()" (ngModelChange)="setDate($event)"
             [max]="today" aria-label="Fecha de auditoría" />
-            <button pButton icon="pi pi-refresh" label="Actualizar" [text]="true" size="small"
-            [loading]="loading()" (click)="refresh()" aria-label="Refrescar"></button>
+            <button pButton [text]="true" size="small" [loading]="loading()" (click)="refresh()" aria-label="Refrescar"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span><span class="p-button-label">Actualizar</span></button>
           </div>
         </header>
     
@@ -177,7 +176,7 @@ import { LogisticaService, FleetAdherenceRow } from '../logistica.service';
                   <div class="rk-empty-icon"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i></div>
                   <h3>No se pudo cargar la auditoría</h3>
                   <p>Revisá tu conexión y reintentá.</p>
-                  <button pButton size="small" label="Reintentar" (click)="refresh()"></button>
+                  <button pButton size="small" (click)="refresh()"><span class="p-button-label">Reintentar</span></button>
                 </div>
               }
             </article>

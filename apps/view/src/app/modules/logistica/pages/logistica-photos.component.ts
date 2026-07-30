@@ -64,23 +64,23 @@ import {
           <div class="gps-controls">
             <input pInputText type="number" step="0.0000001" [(ngModel)]="gpsLat" placeholder="Lat" />
             <input pInputText type="number" step="0.0000001" [(ngModel)]="gpsLng" placeholder="Lng" />
-            <button pButton icon="pi pi-map-marker" size="small" severity="secondary" label="Mi ubicación" (click)="captureLocation()" [loading]="capturingLocation()"></button>
+            <button pButton size="small" severity="secondary" (click)="captureLocation()" [loading]="capturingLocation()"><span class="p-button-icon p-button-icon-left pi pi-map-marker" aria-hidden="true"></span><span class="p-button-label">Mi ubicación</span></button>
           </div>
         </label>
       </div>
     
       <div class="capture-row">
-        <button pButton icon="pi pi-camera" label="Tomar foto (Capacitor)" (click)="takePhoto()" [loading]="capturing()"></button>
+        <button pButton (click)="takePhoto()" [loading]="capturing()"><span class="p-button-icon p-button-icon-left pi pi-camera" aria-hidden="true"></span><span class="p-button-label">Tomar foto (Capacitor)</span></button>
         <span class="muted">o</span>
         <input type="file" accept="image/*" (change)="onFileSelected($event)" #fileInput hidden />
-        <button pButton icon="pi pi-upload" label="Elegir archivo" severity="secondary" (click)="fileInput.click()"></button>
+        <button pButton severity="secondary" (click)="fileInput.click()"><span class="p-button-icon p-button-icon-left pi pi-upload" aria-hidden="true"></span><span class="p-button-label">Elegir archivo</span></button>
       </div>
     
       @if (previewBase64()) {
         <div class="preview">
           <img [src]="previewBase64()" alt="preview" />
-          <button pButton icon="pi pi-check" label="Subir" (click)="upload()" [loading]="uploading()"></button>
-          <button pButton icon="pi pi-times" label="Descartar" severity="secondary" [text]="true" (click)="clearPreview()"></button>
+          <button pButton (click)="upload()" [loading]="uploading()"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Subir</span></button>
+          <button pButton severity="secondary" [text]="true" (click)="clearPreview()"><span class="p-button-icon p-button-icon-left pi pi-times" aria-hidden="true"></span><span class="p-button-label">Descartar</span></button>
         </div>
       }
     </p-card>
@@ -118,7 +118,7 @@ import {
                 📍 {{ p.gps_lat }}, {{ p.gps_lng }}
               </p>
             }
-            <button pButton icon="pi pi-trash" size="small" severity="secondary" [text]="true" (click)="confirmDelete(p)" label="Borrar"></button>
+            <button pButton size="small" severity="secondary" [text]="true" (click)="confirmDelete(p)"><span class="p-button-icon p-button-icon-left pi pi-trash" aria-hidden="true"></span><span class="p-button-label">Borrar</span></button>
           </div>
         }
         @if (!photos().length) {

@@ -56,14 +56,12 @@ interface Constraint { type: SliceType; key: string; label: string; }
       <p-toast></p-toast>
 
       <header class="surf-page-head ed-head">
-        <button pButton type="button" icon="pi pi-arrow-left" label="Volver" class="p-button-text p-button-sm"
-                (click)="back()"></button>
+        <button pButton type="button" class="p-button-text p-button-sm" (click)="back()"><span class="p-button-icon p-button-icon-left pi pi-arrow-left" aria-hidden="true"></span><span class="p-button-label">Volver</span></button>
         <div class="surf-page-head-text">
           <div style="display:inline-flex;align-items:center;gap:.4rem"><h1>{{ title() }}</h1><app-context-help topic="egresos" /></div>
           <p class="surf-page-sub">{{ subtitle() }}</p>
         </div>
-        <button pButton type="button" label="Exportar CSV" icon="pi pi-download"
-                class="p-button-sm p-button-outlined" (click)="exportCsv()" [disabled]="!report()"></button>
+        <button pButton type="button" class="p-button-sm p-button-outlined" (click)="exportCsv()" [disabled]="!report()"><span class="p-button-icon p-button-icon-left pi pi-download" aria-hidden="true"></span><span class="p-button-label">Exportar CSV</span></button>
       </header>
 
       <!-- Breadcrumb de restricciones acumuladas -->

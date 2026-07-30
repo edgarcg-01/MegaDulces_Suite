@@ -31,7 +31,7 @@ type Tab = 'resumen' | 'focos' | 'cortes' | 'movimientos' | 'arqueo' | 'acciones
           <p class="surf-page-sub">Cuadre de caja e inventario contra los movimientos. Ve todo: la data cruda y los descuadres que el motor detecta.</p>
         </div>
         <div class="cd-head-actions">
-          <button pButton type="button" label="Escanear ahora" icon="pi pi-bolt" class="p-button-sm p-button-outlined" [loading]="scanning()" (click)="scan()"></button>
+          <button pButton type="button" class="p-button-sm p-button-outlined" [loading]="scanning()" (click)="scan()"><span class="p-button-icon p-button-icon-left pi pi-bolt" aria-hidden="true"></span><span class="p-button-label">Escanear ahora</span></button>
         </div>
       </header>
     
@@ -115,7 +115,7 @@ type Tab = 'resumen' | 'focos' | 'cortes' | 'movimientos' | 'arqueo' | 'acciones
                 <td class="ta-r" [class.bad]="f.pct_exacto >= 80">{{ f.pct_exacto }}%</td>
                 <td class="ta-r" [class.bad]="f.pct_handoff >= 70">{{ f.pct_handoff }}%</td>
                 <td class="ta-r" [class.bad]="f.turnos_largos >= 5">{{ f.turnos_largos }}</td>
-                <td><span class="cd-accion">{{ f.accion }}</span> <button pButton type="button" icon="pi pi-plus" label="Acción" class="p-button-text p-button-sm" (click)="crearAccionDesdeFoco(f)"></button></td>
+                <td><span class="cd-accion">{{ f.accion }}</span> <button pButton type="button" class="p-button-text p-button-sm" (click)="crearAccionDesdeFoco(f)"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Acción</span></button></td>
               </tr>
             </ng-template>
             <ng-template #emptymessage><tr><td colspan="8" class="cd-empty">{{ loading() ? 'Cargando…' : 'Sin focos (sin faltante registrado).' }}</td></tr></ng-template>
@@ -131,7 +131,7 @@ type Tab = 'resumen' | 'focos' | 'cortes' | 'movimientos' | 'arqueo' | 'acciones
           <label class="cd-lbl">Desde <input class="cd-input cd-input-date" type="date" [(ngModel)]="fFrom" (change)="loadCortes()"></label>
           <label class="cd-lbl">Hasta <input class="cd-input cd-input-date" type="date" [(ngModel)]="fTo" (change)="loadCortes()"></label>
           <label class="cd-check"><input type="checkbox" [(ngModel)]="fSoloDesc" (change)="loadCortes()"> Solo descuadres</label>
-          <button pButton type="button" icon="pi pi-search" label="Filtrar" class="p-button-sm p-button-text" (click)="loadCortes()"></button>
+          <button pButton type="button" class="p-button-sm p-button-text" (click)="loadCortes()"><span class="p-button-icon p-button-icon-left pi pi-search" aria-hidden="true"></span><span class="p-button-label">Filtrar</span></button>
           <span class="cd-count muted">{{ cortes().length }} cortes</span>
         </div>
         <div class="card-premium card-flat">
@@ -211,7 +211,7 @@ type Tab = 'resumen' | 'focos' | 'cortes' | 'movimientos' | 'arqueo' | 'acciones
           <input class="cd-input cd-input-sm" type="text" placeholder="Suc" [(ngModel)]="fSucMov" (keyup.enter)="loadMovs()">
           <label class="cd-lbl">Desde <input class="cd-input cd-input-date" type="date" [(ngModel)]="fMovFrom" (change)="loadMovs()"></label>
           <label class="cd-lbl">Hasta <input class="cd-input cd-input-date" type="date" [(ngModel)]="fMovTo" (change)="loadMovs()"></label>
-          <button pButton type="button" icon="pi pi-search" label="Filtrar" class="p-button-sm p-button-text" (click)="loadMovs()"></button>
+          <button pButton type="button" class="p-button-sm p-button-text" (click)="loadMovs()"><span class="p-button-icon p-button-icon-left pi pi-search" aria-hidden="true"></span><span class="p-button-label">Filtrar</span></button>
           <span class="cd-count muted">{{ movs().length }} movs</span>
         </div>
         <div class="card-premium card-flat">
@@ -394,8 +394,8 @@ type Tab = 'resumen' | 'focos' | 'cortes' | 'movimientos' | 'arqueo' | 'acciones
                 <td>
                   <div class="cd-acts">
                     @if (d.status === 'nuevo' || d.status === 'en_revision') {
-                      <button pButton type="button" icon="pi pi-check" label="Confirmar" class="p-button-sm p-button-success p-button-text" (click)="verdict(d, 'util')" [title]="'Causa: ' + (d.causa_probable || 'otro')"></button>
-                      <button pButton type="button" icon="pi pi-times" class="p-button-sm p-button-danger p-button-text" (click)="verdict(d, 'falso')" title="Falso positivo"></button>
+                      <button pButton type="button" class="p-button-sm p-button-success p-button-text" (click)="verdict(d, 'util')" [title]="'Causa: ' + (d.causa_probable || 'otro')"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Confirmar</span></button>
+                      <button pButton type="button" class="p-button-sm p-button-danger p-button-text" (click)="verdict(d, 'falso')" title="Falso positivo"><span class="p-button-icon p-button-icon-left pi pi-times" aria-hidden="true"></span></button>
                     } @else {
                       <span class="cd-status" [ngClass]="'st-' + d.status">{{ statusLabel(d.status) }}</span>
                       @if (d.causa_confirmada) { <span class="muted cd-causa">· {{ causaLabel(d.causa_confirmada) }}</span> }

@@ -62,7 +62,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
           <h1>Personal</h1>
           <p class="surf-page-sub">Choferes, ayudantes y cargadores. Un colaborador puede tener varios roles.</p>
         </div>
-        <button pButton icon="pi pi-plus" label="Nuevo colaborador" (click)="openCreate()"></button>
+        <button pButton (click)="openCreate()"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Nuevo colaborador</span></button>
       </header>
     
       <!-- KPI cards (J14/J15: jerarquía + color + count-up + spotlight) -->
@@ -120,8 +120,8 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
                   <td>{{ d.phone || '—' }}</td>
                   <td>{{ d.nss || '—' }}</td>
                   <td class="actions">
-                    <button pButton icon="pi pi-pencil" size="small" severity="secondary" [text]="true" (click)="openEdit(d)"></button>
-                    <button pButton icon="pi pi-trash" size="small" severity="secondary" [text]="true" (click)="confirmDelete(d)"></button>
+                    <button pButton size="small" severity="secondary" [text]="true" (click)="openEdit(d)"><span class="p-button-icon p-button-icon-left pi pi-pencil" aria-hidden="true"></span></button>
+                    <button pButton size="small" severity="secondary" [text]="true" (click)="confirmDelete(d)"><span class="p-button-icon p-button-icon-left pi pi-trash" aria-hidden="true"></span></button>
                   </td>
                 </tr>
               </ng-template>
@@ -209,7 +209,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
         </form>
     
         <ng-template #footer>
-          <button pButton label="Cancelar" severity="secondary" [text]="true" (click)="dialogVisible = false" [disabled]="saving()"></button>
+          <button pButton severity="secondary" [text]="true" (click)="dialogVisible = false" [disabled]="saving()"><span class="p-button-label">Cancelar</span></button>
           <p-button pButton [label]="editing() ? 'Guardar cambios' : 'Crear'" icon="pi pi-check" (click)="save()" [loading]="saving()" [disabled]="form.invalid"></p-button>
         </ng-template>
       </p-dialog>

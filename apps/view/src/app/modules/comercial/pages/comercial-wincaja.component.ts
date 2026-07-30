@@ -28,13 +28,12 @@ import { ComercialService, WincajaBranchKpi } from '../comercial.service';
             no existen en Kepler — antes invisibles en la plataforma. Montos = mejor esfuerzo (bronze).
           </p>
         </div>
-        <button pButton type="button" icon="pi pi-refresh" [text]="true"
-                aria-label="Recargar" (click)="load()"></button>
+        <button pButton type="button" [text]="true" aria-label="Recargar" (click)="load()"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span></button>
       </header>
 
       @if (error()) {
         <div class="wcj-banner" role="alert">
-          No se pudo cargar la data de Wincaja. <button pButton type="button" label="Reintentar" [text]="true" (click)="load()"></button>
+          No se pudo cargar la data de Wincaja. <button pButton type="button" [text]="true" (click)="load()"><span class="p-button-label">Reintentar</span></button>
         </div>
       }
 

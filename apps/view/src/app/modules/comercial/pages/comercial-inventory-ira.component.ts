@@ -40,7 +40,7 @@ import { INV_COUNT_TABS } from '../inventory-tabs';
           <label>Tolerancia %</label>
           <p-inputnumber [(ngModel)]="tolerancePct" [min]="0" [max]="100" [maxFractionDigits]="2" (onBlur)="load()"></p-inputnumber>
         </span>
-        <button pButton label="Actualizar" icon="pi pi-refresh" [text]="true" (click)="load()"></button>
+        <button pButton [text]="true" (click)="load()"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span><span class="p-button-label">Actualizar</span></button>
       </div>
 
       @if (data(); as d) {

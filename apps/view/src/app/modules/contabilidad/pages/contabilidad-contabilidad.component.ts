@@ -59,14 +59,14 @@ import { SAT_COD_AGRUPADOR } from '../../../shared/constants/sat-cod-agrupador';
             <i class="pi pi-book"></i>
             <div><div class="cb-card-title">Catálogo de cuentas</div><div class="cb-card-desc">Estructura de cuentas con nivel, naturaleza y código agrupador SAT (1.3).</div></div>
           </div>
-          <button pButton type="button" label="Descargar XML" icon="pi pi-download" class="p-button-sm p-button-outlined" [loading]="dl()==='catalogo'" (click)="descargar('catalogo')"></button>
+          <button pButton type="button" class="p-button-sm p-button-outlined" [loading]="dl()==='catalogo'" (click)="descargar('catalogo')"><span class="p-button-icon p-button-icon-left pi pi-download" aria-hidden="true"></span><span class="p-button-label">Descargar XML</span></button>
         </div>
         <div class="cb-card">
           <div class="cb-card-body">
             <i class="pi pi-list"></i>
             <div><div class="cb-card-title">Balanza de comprobación</div><div class="cb-card-desc">SaldoIni / Debe / Haber / SaldoFin por cuenta (BCE 1.3).</div></div>
           </div>
-          <button pButton type="button" label="Descargar XML" icon="pi pi-download" class="p-button-sm p-button-outlined" [loading]="dl()==='balanza'" (click)="descargar('balanza')"></button>
+          <button pButton type="button" class="p-button-sm p-button-outlined" [loading]="dl()==='balanza'" (click)="descargar('balanza')"><span class="p-button-icon p-button-icon-left pi pi-download" aria-hidden="true"></span><span class="p-button-label">Descargar XML</span></button>
         </div>
       </div>
     </div>
@@ -85,11 +85,9 @@ import { SAT_COD_AGRUPADOR } from '../../../shared/constants/sat-cod-agrupador';
             {{ coverage().mapped }}/{{ coverage().total }} mapeadas
           </span>
           @if (canManage()) {
-            <button pButton type="button" label="Auto-sugerir faltantes" icon="pi pi-bolt"
-              class="p-button-sm p-button-outlined" [loading]="suggesting()" [disabled]="coverage().unmapped === 0"
-            (click)="autoSuggest()"></button>
+            <button pButton type="button" class="p-button-sm p-button-outlined" [loading]="suggesting()" [disabled]="coverage().unmapped === 0" (click)="autoSuggest()"><span class="p-button-icon p-button-icon-left pi pi-bolt" aria-hidden="true"></span><span class="p-button-label">Auto-sugerir faltantes</span></button>
           }
-          <button pButton type="button" icon="pi pi-refresh" class="p-button-sm p-button-text" [loading]="loadingMap()" (click)="loadMap()" pTooltip="Refrescar"></button>
+          <button pButton type="button" class="p-button-sm p-button-text" [loading]="loadingMap()" (click)="loadMap()" pTooltip="Refrescar"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span></button>
         </div>
       </div>
     
@@ -143,7 +141,7 @@ import { SAT_COD_AGRUPADOR } from '../../../shared/constants/sat-cod-agrupador';
         </ng-template>
         <ng-template #emptymessage>
           <tr><td colspan="6" class="comm-muted" style="padding:1rem;text-align:center;">
-            @if (onlyUnmapped() && mapRows().length) { <i class="pi pi-check-circle"></i> Todas las cuentas están mapeadas. <button pButton type="button" label="Ver todas" class="p-button-sm p-button-text" (click)="onlyUnmapped.set(false)"></button> }
+            @if (onlyUnmapped() && mapRows().length) { <i class="pi pi-check-circle"></i> Todas las cuentas están mapeadas. <button pButton type="button" class="p-button-sm p-button-text" (click)="onlyUnmapped.set(false)"><span class="p-button-label">Ver todas</span></button> }
             @else { Sin balanza cargada (analytics.ledger_monthly vacío para este tenant). }
           </td></tr>
         </ng-template>

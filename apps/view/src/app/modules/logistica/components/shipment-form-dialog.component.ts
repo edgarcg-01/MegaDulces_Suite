@@ -314,8 +314,8 @@ interface RouteOption {
       </form>
     
       <ng-template #footer>
-        <button pButton label="Cancelar" severity="secondary" [text]="true" (click)="cancel()" [disabled]="saving()"></button>
-        <button pButton label="Crear embarque" icon="pi pi-check" [loading]="saving()" [disabled]="form.invalid" (click)="submit()"></button>
+        <button pButton severity="secondary" [text]="true" (click)="cancel()" [disabled]="saving()"><span class="p-button-label">Cancelar</span></button>
+        <button pButton [loading]="saving()" [disabled]="form.invalid" (click)="submit()"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Crear embarque</span></button>
       </ng-template>
     </p-dialog>
     `,

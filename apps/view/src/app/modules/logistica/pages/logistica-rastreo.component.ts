@@ -48,13 +48,9 @@ const STATUS_META: Record<TrackerStatus, { label: string; sev: Sev; color: strin
           </p>
         </div>
         <div class="rk-actions">
-          <button pButton icon="pi pi-link" label="Vincular por placa" severity="secondary" size="small" [text]="true"
-            [loading]="bootstrapping()" (click)="bootstrap()" aria-label="Crear y vincular vehículos por placa"
-          pTooltip="Crea vehículos desde los nombres del GPS y los vincula por placa"></button>
-          <button pButton icon="pi pi-sync" label="Sincronizar" severity="secondary" size="small"
-          [loading]="syncing()" (click)="syncNow()" aria-label="Forzar sincronización con el proveedor"></button>
-          <button pButton icon="pi pi-refresh" label="Actualizar" [text]="true" size="small"
-          [loading]="loading()" (click)="refresh()" aria-label="Refrescar posiciones"></button>
+          <button pButton severity="secondary" size="small" [text]="true" [loading]="bootstrapping()" (click)="bootstrap()" aria-label="Crear y vincular vehículos por placa" pTooltip="Crea vehículos desde los nombres del GPS y los vincula por placa"><span class="p-button-icon p-button-icon-left pi pi-link" aria-hidden="true"></span><span class="p-button-label">Vincular por placa</span></button>
+          <button pButton severity="secondary" size="small" [loading]="syncing()" (click)="syncNow()" aria-label="Forzar sincronización con el proveedor"><span class="p-button-icon p-button-icon-left pi pi-sync" aria-hidden="true"></span><span class="p-button-label">Sincronizar</span></button>
+          <button pButton [text]="true" size="small" [loading]="loading()" (click)="refresh()" aria-label="Refrescar posiciones"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span><span class="p-button-label">Actualizar</span></button>
         </div>
       </header>
     
@@ -69,9 +65,7 @@ const STATUS_META: Record<TrackerStatus, { label: string; sev: Sev; color: strin
                   <span class="rk-alert-detail">{{ a.external_name || a.route_code || '—' }} · {{ a.message }}</span>
                 </button>
                 @if (a.status !== 'ack') {
-                  <button pButton icon="pi pi-check" [text]="true" size="small" severity="secondary"
-                    (click)="ackAlert(a.id)"
-                  pTooltip="Reconocer" aria-label="Reconocer alerta"></button>
+                  <button pButton [text]="true" size="small" severity="secondary" (click)="ackAlert(a.id)" pTooltip="Reconocer" aria-label="Reconocer alerta"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span></button>
                 }
               </div>
             }
@@ -180,9 +174,7 @@ const STATUS_META: Record<TrackerStatus, { label: string; sev: Sev; color: strin
                     [label]="showTrail() ? 'Ocultar recorrido' : 'Ver recorrido de hoy'"
                   (click)="toggleTrail(s)"></p-button>
                   @if (fleet === 'route') {
-                    <a pButton size="small" severity="secondary" [text]="true"
-                      icon="pi pi-check-circle" label="Cumplimiento de ruta"
-                    routerLink="/dashboard/route-compliance"></a>
+                    <a pButton size="small" severity="secondary" [text]="true" routerLink="/dashboard/route-compliance"><span class="p-button-icon p-button-icon-left pi pi-check-circle" aria-hidden="true"></span><span class="p-button-label">Cumplimiento de ruta</span></a>
                   }
                 </div>
               </article>
@@ -208,7 +200,7 @@ const STATUS_META: Record<TrackerStatus, { label: string; sev: Sev; color: strin
                 <div class="rk-empty-icon"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i></div>
                 <h3>No se pudo cargar el rastreo</h3>
                 <p>Revisá tu conexión y reintentá.</p>
-                <button pButton size="small" label="Reintentar" (click)="refresh()"></button>
+                <button pButton size="small" (click)="refresh()"><span class="p-button-label">Reintentar</span></button>
               </div>
             }
           </article>

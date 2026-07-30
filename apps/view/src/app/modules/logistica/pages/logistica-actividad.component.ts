@@ -43,11 +43,8 @@ import {
         <div class="rk-actions">
           <input type="date" class="rk-date" [ngModel]="date()" (ngModelChange)="setDate($event)"
             [max]="today" aria-label="Fecha de actividad" />
-            <button pButton icon="pi pi-cog" label="Reconstruir día" severity="secondary" size="small" [text]="true"
-              [loading]="rebuilding()" (click)="rebuild()"
-            pTooltip="Recalcula paradas y resumen desde el rastro GPS (por si el proceso nocturno aún no corrió)"></button>
-            <button pButton icon="pi pi-refresh" label="Actualizar" [text]="true" size="small"
-            [loading]="loading()" (click)="refresh()" aria-label="Refrescar"></button>
+            <button pButton severity="secondary" size="small" [text]="true" [loading]="rebuilding()" (click)="rebuild()" pTooltip="Recalcula paradas y resumen desde el rastro GPS (por si el proceso nocturno aún no corrió)"><span class="p-button-icon p-button-icon-left pi pi-cog" aria-hidden="true"></span><span class="p-button-label">Reconstruir día</span></button>
+            <button pButton [text]="true" size="small" [loading]="loading()" (click)="refresh()" aria-label="Refrescar"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span><span class="p-button-label">Actualizar</span></button>
           </div>
         </header>
     
@@ -204,14 +201,14 @@ import {
                 <div class="rk-empty-icon"><i class="pi pi-chart-bar" aria-hidden="true"></i></div>
                 <h3>Sin actividad reconstruida</h3>
                 <p>No hay viajes para <b>{{ date() }}</b>. Si ya hubo rastreo ese día, probá <b>Reconstruir día</b>.</p>
-                <button pButton size="small" label="Reconstruir día" [loading]="rebuilding()" (click)="rebuild()"></button>
+                <button pButton size="small" [loading]="rebuilding()" (click)="rebuild()"><span class="p-button-label">Reconstruir día</span></button>
               </div>
             } @else {
               <div class="rk-empty">
                 <div class="rk-empty-icon"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i></div>
                 <h3>No se pudo cargar la actividad</h3>
                 <p>Revisá tu conexión y reintentá.</p>
-                <button pButton size="small" label="Reintentar" (click)="refresh()"></button>
+                <button pButton size="small" (click)="refresh()"><span class="p-button-label">Reintentar</span></button>
               </div>
             }
           </article>

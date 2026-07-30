@@ -128,8 +128,8 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
               </div>
             }
             <div class="step-actions">
-              <button pButton severity="secondary" [text]="true" label="Saltar paso" (click)="skipToDepart()" [disabled]="busy()"></button>
-              <button pButton label="Completar y salir" icon="pi pi-check" (click)="completeSalidaChecklistAndDepart()" [loading]="busy()"></button>
+              <button pButton severity="secondary" [text]="true" (click)="skipToDepart()" [disabled]="busy()"><span class="p-button-label">Saltar paso</span></button>
+              <button pButton (click)="completeSalidaChecklistAndDepart()" [loading]="busy()"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Completar y salir</span></button>
             </div>
           }
     
@@ -147,7 +147,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
               }
             </div>
             <div class="step-actions">
-              <button pButton label="Llegué al destino" icon="pi pi-map-marker" (click)="markDelivered()" [loading]="busy()"></button>
+              <button pButton (click)="markDelivered()" [loading]="busy()"><span class="p-button-icon p-button-icon-left pi pi-map-marker" aria-hidden="true"></span><span class="p-button-label">Llegué al destino</span></button>
             </div>
           }
     
@@ -156,9 +156,9 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
             <h4><i class="pi pi-camera"></i> Fotos de entrega</h4>
             <p class="muted">Capturá fotos de la entrega (firma, evidencia, INE receptor). Mínimo 1.</p>
             <div class="photo-actions">
-              <button pButton label="Tomar foto (cámara)" icon="pi pi-camera" severity="secondary" (click)="takePhoto()" [loading]="capturingPhoto()"></button>
+              <button pButton severity="secondary" (click)="takePhoto()" [loading]="capturingPhoto()"><span class="p-button-icon p-button-icon-left pi pi-camera" aria-hidden="true"></span><span class="p-button-label">Tomar foto (cámara)</span></button>
               <input type="file" accept="image/*" (change)="onFileSelected($event)" #fileInput hidden />
-              <button pButton label="Elegir archivo" icon="pi pi-upload" severity="secondary" [text]="true" (click)="fileInput.click()"></button>
+              <button pButton severity="secondary" [text]="true" (click)="fileInput.click()"><span class="p-button-icon p-button-icon-left pi pi-upload" aria-hidden="true"></span><span class="p-button-label">Elegir archivo</span></button>
             </div>
             @if (uploadedPhotos().length > 0) {
               <div class="photos-grid">
@@ -174,8 +174,8 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
               <p class="muted small empty-photos">Sin fotos cargadas todavía.</p>
             }
             <div class="step-actions">
-              <button pButton severity="secondary" [text]="true" label="Saltar" (click)="skipToLlegadaChecklist()" [disabled]="busy()"></button>
-              <button pButton label="Continuar a checklist llegada" icon="pi pi-arrow-right" (click)="continueToLlegada()" [loading]="busy()"></button>
+              <button pButton severity="secondary" [text]="true" (click)="skipToLlegadaChecklist()" [disabled]="busy()"><span class="p-button-label">Saltar</span></button>
+              <button pButton (click)="continueToLlegada()" [loading]="busy()"><span class="p-button-icon p-button-icon-left pi pi-arrow-right" aria-hidden="true"></span><span class="p-button-label">Continuar a checklist llegada</span></button>
             </div>
           }
     
@@ -209,8 +209,8 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
                 </div>
               }
               <div class="step-actions">
-                <button pButton severity="secondary" [text]="true" label="Cerrar sin checklist" (click)="closeWithoutChecklist()" [disabled]="busy()"></button>
-                <button pButton label="Completar y cerrar entrega" icon="pi pi-check-circle" severity="success" (click)="completeLlegadaAndClose()" [loading]="busy()"></button>
+                <button pButton severity="secondary" [text]="true" (click)="closeWithoutChecklist()" [disabled]="busy()"><span class="p-button-label">Cerrar sin checklist</span></button>
+                <button pButton severity="success" (click)="completeLlegadaAndClose()" [loading]="busy()"><span class="p-button-icon p-button-icon-left pi pi-check-circle" aria-hidden="true"></span><span class="p-button-label">Completar y cerrar entrega</span></button>
               </div>
             }
           </div>
