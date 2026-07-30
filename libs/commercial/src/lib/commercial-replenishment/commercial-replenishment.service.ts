@@ -802,6 +802,52 @@ export class CommercialReplenishmentService {
     });
   }
 
+  /**
+   * RA-PRO.32 — Detalle (drill-down) de un SKU de la Vista Excel: economía del producto +
+   * desglose POR ALMACÉN de los 4 puntos de compra (Morelia se abre en MD-30 y MD-32).
+   */
+  async workbookDetail(productId: string, coverageDays?: number) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    if (!UUID_RX.test(productId)) throw new BadRequestException('product_id inválido');
+    const cov = Math.min(120, Math.max(1, Number(coverageDays) || 30));
+    return this.tk.run(async (trx) => {
+      const suf = 'COALESCE(rp.suf,1)';
+      const bf = 'COALESCE(rp.bf,1)';
+      const product = (await trx.raw(`
+        SELECT pr.sku, pr.nombre, sup.name AS supplier_name,
+               max(rp.bf) AS uxc, round(max(rp.caja_cost)::numeric, 2) AS caja_cost,
+               round(max(rp.price_ratio)::numeric, 1) AS price_ratio,
+               COALESCE(max(rp.unit_source), 'catalog') AS unit_source,
+               round(max(rp.buy_rate)::numeric, 3) AS buy_rate,
+               max(rp.last_purchase) AS last_purchase, max(rp.order_days) AS order_days
+          FROM catalog.products pr
+          JOIN analytics.replenishment_plan rp ON rp.tenant_id = pr.tenant_id AND rp.product_id = pr.id
+          LEFT JOIN catalog.suppliers sup ON sup.tenant_id = pr.tenant_id AND sup.id = pr.supplier_id
+         WHERE pr.tenant_id = :t AND pr.id = :pid
+         GROUP BY pr.sku, pr.nombre, sup.name`, { t: tenantId, pid: productId })).rows[0] || null;
+
+      const rows = (await trx.raw(`
+        SELECT w.code AS warehouse_code, w.name AS warehouse_name,
+               CASE WHEN w.code = 'MD-10' THEN 'PH'
+                    WHEN w.code IN ('MD-30','MD-32') THEN 'Morelia'
+                    WHEN w.code = 'MD-50' THEN 'Zamora'
+                    WHEN w.code = 'MD-CEDIS' THEN 'CEDIS' END AS territory,
+               round((rp.daily_pieces * 30 / (${suf} * ${bf}))::numeric, 1) AS venta_cajas,
+               round((rp.stock_pz / ${bf})::numeric, 1) AS existencia_cajas,
+               round(rp.transit_cajas::numeric, 1) AS transito_cajas,
+               round(GREATEST(0, rp.daily_pieces * :cov / (${suf} * ${bf}) - rp.stock_pz / ${bf} - rp.transit_cajas)::numeric, 1) AS pedido_cajas,
+               round((rp.stock_pz * ${suf} / NULLIF(rp.daily_pieces, 0))::numeric, 0) AS cover_days
+          FROM analytics.replenishment_plan rp
+          JOIN commercial.warehouses w ON w.tenant_id = rp.tenant_id AND w.id = rp.warehouse_id
+         WHERE rp.tenant_id = :t AND rp.product_id = :pid
+           AND w.code IN ('MD-10','MD-30','MD-32','MD-50','MD-CEDIS')
+         ORDER BY array_position(ARRAY['MD-10','MD-30','MD-32','MD-50','MD-CEDIS']::text[], w.code)`,
+        { t: tenantId, pid: productId, cov })).rows;
+
+      return { product, coverage_days: cov, rows };
+    });
+  }
+
   // ── RA-PRO.20 — Traspaso preciso (topología-aware) ────────────────────
   /**
    * Sugiere TRASPASOS CEDIS→sucursal para cubrir el déficit de cada sucursal con el stock

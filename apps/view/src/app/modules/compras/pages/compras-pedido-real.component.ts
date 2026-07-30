@@ -19,8 +19,10 @@ import {
   ComprasService, PurchaseSuggestionRow, PurchaseSuggestionResponse, ReplenishmentFilters,
   DeadStockRow, CreateRequisitionDto, CreateRequisitionLine, PedidoExportLine, saveXlsxResponse,
   TransferSuggestionRow, TransferSuggestionResponse, OverstockRow, OverstockResponse, WorkbookRow, WorkbookResponse,
+  WorkbookDetailResponse,
 } from '../compras.service';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
+import { SidePeekComponent } from '../../../shared/components/side-peek/side-peek.component';
 
 type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
 type Mode = 'consolidado' | 'excel' | 'muerto';
@@ -54,6 +56,7 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
   imports: [
     CommonModule, FormsModule, RouterLink, ButtonModule, TableModule, ToastModule, SelectModule,
     InputNumberModule, InputTextModule, IconFieldModule, InputIconModule, TagModule, DialogModule, MetricStripComponent,
+    SidePeekComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
@@ -310,8 +313,8 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
                 </tr>
               </ng-template>
               <ng-template #body let-r>
-                <tr>
-                  <td><div class="pr-prod">{{ r.nombre }}</div><div class="pr-prod-meta"><span class="pr-sku">{{ r.sku }}</span> <span class="pr-supp">{{ r.supplier_name || '—' }}</span></div></td>
+                <tr class="pr-wb-row" (click)="openDetail(r)" tabindex="0" (keyup.enter)="openDetail(r)" [attr.aria-label]="'Ver detalle de ' + r.sku">
+                  <td><div class="pr-prod">{{ r.nombre }} <i class="pi pi-angle-right pr-wb-go"></i></div><div class="pr-prod-meta"><span class="pr-sku">{{ r.sku }}</span> <span class="pr-supp">{{ r.supplier_name || '—' }}</span></div></td>
                   <td class="pr-r pr-muted">{{ r.uxc | number:'1.0-0' }}</td>
                   <td class="pr-r pr-muted">{{ money(r.caja_cost) }}</td>
                   <td class="pr-r pr-muted">{{ r.ph_vta | number:'1.0-1' }}</td><td class="pr-r pr-muted">{{ r.ph_exis | number:'1.0-1' }}</td><td class="pr-r pr-ped" [class.pr-ped-on]="r.ph_ped>0">{{ r.ph_ped | number:'1.0-1' }}</td>
@@ -333,8 +336,45 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
               </ng-template>
             </p-table>
           </div>
-          <p class="pr-foot">Réplica del workbook del comprador. <strong>Vta</strong> = venta 30 días en cajas · <strong>Exist.</strong> = existencia en cajas · <strong>Pedido</strong> = venta diaria × cobertura − existencia − tránsito. Puntos de compra: PH = <span class="pr-mono">MD-10</span> · Morelia = <span class="pr-mono">MD-30+MD-32</span> · Zamora = <span class="pr-mono">MD-50</span> · CEDIS = <span class="pr-mono">MD-CEDIS</span>.</p>
+          <p class="pr-foot">Réplica del workbook del comprador. <strong>Vta</strong> = venta 30 días en cajas · <strong>Exist.</strong> = existencia en cajas · <strong>Pedido</strong> = venta diaria × cobertura − existencia − tránsito. Puntos de compra: PH = <span class="pr-mono">MD-10</span> · Morelia = <span class="pr-mono">MD-30+MD-32</span> · Zamora = <span class="pr-mono">MD-50</span> · CEDIS = <span class="pr-mono">MD-CEDIS</span>. <em>Clic en una fila para ver el desglose por almacén.</em></p>
         }
+
+        <app-side-peek [open]="peekOpen()" (openChange)="peekOpen.set($event)" [title]="peekTitle()" [subtitle]="peekSub()">
+          @if (peekLoading()) {
+            <div class="pr-peek-loading"><i class="pi pi-spin pi-spinner"></i> Cargando desglose…</div>
+          } @else if (peekDetail(); as d) {
+            @if (d.product; as p) {
+              <div class="pr-peek-econ">
+                <div class="pr-peek-stat"><span>UXC (pz/caja)</span><strong>{{ p.uxc | number:'1.0-0' }}</strong></div>
+                <div class="pr-peek-stat"><span>Costo / caja</span><strong>{{ money(p.caja_cost) }}</strong></div>
+                <div class="pr-peek-stat"><span>Ritmo de compra</span><strong>{{ (p.buy_rate || 0) | number:'1.0-2' }} cj/d</strong></div>
+                <div class="pr-peek-stat"><span>Última compra</span><strong>{{ p.last_purchase ? (p.last_purchase | date:'dd/MM/yy') : '—' }}</strong></div>
+                @if (p.price_ratio) { <div class="pr-peek-stat"><span>Ratio mayoreo/retail</span><strong>{{ p.price_ratio | number:'1.0-1' }}×</strong></div> }
+                <div class="pr-peek-stat"><span>Unidad</span><strong>{{ p.unit_source }}</strong></div>
+              </div>
+            }
+            <h3 class="pr-peek-h">Desglose por almacén</h3>
+            <table class="pr-peek-tbl">
+              <thead><tr><th>Almacén</th><th class="pr-r">Vta</th><th class="pr-r">Exist.</th><th class="pr-r">Tráns.</th><th class="pr-r">Pedido</th><th class="pr-r">Cob.</th></tr></thead>
+              <tbody>
+                @for (w of d.rows; track w.warehouse_code) {
+                  <tr>
+                    <td><span class="pr-mono">{{ w.warehouse_code }}</span> <span class="pr-peek-terr">{{ w.territory }}</span></td>
+                    <td class="pr-r pr-muted">{{ w.venta_cajas | number:'1.0-1' }}</td>
+                    <td class="pr-r pr-muted">{{ w.existencia_cajas | number:'1.0-1' }}</td>
+                    <td class="pr-r pr-muted">{{ w.transito_cajas | number:'1.0-1' }}</td>
+                    <td class="pr-r pr-ped" [class.pr-ped-on]="w.pedido_cajas > 0">{{ w.pedido_cajas | number:'1.0-1' }}</td>
+                    <td class="pr-r pr-muted">{{ w.cover_days != null ? (w.cover_days | number:'1.0-0') + ' d' : '—' }}</td>
+                  </tr>
+                }
+                @if (!d.rows.length) { <tr><td colspan="6" class="pr-muted">Sin datos en los puntos de compra.</td></tr> }
+              </tbody>
+            </table>
+            <p class="pr-peek-note">Pedido = venta diaria × {{ d.coverage_days }}d de cobertura − existencia − tránsito. Morelia agrega <span class="pr-mono">MD-30</span> + <span class="pr-mono">MD-32</span>.</p>
+          } @else {
+            <div class="pr-peek-loading">No se pudo cargar el detalle.</div>
+          }
+        </app-side-peek>
       } @else {
         <!-- STOCK MUERTO: productos activos SIN rotación (capital inmovilizado) -->
         <div class="pr-filters">
@@ -449,6 +489,20 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
     :host ::ng-deep .pr-wb th.pr-ped-h { color: var(--action); }
     .pr-ped { font-variant-numeric: tabular-nums; }
     .pr-ped-on { color: var(--action); font-weight: 600; }
+    :host ::ng-deep .pr-wb .pr-wb-row { cursor: pointer; }
+    :host ::ng-deep .pr-wb .pr-wb-row:hover td { background: var(--overlay-hover, var(--hover-bg)); }
+    .pr-wb-go { font-size: .7rem; color: var(--text-faint); margin-left: .3rem; }
+    .pr-peek-loading { color: var(--text-muted); padding: 1rem 0; }
+    .pr-peek-econ { display: grid; grid-template-columns: repeat(2, 1fr); gap: .6rem 1rem; margin-bottom: 1.25rem; }
+    .pr-peek-stat { display: flex; flex-direction: column; gap: .1rem; }
+    .pr-peek-stat span { font-size: .66rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: .04em; }
+    .pr-peek-stat strong { font-size: .9rem; color: var(--text-main); font-variant-numeric: tabular-nums; }
+    .pr-peek-h { font-size: .8rem; font-weight: 700; margin: 0 0 .5rem; color: var(--text-main); }
+    .pr-peek-tbl { width: 100%; border-collapse: collapse; font-size: .8rem; }
+    .pr-peek-tbl th { text-align: left; font-size: .64rem; text-transform: uppercase; letter-spacing: .04em; color: var(--text-faint); font-weight: 600; padding: .3rem .4rem; border-bottom: 1px solid var(--border-color); }
+    .pr-peek-tbl td { padding: .35rem .4rem; border-bottom: 1px solid var(--border-color); }
+    .pr-peek-terr { font-size: .7rem; color: var(--text-muted); }
+    .pr-peek-note { font-size: .7rem; color: var(--text-muted); margin-top: .75rem; line-height: 1.4; }
   `],
 })
 export class ComprasPedidoRealComponent implements OnInit {
@@ -476,6 +530,19 @@ export class ComprasPedidoRealComponent implements OnInit {
   wbTotal = signal(0);
   wbScopeNeeded = signal(false);
   readonly wbTableStyle = { 'min-width': '96rem' };
+  // Drill-down (SidePeek): desglose por almacén + economía del SKU clickeado.
+  peekOpen = signal(false);
+  peekLoading = signal(false);
+  peekDetail = signal<WorkbookDetailResponse | null>(null);
+  peekRow = signal<WorkbookRow | null>(null);
+  peekTitle = computed(() => this.peekRow()?.nombre || 'Detalle del producto');
+  peekSub = computed(() => { const r = this.peekRow(); return r ? `${r.sku} · ${r.supplier_name || 'sin proveedor'}` : null; });
+  openDetail(r: WorkbookRow): void {
+    this.peekRow.set(r); this.peekDetail.set(null); this.peekLoading.set(true); this.peekOpen.set(true);
+    this.api.workbookDetail(r.product_id, this.coverage)
+      .pipe(catchError(() => of(null as WorkbookDetailResponse | null)), takeUntilDestroyed(this.destroyRef))
+      .subscribe((d) => { this.peekLoading.set(false); this.peekDetail.set(d); });
+  }
 
   cBuy = signal(true);
   cTr = signal(true);
