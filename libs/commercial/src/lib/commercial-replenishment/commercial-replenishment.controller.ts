@@ -106,6 +106,21 @@ export class CommercialReplenishmentController {
     return this.svc.overstockList({ warehouse_id, supplier_id, category_id, search, over_days: over_days ? Number(over_days) : undefined, page: page ? Number(page) : undefined, pageSize: pageSize ? Number(pageSize) : undefined });
   }
 
+  @Get('workbook')
+  @RequirePermissions(Permission.COMPRAS_VER)
+  @ApiOperation({ summary: 'RA-PRO.32 — Réplica del workbook del comprador: una fila por SKU con UXC, costo/caja, y por punto de compra (PH/Morelia/Zamora) su venta 30d/existencia/pedido en cajas + CEDIS existencia + $Pedido/Valor Venta/Valor Existencia. Pivotea el fact por código de almacén. Filtros: supplier_id, category_id, search, coverage_days(=30), scope(needed).' })
+  workbook(
+    @Query('supplier_id') supplier_id?: string,
+    @Query('category_id') category_id?: string,
+    @Query('search') search?: string,
+    @Query('coverage_days') coverage_days?: string,
+    @Query('scope') scope?: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+  ) {
+    return this.svc.workbook({ supplier_id, category_id, search, coverage_days: coverage_days ? Number(coverage_days) : undefined, scope, page: page ? Number(page) : undefined, pageSize: pageSize ? Number(pageSize) : undefined });
+  }
+
   @Get('critical-stock.xlsx')
   @RequirePermissions(Permission.COMPRAS_VER)
   @ApiOperation({ summary: 'Existencia crítica → Excel con diseño (mismos filtros que /critical-stock; exporta TODAS las filas del filtro, sin paginar).' })

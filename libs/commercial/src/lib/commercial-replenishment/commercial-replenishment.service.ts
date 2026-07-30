@@ -91,6 +91,19 @@ export interface OverstockQuery {
   export?: boolean;
 }
 
+// RA-PRO.32 — Réplica del workbook del comprador (una fila por SKU, columnas por PUNTO DE COMPRA
+// territorial: PH / Morelia / Zamora + CEDIS). Mapeo por código de almacén (independiente de la
+// topología source_warehouse_id → funciona igual en local y prod).
+export interface WorkbookQuery {
+  supplier_id?: string;
+  category_id?: string;
+  search?: string;
+  coverage_days?: number;
+  scope?: string;
+  page?: number;
+  pageSize?: number;
+}
+
 interface RequisitionLineDto {
   product_id: string;
   supplier_id?: string | null;
@@ -697,6 +710,89 @@ export class CommercialReplenishmentService {
         total_valor: Number(totalRow?.total_valor || 0),
         total_revenue: Number(totalRow?.total_revenue || 0),
         page, pageSize, coverage_days: cov, rows,
+      };
+    });
+  }
+
+  // ── RA-PRO.32 — Réplica del workbook del comprador (Excel) ────────────
+  /**
+   * Una fila por SKU con las columnas del Excel de compra: UXC (factor de caja), costo/caja,
+   * y por cada PUNTO DE COMPRA territorial (PH `MD-10` / Morelia `MD-30`+`MD-32` / Zamora `MD-50`)
+   * su Venta 30d (cajas), Existencia (cajas) y Pedido sugerido (cajas); CEDIS `MD-CEDIS` solo
+   * existencia; más $Pedido, Valor Venta y Valor Existencia. Lee del fact precomputado
+   * (analytics.replenishment_plan) y pivotea por CÓDIGO de almacén — no depende de la topología.
+   *
+   *   pedido(territorio) = max(0, venta_diaria × cobertura − existencia − tránsito)   [cajas]
+   */
+  async workbook(q: WorkbookQuery) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const cov = Math.min(120, Math.max(1, Number(q.coverage_days) || 30));
+    const page = Math.max(1, Number(q.page) || 1);
+    const pageSize = Math.min(1000, Math.max(1, Number(q.pageSize) || 100));
+    const offset = (page - 1) * pageSize;
+    return this.tk.run(async (trx) => {
+      const binds: Record<string, unknown> = { t: tenantId, cov };
+      const filters = ['pr.tenant_id = :t', 'pr.activo = true',
+        'NOT EXISTS (SELECT 1 FROM commercial.product_aliases pa WHERE pa.tenant_id = :t AND pa.alias_product_id = pr.id AND pa.deleted_at IS NULL)'];
+      if (q.supplier_id && UUID_RX.test(q.supplier_id)) { filters.push('pr.supplier_id = :sid'); binds.sid = q.supplier_id; }
+      if (q.category_id && UUID_RX.test(q.category_id)) { filters.push('pr.category_id = :cat'); binds.cat = q.category_id; }
+      if (q.search && q.search.trim()) { filters.push('(pr.sku ILIKE :s OR pr.nombre ILIKE :s)'); binds.s = `%${q.search.trim()}%`; }
+      const where = filters.join(' AND ');
+
+      // Punto de compra por código de almacén (ver reference_kepler_supply_network_topology).
+      const SUF = 'COALESCE(max(b.suf),1)';
+      const BF = 'COALESCE(max(b.bf),1)';
+      const dp = (t: string) => `COALESCE(sum(b.daily_pieces) FILTER (WHERE b.terr='${t}'),0)`;
+      const sp = (t: string) => `COALESCE(sum(b.stock_pz) FILTER (WHERE b.terr='${t}'),0)`;
+      const tc = (t: string) => `COALESCE(sum(b.transit_cajas) FILTER (WHERE b.terr='${t}'),0)`;
+      const vta = (t: string) => `round((${dp(t)} * 30 / (${SUF} * ${BF}))::numeric, 1)`;      // venta 30d en cajas
+      const exis = (t: string) => `round((${sp(t)} / ${BF})::numeric, 1)`;                       // existencia en cajas
+      const ped = (t: string) => `round(GREATEST(0, ${dp(t)} * :cov / (${SUF} * ${BF}) - ${sp(t)} / ${BF} - ${tc(t)})::numeric, 1)`;
+
+      const inner = `
+        WITH base AS (
+          SELECT rp.product_id, pr.sku, pr.nombre, pr.supplier_id,
+                 rp.suf, rp.bf, rp.caja_cost, rp.daily_pieces, rp.stock_pz, rp.transit_cajas, rp.revenue30,
+                 CASE WHEN w.code = 'MD-10' THEN 'PH'
+                      WHEN w.code IN ('MD-30','MD-32') THEN 'MOR'
+                      WHEN w.code = 'MD-50' THEN 'ZAM'
+                      WHEN w.code = 'MD-CEDIS' THEN 'CEDIS' END AS terr
+            FROM catalog.products pr
+            JOIN analytics.replenishment_plan rp ON rp.tenant_id = pr.tenant_id AND rp.product_id = pr.id
+            JOIN commercial.warehouses w ON w.tenant_id = rp.tenant_id AND w.id = rp.warehouse_id
+           WHERE ${where} AND w.code IN ('MD-10','MD-30','MD-32','MD-50','MD-CEDIS')
+        ),
+        agg AS (
+          SELECT b.product_id, b.sku, b.nombre, b.supplier_id,
+                 ${BF} AS uxc, round(COALESCE(max(b.caja_cost),0)::numeric, 2) AS caja_cost,
+                 ${vta('PH')}  AS ph_vta,  ${exis('PH')}  AS ph_exis,  ${ped('PH')}  AS ph_ped,
+                 ${vta('MOR')} AS mor_vta, ${exis('MOR')} AS mor_exis, ${ped('MOR')} AS mor_ped,
+                 ${vta('ZAM')} AS zam_vta, ${exis('ZAM')} AS zam_exis, ${ped('ZAM')} AS zam_ped,
+                 ${exis('CEDIS')} AS cedis_exis,
+                 round(COALESCE(sum(b.revenue30),0)::numeric, 2) AS valor_venta,
+                 round((COALESCE(sum(b.stock_pz),0) / ${BF} * COALESCE(max(b.caja_cost),0))::numeric, 2) AS valor_exis
+            FROM base b
+           GROUP BY b.product_id, b.sku, b.nombre, b.supplier_id
+        )
+        SELECT a.*, sup.name AS supplier_name,
+               (a.ph_ped + a.mor_ped + a.zam_ped) AS suma_pedido_cajas,
+               round(((a.ph_ped + a.mor_ped + a.zam_ped) * a.caja_cost)::numeric, 2) AS pedido_valor
+          FROM agg a
+          LEFT JOIN catalog.suppliers sup ON sup.tenant_id = :t AND sup.id = a.supplier_id
+         ${q.scope === 'needed' ? 'WHERE (a.ph_ped + a.mor_ped + a.zam_ped) > 0' : ''}`;
+
+      const rows = (await trx.raw(`${inner} ORDER BY valor_venta DESC NULLS LAST, sku LIMIT ${pageSize} OFFSET ${offset}`, binds)).rows;
+      const tot = (await trx.raw(`SELECT count(*)::int c, round(SUM(pedido_valor)::numeric,2) total_pedido, round(SUM(valor_venta)::numeric,2) total_venta, round(SUM(valor_exis)::numeric,2) total_exis FROM (${inner}) z`, binds)).rows[0];
+
+      return {
+        total: Number(tot?.c || 0),
+        page, pageSize, coverage_days: cov,
+        totals: {
+          pedido: Number(tot?.total_pedido || 0),
+          venta: Number(tot?.total_venta || 0),
+          exis: Number(tot?.total_exis || 0),
+        },
+        rows,
       };
     });
   }
