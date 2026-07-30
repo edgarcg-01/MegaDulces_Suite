@@ -131,19 +131,20 @@ export interface OverstockQuery {
   warehouse_id?: string; supplier_id?: string; category_id?: string; search?: string; over_days?: number; page?: number; pageSize?: number;
 }
 
-// RA-PRO.32 — réplica del workbook del comprador (una fila por SKU, columnas por punto de compra).
+// RA-PRO.32 — réplica del workbook del comprador (una fila por SKU, columnas por PUNTO DE COMPRA
+// dinámico: la raíz de abasto resuelta por topología, sin hardcodear códigos de almacén).
+export interface WorkbookTerritory { code: string; name: string; }
+export interface WorkbookCell { vta: number; exis: number; ped: number; }
 export interface WorkbookRow {
   product_id: string; sku: string; nombre: string; supplier_name: string | null;
   uxc: number; caja_cost: number;
-  ph_vta: number; ph_exis: number; ph_ped: number;      // Padre Hidalgo (MD-10)
-  mor_vta: number; mor_exis: number; mor_ped: number;   // Morelia (MD-30 + MD-32)
-  zam_vta: number; zam_exis: number; zam_ped: number;   // Zamora (MD-50)
-  cedis_exis: number;                                    // CEDIS (MD-CEDIS)
+  cells: Record<string, WorkbookCell>;   // keyed por código de territorio (raíz)
   suma_pedido_cajas: number; pedido_valor: number;
   valor_venta: number; valor_exis: number;
 }
 export interface WorkbookResponse {
   total: number; page: number; pageSize: number; coverage_days: number;
+  territories: WorkbookTerritory[];       // puntos de compra presentes → columnas dinámicas
   totals: { pedido: number; venta: number; exis: number };
   rows: WorkbookRow[];
 }
