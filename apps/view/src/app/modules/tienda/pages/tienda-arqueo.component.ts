@@ -210,7 +210,17 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
   @HostListener('window:beforeunload', ['$event'])
   onBeforeUnload(e: BeforeUnloadEvent) { if (this.hasUnsavedChanges()) e.preventDefault(); }
 
-  ngOnInit() { this.load(); }
+  ngOnInit() {
+    // SM.9 — autofill del cajero: las cajeras loguean con username = su código de
+    // caja. Prellenamos el código (en MAYÚSCULAS, como viene en el corte de Kepler)
+    // solo cuando el usuario está scopeado a una sucursal (= es una cajera, no un
+    // rol global). Así solo cuenta el dinero.
+    if (this.scopedWarehouse) {
+      const u = this.auth.user()?.username;
+      if (u) this.aCajero = u.toUpperCase();
+    }
+    this.load();
+  }
 
   canSubmit(): boolean {
     const suc = this.scopedWarehouse || this.aSuc.trim();
