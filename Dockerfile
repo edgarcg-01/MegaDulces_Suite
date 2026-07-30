@@ -16,8 +16,9 @@
 
 # ── Stage 1: Dependencias completas (capa cacheable) ────────────────────────
 # slim ahorra ~700MB de pull en builds frescos vs `bookworm` completo.
-# Angular 18 + esbuild + nx no necesitan los extras (git, python build tools)
-# que trae el bookworm full.
+# Angular 22 + esbuild + nx no necesitan los extras (git, python build tools)
+# que trae el bookworm full. El binario nativo de @swc/core (api con compiler
+# swc) es glibc → funciona en bookworm (NO en alpine/musl).
 FROM node:20-bookworm-slim AS deps
 WORKDIR /app
 
@@ -62,8 +63,10 @@ COPY apps ./apps
 COPY libs ./libs
 COPY database ./database
 
-# Angular v18 con esbuild necesita @angular/compiler en el proceso de Node
-# (load-compiler.mjs); el heap 4096 le da margen al compilador.
+# Angular 22 con esbuild necesita @angular/compiler en el proceso de Node
+# (load-compiler.mjs); el heap 4096 le da margen al compilador. La api compila
+# con SWC (apps/api/.swcrc) → mucho más rápido y liviano que tsc; el pico de
+# memoria lo sigue marcando el bundle de Angular, no la api.
 # Cache mount de Nx: `build` es cacheable (nx.json) pero `.nx/cache` no
 # sobrevive entre builds de Docker → sin esto recompila todo cada deploy. Con
 # el mount, un commit que solo toca backend saca `view` del cache (restaura

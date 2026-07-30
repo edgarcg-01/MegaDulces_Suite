@@ -283,7 +283,8 @@ const COLS = [
       const tv = liveTax(d.sku);
       const boxF = liveBox(d.sku);
       const dIva = Number(tv?.iva ?? 0) || 0;
-      const dGross = cost != null ? cost * (1 + dIva) : null; // con IVA → cost_with_tax
+      const dIeps = Number(tv?.ieps ?? 0) || 0;
+      const dGross = cost != null ? cost * (1 + dIva + dIeps) : null; // con IVA + IEPS → cost_with_tax
       recs.push([
         d.sku, clean(d.barcode), brand_id, null, d.nombre, null, null, clean(d.unidad),
         null, boxF, tv?.iva ?? null, tv?.ieps ?? null, dGross, dGross != null && boxF ? dGross * boxF : null,
@@ -318,10 +319,12 @@ const COLS = [
       // (kdik) y brutos (costo_civa) en el MISMO campo según qué rama ganara → cost_base
       // inconsistente entre productos y margen/valuación sesgados por el IVA.
       const ivaR = Number(tv?.iva ?? snapIva ?? 0) || 0;
-      const netFromSnap = numOr(r.costo_civa) != null ? Number(r.costo_civa) / (1 + ivaR)
-        : (numOr(r.costo_matriz) != null ? Number(r.costo_matriz) / (1 + ivaR) : null);
-      const costNet = cost ?? netFromSnap;                              // sin IVA → cost_base
-      const costGross = costNet != null ? costNet * (1 + ivaR) : null;  // con IVA → cost_with_tax
+      const iepsR = Number(tv?.ieps ?? snapIeps ?? 0) || 0;
+      const taxFactor = 1 + ivaR + iepsR;                               // Kepler costo_civa trae IVA + IEPS
+      const netFromSnap = numOr(r.costo_civa) != null ? Number(r.costo_civa) / taxFactor
+        : (numOr(r.costo_matriz) != null ? Number(r.costo_matriz) / taxFactor : null);
+      const costNet = cost ?? netFromSnap;                              // sin impuestos → cost_base
+      const costGross = costNet != null ? costNet * taxFactor : null;   // con IVA + IEPS → cost_with_tax
       const costPerCase = costGross != null && factorSale > 0 ? costGross * factorSale
         : (costGross != null && uxc ? costGross * uxc : numOr(r.costo_x_caja));
       recs.push([

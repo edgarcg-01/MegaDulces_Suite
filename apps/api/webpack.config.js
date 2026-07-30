@@ -28,7 +28,11 @@ module.exports = {
   plugins: [
     new NxAppWebpackPlugin({
       target: 'node',
-      compiler: 'tsc',
+      // SWC: compila ~10-20x más rápido que tsc. Nest necesita metadata de
+      // decoradores (DI + class-validator) → configurada en apps/api/.swcrc
+      // (legacyDecorator + decoratorMetadata). Sin ese .swcrc, la DI de Nest
+      // revienta en runtime ("can't resolve dependencies").
+      compiler: 'swc',
       main: './src/main.ts',
       tsConfig: './tsconfig.app.json',
       optimization: false,
