@@ -88,7 +88,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
     
         <section class="surf-panel">
           <div class="surf-panel-body is-flush">
-            <p-table [value]="drivers()" [loading]="loading()" responsiveLayout="scroll" styleClass="surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra p-datatable-sm">
+            <p-table [value]="drivers()" [loading]="loading()" styleClass="surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra p-datatable-sm">
               <ng-template #header>
                 <tr>
                   <th scope="col"><span class="sr-only">Avatar</span></th>

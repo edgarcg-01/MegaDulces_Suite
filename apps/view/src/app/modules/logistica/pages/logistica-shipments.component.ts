@@ -179,7 +179,7 @@ function severityForStatus(s: ShipmentStatus): Severity {
         <!-- Tabla flush -->
         <div class="sheet cols-12">
           <article class="cell cell-span-12 is-flush">
-            <p-table [value]="page().items" [loading]="loading()" responsiveLayout="scroll"
+            <p-table [value]="page().items" [loading]="loading()"
               styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra"
               [paginator]="true" [rows]="page().pageSize" [totalRecords]="page().total" [lazy]="true"
               [rowsPerPageOptions]="[25, 50, 100, 200]"
@@ -261,7 +261,7 @@ function severityForStatus(s: ShipmentStatus): Severity {
         <!-- Tabla pendientes flush -->
         <div class="sheet cols-12">
           <article class="cell cell-span-12 is-flush">
-            <p-table [value]="pendingOrders()" [loading]="loadingPending()" responsiveLayout="scroll"
+            <p-table [value]="pendingOrders()" [loading]="loadingPending()"
               styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--zebra">
               <ng-template #header>
                 <tr>

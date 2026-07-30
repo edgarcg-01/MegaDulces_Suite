@@ -90,7 +90,7 @@ interface BrandOpt { id: string; nombre: string; products: number; }
       <!-- TABLA flush -->
       <div class="sheet cols-12">
         <article class="cell cell-span-12 is-flush">
-          <p-table [value]="directives()" [loading]="loading()" responsiveLayout="scroll"
+          <p-table [value]="directives()" [loading]="loading()"
                    styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--frozen-first">
             <ng-template #header>
               <tr>

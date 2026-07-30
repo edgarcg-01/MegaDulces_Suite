@@ -63,7 +63,7 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
         accent="var(--chart-2)" sub="en el rango"></app-metric-card>
       </div>
     
-      <p-table [value]="tickets()" [loading]="loading()" responsiveLayout="scroll"
+      <p-table [value]="tickets()" [loading]="loading()"
         styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra"
         [paginator]="tickets().length > 25" [rows]="25" [rowsPerPageOptions]="[25, 50, 100]">
         <ng-template #header>

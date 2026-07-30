@@ -247,7 +247,7 @@ Y el bottom nav del shell tapa el FAB. En desktop solo `pb-6`.
           <h3 class="font-bold text-content-main"><i class="pi pi-box mr-2"></i>Exhibidores en esta Vista</h3>
           <span class="text-xs font-mono text-content-muted">ID: {{svc.horaInicio() | date:'hhmm'}}</span>
         </div>
-        <p-table [value]="svc.activeExhibiciones()" styleClass="p-datatable-sm" responsiveLayout="scroll">
+        <p-table [value]="svc.activeExhibiciones()" styleClass="p-datatable-sm">
           <ng-template #header>
             <tr class="text-xs text-content-muted uppercase">
               <th class="pl-4">Ubicación</th>
@@ -399,7 +399,7 @@ Y el bottom nav del shell tapa el FAB. En desktop solo `pb-6`.
 
       <div class="bg-surface-card border border-divider rounded-2xl shadow-sm overflow-hidden hidden md:block">
 
-        <p-table [value]="svc.visitasHoy()" dataKey="folio" [expandedRowKeys]="expandedRows" styleClass="p-datatable-sm" responsiveLayout="scroll">
+        <p-table [value]="svc.visitasHoy()" dataKey="folio" [expandedRowKeys]="expandedRows" styleClass="p-datatable-sm">
 
           <ng-template #header>
 

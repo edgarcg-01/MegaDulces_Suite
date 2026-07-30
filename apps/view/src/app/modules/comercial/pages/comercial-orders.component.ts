@@ -171,7 +171,7 @@ const DATE_PRESETS: { key: string; label: string; days: number | 'today' | 'all'
                 [first]="(page() - 1) * pageSize()"
                 [rowsPerPageOptions]="[25, 50, 100, 200]"
                 (onLazyLoad)="onLazyLoad($event)"
-                responsiveLayout="scroll"
+               
                 styleClass="p-datatable-sm co-table surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra"
                 [rowHover]="true"
                 >

@@ -53,7 +53,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
         <!-- Top operadores -->
         <p-card>
           <h3>Top operadores · hoy</h3>
-          <p-table [value]="d.top_operators" responsiveLayout="scroll" styleClass="p-datatable-sm">
+          <p-table [value]="d.top_operators" styleClass="p-datatable-sm">
             <ng-template #header>
               <tr>
                 <th>#</th>
@@ -102,7 +102,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
           <h3>Cola priorizada · próximos a llamar</h3>
           <a pButton routerLink="/televenta/queue" severity="secondary" [text]="true" size="small"><span class="p-button-label">Ver cola completa</span><span class="p-button-icon p-button-icon-right pi pi-arrow-right" aria-hidden="true"></span></a>
         </div>
-        <p-table [value]="d.queue_preview" responsiveLayout="scroll" styleClass="p-datatable-sm">
+        <p-table [value]="d.queue_preview" styleClass="p-datatable-sm">
           <ng-template #header>
             <tr>
               <th>Código</th>

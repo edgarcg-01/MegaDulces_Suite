@@ -61,7 +61,7 @@ import { makeLazyLoad, makeDebouncedSearch } from '../../../shared/util';
       <!-- MASTER: tabla de listas, flush -->
       <div class="sheet cols-12">
         <article class="cell cell-span-12 is-flush">
-          <p-table [value]="rows()" [loading]="loading()" responsiveLayout="scroll" styleClass="p-datatable-sm pr-master surf-table surf-table--sticky">
+          <p-table [value]="rows()" [loading]="loading()" styleClass="p-datatable-sm pr-master surf-table surf-table--sticky">
             <ng-template #header>
               <tr>
                 <th scope="col">Código</th>
@@ -173,7 +173,7 @@ import { makeLazyLoad, makeDebouncedSearch } from '../../../shared/util';
                 [first]="(pricesPage() - 1) * pricesPageSize()"
                 [rowsPerPageOptions]="[25, 50, 100, 200]"
                 (onLazyLoad)="onPricesLazyLoad($event)"
-                responsiveLayout="scroll"
+               
                 styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra"
                 >
                 <ng-template #header>
