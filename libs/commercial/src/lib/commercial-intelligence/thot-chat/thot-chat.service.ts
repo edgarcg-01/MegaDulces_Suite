@@ -13,11 +13,15 @@ import { ThotExamplesService } from './thot-examples.service';
  */
 
 const CLAUDE_MODEL = process.env.THOT_CHAT_MODEL || 'claude-haiku-4-5-20251001';
-// Modo Think usa un modelo más potente (Sonnet 5) + adaptive thinking.
+// Sonnet 5: el modelo "listo". Lo usa Think (con adaptive thinking) y el auto-routing
+// por complejidad (sin thinking). Haiku conduce el grueso barato/rápido.
 const CLAUDE_THINK_MODEL = process.env.THOT_CHAT_THINK_MODEL || 'claude-sonnet-5';
 const TIMEOUT_MS = 30_000;
 const MAX_ITERATIONS = 6;
 const MAX_TOKENS = 1500;
+// Auto-routing (FIQ.1): una pregunta compleja sube a Sonnet 5 aunque el user no prenda
+// Think. Sonnet sin thinking necesita algo más de techo que Haiku para análisis ricos.
+const SONNET_MAX_TOKENS = 3000;
 
 // ── Modos opt-in (toggles del input) ──────────────────────────────────────
 // Think = adaptive thinking de Claude (Sonnet 5): el modelo decide cuánto razonar;
@@ -135,6 +139,8 @@ export class ThotChatService {
     const lastQ = [...history].reverse().find((t) => t.role === 'user')?.content || '';
     const fewShot = await this.examples.promptFragment(scope.profile, lastQ).catch(() => '');
     if (fewShot) system += `\n\n${fewShot}`;
+    // Auto-routing de modelo (FIQ.1): Think (explícito) o pregunta compleja → Sonnet 5.
+    const useSonnet = think || this.isComplex(lastQ, history.length);
     const toolDefs = provider.definitions(scope);
     // Estado del diálogo en formato Anthropic (content puede ser string o blocks).
     const messages: any[] = history.map((t) => ({ role: t.role, content: t.content }));
@@ -159,7 +165,7 @@ export class ThotChatService {
       iterations++;
       let resp: any;
       try {
-        resp = await this.callClaude(system, messages, toolDefs, think);
+        resp = await this.callClaude(system, messages, toolDefs, useSonnet, think);
       } catch (e: any) {
         this.logger.warn(`Claude error: ${e?.message || e}`);
         return {
@@ -202,7 +208,22 @@ export class ThotChatService {
     };
   }
 
-  private callClaude(system: string, messages: any[], tools: any[], think = false): Promise<any> {
+  /**
+   * FIQ.1 (port de WhatsApp) — auto-routing de modelo por complejidad. Heurístico y
+   * barato (sin llamada extra): mensajes largos, hilo ya extenso, o señales de
+   * análisis/comparación/estrategia → Sonnet 5; el resto, Haiku. El motor sigue
+   * poniendo los números (ADR-016) sin importar el modelo.
+   */
+  private isComplex(text: string, historyLen: number): boolean {
+    const t = (text || '').toLowerCase();
+    return (
+      t.length > 160 ||
+      historyLen >= 8 ||
+      /(analiz|compar|por qu|porqu|explica|diagn[oó]st|tendenc|proyect|estrateg|recomien|\bplan\b|cruza|relacion|correlacion|evoluci[oó]n|escenario|qu[eé] pasa si|optimiz|prioriz|deber[ií]a|an[aá]lisis|desglos)/i.test(t)
+    );
+  }
+
+  private callClaude(system: string, messages: any[], tools: any[], useSonnet = false, think = false): Promise<any> {
     // Transporte compartido (AnthropicService) + prompt caching del prefijo tools+system:
     // el system y las defs se reenvían en cada iteración del loop ReAct → tras el 1er
     // request se cobran ~0.1x. El bloque `thinking` que devuelve Claude se re-emite tal
@@ -210,8 +231,8 @@ export class ThotChatService {
     // sigue decidiendo Thot (parity ADR-016).
     return this.anthropic.messages(
       {
-        model: think ? CLAUDE_THINK_MODEL : CLAUDE_MODEL,
-        maxTokens: think ? THINK_MAX_TOKENS : MAX_TOKENS,
+        model: useSonnet ? CLAUDE_THINK_MODEL : CLAUDE_MODEL,
+        maxTokens: think ? THINK_MAX_TOKENS : useSonnet ? SONNET_MAX_TOKENS : MAX_TOKENS,
         system,
         tools,
         messages,

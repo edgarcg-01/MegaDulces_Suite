@@ -157,6 +157,47 @@ export class ThotToolsService implements ThotToolProvider {
         input_schema: { type: 'object', properties: { group_by: { type: 'string', enum: ['route', 'status', 'warehouse', 'day', 'product'], description: 'Cómo agrupar. Default route.' }, ...dateRange, route: { type: 'string' }, status: { type: 'string' } } },
       },
       {
+        name: 'thot_sales_by_vendor',
+        description:
+          'VENTA REAL del ERP por VENDEDOR (revenue, tickets, share %). Para "ventas por vendedor", "quién vende más", el desempeño de un vendedor o de una ruta vecinal (los vendedores de ruta aparecen acá). Rango de MESES opcional (from/to = "YYYY-MM"); default últimos 6 meses. Opcional filtrar por almacén (código o nombre) o por vendedor.',
+        input_schema: {
+          type: 'object',
+          properties: {
+            from: { type: 'string', description: 'Mes inicio "YYYY-MM". Opcional (default: hace 6 meses).' },
+            to: { type: 'string', description: 'Mes fin "YYYY-MM". Opcional (default: mes actual).' },
+            warehouse: { type: 'string', description: 'Código o nombre de almacén/sucursal. Opcional.' },
+            vendor: { type: 'string', description: 'Nombre o código de vendedor a filtrar. Opcional.' },
+            limit: { type: 'number', description: 'Default 25, máx 100.' },
+          },
+        },
+      },
+      {
+        name: 'thot_sales_by_route',
+        description:
+          'VENTA REAL del ERP por RUTA de venta (revenue, tickets, share %). Para "ventas por ruta", "qué % representa la ruta X". La RUTA VECINAL PH aparece con código WIN-VEC-PH-*. Rango de MESES opcional (from/to = "YYYY-MM"); default últimos 6 meses.',
+        input_schema: {
+          type: 'object',
+          properties: {
+            from: { type: 'string', description: 'Mes inicio "YYYY-MM". Opcional (default: hace 6 meses).' },
+            to: { type: 'string', description: 'Mes fin "YYYY-MM". Opcional (default: mes actual).' },
+            limit: { type: 'number', description: 'Default 50, máx 100.' },
+          },
+        },
+      },
+      {
+        name: 'thot_reorder_policy',
+        description:
+          'Política de reabastecimiento por SKU: MÍNIMO, punto de reorden y MÁXIMO por almacén (en piezas) + existencia disponible actual + clase ABC/XYZ. Para "cuál es el máximo del SKU X", "punto de orden", "cuánto debo tener de Y". Pasá sku (exacto) o query (nombre); opcional filtrar por almacén.',
+        input_schema: {
+          type: 'object',
+          properties: {
+            sku: { type: 'string', description: 'SKU exacto del producto.' },
+            query: { type: 'string', description: 'Nombre (o parte) del producto, si no tenés el SKU.' },
+            warehouse: { type: 'string', description: 'Código o nombre de almacén. Opcional (default: todos).' },
+          },
+        },
+      },
+      {
         name: 'thot_erp_customers',
         description: 'Clientes del ERP Kepler con su compra agregada (180 días): revenue, # productos, última compra. Opcional buscar por nombre.',
         input_schema: { type: 'object', properties: { search: { type: 'string', description: 'Filtro por nombre. Opcional.' }, limit: { type: 'number', description: 'Default 100, máx 500.' } } },
@@ -227,6 +268,12 @@ export class ThotToolsService implements ThotToolProvider {
           return await this.analytics.erpPromotions();
         case 'thot_shipments':
           return await this.analytics.erpShipments({ group_by: args.group_by, from: args.from, to: args.to, route: args.route, status: args.status });
+        case 'thot_sales_by_vendor':
+          return await this.salesByVendor(args);
+        case 'thot_sales_by_route':
+          return await this.salesByRoute(args);
+        case 'thot_reorder_policy':
+          return await this.reorderPolicy(args);
         case 'thot_erp_customers':
           return await this.analytics.erpCustomers({ search: args.search, limit: args.limit });
         case 'thot_customer_products':
@@ -360,6 +407,133 @@ export class ThotToolsService implements ThotToolProvider {
         total: +total.toFixed(2),
         total_is_partial: rows.length >= limit,
         rows: withShare,
+      };
+    });
+  }
+
+  // ── venta real por VENDEDOR (analytics.sales_by_vendor_monthly) ───────
+  private async salesByVendor(args: any) {
+    const tenantId = this.ctx.requireTenantId();
+    const limit = Math.min(100, Math.max(1, Number(args.limit) || 25));
+    const fromM = /^\d{4}-\d{2}$/.test((args.from || '').trim()) ? String(args.from).trim() : null;
+    const toM = /^\d{4}-\d{2}$/.test((args.to || '').trim()) ? String(args.to).trim() : null;
+    const wh = String(args.warehouse || '').trim();
+    const vendor = String(args.vendor || '').trim();
+    const params: any[] = [tenantId];
+    let sql = `SELECT v.vendor_code, v.vendor_name,
+                 COALESCE(SUM(v.revenue),0)::numeric AS revenue,
+                 COALESCE(SUM(v.tickets),0)::bigint AS tickets
+               FROM analytics.sales_by_vendor_monthly v`;
+    if (wh) sql += ` LEFT JOIN commercial.warehouses w ON w.id = v.warehouse_id`;
+    sql += ` WHERE v.tenant_id = ?`;
+    if (fromM) { sql += ` AND v.year_month >= ?`; params.push(fromM); }
+    else sql += ` AND v.year_month >= to_char((current_date - interval '5 months'), 'YYYY-MM')`;
+    if (toM) { sql += ` AND v.year_month <= ?`; params.push(toM); }
+    else sql += ` AND v.year_month <= to_char(current_date, 'YYYY-MM')`;
+    if (wh) { sql += ` AND (w.code ILIKE ? OR w.name ILIKE ?)`; params.push(wh, `%${wh}%`); }
+    if (vendor) { sql += ` AND (v.vendor_name ILIKE ? OR v.vendor_code ILIKE ?)`; params.push(`%${vendor}%`, `%${vendor}%`); }
+    sql += ` GROUP BY v.vendor_code, v.vendor_name ORDER BY revenue DESC LIMIT ?`;
+    params.push(limit);
+    return this.tk.run(async (trx) => {
+      const res = await trx.raw(sql, params);
+      const rows = res.rows.map((r: any) => ({ vendor_code: r.vendor_code, vendor_name: r.vendor_name, revenue: Number(r.revenue), tickets: Number(r.tickets) }));
+      const total = rows.reduce((s: number, r: any) => s + (r.revenue || 0), 0);
+      return {
+        source: 'venta real ERP (analytics.sales_by_vendor_monthly)',
+        period: { from: fromM || '(últimos 6 meses)', to: toM || '(mes actual)' },
+        warehouse: wh || 'todos',
+        total_revenue: +total.toFixed(2),
+        total_is_partial: rows.length >= limit,
+        rows: rows.map((r: any) => ({ ...r, share_pct: total > 0 ? +((r.revenue / total) * 100).toFixed(1) : null })),
+      };
+    });
+  }
+
+  // ── venta real por RUTA (analytics.sales_by_route_monthly) ────────────
+  private async salesByRoute(args: any) {
+    const tenantId = this.ctx.requireTenantId();
+    const limit = Math.min(100, Math.max(1, Number(args.limit) || 50));
+    const norm = (s: any) => {
+      s = String(s || '').trim();
+      if (/^\d{4}-\d{2}$/.test(s)) return `${s}-01`;
+      if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+      return null;
+    };
+    const from = norm(args.from);
+    const to = norm(args.to);
+    const params: any[] = [tenantId];
+    let sql = `SELECT route_code, route_no,
+                 COALESCE(SUM(revenue),0)::numeric AS revenue,
+                 COALESCE(SUM(tickets),0)::bigint AS tickets
+               FROM analytics.sales_by_route_monthly
+               WHERE tenant_id = ?`;
+    if (from) { sql += ` AND month >= ?::date`; params.push(from); }
+    else sql += ` AND month >= date_trunc('month', current_date - interval '5 months')`;
+    if (to) { sql += ` AND month <= ?::date`; params.push(to); }
+    else sql += ` AND month <= date_trunc('month', current_date)`;
+    sql += ` GROUP BY route_code, route_no ORDER BY revenue DESC LIMIT ?`;
+    params.push(limit);
+    return this.tk.run(async (trx) => {
+      const res = await trx.raw(sql, params);
+      const rows = res.rows.map((r: any) => ({ route_code: r.route_code, route_no: r.route_no, revenue: Number(r.revenue), tickets: Number(r.tickets) }));
+      const total = rows.reduce((s: number, r: any) => s + (r.revenue || 0), 0);
+      return {
+        source: 'venta real ERP (analytics.sales_by_route_monthly)',
+        period: { from: from || '(últimos 6 meses)', to: to || '(mes actual)' },
+        total_revenue: +total.toFixed(2),
+        total_is_partial: rows.length >= limit,
+        rows: rows.map((r: any) => ({ ...r, share_pct: total > 0 ? +((r.revenue / total) * 100).toFixed(1) : null })),
+      };
+    });
+  }
+
+  // ── política de reabastecimiento por SKU (commercial.reorder_policy) ──
+  private async reorderPolicy(args: any) {
+    const tenantId = this.ctx.requireTenantId();
+    const sku = String(args.sku || '').trim();
+    const query = String(args.query || '').trim();
+    const wh = String(args.warehouse || '').trim();
+    if (!sku && !query) return { error: 'Indicá un SKU (sku) o un texto de búsqueda (query) del producto.' };
+    return this.tk.run(async (trx) => {
+      let prodQ = trx('catalog.products as p').where('p.tenant_id', tenantId).whereNull('p.deleted_at');
+      if (sku) prodQ = prodQ.where('p.sku', sku);
+      else prodQ = prodQ.andWhere((w: any) => w.whereRaw('p.nombre ILIKE ?', [`%${query}%`]).orWhereRaw('p.sku ILIKE ?', [`%${query}%`]));
+      const prods = await prodQ.select('p.id', 'p.sku', 'p.nombre').limit(8);
+      if (!prods.length) return { error: `No encontré producto con ${sku ? 'SKU ' + sku : 'texto "' + query + '"'}.` };
+      if (prods.length > 1 && !sku) return { disambiguate: prods, note: 'Varios productos coinciden; pasá el SKU exacto.' };
+      const ids = prods.map((p: any) => p.id);
+      let rpQ = trx('commercial.reorder_policy as rp')
+        .join('catalog.products as p', 'p.id', 'rp.product_id')
+        .leftJoin('commercial.warehouses as w', 'w.id', 'rp.warehouse_id')
+        .where('rp.tenant_id', tenantId)
+        .whereIn('rp.product_id', ids);
+      if (wh) rpQ = rpQ.andWhere((b: any) => b.whereRaw('w.code ILIKE ?', [wh]).orWhereRaw('w.name ILIKE ?', [`%${wh}%`]));
+      const rows = await rpQ
+        .select(
+          'p.sku',
+          'p.nombre',
+          trx.raw('COALESCE(w.code, rp.warehouse_id::text) AS warehouse'),
+          'w.name AS warehouse_name',
+          'rp.min_stock',
+          'rp.reorder_point',
+          'rp.max_stock',
+          trx.raw(
+            `(SELECT COALESCE(SUM(st.quantity),0) - COALESCE(SUM(st.reserved_quantity),0)
+               FROM commercial.stock st
+               WHERE st.tenant_id = rp.tenant_id AND st.product_id = rp.product_id AND st.warehouse_id = rp.warehouse_id) AS available`,
+          ),
+          'rp.abc_class',
+          'rp.xyz_class',
+          'rp.source',
+        )
+        .orderBy('p.sku')
+        .orderByRaw('w.code ASC NULLS LAST')
+        .limit(200);
+      return {
+        source: 'commercial.reorder_policy + commercial.stock (piezas)',
+        note: 'min_stock / reorder_point / max_stock en PIEZAS. available = existencia − reservado (suma de pasillos).',
+        count: rows.length,
+        rows,
       };
     });
   }
