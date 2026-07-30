@@ -1,5 +1,5 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, inject, signal } from '@angular/core';
-import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { ChangeDetectionStrategy, Component, computed, effect, inject } from '@angular/core';
+import { rxResource } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
@@ -69,12 +69,15 @@ export class ComercialErpPromosComponent {
   readonly promoTabs = PROMOS_TABS;
   private readonly svc = inject(ComercialService);
   private readonly toast = inject(MessageService);
-  private readonly destroyRef = inject(DestroyRef);
 
-  rows = signal<ErpPromoRow[]>([]);
-  loading = signal(false);
+  // Resource API: carga declarativa (auto-cancela, loading/error derivados). reload() = refrescar.
+  private readonly promosRes = rxResource({ stream: () => this.svc.erpPromotions() });
+  readonly rows = computed<ErpPromoRow[]>(() => this.promosRes.value() ?? []);
+  readonly loading = computed(() => this.promosRes.isLoading());
 
-  constructor() { this.load(); }
+  constructor() {
+    effect(() => { if (this.promosRes.error()) this.toast.add({ severity: 'error', summary: 'Error al cargar promos' }); });
+  }
 
   typeLabel(t: string): string {
     return ({
@@ -92,13 +95,5 @@ export class ComercialErpPromosComponent {
     return `$${p.benefit ?? 0} desc.`;
   }
 
-  load() {
-    this.loading.set(true);
-    this.svc.erpPromotions()
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({
-        next: (r) => { this.rows.set(r); this.loading.set(false); },
-        error: () => { this.loading.set(false); this.toast.add({ severity: 'error', summary: 'Error al cargar promos' }); },
-      });
-  }
+  load() { this.promosRes.reload(); }
 }

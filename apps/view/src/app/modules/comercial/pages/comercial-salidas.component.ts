@@ -118,7 +118,7 @@ const MES: Record<string, string> = {
 
         @if (r.rows.length) {
           <div class="card-premium card-flat sl-table-card">
-            <p-table [value]="r.rows" [loading]="loading()" [rowHover]="true"
+            <p-table [value]="r.rows" [loading]="loading()" [rowHover]="true" [rowTrackBy]="trackRow"
                      [scrollable]="true" scrollHeight="65vh"
                      [paginator]="true" [rows]="50" [rowsPerPageOptions]="[50, 100, 200]"
                      sortField="venta_total" [sortOrder]="-1"
@@ -249,6 +249,8 @@ export class ComercialSalidasComponent {
   categoryOpts = signal<{ id: string; label: string }[]>([]);
   loading = signal(false);
   dl = signal(false);
+  /** trackBy estable → p-table reusa filas al filtrar/ordenar (no re-crea el DOM). */
+  trackRow = (i: number, r: any): unknown => r?.product_id ?? r?.id ?? (r?.sku ? r.sku + ':' + (r.warehouse_name ?? '') : i);
   report = signal<SalidasReport | null>(null);
   periodMode = signal<PeriodMode>('d15');
 

@@ -2926,6 +2926,15 @@ code.comm-code,
   padding-bottom: 0.3rem !important;
 }
 
+/* Scroll horizontal en viewports angostos — reemplaza lo que daba `responsiveLayout="scroll"`
+ * (removido en PrimeNG 22). Las tablas anchas (min-width en tableStyle) desbordarían la página
+ * en móvil/tablet; acá les damos scroll-X propio dentro de su contenedor. SOLO ≤1024px: en
+ * desktop NO se toca porque `overflow-x:auto` arrastra `overflow-y:auto` y rompería el header
+ * sticky que depende del scroll del <main>. En móvil el sticky no es prioridad. */
+@media (max-width: 1024px) {
+  .surf-table .p-datatable-table-container { overflow-x: auto; }
+}
+
 /* ── TOUCH (coarse pointer): hit areas ≥44px sin tocar componentes (Ley de Fitts,
  * apps/vendor Capacitor). Solo afecta dispositivos táctiles; el desktop con mouse
  * conserva la densidad ultra-compacta. La densidad de fila se sube vía padding y
