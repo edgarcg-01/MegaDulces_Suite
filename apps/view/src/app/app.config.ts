@@ -1,4 +1,4 @@
-import { ApplicationConfig, LOCALE_ID, isDevMode, provideZoneChangeDetection } from '@angular/core';
+import { ApplicationConfig, LOCALE_ID, isDevMode, provideZonelessChangeDetection } from '@angular/core';
 import { registerLocaleData } from '@angular/common';
 import localeEsMx from '@angular/common/locales/es-MX';
 
@@ -24,10 +24,10 @@ import { ConfirmationService } from 'primeng/api';
 
 export const appConfig: ApplicationConfig = {
   providers: [
-    // Zoneless quedó PAUSADO: en prod causaba CD re-entrante síncrona (stack overflow en
-    // /compras/pedido) — algún componente del árbol escribe una signal durante el render.
-    // Volvemos a zone.js (estable) hasta hacer el QA runtime por pantalla que zoneless exige.
-    provideZoneChangeDetection({ eventCoalescing: true }),
+    // Zoneless (Angular 22). NOTA: el stack overflow de /compras/pedido NO es de zoneless
+    // (se reproduce igual bajo zone.js) — es una recursión real de render; ver diagnóstico en
+    // compras-pedido-real (money() guard). zone.js sigue en polyfills.
+    provideZonelessChangeDetection(),
     { provide: LOCALE_ID, useValue: 'es-MX' },
     // v22 cambió el default de paramsInheritanceStrategy a 'always'; preservamos
     // 'emptyOnly' (comportamiento Angular 18) para no heredar params de rutas padre.
