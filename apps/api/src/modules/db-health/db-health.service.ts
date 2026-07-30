@@ -54,10 +54,13 @@ const APP_SOURCES: SourceCfg[] = [
   // corre a diario pero la última venta se queda pegada. Medimos max(business_date), no updated_at.
   {
     key: 'wincaja_feed', label: 'Feed Wincaja (venta POS)', table: 'wincaja.v_sales_lines', tsCandidates: [],
+    // OJO: hay tickets con fecha FUTURA (errores de captura del POS) → ventana [hoy-30, hoy]
+    // (acota el scan a rango indexable ~2s Y descarta la basura futura; si el feed lleva >30 días
+    // muerto, no hay filas → last_update null → critical, que es lo correcto).
     sql: `SELECT max(business_date)::timestamp AS last_update,
                  'última venta ' || coalesce(to_char(max(business_date),'DD/MM'),'—') ||
                  ' · ' || count(DISTINCT source_branch)::text || ' sucursales' AS note_extra
-          FROM wincaja.v_sales_lines`,
+          FROM wincaja.v_sales_lines WHERE business_date BETWEEN CURRENT_DATE - 30 AND CURRENT_DATE`,
     warnH: 48, critH: 96, cadence: 'diario (feed on-prem Wincaja → prod)',
   },
   // Venta consolidada (Kepler + Wincaja) por FECHA de venta — que el dato avance día a día.
@@ -65,7 +68,7 @@ const APP_SOURCES: SourceCfg[] = [
     key: 'sales_daily_date', label: 'Ventas — último día con dato', table: 'analytics.sales_daily', tsCandidates: [],
     sql: `SELECT max(sale_date)::timestamp AS last_update,
                  'último día con venta ' || coalesce(to_char(max(sale_date),'DD/MM'),'—') AS note_extra
-          FROM analytics.sales_daily`,
+          FROM analytics.sales_daily WHERE sale_date BETWEEN CURRENT_DATE - 30 AND CURRENT_DATE`,
     warnH: 44, critH: 72, cadence: 'intradía + nightly',
   },
 ];
