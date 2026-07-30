@@ -2146,6 +2146,8 @@ export class CommercialAnalyticsService {
       // arbitrario o meses parciales → sales_daily on-the-fly. Ambos alimentan el MISMO
       // pivote: units=canónico (piezas o kg), factor_sale=divisor, unit_kind manda.
       const monthAligned = this.isMonthAligned(from, to);
+      // Wincaja: rollup también para el mes en curso (kepler no) — ver isWincajaRollupOk.
+      const winRollupOk = this.isWincajaRollupOk(from, to);
 
       // is_promo fuera: marcadores de promo Kepler (precio simbólico $0.01) —
       // registran la aplicación de la promo en el ticket, no venta de producto.
@@ -2238,7 +2240,7 @@ export class CommercialAnalyticsService {
       const winChanRollup = `CASE sd.sale_channel WHEN 'mayoreo_credito' THEN 'credito' WHEN 'preventa_vecinal' THEN 'preventa' WHEN 'ruta_venta' THEN 'ruta' ELSE 'mostrador' END`;
       const winChanExpr = `CASE vl.sale_channel WHEN 'mayoreo_credito' THEN 'credito' WHEN 'preventa_vecinal' THEN 'preventa' WHEN 'ruta_venta' THEN 'ruta' ELSE 'mostrador' END`;
       const winWhExpr = `CASE WHEN vl.source_branch='10' THEN '01' WHEN vl.source_branch='42' THEN '02' ELSE vl.warehouse_code END`;
-      const wincajaRows: any[] = monthAligned
+      const wincajaRows: any[] = winRollupOk
         ? await trx('analytics.sales_by_vendor_monthly as sd')
             .join('catalog.products as p', 'p.id', 'sd.product_id')
             .leftJoin('catalog.brands as b', 'b.id', 'p.brand_id')
@@ -2510,8 +2512,9 @@ export class CommercialAnalyticsService {
     const cellFilter = (q.cells && q.cells.length) ? new Set(q.cells.map((c) => c.trim().toLowerCase())) : null;
     const tenantId = this.tenantCtx.requireTenantId();
     const promoMode: SellOutPromo = q.promo === 'solo' || q.promo === 'todo' ? q.promo : 'sin';
-    // RS.9 — fast path por rollup si el rango son meses completos (ver sellOut()).
-    const monthAligned = this.isMonthAligned(from, to);
+    // RS.9 — fast path por rollup para meses completos, INCLUIDO el mes en curso (esta
+    // vista es 100% wincaja → el live escanea v_sales_lines y da 504; ver isWincajaRollupOk).
+    const monthAligned = this.isWincajaRollupOk(from, to);
     // mayoreo_credito → 'mayoreo' · ruta_venta → 'ruta' (RD) · preventa_vecinal → 'preventa' (RV)
     const GROUP: Record<string, string> = { mayoreo_credito: 'mayoreo', ruta_venta: 'ruta', preventa_vecinal: 'preventa' };
     const GROUP_LABEL: Record<string, string> = { mayoreo: 'Mayoreo', ruta: 'RD (Reparto)', preventa: 'RV (Vecinal)' };
@@ -3460,17 +3463,29 @@ export class CommercialAnalyticsService {
     return !Number.isNaN(Date.parse(s));
   }
 
-  /** RS.9 — rango [from,to] = meses completos (empieza día 1, termina último del mes) →
-   *  habilita el fast path por rollups mensuales. `from`/`to` en ISO 'YYYY-MM-DD'. */
-  private isMonthAligned(from: string, to: string): boolean {
+  /** RS.9 — [from,to] son fronteras de mes(es) completo(s) (día 1 → último del mes). */
+  private isFullMonthRange(from: string, to: string): boolean {
     if (from.slice(8, 10) !== '01') return false;
     const d = new Date(`${to}T00:00:00Z`);
-    if (new Date(d.getTime() + 86400000).getUTCDate() !== 1) return false;
-    // El rollup mensual (sales_boxes_monthly / sales_by_vendor_monthly) solo es confiable
-    // para meses YA CERRADOS: para el mes en curso el rollup va atrás de las tablas crudas
-    // (el feed lo reconstruye month-to-date y se queda corto) → subcontaba el sell-out.
-    // Si el período toca el mes actual o futuro, forzar cálculo EN VIVO (on-the-fly).
-    return to < this.currentMonthStartMx();
+    return new Date(d.getTime() + 86400000).getUTCDate() === 1;
+  }
+
+  /** Habilita el fast path por rollup KEPLER (`sales_boxes_monthly`). Solo meses YA
+   *  CERRADOS: para el mes en curso el rollup kepler va atrás de las crudas (reconstruye
+   *  month-to-date y subcontaba ~29%) → mes actual/futuro = cálculo EN VIVO (sales_daily,
+   *  que es rápido). El fast path WINCAJA es aparte (ver isWincajaRollupOk). */
+  private isMonthAligned(from: string, to: string): boolean {
+    return this.isFullMonthRange(from, to) && to < this.currentMonthStartMx();
+  }
+
+  /** Habilita el fast path por rollup WINCAJA (`sales_by_vendor_monthly`) para CUALQUIER
+   *  rango de meses completos, INCLUIDO el mes en curso. Razón: el live de wincaja escanea
+   *  la vista `v_sales_lines` (CTE conc_dates + LATERAL por fila) → ~9s/mes para todas las
+   *  empresas → 504 en prod (dejaba el reporte del mes anterior en pantalla). El rollup es
+   *  ~ms y ~98% fiel; su frescura la monitorea "Salud BD frescura de feeds". Un rango
+   *  parcial (no fronteras de mes) sigue yendo live (el rollup es de grano mensual). */
+  private isWincajaRollupOk(from: string, to: string): boolean {
+    return this.isFullMonthRange(from, to);
   }
 
   // Inicio del mes actual en TZ MX (UTC-6 fijo, MX abolió DST en 2023). Formato YYYY-MM-01.

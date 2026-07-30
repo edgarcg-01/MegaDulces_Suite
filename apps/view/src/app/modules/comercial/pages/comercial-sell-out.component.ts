@@ -778,7 +778,14 @@ export class ComercialSellOutComponent {
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (r) => { this.report.set(r); this.meta.set(this.buildMeta()); this.loading.set(false); },
-        error: (e) => { this.loading.set(false); this.toast.add({ severity: 'error', summary: 'Error al generar', detail: e?.error?.message }); },
+        // Al fallar: limpiar el reporte previo. Si no, quedaba el del periodo anterior en
+        // pantalla y parecía que "ignoraba" el filtro (ej. elegir julio → seguía viéndose junio).
+        error: (e) => {
+          this.report.set(null);
+          this.meta.set(null);
+          this.loading.set(false);
+          this.toast.add({ severity: 'error', summary: 'Error al generar', detail: e?.error?.message });
+        },
       });
   }
 
