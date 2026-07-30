@@ -57,6 +57,14 @@ const SRC = `
 
     if (!APPLY) { console.log('(dry-run — usar --apply)'); await db.destroy(); return; }
 
+    // GUARD: si Wincaja Irapuato no trae existencias (>0), NO tocar el CEDIS — evita que un
+    // v_stock stale/vacío borre todo el stock del CEDIS (el REPLACE dejaría '00' en 0).
+    if (Number(pre.n || 0) === 0) {
+      console.error('⚠ Wincaja Irapuato sin existencias (>0) → NO se reemplaza el CEDIS (posible v_stock stale). Se deja el stock actual.');
+      await db.destroy();
+      return;
+    }
+
     await db.transaction(async (trx) => {
       await trx.raw(`SET LOCAL app.tenant_id = '${TENANT}'`);
       const del = await trx.raw(`DELETE FROM commercial.stock WHERE tenant_id=? AND warehouse_id=?`, [TENANT, wh.id]);
