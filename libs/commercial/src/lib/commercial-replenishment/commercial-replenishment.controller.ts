@@ -121,6 +121,16 @@ export class CommercialReplenishmentController {
     return this.svc.workbook({ supplier_id, category_id, search, coverage_days: coverage_days ? Number(coverage_days) : undefined, scope, page: page ? Number(page) : undefined, pageSize: pageSize ? Number(pageSize) : undefined });
   }
 
+  @Get('workbook/:productId')
+  @RequirePermissions(Permission.COMPRAS_VER)
+  @ApiOperation({ summary: 'RA-PRO.32 — Detalle drill-down de un SKU: economía + desglose por almacén de los 4 puntos de compra. coverage_days(=30).' })
+  workbookDetail(
+    @Param('productId') productId: string,
+    @Query('coverage_days') coverage_days?: string,
+  ) {
+    return this.svc.workbookDetail(productId, coverage_days ? Number(coverage_days) : undefined);
+  }
+
   @Get('critical-stock.xlsx')
   @RequirePermissions(Permission.COMPRAS_VER)
   @ApiOperation({ summary: 'Existencia crítica → Excel con diseño (mismos filtros que /critical-stock; exporta TODAS las filas del filtro, sin paginar).' })

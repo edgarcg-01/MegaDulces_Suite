@@ -150,6 +150,19 @@ export interface WorkbookResponse {
 export interface WorkbookQuery {
   supplier_id?: string; category_id?: string; search?: string; coverage_days?: number; scope?: string; page?: number; pageSize?: number;
 }
+// RA-PRO.32 — detalle drill-down de un SKU (desglose por almacén de los 4 puntos de compra).
+export interface WorkbookDetailWarehouse {
+  warehouse_code: string; warehouse_name: string; territory: string | null;
+  venta_cajas: number; existencia_cajas: number; transito_cajas: number; pedido_cajas: number; cover_days: number | null;
+}
+export interface WorkbookDetailProduct {
+  sku: string; nombre: string; supplier_name: string | null;
+  uxc: number; caja_cost: number; price_ratio: number | null; unit_source: string;
+  buy_rate: number | null; last_purchase: string | null; order_days: number | null;
+}
+export interface WorkbookDetailResponse {
+  product: WorkbookDetailProduct | null; coverage_days: number; rows: WorkbookDetailWarehouse[];
+}
 
 export interface CriticalStockResponse {
   total: number;
@@ -576,6 +589,12 @@ export class ComprasService {
     if (q.pageSize) p.set('pageSize', String(q.pageSize));
     const qs = p.toString();
     return this.http.get<WorkbookResponse>(`${this.base}/workbook${qs ? '?' + qs : ''}`);
+  }
+
+  /** RA-PRO.32 — detalle drill-down de un SKU (desglose por almacén + economía). */
+  workbookDetail(productId: string, coverageDays?: number): Observable<WorkbookDetailResponse> {
+    const qs = coverageDays ? `?coverage_days=${coverageDays}` : '';
+    return this.http.get<WorkbookDetailResponse>(`${this.base}/workbook/${productId}${qs}`);
   }
 
   /** RA-PRO.20 — traspaso preciso CEDIS→sucursal (topología). */
