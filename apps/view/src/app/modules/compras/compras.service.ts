@@ -154,7 +154,8 @@ export interface WorkbookQuery {
 }
 // RA-PRO.32 — detalle drill-down de un SKU (desglose por almacén de los 4 puntos de compra).
 export interface WorkbookDetailWarehouse {
-  warehouse_code: string; warehouse_name: string; territory: string | null;
+  warehouse_id: string; warehouse_code: string; warehouse_name: string; territory: string | null;
+  supplier_id: string | null; unit_cost: number;
   venta_cajas: number; existencia_cajas: number; transito_cajas: number; pedido_cajas: number; cover_days: number | null;
 }
 export interface WorkbookDetailProduct {

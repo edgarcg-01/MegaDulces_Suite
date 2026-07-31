@@ -23,7 +23,6 @@ import {
   WorkbookDetailResponse, WorkbookTerritory,
 } from '../compras.service';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
-import { SidePeekComponent } from '../../../shared/components/side-peek/side-peek.component';
 
 type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
 type Mode = 'consolidado' | 'excel' | 'muerto';
@@ -57,7 +56,6 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
   imports: [
     CommonModule, FormsModule, RouterLink, ButtonModule, TableModule, ToastModule, SelectModule, MultiSelectModule,
     InputNumberModule, InputTextModule, IconFieldModule, InputIconModule, TagModule, DialogModule, MetricStripComponent,
-    SidePeekComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
@@ -270,10 +268,12 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
           <p-select [options]="categoryOpts()" [(ngModel)]="fCategory" (onChange)="loadWorkbook()"
                     optionLabel="label" optionValue="value" placeholder="Todas las categorías" [showClear]="true"
                     [filter]="true" filterBy="label" styleClass="pr-sel" ariaLabel="Filtrar por categoría"></p-select>
-          <div class="pr-seg" role="group" aria-label="Agrupar columnas">
-            <button type="button" class="pr-tab" [class.pr-tab-on]="wbGroup()==='branch'" (click)="wbGroup.set('branch'); loadWorkbook()">Por sucursal</button>
-            <button type="button" class="pr-tab" [class.pr-tab-on]="wbGroup()==='general'" (click)="wbGroup.set('general'); loadWorkbook()">General</button>
-          </div>
+          <button type="button" class="pr-colbtn" [class.pr-colbtn-on]="wbGroup()==='branch'" (click)="toggleGroup()"
+                  [attr.aria-pressed]="wbGroup()==='branch'"
+                  [title]="wbGroup()==='branch' ? 'Englobar las columnas de venta en una sola (red)' : 'Desglosar las columnas de venta por sucursal'">
+            <i class="pi" [ngClass]="wbGroup()==='branch' ? 'pi-arrows-h' : 'pi-table'"></i>
+            {{ wbGroup()==='branch' ? 'Englobar columnas' : 'Desglosar por sucursal' }}
+          </button>
           @if (wbGroup()==='branch') {
             <p-multiselect [options]="warehouseOpts()" [(ngModel)]="wbWarehouses" (onChange)="loadWorkbook()"
                            optionLabel="label" optionValue="value" placeholder="Todas las sucursales" [showClear]="true"
@@ -329,8 +329,9 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
                 </tr>
               </ng-template>
               <ng-template #body let-r>
-                <tr class="pr-wb-row" (click)="openDetail(r)" tabindex="0" (keyup.enter)="openDetail(r)" [attr.aria-label]="'Ver detalle de ' + r.sku">
-                  <td><div class="pr-prod">{{ r.nombre }} <i class="pi pi-angle-right pr-wb-go"></i></div><div class="pr-prod-meta"><span class="pr-sku">{{ r.sku }}</span> <span class="pr-supp">{{ r.supplier_name || '—' }}</span></div></td>
+                <tr class="pr-wb-row" [class.pr-wb-open]="isOpen(r)" (click)="toggleRow(r)" tabindex="0" (keyup.enter)="toggleRow(r)"
+                    [attr.aria-expanded]="isOpen(r)" [attr.aria-label]="(isOpen(r) ? 'Cerrar' : 'Abrir') + ' detalle de ' + r.sku">
+                  <td><div class="pr-prod"><i class="pi pr-wb-go" [ngClass]="isOpen(r) ? 'pi-angle-down' : 'pi-angle-right'"></i> {{ r.nombre }}</div><div class="pr-prod-meta"><span class="pr-sku">{{ r.sku }}</span> <span class="pr-supp">{{ r.supplier_name || '—' }}</span></div></td>
                   <td class="pr-r pr-muted">{{ r.uxc | number:'1.0-0' }}</td>
                   <td class="pr-r pr-muted">{{ money(r.caja_cost) }}</td>
                   @for (t of wbTerritories(); track t.code) {
@@ -343,6 +344,55 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
                   <td class="pr-r pr-muted">{{ money(r.valor_venta) }}</td>
                   <td class="pr-r pr-muted">{{ money(r.valor_exis) }}</td>
                 </tr>
+                @if (isOpen(r)) {
+                  <tr class="pr-wb-exp">
+                    <td [attr.colspan]="wbColCount()">
+                      <div class="pr-exp-in">
+                        @if (isRowLoading(r)) {
+                          <div class="pr-peek-loading"><i class="pi pi-spin pi-spinner"></i> Cargando desglose por sucursal…</div>
+                        } @else if (detailOf(r); as d) {
+                          @if (d.product; as p) {
+                            <div class="pr-peek-econ">
+                              <div class="pr-peek-stat"><span>UXC (pz/caja)</span><strong>{{ p.uxc | number:'1.0-0' }}</strong></div>
+                              <div class="pr-peek-stat"><span>Costo / caja</span><strong>{{ money(p.caja_cost) }}</strong></div>
+                              <div class="pr-peek-stat"><span>Σ Pedido</span><strong class="pr-ped-on">{{ prodPedCajas(r) | number:'1.0-1' }} cj</strong></div>
+                              <div class="pr-peek-stat"><span>$ del producto</span><strong>{{ money(prodPedValor(r)) }}</strong></div>
+                              @if (p.price_ratio) { <div class="pr-peek-stat"><span>Ratio mayoreo/retail</span><strong>{{ p.price_ratio | number:'1.0-1' }}×</strong></div> }
+                              <div class="pr-peek-stat"><span>Unidad</span><strong>{{ p.unit_source }}</strong></div>
+                            </div>
+                          }
+                          <div class="pr-wb-scroll">
+                            <table class="pr-peek-tbl">
+                              <thead><tr><th>Sucursal</th><th class="pr-r">Vta</th><th class="pr-r">Exist.</th><th class="pr-r">Tráns.</th><th class="pr-r">Pedido</th><th class="pr-r">Cob.</th><th class="pr-r">Cant. ✎</th></tr></thead>
+                              <tbody>
+                                @for (w of d.rows; track w.warehouse_id) {
+                                  <tr>
+                                    <td><span class="pr-mono">{{ w.warehouse_code }}</span> <span class="pr-peek-terr">{{ w.warehouse_name }}</span></td>
+                                    <td class="pr-r pr-muted">{{ w.venta_cajas | number:'1.0-1' }}</td>
+                                    <td class="pr-r pr-muted">{{ w.existencia_cajas | number:'1.0-1' }}</td>
+                                    <td class="pr-r pr-muted">{{ w.transito_cajas | number:'1.0-1' }}</td>
+                                    <td class="pr-r pr-ped" [class.pr-ped-on]="w.pedido_cajas > 0">{{ w.pedido_cajas | number:'1.0-1' }}</td>
+                                    <td class="pr-r pr-muted">{{ w.cover_days != null ? (w.cover_days | number:'1.0-0') + ' d' : '—' }}</td>
+                                    <td class="pr-r"><input type="number" min="0" class="pr-qty pr-qty-sm" [ngModel]="qtyOf(r.product_id, w.warehouse_id)" (ngModelChange)="setQty(r.product_id, w.warehouse_id, $event)" [attr.aria-label]="'Cantidad de ' + r.sku + ' en ' + w.warehouse_code" /></td>
+                                  </tr>
+                                }
+                                @if (!d.rows.length) { <tr><td colspan="7" class="pr-muted">Sin datos en los puntos de compra.</td></tr> }
+                              </tbody>
+                            </table>
+                          </div>
+                          <div class="pr-exp-actions">
+                            <span class="pr-exp-sum">{{ d.rows.length }} sucursal(es) · pedido <strong class="pr-ped-on">{{ money(prodPedValor(r)) }}</strong></span>
+                            <span class="pr-bulk-sp"></span>
+                            <p-button type="button" label="XLSX del producto" icon="pi pi-file-excel" styleClass="p-button-sm p-button-text" (click)="exportProduct(r)" [disabled]="dl()"></p-button>
+                            <p-button type="button" [label]="saving() ? 'Armando…' : 'Requisición'" icon="pi pi-check" styleClass="p-button-sm" (click)="buildReqProduct(r)" [disabled]="saving()"></p-button>
+                          </div>
+                        } @else {
+                          <div class="pr-peek-loading">No se pudo cargar el detalle. <button type="button" class="pr-chip" (click)="retryDetail(r)">Reintentar</button></div>
+                        }
+                      </div>
+                    </td>
+                  </tr>
+                }
               </ng-template>
               <ng-template #emptymessage>
                 <tr><td [attr.colspan]="wbColCount()" class="pr-empty">
@@ -353,45 +403,8 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
               </ng-template>
             </p-table>
           </div>
-          <p class="pr-foot">Réplica del workbook del comprador. <strong>Vta</strong> = venta 30 días en cajas · <strong>Exist.</strong> = existencia en cajas · <strong>Pedido</strong> = venta diaria × cobertura − existencia − tránsito. Cada bloque es un <strong>punto de compra</strong> (raíz de abasto, resuelta por topología): @for (t of wbTerritories(); track t.code) {<span class="pr-mono">{{ t.code }}</span>&nbsp;}. <em>Clic en una fila para ver el desglose por almacén.</em></p>
+          <p class="pr-foot">Réplica del workbook del comprador. <strong>Vta</strong> = venta 30 días en cajas · <strong>Exist.</strong> = existencia en cajas · <strong>Pedido</strong> = venta diaria × cobertura − existencia − tránsito. Cada bloque es un <strong>punto de compra</strong>: @for (t of wbTerritories(); track t.code) {<span class="pr-mono">{{ t.code }}</span>&nbsp;}. <em>Clic en una fila para desplegar su desglose por sucursal (editable) — podés abrir varias a la vez. El botón <strong>Englobar / Desglosar</strong> junta o abre las columnas de venta por sucursal.</em></p>
         }
-
-        <app-side-peek [open]="peekOpen()" (openChange)="peekOpen.set($event)" [title]="peekTitle()" [subtitle]="peekSub()">
-          @if (peekLoading()) {
-            <div class="pr-peek-loading"><i class="pi pi-spin pi-spinner"></i> Cargando desglose…</div>
-          } @else if (peekDetail(); as d) {
-            @if (d.product; as p) {
-              <div class="pr-peek-econ">
-                <div class="pr-peek-stat"><span>UXC (pz/caja)</span><strong>{{ p.uxc | number:'1.0-0' }}</strong></div>
-                <div class="pr-peek-stat"><span>Costo / caja</span><strong>{{ money(p.caja_cost) }}</strong></div>
-                <div class="pr-peek-stat"><span>Ritmo de compra</span><strong>{{ (p.buy_rate || 0) | number:'1.0-2' }} cj/d</strong></div>
-                <div class="pr-peek-stat"><span>Última compra</span><strong>{{ p.last_purchase ? (p.last_purchase | date:'dd/MM/yy') : '—' }}</strong></div>
-                @if (p.price_ratio) { <div class="pr-peek-stat"><span>Ratio mayoreo/retail</span><strong>{{ p.price_ratio | number:'1.0-1' }}×</strong></div> }
-                <div class="pr-peek-stat"><span>Unidad</span><strong>{{ p.unit_source }}</strong></div>
-              </div>
-            }
-            <h3 class="pr-peek-h">Desglose por almacén</h3>
-            <table class="pr-peek-tbl">
-              <thead><tr><th>Almacén</th><th class="pr-r">Vta</th><th class="pr-r">Exist.</th><th class="pr-r">Tráns.</th><th class="pr-r">Pedido</th><th class="pr-r">Cob.</th></tr></thead>
-              <tbody>
-                @for (w of d.rows; track w.warehouse_code) {
-                  <tr>
-                    <td><span class="pr-mono">{{ w.warehouse_code }}</span> <span class="pr-peek-terr">{{ w.territory }}</span></td>
-                    <td class="pr-r pr-muted">{{ w.venta_cajas | number:'1.0-1' }}</td>
-                    <td class="pr-r pr-muted">{{ w.existencia_cajas | number:'1.0-1' }}</td>
-                    <td class="pr-r pr-muted">{{ w.transito_cajas | number:'1.0-1' }}</td>
-                    <td class="pr-r pr-ped" [class.pr-ped-on]="w.pedido_cajas > 0">{{ w.pedido_cajas | number:'1.0-1' }}</td>
-                    <td class="pr-r pr-muted">{{ w.cover_days != null ? (w.cover_days | number:'1.0-0') + ' d' : '—' }}</td>
-                  </tr>
-                }
-                @if (!d.rows.length) { <tr><td colspan="6" class="pr-muted">Sin datos en los puntos de compra.</td></tr> }
-              </tbody>
-            </table>
-            <p class="pr-peek-note">Pedido = venta diaria × {{ d.coverage_days }}d de cobertura − existencia − tránsito. Morelia agrega <span class="pr-mono">MD-30</span> + <span class="pr-mono">MD-32</span>.</p>
-          } @else {
-            <div class="pr-peek-loading">No se pudo cargar el detalle.</div>
-          }
-        </app-side-peek>
       } @else {
         <!-- STOCK MUERTO: productos activos SIN rotación (capital inmovilizado) -->
         <div class="pr-filters">
@@ -504,6 +517,12 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
     .pr-bulk-sp { flex: 1; }
     /* RA-PRO.32 — vista Excel (workbook) */
     .pr-seg { display: inline-flex; gap: .15rem; border: 1px solid var(--border-color); border-radius: var(--r-md, 12px); padding: .15rem; }
+    /* RA-PRO.32.1 — botón englobar/desglosar columnas por sucursal */
+    .pr-colbtn { display: inline-flex; align-items: center; gap: .4rem; font-size: .78rem; padding: .4rem .75rem; border: 1px solid var(--border-color);
+      background: var(--card-bg); color: var(--text-muted); border-radius: var(--r-sm, 8px); cursor: pointer; font-family: inherit; }
+    .pr-colbtn:hover { background: var(--overlay-hover, var(--hover-bg)); color: var(--text-main); }
+    .pr-colbtn-on { border-color: var(--action); color: var(--action); font-weight: 600; }
+    .pr-colbtn i { font-size: .8rem; }
     .pr-wb-scroll { overflow-x: auto; }
     :host ::ng-deep .pr-wb { font-size: .8rem; }
     :host ::ng-deep .pr-wb th.pr-grp-h { text-align: center; border-left: 1px solid var(--border-color); font-size: .68rem; text-transform: uppercase; letter-spacing: .05em; color: var(--text-muted); font-weight: 700; }
@@ -513,7 +532,15 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
     .pr-ped-on { color: var(--action); font-weight: 600; }
     :host ::ng-deep .pr-wb .pr-wb-row { cursor: pointer; }
     :host ::ng-deep .pr-wb .pr-wb-row:hover td { background: var(--overlay-hover, var(--hover-bg)); }
-    .pr-wb-go { font-size: .7rem; color: var(--text-faint); margin-left: .3rem; }
+    :host ::ng-deep .pr-wb .pr-wb-open td { background: var(--overlay-selected, var(--hover-bg)); }
+    :host ::ng-deep .pr-wb .pr-wb-open td:first-child { box-shadow: inset 3px 0 0 var(--action); }
+    .pr-wb-go { font-size: .7rem; color: var(--text-faint); margin-right: .1rem; }
+    /* RA-PRO.32.1 — fila expandida (acordeón): desglose por sucursal accionable inline */
+    :host ::ng-deep .pr-wb .pr-wb-exp > td { padding: 0; background: var(--card-bg); border-bottom: 2px solid var(--border-color); }
+    .pr-exp-in { padding: .85rem 1rem 1rem 1.75rem; border-left: 3px solid var(--action); }
+    .pr-exp-actions { display: flex; align-items: center; gap: .5rem; margin-top: .6rem; padding-top: .6rem; border-top: 1px solid var(--border-color); }
+    .pr-exp-sum { font-size: .8rem; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+    .pr-qty-sm { width: 4rem; padding: .15rem .3rem; font-size: .8rem; }
     .pr-peek-loading { color: var(--text-muted); padding: 1rem 0; }
     .pr-peek-econ { display: grid; grid-template-columns: repeat(2, 1fr); gap: .6rem 1rem; margin-bottom: 1.25rem; }
     .pr-peek-stat { display: flex; flex-direction: column; gap: .1rem; }
@@ -560,18 +587,86 @@ export class ComprasPedidoRealComponent implements OnInit {
   wbColCount = computed(() => 3 + this.wbTerritories().length * 3 + 4);
   /** Valor de una celda territorio×métrica (0 si el SKU no tiene datos en ese punto de compra). */
   cellVal(r: WorkbookRow, code: string, key: 'vta' | 'exis' | 'ped'): number { return r.cells?.[code]?.[key] ?? 0; }
-  // Drill-down (SidePeek): desglose por almacén + economía del SKU clickeado.
-  peekOpen = signal(false);
-  peekLoading = signal(false);
-  peekDetail = signal<WorkbookDetailResponse | null>(null);
-  peekRow = signal<WorkbookRow | null>(null);
-  peekTitle = computed(() => this.peekRow()?.nombre || 'Detalle del producto');
-  peekSub = computed(() => { const r = this.peekRow(); return r ? `${r.sku} · ${r.supplier_name || 'sin proveedor'}` : null; });
-  openDetail(r: WorkbookRow): void {
-    this.peekRow.set(r); this.peekDetail.set(null); this.peekLoading.set(true); this.peekOpen.set(true);
+  // RA-PRO.32.1 — Fila EXPANDIBLE (acordeón): al abrir un SKU se despliega INLINE su desglose POR
+  // SUCURSAL, accionable (cantidad editable + XLSX/requisición del producto), como continuación de la
+  // fila. Varias filas pueden estar abiertas a la vez. Cache por product_id + cantidades por almacén.
+  private readonly wbOpen = signal<Set<string>>(new Set());
+  private readonly wbDetail = signal<Record<string, WorkbookDetailResponse | null>>({});
+  private readonly wbLoadingIds = signal<Set<string>>(new Set());
+  private readonly wbQty: Record<string, Record<string, number>> = {};   // product_id → warehouse_id → cajas
+  isOpen(r: WorkbookRow): boolean { return this.wbOpen().has(r.product_id); }
+  isRowLoading(r: WorkbookRow): boolean { return this.wbLoadingIds().has(r.product_id); }
+  detailOf(r: WorkbookRow): WorkbookDetailResponse | null | undefined { return this.wbDetail()[r.product_id]; }
+  toggleRow(r: WorkbookRow): void {
+    const s = new Set(this.wbOpen());
+    if (s.has(r.product_id)) s.delete(r.product_id);
+    else { s.add(r.product_id); this.ensureDetail(r); }
+    this.wbOpen.set(s);
+  }
+  private ensureDetail(r: WorkbookRow, force = false): void {
+    if (!force && this.wbDetail()[r.product_id] !== undefined) return;   // ya cargado (incl. null)
+    this.wbLoadingIds.update((m) => new Set(m).add(r.product_id));
     this.api.workbookDetail(r.product_id, this.coverage)
       .pipe(catchError(() => of(null as WorkbookDetailResponse | null)), takeUntilDestroyed(this.destroyRef))
-      .subscribe((d) => { this.peekLoading.set(false); this.peekDetail.set(d); });
+      .subscribe((d) => {
+        this.wbDetail.update((m) => ({ ...m, [r.product_id]: d }));
+        this.wbLoadingIds.update((m) => { const n = new Set(m); n.delete(r.product_id); return n; });
+        if (d) { const q = (this.wbQty[r.product_id] ??= {}); for (const w of d.rows) if (q[w.warehouse_id] == null) q[w.warehouse_id] = Math.round(Number(w.pedido_cajas) || 0); }
+      });
+  }
+  retryDetail(r: WorkbookRow): void { this.ensureDetail(r, true); }
+  qtyOf(pid: string, wid: string): number { return this.wbQty[pid]?.[wid] ?? 0; }
+  setQty(pid: string, wid: string, v: number | string): void { (this.wbQty[pid] ??= {})[wid] = Math.max(0, Math.round(Number(v) || 0)); }
+  prodPedCajas(r: WorkbookRow): number { const d = this.wbDetail()[r.product_id]; return d ? d.rows.reduce((s, w) => s + this.qtyOf(r.product_id, w.warehouse_id), 0) : 0; }
+  prodPedValor(r: WorkbookRow): number { const d = this.wbDetail()[r.product_id]; return d ? d.rows.reduce((s, w) => s + this.qtyOf(r.product_id, w.warehouse_id) * (Number(w.unit_cost) || 0), 0) : 0; }
+
+  toggleGroup(): void { this.wbGroup.set(this.wbGroup() === 'branch' ? 'general' : 'branch'); this.loadWorkbook(); }
+
+  /** RA-PRO.32.1 — requisición del producto abierto: una por almacén (proveedor del producto), con la cantidad editada. */
+  buildReqProduct(r: WorkbookRow): void {
+    const d = this.wbDetail()[r.product_id]; if (!d) return;
+    const rows = d.rows.filter((w) => this.qtyOf(r.product_id, w.warehouse_id) > 0);
+    if (!rows.length) { this.toast.add({ severity: 'warn', summary: 'Nada que armar', detail: 'Pon una cantidad > 0 en al menos una sucursal.' }); return; }
+    const dtos: CreateRequisitionDto[] = rows.map((w) => ({
+      warehouse_id: w.warehouse_id, supplier_id: w.supplier_id, source_type: 'supplier',
+      notes: `Pedido (workbook) — ${r.sku}`,
+      lines: [{
+        product_id: r.product_id, supplier_id: w.supplier_id, source_type: 'supplier',
+        on_hand: Math.round(Number(w.existencia_cajas) || 0), suggested_qty: this.qtyOf(r.product_id, w.warehouse_id),
+        final_qty: this.qtyOf(r.product_id, w.warehouse_id), unit_cost: Number(w.unit_cost) || 0,
+      }],
+    }));
+    this.saving.set(true);
+    let done = 0; const folios: string[] = []; let failed = 0;
+    const finish = () => {
+      this.saving.set(false);
+      if (folios.length) this.toast.add({ severity: 'success', summary: `${folios.length} requisición(es)`, detail: folios.join(', ') });
+      if (failed) this.toast.add({ severity: 'error', summary: 'Error parcial', detail: `${failed} no se pudieron crear.` });
+    };
+    dtos.forEach((dto) => this.api.createRequisition(dto).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (x) => { folios.push(x.folio); if (++done === dtos.length) finish(); },
+      error: () => { failed++; if (++done === dtos.length) finish(); },
+    }));
+  }
+
+  /** RA-PRO.32.1 — XLSX del producto abierto (una línea por sucursal, con la cantidad editada). */
+  exportProduct(r: WorkbookRow): void {
+    const d = this.wbDetail()[r.product_id]; if (!d) return;
+    const lines: PedidoExportLine[] = d.rows.map((w) => {
+      const cj = this.qtyOf(r.product_id, w.warehouse_id);
+      return {
+        warehouse_code: w.warehouse_code, supplier_name: d.product?.supplier_name ?? r.supplier_name,
+        sku: r.sku, nombre: r.nombre, on_hand: Math.round(Number(w.existencia_cajas) || 0),
+        suggested_qty: cj, uxc: r.uxc, cajas: cj, piezas: cj * (Number(r.uxc) || 1),
+        unit_cost: Number(w.unit_cost) || 0, line_cost: cj * (Number(w.unit_cost) || 0),
+      };
+    });
+    this.dl.set(true);
+    this.api.exportPedidoXlsx({ title: `Pedido — ${r.nombre}`, basis: `cobertura ${this.coverage}d`, multi_warehouse: true, lines })
+      .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+        next: (resp) => { this.dl.set(false); saveXlsxResponse(resp, `pedido-${r.sku}.xlsx`); },
+        error: () => { this.dl.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo exportar.' }); },
+      });
   }
 
   cBuy = signal(true);
@@ -665,6 +760,10 @@ export class ComprasPedidoRealComponent implements OnInit {
   /** RA-PRO.32 — carga la réplica del workbook (fila por SKU, columnas por punto de compra). */
   loadWorkbook(): void {
     this.loading.set(true); this.error.set(false); this.saveFilters();
+    // La data cambió → colapsa el acordeón y descarta cache/cantidades editadas (evita mostrar
+    // desgloses de una consulta previa).
+    this.wbOpen.set(new Set()); this.wbDetail.set({}); this.wbLoadingIds.set(new Set());
+    for (const k of Object.keys(this.wbQty)) delete this.wbQty[k];
     this.api.workbook({
       supplier_id: this.fSupplier || undefined, category_id: this.fCategory || undefined, search: this.search.trim() || undefined,
       coverage_days: this.coverage, scope: this.wbScopeNeeded() ? 'needed' : undefined,
