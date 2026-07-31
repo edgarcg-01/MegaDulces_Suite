@@ -87,7 +87,7 @@ export class BlindCountService {
       // El relevo no se compara contra el corte del día (es intra-turno): solo sella el traspaso.
       if (tipo === 'relevo') {
         this.logger.log(`arqueo relevo suc${dto.warehouse_code} caja${dto.caja} ${dto.business_date}: ${dto.cajero_code || '?'}→${dto.cajero_entrante || '?'} entregó ${total}`);
-        return { result: { tipo, total_contado: total, matched: false, esperado: null, kepler_contado: null, kepler_diff: null, diff_real: null, kepler_enmascaro: false }, badCut: null as any };
+        return { result: { tipo, total_contado: total, matched: false, ambiguous: false, esperado: null, kepler_contado: null, kepler_diff: null, diff_real: null, kepler_enmascaro: false }, badCut: null as any };
       }
       const cmp = await this.compare(trx, tenantId, dto, total);
       this.logger.log(`arqueo cierre suc${dto.warehouse_code} caja${dto.caja} ${dto.business_date}: contado ${total} vs esperado ${cmp.esperado ?? '?'}`);
@@ -147,15 +147,21 @@ export class BlindCountService {
   private async compare(trx: any, tenantId: string, dto: BlindCountDto, total: number) {
     const q = trx('analytics.cash_cuts').where({ tenant_id: tenantId, warehouse_code: dto.warehouse_code, caja: dto.caja, business_date: dto.business_date });
     if (dto.cajero_code) q.where('cajero_cierre', dto.cajero_code);
-    const cut: any = await q.orderBy('efectivo_esperado', 'desc').first();
-    if (!cut) return { matched: false, esperado: null, kepler_contado: null, kepler_diff: null, diff_real: null, kepler_enmascaro: false };
+    const cuts: any[] = await q.orderBy('efectivo_esperado', 'desc');
+    if (!cuts.length) return { matched: false, ambiguous: false, esperado: null, kepler_contado: null, kepler_diff: null, diff_real: null, kepler_enmascaro: false };
+    // Varios cortes en la caja/día y no se especificó cajero: NO elegir el mayor
+    // arbitrariamente (revelaría un "faltante" de otro turno). Se pide desambiguar.
+    if (!dto.cajero_code && cuts.length > 1) {
+      return { matched: false, ambiguous: true, esperado: null, kepler_contado: null, kepler_diff: null, diff_real: null, kepler_enmascaro: false };
+    }
+    const cut: any = cuts[0];
     const esperado = Number(cut.efectivo_esperado);
     const keplerContado = Number(cut.efectivo_contado);
     const keplerDiff = Number(cut.efectivo_diff);
     const diffReal = Math.round((esperado - total) * 100) / 100;   // + faltante / − sobrante
     // Kepler dijo "cuadrado" (|diff|<50) pero el arqueo ciego revela ≥$50 → enmascaró.
     const keplerEnmascaro = Math.abs(keplerDiff) < 50 && Math.abs(diffReal) >= 50;
-    return { matched: true, folio: cut.folio, esperado, kepler_contado: keplerContado, kepler_diff: keplerDiff, diff_real: diffReal, kepler_enmascaro: keplerEnmascaro };
+    return { matched: true, ambiguous: false, folio: cut.folio, esperado, kepler_contado: keplerContado, kepler_diff: keplerDiff, diff_real: diffReal, kepler_enmascaro: keplerEnmascaro };
   }
 
   /** Lista arqueos ciegos con su comparación (para la consola). */

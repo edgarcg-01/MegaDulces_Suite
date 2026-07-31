@@ -12,6 +12,8 @@ import { DatePickerModule } from 'primeng/datepicker';
 import { TagModule } from 'primeng/tag';
 import { MessageService } from 'primeng/api';
 import { AuthService } from '../../../core/services/auth.service';
+import { PermissionsService } from '../../../core/services/permissions.service';
+import { Permission } from '../../../core/constants/permissions';
 import { branchName } from '../../../core/constants/store-branches';
 import { ArqueoService, ArqueoResult, ArqueoRow } from '../arqueo.service';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
@@ -50,8 +52,9 @@ import { HasUnsavedChanges } from '../../../core/guards/unsaved-changes.guard';
         </div>
       </header>
 
-      <div class="arq-2col">
+      <div class="arq-2col" [class.arq-1col]="!canCapture">
         <!-- Captura -->
+        @if (canCapture) {
         <div class="card-premium card-flat arq-panel">
           <h3 class="arq-card-title">Nuevo arqueo</h3>
           <p-selectbutton [options]="tipoOptions" [ngModel]="aTipo()" (ngModelChange)="aTipo.set($event); dirty.set(true)"
@@ -109,6 +112,8 @@ import { HasUnsavedChanges } from '../../../core/guards/unsaved-changes.guard';
             <div class="arq-result" [class.bad]="(r.diff_real || 0) > 0" [class.ok]="(r.diff_real || 0) < 0">
               @if (r.tipo === 'relevo') {
                 <p class="muted">Relevo sellado: {{ money(r.total_contado) }} entregados de {{ aCajero || '—' }} → {{ aEntrante || '—' }}.</p>
+              } @else if (r.ambiguous) {
+                <p class="muted">Guardado ({{ money(r.total_contado) }}). Hay <strong>varios cortes</strong> en esta caja hoy — especificá el <strong>cajero</strong> para revelar tu diferencia contra el turno correcto.</p>
               } @else if (!r.matched) {
                 <p class="muted">Guardado. Todavía no hay corte del sistema para comparar — la diferencia aparecerá cuando se procese.</p>
               } @else {
@@ -121,6 +126,7 @@ import { HasUnsavedChanges } from '../../../core/guards/unsaved-changes.guard';
             </div>
           }
         </div>
+        }
 
         <!-- Historial -->
         <div class="card-premium card-flat arq-panel">
@@ -149,6 +155,7 @@ import { HasUnsavedChanges } from '../../../core/guards/unsaved-changes.guard';
     .arq-scope { display: inline-flex; align-items: center; gap: .35rem; font-size: .78rem; font-weight: 600; color: var(--action); }
     .arq-scope i { font-size: .72rem; }
     .arq-2col { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+    .arq-2col.arq-1col { grid-template-columns: 1fr; }
     @media (max-width: 900px) { .arq-2col { grid-template-columns: 1fr; } }
     .arq-panel { padding: 1rem; }
     .arq-card-title { margin: 0 0 .7rem; font-size: .85rem; font-weight: 700; }
@@ -181,12 +188,17 @@ import { HasUnsavedChanges } from '../../../core/guards/unsaved-changes.guard';
 export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
   private readonly svc = inject(ArqueoService);
   private readonly auth = inject(AuthService);
+  private readonly perms = inject(PermissionsService);
   private readonly toast = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);
 
   /** Sucursal fija por login ('' = rol global que puede elegir sucursal). */
   readonly scopedWarehouse = this.auth.user()?.warehouse_code || '';
   readonly branchLabel = computed(() => branchName(this.scopedWarehouse));
+
+  /** Auditoría entra con solo VER (lee el historial) pero NO captura. */
+  readonly canCapture = this.perms.can('manage', 'all')
+    || this.auth.user()?.permissions?.[Permission.STORE_ARQUEO_CAPTURAR] === true;
 
   readonly tipoOptions = [
     { label: 'Cierre de día', value: 'cierre' as const },
@@ -229,7 +241,7 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
 
   recalc() {
     this.arqTotal.set(this.denoms.reduce((s, d) => s + (Number(this.denomCount[d]) || 0) * d, 0));
-    this.dirty.set(this.arqTotal() > 0);
+    this.dirty.set(true); // §13: cualquier edición ensucia; se limpia solo al guardar OK
   }
 
   submit() {
@@ -249,6 +261,7 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
       next: (r) => {
         this.saving.set(false); this.result.set(r); this.dirty.set(false);
         const detail = r.tipo === 'relevo' ? `Relevo sellado (${this.money(r.total_contado)}).`
+          : r.ambiguous ? 'Guardado. Varios cortes hoy: especificá el cajero para comparar.'
           : (r.matched ? `${this.diffLabel(r.diff_real)}: ${this.signed(r.diff_real || 0)}` : 'Guardado (sin corte para comparar aún).');
         this.toast.add({ severity: (r.diff_real || 0) > 0 ? 'warn' : 'success', summary: r.tipo === 'relevo' ? 'Relevo guardado' : 'Arqueo guardado', detail });
         this.load();
@@ -275,6 +288,8 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
     if (diff < 0) return 'Sobrante';
     return 'Cuadrado';
   }
-  money(v: number | string | null | undefined): string { return (Number(v ?? 0) || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 }); }
+  // Pantalla de conteo de efectivo (incl. denominación de 50¢): SIEMPRE con centavos,
+  // si no, 3×$0.50 se vería "$2" y una diferencia real de centavos parecería cuadrada.
+  money(v: number | string | null | undefined): string { return (Number(v ?? 0) || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
   signed(v: number): string { return (v > 0 ? '+' : '') + this.money(v); }
 }

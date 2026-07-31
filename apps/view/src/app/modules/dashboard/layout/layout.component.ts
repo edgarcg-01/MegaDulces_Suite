@@ -399,7 +399,7 @@ export class LayoutComponent implements OnInit, OnDestroy {
     { label: 'Ritmo del día', icon: 'pi pi-chart-line', route: '/tienda/pace', permission: Permission.STORE_LIVE_VER },
     { label: 'Cajas abiertas', icon: 'pi pi-inbox', route: '/tienda/cajas', permission: Permission.STORE_LIVE_VER },
     { label: 'Análisis semanal', icon: 'pi pi-calendar', route: '/tienda/analisis-semanal', permission: Permission.STORE_ANALYTICS_VER },
-    { label: 'Arqueo de caja', icon: 'pi pi-eye-slash', route: '/tienda/arqueo', permission: Permission.STORE_ARQUEO_CAPTURAR },
+    { label: 'Arqueo de caja', icon: 'pi pi-eye-slash', route: '/tienda/arqueo', permission: Permission.STORE_ARQUEO_VER },
     { label: 'Etiquetas', icon: 'pi pi-tag', route: '/tienda/etiquetas', permission: Permission.STORE_LABELS_VER },
   ];
 
@@ -495,7 +495,7 @@ export class LayoutComponent implements OnInit, OnDestroy {
     }
     // Tienda: superficie de sucursal (cajeras/encargados). Un rol `sucursal` no tiene
     // REPORTES_VER_* → sin este early-return el nav de tienda no renderizaría. Cada item
-    // se filtra por su permiso (STORE_LIVE_VER / STORE_ARQUEO_CAPTURAR / STORE_LABELS_VER).
+    // se filtra por su permiso (STORE_LIVE_VER / STORE_ARQUEO_VER / STORE_LABELS_VER).
     if (this.currentProject() === 'tienda') {
       return this.dedupeByRoute(this.tiendaNavItems.filter((i) => this.hasPermFor(i)));
     }
