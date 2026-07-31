@@ -63,14 +63,14 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
         <div class="da-head-actions">
           <button
             pButton
-            icon="pi pi-refresh"
+           
             [text]="true"
             severity="secondary"
             size="small"
             (click)="reload()"
             [loading]="loading()"
             pTooltip="Refrescar"
-          ></button>
+          ><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span></button>
         </div>
       </header>
     
@@ -141,7 +141,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
                 </div>
               }
               <p-button
-                pButton
+               
                 styleClass="da-card-action"
                 [label]="actionLabel(s.status)"
                 [icon]="actionIcon(s.status)"
@@ -195,7 +195,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
                     </span>
                   </td>
                   <td class="comm-actions" (click)="$event.stopPropagation()">
-                    <p-button pButton [label]="actionLabel(s.status)" [icon]="actionIcon(s.status)"
+                    <p-button [label]="actionLabel(s.status)" [icon]="actionIcon(s.status)"
                     size="small" (click)="openWizard(s)"></p-button>
                   </td>
                 </tr>
@@ -216,13 +216,13 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
               <button
                 type="button"
                 pButton
-                icon="pi pi-refresh"
+               
                 severity="secondary"
                 [outlined]="true"
                 size="small"
-                label="Limpiar filtro"
+               
                 (click)="clearFilter()"
-              ></button>
+              ><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span><span class="p-button-label">Limpiar filtro</span></button>
             }
           </div>
         </div>

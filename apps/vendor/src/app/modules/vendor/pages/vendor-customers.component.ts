@@ -84,12 +84,12 @@ import { AuthService } from '../../../core/services/auth.service';
                   {{ locating() ? 'Obteniendo ubicación…' : (hasGeo() ? 'Ubicación capturada ✓' : (geoFailed() ? 'Reintentar ubicación' : 'Capturar ubicación')) }}
                 </button>
                 <div class="form-actions">
-                  <p-button pButton type="submit" styleClass="submit-btn"
+                  <p-button type="submit" styleClass="submit-btn"
                     [disabled]="saving() || !form.name.trim()"
                   [label]="saving() ? 'Guardando…' : 'Crear y tomar pedido'"></p-button>
                   <button pButton type="button" severity="secondary" [outlined]="true"
                     [disabled]="saving() || !form.name.trim()"
-                  label="Solo registrar (sin pedido)" (click)="submit(false)"></button>
+                  (click)="submit(false)"><span class="p-button-label">Solo registrar (sin pedido)</span></button>
                 </div>
               </form>
             }

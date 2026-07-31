@@ -33,7 +33,7 @@ import { WebSocketService } from '../../../core/services/websocket.service';
         <div class="head-actions">
           <p-selectbutton [options]="filters" [(ngModel)]="statusFilter" optionLabel="label" optionValue="value"
             (onChange)="load()" [allowEmpty]="false" styleClass="sb-liquid" />
-            <p-button pButton icon="pi pi-refresh" [label]="loading() ? 'Actualizando…' : 'Actualizar'"
+            <p-button icon="pi pi-refresh" [label]="loading() ? 'Actualizando…' : 'Actualizar'"
             size="small" severity="secondary" (click)="load()" [disabled]="loading()"></p-button>
           </div>
         </header>

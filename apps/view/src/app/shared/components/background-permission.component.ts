@@ -41,7 +41,7 @@ import { TrackingService } from '../../core/services/tracking.service';
 
         <div class="footer-actions">
           <button pButton class="p-button-text" (click)="onCancel()" [disabled]="requesting()"><span class="p-button-label">Más tarde</span></button>
-          <p-button pButton [label]="buttonLabel()" (click)="onRequest()" [loading]="requesting()"></p-button>
+          <p-button [label]="buttonLabel()" (click)="onRequest()" [loading]="requesting()"></p-button>
         </div>
       </div>
 

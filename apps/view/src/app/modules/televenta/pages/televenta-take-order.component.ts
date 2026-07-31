@@ -118,12 +118,12 @@ interface CartRow {
             </div>
             <button
               pButton
-              icon="pi pi-check"
-              label="Confirmar pedido + registrar venta"
+             
+             
               [disabled]="cartCount() === 0 || saving()"
               [loading]="saving()"
               (click)="confirmOrder()"
-            ></button>
+            ><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Confirmar pedido + registrar venta</span></button>
           </div>
         </section>
       } @else {

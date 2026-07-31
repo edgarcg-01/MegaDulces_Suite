@@ -140,7 +140,7 @@ type CatLine = CriticalStockRow & { uxc: number; cajas: number; piezas: number; 
           <tr>
             <td><p-tablecheckbox [value]="r" /></td>
             <td>
-              <p-button type="button" pButton [pRowToggler]="r" [text]="true" [rounded]="true"
+              <p-button type="button" [pRowToggler]="r" [text]="true" [rounded]="true"
                       styleClass="p-button-sm" [icon]="expanded ? 'pi pi-chevron-down' : 'pi pi-chevron-right'"></p-button>
             </td>
             <td><p-tag [value]="estLabel(r)" [severity]="estSev(r)"></p-tag></td>
@@ -252,7 +252,7 @@ type CatLine = CriticalStockRow & { uxc: number; cajas: number; piezas: number; 
                         {{ totalPz(r._key) | number:'1.0-0' }} pz · <strong>{{ money(detailTotal(r._key)) }}</strong>
                       </span>
                       <button pButton class="p-button-sm p-button-text" [loading]="exporting()" [disabled]="countToOrder(r._key)===0" (click)="exportRow(r)"><span class="p-button-icon p-button-icon-left pi pi-download" aria-hidden="true"></span><span class="p-button-label">Exportar</span></button>
-                      <p-button pButton [label]="r.via==='transfer' ? 'Crear traspaso' : 'Crear requisición'"
+                      <p-button [label]="r.via==='transfer' ? 'Crear traspaso' : 'Crear requisición'"
                               icon="pi pi-file-edit" styleClass="p-button-sm"
                               [loading]="st.creating" [disabled]="countToOrder(r._key)===0"
                               (click)="createReq(r)"></p-button>
@@ -283,7 +283,7 @@ type CatLine = CriticalStockRow & { uxc: number; cajas: number; piezas: number; 
           <div class="qt-cons-wh">
             <span class="qt-basis-lbl">Almacenes:</span>
             @for (w of consWhs(); track w.id) {
-              <p-button pButton type="button" [label]="w.code + ' · ' + w.n" styleClass="p-button-sm"
+              <p-button type="button" [label]="w.code + ' · ' + w.n" styleClass="p-button-sm"
                       [ngClass]="isWhIncluded(w.id) ? 'p-button-outlined' : 'p-button-text'" (click)="toggleWh(w.id)"></p-button>
             }
           </div>

@@ -169,7 +169,7 @@ const STATUS_META: Record<TrackerStatus, { label: string; sev: Sev; color: strin
                   </div>
                 }
                 <div class="rk-detail-actions">
-                  <p-button pButton size="small" [severity]="showTrail() ? 'primary' : 'secondary'"
+                  <p-button size="small" [severity]="showTrail() ? 'primary' : 'secondary'"
                     [icon]="loadingTrail() ? 'pi pi-spin pi-spinner' : 'pi pi-directions'"
                     [label]="showTrail() ? 'Ocultar recorrido' : 'Ver recorrido de hoy'"
                   (click)="toggleTrail(s)"></p-button>

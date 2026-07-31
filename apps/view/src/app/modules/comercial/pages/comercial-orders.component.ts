@@ -117,14 +117,14 @@ const DATE_PRESETS: { key: string; label: string; days: number | 'today' | 'all'
         <div class="co-head-actions">
           <button
             pButton
-            icon="pi pi-refresh"
+           
             [text]="true"
             severity="secondary"
             size="small"
             (click)="load()"
             [loading]="loading()"
             pTooltip="Refrescar"
-          ></button>
+          ><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span></button>
         </div>
       </header>
     
@@ -241,13 +241,13 @@ const DATE_PRESETS: { key: string; label: string; days: number | 'today' | 'all'
                           <button
                             type="button"
                             pButton
-                            icon="pi pi-refresh"
+                           
                             severity="secondary"
                             [outlined]="true"
                             size="small"
-                            label="Limpiar filtros"
+                           
                             (click)="resetFilters()"
-                          ></button>
+                          ><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span><span class="p-button-label">Limpiar filtros</span></button>
                         }
                       </div>
                     </td>

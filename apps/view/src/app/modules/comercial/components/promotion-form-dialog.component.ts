@@ -296,7 +296,7 @@ interface BundleItem {
           @if (wizardStep === 'configure') {
             <button pButton severity="secondary" [outlined]="true" (click)="cancel.emit()"><span class="p-button-label">Cancelar</span></button>
             <p-button
-              pButton
+             
               [label]="editing ? 'Guardar' : 'Crear promoción'"
               icon="pi pi-check"
               [loading]="saving"

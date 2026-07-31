@@ -94,22 +94,22 @@ import { VendorService, CoverageCustomer } from '../vendor.service';
                 @if (!c.visited_today) {
                   <button
                     pButton
-                    label="Visita"
-                    icon="pi pi-map-marker"
+                   
+                   
                     size="small"
                     [loading]="processing().has(c.id)"
                     (click)="checkIn(c)"
-                  ></button>
+                  ><span class="p-button-icon p-button-icon-left pi pi-map-marker" aria-hidden="true"></span><span class="p-button-label">Visita</span></button>
                 }
                 <a
                   pButton
-                  icon="pi pi-shopping-cart"
+                 
                   severity="secondary"
                   size="small"
                   [text]="true"
                   [routerLink]="['/vendor/take-order', c.id]"
                   aria-label="Tomar pedido"
-                ></a>
+                ><span class="p-button-icon p-button-icon-left pi pi-shopping-cart" aria-hidden="true"></span></a>
               </div>
             </div>
           </p-card>
