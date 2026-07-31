@@ -69,6 +69,8 @@ const TESTS = [
   { file: 'http-whatsapp-webhook-test.js', label: 'F.0/F.1 WhatsApp webhook (verify + /sim inbound → cola → placeholder out + dedup + DB hilo/mensajes)', needsApi: true },
   // Fase K — AI product match en captures
   { file: 'http-ai-match-test.js', label: 'K.1 AI product match (Claude Haiku + Voyage + pgvector)', needsApi: true },
+  // LTV Auditoría en Ruta — detalle geográfico (traza GPS + tickets ubicados por hora)
+  { file: 'test-newdb-ltv-audit-detail.js', label: 'LTV.16 detalle auditoría (traza por tracker aunque vehicle_id NULL + tickets ligados por route_code↔route_number + ubicación por hora GPS + sin-hora no ubica)', needsApi: false },
   // Cierre de ruta (port Automation_RD)
   { file: 'test-route-tickets-rls-smoke.js', label: 'RD route_tickets RLS isolation', needsApi: false },
   { file: 'http-route-tickets-test.js', label: 'RD cierre de ruta E2E (3 tickets + reportes)', needsApi: true },

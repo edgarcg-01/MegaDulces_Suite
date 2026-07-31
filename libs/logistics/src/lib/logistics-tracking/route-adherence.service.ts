@@ -17,9 +17,53 @@ export interface AdherenceResult {
   skipped_count: number;
   off_route_count: number;
   coverage_pct: number | null; // visitados / plan-con-coords
-  planned: Array<{ customer_id: string; code: string | null; name: string | null; visit_sequence: number | null; has_coords: boolean; visited: boolean; captured: boolean }>;
+  planned: Array<{ customer_id: string; code: string | null; name: string | null; visit_sequence: number | null; has_coords: boolean; lat: number | null; lng: number | null; visited: boolean; captured: boolean }>;
   skipped: Array<{ customer_id: string; code: string | null; name: string | null }>;
   off_route_stops: Array<{ arrived_at: string; minutes: number; lat: number; lng: number }>;
+}
+
+/** Detalle de auditoría de UN vehículo/día: traza GPS + paradas + tickets ubicados. */
+export interface VehicleAuditDetail {
+  vehicle_id: string;
+  day: string;
+  route_numbers: number[];
+  path: Array<{ lat: number; lng: number; captured_at: string; speed_kmh: number | null }>;
+  stops: Array<{ arrived_at: string; left_at: string; minutes: number; lat: number; lng: number; matched_store_id: string | null; store_name: string | null }>;
+  tickets: Array<{
+    id: string;
+    ticket_type: string;
+    ticket_time: string | null;
+    ticket_date: string;
+    total: number | null;
+    corte_number: string | null;
+    reference: string | null;
+    liters: number | null;
+    photo_url: string | null;
+    photo_preview_url: string | null;
+    created_at: string;
+    route_code: string;
+    at_lat: number | null;
+    at_lng: number | null;
+    gps_gap_min: number | null; // min entre la hora del ticket y el fix GPS más cercano
+    near_store_name: string | null; // tienda más cercana a la posición del ticket
+    located: boolean;
+  }>;
+}
+
+/** Número de ruta a partir de un código libre ("R-12", "RUTA 12", "12") → 12. */
+function routeDigits(s: string | null | undefined): number | null {
+  const m = (s || '').replace(/\D/g, '');
+  return m ? parseInt(m, 10) : null;
+}
+
+/** Haversine en metros (sin PostGIS). */
+function haversineMeters(aLat: number, aLng: number, bLat: number, bLng: number): number {
+  const R = 6371000;
+  const toRad = (d: number) => (d * Math.PI) / 180;
+  const dLat = toRad(bLat - aLat);
+  const dLng = toRad(bLng - aLng);
+  const s = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(aLat)) * Math.cos(toRad(bLat)) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.min(1, Math.sqrt(s)));
 }
 
 /**
@@ -62,6 +106,125 @@ export class RouteAdherenceService {
     const start = `${day}T00:00:00-06:00`;
     const end = `${day}T23:59:59.999-06:00`;
     return this.tk.run((trx) => this.computeForVehicle(trx, vehicleId, day, start, end));
+  }
+
+  /**
+   * Detalle de auditoría de un vehículo/día: la traza GPS (recorrido real), las
+   * paradas reconstruidas (matcheadas a tienda) y los tickets del día del vendedor
+   * (venta/carga/combustible), cada uno UBICADO cruzando su hora impresa
+   * (ticket_time) contra el fix GPS más cercano — "dónde estaba cuando lo generó".
+   * Los tickets se ligan al vehículo por route_number del tracker ↔ route_code.
+   */
+  async vehicleAuditDetail(vehicleId: string, day: string): Promise<VehicleAuditDetail> {
+    if (!UUID_REGEX.test(vehicleId)) throw new BadRequestException('vehicle_id inválido');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(day || '')) throw new BadRequestException('date inválida (YYYY-MM-DD)');
+    const start = `${day}T00:00:00-06:00`;
+    const end = `${day}T23:59:59.999-06:00`;
+    await this.ensureBuilt(day, start, end);
+
+    return this.tk.run(async (trx) => {
+      // ── traza GPS (recorrido real), resuelta por el tracker ──
+      const posRows = await trx('logistics.vehicle_positions as vp')
+        .join('logistics.trackers as t', 't.id', 'vp.tracker_id')
+        .whereRaw('vp.tenant_id = public.current_tenant_id()')
+        .where('t.vehicle_id', vehicleId)
+        .whereBetween('vp.captured_at', [start, end])
+        .orderBy('vp.captured_at', 'asc')
+        .select('vp.lat', 'vp.lng', 'vp.captured_at', 'vp.speed_kmh');
+      const path = (posRows as any[])
+        .map((r) => ({ lat: Number(r.lat), lng: Number(r.lng), captured_at: new Date(r.captured_at).toISOString(), t: new Date(r.captured_at).getTime(), speed_kmh: r.speed_kmh != null ? Number(r.speed_kmh) : null }))
+        .filter((p) => Number.isFinite(p.lat) && Number.isFinite(p.lng));
+
+      // ── paradas reconstruidas del día (con tienda matcheada) ──
+      const stopRows = await trx('logistics.vehicle_stops as st')
+        .leftJoin('public.stores as s', 's.id', 'st.matched_store_id')
+        .where('st.vehicle_id', vehicleId)
+        .whereBetween('st.arrived_at', [start, end])
+        .orderBy('st.arrived_at', 'asc')
+        .select('st.arrived_at', 'st.left_at', 'st.minutes', 'st.lat', 'st.lng', 'st.matched_store_id', 's.nombre as store_name');
+      const stops = (stopRows as any[]).map((s) => ({
+        arrived_at: new Date(s.arrived_at).toISOString(),
+        left_at: new Date(s.left_at).toISOString(),
+        minutes: Number(s.minutes),
+        lat: Number(s.lat),
+        lng: Number(s.lng),
+        matched_store_id: s.matched_store_id ?? null,
+        store_name: s.store_name ?? null,
+      }));
+
+      // ── número(s) de ruta del vehículo (para ligar sus tickets) ──
+      const trkRows = await trx('logistics.trackers')
+        .whereRaw('tenant_id = public.current_tenant_id()')
+        .where('vehicle_id', vehicleId)
+        .whereNotNull('route_number')
+        .whereNull('deleted_at')
+        .distinct('route_number');
+      const routeNumbers = Array.from(new Set((trkRows as any[]).map((r) => Number(r.route_number)).filter((n) => Number.isFinite(n))));
+
+      // ── tickets del día de esa(s) ruta(s), ubicados por hora ──
+      let tickets: VehicleAuditDetail['tickets'] = [];
+      if (routeNumbers.length) {
+        const rawTickets = await trx('commercial.route_tickets')
+          .whereRaw('tenant_id = public.current_tenant_id()')
+          .whereNull('deleted_at')
+          .where('ticket_date', day)
+          .select('id', 'ticket_type', 'ticket_time', 'ticket_date', 'total', 'corte_number', 'reference', 'liters', 'photo_url', 'photo_preview_url', 'created_at', 'route_code');
+
+        const nearestByTime = (tsMs: number) => {
+          let best: { lat: number; lng: number; gap: number } | null = null;
+          for (const p of path) {
+            const gap = Math.abs(p.t - tsMs);
+            if (!best || gap < best.gap) best = { lat: p.lat, lng: p.lng, gap };
+          }
+          return best;
+        };
+        const nearestStore = (lat: number, lng: number): string | null => {
+          let best: { name: string | null; d: number } | null = null;
+          for (const s of stops) {
+            const d = haversineMeters(lat, lng, s.lat, s.lng);
+            if (!best || d < best.d) best = { name: s.store_name, d };
+          }
+          return best && best.d <= 200 ? best.name : null;
+        };
+
+        tickets = (rawTickets as any[])
+          .filter((t) => routeNumbers.includes(routeDigits(t.route_code) ?? -1))
+          .map((t) => {
+            const dayStr = (t.ticket_date instanceof Date ? t.ticket_date.toISOString().slice(0, 10) : String(t.ticket_date).slice(0, 10));
+            let at_lat: number | null = null, at_lng: number | null = null, gap: number | null = null, near: string | null = null;
+            if (t.ticket_time) {
+              const tsMs = new Date(`${dayStr}T${String(t.ticket_time)}-06:00`).getTime();
+              const near2 = Number.isFinite(tsMs) ? nearestByTime(tsMs) : null;
+              if (near2) { at_lat = near2.lat; at_lng = near2.lng; gap = Math.round(near2.gap / 60000); near = nearestStore(near2.lat, near2.lng); }
+            }
+            return {
+              id: t.id,
+              ticket_type: t.ticket_type,
+              ticket_time: t.ticket_time != null ? String(t.ticket_time) : null,
+              ticket_date: dayStr,
+              total: t.total != null ? Number(t.total) : null,
+              corte_number: t.corte_number ?? null,
+              reference: t.reference ?? null,
+              liters: t.liters != null ? Number(t.liters) : null,
+              photo_url: t.photo_url ?? null,
+              photo_preview_url: t.photo_preview_url ?? null,
+              created_at: new Date(t.created_at).toISOString(),
+              route_code: t.route_code,
+              at_lat, at_lng, gps_gap_min: gap, near_store_name: near, located: at_lat != null,
+            };
+          })
+          .sort((a, b) => (a.ticket_time || '').localeCompare(b.ticket_time || ''));
+      }
+
+      return {
+        vehicle_id: vehicleId,
+        day,
+        route_numbers: routeNumbers,
+        path: path.map(({ lat, lng, captured_at, speed_kmh }) => ({ lat, lng, captured_at, speed_kmh })),
+        stops,
+        tickets,
+      };
+    });
   }
 
   /**
@@ -205,7 +368,7 @@ export class RouteAdherenceService {
         ? await trx('public.stores')
             .where('ruta_id', dominantRoute)
             .whereNull('deleted_at')
-            .select('id as store_id', 'nombre as name', 'latitud')
+            .select('id as store_id', 'nombre as name', 'latitud', 'longitud')
             .orderBy('nombre', 'asc')
         : [];
       const routeName = dominantRoute
@@ -218,6 +381,8 @@ export class RouteAdherenceService {
         name: p.name ?? null,
         visit_sequence: null,
         has_coords: p.latitud != null,
+        lat: p.latitud != null ? Number(p.latitud) : null,
+        lng: p.longitud != null ? Number(p.longitud) : null,
         visited: visitedStore.has(p.store_id),
         captured: capturedStore.has(p.store_id),
       }));

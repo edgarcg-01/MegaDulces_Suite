@@ -608,9 +608,53 @@ export interface RouteAdherence {
   skipped_count: number;
   off_route_count: number;
   coverage_pct: number | null;
-  planned: Array<{ customer_id: string; code: string | null; name: string | null; visit_sequence: number | null; has_coords: boolean; visited: boolean; captured: boolean }>;
+  planned: Array<{ customer_id: string; code: string | null; name: string | null; visit_sequence: number | null; has_coords: boolean; lat: number | null; lng: number | null; visited: boolean; captured: boolean }>;
   skipped: Array<{ customer_id: string; code: string | null; name: string | null }>;
   off_route_stops: Array<{ arrived_at: string; minutes: number; lat: number; lng: number }>;
+}
+
+// ── LTV.16 Detalle de auditoría de un vehículo/día (traza + tickets ubicados) ─
+export interface AuditPathPoint {
+  lat: number;
+  lng: number;
+  captured_at: string;
+  speed_kmh: number | null;
+}
+export interface AuditStop {
+  arrived_at: string;
+  left_at: string;
+  minutes: number;
+  lat: number;
+  lng: number;
+  matched_store_id: string | null;
+  store_name: string | null;
+}
+export interface AuditTicket {
+  id: string;
+  ticket_type: 'venta' | 'carga' | 'combustible';
+  ticket_time: string | null;
+  ticket_date: string;
+  total: number | null;
+  corte_number: string | null;
+  reference: string | null;
+  liters: number | null;
+  photo_url: string | null;
+  photo_preview_url: string | null;
+  created_at: string;
+  route_code: string;
+  at_lat: number | null;
+  at_lng: number | null;
+  gps_gap_min: number | null;
+  near_store_name: string | null;
+  located: boolean;
+}
+export interface VehicleAuditDetail {
+  vehicle_id: string;
+  day: string;
+  route_numbers: number[];
+  path: AuditPathPoint[];
+  stops: AuditStop[];
+  tickets: AuditTicket[];
 }
 
 export interface FleetAdherenceRow extends RouteAdherence {
@@ -1117,6 +1161,11 @@ export class LogisticaService {
   fleetAdherenceDiagnostic(date: string): Observable<AdherenceDiagnostic> {
     const params = new HttpParams().set('date', date);
     return this.http.get<AdherenceDiagnostic>(`${this.base}/tracking/adherence/diagnostic`, { params });
+  }
+  /** LTV.16 — traza GPS + paradas + tickets ubicados de un vehículo en un día. */
+  vehicleAuditDetail(vehicleId: string, date: string): Observable<VehicleAuditDetail> {
+    const params = new HttpParams().set('vehicle_id', vehicleId).set('date', date);
+    return this.http.get<VehicleAuditDetail>(`${this.base}/tracking/audit-detail`, { params });
   }
   fleetAlerts(): Observable<FleetAlertRow[]> {
     return this.http.get<FleetAlertRow[]>(`${this.base}/tracking/alerts`);
