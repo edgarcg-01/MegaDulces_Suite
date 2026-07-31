@@ -65,21 +65,24 @@ const iso = (d) => (d ? (d instanceof Date ? d.toISOString().slice(0, 10) : Stri
     // catálogo de cuentas (kdco): c3=código, c2=nombre (sucio, min() para colapsar duplicados)
     let nameByAcct = new Map();
     try {
-      const cat = await src.query(`SELECT c3 AS cod, min(c2) AS nom FROM kdco WHERE c3 IS NOT NULL GROUP BY c3`);
+      const cat = await src.query(`SELECT c3 AS cod, min(c2) AS nom FROM md.kdco WHERE c3 IS NOT NULL GROUP BY c3`);
       nameByAcct = new Map(cat.rows.map((r) => [String(r.cod).trim(), (r.nom || '').trim()]));
     } catch { /* catálogo opcional */ }
 
     let bLines = 0;
     for (const t of tables) {
+      // Las tablas de póliza viven en el schema `md` (no en public/search_path).
+      const exists = (await src.query(`SELECT to_regclass('md.${t.tbl}') AS r`)).rows[0].r;
+      if (!exists) continue; // el mes no existe en esa sucursal
       let rows;
       try {
         rows = (await src.query(
           `SELECT c14 AS suc, c2 AS fecha, c3 AS cuenta, c4 AS ca, c5 AS importe, c10 AS linea,
                   c6 AS concepto, (c15||c16||lpad(c17::text,2,'0')||lpad(c18::text,2,'0')) AS doc_tipo,
                   NULLIF(btrim(c19::text),'') AS folio
-             FROM ${t.tbl}
+             FROM md.${t.tbl}
             WHERE c5 > 0 AND c4 IN ('C','A')`)).rows;
-      } catch { continue; } // tabla del mes no existe en esa sucursal
+      } catch (e) { console.warn(`  ⚠ ${b.code}/${t.tbl}: ${e.message}`); continue; }
       for (const r of rows) {
         const suc = String(r.suc || b.code).trim() || b.code;
         const folio = r.folio || 'S/F';

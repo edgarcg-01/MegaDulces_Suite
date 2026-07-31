@@ -35,28 +35,32 @@ const money = (n: number) => Number(n || 0).toLocaleString('es-MX', { style: 'cu
 @Injectable()
 export class MaatPolizaService {
   // ── error_captura: la póliza no cuadra (Σcargos ≠ Σabonos) ──
-  // Fuente ContPAQi (header ya trae los totales). Es EL gap raíz: antes no había tabla
-  // con las dos patas por póliza para poder verificarlo.
+  // ContPAQi (verdad fiscal, header con totales) + Kepler CON folio real (excluye las de
+  // diario 'S/F' que agregan y darían falsos descuadres). Es EL gap raíz: antes no había
+  // tabla con las dos patas por póliza para poder verificarlo. Verificado en vivo: caza los
+  // XD5501 (bug de IVA en descuentos, abono huérfano a 122-001).
   async detNoCuadra(trx: any, tenantId: string, p: any): Promise<RawFinding[]> {
     const min = Number(p.min_monto) || 1;
     const rows = await trx('analytics.gl_polizas')
-      .where({ tenant_id: tenantId, source: 'contpaqi' })
+      .where('tenant_id', tenantId)
+      .whereRaw("(source = 'contpaqi' OR (source = 'kepler' AND folio <> 'S/F'))")
       .whereRaw('abs(neto) >= ?', [min])
       .orderByRaw('abs(neto) DESC')
       .limit(Number(p.limit) || 300)
-      .select('ejercicio', 'periodo', 'tipo_pol', 'folio', 'anio_mes', 'fecha', 'concepto', 'cargos', 'abonos', 'neto', 'num_lines');
+      .select('source', 'sucursal', 'ejercicio', 'periodo', 'tipo_pol', 'folio', 'anio_mes', 'fecha', 'concepto', 'cargos', 'abonos', 'neto', 'num_lines');
     return rows.map((r: any) => {
       const neto = Number(r.neto);
+      const suc = r.source === 'kepler' ? ` (suc ${r.sucursal})` : '';
       return {
         rule_key: 'poliza_no_cuadra',
         severity: (Math.abs(neto) >= 1000 ? 'critical' : 'warn') as 'critical' | 'warn',
         score: Math.min(1, Math.abs(neto) / 10000),
         titulo: `Póliza descuadrada ${r.tipo_pol}/${r.folio} — Δ ${money(neto)}`,
-        resumen: `Póliza ${r.tipo_pol}/${r.folio} (${r.anio_mes}): cargos ${money(Number(r.cargos))} vs abonos ${money(Number(r.abonos))} → descuadre de ${money(neto)}. Una póliza SIEMPRE debe cuadrar (partida doble); revisá que no falte o sobre una pata.`,
-        entity: { source: 'contpaqi', ejercicio: r.ejercicio, periodo: r.periodo, tipo_pol: r.tipo_pol, folio: r.folio },
+        resumen: `Póliza ${r.tipo_pol}/${r.folio}${suc} (${r.anio_mes}, ${r.source}): cargos ${money(Number(r.cargos))} vs abonos ${money(Number(r.abonos))} → descuadre de ${money(neto)}. Una póliza SIEMPRE debe cuadrar (partida doble); revisá que no falte o sobre una pata.`,
+        entity: { source: r.source, sucursal: r.sucursal, ejercicio: r.ejercicio, periodo: r.periodo, tipo_pol: r.tipo_pol, folio: r.folio },
         periodo: r.anio_mes, importe: Math.abs(neto),
         evidencia: { cargos: Number(r.cargos), abonos: Number(r.abonos), neto, num_lines: r.num_lines, concepto: r.concepto },
-        dedup_key: `poliza_no_cuadra|contpaqi|${r.ejercicio}|${r.periodo}|${r.tipo_pol}|${r.folio}`,
+        dedup_key: `poliza_no_cuadra|${r.source}|${r.sucursal}|${r.ejercicio}|${r.periodo}|${r.tipo_pol}|${r.folio}`,
       };
     });
   }
