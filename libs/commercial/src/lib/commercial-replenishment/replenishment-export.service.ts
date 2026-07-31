@@ -428,7 +428,9 @@ export class ReplenishmentExportService {
     // Agrupa por proveedor (una hoja cada uno), orden alfabético.
     const bySup = new Map<string, WorkbookExportRow[]>();
     for (const r of data.rows || []) {
-      const k = r.supplier_name || 'Sin proveedor';
+      // supplier_name puede venir no-string (proveedor con nombre numérico) → coercer siempre a string.
+      const nm = r.supplier_name == null ? '' : String(r.supplier_name).trim();
+      const k = nm || 'Sin proveedor';
       (bySup.get(k) ?? bySup.set(k, []).get(k)!).push(r);
     }
     const suppliers = [...bySup.keys()].sort((a, b) => a.localeCompare(b, 'es'));
@@ -442,7 +444,7 @@ export class ReplenishmentExportService {
     for (const sup of suppliers) {
       const rows = bySup.get(sup) || [];
       // Nombre de hoja: Excel prohíbe : \ / ? * [ ] y máx 31 chars. Único.
-      const base = (sup.replace(/[:\\/?*[\]]/g, ' ').trim() || 'Proveedor').slice(0, 28);
+      const base = (String(sup).replace(/[:\\/?*[\]]/g, ' ').trim() || 'Proveedor').slice(0, 28);
       let name = base, n = 2;
       while (usedNames.has(name.toLowerCase())) name = `${base.slice(0, 25)} ${n++}`;
       usedNames.add(name.toLowerCase());
