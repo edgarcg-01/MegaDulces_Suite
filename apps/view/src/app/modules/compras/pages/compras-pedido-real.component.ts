@@ -647,13 +647,13 @@ export class ComprasPedidoRealComponent implements OnInit {
   /** forkJoin de las 3 fuentes por-sucursal. ignoreWarehouse=true (Vista Excel) trae todas las sucursales. */
   private fetchConsolidated(ignoreWarehouse: boolean) {
     const wh = ignoreWarehouse ? undefined : (this.fWarehouse || undefined);
-    const sup = this.fSupplier || undefined, s = this.search.trim() || undefined;
+    const sup = this.fSupplier || undefined, s = this.search.trim() || undefined, cat = this.fCategory || undefined;
     return forkJoin({
-      buy: this.api.purchaseSuggestion({ supplier_id: sup, warehouse_id: wh, scope: 'needed', search: s, coverage_days: this.coverage, pageSize: 1000 })
+      buy: this.api.purchaseSuggestion({ supplier_id: sup, category_id: cat, warehouse_id: wh, scope: 'needed', search: s, coverage_days: this.coverage, pageSize: 1000 })
         .pipe(catchError(() => of(null as PurchaseSuggestionResponse | null))),
-      tr: this.api.transferSuggestion({ warehouse_id: wh, supplier_id: sup, search: s, coverage_days: this.coverage, pageSize: 1000 })
+      tr: this.api.transferSuggestion({ warehouse_id: wh, supplier_id: sup, category_id: cat, search: s, coverage_days: this.coverage, pageSize: 1000 })
         .pipe(catchError(() => of(null as TransferSuggestionResponse | null))),
-      ov: this.api.overstock({ warehouse_id: wh, supplier_id: sup, search: s, over_days: 90, pageSize: 1000 })
+      ov: this.api.overstock({ warehouse_id: wh, supplier_id: sup, category_id: cat, search: s, over_days: 90, pageSize: 1000 })
         .pipe(catchError(() => of(null as OverstockResponse | null))),
     });
   }
