@@ -133,3 +133,19 @@ Regla `barrido_diferencia_multiple` en el motor SM (`movement-reconcile.service`
 **Cobertura de datos (verificada):** arqueo por denominación (`wincaja.arqueos`) solo en sucursales **30/32/50** → la reconstrucción total de la identidad con conteo físico (Slice B) es parcial hoy. Los joins `pagos_dia`/`arqueos`↔`cortes` NO son por rango de folio limpio (folios alfanuméricos) → Slice B necesita descifrar esas llaves.
 
 **Siguiente (B, por rebanadas):** reconstruir la identidad `fondo+ventas_efvo−Σretiros vs arqueo` donde haya `wincaja.arqueos` (30/32/50), y el crosswalk Wincaja↔Kepler a nivel caja/cajero para ligar el barrido al descuadre real del corte.
+
+---
+
+## 10. Ejecución — Slice B (2026-07-30): descifrado de joins + regla `retiro_conteo_mismatch`
+
+Al intentar reconstruir la identidad completa se descifró la estructura real de Wincaja (branch 30/32/50):
+
+- **`wincaja.arqueos` es el desglose por denominación de CADA retiro**, no un conteo de cierre. `retiro.monto` (folio X) = `Σ(denominacion×cantidad)` de los `arqueos` con ese mismo folio. Se amarran por `(source_branch, caja, folio)`; los folios de arqueo caen dentro del rango `folio_inicial/final_retiro` del corte.
+- **`por_diferencia_corte` es branch-dependiente:** en sucursales con retiros itemizados (30) es un residual chico ($17 = la diferencia real del corte); en `legacy_on_kepler` (40) es el barrido de cierre completo ($23,889). → no es un plug universal.
+- **`pagos_dia` NO se puede ligar a un corte:** `hora` trae fecha basura `1899-12-30` (zero-date de Access, solo hora útil), `folio` alfanumérico (`T323865046`), `consecutivo` no cae en el rango de pago del corte. → **no hay "esperado independiente" de ventas por corte** desde Wincaja. La reconstrucción `fondo+ventas−retiros` queda **bloqueada** por falta de la llave pago↔corte.
+
+**Lo que SÍ se pudo hacer (regla `retiro_conteo_mismatch`, plano Caja):** cruzar, por folio, el **monto registrado del retiro vs su conteo por denominación** — dos fuentes independientes. Divergencia ≥ umbral = error de captura del arqueo (o retiro mal registrado) → el conteo físico de ese corte no es confiable. Solo aplica en 30/32/50 (donde hay `arqueos`).
+- Params `umbral=50`, `critico=2000`. `causa_probable='error_captura'` (texto neutral, no acusa de robo).
+- **Smoke (data real):** **93 hallazgos**, 20 críticos (≥$2000). Patrón dominante: el conteo por denominación >> registrado (typos de `cantidad`, ej. $1.3M vs $16k) → detecta arqueos corruptos. Build api OK.
+
+**Bloqueo de Slice B (identidad completa):** falta la llave `pagos_dia ↔ corte`. Opciones abiertas: (a) descifrar el folio de `pagos_dia` (¿prefijo T/F + numérico = caja+consecutivo?), (b) traer el efectivo esperado desde otra tabla Wincaja o desde Kepler `c15` con crosswalk caja/cajero, (c) aceptar que la verdad de "ventas efvo por corte" vive en Kepler y solo cruzar retiros+arqueo de Wincaja como capa de control.
