@@ -2,7 +2,6 @@ import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, computed, injec
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { RouterLink } from '@angular/router';
 import { catchError, of, forkJoin } from 'rxjs';
 import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
@@ -25,7 +24,7 @@ import {
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 
 type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
-type Mode = 'consolidado' | 'excel' | 'muerto';
+type Mode = 'pedido' | 'muerto';
 type UType = 'comprar' | 'traspaso' | 'sobre';
 
 /** Renglón unificado de la vista consolidada por sucursal. */
@@ -54,7 +53,7 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
   selector: 'app-compras-pedido-real',
   standalone: true,
   imports: [
-    CommonModule, FormsModule, RouterLink, ButtonModule, TableModule, ToastModule, SelectModule, MultiSelectModule,
+    CommonModule, FormsModule, ButtonModule, TableModule, ToastModule, SelectModule, MultiSelectModule,
     InputNumberModule, InputTextModule, IconFieldModule, InputIconModule, TagModule, DialogModule, MetricStripComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -64,202 +63,18 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
       <p-toast></p-toast>
       <header class="surf-page-head">
         <div class="surf-page-head-text">
-          <h1>Pedido <span class="pr-badge">por sucursal</span></h1>
-          <p class="surf-page-sub">Todo lo accionable de cada sucursal en un lugar: <strong>comprar</strong> (venta × cobertura − existencia − tránsito, al costo real por caja), <strong>traspasar</strong> desde su CEDIS y su <strong>sobrestock</strong>. Usa los chips para agregar o quitar información. Exporta XLSX o arma la requisición — por sucursal o global.</p>
+          <h1>Pedido <span class="pr-badge">unificado</span></h1>
+          <p class="surf-page-sub">Una fila por producto (venta / existencia / <strong>pedido</strong> por punto de compra). Clic para desplegar su desglose <strong>por sucursal</strong>: <strong>comprar</strong> (venta × cobertura − existencia − tránsito), <strong>traspasar</strong> desde su CEDIS y su <strong>sobrestock</strong> — con cantidad editable. Exporta XLSX o arma la requisición por producto o global.</p>
         </div>
         <div class="pr-mode" role="tablist" aria-label="Vista">
-          <button role="tab" [attr.aria-selected]="mode()==='consolidado'" class="pr-tab" [class.pr-tab-on]="mode()==='consolidado'" (click)="setMode('consolidado')">Por sucursal</button>
-          <button role="tab" [attr.aria-selected]="mode()==='excel'" class="pr-tab" [class.pr-tab-on]="mode()==='excel'" (click)="setMode('excel')">Vista Excel</button>
+          <button role="tab" [attr.aria-selected]="mode()==='pedido'" class="pr-tab" [class.pr-tab-on]="mode()==='pedido'" (click)="setMode('pedido')">Pedido</button>
           <button role="tab" [attr.aria-selected]="mode()==='muerto'" class="pr-tab" [class.pr-tab-on]="mode()==='muerto'" (click)="setMode('muerto')">Stock muerto</button>
         </div>
       </header>
 
-      @if (mode()==='consolidado') {
-        <app-metric-strip [items]="kpiItems()" ariaLabel="Resumen del pedido por sucursal" />
-
-        <div class="pr-filters">
-          <p-select [options]="supplierOpts()" [(ngModel)]="fSupplier" (onChange)="loadAll()"
-                    optionLabel="label" optionValue="value" placeholder="Todos los proveedores" [showClear]="true"
-                    [filter]="true" filterBy="label" [virtualScroll]="true" [virtualScrollItemSize]="34"
-                    styleClass="pr-sel-wide" ariaLabel="Filtrar por proveedor"></p-select>
-          <p-select [options]="warehouseOpts()" [(ngModel)]="fWarehouse" (onChange)="loadAll()"
-                    optionLabel="label" optionValue="value" placeholder="Todas las sucursales" [showClear]="true"
-                    styleClass="pr-sel" ariaLabel="Filtrar por sucursal"></p-select>
-          <p-iconfield styleClass="pr-search">
-            <p-inputicon styleClass="pi pi-search" />
-            <input pInputText type="text" [(ngModel)]="search" (keyup.enter)="loadAll()" placeholder="SKU o producto…" aria-label="Buscar producto" />
-          </p-iconfield>
-          <div class="pr-chips" role="group" aria-label="Qué mostrar">
-            <button type="button" class="pr-chip" [class.pr-chip-on]="cBuy()" (click)="cBuy.set(!cBuy())">Comprar</button>
-            <button type="button" class="pr-chip" [class.pr-chip-on]="cTr()" (click)="cTr.set(!cTr())">Traspasos</button>
-            <button type="button" class="pr-chip" [class.pr-chip-on]="cOver()" (click)="cOver.set(!cOver())">Sobrestock</button>
-          </div>
-          <label class="pr-cov">
-            <span>Cobertura</span>
-            <p-inputnumber [(ngModel)]="coverage" (onBlur)="loadAll()" [min]="1" [max]="120" [showButtons]="true"
-                           buttonLayout="horizontal" [step]="1" suffix=" d" inputStyleClass="pr-cov-in"
-                           decrementButtonClass="p-button-text" incrementButtonClass="p-button-text"
-                           incrementButtonIcon="pi pi-plus" decrementButtonIcon="pi pi-minus" ariaLabel="Días de cobertura"></p-inputnumber>
-          </label>
-          <div class="pr-presets" role="group" aria-label="Cobertura rápida">
-            @for (p of [14, 30, 45]; track p) {
-              <button type="button" class="pr-chip" [class.pr-chip-on]="coverage === p" (click)="setCoverage(p)">{{ p }}d</button>
-            }
-          </div>
-        </div>
-
-        @if (error()) {
-          <div class="pr-state pr-error">
-            <i class="pi pi-exclamation-triangle"></i>
-            <div><p>No se pudo cargar el pedido.</p>
-              <p-button type="button" label="Reintentar" icon="pi pi-refresh" styleClass="p-button-sm p-button-text" (click)="loadAll()"></p-button></div>
-          </div>
-        } @else {
-          @if (flatRows().length) {
-            <div class="pr-exp-bar">
-              <span class="pr-exp-hint">{{ grpCount() }} sucursal(es) — clic para desplegar productos</span>
-              <span class="pr-grp-sp"></span>
-              <button type="button" class="pr-chip" (click)="expandAll()">Expandir todo</button>
-              <button type="button" class="pr-chip" (click)="collapseAll()">Colapsar todo</button>
-            </div>
-          }
-          <p-table [value]="displayRows()" [loading]="loading()" [rowTrackBy]="rowKey"
-                   styleClass="p-datatable-sm pr-table" [tableStyle]="tableStyle">
-            <ng-template #header>
-              <tr>
-                <th style="min-width:16rem">Producto</th>
-                <th style="min-width:9rem">Proveedor / Origen</th>
-                <th class="pr-r" style="width:6.5rem" title="Cobertura (compra) · déficit (traspaso) · días en mano (sobrestock)">Señal</th>
-                <th class="pr-r" style="width:5rem" title="Existencia de la red en cajas">Exist.</th>
-                <th class="pr-r pr-sug" style="width:6rem" title="Cajas (editable en comprar/traspaso)">Cant.</th>
-                <th class="pr-r pr-muted-h" style="width:5rem" title="Piezas = cajas × UXC">Piezas</th>
-                <th class="pr-r" style="width:5.5rem" title="Costo real por caja">Costo</th>
-                <th class="pr-r pr-val" style="width:6.5rem" title="Valor = cantidad × costo real (sobrestock = capital inmovilizado)">Valor</th>
-              </tr>
-            </ng-template>
-
-            <ng-template #body let-r>
-              @if (r.__header) {
-                <tr class="pr-grp">
-                  <td colspan="8">
-                    <div class="pr-grp-in">
-                      <p-button type="button" styleClass="p-button-text p-button-sm pr-grp-tog" (click)="toggle(r.warehouse_code)"
-                              [icon]="isExpanded(r.warehouse_code) ? 'pi pi-chevron-down' : 'pi pi-chevron-right'"
-                              [attr.aria-label]="(isExpanded(r.warehouse_code) ? 'Colapsar ' : 'Desplegar ') + r.warehouse_code"></p-button>
-                      <button type="button" class="pr-grp-name-btn" (click)="toggle(r.warehouse_code)">
-                        <span class="pr-grp-name"><span class="pr-mono">{{ r.warehouse_code }}</span> {{ nameOf(r.warehouse_code) }}</span>
-                      </button>
-                      @if (grp(r.warehouse_code); as g) {
-                        <span class="pr-grp-n">{{ g.n }} prod.</span>
-                        <span class="pr-grp-sub">
-                          @if (g.buy > 0) { <span class="pr-gs pr-gs-buy" title="A comprar">comprar {{ money(g.buy) }}</span> }
-                          @if (g.tr > 0) { <span class="pr-gs pr-gs-tr" title="A traspasar desde su CEDIS">traspaso {{ money(g.tr) }}</span> }
-                          @if (g.over > 0) { <span class="pr-gs pr-gs-over" title="Capital inmovilizado (sobrestock)">sobre {{ money(g.over) }}</span> }
-                        </span>
-                        <span class="pr-grp-sp"></span>
-                        <p-button type="button" label="XLSX" icon="pi pi-file-excel" styleClass="p-button-sm p-button-text pr-grp-btn" (click)="exportScope(r.warehouse_code)" [disabled]="dl() || (g.buy + g.tr) <= 0"></p-button>
-                        <p-button type="button" label="Requisición" icon="pi pi-check" styleClass="p-button-sm pr-grp-btn" (click)="buildReq(r.warehouse_code)" [disabled]="saving() || (g.buy + g.tr) <= 0"></p-button>
-                      }
-                    </div>
-                  </td>
-                </tr>
-              } @else {
-                <tr [class.pr-row-over]="r.type==='sobre'">
-                <td>
-                  <div class="pr-prod">{{ r.nombre }}</div>
-                  <div class="pr-prod-meta">
-                    <span class="pr-sku">{{ r.sku }}</span>
-                    <p-tag [value]="typeLabel(r.type)" [severity]="typeSev(r.type)" styleClass="pr-abc"></p-tag>
-                    @if (r.abc_class) { <p-tag [value]="r.abc_class" [severity]="abcSev(r.abc_class)" styleClass="pr-abc"></p-tag> }
-                    @if (r.type==='comprar' && r.unit_source && r.unit_source !== 'catalog') {
-                      <button type="button" class="pr-unit-btn" (click)="openUnit(r.buy!)" title="Ajustar unidad de venta">
-                        <p-tag [value]="unitLabel(r.unit_source)" [severity]="r.unit_source === 'revisar' ? 'warn' : 'contrast'" styleClass="pr-abc"></p-tag>
-                      </button>
-                    }
-                  </div>
-                </td>
-                <td class="pr-supp">
-                  @if (r.type==='traspaso') { <span class="pr-mono">← {{ r.from_code }}</span> }
-                  @else { {{ r.supplier_name || '—' }} }
-                </td>
-                <td class="pr-r">
-                  @if (r.type==='comprar') {
-                    @if (r.cover != null) { <p-tag [value]="(r.cover | number:'1.0-0') + ' d'" [severity]="coverSev(r.cover)" styleClass="pr-cov-tag"></p-tag> } @else { <span class="pr-muted">—</span> }
-                  } @else if (r.type==='traspaso') {
-                    <span class="pr-muted" title="Déficit de la sucursal (cajas)">{{ r.deficit | number:'1.0-1' }}</span>
-                  } @else {
-                    @if (r.days_on_hand != null) { <p-tag [value]="(r.days_on_hand | number:'1.0-0') + ' d'" severity="info" styleClass="pr-cov-tag"></p-tag> } @else { <span class="pr-muted">—</span> }
-                  }
-                </td>
-                <td class="pr-r pr-muted">{{ r.on_hand | number:'1.0-0' }}</td>
-                <td class="pr-r pr-sug">
-                  @if (r.editable) {
-                    <!-- input PLANO (sin pInputText): la directiva de PrimeNG 22 en celdas de
-                         tabla con muchas filas dispara "Maximum call stack" (primeng#12522).
-                         Estilamos .pr-qty a mano con tokens. -->
-                    <input type="number" min="0" [(ngModel)]="r.qty" (ngModelChange)="tick()" class="pr-qty" [attr.aria-label]="'Cantidad de ' + r.sku" />
-                  } @else { <span class="pr-muted">{{ r.qty | number:'1.0-0' }}</span> }
-                </td>
-                <td class="pr-r pr-muted-h">{{ (r.qty * r.uxc) | number:'1.0-0' }}</td>
-                <td class="pr-r pr-muted">{{ money(r.unit_cost) }}</td>
-                <td class="pr-r pr-val" [class.pr-strong]="r.type!=='sobre'" [class.pr-over-val]="r.type==='sobre'">
-                  {{ r.type==='sobre' ? money(r.qty * r.unit_cost) : money(r.qty * r.unit_cost) }}
-                </td>
-              </tr>
-              }
-            </ng-template>
-
-            <ng-template #emptymessage>
-              <tr><td colspan="8" class="pr-empty">
-                <i class="pi pi-inbox"></i>
-                <p>Sin nada accionable con estos filtros.</p>
-                <span>Ajusta proveedor, sucursal o cobertura, o activa más chips (Comprar / Traspasos / Sobrestock).</span>
-              </td></tr>
-            </ng-template>
-          </p-table>
-        }
-        <p class="pr-foot">Comprar = venta diaria × cobertura − existencia − tránsito, costo real por caja. Traspaso = déficit cubrible por su CEDIS (<a routerLink="/compras/red">Red de abasto</a>). Sobrestock = capital inmovilizado (informativo). En cajas; piezas = cajas × UXC.</p>
-
-        @if (totCajas() > 0) {
-          <div class="pr-bulk" role="region" aria-label="Acciones globales">
-            <span class="pr-bulk-n">{{ grpCount() }} sucursal(es) · comprar <strong>{{ money(totBuy()) }}</strong> · traspaso <strong>{{ money(totTr()) }}</strong></span>
-            <span class="pr-bulk-sp"></span>
-            <p-button type="button" label="XLSX global" icon="pi pi-file-excel" styleClass="p-button-sm p-button-text" (click)="exportScope()" [disabled]="dl()"></p-button>
-            <p-button type="button" [label]="saving() ? 'Armando…' : 'Requisiciones (global)'" icon="pi pi-check" styleClass="p-button-sm" (click)="buildReq()" [disabled]="saving()"></p-button>
-          </div>
-        }
-
-        <!-- RA-PRO.28 — override manual de unidad de venta -->
-        <p-dialog [(visible)]="unitVisible" [modal]="true" [style]="{ width: '32rem' }" [dismissableMask]="true" header="Unidad de venta">
-          @if (unitRow(); as u) {
-            <div class="pr-uov">
-              <p class="pr-uov-prod"><strong>{{ u.nombre }}</strong> <span class="pr-sku">{{ u.sku }}</span></p>
-              <p class="pr-uov-hint">
-                El motor detectó <strong>{{ unitLabel(u.unit_source) || 'catálogo' }}</strong>@if (u.price_ratio) { · ratio de precio mayoreo/retail <strong>{{ u.price_ratio | number:'1.0-1' }}×</strong> }.
-                Ajusta solo si el pedido sale en la unidad equivocada. Deja vacío para volver al automático.
-              </p>
-              <label class="pr-uov-f">
-                <span>Sub-unidades por unidad de stock (SUF)</span>
-                <input pInputText type="number" min="1" step="0.1" [(ngModel)]="ovSuf" placeholder="auto" />
-                <small>Para granel: kg (o piezas) por cubeta/bulto. Ej. cobertura 20K → 20.</small>
-              </label>
-              <label class="pr-uov-f">
-                <span>Unidades de stock por caja de pedido (BF)</span>
-                <input pInputText type="number" min="1" step="1" [(ngModel)]="ovBf" placeholder="auto" />
-                <small>Cuántas unidades de stock trae una caja de compra. Granel = 1.</small>
-              </label>
-              <div class="pr-uov-actions">
-                <p-button type="button" label="Volver a automático" styleClass="p-button-sm p-button-text" (click)="clearUnit()" [disabled]="unitSaving()"></p-button>
-                <span class="pr-bulk-sp"></span>
-                <p-button type="button" label="Cancelar" styleClass="p-button-sm p-button-text" (click)="unitVisible=false"></p-button>
-                <p-button type="button" [label]="unitSaving() ? 'Guardando…' : 'Guardar'" icon="pi pi-check" styleClass="p-button-sm" (click)="saveUnit()" [disabled]="unitSaving()"></p-button>
-              </div>
-            </div>
-          }
-        </p-dialog>
-      } @else if (mode()==='excel') {
-        <!-- RA-PRO.32 — RÉPLICA DEL WORKBOOK DEL COMPRADOR (una fila por SKU, columnas por punto de compra) -->
-        <app-metric-strip [items]="wbKpi()" ariaLabel="Resumen del workbook de compra" />
+      @if (mode()==='pedido') {
+        <!-- RA-PRO.32.3 — PEDIDO unificado: workbook por SKU + desglose por sucursal (compra/traspaso/sobre) en el acordeón -->
+        <app-metric-strip [items]="pedidoKpi()" ariaLabel="Resumen del pedido" />
         <div class="pr-filters">
           <p-select [options]="supplierOpts()" [(ngModel)]="fSupplier" (onChange)="loadWorkbook()"
                     optionLabel="label" optionValue="value" placeholder="Todos los proveedores" [showClear]="true"
@@ -423,8 +238,46 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
               </ng-template>
             </p-table>
           </div>
-          <p class="pr-foot">Réplica del workbook del comprador. <strong>Vta</strong> = venta 30 días en cajas · <strong>Exist.</strong> = existencia en cajas · <strong>Pedido</strong> = venta diaria × cobertura − existencia − tránsito. Cada bloque es un <strong>punto de compra</strong>: @for (t of wbTerritories(); track t.code) {<span class="pr-mono">{{ t.code }}</span>&nbsp;}. <em>Clic en una fila para desplegar su desglose por sucursal (editable) — podés abrir varias a la vez. El botón <strong>Englobar / Desglosar</strong> junta o abre las columnas de venta por sucursal.</em></p>
+          <p class="pr-foot">Una fila por producto. <strong>Vta</strong> = venta 30 días en cajas · <strong>Exist.</strong> = existencia en cajas · <strong>Pedido</strong> = venta diaria × cobertura − existencia − tránsito. Cada bloque es un <strong>punto de compra</strong>: @for (t of wbTerritories(); track t.code) {<span class="pr-mono">{{ t.code }}</span>&nbsp;}. <em>Clic en una fila para desplegar su desglose <strong>por sucursal</strong> (comprar/traspaso/sobrestock, editable) — podés abrir varias a la vez. El botón <strong>Englobar / Desglosar</strong> junta o abre las columnas de venta por sucursal.</em></p>
         }
+
+        @if (totCajas() > 0) {
+          <div class="pr-bulk" role="region" aria-label="Acciones globales de la red">
+            <span class="pr-bulk-n">Red (todas las sucursales) · comprar <strong>{{ money(totBuy()) }}</strong> · traspaso <strong>{{ money(totTr()) }}</strong>@if (totOver() > 0) { · <span class="pr-gs-over">sobre {{ money(totOver()) }}</span> }</span>
+            <span class="pr-bulk-sp"></span>
+            <p-button type="button" label="XLSX global" icon="pi pi-file-excel" styleClass="p-button-sm p-button-text" (click)="exportScope()" [disabled]="dl()"></p-button>
+            <p-button type="button" [label]="saving() ? 'Armando…' : 'Requisiciones (global)'" icon="pi pi-check" styleClass="p-button-sm" (click)="buildReq()" [disabled]="saving()"></p-button>
+          </div>
+        }
+
+        <!-- RA-PRO.28 — override manual de unidad de venta (se abre desde el desglose por sucursal) -->
+        <p-dialog [(visible)]="unitVisible" [modal]="true" [style]="{ width: '32rem' }" [dismissableMask]="true" header="Unidad de venta">
+          @if (unitRow(); as u) {
+            <div class="pr-uov">
+              <p class="pr-uov-prod"><strong>{{ u.nombre }}</strong> <span class="pr-sku">{{ u.sku }}</span></p>
+              <p class="pr-uov-hint">
+                El motor detectó <strong>{{ unitLabel(u.unit_source) || 'catálogo' }}</strong>@if (u.price_ratio) { · ratio de precio mayoreo/retail <strong>{{ u.price_ratio | number:'1.0-1' }}×</strong> }.
+                Ajusta solo si el pedido sale en la unidad equivocada. Deja vacío para volver al automático.
+              </p>
+              <label class="pr-uov-f">
+                <span>Sub-unidades por unidad de stock (SUF)</span>
+                <input pInputText type="number" min="1" step="0.1" [(ngModel)]="ovSuf" placeholder="auto" />
+                <small>Para granel: kg (o piezas) por cubeta/bulto. Ej. cobertura 20K → 20.</small>
+              </label>
+              <label class="pr-uov-f">
+                <span>Unidades de stock por caja de pedido (BF)</span>
+                <input pInputText type="number" min="1" step="1" [(ngModel)]="ovBf" placeholder="auto" />
+                <small>Cuántas unidades de stock trae una caja de compra. Granel = 1.</small>
+              </label>
+              <div class="pr-uov-actions">
+                <p-button type="button" label="Volver a automático" styleClass="p-button-sm p-button-text" (click)="clearUnit()" [disabled]="unitSaving()"></p-button>
+                <span class="pr-bulk-sp"></span>
+                <p-button type="button" label="Cancelar" styleClass="p-button-sm p-button-text" (click)="unitVisible=false"></p-button>
+                <p-button type="button" [label]="unitSaving() ? 'Guardando…' : 'Guardar'" icon="pi pi-check" styleClass="p-button-sm" (click)="saveUnit()" [disabled]="unitSaving()"></p-button>
+              </div>
+            </div>
+          }
+        </p-dialog>
       } @else {
         <!-- STOCK MUERTO: productos activos SIN rotación (capital inmovilizado) -->
         <div class="pr-filters">
@@ -593,7 +446,7 @@ export class ComprasPedidoRealComponent implements OnInit {
   error = signal(false);
   dl = signal(false);
   saving = signal(false);
-  mode = signal<Mode>('consolidado');
+  mode = signal<Mode>('pedido');
   deadValue = signal(0);
 
   // RA-PRO.32 — Vista Excel (réplica del workbook del comprador, una fila por SKU × punto de compra).
@@ -686,10 +539,8 @@ export class ComprasPedidoRealComponent implements OnInit {
       next: (cs) => this.categoryOpts.set(cs.map((c) => ({ label: c.name, value: c.id }))), error: () => {},
     });
     this.restoreFilters();
-    const m = this.mode();
-    if (m === 'excel') this.loadWorkbook();
-    else if (m === 'muerto') this.loadDead();
-    else this.loadAll();
+    if (this.mode() === 'muerto') this.loadDead();
+    else this.loadWorkbook();
   }
 
   // Persistencia de filtros en localStorage → se mantienen al recargar / navegar / cambiar de pestaña.
@@ -708,7 +559,9 @@ export class ComprasPedidoRealComponent implements OnInit {
       const raw = localStorage.getItem(this.FKEY);
       if (!raw) return;
       const s = JSON.parse(raw);
-      if (s.mode === 'consolidado' || s.mode === 'excel' || s.mode === 'muerto') this.mode.set(s.mode);
+      // 'consolidado'/'excel' (versiones previas de 3 pestañas) migran a la única 'pedido'.
+      if (s.mode === 'muerto') this.mode.set('muerto');
+      else if (s.mode === 'pedido' || s.mode === 'consolidado' || s.mode === 'excel') this.mode.set('pedido');
       if ('fSupplier' in s) this.fSupplier = s.fSupplier;
       if ('fCategory' in s) this.fCategory = s.fCategory;
       if ('fWarehouse' in s) this.fWarehouse = s.fWarehouse;
@@ -726,9 +579,8 @@ export class ComprasPedidoRealComponent implements OnInit {
   setMode(m: Mode): void {
     if (this.mode() === m) return;
     this.mode.set(m);
-    if (m === 'consolidado') this.loadAll();
-    else if (m === 'excel') this.loadWorkbook();
-    else this.loadDead();
+    if (m === 'muerto') this.loadDead();
+    else this.loadWorkbook();
   }
 
   /** RA-PRO.32 — carga la réplica del workbook (fila por SKU, columnas por punto de compra) +, en
@@ -770,13 +622,13 @@ export class ComprasPedidoRealComponent implements OnInit {
     });
   }
 
-  wbKpi(): MetricStripItem[] {
+  pedidoKpi(): MetricStripItem[] {
     const t = this.wbTotals();
     return [
-      { label: '$ Pedido', value: t.pedido, format: 'currency', tone: 'brand' },
-      { label: 'Valor venta 30d', value: t.venta, format: 'currency' },
-      { label: 'Valor existencia', value: t.exis, format: 'currency', tone: 'warn', sub: 'inmovilizado' },
-      { label: 'SKUs', value: this.wbTotal(), sub: 'en los 4 puntos' },
+      { label: 'A comprar', value: t.pedido, format: 'currency', tone: 'brand', sub: 'venta × cobertura' },
+      { label: 'A traspasar', value: this.totTr(), format: 'currency', sub: 'desde CEDIS' },
+      { label: 'Sobrestock', value: this.totOver(), format: 'currency', tone: 'warn', sub: 'inmovilizado' },
+      { label: 'SKUs', value: this.wbTotal() },
       { label: 'Cobertura', value: this.coverage, sub: 'días objetivo' },
     ];
   }
@@ -891,16 +743,6 @@ export class ComprasPedidoRealComponent implements OnInit {
   totOver = computed(() => { let s = 0; this.subs().forEach((g) => (s += g.over)); return s; });
   totCajas = computed(() => { let s = 0; this.subs().forEach((g) => (s += g.buyCj + g.trCj)); return s; });
 
-  kpiItems(): MetricStripItem[] {
-    return [
-      { label: 'A comprar', value: this.totBuy(), format: 'currency', tone: 'brand' },
-      { label: 'A traspasar', value: this.totTr(), format: 'currency', sub: 'desde CEDIS' },
-      { label: 'Sobrestock', value: this.totOver(), format: 'currency', tone: 'warn', sub: 'inmovilizado' },
-      { label: 'Sucursales', value: this.grpCount(), sub: 'con movimiento' },
-      { label: 'Cobertura', value: this.coverage, sub: 'días objetivo' },
-    ];
-  }
-
   loadDead(): void {
     this.loading.set(true); this.saveFilters();
     this.api.deadStock({ search: this.search.trim() || undefined, pageSize: 200 })
@@ -934,7 +776,7 @@ export class ComprasPedidoRealComponent implements OnInit {
       pieces_per_unit: this.ovSuf != null && Number(this.ovSuf) > 0 ? Number(this.ovSuf) : null,
       box_factor: this.ovBf != null && Number(this.ovBf) > 0 ? Number(this.ovBf) : null,
     }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: () => { this.unitSaving.set(false); this.unitVisible = false; this.toast.add({ severity: 'success', summary: 'Unidad actualizada', detail: r.sku }); this.mode() === 'excel' ? this.loadWorkbook() : this.loadAll(); },
+      next: () => { this.unitSaving.set(false); this.unitVisible = false; this.toast.add({ severity: 'success', summary: 'Unidad actualizada', detail: r.sku }); this.mode() === 'muerto' ? this.loadDead() : this.loadWorkbook(); },
       error: (e) => { this.unitSaving.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudo guardar.' }); },
     });
   }
@@ -980,7 +822,7 @@ export class ComprasPedidoRealComponent implements OnInit {
       this.saving.set(false);
       if (folios.length) this.toast.add({ severity: 'success', summary: `${folios.length} requisición(es)`, detail: folios.join(', ') });
       if (failed) this.toast.add({ severity: 'error', summary: 'Error parcial', detail: `${failed} no se pudieron crear.` });
-      if (folios.length) { this.mode() === 'excel' ? this.loadWorkbook() : this.loadAll(); }
+      if (folios.length) { this.mode() === 'muerto' ? this.loadDead() : this.loadWorkbook(); }
     };
     dtos.forEach((dto) => {
       this.api.createRequisition(dto).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
