@@ -33,6 +33,16 @@ export class StoreController {
     return this.service.snapshot(effective);
   }
 
+  /** SM.10 — cajas abiertas ahora + quién está cobrando (sesión × tickets por cajero). */
+  @Get('open-cajas')
+  @RequirePermissions(Permission.STORE_LIVE_VER)
+  @ApiQuery({ name: 'warehouse', required: false, description: "Filtro por sucursal. Ignorado si el usuario ya está scopeado." })
+  @ApiOperation({ summary: 'SM.10 — cajas ABIERTAS ahora + actividad en vivo por cajero (quién está cobrando).' })
+  openCajas(@ReqUser() user: { warehouse_code?: string } | undefined, @Query('warehouse') warehouse?: string) {
+    const effective = user?.warehouse_code || warehouse || undefined;
+    return this.service.openSessions(effective);
+  }
+
   /** LM-K.1 — busca un ticket Kepler por folio para armar la entrega a domicilio. */
   @Get('ticket-lookup')
   @RequireAnyPermission(Permission.STORE_LIVE_VER, Permission.REPARTO_DESPACHAR)
