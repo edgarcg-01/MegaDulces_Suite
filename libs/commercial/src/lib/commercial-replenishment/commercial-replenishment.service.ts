@@ -736,7 +736,7 @@ export class CommercialReplenishmentService {
     const tenantId = this.tenantCtx.requireTenantId();
     const cov = Math.min(120, Math.max(1, Number(q.coverage_days) || 30));
     const page = Math.max(1, Number(q.page) || 1);
-    const pageSize = Math.min(q.export ? 100000 : 1000, Math.max(1, Number(q.pageSize) || 100));
+    const pageSize = q.export ? 100000 : Math.min(1000, Math.max(1, Number(q.pageSize) || 100));
     const offset = (page - 1) * pageSize;
     return this.tk.run(async (trx) => {
       const binds: Record<string, unknown> = { t: tenantId, cov };
@@ -759,8 +759,11 @@ export class CommercialReplenishmentService {
         whIds.forEach((w, i) => { binds[`wh${i}`] = w; });
         whFilter = ` AND rp.warehouse_id IN (${inList})`;
       }
-      // Sin selección explícita: sólo almacenes que sostienen inventario (excluye ventas-sin-stock).
-      const stockJoin = whIds.length ? '' : `JOIN (
+      // Sin selección explícita: en modo POR SUCURSAL sólo almacenes que sostienen inventario
+      // (evita columnas basura de rutas/vehículos sin stock). En modo GENERAL NO se filtra por
+      // stock: es un único agregado de red y debe incluir TODA la venta, incluidas las camionetas
+      // (kind='truck', autoventa) que venden con stock 0 — si no, la venta General queda corta.
+      const stockJoin = (whIds.length || general) ? '' : `JOIN (
             SELECT warehouse_id FROM analytics.replenishment_plan WHERE tenant_id = :t GROUP BY warehouse_id HAVING SUM(stock_pz) > 0
           ) sw ON sw.warehouse_id = rp.warehouse_id`;
       const colExpr = general ? `'GENERAL'` : 'w.code';
