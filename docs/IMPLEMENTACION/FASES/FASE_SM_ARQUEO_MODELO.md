@@ -149,3 +149,16 @@ Al intentar reconstruir la identidad completa se descifró la estructura real de
 - **Smoke (data real):** **93 hallazgos**, 20 críticos (≥$2000). Patrón dominante: el conteo por denominación >> registrado (typos de `cantidad`, ej. $1.3M vs $16k) → detecta arqueos corruptos. Build api OK.
 
 **Bloqueo de Slice B (identidad completa):** falta la llave `pagos_dia ↔ corte`. Opciones abiertas: (a) descifrar el folio de `pagos_dia` (¿prefijo T/F + numérico = caja+consecutivo?), (b) traer el efectivo esperado desde otra tabla Wincaja o desde Kepler `c15` con crosswalk caja/cajero, (c) aceptar que la verdad de "ventas efvo por corte" vive en Kepler y solo cruzar retiros+arqueo de Wincaja como capa de control.
+
+### 10.1 — Continuación (2026-07-31): la llave existe pero NO escala
+
+- **(b) descartado por falta de datos:** las 3 sucursales con conteo físico (30/32/50) tienen `kepler_code = NULL` (son `live_on_wincaja`, no están en Kepler); Kepler `cash_cuts` solo cubre warehouses 01–05. **Cero solape** entre "tiene esperado Kepler" y "tiene conteo físico Wincaja". No hay contra qué cruzar.
+- **(a) la llave pago↔corte SÍ es `consecutivo`:** `pagos_dia.consecutivo::int ∈ [folio_inicial_pago, folio_final_pago]` por `(source_branch, caja)`. Verificado en el corte 7101 (caja 32): ventas efvo $174,580 (462 pagos) — plausible. (El "99999" que despistaba era orden de TEXTO; el máximo real de consecutivo es 169,354.)
+- **PERO no es confiable a escala.** Al reconstruir 470 cortes de branch 32 el resultado es basura ($7.4M de retiros en un corte, gaps de ±$5–7M):
+  1. El **`folio` de corte se recicla** — 1869 aparece en (caja 33, jul) y (caja 32, abr) con montos idénticos → `GROUP BY folio` colapsa cortes distintos. Falta una llave única real del corte (probablemente `caja + fecha_corte + folio` o el ctid).
+  2. **Cajas administrativas** (70, 99) traen rangos de retiro gigantes (`1-39`, o miles) → sobre-conteo. Hay que excluirlas / tratarlas aparte.
+  3. Los rangos de folio de retiro/pago de cortes distintos **se traslapan**.
+
+**Decisión:** NO se ship una regla `ventas_vs_retiros` — generaría hallazgos falsos (viola "reportar fielmente"). La reconstrucción de la identidad **queda como mini-proyecto dedicado** (feed Wincaja con: llave única de corte, exclusión de cajas admin, manejo del reciclaje de folio, per-period reset de secuencias). No es un detector rápido.
+
+**Deliverable real de todo el análisis SM.9/A+B:** dos reglas sólidas y verificadas sobre `wincaja.*` — `barrido_diferencia_multiple` (184 · $3.9M) y `retiro_conteo_mismatch` (93 · 20 críticos). La identidad completa `fondo+ventas−retiros vs arqueo` **no es alcanzable de forma confiable** con la estructura actual sin ese mini-proyecto.
