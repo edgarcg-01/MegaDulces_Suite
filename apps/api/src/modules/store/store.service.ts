@@ -43,6 +43,7 @@ export class StoreService {
         ticket_ts: t.ticket_ts,
         total,
         forma_pago: t.forma_pago || null,
+        cajero: t.cajero || null,
         items: JSON.stringify(Array.isArray(t.items) ? t.items : []),
       };
       let ins: any[] = [];
@@ -202,6 +203,70 @@ export class StoreService {
       hourly: hourly.map((h: any) => ({ hora: Number(h.hora), tickets: Number(h.tickets), venta: Number(h.venta || 0) })),
       recent: recent.map((r: any) => ({ ...r, total: Number(r.total) })),
       sockets: this.gateway.getStats(),
+    };
+  }
+
+  /**
+   * SM.10 — Cajas ABIERTAS ahora + quién está cobrando. Cruza `analytics.cash_sessions`
+   * (status=open, hoy) con la actividad en vivo por cajero (`store_live_tickets` de hoy,
+   * `cajero` = kdm1.c67). La sesión aporta caja + hora de apertura; el cajero ACTIVO lo
+   * dan los tickets (la sesión c7/c8 es ambigua). `cobrando` = ticket en los últimos 15 min.
+   */
+  async openSessions(warehouseCode?: string): Promise<any> {
+    const k = this.knex;
+    const todayMX = `(now() AT TIME ZONE '${TZ}')::date`;
+
+    const actQ = k('analytics.store_live_tickets')
+      .where('tenant_id', TENANT)
+      .andWhereRaw(`(ticket_ts AT TIME ZONE '${TZ}')::date = ${todayMX}`)
+      .whereNotNull('cajero')
+      .groupBy('warehouse_code', 'cajero')
+      .select('warehouse_code', 'cajero',
+        k.raw('COUNT(*)::int AS tickets'), k.raw('ROUND(SUM(total)::numeric,2) AS venta'),
+        k.raw(`to_char(MAX(ticket_ts) AT TIME ZONE '${TZ}', 'HH24:MI') AS last_ticket`),
+        k.raw('MAX(ticket_ts) AS last_ts'));
+    if (warehouseCode) actQ.andWhere('warehouse_code', warehouseCode);
+    const act = await actQ;
+    const actMap = new Map(act.map((a: any) => [`${a.warehouse_code}|${a.cajero}`, a]));
+
+    const sesQ = k('analytics.cash_sessions as s')
+      .leftJoin('analytics.pos_cashiers as pc', function (this: any) {
+        this.on('pc.tenant_id', '=', 's.tenant_id').andOn('pc.warehouse_code', '=', 's.warehouse_code').andOn('pc.cajero_code', '=', 's.cajero_code');
+      })
+      .where('s.tenant_id', TENANT).where('s.status', 'open').andWhereRaw(`s.business_date = ${todayMX}`)
+      .select('s.warehouse_code', 's.warehouse_name', 's.caja', 's.cajero_code',
+        k.raw('pc.nombre AS cajero_nombre'),
+        k.raw(`to_char(s.opened_at AT TIME ZONE '${TZ}', 'HH24:MI') AS abrio`), 's.opened_at')
+      .orderBy('s.warehouse_code').orderBy('s.caja');
+    if (warehouseCode) sesQ.andWhere('s.warehouse_code', warehouseCode);
+    const sesiones = await sesQ;
+
+    const NOW = Date.now();
+    const open_cajas = sesiones.map((s: any) => {
+      const a: any = actMap.get(`${s.warehouse_code}|${s.cajero_code}`);
+      const lastMs = a?.last_ts ? new Date(a.last_ts).getTime() : null;
+      const idleMin = lastMs != null ? Math.round((NOW - lastMs) / 60000) : null;
+      return {
+        warehouse_code: s.warehouse_code, warehouse_name: s.warehouse_name, caja: s.caja,
+        cajero: s.cajero_code, cajero_nombre: s.cajero_nombre || null, abrio: s.abrio,
+        tickets: a ? Number(a.tickets) : 0, venta: a ? Number(a.venta) : 0,
+        last_ticket: a?.last_ticket || null, idle_min: idleMin,
+        cobrando: idleMin != null && idleMin <= 15,
+      };
+    });
+
+    // Cajeros con ventas hoy pero SIN sesión abierta ligada (handoff / caja no reportada).
+    const linked = new Set(sesiones.map((s: any) => `${s.warehouse_code}|${s.cajero_code}`));
+    const cajeros_sin_sesion = act
+      .filter((a: any) => !linked.has(`${a.warehouse_code}|${a.cajero}`))
+      .map((a: any) => ({ warehouse_code: a.warehouse_code, cajero: a.cajero, tickets: Number(a.tickets), venta: Number(a.venta), last_ticket: a.last_ticket }));
+
+    return {
+      generated_at: new Date().toISOString(),
+      cajas_abiertas: open_cajas.length,
+      cobrando_ahora: open_cajas.filter((c: any) => c.cobrando).length,
+      open_cajas,
+      cajeros_sin_sesion,
     };
   }
 }

@@ -15,6 +15,7 @@ export interface LiveTicket {
   ticket_ts: string; // ISO
   total: number;
   forma_pago?: string;
+  cajero?: string;   // SM.10 — cajero del ticket (kdm1.c67) para ligar actividad a la cajera
   items: LiveTicketItem[];
 }
 

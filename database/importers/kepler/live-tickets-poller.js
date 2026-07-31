@@ -17,7 +17,7 @@
  */
 const { Client } = require('pg');
 
-const INGEST_URL = process.env.STORE_INGEST_URL || 'http://localhost:3334/api/store/live/ingest';
+const INGEST_URL = process.env.STORE_INGEST_URL || 'http://localhost:3000/api/store/live/ingest';
 const INGEST_KEY = process.env.STORE_INGEST_KEY || 'dev_store_ingest_key';
 const POLL_MS = (Number(process.env.POLL_SECONDS) || 25) * 1000;
 const WINDOW_MIN = Number(process.env.WINDOW_MINUTES) || 5;
@@ -53,7 +53,7 @@ async function pollBranch(b, since) {
   try {
     const { rows } = await c.query(
       `SELECT h.c6 folio, rtrim(btrim(h.c63),'-') serie, h.c9::date fecha, h.c62 hora,
-              coalesce(h.c16,0) total, h.c10 forma_pago,
+              coalesce(h.c16,0) total, h.c10 forma_pago, btrim(h.c67) cajero,
               d.c8 sku, d.c10 nombre, coalesce(d.c9,0) cant, coalesce(d.c13,0) importe, d.c7 linea
          FROM md.kdm1 h
          JOIN md.kdm2 d ON h.c1=d.c1 AND h.c2=d.c2 AND h.c3=d.c3 AND h.c4=d.c4 AND h.c5=d.c5 AND h.c6=d.c6
@@ -72,7 +72,7 @@ async function pollBranch(b, since) {
         t = {
           warehouse_code: b.code, warehouse_name: b.name, serie: r.serie, folio: r.folio,
           ticket_ts: `${fecha}T${r.hora.length === 4 ? '0' + r.hora : r.hora}:00-06:00`,
-          total: Number(r.total) || 0, forma_pago: r.forma_pago, items: [],
+          total: Number(r.total) || 0, forma_pago: r.forma_pago, cajero: r.cajero || null, items: [],
         };
         byTicket.set(key, t);
       }
