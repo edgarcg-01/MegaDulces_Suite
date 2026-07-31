@@ -57,6 +57,27 @@ export interface PedidoExport {
   lines: PedidoExportLine[];
 }
 
+/** RA-PRO.32.5 — Workbook del comprador: réplica columnar (una HOJA por proveedor). */
+export interface WorkbookExportTerritory { code: string; name: string; }
+export interface WorkbookExportRow {
+  supplier_id?: string | null;
+  supplier_name?: string | null;
+  sku?: string | null;
+  nombre?: string | null;
+  uxc?: number | null;
+  caja_cost?: number | null;
+  cells?: Record<string, { vta?: number; exis?: number; ped?: number }> | null;
+  suma_pedido_cajas?: number | null;
+  pedido_valor?: number | null;
+  valor_venta?: number | null;
+  valor_exis?: number | null;
+}
+export interface WorkbookExport {
+  coverage_days: number;
+  territories: WorkbookExportTerritory[];
+  rows: WorkbookExportRow[];
+}
+
 /**
  * RA — Export XLSX con diseño de Existencia Crítica. Mismo lenguaje visual que
  * los otros reportes (Sell-Out/Salidas): título, encabezado estilizado, congelado,
@@ -382,6 +403,137 @@ export class ReplenishmentExportService {
     }
 
     cols.forEach((c, ci) => { if (c.width) ws.getColumn(ci + 1).width = c.width; });
+
+    const buf = await wb.xlsx.writeBuffer();
+    return Buffer.from(buf as ArrayBuffer);
+  }
+
+  fileNameWorkbook(_coverage: number): string {
+    const d = new Date().toISOString().slice(0, 10);
+    return `Pedido_por_proveedor_${d}.xlsx`;
+  }
+
+  /**
+   * RA-PRO.32.5 — Workbook del comprador (SARAMEL/NUTRESA/…): un archivo con UNA HOJA por proveedor.
+   * Layout columnar: filas = productos; columnas = Vta/Exist/Pedido por cada punto de compra + totales.
+   */
+  async buildWorkbook(data: WorkbookExport): Promise<Buffer> {
+    const wb = new ExcelJS.Workbook();
+    wb.creator = 'Mega Dulces';
+    wb.created = new Date();
+    const terrs = data.territories || [];
+    const MONEY = '$#,##0.00', N1 = '#,##0.0', N0 = '#,##0';
+    const HEAD_FILL: ExcelJS.Fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1F0EC' } };
+
+    // Agrupa por proveedor (una hoja cada uno), orden alfabético.
+    const bySup = new Map<string, WorkbookExportRow[]>();
+    for (const r of data.rows || []) {
+      const k = r.supplier_name || 'Sin proveedor';
+      (bySup.get(k) ?? bySup.set(k, []).get(k)!).push(r);
+    }
+    const suppliers = [...bySup.keys()].sort((a, b) => a.localeCompare(b, 'es'));
+    if (!suppliers.length) { suppliers.push('Sin proveedor'); bySup.set('Sin proveedor', []); }
+
+    const leftH = ['Producto', 'SKU', 'UXC', 'Costo/Cja'];
+    const rightH = ['Σ Pedido (cajas)', 'Σ Piezas', '$ Pedido', 'Valor venta', 'Valor exist.'];
+    const nLeft = leftH.length, nRight = rightH.length;
+    const usedNames = new Set<string>();
+
+    for (const sup of suppliers) {
+      const rows = bySup.get(sup) || [];
+      // Nombre de hoja: Excel prohíbe : \ / ? * [ ] y máx 31 chars. Único.
+      const base = (sup.replace(/[:\\/?*[\]]/g, ' ').trim() || 'Proveedor').slice(0, 28);
+      let name = base, n = 2;
+      while (usedNames.has(name.toLowerCase())) name = `${base.slice(0, 25)} ${n++}`;
+      usedNames.add(name.toLowerCase());
+
+      const totalCols = nLeft + terrs.length * 3 + nRight;
+      const ws = wb.addWorksheet(name, { views: [{ state: 'frozen', xSplit: nLeft, ySplit: 4 }] });
+
+      // Fila 1 — título
+      ws.mergeCells(1, 1, 1, totalCols);
+      const title = ws.getCell(1, 1);
+      title.value = `PEDIDO — ${sup}  ·  cobertura ${data.coverage_days} días`;
+      title.font = { bold: true, size: 14 };
+      title.alignment = { horizontal: 'center', vertical: 'middle' };
+      ws.getRow(1).height = 24;
+
+      // Fila 2 — resumen
+      const totPed = rows.reduce((s, r) => s + (Number(r.pedido_valor) || 0), 0);
+      const totCj = rows.reduce((s, r) => s + (Number(r.suma_pedido_cajas) || 0), 0);
+      ws.mergeCells(2, 1, 2, totalCols);
+      const sub = ws.getCell(2, 1);
+      sub.value = `${rows.length} productos  ·  ${totCj.toLocaleString('es-MX', { maximumFractionDigits: 1 })} cajas  ·  $ Pedido ${totPed.toLocaleString('es-MX', { style: 'currency', currency: 'MXN' })}`;
+      sub.font = { size: 9, color: { argb: 'FF52525B' } };
+      sub.alignment = { horizontal: 'center', vertical: 'middle' };
+      ws.getRow(2).height = 18;
+
+      // Filas 3-4 — encabezado (grupo por punto de compra sobre Vta/Exist/Pedido)
+      let c = 1;
+      for (const h of leftH) { ws.mergeCells(3, c, 4, c); ws.getCell(3, c).value = h; c++; }
+      for (const t of terrs) {
+        ws.mergeCells(3, c, 3, c + 2); ws.getCell(3, c).value = t.name;
+        ws.getCell(4, c).value = 'Vta'; ws.getCell(4, c + 1).value = 'Exist'; ws.getCell(4, c + 2).value = 'Pedido';
+        c += 3;
+      }
+      for (const h of rightH) { ws.mergeCells(3, c, 4, c); ws.getCell(3, c).value = h; c++; }
+      for (const rn of [3, 4]) {
+        for (let i = 1; i <= totalCols; i++) {
+          const cell = ws.getCell(rn, i);
+          cell.font = { bold: true, size: 9, color: { argb: 'FF3F3F46' } };
+          cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+          cell.fill = HEAD_FILL;
+          cell.border = this.thin();
+        }
+      }
+      ws.getRow(3).height = 20; ws.getRow(4).height = 16;
+
+      // Datos (desde fila 5)
+      const pedFirstCol = nLeft + terrs.length * 3 + 1; // Σ cajas
+      rows.forEach((r) => {
+        const uxc = Number(r.uxc) || 1;
+        const vals: (string | number)[] = [r.nombre || '', r.sku || '', Number(r.uxc) || 0, Number(r.caja_cost) || 0];
+        for (const t of terrs) {
+          const cel = (r.cells && r.cells[t.code]) || {};
+          vals.push(Number(cel.vta) || 0, Number(cel.exis) || 0, Number(cel.ped) || 0);
+        }
+        vals.push(Number(r.suma_pedido_cajas) || 0, (Number(r.suma_pedido_cajas) || 0) * uxc,
+          Number(r.pedido_valor) || 0, Number(r.valor_venta) || 0, Number(r.valor_exis) || 0);
+        const added = ws.addRow(vals);
+        added.eachCell((cell, col) => {
+          cell.border = this.thin();
+          cell.alignment = { horizontal: col === 1 || col === 2 ? 'left' : 'right' };
+          if (col === 3) cell.numFmt = N0;
+          else if (col === 4) cell.numFmt = MONEY;
+          else if (col > nLeft && col <= nLeft + terrs.length * 3) cell.numFmt = N1;
+          else if (col === pedFirstCol) cell.numFmt = N1;
+          else if (col === pedFirstCol + 1) cell.numFmt = N0;
+          else if (col >= pedFirstCol + 2) cell.numFmt = MONEY;
+        });
+      });
+
+      // Anchos
+      ws.getColumn(1).width = 38; ws.getColumn(2).width = 12; ws.getColumn(3).width = 7; ws.getColumn(4).width = 11;
+      for (let i = nLeft + 1; i <= nLeft + terrs.length * 3; i++) ws.getColumn(i).width = 8;
+      for (let i = pedFirstCol; i <= totalCols; i++) ws.getColumn(i).width = 13;
+
+      // Totales (SUBTOTAL respeta autofiltro)
+      const firstData = 5, lastData = 4 + rows.length;
+      if (rows.length) {
+        ws.autoFilter = { from: { row: 4, column: 1 }, to: { row: lastData, column: totalCols } };
+        const totalRow = ws.addRow([]);
+        const tr = totalRow.number;
+        const tCell = ws.getCell(tr, 1); tCell.value = 'TOTAL'; tCell.font = { bold: true }; tCell.border = this.thin();
+        for (let sc = pedFirstCol; sc <= totalCols; sc++) {
+          const L = ws.getColumn(sc).letter;
+          const cell = ws.getCell(tr, sc);
+          cell.value = { formula: `SUBTOTAL(9,${L}${firstData}:${L}${lastData})` };
+          cell.font = { bold: true };
+          cell.numFmt = sc === pedFirstCol ? N1 : sc === pedFirstCol + 1 ? N0 : MONEY;
+          cell.border = { top: { style: 'thin', color: { argb: 'FFB8B4AC' } } };
+        }
+      }
+    }
 
     const buf = await wb.xlsx.writeBuffer();
     return Buffer.from(buf as ArrayBuffer);

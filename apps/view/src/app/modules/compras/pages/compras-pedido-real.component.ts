@@ -243,12 +243,17 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
           <p class="pr-foot">Una fila por producto. <strong>Vta</strong> = venta 30 días en cajas · <strong>Exist.</strong> = existencia en cajas · <strong>Pedido</strong> = venta diaria × cobertura − existencia − tránsito. Cada bloque es un <strong>punto de compra</strong>: @for (t of wbTerritories(); track t.code) {<span class="pr-mono">{{ t.code }}</span>&nbsp;}. <em>Clic en una fila para desplegar su desglose <strong>por sucursal</strong> (comprar/traspaso/sobrestock, editable) — podés abrir varias a la vez. El botón <strong>Englobar / Desglosar</strong> junta o abre las columnas de venta por sucursal.</em></p>
         }
 
-        @if (totCajas() > 0) {
-          <div class="pr-bulk" role="region" aria-label="Acciones globales de la red">
-            <span class="pr-bulk-n">Red (todas las sucursales) · comprar <strong>{{ money(totBuy()) }}</strong> · traspaso <strong>{{ money(totTr()) }}</strong>@if (totOver() > 0) { · <span class="pr-gs-over">sobre {{ money(totOver()) }}</span> }</span>
+        @if (wbRows().length) {
+          <div class="pr-bulk" role="region" aria-label="Acciones globales">
+            @if (totCajas() > 0) {
+              <span class="pr-bulk-n">Red (todas las sucursales) · comprar <strong>{{ money(totBuy()) }}</strong> · traspaso <strong>{{ money(totTr()) }}</strong>@if (totOver() > 0) { · <span class="pr-gs-over">sobre {{ money(totOver()) }}</span> }</span>
+            } @else {
+              <span class="pr-bulk-n">{{ wbTotal() }} productos en la vista</span>
+            }
             <span class="pr-bulk-sp"></span>
-            <p-button type="button" label="XLSX global" icon="pi pi-file-excel" styleClass="p-button-sm p-button-text" (click)="exportScope()" [disabled]="dl()"></p-button>
-            <p-button type="button" [label]="saving() ? 'Armando…' : 'Requisiciones (global)'" icon="pi pi-check" styleClass="p-button-sm" (click)="buildReq()" [disabled]="saving()"></p-button>
+            <p-button type="button" label="XLSX por proveedor" icon="pi pi-file-excel" styleClass="p-button-sm" (click)="exportBySupplier()" [disabled]="dl()" ariaLabel="XLSX: una hoja por proveedor"></p-button>
+            <p-button type="button" label="XLSX plano" icon="pi pi-file-excel" styleClass="p-button-sm p-button-text" (click)="exportScope()" [disabled]="dl() || totCajas() <= 0"></p-button>
+            <p-button type="button" [label]="saving() ? 'Armando…' : 'Requisiciones (global)'" icon="pi pi-check" styleClass="p-button-sm p-button-text" (click)="buildReq()" [disabled]="saving() || totCajas() <= 0"></p-button>
           </div>
         }
 
@@ -841,6 +846,19 @@ export class ComprasPedidoRealComponent implements OnInit {
         next: (r) => { folios.push(r.folio); if (++done === dtos.length) finish(); },
         error: () => { failed++; if (++done === dtos.length) finish(); },
       });
+    });
+  }
+
+  /** RA-PRO.32.5 — Workbook del comprador: un XLSX con una hoja por proveedor (todos los del filtro actual). */
+  exportBySupplier(): void {
+    this.dl.set(true);
+    this.api.exportWorkbookXlsx({
+      supplier_id: this.fSupplier || undefined, category_id: this.fCategory || undefined, search: this.search.trim() || undefined,
+      coverage_days: this.coverage, scope: this.wbScopeNeeded() ? 'needed' : undefined,
+      warehouse_ids: this.wbWarehouses.length ? this.wbWarehouses : undefined, group: this.wbGroup(),
+    }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (resp) => { this.dl.set(false); saveXlsxResponse(resp, 'pedido-por-proveedor.xlsx'); },
+      error: () => { this.dl.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo exportar por proveedor.' }); },
     });
   }
 
