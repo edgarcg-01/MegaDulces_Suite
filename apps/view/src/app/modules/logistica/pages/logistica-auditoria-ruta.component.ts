@@ -53,10 +53,10 @@ import { ContextHelpComponent } from '../../../shared/context-help/context-help.
       </header>
 
       <!-- KPIs del día (MetricStrip, ADR-033). Variedad por tipo de dato (regla 9):
-           cobertura = ratio acotado → ring; conteos = valores únicos → strip. -->
+           cobertura = actual vs meta → bullet con marca 85%; conteos = valores únicos → strip. -->
       <div class="rk-kpi-strip">
         @if (coverageItem(); as ci) {
-          <app-metric-strip mode="ring" [items]="[ci]" ariaLabel="Cobertura de tiendas" />
+          <app-metric-strip class="rk-cov" mode="bullet" [items]="[ci]" ariaLabel="Cobertura de tiendas vs meta" />
         }
         <app-metric-strip mode="strip" [items]="countItems()" ariaLabel="Conteos del día" />
       </div>
@@ -232,6 +232,7 @@ import { ContextHelpComponent } from '../../../shared/context-help/context-help.
     .rk-date:focus-visible { outline:2px solid var(--action); outline-offset:1px; }
 
     .rk-kpi-strip { display:flex; align-items:center; gap:1.75rem; flex-wrap:wrap; margin:.5rem 0 1rem; }
+    .rk-cov { min-width:15rem; }
 
     /* skeleton de filas */
     .rk-skel { padding:.4rem 0; }
@@ -329,12 +330,12 @@ export class LogisticaAuditoriaRutaComponent {
     return Math.round((t.visited / t.plannedWithCoords) * 100);
   });
 
-  /** Cobertura como ring (ratio 0..100). Null (sin plan evaluable) → cae al strip. */
+  /** Cobertura como bullet (actual vs meta 85%). Null (sin plan evaluable) → cae al strip. */
   readonly coverageItem = computed<MetricStripItem | null>(() => {
     const cov = this.fleetCoverage();
     if (cov == null) return null;
     return {
-      label: 'Cobertura de tiendas', value: cov, pct: cov, format: 'percent',
+      label: 'Cobertura de tiendas', value: cov, pct: cov, target: 85, sub: 'meta 85%', format: 'percent',
       tone: cov >= 85 ? 'ok' : cov >= 60 ? 'warn' : 'bad',
     };
   });
