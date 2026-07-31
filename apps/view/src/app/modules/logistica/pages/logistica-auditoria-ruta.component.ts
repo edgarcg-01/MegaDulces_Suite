@@ -12,7 +12,8 @@ import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
 import { TooltipModule } from 'primeng/tooltip';
 import { SkeletonModule } from 'primeng/skeleton';
-import { LogisticaService, FleetAdherenceRow, AdherenceDiagnostic } from '../logistica.service';
+import { MapComponent, MapMarker } from '../../../shared/components/map/map.component';
+import { LogisticaService, FleetAdherenceRow, AdherenceDiagnostic, VehicleAuditDetail, AuditTicket } from '../logistica.service';
 import { todayMx } from '../../../core/utils/mx-date';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
@@ -28,11 +29,13 @@ import { ContextHelpComponent } from '../../../shared/context-help/context-help.
  * header sticky + 1ª columna congelada + selección por teclado (pSelectableRow)
  * + skeleton de filas en carga; fecha + unidad seleccionada viven en la URL.
  * Empty-state (LTV.15): diagnóstico accionable + salto al último día con datos.
+ * LTV.16: detalle geográfico del seleccionado — recorrido real + visitas + tickets
+ * ubicados por hora (mapa + traza GPS + tickets de cierre del día).
  */
 @Component({
   selector: 'app-logistica-auditoria-ruta',
   standalone: true,
-  imports: [FormsModule, ButtonModule, TableModule, TooltipModule, SkeletonModule, MetricStripComponent, ContextHelpComponent],
+  imports: [FormsModule, ButtonModule, TableModule, TooltipModule, SkeletonModule, MetricStripComponent, ContextHelpComponent, MapComponent],
   template: `
     <div class="surf-page">
       <header class="surf-page-head">
@@ -167,6 +170,75 @@ import { ContextHelpComponent } from '../../../shared/context-help/context-help.
             </article>
           }
         </div>
+
+        <!-- Detalle geográfico: recorrido real + visitas + tickets ubicados -->
+        @if (selected(); as s) {
+          <div class="sheet cols-12">
+            <article class="cell cell-span-8 is-flush">
+              <div class="rk-map-head">
+                <h3>Recorrido y visitas · {{ s.vehicle_plate || shortId(s.vehicle_id) }}</h3>
+                <div class="rk-legend">
+                  <span><i class="rk-dot-lg" style="background:var(--ok-fg)" aria-hidden="true"></i> Visitada</span>
+                  <span><i class="rk-dot-lg" style="background:var(--warn-fg)" aria-hidden="true"></i> Sin captura</span>
+                  <span><i class="rk-dot-lg" style="background:var(--bad-fg)" aria-hidden="true"></i> Saltada</span>
+                  <span><i class="rk-dot-lg" style="background:var(--action)" aria-hidden="true"></i> Ticket</span>
+                  <span><i class="rk-dash" aria-hidden="true"></i> Recorrido GPS</span>
+                </div>
+              </div>
+              @if (mapMarkers().length || mapPath().length) {
+                <app-map [markers]="mapMarkers()" [path]="mapPath()" autoFit="once" height="460px"></app-map>
+              } @else {
+                <div class="rk-pick"><i class="pi pi-map" aria-hidden="true"></i>
+                  <p>{{ detailLoading() ? 'Cargando recorrido…' : 'Sin recorrido GPS ni tiendas geolocalizadas para esta unidad.' }}</p>
+                </div>
+              }
+            </article>
+            <article class="cell cell-span-4">
+              <div class="rk-detail-head">
+                <h3>Tickets del día</h3>
+                <span class="rk-muted">{{ detailLoading() ? 'Cargando…' : (tickets().length + ' ticket' + (tickets().length === 1 ? '' : 's')) }}</span>
+              </div>
+              @if (tickets().length) {
+                <ul class="rk-tk">
+                  @for (t of tickets(); track t.id) {
+                    <li class="rk-tk-row">
+                      <span class="rk-tk-ico" [style.background]="ticketColor(t.ticket_type)">
+                        <i class="pi" [class.pi-dollar]="t.ticket_type === 'venta'" [class.pi-box]="t.ticket_type === 'carga'" [class.pi-bolt]="t.ticket_type === 'combustible'" aria-hidden="true"></i>
+                      </span>
+                      <div class="rk-tk-main">
+                        <div class="rk-tk-top">
+                          <span class="rk-tk-type">{{ ticketLabel(t.ticket_type) }}</span>
+                          <span class="rk-tk-time">{{ fmtTime(t.ticket_time) }}</span>
+                        </div>
+                        <div class="rk-tk-sub">
+                          @if (t.total != null) { <b>{{ money(t.total) }}</b> }
+                          @if (t.corte_number) { <span>· corte {{ t.corte_number }}</span> }
+                          @if (t.liters != null) { <span>· {{ t.liters }} L</span> }
+                          @if (t.reference) { <span>· {{ t.reference }}</span> }
+                        </div>
+                        <div class="rk-tk-loc">
+                          @if (t.located) {
+                            <i class="pi pi-map-marker" aria-hidden="true"></i>
+                            {{ t.near_store_name || 'ubicado por GPS' }}
+                            <span class="rk-muted">· ±{{ t.gps_gap_min }} min</span>
+                          } @else if (!t.ticket_time) {
+                            <span class="rk-muted"><i class="pi pi-clock" aria-hidden="true"></i> sin hora en el ticket</span>
+                          } @else {
+                            <span class="rk-muted"><i class="pi pi-question-circle" aria-hidden="true"></i> sin GPS a esa hora</span>
+                          }
+                        </div>
+                      </div>
+                    </li>
+                  }
+                </ul>
+              } @else if (!detailLoading()) {
+                <div class="rk-pick"><i class="pi pi-receipt" aria-hidden="true"></i>
+                  <p>Sin tickets de cierre subidos para esta ruta ese día.</p>
+                </div>
+              }
+            </article>
+          </div>
+        }
       } @else {
         <div class="sheet cols-12">
           <article class="cell cell-span-12">
@@ -293,6 +365,27 @@ import { ContextHelpComponent } from '../../../shared/context-help/context-help.
     .rk-empty-actions { display:flex; gap:.5rem; justify-content:center; align-items:center; flex-wrap:wrap; }
 
     @media (prefers-reduced-motion: reduce) { .rk-bar span { transition:none; } }
+
+    /* Detalle geográfico (LTV.16) */
+    .rk-map-head { display:flex; align-items:center; justify-content:space-between; gap:.75rem; flex-wrap:wrap; padding:0 0 .6rem; }
+    .rk-map-head h3 { margin:0; font-size:var(--fs-h3); font-weight:var(--fw-bold); }
+    .rk-legend { display:flex; gap:.75rem; flex-wrap:wrap; font-size:var(--fs-micro); color:var(--c-text-2); }
+    .rk-legend span { display:inline-flex; align-items:center; gap:.3rem; }
+    .rk-dot-lg { width:9px; height:9px; border-radius:99px; display:inline-block; }
+    .rk-dash { width:16px; height:0; border-top:2px dashed var(--action); display:inline-block; }
+
+    .rk-tk { list-style:none; margin:0; padding:0; }
+    .rk-tk-row { display:flex; gap:.6rem; align-items:flex-start; padding:.55rem 0; border-top:1px solid var(--c-divider); }
+    .rk-tk-row:first-child { border-top:none; }
+    .rk-tk-ico { flex:0 0 auto; width:28px; height:28px; border-radius:8px; display:grid; place-items:center; color:#fff; font-size:.8rem; }
+    .rk-tk-main { flex:1 1 auto; min-width:0; }
+    .rk-tk-top { display:flex; align-items:baseline; justify-content:space-between; gap:.5rem; }
+    .rk-tk-type { font-weight:var(--fw-medium); font-size:var(--fs-sm); color:var(--c-text-1); }
+    .rk-tk-time { font-family:var(--font-mono,'Geist Mono',monospace); font-variant-numeric:tabular-nums; font-size:var(--fs-sm); color:var(--c-text-2); }
+    .rk-tk-sub { font-size:var(--fs-sm); color:var(--c-text-2); margin-top:.1rem; }
+    .rk-tk-sub b { color:var(--c-text-1); font-variant-numeric:tabular-nums; }
+    .rk-tk-loc { font-size:var(--fs-micro); color:var(--c-text-2); margin-top:.2rem; display:flex; align-items:center; gap:.3rem; }
+    .rk-tk-loc .pi { font-size:.7rem; color:var(--action); }
   `],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
@@ -309,9 +402,35 @@ export class LogisticaAuditoriaRutaComponent {
   readonly errored = signal(false);
   readonly diagnostic = signal<AdherenceDiagnostic | null>(null);
   readonly skeletonRows = [1, 2, 3, 4, 5, 6];
+  readonly detail = signal<VehicleAuditDetail | null>(null);
+  readonly detailLoading = signal(false);
 
   readonly selected = computed(() => this.rows().find((r) => r.vehicle_id === this.selectedId()) ?? null);
   readonly evaluables = computed(() => this.rows().filter((r) => r.evaluable));
+
+  readonly tickets = computed(() => this.detail()?.tickets ?? []);
+  readonly mapPath = computed(() => (this.detail()?.path ?? []).map((p) => ({ lat: p.lat, lng: p.lng })));
+  readonly mapMarkers = computed<MapMarker[]>(() => {
+    const out: MapMarker[] = [];
+    const s = this.selected();
+    if (s) {
+      for (const p of s.planned) {
+        if (p.lat == null || p.lng == null) continue;
+        const color = p.captured ? 'var(--ok-fg)' : p.visited ? 'var(--warn-fg)' : 'var(--bad-fg)';
+        out.push({ lat: p.lat, lng: p.lng, title: p.name || 'Tienda', color, kind: 'pin', id: 's:' + p.customer_id });
+      }
+    }
+    const d = this.detail();
+    if (d) {
+      let i = 0;
+      for (const t of d.tickets) {
+        if (t.at_lat == null || t.at_lng == null) continue;
+        i++;
+        out.push({ lat: t.at_lat, lng: t.at_lng, title: `${this.ticketLabel(t.ticket_type)} ${this.fmtTime(t.ticket_time)}`, color: 'var(--action)', kind: 'pin', seq: i, id: 't:' + t.id });
+      }
+    }
+    return out;
+  });
 
   readonly totals = computed(() => {
     const r = this.evaluables();
@@ -366,6 +485,7 @@ export class LogisticaAuditoriaRutaComponent {
     if (!d) return;
     this.date.set(d);
     this.selectedId.set(null);
+    this.detail.set(null);
     this.writeUrl();
     this.refresh();
   }
@@ -381,6 +501,8 @@ export class LogisticaAuditoriaRutaComponent {
         if (!(r && r.length)) this.loadDiagnostic();
         // La unidad de la URL puede no existir en esta fecha → limpiar selección huérfana.
         else if (this.selectedId() && !this.selected()) { this.selectedId.set(null); this.writeUrl(); }
+        // Selección válida (de la URL o previa) → cargar su detalle geográfico.
+        else if (this.selectedId() && this.selected()) this.loadDetail(this.selectedId()!);
       },
       error: () => { this.errored.set(true); this.loading.set(false); },
     });
@@ -395,7 +517,17 @@ export class LogisticaAuditoriaRutaComponent {
 
   onSelectionChange(sel: FleetAdherenceRow | null) {
     this.selectedId.set(sel?.vehicle_id ?? null);
+    this.detail.set(null);
+    if (sel?.vehicle_id) this.loadDetail(sel.vehicle_id);
     this.writeUrl();
+  }
+
+  private loadDetail(vehicleId: string) {
+    this.detailLoading.set(true);
+    this.api.vehicleAuditDetail(vehicleId, this.date()).subscribe({
+      next: (d) => { this.detail.set(d); this.detailLoading.set(false); },
+      error: () => { this.detail.set(null); this.detailLoading.set(false); },
+    });
   }
 
   /** Refleja fecha + selección en la URL sin ensuciar el historial. */
@@ -431,5 +563,18 @@ export class LogisticaAuditoriaRutaComponent {
     if (pct >= 85) return 'var(--ok-fg)';
     if (pct >= 60) return 'var(--warn-fg)';
     return 'var(--bad-fg)';
+  }
+  ticketLabel(t: AuditTicket['ticket_type']): string {
+    return t === 'venta' ? 'Venta' : t === 'carga' ? 'Carga' : 'Combustible';
+  }
+  ticketColor(t: AuditTicket['ticket_type']): string {
+    return t === 'venta' ? 'var(--ok-fg)' : t === 'carga' ? 'var(--action)' : 'var(--warn-fg)';
+  }
+  fmtTime(t: string | null): string {
+    return t ? String(t).slice(0, 5) : '—';
+  }
+  money(n: number | null): string {
+    if (n == null) return '—';
+    return new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 2 }).format(Number(n));
   }
 }

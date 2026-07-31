@@ -58,6 +58,13 @@ export class LogisticsTrackingController {
     return this.adherence.diagnose(date);
   }
 
+  @Get('audit-detail')
+  @RequireAnyPermission(Permission.LOGISTICS_FLEET_VER, Permission.RUTAS_VER)
+  @ApiOperation({ summary: 'Detalle de auditoría de un vehículo/día: traza GPS + paradas + tickets ubicados' })
+  auditDetail(@Query('vehicle_id') vehicleId: string, @Query('date') date: string) {
+    return this.adherence.vehicleAuditDetail(vehicleId, date);
+  }
+
   // ── LTV.0 Viajes / paradas reconstruidas ───────────────────────────────────
   @Get('trips/day-summary')
   @RequireAnyPermission(Permission.LOGISTICS_FLEET_VER, Permission.RUTAS_VER)
