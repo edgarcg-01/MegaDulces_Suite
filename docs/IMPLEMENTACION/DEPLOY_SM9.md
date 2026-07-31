@@ -60,7 +60,7 @@ Si (1) devuelve 0 filas → **NO deployar** hasta aplicar/confirmar `20260702200
    DATABASE_URL_NEW='postgres://…rlwy.net…?sslmode=no-verify' node database/scripts/seed-cajera-users.js          # dry-run
    DATABASE_URL_NEW='…' node database/scripts/seed-cajera-users.js --apply                                        # crea 28 usuarios
    ```
-   Usuario = contraseña = código de caja en minúsculas (ej. `10c01`).
+   Usuario = código de caja en minúsculas; contraseña = código + `2026` (≥6 chars, ej. `10c01` → `10c012026`).
 6. **Poblar hallazgos:** `POST /reconciliation/scan` (botón "Escanear ahora" en `/almacen/cuadre`) o esperar el cron 3:15 AM. Registra las reglas nuevas + genera los ~184 barrido + ~93 retiro_conteo.
 7. **Re-login** de usuarios de tienda — el `warehouse_code` viaja en el JWT; sin re-login el scoping de sucursal no toma efecto.
 
@@ -81,7 +81,7 @@ Si (1) devuelve 0 filas → **NO deployar** hasta aplicar/confirmar `20260702200
 ## 6. Riesgos y notas
 
 - La vista `users` es auth-crítica: un fallo marca el deploy FAILED pero **prod anterior sigue** (sin downtime). Por eso la precond. 1 es bloqueante.
-- El seed crea **28 credenciales de empleadas** con user=pass=código — comunicar y idealmente forzar cambio después.
+- El seed crea **28 credenciales de empleadas** con user=código y contraseña=código+2026 — comunicar y idealmente forzar cambio después.
 - `migrate.sh` aplica **todas** las migraciones pendientes, no solo estas 3 — revisar que las demás pendientes (de otros commits en la rama) también sean prod-safe antes de pushear.
 - Reglas de retiro: solo requieren redeploy api + un `scan`. No dependen de las migraciones.
 
