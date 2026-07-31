@@ -30,4 +30,15 @@ export class FleetPollerService {
       this.running = false;
     }
   }
+
+  /** LT.7 — sync autoritativo ruta↔operador↔camión (cambia poco → cada 15 min). */
+  @Cron('0 */15 * * * *')
+  async syncRoutes(): Promise<void> {
+    if (!this.tracking.isProviderConfigured()) return;
+    try {
+      await this.tracking.syncRoutesOperators();
+    } catch (e: any) {
+      this.logger.error(`syncRoutes falló: ${e?.message || e}`);
+    }
+  }
 }

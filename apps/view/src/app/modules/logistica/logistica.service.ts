@@ -1103,6 +1103,9 @@ export class LogisticaService {
   trackingBootstrapVehicles(): Observable<{ created: number; linked: number; skipped: number }> {
     return this.http.post<{ created: number; linked: number; skipped: number }>(`${this.base}/tracking/bootstrap-vehicles`, {});
   }
+  trackingSyncRoutes(): Observable<{ operators: number; travels: number; linked: number }> {
+    return this.http.post<{ operators: number; travels: number; linked: number }>(`${this.base}/tracking/sync-routes`, {});
+  }
   trackAdherence(vehicleId: string, date: string): Observable<RouteAdherence> {
     let params = new HttpParams().set('vehicle_id', vehicleId).set('date', date);
     return this.http.get<RouteAdherence>(`${this.base}/tracking/adherence`, { params });
