@@ -15,6 +15,38 @@ export interface HelpResolveBlock { heading: string; kind?: 'fix' | 'info'; intr
 export interface HelpTopic { title: string; intro?: string; groups?: HelpGroup[]; resolve?: HelpResolveBlock[]; }
 
 export const CONTEXT_HELP: Record<string, HelpTopic> = {
+  'route-activity': {
+    title: 'Actividad de flota — guía',
+    intro: 'Reconstruye el día de cada unidad a partir del rastro GPS: viajes, paradas y tiempos. Las paradas se matchean a la tienda/cliente más cercano por coordenadas. Si el proceso nocturno aún no corrió, "Reconstruir día" recalcula todo desde las posiciones crudas.',
+    groups: [
+      {
+        heading: 'Tiempos del día',
+        entries: [
+          { term: 'En movimiento', def: 'Minutos con el vehículo desplazándose (ignición + velocidad).' },
+          { term: 'Detenido', def: 'Minutos parado con señal (incluye paradas productivas y esperas).' },
+          { term: 'Tiempo muerto', def: 'Detenido improductivo: paradas largas (≥20 min) que no cayeron en un cliente/tienda. Es el desperdicio a vigilar.' },
+          { term: 'Sin señal', def: 'Minutos sin posición GPS (equipo apagado, sin cobertura o desconectado).' },
+        ],
+      },
+      {
+        heading: 'Paradas',
+        entries: [
+          { term: 'Paradas en tienda', def: 'Paradas que matchearon a una tienda de trade por cercanía.' },
+          { term: 'Paradas con cliente', def: 'Paradas que matchearon a un cliente (flota de logística).' },
+          { term: 'Paradas muertas', def: 'Paradas largas sin cliente/tienda cerca — tiempo muerto en forma de conteo.' },
+          { term: 'Auditadas', def: 'Paradas en tienda donde además se levantó captura de auditoría (foto/checklist), no solo el paso del camión. Se muestra auditadas / paradas en tienda.' },
+          { term: 'Sin captura', def: 'Paró en la tienda pero no se registró captura de auditoría.' },
+        ],
+      },
+      {
+        heading: 'Productividad',
+        entries: [
+          { term: 'Km/entrega', def: 'Kilómetros recorridos ÷ paradas con cliente. Más bajo = ruta más eficiente (menos km por entrega).' },
+          { term: 'Reconstruir día', def: 'Recalcula paradas y resumen desde el rastro GPS crudo. Útil si el proceso nocturno aún no corrió o si acaban de llegar posiciones.' },
+        ],
+      },
+    ],
+  },
   'route-compliance': {
     title: 'Cumplimiento de ruta — guía',
     intro: 'Cruza el PLAN de la ruta (las tiendas que la unidad debía servir ese día) contra lo REAL (dónde paró el camión según GPS, matcheado a cada cliente). Solo se puede evaluar una unidad si el día tiene posiciones GPS y su ruta tiene tiendas con coordenadas.',
