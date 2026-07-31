@@ -93,4 +93,29 @@ MI.0 es el gate. Si tras el saneamiento **<90%** de los cortes de 30/32/50 recon
 
 ## Estimación
 
-MI.0+MI.1 (feed validado) = la rebanada de valor: entrega la `diferencia_real` por corte para 30/32/50. MI.2–MI.5 iteran. MI.6 es un mini-proyecto de mapeo aparte. Sin código aún — este doc es el plan.
+MI.0+MI.1 (feed validado) = la rebanada de valor: entrega la `diferencia_real` por corte para 30/32/50. MI.2–MI.5 iteran. MI.6 es un mini-proyecto de mapeo aparte.
+
+---
+
+## MI.0 — Resultado del gate (2026-07-31): ⚠️ NO PASA
+
+Saneamiento aplicado (cajas admin `70/98/99` excluidas + rango retiro ≤200 + rango pago ≤5000 + folio_inicial >1). Corrupción entendida: los cortes malos arrancan en folio `1` o tienen rangos gigantes (retiro w=46k, pago w=89k) — son primeros-corte/resets; la mediana normal del ancho de rango es **20** (p99=37,941 = el cliff).
+
+**Reconstrucción `ventas_efvo − retiros_efvo` (efectivo) sobre el set saneado:**
+
+| Sucursal | cortes con ventas | `\|gap\|≤$500` | maxGap residual |
+|---|---|---|---|
+| 30 Morelia Abastos | 156 | 41% | $2.36M |
+| 32 Morelia Madero | 381 | **77%** | $298k |
+| 50 Canindo | 328 | 73% | $1.07M |
+| **Agregado** | **865** | **~69%** | — |
+
+**Test del fondo (make-or-break):** el fondo mediana por caja = **$0** → la identidad se cumple en el centro (todo el efvo cobrado se retira, sin fondo neto). PERO la **stddev del gap es $13k–$32k por caja** → alta varianza por corte. Restar el fondo NO mejora (ya es 0): branch 32 queda en 77% ≤$500, 80% ≤$2000.
+
+**Veredicto:** con la meta **≥90%**, el gate **NO pasa** (77% en el mejor caso). El ~23% residual tiene gaps de miles y **no es separable "faltante real vs ruido de reconstrucción"** sin más trabajo — quedan artefactos de hasta $2.3M (suc 30). Construir el feed completo ahora produciría o falsos descuadres o un flujo no confiable.
+
+**Causas candidatas de la varianza (sin resolver):** retiros/pagos que cruzan la frontera del corte (folio de borde en el corte equivocado), la secuencia `consecutivo` no perfectamente scoped al corte, y suc 30 con artefactos extra (posible estructura de folios distinta).
+
+**Decisión (fail-fast):** NO construir MI.1–MI.5 sobre esta base. Dos salidas posibles:
+- **(S1) Parar** — la identidad no es confiable a ≥90%; el deliverable de todo el análisis quedan las 2 reglas SM.9 (`barrido_diferencia_multiple`, `retiro_conteo_mismatch`) que sí operan sobre data confiable.
+- **(S2) Deep-dive de la varianza** — trazar a mano 5–10 cortes con `|gap|` grande de branch 32 para determinar si son faltantes REALES (→ reframe a bandeja de candidatos HITL rankeada por monto, alto valor) o artefactos de reconstrucción (→ confirma S1). Barato y decisivo; es el único camino que podría reactivar el feed.
