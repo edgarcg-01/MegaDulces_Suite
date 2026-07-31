@@ -8,6 +8,7 @@ import {
 import { Knex } from 'knex';
 import { TenantKnexService } from '@megadulces/platform-core';
 import { FLEET_PROVIDER_PORT, FleetProviderPort, FleetObject } from './fleet-provider.port';
+import { FleetTrackingGateway } from './fleet-tracking.gateway';
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 // Tenant dueño de la cuenta del proveedor (la cuenta MagniTracking es global a
@@ -31,6 +32,7 @@ export class LogisticsTrackingService {
   constructor(
     private readonly tk: TenantKnexService,
     @Inject(FLEET_PROVIDER_PORT) private readonly provider: FleetProviderPort,
+    private readonly gateway: FleetTrackingGateway,
   ) {}
 
   isProviderConfigured(): boolean {
@@ -151,6 +153,16 @@ export class LogisticsTrackingService {
     this.logger.log(
       `sync: ${objects.length} objetos → ${created} nuevos, ${updated} act, ${linked} vinculados, ${positions} posiciones (${ms}ms)`,
     );
+
+    // LT.8 — empuja el snapshot en vivo al mapa (WS). Solo si hay clientes
+    // escuchando (el gateway lo verifica) y sin romper el sync si algo falla.
+    try {
+      const snapshot = await this.listLive(undefined, tenantId);
+      this.gateway.emitLive(tenantId, { trackers: snapshot, synced_at: new Date().toISOString(), positions });
+    } catch (e: any) {
+      this.logger.warn(`emitLive falló (no crítico): ${e?.message || e}`);
+    }
+
     return { objects: objects.length, created, updated, linked, positions, ms };
   }
 
@@ -160,8 +172,10 @@ export class LogisticsTrackingService {
    * Auditoría en Ruta); 'logistics' = solo flota logística (route_number nulo);
    * undefined = todas. Es la separación estricta ruta ↔ logística.
    */
-  async listLive(fleet?: 'route' | 'logistics') {
-    return this.tk.run(async (trx) => {
+  async listLive(fleet?: 'route' | 'logistics', tenantId?: string) {
+    const runner = <T>(cb: (trx: Knex.Transaction) => Promise<T>) =>
+      tenantId ? this.tk.run(tenantId, cb) : this.tk.run(cb);
+    return runner(async (trx) => {
       const rows = await trx('logistics.trackers as t')
         .leftJoin('logistics.vehicles as v', function () {
           this.on('v.tenant_id', 't.tenant_id').andOn('v.id', 't.vehicle_id');

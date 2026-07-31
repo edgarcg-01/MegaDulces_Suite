@@ -1,6 +1,8 @@
 import { Module } from '@nestjs/common';
+import { JwtModule } from '@nestjs/jwt';
 import { LogisticsTrackingService } from './logistics-tracking.service';
 import { LogisticsTrackingController } from './logistics-tracking.controller';
+import { FleetTrackingGateway } from './fleet-tracking.gateway';
 import { FleetPollerService } from './fleet-poller.service';
 import { FleetAlertsService } from './fleet-alerts.service';
 import { FleetAlertsScannerService } from './fleet-alerts-scanner.service';
@@ -16,9 +18,16 @@ import { FLEET_PROVIDER_PORT } from './fleet-provider.port';
  * (hoy MagniTracking); cambiar de proveedor = cambiar solo el adapter.
  */
 @Module({
+  imports: [
+    JwtModule.register({
+      secret: process.env.JWT_SECRET || 'super_secret_dev_key_change_in_prod',
+      signOptions: { expiresIn: (process.env.JWT_EXPIRES_IN || '12h') as any },
+    }),
+  ],
   controllers: [LogisticsTrackingController],
   providers: [
     LogisticsTrackingService,
+    FleetTrackingGateway,
     FleetPollerService,
     FleetAlertsService,
     FleetAlertsScannerService,

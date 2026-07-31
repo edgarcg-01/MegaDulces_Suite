@@ -13,7 +13,9 @@ import { ActivatedRoute, RouterModule } from '@angular/router';
 import { ButtonModule } from 'primeng/button';
 import { TagModule } from 'primeng/tag';
 import { TooltipModule } from 'primeng/tooltip';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { MapComponent, MapMarker } from '../../../shared/components/map/map.component';
+import { FleetTrackingSocketService, FleetLivePayload } from '../fleet-tracking-socket.service';
 import {
   LogisticaService,
   TrackerLive,
@@ -44,7 +46,10 @@ const STATUS_META: Record<TrackerStatus, { label: string; sev: Sev; color: strin
           <p class="surf-page-sub">
             {{ units().length }} unidad{{ units().length === 1 ? '' : 'es' }}
             <span class="rk-dot" [class.on]="counts().moving > 0" aria-hidden="true"></span>
-            <span class="rk-muted">· {{ counts().moving }} en movimiento · sincronizado {{ syncedAgo() }}</span>
+            <span class="rk-muted">· {{ counts().moving }} en movimiento ·
+              @if (liveWs()) { <span class="rk-live"><i class="rk-live-dot" aria-hidden="true"></i> en vivo</span> }
+              @else { sincronizado {{ syncedAgo() }} }
+            </span>
           </p>
         </div>
         <div class="rk-actions">
@@ -243,6 +248,10 @@ const STATUS_META: Record<TrackerStatus, { label: string; sev: Sev; color: strin
     .rk-row-name { font-size:var(--fs-sm); font-weight:var(--fw-medium); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
     .rk-row-sub { display:flex; gap:.4rem; align-items:center; font-size:var(--fs-micro); color:var(--c-text-3); }
     .rk-ago { font-size:var(--fs-micro); color:var(--c-text-3); font-variant-numeric:tabular-nums; white-space:nowrap; }
+    .rk-live { display:inline-flex; align-items:center; gap:.3rem; color:var(--ok-fg); font-weight:var(--fw-medium); }
+    .rk-live-dot { width:7px; height:7px; border-radius:50%; background:var(--ok-fg); animation:rk-pulse 1.6s ease-in-out infinite; }
+    @keyframes rk-pulse { 0%,100% { opacity:1; transform:scale(1); } 50% { opacity:.35; transform:scale(.8); } }
+    @media (prefers-reduced-motion: reduce) { .rk-live-dot { animation:none; } }
 
     .rk-detail-head { display:flex; flex-direction:column; gap:.4rem; margin-bottom:.75rem; }
     .rk-detail-head h3 { margin:0; font-size:var(--fs-h3); font-weight:var(--fw-bold); }
@@ -280,7 +289,10 @@ const STATUS_META: Record<TrackerStatus, { label: string; sev: Sev; color: strin
 })
 export class LogisticaRastreoComponent {
   private readonly api = inject(LogisticaService);
+  private readonly socket = inject(FleetTrackingSocketService);
   private readonly destroyRef = inject(DestroyRef);
+  /** True cuando el WS está empujando posiciones (trazabilidad en vivo). */
+  readonly liveWs = this.socket.connected;
   /** Alcance: 'route' (camionetas de ruta, Auditoría en Ruta) o 'logistics'. */
   readonly fleet: 'route' | 'logistics' = inject(ActivatedRoute).snapshot.data['fleet'] ?? 'logistics';
   @ViewChild('map') map?: MapComponent;
@@ -331,8 +343,42 @@ export class LogisticaRastreoComponent {
   constructor() {
     this.refresh();
     this.loadVehicles();
-    this.timer = setInterval(() => this.refresh(), 30_000);
-    this.destroyRef.onDestroy(() => { if (this.timer) clearInterval(this.timer); });
+    // WS: trazabilidad en vivo (el poller del backend empuja tras cada sync).
+    this.socket.connect();
+    this.socket.live$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((p) => this.applyLive(p));
+    // Poll de respaldo (si el WS se cae): más lento cuando el socket está vivo.
+    this.timer = setInterval(() => { if (!this.liveWs()) this.refresh(); }, 30_000);
+    this.destroyRef.onDestroy(() => { if (this.timer) clearInterval(this.timer); this.socket.disconnect(); });
+  }
+
+  /**
+   * Aplica el snapshot en vivo del WS: reemplaza las unidades (filtradas por el
+   * alcance ruta/logística) y, si hay un recorrido abierto para la unidad
+   * seleccionada, le agrega la nueva posición al vuelo (traza que crece sola).
+   */
+  private applyLive(p: FleetLivePayload) {
+    const all = p?.trackers || [];
+    const scoped = all.filter((u) =>
+      this.fleet === 'route' ? u.route_number != null : u.route_number == null,
+    );
+    this.units.set(scoped);
+    this.errored.set(false);
+    this.lastSynced.set(Date.now());
+
+    // Traza viva: si el recorrido del día está abierto, extiende la polyline.
+    if (this.showTrail() && this.selectedId() != null) {
+      const u = scoped.find((x) => x.id === this.selectedId());
+      if (u?.last_lat != null && u.last_lng != null) {
+        const lat = Number(u.last_lat), lng = Number(u.last_lng);
+        if (!isNaN(lat) && !isNaN(lng)) {
+          this.trailPath.update((path) => {
+            const last = path[path.length - 1];
+            if (last && Math.abs(last.lat - lat) < 1e-7 && Math.abs(last.lng - lng) < 1e-7) return path;
+            return [...path, { lat, lng }];
+          });
+        }
+      }
+    }
   }
 
   refresh() {
