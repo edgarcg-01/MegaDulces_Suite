@@ -6,6 +6,14 @@
 
 ---
 
+## 2026-07-31 — Thot: memoria persistente (thot_remember / thot_forget + recall)
+
+**Qué:** 2ª mejora de la tanda "mejoremos los modelos/conocimiento". Thot ahora RECUERDA hechos entre sesiones (antes olvidaba todo — un usuario le enseñó "Candelares = vendedora vecinal" y se perdía). Migración `commercial.thot_notes` (RLS forzado + tenant_id + `UNIQUE(tenant_id, title)` upsert idempotente, patrón `thot_chat_log`). Tools admin `thot_remember`/`thot_forget`. `recallNotes()` inyecta las notas al system prompt (solo admin scope, tope 4000 chars) + rule 10. Espejo del knowledge/tomar_nota de Maat, acotado a `commercial`.
+
+**Verificación:** build api verde (0 warnings de los archivos tocados) + smoke local 6/6 (`smoke_thot_notes.js`: migración up() idempotente, remember inserta, upsert no duplica por (tenant,title), recall trae, forget borra). Commit `04e9e476` (código + migración) — **commiteado ANTES de terminar el build** para no repetir la pérdida del turno anterior.
+
+**Pendiente:** aplicar mig `20260731120000_commercial_thot_notes` a Railway + redeploy api + validación en chat vivo (enseñarle un hecho y ver que lo recuerde en una sesión nueva).
+
 ## 2026-07-30 — Thot/Maat: 3 tools + auto-routing de modelo + cierre forzado (mejoras percibidas)
 
 **Qué (sobre la revisión de conversaciones del mismo día):** (1) **3 tools de Thot** — `thot_sales_by_vendor` / `thot_sales_by_route` / `thot_reorder_policy` (data verificada por smoke read-only contra prod: top vendedor $53.3M Morelia Abastos, ruta vecinal WIN-VEC-PH-H, SKU 80501 con máximo por almacén); prompt rule 8 re-ruteada (mata el "no hay canal ruta"). (2) **Auto-routing de modelo por complejidad** en Thot + Maat (port de FIQ.1 del bot WhatsApp: Haiku 4.5 por defecto, **Sonnet 5** si la pregunta es compleja —análisis/comparación/estrategia/fraude/"analiza todo", >160 chars o hilo ≥8 turnos—, sin depender del toggle "Think") + Auditor forense de Maat **siempre en Sonnet 5**. (3) **Cierre forzado de Maat**: si la tormenta de tools no converge, síntesis final con lo recolectado en vez de "demasiados pasos".
