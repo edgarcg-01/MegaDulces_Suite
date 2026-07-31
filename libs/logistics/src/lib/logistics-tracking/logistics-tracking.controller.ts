@@ -141,6 +141,13 @@ export class LogisticsTrackingController {
     return this.service.bootstrapVehicles();
   }
 
+  @Post('sync-routes')
+  @RequireAnyPermission(Permission.LOGISTICS_FLEET_GESTIONAR, Permission.RUTAS_VER)
+  @ApiOperation({ summary: 'Sync autoritativo ruta↔operador↔camión desde la API oficial (travels/operators)' })
+  syncRoutes() {
+    return this.service.syncRoutesOperators();
+  }
+
   @Patch('trackers/:id/link')
   @RequirePermissions(Permission.LOGISTICS_FLEET_GESTIONAR)
   @ApiOperation({ summary: 'Vincular/desvincular un tracker a un vehículo' })

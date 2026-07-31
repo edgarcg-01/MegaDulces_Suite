@@ -48,6 +48,9 @@ const STATUS_META: Record<TrackerStatus, { label: string; sev: Sev; color: strin
           </p>
         </div>
         <div class="rk-actions">
+          @if (fleet === 'route') {
+            <button pButton severity="secondary" size="small" [text]="true" [loading]="syncingRoutes()" (click)="syncRoutes()" aria-label="Sincronizar ruta y operador desde el proveedor" pTooltip="Trae ruta + operador autoritativos de MagniTracking (travels/operators)"><span class="p-button-icon p-button-icon-left pi pi-sitemap" aria-hidden="true"></span><span class="p-button-label">Sincronizar rutas</span></button>
+          }
           <button pButton severity="secondary" size="small" [text]="true" [loading]="bootstrapping()" (click)="bootstrap()" aria-label="Crear y vincular vehículos por placa" pTooltip="Crea vehículos desde los nombres del GPS y los vincula por placa"><span class="p-button-icon p-button-icon-left pi pi-link" aria-hidden="true"></span><span class="p-button-label">Vincular por placa</span></button>
           <button pButton severity="secondary" size="small" [loading]="syncing()" (click)="syncNow()" aria-label="Forzar sincronización con el proveedor"><span class="p-button-icon p-button-icon-left pi pi-sync" aria-hidden="true"></span><span class="p-button-label">Sincronizar</span></button>
           <button pButton [text]="true" size="small" [loading]="loading()" (click)="refresh()" aria-label="Refrescar posiciones"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span><span class="p-button-label">Actualizar</span></button>
@@ -287,6 +290,7 @@ export class LogisticaRastreoComponent {
   readonly loading = signal(false);
   readonly syncing = signal(false);
   readonly bootstrapping = signal(false);
+  readonly syncingRoutes = signal(false);
   readonly errored = signal(false);
   readonly selectedId = signal<string | number | null>(null);
   readonly showTrail = signal(false);
@@ -366,6 +370,14 @@ export class LogisticaRastreoComponent {
     this.api.trackingBootstrapVehicles().subscribe({
       next: () => { this.bootstrapping.set(false); this.loadVehicles(); this.refresh(); },
       error: () => this.bootstrapping.set(false),
+    });
+  }
+
+  syncRoutes() {
+    this.syncingRoutes.set(true);
+    this.api.trackingSyncRoutes().subscribe({
+      next: () => { this.syncingRoutes.set(false); this.refresh(); },
+      error: () => this.syncingRoutes.set(false),
     });
   }
 

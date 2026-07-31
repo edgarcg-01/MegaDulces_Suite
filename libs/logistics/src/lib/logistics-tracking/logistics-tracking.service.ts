@@ -179,6 +179,7 @@ export class LogisticsTrackingService {
           't.protocol',
           't.route_code',
           't.route_number',
+          't.operator_name',
           't.vehicle_id',
           'v.plate as vehicle_plate',
           't.last_lat',
@@ -193,13 +194,51 @@ export class LogisticsTrackingService {
         )
         .orderBy('t.external_name', 'asc');
 
-      // Unidad de ruta: adjunta el vendedor asignado a la ruta del tracker.
+      // Unidad de ruta: el operador autoritativo del proveedor (operator_name)
+      // gana; si no hay, cae al vendedor asignado a la ruta (vendor_sales_routes).
       const vendorByRoute = await this.routeVendorMap(trx);
       return rows.map((r: any) => ({
         ...r,
-        vendor_name: r.route_number != null ? vendorByRoute.get(r.route_number) ?? null : null,
+        vendor_name: r.operator_name || (r.route_number != null ? vendorByRoute.get(r.route_number) ?? null : null),
       }));
     });
+  }
+
+  /**
+   * LT.7 — Sync autoritativo ruta↔operador↔camión desde la API oficial
+   * (travels.php + operators.php). Puebla trackers.route_number/operator_* por
+   * IMEI. Marca route_manual=true para que el sync de posiciones (que deriva del
+   * nombre del GPS) no lo pise. Reemplaza el parseo frágil de "R-NN" del nombre.
+   */
+  async syncRoutesOperators(tenantId: string = DEFAULT_TENANT_ID): Promise<{ operators: number; travels: number; linked: number }> {
+    if (!this.provider.fetchTravels) return { operators: 0, travels: 0, linked: 0 };
+    const [operators, travels] = await Promise.all([
+      this.provider.fetchOperators ? this.provider.fetchOperators() : Promise.resolve([]),
+      this.provider.fetchTravels(),
+    ]);
+    const opName = new Map(operators.map((o) => [o.id, o.name]));
+    const digits = (s: string) => {
+      const m = (s || '').replace(/\D/g, '');
+      return m ? parseInt(m, 10) : null;
+    };
+    let linked = 0;
+    await this.tk.run(tenantId, async (trx) => {
+      for (const t of travels) {
+        if (!t.imei) continue;
+        const patch: any = {
+          route_code: t.noPlaneacion,
+          route_number: digits(t.noPlaneacion),
+          route_manual: true,
+          operator_id: t.operatorId ?? null,
+          operator_name: t.operatorId ? opName.get(t.operatorId) ?? null : null,
+          updated_at: trx.fn.now(),
+        };
+        const n = await trx('logistics.trackers').where({ imei: t.imei }).update(patch);
+        if (n) linked++;
+      }
+    });
+    this.logger.log(`syncRoutesOperators: ${operators.length} operadores, ${travels.length} rutas, ${linked} trackers vinculados`);
+    return { operators: operators.length, travels: travels.length, linked };
   }
 
   /** Mapa número-de-ruta → nombre del vendedor asignado (vendor_sales_routes). */
