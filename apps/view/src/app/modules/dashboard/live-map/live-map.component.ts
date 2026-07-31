@@ -19,6 +19,7 @@ import { FieldAlert, WebSocketService } from '../../../core/services/websocket.s
 import { environment } from '../../../../environments/environment';
 import { LivePosition, MapLiveLayerService } from '../../../core/services/map-live-layer.service';
 import { LogisticaService, TrackerLive } from '../../logistica/logistica.service';
+import { FleetTrackingSocketService } from '../../logistica/fleet-tracking-socket.service';
 
 interface StoreGeo { id: string; nombre: string; lat: number; lng: number; }
 interface VendorDayKpis {
@@ -249,6 +250,8 @@ export class LiveMapComponent implements AfterViewInit, OnDestroy {
   protected ws = inject(WebSocketService);
   private http = inject(HttpClient);
   private logi = inject(LogisticaService);
+  private fleetSocket = inject(FleetTrackingSocketService);
+  private fleetLiveSub: { unsubscribe(): void } | null = null;
   readonly today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Mexico_City' });
 
   private watchTimer: any = null;
@@ -363,7 +366,13 @@ export class LiveMapComponent implements AfterViewInit, OnDestroy {
     void this.svc.start();
     this.loadStores();
     this.loadFleet();
-    this.fleetTimer = setInterval(() => this.loadFleet(), 30_000);
+    // WS: posiciones de ruta en vivo (el poller del backend las empuja tras cada
+    // sync). Solo camionetas de ruta. El poll queda de respaldo si el WS se cae.
+    this.fleetSocket.connect();
+    this.fleetLiveSub = this.fleetSocket.live$.subscribe((p) => {
+      this.vehicles.set((p?.trackers || []).filter((u) => u.route_number != null));
+    });
+    this.fleetTimer = setInterval(() => { if (!this.fleetSocket.connected()) this.loadFleet(); }, 30_000);
     // Alertas en vivo: upsert por (usuario, tipo); el TTL las purga vía activeAlerts().
     this.alertSub = this.ws.fieldAlert.subscribe((a) => {
       const key = (x: FieldAlert) => `${x.userId}:${x.type}`;
@@ -571,6 +580,8 @@ export class LiveMapComponent implements AfterViewInit, OnDestroy {
     window.removeEventListener('resize', this.onResize);
     if (this.watchTimer) { clearInterval(this.watchTimer); this.watchTimer = null; }
     if (this.fleetTimer) { clearInterval(this.fleetTimer); this.fleetTimer = null; }
+    this.fleetLiveSub?.unsubscribe();
+    this.fleetSocket.disconnect();
     this.alertSub?.unsubscribe();
     this.svc.watch([]);
     this.svc.stop();
