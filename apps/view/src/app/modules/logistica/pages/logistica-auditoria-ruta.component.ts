@@ -10,7 +10,7 @@ import { FormsModule } from '@angular/forms';
 import { ButtonModule } from 'primeng/button';
 import { TagModule } from 'primeng/tag';
 import { TooltipModule } from 'primeng/tooltip';
-import { LogisticaService, FleetAdherenceRow } from '../logistica.service';
+import { LogisticaService, FleetAdherenceRow, AdherenceDiagnostic } from '../logistica.service';
 
 /**
  * LTV.1 — Auditoría de ruta. Único lugar del análisis de ruta: cruza el plan
@@ -169,7 +169,35 @@ import { LogisticaService, FleetAdherenceRow } from '../logistica.service';
                 <div class="rk-empty">
                   <div class="rk-empty-icon"><i class="pi pi-check-circle" aria-hidden="true"></i></div>
                   <h3>Sin rutas para auditar</h3>
-                  <p>Ninguna unidad de ruta se detuvo en tiendas geolocalizadas el <b>{{ date() }}</b>. El cumplimiento cruza dónde paró el camión con las tiendas de su ruta y las capturas de auditoría.</p>
+                  @if (diagnostic(); as d) {
+                    <p class="rk-diag-reason">{{ d.reason }}</p>
+                    <ul class="rk-diag">
+                      <li [class.ok]="d.positions_day > 0" [class.bad]="d.positions_day === 0">
+                        <i class="pi" [class.pi-check-circle]="d.positions_day > 0" [class.pi-times-circle]="d.positions_day === 0" aria-hidden="true"></i>
+                        Posiciones GPS ese día: <b>{{ d.positions_day }}</b>
+                        @if (d.last_position_at) { <span class="rk-diag-sub">· última {{ d.last_position_at | date:'short' }}</span> }
+                      </li>
+                      <li [class.ok]="d.route_trucks > 0" [class.bad]="d.route_trucks === 0">
+                        <i class="pi" [class.pi-check-circle]="d.route_trucks > 0" [class.pi-times-circle]="d.route_trucks === 0" aria-hidden="true"></i>
+                        Camiones con ruta asignada: <b>{{ d.route_trucks }}</b>
+                      </li>
+                      <li [class.ok]="d.trucks_with_activity > 0" [class.bad]="d.trucks_with_activity === 0">
+                        <i class="pi" [class.pi-check-circle]="d.trucks_with_activity > 0" [class.pi-times-circle]="d.trucks_with_activity === 0" aria-hidden="true"></i>
+                        Camiones de ruta con actividad: <b>{{ d.trucks_with_activity }}</b>
+                      </li>
+                      <li [class.ok]="d.store_stops_built > 0" [class.bad]="d.store_stops_built === 0">
+                        <i class="pi" [class.pi-check-circle]="d.store_stops_built > 0" [class.pi-times-circle]="d.store_stops_built === 0" aria-hidden="true"></i>
+                        Paradas en tienda reconstruidas: <b>{{ d.store_stops_built }}</b>
+                      </li>
+                      <li [class.ok]="d.stores_with_route > 0" [class.bad]="d.stores_with_route === 0">
+                        <i class="pi" [class.pi-check-circle]="d.stores_with_route > 0" [class.pi-times-circle]="d.stores_with_route === 0" aria-hidden="true"></i>
+                        Tiendas con ruta + coordenadas: <b>{{ d.stores_with_route }}</b>
+                      </li>
+                    </ul>
+                  } @else {
+                    <p>Ninguna unidad de ruta se detuvo en tiendas geolocalizadas el <b>{{ date() }}</b>.</p>
+                  }
+                  <button pButton size="small" [loading]="loading()" (click)="refresh()"><span class="p-button-label">Reintentar</span></button>
                 </div>
               } @else {
                 <div class="rk-empty">
@@ -244,6 +272,14 @@ import { LogisticaService, FleetAdherenceRow } from '../logistica.service';
     .rk-empty-icon { width:56px; height:56px; margin:0 auto 1rem; border-radius:14px; background:var(--c-surface-2); color:var(--c-text-2); display:grid; place-items:center; font-size:1.5rem; }
     .rk-empty h3 { margin:0 0 .375rem; font-size:var(--fs-h3); font-weight:var(--fw-bold); }
     .rk-empty p { margin:0 0 .75rem; color:var(--c-text-2); font-size:var(--fs-sm); }
+    .rk-diag-reason { color:var(--c-text-1); font-weight:var(--fw-medium); }
+    .rk-diag { list-style:none; margin:0 0 1rem; padding:0; text-align:left; max-width:380px; margin-inline:auto; }
+    .rk-diag li { display:flex; align-items:center; gap:.5rem; padding:.3rem 0; font-size:var(--fs-sm); color:var(--c-text-2); border-top:1px solid var(--c-divider); }
+    .rk-diag li:first-child { border-top:none; }
+    .rk-diag li b { color:var(--c-text-1); font-variant-numeric:tabular-nums; }
+    .rk-diag li.ok .pi { color:var(--ok-fg); }
+    .rk-diag li.bad .pi { color:var(--bad-fg); }
+    .rk-diag-sub { color:var(--c-text-3); font-size:var(--fs-micro); }
   `],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
@@ -256,6 +292,7 @@ export class LogisticaAuditoriaRutaComponent {
   readonly selectedId = signal<string | null>(null);
   readonly loading = signal(false);
   readonly errored = signal(false);
+  readonly diagnostic = signal<AdherenceDiagnostic | null>(null);
 
   readonly selected = computed(() => this.rows().find((r) => r.vehicle_id === this.selectedId()) ?? null);
   readonly evaluables = computed(() => this.rows().filter((r) => r.evaluable));
@@ -290,9 +327,22 @@ export class LogisticaAuditoriaRutaComponent {
 
   refresh() {
     this.loading.set(true);
+    this.diagnostic.set(null);
     this.api.fleetAdherence(this.date()).subscribe({
-      next: (r) => { this.rows.set(r || []); this.errored.set(false); this.loading.set(false); },
+      next: (r) => {
+        this.rows.set(r || []);
+        this.errored.set(false);
+        this.loading.set(false);
+        if (!(r && r.length)) this.loadDiagnostic();
+      },
       error: () => { this.errored.set(true); this.loading.set(false); },
+    });
+  }
+
+  private loadDiagnostic() {
+    this.api.fleetAdherenceDiagnostic(this.date()).subscribe({
+      next: (d) => this.diagnostic.set(d),
+      error: () => this.diagnostic.set(null),
     });
   }
 

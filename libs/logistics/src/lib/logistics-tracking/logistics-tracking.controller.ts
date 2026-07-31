@@ -51,6 +51,13 @@ export class LogisticsTrackingController {
     return this.adherence.forFleetDay(date);
   }
 
+  @Get('adherence/diagnostic')
+  @RequireAnyPermission(Permission.LOGISTICS_FLEET_VER, Permission.RUTAS_VER)
+  @ApiOperation({ summary: 'Por qué no hay cumplimiento ese día (cadena de eslabones)' })
+  adherenceDiagnostic(@Query('date') date: string) {
+    return this.adherence.diagnose(date);
+  }
+
   // ── LTV.0 Viajes / paradas reconstruidas ───────────────────────────────────
   @Get('trips/day-summary')
   @RequireAnyPermission(Permission.LOGISTICS_FLEET_VER, Permission.RUTAS_VER)
