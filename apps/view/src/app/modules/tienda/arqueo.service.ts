@@ -27,6 +27,7 @@ export interface ArqueoResult {
   tipo: ArqueoTipo;
   total_contado: number;
   matched: boolean;
+  ambiguous?: boolean; // varios cortes en la caja/día y no se especificó cajero → no se comparó
   folio?: string;
   esperado: number | null;
   diff_real: number | null; // + faltante / − sobrante
