@@ -1,7 +1,6 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, OnInit, computed, inject, signal, viewChild } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { trigger, transition, style, animate } from '@angular/animations';
 
 import { FormsModule } from '@angular/forms';
 import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
@@ -68,35 +67,6 @@ const SUGGESTIONS = [
   standalone: true,
   imports: [FormsModule, ButtonModule, ChartModule, PageTabsComponent, ThotAiInputComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  animations: [
-    trigger('msg', [
-      transition(':enter', [
-        style({ opacity: 0, transform: 'translateY(10px)', filter: 'blur(4px)' }),
-        animate('400ms cubic-bezier(0.22, 1, 0.36, 1)',
-          style({ opacity: 1, transform: 'none', filter: 'blur(0)' })),
-      ]),
-      transition(':leave', [
-        animate('220ms ease',
-          style({ opacity: 0, transform: 'translateY(-8px) scale(0.97)' })),
-      ]),
-    ]),
-    trigger('jump', [
-      transition(':enter', [
-        style({ opacity: 0, transform: 'translateX(-50%) translateY(8px) scale(0.8)' }),
-        animate('260ms cubic-bezier(0.34, 1.4, 0.5, 1)',
-          style({ opacity: 1, transform: 'translateX(-50%) translateY(0) scale(1)' })),
-      ]),
-      transition(':leave', [
-        animate('160ms ease', style({ opacity: 0, transform: 'translateX(-50%) translateY(6px) scale(0.85)' })),
-      ]),
-    ]),
-    trigger('thinkText', [
-      transition('* => *', [
-        style({ opacity: 0, transform: 'translateY(4px)' }),
-        animate('280ms cubic-bezier(0.22, 1, 0.36, 1)', style({ opacity: 1, transform: 'none' })),
-      ]),
-    ]),
-  ],
   template: `
     <div class="surf-page in tc-page">
       <app-page-tabs [tabs]="tabs" />
@@ -111,7 +81,7 @@ const SUGGESTIONS = [
         }
       </header>
 
-      <div class="tc-thread" #thread [@.disabled]="reduce" (scroll)="onScroll()" (click)="onThreadClick($event)">
+      <div class="tc-thread" #thread (scroll)="onScroll()" (click)="onThreadClick($event)">
         @if (messages().length === 0) {
           <div class="tc-empty">
             <div class="tc-empty-icon"><i class="pi pi-comments" aria-hidden="true"></i></div>
@@ -143,7 +113,7 @@ const SUGGESTIONS = [
         }
 
         @for (m of messages(); track $index; let mi = $index) {
-          <div class="tc-msg" @msg [class.tc-user]="m.role === 'user'" [class.tc-bot]="m.role === 'assistant'">
+          <div class="tc-msg" animate.enter="tc-msg-enter" animate.leave="tc-msg-leave" [class.tc-user]="m.role === 'user'" [class.tc-bot]="m.role === 'assistant'">
             <div class="tc-avatar" [class.is-thinking]="m.pending">
               <i [class]="m.role === 'user' ? 'pi pi-user' : 'pi pi-sparkles'" aria-hidden="true"></i>
             </div>
@@ -151,7 +121,7 @@ const SUGGESTIONS = [
               @if (m.pending) {
                 <span class="tc-thinking">
                   <span class="tc-typing"><i></i><i></i><i></i></span>
-                  <span class="tc-thinking-txt" [@thinkText]="thinkingLabel()">{{ thinkingLabel() }}</span>
+                  <span class="tc-thinking-txt">{{ thinkingLabel() }}</span>
                 </span>
               } @else {
                 @if (m.role === 'assistant') {
@@ -250,7 +220,7 @@ const SUGGESTIONS = [
       </div>
 
       @if (!atBottom() && messages().length) {
-        <button type="button" class="tc-jump" @jump (click)="jumpToBottom()" aria-label="Ir al final de la conversación">
+        <button type="button" class="tc-jump" animate.enter="tc-jump-enter" animate.leave="tc-jump-leave" (click)="jumpToBottom()" aria-label="Ir al final de la conversación">
           <i class="pi pi-arrow-down" aria-hidden="true"></i>
         </button>
       }
@@ -415,6 +385,19 @@ const SUGGESTIONS = [
     @media (prefers-reduced-motion: reduce) {
       .tc-reveal, .tc-avatar.is-thinking { animation: none; }
     }
+
+    /* Entrada/salida de mensajes + botón "ir al final" (nativas Angular animate.enter/leave). */
+    @keyframes tc-msg-enter-kf { from { opacity: 0; transform: translateY(10px); filter: blur(4px); } to { opacity: 1; transform: none; filter: blur(0); } }
+    @keyframes tc-msg-leave-kf { from { opacity: 1; transform: none; } to { opacity: 0; transform: translateY(-8px) scale(0.97); } }
+    .tc-msg-enter { animation: tc-msg-enter-kf 400ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+    .tc-msg-leave { animation: tc-msg-leave-kf 220ms ease both; }
+    /* jump: keyframes conservan translateX(-50%) (centrado); 'backwards' revierte a la base
+       .tc-jump (transform: translateX(-50%)) al terminar → el hover sigue funcionando. */
+    @keyframes tc-jump-enter-kf { from { opacity: 0; transform: translateX(-50%) translateY(8px) scale(0.8); } to { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); } }
+    @keyframes tc-jump-leave-kf { from { opacity: 1; transform: translateX(-50%); } to { opacity: 0; transform: translateX(-50%) translateY(6px) scale(0.85); } }
+    .tc-jump-enter { animation: tc-jump-enter-kf 260ms cubic-bezier(0.34, 1.4, 0.5, 1) backwards; }
+    .tc-jump-leave { animation: tc-jump-leave-kf 160ms ease both; }
+    @media (prefers-reduced-motion: reduce) { .tc-msg-enter, .tc-msg-leave, .tc-jump-enter, .tc-jump-leave { animation: none; } }
 
     .tc-composer { display: block; width: 100%; max-width: 820px; margin: var(--sp-3) auto 0; position: relative; z-index: 2; }
 

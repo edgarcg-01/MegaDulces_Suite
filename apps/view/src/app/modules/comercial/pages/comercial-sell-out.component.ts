@@ -503,6 +503,9 @@ export class ComercialSellOutComponent {
   private readonly svc = inject(ComercialService);
   private readonly toast = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);
+  // Persistencia de filtros en localStorage (mismo patrón que /compras/pedido) →
+  // se mantienen al cambiar de tab, navegar y hasta un reload completo.
+  private static readonly FKEY = 'sell-out-filters:v1';
 
   brands = signal<SellOutBrandRow[]>([]);
   loadingBrands = signal(false);
@@ -617,6 +620,9 @@ export class ComercialSellOutComponent {
     this.monthDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
     this.year = this.monthDate.getFullYear();
     this.quarter = Math.floor(this.monthDate.getMonth() / 3) + 1;
+    // Restaura los filtros guardados (sobrevive cambio de tab / navegación / reload);
+    // re-consulta fresco. Si es la 1ra vez → defaults de arriba.
+    this.restoreFilters();
     this.syncPeriod();
     this.loadBrands();
     this.loadWarehouses();
@@ -764,12 +770,62 @@ export class ComercialSellOutComponent {
     };
   }
 
+  /** Persiste TODOS los filtros. Fechas → ISO; Set → array (JSON-safe). */
+  private saveFilters(): void {
+    try {
+      localStorage.setItem(ComercialSellOutComponent.FKEY, JSON.stringify({
+        brandId: this.brandId(), periodMode: this.periodMode(), measure: this.measure(),
+        promo: this.promo(), concentrar: this.concentrar(), view: this.view(),
+        reportMode: this.reportMode(), search: this.search(),
+        selectedCells: Array.from(this.selectedCells()),
+        monthDate: this.iso(this.monthDate),
+        rangeDates: this.rangeDates?.map((d) => this.iso(d)) ?? null,
+        quarter: this.quarter, year: this.year,
+        channels: this.channels, warehouses: this.warehouses,
+        byChannel: this.byChannel, includeZeros: this.includeZeros,
+      }));
+    } catch { /* localStorage no disponible */ }
+  }
+  private restoreFilters(): void {
+    try {
+      const raw = localStorage.getItem(ComercialSellOutComponent.FKEY);
+      if (!raw) return;
+      const s = JSON.parse(raw);
+      if (s.periodMode === 'month' || s.periodMode === 'quarter' || s.periodMode === 'year' || s.periodMode === 'range') this.periodMode.set(s.periodMode);
+      if ('brandId' in s) this.brandId.set(s.brandId ?? null);
+      if (s.measure === 'cajas' || s.measure === 'monto' || s.measure === 'ambas') this.measure.set(s.measure);
+      if (s.promo === 'sin' || s.promo === 'solo' || s.promo === 'todo') this.promo.set(s.promo);
+      if (['', 'ruta', 'canal', 'sucursal', 'empresa'].includes(s.concentrar)) this.concentrar.set(s.concentrar);
+      if (s.view === 'product' || s.view === 'month_columns' || s.view === 'month_summary') this.view.set(s.view);
+      if (s.reportMode === 'canal' || s.reportMode === 'vendedor') this.reportMode.set(s.reportMode);
+      if (typeof s.search === 'string') this.search.set(s.search);
+      if (Array.isArray(s.selectedCells)) this.selectedCells.set(new Set(s.selectedCells));
+      // Parse LOCAL (no `new Date(iso)` que interpreta UTC → correría el mes en TZ MX).
+      const parseLocal = (v: string): Date | null => {
+        const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(v);
+        return m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : null;
+      };
+      if (typeof s.monthDate === 'string') { const d = parseLocal(s.monthDate); if (d) this.monthDate = d; }
+      if (Array.isArray(s.rangeDates)) {
+        const ds = s.rangeDates.map((x: string) => parseLocal(x)).filter((d: Date | null): d is Date => !!d);
+        this.rangeDates = ds.length ? ds : null;
+      }
+      if (typeof s.quarter === 'number') this.quarter = s.quarter;
+      if (typeof s.year === 'number') this.year = s.year;
+      if (Array.isArray(s.channels)) this.channels = s.channels;
+      if (Array.isArray(s.warehouses)) this.warehouses = s.warehouses;
+      if (typeof s.byChannel === 'boolean') this.byChannel = s.byChannel;
+      if (typeof s.includeZeros === 'boolean') this.includeZeros = s.includeZeros;
+    } catch { /* JSON inválido */ }
+  }
+
   generate() {
     this.syncPeriod();
     if (!this.curFrom || !this.curTo) {
       this.toast.add({ severity: 'warn', summary: 'Elegí un periodo' });
       return;
     }
+    this.saveFilters();
     this.loading.set(true);
     const req = this.reportMode() === 'vendedor'
       ? this.svc.sellOutByVendor(this.buildParams())

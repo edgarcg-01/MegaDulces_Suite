@@ -12,7 +12,6 @@ const isCapacitorNative = (): boolean =>
 
 import { provideRouter, withPreloading, withRouterConfig } from '@angular/router';
 import { provideHttpClient, withInterceptors, withXhr } from '@angular/common/http';
-import { provideAnimationsAsync } from '@angular/platform-browser/animations/async';
 import { provideServiceWorker } from '@angular/service-worker';
 import { routes } from './app.routes';
 import { authInterceptor } from './core/http/auth.interceptor';
@@ -36,7 +35,6 @@ export const appConfig: ApplicationConfig = {
       withPreloading(SelectivePreloadStrategy),
       withRouterConfig({ paramsInheritanceStrategy: 'emptyOnly' }),
     ),
-    provideAnimationsAsync(),
     provideHttpClient(withXhr(), 
       withInterceptors([authInterceptor])
     ),

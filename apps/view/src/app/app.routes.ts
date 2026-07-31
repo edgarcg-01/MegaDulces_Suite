@@ -357,7 +357,8 @@ export const routes: Routes = [
         // Fusiona las 3 vistas previas: pedido(que-toca) + compra-sugerida + existencia-critica.
         path: 'pedido',
         loadComponent: () => import('./modules/compras/pages/compras-pedido-real.component').then(m => m.ComprasPedidoRealComponent),
-        canActivate: [permissionGuard(Permission.COMPRAS_VER)]
+        canActivate: [permissionGuard(Permission.COMPRAS_VER)],
+        canDeactivate: [unsavedChangesGuard]
       },
       { path: 'que-toca', redirectTo: 'pedido', pathMatch: 'full' },
       { path: 'pedido-real', redirectTo: 'pedido', pathMatch: 'full' },        // fusionada en Pedido

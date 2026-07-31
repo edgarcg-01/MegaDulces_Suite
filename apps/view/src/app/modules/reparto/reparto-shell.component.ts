@@ -46,13 +46,13 @@ import { AuthService } from '../../core/services/auth.service';
           <span class="username">{{ username() }}</span>
           <button
             pButton
-            icon="pi pi-sign-out"
+           
             severity="secondary"
             size="small"
             text
             aria-label="Cerrar sesión"
             (click)="logout()"
-          ></button>
+          ><span class="p-button-icon p-button-icon-left pi pi-sign-out" aria-hidden="true"></span></button>
         </div>
       </header>
 

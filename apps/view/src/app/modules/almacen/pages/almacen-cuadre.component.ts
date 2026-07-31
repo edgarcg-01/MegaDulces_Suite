@@ -142,7 +142,7 @@ type Tab = 'resumen' | 'focos' | 'cortes' | 'movimientos' | 'arqueo' | 'acciones
             </ng-template>
             <ng-template #body let-c let-expanded="expanded">
               <tr [class.cd-row-bad]="abs(c.efectivo_diff) >= 50 || abs(c.tarjeta_diff) >= 50 || abs(c.transfer_diff) >= 50">
-                <td><p-button pButton type="button" [icon]="expanded ? 'pi pi-chevron-down' : 'pi pi-chevron-right'" styleClass="p-button-text p-button-sm" (click)="toggleCorte(c)"></p-button></td>
+                <td><p-button type="button" [icon]="expanded ? 'pi pi-chevron-down' : 'pi pi-chevron-right'" styleClass="p-button-text p-button-sm" (click)="toggleCorte(c)"></p-button></td>
                 <td>{{ c.business_date | date:'dd/MM/yy' }}</td>
                 <td>{{ c.warehouse_name || c.warehouse_code }}</td>
                 <td>{{ c.caja }}</td>
@@ -275,7 +275,7 @@ type Tab = 'resumen' | 'focos' | 'cortes' | 'movimientos' | 'arqueo' | 'acciones
               <tr class="cd-total-row"><td>Total contado</td><td></td><td class="ta-r strong">{{ money(arqTotal()) }}</td></tr>
             </table>
             <label class="cd-lbl cd-block">Nota <input class="cd-input" [(ngModel)]="aNota" placeholder="opcional"></label>
-            <p-button pButton type="button" [label]="aTipo() === 'relevo' ? 'Sellar relevo' : 'Guardar y revelar diferencia'" icon="pi pi-lock-open" styleClass="p-button-sm" [disabled]="!aSuc || !aCaja || !aDate || arqTotal()===0" [loading]="arqSaving()" (click)="submitArqueo()"></p-button>
+            <p-button type="button" [label]="aTipo() === 'relevo' ? 'Sellar relevo' : 'Guardar y revelar diferencia'" icon="pi pi-lock-open" styleClass="p-button-sm" [disabled]="!aSuc || !aCaja || !aDate || arqTotal()===0" [loading]="arqSaving()" (click)="submitArqueo()"></p-button>
             @if (arqResult(); as r) {
               <div class="cd-arq-result" [class.bad]="r.kepler_enmascaro">
                 @if (r.tipo === 'relevo') {
@@ -365,7 +365,7 @@ type Tab = 'resumen' | 'focos' | 'cortes' | 'movimientos' | 'arqueo' | 'acciones
             <button [class.active]="dStatus() === 'confirmado'" (click)="setStatus('confirmado')">Confirmados</button>
             <button [class.active]="dStatus() === 'descartado'" (click)="setStatus('descartado')">Descartados</button>
           </div>
-          <p-button pButton type="button" [label]="rulesOpen() ? 'Ocultar reglas' : 'Reglas'" icon="pi pi-sliders-h" styleClass="p-button-sm p-button-text" (click)="rulesOpen.set(!rulesOpen())"></p-button>
+          <p-button type="button" [label]="rulesOpen() ? 'Ocultar reglas' : 'Reglas'" icon="pi pi-sliders-h" styleClass="p-button-sm p-button-text" (click)="rulesOpen.set(!rulesOpen())"></p-button>
         </div>
     
         @if (rulesOpen()) {
@@ -379,7 +379,7 @@ type Tab = 'resumen' | 'focos' | 'cortes' | 'movimientos' | 'arqueo' | 'acciones
                   <td class="ta-r">{{ r.findings_total | number }}</td><td class="ta-r muted">{{ r.findings_confirmados }}/{{ r.findings_falsos }}</td>
                   <td class="ta-r" [class.bad]="r.precision_score != null && r.precision_score < 0.3">{{ r.precision_score != null ? (r.precision_score * 100 | number:'1.0-0') + '%' : '—' }}</td>
                   <td>@if (r.suppressed_auto) { <span class="cd-tag pl-off">suprimida</span> } @else if (r.pinned) { <span class="cd-tag pl-pin">fijada</span> } @else { <span class="muted">activa</span> }</td>
-                  <td class="ta-r"><p-button pButton type="button" [icon]="r.pinned ? 'pi pi-bookmark-fill' : 'pi pi-bookmark'" styleClass="p-button-text p-button-sm" (click)="pin(r)"></p-button></td>
+                  <td class="ta-r"><p-button type="button" [icon]="r.pinned ? 'pi pi-bookmark-fill' : 'pi pi-bookmark'" styleClass="p-button-text p-button-sm" (click)="pin(r)"></p-button></td>
                 </tr>
               </ng-template>
             </p-table>
@@ -394,7 +394,7 @@ type Tab = 'resumen' | 'focos' | 'cortes' | 'movimientos' | 'arqueo' | 'acciones
             </ng-template>
             <ng-template #body let-d let-expanded="expanded">
               <tr>
-                <td><p-button pButton type="button" [icon]="expanded ? 'pi pi-chevron-down' : 'pi pi-chevron-right'" styleClass="p-button-text p-button-sm" (click)="toggle(d)"></p-button></td>
+                <td><p-button type="button" [icon]="expanded ? 'pi pi-chevron-down' : 'pi pi-chevron-right'" styleClass="p-button-text p-button-sm" (click)="toggle(d)"></p-button></td>
                 <td><span class="cd-sev" [ngClass]="'sev-' + d.severity">{{ sevLabel(d.severity) }}</span></td>
                 <td><div class="cd-titulo">{{ d.titulo }}</div><div class="cd-resumen">{{ d.resumen }}</div></td>
                 <td><span class="cd-tag" [ngClass]="'pl-' + d.plano">{{ planoLabel(d.plano) }}</span></td>
