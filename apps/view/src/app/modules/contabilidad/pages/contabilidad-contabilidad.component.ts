@@ -53,6 +53,13 @@ import { SAT_COD_AGRUPADOR } from '../../../shared/constants/sat-cod-agrupador';
           <p-select [options]="tipoEnvioOpts" [(ngModel)]="tipoEnvio" optionLabel="label" optionValue="value" styleClass="cb-sel sel-liquid" ariaLabel="Tipo de envío de la balanza" />
         </label>
       </div>
+      @if (coverage().unmapped > 0) {
+        <div class="cb-warn" role="alert">
+          <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+          <span><strong>{{ coverage().unmapped }} de {{ coverage().total }} cuentas mayor sin código agrupador SAT válido.</strong>
+          El catálogo XML saldrá con un placeholder que <strong>el SAT rechaza</strong> (formato requerido <code>NNN</code>/<code>NNN.NN</code>). Completá el mapeo abajo antes de presentarlo.</span>
+        </div>
+      }
       <div class="cb-cards">
         <div class="cb-card">
           <div class="cb-card-body">
@@ -110,7 +117,7 @@ import { SAT_COD_AGRUPADOR } from '../../../shared/constants/sat-cod-agrupador';
           </tr>
         </ng-template>
         <ng-template #body let-r>
-          <tr [class.cb-unmapped]="!r.cod_agrupador">
+          <tr [class.cb-unmapped]="!satOk(r)">
             <td><code class="comm-code">{{ r.cuenta_mayor }}</code></td>
             <td class="cb-name">{{ r.nombre || '—' }}</td>
             <td class="cb-c-fam">{{ r.familia }}</td>
@@ -167,6 +174,9 @@ import { SAT_COD_AGRUPADOR } from '../../../shared/constants/sat-cod-agrupador';
     .cb-card-desc { font-size: .78rem; color: var(--text-muted); margin-top: .15rem; max-width: 60ch; }
     .cb-card button { align-self: flex-start; }
     .cb-note { font-size: .75rem; color: var(--text-muted); background: var(--surface-hover-bg); border-radius: var(--r-sm); padding: .55rem .75rem; margin: 1rem 0 0; display: flex; gap: .4rem; align-items: baseline; }
+    .cb-warn { font-size: .78rem; color: var(--text-main); background: color-mix(in srgb, var(--warn-fg) 12%, transparent); border: 1px solid color-mix(in srgb, var(--warn-fg) 40%, transparent); border-radius: var(--r-sm); padding: .6rem .8rem; margin: 0 0 1rem; display: flex; gap: .5rem; align-items: baseline; }
+    .cb-warn .pi { color: var(--warn-fg); }
+    .cb-warn code { font-family: var(--font-mono, monospace); }
 
     /* ── FE.11 mapeo ── */
     .cb-map-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; flex-wrap: wrap; margin-bottom: 1rem; }
@@ -209,14 +219,23 @@ export class ContabilidadContabilidadComponent {
 
   readonly canManage = computed(() => (this.auth.user()?.permissions || {})[Permission.FISCAL_CONTAB_GESTIONAR] === true);
 
+  /** Un código es válido ante el SAT solo si cumple el formato NNN o NNN.NN. Ojo:
+   *  auto-sugerir siembra la propia cuenta mayor (ej. "1120"), que NO cumple → el
+   *  catálogo XML sale inválido aunque `cod_agrupador` esté lleno. Por eso la
+   *  cobertura se mide contra el formato SAT, no contra null. */
+  private static readonly SAT_FMT = /^\d{3}(\.\d{1,3})?$/;
   readonly coverage = computed(() => {
     const rows = this.mapRows();
-    const mapped = rows.filter((r) => !!r.cod_agrupador).length;
-    return { total: rows.length, mapped, unmapped: rows.length - mapped };
+    const satOk = rows.filter((r) => ContabilidadContabilidadComponent.SAT_FMT.test((r.cod_agrupador || '').trim())).length;
+    return { total: rows.length, mapped: satOk, unmapped: rows.length - satOk };
   });
 
+  /** Un código cumple el formato del catálogo SAT (NNN o NNN.NN). El placeholder
+   *  (cuenta mayor cruda, o auto-sugerido) normalmente NO cumple. */
+  satOk(r: CodAgrupadorRow): boolean { return ContabilidadContabilidadComponent.SAT_FMT.test((r.cod_agrupador || '').trim()); }
+
   /** "Sin mapear" filtra client-side sobre las cuentas ya cargadas (el trabajo real de cerrar el catálogo). */
-  readonly displayRows = computed(() => this.onlyUnmapped() ? this.mapRows().filter((r) => !r.cod_agrupador) : this.mapRows());
+  readonly displayRows = computed(() => this.onlyUnmapped() ? this.mapRows().filter((r) => !this.satOk(r)) : this.mapRows());
 
   constructor() {
     this.loadMap();
@@ -261,6 +280,11 @@ export class ContabilidadContabilidadComponent {
 
   descargar(tipo: 'catalogo' | 'balanza') {
     if (!/^\d{4}-\d{2}$/.test(this.period)) { this.toast.add({ severity: 'warn', summary: 'Periodo inválido', detail: 'Elige un mes válido.' }); return; }
+    // El catálogo con mayores sin código SAT válido no lo acepta el SAT: confirmar antes de bajar un borrador.
+    if (tipo === 'catalogo' && this.coverage().unmapped > 0 &&
+        !confirm(`${this.coverage().unmapped} cuenta(s) mayor sin código agrupador SAT válido. El catálogo XML será un BORRADOR que el SAT rechaza. ¿Descargar de todos modos?`)) {
+      return;
+    }
     this.dl.set(tipo);
     const rfc = this.rfc ? this.rfc.toUpperCase() : undefined;
     const obs = tipo === 'catalogo' ? this.svc.catalogo(this.period, rfc) : this.svc.balanza(this.period, rfc, this.tipoEnvio);
