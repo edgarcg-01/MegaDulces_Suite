@@ -1,22 +1,25 @@
 import {
   ChangeDetectionStrategy,
   Component,
-  DestroyRef,
   computed,
   inject,
   signal,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { ActivatedRoute } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
 import { ButtonModule } from 'primeng/button';
-import { TagModule } from 'primeng/tag';
+import { TableModule } from 'primeng/table';
 import { TooltipModule } from 'primeng/tooltip';
+import { SkeletonModule } from 'primeng/skeleton';
 import {
   LogisticaService,
   FleetProductivityRow,
   VehicleStop,
 } from '../logistica.service';
+import { todayMx } from '../../../core/utils/mx-date';
+import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
+import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 
 /**
  * LTV.0 + LTV.5 — Actividad de flota del día. Sobre los viajes reconstruidos
@@ -24,11 +27,15 @@ import {
  * (movimiento/detenido/muerto/offline), paradas productivas vs muertas y
  * km por entrega. Drill a las paradas del vehículo (timeline con cliente
  * matcheado). Botón para reconstruir el día si el cron nocturno aún no corrió.
+ *
+ * Operations/DESIGN: KPIs = MetricStrip (ADR-033, flota route lleva composición
+ * captura vs sin captura); tabla = p-table densa con header sticky + 1ª columna
+ * congelada + selección por teclado + skeleton; fecha + unidad viven en la URL.
  */
 @Component({
   selector: 'app-logistica-actividad',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, TagModule, TooltipModule],
+  imports: [CommonModule, FormsModule, ButtonModule, TableModule, TooltipModule, SkeletonModule, MetricStripComponent, ContextHelpComponent],
   template: `
     <div class="surf-page">
       <header class="surf-page-head">
@@ -43,154 +50,135 @@ import {
         <div class="rk-actions">
           <input type="date" class="rk-date" [ngModel]="date()" (ngModelChange)="setDate($event)"
             [max]="today" aria-label="Fecha de actividad" />
-            <button pButton severity="secondary" size="small" [text]="true" [loading]="rebuilding()" (click)="rebuild()" pTooltip="Recalcula paradas y resumen desde el rastro GPS (por si el proceso nocturno aún no corrió)"><span class="p-button-icon p-button-icon-left pi pi-cog" aria-hidden="true"></span><span class="p-button-label">Reconstruir día</span></button>
-            <button pButton [text]="true" size="small" [loading]="loading()" (click)="refresh()" aria-label="Refrescar"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span><span class="p-button-label">Actualizar</span></button>
-          </div>
-        </header>
-    
-        <!-- KPIs del día -->
-        <div class="sheet cols-12 rk-kpis">
-          <article class="cell cell-span-3 rk-kpi">
-            <span class="rk-kpi-n">{{ totals().km | number:'1.0-0' }}</span>
-            <span class="rk-kpi-l">Km recorridos</span>
+          <button pButton severity="secondary" size="small" [text]="true" [loading]="rebuilding()" (click)="rebuild()" pTooltip="Recalcula paradas y resumen desde el rastro GPS (por si el proceso nocturno aún no corrió)"><span class="p-button-icon p-button-icon-left pi pi-cog" aria-hidden="true"></span><span class="p-button-label">Reconstruir día</span></button>
+          <button pButton [text]="true" size="small" [loading]="loading()" (click)="refresh()" aria-label="Refrescar"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span><span class="p-button-label">Actualizar</span></button>
+          <app-context-help topic="route-activity" />
+        </div>
+      </header>
+
+      <!-- KPIs del día (MetricStrip, ADR-033). Flota route: composición captura vs sin captura. -->
+      <div class="rk-kpi-strip">
+        <app-metric-strip mode="strip" [items]="kpiStrip()" ariaLabel="Actividad del día" />
+        @if (captureComp(); as cc) {
+          <app-metric-strip class="rk-cov" mode="composition" [items]="cc" ariaLabel="Capturas de las paradas en tienda" />
+        }
+      </div>
+
+      @if (loading() && !rows().length) {
+        <!-- Skeleton de filas (DESIGN datos-densos §4) -->
+        <div class="sheet cols-12">
+          <article class="cell cell-span-7 is-flush">
+            <div class="rk-skel">
+              @for (i of skeletonRows; track i) {
+                <div class="rk-skel-row"><p-skeleton height="1.1rem" /></div>
+              }
+            </div>
           </article>
-          @if (fleet === 'route') {
-            <article class="cell cell-span-3 rk-kpi">
-              <span class="rk-kpi-n">{{ totals().storeStops }}</span>
-              <span class="rk-kpi-l">Paradas en tienda</span>
-            </article>
-            <article class="cell cell-span-3 rk-kpi">
-              <span class="rk-kpi-n" style="color:var(--ok-fg)">{{ totals().captured }}</span>
-              <span class="rk-kpi-l">Con captura</span>
-            </article>
-            <article class="cell cell-span-3 rk-kpi">
-              <span class="rk-kpi-n" style="color:var(--warn-fg)">{{ totals().uncaptured }}</span>
-              <span class="rk-kpi-l">Sin captura</span>
+        </div>
+      } @else if (rows().length) {
+        <!-- Master-detail -->
+        <div class="sheet cols-12">
+          <article class="cell cell-span-7 is-flush">
+            <p-table [value]="rows()" dataKey="vehicle_id"
+              selectionMode="single" [metaKeySelection]="false"
+              [selection]="selected()" (selectionChange)="onSelectionChange($event)"
+              [scrollable]="true" [rowHover]="true" styleClass="p-datatable-sm rk-ptable">
+              <ng-template #header>
+                <tr>
+                  <th pFrozenColumn>Unidad</th>
+                  <th class="num">Km</th>
+                  <th class="num" pTooltip="En movimiento">Mov.</th>
+                  <th class="num" pTooltip="Detenido improductivo (paradas ≥20 min sin cliente)">Muerto</th>
+                  @if (fleet === 'route') {
+                    <th class="num" pTooltip="Paradas en tienda de trade">Tiendas</th>
+                    <th class="num" pTooltip="Tiendas con captura de auditoría / paradas en tienda">Auditadas</th>
+                    <th class="num" pTooltip="Paró en tienda pero no capturó">Sin capt.</th>
+                  } @else {
+                    <th class="num" pTooltip="Paradas con cliente / total">Paradas</th>
+                    <th class="num" pTooltip="Km por entrega (parada con cliente)">Km/ent.</th>
+                  }
+                </tr>
+              </ng-template>
+              <ng-template #body let-r>
+                <tr [pSelectableRow]="r">
+                  <td pFrozenColumn class="rk-unit">{{ r.vehicle_plate || shortId(r.vehicle_id) }}</td>
+                  <td class="num">{{ r.km_driven | number:'1.0-1' }}</td>
+                  <td class="num">{{ fmtMin(r.moving_min) }}</td>
+                  <td class="num" [class.rk-warn]="r.dead_min > 0">{{ r.dead_min ? fmtMin(r.dead_min) : '—' }}</td>
+                  @if (fleet === 'route') {
+                    <td class="num">{{ r.store_stops }}</td>
+                    <td class="num"><b>{{ r.captured_stops }}</b><span class="rk-of">/{{ r.store_stops }}</span></td>
+                    <td class="num" [class.rk-warn]="r.uncaptured_stops > 0">{{ r.uncaptured_stops || '—' }}</td>
+                  } @else {
+                    <td class="num"><b>{{ r.customer_stops }}</b><span class="rk-of">/{{ r.stops_count }}</span></td>
+                    <td class="num">{{ r.km_per_customer_stop != null ? (r.km_per_customer_stop | number:'1.0-1') : '—' }}</td>
+                  }
+                </tr>
+              </ng-template>
+            </p-table>
+          </article>
+          @if (selected(); as s) {
+            <article class="cell cell-span-5">
+              <div class="rk-detail-head">
+                <h3>{{ s.vehicle_plate || shortId(s.vehicle_id) }}</h3>
+                <span class="rk-muted">Paradas del {{ date() }}</span>
+              </div>
+              <dl class="rk-kv">
+                <div><dt>En movimiento</dt><dd class="num">{{ fmtMin(s.moving_min) }}</dd></div>
+                <div><dt>Detenido</dt><dd class="num">{{ fmtMin(s.stopped_min) }}</dd></div>
+                <div><dt>Tiempo muerto</dt><dd class="num">{{ fmtMin(s.dead_min) }}</dd></div>
+                <div><dt>Sin señal</dt><dd class="num">{{ fmtMin(s.offline_min) }}</dd></div>
+              </dl>
+              <h4 class="rk-sub-h">Recorrido de paradas</h4>
+              @if (loadingStops()) {
+                <div class="rk-muted rk-pad">Cargando paradas…</div>
+              }
+              @if (!loadingStops() && stops().length === 0) {
+                <div class="rk-muted rk-pad">Sin paradas registradas.</div>
+              }
+              @if (!loadingStops() && stops().length) {
+                <ol class="rk-stops">
+                  @for (st of stops(); track trackStop($index, st)) {
+                    <li class="rk-stop" [class.cust]="st.matched_store_id || st.is_customer">
+                      <span class="rk-stop-time">{{ hm(st.arrived_at) }}</span>
+                      <span class="rk-stop-dot"></span>
+                      <span class="rk-stop-body">
+                        <span class="rk-stop-name">
+                          @if (st.store_name || st.matched_store_id) {
+                            <i class="pi pi-shop" aria-hidden="true"></i>
+                            {{ st.store_name || 'Tienda' }}
+                            @if (st.match_distance_m != null) {
+                              <span class="rk-stop-dist">· {{ st.match_distance_m }} m</span>
+                            }
+                          } @else {
+                            @if (st.is_customer) {
+                              <i class="pi pi-user" aria-hidden="true"></i>
+                              {{ st.customer_name || st.customer_code || 'Cliente' }}
+                            } @else {
+                              <i class="pi pi-pause-circle" aria-hidden="true"></i> Parada
+                            }
+                          }
+                        </span>
+                        <span class="rk-stop-meta">
+                          {{ st.minutes }} min
+                          @if (st.matched_store_id) {
+                            <span class="rk-cap" [class.no]="!st.captured">
+                              · {{ st.captured ? 'capturada' : 'sin captura' }}
+                            </span>
+                          }
+                        </span>
+                      </span>
+                    </li>
+                  }
+                </ol>
+              }
             </article>
           } @else {
-            <article class="cell cell-span-3 rk-kpi">
-              <span class="rk-kpi-n" style="color:var(--ok-fg)">{{ totals().customerStops }}</span>
-              <span class="rk-kpi-l">Paradas con cliente</span>
-            </article>
-            <article class="cell cell-span-3 rk-kpi">
-              <span class="rk-kpi-n" style="color:var(--warn-fg)">{{ fmtMin(totals().deadMin) }}</span>
-              <span class="rk-kpi-l">Tiempo muerto</span>
-            </article>
-            <article class="cell cell-span-3 rk-kpi">
-              <span class="rk-kpi-n rk-dim">{{ totals().deadStops }}</span>
-              <span class="rk-kpi-l">Paradas muertas</span>
-            </article>
-          }
-        </div>
-    
-        <!-- Master-detail -->
-        @if (rows().length) {
-          <div class="sheet cols-12">
-            <article class="cell cell-span-7 is-flush">
-              <div class="rk-table-wrap">
-                <table class="rk-table">
-                  <thead>
-                    <tr>
-                      <th>Unidad</th>
-                      <th class="num">Km</th>
-                      <th class="num" pTooltip="En movimiento">Mov.</th>
-                      <th class="num" pTooltip="Detenido improductivo (paradas ≥20 min sin cliente)">Muerto</th>
-                      @if (fleet === 'route') {
-                        <th class="num" pTooltip="Paradas en tienda de trade">Tiendas</th>
-                        <th class="num" pTooltip="Tiendas con captura de auditoría / paradas en tienda">Auditadas</th>
-                        <th class="num" pTooltip="Paró en tienda pero no capturó">Sin capt.</th>
-                      }
-                      @if (fleet !== 'route') {
-                        <th class="num" pTooltip="Paradas con cliente / total">Paradas</th>
-                        <th class="num" pTooltip="Km por entrega (parada con cliente)">Km/ent.</th>
-                      }
-                    </tr>
-                  </thead>
-                  <tbody>
-                    @for (r of rows(); track trackById($index, r)) {
-                      <tr
-                        class="rk-tr" [class.sel]="r.vehicle_id === selectedId()" (click)="select(r)">
-                        <td class="rk-unit">{{ r.vehicle_plate || shortId(r.vehicle_id) }}</td>
-                        <td class="num">{{ r.km_driven | number:'1.0-1' }}</td>
-                        <td class="num">{{ fmtMin(r.moving_min) }}</td>
-                        <td class="num" [class.rk-warn]="r.dead_min > 0">{{ r.dead_min ? fmtMin(r.dead_min) : '—' }}</td>
-                        @if (fleet === 'route') {
-                          <td class="num">{{ r.store_stops }}</td>
-                          <td class="num"><b style="color:var(--ok-fg)">{{ r.captured_stops }}</b><span class="rk-of">/{{ r.store_stops }}</span></td>
-                          <td class="num" [class.rk-warn]="r.uncaptured_stops > 0">{{ r.uncaptured_stops || '—' }}</td>
-                        }
-                        @if (fleet !== 'route') {
-                          <td class="num"><b>{{ r.customer_stops }}</b><span class="rk-of">/{{ r.stops_count }}</span></td>
-                          <td class="num">{{ r.km_per_customer_stop != null ? (r.km_per_customer_stop | number:'1.0-1') : '—' }}</td>
-                        }
-                      </tr>
-                    }
-                  </tbody>
-                </table>
-              </div>
-            </article>
-            @if (selected(); as s) {
-              <article class="cell cell-span-5">
-                <div class="rk-detail-head">
-                  <h3>{{ s.vehicle_plate || shortId(s.vehicle_id) }}</h3>
-                  <span class="rk-muted">Paradas del {{ date() }}</span>
-                </div>
-                <dl class="rk-kv">
-                  <div><dt>En movimiento</dt><dd class="num">{{ fmtMin(s.moving_min) }}</dd></div>
-                  <div><dt>Detenido</dt><dd class="num">{{ fmtMin(s.stopped_min) }}</dd></div>
-                  <div><dt>Tiempo muerto</dt><dd class="num">{{ fmtMin(s.dead_min) }}</dd></div>
-                  <div><dt>Sin señal</dt><dd class="num">{{ fmtMin(s.offline_min) }}</dd></div>
-                </dl>
-                <h4 class="rk-sub-h">Recorrido de paradas</h4>
-                @if (loadingStops()) {
-                  <div class="rk-muted rk-pad">Cargando paradas…</div>
-                }
-                @if (!loadingStops() && stops().length === 0) {
-                  <div class="rk-muted rk-pad">Sin paradas registradas.</div>
-                }
-                @if (!loadingStops() && stops().length) {
-                  <ol class="rk-stops">
-                    @for (st of stops(); track trackStop($index, st)) {
-                      <li class="rk-stop" [class.cust]="st.matched_store_id || st.is_customer">
-                        <span class="rk-stop-time">{{ hm(st.arrived_at) }}</span>
-                        <span class="rk-stop-dot"></span>
-                        <span class="rk-stop-body">
-                          <span class="rk-stop-name">
-                            @if (st.store_name || st.matched_store_id) {
-                              <i class="pi pi-shop" aria-hidden="true"></i>
-                              {{ st.store_name || 'Tienda' }}
-                              @if (st.match_distance_m != null) {
-                                <span class="rk-stop-dist">· {{ st.match_distance_m }} m</span>
-                              }
-                            } @else {
-                              @if (st.is_customer) {
-                                <i class="pi pi-user" aria-hidden="true"></i>
-                                {{ st.customer_name || st.customer_code || 'Cliente' }}
-                              } @else {
-                                <i class="pi pi-pause-circle" aria-hidden="true"></i> Parada
-                              }
-                            }
-                          </span>
-                          <span class="rk-stop-meta">
-                            {{ st.minutes }} min
-                            @if (st.matched_store_id) {
-                              <span class="rk-cap" [class.no]="!st.captured">
-                                · {{ st.captured ? 'capturada' : 'sin captura' }}
-                              </span>
-                            }
-                          </span>
-                        </span>
-                      </li>
-                    }
-                  </ol>
-                }
-              </article>
-            } @else {
-              <article class="cell cell-span-5">
-                <div class="rk-pick"><i class="pi pi-list" aria-hidden="true"></i>
-                <p>Seleccioná una unidad para ver el detalle de sus paradas del día.</p>
-              </div>
-            </article>
+            <article class="cell cell-span-5">
+              <div class="rk-pick"><i class="pi pi-list" aria-hidden="true"></i>
+              <p>Seleccioná una unidad para ver el detalle de sus paradas del día.</p>
+            </div>
+          </article>
           }
         </div>
       } @else {
@@ -214,9 +202,9 @@ import {
           </article>
         </div>
       }
-    
+
     </div>
-    `,
+  `,
   styles: [`
     :host { display:block; }
     .rk-eyebrow { display:inline-flex; align-items:center; gap:.35rem; font-size:var(--fs-micro); font-weight:var(--fw-bold); text-transform:uppercase; letter-spacing:.08em; color:var(--c-text-2); margin-bottom:.35rem; }
@@ -225,21 +213,21 @@ import {
     .rk-date { padding:.4rem .5rem; border:1px solid var(--border-color); border-radius:var(--r-md,8px); background:var(--card-bg); color:var(--c-text-1); font:inherit; font-size:var(--fs-sm); }
     .rk-date:focus-visible { outline:2px solid var(--action); outline-offset:1px; }
 
-    .rk-kpi { display:flex; flex-direction:column; gap:.1rem; }
-    .rk-kpi-n { font-family:var(--font-mono,'Geist Mono',monospace); font-variant-numeric:tabular-nums; font-size:var(--fs-h2,1.5rem); font-weight:var(--fw-bold); line-height:1.1; }
-    .rk-kpi-n.rk-dim { color:var(--c-text-3); }
-    .rk-kpi-l { font-size:var(--fs-micro); text-transform:uppercase; letter-spacing:.06em; color:var(--c-text-3); }
+    .rk-kpi-strip { display:flex; align-items:center; gap:1.75rem; flex-wrap:wrap; margin:.5rem 0 1rem; }
+    .rk-cov { min-width:15rem; }
 
-    .rk-table-wrap { overflow-x:auto; }
-    .rk-table { width:100%; border-collapse:collapse; font-size:var(--fs-sm); }
-    .rk-table thead th { text-align:left; padding:.5rem .7rem; font-size:var(--fs-micro); text-transform:uppercase; letter-spacing:.05em; color:var(--c-text-3); font-weight:var(--fw-bold); border-bottom:1px solid var(--c-divider); white-space:nowrap; }
-    .rk-table th.num, .rk-table td.num { text-align:right; font-variant-numeric:tabular-nums; }
-    .rk-table td.num { font-family:var(--font-mono,'Geist Mono',monospace); }
-    .rk-tr { cursor:pointer; }
-    .rk-tr > td { padding:.5rem .7rem; border-top:1px solid var(--c-divider); white-space:nowrap; }
-    .rk-tr:hover { background:var(--overlay-hover); }
-    .rk-tr.sel { background:var(--overlay-selected); box-shadow:inset 3px 0 0 var(--action); }
-    .rk-unit { font-weight:var(--fw-medium); }
+    /* skeleton de filas */
+    .rk-skel { padding:.4rem 0; }
+    .rk-skel-row { padding:.55rem .7rem; border-top:1px solid var(--c-divider); }
+    .rk-skel-row:first-child { border-top:none; }
+
+    /* p-table densa (tokens sobre el tema PrimeNG) */
+    :host ::ng-deep .rk-ptable .p-datatable-thead > tr > th { text-transform:uppercase; letter-spacing:.05em; font-size:var(--fs-micro); font-weight:var(--fw-bold); color:var(--c-text-3); }
+    :host ::ng-deep .rk-ptable td.num, :host ::ng-deep .rk-ptable th.num { text-align:right; font-variant-numeric:tabular-nums; }
+    :host ::ng-deep .rk-ptable td.num { font-family:var(--font-mono,'Geist Mono',monospace); }
+    :host ::ng-deep .rk-ptable .p-datatable-tbody > tr.p-datatable-row-selected { background:var(--overlay-selected); box-shadow:inset 3px 0 0 var(--action); }
+    :host ::ng-deep .rk-ptable .p-datatable-tbody > tr:focus-visible { outline:2px solid var(--action); outline-offset:-2px; }
+    .rk-unit { font-weight:var(--fw-medium); max-width:10rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
     .rk-of { color:var(--c-text-3); }
     .rk-warn { color:var(--warn-fg); }
 
@@ -278,11 +266,12 @@ import {
 })
 export class LogisticaActividadComponent {
   private readonly api = inject(LogisticaService);
-  private readonly destroyRef = inject(DestroyRef);
+  private readonly router = inject(Router);
+  private readonly route = inject(ActivatedRoute);
   /** Alcance de flota: 'route' (Auditoría en Ruta) o 'logistics' (Logística). */
-  readonly fleet: 'route' | 'logistics' = inject(ActivatedRoute).snapshot.data['fleet'] ?? 'logistics';
+  readonly fleet: 'route' | 'logistics' = this.route.snapshot.data['fleet'] ?? 'logistics';
 
-  readonly today = new Date(Date.now() - 6 * 3600 * 1000).toISOString().slice(0, 10);
+  readonly today = todayMx();
   readonly date = signal<string>(this.today);
   readonly rows = signal<FleetProductivityRow[]>([]);
   readonly stops = signal<VehicleStop[]>([]);
@@ -291,6 +280,7 @@ export class LogisticaActividadComponent {
   readonly loadingStops = signal(false);
   readonly rebuilding = signal(false);
   readonly errored = signal(false);
+  readonly skeletonRows = [1, 2, 3, 4, 5, 6];
 
   readonly selected = computed(() => this.rows().find((r) => r.vehicle_id === this.selectedId()) ?? null);
 
@@ -307,7 +297,40 @@ export class LogisticaActividadComponent {
     };
   });
 
+  /** KPIs base (varían por flota). Conteos/tiempos = valores únicos → strip. */
+  readonly kpiStrip = computed<MetricStripItem[]>(() => {
+    const t = this.totals();
+    if (this.fleet === 'route') {
+      return [
+        { label: 'Km recorridos', value: Math.round(t.km), format: 'number' },
+        { label: 'Paradas en tienda', value: t.storeStops, format: 'number' },
+      ];
+    }
+    return [
+      { label: 'Km recorridos', value: Math.round(t.km), format: 'number' },
+      { label: 'Paradas con cliente', value: t.customerStops, tone: 'ok', format: 'number' },
+      { label: 'Tiempo muerto', value: this.fmtMin(t.deadMin), format: 'text', tone: t.deadMin > 0 ? 'warn' : 'default' },
+      { label: 'Paradas muertas', value: t.deadStops, format: 'number' },
+    ];
+  });
+
+  /** Flota route: composición captura vs sin captura de las paradas en tienda. */
+  readonly captureComp = computed<MetricStripItem[] | null>(() => {
+    if (this.fleet !== 'route') return null;
+    const t = this.totals();
+    if (t.storeStops === 0) return null;
+    return [
+      { label: 'Con captura', value: t.captured, tone: 'ok' },
+      { label: 'Sin captura', value: t.uncaptured, tone: 'warn' },
+    ];
+  });
+
   constructor() {
+    // Estado en URL (DESIGN #10/#15): fecha + unidad seleccionada.
+    const q = this.route.snapshot.queryParamMap;
+    const qDate = q.get('date');
+    if (qDate && /^\d{4}-\d{2}-\d{2}$/.test(qDate)) this.date.set(qDate);
+    this.selectedId.set(q.get('sel'));
     this.refresh();
   }
 
@@ -316,13 +339,21 @@ export class LogisticaActividadComponent {
     this.date.set(d);
     this.selectedId.set(null);
     this.stops.set([]);
+    this.writeUrl();
     this.refresh();
   }
 
   refresh() {
     this.loading.set(true);
     this.api.fleetProductivity(this.date(), this.fleet).subscribe({
-      next: (r) => { this.rows.set(r || []); this.errored.set(false); this.loading.set(false); },
+      next: (r) => {
+        this.rows.set(r || []);
+        this.errored.set(false);
+        this.loading.set(false);
+        const id = this.selectedId();
+        if (id && this.selected()) { if (!this.stops().length) this.loadStops(id); }
+        else if (id) { this.selectedId.set(null); this.writeUrl(); }
+      },
       error: () => { this.errored.set(true); this.loading.set(false); },
     });
   }
@@ -335,10 +366,12 @@ export class LogisticaActividadComponent {
     });
   }
 
-  select(r: FleetProductivityRow) {
-    if (this.selectedId() === r.vehicle_id) { this.selectedId.set(null); this.stops.set([]); return; }
-    this.selectedId.set(r.vehicle_id);
-    this.loadStops(r.vehicle_id);
+  onSelectionChange(sel: FleetProductivityRow | null) {
+    const id = sel?.vehicle_id ?? null;
+    this.selectedId.set(id);
+    this.stops.set([]);
+    this.writeUrl();
+    if (id) this.loadStops(id);
   }
 
   private loadStops(vehicleId: string) {
@@ -350,8 +383,17 @@ export class LogisticaActividadComponent {
     });
   }
 
+  /** Refleja fecha + selección en la URL sin ensuciar el historial. */
+  private writeUrl() {
+    this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: { date: this.date(), sel: this.selectedId() || null },
+      queryParamsHandling: 'merge',
+      replaceUrl: true,
+    });
+  }
+
   // ── helpers ────────────────────────────────────────────────────────────────
-  trackById = (_: number, r: FleetProductivityRow) => r.vehicle_id;
   trackStop = (_: number, s: VehicleStop) => s.id;
   shortId(id: string) { return id ? id.slice(0, 8) : '—'; }
   fmtMin(min: number | null | undefined): string {
