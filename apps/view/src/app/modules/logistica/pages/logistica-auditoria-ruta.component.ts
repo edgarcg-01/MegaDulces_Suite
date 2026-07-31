@@ -198,7 +198,12 @@ import { LogisticaService, FleetAdherenceRow, AdherenceDiagnostic } from '../log
                   } @else {
                     <p>Ninguna unidad de ruta se detuvo en tiendas geolocalizadas el <b>{{ date() }}</b>.</p>
                   }
-                  <button pButton size="small" [loading]="loading()" (click)="refresh()"><span class="p-button-label">Reintentar</span></button>
+                  <div class="rk-empty-actions">
+                    @if (lastDataDay(); as ld) {
+                      <button pButton size="small" (click)="goToLastDataDay()" pTooltip="Ir al último día con posiciones GPS"><span class="p-button-icon p-button-icon-left pi pi-calendar" aria-hidden="true"></span><span class="p-button-label">Ver datos del {{ ld }}</span></button>
+                    }
+                    <button pButton size="small" severity="secondary" [text]="true" [loading]="loading()" (click)="refresh()"><span class="p-button-label">Reintentar</span></button>
+                  </div>
                 </div>
               } @else {
                 <div class="rk-empty">
@@ -281,6 +286,7 @@ import { LogisticaService, FleetAdherenceRow, AdherenceDiagnostic } from '../log
     .rk-diag li.ok .pi { color:var(--ok-fg); }
     .rk-diag li.bad .pi { color:var(--bad-fg); }
     .rk-diag-sub { color:var(--c-text-3); font-size:var(--fs-micro); }
+    .rk-empty-actions { display:flex; gap:.5rem; justify-content:center; align-items:center; flex-wrap:wrap; }
   `],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
@@ -355,6 +361,17 @@ export class LogisticaAuditoriaRutaComponent {
   trackById = (_: number, r: FleetAdherenceRow) => r.vehicle_id;
   trackPlan = (_: number, p: { customer_id: string }) => p.customer_id;
   shortId(id: string) { return id ? id.slice(0, 8) : '—'; }
+  /** Día MX (YYYY-MM-DD) de la última posición, si difiere del día actual. */
+  lastDataDay(): string | null {
+    const iso = this.diagnostic()?.last_position_at;
+    if (!iso) return null;
+    const d = new Date(iso).toLocaleDateString('en-CA', { timeZone: 'America/Mexico_City' });
+    return d && d !== this.date() ? d : null;
+  }
+  goToLastDataDay(): void {
+    const d = this.lastDataDay();
+    if (d) this.setDate(d);
+  }
   fmtDt(iso: string | null): string {
     if (!iso) return '—';
     return new Date(iso).toLocaleString('es-MX', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'America/Mexico_City' });
