@@ -5,7 +5,9 @@ import { Permission } from '../../core/constants/permissions';
 
 /**
  * Redirect condicional de `/tienda`: los que tienen el monitor en vivo caen en `/tienda/live`;
- * los que solo tienen etiquetas (ej. rol `etiquetas_tienda`) caen en `/tienda/etiquetas`.
+ * las CAJERAS (solo arqueo) en `/tienda/arqueo`; los que solo tienen etiquetas (ej. rol
+ * `etiquetas_tienda`) en `/tienda/etiquetas`. Sin el caso de arqueo, la cajera caía en
+ * `etiquetas` cuyo guard la rebotaba a `/dashboard/captures`.
  *
  * `redirectTo` funcional (Angular 18) en UNA sola ruta de path vacío. Reemplaza al patrón
  * anterior de DOS rutas `path:''` — una con `canMatch:[storeLiveMatch]` → `live` y otra de
@@ -17,6 +19,8 @@ import { Permission } from '../../core/constants/permissions';
 export const storeEntryRedirect = (): string => {
   const perms = inject(PermissionsService);
   const legacy = inject(AuthService).user()?.permissions;
-  const canLive = perms.can('manage', 'all') || legacy?.[Permission.STORE_LIVE_VER] === true;
-  return canLive ? 'live' : 'etiquetas';
+  const god = perms.can('manage', 'all');
+  if (god || legacy?.[Permission.STORE_LIVE_VER] === true) return 'live';
+  if (legacy?.[Permission.STORE_ARQUEO_VER] === true || legacy?.[Permission.STORE_ARQUEO_CAPTURAR] === true) return 'arqueo';
+  return 'etiquetas';
 };
