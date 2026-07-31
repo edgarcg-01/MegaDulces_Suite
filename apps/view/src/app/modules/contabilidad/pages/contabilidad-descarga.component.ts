@@ -76,7 +76,7 @@ import { CredencialesService } from '../credenciales.service';
           </ng-template>
           <ng-template #body let-r let-expanded="expanded">
             <tr>
-              <td><p-button pButton type="button" [icon]="expanded ? 'pi pi-chevron-down' : 'pi pi-chevron-right'" styleClass="p-button-text p-button-sm" [attr.aria-label]="expanded ? 'Ocultar paquetes' : 'Ver paquetes'" (click)="toggle(r)"></p-button></td>
+              <td><p-button type="button" [icon]="expanded ? 'pi pi-chevron-down' : 'pi pi-chevron-right'" styleClass="p-button-text p-button-sm" [attr.aria-label]="expanded ? 'Ocultar paquetes' : 'Ver paquetes'" (click)="toggle(r)"></p-button></td>
               <td><p-tag [value]="estadoLabel(r.estado)" [severity]="estadoSev(r.estado)" styleClass="dz-chip" /></td>
               <td class="mono">{{ r.rfc_solicitante }}</td>
               <td>{{ r.rol }}</td>

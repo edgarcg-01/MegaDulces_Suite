@@ -47,48 +47,48 @@ interface DiagProbe {
         <div class="vendor-user">
           <a
             pButton
-            icon="pi pi-search"
+           
             severity="secondary"
             size="small"
             text
             routerLink="search"
             routerLinkActive="header-active"
             aria-label="Buscar cliente"
-          ></a>
+          ><span class="p-button-icon p-button-icon-left pi pi-search" aria-hidden="true"></span></a>
           <a
             pButton
-            icon="pi pi-bell"
+           
             severity="secondary"
             size="small"
             text
             routerLink="notifications"
             routerLinkActive="header-active"
             aria-label="Notificaciones"
-          ></a>
+          ><span class="p-button-icon p-button-icon-left pi pi-bell" aria-hidden="true"></span></a>
           <span class="hdr-badge-wrap">
             <a
               pButton
-              icon="pi pi-chart-bar"
+             
               severity="secondary"
               size="small"
               text
               routerLink="today"
               routerLinkActive="header-active"
               [attr.aria-label]="pendingOrders() > 0 ? 'Mi día — ' + pendingOrders() + ' pedidos sin enviar' : 'Mi día'"
-            ></a>
+            ><span class="p-button-icon p-button-icon-left pi pi-chart-bar" aria-hidden="true"></span></a>
             @if (pendingOrders() > 0) {
               <span class="hdr-dot">{{ pendingOrders() }}</span>
             }
           </span>
           <button
             pButton
-            icon="pi pi-cog"
+           
             severity="secondary"
             size="small"
             text
             (click)="settingsOpen.set(!settingsOpen())"
             aria-label="Configuración"
-          ></button>
+          ><span class="p-button-icon p-button-icon-left pi pi-cog" aria-hidden="true"></span></button>
         </div>
       </header>
     

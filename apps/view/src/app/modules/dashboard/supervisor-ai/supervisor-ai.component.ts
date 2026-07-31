@@ -98,9 +98,7 @@ const QUADRANT_LABELS: Record<string, string> = {
             type="button"
             routerLink="/dashboard/supervisor-ai/chat"
             class="p-button-sm horus__ask"
-            label="Pregúntale a Horus"
-            icon="pi pi-sparkles"
-          ></a>
+          ><span class="p-button-icon p-button-icon-left pi pi-sparkles" aria-hidden="true"></span><span class="p-button-label">Pregúntale a Horus</span></a>
           <a
             pButton
             type="button"
@@ -108,9 +106,7 @@ const QUADRANT_LABELS: Record<string, string> = {
             class="p-button-sm"
             severity="secondary"
             [outlined]="true"
-            label="Rutas reconvertidas"
-            icon="pi pi-map"
-          ></a>
+          ><span class="p-button-icon p-button-icon-left pi pi-map" aria-hidden="true"></span><span class="p-button-label">Rutas reconvertidas</span></a>
           <a
             pButton
             type="button"
@@ -118,11 +114,8 @@ const QUADRANT_LABELS: Record<string, string> = {
             class="p-button-sm"
             severity="secondary"
             [outlined]="true"
-            label="Balanceo de carga"
-            icon="pi pi-sliders-h"
-          ></a>
+          ><span class="p-button-icon p-button-icon-left pi pi-sliders-h" aria-hidden="true"></span><span class="p-button-label">Balanceo de carga</span></a>
           <p-button
-            pButton
             type="button"
             [disabled]="recomputing()"
             (click)="recompute()"
@@ -256,7 +249,6 @@ const QUADRANT_LABELS: Record<string, string> = {
             <div class="vision__head">
               <h2 class="card__title">Auditoría visual de fotos</h2>
               <p-button
-                pButton
                 type="button"
                 [disabled]="scanning() || !vc.has_api_key"
                 (click)="scanVision()"

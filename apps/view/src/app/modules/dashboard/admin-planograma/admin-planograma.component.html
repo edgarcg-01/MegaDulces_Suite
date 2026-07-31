@@ -62,7 +62,7 @@
             <ng-template #body let-brand let-expanded="expanded">
               <tr class="text-sm border-b border-divider hover:bg-surface-hover" [class.opacity-50]="brand.activo === false">
                 <td>
-                  <p-button type="button" pButton pRipple [pRowToggler]="brand" styleClass="p-button-text p-button-rounded p-button-plain" [icon]="expanded ? 'pi pi-chevron-down' : 'pi pi-chevron-right'"></p-button>
+                  <p-button type="button" pRipple [pRowToggler]="brand" styleClass="p-button-text p-button-rounded p-button-plain" [icon]="expanded ? 'pi pi-chevron-down' : 'pi pi-chevron-right'"></p-button>
                 </td>
                 <td class="font-bold text-content-main uppercase tracking-wider">
                   {{ brand.nombre }}

@@ -42,7 +42,7 @@ import { WhatsAppOrdersService, WhatsAppPendingOrder } from '../whatsapp-orders.
           <h1>Pedidos por WhatsApp</h1>
           <p class="surf-page-sub">Pedidos armados por el asistente, listos para tu revisión. Al confirmar, pasan a "Asignar pedido".</p>
         </div>
-        <p-button pButton icon="pi pi-refresh" [label]="'Actualizar'" severity="secondary" [outlined]="true"
+        <p-button icon="pi pi-refresh" [label]="'Actualizar'" severity="secondary" [outlined]="true"
                 size="small" [loading]="loading()" (click)="load()"></p-button>
       </header>
 
@@ -133,7 +133,7 @@ import { WhatsAppOrdersService, WhatsAppPendingOrder } from '../whatsapp-orders.
               </div>
 
               <div class="wo-actions">
-                <p-button pButton icon="pi pi-check" [label]="acting() ? 'Confirmando…' : 'Confirmar pedido'"
+                <p-button icon="pi pi-check" [label]="acting() ? 'Confirmando…' : 'Confirmar pedido'"
                         [loading]="acting()" [disabled]="!o.delivery_address?.street || o.items.length === 0"
                         (click)="confirm(o)"></p-button>
                 <button pButton severity="danger" [outlined]="true" [disabled]="acting()" (click)="openReject(o)"><span class="p-button-icon p-button-icon-left pi pi-times" aria-hidden="true"></span><span class="p-button-label">Rechazar</span></button>

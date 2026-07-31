@@ -69,7 +69,7 @@ interface DraftLine {
           @if (loadedAt()) { <app-freshness-pill [since]="loadedAt()" /> }
           <a pButton routerLink="/compras/pedido" class="p-button-sm p-button-text" title="Armar el pedido por proveedor y ciclo de reabasto"><span class="p-button-icon p-button-icon-left pi pi-cart-plus" aria-hidden="true"></span><span class="p-button-label">Pedido</span></a>
           <button pButton type="button" class="p-button-sm p-button-outlined p-button-secondary" [loading]="dl()" [disabled]="dl() || total() === 0" (click)="downloadXlsx()"><span class="p-button-icon p-button-icon-left pi pi-file-excel" aria-hidden="true"></span><span class="p-button-label">Excel</span></button>
-          <p-button pButton type="button" [label]="'Generar requisición' + (selCount() ? ' (' + selCount() + ')' : '')" icon="pi pi-file-edit"
+          <p-button type="button" [label]="'Generar requisición' + (selCount() ? ' (' + selCount() + ')' : '')" icon="pi pi-file-edit"
                   styleClass="p-button-sm" [disabled]="!canRequire()" (click)="openDialog()"></p-button>
         </div>
       </header>

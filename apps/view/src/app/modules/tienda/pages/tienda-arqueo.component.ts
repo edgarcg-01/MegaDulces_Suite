@@ -90,7 +90,7 @@ import { HasUnsavedChanges } from '../../../core/guards/unsaved-changes.guard';
           </p-table>
 
           <label class="arq-lbl arq-block">Nota <input pInputText class="arq-fld" [(ngModel)]="aNota" (ngModelChange)="dirty.set(true)" placeholder="opcional"></label>
-          <p-button pButton type="button" [label]="aTipo() === 'relevo' ? 'Sellar relevo' : 'Guardar y revelar diferencia'" icon="pi pi-lock-open" styleClass="p-button-sm"
+          <p-button type="button" [label]="aTipo() === 'relevo' ? 'Sellar relevo' : 'Guardar y revelar diferencia'" icon="pi pi-lock-open" styleClass="p-button-sm"
                   [disabled]="!canSubmit() || saving()" [loading]="saving()" (click)="submit()"></p-button>
 
           @if (result(); as r) {

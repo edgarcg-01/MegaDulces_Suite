@@ -33,7 +33,7 @@ import { cuadra, kindLabel } from './bancos-shared';
                 [attr.aria-label]="'Ver movimientos de ' + a.bank + ' ' + a.account_label">
               <td class="ta-c">
                 @if (!a.cuadra && !a.sin_saldo && breaksFor(a).length) {
-                  <p-button type="button" pButton [pRowToggler]="a" (click)="$event.stopPropagation()"
+                  <p-button type="button" [pRowToggler]="a" (click)="$event.stopPropagation()"
                           [icon]="expanded ? 'pi pi-chevron-down' : 'pi pi-chevron-right'"
                           styleClass="p-button-text p-button-sm" aria-label="Ver dónde salta el saldo"></p-button>
                 }
