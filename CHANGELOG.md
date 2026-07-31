@@ -10,6 +10,12 @@
 
 ## [Unreleased]
 
+### Fixed — Contabilidad: navegación completa + validez SAT del catálogo electrónico (2026-07-31)
+- **Origen:** análisis del proyecto `/contabilidad/*` (12 pantallas, cumplimiento SAT/CFDI). Dos bugs reales de 7 hallazgos; los otros 5 resultaron ya-resueltos, fuera de scope, o limitaciones estructurales documentadas.
+- **Sidebar mostraba 10 de 12 items** (`layout.component.ts`): **Diagnóstico** y **ContPAQi** existían en el router y en el tab strip pero faltaban en `contabilidadNavItems` → solo alcanzables por tab o URL directa. Alineado al `CONTABILIDAD_TABS`.
+- **Catálogo electrónico medía cobertura contra `null`, no contra el formato SAT** (`contabilidad-contabilidad.component.ts`): auto-sugerir siembra la propia cuenta mayor como `cod_agrupador` (ej. `1120`), que NO cumple `NNN`/`NNN.NN` — pero contaba como "mapeada", así que el XML salía inválido **sin señal**. Ahora la cobertura se mide contra el formato SAT real, con banner de aviso (`N de M sin código válido`) y confirmación antes de descargar un catálogo borrador que el SAT rechazaría.
+- **No-acciones verificadas:** doble impl SOAP SAT = strategy pattern limpio (`@nodecfdi` default, `node:crypto` solo con `FISCAL_SAT_CLIENT=reference`); conciliación fiscal ya tiene cron nocturno `0 0 8 * * *` (REP + cruce póliza por tenant); Kepler no guarda el UUID del CFDI → cruce heurístico por diseño. Build view verde.
+
 ### Added — Conocimiento curado del negocio en el prompt de Thot (2026-07-31)
 - Thot no tenía base curada (Maat sí). Nuevo bloque `THOT_BUSINESS_CONTEXT` en el system prompt admin: almacenes/sucursales + **canales (verificados vs BD)**, qué es "ruta vecinal", fuentes (ERP vs pipeline app), frescura/beta, quirks (promo $0.01, productos sin-SKU, `vendor_code` ruido, `units` pieza vs kg, embarques escasos), costo neto vs bruto. Es interpretación, NO cifras (ADR-016).
 - Corrige un supuesto viejo: el canal ya NO es Tienda/Crédito/Mayoreo (cambió con el wincaja split de julio) → ahora `wincaja_mostrador/ruta/credito/preventa` + `tienda`/`credito`. Build verde. Almacenes/canales verificados contra prod; facts de memoria (costo neto/bruto, "PH surte al portal") a validar con Edgar.
