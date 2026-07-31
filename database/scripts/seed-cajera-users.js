@@ -68,23 +68,34 @@ const APPLY = process.argv.includes('--apply');
       .map((r) => r.username),
   );
 
+  // Contraseña = código + '2026' (≥6 chars, por el minLength(6) del login). Distinta por cajera.
+  const pw = (username) => `${username}2026`;
+
   console.log(`\n${plan.length} cajeras distintas · ${existing.size} ya con usuario · ${plan.length - existing.size} a crear\n`);
-  console.log('SUC   USUARIO        CONTRASEÑA     NOMBRE                                 ESTADO');
+  console.log('SUC   USUARIO        CONTRASEÑA       NOMBRE                                 ESTADO');
   for (const p of plan) {
-    const status = existing.has(p.username) ? 'existe (skip)' : (APPLY ? 'CREADO' : 'a crear');
+    const status = existing.has(p.username) ? (APPLY ? 'pass re-sync' : 'existe (re-sync pass)') : (APPLY ? 'CREADO' : 'a crear');
     console.log(
-      `${(p.warehouse_code || p.sucursales).padEnd(5)} ${p.username.padEnd(14)} ${p.username.padEnd(14)} ${(p.nombre || '(sin nombre)').padEnd(38)} ${status}`,
+      `${(p.warehouse_code || p.sucursales).padEnd(5)} ${p.username.padEnd(14)} ${pw(p.username).padEnd(16)} ${(p.nombre || '(sin nombre)').padEnd(38)} ${status}`,
     );
   }
 
-  if (!APPLY) { console.log('\nDRY-RUN. Corré con --apply para crear los usuarios.'); await knex.destroy(); return; }
+  if (!APPLY) { console.log('\nDRY-RUN. Corré con --apply para crear/actualizar los usuarios.'); await knex.destroy(); return; }
 
-  let created = 0;
+  let created = 0, updated = 0;
   await knex.transaction(async (trx) => {
     await trx.raw(`SET LOCAL app.tenant_id = '${TENANT_ID}'`);
     for (const p of plan) {
-      if (existing.has(p.username)) continue;
-      const password_hash = await bcrypt.hash(p.username, 10); // password = username (= código en minúsculas)
+      const password_hash = await bcrypt.hash(pw(p.username), 10);
+      if (existing.has(p.username)) {
+        // Re-sincroniza la contraseña temporal SOLO si la cuenta nunca logueó
+        // (no pisa una contraseña que la cajera ya haya cambiado).
+        const n = await trx('identity.users')
+          .where({ tenant_id: TENANT_ID, username: p.username }).whereNull('last_login_at')
+          .update({ password_hash, updated_at: trx.fn.now() });
+        if (n) updated++;
+        continue;
+      }
       await trx('identity.users')
         .insert({
           tenant_id: TENANT_ID, username: p.username, password_hash,
@@ -94,6 +105,6 @@ const APPLY = process.argv.includes('--apply');
       created++;
     }
   });
-  console.log(`\n✅ ${created} usuario(s) cajera creado(s). Usuario y contraseña = código de caja en minúsculas.`);
+  console.log(`\n✅ ${created} creado(s) · ${updated} contraseña(s) re-sincronizada(s). Usuario = código; contraseña = código + "2026" (ej. 5452 → 54522026).`);
   await knex.destroy();
 })().catch((e) => { console.error('ERR', e.message); process.exit(1); });
