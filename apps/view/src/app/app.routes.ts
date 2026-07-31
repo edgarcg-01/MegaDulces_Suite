@@ -547,7 +547,7 @@ export const routes: Routes = [
       {
         path: 'arqueo',
         loadComponent: () => import('./modules/tienda/pages/tienda-arqueo.component').then(m => m.TiendaArqueoComponent),
-        canActivate: [permissionGuard(Permission.STORE_ARQUEO_CAPTURAR)],
+        canActivate: [anyPermissionGuard(Permission.STORE_ARQUEO_VER, Permission.STORE_ARQUEO_CAPTURAR)],
         canDeactivate: [unsavedChangesGuard]
       },
       {
