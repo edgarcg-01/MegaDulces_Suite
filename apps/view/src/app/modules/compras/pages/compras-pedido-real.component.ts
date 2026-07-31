@@ -117,6 +117,7 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
             }
           </div>
           <button type="button" class="pr-chip" [class.pr-chip-on]="wbScopeNeeded()" (click)="wbScopeNeeded.set(!wbScopeNeeded()); loadWorkbook()">Solo con pedido</button>
+          <button type="button" class="pr-chip" [class.pr-chip-on]="wbOnlyOver()" (click)="toggleOnlyOver()" title="Ver solo productos con sobrestock (capital inmovilizado)">Con sobrestock</button>
         </div>
 
         @if (error()) {
@@ -127,7 +128,7 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
           </div>
         } @else {
           <div class="pr-wb-scroll">
-            <p-table [value]="wbRows()" [loading]="loading()" [paginator]="true" [rows]="50" [rowsPerPageOptions]="[50, 100, 200]"
+            <p-table [value]="wbView()" [loading]="loading()" [paginator]="true" [rows]="50" [rowsPerPageOptions]="[50, 100, 200]"
                      styleClass="p-datatable-sm pr-table pr-wb" [tableStyle]="wbTableStyle()">
               <ng-template #header>
                 <tr>
@@ -312,6 +313,7 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
             <input pInputText type="text" [(ngModel)]="search" (keyup.enter)="loadDead()" placeholder="SKU o producto…" aria-label="Buscar producto" />
           </p-iconfield>
           @if (deadValue() > 0) { <span class="pr-count">{{ money(deadValue()) }} inmovilizado</span> }
+          <p-button type="button" label="XLSX" icon="pi pi-file-excel" styleClass="p-button-sm p-button-text" (click)="exportDead()" [disabled]="dl() || !deadRows().length"></p-button>
         </div>
         <p-table [value]="deadRows()" [loading]="loading()"
                  [paginator]="true" [rows]="50" [rowsPerPageOptions]="[50, 100, 200]"
@@ -512,6 +514,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
   wbTotals = signal<{ pedido: number; venta: number; exis: number }>({ pedido: 0, venta: 0, exis: 0 });
   wbTotal = signal(0);
   wbScopeNeeded = signal(false);
+  wbOnlyOver = signal(false);   // RA-PRO.33 — filtrar a productos CON sobrestock (capital inmovilizado)
   wbGroup = signal<'branch' | 'general'>('general');  // default: 1 columna agregada (red). "Por sucursal" = opt-in
   wbWarehouses: string[] = [];                          // sucursales elegidas (vacío = todas con stock)
   // Ancho dinámico según nº de territorios (3 fijas + 3 por territorio + 4 de cierre). computed →
@@ -605,6 +608,18 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
   prodOver(pid: string): number { return this.detailRows(pid).filter((u) => u.type === 'sobre').reduce((s, u) => s + u.qty * u.unit_cost, 0); }
 
   toggleGroup(): void { this.wbGroup.set(this.wbGroup() === 'branch' ? 'general' : 'branch'); this.loadWorkbook(); }
+
+  // RA-PRO.33 — vista filtrada: "Con sobrestock" muestra solo productos con sobre>0 (usa el motor por-sucursal).
+  readonly wbView = computed(() => {
+    const rows = this.wbRows();
+    return this.wbOnlyOver() ? rows.filter((r) => this.prodOver(r.product_id) > 0) : rows;
+  });
+  toggleOnlyOver(): void {
+    const on = !this.wbOnlyOver();
+    this.wbOnlyOver.set(on);
+    // sobrestock suele NO tener pedido → apagar "Solo con pedido" para que aparezcan.
+    if (on && this.wbScopeNeeded()) { this.wbScopeNeeded.set(false); this.loadWorkbook(); }
+  }
 
   cBuy = signal(true);
   cTr = signal(true);
@@ -864,6 +879,26 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     this.api.deadStock({ search: this.search.trim() || undefined, pageSize: 200 })
       .pipe(catchError(() => of(null)), takeUntilDestroyed(this.destroyRef))
       .subscribe((r) => { this.loading.set(false); this.deadRows.set(r?.rows ?? []); this.deadValue.set(Number(r?.total_value) || 0); this.loadedAt.set(Date.now()); });
+  }
+
+  /** RA-PRO.33 — XLSX del stock muerto (capital inmovilizado). */
+  exportDead(): void {
+    const rows = this.deadRows();
+    if (!rows.length) { this.toast.add({ severity: 'warn', summary: 'Nada que exportar' }); return; }
+    const lines: PedidoExportLine[] = rows.map((r) => ({
+      warehouse_code: r.warehouse_code, supplier_name: r.supplier_name,
+      sku: r.sku, nombre: r.nombre, on_hand: Math.round(Number(r.on_hand) || 0),
+      unit_cost: Number(r.unit_cost) || 0, line_cost: Number(r.dead_value) || 0,
+    }));
+    this.dl.set(true);
+    this.api.exportPedidoXlsx({
+      title: 'Stock muerto — capital inmovilizado',
+      basis: `${rows.length} productos · ${this.money(this.deadValue())} inmovilizado`,
+      multi_warehouse: true, lines,
+    }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (resp) => { this.dl.set(false); saveXlsxResponse(resp, 'stock-muerto.xlsx'); },
+      error: () => { this.dl.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo exportar.' }); },
+    });
   }
 
   // ── etiquetas / severidades ──────────────────────────────────────────
