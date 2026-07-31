@@ -2,6 +2,15 @@
 
 > Paquete de la sesión 2026-07-30/31. Deploy a Railway prod (newdb `postgres_platform`). Mecanismo: push a `origin/main` → Railway build → `preDeployCommand: sh ./migrate.sh` aplica migraciones pendientes a la newdb (`ENABLE_MULTITENANT=true`) → redeploy api. Si una migración falla, el deploy queda **FAILED** y el deploy anterior **sigue sirviendo** (sin downtime).
 
+## Estado de ejecución (2026-07-31)
+
+- ✅ **Precondiciones verificadas** en Railway (users.warehouse_code base ✅, cash_cuts 2556, wincaja poblada).
+- ✅ **Migraciones aplicadas por proxy** (Batch 152, 6 pendientes incl. las 3 SM.9). Vista `public.users` ya expone `warehouse_code`; `blind_counts.incidencia_tipo` ✅; rol `cajera` ✅.
+- ✅ **Seed de cajeras aplicado**: 26 usuarios `cajera` creados en prod (ventana 17–30 jul). Login `10c01` verificado (warehouse_code=01, rol cajera, password ok).
+- ⏳ **PENDIENTE — deploy de CÓDIGO** (push → redeploy api+view): las 2 reglas SM, autofill/incidencia en `/tienda/arqueo`, columna "Arqueo ciego", autolineado + WS `RECON_NOTIFIER_PORT`. Hasta el redeploy corre el código viejo (la captura de arqueo funciona, pero sin las features nuevas).
+- ⏳ Post-redeploy: `POST /reconciliation/scan` (poblar hallazgos barrido/retiro_conteo) + **re-login** de usuarios de tienda (ya activo con el código actual: el fix de la vista hace que el JWT lleve `warehouse_code`).
+- 🔐 **Rotar** la contraseña del proxy Railway (quedó expuesta en el chat).
+
 ## 1. Qué se despliega
 
 **Migraciones nuevas (`database/migrations-newdb/`)** — se aplican solas vía `migrate.sh`:
