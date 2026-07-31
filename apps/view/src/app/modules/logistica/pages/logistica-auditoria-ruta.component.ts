@@ -6,12 +6,16 @@ import {
   signal,
 } from '@angular/core';
 
-import { DatePipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { ActivatedRoute, Router } from '@angular/router';
 import { ButtonModule } from 'primeng/button';
+import { TableModule } from 'primeng/table';
 import { TagModule } from 'primeng/tag';
 import { TooltipModule } from 'primeng/tooltip';
+import { SkeletonModule } from 'primeng/skeleton';
 import { LogisticaService, FleetAdherenceRow, AdherenceDiagnostic } from '../logistica.service';
+import { todayMx } from '../../../core/utils/mx-date';
+import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 
 /**
  * LTV.1 — Auditoría de ruta. Único lugar del análisis de ruta: cruza el plan
@@ -19,11 +23,16 @@ import { LogisticaService, FleetAdherenceRow, AdherenceDiagnostic } from '../log
  * (paradas GPS matcheadas a cliente). Tabla de flota completa por fecha con
  * cobertura %, visitados/saltados/fuera-de-ruta; drill a la lista de clientes
  * del plan (visitado vs saltado) por unidad.
+ *
+ * Operations/DESIGN: KPIs = MetricStrip (ADR-033); tabla = p-table densa con
+ * header sticky + 1ª columna congelada + selección por teclado (pSelectableRow)
+ * + skeleton de filas en carga; fecha + unidad seleccionada viven en la URL.
+ * Empty-state (LTV.15): diagnóstico accionable + salto al último día con datos.
  */
 @Component({
   selector: 'app-logistica-auditoria-ruta',
   standalone: true,
-  imports: [DatePipe, FormsModule, ButtonModule, TagModule, TooltipModule],
+  imports: [FormsModule, ButtonModule, TableModule, TagModule, TooltipModule, SkeletonModule, MetricStripComponent],
   template: `
     <div class="surf-page">
       <header class="surf-page-head">
@@ -38,187 +47,181 @@ import { LogisticaService, FleetAdherenceRow, AdherenceDiagnostic } from '../log
         <div class="rk-actions">
           <input type="date" class="rk-date" [ngModel]="date()" (ngModelChange)="setDate($event)"
             [max]="today" aria-label="Fecha de auditoría" />
-            <button pButton [text]="true" size="small" [loading]="loading()" (click)="refresh()" aria-label="Refrescar"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span><span class="p-button-label">Actualizar</span></button>
-          </div>
-        </header>
-    
-        <!-- KPIs del día -->
-        <div class="sheet cols-12 rk-kpis">
-          <article class="cell cell-span-3 rk-kpi">
-            <span class="rk-kpi-n" [style.color]="coverageColor(fleetCoverage())">{{ fleetCoverage() != null ? fleetCoverage() + '%' : '—' }}</span>
-            <span class="rk-kpi-l">Cobertura de tiendas</span>
-          </article>
-          <article class="cell cell-span-3 rk-kpi">
-            <span class="rk-kpi-n" style="color:var(--ok-fg)">{{ totals().visited }}</span>
-            <span class="rk-kpi-l">Tiendas visitadas</span>
-          </article>
-          <article class="cell cell-span-3 rk-kpi">
-            <span class="rk-kpi-n" style="color:var(--ok-fg)">{{ totals().captured }}</span>
-            <span class="rk-kpi-l">Con captura</span>
-          </article>
-          <article class="cell cell-span-3 rk-kpi">
-            <span class="rk-kpi-n" style="color:var(--warn-fg)">{{ totals().skipped }}</span>
-            <span class="rk-kpi-l">Tiendas saltadas</span>
+          <button pButton [text]="true" size="small" [loading]="loading()" (click)="refresh()" aria-label="Refrescar"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span><span class="p-button-label">Actualizar</span></button>
+        </div>
+      </header>
+
+      <!-- KPIs del día (MetricStrip, ADR-033) -->
+      <div class="rk-kpi-strip">
+        <app-metric-strip [items]="kpiItems()" mode="strip" ariaLabel="Resumen del día" />
+      </div>
+
+      @if (loading() && !rows().length) {
+        <!-- Skeleton de filas (DESIGN datos-densos §4) -->
+        <div class="sheet cols-12">
+          <article class="cell cell-span-7 is-flush">
+            <div class="rk-skel">
+              @for (i of skeletonRows; track i) {
+                <div class="rk-skel-row"><p-skeleton height="1.1rem" /></div>
+              }
+            </div>
           </article>
         </div>
-    
+      } @else if (rows().length) {
         <!-- Master-detail -->
-        @if (rows().length) {
-          <div class="sheet cols-12">
-            <article class="cell cell-span-7 is-flush">
-              <div class="rk-table-wrap">
-                <table class="rk-table">
-                  <thead>
-                    <tr>
-                      <th>Unidad</th>
-                      <th style="width:34%">Cumplimiento</th>
-                      <th class="num" pTooltip="Tiendas visitadas / plan con coordenadas">Visitadas</th>
-                      <th class="num" pTooltip="Tiendas visitadas donde además hubo captura de auditoría">Auditadas</th>
-                      <th class="num" pTooltip="Tiendas del plan que no visitó">Saltadas</th>
-                      <th class="num" pTooltip="Paradas en tiendas fuera de la ruta">Fuera</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    @for (r of rows(); track trackById($index, r)) {
-                      <tr
-                        class="rk-tr" [class.sel]="r.vehicle_id === selectedId()" (click)="select(r)">
-                        <td class="rk-unit">{{ r.vehicle_plate || shortId(r.vehicle_id) }}</td>
-                        <td>
-                          @if (r.evaluable) {
-                            <div class="rk-bar" [attr.aria-label]="r.coverage_pct + '% de cumplimiento'">
-                              <span [style.width.%]="r.coverage_pct ?? 0" [style.background]="coverageColor(r.coverage_pct)"></span>
-                            </div>
-                            <span class="rk-bar-lbl">{{ r.coverage_pct }}%</span>
-                          } @else {
-                            <span class="rk-na">sin plan evaluable</span>
-                          }
-                        </td>
-                        <td class="num">{{ r.evaluable ? r.visited_count + '/' + r.planned_with_coords : '—' }}</td>
-                        <td class="num">@if (r.evaluable) {
-                          <b style="color:var(--ok-fg)">{{ r.captured_count }}</b>
-                          }@if (!r.evaluable) {
-                          <span>—</span>
-                        }</td>
-                        <td class="num" [class.rk-warn]="r.skipped_count > 0">{{ r.evaluable ? r.skipped_count : '—' }}</td>
-                        <td class="num rk-dim">{{ r.off_route_count }}</td>
-                      </tr>
+        <div class="sheet cols-12">
+          <article class="cell cell-span-7 is-flush">
+            <p-table [value]="rows()" dataKey="vehicle_id"
+              selectionMode="single" [metaKeySelection]="false"
+              [selection]="selected()" (selectionChange)="onSelectionChange($event)"
+              [scrollable]="true" [rowHover]="true" styleClass="p-datatable-sm rk-ptable">
+              <ng-template #header>
+                <tr>
+                  <th pFrozenColumn>Unidad</th>
+                  <th style="width:34%">Cumplimiento</th>
+                  <th class="num" pTooltip="Tiendas visitadas / plan con coordenadas">Visitadas</th>
+                  <th class="num" pTooltip="Tiendas visitadas donde además hubo captura de auditoría">Auditadas</th>
+                  <th class="num" pTooltip="Tiendas del plan que no visitó">Saltadas</th>
+                  <th class="num" pTooltip="Paradas en tiendas fuera de la ruta">Fuera</th>
+                </tr>
+              </ng-template>
+              <ng-template #body let-r>
+                <tr [pSelectableRow]="r">
+                  <td pFrozenColumn class="rk-unit">{{ r.vehicle_plate || shortId(r.vehicle_id) }}</td>
+                  <td>
+                    @if (r.evaluable) {
+                      <div class="rk-bar" [attr.aria-label]="r.coverage_pct + '% de cumplimiento'">
+                        <span [style.transform]="'scaleX(' + ((r.coverage_pct ?? 0) / 100) + ')'" [style.background]="coverageColor(r.coverage_pct)"></span>
+                      </div>
+                      <span class="rk-bar-lbl">{{ r.coverage_pct }}%</span>
+                    } @else {
+                      <span class="rk-na">sin plan evaluable</span>
                     }
-                  </tbody>
-                </table>
+                  </td>
+                  <td class="num">{{ r.evaluable ? r.visited_count + '/' + r.planned_with_coords : '—' }}</td>
+                  <td class="num">@if (r.evaluable) {
+                    <b style="color:var(--ok-fg)">{{ r.captured_count }}</b>
+                    }@if (!r.evaluable) {
+                    <span>—</span>
+                  }</td>
+                  <td class="num" [class.rk-warn]="r.skipped_count > 0">{{ r.evaluable ? r.skipped_count : '—' }}</td>
+                  <td class="num rk-dim">{{ r.off_route_count }}</td>
+                </tr>
+              </ng-template>
+            </p-table>
+          </article>
+          @if (selected(); as s) {
+            <article class="cell cell-span-5">
+              <div class="rk-detail-head">
+                <h3>{{ s.vehicle_plate || shortId(s.vehicle_id) }}</h3>
+                <span class="rk-muted">Plan de ruta · {{ date() }}</span>
+              </div>
+              @if (!s.evaluable) {
+                <div class="rk-na-box">
+                  <i class="pi pi-info-circle" aria-hidden="true"></i>
+                  Sin plan evaluable: la unidad no se detuvo en tiendas geolocalizadas de una ruta
+                  @if (s.planned_count) {
+                    <span> ({{ s.planned_count }} tiendas en el plan, {{ s.planned_with_coords }} con coordenadas)</span>
+                    }.
+                  </div>
+                }
+                @if (s.evaluable) {
+                  <div class="rk-adh-summary">
+                    <div class="rk-bar rk-bar-lg"><span [style.transform]="'scaleX(' + ((s.coverage_pct ?? 0) / 100) + ')'" [style.background]="coverageColor(s.coverage_pct)"></span></div>
+                    <p><b>{{ s.coverage_pct }}%</b> · {{ s.visited_count }}/{{ s.planned_with_coords }} visitadas · {{ s.captured_count }} con captura
+                    @if (s.off_route_count) {
+                      <span> · {{ s.off_route_count }} fuera de ruta</span>
+                    }</p>
+                  </div>
+                  <h4 class="rk-sub-h">Tiendas del plan{{ s.route_ids.length ? ' · ' + s.route_ids[0] : '' }}</h4>
+                  <ol class="rk-plan">
+                    @for (p of s.planned; track trackPlan($index, p)) {
+                      <li class="rk-plan-row"
+                        [class.visited]="p.visited" [class.nocoord]="!p.has_coords">
+                        <i class="pi" [class.pi-check-circle]="p.visited" [class.pi-times-circle]="!p.visited && p.has_coords"
+                        [class.pi-minus-circle]="!p.has_coords" aria-hidden="true"></i>
+                        <span class="rk-plan-name">{{ p.name || 'Tienda' }}</span>
+                        @if (p.captured) {
+                          <span class="rk-plan-tag cap">capturada</span>
+                        }
+                        @if (p.visited && !p.captured) {
+                          <span class="rk-plan-tag">sin captura</span>
+                        }
+                        @if (!p.has_coords) {
+                          <span class="rk-plan-tag">sin coords</span>
+                        }
+                        @if (p.has_coords && !p.visited) {
+                          <span class="rk-plan-tag skip">saltada</span>
+                        }
+                      </li>
+                    }
+                  </ol>
+                }
+              </article>
+            } @else {
+              <article class="cell cell-span-5">
+                <div class="rk-pick"><i class="pi pi-list" aria-hidden="true"></i>
+                <p>Seleccioná una unidad para ver su plan de ruta y qué clientes visitó o saltó.</p>
               </div>
             </article>
-            @if (selected(); as s) {
-              <article class="cell cell-span-5">
-                <div class="rk-detail-head">
-                  <h3>{{ s.vehicle_plate || shortId(s.vehicle_id) }}</h3>
-                  <span class="rk-muted">Plan de ruta · {{ date() }}</span>
-                </div>
-                @if (!s.evaluable) {
-                  <div class="rk-na-box">
-                    <i class="pi pi-info-circle" aria-hidden="true"></i>
-                    Sin plan evaluable: la unidad no se detuvo en tiendas geolocalizadas de una ruta
-                    @if (s.planned_count) {
-                      <span> ({{ s.planned_count }} tiendas en el plan, {{ s.planned_with_coords }} con coordenadas)</span>
-                      }.
-                    </div>
+          }
+        </div>
+      } @else {
+        <div class="sheet cols-12">
+          <article class="cell cell-span-12">
+            @if (!errored()) {
+              <div class="rk-empty">
+                <div class="rk-empty-icon"><i class="pi pi-check-circle" aria-hidden="true"></i></div>
+                <h3>Sin rutas para auditar</h3>
+                @if (diagnostic(); as d) {
+                  <p class="rk-diag-reason">{{ d.reason }}</p>
+                  <ul class="rk-diag">
+                    <li [class.ok]="d.positions_day > 0" [class.bad]="d.positions_day === 0">
+                      <i class="pi" [class.pi-check-circle]="d.positions_day > 0" [class.pi-times-circle]="d.positions_day === 0" aria-hidden="true"></i>
+                      Posiciones GPS ese día: <b>{{ d.positions_day }}</b>
+                      @if (d.last_position_at) { <span class="rk-diag-sub">· última {{ fmtDt(d.last_position_at) }}</span> }
+                    </li>
+                    <li [class.ok]="d.route_trucks > 0" [class.bad]="d.route_trucks === 0">
+                      <i class="pi" [class.pi-check-circle]="d.route_trucks > 0" [class.pi-times-circle]="d.route_trucks === 0" aria-hidden="true"></i>
+                      Camiones con ruta asignada: <b>{{ d.route_trucks }}</b>
+                    </li>
+                    <li [class.ok]="d.trucks_with_activity > 0" [class.bad]="d.trucks_with_activity === 0">
+                      <i class="pi" [class.pi-check-circle]="d.trucks_with_activity > 0" [class.pi-times-circle]="d.trucks_with_activity === 0" aria-hidden="true"></i>
+                      Camiones de ruta con actividad: <b>{{ d.trucks_with_activity }}</b>
+                    </li>
+                    <li [class.ok]="d.store_stops_built > 0" [class.bad]="d.store_stops_built === 0">
+                      <i class="pi" [class.pi-check-circle]="d.store_stops_built > 0" [class.pi-times-circle]="d.store_stops_built === 0" aria-hidden="true"></i>
+                      Paradas en tienda reconstruidas: <b>{{ d.store_stops_built }}</b>
+                    </li>
+                    <li [class.ok]="d.stores_with_route > 0" [class.bad]="d.stores_with_route === 0">
+                      <i class="pi" [class.pi-check-circle]="d.stores_with_route > 0" [class.pi-times-circle]="d.stores_with_route === 0" aria-hidden="true"></i>
+                      Tiendas con ruta + coordenadas: <b>{{ d.stores_with_route }}</b>
+                    </li>
+                  </ul>
+                } @else {
+                  <p>Ninguna unidad de ruta se detuvo en tiendas geolocalizadas el <b>{{ date() }}</b>.</p>
+                }
+                <div class="rk-empty-actions">
+                  @if (lastDataDay(); as ld) {
+                    <button pButton size="small" (click)="goToLastDataDay()" pTooltip="Ir al último día con posiciones GPS"><span class="p-button-icon p-button-icon-left pi pi-calendar" aria-hidden="true"></span><span class="p-button-label">Ver datos del {{ ld }}</span></button>
                   }
-                  @if (s.evaluable) {
-                    <div class="rk-adh-summary">
-                      <div class="rk-bar rk-bar-lg"><span [style.width.%]="s.coverage_pct ?? 0" [style.background]="coverageColor(s.coverage_pct)"></span></div>
-                      <p><b>{{ s.coverage_pct }}%</b> · {{ s.visited_count }}/{{ s.planned_with_coords }} visitadas · {{ s.captured_count }} con captura
-                      @if (s.off_route_count) {
-                        <span> · {{ s.off_route_count }} fuera de ruta</span>
-                      }</p>
-                    </div>
-                    <h4 class="rk-sub-h">Tiendas del plan{{ s.route_ids.length ? ' · ' + s.route_ids[0] : '' }}</h4>
-                    <ol class="rk-plan">
-                      @for (p of s.planned; track trackPlan($index, p)) {
-                        <li class="rk-plan-row"
-                          [class.visited]="p.visited" [class.nocoord]="!p.has_coords">
-                          <i class="pi" [class.pi-check-circle]="p.visited" [class.pi-times-circle]="!p.visited && p.has_coords"
-                          [class.pi-minus-circle]="!p.has_coords" aria-hidden="true"></i>
-                          <span class="rk-plan-name">{{ p.name || 'Tienda' }}</span>
-                          @if (p.captured) {
-                            <span class="rk-plan-tag cap">capturada</span>
-                          }
-                          @if (p.visited && !p.captured) {
-                            <span class="rk-plan-tag">sin captura</span>
-                          }
-                          @if (!p.has_coords) {
-                            <span class="rk-plan-tag">sin coords</span>
-                          }
-                          @if (p.has_coords && !p.visited) {
-                            <span class="rk-plan-tag skip">saltada</span>
-                          }
-                        </li>
-                      }
-                    </ol>
-                  }
-                </article>
-              } @else {
-                <article class="cell cell-span-5">
-                  <div class="rk-pick"><i class="pi pi-list" aria-hidden="true"></i>
-                  <p>Seleccioná una unidad para ver su plan de ruta y qué clientes visitó o saltó.</p>
+                  <button pButton size="small" severity="secondary" [text]="true" [loading]="loading()" (click)="refresh()"><span class="p-button-label">Reintentar</span></button>
                 </div>
-              </article>
+              </div>
+            } @else {
+              <div class="rk-empty">
+                <div class="rk-empty-icon"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i></div>
+                <h3>No se pudo cargar la auditoría</h3>
+                <p>Revisá tu conexión y reintentá.</p>
+                <button pButton size="small" (click)="refresh()"><span class="p-button-label">Reintentar</span></button>
+              </div>
             }
-          </div>
-        } @else {
-          <div class="sheet cols-12">
-            <article class="cell cell-span-12">
-              @if (!errored()) {
-                <div class="rk-empty">
-                  <div class="rk-empty-icon"><i class="pi pi-check-circle" aria-hidden="true"></i></div>
-                  <h3>Sin rutas para auditar</h3>
-                  @if (diagnostic(); as d) {
-                    <p class="rk-diag-reason">{{ d.reason }}</p>
-                    <ul class="rk-diag">
-                      <li [class.ok]="d.positions_day > 0" [class.bad]="d.positions_day === 0">
-                        <i class="pi" [class.pi-check-circle]="d.positions_day > 0" [class.pi-times-circle]="d.positions_day === 0" aria-hidden="true"></i>
-                        Posiciones GPS ese día: <b>{{ d.positions_day }}</b>
-                        @if (d.last_position_at) { <span class="rk-diag-sub">· última {{ fmtDt(d.last_position_at) }}</span> }
-                      </li>
-                      <li [class.ok]="d.route_trucks > 0" [class.bad]="d.route_trucks === 0">
-                        <i class="pi" [class.pi-check-circle]="d.route_trucks > 0" [class.pi-times-circle]="d.route_trucks === 0" aria-hidden="true"></i>
-                        Camiones con ruta asignada: <b>{{ d.route_trucks }}</b>
-                      </li>
-                      <li [class.ok]="d.trucks_with_activity > 0" [class.bad]="d.trucks_with_activity === 0">
-                        <i class="pi" [class.pi-check-circle]="d.trucks_with_activity > 0" [class.pi-times-circle]="d.trucks_with_activity === 0" aria-hidden="true"></i>
-                        Camiones de ruta con actividad: <b>{{ d.trucks_with_activity }}</b>
-                      </li>
-                      <li [class.ok]="d.store_stops_built > 0" [class.bad]="d.store_stops_built === 0">
-                        <i class="pi" [class.pi-check-circle]="d.store_stops_built > 0" [class.pi-times-circle]="d.store_stops_built === 0" aria-hidden="true"></i>
-                        Paradas en tienda reconstruidas: <b>{{ d.store_stops_built }}</b>
-                      </li>
-                      <li [class.ok]="d.stores_with_route > 0" [class.bad]="d.stores_with_route === 0">
-                        <i class="pi" [class.pi-check-circle]="d.stores_with_route > 0" [class.pi-times-circle]="d.stores_with_route === 0" aria-hidden="true"></i>
-                        Tiendas con ruta + coordenadas: <b>{{ d.stores_with_route }}</b>
-                      </li>
-                    </ul>
-                  } @else {
-                    <p>Ninguna unidad de ruta se detuvo en tiendas geolocalizadas el <b>{{ date() }}</b>.</p>
-                  }
-                  <div class="rk-empty-actions">
-                    @if (lastDataDay(); as ld) {
-                      <button pButton size="small" (click)="goToLastDataDay()" pTooltip="Ir al último día con posiciones GPS"><span class="p-button-icon p-button-icon-left pi pi-calendar" aria-hidden="true"></span><span class="p-button-label">Ver datos del {{ ld }}</span></button>
-                    }
-                    <button pButton size="small" severity="secondary" [text]="true" [loading]="loading()" (click)="refresh()"><span class="p-button-label">Reintentar</span></button>
-                  </div>
-                </div>
-              } @else {
-                <div class="rk-empty">
-                  <div class="rk-empty-icon"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i></div>
-                  <h3>No se pudo cargar la auditoría</h3>
-                  <p>Revisá tu conexión y reintentá.</p>
-                  <button pButton size="small" (click)="refresh()"><span class="p-button-label">Reintentar</span></button>
-                </div>
-              }
-            </article>
-          </div>
-        }
-    
-      </div>
-    `,
+          </article>
+        </div>
+      }
+
+    </div>
+  `,
   styles: [`
     :host { display:block; }
     .rk-eyebrow { display:inline-flex; align-items:center; gap:.35rem; font-size:var(--fs-micro); font-weight:var(--fw-bold); text-transform:uppercase; letter-spacing:.08em; color:var(--c-text-2); margin-bottom:.35rem; }
@@ -227,27 +230,26 @@ import { LogisticaService, FleetAdherenceRow, AdherenceDiagnostic } from '../log
     .rk-date { padding:.4rem .5rem; border:1px solid var(--border-color); border-radius:var(--r-md,8px); background:var(--card-bg); color:var(--c-text-1); font:inherit; font-size:var(--fs-sm); }
     .rk-date:focus-visible { outline:2px solid var(--action); outline-offset:1px; }
 
-    .rk-kpi { display:flex; flex-direction:column; gap:.1rem; }
-    .rk-kpi-n { font-family:var(--font-mono,'Geist Mono',monospace); font-variant-numeric:tabular-nums; font-size:var(--fs-h2,1.5rem); font-weight:var(--fw-bold); line-height:1.1; }
-    .rk-kpi-n.rk-dim { color:var(--c-text-3); }
-    .rk-kpi-l { font-size:var(--fs-micro); text-transform:uppercase; letter-spacing:.06em; color:var(--c-text-3); }
+    .rk-kpi-strip { margin:.5rem 0 1rem; }
 
-    .rk-table-wrap { overflow-x:auto; }
-    .rk-table { width:100%; border-collapse:collapse; font-size:var(--fs-sm); }
-    .rk-table thead th { text-align:left; padding:.5rem .7rem; font-size:var(--fs-micro); text-transform:uppercase; letter-spacing:.05em; color:var(--c-text-3); font-weight:var(--fw-bold); border-bottom:1px solid var(--c-divider); white-space:nowrap; }
-    .rk-table th.num, .rk-table td.num { text-align:right; font-variant-numeric:tabular-nums; }
-    .rk-table td.num { font-family:var(--font-mono,'Geist Mono',monospace); }
-    .rk-tr { cursor:pointer; }
-    .rk-tr > td { padding:.5rem .7rem; border-top:1px solid var(--c-divider); white-space:nowrap; vertical-align:middle; }
-    .rk-tr:hover { background:var(--overlay-hover); }
-    .rk-tr.sel { background:var(--overlay-selected); box-shadow:inset 3px 0 0 var(--action); }
+    /* skeleton de filas */
+    .rk-skel { padding:.4rem 0; }
+    .rk-skel-row { padding:.55rem .7rem; border-top:1px solid var(--c-divider); }
+    .rk-skel-row:first-child { border-top:none; }
+
+    /* p-table densa (tokens sobre el tema PrimeNG) */
+    :host ::ng-deep .rk-ptable .p-datatable-thead > tr > th { text-transform:uppercase; letter-spacing:.05em; font-size:var(--fs-micro); font-weight:var(--fw-bold); color:var(--c-text-3); }
+    :host ::ng-deep .rk-ptable td.num, :host ::ng-deep .rk-ptable th.num { text-align:right; font-variant-numeric:tabular-nums; }
+    :host ::ng-deep .rk-ptable td.num { font-family:var(--font-mono,'Geist Mono',monospace); }
+    :host ::ng-deep .rk-ptable .p-datatable-tbody > tr.p-datatable-row-selected { background:var(--overlay-selected); box-shadow:inset 3px 0 0 var(--action); }
+    :host ::ng-deep .rk-ptable .p-datatable-tbody > tr:focus-visible { outline:2px solid var(--action); outline-offset:-2px; }
     .rk-unit { font-weight:var(--fw-medium); }
     .rk-warn { color:var(--warn-fg); }
     .rk-dim { color:var(--c-text-3); }
     .rk-na { color:var(--c-text-3); font-size:var(--fs-micro); font-style:italic; }
 
     .rk-bar { display:inline-block; width:calc(100% - 3rem); height:6px; border-radius:99px; background:var(--c-surface-2); overflow:hidden; vertical-align:middle; }
-    .rk-bar span { display:block; height:100%; background:var(--ok-fg); transition:width .3s ease-out; }
+    .rk-bar span { display:block; height:100%; width:100%; transform-origin:left center; background:var(--ok-fg); transition:transform .3s ease-out; }
     .rk-bar-lbl { display:inline-block; width:2.6rem; text-align:right; font-family:var(--font-mono,'Geist Mono',monospace); font-variant-numeric:tabular-nums; font-size:var(--fs-micro); color:var(--c-text-2); }
     .rk-bar-lg { width:100%; height:8px; margin-bottom:.4rem; }
 
@@ -287,19 +289,24 @@ import { LogisticaService, FleetAdherenceRow, AdherenceDiagnostic } from '../log
     .rk-diag li.bad .pi { color:var(--bad-fg); }
     .rk-diag-sub { color:var(--c-text-3); font-size:var(--fs-micro); }
     .rk-empty-actions { display:flex; gap:.5rem; justify-content:center; align-items:center; flex-wrap:wrap; }
+
+    @media (prefers-reduced-motion: reduce) { .rk-bar span { transition:none; } }
   `],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class LogisticaAuditoriaRutaComponent {
   private readonly api = inject(LogisticaService);
+  private readonly router = inject(Router);
+  private readonly route = inject(ActivatedRoute);
 
-  readonly today = new Date(Date.now() - 6 * 3600 * 1000).toISOString().slice(0, 10);
+  readonly today = todayMx();
   readonly date = signal<string>(this.today);
   readonly rows = signal<FleetAdherenceRow[]>([]);
   readonly selectedId = signal<string | null>(null);
   readonly loading = signal(false);
   readonly errored = signal(false);
   readonly diagnostic = signal<AdherenceDiagnostic | null>(null);
+  readonly skeletonRows = [1, 2, 3, 4, 5, 6];
 
   readonly selected = computed(() => this.rows().find((r) => r.vehicle_id === this.selectedId()) ?? null);
   readonly evaluables = computed(() => this.rows().filter((r) => r.evaluable));
@@ -321,7 +328,28 @@ export class LogisticaAuditoriaRutaComponent {
     return Math.round((t.visited / t.plannedWithCoords) * 100);
   });
 
+  readonly kpiItems = computed<MetricStripItem[]>(() => {
+    const t = this.totals();
+    const cov = this.fleetCoverage();
+    return [
+      {
+        label: 'Cobertura de tiendas',
+        value: cov == null ? '—' : cov,
+        format: cov == null ? 'text' : 'percent',
+        tone: cov == null ? 'default' : cov >= 85 ? 'ok' : cov >= 60 ? 'warn' : 'bad',
+      },
+      { label: 'Tiendas visitadas', value: t.visited, tone: 'ok' },
+      { label: 'Con captura', value: t.captured, tone: 'ok' },
+      { label: 'Tiendas saltadas', value: t.skipped, tone: t.skipped > 0 ? 'warn' : 'default' },
+    ];
+  });
+
   constructor() {
+    // Estado en URL (DESIGN #10/#15): fecha + unidad seleccionada.
+    const q = this.route.snapshot.queryParamMap;
+    const qDate = q.get('date');
+    if (qDate && /^\d{4}-\d{2}-\d{2}$/.test(qDate)) this.date.set(qDate);
+    this.selectedId.set(q.get('sel'));
     this.refresh();
   }
 
@@ -329,6 +357,7 @@ export class LogisticaAuditoriaRutaComponent {
     if (!d) return;
     this.date.set(d);
     this.selectedId.set(null);
+    this.writeUrl();
     this.refresh();
   }
 
@@ -341,6 +370,8 @@ export class LogisticaAuditoriaRutaComponent {
         this.errored.set(false);
         this.loading.set(false);
         if (!(r && r.length)) this.loadDiagnostic();
+        // La unidad de la URL puede no existir en esta fecha → limpiar selección huérfana.
+        else if (this.selectedId() && !this.selected()) { this.selectedId.set(null); this.writeUrl(); }
       },
       error: () => { this.errored.set(true); this.loading.set(false); },
     });
@@ -353,12 +384,22 @@ export class LogisticaAuditoriaRutaComponent {
     });
   }
 
-  select(r: FleetAdherenceRow) {
-    this.selectedId.set(this.selectedId() === r.vehicle_id ? null : r.vehicle_id);
+  onSelectionChange(sel: FleetAdherenceRow | null) {
+    this.selectedId.set(sel?.vehicle_id ?? null);
+    this.writeUrl();
+  }
+
+  /** Refleja fecha + selección en la URL sin ensuciar el historial. */
+  private writeUrl() {
+    this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: { date: this.date(), sel: this.selectedId() || null },
+      queryParamsHandling: 'merge',
+      replaceUrl: true,
+    });
   }
 
   // ── helpers ────────────────────────────────────────────────────────────────
-  trackById = (_: number, r: FleetAdherenceRow) => r.vehicle_id;
   trackPlan = (_: number, p: { customer_id: string }) => p.customer_id;
   shortId(id: string) { return id ? id.slice(0, 8) : '—'; }
   /** Día MX (YYYY-MM-DD) de la última posición, si difiere del día actual. */
