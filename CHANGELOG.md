@@ -10,6 +10,13 @@
 
 ## [Unreleased]
 
+### Added — Memoria persistente de Thot: thot_remember / thot_forget (2026-07-31)
+- **Gap (revisión de conversaciones):** Thot olvidaba todo entre sesiones; los usuarios intentaron ENSEÑARLE hechos (T-NT 41: "Candelares Salgado es vendedora vecinal") y no los retenía. Espejo del `tomar_nota`/`guardar_conocimiento` de Maat.
+- **Migración `commercial.thot_notes`** (`20260731120000`): RLS forzado + tenant_id, `UNIQUE(tenant_id, title)` para upsert idempotente (patrón de `commercial.thot_chat_log`). Idempotente (hasTable).
+- **Tools (admin scope):** `thot_remember` (UPSERT un hecho por title) + `thot_forget` (borra). El modelo las usa cuando el usuario le enseña un dato durable del negocio (quién es un vendedor, cómo se llama una ruta, una convención).
+- **Recall:** `recallNotes()` inyecta las notas del tenant al system prompt en cada conversación **admin** (tope 4000 chars) → Thot "recuerda" sin tener que llamar una tool. Rule 10 en el prompt.
+- **Verificado:** build api verde (0 warnings de los archivos tocados) + smoke local 6/6 (`smoke_thot_notes.js`: migración up() idempotente, remember inserta, upsert no duplica, recall trae, forget borra). **Pendiente: aplicar migración `20260731120000` a Railway + redeploy api.**
+
 ### Added — Thot/Maat: venta por vendedor/ruta + reorden, auto-routing de modelo, cierre forzado (2026-07-30)
 - **Origen:** revisión de las 133 conversaciones reales de los agentes en prod.
 - **Thot — 3 tools nuevas** (admin scope, solo-lectura, ADR-016): `thot_sales_by_vendor` (revenue/tickets/share por vendedor; `analytics.sales_by_vendor_monthly`, 626k filas), `thot_sales_by_route` (por ruta; la RUTA VECINAL PH = `WIN-VEC-PH-*`), `thot_reorder_policy` (mínimo/reorden/**MÁXIMO** por SKU×almacén + existencia disponible + ABC/XYZ). Cierra el gap #1 (~19/100 convos pedían venta por vendedor/ruta y Thot respondía "no tengo ese dato"). Prompt (`thot-semantic.ts`): rule 8 re-ruteada a las tools nuevas (mata el "no hay canal ruta") + `THOT_DATA_SOURCES` los anuncia.
