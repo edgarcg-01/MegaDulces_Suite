@@ -540,6 +540,11 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.STORE_LABELS_VER)]
       },
       {
+        path: 'cajas',
+        loadComponent: () => import('./modules/tienda/pages/tienda-cajas.component').then(m => m.TiendaCajasComponent),
+        canActivate: [permissionGuard(Permission.STORE_LIVE_VER)]
+      },
+      {
         path: 'arqueo',
         loadComponent: () => import('./modules/tienda/pages/tienda-arqueo.component').then(m => m.TiendaArqueoComponent),
         canActivate: [permissionGuard(Permission.STORE_ARQUEO_CAPTURAR)],
