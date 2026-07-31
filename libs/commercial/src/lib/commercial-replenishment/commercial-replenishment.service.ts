@@ -858,7 +858,8 @@ export class CommercialReplenishmentService {
          GROUP BY pr.sku, pr.nombre, sup.name`, { t: tenantId, pid: productId })).rows[0] || null;
 
       const rows = (await trx.raw(`
-        SELECT w.code AS warehouse_code, w.name AS warehouse_name,
+        SELECT w.id AS warehouse_id, w.code AS warehouse_code, w.name AS warehouse_name,
+               pr.supplier_id, round(COALESCE(rp.caja_cost, 0)::numeric, 2) AS unit_cost,
                NULL::text AS territory,
                round((rp.daily_pieces * 30 / (${suf} * ${bf}))::numeric, 1) AS venta_cajas,
                round((rp.stock_pz / ${bf})::numeric, 1) AS existencia_cajas,
@@ -867,6 +868,7 @@ export class CommercialReplenishmentService {
                round((rp.stock_pz * ${suf} / NULLIF(rp.daily_pieces, 0))::numeric, 0) AS cover_days
           FROM analytics.replenishment_plan rp
           JOIN commercial.warehouses w ON w.tenant_id = rp.tenant_id AND w.id = rp.warehouse_id
+          JOIN catalog.products pr ON pr.tenant_id = rp.tenant_id AND pr.id = rp.product_id
          WHERE rp.tenant_id = :t AND rp.product_id = :pid
            AND (rp.stock_pz > 0 OR rp.daily_pieces > 0 OR rp.transit_cajas > 0)
          ORDER BY rp.revenue30 DESC NULLS LAST, w.code`,
