@@ -138,6 +138,9 @@ export interface WorkbookCell { vta: number; exis: number; ped: number; }
 export interface WorkbookRow {
   product_id: string; sku: string; nombre: string; supplier_name: string | null;
   uxc: number; caja_cost: number;
+  box_size: number | null;         // Pz/Caja (etiqueta) — normalmente = uxc
+  pack_size: number | null;        // Pz/Paquete (solo multipacks)
+  packs_per_box: number | null;    // box_size ÷ pack_size (solo si divide exacto)
   cells: Record<string, WorkbookCell>;   // keyed por código de territorio (raíz)
   suma_pedido_cajas: number; pedido_valor: number;
   valor_venta: number; valor_exis: number;
