@@ -133,6 +133,7 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
                     <th colspan="3" class="pr-grp-h" [title]="t.code">{{ t.name }}</th>
                   }
                   <th rowspan="2" class="pr-r">Σ Ped.<br/>cajas</th>
+                  <th rowspan="2" class="pr-r pr-muted-h">Σ Piezas</th>
                   <th rowspan="2" class="pr-r pr-val">$ Pedido</th>
                   <th rowspan="2" class="pr-r">Valor<br/>venta</th>
                   <th rowspan="2" class="pr-r">Valor<br/>exist.</th>
@@ -146,7 +147,7 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
               <ng-template #body let-r>
                 <tr class="pr-wb-row" [class.pr-wb-open]="isOpen(r)" (click)="toggleRow(r)" tabindex="0" (keyup.enter)="toggleRow(r)"
                     [attr.aria-expanded]="isOpen(r)" [attr.aria-label]="(isOpen(r) ? 'Cerrar' : 'Abrir') + ' detalle de ' + r.sku">
-                  <td><div class="pr-prod"><i class="pi pr-wb-go" [ngClass]="isOpen(r) ? 'pi-angle-down' : 'pi-angle-right'"></i> {{ r.nombre }}</div><div class="pr-prod-meta"><span class="pr-sku">{{ r.sku }}</span> <span class="pr-supp">{{ r.supplier_name || '—' }}</span>@if (abcOf(r.product_id); as a) { <p-tag [value]="a" [severity]="abcSev(a)" styleClass="pr-abc"></p-tag> }</div></td>
+                  <td><div class="pr-prod"><i class="pi pr-wb-go" [ngClass]="isOpen(r) ? 'pi-angle-down' : 'pi-angle-right'"></i> {{ r.nombre }}</div><div class="pr-prod-meta"><span class="pr-sku">{{ r.sku }}</span> <span class="pr-supp">{{ r.supplier_name || '—' }}</span>@if (abcOf(r.product_id); as a) { <p-tag [value]="a" [severity]="abcSev(a)" styleClass="pr-abc"></p-tag> }@for (t of prodTypes(r.product_id); track t) { <p-tag [value]="typeLabel(t)" [severity]="typeSev(t)" styleClass="pr-abc"></p-tag> }</div></td>
                   <td class="pr-r pr-muted">{{ r.uxc | number:'1.0-0' }}</td>
                   <td class="pr-r pr-muted">{{ money(r.caja_cost) }}</td>
                   @for (t of wbTerritories(); track t.code) {
@@ -155,7 +156,8 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
                     <td class="pr-r pr-ped" [class.pr-ped-on]="cellVal(r, t.code, 'ped') > 0">{{ cellVal(r, t.code, 'ped') | number:'1.0-1' }}</td>
                   }
                   <td class="pr-r pr-strong">{{ r.suma_pedido_cajas | number:'1.0-1' }}</td>
-                  <td class="pr-r pr-val pr-strong">{{ money(r.pedido_valor) }}</td>
+                  <td class="pr-r pr-muted-h">{{ (r.suma_pedido_cajas * r.uxc) | number:'1.0-0' }}</td>
+                  <td class="pr-r pr-val pr-strong" [class.pr-ped-on]="r.suma_pedido_cajas > 0">{{ money(r.pedido_valor) }}</td>
                   <td class="pr-r pr-muted">{{ money(r.valor_venta) }}</td>
                   <td class="pr-r pr-muted">{{ money(r.valor_exis) }}</td>
                 </tr>
@@ -459,8 +461,8 @@ export class ComprasPedidoRealComponent implements OnInit {
   wbWarehouses: string[] = [];                          // sucursales elegidas (vacío = todas con stock)
   // Ancho dinámico según nº de territorios (3 fijas + 3 por territorio + 4 de cierre). computed →
   // referencia estable entre cargas (evita ExpressionChanged).
-  wbTableStyle = computed(() => ({ 'min-width': (34 + this.wbTerritories().length * 13) + 'rem' }));
-  wbColCount = computed(() => 3 + this.wbTerritories().length * 3 + 4);
+  wbTableStyle = computed(() => ({ 'min-width': (40 + this.wbTerritories().length * 13) + 'rem' }));
+  wbColCount = computed(() => 3 + this.wbTerritories().length * 3 + 5);
   /** Valor de una celda territorio×métrica (0 si el SKU no tiene datos en ese punto de compra). */
   cellVal(r: WorkbookRow, code: string, key: 'vta' | 'exis' | 'ped'): number { return r.cells?.[code]?.[key] ?? 0; }
   /** ABC por producto (del motor por-sucursal) → etiqueta en el renglón del Excel. */
@@ -470,6 +472,16 @@ export class ComprasPedidoRealComponent implements OnInit {
     return m;
   });
   abcOf(pid: string): string | null { return this.abcMap().get(pid) ?? null; }
+  /** Tipos de acción presentes por producto (compra/traspaso/sobre) → tags de color en el renglón. */
+  private readonly typesByProduct = computed(() => {
+    const m = new Map<string, Set<UType>>();
+    for (const u of this.urows()) { let s = m.get(u.product_id); if (!s) m.set(u.product_id, s = new Set()); s.add(u.type); }
+    return m;
+  });
+  prodTypes(pid: string): UType[] {
+    const s = this.typesByProduct().get(pid);
+    return s ? (['comprar', 'traspaso', 'sobre'] as UType[]).filter((t) => s.has(t)) : [];
+  }
   // RA-PRO.32.1 — Fila EXPANDIBLE (acordeón) que UNIFICA "por sucursal" en la Vista Excel: al abrir un
   // SKU se despliega INLINE toda su info por sucursal reusando el MISMO motor de la vista consolidada
   // (comprar/traspaso/sobrestock, ABC, señal de cobertura, déficit, origen del traspaso, cantidad
