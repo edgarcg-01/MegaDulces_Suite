@@ -232,6 +232,17 @@ export class ThotToolsService implements ThotToolProvider {
         description: 'Recomendación del motor Thot para un cliente: qué productos empujarle y por qué (rotación/margen/afinidad/zona/whitespace/promo). Requiere customer_id (UUID de commercial.customers; resolvelo con thot_resolve_entity kind=customer).',
         input_schema: { type: 'object', properties: { customer_id: { type: 'string', description: 'UUID del cliente B2B.' }, limit: { type: 'number', description: 'Default 12, máx 50.' } }, required: ['customer_id'] },
       },
+      {
+        name: 'thot_remember',
+        description:
+          'Guarda un HECHO durable que el usuario te enseña, para RECORDARLO en futuras conversaciones (ej: "Candelares Salgado es vendedora vecinal de la ruta PH 01"). Usalo cuando el usuario te dé un dato de negocio que deberías retener (quién es alguien, cómo se llama algo, una convención interna). title = clave corta; body = el hecho. Si el title ya existe, lo actualiza.',
+        input_schema: { type: 'object', properties: { title: { type: 'string', description: 'Clave corta del hecho (ej: "Vendedora Candelares Salgado").' }, body: { type: 'string', description: 'El hecho completo, en texto.' } }, required: ['title', 'body'] },
+      },
+      {
+        name: 'thot_forget',
+        description: 'Olvida (borra) un hecho que habías guardado con thot_remember. Pasá el title exacto de la nota.',
+        input_schema: { type: 'object', properties: { title: { type: 'string', description: 'Title exacto de la nota a olvidar.' } }, required: ['title'] },
+      },
     ];
   }
 
@@ -290,6 +301,10 @@ export class ThotToolsService implements ThotToolProvider {
         case 'thot_suggest':
           if (!UUID_RE.test(String(args.customer_id || ''))) return { error: 'customer_id debe ser un UUID. Resolvelo con thot_resolve_entity kind=customer.' };
           return await this.thot.suggest(String(args.customer_id), { limit: args.limit });
+        case 'thot_remember':
+          return await this.remember(args, _scope);
+        case 'thot_forget':
+          return await this.forget(args);
         default:
           return { error: `Tool desconocida: ${name}` };
       }
@@ -535,6 +550,33 @@ export class ThotToolsService implements ThotToolProvider {
         count: rows.length,
         rows,
       };
+    });
+  }
+
+  // ── memoria: hechos que el usuario le enseña a Thot (commercial.thot_notes) ──
+  private async remember(args: any, scope?: ThotScope) {
+    const title = String(args.title || '').trim();
+    const body = String(args.body || '').trim();
+    if (!title || !body) return { error: 'Faltan title y body para guardar la nota.' };
+    const tenantId = this.ctx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      await trx.raw(
+        `INSERT INTO commercial.thot_notes (tenant_id, title, body, created_by)
+         VALUES (?, ?, ?, ?)
+         ON CONFLICT (tenant_id, title) DO UPDATE SET body = EXCLUDED.body, updated_at = now()`,
+        [tenantId, title.slice(0, 200), body.slice(0, 2000), scope?.userName || null],
+      );
+      return { ok: true, saved: title, note: 'Guardado. Lo voy a recordar en próximas conversaciones.' };
+    });
+  }
+
+  private async forget(args: any) {
+    const title = String(args.title || '').trim();
+    if (!title) return { error: 'Falta el title de la nota a olvidar.' };
+    const tenantId = this.ctx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      const n = await trx('commercial.thot_notes').where({ tenant_id: tenantId, title }).del();
+      return n ? { ok: true, forgotten: title } : { ok: false, note: `No tenía guardada una nota con title "${title}".` };
     });
   }
 }

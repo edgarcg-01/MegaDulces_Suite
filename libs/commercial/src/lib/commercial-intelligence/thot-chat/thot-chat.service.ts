@@ -139,6 +139,12 @@ export class ThotChatService {
     const lastQ = [...history].reverse().find((t) => t.role === 'user')?.content || '';
     const fewShot = await this.examples.promptFragment(scope.profile, lastQ).catch(() => '');
     if (fewShot) system += `\n\n${fewShot}`;
+    // Memoria de Thot (admin): hechos que el usuario le enseñó (thot_remember), inyectados
+    // al system para que los "recuerde" entre sesiones. Best-effort (tabla puede no existir).
+    if (scope.profile === 'admin') {
+      const memory = await this.recallNotes().catch(() => '');
+      if (memory) system += `\n\n${memory}`;
+    }
     // Auto-routing de modelo (FIQ.1): Think (explícito) o pregunta compleja → Sonnet 5.
     const useSonnet = think || this.isComplex(lastQ, history.length);
     const toolDefs = provider.definitions(scope);
@@ -206,6 +212,31 @@ export class ThotChatService {
       tools_used: traces,
       iterations,
     };
+  }
+
+  /**
+   * Memoria de Thot (admin): trae los hechos que el usuario le enseñó (thot_remember)
+   * para inyectarlos al system y que Thot los "recuerde" entre sesiones. Tope de chars
+   * para no inflar el prompt. Best-effort: si la tabla aún no existe (migración pendiente
+   * en prod) el caller ignora el error.
+   */
+  private async recallNotes(): Promise<string> {
+    const rows = await this.tk.run(async (trx) =>
+      trx('commercial.thot_notes')
+        .where('tenant_id', trx.raw('public.current_tenant_id()'))
+        .orderBy('pinned', 'desc')
+        .orderBy('updated_at', 'desc')
+        .limit(40)
+        .select('title', 'body'),
+    );
+    if (!rows.length) return '';
+    let out = 'MEMORIA (hechos que te enseñaron en conversaciones anteriores; tenelos en cuenta y no los contradigas):\n';
+    for (const r of rows as any[]) {
+      const line = `- ${r.title}: ${r.body}\n`;
+      if (out.length + line.length > 4000) break;
+      out += line;
+    }
+    return out.trim();
   }
 
   /**
