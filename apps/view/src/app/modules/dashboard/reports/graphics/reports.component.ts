@@ -432,7 +432,7 @@ interface PdfSection {
                                                   <td>
                                                     <p-button
                                                       type="button"
-                                                      pButton
+                                                     
                                                       [pRowToggler]="day"
                                                       styleClass="p-button-text p-button-rounded p-button-plain w-8 h-8"
                           [icon]="

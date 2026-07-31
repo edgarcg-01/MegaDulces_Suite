@@ -87,17 +87,17 @@ const OUTCOMES: OutcomeOption[] = [
         <div class="actions-row">
           <button
             pButton
-            icon="pi pi-shopping-cart"
-            label="Tomar pedido"
+           
+           
             (click)="takeOrder(snap.customer.id)"
-          ></button>
+          ><span class="p-button-icon p-button-icon-left pi pi-shopping-cart" aria-hidden="true"></span><span class="p-button-label">Tomar pedido</span></button>
           <button
             pButton
-            icon="pi pi-pencil"
-            label="Registrar llamada"
+           
+           
             severity="secondary"
             (click)="openLogModal()"
-          ></button>
+          ><span class="p-button-icon p-button-icon-left pi pi-pencil" aria-hidden="true"></span><span class="p-button-label">Registrar llamada</span></button>
         </div>
         <!-- Info comercial -->
         <div class="card">
@@ -245,20 +245,20 @@ const OUTCOMES: OutcomeOption[] = [
           <button
             pButton
             type="button"
-            label="Cancelar"
+           
             severity="secondary"
             [text]="true"
             (click)="showLogModalRef = false"
             [disabled]="saving()"
-          ></button>
+          ><span class="p-button-label">Cancelar</span></button>
           <button
             pButton
             type="submit"
-            label="Guardar"
-            icon="pi pi-check"
+           
+           
             [disabled]="!canSubmit() || saving()"
             [loading]="saving()"
-          ></button>
+          ><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Guardar</span></button>
         </div>
       </form>
     </p-dialog>

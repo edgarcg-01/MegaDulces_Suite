@@ -1,5 +1,6 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, HostListener, OnInit, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { HasUnsavedChanges } from '../../../core/guards/unsaved-changes.guard';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { catchError, of, forkJoin } from 'rxjs';
@@ -71,6 +72,10 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
           <button role="tab" [attr.aria-selected]="mode()==='muerto'" class="pr-tab" [class.pr-tab-on]="mode()==='muerto'" (click)="setMode('muerto')">Stock muerto</button>
         </div>
       </header>
+
+      @if (loadedAt()) {
+        <div class="pr-fresh"><i class="pi pi-clock" aria-hidden="true"></i> Datos actualizados {{ freshLabel() }}</div>
+      }
 
       @if (mode()==='pedido') {
         <!-- RA-PRO.32.3 — PEDIDO unificado: workbook por SKU + desglose por sucursal (compra/traspaso/sobre) en el acordeón -->
@@ -203,7 +208,7 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
                                       </td>
                                       <td class="pr-r"><p-tag [value]="(u.on_hand | number:'1.0-0') ?? ''" [severity]="existSevU(u)" styleClass="pr-cov-tag" [title]="existTitleU(u)"></p-tag></td>
                                       <td class="pr-r">
-                                        @if (u.editable) { <input type="number" min="0" class="pr-qty pr-qty-sm" [(ngModel)]="u.qty" (ngModelChange)="tick()" [attr.aria-label]="'Cantidad de ' + r.sku + ' en ' + u.warehouse_code" /> }
+                                        @if (u.editable) { <input type="number" min="0" class="pr-qty pr-qty-sm" [(ngModel)]="u.qty" (ngModelChange)="onQtyEdit()" [attr.aria-label]="'Cantidad de ' + r.sku + ' en ' + u.warehouse_code" /> }
                                         @else { <span class="pr-muted">{{ u.qty | number:'1.0-0' }}</span> }
                                       </td>
                                       <td class="pr-r pr-muted">{{ (u.qty * u.uxc) | number:'1.0-0' }}</td>
@@ -391,6 +396,8 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
     .pr-state { display: flex; gap: .75rem; align-items: center; padding: 1.25rem; border: 1px solid var(--border-color); border-radius: var(--r-md, 12px); }
     .pr-error { color: var(--bad-fg); } .pr-error i { font-size: 1.4rem; } .pr-error p { margin: 0; color: var(--text-main); }
     .pr-foot { font-size: .72rem; color: var(--text-muted); margin-top: .5rem; }
+    .pr-fresh { display: inline-flex; align-items: center; gap: .35rem; font-size: .72rem; color: var(--text-muted); margin: -.25rem 0 .6rem; }
+    .pr-fresh i { font-size: .7rem; color: var(--text-faint); }
     .pr-bulk { position: sticky; bottom: 0; display: flex; align-items: center; gap: .5rem; margin-top: .75rem; padding: .6rem .9rem;
       background: var(--card-bg); border: 1px solid var(--border-color); border-radius: var(--r-md, 12px); box-shadow: var(--shadow-sm, 0 1px 3px rgba(0,0,0,.08)); }
     .pr-bulk-n { font-size: .84rem; color: var(--text-main); font-variant-numeric: tabular-nums; }
@@ -415,6 +422,12 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
     :host ::ng-deep .pr-wb .pr-wb-open td { background: var(--overlay-selected, var(--hover-bg)); }
     :host ::ng-deep .pr-wb .pr-wb-open td:first-child { box-shadow: inset 3px 0 0 var(--action); }
     .pr-wb-go { font-size: .7rem; color: var(--text-faint); margin-right: .1rem; }
+    /* Producto congelado al scrollear horizontal (columna 1 sticky, patrón existencia-crítica) */
+    :host ::ng-deep .pr-wb thead tr:first-child th:first-child,
+    :host ::ng-deep .pr-wb tbody td:first-child { position: sticky; left: 0; z-index: 2; background: var(--card-bg); }
+    :host ::ng-deep .pr-wb thead tr:first-child th:first-child { z-index: 3; }
+    :host ::ng-deep .pr-wb .pr-wb-row:hover td:first-child { background: var(--overlay-hover, var(--hover-bg)); }
+    :host ::ng-deep .pr-wb .pr-wb-open td:first-child { background: var(--overlay-selected, var(--hover-bg)); }
     /* RA-PRO.32.1 — fila expandida (acordeón): desglose por sucursal accionable inline */
     :host ::ng-deep .pr-wb .pr-wb-exp > td { padding: 0; background: var(--card-bg); border-bottom: 2px solid var(--border-color); }
     .pr-exp-in { padding: .85rem 1rem 1rem 1.75rem; border-left: 3px solid var(--action); }
@@ -437,10 +450,27 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
     .pr-peek-note { font-size: .7rem; color: var(--text-muted); margin-top: .75rem; line-height: 1.4; }
   `],
 })
-export class ComprasPedidoRealComponent implements OnInit {
+export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
   private readonly api = inject(ComprasService);
   private readonly toast = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);
+
+  // P2 — cantidades editadas sin armar requisición = trabajo volátil. dirty protege contra
+  // navegación interna (unsavedChangesGuard) + salida externa (beforeunload).
+  private readonly dirty = signal(false);
+  onQtyEdit(): void { this.dirty.set(true); this.tick(); }
+  hasUnsavedChanges(): boolean { return this.dirty(); }
+  @HostListener('window:beforeunload', ['$event'])
+  onBeforeUnload(e: BeforeUnloadEvent): void { if (this.dirty()) e.preventDefault(); }
+
+  // P2 — frescura del dato (el pedido se calcula sobre feeds que pueden estar stale).
+  readonly loadedAt = signal<number | null>(null);
+  private readonly nowTick = signal(Date.now());
+  readonly freshLabel = computed(() => {
+    const t = this.loadedAt(); if (!t) return '';
+    const mins = Math.floor((this.nowTick() - t) / 60000);
+    return mins < 1 ? 'recién' : mins < 60 ? `hace ${mins} min` : `hace ${Math.floor(mins / 60)} h`;
+  });
 
   private readonly buyRows = signal<PurchaseSuggestionRow[]>([]);
   private readonly trRows = signal<TransferSuggestionRow[]>([]);
@@ -577,6 +607,9 @@ export class ComprasPedidoRealComponent implements OnInit {
     this.restoreFilters();
     if (this.mode() === 'muerto') this.loadDead();
     else this.loadWorkbook();
+    // Refresca la etiqueta "hace N min" sin recargar datos.
+    const id = setInterval(() => this.nowTick.set(Date.now()), 60000);
+    this.destroyRef.onDestroy(() => clearInterval(id));
   }
 
   // Persistencia de filtros en localStorage → se mantienen al recargar / navegar / cambiar de pestaña.
@@ -641,6 +674,7 @@ export class ComprasPedidoRealComponent implements OnInit {
         this.loading.set(false);
         if (!r) { this.error.set(true); this.wbRows.set([]); this.wbTerritories.set([]); return; }
         this.wbRows.set(r.rows); this.wbTerritories.set(r.territories ?? []); this.wbTotals.set(r.totals); this.wbTotal.set(r.total);
+        this.loadedAt.set(Date.now());
       });
   }
 
@@ -728,6 +762,8 @@ export class ComprasPedidoRealComponent implements OnInit {
     }
     this.urows.set(out);
     this.tick();
+    this.loadedAt.set(Date.now());   // sella frescura
+    this.dirty.set(false);           // datos frescos = sin ediciones pendientes
   }
 
   private readonly typeOrder: Record<UType, number> = { comprar: 0, traspaso: 1, sobre: 2 };
@@ -783,7 +819,7 @@ export class ComprasPedidoRealComponent implements OnInit {
     this.loading.set(true); this.saveFilters();
     this.api.deadStock({ search: this.search.trim() || undefined, pageSize: 200 })
       .pipe(catchError(() => of(null)), takeUntilDestroyed(this.destroyRef))
-      .subscribe((r) => { this.loading.set(false); this.deadRows.set(r?.rows ?? []); this.deadValue.set(Number(r?.total_value) || 0); });
+      .subscribe((r) => { this.loading.set(false); this.deadRows.set(r?.rows ?? []); this.deadValue.set(Number(r?.total_value) || 0); this.loadedAt.set(Date.now()); });
   }
 
   // ── etiquetas / severidades ──────────────────────────────────────────

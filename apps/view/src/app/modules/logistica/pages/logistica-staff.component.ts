@@ -210,7 +210,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
     
         <ng-template #footer>
           <button pButton severity="secondary" [text]="true" (click)="dialogVisible = false" [disabled]="saving()"><span class="p-button-label">Cancelar</span></button>
-          <p-button pButton [label]="editing() ? 'Guardar cambios' : 'Crear'" icon="pi pi-check" (click)="save()" [loading]="saving()" [disabled]="form.invalid"></p-button>
+          <p-button [label]="editing() ? 'Guardar cambios' : 'Crear'" icon="pi pi-check" (click)="save()" [loading]="saving()" [disabled]="form.invalid"></p-button>
         </ng-template>
       </p-dialog>
     `,

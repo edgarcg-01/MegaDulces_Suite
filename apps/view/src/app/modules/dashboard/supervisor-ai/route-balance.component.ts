@@ -65,7 +65,6 @@ import { SupervisorAiService, RouteBalanceSim } from './supervisor-ai.service';
 
           <div class="actions">
             <p-button
-              pButton
               type="button"
               [disabled]="m.moved === 0 || busy()"
               [label]="busy() ? 'Aplicando…' : 'Aplicar rebalanceo'"
@@ -78,10 +77,8 @@ import { SupervisorAiService, RouteBalanceSim } from './supervisor-ai.service';
               severity="secondary"
               [outlined]="true"
               [disabled]="busy()"
-              label="Revertir último"
-              icon="pi pi-undo"
               (click)="confirmUndo()"
-            ></button>
+            ><span class="p-button-icon p-button-icon-left pi pi-undo" aria-hidden="true"></span><span class="p-button-label">Revertir último</span></button>
             <span class="hint">Recalcula en el servidor al aplicar · reversible</span>
           </div>
         }

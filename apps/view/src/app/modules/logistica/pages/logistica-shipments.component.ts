@@ -240,7 +240,7 @@ function severityForStatus(s: ShipmentStatus): Severity {
                       <p>{{ statusFilterValue ? 'No hay embarques en este estado.' : 'Creá tu primer embarque para empezar a operar.' }}</p>
                       <p-button
                         type="button"
-                        pButton
+                       
                         [icon]="statusFilterValue ? 'pi pi-refresh' : 'pi pi-plus'"
                         severity="primary"
                         size="small"

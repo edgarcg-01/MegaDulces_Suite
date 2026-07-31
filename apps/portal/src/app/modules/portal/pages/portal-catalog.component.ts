@@ -25,13 +25,6 @@ import { TagModule } from 'primeng/tag';
 import { TooltipModule } from 'primeng/tooltip';
 import { MessageService } from 'primeng/api';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import {
-  trigger,
-  transition,
-  style,
-  animate,
-  keyframes,
-} from '@angular/animations';
 import { forkJoin } from 'rxjs';
 import {
   PortalService,
@@ -100,21 +93,6 @@ function initial(name: string): string {
   ],
   templateUrl: './portal-catalog.component.html',
   styleUrls: ['./portal-catalog.component.css'],
-  animations: [
-    trigger('badgePop', [
-      transition(':increment', [
-        animate(
-          '420ms cubic-bezier(0.34, 1.4, 0.5, 1)',
-          keyframes([
-            style({ transform: 'scale(1)', offset: 0 }),
-            style({ transform: 'scale(1.5)', offset: 0.35 }),
-            style({ transform: 'scale(0.88)', offset: 0.65 }),
-            style({ transform: 'scale(1)', offset: 1 }),
-          ]),
-        ),
-      ]),
-    ]),
-  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class PortalCatalogComponent implements OnInit, AfterViewInit, OnDestroy {

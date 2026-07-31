@@ -143,7 +143,7 @@ import { MapComponent } from '../../../shared/components/map/map.component';
                 </div>
               </div>
               <div class="rd-actions">
-                <p-button pButton [label]="loading() ? 'Buscando…' : 'Buscar ticket'" icon="pi pi-search"
+                <p-button [label]="loading() ? 'Buscando…' : 'Buscar ticket'" icon="pi pi-search"
                 [loading]="loading()" [disabled]="!folio.trim()" (click)="lookup()"></p-button>
               </div>
               @if (error()) { <p class="rd-err"><i class="pi pi-exclamation-circle"></i> {{ error() }}</p> }
@@ -212,7 +212,7 @@ import { MapComponent } from '../../../shared/components/map/map.component';
               <div class="rd-field rd-mt">
                 <label>Ubicación en el mapa <span class="rd-hint">· mejora el orden de reparto</span></label>
                 <div class="rd-geo">
-                  <p-button pButton type="button" size="small" severity="secondary" [outlined]="true"
+                  <p-button type="button" size="small" severity="secondary" [outlined]="true"
                     icon="pi pi-search-plus" [label]="geocoding() ? 'Buscando…' : 'Ubicar dirección'"
                   [loading]="geocoding()" [disabled]="!street.trim()" (click)="locate()"></p-button>
                   @if (picked(); as p) {
@@ -304,7 +304,7 @@ import { MapComponent } from '../../../shared/components/map/map.component';
     
                     @if (dispatchError()) { <p class="rd-err"><i class="pi pi-exclamation-circle"></i> {{ dispatchError() }}</p> }
                     <div class="rd-actions">
-                      <p-button pButton [label]="saving() ? 'Asignando…' : 'Asignar a repartidor'" icon="pi pi-send"
+                      <p-button [label]="saving() ? 'Asignando…' : 'Asignar a repartidor'" icon="pi pi-send"
                       [loading]="saving()" (click)="dispatch()"></p-button>
                     </div>
                   </div>

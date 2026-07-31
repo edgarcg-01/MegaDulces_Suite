@@ -762,6 +762,16 @@
         text-align: center;
         font-variant-numeric: tabular-nums;
       }
+      /* pop del badge al cambiar la cantidad (nativa Angular animate.enter; el @for
+         re-crea el span al cambiar el conteo → dispara la entrada). */
+      @keyframes cat-fab-pop {
+        0% { transform: scale(1); }
+        35% { transform: scale(1.5); }
+        65% { transform: scale(0.88); }
+        100% { transform: scale(1); }
+      }
+      .cat-fab-pop { animation: cat-fab-pop 420ms cubic-bezier(0.34, 1.4, 0.5, 1); }
+      @media (prefers-reduced-motion: reduce) { .cat-fab-pop { animation: none; } }
       .cat-fab-divider {
         width: 1px;
         height: 28px;

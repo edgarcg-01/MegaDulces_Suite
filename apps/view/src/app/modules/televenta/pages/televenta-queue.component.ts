@@ -62,20 +62,20 @@ const REASON_SEVERITY: Record<QueueItem['reason'], 'danger' | 'warn' | 'info' | 
                   <div class="my-actions">
                     <button
                       pButton
-                      label="Abrir"
-                      icon="pi pi-arrow-right"
+                     
+                     
                       size="small"
                       (click)="open(r.customer_id)"
-                    ></button>
+                    ><span class="p-button-icon p-button-icon-left pi pi-arrow-right" aria-hidden="true"></span><span class="p-button-label">Abrir</span></button>
                     <button
                       pButton
-                      label="Liberar"
+                     
                       severity="secondary"
                       [outlined]="true"
                       size="small"
                       (click)="release(r.id)"
                       [disabled]="releasing() === r.id"
-                    ></button>
+                    ><span class="p-button-label">Liberar</span></button>
                   </div>
                 </article>
               }
@@ -88,13 +88,13 @@ const REASON_SEVERITY: Record<QueueItem['reason'], 'danger' | 'warn' | 'info' | 
             <h2>Próximos clientes <span class="count">({{ queue().length }})</span></h2>
             <button
               pButton
-              icon="pi pi-refresh"
-              label="Refrescar"
+             
+             
               severity="secondary"
               [text]="true"
               size="small"
               (click)="refresh()"
-            ></button>
+            ><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span><span class="p-button-label">Refrescar</span></button>
           </header>
           @if (queue().length === 0) {
             <div class="empty">
@@ -132,13 +132,13 @@ const REASON_SEVERITY: Record<QueueItem['reason'], 'danger' | 'warn' | 'info' | 
                   <div class="qi-actions">
                     <button
                       pButton
-                      label="Tomar"
-                      icon="pi pi-arrow-right"
-                      iconPos="right"
+                     
+                     
+                     
                       size="small"
                       (click)="reserve(item)"
                       [disabled]="reserving() === item.customer_id"
-                    ></button>
+                    ><span class="p-button-label">Tomar</span><span class="p-button-icon p-button-icon-right pi pi-arrow-right" aria-hidden="true"></span></button>
                   </div>
                 </article>
               }

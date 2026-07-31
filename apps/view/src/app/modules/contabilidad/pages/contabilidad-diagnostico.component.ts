@@ -99,7 +99,7 @@ import { FacturasService } from '../facturas.service';
           </ng-template>
           <ng-template #body let-r let-expanded="expanded">
             <tr>
-              <td><p-button type="button" pButton [pRowToggler]="r" styleClass="p-button-text p-button-sm" [icon]="expanded ? 'pi pi-chevron-down' : 'pi pi-chevron-right'" aria-label="Detalle"></p-button></td>
+              <td><p-button type="button" [pRowToggler]="r" styleClass="p-button-text p-button-sm" [icon]="expanded ? 'pi pi-chevron-down' : 'pi pi-chevron-right'" aria-label="Detalle"></p-button></td>
               <td><p-tag [value]="sevLabel(r.solucion.severity)" [severity]="sevSev(r.solucion.severity)" styleClass="di-chip" /></td>
               <td>{{ kindLabel(r.kind) }}</td>
               <td><div class="di-tit">{{ r.solucion.titulo }}</div></td>

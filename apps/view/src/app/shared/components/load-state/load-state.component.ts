@@ -44,7 +44,7 @@ import { SkeletonModule } from 'primeng/skeleton';
         <p class="ls-empty-title">{{ emptyTitle() }}</p>
         @if (emptyHint()) { <p class="ls-empty-hint">{{ emptyHint() }}</p> }
         @if (emptyCta()) {
-          <p-button pButton type="button" styleClass="p-button-sm" [icon]="emptyCtaIcon()"
+          <p-button type="button" styleClass="p-button-sm" [icon]="emptyCtaIcon()"
                   [label]="emptyCta()!" (click)="cta.emit()"></p-button>
         }
       </div>

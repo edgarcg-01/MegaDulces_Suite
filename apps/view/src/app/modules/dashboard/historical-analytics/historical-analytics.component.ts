@@ -92,7 +92,7 @@ const QUARTERS: Quarter[] = [
         <div class="ha-head-actions">
           <button
             pButton
-            icon="pi pi-refresh"
+           
             [text]="true"
             severity="secondary"
             size="small"
@@ -100,7 +100,7 @@ const QUARTERS: Quarter[] = [
             [loading]="loading()"
             aria-label="Refrescar"
             pTooltip="Refrescar"
-          ></button>
+          ><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span></button>
         </div>
       </header>
     

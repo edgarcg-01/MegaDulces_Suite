@@ -282,7 +282,39 @@ export class ComercialSalidasComponent {
       .subscribe({ next: (s) => this.suppliers.set(s), error: () => undefined });
     this.svc.salidasCategories().pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({ next: (c) => this.categoryOpts.set(c.map((x) => ({ id: x.id, label: `${x.code ? x.code + ' · ' : ''}${x.name}` }))), error: () => undefined });
+    this.restoreFilters();
     this.load();
+  }
+
+  // Persistencia de filtros en localStorage (mismo patrón que /compras/pedido).
+  private readonly FKEY = 'salidas-filters:v1';
+  private saveFilters(): void {
+    try {
+      localStorage.setItem(this.FKEY, JSON.stringify({
+        periodMode: this.periodMode(), year: this.year, warehouses: this.warehouses,
+        brandId: this.brandId, supplierId: this.supplierId, categoryId: this.categoryId,
+        search: this.search, rangeDates: this.rangeDates?.map((d) => this.iso(d)) ?? null,
+      }));
+    } catch { /* localStorage no disponible */ }
+  }
+  private restoreFilters(): void {
+    try {
+      const raw = localStorage.getItem(this.FKEY);
+      if (!raw) return;
+      const s = JSON.parse(raw);
+      if (['d7', 'd15', 'd21', 'year', 'range'].includes(s.periodMode)) this.periodMode.set(s.periodMode);
+      if (typeof s.year === 'number') this.year = s.year;
+      if (Array.isArray(s.warehouses)) this.warehouses = s.warehouses;
+      if ('brandId' in s) this.brandId = s.brandId ?? null;
+      if ('supplierId' in s) this.supplierId = s.supplierId ?? null;
+      if ('categoryId' in s) this.categoryId = s.categoryId ?? null;
+      if (typeof s.search === 'string') this.search = s.search;
+      if (Array.isArray(s.rangeDates)) {
+        const parseLocal = (v: string): Date | null => { const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(v); return m ? new Date(+m[1], +m[2] - 1, +m[3]) : null; };
+        const ds = s.rangeDates.map(parseLocal).filter((d: Date | null): d is Date => !!d);
+        this.rangeDates = ds.length ? ds : null;
+      }
+    } catch { /* JSON inválido */ }
   }
 
   setMode(m: string) {
@@ -337,6 +369,7 @@ export class ComercialSalidasComponent {
       this.toast.add({ severity: 'info', summary: 'Elegí un rango de fechas' });
       return;
     }
+    this.saveFilters();
     this.loading.set(true);
     this.svc.salidas(this.params())
       .pipe(takeUntilDestroyed(this.destroyRef))

@@ -12,13 +12,6 @@ import {
   signal,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import {
-  trigger,
-  transition,
-  style,
-  animate,
-  keyframes,
-} from '@angular/animations';
 import { CommonModule } from '@angular/common';
 import { Router, RouterModule, RouterOutlet } from '@angular/router';
 import { ButtonModule } from 'primeng/button';
@@ -54,28 +47,6 @@ interface NavItem {
     CountUpDirective,
   ],
   providers: [MessageService],
-  animations: [
-    trigger('badgePop', [
-      transition(':increment', [
-        animate(
-          '420ms cubic-bezier(0.34, 1.4, 0.5, 1)',
-          keyframes([
-            style({ transform: 'scale(1)', offset: 0 }),
-            style({ transform: 'scale(1.45)', offset: 0.35 }),
-            style({ transform: 'scale(0.9)', offset: 0.65 }),
-            style({ transform: 'scale(1)', offset: 1 }),
-          ]),
-        ),
-      ]),
-      transition(':enter', [
-        style({ transform: 'scale(0)', opacity: 0 }),
-        animate(
-          '320ms cubic-bezier(0.34, 1.4, 0.5, 1)',
-          style({ transform: 'scale(1)', opacity: 1 }),
-        ),
-      ]),
-    ]),
-  ],
   template: `
     <div class="portal-shell">
       <p-toast position="top-right"></p-toast>
@@ -107,11 +78,13 @@ interface NavItem {
                 <span class="portal-nav-icon-wrap" [class.cart-fx-target]="item.isCart">
                   <i [class]="item.icon" aria-hidden="true"></i>
                   @if (item.isCart && cart.cartLineCount() > 0) {
-                    <span
-                      class="portal-cart-badge"
-                      aria-hidden="true"
-                      [@badgePop]="cart.cartLineCount()"
-                    >{{ cart.cartLineCount() }}</span>
+                    @for (n of [cart.cartLineCount()]; track n) {
+                      <span
+                        class="portal-cart-badge"
+                        aria-hidden="true"
+                        animate.enter="portal-badge-pop"
+                      >{{ n }}</span>
+                    }
                   }
                 </span>
                 <span class="portal-nav-label">{{ item.label }}</span>
@@ -195,11 +168,13 @@ interface NavItem {
                     <span class="portal-tab-icon-wrap" [class.cart-fx-target]="item.isCart">
                       <i [class]="item.icon" aria-hidden="true"></i>
                       @if (item.isCart && cart.cartLineCount() > 0) {
-                        <span
-                          class="portal-cart-badge-mobile"
-                          aria-hidden="true"
-                          [@badgePop]="cart.cartLineCount()"
-                        >{{ cart.cartLineCount() }}</span>
+                        @for (n of [cart.cartLineCount()]; track n) {
+                          <span
+                            class="portal-cart-badge-mobile"
+                            aria-hidden="true"
+                            animate.enter="portal-badge-pop"
+                          >{{ n }}</span>
+                        }
                       }
                     </span>
                     <span class="portal-tab-label">{{ item.label }}</span>
@@ -230,7 +205,9 @@ interface NavItem {
               (click)="goCart()"
               >
               <span class="cb-fill" [style.width.%]="cartProgress() * 100" aria-hidden="true"></span>
-              <span class="cb-count" [@badgePop]="cart.cartLineCount()">{{ cart.cartLineCount() }}</span>
+              @for (n of [cart.cartLineCount()]; track n) {
+                <span class="cb-count" animate.enter="portal-badge-pop">{{ n }}</span>
+              }
               <span class="cb-label">
                 {{ cartBelowMin() ? 'Te faltan ' + (cartRemaining() | currency:'MXN':'symbol-narrow':'1.0-0') : 'Ver carrito' }}
               </span>
@@ -482,6 +459,17 @@ interface NavItem {
         text-align: center;
         font-variant-numeric: tabular-nums;
       }
+      /* Badge del carrito: aparece + rebota al cambiar la cantidad (nativa Angular
+         animate.enter; el @for re-crea el badge al cambiar el conteo). Unifica el
+         antiguo :enter (aparecer) y :increment (rebote) en una sola animación. */
+      @keyframes portal-badge-pop {
+        0% { transform: scale(0.4); opacity: 0; }
+        35% { transform: scale(1.45); opacity: 1; }
+        65% { transform: scale(0.9); }
+        100% { transform: scale(1); opacity: 1; }
+      }
+      .portal-badge-pop { animation: portal-badge-pop 380ms cubic-bezier(0.34, 1.4, 0.5, 1) backwards; }
+      @media (prefers-reduced-motion: reduce) { .portal-badge-pop { animation: none; } }
 
       .portal-sidebar-foot {
         display: flex;
