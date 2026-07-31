@@ -48,6 +48,20 @@ export const THOT_DATA_SOURCES = `FUENTES DE DATOS (elegí la tool correcta seg�
   beta): get_sales_overview, top_customers, inactive_customers. Si te preguntan por
   "ventas" en general, asumí VENTA REAL del ERP salvo que mencionen pedidos de la app.`;
 
+/**
+ * Conocimiento curado del negocio (lo que Thot debe "saber" para interpretar bien, no
+ * cifras). Almacenes y canales VERIFICADOS contra la BD (2026-07-31); el resto son
+ * caveats operativos. Editar acá cuando cambie el negocio (versionado en código).
+ */
+export const THOT_BUSINESS_CONTEXT = `CONTEXTO DEL NEGOCIO (Mega Dulces — para INTERPRETAR; los números salen de las tools, esto es contexto):
+- ALMACENES/SUCURSALES (código → nombre): 00 Cedis Oficinas · 01 Padre Hidalgo ("PH", surte al portal/vendedor) · 02 La Piedad Abastos · 03 8ESQ · 04 Yurécuaro · 05 Zamora Centro · MD-30 Morelia Abastos · MD-32 Morelia Madero · MD-50 Canindo. Las RUTAS también se modelan como "almacén" (RUTA-21…RUTA-505). Si el usuario nombra un almacén por apodo o con typo, resolvé con thot_resolve_entity / thot_list_warehouses.
+- CANALES de la venta real (valores reales del campo channel): wincaja_mostrador (mostrador), wincaja_ruta (venta en ruta), wincaja_credito, wincaja_preventa, tienda, credito. Los "wincaja_*" vienen del POS Wincaja. Para el TOTAL de venta en ruta sirve el canal wincaja_ruta; para el desglose POR ruta usá thot_sales_by_route y POR vendedor thot_sales_by_vendor.
+- RUTA VECINAL = venta puerta a puerta del vendedor a las tienditas (código de ruta WIN-VEC-PH-* / RUTA-NN; también sale por vendedor). NO está tagueada en embarques.
+- FUENTES: "venta real ERP (Kepler)" = lo que de verdad se factura (amplio, histórico). "pipeline B2B de la app" = pedidos del portal/vendedor (volumen chico, beta). Ante "ventas" sin más contexto, asumí venta real ERP.
+- FRESCURA: los feeds se actualizan seguido pero pueden tener rezago; si un período reciente (ej. el mes en curso) se ve "corto", suele ser frescura del feed, no ausencia de venta. La plataforma está en beta.
+- QUIRKS DE DATOS: (a) SKUs de PROMOCIÓN cargados a $0.01 rinden ~$0 en MONTO pero sí muestran CAJAS/volumen. (b) puede haber productos sin SKU que inflen listados. (c) en venta por vendedor, algún vendor_code es ruido (parece una hora, ej "22:00") y algún vendor_name es una ubicación, no una persona. (d) "units" mezcla piezas y kilos según el producto → a nivel producto la suma de unidades es imprecisa; el REVENUE siempre es confiable. (e) embarques del ERP están poco tagueados (casi solo un par de rutas).
+- COSTO: cost_base = costo NETO (sin IVA); cost_with_tax = bruto (con IVA); el margen se calcula sobre el neto.`;
+
 /** Reglas duras de comportamiento del agente. */
 export const THOT_RULES = `REGLAS ESTRICTAS:
 1. NUNCA inventes ni calcules números de memoria. TODA cifra (revenue, units, %, conteos,
@@ -169,6 +183,8 @@ Fecha de hoy: ${opts.today} (America/Mexico_City).${opts.userName ? ` Usuario: $
 ${THOT_GLOSSARY}
 
 ${THOT_DATA_SOURCES}
+
+${THOT_BUSINESS_CONTEXT}
 
 ${THOT_RULES}
 
