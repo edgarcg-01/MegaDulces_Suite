@@ -16,6 +16,7 @@ export interface StoreAlert {
 }
 export interface StoreBranchKpi { warehouse_code: string; warehouse_name: string; tickets: number; venta: number; last_ts: string; }
 export interface OpenCaja {
+  rank: number;
   warehouse_code: string; warehouse_name?: string; caja: string;
   cajero: string | null; cajero_nombre: string | null; abrio: string;
   tickets: number; venta: number; last_ticket: string | null; idle_min: number | null; cobrando: boolean;

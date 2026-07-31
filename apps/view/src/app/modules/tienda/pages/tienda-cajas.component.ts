@@ -23,7 +23,7 @@ import { branchName } from '../../../core/constants/store-branches';
       <header class="surf-page-head">
         <div class="surf-page-head-text">
           <h1>Cajas abiertas</h1>
-          <p class="surf-page-sub">Qué caja está abierta ahora y <strong>quién está cobrando</strong>. Se cruza la sesión de caja con los tickets en vivo por cajera.</p>
+          <p class="surf-page-sub">Qué caja está abierta ahora y <strong>quién está cobrando</strong>, <strong>ordenadas por venta del día</strong> (ranking). Se cruza la sesión de caja con los tickets en vivo por cajera.</p>
         </div>
         <div class="cj-head-right">
           @if (scoped) { <span class="cj-scope"><i class="pi pi-map-marker"></i> {{ branchLabel() }}</span> }
@@ -41,10 +41,11 @@ import { branchName } from '../../../core/constants/store-branches';
         <div class="card-premium card-flat">
           <p-table [value]="d.open_cajas" styleClass="p-datatable-sm cj-table" [rowHover]="true">
             <ng-template #header>
-              <tr><th>Estado</th><th>Sucursal</th><th>Caja</th><th>Cajera</th><th>Abrió</th><th class="ta-r">Tickets hoy</th><th class="ta-r">Venta hoy</th><th>Último ticket</th></tr>
+              <tr><th class="ta-c">#</th><th>Estado</th><th>Sucursal</th><th>Caja</th><th>Cajera</th><th>Abrió</th><th class="ta-r">Tickets hoy</th><th class="ta-r">Venta hoy</th><th>Último ticket</th></tr>
             </ng-template>
             <ng-template #body let-c>
               <tr [class.cj-idle]="!c.cobrando">
+                <td class="ta-c"><span class="cj-rank" [class.top]="c.rank <= 3">{{ c.rank }}</span></td>
                 <td>
                   @if (c.cobrando) { <span class="cj-dot ok"></span><span class="cj-st ok">Cobrando</span> }
                   @else if (c.idle_min != null) { <span class="cj-dot warn"></span><span class="cj-st warn">Inactiva {{ c.idle_min }}m</span> }
@@ -59,7 +60,7 @@ import { branchName } from '../../../core/constants/store-branches';
                 <td class="mono">{{ c.last_ticket || '—' }}</td>
               </tr>
             </ng-template>
-            <ng-template #emptymessage><tr><td colspan="8" class="cj-empty">{{ loading() ? 'Cargando…' : 'No hay cajas abiertas ahora. (Requiere el feed import-cash-sessions corriendo.)' }}</td></tr></ng-template>
+            <ng-template #emptymessage><tr><td colspan="9" class="cj-empty">{{ loading() ? 'Cargando…' : 'No hay cajas abiertas ahora. (Requiere el feed import-cash-sessions corriendo.)' }}</td></tr></ng-template>
           </p-table>
         </div>
 
@@ -99,6 +100,9 @@ import { branchName } from '../../../core/constants/store-branches';
     .cj-card-title { margin: 0 0 .7rem; font-size: .85rem; font-weight: 700; }
     .cj-foot { font-size: .72rem; margin-top: .8rem; }
     .cj-empty { padding: 2rem; text-align: center; color: var(--text-muted); }
+    .cj-rank { display: inline-flex; align-items: center; justify-content: center; min-width: 1.4rem; height: 1.4rem; padding: 0 .35rem; border-radius: var(--r-sm, 6px); font-size: .78rem; font-weight: 800; font-variant-numeric: tabular-nums; color: var(--text-muted); }
+    .cj-rank.top { color: var(--action); background: color-mix(in srgb, var(--action) 12%, transparent); }
+    .ta-c { text-align: center; }
     .ta-r { text-align: right; } .strong { font-weight: 700; } .muted { color: var(--text-muted); } .ok { color: var(--ok-fg, #16a34a); }
     .mono { font-family: var(--font-mono, ui-monospace, monospace); font-size: .85em; }
   `],

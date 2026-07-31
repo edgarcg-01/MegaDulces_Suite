@@ -253,13 +253,17 @@ export class StoreService {
         last_ticket: a?.last_ticket || null, idle_min: idleMin,
         cobrando: idleMin != null && idleMin <= 15,
       };
-    });
+    })
+      // Ranking: quien más vende hoy arriba (rank 1 = top). Empate por tickets.
+      .sort((x: any, y: any) => y.venta - x.venta || y.tickets - x.tickets)
+      .map((c: any, i: number) => ({ ...c, rank: i + 1 }));
 
     // Cajeros con ventas hoy pero SIN sesión abierta ligada (handoff / caja no reportada).
     const linked = new Set(sesiones.map((s: any) => `${s.warehouse_code}|${s.cajero_code}`));
     const cajeros_sin_sesion = act
       .filter((a: any) => !linked.has(`${a.warehouse_code}|${a.cajero}`))
-      .map((a: any) => ({ warehouse_code: a.warehouse_code, cajero: a.cajero, tickets: Number(a.tickets), venta: Number(a.venta), last_ticket: a.last_ticket }));
+      .map((a: any) => ({ warehouse_code: a.warehouse_code, cajero: a.cajero, tickets: Number(a.tickets), venta: Number(a.venta), last_ticket: a.last_ticket }))
+      .sort((x: any, y: any) => y.venta - x.venta || y.tickets - x.tickets);
 
     return {
       generated_at: new Date().toISOString(),
