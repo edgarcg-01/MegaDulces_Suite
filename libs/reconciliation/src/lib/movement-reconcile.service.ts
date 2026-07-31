@@ -87,6 +87,11 @@ const RULES: RuleMeta[] = [
     params: { umbral: 500, critico: 5000 },
   },
   {
+    rule_key: 'retiro_conteo_mismatch', plano: 'caja',
+    nombre: 'Retiro no cuadra con su conteo por denominación', descripcion: 'Un retiro de caja cuyo monto REGISTRADO difiere de la suma de su conteo físico por denominación (Wincaja itemiza cada retiro con billetes/monedas). Registrado vs contado = dos fuentes independientes; una diferencia es un error de captura o efectivo que no salió como se anotó. Solo aplica donde hay arqueo por denominación (sucursales live_on_wincaja).',
+    params: { umbral: 50, critico: 2000 },
+  },
+  {
     rule_key: 'barrido_diferencia_multiple', plano: 'caja',
     nombre: 'Barridos "por diferencia de corte" múltiples', descripcion: 'Más de un retiro de efectivo marcado "por diferencia de corte" el mismo día/caja por el mismo cajero (fuente: Wincaja itemizado). El barrido de cierre legítimo ocurre UNA vez por turno; varios indican retiros-plug a media operación para forzar el cuadre — el corte cuadra por construcción, no por conteo del efectivo. Es el mecanismo detrás del "cuadre exacto" masivo.',
     params: { min_barridos: 2, critico_barridos: 3, min_monto: 3000 },
@@ -193,6 +198,7 @@ export class MovementReconcileService {
       case 'turno_largo': return this.detTurnoLargo(trx, tenantId, params);
       case 'venta_vs_tickets': return this.detVentaVsTickets(trx, tenantId, params);
       case 'barrido_diferencia_multiple': return this.detBarridoDiferencia(trx, tenantId, params);
+      case 'retiro_conteo_mismatch': return this.detRetiroConteoMismatch(trx, tenantId, params);
       case 'merma_inventario': return this.detMermaInventario(trx, tenantId, params);
       default: return [];
     }
@@ -589,6 +595,53 @@ export class MovementReconcileService {
         causa_probable: sinTickets ? 'tickets_faltantes' : 'venta_no_reconcilia',
         evidencia: { params: { umbral, critico }, venta_corte: ventaCorte, venta_tickets: ventaTickets, tickets, diff },
         dedup_key: `venta_vs_tickets:${r.warehouse_code}:${r.cajero_cierre}:${fecha}`,
+      };
+    });
+  }
+
+  /**
+   * SM.9/B — Retiro cuyo monto registrado ≠ su conteo físico por denominación.
+   * `wincaja.arqueos` es el desglose billetes/monedas de CADA retiro (mismo folio).
+   * registrado vs Σ(denom×cant) = dos fuentes independientes; divergencia = error real.
+   * Solo hay conteo en sucursales live_on_wincaja (30/32/50). RLS + tenant_id explícito.
+   */
+  private async detRetiroConteoMismatch(trx: any, tenantId: string, params: any): Promise<RawDiscrepancy[]> {
+    const umbral = Number(params.umbral) || 50;
+    const critico = Number(params.critico) || 2000;
+    const rows = await trx
+      .with('arq', (qb: any) => qb.from('wincaja.arqueos').where('tenant_id', tenantId)
+        .groupBy('source_branch', 'caja', 'folio')
+        .select('source_branch', 'caja', 'folio', trx.raw('SUM(denominacion*cantidad) AS conteo')))
+      .from('wincaja.retiros as re')
+      .join('arq as a', (j: any) => j.on('a.source_branch', '=', 're.source_branch').andOn('a.caja', '=', 're.caja').andOn('a.folio', '=', 're.folio'))
+      .leftJoin('wincaja.branches as b', (j: any) => j.on('b.tenant_id', '=', 're.tenant_id').andOn('b.source_branch', '=', 're.source_branch'))
+      .where('re.tenant_id', tenantId)
+      .whereRaw('abs(re.monto - a.conteo) >= ?', [umbral])
+      .select('re.source_branch', 're.caja', 're.cajero', 're.folio', 're.observacion',
+        trx.raw('re.fecha::date AS fecha'), trx.raw('re.monto::numeric AS monto'), trx.raw('a.conteo::numeric AS conteo'),
+        trx.raw('(re.monto - a.conteo)::numeric AS diff'), trx.raw('b.branch_name AS sucursal'), trx.raw('b.is_route AS is_route'))
+      .orderByRaw('abs(re.monto - a.conteo) DESC')
+      .limit(1000);
+    return rows.map((r: any) => {
+      const diff = Number(r.diff);
+      const abs = Math.abs(diff);
+      const monto = Number(r.monto);
+      const conteo = Number(r.conteo);
+      const fecha = r.fecha instanceof Date ? r.fecha.toISOString().slice(0, 10) : String(r.fecha).slice(0, 10);
+      const suc = r.sucursal || `suc ${r.source_branch}`;
+      return {
+        rule_key: 'retiro_conteo_mismatch', plano: 'caja' as const,
+        severity: abs >= critico ? 'critical' as const : 'warn' as const,
+        score: Math.min(1, abs / (critico * 2)),
+        titulo: `Retiro vs conteo no cuadra ${money(abs)} — ${suc} caja ${r.caja} (${fecha})`,
+        resumen: `Retiro folio ${r.folio} (cajero ${r.cajero}${r.observacion ? `, "${r.observacion}"` : ''}): monto registrado ${money(monto)} vs conteo por denominación ${money(conteo)} = descuadre ${money(abs)}${r.is_route ? ' [ruta a bordo]' : ''}. Probable error de captura en el arqueo (o retiro mal registrado) — el conteo físico de ese corte no es confiable hasta verificar.`,
+        entity: { sucursal: suc, source_branch: r.source_branch, caja: r.caja, cajero: r.cajero, folio: r.folio, fecha, monto_registrado: monto, conteo_fisico: conteo, observacion: r.observacion },
+        periodo: fecha,
+        esperado: monto, observado: conteo, diferencia: diff,
+        importe: abs,
+        causa_probable: 'error_captura',
+        evidencia: { params: { umbral, critico }, monto_registrado: monto, conteo_fisico: conteo, diff, fuente: 'wincaja.retiros+arqueos' },
+        dedup_key: `retiro_conteo_mismatch:${r.source_branch}:${r.caja}:${r.folio}`,
       };
     });
   }
