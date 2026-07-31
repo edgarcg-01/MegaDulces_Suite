@@ -1,7 +1,7 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
 import { Knex } from 'knex';
 import { TenantKnexService } from '@megadulces/platform-core';
-import { applyFleetFilter } from './trip-builder.service';
+import { applyFleetFilter, TripBuilderService } from './trip-builder.service';
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -32,7 +32,29 @@ export interface AdherenceResult {
  */
 @Injectable()
 export class RouteAdherenceService {
-  constructor(private readonly tk: TenantKnexService) {}
+  constructor(
+    private readonly tk: TenantKnexService,
+    private readonly trips: TripBuilderService,
+  ) {}
+
+  /**
+   * On-demand: si el día pedido no tiene viajes reconstruidos pero SÍ hay
+   * posiciones GPS, los reconstruye ahora. Así la pantalla no depende de que el
+   * cron nocturno haya corrido (en prod había 23k posiciones y 0 paradas).
+   */
+  private async ensureBuilt(day: string, start: string, end: string): Promise<void> {
+    const built = await this.tk.run((trx) =>
+      trx('logistics.vehicle_day_summary').where('day', day).first('id'),
+    );
+    if (built) return;
+    const hasPos = await this.tk.run((trx) =>
+      trx('logistics.vehicle_positions')
+        .whereRaw('tenant_id = public.current_tenant_id()')
+        .whereBetween('captured_at', [start, end])
+        .first('tracker_id'),
+    );
+    if (hasPos) await this.trips.buildForDate(day);
+  }
 
   async forVehicleDay(vehicleId: string, day: string): Promise<AdherenceResult> {
     if (!UUID_REGEX.test(vehicleId)) throw new BadRequestException('vehicle_id inválido');
@@ -52,6 +74,7 @@ export class RouteAdherenceService {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(day || '')) throw new BadRequestException('date inválida (YYYY-MM-DD)');
     const start = `${day}T00:00:00-06:00`;
     const end = `${day}T23:59:59.999-06:00`;
+    await this.ensureBuilt(day, start, end);
 
     return this.tk.run(async (trx) => {
       // Candidatos: vehículos con actividad GPS ese día (los que realmente
@@ -77,6 +100,55 @@ export class RouteAdherenceService {
         if (a.evaluable !== b.evaluable) return a.evaluable ? -1 : 1;
         return (a.coverage_pct ?? 101) - (b.coverage_pct ?? 101);
       });
+    });
+  }
+
+  /**
+   * Diagnóstico del vacío: revisa la cadena de eslabones y devuelve cuál falta,
+   * para que "sin rutas para auditar" sea accionable (no ambiguo).
+   */
+  async diagnose(day: string): Promise<{
+    positions_day: number;
+    last_position_at: string | null;
+    route_trucks: number;
+    trucks_with_activity: number;
+    store_stops_built: number;
+    stores_with_route: number;
+    reason: string;
+  }> {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(day || '')) throw new BadRequestException('date inválida (YYYY-MM-DD)');
+    const start = `${day}T00:00:00-06:00`;
+    const end = `${day}T23:59:59.999-06:00`;
+    return this.tk.run(async (trx) => {
+      const n = async (qb: any) => Number((await qb.count({ c: '*' }).first())?.c ?? 0);
+      const positions_day = await n(
+        trx('logistics.vehicle_positions').whereRaw('tenant_id = public.current_tenant_id()').whereBetween('captured_at', [start, end]),
+      );
+      const lastRow = await trx('logistics.vehicle_positions')
+        .whereRaw('tenant_id = public.current_tenant_id()')
+        .max({ m: 'captured_at' })
+        .first();
+      const route_trucks = await n(trx('logistics.trackers').whereNull('deleted_at').whereNotNull('route_number'));
+      const trucks_with_activity = await n(trx('logistics.vehicle_day_summary as s').where('s.day', day).modify((qb: any) => applyFleetFilter(qb, trx, 'route', 's.vehicle_id')));
+      const store_stops_built = await n(trx('logistics.vehicle_stops').whereBetween('arrived_at', [start, end]).whereNotNull('matched_store_id'));
+      const stores_with_route = await n(trx('public.stores').whereNull('deleted_at').whereNotNull('ruta_id').whereNotNull('latitud'));
+
+      let reason = 'OK';
+      if (positions_day === 0) reason = 'Sin posiciones GPS ese día (¿el poller está corriendo? faltan credenciales o redeploy).';
+      else if (route_trucks === 0) reason = 'Ningún tracker tiene ruta asignada (route_number). Sincronizá rutas/operadores o asigná a mano.';
+      else if (trucks_with_activity === 0) reason = 'Hay posiciones pero ningún camión de ruta con actividad reconstruida ese día.';
+      else if (store_stops_built === 0) reason = 'Se reconstruyeron viajes pero ninguna parada matcheó una tienda (¿tiendas sin coordenadas o lejos de la ruta?).';
+      else if (stores_with_route === 0) reason = 'Las tiendas no tienen ruta_id → no hay plan contra el cual medir.';
+
+      return {
+        positions_day,
+        last_position_at: lastRow?.m ? new Date(lastRow.m).toISOString() : null,
+        route_trucks,
+        trucks_with_activity,
+        store_stops_built,
+        stores_with_route,
+        reason,
+      };
     });
   }
 

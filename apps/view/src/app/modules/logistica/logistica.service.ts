@@ -617,6 +617,16 @@ export interface FleetAdherenceRow extends RouteAdherence {
   vehicle_plate: string | null;
 }
 
+export interface AdherenceDiagnostic {
+  positions_day: number;
+  last_position_at: string | null;
+  route_trucks: number;
+  trucks_with_activity: number;
+  store_stops_built: number;
+  stores_with_route: number;
+  reason: string;
+}
+
 export interface TrackerHistoryPoint {
   captured_at: string;
   lat: number;
@@ -1100,6 +1110,10 @@ export class LogisticaService {
   fleetAdherence(date: string): Observable<FleetAdherenceRow[]> {
     const params = new HttpParams().set('date', date);
     return this.http.get<FleetAdherenceRow[]>(`${this.base}/tracking/adherence/day`, { params });
+  }
+  fleetAdherenceDiagnostic(date: string): Observable<AdherenceDiagnostic> {
+    const params = new HttpParams().set('date', date);
+    return this.http.get<AdherenceDiagnostic>(`${this.base}/tracking/adherence/diagnostic`, { params });
   }
   fleetAlerts(): Observable<FleetAlertRow[]> {
     return this.http.get<FleetAlertRow[]>(`${this.base}/tracking/alerts`);
