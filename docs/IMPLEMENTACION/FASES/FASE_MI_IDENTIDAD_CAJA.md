@@ -1,5 +1,7 @@
 # Mini-proyecto MI — Identidad de caja Wincaja (descuadre real por corte)
 
+> **ESTADO: 🔴 CERRADO — gate MI.0 NO pasó + deep-dive confirmó artefactos (2026-07-31).** La reconstrucción no es viable con la data actual (ver §MI.0 y §S2 al final). Deliverable de la línea = las 2 reglas SM.9 (`barrido_diferencia_multiple`, `retiro_conteo_mismatch`). No re-intentar sin resolver la data-quality de los rangos de folio en `wincaja.cortes`.
+
 > Reconstruir, por corte, la **identidad de caja** desde Wincaja itemizado para obtener la **diferencia REAL** (faltante/sobrante) independiente del barrido "por diferencia de corte" que hoy fuerza el cuadre. Cierra lo que el arqueo ciego de SM.8 y las reglas SM.9/A+B no pueden: el descuadre que el plug oculta. Hereda ADR-016/029 (motor calcula, humano confirma, LLM fuera). Insumo previo: [`FASE_SM_ARQUEO_MODELO.md`](FASE_SM_ARQUEO_MODELO.md).
 
 ## Tesis
@@ -119,3 +121,23 @@ Saneamiento aplicado (cajas admin `70/98/99` excluidas + rango retiro ≤200 + r
 **Decisión (fail-fast):** NO construir MI.1–MI.5 sobre esta base. Dos salidas posibles:
 - **(S1) Parar** — la identidad no es confiable a ≥90%; el deliverable de todo el análisis quedan las 2 reglas SM.9 (`barrido_diferencia_multiple`, `retiro_conteo_mismatch`) que sí operan sobre data confiable.
 - **(S2) Deep-dive de la varianza** — trazar a mano 5–10 cortes con `|gap|` grande de branch 32 para determinar si son faltantes REALES (→ reframe a bandeja de candidatos HITL rankeada por monto, alto valor) o artefactos de reconstrucción (→ confirma S1). Barato y decisivo; es el único camino que podría reactivar el feed.
+
+---
+
+## S2 — Deep-dive de la varianza (2026-07-31): 🔴 ARTEFACTOS, no faltantes
+
+Trazados los 6 cortes de mayor `|gap|` de branch 32:
+
+| Corte | ventas (n pagos) | retiros (n) | gap | retiros por FECHA |
+|---|---|---|---|---|
+| c32 f1955 (jul 09) | $332,126 (**2,293**) | $33,464 (42) | $298,662 | $33,464 (idéntico) |
+| c15 f2931 (jul 09) | $164,060 (301) | $12,520 (1) | $151,539 | $41,859 |
+| c32 f1949 (jul 03) | $201,620 (1,211) | $76,342 (70) | $125,278 | idéntico |
+
+**Diagnóstico:** los retiros por-fecha ≈ por-rango (el lado retiro es consistente), pero las **VENTAS están infladas**: f1955 tiene **2,293 pagos** (un corte normal tiene ~460). Causa raíz confirmada — el **ancho del rango `consecutivo` de pago está corrupto**: f1955 = 4,813, f2931 = 4,319 vs **mediana normal 543** (p90 923) → el rango sobre-captura pagos de cortes/días vecinos.
+
+**Veredicto:** el ~23% de gaps grandes son **artefactos de reconstrucción**, no faltantes reales. La metadata de rangos de folio en `wincaja.cortes` (pago y retiro) **no está confiablemente scoped a un solo corte** — se traslapa/sobre-extiende, y ningún filtro razonable lo limpia (el tope ≤5000 dejó pasar 4,813). **No hay oro escondido.**
+
+**Cierre:** el mini-proyecto MI queda **CERRADO**. Reabrirlo exige primero arreglar la data-quality de los rangos de folio en el import de `wincaja.cortes` (o derivar el scope del corte por otra vía — p.ej. fecha para retiros + un mejor delimitador de pagos). Hasta entonces, la identidad de caja por corte **no es reconstruible de forma confiable**.
+
+**Deliverable neto de toda la investigación de arqueo (SM.9/A+B + MI):** dos reglas de motor SM sólidas y verificadas sobre data confiable (`barrido_diferencia_multiple`, `retiro_conteo_mismatch`), el lazo `/tienda/arqueo`↔`/almacen/cuadre` (autolineado + WS + incidencias) y 28 usuarios cajera con autofill. La reconstrucción de la identidad completa se documentó como no-viable con la data actual.
