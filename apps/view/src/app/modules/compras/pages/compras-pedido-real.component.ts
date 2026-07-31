@@ -132,7 +132,7 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
               <ng-template #header>
                 <tr>
                   <th rowspan="2" style="min-width:15rem">Producto</th>
-                  <th rowspan="2" class="pr-r" title="Unidades por caja (factor de caja)">UXC</th>
+                  <th rowspan="2" class="pr-r" title="Piezas por caja · y paquetes por caja si es multipack">Unidad<br/>x caja</th>
                   <th rowspan="2" class="pr-r">Costo/Cja</th>
                   @for (t of wbTerritories(); track t.code) {
                     <th colspan="3" class="pr-grp-h" [title]="t.code">{{ t.name }}</th>
@@ -153,7 +153,10 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
                 <tr class="pr-wb-row" [class.pr-wb-open]="isOpen(r)" (click)="toggleRow(r)" tabindex="0" (keyup.enter)="toggleRow(r)"
                     [attr.aria-expanded]="isOpen(r)" [attr.aria-label]="(isOpen(r) ? 'Cerrar' : 'Abrir') + ' detalle de ' + r.sku">
                   <td><div class="pr-prod"><i class="pi pr-wb-go" [ngClass]="isOpen(r) ? 'pi-angle-down' : 'pi-angle-right'"></i> {{ r.nombre }}</div><div class="pr-prod-meta"><span class="pr-sku">{{ r.sku }}</span> <span class="pr-supp">{{ r.supplier_name || '—' }}</span>@if (abcOf(r.product_id); as a) { <p-tag [value]="a" [severity]="abcSev(a)" styleClass="pr-abc"></p-tag> }@for (t of prodTypes(r.product_id); track t) { <p-tag [value]="typeLabel(t)" [severity]="typeSev(t)" styleClass="pr-abc"></p-tag> }</div></td>
-                  <td class="pr-r pr-muted">{{ r.uxc | number:'1.0-0' }}</td>
+                  <td class="pr-r pr-muted pr-uxc">
+                    <div>{{ r.uxc | number:'1.0-0' }} <span class="pr-unit">pz</span></div>
+                    @if (r.packs_per_box) { <div class="pr-unit2" [title]="r.packs_per_box + ' paquetes de ' + r.pack_size + ' pz por caja'">{{ r.packs_per_box }} paq × {{ r.pack_size }}</div> }
+                  </td>
                   <td class="pr-r pr-muted">{{ money(r.caja_cost) }}</td>
                   @for (t of wbTerritories(); track t.code) {
                     <td class="pr-r pr-muted">{{ cellVal(r, t.code, 'vta') | number:'1.0-1' }}</td>
@@ -176,12 +179,23 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
                           @if (!urows.length) {
                             <div class="pr-peek-loading">Sin acciones por sucursal para este producto (ni compra, ni traspaso, ni sobrestock con estos filtros).</div>
                           } @else {
+                            <div class="pr-ordu" role="group" aria-label="Unidad de pedido">
+                              <span class="pr-ordu-lbl">Pedir en:</span>
+                              <button type="button" class="pr-chip" [class.pr-chip-on]="unitOf(r.product_id)==='caja'" (click)="setUnit(r.product_id, 'caja')">Caja</button>
+                              @if (packOf(r.product_id)?.packs) {
+                                <button type="button" class="pr-chip" [class.pr-chip-on]="unitOf(r.product_id)==='paquete'" (click)="setUnit(r.product_id, 'paquete')">Paquete</button>
+                              }
+                              <button type="button" class="pr-chip" [class.pr-chip-on]="unitOf(r.product_id)==='pieza'" (click)="setUnit(r.product_id, 'pieza')">Pieza</button>
+                              @if (packOf(r.product_id); as pk) {
+                                <span class="pr-ordu-hint">1 caja = {{ pk.uxc | number:'1.0-0' }} pz@if (pk.packs) { = {{ pk.packs }} paq × {{ pk.pack }} pz }</span>
+                              }
+                            </div>
                             <div class="pr-wb-scroll">
                               <table class="pr-peek-tbl pr-det-tbl">
                                 <thead><tr>
                                   <th>Sucursal</th><th>Acción</th>
                                   <th class="pr-r" title="Cobertura (compra) · déficit (traspaso) · días en mano (sobrestock)">Señal</th>
-                                  <th class="pr-r">Exist.</th><th class="pr-r">Cant. ✎</th><th class="pr-r">Piezas</th><th class="pr-r">Costo</th><th class="pr-r">Valor</th>
+                                  <th class="pr-r">Exist.</th><th class="pr-r">Cant. ({{ unitLabelShort(r.product_id) }}) ✎</th><th class="pr-r">Piezas</th><th class="pr-r">Costo</th><th class="pr-r">Valor</th>
                                 </tr></thead>
                                 <tbody>
                                   @for (u of urows; track u.type + ':' + u.warehouse_code) {
@@ -208,8 +222,8 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
                                       </td>
                                       <td class="pr-r"><p-tag [value]="(u.on_hand | number:'1.0-0') ?? ''" [severity]="existSevU(u)" styleClass="pr-cov-tag" [title]="existTitleU(u)"></p-tag></td>
                                       <td class="pr-r">
-                                        @if (u.editable) { <input type="number" min="0" class="pr-qty pr-qty-sm" [(ngModel)]="u.qty" (ngModelChange)="onQtyEdit()" [attr.aria-label]="'Cantidad de ' + r.sku + ' en ' + u.warehouse_code" /> }
-                                        @else { <span class="pr-muted">{{ u.qty | number:'1.0-0' }}</span> }
+                                        @if (u.editable) { <input type="number" min="0" step="any" class="pr-qty pr-qty-sm" [ngModel]="dispQty(u)" (ngModelChange)="setDispQty(u, $event)" [attr.aria-label]="'Cantidad de ' + r.sku + ' en ' + u.warehouse_code + ' (' + unitLabelShort(r.product_id) + ')'" /> }
+                                        @else { <span class="pr-muted">{{ dispQty(u) | number:'1.0-1' }}</span> }
                                       </td>
                                       <td class="pr-r pr-muted">{{ (u.qty * u.uxc) | number:'1.0-0' }}</td>
                                       <td class="pr-r pr-muted">{{ money(u.unit_cost) }}</td>
@@ -417,6 +431,9 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
     :host ::ng-deep .pr-wb th.pr-ped-h { color: var(--action); }
     .pr-ped { font-variant-numeric: tabular-nums; }
     .pr-ped-on { color: var(--action); font-weight: 600; }
+    .pr-uxc { line-height: 1.15; }
+    .pr-unit { font-size: .6rem; color: var(--text-faint); }
+    .pr-unit2 { font-size: .62rem; color: var(--info-fg, var(--text-muted)); }
     :host ::ng-deep .pr-wb .pr-wb-row { cursor: pointer; }
     :host ::ng-deep .pr-wb .pr-wb-row:hover td { background: var(--overlay-hover, var(--hover-bg)); }
     :host ::ng-deep .pr-wb .pr-wb-open td { background: var(--overlay-selected, var(--hover-bg)); }
@@ -435,6 +452,9 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
     .pr-exp-sum { font-size: .8rem; color: var(--text-muted); font-variant-numeric: tabular-nums; display: inline-flex; gap: .35rem; flex-wrap: wrap; }
     .pr-qty-sm { width: 4rem; padding: .15rem .3rem; font-size: .8rem; }
     .pr-det-tbl td { vertical-align: middle; }
+    .pr-ordu { display: flex; align-items: center; gap: .35rem; flex-wrap: wrap; margin: .1rem 0 .6rem; }
+    .pr-ordu-lbl { font-size: .72rem; color: var(--text-muted); font-weight: 600; }
+    .pr-ordu-hint { font-size: .68rem; color: var(--text-faint); margin-left: .4rem; font-variant-numeric: tabular-nums; }
     .pr-det-act { display: flex; align-items: center; gap: .3rem; flex-wrap: wrap; }
     .pr-from { color: var(--info-fg, var(--text-muted)); font-size: .72rem; }
     .pr-peek-loading { color: var(--text-muted); padding: 1rem 0; }
@@ -507,6 +527,30 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     return m;
   });
   abcOf(pid: string): string | null { return this.abcMap().get(pid) ?? null; }
+  // RA-PRO.33 — unidades: pz/caja (uxc) + paquete (solo multipacks). Map product_id → {uxc, pack, packs}.
+  private readonly packByProduct = computed(() => {
+    const m = new Map<string, { uxc: number; pack: number | null; packs: number | null }>();
+    for (const r of this.wbRows()) m.set(r.product_id, { uxc: Number(r.uxc) || 1, pack: r.pack_size ?? null, packs: r.packs_per_box ?? null });
+    return m;
+  });
+  packOf(pid: string): { uxc: number; pack: number | null; packs: number | null } | null { return this.packByProduct().get(pid) ?? null; }
+
+  // RA-PRO.33 — unidad de PEDIDO por producto (caja/paquete/pieza). Canónico interno = CAJAS (u.qty);
+  // el input muestra/edita en la unidad elegida y convierte. paquete solo si el producto es multipack.
+  readonly orderUnit = signal<Record<string, 'caja' | 'paquete' | 'pieza'>>({});
+  unitOf(pid: string): 'caja' | 'paquete' | 'pieza' { return this.orderUnit()[pid] ?? 'caja'; }
+  setUnit(pid: string, u: 'caja' | 'paquete' | 'pieza'): void { this.orderUnit.update((m) => ({ ...m, [pid]: u })); }
+  unitLabelShort(pid: string): string { const u = this.unitOf(pid); return u === 'pieza' ? 'pz' : u === 'paquete' ? 'paq' : 'caja'; }
+  /** Factor cajas→unidad elegida: pieza=uxc(pz/caja), paquete=packs/caja, caja=1. */
+  unitFactor(pid: string): number {
+    const u = this.unitOf(pid), p = this.packOf(pid);
+    if (u === 'pieza') return p?.uxc || 1;
+    if (u === 'paquete') return p?.packs || 1;
+    return 1;
+  }
+  /** Cantidad mostrada en la unidad elegida (u.qty vive en CAJAS). */
+  dispQty(u: URow): number { return u.qty * this.unitFactor(u.product_id); }
+  setDispQty(u: URow, v: number | string): void { const f = this.unitFactor(u.product_id) || 1; u.qty = Math.max(0, Number(v) || 0) / f; this.onQtyEdit(); }
   /** Tipos de acción presentes por producto (compra/traspaso/sobre) → tags de color en el renglón. */
   private readonly typesByProduct = computed(() => {
     const m = new Map<string, Set<UType>>();
@@ -856,6 +900,17 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
 
   // ── requisiciones (por sucursal o global) ────────────────────────────
   /** Arma requisición(es) del scope: compra → agrupa por (proveedor × almacén); traspaso → por (destino × origen). */
+  /** Nota de unidad de pedido para los productos que NO se piden en caja (aún sin columna en el schema). */
+  private unitNote(rs: URow[]): string {
+    const parts: string[] = []; const seen = new Set<string>();
+    for (const r of rs) {
+      const u = this.unitOf(r.product_id);
+      if (u === 'caja' || seen.has(r.product_id)) continue;
+      seen.add(r.product_id); parts.push(`${r.sku}=${u}`);
+    }
+    return parts.length ? ` · unidad de pedido: ${parts.join(', ')}` : '';
+  }
+
   buildReq(code?: string, pid?: string): void {
     const scope = (pid ? this.urows() : this.flatRows()).filter((r) => (!code || r.warehouse_code === code) && (!pid || r.product_id === pid) && r.editable && Number(r.qty) > 0);
     const buy = scope.filter((r) => r.type === 'comprar');
@@ -868,7 +923,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     for (const rs of buyGroups.values()) {
       dtos.push({
         warehouse_id: rs[0].warehouse_id!, supplier_id: rs[0].supplier_id || null, source_type: 'supplier',
-        notes: 'Demand-driven (venta × cobertura) — por sucursal',
+        notes: 'Demand-driven (venta × cobertura) — por sucursal' + this.unitNote(rs),
         lines: rs.map<CreateRequisitionLine>((r) => ({
           product_id: r.product_id, supplier_id: r.supplier_id || null, source_type: 'supplier',
           on_hand: r.on_hand, suggested_qty: r.qty, final_qty: r.qty, unit_cost: r.unit_cost,
@@ -880,7 +935,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     for (const rs of trGroups.values()) {
       dtos.push({
         warehouse_id: rs[0].to_warehouse_id!, supplier_id: null, source_type: 'branch', source_warehouse_id: rs[0].from_warehouse_id,
-        notes: 'Traspaso CEDIS→sucursal (déficit × cobertura)',
+        notes: 'Traspaso CEDIS→sucursal (déficit × cobertura)' + this.unitNote(rs),
         lines: rs.map<CreateRequisitionLine>((r) => ({
           product_id: r.product_id, source_type: 'branch', source_warehouse_id: r.from_warehouse_id,
           suggested_qty: r.qty, final_qty: r.qty, unit_cost: r.unit_cost,
