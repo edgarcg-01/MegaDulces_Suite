@@ -104,6 +104,7 @@ export interface WorkbookQuery {
   group?: string;           // 'general' = una sola columna agregada (red); default = por sucursal
   page?: number;
   pageSize?: number;
+  export?: boolean;         // XLSX: sube el cap de filas para exportar TODO (sin paginar). No expuesto por query param.
 }
 
 interface RequisitionLineDto {
@@ -735,7 +736,7 @@ export class CommercialReplenishmentService {
     const tenantId = this.tenantCtx.requireTenantId();
     const cov = Math.min(120, Math.max(1, Number(q.coverage_days) || 30));
     const page = Math.max(1, Number(q.page) || 1);
-    const pageSize = Math.min(1000, Math.max(1, Number(q.pageSize) || 100));
+    const pageSize = Math.min(q.export ? 100000 : 1000, Math.max(1, Number(q.pageSize) || 100));
     const offset = (page - 1) * pageSize;
     return this.tk.run(async (trx) => {
       const binds: Record<string, unknown> = { t: tenantId, cov };

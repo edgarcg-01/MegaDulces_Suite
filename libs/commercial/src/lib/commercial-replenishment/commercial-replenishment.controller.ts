@@ -123,6 +123,27 @@ export class CommercialReplenishmentController {
     return this.svc.workbook({ supplier_id, category_id, search, coverage_days: coverage_days ? Number(coverage_days) : undefined, scope, warehouse_ids, group, page: page ? Number(page) : undefined, pageSize: pageSize ? Number(pageSize) : undefined });
   }
 
+  @Get('workbook.xlsx')
+  @RequirePermissions(Permission.COMPRAS_VER)
+  @ApiOperation({ summary: 'RA-PRO.32.5 — Workbook del comprador a Excel: UNA HOJA por proveedor, columnas por punto de compra (mismos filtros que /workbook; exporta TODO sin paginar).' })
+  async workbookXlsx(
+    @Res() res: Response,
+    @Query('supplier_id') supplier_id?: string,
+    @Query('category_id') category_id?: string,
+    @Query('search') search?: string,
+    @Query('coverage_days') coverage_days?: string,
+    @Query('scope') scope?: string,
+    @Query('warehouse_ids') warehouse_ids?: string,
+    @Query('group') group?: string,
+  ) {
+    const data = await this.svc.workbook({
+      supplier_id, category_id, search, coverage_days: coverage_days ? Number(coverage_days) : undefined,
+      scope, warehouse_ids, group, export: true,
+    });
+    const buf = await this.exporter.buildWorkbook({ coverage_days: data.coverage_days, territories: data.territories, rows: data.rows });
+    sendXlsx(res, buf, this.exporter.fileNameWorkbook(data.coverage_days));
+  }
+
   @Get('workbook/:productId')
   @RequirePermissions(Permission.COMPRAS_VER)
   @ApiOperation({ summary: 'RA-PRO.32 — Detalle drill-down de un SKU: economía + desglose por almacén de los 4 puntos de compra. coverage_days(=30).' })

@@ -602,6 +602,20 @@ export class ComprasService {
     return this.http.get<WorkbookDetailResponse>(`${this.base}/workbook/${productId}${qs}`);
   }
 
+  /** RA-PRO.32.5 — Workbook del comprador a XLSX: una HOJA por proveedor (todos los del filtro). */
+  exportWorkbookXlsx(q: WorkbookQuery) {
+    const p = new URLSearchParams();
+    if (q.supplier_id) p.set('supplier_id', q.supplier_id);
+    if (q.category_id) p.set('category_id', q.category_id);
+    if (q.search) p.set('search', q.search);
+    if (q.coverage_days) p.set('coverage_days', String(q.coverage_days));
+    if (q.scope) p.set('scope', q.scope);
+    if (q.warehouse_ids?.length) p.set('warehouse_ids', q.warehouse_ids.join(','));
+    if (q.group) p.set('group', q.group);
+    const qs = p.toString();
+    return this.http.get(`${this.base}/workbook.xlsx${qs ? '?' + qs : ''}`, { responseType: 'blob', observe: 'response' });
+  }
+
   /** RA-PRO.20 — traspaso preciso CEDIS→sucursal (topología). */
   transferSuggestion(q: TransferSuggestionQuery): Observable<TransferSuggestionResponse> {
     const p = new URLSearchParams();
