@@ -350,7 +350,10 @@ export class AlmacenMovimientosComponent implements OnInit {
   fSearch = '';
   fEstado: '' | 'en_transito' | 'completado' | 'diferencia' = '';
   fTransferWhs: string[] = [];
-  fDestKinds: string[] = ['sucursal']; // DM.11b — por defecto solo traspasos a sucursal (oculta rutas)
+  // DM.11c — por defecto MOSTRAR TODO (sucursal+ruta+cliente): un default que oculta movimientos
+  // confunde ("no aparece nada"). "Solo sucursal" pasa a ser una elección explícita para conciliar
+  // traspasos entre sucursales. Los 3 seleccionados ⇒ destBucketSql='' ⇒ sin filtro de destino.
+  fDestKinds: string[] = ['sucursal', 'ruta', 'cliente'];
 
   kindOpts = [
     { label: 'Todo', value: '' },
