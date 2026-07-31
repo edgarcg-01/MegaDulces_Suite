@@ -4,6 +4,7 @@ import { MaatAnomalyService } from './maat-anomaly.service';
 import { MaatCoverageService } from './maat-coverage.service';
 import { MaatDataQualityService } from './maat-dataquality.service';
 import { MaatEntityService } from './maat-entity.service';
+import { MaatPolizaService } from './maat-poliza.service';
 
 /**
  * MAAT.2 — Motor de patrones de Maat (ADR-028). Formaliza el detector-lite de
@@ -62,6 +63,13 @@ const RULES: RuleMeta[] = [
   { rule_key: 'compra_sin_rfc', clase: 'error_captura', nombre: 'Compra/gasto sin RFC de proveedor', descripcion: 'Documentos de compra (XA2001) o gasto (XA1001) sin RFC del proveedor capturado: no son deducibles, no entran a DIOT y no permiten armar la materialidad del CFDI.', params: { min_monto: 10000 } },
   { rule_key: 'contpaqi_proveedor_efos', clase: 'riesgo', nombre: 'Proveedor en lista negra del SAT (EFOS/69)', descripcion: 'Proveedor de la contabilidad (ContPAQi) cuyo RFC está en la lista negra del SAT: 69B = EFOS (facturan operaciones simuladas → CFDI no deducible, foco de auditoría), 69 = art. 69 CFF (incumplido / no localizado / cancelado). Cruce por RFC exacto sobre los proveedores reales de los libros.', params: {} },
   { rule_key: 'spread_proveedor_sku', clase: 'oportunidad', nombre: 'Ahorro por spread de precio', descripcion: 'Mismo SKU comprado a 2+ proveedores con diferencia de precio relevante — ahorro potencial.', params: { min_spread_pct: 15, min_proveedores: 2, min_compras: 2 } },
+  // PV.2 — validación de pólizas (Fase PV): ¿se subió mal esta póliza? Leen analytics.gl_polizas/gl_poliza_lines.
+  { rule_key: 'poliza_no_cuadra', clase: 'error_captura', nombre: 'Póliza descuadrada', descripcion: 'Póliza cuyos cargos ≠ abonos (rompe la partida doble). Fuente ContPAQi (libros fiscales). Es la validación de raíz que antes no se podía hacer por falta del detalle de dos patas por póliza.', params: { min_monto: 1, limit: 300 } },
+  { rule_key: 'cuenta_no_afectable', clase: 'error_captura', nombre: 'Posteo a cuenta no afectable', descripcion: 'Una pata de póliza postea a una cuenta de agrupación (no de detalle/hoja) — típico error de captura que descuadra reportes por cuenta.', params: { min_monto: 1, limit: 200 } },
+  { rule_key: 'periodo_sospechoso', clase: 'error_captura', nombre: 'Póliza en periodo equivocado', descripcion: 'La fecha de la póliza cae en un mes/año distinto al periodo en que se registró (retro-fechada o periodo equivocado) — afecta la balanza del mes.', params: { min_monto: 1000, limit: 200 } },
+  { rule_key: 'poliza_duplicada_exacta', clase: 'riesgo', nombre: 'Posible póliza duplicada', descripcion: 'La misma referencia + cuenta + importe aparece en folios de póliza distintos el mismo mes — posible asiento duplicado (lo que hoy se borra en silencio al importar).', params: { min_monto: 500, limit: 100 } },
+  { rule_key: 'cfdi_importe_no_coincide', clase: 'riesgo', nombre: 'Importe de póliza ≠ CFDI', descripcion: 'El importe posteado en una pata no coincide con el total del CFDI vinculado por UUID (AsocCFDIs de ContPAQi). Cruce EXACTO — imposible en Kepler porque no guarda el UUID.', params: { tolerancia: 1, limit: 150 } },
+  { rule_key: 'kepler_vs_contpaqi_descuadre', clase: 'riesgo', nombre: 'Kepler ≠ ContPAQi (familia×mes)', descripcion: 'El neto por familia de cuenta y mes no coincide entre la operación (Kepler CEDIS) y los libros fiscales (ContPAQi) — señal de que algo se registró en un sistema y no en el otro.', params: { min_monto: 50000, limit: 100 } },
   // MIQ.3 — meta-detectores (delegan en Coverage/DataQuality): vigilan al propio motor y a sus feeds.
   { rule_key: 'cobertura_punto_ciego', clase: 'riesgo', nombre: 'Punto ciego de cobertura', descripcion: 'Una categoría de riesgo financiero no tiene ningún detector activo (faltante, deshabilitado o auto-suprimido) — nadie vigila ese riesgo.', params: {} },
   { rule_key: 'calidad_datos', clase: 'error_captura', nombre: 'Calidad de datos baja', descripcion: 'Un feed que alimenta al motor (compras/gastos sin RFC, cadena sin recepción, costo faltante, balanza rezagada) está degradado — los hallazgos que dependen de él son menos confiables.', params: { umbral_warn: 20, umbral_crit: 40 } },
@@ -83,6 +91,7 @@ export class MaatDetectorService {
     private readonly coverage: MaatCoverageService,
     private readonly dataQuality: MaatDataQualityService,
     private readonly entity: MaatEntityService,
+    private readonly poliza: MaatPolizaService,
   ) {}
 
   /** Sincroniza el catálogo de reglas desde el código sin pisar la calibración humana. */
@@ -164,6 +173,12 @@ export class MaatDetectorService {
       case 'cobertura_punto_ciego': return this.coverage.detBlindSpots(trx, tenantId, params);
       case 'calidad_datos': return this.dataQuality.detDataQuality(trx, tenantId, params);
       case 'entidad_duplicada': return this.entity.detEntidadDuplicada(trx, tenantId, params);
+      case 'poliza_no_cuadra': return this.poliza.detNoCuadra(trx, tenantId, params);
+      case 'cuenta_no_afectable': return this.poliza.detCuentaNoAfectable(trx, tenantId, params);
+      case 'periodo_sospechoso': return this.poliza.detPeriodoSospechoso(trx, tenantId, params);
+      case 'poliza_duplicada_exacta': return this.poliza.detDuplicadaExacta(trx, tenantId, params);
+      case 'cfdi_importe_no_coincide': return this.poliza.detCfdiImporteNoCoincide(trx, tenantId, params);
+      case 'kepler_vs_contpaqi_descuadre': return this.poliza.detKeplerVsContpaqi(trx, tenantId, params);
       case 'iva_capitalizado':
       case 'prov_203_orfano':
       case 'anticipo_stale': return this.detPortFindings(key, trx, tenantId);

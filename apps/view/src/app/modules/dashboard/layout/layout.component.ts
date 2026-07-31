@@ -426,6 +426,7 @@ export class LayoutComponent implements OnInit, OnDestroy {
     { label: 'Materialidad',        icon: 'pi pi-folder-open',    route: '/contabilidad/materialidad',  permission: Permission.FISCAL_LISTAS_VER },
     { label: 'Contabilidad e.',     icon: 'pi pi-book',           route: '/contabilidad/contabilidad',  permission: Permission.FISCAL_CONTAB_VER },
     { label: 'ContPAQi',            icon: 'pi pi-database',       route: '/contabilidad/contpaqi',      permission: Permission.FISCAL_CONTAB_VER },
+    { label: 'Pólizas',             icon: 'pi pi-check-circle',   route: '/contabilidad/polizas',       permission: Permission.FISCAL_CONTAB_VER },
     { label: 'Provisionales',       icon: 'pi pi-calculator',     route: '/contabilidad/impuestos',     permission: Permission.FISCAL_DIOT_VER },
     { label: 'e.firma',             icon: 'pi pi-key',            route: '/contabilidad/credenciales',  permission: Permission.FISCAL_CREDENCIALES_GESTIONAR },
   ];

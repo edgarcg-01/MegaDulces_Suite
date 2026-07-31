@@ -382,6 +382,29 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
     ],
   },
 
+  'polizas-cuadre': {
+    title: 'Auditor de pólizas — guía',
+    intro: 'Verifica que cada póliza cuadre (cargos = abonos) y detecta las que se subieron mal. Fuente: ContPAQi (libros fiscales) y Kepler (por sucursal).',
+    groups: [
+      {
+        heading: 'Qué detecta',
+        entries: [
+          { term: 'No cuadra', def: 'La suma de cargos ≠ suma de abonos. Toda póliza debe cuadrar (partida doble).' },
+          { term: 'Cuenta no afectable', def: 'Se posteó a una cuenta de agrupación en vez de una de detalle (hoja).' },
+          { term: 'Periodo equivocado', def: 'La fecha de la póliza cae en un mes/año distinto al que se registró.' },
+          { term: 'Duplicado', def: 'Misma referencia + cuenta + importe en folios distintos el mismo mes.' },
+          { term: 'Importe ≠ CFDI', def: 'El importe posteado no coincide con el total del CFDI vinculado por UUID.' },
+        ],
+      },
+      {
+        heading: 'Fuentes',
+        entries: [
+          { term: 'ContPAQi', def: 'Libros fiscales (verdad del contador y el SAT). Trae el cuadre y el UUID del CFDI.' },
+          { term: 'Kepler', def: 'Operación por sucursal (lo que ContPAQi consolida).' },
+        ],
+      },
+    ],
+  },
   'contabilidad-e': {
     title: 'Contabilidad electrónica — guía',
     intro: 'Genera los XML que exige el SAT (contabilidad electrónica 1.3) desde tu balanza contable.',

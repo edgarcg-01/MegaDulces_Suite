@@ -188,6 +188,7 @@ Tienes acceso a: **balanza de comprobación completa** (familias 1-9, cargos/abo
       case 'maat_alertas': return `Buscando anomalías${i.beneficiario ? ` en ${i.beneficiario}` : ''}${inSuc}…`;
       case 'maat_red_proveedores': return i.beneficiario ? `Trazando la red de ${i.beneficiario}…` : 'Buscando proveedores que comparten RFC…';
       case 'maat_hallazgos': return i.tipo ? `Revisando hallazgos (${i.tipo})…` : 'Revisando los hallazgos contables…';
+      case 'maat_poliza_cuadre': return `Revisando el cuadre de pólizas${i.anio_mes ? ` de ${i.anio_mes}` : ''}…`;
       case 'maat_conocimiento': return 'Consultando la base de conocimiento…';
       case 'maat_guardar_conocimiento': return 'Guardando el conocimiento validado…';
       case 'maat_tomar_nota': return 'Anotando un hallazgo…';
@@ -429,6 +430,18 @@ Tienes acceso a: **balanza de comprobación completa** (familias 1-9, cargos/abo
         },
       },
       {
+        name: 'maat_poliza_cuadre',
+        description:
+          'PÓLIZAS que se subieron mal (Fase PV). Verifica el cuadre de la partida doble por póliza sobre los libros ContPAQi: pólizas descuadradas (cargos≠abonos), posteo a cuenta no afectable, periodo equivocado, duplicados e importe≠CFDI (cruce por UUID). Sin anio_mes → resumen (cuántas no cuadran y monto); con anio_mes → las pólizas descuadradas de ese mes. Es la validación de raíz que Kepler no permite (no guarda las dos patas ni el UUID).',
+        input_schema: {
+          type: 'object',
+          properties: {
+            anio_mes: { type: 'string', description: "Mes 'YYYY-MM'. Opcional; sin él da el resumen global." },
+            limit: { type: 'number', description: 'Default 20, máx 100.' },
+          },
+        },
+      },
+      {
         name: 'maat_conocimiento',
         description: 'Busca en la base de conocimiento curada (definiciones, hechos, reglas, issues). Para verificar si algo ya está documentado antes de responder sobre metodología o bugs conocidos.',
         input_schema: {
@@ -534,6 +547,7 @@ Tienes acceso a: **balanza de comprobación completa** (familias 1-9, cargos/abo
         case 'maat_alertas': return await this.alertas(input);
         case 'maat_red_proveedores': return await this.redProveedores(input);
         case 'maat_hallazgos': return await this.hallazgos(input);
+        case 'maat_poliza_cuadre': return await this.polizaCuadre(input);
         case 'maat_conocimiento': return await this.conocimiento(input);
         case 'maat_guardar_conocimiento': return await this.guardarConocimiento(input, scope);
         default: return { error: `Tool desconocida: ${name}` };
@@ -1246,6 +1260,42 @@ Tienes acceso a: **balanza de comprobación completa** (familias 1-9, cargos/abo
           titulo: r.titulo, resumen: r.resumen, importe: Number(r.importe),
           // deep-link a la póliza si el hallazgo apunta a un documento
           ui_url: r.entity?.doc_folio ? this.docUrl(r.entity.sucursal, r.entity.doc_tipo || 'XA2001', r.entity.doc_folio, r.entity.beneficiario) : null,
+        }))),
+      };
+    });
+  }
+
+  // PV.4 — cuadre de pólizas (ContPAQi, verdad fiscal). Sin anio_mes = resumen; con = descuadradas del mes.
+  private async polizaCuadre(q: any) {
+    const tenantId = this.tenantId();
+    const limit = Math.min(100, Math.max(1, Number(q.limit) || 20));
+    return this.tk.run(async (trx) => {
+      const base = () => trx('analytics.gl_polizas').where({ tenant_id: tenantId, source: 'contpaqi' });
+      if (!q.anio_mes) {
+        const s: any = await base().select(
+          trx.raw('COUNT(*)::int AS total'),
+          trx.raw('COUNT(*) FILTER (WHERE abs(neto) >= 0.01)::int AS descuadradas'),
+          trx.raw('ROUND(COALESCE(SUM(abs(neto)) FILTER (WHERE abs(neto) >= 0.01),0)::numeric,2) AS monto'),
+        ).first();
+        if (!s || Number(s.total) === 0) return { nota: 'No hay pólizas cargadas (analytics.gl_polizas vacío para ContPAQi). Corre el importer import-contpaqi-polizas.js.' };
+        const porMes: any[] = await base().whereRaw('abs(neto) >= 0.01')
+          .groupBy('anio_mes').select('anio_mes', trx.raw('COUNT(*)::int AS n'), trx.raw('ROUND(SUM(abs(neto))::numeric,2) AS monto'))
+          .orderBy('anio_mes', 'desc').limit(24);
+        return {
+          total: Number(s.total), descuadradas: Number(s.descuadradas), monto_descuadre: Number(s.monto),
+          por_mes: col(porMes.map((r) => ({ anio_mes: r.anio_mes, num: Number(r.n), monto: Number(r.monto) }))),
+          nota: 'descuadradas = pólizas con cargos≠abonos (partida doble rota).',
+        };
+      }
+      const rows: any[] = await base().where('anio_mes', String(q.anio_mes)).whereRaw('abs(neto) >= 0.01')
+        .orderByRaw('abs(neto) DESC').limit(limit)
+        .select('tipo_pol', 'folio', 'fecha', 'concepto', trx.raw('cargos::numeric AS cargos'),
+          trx.raw('abonos::numeric AS abonos'), trx.raw('neto::numeric AS neto'), 'num_lines');
+      return {
+        anio_mes: q.anio_mes, encontradas: rows.length,
+        rows: col(rows.map((r) => ({
+          poliza: `${r.tipo_pol}/${r.folio}`, fecha: r.fecha, concepto: r.concepto,
+          cargos: Number(r.cargos), abonos: Number(r.abonos), descuadre: Number(r.neto), patas: r.num_lines,
         }))),
       };
     });

@@ -10,6 +10,15 @@
 
 ## [Unreleased]
 
+### Added — Fase PV: Auditor de Pólizas ("¿se subió mal esta póliza?") (2026-07-31)
+- **ADR-041.** El área de contabilidad no podía saber si una póliza individual se subió mal: ninguna tabla guardaba la **partida doble completa por póliza** (`expense_entries` = solo cargo de 511/6xx; `ledger_monthly` = SUM mensual). Ahora sí.
+- **PV.0 — schema** `analytics.gl_polizas` (header) + `gl_poliza_lines` (asientos), ambas fuentes: **ContPAQi** (verdad fiscal, trae Cargos/Abonos + el **UUID del CFDI** que Kepler no guarda) y **Kepler** (detalle por sucursal). Mig `20260731130000` (idempotente).
+- **PV.1 — importers** `import-contpaqi-polizas.js` (`Polizas`⋈`MovimientosPoliza`⋈`Cuentas`⋈`AsocCFDIs`) + `import-kepler-polizas.js` (`kdc2YYMM`, ambas patas, todas las familias). READ-ONLY, UPSERT idempotente.
+- **PV.2 — 6 detectores** en `MaatPolizaService` (motor decide / LLM fuera, ADR-016): `poliza_no_cuadra` (cargos≠abonos), `cuenta_no_afectable`, `periodo_sospechoso`, `poliza_duplicada_exacta`, `cfdi_importe_no_coincide` (cruce EXACTO por UUID), `kepler_vs_contpaqi_descuadre` (familia×mes). Corren en el scanner nocturno + `scan-now`.
+- **PV.3 — UI** `/contabilidad/polizas` (nueva tab + sidebar): KPIs, tabla con semáforo de cuadre, master-detail con asientos + CFDI vinculado + hallazgos, botón "Correr detectores". Reusa permiso `FISCAL_CONTAB_VER/_GESTIONAR`.
+- **PV.4 — tool `maat_poliza_cuadre`** para preguntarle a Maat "¿qué pólizas no cuadran en junio?".
+- Builds api + view verdes. **Pendiente prod:** correr importers en la máquina de feeds (`CONTPAQI_SQL_PASSWORD` + Kepler LAN) + aplicar mig a Railway + verificar el join real de `AsocCFDIs` (envuelto en try/catch, degrada a cfdi_uuid null). Plan en [`FASE_PV`](docs/IMPLEMENTACION/FASES/FASE_PV_VALIDACION_POLIZAS.md).
+
 ### Fixed — Contabilidad: navegación completa + validez SAT del catálogo electrónico (2026-07-31)
 - **Origen:** análisis del proyecto `/contabilidad/*` (12 pantallas, cumplimiento SAT/CFDI). Dos bugs reales de 7 hallazgos; los otros 5 resultaron ya-resueltos, fuera de scope, o limitaciones estructurales documentadas.
 - **Sidebar mostraba 10 de 12 items** (`layout.component.ts`): **Diagnóstico** y **ContPAQi** existían en el router y en el tab strip pero faltaban en `contabilidadNavItems` → solo alcanzables por tab o URL directa. Alineado al `CONTABILIDAD_TABS`.
