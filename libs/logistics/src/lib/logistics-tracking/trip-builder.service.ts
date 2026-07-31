@@ -69,11 +69,15 @@ export class TripBuilderService {
   async buildForDate(day: string, tenantId: string = DEFAULT_TENANT_ID): Promise<DayBuildResult[]> {
     const { start, end } = dayBoundsIso(day);
     return this.tk.run(tenantId, async (trx) => {
-      const vehicles: Array<{ vehicle_id: string }> = await trx('logistics.vehicle_positions')
-        .whereRaw('tenant_id = public.current_tenant_id()')
-        .whereNotNull('vehicle_id')
-        .whereBetween('captured_at', [start, end])
-        .distinct('vehicle_id');
+      // El vehículo se resuelve por el TRACKER (positions.vehicle_id quedó NULL en
+      // el histórico: se insertó antes de vincular el tracker). tracker_id siempre
+      // está → join a trackers para obtener el vehicle_id vigente.
+      const vehicles: Array<{ vehicle_id: string }> = await trx('logistics.vehicle_positions as vp')
+        .join('logistics.trackers as t', 't.id', 'vp.tracker_id')
+        .whereRaw('vp.tenant_id = public.current_tenant_id()')
+        .whereNotNull('t.vehicle_id')
+        .whereBetween('vp.captured_at', [start, end])
+        .distinct('t.vehicle_id as vehicle_id');
       const customers = await this.loadCustomers(trx);
       const stores = await this.loadStores(trx);
       const out: DayBuildResult[] = [];
@@ -125,12 +129,15 @@ export class TripBuilderService {
     customers: Array<{ id: string; lat: number; lng: number }>,
     stores: Array<{ id: string; lat: number; lng: number }>,
   ): Promise<DayBuildResult> {
-    const rows = await trx('logistics.vehicle_positions')
-      .whereRaw('tenant_id = public.current_tenant_id()')
-      .where({ vehicle_id: vehicleId })
-      .whereBetween('captured_at', [start, end])
-      .orderBy('captured_at', 'asc')
-      .select('lat', 'lng', 'captured_at', 'speed_kmh');
+    // Posiciones del vehículo resueltas por el tracker (positions.vehicle_id puede
+    // estar NULL en el histórico). Incluye todos los trackers del vehículo.
+    const rows = await trx('logistics.vehicle_positions as vp')
+      .join('logistics.trackers as t', 't.id', 'vp.tracker_id')
+      .whereRaw('vp.tenant_id = public.current_tenant_id()')
+      .where('t.vehicle_id', vehicleId)
+      .whereBetween('vp.captured_at', [start, end])
+      .orderBy('vp.captured_at', 'asc')
+      .select('vp.lat', 'vp.lng', 'vp.captured_at', 'vp.speed_kmh');
 
     const fixes = rows
       .map((r: any) => ({ lat: Number(r.lat), lng: Number(r.lng), t: new Date(r.captured_at).getTime(), speed: r.speed_kmh }))
