@@ -152,7 +152,7 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
                   <td class="pr-r pr-muted">{{ money(r.caja_cost) }}</td>
                   @for (t of wbTerritories(); track t.code) {
                     <td class="pr-r pr-muted">{{ cellVal(r, t.code, 'vta') | number:'1.0-1' }}</td>
-                    <td class="pr-r pr-muted">{{ cellVal(r, t.code, 'exis') | number:'1.0-1' }}</td>
+                    <td class="pr-r"><p-tag [value]="(cellVal(r, t.code, 'exis') | number:'1.0-1') ?? ''" [severity]="existSev(cellVal(r, t.code, 'exis'), cellVal(r, t.code, 'ped'))" styleClass="pr-cov-tag" [title]="existTitle(cellVal(r, t.code, 'exis'), cellVal(r, t.code, 'ped'))"></p-tag></td>
                     <td class="pr-r pr-ped" [class.pr-ped-on]="cellVal(r, t.code, 'ped') > 0">{{ cellVal(r, t.code, 'ped') | number:'1.0-1' }}</td>
                   }
                   <td class="pr-r pr-strong">{{ r.suma_pedido_cajas | number:'1.0-1' }}</td>
@@ -201,7 +201,7 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
                                           @if (u.days_on_hand != null) { <p-tag [value]="(u.days_on_hand | number:'1.0-0') + ' d'" severity="info" styleClass="pr-cov-tag"></p-tag> } @else { <span class="pr-muted">—</span> }
                                         }
                                       </td>
-                                      <td class="pr-r pr-muted">{{ u.on_hand | number:'1.0-0' }}</td>
+                                      <td class="pr-r"><p-tag [value]="(u.on_hand | number:'1.0-0') ?? ''" [severity]="existSevU(u)" styleClass="pr-cov-tag" [title]="existTitleU(u)"></p-tag></td>
                                       <td class="pr-r">
                                         @if (u.editable) { <input type="number" min="0" class="pr-qty pr-qty-sm" [(ngModel)]="u.qty" (ngModelChange)="tick()" [attr.aria-label]="'Cantidad de ' + r.sku + ' en ' + u.warehouse_code" /> }
                                         @else { <span class="pr-muted">{{ u.qty | number:'1.0-0' }}</span> }
@@ -486,6 +486,25 @@ export class ComprasPedidoRealComponent implements OnInit {
   prodTypes(pid: string): UType[] {
     const s = this.typesByProduct().get(pid);
     return s ? (['comprar', 'traspaso', 'sobre'] as UType[]).filter((t) => s.has(t)) : [];
+  }
+
+  // Semáforo de existencia como CHIP (como en "por sucursal"): rojo=sin stock · amarillo=bajo (necesita
+  // pedido) · verde=sano. Tabla principal: por plaza (exis + ped). Detalle: por almacén (según la acción).
+  existSev(exis: number, ped: number): Sev {
+    if (!(exis > 0)) return 'danger';
+    return ped > 0 ? 'warn' : 'success';
+  }
+  existTitle(exis: number, ped: number): string {
+    if (!(exis > 0)) return 'Sin stock';
+    return ped > 0 ? 'Bajo — requiere pedido' : 'Sano';
+  }
+  existSevU(u: URow): Sev {
+    if (u.type === 'sobre') return 'success';
+    return u.on_hand > 0 ? 'warn' : 'danger';
+  }
+  existTitleU(u: URow): string {
+    if (u.type === 'sobre') return 'Sobrestock (sano/de más)';
+    return u.on_hand > 0 ? 'Bajo — requiere ' + (u.type === 'traspaso' ? 'traspaso' : 'compra') : 'Sin stock';
   }
   // RA-PRO.32.1 — Fila EXPANDIBLE (acordeón) que UNIFICA "por sucursal" en la Vista Excel: al abrir un
   // SKU se despliega INLINE toda su info por sucursal reusando el MISMO motor de la vista consolidada
