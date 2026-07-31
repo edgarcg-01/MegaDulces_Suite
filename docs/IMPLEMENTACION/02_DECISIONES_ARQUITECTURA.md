@@ -1080,6 +1080,20 @@ Extracción en **2 etapas** (desacopla la dependencia Jet del load PG): (A) Powe
 
 ---
 
+## ADR-041 — **Validación y Cuadre de Pólizas** (Fase PV): partida doble completa desde el SoR + detectores deterministas
+
+**Fecha:** 2026-07-31 · **Estado:** Aceptado · PV.0–PV.4 en código (local) · Hereda ADR-016/028/040.
+
+**Contexto:** el área de contabilidad necesita saber "¿esta póliza se subió mal?" a nivel individual. No se podía: ninguna tabla nuestra guardaba la **partida doble completa por póliza** — `analytics.expense_entries` solo tiene la pata de cargo de 511/6xx, y `analytics.ledger_monthly` es SUM mensual por cuenta. El único cuadre existente era el caso puntual XD5501.
+
+**Decisión:** persistir el detalle completo (ambas patas) en `analytics.gl_polizas` (header) + `gl_poliza_lines` (asientos), desde **ambas fuentes**: **ContPAQi** (verdad fiscal — `Polizas`/`MovimientosPoliza`/`AsocCFDIs` traen Cargos/Abonos totalizados + el **UUID del CFDI** que Kepler no guarda) y **Kepler** (`kdc2YYMM`, detalle por sucursal). Sobre esto corren 6 detectores deterministas en `MaatPolizaService` (el motor decide, Maat narra, LLM fuera): `poliza_no_cuadra`, `cuenta_no_afectable`, `periodo_sospechoso`, `poliza_duplicada_exacta`, `cfdi_importe_no_coincide` (cruce EXACTO por UUID), `kepler_vs_contpaqi_descuadre` (familia×mes). UI "Auditor de pólizas" (`/contabilidad/polizas`) + tool `maat_poliza_cuadre`.
+
+**Alternativas:** (a) solo Kepler → rechazada (catálogo sucio, sin UUID → cruce CFDI solo heurístico); (b) solo ContPAQi → pierde el detalle por sucursal; (c) reconciliar por folio Kepler↔ContPAQi → las numeraciones no son 1:1, se hace a **familia×mes** sobre las balanzas mensuales que ya existen.
+
+**Consecuencias:** ✅ por primera vez se puede señalar una póliza concreta descuadrada / con cuenta equivocada / periodo equivocado; ✅ cruce póliza↔CFDI exacto por UUID (imposible con Kepler); ✅ los duplicados que antes se borraban en silencio al importar ahora se reportan. ⚠️ el cuadre fino por póliza es ContPAQi (Kepler agrega las de diario sin folio); la reconciliación Kepler↔ContPAQi es a nivel familia (catálogos distintos). Solo detecta — la corrección la hace el contador en el SoR. **Pendiente:** correr importers en la máquina de feeds (`CONTPAQI_SQL_PASSWORD` + Kepler LAN) + aplicar mig `20260731130000` a Railway + verificar el join real de `AsocCFDIs`. Plan en [`FASES/FASE_PV_VALIDACION_POLIZAS.md`](FASES/FASE_PV_VALIDACION_POLIZAS.md).
+
+---
+
 ## Cómo agregar un ADR nuevo
 
 1. Copiar `ADR-000` (la plantilla) renombrando al siguiente número correlativo.

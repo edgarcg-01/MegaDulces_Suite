@@ -12,3 +12,5 @@ export * from './lib/expense-proofs/finance-expense-proofs.module';
 export * from './lib/expense-proofs/expense-proofs.service';
 export * from './lib/bank/finance-bank.module';
 export * from './lib/bank/finance-bank.service';
+export * from './lib/polizas/finance-polizas.module';
+export * from './lib/polizas/polizas.service';
