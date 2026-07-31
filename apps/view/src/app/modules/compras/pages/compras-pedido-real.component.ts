@@ -997,9 +997,11 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
   /** RA-PRO.32.5 — Workbook del comprador: un XLSX con una hoja por proveedor (todos los del filtro actual). */
   exportBySupplier(): void {
     this.dl.set(true);
+    // Workbook del comprador = TODOS los productos del proveedor (NO se hereda "Solo con pedido"): el
+    // pedido puede ser 0 y aun así el SKU va en la hoja (existencia/venta), como en su Excel real.
     this.api.exportWorkbookXlsx({
       supplier_id: this.fSupplier || undefined, category_id: this.fCategory || undefined, search: this.search.trim() || undefined,
-      coverage_days: this.coverage, scope: this.wbScopeNeeded() ? 'needed' : undefined,
+      coverage_days: this.coverage,
       warehouse_ids: this.wbWarehouses.length ? this.wbWarehouses : undefined, group: this.wbGroup(),
     }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (resp) => { this.dl.set(false); saveXlsxResponse(resp, 'pedido-por-proveedor.xlsx'); },
