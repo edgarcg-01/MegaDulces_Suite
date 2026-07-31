@@ -20,7 +20,7 @@ import {
   ComprasService, PurchaseSuggestionRow, PurchaseSuggestionResponse, ReplenishmentFilters,
   DeadStockRow, CreateRequisitionDto, CreateRequisitionLine, PedidoExportLine, saveXlsxResponse,
   TransferSuggestionRow, TransferSuggestionResponse, OverstockRow, OverstockResponse, WorkbookRow, WorkbookResponse,
-  WorkbookDetailResponse, WorkbookTerritory,
+  WorkbookTerritory,
 } from '../compras.service';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 
@@ -331,7 +331,7 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
               <ng-template #body let-r>
                 <tr class="pr-wb-row" [class.pr-wb-open]="isOpen(r)" (click)="toggleRow(r)" tabindex="0" (keyup.enter)="toggleRow(r)"
                     [attr.aria-expanded]="isOpen(r)" [attr.aria-label]="(isOpen(r) ? 'Cerrar' : 'Abrir') + ' detalle de ' + r.sku">
-                  <td><div class="pr-prod"><i class="pi pr-wb-go" [ngClass]="isOpen(r) ? 'pi-angle-down' : 'pi-angle-right'"></i> {{ r.nombre }}</div><div class="pr-prod-meta"><span class="pr-sku">{{ r.sku }}</span> <span class="pr-supp">{{ r.supplier_name || '—' }}</span></div></td>
+                  <td><div class="pr-prod"><i class="pi pr-wb-go" [ngClass]="isOpen(r) ? 'pi-angle-down' : 'pi-angle-right'"></i> {{ r.nombre }}</div><div class="pr-prod-meta"><span class="pr-sku">{{ r.sku }}</span> <span class="pr-supp">{{ r.supplier_name || '—' }}</span>@if (abcOf(r.product_id); as a) { <p-tag [value]="a" [severity]="abcSev(a)" styleClass="pr-abc"></p-tag> }</div></td>
                   <td class="pr-r pr-muted">{{ r.uxc | number:'1.0-0' }}</td>
                   <td class="pr-r pr-muted">{{ money(r.caja_cost) }}</td>
                   @for (t of wbTerritories(); track t.code) {
@@ -348,46 +348,66 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
                   <tr class="pr-wb-exp">
                     <td [attr.colspan]="wbColCount()">
                       <div class="pr-exp-in">
-                        @if (isRowLoading(r)) {
-                          <div class="pr-peek-loading"><i class="pi pi-spin pi-spinner"></i> Cargando desglose por sucursal…</div>
-                        } @else if (detailOf(r); as d) {
-                          @if (d.product; as p) {
-                            <div class="pr-peek-econ">
-                              <div class="pr-peek-stat"><span>UXC (pz/caja)</span><strong>{{ p.uxc | number:'1.0-0' }}</strong></div>
-                              <div class="pr-peek-stat"><span>Costo / caja</span><strong>{{ money(p.caja_cost) }}</strong></div>
-                              <div class="pr-peek-stat"><span>Σ Pedido</span><strong class="pr-ped-on">{{ prodPedCajas(r) | number:'1.0-1' }} cj</strong></div>
-                              <div class="pr-peek-stat"><span>$ del producto</span><strong>{{ money(prodPedValor(r)) }}</strong></div>
-                              @if (p.price_ratio) { <div class="pr-peek-stat"><span>Ratio mayoreo/retail</span><strong>{{ p.price_ratio | number:'1.0-1' }}×</strong></div> }
-                              <div class="pr-peek-stat"><span>Unidad</span><strong>{{ p.unit_source }}</strong></div>
+                        @if (!detailReady()) {
+                          <div class="pr-peek-loading"><i class="pi pi-spin pi-spinner"></i> Cargando acciones por sucursal…</div>
+                        } @else if (detailRows(r.product_id); as urows) {
+                          @if (!urows.length) {
+                            <div class="pr-peek-loading">Sin acciones por sucursal para este producto (ni compra, ni traspaso, ni sobrestock con estos filtros).</div>
+                          } @else {
+                            <div class="pr-wb-scroll">
+                              <table class="pr-peek-tbl pr-det-tbl">
+                                <thead><tr>
+                                  <th>Sucursal</th><th>Acción</th>
+                                  <th class="pr-r" title="Cobertura (compra) · déficit (traspaso) · días en mano (sobrestock)">Señal</th>
+                                  <th class="pr-r">Exist.</th><th class="pr-r">Cant. ✎</th><th class="pr-r">Piezas</th><th class="pr-r">Costo</th><th class="pr-r">Valor</th>
+                                </tr></thead>
+                                <tbody>
+                                  @for (u of urows; track u.type + ':' + u.warehouse_code) {
+                                    <tr [class.pr-row-over]="u.type==='sobre'">
+                                      <td><span class="pr-mono">{{ u.warehouse_code }}</span> <span class="pr-peek-terr">{{ nameOf(u.warehouse_code) }}</span></td>
+                                      <td class="pr-det-act">
+                                        <p-tag [value]="typeLabel(u.type)" [severity]="typeSev(u.type)" styleClass="pr-abc"></p-tag>
+                                        @if (u.abc_class) { <p-tag [value]="u.abc_class" [severity]="abcSev(u.abc_class)" styleClass="pr-abc"></p-tag> }
+                                        @if (u.type==='traspaso' && u.from_code) { <span class="pr-mono pr-from">← {{ u.from_code }}</span> }
+                                        @if (u.type==='comprar' && u.unit_source && u.unit_source !== 'catalog') {
+                                          <button type="button" class="pr-unit-btn" (click)="openUnit(u.buy!)" title="Ajustar unidad de venta">
+                                            <p-tag [value]="unitLabel(u.unit_source)" [severity]="u.unit_source === 'revisar' ? 'warn' : 'contrast'" styleClass="pr-abc"></p-tag>
+                                          </button>
+                                        }
+                                      </td>
+                                      <td class="pr-r">
+                                        @if (u.type==='comprar') {
+                                          @if (u.cover != null) { <p-tag [value]="(u.cover | number:'1.0-0') + ' d'" [severity]="coverSev(u.cover)" styleClass="pr-cov-tag"></p-tag> } @else { <span class="pr-muted">—</span> }
+                                        } @else if (u.type==='traspaso') {
+                                          <span class="pr-muted" title="Déficit de la sucursal (cajas)">déf {{ u.deficit | number:'1.0-1' }}</span>
+                                        } @else {
+                                          @if (u.days_on_hand != null) { <p-tag [value]="(u.days_on_hand | number:'1.0-0') + ' d'" severity="info" styleClass="pr-cov-tag"></p-tag> } @else { <span class="pr-muted">—</span> }
+                                        }
+                                      </td>
+                                      <td class="pr-r pr-muted">{{ u.on_hand | number:'1.0-0' }}</td>
+                                      <td class="pr-r">
+                                        @if (u.editable) { <input type="number" min="0" class="pr-qty pr-qty-sm" [(ngModel)]="u.qty" (ngModelChange)="tick()" [attr.aria-label]="'Cantidad de ' + r.sku + ' en ' + u.warehouse_code" /> }
+                                        @else { <span class="pr-muted">{{ u.qty | number:'1.0-0' }}</span> }
+                                      </td>
+                                      <td class="pr-r pr-muted">{{ (u.qty * u.uxc) | number:'1.0-0' }}</td>
+                                      <td class="pr-r pr-muted">{{ money(u.unit_cost) }}</td>
+                                      <td class="pr-r" [class.pr-strong]="u.type!=='sobre'" [class.pr-over-val]="u.type==='sobre'">{{ money(u.qty * u.unit_cost) }}</td>
+                                    </tr>
+                                  }
+                                </tbody>
+                              </table>
+                            </div>
+                            <div class="pr-exp-actions">
+                              <span class="pr-exp-sum">
+                                @if (prodBuy(r.product_id) > 0) { <span class="pr-gs-buy">comprar {{ money(prodBuy(r.product_id)) }}</span> }
+                                @if (prodTr(r.product_id) > 0) { <span class="pr-gs-tr">· traspaso {{ money(prodTr(r.product_id)) }}</span> }
+                                @if (prodOver(r.product_id) > 0) { <span class="pr-gs-over">· sobre {{ money(prodOver(r.product_id)) }}</span> }
+                              </span>
+                              <span class="pr-bulk-sp"></span>
+                              <p-button type="button" label="XLSX del producto" icon="pi pi-file-excel" styleClass="p-button-sm p-button-text" (click)="exportScope(undefined, r.product_id)" [disabled]="dl()"></p-button>
+                              <p-button type="button" [label]="saving() ? 'Armando…' : 'Requisición'" icon="pi pi-check" styleClass="p-button-sm" (click)="buildReq(undefined, r.product_id)" [disabled]="saving() || (prodBuy(r.product_id) + prodTr(r.product_id)) <= 0"></p-button>
                             </div>
                           }
-                          <div class="pr-wb-scroll">
-                            <table class="pr-peek-tbl">
-                              <thead><tr><th>Sucursal</th><th class="pr-r">Vta</th><th class="pr-r">Exist.</th><th class="pr-r">Tráns.</th><th class="pr-r">Pedido</th><th class="pr-r">Cob.</th><th class="pr-r">Cant. ✎</th></tr></thead>
-                              <tbody>
-                                @for (w of d.rows; track w.warehouse_id) {
-                                  <tr>
-                                    <td><span class="pr-mono">{{ w.warehouse_code }}</span> <span class="pr-peek-terr">{{ w.warehouse_name }}</span></td>
-                                    <td class="pr-r pr-muted">{{ w.venta_cajas | number:'1.0-1' }}</td>
-                                    <td class="pr-r pr-muted">{{ w.existencia_cajas | number:'1.0-1' }}</td>
-                                    <td class="pr-r pr-muted">{{ w.transito_cajas | number:'1.0-1' }}</td>
-                                    <td class="pr-r pr-ped" [class.pr-ped-on]="w.pedido_cajas > 0">{{ w.pedido_cajas | number:'1.0-1' }}</td>
-                                    <td class="pr-r pr-muted">{{ w.cover_days != null ? (w.cover_days | number:'1.0-0') + ' d' : '—' }}</td>
-                                    <td class="pr-r"><input type="number" min="0" class="pr-qty pr-qty-sm" [ngModel]="qtyOf(r.product_id, w.warehouse_id)" (ngModelChange)="setQty(r.product_id, w.warehouse_id, $event)" [attr.aria-label]="'Cantidad de ' + r.sku + ' en ' + w.warehouse_code" /></td>
-                                  </tr>
-                                }
-                                @if (!d.rows.length) { <tr><td colspan="7" class="pr-muted">Sin datos en los puntos de compra.</td></tr> }
-                              </tbody>
-                            </table>
-                          </div>
-                          <div class="pr-exp-actions">
-                            <span class="pr-exp-sum">{{ d.rows.length }} sucursal(es) · pedido <strong class="pr-ped-on">{{ money(prodPedValor(r)) }}</strong></span>
-                            <span class="pr-bulk-sp"></span>
-                            <p-button type="button" label="XLSX del producto" icon="pi pi-file-excel" styleClass="p-button-sm p-button-text" (click)="exportProduct(r)" [disabled]="dl()"></p-button>
-                            <p-button type="button" [label]="saving() ? 'Armando…' : 'Requisición'" icon="pi pi-check" styleClass="p-button-sm" (click)="buildReqProduct(r)" [disabled]="saving()"></p-button>
-                          </div>
-                        } @else {
-                          <div class="pr-peek-loading">No se pudo cargar el detalle. <button type="button" class="pr-chip" (click)="retryDetail(r)">Reintentar</button></div>
                         }
                       </div>
                     </td>
@@ -539,8 +559,11 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
     :host ::ng-deep .pr-wb .pr-wb-exp > td { padding: 0; background: var(--card-bg); border-bottom: 2px solid var(--border-color); }
     .pr-exp-in { padding: .85rem 1rem 1rem 1.75rem; border-left: 3px solid var(--action); }
     .pr-exp-actions { display: flex; align-items: center; gap: .5rem; margin-top: .6rem; padding-top: .6rem; border-top: 1px solid var(--border-color); }
-    .pr-exp-sum { font-size: .8rem; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+    .pr-exp-sum { font-size: .8rem; color: var(--text-muted); font-variant-numeric: tabular-nums; display: inline-flex; gap: .35rem; flex-wrap: wrap; }
     .pr-qty-sm { width: 4rem; padding: .15rem .3rem; font-size: .8rem; }
+    .pr-det-tbl td { vertical-align: middle; }
+    .pr-det-act { display: flex; align-items: center; gap: .3rem; flex-wrap: wrap; }
+    .pr-from { color: var(--info-fg, var(--text-muted)); font-size: .72rem; }
     .pr-peek-loading { color: var(--text-muted); padding: 1rem 0; }
     .pr-peek-econ { display: grid; grid-template-columns: repeat(2, 1fr); gap: .6rem 1rem; margin-bottom: 1.25rem; }
     .pr-peek-stat { display: flex; flex-direction: column; gap: .1rem; }
@@ -587,87 +610,38 @@ export class ComprasPedidoRealComponent implements OnInit {
   wbColCount = computed(() => 3 + this.wbTerritories().length * 3 + 4);
   /** Valor de una celda territorio×métrica (0 si el SKU no tiene datos en ese punto de compra). */
   cellVal(r: WorkbookRow, code: string, key: 'vta' | 'exis' | 'ped'): number { return r.cells?.[code]?.[key] ?? 0; }
-  // RA-PRO.32.1 — Fila EXPANDIBLE (acordeón): al abrir un SKU se despliega INLINE su desglose POR
-  // SUCURSAL, accionable (cantidad editable + XLSX/requisición del producto), como continuación de la
-  // fila. Varias filas pueden estar abiertas a la vez. Cache por product_id + cantidades por almacén.
+  /** ABC por producto (del motor por-sucursal) → etiqueta en el renglón del Excel. */
+  private readonly abcMap = computed(() => {
+    const m = new Map<string, string>();
+    for (const u of this.urows()) if (u.abc_class && !m.has(u.product_id)) m.set(u.product_id, u.abc_class);
+    return m;
+  });
+  abcOf(pid: string): string | null { return this.abcMap().get(pid) ?? null; }
+  // RA-PRO.32.1 — Fila EXPANDIBLE (acordeón) que UNIFICA "por sucursal" en la Vista Excel: al abrir un
+  // SKU se despliega INLINE toda su info por sucursal reusando el MISMO motor de la vista consolidada
+  // (comprar/traspaso/sobrestock, ABC, señal de cobertura, déficit, origen del traspaso, cantidad
+  // editable) con su COLORIMETRÍA. Varias filas abiertas a la vez. Los URows viven en this.urows (se
+  // cargan junto con el workbook, sin filtro de almacén, para que el detalle vea todas las sucursales).
   private readonly wbOpen = signal<Set<string>>(new Set());
-  private readonly wbDetail = signal<Record<string, WorkbookDetailResponse | null>>({});
-  private readonly wbLoadingIds = signal<Set<string>>(new Set());
-  private readonly wbQty: Record<string, Record<string, number>> = {};   // product_id → warehouse_id → cajas
+  readonly detailReady = signal(false);   // ¿ya llegó el modelo por-sucursal (urows)?
   isOpen(r: WorkbookRow): boolean { return this.wbOpen().has(r.product_id); }
-  isRowLoading(r: WorkbookRow): boolean { return this.wbLoadingIds().has(r.product_id); }
-  detailOf(r: WorkbookRow): WorkbookDetailResponse | null | undefined { return this.wbDetail()[r.product_id]; }
   toggleRow(r: WorkbookRow): void {
     const s = new Set(this.wbOpen());
-    if (s.has(r.product_id)) s.delete(r.product_id);
-    else { s.add(r.product_id); this.ensureDetail(r); }
+    if (s.has(r.product_id)) s.delete(r.product_id); else s.add(r.product_id);
     this.wbOpen.set(s);
   }
-  private ensureDetail(r: WorkbookRow, force = false): void {
-    if (!force && this.wbDetail()[r.product_id] !== undefined) return;   // ya cargado (incl. null)
-    this.wbLoadingIds.update((m) => new Set(m).add(r.product_id));
-    this.api.workbookDetail(r.product_id, this.coverage)
-      .pipe(catchError(() => of(null as WorkbookDetailResponse | null)), takeUntilDestroyed(this.destroyRef))
-      .subscribe((d) => {
-        this.wbDetail.update((m) => ({ ...m, [r.product_id]: d }));
-        this.wbLoadingIds.update((m) => { const n = new Set(m); n.delete(r.product_id); return n; });
-        if (d) { const q = (this.wbQty[r.product_id] ??= {}); for (const w of d.rows) if (q[w.warehouse_id] == null) q[w.warehouse_id] = Math.round(Number(w.pedido_cajas) || 0); }
-      });
+  /** Filas por-sucursal (comprar/traspaso/sobre) del producto, ordenadas acción→sucursal. */
+  detailRows(pid: string): URow[] {
+    this.tickN();
+    return this.urows()
+      .filter((u) => u.product_id === pid)
+      .sort((a, b) => this.typeOrder[a.type] - this.typeOrder[b.type] || a.warehouse_code.localeCompare(b.warehouse_code));
   }
-  retryDetail(r: WorkbookRow): void { this.ensureDetail(r, true); }
-  qtyOf(pid: string, wid: string): number { return this.wbQty[pid]?.[wid] ?? 0; }
-  setQty(pid: string, wid: string, v: number | string): void { (this.wbQty[pid] ??= {})[wid] = Math.max(0, Math.round(Number(v) || 0)); }
-  prodPedCajas(r: WorkbookRow): number { const d = this.wbDetail()[r.product_id]; return d ? d.rows.reduce((s, w) => s + this.qtyOf(r.product_id, w.warehouse_id), 0) : 0; }
-  prodPedValor(r: WorkbookRow): number { const d = this.wbDetail()[r.product_id]; return d ? d.rows.reduce((s, w) => s + this.qtyOf(r.product_id, w.warehouse_id) * (Number(w.unit_cost) || 0), 0) : 0; }
+  prodBuy(pid: string): number { return this.detailRows(pid).filter((u) => u.type === 'comprar').reduce((s, u) => s + u.qty * u.unit_cost, 0); }
+  prodTr(pid: string): number { return this.detailRows(pid).filter((u) => u.type === 'traspaso').reduce((s, u) => s + u.qty * u.unit_cost, 0); }
+  prodOver(pid: string): number { return this.detailRows(pid).filter((u) => u.type === 'sobre').reduce((s, u) => s + u.qty * u.unit_cost, 0); }
 
   toggleGroup(): void { this.wbGroup.set(this.wbGroup() === 'branch' ? 'general' : 'branch'); this.loadWorkbook(); }
-
-  /** RA-PRO.32.1 — requisición del producto abierto: una por almacén (proveedor del producto), con la cantidad editada. */
-  buildReqProduct(r: WorkbookRow): void {
-    const d = this.wbDetail()[r.product_id]; if (!d) return;
-    const rows = d.rows.filter((w) => this.qtyOf(r.product_id, w.warehouse_id) > 0);
-    if (!rows.length) { this.toast.add({ severity: 'warn', summary: 'Nada que armar', detail: 'Pon una cantidad > 0 en al menos una sucursal.' }); return; }
-    const dtos: CreateRequisitionDto[] = rows.map((w) => ({
-      warehouse_id: w.warehouse_id, supplier_id: w.supplier_id, source_type: 'supplier',
-      notes: `Pedido (workbook) — ${r.sku}`,
-      lines: [{
-        product_id: r.product_id, supplier_id: w.supplier_id, source_type: 'supplier',
-        on_hand: Math.round(Number(w.existencia_cajas) || 0), suggested_qty: this.qtyOf(r.product_id, w.warehouse_id),
-        final_qty: this.qtyOf(r.product_id, w.warehouse_id), unit_cost: Number(w.unit_cost) || 0,
-      }],
-    }));
-    this.saving.set(true);
-    let done = 0; const folios: string[] = []; let failed = 0;
-    const finish = () => {
-      this.saving.set(false);
-      if (folios.length) this.toast.add({ severity: 'success', summary: `${folios.length} requisición(es)`, detail: folios.join(', ') });
-      if (failed) this.toast.add({ severity: 'error', summary: 'Error parcial', detail: `${failed} no se pudieron crear.` });
-    };
-    dtos.forEach((dto) => this.api.createRequisition(dto).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (x) => { folios.push(x.folio); if (++done === dtos.length) finish(); },
-      error: () => { failed++; if (++done === dtos.length) finish(); },
-    }));
-  }
-
-  /** RA-PRO.32.1 — XLSX del producto abierto (una línea por sucursal, con la cantidad editada). */
-  exportProduct(r: WorkbookRow): void {
-    const d = this.wbDetail()[r.product_id]; if (!d) return;
-    const lines: PedidoExportLine[] = d.rows.map((w) => {
-      const cj = this.qtyOf(r.product_id, w.warehouse_id);
-      return {
-        warehouse_code: w.warehouse_code, supplier_name: d.product?.supplier_name ?? r.supplier_name,
-        sku: r.sku, nombre: r.nombre, on_hand: Math.round(Number(w.existencia_cajas) || 0),
-        suggested_qty: cj, uxc: r.uxc, cajas: cj, piezas: cj * (Number(r.uxc) || 1),
-        unit_cost: Number(w.unit_cost) || 0, line_cost: cj * (Number(w.unit_cost) || 0),
-      };
-    });
-    this.dl.set(true);
-    this.api.exportPedidoXlsx({ title: `Pedido — ${r.nombre}`, basis: `cobertura ${this.coverage}d`, multi_warehouse: true, lines })
-      .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-        next: (resp) => { this.dl.set(false); saveXlsxResponse(resp, `pedido-${r.sku}.xlsx`); },
-        error: () => { this.dl.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo exportar.' }); },
-      });
-  }
 
   cBuy = signal(true);
   cTr = signal(true);
@@ -757,13 +731,18 @@ export class ComprasPedidoRealComponent implements OnInit {
     else this.loadDead();
   }
 
-  /** RA-PRO.32 — carga la réplica del workbook (fila por SKU, columnas por punto de compra). */
+  /** RA-PRO.32 — carga la réplica del workbook (fila por SKU, columnas por punto de compra) +, en
+   * paralelo, el modelo por-sucursal (compra/traspaso/sobrestock) que alimenta el detalle expandible. */
   loadWorkbook(): void {
     this.loading.set(true); this.error.set(false); this.saveFilters();
-    // La data cambió → colapsa el acordeón y descarta cache/cantidades editadas (evita mostrar
-    // desgloses de una consulta previa).
-    this.wbOpen.set(new Set()); this.wbDetail.set({}); this.wbLoadingIds.set(new Set());
-    for (const k of Object.keys(this.wbQty)) delete this.wbQty[k];
+    this.wbOpen.set(new Set());   // la data cambió → colapsa el acordeón
+    // Modelo por-sucursal para el detalle expandible: TODAS las sucursales (sin filtro de almacén) para
+    // que al abrir un SKU se vea su acción en cada una.
+    this.detailReady.set(false);
+    this.fetchConsolidated(true).pipe(takeUntilDestroyed(this.destroyRef)).subscribe((res) => {
+      this.buyRows.set(res.buy?.rows ?? []); this.trRows.set(res.tr?.rows ?? []); this.ovRows.set(res.ov?.rows ?? []);
+      this.rebuild(); this.detailReady.set(true);
+    });
     this.api.workbook({
       supplier_id: this.fSupplier || undefined, category_id: this.fCategory || undefined, search: this.search.trim() || undefined,
       coverage_days: this.coverage, scope: this.wbScopeNeeded() ? 'needed' : undefined,
@@ -775,6 +754,20 @@ export class ComprasPedidoRealComponent implements OnInit {
         if (!r) { this.error.set(true); this.wbRows.set([]); this.wbTerritories.set([]); return; }
         this.wbRows.set(r.rows); this.wbTerritories.set(r.territories ?? []); this.wbTotals.set(r.totals); this.wbTotal.set(r.total);
       });
+  }
+
+  /** forkJoin de las 3 fuentes por-sucursal. ignoreWarehouse=true (Vista Excel) trae todas las sucursales. */
+  private fetchConsolidated(ignoreWarehouse: boolean) {
+    const wh = ignoreWarehouse ? undefined : (this.fWarehouse || undefined);
+    const sup = this.fSupplier || undefined, s = this.search.trim() || undefined;
+    return forkJoin({
+      buy: this.api.purchaseSuggestion({ supplier_id: sup, warehouse_id: wh, scope: 'needed', search: s, coverage_days: this.coverage, pageSize: 1000 })
+        .pipe(catchError(() => of(null as PurchaseSuggestionResponse | null))),
+      tr: this.api.transferSuggestion({ warehouse_id: wh, supplier_id: sup, search: s, coverage_days: this.coverage, pageSize: 1000 })
+        .pipe(catchError(() => of(null as TransferSuggestionResponse | null))),
+      ov: this.api.overstock({ warehouse_id: wh, supplier_id: sup, search: s, over_days: 90, pageSize: 1000 })
+        .pipe(catchError(() => of(null as OverstockResponse | null))),
+    });
   }
 
   wbKpi(): MetricStripItem[] {
@@ -794,21 +787,13 @@ export class ComprasPedidoRealComponent implements OnInit {
   /** Carga las 3 fuentes (compra needed / traspasos / sobrestock) y arma el modelo unificado. */
   loadAll(): void {
     this.loading.set(true); this.error.set(false); this.saveFilters();
-    const wh = this.fWarehouse || undefined, sup = this.fSupplier || undefined, s = this.search.trim() || undefined;
-    forkJoin({
-      buy: this.api.purchaseSuggestion({ supplier_id: sup, warehouse_id: wh, scope: 'needed', search: s, coverage_days: this.coverage, pageSize: 1000 })
-        .pipe(catchError(() => of(null as PurchaseSuggestionResponse | null))),
-      tr: this.api.transferSuggestion({ warehouse_id: wh, supplier_id: sup, search: s, coverage_days: this.coverage, pageSize: 1000 })
-        .pipe(catchError(() => of(null as TransferSuggestionResponse | null))),
-      ov: this.api.overstock({ warehouse_id: wh, supplier_id: sup, search: s, over_days: 90, pageSize: 1000 })
-        .pipe(catchError(() => of(null as OverstockResponse | null))),
-    }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe((res) => {
+    this.fetchConsolidated(false).pipe(takeUntilDestroyed(this.destroyRef)).subscribe((res) => {
       this.loading.set(false);
       if (!res.buy && !res.tr && !res.ov) { this.error.set(true); this.buyRows.set([]); this.trRows.set([]); this.ovRows.set([]); this.rebuild(); return; }
       this.buyRows.set(res.buy?.rows ?? []);
       this.trRows.set(res.tr?.rows ?? []);
       this.ovRows.set(res.ov?.rows ?? []);
-      this.rebuild();
+      this.rebuild(); this.detailReady.set(true);
     });
   }
 
@@ -949,7 +934,7 @@ export class ComprasPedidoRealComponent implements OnInit {
       pieces_per_unit: this.ovSuf != null && Number(this.ovSuf) > 0 ? Number(this.ovSuf) : null,
       box_factor: this.ovBf != null && Number(this.ovBf) > 0 ? Number(this.ovBf) : null,
     }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: () => { this.unitSaving.set(false); this.unitVisible = false; this.toast.add({ severity: 'success', summary: 'Unidad actualizada', detail: r.sku }); this.loadAll(); },
+      next: () => { this.unitSaving.set(false); this.unitVisible = false; this.toast.add({ severity: 'success', summary: 'Unidad actualizada', detail: r.sku }); this.mode() === 'excel' ? this.loadWorkbook() : this.loadAll(); },
       error: (e) => { this.unitSaving.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudo guardar.' }); },
     });
   }
@@ -957,8 +942,8 @@ export class ComprasPedidoRealComponent implements OnInit {
 
   // ── requisiciones (por sucursal o global) ────────────────────────────
   /** Arma requisición(es) del scope: compra → agrupa por (proveedor × almacén); traspaso → por (destino × origen). */
-  buildReq(code?: string): void {
-    const scope = this.flatRows().filter((r) => (!code || r.warehouse_code === code) && r.editable && Number(r.qty) > 0);
+  buildReq(code?: string, pid?: string): void {
+    const scope = (pid ? this.urows() : this.flatRows()).filter((r) => (!code || r.warehouse_code === code) && (!pid || r.product_id === pid) && r.editable && Number(r.qty) > 0);
     const buy = scope.filter((r) => r.type === 'comprar');
     const tr = scope.filter((r) => r.type === 'traspaso');
     if (!buy.length && !tr.length) { this.toast.add({ severity: 'warn', summary: 'Nada que armar', detail: 'No hay cantidades > 0 en el scope.' }); return; }
@@ -995,7 +980,7 @@ export class ComprasPedidoRealComponent implements OnInit {
       this.saving.set(false);
       if (folios.length) this.toast.add({ severity: 'success', summary: `${folios.length} requisición(es)`, detail: folios.join(', ') });
       if (failed) this.toast.add({ severity: 'error', summary: 'Error parcial', detail: `${failed} no se pudieron crear.` });
-      if (folios.length) this.loadAll();
+      if (folios.length) { this.mode() === 'excel' ? this.loadWorkbook() : this.loadAll(); }
     };
     dtos.forEach((dto) => {
       this.api.createRequisition(dto).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
@@ -1005,9 +990,9 @@ export class ComprasPedidoRealComponent implements OnInit {
     });
   }
 
-  /** Exporta XLSX del scope (compra + traspaso con qty > 0). */
-  exportScope(code?: string): void {
-    const scope = this.flatRows().filter((r) => (!code || r.warehouse_code === code) && r.editable && Number(r.qty) > 0);
+  /** Exporta XLSX del scope (compra + traspaso con qty > 0). pid = un solo producto (desde el acordeón). */
+  exportScope(code?: string, pid?: string): void {
+    const scope = (pid ? this.urows() : this.flatRows()).filter((r) => (!code || r.warehouse_code === code) && (!pid || r.product_id === pid) && r.editable && Number(r.qty) > 0);
     if (!scope.length) { this.toast.add({ severity: 'warn', summary: 'Nada que exportar' }); return; }
     const lines: PedidoExportLine[] = scope.map((r) => ({
       warehouse_code: r.warehouse_code,
@@ -1016,10 +1001,11 @@ export class ComprasPedidoRealComponent implements OnInit {
       uxc: r.uxc, cajas: r.qty, piezas: r.qty * r.uxc, unit_cost: r.unit_cost, line_cost: r.qty * r.unit_cost,
     }));
     this.dl.set(true);
-    const scopeName = code ? `${code} ${this.nameOf(code)}`.trim() : 'toda la red';
-    this.api.exportPedidoXlsx({ title: `Pedido por sucursal — ${scopeName}`, basis: `cobertura ${this.coverage}d`, lines })
+    const scopeName = pid ? (scope[0]?.nombre || 'producto') : code ? `${code} ${this.nameOf(code)}`.trim() : 'toda la red';
+    const fileTag = pid ? (scope[0]?.sku || 'producto') : code || 'global';
+    this.api.exportPedidoXlsx({ title: `Pedido por sucursal — ${scopeName}`, basis: `cobertura ${this.coverage}d`, multi_warehouse: true, lines })
       .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-        next: (resp) => { this.dl.set(false); saveXlsxResponse(resp, `pedido-${code ? code : 'global'}.xlsx`); },
+        next: (resp) => { this.dl.set(false); saveXlsxResponse(resp, `pedido-${fileTag}.xlsx`); },
         error: () => { this.dl.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo exportar.' }); },
       });
   }
