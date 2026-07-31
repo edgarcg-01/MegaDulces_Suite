@@ -10,6 +10,10 @@
 
 ## [Unreleased]
 
+### Added — Conocimiento curado del negocio en el prompt de Thot (2026-07-31)
+- Thot no tenía base curada (Maat sí). Nuevo bloque `THOT_BUSINESS_CONTEXT` en el system prompt admin: almacenes/sucursales + **canales (verificados vs BD)**, qué es "ruta vecinal", fuentes (ERP vs pipeline app), frescura/beta, quirks (promo $0.01, productos sin-SKU, `vendor_code` ruido, `units` pieza vs kg, embarques escasos), costo neto vs bruto. Es interpretación, NO cifras (ADR-016).
+- Corrige un supuesto viejo: el canal ya NO es Tienda/Crédito/Mayoreo (cambió con el wincaja split de julio) → ahora `wincaja_mostrador/ruta/credito/preventa` + `tienda`/`credito`. Build verde. Almacenes/canales verificados contra prod; facts de memoria (costo neto/bruto, "PH surte al portal") a validar con Edgar.
+
 ### Added — Memoria persistente de Thot: thot_remember / thot_forget (2026-07-31)
 - **Gap (revisión de conversaciones):** Thot olvidaba todo entre sesiones; los usuarios intentaron ENSEÑARLE hechos (T-NT 41: "Candelares Salgado es vendedora vecinal") y no los retenía. Espejo del `tomar_nota`/`guardar_conocimiento` de Maat.
 - **Migración `commercial.thot_notes`** (`20260731120000`): RLS forzado + tenant_id, `UNIQUE(tenant_id, title)` para upsert idempotente (patrón de `commercial.thot_chat_log`). Idempotente (hasTable).
