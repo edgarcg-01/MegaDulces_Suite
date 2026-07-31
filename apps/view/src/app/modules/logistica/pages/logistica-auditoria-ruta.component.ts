@@ -6,6 +6,7 @@ import {
   signal,
 } from '@angular/core';
 
+import { DatePipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ButtonModule } from 'primeng/button';
 import { TagModule } from 'primeng/tag';
@@ -22,7 +23,7 @@ import { LogisticaService, FleetAdherenceRow, AdherenceDiagnostic } from '../log
 @Component({
   selector: 'app-logistica-auditoria-ruta',
   standalone: true,
-  imports: [FormsModule, ButtonModule, TagModule, TooltipModule],
+  imports: [DatePipe, FormsModule, ButtonModule, TagModule, TooltipModule],
   template: `
     <div class="surf-page">
       <header class="surf-page-head">
@@ -175,7 +176,7 @@ import { LogisticaService, FleetAdherenceRow, AdherenceDiagnostic } from '../log
                       <li [class.ok]="d.positions_day > 0" [class.bad]="d.positions_day === 0">
                         <i class="pi" [class.pi-check-circle]="d.positions_day > 0" [class.pi-times-circle]="d.positions_day === 0" aria-hidden="true"></i>
                         Posiciones GPS ese día: <b>{{ d.positions_day }}</b>
-                        @if (d.last_position_at) { <span class="rk-diag-sub">· última {{ d.last_position_at | date:'short' }}</span> }
+                        @if (d.last_position_at) { <span class="rk-diag-sub">· última {{ fmtDt(d.last_position_at) }}</span> }
                       </li>
                       <li [class.ok]="d.route_trucks > 0" [class.bad]="d.route_trucks === 0">
                         <i class="pi" [class.pi-check-circle]="d.route_trucks > 0" [class.pi-times-circle]="d.route_trucks === 0" aria-hidden="true"></i>
@@ -354,6 +355,10 @@ export class LogisticaAuditoriaRutaComponent {
   trackById = (_: number, r: FleetAdherenceRow) => r.vehicle_id;
   trackPlan = (_: number, p: { customer_id: string }) => p.customer_id;
   shortId(id: string) { return id ? id.slice(0, 8) : '—'; }
+  fmtDt(iso: string | null): string {
+    if (!iso) return '—';
+    return new Date(iso).toLocaleString('es-MX', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'America/Mexico_City' });
+  }
   coverageColor(pct: number | null): string {
     if (pct == null) return 'var(--c-text-3)';
     if (pct >= 85) return 'var(--ok-fg)';
