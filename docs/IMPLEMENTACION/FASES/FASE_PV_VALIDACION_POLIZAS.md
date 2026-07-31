@@ -76,5 +76,19 @@ Corren en el `MaatScannerService` nocturno existente + `scan-now`.
 3. **Cobertura `AsocCFDIs`**: no toda pata tiene CFDI (esperado) → `cfdi_importe_no_coincide` solo evalúa las que sí.
 
 ## Estado
-🔨 Diseñado + código inicial 2026-07-31. Pendiente correr importers (máquina de feeds con
-`CONTPAQI_SQL_PASSWORD` + acceso Kepler LAN) + aplicar mig a Railway + smoke sobre data real.
+🟢 **Verificado LOCAL con data real 2026-07-31.** Migración aplicada a Docker local + importer
+Kepler corrido (96,682 patas / 36,031 pólizas / 3 meses / 6 sucursales). El motor caza **384
+pólizas descuadradas con folio** — las top son `XD5501` (el bug de IVA en descuentos, abono
+huérfano a 122-001, ya conocido en el modelo contable). Builds api+view verdes.
+
+Lección de deploy: las tablas `kdc2YYMM` de Kepler viven en el schema **`md`**, no en public
+(fix: prefijo `md.` + `to_regclass`).
+
+**Pendiente prod (requiere máquina de feeds + Railway):**
+1. **Railway** — aplicar mig `20260731130000` (`DATABASE_URL_NEW`=Railway → `npx knex migrate:latest --knexfile database/knexfile-newdb.js`).
+2. **ContPAQi** (máquina de feeds, `CONTPAQI_SQL_PASSWORD` + acceso SQL Server .35) —
+   `node database/importers/contpaqi/import-contpaqi-polizas.js --from 2025 --apply`.
+   Verificar ahí el join real de `AsocCFDIs` (va en try/catch; si el nombre de columna difiere,
+   ajustar la query — el core header+patas entra igual).
+3. **Kepler** (feeds LAN) — `node database/importers/kepler/import-kepler-polizas.js --months 18 --apply`.
+4. **Redeploy** api + view + re-login (para tomar la nueva ruta/permiso en el token).
