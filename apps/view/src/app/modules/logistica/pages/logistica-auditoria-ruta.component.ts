@@ -10,12 +10,12 @@ import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
 import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
-import { TagModule } from 'primeng/tag';
 import { TooltipModule } from 'primeng/tooltip';
 import { SkeletonModule } from 'primeng/skeleton';
 import { LogisticaService, FleetAdherenceRow, AdherenceDiagnostic } from '../logistica.service';
 import { todayMx } from '../../../core/utils/mx-date';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
+import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 
 /**
  * LTV.1 — Auditoría de ruta. Único lugar del análisis de ruta: cruza el plan
@@ -32,7 +32,7 @@ import { MetricStripComponent, MetricStripItem } from '../../../shared/component
 @Component({
   selector: 'app-logistica-auditoria-ruta',
   standalone: true,
-  imports: [FormsModule, ButtonModule, TableModule, TagModule, TooltipModule, SkeletonModule, MetricStripComponent],
+  imports: [FormsModule, ButtonModule, TableModule, TooltipModule, SkeletonModule, MetricStripComponent, ContextHelpComponent],
   template: `
     <div class="surf-page">
       <header class="surf-page-head">
@@ -48,6 +48,7 @@ import { MetricStripComponent, MetricStripItem } from '../../../shared/component
           <input type="date" class="rk-date" [ngModel]="date()" (ngModelChange)="setDate($event)"
             [max]="today" aria-label="Fecha de auditoría" />
           <button pButton [text]="true" size="small" [loading]="loading()" (click)="refresh()" aria-label="Refrescar"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span><span class="p-button-label">Actualizar</span></button>
+          <app-context-help topic="route-compliance" />
         </div>
       </header>
 
@@ -103,11 +104,7 @@ import { MetricStripComponent, MetricStripItem } from '../../../shared/component
                     }
                   </td>
                   <td class="num">{{ r.evaluable ? r.visited_count + '/' + r.planned_with_coords : '—' }}</td>
-                  <td class="num">@if (r.evaluable) {
-                    <b style="color:var(--ok-fg)">{{ r.captured_count }}</b>
-                    }@if (!r.evaluable) {
-                    <span>—</span>
-                  }</td>
+                  <td class="num">{{ r.evaluable ? r.captured_count : '—' }}</td>
                   <td class="num" [class.rk-warn]="r.skipped_count > 0">{{ r.evaluable ? r.skipped_count : '—' }}</td>
                   <td class="num rk-dim">{{ r.off_route_count }}</td>
                 </tr>
@@ -247,7 +244,7 @@ import { MetricStripComponent, MetricStripItem } from '../../../shared/component
     :host ::ng-deep .rk-ptable td.num { font-family:var(--font-mono,'Geist Mono',monospace); }
     :host ::ng-deep .rk-ptable .p-datatable-tbody > tr.p-datatable-row-selected { background:var(--overlay-selected); box-shadow:inset 3px 0 0 var(--action); }
     :host ::ng-deep .rk-ptable .p-datatable-tbody > tr:focus-visible { outline:2px solid var(--action); outline-offset:-2px; }
-    .rk-unit { font-weight:var(--fw-medium); }
+    .rk-unit { font-weight:var(--fw-medium); max-width:10rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
     .rk-warn { color:var(--warn-fg); }
     .rk-dim { color:var(--c-text-3); }
     .rk-na { color:var(--c-text-3); font-size:var(--fs-micro); font-style:italic; }
