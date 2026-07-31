@@ -15,6 +15,38 @@ export interface HelpResolveBlock { heading: string; kind?: 'fix' | 'info'; intr
 export interface HelpTopic { title: string; intro?: string; groups?: HelpGroup[]; resolve?: HelpResolveBlock[]; }
 
 export const CONTEXT_HELP: Record<string, HelpTopic> = {
+  'route-compliance': {
+    title: 'Cumplimiento de ruta — guía',
+    intro: 'Cruza el PLAN de la ruta (las tiendas que la unidad debía servir ese día) contra lo REAL (dónde paró el camión según GPS, matcheado a cada cliente). Solo se puede evaluar una unidad si el día tiene posiciones GPS y su ruta tiene tiendas con coordenadas.',
+    groups: [
+      {
+        heading: 'Estado de la unidad',
+        entries: [
+          { term: 'Evaluable', def: 'La unidad se detuvo en tiendas geolocalizadas de una ruta ese día, así que su plan se puede comparar contra el recorrido real.' },
+          { term: 'Sin plan evaluable', def: 'No hay con qué comparar: la unidad no paró en tiendas geolocalizadas de una ruta (sin GPS ese día, sin ruta asignada, o sus tiendas no tienen coordenadas).' },
+        ],
+      },
+      {
+        heading: 'Métricas',
+        entries: [
+          { term: 'Cobertura', def: 'Tiendas visitadas ÷ tiendas del plan con coordenadas, en %. Verde ≥85%, ámbar 60–84%, rojo <60%.' },
+          { term: 'Visitadas', def: 'Tiendas del plan (con coordenadas) donde el camión efectivamente paró. Se muestra visitadas / plan.' },
+          { term: 'Auditadas', def: 'De las visitadas, en cuántas además hubo una captura de auditoría de ejecución (foto/checklist), no solo el paso del camión.' },
+          { term: 'Saltadas', def: 'Tiendas del plan con coordenadas donde el camión NO paró.' },
+          { term: 'Fuera de ruta', def: 'Paradas del camión en tiendas que no pertenecen a la ruta planeada de ese día.' },
+        ],
+      },
+      {
+        heading: 'Tiendas del plan (detalle)',
+        entries: [
+          { term: 'Capturada', def: 'Visitada y con captura de auditoría registrada.' },
+          { term: 'Sin captura', def: 'El camión paró en la tienda pero no se levantó captura de auditoría.' },
+          { term: 'Sin coords', def: 'La tienda no tiene coordenadas, así que no se puede confirmar la parada por GPS — queda fuera del cálculo de cobertura.' },
+          { term: 'Saltada', def: 'Tienda del plan con coordenadas que el camión no visitó.' },
+        ],
+      },
+    ],
+  },
   cfdi: {
     title: 'CFDI — ¿qué significan las claves?',
     intro: 'Comprobantes fiscales digitales (CFDI 4.0) del SAT. Aquí el significado de cada clave que ves en los filtros y la tabla.',
