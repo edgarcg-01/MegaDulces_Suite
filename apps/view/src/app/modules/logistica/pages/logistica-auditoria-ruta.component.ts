@@ -51,9 +51,13 @@ import { MetricStripComponent, MetricStripItem } from '../../../shared/component
         </div>
       </header>
 
-      <!-- KPIs del día (MetricStrip, ADR-033) -->
+      <!-- KPIs del día (MetricStrip, ADR-033). Variedad por tipo de dato (regla 9):
+           cobertura = ratio acotado → ring; conteos = valores únicos → strip. -->
       <div class="rk-kpi-strip">
-        <app-metric-strip [items]="kpiItems()" mode="strip" ariaLabel="Resumen del día" />
+        @if (coverageItem(); as ci) {
+          <app-metric-strip mode="ring" [items]="[ci]" ariaLabel="Cobertura de tiendas" />
+        }
+        <app-metric-strip mode="strip" [items]="countItems()" ariaLabel="Conteos del día" />
       </div>
 
       @if (loading() && !rows().length) {
@@ -230,7 +234,7 @@ import { MetricStripComponent, MetricStripItem } from '../../../shared/component
     .rk-date { padding:.4rem .5rem; border:1px solid var(--border-color); border-radius:var(--r-md,8px); background:var(--card-bg); color:var(--c-text-1); font:inherit; font-size:var(--fs-sm); }
     .rk-date:focus-visible { outline:2px solid var(--action); outline-offset:1px; }
 
-    .rk-kpi-strip { margin:.5rem 0 1rem; }
+    .rk-kpi-strip { display:flex; align-items:center; gap:1.75rem; flex-wrap:wrap; margin:.5rem 0 1rem; }
 
     /* skeleton de filas */
     .rk-skel { padding:.4rem 0; }
@@ -328,20 +332,27 @@ export class LogisticaAuditoriaRutaComponent {
     return Math.round((t.visited / t.plannedWithCoords) * 100);
   });
 
-  readonly kpiItems = computed<MetricStripItem[]>(() => {
-    const t = this.totals();
+  /** Cobertura como ring (ratio 0..100). Null (sin plan evaluable) → cae al strip. */
+  readonly coverageItem = computed<MetricStripItem | null>(() => {
     const cov = this.fleetCoverage();
-    return [
-      {
-        label: 'Cobertura de tiendas',
-        value: cov == null ? '—' : cov,
-        format: cov == null ? 'text' : 'percent',
-        tone: cov == null ? 'default' : cov >= 85 ? 'ok' : cov >= 60 ? 'warn' : 'bad',
-      },
+    if (cov == null) return null;
+    return {
+      label: 'Cobertura de tiendas', value: cov, pct: cov, format: 'percent',
+      tone: cov >= 85 ? 'ok' : cov >= 60 ? 'warn' : 'bad',
+    };
+  });
+
+  readonly countItems = computed<MetricStripItem[]>(() => {
+    const t = this.totals();
+    const items: MetricStripItem[] = [];
+    // Sin cobertura evaluable: mostrarla como "—" en el strip (el ring no aplica).
+    if (this.fleetCoverage() == null) items.push({ label: 'Cobertura de tiendas', value: '—', format: 'text', tone: 'default' });
+    items.push(
       { label: 'Tiendas visitadas', value: t.visited, tone: 'ok' },
       { label: 'Con captura', value: t.captured, tone: 'ok' },
       { label: 'Tiendas saltadas', value: t.skipped, tone: t.skipped > 0 ? 'warn' : 'default' },
-    ];
+    );
+    return items;
   });
 
   constructor() {
