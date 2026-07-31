@@ -15,6 +15,16 @@ export interface StoreAlert {
   title: string; message: string; data: any; emitted_at: string;
 }
 export interface StoreBranchKpi { warehouse_code: string; warehouse_name: string; tickets: number; venta: number; last_ts: string; }
+export interface OpenCaja {
+  warehouse_code: string; warehouse_name?: string; caja: string;
+  cajero: string | null; cajero_nombre: string | null; abrio: string;
+  tickets: number; venta: number; last_ticket: string | null; idle_min: number | null; cobrando: boolean;
+}
+export interface OpenCajasResponse {
+  generated_at: string; cajas_abiertas: number; cobrando_ahora: number;
+  open_cajas: OpenCaja[];
+  cajeros_sin_sesion: { warehouse_code: string; cajero: string; tickets: number; venta: number; last_ticket: string }[];
+}
 export interface StoreSnapshot {
   generated_at: string;
   totals: { tickets: number; venta: number; avg_ticket: number };
@@ -41,6 +51,12 @@ export class StoreSocketService {
   snapshot(warehouse?: string) {
     const q = warehouse ? `?warehouse=${encodeURIComponent(warehouse)}` : '';
     return this.http.get<StoreSnapshot>(`${environment.apiUrl}/store/live/snapshot${q}`);
+  }
+
+  /** SM.10 — cajas abiertas ahora + quién está cobrando. */
+  openCajas(warehouse?: string) {
+    const q = warehouse ? `?warehouse=${encodeURIComponent(warehouse)}` : '';
+    return this.http.get<OpenCajasResponse>(`${environment.apiUrl}/store/live/open-cajas${q}`);
   }
 
   connect(): void {
