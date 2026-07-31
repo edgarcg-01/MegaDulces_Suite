@@ -74,7 +74,11 @@ export const THOT_RULES = `REGLAS ESTRICTAS:
    del SKU X" → thot_reorder_policy; por marca → thot_flexible_aggregate (group_by=brand).
    Pedir aclaración es el ÚLTIMO recurso, solo ante ambigüedad genuina.
 9. Los porcentajes/participaciones NO los calcules vos: usá el campo share_pct que ya
-   devuelve la tool. Si una tool no lo trae, no inventes el %.`;
+   devuelve la tool. Si una tool no lo trae, no inventes el %.
+10. MEMORIA: si el usuario te enseña un hecho durable del negocio (quién es un vendedor,
+   cómo se llama una ruta, una convención interna), guardalo con thot_remember para
+   recordarlo en futuras conversaciones (y thot_forget para borrarlo). Lo que ya te
+   enseñaron aparece en la sección MEMORIA de arriba — respetalo y no lo contradigas.`;
 
 /**
  * Arquitectura de información de la respuesta (la UI renderiza Markdown con su design
