@@ -77,7 +77,9 @@ export class CommercialMovementsService {
   private destKinds(q: MovementsQuery): ('sucursal' | 'ruta' | 'cliente')[] {
     const ks = (q.dest_kinds || '').split(',').map((s) => s.trim().toLowerCase())
       .filter((s) => s === 'sucursal' || s === 'ruta' || s === 'cliente') as ('sucursal' | 'ruta' | 'cliente')[];
-    return ks.length ? [...new Set(ks)] : ['sucursal'];
+    // DM.11c — sin parámetro ⇒ MOSTRAR TODO (no ocultar movimientos por default). El scope
+    // "solo sucursal" es opt-in explícito desde el front. Los 3 ⇒ destBucketSql='' ⇒ sin filtro.
+    return ks.length ? [...new Set(ks)] : ['sucursal', 'ruta', 'cliente'];
   }
 
   /** SQL por bucket de destino (sobre m.dest_code/m.dest_label). */
