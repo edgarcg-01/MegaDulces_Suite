@@ -162,7 +162,7 @@ const mapAlmacen = (a) => ROUTE_MAP[a] || a;
     // origen (venta anulada/sku sin mapear) queda con su último valor — trade-off aceptado
     // para no borrar (raro en ventas; el nightly la re-cuadra si el origen la vuelve a traer).
     const up = await db.query(
-      `INSERT INTO analytics.sales_daily
+      `INSERT INTO analytics.sales_daily AS sd
          (id, tenant_id, product_id, warehouse_id, channel, sale_date, units, revenue, cost, tickets, unit_kind, updated_at)
        SELECT gen_random_uuid(), $1, product_id, warehouse_id, channel, sale_date,
               sum(units), sum(revenue), sum(cost), sum(tickets), max(unit_kind), now()
@@ -170,7 +170,10 @@ const mapAlmacen = (a) => ROUTE_MAP[a] || a;
         GROUP BY product_id, warehouse_id, channel, sale_date
        ON CONFLICT (tenant_id, product_id, warehouse_id, channel, sale_date)
        DO UPDATE SET units=EXCLUDED.units, revenue=EXCLUDED.revenue, cost=EXCLUDED.cost,
-                     tickets=EXCLUDED.tickets, unit_kind=EXCLUDED.unit_kind, updated_at=now()`, [M]);
+                     tickets=EXCLUDED.tickets, unit_kind=EXCLUDED.unit_kind, updated_at=now()
+       WHERE (sd.units, sd.revenue, sd.cost, sd.tickets, sd.unit_kind)
+             IS DISTINCT FROM
+             (EXCLUDED.units, EXCLUDED.revenue, EXCLUDED.cost, EXCLUDED.tickets, EXCLUDED.unit_kind)`, [M]);
     await db.query('COMMIT');
     console.log(`\n[APPLY] COMMIT — ${up.rowCount} filas en analytics.sales_daily.`);
     if (APPLY) await hb.end('kepler_sales_fact', { status: 'ok', rows: up.rowCount });
