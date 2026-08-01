@@ -54,23 +54,43 @@ const SRCS = [
 
     await db.query('BEGIN');
     await db.query(`SET LOCAL app.tenant_id = '${M}'`);
-    await db.query(`TRUNCATE analytics.erp_promotions`);
+    // Sin clave natural (id surrogate) → no aplica UPSERT por fila. En su lugar: si el snapshot
+    // vigente es IDÉNTICO al de la tabla (md5 del conjunto), no se escribe nada. Solo se
+    // reescribe (TRUNCATE+INSERT) cuando las promos realmente cambiaron → cero churn diario
+    // (las promos cambian pocas veces al mes). Evita reescribir toda la tabla cada noche.
+    await db.query(`CREATE TEMP TABLE stg_promos (product_id uuid, promo_type text, threshold numeric,
+      benefit numeric, free_product_id uuid, valid_from date, valid_to date, warehouse_code text, raw_name text) ON COMMIT DROP`);
     for (let i = 0; i < rows.length; i += 500) {
       const chunk = rows.slice(i, i + 500);
       const vals = [], params = [];
       chunk.forEach((row, ri) => {
-        const b = ri * 10;
-        vals.push(`(gen_random_uuid(),$${b+1},$${b+2},$${b+3},$${b+4},$${b+5},$${b+6},$${b+7},$${b+8},$${b+9},$${b+10},now())`);
-        // tenant, product_id, type, threshold, benefit, free, vfrom, vto, warehouse, raw_name
-        params.push(M, row[0], row[1], row[2], row[3], row[4], row[5], row[6], row[7], row[8]);
+        const b = ri * 9;
+        vals.push(`($${b+1},$${b+2},$${b+3},$${b+4},$${b+5},$${b+6},$${b+7},$${b+8},$${b+9})`);
+        params.push(row[0], row[1], row[2], row[3], row[4], row[5], row[6], row[7], row[8]);
       });
-      await db.query(
-        `INSERT INTO analytics.erp_promotions
-           (id, tenant_id, product_id, promo_type, threshold, benefit, free_product_id, valid_from, valid_to, warehouse_code, raw_name, computed_at)
-         VALUES ${vals.join(',')}`, params);
+      await db.query(`INSERT INTO stg_promos
+        (product_id, promo_type, threshold, benefit, free_product_id, valid_from, valid_to, warehouse_code, raw_name)
+        VALUES ${vals.join(',')}`, params);
     }
+    const FP = `concat_ws('|', product_id::text, promo_type, coalesce(threshold::text,''), coalesce(benefit::text,''),
+      coalesce(free_product_id::text,''), coalesce(valid_from::text,''), coalesce(valid_to::text,''),
+      coalesce(warehouse_code,''), coalesce(raw_name,''))`;
+    const { rows: cmp } = await db.query(
+      `SELECT (SELECT md5(coalesce(string_agg(fp, E'\\n' ORDER BY fp),'')) FROM (SELECT ${FP} fp FROM stg_promos) a)
+            = (SELECT md5(coalesce(string_agg(fp, E'\\n' ORDER BY fp),'')) FROM (SELECT ${FP} fp FROM analytics.erp_promotions WHERE tenant_id=$1) b) AS same`, [M]);
+    if (cmp[0].same) {
+      await db.query('COMMIT');
+      console.log(`\n[APPLY] snapshot idéntico (${rows.length} promos) — sin cambios, cero escrituras.`);
+      return;
+    }
+    await db.query(`TRUNCATE analytics.erp_promotions`);
+    await db.query(
+      `INSERT INTO analytics.erp_promotions
+         (id, tenant_id, product_id, promo_type, threshold, benefit, free_product_id, valid_from, valid_to, warehouse_code, raw_name, computed_at)
+       SELECT gen_random_uuid(), $1, product_id, promo_type, threshold, benefit, free_product_id, valid_from, valid_to, warehouse_code, raw_name, now()
+         FROM stg_promos`, [M]);
     await db.query('COMMIT');
-    console.log(`\n[APPLY] COMMIT — ${rows.length} promos vigentes.`);
+    console.log(`\n[APPLY] COMMIT — snapshot cambió → ${rows.length} promos vigentes reescritas.`);
   } catch (e) {
     await db.query('ROLLBACK').catch(() => {});
     console.error('\nERROR (rollback):', e.message);

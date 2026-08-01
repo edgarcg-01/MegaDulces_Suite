@@ -66,35 +66,54 @@ const APPLY = process.argv.includes('--apply');
     }
     console.log(`Con match catálogo: ${finalRows.length} (sin match: ${unmatched}, promos excluidas: ${promos})`);
 
-    // BULK: INSERT multi-fila en batches (per-fila contra prod remoto era lento).
+    if (!APPLY) { console.log('\n[DRY-RUN] nada cambió.'); return; }
+    // Guarda: sin best-sellers (consolidado vacío/caído) no toques la tabla del portal.
+    if (!finalRows.length) { console.log('\n[APPLY] 0 best-sellers — tabla intacta.'); return; }
+
+    // Refresco IDEMPOTENTE sin churn: staging TEMP → UPSERT solo-cambios (por tenant_id,id=product)
+    // → DELETE solo lo que salió del top. Antes: TRUNCATE+INSERT reescribía las 1000 filas cada noche.
     const BATCH = 500;
-    const PPR = 13; // params por fila (cases_sold va literal 0, no es param)
+    const PPR = 12; // params por fila hacia stg_ts (cases_sold va literal 0, no es param)
     await db.query('BEGIN');
     await db.query(`SET LOCAL app.tenant_id = '${M}'`);
-    await db.query(`TRUNCATE catalog.top_sellers_live`);
+    await db.query(`CREATE TEMP TABLE stg_ts (id uuid, sku text, nombre text, brand_id uuid, barcode text,
+      category_id uuid, cost_base numeric, image_url text, units_sold numeric, revenue numeric, cases_sold numeric,
+      units_total numeric, sales_rank int) ON COMMIT DROP`);
     for (let i = 0; i < finalRows.length; i += BATCH) {
       const chunk = finalRows.slice(i, i + BATCH);
       const vals = [], params = [];
       chunk.forEach((f, ri) => {
         const b = ri * PPR;
-        vals.push(`($${b+1},$${b+2},$${b+3},$${b+4},$${b+5},$${b+6},$${b+7},$${b+8},$${b+9},$${b+10},$${b+11},0,$${b+12},$${b+13})`);
-        params.push(f.id, M, f.sku, f.nombre, f.brand_id, f.barcode, f.category_id, f.cost_base, f.image_url,
+        vals.push(`($${b+1},$${b+2},$${b+3},$${b+4},$${b+5},$${b+6},$${b+7},$${b+8},$${b+9},$${b+10},0,$${b+11},$${b+12})`);
+        params.push(f.id, f.sku, f.nombre, f.brand_id, f.barcode, f.category_id, f.cost_base, f.image_url,
           f.units_sold, f.revenue, f.units_total, f.sales_rank);
       });
       await db.query(
-        `INSERT INTO catalog.top_sellers_live
-           (id, tenant_id, sku, nombre, brand_id, barcode, category_id, cost_base, image_url,
-            units_sold, revenue, cases_sold, units_total, sales_rank)
-         VALUES ${vals.join(',')}`, params);
+        `INSERT INTO stg_ts (id, sku, nombre, brand_id, barcode, category_id, cost_base, image_url,
+           units_sold, revenue, cases_sold, units_total, sales_rank) VALUES ${vals.join(',')}`, params);
     }
-
-    if (APPLY) {
-      await db.query('COMMIT');
-      console.log(`\n[APPLY] COMMIT — ${finalRows.length} best-sellers vivos para el portal.`);
-    } else {
-      await db.query('ROLLBACK');
-      console.log('\n[DRY-RUN] ROLLBACK — nada cambió.');
-    }
+    const up = await db.query(
+      `INSERT INTO catalog.top_sellers_live AS t
+         (id, tenant_id, sku, nombre, brand_id, barcode, category_id, cost_base, image_url,
+          units_sold, revenue, cases_sold, units_total, sales_rank)
+       SELECT id, $1, sku, nombre, brand_id, barcode, category_id, cost_base, image_url,
+          units_sold, revenue, cases_sold, units_total, sales_rank FROM stg_ts
+       ON CONFLICT (tenant_id, id) DO UPDATE SET
+         sku=EXCLUDED.sku, nombre=EXCLUDED.nombre, brand_id=EXCLUDED.brand_id, barcode=EXCLUDED.barcode,
+         category_id=EXCLUDED.category_id, cost_base=EXCLUDED.cost_base, image_url=EXCLUDED.image_url,
+         units_sold=EXCLUDED.units_sold, revenue=EXCLUDED.revenue, cases_sold=EXCLUDED.cases_sold,
+         units_total=EXCLUDED.units_total, sales_rank=EXCLUDED.sales_rank
+       WHERE (t.sku, t.nombre, t.brand_id, t.barcode, t.category_id, t.cost_base, t.image_url,
+              t.units_sold, t.revenue, t.cases_sold, t.units_total, t.sales_rank)
+             IS DISTINCT FROM
+             (EXCLUDED.sku, EXCLUDED.nombre, EXCLUDED.brand_id, EXCLUDED.barcode, EXCLUDED.category_id,
+              EXCLUDED.cost_base, EXCLUDED.image_url, EXCLUDED.units_sold, EXCLUDED.revenue, EXCLUDED.cases_sold,
+              EXCLUDED.units_total, EXCLUDED.sales_rank)`, [M]);
+    const del = await db.query(
+      `DELETE FROM catalog.top_sellers_live t
+        WHERE t.tenant_id=$1 AND NOT EXISTS (SELECT 1 FROM stg_ts s WHERE s.id=t.id)`, [M]);
+    await db.query('COMMIT');
+    console.log(`\n[APPLY] COMMIT — ${up.rowCount} escritas (nuevas/cambiadas) · ${del.rowCount} salieron del top · ${finalRows.length} best-sellers.`);
   } catch (e) {
     await db.query('ROLLBACK').catch(() => {});
     console.error('\nERROR (rollback):', e.message);

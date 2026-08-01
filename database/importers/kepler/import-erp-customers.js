@@ -57,20 +57,32 @@ const norm = (c) => {
     console.log(`  total dedup: ${rows.length} clientes`);
 
     if (!APPLY) { console.log('\n[DRY-RUN] nada cambió.'); return; }
+    // Guarda: si ninguna sucursal respondió, NO toques la tabla (evita vaciarla por un
+    // outage de red — el TRUNCATE original sí la vaciaba en ese caso).
+    if (!rows.length) { console.log('\n[APPLY] 0 clientes leídos (¿sucursales caídas?) — tabla intacta.'); return; }
 
     await db.query('BEGIN');
     await db.query(`SET LOCAL app.tenant_id = '${M}'`);
-    await db.query(`TRUNCATE analytics.erp_customers`);
+    // Refresco IDEMPOTENTE sin churn: staging TEMP → UPSERT solo-cambios → DELETE solo lo que
+    // ya no viene. Antes: TRUNCATE+INSERT reescribía toda la tabla cada noche.
+    await db.query(`CREATE TEMP TABLE stg_erpc (erp_code text, name text, rfc text, city text) ON COMMIT DROP`);
     for (let i = 0; i < rows.length; i += 1000) {
       const chunk = rows.slice(i, i + 1000);
-      // 5 params por fila (tenant, code, name, rfc, city) + now()
-      const vals = chunk.map((_, ri) => { const b = ri * 5; return `($${b+1},$${b+2},$${b+3},$${b+4},$${b+5},now())`; });
-      const params = []; chunk.forEach((row) => params.push(M, row[0], row[1], row[2], row[3]));
-      await db.query(
-        `INSERT INTO analytics.erp_customers (tenant_id, erp_code, name, rfc, city, computed_at) VALUES ${vals.join(',')}`, params);
+      const vals = chunk.map((_, ri) => { const b = ri * 4; return `($${b+1},$${b+2},$${b+3},$${b+4})`; });
+      const params = []; chunk.forEach((row) => params.push(row[0], row[1], row[2], row[3]));
+      await db.query(`INSERT INTO stg_erpc (erp_code, name, rfc, city) VALUES ${vals.join(',')}`, params);
     }
+    const up = await db.query(
+      `INSERT INTO analytics.erp_customers AS t (tenant_id, erp_code, name, rfc, city, computed_at)
+       SELECT $1, erp_code, name, rfc, city, now() FROM stg_erpc
+       ON CONFLICT (tenant_id, erp_code) DO UPDATE SET
+         name=EXCLUDED.name, rfc=EXCLUDED.rfc, city=EXCLUDED.city, computed_at=now()
+       WHERE (t.name, t.rfc, t.city) IS DISTINCT FROM (EXCLUDED.name, EXCLUDED.rfc, EXCLUDED.city)`, [M]);
+    const del = await db.query(
+      `DELETE FROM analytics.erp_customers t
+        WHERE t.tenant_id=$1 AND NOT EXISTS (SELECT 1 FROM stg_erpc s WHERE s.erp_code=t.erp_code)`, [M]);
     await db.query('COMMIT');
-    console.log(`\n[APPLY] COMMIT — ${rows.length} clientes en erp_customers.`);
+    console.log(`\n[APPLY] COMMIT — ${up.rowCount} escritas (nuevas/cambiadas) · ${del.rowCount} borradas · ${rows.length} en origen.`);
   } catch (e) {
     await db.query('ROLLBACK').catch(() => {});
     console.error('\nERROR (rollback):', e.message);
