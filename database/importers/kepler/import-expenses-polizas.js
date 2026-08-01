@@ -370,42 +370,74 @@ function normArea(raw) {
     // okCodes ∪ codes staged (c14 puede diferir del code del MAP; si no se borran, se duplican en re-runs)
     const stagedCodes = (await db.query(`SELECT DISTINCT sucursal FROM stg_exp`)).rows.map((r) => r.sucursal);
     const sucursales = [...new Set([...okCodes, ...stagedCodes])];
-    const del = await db.query(
-      `DELETE FROM analytics.expense_entries
-        WHERE tenant_id=$1 AND sucursal = ANY($2) AND fecha >= $3::date AND fecha <= $4::date`,
+    // Merge SIN churn (antes: DELETE-año+INSERT reescribía TODO el año contable cada noche).
+    // expense_entries no tiene clave natural (id surrogate) → block-diff por (sucursal, mes):
+    // un mes contable cerrado es inmutable → solo se reprocesan los meses que cambiaron.
+    const FP_E = `concat_ws('|', sucursal, coalesce(doc_tipo,''), coalesce(doc_folio,''), coalesce(linea::text,''),
+      fecha::text, cuenta, coalesce(cuenta_nombre,''), coalesce(cuenta_mayor,''), coalesce(cuenta_mayor_nombre,''),
+      coalesce(familia,''), coalesce(cargo_abono,''), coalesce(beneficiario,''), coalesce(area,''), importe::text,
+      coalesce(dpto,''), coalesce(dpto_nombre,''), coalesce(concepto,''), coalesce(concepto_nombre,''),
+      coalesce(comentario,''), coalesce(beneficiario_doc,''))`;
+    await db.query(
+      `CREATE TEMP TABLE exp_changed ON COMMIT DROP AS
+       WITH s AS (SELECT sucursal, date_trunc('month',fecha)::date mes, md5(string_agg(${FP_E}, E'\\n' ORDER BY ${FP_E})) fp
+                    FROM stg_exp GROUP BY sucursal, date_trunc('month',fecha)::date),
+            t AS (SELECT sucursal, date_trunc('month',fecha)::date mes, md5(string_agg(${FP_E}, E'\\n' ORDER BY ${FP_E})) fp
+                    FROM analytics.expense_entries
+                   WHERE tenant_id=$1 AND sucursal = ANY($2) AND fecha >= $3::date AND fecha <= $4::date
+                   GROUP BY sucursal, date_trunc('month',fecha)::date)
+       SELECT sucursal, mes FROM s FULL OUTER JOIN t USING (sucursal, mes) WHERE s.fp IS DISTINCT FROM t.fp`,
       [M, sucursales, from, to]);
+    const del = await db.query(
+      `DELETE FROM analytics.expense_entries e USING exp_changed c
+        WHERE e.tenant_id=$1 AND e.sucursal=c.sucursal AND date_trunc('month',e.fecha)::date=c.mes`, [M]);
     const up = await db.query(
       `INSERT INTO analytics.expense_entries
          (id,tenant_id,sucursal,doc_tipo,doc_folio,linea,fecha,cuenta,cuenta_nombre,cuenta_mayor,cuenta_mayor_nombre,familia,cargo_abono,beneficiario,area,importe,dpto,dpto_nombre,concepto,concepto_nombre,comentario,beneficiario_doc,computed_at)
-       SELECT gen_random_uuid(),$1,sucursal,doc_tipo,doc_folio,linea,fecha,cuenta,cuenta_nombre,cuenta_mayor,cuenta_mayor_nombre,familia,cargo_abono,beneficiario,area,importe,dpto,dpto_nombre,concepto,concepto_nombre,comentario,beneficiario_doc,now()
-         FROM stg_exp`,
+       SELECT gen_random_uuid(),$1,s.sucursal,s.doc_tipo,s.doc_folio,s.linea,s.fecha,s.cuenta,s.cuenta_nombre,s.cuenta_mayor,s.cuenta_mayor_nombre,s.familia,s.cargo_abono,s.beneficiario,s.area,s.importe,s.dpto,s.dpto_nombre,s.concepto,s.concepto_nombre,s.comentario,s.beneficiario_doc,now()
+         FROM stg_exp s JOIN exp_changed c ON c.sucursal=s.sucursal AND date_trunc('month',s.fecha)::date=c.mes`,
       [M]);
 
-    // GX v3 — documentos + líneas del drill (misma ventana/sucursales que las pólizas)
-    const delDoc = await db.query(
-      `DELETE FROM analytics.expense_documents WHERE tenant_id=$1 AND sucursal = ANY($2) AND fecha >= $3::date AND fecha <= $4::date`,
-      [M, sucursales, from, to]);
+    // GX v3 — documentos + líneas (clave natural) → UPSERT solo-cambios + delete-not-seen.
     const upDoc = await db.query(
-      `INSERT INTO analytics.expense_documents
+      `INSERT INTO analytics.expense_documents AS t
          (tenant_id,sucursal,doc_tipo,doc_folio,fecha,fecha_doc,beneficiario,rfc,concepto,area,importe,iva,usuario,clase,computed_at)
        SELECT $1,sucursal,doc_tipo,doc_folio,fecha,fecha_doc,beneficiario,rfc,concepto,area,importe,iva,usuario,clase,now()
          FROM stg_doc
-       ON CONFLICT (tenant_id,sucursal,doc_tipo,doc_folio) DO NOTHING`,
+       ON CONFLICT (tenant_id,sucursal,doc_tipo,doc_folio) DO UPDATE SET
+         fecha=EXCLUDED.fecha, fecha_doc=EXCLUDED.fecha_doc, beneficiario=EXCLUDED.beneficiario, rfc=EXCLUDED.rfc,
+         concepto=EXCLUDED.concepto, area=EXCLUDED.area, importe=EXCLUDED.importe, iva=EXCLUDED.iva,
+         usuario=EXCLUDED.usuario, clase=EXCLUDED.clase, computed_at=now()
+       WHERE (t.fecha,t.fecha_doc,t.beneficiario,t.rfc,t.concepto,t.area,t.importe,t.iva,t.usuario,t.clase)
+             IS DISTINCT FROM
+             (EXCLUDED.fecha,EXCLUDED.fecha_doc,EXCLUDED.beneficiario,EXCLUDED.rfc,EXCLUDED.concepto,EXCLUDED.area,EXCLUDED.importe,EXCLUDED.iva,EXCLUDED.usuario,EXCLUDED.clase)`,
       [M]);
-    const delLine = await db.query(
-      `DELETE FROM analytics.expense_document_lines WHERE tenant_id=$1 AND sucursal = ANY($2) AND fecha >= $3::date AND fecha <= $4::date`,
+    const delDoc = await db.query(
+      `DELETE FROM analytics.expense_documents t
+        WHERE t.tenant_id=$1 AND t.sucursal = ANY($2) AND t.fecha >= $3::date AND t.fecha <= $4::date
+          AND NOT EXISTS (SELECT 1 FROM stg_doc s WHERE s.sucursal=t.sucursal AND s.doc_tipo=t.doc_tipo AND s.doc_folio=t.doc_folio)`,
       [M, sucursales, from, to]);
     const upLine = await db.query(
-      `INSERT INTO analytics.expense_document_lines
+      `INSERT INTO analytics.expense_document_lines AS t
          (tenant_id,sucursal,doc_tipo,doc_folio,linea,fecha,sku,producto,cantidad,presentacion,costo_unitario,importe,computed_at)
        SELECT $1,sucursal,doc_tipo,doc_folio,linea,fecha,sku,producto,cantidad,presentacion,costo_unitario,importe,now()
          FROM stg_docline
-       ON CONFLICT (tenant_id,sucursal,doc_tipo,doc_folio,linea) DO NOTHING`,
+       ON CONFLICT (tenant_id,sucursal,doc_tipo,doc_folio,linea) DO UPDATE SET
+         fecha=EXCLUDED.fecha, sku=EXCLUDED.sku, producto=EXCLUDED.producto, cantidad=EXCLUDED.cantidad,
+         presentacion=EXCLUDED.presentacion, costo_unitario=EXCLUDED.costo_unitario, importe=EXCLUDED.importe, computed_at=now()
+       WHERE (t.fecha,t.sku,t.producto,t.cantidad,t.presentacion,t.costo_unitario,t.importe)
+             IS DISTINCT FROM
+             (EXCLUDED.fecha,EXCLUDED.sku,EXCLUDED.producto,EXCLUDED.cantidad,EXCLUDED.presentacion,EXCLUDED.costo_unitario,EXCLUDED.importe)`,
       [M]);
+    const delLine = await db.query(
+      `DELETE FROM analytics.expense_document_lines t
+        WHERE t.tenant_id=$1 AND t.sucursal = ANY($2) AND t.fecha >= $3::date AND t.fecha <= $4::date
+          AND NOT EXISTS (SELECT 1 FROM stg_docline s WHERE s.sucursal=t.sucursal AND s.doc_tipo=t.doc_tipo AND s.doc_folio=t.doc_folio AND s.linea IS NOT DISTINCT FROM t.linea)`,
+      [M, sucursales, from, to]);
 
     await db.query('COMMIT');
-    console.log(`\n[APPLY] COMMIT — pólizas: ${del.rowCount} borrados + ${up.rowCount} upserted.`);
-    console.log(`[APPLY] documentos: ${delDoc.rowCount} borrados + ${upDoc.rowCount} upserted · líneas: ${delLine.rowCount} borrados + ${upLine.rowCount} upserted.`);
+    console.log(`\n[APPLY] COMMIT — pólizas (block-diff mes): ${del.rowCount} borrados + ${up.rowCount} reinsertados.`);
+    console.log(`[APPLY] documentos: ${upDoc.rowCount} upserted + ${delDoc.rowCount} borrados · líneas: ${upLine.rowCount} upserted + ${delLine.rowCount} borrados.`);
   } catch (e) {
     await db.query('ROLLBACK').catch(() => {});
     console.error('\nERROR (rollback):', e.message);
