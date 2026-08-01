@@ -56,6 +56,16 @@ function routeDigits(s: string | null | undefined): number | null {
   return m ? parseInt(m, 10) : null;
 }
 
+/** Downsample uniforme de la traza a ≤max puntos (conserva primero y último). */
+function downsamplePath<T>(arr: T[], max: number): T[] {
+  if (arr.length <= max) return arr;
+  const step = arr.length / max;
+  const out: T[] = [];
+  for (let i = 0; i < arr.length; i += step) out.push(arr[Math.floor(i)]);
+  if (out[out.length - 1] !== arr[arr.length - 1]) out.push(arr[arr.length - 1]);
+  return out;
+}
+
 /** Haversine en metros (sin PostGIS). */
 function haversineMeters(aLat: number, aLng: number, bLat: number, bLng: number): number {
   const R = 6371000;
@@ -121,8 +131,12 @@ export class RouteAdherenceService {
     const start = `${day}T00:00:00-06:00`;
     const end = `${day}T23:59:59.999-06:00`;
     await this.ensureBuilt(day, start, end);
+    return this.tk.run((trx) => this.buildGeoBundle(trx, vehicleId, day, start, end));
+  }
 
-    return this.tk.run(async (trx) => {
+  /** Núcleo geo (traza + paradas + tickets) de un vehículo/día, dentro de un trx dado. */
+  private async buildGeoBundle(trx: Knex.Transaction, vehicleId: string, day: string, start: string, end: string): Promise<VehicleAuditDetail> {
+    {
       // ── traza GPS (recorrido real), resuelta por el tracker ──
       const posRows = await trx('logistics.vehicle_positions as vp')
         .join('logistics.trackers as t', 't.id', 'vp.tracker_id')
@@ -237,6 +251,73 @@ export class RouteAdherenceService {
         stops,
         tickets,
       };
+    }
+  }
+
+  /**
+   * Multi-ruta — detalle geográfico de TODA la flota de ruta en un día (mapa
+   * principal). Por cada unidad con actividad: cumplimiento (plan visitado/saltado)
+   * + traza (downsampleada) + paradas + tickets. Filtrable por route_numbers.
+   * El recorrido se downsamplea a `maxPathPts` puntos/unidad para acotar el payload.
+   */
+  async fleetAuditDetail(day: string, routeNumbers?: number[], maxPathPts = 400): Promise<Array<{
+    vehicle_id: string;
+    vehicle_plate: string | null;
+    route_number: number | null;
+    coverage_pct: number | null;
+    visited_count: number;
+    planned_with_coords: number;
+    planned: AdherenceResult['planned'];
+    path: VehicleAuditDetail['path'];
+    stops: VehicleAuditDetail['stops'];
+    tickets: VehicleAuditDetail['tickets'];
+  }>> {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(day || '')) throw new BadRequestException('date inválida (YYYY-MM-DD)');
+    const start = `${day}T00:00:00-06:00`;
+    const end = `${day}T23:59:59.999-06:00`;
+    await this.ensureBuilt(day, start, end);
+    const filter = routeNumbers && routeNumbers.length ? new Set(routeNumbers) : null;
+
+    return this.tk.run(async (trx) => {
+      const withActivity: Array<{ vehicle_id: string }> = await trx('logistics.vehicle_day_summary as s')
+        .where('s.day', day)
+        .whereNotNull('s.vehicle_id')
+        .modify((qb) => applyFleetFilter(qb, trx, 'route', 's.vehicle_id'))
+        .distinct('s.vehicle_id as vehicle_id');
+      const ids = Array.from(new Set(withActivity.map((r) => r.vehicle_id)));
+      if (!ids.length) return [];
+
+      const plateRows = await trx('logistics.vehicles').whereIn('id', ids).select('id', 'plate');
+      const plateById = new Map(plateRows.map((v: any) => [v.id, v.plate ?? null]));
+      const trkRows = await trx('logistics.trackers')
+        .whereRaw('tenant_id = public.current_tenant_id()')
+        .whereIn('vehicle_id', ids)
+        .whereNotNull('route_number')
+        .whereNull('deleted_at')
+        .select('vehicle_id', 'route_number');
+      const routeByVehicle = new Map<string, number>();
+      for (const r of trkRows as any[]) if (!routeByVehicle.has(r.vehicle_id)) routeByVehicle.set(r.vehicle_id, Number(r.route_number));
+
+      const out = [];
+      for (const id of ids) {
+        const routeNum = routeByVehicle.get(id) ?? null;
+        if (filter && !(routeNum != null && filter.has(routeNum))) continue;
+        const adh = await this.computeForVehicle(trx, id, day, start, end);
+        const geo = await this.buildGeoBundle(trx, id, day, start, end);
+        out.push({
+          vehicle_id: id,
+          vehicle_plate: plateById.get(id) ?? null,
+          route_number: routeNum,
+          coverage_pct: adh.coverage_pct,
+          visited_count: adh.visited_count,
+          planned_with_coords: adh.planned_with_coords,
+          planned: adh.planned,
+          path: downsamplePath(geo.path, maxPathPts),
+          stops: geo.stops,
+          tickets: geo.tickets,
+        });
+      }
+      return out.sort((a, b) => (a.route_number ?? 999) - (b.route_number ?? 999));
     });
   }
 
@@ -322,7 +403,7 @@ export class RouteAdherenceService {
    * el cumplimiento de cada uno en una sola transacción. Ordena por peor
    * cumplimiento (evaluables primero). Es la fuente de "Auditoría de ruta".
    */
-  async forFleetDay(day: string): Promise<Array<AdherenceResult & { vehicle_plate: string | null }>> {
+  async forFleetDay(day: string): Promise<Array<AdherenceResult & { vehicle_plate: string | null; route_number: number | null }>> {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(day || '')) throw new BadRequestException('date inválida (YYYY-MM-DD)');
     const start = `${day}T00:00:00-06:00`;
     const end = `${day}T23:59:59.999-06:00`;
@@ -341,11 +422,19 @@ export class RouteAdherenceService {
 
       const plateRows = await trx('logistics.vehicles').whereIn('id', ids).select('id', 'plate');
       const plateById = new Map(plateRows.map((v: any) => [v.id, v.plate ?? null]));
+      const trkRows = await trx('logistics.trackers')
+        .whereRaw('tenant_id = public.current_tenant_id()')
+        .whereIn('vehicle_id', ids)
+        .whereNotNull('route_number')
+        .whereNull('deleted_at')
+        .select('vehicle_id', 'route_number');
+      const routeByVehicle = new Map<string, number>();
+      for (const r of trkRows as any[]) if (!routeByVehicle.has(r.vehicle_id)) routeByVehicle.set(r.vehicle_id, Number(r.route_number));
 
-      const out: Array<AdherenceResult & { vehicle_plate: string | null }> = [];
+      const out: Array<AdherenceResult & { vehicle_plate: string | null; route_number: number | null }> = [];
       for (const id of ids) {
         const r = await this.computeForVehicle(trx, id, day, start, end);
-        out.push({ ...r, vehicle_plate: plateById.get(id) ?? null });
+        out.push({ ...r, vehicle_plate: plateById.get(id) ?? null, route_number: routeByVehicle.get(id) ?? null });
       }
       // Evaluables primero, dentro de esos por peor cobertura; luego no-evaluables.
       return out.sort((a, b) => {

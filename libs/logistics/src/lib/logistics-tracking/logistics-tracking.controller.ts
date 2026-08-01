@@ -72,6 +72,17 @@ export class LogisticsTrackingController {
     return this.adherence.snapAuditRoute(vehicleId, date);
   }
 
+  @Get('fleet-audit-detail')
+  @RequireAnyPermission(Permission.LOGISTICS_FLEET_VER, Permission.RUTAS_VER)
+  @ApiOperation({ summary: 'Detalle geográfico multi-ruta del día (mapa principal): traza + paradas + tickets + tiendas por unidad' })
+  fleetAuditDetail(@Query('date') date: string, @Query('routes') routes?: string) {
+    const routeNumbers = (routes || '')
+      .split(',')
+      .map((s) => parseInt(s.trim(), 10))
+      .filter((n) => Number.isFinite(n));
+    return this.adherence.fleetAuditDetail(date, routeNumbers.length ? routeNumbers : undefined);
+  }
+
   // ── LTV.0 Viajes / paradas reconstruidas ───────────────────────────────────
   @Get('trips/day-summary')
   @RequireAnyPermission(Permission.LOGISTICS_FLEET_VER, Permission.RUTAS_VER)
