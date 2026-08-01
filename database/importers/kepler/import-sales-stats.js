@@ -68,7 +68,7 @@ const SELECT_STATS = `
     await db.query('BEGIN');
     await db.query(`SET LOCAL app.tenant_id = '${M}'`);
     const up = await db.query(
-      `INSERT INTO analytics.product_sales_stats
+      `INSERT INTO analytics.product_sales_stats AS p
          (tenant_id, product_id, units_30d, revenue_30d, units_90d, revenue_90d,
           units_365d, revenue_365d, abc_class, revenue_share_pct, computed_at)
        SELECT $1, product_id, units_30d, revenue_30d, units_90d, revenue_90d,
@@ -79,7 +79,12 @@ const SELECT_STATS = `
          units_90d=EXCLUDED.units_90d, revenue_90d=EXCLUDED.revenue_90d,
          units_365d=EXCLUDED.units_365d, revenue_365d=EXCLUDED.revenue_365d,
          abc_class=EXCLUDED.abc_class, revenue_share_pct=EXCLUDED.revenue_share_pct,
-         computed_at=now()`, [M]);
+         computed_at=now()
+       WHERE (p.units_30d, p.revenue_30d, p.units_90d, p.revenue_90d, p.units_365d,
+              p.revenue_365d, p.abc_class, p.revenue_share_pct)
+             IS DISTINCT FROM
+             (EXCLUDED.units_30d, EXCLUDED.revenue_30d, EXCLUDED.units_90d, EXCLUDED.revenue_90d,
+              EXCLUDED.units_365d, EXCLUDED.revenue_365d, EXCLUDED.abc_class, EXCLUDED.revenue_share_pct)`, [M]);
     // Limpia productos que ya no tienen ventas en la ventana (salieron del fact).
     const del = await db.query(
       `DELETE FROM analytics.product_sales_stats p
