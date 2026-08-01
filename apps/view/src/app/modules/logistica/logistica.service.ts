@@ -581,6 +581,57 @@ export interface TrackerLive {
   last_synced_at: string | null;
 }
 
+// ── LTV.19 Cockpit de flota del día (Mapa en Vivo) ───────────────────────────
+export interface FleetCockpitUnit {
+  vehicle_id: string;
+  vehicle_plate: string | null;
+  route_number: number | null;
+  km_driven: number;
+  moving_min: number;
+  stopped_min: number;
+  idle_min: number;
+  offline_min: number;
+  dead_min: number;
+  dead_stops: number;
+  off_store_stops: number;
+  customer_stops: number;
+  store_stops: number;
+  stops_count: number;
+  first_move_at: string | null;
+  last_stop_at: string | null;
+  work_min: number | null;
+  max_speed_kmh: number | null;
+  speeding: boolean;
+  liters: number;
+  fuel_cost: number;
+  km_per_liter: number | null;
+  cost_per_km: number | null;
+}
+export interface FleetDeadStop {
+  vehicle_id: string;
+  vehicle_plate: string | null;
+  route_number: number | null;
+  lat: number;
+  lng: number;
+  arrived_at: string;
+  left_at: string | null;
+  minutes: number;
+}
+export interface FleetCockpitBundle {
+  date: string;
+  units: FleetCockpitUnit[];
+  dead_stops: FleetDeadStop[];
+  totals: {
+    units: number;
+    km: number;
+    idle_min: number;
+    dead_min: number;
+    liters: number;
+    fuel_cost: number;
+    off_store_stops: number;
+  };
+}
+
 export interface FleetAlertRow {
   id: string;
   tracker_id: string;
@@ -1158,6 +1209,12 @@ export class LogisticaService {
     let params = new HttpParams();
     if (fleet) params = params.set('fleet', fleet);
     return this.http.get<TrackerLive[]>(`${this.base}/tracking/live`, { params });
+  }
+  // LTV.19 — Cockpit de flota del día (productividad + combustible + idle + paradas fuera de tienda).
+  fleetCockpit(date: string, fleet?: 'route' | 'logistics'): Observable<FleetCockpitBundle> {
+    let params = new HttpParams().set('date', date);
+    if (fleet) params = params.set('fleet', fleet);
+    return this.http.get<FleetCockpitBundle>(`${this.base}/tracking/cockpit`, { params });
   }
   trackerHistory(trackerId: string, from?: string, to?: string): Observable<TrackerHistoryPoint[]> {
     let params = new HttpParams();

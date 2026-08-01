@@ -36,6 +36,14 @@ export class LogisticsTrackingController {
     return this.productivity.forFleetDay(date, fleet);
   }
 
+  // ── LTV.19 Cockpit de flota del día (Mapa en Vivo) ─────────────────────────
+  @Get('cockpit')
+  @RequireAnyPermission(Permission.LOGISTICS_FLEET_VER, Permission.RUTAS_VER)
+  @ApiOperation({ summary: 'Cockpit de flota del día: productividad + combustible (km/L, $/km) + idle + paradas fuera de tienda con geo' })
+  cockpitForDay(@Query('date') date: string, @Query('fleet') fleet?: 'route' | 'logistics') {
+    return this.productivity.cockpitForDay(date, fleet);
+  }
+
   // ── LTV.1 Cumplimiento de ruta (plan vs real) ──────────────────────────────
   @Get('adherence')
   @RequireAnyPermission(Permission.LOGISTICS_FLEET_VER, Permission.RUTAS_VER)
