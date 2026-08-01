@@ -114,7 +114,10 @@ const MAP = process.env.STOCK_BRANCH_MAP
       ON CONFLICT (tenant_id, warehouse_id, product_id) DO UPDATE
         SET min_stock=EXCLUDED.min_stock, reorder_point=EXCLUDED.reorder_point, max_stock=EXCLUDED.max_stock,
             source='kepler', computed_at=now(), updated_at=now()
-        WHERE commercial.reorder_policy.source <> 'manual'`, [M]);
+        WHERE commercial.reorder_policy.source <> 'manual'
+          AND (commercial.reorder_policy.min_stock, commercial.reorder_policy.reorder_point, commercial.reorder_policy.max_stock, commercial.reorder_policy.source)
+              IS DISTINCT FROM
+              (EXCLUDED.min_stock, EXCLUDED.reorder_point, EXCLUDED.max_stock, 'kepler')`, [M]);
     await db.query('COMMIT');
     console.log(`\n[APPLY] COMMIT — ${up.rowCount} filas de reorden upserted (${summary.length} almacenes).`);
   } catch (e) {
