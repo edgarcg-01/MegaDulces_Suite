@@ -12,6 +12,7 @@ import { ActivatedRoute, Router } from '@angular/router';
 import { ButtonModule } from 'primeng/button';
 import { MultiSelectModule } from 'primeng/multiselect';
 import { DatePickerModule } from 'primeng/datepicker';
+import { TableModule } from 'primeng/table';
 import { TooltipModule } from 'primeng/tooltip';
 import { MapComponent, MapMarker, MapLayer } from '../../../shared/components/map/map.component';
 import {
@@ -53,7 +54,7 @@ interface RouteEntry {
 @Component({
   selector: 'app-logistica-auditoria-ruta',
   standalone: true,
-  imports: [FormsModule, ButtonModule, MultiSelectModule, DatePickerModule, TooltipModule, MapComponent, ContextHelpComponent],
+  imports: [FormsModule, ButtonModule, MultiSelectModule, DatePickerModule, TableModule, TooltipModule, MapComponent, ContextHelpComponent],
   template: `
     <div class="surf-page rk-mapfirst">
       <header class="surf-page-head">
@@ -108,7 +109,7 @@ interface RouteEntry {
             </div>
             <ul class="rk-route-list">
               @for (r of routeList(); track r.vehicle_id) {
-                <li class="rk-route-item" [class.on]="isSelected(r.route_number)" [class.focus]="focusedRoute() === r.route_number" (click)="focusRoute(r.route_number)">
+                <li class="rk-route-item" role="button" tabindex="0" [class.on]="isSelected(r.route_number)" [class.focus]="focusedRoute() === r.route_number" (click)="focusRoute(r.route_number)" (keydown.enter)="focusRoute(r.route_number)" (keydown.space)="focusRoute(r.route_number); $event.preventDefault()">
                   <span class="rk-route-sw" [style.background]="r.color"></span>
                   <div class="rk-route-main">
                     <div class="rk-route-top">
@@ -138,31 +139,38 @@ interface RouteEntry {
             Detalle de cumplimiento ({{ rows().length }})
           </button>
           @if (tableOpen()) {
-            <div class="rk-table-wrap">
-              <table class="rk-table">
-                <thead>
-                  <tr><th>Ruta</th><th>Unidad</th><th style="width:26%">Cumplimiento</th><th class="num">Visitadas</th><th class="num">Auditadas</th><th class="num">Saltadas</th><th class="num">Fuera</th></tr>
-                </thead>
-                <tbody>
-                  @for (row of rows(); track row.vehicle_id) {
-                    <tr class="rk-tr" [class.sel]="focusedRoute() === row.route_number" (click)="focusRoute(row.route_number)">
-                      <td class="rk-unit"><span class="rk-route-sw sm" [style.background]="routeColor(row.route_number)"></span> {{ row.route_number != null ? 'R-' + row.route_number : '—' }}</td>
-                      <td>{{ row.vehicle_plate || shortId(row.vehicle_id) }}</td>
-                      <td>
-                        @if (row.evaluable) {
-                          <div class="rk-bar"><span [style.width.%]="row.coverage_pct ?? 0" [style.background]="coverageColor(row.coverage_pct)"></span></div>
-                          <span class="rk-bar-lbl">{{ row.coverage_pct }}%</span>
-                        } @else { <span class="rk-na">sin plan</span> }
-                      </td>
-                      <td class="num">{{ row.evaluable ? row.visited_count + '/' + row.planned_with_coords : '—' }}</td>
-                      <td class="num">{{ row.evaluable ? row.captured_count : '—' }}</td>
-                      <td class="num" [class.rk-warn]="row.skipped_count > 0">{{ row.evaluable ? row.skipped_count : '—' }}</td>
-                      <td class="num rk-dim">{{ row.off_route_count }}</td>
-                    </tr>
-                  }
-                </tbody>
-              </table>
-            </div>
+            <p-table [value]="rows()" dataKey="vehicle_id"
+              selectionMode="single" [metaKeySelection]="false"
+              [selection]="focusedRow()" (selectionChange)="onTableSelect($event)"
+              [scrollable]="true" [rowHover]="true" styleClass="p-datatable-sm rk-ptable">
+              <ng-template #header>
+                <tr>
+                  <th pFrozenColumn>Ruta</th>
+                  <th>Unidad</th>
+                  <th style="width:26%">Cumplimiento</th>
+                  <th class="num" pTooltip="Tiendas visitadas / plan con coordenadas">Visitadas</th>
+                  <th class="num" pTooltip="Visitadas con captura de auditoría">Auditadas</th>
+                  <th class="num" pTooltip="Tiendas del plan que no visitó">Saltadas</th>
+                  <th class="num" pTooltip="Paradas en tiendas fuera de la ruta">Fuera</th>
+                </tr>
+              </ng-template>
+              <ng-template #body let-row>
+                <tr [pSelectableRow]="row">
+                  <td pFrozenColumn class="rk-unit"><span class="rk-route-sw sm" [style.background]="routeColor(row.route_number)"></span> {{ row.route_number != null ? 'R-' + row.route_number : '—' }}</td>
+                  <td>{{ row.vehicle_plate || shortId(row.vehicle_id) }}</td>
+                  <td>
+                    @if (row.evaluable) {
+                      <div class="rk-bar"><span [style.width.%]="row.coverage_pct ?? 0" [style.background]="coverageColor(row.coverage_pct)"></span></div>
+                      <span class="rk-bar-lbl">{{ row.coverage_pct }}%</span>
+                    } @else { <span class="rk-na">sin plan</span> }
+                  </td>
+                  <td class="num">{{ row.evaluable ? row.visited_count + '/' + row.planned_with_coords : '—' }}</td>
+                  <td class="num">{{ row.evaluable ? row.captured_count : '—' }}</td>
+                  <td class="num" [class.rk-warn]="row.skipped_count > 0">{{ row.evaluable ? row.skipped_count : '—' }}</td>
+                  <td class="num rk-dim">{{ row.off_route_count }}</td>
+                </tr>
+              </ng-template>
+            </p-table>
           }
         </div>
       } @else if (errored()) {
@@ -201,7 +209,8 @@ interface RouteEntry {
     .rk-filters { display:flex; gap:.4rem; align-items:center; flex-wrap:wrap; margin:.25rem 0 .75rem; }
     .rk-sep { width:1px; height:1.4rem; background:var(--c-divider); margin:0 .2rem; }
     :host ::ng-deep .rk-ms { min-width:14rem; }
-    .rk-chip { display:inline-flex; align-items:center; gap:.3rem; padding:.32rem .6rem; border:1px solid var(--border-color); border-radius:99px; background:var(--card-bg); color:var(--c-text-3); font:inherit; font-size:var(--fs-micro); font-weight:var(--fw-medium); cursor:pointer; transition:all .12s; }
+    .rk-chip { display:inline-flex; align-items:center; gap:.3rem; padding:.32rem .6rem; border:1px solid var(--border-color); border-radius:99px; background:var(--card-bg); color:var(--c-text-3); font:inherit; font-size:var(--fs-micro); font-weight:var(--fw-medium); cursor:pointer; transition:color .12s, border-color .12s, background-color .12s; }
+    .rk-chip:focus-visible { outline:2px solid var(--action); outline-offset:1px; }
     .rk-chip:hover { color:var(--c-text-1); border-color:var(--c-text-3); }
     .rk-chip.on { color:var(--c-text-1); border-color:var(--action); background:var(--overlay-selected); }
     .rk-chip:disabled { opacity:.5; cursor:default; }
@@ -222,6 +231,7 @@ interface RouteEntry {
     .rk-route-item { display:flex; gap:.55rem; align-items:center; padding:.5rem .75rem; border-top:1px solid var(--c-divider); cursor:pointer; }
     .rk-route-item:first-child { border-top:none; }
     .rk-route-item:hover { background:var(--overlay-hover); }
+    .rk-route-item:focus-visible { outline:2px solid var(--action); outline-offset:-2px; }
     .rk-route-item.focus { background:var(--overlay-selected); box-shadow:inset 3px 0 0 var(--action); }
     .rk-route-item:not(.on) { opacity:.45; }
     .rk-route-sw { flex:0 0 auto; width:12px; height:12px; border-radius:3px; }
@@ -238,15 +248,13 @@ interface RouteEntry {
     .rk-table-panel { margin-top:.75rem; border:1px solid var(--border-color); border-radius:var(--r-md,8px); overflow:hidden; }
     .rk-table-toggle { width:100%; text-align:left; display:flex; align-items:center; gap:.4rem; padding:.55rem .75rem; border:0; background:var(--card-bg); font:inherit; font-size:var(--fs-sm); font-weight:var(--fw-medium); color:var(--c-text-1); cursor:pointer; }
     .rk-table-toggle:hover { background:var(--overlay-hover); }
-    .rk-table-wrap { overflow-x:auto; border-top:1px solid var(--c-divider); }
-    .rk-table { width:100%; border-collapse:collapse; font-size:var(--fs-sm); }
-    .rk-table thead th { text-align:left; padding:.5rem .7rem; font-size:var(--fs-micro); text-transform:uppercase; letter-spacing:.05em; color:var(--c-text-3); font-weight:var(--fw-bold); border-bottom:1px solid var(--c-divider); white-space:nowrap; }
-    .rk-table th.num, .rk-table td.num { text-align:right; font-variant-numeric:tabular-nums; }
-    .rk-table td.num { font-family:var(--font-mono,'Geist Mono',monospace); }
-    .rk-tr { cursor:pointer; }
-    .rk-tr > td { padding:.5rem .7rem; border-top:1px solid var(--c-divider); white-space:nowrap; }
-    .rk-tr:hover { background:var(--overlay-hover); }
-    .rk-tr.sel { background:var(--overlay-selected); box-shadow:inset 3px 0 0 var(--action); }
+    :host ::ng-deep .rk-ptable { border-top:1px solid var(--c-divider); }
+    :host ::ng-deep .rk-ptable .p-datatable-thead > tr > th { text-align:left; text-transform:uppercase; letter-spacing:.05em; font-size:var(--fs-micro); font-weight:var(--fw-bold); color:var(--c-text-3); white-space:nowrap; }
+    :host ::ng-deep .rk-ptable th.num, :host ::ng-deep .rk-ptable td.num { text-align:right; font-variant-numeric:tabular-nums; }
+    :host ::ng-deep .rk-ptable td.num { font-family:var(--font-mono,'Geist Mono',monospace); }
+    :host ::ng-deep .rk-ptable .p-datatable-tbody > tr { cursor:pointer; }
+    :host ::ng-deep .rk-ptable .p-datatable-tbody > tr.p-datatable-row-selected { background:var(--overlay-selected); box-shadow:inset 3px 0 0 var(--action); }
+    :host ::ng-deep .rk-ptable .p-datatable-tbody > tr:focus-visible { outline:2px solid var(--action); outline-offset:-2px; }
     .rk-unit { font-weight:var(--fw-medium); }
     .rk-warn { color:var(--warn-fg); } .rk-dim { color:var(--c-text-3); }
     .rk-na { color:var(--c-text-3); font-size:var(--fs-micro); font-style:italic; }
@@ -335,6 +343,11 @@ export class LogisticaAuditoriaRutaComponent {
     const rn = this.focusedRoute();
     return rn != null ? this.units().find((u) => u.route_number === rn) ?? null : null;
   });
+  /** Fila del p-table correspondiente a la ruta enfocada (para `[selection]`). */
+  readonly focusedRow = computed(() => {
+    const rn = this.focusedRoute();
+    return rn != null ? this.rows().find((r) => r.route_number === rn) ?? null : null;
+  });
 
   readonly hasData = computed(() => this.units().length > 0);
 
@@ -386,6 +399,11 @@ export class LogisticaAuditoriaRutaComponent {
     const q = this.route.snapshot.queryParamMap;
     const qDate = q.get('date');
     if (qDate && /^\d{4}-\d{2}-\d{2}$/.test(qDate)) this.date.set(qDate);
+    const qr = q.get('routes');
+    if (qr) {
+      const nums = qr.split(',').map(Number).filter((n) => Number.isFinite(n));
+      if (nums.length) this.selectedRoutes.set(nums);
+    }
     this.refresh();
   }
 
@@ -395,7 +413,25 @@ export class LogisticaAuditoriaRutaComponent {
     this.selectedRoutes.set([]);
     this.snappedRoute.set(null);
     this.porCalles.set(false);
+    this.writeUrl();
     this.refresh();
+  }
+
+  /** Fecha + rutas seleccionadas en la URL (compartible/recargable), sin ensuciar historial. */
+  private writeUrl() {
+    const r = this.selectedRoutes();
+    this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: { date: this.date(), routes: r.length ? r.join(',') : null },
+      queryParamsHandling: 'merge',
+      replaceUrl: true,
+    });
+  }
+
+  /** Selección del p-table = enfocar esa ruta (o "ver todas" si se deselecciona). */
+  onTableSelect(row: FleetAdherenceRow | null) {
+    if (row && row.route_number != null) this.focusRoute(row.route_number);
+    else this.clearFocus();
   }
 
   /** p-datepicker devuelve Date → normaliza a 'YYYY-MM-DD' local (sin corrimiento TZ). */
@@ -427,14 +463,16 @@ export class LogisticaAuditoriaRutaComponent {
     this.selectedRoutes.set(sel || []);
     this.snappedRoute.set(null);
     this.porCalles.set(false);
+    this.writeUrl();
   }
   focusRoute(rn: number | null) {
     if (rn == null) return;
     this.selectedRoutes.set([rn]);
     this.snappedRoute.set(null);
     this.porCalles.set(false);
+    this.writeUrl();
   }
-  clearFocus() { this.selectedRoutes.set([]); }
+  clearFocus() { this.selectedRoutes.set([]); this.writeUrl(); }
   isSelected(rn: number | null) { const s = this.selectedRoutes(); return !s.length || (rn != null && s.includes(rn)); }
 
   togglePorCalles() {
