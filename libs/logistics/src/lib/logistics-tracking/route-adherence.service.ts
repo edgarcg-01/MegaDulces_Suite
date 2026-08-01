@@ -50,6 +50,20 @@ export interface VehicleAuditDetail {
   }>;
 }
 
+/** Bundle geográfico por unidad para el mapa multi-ruta (batch). */
+export interface FleetAuditUnitBundle {
+  vehicle_id: string;
+  vehicle_plate: string | null;
+  route_number: number | null;
+  coverage_pct: number | null;
+  visited_count: number;
+  planned_with_coords: number;
+  planned: AdherenceResult['planned'];
+  path: VehicleAuditDetail['path'];
+  stops: VehicleAuditDetail['stops'];
+  tickets: VehicleAuditDetail['tickets'];
+}
+
 /** Número de ruta a partir de un código libre ("R-12", "RUTA 12", "12") → 12. */
 function routeDigits(s: string | null | undefined): number | null {
   const m = (s || '').replace(/\D/g, '');
@@ -260,18 +274,7 @@ export class RouteAdherenceService {
    * + traza (downsampleada) + paradas + tickets. Filtrable por route_numbers.
    * El recorrido se downsamplea a `maxPathPts` puntos/unidad para acotar el payload.
    */
-  async fleetAuditDetail(day: string, routeNumbers?: number[], maxPathPts = 400): Promise<Array<{
-    vehicle_id: string;
-    vehicle_plate: string | null;
-    route_number: number | null;
-    coverage_pct: number | null;
-    visited_count: number;
-    planned_with_coords: number;
-    planned: AdherenceResult['planned'];
-    path: VehicleAuditDetail['path'];
-    stops: VehicleAuditDetail['stops'];
-    tickets: VehicleAuditDetail['tickets'];
-  }>> {
+  async fleetAuditDetail(day: string, routeNumbers?: number[], maxPathPts = 400): Promise<FleetAuditUnitBundle[]> {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(day || '')) throw new BadRequestException('date inválida (YYYY-MM-DD)');
     const start = `${day}T00:00:00-06:00`;
     const end = `${day}T23:59:59.999-06:00`;
@@ -298,7 +301,7 @@ export class RouteAdherenceService {
       const routeByVehicle = new Map<string, number>();
       for (const r of trkRows as any[]) if (!routeByVehicle.has(r.vehicle_id)) routeByVehicle.set(r.vehicle_id, Number(r.route_number));
 
-      const out = [];
+      const out: FleetAuditUnitBundle[] = [];
       for (const id of ids) {
         const routeNum = routeByVehicle.get(id) ?? null;
         if (filter && !(routeNum != null && filter.has(routeNum))) continue;
