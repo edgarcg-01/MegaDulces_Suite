@@ -136,14 +136,27 @@ const MAP = process.env.SHIPMENTS_BRANCH_MAP
       });
       await db.query(`INSERT INTO stg_ship VALUES ${vals.join(',')}`, params);
     }
-    await db.query(`DELETE FROM analytics.erp_shipments WHERE tenant_id=$1`, [M]);
+    // Merge SIN churn: UPSERT solo-cambios (PK folio×sku) + DELETE solo lo que ya no viene.
+    // Antes: DELETE-all+INSERT reescribía toda la tabla cada noche.
     const up = await db.query(
-      `INSERT INTO analytics.erp_shipments
+      `INSERT INTO analytics.erp_shipments AS t
          (tenant_id, shipment_folio, sku, product_id, warehouse_code, route, status, doc_folio, shipped_date, quantity, unit, computed_at)
        SELECT $1, shipment_folio, sku, product_id, warehouse_code, route, status, doc_folio, shipped_date, quantity, unit, now()
-         FROM stg_ship`, [M]);
+         FROM stg_ship
+       ON CONFLICT (tenant_id, shipment_folio, sku) DO UPDATE SET
+         product_id=EXCLUDED.product_id, warehouse_code=EXCLUDED.warehouse_code, route=EXCLUDED.route,
+         status=EXCLUDED.status, doc_folio=EXCLUDED.doc_folio, shipped_date=EXCLUDED.shipped_date,
+         quantity=EXCLUDED.quantity, unit=EXCLUDED.unit, computed_at=now()
+       WHERE (t.product_id, t.warehouse_code, t.route, t.status, t.doc_folio, t.shipped_date, t.quantity, t.unit)
+             IS DISTINCT FROM
+             (EXCLUDED.product_id, EXCLUDED.warehouse_code, EXCLUDED.route, EXCLUDED.status, EXCLUDED.doc_folio,
+              EXCLUDED.shipped_date, EXCLUDED.quantity, EXCLUDED.unit)`, [M]);
+    const del = await db.query(
+      `DELETE FROM analytics.erp_shipments t
+        WHERE t.tenant_id=$1
+          AND NOT EXISTS (SELECT 1 FROM stg_ship s WHERE s.shipment_folio=t.shipment_folio AND s.sku=t.sku)`, [M]);
     await db.query('COMMIT');
-    console.log(`\n[APPLY] COMMIT — ${up.rowCount} líneas en analytics.erp_shipments.`);
+    console.log(`\n[APPLY] COMMIT — ${up.rowCount} escritas (nuevas/cambiadas) · ${del.rowCount} borradas · ${all.length} líneas en origen.`);
   } catch (e) {
     await db.query('ROLLBACK').catch(() => {});
     console.error('\nERROR (rollback):', e.message);

@@ -104,21 +104,28 @@ const SALES = `h.c2='U' AND h.c3='D' AND h.c4=10`;
       chunk.forEach((row, ri) => { const b = ri * 4; vals.push(`($${b+1},$${b+2},$${b+3},$${b+4})`); params.push(...row); });
       await db.query(`INSERT INTO stg_psm VALUES ${vals.join(',')}`, params);
     }
-    // El DELETE NO debe tocar las tiendas SOLO-Wincaja (MD-30/32/50): las alimenta
-    // import-wincaja-product-sales.js (aditivo, Kepler ciego a ellas). Sin esta
-    // exclusión, este feed Kepler las borraba en cada corrida → desaparecían de /salidas.
-    await db.query(
-      `DELETE FROM analytics.product_sales_monthly WHERE tenant_id=$1 AND month >= $2 AND month < $3
-         AND warehouse_id NOT IN (
-           SELECT id FROM commercial.warehouses
-           WHERE tenant_id=$1 AND code IN ('MD-30','MD-32','MD-50') AND deleted_at IS NULL)`,
-      [M, from, to]);
+    // Merge SIN churn: UPSERT solo-cambios + DELETE solo lo que ya no viene, en la ventana del
+    // año. Antes: DELETE-año+INSERT reescribía todo el año cada noche. NO toca las tiendas
+    // SOLO-Wincaja (MD-30/32/50) — las alimenta import-wincaja-product-sales.js (aditivo).
     const up = await db.query(
-      `INSERT INTO analytics.product_sales_monthly (id, tenant_id, product_id, warehouse_id, month, units, updated_at)
+      `INSERT INTO analytics.product_sales_monthly AS t (id, tenant_id, product_id, warehouse_id, month, units, updated_at)
        SELECT gen_random_uuid(), $1, product_id, warehouse_id, month, sum(units), now()
-         FROM stg_psm GROUP BY product_id, warehouse_id, month`, [M]);
+         FROM stg_psm GROUP BY product_id, warehouse_id, month
+       ON CONFLICT (tenant_id, product_id, warehouse_id, month) DO UPDATE SET
+         units=EXCLUDED.units, updated_at=now()
+       WHERE t.units IS DISTINCT FROM EXCLUDED.units`, [M]);
+    const del = await db.query(
+      `DELETE FROM analytics.product_sales_monthly t
+        WHERE t.tenant_id=$1 AND t.month >= $2 AND t.month < $3
+          AND t.warehouse_id NOT IN (
+            SELECT id FROM commercial.warehouses
+             WHERE tenant_id=$1 AND code IN ('MD-30','MD-32','MD-50') AND deleted_at IS NULL)
+          AND NOT EXISTS (
+            SELECT 1 FROM (SELECT product_id, warehouse_id, month FROM stg_psm GROUP BY product_id, warehouse_id, month) s
+             WHERE s.product_id=t.product_id AND s.warehouse_id=t.warehouse_id AND s.month=t.month)`,
+      [M, from, to]);
     await db.query('COMMIT');
-    console.log(`\n[APPLY] COMMIT — ${up.rowCount} filas en analytics.product_sales_monthly.`);
+    console.log(`\n[APPLY] COMMIT — ${up.rowCount} escritas (nuevas/cambiadas) · ${del.rowCount} borradas (desaparecidas).`);
   } catch (e) {
     await db.query('ROLLBACK').catch(() => {});
     console.error('\nERROR (rollback):', e.message);
