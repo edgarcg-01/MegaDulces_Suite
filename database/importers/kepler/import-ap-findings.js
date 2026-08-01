@@ -177,22 +177,56 @@ async function bulkInsert(db, table, cols, rows) {
     if (!APPLY) { await db.query('ROLLBACK'); console.log('\n[DRY-RUN] ROLLBACK — nada cambió.'); return; }
     if (!okCodes.length) { await db.query('ROLLBACK'); console.log('\n[APPLY] Ninguna sucursal conectó — nada que aplicar.'); return; }
 
-    // ap_provider: snapshot completo por sucursal (DELETE branch + INSERT)
-    await db.query(`DELETE FROM analytics.ap_provider WHERE tenant_id=$1 AND sucursal = ANY($2)`, [M, okCodes]);
-    await bulkInsert(db, 'analytics.ap_provider',
-      ['tenant_id', 'sucursal', 'proveedor_norm', 'proveedor', 'compra_12m', 'pagos_12m', 'saldo', 'num_facturas', 'ultima_compra', 'dpo_dias'],
-      apRows.map((r) => [M, ...r]));
+    // ap_provider: snapshot por sucursal, SIN churn → staging TEMP + UPSERT solo-cambios +
+    // delete-not-seen (antes: DELETE-branch+INSERT reescribía todo cada noche).
+    await db.query(`CREATE TEMP TABLE stg_ap (sucursal text, proveedor_norm text, proveedor text,
+      compra_12m numeric, pagos_12m numeric, saldo numeric, num_facturas int, ultima_compra date, dpo_dias int) ON COMMIT DROP`);
+    await bulkInsert(db, 'stg_ap',
+      ['sucursal', 'proveedor_norm', 'proveedor', 'compra_12m', 'pagos_12m', 'saldo', 'num_facturas', 'ultima_compra', 'dpo_dias'],
+      apRows);
+    const upAp = await db.query(
+      `INSERT INTO analytics.ap_provider AS t
+         (tenant_id, sucursal, proveedor_norm, proveedor, compra_12m, pagos_12m, saldo, num_facturas, ultima_compra, dpo_dias)
+       SELECT $1, sucursal, proveedor_norm, proveedor, compra_12m, pagos_12m, saldo, num_facturas, ultima_compra, dpo_dias FROM stg_ap
+       ON CONFLICT (tenant_id, sucursal, proveedor_norm) DO UPDATE SET
+         proveedor=EXCLUDED.proveedor, compra_12m=EXCLUDED.compra_12m, pagos_12m=EXCLUDED.pagos_12m, saldo=EXCLUDED.saldo,
+         num_facturas=EXCLUDED.num_facturas, ultima_compra=EXCLUDED.ultima_compra, dpo_dias=EXCLUDED.dpo_dias
+       WHERE (t.proveedor, t.compra_12m, t.pagos_12m, t.saldo, t.num_facturas, t.ultima_compra, t.dpo_dias)
+             IS DISTINCT FROM
+             (EXCLUDED.proveedor, EXCLUDED.compra_12m, EXCLUDED.pagos_12m, EXCLUDED.saldo, EXCLUDED.num_facturas, EXCLUDED.ultima_compra, EXCLUDED.dpo_dias)`,
+      [M]);
+    const delAp = await db.query(
+      `DELETE FROM analytics.ap_provider t
+        WHERE t.tenant_id=$1 AND t.sucursal = ANY($2)
+          AND NOT EXISTS (SELECT 1 FROM stg_ap s WHERE s.sucursal=t.sucursal AND s.proveedor_norm=t.proveedor_norm)`,
+      [M, okCodes]);
 
-    // findings: DELETE por sucursal+ventana + INSERT.
-    // Excluye 'solicitud_sin_aplicar' (lo maneja import-expense-requests.js; si no,
-    // este delete lo borraría al correr después en el mismo nightly).
-    await db.query(`DELETE FROM analytics.expense_findings WHERE tenant_id=$1 AND sucursal = ANY($2) AND fecha >= $3::date AND fecha <= $4::date AND tipo <> 'solicitud_sin_aplicar'`, [M, okCodes, from, to]);
-    await bulkInsert(db, 'analytics.expense_findings',
-      ['tenant_id', 'tipo', 'sucursal', 'fecha', 'doc_tipo', 'doc_folio', 'beneficiario', 'cuenta', 'importe', 'nota'],
-      findingRows.map((r) => [M, ...r]));
+    // findings (sin clave natural): set-level skip. Si el conjunto de hallazgos de la ventana
+    // es idéntico al actual, no se escribe nada; solo se reescribe cuando cambian. Excluye
+    // 'solicitud_sin_aplicar' (lo maneja import-expense-requests.js).
+    await db.query(`CREATE TEMP TABLE stg_find (tipo text, sucursal text, fecha date, doc_tipo text, doc_folio text,
+      beneficiario text, cuenta text, importe numeric, nota text) ON COMMIT DROP`);
+    await bulkInsert(db, 'stg_find',
+      ['tipo', 'sucursal', 'fecha', 'doc_tipo', 'doc_folio', 'beneficiario', 'cuenta', 'importe', 'nota'],
+      findingRows);
+    const FP_F = `concat_ws('|', tipo, sucursal, coalesce(fecha::text,''), coalesce(doc_tipo,''), coalesce(doc_folio,''),
+      coalesce(beneficiario,''), coalesce(cuenta,''), coalesce(importe::text,''), coalesce(nota,''))`;
+    const { rows: cmpF } = await db.query(
+      `SELECT (SELECT md5(coalesce(string_agg(fp, E'\\n' ORDER BY fp),'')) FROM (SELECT ${FP_F} fp FROM stg_find) a)
+            = (SELECT md5(coalesce(string_agg(fp, E'\\n' ORDER BY fp),'')) FROM (SELECT ${FP_F} fp FROM analytics.expense_findings
+                 WHERE tenant_id=$1 AND sucursal = ANY($2) AND fecha >= $3::date AND fecha <= $4::date AND tipo <> 'solicitud_sin_aplicar') b) AS same`,
+      [M, okCodes, from, to]);
+    let findingsWritten = 0;
+    if (!cmpF[0].same) {
+      await db.query(`DELETE FROM analytics.expense_findings WHERE tenant_id=$1 AND sucursal = ANY($2) AND fecha >= $3::date AND fecha <= $4::date AND tipo <> 'solicitud_sin_aplicar'`, [M, okCodes, from, to]);
+      const insF = await db.query(
+        `INSERT INTO analytics.expense_findings (tenant_id, tipo, sucursal, fecha, doc_tipo, doc_folio, beneficiario, cuenta, importe, nota)
+         SELECT $1, tipo, sucursal, fecha, doc_tipo, doc_folio, beneficiario, cuenta, importe, nota FROM stg_find`, [M]);
+      findingsWritten = insF.rowCount;
+    }
 
     await db.query('COMMIT');
-    console.log(`\n[APPLY] COMMIT — ap_provider ${apRows.length} · findings ${findingRows.length}.`);
+    console.log(`\n[APPLY] COMMIT — ap_provider: ${upAp.rowCount} escritas + ${delAp.rowCount} borradas · findings: ${cmpF[0].same ? 'sin cambios' : findingsWritten + ' reescritas'}.`);
   } catch (e) {
     await db.query('ROLLBACK').catch(() => {});
     console.error('\nERROR (rollback):', e.message);
