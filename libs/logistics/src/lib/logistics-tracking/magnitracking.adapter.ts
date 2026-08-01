@@ -3,6 +3,7 @@ import * as https from 'https';
 import {
   FleetObject,
   FleetObjectStatus,
+  FleetHistoryPoint,
   FleetProviderPort,
   ProviderOperator,
   ProviderTravel,
@@ -103,6 +104,40 @@ export class MagniTrackingAdapter implements FleetProviderPort {
         fechaSalida: t.fecha_salida || undefined,
         fechaLlegada: t.fecha_llegada || undefined,
       }));
+  }
+
+  /**
+   * Histórico de recorrido (backfill). GET history.php?imei=&from=&to=&sensors=false.
+   * `from`/`to` en "YYYY-MM-DD HH:MM:SS" hora local MX. Devuelve todos los fixes
+   * con coordenadas del rango. Requiere API oficial (el fallback no lo soporta).
+   */
+  async fetchHistory(imeis: string[], from: string, to: string): Promise<FleetHistoryPoint[]> {
+    if (!this.useOfficialApi) return [];
+    const token = await this.ensureToken();
+    const imei = (imeis && imeis.length ? imeis.join(',') : '*');
+    const qs = new URLSearchParams({ imei, from, to, sensors: 'false' }).toString();
+    const res = await fetch(`${this.baseUrl}/api/v1/endpoints/history.php?${qs}`, {
+      headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+    });
+    const json = await res.json().catch(() => null);
+    const arr: any[] = Array.isArray(json?.data) ? json.data : [];
+    const num = (x: any): number | undefined => { const n = Number(x); return Number.isFinite(n) ? n : undefined; };
+    const out: FleetHistoryPoint[] = [];
+    for (const r of arr) {
+      const capturedAt = this.toIso(r?.dt_tracker);
+      const lat = num(r?.lat), lng = num(r?.lng);
+      if (!capturedAt || lat == null || lng == null) continue;
+      out.push({
+        imei: String(r?.imei ?? '').trim(),
+        capturedAt,
+        lat, lng,
+        speedKmh: num(r?.speed),
+        heading: num(r?.angle),
+        altitude: num(r?.altitude),
+        odometer: num(r?.odometer),
+      });
+    }
+    return out;
   }
 
   private async ensureToken(): Promise<string> {

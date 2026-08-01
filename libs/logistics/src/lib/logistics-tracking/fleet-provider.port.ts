@@ -33,6 +33,18 @@ export interface ProviderOperator {
   groupName?: string;
 }
 
+/** Un punto histórico de recorrido (para backfill de "información anterior"). */
+export interface FleetHistoryPoint {
+  imei: string;
+  capturedAt: string; // ISO 8601 (dt_tracker → -06:00 MX)
+  lat: number;
+  lng: number;
+  speedKmh?: number;
+  heading?: number;
+  altitude?: number;
+  odometer?: number;
+}
+
 /** Ruta de bitácora del proveedor: amarra ruta ↔ operador ↔ camión (IMEI). */
 export interface ProviderTravel {
   noPlaneacion: string; // número de planeación (nº de ruta)
@@ -52,6 +64,11 @@ export interface FleetProviderPort {
   fetchOperators?(): Promise<ProviderOperator[]>;
   /** Rutas activas (para el puente ruta↔operador↔camión). Vacío si no soportado. */
   fetchTravels?(): Promise<ProviderTravel[]>;
+  /**
+   * Histórico de recorrido de uno o varios IMEIs en un rango (para backfill de
+   * "información anterior"). `imeis`=['*'] trae todos. Vacío si no soportado.
+   */
+  fetchHistory?(imeis: string[], from: string, to: string): Promise<FleetHistoryPoint[]>;
   /** Nombre del proveedor (para columna `provider`). */
   readonly providerName: string;
   /** ¿Hay credenciales configuradas? Si no, el poller no corre. */
