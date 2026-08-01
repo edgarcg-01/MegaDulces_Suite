@@ -249,20 +249,44 @@ async function loadDoctypeMap(src, schema) {
     if (!APPLY) { await db.query('ROLLBACK'); console.log('\n[DRY-RUN] ROLLBACK — nada cambió.'); return; }
     if (!touched.length) { await db.query('ROLLBACK'); console.log('\nSin almacenes tocados — nada que hacer.'); return; }
 
-    // Merge: reemplaza la ventana de los almacenes tocados. EXCLUYE las filas de
-    // origen Wincaja (source_branch 'W%', histórico pre-migración cargado por
-    // import-wincaja-stock-movements) — no las toca este feed Kepler.
-    const wh = touched.map((_, i) => `$${i + 2}`).join(',');
+    // Merge SIN churn: en vez de borrar+reinsertar TODA la ventana (120d) de los almacenes
+    // tocados cada noche, solo se reprocesan los BLOQUES (almacén × día) cuyo contenido
+    // cambió. Un día de movimientos es inmutable una vez cerrado en Kepler → en régimen solo
+    // cambia HOY, así el nightly toca ~1 día en vez de 120 (idéntico output, ~98% menos WAL).
+    // Fingerprint por (warehouse_id, doc_date) = md5 del contenido line-level ordenado.
+    // EXCLUYE filas Wincaja (source_branch 'W%', histórico que este feed Kepler no toca).
+    const FP = `concat_ws('|',
+      product_id::text, coalesce(sku,''), genero, naturaleza, doc_type, coalesce(doc_serie,''), doc_code,
+      movement_kind, movement_label, folio, signed_qty::text, qty::text,
+      coalesce(unit_cost::text,''), coalesce(amount::text,''),
+      coalesce(parent_group,''), coalesce(parent_serie,''), coalesce(parent_folio,''),
+      source_branch, coalesce(dest_code,''), coalesce(dest_label,''))`;
+    const wh = touched.map((_, i) => `$${i + 3}`).join(',');
     await db.query(
-      `DELETE FROM analytics.stock_movements WHERE tenant_id=$1 AND doc_date >= $${touched.length + 2}
-         AND warehouse_id IN (${wh}) AND coalesce(source_branch,'') NOT LIKE 'W%'`,
-      [M, ...touched, cutoff]
+      `CREATE TEMP TABLE mov_changed ON COMMIT DROP AS
+       WITH s AS (SELECT warehouse_id, doc_date, md5(string_agg(${FP}, E'\\n' ORDER BY ${FP})) fp
+                    FROM stg_mov GROUP BY warehouse_id, doc_date),
+            t AS (SELECT warehouse_id, doc_date, md5(string_agg(${FP}, E'\\n' ORDER BY ${FP})) fp
+                    FROM analytics.stock_movements
+                   WHERE tenant_id=$1 AND doc_date >= $2 AND warehouse_id IN (${wh})
+                     AND coalesce(source_branch,'') NOT LIKE 'W%'
+                   GROUP BY warehouse_id, doc_date)
+       SELECT warehouse_id, doc_date
+         FROM s FULL OUTER JOIN t USING (warehouse_id, doc_date)
+        WHERE s.fp IS DISTINCT FROM t.fp`,
+      [M, cutoff, ...touched]
     );
+    const chg = (await db.query(`SELECT count(*)::int n FROM mov_changed`)).rows[0].n;
+    // Solo borra los bloques (almacén×día) que cambiaron (incl. los que ya no vienen del origen).
+    await db.query(
+      `DELETE FROM analytics.stock_movements t USING mov_changed c
+        WHERE t.tenant_id=$1 AND t.warehouse_id=c.warehouse_id AND t.doc_date=c.doc_date
+          AND coalesce(t.source_branch,'') NOT LIKE 'W%'`, [M]);
     const ins = await db.query(`
       INSERT INTO analytics.stock_movements
         (tenant_id,warehouse_id,product_id,sku,doc_date,genero,naturaleza,doc_type,doc_serie,doc_code,movement_kind,movement_label,folio,signed_qty,qty,unit_cost,amount,parent_group,parent_serie,parent_folio,source_branch,dest_code,dest_label)
-      SELECT $1,warehouse_id,product_id,sku,doc_date,genero,naturaleza,doc_type,doc_serie,doc_code,movement_kind,movement_label,folio,signed_qty,qty,unit_cost,amount,parent_group,parent_serie,parent_folio,source_branch,dest_code,dest_label
-      FROM stg_mov`, [M]);
+      SELECT $1,s.warehouse_id,s.product_id,s.sku,s.doc_date,s.genero,s.naturaleza,s.doc_type,s.doc_serie,s.doc_code,s.movement_kind,s.movement_label,s.folio,s.signed_qty,s.qty,s.unit_cost,s.amount,s.parent_group,s.parent_serie,s.parent_folio,s.source_branch,s.dest_code,s.dest_label
+      FROM stg_mov s JOIN mov_changed c ON c.warehouse_id=s.warehouse_id AND c.doc_date=s.doc_date`, [M]);
     // DM.11 — auto-descubre destinos (dest_code, dest_label) sin tocar el warehouse_id curado.
     await db.query(`
       INSERT INTO analytics.transfer_dest_map (tenant_id, dest_code, dest_label)
@@ -271,7 +295,7 @@ async function loadDoctypeMap(src, schema) {
       ON CONFLICT (tenant_id, dest_code) DO UPDATE
         SET dest_label = COALESCE(EXCLUDED.dest_label, analytics.transfer_dest_map.dest_label), updated_at = now()`, [M]);
     await db.query('COMMIT');
-    console.log(`\n[APPLY] COMMIT — ${ins.rowCount} líneas de movimiento insertadas (${summary.length} almacenes).`);
+    console.log(`\n[APPLY] COMMIT — ${chg} bloques (almacén×día) cambiados · ${ins.rowCount} líneas reinsertadas (${summary.length} almacenes). Días sin cambio: intactos.`);
   } catch (e) {
     await db.query('ROLLBACK').catch(() => {});
     console.error('\nERROR (rollback):', e.message);
