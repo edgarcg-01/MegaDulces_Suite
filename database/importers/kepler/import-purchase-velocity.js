@@ -64,18 +64,33 @@ const SELECT_VELOCITY = `
 
     await db.query('BEGIN');
     await db.query(`SET LOCAL app.tenant_id = '${M}'`);
-    await db.query(`DELETE FROM analytics.purchase_velocity WHERE tenant_id = $1`, [M]);
-    const up = await db.query(`
-      INSERT INTO analytics.purchase_velocity
-        (tenant_id, warehouse_id, product_id, daily_rate, qty_90d, real_unit_cost, order_days, last_purchase, computed_at)
-      SELECT $1, v.warehouse_id, v.product_id,
-             round(v.qty_win / $2::numeric, 4),
-             round(v.qty_win, 2),
-             COALESCE(round(v.amt_win / NULLIF(v.qty_win, 0), 4), 0),
-             v.order_days, v.last_purchase, now()
+    // Refresco IDEMPOTENTE sin churn: staging TEMP → UPSERT solo-cambios → DELETE solo lo
+    // que salió del origen. Antes: DELETE-all+INSERT reescribía toda la tabla cada nightly.
+    await db.query(`
+      CREATE TEMP TABLE stg_pv ON COMMIT DROP AS
+      SELECT $1::uuid AS tenant_id, v.warehouse_id, v.product_id,
+             round(v.qty_win / $2::numeric, 4) AS daily_rate,
+             round(v.qty_win, 2) AS qty_90d,
+             COALESCE(round(v.amt_win / NULLIF(v.qty_win, 0), 4), 0) AS real_unit_cost,
+             v.order_days, v.last_purchase, now() AS computed_at
         FROM (${SELECT_VELOCITY}) v`, [M, WINDOW]);
+    const up = await db.query(`
+      INSERT INTO analytics.purchase_velocity AS t
+        (tenant_id, warehouse_id, product_id, daily_rate, qty_90d, real_unit_cost, order_days, last_purchase, computed_at)
+      SELECT tenant_id, warehouse_id, product_id, daily_rate, qty_90d, real_unit_cost, order_days, last_purchase, computed_at
+        FROM stg_pv
+      ON CONFLICT (tenant_id, warehouse_id, product_id) DO UPDATE SET
+        daily_rate=EXCLUDED.daily_rate, qty_90d=EXCLUDED.qty_90d, real_unit_cost=EXCLUDED.real_unit_cost,
+        order_days=EXCLUDED.order_days, last_purchase=EXCLUDED.last_purchase, computed_at=now()
+      WHERE (t.daily_rate, t.qty_90d, t.real_unit_cost, t.order_days, t.last_purchase)
+            IS DISTINCT FROM
+            (EXCLUDED.daily_rate, EXCLUDED.qty_90d, EXCLUDED.real_unit_cost, EXCLUDED.order_days, EXCLUDED.last_purchase)`);
+    const del = await db.query(`
+      DELETE FROM analytics.purchase_velocity t
+       WHERE t.tenant_id = $1
+         AND NOT EXISTS (SELECT 1 FROM stg_pv s WHERE s.warehouse_id = t.warehouse_id AND s.product_id = t.product_id)`, [M]);
     await db.query('COMMIT');
-    console.log(`\n[APPLY] COMMIT — ${up.rowCount} filas de velocidad de compra.`);
+    console.log(`\n[APPLY] COMMIT — ${up.rowCount} escritas (nuevas/cambiadas) · ${del.rowCount} borradas (desaparecidas).`);
   } catch (e) {
     await db.query('ROLLBACK').catch(() => {});
     console.error('\nERROR (rollback):', e.message);

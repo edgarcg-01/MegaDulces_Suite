@@ -155,7 +155,10 @@ const WHERE_TRANSFER = `(
            units = GREATEST(analytics.transfers_monthly.units, EXCLUDED.units),
            value = GREATEST(analytics.transfers_monthly.value, EXCLUDED.value),
            docs  = GREATEST(analytics.transfers_monthly.docs,  EXCLUDED.docs),
-           updated_at = now()`, params);
+           updated_at = now()
+         WHERE EXCLUDED.units > analytics.transfers_monthly.units
+            OR EXCLUDED.value > analytics.transfers_monthly.value
+            OR EXCLUDED.docs  > analytics.transfers_monthly.docs`, params);
       upserts += res.rowCount;
     }
     await db.query('COMMIT');
