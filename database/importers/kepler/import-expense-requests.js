@@ -133,14 +133,24 @@ async function bulkInsert(db, table, cols, rows) {
         FROM stg_link l
        WHERE d.tenant_id=$1 AND d.sucursal=l.sucursal AND d.doc_tipo='XA1001' AND d.doc_folio=l.gasto_folio`, [M]);
 
-    // Hallazgo solicitud_sin_aplicar: reemplaza SOLO su tipo (no toca iva_bug/prov_203/anticipo_107).
-    await db.query(`DELETE FROM analytics.expense_findings WHERE tenant_id=$1 AND tipo='solicitud_sin_aplicar' AND sucursal = ANY($2)`, [M, okCodes]);
-    const upFind = await db.query(`
-      INSERT INTO analytics.expense_findings (tenant_id,tipo,sucursal,fecha,doc_tipo,doc_folio,beneficiario,importe,nota,computed_at)
-      SELECT $1,'solicitud_sin_aplicar',sucursal,fecha,'XA1501',doc_folio,beneficiario,importe,nota,now() FROM stg_reqfind`, [M]);
+    // Hallazgo solicitud_sin_aplicar (sin clave natural): set-level skip. Solo se reescribe
+    // cuando el conjunto cambió → cero churn diario cuando no hay solicitudes nuevas sin aplicar.
+    const FP_R = `concat_ws('|', sucursal, coalesce(fecha::text,''), coalesce(doc_folio,''), coalesce(beneficiario,''), coalesce(importe::text,''), coalesce(nota,''))`;
+    const { rows: cmpR } = await db.query(
+      `SELECT (SELECT md5(coalesce(string_agg(fp, E'\\n' ORDER BY fp),'')) FROM (SELECT ${FP_R} fp FROM stg_reqfind) a)
+            = (SELECT md5(coalesce(string_agg(fp, E'\\n' ORDER BY fp),'')) FROM (SELECT ${FP_R} fp FROM analytics.expense_findings
+                 WHERE tenant_id=$1 AND tipo='solicitud_sin_aplicar' AND sucursal = ANY($2)) b) AS same`, [M, okCodes]);
+    let upFindCount = 0;
+    if (!cmpR[0].same) {
+      await db.query(`DELETE FROM analytics.expense_findings WHERE tenant_id=$1 AND tipo='solicitud_sin_aplicar' AND sucursal = ANY($2)`, [M, okCodes]);
+      const upFind = await db.query(`
+        INSERT INTO analytics.expense_findings (tenant_id,tipo,sucursal,fecha,doc_tipo,doc_folio,beneficiario,importe,nota,computed_at)
+        SELECT $1,'solicitud_sin_aplicar',sucursal,fecha,'XA1501',doc_folio,beneficiario,importe,nota,now() FROM stg_reqfind`, [M]);
+      upFindCount = upFind.rowCount;
+    }
 
     await db.query('COMMIT');
-    console.log(`\n[APPLY] COMMIT — requests: ${upReq.rowCount} · doc.solicitud actualizados: ${upDoc.rowCount} · hallazgos sin_aplicar: ${upFind.rowCount}`);
+    console.log(`\n[APPLY] COMMIT — requests: ${upReq.rowCount} · doc.solicitud actualizados: ${upDoc.rowCount} · hallazgos sin_aplicar: ${cmpR[0].same ? 'sin cambios' : upFindCount + ' reescritos'}`);
   } catch (e) {
     await db.query('ROLLBACK').catch(() => {});
     console.error('ERROR:', e.message);
