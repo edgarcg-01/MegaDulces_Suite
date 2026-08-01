@@ -39,7 +39,24 @@ export const routes: Routes = [
       { path: 'route-tracking', data: { fleet: 'route' }, loadComponent: () => import('../app/modules/logistica/pages/logistica-rastreo.component').then(m => m.LogisticaRastreoComponent), canActivate: [permissionGuard(Permission.RUTAS_VER)] },
       { path: 'route-activity', data: { fleet: 'route' }, loadComponent: () => import('../app/modules/logistica/pages/logistica-actividad.component').then(m => m.LogisticaActividadComponent), canActivate: [permissionGuard(Permission.RUTAS_VER)] },
       { path: 'route-compliance', loadComponent: () => import('../app/modules/logistica/pages/logistica-auditoria-ruta.component').then(m => m.LogisticaAuditoriaRutaComponent), canActivate: [permissionGuard(Permission.RUTAS_VER)] },
-      { path: 'field-map', loadComponent: () => import('./modules/dashboard/field-map/field-map.component').then(m => m.FieldMapComponent), canActivate: [anyPermissionGuard(Permission.RUTAS_VER, Permission.COMMERCIAL_MAP_VER)] },
+      // Hub "Auditoría de ruta" (camionetas de ruta): Cumplimiento + Rastreo + Actividad en tabs ruteadas.
+      {
+        path: 'route-audit',
+        loadComponent: () => import('./shared/components/tab-shell/tab-shell.component').then(m => m.TabShellComponent),
+        canActivate: [permissionGuard(Permission.RUTAS_VER)],
+        data: { tabs: [
+          { label: 'Cumplimiento', path: 'cumplimiento', icon: 'pi-check-circle' },
+          { label: 'Rastreo en vivo', path: 'rastreo', icon: 'pi-map-marker' },
+          { label: 'Actividad', path: 'actividad', icon: 'pi-chart-bar' },
+        ] },
+        children: [
+          { path: '', pathMatch: 'full', redirectTo: 'cumplimiento' },
+          { path: 'cumplimiento', loadComponent: () => import('../app/modules/logistica/pages/logistica-auditoria-ruta.component').then(m => m.LogisticaAuditoriaRutaComponent) },
+          { path: 'rastreo', data: { fleet: 'route' }, loadComponent: () => import('../app/modules/logistica/pages/logistica-rastreo.component').then(m => m.LogisticaRastreoComponent) },
+          { path: 'actividad', data: { fleet: 'route' }, loadComponent: () => import('../app/modules/logistica/pages/logistica-actividad.component').then(m => m.LogisticaActividadComponent) },
+        ],
+      },
+      { path: 'field-map', loadComponent: () => import('./modules/dashboard/field-map/field-map.component').then(m => m.FieldMapComponent), canActivate: [permissionGuard(Permission.RUTAS_VER)] },
       { path: 'vendor-history', loadComponent: () => import('./modules/dashboard/vendor-history/vendor-history.component').then(m => m.VendorHistoryComponent), canActivate: [permissionGuard(Permission.RUTAS_VER)] },
       { path: 'commercial-map', loadComponent: () => import('./modules/dashboard/commercial-map/commercial-map.component').then(m => m.CommercialMapComponent), canActivate: [permissionGuard(Permission.COMMERCIAL_MAP_VER)] },
       { path: 'supervisor-ai', loadComponent: () => import('./modules/dashboard/supervisor-ai/supervisor-ai.component').then(m => m.SupervisorAiComponent), canActivate: [permissionGuard(Permission.SUPERVISOR_AI_VER)] },
@@ -656,6 +673,23 @@ export const routes: Routes = [
         data: { fleet: 'logistics' },
         loadComponent: () => import('./modules/logistica/pages/logistica-actividad.component').then(m => m.LogisticaActividadComponent),
         canActivate: [permissionGuard(Permission.LOGISTICS_FLEET_VER)]
+      },
+      // Hub "Rastreo" (flota logística): Flota en vivo + Rastreo GPS + Actividad en tabs ruteadas.
+      {
+        path: 'tracking',
+        loadComponent: () => import('./shared/components/tab-shell/tab-shell.component').then(m => m.TabShellComponent),
+        canActivate: [permissionGuard(Permission.LOGISTICS_FLEET_VER)],
+        data: { tabs: [
+          { label: 'Flota en vivo', path: 'live', icon: 'pi-map-marker' },
+          { label: 'Rastreo GPS', path: 'gps', icon: 'pi-map' },
+          { label: 'Actividad', path: 'actividad', icon: 'pi-chart-bar' },
+        ] },
+        children: [
+          { path: '', pathMatch: 'full', redirectTo: 'live' },
+          { path: 'live', loadComponent: () => import('./modules/logistica/pages/logistica-live.component').then(m => m.LogisticaLiveComponent) },
+          { path: 'gps', data: { fleet: 'logistics' }, loadComponent: () => import('./modules/logistica/pages/logistica-rastreo.component').then(m => m.LogisticaRastreoComponent) },
+          { path: 'actividad', data: { fleet: 'logistics' }, loadComponent: () => import('./modules/logistica/pages/logistica-actividad.component').then(m => m.LogisticaActividadComponent) },
+        ],
       },
       // J12.3 — Planeador de ruta (mapa + optimización)
       {
