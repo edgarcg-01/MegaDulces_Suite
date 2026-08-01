@@ -11,6 +11,7 @@ import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
 import { ButtonModule } from 'primeng/button';
 import { MultiSelectModule } from 'primeng/multiselect';
+import { DatePickerModule } from 'primeng/datepicker';
 import { TooltipModule } from 'primeng/tooltip';
 import { MapComponent, MapMarker, MapLayer } from '../../../shared/components/map/map.component';
 import {
@@ -22,14 +23,12 @@ import {
   AuditTicket,
   AuditRoute,
 } from '../logistica.service';
-import { todayMx } from '../../../core/utils/mx-date';
+import { todayMx, parseLocalDate } from '../../../core/utils/mx-date';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 
-/** Paleta categórica por ruta (encoding de datos en el mapa). */
-const ROUTE_PALETTE = [
-  '#F05A28', '#2E7D32', '#C62828', '#00838F', '#B8860B', '#7B1FA2',
-  '#EF6C00', '#00695C', '#AD1457', '#558B2F', '#5D4037', '#455A64',
-];
+/** Paleta categórica por ruta (encoding de datos). Usa la secuencia tokenizada
+ *  `--chart-1..8` (light+dark) en vez de hex fijos → adapta al tema oscuro. */
+const ROUTE_PALETTE = Array.from({ length: 8 }, (_, i) => `var(--chart-${i + 1})`);
 
 interface RouteEntry {
   route_number: number | null;
@@ -54,7 +53,7 @@ interface RouteEntry {
 @Component({
   selector: 'app-logistica-auditoria-ruta',
   standalone: true,
-  imports: [FormsModule, ButtonModule, MultiSelectModule, TooltipModule, MapComponent, ContextHelpComponent],
+  imports: [FormsModule, ButtonModule, MultiSelectModule, DatePickerModule, TooltipModule, MapComponent, ContextHelpComponent],
   template: `
     <div class="surf-page rk-mapfirst">
       <header class="surf-page-head">
@@ -67,7 +66,9 @@ interface RouteEntry {
           </p>
         </div>
         <div class="rk-actions">
-          <input type="date" class="rk-date" [ngModel]="date()" (ngModelChange)="setDate($event)" [max]="today" aria-label="Fecha" />
+          <p-datepicker [ngModel]="dateObj()" (ngModelChange)="onDatePick($event)" [maxDate]="todayObj"
+            dateFormat="dd/mm/yy" [showIcon]="true" appendTo="body" inputStyleClass="rk-date" styleClass="rk-dp"
+            [inputStyle]="{ width: '8.5rem' }" ariaLabel="Fecha" />
           <button pButton [text]="true" size="small" [loading]="loading()" (click)="refresh()" aria-label="Refrescar"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span><span class="p-button-label">Actualizar</span></button>
           <app-context-help topic="route-compliance" />
         </div>
@@ -81,16 +82,18 @@ interface RouteEntry {
           placeholder="Todas las rutas" selectedItemsLabel="{0} rutas" styleClass="rk-ms" [maxSelectedLabels]="3"
           [disabled]="!routeOptions().length" />
         <span class="rk-sep" aria-hidden="true"></span>
-        <button type="button" class="rk-chip" [class.on]="showRecorrido()" (click)="showRecorrido.set(!showRecorrido())" pTooltip="Puede ser pesado con muchas rutas"><i class="rk-dash" aria-hidden="true"></i> Recorrido</button>
-        <button type="button" class="rk-chip" [class.on]="showParadas()" (click)="showParadas.set(!showParadas())"><i class="rk-num" aria-hidden="true">③</i> Paradas</button>
-        <button type="button" class="rk-chip" [class.on]="showTiendas()" (click)="showTiendas.set(!showTiendas())"><i class="rk-dot-lg" style="background:var(--ok-fg)" aria-hidden="true"></i> Tiendas</button>
-        <button type="button" class="rk-chip" [class.on]="showTickets()" (click)="showTickets.set(!showTickets())"><i class="rk-dot-lg" style="background:var(--action)" aria-hidden="true"></i> Tickets</button>
+        <button type="button" class="rk-chip" [class.on]="showRecorrido()" [attr.aria-pressed]="showRecorrido()" (click)="showRecorrido.set(!showRecorrido())" pTooltip="Puede ser pesado con muchas rutas"><i class="rk-dash" aria-hidden="true"></i> Recorrido</button>
+        <button type="button" class="rk-chip" [class.on]="showParadas()" [attr.aria-pressed]="showParadas()" (click)="showParadas.set(!showParadas())"><i class="rk-num" aria-hidden="true">③</i> Paradas</button>
+        <button type="button" class="rk-chip" [class.on]="showTiendas()" [attr.aria-pressed]="showTiendas()" (click)="showTiendas.set(!showTiendas())"><i class="rk-dot-lg" style="background:var(--ok-fg)" aria-hidden="true"></i> Tiendas</button>
+        <button type="button" class="rk-chip" [class.on]="showTickets()" [attr.aria-pressed]="showTickets()" (click)="showTickets.set(!showTickets())"><i class="rk-dot-lg" style="background:var(--action)" aria-hidden="true"></i> Tickets</button>
         @if (focusedRoute() != null) {
-          <button type="button" class="rk-chip rk-chip-calles" [class.on]="porCalles()" [disabled]="snapLoading()" (click)="togglePorCalles()" pTooltip="Pega el recorrido de la ruta enfocada a las calles"><i class="pi" [class.pi-directions]="!snapLoading()" [class.pi-spinner]="snapLoading()" [class.pi-spin]="snapLoading()" aria-hidden="true"></i> Por calles</button>
+          <button type="button" class="rk-chip rk-chip-calles" [class.on]="porCalles()" [attr.aria-pressed]="porCalles()" [disabled]="snapLoading()" (click)="togglePorCalles()" pTooltip="Pega el recorrido de la ruta enfocada a las calles"><i class="pi" [class.pi-directions]="!snapLoading()" [class.pi-spinner]="snapLoading()" [class.pi-spin]="snapLoading()" aria-hidden="true"></i> Por calles</button>
         }
       </div>
 
-      @if (hasData()) {
+      @if (!hasData() && (loading() || unitsLoading())) {
+        <div class="rk-loading"><i class="pi pi-spin pi-spinner" aria-hidden="true"></i> Cargando rutas del día…</div>
+      } @else if (hasData()) {
         <div class="rk-map-grid">
           <!-- Mapa principal -->
           <div class="rk-map-main">
@@ -161,6 +164,15 @@ interface RouteEntry {
               </table>
             </div>
           }
+        </div>
+      } @else if (errored()) {
+        <div class="rk-empty">
+          <div class="rk-empty-icon"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i></div>
+          <h3>No se pudo cargar la auditoría</h3>
+          <p>Revisá tu conexión y reintentá.</p>
+          <div class="rk-empty-actions">
+            <button pButton size="small" [loading]="loading()" (click)="refresh()"><span class="p-button-label">Reintentar</span></button>
+          </div>
         </div>
       } @else {
         <div class="rk-empty">
@@ -242,6 +254,7 @@ interface RouteEntry {
     .rk-bar span { display:block; height:100%; background:var(--ok-fg); }
     .rk-bar-lbl { display:inline-block; width:2.6rem; text-align:right; font-family:var(--font-mono,'Geist Mono',monospace); font-variant-numeric:tabular-nums; font-size:var(--fs-micro); color:var(--c-text-2); }
 
+    .rk-loading { display:flex; align-items:center; justify-content:center; gap:.5rem; padding:4rem 1.5rem; color:var(--c-text-3); font-size:var(--fs-sm); }
     .rk-empty { text-align:center; padding:3rem 1.5rem; max-width:460px; margin:0 auto; }
     .rk-empty-icon { width:56px; height:56px; margin:0 auto 1rem; border-radius:14px; background:var(--c-surface-2); color:var(--c-text-2); display:grid; place-items:center; font-size:1.5rem; }
     .rk-empty h3 { margin:0 0 .375rem; font-size:var(--fs-h3); font-weight:var(--fw-bold); }
@@ -259,6 +272,9 @@ export class LogisticaAuditoriaRutaComponent {
 
   readonly today = todayMx();
   readonly date = signal<string>(this.today);
+  /** p-datepicker trabaja con Date; el estado canónico es 'YYYY-MM-DD' (TZ-safe, mx-date). */
+  readonly todayObj = parseLocalDate(this.today);
+  readonly dateObj = computed(() => parseLocalDate(this.date()));
   readonly rows = signal<FleetAdherenceRow[]>([]);
   readonly units = signal<FleetAuditUnit[]>([]);
   readonly loading = signal(false);
@@ -382,6 +398,13 @@ export class LogisticaAuditoriaRutaComponent {
     this.refresh();
   }
 
+  /** p-datepicker devuelve Date → normaliza a 'YYYY-MM-DD' local (sin corrimiento TZ). */
+  onDatePick(d: Date | null) {
+    if (!d) return;
+    const s = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    this.setDate(s);
+  }
+
   refresh() {
     this.loading.set(true);
     this.unitsLoading.set(true);
@@ -392,7 +415,7 @@ export class LogisticaAuditoriaRutaComponent {
     });
     this.api.fleetAuditDetail(this.date()).subscribe({
       next: (u) => { this.units.set(u || []); this.unitsLoading.set(false); },
-      error: () => { this.units.set([]); this.unitsLoading.set(false); },
+      error: () => { this.units.set([]); this.unitsLoading.set(false); this.errored.set(true); },
     });
   }
 
