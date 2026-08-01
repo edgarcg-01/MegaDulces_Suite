@@ -5,8 +5,12 @@
  * Materializa UNA VEZ las primitivas que /compras/pedido recomputaba en cada carga ×3 endpoints:
  * ratio de canal (scan sales_daily 90d), demanda 30d, existencia, tránsito, econ (suf/bf/uxc/costo),
  * topología y demanda efectiva (sucursal=propia; CEDIS=Σ hijos). Product_id ya CANÓNICO (aliases
- * plegados). REPLACE por tenant. Sin Kepler → corre directo contra la DB nueva (Railway o local).
+ * plegados). Sin Kepler → corre directo contra la DB nueva (Railway o local).
  * Lo dispara el runner on-prem (nightly + ciclo stock-live), igual que import-demand-clean.
+ *
+ * Refresco IDEMPOTENTE sin churn: staging TEMP → UPSERT que solo escribe filas cambiadas
+ * (IS DISTINCT FROM) → DELETE solo de lo que ya no viene. Antes hacía DELETE-all+INSERT
+ * (reescribía toda la tabla cada 15-30 min); ese churn era costo Railway (WAL/bloat/autovacuum).
  *
  *   DATABASE_URL_NEW=…   node database/importers/kepler/import-replenishment-plan.js          # dry-run
  *   DST_URL=…railway     node database/importers/kepler/import-replenishment-plan.js --apply  # commit
@@ -125,6 +129,17 @@ const PROJECT = `
       LEFT JOIN tr  t      ON t.warehouse_id = b.warehouse_id AND t.product_id = b.product_id
       LEFT JOIN child_dem cd ON cd.hub = b.warehouse_id AND cd.product_id = b.product_id`;
 
+// Orden EXACTO del INSERT. Key = PK; DATA = lo que se compara para saltar filas idénticas.
+const COLS = ['tenant_id', 'warehouse_id', 'product_id', 'sku', 'nombre', 'supplier_id', 'category_id',
+  'source_warehouse_id', 'is_hub', 'daily_pieces', 'revenue30', 'eff_daily', 'stock_pz', 'transit_cajas',
+  'suf', 'bf', 'caja_cost', 'price_ratio', 'unit_source', 'buy_rate', 'real_buy_cost', 'last_purchase',
+  'order_days', 'primary_wh', 'computed_at'];
+const KEY = ['tenant_id', 'warehouse_id', 'product_id'];
+const DATA = COLS.filter((c) => !KEY.includes(c) && c !== 'computed_at');
+const SET_CLAUSE = DATA.map((c) => `${c}=EXCLUDED.${c}`).join(', ') + ', computed_at=now()';
+const DIST_T = `(${DATA.map((c) => `t.${c}`).join(', ')})`;
+const DIST_E = `(${DATA.map((c) => `EXCLUDED.${c}`).join(', ')})`;
+
 (async () => {
   const db = new Client({ connectionString: DST, ssl: /rlwy|railway|proxy/i.test(DST) ? { rejectUnauthorized: false } : false });
   await db.connect();
@@ -138,15 +153,19 @@ const PROJECT = `
 
     const t0 = Date.now();
     await db.query('BEGIN');
-    await db.query(`DELETE FROM analytics.replenishment_plan WHERE tenant_id = $1`, [M]);
-    const ins = await db.query(`${CTE}
-      INSERT INTO analytics.replenishment_plan
-        (tenant_id, warehouse_id, product_id, sku, nombre, supplier_id, category_id, source_warehouse_id, is_hub,
-         daily_pieces, revenue30, eff_daily, stock_pz, transit_cajas, suf, bf, caja_cost, price_ratio, unit_source,
-         buy_rate, real_buy_cost, last_purchase, order_days, primary_wh, computed_at)
-      ${PROJECT}`, [M]);
+    await db.query(`CREATE TEMP TABLE stg_rplan ON COMMIT DROP AS ${CTE} ${PROJECT}`, [M]);
+    const up = await db.query(
+      `INSERT INTO analytics.replenishment_plan AS t (${COLS.join(', ')})
+       SELECT ${COLS.join(', ')} FROM stg_rplan
+       ON CONFLICT (tenant_id, warehouse_id, product_id) DO UPDATE SET ${SET_CLAUSE}
+       WHERE ${DIST_T} IS DISTINCT FROM ${DIST_E}`);
+    const del = await db.query(
+      `DELETE FROM analytics.replenishment_plan t
+        WHERE t.tenant_id = $1
+          AND NOT EXISTS (SELECT 1 FROM stg_rplan s
+                           WHERE s.warehouse_id = t.warehouse_id AND s.product_id = t.product_id)`, [M]);
     await db.query('COMMIT');
-    console.log(`\n[APPLY] COMMIT — ${ins.rowCount} filas en ${((Date.now() - t0) / 1000).toFixed(1)}s.`);
+    console.log(`\n[APPLY] COMMIT — ${up.rowCount} escritas (nuevas/cambiadas) · ${del.rowCount} borradas (desaparecidas) en ${((Date.now() - t0) / 1000).toFixed(1)}s.`);
   } catch (e) {
     await db.query('ROLLBACK').catch(() => {});
     console.error('\nERROR (rollback):', e.message);
