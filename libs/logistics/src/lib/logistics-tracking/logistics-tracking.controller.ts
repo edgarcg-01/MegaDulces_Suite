@@ -141,6 +141,13 @@ export class LogisticsTrackingController {
     return this.service.sync();
   }
 
+  @Post('backfill')
+  @RequirePermissions(Permission.LOGISTICS_FLEET_GESTIONAR)
+  @ApiOperation({ summary: 'Backfill de histórico del proveedor (información anterior) a vehicle_positions' })
+  backfill(@Query('from') from: string, @Query('to') to: string) {
+    return this.service.backfillHistory(from, to);
+  }
+
   @Post('bootstrap-vehicles')
   @RequirePermissions(Permission.LOGISTICS_FLEET_GESTIONAR)
   @ApiOperation({ summary: 'Crear vehículos desde los trackers sin vincular (por placa)' })

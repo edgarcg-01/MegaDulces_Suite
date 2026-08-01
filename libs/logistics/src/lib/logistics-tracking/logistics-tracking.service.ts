@@ -167,6 +167,99 @@ export class LogisticsTrackingService {
   }
 
   /**
+   * Backfill de "información anterior": trae el histórico de recorrido del
+   * proveedor (history.php) para un rango de días y lo vuelca a
+   * logistics.vehicle_positions (idempotente por el índice único
+   * tenant_id+tracker_id+captured_at). Recorre día por día (payloads acotados),
+   * resuelve el tracker por IMEI y solo inserta fixes de trackers ya registrados.
+   *
+   * @param from 'YYYY-MM-DD' (inclusive)  @param to 'YYYY-MM-DD' (inclusive)
+   */
+  async backfillHistory(
+    from: string,
+    to: string,
+    tenantId: string = DEFAULT_TENANT_ID,
+  ): Promise<{ days: number; fetched: number; inserted: number; trackers: number; ms: number }> {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(from || '') || !/^\d{4}-\d{2}-\d{2}$/.test(to || '')) {
+      throw new BadRequestException('from/to inválidos (YYYY-MM-DD)');
+    }
+    if (!this.provider.fetchHistory) {
+      throw new BadRequestException('El proveedor no soporta histórico (requiere API oficial: MAGNI_API_CLIENT_ID)');
+    }
+    if (from > to) throw new BadRequestException('from no puede ser mayor que to');
+    const started = Date.now();
+
+    // Mapa imei → {tracker_id, vehicle_id} (solo trackers ya registrados por el sync).
+    const trackers: Array<{ id: string; imei: string; vehicle_id: string | null }> = await this.tk.run(
+      tenantId,
+      (trx) =>
+        trx('logistics.trackers')
+          .whereRaw('tenant_id = public.current_tenant_id()')
+          .whereNull('deleted_at')
+          .whereNotNull('imei')
+          .select('id', 'imei', 'vehicle_id'),
+    );
+    const byImei = new Map(trackers.map((t) => [t.imei, { tracker_id: t.id, vehicle_id: t.vehicle_id }]));
+    if (!byImei.size) return { days: 0, fetched: 0, inserted: 0, trackers: 0, ms: Date.now() - started };
+
+    // Lista de días del rango (inclusive), en fecha MX.
+    const days: string[] = [];
+    for (let d = from; d <= to; d = this.addDay(d)) days.push(d);
+
+    let fetched = 0;
+    let inserted = 0;
+    for (const day of days) {
+      const points = await this.provider.fetchHistory(['*'], `${day} 00:00:00`, `${day} 23:59:59`);
+      fetched += points.length;
+      if (!points.length) continue;
+
+      const rows = points
+        .map((p) => {
+          const t = byImei.get(p.imei);
+          if (!t) return null;
+          return {
+            tenant_id: tenantId,
+            tracker_id: t.tracker_id,
+            vehicle_id: t.vehicle_id,
+            captured_at: p.capturedAt,
+            lat: p.lat,
+            lng: p.lng,
+            speed_kmh: p.speedKmh ?? null,
+            heading: p.heading ?? null,
+            odometer: p.odometer ?? null,
+            altitude: p.altitude ?? null,
+            status: (p.speedKmh ?? 0) > 3 ? 'moving' : 'stopped',
+          };
+        })
+        .filter((r): r is NonNullable<typeof r> => r !== null);
+      if (!rows.length) continue;
+
+      // Inserta en lotes idempotentes (dedupe por el índice único).
+      await this.tk.run(tenantId, async (trx) => {
+        for (let i = 0; i < rows.length; i += 500) {
+          const chunk = rows.slice(i, i + 500);
+          const res = await trx('logistics.vehicle_positions')
+            .insert(chunk)
+            .onConflict(['tenant_id', 'tracker_id', 'captured_at'])
+            .ignore();
+          inserted += (res as any)?.rowCount ?? 0;
+        }
+      });
+      this.logger.log(`backfill ${day}: ${points.length} fixes → ${inserted} insertados (acum)`);
+    }
+
+    const ms = Date.now() - started;
+    this.logger.log(`backfillHistory ${from}..${to}: ${days.length} días, ${fetched} fixes, ${inserted} insertados (${ms}ms)`);
+    return { days: days.length, fetched, inserted, trackers: byImei.size, ms };
+  }
+
+  private addDay(ymd: string): string {
+    const d = new Date(`${ymd}T00:00:00Z`);
+    d.setUTCDate(d.getUTCDate() + 1);
+    return d.toISOString().slice(0, 10);
+  }
+
+  /**
    * Última posición de cada tracker (para el mapa en vivo). Scoped por RLS.
    * `fleet`: 'route' = solo camionetas de ruta (route_number no nulo, dominio
    * Auditoría en Ruta); 'logistics' = solo flota logística (route_number nulo);
