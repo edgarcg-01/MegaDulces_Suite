@@ -99,14 +99,18 @@ const SELECT_HEALTH = `
     await db.query('BEGIN');
     await db.query(`SET LOCAL app.tenant_id = '${M}'`);
     const up = await db.query(
-      `INSERT INTO analytics.inventory_health
+      `INSERT INTO analytics.inventory_health AS t
          (tenant_id, product_id, warehouse_id, on_hand, avg_daily_units, stddev_daily_units, demand_cv, xyz_class, days_cover, status, computed_at)
        SELECT $1, product_id, warehouse_id, on_hand, avg_daily_units, stddev_daily_units, demand_cv, xyz_class, days_cover, status, now()
          FROM (${SELECT_HEALTH}) h
        ON CONFLICT (tenant_id, product_id, warehouse_id) DO UPDATE SET
          on_hand=EXCLUDED.on_hand, avg_daily_units=EXCLUDED.avg_daily_units,
          stddev_daily_units=EXCLUDED.stddev_daily_units, demand_cv=EXCLUDED.demand_cv, xyz_class=EXCLUDED.xyz_class,
-         days_cover=EXCLUDED.days_cover, status=EXCLUDED.status, computed_at=now()`, [M]);
+         days_cover=EXCLUDED.days_cover, status=EXCLUDED.status, computed_at=now()
+       WHERE (t.on_hand, t.avg_daily_units, t.stddev_daily_units, t.demand_cv, t.xyz_class, t.days_cover, t.status)
+             IS DISTINCT FROM
+             (EXCLUDED.on_hand, EXCLUDED.avg_daily_units, EXCLUDED.stddev_daily_units, EXCLUDED.demand_cv,
+              EXCLUDED.xyz_class, EXCLUDED.days_cover, EXCLUDED.status)`, [M]);
     // Purga filas cuyo (product,warehouse) ya no está en stock, o cuyo almacén
     // quedó soft-deleted (p.ej. warehouses efímeros de tests).
     const del = await db.query(

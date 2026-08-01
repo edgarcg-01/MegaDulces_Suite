@@ -78,6 +78,7 @@ const IN_TRANSIT_SQL = `
     await db.query(`CREATE TEMP TABLE stg_transit (warehouse_id uuid, product_id uuid, qty numeric, oc_count int) ON COMMIT DROP`);
 
     const summary = [];
+    const touched = []; // warehouse_ids leídos OK (para delete-not-seen, incl. los que quedaron en 0)
     for (const m of MAP) {
       const whr = (await db.query(`SELECT id FROM commercial.warehouses WHERE tenant_id=$1 AND code=$2`, [M, m.code])).rows;
       if (!whr.length) { console.log(`  ⚠ warehouse ${m.code} no existe — skip`); continue; }
@@ -105,6 +106,7 @@ const IN_TRANSIT_SQL = `
           await db.query(`INSERT INTO stg_transit (warehouse_id, product_id, qty, oc_count) VALUES ${vals.join(',')}`, params);
         }
         summary.push({ code: m.code, suc, matched, unmatched, ocs });
+        touched.push(warehouseId);
       } catch (e) {
         console.log(`  ⚠ ${m.code}: error leyendo kdm1/kdm2 (${e.message}) — skip`);
       } finally { await src.end(); }
@@ -113,18 +115,21 @@ const IN_TRANSIT_SQL = `
 
     if (!APPLY) { await db.query('ROLLBACK'); console.log('\n[DRY-RUN] ROLLBACK — nada cambió.'); return; }
 
-    // Merge: reemplaza el tránsito de los almacenes tocados (borra los viejos, upsert los nuevos).
-    await db.query(`
-      DELETE FROM analytics.purchase_in_transit pit
-      WHERE pit.tenant_id=$1 AND pit.warehouse_id IN (SELECT DISTINCT warehouse_id FROM stg_transit)`, [M]);
+    // Merge SIN churn: UPSERT solo-cambios + DELETE solo lo que ya no viene (scope = almacenes
+    // leídos OK, incl. los que quedaron en 0). Antes: DELETE-all-touched+INSERT reescribía todo.
     const up = await db.query(`
-      INSERT INTO analytics.purchase_in_transit (tenant_id, warehouse_id, product_id, qty_in_transit, oc_count, computed_at)
+      INSERT INTO analytics.purchase_in_transit AS t (tenant_id, warehouse_id, product_id, qty_in_transit, oc_count, computed_at)
       SELECT $1, warehouse_id, product_id, SUM(qty), SUM(oc_count), now()
       FROM stg_transit GROUP BY warehouse_id, product_id
       ON CONFLICT (tenant_id, warehouse_id, product_id) DO UPDATE
-        SET qty_in_transit=EXCLUDED.qty_in_transit, oc_count=EXCLUDED.oc_count, computed_at=now()`, [M]);
+        SET qty_in_transit=EXCLUDED.qty_in_transit, oc_count=EXCLUDED.oc_count, computed_at=now()
+        WHERE (t.qty_in_transit, t.oc_count) IS DISTINCT FROM (EXCLUDED.qty_in_transit, EXCLUDED.oc_count)`, [M]);
+    const del = await db.query(`
+      DELETE FROM analytics.purchase_in_transit t
+      WHERE t.tenant_id=$1 AND t.warehouse_id = ANY($2::uuid[])
+        AND NOT EXISTS (SELECT 1 FROM stg_transit s WHERE s.warehouse_id=t.warehouse_id AND s.product_id=t.product_id)`, [M, touched]);
     await db.query('COMMIT');
-    console.log(`\n[APPLY] COMMIT — ${up.rowCount} filas de tránsito upserted (${summary.length} almacenes).`);
+    console.log(`\n[APPLY] COMMIT — ${up.rowCount} escritas (nuevas/cambiadas) · ${del.rowCount} borradas (desaparecidas) (${summary.length} almacenes).`);
   } catch (e) {
     await db.query('ROLLBACK').catch(() => {});
     console.error('\nERROR (rollback):', e.message);
