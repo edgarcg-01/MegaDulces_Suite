@@ -45,21 +45,38 @@ const STORES = ['MD-30', 'MD-32', 'MD-50'];
     if (!APPLY) { console.log('(dry-run — usar --apply)'); await db.destroy(); return; }
 
     await db.transaction(async (trx) => {
-      const dM = await trx('analytics.product_sales_monthly').where({ tenant_id: TENANT }).whereIn('warehouse_id', ids).del();
+      // Merge SIN churn: UPSERT solo-cambios + delete-not-seen (scope = warehouses Wincaja).
+      // Antes: DELETE-por-warehouse+INSERT reescribía todo cada corrida.
       const iM = await trx.raw(
-        `INSERT INTO analytics.product_sales_monthly (tenant_id, product_id, warehouse_id, month, units, updated_at)
+        `INSERT INTO analytics.product_sales_monthly AS t (tenant_id, product_id, warehouse_id, month, units, updated_at)
          SELECT ?, product_id, warehouse_id, date_trunc('month', sale_date)::date, sum(units), now()
          FROM analytics.sales_daily WHERE tenant_id=? AND channel LIKE 'wincaja%' AND warehouse_id = ANY(?)
-         GROUP BY product_id, warehouse_id, date_trunc('month', sale_date)`, [TENANT, TENANT, ids]);
-      console.log(`  product_sales_monthly: -${dM} +${iM.rowCount}`);
+         GROUP BY product_id, warehouse_id, date_trunc('month', sale_date)
+         ON CONFLICT (tenant_id, product_id, warehouse_id, month) DO UPDATE SET units=EXCLUDED.units, updated_at=now()
+         WHERE t.units IS DISTINCT FROM EXCLUDED.units`, [TENANT, TENANT, ids]);
+      const dM = await trx.raw(
+        `DELETE FROM analytics.product_sales_monthly t
+          WHERE t.tenant_id=? AND t.warehouse_id = ANY(?)
+            AND NOT EXISTS (SELECT 1 FROM analytics.sales_daily s
+                             WHERE s.tenant_id=t.tenant_id AND s.channel LIKE 'wincaja%'
+                               AND s.product_id=t.product_id AND s.warehouse_id=t.warehouse_id
+                               AND date_trunc('month', s.sale_date)::date = t.month)`, [TENANT, ids]);
+      console.log(`  product_sales_monthly: ${iM.rowCount} escritas, ${dM.rowCount} borradas`);
 
-      const dD = await trx('analytics.product_sales_daily').where({ tenant_id: TENANT }).whereIn('warehouse_id', ids).del();
       const iD = await trx.raw(
-        `INSERT INTO analytics.product_sales_daily (tenant_id, product_id, warehouse_id, sale_date, units, updated_at)
+        `INSERT INTO analytics.product_sales_daily AS t (tenant_id, product_id, warehouse_id, sale_date, units, updated_at)
          SELECT ?, product_id, warehouse_id, sale_date, sum(units), now()
          FROM analytics.sales_daily WHERE tenant_id=? AND channel LIKE 'wincaja%' AND warehouse_id = ANY(?)
-         GROUP BY product_id, warehouse_id, sale_date`, [TENANT, TENANT, ids]);
-      console.log(`  product_sales_daily:   -${dD} +${iD.rowCount}`);
+         GROUP BY product_id, warehouse_id, sale_date
+         ON CONFLICT (tenant_id, product_id, warehouse_id, sale_date) DO UPDATE SET units=EXCLUDED.units, updated_at=now()
+         WHERE t.units IS DISTINCT FROM EXCLUDED.units`, [TENANT, TENANT, ids]);
+      const dD = await trx.raw(
+        `DELETE FROM analytics.product_sales_daily t
+          WHERE t.tenant_id=? AND t.warehouse_id = ANY(?)
+            AND NOT EXISTS (SELECT 1 FROM analytics.sales_daily s
+                             WHERE s.tenant_id=t.tenant_id AND s.channel LIKE 'wincaja%'
+                               AND s.product_id=t.product_id AND s.warehouse_id=t.warehouse_id AND s.sale_date=t.sale_date)`, [TENANT, ids]);
+      console.log(`  product_sales_daily:   ${iD.rowCount} escritas, ${dD.rowCount} borradas`);
     });
 
     const chk = (await db.raw(

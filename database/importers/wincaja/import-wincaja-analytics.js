@@ -113,14 +113,24 @@ const SELECT_SRC = `
   if (!APPLY) { console.log('(dry-run - usar --apply)'); await db.destroy(); return; }
 
   await db.transaction(async (trx) => {
-    const del = await trx('analytics.sales_daily').where({ tenant_id: TENANT }).where('channel', 'like', 'wincaja%').del();
-    const ins = await trx.raw(
-      `INSERT INTO analytics.sales_daily (tenant_id, product_id, warehouse_id, channel, sale_date, units, revenue, cost, tickets, unit_kind, updated_at)
-       SELECT ?, product_id, warehouse_id, channel, sale_date, units, revenue, cost, tickets, unit_kind, now()
-       FROM (${SELECT_SRC}) src`,
-      [TENANT, TENANT],
-    );
-    console.log(`analytics.sales_daily: -${del} (canales wincaja*) +${ins.rowCount} filas`);
+    // Merge SIN churn: staging TEMP → UPSERT solo-cambios → DELETE solo lo que ya no viene
+    // (scope canales wincaja%). Antes: DELETE-all-wincaja+INSERT reescribía todo cada corrida.
+    await trx.raw(`CREATE TEMP TABLE stg_wsd ON COMMIT DROP AS
+      SELECT product_id, warehouse_id, channel, sale_date, units, revenue, cost, tickets, unit_kind FROM (${SELECT_SRC}) src`, [TENANT]);
+    const up = await trx.raw(
+      `INSERT INTO analytics.sales_daily AS sd (tenant_id, product_id, warehouse_id, channel, sale_date, units, revenue, cost, tickets, unit_kind, updated_at)
+       SELECT ?, product_id, warehouse_id, channel, sale_date, units, revenue, cost, tickets, unit_kind, now() FROM stg_wsd
+       ON CONFLICT (tenant_id, product_id, warehouse_id, channel, sale_date) DO UPDATE SET
+         units=EXCLUDED.units, revenue=EXCLUDED.revenue, cost=EXCLUDED.cost, tickets=EXCLUDED.tickets, unit_kind=EXCLUDED.unit_kind, updated_at=now()
+       WHERE (sd.units, sd.revenue, sd.cost, sd.tickets, sd.unit_kind)
+             IS DISTINCT FROM (EXCLUDED.units, EXCLUDED.revenue, EXCLUDED.cost, EXCLUDED.tickets, EXCLUDED.unit_kind)`,
+      [TENANT]);
+    const del = await trx.raw(
+      `DELETE FROM analytics.sales_daily sd
+        WHERE sd.tenant_id = ? AND sd.channel LIKE 'wincaja%'
+          AND NOT EXISTS (SELECT 1 FROM stg_wsd s WHERE s.product_id=sd.product_id AND s.warehouse_id=sd.warehouse_id
+                           AND s.channel=sd.channel AND s.sale_date=sd.sale_date)`, [TENANT]);
+    console.log(`analytics.sales_daily (wincaja*): ${up.rowCount} escritas (nuevas/cambiadas), ${del.rowCount} borradas`);
   });
 
   const chk = (await db.raw(
