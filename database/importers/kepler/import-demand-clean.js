@@ -84,21 +84,34 @@ const DAYS = di !== -1 ? Number(process.argv[di + 1]) : 30;
 
     await db.query('BEGIN');
     await db.query(`SET LOCAL app.tenant_id = '${M}'`);
-    // Refresco full de la ventana: borra el window_days del tenant e inserta server-side.
-    await db.query(`DELETE FROM analytics.product_demand WHERE tenant_id = $1 AND window_days = $2`, [M, DAYS]);
-    const ins = await db.query(
-      `${CTE}
-       INSERT INTO analytics.product_demand
-         (tenant_id, warehouse_id, product_id, window_days, pieces, revenue, daily_pieces, daily_revenue, piece_price, computed_at)
-       SELECT $1::uuid, wp.warehouse_id, wp.product_id, $2::int,
-              (wp.rev / pp.piece_price),
-              wp.rev,
-              (wp.rev / pp.piece_price) / $2::numeric,
-              wp.rev / $2::numeric,
-              pp.piece_price, now()
+    // Refresco IDEMPOTENTE de la ventana: staging TEMP (server-side) → UPSERT que solo escribe
+    // las filas cambiadas → DELETE solo lo que salió del origen. Antes: DELETE-window+INSERT
+    // reescribía toda la ventana cada corrida (churn = costo Railway).
+    await db.query(
+      `CREATE TEMP TABLE stg_demand ON COMMIT DROP AS ${CTE}
+       SELECT $1::uuid AS tenant_id, wp.warehouse_id, wp.product_id, $2::int AS window_days,
+              (wp.rev / pp.piece_price) AS pieces, wp.rev AS revenue,
+              (wp.rev / pp.piece_price) / $2::numeric AS daily_pieces, wp.rev / $2::numeric AS daily_revenue,
+              pp.piece_price, now() AS computed_at
          FROM wp JOIN pp USING (product_id) ${WHERE}`, [M, DAYS]);
+    const up = await db.query(
+      `INSERT INTO analytics.product_demand AS d
+         (tenant_id, warehouse_id, product_id, window_days, pieces, revenue, daily_pieces, daily_revenue, piece_price, computed_at)
+       SELECT tenant_id, warehouse_id, product_id, window_days, pieces, revenue, daily_pieces, daily_revenue, piece_price, computed_at
+         FROM stg_demand
+       ON CONFLICT (tenant_id, warehouse_id, product_id, window_days) DO UPDATE SET
+         pieces=EXCLUDED.pieces, revenue=EXCLUDED.revenue, daily_pieces=EXCLUDED.daily_pieces,
+         daily_revenue=EXCLUDED.daily_revenue, piece_price=EXCLUDED.piece_price, computed_at=now()
+       WHERE (d.pieces, d.revenue, d.daily_pieces, d.daily_revenue, d.piece_price)
+             IS DISTINCT FROM
+             (EXCLUDED.pieces, EXCLUDED.revenue, EXCLUDED.daily_pieces, EXCLUDED.daily_revenue, EXCLUDED.piece_price)`);
+    const del = await db.query(
+      `DELETE FROM analytics.product_demand d
+        WHERE d.tenant_id = $1 AND d.window_days = $2
+          AND NOT EXISTS (SELECT 1 FROM stg_demand s
+                           WHERE s.warehouse_id = d.warehouse_id AND s.product_id = d.product_id)`, [M, DAYS]);
     await db.query('COMMIT');
-    console.log(`\n[APPLY] COMMIT — ${ins.rowCount} filas en analytics.product_demand.`);
+    console.log(`\n[APPLY] COMMIT — ${up.rowCount} escritas (nuevas/cambiadas) · ${del.rowCount} borradas (desaparecidas).`);
   } catch (e) {
     await db.query('ROLLBACK').catch(() => {});
     console.error('\nERROR (rollback):', e.message);
