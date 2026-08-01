@@ -1,6 +1,7 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  ViewChild,
   computed,
   inject,
   signal,
@@ -12,8 +13,8 @@ import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
 import { TooltipModule } from 'primeng/tooltip';
 import { SkeletonModule } from 'primeng/skeleton';
-import { MapComponent, MapMarker } from '../../../shared/components/map/map.component';
-import { LogisticaService, FleetAdherenceRow, AdherenceDiagnostic, VehicleAuditDetail, AuditTicket } from '../logistica.service';
+import { MapComponent, MapMarker, MapLayer } from '../../../shared/components/map/map.component';
+import { LogisticaService, FleetAdherenceRow, AdherenceDiagnostic, VehicleAuditDetail, AuditTicket, AuditStop, AuditRoute } from '../logistica.service';
 import { todayMx } from '../../../core/utils/mx-date';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
@@ -171,22 +172,34 @@ import { ContextHelpComponent } from '../../../shared/context-help/context-help.
           }
         </div>
 
-        <!-- Detalle geográfico: recorrido real + visitas + tickets ubicados -->
+        <!-- Detalle geográfico: recorrido real + paradas + visitas + tickets ubicados -->
         @if (selected(); as s) {
           <div class="sheet cols-12">
             <article class="cell cell-span-8 is-flush">
               <div class="rk-map-head">
-                <h3>Recorrido y visitas · {{ s.vehicle_plate || shortId(s.vehicle_id) }}</h3>
-                <div class="rk-legend">
-                  <span><i class="rk-dot-lg" style="background:var(--ok-fg)" aria-hidden="true"></i> Visitada</span>
-                  <span><i class="rk-dot-lg" style="background:var(--warn-fg)" aria-hidden="true"></i> Sin captura</span>
-                  <span><i class="rk-dot-lg" style="background:var(--bad-fg)" aria-hidden="true"></i> Saltada</span>
-                  <span><i class="rk-dot-lg" style="background:var(--action)" aria-hidden="true"></i> Ticket</span>
-                  <span><i class="rk-dash" aria-hidden="true"></i> Recorrido GPS</span>
+                <div>
+                  <h3>Recorrido y visitas · {{ s.vehicle_plate || shortId(s.vehicle_id) }}</h3>
+                  <p class="rk-map-summary">{{ correlation() }}</p>
+                </div>
+                <!-- Fase 5: capas conmutables + Fase 4: por calles -->
+                <div class="rk-map-tools">
+                  <button type="button" class="rk-chip" [class.on]="showRecorrido()" (click)="showRecorrido.set(!showRecorrido())"><i class="rk-dash" aria-hidden="true"></i> Recorrido</button>
+                  <button type="button" class="rk-chip" [class.on]="showParadas()" (click)="showParadas.set(!showParadas())"><i class="rk-num" aria-hidden="true">③</i> Paradas</button>
+                  <button type="button" class="rk-chip" [class.on]="showTiendas()" (click)="showTiendas.set(!showTiendas())"><i class="rk-dot-lg" style="background:var(--ok-fg)" aria-hidden="true"></i> Tiendas</button>
+                  <button type="button" class="rk-chip" [class.on]="showTickets()" (click)="showTickets.set(!showTickets())"><i class="rk-dot-lg" style="background:var(--action)" aria-hidden="true"></i> Tickets</button>
+                  <button type="button" class="rk-chip rk-chip-calles" [class.on]="porCalles()" [disabled]="snapLoading()" (click)="togglePorCalles()" pTooltip="Pega el recorrido a las calles (Mapbox)"><i class="pi" [class.pi-directions]="!snapLoading()" [class.pi-spinner]="snapLoading()" [class.pi-spin]="snapLoading()" aria-hidden="true"></i> Por calles</button>
                 </div>
               </div>
-              @if (mapMarkers().length || mapPath().length) {
-                <app-map [markers]="mapMarkers()" [path]="mapPath()" autoFit="once" height="460px"></app-map>
+              @if (hasGeo()) {
+                <app-map #map [layers]="mapLayers()" autoFit="once" height="460px"></app-map>
+                <div class="rk-legend">
+                  <span><i class="rk-dot-lg" style="background:var(--ok-fg)" aria-hidden="true"></i> Tienda visitada</span>
+                  <span><i class="rk-dot-lg" style="background:var(--warn-fg)" aria-hidden="true"></i> Sin captura</span>
+                  <span><i class="rk-dot-lg" style="background:var(--bad-fg)" aria-hidden="true"></i> Saltada</span>
+                  <span><i class="rk-num-sm" aria-hidden="true">③</i> Parada (orden del día)</span>
+                  <span><i class="rk-dot-lg" style="background:var(--action)" aria-hidden="true"></i> Ticket</span>
+                  @if (porCalles() && snappedRoute()?.low_confidence) { <span class="rk-muted">recorrido ≈ aprox</span> }
+                </div>
               } @else {
                 <div class="rk-pick"><i class="pi pi-map" aria-hidden="true"></i>
                   <p>{{ detailLoading() ? 'Cargando recorrido…' : 'Sin recorrido GPS ni tiendas geolocalizadas para esta unidad.' }}</p>
@@ -194,47 +207,77 @@ import { ContextHelpComponent } from '../../../shared/context-help/context-help.
               }
             </article>
             <article class="cell cell-span-4">
-              <div class="rk-detail-head">
-                <h3>Tickets del día</h3>
-                <span class="rk-muted">{{ detailLoading() ? 'Cargando…' : (tickets().length + ' ticket' + (tickets().length === 1 ? '' : 's')) }}</span>
+              <!-- Fase 2: tabs Paradas | Tickets -->
+              <div class="rk-tabs" role="tablist">
+                <button type="button" role="tab" class="rk-tab" [class.on]="activeTab() === 'paradas'" [attr.aria-selected]="activeTab() === 'paradas'" (click)="activeTab.set('paradas')">Paradas <span class="rk-tab-n">{{ stops().length }}</span></button>
+                <button type="button" role="tab" class="rk-tab" [class.on]="activeTab() === 'tickets'" [attr.aria-selected]="activeTab() === 'tickets'" (click)="activeTab.set('tickets')">Tickets <span class="rk-tab-n">{{ tickets().length }}</span></button>
               </div>
-              @if (tickets().length) {
-                <ul class="rk-tk">
-                  @for (t of tickets(); track t.id) {
-                    <li class="rk-tk-row">
-                      <span class="rk-tk-ico" [style.background]="ticketColor(t.ticket_type)">
-                        <i class="pi" [class.pi-dollar]="t.ticket_type === 'venta'" [class.pi-box]="t.ticket_type === 'carga'" [class.pi-bolt]="t.ticket_type === 'combustible'" aria-hidden="true"></i>
-                      </span>
-                      <div class="rk-tk-main">
-                        <div class="rk-tk-top">
-                          <span class="rk-tk-type">{{ ticketLabel(t.ticket_type) }}</span>
-                          <span class="rk-tk-time">{{ fmtTime(t.ticket_time) }}</span>
+
+              @if (activeTab() === 'paradas') {
+                @if (stops().length) {
+                  <ul class="rk-tk">
+                    @for (st of stops(); track st.seq) {
+                      <li class="rk-tk-row rk-clickable" (click)="panToStop(st)">
+                        <span class="rk-stop-num" [style.background]="stopColor(st)">{{ st.seq }}</span>
+                        <div class="rk-tk-main">
+                          <div class="rk-tk-top">
+                            <span class="rk-tk-type">{{ st.store_name || 'Parada' }}</span>
+                            <span class="rk-tk-time">{{ fmtClock(st.arrived_at) }}</span>
+                          </div>
+                          <div class="rk-tk-sub">
+                            {{ st.minutes }} min
+                            @if (st.kind === 'plan_store') { <span class="rk-chip-tag ok">· en su ruta</span> }
+                            @else if (st.kind === 'off_route') { <span class="rk-chip-tag warn">· fuera de ruta</span> }
+                            @else { <span class="rk-chip-tag">· sin tienda</span> }
+                          </div>
                         </div>
-                        <div class="rk-tk-sub">
-                          @if (t.total != null) { <b>{{ money(t.total) }}</b> }
-                          @if (t.corte_number) { <span>· corte {{ t.corte_number }}</span> }
-                          @if (t.liters != null) { <span>· {{ t.liters }} L</span> }
-                          @if (t.reference) { <span>· {{ t.reference }}</span> }
+                      </li>
+                    }
+                  </ul>
+                } @else if (!detailLoading()) {
+                  <div class="rk-pick"><i class="pi pi-flag" aria-hidden="true"></i>
+                    <p>Sin paradas ≥5 min reconstruidas para esta unidad ese día.</p>
+                  </div>
+                }
+              } @else {
+                @if (tickets().length) {
+                  <ul class="rk-tk">
+                    @for (t of tickets(); track t.id) {
+                      <li class="rk-tk-row" [class.rk-clickable]="t.located" (click)="panToTicket(t)">
+                        <span class="rk-tk-ico" [style.background]="ticketColor(t.ticket_type)">
+                          <i class="pi" [class.pi-dollar]="t.ticket_type === 'venta'" [class.pi-box]="t.ticket_type === 'carga'" [class.pi-bolt]="t.ticket_type === 'combustible'" aria-hidden="true"></i>
+                        </span>
+                        <div class="rk-tk-main">
+                          <div class="rk-tk-top">
+                            <span class="rk-tk-type">{{ ticketLabel(t.ticket_type) }}</span>
+                            <span class="rk-tk-time">{{ fmtTime(t.ticket_time) }}</span>
+                          </div>
+                          <div class="rk-tk-sub">
+                            @if (t.total != null) { <b>{{ money(t.total) }}</b> }
+                            @if (t.corte_number) { <span>· corte {{ t.corte_number }}</span> }
+                            @if (t.liters != null) { <span>· {{ t.liters }} L</span> }
+                            @if (t.reference) { <span>· {{ t.reference }}</span> }
+                          </div>
+                          <div class="rk-tk-loc">
+                            @if (t.located) {
+                              <i class="pi pi-map-marker" aria-hidden="true"></i>
+                              {{ t.near_store_name || 'ubicado por GPS' }}
+                              <span class="rk-muted">· ±{{ t.gps_gap_min }} min</span>
+                            } @else if (!t.ticket_time) {
+                              <span class="rk-muted"><i class="pi pi-clock" aria-hidden="true"></i> sin hora en el ticket</span>
+                            } @else {
+                              <span class="rk-muted"><i class="pi pi-question-circle" aria-hidden="true"></i> sin GPS a esa hora</span>
+                            }
+                          </div>
                         </div>
-                        <div class="rk-tk-loc">
-                          @if (t.located) {
-                            <i class="pi pi-map-marker" aria-hidden="true"></i>
-                            {{ t.near_store_name || 'ubicado por GPS' }}
-                            <span class="rk-muted">· ±{{ t.gps_gap_min }} min</span>
-                          } @else if (!t.ticket_time) {
-                            <span class="rk-muted"><i class="pi pi-clock" aria-hidden="true"></i> sin hora en el ticket</span>
-                          } @else {
-                            <span class="rk-muted"><i class="pi pi-question-circle" aria-hidden="true"></i> sin GPS a esa hora</span>
-                          }
-                        </div>
-                      </div>
-                    </li>
-                  }
-                </ul>
-              } @else if (!detailLoading()) {
-                <div class="rk-pick"><i class="pi pi-receipt" aria-hidden="true"></i>
-                  <p>Sin tickets de cierre subidos para esta ruta ese día.</p>
-                </div>
+                      </li>
+                    }
+                  </ul>
+                } @else if (!detailLoading()) {
+                  <div class="rk-pick"><i class="pi pi-receipt" aria-hidden="true"></i>
+                    <p>Sin tickets de cierre subidos para esta ruta ese día.</p>
+                  </div>
+                }
               }
             </article>
           </div>
@@ -386,6 +429,31 @@ import { ContextHelpComponent } from '../../../shared/context-help/context-help.
     .rk-tk-sub b { color:var(--c-text-1); font-variant-numeric:tabular-nums; }
     .rk-tk-loc { font-size:var(--fs-micro); color:var(--c-text-2); margin-top:.2rem; display:flex; align-items:center; gap:.3rem; }
     .rk-tk-loc .pi { font-size:.7rem; color:var(--action); }
+
+    /* Herramientas del mapa: capas + por calles (Fase 4/5) */
+    .rk-map-summary { margin:.15rem 0 0; font-size:var(--fs-sm); color:var(--c-text-2); }
+    .rk-map-tools { display:flex; gap:.35rem; flex-wrap:wrap; align-items:center; }
+    .rk-chip { display:inline-flex; align-items:center; gap:.3rem; padding:.28rem .55rem; border:1px solid var(--border-color); border-radius:99px; background:var(--card-bg); color:var(--c-text-3); font:inherit; font-size:var(--fs-micro); font-weight:var(--fw-medium); cursor:pointer; transition:all .12s; }
+    .rk-chip:hover { color:var(--c-text-1); border-color:var(--c-text-3); }
+    .rk-chip.on { color:var(--c-text-1); border-color:var(--action); background:var(--overlay-selected); }
+    .rk-chip:disabled { opacity:.5; cursor:default; }
+    .rk-chip .rk-dot-lg { width:8px; height:8px; }
+    .rk-chip .rk-num { font-style:normal; font-size:.85rem; line-height:1; }
+    .rk-chip-calles.on { border-color:var(--action); color:var(--action); }
+    .rk-num-sm { font-style:normal; color:var(--c-text-2); font-size:.8rem; }
+
+    /* Tabs Paradas | Tickets (Fase 2) */
+    .rk-tabs { display:flex; gap:.25rem; border-bottom:1px solid var(--c-divider); margin-bottom:.6rem; }
+    .rk-tab { appearance:none; border:0; background:transparent; padding:.45rem .6rem; font:inherit; font-size:var(--fs-sm); font-weight:var(--fw-medium); color:var(--c-text-3); cursor:pointer; border-bottom:2px solid transparent; margin-bottom:-1px; display:inline-flex; align-items:center; gap:.35rem; }
+    .rk-tab:hover { color:var(--c-text-1); }
+    .rk-tab.on { color:var(--c-text-1); border-bottom-color:var(--action); }
+    .rk-tab-n { font-size:var(--fs-micro); color:var(--c-text-3); background:var(--c-surface-2); border-radius:99px; padding:0 .4rem; font-variant-numeric:tabular-nums; }
+    .rk-clickable { cursor:pointer; }
+    .rk-clickable:hover { background:var(--overlay-hover); border-radius:var(--r-md,8px); }
+    .rk-stop-num { flex:0 0 auto; width:24px; height:24px; border-radius:50%; display:grid; place-items:center; color:#fff; font-size:var(--fs-micro); font-weight:var(--fw-bold); font-variant-numeric:tabular-nums; border:2px solid var(--card-bg); box-shadow:0 1px 3px rgba(0,0,0,.25); }
+    .rk-chip-tag { font-size:var(--fs-micro); color:var(--c-text-3); }
+    .rk-chip-tag.ok { color:var(--ok-fg); }
+    .rk-chip-tag.warn { color:var(--warn-fg); }
   `],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
@@ -404,32 +472,82 @@ export class LogisticaAuditoriaRutaComponent {
   readonly skeletonRows = [1, 2, 3, 4, 5, 6];
   readonly detail = signal<VehicleAuditDetail | null>(null);
   readonly detailLoading = signal(false);
+  @ViewChild('map') map?: MapComponent;
+
+  // Fase 5 (capas) + Fase 4 (por calles) + Fase 2 (tabs).
+  readonly showRecorrido = signal(true);
+  readonly showParadas = signal(true);
+  readonly showTiendas = signal(true);
+  readonly showTickets = signal(true);
+  readonly porCalles = signal(false);
+  readonly snappedRoute = signal<AuditRoute | null>(null);
+  readonly snapLoading = signal(false);
+  readonly activeTab = signal<'paradas' | 'tickets'>('paradas');
 
   readonly selected = computed(() => this.rows().find((r) => r.vehicle_id === this.selectedId()) ?? null);
   readonly evaluables = computed(() => this.rows().filter((r) => r.evaluable));
 
   readonly tickets = computed(() => this.detail()?.tickets ?? []);
-  readonly mapPath = computed(() => (this.detail()?.path ?? []).map((p) => ({ lat: p.lat, lng: p.lng })));
-  readonly mapMarkers = computed<MapMarker[]>(() => {
-    const out: MapMarker[] = [];
+  readonly stops = computed<AuditStop[]>(() => this.detail()?.stops ?? []);
+
+  /** Tiendas del plan (objetivo): verde=visitada, ámbar=sin captura, rojo=saltada. */
+  private readonly storeMarkers = computed<MapMarker[]>(() =>
+    (this.selected()?.planned ?? [])
+      .filter((p) => p.lat != null && p.lng != null)
+      .map((p) => ({
+        lat: p.lat!, lng: p.lng!, kind: 'pin' as const, id: 's:' + p.customer_id,
+        color: p.captured ? 'var(--ok-fg)' : p.visited ? 'var(--warn-fg)' : 'var(--bad-fg)',
+        title: `${p.name || 'Tienda'} · ${p.captured ? 'visitada + captura' : p.visited ? 'visitada sin captura' : 'saltada'}`,
+      })),
+  );
+  /** Paradas físicas: círculo numerado por orden del día; ámbar si fue fuera de ruta. */
+  private readonly stopMarkers = computed<MapMarker[]>(() =>
+    this.stops().map((st) => ({
+      lat: st.lat, lng: st.lng, seq: st.seq, kind: 'pin' as const, id: 'stop:' + st.seq,
+      color: this.stopColor(st),
+      title: `Parada ${st.seq} · ${this.fmtClock(st.arrived_at)}–${this.fmtClock(st.left_at)} (${st.minutes} min) · ${st.store_name || (st.kind === 'off_route' ? 'fuera de ruta' : 'sin tienda')}`,
+    })),
+  );
+  /** Tickets ubicados por hora. */
+  private readonly ticketMarkers = computed<MapMarker[]>(() =>
+    this.tickets()
+      .filter((t) => t.at_lat != null && t.at_lng != null)
+      .map((t) => ({
+        lat: t.at_lat!, lng: t.at_lng!, kind: 'pin' as const, id: 't:' + t.id, color: 'var(--action)',
+        title: `${this.ticketLabel(t.ticket_type)} ${this.fmtTime(t.ticket_time)}${t.total != null ? ' · ' + this.money(t.total) : ''}`,
+      })),
+  );
+  private readonly rawPath = computed(() => (this.detail()?.path ?? []).map((p) => ({ lat: p.lat, lng: p.lng })));
+
+  /** ¿Hay algo geográfico que mostrar? */
+  readonly hasGeo = computed(() => this.storeMarkers().length > 0 || this.rawPath().length > 0 || this.stopMarkers().length > 0);
+
+  /** Capas conmutables del mapa (MapKit): recorrido / paradas / tiendas / tickets. */
+  readonly mapLayers = computed<MapLayer[]>(() => {
+    const layers: MapLayer[] = [];
+    if (this.showRecorrido()) {
+      const snap = this.porCalles() ? this.snappedRoute() : null;
+      if (snap && snap.coordinates.length >= 2) {
+        layers.push({ id: 'recorrido', visible: true, tracks: [{ points: snap.coordinates.map((c) => ({ lat: c[1], lng: c[0] })), color: 'var(--action)' }] });
+      } else {
+        layers.push({ id: 'recorrido', visible: true, path: this.rawPath() });
+      }
+    }
+    if (this.showTiendas()) layers.push({ id: 'tiendas', visible: true, markers: this.storeMarkers() });
+    if (this.showParadas()) layers.push({ id: 'paradas', visible: true, markers: this.stopMarkers() });
+    if (this.showTickets()) layers.push({ id: 'tickets', visible: true, markers: this.ticketMarkers() });
+    return layers;
+  });
+
+  /** Resumen de correlación: cuántas paradas de ruta hizo y cuántas fuera. */
+  readonly correlation = computed(() => {
     const s = this.selected();
-    if (s) {
-      for (const p of s.planned) {
-        if (p.lat == null || p.lng == null) continue;
-        const color = p.captured ? 'var(--ok-fg)' : p.visited ? 'var(--warn-fg)' : 'var(--bad-fg)';
-        out.push({ lat: p.lat, lng: p.lng, title: p.name || 'Tienda', color, kind: 'pin', id: 's:' + p.customer_id });
-      }
-    }
-    const d = this.detail();
-    if (d) {
-      let i = 0;
-      for (const t of d.tickets) {
-        if (t.at_lat == null || t.at_lng == null) continue;
-        i++;
-        out.push({ lat: t.at_lat, lng: t.at_lng, title: `${this.ticketLabel(t.ticket_type)} ${this.fmtTime(t.ticket_time)}`, color: 'var(--action)', kind: 'pin', seq: i, id: 't:' + t.id });
-      }
-    }
-    return out;
+    const st = this.stops();
+    if (!s) return '';
+    const off = st.filter((x) => x.kind === 'off_route').length;
+    const inPlan = st.filter((x) => x.kind === 'plan_store').length;
+    const parts = [`${s.visited_count}/${s.planned_with_coords} tiendas de ruta`, `${st.length} parada${st.length === 1 ? '' : 's'} (${inPlan} en ruta`];
+    return `${parts[0]} · ${parts[1]}${off ? `, ${off} fuera` : ''})`;
   });
 
   readonly totals = computed(() => {
@@ -524,11 +642,30 @@ export class LogisticaAuditoriaRutaComponent {
 
   private loadDetail(vehicleId: string) {
     this.detailLoading.set(true);
+    this.snappedRoute.set(null);
+    this.porCalles.set(false);
+    this.activeTab.set('paradas');
     this.api.vehicleAuditDetail(vehicleId, this.date()).subscribe({
       next: (d) => { this.detail.set(d); this.detailLoading.set(false); },
       error: () => { this.detail.set(null); this.detailLoading.set(false); },
     });
   }
+
+  /** Fase 4 — Alterna recorrido crudo ↔ pegado a calles (lazy: pide el snap una vez). */
+  togglePorCalles() {
+    const next = !this.porCalles();
+    this.porCalles.set(next);
+    if (next && !this.snappedRoute() && this.selectedId()) {
+      this.snapLoading.set(true);
+      this.api.vehicleAuditRoute(this.selectedId()!, this.date()).subscribe({
+        next: (r) => { this.snappedRoute.set(r); this.snapLoading.set(false); },
+        error: () => { this.snapLoading.set(false); this.porCalles.set(false); },
+      });
+    }
+  }
+
+  panToStop(st: AuditStop) { this.map?.panTo(st.lat, st.lng, 16); }
+  panToTicket(t: AuditTicket) { if (t.at_lat != null && t.at_lng != null) this.map?.panTo(t.at_lat, t.at_lng, 16); }
 
   /** Refleja fecha + selección en la URL sin ensuciar el historial. */
   private writeUrl() {
@@ -572,6 +709,14 @@ export class LogisticaAuditoriaRutaComponent {
   }
   fmtTime(t: string | null): string {
     return t ? String(t).slice(0, 5) : '—';
+  }
+  /** Hora HH:MM (MX) de un ISO. */
+  fmtClock(iso: string): string {
+    return new Date(iso).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'America/Mexico_City' });
+  }
+  /** Color del círculo de parada: ámbar si fue fuera de ruta; slate si no. */
+  stopColor(st: AuditStop): string {
+    return st.kind === 'off_route' ? 'var(--warn-fg)' : 'var(--c-text-2)';
   }
   money(n: number | null): string {
     if (n == null) return '—';

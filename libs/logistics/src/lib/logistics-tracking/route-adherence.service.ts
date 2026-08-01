@@ -28,7 +28,7 @@ export interface VehicleAuditDetail {
   day: string;
   route_numbers: number[];
   path: Array<{ lat: number; lng: number; captured_at: string; speed_kmh: number | null }>;
-  stops: Array<{ arrived_at: string; left_at: string; minutes: number; lat: number; lng: number; matched_store_id: string | null; store_name: string | null }>;
+  stops: Array<{ seq: number; arrived_at: string; left_at: string; minutes: number; lat: number; lng: number; matched_store_id: string | null; store_name: string | null; in_plan: boolean; kind: 'plan_store' | 'off_route' | 'unmatched' }>;
   tickets: Array<{
     id: string;
     ticket_type: string;
@@ -135,22 +135,35 @@ export class RouteAdherenceService {
         .map((r) => ({ lat: Number(r.lat), lng: Number(r.lng), captured_at: new Date(r.captured_at).toISOString(), t: new Date(r.captured_at).getTime(), speed_kmh: r.speed_kmh != null ? Number(r.speed_kmh) : null }))
         .filter((p) => Number.isFinite(p.lat) && Number.isFinite(p.lng));
 
-      // ── paradas reconstruidas del día (con tienda matcheada) ──
+      // ── paradas reconstruidas del día (con tienda matcheada + ruta) ──
       const stopRows = await trx('logistics.vehicle_stops as st')
         .leftJoin('public.stores as s', 's.id', 'st.matched_store_id')
         .where('st.vehicle_id', vehicleId)
         .whereBetween('st.arrived_at', [start, end])
         .orderBy('st.arrived_at', 'asc')
-        .select('st.arrived_at', 'st.left_at', 'st.minutes', 'st.lat', 'st.lng', 'st.matched_store_id', 's.nombre as store_name');
-      const stops = (stopRows as any[]).map((s) => ({
-        arrived_at: new Date(s.arrived_at).toISOString(),
-        left_at: new Date(s.left_at).toISOString(),
-        minutes: Number(s.minutes),
-        lat: Number(s.lat),
-        lng: Number(s.lng),
-        matched_store_id: s.matched_store_id ?? null,
-        store_name: s.store_name ?? null,
-      }));
+        .select('st.arrived_at', 'st.left_at', 'st.minutes', 'st.lat', 'st.lng', 'st.matched_store_id', 's.nombre as store_name', 's.ruta_id');
+      // Ruta dominante = la ruta_id más frecuente entre las tiendas que tocó, para
+      // saber si una parada cae DENTRO de su ruta o fue fuera de ruta.
+      const routeFreq = new Map<string, number>();
+      for (const s of stopRows as any[]) if (s.ruta_id) routeFreq.set(s.ruta_id, (routeFreq.get(s.ruta_id) || 0) + 1);
+      let dominantRoute: string | null = null, bestFreq = 0;
+      for (const [rid, c] of routeFreq) if (c > bestFreq) { bestFreq = c; dominantRoute = rid; }
+      const stops = (stopRows as any[]).map((s, i) => {
+        const inPlan = !!s.matched_store_id && !!dominantRoute && s.ruta_id === dominantRoute;
+        const kind: 'plan_store' | 'off_route' | 'unmatched' = !s.matched_store_id ? 'unmatched' : inPlan ? 'plan_store' : 'off_route';
+        return {
+          seq: i + 1,
+          arrived_at: new Date(s.arrived_at).toISOString(),
+          left_at: new Date(s.left_at).toISOString(),
+          minutes: Number(s.minutes),
+          lat: Number(s.lat),
+          lng: Number(s.lng),
+          matched_store_id: s.matched_store_id ?? null,
+          store_name: s.store_name ?? null,
+          in_plan: inPlan,
+          kind,
+        };
+      });
 
       // ── número(s) de ruta del vehículo (para ligar sus tickets) ──
       const trkRows = await trx('logistics.trackers')
@@ -225,6 +238,82 @@ export class RouteAdherenceService {
         tickets,
       };
     });
+  }
+
+  /**
+   * Fase 4 — Recorrido "por calles": pega la traza GPS del vehículo a la red de
+   * calles (Mapbox Map Matching, chunks de ≤100 pts). On-demand (el toggle lo
+   * pide). Sin MAPBOX_TOKEN o si el matching falla, cae al trazo crudo marcado
+   * como baja confianza (≈ aprox). Devuelve coords [lng,lat] (orden GeoJSON).
+   */
+  async snapAuditRoute(vehicleId: string, day: string): Promise<{ coordinates: [number, number][]; low_confidence: boolean; point_count: number }> {
+    if (!UUID_REGEX.test(vehicleId)) throw new BadRequestException('vehicle_id inválido');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(day || '')) throw new BadRequestException('date inválida (YYYY-MM-DD)');
+    const start = `${day}T00:00:00-06:00`;
+    const end = `${day}T23:59:59.999-06:00`;
+
+    const rows = await this.tk.run((trx) =>
+      trx('logistics.vehicle_positions as vp')
+        .join('logistics.trackers as t', 't.id', 'vp.tracker_id')
+        .whereRaw('vp.tenant_id = public.current_tenant_id()')
+        .where('t.vehicle_id', vehicleId)
+        .whereBetween('vp.captured_at', [start, end])
+        .orderBy('vp.captured_at', 'asc')
+        .select('vp.lat', 'vp.lng', 'vp.captured_at'),
+    );
+    let pts = (rows as any[])
+      .map((r) => ({ lat: Number(r.lat), lng: Number(r.lng), ts: new Date(r.captured_at).getTime() }))
+      .filter((p) => Number.isFinite(p.lat) && Number.isFinite(p.lng));
+    if (pts.length < 2) return { coordinates: [], low_confidence: true, point_count: pts.length };
+
+    // Downsample a ≤1000 puntos (uniforme, conserva extremos).
+    const MAX_IN = 1000;
+    if (pts.length > MAX_IN) {
+      const step = pts.length / MAX_IN;
+      const out: typeof pts = [];
+      for (let i = 0; i < pts.length; i += step) out.push(pts[Math.floor(i)]);
+      if (out[out.length - 1] !== pts[pts.length - 1]) out.push(pts[pts.length - 1]);
+      pts = out;
+    }
+
+    const token = process.env.MAPBOX_TOKEN || '';
+    const rawCoords = pts.map((p) => [p.lng, p.lat] as [number, number]);
+    if (!token) return { coordinates: rawCoords, low_confidence: true, point_count: pts.length };
+
+    const CHUNK = 100;
+    const coords: [number, number][] = [];
+    let matchedAny = false;
+    for (let i = 0; i < pts.length; i += CHUNK - 1) {
+      const chunk = pts.slice(i, i + CHUNK);
+      if (chunk.length < 2) break;
+      const seg = await this.mapboxMatch(chunk, token);
+      const source = seg ?? chunk.map((p) => [p.lng, p.lat] as [number, number]);
+      if (seg) matchedAny = true;
+      for (const c of source) {
+        const last = coords[coords.length - 1];
+        if (last && last[0] === c[0] && last[1] === c[1]) continue;
+        coords.push(c);
+      }
+    }
+    return { coordinates: coords.length >= 2 ? coords : rawCoords, low_confidence: !matchedAny, point_count: pts.length };
+  }
+
+  /** Un chunk (≤100 pts) contra Mapbox Map Matching. null si falla. */
+  private async mapboxMatch(chunk: Array<{ lat: number; lng: number; ts: number }>, token: string): Promise<[number, number][] | null> {
+    const coordStr = chunk.map((p) => `${p.lng},${p.lat}`).join(';');
+    const radiuses = chunk.map(() => 20).join(';');
+    const timestamps = chunk.map((p) => Math.floor(p.ts / 1000)).join(';');
+    const url = `https://api.mapbox.com/matching/v5/mapbox/driving/${coordStr}?geometries=geojson&overview=full&tidy=true&radiuses=${radiuses}&timestamps=${timestamps}&access_token=${token}`;
+    try {
+      const res = await fetch(url);
+      if (!res.ok) return null;
+      const json: any = await res.json();
+      const m = json?.matchings?.[0];
+      if (json?.code !== 'Ok' || !m?.geometry?.coordinates?.length) return null;
+      return m.geometry.coordinates as [number, number][];
+    } catch {
+      return null;
+    }
   }
 
   /**

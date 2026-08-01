@@ -79,6 +79,36 @@ let n = 0; const assert = (c, m) => { n++; if (!c) throw new Error('FAIL: ' + m)
     assert(Math.abs(venta.at_lat - 20.110) < 1e-6, 'ticket de venta ubicado en la coordenada del fix de 10:06');
     assert(!combustible.located && combustible.gap_min === null, 'ticket de combustible sin hora → queda sin ubicar');
 
+    // ── enriquecimiento de paradas: seq + in_plan + kind (Fase 1) ──
+    const RT = '22222222-2222-2222-2222-2222220000aa', RD = '22222222-2222-2222-2222-2222220000dd';
+    const stores = await q(`select id, latitud, longitud from public.stores where latitud is not null and longitud is not null and deleted_at is null limit 3`);
+    if (stores.length === 3) {
+      const [sA, sB, sE] = stores;
+      await client.query(`insert into catalogs (id,tenant_id,catalog_id,value) values ($1,public.current_tenant_id(),'rutas','LTV16 RT'),($2,public.current_tenant_id(),'rutas','LTV16 RD')`, [RT, RD]);
+      await client.query(`update public.stores set ruta_id=$1 where id = any($2)`, [RT, [sA.id, sB.id]]);
+      await client.query(`update public.stores set ruta_id=$1 where id=$2`, [RD, sE.id]);
+      const mkStop = (store, h) => client.query(
+        `insert into logistics.vehicle_stops (tenant_id,vehicle_id,arrived_at,left_at,minutes,lat,lng,matched_store_id,is_customer) values (public.current_tenant_id(),$1,$2,$3,10,$4,$5,$6,false)`,
+        [veh.id, `${DAY}T${h}:00:00-06:00`, `${DAY}T${h}:12:00-06:00`, store ? store.latitud : 20.5, store ? store.longitud : -101.5, store ? store.id : null]);
+      await mkStop(sA, '09'); await mkStop(sB, '10'); await mkStop(sE, '11'); await mkStop(null, '12'); // 4a sin tienda
+
+      const raw = await q(`select st.arrived_at, st.matched_store_id, s.ruta_id from logistics.vehicle_stops st left join public.stores s on s.id=st.matched_store_id where st.vehicle_id=$1 and st.arrived_at between $2 and $3 order by st.arrived_at asc`, [veh.id, START, END]);
+      const freq = new Map(); for (const r of raw) if (r.ruta_id) freq.set(r.ruta_id, (freq.get(r.ruta_id) || 0) + 1);
+      let dom = null, best = 0; for (const [rid, c] of freq) if (c > best) { best = c; dom = rid; }
+      const enriched = raw.map((r, i) => {
+        const inPlan = !!r.matched_store_id && !!dom && r.ruta_id === dom;
+        const kind = !r.matched_store_id ? 'unmatched' : inPlan ? 'plan_store' : 'off_route';
+        return { seq: i + 1, kind, in_plan: inPlan };
+      });
+      assert(dom === RT, `ruta dominante de paradas = RT (2 tiendas) (obtuvo ${dom === RT ? 'RT' : dom})`);
+      assert(enriched[0].seq === 1 && enriched[3].seq === 4, 'seq cronológico 1..4');
+      assert(enriched[0].kind === 'plan_store' && enriched[0].in_plan, 'parada 1 (tienda de su ruta) → plan_store + in_plan');
+      assert(enriched[2].kind === 'off_route' && !enriched[2].in_plan, 'parada 3 (tienda de otra ruta) → off_route');
+      assert(enriched[3].kind === 'unmatched', 'parada 4 (sin tienda) → unmatched');
+    } else {
+      console.log('  ⚠ (skip enriquecimiento de paradas: se necesitan 3 tiendas geolocalizadas)');
+    }
+
     await client.query('ROLLBACK');
     console.log(`\n✅ ${n}/${n} asserts OK\n`); process.exit(0);
   } catch (e) {

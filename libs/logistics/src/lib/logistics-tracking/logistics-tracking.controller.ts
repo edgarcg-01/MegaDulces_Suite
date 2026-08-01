@@ -65,6 +65,13 @@ export class LogisticsTrackingController {
     return this.adherence.vehicleAuditDetail(vehicleId, date);
   }
 
+  @Get('audit-detail/route')
+  @RequireAnyPermission(Permission.LOGISTICS_FLEET_VER, Permission.RUTAS_VER)
+  @ApiOperation({ summary: 'Recorrido del vehículo pegado a calles (Mapbox Map Matching)' })
+  auditRoute(@Query('vehicle_id') vehicleId: string, @Query('date') date: string) {
+    return this.adherence.snapAuditRoute(vehicleId, date);
+  }
+
   // ── LTV.0 Viajes / paradas reconstruidas ───────────────────────────────────
   @Get('trips/day-summary')
   @RequireAnyPermission(Permission.LOGISTICS_FLEET_VER, Permission.RUTAS_VER)
