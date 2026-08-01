@@ -103,15 +103,33 @@ const NUM = (c) => `COALESCE(NULLIF(regexp_replace(${c}::text,'[^0-9.-]','','g')
     if (!APPLY) { console.log('\n[DRY-RUN] nada cambió.'); return; }
     await db.query('BEGIN');
     await db.query(`SET LOCAL app.tenant_id='${M}'`);
-    await db.query(`DELETE FROM analytics.cedis_supply_cadence WHERE tenant_id=$1 AND window_year=extract(year from current_date)`, [M]);
+    // Merge SIN churn: staging TEMP → UPSERT solo-cambios → DELETE solo lo que ya no viene
+    // (scope = año en curso). Antes: DELETE-año+INSERT reescribía toda la ventana cada corrida.
+    await db.query(`CREATE TEMP TABLE stg_cadence (warehouse_id uuid, source_warehouse_id uuid, tercero text,
+      shipments int, days_active int, first_shipment date, last_shipment date, cadence_days numeric, avg_shipment_value numeric) ON COMMIT DROP`);
     for (const { wh, r } of out) {
-      await db.query(`INSERT INTO analytics.cedis_supply_cadence
-        (tenant_id, warehouse_id, source_warehouse_id, tercero, shipments, days_active, first_shipment, last_shipment, cadence_days, avg_shipment_value, window_year)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10, extract(year from current_date))`,
-        [M, wh.id, cedis ? cedis.id : null, r.tercero, r.shipments, r.days_active, r.first_ship, r.last_ship, r.cadence_days, r.avg_val]);
+      await db.query(`INSERT INTO stg_cadence VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+        [wh.id, cedis ? cedis.id : null, r.tercero, r.shipments, r.days_active, r.first_ship, r.last_ship, r.cadence_days, r.avg_val]);
     }
+    const up = await db.query(
+      `INSERT INTO analytics.cedis_supply_cadence AS t
+         (tenant_id, warehouse_id, source_warehouse_id, tercero, shipments, days_active, first_shipment, last_shipment, cadence_days, avg_shipment_value, window_year)
+       SELECT $1, warehouse_id, source_warehouse_id, tercero, shipments, days_active, first_shipment, last_shipment, cadence_days, avg_shipment_value, extract(year from current_date)
+         FROM stg_cadence
+       ON CONFLICT (tenant_id, warehouse_id, window_year) DO UPDATE SET
+         source_warehouse_id=EXCLUDED.source_warehouse_id, tercero=EXCLUDED.tercero, shipments=EXCLUDED.shipments,
+         days_active=EXCLUDED.days_active, first_shipment=EXCLUDED.first_shipment, last_shipment=EXCLUDED.last_shipment,
+         cadence_days=EXCLUDED.cadence_days, avg_shipment_value=EXCLUDED.avg_shipment_value
+       WHERE (t.source_warehouse_id, t.tercero, t.shipments, t.days_active, t.first_shipment, t.last_shipment, t.cadence_days, t.avg_shipment_value)
+             IS DISTINCT FROM
+             (EXCLUDED.source_warehouse_id, EXCLUDED.tercero, EXCLUDED.shipments, EXCLUDED.days_active, EXCLUDED.first_shipment, EXCLUDED.last_shipment, EXCLUDED.cadence_days, EXCLUDED.avg_shipment_value)`,
+      [M]);
+    const del = await db.query(
+      `DELETE FROM analytics.cedis_supply_cadence t
+        WHERE t.tenant_id=$1 AND t.window_year=extract(year from current_date)
+          AND NOT EXISTS (SELECT 1 FROM stg_cadence s WHERE s.warehouse_id=t.warehouse_id)`, [M]);
     await db.query('COMMIT');
-    console.log(`\n[APPLY] COMMIT — ${out.length} filas en analytics.cedis_supply_cadence.`);
+    console.log(`\n[APPLY] COMMIT — ${up.rowCount} escritas (nuevas/cambiadas) · ${del.rowCount} borradas · ${out.length} en origen.`);
   } catch (e) {
     await db.query('ROLLBACK').catch(() => {});
     console.error('ERROR:', e.message); process.exitCode = 1;

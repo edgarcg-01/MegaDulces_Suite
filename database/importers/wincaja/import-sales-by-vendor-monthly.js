@@ -58,7 +58,14 @@ const INSERT_MONTH = `
    WHERE vl.tenant_id = $1 AND ${BLEND}
      AND vl.business_date >= $2 AND vl.business_date < $3
    GROUP BY p.id, w.id, vl.sale_channel, vl.source_branch, vl.vendedor,
-            coalesce(ven.nombre, NULLIF(btrim(vl.vendedor),''), 'Sin vendedor'), to_char(vl.business_date, 'YYYY-MM')`;
+            coalesce(ven.nombre, NULLIF(btrim(vl.vendedor),''), 'Sin vendedor'), to_char(vl.business_date, 'YYYY-MM')
+  ON CONFLICT (tenant_id, product_id, warehouse_id, sale_channel, vendor_code, year_month) DO UPDATE SET
+    vendor_name=EXCLUDED.vendor_name, unit_kind=EXCLUDED.unit_kind, units=EXCLUDED.units,
+    revenue=EXCLUDED.revenue, tickets=EXCLUDED.tickets, updated_at=now()
+  WHERE (analytics.sales_by_vendor_monthly.vendor_name, analytics.sales_by_vendor_monthly.unit_kind,
+         analytics.sales_by_vendor_monthly.units, analytics.sales_by_vendor_monthly.revenue, analytics.sales_by_vendor_monthly.tickets)
+        IS DISTINCT FROM
+        (EXCLUDED.vendor_name, EXCLUDED.unit_kind, EXCLUDED.units, EXCLUDED.revenue, EXCLUDED.tickets)`;
 
 const nextMonth = (ym) => { const [y, m] = ym.split('-').map(Number); return m === 12 ? `${y + 1}-01-01` : `${y}-${String(m + 1).padStart(2, '0')}-01`; };
 
@@ -81,11 +88,11 @@ const nextMonth = (ym) => { const [y, m] = ym.split('-').map(Number); return m =
       const d0 = `${ym}-01`, d1 = nextMonth(ym), t = Date.now();
       await db.query('BEGIN');
       await db.query(`SET LOCAL app.tenant_id = '${M}'`);
-      await db.query(`DELETE FROM analytics.sales_by_vendor_monthly WHERE tenant_id=$1 AND year_month=$2`, [M, ym]);
+      // UPSERT solo-cambios (sin DELETE por mes): un mes cerrado queda idéntico → 0 escrituras.
       const ins = await db.query(INSERT_MONTH, [M, d0, d1]);
       await db.query('COMMIT');
       totalRows += ins.rowCount;
-      console.log(`  ${ym}: ${ins.rowCount} filas (${Date.now() - t}ms)`);
+      console.log(`  ${ym}: ${ins.rowCount} escritas (nuevas/cambiadas) (${Date.now() - t}ms)`);
     }
     await db.query(`ANALYZE analytics.sales_by_vendor_monthly`);
     console.log(`\n[APPLY] OK — ${totalRows} filas en ${months.length} meses.`);

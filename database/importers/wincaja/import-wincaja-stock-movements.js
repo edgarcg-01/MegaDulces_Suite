@@ -126,11 +126,13 @@ const AGG = (cutover) => `
       }
 
       await db.transaction(async (trx) => {
-        const del = await trx('analytics.stock_movements').where({ tenant_id: TENANT, warehouse_id: warehouseId }).where('source_branch', 'like', 'W%').del();
-        const ins = await trx.raw(`
-          INSERT INTO analytics.stock_movements
+        // Merge SIN churn: staging TEMP + fingerprint block-diff por (warehouse, doc_date). Un día
+        // W% ya migrado es inmutable → solo se reprocesan los días que cambiaron. Antes: DELETE-all-W%
+        // del almacén + INSERT reescribía todo cada corrida.
+        await trx.raw(`
+          CREATE TEMP TABLE stg_wmov
             (tenant_id, warehouse_id, product_id, sku, doc_date, genero, naturaleza, doc_type, doc_code, folio,
-             movement_kind, movement_label, signed_qty, qty, unit_cost, amount, source_branch)
+             movement_kind, movement_label, signed_qty, qty, unit_cost, amount, source_branch) ON COMMIT DROP AS
           SELECT :t, :wh::uuid, p.id, agg.sku, agg.doc_date, 'W',
                  CASE WHEN ${IS_SALIDA} THEN 'D' ELSE 'A' END,
                  agg.tipo, 'WIN_'||agg.tipo,
@@ -145,7 +147,29 @@ const AGG = (cutover) => `
                  :sb
           FROM (${AGG(cutStr)}) agg
           LEFT JOIN catalog.products p ON p.tenant_id=:t AND p.sku=agg.sku AND p.deleted_at IS NULL`, binds);
-        summary.push({ almacen: u.code, origen: `W${u.br}`, cutover: cutStr || '—', borradas: del, insertadas: ins.rowCount });
+        const FP = `concat_ws('|', coalesce(product_id::text,''), coalesce(sku,''), coalesce(genero,''),
+          coalesce(naturaleza,''), coalesce(doc_type,''), coalesce(doc_code,''), coalesce(folio,''),
+          coalesce(movement_kind,''), coalesce(movement_label,''), coalesce(signed_qty::text,''),
+          coalesce(qty::text,''), coalesce(unit_cost::text,''), coalesce(amount::text,''), coalesce(source_branch,''))`;
+        await trx.raw(
+          `CREATE TEMP TABLE wmov_changed ON COMMIT DROP AS
+           WITH s AS (SELECT doc_date, md5(string_agg(${FP}, E'\\n' ORDER BY ${FP})) fp FROM stg_wmov GROUP BY doc_date),
+                t AS (SELECT doc_date, md5(string_agg(${FP}, E'\\n' ORDER BY ${FP})) fp
+                        FROM analytics.stock_movements WHERE tenant_id=:t AND warehouse_id=:wh::uuid AND source_branch LIKE 'W%'
+                        GROUP BY doc_date)
+           SELECT doc_date FROM s FULL OUTER JOIN t USING (doc_date) WHERE s.fp IS DISTINCT FROM t.fp`, binds);
+        const chg = (await trx.raw(`SELECT count(*)::int n FROM wmov_changed`)).rows[0].n;
+        const del = await trx.raw(
+          `DELETE FROM analytics.stock_movements m USING wmov_changed c
+            WHERE m.tenant_id=:t AND m.warehouse_id=:wh::uuid AND m.source_branch LIKE 'W%' AND m.doc_date=c.doc_date`, binds);
+        const ins = await trx.raw(
+          `INSERT INTO analytics.stock_movements
+             (tenant_id, warehouse_id, product_id, sku, doc_date, genero, naturaleza, doc_type, doc_code, folio,
+              movement_kind, movement_label, signed_qty, qty, unit_cost, amount, source_branch)
+           SELECT tenant_id, warehouse_id, product_id, sku, doc_date, genero, naturaleza, doc_type, doc_code, folio,
+              movement_kind, movement_label, signed_qty, qty, unit_cost, amount, source_branch
+           FROM stg_wmov s JOIN wmov_changed c ON c.doc_date=s.doc_date`, binds);
+        summary.push({ almacen: u.code, origen: `W${u.br}`, cutover: cutStr || '—', bloques_cambiados: chg, reinsertadas: ins.rowCount, borradas: del.rowCount });
       });
     }
     console.table(summary);
