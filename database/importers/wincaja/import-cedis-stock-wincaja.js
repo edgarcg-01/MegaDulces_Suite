@@ -67,12 +67,23 @@ const SRC = `
 
     await db.transaction(async (trx) => {
       await trx.raw(`SET LOCAL app.tenant_id = '${TENANT}'`);
-      const del = await trx.raw(`DELETE FROM commercial.stock WHERE tenant_id=? AND warehouse_id=?`, [TENANT, wh.id]);
-      const ins = await trx.raw(
-        `INSERT INTO commercial.stock (tenant_id, warehouse_id, product_id, quantity, reserved_quantity, updated_at)
-         SELECT ?, ?, product_id, qty, 0, now() FROM (${SRC}) src`,
-        [TENANT, wh.id, TENANT, WINCAJA_CEDIS_BRANCH]);
-      console.log(`  REPLACE: -${del.rowCount} viejas / +${ins.rowCount} de Irapuato`);
+      // Merge SIN churn en commercial.stock (tabla CORE, corre cada 30 min): staging TEMP →
+      // UPSERT solo-cambios → DELETE solo lo que ya no viene de Irapuato. Antes: DELETE-all-CEDIS+
+      // INSERT reescribía todo el stock del CEDIS cada corrida. Preserva reserved=0 (igual que antes).
+      await trx.raw(`CREATE TEMP TABLE stg_cstk ON COMMIT DROP AS SELECT product_id, qty FROM (${SRC}) src`, [TENANT, WINCAJA_CEDIS_BRANCH]);
+      const up = await trx.raw(
+        `INSERT INTO commercial.stock AS s (tenant_id, warehouse_id, product_id, quantity, reserved_quantity, updated_at)
+         SELECT ?, ?, product_id, qty, 0, now() FROM stg_cstk
+         ON CONFLICT (tenant_id, warehouse_id, product_id) DO UPDATE SET
+           quantity=EXCLUDED.quantity, reserved_quantity=EXCLUDED.reserved_quantity, updated_at=now()
+         WHERE (s.quantity, s.reserved_quantity) IS DISTINCT FROM (EXCLUDED.quantity, EXCLUDED.reserved_quantity)`,
+        [TENANT, wh.id]);
+      const del = await trx.raw(
+        `DELETE FROM commercial.stock s
+          WHERE s.tenant_id=? AND s.warehouse_id=?
+            AND NOT EXISTS (SELECT 1 FROM stg_cstk g WHERE g.product_id=s.product_id)`,
+        [TENANT, wh.id]);
+      console.log(`  MERGE: ${up.rowCount} escritas (nuevas/cambiadas) / ${del.rowCount} borradas (ya no en Irapuato)`);
     });
     console.log('✅ commercial.stock del CEDIS = Wincaja Irapuato.');
   } catch (e) { console.error('ERR', e.message); process.exitCode = 1; }
