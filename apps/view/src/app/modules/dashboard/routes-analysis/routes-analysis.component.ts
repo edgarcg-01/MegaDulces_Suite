@@ -2,7 +2,7 @@ import { Component, computed, inject, signal, OnInit, OnDestroy, ChangeDetection
 
 import { FormsModule } from '@angular/forms';
 import { HttpClient, HttpParams } from '@angular/common/http';
-import { RouterModule } from '@angular/router';
+import { ActivatedRoute, RouterModule } from '@angular/router';
 import { TableModule } from 'primeng/table';
 import { TagModule } from 'primeng/tag';
 import { SkeletonModule } from 'primeng/skeleton';
@@ -705,6 +705,9 @@ interface RouteTrack {
 })
 export class RoutesAnalysisComponent implements OnInit, OnDestroy {
   private http = inject(HttpClient);
+  private actRoute = inject(ActivatedRoute);
+  /** Ruta pedida por ?route_number= (deep-link desde el mapa de auditoría). One-shot. */
+  private desiredRouteNumber: number | null = null;
   protected readonly live = inject(MapLiveLayerService);
 
   /** Capa opcional "Personal en vivo" sobre el recorrido histórico de la ruta. */
@@ -893,7 +896,15 @@ export class RoutesAnalysisComponent implements OnInit, OnDestroy {
   );
 
   ngOnInit(): void {
+    const rn = this.actRoute.snapshot.queryParamMap.get('route_number');
+    this.desiredRouteNumber = rn && /^\d+$/.test(rn) ? parseInt(rn, 10) : null;
     this.loadMaster();
+  }
+
+  /** Número de ruta a partir del nombre ("RUTA 21" / "R-21" → 21). */
+  private routeNameToNumber(name: string): number | null {
+    const m = (name || '').match(/R(?:UTA)?[\s-]*0*(\d{1,3})/i);
+    return m ? parseInt(m[1], 10) : null;
   }
 
   ngOnDestroy(): void {
@@ -933,7 +944,10 @@ export class RoutesAnalysisComponent implements OnInit, OnDestroy {
         // así que en móvil sin auto-select la página quedaba en el placeholder sin
         // forma de elegir. El selector full-width arriba permite cambiar de ruta.
         if (!this.selectedId() && this.routes().length) {
-          this.select(this.routes()[0].id);
+          const want = this.desiredRouteNumber;
+          const match = want != null ? this.routes().find((r) => this.routeNameToNumber(r.name) === want) : null;
+          this.select((match ?? this.routes()[0]).id);
+          this.desiredRouteNumber = null; // one-shot
         }
       },
       error: () => this.loadingMaster.set(false),

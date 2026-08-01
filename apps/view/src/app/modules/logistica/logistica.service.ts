@@ -668,6 +668,21 @@ export interface VehicleAuditDetail {
 
 export interface FleetAdherenceRow extends RouteAdherence {
   vehicle_plate: string | null;
+  route_number: number | null;
+}
+
+/** Multi-ruta — bundle geográfico por unidad para el mapa principal de auditoría. */
+export interface FleetAuditUnit {
+  vehicle_id: string;
+  vehicle_plate: string | null;
+  route_number: number | null;
+  coverage_pct: number | null;
+  visited_count: number;
+  planned_with_coords: number;
+  planned: RouteAdherence['planned'];
+  path: AuditPathPoint[];
+  stops: AuditStop[];
+  tickets: AuditTicket[];
 }
 
 export interface AdherenceDiagnostic {
@@ -1180,6 +1195,12 @@ export class LogisticaService {
   vehicleAuditRoute(vehicleId: string, date: string): Observable<AuditRoute> {
     const params = new HttpParams().set('vehicle_id', vehicleId).set('date', date);
     return this.http.get<AuditRoute>(`${this.base}/tracking/audit-detail/route`, { params });
+  }
+  /** LTV.18 — detalle geográfico multi-ruta del día (mapa principal). `routes` opcional filtra. */
+  fleetAuditDetail(date: string, routes?: number[]): Observable<FleetAuditUnit[]> {
+    let params = new HttpParams().set('date', date);
+    if (routes && routes.length) params = params.set('routes', routes.join(','));
+    return this.http.get<FleetAuditUnit[]>(`${this.base}/tracking/fleet-audit-detail`, { params });
   }
   fleetAlerts(): Observable<FleetAlertRow[]> {
     return this.http.get<FleetAlertRow[]>(`${this.base}/tracking/alerts`);
