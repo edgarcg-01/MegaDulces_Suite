@@ -182,6 +182,31 @@ export interface SalesByRouteReport {
   generated_at: string;
 }
 
+// ── RR — Conciliación de cierre de ruta (corte vendedor vs venta real) ──
+export interface RouteClosureIncidencia {
+  route_no: number;
+  date: string;
+  real_revenue: number;
+  corte: number;
+  diff: number; // corte − venta real
+  diff_pct: number | null;
+  tickets: number;
+  status: 'cierre_faltante' | 'descuadre' | 'cierre_sin_venta';
+}
+export interface RouteClosureReconciliation {
+  period: { from: string; to: string };
+  summary: {
+    routes: number;
+    real_total: number;
+    corte_total: number;
+    cierre_faltante: number;
+    descuadre: number;
+    cierre_sin_venta: number;
+    ok: number;
+  };
+  incidencias: RouteClosureIncidencia[];
+}
+
 // ── Fase T — Traspasos / movimientos que NO son venta ──
 export type TransferKind = 'salida_cedis' | 'consolidacion' | 'recepcion' | 'traspaso_salida' | 'traspaso_entrada';
 
@@ -3308,6 +3333,113 @@ export class CommercialAnalyticsService {
           lines: num(r.lines), units: num(r.units), revenue: num(r.revenue),
         })),
       };
+    });
+  }
+
+  /**
+   * RR — Conciliación de CIERRE DE RUTA (histórico, D+1). Cruza el corte que el
+   * vendedor sube (commercial.route_tickets, ticket_type='venta') contra la venta
+   * REAL por ruta (analytics.v_route_sales_lines, canal ruta = Wincaja on-board +
+   * Kepler PH push unificados), por ruta + día. Detecta incidencias:
+   *   - cierre_faltante: hubo venta real en una ruta de vendedor pero no subió corte.
+   *   - descuadre_corte: |corte − venta real| supera el umbral.
+   *   - cierre_sin_venta: subió corte pero no hay venta real ese día.
+   * Llave de ruta = número (route_tickets.route_code dígitos ↔ v_route_sales_lines
+   * .source_branch numérico). Scope de "faltante": solo rutas de vendedor
+   * (commercial.vendor_sales_routes). Nunca marca ventas de mostrador (1V001, 5xx).
+   */
+  async routeClosureReconciliation(
+    fromArg?: string,
+    toArg?: string,
+    thresholdPct = 0.05,
+    thresholdAbs = 200,
+  ): Promise<RouteClosureReconciliation> {
+    const dRx = /^\d{4}-\d{2}-\d{2}$/;
+    const today = new Date(Date.now() - 6 * 3600 * 1000).toISOString().slice(0, 10);
+    const to = toArg && dRx.test(toArg) ? toArg : today;
+    // Default: últimos 45 días (D+1 → el histórico reciente es lo accionable).
+    const defFrom = new Date(new Date(`${to}T00:00:00Z`).getTime() - 45 * 86400000).toISOString().slice(0, 10);
+    const from = fromArg && dRx.test(fromArg) ? fromArg : defFrom;
+    if (from > to) throw new BadRequestException('from no puede ser mayor que to');
+    const tenantId = this.tenantCtx.requireTenantId();
+    const num = (v: any) => Number(v) || 0;
+    const digits = (s: string): number | null => { const m = (s || '').replace(/\D/g, ''); return m ? parseInt(m, 10) : null; };
+
+    return this.tk.run(async (trx) => {
+      // 1) Venta real por ruta/día (canal ruta, source_branch numérico).
+      const salesRows = (await trx.raw(
+        `SELECT sl.source_branch AS route_no, sl.business_date::date AS date,
+                sum(sl.importe) real_revenue, count(distinct sl.consecutivo) tickets
+         FROM analytics.v_route_sales_lines sl
+         WHERE sl.tenant_id=? AND sl.sale_channel='ruta_venta'
+           AND sl.business_date>=? AND sl.business_date<=? AND sl.business_date<=CURRENT_DATE
+           AND sl.source_branch ~ '^[0-9]+$'
+         GROUP BY 1,2`, [tenantId, from, to])).rows as Array<{ route_no: string; date: any; real_revenue: any; tickets: any }>;
+
+      // 2) Corte del vendedor por ruta/día (route_tickets venta).
+      const corteRows = (await trx.raw(
+        `SELECT route_code, ticket_date::date AS date, sum(total) corte, count(*) n
+         FROM commercial.route_tickets
+         WHERE tenant_id=? AND deleted_at IS NULL AND ticket_type='venta'
+           AND ticket_date>=? AND ticket_date<=? AND route_code ~ '^[0-9]+$'
+         GROUP BY 1,2`, [tenantId, from, to])).rows as Array<{ route_code: string; date: any; corte: any; n: any }>;
+
+      // 3) Rutas de "cierre esperado" (scope de faltante) = catálogo de rutas ∪
+      //    asignaciones de vendedor ∪ rutas que tuvieron algún corte. Así NO
+      //    marca ventas de mostrador (1V001, 5xx) pero sí las rutas reales aunque
+      //    vendor_sales_routes esté vacío.
+      const [vrRows, catRows] = await Promise.all([
+        trx('commercial.vendor_sales_routes').where('tenant_id', tenantId).whereNotNull('sales_route').distinct('sales_route'),
+        trx('catalogs').where({ tenant_id: tenantId, catalog_id: 'rutas' }).select('value'),
+      ]);
+      const vendorRoutes = new Set<number>();
+      for (const r of vrRows as Array<{ sales_route: string }>) { const n = digits(r.sales_route); if (n != null) vendorRoutes.add(n); }
+      for (const r of catRows as Array<{ value: string }>) { const n = digits(r.value); if (n != null) vendorRoutes.add(n); }
+      for (const c of corteRows) { const n = digits(c.route_code); if (n != null) vendorRoutes.add(n); }
+
+      const iso = (d: any) => (d instanceof Date ? d.toISOString().slice(0, 10) : String(d).slice(0, 10));
+      const salesMap = new Map<string, { route_no: number; date: string; real: number; tickets: number }>();
+      for (const s of salesRows) {
+        const rn = digits(s.route_no); if (rn == null) continue;
+        salesMap.set(`${rn}|${iso(s.date)}`, { route_no: rn, date: iso(s.date), real: num(s.real_revenue), tickets: num(s.tickets) });
+      }
+      const corteMap = new Map<string, { route_no: number; date: string; corte: number; n: number }>();
+      for (const c of corteRows) {
+        const rn = digits(c.route_code); if (rn == null) continue;
+        corteMap.set(`${rn}|${iso(c.date)}`, { route_no: rn, date: iso(c.date), corte: num(c.corte), n: num(c.n) });
+      }
+
+      // 4) Universo de llaves: cortes ∪ ventas de rutas de vendedor.
+      const keys = new Set<string>([...corteMap.keys()]);
+      for (const [k, v] of salesMap) if (vendorRoutes.has(v.route_no)) keys.add(k);
+
+      const incidencias: RouteClosureIncidencia[] = [];
+      const summary = { routes: 0, real_total: 0, corte_total: 0, cierre_faltante: 0, descuadre: 0, cierre_sin_venta: 0, ok: 0 };
+      const routeSet = new Set<number>();
+      for (const k of keys) {
+        const s = salesMap.get(k); const c = corteMap.get(k);
+        const [rnStr, date] = k.split('|');
+        const route_no = Number(rnStr);
+        const real = s?.real ?? 0; const corte = c?.corte ?? 0;
+        const diff = corte - real;
+        summary.real_total += real; summary.corte_total += corte; routeSet.add(route_no);
+        let status: 'ok' | RouteClosureIncidencia['status'];
+        if (corte > 0 && real > 0) status = Math.abs(diff) > Math.max(thresholdAbs, thresholdPct * real) ? 'descuadre' : 'ok';
+        else if (corte > 0) status = 'cierre_sin_venta';
+        else status = 'cierre_faltante';
+        summary[status === 'ok' ? 'ok' : status]++;
+        if (status !== 'ok') {
+          incidencias.push({
+            route_no, date, real_revenue: real, corte,
+            diff, diff_pct: real > 0 ? Math.round((diff / real) * 1000) / 10 : null,
+            tickets: s?.tickets ?? 0, status,
+          });
+        }
+      }
+      summary.routes = routeSet.size;
+      incidencias.sort((a, b) => (b.date.localeCompare(a.date)) || (Math.abs(b.diff) - Math.abs(a.diff)));
+
+      return { period: { from, to }, summary, incidencias: incidencias.slice(0, 500) };
     });
   }
 
