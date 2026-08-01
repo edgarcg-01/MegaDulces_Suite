@@ -70,16 +70,34 @@ const SELECT_SQL = `
 
     await db.query('BEGIN');
     await db.query(`SET LOCAL app.tenant_id = '${M}'`);
-    await db.query(`DELETE FROM analytics.sales_boxes_monthly WHERE tenant_id = $1`, [M]);
-    const ins = await db.query(
-      `INSERT INTO analytics.sales_boxes_monthly
+    // Refresco IDEMPOTENTE sin churn: staging TEMP → UPSERT solo-cambios → DELETE solo lo
+    // que salió del origen. Antes: DELETE-all+INSERT reescribía toda la tabla cada nightly.
+    await db.query(
+      `CREATE TEMP TABLE stg_sbm ON COMMIT DROP AS
+       SELECT $1::uuid AS tenant_id, product_id, warehouse_id, channel, ym AS year_month, kind AS unit_kind,
+              pieces, kg, boxes, uxc, revenue, tickets
+         FROM (${SELECT_SQL}) t`, [M]);
+    const up = await db.query(
+      `INSERT INTO analytics.sales_boxes_monthly AS t
          (id, tenant_id, product_id, warehouse_id, channel, year_month, unit_kind,
           pieces, kg, boxes, uxc, revenue, tickets, updated_at)
-       SELECT gen_random_uuid(), $1, product_id, warehouse_id, channel, ym, kind,
+       SELECT gen_random_uuid(), tenant_id, product_id, warehouse_id, channel, year_month, unit_kind,
               pieces, kg, boxes, uxc, revenue, tickets, now()
-         FROM (${SELECT_SQL}) t`, [M]);
+         FROM stg_sbm
+       ON CONFLICT (tenant_id, product_id, warehouse_id, channel, year_month) DO UPDATE SET
+         unit_kind=EXCLUDED.unit_kind, pieces=EXCLUDED.pieces, kg=EXCLUDED.kg, boxes=EXCLUDED.boxes,
+         uxc=EXCLUDED.uxc, revenue=EXCLUDED.revenue, tickets=EXCLUDED.tickets, updated_at=now()
+       WHERE (t.unit_kind, t.pieces, t.kg, t.boxes, t.uxc, t.revenue, t.tickets)
+             IS DISTINCT FROM
+             (EXCLUDED.unit_kind, EXCLUDED.pieces, EXCLUDED.kg, EXCLUDED.boxes, EXCLUDED.uxc, EXCLUDED.revenue, EXCLUDED.tickets)`);
+    const del = await db.query(
+      `DELETE FROM analytics.sales_boxes_monthly t
+        WHERE t.tenant_id = $1
+          AND NOT EXISTS (SELECT 1 FROM stg_sbm s
+                           WHERE s.product_id = t.product_id AND s.warehouse_id = t.warehouse_id
+                             AND s.channel = t.channel AND s.year_month = t.year_month)`, [M]);
     await db.query('COMMIT');
-    console.log(`\n[APPLY] COMMIT — ${ins.rowCount} filas en analytics.sales_boxes_monthly.`);
+    console.log(`\n[APPLY] COMMIT — ${up.rowCount} escritas (nuevas/cambiadas) · ${del.rowCount} borradas (desaparecidas).`);
   } catch (e) {
     await db.query('ROLLBACK').catch(() => {});
     console.error('\nERROR (rollback):', e.message);
