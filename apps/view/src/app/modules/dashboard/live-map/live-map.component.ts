@@ -18,7 +18,7 @@ import { SidePeekComponent } from '../../../shared/components/side-peek/side-pee
 import { FieldAlert, WebSocketService } from '../../../core/services/websocket.service';
 import { environment } from '../../../../environments/environment';
 import { LivePosition, MapLiveLayerService } from '../../../core/services/map-live-layer.service';
-import { LogisticaService, TrackerLive } from '../../logistica/logistica.service';
+import { LogisticaService, TrackerLive, FleetCockpitBundle, FleetCockpitUnit, FleetDeadStop } from '../../logistica/logistica.service';
 import { FleetTrackingSocketService } from '../../logistica/fleet-tracking-socket.service';
 
 interface StoreGeo { id: string; nombre: string; lat: number; lng: number; }
@@ -55,6 +55,7 @@ interface VendorDayKpis {
             <span class="chip veh" title="Unidades de ruta · en movimiento / total"><i class="pi pi-truck" aria-hidden="true"></i> {{ vehicleCounts().moving }}<span class="chip-lbl">/{{ vehicles().length }} ruta</span></span>
           }
           <span class="ws" [class.ok]="ws.connected()" [title]="ws.connected() ? 'WS conectado' : 'WS desconectado'"></span>
+          <button class="recenter" (click)="openAnalysis()" title="Productividad, combustible y paradas fuera de tienda del día"><i class="pi pi-chart-bar" aria-hidden="true"></i> Análisis</button>
           <button class="recenter" (click)="recenter()">Centrar</button>
         </div>
       </header>
@@ -168,6 +169,57 @@ interface VendorDayKpis {
         </a>
       }
     </app-side-peek>
+
+    <app-side-peek [open]="analysisOpen()" title="Análisis del día" [subtitle]="cockpitSubtitle()" (openChange)="onAnalysisPeek($event)">
+      <div class="an-date">
+        <label>Día
+          <input type="date" [ngModel]="cockpitDate()" (ngModelChange)="setCockpitDate($event)" [max]="today" />
+        </label>
+        @if (cockpitLoading()) { <span class="sp-muted">calculando…</span> }
+      </div>
+      @if (cockpitDate() === today) {
+        <p class="an-hint"><i class="pi pi-info-circle" aria-hidden="true"></i> Los viajes de hoy se reconstruyen en la noche; para el día en curso puede verse parcial.</p>
+      }
+      @if (cockpit(); as c) {
+        <dl class="sp-grid an-tot">
+          <div><dt>Km flota</dt><dd>{{ c.totals.km | number:'1.0-0' }}</dd></div>
+          <div><dt>Combustible</dt><dd>{{ money(c.totals.fuel_cost) }}</dd></div>
+          <div><dt>Ralentí</dt><dd>{{ fmtMin(c.totals.idle_min) }}</dd></div>
+          <div><dt>Fuera de tienda</dt><dd [class.an-bad]="c.totals.off_store_stops > 0">{{ c.totals.off_store_stops }}</dd></div>
+        </dl>
+        <label class="an-toggle">
+          <input type="checkbox" [checked]="showDeadStops()" (change)="showDeadStops.set(!showDeadStops())" />
+          Mostrar paradas fuera de tienda en el mapa ({{ c.dead_stops.length }})
+        </label>
+        @if (c.units.length === 0) {
+          <p class="sp-muted">Sin actividad de flota reconstruida para este día.</p>
+        }
+        @for (u of c.units; track u.vehicle_id) {
+          <div class="an-unit" [class.warn]="u.off_store_stops > 0 || u.speeding">
+            <div class="an-u-head">
+              <span class="an-u-name">
+                @if (u.route_number != null) { <span class="veh-route">R-{{ u.route_number }}</span> }
+                {{ u.vehicle_plate || 'Vehículo' }}
+              </span>
+              <span class="an-u-km">{{ u.km_driven | number:'1.0-0' }} km</span>
+            </div>
+            <div class="an-u-badges">
+              @if (u.off_store_stops > 0) { <span class="an-b bad" (click)="focusUnitStops(u)"><i class="pi pi-map-marker" aria-hidden="true"></i> {{ u.off_store_stops }} fuera de tienda</span> }
+              @if (u.speeding) { <span class="an-b bad"><i class="pi pi-bolt" aria-hidden="true"></i> {{ u.max_speed_kmh | number:'1.0-0' }} km/h</span> }
+              @if (u.idle_min >= 30) { <span class="an-b warn"><i class="pi pi-clock" aria-hidden="true"></i> ralentí {{ fmtMin(u.idle_min) }}</span> }
+            </div>
+            <dl class="an-u-grid">
+              <div><dt>Jornada</dt><dd>{{ u.work_min != null ? fmtMin(u.work_min) : '—' }}</dd></div>
+              <div><dt>En tienda / muerto</dt><dd>{{ u.store_stops }} / {{ fmtMin(u.dead_min) }}</dd></div>
+              <div><dt>Rendimiento</dt><dd>{{ u.km_per_liter != null ? (u.km_per_liter | number:'1.1-1') + ' km/L' : '—' }}</dd></div>
+              <div><dt>Costo</dt><dd>{{ u.cost_per_km != null ? money(u.cost_per_km) + '/km' : '—' }}</dd></div>
+            </dl>
+          </div>
+        }
+      } @else if (!cockpitLoading()) {
+        <p class="sp-muted">Sin datos para este día.</p>
+      }
+    </app-side-peek>
   `,
   changeDetection: ChangeDetectionStrategy.Eager,
   styles: [`
@@ -233,6 +285,28 @@ interface VendorDayKpis {
     .sp-muted { font-size:.8rem; color:var(--text-muted); }
     .sp-action { display:inline-flex; align-items:center; margin-top:var(--sp-2); padding:var(--sp-2) var(--sp-3); border-radius:var(--r-sm); background:var(--btn-primary-bg); color:var(--btn-primary-ink); font:600 .82rem 'Hanken Grotesk',sans-serif; text-decoration:none; }
     .sp-action:hover { background:var(--btn-primary-bg-hover); }
+    /* Panel de análisis del día */
+    .an-date { display:flex; align-items:center; gap:var(--sp-3); margin-bottom:var(--sp-3); font-size:.8rem; color:var(--text-muted); }
+    .an-date label { display:inline-flex; gap:.35rem; align-items:center; }
+    .an-date input { padding:var(--sp-1) var(--sp-2); border:1px solid var(--border-color); border-radius:var(--r-sm); background:var(--card-bg); color:var(--text-main); font:inherit; font-size:.8rem; }
+    .an-hint { display:flex; gap:.35rem; align-items:flex-start; font-size:.72rem; color:var(--text-muted); margin:0 0 var(--sp-3); }
+    .an-hint .pi { margin-top:.1rem; }
+    .an-tot { margin-bottom:var(--sp-3); }
+    .an-tot .an-bad { color:var(--bad-fg); }
+    .an-toggle { display:flex; align-items:center; gap:var(--sp-2); font-size:.78rem; color:var(--text-main); margin-bottom:var(--sp-3); cursor:pointer; }
+    .an-unit { border:1px solid var(--border-color); border-radius:var(--r-sm); padding:var(--sp-2) var(--sp-3); margin-bottom:var(--sp-2); }
+    .an-unit.warn { border-color:var(--warn-border); }
+    .an-u-head { display:flex; align-items:baseline; justify-content:space-between; gap:var(--sp-2); }
+    .an-u-name { font:700 .86rem 'Hanken Grotesk',sans-serif; color:var(--text-main); }
+    .an-u-km { font:700 .82rem 'Hanken Grotesk',sans-serif; color:var(--text-muted); font-variant-numeric:tabular-nums; }
+    .an-u-badges { display:flex; flex-wrap:wrap; gap:.3rem; margin:.35rem 0; }
+    .an-b { display:inline-flex; align-items:center; gap:.25rem; font-size:.68rem; font-weight:600; padding:.1rem .4rem; border-radius:999px; cursor:default; }
+    .an-b.bad { background:var(--bad-soft-bg); color:var(--bad-soft-fg); }
+    .an-b.bad .pi { font-size:.65rem; }
+    .an-b.warn { background:var(--warn-soft-bg); color:var(--warn-soft-fg); }
+    .an-u-grid { display:grid; grid-template-columns:1fr 1fr; gap:var(--sp-1) var(--sp-3); margin:.25rem 0 0; }
+    .an-u-grid dt { font-size:.66rem; color:var(--text-muted); }
+    .an-u-grid dd { margin:0 0 .2rem; font:600 .8rem 'Hanken Grotesk',sans-serif; color:var(--text-main); font-variant-numeric:tabular-nums; }
     @media (max-width: 767px) {
       .lm-head { padding:var(--sp-2) var(--sp-3); }
       .lm-sub { display:none; }
@@ -286,6 +360,28 @@ export class LiveMapComponent implements AfterViewInit, OnDestroy {
   private trailStops = signal<MapMarker[]>([]);
   protected trailLoading = signal(false);
   protected selectedKpis = signal<VendorDayKpis | null>(null);
+
+  // LTV.19 — Análisis del día: productividad + combustible + idle + paradas fuera de tienda.
+  protected analysisOpen = signal(false);
+  protected cockpit = signal<FleetCockpitBundle | null>(null);
+  protected cockpitLoading = signal(false);
+  protected cockpitDate = signal<string>(this.today);
+  protected showDeadStops = signal(false);
+  protected cockpitSubtitle = computed(() => {
+    const c = this.cockpit();
+    if (!c) return null;
+    return `${c.totals.units} unidades · ${c.dead_stops.length} paradas fuera de tienda`;
+  });
+  private deadStopMarkers = computed<MapMarker[]>(() =>
+    (this.cockpit()?.dead_stops || []).map((s, i) => ({
+      id: 'd:' + i,
+      lat: s.lat,
+      lng: s.lng,
+      kind: 'pin' as const,
+      color: 'var(--bad-fg, #dc2626)',
+      title: `Fuera de tienda · ${s.minutes} min · ${s.vehicle_plate || (s.route_number != null ? 'R-' + s.route_number : 'Vehículo')}`,
+    })),
+  );
 
   protected selectedPos = computed(() => this.svc.positions().find((p) => p.user_id === this.selected()) || null);
   protected selectedName = computed(() => this.selectedPos()?.username || '');
@@ -345,6 +441,7 @@ export class LiveMapComponent implements AfterViewInit, OnDestroy {
     { id: 'personal', label: 'Personal', color: 'var(--ok-fg, #16a34a)', count: this.svc.counts().total, visible: this.showPersonal() },
     { id: 'fleet', label: 'Unidades de ruta', color: 'var(--info-soft-fg, #2563eb)', count: this.vehicles().length, visible: this.showFleet() },
     { id: 'stores', label: 'Tiendas', color: 'var(--neutral-400, #9ca3af)', count: this.stores().length, visible: this.showStores() },
+    { id: 'deadstops', label: 'Fuera de tienda', color: 'var(--bad-fg, #dc2626)', count: this.cockpit()?.dead_stops.length || 0, visible: this.showDeadStops() },
   ]);
 
   private storeMarkers = computed<MapMarker[]>(() =>
@@ -354,6 +451,7 @@ export class LiveMapComponent implements AfterViewInit, OnDestroy {
   protected mapLayers = computed<MapLayer[]>(() => {
     const layers: MapLayer[] = [];
     if (this.showStores()) layers.push({ id: 'stores', visible: true, markers: this.storeMarkers() });
+    if (this.showDeadStops()) layers.push({ id: 'deadstops', visible: true, markers: this.deadStopMarkers() });
     if (this.selected() && (this.trail().length || this.trailStops().length))
       layers.push({ id: 'trail', visible: true, tracks: this.trail(), markers: this.trailStops() });
     if (this.showFleet()) layers.push({ id: 'fleet', persistent: true, visible: true, markers: this.vehicleMarkers() });
@@ -447,6 +545,7 @@ export class LiveMapComponent implements AfterViewInit, OnDestroy {
     if (id === 'stores') this.showStores.update((v) => !v);
     else if (id === 'personal') this.showPersonal.update((v) => !v);
     else if (id === 'fleet') this.showFleet.update((v) => !v);
+    else if (id === 'deadstops') { const next = !this.showDeadStops(); this.showDeadStops.set(next); if (next && !this.cockpit()) this.loadCockpit(); }
   }
 
   protected focus(p: LivePosition): void {
@@ -537,6 +636,37 @@ export class LiveMapComponent implements AfterViewInit, OnDestroy {
 
   protected onVehPeek(open: boolean): void {
     if (!open) this.selVeh.set(null);
+  }
+
+  // ── LTV.19 Análisis del día ─────────────────────────────────────────────────
+  protected openAnalysis(): void {
+    this.analysisOpen.set(true);
+    if (!this.cockpit()) this.loadCockpit();
+  }
+  protected onAnalysisPeek(open: boolean): void {
+    this.analysisOpen.set(open);
+  }
+  protected setCockpitDate(d: string): void {
+    if (!d || d === this.cockpitDate()) return;
+    this.cockpitDate.set(d);
+    this.loadCockpit();
+  }
+  private loadCockpit(): void {
+    this.cockpitLoading.set(true);
+    this.logi.fleetCockpit(this.cockpitDate(), 'route').subscribe({
+      next: (c) => { this.cockpit.set(c); this.cockpitLoading.set(false); },
+      error: () => { this.cockpit.set(null); this.cockpitLoading.set(false); },
+    });
+  }
+  /** Enfoca las paradas fuera de tienda de una unidad: enciende la capa y paneo a la peor. */
+  protected focusUnitStops(u: FleetCockpitUnit): void {
+    const stop = (this.cockpit()?.dead_stops || []).find((s) => s.vehicle_id === u.vehicle_id);
+    this.showDeadStops.set(true);
+    if (stop) { this.setTab('map'); setTimeout(() => this.map?.panTo(stop.lat, stop.lng, 14), 0); }
+  }
+  protected money(n: number | null | undefined): string {
+    if (n == null) return '—';
+    return new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 }).format(Number(n));
   }
 
   private loadTrail(userId: string): void {
