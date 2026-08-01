@@ -87,11 +87,9 @@ import { ContextHelpComponent } from '../../../shared/context-help/context-help.
               <ng-template #header>
                 <tr>
                   <th pFrozenColumn>Unidad</th>
-                  <th style="width:34%">Cumplimiento</th>
+                  <th style="width:42%">Cumplimiento</th>
                   <th class="num" pTooltip="Tiendas visitadas / plan con coordenadas">Visitadas</th>
-                  <th class="num" pTooltip="Tiendas visitadas donde además hubo captura de auditoría">Auditadas</th>
                   <th class="num" pTooltip="Tiendas del plan que no visitó">Saltadas</th>
-                  <th class="num" pTooltip="Paradas en tiendas fuera de la ruta">Fuera</th>
                 </tr>
               </ng-template>
               <ng-template #body let-r>
@@ -108,9 +106,7 @@ import { ContextHelpComponent } from '../../../shared/context-help/context-help.
                     }
                   </td>
                   <td class="num">{{ r.evaluable ? r.visited_count + '/' + r.planned_with_coords : '—' }}</td>
-                  <td class="num">{{ r.evaluable ? r.captured_count : '—' }}</td>
                   <td class="num" [class.rk-warn]="r.skipped_count > 0">{{ r.evaluable ? r.skipped_count : '—' }}</td>
-                  <td class="num rk-dim">{{ r.off_route_count }}</td>
                 </tr>
               </ng-template>
             </p-table>
