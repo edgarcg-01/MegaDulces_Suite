@@ -242,11 +242,8 @@ export class LayoutComponent implements OnInit, OnDestroy {
     { label: 'Captura Diaria',    icon: 'pi pi-pencil',        route: '/dashboard/captures',             permission: Permission.VISITAS_REGISTRAR     },
     { label: 'Reportes',          icon: 'pi pi-chart-bar',     route: '/dashboard/reports',              permission: Permission.REPORTES_VER_PROPIO   },
     { label: 'Seguimiento',       icon: 'pi pi-chart-line',    route: '/dashboard/seguimiento',          permission: Permission.VER_SEGUIMIENTO       },
-    { label: 'Mapa en Vivo',      icon: 'pi pi-compass',       route: '/dashboard/live-map',             permission: Permission.RUTAS_VER             },
     { label: 'Mapa de Campo',     icon: 'pi pi-map',           route: '/dashboard/field-map',            permission: Permission.RUTAS_VER             },
-    { label: 'Rastreo de Ruta',   icon: 'pi pi-map-marker',    route: '/dashboard/route-tracking',       permission: Permission.RUTAS_VER             },
-    { label: 'Actividad de Ruta', icon: 'pi pi-chart-bar',     route: '/dashboard/route-activity',       permission: Permission.RUTAS_VER             },
-    { label: 'Cumplimiento Ruta', icon: 'pi pi-check-circle',  route: '/dashboard/route-compliance',     permission: Permission.RUTAS_VER             },
+    { label: 'Auditoría de ruta', icon: 'pi pi-check-circle',  route: '/dashboard/route-audit',          permission: Permission.RUTAS_VER             },
     { label: 'Mapa Comercial',    icon: 'pi pi-map-marker',    route: '/dashboard/commercial-map',       permission: Permission.COMMERCIAL_MAP_VER    },
     { label: 'Supervisor IA',     icon: 'pi pi-sparkles',      route: '/dashboard/supervisor-ai',        permission: Permission.SUPERVISOR_AI_VER     },
     { label: 'Asignación Diaria', icon: 'pi pi-calendar-plus', route: '/dashboard/daily-assignments',    permission: Permission.USUARIOS_ASIGNAR_RUTA },
@@ -306,9 +303,7 @@ export class LayoutComponent implements OnInit, OnDestroy {
   private logisticaNavItems: NavItem[] = [
     { label: 'Dashboard',        icon: 'pi pi-th-large',  route: '/logistica/dashboard', permission: Permission.LOGISTICS_SHIPMENTS_VER },
     { label: 'Embarques',        icon: 'pi pi-truck',     route: '/logistica/shipments', permission: Permission.LOGISTICS_SHIPMENTS_VER },
-    { label: 'Flota en vivo',    icon: 'pi pi-map-marker', route: '/logistica/live',     permission: Permission.LOGISTICS_FLEET_VER },
-    { label: 'Rastreo GPS',      icon: 'pi pi-map',       route: '/logistica/rastreo',   permission: Permission.LOGISTICS_FLEET_VER },
-    { label: 'Actividad flota',  icon: 'pi pi-chart-bar', route: '/logistica/actividad', permission: Permission.LOGISTICS_FLEET_VER },
+    { label: 'Rastreo',          icon: 'pi pi-map-marker', route: '/logistica/tracking', permission: Permission.LOGISTICS_FLEET_VER },
     { label: 'Planeador',        icon: 'pi pi-compass',   route: '/logistica/planner',   permission: Permission.LOGISTICS_SHIPMENTS_VER },
     { label: 'Mis entregas',     icon: 'pi pi-mobile',    route: '/logistica/my-assignments', permission: Permission.LOGISTICS_SHIPMENTS_VER },
     { label: 'Guías',            icon: 'pi pi-file-edit', route: '/logistica/guides',    permission: Permission.LOGISTICS_GUIDES_VER },
@@ -584,8 +579,8 @@ export class LayoutComponent implements OnInit, OnDestroy {
         .filter((g) => g.items.length > 0);
     }
     const groups: { title: string; items: NavItem[] }[] = [];
-    // Agrupar las 3 superficies de mapa bajo una sección "Mapas" (hermanas).
-    const MAP_ROUTES = new Set(['/dashboard/live-map', '/dashboard/field-map', '/dashboard/commercial-map']);
+    // Agrupar las superficies de mapa bajo una sección "Mapas" (hermanas).
+    const MAP_ROUTES = new Set(['/dashboard/field-map', '/dashboard/route-audit', '/dashboard/commercial-map']);
     const all = this.navItems();
     const mapItems = all.filter((i) => MAP_ROUTES.has(i.route));
     const mainItems = all.filter((i) => !MAP_ROUTES.has(i.route));

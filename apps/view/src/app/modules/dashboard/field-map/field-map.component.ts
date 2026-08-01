@@ -1,56 +1,50 @@
 import { Component, OnInit, computed, inject, signal, ChangeDetectionStrategy } from '@angular/core';
 
 import { ActivatedRoute, Router } from '@angular/router';
+import { LiveMapComponent } from '../live-map/live-map.component';
 import { RoutesAnalysisComponent } from '../routes-analysis/routes-analysis.component';
 import { VendorHistoryComponent } from '../vendor-history/vendor-history.component';
-import { CommercialMapComponent } from '../commercial-map/commercial-map.component';
 import { TeamDayComponent } from './team-day.component';
 import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
 
-type FieldView = 'equipo' | 'ruta' | 'vendedor' | 'comercial';
+type FieldView = 'live' | 'equipo' | 'ruta' | 'vendedor';
 
 /**
- * Mapa de campo — superficie unificada (MF.1). Reúne en una sola entrada las
- * vistas que antes eran rutas separadas (Rutas / Historial / Mapa Comercial),
- * todas sobre "tiendas + visitas + recorrido". Cada vista monta su componente
- * existente bajo un selector (consolidación sin regresión). Las tres primeras
- * pestañas son tracking (RUTAS_VER); "Comercial" es inteligencia comercial
- * (COMMERCIAL_MAP_VER) — exhibidores, productos por tienda, propio vs
- * competencia. Un rol solo-comercial entra y aterriza directo en Comercial.
- * La vista activa se refleja en ?view= para deep-links.
+ * Mapas (Trade) — superficie unificada de tracking de PERSONAS. Reúne en una
+ * sola entrada las vistas que antes eran rutas separadas (Mapa en Vivo / Equipo /
+ * Rutas / Historial por vendedor), todas sobre "tiendas + visitas + recorrido".
+ * Cada vista monta su componente existente bajo un @switch (consolidación sin
+ * regresión). Requiere RUTAS_VER. "Mapa Comercial" (propio vs competencia) vive
+ * aparte como su propia entrada. La vista activa se refleja en ?view= (deep-link).
  */
 @Component({
   selector: 'app-field-map',
   standalone: true,
-  imports: [RoutesAnalysisComponent, VendorHistoryComponent, CommercialMapComponent, TeamDayComponent],
+  imports: [LiveMapComponent, RoutesAnalysisComponent, VendorHistoryComponent, TeamDayComponent],
   template: `
     <div class="fm-wrap">
       <nav class="fm-tabs" role="tablist">
-        @if (canTracking()) {
-          <button role="tab" [class.act]="view() === 'equipo'" [attr.aria-selected]="view() === 'equipo'" (click)="setView('equipo')">
-            <i class="pi pi-users" aria-hidden="true"></i>&nbsp;Equipo
-          </button>
-          <button role="tab" [class.act]="view() === 'ruta'" [attr.aria-selected]="view() === 'ruta'" (click)="setView('ruta')">
-            <i class="pi pi-map" aria-hidden="true"></i>&nbsp;Por ruta
-          </button>
-          <button role="tab" [class.act]="view() === 'vendedor'" [attr.aria-selected]="view() === 'vendedor'" (click)="setView('vendedor')">
-            <i class="pi pi-history" aria-hidden="true"></i>&nbsp;Por vendedor
-          </button>
-        }
-        @if (canExhibition()) {
-          <button role="tab" [class.act]="view() === 'comercial'" [attr.aria-selected]="view() === 'comercial'" (click)="setView('comercial')">
-            <i class="pi pi-map-marker" aria-hidden="true"></i>&nbsp;Comercial
-          </button>
-        }
+        <button role="tab" [class.act]="view() === 'live'" [attr.aria-selected]="view() === 'live'" (click)="setView('live')">
+          <i class="pi pi-compass" aria-hidden="true"></i>&nbsp;En vivo
+        </button>
+        <button role="tab" [class.act]="view() === 'equipo'" [attr.aria-selected]="view() === 'equipo'" (click)="setView('equipo')">
+          <i class="pi pi-users" aria-hidden="true"></i>&nbsp;Equipo
+        </button>
+        <button role="tab" [class.act]="view() === 'ruta'" [attr.aria-selected]="view() === 'ruta'" (click)="setView('ruta')">
+          <i class="pi pi-map" aria-hidden="true"></i>&nbsp;Por ruta
+        </button>
+        <button role="tab" [class.act]="view() === 'vendedor'" [attr.aria-selected]="view() === 'vendedor'" (click)="setView('vendedor')">
+          <i class="pi pi-history" aria-hidden="true"></i>&nbsp;Por vendedor
+        </button>
       </nav>
       <div class="fm-view">
         @switch (view()) {
+          @case ('live') { <app-live-map /> }
           @case ('equipo') { <app-team-day (selectVendor)="onTeamSelect($event)" /> }
           @case ('ruta') { <app-routes-analysis /> }
           @case ('vendedor') { <app-vendor-history /> }
-          @case ('comercial') { <app-commercial-map /> }
         }
       </div>
     </div>
@@ -71,41 +65,27 @@ export class FieldMapComponent implements OnInit {
   private router = inject(Router);
   private auth = inject(AuthService);
   private perms = inject(PermissionsService);
-  protected view = signal<FieldView>('equipo');
+  protected view = signal<FieldView>('live');
 
-  /** Las pestañas de tracking (equipo/ruta/vendedor) requieren RUTAS_VER. */
+  /** Todas las pestañas requieren RUTAS_VER (tracking de personas). */
   protected canTracking = computed(
     () =>
       this.perms.can('read', 'routes_analytics' as any) ||
       this.auth.user()?.permissions?.[Permission.RUTAS_VER] === true,
   );
 
-  /** La vista Comercial (Mapa Comercial) requiere COMMERCIAL_MAP_VER. */
-  protected canExhibition = computed(
-    () =>
-      this.perms.can('read', 'commercial_map' as any) ||
-      this.auth.user()?.permissions?.[Permission.COMMERCIAL_MAP_VER] === true,
-  );
-
   ngOnInit(): void {
-    // Default inteligente: con tracking abre en "Equipo"; un rol solo-comercial
-    // aterriza directo en "Comercial" (no en una pestaña que no puede ver).
-    this.view.set(this.canTracking() ? 'equipo' : 'comercial');
     const v = this.route.snapshot.queryParamMap.get('view') as FieldView | null;
     if (v && this.isAllowed(v)) this.view.set(v);
   }
 
-  /** ¿La vista pedida es accesible con los permisos del usuario? */
   private isAllowed(v: FieldView): boolean {
-    if (v === 'comercial') return this.canExhibition();
-    if (v === 'equipo' || v === 'ruta' || v === 'vendedor') return this.canTracking();
-    return false;
+    return v === 'live' || v === 'equipo' || v === 'ruta' || v === 'vendedor';
   }
 
   protected setView(v: FieldView): void {
     if (v === this.view()) return;
     this.view.set(v);
-    // Refleja la vista en la URL (deep-link) sin recargar.
     this.router.navigate([], { relativeTo: this.route, queryParams: { view: v }, queryParamsHandling: 'merge', replaceUrl: true });
   }
 
