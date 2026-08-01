@@ -621,6 +621,7 @@ export interface AuditPathPoint {
   speed_kmh: number | null;
 }
 export interface AuditStop {
+  seq: number;
   arrived_at: string;
   left_at: string;
   minutes: number;
@@ -628,6 +629,14 @@ export interface AuditStop {
   lng: number;
   matched_store_id: string | null;
   store_name: string | null;
+  in_plan: boolean;
+  kind: 'plan_store' | 'off_route' | 'unmatched';
+}
+
+export interface AuditRoute {
+  coordinates: [number, number][]; // [lng, lat] (orden GeoJSON)
+  low_confidence: boolean;
+  point_count: number;
 }
 export interface AuditTicket {
   id: string;
@@ -1166,6 +1175,11 @@ export class LogisticaService {
   vehicleAuditDetail(vehicleId: string, date: string): Observable<VehicleAuditDetail> {
     const params = new HttpParams().set('vehicle_id', vehicleId).set('date', date);
     return this.http.get<VehicleAuditDetail>(`${this.base}/tracking/audit-detail`, { params });
+  }
+  /** LTV.17 — recorrido pegado a calles (Mapbox Map Matching) de un vehículo/día. */
+  vehicleAuditRoute(vehicleId: string, date: string): Observable<AuditRoute> {
+    const params = new HttpParams().set('vehicle_id', vehicleId).set('date', date);
+    return this.http.get<AuditRoute>(`${this.base}/tracking/audit-detail/route`, { params });
   }
   fleetAlerts(): Observable<FleetAlertRow[]> {
     return this.http.get<FleetAlertRow[]>(`${this.base}/tracking/alerts`);
