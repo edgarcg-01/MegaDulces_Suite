@@ -720,6 +720,13 @@ export class CommercialAnalyticsController {
     });
   }
 
+  @Get('sales-by-route/closure-reconciliation')
+  @RequirePermissions(Permission.COMMERCIAL_ROUTE_SALES_VER)
+  @ApiOperation({ summary: 'RR — Conciliación cierre de ruta vs venta real (histórico D+1): incidencias cierre_faltante/descuadre/cierre_sin_venta. Params: from, to (YYYY-MM-DD).' })
+  routeClosureReconciliation(@Query('from') from?: string, @Query('to') to?: string) {
+    return this.service.routeClosureReconciliation(from?.trim() || undefined, to?.trim() || undefined);
+  }
+
   @Get('sales-by-route')
   @RequirePermissions(Permission.COMMERCIAL_ROUTE_SALES_VER)
   @ApiOperation({

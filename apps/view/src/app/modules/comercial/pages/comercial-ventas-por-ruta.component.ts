@@ -26,6 +26,7 @@ import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tab
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { REPORTS_TABS } from '../reports-tabs';
 import { SidePeekComponent } from '../../../shared/components/side-peek/side-peek.component';
+import { RouteClosureReconComponent } from './comercial-route-closure-recon.component';
 
 type DetailTab = 'productos' | 'dias' | 'clientes' | 'tickets';
 
@@ -45,7 +46,7 @@ const MES: Record<string, string> = {
     CommonModule, FormsModule, ButtonModule, SelectModule, MultiSelectModule,
     ToastModule, TableModule, InputTextModule, InputNumberModule, CheckboxModule,
     IconFieldModule, InputIconModule,
-    PageTabsComponent, SidePeekComponent, MetricStripComponent,
+    PageTabsComponent, SidePeekComponent, MetricStripComponent, RouteClosureReconComponent,
   ],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -60,6 +61,9 @@ const MES: Record<string, string> = {
           <p class="surf-page-sub">Venta real por sucursal y ruta, mes a mes · importe · tickets · exporta XLSX</p>
         </div>
       </header>
+
+      <!-- RR — Conciliación cierre de ruta (corte vendedor vs venta real, D+1) -->
+      <app-route-closure-recon />
 
       <div class="rr-filters card-premium card-flat">
         <div class="rr-field rr-year">

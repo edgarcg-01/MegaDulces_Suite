@@ -1076,6 +1076,14 @@ export class ComercialService {
     });
   }
 
+  /** RR — Conciliación de cierre de ruta (corte vendedor vs venta real). Histórico D+1. */
+  routeClosureReconciliation(from?: string, to?: string) {
+    let params = new HttpParams();
+    if (from) params = params.set('from', from);
+    if (to) params = params.set('to', to);
+    return this.http.get<RouteClosureReconciliation>(`${this.base}/analytics/sales-by-route/closure-reconciliation`, { params });
+  }
+
   private salesByRouteParams(p: SalesByRouteParams): HttpParams {
     let params = new HttpParams().set('year', String(p.year));
     if (p.routes?.length) params = params.set('routes', p.routes.join(','));
@@ -1429,6 +1437,31 @@ export interface SalesByRouteReport {
   totals: SalesByRouteCell;
   monthly_totals: Record<string, SalesByRouteCell>;
   generated_at: string;
+}
+
+// ── RR — Conciliación de cierre de ruta ──
+export interface RouteClosureIncidencia {
+  route_no: number;
+  date: string;
+  real_revenue: number;
+  corte: number;
+  diff: number;
+  diff_pct: number | null;
+  tickets: number;
+  status: 'cierre_faltante' | 'descuadre' | 'cierre_sin_venta';
+}
+export interface RouteClosureReconciliation {
+  period: { from: string; to: string };
+  summary: {
+    routes: number;
+    real_total: number;
+    corte_total: number;
+    cierre_faltante: number;
+    descuadre: number;
+    cierre_sin_venta: number;
+    ok: number;
+  };
+  incidencias: RouteClosureIncidencia[];
 }
 
 // ── Fase T — Traspasos (no es venta) ──
