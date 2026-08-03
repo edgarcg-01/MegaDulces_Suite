@@ -202,6 +202,17 @@ export class GoodsReceiptProofsService {
         .first('sucursal', 'folio', 'receipt_date', 'proveedor_code', 'proveedor_nombre', 'proveedor_rfc',
           'oc_folio', 'vale_folio', 'concepto', trx.raw('monto::numeric AS monto'));
       if (!entrada) throw new BadRequestException('entrada no encontrada');
+      // Detalle por renglón (auditoría): qué SKU/cantidad/costo entró en este documento.
+      const lineasRaw = await trx('analytics.erp_goods_receipt_lines')
+        .where({ tenant_id: tenantId, sucursal, folio })
+        .orderByRaw(`NULLIF(regexp_replace(linea, '[^0-9]', '', 'g'), '')::int NULLS LAST, linea`)
+        .select('linea', 'sku', 'nombre', 'unidad',
+          trx.raw('cantidad::numeric AS cantidad'),
+          trx.raw('costo_unitario::numeric AS costo_unitario'),
+          trx.raw('importe::numeric AS importe'));
+      const lineas = lineasRaw.map((l: any) => ({
+        ...l, cantidad: Number(l.cantidad), costo_unitario: Number(l.costo_unitario), importe: Number(l.importe),
+      }));
       const deposits = await trx('finance.goods_receipt_proofs')
         .where({ sucursal, folio })
         .orderBy('created_at', 'desc')
@@ -209,7 +220,7 @@ export class GoodsReceiptProofsService {
           trx.raw('ocr_subtotal::numeric AS ocr_subtotal'), trx.raw('ocr_iva::numeric AS ocr_iva'),
           trx.raw('ocr_monto::numeric AS ocr_monto'), 'ocr_status', 'monto_match', 'status',
           'comentarios', 'validated_by', 'validated_at', 'motivo_rechazo', 'created_by', 'created_at');
-      return { entrada: { ...entrada, monto: Number(entrada.monto) }, deposits };
+      return { entrada: { ...entrada, monto: Number(entrada.monto) }, lineas, deposits };
     });
   }
 

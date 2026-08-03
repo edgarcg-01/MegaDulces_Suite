@@ -59,6 +59,16 @@ const matchR = (total, sub, val) => {
     ok(entrada && entrada.vale_folio === '0008471', 'entrada 0008353 enlaza al vale 0008471 (X-A-37)');
     ok(entrada && entrada.proveedor_rfc === 'PCP920523HQA', 'entrada 0008353 con RFC del proveedor (vía vale)');
 
+    // Detalle por línea (auditoría renglón por renglón)
+    const linreg = await knex.raw(`SELECT to_regclass('analytics.erp_goods_receipt_lines') l`);
+    ok(!!linreg.rows[0].l, 'analytics.erp_goods_receipt_lines existe');
+    const [ln] = await knex('analytics.erp_goods_receipt_lines').where({ tenant_id: T }).count('* as n');
+    ok(Number(ln.n) > 8000, `erp_goods_receipt_lines poblada (${ln.n} líneas de detalle)`);
+    const [le] = await knex('analytics.erp_goods_receipt_lines').where({ tenant_id: T, sucursal: '00', folio: '0008353' }).count('* as n');
+    ok(Number(le.n) > 0, `entrada 0008353 tiene ${le.n} línea(s) de detalle para auditar`);
+    const [ls] = await knex('analytics.erp_goods_receipt_lines').where({ tenant_id: T, sucursal: '00', folio: '0008353' }).sum({ t: 'importe' });
+    ok(Number(ls.t) > 0, `suma de líneas de 0008353 = $${Number(ls.t).toLocaleString('es-MX')} (cross-check vs total Kepler)`);
+
     // ── 3. Lógica de cuadre ──────────────────────────────────────────────────
     ok(matchP(685704.06, 685704.06) === true, 'pago: match exacto → cuadra');
     ok(matchP(685704.56, 685704.06) === true, 'pago: diferencia $0.50 → cuadra');
