@@ -8,8 +8,10 @@ import {
   signal,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { FormsModule } from '@angular/forms';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ButtonModule } from 'primeng/button';
+import { DatePickerModule } from 'primeng/datepicker';
 import { MessageService } from 'primeng/api';
 import { ToastModule } from 'primeng/toast';
 import { FiltersStateService } from '../../reports/graphics/filters-state.service';
@@ -43,7 +45,7 @@ interface StatusMeta {
 @Component({
   selector: 'app-vendor-review',
   standalone: true,
-  imports: [CommonModule, ButtonModule, ToastModule],
+  imports: [CommonModule, FormsModule, ButtonModule, DatePickerModule, ToastModule],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
   styles: [
@@ -105,15 +107,42 @@ interface StatusMeta {
     <div class="space-y-4">
       <!-- Barra de acciones -->
       <div class="flex items-center justify-between gap-3 flex-wrap">
-        <div class="text-sm text-content-muted">
-          @if (loading()) {
-            <i class="pi pi-spin pi-spinner mr-1" aria-hidden="true"></i> Cargando…
-          } @else {
-            <span class="font-semibold text-content-main">{{ data()?.by_vendor?.length || 0 }}</span>
-            vendedores ·
-            <span class="font-semibold text-content-main">{{ data()?.visits?.length || 0 }}</span>
-            visitas en el rango
-          }
+        <div class="flex items-center gap-3 flex-wrap">
+          <!-- Filtro por rango de fechas (comparte estado con los filtros globales). -->
+          <div class="flex items-center gap-1.5">
+            <i class="pi pi-calendar text-content-faint text-sm" aria-hidden="true"></i>
+            <p-datepicker
+              [(ngModel)]="dateRange"
+              selectionMode="range"
+              [readonlyInput]="true"
+              [showButtonBar]="true"
+              [maxDate]="today"
+              dateFormat="dd/mm/yy"
+              placeholder="Rango de fechas"
+              (onSelect)="onDateChange()"
+              (onClear)="onDateClear()"
+              styleClass="p-input-sm"
+            />
+            <div class="inline-flex rounded-md border border-divider overflow-hidden">
+              @for (p of quickRanges; track p.days) {
+                <button
+                  type="button"
+                  class="px-2 py-1 text-[11px] font-semibold motion-safe:transition-colors text-content-muted hover:text-content-main hover:bg-surface-active"
+                  (click)="applyQuickRange(p.days)"
+                >{{ p.label }}</button>
+              }
+            </div>
+          </div>
+          <span class="text-sm text-content-muted">
+            @if (loading()) {
+              <i class="pi pi-spin pi-spinner mr-1" aria-hidden="true"></i> Cargando…
+            } @else {
+              <span class="font-semibold text-content-main">{{ data()?.by_vendor?.length || 0 }}</span>
+              vendedores ·
+              <span class="font-semibold text-content-main">{{ data()?.visits?.length || 0 }}</span>
+              visitas
+            }
+          </span>
         </div>
         <div class="flex items-center gap-2 flex-wrap">
           <p-button
@@ -323,6 +352,15 @@ export class VendorReviewComponent {
   selectedVendorId = signal<string | null>(null);
   statusFilter = signal<HorusStatus | 'all'>('all');
 
+  /** Rango de fechas del picker (bound al estado global de filtros). */
+  dateRange: Date[] = [];
+  readonly today = new Date();
+  readonly quickRanges = [
+    { label: '7d', days: 7 },
+    { label: '30d', days: 30 },
+    { label: '90d', days: 90 },
+  ];
+
   private static readonly STATUS_META: StatusMeta[] = [
     { key: 'valida', label: 'Válidas', cls: 'h-valida', icon: 'pi-check-circle' },
     { key: 'requiere_supervision', label: 'A supervisar', cls: 'h-requiere_supervision', icon: 'pi-flag' },
@@ -362,11 +400,49 @@ export class VendorReviewComponent {
   });
 
   constructor() {
+    // Inicializa el picker desde el rango actual del estado global.
+    const f = this.filtersState.filters();
+    const start = this.parseYmd(f.startDate);
+    const end = this.parseYmd(f.endDate);
+    if (start && end) this.dateRange = [start, end];
+
     // Re-fetch cuando cambian los filtros globales (dates/zone/supervisor).
     effect(() => {
       this.filtersState.filtersDebounced();
       this.reload();
     });
+  }
+
+  /** 'YYYY-MM-DD' → Date local (evita el shift de día de new Date(str) en UTC). */
+  private parseYmd(s?: string): Date | null {
+    if (!s) return null;
+    const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s);
+    if (!m) return null;
+    return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  }
+
+  onDateChange(): void {
+    if (this.dateRange?.[0] && this.dateRange?.[1]) {
+      this.filtersState.setDateRange(this.dateRange[0], this.dateRange[1]);
+    }
+  }
+
+  onDateClear(): void {
+    this.dateRange = [];
+    // Vuelve al preset por defecto (última semana) del estado global.
+    this.filtersState.setPeriod('semanal');
+    const f = this.filtersState.filters();
+    const start = this.parseYmd(f.startDate);
+    const end = this.parseYmd(f.endDate);
+    if (start && end) this.dateRange = [start, end];
+  }
+
+  applyQuickRange(days: number): void {
+    const end = new Date();
+    const start = new Date();
+    start.setDate(start.getDate() - days);
+    this.dateRange = [start, end];
+    this.filtersState.setDateRange(start, end);
   }
 
   metaFor(status: HorusStatus): StatusMeta {
