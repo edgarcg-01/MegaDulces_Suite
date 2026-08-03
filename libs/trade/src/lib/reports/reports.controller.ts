@@ -29,6 +29,7 @@ import {
   ReportsDataFilterDto,
   ReportsFilterDto,
   ReportsStoresFilterDto,
+  VendorVisitsReviewDto,
 } from './dto/reports-filter.dto';
 import { RoutePingsBatchDto } from './dto/route-pings.dto';
 import { getDataScope } from '@megadulces/platform-core';
@@ -80,6 +81,19 @@ export class ReportsController {
       this.logger.error(`getDailyScoresPerUser error: ${error.message}`, error.stack);
       throw error;
     }
+  }
+
+  @Get('vendor-visits-review')
+  @RequirePermissions(Permission.VER_SEGUIMIENTO)
+  @ApiOperation({
+    summary:
+      'Reporte por vendedor: todas sus visitas con calificación + estado de revisión Horus (valida / requiere_supervision / fraude / no_revisada)',
+  })
+  getVendorVisitsReview(
+    @ReqUser() user: any,
+    @Query() filters: VendorVisitsReviewDto,
+  ) {
+    return this.reportsService.getVendorVisitsReview(filters, user);
   }
 
   @Get('data')

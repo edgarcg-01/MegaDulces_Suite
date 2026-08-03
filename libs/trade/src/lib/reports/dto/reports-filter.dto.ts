@@ -79,6 +79,28 @@ export class ReportsDataFilterDto extends ReportsFilterDto {
   include?: string;
 }
 
+/**
+ * Filtros del "Reporte por vendedor con revisión Horus" (/reports/vendor-visits-review).
+ * Lista las visitas de un vendedor con su calificación + el estado de revisión de
+ * Horus derivado (no_revisada / valida / requiere_supervision / fraude / confirmada /
+ * descartada). `userId` selecciona el vendedor; `horusStatus` filtra por estado.
+ */
+export class VendorVisitsReviewDto extends ReportsFilterDto {
+  @ApiProperty({ required: false, description: 'UUID del vendedor a reportar' })
+  @IsOptional()
+  @IsString()
+  userId?: string;
+
+  @ApiProperty({
+    required: false,
+    description:
+      'Filtra por estado Horus: no_revisada | valida | requiere_supervision | fraude | confirmada | descartada',
+  })
+  @IsOptional()
+  @IsString()
+  horusStatus?: string;
+}
+
 export class ReportsStoresFilterDto {
   @ApiProperty({ required: false })
   @IsOptional()

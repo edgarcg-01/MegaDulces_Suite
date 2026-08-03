@@ -31,6 +31,40 @@
     </div>
   </div>
 
+  <!-- Toggle de vista de nivel superior: Scoring vs Reporte por vendedor (Horus). -->
+  <div class="inline-flex rounded-lg border border-divider bg-surface-card p-0.5" role="tablist" aria-label="Vista">
+    <button
+      type="button"
+      role="tab"
+      [attr.aria-selected]="viewMode() === 'scoring'"
+      (click)="setViewMode('scoring')"
+      class="px-4 py-1.5 text-xs font-semibold rounded-md motion-safe:transition-all"
+      [class.bg-surface-active]="viewMode() === 'scoring'"
+      [class.text-content-active]="viewMode() === 'scoring'"
+      [class.text-content-muted]="viewMode() !== 'scoring'">
+      <i class="pi pi-chart-bar text-[10px] mr-1" aria-hidden="true"></i>
+      Scoring
+    </button>
+    <button
+      type="button"
+      role="tab"
+      [attr.aria-selected]="viewMode() === 'reporte'"
+      (click)="setViewMode('reporte')"
+      class="px-4 py-1.5 text-xs font-semibold rounded-md motion-safe:transition-all"
+      [class.bg-surface-active]="viewMode() === 'reporte'"
+      [class.text-content-active]="viewMode() === 'reporte'"
+      [class.text-content-muted]="viewMode() !== 'reporte'">
+      <i class="pi pi-verified text-[10px] mr-1" aria-hidden="true"></i>
+      Reporte por vendedor
+    </button>
+  </div>
+
+  @if (viewMode() === 'reporte') {
+    <div class="mt-2">
+      <app-global-filters />
+    </div>
+    <app-vendor-review />
+  } @else {
   <!-- Sub-header + segmented toggle. Solo se muestra una vista a la vez. -->
   <div class="flex items-center justify-between gap-3 flex-wrap">
     @if (chartMode() === 'avg' && totalUsers() > 0) {
@@ -399,6 +433,7 @@
       </div>
     }
   </div>
+  }
 </main>
 
 <!--
