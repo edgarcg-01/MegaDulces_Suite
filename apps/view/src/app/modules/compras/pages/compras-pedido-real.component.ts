@@ -999,7 +999,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     // "XLSX por proveedor" = las MISMAS compras sugeridas que muestra la interfaz (motor de reorden),
     // con los filtros activos ya aplicados, agrupadas en una HOJA por proveedor. Reusa el export de
     // pedido (mismas columnas/números que el "plano" y la pantalla) → nada de recálculos divergentes.
-    const scope = this.flatRows().filter((r) => r.type === 'compra' && r.editable && Number(r.qty) > 0);
+    const scope = this.flatRows().filter((r) => r.type === 'comprar' && r.editable && Number(r.qty) > 0);
     if (!scope.length) {
       this.toast.add({ severity: 'warn', summary: 'Nada que exportar', detail: 'No hay compras sugeridas con los filtros actuales.' });
       return;
