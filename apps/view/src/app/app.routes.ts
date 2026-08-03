@@ -277,6 +277,16 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.FINANCE_COLLECTIONS_VER)]
       },
       {
+        path: 'pagos-comprobantes',
+        loadComponent: () => import('./modules/finanzas/pages/finanzas-pagos-comprobantes.component').then(m => m.FinanzasPagosComprobantesComponent),
+        canActivate: [permissionGuard(Permission.FINANCE_PAYMENTS_VER)]
+      },
+      {
+        path: 'entradas',
+        loadComponent: () => import('./modules/finanzas/pages/finanzas-entradas.component').then(m => m.FinanzasEntradasComponent),
+        canActivate: [permissionGuard(Permission.FINANCE_RECEIPTS_VER)]
+      },
+      {
         path: 'maat',
         loadComponent: () => import('./modules/finanzas/pages/finanzas-maat-chat.component').then(m => m.FinanzasMaatChatComponent),
         canActivate: [permissionGuard(Permission.FINANCE_AI_CHAT)]

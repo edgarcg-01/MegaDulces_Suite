@@ -10,6 +10,16 @@
 
 ## [Unreleased]
 
+### Added — Fase CC (extensión): Comprobantes de Pago a Proveedor + Orden de Entrada (2026-08-03)
+- Extiende el patrón de Cobranza (adjunto + OCR + HITL, evidencia read-only sobre Kepler) a **dos papeles más** de la operación de compras. Dos módulos dedicados que calcan Cobranza.
+- **Decode en vivo (Kepler md_00, 2026-08-03):** el pago-a-proveedor limpio es **`XD2501`** ("Payment1", asiento C 201 / A 102, RFC + razón social + montos reales; 619 pagos / $42.5M). OJO: `XD2601` es caja chica/gastos NF (c16 a menudo 0) → **no** es transferencia a proveedor, se excluye (eso es Egresos/GX). La orden de entrada es **`X-A-40`** ("EntryOr1", la que suma inventario), enriquecida con su vale **`X-A-37`** por el back-pointer `c37='37'`/`c39` (RFC + razón social + folio de la OC; cobertura del join **8360/8360**; 8,361 entradas / $451.8M).
+- **Schema** — mig `20260803130000`: `analytics.erp_supplier_payments` (espejo XD2501) + `analytics.erp_goods_receipts` (espejo X-A-40⋈X-A-37) + `finance.supplier_payment_proofs` + `finance.goods_receipt_proofs` (adjunto + OCR + `monto_match` + HITL, RLS forzado). Perms `20260803130100` (`FINANCE_PAYMENTS_*` / `FINANCE_RECEIPTS_*`, backfill ancla a Bancos).
+- **Importers** `import-supplier-payments.js` (XD2501) + `import-goods-receipts.js` (X-A-40⋈X-A-37, dedupe por `(suc,folio)`). UPSERT aditiva sin DELETE, fuente CEDIS `md_00`.
+- **OCR** — pagos reusan `extractDepositSlip` (un SPEI es una transferencia); entradas usan el nuevo **`extractRemision()`** (folio, fecha, proveedor, RFC, subtotal, IVA, total). El cuadre de la entrada acepta total **o** subtotal (IVA variable en dulce a granel).
+- **Backend** — `libs/finance/supplier-payment-proofs` (`/finance/supplier-payments`) + `libs/finance/goods-receipt-proofs` (`/finance/goods-receipts`). Cada uno: `list` ⋈ evidencia + KPIs, `uploadFile`, `runOcr`, `attach`, `validate`/`reject`. Read-only sobre Kepler.
+- **Frontend** — `/finanzas/pagos-comprobantes` + `/finanzas/entradas` (nuevas tabs + sidebar). Calcan la página de Cobranza: tabla + chip de cuadre + panel adjuntar (foto/archivo → almacena + OCR auto → campos editables → guardar) + validar/rechazar.
+- Builds api + view verdes. Smoke `test-newdb-supplier-receipt-proofs` **30/30** (en regression). **Pendiente prod:** aplicar 2 migs a Railway + correr los 2 importers desde LAN (Railway no alcanza CEDIS) + redeploy código + re-login.
+
 ### Added — Fase CC: Comprobantes de Cobranza (ficha de depósito + OCR sobre cobros de Kepler) (2026-08-03)
 - **Problema:** un cliente a crédito paga con depósito/transferencia y manda la ficha, pero esa ficha no se ligaba a su cobro. CC digitaliza ese adjunto como **evidencia read-only** sobre Kepler (no crea ni escribe cobros).
 - **Decode del cobro en Kepler:** documento **`Collect1`** (folio serie **`UA0501`**) = `kdmm` **`U-A-5-1` "Cobro PUE"**, asiento **C 102 Bancos / A 115 Clientes**. Filtro exacto `kdm1 c2='U' AND c3='A' AND c4=5` (los otros abonos nat A son devoluciones/notas de crédito → 403). Fuente CEDIS `md_00` (23,771 cobros / $369.5M; 5,227 con ficha).

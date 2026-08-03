@@ -32,6 +32,21 @@ export interface DepositSlipFields {
 }
 
 /**
+ * Fase CC (extensión) — Campos extraídos de una REMISIÓN o FACTURA de proveedor
+ * (para adjuntar a una orden de entrada de Kepler). Todos null si no se ven o el
+ * documento es ilegible.
+ */
+export interface RemisionFields {
+  folio: string | null; // número de remisión/factura del proveedor
+  fecha: string | null; // ISO YYYY-MM-DD
+  proveedor: string | null; // razón social del EMISOR (quien vende / entrega)
+  rfc: string | null; // RFC del emisor
+  subtotal: number | null;
+  iva: number | null;
+  total: number | null; // importe total de la remisión/factura
+}
+
+/**
  * Wrapper de Anthropic Claude Haiku 4.5 — extracción estructurada de items
  * de producto desde texto crudo del colaborador.
  *
@@ -155,6 +170,33 @@ export class LlmExtractorService implements OnModuleInit {
       return await this.callClaudeVisionDeposit(fileBase64, mediaType);
     } catch (e: any) {
       this.logger.warn(`Claude deposit-slip extract failed: ${e.message}`);
+      return empty;
+    }
+  }
+
+  /**
+   * Fase CC (extensión) — Extrae los campos de una REMISIÓN o FACTURA de proveedor
+   * (imagen O PDF) para adjuntarla a una orden de entrada de Kepler. Soporta PDF
+   * nativo (bloque `document`) e imagen (bloque `image`). Devuelve campos null si
+   * es ilegible o no hay ANTHROPIC_API_KEY (el capturista teclea a mano).
+   */
+  async extractRemision(
+    fileBase64: string,
+    mediaType: 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif' | 'application/pdf',
+  ): Promise<RemisionFields> {
+    const empty: RemisionFields = {
+      folio: null, fecha: null, proveedor: null, rfc: null,
+      subtotal: null, iva: null, total: null,
+    };
+    if (!this.apiKey) {
+      this.logger.warn('Remisión OCR sin ANTHROPIC_API_KEY — devuelvo campos vacíos');
+      return empty;
+    }
+    if (!fileBase64) return empty;
+    try {
+      return await this.callClaudeVisionRemision(fileBase64, mediaType);
+    } catch (e: any) {
+      this.logger.warn(`Claude remisión extract failed: ${e.message}`);
       return empty;
     }
   }
@@ -760,6 +802,91 @@ export class LlmExtractorService implements OnModuleInit {
       referencia: str(inp.referencia),
       ordenante: str(inp.ordenante),
       metodo: metodo && METODOS.has(metodo) ? metodo : null,
+    };
+  }
+
+  /**
+   * Vision/document para remisiones/facturas de proveedor. Arma bloque `document`
+   * (PDF nativo) o `image` según el media type, y pide los campos por tool_use.
+   * Reusa `parseTicketDate` para normalizar la fecha.
+   */
+  private async callClaudeVisionRemision(
+    fileBase64: string,
+    mediaType: string,
+  ): Promise<RemisionFields> {
+    const fileBlock =
+      mediaType === 'application/pdf'
+        ? { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: fileBase64 } }
+        : { type: 'image', source: { type: 'base64', media_type: mediaType, data: fileBase64 } };
+
+    const json = (await this.anthropic.messages(
+      {
+        model: this.model,
+        maxTokens: 512,
+        toolChoice: { type: 'tool', name: 'extract_remision' },
+        tools: [
+          {
+            name: 'extract_remision',
+            description:
+              'Extrae los datos de una REMISIÓN o FACTURA de proveedor de México (el documento con el que ' +
+              'un proveedor entrega/factura mercancía). El EMISOR es el PROVEEDOR (quien vende); el receptor ' +
+              'es Mega Dulces / De Los Altos (NO lo confundas con el proveedor). Usa null para lo que no se ' +
+              'distinga. NO inventes.',
+            input_schema: {
+              type: 'object',
+              properties: {
+                folio: { type: ['string', 'null'], description: 'Folio/número de la remisión o factura (ej. "A-12345", "REM 8842"). Copiar tal cual. null si no se ve.' },
+                fecha: { type: ['string', 'null'], description: 'Fecha del documento en ISO YYYY-MM-DD. Convierte cualquier formato ("15/JUL/2026" → "2026-07-15"). null si no se ve.' },
+                proveedor: { type: ['string', 'null'], description: 'Razón social del EMISOR (el proveedor que vende/entrega). NO el receptor (Mega Dulces/De Los Altos). null si no se ve.' },
+                rfc: { type: ['string', 'null'], description: 'RFC del EMISOR (proveedor). 12-13 caracteres. NO el RFC del receptor. null si no se ve.' },
+                subtotal: { type: ['number', 'null'], description: 'Subtotal (antes de IVA) en pesos, sin símbolo ni comas. null si no se ve.' },
+                iva: { type: ['number', 'null'], description: 'IVA/impuestos en pesos, sin símbolo ni comas. null si no se ve.' },
+                total: { type: ['number', 'null'], description: 'TOTAL a pagar en pesos (el importe principal del documento), sin símbolo ni comas. null si no se ve.' },
+              },
+              required: ['folio', 'fecha', 'proveedor', 'rfc', 'subtotal', 'iva', 'total'],
+            },
+          },
+        ],
+        messages: [
+          {
+            role: 'user',
+            content: [
+              fileBlock,
+              { type: 'text', text: 'Esta es la remisión o factura con la que un proveedor entregó mercancía. Extrae sus datos con la herramienta extract_remision.' },
+            ],
+          },
+        ],
+      },
+      { timeoutMs: 30_000 },
+    )) as {
+      content: Array<
+        | { type: 'text'; text: string }
+        | { type: 'tool_use'; name: string; input: Record<string, unknown> }
+      >;
+    };
+
+    const toolUse = json.content.find(
+      (c): c is Extract<typeof c, { type: 'tool_use' }> =>
+        c.type === 'tool_use' && c.name === 'extract_remision',
+    );
+    if (!toolUse) throw new Error('Claude remisión no devolvió tool_use');
+
+    const inp = toolUse.input || {};
+    const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+    const PLACEHOLDERS = new Set(['<unknown>', 'unknown', 'n/a', 'na', 'null', 'none', '-', '--', '?', 'desconocido', 'sin dato']);
+    const str = (v: unknown): string | null => {
+      if (typeof v !== 'string') return null;
+      const t = v.trim();
+      return t && !PLACEHOLDERS.has(t.toLowerCase()) ? t : null;
+    };
+    return {
+      folio: str(inp.folio),
+      fecha: this.parseTicketDate(inp.fecha),
+      proveedor: str(inp.proveedor),
+      rfc: str(inp.rfc)?.toUpperCase() || null,
+      subtotal: num(inp.subtotal),
+      iva: num(inp.iva),
+      total: num(inp.total),
     };
   }
 
