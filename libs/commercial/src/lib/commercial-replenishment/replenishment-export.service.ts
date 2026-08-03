@@ -299,6 +299,11 @@ export class ReplenishmentExportService {
     const MONEY = '$#,##0.00';
     const NUM = '#,##0';
     const N1 = '#,##0.0';
+    // Paleta Mercado (Stone) → ARGB. Tinta espresso, banda de encabezado stone-800,
+    // hairlines stone-200, acento sunset reservado para la cifra que manda (Importe).
+    const INK = 'FF1C1917', MUTED = 'FF78716C', BAND = 'FF292524', BAND_TXT = 'FFFFFFFF';
+    const HAIR = 'FFE7E5E4', TOTAL_BG = 'FFF5F5F4', TOTAL_LINE = 'FFA8A29E';
+    const ACCENT = 'FFC2410C', BAD = 'FFB91C1C', FONT = 'Calibri';
     const rows = order.lines || [];
     const isTransfer = order.via === 'transfer';
     const any = (f: (r: PedidoExportLine) => boolean) => rows.some(f);
@@ -334,15 +339,16 @@ export class ReplenishmentExportService {
       fmt?: string;
       total?: boolean;
       kind?: 'oh' | 'hub' | 'cajas' | 'importe';
+      align?: 'left' | 'center' | 'right';
       width?: number;
     };
-    const cols: Col[] = [{ h: '#', v: (_r, i) => i + 1, width: 5 }];
-    if (has.wh) cols.push({ h: 'Almacén', v: (r) => r.warehouse_code ?? '', width: 10 });
-    if (has.sup) cols.push({ h: 'Proveedor', v: (r) => r.supplier_name ?? '', width: 26 });
-    cols.push({ h: 'SKU', v: (r) => r.sku ?? '', width: 12 });
-    cols.push({ h: 'Producto', v: (r) => r.nombre ?? '', width: 42 });
-    if (has.abc) cols.push({ h: 'ABC', v: (r) => r.abc_class ?? '', width: 6 });
-    if (has.xyz) cols.push({ h: 'XYZ', v: (r) => r.xyz_class ?? '', width: 6 });
+    const cols: Col[] = [{ h: '#', v: (_r, i) => i + 1, align: 'center', width: 5 }];
+    if (has.wh) cols.push({ h: 'Almacén', v: (r) => r.warehouse_code ?? '', align: 'left', width: 10 });
+    if (has.sup) cols.push({ h: 'Proveedor', v: (r) => r.supplier_name ?? '', align: 'left', width: 26 });
+    cols.push({ h: 'SKU', v: (r) => r.sku ?? '', align: 'left', width: 12 });
+    cols.push({ h: 'Producto', v: (r) => r.nombre ?? '', align: 'left', width: 42 });
+    if (has.abc) cols.push({ h: 'ABC', v: (r) => r.abc_class ?? '', align: 'center', width: 6 });
+    if (has.xyz) cols.push({ h: 'XYZ', v: (r) => r.xyz_class ?? '', align: 'center', width: 6 });
     if (has.rank) cols.push({ h: 'Rank vta', v: (r) => (r.sales_rank != null ? Number(r.sales_rank) : ''), fmt: NUM, width: 8 });
     if (has.rev) cols.push({ h: 'Venta/mes', v: (r) => Number(r.monthly_revenue) || 0, fmt: MONEY, total: true, width: 13 });
     if (has.sell) cols.push({ h: 'Venta/día', v: (r) => (r.sell_daily != null ? Number(r.sell_daily) : ''), fmt: N1, width: 10 });
@@ -367,17 +373,19 @@ export class ReplenishmentExportService {
     const xSplit = 1 + (has.wh ? 1 : 0) + (has.sup ? 1 : 0) + 2;
     ws.views = [{ state: 'frozen', xSplit, ySplit: 3 }];
 
-    // Fila 1 — título
+    const alignOf = (c: Col): 'left' | 'center' | 'right' => c.align ?? (c.fmt ? 'right' : 'left');
+
+    // Fila 1 — título (jerarquía editorial, alineado a la izquierda, tinta espresso).
     ws.mergeCells(1, 1, 1, lastCol);
     const title = ws.getCell(1, 1);
     const fecha = new Date().toLocaleDateString('es-MX', { day: '2-digit', month: 'long', year: 'numeric' });
     const head = (order.title || `PEDIDO · ${order.supplier_name || ''}`).trim();
-    title.value = `${head}  ·  ${fecha}`;
-    title.font = { bold: true, size: 14 };
-    title.alignment = { horizontal: 'center', vertical: 'middle' };
-    ws.getRow(1).height = 24;
+    title.value = head;
+    title.font = { name: FONT, bold: true, size: 16, color: { argb: INK } };
+    title.alignment = { horizontal: 'left', vertical: 'middle', indent: 1 };
+    ws.getRow(1).height = 28;
 
-    // Fila 2 — resumen (canal + contexto + totales)
+    // Fila 2 — resumen (contexto + totales); acento sunset en la fecha para anclar.
     ws.mergeCells(2, 1, 2, lastCol);
     const sub = ws.getCell(2, 1);
     const nCajas = rows.reduce((s, r) => s + (Number(r.cajas) || 0), 0);
@@ -391,30 +399,39 @@ export class ReplenishmentExportService {
       `${rows.length} líneas` +
       (has.cajas ? ` · ${nCajas.toLocaleString('es-MX')} cajas` : '') +
       ` · ${nPz.toLocaleString('es-MX')} pz · ${importe.toLocaleString('es-MX', { style: 'currency', currency: 'MXN' })}`;
-    sub.value = `${ctx.join('  ·  ')}   —   ${totals}`;
-    sub.font = { size: 9, color: { argb: 'FF52525B' } };
-    sub.alignment = { horizontal: 'center', vertical: 'middle' };
+    sub.value = {
+      richText: [
+        { text: `${ctx.join('  ·  ')}   —   ${totals}`, font: { name: FONT, size: 9, color: { argb: MUTED } } },
+        { text: `      ${fecha}`, font: { name: FONT, size: 9, italic: true, color: { argb: ACCENT } } },
+      ],
+    };
+    sub.alignment = { horizontal: 'left', vertical: 'middle', indent: 1 };
     ws.getRow(2).height = 18;
 
-    // Fila 3 — encabezado
+    // Fila 3 — banda de encabezado (stone-800, texto blanco, borde inferior acento).
     const hr = ws.addRow(cols.map((c) => c.h));
-    hr.eachCell((c) => {
-      c.font = { bold: true, size: 9, color: { argb: 'FF3F3F46' } };
-      c.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
-      c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1F0EC' } };
-      c.border = this.thin();
+    hr.eachCell((c, ci) => {
+      c.font = { name: FONT, bold: true, size: 9, color: { argb: BAND_TXT } };
+      c.alignment = { horizontal: alignOf(cols[ci - 1]), vertical: 'middle', wrapText: true };
+      c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: BAND } };
+      c.border = { bottom: { style: 'medium', color: { argb: ACCENT } } };
     });
-    hr.height = 26;
+    hr.height = 24;
 
-    // Filas de datos — colorea solo los problemas (agotado / hub corto), negrita en cajas e importe.
+    // Filas de datos — hairline stone-200 como separador (sin zebra), alineación por tipo,
+    // colorea solo los problemas (agotado / hub corto), negrita en cajas e importe.
     rows.forEach((r, i) => {
       const added = ws.addRow(cols.map((c) => c.v(r, i)));
+      added.height = 16;
       cols.forEach((c, ci) => {
         const cell = added.getCell(ci + 1);
+        cell.font = { name: FONT, size: 10, color: { argb: INK } };
+        cell.alignment = { horizontal: alignOf(c), vertical: 'middle' };
+        cell.border = { bottom: { style: 'hair', color: { argb: HAIR } } };
         if (c.fmt) cell.numFmt = c.fmt;
-        if (c.kind === 'importe' || c.kind === 'cajas') cell.font = { bold: true };
-        if (c.kind === 'oh' && Number(r.on_hand) <= 0) cell.font = { bold: true, color: { argb: 'FFB91C1C' } };
-        if (c.kind === 'hub' && r.hub_short) cell.font = { bold: true, color: { argb: 'FFB91C1C' } };
+        if (c.kind === 'importe' || c.kind === 'cajas') cell.font = { name: FONT, size: 10, bold: true, color: { argb: INK } };
+        if (c.kind === 'oh' && Number(r.on_hand) <= 0) cell.font = { name: FONT, size: 10, bold: true, color: { argb: BAD } };
+        if (c.kind === 'hub' && r.hub_short) cell.font = { name: FONT, size: 10, bold: true, color: { argb: BAD } };
       });
     });
 
@@ -424,6 +441,7 @@ export class ReplenishmentExportService {
     if (n > 0) {
       ws.autoFilter = `A3:${lastColL}3`;
 
+      // Fila de TOTAL — fill stone-100, línea superior stone-400; Importe en acento (la cifra que manda).
       const totalRow = ws.addRow(
         cols.map((c, ci) => {
           if (ci === 0) return 'TOTAL';
@@ -432,22 +450,32 @@ export class ReplenishmentExportService {
           return { formula: `SUBTOTAL(109,${L}${first}:${L}${last})` } as any;
         }),
       );
+      totalRow.height = 20;
       totalRow.eachCell((cell, ci) => {
-        cell.font = { bold: true };
-        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1F0EC' } };
-        cell.border = { top: { style: 'thin', color: { argb: 'FFB8B4AC' } } };
-        if (cols[ci - 1]?.fmt) cell.numFmt = cols[ci - 1].fmt!;
-      });
-
-      ws.addConditionalFormatting({
-        ref: `A${first}:${lastColL}${last}`,
-        rules: [
-          { type: 'expression', priority: 5, formulae: ['MOD(ROW(),2)=0'], style: { fill: { type: 'pattern', pattern: 'solid', bgColor: { argb: 'FFFAFAF9' } } } } as any,
-        ],
+        const col = cols[ci - 1];
+        const isImporte = col?.kind === 'importe';
+        cell.font = { name: FONT, bold: true, size: isImporte ? 11 : 10, color: { argb: isImporte ? ACCENT : INK } };
+        cell.alignment = { horizontal: ci === 1 ? 'left' : alignOf(col), vertical: 'middle', indent: ci === 1 ? 1 : 0 };
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: TOTAL_BG } };
+        cell.border = { top: { style: 'medium', color: { argb: TOTAL_LINE } } };
+        if (col?.fmt) cell.numFmt = col.fmt;
       });
     }
 
     cols.forEach((c, ci) => { if (c.width) ws.getColumn(ci + 1).width = c.width; });
+
+    // Impresión / PDF — apaisado, ajustar a un ancho de página, repetir título+encabezado,
+    // pie con paginado y marca. Que un pedido impreso salga presentable de una.
+    ws.pageSetup = {
+      orientation: 'landscape',
+      fitToPage: true, fitToWidth: 1, fitToHeight: 0,
+      horizontalCentered: true,
+      margins: { left: 0.4, right: 0.4, top: 0.5, bottom: 0.5, header: 0.3, footer: 0.3 },
+      printTitlesRow: '1:3',
+    };
+    ws.headerFooter = {
+      oddFooter: `&L&9&"${FONT}"&K808080Mega Dulces&C&9&K808080Página &P de &N&R&9&K808080${head}`,
+    };
   }
 
   fileNameWorkbook(_coverage: number): string {
