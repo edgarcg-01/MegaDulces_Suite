@@ -28,6 +28,9 @@ export interface PedidoExportLine {
   xyz_class?: string | null;
   sales_rank?: number | null;      // #1 = el que más vende en la sucursal
   monthly_revenue?: number | null; // venta mensual estimada ($) — cuánto representa en venta
+  sell_daily?: number | null;      // venta diaria (cajas/día) — la columna "Vta" de la interfaz
+  days_cover?: number | null;      // cobertura actual (días) — la "Señal" de compra
+  deficit?: number | null;         // déficit de la sucursal (cajas) — la "Señal" de traspaso
   on_hand?: number | null;
   in_transit?: number | null;
   hub_on_hand?: number | null;     // existencia en el hub (solo traspaso)
@@ -295,6 +298,7 @@ export class ReplenishmentExportService {
 
     const MONEY = '$#,##0.00';
     const NUM = '#,##0';
+    const N1 = '#,##0.0';
     const rows = order.lines || [];
     const isTransfer = order.via === 'transfer';
     const any = (f: (r: PedidoExportLine) => boolean) => rows.some(f);
@@ -310,6 +314,9 @@ export class ReplenishmentExportService {
       xyz: any((r) => !!r.xyz_class),
       rank: any((r) => r.sales_rank != null),
       rev: any((r) => r.monthly_revenue != null && Number(r.monthly_revenue) > 0),
+      sell: any((r) => r.sell_daily != null && Number(r.sell_daily) > 0),
+      cover: any((r) => r.days_cover != null),
+      deficit: any((r) => r.deficit != null && Number(r.deficit) > 0),
       oh: any((r) => r.on_hand != null),
       transit: any((r) => Number(r.in_transit) > 0),
       hub: isTransfer && any((r) => r.hub_on_hand != null),
@@ -338,9 +345,12 @@ export class ReplenishmentExportService {
     if (has.xyz) cols.push({ h: 'XYZ', v: (r) => r.xyz_class ?? '', width: 6 });
     if (has.rank) cols.push({ h: 'Rank vta', v: (r) => (r.sales_rank != null ? Number(r.sales_rank) : ''), fmt: NUM, width: 8 });
     if (has.rev) cols.push({ h: 'Venta/mes', v: (r) => Number(r.monthly_revenue) || 0, fmt: MONEY, total: true, width: 13 });
+    if (has.sell) cols.push({ h: 'Venta/día', v: (r) => (r.sell_daily != null ? Number(r.sell_daily) : ''), fmt: N1, width: 10 });
     if (has.oh) cols.push({ h: 'Existencia', v: (r) => Number(r.on_hand) || 0, fmt: NUM, kind: 'oh', width: 11 });
     if (has.transit) cols.push({ h: 'En tránsito', v: (r) => Number(r.in_transit) || 0, fmt: NUM, width: 11 });
     if (has.hub) cols.push({ h: 'En hub', v: (r) => (r.hub_on_hand != null ? Number(r.hub_on_hand) : ''), fmt: NUM, kind: 'hub', width: 10 });
+    if (has.cover) cols.push({ h: 'Cobertura (d)', v: (r) => (r.days_cover != null ? Number(r.days_cover) : ''), fmt: NUM, width: 11 });
+    if (has.deficit) cols.push({ h: 'Déficit', v: (r) => (r.deficit != null ? Number(r.deficit) : ''), fmt: N1, width: 9 });
     if (has.reorder) cols.push({ h: 'Reorden', v: (r) => Number(r.reorder_point) || 0, fmt: NUM, width: 9 });
     if (has.max) cols.push({ h: 'Máximo', v: (r) => Number(r.max_stock) || 0, fmt: NUM, width: 9 });
     if (has.suggested) cols.push({ h: 'Sugerido', v: (r) => Number(r.suggested_qty) || 0, fmt: NUM, width: 10 });
