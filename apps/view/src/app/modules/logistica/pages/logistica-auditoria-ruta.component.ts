@@ -64,6 +64,9 @@ interface RouteEntry {
           <p class="surf-page-sub">
             {{ visibleUnits().length }} de {{ units().length }} ruta{{ units().length === 1 ? '' : 's' }} en el mapa
             <span class="rk-muted">· seguimiento del día</span>
+            @if (lastGpsAt(); as ts) {
+              <span class="rk-gps" pTooltip="Última posición recibida del rastreo GPS"><i class="pi pi-map-marker" aria-hidden="true"></i> GPS {{ fmtClock(ts) }}</span>
+            }
           </p>
         </div>
         <div class="rk-actions">
@@ -202,6 +205,8 @@ interface RouteEntry {
     :host { display:block; }
     .rk-eyebrow { display:inline-flex; align-items:center; gap:.35rem; font-size:var(--fs-micro); font-weight:var(--fw-bold); text-transform:uppercase; letter-spacing:.08em; color:var(--c-text-2); margin-bottom:.35rem; }
     .rk-muted { color:var(--c-text-3); }
+    .rk-gps { display:inline-flex; align-items:center; gap:.25rem; margin-left:.4rem; padding:.05rem .4rem; border-radius:99px; background:var(--overlay-selected); color:var(--c-text-2); font-size:var(--fs-micro); font-weight:var(--fw-medium); font-variant-numeric:tabular-nums; }
+    .rk-gps .pi { font-size:.7rem; color:var(--ok-fg); }
     .rk-actions { display:flex; gap:.4rem; align-items:center; }
     .rk-date { padding:.4rem .5rem; border:1px solid var(--border-color); border-radius:var(--r-md,8px); background:var(--card-bg); color:var(--c-text-1); font:inherit; font-size:var(--fs-sm); }
     .rk-date:focus-visible { outline:2px solid var(--action); outline-offset:1px; }
@@ -289,6 +294,8 @@ export class LogisticaAuditoriaRutaComponent {
   readonly unitsLoading = signal(false);
   readonly errored = signal(false);
   readonly diagnostic = signal<AdherenceDiagnostic | null>(null);
+  /** Hora de la última posición GPS recibida (freshness del poller). */
+  readonly lastGpsAt = signal<string | null>(null);
 
   readonly selectedRoutes = signal<number[]>([]); // vacío = todas
   readonly showRecorrido = signal(false);
@@ -452,6 +459,14 @@ export class LogisticaAuditoriaRutaComponent {
     this.api.fleetAuditDetail(this.date()).subscribe({
       next: (u) => { this.units.set(u || []); this.unitsLoading.set(false); },
       error: () => { this.units.set([]); this.unitsLoading.set(false); this.errored.set(true); },
+    });
+    // Freshness del rastreo GPS (última señal recibida por el poller).
+    this.api.liveTracking('route').subscribe({
+      next: (rows) => {
+        const ts = (rows || []).map((r) => r.last_seen_at).filter((t): t is string => !!t).map((t) => new Date(t).getTime());
+        this.lastGpsAt.set(ts.length ? new Date(Math.max(...ts)).toISOString() : null);
+      },
+      error: () => this.lastGpsAt.set(null),
     });
   }
 
