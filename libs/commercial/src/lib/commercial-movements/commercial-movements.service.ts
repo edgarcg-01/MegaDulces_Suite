@@ -83,10 +83,17 @@ export class CommercialMovementsService {
   }
 
   /** SQL por bucket de destino (sobre m.dest_code/m.dest_label). */
-  private destBucketSql(kinds: ('sucursal' | 'ruta' | 'cliente')[]): string {
+  private destBucketSql(kinds: ('sucursal' | 'ruta' | 'cliente')[], tenantId: string): string {
     if (kinds.length === 3) return ''; // todos = sin filtro
     const isRoute = `(coalesce(m.dest_label,'') ~* '${ROUTE_RX}' OR coalesce(m.dest_code,'') ~* '${ROUTE_RX}')`;
-    const isSuc = `m.dest_code ILIKE 'TI%'`;
+    // Sucursal = destino que mapea a un almacén CURADO (transfer_dest_map.warehouse_id),
+    // o el patrón histórico TI###. El TI% solo NO basta: hay traspasos a sucursal cuyo
+    // dest_code no empieza con TI y caían en el bucket "cliente" → al filtrar por
+    // Sucursal desaparecían (bug: "para verlos tengo que deseleccionar el destino").
+    // tenantId viene de requireTenantId() (server, UUID) → inline seguro.
+    const isSuc = `(m.dest_code ILIKE 'TI%' OR EXISTS (
+      SELECT 1 FROM analytics.transfer_dest_map dm
+      WHERE dm.tenant_id = '${tenantId}'::uuid AND dm.dest_code = m.dest_code AND dm.warehouse_id IS NOT NULL))`;
     const conds: string[] = [];
     if (kinds.includes('sucursal')) conds.push(isSuc);
     if (kinds.includes('ruta')) conds.push(isRoute);
@@ -95,8 +102,8 @@ export class CommercialMovementsService {
   }
 
   /** WHERE de destino: acota los TrsfShip por bucket; no toca el resto de docs. */
-  private applyDestFilter(b: any, q: MovementsQuery) {
-    const sql = this.destBucketSql(this.destKinds(q));
+  private applyDestFilter(b: any, q: MovementsQuery, tenantId: string) {
+    const sql = this.destBucketSql(this.destKinds(q), tenantId);
     if (sql) b.whereRaw(`(m.doc_code <> 'TrsfShip' OR ${sql})`);
   }
 
@@ -130,7 +137,7 @@ export class CommercialMovementsService {
       b.whereIn('m.doc_code', ['TrsfShip', 'TrsfRcv']);
     }
     // DM.11b — destino: por defecto oculta traspasos a rutas de reparto (no primordial)
-    this.applyDestFilter(b, q);
+    this.applyDestFilter(b, q, tenantId);
     if (q.search) {
       b.whereIn('m.product_id',
         trx('public.products').select('id').where('tenant_id', tenantId)
@@ -494,7 +501,7 @@ export class CommercialMovementsService {
     const twhs = this.transferWhIds(q);
     // DM.11b — mismo filtro de destino que el listado: por defecto solo sucursal (evita que
     // rutas/clientes aparezcan como falsos "sin recepción"). ROUTE_RX sin `?` → seguro inline.
-    const destSql = this.destBucketSql(this.destKinds(q));
+    const destSql = this.destBucketSql(this.destKinds(q), tenantId);
     const shpDestSql = destSql ? ` AND ${destSql}` : '';
     return this.tk.run(async (trx) => {
       // Folios Kepler son secuencias POR SUCURSAL → un (serie, folio) puede existir en varias
