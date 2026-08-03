@@ -10,6 +10,14 @@
 
 ## [Unreleased]
 
+### Added — Fase CC: Comprobantes de Cobranza (ficha de depósito + OCR sobre cobros de Kepler) (2026-08-03)
+- **Problema:** un cliente a crédito paga con depósito/transferencia y manda la ficha, pero esa ficha no se ligaba a su cobro. CC digitaliza ese adjunto como **evidencia read-only** sobre Kepler (no crea ni escribe cobros).
+- **Decode del cobro en Kepler:** documento **`Collect1`** (folio serie **`UA0501`**) = `kdmm` **`U-A-5-1` "Cobro PUE"**, asiento **C 102 Bancos / A 115 Clientes**. Filtro exacto `kdm1 c2='U' AND c3='A' AND c4=5` (los otros abonos nat A son devoluciones/notas de crédito → 403). Fuente CEDIS `md_00` (23,771 cobros / $369.5M; 5,227 con ficha).
+- **CC.0 Fundación** — mig `20260803120000`: `analytics.erp_collections` (espejo cobros) + `finance.collection_deposits` (adjunto + OCR + `monto_match` + HITL, RLS). Importer `import-collections.js` (CEDIS `md_00`, U-A-5, UPSERT aditiva). OCR `LlmExtractorService.extractDepositSlip()` — Claude Haiku vision, **imagen y PDF nativo**, campos de ficha MX.
+- **CC.1 Backend** — `libs/finance/collection-deposits` (`listCobros` ⋈ evidencia + KPIs, `uploadFile`, `runOcr` preview, `attach` con cuadre tolerancia $1, `validate`/`reject`). Endpoints `/finance/collections`. Permisos propios `FINANCE_COLLECTIONS_VER/GESTIONAR` (backfill ancla a Bancos). Smoke `test-newdb-collection-deposits` **18/18**.
+- **CC.2 Frontend** — `/finanzas/cobranza` (Operations): tabla de cobros + chip de cuadre + panel adjuntar (sube ficha → "Leer con OCR" → campos editables → guardar) + validar/rechazar.
+- Builds api + view verdes. **Prod:** 5 migraciones aplicadas a Railway (batch 154). **Pendiente prod:** redeploy código + correr importer desde LAN (Railway no alcanza CEDIS) + re-login. Plan en [`FASE_CC`](docs/IMPLEMENTACION/FASES/FASE_CC_COMPROBANTES_COBRANZA.md).
+
 ### Added — Fase PV: Auditor de Pólizas ("¿se subió mal esta póliza?") (2026-07-31)
 - **ADR-041.** El área de contabilidad no podía saber si una póliza individual se subió mal: ninguna tabla guardaba la **partida doble completa por póliza** (`expense_entries` = solo cargo de 511/6xx; `ledger_monthly` = SUM mensual). Ahora sí.
 - **PV.0 — schema** `analytics.gl_polizas` (header) + `gl_poliza_lines` (asientos), ambas fuentes: **ContPAQi** (verdad fiscal, trae Cargos/Abonos + el **UUID del CFDI** que Kepler no guarda) y **Kepler** (detalle por sucursal). Mig `20260731130000` (idempotente).
