@@ -30,4 +30,24 @@ export class TripBuilderScannerService {
       this.running = false;
     }
   }
+
+  /**
+   * LTV.0b — reconstruye el día EN CURSO cada 10 min para que la auditoría de ruta
+   * sea "al momento" (paradas/visitas visibles sin esperar a la madrugada). Lee de
+   * vehicle_positions (que el poller mantiene fresco); si no hay data, no-op.
+   */
+  @Cron('0 */10 * * * *')
+  async runToday(): Promise<void> {
+    if (this.running) return;
+    this.running = true;
+    try {
+      const day = new Date(Date.now() - 6 * 3600 * 1000).toISOString().slice(0, 10);
+      const res = await this.trips.buildForDate(day);
+      this.logger.log(`trips hoy ${day}: ${res.length} vehículos (al momento)`);
+    } catch (e: any) {
+      this.logger.error(`trips hoy falló: ${e?.message || e}`);
+    } finally {
+      this.running = false;
+    }
+  }
 }
