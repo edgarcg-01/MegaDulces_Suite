@@ -37,6 +37,66 @@ export interface SeguimientoFilters {
   sellerIds?: string[];
 }
 
+/** Estado de revisión de Horus derivado por visita. */
+export type HorusStatus =
+  | 'no_revisada'
+  | 'valida'
+  | 'requiere_supervision'
+  | 'fraude'
+  | 'confirmada'
+  | 'descartada';
+
+export interface VendorVisit {
+  id: string;
+  folio: string;
+  user_id: string;
+  vendedor: string;
+  zona: string | null;
+  fecha: string | null;
+  hora_inicio: string;
+  store_name: string | null;
+  skip_scoring: boolean;
+  score: number | null;
+  score_pct: number | null;
+  horus_status: HorusStatus;
+  photos_analyzed: number;
+  photos_total: number;
+  flags: number;
+  mismatch: number;
+  out_of_stock: number;
+  not_shelf: number;
+  open_findings: number;
+  fraud_findings: number;
+  max_severity: number;
+}
+
+export interface VendorAgg {
+  user_id: string;
+  nombre: string;
+  total_visitas: number;
+  avg_score: number | null;
+  pct_validas: number;
+  por_supervisar: number;
+  fraud_flag: boolean;
+  counts: Record<HorusStatus, number>;
+}
+
+export interface VendorReviewResponse {
+  horus_available: boolean;
+  total: number;
+  by_vendor: VendorAgg[];
+  visits: VendorVisit[];
+}
+
+export interface VendorReviewFilters {
+  startDate?: string;
+  endDate?: string;
+  zone?: string;
+  supervisorId?: string;
+  userId?: string;
+  horusStatus?: string;
+}
+
 @Injectable({ providedIn: 'root' })
 export class SeguimientoService {
   private http = inject(HttpClient);
@@ -63,6 +123,30 @@ export class SeguimientoService {
   deleteVisit(idOrFolio: string): Observable<{ message: string }> {
     return this.http.delete<{ message: string }>(
       `${environment.apiUrl}/daily-captures/${idOrFolio}`,
+    );
+  }
+
+  /**
+   * Reporte por vendedor con revisión Horus: visitas + calificación + estado
+   * de revisión derivado (valida / requiere_supervision / fraude / no_revisada).
+   */
+  getVendorVisitsReview(
+    params?: VendorReviewFilters,
+  ): Observable<VendorReviewResponse> {
+    return this.http.get<VendorReviewResponse>(
+      `${environment.apiUrl}/reports/vendor-visits-review`,
+      { params: params as Record<string, string> },
+    );
+  }
+
+  /**
+   * Dispara el análisis de visión de Horus (acotado por corrida) sobre las
+   * fotos aún no revisadas del tenant. Requiere `SUPERVISOR_AI_VER`.
+   */
+  scanHorusVision(max = 24): Observable<unknown> {
+    return this.http.post(
+      `${environment.apiUrl}/supervisor-ai/vision/scan`,
+      { max },
     );
   }
 }

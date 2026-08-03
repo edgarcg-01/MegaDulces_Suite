@@ -1115,6 +1115,269 @@ export class ReportsService {
   }
 
   /**
+   * Reporte por vendedor con revisión Horus.
+   *
+   * Lista TODAS las visitas (`daily_captures`) de un vendedor en un rango, cada una
+   * con su calificación y un ESTADO HORUS derivado del veredicto distribuido:
+   *   - `commercial.capture_vision`   (veredicto por foto: mismatch/out_of_stock/is_shelf)
+   *   - `commercial.supervisor_findings` (hallazgos ligados por `capture_id`)
+   *
+   * No existe una columna única "revisado por Horus"; el rollup por captura se calcula
+   * aquí. Estados (prioridad de mayor a menor):
+   *   fraude → confirmada → requiere_supervision → descartada → valida → no_revisada
+   *
+   * Nota honesta: el motor de FRAUDE agrega por colaborador (el `capture_id` de un
+   * finding de fraude es solo una muestra), así que además exponemos un flag de
+   * "vendedor marcado por fraude" a nivel vendedor, no atado 1:1 a la visita.
+   *
+   * Acceso cross-schema con KNEX_CONNECTION (superuser) + `tenant_id` explícito, el
+   * mismo patrón que photo-audit. Si las tablas `commercial.*` no existen en este
+   * entorno, degrada a `horus_available=false` (todas las visitas quedan sin revisar).
+   */
+  async getVendorVisitsReview(
+    filters: {
+      userId?: string;
+      startDate?: string;
+      endDate?: string;
+      zone?: string;
+      supervisorId?: string;
+      horusStatus?: string;
+    },
+    user: any,
+  ) {
+    const clean = (v?: string) =>
+      v && v !== 'null' && v !== 'undefined' && v.length > 5 ? v : undefined;
+
+    const scope = getDataScope(user || { sub: '' });
+    const tenantId =
+      user?.tenant_id || this.tenantContext?.get()?.tenantId || null;
+
+    const q = this.knex('daily_captures as dc')
+      .leftJoin('stores as s', 's.id', 'dc.store_id')
+      .select(
+        'dc.id',
+        'dc.folio',
+        'dc.user_id',
+        'dc.captured_by_username',
+        'dc.zona_captura',
+        this.knex.raw(
+          "DATE(dc.hora_inicio AT TIME ZONE 'America/Mexico_City') as fecha",
+        ),
+        'dc.hora_inicio',
+        this.knex.raw('COALESCE(dc.skip_scoring, false) as skip_scoring'),
+        this.knex.raw("(dc.stats->>'puntuacionTotal')::float as score"),
+        'dc.score_final_pct',
+        this.knex.ref('s.nombre').as('store_name'),
+      );
+
+    // Scope (own/team) — mismo contrato que getDailyScoresPerUser.
+    if (scope.type === 'own') {
+      q.where('dc.user_id', scope.userId || '');
+    } else if (scope.type === 'team' && clean(scope.userId)) {
+      const teamIds = await this.getTeamIds(scope.userId!);
+      if (teamIds.length > 0) q.whereIn('dc.user_id', teamIds);
+    }
+
+    // Vendedor específico (no aplica si el scope ya lo ató a sí mismo).
+    if (clean(filters.userId) && scope.type !== 'own') {
+      q.where('dc.user_id', filters.userId);
+    }
+    // Supervisor → todo su equipo.
+    if (clean(filters.supervisorId)) {
+      const teamIds = await this.getTeamIds(filters.supervisorId!);
+      if (teamIds.length > 0) q.whereIn('dc.user_id', teamIds);
+    }
+
+    const startDate = clean(filters.startDate);
+    if (startDate) {
+      q.whereRaw(
+        "DATE(dc.hora_inicio AT TIME ZONE 'America/Mexico_City') >= ?",
+        [startDate],
+      );
+    }
+    const endDate = clean(filters.endDate);
+    if (endDate) {
+      q.whereRaw(
+        "DATE(dc.hora_inicio AT TIME ZONE 'America/Mexico_City') <= ?",
+        [endDate],
+      );
+    }
+    const zoneId = clean(filters.zone);
+    if (zoneId) {
+      try {
+        const zone = await this.knex('zones').where({ id: zoneId }).first();
+        if (zone?.name) {
+          q.whereRaw('LOWER(TRIM(dc.zona_captura)) = LOWER(TRIM(?))', [zone.name]);
+        }
+      } catch (zErr: any) {
+        this.logger.error(`Zone query failed: ${zErr.message}`);
+      }
+    }
+
+    q.orderBy('dc.hora_inicio', 'desc').limit(2000);
+    const baseRows = await q;
+
+    const captureIds = baseRows.map((r: any) => r.id);
+    const userIds = [...new Set(baseRows.map((r: any) => r.user_id))];
+    const visionMap = new Map<string, any>();
+    const findingsMap = new Map<string, any>();
+    const vendorFraud = new Map<string, number>();
+    let horusAvailable = true;
+
+    if (captureIds.length > 0) {
+      const withTenant = (qb: Knex.QueryBuilder) =>
+        tenantId ? qb.where('tenant_id', tenantId) : qb;
+      try {
+        const vis = await this.knex('commercial.capture_vision')
+          .whereIn('capture_id', captureIds)
+          .modify(withTenant)
+          .groupBy('capture_id')
+          .select(
+            'capture_id',
+            this.knex.raw("count(*) FILTER (WHERE status='analyzed')::int as analyzed"),
+            this.knex.raw('count(*) FILTER (WHERE mismatch IS TRUE)::int as mismatch'),
+            this.knex.raw('count(*) FILTER (WHERE out_of_stock IS TRUE)::int as out_of_stock'),
+            this.knex.raw('count(*) FILTER (WHERE is_shelf IS FALSE)::int as not_shelf'),
+            this.knex.raw('count(*)::int as photos'),
+          );
+        vis.forEach((v: any) => visionMap.set(v.capture_id, v));
+
+        const finds = await this.knex('commercial.supervisor_findings')
+          .whereIn('capture_id', captureIds)
+          .modify(withTenant)
+          .groupBy('capture_id')
+          .select(
+            'capture_id',
+            this.knex.raw("count(*) FILTER (WHERE status='open')::int as open_findings"),
+            this.knex.raw("count(*) FILTER (WHERE status='confirmed')::int as confirmed_findings"),
+            this.knex.raw("count(*) FILTER (WHERE status IN ('dismissed','resolved'))::int as closed_findings"),
+            this.knex.raw("count(*) FILTER (WHERE source='fraud')::int as fraud_findings"),
+            this.knex.raw(
+              "max(CASE severity WHEN 'critical' THEN 3 WHEN 'warn' THEN 2 ELSE 1 END)::int as max_sev",
+            ),
+          );
+        finds.forEach((f: any) => findingsMap.set(f.capture_id, f));
+
+        // Fraude a nivel vendedor (subject_type=collaborator) — no es por captura.
+        if (userIds.length > 0) {
+          const vf = await this.knex('commercial.supervisor_findings')
+            .where({ subject_type: 'collaborator', source: 'fraud', status: 'open' })
+            .modify(withTenant)
+            .whereIn('subject_id', userIds)
+            .groupBy('subject_id')
+            .select('subject_id', this.knex.raw('count(*)::int as n'));
+          vf.forEach((r: any) => vendorFraud.set(r.subject_id, Number(r.n)));
+        }
+      } catch (e: any) {
+        horusAvailable = false;
+        this.logger.warn(
+          `Horus tables no disponibles para vendor-visits-review: ${e.message}`,
+        );
+      }
+    }
+
+    const deriveStatus = (v: any, f: any): string => {
+      const flags =
+        (v?.mismatch || 0) + (v?.out_of_stock || 0) + (v?.not_shelf || 0);
+      if ((f?.fraud_findings || 0) > 0) return 'fraude';
+      if ((f?.confirmed_findings || 0) > 0) return 'confirmada';
+      if ((f?.open_findings || 0) > 0 || flags > 0) return 'requiere_supervision';
+      if ((f?.closed_findings || 0) > 0) return 'descartada';
+      if ((v?.analyzed || 0) > 0) return 'valida';
+      return 'no_revisada';
+    };
+
+    const allVisits = baseRows.map((r: any) => {
+      const v = visionMap.get(r.id);
+      const f = findingsMap.get(r.id);
+      const horus_status = horusAvailable ? deriveStatus(v, f) : 'no_revisada';
+      return {
+        id: r.id,
+        folio: r.folio,
+        user_id: r.user_id,
+        vendedor: r.captured_by_username,
+        zona: r.zona_captura,
+        fecha: toMxDateKey(r.fecha) || null,
+        hora_inicio: r.hora_inicio,
+        store_name: r.store_name || null,
+        skip_scoring: r.skip_scoring === true,
+        score: r.skip_scoring === true ? null : Math.round(Number(r.score) || 0),
+        score_pct: r.score_final_pct != null ? Number(r.score_final_pct) : null,
+        horus_status,
+        photos_analyzed: Number(v?.analyzed || 0),
+        photos_total: Number(v?.photos || 0),
+        flags:
+          Number(v?.mismatch || 0) +
+          Number(v?.out_of_stock || 0) +
+          Number(v?.not_shelf || 0),
+        mismatch: Number(v?.mismatch || 0),
+        out_of_stock: Number(v?.out_of_stock || 0),
+        not_shelf: Number(v?.not_shelf || 0),
+        open_findings: Number(f?.open_findings || 0),
+        fraud_findings: Number(f?.fraud_findings || 0),
+        max_severity: Number(f?.max_sev || 0),
+      };
+    });
+
+    // Totales por vendedor (sobre el set completo, ignorando el filtro de estado).
+    const byVendorMap = new Map<string, any>();
+    for (const v of allVisits) {
+      if (!byVendorMap.has(v.user_id)) {
+        byVendorMap.set(v.user_id, {
+          user_id: v.user_id,
+          nombre: v.vendedor,
+          total_visitas: 0,
+          con_score: 0,
+          suma_score: 0,
+          fraud_flag: (vendorFraud.get(v.user_id) || 0) > 0,
+          counts: {
+            valida: 0,
+            requiere_supervision: 0,
+            fraude: 0,
+            confirmada: 0,
+            descartada: 0,
+            no_revisada: 0,
+          },
+        });
+      }
+      const agg = byVendorMap.get(v.user_id);
+      agg.total_visitas++;
+      agg.counts[v.horus_status] = (agg.counts[v.horus_status] || 0) + 1;
+      if (!v.skip_scoring && v.score != null) {
+        agg.con_score++;
+        agg.suma_score += v.score;
+      }
+    }
+    const byVendor = Array.from(byVendorMap.values()).map((a: any) => ({
+      user_id: a.user_id,
+      nombre: a.nombre,
+      total_visitas: a.total_visitas,
+      avg_score: a.con_score > 0 ? Math.round(a.suma_score / a.con_score) : null,
+      pct_validas:
+        a.total_visitas > 0
+          ? Math.round((a.counts.valida / a.total_visitas) * 100)
+          : 0,
+      por_supervisar:
+        a.counts.requiere_supervision + a.counts.fraude + a.counts.confirmada,
+      fraud_flag: a.fraud_flag,
+      counts: a.counts,
+    }));
+
+    // Filtro de estado sobre las filas devueltas (los totales ya se calcularon).
+    const wanted = clean(filters.horusStatus);
+    const visits = wanted
+      ? allVisits.filter((v) => v.horus_status === wanted)
+      : allVisits;
+
+    return {
+      horus_available: horusAvailable,
+      total: visits.length,
+      by_vendor: byVendor,
+      visits,
+    };
+  }
+
+  /**
    * Construye una query base sobre `daily_captures` aplicando, en orden:
    *  1. Scope (own / team / all) basado en el JWT del usuario
    *  2. Filtros de fecha (startDate / endDate)

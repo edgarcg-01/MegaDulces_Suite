@@ -42,6 +42,7 @@ import { ReportsService, ReportsData } from '../../../modules/dashboard/reports/
 import { FiltersStateService } from '../../../modules/dashboard/reports/graphics/filters-state.service';
 import { GlobalFiltersComponent } from '../../../modules/dashboard/reports/graphics/global-filters.component';
 import { WebSocketService } from '../../../core/services/websocket.service';
+import { VendorReviewComponent } from './vendor-review/vendor-review.component';
 
 interface WsMetricsEvent {
   type?: string;
@@ -131,9 +132,10 @@ Chart.register(annotationPlugin);
     InputTextModule, 
     IconFieldModule, 
     InputIconModule, 
-    TagModule, 
+    TagModule,
     ConfirmDialogModule,
-    GlobalFiltersComponent
+    GlobalFiltersComponent,
+    VendorReviewComponent
   ],
   providers: [MessageService, ConfirmationService],
   templateUrl: './seguimiento.component.html',
@@ -190,6 +192,13 @@ export class SeguimientoComponent implements OnInit {
   /** Última respuesta de scores cacheada para poder reconstruir el chart
    *  cuando cambia el tema sin volver a hacer fetch al backend. */
   private lastScores: DailyScoresResponse | null = null;
+
+  // Vista activa: scoring (chart + grid hist\u00f3rico) vs reporte por vendedor
+  // con revisi\u00f3n Horus. Toggle de nivel superior de la pantalla.
+  viewMode = signal<'scoring' | 'reporte'>('scoring');
+  setViewMode(mode: 'scoring' | 'reporte'): void {
+    this.viewMode.set(mode);
+  }
 
   // Signals \u2014 estado UI
   loadingChart = signal(false);
