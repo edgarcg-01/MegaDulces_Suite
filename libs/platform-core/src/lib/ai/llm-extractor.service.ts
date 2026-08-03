@@ -17,6 +17,21 @@ export interface RouteTicketFields {
 }
 
 /**
+ * Fase CC — Campos extraídos de una FICHA/COMPROBANTE DE DEPÓSITO o transferencia
+ * bancaria (para adjuntar a un cobro de Kepler). Todos null si no se ven o la
+ * imagen/PDF es ilegible.
+ */
+export interface DepositSlipFields {
+  monto: number | null;
+  fecha: string | null; // ISO YYYY-MM-DD
+  banco: string | null; // banco receptor (o emisor en transferencia)
+  cuenta_dest: string | null; // últimos 4 / CLABE de la cuenta destino
+  referencia: string | null; // clave de rastreo SPEI / folio de operación / autorización
+  ordenante: string | null; // quién deposita/ordena, si aparece
+  metodo: string | null; // efectivo|transferencia_spei|cheque|tarjeta|deposito_ventanilla
+}
+
+/**
  * Wrapper de Anthropic Claude Haiku 4.5 — extracción estructurada de items
  * de producto desde texto crudo del colaborador.
  *
@@ -113,6 +128,33 @@ export class LlmExtractorService implements OnModuleInit {
       return await this.callClaudeVisionRouteTicket(imageBase64, mediaType, ticketType);
     } catch (e: any) {
       this.logger.warn(`Claude route-ticket extract failed: ${e.message}`);
+      return empty;
+    }
+  }
+
+  /**
+   * Fase CC — Extrae los campos de una FICHA/COMPROBANTE DE DEPÓSITO o transferencia
+   * bancaria (imagen O PDF) para adjuntarla a un cobro de Kepler. Soporta PDF nativo
+   * (bloque `document`) e imagen (bloque `image`). Devuelve campos null si es ilegible
+   * o no hay ANTHROPIC_API_KEY (el capturista teclea a mano).
+   */
+  async extractDepositSlip(
+    fileBase64: string,
+    mediaType: 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif' | 'application/pdf',
+  ): Promise<DepositSlipFields> {
+    const empty: DepositSlipFields = {
+      monto: null, fecha: null, banco: null, cuenta_dest: null,
+      referencia: null, ordenante: null, metodo: null,
+    };
+    if (!this.apiKey) {
+      this.logger.warn('Deposit OCR sin ANTHROPIC_API_KEY — devuelvo campos vacíos');
+      return empty;
+    }
+    if (!fileBase64) return empty;
+    try {
+      return await this.callClaudeVisionDeposit(fileBase64, mediaType);
+    } catch (e: any) {
+      this.logger.warn(`Claude deposit-slip extract failed: ${e.message}`);
       return empty;
     }
   }
@@ -632,6 +674,92 @@ export class LlmExtractorService implements OnModuleInit {
       reference: ticketType === 'combustible' ? str(inp.reference) : null,
       liters: ticketType === 'combustible' ? num(inp.liters) : null,
       folio: ticketType === 'carga' ? str((inp as any).folio) : null,
+    };
+  }
+
+  /**
+   * Vision/document para fichas de depósito. Arma bloque `document` (PDF nativo de
+   * Claude, sin rasterizar) o `image` según el media type, y pide los campos por
+   * tool_use. Reusa `parseTicketDate` para normalizar la fecha.
+   */
+  private async callClaudeVisionDeposit(
+    fileBase64: string,
+    mediaType: string,
+  ): Promise<DepositSlipFields> {
+    const fileBlock =
+      mediaType === 'application/pdf'
+        ? { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: fileBase64 } }
+        : { type: 'image', source: { type: 'base64', media_type: mediaType, data: fileBase64 } };
+
+    const json = (await this.anthropic.messages(
+      {
+        model: this.model,
+        maxTokens: 512,
+        toolChoice: { type: 'tool', name: 'extract_deposit' },
+        tools: [
+          {
+            name: 'extract_deposit',
+            description:
+              'Extrae los datos de una ficha/comprobante de DEPÓSITO o TRANSFERENCIA bancaria de México ' +
+              '(BBVA, Banamex, Banorte, Santander, HSBC, Banco del Bajío, BanCoppel; ficha de ventanilla, ' +
+              'transferencia SPEI, o captura de app bancaria). Usa null para lo que no se distinga. NO inventes.',
+            input_schema: {
+              type: 'object',
+              properties: {
+                monto: { type: ['number', 'null'], description: 'Importe depositado/transferido en pesos (sin símbolo ni comas). El monto principal de la operación.' },
+                fecha: { type: ['string', 'null'], description: 'Fecha de la operación en ISO YYYY-MM-DD. Convierte cualquier formato ("15/JUL/2026", "15-07-2026" → "2026-07-15"). null si no se ve.' },
+                banco: { type: ['string', 'null'], description: 'Banco donde se depositó o banco receptor de la transferencia (ej. "BBVA", "Banorte", "Banco del Bajío"). null si no se ve.' },
+                cuenta_destino: { type: ['string', 'null'], description: 'Cuenta/CLABE DESTINO a la que se depositó. Si es larga, los últimos 4 dígitos. null si no se ve.' },
+                referencia: { type: ['string', 'null'], description: 'Clave de rastreo SPEI, folio de operación, número de autorización o referencia. Copiar tal cual (letras y números).' },
+                ordenante: { type: ['string', 'null'], description: 'Nombre de quien deposita/ordena la transferencia, si aparece. null si no se ve.' },
+                metodo: { type: ['string', 'null'], enum: ['efectivo', 'transferencia_spei', 'cheque', 'tarjeta', 'deposito_ventanilla', null], description: 'Tipo de operación según el comprobante.' },
+              },
+              required: ['monto', 'fecha', 'banco', 'cuenta_destino', 'referencia', 'ordenante', 'metodo'],
+            },
+          },
+        ],
+        messages: [
+          {
+            role: 'user',
+            content: [
+              fileBlock,
+              { type: 'text', text: 'Este es un comprobante de depósito o transferencia bancaria con el que un cliente pagó. Extrae sus datos con la herramienta extract_deposit.' },
+            ],
+          },
+        ],
+      },
+      { timeoutMs: 30_000 },
+    )) as {
+      content: Array<
+        | { type: 'text'; text: string }
+        | { type: 'tool_use'; name: string; input: Record<string, unknown> }
+      >;
+    };
+
+    const toolUse = json.content.find(
+      (c): c is Extract<typeof c, { type: 'tool_use' }> =>
+        c.type === 'tool_use' && c.name === 'extract_deposit',
+    );
+    if (!toolUse) throw new Error('Claude deposit no devolvió tool_use');
+
+    const inp = toolUse.input || {};
+    const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+    const PLACEHOLDERS = new Set(['<unknown>', 'unknown', 'n/a', 'na', 'null', 'none', '-', '--', '?', 'desconocido', 'sin dato']);
+    const str = (v: unknown): string | null => {
+      if (typeof v !== 'string') return null;
+      const t = v.trim();
+      return t && !PLACEHOLDERS.has(t.toLowerCase()) ? t : null;
+    };
+    const METODOS = new Set(['efectivo', 'transferencia_spei', 'cheque', 'tarjeta', 'deposito_ventanilla']);
+    const metodo = str(inp.metodo)?.toLowerCase() || null;
+    return {
+      monto: num(inp.monto),
+      fecha: this.parseTicketDate(inp.fecha),
+      banco: str(inp.banco),
+      cuenta_dest: str(inp.cuenta_destino),
+      referencia: str(inp.referencia),
+      ordenante: str(inp.ordenante),
+      metodo: metodo && METODOS.has(metodo) ? metodo : null,
     };
   }
 
