@@ -282,11 +282,6 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.FINANCE_PAYMENTS_VER)]
       },
       {
-        path: 'entradas',
-        loadComponent: () => import('./modules/finanzas/pages/finanzas-entradas.component').then(m => m.FinanzasEntradasComponent),
-        canActivate: [permissionGuard(Permission.FINANCE_RECEIPTS_VER)]
-      },
-      {
         path: 'maat',
         loadComponent: () => import('./modules/finanzas/pages/finanzas-maat-chat.component').then(m => m.FinanzasMaatChatComponent),
         canActivate: [permissionGuard(Permission.FINANCE_AI_CHAT)]
@@ -423,6 +418,12 @@ export const routes: Routes = [
       {
         path: 'red',
         loadComponent: () => import('./modules/compras/pages/compras-red.component').then(m => m.ComprasRedComponent),
+        canActivate: [permissionGuard(Permission.COMPRAS_VER)]
+      },
+      {
+        // CC ext — comprobantes de orden de entrada (remisión/factura + OCR sobre X-A-40).
+        path: 'entradas',
+        loadComponent: () => import('./modules/compras/pages/compras-entradas.component').then(m => m.ComprasEntradasComponent),
         canActivate: [permissionGuard(Permission.COMPRAS_VER)]
       },
       {
