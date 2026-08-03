@@ -116,11 +116,18 @@ import { CobranzaService, CobroRow, CobrosReport, DepositOcr, DepositFile } from
             <div class="ta-r"><span class="cb-lbl">Monto del cobro</span><strong class="cb-monto">{{ money(t.monto) }}</strong></div>
           </div>
 
-          <label class="cb-f cb-file">
+          <div class="cb-f cb-file">
             <span>Ficha de depósito (imagen o PDF) * <em class="cb-auto">se almacena y se lee sola al elegirla</em></span>
-            <input type="file" accept="image/*,.pdf" (change)="onFile($event)" />
+            <div class="cb-pick">
+              <label class="cb-pickbtn cb-cam"><i class="pi pi-camera"></i> Tomar foto
+                <input type="file" accept="image/*" capture="environment" (change)="onFile($event)" hidden />
+              </label>
+              <label class="cb-pickbtn"><i class="pi pi-paperclip"></i> Elegir archivo
+                <input type="file" accept="image/*,.pdf" (change)="onFile($event)" hidden />
+              </label>
+            </div>
             @if (fileName()) { <span class="cb-filepick"><i class="pi pi-paperclip"></i> {{ fileName() }}</span> }
-          </label>
+          </div>
 
           @if (fileName()) {
             <div class="cb-ocr-actions">
@@ -197,7 +204,10 @@ import { CobranzaService, CobroRow, CobrosReport, DepositOcr, DepositFile } from
     .cb-monto { color: var(--action); font-size: 1.05rem; font-family: var(--font-mono); }
     .cb-f { display: flex; flex-direction: column; gap: .3rem; }
     .cb-f > span { font-size: var(--fs-micro, .72rem); text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); }
-    .cb-file input[type=file] { font-size: .82rem; }
+    .cb-pick { display: flex; gap: .5rem; flex-wrap: wrap; }
+    .cb-pickbtn { display: inline-flex; align-items: center; gap: .4rem; padding: .55rem .9rem; border: 1px solid var(--border-color); border-radius: var(--r-sm, .4rem); font-size: .85rem; color: var(--text-main); cursor: pointer; background: var(--card-bg); transition: border-color .15s, color .15s; }
+    .cb-pickbtn:hover { border-color: var(--action); color: var(--action); }
+    .cb-pickbtn i { font-size: .95rem; }
     .cb-filepick { font-size: .78rem; color: var(--ok-fg); display: inline-flex; align-items: center; gap: .3rem; }
     .cb-ocr-actions { display: flex; align-items: center; gap: .7rem; flex-wrap: wrap; }
     .cb-hint { font-size: .74rem; color: var(--text-muted); }
