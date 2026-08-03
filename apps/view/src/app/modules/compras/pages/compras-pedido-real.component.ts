@@ -649,9 +649,11 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     desacel:      { txt: '▼',  sev: 'warn' },
     desacel_extra:{ txt: '▼▼', sev: 'danger' },
   };
+  // Postgres numeric → llega como STRING en el JSON. SIEMPRE Number()-coercionar antes de .toFixed()/
+  // comparar (mismo patrón que money()). Sin esto: "n.toFixed is not a function" rompe el render.
   iadLabel(r: WorkbookRow): string {
     const b = this.IAD_BANDS[r.iad_band ?? ''];
-    const v = r.iad ?? 0;
+    const v = Number(r.iad ?? 0);
     return `${b?.txt ?? ''} ${v > 0 ? '+' : ''}${v.toFixed(2)}`.trim();
   }
   iadSev(r: WorkbookRow): Sev { return this.IAD_BANDS[r.iad_band ?? '']?.sev ?? 'secondary'; }
@@ -669,9 +671,10 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
       estable: 'Demanda estable', desacel_leve: 'Desaceleración ligera', desacel: 'Desaceleración relevante',
       desacel_extra: 'Desaceleración extraordinaria',
     };
-    const z30 = r.iad_z_short != null ? `corto 30v30 ${r.iad_z_short > 0 ? '+' : ''}${r.iad_z_short}` : 'corto n/d';
-    const zY = r.iad_has_seasonal && r.iad_z_seasonal != null ? ` · estacional ${r.iad_z_seasonal > 0 ? '+' : ''}${r.iad_z_seasonal}` : ' · sin base estacional';
-    return `${band[r.iad_band ?? ''] ?? ''} (IAD ${r.iad > 0 ? '+' : ''}${r.iad}) — ${z30}${zY}`;
+    const iad = Number(r.iad), z30v = r.iad_z_short != null ? Number(r.iad_z_short) : null, zYv = r.iad_z_seasonal != null ? Number(r.iad_z_seasonal) : null;
+    const z30 = z30v != null ? `corto 30v30 ${z30v > 0 ? '+' : ''}${z30v}` : 'corto n/d';
+    const zY = r.iad_has_seasonal && zYv != null ? ` · estacional ${zYv > 0 ? '+' : ''}${zYv}` : ' · sin base estacional';
+    return `${band[r.iad_band ?? ''] ?? ''} (IAD ${iad > 0 ? '+' : ''}${iad}) — ${z30}${zY}`;
   }
 
   cBuy = signal(true);
