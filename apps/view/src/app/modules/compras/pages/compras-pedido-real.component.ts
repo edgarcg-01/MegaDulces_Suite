@@ -765,13 +765,11 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
   loadWorkbook(): void {
     this.loading.set(true); this.error.set(false); this.saveFilters();
     this.wbOpen.set(new Set());   // la data cambió → colapsa el acordeón
-    // Modelo por-sucursal para el detalle expandible: TODAS las sucursales (sin filtro de almacén) para
-    // que al abrir un SKU se vea su acción en cada una.
     this.detailReady.set(false);
-    this.fetchConsolidated(true).pipe(takeUntilDestroyed(this.destroyRef)).subscribe((res) => {
-      this.buyRows.set(res.buy?.rows ?? []); this.trRows.set(res.tr?.rows ?? []); this.ovRows.set(res.ov?.rows ?? []);
-      this.rebuild(); this.detailReady.set(true);
-    });
+    // RA-PRO.36.1 — SECUENCIAL, no paralelo: el workbook corre SOLO primero (rápido; la instancia
+    // chica de Railway se saturaba con las 4 queries pesadas simultáneas → carga eterna). Al regresar,
+    // la matriz ya es interactiva; luego se cargan las 3 fuentes por-sucursal (tags compra/traspaso/
+    // sobre + detalle expandible) en segundo plano — enriquecen sin bloquear el render inicial.
     this.api.workbook({
       supplier_id: this.fSupplier || undefined, category_id: this.fCategory || undefined, search: this.search.trim() || undefined,
       coverage_days: this.coverage, scope: this.wbScopeNeeded() ? 'needed' : undefined,
@@ -783,6 +781,11 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
         if (!r) { this.error.set(true); this.wbRows.set([]); this.wbTerritories.set([]); return; }
         this.wbRows.set(r.rows); this.wbTerritories.set(r.territories ?? []); this.wbTotals.set(r.totals); this.wbTotal.set(r.total);
         this.loadedAt.set(Date.now());
+        // Enriquecimiento diferido (no bloquea; el detalle por-sucursal trae TODAS las sucursales).
+        this.fetchConsolidated(true).pipe(takeUntilDestroyed(this.destroyRef)).subscribe((res) => {
+          this.buyRows.set(res.buy?.rows ?? []); this.trRows.set(res.tr?.rows ?? []); this.ovRows.set(res.ov?.rows ?? []);
+          this.rebuild(); this.detailReady.set(true);
+        });
       });
   }
 
