@@ -425,11 +425,14 @@ const COLS = [
     // si NINGÚN otro producto lo tiene; si colisiona, se conserva el sku actual (el resto
     // de columnas —costo/factor/tasas— igual se refresca). Fix de fondo: match por sku +
     // aliases (trade.catalog_aliases) para migrar la clave del viejo al nuevo.
+    // El guard empata la constraint PARCIAL products_tenant_sku_unique
+    // (WHERE sku IS NOT NULL AND deleted_at IS NULL): solo bloquea si un producto ACTIVO
+    // ya tiene el sku (un gemelo soft-deleted no colisiona, así que no debe frenar la asignación).
     const upd = await db.query(`
       UPDATE catalog.products p
          SET sku = CASE WHEN NOT EXISTS (
                           SELECT 1 FROM catalog.products p2
-                           WHERE p2.tenant_id=$1 AND p2.sku=s.sku AND p2.id<>p.id)
+                           WHERE p2.tenant_id=$1 AND p2.sku=s.sku AND p2.id<>p.id AND p2.deleted_at IS NULL)
                         THEN s.sku ELSE p.sku END,
              ${setCols}, updated_at=now()
       FROM (SELECT DISTINCT ON (btrim(upper(nombre))) * FROM stg2 ORDER BY btrim(upper(nombre)), sku) s
