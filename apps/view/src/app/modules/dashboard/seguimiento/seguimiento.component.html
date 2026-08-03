@@ -1,8 +1,8 @@
 <main class="p-6 pb-[calc(56px+env(safe-area-inset-bottom)+1.5rem)] lg:pb-6 space-y-6 min-h-[100dvh]">
   <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
     <div>
-      <h1 class="title-premium flex items-center gap-3">
-        <i class="pi pi-eye text-content-main"></i> Seguimiento Diario
+      <h1 class="flex items-center gap-3 text-lg font-bold tracking-tight text-content-main">
+        <i class="pi pi-eye text-content-muted"></i> Seguimiento Diario
       </h1>
       <p class="text-content-muted text-sm">
         Score promedio por ejecutivo · {{ periodLabel() === 'día' ? 'del día' : periodLabel() === 'semana' ? 'de la semana' : 'del mes' }}
@@ -66,26 +66,11 @@
     <app-vendor-review />
   } @else {
   <!-- Sub-header + segmented toggle. Solo se muestra una vista a la vez. -->
-  <div class="flex items-center justify-between gap-3 flex-wrap">
-    @if (chartMode() === 'avg' && totalUsers() > 0) {
-      <div class="flex items-center gap-2 px-4 py-2.5 bg-surface-layout rounded-lg border border-divider">
-        <span class="text-sm font-semibold text-content-main">
-          {{ enMeta() }} de {{ totalUsers() }} ejecutivos en meta
-          <span class="text-content-muted font-normal text-xs ml-1">(&ge;{{ scoreOpt() }} pts promedio)</span>
-        </span>
-      </div>
-    } @else if (chartMode() !== 'avg' && altKpis().length > 0) {
-      <div class="flex items-center gap-4 text-xs">
-        @for (kpi of altKpis(); track kpi.label) {
-          <div>
-            <div class="text-[10px] uppercase tracking-wider text-content-faint">{{ kpi.label }}</div>
-            <div class="text-sm font-bold text-content-main">{{ kpi.value }}</div>
-          </div>
-        }
-      </div>
-    } @else {
-      <span></span>
-    }
+  <div class="flex items-center justify-between gap-4 flex-wrap">
+    <!-- KPIs del modo activo como MetricStrip (ADR-033), sin cajitas ad-hoc. -->
+    <div class="min-w-0 flex-1">
+      <app-metric-strip [items]="kpiStrip()" ariaLabel="Resumen de ejecutivos" />
+    </div>
 
     <!-- Toggle: 4 modos ortogonales. role=tablist para a11y. -->
     <div class="inline-flex rounded-lg border border-divider bg-surface-card p-0.5 flex-wrap" role="tablist" aria-label="Tipo de gráfica">
@@ -94,7 +79,7 @@
         role="tab"
         [attr.aria-selected]="chartMode() === 'avg'"
         (click)="setChartMode('avg')"
-        class="px-3 py-1.5 text-xs font-semibold rounded-md motion-safe:transition-all"
+        class="px-3 py-1.5 text-xs font-semibold rounded-md motion-safe:transition-colors"
         [class.bg-surface-active]="chartMode() === 'avg'"
         [class.text-content-active]="chartMode() === 'avg'"
         [class.text-content-muted]="chartMode() !== 'avg'"
@@ -107,7 +92,7 @@
         role="tab"
         [attr.aria-selected]="chartMode() === 'adherence'"
         (click)="setChartMode('adherence')"
-        class="px-3 py-1.5 text-xs font-semibold rounded-md motion-safe:transition-all"
+        class="px-3 py-1.5 text-xs font-semibold rounded-md motion-safe:transition-colors"
         [class.bg-surface-active]="chartMode() === 'adherence'"
         [class.text-content-active]="chartMode() === 'adherence'"
         [class.text-content-muted]="chartMode() !== 'adherence'"
@@ -120,7 +105,7 @@
         role="tab"
         [attr.aria-selected]="chartMode() === 'volume'"
         (click)="setChartMode('volume')"
-        class="px-3 py-1.5 text-xs font-semibold rounded-md motion-safe:transition-all"
+        class="px-3 py-1.5 text-xs font-semibold rounded-md motion-safe:transition-colors"
         [class.bg-surface-active]="chartMode() === 'volume'"
         [class.text-content-active]="chartMode() === 'volume'"
         [class.text-content-muted]="chartMode() !== 'volume'"
@@ -133,7 +118,7 @@
         role="tab"
         [attr.aria-selected]="chartMode() === 'efficiency'"
         (click)="setChartMode('efficiency')"
-        class="px-3 py-1.5 text-xs font-semibold rounded-md motion-safe:transition-all"
+        class="px-3 py-1.5 text-xs font-semibold rounded-md motion-safe:transition-colors"
         [class.bg-surface-active]="chartMode() === 'efficiency'"
         [class.text-content-active]="chartMode() === 'efficiency'"
         [class.text-content-muted]="chartMode() !== 'efficiency'"
@@ -145,11 +130,21 @@
   </div>
 
   <!-- Chart activo (uno a la vez). -->
-  <div class="card-premium card-flat">
+  <div class="card-premium">
     <div [style.height.px]="chartHeight()">
       @if (loadingChart()) {
-        <div class="flex items-center justify-center h-full">
-          <i class="pi pi-spin pi-spinner text-2xl text-content-faint" aria-hidden="true"></i>
+        <!-- Skeleton dimensionado (CLS 0), no spinner de bloque (DESIGN §datos-densos 4). -->
+        <div class="flex flex-col justify-end gap-3 h-full py-2" aria-hidden="true">
+          @for (w of [70,52,88,44,64,36]; track $index) {
+            <p-skeleton [width]="w + '%'" height="1.25rem" borderRadius="6px" />
+          }
+        </div>
+      } @else if (chartErrored()) {
+        <!-- Error de red ≠ empty (DESIGN §Ing.UI 2): banner + reintento aislado. -->
+        <div class="flex flex-col items-center justify-center h-full gap-3 text-center">
+          <i class="pi pi-exclamation-triangle text-2xl status-bad status-text" aria-hidden="true"></i>
+          <p class="text-sm text-content-muted">No se pudo cargar la gráfica de scores.</p>
+          <p-button label="Reintentar" icon="pi pi-refresh" severity="secondary" [outlined]="true" size="small" (onClick)="retryChart()" />
         </div>
       } @else if (chartMode() === 'avg') {
         @if (chartData(); as cd) {
@@ -244,12 +239,13 @@
     <app-global-filters />
 
     <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
-      <h2 class="text-xl font-bold text-content-main shrink-0">Visitas</h2>
+      <h2 class="text-sm font-semibold tracking-tight text-content-main shrink-0">Visitas</h2>
       <div class="flex items-center gap-3 w-full sm:w-auto">
-        <div class="relative flex-1 sm:flex-none sm:w-72 min-w-0">
-          <i class="pi pi-search absolute left-3 top-1/2 -translate-y-1/2 text-content-faint text-sm pointer-events-none" aria-hidden="true"></i>
+        <p-iconfield iconPosition="left" class="flex-1 sm:flex-none sm:w-72 min-w-0">
+          <p-inputicon styleClass="pi pi-search" />
           <input
             type="search"
+            pInputText
             [ngModel]="searchText()"
             (ngModelChange)="searchText.set($event)"
             placeholder="Buscar visita..."
@@ -259,10 +255,9 @@
             autocorrect="off"
             spellcheck="false"
             aria-label="Buscar visita"
-            class="seg-search-input w-full appearance-none pl-9 pr-4 py-2 text-sm rounded-xl border border-divider bg-surface-card text-content-main
-                   focus:outline-none focus:ring-2 focus:ring-[color:var(--focus-ring)]"
+            class="w-full"
           />
-        </div>
+        </p-iconfield>
         <span class="text-xs text-content-muted whitespace-nowrap shrink-0">{{ allVisits().length }} visita(s)</span>
       </div>
     </div>
@@ -275,15 +270,38 @@
     }
 
     @if (loadingTabla()) {
-      <div class="flex justify-center py-12">
-        <i class="pi pi-spin pi-spinner text-2xl text-content-faint"></i>
+      <!-- Skeleton-cards dimensionadas (CLS 0), no spinner de bloque. -->
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4" aria-hidden="true">
+        @for (i of [1,2,3,4,5,6]; track i) {
+          <div class="card-premium">
+            <div class="flex items-start gap-3">
+              <p-skeleton width="1rem" height="1rem" borderRadius="4px" />
+              <div class="flex-1">
+                <p-skeleton width="60%" height="0.7rem" styleClass="mb-2" />
+                <p-skeleton width="80%" height="0.9rem" styleClass="mb-1" />
+                <p-skeleton width="40%" height="0.7rem" />
+              </div>
+              <p-skeleton width="3.5rem" height="3.5rem" borderRadius="12px" />
+            </div>
+            <div class="pt-3 mt-3 border-t border-divider">
+              <p-skeleton width="50%" height="0.8rem" />
+            </div>
+          </div>
+        }
+      </div>
+    } @else if (tablaErrored()) {
+      <!-- Error de red ≠ empty (DESIGN §Ing.UI 2): banner + reintento aislado. -->
+      <div class="flex flex-col items-center justify-center py-12 gap-3 text-center">
+        <i class="pi pi-exclamation-triangle text-3xl status-bad status-text" aria-hidden="true"></i>
+        <p class="text-sm text-content-muted">No se pudieron cargar las visitas.</p>
+        <p-button label="Reintentar" icon="pi pi-refresh" severity="secondary" [outlined]="true" size="small" (onClick)="retryTabla()" />
       </div>
     } @else {
       @if (allVisits().length > 0) {
         <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           @for (visit of filteredVisits(); track visit.folio) {
             <div
-              class="card-premium cursor-pointer motion-safe:transition-shadow
+              class="card-premium seg-visit-card cursor-pointer
                      focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--focus-ring)]"
               [class.ring-2]="isVisitSelected(visit.folio)"
               [class.ring-brand-orange]="isVisitSelected(visit.folio)"
@@ -450,7 +468,7 @@
   [draggable]="false"
   [resizable]="false"
   [blockScroll]="true"
-  [focusOnShow]="false"
+  [focusOnShow]="true"
   [closable]="false"
   [appendTo]="'body'"
   styleClass="seguimiento-detail-dialog"
@@ -674,7 +692,7 @@
   [draggable]="false"
   [resizable]="false"
   [blockScroll]="true"
-  [focusOnShow]="false"
+  [focusOnShow]="true"
   ariaLabel="Previsualización de imagen de exhibición"
 >
   <div class="relative w-full h-full flex flex-col">
@@ -700,7 +718,7 @@
   [draggable]="false"
   [resizable]="false"
   [blockScroll]="true"
-  [focusOnShow]="false"
+  [focusOnShow]="true"
   [appendTo]="'body'"
   styleClass="surface-card rounded-2xl"
   [contentStyleClass]="'bg-surface-card'"

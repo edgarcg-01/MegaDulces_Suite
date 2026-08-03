@@ -11,6 +11,7 @@ import {
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { ActivatedRoute, Router } from '@angular/router';
 import { ButtonModule } from 'primeng/button';
 import { ChartModule } from 'primeng/chart';
 import { DialogModule } from 'primeng/dialog';
@@ -21,6 +22,8 @@ import { InputTextModule } from 'primeng/inputtext';
 import { IconFieldModule } from 'primeng/iconfield';
 import { InputIconModule } from 'primeng/inputicon';
 import { TagModule } from 'primeng/tag';
+import { SkeletonModule } from 'primeng/skeleton';
+import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import {
   DailyScoresResponse,
   SeguimientoFilters,
@@ -131,16 +134,29 @@ Chart.register(annotationPlugin);
     ToastModule, 
     InputTextModule, 
     IconFieldModule, 
-    InputIconModule, 
+    InputIconModule,
     TagModule,
+    SkeletonModule,
     ConfirmDialogModule,
     GlobalFiltersComponent,
-    VendorReviewComponent
+    VendorReviewComponent,
+    MetricStripComponent
   ],
   providers: [MessageService, ConfirmationService],
   templateUrl: './seguimiento.component.html',
   styles: [`
     :host ::ng-deep .p-chart { height: 100% !important; }
+
+    /* DESIGN §datos-densos 1: superficie in-page = borde 1px, SIN sombra.
+       El .card-premium global trae borde + sombra + transition:all; aquí lo
+       aplanamos (Operations, quiet-luxury) y limitamos el motion a lo permitido. */
+    :host .card-premium {
+      box-shadow: none;
+      transition: border-color 150ms var(--ease-standard), background-color 150ms var(--ease-standard);
+    }
+    :host .card-premium:hover { box-shadow: none; }
+    /* La card de visita seleccionable levanta el borde en hover (no sombra). */
+    :host .seg-visit-card:hover { border-color: var(--text-faint); }
 
     /* ── Detail Dialog: force center + flex layout ── */
     :host ::ng-deep .seguimiento-detail-dialog.p-dialog-mask {
@@ -188,6 +204,8 @@ export class SeguimientoComponent implements OnInit {
   private ws = inject(WebSocketService);
   private injector = inject(Injector);
   private themeService = inject(ThemeService);
+  private router = inject(Router);
+  private route = inject(ActivatedRoute);
 
   /** Última respuesta de scores cacheada para poder reconstruir el chart
    *  cuando cambia el tema sin volver a hacer fetch al backend. */
@@ -203,6 +221,10 @@ export class SeguimientoComponent implements OnInit {
   // Signals \u2014 estado UI
   loadingChart = signal(false);
   loadingTabla = signal(false);
+  // DESIGN \u00a7Ing.UI 2: empty \u2260 error de red. Un fetch fallido NO cae al empty;
+  // enciende su propio estado de error con rein tento aislado.
+  chartErrored = signal(false);
+  tablaErrored = signal(false);
   reportsData = signal<ReportsData | null>(null);
   searchText = signal('');
   lastUpdate = signal('\u2014');
@@ -401,6 +423,24 @@ export class SeguimientoComponent implements OnInit {
 
   allVisits = computed(() => this.reportsData()?.rows ?? []);
 
+  /** KPIs del header como MetricStrip (ADR-033) — sin cajitas ad-hoc.
+   *  En modo Promedio: en meta / fuera / % en meta. En modos alternos:
+   *  los KPIs textuales que ya computa cada modo. */
+  kpiStrip = computed<MetricStripItem[]>(() => {
+    if (this.chartMode() === 'avg') {
+      const en = this.enMeta();
+      const tot = this.totalUsers();
+      if (tot === 0) return [];
+      const pct = Math.round((en / tot) * 100);
+      return [
+        { label: 'En meta', value: en, format: 'number', tone: 'brand', sub: `de ${tot} ejecutivos` },
+        { label: 'Fuera de meta', value: Math.max(0, tot - en), format: 'number', tone: en < tot ? 'warn' : 'default', sub: `< ${this.scoreOpt()} pts` },
+        { label: '% en meta', value: pct, format: 'percent', tone: pct >= 70 ? 'ok' : pct >= 40 ? 'warn' : 'bad', sub: `meta ≥ ${this.scoreOpt()} pts` },
+      ];
+    }
+    return this.altKpis().map((k) => ({ label: k.label, value: k.value, format: 'text' as const }));
+  });
+
   // Búsqueda debounceada — evita recomputar filteredVisits en cada keystroke
   // cuando la lista tiene cientos de visitas.
   private debouncedSearch = toSignal(
@@ -442,6 +482,25 @@ export class SeguimientoComponent implements OnInit {
   });
 
   ngOnInit(): void {
+    // DESIGN §Ing.UI 9 — estado en URL: restaurar modo + búsqueda al entrar
+    // (F5 conserva contexto; el link es compartible).
+    const qp = this.route.snapshot.queryParamMap;
+    const m = qp.get('mode');
+    if (m === 'avg' || m === 'adherence' || m === 'volume' || m === 'efficiency') this.chartMode.set(m);
+    const q = qp.get('q');
+    if (q) this.searchText.set(q);
+    // Escribir modo + búsqueda (debounceada) a la URL sin apilar historial.
+    effect(() => {
+      const mode = this.chartMode();
+      const search = this.debouncedSearch().trim();
+      this.router.navigate([], {
+        relativeTo: this.route,
+        queryParams: { mode: mode === 'avg' ? null : mode, q: search || null },
+        queryParamsHandling: 'merge',
+        replaceUrl: true,
+      });
+    }, { injector: this.injector });
+
     this.setupDataLoading();
     // Los nombres de concepto se resuelven contra el master data del singleton
     // DailyCaptureService (a diferencia de los productos, que vienen en
@@ -511,6 +570,7 @@ export class SeguimientoComponent implements OnInit {
 
   private reloadChart(): void {
     this.loadingChart.set(true);
+    this.chartErrored.set(false);
     const f = this.filtersState.filters();
     const params: SeguimientoFilters = { startDate: f.startDate, endDate: f.endDate };
     if (f.zone && f.zone !== 'null') params.zone = f.zone;
@@ -521,9 +581,9 @@ export class SeguimientoComponent implements OnInit {
 
     this.service.getDailyScores(params).pipe(
       takeUntilDestroyed(this.destroyRef),
-      catchError(() => of({ users: [] } as DailyScoresResponse)),
+      catchError(() => { this.chartErrored.set(true); return of(null); }),
     ).subscribe((scores) => {
-      this.buildChart(scores);
+      if (scores) this.buildChart(scores);
       this.loadingChart.set(false);
       this.lastUpdate.set('Últ. act. ' + this.nowTime());
     });
@@ -531,6 +591,7 @@ export class SeguimientoComponent implements OnInit {
 
   private reloadTabla(): void {
     this.loadingTabla.set(true);
+    this.tablaErrored.set(false);
     const f = this.filtersState.filters();
     const visitFilters: SeguimientoFilters = {
       startDate: f.startDate,
@@ -542,9 +603,9 @@ export class SeguimientoComponent implements OnInit {
 
     this.reportsService.getReportsData(visitFilters, undefined, undefined, 'products').pipe(
       takeUntilDestroyed(this.destroyRef),
-      catchError(() => of({ rows: [], metrics: {} } as unknown as ReportsData)),
+      catchError(() => { this.tablaErrored.set(true); return of(null); }),
     ).subscribe((visitas) => {
-      this.reportsData.set(visitas);
+      if (visitas) this.reportsData.set(visitas);
       this.loadingTabla.set(false);
     });
   }
@@ -568,6 +629,10 @@ export class SeguimientoComponent implements OnInit {
     this.showComparison.set(false);
     this.reloadAll();
   }
+
+  /** Reintentos aislados (DESIGN §Ing.UI 6): re-consultan SOLO esa sección. */
+  retryChart(): void { this.reloadChart(); }
+  retryTabla(): void { this.reloadTabla(); }
 
   onVisitsFilterChange(): void {
     this.searchText.set('');
