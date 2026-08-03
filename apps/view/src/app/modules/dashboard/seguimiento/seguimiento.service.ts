@@ -74,6 +74,7 @@ export interface VendorAgg {
   user_id: string;
   nombre: string;
   total_visitas: number;
+  sin_visitas: boolean;
   avg_score: number | null;
   pct_validas: number;
   por_supervisar: number;

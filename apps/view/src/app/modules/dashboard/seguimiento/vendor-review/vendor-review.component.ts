@@ -180,6 +180,11 @@ interface StatusMeta {
                 </div>
                 <div class="flex items-center gap-1.5 mt-1.5 flex-wrap">
                   <span class="text-[11px] text-content-faint">{{ v.total_visitas }} visitas</span>
+                  @if (v.sin_visitas) {
+                    <span class="hbadge h-requiere_supervision">
+                      <i class="pi pi-ban text-[9px]" aria-hidden="true"></i> sin visitas
+                    </span>
+                  }
                   @if (v.por_supervisar > 0) {
                     <span class="hbadge h-requiere_supervision">
                       <i class="pi pi-flag text-[9px]" aria-hidden="true"></i> {{ v.por_supervisar }} a revisar
@@ -286,7 +291,12 @@ interface StatusMeta {
                   @if (detailVisits().length === 0) {
                     <tr>
                       <td colspan="6" class="px-3 py-8 text-center text-content-faint text-sm">
-                        Sin visitas para este filtro.
+                        @if (selectedVendor()?.sin_visitas) {
+                          <i class="pi pi-ban mr-1" aria-hidden="true"></i>
+                          Este vendedor no registró visitas en el rango seleccionado.
+                        } @else {
+                          Sin visitas para este filtro.
+                        }
                       </td>
                     </tr>
                   }

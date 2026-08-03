@@ -1203,10 +1203,12 @@ export class ReportsService {
       );
     }
     const zoneId = clean(filters.zone);
+    let zoneName: string | null = null;
     if (zoneId) {
       try {
         const zone = await this.knex('zones').where({ id: zoneId }).first();
         if (zone?.name) {
+          zoneName = zone.name;
           q.whereRaw('LOWER(TRIM(dc.zona_captura)) = LOWER(TRIM(?))', [zone.name]);
         }
       } catch (zErr: any) {
@@ -1274,6 +1276,42 @@ export class ReportsService {
           `Horus tables no disponibles para vendor-visits-review: ${e.message}`,
         );
       }
+    }
+
+    // Roster de campo: usuarios activos con rol de campo dentro del scope, para
+    // incluir en el reporte a quienes tienen 0 visitas en el rango (detectar a
+    // quién NO está visitando). Degrada a solo-con-visitas si falla la query.
+    const FIELD_ROLES = ['colaborador', 'vendedor', 'supervisor_ventas'];
+    const roster: { id: string; nombre: string }[] = [];
+    try {
+      const rq = this.knex('users')
+        .where('activo', true)
+        .whereIn('role_name', FIELD_ROLES)
+        .modify((qb) => {
+          if (tenantId) qb.where('tenant_id', tenantId);
+        })
+        .select('id', 'username', 'nombre', 'zona');
+
+      if (scope.type === 'own') {
+        rq.where('id', scope.userId || '');
+      } else if (scope.type === 'team' && clean(scope.userId)) {
+        const teamIds = await this.getTeamIds(scope.userId!);
+        rq.whereIn('id', teamIds.length ? teamIds : ['00000000-0000-0000-0000-000000000000']);
+      }
+      if (clean(filters.userId) && scope.type !== 'own') rq.where('id', filters.userId);
+      if (clean(filters.supervisorId)) {
+        const teamIds = await this.getTeamIds(filters.supervisorId!);
+        rq.whereIn('id', teamIds.length ? teamIds : ['00000000-0000-0000-0000-000000000000']);
+      }
+      if (zoneName) {
+        rq.whereRaw('LOWER(TRIM(zona)) = LOWER(TRIM(?))', [zoneName]);
+      }
+      const rows = await rq;
+      rows.forEach((u: any) =>
+        roster.push({ id: u.id, nombre: u.nombre || u.username || u.id }),
+      );
+    } catch (e: any) {
+      this.logger.warn(`Roster de campo no disponible: ${e.message}`);
     }
 
     const deriveStatus = (v: any, f: any): string => {
@@ -1348,20 +1386,49 @@ export class ReportsService {
         agg.suma_score += v.score;
       }
     }
-    const byVendor = Array.from(byVendorMap.values()).map((a: any) => ({
-      user_id: a.user_id,
-      nombre: a.nombre,
-      total_visitas: a.total_visitas,
-      avg_score: a.con_score > 0 ? Math.round(a.suma_score / a.con_score) : null,
-      pct_validas:
-        a.total_visitas > 0
-          ? Math.round((a.counts.valida / a.total_visitas) * 100)
-          : 0,
-      por_supervisar:
-        a.counts.requiere_supervision + a.counts.fraude + a.counts.confirmada,
-      fraud_flag: a.fraud_flag,
-      counts: a.counts,
-    }));
+
+    // Fusionar el roster de campo: quien no tiene visitas en el rango entra con
+    // 0 para que el supervisor lo vea (a quién le falta salir a visitar).
+    for (const u of roster) {
+      if (!byVendorMap.has(u.id)) {
+        byVendorMap.set(u.id, {
+          user_id: u.id,
+          nombre: u.nombre,
+          total_visitas: 0,
+          con_score: 0,
+          suma_score: 0,
+          fraud_flag: (vendorFraud.get(u.id) || 0) > 0,
+          counts: {
+            valida: 0,
+            requiere_supervision: 0,
+            fraude: 0,
+            confirmada: 0,
+            descartada: 0,
+            no_revisada: 0,
+          },
+        });
+      }
+    }
+
+    const byVendor = Array.from(byVendorMap.values())
+      .map((a: any) => ({
+        user_id: a.user_id,
+        nombre: a.nombre,
+        total_visitas: a.total_visitas,
+        sin_visitas: a.total_visitas === 0,
+        avg_score: a.con_score > 0 ? Math.round(a.suma_score / a.con_score) : null,
+        pct_validas:
+          a.total_visitas > 0
+            ? Math.round((a.counts.valida / a.total_visitas) * 100)
+            : 0,
+        por_supervisar:
+          a.counts.requiere_supervision + a.counts.fraude + a.counts.confirmada,
+        fraud_flag: a.fraud_flag,
+        counts: a.counts,
+      }))
+      // Activos primero (más visitas arriba); los "sin visitas" al final,
+      // ordenados por nombre — visibles pero sin tapar a los que sí trabajan.
+      .sort((x, y) => y.total_visitas - x.total_visitas || x.nombre.localeCompare(y.nombre));
 
     // Filtro de estado sobre las filas devueltas (los totales ya se calcularon).
     const wanted = clean(filters.horusStatus);
