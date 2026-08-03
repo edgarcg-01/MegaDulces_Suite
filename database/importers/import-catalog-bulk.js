@@ -416,8 +416,22 @@ const COLS = [
     // UPDATE existentes por NOMBRE, solo a nombres ÚNICOS en prod (evita los 7
     // dup-name que colisionarían en la constraint (brand_id,nombre) al re-marcar).
     // DISTINCT ON source dedupe por nombre (ambiguos toman sku más bajo).
+    //
+    // NO-CLOBBER DE SKU (fix 2026-08-03): Kepler REUSA/reasigna claves de artículo —
+    // un `articulo` que en prod pertenece al producto "VIEJO" reaparece en el catálogo
+    // apuntando a un producto "NUEVO" (otro nombre). El UPDATE pisaba `sku=s.sku` sin
+    // verificar → asignaba a "NUEVO" un sku que "VIEJO" TODAVÍA tiene → violaba
+    // products_tenant_sku_unique y ABORTABA toda la corrida. Ahora el sku solo se pisa
+    // si NINGÚN otro producto lo tiene; si colisiona, se conserva el sku actual (el resto
+    // de columnas —costo/factor/tasas— igual se refresca). Fix de fondo: match por sku +
+    // aliases (trade.catalog_aliases) para migrar la clave del viejo al nuevo.
     const upd = await db.query(`
-      UPDATE catalog.products p SET sku=s.sku, ${setCols}, updated_at=now()
+      UPDATE catalog.products p
+         SET sku = CASE WHEN NOT EXISTS (
+                          SELECT 1 FROM catalog.products p2
+                           WHERE p2.tenant_id=$1 AND p2.sku=s.sku AND p2.id<>p.id)
+                        THEN s.sku ELSE p.sku END,
+             ${setCols}, updated_at=now()
       FROM (SELECT DISTINCT ON (btrim(upper(nombre))) * FROM stg2 ORDER BY btrim(upper(nombre)), sku) s
       WHERE p.tenant_id=$1 AND btrim(upper(p.nombre))=btrim(upper(s.nombre))
         AND (SELECT count(*) FROM catalog.products p2
