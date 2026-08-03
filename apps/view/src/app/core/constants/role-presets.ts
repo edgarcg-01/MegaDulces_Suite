@@ -125,6 +125,8 @@ export const MODULE_GROUPS: Record<string, Permission[]> = {
     Permission.FINANCE_FINDINGS_GESTIONAR,
     Permission.FINANCE_BANK_VER,
     Permission.FINANCE_BANK_GESTIONAR,
+    Permission.FINANCE_COLLECTIONS_VER,
+    Permission.FINANCE_COLLECTIONS_GESTIONAR,
     Permission.FINANCE_RECON_ASIGNAR,
     Permission.FINANCE_RECON_RECIBIR,
   ],

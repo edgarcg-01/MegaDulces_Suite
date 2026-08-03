@@ -1,0 +1,80 @@
+import { Injectable, inject } from '@angular/core';
+import { HttpClient, HttpParams } from '@angular/common/http';
+import { Observable } from 'rxjs';
+import { environment } from '../../../environments/environment';
+
+/**
+ * CC — cliente de Comprobantes de Cobranza. Lista los cobros de Kepler (UA0501) y
+ * les adjunta la ficha de depósito (imagen/PDF) con OCR. No escribe a Kepler.
+ */
+
+export type DepositStatus = 'recibido' | 'validado' | 'rechazado';
+
+export interface CobroRow {
+  sucursal: string;
+  folio: string;
+  cobro_date: string | null;
+  cliente_code: string | null;
+  cliente_nombre: string | null;
+  concepto: string | null;
+  forma_pago: string | null;
+  monto: number;
+  tipo_cuenta: string | null;
+  deposits: number;
+  deposit_id: string | null;
+  deposit_status: DepositStatus | null;
+  monto_match: boolean;
+}
+
+export interface CobrosReport {
+  kpis: { cobros: number; con_comprobante: number; validados: number; monto_pendiente: number };
+  rows: CobroRow[];
+}
+
+/** Campos que devuelve el OCR de la ficha (preview antes de guardar). */
+export interface DepositOcr {
+  monto: number | null;
+  fecha: string | null;
+  banco: string | null;
+  cuenta_dest: string | null;
+  referencia: string | null;
+  ordenante: string | null;
+  metodo: string | null;
+  ocr_status: string;
+}
+
+export interface DepositFile { role: string; url: string; public_id?: string; kind?: string; name?: string; }
+
+export interface AttachDeposit {
+  sucursal: string;
+  folio: string;
+  files: DepositFile[];
+  ocr?: Partial<DepositOcr>;
+  comentarios?: string;
+}
+
+@Injectable({ providedIn: 'root' })
+export class CobranzaService {
+  private readonly http = inject(HttpClient);
+  private readonly base = `${environment.apiUrl}/finance/collections`;
+
+  list(q: { estado?: string; forma_pago?: string; tipo_cuenta?: string; incluir_todas?: string; from?: string; to?: string; search?: string } = {}): Observable<CobrosReport> {
+    let params = new HttpParams();
+    for (const [k, v] of Object.entries(q)) if (v) params = params.set(k, String(v));
+    return this.http.get<CobrosReport>(this.base, { params });
+  }
+  /** Corre OCR sobre la ficha (data URI, imagen/PDF) — preview, no guarda. */
+  ocr(file_base64: string): Observable<DepositOcr> {
+    return this.http.post<DepositOcr>(`${this.base}/ocr`, { file_base64 });
+  }
+  /** Sube la ficha a Cloudinary y devuelve su referencia. */
+  uploadFile(file_base64: string, role = 'deposito'): Observable<DepositFile> {
+    return this.http.post<DepositFile>(`${this.base}/upload`, { file_base64, role });
+  }
+  /** Adjunta la evidencia al cobro (archivos ya subidos + OCR). */
+  attach(body: AttachDeposit): Observable<{ id: string; sucursal: string; folio: string; status: string; monto_match: boolean }> {
+    return this.http.post<{ id: string; sucursal: string; folio: string; status: string; monto_match: boolean }>(`${this.base}/attach`, body);
+  }
+  validate(id: string): Observable<any> { return this.http.post(`${this.base}/${id}/validate`, {}); }
+  reject(id: string, motivo?: string): Observable<any> { return this.http.post(`${this.base}/${id}/reject`, { motivo }); }
+}
