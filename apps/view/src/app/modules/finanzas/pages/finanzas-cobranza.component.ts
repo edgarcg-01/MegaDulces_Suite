@@ -117,20 +117,27 @@ import { CobranzaService, CobroRow, CobrosReport, DepositOcr, DepositFile } from
           </div>
 
           <label class="cb-f cb-file">
-            <span>Ficha de depósito (imagen o PDF) *</span>
+            <span>Ficha de depósito (imagen o PDF) * <em class="cb-auto">se almacena y se lee sola al elegirla</em></span>
             <input type="file" accept="image/*,.pdf" (change)="onFile($event)" />
             @if (fileName()) { <span class="cb-filepick"><i class="pi pi-paperclip"></i> {{ fileName() }}</span> }
           </label>
 
-          <div class="cb-ocr-actions">
-            <button pButton type="button" size="small" [disabled]="!fileData || ocrLoading()" [loading]="ocrLoading()" (click)="runOcr()"><span class="p-button-icon p-button-icon-left pi pi-sparkles" aria-hidden="true"></span><span class="p-button-label">Leer con OCR</span></button>
-            @if (ocrRun()) {
-              @if (matchState() === true) { <p-tag value="Cuadra con el cobro" severity="success" /> }
-              @else if (matchState() === false) { <p-tag [value]="'Difiere ' + money(diff())" severity="danger" /> }
-              @if (ocrForm.ocr_status === 'sin_key') { <span class="cb-hint">OCR no disponible — captura a mano.</span> }
-              @else if (ocrForm.ocr_status === 'ilegible') { <span class="cb-hint">No se pudo leer — captura a mano.</span> }
-            }
-          </div>
+          @if (fileName()) {
+            <div class="cb-ocr-actions">
+              @if (uploading() || ocrLoading()) {
+                <span class="cb-proc"><i class="pi pi-spin pi-spinner"></i> {{ (uploading() && ocrLoading()) ? 'Almacenando imagen y leyendo ficha…' : uploading() ? 'Almacenando imagen…' : 'Leyendo la ficha…' }}</span>
+              } @else {
+                @if (uploadedFile()) { <span class="cb-stored"><i class="pi pi-check-circle"></i> Imagen almacenada</span> }
+                @if (ocrRun()) {
+                  @if (matchState() === true) { <p-tag value="Cuadra con el cobro" severity="success" /> }
+                  @else if (matchState() === false) { <p-tag [value]="'Difiere ' + money(diff())" severity="danger" /> }
+                  @if (ocrForm.ocr_status === 'sin_key') { <span class="cb-hint">OCR no disponible — captura a mano.</span> }
+                  @else if (ocrForm.ocr_status === 'ilegible') { <span class="cb-hint">No se pudo leer — captura a mano.</span> }
+                }
+                <button pButton type="button" size="small" text (click)="runOcr()" title="Volver a leer con OCR"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span><span class="p-button-label">Releer</span></button>
+              }
+            </div>
+          }
 
           @if (ocrRun()) {
             <div class="cb-grid">
@@ -146,7 +153,7 @@ import { CobranzaService, CobroRow, CobrosReport, DepositOcr, DepositFile } from
         </div>
         <ng-template #footer>
           <button pButton type="button" text (click)="showAttach.set(false)"><span class="p-button-label">Cancelar</span></button>
-          <button pButton type="button" [loading]="saving()" [disabled]="!fileData" (click)="saveAttach()"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Guardar comprobante</span></button>
+          <button pButton type="button" [loading]="saving()" [disabled]="!fileData || uploading()" (click)="saveAttach()"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Guardar comprobante</span></button>
         </ng-template>
       }
     </p-dialog>
@@ -194,6 +201,9 @@ import { CobranzaService, CobroRow, CobrosReport, DepositOcr, DepositFile } from
     .cb-filepick { font-size: .78rem; color: var(--ok-fg); display: inline-flex; align-items: center; gap: .3rem; }
     .cb-ocr-actions { display: flex; align-items: center; gap: .7rem; flex-wrap: wrap; }
     .cb-hint { font-size: .74rem; color: var(--text-muted); }
+    .cb-proc { font-size: .8rem; color: var(--text-muted); display: inline-flex; align-items: center; gap: .4rem; }
+    .cb-stored { font-size: .78rem; color: var(--ok-fg); display: inline-flex; align-items: center; gap: .3rem; }
+    .cb-auto { font-style: normal; font-size: .68rem; color: var(--text-muted); text-transform: none; letter-spacing: 0; opacity: .8; }
     .cb-grid { display: grid; grid-template-columns: 1fr 1fr; gap: .7rem; border-top: 1px solid var(--border-color); padding-top: .8rem; }
     .cb-err { color: var(--bad-fg); font-size: .82rem; }
     .w-full { width: 100%; }
@@ -227,6 +237,8 @@ export class FinanzasCobranzaComponent {
   readonly fileName = signal<string>('');
   readonly ocrLoading = signal(false);
   readonly ocrRun = signal(false);
+  readonly uploading = signal(false);
+  readonly uploadedFile = signal<DepositFile | null>(null);
   readonly attachError = signal<string>('');
   fileData: string | null = null;
   ocrForm: Partial<DepositOcr> = {};
@@ -270,6 +282,8 @@ export class FinanzasCobranzaComponent {
     this.fileName.set('');
     this.ocrForm = {};
     this.ocrRun.set(false);
+    this.uploadedFile.set(null);
+    this.uploading.set(false);
     this.attachError.set('');
     this.showAttach.set(true);
   }
@@ -281,9 +295,31 @@ export class FinanzasCobranzaComponent {
     this.attachError.set('');
     this.ocrRun.set(false);
     this.ocrForm = {};
+    this.uploadedFile.set(null);
     const reader = new FileReader();
-    reader.onload = () => { this.fileData = String(reader.result || ''); this.fileName.set(file.name); };
+    reader.onload = () => {
+      this.fileData = String(reader.result || '');
+      this.fileName.set(file.name);
+      this.autoProcess(); // al seleccionar: almacena la imagen + corre OCR, sin botones
+    };
     reader.readAsDataURL(file);
+  }
+
+  /** Dispara en paralelo el almacenamiento de la imagen y la lectura OCR. */
+  private autoProcess() {
+    this.storeImage();
+    this.runOcr();
+  }
+
+  /** Sube la ficha a Cloudinary (la ALMACENA) y guarda su referencia para el attach. */
+  private storeImage() {
+    if (!this.fileData) return;
+    this.uploading.set(true);
+    this.svc.uploadFile(this.fileData, 'deposito').pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (f) => { this.uploadedFile.set(f); this.uploading.set(false); },
+        error: () => { this.uploading.set(false); this.attachError.set('No se pudo almacenar la imagen — se reintenta al Guardar.'); },
+      });
   }
 
   runOcr() {
@@ -310,17 +346,22 @@ export class FinanzasCobranzaComponent {
     if (!t || !this.fileData) { this.attachError.set('Falta la ficha de depósito.'); return; }
     this.attachError.set('');
     this.saving.set(true);
+    const already = this.uploadedFile();
+    if (already) { this.doAttach(t, already); return; } // ya se almacenó al seleccionar
+    // La imagen no alcanzó a almacenarse (o falló) → súbela ahora y adjunta.
     this.svc.uploadFile(this.fileData, 'deposito').pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: (file: DepositFile) => {
-          this.svc.attach({ sucursal: t.sucursal, folio: t.folio, files: [file], ocr: this.ocrRun() ? this.ocrForm : undefined })
-            .pipe(takeUntilDestroyed(this.destroyRef))
-            .subscribe({
-              next: (res) => { this.saving.set(false); this.showAttach.set(false); this.toast.add({ severity: 'success', summary: 'Comprobante adjuntado', detail: res.monto_match ? 'El monto cuadra ✓' : 'Guardado (revisa el monto)' }); this.load(); },
-              error: (e) => { this.saving.set(false); this.attachError.set(e?.error?.message || 'No se pudo adjuntar.'); },
-            });
-        },
-        error: () => { this.saving.set(false); this.attachError.set('No se pudo subir la ficha. Reintenta.'); },
+        next: (file: DepositFile) => { this.uploadedFile.set(file); this.doAttach(t, file); },
+        error: () => { this.saving.set(false); this.attachError.set('No se pudo almacenar la ficha. Reintenta.'); },
+      });
+  }
+
+  private doAttach(t: CobroRow, file: DepositFile) {
+    this.svc.attach({ sucursal: t.sucursal, folio: t.folio, files: [file], ocr: this.ocrRun() ? this.ocrForm : undefined })
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (res) => { this.saving.set(false); this.showAttach.set(false); this.toast.add({ severity: 'success', summary: 'Comprobante adjuntado', detail: res.monto_match ? 'El monto cuadra ✓' : 'Guardado (revisa el monto)' }); this.load(); },
+        error: (e) => { this.saving.set(false); this.attachError.set(e?.error?.message || 'No se pudo adjuntar.'); },
       });
   }
 
