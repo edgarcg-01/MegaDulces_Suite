@@ -146,14 +146,15 @@ import { CobranzaService, CobroRow, CobrosReport, DepositOcr, DepositFile } from
             </div>
           }
 
-          @if (ocrRun()) {
+          @if (fileName()) {
+            <div class="cb-fields-head">Datos de la ficha <em class="cb-auto">revisa y corrige lo que el OCR haya leído mal</em></div>
             <div class="cb-grid">
-              <label class="cb-f"><span>Monto de la ficha</span><p-inputnumber [(ngModel)]="ocrForm.monto" mode="currency" currency="MXN" locale="es-MX" styleClass="w-full" /></label>
-              <label class="cb-f"><span>Fecha</span><input pInputText [(ngModel)]="ocrForm.fecha" placeholder="AAAA-MM-DD" /></label>
-              <label class="cb-f"><span>Banco</span><input pInputText [(ngModel)]="ocrForm.banco" /></label>
-              <label class="cb-f"><span>Referencia / clave</span><input pInputText [(ngModel)]="ocrForm.referencia" /></label>
-              <label class="cb-f"><span>Cuenta destino</span><input pInputText [(ngModel)]="ocrForm.cuenta_dest" /></label>
-              <label class="cb-f"><span>Ordenante</span><input pInputText [(ngModel)]="ocrForm.ordenante" /></label>
+              <label class="cb-f"><span>Monto de la ficha</span><p-inputnumber [(ngModel)]="ocrForm.monto" [disabled]="ocrLoading()" mode="currency" currency="MXN" locale="es-MX" styleClass="w-full" /></label>
+              <label class="cb-f"><span>Fecha</span><input pInputText [(ngModel)]="ocrForm.fecha" [disabled]="ocrLoading()" placeholder="AAAA-MM-DD" /></label>
+              <label class="cb-f"><span>Banco</span><input pInputText [(ngModel)]="ocrForm.banco" [disabled]="ocrLoading()" /></label>
+              <label class="cb-f"><span>Referencia / clave</span><input pInputText [(ngModel)]="ocrForm.referencia" [disabled]="ocrLoading()" /></label>
+              <label class="cb-f"><span>Cuenta destino</span><input pInputText [(ngModel)]="ocrForm.cuenta_dest" [disabled]="ocrLoading()" /></label>
+              <label class="cb-f"><span>Ordenante</span><input pInputText [(ngModel)]="ocrForm.ordenante" [disabled]="ocrLoading()" /></label>
             </div>
           }
           @if (attachError()) { <div class="cb-err">{{ attachError() }}</div> }
@@ -214,6 +215,7 @@ import { CobranzaService, CobroRow, CobrosReport, DepositOcr, DepositFile } from
     .cb-proc { font-size: .8rem; color: var(--text-muted); display: inline-flex; align-items: center; gap: .4rem; }
     .cb-stored { font-size: .78rem; color: var(--ok-fg); display: inline-flex; align-items: center; gap: .3rem; }
     .cb-auto { font-style: normal; font-size: .68rem; color: var(--text-muted); text-transform: none; letter-spacing: 0; opacity: .8; }
+    .cb-fields-head { font-size: .8rem; font-weight: 600; color: var(--text-main); margin-top: .3rem; }
     .cb-grid { display: grid; grid-template-columns: 1fr 1fr; gap: .7rem; border-top: 1px solid var(--border-color); padding-top: .8rem; }
     .cb-err { color: var(--bad-fg); font-size: .82rem; }
     .w-full { width: 100%; }
