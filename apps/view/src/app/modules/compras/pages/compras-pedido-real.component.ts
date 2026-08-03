@@ -996,17 +996,25 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
 
   /** RA-PRO.32.5 — Workbook del comprador: un XLSX con una hoja por proveedor (todos los del filtro actual). */
   exportBySupplier(): void {
+    // "XLSX por proveedor" = las MISMAS compras sugeridas que muestra la interfaz (motor de reorden),
+    // con los filtros activos ya aplicados, agrupadas en una HOJA por proveedor. Reusa el export de
+    // pedido (mismas columnas/números que el "plano" y la pantalla) → nada de recálculos divergentes.
+    const scope = this.flatRows().filter((r) => r.type === 'compra' && r.editable && Number(r.qty) > 0);
+    if (!scope.length) {
+      this.toast.add({ severity: 'warn', summary: 'Nada que exportar', detail: 'No hay compras sugeridas con los filtros actuales.' });
+      return;
+    }
+    const lines: PedidoExportLine[] = scope.map((r) => ({
+      warehouse_code: r.warehouse_code, supplier_name: r.supplier_name,
+      sku: r.sku, nombre: r.nombre, on_hand: r.on_hand, suggested_qty: r.qty,
+      uxc: r.uxc, cajas: r.qty, piezas: r.qty * r.uxc, unit_cost: r.unit_cost, line_cost: r.qty * r.unit_cost,
+    }));
     this.dl.set(true);
-    // Workbook del comprador = TODOS los productos del proveedor (NO se hereda "Solo con pedido"): el
-    // pedido puede ser 0 y aun así el SKU va en la hoja (existencia/venta), como en su Excel real.
-    this.api.exportWorkbookXlsx({
-      supplier_id: this.fSupplier || undefined, category_id: this.fCategory || undefined, search: this.search.trim() || undefined,
-      coverage_days: this.coverage,
-      warehouse_ids: this.wbWarehouses.length ? this.wbWarehouses : undefined, group: this.wbGroup(),
-    }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (resp) => { this.dl.set(false); saveXlsxResponse(resp, 'pedido-por-proveedor.xlsx'); },
-      error: () => { this.dl.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo exportar por proveedor.' }); },
-    });
+    this.api.exportPedidoXlsx({ title: 'Pedido por proveedor', basis: `cobertura ${this.coverage}d`, multi_warehouse: true, by_supplier: true, lines })
+      .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+        next: (resp) => { this.dl.set(false); saveXlsxResponse(resp, 'pedido-por-proveedor.xlsx'); },
+        error: () => { this.dl.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo exportar por proveedor.' }); },
+      });
   }
 
   /** Exporta XLSX del scope (compra + traspaso con qty > 0). pid = un solo producto (desde el acordeón). */

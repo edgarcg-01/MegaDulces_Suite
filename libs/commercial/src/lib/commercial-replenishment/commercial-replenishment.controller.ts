@@ -193,8 +193,11 @@ export class CommercialReplenishmentController {
   @ApiOperation({ summary: 'Exporta un PEDIDO armado (cockpit/consolidado) a Excel con diseño. body = { title, supplier_name, warehouse_label, via, basis, source_warehouse_code, multi_warehouse, lines[] }.' })
   async pedidoXlsx(@Res() res: Response, @Body() body: PedidoExport) {
     const order: PedidoExport = { ...body, lines: Array.isArray(body?.lines) ? body.lines : [] };
-    const buf = await this.exporter.buildPedido(order);
-    sendXlsx(res, buf, this.exporter.fileNamePedido(order));
+    const buf = order.by_supplier
+      ? await this.exporter.buildPedidoBySupplier(order)
+      : await this.exporter.buildPedido(order);
+    const name = order.by_supplier ? this.exporter.fileNameWorkbook(0) : this.exporter.fileNamePedido(order);
+    sendXlsx(res, buf, name);
   }
 
   @Get('requisitions/:id/export.xlsx')
