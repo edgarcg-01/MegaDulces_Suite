@@ -20,6 +20,12 @@ export const FINANZAS_TABS: PageTab[] = [
     permission: Permission.FINANCE_BANK_VER,
   },
   {
+    label: 'Cobranza',
+    route: '/finanzas/cobranza',
+    icon: 'pi pi-receipt',
+    permission: Permission.FINANCE_COLLECTIONS_VER,
+  },
+  {
     label: 'Hallazgos',
     route: '/finanzas/hallazgos',
     icon: 'pi pi-flag',

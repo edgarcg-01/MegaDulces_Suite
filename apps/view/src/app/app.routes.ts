@@ -272,6 +272,11 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.FINANCE_EXPENSES_VER)]
       },
       {
+        path: 'cobranza',
+        loadComponent: () => import('./modules/finanzas/pages/finanzas-cobranza.component').then(m => m.FinanzasCobranzaComponent),
+        canActivate: [permissionGuard(Permission.FINANCE_COLLECTIONS_VER)]
+      },
+      {
         path: 'maat',
         loadComponent: () => import('./modules/finanzas/pages/finanzas-maat-chat.component').then(m => m.FinanzasMaatChatComponent),
         canActivate: [permissionGuard(Permission.FINANCE_AI_CHAT)]
