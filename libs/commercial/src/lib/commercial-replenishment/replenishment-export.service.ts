@@ -54,6 +54,7 @@ export interface PedidoExport {
   folio?: string | null;
   estado?: string | null;
   multi_warehouse?: boolean;              // consolidado → muestra columna Almacén
+  by_supplier?: boolean;                  // XLSX por proveedor: una hoja por proveedor
   lines: PedidoExportLine[];
 }
 
@@ -256,7 +257,41 @@ export class ReplenishmentExportService {
     const wb = new ExcelJS.Workbook();
     wb.creator = 'Mega Dulces';
     wb.created = new Date();
-    const ws = wb.addWorksheet('Pedido');
+    this.writePedidoSheet(wb, 'Pedido', order);
+    return Buffer.from((await wb.xlsx.writeBuffer()) as ArrayBuffer);
+  }
+
+  /**
+   * RA-PRO.32.5 — Pedido con UNA HOJA por proveedor, mismas columnas/estilo que buildPedido.
+   * Se alimenta con las MISMAS líneas que muestra la interfaz (motor de reorden) → el Excel
+   * refleja idéntico lo que ve el comprador en pantalla, con sus filtros ya aplicados.
+   */
+  async buildPedidoBySupplier(order: PedidoExport): Promise<Buffer> {
+    const wb = new ExcelJS.Workbook();
+    wb.creator = 'Mega Dulces';
+    wb.created = new Date();
+    const bySup = new Map<string, PedidoExportLine[]>();
+    for (const r of order.lines || []) {
+      const k = (r.supplier_name == null ? '' : String(r.supplier_name).trim()) || 'Sin proveedor';
+      (bySup.get(k) ?? bySup.set(k, []).get(k)!).push(r);
+    }
+    const suppliers = [...bySup.keys()].sort((a, b) => a.localeCompare(b, 'es'));
+    if (!suppliers.length) { this.writePedidoSheet(wb, 'Pedido', order); }
+    const used = new Set<string>();
+    for (const sup of suppliers) {
+      // Excel: nombre de hoja ≤31 chars, sin : \ / ? * [ ], único.
+      const base = (sup.replace(/[:\\/?*[\]]/g, ' ').trim() || 'Proveedor').slice(0, 28);
+      let name = base, n = 2;
+      while (used.has(name.toLowerCase())) name = `${base.slice(0, 25)} ${n++}`;
+      used.add(name.toLowerCase());
+      this.writePedidoSheet(wb, name, { ...order, supplier_name: sup, lines: bySup.get(sup)! });
+    }
+    return Buffer.from((await wb.xlsx.writeBuffer()) as ArrayBuffer);
+  }
+
+  /** Escribe UNA hoja de pedido (columnas dinámicas + resumen + total + zebra) en el wb dado. */
+  private writePedidoSheet(wb: ExcelJS.Workbook, sheetName: string, order: PedidoExport): void {
+    const ws = wb.addWorksheet(sheetName);
 
     const MONEY = '$#,##0.00';
     const NUM = '#,##0';
@@ -403,9 +438,6 @@ export class ReplenishmentExportService {
     }
 
     cols.forEach((c, ci) => { if (c.width) ws.getColumn(ci + 1).width = c.width; });
-
-    const buf = await wb.xlsx.writeBuffer();
-    return Buffer.from(buf as ArrayBuffer);
   }
 
   fileNameWorkbook(_coverage: number): string {

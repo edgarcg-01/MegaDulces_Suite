@@ -518,6 +518,7 @@ export interface PedidoExportPayload {
   folio?: string | null;
   estado?: string | null;
   multi_warehouse?: boolean;
+  by_supplier?: boolean;   // una hoja por proveedor
   lines: PedidoExportLine[];
 }
 
