@@ -408,6 +408,7 @@ export class LayoutComponent implements OnInit, OnDestroy {
     { label: 'Hallazgos', icon: 'pi pi-flag', route: '/finanzas/hallazgos', permission: Permission.FINANCE_AI_CHAT },
     { label: 'Solicitudes de gasto', icon: 'pi pi-file-edit', route: '/finanzas/solicitudes', permission: Permission.FINANCE_EXPENSES_VER },
     { label: 'Reembolsos', icon: 'pi pi-receipt', route: '/finanzas/comprobaciones', permission: Permission.FINANCE_EXPENSES_VER },
+    { label: 'Comprobación de gastos', icon: 'pi pi-check-circle', route: '/finanzas/comprobacion-gastos', permission: Permission.FINANCE_EXPENSES_VER },
     { label: 'Pregúntale a Maat', icon: 'pi pi-sparkles', route: '/finanzas/maat', permission: Permission.FINANCE_AI_CHAT },
   ];
 
