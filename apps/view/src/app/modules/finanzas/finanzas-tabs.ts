@@ -22,7 +22,7 @@ export const FINANZAS_TABS: PageTab[] = [
   {
     label: 'Cobranza',
     route: '/finanzas/cobranza',
-    icon: 'pi pi-receipt',
+    icon: 'pi pi-money-bill',
     permission: Permission.FINANCE_COLLECTIONS_VER,
   },
   {
