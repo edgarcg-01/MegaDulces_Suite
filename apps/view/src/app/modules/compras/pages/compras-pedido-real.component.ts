@@ -1006,7 +1006,8 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     }
     const lines: PedidoExportLine[] = scope.map((r) => ({
       warehouse_code: r.warehouse_code, supplier_name: r.supplier_name,
-      sku: r.sku, nombre: r.nombre, on_hand: r.on_hand, suggested_qty: r.qty,
+      sku: r.sku, nombre: r.nombre, abc_class: r.abc_class,
+      sell_daily: r.sell_daily, days_cover: r.cover, on_hand: r.on_hand, suggested_qty: r.qty,
       uxc: r.uxc, cajas: r.qty, piezas: r.qty * r.uxc, unit_cost: r.unit_cost, line_cost: r.qty * r.unit_cost,
     }));
     this.dl.set(true);
@@ -1024,7 +1025,8 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     const lines: PedidoExportLine[] = scope.map((r) => ({
       warehouse_code: r.warehouse_code,
       supplier_name: r.type === 'traspaso' ? `TRASPASO ← ${r.from_code}` : r.supplier_name,
-      sku: r.sku, nombre: r.nombre, on_hand: r.on_hand, suggested_qty: r.qty,
+      sku: r.sku, nombre: r.nombre, abc_class: r.abc_class,
+      sell_daily: r.sell_daily, days_cover: r.cover, deficit: r.deficit || undefined, on_hand: r.on_hand, suggested_qty: r.qty,
       uxc: r.uxc, cajas: r.qty, piezas: r.qty * r.uxc, unit_cost: r.unit_cost, line_cost: r.qty * r.unit_cost,
     }));
     this.dl.set(true);

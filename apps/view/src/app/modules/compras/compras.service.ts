@@ -494,6 +494,9 @@ export interface PedidoExportLine {
   xyz_class?: string | null;
   sales_rank?: number | null;
   monthly_revenue?: number | null;
+  sell_daily?: number | null;
+  days_cover?: number | null;
+  deficit?: number | null;
   on_hand?: number | null;
   in_transit?: number | null;
   hub_on_hand?: number | null;
