@@ -201,6 +201,8 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
         modules: [
           { id: 'bancos', label: 'Bancos (conciliación)', route: '/finanzas/bancos', view: [Permission.FINANCE_BANK_VER], manage: [Permission.FINANCE_BANK_GESTIONAR] },
           { id: 'cobranza', label: 'Cobranza (comprobantes)', route: '/finanzas/cobranza', view: [Permission.FINANCE_COLLECTIONS_VER], manage: [Permission.FINANCE_COLLECTIONS_GESTIONAR] },
+          { id: 'pagos-comprobantes', label: 'Pagos a proveedor (comprobantes)', route: '/finanzas/pagos-comprobantes', view: [Permission.FINANCE_PAYMENTS_VER], manage: [Permission.FINANCE_PAYMENTS_GESTIONAR] },
+          { id: 'entradas', label: 'Órdenes de entrada (comprobantes)', route: '/finanzas/entradas', view: [Permission.FINANCE_RECEIPTS_VER], manage: [Permission.FINANCE_RECEIPTS_GESTIONAR] },
           { id: 'tareas', label: 'Tareas de conciliación', route: '/finanzas/tareas', view: [Permission.FINANCE_BANK_VER], manage: [Permission.FINANCE_RECON_ASIGNAR] },
           { id: 'egresos', label: 'Egresos contables', route: '/finanzas/egresos', view: [Permission.FINANCE_EXPENSES_VER], manage: [] },
           { id: 'hallazgos', label: 'Hallazgos', route: '/finanzas/hallazgos', view: [Permission.FINANCE_AI_CHAT], manage: [Permission.FINANCE_FINDINGS_GESTIONAR] },

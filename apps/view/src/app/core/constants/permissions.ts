@@ -167,6 +167,12 @@ export enum Permission {
   // Comprobantes de Cobranza (CC) — ficha de depósito + OCR sobre cobros de Kepler.
   FINANCE_COLLECTIONS_VER = 'FINANCE_COLLECTIONS_VER',
   FINANCE_COLLECTIONS_GESTIONAR = 'FINANCE_COLLECTIONS_GESTIONAR',
+  // Comprobantes de Pago a Proveedor (CC ext) — transferencia SPEI + OCR sobre pagos Kepler (XD2501).
+  FINANCE_PAYMENTS_VER = 'FINANCE_PAYMENTS_VER',
+  FINANCE_PAYMENTS_GESTIONAR = 'FINANCE_PAYMENTS_GESTIONAR',
+  // Comprobantes de Orden de Entrada (CC ext) — remisión/factura + OCR sobre entradas Kepler (X-A-40).
+  FINANCE_RECEIPTS_VER = 'FINANCE_RECEIPTS_VER',
+  FINANCE_RECEIPTS_GESTIONAR = 'FINANCE_RECEIPTS_GESTIONAR',
   // MA (ADR-028/016) — reparto de tareas de conciliación (líder de Finanzas).
   FINANCE_RECON_ASIGNAR = 'FINANCE_RECON_ASIGNAR',
   // MA — marca "recibe tareas de conciliación": el pool del área de Finanzas.

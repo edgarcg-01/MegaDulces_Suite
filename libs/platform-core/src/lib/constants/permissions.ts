@@ -194,6 +194,16 @@ export enum Permission {
   // de Kepler (UA0501). VER = capturista adjunta; GESTIONAR = revisor valida/rechaza.
   FINANCE_COLLECTIONS_VER = 'FINANCE_COLLECTIONS_VER',
   FINANCE_COLLECTIONS_GESTIONAR = 'FINANCE_COLLECTIONS_GESTIONAR',
+  // Comprobantes de Pago a Proveedor (CC ext) — adjuntar comprobante de
+  // transferencia + OCR a un pago de Kepler (XD2501). VER = capturista adjunta;
+  // GESTIONAR = revisor valida/rechaza.
+  FINANCE_PAYMENTS_VER = 'FINANCE_PAYMENTS_VER',
+  FINANCE_PAYMENTS_GESTIONAR = 'FINANCE_PAYMENTS_GESTIONAR',
+  // Comprobantes de Orden de Entrada (CC ext) — adjuntar remisión/factura del
+  // proveedor + OCR a una orden de entrada de Kepler (X-A-40). VER = capturista
+  // adjunta; GESTIONAR = revisor valida/rechaza.
+  FINANCE_RECEIPTS_VER = 'FINANCE_RECEIPTS_VER',
+  FINANCE_RECEIPTS_GESTIONAR = 'FINANCE_RECEIPTS_GESTIONAR',
   // MA (ADR-028/016) — reparto de tareas de conciliación (líder de Finanzas).
   FINANCE_RECON_ASIGNAR = 'FINANCE_RECON_ASIGNAR',
   // MA — marca "recibe tareas de conciliación": define el pool del área de Finanzas

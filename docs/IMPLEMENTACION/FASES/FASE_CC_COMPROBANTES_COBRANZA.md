@@ -53,3 +53,34 @@ Un cliente a crédito paga con transferencia/depósito y manda la ficha. Hoy esa
 - Conciliación automática cobro↔ingreso bancario (CB `finance.bank_movements`) y cobro↔abono Kepler.
 - Captura desde campo (vendedor `apps/vendor`) / cliente (WhatsApp/portal).
 - Grupo 7 "Cobro CFDI" (0 filas en CEDIS hoy) + complemento de pago CFDI `kdfe33pagm2`.
+
+---
+
+## CC ext — Pago a proveedor + Orden de entrada (✅ local 2026-08-03)
+
+El mismo patrón (adjunto + OCR + HITL, evidencia read-only sobre Kepler) para dos papeles más de compras. **Dos módulos dedicados** (calcan Cobranza; decisión Edgar 2026-08-03).
+
+### Decode (probe en vivo Kepler `md_00`, 2026-08-03)
+
+| Papel | Doc Kepler | Filtro `kdm1` | Universo | Columnas clave |
+|---|---|---|---|---|
+| Pago a proveedor (transferencia) | **`XD2501`** "Payment1" (C 201 / A 102) | `c2='X' AND c3='D' AND c4=25` | 619 / $42.5M (162 c/RFC) | c6 folio · c9 fecha · c10 código prov · c32 razón social · c22 RFC · c16 monto |
+| Orden de entrada (recepción) | **`X-A-40`** "EntryOr1" (mueve inventario) ⋈ vale **`X-A-37`** | `oe c2='X' c3='A' c4=40 AND c37='37'`, `v.c6=oe.c39` | 8,361 / $451.8M (join vale 8360/8360) | oe.c6 folio · oe.c9 fecha · oe.c16 monto · vale.c32 razón social · vale.c22 RFC · oe.c39 vale · vale.c39 OC |
+
+- ⚠️ **`XD2601` NO es transferencia a proveedor**: es caja chica / gastos NF (códigos GG*, c16 a menudo 0). Eso es Egresos (Fase GX), no este módulo.
+- El vale `X-A-37` trae el mejor dato del proveedor (RFC + razón social completa + link a la OC `X-A-35`); por eso la orden de entrada se enriquece con él.
+
+### Entregado
+
+- **Schema** mig `20260803130000`: 2 espejos `analytics.erp_supplier_payments` / `analytics.erp_goods_receipts` (sin RLS, GRANT SELECT) + 2 evidencias `finance.supplier_payment_proofs` / `finance.goods_receipt_proofs` (RLS forzado). Perms `20260803130100`: `FINANCE_PAYMENTS_VER/GESTIONAR` + `FINANCE_RECEIPTS_VER/GESTIONAR` (backfill ancla a Bancos).
+- **Importers** `import-supplier-payments.js` (XD2501) + `import-goods-receipts.js` (X-A-40⋈X-A-37, dedupe por `(suc,folio)`). UPSERT aditiva, sin DELETE, fuente CEDIS `md_00`.
+- **OCR** pagos reusan `extractDepositSlip` (un SPEI es una transferencia); entradas usan `extractRemision()` nuevo (folio, fecha, proveedor, RFC, subtotal, IVA, total). El cuadre de la entrada acepta **total o subtotal** (IVA variable en dulce a granel).
+- **Backend** `libs/finance/supplier-payment-proofs` (`/finance/supplier-payments`) + `libs/finance/goods-receipt-proofs` (`/finance/goods-receipts`).
+- **Frontend** `/finanzas/pagos-comprobantes` + `/finanzas/entradas` (tabs + sidebar). Calcan la página de Cobranza.
+- Smoke `test-newdb-supplier-receipt-proofs` **30/30** (en regression). Builds api+view verdes.
+
+### Pendiente prod (CC ext)
+
+1. Aplicar migs `20260803130000` + `20260803130100` a Railway.
+2. Correr `import-supplier-payments.js` + `import-goods-receipts.js` desde LAN con `DATABASE_URL_NEW=<prod>` (Railway no alcanza CEDIS).
+3. Redeploy api+view + re-login.
