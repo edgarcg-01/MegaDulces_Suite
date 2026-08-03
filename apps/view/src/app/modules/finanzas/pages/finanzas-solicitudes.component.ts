@@ -18,6 +18,7 @@ import { ContextHelpComponent } from '../../../shared/context-help/context-help.
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
 import { ComercialService, ExpenseRequestRow, ExpenseRequestsReport } from '../../comercial/comercial.service';
 import { ComprobacionesService } from '../comprobaciones.service';
+import { ComprobacionGastosService } from '../comprobacion-gastos.service';
 
 /**
  * GX.6 — "Solicitudes de gasto": lista de solicitudes (Kepler XA1501) con su estado
@@ -105,6 +106,9 @@ import { ComprobacionesService } from '../comprobaciones.service';
                 @if (proofStatus()[r.folio]; as ps) {
                   <div class="so-proof" [ngClass]="'ps-' + ps"><i class="pi" [ngClass]="proofIcon(ps)"></i> Comprobante {{ proofLabel(ps) }}</div>
                 }
+                @if (compStatus()[r.folio]; as cs) {
+                  <div class="so-proof" [ngClass]="'ps-' + cs"><i class="pi" [ngClass]="proofIcon(cs)"></i> Comprobación {{ proofLabel(cs) }}</div>
+                }
               </td>
               <td class="ta-r muted">{{ r.lead_days != null ? r.lead_days : '—' }}</td>
             </tr>
@@ -142,11 +146,13 @@ export class FinanzasSolicitudesComponent {
   readonly tabs = FINANZAS_TABS;
   private readonly svc = inject(ComercialService);
   private readonly comprobaciones = inject(ComprobacionesService);
+  private readonly compGastos = inject(ComprobacionGastosService);
   private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
 
   readonly report = signal<ExpenseRequestsReport | null>(null);
   readonly proofStatus = signal<Record<string, string>>({});
+  readonly compStatus = signal<Record<string, string>>({});
 
   kpiItems(r: ExpenseRequestsReport): MetricStripItem[] {
     return [
@@ -182,6 +188,8 @@ export class FinanzasSolicitudesComponent {
       .subscribe((f) => this.solicitantes.set(f.areas || []));
     this.comprobaciones.statusByFolio().pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((m) => this.proofStatus.set(m || {}));
+    this.compGastos.statusBySolicitud().pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((m) => this.compStatus.set(m || {}));
     this.load();
   }
 

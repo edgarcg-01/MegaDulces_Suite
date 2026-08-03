@@ -272,6 +272,12 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.FINANCE_EXPENSES_VER)]
       },
       {
+        // GX.8 — Comprobación de Gastos (2ª etapa: comprueba un gasto Kepler XA1001).
+        path: 'comprobacion-gastos',
+        loadComponent: () => import('./modules/finanzas/pages/finanzas-comprobacion-gastos.component').then(m => m.FinanzasComprobacionGastosComponent),
+        canActivate: [permissionGuard(Permission.FINANCE_EXPENSES_VER)]
+      },
+      {
         path: 'cobranza',
         loadComponent: () => import('./modules/finanzas/pages/finanzas-cobranza.component').then(m => m.FinanzasCobranzaComponent),
         canActivate: [permissionGuard(Permission.FINANCE_COLLECTIONS_VER)]

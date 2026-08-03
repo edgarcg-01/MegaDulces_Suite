@@ -56,6 +56,12 @@ export const FINANZAS_TABS: PageTab[] = [
     permission: Permission.FINANCE_EXPENSES_VER,
   },
   {
+    label: 'Comprobación de gastos',
+    route: '/finanzas/comprobacion-gastos',
+    icon: 'pi pi-check-circle',
+    permission: Permission.FINANCE_EXPENSES_VER,
+  },
+  {
     label: 'Pregúntale a Maat',
     route: '/finanzas/maat',
     icon: 'pi pi-sparkles',
