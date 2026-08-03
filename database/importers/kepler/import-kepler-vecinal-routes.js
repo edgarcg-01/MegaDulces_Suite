@@ -46,10 +46,13 @@ const YEAR = yi !== -1 ? Number(process.argv[yi + 1]) : new Date().getFullYear()
 
 // Sucursales con ruta vecinal. Cada ruta cae en el almacén de SU sucursal dueña.
 // (env VECINAL_BRANCHES para override; el default cubre PH + Piedad Abastos + Yurécuaro.)
+// El warehouse se resuelve por `parent` en wincaja.branches (prueba kepler_code y warehouse_code,
+// usa el que exista en commercial.warehouses) → robusto a prod (códigos cortos 01/02/04) y a
+// dev (MD-10/MD-42/MD-44). Pasar `warehouse` explícito solo si se quiere forzar uno.
 const VECINAL_BRANCHES = process.env.VECINAL_BRANCHES ? JSON.parse(process.env.VECINAL_BRANCHES) : [
-  { src: 'postgresql://postgres:kepler123@192.168.10.10:1977/md_01', parent: '10', warehouse: 'MD-10', codes: ['1V001', '1V002'], cutover: '2026-06-27' }, // Padre Hidalgo
-  { src: 'postgresql://platform_ro:kepler123@192.168.42.42:5432/md_02', parent: '42', warehouse: 'MD-42', codes: ['1V003'], cutover: '2026-04-18' }, // Piedad Abastos
-  { src: 'postgresql://platform_ro:kepler123@192.168.44.44:5432/md_04', parent: '44', warehouse: 'MD-44', codes: ['1V004'], cutover: '2026-05-08' }, // Yurécuaro
+  { src: 'postgresql://postgres:kepler123@192.168.10.10:1977/md_01', parent: '10', codes: ['1V001', '1V002'], cutover: '2026-06-27' }, // Padre Hidalgo
+  { src: 'postgresql://platform_ro:kepler123@192.168.42.42:5432/md_02', parent: '42', codes: ['1V003'], cutover: '2026-04-18' }, // Piedad Abastos
+  { src: 'postgresql://platform_ro:kepler123@192.168.44.44:5432/md_04', parent: '44', codes: ['1V004'], cutover: '2026-05-08' }, // Yurécuaro
 ];
 
 async function processBranch(dst, cfg) {
@@ -70,15 +73,18 @@ async function processBranch(dst, cfg) {
     if (!cat.length) { console.log(`  ${tag}: sin rutas (codes/kduv c4=1) — skip`); return { ok: true, routes: 0 }; }
     const codes = cat.map((r) => r.code);
 
-    // warehouse destino: explícito (cfg.warehouse) o resuelto por parent en wincaja.branches.
-    let wcode = cfg.warehouse;
-    if (!wcode) {
-      const par = (await dst.query(
-        `SELECT COALESCE(warehouse_code, kepler_code) AS wcode FROM wincaja.branches WHERE tenant_id=$1 AND source_branch=$2`, [M, cfg.parent])).rows[0];
-      wcode = par?.wcode;
+    // warehouse destino: prueba explícito (cfg.warehouse), kepler_code y warehouse_code del
+    // parent en wincaja.branches, y usa el PRIMERO que exista en commercial.warehouses. Prod
+    // usa códigos cortos (01/02/04 = kepler_code); dev usa MD-10/MD-42/MD-44 (warehouse_code).
+    const par = (await dst.query(
+      `SELECT kepler_code, warehouse_code FROM wincaja.branches WHERE tenant_id=$1 AND source_branch=$2`, [M, cfg.parent])).rows[0];
+    const candidates = [cfg.warehouse, par?.kepler_code, par?.warehouse_code].filter(Boolean);
+    let wh = null;
+    for (const code of candidates) {
+      wh = (await dst.query(`SELECT id, code FROM commercial.warehouses WHERE tenant_id=$1 AND code=$2 AND deleted_at IS NULL`, [M, code])).rows[0];
+      if (wh) break;
     }
-    const wh = (await dst.query(`SELECT id, code FROM commercial.warehouses WHERE tenant_id=$1 AND code=$2 AND deleted_at IS NULL`, [M, wcode])).rows[0];
-    if (!wh) { console.error(`  ❌ ${tag}: warehouse '${wcode}' no existe — skip`); return { ok: false }; }
+    if (!wh) { console.error(`  ❌ ${tag}: ningún warehouse existe de [${candidates.join(', ')}] — skip`); return { ok: false }; }
     console.log(`  ${wh.code} ← ${cat.map((r) => `${r.code}=${r.name}`).join(' · ')}`);
 
     // 2) rollup mes (año completo → GREATEST no degrada)
