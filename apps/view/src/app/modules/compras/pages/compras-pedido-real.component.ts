@@ -6,6 +6,7 @@ import { FormsModule } from '@angular/forms';
 import { catchError, of, forkJoin } from 'rxjs';
 import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
+import { PaginatorModule, PaginatorState } from 'primeng/paginator';
 import { ToastModule } from 'primeng/toast';
 import { SelectModule } from 'primeng/select';
 import { MultiSelectModule } from 'primeng/multiselect';
@@ -54,7 +55,7 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
   selector: 'app-compras-pedido-real',
   standalone: true,
   imports: [
-    CommonModule, FormsModule, ButtonModule, TableModule, ToastModule, SelectModule, MultiSelectModule,
+    CommonModule, FormsModule, ButtonModule, TableModule, PaginatorModule, ToastModule, SelectModule, MultiSelectModule,
     InputNumberModule, InputTextModule, IconFieldModule, InputIconModule, TagModule, DialogModule, MetricStripComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -130,7 +131,7 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
           </div>
         } @else {
           <div class="pr-wb-scroll">
-            <p-table [value]="wbView()" [loading]="loading()" [paginator]="true" [rows]="50" [rowsPerPageOptions]="[50, 100, 200]"
+            <p-table [value]="wbRows()" [loading]="loading()"
                      styleClass="p-datatable-sm pr-table pr-wb" [tableStyle]="wbTableStyle()">
               <ng-template #header>
                 <tr>
@@ -268,6 +269,11 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
               </ng-template>
             </p-table>
           </div>
+          @if (wbTotal() > wbPageSize()) {
+            <p-paginator [first]="wbFirst()" [rows]="wbPageSize()" [totalRecords]="wbTotal()"
+                         [rowsPerPageOptions]="[20, 50, 100]" (onPageChange)="onWbPage($event)"
+                         styleClass="pr-pager"></p-paginator>
+          }
           <p class="pr-foot">Una fila por producto. <strong>Vta</strong> = venta 30 días en cajas · <strong>Exist.</strong> = existencia en cajas · <strong>Pedido</strong> = venta diaria × cobertura − existencia − tránsito. Cada bloque es un <strong>punto de compra</strong>: @for (t of wbTerritories(); track t.code) {<span class="pr-mono">{{ t.code }}</span>&nbsp;}. <em>Clic en una fila para desplegar su desglose <strong>por sucursal</strong> (comprar/traspaso/sobrestock, editable) — podés abrir varias a la vez. El botón <strong>Englobar / Desglosar</strong> junta o abre las columnas de venta por sucursal.</em></p>
         }
 
@@ -521,6 +527,11 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
   wbTerritories = signal<WorkbookTerritory[]>([]);   // puntos de compra (columnas dinámicas)
   wbTotals = signal<{ pedido: number; venta: number; exis: number }>({ pedido: 0, venta: 0, exis: 0 });
   wbTotal = signal(0);
+  // RA-PRO.36.2 — paginación SERVER-SIDE (20/página): la matriz pedía 1000 filas + 3 motores en
+  // paralelo → saturaba Railway. Ahora trae solo la página; los filtros (pedido/IAD/sobrestock) van
+  // server-side para filtrar TODO el dataset, no la página cargada.
+  readonly wbFirst = signal(0);
+  readonly wbPageSize = signal(20);
   wbScopeNeeded = signal(false);
   wbOnlyOver = signal(false);   // RA-PRO.33 — filtrar a productos CON sobrestock (capital inmovilizado)
   wbGroup = signal<'branch' | 'general'>('general');  // default: 1 columna agregada (red). "Por sucursal" = opt-in
@@ -617,23 +628,16 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
 
   toggleGroup(): void { this.wbGroup.set(this.wbGroup() === 'branch' ? 'general' : 'branch'); this.loadWorkbook(); }
 
-  // RA-PRO.33/36 — vista filtrada: "Con sobrestock" (sobre>0) + IAD (acelerando/desacelerando).
+  // RA-PRO.36.2 — filtros SERVER-SIDE (aplican sobre TODO el dataset, no la página cargada).
   readonly fIad = signal<'all' | 'accel' | 'decel'>('all');   // RA-PRO.36 filtro de tendencia
-  readonly wbView = computed(() => {
-    let rows = this.wbRows();
-    if (this.wbOnlyOver()) rows = rows.filter((r) => this.prodOver(r.product_id) > 0);
-    const f = this.fIad();
-    if (f === 'accel') rows = rows.filter((r) => r.iad != null && r.iad >= 0.25);
-    else if (f === 'decel') rows = rows.filter((r) => r.iad != null && r.iad <= -0.25);
-    return rows;
-  });
   toggleOnlyOver(): void {
     const on = !this.wbOnlyOver();
     this.wbOnlyOver.set(on);
     // sobrestock suele NO tener pedido → apagar "Solo con pedido" para que aparezcan.
-    if (on && this.wbScopeNeeded()) { this.wbScopeNeeded.set(false); this.loadWorkbook(); }
+    if (on && this.wbScopeNeeded()) this.wbScopeNeeded.set(false);
+    this.loadWorkbook();
   }
-  toggleIad(mode: 'accel' | 'decel'): void { this.fIad.set(this.fIad() === mode ? 'all' : mode); }
+  toggleIad(mode: 'accel' | 'decel'): void { this.fIad.set(this.fIad() === mode ? 'all' : mode); this.loadWorkbook(); }
 
   // RA-PRO.36 — IAD (Índice de Aceleración de Demanda): etiqueta/severidad/tooltip por SKU.
   private readonly IAD_BANDS: Record<string, { txt: string; sev: Sev }> = {
@@ -762,30 +766,47 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
 
   /** RA-PRO.32 — carga la réplica del workbook (fila por SKU, columnas por punto de compra) +, en
    * paralelo, el modelo por-sucursal (compra/traspaso/sobrestock) que alimenta el detalle expandible. */
-  loadWorkbook(): void {
+  /** Cambio de filtro → reinicia a la página 1 y recarga (workbook + enriquecimiento). */
+  loadWorkbook(): void { this.wbFirst.set(0); this.fetchWorkbookPage(true); }
+
+  /** Cambio de página (p-paginator) → solo trae la página; NO recarga el enriquecimiento (mismos filtros). */
+  onWbPage(e: PaginatorState): void {
+    const first = e.first ?? 0, rows = e.rows ?? 20;
+    if (first === this.wbFirst() && rows === this.wbPageSize()) return;
+    this.wbFirst.set(first); this.wbPageSize.set(rows);
+    this.fetchWorkbookPage(false);
+  }
+
+  /**
+   * RA-PRO.36.1/36.2 — Carga UNA página del workbook. SECUENCIAL (no 4 queries en paralelo que
+   * saturaban Railway): el workbook (20 filas) corre solo primero → matriz interactiva rápido; luego,
+   * SOLO en cambio de filtro (reloadEnrichment), las 3 fuentes por-sucursal (tags + detalle) cargan en
+   * segundo plano. Paginar NO re-dispara el enriquecimiento (cubre los top ~1000 productos del filtro).
+   */
+  private fetchWorkbookPage(reloadEnrichment: boolean): void {
     this.loading.set(true); this.error.set(false); this.saveFilters();
-    this.wbOpen.set(new Set());   // la data cambió → colapsa el acordeón
-    this.detailReady.set(false);
-    // RA-PRO.36.1 — SECUENCIAL, no paralelo: el workbook corre SOLO primero (rápido; la instancia
-    // chica de Railway se saturaba con las 4 queries pesadas simultáneas → carga eterna). Al regresar,
-    // la matriz ya es interactiva; luego se cargan las 3 fuentes por-sucursal (tags compra/traspaso/
-    // sobre + detalle expandible) en segundo plano — enriquecen sin bloquear el render inicial.
+    this.wbOpen.set(new Set());   // nueva página/data → colapsa el acordeón
+    if (reloadEnrichment) this.detailReady.set(false);
+    const iad = this.fIad();
     this.api.workbook({
       supplier_id: this.fSupplier || undefined, category_id: this.fCategory || undefined, search: this.search.trim() || undefined,
       coverage_days: this.coverage, scope: this.wbScopeNeeded() ? 'needed' : undefined,
       warehouse_ids: this.wbWarehouses.length ? this.wbWarehouses : undefined, group: this.wbGroup(),
-      pageSize: 1000,
+      iad: iad === 'all' ? undefined : iad,
+      only_overstock: this.wbOnlyOver() || undefined,
+      page: Math.floor(this.wbFirst() / this.wbPageSize()) + 1, pageSize: this.wbPageSize(),
     }).pipe(catchError(() => of(null as WorkbookResponse | null)), takeUntilDestroyed(this.destroyRef))
       .subscribe((r) => {
         this.loading.set(false);
         if (!r) { this.error.set(true); this.wbRows.set([]); this.wbTerritories.set([]); return; }
         this.wbRows.set(r.rows); this.wbTerritories.set(r.territories ?? []); this.wbTotals.set(r.totals); this.wbTotal.set(r.total);
         this.loadedAt.set(Date.now());
-        // Enriquecimiento diferido (no bloquea; el detalle por-sucursal trae TODAS las sucursales).
-        this.fetchConsolidated(true).pipe(takeUntilDestroyed(this.destroyRef)).subscribe((res) => {
-          this.buyRows.set(res.buy?.rows ?? []); this.trRows.set(res.tr?.rows ?? []); this.ovRows.set(res.ov?.rows ?? []);
-          this.rebuild(); this.detailReady.set(true);
-        });
+        if (reloadEnrichment) {
+          this.fetchConsolidated(true).pipe(takeUntilDestroyed(this.destroyRef)).subscribe((res) => {
+            this.buyRows.set(res.buy?.rows ?? []); this.trRows.set(res.tr?.rows ?? []); this.ovRows.set(res.ov?.rows ?? []);
+            this.rebuild(); this.detailReady.set(true);
+          });
+        }
       });
   }
 

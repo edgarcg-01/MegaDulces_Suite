@@ -105,6 +105,8 @@ export interface WorkbookQuery {
   page?: number;
   pageSize?: number;
   export?: boolean;         // XLSX: sube el cap de filas para exportar TODO (sin paginar). No expuesto por query param.
+  iad?: string;             // RA-PRO.36.2 — filtro de tendencia server-side: 'accel' (IAD≥0.25) | 'decel' (IAD≤−0.25)
+  only_overstock?: boolean; // RA-PRO.36.2 — solo productos con sobrestock (algún territorio con >90 días en mano)
 }
 
 interface RequisitionLineDto {
@@ -769,6 +771,14 @@ export class CommercialReplenishmentService {
       const colExpr = general ? `'GENERAL'` : 'w.code';
       const SUF = 'COALESCE(max(b.suf),1)';
       const BF = 'COALESCE(max(b.bf),1)';
+      // RA-PRO.36.2 — filtros de PRODUCTO server-side (aplican sobre TODO el dataset, antes de paginar):
+      // scope (con pedido) + tendencia IAD + sobrestock. Sin esto, los chips filtrarían solo la página cargada.
+      const wbConds: string[] = [];
+      if (q.scope === 'needed') wbConds.push('p.suma_pedido_cajas > 0');
+      if (q.iad === 'accel') wbConds.push('da.iad >= 0.25');
+      else if (q.iad === 'decel') wbConds.push('da.iad <= -0.25');
+      if (q.only_overstock) wbConds.push('p.has_over');
+      const wbWhere = wbConds.length ? `WHERE ${wbConds.join(' AND ')}` : '';
       const inner = `
         WITH base AS (
           SELECT pr.id AS product_id, pr.sku, pr.nombre, pr.supplier_id,
@@ -798,7 +808,8 @@ export class CommercialReplenishmentService {
                  round(sum(ped)::numeric, 1) AS suma_pedido_cajas,
                  round(sum(ped * caja_cost)::numeric, 2) AS pedido_valor,
                  round(sum(rev)::numeric, 2) AS valor_venta,
-                 round((sum(stock_pz) / max(bf) * max(caja_cost))::numeric, 2) AS valor_exis
+                 round((sum(stock_pz) / max(bf) * max(caja_cost))::numeric, 2) AS valor_exis,
+                 bool_or(exis > 0 AND (vta <= 0 OR exis * 30.0 / NULLIF(vta, 0) > 90)) AS has_over
             FROM per
            GROUP BY product_id, sku, nombre, supplier_id
         )
@@ -814,7 +825,7 @@ export class CommercialReplenishmentService {
                        FROM commercial.product_label_prices WHERE tenant_id = :t GROUP BY product_id) lp
             ON lp.product_id = p.product_id
           LEFT JOIN analytics.demand_acceleration da ON da.tenant_id = :t AND da.product_id = p.product_id
-         ${q.scope === 'needed' ? 'WHERE p.suma_pedido_cajas > 0' : ''}`;
+         ${wbWhere}`;
 
       const rows = (await trx.raw(`${inner} ORDER BY valor_venta DESC NULLS LAST, sku LIMIT ${pageSize} OFFSET ${offset}`, binds)).rows;
       const tot = (await trx.raw(`SELECT count(*)::int c, round(SUM(pedido_valor)::numeric,2) total_pedido, round(SUM(valor_venta)::numeric,2) total_venta, round(SUM(valor_exis)::numeric,2) total_exis FROM (${inner}) z`, binds)).rows[0];

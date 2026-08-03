@@ -26,7 +26,32 @@ export class PdfService {
 
   async render(opts: RenderOptions): Promise<Buffer> {
     const html = this.compile(opts.template)(opts.data);
+    return this.htmlToPdf(html, opts.pageOptions, opts.waitForChartsMs);
+  }
 
+  /**
+   * Renderiza HTML crudo (ya armado) a PDF, sin pasar por un template .hbs en
+   * disco. Útil para reportes construidos inline en el service (evita depender
+   * del asset pipeline de templates).
+   */
+  async renderHtml(
+    html: string,
+    pageOptions?: Partial<puppeteer.PDFOptions>,
+  ): Promise<Buffer> {
+    // A diferencia de los templates full-bleed, el HTML inline usa márgenes de
+    // documento estándar (no preferCSSPageSize).
+    return this.htmlToPdf(html, {
+      margin: { top: '14mm', right: '10mm', bottom: '16mm', left: '10mm' },
+      preferCSSPageSize: false,
+      ...(pageOptions || {}),
+    });
+  }
+
+  private async htmlToPdf(
+    html: string,
+    pageOptions?: Partial<puppeteer.PDFOptions>,
+    waitForChartsMs?: number,
+  ): Promise<Buffer> {
     // En contenedor (Docker/Railway) usamos el chromium del SO (apt-get install chromium).
     // PUPPETEER_EXECUTABLE_PATH lo setea el Dockerfile = /usr/bin/chromium.
     // En dev local sin esa env var, puppeteer usa su Chrome bundled habitual.
@@ -45,15 +70,15 @@ export class PdfService {
       // el equivalente de networkidle0 ahora es waitForNetworkIdle aparte.
       await page.setContent(html, { waitUntil: 'load', timeout: 30000 });
       await page.waitForNetworkIdle({ idleTime: 500, timeout: 30000 }).catch(() => undefined);
-      if (opts.waitForChartsMs && opts.waitForChartsMs > 0) {
-        await new Promise(r => setTimeout(r, opts.waitForChartsMs));
+      if (waitForChartsMs && waitForChartsMs > 0) {
+        await new Promise(r => setTimeout(r, waitForChartsMs));
       }
       const pdfBuffer = await page.pdf({
         format: 'A4',
         printBackground: true,
         margin: { top: '0', right: '0', bottom: '0', left: '0' },
         preferCSSPageSize: true,
-        ...(opts.pageOptions || {}),
+        ...(pageOptions || {}),
       });
       return Buffer.from(pdfBuffer);
     } finally {

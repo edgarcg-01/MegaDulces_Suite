@@ -1445,6 +1445,156 @@ export class ReportsService {
   }
 
   /**
+   * Construye el HTML (imprimible A4) del reporte por vendedor con revisión
+   * Horus, a partir del resultado de `getVendorVisitsReview`. Pura — sin DB.
+   * El controller lo pasa a `PdfService.renderHtml`.
+   */
+  buildVendorReviewReportHtml(
+    data: {
+      horus_available: boolean;
+      by_vendor: any[];
+      visits: any[];
+    },
+    meta: { rangeLabel?: string; generatedBy?: string; focusUserId?: string },
+  ): string {
+    const esc = (v: unknown) =>
+      String(v ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+
+    const STATUS: Record<string, { label: string; color: string; bg: string }> = {
+      valida: { label: 'Válida', color: '#15803d', bg: '#dcfce7' },
+      requiere_supervision: { label: 'A supervisar', color: '#b45309', bg: '#fef3c7' },
+      fraude: { label: 'Fraude', color: '#b91c1c', bg: '#fee2e2' },
+      confirmada: { label: 'Confirmada', color: '#b91c1c', bg: '#fee2e2' },
+      descartada: { label: 'Descartada', color: '#64748b', bg: '#f1f5f9' },
+      no_revisada: { label: 'No revisada', color: '#94a3b8', bg: '#f8fafc' },
+    };
+    const badge = (s: string) => {
+      const m = STATUS[s] || STATUS['no_revisada'];
+      return `<span style="display:inline-block;padding:1px 7px;border-radius:9px;font-size:9px;font-weight:600;color:${m.color};background:${m.bg}">${m.label}</span>`;
+    };
+
+    const vendors = data.by_vendor || [];
+    const totVend = vendors.length;
+    const conVisitas = vendors.filter((v) => v.total_visitas > 0).length;
+    const sinVisitas = vendors.filter((v) => v.sin_visitas).length;
+    const totVisitas = (data.visits || []).length;
+    const totValidas = vendors.reduce((a, v) => a + (v.counts?.valida || 0), 0);
+    const totSupervisar = vendors.reduce((a, v) => a + (v.por_supervisar || 0), 0);
+    const pctValidas = totVisitas > 0 ? Math.round((totValidas / totVisitas) * 100) : 0;
+
+    const kpi = (label: string, value: string | number, accent = '#0f172a') =>
+      `<div style="flex:1;min-width:110px;border:1px solid #e2e8f0;border-radius:8px;padding:8px 10px">
+         <div style="font-size:8px;text-transform:uppercase;letter-spacing:.05em;color:#94a3b8;font-weight:700">${label}</div>
+         <div style="font-size:18px;font-weight:800;color:${accent}">${value}</div>
+       </div>`;
+
+    const vendorRows = vendors
+      .map((v) => {
+        const flag = v.fraud_flag
+          ? ' <span style="color:#b91c1c;font-weight:700">⚠ fraude</span>'
+          : '';
+        const sv = v.sin_visitas
+          ? '<span style="color:#b45309;font-weight:700">Sin visitas</span>'
+          : '—';
+        return `<tr>
+          <td style="padding:4px 6px;border-bottom:1px solid #f1f5f9">${esc(v.nombre)}${flag}</td>
+          <td style="padding:4px 6px;border-bottom:1px solid #f1f5f9;text-align:right">${v.total_visitas}</td>
+          <td style="padding:4px 6px;border-bottom:1px solid #f1f5f9;text-align:right">${v.avg_score ?? '—'}</td>
+          <td style="padding:4px 6px;border-bottom:1px solid #f1f5f9;text-align:right;color:#15803d">${v.counts?.valida || 0}</td>
+          <td style="padding:4px 6px;border-bottom:1px solid #f1f5f9;text-align:right;color:#b45309">${v.por_supervisar || 0}</td>
+          <td style="padding:4px 6px;border-bottom:1px solid #f1f5f9;text-align:center">${sv}</td>
+        </tr>`;
+      })
+      .join('');
+
+    // Detalle del vendedor enfocado (si se pidió).
+    let detailSection = '';
+    const focus = meta.focusUserId
+      ? vendors.find((v) => v.user_id === meta.focusUserId)
+      : null;
+    if (focus) {
+      const rows = (data.visits || [])
+        .filter((v) => v.user_id === meta.focusUserId)
+        .map((v) => {
+          const evid: string[] = [];
+          if (v.photos_total > 0) evid.push(`${v.photos_analyzed}/${v.photos_total} fotos`);
+          if (v.flags > 0) evid.push(`${v.flags} flags`);
+          if (v.open_findings > 0) evid.push(`${v.open_findings} hallazgos`);
+          return `<tr>
+            <td style="padding:4px 6px;border-bottom:1px solid #f1f5f9;font-family:monospace;font-size:9px">${esc(v.folio)}</td>
+            <td style="padding:4px 6px;border-bottom:1px solid #f1f5f9;white-space:nowrap">${esc(v.fecha)}</td>
+            <td style="padding:4px 6px;border-bottom:1px solid #f1f5f9">${esc(v.store_name || v.zona || '—')}</td>
+            <td style="padding:4px 6px;border-bottom:1px solid #f1f5f9;text-align:right">${v.skip_scoring ? '<i>vend.</i>' : (v.score ?? '—')}</td>
+            <td style="padding:4px 6px;border-bottom:1px solid #f1f5f9">${badge(v.horus_status)}</td>
+            <td style="padding:4px 6px;border-bottom:1px solid #f1f5f9;color:#64748b;font-size:9px">${esc(evid.join(' · '))}</td>
+          </tr>`;
+        })
+        .join('');
+      detailSection = `
+        <h2 style="font-size:13px;margin:18px 0 6px;color:#0f172a">Detalle de visitas — ${esc(focus.nombre)}</h2>
+        <table style="width:100%;border-collapse:collapse;font-size:10px">
+          <thead><tr style="text-align:left;color:#64748b;border-bottom:1.5px solid #e2e8f0">
+            <th style="padding:4px 6px">Folio</th><th style="padding:4px 6px">Fecha</th>
+            <th style="padding:4px 6px">Tienda / Zona</th><th style="padding:4px 6px;text-align:right">Score</th>
+            <th style="padding:4px 6px">Revisión Horus</th><th style="padding:4px 6px">Evidencia</th>
+          </tr></thead>
+          <tbody>${rows || '<tr><td colspan="6" style="padding:8px;text-align:center;color:#94a3b8">Sin visitas en el rango.</td></tr>'}</tbody>
+        </table>`;
+    }
+
+    const now = todayMx();
+    const horusNote = data.horus_available
+      ? ''
+      : '<div style="margin-top:6px;padding:6px 10px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;font-size:9px;color:#64748b">Horus no disponible en este entorno — estados sin revisión.</div>';
+
+    return `<!doctype html><html><head><meta charset="utf-8">
+      <style>@page{size:A4}body{font-family:'Hanken Grotesk',Arial,sans-serif;color:#0f172a;margin:0}</style>
+      </head><body>
+      <div style="border-bottom:2px solid #0f172a;padding-bottom:8px;margin-bottom:12px">
+        <div style="font-size:16px;font-weight:800">Reporte de visitas por vendedor · Revisión Horus</div>
+        <div style="font-size:10px;color:#64748b;margin-top:2px">
+          Rango: <b>${esc(meta.rangeLabel || '—')}</b> · Generado: ${esc(now)}${meta.generatedBy ? ' · por ' + esc(meta.generatedBy) : ''}
+        </div>
+        ${horusNote}
+      </div>
+
+      <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap">
+        ${kpi('Vendedores', totVend)}
+        ${kpi('Con visitas', conVisitas, '#15803d')}
+        ${kpi('Sin visitas', sinVisitas, '#b45309')}
+        ${kpi('Visitas', totVisitas)}
+        ${kpi('% Válidas', pctValidas + '%', '#15803d')}
+        ${kpi('A supervisar', totSupervisar, '#b45309')}
+      </div>
+
+      <h2 style="font-size:13px;margin:0 0 6px;color:#0f172a">Resumen por vendedor</h2>
+      <table style="width:100%;border-collapse:collapse;font-size:10px">
+        <thead><tr style="text-align:left;color:#64748b;border-bottom:1.5px solid #e2e8f0">
+          <th style="padding:4px 6px">Vendedor</th>
+          <th style="padding:4px 6px;text-align:right">Visitas</th>
+          <th style="padding:4px 6px;text-align:right">Prom</th>
+          <th style="padding:4px 6px;text-align:right">Válidas</th>
+          <th style="padding:4px 6px;text-align:right">A superv.</th>
+          <th style="padding:4px 6px;text-align:center">Estado</th>
+        </tr></thead>
+        <tbody>${vendorRows || '<tr><td colspan="6" style="padding:8px;text-align:center;color:#94a3b8">Sin vendedores en el rango.</td></tr>'}</tbody>
+      </table>
+
+      ${detailSection}
+
+      <div style="margin-top:16px;font-size:8px;color:#94a3b8;border-top:1px solid #e2e8f0;padding-top:6px">
+        Estados Horus: Válida (fotos analizadas sin banderas) · A supervisar (mismatch/quiebre/hallazgo abierto) ·
+        Fraude (integridad) · Confirmada/Descartada (decisión humana) · No revisada (Horus aún no la analizó).
+        El estado de fraude se agrega por colaborador (muestra), no 1:1 por visita.
+      </div>
+      </body></html>`;
+  }
+
+  /**
    * Construye una query base sobre `daily_captures` aplicando, en orden:
    *  1. Scope (own / team / all) basado en el JWT del usuario
    *  2. Filtros de fecha (startDate / endDate)

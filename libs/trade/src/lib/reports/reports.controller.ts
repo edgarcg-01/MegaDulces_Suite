@@ -96,6 +96,43 @@ export class ReportsController {
     return this.reportsService.getVendorVisitsReview(filters, user);
   }
 
+  @Get('vendor-visits-review/pdf')
+  @RequirePermissions(Permission.VER_SEGUIMIENTO)
+  @ApiOperation({
+    summary:
+      'PDF del reporte por vendedor (resumen de todos + detalle del vendedor en focusUserId) con estado de revisión Horus',
+  })
+  async getVendorVisitsReviewPdf(
+    @ReqUser() user: any,
+    @Res() res: Response,
+    @Query() filters: VendorVisitsReviewDto,
+  ) {
+    try {
+      // El PDF siempre lista a todos (resumen); focusUserId elige el detalle.
+      const { userId: _drop, ...rest } = filters;
+      const data = await this.reportsService.getVendorVisitsReview(rest, user);
+      const rangeLabel =
+        filters.startDate && filters.endDate
+          ? `${filters.startDate} → ${filters.endDate}`
+          : filters.startDate || filters.endDate || 'Todo el histórico';
+      const html = this.reportsService.buildVendorReviewReportHtml(data, {
+        rangeLabel,
+        generatedBy: user?.username,
+        focusUserId: filters.focusUserId,
+      });
+      const buffer = await this.pdfService.renderHtml(html);
+      res.set({
+        'Content-Type': 'application/pdf',
+        'Content-Disposition': 'attachment; filename="reporte_visitas_horus.pdf"',
+        'Content-Length': buffer.length,
+      });
+      res.end(buffer);
+    } catch (error: any) {
+      this.logger.error(`getVendorVisitsReviewPdf error: ${error.message}`, error.stack);
+      res.status(500).json({ error: 'Error generando el PDF', message: error.message });
+    }
+  }
+
   @Get('data')
   @RequirePermissions(Permission.REPORTES_VER_PROPIO)
   @ApiOperation({
