@@ -1,0 +1,79 @@
+import { Body, Controller, Get, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
+import { CollectionDepositsService, ListCobrosQuery, AttachDepositDto } from './collection-deposits.service';
+
+interface AuthedRequest { user?: { username?: string; full_name?: string }; }
+
+/**
+ * Fase CC — Comprobantes de Cobranza. Lista los cobros de Kepler (UA0501) y les
+ * adjunta el comprobante de depósito (imagen/PDF) con OCR. Captura/adjunto a nivel
+ * VER (el capturista de oficina); validación/rechazo a nivel GESTIONAR (el revisor).
+ * No escribe a Kepler.
+ */
+@ApiTags('finance-collection-deposits')
+@ApiBearerAuth()
+@UseGuards(RolesGuard)
+@Controller('finance/collections')
+export class CollectionDepositsController {
+  constructor(private readonly svc: CollectionDepositsService) {}
+
+  @Get()
+  @RequirePermissions(Permission.FINANCE_COLLECTIONS_VER)
+  @ApiOperation({ summary: 'Lista cobros de Kepler + estado de su comprobante + KPIs.' })
+  list(
+    @Query('estado') estado?: string,
+    @Query('forma_pago') forma_pago?: string,
+    @Query('tipo_cuenta') tipo_cuenta?: string,
+    @Query('incluir_todas') incluir_todas?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('search') search?: string,
+    @Query('limit') limit?: string,
+  ) {
+    const q: ListCobrosQuery = { estado, forma_pago, tipo_cuenta, incluir_todas, from, to, search, limit: limit ? Number(limit) : undefined };
+    return this.svc.listCobros(q);
+  }
+
+  @Get(':sucursal/:folio')
+  @RequirePermissions(Permission.FINANCE_COLLECTIONS_VER)
+  @ApiOperation({ summary: 'Detalle del cobro + sus fichas adjuntas.' })
+  detail(@Param('sucursal') sucursal: string, @Param('folio') folio: string) {
+    return this.svc.detail(sucursal, folio);
+  }
+
+  @Post('ocr')
+  @RequirePermissions(Permission.FINANCE_COLLECTIONS_VER)
+  @ApiOperation({ summary: 'Corre OCR sobre la ficha (imagen/PDF) y devuelve los campos (preview, no guarda).' })
+  ocr(@Body() body: { file_base64?: string }) {
+    return this.svc.runOcr(body?.file_base64 || '');
+  }
+
+  @Post('upload')
+  @RequirePermissions(Permission.FINANCE_COLLECTIONS_VER)
+  @ApiOperation({ summary: 'Sube la ficha (imagen/PDF) a Cloudinary y devuelve su referencia.' })
+  upload(@Body() body: { file_base64?: string; role?: string }) {
+    return this.svc.uploadFile(body?.file_base64 || '', body?.role || 'deposito');
+  }
+
+  @Post('attach')
+  @RequirePermissions(Permission.FINANCE_COLLECTIONS_VER)
+  @ApiOperation({ summary: 'Adjunta la evidencia al cobro (con archivos ya subidos + OCR). Calcula el cuadre de monto.' })
+  attach(@Body() body: AttachDepositDto, @Req() req: AuthedRequest) {
+    return this.svc.attach(body, req?.user?.full_name || req?.user?.username);
+  }
+
+  @Post(':id/validate')
+  @RequirePermissions(Permission.FINANCE_COLLECTIONS_GESTIONAR)
+  @ApiOperation({ summary: 'Valida la evidencia del cobro. Auditado.' })
+  validate(@Param('id') id: string, @Req() req: AuthedRequest) {
+    return this.svc.validate(id, req?.user?.full_name || req?.user?.username);
+  }
+
+  @Post(':id/reject')
+  @RequirePermissions(Permission.FINANCE_COLLECTIONS_GESTIONAR)
+  @ApiOperation({ summary: 'Rechaza la evidencia (con motivo). Auditado.' })
+  reject(@Param('id') id: string, @Body() body: { motivo?: string }, @Req() req: AuthedRequest) {
+    return this.svc.reject(id, req?.user?.full_name || req?.user?.username, body?.motivo);
+  }
+}
