@@ -56,17 +56,20 @@ const DAYS = di !== -1 ? Number(process.argv[di + 1]) : 30;
       ),
       pp AS (
         -- RA-PRO.29.2 / RA-PRO.35 — PISO DE COSTO por PIEZA para no inflar boxed vendido suelto.
-        -- El MIN($/u) toma la unidad más granular; para un dulce BOXED (fs>1) que se vende SUELTO
-        -- en retail, un glitch podría dejar el MIN por debajo del costo → cuenta sub-porciones.
-        -- El piso protege contra eso. CLAVE (RA-PRO.35): cost_with_tax es costo por CAJA (bruto),
-        -- NO por pieza — verificado: para fs∈{12,20,24,…} cost_with_tax ≈ fs × costo-pieza. Usar
-        -- cost_with_tax crudo como piso por pieza lo eleva 10-40× y APLASTA la demanda real
-        -- (33027: rutas venden a $9.65/pz pero el piso lo forzaba a $90 → demanda /9×). Fix: el
-        -- piso va en la MISMA unidad que el precio-pieza → cost_with_tax / factor_sale. Granel
-        -- (fs<=1, kg/cubeta con SUF) queda intacto.
+        -- El MIN($/u) toma la unidad más granular; el piso protege contra glitches que dejan el
+        -- MIN por debajo del costo (cuenta sub-porciones). CLAVE (RA-PRO.35): cost_with_tax es
+        -- costo por CAJA (bruto), NO por pieza — para fs∈{12,20,24,…} cost_with_tax ≈ fs×costo-pieza.
+        -- Usar cost_with_tax CRUDO como piso por pieza lo eleva 10-40× y APLASTA la demanda real
+        -- (33027: rutas a $9.13/pz pero el piso forzaba $90 → demanda /9×). Fix: para un factor de
+        -- caja SANO (2..48) con costo-pieza implícito plausible (cwt/fs ≥ $1) el piso va por pieza
+        -- = cost_with_tax/factor_sale. Fuera de ese rango (factor basura tipo 84/100/16500, o
+        -- cwt/fs sub-$1 = granel) se conserva el piso CRUDO cwt para no explotar (÷fs≈0 → piezas
+        -- millonarias). Granel (fs<=1, kg/cubeta con SUF) queda intacto.
         SELECT wp.product_id,
                CASE WHEN COALESCE(pf.fs, 1) > 1 AND COALESCE(pf.cwt, 0) > 0
-                    THEN GREATEST(min(wp.rev / wp.u), pf.cwt / pf.fs)
+                    THEN CASE WHEN pf.fs <= 48 AND pf.cwt / pf.fs >= 1
+                              THEN GREATEST(min(wp.rev / wp.u), pf.cwt / pf.fs)
+                              ELSE GREATEST(min(wp.rev / wp.u), pf.cwt) END
                     ELSE min(wp.rev / wp.u) END AS piece_price
           FROM wp LEFT JOIN pf ON pf.product_id = wp.product_id
          WHERE wp.u >= 3 AND wp.rev >= 0.5
