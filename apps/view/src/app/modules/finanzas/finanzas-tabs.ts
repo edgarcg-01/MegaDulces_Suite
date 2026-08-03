@@ -32,12 +32,6 @@ export const FINANZAS_TABS: PageTab[] = [
     permission: Permission.FINANCE_PAYMENTS_VER,
   },
   {
-    label: 'Órdenes de entrada',
-    route: '/finanzas/entradas',
-    icon: 'pi pi-inbox',
-    permission: Permission.FINANCE_RECEIPTS_VER,
-  },
-  {
     label: 'Hallazgos',
     route: '/finanzas/hallazgos',
     icon: 'pi pi-flag',

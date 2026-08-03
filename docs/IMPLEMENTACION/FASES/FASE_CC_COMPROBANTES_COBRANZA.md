@@ -72,7 +72,7 @@ El mismo patrón (adjunto + OCR + HITL, evidencia read-only sobre Kepler) para d
 
 ### Entregado
 
-- **Schema** mig `20260803130000`: 2 espejos `analytics.erp_supplier_payments` / `analytics.erp_goods_receipts` (sin RLS, GRANT SELECT) + 2 evidencias `finance.supplier_payment_proofs` / `finance.goods_receipt_proofs` (RLS forzado). Perms `20260803130100`: `FINANCE_PAYMENTS_VER/GESTIONAR` + `FINANCE_RECEIPTS_VER/GESTIONAR` (backfill ancla a Bancos).
+- **Schema** mig `20260803130000`: 2 espejos `analytics.erp_supplier_payments` / `analytics.erp_goods_receipts` (sin RLS, GRANT SELECT) + 2 evidencias `finance.supplier_payment_proofs` / `finance.goods_receipt_proofs` (RLS forzado). Perms `20260803130100`: `FINANCE_PAYMENTS_VER/GESTIONAR` (backfill ancla a Bancos). **Órdenes de entrada NO tiene permiso propio**: vive en el proyecto **Compras** y reusa `COMPRAS_VER/GESTIONAR`.
 - **Importers** `import-supplier-payments.js` (XD2501) + `import-goods-receipts.js` (X-A-40⋈X-A-37, dedupe por `(suc,folio)`). UPSERT aditiva, sin DELETE, fuente CEDIS `md_00`.
 - **OCR** pagos reusan `extractDepositSlip` (un SPEI es una transferencia); entradas usan `extractRemision()` nuevo (folio, fecha, proveedor, RFC, subtotal, IVA, total). El cuadre de la entrada acepta **total o subtotal** (IVA variable en dulce a granel).
 - **Backend** `libs/finance/supplier-payment-proofs` (`/finance/supplier-payments`) + `libs/finance/goods-receipt-proofs` (`/finance/goods-receipts`).

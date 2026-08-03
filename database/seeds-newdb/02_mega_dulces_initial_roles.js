@@ -117,11 +117,9 @@ exports.seed = async function (knex) {
     FINANCE_COLLECTIONS_VER: true,
     FINANCE_COLLECTIONS_GESTIONAR: true,
     // Comprobantes de Pago a Proveedor (CC ext) — transferencia SPEI + OCR a un pago Kepler
+    // (Órdenes de entrada vive en Compras, gateado por COMPRAS_VER/GESTIONAR).
     FINANCE_PAYMENTS_VER: true,
     FINANCE_PAYMENTS_GESTIONAR: true,
-    // Comprobantes de Orden de Entrada (CC ext) — remisión/factura + OCR a una entrada Kepler
-    FINANCE_RECEIPTS_VER: true,
-    FINANCE_RECEIPTS_GESTIONAR: true,
     // MA (ADR-028/016) — reparto de tareas de conciliación (líder de Finanzas)
     FINANCE_RECON_ASIGNAR: true,
     // MA — marca "recibe tareas de conciliación" (pool del área de Finanzas)
@@ -170,11 +168,9 @@ exports.seed = async function (knex) {
       // Cobranza (CC) — ancla a los perms de Bancos (mismo área de Finanzas)
       FINANCE_COLLECTIONS_VER: internal && !!perms.COMMERCIAL_ORDERS_VER,
       FINANCE_COLLECTIONS_GESTIONAR: internal && !!perms.COMMERCIAL_ORDERS_VER,
-      // Pago a Proveedor + Orden de Entrada (CC ext) — misma área de Finanzas
+      // Pago a Proveedor (CC ext) — misma área de Finanzas (Órdenes de entrada → Compras)
       FINANCE_PAYMENTS_VER: internal && !!perms.COMMERCIAL_ORDERS_VER,
       FINANCE_PAYMENTS_GESTIONAR: internal && !!perms.COMMERCIAL_ORDERS_VER,
-      FINANCE_RECEIPTS_VER: internal && !!perms.COMMERCIAL_ORDERS_VER,
-      FINANCE_RECEIPTS_GESTIONAR: internal && !!perms.COMMERCIAL_ORDERS_VER,
       // MA — reparto de tareas de conciliación, ancla a gestión de Bancos (backfill 20260724120000)
       FINANCE_RECON_ASIGNAR: internal && !!perms.COMMERCIAL_ORDERS_VER,
       // Supervisor de Movimientos (ADR-029) — igual que backfill 20260707190000
