@@ -38,7 +38,7 @@ const money = (v) => { const n = Number(String(v ?? '').replace(/[^0-9.-]/g, '')
 
   const src = new Client({ connectionString: SRC, connectionTimeoutMillis: 8000 });
   await src.connect();
-  let rows;
+  let rows, lineRows;
   try {
     const params = [];
     let where = `oe.c2='X' AND oe.c3='A' AND trim(oe.c4::text)='40' AND oe.c37='37'`;
@@ -54,6 +54,14 @@ const money = (v) => { const n = Number(String(v ?? '').replace(/[^0-9.-]/g, '')
            ON v.c1=oe.c1 AND v.c2='X' AND v.c3='A' AND v.c4='37' AND v.c6=oe.c39
         WHERE ${where}`, params);
     rows = q.rows;
+    // Líneas del documento (kdm2) para el detalle por renglón (auditoría).
+    const ql = await src.query(
+      `SELECT oe.c1 AS suc, oe.c6 AS folio, l.c7 AS linea, l.c8 AS sku, l.c10 AS nombre,
+              l.c9 AS cantidad, l.c11 AS unidad, l.c12 AS costo, l.c13 AS importe
+         FROM md.kdm1 oe
+         JOIN md.kdm2 l ON l.c1=oe.c1 AND l.c2=oe.c2 AND l.c3=oe.c3 AND l.c4=oe.c4 AND l.c6=oe.c6
+        WHERE ${where}`, params);
+    lineRows = ql.rows;
   } finally { await src.end().catch(() => {}); }
 
   // Dedupe por (suc,folio) — el join es 1:1 pero blindamos el ON CONFLICT.
@@ -75,10 +83,25 @@ const money = (v) => { const n = Number(String(v ?? '').replace(/[^0-9.-]/g, '')
     SOURCE_BRANCH,
   ]);
 
+  // Dedupe líneas por (suc,folio,linea) — para el detalle de auditoría.
+  const lineByKey = new Map();
+  for (const r of (lineRows || [])) {
+    if (!r.suc || !r.folio || r.linea == null) continue;
+    lineByKey.set(`${String(r.suc).trim()}|${String(r.folio).trim()}|${String(r.linea).trim()}`, r);
+  }
+  const stagedLines = [...lineByKey.values()].map((r) => [
+    String(r.suc).trim(), String(r.folio).trim(), String(r.linea).trim(),
+    (r.sku || '').toString().trim() || null,
+    (r.nombre || '').toString().trim() || null,
+    money(r.cantidad), (r.unidad || '').toString().trim() || null,
+    money(r.costo), money(r.importe),
+  ]);
+
   const tot = staged.reduce((s, r) => s + r[10], 0);
   const conRfc = staged.filter((r) => r[6]).length;
   const conOc = staged.filter((r) => r[8]).length;
   console.log(`  ${staged.length} entradas leídas ${FROM ? `(desde ${FROM}) ` : ''}· $${tot.toLocaleString('es-MX', { minimumFractionDigits: 2 })} · con RFC: ${conRfc} · con OC: ${conOc}`);
+  console.log(`  ${stagedLines.length} líneas de detalle`);
 
   if (!APPLY) { console.log('\n[DRY-RUN] nada cambió. Corré con --apply para escribir.'); return; }
   if (!staged.length) { console.log('\n[APPLY] 0 entradas leídas (¿fuente caída?) — tabla intacta.'); return; }
@@ -115,8 +138,35 @@ const money = (v) => { const n = Number(String(v ?? '').replace(/[^0-9.-]/g, '')
              IS DISTINCT FROM
              (EXCLUDED.receipt_date, EXCLUDED.proveedor_code, EXCLUDED.proveedor_nombre, EXCLUDED.proveedor_rfc, EXCLUDED.vale_folio, EXCLUDED.oc_folio, EXCLUDED.concepto, EXCLUDED.monto)`,
       [M]);
+
+    // Líneas de detalle (auditoría renglón por renglón). UPSERT-solo-cambios, sin DELETE.
+    await db.query(`CREATE TEMP TABLE stg_grl (
+      sucursal text, folio text, linea text, sku text, nombre text,
+      cantidad numeric, unidad text, costo_unitario numeric, importe numeric
+    ) ON COMMIT DROP`);
+    const NLC = 9;
+    for (let i = 0; i < stagedLines.length; i += 1000) {
+      const chunk = stagedLines.slice(i, i + 1000);
+      const vals = chunk.map((_, ri) => `(${Array.from({ length: NLC }, (_, k) => `$${ri * NLC + k + 1}`).join(',')})`);
+      const params = [];
+      chunk.forEach((row) => params.push(...row));
+      await db.query(`INSERT INTO stg_grl (sucursal,folio,linea,sku,nombre,cantidad,unidad,costo_unitario,importe) VALUES ${vals.join(',')}`, params);
+    }
+    const upl = await db.query(
+      `INSERT INTO analytics.erp_goods_receipt_lines AS t
+         (tenant_id, sucursal, folio, linea, sku, nombre, cantidad, unidad, costo_unitario, importe, computed_at)
+       SELECT $1, sucursal, folio, linea, sku, nombre, cantidad, unidad, costo_unitario, importe, now()
+         FROM stg_grl
+       ON CONFLICT (tenant_id, sucursal, folio, linea) DO UPDATE SET
+         sku=EXCLUDED.sku, nombre=EXCLUDED.nombre, cantidad=EXCLUDED.cantidad, unidad=EXCLUDED.unidad,
+         costo_unitario=EXCLUDED.costo_unitario, importe=EXCLUDED.importe, computed_at=now()
+       WHERE (t.sku, t.nombre, t.cantidad, t.unidad, t.costo_unitario, t.importe)
+             IS DISTINCT FROM
+             (EXCLUDED.sku, EXCLUDED.nombre, EXCLUDED.cantidad, EXCLUDED.unidad, EXCLUDED.costo_unitario, EXCLUDED.importe)`,
+      [M]);
+
     await db.query('COMMIT');
-    console.log(`\n[APPLY] COMMIT — ${up.rowCount} escritas (nuevas/cambiadas) de ${staged.length} en origen. Sin DELETE (ledger append-only).`);
+    console.log(`\n[APPLY] COMMIT — ${up.rowCount} entradas + ${upl.rowCount} líneas (nuevas/cambiadas) de ${staged.length}/${stagedLines.length} en origen. Sin DELETE (ledger append-only).`);
   } catch (e) {
     await db.query('ROLLBACK').catch(() => {});
     console.error('\nERROR (rollback):', e.message);

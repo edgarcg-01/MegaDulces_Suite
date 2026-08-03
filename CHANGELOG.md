@@ -10,6 +10,12 @@
 
 ## [Unreleased]
 
+### Added — Órdenes de entrada: detalle por línea (auditoría) + data en prod (2026-08-03)
+- **Detalle por renglón** de las órdenes de entrada (X-A-40) para auditar qué SKU / cantidad / costo unitario entró en cada documento. Mig `20260803190000`: `analytics.erp_goods_receipt_lines` (desde `md.kdm2`: c7 línea, c8 SKU, c10 nombre, c9 cantidad, c11 unidad, c12 costo, c13 importe). El importer `import-goods-receipts.js` ahora puebla encabezado **+ líneas** en la misma corrida.
+- **Backend** — `detail()` de goods-receipt-proofs devuelve el encabezado + `lineas[]` + evidencias. **Frontend** — `/compras/entradas`: el folio abre un **diálogo de detalle** con las líneas y un **cuadre Σlíneas vs total Kepler** (chip Cuadra/Difiere).
+- **Data cargada a prod (Railway)** desde Kepler: `erp_goods_receipts` **8,366 / $452M**, `erp_supplier_payments` **619 / $42.5M**, `erp_goods_receipt_lines` **43,346 líneas / $451.5M**. UPSERT aditivo, sin DELETE. Ya auditable por SQL; en la app tras el redeploy.
+- Migs `170000` (comprobaciones) + `190000` (líneas) aplicadas a Railway (Batch 155/156). Smoke `test-newdb-supplier-receipt-proofs` **34/34**. Builds api+view verdes.
+
 ### Added — GX.8: Comprobación de Gastos (2ª etapa del ciclo de gasto) (2026-08-03)
 - Digitaliza el 2º Google Form de Tesorería ("Comprobación de Gastos"), que complementa GX.7 ("Solicitud de Autorización de Gastos", ya construido en `/finanzas/comprobaciones`). Cierra el ciclo: **Solicitud (XA1501) → Gasto (XA1001) → Comprobación**. Evidencia read-only sobre Kepler (no escribe; se concilia por folio).
 - **Schema** — mig `20260803170000`: `finance.expense_comprobaciones` (RLS forzado) con `folio_gasto` (XA1001), `folio_solicitud` (XA1501, resuelto del gasto para el cruce), `fecha_comprobacion`, `folio_comprobacion`, proveedor, importe, `files` jsonb, estado `recibida → validada | rechazada`. **Sin permisos nuevos**: reusa `FINANCE_EXPENSES_VER` (captura) + `FINANCE_FINDINGS_GESTIONAR` (validar).

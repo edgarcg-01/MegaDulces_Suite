@@ -15,7 +15,7 @@ import { SegmentedComponent } from '../../../shared/components/segmented/segment
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
 import { AuthService } from '../../../core/services/auth.service';
 import { Permission } from '../../../core/constants/permissions';
-import { EntradasService, EntradaRow, EntradasReport, RemisionOcr, ProofFile } from '../entradas.service';
+import { EntradasService, EntradaRow, EntradasReport, RemisionOcr, ProofFile, EntradaDetail, EntradaLinea } from '../entradas.service';
 
 /**
  * CC (extensión) — "Comprobantes de Orden de Entrada" (proyecto Compras). Lista las
@@ -70,7 +70,7 @@ import { EntradasService, EntradaRow, EntradasReport, RemisionOcr, ProofFile } f
           <ng-template #body let-c>
             <tr>
               <td>{{ c.receipt_date | date:'dd/MM/yy' }}</td>
-              <td class="mono">{{ c.folio }}</td>
+              <td><button type="button" class="cb-foliolink" (click)="openDetail(c)" title="Ver detalle por línea (auditoría)">{{ c.folio }}</button></td>
               <td>{{ c.proveedor_nombre || c.proveedor_code || '—' }}<div class="cb-sub">{{ c.proveedor_rfc || c.proveedor_code }}</div></td>
               <td class="mono muted">{{ c.oc_folio || '—' }}</td>
               <td class="ta-r strong">{{ money(c.monto) }}</td>
@@ -172,6 +172,52 @@ import { EntradasService, EntradaRow, EntradasReport, RemisionOcr, ProofFile } f
         <button pButton type="button" severity="danger" [loading]="saving()" (click)="doReject()"><span class="p-button-icon p-button-icon-left pi pi-times" aria-hidden="true"></span><span class="p-button-label">Rechazar</span></button>
       </ng-template>
     </p-dialog>
+
+    <!-- Diálogo: detalle por línea (auditoría) -->
+    <p-dialog [(visible)]="showDetail" [modal]="true" [style]="{ width: '48rem' }" [draggable]="false" header="Detalle de la orden de entrada">
+      @if (detailLoading()) {
+        <div class="cb-detail-loading"><i class="pi pi-spin pi-spinner"></i> Cargando detalle…</div>
+      } @else if (detailData(); as d) {
+        <div class="cb-cobro">
+          <div><span class="cb-lbl">Entrada</span><strong class="mono">{{ d.entrada.sucursal }}/{{ d.entrada.folio }}</strong></div>
+          <div><span class="cb-lbl">Proveedor</span><strong>{{ d.entrada.proveedor_nombre || d.entrada.proveedor_code }}</strong><div class="cb-sub">{{ d.entrada.proveedor_rfc }}</div></div>
+          <div><span class="cb-lbl">Fecha</span><strong>{{ d.entrada.receipt_date | date:'dd/MM/yy' }}</strong></div>
+          <div><span class="cb-lbl">OC / Vale</span><strong class="mono">{{ d.entrada.oc_folio || '—' }} / {{ d.entrada.vale_folio || '—' }}</strong></div>
+          <div class="ta-r"><span class="cb-lbl">Total Kepler</span><strong class="cb-monto">{{ money(d.entrada.monto) }}</strong></div>
+        </div>
+        <p-table [value]="d.lineas" styleClass="p-datatable-sm cb-table" [scrollable]="true" scrollHeight="44vh"
+                 [paginator]="d.lineas.length > 200" [rows]="200">
+          <ng-template #header>
+            <tr>
+              <th style="width:3rem">#</th>
+              <th style="width:6rem">SKU</th>
+              <th>Producto</th>
+              <th class="ta-r" style="width:6rem">Cant.</th>
+              <th style="width:4rem">U</th>
+              <th class="ta-r" style="width:8rem">Costo u.</th>
+              <th class="ta-r" style="width:9rem">Importe</th>
+            </tr>
+          </ng-template>
+          <ng-template #body let-l>
+            <tr>
+              <td class="muted">{{ l.linea }}</td>
+              <td class="mono">{{ l.sku || '—' }}</td>
+              <td>{{ l.nombre || '—' }}</td>
+              <td class="ta-r">{{ l.cantidad | number:'1.0-2' }}</td>
+              <td class="muted">{{ l.unidad || '' }}</td>
+              <td class="ta-r">{{ money(l.costo_unitario) }}</td>
+              <td class="ta-r strong">{{ money(l.importe) }}</td>
+            </tr>
+          </ng-template>
+          <ng-template #emptymessage><tr><td colspan="7" class="cb-empty">Sin líneas de detalle para esta entrada.</td></tr></ng-template>
+        </p-table>
+        <div class="cb-detail-total">
+          <span class="muted">{{ d.lineas.length }} renglones</span>
+          <span>Σ líneas <strong>{{ money(lineasTotal(d.lineas)) }}</strong> · Kepler <strong>{{ money(d.entrada.monto) }}</strong>
+            <p-tag [value]="lineasCuadra(d) ? 'Cuadra' : ('Difiere ' + money(lineasDiff(d)))" [severity]="lineasCuadra(d) ? 'success' : 'warn'" /></span>
+        </div>
+      }
+    </p-dialog>
   `,
   styles: [`
     :host { display: block; }
@@ -211,6 +257,12 @@ import { EntradasService, EntradaRow, EntradasReport, RemisionOcr, ProofFile } f
     .cb-grid { display: grid; grid-template-columns: 1fr 1fr; gap: .7rem; border-top: 1px solid var(--border-color); padding-top: .8rem; }
     .cb-err { color: var(--bad-fg); font-size: .82rem; }
     .w-full { width: 100%; }
+    .cb-foliolink { border: none; background: transparent; color: var(--action); cursor: pointer; padding: 0; font-family: var(--font-mono); font-size: .85em; }
+    .cb-foliolink:hover { text-decoration: underline; }
+    .cb-detail-loading { padding: 2rem; text-align: center; color: var(--text-muted); display: flex; align-items: center; justify-content: center; gap: .5rem; }
+    .cb-detail-total { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; margin-top: .7rem; padding-top: .7rem; border-top: 1px solid var(--border-color); font-size: .85rem; }
+    .cb-detail-total strong { font-family: var(--font-mono); color: var(--text-main); }
+    .cb-detail-total > span:last-child { display: inline-flex; align-items: center; gap: .5rem; }
   `],
 })
 export class ComprasEntradasComponent {
@@ -248,6 +300,11 @@ export class ComprasEntradasComponent {
   readonly showReject = signal(false);
   readonly rejectTarget = signal<EntradaRow | null>(null);
   rejectMotivo = '';
+
+  // detail dialog (auditoría por línea)
+  readonly showDetail = signal(false);
+  readonly detailLoading = signal(false);
+  readonly detailData = signal<EntradaDetail | null>(null);
 
   constructor() { this.load(); }
 
@@ -385,6 +442,20 @@ export class ComprasEntradasComponent {
     this.svc.reject(c.deposit_id, this.rejectMotivo || undefined).pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({ next: () => { this.saving.set(false); this.showReject.set(false); this.toast.add({ severity: 'info', summary: 'Rechazada', detail: `Entrada ${c.folio}` }); this.load(); }, error: () => { this.saving.set(false); this.toast.add({ severity: 'error', summary: 'Error al rechazar' }); } });
   }
+
+  openDetail(c: EntradaRow) {
+    this.detailData.set(null);
+    this.detailLoading.set(true);
+    this.showDetail.set(true);
+    this.svc.detail(c.sucursal, c.folio).pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (d) => { this.detailData.set(d); this.detailLoading.set(false); },
+        error: () => { this.detailLoading.set(false); this.showDetail.set(false); this.toast.add({ severity: 'error', summary: 'No se pudo cargar el detalle' }); },
+      });
+  }
+  lineasTotal(lineas: EntradaLinea[]): number { return (lineas || []).reduce((s, l) => s + (Number(l.importe) || 0), 0); }
+  lineasDiff(d: EntradaDetail): number { return Math.abs(this.lineasTotal(d.lineas) - (Number(d.entrada.monto) || 0)); }
+  lineasCuadra(d: EntradaDetail): boolean { return this.lineasDiff(d) <= 1; }
 
   depLabel(s: string | null): string { return ({ recibido: 'Recibido', validado: 'Validado', rechazado: 'Rechazado' } as Record<string, string>)[s || ''] || '—'; }
   depSev(s: string | null): 'success' | 'warn' | 'danger' | 'secondary' { return ({ recibido: 'warn', validado: 'success', rechazado: 'danger' } as Record<string, 'success' | 'warn' | 'danger'>)[s || ''] || 'secondary'; }

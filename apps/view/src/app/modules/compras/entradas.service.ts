@@ -47,6 +47,27 @@ export interface RemisionOcr {
 
 export interface ProofFile { role: string; url: string; public_id?: string; kind?: string; name?: string; }
 
+/** Línea de detalle de una orden de entrada (kdm2) para auditar renglón por renglón. */
+export interface EntradaLinea {
+  linea: string;
+  sku: string | null;
+  nombre: string | null;
+  unidad: string | null;
+  cantidad: number;
+  costo_unitario: number;
+  importe: number;
+}
+
+export interface EntradaDetail {
+  entrada: {
+    sucursal: string; folio: string; receipt_date: string | null;
+    proveedor_code: string | null; proveedor_nombre: string | null; proveedor_rfc: string | null;
+    oc_folio: string | null; vale_folio: string | null; concepto: string | null; monto: number;
+  };
+  lineas: EntradaLinea[];
+  deposits: any[];
+}
+
 export interface AttachReceipt {
   sucursal: string;
   folio: string;
@@ -64,6 +85,10 @@ export class EntradasService {
     let params = new HttpParams();
     for (const [k, v] of Object.entries(q)) if (v) params = params.set(k, String(v));
     return this.http.get<EntradasReport>(this.base, { params });
+  }
+  /** Detalle de la entrada + sus líneas (kdm2) para auditar renglón por renglón. */
+  detail(sucursal: string, folio: string): Observable<EntradaDetail> {
+    return this.http.get<EntradaDetail>(`${this.base}/${encodeURIComponent(sucursal)}/${encodeURIComponent(folio)}`);
   }
   /** Corre OCR sobre la remisión (data URI, imagen/PDF) — preview, no guarda. */
   ocr(file_base64: string): Observable<RemisionOcr> {
