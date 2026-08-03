@@ -10,6 +10,8 @@ export * from './lib/maat/maat-chat.service';
 export * from './lib/maat/maat-findings-sink.service';
 export * from './lib/expense-proofs/finance-expense-proofs.module';
 export * from './lib/expense-proofs/expense-proofs.service';
+export * from './lib/collection-deposits/finance-collection-deposits.module';
+export * from './lib/collection-deposits/collection-deposits.service';
 export * from './lib/bank/finance-bank.module';
 export * from './lib/bank/finance-bank.service';
 export * from './lib/polizas/finance-polizas.module';

@@ -190,6 +190,10 @@ export enum Permission {
   // Conciliación bancaria (CB / ADR-033) — permiso propio del módulo Bancos.
   FINANCE_BANK_VER = 'FINANCE_BANK_VER',
   FINANCE_BANK_GESTIONAR = 'FINANCE_BANK_GESTIONAR',
+  // Comprobantes de Cobranza (CC) — adjuntar ficha de depósito + OCR a un cobro
+  // de Kepler (UA0501). VER = capturista adjunta; GESTIONAR = revisor valida/rechaza.
+  FINANCE_COLLECTIONS_VER = 'FINANCE_COLLECTIONS_VER',
+  FINANCE_COLLECTIONS_GESTIONAR = 'FINANCE_COLLECTIONS_GESTIONAR',
   // MA (ADR-028/016) — reparto de tareas de conciliación (líder de Finanzas).
   FINANCE_RECON_ASIGNAR = 'FINANCE_RECON_ASIGNAR',
   // MA — marca "recibe tareas de conciliación": define el pool del área de Finanzas
