@@ -144,6 +144,13 @@ export interface WorkbookRow {
   cells: Record<string, WorkbookCell>;   // keyed por código de territorio (raíz)
   suma_pedido_cajas: number; pedido_valor: number;
   valor_venta: number; valor_exis: number;
+  // RA-PRO.36 — Índice de Aceleración de Demanda (señal −2..+2, por SKU)
+  iad: number | null;
+  iad_band: string | null;         // accel_extra|accel|accel_leve|estable|desacel_leve|desacel|desacel_extra
+  iad_status: string | null;       // ok|insufficient_history|insufficient_sales|no_prior
+  iad_z_short: number | null;      // Welch-Z 30v30 (tooltip)
+  iad_z_seasonal: number | null;   // Welch-Z YoY (tooltip)
+  iad_has_seasonal: boolean | null;
 }
 export interface WorkbookResponse {
   total: number; page: number; pageSize: number; coverage_days: number;

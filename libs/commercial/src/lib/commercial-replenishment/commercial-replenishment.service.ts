@@ -805,12 +805,15 @@ export class CommercialReplenishmentService {
         SELECT p.*, sup.name AS supplier_name,
                lp.box_size, lp.pack_size,
                CASE WHEN lp.box_size > 1 AND lp.pack_size > 1 AND lp.box_size % lp.pack_size = 0
-                    THEN (lp.box_size / lp.pack_size) ELSE NULL END AS packs_per_box
+                    THEN (lp.box_size / lp.pack_size) ELSE NULL END AS packs_per_box,
+               da.iad, da.band AS iad_band, da.status AS iad_status,
+               da.z_short AS iad_z_short, da.z_seasonal AS iad_z_seasonal, da.has_seasonal AS iad_has_seasonal
           FROM prod p
           LEFT JOIN catalog.suppliers sup ON sup.tenant_id = :t AND sup.id = p.supplier_id
           LEFT JOIN (SELECT product_id, max(box_size) box_size, max(pack_size) pack_size
                        FROM commercial.product_label_prices WHERE tenant_id = :t GROUP BY product_id) lp
             ON lp.product_id = p.product_id
+          LEFT JOIN analytics.demand_acceleration da ON da.tenant_id = :t AND da.product_id = p.product_id
          ${q.scope === 'needed' ? 'WHERE p.suma_pedido_cajas > 0' : ''}`;
 
       const rows = (await trx.raw(`${inner} ORDER BY valor_venta DESC NULLS LAST, sku LIMIT ${pageSize} OFFSET ${offset}`, binds)).rows;

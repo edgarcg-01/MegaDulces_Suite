@@ -118,6 +118,8 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
           </div>
           <button type="button" class="pr-chip" [class.pr-chip-on]="wbScopeNeeded()" (click)="wbScopeNeeded.set(!wbScopeNeeded()); loadWorkbook()">Solo con pedido</button>
           <button type="button" class="pr-chip" [class.pr-chip-on]="wbOnlyOver()" (click)="toggleOnlyOver()" title="Ver solo productos con sobrestock (capital inmovilizado)">Con sobrestock</button>
+          <button type="button" class="pr-chip" [class.pr-chip-on]="fIad()==='accel'" (click)="toggleIad('accel')" title="Solo productos con demanda acelerando (IAD ≥ +0.25)">▲ Acelerando</button>
+          <button type="button" class="pr-chip" [class.pr-chip-on]="fIad()==='decel'" (click)="toggleIad('decel')" title="Solo productos con demanda desacelerando (IAD ≤ −0.25)">▼ Desacelerando</button>
         </div>
 
         @if (error()) {
@@ -135,6 +137,7 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
                   <th rowspan="2" style="min-width:15rem">Producto</th>
                   <th rowspan="2" class="pr-r" title="Piezas por caja · y paquetes por caja si es multipack">Unidad<br/>x caja</th>
                   <th rowspan="2" class="pr-r">Costo/Cja</th>
+                  <th rowspan="2" class="pr-r" title="Índice de Aceleración de Demanda (−2..+2): compara el ritmo reciente (30d vs 31-60d) + estacional año-vs-año. ▲ acelera · ═ estable · ▼ desacelera. Señal informativa; no cambia el sugerido.">Tend.</th>
                   @for (t of wbTerritories(); track t.code) {
                     <th colspan="3" class="pr-grp-h" [title]="t.code">{{ t.name }}</th>
                   }
@@ -159,6 +162,11 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
                     @if (r.packs_per_box) { <div class="pr-unit2" [title]="r.packs_per_box + ' paquetes de ' + r.pack_size + ' pz por caja'">{{ r.packs_per_box }} paq × {{ r.pack_size }}</div> }
                   </td>
                   <td class="pr-r pr-muted">{{ money(r.caja_cost) }}</td>
+                  <td class="pr-r">
+                    @if (r.iad != null) {
+                      <p-tag [value]="iadLabel(r)" [severity]="iadSev(r)" styleClass="pr-cov-tag" [title]="iadTitle(r)"></p-tag>
+                    } @else { <span class="pr-muted" [title]="iadTitle(r)">—</span> }
+                  </td>
                   @for (t of wbTerritories(); track t.code) {
                     <td class="pr-r pr-muted">{{ cellVal(r, t.code, 'vta') | number:'1.0-1' }}</td>
                     <td class="pr-r"><p-tag [value]="(cellVal(r, t.code, 'exis') | number:'1.0-1') ?? ''" [severity]="existSev(cellVal(r, t.code, 'exis'), cellVal(r, t.code, 'ped'))" styleClass="pr-cov-tag" [title]="existTitle(cellVal(r, t.code, 'exis'), cellVal(r, t.code, 'ped'))"></p-tag></td>
@@ -609,16 +617,57 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
 
   toggleGroup(): void { this.wbGroup.set(this.wbGroup() === 'branch' ? 'general' : 'branch'); this.loadWorkbook(); }
 
-  // RA-PRO.33 — vista filtrada: "Con sobrestock" muestra solo productos con sobre>0 (usa el motor por-sucursal).
+  // RA-PRO.33/36 — vista filtrada: "Con sobrestock" (sobre>0) + IAD (acelerando/desacelerando).
+  readonly fIad = signal<'all' | 'accel' | 'decel'>('all');   // RA-PRO.36 filtro de tendencia
   readonly wbView = computed(() => {
-    const rows = this.wbRows();
-    return this.wbOnlyOver() ? rows.filter((r) => this.prodOver(r.product_id) > 0) : rows;
+    let rows = this.wbRows();
+    if (this.wbOnlyOver()) rows = rows.filter((r) => this.prodOver(r.product_id) > 0);
+    const f = this.fIad();
+    if (f === 'accel') rows = rows.filter((r) => r.iad != null && r.iad >= 0.25);
+    else if (f === 'decel') rows = rows.filter((r) => r.iad != null && r.iad <= -0.25);
+    return rows;
   });
   toggleOnlyOver(): void {
     const on = !this.wbOnlyOver();
     this.wbOnlyOver.set(on);
     // sobrestock suele NO tener pedido → apagar "Solo con pedido" para que aparezcan.
     if (on && this.wbScopeNeeded()) { this.wbScopeNeeded.set(false); this.loadWorkbook(); }
+  }
+  toggleIad(mode: 'accel' | 'decel'): void { this.fIad.set(this.fIad() === mode ? 'all' : mode); }
+
+  // RA-PRO.36 — IAD (Índice de Aceleración de Demanda): etiqueta/severidad/tooltip por SKU.
+  private readonly IAD_BANDS: Record<string, { txt: string; sev: Sev }> = {
+    accel_extra:  { txt: '▲▲', sev: 'success' },
+    accel:        { txt: '▲',  sev: 'success' },
+    accel_leve:   { txt: '▲',  sev: 'success' },
+    estable:      { txt: '═',  sev: 'secondary' },
+    desacel_leve: { txt: '▼',  sev: 'warn' },
+    desacel:      { txt: '▼',  sev: 'warn' },
+    desacel_extra:{ txt: '▼▼', sev: 'danger' },
+  };
+  iadLabel(r: WorkbookRow): string {
+    const b = this.IAD_BANDS[r.iad_band ?? ''];
+    const v = r.iad ?? 0;
+    return `${b?.txt ?? ''} ${v > 0 ? '+' : ''}${v.toFixed(2)}`.trim();
+  }
+  iadSev(r: WorkbookRow): Sev { return this.IAD_BANDS[r.iad_band ?? '']?.sev ?? 'secondary'; }
+  iadTitle(r: WorkbookRow): string {
+    if (r.iad == null) {
+      const m: Record<string, string> = {
+        insufficient_history: 'Menos de 60 días de historia',
+        insufficient_sales: 'Menos de 20 días con venta en 60d',
+        no_prior: 'Sin base de comparación (periodo anterior en cero)',
+      };
+      return `Información insuficiente — ${m[r.iad_status ?? ''] ?? 'sin datos'}`;
+    }
+    const band: Record<string, string> = {
+      accel_extra: 'Aceleración extraordinaria', accel: 'Aceleración relevante', accel_leve: 'Aceleración ligera',
+      estable: 'Demanda estable', desacel_leve: 'Desaceleración ligera', desacel: 'Desaceleración relevante',
+      desacel_extra: 'Desaceleración extraordinaria',
+    };
+    const z30 = r.iad_z_short != null ? `corto 30v30 ${r.iad_z_short > 0 ? '+' : ''}${r.iad_z_short}` : 'corto n/d';
+    const zY = r.iad_has_seasonal && r.iad_z_seasonal != null ? ` · estacional ${r.iad_z_seasonal > 0 ? '+' : ''}${r.iad_z_seasonal}` : ' · sin base estacional';
+    return `${band[r.iad_band ?? ''] ?? ''} (IAD ${r.iad > 0 ? '+' : ''}${r.iad}) — ${z30}${zY}`;
   }
 
   cBuy = signal(true);
