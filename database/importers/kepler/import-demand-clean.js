@@ -55,15 +55,18 @@ const DAYS = di !== -1 ? Number(process.argv[di + 1]) : 30;
           FROM catalog.products WHERE tenant_id = $1
       ),
       pp AS (
-        -- RA-PRO.29.2 — PISO DE COSTO para no inflar boxed vendido suelto. El MIN($/u) toma la
-        -- unidad más granular; para un dulce BOXED (fs>1) que además se vende SUELTO en retail
-        -- (nucita/chocolate a $1.5/u vs paquete a $22/u), el MIN cae por debajo del costo por
-        -- paquete (cost_with_tax) → cuenta sub-porciones e infla las piezas ~15×. Fix: para fs>1
-        -- el precio-pieza = MAX(MIN, cost_with_tax). Granel (fs<=1, unidad kg/cubeta con SUF) y
-        -- retail-que-vende-el-paquete (MIN>=costo, ej. pasta SARAMEL) quedan intactos.
+        -- RA-PRO.29.2 / RA-PRO.35 — PISO DE COSTO por PIEZA para no inflar boxed vendido suelto.
+        -- El MIN($/u) toma la unidad más granular; para un dulce BOXED (fs>1) que se vende SUELTO
+        -- en retail, un glitch podría dejar el MIN por debajo del costo → cuenta sub-porciones.
+        -- El piso protege contra eso. CLAVE (RA-PRO.35): cost_with_tax es costo por CAJA (bruto),
+        -- NO por pieza — verificado: para fs∈{12,20,24,…} cost_with_tax ≈ fs × costo-pieza. Usar
+        -- cost_with_tax crudo como piso por pieza lo eleva 10-40× y APLASTA la demanda real
+        -- (33027: rutas venden a $9.65/pz pero el piso lo forzaba a $90 → demanda /9×). Fix: el
+        -- piso va en la MISMA unidad que el precio-pieza → cost_with_tax / factor_sale. Granel
+        -- (fs<=1, kg/cubeta con SUF) queda intacto.
         SELECT wp.product_id,
                CASE WHEN COALESCE(pf.fs, 1) > 1 AND COALESCE(pf.cwt, 0) > 0
-                    THEN GREATEST(min(wp.rev / wp.u), pf.cwt)
+                    THEN GREATEST(min(wp.rev / wp.u), pf.cwt / pf.fs)
                     ELSE min(wp.rev / wp.u) END AS piece_price
           FROM wp LEFT JOIN pf ON pf.product_id = wp.product_id
          WHERE wp.u >= 3 AND wp.rev >= 0.5
