@@ -161,6 +161,7 @@ export interface WorkbookResponse {
 export interface WorkbookQuery {
   supplier_id?: string; category_id?: string; search?: string; coverage_days?: number; scope?: string;
   warehouse_ids?: string[]; group?: 'branch' | 'general'; page?: number; pageSize?: number;
+  iad?: 'accel' | 'decel'; only_overstock?: boolean;   // RA-PRO.36.2 filtros server-side
 }
 // RA-PRO.32 — detalle drill-down de un SKU (desglose por almacén de los 4 puntos de compra).
 export interface WorkbookDetailWarehouse {
@@ -606,6 +607,8 @@ export class ComprasService {
     if (q.group) p.set('group', q.group);
     if (q.page) p.set('page', String(q.page));
     if (q.pageSize) p.set('pageSize', String(q.pageSize));
+    if (q.iad) p.set('iad', q.iad);
+    if (q.only_overstock) p.set('only_overstock', 'true');
     const qs = p.toString();
     return this.http.get<WorkbookResponse>(`${this.base}/workbook${qs ? '?' + qs : ''}`);
   }

@@ -99,6 +99,15 @@ export class VendorVisitsReviewDto extends ReportsFilterDto {
   @IsOptional()
   @IsString()
   horusStatus?: string;
+
+  @ApiProperty({
+    required: false,
+    description:
+      'Solo PDF: UUID del vendedor cuyo detalle de visitas se incluye en el reporte (el resumen siempre trae a todos).',
+  })
+  @IsOptional()
+  @IsString()
+  focusUserId?: string;
 }
 
 export class ReportsStoresFilterDto {

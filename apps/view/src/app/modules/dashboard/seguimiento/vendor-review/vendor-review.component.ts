@@ -166,6 +166,16 @@ interface StatusMeta {
             />
           }
           <p-button
+            icon="pi pi-file-pdf"
+            label="PDF"
+            severity="secondary"
+            [outlined]="true"
+            size="small"
+            (onClick)="downloadPdf()"
+            [disabled]="loading() || downloadingPdf() || (data()?.by_vendor?.length || 0) === 0"
+            [loading]="downloadingPdf()"
+          />
+          <p-button
             icon="pi pi-download"
             label="Exportar CSV"
             severity="secondary"
@@ -348,6 +358,7 @@ export class VendorReviewComponent {
 
   loading = signal(false);
   analyzing = signal(false);
+  downloadingPdf = signal(false);
   data = signal<VendorReviewResponse | null>(null);
   selectedVendorId = signal<string | null>(null);
   statusFilter = signal<HorusStatus | 'all'>('all');
@@ -526,6 +537,39 @@ export class VendorReviewComponent {
             severity: 'warn',
             summary: 'Horus',
             detail: 'No se pudo disparar el análisis (¿sin API key o permiso?).',
+          });
+        },
+      });
+  }
+
+  downloadPdf(): void {
+    const f = this.filtersState.filters();
+    this.downloadingPdf.set(true);
+    this.service
+      .downloadVendorReviewPdf({
+        startDate: f.startDate,
+        endDate: f.endDate,
+        zone: f.zone ?? undefined,
+        supervisorId: f.supervisorId ?? undefined,
+        focusUserId: this.selectedVendorId() ?? undefined,
+      })
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (blob) => {
+          this.downloadingPdf.set(false);
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = 'reporte_visitas_horus.pdf';
+          a.click();
+          URL.revokeObjectURL(url);
+        },
+        error: () => {
+          this.downloadingPdf.set(false);
+          this.messageService.add({
+            severity: 'error',
+            summary: 'PDF',
+            detail: 'No se pudo generar el PDF.',
           });
         },
       });

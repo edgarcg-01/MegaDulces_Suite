@@ -96,6 +96,8 @@ export interface VendorReviewFilters {
   supervisorId?: string;
   userId?: string;
   horusStatus?: string;
+  /** Solo PDF: vendedor cuyo detalle de visitas se incluye. */
+  focusUserId?: string;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -148,6 +150,14 @@ export class SeguimientoService {
     return this.http.post(
       `${environment.apiUrl}/supervisor-ai/vision/scan`,
       { max },
+    );
+  }
+
+  /** Descarga el PDF del reporte por vendedor (resumen + detalle del focus). */
+  downloadVendorReviewPdf(params?: VendorReviewFilters): Observable<Blob> {
+    return this.http.get(
+      `${environment.apiUrl}/reports/vendor-visits-review/pdf`,
+      { params: params as Record<string, string>, responseType: 'blob' },
     );
   }
 }
