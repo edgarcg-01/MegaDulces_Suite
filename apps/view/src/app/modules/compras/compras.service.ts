@@ -619,8 +619,12 @@ export class ComprasService {
     return this.http.get<WorkbookDetailResponse>(`${this.base}/workbook/${productId}${qs}`);
   }
 
-  /** RA-PRO.32.5 — Workbook del comprador a XLSX: una HOJA por proveedor (todos los del filtro). */
-  exportWorkbookXlsx(q: WorkbookQuery) {
+  /**
+   * RA-PRO.32.5 — Workbook del comprador a XLSX con LOS MISMOS filtros que la tabla en
+   * pantalla (incluye group=desglosar/englobar + iad + sobrestock). `flat=true` → una sola
+   * hoja (plano); default → una hoja por proveedor. Exporta TODO sin paginar.
+   */
+  exportWorkbookXlsx(q: WorkbookQuery, flat = false) {
     const p = new URLSearchParams();
     if (q.supplier_id) p.set('supplier_id', q.supplier_id);
     if (q.category_id) p.set('category_id', q.category_id);
@@ -629,6 +633,9 @@ export class ComprasService {
     if (q.scope) p.set('scope', q.scope);
     if (q.warehouse_ids?.length) p.set('warehouse_ids', q.warehouse_ids.join(','));
     if (q.group) p.set('group', q.group);
+    if (q.iad) p.set('iad', q.iad);
+    if (q.only_overstock) p.set('only_overstock', 'true');
+    if (flat) p.set('flat', 'true');
     const qs = p.toString();
     return this.http.get(`${this.base}/workbook.xlsx${qs ? '?' + qs : ''}`, { responseType: 'blob', observe: 'response' });
   }
