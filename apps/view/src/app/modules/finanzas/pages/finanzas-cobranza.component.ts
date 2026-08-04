@@ -222,6 +222,22 @@ import { CobranzaService, CobroRow, CobrosReport, DepositOcr, DepositFile, Cobro
               @if (d.cuenta_propia === false) {
                 <div class="cb-alert-note bad"><i class="pi pi-exclamation-triangle"></i> La cuenta destino de la ficha no coincide con ninguna cuenta de banco de la empresa.</div>
               }
+              @if (d.banco; as bk) {
+                <div class="cb-bank" [class.ok]="bk.estado === 'confirmado'" [class.warn]="bk.estado === 'multiple'" [class.bad]="bk.estado === 'sin_match'">
+                  <div class="cb-bank-head">
+                    <i class="pi" [ngClass]="bankIcon(bk.estado)"></i>
+                    <strong>{{ bankLabel(bk.estado) }}</strong>
+                  </div>
+                  @for (m of bk.movimientos; track m.id) {
+                    <div class="cb-bank-mov">
+                      <span class="mono">{{ m.bank }} {{ m.account_label }}</span>
+                      <span>{{ m.movement_date | date:'dd/MM/yy' }}</span>
+                      <span class="strong">{{ money(m.amount_in) }}</span>
+                      <span class="muted cb-bank-concept" [title]="m.concept">{{ m.concept || '—' }}</span>
+                    </div>
+                  }
+                </div>
+              }
               <div class="cb-view-files">
                 @for (f of d.files; track f.url) {
                   @if (isImageUrl(f)) {
@@ -277,6 +293,16 @@ import { CobranzaService, CobroRow, CobrosReport, DepositOcr, DepositFile, Cobro
     .cb-alert-note { font-size: .78rem; color: var(--warn-fg); display: flex; align-items: baseline; gap: .4rem; background: var(--surface-sunken, var(--card-bg)); border: 1px solid var(--border-color); border-radius: var(--r-sm, .4rem); padding: .45rem .6rem; }
     .cb-alert-note.bad { color: var(--bad-fg); }
     .cb-alert-note i { font-size: .8rem; }
+    .cb-bank { border: 1px solid var(--border-color); border-left-width: 3px; border-radius: var(--r-sm, .4rem); padding: .5rem .7rem; display: flex; flex-direction: column; gap: .35rem; font-size: .78rem; }
+    .cb-bank.ok { border-left-color: var(--ok-fg); }
+    .cb-bank.warn { border-left-color: var(--warn-fg); }
+    .cb-bank.bad { border-left-color: var(--bad-fg); }
+    .cb-bank-head { display: flex; align-items: center; gap: .4rem; }
+    .cb-bank.ok .cb-bank-head { color: var(--ok-fg); }
+    .cb-bank.warn .cb-bank-head { color: var(--warn-fg); }
+    .cb-bank.bad .cb-bank-head { color: var(--bad-fg); }
+    .cb-bank-mov { display: grid; grid-template-columns: 6rem 4.5rem auto 1fr; gap: .5rem; align-items: baseline; color: var(--text-main); }
+    .cb-bank-concept { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .cb-empty { text-align: center; color: var(--text-muted); padding: 2rem; }
     .cb-form { display: flex; flex-direction: column; gap: .85rem; padding: .25rem 0; }
     .cb-cobro { display: flex; gap: 1.2rem; flex-wrap: wrap; align-items: flex-end; padding: .7rem .9rem; background: var(--surface-sunken, var(--card-bg)); border: 1px solid var(--border-color); border-radius: var(--r-md, .5rem); }
@@ -551,6 +577,9 @@ export class FinanzasCobranzaComponent {
     if (k === 'pdf' || k === 'raw') return false;
     return /\.(jpe?g|png|webp|gif)(\?|$)/i.test(f.url || '');
   }
+
+  bankLabel(e: string): string { return ({ confirmado: 'Abono confirmado en el banco', multiple: 'Posibles abonos — revisa cuál corresponde', sin_match: 'Sin abono en el estado de cuenta', sin_dato: 'No verificable (falta monto/fecha de la ficha)' } as Record<string, string>)[e] || e; }
+  bankIcon(e: string): string { return ({ confirmado: 'pi-check-circle', multiple: 'pi-question-circle', sin_match: 'pi-times-circle', sin_dato: 'pi-minus-circle' } as Record<string, string>)[e] || 'pi-minus-circle'; }
 
   formaLabel(f: string | null): string { return ({ deposito: 'Depósito', transferencia: 'Transferencia', tarjeta: 'Tarjeta', efectivo: 'Efectivo', cheque: 'Cheque', otro: 'Otro' } as Record<string, string>)[f || ''] || (f || '—'); }
   formaSev(f: string | null): 'info' | 'success' | 'warn' | 'secondary' { return ({ deposito: 'info', transferencia: 'info', tarjeta: 'secondary', efectivo: 'success', cheque: 'warn' } as Record<string, 'info' | 'success' | 'warn' | 'secondary'>)[f || ''] || 'secondary'; }
