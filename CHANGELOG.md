@@ -10,6 +10,12 @@
 
 ## [Unreleased]
 
+### Fixed — Órdenes de entrada: doctype correcto `XA2001` "Aplica Orden Entrada" (era XA4001) (2026-08-03)
+- Un **documento real** (GRUPO LEVI 0008231) reveló que el espejo estaba en el **doctype equivocado**. Hallazgo clave: el folio de Kepler **NO es único entre doctypes** — `XA4001` ("Orden de entrada", mueve inventario) y `XA2001` ("Aplica Orden Entrada") comparten el mismo folio para transacciones DISTINTAS. Ej.: folio 0008231 = GRUPO LEVI $827 en `XA2001` pero GONAC/KIUBO $22,947 en `XA4001`.
+- El documento que se digitaliza y firma (y al que se adjunta la remisión) es la **`XA2001`**: su `c16` es el TOTAL con IVA (= total de la remisión, así el **cuadre del OCR funciona**) y genera la póliza de compra (511/201/122). El usuario ya lo había dicho ("**aplicación** de órdenes de entrada" = "Aplica Orden Entrada").
+- `import-goods-receipts.js` ahora lee **XA2001** (encabezado + líneas kdm2), enriquecido con su orden de entrada física (XA4001) → vale (XA3701) para OC + RFC. Flag `--reset` para la limpieza única al cambiar de doctype. Re-poblado local + prod: **8,373 entradas / 41,101 líneas**.
+- Verificado contra el PDF real: LEVI 0008231 = GRUPO LEVI $827, línea SKU 94323 (VASO #16 ANCHO 25 LEVI) $712.93. Smoke **34/34**. El detalle por línea muestra Σlíneas (subtotal) vs total (la diferencia = IVA, no es descuadre).
+
 ### Added — Órdenes de entrada: detalle por línea (auditoría) + data en prod (2026-08-03)
 - **Detalle por renglón** de las órdenes de entrada (X-A-40) para auditar qué SKU / cantidad / costo unitario entró en cada documento. Mig `20260803190000`: `analytics.erp_goods_receipt_lines` (desde `md.kdm2`: c7 línea, c8 SKU, c10 nombre, c9 cantidad, c11 unidad, c12 costo, c13 importe). El importer `import-goods-receipts.js` ahora puebla encabezado **+ líneas** en la misma corrida.
 - **Backend** — `detail()` de goods-receipt-proofs devuelve el encabezado + `lineas[]` + evidencias. **Frontend** — `/compras/entradas`: el folio abre un **diálogo de detalle** con las líneas y un **cuadre Σlíneas vs total Kepler** (chip Cuadra/Difiere).

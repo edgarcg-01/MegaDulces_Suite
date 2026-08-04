@@ -6,7 +6,8 @@
  *      (espejos, sin RLS) + finance.supplier_payment_proofs + finance.goods_receipt_proofs
  *      (RLS FORZADO).
  *   2. Datos del importer: pagos XD2501 (incluye GRUPO INDUSTRIAL SWEETS 0000609 =
- *      $685,704.06) + entradas X-A-40 (incluye 0008353 = $111,986.88).
+ *      $685,704.06) + entradas XA2001 "Aplica Orden Entrada" (incluye GRUPO LEVI
+ *      0008231 = $827, línea VASO 94323 = doc real verificado).
  *   3. Lógica monto_match (réplica del servicio): pagos tolerancia $1; entradas
  *      cuadran por total O subtotal.
  *   4. Flujo attach → join → validar → rechazar → CHECK dentro de trx con ROLLBACK.
@@ -52,22 +53,24 @@ const matchR = (total, sub, val) => {
     ok(pago && pago.proveedor_rfc === 'GIS020419575', 'pago 0000609 con RFC del proveedor');
 
     const [g] = await knex('analytics.erp_goods_receipts').where({ tenant_id: T }).count('* as n');
-    ok(Number(g.n) >= 8000, `erp_goods_receipts poblada (${g.n} entradas X-A-40)`);
-    const entrada = await knex('analytics.erp_goods_receipts').where({ tenant_id: T, sucursal: '00', folio: '0008353' })
-      .first('proveedor_nombre', 'proveedor_rfc', 'vale_folio', knex.raw('monto::numeric AS monto'));
-    ok(entrada && Math.abs(Number(entrada.monto) - 111986.88) < 0.01, 'entrada real 0008353 = $111,986.88 presente');
-    ok(entrada && entrada.vale_folio === '0008471', 'entrada 0008353 enlaza al vale 0008471 (X-A-37)');
-    ok(entrada && entrada.proveedor_rfc === 'PCP920523HQA', 'entrada 0008353 con RFC del proveedor (vía vale)');
+    ok(Number(g.n) >= 8000, `erp_goods_receipts poblada (${g.n} entradas XA2001 "Aplica Orden Entrada")`);
+    // Doc real verificado: GRUPO LEVI 0008231 (VASO #16 ANCHO 25 LEVI), total $827.
+    const entrada = await knex('analytics.erp_goods_receipts').where({ tenant_id: T, sucursal: '00', folio: '0008231' })
+      .first('proveedor_nombre', 'proveedor_rfc', 'vale_folio', 'doc_prefix', knex.raw('monto::numeric AS monto'));
+    ok(entrada && Math.abs(Number(entrada.monto) - 827) < 0.01, 'entrada real 0008231 (GRUPO LEVI) = $827.00 (= total remisión)');
+    ok(entrada && entrada.doc_prefix === 'XA2001', 'entrada 0008231 es doctype XA2001 (Aplica Orden Entrada)');
+    ok(entrada && /GRUPO LEVI/i.test(entrada.proveedor_nombre || ''), 'entrada 0008231 = GRUPO LEVI');
 
     // Detalle por línea (auditoría renglón por renglón)
     const linreg = await knex.raw(`SELECT to_regclass('analytics.erp_goods_receipt_lines') l`);
     ok(!!linreg.rows[0].l, 'analytics.erp_goods_receipt_lines existe');
     const [ln] = await knex('analytics.erp_goods_receipt_lines').where({ tenant_id: T }).count('* as n');
     ok(Number(ln.n) > 8000, `erp_goods_receipt_lines poblada (${ln.n} líneas de detalle)`);
-    const [le] = await knex('analytics.erp_goods_receipt_lines').where({ tenant_id: T, sucursal: '00', folio: '0008353' }).count('* as n');
-    ok(Number(le.n) > 0, `entrada 0008353 tiene ${le.n} línea(s) de detalle para auditar`);
-    const [ls] = await knex('analytics.erp_goods_receipt_lines').where({ tenant_id: T, sucursal: '00', folio: '0008353' }).sum({ t: 'importe' });
-    ok(Number(ls.t) > 0, `suma de líneas de 0008353 = $${Number(ls.t).toLocaleString('es-MX')} (cross-check vs total Kepler)`);
+    const [le] = await knex('analytics.erp_goods_receipt_lines').where({ tenant_id: T, sucursal: '00', folio: '0008231' }).count('* as n');
+    ok(Number(le.n) > 0, `entrada 0008231 tiene ${le.n} línea(s) de detalle para auditar`);
+    const vaso = await knex('analytics.erp_goods_receipt_lines').where({ tenant_id: T, sucursal: '00', folio: '0008231', sku: '94323' })
+      .first('nombre', knex.raw('importe::numeric AS importe'));
+    ok(vaso && Math.abs(Number(vaso.importe) - 712.93) < 0.01, `línea SKU 94323 (VASO LEVI) importe $712.93 = calza con el PDF real`);
 
     // ── 3. Lógica de cuadre ──────────────────────────────────────────────────
     ok(matchP(685704.06, 685704.06) === true, 'pago: match exacto → cuadra');
@@ -118,7 +121,7 @@ const matchR = (total, sub, val) => {
     await knex.transaction(async (trx) => {
       const val = Number(entrada.monto);
       const [row] = await trx('finance.goods_receipt_proofs').insert({
-        tenant_id: T, sucursal: '00', folio: '0008353',
+        tenant_id: T, sucursal: '00', folio: '0008231',
         proveedor_nombre: entrada.proveedor_nombre, proveedor_rfc: entrada.proveedor_rfc,
         receipt_monto: val,
         files: JSON.stringify([{ role: 'remision', url: 'http://x/r.jpg', public_id: 'x/r', kind: 'image' }]),
@@ -135,7 +138,7 @@ const matchR = (total, sub, val) => {
                      (array_agg(status ORDER BY created_at DESC))[1] last_status, bool_or(monto_match) any_match
                    FROM finance.goods_receipt_proofs GROUP BY sucursal, folio) d
           ON c.sucursal=d.sucursal AND c.folio=d.folio
-        WHERE c.tenant_id=? AND c.sucursal='00' AND c.folio='0008353'`, [T]);
+        WHERE c.tenant_id=? AND c.sucursal='00' AND c.folio='0008231'`, [T]);
       ok(Number(j.rows[0].deposits) === 1 && j.rows[0].any_match === true, 'entrada join: 1 remisión + monto_match=true');
 
       const [v] = await trx('finance.goods_receipt_proofs').where({ id: row.id }).whereIn('status', ['recibido', 'rechazado'])
@@ -145,7 +148,7 @@ const matchR = (total, sub, val) => {
     }).catch((e) => { if (!e || !e.__rollback) throw e; });
 
     const [aP] = await knex('finance.supplier_payment_proofs').where({ sucursal: '00', folio: '0000609' }).count('* as n');
-    const [aG] = await knex('finance.goods_receipt_proofs').where({ sucursal: '00', folio: '0008353' }).count('* as n');
+    const [aG] = await knex('finance.goods_receipt_proofs').where({ sucursal: '00', folio: '0008231' }).count('* as n');
     ok(Number(aP.n) === 0 && Number(aG.n) === 0, 'rollback: 0 evidencias persistidas (no ensucia data real)');
 
     console.log(`\nCC supplier+receipt proofs: ${pass} ✓ / ${fail} ✗`);

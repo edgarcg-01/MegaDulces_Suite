@@ -2,19 +2,23 @@
 /**
  * Fase CC (extensión) — Órdenes de entrada de Kepler → analytics.erp_goods_receipts.
  *
- * Lee las ÓRDENES DE ENTRADA de Kepler (`X-A-40` = "EntryOr1", la que suma
- * inventario) desde `md.kdm1`, enriquecidas con su VALE de entrada `X-A-37`
- * (razón social completa + RFC + folio de la OC X-A-35) vía el back-pointer
- * c37='37'/c39. Es la lista de la que el capturista elige la entrada para
- * adjuntarle la remisión/factura del proveedor. NO toca Kepler (solo SELECT).
+ * Lee la "APLICA ORDEN ENTRADA" de Kepler (`X-A-20` = `XA2001` "ApEntOr1") desde
+ * `md.kdm1`. ESTE es el documento que el proveedor firma y al que se adjunta la
+ * remisión: su `c16` es el TOTAL con IVA (= el total de la remisión) y genera la
+ * póliza de compra (511/201/122). Es la lista de la que el capturista elige la
+ * entrada para adjuntarle la remisión/factura. NO toca Kepler (solo SELECT).
  *
- * Cadena de compras (FASE_RA §2.5): Requisición X-A-30 → OC X-A-35 →
- * Vale X-A-37 → Orden de entrada X-A-40 (AQUÍ suma existencia). El vale trae
- * el mejor dato del proveedor; el enlace es oe.c37='37' AND oe.c39=vale.c6
- * (cobertura verificada 8360/8360 en CEDIS).
+ * OJO decode (verificado con doc real GRUPO LEVI 0008231, 2026-08-03): el folio NO
+ * es único entre doctypes — `X-A-40` (XA4001, "Orden de entrada" que mueve inventario)
+ * y `X-A-20` (XA2001, "Aplica") tienen el MISMO folio para transacciones DISTINTAS.
+ * El documento que el usuario digitaliza es la **XA2001** (título "Aplica Orden
+ * Entrada"); antes se leía por error de XA4001. La XA2001 se enlaza a su orden de
+ * entrada física (XA4001, ap.c37='40'/c39) → vale (XA3701) para OC + RFC de respaldo.
+ * Cadena: Requisición X-A-30 → OC X-A-35 → Vale X-A-37 → Orden entrada X-A-40 → Aplica X-A-20.
  *
- * Fuente = CEDIS md_00 (centraliza compras; `(suc,folio)` único en XA4001).
- * Idempotente: UPSERT-solo-cambios, sin DELETE (ledger append-only).
+ * Fuente = CEDIS md_00 (centraliza compras; `(suc,folio)` único en XA2001).
+ * Idempotente: UPSERT-solo-cambios, sin DELETE. Corré con `--reset` UNA vez al
+ * cambiar de doctype (limpia el espejo antes de repoblar).
  *
  *   node database/importers/kepler/import-goods-receipts.js            # dry-run
  *   node database/importers/kepler/import-goods-receipts.js --apply    # commit
@@ -27,6 +31,7 @@ const M = '00000000-0000-0000-0000-00000000d01c';
 const DST = process.env.DATABASE_URL_NEW || 'postgresql://postgres:superoot@localhost:5433/postgres_platform';
 const SRC = process.env.RECEIPTS_SRC || 'postgresql://platform_ro:kepler123@192.168.9.95:5432/md_00';
 const APPLY = process.argv.includes('--apply');
+const RESET = process.argv.includes('--reset'); // limpieza única al cambiar de doctype (XA4001→XA2001)
 const fromIx = process.argv.indexOf('--from');
 const FROM = fromIx > -1 ? process.argv[fromIx + 1] : null;
 const SOURCE_BRANCH = (SRC.match(/\/(md_\d+)/) || [])[1] || 'md_00';
@@ -34,32 +39,37 @@ const SOURCE_BRANCH = (SRC.match(/\/(md_\d+)/) || [])[1] || 'md_00';
 const money = (v) => { const n = Number(String(v ?? '').replace(/[^0-9.-]/g, '')); return Number.isFinite(n) ? n : 0; };
 
 (async () => {
-  console.log(`\n=== Órdenes de entrada Kepler (${SOURCE_BRANCH}, X-A-40 ⋈ X-A-37) → analytics.erp_goods_receipts (${APPLY ? 'APPLY' : 'DRY-RUN'}) ===\n`);
+  console.log(`\n=== Órdenes de entrada Kepler (${SOURCE_BRANCH}, XA2001 "Aplica Orden Entrada") → analytics.erp_goods_receipts (${APPLY ? 'APPLY' : 'DRY-RUN'}${RESET ? ' +RESET' : ''}) ===\n`);
 
   const src = new Client({ connectionString: SRC, connectionTimeoutMillis: 8000 });
   await src.connect();
   let rows, lineRows;
   try {
     const params = [];
-    let where = `oe.c2='X' AND oe.c3='A' AND trim(oe.c4::text)='40' AND oe.c37='37'`;
-    if (FROM) { params.push(FROM); where += ` AND oe.c9::date >= $1`; }
+    let where = `ap.c2='X' AND ap.c3='A' AND trim(ap.c4::text)='20'`;
+    if (FROM) { params.push(FROM); where += ` AND ap.c9::date >= $1`; }
+    // Encabezado = la "Aplica Orden Entrada" (XA2001) — el documento que el proveedor
+    // firma y al que se adjunta la remisión; su c16 es el TOTAL (con IVA = la remisión)
+    // y su póliza es la compra. Se enriquece con la orden de entrada física (XA4001,
+    // vía ap.c37='40'/c39) y su vale (XA3701) para el folio de OC + RFC de respaldo.
     const q = await src.query(
-      `SELECT oe.c1 AS suc, oe.c6 AS folio, oe.c9::date AS fecha, oe.c10 AS prov_code,
-              oe.c16 AS monto, oe.c24 AS concepto, oe.c39 AS vale_folio,
-              COALESCE(NULLIF(btrim(v.c32), ''), oe.c32) AS prov_nombre,
-              NULLIF(btrim(v.c22), '') AS prov_rfc,
+      `SELECT ap.c1 AS suc, ap.c6 AS folio, ap.c9::date AS fecha, ap.c10 AS prov_code,
+              ap.c16 AS monto, ap.c24 AS concepto,
+              COALESCE(NULLIF(btrim(v.c32), ''), ap.c32) AS prov_nombre,
+              COALESCE(NULLIF(btrim(ap.c22), ''), NULLIF(btrim(v.c22), '')) AS prov_rfc,
+              NULLIF(btrim(oe.c39), '') AS vale_folio,
               NULLIF(btrim(v.c39), '') AS oc_folio
-         FROM md.kdm1 oe
-         LEFT JOIN md.kdm1 v
-           ON v.c1=oe.c1 AND v.c2='X' AND v.c3='A' AND v.c4='37' AND v.c6=oe.c39
+         FROM md.kdm1 ap
+         LEFT JOIN md.kdm1 oe ON oe.c1=ap.c1 AND oe.c2='X' AND oe.c3='A' AND oe.c4='40' AND oe.c6=ap.c39
+         LEFT JOIN md.kdm1 v  ON v.c1=oe.c1  AND v.c2='X'  AND v.c3='A'  AND v.c4='37'  AND v.c6=oe.c39
         WHERE ${where}`, params);
     rows = q.rows;
-    // Líneas del documento (kdm2) para el detalle por renglón (auditoría).
+    // Líneas del documento (kdm2 de la XA2001) para el detalle por renglón (auditoría).
     const ql = await src.query(
-      `SELECT oe.c1 AS suc, oe.c6 AS folio, l.c7 AS linea, l.c8 AS sku, l.c10 AS nombre,
+      `SELECT ap.c1 AS suc, ap.c6 AS folio, l.c7 AS linea, l.c8 AS sku, l.c10 AS nombre,
               l.c9 AS cantidad, l.c11 AS unidad, l.c12 AS costo, l.c13 AS importe
-         FROM md.kdm1 oe
-         JOIN md.kdm2 l ON l.c1=oe.c1 AND l.c2=oe.c2 AND l.c3=oe.c3 AND l.c4=oe.c4 AND l.c6=oe.c6
+         FROM md.kdm1 ap
+         JOIN md.kdm2 l ON l.c1=ap.c1 AND l.c2=ap.c2 AND l.c3=ap.c3 AND l.c4=ap.c4 AND l.c6=ap.c6
         WHERE ${where}`, params);
     lineRows = ql.rows;
   } finally { await src.end().catch(() => {}); }
@@ -71,7 +81,7 @@ const money = (v) => { const n = Number(String(v ?? '').replace(/[^0-9.-]/g, '')
     byKey.set(`${String(r.suc).trim()}|${String(r.folio).trim()}`, r);
   }
   const staged = [...byKey.values()].map((r) => [
-    String(r.suc).trim(), String(r.folio).trim(), 'XA4001',
+    String(r.suc).trim(), String(r.folio).trim(), 'XA2001',
     r.fecha || null,
     (r.prov_code || '').trim() || null,
     (r.prov_nombre || '').trim() || null,
@@ -111,6 +121,13 @@ const money = (v) => { const n = Number(String(v ?? '').replace(/[^0-9.-]/g, '')
   try {
     await db.query('BEGIN');
     await db.query(`SET LOCAL app.tenant_id = '${M}'`);
+    if (RESET) {
+      // Cambio de doctype (XA4001→XA2001): el folio no es único entre doctypes, así
+      // que hay que limpiar el espejo antes de repoblar (si no, quedan filas mezcladas).
+      const dl = await db.query(`DELETE FROM analytics.erp_goods_receipt_lines WHERE tenant_id=$1`, [M]);
+      const dh = await db.query(`DELETE FROM analytics.erp_goods_receipts WHERE tenant_id=$1`, [M]);
+      console.log(`  [--reset] limpiado: ${dh.rowCount} entradas + ${dl.rowCount} líneas del espejo`);
+    }
     await db.query(`CREATE TEMP TABLE stg_gr (
       sucursal text, folio text, doc_prefix text, receipt_date date, proveedor_code text,
       proveedor_nombre text, proveedor_rfc text, vale_folio text, oc_folio text,

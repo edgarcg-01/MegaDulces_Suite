@@ -213,8 +213,9 @@ import { EntradasService, EntradaRow, EntradasReport, RemisionOcr, ProofFile, En
         </p-table>
         <div class="cb-detail-total">
           <span class="muted">{{ d.lineas.length }} renglones</span>
-          <span>Σ líneas <strong>{{ money(lineasTotal(d.lineas)) }}</strong> · Kepler <strong>{{ money(d.entrada.monto) }}</strong>
-            <p-tag [value]="lineasCuadra(d) ? 'Cuadra' : ('Difiere ' + money(lineasDiff(d)))" [severity]="lineasCuadra(d) ? 'success' : 'warn'" /></span>
+          <span>Σ líneas (subtotal) <strong>{{ money(lineasTotal(d.lineas)) }}</strong> · Total doc <strong>{{ money(d.entrada.monto) }}</strong>
+            @if (lineasCuadra(d)) { <p-tag value="Cuadra (sin IVA)" severity="success" /> }
+            @else { <p-tag [value]="'IVA/dif ' + money(lineasDiff(d))" severity="info" /> }</span>
         </div>
       }
     </p-dialog>

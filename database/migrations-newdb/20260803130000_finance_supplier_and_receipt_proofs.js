@@ -10,8 +10,9 @@
  *        · analytics.erp_supplier_payments   (espejo XD2501)
  *        · finance.supplier_payment_proofs    (adjunto + OCR + validación)
  *
- *   2) ORDEN DE ENTRADA (recepción de mercancía) — documento Kepler `X-A-40`
- *      ("EntryOr1", la que suma inventario), enriquecida con su vale `X-A-37`
+ *   2) ORDEN DE ENTRADA (recepción de mercancía) — documento Kepler `X-A-20`
+ *      (`XA2001` "ApEntOr1" / "Aplica Orden Entrada"): el doc que el proveedor firma
+ *      y al que se adjunta la remisión (c16 = total con IVA), enriquecido con su vale `X-A-37`
  *      (RFC + razón social + folio de la OC). Evidencia = remisión/factura del
  *      proveedor (OCR propio de remisión).
  *        · analytics.erp_goods_receipts       (espejo X-A-40 ⋈ X-A-37)
@@ -102,14 +103,14 @@ exports.up = async function (knex) {
   }
 
   // ── 2) ORDEN DE ENTRADA (recepción) ────────────────────────────────────
-  // Espejo read-only de las órdenes de entrada de Kepler (X-A-40 ⋈ vale X-A-37).
+  // Espejo read-only de las órdenes de entrada de Kepler (XA2001 "Aplica Orden Entrada").
   if (!(await knex.schema.withSchema('analytics').hasTable('erp_goods_receipts'))) {
     await knex.raw(`
       CREATE TABLE analytics.erp_goods_receipts (
         tenant_id        uuid NOT NULL,
         sucursal         text NOT NULL,            -- kdm1.c1 (00 = CEDIS centraliza compras)
-        folio            text NOT NULL,            -- orden de entrada kdm1.c6 (único en XA4001)
-        doc_prefix       text NOT NULL DEFAULT 'XA4001',  -- EntryOr1 / X-A-40 "Orden de entrada"
+        folio            text NOT NULL,            -- kdm1.c6 (único en XA2001; NO entre doctypes)
+        doc_prefix       text NOT NULL DEFAULT 'XA2001',  -- ApEntOr1 / X-A-20 "Aplica Orden Entrada"
         receipt_date     date,                     -- kdm1.c9
         proveedor_code   text,                     -- kdm1.c10
         proveedor_nombre text,                     -- vale.c32 (razón social completa) ?? oe.c32
