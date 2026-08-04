@@ -255,9 +255,10 @@ export class MovementsExportService {
     const wt = wb.addWorksheet('Traspasos', { properties: { tabColor: { argb: 'FFF8B400' } } });
     wt.columns = [
       { width: 15 }, { width: 17 }, { width: 13 }, { width: 12 }, { width: 11 },
-      { width: 17 }, { width: 14 }, { width: 13 }, { width: 11 }, { width: 11 },
+      { width: 14 }, { width: 17 }, { width: 14 }, { width: 13 }, { width: 11 }, { width: 11 },
     ] as any;
-    this.masthead(wt, 10, 'MEGA DULCES  ·  VALIDACIÓN DE TRASPASOS',
+    const valEnviado = data.transfers.reduce((a, r) => a + (Number(r.amount) || 0), 0);
+    this.masthead(wt, 11, 'MEGA DULCES  ·  VALIDACIÓN DE TRASPASOS',
       `Salida ↔ recepción   ·   Periodo ${period}   ·   Generado el ${stamp}`);
     this.kpiBand(wt, [
       { label: 'Recibidos OK', value: tc['ok'], numFmt: '#,##0', color: C.okFg },
@@ -269,31 +270,61 @@ export class MovementsExportService {
         value: data.transfers.reduce((a, r) => a + (Number(r.delta) || 0), 0),
         numFmt: '+#,##0;[Red]-#,##0;0', color: C.ink,
       },
+      { label: 'Valor enviado', value: valEnviado, numFmt: '"$"#,##0', color: C.ink },
     ]);
+    // Valor = importe de lo enviado (Σ importe de las líneas del TrsfShip, a costo de origen).
     this.tableHeader(wt,
-      ['Estado', 'Origen', 'Folio salida', 'Fecha salida', 'Enviadas', 'Destino', 'Folio recepción', 'Fecha recepción', 'Recibidas', 'Δ piezas'],
-      [5, 9, 10]);
+      ['Estado', 'Origen', 'Folio salida', 'Fecha salida', 'Enviadas', 'Valor', 'Destino', 'Folio recepción', 'Fecha recepción', 'Recibidas', 'Δ piezas'],
+      [5, 6, 10, 11]);
 
     for (const r of data.transfers) {
       const row = wt.addRow([
         '', r.origin_wh || '—', r.origin_folio || '—', this.asDate(r.ship_date),
-        r.qty_sent != null ? Number(r.qty_sent) : null, r.dest_wh || '—', r.rcv_folio || '—',
+        r.qty_sent != null ? Number(r.qty_sent) : null,
+        r.amount != null ? Number(r.amount) : null,
+        r.dest_wh || '—', r.rcv_folio || '—',
         this.asDate(r.rcv_date), r.qty_received != null ? Number(r.qty_received) : null,
         Number(r.delta) || 0,
       ]);
       row.eachCell({ includeEmpty: true }, (cell) => this.baseCell(cell));
       this.sevCell(row.getCell(1), r.status);
       row.getCell(3).font = { name: 'Consolas', size: 9, color: { argb: C.ink } };
-      row.getCell(7).font = { name: 'Consolas', size: 9, color: { argb: C.ink } };
+      row.getCell(8).font = { name: 'Consolas', size: 9, color: { argb: C.ink } };
       row.getCell(4).numFmt = 'dd/mm/yyyy';
-      row.getCell(8).numFmt = 'dd/mm/yyyy';
+      row.getCell(9).numFmt = 'dd/mm/yyyy';
       row.getCell(5).numFmt = '#,##0.00';
-      row.getCell(9).numFmt = '#,##0.00';
-      const delta = row.getCell(10);
+      row.getCell(6).numFmt = '"$"#,##0.00';
+      row.getCell(10).numFmt = '#,##0.00';
+      const delta = row.getCell(11);
       delta.numFmt = '+#,##0.00;-#,##0.00;"—"';
       if (Number(r.delta)) delta.font = { size: 10, bold: true, color: { argb: C.badFg } };
     }
-    if (!data.transfers.length) {
+    const lastTrRow = wt.rowCount;
+    if (data.transfers.length) {
+      // Data bar en Valor: ubicar los traspasos de mayor monto de un vistazo.
+      if (lastTrRow >= 9) {
+        wt.addConditionalFormatting({
+          ref: `F9:F${lastTrRow}`,
+          rules: [{
+            type: 'dataBar', priority: 1, gradient: false,
+            cfvo: [{ type: 'min' }, { type: 'max' }], color: { argb: C.bar },
+          } as any],
+        });
+      }
+      const sumEnv = data.transfers.reduce((a, r) => a + (Number(r.qty_sent) || 0), 0);
+      const sumRcv = data.transfers.reduce((a, r) => a + (Number(r.qty_received) || 0), 0);
+      const sumDelta = data.transfers.reduce((a, r) => a + (Number(r.delta) || 0), 0);
+      const tt = wt.addRow(['TOTAL', '', '', '', sumEnv, valEnviado, '', '', '', sumRcv, sumDelta]);
+      tt.eachCell({ includeEmpty: true }, (cell) => {
+        cell.font = { size: 10, bold: true, color: { argb: C.ink } };
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: C.sand } };
+        cell.border = { top: { style: 'medium', color: { argb: C.dark } } };
+      });
+      tt.getCell(5).numFmt = '#,##0.00';
+      tt.getCell(6).numFmt = '"$"#,##0.00';
+      tt.getCell(10).numFmt = '#,##0.00';
+      tt.getCell(11).numFmt = '+#,##0.00;-#,##0.00;"—"';
+    } else {
       const n = wt.addRow(['Sin traspasos en el rango.']);
       n.getCell(1).font = { size: 10, italic: true, color: { argb: C.mute } };
     }
@@ -367,9 +398,11 @@ export class MovementsExportService {
       <td>${pill(d.transfer_status)}</td><td>${d.audited ? '<span class="aud">✓ Sí</span>' : '<span class="mut">Pendiente</span>'}</td></tr>`;
     }).join('');
 
+    const valEnviado = data.transfers.reduce((a, r) => a + (Number(r.amount) || 0), 0);
     const trRows = data.transfers.map((r) => `
       <tr><td>${pill(r.status)}</td>
       <td>${esc(r.origin_wh || '—')}</td><td class="mono">${esc(r.origin_folio || '—')}</td><td>${dmy(r.ship_date)}</td><td class="num">${num(r.qty_sent)}</td>
+      <td class="num">${r.amount != null ? money(r.amount, 2) : '—'}</td>
       <td>${esc(r.dest_wh || '—')}</td><td class="mono">${esc(r.rcv_folio || '—')}</td><td>${dmy(r.rcv_date)}</td><td class="num">${num(r.qty_received)}</td>
       <td class="num ${Number(r.delta) ? 'delta' : ''}">${Number(r.delta) ? (Number(r.delta) > 0 ? '+' : '') + num(r.delta) : '—'}</td></tr>`).join('');
 
@@ -470,8 +503,10 @@ export class MovementsExportService {
         <span class="cnt">${num(data.transfers.length)} traspasos</span>
       </div>
       <table><thead><tr><th>Estado</th><th>Origen</th><th>Folio salida</th><th>Fecha salida</th><th class="num">Enviadas</th>
-      <th>Destino</th><th>Folio recepción</th><th>Fecha recepción</th><th class="num">Recibidas</th><th class="num">Δ piezas</th></tr></thead>
-      <tbody>${trRows || '<tr><td colspan="10" class="empty">Sin traspasos en el rango.</td></tr>'}</tbody></table>
+      <th class="num">Valor</th><th>Destino</th><th>Folio recepción</th><th>Fecha recepción</th><th class="num">Recibidas</th><th class="num">Δ piezas</th></tr></thead>
+      <tbody>${trRows || '<tr><td colspan="11" class="empty">Sin traspasos en el rango.</td></tr>'}
+      ${trRows ? `<tr class="tot"><td colspan="5">TOTAL</td><td class="num">${money(valEnviado, 2)}</td><td colspan="5"></td></tr>` : ''}
+      </tbody></table>
 
     </body></html>`;
   }
