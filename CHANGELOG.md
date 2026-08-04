@@ -10,6 +10,13 @@
 
 ## [Unreleased]
 
+### Fixed — Pago a proveedor: multi-método `XD2601` transferencia + `XD2501` cheque (era solo XD2501) (2026-08-04)
+- Un **comprobante BBVA real** (transferencia a GRUPO CONVERMEX $150,621.50) reveló que el espejo de pagos leía el **doctype incompleto**. Decode en vivo: **`c31` = forma de pago** → `XD2601` = **transferencia** (16,164 docs / $338M) y `XD2501` = **cheque** (623 docs / $42.5M). El importer solo leía `XD2501` (cheques) → se perdía el **96%** (todas las transferencias). El mismo proveedor se paga por ambos métodos, así que el split no es por proveedor.
+- El espejo ahora lee **ambos doctypes**, filtrado a `c10 LIKE 'C%'` (proveedor de compra; excluye nómina `GN`, caja chica `GG`, banco `GB`, gastos → dominio Egresos/GX), y etiqueta `metodo_pago`. **`doc_prefix` entra en la PK** porque el folio **no es único entre doctypes** (623 folios existen en XD2501 **y** XD2601) — misma lección que XA2001.
+- Mig `20260804120000` (aditiva: `metodo_pago` + reescritura de PK a `(tenant, sucursal, doc_prefix, folio)` + snapshot `doc_prefix`/`metodo_pago` en `finance.supplier_payment_proofs`). Backend (list/attach/detail desambiguan por `doc_prefix`) + frontend (`/finanzas/pagos-comprobantes` con columna **Método**). Importer con `--reset`.
+- **Verificado:** MONDELEZ 0016183 = $914,850.29 (transferencia) y CONVERMEX presentes; folios compartidos coexisten sin colisión de PK. Smoke `test-newdb-supplier-receipt-proofs` **42/42**. Builds api+view verdes.
+- **PROD (Railway):** mig batch **157** + importer repoblado (**619 → 3,882** pagos: 3,688 transferencia / 194 cheque, $334M) + push `5dc4870e` → redeploy. **Pendiente:** re-login (perms `FINANCE_PAYMENTS_*` en JWT). Nota: el ANTICIPO de CONVERMEX específico aún no está en Kepler (posteo pendiente); aparece al correr el importer tras el posteo.
+
 ### Fixed — Órdenes de entrada: doctype correcto `XA2001` "Aplica Orden Entrada" (era XA4001) (2026-08-03)
 - Un **documento real** (GRUPO LEVI 0008231) reveló que el espejo estaba en el **doctype equivocado**. Hallazgo clave: el folio de Kepler **NO es único entre doctypes** — `XA4001` ("Orden de entrada", mueve inventario) y `XA2001` ("Aplica Orden Entrada") comparten el mismo folio para transacciones DISTINTAS. Ej.: folio 0008231 = GRUPO LEVI $827 en `XA2001` pero GONAC/KIUBO $22,947 en `XA4001`.
 - El documento que se digitaliza y firma (y al que se adjunta la remisión) es la **`XA2001`**: su `c16` es el TOTAL con IVA (= total de la remisión, así el **cuadre del OCR funciona**) y genera la póliza de compra (511/201/122). El usuario ya lo había dicho ("**aplicación** de órdenes de entrada" = "Aplica Orden Entrada").
