@@ -92,10 +92,14 @@ async function push(tickets, emit = true) {
   let inserted = 0;
   for (let i = 0; i < tickets.length; i += CHUNK) {
     const batch = tickets.slice(i, i + CHUNK);
+    // TIMEOUT obligatorio: sin él, un 502/hang de Railway deja el fetch colgado para
+    // siempre → el await nunca resuelve → el guard `running` queda atascado en true →
+    // el poller se congela mudo (proceso vivo pero sin tickear). Visto 2026-08-04.
     const res = await fetch(INGEST_URL, {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'x-store-ingest-key': INGEST_KEY },
       body: JSON.stringify({ tickets: batch, emit }),
+      signal: AbortSignal.timeout(20000),
     });
     if (!res.ok) throw new Error(`ingest ${res.status}: ${(await res.text()).slice(0, 120)}`);
     const r = await res.json();
@@ -109,23 +113,33 @@ let first = true; // primer ciclo = backfill del día completo (silencioso, sin 
 async function tick() {
   if (running) return; // evita solape si un ciclo tarda más que el intervalo
   running = true;
-  const backfill = first;
-  const since = backfill ? startOfTodayMX() : sinceLocalMX(WINDOW_MIN);
-  let total = 0, ins = 0;
-  for (const b of BRANCHES) {
-    try {
-      const tickets = await pollBranch(b, since);
-      // backfill: emit=false (el navegador lo trae vía snapshot, sin inundar el WS).
-      if (tickets.length) { const r = await push(tickets, !backfill); total += tickets.length; ins += (r.inserted || 0); }
-    } catch (e) { console.log(`⚠️  ${b.db}: ${e.message.split('\n')[0]}`); }
+  // finally OBLIGATORIO: garantiza que `running` se libere pase lo que pase (throw o
+  // no). Sin esto, un error fuera del try por-rama dejaba el guard atascado en true y
+  // el poller se congelaba. Combinado con el timeout de fetch, ya no puede colgarse.
+  try {
+    const backfill = first;
+    const since = backfill ? startOfTodayMX() : sinceLocalMX(WINDOW_MIN);
+    let total = 0, ins = 0;
+    for (const b of BRANCHES) {
+      try {
+        const tickets = await pollBranch(b, since);
+        // backfill: emit=false (el navegador lo trae vía snapshot, sin inundar el WS).
+        if (tickets.length) { const r = await push(tickets, !backfill); total += tickets.length; ins += (r.inserted || 0); }
+      } catch (e) { console.log(`⚠️  ${b.db}: ${e.message.split('\n')[0]}`); }
+    }
+    if (total || backfill) {
+      const tag = backfill ? `BACKFILL día≥${since}` : `ventana≥${since}`;
+      console.log(`[${new Date().toISOString()}] ${tag} · ${total} tickets vistos · ${ins} nuevos${backfill ? ' (buffer)' : ' → WS'}`);
+    }
+    first = false;
+  } finally {
+    running = false;
   }
-  if (total || backfill) {
-    const tag = backfill ? `BACKFILL día≥${since}` : `ventana≥${since}`;
-    console.log(`[${new Date().toISOString()}] ${tag} · ${total} tickets vistos · ${ins} nuevos${backfill ? ' (buffer)' : ' → WS'}`);
-  }
-  first = false;
-  running = false;
 }
+
+// No dejar que un rechazo/excepción no manejada tumbe o mudee el loop en silencio.
+process.on('unhandledRejection', (e) => console.log(`⚠️  unhandledRejection: ${(e && e.message) || e}`));
+process.on('uncaughtException', (e) => console.log(`⚠️  uncaughtException: ${(e && e.message) || e}`));
 
 console.log(`Tienda live poller — ${DRY ? 'DRY-RUN (1 ciclo, sin push)' : `cada ${POLL_MS / 1000}s, ventana ${WINDOW_MIN}min → ${INGEST_URL}`}`);
 if (DRY) {
