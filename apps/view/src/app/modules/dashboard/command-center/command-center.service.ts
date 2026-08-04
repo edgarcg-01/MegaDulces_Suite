@@ -48,6 +48,9 @@ export interface SalesByBrandRow {
   brand_name: string;
   units: number;
   revenue: number;
+  cost?: number;
+  margin?: number;
+  margin_pct?: number;
   share_pct: number;
 }
 
@@ -90,6 +93,9 @@ export interface RefreshResponse {
 export interface NetworkChannelRow {
   channel: string;
   revenue: number;
+  cost?: number;
+  margin?: number;
+  margin_pct?: number;
   units: number;
   tickets: number;
   share_pct: number;
@@ -98,7 +104,8 @@ export interface NetworkChannelRow {
 export interface NetworkOverviewResponse {
   source: 'network';
   updated_at: string | null;
-  period: { rolling_days: number };
+  period: { rolling_days: number; last_sale_date?: string | null };
+  cost_coverage_pct?: number;
   revenue: { gross: number; cost: number; margin: number; margin_pct: number; currency: string };
   units: number;
   tickets: number;
@@ -115,6 +122,9 @@ export interface NetworkTopProductRow {
   brand_name: string;
   units_sold: number;
   revenue: number;
+  cost?: number;
+  margin?: number;
+  margin_pct?: number;
   abc_class: string | null;
   share_pct: number;
   rank_by_revenue: number;

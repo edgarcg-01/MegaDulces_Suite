@@ -7,9 +7,14 @@
     <div class="surf-page-head-text">
       <h1>Centro de control</h1>
       <p class="surf-page-sub">
-        Venta real de la red · últimos 30 días
-        @if (overview()?.updated_at; as u) {
+        Venta real de la red · <strong>últimos 30 días</strong> (móvil, no el mes)
+        @if (overview()?.period?.last_sale_date; as d) {
+          <span class="comm-muted is-small">· datos al {{ fmtDate(d) }}</span>
+        } @else if (overview()?.updated_at; as u) {
           <span class="comm-muted is-small">· datos al {{ fmtDate(u) }}</span>
+        }
+        @if (overview()?.cost_coverage_pct != null) {
+          <span class="comm-muted is-small">· costo cubierto {{ fmtNumber(overview()?.cost_coverage_pct, 1) }}%</span>
         }
       </p>
     </div>
@@ -163,7 +168,7 @@
                 <span class="cc-brand-name">{{ channelLabel(c.channel) }}</span>
                 <span class="cc-brand-share">
                   <b>{{ fmtNumber(c.share_pct, 1) }}%</b>
-                  <span class="comm-muted is-small">{{ fmtMoneyShort(c.revenue) }} · {{ fmtNumber(c.tickets) }} tickets</span>
+                  <span class="comm-muted is-small">{{ fmtMoneyShort(c.revenue) }} · {{ fmtNumber(c.tickets) }} tickets@if (c.margin_pct != null) { · margen {{ fmtNumber(c.margin_pct, 1) }}% }</span>
                 </span>
               </div>
               <div class="cc-bar" [style.--pct]="c.share_pct + '%'">
@@ -251,7 +256,7 @@
                 </span>
                 <span class="cc-brand-share">
                   <b>{{ fmtNumber(b.share_pct, 1) }}%</b>
-                  <span class="comm-muted is-small">{{ fmtMoneyShort(b.revenue) }}</span>
+                  <span class="comm-muted is-small">{{ fmtMoneyShort(b.revenue) }}@if (b.margin_pct != null) { · margen {{ fmtNumber(b.margin_pct, 1) }}% }</span>
                 </span>
               </div>
               <div class="cc-bar" [style.--pct]="b.share_pct + '%'">
@@ -285,6 +290,7 @@
                 <th scope="col">Producto</th>
                 <th scope="col" class="num">Unidades</th>
                 <th scope="col" class="num">Ventas</th>
+                <th scope="col" class="num">Margen</th>
               </tr>
             </thead>
             <tbody>
@@ -313,11 +319,17 @@
                     <div class="strong">{{ fmtMoney(r.revenue) }}</div>
                     <div class="muted small">{{ fmtNumber(topShareProduct(r.revenue), 1) }}%</div>
                   </td>
+                  <td class="num">
+                    @if (r.margin_pct != null) {
+                      <div class="strong">{{ fmtNumber(r.margin_pct, 1) }}%</div>
+                      <div class="muted small">{{ fmtMoneyShort(r.margin) }}</div>
+                    } @else { <span class="muted">—</span> }
+                  </td>
                 </tr>
               }
               @if (topProducts().length === 0) {
                 <tr>
-                  <td colspan="4" class="cc-table-empty">
+                  <td colspan="5" class="cc-table-empty">
                     <i class="pi pi-box"></i>Sin venta real en el período
                   </td>
                 </tr>
