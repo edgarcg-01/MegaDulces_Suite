@@ -27,6 +27,8 @@ import { TiendaStateService } from '../tienda-state.service';
     .lever .lv-k { font-size:.56rem; text-transform:uppercase; letter-spacing:.04em; color:var(--text-faint); white-space:nowrap; }
     /* Valor real de la palanca (tickets / $ por ticket / prod por ticket) — color neutro, el número manda. */
     .lever .lv-i { font-family:var(--font-mono); font-variant-numeric:tabular-nums; font-size:.74rem; font-weight:700; color:var(--text-main); }
+    /* Segunda métrica (solo Prod/tkt): artículos distintos por ticket. */
+    .lever .lv-sub { font-family:var(--font-mono); font-variant-numeric:tabular-nums; font-size:.58rem; color:var(--text-faint); margin-top:.05rem; }
     .coach { display:flex; align-items:center; gap:.35rem; margin-top:.45rem; font-size:.72rem; color:var(--action); font-weight:600; }
     .coach i { font-size:.7rem; } .coach .g { margin-left:auto; color:var(--text-muted); font-weight:700; font-variant-numeric:tabular-nums; }
     .tda-offline { display:flex; align-items:center; gap:.5rem; background:var(--bad-soft-bg); color:var(--bad-soft-fg);
@@ -95,6 +97,7 @@ import { TiendaStateService } from '../tienda-state.service';
                 <div class="lever">
                   <span class="lv-k">{{ lv.short }}</span>
                   <span class="lv-i">{{ fmtLever(lv) }}</span>
+                  @if (lv.sub != null) { <span class="lv-sub">{{ fmtSub(lv) }}</span> }
                 </div>
               }
             </div>
@@ -179,8 +182,13 @@ export class TiendaLiveComponent implements OnInit, OnDestroy {
   /** Valor real de la palanca de la tienda, formateado por tipo (no el % vs red). */
   fmtLever(lv: { key: string; value: number }): string {
     if (lv.key === 'ticketProm') return '$' + Math.round(lv.value).toLocaleString('es-MX');
-    if (lv.key === 'unitsPerTicket') return lv.value.toFixed(1);
+    if (lv.key === 'unitsPerTicket') return lv.value.toFixed(1) + ' pz'; // piezas totales/ticket
     return Math.round(lv.value).toLocaleString('es-MX'); // tickets = entero
+  }
+
+  /** Segunda métrica del chip Prod/tkt: artículos distintos por ticket. */
+  fmtSub(lv: { sub: number | null }): string {
+    return lv.sub != null ? lv.sub.toFixed(1) + ' art.' : '';
   }
 
   /** Etiqueta de antigüedad para el banner de sin-conexión. */
