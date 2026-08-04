@@ -212,7 +212,7 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
                                 <thead><tr>
                                   <th>Sucursal</th><th>Acción</th>
                                   <th class="pr-r" title="Cobertura (compra) · déficit (traspaso) · días en mano (sobrestock)">Señal</th>
-                                  <th class="pr-r">Exist.</th><th class="pr-r">Cant. ({{ unitLabelShort(r.product_id) }}) ✎</th><th class="pr-r">Piezas</th><th class="pr-r">Costo</th><th class="pr-r">Valor</th>
+                                  <th class="pr-r">Exist.</th><th class="pr-r">Cant. ({{ unitLabelShort(r.product_id) }}) ✎</th><th class="pr-r" title="Equivalente TOTAL en piezas de lo pedido (cajas × piezas por caja). No es la unidad de captura — esa es la columna Cant.">= Piezas</th><th class="pr-r">Costo</th><th class="pr-r">Valor</th>
                                 </tr></thead>
                                 <tbody>
                                   @for (u of urows; track u.type + ':' + u.warehouse_code) {
