@@ -2197,7 +2197,7 @@ export class CommercialAnalyticsService {
 
     // Paso 1 y 2 — marca + agregación desde analytics.sales_daily (misma DB,
     // alimentada por el cron on-prem import-sales-fact.js). Tenant-scoped.
-    const { brand, products, raw, retail } = await this.tk.run(async (trx) => {
+    const { brand, products, raw, retail, boxFactors } = await this.tk.run(async (trx) => {
       const b = brandId
         ? await trx('catalog.brands as b')
             .where('b.id', brandId)
@@ -2286,6 +2286,7 @@ export class CommercialAnalyticsService {
             })
             .andWhere('sd.sale_date', '>=', from)
             .andWhere('sd.sale_date', '<=', to)
+            .andWhereRaw(`sd.sale_date <= (now() AT TIME ZONE 'America/Mexico_City')::date`) // nunca fechas futuras (montos)
             .modify((qb) => { if (warehouseFilter) qb.whereIn('w.code', warehouseFilter); })
             .modify((qb) => { if (needMonth) qb.select(trx.raw(`to_char(sd.sale_date, 'YYYY-MM') as sale_month`)); })
             .select(
@@ -2390,6 +2391,16 @@ export class CommercialAnalyticsService {
 
       const rawRows: any[] = [...keplerRows, ...wincajaRows];
 
+      // RA-PRO.38 — factor de caja desde el RESOLVEDOR CANÓNICO (misma verdad que compras):
+      // un solo fetch por los productos del período; el pivot divide con esto (no con factor_sale).
+      const pids = [...new Set(rawRows.map((r) => r.product_id).filter(Boolean))];
+      const boxFactors = pids.length
+        ? await trx('analytics.v_product_box_factor')
+            .where('tenant_id', tenantId)
+            .whereIn('product_id', pids)
+            .select('product_id', 'box_factor')
+        : [];
+
       // Sucursales con venta (cualquier marca) en el periodo — para cobertura.
       const retailRows = await trx('analytics.sales_daily as sd')
         .join('commercial.warehouses as w', 'w.id', 'sd.warehouse_id')
@@ -2400,8 +2411,12 @@ export class CommercialAnalyticsService {
         .distinct('w.name as name')
         .orderBy('w.name');
 
-      return { brand: b, products: ps, raw: rawRows, retail: retailRows.map((r: any) => r.name) };
+      return { brand: b, products: ps, raw: rawRows, retail: retailRows.map((r: any) => r.name), boxFactors };
     });
+    // RA-PRO.38 — mapa product_id → factor de caja canónico (resolvedor único).
+    const boxFactorMap = new Map<string, number>(
+      boxFactors.map((b: any) => [b.product_id, Number(b.box_factor) || 1]),
+    );
 
     const base: Omit<SellOutReport, 'coverage'> = {
       brand: { id: brand.id, nombre: brand.nombre, code: brand.code ?? null },
@@ -2439,9 +2454,11 @@ export class CommercialAnalyticsService {
       // RS.3 — producto de PESO: units ya está en kg → NO se divide (mostrar kg). Producto
       // de PIEZA: units son piezas → cajas = piezas / (factor_sale, o box_size si factor=1).
       const isWeight = r.unit_kind === 'weight';
+      // RA-PRO.38 — divisor = factor de caja del resolvedor canónico (v_product_box_factor).
+      // Fallback a la vieja lógica solo si el producto no estuviera en la vista (no debería).
       const fs = Number(r.factor_sale);
       const box = Number(r.box_size);
-      const divisor = fs > 1 ? fs : (box > 1 ? box : 1);
+      const divisor = boxFactorMap.get(r.product_id) ?? (fs > 1 ? fs : (box > 1 ? box : 1));
       const cajas = isWeight ? units : units / divisor;
       branchesWithData.add(r.branch_name);
 
