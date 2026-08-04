@@ -1445,6 +1445,142 @@ export class ReportsService {
   }
 
   /**
+   * Detalle de UNA visita para el diálogo del reporte por vendedor: la captura
+   * (exhibiciones + fotos + stats) + el veredicto de visión de Horus por foto.
+   * Respeta el scope (own/team/all) del solicitante — un supervisor no ve
+   * capturas fuera de su equipo. Lanza si la captura no existe o está fuera de
+   * scope (el controller lo mapea a 404/403).
+   */
+  async getVisitDetail(captureId: string, user: any) {
+    const scope = getDataScope(user || { sub: '' });
+    const tenantId =
+      user?.tenant_id || this.tenantContext?.get()?.tenantId || null;
+
+    const cap = await this.knex('daily_captures as dc')
+      .leftJoin('stores as s', 's.id', 'dc.store_id')
+      .where('dc.id', captureId)
+      .select(
+        'dc.id',
+        'dc.folio',
+        'dc.user_id',
+        'dc.captured_by_username',
+        'dc.zona_captura',
+        this.knex.raw("DATE(dc.hora_inicio AT TIME ZONE 'America/Mexico_City') as fecha"),
+        'dc.hora_inicio',
+        'dc.hora_fin',
+        'dc.exhibiciones',
+        'dc.stats',
+        this.knex.raw('COALESCE(dc.skip_scoring, false) as skip_scoring'),
+        'dc.score_final_pct',
+        this.knex.ref('s.nombre').as('store_name'),
+      )
+      .first();
+
+    if (!cap) {
+      const err: any = new Error('Visita no encontrada');
+      err.code = 'NOT_FOUND';
+      throw err;
+    }
+
+    // Scope: own solo su captura; team dentro de su equipo.
+    if (scope.type === 'own' && cap.user_id !== scope.userId) {
+      const err: any = new Error('Fuera de tu alcance');
+      err.code = 'FORBIDDEN';
+      throw err;
+    }
+    if (scope.type === 'team' && scope.userId) {
+      const teamIds = await this.getTeamIds(scope.userId);
+      if (!teamIds.includes(cap.user_id)) {
+        const err: any = new Error('Fuera de tu equipo');
+        err.code = 'FORBIDDEN';
+        throw err;
+      }
+    }
+
+    // Veredicto de visión de Horus por foto (si las tablas existen).
+    let vision: any[] = [];
+    try {
+      vision = await this.knex('commercial.capture_vision')
+        .where('capture_id', captureId)
+        .modify((qb) => {
+          if (tenantId) qb.where('tenant_id', tenantId);
+        })
+        .select(
+          'photo_key',
+          'exhibition_idx',
+          'foto_url',
+          'is_shelf',
+          'own_brand_visible',
+          'competitor_visible',
+          'shelf_quality',
+          'out_of_stock',
+          'photo_quality',
+          'mismatch',
+          'status',
+          'analyzed_at',
+        )
+        .orderBy('exhibition_idx', 'asc');
+    } catch (e: any) {
+      this.logger.warn(`capture_vision no disponible en detalle: ${e.message}`);
+    }
+
+    const parseArr = (x: any): any[] => {
+      if (Array.isArray(x)) return x;
+      if (typeof x === 'string') {
+        try {
+          const p = JSON.parse(x);
+          return Array.isArray(p) ? p : [];
+        } catch {
+          return [];
+        }
+      }
+      return [];
+    };
+    const parseObj = (x: any): any => {
+      if (x && typeof x === 'object') return x;
+      if (typeof x === 'string') {
+        try {
+          return JSON.parse(x);
+        } catch {
+          return {};
+        }
+      }
+      return {};
+    };
+
+    const exhibiciones = parseArr(cap.exhibiciones).map((e: any, idx: number) => ({
+      idx,
+      conceptoId: e?.conceptoId ?? null,
+      ubicacionId: e?.ubicacionId ?? null,
+      nivel: e?.nivelEjecucion ?? e?.nivel ?? null,
+      pertenece_mega: typeof e?.perteneceMegaDulces === 'boolean' ? e.perteneceMegaDulces : null,
+      foto_url: typeof e?.fotoUrl === 'string' && /^https:\/\//.test(e.fotoUrl) ? e.fotoUrl : null,
+      productos: parseArr(e?.productosMarcados).length || parseArr(e?.productos).length,
+      venta_total: Number(e?.ventaTotal) || 0,
+      puntos: Number(e?.puntuacionCalculada ?? e?.puntos) || 0,
+    }));
+    const stats = parseObj(cap.stats);
+
+    return {
+      id: cap.id,
+      folio: cap.folio,
+      vendedor: cap.captured_by_username,
+      zona: cap.zona_captura,
+      fecha: toMxDateKey(cap.fecha) || null,
+      hora_inicio: cap.hora_inicio,
+      hora_fin: cap.hora_fin,
+      store_name: cap.store_name || null,
+      skip_scoring: cap.skip_scoring === true,
+      score: cap.skip_scoring === true ? null : Math.round(Number(stats?.puntuacionTotal) || 0),
+      score_pct: cap.score_final_pct != null ? Number(cap.score_final_pct) : null,
+      venta_total: Number(stats?.ventaTotal) || 0,
+      total_exhibiciones: exhibiciones.length,
+      exhibiciones,
+      vision,
+    };
+  }
+
+  /**
    * Construye el HTML (imprimible A4) del reporte por vendedor con revisión
    * Horus, a partir del resultado de `getVendorVisitsReview`. Pura — sin DB.
    * El controller lo pasa a `PdfService.renderHtml`.
@@ -1455,7 +1591,12 @@ export class ReportsService {
       by_vendor: any[];
       visits: any[];
     },
-    meta: { rangeLabel?: string; generatedBy?: string; focusUserId?: string },
+    meta: {
+      rangeLabel?: string;
+      generatedBy?: string;
+      focusUserId?: string;
+      individual?: boolean;
+    },
   ): string {
     const esc = (v: unknown) =>
       String(v ?? '')
@@ -1551,38 +1692,60 @@ export class ReportsService {
       ? ''
       : '<div style="margin-top:6px;padding:6px 10px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;font-size:9px;color:#64748b">Horus no disponible en este entorno — estados sin revisión.</div>';
 
+    // Modo INDIVIDUAL: solo el vendedor enfocado (sus KPIs + su detalle), sin el
+    // resumen de toda la plantilla.
+    const individual = !!meta.individual && !!focus;
+    const title = individual
+      ? `Reporte individual — ${esc(focus.nombre)}`
+      : 'Reporte de visitas por vendedor · Revisión Horus';
+
+    const kpiBlock = individual
+      ? `<div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap">
+           ${kpi('Visitas', focus.total_visitas)}
+           ${kpi('Prom score', focus.avg_score ?? '—')}
+           ${kpi('% Válidas', (focus.pct_validas ?? 0) + '%', '#15803d')}
+           ${kpi('Válidas', focus.counts?.valida || 0, '#15803d')}
+           ${kpi('A supervisar', focus.por_supervisar || 0, '#b45309')}
+           ${kpi('Fraude', focus.fraud_flag ? 'Sí' : 'No', focus.fraud_flag ? '#b91c1c' : '#0f172a')}
+         </div>`
+      : `<div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap">
+           ${kpi('Vendedores', totVend)}
+           ${kpi('Con visitas', conVisitas, '#15803d')}
+           ${kpi('Sin visitas', sinVisitas, '#b45309')}
+           ${kpi('Visitas', totVisitas)}
+           ${kpi('% Válidas', pctValidas + '%', '#15803d')}
+           ${kpi('A supervisar', totSupervisar, '#b45309')}
+         </div>`;
+
+    const summaryTable = individual
+      ? ''
+      : `<h2 style="font-size:13px;margin:0 0 6px;color:#0f172a">Resumen por vendedor</h2>
+         <table style="width:100%;border-collapse:collapse;font-size:10px">
+           <thead><tr style="text-align:left;color:#64748b;border-bottom:1.5px solid #e2e8f0">
+             <th style="padding:4px 6px">Vendedor</th>
+             <th style="padding:4px 6px;text-align:right">Visitas</th>
+             <th style="padding:4px 6px;text-align:right">Prom</th>
+             <th style="padding:4px 6px;text-align:right">Válidas</th>
+             <th style="padding:4px 6px;text-align:right">A superv.</th>
+             <th style="padding:4px 6px;text-align:center">Estado</th>
+           </tr></thead>
+           <tbody>${vendorRows || '<tr><td colspan="6" style="padding:8px;text-align:center;color:#94a3b8">Sin vendedores en el rango.</td></tr>'}</tbody>
+         </table>`;
+
     return `<!doctype html><html><head><meta charset="utf-8">
       <style>@page{size:A4}body{font-family:'Hanken Grotesk',Arial,sans-serif;color:#0f172a;margin:0}</style>
       </head><body>
       <div style="border-bottom:2px solid #0f172a;padding-bottom:8px;margin-bottom:12px">
-        <div style="font-size:16px;font-weight:800">Reporte de visitas por vendedor · Revisión Horus</div>
+        <div style="font-size:16px;font-weight:800">${title}</div>
         <div style="font-size:10px;color:#64748b;margin-top:2px">
           Rango: <b>${esc(meta.rangeLabel || '—')}</b> · Generado: ${esc(now)}${meta.generatedBy ? ' · por ' + esc(meta.generatedBy) : ''}
         </div>
         ${horusNote}
       </div>
 
-      <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap">
-        ${kpi('Vendedores', totVend)}
-        ${kpi('Con visitas', conVisitas, '#15803d')}
-        ${kpi('Sin visitas', sinVisitas, '#b45309')}
-        ${kpi('Visitas', totVisitas)}
-        ${kpi('% Válidas', pctValidas + '%', '#15803d')}
-        ${kpi('A supervisar', totSupervisar, '#b45309')}
-      </div>
+      ${kpiBlock}
 
-      <h2 style="font-size:13px;margin:0 0 6px;color:#0f172a">Resumen por vendedor</h2>
-      <table style="width:100%;border-collapse:collapse;font-size:10px">
-        <thead><tr style="text-align:left;color:#64748b;border-bottom:1.5px solid #e2e8f0">
-          <th style="padding:4px 6px">Vendedor</th>
-          <th style="padding:4px 6px;text-align:right">Visitas</th>
-          <th style="padding:4px 6px;text-align:right">Prom</th>
-          <th style="padding:4px 6px;text-align:right">Válidas</th>
-          <th style="padding:4px 6px;text-align:right">A superv.</th>
-          <th style="padding:4px 6px;text-align:center">Estado</th>
-        </tr></thead>
-        <tbody>${vendorRows || '<tr><td colspan="6" style="padding:8px;text-align:center;color:#94a3b8">Sin vendedores en el rango.</td></tr>'}</tbody>
-      </table>
+      ${summaryTable}
 
       ${detailSection}
 

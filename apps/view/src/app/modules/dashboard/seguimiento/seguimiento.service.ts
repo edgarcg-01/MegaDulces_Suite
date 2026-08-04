@@ -98,6 +98,53 @@ export interface VendorReviewFilters {
   horusStatus?: string;
   /** Solo PDF: vendedor cuyo detalle de visitas se incluye. */
   focusUserId?: string;
+  /** Solo PDF: 'true' = reporte individual (solo focusUserId). */
+  individual?: string;
+}
+
+export interface VisitDetailExhibition {
+  idx: number;
+  conceptoId: string | null;
+  ubicacionId: string | null;
+  nivel: string | null;
+  pertenece_mega: boolean | null;
+  foto_url: string | null;
+  productos: number;
+  venta_total: number;
+  puntos: number;
+}
+
+export interface VisitVisionVerdict {
+  photo_key: string;
+  exhibition_idx: number;
+  foto_url: string | null;
+  is_shelf: boolean | null;
+  own_brand_visible: boolean | null;
+  competitor_visible: boolean | null;
+  shelf_quality: number | null;
+  out_of_stock: boolean | null;
+  photo_quality: string | null;
+  mismatch: boolean | null;
+  status: string;
+  analyzed_at: string | null;
+}
+
+export interface VisitDetail {
+  id: string;
+  folio: string;
+  vendedor: string;
+  zona: string | null;
+  fecha: string | null;
+  hora_inicio: string;
+  hora_fin: string | null;
+  store_name: string | null;
+  skip_scoring: boolean;
+  score: number | null;
+  score_pct: number | null;
+  venta_total: number;
+  total_exhibiciones: number;
+  exhibiciones: VisitDetailExhibition[];
+  vision: VisitVisionVerdict[];
 }
 
 @Injectable({ providedIn: 'root' })
@@ -158,6 +205,13 @@ export class SeguimientoService {
     return this.http.get(
       `${environment.apiUrl}/reports/vendor-visits-review/pdf`,
       { params: params as Record<string, string>, responseType: 'blob' },
+    );
+  }
+
+  /** Detalle de una visita (exhibiciones + fotos + venta + veredicto Horus). */
+  getVisitDetail(id: string): Observable<VisitDetail> {
+    return this.http.get<VisitDetail>(
+      `${environment.apiUrl}/reports/vendor-visits-review/visit/${id}`,
     );
   }
 }
