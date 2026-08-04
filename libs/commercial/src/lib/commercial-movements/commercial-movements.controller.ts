@@ -40,6 +40,11 @@ export class CommercialMovementsController {
   @ApiOperation({ summary: 'Vista agregada (DEFAULT). group_by=product|doc_code|day|warehouse. Cada fila: entradas/salidas/neto/valor/lineas/documentos.' })
   aggregate(@Query() raw: Record<string, string>) { return this.svc.aggregate(this.q(raw)); }
 
+  // DEBUG TEMPORAL (DM) — muestra el SQL de destino que genera el código desplegado. Borrar tras diagnosticar.
+  @Get('_debug-dest')
+  @RequirePermissions(Permission.COMMERCIAL_MOVEMENTS_VER)
+  debugDest(@Query() raw: Record<string, string>) { return this.svc.debugDest(this.q(raw)); }
+
   @Get('lines')
   @RequirePermissions(Permission.COMMERCIAL_MOVEMENTS_VER)
   @ApiOperation({ summary: 'Drill folio a folio (line-level) de una rama. Filtros: product_id, doc_code, movement_kind, warehouse_id(s), from, to.' })
