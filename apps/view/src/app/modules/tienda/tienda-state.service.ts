@@ -198,10 +198,12 @@ export class TiendaStateService {
       ticketProm: net.ticketProm ? ticketProm / net.ticketProm : 1,
       unitsPerTicket: net.unitsPerTicket ? unitsPerTicket / net.unitsPerTicket : 1,
     };
+    // `sub` = segunda métrica del chip (solo Prod/tkt la usa: artículos distintos por ticket,
+    // vs `value` que son piezas totales). null = el chip muestra un solo número.
     const items = [
-      { key: 'tickets', label: 'Tickets', short: 'Tickets', value: tickets, idx: idx.tickets },
-      { key: 'ticketProm', label: 'Ticket promedio', short: '$/tkt', value: ticketProm, idx: idx.ticketProm },
-      { key: 'unitsPerTicket', label: 'Productos/ticket', short: 'Prod/tkt', value: unitsPerTicket, idx: idx.unitsPerTicket },
+      { key: 'tickets', label: 'Tickets', short: 'Tickets', value: tickets, idx: idx.tickets, sub: null as number | null },
+      { key: 'ticketProm', label: 'Ticket promedio', short: '$/tkt', value: ticketProm, idx: idx.ticketProm, sub: null as number | null },
+      { key: 'unitsPerTicket', label: 'Productos/ticket', short: 'Prod/tkt', value: unitsPerTicket, idx: idx.unitsPerTicket, sub: linesPerTicket as number | null },
     ];
     const weakest = items.reduce((m, e) => (e.idx < m.idx ? e : m), items[0]);
     // gap vs red en % (negativo = por debajo)
