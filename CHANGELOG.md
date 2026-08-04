@@ -10,6 +10,11 @@
 
 ## [Unreleased]
 
+### Fixed — Pago a proveedor: agregar anticipos `XD6001` (el comprobante que "no aparecía") (2026-08-04)
+- El comprobante BBVA de CONVERMEX ($150,621.50) **no aparecía en prod** porque los **anticipos a proveedor son un TERCER doctype**, `XD6001` (`c31='Ant'`), no `XD2601`/`XD2501`. Mapa completo verificado de los X-D-*: **XD6001 = anticipo** (sí es dinero que sale, 147 docs/$11.8M) ↔ `XD5501`=nota de crédito/devolución, `XD4001`=devolución, `XD1001`=solicitud ($0) **no son pago** (excluidos).
+- Importer ahora lee `c4 IN (25,26,60)` con `metodo_pago = transferencia|cheque|anticipo`; sin migración (el schema ya soporta `doc_prefix`/`metodo_pago` libres). UI muestra **"Anticipo"** en la columna Método. Además, **default limit 300→500** (las transferencias más viejas de un proveedor caían fuera del top-300 por fecha; la búsqueda igual las encuentra).
+- **PROD:** importer repoblado (**3,882 → 4,010** pagos, +128 anticipos) + push `cb78df92` → redeploy. Verificado: anticipo CONVERMEX XD6001 $150,621.50 presente. Smoke `test-newdb-supplier-receipt-proofs` **44/44**. Builds api+view verdes.
+
 ### Fixed — Pago a proveedor: multi-método `XD2601` transferencia + `XD2501` cheque (era solo XD2501) (2026-08-04)
 - Un **comprobante BBVA real** (transferencia a GRUPO CONVERMEX $150,621.50) reveló que el espejo de pagos leía el **doctype incompleto**. Decode en vivo: **`c31` = forma de pago** → `XD2601` = **transferencia** (16,164 docs / $338M) y `XD2501` = **cheque** (623 docs / $42.5M). El importer solo leía `XD2501` (cheques) → se perdía el **96%** (todas las transferencias). El mismo proveedor se paga por ambos métodos, así que el split no es por proveedor.
 - El espejo ahora lee **ambos doctypes**, filtrado a `c10 LIKE 'C%'` (proveedor de compra; excluye nómina `GN`, caja chica `GG`, banco `GB`, gastos → dominio Egresos/GX), y etiqueta `metodo_pago`. **`doc_prefix` entra en la PK** porque el folio **no es único entre doctypes** (623 folios existen en XD2501 **y** XD2601) — misma lección que XA2001.
