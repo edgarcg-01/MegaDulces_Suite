@@ -33,7 +33,19 @@ Un cliente a crédito paga con transferencia/depósito y manda la ficha. Hoy esa
 | CC.0 Fundación (mig + importer + OCR) | ✅ commit `6fccdffb` | importer 23,771 cobros / $369.5M / 5,227 con ficha; build api |
 | CC.1 Backend (módulo + permisos + wire) | ✅ commit `9577b1ca` | smoke `test-newdb-collection-deposits` 18/18; build api |
 | CC.2 Frontend (`/finanzas/cobranza`) | ✅ commit `9a83bbd9` | build view OK; validación visual manual pendiente |
+| CC.3 Controles (cuenta propia + folio electrónico dedup) | ✅ 2026-08-04 | mig `20260804190000`; smoke 26/26; builds api+view OK |
 | PROD migraciones | ✅ 2026-08-03 | Railway batch 154 (5 migs); tablas + RLS + 21 roles con VER verificados |
+
+### CC.3 — Controles derivados de fichas reales (Comprobante Universal de Sucursales)
+
+Dos comprobantes reales (Banorte, cuenta `1326933041` titular Luis Francisco López Gutiérrez, depósitos de efectivo de ruta ~$8,850) destaparon dos controles:
+
+- **Cuenta destino propia** (`finance.collection_deposits.cuenta_propia`): `ocr_cuenta_dest` termina en un `account_label` de una cuenta `bank` de `finance.bank_accounts` (fase CB). Ej.: `1326933041` → termina en `3041` = BANORTE 3041 ✓. Depósito a cuenta NO reconocida = bandera roja. Lo calcula el servicio al `attach`; backfill en la migración.
+- **Folio electrónico como llave de dedup determinista** (`ref_norm`, columna GENERATED STORED = solo dígitos de `ocr_referencia`, índice parcial vivo). Estructura decodificada: `DDMMYYYY·sucursal·claveBanco(311)·ventanilla·No.Tran·HHMM`. Misma referencia en dos cobros = mismo depósito → **se informa** (multi-folio legítimo: un depósito cubre varios cobros, ej. manuscrito "448/441/761") **o** ficha repetida. HITL: el revisor decide, no se bloquea.
+
+Superficie: badge de alerta (`pi-flag-fill`) en la tabla, tags "Cuenta propia/NO reconocida" + "Referencia duplicada" en el diálogo de ver, KPI "Alertas de control", toasts al adjuntar. Backend: flags en `listCobros`/`detail`/`attach`. Deferred (sigue en pie): three-way match contra el abono bancario real (CB) — este slice NO prueba que el dinero entró, solo que la ficha va a cuenta propia y no está repetida.
+
+**Pendiente prod (CC.3):** aplicar mig `20260804190000` a Railway + redeploy api+view + re-login.
 
 ## Decisiones fijadas
 

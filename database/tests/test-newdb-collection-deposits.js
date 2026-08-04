@@ -44,6 +44,19 @@ const matches = (ocr, cobro) => (ocr == null ? null : Math.abs(ocr - cobro) <= T
     ok(matches(51000.00, 51049.27) === false, 'diferencia $49 → NO cuadra');
     ok(matches(null, 51049.27) === null, 'sin monto OCR → match null');
 
+    // ── 3b. Controles CC.3: cuenta propia + folio electrónico (dedup) ────────
+    const hasCuenta = await knex.schema.withSchema('finance').hasColumn('collection_deposits', 'cuenta_propia');
+    const hasRef = await knex.schema.withSchema('finance').hasColumn('collection_deposits', 'ref_norm');
+    ok(hasCuenta, 'columna cuenta_propia existe');
+    ok(hasRef, 'columna ref_norm (folio electrónico normalizado) existe');
+    // Réplica de isOwnAccount: dígitos de la cuenta destino terminan en una cuenta propia.
+    const tails = await knex('finance.bank_accounts').where({ tenant_id: T, kind: 'bank', active: true })
+      .whereRaw(`account_label ~ '^[0-9]{3,}$'`).pluck('account_label');
+    const isOwn = (dest) => { const d = String(dest || '').replace(/\D/g, ''); return d && tails.length ? tails.some((t) => t.length >= 3 && d.endsWith(t)) : null; };
+    ok(tails.includes('3041'), 'seed CB tiene la cuenta BANORTE 3041');
+    ok(isOwn('1326933041') === true, 'cuenta 1326933041 (ticket real) → cuenta propia (termina en 3041)');
+    ok(isOwn('0009999999') === false, 'cuenta ajena → NO propia');
+
     // ── 4. Flujo attach → join → validar → rechazar → CHECK (rollback) ───────
     await knex.transaction(async (trx) => {
       const cobroMonto = Number(cobro.monto);
@@ -52,10 +65,25 @@ const matches = (ocr, cobro) => (ocr == null ? null : Math.abs(ocr - cobro) <= T
         cliente_code: cobro.cliente_code, cliente_nombre: cobro.cliente_nombre,
         cobro_date: cobro.cobro_date, cobro_monto: cobroMonto,
         files: JSON.stringify([{ role: 'deposito', url: 'http://x/y.jpg', public_id: 'x/y', kind: 'image' }]),
-        ocr_monto: cobroMonto, ocr_banco: 'BANORTE', ocr_referencia: 'TEST123', ocr_status: 'ok',
-        monto_match: matches(cobroMonto, cobroMonto), created_by: 'smoke',
-      }).returning(['id', 'status']);
+        ocr_monto: cobroMonto, ocr_banco: 'BANORTE', ocr_cuenta_dest: '1326933041',
+        ocr_referencia: '28072026065731101001 60926', ocr_status: 'ok',
+        monto_match: matches(cobroMonto, cobroMonto), cuenta_propia: isOwn('1326933041'), created_by: 'smoke',
+      }).returning(['id', 'status', 'cuenta_propia', 'ref_norm']);
       ok(row.status === 'recibido', 'attach: nuevo comprobante → estado recibido');
+      ok(row.cuenta_propia === true, 'attach: cuenta_propia=true (depósito a cuenta de la empresa)');
+      ok(row.ref_norm === '2807202606573110100160926', 'ref_norm = folio electrónico solo dígitos (generada)');
+
+      // Dedup determinista: misma referencia en OTRO cobro → se detecta.
+      await trx('finance.collection_deposits').insert({
+        tenant_id: T, sucursal: '00', folio: 'OTRO-999',
+        files: JSON.stringify([{ role: 'deposito', url: 'http://x/z.jpg' }]),
+        ocr_referencia: '2807-2026-0657-3110-1001-60926', ocr_status: 'ok', created_by: 'smoke',
+      });
+      const dupHit = await trx('finance.collection_deposits')
+        .where('ref_norm', '2807202606573110100160926').whereNot('status', 'rechazado')
+        .whereNot((qb) => qb.where('sucursal', '00').andWhere('folio', '0016926'))
+        .distinct('sucursal', 'folio');
+      ok(dupHit.length === 1 && dupHit[0].folio === 'OTRO-999', 'dedup: misma referencia en otro cobro detectada (pese a guiones/espacios)');
 
       // Réplica del LEFT JOIN de listCobros.
       const j = await trx.raw(`

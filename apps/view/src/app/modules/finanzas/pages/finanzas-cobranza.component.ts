@@ -88,6 +88,9 @@ import { CobranzaService, CobroRow, CobrosReport, DepositOcr, DepositFile, Cobro
                     <span class="cb-match" [class.ok]="c.monto_match" [class.bad]="!c.monto_match" [title]="c.monto_match ? 'El monto de la ficha cuadra con el cobro' : 'El monto de la ficha NO cuadra'">
                       <i class="pi" [ngClass]="c.monto_match ? 'pi-check-circle' : 'pi-exclamation-triangle'"></i>
                     </span>
+                    @if (c.alerta) {
+                      <span class="cb-alert" [title]="alertTitle(c)"><i class="pi pi-flag-fill" aria-hidden="true"></i></span>
+                    }
                     <i class="pi pi-eye cb-eye" aria-hidden="true"></i>
                   </div>
                 } @else { <span class="muted cb-comp-empty"><i class="pi pi-paperclip" aria-hidden="true"></i> Sin comprobante</span> }
@@ -208,8 +211,17 @@ import { CobranzaService, CobroRow, CobrosReport, DepositOcr, DepositFile, Cobro
                 <p-tag [value]="depLabel(d.status)" [severity]="depSev(d.status)" />
                 @if (d.monto_match === true) { <p-tag value="Cuadra" severity="success" /> }
                 @else if (d.monto_match === false) { <p-tag value="No cuadra" severity="danger" /> }
+                @if (d.cuenta_propia === true) { <p-tag value="Cuenta propia" severity="success" /> }
+                @else if (d.cuenta_propia === false) { <p-tag value="Cuenta NO reconocida" severity="danger" /> }
+                @if (d.ref_duplicada) { <p-tag value="Referencia duplicada" severity="warn" /> }
                 <span class="cb-view-meta">{{ d.created_by || '—' }} · {{ d.created_at | date:'dd/MM/yy HH:mm' }}</span>
               </div>
+              @if (d.ref_duplicada && d.ref_otros?.length) {
+                <div class="cb-alert-note"><i class="pi pi-flag-fill"></i> Mismo folio electrónico en: <strong>{{ d.ref_otros?.join(', ') }}</strong> — verifica si es un depósito que cubre varios cobros o una ficha repetida.</div>
+              }
+              @if (d.cuenta_propia === false) {
+                <div class="cb-alert-note bad"><i class="pi pi-exclamation-triangle"></i> La cuenta destino de la ficha no coincide con ninguna cuenta de banco de la empresa.</div>
+              }
               <div class="cb-view-files">
                 @for (f of d.files; track f.url) {
                   @if (isImageUrl(f)) {
@@ -260,6 +272,11 @@ import { CobranzaService, CobroRow, CobrosReport, DepositOcr, DepositFile, Cobro
     .cb-comp { display: inline-flex; align-items: center; gap: .45rem; }
     .cb-match.ok { color: var(--ok-fg); }
     .cb-match.bad { color: var(--bad-fg); }
+    .cb-alert { color: var(--bad-fg); display: inline-flex; }
+    .cb-alert i { font-size: .8rem; }
+    .cb-alert-note { font-size: .78rem; color: var(--warn-fg); display: flex; align-items: baseline; gap: .4rem; background: var(--surface-sunken, var(--card-bg)); border: 1px solid var(--border-color); border-radius: var(--r-sm, .4rem); padding: .45rem .6rem; }
+    .cb-alert-note.bad { color: var(--bad-fg); }
+    .cb-alert-note i { font-size: .8rem; }
     .cb-empty { text-align: center; color: var(--text-muted); padding: 2rem; }
     .cb-form { display: flex; flex-direction: column; gap: .85rem; padding: .25rem 0; }
     .cb-cobro { display: flex; gap: 1.2rem; flex-wrap: wrap; align-items: flex-end; padding: .7rem .9rem; background: var(--surface-sunken, var(--card-bg)); border: 1px solid var(--border-color); border-radius: var(--r-md, .5rem); }
@@ -361,12 +378,23 @@ export class FinanzasCobranzaComponent {
   constructor() { this.load(); }
 
   kpiItems(r: CobrosReport): MetricStripItem[] {
-    return [
+    const items: MetricStripItem[] = [
       { label: 'Cobros', value: r.kpis.cobros },
       { label: 'Con comprobante', value: r.kpis.con_comprobante, tone: 'ok' },
       { label: 'Validados', value: r.kpis.validados, tone: 'ok' },
       { label: '$ por comprobar', value: this.money(r.kpis.monto_pendiente), tone: 'warn' },
     ];
+    const alertas = (r.kpis.cuentas_ajenas || 0) + (r.kpis.refs_duplicadas || 0);
+    if (alertas > 0) items.push({ label: 'Alertas de control', value: alertas, tone: 'bad' });
+    return items;
+  }
+
+  /** Tooltip del flag de alerta en la tabla. */
+  alertTitle(c: CobroRow): string {
+    const p: string[] = [];
+    if (c.cuenta_ajena) p.push('Depósito a una cuenta NO reconocida');
+    if (c.ref_dup) p.push('Folio electrónico usado en otro cobro');
+    return p.join(' · ') || 'Requiere revisión';
   }
 
   setEstado(v: string) { this.estadoSel.set(v); this.load(); }
@@ -470,7 +498,13 @@ export class FinanzasCobranzaComponent {
     this.svc.attach({ sucursal: t.sucursal, folio: t.folio, files: [file], ocr: this.ocrRun() ? this.ocrForm : undefined })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: (res) => { this.saving.set(false); this.showAttach.set(false); this.toast.add({ severity: 'success', summary: 'Comprobante adjuntado', detail: res.monto_match ? 'El monto cuadra ✓' : 'Guardado (revisa el monto)' }); this.load(); },
+        next: (res) => {
+          this.saving.set(false); this.showAttach.set(false);
+          this.toast.add({ severity: 'success', summary: 'Comprobante adjuntado', detail: res.monto_match ? 'El monto cuadra ✓' : 'Guardado (revisa el monto)' });
+          if (res.cuenta_propia === false) this.toast.add({ severity: 'warn', summary: 'Cuenta NO reconocida', detail: 'La cuenta destino de la ficha no es una cuenta de la empresa.', life: 8000 });
+          if (res.ref_duplicada) this.toast.add({ severity: 'warn', summary: 'Referencia duplicada', detail: `Mismo folio electrónico en: ${(res.ref_otros || []).join(', ')}`, life: 8000 });
+          this.load();
+        },
         error: (e) => { this.saving.set(false); this.attachError.set(e?.error?.message || 'No se pudo adjuntar.'); },
       });
   }
