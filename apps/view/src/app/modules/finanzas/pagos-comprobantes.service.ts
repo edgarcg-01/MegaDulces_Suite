@@ -47,6 +47,37 @@ export interface DepositOcr {
 
 export interface ProofFile { role: string; url: string; public_id?: string; kind?: string; name?: string; }
 
+/** Una evidencia adjunta (con sus archivos + OCR + estado) — devuelta por detail(). */
+export interface ProofDeposit {
+  id: string;
+  files: ProofFile[];
+  ocr_monto: number | null;
+  ocr_fecha: string | null;
+  ocr_banco: string | null;
+  ocr_cuenta_dest: string | null;
+  ocr_referencia: string | null;
+  ocr_ordenante: string | null;
+  ocr_metodo: string | null;
+  ocr_status: string;
+  monto_match: boolean | null;
+  status: ProofStatus;
+  comentarios: string | null;
+  validated_by: string | null;
+  validated_at: string | null;
+  motivo_rechazo: string | null;
+  created_by: string | null;
+  created_at: string;
+}
+
+export interface PagoDetail {
+  pago: {
+    sucursal: string; folio: string; doc_prefix?: string; metodo_pago?: string | null;
+    pago_date: string | null; proveedor_code: string | null; proveedor_nombre: string | null;
+    proveedor_rfc: string | null; concepto: string | null; monto: number;
+  };
+  deposits: ProofDeposit[];
+}
+
 export interface AttachPayment {
   sucursal: string;
   folio: string;
@@ -65,6 +96,12 @@ export class PagosComprobantesService {
     let params = new HttpParams();
     for (const [k, v] of Object.entries(q)) if (v) params = params.set(k, String(v));
     return this.http.get<PagosReport>(this.base, { params });
+  }
+  /** Detalle del pago + sus comprobantes adjuntos (archivos + OCR + estado). */
+  detail(sucursal: string, folio: string, doc_prefix?: string): Observable<PagoDetail> {
+    let params = new HttpParams();
+    if (doc_prefix) params = params.set('doc_prefix', doc_prefix);
+    return this.http.get<PagoDetail>(`${this.base}/${encodeURIComponent(sucursal)}/${encodeURIComponent(folio)}`, { params });
   }
   /** Corre OCR sobre el comprobante (data URI, imagen/PDF) — preview, no guarda. */
   ocr(file_base64: string): Observable<DepositOcr> {
