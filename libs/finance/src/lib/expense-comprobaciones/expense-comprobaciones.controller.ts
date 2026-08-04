@@ -1,7 +1,7 @@
 import { Body, Controller, Get, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
-import { ExpenseComprobacionesService, CreateComprobacionDto, ListComprobacionesQuery } from './expense-comprobaciones.service';
+import { ExpenseComprobacionesService, CreateComprobacionDto, ListComprobacionesQuery, ListGastosQuery } from './expense-comprobaciones.service';
 
 interface AuthedRequest { user?: { username?: string; full_name?: string }; }
 
@@ -38,6 +38,20 @@ export class ExpenseComprobacionesController {
   @ApiOperation({ summary: 'Autocomplete del Folio del Gasto (Kepler XA1001) para la captura.' })
   gastos(@Query('search') search?: string, @Query('limit') limit?: string) {
     return this.svc.searchGastos(search || '', limit ? Number(limit) : 20);
+  }
+
+  @Get('gastos-list')
+  @RequirePermissions(Permission.FINANCE_EXPENSES_VER)
+  @ApiOperation({ summary: 'Lista los gastos de Kepler (XA1001) + estado de su comprobación + KPIs (vista por gasto).' })
+  gastosList(
+    @Query('estado') estado?: string,
+    @Query('search') search?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('limit') limit?: string,
+  ) {
+    const q: ListGastosQuery = { estado, search, from, to, limit: limit ? Number(limit) : undefined };
+    return this.svc.listGastos(q);
   }
 
   @Get('status-by-gasto')

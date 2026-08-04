@@ -52,6 +52,27 @@ export interface ComprobacionesReport {
   rows: Comprobacion[];
 }
 
+/** Un gasto de Kepler (XA1001) con el estado de su comprobación (vista por gasto). */
+export interface GastoRow {
+  sucursal: string | null;
+  folio_gasto: string;
+  fecha: string | null;
+  proveedor: string | null;
+  importe: number;
+  solicitud_folio: string | null;
+  area: string | null;
+  comprobaciones: number;
+  comprobacion_id: string | null;
+  comprobacion_status: ComprobacionStatus | null;
+  folio_comprobacion: string | null;
+  files: ProofFile[];
+}
+
+export interface GastosReport {
+  kpis: { gastos: number; comprobados: number; validados: number; monto_pendiente: number };
+  rows: GastoRow[];
+}
+
 export interface CreateComprobacion {
   solicitante?: string;
   departamento?: string;
@@ -76,6 +97,12 @@ export class ComprobacionGastosService {
     let params = new HttpParams();
     for (const [k, v] of Object.entries(q)) if (v) params = params.set(k, String(v));
     return this.http.get<ComprobacionesReport>(this.base, { params });
+  }
+  /** Lista los gastos de Kepler (XA1001) + estado de su comprobación + KPIs (vista por gasto). */
+  listGastos(q: { estado?: string; search?: string; from?: string; to?: string } = {}): Observable<GastosReport> {
+    let params = new HttpParams();
+    for (const [k, v] of Object.entries(q)) if (v) params = params.set(k, String(v));
+    return this.http.get<GastosReport>(`${this.base}/gastos-list`, { params });
   }
   /** Autocomplete del Folio del Gasto (Kepler XA1001). */
   searchGastos(search: string): Observable<GastoSug[]> {
