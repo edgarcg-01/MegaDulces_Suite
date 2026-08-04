@@ -212,6 +212,9 @@ export enum Permission {
   // ── Compras / Reabastecimiento (Fase RA — ADR-030) ────────────────────
   COMPRAS_VER = 'COMPRAS_VER',
   COMPRAS_GESTIONAR = 'COMPRAS_GESTIONAR',
+  // Permiso especial: validar/rechazar la evidencia (remisión) de las órdenes de
+  // entrada. Restringido — NO lo incluye GESTIONAR (que no todos puedan validar).
+  COMPRAS_VALIDAR = 'COMPRAS_VALIDAR',
 
   // ── Fiscal (auditoría CFDI / cumplimiento SAT — libs/fiscal) ──────────
   // FISCAL.0/1 = motor de listas SAT (EFOS 69-B, Art. 69) + validación RFC.
