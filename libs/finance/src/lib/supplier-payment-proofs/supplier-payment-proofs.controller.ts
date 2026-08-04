@@ -7,9 +7,9 @@ interface AuthedRequest { user?: { username?: string; full_name?: string }; }
 
 /**
  * Fase CC (extensión) — Comprobantes de Pago a Proveedor. Lista los pagos de
- * Kepler (XD2501) y les adjunta el comprobante de transferencia (imagen/PDF) con
- * OCR. Captura/adjunto a nivel VER (el capturista); validación/rechazo a nivel
- * GESTIONAR (el revisor). No escribe a Kepler.
+ * Kepler (transferencia XD2601 + cheque XD2501) y les adjunta el comprobante
+ * (imagen/PDF) con OCR. Captura/adjunto a nivel VER (el capturista); validación/rechazo
+ * a nivel GESTIONAR (el revisor). No escribe a Kepler.
  */
 @ApiTags('finance-supplier-payment-proofs')
 @ApiBearerAuth()
@@ -35,8 +35,8 @@ export class SupplierPaymentProofsController {
   @Get(':sucursal/:folio')
   @RequirePermissions(Permission.FINANCE_PAYMENTS_VER)
   @ApiOperation({ summary: 'Detalle del pago + sus comprobantes adjuntos.' })
-  detail(@Param('sucursal') sucursal: string, @Param('folio') folio: string) {
-    return this.svc.detail(sucursal, folio);
+  detail(@Param('sucursal') sucursal: string, @Param('folio') folio: string, @Query('doc_prefix') docPrefix?: string) {
+    return this.svc.detail(sucursal, folio, docPrefix);
   }
 
   @Post('ocr')

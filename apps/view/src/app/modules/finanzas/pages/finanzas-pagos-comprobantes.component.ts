@@ -39,7 +39,7 @@ import { PagosComprobantesService, PagoRow, PagosReport, DepositOcr, ProofFile }
       <header class="surf-page-head">
         <div class="surf-page-head-text">
           <h1>Pagos a proveedor — comprobantes</h1>
-          <p class="surf-page-sub">Adjunta el comprobante de transferencia a cada pago de Kepler (XD2501) · OCR compara el monto · pendiente → validado/rechazado</p>
+          <p class="surf-page-sub">Adjunta el comprobante a cada pago de Kepler (transferencia o cheque) · OCR compara el monto · pendiente → validado/rechazado</p>
         </div>
       </header>
 
@@ -62,6 +62,7 @@ import { PagosComprobantesService, PagoRow, PagosReport, DepositOcr, ProofFile }
             <tr>
               <th style="width:6rem">Fecha</th>
               <th style="width:7rem">Folio</th>
+              <th style="width:7rem">Método</th>
               <th>Proveedor</th>
               <th>Concepto</th>
               <th class="ta-r" style="width:9rem">Monto</th>
@@ -73,6 +74,7 @@ import { PagosComprobantesService, PagoRow, PagosReport, DepositOcr, ProofFile }
             <tr>
               <td>{{ c.pago_date | date:'dd/MM/yy' }}</td>
               <td class="mono">{{ c.folio }}</td>
+              <td><span class="cb-metodo" [class.tra]="c.metodo_pago === 'transferencia'" [class.che]="c.metodo_pago === 'cheque'"><i class="pi" [ngClass]="c.metodo_pago === 'cheque' ? 'pi-book' : 'pi-send'"></i> {{ metodoLabel(c.metodo_pago) }}</span></td>
               <td>{{ c.proveedor_nombre || c.proveedor_code || '—' }}<div class="cb-sub">{{ c.proveedor_rfc || c.proveedor_code }}</div></td>
               <td class="muted cb-concepto" [title]="c.concepto">{{ c.concepto || '—' }}</td>
               <td class="ta-r strong">{{ money(c.monto) }}</td>
@@ -95,24 +97,25 @@ import { PagosComprobantesService, PagoRow, PagosReport, DepositOcr, ProofFile }
               </td>
             </tr>
           </ng-template>
-          <ng-template #emptymessage><tr><td colspan="7" class="cb-empty">Sin pagos para el filtro.</td></tr></ng-template>
+          <ng-template #emptymessage><tr><td colspan="8" class="cb-empty">Sin pagos para el filtro.</td></tr></ng-template>
         </p-table>
       </div>
       }
     </div>
 
     <!-- Diálogo: adjuntar comprobante + OCR -->
-    <p-dialog [(visible)]="showAttach" [modal]="true" [style]="{ width: '38rem' }" [draggable]="false" header="Adjuntar comprobante de transferencia">
+    <p-dialog [(visible)]="showAttach" [modal]="true" [style]="{ width: '38rem' }" [draggable]="false" header="Adjuntar comprobante de pago">
       @if (attachTarget(); as t) {
         <div class="cb-form">
           <div class="cb-cobro">
             <div><span class="cb-lbl">Pago</span><strong class="mono">{{ t.sucursal }}/{{ t.folio }}</strong></div>
+            <div><span class="cb-lbl">Método</span><strong>{{ metodoLabel(t.metodo_pago) }}</strong></div>
             <div><span class="cb-lbl">Proveedor</span><strong>{{ t.proveedor_nombre || t.proveedor_code }}</strong></div>
             <div class="ta-r"><span class="cb-lbl">Monto del pago</span><strong class="cb-monto">{{ money(t.monto) }}</strong></div>
           </div>
 
           <div class="cb-f cb-file">
-            <span>Comprobante de transferencia (imagen o PDF) * <em class="cb-auto">se almacena y se lee solo al elegirlo</em></span>
+            <span>Comprobante {{ t.metodo_pago === 'cheque' ? 'del cheque' : 'de transferencia' }} (imagen o PDF) * <em class="cb-auto">se almacena y se lee solo al elegirlo</em></span>
             <div class="cb-pick">
               <label class="cb-pickbtn cb-cam"><i class="pi pi-camera"></i> Tomar foto
                 <input type="file" accept="image/*" capture="environment" (change)="onFile($event)" hidden />
@@ -186,6 +189,10 @@ import { PagosComprobantesService, PagoRow, PagosReport, DepositOcr, ProofFile }
     .cb-table .strong { font-weight: 600; color: var(--text-main); }
     .cb-table .muted { color: var(--text-muted); }
     .cb-sub { font-size: .7rem; color: var(--text-muted); }
+    .cb-metodo { display: inline-flex; align-items: center; gap: .3rem; font-size: .75rem; color: var(--text-muted); white-space: nowrap; }
+    .cb-metodo i { font-size: .7rem; }
+    .cb-metodo.tra { color: var(--action); }
+    .cb-metodo.che { color: var(--text-main); }
     .cb-concepto { max-width: 14rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .mono { font-family: var(--font-mono); font-size: .85em; }
     .cb-comp { display: inline-flex; align-items: center; gap: .45rem; }
@@ -352,7 +359,7 @@ export class FinanzasPagosComprobantesComponent {
   }
 
   private doAttach(t: PagoRow, file: ProofFile) {
-    this.svc.attach({ sucursal: t.sucursal, folio: t.folio, files: [file], ocr: this.ocrRun() ? this.ocrForm : undefined })
+    this.svc.attach({ sucursal: t.sucursal, folio: t.folio, doc_prefix: t.doc_prefix, files: [file], ocr: this.ocrRun() ? this.ocrForm : undefined })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (res) => { this.saving.set(false); this.showAttach.set(false); this.toast.add({ severity: 'success', summary: 'Comprobante adjuntado', detail: res.monto_match ? 'El monto cuadra ✓' : 'Guardado (revisa el monto)' }); this.load(); },
@@ -379,6 +386,7 @@ export class FinanzasPagosComprobantesComponent {
       .subscribe({ next: () => { this.saving.set(false); this.showReject.set(false); this.toast.add({ severity: 'info', summary: 'Rechazado', detail: `Pago ${c.folio}` }); this.load(); }, error: () => { this.saving.set(false); this.toast.add({ severity: 'error', summary: 'Error al rechazar' }); } });
   }
 
+  metodoLabel(m: string | null): string { return ({ transferencia: 'Transferencia', cheque: 'Cheque' } as Record<string, string>)[m || ''] || '—'; }
   depLabel(s: string | null): string { return ({ recibido: 'Recibido', validado: 'Validado', rechazado: 'Rechazado' } as Record<string, string>)[s || ''] || '—'; }
   depSev(s: string | null): 'success' | 'warn' | 'danger' | 'secondary' { return ({ recibido: 'warn', validado: 'success', rechazado: 'danger' } as Record<string, 'success' | 'warn' | 'danger'>)[s || ''] || 'secondary'; }
   money(v: number | string | null | undefined): string { return (Number(v ?? 0) || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 }); }

@@ -5,8 +5,8 @@ import { environment } from '../../../environments/environment';
 
 /**
  * CC (extensión) — cliente de Comprobantes de Pago a Proveedor. Lista los pagos de
- * Kepler (XD2501) y les adjunta el comprobante de transferencia (imagen/PDF) con OCR.
- * No escribe a Kepler.
+ * Kepler (transferencia XD2601 + cheque XD2501) y les adjunta el comprobante
+ * (imagen/PDF) con OCR. No escribe a Kepler.
  */
 
 export type ProofStatus = 'recibido' | 'validado' | 'rechazado';
@@ -14,6 +14,8 @@ export type ProofStatus = 'recibido' | 'validado' | 'rechazado';
 export interface PagoRow {
   sucursal: string;
   folio: string;
+  doc_prefix: string;            // XD2601 (transferencia) | XD2501 (cheque)
+  metodo_pago: string | null;    // 'transferencia' | 'cheque'
   pago_date: string | null;
   proveedor_code: string | null;
   proveedor_nombre: string | null;
@@ -48,6 +50,7 @@ export interface ProofFile { role: string; url: string; public_id?: string; kind
 export interface AttachPayment {
   sucursal: string;
   folio: string;
+  doc_prefix?: string;
   files: ProofFile[];
   ocr?: Partial<DepositOcr>;
   comentarios?: string;

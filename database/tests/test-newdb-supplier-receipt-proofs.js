@@ -5,9 +5,11 @@
  *   1. Schema: analytics.erp_supplier_payments + analytics.erp_goods_receipts
  *      (espejos, sin RLS) + finance.supplier_payment_proofs + finance.goods_receipt_proofs
  *      (RLS FORZADO).
- *   2. Datos del importer: pagos XD2501 (incluye GRUPO INDUSTRIAL SWEETS 0000609 =
- *      $685,704.06) + entradas XA2001 "Aplica Orden Entrada" (incluye GRUPO LEVI
- *      0008231 = $827, línea VASO 94323 = doc real verificado).
+ *   2. Datos del importer: pagos a proveedor multi-método (transferencia XD2601 +
+ *      cheque XD2501, c10~C%): MONDELEZ 0016183 XD2601 = $914,850.29 (transferencia,
+ *      el arquetipo) + GRUPO INDUSTRIAL SWEETS 0000609 XD2501 = $685,704.06 (cheque).
+ *      doc_prefix en la PK desambigua el folio compartido entre doctypes. Entradas
+ *      XA2001 "Aplica Orden Entrada" (GRUPO LEVI 0008231 = $827, línea VASO 94323).
  *   3. Lógica monto_match (réplica del servicio): pagos tolerancia $1; entradas
  *      cuadran por total O subtotal.
  *   4. Flujo attach → join → validar → rechazar → CHECK dentro de trx con ROLLBACK.
@@ -45,12 +47,34 @@ const matchR = (total, sub, val) => {
 
     // ── 2. Datos del importer ────────────────────────────────────────────────
     const [p] = await knex('analytics.erp_supplier_payments').where({ tenant_id: T }).count('* as n');
-    ok(Number(p.n) >= 600, `erp_supplier_payments poblada (${p.n} pagos XD2501)`);
-    const pago = await knex('analytics.erp_supplier_payments').where({ tenant_id: T, sucursal: '00', folio: '0000609' })
-      .first('proveedor_nombre', 'proveedor_rfc', 'pago_date', knex.raw('monto::numeric AS monto'));
-    ok(pago && Math.abs(Number(pago.monto) - 685704.06) < 0.01, 'pago real 0000609 = $685,704.06 presente');
-    ok(pago && /SWEETS/i.test(pago.proveedor_nombre || ''), 'pago 0000609 = GRUPO INDUSTRIAL SWEETS');
+    ok(Number(p.n) >= 3000, `erp_supplier_payments poblada (${p.n} pagos: transferencia XD2601 + cheque XD2501)`);
+    // La PK debe incluir doc_prefix (folio NO es único entre XD2501/XD2601).
+    const pk = await knex.raw(`SELECT string_agg(a.attname, ',' ORDER BY array_position(con.conkey, a.attnum)) cols
+      FROM pg_constraint con JOIN pg_class rel ON rel.oid=con.conrelid JOIN pg_namespace ns ON ns.oid=rel.relnamespace
+      JOIN pg_attribute a ON a.attrelid=rel.oid AND a.attnum=ANY(con.conkey)
+      WHERE con.contype='p' AND ns.nspname='analytics' AND rel.relname='erp_supplier_payments'`);
+    ok(pk.rows[0].cols === 'tenant_id,sucursal,doc_prefix,folio', 'PK del espejo incluye doc_prefix');
+    const methods = await knex('analytics.erp_supplier_payments').where({ tenant_id: T }).select('metodo_pago').count('* as n').groupBy('metodo_pago');
+    const tra = methods.find((m) => m.metodo_pago === 'transferencia');
+    const che = methods.find((m) => m.metodo_pago === 'cheque');
+    ok(tra && Number(tra.n) > 1000, `pagos incluye transferencias XD2601 (${tra ? tra.n : 0})`);
+    ok(che && Number(che.n) > 0, `pagos incluye cheques XD2501 (${che ? che.n : 0})`);
+    // Arquetipo transferencia: MONDELEZ 0016183 XD2601 = $914,850.29 (= el caso del comprobante BBVA).
+    const mond = await knex('analytics.erp_supplier_payments').where({ tenant_id: T, sucursal: '00', doc_prefix: 'XD2601', folio: '0016183' })
+      .first('proveedor_nombre', 'metodo_pago', knex.raw('monto::numeric AS monto'));
+    ok(mond && Math.abs(Number(mond.monto) - 914850.29) < 0.01, 'transferencia real 0016183 (XD2601) = $914,850.29');
+    ok(mond && mond.metodo_pago === 'transferencia' && /MONDELEZ/i.test(mond.proveedor_nombre || ''), 'transferencia 0016183 = MONDELEZ (método transferencia)');
+    // Cheque: GRUPO INDUSTRIAL SWEETS 0000609 XD2501 = $685,704.06.
+    const pago = await knex('analytics.erp_supplier_payments').where({ tenant_id: T, sucursal: '00', doc_prefix: 'XD2501', folio: '0000609' })
+      .first('proveedor_nombre', 'proveedor_rfc', 'pago_date', 'metodo_pago', 'doc_prefix', knex.raw('monto::numeric AS monto'));
+    ok(pago && Math.abs(Number(pago.monto) - 685704.06) < 0.01, 'cheque real 0000609 (XD2501) = $685,704.06 presente');
+    ok(pago && pago.metodo_pago === 'cheque' && /SWEETS/i.test(pago.proveedor_nombre || ''), 'pago 0000609 = GRUPO INDUSTRIAL SWEETS (método cheque)');
     ok(pago && pago.proveedor_rfc === 'GIS020419575', 'pago 0000609 con RFC del proveedor');
+    // Existe algún folio en AMBOS doctypes → doc_prefix desambigua la PK (la lección).
+    const sharedR = await knex.raw(`SELECT sucursal, folio FROM analytics.erp_supplier_payments
+      WHERE tenant_id=? GROUP BY sucursal, folio HAVING count(*) = 2 LIMIT 1`, [T]);
+    const SH = sharedR.rows[0];
+    ok(!!SH, 'hay un folio compartido entre doctypes (cheque + transferencia) sin colisión de PK');
 
     const [g] = await knex('analytics.erp_goods_receipts').where({ tenant_id: T }).count('* as n');
     ok(Number(g.n) >= 8000, `erp_goods_receipts poblada (${g.n} entradas XA2001 "Aplica Orden Entrada")`);
@@ -85,7 +109,7 @@ const matchR = (total, sub, val) => {
     await knex.transaction(async (trx) => {
       const monto = Number(pago.monto);
       const [row] = await trx('finance.supplier_payment_proofs').insert({
-        tenant_id: T, sucursal: '00', folio: '0000609',
+        tenant_id: T, sucursal: '00', folio: '0000609', doc_prefix: 'XD2501', metodo_pago: 'cheque',
         proveedor_nombre: pago.proveedor_nombre, proveedor_rfc: pago.proveedor_rfc,
         pago_date: pago.pago_date, pago_monto: monto,
         files: JSON.stringify([{ role: 'comprobante', url: 'http://x/y.pdf', public_id: 'x/y', kind: 'pdf' }]),
@@ -94,15 +118,30 @@ const matchR = (total, sub, val) => {
       }).returning(['id', 'status']);
       ok(row.status === 'recibido', 'pago attach: nuevo comprobante → recibido');
 
+      // El join incluye doc_prefix: el comprobante del cheque NO debe contar sobre la transferencia del mismo folio.
       const j = await trx.raw(`
         SELECT COALESCE(d.n,0)::int deposits, d.last_status, COALESCE(d.any_match,false) any_match
         FROM analytics.erp_supplier_payments c
-        LEFT JOIN (SELECT sucursal, folio, count(*) n,
+        LEFT JOIN (SELECT sucursal, doc_prefix, folio, count(*) n,
                      (array_agg(status ORDER BY created_at DESC))[1] last_status, bool_or(monto_match) any_match
-                   FROM finance.supplier_payment_proofs GROUP BY sucursal, folio) d
-          ON c.sucursal=d.sucursal AND c.folio=d.folio
-        WHERE c.tenant_id=? AND c.sucursal='00' AND c.folio='0000609'`, [T]);
-      ok(Number(j.rows[0].deposits) === 1 && j.rows[0].any_match === true, 'pago join: 1 comprobante + monto_match=true');
+                   FROM finance.supplier_payment_proofs GROUP BY sucursal, doc_prefix, folio) d
+          ON c.sucursal=d.sucursal AND c.doc_prefix=d.doc_prefix AND c.folio=d.folio
+        WHERE c.tenant_id=? AND c.sucursal='00' AND c.doc_prefix='XD2501' AND c.folio='0000609'`, [T]);
+      ok(Number(j.rows[0].deposits) === 1 && j.rows[0].any_match === true, 'pago join: 1 comprobante en el cheque + monto_match=true');
+      // Aislamiento por doc_prefix: adjunto un comprobante al CHEQUE de un folio compartido
+      // y verifico que NO aparece sobre la TRANSFERENCIA del mismo folio.
+      await trx('finance.supplier_payment_proofs').insert({
+        tenant_id: T, sucursal: SH.sucursal, folio: SH.folio, doc_prefix: 'XD2501', metodo_pago: 'cheque',
+        files: JSON.stringify([{ role: 'comprobante', url: 'http://x/z.pdf' }]), ocr_status: 'manual', created_by: 'smoke',
+      });
+      const isoJoin = async (dp) => (await trx.raw(`
+        SELECT COALESCE(d.n,0)::int deposits
+        FROM analytics.erp_supplier_payments c
+        LEFT JOIN (SELECT sucursal, doc_prefix, folio, count(*) n FROM finance.supplier_payment_proofs GROUP BY sucursal, doc_prefix, folio) d
+          ON c.sucursal=d.sucursal AND c.doc_prefix=d.doc_prefix AND c.folio=d.folio
+        WHERE c.tenant_id=? AND c.sucursal=? AND c.doc_prefix=? AND c.folio=?`, [T, SH.sucursal, dp, SH.folio])).rows[0].deposits;
+      ok(Number(await isoJoin('XD2501')) === 1, 'aislamiento: el comprobante cuenta sobre el cheque (XD2501)');
+      ok(Number(await isoJoin('XD2601')) === 0, 'aislamiento: NO se filtra a la transferencia (XD2601) del mismo folio');
 
       const [v] = await trx('finance.supplier_payment_proofs').where({ id: row.id }).whereIn('status', ['recibido', 'rechazado'])
         .update({ status: 'validado' }).returning(['status']);
