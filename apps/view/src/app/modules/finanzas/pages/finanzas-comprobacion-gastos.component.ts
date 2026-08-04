@@ -21,7 +21,7 @@ import { LoadStateComponent } from '../../../shared/components/load-state/load-s
 import { FINANZAS_TABS } from '../finanzas-tabs';
 import { AuthService } from '../../../core/services/auth.service';
 import { Permission } from '../../../core/constants/permissions';
-import { ComprobacionGastosService, Comprobacion, ComprobacionesReport, CreateComprobacion, Departamento, GastoSug, ProofFile, ComprobacionFileRole } from '../comprobacion-gastos.service';
+import { ComprobacionGastosService, CreateComprobacion, Departamento, GastoSug, GastoRow, GastosReport, ProofFile, ComprobacionFileRole } from '../comprobacion-gastos.service';
 
 interface FileSlot { role: ComprobacionFileRole; label: string; required: boolean; accept: string; }
 
@@ -44,7 +44,7 @@ interface FileSlot { role: ComprobacionFileRole; label: string; required: boolea
       <header class="surf-page-head cp-head">
         <div class="surf-page-head-text">
           <h1>Comprobación de gastos</h1>
-          <p class="surf-page-sub">Comprueba un gasto ya ejercido (Kepler XA1001) adjuntando su comprobación · recibida → validada/rechazada</p>
+          <p class="surf-page-sub">Los gastos ejercidos en Kepler (XA1001) y su comprobación adjunta · pendiente → recibida → validada/rechazada</p>
         </div>
         <button pButton type="button" (click)="openNew()"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Nueva comprobación</span></button>
       </header>
@@ -63,52 +63,52 @@ interface FileSlot { role: ComprobacionFileRole; label: string; required: boolea
       } @else {
       <div class="card-premium card-flat">
         <p-table [value]="rows()" styleClass="p-datatable-sm cp-table" [rowHover]="true" [scrollable]="true" scrollHeight="60vh"
-                 [paginator]="rows().length > 100" [rows]="100" [loading]="loading()" sortField="created_at" [sortOrder]="-1">
+                 [paginator]="rows().length > 100" [rows]="100" [loading]="loading()">
           <ng-template #header>
             <tr>
-              <th pSortableColumn="created_at" style="width:6rem">Fecha <p-sorticon field="created_at" /></th>
-              <th pSortableColumn="folio_gasto" style="width:7rem">Folio gasto <p-sorticon field="folio_gasto" /></th>
-              <th style="width:7rem">Folio comp.</th>
-              <th>Solicitante</th>
-              <th>Departamento</th>
+              <th style="width:6rem">Fecha</th>
+              <th style="width:7rem">Folio gasto</th>
               <th>Proveedor</th>
-              <th class="ta-r" style="width:8rem">Importe</th>
-              <th style="width:6rem">Adjunto</th>
-              <th style="width:7rem">Estado</th>
+              <th style="width:9rem">Área</th>
+              <th class="ta-r" style="width:9rem">Importe</th>
+              <th style="width:14rem">Comprobación</th>
               <th style="width:11rem">Acciones</th>
             </tr>
           </ng-template>
-          <ng-template #body let-r>
+          <ng-template #body let-g>
             <tr>
-              <td>{{ r.created_at | date:'dd/MM/yy' }}</td>
-              <td class="mono">{{ r.folio_gasto }}</td>
-              <td class="mono muted">{{ r.folio_comprobacion || '—' }}</td>
-              <td>{{ r.solicitante }}</td>
-              <td class="muted">{{ r.departamento }}<div class="cp-suc-cell">{{ r.sucursal }}</div></td>
-              <td>{{ r.proveedor }}</td>
-              <td class="ta-r strong">{{ r.importe ? money(r.importe) : '—' }}</td>
+              <td>{{ g.fecha | date:'dd/MM/yy' }}</td>
+              <td class="mono">{{ g.folio_gasto }}@if (g.solicitud_folio) { <div class="cp-suc-cell">sol {{ g.solicitud_folio }}</div> }</td>
+              <td>{{ g.proveedor || '—' }}</td>
+              <td class="muted">{{ g.area || '—' }}<div class="cp-suc-cell">{{ g.sucursal }}</div></td>
+              <td class="ta-r strong">{{ money(g.importe) }}</td>
               <td>
-                <div class="cp-files">
-                  @for (f of r.files; track f.url) {
-                    <a [href]="f.url" target="_blank" rel="noopener" class="cp-fchip" [title]="fileLabel(f.role)">
-                      <i class="pi" [ngClass]="f.kind === 'pdf' ? 'pi-file-pdf' : 'pi-image'"></i>
-                    </a>
-                  } @empty { <span class="muted">—</span> }
-                </div>
+                @if (g.comprobaciones > 0) {
+                  <div class="cp-comp">
+                    <p-tag [value]="statusLabel(g.comprobacion_status)" [severity]="statusSev(g.comprobacion_status)" />
+                    <span class="cp-files">
+                      @for (f of g.files; track f.url) {
+                        <a [href]="f.url" target="_blank" rel="noopener" class="cp-fchip" [title]="fileLabel(f.role)"><i class="pi" [ngClass]="f.kind === 'pdf' ? 'pi-file-pdf' : 'pi-image'"></i></a>
+                      }
+                    </span>
+                    @if (g.folio_comprobacion) { <span class="mono muted cp-folioc">#{{ g.folio_comprobacion }}</span> }
+                  </div>
+                } @else { <span class="muted cp-pend"><i class="pi pi-clock" aria-hidden="true"></i> Pendiente</span> }
               </td>
               <td>
-                <p-tag [value]="statusLabel(r.status)" [severity]="statusSev(r.status)" />
-                @if (r.status === 'rechazada' && r.motivo_rechazo) { <div class="cp-motivo" [title]="r.motivo_rechazo">{{ r.motivo_rechazo }}</div> }
-              </td>
-              <td>
-                @if (canManage()) {
-                  @if (r.status !== 'validada') { <button pButton type="button" size="small" text severity="success" [loading]="validatingId() === r.id" [disabled]="!!validatingId()" (click)="doValidate(r)"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Validar</span></button> }
-                  @if (r.status !== 'rechazada') { <button pButton type="button" size="small" text severity="danger" (click)="openReject(r)" title="Rechazar"><span class="p-button-icon p-button-icon-left pi pi-times" aria-hidden="true"></span></button> }
-                } @else { <span class="muted">—</span> }
+                @if (g.comprobaciones === 0) {
+                  <button pButton type="button" size="small" text (click)="openComprobar(g)" title="Capturar la comprobación de este gasto"><span class="p-button-icon p-button-icon-left pi pi-paperclip" aria-hidden="true"></span><span class="p-button-label">Comprobar</span></button>
+                } @else {
+                  <button pButton type="button" size="small" text (click)="openComprobar(g)" title="Agregar otra comprobación"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Otra</span></button>
+                  @if (g.comprobacion_id && canManage()) {
+                    @if (g.comprobacion_status !== 'validada') { <button pButton type="button" size="small" text severity="success" [loading]="validatingId() === g.comprobacion_id" [disabled]="!!validatingId()" (click)="doValidate(g)" title="Validar"><span class="p-button-icon pi pi-check" aria-hidden="true"></span></button> }
+                    @if (g.comprobacion_status !== 'rechazada') { <button pButton type="button" size="small" text severity="danger" (click)="openReject(g)" title="Rechazar"><span class="p-button-icon pi pi-times" aria-hidden="true"></span></button> }
+                  }
+                }
               </td>
             </tr>
           </ng-template>
-          <ng-template #emptymessage><tr><td colspan="10" class="cp-empty">Sin comprobaciones para el filtro.</td></tr></ng-template>
+          <ng-template #emptymessage><tr><td colspan="7" class="cp-empty">Sin gastos para el filtro.</td></tr></ng-template>
         </p-table>
       </div>
       }
@@ -194,6 +194,10 @@ interface FileSlot { role: ComprobacionFileRole; label: string; required: boolea
     .cp-files { display: inline-flex; gap: .35rem; flex-wrap: wrap; }
     .cp-fchip { color: var(--action); font-size: 1rem; }
     .cp-fchip:hover { opacity: .75; }
+    .cp-comp { display: inline-flex; align-items: center; gap: .4rem; flex-wrap: wrap; }
+    .cp-pend { display: inline-flex; align-items: center; gap: .3rem; }
+    .cp-pend i { font-size: .75rem; opacity: .7; }
+    .cp-folioc { font-size: .72rem; }
     .cp-motivo { font-size: .72rem; color: var(--bad-fg); max-width: 12rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .cp-empty { text-align: center; color: var(--text-muted); padding: 2rem; }
     .cp-form { display: flex; flex-direction: column; gap: .8rem; padding: .25rem 0; }
@@ -226,18 +230,18 @@ export class FinanzasComprobacionGastosComponent {
     { role: 'evidencia_2', label: 'Evidencia adicional 2', required: false, accept: 'image/*,.pdf' },
   ];
 
-  readonly report = signal<ComprobacionesReport | null>(null);
+  readonly report = signal<GastosReport | null>(null);
   readonly rows = computed(() => this.report()?.rows || []);
   readonly loading = signal(false);
   readonly error = signal<string | null>(null);
   readonly saving = signal(false);
   readonly validatingId = signal<string | null>(null);
-  readonly statusSel = signal<string>('');
+  readonly statusSel = signal<string>('pendiente');
   readonly departamentos = signal<Departamento[]>([]);
   readonly sucursalDerivada = signal<string>('');
   readonly canManage = computed(() => this.auth.user()?.permissions?.[Permission.FINANCE_FINDINGS_GESTIONAR] === true);
 
-  readonly statusOpts = [{ label: 'Todas', value: '' }, { label: 'Recibidas', value: 'recibida' }, { label: 'Validadas', value: 'validada' }, { label: 'Rechazadas', value: 'rechazada' }];
+  readonly statusOpts = [{ label: 'Pendientes', value: 'pendiente' }, { label: 'Comprobadas', value: 'comprobada' }, { label: 'Validadas', value: 'validada' }, { label: 'Todos', value: '' }];
   search = '';
   private timer: ReturnType<typeof setTimeout> | null = null;
 
@@ -261,7 +265,7 @@ export class FinanzasComprobacionGastosComponent {
 
   // reject
   readonly showReject = signal(false);
-  readonly rejectTarget = signal<Comprobacion | null>(null);
+  readonly rejectTarget = signal<GastoRow | null>(null);
   rejectMotivo = '';
 
   constructor() {
@@ -269,11 +273,12 @@ export class FinanzasComprobacionGastosComponent {
     this.load();
   }
 
-  kpiItems(r: ComprobacionesReport): MetricStripItem[] {
+  kpiItems(r: GastosReport): MetricStripItem[] {
     return [
-      { label: 'Recibidas', value: r.kpis.recibidas, tone: 'warn' },
-      { label: 'Validadas', value: r.kpis.validadas, tone: 'ok' },
-      { label: 'Rechazadas', value: r.kpis.rechazadas, tone: 'bad' },
+      { label: 'Gastos', value: r.kpis.gastos },
+      { label: 'Comprobados', value: r.kpis.comprobados, tone: 'ok' },
+      { label: 'Validados', value: r.kpis.validados, tone: 'ok' },
+      { label: '$ por comprobar', value: this.money(r.kpis.monto_pendiente), tone: 'warn' },
     ];
   }
 
@@ -284,11 +289,11 @@ export class FinanzasComprobacionGastosComponent {
     if (this.timer) { clearTimeout(this.timer); this.timer = null; }
     this.loading.set(true);
     this.error.set(null);
-    this.svc.list({ status: this.statusSel() || undefined, search: this.search || undefined })
+    this.svc.listGastos({ estado: this.statusSel() || undefined, search: this.search || undefined })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (r) => { this.report.set(r); this.loading.set(false); },
-        error: () => { this.error.set('No se pudieron cargar las comprobaciones.'); this.loading.set(false); },
+        error: () => { this.error.set('No se pudieron cargar los gastos.'); this.loading.set(false); },
       });
   }
 
@@ -310,6 +315,15 @@ export class FinanzasComprobacionGastosComponent {
     this.sucursalDerivada.set('');
     this.formError.set('');
     this.showForm.set(true);
+  }
+
+  /** Abre el form pre-rellenado con el gasto de la fila (folio/proveedor/importe/sucursal). */
+  openComprobar(g: GastoRow) {
+    this.openNew();
+    this.form.folio_gasto = g.folio_gasto;
+    this.form.proveedor = g.proveedor || '';
+    if (g.importe) this.form.importe = g.importe;
+    if (g.sucursal) this.form.sucursal = g.sucursal;
   }
 
   onDeptoChange() {
@@ -384,27 +398,27 @@ export class FinanzasComprobacionGastosComponent {
       });
   }
 
-  doValidate(r: Comprobacion) {
-    if (this.validatingId()) return;
-    this.validatingId.set(r.id);
-    this.svc.validate(r.id).pipe(takeUntilDestroyed(this.destroyRef))
+  doValidate(g: GastoRow) {
+    if (!g.comprobacion_id || this.validatingId()) return;
+    this.validatingId.set(g.comprobacion_id);
+    this.svc.validate(g.comprobacion_id).pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: () => { this.validatingId.set(null); this.toast.add({ severity: 'success', summary: 'Validada', detail: `Gasto ${r.folio_gasto}` }); this.load(); },
+        next: () => { this.validatingId.set(null); this.toast.add({ severity: 'success', summary: 'Validada', detail: `Gasto ${g.folio_gasto}` }); this.load(); },
         error: () => { this.validatingId.set(null); this.toast.add({ severity: 'error', summary: 'Error al validar' }); },
       });
   }
 
-  openReject(r: Comprobacion) { this.rejectTarget.set(r); this.rejectMotivo = ''; this.showReject.set(true); }
+  openReject(g: GastoRow) { this.rejectTarget.set(g); this.rejectMotivo = ''; this.showReject.set(true); }
   doReject() {
-    const r = this.rejectTarget();
-    if (!r) return;
+    const g = this.rejectTarget();
+    if (!g?.comprobacion_id) return;
     this.saving.set(true);
-    this.svc.reject(r.id, this.rejectMotivo || undefined).pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({ next: () => { this.saving.set(false); this.showReject.set(false); this.toast.add({ severity: 'info', summary: 'Rechazada', detail: `Gasto ${r.folio_gasto}` }); this.load(); }, error: () => { this.saving.set(false); this.toast.add({ severity: 'error', summary: 'Error al rechazar' }); } });
+    this.svc.reject(g.comprobacion_id, this.rejectMotivo || undefined).pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({ next: () => { this.saving.set(false); this.showReject.set(false); this.toast.add({ severity: 'info', summary: 'Rechazada', detail: `Gasto ${g.folio_gasto}` }); this.load(); }, error: () => { this.saving.set(false); this.toast.add({ severity: 'error', summary: 'Error al rechazar' }); } });
   }
 
   fileLabel(role: string): string { return this.fileSlots.find((s) => s.role === role)?.label || role; }
-  statusLabel(s: string): string { return ({ recibida: 'Recibida', validada: 'Validada', rechazada: 'Rechazada' } as Record<string, string>)[s] || s; }
-  statusSev(s: string): 'success' | 'warn' | 'danger' | 'secondary' { return ({ recibida: 'warn', validada: 'success', rechazada: 'danger' } as Record<string, 'success' | 'warn' | 'danger'>)[s] || 'secondary'; }
+  statusLabel(s: string | null): string { return ({ recibida: 'Recibida', validada: 'Validada', rechazada: 'Rechazada' } as Record<string, string>)[s || ''] || (s || '—'); }
+  statusSev(s: string | null): 'success' | 'warn' | 'danger' | 'secondary' { return ({ recibida: 'warn', validada: 'success', rechazada: 'danger' } as Record<string, 'success' | 'warn' | 'danger'>)[s || ''] || 'secondary'; }
   money(v: number | string | null | undefined): string { return (Number(v ?? 0) || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 }); }
 }

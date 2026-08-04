@@ -38,6 +38,14 @@ export interface ListComprobacionesQuery {
   limit?: number;
 }
 
+export interface ListGastosQuery {
+  estado?: 'pendiente' | 'comprobada' | 'validada' | string;
+  search?: string;
+  from?: string;
+  to?: string;
+  limit?: number;
+}
+
 @Injectable()
 export class ExpenseComprobacionesService {
   private readonly logger = new Logger(ExpenseComprobacionesService.name);
@@ -156,6 +164,80 @@ export class ExpenseComprobacionesService {
       const by = Object.fromEntries(agg.map((r: any) => [r.status, Number(r.n)]));
       return {
         kpis: { total: rows.length, recibidas: by['recibida'] || 0, validadas: by['validada'] || 0, rechazadas: by['rechazada'] || 0 },
+        rows,
+      };
+    });
+  }
+
+  /**
+   * Lista los GASTOS de Kepler (XA1001, espejo `analytics.expense_documents`) con el
+   * estado de su comprobación adjunta (LEFT JOIN a `finance.expense_comprobaciones` por
+   * folio). Es la vista "manejada por gasto" (como Cobranza/Pagos/Entradas): el capturista
+   * ve qué gastos faltan de comprobar. No escribe a Kepler.
+   */
+  async listGastos(q: ListGastosQuery) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const limit = Math.min(1000, Math.max(1, Number(q.limit) || 500));
+    return this.tk.run(async (trx) => {
+      const comp = trx('finance.expense_comprobaciones')
+        .select('folio_gasto')
+        .count('* as n')
+        .select(trx.raw(`(array_agg(id ORDER BY created_at DESC))[1] AS last_id`))
+        .select(trx.raw(`(array_agg(status ORDER BY created_at DESC))[1] AS last_status`))
+        .select(trx.raw(`(array_agg(folio_comprobacion ORDER BY created_at DESC))[1] AS last_folio_comp`))
+        .select(trx.raw(`(array_agg(files ORDER BY created_at DESC))[1] AS last_files`))
+        .whereNotNull('folio_gasto')
+        .groupBy('folio_gasto')
+        .as('d');
+
+      const b = trx('analytics.expense_documents as g')
+        .leftJoin(comp, 'g.doc_folio', 'd.folio_gasto')
+        .where('g.tenant_id', tenantId)
+        .where('g.doc_tipo', 'XA1001')
+        .select(
+          'g.sucursal', 'g.doc_folio AS folio_gasto', 'g.fecha',
+          'g.beneficiario AS proveedor', trx.raw('g.importe::numeric AS importe'),
+          'g.solicitud_folio', 'g.area',
+          trx.raw('COALESCE(d.n, 0)::int AS comprobaciones'),
+          trx.raw('d.last_id AS comprobacion_id'),
+          trx.raw('d.last_status AS comprobacion_status'),
+          trx.raw('d.last_folio_comp AS folio_comprobacion'),
+          trx.raw('d.last_files AS files'),
+        )
+        .orderBy('g.fecha', 'desc')
+        .orderBy('g.doc_folio', 'desc')
+        .limit(limit);
+
+      if (q.from) b.where('g.fecha', '>=', q.from);
+      if (q.to) b.where('g.fecha', '<=', q.to);
+      if (q.estado === 'pendiente') b.whereRaw('d.n IS NULL');
+      if (q.estado === 'comprobada') b.whereRaw('d.n > 0');
+      if (q.estado === 'validada') b.whereRaw(`d.last_status = 'validada'`);
+      if (q.search) {
+        const s = `%${q.search.trim()}%`;
+        b.where((w: any) => w.whereILike('g.doc_folio', s).orWhereILike('g.beneficiario', s)
+          .orWhereILike('g.solicitud_folio', s).orWhereRaw('g.importe::text ILIKE ?', [s]));
+      }
+
+      const rows = (await b).map((r: any) => ({ ...r, importe: Number(r.importe), files: r.files || [] }));
+
+      const kpiBase = trx('analytics.expense_documents as g')
+        .leftJoin(comp, 'g.doc_folio', 'd.folio_gasto')
+        .where('g.tenant_id', tenantId).where('g.doc_tipo', 'XA1001');
+      if (q.from) kpiBase.where('g.fecha', '>=', q.from);
+      if (q.to) kpiBase.where('g.fecha', '<=', q.to);
+      const [k] = await kpiBase.select(
+        trx.raw('COUNT(*)::int AS gastos'),
+        trx.raw('COUNT(d.n)::int AS comprobados'),
+        trx.raw(`COUNT(*) FILTER (WHERE d.last_status='validada')::int AS validados`),
+        trx.raw('COALESCE(SUM(g.importe::numeric) FILTER (WHERE d.n IS NULL), 0)::numeric AS monto_pendiente'),
+      );
+
+      return {
+        kpis: {
+          gastos: Number(k.gastos), comprobados: Number(k.comprobados),
+          validados: Number(k.validados), monto_pendiente: Number(k.monto_pendiente),
+        },
         rows,
       };
     });
