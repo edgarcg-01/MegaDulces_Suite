@@ -151,9 +151,11 @@ export class CommercialReplenishmentController {
       export: true,
     });
     const payload = { coverage_days: data.coverage_days, territories: data.territories, rows: data.rows };
-    // flat = una sola hoja (todos los proveedores). default = una hoja por proveedor.
-    const isFlat = flat === 'true' || flat === '1';
-    const buf = isFlat ? await this.exporter.buildWorkbookFlat(payload) : await this.exporter.buildWorkbook(payload);
+    // Export unificado (canónico): hoja "Todos" (plano) + una hoja por proveedor, en un archivo.
+    // `flat=true` conserva la variante de solo-plano (compat); default = unificado.
+    const buf = (flat === 'true' || flat === '1')
+      ? await this.exporter.buildWorkbookFlat(payload)
+      : await this.exporter.buildWorkbookUnified(payload);
     sendXlsx(res, buf, this.exporter.fileNameWorkbook(data.coverage_days));
   }
 

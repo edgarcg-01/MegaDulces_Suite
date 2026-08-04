@@ -486,159 +486,183 @@ export class ReplenishmentExportService {
     return `Pedido_por_proveedor_${d}.xlsx`;
   }
 
+  /** Agrupa filas por proveedor (orden alfabético); vacío → una entrada "Sin proveedor". */
+  private groupBySupplier(rows: WorkbookExportRow[]): Array<{ name: string; rows: WorkbookExportRow[] }> {
+    const bySup = new Map<string, WorkbookExportRow[]>();
+    for (const r of rows || []) {
+      const nm = r.supplier_name == null ? '' : String(r.supplier_name).trim();
+      const k = nm || 'Sin proveedor';
+      (bySup.get(k) ?? bySup.set(k, []).get(k)!).push(r);
+    }
+    const names = [...bySup.keys()].sort((a, b) => a.localeCompare(b, 'es'));
+    if (!names.length) return [{ name: 'Sin proveedor', rows: [] }];
+    return names.map((n) => ({ name: n, rows: bySup.get(n)! }));
+  }
+
+  /** Nombre de hoja Excel válido (≤31, sin : \ / ? * [ ]) y único dentro de `used`. */
+  private uniqueSheetName(raw: string, used: Set<string>): string {
+    const base = (String(raw).replace(/[:\\/?*[\]]/g, ' ').trim() || 'Proveedor').slice(0, 28);
+    let name = base, n = 2;
+    while (used.has(name.toLowerCase())) name = `${base.slice(0, 25)} ${n++}`;
+    used.add(name.toLowerCase());
+    return name;
+  }
+
   /**
-   * RA-PRO.32.5 — Workbook del comprador (SARAMEL/NUTRESA/…): un archivo con UNA HOJA por proveedor.
-   * Layout columnar: filas = productos; columnas = Vta/Exist/Pedido por cada punto de compra + totales.
+   * RA — Workbook UNIFICADO (el export canónico de /compras/pedido): un solo archivo con la hoja
+   * "Todos" (plano, columna Proveedor) + UNA hoja por proveedor. Mismos datos/columnas/filtros que
+   * la tabla en pantalla (desglosar/englobar). Reemplaza los dos exports separados.
    */
+  async buildWorkbookUnified(data: WorkbookExport): Promise<Buffer> {
+    const wb = new ExcelJS.Workbook();
+    wb.creator = 'Mega Dulces';
+    wb.created = new Date();
+    const terrs = data.territories || [];
+    this.writeFlatSheet(wb, 'Todos', data.rows || [], terrs, data.coverage_days);
+    const used = new Set<string>(['todos']);
+    for (const g of this.groupBySupplier(data.rows || [])) {
+      this.writeSupplierSheet(wb, this.uniqueSheetName(g.name, used), g.name, g.rows, terrs, data.coverage_days);
+    }
+    return Buffer.from((await wb.xlsx.writeBuffer()) as ArrayBuffer);
+  }
+
+  /** RA — una HOJA por proveedor (columnar). */
   async buildWorkbook(data: WorkbookExport): Promise<Buffer> {
     const wb = new ExcelJS.Workbook();
     wb.creator = 'Mega Dulces';
     wb.created = new Date();
     const terrs = data.territories || [];
-    const MONEY = '$#,##0.00', N1 = '#,##0.0', N0 = '#,##0';
-    const HEAD_FILL: ExcelJS.Fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1F0EC' } };
-
-    // Agrupa por proveedor (una hoja cada uno), orden alfabético.
-    const bySup = new Map<string, WorkbookExportRow[]>();
-    for (const r of data.rows || []) {
-      // supplier_name puede venir no-string (proveedor con nombre numérico) → coercer siempre a string.
-      const nm = r.supplier_name == null ? '' : String(r.supplier_name).trim();
-      const k = nm || 'Sin proveedor';
-      (bySup.get(k) ?? bySup.set(k, []).get(k)!).push(r);
+    const used = new Set<string>();
+    for (const g of this.groupBySupplier(data.rows || [])) {
+      this.writeSupplierSheet(wb, this.uniqueSheetName(g.name, used), g.name, g.rows, terrs, data.coverage_days);
     }
-    const suppliers = [...bySup.keys()].sort((a, b) => a.localeCompare(b, 'es'));
-    if (!suppliers.length) { suppliers.push('Sin proveedor'); bySup.set('Sin proveedor', []); }
-
-    const leftH = ['Producto', 'SKU', 'UXC', 'Costo/Cja', 'XYZ', 'Reorden', 'Máx'];
-    const rightH = ['Σ Pedido (cajas)', 'Σ Piezas', '$ Pedido', 'Valor venta', 'Valor exist.'];
-    const nLeft = leftH.length, nRight = rightH.length;
-    const usedNames = new Set<string>();
-
-    for (const sup of suppliers) {
-      const rows = bySup.get(sup) || [];
-      // Nombre de hoja: Excel prohíbe : \ / ? * [ ] y máx 31 chars. Único.
-      const base = (String(sup).replace(/[:\\/?*[\]]/g, ' ').trim() || 'Proveedor').slice(0, 28);
-      let name = base, n = 2;
-      while (usedNames.has(name.toLowerCase())) name = `${base.slice(0, 25)} ${n++}`;
-      usedNames.add(name.toLowerCase());
-
-      const totalCols = nLeft + terrs.length * 3 + nRight;
-      const ws = wb.addWorksheet(name, { views: [{ state: 'frozen', xSplit: nLeft, ySplit: 4 }] });
-
-      // Fila 1 — título
-      ws.mergeCells(1, 1, 1, totalCols);
-      const title = ws.getCell(1, 1);
-      title.value = `PEDIDO — ${sup}  ·  cobertura ${data.coverage_days} días`;
-      title.font = { bold: true, size: 14 };
-      title.alignment = { horizontal: 'center', vertical: 'middle' };
-      ws.getRow(1).height = 24;
-
-      // Fila 2 — resumen
-      const totPed = rows.reduce((s, r) => s + (Number(r.pedido_valor) || 0), 0);
-      const totCj = rows.reduce((s, r) => s + (Number(r.suma_pedido_cajas) || 0), 0);
-      ws.mergeCells(2, 1, 2, totalCols);
-      const sub = ws.getCell(2, 1);
-      sub.value = `${rows.length} productos  ·  ${totCj.toLocaleString('es-MX', { maximumFractionDigits: 1 })} cajas  ·  $ Pedido ${totPed.toLocaleString('es-MX', { style: 'currency', currency: 'MXN' })}`;
-      sub.font = { size: 9, color: { argb: 'FF52525B' } };
-      sub.alignment = { horizontal: 'center', vertical: 'middle' };
-      ws.getRow(2).height = 18;
-
-      // Filas 3-4 — encabezado (grupo por punto de compra sobre Vta/Exist/Pedido)
-      let c = 1;
-      for (const h of leftH) { ws.mergeCells(3, c, 4, c); ws.getCell(3, c).value = h; c++; }
-      for (const t of terrs) {
-        ws.mergeCells(3, c, 3, c + 2); ws.getCell(3, c).value = t.name;
-        ws.getCell(4, c).value = 'Vta'; ws.getCell(4, c + 1).value = 'Exist'; ws.getCell(4, c + 2).value = 'Pedido';
-        c += 3;
-      }
-      for (const h of rightH) { ws.mergeCells(3, c, 4, c); ws.getCell(3, c).value = h; c++; }
-      for (const rn of [3, 4]) {
-        for (let i = 1; i <= totalCols; i++) {
-          const cell = ws.getCell(rn, i);
-          cell.font = { bold: true, size: 9, color: { argb: 'FF3F3F46' } };
-          cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
-          cell.fill = HEAD_FILL;
-          cell.border = this.thin();
-        }
-      }
-      ws.getRow(3).height = 20; ws.getRow(4).height = 16;
-
-      // Datos (desde fila 5)
-      const pedFirstCol = nLeft + terrs.length * 3 + 1; // Σ cajas
-      rows.forEach((r) => {
-        const uxc = Number(r.uxc) || 1;
-        const vals: (string | number)[] = [r.nombre || '', r.sku || '', Number(r.uxc) || 0, Number(r.caja_cost) || 0,
-          r.xyz_class || '', Number(r.reorder_cajas) || 0, Number(r.max_cajas) || 0];
-        for (const t of terrs) {
-          const cel = (r.cells && r.cells[t.code]) || {};
-          vals.push(Number(cel.vta) || 0, Number(cel.exis) || 0, Number(cel.ped) || 0);
-        }
-        vals.push(Number(r.suma_pedido_cajas) || 0, (Number(r.suma_pedido_cajas) || 0) * uxc,
-          Number(r.pedido_valor) || 0, Number(r.valor_venta) || 0, Number(r.valor_exis) || 0);
-        const added = ws.addRow(vals);
-        added.eachCell((cell, col) => {
-          cell.border = this.thin();
-          cell.alignment = { horizontal: col === 1 || col === 2 ? 'left' : col === 5 ? 'center' : 'right' };
-          if (col === 3) cell.numFmt = N0;
-          else if (col === 4) cell.numFmt = MONEY;
-          else if (col === 6 || col === 7) cell.numFmt = N1;   // Reorden / Máx (cajas)
-          else if (col > nLeft && col <= nLeft + terrs.length * 3) cell.numFmt = N1;
-          else if (col === pedFirstCol) cell.numFmt = N1;
-          else if (col === pedFirstCol + 1) cell.numFmt = N0;
-          else if (col >= pedFirstCol + 2) cell.numFmt = MONEY;
-        });
-      });
-
-      // Anchos
-      ws.getColumn(1).width = 38; ws.getColumn(2).width = 12; ws.getColumn(3).width = 7; ws.getColumn(4).width = 11;
-      ws.getColumn(5).width = 6; ws.getColumn(6).width = 9; ws.getColumn(7).width = 9;
-      for (let i = nLeft + 1; i <= nLeft + terrs.length * 3; i++) ws.getColumn(i).width = 8;
-      for (let i = pedFirstCol; i <= totalCols; i++) ws.getColumn(i).width = 13;
-
-      // Totales (SUBTOTAL respeta autofiltro)
-      const firstData = 5, lastData = 4 + rows.length;
-      if (rows.length) {
-        ws.autoFilter = { from: { row: 4, column: 1 }, to: { row: lastData, column: totalCols } };
-        const totalRow = ws.addRow([]);
-        const tr = totalRow.number;
-        const tCell = ws.getCell(tr, 1); tCell.value = 'TOTAL'; tCell.font = { bold: true }; tCell.border = this.thin();
-        for (let sc = pedFirstCol; sc <= totalCols; sc++) {
-          const L = ws.getColumn(sc).letter;
-          const cell = ws.getCell(tr, sc);
-          cell.value = { formula: `SUBTOTAL(9,${L}${firstData}:${L}${lastData})` };
-          cell.font = { bold: true };
-          cell.numFmt = sc === pedFirstCol ? N1 : sc === pedFirstCol + 1 ? N0 : MONEY;
-          cell.border = { top: { style: 'thin', color: { argb: 'FFB8B4AC' } } };
-        }
-      }
-    }
-
-    const buf = await wb.xlsx.writeBuffer();
-    return Buffer.from(buf as ArrayBuffer);
+    return Buffer.from((await wb.xlsx.writeBuffer()) as ArrayBuffer);
   }
 
-  /**
-   * RA — Workbook PLANO: UNA sola hoja con TODOS los proveedores (columna Proveedor),
-   * columnas por punto de compra (Vta/Exist/Pedido por territorio) + totales. Respeta
-   * desglosar/englobar (territories = sucursales o 1 "red") y los filtros ya aplicados
-   * server-side → refleja exacto la tabla en pantalla. Formato editorial Mercado/Stone.
-   */
+  /** RA — UNA sola hoja plana (todos los proveedores, columna Proveedor). */
   async buildWorkbookFlat(data: WorkbookExport): Promise<Buffer> {
     const wb = new ExcelJS.Workbook();
     wb.creator = 'Mega Dulces';
     wb.created = new Date();
-    const terrs = data.territories || [];
+    this.writeFlatSheet(wb, 'Pedido (plano)', data.rows || [], data.territories || [], data.coverage_days);
+    return Buffer.from((await wb.xlsx.writeBuffer()) as ArrayBuffer);
+  }
+
+  /** Escribe UNA hoja por-proveedor (layout columnar Vta/Exist/Pedido por territorio) en `wb`. */
+  private writeSupplierSheet(wb: ExcelJS.Workbook, name: string, supTitle: string, rows: WorkbookExportRow[], terrs: WorkbookExportTerritory[], coverage: number): void {
+    const MONEY = '$#,##0.00', N1 = '#,##0.0', N0 = '#,##0';
+    const HEAD_FILL: ExcelJS.Fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1F0EC' } };
+    const leftH = ['Producto', 'SKU', 'UXC', 'Costo/Cja', 'XYZ', 'Reorden', 'Máx'];
+    const rightH = ['Σ Pedido (cajas)', 'Σ Piezas', '$ Pedido', 'Valor venta', 'Valor exist.'];
+    const nLeft = leftH.length, nRight = rightH.length;
+    const totalCols = nLeft + terrs.length * 3 + nRight;
+    const ws = wb.addWorksheet(name, { views: [{ state: 'frozen', xSplit: nLeft, ySplit: 4 }] });
+
+    // Fila 1 — título
+    ws.mergeCells(1, 1, 1, totalCols);
+    const title = ws.getCell(1, 1);
+    title.value = `PEDIDO — ${supTitle}  ·  cobertura ${coverage} días`;
+    title.font = { bold: true, size: 14 };
+    title.alignment = { horizontal: 'center', vertical: 'middle' };
+    ws.getRow(1).height = 24;
+
+    // Fila 2 — resumen
+    const totPed = rows.reduce((s, r) => s + (Number(r.pedido_valor) || 0), 0);
+    const totCj = rows.reduce((s, r) => s + (Number(r.suma_pedido_cajas) || 0), 0);
+    ws.mergeCells(2, 1, 2, totalCols);
+    const sub = ws.getCell(2, 1);
+    sub.value = `${rows.length} productos  ·  ${totCj.toLocaleString('es-MX', { maximumFractionDigits: 1 })} cajas  ·  $ Pedido ${totPed.toLocaleString('es-MX', { style: 'currency', currency: 'MXN' })}`;
+    sub.font = { size: 9, color: { argb: 'FF52525B' } };
+    sub.alignment = { horizontal: 'center', vertical: 'middle' };
+    ws.getRow(2).height = 18;
+
+    // Filas 3-4 — encabezado (grupo por punto de compra sobre Vta/Exist/Pedido)
+    let c = 1;
+    for (const h of leftH) { ws.mergeCells(3, c, 4, c); ws.getCell(3, c).value = h; c++; }
+    for (const t of terrs) {
+      ws.mergeCells(3, c, 3, c + 2); ws.getCell(3, c).value = t.name;
+      ws.getCell(4, c).value = 'Vta'; ws.getCell(4, c + 1).value = 'Exist'; ws.getCell(4, c + 2).value = 'Pedido';
+      c += 3;
+    }
+    for (const h of rightH) { ws.mergeCells(3, c, 4, c); ws.getCell(3, c).value = h; c++; }
+    for (const rn of [3, 4]) {
+      for (let i = 1; i <= totalCols; i++) {
+        const cell = ws.getCell(rn, i);
+        cell.font = { bold: true, size: 9, color: { argb: 'FF3F3F46' } };
+        cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+        cell.fill = HEAD_FILL;
+        cell.border = this.thin();
+      }
+    }
+    ws.getRow(3).height = 20; ws.getRow(4).height = 16;
+
+    // Datos (desde fila 5)
+    const pedFirstCol = nLeft + terrs.length * 3 + 1; // Σ cajas
+    rows.forEach((r) => {
+      const uxc = Number(r.uxc) || 1;
+      const vals: (string | number)[] = [r.nombre || '', r.sku || '', Number(r.uxc) || 0, Number(r.caja_cost) || 0,
+        r.xyz_class || '', Number(r.reorder_cajas) || 0, Number(r.max_cajas) || 0];
+      for (const t of terrs) {
+        const cel = (r.cells && r.cells[t.code]) || {};
+        vals.push(Number(cel.vta) || 0, Number(cel.exis) || 0, Number(cel.ped) || 0);
+      }
+      vals.push(Number(r.suma_pedido_cajas) || 0, (Number(r.suma_pedido_cajas) || 0) * uxc,
+        Number(r.pedido_valor) || 0, Number(r.valor_venta) || 0, Number(r.valor_exis) || 0);
+      const added = ws.addRow(vals);
+      added.eachCell((cell, col) => {
+        cell.border = this.thin();
+        cell.alignment = { horizontal: col === 1 || col === 2 ? 'left' : col === 5 ? 'center' : 'right' };
+        if (col === 3) cell.numFmt = N0;
+        else if (col === 4) cell.numFmt = MONEY;
+        else if (col === 6 || col === 7) cell.numFmt = N1;   // Reorden / Máx (cajas)
+        else if (col > nLeft && col <= nLeft + terrs.length * 3) cell.numFmt = N1;
+        else if (col === pedFirstCol) cell.numFmt = N1;
+        else if (col === pedFirstCol + 1) cell.numFmt = N0;
+        else if (col >= pedFirstCol + 2) cell.numFmt = MONEY;
+      });
+    });
+
+    // Anchos
+    ws.getColumn(1).width = 38; ws.getColumn(2).width = 12; ws.getColumn(3).width = 7; ws.getColumn(4).width = 11;
+    ws.getColumn(5).width = 6; ws.getColumn(6).width = 9; ws.getColumn(7).width = 9;
+    for (let i = nLeft + 1; i <= nLeft + terrs.length * 3; i++) ws.getColumn(i).width = 8;
+    for (let i = pedFirstCol; i <= totalCols; i++) ws.getColumn(i).width = 13;
+
+    // Totales (SUBTOTAL respeta autofiltro)
+    const firstData = 5, lastData = 4 + rows.length;
+    if (rows.length) {
+      ws.autoFilter = { from: { row: 4, column: 1 }, to: { row: lastData, column: totalCols } };
+      const totalRow = ws.addRow([]);
+      const tr = totalRow.number;
+      const tCell = ws.getCell(tr, 1); tCell.value = 'TOTAL'; tCell.font = { bold: true }; tCell.border = this.thin();
+      for (let sc = pedFirstCol; sc <= totalCols; sc++) {
+        const L = ws.getColumn(sc).letter;
+        const cell = ws.getCell(tr, sc);
+        cell.value = { formula: `SUBTOTAL(9,${L}${firstData}:${L}${lastData})` };
+        cell.font = { bold: true };
+        cell.numFmt = sc === pedFirstCol ? N1 : sc === pedFirstCol + 1 ? N0 : MONEY;
+        cell.border = { top: { style: 'thin', color: { argb: 'FFB8B4AC' } } };
+      }
+    }
+  }
+
+  /**
+   * Escribe la hoja PLANA (todos los proveedores, columna Proveedor) en `wb`. Layout columnar
+   * (Vta/Exist/Pedido por territorio) + totales. Respeta desglosar/englobar (territories) y refleja
+   * la tabla en pantalla. Formato editorial Mercado/Stone.
+   */
+  private writeFlatSheet(wb: ExcelJS.Workbook, sheetName: string, rowsIn: WorkbookExportRow[], terrs: WorkbookExportTerritory[], coverage: number): void {
     const MONEY = '$#,##0.00', N1 = '#,##0.0', N0 = '#,##0';
     const INK = 'FF1C1917', MUTED = 'FF78716C', BAND = 'FF292524', BAND_TXT = 'FFFFFFFF';
     const HAIR = 'FFE7E5E4', TOTAL_BG = 'FFF5F5F4', TOTAL_LINE = 'FFA8A29E', ACCENT = 'FFC2410C', FONT = 'Calibri';
 
     // Orden: por proveedor, luego venta desc (agrupa visualmente sin perder el ranking).
-    const rows = [...(data.rows || [])].sort((a, b) => {
+    const rows = [...(rowsIn || [])].sort((a, b) => {
       const s = String(a.supplier_name ?? '').localeCompare(String(b.supplier_name ?? ''), 'es');
       return s !== 0 ? s : (Number(b.valor_venta) || 0) - (Number(a.valor_venta) || 0);
     });
 
-    const ws = wb.addWorksheet('Pedido (plano)');
+    const ws = wb.addWorksheet(sheetName);
     const nLeft = 8;                       // Proveedor · Producto · SKU · UXC · Costo/Cja · XYZ · Reorden · Máx
     const nRight = 5;                       // Σ cajas · Σ pz · $ Pedido · Valor venta · Valor exist.
     const totalCols = nLeft + terrs.length * 3 + nRight;
@@ -649,7 +673,7 @@ export class ReplenishmentExportService {
     const title = ws.getCell(1, 1);
     const fecha = new Date().toLocaleDateString('es-MX', { day: '2-digit', month: 'long', year: 'numeric' });
     const grouped = terrs.length === 1 && terrs[0].code === 'GENERAL';
-    title.value = `PEDIDO — ${grouped ? 'red (englobado)' : 'por sucursal'}  ·  cobertura ${data.coverage_days} días`;
+    title.value = `PEDIDO — ${grouped ? 'red (englobado)' : 'por sucursal'}  ·  cobertura ${coverage} días`;
     title.font = { name: FONT, bold: true, size: 16, color: { argb: INK } };
     title.alignment = { horizontal: 'left', vertical: 'middle', indent: 1 };
     ws.getRow(1).height = 28;
@@ -757,9 +781,6 @@ export class ReplenishmentExportService {
       horizontalCentered: true, printTitlesRow: '1:4',
       margins: { left: 0.4, right: 0.4, top: 0.5, bottom: 0.5, header: 0.3, footer: 0.3 },
     };
-    ws.headerFooter = { oddFooter: `&L&9&K808080Mega Dulces&C&9&K808080Página &P de &N&R&9&K808080Pedido (plano)` };
-
-    const buf = await wb.xlsx.writeBuffer();
-    return Buffer.from(buf as ArrayBuffer);
+    ws.headerFooter = { oddFooter: `&L&9&K808080Mega Dulces&C&9&K808080Página &P de &N&R&9&K808080${sheetName}` };
   }
 }
