@@ -133,7 +133,7 @@ const AGG = (cutover) => `
           CREATE TEMP TABLE stg_wmov
             (tenant_id, warehouse_id, product_id, sku, doc_date, genero, naturaleza, doc_type, doc_code, folio,
              movement_kind, movement_label, signed_qty, qty, unit_cost, amount, source_branch) ON COMMIT DROP AS
-          SELECT :t, :wh::uuid, p.id, agg.sku, agg.doc_date, 'W',
+          SELECT :t::uuid, :wh::uuid, p.id, agg.sku, agg.doc_date, 'W',
                  CASE WHEN ${IS_SALIDA} THEN 'D' ELSE 'A' END,
                  agg.tipo, 'WIN_'||agg.tipo,
                  'WIN-'||to_char(agg.doc_date,'YYYYMMDD')||'-'||agg.tipo,
@@ -166,8 +166,8 @@ const AGG = (cutover) => `
           `INSERT INTO analytics.stock_movements
              (tenant_id, warehouse_id, product_id, sku, doc_date, genero, naturaleza, doc_type, doc_code, folio,
               movement_kind, movement_label, signed_qty, qty, unit_cost, amount, source_branch)
-           SELECT tenant_id, warehouse_id, product_id, sku, doc_date, genero, naturaleza, doc_type, doc_code, folio,
-              movement_kind, movement_label, signed_qty, qty, unit_cost, amount, source_branch
+           SELECT s.tenant_id, s.warehouse_id, s.product_id, s.sku, s.doc_date, s.genero, s.naturaleza, s.doc_type, s.doc_code, s.folio,
+              s.movement_kind, s.movement_label, s.signed_qty, s.qty, s.unit_cost, s.amount, s.source_branch
            FROM stg_wmov s JOIN wmov_changed c ON c.doc_date=s.doc_date`, binds);
         summary.push({ almacen: u.code, origen: `W${u.br}`, cutover: cutStr || '—', bloques_cambiados: chg, reinsertadas: ins.rowCount, borradas: del.rowCount });
       });
