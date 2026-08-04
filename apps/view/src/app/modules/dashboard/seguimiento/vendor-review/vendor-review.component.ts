@@ -638,13 +638,28 @@ export class VendorReviewComponent {
       .scanHorusVision(24)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: () => {
+        next: (res: any) => {
           this.analyzing.set(false);
-          this.messageService.add({
-            severity: 'success',
-            summary: 'Horus',
-            detail: 'Análisis disparado. Actualizando estados…',
-          });
+          const scan = res?.scan || {};
+          const analyzed = Number(scan.analyzed || 0);
+          let severity: 'success' | 'info' | 'warn' = 'success';
+          let detail: string;
+          if (scan.reason === 'no_api_key') {
+            severity = 'warn';
+            detail = 'El servidor no tiene ANTHROPIC_API_KEY configurada — Horus no puede analizar fotos.';
+          } else if (scan.reason === 'no_tenant') {
+            severity = 'warn';
+            detail = 'No se pudo resolver el tenant de tu sesión.';
+          } else if (analyzed > 0) {
+            detail = `Horus analizó ${analyzed} foto(s). Actualizando estados…`;
+          } else if (Number(scan.candidates || 0) === 0) {
+            severity = 'info';
+            detail = 'No hay fotos en el rango para analizar.';
+          } else {
+            severity = 'info';
+            detail = 'Todas las fotos del rango ya estaban analizadas.';
+          }
+          this.messageService.add({ severity, summary: 'Horus', detail });
           this.reload();
         },
         error: () => {
@@ -652,7 +667,7 @@ export class VendorReviewComponent {
           this.messageService.add({
             severity: 'warn',
             summary: 'Horus',
-            detail: 'No se pudo disparar el análisis (¿sin API key o permiso?).',
+            detail: 'No se pudo disparar el análisis (¿sin permiso SUPERVISOR_AI_VER o tablas faltantes?).',
           });
         },
       });
