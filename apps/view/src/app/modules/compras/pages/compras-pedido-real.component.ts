@@ -139,6 +139,9 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
                   <th rowspan="2" class="pr-r" title="Piezas por caja · y paquetes por caja si es multipack">Unidad<br/>x caja</th>
                   <th rowspan="2" class="pr-r">Costo/Cja</th>
                   <th rowspan="2" class="pr-r" title="Índice de Aceleración de Demanda (−2..+2): compara el ritmo reciente (30d vs 31-60d) + estacional año-vs-año. ▲ acelera · ═ estable · ▼ desacelera. Señal informativa; no cambia el sugerido.">Tend.</th>
+                  <th rowspan="2" class="pr-r" title="Clase XYZ de red (X estable · Y variable · Z errático) — peor caso entre sucursales">XYZ</th>
+                  <th rowspan="2" class="pr-r" title="Punto de reorden de red (cajas)">Reorden</th>
+                  <th rowspan="2" class="pr-r" title="Máximo de red (cajas)">Máx</th>
                   @for (t of wbTerritories(); track t.code) {
                     <th colspan="3" class="pr-grp-h" [title]="t.code">{{ t.name }}</th>
                   }
@@ -168,6 +171,9 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
                       <p-tag [value]="iadLabel(r)" [severity]="iadSev(r)" styleClass="pr-cov-tag" [title]="iadTitle(r)"></p-tag>
                     } @else { <span class="pr-muted" [title]="iadTitle(r)">—</span> }
                   </td>
+                  <td class="pr-r">@if (r.xyz_class) { <span class="pr-mono">{{ r.xyz_class }}</span> } @else { <span class="pr-muted">—</span> }</td>
+                  <td class="pr-r pr-muted">{{ r.reorder_cajas != null ? (r.reorder_cajas | number:'1.0-1') : '—' }}</td>
+                  <td class="pr-r pr-muted">{{ r.max_cajas != null ? (r.max_cajas | number:'1.0-1') : '—' }}</td>
                   @for (t of wbTerritories(); track t.code) {
                     <td class="pr-r pr-muted">{{ cellVal(r, t.code, 'vta') | number:'1.0-1' }}</td>
                     <td class="pr-r"><p-tag [value]="(cellVal(r, t.code, 'exis') | number:'1.0-1') ?? ''" [severity]="existSev(cellVal(r, t.code, 'exis'), cellVal(r, t.code, 'ped'))" styleClass="pr-cov-tag" [title]="existTitle(cellVal(r, t.code, 'exis'), cellVal(r, t.code, 'ped'))"></p-tag></td>
@@ -539,7 +545,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
   // Ancho dinámico según nº de territorios (3 fijas + 3 por territorio + 4 de cierre). computed →
   // referencia estable entre cargas (evita ExpressionChanged).
   wbTableStyle = computed(() => ({ 'min-width': (40 + this.wbTerritories().length * 13) + 'rem' }));
-  wbColCount = computed(() => 3 + this.wbTerritories().length * 3 + 5);
+  wbColCount = computed(() => 7 + this.wbTerritories().length * 3 + 5);
   /** Valor de una celda territorio×métrica (0 si el SKU no tiene datos en ese punto de compra). */
   cellVal(r: WorkbookRow, code: string, key: 'vta' | 'exis' | 'ped'): number { return r.cells?.[code]?.[key] ?? 0; }
   /** ABC por producto (del motor por-sucursal) → etiqueta en el renglón del Excel. */
