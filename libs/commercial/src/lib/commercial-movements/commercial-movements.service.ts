@@ -86,14 +86,25 @@ export class CommercialMovementsService {
   private destBucketSql(kinds: ('sucursal' | 'ruta' | 'cliente')[], tenantId: string): string {
     if (kinds.length === 3) return ''; // todos = sin filtro
     const isRoute = `(coalesce(m.dest_label,'') ~* '${ROUTE_RX}' OR coalesce(m.dest_code,'') ~* '${ROUTE_RX}')`;
-    // Sucursal = destino que mapea a un almacén CURADO (transfer_dest_map.warehouse_id),
-    // o el patrón histórico TI###. El TI% solo NO basta: hay traspasos a sucursal cuyo
-    // dest_code no empieza con TI y caían en el bucket "cliente" → al filtrar por
-    // Sucursal desaparecían (bug: "para verlos tengo que deseleccionar el destino").
-    // tenantId viene de requireTenantId() (server, UUID) → inline seguro.
-    const isSuc = `(m.dest_code ILIKE 'TI%' OR EXISTS (
-      SELECT 1 FROM analytics.transfer_dest_map dm
-      WHERE dm.tenant_id = '${tenantId}'::uuid AND dm.dest_code = m.dest_code AND dm.warehouse_id IS NOT NULL))`;
+    // Sucursal = traspaso interno cuyo destino RESUELVE a un almacén (no ruta). Tres caminos,
+    // cualquiera basta (tenantId viene de requireTenantId() → UUID, inline seguro):
+    //   1) patrón histórico CEDIS 'TI###'.
+    //   2) mapa CURADO transfer_dest_map (warehouse_id NO nulo).
+    //   3) el dest_code coincide con el `code` de un almacén: prod usa el nº de sucursal
+    //      ('01'..'05'), local usa 'MD-NN' → probamos dest_code y 'MD-'||dest_code.
+    // Antes solo (1)+(2): los traspasos con dest_code = nº de sucursal ('04','05'…) NO
+    // matcheaban y caían en el bucket "cliente" → al filtrar Sucursal DESAPARECÍAN (bug
+    // reportado: "solo los veo si deselecciono el destino"). El nº de cliente ('45','103')
+    // no resuelve a ningún almacén → sigue en "cliente", que es lo correcto.
+    const resolvesWh = `EXISTS (
+      SELECT 1 FROM commercial.warehouses sw
+      WHERE sw.tenant_id = '${tenantId}'::uuid AND sw.deleted_at IS NULL AND sw.code NOT ILIKE 'RUTA%'
+        AND upper(sw.code) IN (upper(coalesce(m.dest_code,'')), 'MD-' || upper(coalesce(m.dest_code,''))))`;
+    const isSuc = `(NOT ${isRoute} AND (
+      m.dest_code ILIKE 'TI%'
+      OR EXISTS (SELECT 1 FROM analytics.transfer_dest_map dm
+                 WHERE dm.tenant_id = '${tenantId}'::uuid AND dm.dest_code = m.dest_code AND dm.warehouse_id IS NOT NULL)
+      OR ${resolvesWh}))`;
     const conds: string[] = [];
     if (kinds.includes('sucursal')) conds.push(isSuc);
     if (kinds.includes('ruta')) conds.push(isRoute);
