@@ -45,6 +45,37 @@ export interface DepositOcr {
 
 export interface DepositFile { role: string; url: string; public_id?: string; kind?: string; name?: string; }
 
+/** Una evidencia adjunta (archivos + OCR + estado) — devuelta por detail(). */
+export interface ProofDeposit {
+  id: string;
+  files: DepositFile[];
+  ocr_monto: number | null;
+  ocr_fecha: string | null;
+  ocr_banco: string | null;
+  ocr_cuenta_dest: string | null;
+  ocr_referencia: string | null;
+  ocr_ordenante: string | null;
+  ocr_metodo: string | null;
+  ocr_status: string;
+  monto_match: boolean | null;
+  status: DepositStatus;
+  comentarios: string | null;
+  validated_by: string | null;
+  validated_at: string | null;
+  motivo_rechazo: string | null;
+  created_by: string | null;
+  created_at: string;
+}
+
+export interface CobroDetail {
+  cobro: {
+    sucursal: string; folio: string; cobro_date: string | null; cliente_code: string | null;
+    cliente_nombre: string | null; concepto: string | null; forma_pago: string | null;
+    monto: number; tipo_cuenta: string | null;
+  };
+  deposits: ProofDeposit[];
+}
+
 export interface AttachDeposit {
   sucursal: string;
   folio: string;
@@ -62,6 +93,10 @@ export class CobranzaService {
     let params = new HttpParams();
     for (const [k, v] of Object.entries(q)) if (v) params = params.set(k, String(v));
     return this.http.get<CobrosReport>(this.base, { params });
+  }
+  /** Detalle del cobro + sus fichas adjuntas (archivos + OCR + estado). */
+  detail(sucursal: string, folio: string): Observable<CobroDetail> {
+    return this.http.get<CobroDetail>(`${this.base}/${encodeURIComponent(sucursal)}/${encodeURIComponent(folio)}`);
   }
   /** Corre OCR sobre la ficha (data URI, imagen/PDF) — preview, no guarda. */
   ocr(file_base64: string): Observable<DepositOcr> {

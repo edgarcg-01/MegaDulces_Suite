@@ -58,6 +58,28 @@ export interface EntradaLinea {
   importe: number;
 }
 
+/** Una remisión/factura adjunta (archivos + OCR + estado) — devuelta por detail(). */
+export interface ReceiptDeposit {
+  id: string;
+  files: ProofFile[];
+  ocr_folio: string | null;
+  ocr_fecha: string | null;
+  ocr_proveedor: string | null;
+  ocr_rfc: string | null;
+  ocr_subtotal: number | null;
+  ocr_iva: number | null;
+  ocr_monto: number | null;
+  ocr_status: string;
+  monto_match: boolean | null;
+  status: ProofStatus;
+  comentarios: string | null;
+  validated_by: string | null;
+  validated_at: string | null;
+  motivo_rechazo: string | null;
+  created_by: string | null;
+  created_at: string;
+}
+
 export interface EntradaDetail {
   entrada: {
     sucursal: string; folio: string; receipt_date: string | null;
@@ -65,7 +87,7 @@ export interface EntradaDetail {
     oc_folio: string | null; vale_folio: string | null; concepto: string | null; monto: number;
   };
   lineas: EntradaLinea[];
-  deposits: any[];
+  deposits: ReceiptDeposit[];
 }
 
 export interface AttachReceipt {
