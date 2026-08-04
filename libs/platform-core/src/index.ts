@@ -57,3 +57,6 @@ export * from './lib/constants/permissions';
 export * from './lib/schemas/jsonb-schemas';
 export * from './lib/date/mx-date';
 export * from './lib/phone/mx-phone';
+
+// ── search (motor de búsqueda compartido) ──
+export * from './lib/search/smart-search';
