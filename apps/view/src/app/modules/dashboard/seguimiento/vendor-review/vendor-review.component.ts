@@ -12,6 +12,7 @@ import { FormsModule } from '@angular/forms';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ButtonModule } from 'primeng/button';
 import { DatePickerModule } from 'primeng/datepicker';
+import { DialogModule } from 'primeng/dialog';
 import { MessageService } from 'primeng/api';
 import { ToastModule } from 'primeng/toast';
 import { FiltersStateService } from '../../reports/graphics/filters-state.service';
@@ -24,6 +25,7 @@ import {
   VendorAgg,
   VendorReviewResponse,
   VendorVisit,
+  VisitDetail,
 } from '../seguimiento.service';
 
 interface StatusMeta {
@@ -45,7 +47,7 @@ interface StatusMeta {
 @Component({
   selector: 'app-vendor-review',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, DatePickerModule, ToastModule],
+  imports: [CommonModule, FormsModule, ButtonModule, DatePickerModule, DialogModule, ToastModule],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
   styles: [
@@ -258,6 +260,16 @@ interface StatusMeta {
                     {{ selectedVendor()!.avg_score ?? '—' }} pts prom
                   </div>
                 </div>
+                <p-button
+                  icon="pi pi-file-pdf"
+                  label="Reporte individual"
+                  severity="secondary"
+                  [outlined]="true"
+                  size="small"
+                  (onClick)="downloadIndividual()"
+                  [disabled]="downloadingIndividual()"
+                  [loading]="downloadingIndividual()"
+                />
               </div>
               <div class="flex items-center gap-1.5 mt-3 flex-wrap">
                 @for (s of statusChips(); track s.key) {
@@ -292,7 +304,11 @@ interface StatusMeta {
                 </thead>
                 <tbody>
                   @for (v of detailVisits(); track v.id) {
-                    <tr class="border-b border-divider/60 vrow motion-safe:transition-colors">
+                    <tr
+                      class="border-b border-divider/60 vrow motion-safe:transition-colors cursor-pointer"
+                      (click)="openVisit(v)"
+                      title="Ver detalle de la visita"
+                    >
                       <td class="px-3 py-2 font-mono text-xs text-content-main">{{ v.folio }}</td>
                       <td class="px-3 py-2 text-content-muted whitespace-nowrap">{{ v.fecha }}</td>
                       <td class="px-3 py-2">
@@ -345,6 +361,99 @@ interface StatusMeta {
           }
         </div>
       </div>
+
+      <!-- Diálogo de detalle de visita -->
+      <p-dialog
+        [visible]="showDetail()"
+        (visibleChange)="showDetail.set($event)"
+        [modal]="true"
+        [dismissableMask]="true"
+        [style]="{ width: '760px', maxWidth: '96vw' }"
+        [header]="detail()?.folio || 'Visita'"
+      >
+        @if (detailLoading()) {
+          <div class="py-10 text-center text-content-faint">
+            <i class="pi pi-spin pi-spinner text-2xl" aria-hidden="true"></i>
+          </div>
+        } @else if (detail(); as d) {
+          <!-- Cabecera -->
+          <div class="flex items-center justify-between gap-3 flex-wrap mb-3">
+            <div>
+              <div class="font-bold text-content-main">{{ d.store_name || d.zona || '—' }}</div>
+              <div class="text-xs text-content-faint">
+                {{ d.vendedor }} · {{ d.fecha }} @if (d.zona && d.store_name) { · {{ d.zona }} }
+              </div>
+            </div>
+            <span class="hbadge" [class]="'hbadge h-' + selectedVisitStatus()">
+              <i class="pi {{ metaFor(selectedVisitStatus()).icon }} text-[9px]" aria-hidden="true"></i>
+              {{ metaFor(selectedVisitStatus()).label }}
+            </span>
+          </div>
+
+          <!-- KPIs de la visita -->
+          <div class="grid grid-cols-3 gap-2 mb-4">
+            <div class="border border-divider rounded-lg px-3 py-2">
+              <div class="text-[9px] uppercase tracking-wider text-content-faint font-bold">Score</div>
+              <div class="text-lg font-extrabold text-content-main">
+                {{ d.skip_scoring ? '—' : (d.score ?? '—') }}
+                @if (d.score_pct !== null) { <span class="text-xs text-content-faint">({{ d.score_pct }}%)</span> }
+              </div>
+            </div>
+            <div class="border border-divider rounded-lg px-3 py-2">
+              <div class="text-[9px] uppercase tracking-wider text-content-faint font-bold">Venta total</div>
+              <div class="text-lg font-extrabold text-content-main">{{ money(d.venta_total) }}</div>
+            </div>
+            <div class="border border-divider rounded-lg px-3 py-2">
+              <div class="text-[9px] uppercase tracking-wider text-content-faint font-bold">Exhibiciones</div>
+              <div class="text-lg font-extrabold text-content-main">{{ d.total_exhibiciones }}</div>
+            </div>
+          </div>
+
+          <!-- Exhibiciones con foto + veredicto Horus -->
+          <div class="text-xs font-semibold uppercase tracking-wider text-content-faint mb-2">Exhibiciones</div>
+          @if (d.exhibiciones.length === 0) {
+            <div class="text-sm text-content-faint py-3 text-center">Sin exhibiciones registradas.</div>
+          }
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            @for (e of d.exhibiciones; track e.idx) {
+              <div class="border border-divider rounded-lg overflow-hidden">
+                @if (e.foto_url) {
+                  <img [src]="e.foto_url" alt="Foto exhibición" loading="lazy"
+                       class="w-full h-40 object-cover bg-surface-layout" />
+                } @else {
+                  <div class="w-full h-40 flex items-center justify-center bg-surface-layout text-content-faint">
+                    <i class="pi pi-image text-2xl" aria-hidden="true"></i>
+                  </div>
+                }
+                <div class="p-2.5 space-y-1.5">
+                  <div class="flex items-center justify-between gap-2 text-xs">
+                    <span class="text-content-muted">{{ e.productos }} productos · {{ e.puntos }} pts</span>
+                    <span class="font-semibold text-content-main">{{ money(e.venta_total) }}</span>
+                  </div>
+                  @if (e.pertenece_mega !== null) {
+                    <span class="hbadge" [class]="e.pertenece_mega ? 'hbadge h-valida' : 'hbadge h-descartada'">
+                      {{ e.pertenece_mega ? 'Mega Dulces' : 'Competencia' }}
+                    </span>
+                  }
+                  @if (visionFor(e.idx); as vz) {
+                    <div class="flex flex-wrap gap-1 pt-1">
+                      @if (vz.mismatch) { <span class="hbadge h-fraude">mismatch</span> }
+                      @if (vz.out_of_stock) { <span class="hbadge h-requiere_supervision">quiebre</span> }
+                      @if (vz.is_shelf === false) { <span class="hbadge h-requiere_supervision">no anaquel</span> }
+                      @if (vz.is_shelf && !vz.mismatch && !vz.out_of_stock) { <span class="hbadge h-valida">anaquel ok</span> }
+                      @if (vz.photo_quality) { <span class="hbadge h-no_revisada">{{ vz.photo_quality }}</span> }
+                    </div>
+                  } @else {
+                    <div class="text-[11px] text-content-faint pt-0.5">Horus no analizó esta foto.</div>
+                  }
+                </div>
+              </div>
+            }
+          </div>
+        } @else {
+          <div class="py-8 text-center text-content-faint text-sm">No se pudo cargar el detalle.</div>
+        }
+      </p-dialog>
     </div>
   `,
 })
@@ -359,9 +468,16 @@ export class VendorReviewComponent {
   loading = signal(false);
   analyzing = signal(false);
   downloadingPdf = signal(false);
+  downloadingIndividual = signal(false);
   data = signal<VendorReviewResponse | null>(null);
   selectedVendorId = signal<string | null>(null);
   statusFilter = signal<HorusStatus | 'all'>('all');
+
+  // Diálogo de detalle de visita.
+  showDetail = signal(false);
+  detailLoading = signal(false);
+  detail = signal<VisitDetail | null>(null);
+  private selectedVisit = signal<VendorVisit | null>(null);
 
   /** Rango de fechas del picker (bound al estado global de filtros). */
   dateRange: Date[] = [];
@@ -570,6 +686,81 @@ export class VendorReviewComponent {
             severity: 'error',
             summary: 'PDF',
             detail: 'No se pudo generar el PDF.',
+          });
+        },
+      });
+  }
+
+  openVisit(v: VendorVisit): void {
+    this.selectedVisit.set(v);
+    this.detail.set(null);
+    this.detailLoading.set(true);
+    this.showDetail.set(true);
+    this.service
+      .getVisitDetail(v.id)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (d) => {
+          this.detail.set(d);
+          this.detailLoading.set(false);
+        },
+        error: () => {
+          this.detailLoading.set(false);
+          this.messageService.add({
+            severity: 'error',
+            summary: 'Detalle',
+            detail: 'No se pudo cargar el detalle de la visita.',
+          });
+        },
+      });
+  }
+
+  selectedVisitStatus(): HorusStatus {
+    return this.selectedVisit()?.horus_status ?? 'no_revisada';
+  }
+
+  visionFor(idx: number) {
+    return (this.detail()?.vision ?? []).find((v) => v.exhibition_idx === idx) ?? null;
+  }
+
+  money(n: number | null | undefined): string {
+    return Number(n || 0).toLocaleString('es-MX', {
+      style: 'currency',
+      currency: 'MXN',
+    });
+  }
+
+  downloadIndividual(): void {
+    const vendor = this.selectedVendor();
+    if (!vendor) return;
+    const f = this.filtersState.filters();
+    this.downloadingIndividual.set(true);
+    this.service
+      .downloadVendorReviewPdf({
+        startDate: f.startDate,
+        endDate: f.endDate,
+        zone: f.zone ?? undefined,
+        supervisorId: f.supervisorId ?? undefined,
+        focusUserId: vendor.user_id,
+        individual: 'true',
+      })
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (blob) => {
+          this.downloadingIndividual.set(false);
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `reporte_${vendor.nombre.replace(/\s+/g, '_')}.pdf`;
+          a.click();
+          URL.revokeObjectURL(url);
+        },
+        error: () => {
+          this.downloadingIndividual.set(false);
+          this.messageService.add({
+            severity: 'error',
+            summary: 'PDF',
+            detail: 'No se pudo generar el reporte individual.',
           });
         },
       });

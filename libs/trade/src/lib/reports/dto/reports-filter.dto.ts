@@ -108,6 +108,15 @@ export class VendorVisitsReviewDto extends ReportsFilterDto {
   @IsOptional()
   @IsString()
   focusUserId?: string;
+
+  @ApiProperty({
+    required: false,
+    description:
+      'Solo PDF: "true" genera un reporte INDIVIDUAL (solo el vendedor de focusUserId, sin resumen de toda la plantilla).',
+  })
+  @IsOptional()
+  @IsString()
+  individual?: string;
 }
 
 export class ReportsStoresFilterDto {

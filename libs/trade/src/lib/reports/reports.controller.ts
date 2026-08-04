@@ -96,6 +96,25 @@ export class ReportsController {
     return this.reportsService.getVendorVisitsReview(filters, user);
   }
 
+  @Get('vendor-visits-review/visit/:id')
+  @RequirePermissions(Permission.VER_SEGUIMIENTO)
+  @ApiOperation({
+    summary:
+      'Detalle de una visita para el reporte por vendedor: exhibiciones + fotos + venta + veredicto de visión Horus (scoped)',
+  })
+  async getVisitDetail(@ReqUser() user: any, @Param('id') id: string) {
+    try {
+      return await this.reportsService.getVisitDetail(id, user);
+    } catch (error: any) {
+      if (error?.code === 'FORBIDDEN') throw new ForbiddenException(error.message);
+      if (error?.code === 'NOT_FOUND') {
+        throw new ForbiddenException('Visita no encontrada o fuera de tu alcance.');
+      }
+      this.logger.error(`getVisitDetail error: ${error.message}`, error.stack);
+      throw error;
+    }
+  }
+
   @Get('vendor-visits-review/pdf')
   @RequirePermissions(Permission.VER_SEGUIMIENTO)
   @ApiOperation({
@@ -108,9 +127,14 @@ export class ReportsController {
     @Query() filters: VendorVisitsReviewDto,
   ) {
     try {
-      // El PDF siempre lista a todos (resumen); focusUserId elige el detalle.
+      const individual = filters.individual === 'true' && !!filters.focusUserId;
+      // General: lista a todos (resumen); focusUserId elige el detalle.
+      // Individual: estrecha al vendedor (userId=focusUserId) → solo él.
       const { userId: _drop, ...rest } = filters;
-      const data = await this.reportsService.getVendorVisitsReview(rest, user);
+      const fetchFilters = individual
+        ? { ...rest, userId: filters.focusUserId }
+        : rest;
+      const data = await this.reportsService.getVendorVisitsReview(fetchFilters, user);
       const rangeLabel =
         filters.startDate && filters.endDate
           ? `${filters.startDate} → ${filters.endDate}`
@@ -119,6 +143,7 @@ export class ReportsController {
         rangeLabel,
         generatedBy: user?.username,
         focusUserId: filters.focusUserId,
+        individual,
       });
       const buffer = await this.pdfService.renderHtml(html);
       res.set({
