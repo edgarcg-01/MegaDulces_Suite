@@ -88,7 +88,10 @@ function saveSnap(obj) {
         if (!suc) { console.log(`  ⚠ ${m.code}: no pude derivar sucursal de la URL — skip`); continue; }
         // RA-PRO.24 — excluir pseudo-SKUs de SERVICIO/contables (no inventario físico):
         // 00001 VENTAS AL 0%, 00002, 00022 TIEMPO AIRE. Inflaban stock/sobrestock en todas las sucursales.
-        const stock = (await src.query(`SELECT c3 AS sku, (c4+c8-c9)::numeric AS qty FROM md.kdil WHERE c3 IS NOT NULL AND c1 = $1 AND c3 <> ALL(ARRAY['00001','00002','00022'])`, [suc])).rows;
+        // RA-PRO.37 — GREATEST(...,0): Kepler arroja existencias NEGATIVAS (anomalía contable: más
+        // salidas que entradas+inicial). No existe stock físico negativo y el CHECK quantity>=reserved
+        // las rechaza (rompía el --full completo). Piso a 0 = comportamiento correcto.
+        const stock = (await src.query(`SELECT c3 AS sku, GREATEST(c4+c8-c9, 0)::numeric AS qty FROM md.kdil WHERE c3 IS NOT NULL AND c1 = $1 AND c3 <> ALL(ARRAY['00001','00002','00022'])`, [suc])).rows;
         let matched = 0, unmatched = 0;
         for (const r of stock) {
           const pid = skuToId.get(r.sku);
@@ -143,7 +146,8 @@ function saveSnap(obj) {
       FROM stg_stock s
       JOIN commercial.warehouses w ON w.tenant_id=$1 AND w.code=s.code
       JOIN public.products p ON p.tenant_id=$1 AND p.id=s.product_id
-      ON CONFLICT (tenant_id, warehouse_id, product_id) DO UPDATE SET quantity=EXCLUDED.quantity, updated_at=now()`, [M]);
+      ON CONFLICT (tenant_id, warehouse_id, product_id) DO UPDATE
+        SET quantity=GREATEST(EXCLUDED.quantity, commercial.stock.reserved_quantity), updated_at=now()`, [M]);
     await db.query('COMMIT');
     console.log(`\n[APPLY] COMMIT — ${up.rowCount} filas de stock actualizadas (delta).`);
 
