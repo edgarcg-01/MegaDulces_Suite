@@ -74,15 +74,16 @@ import { EntradasService, EntradaRow, EntradasReport, RemisionOcr, ProofFile, En
               <td>{{ c.proveedor_nombre || c.proveedor_code || '—' }}<div class="cb-sub">{{ c.proveedor_rfc || c.proveedor_code }}</div></td>
               <td class="mono muted">{{ c.oc_folio || '—' }}</td>
               <td class="ta-r strong">{{ money(c.monto) }}</td>
-              <td>
+              <td class="cb-comp-cell" (click)="openDetail(c)" [title]="c.deposits > 0 ? 'Ver remisión adjunta + detalle por línea' : 'Ver detalle por línea'">
                 @if (c.deposits > 0) {
                   <div class="cb-comp">
                     <p-tag [value]="depLabel(c.deposit_status)" [severity]="depSev(c.deposit_status)" />
                     <span class="cb-match" [class.ok]="c.monto_match" [class.bad]="!c.monto_match" [title]="c.monto_match ? 'El total de la remisión cuadra con la entrada' : 'El total de la remisión NO cuadra'">
                       <i class="pi" [ngClass]="c.monto_match ? 'pi-check-circle' : 'pi-exclamation-triangle'"></i>
                     </span>
+                    <i class="pi pi-eye cb-eye" aria-hidden="true"></i>
                   </div>
-                } @else { <span class="muted">Sin remisión</span> }
+                } @else { <span class="muted cb-comp-empty"><i class="pi pi-paperclip" aria-hidden="true"></i> Sin remisión</span> }
               </td>
               <td>
                 <button pButton type="button" size="small" text (click)="openAttach(c)" [title]="c.deposits > 0 ? 'Agregar otra remisión' : 'Adjuntar remisión'"><span class="p-button-icon p-button-icon-left pi pi-paperclip" aria-hidden="true"></span><span class="p-button-label">{{ c.deposits > 0 ? 'Otra' : 'Adjuntar' }}</span></button>
@@ -121,6 +122,16 @@ import { EntradasService, EntradaRow, EntradasReport, RemisionOcr, ProofFile, En
             </div>
             @if (fileName()) { <span class="cb-filepick"><i class="pi pi-paperclip"></i> {{ fileName() }}</span> }
           </div>
+
+          @if (fileName()) {
+            <div class="cb-preview">
+              @if (isImageFile()) {
+                <img [src]="fileData" alt="Previsualización de la remisión" />
+              } @else if (isPdfFile()) {
+                <div class="cb-preview-pdf"><i class="pi pi-file-pdf"></i><div class="cb-preview-pdf-txt"><strong>{{ fileName() }}</strong><span>PDF listo — se lee con OCR (los datos aparecen abajo)</span></div></div>
+              }
+            </div>
+          }
 
           @if (fileName()) {
             <div class="cb-ocr-actions">
@@ -217,7 +228,46 @@ import { EntradasService, EntradaRow, EntradasReport, RemisionOcr, ProofFile, En
             @if (lineasCuadra(d)) { <p-tag value="Cuadra (sin IVA)" severity="success" /> }
             @else { <p-tag [value]="'IVA/dif ' + money(lineasDiff(d))" severity="info" /> }</span>
         </div>
+
+        <div class="cb-view-attachments">
+          <div class="cb-view-att-head">Remisión / factura adjunta</div>
+          @if (!d.deposits.length) { <p class="muted cb-view-none">Aún sin remisión adjunta.</p> }
+          @for (dep of d.deposits; track dep.id) {
+            <div class="cb-view-dep">
+              <div class="cb-view-head">
+                <p-tag [value]="depLabel(dep.status)" [severity]="depSev(dep.status)" />
+                @if (dep.monto_match === true) { <p-tag value="Cuadra" severity="success" /> }
+                @else if (dep.monto_match === false) { <p-tag value="No cuadra" severity="danger" /> }
+                <span class="cb-view-meta">{{ dep.created_by || '—' }} · {{ dep.created_at | date:'dd/MM/yy HH:mm' }}</span>
+              </div>
+              <div class="cb-view-files">
+                @for (f of dep.files; track f.url) {
+                  @if (isImageUrl(f)) {
+                    <a [href]="f.url" target="_blank" rel="noopener" class="cb-view-img"><img [src]="f.url" [alt]="f.name || 'remisión'" /></a>
+                  } @else {
+                    <a class="cb-view-pdf" [href]="f.url" target="_blank" rel="noopener"><i class="pi pi-file-pdf"></i> Abrir {{ f.name || 'remisión (PDF)' }} <i class="pi pi-external-link"></i></a>
+                  }
+                }
+                @if (!dep.files.length) { <span class="muted">Sin archivo.</span> }
+              </div>
+              <div class="cb-view-ocr">
+                <span><em>Folio</em> {{ dep.ocr_folio || '—' }}</span>
+                <span><em>Fecha</em> {{ dep.ocr_fecha || '—' }}</span>
+                <span><em>Proveedor</em> {{ dep.ocr_proveedor || '—' }}</span>
+                <span><em>Total</em> {{ dep.ocr_monto != null ? money(dep.ocr_monto) : '—' }}</span>
+                @if (dep.ocr_subtotal != null) { <span><em>Subtotal</em> {{ money(dep.ocr_subtotal) }}</span> }
+                @if (dep.ocr_iva != null) { <span><em>IVA</em> {{ money(dep.ocr_iva) }}</span> }
+              </div>
+              @if (dep.status === 'rechazado' && dep.motivo_rechazo) { <div class="cb-err">Rechazado: {{ dep.motivo_rechazo }}</div> }
+              @if (dep.comentarios) { <div class="cb-view-coment">{{ dep.comentarios }}</div> }
+            </div>
+          }
+        </div>
       }
+      <ng-template #footer>
+        <button pButton type="button" text (click)="showDetail.set(false)"><span class="p-button-label">Cerrar</span></button>
+        <button pButton type="button" (click)="fromDetailToAttach()"><span class="p-button-icon p-button-icon-left pi pi-paperclip" aria-hidden="true"></span><span class="p-button-label">Adjuntar remisión</span></button>
+      </ng-template>
     </p-dialog>
   `,
   styles: [`
@@ -264,6 +314,37 @@ import { EntradasService, EntradaRow, EntradasReport, RemisionOcr, ProofFile, En
     .cb-detail-total { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; margin-top: .7rem; padding-top: .7rem; border-top: 1px solid var(--border-color); font-size: .85rem; }
     .cb-detail-total strong { font-family: var(--font-mono); color: var(--text-main); }
     .cb-detail-total > span:last-child { display: inline-flex; align-items: center; gap: .5rem; }
+    /* columna Remisión clickable */
+    .cb-comp-cell { cursor: pointer; }
+    .cb-comp-cell:hover { background: var(--surface-hover, rgba(0,0,0,.03)); }
+    .cb-eye { color: var(--text-muted); font-size: .8rem; opacity: 0; transition: opacity .15s; }
+    .cb-comp-cell:hover .cb-eye { opacity: .8; }
+    .cb-comp-empty { display: inline-flex; align-items: center; gap: .35rem; }
+    .cb-comp-empty i { font-size: .75rem; opacity: .7; }
+    /* preview antes de subir */
+    .cb-preview { border: 1px solid var(--border-color); border-radius: var(--r-md, .5rem); overflow: hidden; background: var(--surface-sunken, var(--card-bg)); }
+    .cb-preview img { display: block; width: 100%; max-height: 15rem; object-fit: contain; background: #00000008; }
+    .cb-preview-pdf { display: flex; align-items: center; gap: .7rem; padding: .8rem 1rem; }
+    .cb-preview-pdf > i { font-size: 1.8rem; color: var(--bad-fg); }
+    .cb-preview-pdf-txt { display: flex; flex-direction: column; gap: .1rem; }
+    .cb-preview-pdf-txt strong { font-size: .9rem; color: var(--text-main); }
+    .cb-preview-pdf-txt span { font-size: .74rem; color: var(--text-muted); }
+    /* remisión adjunta en el detalle */
+    .cb-view-attachments { margin-top: .9rem; padding-top: .8rem; border-top: 1px solid var(--border-color); display: flex; flex-direction: column; gap: .6rem; }
+    .cb-view-att-head { font-size: .8rem; font-weight: 600; color: var(--text-main); }
+    .cb-view-none { padding: .3rem 0; }
+    .cb-view-dep { border: 1px solid var(--border-color); border-radius: var(--r-md, .5rem); padding: .8rem .9rem; display: flex; flex-direction: column; gap: .6rem; }
+    .cb-view-head { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
+    .cb-view-meta { font-size: .74rem; color: var(--text-muted); margin-left: auto; }
+    .cb-view-files { display: flex; flex-wrap: wrap; gap: .6rem; }
+    .cb-view-img { display: block; border: 1px solid var(--border-color); border-radius: var(--r-sm, .4rem); overflow: hidden; max-width: 100%; }
+    .cb-view-img img { display: block; max-height: 22rem; max-width: 100%; object-fit: contain; background: #00000008; }
+    .cb-view-pdf { display: inline-flex; align-items: center; gap: .4rem; padding: .55rem .9rem; border: 1px solid var(--border-color); border-radius: var(--r-sm, .4rem); color: var(--action); text-decoration: none; font-size: .85rem; }
+    .cb-view-pdf:hover { border-color: var(--action); }
+    .cb-view-pdf .pi-file-pdf { color: var(--bad-fg); }
+    .cb-view-ocr { display: flex; flex-wrap: wrap; gap: .3rem 1.1rem; font-size: .78rem; color: var(--text-main); }
+    .cb-view-ocr em { font-style: normal; color: var(--text-muted); margin-right: .3rem; }
+    .cb-view-coment { font-size: .8rem; color: var(--text-muted); font-style: italic; }
   `],
 })
 export class ComprasEntradasComponent {
@@ -302,10 +383,11 @@ export class ComprasEntradasComponent {
   readonly rejectTarget = signal<EntradaRow | null>(null);
   rejectMotivo = '';
 
-  // detail dialog (auditoría por línea)
+  // detail dialog (auditoría por línea + remisión adjunta)
   readonly showDetail = signal(false);
   readonly detailLoading = signal(false);
   readonly detailData = signal<EntradaDetail | null>(null);
+  readonly detailTarget = signal<EntradaRow | null>(null);
 
   constructor() { this.load(); }
 
@@ -445,6 +527,7 @@ export class ComprasEntradasComponent {
   }
 
   openDetail(c: EntradaRow) {
+    this.detailTarget.set(c);
     this.detailData.set(null);
     this.detailLoading.set(true);
     this.showDetail.set(true);
@@ -454,9 +537,21 @@ export class ComprasEntradasComponent {
         error: () => { this.detailLoading.set(false); this.showDetail.set(false); this.toast.add({ severity: 'error', summary: 'No se pudo cargar el detalle' }); },
       });
   }
+  fromDetailToAttach() { const c = this.detailTarget(); this.showDetail.set(false); if (c) this.openAttach(c); }
   lineasTotal(lineas: EntradaLinea[]): number { return (lineas || []).reduce((s, l) => s + (Number(l.importe) || 0), 0); }
   lineasDiff(d: EntradaDetail): number { return Math.abs(this.lineasTotal(d.lineas) - (Number(d.entrada.monto) || 0)); }
   lineasCuadra(d: EntradaDetail): boolean { return this.lineasDiff(d) <= 1; }
+
+  /** El archivo ELEGIDO (data URI, aún sin subir) es imagen / PDF. */
+  isImageFile(): boolean { return !!this.fileData && this.fileData.startsWith('data:image'); }
+  isPdfFile(): boolean { return !!this.fileData && this.fileData.startsWith('data:application/pdf'); }
+  /** Un archivo YA subido (Cloudinary) es imagen (por kind o extensión) — si no, se trata como PDF/archivo. */
+  isImageUrl(f: ProofFile): boolean {
+    const k = (f.kind || '').toLowerCase();
+    if (k === 'image' || /(jpe?g|png|webp|gif)/.test(k)) return true;
+    if (k === 'pdf' || k === 'raw') return false;
+    return /\.(jpe?g|png|webp|gif)(\?|$)/i.test(f.url || '');
+  }
 
   depLabel(s: string | null): string { return ({ recibido: 'Recibido', validado: 'Validado', rechazado: 'Rechazado' } as Record<string, string>)[s || ''] || '—'; }
   depSev(s: string | null): 'success' | 'warn' | 'danger' | 'secondary' { return ({ recibido: 'warn', validado: 'success', rechazado: 'danger' } as Record<string, 'success' | 'warn' | 'danger'>)[s || ''] || 'secondary'; }

@@ -18,7 +18,7 @@ import { LoadStateComponent } from '../../../shared/components/load-state/load-s
 import { FINANZAS_TABS } from '../finanzas-tabs';
 import { AuthService } from '../../../core/services/auth.service';
 import { Permission } from '../../../core/constants/permissions';
-import { CobranzaService, CobroRow, CobrosReport, DepositOcr, DepositFile } from '../cobranza.service';
+import { CobranzaService, CobroRow, CobrosReport, DepositOcr, DepositFile, CobroDetail } from '../cobranza.service';
 
 /**
  * CC — "Comprobantes de Cobranza". Lista los cobros de Kepler (documento UA0501)
@@ -81,15 +81,16 @@ import { CobranzaService, CobroRow, CobrosReport, DepositOcr, DepositFile } from
               <td class="muted cb-concepto" [title]="c.concepto">{{ c.concepto || '—' }}</td>
               <td><p-tag [value]="formaLabel(c.forma_pago)" [severity]="formaSev(c.forma_pago)" /></td>
               <td class="ta-r strong">{{ money(c.monto) }}</td>
-              <td>
+              <td class="cb-comp-cell" (click)="openView(c)" [title]="c.deposits > 0 ? 'Ver comprobante adjunto' : 'Adjuntar comprobante'">
                 @if (c.deposits > 0) {
                   <div class="cb-comp">
                     <p-tag [value]="depLabel(c.deposit_status)" [severity]="depSev(c.deposit_status)" />
                     <span class="cb-match" [class.ok]="c.monto_match" [class.bad]="!c.monto_match" [title]="c.monto_match ? 'El monto de la ficha cuadra con el cobro' : 'El monto de la ficha NO cuadra'">
                       <i class="pi" [ngClass]="c.monto_match ? 'pi-check-circle' : 'pi-exclamation-triangle'"></i>
                     </span>
+                    <i class="pi pi-eye cb-eye" aria-hidden="true"></i>
                   </div>
-                } @else { <span class="muted">Sin comprobante</span> }
+                } @else { <span class="muted cb-comp-empty"><i class="pi pi-paperclip" aria-hidden="true"></i> Sin comprobante</span> }
               </td>
               <td>
                 <button pButton type="button" size="small" text (click)="openAttach(c)" [title]="c.deposits > 0 ? 'Agregar otra ficha' : 'Adjuntar ficha'"><span class="p-button-icon p-button-icon-left pi pi-paperclip" aria-hidden="true"></span><span class="p-button-label">{{ c.deposits > 0 ? 'Otra' : 'Adjuntar' }}</span></button>
@@ -128,6 +129,16 @@ import { CobranzaService, CobroRow, CobrosReport, DepositOcr, DepositFile } from
             </div>
             @if (fileName()) { <span class="cb-filepick"><i class="pi pi-paperclip"></i> {{ fileName() }}</span> }
           </div>
+
+          @if (fileName()) {
+            <div class="cb-preview">
+              @if (isImageFile()) {
+                <img [src]="fileData" alt="Previsualización de la ficha" />
+              } @else if (isPdfFile()) {
+                <div class="cb-preview-pdf"><i class="pi pi-file-pdf"></i><div class="cb-preview-pdf-txt"><strong>{{ fileName() }}</strong><span>PDF listo — se lee con OCR (los datos aparecen abajo)</span></div></div>
+              }
+            </div>
+          }
 
           @if (fileName()) {
             <div class="cb-ocr-actions">
@@ -178,6 +189,58 @@ import { CobranzaService, CobroRow, CobrosReport, DepositOcr, DepositFile } from
         <button pButton type="button" severity="danger" [loading]="saving()" (click)="doReject()"><span class="p-button-icon p-button-icon-left pi pi-times" aria-hidden="true"></span><span class="p-button-label">Rechazar</span></button>
       </ng-template>
     </p-dialog>
+
+    <!-- Diálogo: ver comprobante(s) adjunto(s) -->
+    <p-dialog [(visible)]="showView" [modal]="true" [style]="{ width: '46rem' }" [draggable]="false" header="Comprobante del cobro">
+      @if (viewData(); as v) {
+        <div class="cb-form">
+          <div class="cb-cobro">
+            <div><span class="cb-lbl">Cobro</span><strong class="mono">{{ v.cobro.sucursal }}/{{ v.cobro.folio }}</strong></div>
+            <div><span class="cb-lbl">Forma</span><strong>{{ formaLabel(v.cobro.forma_pago) }}</strong></div>
+            <div><span class="cb-lbl">Cliente</span><strong>{{ v.cobro.cliente_nombre || v.cobro.cliente_code }}</strong></div>
+            <div class="ta-r"><span class="cb-lbl">Monto del cobro</span><strong class="cb-monto">{{ money(v.cobro.monto) }}</strong></div>
+          </div>
+
+          @if (!v.deposits.length) { <p class="muted cb-view-none">Este cobro aún no tiene comprobante adjunto.</p> }
+          @for (d of v.deposits; track d.id) {
+            <div class="cb-view-dep">
+              <div class="cb-view-head">
+                <p-tag [value]="depLabel(d.status)" [severity]="depSev(d.status)" />
+                @if (d.monto_match === true) { <p-tag value="Cuadra" severity="success" /> }
+                @else if (d.monto_match === false) { <p-tag value="No cuadra" severity="danger" /> }
+                <span class="cb-view-meta">{{ d.created_by || '—' }} · {{ d.created_at | date:'dd/MM/yy HH:mm' }}</span>
+              </div>
+              <div class="cb-view-files">
+                @for (f of d.files; track f.url) {
+                  @if (isImageUrl(f)) {
+                    <a [href]="f.url" target="_blank" rel="noopener" class="cb-view-img"><img [src]="f.url" [alt]="f.name || 'comprobante'" /></a>
+                  } @else {
+                    <a class="cb-view-pdf" [href]="f.url" target="_blank" rel="noopener"><i class="pi pi-file-pdf"></i> Abrir {{ f.name || 'comprobante (PDF)' }} <i class="pi pi-external-link"></i></a>
+                  }
+                }
+                @if (!d.files.length) { <span class="muted">Sin archivo.</span> }
+              </div>
+              <div class="cb-view-ocr">
+                <span><em>Monto OCR</em> {{ d.ocr_monto != null ? money(d.ocr_monto) : '—' }}</span>
+                <span><em>Fecha</em> {{ d.ocr_fecha || '—' }}</span>
+                <span><em>Banco</em> {{ d.ocr_banco || '—' }}</span>
+                <span><em>Referencia</em> {{ d.ocr_referencia || '—' }}</span>
+                @if (d.ocr_cuenta_dest) { <span><em>Cuenta dest.</em> {{ d.ocr_cuenta_dest }}</span> }
+                @if (d.ocr_ordenante) { <span><em>Ordenante</em> {{ d.ocr_ordenante }}</span> }
+              </div>
+              @if (d.status === 'rechazado' && d.motivo_rechazo) { <div class="cb-err">Rechazado: {{ d.motivo_rechazo }}</div> }
+              @if (d.comentarios) { <div class="cb-view-coment">{{ d.comentarios }}</div> }
+            </div>
+          }
+        </div>
+        <ng-template #footer>
+          <button pButton type="button" text (click)="showView.set(false)"><span class="p-button-label">Cerrar</span></button>
+          <button pButton type="button" (click)="fromViewToAttach()"><span class="p-button-icon p-button-icon-left pi pi-paperclip" aria-hidden="true"></span><span class="p-button-label">Agregar comprobante</span></button>
+        </ng-template>
+      } @else {
+        <div class="cb-view-loading"><i class="pi pi-spin pi-spinner"></i> Cargando comprobante…</div>
+      }
+    </p-dialog>
   `,
   styles: [`
     :host { display: block; }
@@ -219,6 +282,36 @@ import { CobranzaService, CobroRow, CobrosReport, DepositOcr, DepositFile } from
     .cb-grid { display: grid; grid-template-columns: 1fr 1fr; gap: .7rem; border-top: 1px solid var(--border-color); padding-top: .8rem; }
     .cb-err { color: var(--bad-fg); font-size: .82rem; }
     .w-full { width: 100%; }
+    /* columna Comprobante clickable */
+    .cb-comp-cell { cursor: pointer; }
+    .cb-comp-cell:hover { background: var(--surface-hover, rgba(0,0,0,.03)); }
+    .cb-eye { color: var(--text-muted); font-size: .8rem; opacity: 0; transition: opacity .15s; }
+    .cb-comp-cell:hover .cb-eye { opacity: .8; }
+    .cb-comp-empty { display: inline-flex; align-items: center; gap: .35rem; }
+    .cb-comp-empty i { font-size: .75rem; opacity: .7; }
+    /* preview antes de subir */
+    .cb-preview { border: 1px solid var(--border-color); border-radius: var(--r-md, .5rem); overflow: hidden; background: var(--surface-sunken, var(--card-bg)); }
+    .cb-preview img { display: block; width: 100%; max-height: 15rem; object-fit: contain; background: #00000008; }
+    .cb-preview-pdf { display: flex; align-items: center; gap: .7rem; padding: .8rem 1rem; }
+    .cb-preview-pdf > i { font-size: 1.8rem; color: var(--bad-fg); }
+    .cb-preview-pdf-txt { display: flex; flex-direction: column; gap: .1rem; }
+    .cb-preview-pdf-txt strong { font-size: .9rem; color: var(--text-main); }
+    .cb-preview-pdf-txt span { font-size: .74rem; color: var(--text-muted); }
+    /* view dialog */
+    .cb-view-none { padding: .6rem 0; }
+    .cb-view-loading { display: flex; align-items: center; gap: .5rem; color: var(--text-muted); padding: 2rem; justify-content: center; }
+    .cb-view-dep { border: 1px solid var(--border-color); border-radius: var(--r-md, .5rem); padding: .8rem .9rem; display: flex; flex-direction: column; gap: .6rem; }
+    .cb-view-head { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
+    .cb-view-meta { font-size: .74rem; color: var(--text-muted); margin-left: auto; }
+    .cb-view-files { display: flex; flex-wrap: wrap; gap: .6rem; }
+    .cb-view-img { display: block; border: 1px solid var(--border-color); border-radius: var(--r-sm, .4rem); overflow: hidden; max-width: 100%; }
+    .cb-view-img img { display: block; max-height: 22rem; max-width: 100%; object-fit: contain; background: #00000008; }
+    .cb-view-pdf { display: inline-flex; align-items: center; gap: .4rem; padding: .55rem .9rem; border: 1px solid var(--border-color); border-radius: var(--r-sm, .4rem); color: var(--action); text-decoration: none; font-size: .85rem; }
+    .cb-view-pdf:hover { border-color: var(--action); }
+    .cb-view-pdf .pi-file-pdf { color: var(--bad-fg); }
+    .cb-view-ocr { display: flex; flex-wrap: wrap; gap: .3rem 1.1rem; font-size: .78rem; color: var(--text-main); }
+    .cb-view-ocr em { font-style: normal; color: var(--text-muted); margin-right: .3rem; }
+    .cb-view-coment { font-size: .8rem; color: var(--text-muted); font-style: italic; }
   `],
 })
 export class FinanzasCobranzaComponent {
@@ -259,6 +352,11 @@ export class FinanzasCobranzaComponent {
   readonly showReject = signal(false);
   readonly rejectTarget = signal<CobroRow | null>(null);
   rejectMotivo = '';
+
+  // view dialog (ver comprobante adjunto)
+  readonly showView = signal(false);
+  readonly viewData = signal<CobroDetail | null>(null);
+  readonly viewTarget = signal<CobroRow | null>(null);
 
   constructor() { this.load(); }
 
@@ -394,6 +492,30 @@ export class FinanzasCobranzaComponent {
     this.saving.set(true);
     this.svc.reject(c.deposit_id, this.rejectMotivo || undefined).pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({ next: () => { this.saving.set(false); this.showReject.set(false); this.toast.add({ severity: 'info', summary: 'Rechazado', detail: `Cobro ${c.folio}` }); this.load(); }, error: () => { this.saving.set(false); this.toast.add({ severity: 'error', summary: 'Error al rechazar' }); } });
+  }
+
+  openView(c: CobroRow) {
+    if (c.deposits <= 0) { this.openAttach(c); return; } // sin comprobante → ir directo a adjuntar
+    this.viewTarget.set(c);
+    this.viewData.set(null);
+    this.showView.set(true);
+    this.svc.detail(c.sucursal, c.folio).pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (d) => this.viewData.set(d),
+        error: () => { this.showView.set(false); this.toast.add({ severity: 'error', summary: 'No se pudo cargar el comprobante' }); },
+      });
+  }
+  fromViewToAttach() { const c = this.viewTarget(); this.showView.set(false); if (c) this.openAttach(c); }
+
+  /** El archivo ELEGIDO (data URI, aún sin subir) es imagen / PDF. */
+  isImageFile(): boolean { return !!this.fileData && this.fileData.startsWith('data:image'); }
+  isPdfFile(): boolean { return !!this.fileData && this.fileData.startsWith('data:application/pdf'); }
+  /** Un archivo YA subido (Cloudinary) es imagen (por kind o extensión) — si no, se trata como PDF/archivo. */
+  isImageUrl(f: DepositFile): boolean {
+    const k = (f.kind || '').toLowerCase();
+    if (k === 'image' || /(jpe?g|png|webp|gif)/.test(k)) return true;
+    if (k === 'pdf' || k === 'raw') return false;
+    return /\.(jpe?g|png|webp|gif)(\?|$)/i.test(f.url || '');
   }
 
   formaLabel(f: string | null): string { return ({ deposito: 'Depósito', transferencia: 'Transferencia', tarjeta: 'Tarjeta', efectivo: 'Efectivo', cheque: 'Cheque', otro: 'Otro' } as Record<string, string>)[f || ''] || (f || '—'); }
