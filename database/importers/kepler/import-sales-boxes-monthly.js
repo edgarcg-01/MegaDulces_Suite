@@ -21,7 +21,9 @@ const DST = process.env.DATABASE_URL_NEW || 'postgresql://postgres:superoot@loca
 const APPLY = process.argv.includes('--apply');
 
 // Selecciona el rollup. unit_kind='weight' → kg (no cajas). Resto → piezas + cajas.
-// uxc = factor_sale si >1, si no box_size (etiquetas) si >1, si no 1.
+// RA-PRO.38 — uxc = factor de caja del RESOLVEDOR CANÓNICO `analytics.v_product_box_factor`
+// (override > c84 Kepler > etiquetera > factor_sale, con guarda anti-pallet). Misma verdad
+// que compras y que el sell-out on-the-fly → cajas consistentes en todos lados.
 const SELECT_SQL = `
   WITH src AS (
     SELECT sd.product_id, sd.warehouse_id, sd.channel,
@@ -30,15 +32,11 @@ const SELECT_SQL = `
            sum(sd.units)     AS units,
            sum(sd.revenue)   AS revenue,
            sum(sd.tickets)   AS tickets,
-           GREATEST(
-             CASE WHEN p.factor_sale > 1 THEN p.factor_sale
-                  WHEN max(lp.box_size) > 1 THEN max(lp.box_size)
-                  ELSE 1 END, 1) AS uxc
+           GREATEST(COALESCE(max(vbf.box_factor), 1), 1) AS uxc
       FROM analytics.sales_daily sd
-      JOIN catalog.products p ON p.id = sd.product_id AND p.tenant_id = sd.tenant_id
-      LEFT JOIN commercial.product_label_prices lp ON lp.product_id = p.id AND lp.tenant_id = p.tenant_id
+      LEFT JOIN analytics.v_product_box_factor vbf ON vbf.product_id = sd.product_id AND vbf.tenant_id = sd.tenant_id
      WHERE sd.tenant_id = $1
-     GROUP BY sd.product_id, sd.warehouse_id, sd.channel, to_char(sd.sale_date, 'YYYY-MM'), p.factor_sale)
+     GROUP BY sd.product_id, sd.warehouse_id, sd.channel, to_char(sd.sale_date, 'YYYY-MM'))
   SELECT product_id, warehouse_id, channel, ym, kind,
          CASE WHEN kind = 'weight' THEN NULL ELSE round(units, 3) END        AS pieces,
          CASE WHEN kind = 'weight' THEN round(units, 3) ELSE NULL END         AS kg,

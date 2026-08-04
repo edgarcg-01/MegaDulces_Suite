@@ -22,16 +22,10 @@ const M = '00000000-0000-0000-0000-00000000d01c';
 const DST = process.env.DST_URL || process.env.DATABASE_URL_NEW || 'postgresql://postgres:superoot@localhost:5433/postgres_platform';
 const APPLY = process.argv.includes('--apply');
 
-// uxc canónico. RA-PRO.37: Kepler `kdii.c84` (piezas/caja, en analytics.product_box_factor)
-// es la fuente AUTORITATIVA y manda sobre todo lo demás. Luego (RA-PRO.30) box_size de la
-// etiquetera si es consistente (box_size=fs×pack), luego factor_sale, luego etiquetera sola.
-// El override manual (uov.box_factor) sigue ganando aparte, vía el COALESCE del bf en econ.
-const uxc = `GREATEST(CASE
-    WHEN kbf.bf > 1 THEN kbf.bf
-    WHEN lbl.bs > 1 AND lbl.ps > 1 AND lbl.bs = pf.fs * lbl.ps THEN lbl.bs
-    WHEN pf.fs > 1 THEN pf.fs
-    WHEN lbl.bs > 1 THEN lbl.bs
-    ELSE 1 END, 1)`;
+// RA-PRO.38: el factor de caja ya NO se resuelve aquí. Viene del RESOLVEDOR CANÓNICO
+// `analytics.v_product_box_factor` (override > c84 Kepler > etiquetera > factor_sale, con
+// guarda anti-pallet) — la MISMA fuente que lee sell-out. uxc = box_factor de la vista.
+const uxc = `GREATEST(COALESCE(kbf.bf, 1), 1)`;
 
 const urBody = `SELECT z.product_id,
     (sum(z.rev) FILTER (WHERE z.ch='mayoreo')/NULLIF(sum(z.u) FILTER (WHERE z.ch='mayoreo'),0))
@@ -55,7 +49,7 @@ const CTE = `
   uov AS (SELECT product_id, pieces_per_unit, box_factor
             FROM commercial.product_unit_overrides WHERE tenant_id=$1 AND deleted_at IS NULL),
   kbf AS (SELECT product_id, box_factor AS bf
-            FROM analytics.product_box_factor WHERE tenant_id=$1),
+            FROM analytics.v_product_box_factor WHERE tenant_id=$1),
   pv AS (SELECT COALESCE(al.canonical_product_id, v.product_id) AS product_id,
                 sum(v.daily_rate) AS buy_rate,
                 sum(v.qty_90d * v.real_unit_cost)/NULLIF(sum(v.qty_90d),0) AS cost,
