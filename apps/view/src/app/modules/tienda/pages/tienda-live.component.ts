@@ -25,8 +25,8 @@ import { TiendaStateService } from '../tienda-state.service';
     .lever { flex:1; display:flex; flex-direction:column; gap:.1rem; padding:.3rem .4rem; border-radius:var(--r-sm,8px);
       background:color-mix(in srgb, var(--text-main) 4%, transparent); }
     .lever .lv-k { font-size:.56rem; text-transform:uppercase; letter-spacing:.04em; color:var(--text-faint); white-space:nowrap; }
-    /* Contexto neutro: el signo +/- ya codifica dirección; el color se reserva para la acción (coach). */
-    .lever .lv-i { font-family:var(--font-mono); font-variant-numeric:tabular-nums; font-size:.74rem; font-weight:700; color:var(--text-muted); }
+    /* Valor real de la palanca (tickets / $ por ticket / prod por ticket) — color neutro, el número manda. */
+    .lever .lv-i { font-family:var(--font-mono); font-variant-numeric:tabular-nums; font-size:.74rem; font-weight:700; color:var(--text-main); }
     .coach { display:flex; align-items:center; gap:.35rem; margin-top:.45rem; font-size:.72rem; color:var(--action); font-weight:600; }
     .coach i { font-size:.7rem; } .coach .g { margin-left:auto; color:var(--text-muted); font-weight:700; font-variant-numeric:tabular-nums; }
     .tda-offline { display:flex; align-items:center; gap:.5rem; background:var(--bad-soft-bg); color:var(--bad-soft-fg);
@@ -94,12 +94,11 @@ import { TiendaStateService } from '../tienda-state.service';
               @for (lv of c.lev.items; track lv.key) {
                 <div class="lever">
                   <span class="lv-k">{{ lv.short }}</span>
-                  <span class="lv-i">{{ pct(lv.idx) }}</span>
+                  <span class="lv-i">{{ fmtLever(lv) }}</span>
                 </div>
               }
             </div>
-            <div class="coach"><i class="pi pi-arrow-up"></i> Subir: <b>{{ c.lev.weakest.label }}</b>
-              <span class="g">{{ pct(c.lev.weakest.idx) }} vs red</span></div>
+            <div class="coach"><i class="pi pi-arrow-up"></i> Subir: <b>{{ c.lev.weakest.label }}</b></div>
           </div>
         }
         @if (!coached().length && !s.error()) { <div class="tda-empty">Aún sin ventas hoy…</div> }
@@ -177,8 +176,12 @@ export class TiendaLiveComponent implements OnInit, OnDestroy {
   // Solo tiendas que vendieron hoy tienen tarjeta de coaching; las caídas van al banner "sin conexión".
   readonly coached = computed(() => this.s.branches().filter((b) => b.tickets > 0).map((b) => ({ b, lev: this.s.leversOf(b.warehouse_code) })));
 
-  /** Índice vs red → texto "+12%" / "−8%". */
-  pct(idx: number): string { const v = Math.round((idx - 1) * 100); return (v > 0 ? '+' : '') + v + '%'; }
+  /** Valor real de la palanca de la tienda, formateado por tipo (no el % vs red). */
+  fmtLever(lv: { key: string; value: number }): string {
+    if (lv.key === 'ticketProm') return '$' + Math.round(lv.value).toLocaleString('es-MX');
+    if (lv.key === 'unitsPerTicket') return lv.value.toFixed(1);
+    return Math.round(lv.value).toLocaleString('es-MX'); // tickets = entero
+  }
 
   /** Etiqueta de antigüedad para el banner de sin-conexión. */
   offlineLabel(d: { last_ts: string; idle: number }): string {
