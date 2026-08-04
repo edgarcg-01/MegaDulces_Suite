@@ -71,6 +71,30 @@ const APP_SOURCES: SourceCfg[] = [
           FROM analytics.sales_daily WHERE sale_date BETWEEN CURRENT_DATE - 30 AND CURRENT_DATE`,
     warnH: 44, critH: 72, cadence: 'intradía + nightly',
   },
+  // Tienda EN VIVO (poller POS on-prem → prod cada 25s). Detecta el poller CONGELADO
+  // (proceso vivo pero mudo, visto 2026-08-04: se colgó 3h y nadie se enteró). Umbral
+  // CONSCIENTE DEL HORARIO: fuera de 10:00–21:30 MX la tienda está cerrada → last_update=now()
+  // (ok, no alarma nocturna). En horario mide antigüedad del último ticket de HOY; si aún no
+  // hay ticket, cuenta desde la apertura (10:00) → avisa si la tienda "abrió" 45min sin vender.
+  {
+    key: 'store_live', label: 'Tienda en vivo (poller POS)', table: 'analytics.store_live_tickets', tsCandidates: [],
+    sql: `WITH t AS (
+            SELECT max(ticket_ts) AS last_ticket, count(DISTINCT warehouse_code) AS suc
+              FROM analytics.store_live_tickets
+             WHERE ticket_ts::date = (now() AT TIME ZONE 'America/Mexico_City')::date
+          ), w AS (
+            SELECT (now() AT TIME ZONE 'America/Mexico_City')::time AS mx_time,
+                   ((now() AT TIME ZONE 'America/Mexico_City')::date + time '10:00')
+                     AT TIME ZONE 'America/Mexico_City' AS open_ts
+          )
+          SELECT CASE WHEN w.mx_time NOT BETWEEN '10:00' AND '21:30' THEN now()
+                      ELSE COALESCE(t.last_ticket, w.open_ts) END AS last_update,
+                 'último ticket ' ||
+                   coalesce(to_char(t.last_ticket AT TIME ZONE 'America/Mexico_City','DD/MM HH24:MI'),'—')
+                   || ' · ' || coalesce(t.suc, 0) || ' suc hoy' AS note_extra
+            FROM t, w`,
+    warnH: 0.75, critH: 1.5, cadence: 'continuo en horario (poller on-prem cada 25s)',
+  },
 ];
 
 const EXT_SOURCES: ExtCfg[] = [
