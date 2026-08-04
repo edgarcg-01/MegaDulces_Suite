@@ -22,8 +22,12 @@ const M = '00000000-0000-0000-0000-00000000d01c';
 const DST = process.env.DST_URL || process.env.DATABASE_URL_NEW || 'postgresql://postgres:superoot@localhost:5433/postgres_platform';
 const APPLY = process.argv.includes('--apply');
 
-// uxc canónico (RA-PRO.30): box_size manda si la etiqueta es consistente (box_size=fs×pack).
+// uxc canónico. RA-PRO.37: Kepler `kdii.c84` (piezas/caja, en analytics.product_box_factor)
+// es la fuente AUTORITATIVA y manda sobre todo lo demás. Luego (RA-PRO.30) box_size de la
+// etiquetera si es consistente (box_size=fs×pack), luego factor_sale, luego etiquetera sola.
+// El override manual (uov.box_factor) sigue ganando aparte, vía el COALESCE del bf en econ.
 const uxc = `GREATEST(CASE
+    WHEN kbf.bf > 1 THEN kbf.bf
     WHEN lbl.bs > 1 AND lbl.ps > 1 AND lbl.bs = pf.fs * lbl.ps THEN lbl.bs
     WHEN pf.fs > 1 THEN pf.fs
     WHEN lbl.bs > 1 THEN lbl.bs
@@ -50,6 +54,8 @@ const CTE = `
             FROM commercial.product_label_prices WHERE tenant_id=$1 GROUP BY product_id),
   uov AS (SELECT product_id, pieces_per_unit, box_factor
             FROM commercial.product_unit_overrides WHERE tenant_id=$1 AND deleted_at IS NULL),
+  kbf AS (SELECT product_id, box_factor AS bf
+            FROM analytics.product_box_factor WHERE tenant_id=$1),
   pv AS (SELECT COALESCE(al.canonical_product_id, v.product_id) AS product_id,
                 sum(v.daily_rate) AS buy_rate,
                 sum(v.qty_90d * v.real_unit_cost)/NULLIF(sum(v.qty_90d),0) AS cost,
@@ -70,6 +76,7 @@ const CTE = `
       FROM pf
       LEFT JOIN lbl ON lbl.product_id = pf.product_id
       LEFT JOIN uov ON uov.product_id = pf.product_id
+      LEFT JOIN kbf ON kbf.product_id = pf.product_id
       LEFT JOIN ur  ON ur.product_id  = pf.product_id
       LEFT JOIN pv  ON pv.product_id  = pf.product_id
   ),
