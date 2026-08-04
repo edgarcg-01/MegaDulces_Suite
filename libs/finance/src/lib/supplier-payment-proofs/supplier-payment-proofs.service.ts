@@ -4,11 +4,12 @@ import { LlmExtractorService, DepositSlipFields } from '@megadulces/platform-cor
 
 /**
  * Fase CC (extensión) — Comprobantes de PAGO A PROVEEDOR. Adjunta el comprobante
- * de TRANSFERENCIA bancaria (imagen/PDF) a un pago de Kepler (documento `XD2501`
- * "Pago a proveedor"), le corre OCR (mismo shape que la ficha de depósito) y guarda
- * la evidencia en `finance.supplier_payment_proofs` ligada por `(sucursal, folio)`.
- * NO escribe a Kepler: los pagos se leen del espejo `analytics.erp_supplier_payments`.
- * Flujo `recibido → validado | rechazado`.
+ * (imagen/PDF) a un pago de Kepler, le corre OCR (mismo shape que la ficha de depósito)
+ * y guarda la evidencia en `finance.supplier_payment_proofs` ligada por
+ * `(sucursal, doc_prefix, folio)`. El pago vive en DOS doctypes según el método:
+ * `XD2601` (transferencia) y `XD2501` (cheque) — el folio NO es único entre ambos, por
+ * eso `doc_prefix` es parte de la clave. NO escribe a Kepler: los pagos se leen del
+ * espejo `analytics.erp_supplier_payments`. Flujo `recibido → validado | rechazado`.
  */
 
 export const PAYMENT_FILE_ROLES = ['comprobante', 'evidencia_1', 'evidencia_2'] as const;
@@ -28,6 +29,7 @@ export interface ListPaymentsQuery {
 export interface AttachPaymentDto {
   sucursal?: string;
   folio?: string;
+  doc_prefix?: string; // XD2601 (transferencia) | XD2501 (cheque) — desambigua el folio
   files?: PaymentFile[];
   ocr?: Partial<DepositSlipFields> & { ocr_status?: string };
   comentarios?: string;
@@ -54,19 +56,19 @@ export class SupplierPaymentProofsService {
 
     return this.tk.run(async (trx) => {
       const dep = trx('finance.supplier_payment_proofs')
-        .select('sucursal', 'folio')
+        .select('sucursal', 'doc_prefix', 'folio')
         .count('* as n')
         .select(trx.raw(`(array_agg(id ORDER BY created_at DESC))[1] AS last_id`))
         .select(trx.raw(`(array_agg(status ORDER BY created_at DESC))[1] AS last_status`))
         .select(trx.raw(`bool_or(monto_match) AS any_match`))
-        .groupBy('sucursal', 'folio')
+        .groupBy('sucursal', 'doc_prefix', 'folio')
         .as('d');
 
       const b = trx('analytics.erp_supplier_payments as c')
-        .leftJoin(dep, (j) => { j.on('c.sucursal', 'd.sucursal').andOn('c.folio', 'd.folio'); })
+        .leftJoin(dep, (j) => { j.on('c.sucursal', 'd.sucursal').andOn('c.doc_prefix', 'd.doc_prefix').andOn('c.folio', 'd.folio'); })
         .where('c.tenant_id', tenantId)
         .select(
-          'c.sucursal', 'c.folio', 'c.pago_date', 'c.proveedor_code', 'c.proveedor_nombre',
+          'c.sucursal', 'c.folio', 'c.doc_prefix', 'c.metodo_pago', 'c.pago_date', 'c.proveedor_code', 'c.proveedor_nombre',
           'c.proveedor_rfc', 'c.concepto', trx.raw('c.monto::numeric AS monto'),
           trx.raw('COALESCE(d.n, 0)::int AS deposits'),
           trx.raw('d.last_id AS deposit_id'),
@@ -91,7 +93,7 @@ export class SupplierPaymentProofsService {
       const rows = (await b).map((r: any) => ({ ...r, monto: Number(r.monto) }));
 
       const kpiBase = trx('analytics.erp_supplier_payments as c')
-        .leftJoin(dep, (j) => { j.on('c.sucursal', 'd.sucursal').andOn('c.folio', 'd.folio'); })
+        .leftJoin(dep, (j) => { j.on('c.sucursal', 'd.sucursal').andOn('c.doc_prefix', 'd.doc_prefix').andOn('c.folio', 'd.folio'); })
         .where('c.tenant_id', tenantId);
       if (q.from) kpiBase.where('c.pago_date', '>=', q.from);
       if (q.to) kpiBase.where('c.pago_date', '<=', q.to);
@@ -144,14 +146,16 @@ export class SupplierPaymentProofsService {
     this.tenantCtx.requireTenantId();
     const sucursal = (dto.sucursal || '').trim();
     const folio = (dto.folio || '').trim();
+    const docPrefix = (dto.doc_prefix || '').trim();
     const files = Array.isArray(dto.files) ? dto.files.filter((f) => f && f.url && f.role) : [];
     if (!sucursal || !folio) throw new BadRequestException('sucursal y folio del pago requeridos');
     if (!files.length) throw new BadRequestException('se requiere al menos el comprobante');
 
     return this.tk.run(async (trx) => {
-      const pago = await trx('analytics.erp_supplier_payments')
-        .where({ tenant_id: this.tenantCtx.requireTenantId(), sucursal, folio })
-        .first('proveedor_nombre', 'proveedor_rfc', 'pago_date', trx.raw('monto::numeric AS monto'));
+      const pagoQ = trx('analytics.erp_supplier_payments')
+        .where({ tenant_id: this.tenantCtx.requireTenantId(), sucursal, folio });
+      if (docPrefix) pagoQ.where('doc_prefix', docPrefix); // desambigua transferencia vs cheque (folio compartido)
+      const pago = await pagoQ.first('doc_prefix', 'metodo_pago', 'proveedor_nombre', 'proveedor_rfc', 'pago_date', trx.raw('monto::numeric AS monto'));
       if (!pago) throw new BadRequestException(`pago ${sucursal}/${folio} no existe en el espejo de Kepler`);
 
       const o = dto.ocr || {};
@@ -163,6 +167,8 @@ export class SupplierPaymentProofsService {
         .insert({
           tenant_id: trx.raw('public.current_tenant_id()'),
           sucursal, folio,
+          doc_prefix: pago.doc_prefix || docPrefix || null,
+          metodo_pago: pago.metodo_pago || null,
           proveedor_nombre: pago.proveedor_nombre || null,
           proveedor_rfc: pago.proveedor_rfc || null,
           pago_date: pago.pago_date || null,
@@ -188,15 +194,19 @@ export class SupplierPaymentProofsService {
   }
 
   /** Detalle: el pago + sus comprobantes adjuntos. */
-  async detail(sucursal: string, folio: string) {
+  async detail(sucursal: string, folio: string, docPrefix?: string) {
     const tenantId = this.tenantCtx.requireTenantId();
+    const dp = (docPrefix || '').trim();
     return this.tk.run(async (trx) => {
-      const pago = await trx('analytics.erp_supplier_payments')
-        .where({ tenant_id: tenantId, sucursal, folio })
-        .first('sucursal', 'folio', 'pago_date', 'proveedor_code', 'proveedor_nombre', 'proveedor_rfc', 'concepto', trx.raw('monto::numeric AS monto'));
+      const pagoQ = trx('analytics.erp_supplier_payments')
+        .where({ tenant_id: tenantId, sucursal, folio });
+      if (dp) pagoQ.where('doc_prefix', dp);
+      const pago = await pagoQ
+        .first('sucursal', 'folio', 'doc_prefix', 'metodo_pago', 'pago_date', 'proveedor_code', 'proveedor_nombre', 'proveedor_rfc', 'concepto', trx.raw('monto::numeric AS monto'));
       if (!pago) throw new BadRequestException('pago no encontrado');
-      const deposits = await trx('finance.supplier_payment_proofs')
-        .where({ sucursal, folio })
+      const depQ = trx('finance.supplier_payment_proofs').where({ sucursal, folio });
+      if (dp) depQ.where('doc_prefix', dp);
+      const deposits = await depQ
         .orderBy('created_at', 'desc')
         .select('id', 'files', trx.raw('ocr_monto::numeric AS ocr_monto'), 'ocr_fecha', 'ocr_banco', 'ocr_cuenta_dest',
           'ocr_referencia', 'ocr_ordenante', 'ocr_metodo', 'ocr_status', 'monto_match', 'status',
