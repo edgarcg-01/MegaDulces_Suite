@@ -7,17 +7,19 @@
  * elige el pago para adjuntarle el comprobante (transferencia SPEI / cheque escaneado).
  * NO toca Kepler (solo SELECT) ni crea pagos.
  *
- * DECODE verificado en vivo (2026-08-04, con el comprobante BBVA real de CONVERMEX):
- * `c31` = FORMA DE PAGO. El pago a proveedor vive en DOS doctypes según el método:
+ * DECODE verificado en vivo (2026-08-04, con comprobantes BBVA reales de CONVERMEX):
+ * `c31` = FORMA/TIPO DE PAGO. El dinero que sale al proveedor vive en TRES doctypes:
  *   · XD2601  c31='Tra'  TRANSFERENCIA   (16,164 docs / $338M) ← el 96% de los pagos
  *   · XD2501  c31='Che'  CHEQUE          (   623 docs / $42.5M)
- * El espejo original leía solo XD2501 (cheques) → se perdía TODAS las transferencias.
+ *   · XD6001  c31='Ant'  ANTICIPO        (   147 docs / $11.8M) ← adelanto a proveedor
+ * El espejo original leía solo XD2501 (cheques). Los otros X-D-* NO son pago: XD5501=nota
+ * de crédito/devolución/descuento, XD4001=devolución, XD1001=solicitud ($0) → se excluyen.
  *
  * Alcance = PAGO A PROVEEDOR (compra): `c10 LIKE 'C%'` (Mondelez CM009, Convermex CG028,
  * Ferrero, Pepsico, Bolsas…). Se EXCLUYEN los `G%` (nómina GN, caja chica GG, banco GB,
  * gastos/servicios) — eso es dominio de Egresos (GX), no "pago a proveedor".
  *
- * OJO PK: el folio `c6` NO es único entre XD2501 y XD2601 (623 folios en ambos). El
+ * OJO PK: el folio `c6` NO es único entre los doctypes (623 folios en XD2501 y XD2601). El
  * espejo lleva `doc_prefix` en la PK y el staging deduplica por (suc, doc_prefix, folio).
  *
  * Fuente = CEDIS md_00 (centraliza los pagos). Idempotente: UPSERT-solo-cambios, sin
@@ -43,22 +45,22 @@ const SOURCE_BRANCH = (SRC.match(/\/(md_\d+)/) || [])[1] || 'md_00';
 
 /** Parseo defensivo de importe (un row basura no debe abortar todo el import). */
 const money = (v) => { const n = Number(String(v ?? '').replace(/[^0-9.-]/g, '')); return Number.isFinite(n) ? n : 0; };
-/** c31 → método normalizado. */
-const metodo = (c31) => { const v = String(c31 ?? '').trim().toLowerCase(); return v.startsWith('tra') ? 'transferencia' : v.startsWith('che') ? 'cheque' : null; };
+/** c31 → método/tipo normalizado (Tra=transferencia, Che=cheque, Ant=anticipo). */
+const metodo = (c31) => { const v = String(c31 ?? '').trim().toLowerCase(); return v.startsWith('tra') ? 'transferencia' : v.startsWith('che') ? 'cheque' : v.startsWith('ant') ? 'anticipo' : null; };
 /** grupo (c4) → doc_prefix. */
-const docPrefix = (grupo) => (String(grupo).trim() === '26' ? 'XD2601' : 'XD2501');
+const docPrefix = (grupo) => { const g = String(grupo).trim(); return g === '26' ? 'XD2601' : g === '60' ? 'XD6001' : 'XD2501'; };
 
 (async () => {
-  console.log(`\n=== Pagos a proveedor Kepler (${SOURCE_BRANCH}, XD2601 Tra + XD2501 Che, c10~C%) → analytics.erp_supplier_payments (${APPLY ? (RESET ? 'APPLY+RESET' : 'APPLY') : 'DRY-RUN'}) ===\n`);
+  console.log(`\n=== Pagos a proveedor Kepler (${SOURCE_BRANCH}, XD2601 Tra + XD2501 Che + XD6001 Ant, c10~C%) → analytics.erp_supplier_payments (${APPLY ? (RESET ? 'APPLY+RESET' : 'APPLY') : 'DRY-RUN'}) ===\n`);
 
   const src = new Client({ connectionString: SRC, connectionTimeoutMillis: 8000 });
   await src.connect();
   let rows;
   try {
     const params = [];
-    // c2='X' género, c3='D' naturaleza (egreso), c4 IN (25 cheque, 26 transferencia).
+    // c2='X' género, c3='D' naturaleza (egreso), c4 IN (25 cheque, 26 transferencia, 60 anticipo).
     // c10 LIKE 'C%' = proveedor de compra (excluye nómina GN, caja chica GG, banco GB, gastos G*).
-    let where = `c2='X' AND c3='D' AND trim(c4::text) IN ('25','26') AND btrim(c10::text) ILIKE 'C%'`;
+    let where = `c2='X' AND c3='D' AND trim(c4::text) IN ('25','26','60') AND btrim(c10::text) ILIKE 'C%'`;
     if (FROM) { params.push(FROM); where += ` AND c9::date >= $1`; }
     const q = await src.query(
       `SELECT c1 AS suc, c6 AS folio, trim(c4::text) AS grupo, c31 AS metodo_raw,
@@ -94,8 +96,9 @@ const docPrefix = (grupo) => (String(grupo).trim() === '26' ? 'XD2601' : 'XD2501
   const tot = staged.reduce((s, r) => s + r[9], 0);
   const nTra = staged.filter((r) => r[3] === 'transferencia').length;
   const nChe = staged.filter((r) => r[3] === 'cheque').length;
+  const nAnt = staged.filter((r) => r[3] === 'anticipo').length;
   const conRfc = staged.filter((r) => r[7]).length;
-  console.log(`  ${staged.length} pagos ${FROM ? `(desde ${FROM}) ` : ''}· $${tot.toLocaleString('es-MX', { minimumFractionDigits: 2 })} · transferencia: ${nTra} · cheque: ${nChe} · con RFC: ${conRfc}`);
+  console.log(`  ${staged.length} pagos ${FROM ? `(desde ${FROM}) ` : ''}· $${tot.toLocaleString('es-MX', { minimumFractionDigits: 2 })} · transferencia: ${nTra} · cheque: ${nChe} · anticipo: ${nAnt} · con RFC: ${conRfc}`);
 
   if (!APPLY) { console.log('\n[DRY-RUN] nada cambió. Corré con --apply para escribir.'); return; }
   if (!staged.length) { console.log('\n[APPLY] 0 pagos leídos (¿fuente caída?) — tabla intacta.'); return; }
