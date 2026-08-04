@@ -286,7 +286,7 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
             }
             <span class="pr-bulk-sp"></span>
             <p-button type="button" label="XLSX por proveedor" icon="pi pi-file-excel" styleClass="p-button-sm" (click)="exportBySupplier()" [disabled]="dl()" ariaLabel="XLSX: una hoja por proveedor"></p-button>
-            <p-button type="button" label="XLSX plano" icon="pi pi-file-excel" styleClass="p-button-sm p-button-text" (click)="exportScope()" [disabled]="dl() || totCajas() <= 0"></p-button>
+            <p-button type="button" label="XLSX plano" icon="pi pi-file-excel" styleClass="p-button-sm p-button-text" (click)="exportFlat()" [disabled]="dl() || !wbRows().length"></p-button>
             <p-button type="button" [label]="saving() ? 'Armando…' : 'Requisiciones (global)'" icon="pi pi-check" styleClass="p-button-sm p-button-text" (click)="buildReq()" [disabled]="saving() || totCajas() <= 0"></p-button>
           </div>
         }
@@ -1070,34 +1070,51 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     });
   }
 
-  /** RA-PRO.32.5 — Workbook del comprador: un XLSX con una hoja por proveedor (todos los del filtro actual). */
+  /** Query del workbook = MISMOS filtros que la tabla en pantalla (group=desglosar/englobar,
+   *  proveedor, categoría, búsqueda, cobertura, sucursales, tendencia, sobrestock). Sin page. */
+  private currentWbQuery() {
+    const iad = this.fIad();
+    return {
+      supplier_id: this.fSupplier || undefined, category_id: this.fCategory || undefined, search: this.search.trim() || undefined,
+      coverage_days: this.coverage, scope: this.wbScopeNeeded() ? 'needed' : undefined,
+      warehouse_ids: this.wbWarehouses.length ? this.wbWarehouses : undefined, group: this.wbGroup(),
+      iad: iad === 'all' ? undefined : iad, only_overstock: this.wbOnlyOver() || undefined,
+    } as const;
+  }
+
+  /** "XLSX por proveedor" = la tabla en pantalla (workbook) → UNA HOJA por proveedor.
+   *  Hereda desglosar/englobar + TODOS los filtros (se re-consulta server-side sin paginar). */
   exportBySupplier(): void {
-    // "XLSX por proveedor" = las MISMAS compras sugeridas que muestra la interfaz (motor de reorden),
-    // con los filtros activos ya aplicados, agrupadas en una HOJA por proveedor. Reusa el export de
-    // pedido (mismas columnas/números que el "plano" y la pantalla) → nada de recálculos divergentes.
-    const scope = this.flatRows().filter((r) => r.type === 'comprar' && r.editable && Number(r.qty) > 0);
-    if (!scope.length) {
-      this.toast.add({ severity: 'warn', summary: 'Nada que exportar', detail: 'No hay compras sugeridas con los filtros actuales.' });
+    if (!this.wbRows().length) {
+      this.toast.add({ severity: 'warn', summary: 'Nada que exportar', detail: 'No hay productos con los filtros actuales.' });
       return;
     }
-    const lines: PedidoExportLine[] = scope.map((r) => ({
-      warehouse_code: r.warehouse_code, supplier_name: r.supplier_name,
-      sku: r.sku, nombre: r.nombre, abc_class: r.abc_class,
-      sales_rank: r.buy?.sales_rank ?? undefined,
-      monthly_revenue: r.buy?.sell_month_mxn ?? undefined,
-      sell_daily: r.sell_daily, days_cover: r.cover,
-      on_hand: r.on_hand, in_transit: r.buy?.in_transit_units ?? undefined, suggested_qty: r.qty,
-      uxc: r.uxc, cajas: r.qty, piezas: r.qty * r.uxc, unit_cost: r.unit_cost, line_cost: r.qty * r.unit_cost,
-    }));
     this.dl.set(true);
-    this.api.exportPedidoXlsx({ title: 'Pedido por proveedor', basis: `cobertura ${this.coverage}d`, multi_warehouse: true, by_supplier: true, lines })
+    this.api.exportWorkbookXlsx(this.currentWbQuery(), false)
       .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
         next: (resp) => { this.dl.set(false); saveXlsxResponse(resp, 'pedido-por-proveedor.xlsx'); },
         error: () => { this.dl.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo exportar por proveedor.' }); },
       });
   }
 
-  /** Exporta XLSX del scope (compra + traspaso con qty > 0). pid = un solo producto (desde el acordeón). */
+  /** "XLSX plano" GLOBAL = la tabla en pantalla en UNA sola hoja (todos los proveedores),
+   *  con desglosar/englobar + filtros. Los drills (por sucursal / por producto) siguen usando
+   *  el pedido editable (flatRows) — ver `exportScope(code, pid)`. */
+  exportFlat(): void {
+    if (!this.wbRows().length) {
+      this.toast.add({ severity: 'warn', summary: 'Nada que exportar', detail: 'No hay productos con los filtros actuales.' });
+      return;
+    }
+    this.dl.set(true);
+    this.api.exportWorkbookXlsx(this.currentWbQuery(), true)
+      .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+        next: (resp) => { this.dl.set(false); saveXlsxResponse(resp, 'pedido-plano.xlsx'); },
+        error: () => { this.dl.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo exportar el plano.' }); },
+      });
+  }
+
+  /** Exporta XLSX del scope editable (compra + traspaso con qty > 0). Drill: code = una sucursal,
+   *  pid = un solo producto (desde el acordeón) — mantiene las cantidades editadas. */
   exportScope(code?: string, pid?: string): void {
     const scope = (pid ? this.urows() : this.flatRows()).filter((r) => (!code || r.warehouse_code === code) && (!pid || r.product_id === pid) && r.editable && Number(r.qty) > 0);
     if (!scope.length) { this.toast.add({ severity: 'warn', summary: 'Nada que exportar' }); return; }

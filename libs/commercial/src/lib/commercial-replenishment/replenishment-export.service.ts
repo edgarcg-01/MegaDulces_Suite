@@ -610,4 +610,147 @@ export class ReplenishmentExportService {
     const buf = await wb.xlsx.writeBuffer();
     return Buffer.from(buf as ArrayBuffer);
   }
+
+  /**
+   * RA — Workbook PLANO: UNA sola hoja con TODOS los proveedores (columna Proveedor),
+   * columnas por punto de compra (Vta/Exist/Pedido por territorio) + totales. Respeta
+   * desglosar/englobar (territories = sucursales o 1 "red") y los filtros ya aplicados
+   * server-side → refleja exacto la tabla en pantalla. Formato editorial Mercado/Stone.
+   */
+  async buildWorkbookFlat(data: WorkbookExport): Promise<Buffer> {
+    const wb = new ExcelJS.Workbook();
+    wb.creator = 'Mega Dulces';
+    wb.created = new Date();
+    const terrs = data.territories || [];
+    const MONEY = '$#,##0.00', N1 = '#,##0.0', N0 = '#,##0';
+    const INK = 'FF1C1917', MUTED = 'FF78716C', BAND = 'FF292524', BAND_TXT = 'FFFFFFFF';
+    const HAIR = 'FFE7E5E4', TOTAL_BG = 'FFF5F5F4', TOTAL_LINE = 'FFA8A29E', ACCENT = 'FFC2410C', FONT = 'Calibri';
+
+    // Orden: por proveedor, luego venta desc (agrupa visualmente sin perder el ranking).
+    const rows = [...(data.rows || [])].sort((a, b) => {
+      const s = String(a.supplier_name ?? '').localeCompare(String(b.supplier_name ?? ''), 'es');
+      return s !== 0 ? s : (Number(b.valor_venta) || 0) - (Number(a.valor_venta) || 0);
+    });
+
+    const ws = wb.addWorksheet('Pedido (plano)');
+    const nLeft = 5;                       // Proveedor · Producto · SKU · UXC · Costo/Cja
+    const nRight = 5;                       // Σ cajas · Σ pz · $ Pedido · Valor venta · Valor exist.
+    const totalCols = nLeft + terrs.length * 3 + nRight;
+    ws.views = [{ state: 'frozen', xSplit: 3, ySplit: 4 }];
+
+    // Fila 1 — título
+    ws.mergeCells(1, 1, 1, totalCols);
+    const title = ws.getCell(1, 1);
+    const fecha = new Date().toLocaleDateString('es-MX', { day: '2-digit', month: 'long', year: 'numeric' });
+    const grouped = terrs.length === 1 && terrs[0].code === 'GENERAL';
+    title.value = `PEDIDO — ${grouped ? 'red (englobado)' : 'por sucursal'}  ·  cobertura ${data.coverage_days} días`;
+    title.font = { name: FONT, bold: true, size: 16, color: { argb: INK } };
+    title.alignment = { horizontal: 'left', vertical: 'middle', indent: 1 };
+    ws.getRow(1).height = 28;
+
+    // Fila 2 — resumen
+    ws.mergeCells(2, 1, 2, totalCols);
+    const sub = ws.getCell(2, 1);
+    const totPed = rows.reduce((s, r) => s + (Number(r.pedido_valor) || 0), 0);
+    const totCj = rows.reduce((s, r) => s + (Number(r.suma_pedido_cajas) || 0), 0);
+    const nSup = new Set(rows.map((r) => r.supplier_name ?? '—')).size;
+    sub.value = {
+      richText: [
+        { text: `${rows.length} productos · ${nSup} proveedores · ${totCj.toLocaleString('es-MX', { maximumFractionDigits: 1 })} cajas · ${totPed.toLocaleString('es-MX', { style: 'currency', currency: 'MXN' })} pedido`, font: { name: FONT, size: 9, color: { argb: MUTED } } },
+        { text: `      ${fecha}`, font: { name: FONT, size: 9, italic: true, color: { argb: ACCENT } } },
+      ],
+    };
+    sub.alignment = { horizontal: 'left', vertical: 'middle', indent: 1 };
+    ws.getRow(2).height = 18;
+
+    // Filas 3-4 — encabezado (banda stone-800 + grupo por territorio)
+    const leftH = ['Proveedor', 'Producto', 'SKU', 'UXC', 'Costo/Cja'];
+    const rightH = ['Σ Pedido (cajas)', 'Σ Piezas', '$ Pedido', 'Valor venta', 'Valor exist.'];
+    let c = 1;
+    for (const h of leftH) { ws.mergeCells(3, c, 4, c); ws.getCell(3, c).value = h; c++; }
+    for (const t of terrs) {
+      ws.mergeCells(3, c, 3, c + 2); ws.getCell(3, c).value = t.name;
+      ws.getCell(4, c).value = 'Vta'; ws.getCell(4, c + 1).value = 'Exist'; ws.getCell(4, c + 2).value = 'Pedido';
+      c += 3;
+    }
+    for (const h of rightH) { ws.mergeCells(3, c, 4, c); ws.getCell(3, c).value = h; c++; }
+    for (const rn of [3, 4]) {
+      for (let i = 1; i <= totalCols; i++) {
+        const cell = ws.getCell(rn, i);
+        cell.font = { name: FONT, bold: true, size: 9, color: { argb: BAND_TXT } };
+        cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: BAND } };
+        cell.border = { bottom: { style: 'medium', color: { argb: ACCENT } } };
+      }
+    }
+    ws.getRow(3).height = 22; ws.getRow(4).height = 16;
+
+    // Datos (desde fila 5) — hairline por fila, alineación por tipo.
+    const pedFirstCol = nLeft + terrs.length * 3 + 1;
+    rows.forEach((r) => {
+      const uxc = Number(r.uxc) || 1;
+      const vals: (string | number)[] = [r.supplier_name || '—', r.nombre || '', r.sku || '', Number(r.uxc) || 0, Number(r.caja_cost) || 0];
+      for (const t of terrs) {
+        const cel = (r.cells && r.cells[t.code]) || {};
+        vals.push(Number(cel.vta) || 0, Number(cel.exis) || 0, Number(cel.ped) || 0);
+      }
+      vals.push(Number(r.suma_pedido_cajas) || 0, (Number(r.suma_pedido_cajas) || 0) * uxc,
+        Number(r.pedido_valor) || 0, Number(r.valor_venta) || 0, Number(r.valor_exis) || 0);
+      const added = ws.addRow(vals);
+      added.height = 16;
+      added.eachCell((cell, col) => {
+        cell.font = { name: FONT, size: 10, color: { argb: INK } };
+        cell.border = { bottom: { style: 'hair', color: { argb: HAIR } } };
+        cell.alignment = { horizontal: col <= 3 ? 'left' : 'right', vertical: 'middle' };
+        if (col === 4) cell.numFmt = N0;
+        else if (col === 5) cell.numFmt = MONEY;
+        else if (col > nLeft && col <= nLeft + terrs.length * 3) cell.numFmt = N1;
+        else if (col === pedFirstCol) { cell.numFmt = N1; cell.font = { name: FONT, size: 10, bold: true, color: { argb: INK } }; }
+        else if (col === pedFirstCol + 1) cell.numFmt = N0;
+        else if (col >= pedFirstCol + 2) cell.numFmt = MONEY;
+      });
+    });
+
+    // Anchos
+    ws.getColumn(1).width = 24; ws.getColumn(2).width = 38; ws.getColumn(3).width = 12;
+    ws.getColumn(4).width = 7; ws.getColumn(5).width = 11;
+    for (let i = nLeft + 1; i <= nLeft + terrs.length * 3; i++) ws.getColumn(i).width = 8;
+    for (let i = pedFirstCol; i <= totalCols; i++) ws.getColumn(i).width = 13;
+
+    // Totales (SUBTOTAL respeta autofiltro) + acento en $ Pedido.
+    const firstData = 5, lastData = 4 + rows.length;
+    if (rows.length) {
+      ws.autoFilter = { from: { row: 4, column: 1 }, to: { row: lastData, column: totalCols } };
+      const totalRow = ws.addRow([]);
+      const tr = totalRow.number;
+      totalRow.height = 20;
+      const tCell = ws.getCell(tr, 1);
+      tCell.value = 'TOTAL'; tCell.font = { name: FONT, bold: true, color: { argb: INK } };
+      for (let i = 1; i <= totalCols; i++) {
+        const cell = ws.getCell(tr, i);
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: TOTAL_BG } };
+        cell.border = { top: { style: 'medium', color: { argb: TOTAL_LINE } } };
+      }
+      for (let sc = pedFirstCol; sc <= totalCols; sc++) {
+        const L = ws.getColumn(sc).letter;
+        const cell = ws.getCell(tr, sc);
+        cell.value = { formula: `SUBTOTAL(9,${L}${firstData}:${L}${lastData})` };
+        const isPed = sc === pedFirstCol + 2;
+        cell.font = { name: FONT, bold: true, size: isPed ? 11 : 10, color: { argb: isPed ? ACCENT : INK } };
+        cell.numFmt = sc === pedFirstCol ? N1 : sc === pedFirstCol + 1 ? N0 : MONEY;
+        cell.alignment = { horizontal: 'right', vertical: 'middle' };
+      }
+    }
+
+    // Impresión / PDF
+    ws.pageSetup = {
+      orientation: 'landscape', fitToPage: true, fitToWidth: 1, fitToHeight: 0,
+      horizontalCentered: true, printTitlesRow: '1:4',
+      margins: { left: 0.4, right: 0.4, top: 0.5, bottom: 0.5, header: 0.3, footer: 0.3 },
+    };
+    ws.headerFooter = { oddFooter: `&L&9&K808080Mega Dulces&C&9&K808080Página &P de &N&R&9&K808080Pedido (plano)` };
+
+    const buf = await wb.xlsx.writeBuffer();
+    return Buffer.from(buf as ArrayBuffer);
+  }
 }

@@ -137,12 +137,23 @@ export class CommercialReplenishmentController {
     @Query('scope') scope?: string,
     @Query('warehouse_ids') warehouse_ids?: string,
     @Query('group') group?: string,
+    @Query('iad') iad?: string,
+    @Query('only_overstock') only_overstock?: string,
+    @Query('flat') flat?: string,
   ) {
+    // Mismos filtros que la tabla en pantalla (incluye group=desglosar/englobar + iad + sobrestock)
+    // → el Excel refleja EXACTO lo que ve el comprador, sin paginar.
     const data = await this.svc.workbook({
       supplier_id, category_id, search, coverage_days: coverage_days ? Number(coverage_days) : undefined,
-      scope, warehouse_ids, group, export: true,
+      scope, warehouse_ids, group,
+      iad: iad === 'accel' || iad === 'decel' ? iad : undefined,
+      only_overstock: only_overstock === 'true' || only_overstock === '1',
+      export: true,
     });
-    const buf = await this.exporter.buildWorkbook({ coverage_days: data.coverage_days, territories: data.territories, rows: data.rows });
+    const payload = { coverage_days: data.coverage_days, territories: data.territories, rows: data.rows };
+    // flat = una sola hoja (todos los proveedores). default = una hoja por proveedor.
+    const isFlat = flat === 'true' || flat === '1';
+    const buf = isFlat ? await this.exporter.buildWorkbookFlat(payload) : await this.exporter.buildWorkbook(payload);
     sendXlsx(res, buf, this.exporter.fileNameWorkbook(data.coverage_days));
   }
 
