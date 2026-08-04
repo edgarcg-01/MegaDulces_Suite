@@ -24,6 +24,7 @@ import {
   WorkbookTerritory,
 } from '../compras.service';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
+import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 
 type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
 type Mode = 'pedido' | 'muerto';
@@ -56,7 +57,7 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
   standalone: true,
   imports: [
     CommonModule, FormsModule, ButtonModule, TableModule, PaginatorModule, ToastModule, SelectModule, MultiSelectModule,
-    InputNumberModule, InputTextModule, IconFieldModule, InputIconModule, TagModule, DialogModule, MetricStripComponent,
+    InputNumberModule, InputTextModule, IconFieldModule, InputIconModule, TagModule, DialogModule, MetricStripComponent, ContextHelpComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
@@ -65,7 +66,7 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
       <p-toast></p-toast>
       <header class="surf-page-head">
         <div class="surf-page-head-text">
-          <h1>Pedido <span class="pr-badge">unificado</span></h1>
+          <h1 style="display:inline-flex;align-items:center;gap:.4rem">Pedido <span class="pr-badge">unificado</span> <app-context-help topic="pedido-compras" /></h1>
           <p class="surf-page-sub">Una fila por producto (venta / existencia / <strong>pedido</strong> por punto de compra). Clic para desplegar su desglose <strong>por sucursal</strong>: <strong>comprar</strong> (venta × cobertura − existencia − tránsito), <strong>traspasar</strong> desde su CEDIS y su <strong>sobrestock</strong> — con cantidad editable. Exporta XLSX o arma la requisición por producto o global.</p>
         </div>
         <div class="pr-mode" role="tablist" aria-label="Vista">

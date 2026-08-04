@@ -15,6 +15,70 @@ export interface HelpResolveBlock { heading: string; kind?: 'fix' | 'info'; intr
 export interface HelpTopic { title: string; intro?: string; groups?: HelpGroup[]; resolve?: HelpResolveBlock[]; }
 
 export const CONTEXT_HELP: Record<string, HelpTopic> = {
+  'pedido-compras': {
+    title: 'Pedido / Reabastecimiento — guía',
+    intro: 'Una fila por producto con lo que conviene pedir. El pedido sugerido = venta × cobertura − existencia − tránsito (en cajas). Clic en una fila abre el desglose por sucursal: qué comprar, qué traspasar desde su CEDIS y su sobrestock, con cantidad editable.',
+    groups: [
+      {
+        heading: 'Cómo se calcula el pedido',
+        entries: [
+          { term: 'Pedido (cajas)', def: 'Lo que falta para cubrir la venta durante la cobertura: máx(0, venta diaria × días de cobertura − existencia − en tránsito). Si da 0 o menos, no hace falta pedir.' },
+          { term: 'Cobertura (días)', def: 'Cuántos días de venta querés tener en piso. Es el control de arriba; súbelo/bájalo y todo el pedido se recalcula.' },
+          { term: 'En tránsito', def: 'Cajas ya pedidas al proveedor que aún no llegan (OC sin entrada). Se restan del pedido para no pedir de más.' },
+          { term: '$ Pedido', def: 'Valor del pedido sugerido: cajas a pedir × costo por caja.' },
+        ],
+      },
+      {
+        heading: 'Columnas de la tabla',
+        entries: [
+          { term: 'Vta', def: 'Venta de los últimos 30 días, en cajas. Por sucursal (desglosado) o de toda la red (englobado).' },
+          { term: 'Exist.', def: 'Existencia actual disponible, en cajas.' },
+          { term: 'Unidad x caja', def: 'Piezas por caja (y, si es multipack, paquetes × piezas). Es el factor con que se convierte piezas ↔ cajas.' },
+          { term: 'Costo/Cja', def: 'Costo real por caja (costo por pieza × piezas por caja).' },
+          { term: 'Σ Ped. cajas / Σ Piezas', def: 'Total a pedir del producto sumando todas sus columnas, en cajas y en piezas.' },
+          { term: 'Valor venta', def: 'Venta de 30 días en dinero ($) — el peso comercial del producto.' },
+          { term: 'Valor exist.', def: 'Dinero inmovilizado en existencia: existencia × costo.' },
+        ],
+      },
+      {
+        heading: 'Reorden y clasificación',
+        entries: [
+          { term: 'Reorden', def: 'Punto de reorden de la red (cajas): nivel al que conviene volver a pedir. Suma de los puntos de reorden de las sucursales.' },
+          { term: 'Máx', def: 'Máximo de la red (cajas): techo objetivo de inventario.' },
+          { term: 'ABC', def: 'Importancia por venta ($): A = los pocos que hacen la mayor parte de la venta, C = la cola larga (Pareto).' },
+          { term: 'XYZ', def: 'Estabilidad de la demanda: X estable · Y variable · Z errático. Al englobar se muestra el peor caso entre sucursales. "—" = aún sin clasificar.' },
+          { term: 'Tend.', def: 'Índice de Aceleración de Demanda (−2..+2): compara el ritmo reciente vs el previo + estacional año-vs-año. ▲ acelera · ═ estable · ▼ desacelera. Es informativo; no cambia el sugerido.' },
+        ],
+      },
+      {
+        heading: 'Acciones por sucursal (al desplegar una fila)',
+        entries: [
+          { term: 'Comprar', def: 'Compra real al proveedor: lo que falta y NO alcanza a cubrirse con traspaso desde el CEDIS.' },
+          { term: 'Traspaso', def: 'Mover producto desde el CEDIS/otra sucursal con sobrante hacia la que tiene déficit, en vez de comprar. Primero traspaso, luego compra.' },
+          { term: 'Sobrestock', def: 'Existencia por encima del máximo (capital inmovilizado). Candidata a traspasar a otra sucursal o a dejar de pedir.' },
+          { term: 'Señal', def: 'La métrica que dispara la acción: cobertura en días (compra) · déficit en cajas (traspaso) · días en mano (sobrestock).' },
+          { term: 'Cant. (✎)', def: 'Cantidad a pedir, editable. Arranca en el sugerido; podés ajustarla antes de armar la requisición o exportar.' },
+          { term: 'Pedir en: caja / paquete / pieza', def: 'Unidad de captura de la cantidad. No cambia el producto, solo cómo cuentas lo que pides (1 caja = N piezas).' },
+        ],
+      },
+      {
+        heading: 'Vista y filtros',
+        entries: [
+          { term: 'Desglosar por sucursal', def: 'Una columna Vta/Exist/Pedido por cada sucursal — para ver dónde está la venta y el faltante.' },
+          { term: 'Englobar columnas', def: 'Una sola columna con la red completa — para decidir la compra total sin el detalle por sucursal.' },
+          { term: 'Solo con pedido', def: 'Oculta lo que no necesita pedido (sugerido = 0); deja solo lo accionable.' },
+          { term: 'Stock muerto', def: 'Vista aparte: productos con existencia y sin rotación — capital inmovilizado a liquidar.' },
+        ],
+      },
+      {
+        heading: 'Exportar / armar',
+        entries: [
+          { term: 'XLSX', def: 'Descarga la vista actual (con sus filtros y desglosar/englobar) en un archivo: hoja "Todos" (plano) + una hoja por proveedor.' },
+          { term: 'Requisición', def: 'Convierte las cantidades en una solicitud formal (folio RQ-AAAA-NNNNN) para aprobar → ordenar → recibir. Compra y traspaso se separan automáticamente.' },
+        ],
+      },
+    ],
+  },
   'route-activity': {
     title: 'Actividad de flota — guía',
     intro: 'Reconstruye el día de cada unidad a partir del rastro GPS: viajes, paradas y tiempos. Las paradas se matchean a la tienda/cliente más cercano por coordenadas. Si el proceso nocturno aún no corrió, "Reconstruir día" recalcula todo desde las posiciones crudas.',
