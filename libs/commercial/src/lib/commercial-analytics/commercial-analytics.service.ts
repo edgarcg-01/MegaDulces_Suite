@@ -2197,7 +2197,7 @@ export class CommercialAnalyticsService {
 
     // Paso 1 y 2 — marca + agregación desde analytics.sales_daily (misma DB,
     // alimentada por el cron on-prem import-sales-fact.js). Tenant-scoped.
-    const { brand, products, raw, retail, boxFactors } = await this.tk.run(async (trx) => {
+    const { brand, products, raw, retail, boxFactors, boxPrices } = await this.tk.run(async (trx) => {
       const b = brandId
         ? await trx('catalog.brands as b')
             .where('b.id', brandId)
@@ -2400,6 +2400,15 @@ export class CommercialAnalyticsService {
             .whereIn('product_id', pids)
             .select('product_id', 'box_factor')
         : [];
+      // RA-PRO.39 — precio de la CAJA (CJA) de Kepler: base de la conversión ROBUSTA a cajas
+      // money-anchored (cajas = revenue / precio_CJA), inmune al caos de unidades PZA/PAQ/CJA.
+      const boxPrices = pids.length
+        ? await trx('analytics.product_box_price')
+            .where('tenant_id', tenantId)
+            .whereIn('product_id', pids)
+            .andWhere('cja_price', '>', 0)
+            .select('product_id', 'cja_price')
+        : [];
 
       // Sucursales con venta (cualquier marca) en el periodo — para cobertura.
       const retailRows = await trx('analytics.sales_daily as sd')
@@ -2411,11 +2420,15 @@ export class CommercialAnalyticsService {
         .distinct('w.name as name')
         .orderBy('w.name');
 
-      return { brand: b, products: ps, raw: rawRows, retail: retailRows.map((r: any) => r.name), boxFactors };
+      return { brand: b, products: ps, raw: rawRows, retail: retailRows.map((r: any) => r.name), boxFactors, boxPrices };
     });
-    // RA-PRO.38 — mapa product_id → factor de caja canónico (resolvedor único).
+    // RA-PRO.38 — mapa product_id → factor de caja canónico (resolvedor único, fallback).
     const boxFactorMap = new Map<string, number>(
       boxFactors.map((b: any) => [b.product_id, Number(b.box_factor) || 1]),
+    );
+    // RA-PRO.39 — mapa product_id → precio de CJA (conversión money-anchored a cajas).
+    const boxPriceMap = new Map<string, number>(
+      boxPrices.map((b: any) => [b.product_id, Number(b.cja_price) || 0]),
     );
 
     const base: Omit<SellOutReport, 'coverage'> = {
@@ -2454,12 +2467,19 @@ export class CommercialAnalyticsService {
       // RS.3 — producto de PESO: units ya está en kg → NO se divide (mostrar kg). Producto
       // de PIEZA: units son piezas → cajas = piezas / (factor_sale, o box_size si factor=1).
       const isWeight = r.unit_kind === 'weight';
-      // RA-PRO.38 — divisor = factor de caja del resolvedor canónico (v_product_box_factor).
-      // Fallback a la vieja lógica solo si el producto no estuviera en la vista (no debería).
+      // RA-PRO.39 — CAJAS money-anchored: cajas = revenue / precio_CJA (de Kepler). Es la
+      // conversión ROBUSTA — inmune a que la venta llegue en PZA/PAQ/CJA y a que factor_sale/
+      // box_size signifiquen distinto por producto. Peso → kg (no cajas). Fallback (sin precio
+      // CJA): divisor del resolvedor canónico (v_product_box_factor).
       const fs = Number(r.factor_sale);
       const box = Number(r.box_size);
       const divisor = boxFactorMap.get(r.product_id) ?? (fs > 1 ? fs : (box > 1 ? box : 1));
-      const cajas = isWeight ? units : units / divisor;
+      const cjaPrice = boxPriceMap.get(r.product_id) || 0;
+      const cajas = isWeight
+        ? units                                    // granel → kg
+        : cjaPrice > 0
+          ? monto / cjaPrice                        // money-anchored (robusto)
+          : units / divisor;                        // fallback: factor del resolvedor
       branchesWithData.add(r.branch_name);
 
       // Columnas: por MES (month_columns) o por sucursal[×canal]×FUENTE (RS.5). RS.6 — la
