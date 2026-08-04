@@ -13,6 +13,9 @@ import { LlmExtractorService, DepositSlipFields } from '@megadulces/platform-cor
 export const DEPOSIT_FILE_ROLES = ['deposito', 'evidencia_1', 'evidencia_2'] as const;
 export type DepositFileRole = (typeof DEPOSIT_FILE_ROLES)[number];
 const TOLERANCIA = 1.0; // pesos: |ocr_monto - cobro_monto| <= 1 → cuadra (redondeo)
+const BANK_TOL = 1.0;   // pesos: |monto ficha - abono banco| para casar el movimiento
+const BANK_DAYS_BEFORE = 1; // el abono puede postearse el día del depósito o 1 antes (fecha valor)
+const BANK_DAYS_AFTER = 6;  // …o hasta unos días después (efectivo en ventanilla)
 
 export interface DepositFile { role: string; url: string; public_id?: string; kind?: string; name?: string; }
 
@@ -275,10 +278,17 @@ export class CollectionDepositsService {
           .select('ref_norm', 'sucursal', 'folio');
         for (const r of otros) (otrosPorRef[r.ref_norm] ||= []).push(`${r.sucursal}/${r.folio}`);
       }
-      const enriched = deposits.map((d: any) => {
+      const enriched = [] as any[];
+      for (const d of deposits) {
         const otros = d.ref_norm ? otrosPorRef[d.ref_norm] || [] : [];
-        return { ...d, ref_duplicada: otros.length > 0, ref_otros: otros };
-      });
+        // Three-way match: ¿existe el abono real en el banco por este depósito?
+        const banco = await this.bankMatch(trx, {
+          cuenta_dest: d.ocr_cuenta_dest,
+          monto: d.ocr_monto != null ? Number(d.ocr_monto) : Number(cobro.monto),
+          fecha: d.ocr_fecha || cobro.cobro_date,
+        });
+        enriched.push({ ...d, ref_duplicada: otros.length > 0, ref_otros: otros, banco });
+      }
       return { cobro: { ...cobro, monto: Number(cobro.monto) }, deposits: enriched };
     });
   }
@@ -305,6 +315,59 @@ export class CollectionDepositsService {
       if (!row) throw new BadRequestException('evidencia no encontrada o ya rechazada');
       return row;
     });
+  }
+
+  /**
+   * Three-way match: busca en el estado de cuenta (finance.bank_movements, fase CB)
+   * el ABONO real que corresponde a este depósito — por cuenta propia + monto (tol $1)
+   * + fecha cercana. Es lo que prueba que el dinero ENTRÓ (la ficha solo prueba que se
+   * depositó). Read-only: no escribe la conciliación, solo la informa.
+   */
+  private async bankMatch(
+    trx: any,
+    dep: { cuenta_dest?: string | null; monto?: number | null; fecha?: string | Date | null },
+  ): Promise<{ estado: 'confirmado' | 'multiple' | 'sin_match' | 'sin_dato'; movimientos: any[] }> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const target = dep.monto != null ? Number(dep.monto) : NaN;
+    if (!isFinite(target) || target <= 0 || !dep.fecha) return { estado: 'sin_dato', movimientos: [] };
+
+    // Ventana de fechas alrededor del depósito.
+    const base = new Date(dep.fecha as any);
+    if (isNaN(base.getTime())) return { estado: 'sin_dato', movimientos: [] };
+    const from = new Date(base); from.setDate(from.getDate() - BANK_DAYS_BEFORE);
+    const to = new Date(base); to.setDate(to.getDate() + BANK_DAYS_AFTER);
+    const iso = (d: Date) => d.toISOString().slice(0, 10);
+
+    // Si la ficha trae cuenta destino, restringir a esa cuenta propia; si no, todas.
+    const acctId = await this.findOwnAccountId(trx, dep.cuenta_dest);
+
+    const q = trx('finance.bank_movements as m')
+      .join('finance.bank_accounts as a', 'a.id', 'm.bank_account_id')
+      .leftJoin('finance.movement_categories as cat', 'cat.id', 'm.category_id')
+      .where('m.tenant_id', tenantId)
+      .whereRaw('m.amount_in BETWEEN ? AND ?', [target - BANK_TOL, target + BANK_TOL])
+      .whereBetween('m.movement_date', [iso(from), iso(to)])
+      .select('m.id', 'm.movement_date', trx.raw('m.amount_in::numeric AS amount_in'),
+        'm.concept', 'a.bank', 'a.account_label', trx.raw(`cat.code AS categoria`))
+      .orderBy('m.movement_date', 'asc')
+      .limit(6);
+    if (acctId) q.where('m.bank_account_id', acctId);
+
+    const movimientos = (await q).map((r: any) => ({ ...r, amount_in: Number(r.amount_in) }));
+    const estado = movimientos.length === 1 ? 'confirmado' : movimientos.length > 1 ? 'multiple' : 'sin_match';
+    return { estado, movimientos };
+  }
+
+  /** ID de la cuenta de banco propia cuyo `account_label` es sufijo de la cuenta destino. */
+  private async findOwnAccountId(trx: any, cuentaDest?: string | null): Promise<string | null> {
+    const digits = String(cuentaDest ?? '').replace(/\D/g, '');
+    if (!digits) return null;
+    const accts = await trx('finance.bank_accounts')
+      .where({ tenant_id: this.tenantCtx.requireTenantId(), kind: 'bank', active: true })
+      .whereRaw(`account_label ~ '^[0-9]{3,}$'`)
+      .select('id', 'account_label');
+    const hit = accts.find((a: any) => digits.endsWith(a.account_label));
+    return hit ? hit.id : null;
   }
 
   /** Etiquetas de cuenta (dígitos finales) de las cuentas de banco propias de la empresa. */

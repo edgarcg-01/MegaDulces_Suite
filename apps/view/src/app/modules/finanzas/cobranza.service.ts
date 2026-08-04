@@ -48,6 +48,12 @@ export interface DepositOcr {
 
 export interface DepositFile { role: string; url: string; public_id?: string; kind?: string; name?: string; }
 
+/** Un abono candidato del estado de cuenta (finance.bank_movements, fase CB). */
+export interface BankMovementMatch { id: string; movement_date: string; amount_in: number; concept: string | null; bank: string; account_label: string; categoria: string | null; }
+
+/** Resultado del three-way match del depósito contra el banco. */
+export interface BankMatch { estado: 'confirmado' | 'multiple' | 'sin_match' | 'sin_dato'; movimientos: BankMovementMatch[]; }
+
 /** Una evidencia adjunta (archivos + OCR + estado) — devuelta por detail(). */
 export interface ProofDeposit {
   id: string;
@@ -64,6 +70,7 @@ export interface ProofDeposit {
   cuenta_propia?: boolean | null; // cuenta destino ∈ cuentas propias
   ref_duplicada?: boolean;        // folio electrónico usado en otro cobro
   ref_otros?: string[];           // otros cobros (suc/folio) con la misma referencia
+  banco?: BankMatch;              // three-way match: abono real en el estado de cuenta (CB)
   status: DepositStatus;
   comentarios: string | null;
   validated_by: string | null;

@@ -108,6 +108,34 @@ const matches = (ocr, cobro) => (ocr == null ? null : Math.abs(ocr - cobro) <= T
         .update({ status: 'rechazado', motivo_rechazo: 'monto no cuadra', validated_by: 'rev' }).returning(['status']);
       ok(rj.status === 'rechazado', 'rechazar: validado → rechazado con motivo');
 
+      // ── 4b. Three-way match: abono real en el estado de cuenta (CB) ─────────
+      // Réplica de bankMatch: cuenta propia (label sufijo de la cuenta destino) +
+      // monto (tol $1) + ventana de fechas. Sembramos un abono controlado y lo casamos.
+      const ba = await trx('finance.bank_accounts').where({ tenant_id: T, kind: 'bank' })
+        .whereRaw(`account_label = '3041'`).first('id');
+      const [st] = await trx('finance.bank_statements').insert({
+        tenant_id: T, bank_account_id: ba.id, period: '2026-07', source_file: 'smoke',
+      }).returning(['id']);
+      await trx('finance.bank_movements').insert({
+        tenant_id: T, statement_id: st.id, bank_account_id: ba.id,
+        movement_date: '2026-07-28', amount_in: 8874, amount_out: 0,
+        concept: 'DEPOSITO EFECTIVO RUTA', client_uuid: 'smoke-abono-1',
+      });
+      // depósito sintético: cuenta 1326933041 (→3041), $8,874, 28-jul.
+      const bankHit = await trx('finance.bank_movements as m')
+        .join('finance.bank_accounts as a', 'a.id', 'm.bank_account_id')
+        .where('m.tenant_id', T)
+        .whereRaw('m.amount_in BETWEEN ? AND ?', [8873, 8875])
+        .whereBetween('m.movement_date', ['2026-07-27', '2026-08-03'])
+        .where('m.bank_account_id', ba.id)
+        .select('m.id', trx.raw('m.amount_in::numeric amt'));
+      ok(bankHit.length === 1 && Number(bankHit[0].amt) === 8874, 'bankMatch: abono $8,874 en BANORTE 3041 el 28-jul → CONFIRMADO');
+      const noHit = await trx('finance.bank_movements as m')
+        .where('m.tenant_id', T).where('m.bank_account_id', ba.id)
+        .whereRaw('m.amount_in BETWEEN ? AND ?', [9999, 10001])
+        .whereBetween('m.movement_date', ['2026-07-27', '2026-08-03']).select('m.id');
+      ok(noHit.length === 0, 'bankMatch: monto sin abono correspondiente → sin_match');
+
       let checkBad = false;
       try {
         await trx('finance.collection_deposits').insert({ tenant_id: T, sucursal: '00', folio: 'ZZZ', status: 'foo' });

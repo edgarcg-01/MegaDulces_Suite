@@ -34,7 +34,20 @@ Un cliente a crédito paga con transferencia/depósito y manda la ficha. Hoy esa
 | CC.1 Backend (módulo + permisos + wire) | ✅ commit `9577b1ca` | smoke `test-newdb-collection-deposits` 18/18; build api |
 | CC.2 Frontend (`/finanzas/cobranza`) | ✅ commit `9a83bbd9` | build view OK; validación visual manual pendiente |
 | CC.3 Controles (cuenta propia + folio electrónico dedup) | ✅ 2026-08-04 | mig `20260804190000`; smoke 26/26; builds api+view OK |
+| CC.4 Three-way match (abono real en banco, CB) | ✅ 2026-08-04 | smoke 28/28; builds api+view OK; sin migración (read-only) |
 | PROD migraciones | ✅ 2026-08-03 | Railway batch 154 (5 migs); tablas + RLS + 21 roles con VER verificados |
+
+### CC.4 — Three-way match: ¿el dinero ENTRÓ al banco?
+
+La ficha (CC.3) prueba que se **depositó**, no que **entró**. CC.4 cierra el eslabón cruzando el depósito contra el **estado de cuenta real** (`finance.bank_movements`, fase CB):
+
+```
+cobro Kepler  ↔  ficha OCR (CC.3)  ↔  abono real en banco (CC.4)
+```
+
+`bankMatch()` (en `detail()`, momento de revisión) busca el abono por **cuenta propia** (`bank_account` cuyo `account_label` es sufijo de `ocr_cuenta_dest`) + **monto del depósito** (OCR, tol $1) + **ventana de fechas** (−1/+6 días de la fecha de la ficha). Sin clave SPEI en el feed CB, el match es por (cuenta, monto, fecha). Estados: `confirmado` (1 abono), `multiple` (varios candidatos → humano elige), `sin_match` (no aparece → bandera), `sin_dato` (falta monto/fecha). Read-only: **informa**, no escribe la conciliación (persistir en `bank_recon_matches` con `kepler_doc_tipo='UA0501'` es el siguiente paso natural). UI: bloque semáforo en el diálogo de ver con los movimientos candidatos (banco/cuenta/fecha/monto/concepto).
+
+**Limitación conocida:** el feed CB local es enero-2026; en prod el match solo aplica a periodos cargados. Multi-folio (1 depósito = N cobros) casa a nivel **depósito** (la ficha trae el total), no por cobro individual. **Pendiente prod CC.4:** redeploy api+view (sin migración nueva).
 
 ### CC.3 — Controles derivados de fichas reales (Comprobante Universal de Sucursales)
 
