@@ -1224,11 +1224,17 @@ export class ReportsService {
     const visionMap = new Map<string, any>();
     const findingsMap = new Map<string, any>();
     const vendorFraud = new Map<string, number>();
-    let horusAvailable = true;
 
+    // Cada tabla de Horus se consulta por SEPARADO: si `supervisor_findings`
+    // falta (o le falta una columna en un entorno con migraciones pendientes),
+    // igual mostramos los estados que sí derivan de `capture_vision`, y
+    // viceversa. `horus_available` = al menos una fuente respondió.
+    let visionOk = false;
+    let findingsOk = false;
     if (captureIds.length > 0) {
       const withTenant = (qb: Knex.QueryBuilder) =>
         tenantId ? qb.where('tenant_id', tenantId) : qb;
+
       try {
         const vis = await this.knex('commercial.capture_vision')
           .whereIn('capture_id', captureIds)
@@ -1243,7 +1249,12 @@ export class ReportsService {
             this.knex.raw('count(*)::int as photos'),
           );
         vis.forEach((v: any) => visionMap.set(v.capture_id, v));
+        visionOk = true;
+      } catch (e: any) {
+        this.logger.warn(`commercial.capture_vision no disponible: ${e.message}`);
+      }
 
+      try {
         const finds = await this.knex('commercial.supervisor_findings')
           .whereIn('capture_id', captureIds)
           .modify(withTenant)
@@ -1259,6 +1270,7 @@ export class ReportsService {
             ),
           );
         finds.forEach((f: any) => findingsMap.set(f.capture_id, f));
+        findingsOk = true;
 
         // Fraude a nivel vendedor (subject_type=collaborator) — no es por captura.
         if (userIds.length > 0) {
@@ -1271,12 +1283,10 @@ export class ReportsService {
           vf.forEach((r: any) => vendorFraud.set(r.subject_id, Number(r.n)));
         }
       } catch (e: any) {
-        horusAvailable = false;
-        this.logger.warn(
-          `Horus tables no disponibles para vendor-visits-review: ${e.message}`,
-        );
+        this.logger.warn(`commercial.supervisor_findings no disponible: ${e.message}`);
       }
     }
+    const horusAvailable = captureIds.length === 0 ? true : visionOk || findingsOk;
 
     // Roster de campo: usuarios activos con rol de campo dentro del scope, para
     // incluir en el reporte a quienes tienen 0 visitas en el rango (detectar a
