@@ -2394,8 +2394,12 @@ export class CommercialAnalyticsService {
       // RA-PRO.38/39 — factor de caja (resolvedor) + precio de CJA (money-anchored) por producto.
       // = ANY(?::uuid[]) en vez de whereIn: maneja el array VACÍO sin crashear (whereIn([]) bindeaba
       // '{}' → "invalid input syntax for type uuid"). Solo UUIDs válidos.
+      // Dedup con filter+indexOf, NO `[...new Set()]`: el bundle webpack de la API downlevelea mal
+      // el spread de Set → `pids` salía como `[Set]` (length=1, burla el guard) y el Set se
+      // serializaba a '{}' → crash `string_to_uuid('{}')` en prod (mismo bug que bc6799da en DM).
       const uuidRx = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-      const pids = [...new Set(rawRows.map((r) => r.product_id).filter((p) => typeof p === 'string' && uuidRx.test(p)))];
+      const pidsAll = rawRows.map((r) => r.product_id).filter((p) => typeof p === 'string' && uuidRx.test(p));
+      const pids = pidsAll.filter((v, i) => pidsAll.indexOf(v) === i);
       const boxFactors = pids.length
         ? await trx('analytics.v_product_box_factor')
             .where('tenant_id', tenantId)
