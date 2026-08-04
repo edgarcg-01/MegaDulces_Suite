@@ -52,7 +52,7 @@ export class SupplierPaymentProofsService {
    */
   async listPayments(q: ListPaymentsQuery) {
     const tenantId = this.tenantCtx.requireTenantId();
-    const limit = Math.min(1000, Math.max(1, Number(q.limit) || 300));
+    const limit = Math.min(1000, Math.max(1, Number(q.limit) || 500));
 
     return this.tk.run(async (trx) => {
       const dep = trx('finance.supplier_payment_proofs')

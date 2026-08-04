@@ -74,7 +74,7 @@ import { PagosComprobantesService, PagoRow, PagosReport, DepositOcr, ProofFile }
             <tr>
               <td>{{ c.pago_date | date:'dd/MM/yy' }}</td>
               <td class="mono">{{ c.folio }}</td>
-              <td><span class="cb-metodo" [class.tra]="c.metodo_pago === 'transferencia'" [class.che]="c.metodo_pago === 'cheque'"><i class="pi" [ngClass]="c.metodo_pago === 'cheque' ? 'pi-book' : 'pi-send'"></i> {{ metodoLabel(c.metodo_pago) }}</span></td>
+              <td><span class="cb-metodo" [class.tra]="c.metodo_pago === 'transferencia'" [class.che]="c.metodo_pago === 'cheque'" [class.ant]="c.metodo_pago === 'anticipo'"><i class="pi" [ngClass]="c.metodo_pago === 'cheque' ? 'pi-book' : c.metodo_pago === 'anticipo' ? 'pi-wallet' : 'pi-send'"></i> {{ metodoLabel(c.metodo_pago) }}</span></td>
               <td>{{ c.proveedor_nombre || c.proveedor_code || '—' }}<div class="cb-sub">{{ c.proveedor_rfc || c.proveedor_code }}</div></td>
               <td class="muted cb-concepto" [title]="c.concepto">{{ c.concepto || '—' }}</td>
               <td class="ta-r strong">{{ money(c.monto) }}</td>
@@ -193,6 +193,7 @@ import { PagosComprobantesService, PagoRow, PagosReport, DepositOcr, ProofFile }
     .cb-metodo i { font-size: .7rem; }
     .cb-metodo.tra { color: var(--action); }
     .cb-metodo.che { color: var(--text-main); }
+    .cb-metodo.ant { color: var(--warn-fg, #b45309); }
     .cb-concepto { max-width: 14rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .mono { font-family: var(--font-mono); font-size: .85em; }
     .cb-comp { display: inline-flex; align-items: center; gap: .45rem; }
@@ -386,7 +387,7 @@ export class FinanzasPagosComprobantesComponent {
       .subscribe({ next: () => { this.saving.set(false); this.showReject.set(false); this.toast.add({ severity: 'info', summary: 'Rechazado', detail: `Pago ${c.folio}` }); this.load(); }, error: () => { this.saving.set(false); this.toast.add({ severity: 'error', summary: 'Error al rechazar' }); } });
   }
 
-  metodoLabel(m: string | null): string { return ({ transferencia: 'Transferencia', cheque: 'Cheque' } as Record<string, string>)[m || ''] || '—'; }
+  metodoLabel(m: string | null): string { return ({ transferencia: 'Transferencia', cheque: 'Cheque', anticipo: 'Anticipo' } as Record<string, string>)[m || ''] || '—'; }
   depLabel(s: string | null): string { return ({ recibido: 'Recibido', validado: 'Validado', rechazado: 'Rechazado' } as Record<string, string>)[s || ''] || '—'; }
   depSev(s: string | null): 'success' | 'warn' | 'danger' | 'secondary' { return ({ recibido: 'warn', validado: 'success', rechazado: 'danger' } as Record<string, 'success' | 'warn' | 'danger'>)[s || ''] || 'secondary'; }
   money(v: number | string | null | undefined): string { return (Number(v ?? 0) || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 }); }

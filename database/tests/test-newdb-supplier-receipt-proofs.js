@@ -57,8 +57,15 @@ const matchR = (total, sub, val) => {
     const methods = await knex('analytics.erp_supplier_payments').where({ tenant_id: T }).select('metodo_pago').count('* as n').groupBy('metodo_pago');
     const tra = methods.find((m) => m.metodo_pago === 'transferencia');
     const che = methods.find((m) => m.metodo_pago === 'cheque');
+    const ant = methods.find((m) => m.metodo_pago === 'anticipo');
     ok(tra && Number(tra.n) > 1000, `pagos incluye transferencias XD2601 (${tra ? tra.n : 0})`);
     ok(che && Number(che.n) > 0, `pagos incluye cheques XD2501 (${che ? che.n : 0})`);
+    ok(ant && Number(ant.n) > 0, `pagos incluye anticipos XD6001 (${ant ? ant.n : 0})`);
+    // Anticipo real: el comprobante BBVA que reportó el usuario = CONVERMEX XD6001 $150,621.50.
+    const anticipo = await knex('analytics.erp_supplier_payments').where({ tenant_id: T, sucursal: '00', doc_prefix: 'XD6001' })
+      .whereRaw('monto::numeric BETWEEN 150621 AND 150622')
+      .first('proveedor_nombre', 'metodo_pago');
+    ok(anticipo && anticipo.metodo_pago === 'anticipo' && /CONVERMEX/i.test(anticipo.proveedor_nombre || ''), 'anticipo XD6001 CONVERMEX $150,621.50 presente (método anticipo)');
     // Arquetipo transferencia: MONDELEZ 0016183 XD2601 = $914,850.29 (= el caso del comprobante BBVA).
     const mond = await knex('analytics.erp_supplier_payments').where({ tenant_id: T, sucursal: '00', doc_prefix: 'XD2601', folio: '0016183' })
       .first('proveedor_nombre', 'metodo_pago', knex.raw('monto::numeric AS monto'));
