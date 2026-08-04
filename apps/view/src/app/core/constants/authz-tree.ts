@@ -190,7 +190,7 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
         icon: 'pi pi-shopping-bag',
         route: '/compras',
         modules: [
-          { id: 'compras', label: 'Compras', route: '/compras', view: [Permission.COMPRAS_VER], manage: [Permission.COMPRAS_GESTIONAR] },
+          { id: 'compras', label: 'Compras', route: '/compras', view: [Permission.COMPRAS_VER], manage: [Permission.COMPRAS_GESTIONAR, Permission.COMPRAS_VALIDAR] },
         ],
       },
       {

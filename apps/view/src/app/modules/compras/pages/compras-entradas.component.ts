@@ -14,6 +14,7 @@ import { MetricStripComponent, MetricStripItem } from '../../../shared/component
 import { SegmentedComponent } from '../../../shared/components/segmented/segmented.component';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
 import { AuthService } from '../../../core/services/auth.service';
+import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
 import { EntradasService, EntradaRow, EntradasReport, RemisionOcr, ProofFile, EntradaDetail, EntradaLinea } from '../entradas.service';
 
@@ -87,7 +88,7 @@ import { EntradasService, EntradaRow, EntradasReport, RemisionOcr, ProofFile, En
               </td>
               <td>
                 <button pButton type="button" size="small" text (click)="openAttach(c)" [title]="c.deposits > 0 ? 'Agregar otra remisión' : 'Adjuntar remisión'"><span class="p-button-icon p-button-icon-left pi pi-paperclip" aria-hidden="true"></span><span class="p-button-label">{{ c.deposits > 0 ? 'Otra' : 'Adjuntar' }}</span></button>
-                @if (c.deposit_id && canManage()) {
+                @if (c.deposit_id && canValidate()) {
                   @if (c.deposit_status !== 'validado') { <button pButton type="button" size="small" text severity="success" [loading]="actingId() === c.deposit_id" [disabled]="!!actingId()" (click)="doValidate(c)" title="Validar"><span class="p-button-icon pi pi-check" aria-hidden="true"></span></button> }
                   @if (c.deposit_status !== 'rechazado') { <button pButton type="button" size="small" text severity="danger" (click)="openReject(c)" title="Rechazar"><span class="p-button-icon pi pi-times" aria-hidden="true"></span></button> }
                 }
@@ -350,6 +351,7 @@ import { EntradasService, EntradaRow, EntradasReport, RemisionOcr, ProofFile, En
 export class ComprasEntradasComponent {
   private readonly svc = inject(EntradasService);
   private readonly auth = inject(AuthService);
+  private readonly perms = inject(PermissionsService);
   private readonly toast = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);
 
@@ -360,7 +362,9 @@ export class ComprasEntradasComponent {
   readonly saving = signal(false);
   readonly actingId = signal<string | null>(null);
   readonly estadoSel = signal<string>('pendiente');
-  readonly canManage = computed(() => this.auth.user()?.permissions?.[Permission.COMPRAS_GESTIONAR] === true);
+  // Validación restringida: permiso especial COMPRAS_VALIDAR (o god-mode admin).
+  // GESTIONAR NO alcanza — que no todos puedan validar la evidencia.
+  readonly canValidate = computed(() => this.perms.can('manage', 'all') || this.auth.user()?.permissions?.[Permission.COMPRAS_VALIDAR] === true);
 
   readonly estadoOpts = [{ label: 'Pendientes', value: 'pendiente' }, { label: 'Con remisión', value: 'con_comprobante' }, { label: 'Validadas', value: 'validado' }, { label: 'Todas', value: '' }];
   search = '';

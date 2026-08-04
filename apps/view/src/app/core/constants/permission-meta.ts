@@ -162,6 +162,7 @@ export const PERMISSION_META: Record<string, PermissionMetaEntry> = {
   // ── Compras / Reabastecimiento (Fase RA — ADR-030) ────────────────────
   [Permission.COMPRAS_VER]: { label: 'Ver Compras', description: 'Existencia crítica, punto de reorden y sugerido de compra. Solo lectura.', category: 'Compras' },
   [Permission.COMPRAS_GESTIONAR]: { label: 'Gestionar Compras', description: 'Generar y aprobar requisiciones de compra a proveedor desde el sugerido de reabastecimiento.', category: 'Compras' },
+  [Permission.COMPRAS_VALIDAR]: { label: 'Validar Compras', description: 'Validar o rechazar la evidencia (remisión) de las órdenes de entrada. Permiso especial restringido — no lo tiene "Gestionar".', category: 'Compras' },
 
   // ── Permisos que faltaban en el editor de permisos ────────────────────
   [Permission.SUPERVISOR_AI_VER]: { label: 'Ver Supervisor AI', description: 'Consultar el supervisor de ejecución AI (parte diario, auditoría de fotos, hallazgos de ruta).', category: 'Seguimiento' },

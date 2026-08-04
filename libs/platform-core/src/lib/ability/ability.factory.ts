@@ -91,6 +91,7 @@ export const permissionToSubject: Record<string, AppSubject> = {
   [Permission.VENDOR_APP_ACCESS]: 'vendor_app',
   [Permission.COMPRAS_VER]: 'compras',
   [Permission.COMPRAS_GESTIONAR]: 'compras',
+  [Permission.COMPRAS_VALIDAR]: 'compras',
 };
 
 const permissionToAction: Record<string, Action | Action[]> = {
@@ -182,6 +183,7 @@ const permissionToAction: Record<string, Action | Action[]> = {
   [Permission.VENDOR_APP_ACCESS]: 'read',
   [Permission.COMPRAS_VER]: 'read',
   [Permission.COMPRAS_GESTIONAR]: ['read', 'create', 'update', 'delete'],
+  [Permission.COMPRAS_VALIDAR]: ['read', 'update'],
 };
 
 /**

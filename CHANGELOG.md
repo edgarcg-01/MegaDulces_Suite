@@ -10,6 +10,12 @@
 
 ## [Unreleased]
 
+### Added — Compras: permiso especial `COMPRAS_VALIDAR` para validar órdenes de entrada (2026-08-04)
+- La **validación/rechazo de la evidencia (remisión) de órdenes de entrada** (`/compras/entradas`) ahora exige un **permiso propio `COMPRAS_VALIDAR`**, separado de `COMPRAS_GESTIONAR`. Objetivo: **que no todos puedan validar** — quien solo gestiona (crea requisiciones, captura/adjunta) ya no valida.
+- **Restrictivo**: `COMPRAS_VALIDAR` NO va en el preset del rol Compras ni en ningún seed; se asigna explícitamente en `/admin/roles`. Admin/superadmin siguen validando por `manage:all`. El resto de `/compras` (aprobar/rechazar requisiciones, config, captura) queda igual en `GESTIONAR`.
+- Backend: enum + `ability.factory` (subject `compras`, action read/update) + `@RequirePermissions(COMPRAS_VALIDAR)` en `finance/goods-receipts/:id/validate|reject`. El guard es **exact-key** → tener `GESTIONAR` no alcanza. Frontend: enum + permission-meta + authz-tree (checkbox asignable) + botones validar/rechazar gateados por `canValidate` (`manage:all` || `COMPRAS_VALIDAR`). **Sin migración ni seed.** Builds api+view verdes.
+- **Rollout**: tras desplegar, asignar `COMPRAS_VALIDAR` al rol que deba validar + re-login (el botón usa el snapshot de permisos del JWT).
+
 ### Added — Pago a proveedor: preview antes de subir + ver el comprobante adjunto (2026-08-04)
 - **Previsualización** al elegir el archivo en el diálogo de adjuntar: si es **imagen** se muestra inline antes de guardar; si es **PDF** una tarjeta con nombre/ícono (la CSP del app bloquea embeber PDF con `data:`; los datos igual se ven vía OCR abajo).
 - La **columna "Comprobante" ahora es clickable** → diálogo de detalle con el/los adjuntos: **foto inline** o **"Abrir PDF"** (pestaña nueva, Cloudinary https — CSP-safe), + estado, chip de cuadre y campos OCR (monto/fecha/banco/referencia). Si el pago no tiene comprobante, el clic abre directo el de adjuntar.

@@ -9,7 +9,8 @@ interface AuthedRequest { user?: { username?: string; full_name?: string }; }
  * Fase CC (extensión) — Comprobantes de Orden de Entrada. Lista las órdenes de
  * entrada de Kepler (X-A-40) y les adjunta la remisión/factura del proveedor
  * (imagen/PDF) con OCR. Captura/adjunto a nivel VER (el capturista); validación/
- * rechazo a nivel GESTIONAR (el revisor). No escribe a Kepler.
+ * rechazo a nivel VALIDAR (permiso especial restringido — que no todos validen).
+ * No escribe a Kepler.
  */
 @ApiTags('finance-goods-receipt-proofs')
 @ApiBearerAuth()
@@ -61,15 +62,15 @@ export class GoodsReceiptProofsController {
   }
 
   @Post(':id/validate')
-  @RequirePermissions(Permission.COMPRAS_GESTIONAR)
-  @ApiOperation({ summary: 'Valida la evidencia de la entrada. Auditado.' })
+  @RequirePermissions(Permission.COMPRAS_VALIDAR)
+  @ApiOperation({ summary: 'Valida la evidencia de la entrada. Auditado. Permiso especial COMPRAS_VALIDAR.' })
   validate(@Param('id') id: string, @Req() req: AuthedRequest) {
     return this.svc.validate(id, req?.user?.full_name || req?.user?.username);
   }
 
   @Post(':id/reject')
-  @RequirePermissions(Permission.COMPRAS_GESTIONAR)
-  @ApiOperation({ summary: 'Rechaza la evidencia (con motivo). Auditado.' })
+  @RequirePermissions(Permission.COMPRAS_VALIDAR)
+  @ApiOperation({ summary: 'Rechaza la evidencia (con motivo). Auditado. Permiso especial COMPRAS_VALIDAR.' })
   reject(@Param('id') id: string, @Body() body: { motivo?: string }, @Req() req: AuthedRequest) {
     return this.svc.reject(id, req?.user?.full_name || req?.user?.username, body?.motivo);
   }
