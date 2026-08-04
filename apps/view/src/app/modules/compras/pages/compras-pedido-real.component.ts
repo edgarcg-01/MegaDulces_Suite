@@ -291,8 +291,7 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
               <span class="pr-bulk-n">{{ wbTotal() }} productos en la vista</span>
             }
             <span class="pr-bulk-sp"></span>
-            <p-button type="button" label="XLSX por proveedor" icon="pi pi-file-excel" styleClass="p-button-sm" (click)="exportBySupplier()" [disabled]="dl()" ariaLabel="XLSX: una hoja por proveedor"></p-button>
-            <p-button type="button" label="XLSX plano" icon="pi pi-file-excel" styleClass="p-button-sm p-button-text" (click)="exportFlat()" [disabled]="dl() || !wbRows().length"></p-button>
+            <p-button type="button" label="XLSX" icon="pi pi-file-excel" styleClass="p-button-sm" (click)="exportWorkbook()" [disabled]="dl() || !wbRows().length" ariaLabel="Exportar XLSX: hoja Todos + una por proveedor"></p-button>
             <p-button type="button" [label]="saving() ? 'Armando…' : 'Requisiciones (global)'" icon="pi pi-check" styleClass="p-button-sm p-button-text" (click)="buildReq()" [disabled]="saving() || totCajas() <= 0"></p-button>
           </div>
         }
@@ -1088,34 +1087,20 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     } as const;
   }
 
-  /** "XLSX por proveedor" = la tabla en pantalla (workbook) → UNA HOJA por proveedor.
-   *  Hereda desglosar/englobar + TODOS los filtros (se re-consulta server-side sin paginar). */
-  exportBySupplier(): void {
+  /** "XLSX" = la tabla en pantalla (workbook) en UN archivo unificado: hoja "Todos" (plano) +
+   *  una hoja por proveedor. Hereda desglosar/englobar + TODOS los filtros (se re-consulta
+   *  server-side sin paginar). Los drills (por sucursal / por producto del acordeón) siguen
+   *  usando el pedido editable (flatRows) — ver `exportScope(code, pid)`. */
+  exportWorkbook(): void {
     if (!this.wbRows().length) {
       this.toast.add({ severity: 'warn', summary: 'Nada que exportar', detail: 'No hay productos con los filtros actuales.' });
       return;
     }
     this.dl.set(true);
-    this.api.exportWorkbookXlsx(this.currentWbQuery(), false)
+    this.api.exportWorkbookXlsx(this.currentWbQuery())
       .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-        next: (resp) => { this.dl.set(false); saveXlsxResponse(resp, 'pedido-por-proveedor.xlsx'); },
-        error: () => { this.dl.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo exportar por proveedor.' }); },
-      });
-  }
-
-  /** "XLSX plano" GLOBAL = la tabla en pantalla en UNA sola hoja (todos los proveedores),
-   *  con desglosar/englobar + filtros. Los drills (por sucursal / por producto) siguen usando
-   *  el pedido editable (flatRows) — ver `exportScope(code, pid)`. */
-  exportFlat(): void {
-    if (!this.wbRows().length) {
-      this.toast.add({ severity: 'warn', summary: 'Nada que exportar', detail: 'No hay productos con los filtros actuales.' });
-      return;
-    }
-    this.dl.set(true);
-    this.api.exportWorkbookXlsx(this.currentWbQuery(), true)
-      .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-        next: (resp) => { this.dl.set(false); saveXlsxResponse(resp, 'pedido-plano.xlsx'); },
-        error: () => { this.dl.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo exportar el plano.' }); },
+        next: (resp) => { this.dl.set(false); saveXlsxResponse(resp, 'pedido.xlsx'); },
+        error: () => { this.dl.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo exportar.' }); },
       });
   }
 
