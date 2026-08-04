@@ -2391,21 +2391,21 @@ export class CommercialAnalyticsService {
 
       const rawRows: any[] = [...keplerRows, ...wincajaRows];
 
-      // RA-PRO.38 — factor de caja desde el RESOLVEDOR CANÓNICO (misma verdad que compras):
-      // un solo fetch por los productos del período; el pivot divide con esto (no con factor_sale).
-      const pids = [...new Set(rawRows.map((r) => r.product_id).filter(Boolean))];
+      // RA-PRO.38/39 — factor de caja (resolvedor) + precio de CJA (money-anchored) por producto.
+      // = ANY(?::uuid[]) en vez de whereIn: maneja el array VACÍO sin crashear (whereIn([]) bindeaba
+      // '{}' → "invalid input syntax for type uuid"). Solo UUIDs válidos.
+      const uuidRx = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      const pids = [...new Set(rawRows.map((r) => r.product_id).filter((p) => typeof p === 'string' && uuidRx.test(p)))];
       const boxFactors = pids.length
         ? await trx('analytics.v_product_box_factor')
             .where('tenant_id', tenantId)
-            .whereIn('product_id', pids)
+            .whereRaw('product_id = ANY(?::uuid[])', [pids])
             .select('product_id', 'box_factor')
         : [];
-      // RA-PRO.39 — precio de la CAJA (CJA) de Kepler: base de la conversión ROBUSTA a cajas
-      // money-anchored (cajas = revenue / precio_CJA), inmune al caos de unidades PZA/PAQ/CJA.
       const boxPrices = pids.length
         ? await trx('analytics.product_box_price')
             .where('tenant_id', tenantId)
-            .whereIn('product_id', pids)
+            .whereRaw('product_id = ANY(?::uuid[])', [pids])
             .andWhere('cja_price', '>', 0)
             .select('product_id', 'cja_price')
         : [];
