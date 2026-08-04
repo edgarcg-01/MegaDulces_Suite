@@ -1207,6 +1207,10 @@ export class CommercialAnalyticsService {
   private since30d(trx: any) {
     return trx.raw(`((now() AT TIME ZONE 'America/Mexico_City')::date - 29)`);
   }
+  /** Tope superior = hoy MX. Evita que filas con fecha futura (parseo malo del feed) inflen la ventana. */
+  private untilToday(trx: any) {
+    return trx.raw(`((now() AT TIME ZONE 'America/Mexico_City')::date)`);
+  }
 
   /**
    * KPIs del Command Center desde `analytics.sales_daily` (venta real 30d):
@@ -1220,21 +1224,27 @@ export class CommercialAnalyticsService {
       const [tot] = await trx('analytics.sales_daily')
         .where('tenant_id', tenantId)
         .andWhere('sale_date', '>=', this.since30d(trx))
+        .andWhere('sale_date', '<=', this.untilToday(trx))
         .select(
           trx.raw('COALESCE(SUM(revenue),0)::numeric AS revenue'),
           trx.raw('COALESCE(SUM(cost),0)::numeric AS cost'),
           trx.raw('COALESCE(SUM(units),0)::numeric AS units'),
           trx.raw('COALESCE(SUM(tickets),0)::int AS tickets'),
+          trx.raw('MAX(sale_date) AS last_sale_date'),
           trx.raw('MAX(updated_at) AS updated_at'),
+          // cobertura de costo: % del revenue que tiene costo capturado (para el chip de confianza).
+          trx.raw('COALESCE(SUM(revenue) FILTER (WHERE cost > 0),0)::numeric AS revenue_with_cost'),
         );
 
       const channels = await trx('analytics.sales_daily')
         .where('tenant_id', tenantId)
         .andWhere('sale_date', '>=', this.since30d(trx))
+        .andWhere('sale_date', '<=', this.untilToday(trx))
         .groupBy('channel')
         .select(
           'channel',
           trx.raw('COALESCE(SUM(revenue),0)::numeric AS revenue'),
+          trx.raw('COALESCE(SUM(cost),0)::numeric AS cost'),
           trx.raw('COALESCE(SUM(units),0)::numeric AS units'),
           trx.raw('COALESCE(SUM(tickets),0)::int AS tickets'),
         )
@@ -1258,10 +1268,14 @@ export class CommercialAnalyticsService {
       const margin = revenue - cost;
       const tickets = Number(tot?.tickets || 0);
 
+      const revWithCost = Number(tot?.revenue_with_cost || 0);
       return {
         source: 'network',
         updated_at: tot?.updated_at || null,
-        period: { rolling_days: 30 },
+        // rolling 30d MÓVIL (hoy−29 .. hoy), no el mes calendario.
+        period: { rolling_days: 30, last_sale_date: tot?.last_sale_date || null },
+        // % del revenue con costo capturado → "qué tan confiable es el margen".
+        cost_coverage_pct: revenue > 0 ? +((revWithCost / revenue) * 100).toFixed(1) : 0,
         revenue: {
           gross: revenue,
           cost,
@@ -1273,13 +1287,20 @@ export class CommercialAnalyticsService {
         tickets,
         avg_ticket: tickets > 0 ? +(revenue / tickets).toFixed(2) : 0,
         unique_customers: Number(cust?.n || 0),
-        by_channel: channels.map((c: any) => ({
-          channel: c.channel,
-          revenue: Number(c.revenue),
-          units: Number(c.units),
-          tickets: Number(c.tickets),
-          share_pct: revenue > 0 ? +((Number(c.revenue) / revenue) * 100).toFixed(1) : 0,
-        })),
+        by_channel: channels.map((c: any) => {
+          const chRev = Number(c.revenue);
+          const chMargin = chRev - Number(c.cost);
+          return {
+            channel: c.channel,
+            revenue: chRev,
+            cost: Number(c.cost),
+            margin: chMargin,
+            margin_pct: chRev > 0 ? +((chMargin / chRev) * 100).toFixed(1) : 0,
+            units: Number(c.units),
+            tickets: Number(c.tickets),
+            share_pct: revenue > 0 ? +((chRev / revenue) * 100).toFixed(1) : 0,
+          };
+        }),
         pipeline: {
           confirmed: pipe('confirmed'),
           draft: pipe('draft'),
@@ -1289,68 +1310,99 @@ export class CommercialAnalyticsService {
     });
   }
 
-  /** Top productos por venta real 30d desde `analytics.product_sales_stats` (KV.2) + ABC. */
+  /**
+   * Top productos por venta real 30d MÓVIL. Fuente = `analytics.sales_daily` (misma que el KPI
+   * total) para traer COSTO→MARGEN consistente; `abc_class` desde product_sales_stats (KV.2).
+   */
   async networkTopProducts(limitParam?: number | string) {
     const tenantId = this.tenantCtx.requireTenantId();
     const limit = Math.min(50, Math.max(1, Number(limitParam) || 5));
     return this.tk.run(async (trx) => {
-      const rows: any[] = await trx('analytics.product_sales_stats AS s')
-        .join('catalog.products AS p', 'p.id', 's.product_id')
+      const rows: any[] = await trx('analytics.sales_daily AS s')
+        .join('catalog.products AS p', (j: any) => j.on('p.id', 's.product_id').andOn('p.tenant_id', 's.tenant_id'))
         .leftJoin('catalog.brands AS b', 'b.id', 'p.brand_id')
+        .leftJoin('analytics.product_sales_stats AS st', (j: any) =>
+          j.on('st.product_id', 's.product_id').andOn('st.tenant_id', 's.tenant_id'))
         .where('s.tenant_id', tenantId)
+        .andWhere('s.sale_date', '>=', this.since30d(trx))
+        .andWhere('s.sale_date', '<=', this.untilToday(trx))
         .andWhere('p.is_promo', false)
-        .andWhere('s.revenue_30d', '>', 0)
+        .groupBy('s.product_id', 'p.nombre', 'b.nombre', 'st.abc_class')
+        .havingRaw('SUM(s.revenue) > 0')
         .select(
           's.product_id',
           'p.nombre AS product_name',
           'b.nombre AS brand_name',
-          trx.raw('s.units_30d::numeric AS units_sold'),
-          trx.raw('s.revenue_30d::numeric AS revenue'),
-          's.abc_class',
-          trx.raw('s.revenue_share_pct::numeric AS share_pct'),
+          trx.raw('COALESCE(SUM(s.units),0)::numeric AS units_sold'),
+          trx.raw('COALESCE(SUM(s.revenue),0)::numeric AS revenue'),
+          trx.raw('COALESCE(SUM(s.cost),0)::numeric AS cost'),
+          trx.raw('MAX(st.abc_class) AS abc_class'),
         )
-        .orderBy('s.revenue_30d', 'desc')
+        .orderByRaw('SUM(s.revenue) DESC')
         .limit(limit);
-      return rows.map((r, i) => ({
-        source: 'network',
-        product_id: r.product_id,
-        product_name: r.product_name,
-        brand_name: r.brand_name || '—',
-        units_sold: Number(r.units_sold),
-        revenue: Number(r.revenue),
-        abc_class: r.abc_class || null,
-        share_pct: Number(r.share_pct || 0),
-        rank_by_revenue: i + 1,
-      }));
+      // share sobre el revenue total de la red 30d (no sobre el top-N) → coherente con by_channel/marca.
+      const [tot] = await trx('analytics.sales_daily')
+        .where('tenant_id', tenantId)
+        .andWhere('sale_date', '>=', this.since30d(trx))
+        .andWhere('sale_date', '<=', this.untilToday(trx))
+        .select(trx.raw('COALESCE(SUM(revenue),0)::numeric AS revenue'));
+      const netTotal = Number(tot?.revenue || 0);
+      return rows.map((r, i) => {
+        const revenue = Number(r.revenue);
+        const margin = revenue - Number(r.cost);
+        return {
+          source: 'network',
+          product_id: r.product_id,
+          product_name: r.product_name,
+          brand_name: r.brand_name || '—',
+          units_sold: Number(r.units_sold),
+          revenue,
+          cost: Number(r.cost),
+          margin,
+          margin_pct: revenue > 0 ? +((margin / revenue) * 100).toFixed(1) : 0,
+          abc_class: r.abc_class || null,
+          share_pct: netTotal > 0 ? +((revenue / netTotal) * 100).toFixed(2) : 0,
+          rank_by_revenue: i + 1,
+        };
+      });
     });
   }
 
-  /** Mix por marca sobre venta real 30d (analytics.sales_daily join catalog.*). */
+  /** Mix por marca sobre venta real 30d MÓVIL (analytics.sales_daily join catalog.*), con margen. */
   async networkSalesByBrand() {
     const tenantId = this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
       const rows: any[] = await trx('analytics.sales_daily AS s')
-        .join('catalog.products AS p', 'p.id', 's.product_id')
+        .join('catalog.products AS p', (j: any) => j.on('p.id', 's.product_id').andOn('p.tenant_id', 's.tenant_id'))
         .leftJoin('catalog.brands AS b', 'b.id', 'p.brand_id')
         .where('s.tenant_id', tenantId)
         .andWhere('s.sale_date', '>=', this.since30d(trx))
+        .andWhere('s.sale_date', '<=', this.untilToday(trx))
         .groupBy('b.id', 'b.nombre')
         .select(
           'b.id AS brand_id',
           'b.nombre AS brand_name',
           trx.raw('COALESCE(SUM(s.units),0)::numeric AS units'),
           trx.raw('COALESCE(SUM(s.revenue),0)::numeric AS revenue'),
+          trx.raw('COALESCE(SUM(s.cost),0)::numeric AS cost'),
         )
         .orderByRaw('SUM(s.revenue) DESC')
         .limit(20);
       const total = rows.reduce((a, r) => a + Number(r.revenue), 0);
-      return rows.map((r) => ({
-        brand_id: r.brand_id,
-        brand_name: r.brand_name || 'Sin marca',
-        units: Number(r.units),
-        revenue: Number(r.revenue),
-        share_pct: total > 0 ? +((Number(r.revenue) / total) * 100).toFixed(2) : 0,
-      }));
+      return rows.map((r) => {
+        const revenue = Number(r.revenue);
+        const margin = revenue - Number(r.cost);
+        return {
+          brand_id: r.brand_id,
+          brand_name: r.brand_name || 'Sin marca',
+          units: Number(r.units),
+          revenue,
+          cost: Number(r.cost),
+          margin,
+          margin_pct: revenue > 0 ? +((margin / revenue) * 100).toFixed(1) : 0,
+          share_pct: total > 0 ? +((revenue / total) * 100).toFixed(2) : 0,
+        };
+      });
     });
   }
 
@@ -1361,6 +1413,7 @@ export class CommercialAnalyticsService {
     return this.tk.run(async (trx) => {
       const rows: any[] = await trx('analytics.sales_daily')
         .where('tenant_id', tenantId)
+        .andWhere('sale_date', '<=', this.untilToday(trx)) // nunca fechas futuras (parseo malo del feed)
         .modify((qb) => {
           if (from) qb.where('sale_date', '>=', from);
           if (to) qb.where('sale_date', '<=', to);
