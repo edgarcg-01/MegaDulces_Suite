@@ -550,6 +550,8 @@ export class ReplenishmentExportService {
 
   /** Escribe UNA hoja por-proveedor (layout columnar Vta/Exist/Pedido por territorio) en `wb`. */
   private writeSupplierSheet(wb: ExcelJS.Workbook, name: string, supTitle: string, rows: WorkbookExportRow[], terrs: WorkbookExportTerritory[], coverage: number): void {
+    rows = rows ?? [];
+    terrs = terrs ?? [];
     const MONEY = '$#,##0.00', N1 = '#,##0.0', N0 = '#,##0';
     const HEAD_FILL: ExcelJS.Fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1F0EC' } };
     const leftH = ['Producto', 'SKU', 'UXC', 'Costo/Cja', 'XYZ', 'Reorden', 'Máx'];
@@ -652,6 +654,8 @@ export class ReplenishmentExportService {
    * la tabla en pantalla. Formato editorial Mercado/Stone.
    */
   private writeFlatSheet(wb: ExcelJS.Workbook, sheetName: string, rowsIn: WorkbookExportRow[], terrs: WorkbookExportTerritory[], coverage: number): void {
+    rowsIn = rowsIn ?? [];
+    terrs = terrs ?? [];
     const MONEY = '$#,##0.00', N1 = '#,##0.0', N0 = '#,##0';
     const INK = 'FF1C1917', MUTED = 'FF78716C', BAND = 'FF292524', BAND_TXT = 'FFFFFFFF';
     const HAIR = 'FFE7E5E4', TOTAL_BG = 'FFF5F5F4', TOTAL_LINE = 'FFA8A29E', ACCENT = 'FFC2410C', FONT = 'Calibri';
