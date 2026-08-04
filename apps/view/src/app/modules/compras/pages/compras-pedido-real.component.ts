@@ -237,7 +237,7 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
                                           @if (u.days_on_hand != null) { <p-tag [value]="(u.days_on_hand | number:'1.0-0') + ' d'" severity="info" styleClass="pr-cov-tag"></p-tag> } @else { <span class="pr-muted">—</span> }
                                         }
                                       </td>
-                                      <td class="pr-r"><p-tag [value]="(u.on_hand | number:'1.0-0') ?? ''" [severity]="existSevU(u)" styleClass="pr-cov-tag" [title]="existTitleU(u)"></p-tag></td>
+                                      <td class="pr-r"><p-tag [value]="(u.on_hand | number:'1.0-1') ?? ''" [severity]="existSevU(u)" styleClass="pr-cov-tag" [title]="existTitleU(u)"></p-tag></td>
                                       <td class="pr-r">
                                         @if (u.editable) { <input type="number" min="0" step="any" class="pr-qty pr-qty-sm" [ngModel]="dispQty(u)" (ngModelChange)="setDispQty(u, $event)" [attr.aria-label]="'Cantidad de ' + r.sku + ' en ' + u.warehouse_code + ' (' + unitLabelShort(r.product_id) + ')'" /> }
                                         @else { <span class="pr-muted">{{ dispQty(u) | number:'1.0-1' }}</span> }
@@ -871,7 +871,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
         from_code: null, from_warehouse_id: null, to_warehouse_id: null,
         uxc: Number(r.uxc) || 1, unit_cost: Number(r.unit_cost) || 0,
         qty: Math.round(Number(r.suggested_units) || 0), editable: true,
-        on_hand: Math.round(Number(r.on_hand_units) || 0), cover: r.days_cover ?? null, sell_daily: Number(r.sell_daily_cajas) || 0,
+        on_hand: Number(r.on_hand_units) || 0, cover: r.days_cover ?? null, sell_daily: Number(r.sell_daily_cajas) || 0,
         deficit: 0, surplus: 0, days_on_hand: null,
         fill_rate: r.fill_rate ?? null, abc_class: r.abc_class ?? null, unit_source: r.unit_source, buy: r,
       });
@@ -896,7 +896,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
         from_code: null, from_warehouse_id: null, to_warehouse_id: null,
         uxc: Number(r.uxc) || 1, unit_cost: Number(r.unit_cost) || 0,
         qty: Math.round(Number(r.surplus_cajas) || 0), editable: false,
-        on_hand: Math.round(Number(r.on_hand_cajas) || 0), cover: null, sell_daily: 0, deficit: 0,
+        on_hand: Number(r.on_hand_cajas) || 0, cover: null, sell_daily: 0, deficit: 0,
         surplus: Number(r.surplus_cajas) || 0, days_on_hand: r.days_on_hand ?? null,
         fill_rate: null, abc_class: null, unit_source: undefined, buy: null,
       });
