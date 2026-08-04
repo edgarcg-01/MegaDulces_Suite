@@ -142,6 +142,9 @@ export interface WorkbookRow {
   pack_size: number | null;        // Pz/Paquete (solo multipacks)
   packs_per_box: number | null;    // box_size ÷ pack_size (solo si divide exacto)
   cells: Record<string, WorkbookCell>;   // keyed por código de territorio (raíz)
+  xyz_class: string | null;        // clase XYZ de red (peor-caso entre sucursales)
+  reorder_cajas: number | null;    // punto de reorden de red, en cajas
+  max_cajas: number | null;        // máximo de red, en cajas
   suma_pedido_cajas: number; pedido_valor: number;
   valor_venta: number; valor_exis: number;
   // RA-PRO.36 — Índice de Aceleración de Demanda (señal −2..+2, por SKU)

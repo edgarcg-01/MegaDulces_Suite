@@ -70,6 +70,9 @@ export interface WorkbookExportRow {
   nombre?: string | null;
   uxc?: number | null;
   caja_cost?: number | null;
+  xyz_class?: string | null;       // clase XYZ de red (peor-caso entre sucursales)
+  reorder_cajas?: number | null;   // punto de reorden de red, en cajas
+  max_cajas?: number | null;       // máximo de red, en cajas
   cells?: Record<string, { vta?: number; exis?: number; ped?: number }> | null;
   suma_pedido_cajas?: number | null;
   pedido_valor?: number | null;
@@ -506,7 +509,7 @@ export class ReplenishmentExportService {
     const suppliers = [...bySup.keys()].sort((a, b) => a.localeCompare(b, 'es'));
     if (!suppliers.length) { suppliers.push('Sin proveedor'); bySup.set('Sin proveedor', []); }
 
-    const leftH = ['Producto', 'SKU', 'UXC', 'Costo/Cja'];
+    const leftH = ['Producto', 'SKU', 'UXC', 'Costo/Cja', 'XYZ', 'Reorden', 'Máx'];
     const rightH = ['Σ Pedido (cajas)', 'Σ Piezas', '$ Pedido', 'Valor venta', 'Valor exist.'];
     const nLeft = leftH.length, nRight = rightH.length;
     const usedNames = new Set<string>();
@@ -564,7 +567,8 @@ export class ReplenishmentExportService {
       const pedFirstCol = nLeft + terrs.length * 3 + 1; // Σ cajas
       rows.forEach((r) => {
         const uxc = Number(r.uxc) || 1;
-        const vals: (string | number)[] = [r.nombre || '', r.sku || '', Number(r.uxc) || 0, Number(r.caja_cost) || 0];
+        const vals: (string | number)[] = [r.nombre || '', r.sku || '', Number(r.uxc) || 0, Number(r.caja_cost) || 0,
+          r.xyz_class || '', Number(r.reorder_cajas) || 0, Number(r.max_cajas) || 0];
         for (const t of terrs) {
           const cel = (r.cells && r.cells[t.code]) || {};
           vals.push(Number(cel.vta) || 0, Number(cel.exis) || 0, Number(cel.ped) || 0);
@@ -574,9 +578,10 @@ export class ReplenishmentExportService {
         const added = ws.addRow(vals);
         added.eachCell((cell, col) => {
           cell.border = this.thin();
-          cell.alignment = { horizontal: col === 1 || col === 2 ? 'left' : 'right' };
+          cell.alignment = { horizontal: col === 1 || col === 2 ? 'left' : col === 5 ? 'center' : 'right' };
           if (col === 3) cell.numFmt = N0;
           else if (col === 4) cell.numFmt = MONEY;
+          else if (col === 6 || col === 7) cell.numFmt = N1;   // Reorden / Máx (cajas)
           else if (col > nLeft && col <= nLeft + terrs.length * 3) cell.numFmt = N1;
           else if (col === pedFirstCol) cell.numFmt = N1;
           else if (col === pedFirstCol + 1) cell.numFmt = N0;
@@ -586,6 +591,7 @@ export class ReplenishmentExportService {
 
       // Anchos
       ws.getColumn(1).width = 38; ws.getColumn(2).width = 12; ws.getColumn(3).width = 7; ws.getColumn(4).width = 11;
+      ws.getColumn(5).width = 6; ws.getColumn(6).width = 9; ws.getColumn(7).width = 9;
       for (let i = nLeft + 1; i <= nLeft + terrs.length * 3; i++) ws.getColumn(i).width = 8;
       for (let i = pedFirstCol; i <= totalCols; i++) ws.getColumn(i).width = 13;
 
@@ -633,7 +639,7 @@ export class ReplenishmentExportService {
     });
 
     const ws = wb.addWorksheet('Pedido (plano)');
-    const nLeft = 5;                       // Proveedor · Producto · SKU · UXC · Costo/Cja
+    const nLeft = 8;                       // Proveedor · Producto · SKU · UXC · Costo/Cja · XYZ · Reorden · Máx
     const nRight = 5;                       // Σ cajas · Σ pz · $ Pedido · Valor venta · Valor exist.
     const totalCols = nLeft + terrs.length * 3 + nRight;
     ws.views = [{ state: 'frozen', xSplit: 3, ySplit: 4 }];
@@ -664,7 +670,7 @@ export class ReplenishmentExportService {
     ws.getRow(2).height = 18;
 
     // Filas 3-4 — encabezado (banda stone-800 + grupo por territorio)
-    const leftH = ['Proveedor', 'Producto', 'SKU', 'UXC', 'Costo/Cja'];
+    const leftH = ['Proveedor', 'Producto', 'SKU', 'UXC', 'Costo/Cja', 'XYZ', 'Reorden', 'Máx'];
     const rightH = ['Σ Pedido (cajas)', 'Σ Piezas', '$ Pedido', 'Valor venta', 'Valor exist.'];
     let c = 1;
     for (const h of leftH) { ws.mergeCells(3, c, 4, c); ws.getCell(3, c).value = h; c++; }
@@ -689,7 +695,8 @@ export class ReplenishmentExportService {
     const pedFirstCol = nLeft + terrs.length * 3 + 1;
     rows.forEach((r) => {
       const uxc = Number(r.uxc) || 1;
-      const vals: (string | number)[] = [r.supplier_name || '—', r.nombre || '', r.sku || '', Number(r.uxc) || 0, Number(r.caja_cost) || 0];
+      const vals: (string | number)[] = [r.supplier_name || '—', r.nombre || '', r.sku || '', Number(r.uxc) || 0, Number(r.caja_cost) || 0,
+        r.xyz_class || '', Number(r.reorder_cajas) || 0, Number(r.max_cajas) || 0];
       for (const t of terrs) {
         const cel = (r.cells && r.cells[t.code]) || {};
         vals.push(Number(cel.vta) || 0, Number(cel.exis) || 0, Number(cel.ped) || 0);
@@ -701,9 +708,10 @@ export class ReplenishmentExportService {
       added.eachCell((cell, col) => {
         cell.font = { name: FONT, size: 10, color: { argb: INK } };
         cell.border = { bottom: { style: 'hair', color: { argb: HAIR } } };
-        cell.alignment = { horizontal: col <= 3 ? 'left' : 'right', vertical: 'middle' };
+        cell.alignment = { horizontal: col <= 3 ? 'left' : col === 6 ? 'center' : 'right', vertical: 'middle' };
         if (col === 4) cell.numFmt = N0;
         else if (col === 5) cell.numFmt = MONEY;
+        else if (col === 7 || col === 8) cell.numFmt = N1;   // Reorden / Máx (cajas)
         else if (col > nLeft && col <= nLeft + terrs.length * 3) cell.numFmt = N1;
         else if (col === pedFirstCol) { cell.numFmt = N1; cell.font = { name: FONT, size: 10, bold: true, color: { argb: INK } }; }
         else if (col === pedFirstCol + 1) cell.numFmt = N0;
@@ -714,6 +722,7 @@ export class ReplenishmentExportService {
     // Anchos
     ws.getColumn(1).width = 24; ws.getColumn(2).width = 38; ws.getColumn(3).width = 12;
     ws.getColumn(4).width = 7; ws.getColumn(5).width = 11;
+    ws.getColumn(6).width = 6; ws.getColumn(7).width = 9; ws.getColumn(8).width = 9;
     for (let i = nLeft + 1; i <= nLeft + terrs.length * 3; i++) ws.getColumn(i).width = 8;
     for (let i = pedFirstCol; i <= totalCols; i++) ws.getColumn(i).width = 13;
 

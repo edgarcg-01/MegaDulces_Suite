@@ -783,10 +783,14 @@ export class CommercialReplenishmentService {
         WITH base AS (
           SELECT pr.id AS product_id, pr.sku, pr.nombre, pr.supplier_id,
                  rp.suf, rp.bf, rp.caja_cost, rp.daily_pieces, rp.stock_pz, rp.transit_cajas, rp.revenue30,
+                 -- RA — política de reorden por (producto, almacén). reorder_point/max_stock en PIEZAS
+                 -- (misma unidad que stock_pz → se dividen por BF para cajas, como la columna Exist).
+                 rop.reorder_point AS rop_reorder, rop.max_stock AS rop_max, rop.xyz_class AS rop_xyz,
                  ${colExpr} AS col_code
             FROM catalog.products pr
             JOIN analytics.replenishment_plan rp ON rp.tenant_id = pr.tenant_id AND rp.product_id = pr.id
             JOIN commercial.warehouses w ON w.tenant_id = :t AND w.id = rp.warehouse_id
+            LEFT JOIN commercial.reorder_policy rop ON rop.tenant_id = pr.tenant_id AND rop.product_id = pr.id AND rop.warehouse_id = rp.warehouse_id
             ${stockJoin}
            WHERE ${where}${whFilter}
              AND (rp.stock_pz > 0 OR rp.daily_pieces > 0 OR rp.transit_cajas > 0)
@@ -797,7 +801,8 @@ export class CommercialReplenishmentService {
                  round((COALESCE(sum(b.daily_pieces),0) * 30 / (${SUF} * ${BF}))::numeric, 1) AS vta,
                  round((COALESCE(sum(b.stock_pz),0) / ${BF})::numeric, 1) AS exis,
                  round(GREATEST(0, COALESCE(sum(b.daily_pieces),0) * :cov / (${SUF} * ${BF}) - COALESCE(sum(b.stock_pz),0) / ${BF} - COALESCE(sum(b.transit_cajas),0))::numeric, 1) AS ped,
-                 COALESCE(sum(b.revenue30),0) AS rev, COALESCE(sum(b.stock_pz),0) AS stock_pz
+                 COALESCE(sum(b.revenue30),0) AS rev, COALESCE(sum(b.stock_pz),0) AS stock_pz,
+                 COALESCE(sum(b.rop_reorder),0) AS reorder_pz, COALESCE(sum(b.rop_max),0) AS max_pz, max(b.rop_xyz) AS xyz
             FROM base b
            GROUP BY b.product_id, b.sku, b.nombre, b.supplier_id, b.col_code
         ),
@@ -805,6 +810,10 @@ export class CommercialReplenishmentService {
           SELECT product_id, sku, nombre, supplier_id,
                  max(bf) AS uxc, round(max(caja_cost)::numeric, 2) AS caja_cost,
                  jsonb_object_agg(col_code, jsonb_build_object('vta', vta, 'exis', exis, 'ped', ped)) AS cells,
+                 -- Reorden/Máximo de RED en cajas (Σ piezas de las sucursales ÷ BF) + XYZ peor-caso.
+                 round((sum(reorder_pz) / NULLIF(max(bf),0))::numeric, 1) AS reorder_cajas,
+                 round((sum(max_pz) / NULLIF(max(bf),0))::numeric, 1) AS max_cajas,
+                 max(xyz) AS xyz_class,
                  round(sum(ped)::numeric, 1) AS suma_pedido_cajas,
                  round(sum(ped * caja_cost)::numeric, 2) AS pedido_valor,
                  round(sum(rev)::numeric, 2) AS valor_venta,
