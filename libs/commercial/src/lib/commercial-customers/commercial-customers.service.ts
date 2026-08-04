@@ -7,7 +7,7 @@ import {
 } from '@nestjs/common';
 import * as bcrypt from 'bcryptjs';
 import { randomBytes } from 'crypto';
-import { TenantKnexService } from '@megadulces/platform-core';
+import { TenantKnexService, applySmartSearch } from '@megadulces/platform-core';
 import { TenantContextService } from '@megadulces/platform-core';
 import { vendorTodayRouteExistsSql } from '../shared/vendor-cartera.sql';
 import {
@@ -197,16 +197,9 @@ export class CommercialCustomersService implements CustomerProvisioningPort {
       if (typeof query.active === 'boolean') {
         q = q.where('c.active', query.active);
       }
-      if (query.search?.trim()) {
-        const term = `%${query.search.trim()}%`;
-        q = q.where((b) =>
-          b
-            .where('c.name', 'ilike', term)
-            .orWhere('c.code', 'ilike', term)
-            .orWhere('c.rfc', 'ilike', term)
-            .orWhere('c.email', 'ilike', term),
-        );
-      }
+      applySmartSearch(q, query.search, {
+        columns: ['c.name', 'c.code', 'c.rfc', 'c.email'],
+      });
       // Cartera del vendedor: clientes en las sales_route asignadas al user del
       // JWT. No aplica a customer_b2b (ya quedó forzado a su propio customer).
       if (query.mine && !forceCustomerId) {

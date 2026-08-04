@@ -1,5 +1,5 @@
 import { Injectable, BadRequestException, Logger } from '@nestjs/common';
-import { TenantKnexService, TenantContextService, CloudinaryService } from '@megadulces/platform-core';
+import { TenantKnexService, TenantContextService, CloudinaryService, applySmartSearch } from '@megadulces/platform-core';
 import { LlmExtractorService, RemisionFields } from '@megadulces/platform-core';
 
 /**
@@ -82,12 +82,10 @@ export class GoodsReceiptProofsService {
       if (q.estado === 'pendiente') b.whereRaw('d.n IS NULL');
       if (q.estado === 'con_comprobante') b.whereRaw('d.n > 0');
       if (q.estado === 'validado') b.whereRaw(`d.last_status = 'validado'`);
-      if (q.search) {
-        const s = `%${q.search.trim()}%`;
-        b.where((w) => w.whereILike('c.proveedor_nombre', s).orWhereILike('c.proveedor_code', s)
-          .orWhereILike('c.proveedor_rfc', s).orWhereILike('c.folio', s).orWhereILike('c.oc_folio', s)
-          .orWhereRaw('c.monto::text ILIKE ?', [s]));
-      }
+      applySmartSearch(b, q.search, {
+        columns: ['c.proveedor_nombre', 'c.proveedor_code', 'c.proveedor_rfc', 'c.folio', 'c.oc_folio'],
+        numeric: ['c.monto'],
+      });
 
       const rows = (await b).map((r: any) => ({ ...r, monto: Number(r.monto) }));
 

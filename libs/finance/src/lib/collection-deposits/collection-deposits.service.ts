@@ -1,5 +1,5 @@
 import { Injectable, BadRequestException, Logger } from '@nestjs/common';
-import { TenantKnexService, TenantContextService, CloudinaryService } from '@megadulces/platform-core';
+import { TenantKnexService, TenantContextService, CloudinaryService, applySmartSearch } from '@megadulces/platform-core';
 import { LlmExtractorService, DepositSlipFields } from '@megadulces/platform-core';
 
 /**
@@ -93,10 +93,10 @@ export class CollectionDepositsService {
       if (q.estado === 'pendiente') b.whereRaw('d.n IS NULL');
       if (q.estado === 'con_comprobante') b.whereRaw('d.n > 0');
       if (q.estado === 'validado') b.whereRaw(`d.last_status = 'validado'`);
-      if (q.search) {
-        const s = `%${q.search.trim()}%`;
-        b.where((w) => w.whereILike('c.cliente_nombre', s).orWhereILike('c.cliente_code', s).orWhereILike('c.folio', s).orWhereRaw('c.monto::text ILIKE ?', [s]));
-      }
+      applySmartSearch(b, q.search, {
+        columns: ['c.cliente_nombre', 'c.cliente_code', 'c.folio'],
+        numeric: ['c.monto'],
+      });
 
       const rows = (await b).map((r: any) => ({ ...r, monto: Number(r.monto) }));
 
