@@ -22,7 +22,15 @@ export class AppController {
   @Public()
   @Get('health')
   getHealth() {
-    return { status: 'ok', uptime: process.uptime() };
+    // `commit` (RAILWAY_GIT_COMMIT_SHA lo inyecta Railway por deploy) = marcador de
+    // qué build está sirviendo realmente. Si /health trae el SHA esperado pero el
+    // comportamiento sigue viejo → el problema es de datos, no de deploy; si el SHA
+    // no cambia tras un redeploy → el build viene del caché (bundle viejo).
+    return {
+      status: 'ok',
+      uptime: process.uptime(),
+      commit: process.env.RAILWAY_GIT_COMMIT_SHA ?? process.env.GIT_COMMIT_SHA ?? 'unknown',
+    };
   }
 
   @Public()
