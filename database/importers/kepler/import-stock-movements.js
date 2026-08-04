@@ -294,6 +294,37 @@ async function loadDoctypeMap(src, schema) {
       GROUP BY dest_code
       ON CONFLICT (tenant_id, dest_code) DO UPDATE
         SET dest_label = COALESCE(EXCLUDED.dest_label, analytics.transfer_dest_map.dest_label), updated_at = now()`, [M]);
+    // DM.11d — auto-liga warehouse_id por VERDAD DE RECEPCIÓN: el almacén que EFECTIVAMENTE
+    // recibe los envíos de cada dest_code (pareo folio+serie+ventana 15d, mismo criterio que
+    // transfers-check). Env-agnóstico (no adivina por código ni nombre) y solo usa la platform
+    // DB. Respeta la curación humana (WHERE warehouse_id IS NULL) y excluye rutas. Idempotente.
+    const linked = await db.query(`
+      WITH ship AS (
+        SELECT folio, doc_serie, warehouse_id, doc_date, dest_code
+        FROM analytics.stock_movements
+        WHERE tenant_id=$1 AND doc_code='TrsfShip' AND dest_code IS NOT NULL
+          AND dest_code !~* '^\\s*(R\\.[DV]|R[DV]|RUTA)'
+      ), pair AS (
+        SELECT s.dest_code, r.warehouse_id AS rcv_wh, count(*)::int n
+        FROM ship s
+        JOIN LATERAL (
+          SELECT rr.warehouse_id FROM analytics.stock_movements rr
+          WHERE rr.tenant_id=$1 AND rr.doc_code='TrsfRcv' AND rr.parent_group='41'
+            AND rr.parent_folio=s.folio AND coalesce(rr.parent_serie,'')=coalesce(s.doc_serie,'')
+            AND rr.warehouse_id <> s.warehouse_id
+            AND rr.doc_date >= s.doc_date AND rr.doc_date <= s.doc_date + 15
+          GROUP BY rr.warehouse_id
+        ) r ON true
+        GROUP BY s.dest_code, r.warehouse_id
+      ), best AS (
+        SELECT DISTINCT ON (dest_code) dest_code, rcv_wh FROM pair ORDER BY dest_code, n DESC
+      )
+      UPDATE analytics.transfer_dest_map dm
+        SET warehouse_id=b.rcv_wh, updated_at=now()
+      FROM best b
+      JOIN commercial.warehouses w ON w.id=b.rcv_wh AND w.tenant_id=$1 AND w.code NOT ILIKE 'RUTA%'
+      WHERE dm.tenant_id=$1 AND dm.dest_code=b.dest_code AND dm.warehouse_id IS NULL`, [M]);
+    if (linked.rowCount) console.log(`[DM.11d] auto-ligados ${linked.rowCount} dest_code → almacén por recepción.`);
     await db.query('COMMIT');
     console.log(`\n[APPLY] COMMIT — ${chg} bloques (almacén×día) cambiados · ${ins.rowCount} líneas reinsertadas (${summary.length} almacenes). Días sin cambio: intactos.`);
   } catch (e) {
