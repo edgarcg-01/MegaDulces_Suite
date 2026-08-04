@@ -24,10 +24,13 @@ export interface CobroRow {
   deposit_id: string | null;
   deposit_status: DepositStatus | null;
   monto_match: boolean;
+  cuenta_ajena?: boolean; // la ficha depositó a una cuenta NO propia
+  ref_dup?: boolean;      // el folio electrónico aparece en otro cobro
+  alerta?: boolean;       // cuenta_ajena || ref_dup
 }
 
 export interface CobrosReport {
-  kpis: { cobros: number; con_comprobante: number; validados: number; monto_pendiente: number };
+  kpis: { cobros: number; con_comprobante: number; validados: number; monto_pendiente: number; cuentas_ajenas?: number; refs_duplicadas?: number };
   rows: CobroRow[];
 }
 
@@ -58,6 +61,9 @@ export interface ProofDeposit {
   ocr_metodo: string | null;
   ocr_status: string;
   monto_match: boolean | null;
+  cuenta_propia?: boolean | null; // cuenta destino ∈ cuentas propias
+  ref_duplicada?: boolean;        // folio electrónico usado en otro cobro
+  ref_otros?: string[];           // otros cobros (suc/folio) con la misma referencia
   status: DepositStatus;
   comentarios: string | null;
   validated_by: string | null;
@@ -107,8 +113,8 @@ export class CobranzaService {
     return this.http.post<DepositFile>(`${this.base}/upload`, { file_base64, role });
   }
   /** Adjunta la evidencia al cobro (archivos ya subidos + OCR). */
-  attach(body: AttachDeposit): Observable<{ id: string; sucursal: string; folio: string; status: string; monto_match: boolean }> {
-    return this.http.post<{ id: string; sucursal: string; folio: string; status: string; monto_match: boolean }>(`${this.base}/attach`, body);
+  attach(body: AttachDeposit): Observable<{ id: string; sucursal: string; folio: string; status: string; monto_match: boolean; cuenta_propia?: boolean | null; ref_duplicada?: boolean; ref_otros?: string[] }> {
+    return this.http.post<{ id: string; sucursal: string; folio: string; status: string; monto_match: boolean; cuenta_propia?: boolean | null; ref_duplicada?: boolean; ref_otros?: string[] }>(`${this.base}/attach`, body);
   }
   validate(id: string): Observable<any> { return this.http.post(`${this.base}/${id}/validate`, {}); }
   reject(id: string, motivo?: string): Observable<any> { return this.http.post(`${this.base}/${id}/reject`, { motivo }); }

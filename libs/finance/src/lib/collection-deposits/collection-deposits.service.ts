@@ -38,6 +38,12 @@ export interface AttachDepositDto {
 /** Formas de pago que llevan ficha de depósito (las que reciben comprobante). */
 const CON_FICHA = ['deposito', 'transferencia', 'tarjeta'];
 
+/** Folio electrónico → solo dígitos (llave determinista de dedup). null si no hay. */
+const normRef = (s: unknown): string | null => {
+  const d = String(s ?? '').replace(/\D/g, '');
+  return d || null;
+};
+
 @Injectable()
 export class CollectionDepositsService {
   private readonly logger = new Logger(CollectionDepositsService.name);
@@ -60,6 +66,17 @@ export class CollectionDepositsService {
     const soloFicha = q.incluir_todas !== '1' && !q.forma_pago;
 
     return this.tk.run(async (trx) => {
+      // Folios electrónicos que aparecen en MÁS DE UN cobro vivo (mismo depósito
+      // aplicado a varios cobros) → se marcan para revisión.
+      const dupRefs: string[] = await trx('finance.collection_deposits')
+        .where('tenant_id', tenantId)
+        .whereNot('status', 'rechazado')
+        .whereNotNull('ref_norm')
+        .groupBy('ref_norm')
+        .havingRaw('count(distinct sucursal || \'/\' || folio) > 1')
+        .pluck('ref_norm');
+      const dupSet = new Set(dupRefs);
+
       // Evidencia agregada por (sucursal, folio): cuántas, último estado, si alguna cuadra.
       const dep = trx('finance.collection_deposits')
         .select('sucursal', 'folio')
@@ -67,6 +84,8 @@ export class CollectionDepositsService {
         .select(trx.raw(`(array_agg(id ORDER BY created_at DESC))[1] AS last_id`))
         .select(trx.raw(`(array_agg(status ORDER BY created_at DESC))[1] AS last_status`))
         .select(trx.raw(`bool_or(monto_match) AS any_match`))
+        .select(trx.raw(`bool_or(cuenta_propia = false) AS cuenta_ajena`))
+        .select(trx.raw(`array_remove(array_agg(DISTINCT ref_norm) FILTER (WHERE status <> 'rechazado'), NULL) AS refs`))
         .groupBy('sucursal', 'folio')
         .as('d');
 
@@ -80,6 +99,8 @@ export class CollectionDepositsService {
           trx.raw('d.last_id AS deposit_id'),
           trx.raw('d.last_status AS deposit_status'),
           trx.raw('COALESCE(d.any_match, false) AS monto_match'),
+          trx.raw('COALESCE(d.cuenta_ajena, false) AS cuenta_ajena'),
+          trx.raw('d.refs AS refs'),
         )
         .orderBy('c.cobro_date', 'desc')
         .orderBy('c.folio', 'desc')
@@ -98,7 +119,13 @@ export class CollectionDepositsService {
         numeric: ['c.monto'],
       });
 
-      const rows = (await b).map((r: any) => ({ ...r, monto: Number(r.monto) }));
+      const rows = (await b).map((r: any) => {
+        const refs: string[] = Array.isArray(r.refs) ? r.refs : [];
+        const refDup = refs.some((x) => dupSet.has(x));
+        const cuentaAjena = r.cuenta_ajena === true;
+        const { refs: _drop, ...rest } = r;
+        return { ...rest, monto: Number(r.monto), cuenta_ajena: cuentaAjena, ref_dup: refDup, alerta: cuentaAjena || refDup };
+      });
 
       // KPIs sobre el universo con ficha (estable, no depende del filtro de estado).
       const kpiBase = trx('analytics.erp_collections as c')
@@ -114,12 +141,14 @@ export class CollectionDepositsService {
         trx.raw('COUNT(d.n)::int AS con_comprobante'),
         trx.raw(`COUNT(*) FILTER (WHERE d.last_status='validado')::int AS validados`),
         trx.raw('COALESCE(SUM(c.monto::numeric) FILTER (WHERE d.n IS NULL), 0)::numeric AS monto_pendiente'),
+        trx.raw('COUNT(*) FILTER (WHERE d.cuenta_ajena)::int AS cuentas_ajenas'),
       );
 
       return {
         kpis: {
           cobros: Number(k.cobros), con_comprobante: Number(k.con_comprobante),
           validados: Number(k.validados), monto_pendiente: Number(k.monto_pendiente),
+          cuentas_ajenas: Number(k.cuentas_ajenas), refs_duplicadas: dupSet.size,
         },
         rows,
       };
@@ -174,6 +203,22 @@ export class CollectionDepositsService {
       const ocrMonto = o.monto != null ? Number(o.monto) : null;
       const montoMatch = ocrMonto != null ? Math.abs(ocrMonto - cobroMonto) <= TOLERANCIA : null;
 
+      // Control 1: ¿la cuenta destino de la ficha es una cuenta propia de la empresa?
+      const tails = await this.ownBankTails(trx);
+      const cuentaPropia = this.isOwnAccount(o.cuenta_dest, tails);
+
+      // Control 2: ¿el folio electrónico ya está en otra ficha viva (mismo depósito
+      // aplicado a dos cobros)? Se informa; el revisor decide (multi-folio legítimo vs doble).
+      const ref = normRef(o.referencia);
+      const refOtros = ref
+        ? await trx('finance.collection_deposits')
+            .where('ref_norm', ref)
+            .whereNot('status', 'rechazado')
+            .whereNot((qb: any) => { qb.where('sucursal', sucursal).andWhere('folio', folio); })
+            .distinct('sucursal', 'folio')
+            .then((rs: any[]) => rs.map((r) => `${r.sucursal}/${r.folio}`))
+        : [];
+
       const [row] = await trx('finance.collection_deposits')
         .insert({
           tenant_id: trx.raw('public.current_tenant_id()'),
@@ -193,16 +238,17 @@ export class CollectionDepositsService {
           ocr_raw: o ? JSON.stringify(o) : null,
           ocr_status: (o.ocr_status as string) || 'manual',
           monto_match: montoMatch,
+          cuenta_propia: cuentaPropia,
           comentarios: (dto.comentarios || '').trim() || null,
           created_by: actor || null,
         })
         .returning(['id', 'sucursal', 'folio', 'status', 'monto_match']);
-      this.logger.log(`ficha adjunta a cobro ${sucursal}/${folio} (match=${montoMatch}) por ${actor || '?'}`);
-      return row;
+      this.logger.log(`ficha adjunta a cobro ${sucursal}/${folio} (match=${montoMatch}, cuenta_propia=${cuentaPropia}, ref_dup=${refOtros.length}) por ${actor || '?'}`);
+      return { ...row, cuenta_propia: cuentaPropia, ref_duplicada: refOtros.length > 0, ref_otros: refOtros };
     });
   }
 
-  /** Detalle: el cobro + sus fichas adjuntas. */
+  /** Detalle: el cobro + sus fichas adjuntas (con los flags de control). */
   async detail(sucursal: string, folio: string) {
     const tenantId = this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
@@ -214,9 +260,26 @@ export class CollectionDepositsService {
         .where({ sucursal, folio })
         .orderBy('created_at', 'desc')
         .select('id', 'files', trx.raw('ocr_monto::numeric AS ocr_monto'), 'ocr_fecha', 'ocr_banco', 'ocr_cuenta_dest',
-          'ocr_referencia', 'ocr_ordenante', 'ocr_metodo', 'ocr_status', 'monto_match', 'status',
+          'ocr_referencia', 'ocr_ordenante', 'ocr_metodo', 'ocr_status', 'monto_match', 'cuenta_propia', 'ref_norm', 'status',
           'comentarios', 'validated_by', 'validated_at', 'motivo_rechazo', 'created_by', 'created_at');
-      return { cobro: { ...cobro, monto: Number(cobro.monto) }, deposits };
+
+      // Referencia duplicada: ¿algún ref_norm de estas fichas aparece en OTRO cobro (viva)?
+      const refs = [...new Set(deposits.map((d: any) => d.ref_norm).filter(Boolean))];
+      const otrosPorRef: Record<string, string[]> = {};
+      if (refs.length) {
+        const otros = await trx('finance.collection_deposits')
+          .whereIn('ref_norm', refs as string[])
+          .whereNot('status', 'rechazado')
+          .whereNot((qb: any) => { qb.where('sucursal', sucursal).andWhere('folio', folio); })
+          .distinct('ref_norm', 'sucursal', 'folio')
+          .select('ref_norm', 'sucursal', 'folio');
+        for (const r of otros) (otrosPorRef[r.ref_norm] ||= []).push(`${r.sucursal}/${r.folio}`);
+      }
+      const enriched = deposits.map((d: any) => {
+        const otros = d.ref_norm ? otrosPorRef[d.ref_norm] || [] : [];
+        return { ...d, ref_duplicada: otros.length > 0, ref_otros: otros };
+      });
+      return { cobro: { ...cobro, monto: Number(cobro.monto) }, deposits: enriched };
     });
   }
 
@@ -242,6 +305,21 @@ export class CollectionDepositsService {
       if (!row) throw new BadRequestException('evidencia no encontrada o ya rechazada');
       return row;
     });
+  }
+
+  /** Etiquetas de cuenta (dígitos finales) de las cuentas de banco propias de la empresa. */
+  private async ownBankTails(trx: any): Promise<string[]> {
+    return trx('finance.bank_accounts')
+      .where({ tenant_id: this.tenantCtx.requireTenantId(), kind: 'bank', active: true })
+      .whereRaw(`account_label ~ '^[0-9]{3,}$'`)
+      .pluck('account_label');
+  }
+
+  /** ¿La cuenta destino de la ficha termina en una cuenta propia? null = no verificable. */
+  private isOwnAccount(cuentaDest: unknown, tails: string[]): boolean | null {
+    const digits = String(cuentaDest ?? '').replace(/\D/g, '');
+    if (!digits || !tails.length) return null;
+    return tails.some((t) => t.length >= 3 && digits.endsWith(t));
   }
 
   private parseDataUri(dataUri: string): { mediaType: 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif' | 'application/pdf'; base64: string } {
