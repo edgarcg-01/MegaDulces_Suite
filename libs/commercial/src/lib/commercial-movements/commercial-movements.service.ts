@@ -121,10 +121,10 @@ export class CommercialMovementsService {
     const whereRaw = sql ? `(m.doc_code <> 'TrsfShip' OR ${sql})` : '(sin filtro)';
     let countWithFilter: number | string = 'n/a';
     try {
-      const [r] = await this.tk.run((trx) =>
+      const rows = (await this.tk.run((trx) =>
         this.base(trx, tenantId, q).count({ n: trx.raw('DISTINCT m.folio') }),
-      );
-      countWithFilter = Number((r as any)?.n) || 0;
+      )) as any[];
+      countWithFilter = Number(rows?.[0]?.n) || 0;
     } catch (e) { countWithFilter = `ERR: ${(e as Error).message}`; }
     return { tenantId, rawKinds, kinds, destBucketSql: sql, whereRaw, countWithFilter, build: process.env.RAILWAY_GIT_COMMIT_SHA ?? 'unknown' };
   }
