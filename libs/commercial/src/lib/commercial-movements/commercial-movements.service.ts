@@ -79,7 +79,11 @@ export class CommercialMovementsService {
       .filter((s) => s === 'sucursal' || s === 'ruta' || s === 'cliente') as ('sucursal' | 'ruta' | 'cliente')[];
     // DM.11c — sin parámetro ⇒ MOSTRAR TODO (no ocultar movimientos por default). El scope
     // "solo sucursal" es opt-in explícito desde el front. Los 3 ⇒ destBucketSql='' ⇒ sin filtro.
-    return ks.length ? [...new Set(ks)] : ['sucursal', 'ruta', 'cliente'];
+    // Dedup con filter+indexOf (NO `[...new Set()]`): el bundle webpack de la API downlevelea
+    // mal el spread de Set → devolvía `[Set]` en vez de los valores → destBucketSql='false' →
+    // el filtro Destino no arrojaba nada (bug prod diagnosticado 2026-08). Ver [[feedback_...]].
+    const uniq = ks.filter((v, i) => ks.indexOf(v) === i);
+    return uniq.length ? uniq : ['sucursal', 'ruta', 'cliente'];
   }
 
   /** SQL por bucket de destino (sobre m.dest_code/m.dest_label). */
@@ -375,7 +379,9 @@ export class CommercialMovementsService {
    * ⇒ solo dest_label (el nombre igual responde la pregunta).
    */
   private async annotateDest(trx: any, tenantId: string, rows: any[]): Promise<void> {
-    const codes = [...new Set(rows.filter((r) => r.doc_code === 'TrsfShip' && r.dest_code).map((r) => r.dest_code))];
+    // Dedup sin `[...new Set()]` (el bundle webpack de la API lo downlevelea mal → `[Set]`).
+    const codesAll = rows.filter((r) => r.doc_code === 'TrsfShip' && r.dest_code).map((r) => r.dest_code);
+    const codes = codesAll.filter((v, i) => codesAll.indexOf(v) === i);
     if (!codes.length) return;
     const map = await trx('analytics.transfer_dest_map as dm')
       .where('dm.tenant_id', tenantId).whereIn('dm.dest_code', codes)
