@@ -1,7 +1,53 @@
 # Fase HVT — Histórico de Venta (consola multi-año + consulta inline al pedir)
 
-> Estado: **🔨 DISEÑADO (planeación)** · 2026-08-04 · single dev (Edgar)
+> Estado: **🔨 EN CURSO** · v2 2026-08-05 · single dev (Edgar)
 > Ejes decididos: **Producto/SKU + Cliente/tercero**. Profundidad: **historia profunda multi-año**.
+
+---
+
+## v2 (2026-08-05) — enfoque CALIBRACIÓN DE DEMANDA + UI-light (plan activo)
+
+Reencuadre: el histórico nace como **insumo de la investigación de calibración de demanda**
+(¿por qué /compras sugiere ~20-50× lo que el comprador pide en La Rosa?) y con la restricción
+dura **no recargar la interfaz**.
+
+**Principio rector: datos pesados, UI mínima.** Cero nav items nuevos, cero páginas top-level.
+La historia se ve DENTRO del drill-down que ya existe (`SidePeek` + Customer360) como una
+pestaña "Historia"; un solo `<sales-history-peek>` reutilizable. Entrada por el buscador global.
+
+**Simplificación clave:** para calibrar demanda basta la ventana viva (2024-05 → hoy, ~22 meses,
+ya en `sales_daily`). → **se DIFIERE toda la costura `ventas_legacy` FDW / SEAM_DATE** (Fase 0.3
+del plan v1). Menos riesgo, menos datos, menos UI. La historia pre-sistema queda para una v3.
+
+### Capa de datos
+- **`analytics.sales_monthly`** ✅ — rollup mensual durable (producto×almacén×canal×mes) desde
+  `sales_daily`. **151 MB vs 2.7 GB** del diario (18×). Guard de fechas `>= 2024-01-01 AND <= hoy`
+  (mata basura 2000/2014/2020 y futuros 2026-12-06 de wincaja_ruta, sin borrar `sales_daily`).
+- **`analytics.v_sales_demand_truth`** (HVT.2) — demanda por SKU SIN doble-conteo de hub (excluye
+  filas `is_hub`/CEDIS que agregan hijos), unidad canónica, sin traspasos/promo/pseudo-SKU. Patrón
+  de oro contra el que se mide `reorder_policy` y `eff_daily`.
+- `analytics.customer_sales_daily` (eje cliente, diferible).
+
+### Sprints v2
+| # | Entrega | UI | Estado |
+|---|---|---|---|
+| **HVT.1** | `sales_monthly` rollup + guard fechas + wire nightly | no | ✅ 2026-08-05 (prod, 603k filas) |
+| **HVT.2** | `v_sales_demand_truth` + endpoint `demand-calibration` | no | ⬜ |
+| **HVT.3** | **Investigación La Rosa** (objetivo): demanda real vs eff_daily vs reorder_policy vs workbook | no | ⬜ |
+| **HVT.4** | `<sales-history-peek>` en el drill-down existente | mínima | ⬜ |
+| HVT.5 | (difer.) eje cliente + peek inline en pedido | mínima | ⬜ |
+
+### Hallazgo temprano (HVT.1, ya visible en el rollup)
+**Las `units` de `sales_daily` NO son consistentes en el tiempo.** 70056 (MAZAPAN GIGANTE):
+ene-2025 = 4,884 u / $416K ($85/u) → jul-2026 = 25,125 u / $314K ($12.5/u). El precio implícito
+por unidad se desploma ~7× con quiebre ~oct-2025 (onboarding Wincaja): las units se inflan 2-7×
+mientras el **revenue se mantiene/baja**. → La demanda por units (y el `reorder_policy` que se
+computa de ella) está **inflada**; el revenue es el único estable (money-anchored). Esta es la
+causa candidata del sobre-pedido 20-50×. Confirmar/cuantificar en HVT.3.
+
+---
+
+## (v1 — plan original 2026-08-04, contexto; costura legacy DIFERIDA en v2)
 
 ---
 
