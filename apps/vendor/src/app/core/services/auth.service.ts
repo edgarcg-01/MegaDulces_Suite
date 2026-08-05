@@ -1,8 +1,8 @@
 import { Injectable, signal } from '@angular/core';
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { environment } from '../../../environments/environment';
-import { tap } from 'rxjs/operators';
-import { Observable } from 'rxjs';
+import { retry, tap } from 'rxjs/operators';
+import { Observable, timer, throwError } from 'rxjs';
 import { Permission } from '../constants/permissions';
 import { PermissionsService } from './permissions.service';
 
@@ -94,6 +94,15 @@ export class AuthService {
     return this.http
       .post<{ access_token: string; user: any }>(`${this.apiUrl}/auth-mt/login`, payload)
       .pipe(
+        // Reintenta SOLO ante caída del gateway (API momentáneamente inalcanzable: el
+        // connect al upstream expira → nginx no reintenta POST por diseño anti-duplicados).
+        // Es seguro: un login cuyo connect expiró NUNCA llegó al API. NUNCA reintenta 401/400
+        // (credenciales/validación → reintentar no cambia nada y trabaría al usuario).
+        retry({
+          count: 2,
+          delay: (err: HttpErrorResponse, n) =>
+            [0, 502, 503, 504].includes(err?.status) ? timer(n * 800) : throwError(() => err),
+        }),
         tap((response) => {
           this.setSession(response.access_token);
         }),
