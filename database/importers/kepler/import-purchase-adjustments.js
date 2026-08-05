@@ -30,18 +30,26 @@ const SOURCE_BRANCH = (SRC.match(/\/(md_\d+)/) || [])[1] || 'md_00';
 const money = (v) => { const n = Number(String(v ?? '').replace(/[^0-9.-]/g, '')); return Number.isFinite(n) ? n : 0; };
 const DOCTYPE = { 40: 'XD40', 55: 'XD55' };
 
-// Clasificador de motivo (c24). Operacional primero (más específico), luego comercial.
-// Mismas reglas verificadas en el análisis de 2026-08-05 (X-D-40 + X-D-55).
+// Clasificador de motivo (c24). Verificado sobre X-D-40 + X-D-55 (2026-08-05, muestra
+// de los motivos reales incl. el bucket "otro"). Orden: operacional (recepción física)
+// → error de captura → comercial (descuentos/apoyos). El doctype NO clasifica; el motivo sí.
 function categorize(m) {
   const s = String(m || '').toUpperCase();
   if (!s.trim()) return null; // sin motivo
+  // Operacional (recepción física)
   if (/NO SE SOLICIT|NO SOLICIT/.test(s)) return 'no_solicitado';
   if (/MAL ESTADO|DA[ÑN]AD|CADUC|ROTO|PONCH|PES[OÓ] DE MENOS|MALTRAT/.test(s)) return 'mal_estado';
   if (/FALT/.test(s)) return 'faltante';
   if (/CAMBIAD|EQUIVOC|LLEGO CAMB|NO TRA[IÍ]A/.test(s)) return 'cambiada';
+  // Error de captura / facturación (NO es descuento — no inflar el canal comercial)
+  if (/DUPLICAD|FACTURAS DOBLES|COMPRAS DOBLES|DOBLE FACTUR/.test(s)) return 'factura_duplicada';
+  if (/DIFERENCIA (EN|DE) (MONTO|PRECIO)|DIF\.? (MONTO|PRECIO)|MAL APLICAD/.test(s)) return 'diferencia_monto';
+  // Comercial (descuentos / apoyos / rebates)
   if (/PRONTO PAGO|\bPP\b|%\s?PP|PP\s?\d/.test(s)) return 'pronto_pago';
-  if (/APOYO|MKT|MARKETING/.test(s)) return 'apoyo_marca';
-  if (/DESCUENTO|DESCTO|DESC |PLAN|PAQUETE|GRANEL|BONIF|\d\s?%/.test(s)) return 'descuento_comercial';
+  if (/APOYO|MKT|MARKETING|MERCADOTECNIA/.test(s)) return 'apoyo_marca';
+  if (/RAPPEL|INCENTIVO|PROMOCION|\bPROMO\b|NEGOCIAD/.test(s)) return 'descuento_comercial';
+  if (/DESCUENTO|DESCEUNTO|DESCUETO|DESCUNTO|DESCTO|\bDESC\b|\bDTO\b|PLAN|PAQUETE|GRANEL|BONIF|\d\s?%/.test(s)) return 'descuento_comercial';
+  if (/SALDO A FAVOR/.test(s)) return 'saldo_favor';
   if (/DEVOL|REGRES/.test(s)) return 'devolucion_otra';
   return 'otro';
 }
