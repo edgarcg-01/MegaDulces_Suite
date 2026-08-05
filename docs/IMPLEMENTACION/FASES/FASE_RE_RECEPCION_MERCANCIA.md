@@ -107,10 +107,14 @@ Detalle verificado en memoria `reference_kepler_reception_flow`.
 - **Entregable:** importar las ~910 filas (match por folio K contra XA2001; evidencias Drive→Cloudinary; sanea `S/N`/`0`/año 2025).
 
 ### RE.10 — Descuentos y apoyos (pronto pago / comercial / apoyo de marca) [nuevo · alto valor]
-- **Objetivo:** visibilizar y clasificar el descuento de proveedor — **$20.3M en notas `X-D-55` + $10.2M en pagos `c84`** (2026), hoy invisibles.
-- **Entregable:** espejo de `X-D-55` (motivo `c24` clasificado por Haiku → pronto_pago / comercial / apoyo_marca / plan) + importar `c84` del pago; página "Descuentos y apoyos" por proveedor / marca / tipo; **reconciliación notas vs pago** (solapamiento).
-- **Por qué:** dinero grande; base para un **monitor de captura** ("¿estamos cobrando los apoyos/descuentos pactados?"). El apoyo de marca **sí** vive aquí (NO en la recepción).
-- **Reuso:** `LlmExtractorService` (Haiku), patrón detectores Maat, `erp_supplier_payments`.
+- **Objetivo:** visibilizar y clasificar el descuento de proveedor — **$20.9M en notas `X-D-40/55` + $10.2M en pagos `c84`** (2026), hoy invisibles.
+- **✅ Base construida (2026-08-05):** migración `analytics.erp_purchase_adjustments` + importer `import-purchase-adjustments.js` con clasificador `c24`. Dry-run vs Kepler md_00: **1,286 ajustes / $20.9M**, breakdown verificado:
+  - **Comercial ≈ $8.2M** (descuento $6.4M + apoyo de marca $1.05M + pronto pago $718k).
+  - **Facturas duplicadas $6.74M** ⚠️ = error de captura, **NO descuento** → control aparte.
+  - Sin motivo $4.0M (c24 en blanco → Haiku/manual) · operacional/otro ~$1.8M. El "otro" bajó de $9.18M a $924k.
+- **Falta:** aplicar migración + `--apply` (LAN) · importar `c84` del pago · página "Descuentos y apoyos" (proveedor/marca/tipo) · reconciliación notas vs `c84` (solapamiento) · Haiku para el tail sin-motivo.
+- **Hallazgo:** **$6.74M/año de facturas duplicadas** revertidas por NC → detector de control (patrón Maat).
+- **Reuso:** `LlmExtractorService` (Haiku), detectores Maat, `erp_supplier_payments`.
 
 ## 6. Schema nuevo (consolidado)
 - `analytics.erp_goods_receipts`: `+ source, fecha_vence, condicion_pago, dias_credito, poliza, total_factura, total_compra`. Sucursal real (RE.0).
