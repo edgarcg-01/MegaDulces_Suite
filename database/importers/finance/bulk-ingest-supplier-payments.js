@@ -77,7 +77,13 @@ const conceptoFromName = (file) => path.basename(file, path.extname(file)).repla
       const dataUri = `data:application/pdf;base64,${b64}`;
       const ocr = await req('POST', '/finance/supplier-payments/ocr', token, { file_base64: dataUri });
       const o = ocr.body || {};
-      if (o.monto == null) { st.ocr_fail++; console.log(`  ~ OCR ilegible: ${rel}`); continue; }
+      // Diagnóstico: si el API no tiene la key, TODO sale null — abortar con mensaje claro.
+      if (o.ocr_status === 'sin_key') {
+        console.error(`\n⛔ El API (${BASE}) no tiene ANTHROPIC_API_KEY cargada en su proceso → el OCR no corre.`);
+        console.error(`   Reiniciá el API con la key en el entorno y volvé a correr. (archivo: ${rel})`);
+        process.exit(2);
+      }
+      if (o.monto == null) { st.ocr_fail++; console.log(`  ~ OCR ${o.ocr_status || 'ilegible'} (monto no leído): ${rel}`); continue; }
       // concepto: el del OCR, o el del nombre de archivo (más confiable en esta carpeta)
       const concepto = o.concepto || conceptoFromName(file);
       const match = await req('POST', '/finance/supplier-payments/match-pago', token, { monto: o.monto, fecha: o.fecha, concepto });
