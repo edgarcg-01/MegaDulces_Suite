@@ -298,6 +298,11 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.FINANCE_AI_CHAT)]
       },
       {
+        path: 'pagos-control',
+        loadComponent: () => import('./modules/finanzas/pages/finanzas-pagos-control.component').then(m => m.FinanzasPagosControlComponent),
+        canActivate: [permissionGuard(Permission.FINANCE_AI_CHAT)]
+      },
+      {
         path: 'tareas',
         loadComponent: () => import('./modules/finanzas/pages/finanzas-tareas.component').then(m => m.FinanzasTareasComponent),
         canActivate: [permissionGuard(Permission.FINANCE_BANK_VER)]
