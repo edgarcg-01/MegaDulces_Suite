@@ -2471,6 +2471,8 @@ export class CommercialAnalyticsService {
       const isMayoreo = channel === 'credito' && groupBy === 'branch_channel';
       // RS.11 — identidad canónica del vendedor (une fragmentos + nombre limpio Kepler).
       const mayId = isMayoreo && r.source === 'wincaja' ? this.canonVendor(identMap, r.vendor_code, r.vendor_name) : null;
+      // RS.11b — en Mayoreo, fuera los que no son vendedor real (buckets 00/99, nulos, genéricos).
+      if (isMayoreo && r.source === 'wincaja' && (mayId!.exclude || this.isNoiseVendor(r.vendor_code))) continue;
       const mayoreoLeaf = isMayoreo
         ? (r.source === 'wincaja' ? mayId!.key : 'k-sin-vendedor')
         : null;
@@ -2651,17 +2653,29 @@ export class CommercialAnalyticsService {
    * { key canónica, nombre limpio }. Une fragmentos Wincaja del mismo humano (varias filas
    * con la misma key = merge) y normaliza el nombre (fuente Kepler). Sin fila = pass-through.
    */
-  private async loadVendorIdentity(trx: any, tenantId: string): Promise<Map<string, { key: string; name: string }>> {
+  private async loadVendorIdentity(trx: any, tenantId: string): Promise<Map<string, { key: string; name: string; exclude: boolean }>> {
     const rows = await trx('analytics.vendor_identity').where('tenant_id', tenantId)
-      .select('source_branch', 'vendedor', 'canonical_key', 'canonical_name');
-    const m = new Map<string, { key: string; name: string }>();
-    for (const r of rows) m.set(`${r.source_branch}:${r.vendedor}`, { key: r.canonical_key, name: r.canonical_name });
+      .select('source_branch', 'vendedor', 'canonical_key', 'canonical_name', 'exclude');
+    const m = new Map<string, { key: string; name: string; exclude: boolean }>();
+    for (const r of rows) m.set(`${r.source_branch}:${r.vendedor}`, { key: r.canonical_key, name: r.canonical_name, exclude: !!r.exclude });
     return m;
   }
   /** Resuelve un vendor_code 'sucursal:código' + nombre a su identidad canónica (o pass-through). */
-  private canonVendor(map: Map<string, { key: string; name: string }>, vendorCode: any, vendorName: any): { key: string; name: string } {
+  private canonVendor(map: Map<string, { key: string; name: string; exclude: boolean }>, vendorCode: any, vendorName: any): { key: string; name: string; exclude: boolean } {
     const hit = map.get(String(vendorCode));
-    return hit ?? { key: String(vendorCode ?? '·'), name: String(vendorName ?? vendorCode ?? 'Wincaja') };
+    return hit ?? { key: String(vendorCode ?? '·'), name: String(vendorName ?? vendorCode ?? 'Wincaja'), exclude: false };
+  }
+  /**
+   * RS.11b — ¿el vendedor NO aporta información (no es persona)? Regla objetiva: nulo/vacío,
+   * o el código dentro de la sucursal es '00' (piso/mostrador) o '99' (traspaso). El
+   * vendor_code llega como 'sucursal:código'. Los genéricos con código propio (OMNICANAL…)
+   * se marcan con exclude en analytics.vendor_identity, no acá.
+   */
+  private isNoiseVendor(vendorCode: any): boolean {
+    const s = String(vendorCode ?? '').trim();
+    if (!s || s === '·') return true;
+    const code = s.includes(':') ? s.split(':')[1] : s;
+    return code === '' || code === '00' || code === '99';
   }
 
   /**
@@ -2766,6 +2780,8 @@ export class CommercialAnalyticsService {
       const group = GROUP[r.sale_channel]; if (!group) continue;
       // RS.11 — identidad canónica: une fragmentos del mismo vendedor + nombre limpio.
       const vId = this.canonVendor(identMap, r.vendor_code, r.vendor_name);
+      // RS.11b — fuera los que no son vendedor real (buckets 00/99, nulos, genéricos marcados).
+      if (vId.exclude || this.isNoiseVendor(r.vendor_code)) continue;
       const colKey = `${group}|${vId.key}`;
       if (cellFilter && !cellFilter.has(colKey.toLowerCase()) && !cellFilter.has(`${group}|*`)) continue;
       const uv = String(r.uv_win ?? '').trim().toUpperCase();
@@ -2861,6 +2877,7 @@ export class CommercialAnalyticsService {
       const seen = new Map<string, { channel: string; code: string; name: string }>();
       for (const v of vendors as any[]) {
         const id = this.canonVendor(identMap, v.code, v.name);
+        if (id.exclude || this.isNoiseVendor(v.code)) continue; // RS.11b — fuera no-vendedores
         if (!seen.has(id.key)) seen.set(id.key, { channel: 'credito', code: id.key, name: id.name });
       }
       const leaves = Array.from(seen.values());
@@ -2896,6 +2913,8 @@ export class CommercialAnalyticsService {
       const meta = GROUP[r.sale_channel]; if (!meta) continue;
       // RS.11 — identidad canónica: fragmentos del mismo vendedor colapsan a una hoja.
       const id = this.canonVendor(identMap, r.code, r.name);
+      // RS.11b — fuera los que no son vendedor real (buckets 00/99, nulos, genéricos marcados).
+      if (id.exclude || this.isNoiseVendor(r.code)) continue;
       if (!map.has(meta.g)) map.set(meta.g, { group: meta.g, group_label: meta.label, ord: meta.ord, leaves: [] });
       const bucket = map.get(meta.g)!;
       if (!bucket.leaves.some((l) => l.code === id.key)) bucket.leaves.push({ code: id.key, name: id.name });
