@@ -80,4 +80,47 @@ export class PagosControlService {
   private kpi(a: RuleAgg) {
     return { total: a.total, count: a.count, criticos: a.criticos, top: a.top };
   }
+
+  /**
+   * CXP.5 — Conciliación de pagos a proveedor, mes a mes: lo que Kepler dice que
+   * pagamos (erp_supplier_payments) vs lo que SALIÓ del banco por compra a proveedor
+   * (CB bank_movements, categorías group_key compra/factoraje). Δ + estado.
+   *
+   * HONESTO: es cuadre AGREGADO por mes, NO por proveedor — ni CB ni ContPAQi guardan
+   * el proveedor en el movimiento bancario (solo concepto/categoría), así que atribuir
+   * un egreso a un proveedor sería un join débil (se omite). El cuadre banco↔libros
+   * (ContPAQi) a nivel cuenta ya vive en Fase CB. `estado`: cuadra (|Δ|≤10%), revisar,
+   * sin_banco/sin_kepler (falta el feed de ese mes). finance.* con RLS; analytics sin RLS.
+   */
+  async conciliacion(q: { from_mes?: string; to_mes?: string } = {}) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      const kep: any[] = await trx('analytics.erp_supplier_payments')
+        .where('tenant_id', tenantId)
+        .modify((b: any) => { if (q.from_mes) b.whereRaw(`to_char(pago_date,'YYYY-MM') >= ?`, [q.from_mes]); if (q.to_mes) b.whereRaw(`to_char(pago_date,'YYYY-MM') <= ?`, [q.to_mes]); })
+        .groupByRaw(`to_char(pago_date,'YYYY-MM')`)
+        .select(trx.raw(`to_char(pago_date,'YYYY-MM') AS mes`), trx.raw('sum(monto)::numeric AS kepler'), trx.raw('count(*)::int AS n_kepler'));
+
+      const ban: any[] = await trx('finance.bank_movements as bm')
+        .join('finance.movement_categories as mc', 'mc.id', 'bm.category_id')
+        .where('bm.tenant_id', tenantId).whereIn('mc.group_key', ['compra', 'factoraje']).where('bm.amount_out', '>', 0)
+        .modify((b: any) => { if (q.from_mes) b.whereRaw(`to_char(bm.movement_date,'YYYY-MM') >= ?`, [q.from_mes]); if (q.to_mes) b.whereRaw(`to_char(bm.movement_date,'YYYY-MM') <= ?`, [q.to_mes]); })
+        .groupByRaw(`to_char(bm.movement_date,'YYYY-MM')`)
+        .select(trx.raw(`to_char(bm.movement_date,'YYYY-MM') AS mes`), trx.raw('sum(bm.amount_out)::numeric AS banco'), trx.raw('count(*)::int AS n_banco'));
+
+      const map = new Map<string, any>();
+      const get = (mes: string) => { let e = map.get(mes); if (!e) { e = { mes, kepler: 0, banco: 0, n_kepler: 0, n_banco: 0 }; map.set(mes, e); } return e; };
+      for (const r of kep) { const e = get(r.mes); e.kepler = Number(r.kepler) || 0; e.n_kepler = Number(r.n_kepler) || 0; }
+      for (const r of ban) { const e = get(r.mes); e.banco = Number(r.banco) || 0; e.n_banco = Number(r.n_banco) || 0; }
+      const rows = [...map.values()].sort((a, b) => b.mes.localeCompare(a.mes));
+      for (const e of rows) {
+        e.delta = e.kepler - e.banco;
+        const base = Math.max(e.kepler, e.banco);
+        e.estado = e.kepler === 0 ? 'sin_kepler' : e.banco === 0 ? 'sin_banco' : (base > 0 && Math.abs(e.delta) / base <= 0.1 ? 'cuadra' : 'revisar');
+      }
+      const totals = rows.reduce((a, e) => ({ kepler: a.kepler + e.kepler, banco: a.banco + e.banco }), { kepler: 0, banco: 0 });
+      const cuadran = rows.filter((e) => e.estado === 'cuadra').length;
+      return { rows, totals: { kepler: totals.kepler, banco: totals.banco, delta: totals.kepler - totals.banco }, meses: rows.length, cuadran };
+    });
+  }
 }
