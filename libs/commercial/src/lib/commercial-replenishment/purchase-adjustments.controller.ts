@@ -115,6 +115,13 @@ export class PurchaseAdjustmentsController {
     });
   }
 
+  @Get('landed-cost')
+  @RequirePermissions(Permission.COMPRAS_VER)
+  @ApiOperation({ summary: 'CXP.4 — Costo neto (landed cost) por proveedor: compras − descuento efectivo (pago c84 + notas comerciales) = costo real. rate=desc/compras. anomalo si rate>20% (probable devolución/error). Filtros: min_compras, search.' })
+  landedCost(@Query('min_compras') min_compras?: string, @Query('search') search?: string) {
+    return this.svc.landedCost({ min_compras: min_compras ? Number(min_compras) : undefined, search });
+  }
+
   @Get('by-supplier')
   @RequirePermissions(Permission.COMPRAS_VER)
   @ApiOperation({ summary: 'RE.10 — top proveedores por $ de ajustes (apoyos/descuentos/duplicadas). Mismos filtros que summary.' })

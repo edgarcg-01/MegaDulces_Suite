@@ -366,4 +366,56 @@ export class PurchaseAdjustmentsService {
       };
     });
   }
+
+  /**
+   * CXP.4 — Costo neto (landed cost) por proveedor: el costo REAL de comprarle a cada
+   * proveedor = compras − descuentos efectivos (pronto pago c84 + notas comerciales).
+   * `rate` = desc/compras; `costo_neto` = compras − desc. Le dice al comprador que su
+   * costo con X es ~rate% menor que la lista → decidir el reabasto con el costo verdadero,
+   * no el bruto. `anomalo` = rate>20%: probablemente incluye devoluciones/errores, no solo
+   * descuento (HITL: no confiar ciego). analytics.* sin RLS → tenant_id explícito.
+   */
+  async landedCost(q: { min_compras?: number; search?: string } = {}) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const minCompras = Number(q.min_compras) || 0;
+    return this.tk.run(async (trx) => {
+      const pay: any[] = await trx('analytics.erp_supplier_payments').where('tenant_id', tenantId)
+        .groupBy('proveedor_code').select('proveedor_code', trx.raw('max(proveedor_nombre) AS nombre'), trx.raw('COALESCE(sum(descuento),0)::numeric AS desc_pago'));
+      const nota: any[] = await trx('analytics.erp_purchase_adjustments').where('tenant_id', tenantId)
+        .whereIn('categoria', ['pronto_pago', 'descuento_comercial', 'apoyo_marca'])
+        .groupBy('proveedor_code').select('proveedor_code', trx.raw('max(proveedor_nombre) AS nombre'), trx.raw('COALESCE(sum(monto),0)::numeric AS desc_nota'));
+      const comp: any[] = await trx('analytics.erp_goods_receipts').where('tenant_id', tenantId)
+        .groupBy('proveedor_code').select('proveedor_code', trx.raw('max(proveedor_nombre) AS nombre'), trx.raw('COALESCE(sum(monto),0)::numeric AS compras'));
+
+      const map = new Map<string, any>();
+      const get = (code: string | null, nombre?: string) => {
+        const k = code || '(sin código)';
+        let e = map.get(k);
+        if (!e) { e = { proveedor_code: code, proveedor_nombre: nombre || null, compras: 0, desc_pago: 0, desc_nota: 0 }; map.set(k, e); }
+        if (!e.proveedor_nombre && nombre) e.proveedor_nombre = nombre;
+        return e;
+      };
+      for (const r of comp) { const e = get(r.proveedor_code, r.nombre); e.compras = Number(r.compras) || 0; }
+      for (const r of pay) { const e = get(r.proveedor_code, r.nombre); e.desc_pago = Number(r.desc_pago) || 0; }
+      for (const r of nota) { const e = get(r.proveedor_code, r.nombre); e.desc_nota = Number(r.desc_nota) || 0; }
+
+      let rows = [...map.values()].filter((e) => e.compras > 0 && e.compras >= minCompras);
+      if (q.search && q.search.trim()) {
+        const s = q.search.trim().toLowerCase();
+        rows = rows.filter((e) => (e.proveedor_nombre || '').toLowerCase().includes(s) || (e.proveedor_code || '').toLowerCase().includes(s));
+      }
+      for (const e of rows) {
+        e.descuento = e.desc_pago + e.desc_nota;
+        e.rate = e.compras > 0 ? e.descuento / e.compras : 0;
+        e.costo_neto = e.compras - e.descuento;
+        e.anomalo = e.rate > 0.2; // >20% probablemente incluye devoluciones/errores, no solo descuento
+      }
+      rows.sort((a, b) => b.compras - a.compras);
+      const compras = rows.reduce((s, r) => s + r.compras, 0), descuento = rows.reduce((s, r) => s + r.descuento, 0);
+      return {
+        summary: { compras, descuento, costo_neto: compras - descuento, rate: compras > 0 ? descuento / compras : 0, suppliers: rows.length },
+        rows: rows.slice(0, 200),
+      };
+    });
+  }
 }
