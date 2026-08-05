@@ -17,7 +17,7 @@ import { LoadStateComponent } from '../../../shared/components/load-state/load-s
 import { FINANZAS_TABS } from '../finanzas-tabs';
 import { AuthService } from '../../../core/services/auth.service';
 import { Permission } from '../../../core/constants/permissions';
-import { PagosComprobantesService, PagoRow, PagosReport, DepositOcr, ProofFile, PagoDetail } from '../pagos-comprobantes.service';
+import { PagosComprobantesService, PagoRow, PagosReport, DepositOcr, ProofFile, PagoDetail, PagoCandidate } from '../pagos-comprobantes.service';
 
 /**
  * CC (extensión) — "Comprobantes de Pago a Proveedor". Lista los pagos de Kepler
@@ -43,6 +43,10 @@ import { PagosComprobantesService, PagoRow, PagosReport, DepositOcr, ProofFile, 
         </div>
       </header>
 
+      <div class="cb-cap-bar">
+        <button pButton type="button" (click)="openCapture()" title="Sube el comprobante y buscamos el pago solo"><span class="p-button-icon p-button-icon-left pi pi-camera" aria-hidden="true"></span><span class="p-button-label">Capturar comprobante</span></button>
+        <span class="cb-cap-hint">Sube el comprobante primero — el sistema busca el pago por ti.</span>
+      </div>
       <div class="cb-filters card-premium card-flat">
         <div class="cb-field"><label>Estado</label>
           <app-segmented [options]="estadoOpts" [value]="estadoSel()" (valueChange)="setEstado($event)" ariaLabel="Estado del comprobante" /></div>
@@ -85,6 +89,7 @@ import { PagosComprobantesService, PagoRow, PagosReport, DepositOcr, ProofFile, 
                     <span class="cb-match" [class.ok]="c.monto_match" [class.bad]="!c.monto_match" [title]="c.monto_match ? 'El monto del comprobante cuadra con el pago' : 'El monto del comprobante NO cuadra'">
                       <i class="pi" [ngClass]="c.monto_match ? 'pi-check-circle' : 'pi-exclamation-triangle'"></i>
                     </span>
+                    @if (c.alerta) { <span class="cb-alert" [title]="alertTitle(c)"><i class="pi pi-flag-fill" aria-hidden="true"></i></span> }
                     <i class="pi pi-eye cb-eye" aria-hidden="true"></i>
                   </div>
                 } @else { <span class="muted cb-comp-empty"><i class="pi pi-paperclip" aria-hidden="true"></i> Sin comprobante</span> }
@@ -104,19 +109,23 @@ import { PagosComprobantesService, PagoRow, PagosReport, DepositOcr, ProofFile, 
       }
     </div>
 
-    <!-- Diálogo: adjuntar comprobante + OCR -->
-    <p-dialog [(visible)]="showAttach" [modal]="true" [style]="{ width: '38rem' }" [draggable]="false" header="Adjuntar comprobante de pago">
-      @if (attachTarget(); as t) {
+    <!-- Diálogo: adjuntar comprobante + OCR (soporta ficha-first sin pago preseleccionado) -->
+    <p-dialog [(visible)]="showAttach" [modal]="true" [style]="{ width: '38rem' }" [draggable]="false" [header]="attachTarget() ? 'Adjuntar comprobante de pago' : 'Capturar comprobante de pago'">
+      @if (attachTarget() || captureMode()) {
         <div class="cb-form">
+          @if (attachTarget(); as t) {
           <div class="cb-cobro">
             <div><span class="cb-lbl">Pago</span><strong class="mono">{{ t.sucursal }}/{{ t.folio }}</strong></div>
             <div><span class="cb-lbl">Método</span><strong>{{ metodoLabel(t.metodo_pago) }}</strong></div>
             <div><span class="cb-lbl">Proveedor</span><strong>{{ t.proveedor_nombre || t.proveedor_code }}</strong></div>
             <div class="ta-r"><span class="cb-lbl">Monto del pago</span><strong class="cb-monto">{{ money(t.monto) }}</strong></div>
           </div>
+          } @else {
+          <div class="cb-cap-banner"><i class="pi pi-bolt"></i> Sube el comprobante — buscamos el pago por ti (monto + factura).</div>
+          }
 
           <div class="cb-f cb-file">
-            <span>Comprobante {{ t.metodo_pago === 'cheque' ? 'del cheque' : 'de transferencia' }} (imagen o PDF) * <em class="cb-auto">se almacena y se lee solo al elegirlo</em></span>
+            <span>Comprobante de pago (imagen o PDF) * <em class="cb-auto">se almacena y se lee solo al elegirlo</em></span>
             <div class="cb-pick">
               <label class="cb-pickbtn cb-cam"><i class="pi pi-camera"></i> Tomar foto
                 <input type="file" accept="image/*" capture="environment" (change)="onFile($event)" hidden />
@@ -155,22 +164,70 @@ import { PagosComprobantesService, PagoRow, PagosReport, DepositOcr, ProofFile, 
             </div>
           }
 
-          @if (fileName()) {
+          <!-- ficha-first: buscar el pago por el OCR -->
+          @if (captureMode() && !attachTarget() && ocrRun()) {
+            <div class="cb-match">
+              <div class="cb-match-row2">
+                <label class="cb-f cb-grow"><span>Monto del comprobante <em class="cb-auto">corrígelo si el OCR falló</em></span>
+                  <p-inputnumber [(ngModel)]="ocrForm.monto" mode="currency" currency="MXN" locale="es-MX" styleClass="w-full" /></label>
+                <label class="cb-f cb-grow"><span>Concepto / factura</span>
+                  <input pInputText [(ngModel)]="ocrForm.concepto" placeholder="F 451" /></label>
+                <button pButton type="button" size="small" (click)="runCapMatch()" [loading]="capMatching()"><span class="p-button-icon p-button-icon-left pi pi-search" aria-hidden="true"></span><span class="p-button-label">Buscar pago</span></button>
+              </div>
+              @if (capMatching()) {
+                <div class="cb-view-loading"><i class="pi pi-spin pi-spinner"></i> Buscando el pago…</div>
+              } @else if (capMatches().length) {
+                <div class="cb-fields-head">Pagos con ese monto <em class="cb-auto">elige el que corresponde</em></div>
+                @for (c of capMatches(); track c.doc_prefix + c.sucursal + c.folio) {
+                  <div class="cb-cand" (click)="pickPago(c)">
+                    <div class="cb-cand-info">
+                      <strong class="mono">{{ c.doc_prefix }} {{ c.sucursal }}/{{ c.folio }}</strong>
+                      <span>{{ c.proveedor_nombre || c.proveedor_code || '—' }}</span>
+                      <span class="cb-sub">{{ c.pago_date | date:'dd/MM/yy' }} · {{ money(c.monto) }} · {{ c.concepto || '—' }}@if (c.concepto_match) { · <em class="cb-has-ok">factura coincide</em> }@if (c.deposits > 0) { · <em class="cb-has">ya tiene comprobante</em> }</span>
+                    </div>
+                    <button pButton type="button" size="small"><span class="p-button-label">Es este</span></button>
+                  </div>
+                }
+              } @else {
+                <p class="muted">No encontramos un pago con ese monto. Búscalo a mano:</p>
+                <div class="cb-match-row2">
+                  <input pInputText class="cb-grow" [(ngModel)]="capManualSearch" placeholder="Folio, proveedor, RFC, monto…" (keyup.enter)="capManualSearchRun()" />
+                  <button pButton type="button" size="small" text (click)="capManualSearchRun()"><span class="p-button-icon pi pi-search" aria-hidden="true"></span></button>
+                </div>
+                @for (c of capManualResults(); track c.doc_prefix + c.sucursal + c.folio) {
+                  <div class="cb-cand" (click)="pickPago(c)">
+                    <div class="cb-cand-info">
+                      <strong class="mono">{{ c.doc_prefix }} {{ c.sucursal }}/{{ c.folio }}</strong>
+                      <span>{{ c.proveedor_nombre || c.proveedor_code || '—' }}</span>
+                      <span class="cb-sub">{{ c.pago_date | date:'dd/MM/yy' }} · {{ metodoLabel(c.metodo_pago) }} · {{ money(c.monto) }}</span>
+                    </div>
+                    <button pButton type="button" size="small"><span class="p-button-label">Es este</span></button>
+                  </div>
+                }
+              }
+            </div>
+          }
+
+          @if (attachTarget() && fileName()) {
             <div class="cb-fields-head">Datos del comprobante <em class="cb-auto">revisa y corrige lo que el OCR haya leído mal</em></div>
             <div class="cb-grid">
               <label class="cb-f"><span>Monto del comprobante</span><p-inputnumber [(ngModel)]="ocrForm.monto" [disabled]="ocrLoading()" mode="currency" currency="MXN" locale="es-MX" styleClass="w-full" /></label>
               <label class="cb-f"><span>Fecha</span><input pInputText [(ngModel)]="ocrForm.fecha" [disabled]="ocrLoading()" placeholder="AAAA-MM-DD" /></label>
-              <label class="cb-f"><span>Banco</span><input pInputText [(ngModel)]="ocrForm.banco" [disabled]="ocrLoading()" /></label>
-              <label class="cb-f"><span>Referencia / clave SPEI</span><input pInputText [(ngModel)]="ocrForm.referencia" [disabled]="ocrLoading()" /></label>
-              <label class="cb-f"><span>Cuenta destino (prov.)</span><input pInputText [(ngModel)]="ocrForm.cuenta_dest" [disabled]="ocrLoading()" /></label>
-              <label class="cb-f"><span>Ordenante</span><input pInputText [(ngModel)]="ocrForm.ordenante" [disabled]="ocrLoading()" /></label>
+              <label class="cb-f"><span>Concepto (factura)</span><input pInputText [(ngModel)]="ocrForm.concepto" [disabled]="ocrLoading()" placeholder="F 451" /></label>
+              <label class="cb-f"><span>Clave de rastreo</span><input pInputText [(ngModel)]="ocrForm.clave_rastreo" [disabled]="ocrLoading()" /></label>
+              <label class="cb-f"><span>Cuenta origen (propia)</span><input pInputText [(ngModel)]="ocrForm.cuenta_origen" [disabled]="ocrLoading()" /></label>
+              <label class="cb-f"><span>Cuenta destino (prov.)</span><input pInputText [(ngModel)]="ocrForm.cuenta_destino" [disabled]="ocrLoading()" /></label>
+              <label class="cb-f"><span>Beneficiario</span><input pInputText [(ngModel)]="ocrForm.beneficiario" [disabled]="ocrLoading()" /></label>
+              <label class="cb-f"><span>Banco destino</span><input pInputText [(ngModel)]="ocrForm.banco_destino" [disabled]="ocrLoading()" /></label>
             </div>
           }
           @if (attachError()) { <div class="cb-err">{{ attachError() }}</div> }
         </div>
         <ng-template #footer>
           <button pButton type="button" text (click)="showAttach.set(false)"><span class="p-button-label">Cancelar</span></button>
-          <button pButton type="button" [loading]="saving()" [disabled]="!fileData || uploading()" (click)="saveAttach()"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Guardar comprobante</span></button>
+          @if (attachTarget()) {
+            <button pButton type="button" [loading]="saving()" [disabled]="!fileData || uploading()" (click)="saveAttach()"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Guardar comprobante</span></button>
+          }
         </ng-template>
       }
     </p-dialog>
@@ -206,8 +263,17 @@ import { PagosComprobantesService, PagoRow, PagosReport, DepositOcr, ProofFile, 
                 <p-tag [value]="depLabel(d.status)" [severity]="depSev(d.status)" />
                 @if (d.monto_match === true) { <p-tag value="Cuadra" severity="success" /> }
                 @else if (d.monto_match === false) { <p-tag value="No cuadra" severity="danger" /> }
+                @if (d.cuenta_propia === true) { <p-tag value="Cuenta propia" severity="success" /> }
+                @else if (d.cuenta_propia === false) { <p-tag value="Cuenta origen NO reconocida" severity="danger" /> }
+                @if (d.ref_duplicada) { <p-tag value="Clave duplicada" severity="warn" /> }
                 <span class="cb-view-meta">{{ d.created_by || '—' }} · {{ d.created_at | date:'dd/MM/yy HH:mm' }}</span>
               </div>
+              @if (d.ref_duplicada && d.ref_otros?.length) {
+                <div class="cb-alert-note"><i class="pi pi-flag-fill"></i> Misma clave de rastreo en: <strong>{{ d.ref_otros?.join(', ') }}</strong> — ¿transferencia repetida?</div>
+              }
+              @if (d.cuenta_propia === false) {
+                <div class="cb-alert-note bad"><i class="pi pi-exclamation-triangle"></i> La cuenta de origen del pago no coincide con ninguna cuenta de la empresa.</div>
+              }
               <div class="cb-view-files">
                 @for (f of d.files; track f.url) {
                   @if (isImageUrl(f)) {
@@ -221,11 +287,43 @@ import { PagosComprobantesService, PagoRow, PagosReport, DepositOcr, ProofFile, 
               <div class="cb-view-ocr">
                 <span><em>Monto OCR</em> {{ d.ocr_monto != null ? money(d.ocr_monto) : '—' }}</span>
                 <span><em>Fecha</em> {{ d.ocr_fecha || '—' }}</span>
-                <span><em>Banco</em> {{ d.ocr_banco || '—' }}</span>
-                <span><em>Referencia</em> {{ d.ocr_referencia || '—' }}</span>
-                @if (d.ocr_cuenta_dest) { <span><em>Cuenta dest.</em> {{ d.ocr_cuenta_dest }}</span> }
-                @if (d.ocr_ordenante) { <span><em>Ordenante</em> {{ d.ocr_ordenante }}</span> }
+                <span><em>Concepto</em> {{ d.ocr_concepto || '—' }}</span>
+                <span><em>Clave</em> {{ d.ocr_referencia || '—' }}</span>
+                @if (d.ocr_cuenta_origen) { <span><em>Cta. origen</em> {{ d.ocr_cuenta_origen }}</span> }
+                @if (d.ocr_cuenta_dest) { <span><em>Cta. dest.</em> {{ d.ocr_cuenta_dest }}</span> }
+                @if (d.ocr_ordenante) { <span><em>Beneficiario</em> {{ d.ocr_ordenante }}</span> }
+                @if (d.ocr_banco) { <span><em>Banco dest.</em> {{ d.ocr_banco }}</span> }
               </div>
+              @if (d.banco; as bk) {
+                @if (bk.conciliado) {
+                  <div class="cb-bank ok">
+                    <div class="cb-bank-head"><i class="pi pi-verified"></i> <strong>Conciliado con el banco (cargo)</strong></div>
+                    @for (m of bk.matched; track m.id) {
+                      <div class="cb-bank-mov">
+                        <span class="mono">{{ m.bank }} {{ m.account_label }}</span>
+                        <span>{{ m.movement_date | date:'dd/MM/yy' }}</span>
+                        <span class="strong">{{ money(m.amount_out) }}</span>
+                        <span class="muted cb-bank-concept" [title]="m.concept">{{ m.concept || '—' }}</span>
+                        @if (canManage()) { <button pButton type="button" size="small" text severity="secondary" [loading]="actingId() === d.id + m.id" (click)="doUnlinkBank(d.id, m.id)" title="Deshacer"><span class="p-button-icon pi pi-link" aria-hidden="true"></span></button> }
+                      </div>
+                      @if (m.matched_by) { <span class="cb-bank-by">por {{ m.matched_by }} · {{ m.matched_at | date:'dd/MM/yy HH:mm' }}</span> }
+                    }
+                  </div>
+                } @else {
+                  <div class="cb-bank" [class.warn]="bk.estado === 'multiple'" [class.bad]="bk.estado === 'sin_match'">
+                    <div class="cb-bank-head"><i class="pi" [ngClass]="bankIcon(bk.estado)"></i> <strong>{{ bankLabel(bk.estado) }}</strong></div>
+                    @for (m of bk.candidatos; track m.id) {
+                      <div class="cb-bank-mov">
+                        <span class="mono">{{ m.bank }} {{ m.account_label }}</span>
+                        <span>{{ m.movement_date | date:'dd/MM/yy' }}</span>
+                        <span class="strong">{{ money(m.amount_out) }}</span>
+                        <span class="muted cb-bank-concept" [title]="m.concept">{{ m.concept || '—' }}</span>
+                        @if (canManage()) { <button pButton type="button" size="small" text severity="success" [loading]="actingId() === d.id + m.id" (click)="doConfirmBank(d.id, m.id)" title="Confirmar que este cargo es el del pago"><span class="p-button-icon pi pi-check" aria-hidden="true"></span></button> }
+                      </div>
+                    }
+                  </div>
+                }
+              }
               @if (d.status === 'rechazado' && d.motivo_rechazo) { <div class="cb-err">Rechazado: {{ d.motivo_rechazo }}</div> }
               @if (d.comentarios) { <div class="cb-view-coment">{{ d.comentarios }}</div> }
             </div>
@@ -314,6 +412,34 @@ import { PagosComprobantesService, PagoRow, PagosReport, DepositOcr, ProofFile, 
     .cb-view-ocr { display: flex; flex-wrap: wrap; gap: .3rem 1.1rem; font-size: .78rem; color: var(--text-main); }
     .cb-view-ocr em { font-style: normal; color: var(--text-muted); margin-right: .3rem; }
     .cb-view-coment { font-size: .8rem; color: var(--text-muted); font-style: italic; }
+    .cb-alert { color: var(--bad-fg); display: inline-flex; }
+    .cb-alert i { font-size: .8rem; }
+    .cb-alert-note { font-size: .78rem; color: var(--warn-fg); display: flex; align-items: baseline; gap: .4rem; background: var(--surface-sunken, var(--card-bg)); border: 1px solid var(--border-color); border-radius: var(--r-sm, .4rem); padding: .45rem .6rem; }
+    .cb-alert-note.bad { color: var(--bad-fg); }
+    .cb-alert-note i { font-size: .8rem; }
+    .cb-cap-bar { display: flex; align-items: center; gap: .8rem; margin-bottom: 1rem; flex-wrap: wrap; }
+    .cb-cap-hint { font-size: .8rem; color: var(--text-muted); }
+    .cb-cap-banner { display: flex; align-items: center; gap: .5rem; font-size: .84rem; color: var(--action); background: color-mix(in srgb, var(--action) 8%, transparent); border: 1px solid color-mix(in srgb, var(--action) 25%, transparent); border-radius: var(--r-sm, .4rem); padding: .5rem .7rem; }
+    .cb-match { display: flex; flex-direction: column; gap: .6rem; border-top: 1px solid var(--border-color); padding-top: .8rem; }
+    .cb-match-row2 { display: flex; gap: .5rem; align-items: flex-end; flex-wrap: wrap; }
+    .cb-grow { flex: 1 1 8rem; }
+    .cb-cand { display: flex; align-items: center; justify-content: space-between; gap: .8rem; border: 1px solid var(--border-color); border-radius: var(--r-sm, .4rem); padding: .5rem .7rem; cursor: pointer; transition: border-color .12s; }
+    .cb-cand:hover { border-color: var(--action); }
+    .cb-cand-info { display: flex; flex-direction: column; gap: .1rem; }
+    .cb-cand-info > span { font-size: .82rem; color: var(--text-main); }
+    .cb-has { font-style: normal; color: var(--warn-fg); }
+    .cb-has-ok { font-style: normal; color: var(--ok-fg); }
+    .cb-bank { border: 1px solid var(--border-color); border-left-width: 3px; border-radius: var(--r-sm, .4rem); padding: .5rem .7rem; display: flex; flex-direction: column; gap: .35rem; font-size: .78rem; }
+    .cb-bank.ok { border-left-color: var(--ok-fg); }
+    .cb-bank.warn { border-left-color: var(--warn-fg); }
+    .cb-bank.bad { border-left-color: var(--bad-fg); }
+    .cb-bank-head { display: flex; align-items: center; gap: .4rem; }
+    .cb-bank.ok .cb-bank-head { color: var(--ok-fg); }
+    .cb-bank.warn .cb-bank-head { color: var(--warn-fg); }
+    .cb-bank.bad .cb-bank-head { color: var(--bad-fg); }
+    .cb-bank-mov { display: grid; grid-template-columns: 6rem 4.5rem auto 1fr auto; gap: .5rem; align-items: center; color: var(--text-main); }
+    .cb-bank-concept { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .cb-bank-by { font-size: .7rem; color: var(--text-muted); }
   `],
 })
 export class FinanzasPagosComprobantesComponent {
@@ -347,6 +473,12 @@ export class FinanzasPagosComprobantesComponent {
   readonly attachError = signal<string>('');
   fileData: string | null = null;
   ocrForm: Partial<DepositOcr> = {};
+  // ficha-first (captura sin elegir pago)
+  readonly captureMode = signal(false);
+  readonly capMatching = signal(false);
+  readonly capMatches = signal<PagoCandidate[]>([]);
+  capManualSearch = '';
+  readonly capManualResults = signal<PagoCandidate[]>([]);
 
   // reject dialog
   readonly showReject = signal(false);
@@ -361,13 +493,25 @@ export class FinanzasPagosComprobantesComponent {
   constructor() { this.load(); }
 
   kpiItems(r: PagosReport): MetricStripItem[] {
-    return [
+    const items: MetricStripItem[] = [
       { label: 'Pagos', value: r.kpis.pagos },
       { label: 'Con comprobante', value: r.kpis.con_comprobante, tone: 'ok' },
       { label: 'Validados', value: r.kpis.validados, tone: 'ok' },
       { label: '$ por comprobar', value: this.money(r.kpis.monto_pendiente), tone: 'warn' },
     ];
+    const alertas = (r.kpis.cuentas_ajenas || 0) + (r.kpis.refs_duplicadas || 0);
+    if (alertas > 0) items.push({ label: 'Alertas de control', value: alertas, tone: 'bad' });
+    return items;
   }
+
+  alertTitle(c: PagoRow): string {
+    const p: string[] = [];
+    if (c.cuenta_ajena) p.push('Pago desde una cuenta NO reconocida');
+    if (c.ref_dup) p.push('Clave de rastreo usada en otro pago');
+    return p.join(' · ') || 'Requiere revisión';
+  }
+  bankLabel(e: string): string { return ({ confirmado: 'Cargo confirmado en el banco', multiple: 'Posibles cargos — revisa cuál', sin_match: 'Sin cargo en el estado de cuenta', sin_dato: 'No verificable (falta monto/fecha)' } as Record<string, string>)[e] || e; }
+  bankIcon(e: string): string { return ({ confirmado: 'pi-check-circle', multiple: 'pi-question-circle', sin_match: 'pi-times-circle', sin_dato: 'pi-minus-circle' } as Record<string, string>)[e] || 'pi-minus-circle'; }
 
   setEstado(v: string) { this.estadoSel.set(v); this.load(); }
   queue() { if (this.timer) clearTimeout(this.timer); this.timer = setTimeout(() => this.load(), 300); }
@@ -385,7 +529,21 @@ export class FinanzasPagosComprobantesComponent {
   }
 
   openAttach(c: PagoRow) {
+    this.resetAttach();
     this.attachTarget.set(c);
+    this.captureMode.set(false);
+    this.showAttach.set(true);
+  }
+
+  /** Ficha-first: captura SIN pago preseleccionado (lo busca el OCR). */
+  openCapture() {
+    this.resetAttach();
+    this.attachTarget.set(null);
+    this.captureMode.set(true);
+    this.showAttach.set(true);
+  }
+
+  private resetAttach() {
     this.fileData = null;
     this.fileName.set('');
     this.ocrForm = {};
@@ -393,8 +551,32 @@ export class FinanzasPagosComprobantesComponent {
     this.uploadedFile.set(null);
     this.uploading.set(false);
     this.attachError.set('');
-    this.showAttach.set(true);
+    this.capMatches.set([]);
+    this.capManualResults.set([]);
+    this.capManualSearch = '';
+    this.capMatching.set(false);
   }
+
+  /** Con el comprobante leído, busca el pago por monto + fecha + concepto (factura). */
+  runCapMatch() {
+    if (this.ocrForm.monto == null) { this.capMatches.set([]); return; }
+    this.capMatching.set(true);
+    this.svc.matchPago(this.ocrForm.monto, this.ocrForm.fecha, this.ocrForm.concepto).pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (r) => { this.capMatches.set(r.pagos); this.capMatching.set(false); },
+        error: () => { this.capMatching.set(false); this.capMatches.set([]); },
+      });
+  }
+
+  capManualSearchRun() {
+    const s = this.capManualSearch.trim();
+    if (!s) { this.capManualResults.set([]); return; }
+    this.svc.list({ search: s }).pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({ next: (r) => this.capManualResults.set(r.rows.slice(0, 15) as any), error: () => this.capManualResults.set([]) });
+  }
+
+  /** Elige el pago (sugerido o manual) → aparecen los campos + Guardar. */
+  pickPago(c: PagoCandidate | PagoRow) { this.attachTarget.set(c as PagoRow); }
 
   onFile(ev: Event) {
     const file = (ev.target as HTMLInputElement).files?.[0];
@@ -430,7 +612,10 @@ export class FinanzasPagosComprobantesComponent {
     this.ocrLoading.set(true);
     this.svc.ocr(this.fileData).pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: (f) => { this.ocrForm = { ...f }; this.ocrRun.set(true); this.ocrLoading.set(false); },
+        next: (f) => {
+          this.ocrForm = { ...f }; this.ocrRun.set(true); this.ocrLoading.set(false);
+          if (this.captureMode() && !this.attachTarget()) this.runCapMatch();
+        },
         error: () => { this.ocrLoading.set(false); this.toast.add({ severity: 'error', summary: 'OCR falló', detail: 'Captura los datos a mano.' }); this.ocrForm = { ocr_status: 'ilegible' }; this.ocrRun.set(true); },
       });
   }
@@ -461,9 +646,41 @@ export class FinanzasPagosComprobantesComponent {
     this.svc.attach({ sucursal: t.sucursal, folio: t.folio, doc_prefix: t.doc_prefix, files: [file], ocr: this.ocrRun() ? this.ocrForm : undefined })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: (res) => { this.saving.set(false); this.showAttach.set(false); this.toast.add({ severity: 'success', summary: 'Comprobante adjuntado', detail: res.monto_match ? 'El monto cuadra ✓' : 'Guardado (revisa el monto)' }); this.load(); },
+        next: (res) => {
+          this.saving.set(false); this.showAttach.set(false);
+          this.toast.add({ severity: 'success', summary: 'Comprobante adjuntado', detail: res.monto_match ? 'El monto cuadra ✓' : 'Guardado (revisa el monto)' });
+          if (res.cuenta_propia === false) this.toast.add({ severity: 'warn', summary: 'Cuenta origen NO reconocida', detail: 'El pago no salió de una cuenta de la empresa.', life: 8000 });
+          if (res.ref_duplicada) this.toast.add({ severity: 'warn', summary: 'Clave de rastreo duplicada', detail: `Misma clave en: ${(res.ref_otros || []).join(', ')}`, life: 8000 });
+          this.load();
+        },
         error: (e) => { this.saving.set(false); this.attachError.set(e?.error?.message || 'No se pudo adjuntar.'); },
       });
+  }
+
+  /** Confirma que un cargo del banco corresponde al pago. */
+  doConfirmBank(proofId: string, movId: string) {
+    if (this.actingId()) return;
+    this.actingId.set(proofId + movId);
+    this.svc.confirmBank(proofId, movId).pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: () => { this.actingId.set(null); this.toast.add({ severity: 'success', summary: 'Conciliado', detail: 'El cargo quedó ligado al pago.' }); this.reloadView(); this.load(); },
+        error: (e) => { this.actingId.set(null); this.toast.add({ severity: 'error', summary: 'No se pudo conciliar', detail: e?.error?.message }); },
+      });
+  }
+  doUnlinkBank(proofId: string, movId: string) {
+    if (this.actingId()) return;
+    this.actingId.set(proofId + movId);
+    this.svc.unlinkBank(proofId, movId).pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: () => { this.actingId.set(null); this.toast.add({ severity: 'info', summary: 'Conciliación deshecha' }); this.reloadView(); },
+        error: () => { this.actingId.set(null); this.toast.add({ severity: 'error', summary: 'No se pudo deshacer' }); },
+      });
+  }
+  private reloadView() {
+    const c = this.viewTarget();
+    if (!c) return;
+    this.svc.detail(c.sucursal, c.folio, c.doc_prefix).pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({ next: (d) => this.viewData.set(d), error: () => {} });
   }
 
   doValidate(c: PagoRow) {
