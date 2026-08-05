@@ -126,7 +126,7 @@ Detalle verificado en memoria `reference_kepler_reception_flow`.
 
 > Sin permisos nuevos (RE.10/RE.2 reusan `COMPRAS_VER`) → **no requiere re-login**. Migración aditiva/idempotente.
 
-1. **Migraciones** (newdb Railway, `npm run migrate:new` con `DATABASE_URL_NEW=<prod>`): `20260805120000_analytics_erp_purchase_adjustments.js` (tabla ajustes) + `20260805140000_supplier_payments_descuento.js` (columna `descuento` en pagos). Ambas aditivas/idempotentes.
+1. **Migraciones** (newdb Railway, `npm run migrate:new` con `DATABASE_URL_NEW=<prod>`): `20260805120000_analytics_erp_purchase_adjustments.js` (tabla ajustes) + `20260805140000_supplier_payments_descuento.js` (columna `descuento` en pagos) + `20260805160000_goods_receipt_proofs_discrepancy.js` (RE.2: `discrepancy_kind`/`_amount`) + `20260805170000_supplier_discount_policy.js` (tabla política de descuento). Todas aditivas/idempotentes.
 2. **Importers** (desde LAN — Railway no alcanza Kepler, `DATABASE_URL_NEW=<prod>`): (a) `import-purchase-adjustments.js` dry-run → verificar 1,286/$20.9M → `--apply` (`ADJ_SRC` default md_00); (b) `import-supplier-payments.js --apply` (backfill `c84`: ~1,742 pagos/$12.6M).
 3. **Redeploy** api + view (push de los commits locales `3e49be9a`·`93c6e55c`·`beb1b3ae`·`c15b64f6`·`df420698`·`0cb4666c`·`e1dae914`·`6d386556`·`49a1902a` + docs). El bridge de duplicadas→hallazgos **no lleva migración** (reusa `finance.findings`; la regla se auto-registra).
 4. **Poblar hallazgos** (una vez): `POST /commercial/purchase-adjustments/sync-findings` (o esperar el `@Cron` 00:30 MX) → los ~$4.3M de posibles duplicadas aparecen en `/finanzas/hallazgos`.
@@ -134,7 +134,8 @@ Detalle verificado en memoria `reference_kepler_reception_flow`.
 
 ## 6. Schema nuevo (consolidado)
 - `analytics.erp_goods_receipts`: `+ source, fecha_vence, condicion_pago, dias_credito, poliza, total_factura, total_compra`. Sucursal real (RE.0).
-- `finance.goods_receipt_proofs`: `+ role, credit_note_ref, discrepancy_kind, discrepancy_amount`.
+- `finance.goods_receipt_proofs`: `+ discrepancy_kind (CHECK), discrepancy_amount` ✅ mig `20260805160000` (RE.2 — persiste el veredicto del auto-explain). Pendiente aún: `role, credit_note_ref`.
+- **Nueva `commercial.supplier_discount_policy`** ✅ mig `20260805170000` (RLS forzado): `(tenant_id, proveedor_code)`, `expected_discount_rate, discount_days, discount_type (CHECK), source (kepler/observed/manual), active` + audit. Base del detector "descuento no capturado" (RE.10).
 - **Nuevo espejo `analytics.erp_purchase_adjustments`** (X-D-40 + X-D-55): `doctype, folio, entrada_ref (XA2001), factura_ref (c11), proveedor, sku, qty, monto, iva, motivo (c24), categoria`. Alimenta RE.2 (auto-explain) y RE.10 (descuentos/apoyos).
 - `analytics.erp_supplier_payments`: `+ descuento` (kdm1.c84 — pronto pago capturado al pagar). Segundo canal de descuento; alimenta la reconciliación pago-vs-nota (RE.10).
 - Reusar `finance.findings` (bandeja) — sin tabla nueva.
