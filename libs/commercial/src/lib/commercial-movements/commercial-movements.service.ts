@@ -116,23 +116,6 @@ export class CommercialMovementsService {
     return conds.length ? `(${conds.join(' OR ')})` : `false`;
   }
 
-  /** DEBUG TEMPORAL (DM) — expone qué SQL de destino genera el código DESPLEGADO. Borrar tras diagnosticar. */
-  async debugDest(q: MovementsQuery) {
-    const tenantId = this.tenantCtx.requireTenantId();
-    const rawKinds = q.dest_kinds ?? null;
-    const kinds = this.destKinds(q);
-    const sql = this.destBucketSql(kinds, tenantId);
-    const whereRaw = sql ? `(m.doc_code <> 'TrsfShip' OR ${sql})` : '(sin filtro)';
-    let countWithFilter: number | string = 'n/a';
-    try {
-      const rows = (await this.tk.run((trx) =>
-        this.base(trx, tenantId, q).count({ n: trx.raw('DISTINCT m.folio') }),
-      )) as any[];
-      countWithFilter = Number(rows?.[0]?.n) || 0;
-    } catch (e) { countWithFilter = `ERR: ${(e as Error).message}`; }
-    return { tenantId, rawKinds, kinds, destBucketSql: sql, whereRaw, countWithFilter, build: process.env.RAILWAY_GIT_COMMIT_SHA ?? 'unknown' };
-  }
-
   /** WHERE de destino: acota los TrsfShip por bucket; no toca el resto de docs. */
   private applyDestFilter(b: any, q: MovementsQuery, tenantId: string) {
     const sql = this.destBucketSql(this.destKinds(q), tenantId);
@@ -242,12 +225,17 @@ export class CommercialMovementsService {
         );
       };
 
-      const totalRows = (await build()).length;
+      // Conteo sobre el subquery agrupado (NO materializar todas las filas dos veces).
+      const countRows: any[] = await trx.count('* as count').from(build().as('g'));
+      const total = Number(countRows[0]?.count ?? 0);
+      // Vista 'day' ordena cronológicamente: con pageSize cap, page 1 = los días MÁS RECIENTES
+      // (ordenar por valor truncaría días recientes de bajo monto en rangos > pageSize).
+      const orderSql = g === 'day' ? 'm.doc_date DESC' : 'SUM(m.amount) DESC NULLS LAST';
       const rows = await build()
-        .orderByRaw('SUM(m.amount) DESC NULLS LAST')
+        .orderByRaw(orderSql)
         .limit(pageSize).offset((page - 1) * pageSize);
 
-      return { group_by: g, page, pageSize, total: totalRows, rows };
+      return { group_by: g, page, pageSize, total, rows };
     });
   }
 
