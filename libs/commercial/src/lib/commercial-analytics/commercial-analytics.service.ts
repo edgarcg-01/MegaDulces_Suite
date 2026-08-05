@@ -2197,7 +2197,7 @@ export class CommercialAnalyticsService {
 
     // Paso 1 y 2 — marca + agregación desde analytics.sales_daily (misma DB,
     // alimentada por el cron on-prem import-sales-fact.js). Tenant-scoped.
-    const { brand, products, raw, retail, boxFactors, boxPrices } = await this.tk.run(async (trx) => {
+    const { brand, products, raw, retail, boxFactors, boxPrices, identMap } = await this.tk.run(async (trx) => {
       const b = brandId
         ? await trx('catalog.brands as b')
             .where('b.id', brandId)
@@ -2424,7 +2424,8 @@ export class CommercialAnalyticsService {
         .distinct('w.name as name')
         .orderBy('w.name');
 
-      return { brand: b, products: ps, raw: rawRows, retail: retailRows.map((r: any) => r.name), boxFactors, boxPrices };
+      const identMap = await this.loadVendorIdentity(trx, tenantId);
+      return { brand: b, products: ps, raw: rawRows, retail: retailRows.map((r: any) => r.name), boxFactors, boxPrices, identMap };
     });
     // RA-PRO.38 — mapa product_id → factor de caja canónico (resolvedor único, fallback).
     const boxFactorMap = new Map<string, number>(
@@ -2468,8 +2469,10 @@ export class CommercialAnalyticsService {
       // vista por canal). Wincaja trae el vendedor; el crédito Kepler (sin vendedor) queda en una
       // hoja/columna aparte "Sin vendedor (Kepler)" — separado, sin mezclar ni perderse.
       const isMayoreo = channel === 'credito' && groupBy === 'branch_channel';
+      // RS.11 — identidad canónica del vendedor (une fragmentos + nombre limpio Kepler).
+      const mayId = isMayoreo && r.source === 'wincaja' ? this.canonVendor(identMap, r.vendor_code, r.vendor_name) : null;
       const mayoreoLeaf = isMayoreo
-        ? (r.source === 'wincaja' ? String(r.vendor_code ?? '·') : 'k-sin-vendedor')
+        ? (r.source === 'wincaja' ? mayId!.key : 'k-sin-vendedor')
         : null;
       // RS.4 — filtro CANAL jerárquico por celda (canal|almacén o canal|*); Mayoreo → canal|vendedor.
       if (cellFilter) {
@@ -2506,7 +2509,7 @@ export class CommercialAnalyticsService {
       const srcLabel = src === 'wincaja' ? String(r.vendor_name ?? 'Wincaja') : 'Kepler';
       const colTail = src === 'wincaja' ? `wincaja|${vendorCode}` : 'kepler';
       // RS.10 — Mayoreo: la columna ES el vendedor (una por persona), no sucursal·fuente.
-      const mayVendorName = src === 'wincaja' ? String(r.vendor_name ?? vendorCode ?? 'Wincaja') : 'Sin vendedor (Kepler)';
+      const mayVendorName = src === 'wincaja' ? (mayId?.name ?? String(r.vendor_name ?? vendorCode ?? 'Wincaja')) : 'Sin vendedor (Kepler)';
       const colKey = monthCols
         ? r.sale_month
         : isMayoreo ? `credito|${mayoreoLeaf}`
@@ -2644,6 +2647,24 @@ export class CommercialAnalyticsService {
   }
 
   /**
+   * RS.11 — Mapa de identidad de vendedor (`analytics.vendor_identity`): (sucursal:código) →
+   * { key canónica, nombre limpio }. Une fragmentos Wincaja del mismo humano (varias filas
+   * con la misma key = merge) y normaliza el nombre (fuente Kepler). Sin fila = pass-through.
+   */
+  private async loadVendorIdentity(trx: any, tenantId: string): Promise<Map<string, { key: string; name: string }>> {
+    const rows = await trx('analytics.vendor_identity').where('tenant_id', tenantId)
+      .select('source_branch', 'vendedor', 'canonical_key', 'canonical_name');
+    const m = new Map<string, { key: string; name: string }>();
+    for (const r of rows) m.set(`${r.source_branch}:${r.vendedor}`, { key: r.canonical_key, name: r.canonical_name });
+    return m;
+  }
+  /** Resuelve un vendor_code 'sucursal:código' + nombre a su identidad canónica (o pass-through). */
+  private canonVendor(map: Map<string, { key: string; name: string }>, vendorCode: any, vendorName: any): { key: string; name: string } {
+    const hit = map.get(String(vendorCode));
+    return hit ?? { key: String(vendorCode ?? '·'), name: String(vendorName ?? vendorCode ?? 'Wincaja') };
+  }
+
+  /**
    * RS.4 — Sell-Out POR VENDEDOR (solo Wincaja: la dimensión vendedor solo existe ahí;
    * Kepler mart.ventas no la trae). Matriz Producto × Vendedor, agrupada MAYOREO
    * (mayoreo_credito) / RD (ruta_venta) / RV (preventa_vecinal). On-demand desde
@@ -2670,7 +2691,7 @@ export class CommercialAnalyticsService {
     const GROUP_LABEL: Record<string, string> = { mayoreo: 'Mayoreo', ruta: 'RD (Reparto)', preventa: 'RV (Vecinal)' };
     const GROUP_ORD: Record<string, number> = { mayoreo: 0, ruta: 1, preventa: 2 };
 
-    const { brand, raw } = await this.tk.run(async (trx) => {
+    const { brand, raw, identMap } = await this.tk.run(async (trx) => {
       const b = brandId
         ? await trx('catalog.brands as b').where('b.id', brandId).whereNull('b.deleted_at').select('b.id', 'b.nombre', 'b.code').first()
         : { id: null, nombre: 'Todas las empresas', code: null };
@@ -2733,7 +2754,8 @@ export class CommercialAnalyticsService {
         .andWhere('vl.business_date', '>=', from).andWhere('vl.business_date', '<=', to)
         .modify((qb) => { if (brandId) qb.andWhere('p.brand_id', brandId); if (search) qb.andWhereRaw('(p.sku ILIKE ? OR p.nombre ILIKE ?)', [`%${search}%`, `%${search}%`]); })
         .groupByRaw('vl.source_branch, vl.vendedor, vendor_name, vl.sale_channel, p.id, p.sku, p.nombre, p.factor_sale, p.brand_id, b.nombre, b.code');
-      return { brand: b, raw: rows };
+      const identMap = await this.loadVendorIdentity(trx, tenantId);
+      return { brand: b, raw: rows, identMap };
     });
 
     const columns = new Map<string, SellOutColumn>();
@@ -2742,7 +2764,9 @@ export class CommercialAnalyticsService {
     let grandCajas = 0, grandMonto = 0;
     for (const r of raw) {
       const group = GROUP[r.sale_channel]; if (!group) continue;
-      const colKey = `${group}|${r.vendor_code}`;
+      // RS.11 — identidad canónica: une fragmentos del mismo vendedor + nombre limpio.
+      const vId = this.canonVendor(identMap, r.vendor_code, r.vendor_name);
+      const colKey = `${group}|${vId.key}`;
       if (cellFilter && !cellFilter.has(colKey.toLowerCase()) && !cellFilter.has(`${group}|*`)) continue;
       const uv = String(r.uv_win ?? '').trim().toUpperCase();
       const isWeight = uv === 'KGS';
@@ -2754,7 +2778,7 @@ export class CommercialAnalyticsService {
       const cajas = isWeight ? units : units / divisor;
       const monto = Number(r.monto) || 0;
       if (!columns.has(colKey)) {
-        columns.set(colKey, { key: colKey, branch_code: r.vendor_code, branch_name: r.vendor_name, channel: group, channel_label: GROUP_LABEL[group] });
+        columns.set(colKey, { key: colKey, branch_code: vId.key, branch_name: vId.name, channel: group, channel_label: GROUP_LABEL[group] });
         colTotals.set(colKey, { cajas: 0, monto: 0 });
       }
       let row = rowMap.get(r.sku);
@@ -2796,7 +2820,8 @@ export class CommercialAnalyticsService {
         ELSE 'otro' END`;
     // RS.7 — almacenes de RUTA (RUTA-NN; legacy 01-NNN) → RD aunque cobren a crédito/contado.
     const channelExpr = `CASE WHEN w.code LIKE 'RUTA-%' OR w.code LIKE '01-%' THEN 'ruta' ELSE (${channelExpr0}) END`;
-    const { rows, vendors, keplerCredito } = await this.tk.run(async (trx) => {
+    const { rows, vendors, keplerCredito, identMap } = await this.tk.run(async (trx) => {
+      const identMap = await this.loadVendorIdentity(trx, tenantId);
       const rows = await trx('analytics.sales_daily as sd')
         .join('commercial.warehouses as w', 'w.id', 'sd.warehouse_id')
         .where('sd.tenant_id', tenantId)
@@ -2815,7 +2840,7 @@ export class CommercialAnalyticsService {
       const kc = await trx('analytics.sales_daily as sd')
         .where('sd.tenant_id', tenantId).andWhere('sd.channel', 'credito')
         .sum({ rev: 'sd.revenue' }).first();
-      return { rows, vendors, keplerCredito: Number((kc as any)?.rev) || 0 };
+      return { rows, vendors, keplerCredito: Number((kc as any)?.rev) || 0, identMap };
     });
     const GROUP: Record<string, { g: string; label: string; ord: number }> = {
       mostrador: { g: 'mostrador', label: 'Sucursal', ord: 0 },
@@ -2830,9 +2855,15 @@ export class CommercialAnalyticsService {
       if (!map.has(meta.g)) map.set(meta.g, { group: meta.g, group_label: meta.label, ord: meta.ord, leaves: [] });
       map.get(meta.g)!.leaves.push({ channel: r.channel, code: r.code, name: r.name });
     }
-    // Grupo Mayoreo = vendedores (token 'credito|<vendor_code>') + Kepler sin vendedor (separado).
+    // Grupo Mayoreo = vendedores (token 'credito|<canonical_key>') + Kepler sin vendedor (separado).
+    // RS.11 — identidad canónica: fragmentos del mismo vendedor colapsan a UNA hoja, nombre limpio.
     if (vendors.length || keplerCredito > 0) {
-      const leaves = (vendors as any[]).map((v) => ({ channel: 'credito', code: String(v.code), name: String(v.name ?? v.code) }));
+      const seen = new Map<string, { channel: string; code: string; name: string }>();
+      for (const v of vendors as any[]) {
+        const id = this.canonVendor(identMap, v.code, v.name);
+        if (!seen.has(id.key)) seen.set(id.key, { channel: 'credito', code: id.key, name: id.name });
+      }
+      const leaves = Array.from(seen.values());
       if (keplerCredito > 0) leaves.push({ channel: 'credito', code: 'k-sin-vendedor', name: 'Sin vendedor (Kepler)' });
       map.set('credito', { group: 'credito', group_label: 'Mayoreo', ord: 3, leaves });
     }
@@ -2850,19 +2881,24 @@ export class CommercialAnalyticsService {
     };
     // RS.9 — desde el rollup persistido (venta por vendedor, todo el histórico). El feed ya
     // aplicó el mismo blend/mapeo → mismos vendedores que la view, pero en ~ms (era 504).
-    const rows = await this.tk.run((trx) => trx('analytics.sales_by_vendor_monthly as sd')
-      .select('sd.sale_channel as sale_channel', trx.raw(`sd.vendor_code as code`), trx.raw(`sd.vendor_name as name`))
-      .sum({ rev: 'sd.revenue' })
-      .where('sd.tenant_id', tenantId)
-      .whereIn('sd.sale_channel', ['mayoreo_credito', 'ruta_venta', 'preventa_vecinal'])
-      .groupByRaw('sd.sale_channel, sd.vendor_code, sd.vendor_name')
-      .havingRaw('sum(sd.revenue) > 0'));
+    const { rows, identMap } = await this.tk.run(async (trx) => ({
+      rows: await trx('analytics.sales_by_vendor_monthly as sd')
+        .select('sd.sale_channel as sale_channel', trx.raw(`sd.vendor_code as code`), trx.raw(`sd.vendor_name as name`))
+        .sum({ rev: 'sd.revenue' })
+        .where('sd.tenant_id', tenantId)
+        .whereIn('sd.sale_channel', ['mayoreo_credito', 'ruta_venta', 'preventa_vecinal'])
+        .groupByRaw('sd.sale_channel, sd.vendor_code, sd.vendor_name')
+        .havingRaw('sum(sd.revenue) > 0'),
+      identMap: await this.loadVendorIdentity(trx, tenantId),
+    }));
     const map = new Map<string, { group: string; group_label: string; ord: number; leaves: any[] }>();
     for (const r of rows as any[]) {
       const meta = GROUP[r.sale_channel]; if (!meta) continue;
+      // RS.11 — identidad canónica: fragmentos del mismo vendedor colapsan a una hoja.
+      const id = this.canonVendor(identMap, r.code, r.name);
       if (!map.has(meta.g)) map.set(meta.g, { group: meta.g, group_label: meta.label, ord: meta.ord, leaves: [] });
       const bucket = map.get(meta.g)!;
-      if (!bucket.leaves.some((l) => l.code === r.code)) bucket.leaves.push({ code: r.code, name: r.name });
+      if (!bucket.leaves.some((l) => l.code === id.key)) bucket.leaves.push({ code: id.key, name: id.name });
     }
     return Array.from(map.values()).sort((a, b) => a.ord - b.ord)
       .map((g) => ({ group: g.group, group_label: g.group_label, leaves: g.leaves.sort((a, b) => String(a.name).localeCompare(String(b.name), 'es')) }));
