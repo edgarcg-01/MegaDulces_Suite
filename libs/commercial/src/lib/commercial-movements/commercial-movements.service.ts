@@ -668,6 +668,86 @@ export class CommercialMovementsService {
     });
   }
 
+  /**
+   * DM.12 — MATRIZ origen → destino (FÍSICA, sobre analytics.stock_movements). Mismo pareo
+   * LATERAL que transfersCheck (salida TrsfShip ⇄ recepción TrsfRcv por serie+folio), pero
+   * AGREGADO por par (origen, destino): cuánto se envió vs cuánto se recibió + Δ + conteo por
+   * estado. Complementa el cuadre CONTABLE (transfersLedger, mayor 515) poniéndole cara a las
+   * sucursales entre las que no cuadra. Honra rango de fechas + destino; ignora filtro de almacén.
+   */
+  async transfersMatrix(q: MovementsQuery) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const { from, to } = this.range(q);
+    const destSql = this.destBucketSql(this.destKinds(q), tenantId);
+    const shpDestSql = destSql ? ` AND ${destSql}` : '';
+    return this.tk.run(async (trx) => {
+      const rows = (await trx.raw(`
+        WITH shp AS (
+          SELECT m.warehouse_id, coalesce(w.name, w.code) AS wh_code, m.folio, m.doc_serie,
+                 SUM(m.qty) AS qty, SUM(m.amount) AS amount, max(m.dest_code) AS dest_code, max(m.dest_label) AS dest_label,
+                 MIN(m.doc_date) AS doc_date
+          FROM analytics.stock_movements m
+          LEFT JOIN commercial.warehouses w ON w.id = m.warehouse_id
+          WHERE m.tenant_id = ? AND m.doc_code = 'TrsfShip' AND m.doc_date BETWEEN ? AND ?${shpDestSql}
+          GROUP BY m.warehouse_id, w.code, w.name, m.folio, m.doc_serie
+        ), rcv AS (
+          SELECT m.warehouse_id, coalesce(w.name, w.code) AS wh_code, m.folio, m.parent_serie, m.parent_folio,
+                 MIN(m.doc_date) AS doc_date, SUM(m.qty) AS qty
+          FROM analytics.stock_movements m
+          LEFT JOIN commercial.warehouses w ON w.id = m.warehouse_id
+          WHERE m.tenant_id = ? AND m.doc_code = 'TrsfRcv' AND m.parent_group = '41' AND m.doc_date BETWEEN ? AND ?
+          GROUP BY m.warehouse_id, w.code, w.name, m.folio, m.parent_serie, m.parent_folio
+        ), paired AS (
+          SELECT s.warehouse_id AS origin_wh_id, s.wh_code AS origin_wh, s.qty AS qty_sent, s.amount,
+                 r.warehouse_id AS dest_wh_id, r.wh_code AS dest_wh, r.qty AS qty_received,
+                 CASE WHEN abs(coalesce(s.qty,0) - coalesce(r.qty,0)) < 0.01 THEN 'ok' ELSE 'diferencia' END AS status
+          FROM rcv r
+          JOIN LATERAL (
+            SELECT * FROM shp s WHERE s.folio = r.parent_folio
+              AND coalesce(s.doc_serie,'') = coalesce(r.parent_serie,'')
+              AND s.warehouse_id <> r.warehouse_id
+              AND s.doc_date <= r.doc_date AND s.doc_date >= r.doc_date - 15
+            ORDER BY abs(coalesce(s.qty,0) - coalesce(r.qty,0)) ASC, abs(s.doc_date - r.doc_date) ASC
+            LIMIT 1
+          ) s ON true
+        ), unreceived AS (
+          SELECT s.warehouse_id AS origin_wh_id, s.wh_code AS origin_wh, s.qty AS qty_sent, s.amount,
+                 dm.warehouse_id AS dest_wh_id, coalesce(dw.name, dw.code, s.dest_label, s.dest_code) AS dest_wh,
+                 0::numeric AS qty_received, 'sin_recepcion' AS status
+          FROM shp s
+          LEFT JOIN analytics.transfer_dest_map dm ON dm.tenant_id = ? AND dm.dest_code = s.dest_code
+          LEFT JOIN commercial.warehouses dw ON dw.id = dm.warehouse_id
+          WHERE NOT EXISTS (
+            SELECT 1 FROM rcv r WHERE r.parent_folio = s.folio
+              AND coalesce(r.parent_serie,'') = coalesce(s.doc_serie,'')
+              AND r.warehouse_id <> s.warehouse_id
+              AND r.doc_date >= s.doc_date AND r.doc_date <= s.doc_date + 15)
+        )
+        SELECT origin_wh_id, origin_wh, dest_wh_id, dest_wh,
+               SUM(qty_sent)::numeric AS qty_sent, SUM(qty_received)::numeric AS qty_received,
+               SUM(amount)::numeric AS amount, (SUM(qty_received) - SUM(qty_sent))::numeric AS delta_qty,
+               count(*) FILTER (WHERE status='ok')::int AS n_ok,
+               count(*) FILTER (WHERE status='diferencia')::int AS n_diferencia,
+               count(*) FILTER (WHERE status='sin_recepcion')::int AS n_sin_recepcion
+        FROM (SELECT * FROM paired UNION ALL SELECT * FROM unreceived) t
+        GROUP BY origin_wh_id, origin_wh, dest_wh_id, dest_wh
+        ORDER BY SUM(amount) DESC NULLS LAST
+        LIMIT 300
+      `, [tenantId, from, to, tenantId, from, to, tenantId])).rows;
+      const totals = {
+        qty_sent: 0, qty_received: 0, amount: 0,
+        n_ok: 0, n_diferencia: 0, n_sin_recepcion: 0,
+      };
+      for (const r of rows) {
+        totals.qty_sent += Number(r.qty_sent) || 0;
+        totals.qty_received += Number(r.qty_received) || 0;
+        totals.amount += Number(r.amount) || 0;
+        totals.n_ok += r.n_ok; totals.n_diferencia += r.n_diferencia; totals.n_sin_recepcion += r.n_sin_recepcion;
+      }
+      return { range: { from, to }, totals, rows };
+    });
+  }
+
   /** DM.6 — junta todo lo que necesita el export (docs englobados + totales + traspasos). */
   async exportData(q: MovementsQuery) {
     const PAGE = 500, MAX_PAGES = 10; // cap 5,000 docs por export

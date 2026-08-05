@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, inject, signal 
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { forkJoin } from 'rxjs';
 import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
 import { SelectModule } from 'primeng/select';
@@ -10,9 +11,11 @@ import { DatePickerModule } from 'primeng/datepicker';
 import { DialogModule } from 'primeng/dialog';
 import { TagModule } from 'primeng/tag';
 import { InputTextModule } from 'primeng/inputtext';
+import { TabsModule } from 'primeng/tabs';
 import {
   AlmacenMovimientosService, MovementsFilters, MovementsSummary,
   AggregateRow, FolioRow, MovementsFilterOpts, DocumentResponse, TransfersLedgerResponse,
+  TransfersMatrixResponse, TransfersCheckResponse, TransferCheckRow,
 } from '../almacen-movimientos.service';
 import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
@@ -30,7 +33,7 @@ import { Permission } from '../../../core/constants/permissions';
 @Component({
   selector: 'app-almacen-movimientos',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, TableModule, SelectModule, MultiSelectModule, DatePickerModule, DialogModule, TagModule, InputTextModule],
+  imports: [CommonModule, FormsModule, ButtonModule, TableModule, SelectModule, MultiSelectModule, DatePickerModule, DialogModule, TagModule, InputTextModule, TabsModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="surf-page in dm-page">
@@ -47,11 +50,18 @@ import { Permission } from '../../../core/constants/permissions';
               <span class="dm-strong">{{ money(s.totals.valor) }}</span> · {{ s.totals.documentos | number }} docs
             </div>
           }
-          <button pButton type="button" class="p-button-sm" [class.p-button-outlined]="!ledgerOpen()" (click)="toggleLedger()" title="Conciliación contable de traspasos (mayor 515): ¿cuadran las entradas con las salidas?"><span class="p-button-icon p-button-icon-left pi pi-book" aria-hidden="true"></span><span class="p-button-label">Cuadre contable</span></button>
           <button pButton type="button" class="p-button-sm p-button-outlined" [loading]="dlXlsx()" (click)="download('xlsx')" title="Documentos + validación de traspasos (filtros actuales)"><span class="p-button-icon p-button-icon-left pi pi-file-excel" aria-hidden="true"></span><span class="p-button-label">Excel</span></button>
           <button pButton type="button" class="p-button-sm p-button-outlined" [loading]="dlPdf()" (click)="download('pdf')" title="Documentos + validación de traspasos (filtros actuales)"><span class="p-button-icon p-button-icon-left pi pi-file-pdf" aria-hidden="true"></span><span class="p-button-label">PDF</span></button>
         </div>
       </header>
+
+      <p-tabs [value]="activeTab()" (valueChange)="onTab($any($event))" styleClass="dm-tabs">
+        <p-tablist>
+          <p-tab value="diario"><i class="pi pi-book" aria-hidden="true"></i> Diario</p-tab>
+          <p-tab value="cuadre"><i class="pi pi-sitemap" aria-hidden="true"></i> Cuadre de traspasos</p-tab>
+        </p-tablist>
+        <p-tabpanels>
+        <p-tabpanel value="diario">
 
       <!-- Filtros -->
       <div class="dm-filters">
@@ -86,55 +96,6 @@ import { Permission } from '../../../core/constants/permissions';
           <span>{{ error() }}</span>
           <button pButton type="button" class="p-button-sm p-button-text" (click)="reload()"><span class="p-button-label">Reintentar</span></button>
         </div>
-      }
-
-      <!-- DM.12 — Conciliación contable de traspasos (mayor 515) -->
-      @if (ledgerOpen()) {
-        <section class="dm-ledger">
-          @if (ledgerLoading()) { <div class="dm-empty">Cargando cuadre contable…</div> }
-          @else if (ledger(); as lg) {
-            <header class="dm-ledger-head">
-              <div>
-                <h2 class="dm-ledger-title"><i class="pi pi-book" aria-hidden="true"></i> Cuadre contable de traspasos <span class="dm-muted">· mayor 515</span></h2>
-                <p class="dm-ledger-sub">La cuenta puente debe netear <strong>$0</strong>: cada salida (515-002) tiene su entrada (515-001). Δ ≠ 0 = traspasos sin cuadrar o en tránsito al corte. Vista de red — ignora el filtro de almacén.</p>
-              </div>
-              <div class="dm-ledger-total" [class.ok]="ledgerOk(lg.totals.delta, lg.totals.entrada)" [class.bad]="!ledgerOk(lg.totals.delta, lg.totals.entrada)">
-                <span class="dm-ledger-total-lbl">Descuadre acumulado</span>
-                <span class="dm-ledger-total-val">{{ signed(lg.totals.delta) }}</span>
-              </div>
-            </header>
-            <div class="dm-ledger-grid">
-              <div>
-                <table class="dm-docs dm-ledger-tbl">
-                  <thead><tr><th>Mes</th><th class="dm-r">Entrada</th><th class="dm-r">Salida</th><th class="dm-r">Δ descuadre</th></tr></thead>
-                  <tbody>
-                    @for (m of lg.rows; track m.anio_mes) {
-                      <tr><td class="dm-strong">{{ m.anio_mes }}</td>
-                        <td class="dm-r up">{{ money(m.entrada) }}</td>
-                        <td class="dm-r down">{{ money(m.salida) }}</td>
-                        <td class="dm-r dm-delta" [class.ok]="ledgerOk(m.delta, m.entrada)" [class.bad]="!ledgerOk(m.delta, m.entrada)">{{ ledgerOk(m.delta, m.entrada) ? 'cuadra' : signed(m.delta) }}</td></tr>
-                    } @empty { <tr><td colspan="4" class="dm-empty">Sin datos contables de traspasos en el rango.</td></tr> }
-                  </tbody>
-                </table>
-              </div>
-              @if (lg.by_sucursal.length) {
-                <div>
-                  <table class="dm-docs dm-ledger-tbl">
-                    <thead><tr><th>Sucursal</th><th class="dm-r">Entrada</th><th class="dm-r">Salida</th><th class="dm-r">Δ descuadre</th></tr></thead>
-                    <tbody>
-                      @for (s of lg.by_sucursal; track s.sucursal) {
-                        <tr><td class="dm-strong">{{ s.sucursal }}</td>
-                          <td class="dm-r up">{{ money(s.entrada) }}</td>
-                          <td class="dm-r down">{{ money(s.salida) }}</td>
-                          <td class="dm-r dm-delta" [class.ok]="ledgerOk(s.delta, s.entrada)" [class.bad]="!ledgerOk(s.delta, s.entrada)">{{ ledgerOk(s.delta, s.entrada) ? 'cuadra' : signed(s.delta) }}</td></tr>
-                      }
-                    </tbody>
-                  </table>
-                </div>
-              }
-            </div>
-          } @else { <div class="dm-empty">Sin datos contables de traspasos en el rango.</div> }
-        </section>
       }
 
       <!-- Tabla por DÍA (expandible) -->
@@ -213,6 +174,139 @@ import { Permission } from '../../../core/constants/permissions';
           <tr><td colspan="6" class="dm-empty">Sin movimientos en el rango seleccionado.</td></tr>
         </ng-template>
       </p-table>
+        </p-tabpanel>
+
+        <!-- ═══ CUADRE DE TRASPASOS (informe desglosado) ═══ -->
+        <p-tabpanel value="cuadre">
+          <div class="dm-cuadre-bar">
+            <span class="dm-muted">Rango:</span>
+            <p-datepicker [(ngModel)]="cFrom" dateFormat="yy-mm-dd" placeholder="Desde" [showIcon]="true" styleClass="dm-date" appendTo="body"></p-datepicker>
+            <p-datepicker [(ngModel)]="cTo" dateFormat="yy-mm-dd" placeholder="Hasta" [showIcon]="true" styleClass="dm-date" appendTo="body"></p-datepicker>
+            <button pButton type="button" class="p-button-sm" (click)="loadCuadre()" [loading]="cuadreLoading()"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span><span class="p-button-label">Actualizar</span></button>
+            <span class="dm-muted dm-cuadre-note">Vista de red — ignora el filtro de almacén del Diario.</span>
+          </div>
+
+          @if (cuadreLoading()) { <div class="dm-empty">Cargando informe de cuadre…</div> }
+          @else {
+            <!-- ── Bloque CONTABLE (balanza Kepler, mayor 515) ── -->
+            @if (ledger(); as lg) {
+              <section class="dm-block">
+                <header class="dm-block-head">
+                  <div>
+                    <h2 class="dm-block-title"><i class="pi pi-book" aria-hidden="true"></i> Cuadre contable · mayor 515 «Ajuste traspasos internos»</h2>
+                    <p class="dm-block-sub">Cuenta puente: cada salida (515-002) debe tener su entrada (515-001) → el mayor debe netear <strong>$0</strong>. Δ ≠ 0 = traspasos sin cuadrar o en tránsito al corte.</p>
+                  </div>
+                  <div class="dm-total" [class.ok]="ledgerOk(lg.totals.delta, lg.totals.entrada)" [class.bad]="!ledgerOk(lg.totals.delta, lg.totals.entrada)">
+                    <span class="dm-total-lbl">Descuadre acumulado</span>
+                    <span class="dm-total-val">{{ signed(lg.totals.delta) }}</span>
+                  </div>
+                </header>
+
+                <!-- Desglose POR SUBCUENTA -->
+                <div class="dm-subacc">
+                  <div class="dm-subacc-card"><span class="dm-subacc-code up">515-001 · Entrada</span><span class="dm-subacc-val up">{{ money(lg.totals.entrada) }}</span></div>
+                  <div class="dm-subacc-card"><span class="dm-subacc-code down">515-002 · Salida</span><span class="dm-subacc-val down">{{ money(lg.totals.salida) }}</span></div>
+                  <div class="dm-subacc-card"><span class="dm-subacc-code">Δ neto</span><span class="dm-subacc-val" [class.up]="lg.totals.delta>0" [class.down]="lg.totals.delta<0">{{ signed(lg.totals.delta) }}</span></div>
+                </div>
+
+                <div class="dm-block-grid">
+                  <!-- Serie mensual + tendencia -->
+                  <div>
+                    <h3 class="dm-h3">Serie mensual + tendencia</h3>
+                    <table class="dm-docs dm-tbl">
+                      <thead><tr><th>Mes</th><th class="dm-r">Entrada</th><th class="dm-r">Salida</th><th class="dm-r">Δ</th><th class="dm-r">% desc.</th><th class="dm-r">Acumulado</th></tr></thead>
+                      <tbody>
+                        @for (m of ledgerRowsAcc(); track m.anio_mes) {
+                          <tr><td class="dm-strong">{{ m.anio_mes }}</td>
+                            <td class="dm-r up">{{ money(m.entrada) }}</td>
+                            <td class="dm-r down">{{ money(m.salida) }}</td>
+                            <td class="dm-r dm-delta" [class.ok]="ledgerOk(m.delta, m.entrada)" [class.bad]="!ledgerOk(m.delta, m.entrada)">{{ ledgerOk(m.delta, m.entrada) ? 'cuadra' : signed(m.delta) }}</td>
+                            <td class="dm-r dm-muted">{{ pctDesc(m.delta, m.entrada) }}</td>
+                            <td class="dm-r dm-strong" [class.bad]="!ledgerOk(m.acumulado, m.entrada)">{{ signed(m.acumulado) }}</td></tr>
+                        } @empty { <tr><td colspan="6" class="dm-empty">Sin datos contables de traspasos en el rango.</td></tr> }
+                      </tbody>
+                    </table>
+                  </div>
+                  <!-- Por sucursal -->
+                  @if (lg.by_sucursal.length) {
+                    <div>
+                      <h3 class="dm-h3">Por sucursal</h3>
+                      <table class="dm-docs dm-tbl">
+                        <thead><tr><th>Sucursal</th><th class="dm-r">Entrada</th><th class="dm-r">Salida</th><th class="dm-r">Δ descuadre</th></tr></thead>
+                        <tbody>
+                          @for (s of lg.by_sucursal; track s.sucursal) {
+                            <tr><td class="dm-strong">{{ s.sucursal }}</td>
+                              <td class="dm-r up">{{ money(s.entrada) }}</td>
+                              <td class="dm-r down">{{ money(s.salida) }}</td>
+                              <td class="dm-r dm-delta" [class.ok]="ledgerOk(s.delta, s.entrada)" [class.bad]="!ledgerOk(s.delta, s.entrada)">{{ ledgerOk(s.delta, s.entrada) ? 'cuadra' : signed(s.delta) }}</td></tr>
+                          }
+                        </tbody>
+                      </table>
+                    </div>
+                  }
+                </div>
+              </section>
+            } @else { <div class="dm-empty">Sin datos contables de traspasos en el rango.</div> }
+
+            <!-- ── Bloque FÍSICO (feed de movimientos, TrsfShip ⇄ TrsfRcv) ── -->
+            <section class="dm-block">
+              <h2 class="dm-block-title"><i class="pi pi-sitemap" aria-hidden="true"></i> Flujo físico origen → destino <span class="dm-muted">· feed de movimientos</span></h2>
+              <p class="dm-block-sub">Pareo de cada salida física con su recepción. Le pone cara (qué sucursales) y folio al descuadre contable.</p>
+
+              <!-- Matriz origen → destino -->
+              <h3 class="dm-h3">Matriz origen → destino</h3>
+              @if (matrix(); as mx) {
+                <table class="dm-docs dm-tbl">
+                  <thead><tr><th>Origen</th><th>Destino</th><th class="dm-r">Enviado</th><th class="dm-r">Recibido</th><th class="dm-r">Δ pzs</th><th class="dm-r">Valor</th><th class="dm-r">OK / dif / s.rec.</th></tr></thead>
+                  <tbody>
+                    @for (r of mx.rows; track r.origin_wh_id + '>' + r.dest_wh_id) {
+                      <tr>
+                        <td class="dm-strong">{{ r.origin_wh || '—' }}</td>
+                        <td>{{ r.dest_wh || '(sin destino)' }}</td>
+                        <td class="dm-r">{{ r.qty_sent | number:'1.0-0' }}</td>
+                        <td class="dm-r">{{ r.qty_received | number:'1.0-0' }}</td>
+                        <td class="dm-r dm-delta" [class.ok]="matrixQtyOk(r.delta_qty)" [class.bad]="!matrixQtyOk(r.delta_qty)">{{ matrixQtyOk(r.delta_qty) ? 'cuadra' : (r.delta_qty>0?'+':'') + (r.delta_qty | number:'1.0-0') }}</td>
+                        <td class="dm-r dm-strong">{{ money(r.amount) }}</td>
+                        <td class="dm-r dm-muted"><span class="up">{{ r.n_ok }}</span> / <span [class.down]="r.n_diferencia>0">{{ r.n_diferencia }}</span> / <span [class.down]="r.n_sin_recepcion>0">{{ r.n_sin_recepcion }}</span></td>
+                      </tr>
+                    } @empty { <tr><td colspan="7" class="dm-empty">Sin traspasos físicos en el rango (el feed de movimientos no trae TrsfShip/TrsfRcv en este período).</td></tr> }
+                  </tbody>
+                </table>
+              } @else { <div class="dm-empty">Sin datos.</div> }
+
+              <!-- Drill: folios sin cuadrar -->
+              <h3 class="dm-h3">Traspasos sin cuadrar <span class="dm-muted">(clic para abrir el documento)</span></h3>
+              @if (check(); as ck) {
+                <table class="dm-docs dm-tbl">
+                  <thead><tr><th>Estado</th><th>Origen</th><th>Folio</th><th>Destino</th><th class="dm-r">Enviado</th><th class="dm-r">Recibido</th><th class="dm-r">Δ pzs</th><th>Fecha</th></tr></thead>
+                  <tbody>
+                    @for (r of unmatched(); track r.origin_folio + '|' + r.rcv_folio + '|' + r.origin_wh_id) {
+                      <tr class="dm-row" (click)="openTransfer(r)">
+                        <td><p-tag [value]="checkLabel(r.status)" [severity]="checkSev(r.status)" styleClass="dm-tag"></p-tag></td>
+                        <td class="dm-strong">{{ r.origin_wh || '—' }}</td>
+                        <td class="dm-mono dm-link">{{ r.origin_folio || r.rcv_folio || '—' }}</td>
+                        <td>{{ r.dest_wh || '—' }}</td>
+                        <td class="dm-r">{{ r.qty_sent != null ? (r.qty_sent | number:'1.0-0') : '—' }}</td>
+                        <td class="dm-r">{{ r.qty_received != null ? (r.qty_received | number:'1.0-0') : '—' }}</td>
+                        <td class="dm-r down">{{ r.delta > 0 ? '+' : '' }}{{ r.delta | number:'1.0-0' }}</td>
+                        <td class="dm-muted">{{ (r.ship_date || r.rcv_date) | date:'yyyy-MM-dd' }}</td>
+                      </tr>
+                    } @empty { <tr><td colspan="8" class="dm-empty">No hay traspasos sin cuadrar en el rango. 🎉</td></tr> }
+                  </tbody>
+                </table>
+                @if (ck.rows.length) {
+                  <div class="dm-check-foot dm-muted">
+                    {{ ck.totals.ok }} ok · <span [class.down]="ck.totals.diferencia>0">{{ ck.totals.diferencia }} con diferencia</span> ·
+                    <span [class.down]="ck.totals.sin_recepcion>0">{{ ck.totals.sin_recepcion }} sin recepción</span> ·
+                    <span [class.down]="ck.totals.sin_origen>0">{{ ck.totals.sin_origen }} sin origen</span>
+                  </div>
+                }
+              } @else { <div class="dm-empty">Sin datos.</div> }
+            </section>
+          }
+        </p-tabpanel>
+        </p-tabpanels>
+      </p-tabs>
     </div>
 
     <!-- Documento + relación + contraparte -->
@@ -332,19 +426,27 @@ import { Permission } from '../../../core/constants/permissions';
     .dm-empty { color: var(--text-muted); padding: 1rem; text-align: center; }
     .dm-error { display: flex; align-items: center; gap: .5rem; font-size: .82rem; padding: .55rem .8rem; margin: .5rem 0; border-radius: var(--r-sm); background: var(--bad-soft-bg); color: var(--bad-soft-fg); border: 1px solid var(--bad-border); }
     .dm-error span { margin-right: auto; }
-    /* DM.12 — cuadre contable */
-    .dm-ledger { border: 1px solid var(--border-color); border-radius: var(--r-sm); background: var(--card-bg); padding: .75rem .9rem; margin: .25rem 0 .75rem; }
-    .dm-ledger-head { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: .75rem 1rem; margin-bottom: .6rem; }
-    .dm-ledger-title { margin: 0; font-size: .95rem; font-weight: 700; display: flex; align-items: center; gap: .4rem; }
-    .dm-ledger-sub { margin: .2rem 0 0; font-size: .76rem; color: var(--text-muted); max-width: 46rem; }
-    .dm-ledger-total { display: flex; flex-direction: column; align-items: flex-end; padding: .35rem .7rem; border-radius: var(--r-sm); border: 1px solid var(--border-color); white-space: nowrap; }
-    .dm-ledger-total.ok { background: var(--ok-soft-bg); border-color: var(--ok-border); color: var(--ok-soft-fg); }
-    .dm-ledger-total.bad { background: var(--bad-soft-bg); border-color: var(--bad-border); color: var(--bad-soft-fg); }
-    .dm-ledger-total-lbl { font-size: .68rem; text-transform: uppercase; letter-spacing: .03em; }
-    .dm-ledger-total-val { font-size: 1.05rem; font-weight: 800; font-variant-numeric: tabular-nums; }
-    .dm-ledger-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
-    @media (max-width: 52rem) { .dm-ledger-grid { grid-template-columns: 1fr; } }
-    .dm-ledger-tbl { font-size: .8rem; }
+    /* DM.12 — informe de cuadre de traspasos */
+    .dm-cuadre-bar { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; margin: .25rem 0 1rem; }
+    .dm-cuadre-note { margin-left: .25rem; font-size: .76rem; }
+    .dm-block { border: 1px solid var(--border-color); border-radius: var(--r-sm); background: var(--card-bg); padding: .8rem .9rem; margin-bottom: 1rem; }
+    .dm-block-head { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: .75rem 1rem; }
+    .dm-block-title { margin: 0; font-size: .95rem; font-weight: 700; display: flex; align-items: center; gap: .4rem; }
+    .dm-block-sub { margin: .2rem 0 .6rem; font-size: .76rem; color: var(--text-muted); max-width: 52rem; }
+    .dm-total { display: flex; flex-direction: column; align-items: flex-end; padding: .35rem .7rem; border-radius: var(--r-sm); border: 1px solid var(--border-color); white-space: nowrap; }
+    .dm-total.ok { background: var(--ok-soft-bg); border-color: var(--ok-border); color: var(--ok-soft-fg); }
+    .dm-total.bad { background: var(--bad-soft-bg); border-color: var(--bad-border); color: var(--bad-soft-fg); }
+    .dm-total-lbl { font-size: .68rem; text-transform: uppercase; letter-spacing: .03em; }
+    .dm-total-val { font-size: 1.05rem; font-weight: 800; font-variant-numeric: tabular-nums; }
+    .dm-subacc { display: flex; flex-wrap: wrap; gap: .6rem; margin: .3rem 0 .8rem; }
+    .dm-subacc-card { display: flex; flex-direction: column; gap: .1rem; padding: .4rem .7rem; border: 1px solid var(--border-color); border-radius: var(--r-sm); min-width: 11rem; }
+    .dm-subacc-code { font-size: .72rem; font-weight: 600; }
+    .dm-subacc-val { font-size: 1rem; font-weight: 800; font-variant-numeric: tabular-nums; }
+    .dm-block-grid { display: grid; grid-template-columns: 1.3fr 1fr; gap: 1.2rem; }
+    @media (max-width: 60rem) { .dm-block-grid { grid-template-columns: 1fr; } }
+    .dm-h3 { margin: .6rem 0 .3rem; font-size: .74rem; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; color: var(--text-muted); }
+    .dm-tbl { font-size: .8rem; width: 100%; }
+    .dm-check-foot { margin-top: .4rem; font-size: .76rem; }
     .dm-delta { font-variant-numeric: tabular-nums; font-weight: 600; }
     .dm-delta.ok { color: var(--text-muted); font-weight: 400; }
     .dm-delta.bad { color: var(--bad-fg); }
@@ -449,26 +551,70 @@ export class AlmacenMovimientosComponent implements OnInit {
   dlXlsx = signal(false);
   dlPdf = signal(false);
 
-  // DM.12 — conciliación contable de traspasos (mayor 515)
-  ledgerOpen = signal(false);
-  ledgerLoading = signal(false);
-  ledger = signal<TransfersLedgerResponse | null>(null);
+  // DM.12 — pestaña "Cuadre de traspasos" (informe desglosado)
+  activeTab = signal<string>('diario');
+  cFrom: Date = new Date(new Date().getFullYear(), 0, 1); // 1-ene del año en curso
+  cTo: Date = new Date();
+  cuadreLoaded = signal(false);
+  cuadreLoading = signal(false);
+  ledger = signal<TransfersLedgerResponse | null>(null);       // contable (mayor 515)
+  matrix = signal<TransfersMatrixResponse | null>(null);       // físico origen→destino
+  check = signal<TransfersCheckResponse | null>(null);         // físico folio a folio
 
-  /** Abre/cierra el panel de cuadre contable; carga (o recarga) al abrir. */
-  toggleLedger(): void {
-    const open = !this.ledgerOpen();
-    this.ledgerOpen.set(open);
-    if (open) this.loadLedger();
+  /** Cambio de pestaña; carga el informe la 1ª vez que se entra a "cuadre". */
+  onTab(v: string | number): void {
+    const tab = String(v);
+    this.activeTab.set(tab);
+    if (tab === 'cuadre' && !this.cuadreLoaded()) this.loadCuadre();
   }
 
-  private loadLedger(): void {
-    this.ledgerLoading.set(true);
-    this.api.transfersLedger(this.currentFilters())
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({
-        next: (r) => { this.ledger.set(r); this.ledgerLoading.set(false); },
-        error: () => { this.ledger.set(null); this.ledgerLoading.set(false); },
-      });
+  /** Carga los 3 lentes del informe (contable + matriz + folios) para el rango propio. */
+  loadCuadre(): void {
+    const f: MovementsFilters = { from: this.iso(this.cFrom), to: this.iso(this.cTo) };
+    this.cuadreLoading.set(true);
+    forkJoin({
+      ledger: this.api.transfersLedger(f),
+      matrix: this.api.transfersMatrix(f),
+      check: this.api.transfersCheck(f),
+    }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => {
+        this.ledger.set(r.ledger); this.matrix.set(r.matrix); this.check.set(r.check);
+        this.cuadreLoading.set(false); this.cuadreLoaded.set(true);
+      },
+      error: () => { this.cuadreLoading.set(false); this.cuadreLoaded.set(true); },
+    });
+  }
+
+  /** Serie mensual contable con acumulado corriente del descuadre. */
+  ledgerRowsAcc(): (TransfersLedgerResponse['rows'][number] & { acumulado: number })[] {
+    const rows = this.ledger()?.rows ?? [];
+    let acc = 0;
+    return rows.map((m) => { acc += Number(m.delta) || 0; return { ...m, acumulado: acc }; });
+  }
+  /** % de descuadre del mes = |Δ| / entrada. */
+  pctDesc(delta: number, entrada: number): string {
+    const e = Math.abs(Number(entrada) || 0);
+    if (!e) return '—';
+    return ((Math.abs(Number(delta) || 0) / e) * 100).toLocaleString('es-MX', { maximumFractionDigits: 1 }) + '%';
+  }
+  /** Filas físicas sin cuadrar (todo lo que no es 'ok'), ya vienen priorizadas del backend. */
+  unmatched(): TransferCheckRow[] {
+    return (this.check()?.rows ?? []).filter((r) => r.status !== 'ok');
+  }
+  matrixQtyOk(delta: number): boolean { return Math.abs(Number(delta) || 0) < 0.01; }
+  checkLabel(s: string): string {
+    return s === 'diferencia' ? 'Diferencia' : s === 'sin_recepcion' ? 'Sin recepción' : s === 'sin_origen' ? 'Sin origen' : 'OK';
+  }
+  checkSev(s: string): 'success' | 'warn' | 'danger' | 'info' {
+    return s === 'ok' ? 'success' : s === 'diferencia' ? 'danger' : s === 'sin_recepcion' ? 'warn' : 'info';
+  }
+  /** Drill: abre el documento del traspaso sin cuadrar (la salida; si no hay origen, la recepción). */
+  openTransfer(r: TransferCheckRow): void {
+    if (r.origin_folio && r.origin_wh_id) {
+      this.openDocument({ folio: r.origin_folio, warehouse_id: r.origin_wh_id, doc_code: 'TrsfShip', doc_serie: r.doc_serie } as FolioRow);
+    } else if (r.rcv_folio && r.dest_wh_id) {
+      this.openDocument({ folio: r.rcv_folio, warehouse_id: r.dest_wh_id, doc_code: 'TrsfRcv', doc_serie: null } as FolioRow);
+    }
   }
 
   /** Cuadra si |Δ| es despreciable: < $1 absoluto o < 0.1% de las entradas del período. */
@@ -538,7 +684,6 @@ export class AlmacenMovimientosComponent implements OnInit {
       error: () => { this.days.set([]); this.loading.set(false); this.error.set('No se pudieron cargar los movimientos. Revisá la conexión e intentá de nuevo.'); },
     });
     this.api.summary(this.currentFilters()).pipe(takeUntilDestroyed(this.destroyRef)).subscribe(s => this.summary.set(s));
-    if (this.ledgerOpen()) this.loadLedger();
   }
 
   /** Al expandir un día, carga sus documentos (lazy, cacheado). */
