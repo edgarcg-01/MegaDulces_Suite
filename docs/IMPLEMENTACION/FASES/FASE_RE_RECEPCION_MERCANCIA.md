@@ -112,7 +112,8 @@ Detalle verificado en memoria `reference_kepler_reception_flow`.
   - **Comercial ≈ $8.2M** (descuento $6.4M + apoyo de marca $1.05M + pronto pago $718k).
   - **Facturas duplicadas $6.74M** ⚠️ = error de captura, **NO descuento** → control aparte.
   - Sin motivo $4.0M (c24 en blanco → Haiku/manual) · operacional/otro ~$1.8M. El "otro" bajó de $9.18M a $924k.
-- **Falta:** aplicar migración + `--apply` (LAN) · importar `c84` del pago · página "Descuentos y apoyos" (proveedor/marca/tipo) · reconciliación notas vs `c84` (solapamiento) · Haiku para el tail sin-motivo.
+- **✅ Frontend (2026-08-05):** página `/compras/descuentos` (Operations: KPIs por grupo + filtros grupo/doctype/search + tabla + panel top proveedores) + ruta lazy + nav (`COMPRAS_VER`). Build view OK. → **vertical completo LOCAL: data → backend → frontend.**
+- **Falta (prod/next):** aplicar migración + `--apply` en Railway/LAN + redeploy api/view + **QA visual** · importar `c84` del pago · reconciliación notas vs `c84` (solapamiento) · Haiku para el tail sin-motivo · **detector de facturas duplicadas** ($6.7M → `finance.findings`).
 - **Hallazgo:** **$6.74M/año de facturas duplicadas** revertidas por NC → detector de control (patrón Maat).
 - **Reuso:** `LlmExtractorService` (Haiku), detectores Maat, `erp_supplier_payments`.
 
