@@ -18,7 +18,7 @@ import { LoadStateComponent } from '../../../shared/components/load-state/load-s
 import { FINANZAS_TABS } from '../finanzas-tabs';
 import { AuthService } from '../../../core/services/auth.service';
 import { Permission } from '../../../core/constants/permissions';
-import { CobranzaService, CobroRow, CobrosReport, DepositOcr, DepositFile, CobroDetail } from '../cobranza.service';
+import { CobranzaService, CobroRow, CobrosReport, DepositOcr, DepositFile, CobroDetail, UnmatchedBankReport, UnmatchedBankRow, CobroCandidate } from '../cobranza.service';
 
 /**
  * CC — "Comprobantes de Cobranza". Lista los cobros de Kepler (documento UA0501)
@@ -44,6 +44,11 @@ import { CobranzaService, CobroRow, CobrosReport, DepositOcr, DepositFile, Cobro
         </div>
       </header>
 
+      <div class="cb-mode">
+        <app-segmented [options]="modeOpts" [value]="mode()" (valueChange)="setMode($event)" ariaLabel="Vista" />
+      </div>
+
+      @if (mode() === 'cobros') {
       <div class="cb-filters card-premium card-flat">
         <div class="cb-field"><label>Estado</label>
           <app-segmented [options]="estadoOpts" [value]="estadoSel()" (valueChange)="setEstado($event)" ariaLabel="Estado del comprobante" /></div>
@@ -108,7 +113,83 @@ import { CobranzaService, CobroRow, CobrosReport, DepositOcr, DepositFile, Cobro
         </p-table>
       </div>
       }
+      } @else {
+        <!-- Caso B: abonos en banco sin cobro -->
+        <div class="cb-filters card-premium card-flat">
+          <div class="cb-field"><label>Solo huérfanos</label>
+            <app-segmented [options]="huerfanoOpts" [value]="soloHuerfanos()" (valueChange)="setHuerfanos($event)" ariaLabel="Filtrar huérfanos" /></div>
+          <div class="cb-field cb-grow"><label>Buscar concepto</label>
+            <input pInputText [(ngModel)]="searchB" placeholder="Concepto del abono…" (keyup.enter)="loadBanco()" (blur)="queueBanco()" /></div>
+        </div>
+        @if (bancoReport(); as r) { <app-metric-strip [items]="bancoKpis(r)" ariaLabel="Resumen abonos" /> }
+        @if (errorB()) {
+          <app-load-state [error]="errorB()" (retry)="loadBanco()"></app-load-state>
+        } @else {
+        <div class="card-premium card-flat">
+          <p-table [value]="bancoRows()" styleClass="p-datatable-sm cb-table" [rowHover]="true" [scrollable]="true" scrollHeight="62vh"
+                   [paginator]="bancoRows().length > 150" [rows]="150" [loading]="loadingB()">
+            <ng-template #header>
+              <tr>
+                <th style="width:6rem">Fecha</th>
+                <th style="width:9rem">Cuenta</th>
+                <th class="ta-r" style="width:9rem">Abono</th>
+                <th>Concepto</th>
+                <th style="width:11rem">Origen</th>
+                <th style="width:8rem">Acción</th>
+              </tr>
+            </ng-template>
+            <ng-template #body let-m>
+              <tr [class.cb-row-huerfano]="!m.tiene_candidato">
+                <td>{{ m.movement_date | date:'dd/MM/yy' }}</td>
+                <td class="mono">{{ m.bank }} {{ m.account_label }}</td>
+                <td class="ta-r strong">{{ money(m.amount_in) }}</td>
+                <td class="muted cb-concepto" [title]="m.concept">{{ m.concept || '—' }}</td>
+                <td>
+                  @if (m.tiene_candidato) { <span class="cb-orig ok"><i class="pi pi-link"></i> Hay cobro candidato</span> }
+                  @else { <span class="cb-orig bad"><i class="pi pi-exclamation-triangle"></i> Sin cobro (investigar)</span> }
+                </td>
+                <td>
+                  @if (m.tiene_candidato) {
+                    <button pButton type="button" size="small" text (click)="openLink(m)" title="Ligar a un cobro"><span class="p-button-icon p-button-icon-left pi pi-link" aria-hidden="true"></span><span class="p-button-label">Ligar</span></button>
+                  } @else { <span class="muted cb-sub">—</span> }
+                </td>
+              </tr>
+            </ng-template>
+            <ng-template #emptymessage><tr><td colspan="6" class="cb-empty">Sin abonos de cobranza pendientes para el filtro.</td></tr></ng-template>
+          </p-table>
+        </div>
+        }
+      }
     </div>
+
+    <!-- Diálogo: ligar abono → cobro (Caso B) -->
+    <p-dialog [(visible)]="showLink" [modal]="true" [style]="{ width: '42rem' }" [draggable]="false" header="Ligar abono a un cobro">
+      @if (linkMov(); as mv) {
+        <div class="cb-form">
+          <div class="cb-cobro">
+            <div><span class="cb-lbl">Abono</span><strong class="mono">{{ mv.bank }} {{ mv.account_label }}</strong></div>
+            <div><span class="cb-lbl">Fecha</span><strong>{{ mv.movement_date | date:'dd/MM/yy' }}</strong></div>
+            <div class="ta-r"><span class="cb-lbl">Monto</span><strong class="cb-monto">{{ money(mv.amount_in) }}</strong></div>
+          </div>
+          <div class="cb-fields-head">Cobros candidatos <em class="cb-auto">mismo monto (±$1) y fecha cercana, aún sin ligar</em></div>
+          @if (linkLoading()) { <div class="cb-view-loading"><i class="pi pi-spin pi-spinner"></i> Buscando cobros…</div> }
+          @else if (!linkCands().length) { <p class="muted">No se encontró un cobro candidato. Es un abono sin cobro — investígalo en Bancos.</p> }
+          @for (c of linkCands(); track c.folio) {
+            <div class="cb-cand">
+              <div class="cb-cand-info">
+                <strong class="mono">{{ c.sucursal }}/{{ c.folio }}</strong>
+                <span>{{ c.cliente_nombre || c.cliente_code || '—' }}</span>
+                <span class="cb-sub">{{ c.cobro_date | date:'dd/MM/yy' }} · {{ formaLabel(c.forma_pago) }} · {{ money(c.monto) }}</span>
+              </div>
+              <button pButton type="button" size="small" [loading]="linkingFolio() === c.folio" (click)="doLink(c)"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Ligar</span></button>
+            </div>
+          }
+        </div>
+        <ng-template #footer>
+          <button pButton type="button" text (click)="showLink.set(false)"><span class="p-button-label">Cerrar</span></button>
+        </ng-template>
+      }
+    </p-dialog>
 
     <!-- Diálogo: adjuntar ficha + OCR -->
     <p-dialog [(visible)]="showAttach" [modal]="true" [style]="{ width: '38rem' }" [draggable]="false" header="Adjuntar comprobante de depósito">
@@ -321,6 +402,15 @@ import { CobranzaService, CobroRow, CobrosReport, DepositOcr, DepositFile, Cobro
     .cb-bank-mov { display: grid; grid-template-columns: 6rem 4.5rem auto 1fr auto; gap: .5rem; align-items: center; color: var(--text-main); }
     .cb-bank-concept { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .cb-bank-by { font-size: .7rem; color: var(--text-muted); }
+    .cb-mode { margin-bottom: 1rem; }
+    .cb-row-huerfano { background: color-mix(in srgb, var(--bad-fg) 6%, transparent); }
+    .cb-orig { display: inline-flex; align-items: center; gap: .35rem; font-size: .78rem; }
+    .cb-orig.ok { color: var(--ok-fg); }
+    .cb-orig.bad { color: var(--bad-fg); }
+    .cb-orig i { font-size: .8rem; }
+    .cb-cand { display: flex; align-items: center; justify-content: space-between; gap: .8rem; border: 1px solid var(--border-color); border-radius: var(--r-sm, .4rem); padding: .5rem .7rem; }
+    .cb-cand-info { display: flex; flex-direction: column; gap: .1rem; }
+    .cb-cand-info > span { font-size: .82rem; color: var(--text-main); }
     .cb-empty { text-align: center; color: var(--text-muted); padding: 2rem; }
     .cb-form { display: flex; flex-direction: column; gap: .85rem; padding: .25rem 0; }
     .cb-cobro { display: flex; gap: 1.2rem; flex-wrap: wrap; align-items: flex-end; padding: .7rem .9rem; background: var(--surface-sunken, var(--card-bg)); border: 1px solid var(--border-color); border-radius: var(--r-md, .5rem); }
@@ -419,7 +509,67 @@ export class FinanzasCobranzaComponent {
   readonly viewData = signal<CobroDetail | null>(null);
   readonly viewTarget = signal<CobroRow | null>(null);
 
+  // Caso B: abonos en banco sin cobro
+  readonly mode = signal<'cobros' | 'banco'>('cobros');
+  readonly modeOpts = [{ label: 'Cobros', value: 'cobros' }, { label: 'Abonos sin cobro', value: 'banco' }];
+  readonly huerfanoOpts = [{ label: 'Todos', value: '' }, { label: 'Sin cobro', value: '1' }];
+  readonly soloHuerfanos = signal<string>('');
+  readonly bancoReport = signal<UnmatchedBankReport | null>(null);
+  readonly bancoRows = computed(() => this.bancoReport()?.rows || []);
+  readonly loadingB = signal(false);
+  readonly errorB = signal<string | null>(null);
+  searchB = '';
+  private timerB: ReturnType<typeof setTimeout> | null = null;
+  // link dialog
+  readonly showLink = signal(false);
+  readonly linkMov = signal<UnmatchedBankRow | null>(null);
+  readonly linkCands = signal<CobroCandidate[]>([]);
+  readonly linkLoading = signal(false);
+  readonly linkingFolio = signal<string | null>(null);
+
   constructor() { this.load(); }
+
+  setMode(v: string) { this.mode.set(v as 'cobros' | 'banco'); if (v === 'banco' && !this.bancoReport()) this.loadBanco(); }
+  setHuerfanos(v: string) { this.soloHuerfanos.set(v); this.loadBanco(); }
+  queueBanco() { if (this.timerB) clearTimeout(this.timerB); this.timerB = setTimeout(() => this.loadBanco(), 300); }
+
+  bancoKpis(r: UnmatchedBankReport): MetricStripItem[] {
+    return [
+      { label: 'Abonos sin ligar', value: r.kpis.abonos },
+      { label: '$ sin conciliar', value: this.money(r.kpis.monto), tone: 'warn' },
+      { label: 'Sin cobro (investigar)', value: r.kpis.huerfanos, tone: r.kpis.huerfanos > 0 ? 'bad' : 'ok' },
+    ];
+  }
+
+  loadBanco() {
+    if (this.timerB) { clearTimeout(this.timerB); this.timerB = null; }
+    this.loadingB.set(true); this.errorB.set(null);
+    this.svc.unmatchedBank({ solo_huerfanos: this.soloHuerfanos() || undefined, search: this.searchB || undefined })
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (r) => { this.bancoReport.set(r); this.loadingB.set(false); },
+        error: () => { this.errorB.set('No se pudieron cargar los abonos.'); this.loadingB.set(false); },
+      });
+  }
+
+  openLink(m: UnmatchedBankRow) {
+    this.linkMov.set(m); this.linkCands.set([]); this.linkLoading.set(true); this.showLink.set(true);
+    this.svc.bankCandidates(m.id).pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (r) => { this.linkCands.set(r.cobros); this.linkLoading.set(false); },
+        error: () => { this.linkLoading.set(false); this.toast.add({ severity: 'error', summary: 'No se pudieron cargar candidatos' }); },
+      });
+  }
+  doLink(c: CobroCandidate) {
+    const m = this.linkMov();
+    if (!m || this.linkingFolio()) return;
+    this.linkingFolio.set(c.folio);
+    this.svc.linkBank(m.id, c.sucursal, c.folio).pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: () => { this.linkingFolio.set(null); this.showLink.set(false); this.toast.add({ severity: 'success', summary: 'Conciliado', detail: `Abono ligado al cobro ${c.sucursal}/${c.folio}` }); this.loadBanco(); },
+        error: (e) => { this.linkingFolio.set(null); this.toast.add({ severity: 'error', summary: 'No se pudo ligar', detail: e?.error?.message }); },
+      });
+  }
 
   kpiItems(r: CobrosReport): MetricStripItem[] {
     const items: MetricStripItem[] = [

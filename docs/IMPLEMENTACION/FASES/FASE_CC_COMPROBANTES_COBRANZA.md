@@ -36,7 +36,14 @@ Un cliente a crédito paga con transferencia/depósito y manda la ficha. Hoy esa
 | CC.3 Controles (cuenta propia + folio electrónico dedup) | ✅ 2026-08-04 | mig `20260804190000`; smoke 26/26; builds api+view OK |
 | CC.4 Three-way match (abono real en banco, CB) | ✅ 2026-08-04 | smoke 28/28; builds api+view OK; sin migración (read-only) |
 | CC.5 Persistir conciliación (bank_recon_matches) | ✅ 2026-08-04 | smoke 31/31; builds api+view OK; sin migración |
-| PROD migraciones | ✅ 2026-08-03 | Railway batch 154 (5 migs); tablas + RLS + 21 roles con VER verificados |
+| CC.6 Caso B — abonos en banco sin cobro (bank-first) | ✅ 2026-08-04 | smoke 34/34; builds api+view OK; sin migración |
+| PROD migraciones | ✅ 2026-08-04 | Railway **batch 158** (CC.3 `20260804190000` + 4 aditivas RA/smart-search) |
+
+### CC.6 — Caso B: el dinero entró pero NO hay cobro (bank-first)
+
+El inverso del three-way (banco → cobro). Nueva vista "Abonos sin cobro" en `/finanzas/cobranza` (toggle de modo): lista los movimientos de banco **clasificados como cobranza** (categoría CB `cobranza`, `amount_in>0`) que **NO están ligados** a ningún cobro (`whereNotExists bank_recon_matches`). Cada fila marca `tiene_candidato` (hay un cobro de mismo monto ±$1 y fecha cercana, sin ligar → **linkable**) vs **huérfano** (sin cobro → investigar, resaltado). Endpoints `GET /bank/unmatched`, `GET /bank/:id/candidates`, `POST /bank/:id/link` (bank-first, reusa `writeReconMatch`). KPIs: abonos sin ligar, $ sin conciliar, huérfanos.
+
+**Realidad de los datos (enero prod):** 2,906 abonos de cobranza sin ligar · **242 con candidato** (quick wins) · 2,664 "sin cobro". ⚠️ Ese 2,664 está **inflado por la granularidad banco-vs-Kepler** (banco = depósito en bulto que cubre N cobros; Kepler = por cobro) — NO son 2,664 huérfanos reales. El match 1:1 por monto solo caza los depósitos que casualmente = un cobro. El **Caso B preciso** necesita match por **suma de cobros = monto del abono** (agrupación), diferido. **Pendiente prod CC.6:** redeploy api+view.
 
 ### CC.5 — Persistir la conciliación (el cobro queda ligado a su abono, y CB lo ve)
 

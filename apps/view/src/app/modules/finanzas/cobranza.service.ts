@@ -106,6 +106,25 @@ export interface AttachDeposit {
   comentarios?: string;
 }
 
+/** Caso B — un abono en banco (cobranza) que no está ligado a ningún cobro. */
+export interface UnmatchedBankRow {
+  id: string; movement_date: string; amount_in: number; concept: string | null;
+  bank: string; account_label: string; tiene_candidato: boolean;
+}
+export interface UnmatchedBankReport {
+  kpis: { abonos: number; monto: number; huerfanos: number };
+  rows: UnmatchedBankRow[];
+}
+/** Un cobro candidato para ligar a un abono huérfano. */
+export interface CobroCandidate {
+  sucursal: string; folio: string; cobro_date: string | null; cliente_code: string | null;
+  cliente_nombre: string | null; forma_pago: string | null; monto: number;
+}
+export interface BankCandidates {
+  movimiento: { id: string; amount_in: number; movement_date: string };
+  cobros: CobroCandidate[];
+}
+
 @Injectable({ providedIn: 'root' })
 export class CobranzaService {
   private readonly http = inject(HttpClient);
@@ -138,4 +157,20 @@ export class CobranzaService {
   confirmBank(id: string, bank_movement_id: string): Observable<any> { return this.http.post(`${this.base}/${id}/bank-match`, { bank_movement_id }); }
   /** Deshace la conciliación cobro↔abono. */
   unlinkBank(id: string, bank_movement_id: string): Observable<any> { return this.http.post(`${this.base}/${id}/bank-unmatch`, { bank_movement_id }); }
+
+  // ── Caso B: abonos en banco sin cobro ──
+  /** Abonos de cobranza no ligados a ningún cobro. */
+  unmatchedBank(q: { from?: string; to?: string; search?: string; solo_huerfanos?: string } = {}): Observable<UnmatchedBankReport> {
+    let params = new HttpParams();
+    for (const [k, v] of Object.entries(q)) if (v) params = params.set(k, String(v));
+    return this.http.get<UnmatchedBankReport>(`${this.base}/bank/unmatched`, { params });
+  }
+  /** Cobros candidatos para un abono huérfano. */
+  bankCandidates(movementId: string): Observable<BankCandidates> {
+    return this.http.get<BankCandidates>(`${this.base}/bank/${movementId}/candidates`);
+  }
+  /** Liga un abono a un cobro elegido (bank-first). */
+  linkBank(movementId: string, sucursal: string, folio: string): Observable<any> {
+    return this.http.post(`${this.base}/bank/${movementId}/link`, { sucursal, folio });
+  }
 }

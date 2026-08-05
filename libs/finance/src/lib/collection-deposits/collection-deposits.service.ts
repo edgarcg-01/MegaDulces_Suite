@@ -426,26 +426,109 @@ export class CollectionDepositsService {
       const dep = await trx('finance.collection_deposits').where({ id: depositId })
         .first('sucursal', 'folio', trx.raw('cobro_monto::numeric AS cobro_monto'));
       if (!dep) throw new BadRequestException('comprobante no encontrado');
-      const mov = await trx('finance.bank_movements').where({ id: bankMovementId })
-        .first('id', trx.raw('amount_in::numeric AS amount_in'));
-      if (!mov) throw new BadRequestException('movimiento bancario no encontrado');
+      return this.writeReconMatch(trx, dep.sucursal, dep.folio, Number(dep.cobro_monto) || 0, bankMovementId, actor);
+    });
+  }
 
-      const cobroMonto = Number(dep.cobro_monto) || 0;
-      const matchType = Math.abs(Number(mov.amount_in) - cobroMonto) <= BANK_TOL ? 'exact' : 'manual';
-      await trx('finance.bank_recon_matches')
-        .insert({
-          tenant_id: trx.raw('public.current_tenant_id()'),
-          bank_movement_id: bankMovementId,
-          kepler_sucursal: dep.sucursal, kepler_doc_tipo: 'UA0501', kepler_doc_folio: dep.folio,
-          kepler_cuenta: '102', kepler_amount: cobroMonto,
-          match_type: matchType, match_confidence: matchType === 'exact' ? 1 : 0.5,
-          matched_by: actor || null,
-        })
-        .onConflict(['tenant_id', 'bank_movement_id', 'kepler_doc_tipo', 'kepler_doc_folio'])
-        .merge({ kepler_amount: cobroMonto, match_type: matchType, matched_by: actor || null });
-      await trx('finance.bank_movements').where({ id: bankMovementId }).update({ recon_status: 'matched', updated_at: trx.fn.now() });
-      this.logger.log(`cobro ${dep.sucursal}/${dep.folio} conciliado con abono ${bankMovementId} (${matchType}) por ${actor || '?'}`);
-      return { ok: true, cobro: `${dep.sucursal}/${dep.folio}`, bank_movement_id: bankMovementId, match_type: matchType };
+  /** Escribe el cruce cobro↔abono en bank_recon_matches + marca el movimiento matched. */
+  private async writeReconMatch(trx: any, sucursal: string, folio: string, cobroMonto: number, bankMovementId: string, actor?: string) {
+    const mov = await trx('finance.bank_movements').where({ id: bankMovementId })
+      .first('id', trx.raw('amount_in::numeric AS amount_in'));
+    if (!mov) throw new BadRequestException('movimiento bancario no encontrado');
+    const matchType = Math.abs(Number(mov.amount_in) - cobroMonto) <= BANK_TOL ? 'exact' : 'manual';
+    await trx('finance.bank_recon_matches')
+      .insert({
+        tenant_id: trx.raw('public.current_tenant_id()'),
+        bank_movement_id: bankMovementId,
+        kepler_sucursal: sucursal, kepler_doc_tipo: 'UA0501', kepler_doc_folio: folio,
+        kepler_cuenta: '102', kepler_amount: cobroMonto,
+        match_type: matchType, match_confidence: matchType === 'exact' ? 1 : 0.5,
+        matched_by: actor || null,
+      })
+      .onConflict(['tenant_id', 'bank_movement_id', 'kepler_doc_tipo', 'kepler_doc_folio'])
+      .merge({ kepler_amount: cobroMonto, match_type: matchType, matched_by: actor || null });
+    await trx('finance.bank_movements').where({ id: bankMovementId }).update({ recon_status: 'matched', updated_at: trx.fn.now() });
+    this.logger.log(`cobro ${sucursal}/${folio} conciliado con abono ${bankMovementId} (${matchType}) por ${actor || '?'}`);
+    return { ok: true, cobro: `${sucursal}/${folio}`, bank_movement_id: bankMovementId, match_type: matchType };
+  }
+
+  /**
+   * CASO B — bandeja de abonos que ENTRARON como cobranza pero NO están ligados a
+   * ningún cobro de Kepler. Bank-first (lo inverso al three-way): banco → cobro.
+   * `tiene_candidato=false` = abono huérfano de verdad (ingreso sin origen → investigar).
+   */
+  async listUnmatchedBank(q: { from?: string; to?: string; search?: string; solo_huerfanos?: string; limit?: number }) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const limit = Math.min(1000, Math.max(1, Number(q.limit) || 300));
+    return this.tk.run(async (trx) => {
+      const candSql = `EXISTS (
+        SELECT 1 FROM analytics.erp_collections ec
+         WHERE ec.tenant_id = m.tenant_id
+           AND ec.forma_pago IN ('deposito','transferencia','tarjeta')
+           AND ec.monto BETWEEN m.amount_in - ${BANK_TOL} AND m.amount_in + ${BANK_TOL}
+           AND ec.cobro_date BETWEEN m.movement_date - INTERVAL '${BANK_DAYS_AFTER} days' AND m.movement_date + INTERVAL '${BANK_DAYS_BEFORE} days'
+           AND NOT EXISTS (SELECT 1 FROM finance.bank_recon_matches r2
+                            WHERE r2.tenant_id = m.tenant_id AND r2.kepler_doc_tipo='UA0501' AND r2.kepler_doc_folio = ec.folio)
+      )`;
+      const base = () => {
+        const b = trx('finance.bank_movements as m')
+          .join('finance.bank_accounts as a', 'a.id', 'm.bank_account_id')
+          .join('finance.movement_categories as c', 'c.id', 'm.category_id')
+          .where('m.tenant_id', tenantId).where('c.code', 'cobranza').where('m.amount_in', '>', 0)
+          .whereNotExists((qb: any) => qb.select(1).from('finance.bank_recon_matches as r').whereRaw('r.bank_movement_id = m.id'));
+        if (q.from) b.where('m.movement_date', '>=', q.from);
+        if (q.to) b.where('m.movement_date', '<=', q.to);
+        if (q.search) b.whereRaw('m.concept ILIKE ?', [`%${q.search}%`]);
+        return b;
+      };
+      const rowsQ = base()
+        .select('m.id', 'm.movement_date', trx.raw('m.amount_in::numeric AS amount_in'), 'm.concept',
+          'a.bank', 'a.account_label', trx.raw(`${candSql} AS tiene_candidato`))
+        .orderBy('m.movement_date', 'desc').limit(limit);
+      if (q.solo_huerfanos === '1') rowsQ.whereRaw(`NOT ${candSql}`);
+      const rows = (await rowsQ).map((r: any) => ({ ...r, amount_in: Number(r.amount_in) }));
+
+      const [k] = await base().select(
+        trx.raw('COUNT(*)::int AS abonos'),
+        trx.raw('COALESCE(SUM(m.amount_in),0)::numeric AS monto'),
+        trx.raw(`COUNT(*) FILTER (WHERE NOT ${candSql})::int AS huerfanos`),
+      );
+      return { kpis: { abonos: Number(k.abonos), monto: Number(k.monto), huerfanos: Number(k.huerfanos) }, rows };
+    });
+  }
+
+  /** Cobros candidatos para un abono huérfano (mismo monto ±$1, fecha cercana, sin ligar). */
+  async cobroCandidates(bankMovementId: string) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      const mov = await trx('finance.bank_movements').where({ id: bankMovementId, tenant_id: tenantId })
+        .first('id', trx.raw('amount_in::numeric AS amount_in'), 'movement_date');
+      if (!mov) throw new BadRequestException('movimiento bancario no encontrado');
+      const target = Number(mov.amount_in);
+      const cobros = await trx('analytics.erp_collections as ec')
+        .where('ec.tenant_id', tenantId)
+        .whereIn('ec.forma_pago', CON_FICHA)
+        .whereRaw('ec.monto BETWEEN ? AND ?', [target - BANK_TOL, target + BANK_TOL])
+        .whereRaw(`ec.cobro_date BETWEEN ?::date - INTERVAL '${BANK_DAYS_AFTER} days' AND ?::date + INTERVAL '${BANK_DAYS_BEFORE} days'`, [mov.movement_date, mov.movement_date])
+        .whereNotExists((qb: any) => qb.select(1).from('finance.bank_recon_matches as r')
+          .whereRaw(`r.tenant_id = ec.tenant_id AND r.kepler_doc_tipo='UA0501' AND r.kepler_doc_folio = ec.folio`))
+        .select('ec.sucursal', 'ec.folio', 'ec.cobro_date', 'ec.cliente_code', 'ec.cliente_nombre',
+          'ec.forma_pago', trx.raw('ec.monto::numeric AS monto'))
+        .orderBy('ec.cobro_date', 'desc').limit(15);
+      return { movimiento: { id: mov.id, amount_in: target, movement_date: mov.movement_date }, cobros: cobros.map((c: any) => ({ ...c, monto: Number(c.monto) })) };
+    });
+  }
+
+  /** Liga (bank-first) un abono a un cobro elegido. GESTIONAR. */
+  async linkBankToCobro(bankMovementId: string, sucursal: string, folio: string, actor?: string) {
+    this.tenantCtx.requireTenantId();
+    if (!bankMovementId || !sucursal || !folio) throw new BadRequestException('bank_movement_id, sucursal y folio requeridos');
+    return this.tk.run(async (trx) => {
+      const cobro = await trx('analytics.erp_collections')
+        .where({ tenant_id: this.tenantCtx.requireTenantId(), sucursal, folio })
+        .first(trx.raw('monto::numeric AS monto'));
+      if (!cobro) throw new BadRequestException(`cobro ${sucursal}/${folio} no existe en Kepler`);
+      return this.writeReconMatch(trx, sucursal, folio, Number(cobro.monto) || 0, bankMovementId, actor);
     });
   }
 
