@@ -2464,8 +2464,20 @@ export class CommercialAnalyticsService {
         continue;
       }
       if (channelFilter && !channelFilter.has(channel)) continue;
-      // RS.4 — filtro CANAL jerárquico por celda (canal|almacén o canal|*).
-      if (cellFilter && !cellFilter.has(`${channel}|${String(r.branch_code).toLowerCase()}`) && !cellFilter.has(`${channel}|*`)) continue;
+      // RS.10 — Mayoreo (credito) se desglosa y filtra POR VENDEDOR, no por sucursal (solo en la
+      // vista por canal). Wincaja trae el vendedor; el crédito Kepler (sin vendedor) queda en una
+      // hoja/columna aparte "Sin vendedor (Kepler)" — separado, sin mezclar ni perderse.
+      const isMayoreo = channel === 'credito' && groupBy === 'branch_channel';
+      const mayoreoLeaf = isMayoreo
+        ? (r.source === 'wincaja' ? String(r.vendor_code ?? '·') : 'k-sin-vendedor')
+        : null;
+      // RS.4 — filtro CANAL jerárquico por celda (canal|almacén o canal|*); Mayoreo → canal|vendedor.
+      if (cellFilter) {
+        const leafKey = isMayoreo
+          ? `credito|${mayoreoLeaf!.toLowerCase()}`
+          : `${channel}|${String(r.branch_code).toLowerCase()}`;
+        if (!cellFilter.has(leafKey) && !cellFilter.has(`${channel}|*`)) continue;
+      }
       const units = Number(r.units) || 0;
       const monto = Number(r.monto) || 0;
       // RS.3 — producto de PESO: units ya está en kg → NO se divide (mostrar kg). Producto
@@ -2493,8 +2505,11 @@ export class CommercialAnalyticsService {
       const vendorCode = src === 'wincaja' ? String(r.vendor_code ?? '·') : null;
       const srcLabel = src === 'wincaja' ? String(r.vendor_name ?? 'Wincaja') : 'Kepler';
       const colTail = src === 'wincaja' ? `wincaja|${vendorCode}` : 'kepler';
+      // RS.10 — Mayoreo: la columna ES el vendedor (una por persona), no sucursal·fuente.
+      const mayVendorName = src === 'wincaja' ? String(r.vendor_name ?? vendorCode ?? 'Wincaja') : 'Sin vendedor (Kepler)';
       const colKey = monthCols
         ? r.sale_month
+        : isMayoreo ? `credito|${mayoreoLeaf}`
         : groupBy === 'branch' ? `${r.branch_code}|${colTail}` : `${r.branch_code}|${channel}|${colTail}`;
       if (!columns.has(colKey)) {
         columns.set(colKey, monthCols
@@ -2503,6 +2518,16 @@ export class CommercialAnalyticsService {
               branch_code: '',
               branch_name: sellOutMonthLabel(r.sale_month), // el exporter usa branch_name como etiqueta de columna
               month: r.sale_month,
+            }
+          : isMayoreo
+          ? {
+              key: colKey,
+              branch_code: String(mayoreoLeaf),   // vendor_code ('50:23') o 'k-sin-vendedor'
+              branch_name: mayVendorName,          // el rótulo = nombre del vendedor
+              channel,
+              channel_label: 'Mayoreo',
+              source: undefined,
+              source_label: undefined,
             }
           : {
               key: colKey,
@@ -2585,6 +2610,12 @@ export class CommercialAnalyticsService {
     // Orden de columnas: mes asc (month_columns) o sucursal → canal (orden fijo) → fuente (Kepler, Wincaja).
     const orderedCols = Array.from(columns.values()).sort((a, b) => {
       if (monthCols) return (a.month ?? '').localeCompare(b.month ?? '');
+      // RS.10 — Mayoreo (credito) forma su propio bloque, DESPUÉS de las sucursales, ordenado
+      // por nombre de vendedor. Así queda separado y comprensible (sucursales | vendedores mayoreo).
+      const aMay = a.channel === 'credito' ? 1 : 0;
+      const bMay = b.channel === 'credito' ? 1 : 0;
+      if (aMay !== bMay) return aMay - bMay;
+      if (aMay === 1) return a.branch_name.localeCompare(b.branch_name, 'es');
       if (a.branch_code !== b.branch_code) return a.branch_code.localeCompare(b.branch_code);
       const ch = (CHANNEL_ORDER[a.channel ?? ''] ?? 99) - (CHANNEL_ORDER[b.channel ?? ''] ?? 99);
       if (ch !== 0) return ch;
@@ -2765,13 +2796,27 @@ export class CommercialAnalyticsService {
         ELSE 'otro' END`;
     // RS.7 — almacenes de RUTA (RUTA-NN; legacy 01-NNN) → RD aunque cobren a crédito/contado.
     const channelExpr = `CASE WHEN w.code LIKE 'RUTA-%' OR w.code LIKE '01-%' THEN 'ruta' ELSE (${channelExpr0}) END`;
-    const rows = await this.tk.run((trx) => trx('analytics.sales_daily as sd')
-      .join('commercial.warehouses as w', 'w.id', 'sd.warehouse_id')
-      .where('sd.tenant_id', tenantId)
-      .select(trx.raw(`${channelExpr} as channel`), 'w.code as code', 'w.name as name')
-      .sum({ rev: 'sd.revenue' })
-      .groupByRaw(`${channelExpr}, w.code, w.name`)
-      .havingRaw('sum(sd.revenue) > 0'));
+    const { rows, vendors, keplerCredito } = await this.tk.run(async (trx) => {
+      const rows = await trx('analytics.sales_daily as sd')
+        .join('commercial.warehouses as w', 'w.id', 'sd.warehouse_id')
+        .where('sd.tenant_id', tenantId)
+        .select(trx.raw(`${channelExpr} as channel`), 'w.code as code', 'w.name as name')
+        .sum({ rev: 'sd.revenue' })
+        .groupByRaw(`${channelExpr}, w.code, w.name`)
+        .havingRaw('sum(sd.revenue) > 0');
+      // RS.10 — Mayoreo NO por sucursal: sus hojas son VENDEDORES (rollup por vendedor).
+      const vendors = await trx('analytics.sales_by_vendor_monthly as sd')
+        .where('sd.tenant_id', tenantId).andWhere('sd.sale_channel', 'mayoreo_credito')
+        .select(trx.raw(`sd.vendor_code as code`), trx.raw(`sd.vendor_name as name`))
+        .sum({ rev: 'sd.revenue' })
+        .groupByRaw('sd.vendor_code, sd.vendor_name')
+        .havingRaw('sum(sd.revenue) > 0');
+      // Crédito Kepler (canal 'credito' NO wincaja): sin vendedor → una sola hoja aparte.
+      const kc = await trx('analytics.sales_daily as sd')
+        .where('sd.tenant_id', tenantId).andWhere('sd.channel', 'credito')
+        .sum({ rev: 'sd.revenue' }).first();
+      return { rows, vendors, keplerCredito: Number((kc as any)?.rev) || 0 };
+    });
     const GROUP: Record<string, { g: string; label: string; ord: number }> = {
       mostrador: { g: 'mostrador', label: 'Sucursal', ord: 0 },
       ruta: { g: 'ruta', label: 'RD (Reparto)', ord: 1 },
@@ -2781,8 +2826,15 @@ export class CommercialAnalyticsService {
     const map = new Map<string, { group: string; group_label: string; ord: number; leaves: any[] }>();
     for (const r of rows as any[]) {
       const meta = GROUP[r.channel]; if (!meta) continue;
+      if (meta.g === 'credito') continue; // Mayoreo se arma por vendedor abajo, no por sucursal
       if (!map.has(meta.g)) map.set(meta.g, { group: meta.g, group_label: meta.label, ord: meta.ord, leaves: [] });
       map.get(meta.g)!.leaves.push({ channel: r.channel, code: r.code, name: r.name });
+    }
+    // Grupo Mayoreo = vendedores (token 'credito|<vendor_code>') + Kepler sin vendedor (separado).
+    if (vendors.length || keplerCredito > 0) {
+      const leaves = (vendors as any[]).map((v) => ({ channel: 'credito', code: String(v.code), name: String(v.name ?? v.code) }));
+      if (keplerCredito > 0) leaves.push({ channel: 'credito', code: 'k-sin-vendedor', name: 'Sin vendedor (Kepler)' });
+      map.set('credito', { group: 'credito', group_label: 'Mayoreo', ord: 3, leaves });
     }
     return Array.from(map.values()).sort((a, b) => a.ord - b.ord)
       .map((g) => ({ group: g.group, group_label: g.group_label, leaves: g.leaves.sort((a, b) => a.name.localeCompare(b.name, 'es')) }));
