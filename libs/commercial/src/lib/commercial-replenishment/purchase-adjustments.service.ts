@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { Knex } from 'knex';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
 
 /**
@@ -110,27 +111,38 @@ export class PurchaseAdjustmentsService {
    * humano confirma (un pedido estándar idéntico repetido puede ser legítimo). Sobre
    * `analytics.erp_goods_receipts` (las entradas reales), tenant explícito.
    */
+  /**
+   * Grupos de posibles duplicados (mismo proveedor + monto exacto en ≤ win días).
+   * Recibe el `runner` (trx `app_runtime` en request, o `KNEX_NEW_DB` en el cron del
+   * bridge de hallazgos): `analytics.*` no tiene RLS → el filtro `tenant_id` va
+   * explícito en el SQL y funciona con ambos. Una sola copia del SQL para los dos.
+   */
+  async duplicateGroups(runner: Knex, tenantId: string, windowDays = 30): Promise<any[]> {
+    const win = Math.min(180, Math.max(1, Number(windowDays) || 30));
+    const res: any = await runner.raw(
+      `SELECT proveedor_code, max(proveedor_nombre) AS proveedor_nombre, monto,
+              count(*)::int AS veces, (count(*)-1)::int AS copias_extra,
+              round((count(*)-1)*monto, 2) AS monto_riesgo,
+              min(receipt_date) AS desde, max(receipt_date) AS hasta,
+              (max(receipt_date)-min(receipt_date))::int AS span_dias,
+              array_agg(folio ORDER BY receipt_date) AS folios,
+              array_agg(sucursal ORDER BY receipt_date) AS sucursales
+         FROM analytics.erp_goods_receipts
+        WHERE tenant_id = ? AND monto > 0
+        GROUP BY proveedor_code, monto
+       HAVING count(*) > 1 AND (max(receipt_date)-min(receipt_date)) <= ?
+        ORDER BY (count(*)-1)*monto DESC
+        LIMIT 200`,
+      [tenantId, win],
+    );
+    return res.rows || res;
+  }
+
   async potentialDuplicates(windowDays = 30) {
     const tenantId = this.tenantCtx.requireTenantId();
     const win = Math.min(180, Math.max(1, Number(windowDays) || 30));
     return this.tk.run(async (trx) => {
-      const res: any = await trx.raw(
-        `SELECT proveedor_code, max(proveedor_nombre) AS proveedor_nombre, monto,
-                count(*)::int AS veces, (count(*)-1)::int AS copias_extra,
-                round((count(*)-1)*monto, 2) AS monto_riesgo,
-                min(receipt_date) AS desde, max(receipt_date) AS hasta,
-                (max(receipt_date)-min(receipt_date))::int AS span_dias,
-                array_agg(folio ORDER BY receipt_date) AS folios,
-                array_agg(sucursal ORDER BY receipt_date) AS sucursales
-           FROM analytics.erp_goods_receipts
-          WHERE tenant_id = ? AND monto > 0
-          GROUP BY proveedor_code, monto
-         HAVING count(*) > 1 AND (max(receipt_date)-min(receipt_date)) <= ?
-          ORDER BY (count(*)-1)*monto DESC
-          LIMIT 200`,
-        [tenantId, win],
-      );
-      const rows: any[] = res.rows || res;
+      const rows = await this.duplicateGroups(trx as unknown as Knex, tenantId, win);
       const total_riesgo = rows.reduce((s, r) => s + Number(r.monto_riesgo || 0), 0);
       return { window_days: win, groups: rows.length, total_riesgo, rows };
     });

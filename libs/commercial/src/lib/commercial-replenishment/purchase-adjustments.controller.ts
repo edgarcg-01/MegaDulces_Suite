@@ -1,7 +1,8 @@
-import { Controller, Get, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
 import { PurchaseAdjustmentsService } from './purchase-adjustments.service';
+import { PurchaseAdjustmentsFindingsBridgeService } from './purchase-adjustments-findings-bridge.service';
 
 /**
  * RE.10 — Descuentos y ajustes de compra (X-D-40 / X-D-55). Proyecto Compras.
@@ -14,7 +15,10 @@ import { PurchaseAdjustmentsService } from './purchase-adjustments.service';
 @UseGuards(RolesGuard)
 @Controller('commercial/purchase-adjustments')
 export class PurchaseAdjustmentsController {
-  constructor(private readonly svc: PurchaseAdjustmentsService) {}
+  constructor(
+    private readonly svc: PurchaseAdjustmentsService,
+    private readonly findingsBridge: PurchaseAdjustmentsFindingsBridgeService,
+  ) {}
 
   @Get('summary')
   @RequirePermissions(Permission.COMPRAS_VER)
@@ -63,6 +67,13 @@ export class PurchaseAdjustmentsController {
   @ApiOperation({ summary: 'RE.10 — posibles facturas DUPLICADAS: entradas del mismo proveedor con el MISMO monto exacto repetido dentro de N días (window_days, default 30). Control proactivo HITL sobre las entradas reales.' })
   duplicates(@Query('window_days') window_days?: string) {
     return this.svc.potentialDuplicates(window_days ? Number(window_days) : undefined);
+  }
+
+  @Post('sync-findings')
+  @RequirePermissions(Permission.COMPRAS_GESTIONAR)
+  @ApiOperation({ summary: 'RE.10 — empuja las posibles facturas duplicadas a la bandeja unificada de hallazgos (finance.findings / Maat). Idempotente por dedup_key, respeta la auto-supresión L2, best-effort. Devuelve { pushed, inserted, skipped }.' })
+  syncFindings() {
+    return this.findingsBridge.syncCurrent();
   }
 
   @Get('by-supplier')
