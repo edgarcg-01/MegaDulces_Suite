@@ -1,6 +1,6 @@
 # Fase RE — Recepción de Mercancía 360
 
-> **Estado:** 🔨 DISEÑADO (planeación) · 2026-08-04
+> **Estado:** 🔨 DISEÑADO (planeación) · 2026-08-04 · flujo + causas del descuadre + canal de descuentos **VERIFICADOS** (3 PDFs + ~12 sondeos de datos)
 > **Tesis:** convertir la bitácora manual (Excel "Reporte Recepción de Mercancía MD 2026", Google Form→Sheet) en un **motor de control** de recepción sobre Kepler + Wincaja: read-only sobre el ERP, el motor decide / el humano valida (hereda ADR-016 / ADR-028 / patrón CC).
 > **ADR propuesto:** ADR-041 — Recepción 360: orquestación read-only multi-fuente (CEDIS md_00 + sucursales Kepler md_01-05 + Wincaja); vencimiento desde `c18`; enlace a pago heurístico (Kepler no lo liga estructuralmente).
 
@@ -26,6 +26,13 @@ En la **XA2001** (`md.kdm1`): `c6`=folio · `c9`=fecha recepción · `c10`/`c32`
 - **Póliza (4 díg)** = contabilidad `kdc2YYMM` → JOIN (patrón `expense_doc_chain` de Maat).
 - **Pago (X-D-26/25/60)** = NO referencia la entrada (`c37/c39` vacíos, monto agregado, `kdxrevcxp` vacío) → **match heurístico** proveedor+monto+fecha.
 
+**Ajustes de compra = por qué Factura ≠ Compra (verificado con 3 PDFs + data, 2026-08-04):** el descuadre NO se adivina — Kepler lo registra en **dos doctypes**, ambos con **motivo en `c24`**, SKU+qty en `kdm2`, ref factura `c11`/`c28`, ligados a `XA2001`:
+- **`X-D-40` "Devolución compra"** (132/2026, $563k) = **OPERACIONAL**: faltante ("FALTARON 2 CAJAS"), no-solicitado ("NO SE SOLICITÓ"), mal-estado, llegó-cambiada. Sin IVA. → explica el descuadre de recepción.
+- **`X-D-55` "Nota crédito"** (1,154/2026, **$20.3M**) = **mayormente COMERCIAL**: descuento ("DESCUENTO 4%"), pronto pago ("1.8% PRONTO PAGO 45"), **apoyo de marca** ("GRANELES 10% APOYO", "APOYOS MKTD"), plan ("PLAN Q01"). Con IVA (`c82`). → los 3 tipos de descuento **con el tipo escrito en `c24`**.
+- ⚠️ **El doctype NO es el clasificador** — hay X-D-55 operacionales (ej. "DESCONTAR DEVOLUCIÓN BOLSA MAL ESTADO"). **La causa se lee del `c24`** (keyword + Haiku), no del tipo de documento.
+- **Descuento al PAGAR (`c84` del X-D-26):** además ~**7.41% estándar** se captura al pagar ($10.2M/2026), condicional al timing. Puede solaparse con las notas X-D-55 → reconciliar.
+- El Excel capturó **45** de los **1,286** ajustes de Kepler → el sistema ve TODAS.
+
 **Multi-fuente (crítico):** el feed hoy es **CEDIS `md_00` únicamente** (sucursal '00', 8,373). Las recepciones reales están en: CEDIS md_00 + **sucursales Kepler** (md_03/8Esq=833, md_01/PH=313 en 2026, mismo doctype) + **Wincaja** `movimiento_proveedores` (7,356 filas, con `fecha_vencimiento`+`saldo` nativos, para Morelia Abastos/Madero/Canindo). El almacén top del Excel = **Morelia Abastos 348 (Wincaja)** → hoy invisible.
 
 Detalle verificado en memoria `reference_kepler_reception_flow`.
@@ -48,9 +55,10 @@ Detalle verificado en memoria `reference_kepler_reception_flow`.
 | Folio Aplicación entrada (K) | ancla XA2001 | ✅ |
 | Folio OC (J), Vale (L) | `oc_folio`/`vale_folio` | ✅ |
 | **Póliza 4 díg (S)** | join `kdc2` | RE.1 |
-| **Total Factura vs Total Compra (G/H)** | OCR vs `c16` vs OC | RE.2 |
+| **Total Factura vs Total Compra (G/H)** | OCR vs `c16` vs OC + **auto-explain `X-D-40`/`X-D-55`** | RE.2 |
 | **Fecha Vence + Días vencidos** | `c18` + Wincaja `fecha_vencimiento` | RE.3 |
-| Evidencias (4 links Drive) + Devolución/NC | Cloudinary + roles + NC | RE.5 |
+| Evidencias (4 links Drive) | Cloudinary + roles | RE.5 |
+| **Devolución/NC (col P)** | import `X-D-40`+`X-D-55` (motivo `c24`) | RE.5/RE.2 |
 | **Almacenes branch/Wincaja** | multi-fuente | **RE.0** |
 
 ## 5. Fases
@@ -66,10 +74,11 @@ Detalle verificado en memoria `reference_kepler_reception_flow`.
 - **Entregable:** `fecha_vence` (`c18`), `condicion_pago` (`c30`), `dias_credito`, `poliza` (join `kdc2`). En `erp_goods_receipts` + importer.
 - **Reuso:** `expense_doc_chain` para la póliza.
 
-### RE.2 — Cuadre 3-vías inteligente
-- **Objetivo:** automatizar el control G-vs-H (41% descuadre; typo $183M).
-- **Entregable:** OCR factura → compara **factura vs entrada (`c16`) vs OC** → `discrepancy_kind` + `discrepancy_amount` persistidos + chip/semáforo en UI. Persistir `total_factura` (OCR) y `total_compra` (Kepler).
-- **Reuso:** OCR `extractRemision`, cuadre actual.
+### RE.2 — Cuadre 3-vías + AUTO-explicación del descuadre
+- **Objetivo:** automatizar el control G-vs-H (41% descuadre; typo $183M) **y explicar el porqué** desde el dato, no solo pintar rojo.
+- **Entregable:** (a) OCR factura → compara **factura vs entrada (`c16`) vs OC** → `discrepancy_amount`; (b) **auto-explicación**: jalar los `X-D-40`+`X-D-55` ligados a la entrada (por factura `c11`/proveedor) y clasificar `c24` → `discrepancy_kind` ∈ {faltante, no_solicitado, mal_estado, cambiada, descuento_comercial, pronto_pago, apoyo_marca, typo, iva}; (c) reglas para **typo** (Δ>70%) e **IVA** (Δ≤2% / ratio ≈1.16); chip/semáforo + motivo en UI.
+- **Clasificación `c24`:** keyword primero, **Haiku** para los tersos (~$13.2M "sin clasificar"); mismo patrón que Maat.
+- **Reuso:** OCR `extractRemision`, cuadre actual, `LlmExtractorService`.
 
 ### RE.3 — CxP / vencimientos (aging + worklist)
 - **Objetivo:** lo que el Excel tenía roto.
@@ -82,7 +91,7 @@ Detalle verificado en memoria `reference_kepler_reception_flow`.
 - **Reuso:** patrón detectores Maat + `FINANCE_NOTIFIER_PORT`.
 
 ### RE.5 — Evidencia con roles + Devolución/NC
-- **Entregable:** roles tipados (remisión / factura sellada / vale firmado / póliza / NC) + nota de crédito ligada a la recepción (monto neto). Cloudinary (adiós links Drive muertos).
+- **Entregable:** roles tipados (remisión / factura sellada / vale firmado / póliza / NC) + **importar los `X-D-40`/`X-D-55` de Kepler ligados a la recepción** (monto + motivo `c24` + SKU) — el Excel adjuntaba el PDF a mano; aquí llega del ERP (1,286 vs 45). Adjunto manual queda como complemento. Cloudinary (adiós links Drive muertos).
 
 ### RE.6 — Trazabilidad de cadena (timeline)
 - **Entregable:** OC→vale→orden entrada→aplicación→póliza→**pago (heurístico)** en el detalle.
@@ -97,19 +106,27 @@ Detalle verificado en memoria `reference_kepler_reception_flow`.
 ### RE.9 — Migración histórico Excel (opcional)
 - **Entregable:** importar las ~910 filas (match por folio K contra XA2001; evidencias Drive→Cloudinary; sanea `S/N`/`0`/año 2025).
 
+### RE.10 — Descuentos y apoyos (pronto pago / comercial / apoyo de marca) [nuevo · alto valor]
+- **Objetivo:** visibilizar y clasificar el descuento de proveedor — **$20.3M en notas `X-D-55` + $10.2M en pagos `c84`** (2026), hoy invisibles.
+- **Entregable:** espejo de `X-D-55` (motivo `c24` clasificado por Haiku → pronto_pago / comercial / apoyo_marca / plan) + importar `c84` del pago; página "Descuentos y apoyos" por proveedor / marca / tipo; **reconciliación notas vs pago** (solapamiento).
+- **Por qué:** dinero grande; base para un **monitor de captura** ("¿estamos cobrando los apoyos/descuentos pactados?"). El apoyo de marca **sí** vive aquí (NO en la recepción).
+- **Reuso:** `LlmExtractorService` (Haiku), patrón detectores Maat, `erp_supplier_payments`.
+
 ## 6. Schema nuevo (consolidado)
 - `analytics.erp_goods_receipts`: `+ source, fecha_vence, condicion_pago, dias_credito, poliza, total_factura, total_compra`. Sucursal real (RE.0).
 - `finance.goods_receipt_proofs`: `+ role, credit_note_ref, discrepancy_kind, discrepancy_amount`.
+- **Nuevo espejo `analytics.erp_purchase_adjustments`** (X-D-40 + X-D-55): `doctype, folio, entrada_ref (XA2001), factura_ref (c11), proveedor, sku, qty, monto, iva, motivo (c24), categoria`. Alimenta RE.2 (auto-explain) y RE.10 (descuentos/apoyos).
 - Reusar `finance.findings` (bandeja) — sin tabla nueva.
 
 ## 7. Qué reusamos (feasibilidad alta)
 OCR `LlmExtractorService`, `expense_doc_chain` (Maat), `finance.findings`+scanner, `erp_supplier_payments` (enlace a pago), smart-search, Cloudinary, `FINANCE_NOTIFIER_PORT`, permisos `COMPRAS_VER/GESTIONAR/VALIDAR` ya listos, `STOCK_BRANCH_MAP` + feeds Wincaja.
 
 ## 8. Decisiones abiertas
-- **MVP:** RE.0 → RE.1 → RE.2 → RE.3 (cobertura + campos + cuadre + CxP). Supera al Excel en sus dos controles centrales. RE.4 (alertas) = siguiente golpe de efecto.
+- **MVP:** RE.0 → RE.1 → RE.2 (**con auto-explicación X-D-40/X-D-55**) → RE.3. Supera al Excel en sus dos controles centrales. RE.4 (alertas) = siguiente golpe de efecto.
+- **RE.10 (descuentos/apoyos):** $20.3M+$10.2M hoy invisibles — ¿entra al MVP o va después? (dinero grande, pero es análisis, no control de recepción).
+- **Clasificación `c24`:** keyword vs Haiku — arrancar keyword, Haiku para el ~$13.2M terso.
 - **Histórico (RE.9):** ¿migrar las 910 filas o arrancar limpio desde hoy?
-- **Devolución/NC (RE.5):** ¿ya o post-MVP?
-- **ADR-041:** aceptar el enfoque read-only multi-fuente + pago heurístico.
+- **ADR-041:** aceptar el enfoque read-only multi-fuente + pago heurístico + **ajustes `X-D-40`/`X-D-55` clasificados por `c24`**.
 
 ## 9. Riesgos / notas
 - **Pago heurístico** (no estructural) — comunicar como "match aproximado", no trazabilidad exacta.
