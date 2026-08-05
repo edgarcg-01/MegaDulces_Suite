@@ -444,6 +444,12 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.COMPRAS_VER)]
       },
       {
+        // CXP.3 — "Compras 360" (el Excel): recepción/factura + OC + ajuste + neto en un grid.
+        path: 'compras-360',
+        loadComponent: () => import('./modules/compras/pages/compras-compras360.component').then(m => m.ComprasCompras360Component),
+        canActivate: [permissionGuard(Permission.COMPRAS_VER)]
+      },
+      {
         path: 'categorias',
         loadComponent: () => import('./modules/compras/pages/compras-categorias.component').then(m => m.ComprasCategoriasComponent),
         canActivate: [permissionGuard(Permission.COMPRAS_VER)]

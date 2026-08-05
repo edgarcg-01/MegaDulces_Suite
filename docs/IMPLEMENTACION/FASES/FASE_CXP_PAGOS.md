@@ -54,15 +54,14 @@ OC maestro "Excel": erp_goods_receipts ⋈ líneas ⋈ ajustes ⋈ pago ─► /
 - **1.2** ✅ `NotificationsBellComponent` (standalone, en el header entre update y user-menu). Badge = hallazgos críticos + acciones por aprobar (poll 60s `findings/stats` + `actions?estado=pending_approval`, gateado por `FINANCE_AI_CHAT` para no 403). Panel: resumen finanzas + feed WS en vivo (todos los tipos) + link a la bandeja. Overlay con sombra+borde (DESIGN Operations).
 - **1.3** ✅ Read-state en `localStorage` (`cxp_notif_read_at`): al abrir marca leído y apaga el pulso; el badge sigue vivo hasta resolver.
 
-### CXP.2 — 📊 Tablero maestro CxP (`/finanzas/pagos-control`) ⬜
-- Backend `GET /finance/pagos/control` (agregado): fuga total + top proveedores, riesgo doble pago (total/count/críticos), reconciliación (canal pago/nota/ambos), próximos vencimientos (DPO por ahora).
-- Frontend Operations: tira de KPIs + tablas top + links a hallazgos/acciones. Nav item bajo `finanzasNavItems`.
+### CXP.2 — 📊 Tablero maestro CxP (`/finanzas/pagos-control`) ✅ 2026-08-05
+- Backend `GET /finance/pagos/control` (finance puro): agrega lo que el motor YA computó — fuga (descuento_no_capturado), riesgo doble pago (pago_duplicado, con críticos), facturas duplicadas, DPO + top proveedores por regla + acciones HITL pendientes + reconciliación de descuento por canal (pago c84 / nota comercial).
+- Frontend Operations (`surf-page` + `MetricStrip` + `card-premium`): 4 KPIs, top proveedores por riesgo, acciones por aprobar con link a la bandeja. Nav item "Cuentas por pagar" (FINANCE_AI_CHAT).
 
-### CXP.3 — 📋 OC maestro "como el Excel" (`/compras/compras-360`) ⬜
-- Row = recepción/factura (`analytics.erp_goods_receipts`, trae `oc_folio`/`vale_folio`/proveedor/monto/fechas) ⋈ líneas ⋈ ajustes (`entrada_folio`→`factura_ref`→`proveedor+fecha`) ⋈ pago (`proveedor_code`+fecha, best-effort).
-- Backend `GET /compras/compras-360` con filtros (proveedor/sucursal/fecha/estado con-sin factura/pago/diferencia) + export xlsx.
-- Frontend grid denso master-detail (SidePeek) Operations.
-- Opcional CXP.3.3: espejo `analytics.erp_purchase_orders(_lines)` de X-A-35 (shape ya lo lee `import-in-transit.js`) si se quieren filas a nivel OC.
+### CXP.3 — 📋 OC maestro "como el Excel" (`/compras/compras-360`) ✅ 2026-08-05
+- Backend `GET /commercial/purchase-adjustments/compras-360`: fila = recepción/factura (`erp_goods_receipts`, con `oc_folio`/`vale_folio`) + ajuste **ligado exacto** por `entrada_folio` (agregado, join 1:0..1 no infla) + neto. Filtros: search, sucursal, rango fecha, con_ajuste, paginación, `all` (export ≤5000). Smoke `test-newdb-compras-360` 4/4 (8,373 recepciones / $427M).
+- Frontend grid denso + filtros + `MetricStrip` de totales + detalle `p-dialog` que reusa `forEntrada` (ajustes exacto/proveedor+fecha) + export CSV. Nav item "Compras 360".
+- Diferido: pago per-fila (join proveedor+fecha muy débil → solo en detalle), espejo `analytics.erp_purchase_orders` de X-A-35 (filas a nivel OC), export xlsx server-side.
 
 ---
 
