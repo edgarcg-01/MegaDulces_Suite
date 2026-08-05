@@ -4,6 +4,7 @@ import { RolesGuard } from '@megadulces/platform-core';
 import { RequirePermissions } from '@megadulces/platform-core';
 import { Permission } from '@megadulces/platform-core';
 import { MaatActionsService } from './maat-actions.service';
+import { MaatActionProposerService } from './maat-action-proposer.service';
 
 interface AuthedRequest { user?: { username?: string; full_name?: string }; }
 
@@ -12,7 +13,10 @@ interface AuthedRequest { user?: { username?: string; full_name?: string }; }
 @UseGuards(RolesGuard)
 @Controller('finance/maat/actions')
 export class MaatActionsController {
-  constructor(private readonly actions: MaatActionsService) {}
+  constructor(
+    private readonly actions: MaatActionsService,
+    private readonly proposer: MaatActionProposerService,
+  ) {}
 
   @Get()
   @RequirePermissions(Permission.FINANCE_AI_CHAT)
@@ -43,7 +47,14 @@ export class MaatActionsController {
   @Post()
   @RequirePermissions(Permission.FINANCE_FINDINGS_GESTIONAR)
   @ApiOperation({ summary: 'MAAT.9 — Alta manual de una acción propuesta (además de las que crea Maat en el chat).' })
-  propose(@Body() body: { kind: string; titulo: string; descripcion?: string; efecto?: string; importe?: number }, @Req() req: AuthedRequest) {
+  propose(@Body() body: { kind: string; titulo: string; descripcion?: string; efecto?: string; importe?: number; finding_id?: string }, @Req() req: AuthedRequest) {
     return this.actions.propose({ ...body, origen: 'manual', created_by: req?.user?.username });
+  }
+
+  @Post('propose-from-findings')
+  @RequirePermissions(Permission.FINANCE_FINDINGS_GESTIONAR)
+  @ApiOperation({ summary: 'CxP — Genera acciones (HITL) desde los hallazgos accionables abiertos (descuento no capturado, pago duplicado). Idempotente por finding_id.' })
+  proposeFromFindings() {
+    return this.proposer.proposeCurrent();
   }
 }

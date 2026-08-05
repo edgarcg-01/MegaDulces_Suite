@@ -18,6 +18,7 @@ import { MaatFindingsService } from './maat-findings.service';
 import { MaatScannerService } from './maat-scanner.service';
 import { MaatFindingsController } from './maat-findings.controller';
 import { MaatActionsService } from './maat-actions.service';
+import { MaatActionProposerService } from './maat-action-proposer.service';
 import { MaatActionsController } from './maat-actions.controller';
 import { MaatFindingsSinkService } from './maat-findings-sink.service';
 import { MaatLearningService } from './maat-learning.service';
@@ -45,7 +46,7 @@ import { FinanceBankModule } from '../bank/finance-bank.module';
   providers: [
     MaatKnowledgeService, MaatToolsService, MaatChatService, MaatBriefingService,
     MaatDetectorService, MaatAnomalyService, MaatCoverageService, MaatDataQualityService, MaatEntityService, MaatPolizaService,
-    MaatFindingsService, MaatScannerService, MaatActionsService,
+    MaatFindingsService, MaatScannerService, MaatActionsService, MaatActionProposerService,
     EmbeddingsService, AnthropicService, MaatKnowledgeVectorService, MaatProviderGraphService,
     MaatFindingsSinkService, MaatLearningService, MaatEvalService,
     MaatSkepticService, MaatDiscoveryService,

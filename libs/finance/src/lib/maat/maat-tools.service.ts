@@ -489,6 +489,7 @@ Tienes acceso a: **balanza de comprobación completa** (familias 1-9, cargos/abo
             descripcion: { type: 'string', description: 'Qué propones y por qué (con la cifra/evidencia).' },
             efecto: { type: 'string', description: 'Qué pasará al aprobar (en lenguaje de negocio).' },
             importe: { type: 'number', description: 'Monto en juego. Opcional.' },
+            finding_id: { type: 'string', description: 'UUID del hallazgo del que nace la acción. Opcional pero recomendado: liga la acción a su hallazgo (al aprobar, con kind=revisar_hallazgo, lo mueve a "en revisión").' },
           },
           required: ['kind', 'titulo'],
         },
@@ -528,6 +529,7 @@ Tienes acceso a: **balanza de comprobación completa** (familias 1-9, cargos/abo
         case 'maat_tomar_nota': return { ok: true, nota: String(input?.nota || '').slice(0, 500) };
         case 'maat_proponer_accion': return await this.actions.propose({
           kind: input?.kind, titulo: input?.titulo, descripcion: input?.descripcion, efecto: input?.efecto,
+          finding_id: input?.finding_id || undefined,
           importe: Number(input?.importe) || 0, origen: 'maat_chat', created_by: scope.userName || undefined,
         }).then((r) => ({ ...r, ok: true, nota: 'Propuesta creada. Queda pendiente de tu aprobación en la bandeja de acciones.' }))
           .catch((e) => ({ error: String(e?.message || e) }));
