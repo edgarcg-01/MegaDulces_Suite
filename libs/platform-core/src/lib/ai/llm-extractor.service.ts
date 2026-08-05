@@ -47,6 +47,24 @@ export interface RemisionFields {
 }
 
 /**
+ * Fase CC ext — Campos de un COMPROBANTE DE PAGO A PROVEEDOR (transferencia SPEI
+ * saliente / cheque / anticipo). Semántica INVERSA al depósito: la empresa ORDENA
+ * el pago a un proveedor. El `concepto` (ej. "F 451" o "F 906 907 908") es la llave
+ * a la(s) factura(s) pagada(s). Todos null si no se ven / OCR sin key.
+ */
+export interface SupplierPaymentFields {
+  monto: number | null;
+  fecha: string | null; // ISO YYYY-MM-DD
+  concepto: string | null; // "Concepto de pago" — folio(s) de factura ("F 451", "F 906 907 908")
+  cuenta_origen: string | null; // cuenta de RETIRO (nuestra), últimos 4
+  cuenta_destino: string | null; // cuenta del proveedor, últimos 4
+  beneficiario: string | null; // razón social del proveedor que recibe
+  clave_rastreo: string | null; // clave de rastreo SPEI / folio de internet / autorización
+  banco_destino: string | null; // banco receptor
+  metodo: string | null; // transferencia_spei|cheque|anticipo
+}
+
+/**
  * Wrapper de Anthropic Claude Haiku 4.5 — extracción estructurada de items
  * de producto desde texto crudo del colaborador.
  *
@@ -197,6 +215,34 @@ export class LlmExtractorService implements OnModuleInit {
       return await this.callClaudeVisionRemision(fileBase64, mediaType);
     } catch (e: any) {
       this.logger.warn(`Claude remisión extract failed: ${e.message}`);
+      return empty;
+    }
+  }
+
+  /**
+   * Fase CC ext — Extrae los campos de un COMPROBANTE DE PAGO A PROVEEDOR
+   * (transferencia SPEI saliente / cheque / anticipo, imagen o PDF nativo). A
+   * diferencia de `extractDepositSlip` (entrada), aquí la empresa ORDENA el pago:
+   * captura el `concepto` (folio de factura), la cuenta de RETIRO propia y el
+   * beneficiario. Degrada a null sin key / ilegible.
+   */
+  async extractSupplierPayment(
+    fileBase64: string,
+    mediaType: 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif' | 'application/pdf',
+  ): Promise<SupplierPaymentFields> {
+    const empty: SupplierPaymentFields = {
+      monto: null, fecha: null, concepto: null, cuenta_origen: null, cuenta_destino: null,
+      beneficiario: null, clave_rastreo: null, banco_destino: null, metodo: null,
+    };
+    if (!this.apiKey) {
+      this.logger.warn('Supplier-payment OCR sin ANTHROPIC_API_KEY — devuelvo campos vacíos');
+      return empty;
+    }
+    if (!fileBase64) return empty;
+    try {
+      return await this.callClaudeVisionSupplierPayment(fileBase64, mediaType);
+    } catch (e: any) {
+      this.logger.warn(`Claude supplier-payment extract failed: ${e.message}`);
       return empty;
     }
   }
@@ -801,6 +847,97 @@ export class LlmExtractorService implements OnModuleInit {
       cuenta_dest: str(inp.cuenta_destino),
       referencia: str(inp.referencia),
       ordenante: str(inp.ordenante),
+      metodo: metodo && METODOS.has(metodo) ? metodo : null,
+    };
+  }
+
+  /**
+   * Vision/document para comprobantes de PAGO A PROVEEDOR (transferencia saliente).
+   * Lee concepto (folio de factura), cuenta de retiro (origen), beneficiario y clave
+   * de rastreo — datos que el OCR de depósito de entrada no captura.
+   */
+  private async callClaudeVisionSupplierPayment(
+    fileBase64: string,
+    mediaType: string,
+  ): Promise<SupplierPaymentFields> {
+    const fileBlock =
+      mediaType === 'application/pdf'
+        ? { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: fileBase64 } }
+        : { type: 'image', source: { type: 'base64', media_type: mediaType, data: fileBase64 } };
+
+    const json = (await this.anthropic.messages(
+      {
+        model: this.model,
+        maxTokens: 512,
+        toolChoice: { type: 'tool', name: 'extract_supplier_payment' },
+        tools: [
+          {
+            name: 'extract_supplier_payment',
+            description:
+              'Extrae los datos de un COMPROBANTE DE PAGO A PROVEEDOR de México: transferencia SPEI ' +
+              'saliente (BBVA, Banorte, Santander, Banamex, Banco del Bajío), cheque o anticipo. La empresa ' +
+              'ES QUIEN PAGA (ordenante = "LOPEZ GUTIERREZ LUIS FRANCISCO" u otra cuenta propia); el ' +
+              'BENEFICIARIO es el proveedor que recibe. Usa null para lo que no se distinga. NO inventes.',
+            input_schema: {
+              type: 'object',
+              properties: {
+                monto: { type: ['number', 'null'], description: 'Importe pagado en pesos (sin símbolo ni comas).' },
+                fecha: { type: ['string', 'null'], description: 'Fecha de la operación en ISO YYYY-MM-DD. Convierte cualquier formato. null si no se ve.' },
+                concepto: { type: ['string', 'null'], description: 'El campo "Concepto de pago" TAL CUAL. Suele ser el/los folio(s) de factura pagados (ej. "F 451", "F 906 907 908"). Copiar literal.' },
+                cuenta_origen: { type: ['string', 'null'], description: 'Cuenta de RETIRO / cargo (la nuestra, de donde SALE el dinero). Si es larga, los últimos 4 dígitos. null si no se ve.' },
+                cuenta_destino: { type: ['string', 'null'], description: 'Cuenta de depósito del proveedor (destino). Últimos 4 si es larga. null si no se ve.' },
+                beneficiario: { type: ['string', 'null'], description: 'Razón social del PROVEEDOR que recibe el pago (campo "Beneficiario" o "Nombre corto"). null si no se ve.' },
+                clave_rastreo: { type: ['string', 'null'], description: 'Clave de rastreo SPEI, folio de internet o número de autorización. Copiar tal cual.' },
+                banco_destino: { type: ['string', 'null'], description: 'Banco receptor del proveedor (ej. "CITI MEXICO", "BBVA"). null si no se ve.' },
+                metodo: { type: ['string', 'null'], enum: ['transferencia_spei', 'cheque', 'anticipo', null], description: 'Tipo de pago según el comprobante.' },
+              },
+              required: ['monto', 'fecha', 'concepto', 'cuenta_origen', 'cuenta_destino', 'beneficiario', 'clave_rastreo', 'banco_destino', 'metodo'],
+            },
+          },
+        ],
+        messages: [
+          {
+            role: 'user',
+            content: [
+              fileBlock,
+              { type: 'text', text: 'Este es un comprobante con el que la empresa PAGÓ a un proveedor. Extrae sus datos con la herramienta extract_supplier_payment.' },
+            ],
+          },
+        ],
+      },
+      { timeoutMs: 30_000 },
+    )) as {
+      content: Array<
+        | { type: 'text'; text: string }
+        | { type: 'tool_use'; name: string; input: Record<string, unknown> }
+      >;
+    };
+
+    const toolUse = json.content.find(
+      (c): c is Extract<typeof c, { type: 'tool_use' }> =>
+        c.type === 'tool_use' && c.name === 'extract_supplier_payment',
+    );
+    if (!toolUse) throw new Error('Claude supplier-payment no devolvió tool_use');
+
+    const inp = toolUse.input || {};
+    const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+    const PLACEHOLDERS = new Set(['<unknown>', 'unknown', 'n/a', 'na', 'null', 'none', '-', '--', '?', 'desconocido', 'sin dato']);
+    const str = (v: unknown): string | null => {
+      if (typeof v !== 'string') return null;
+      const t = v.trim();
+      return t && !PLACEHOLDERS.has(t.toLowerCase()) ? t : null;
+    };
+    const METODOS = new Set(['transferencia_spei', 'cheque', 'anticipo']);
+    const metodo = str(inp.metodo)?.toLowerCase() || null;
+    return {
+      monto: num(inp.monto),
+      fecha: this.parseTicketDate(inp.fecha),
+      concepto: str(inp.concepto),
+      cuenta_origen: str(inp.cuenta_origen),
+      cuenta_destino: str(inp.cuenta_destino),
+      beneficiario: str(inp.beneficiario),
+      clave_rastreo: str(inp.clave_rastreo),
+      banco_destino: str(inp.banco_destino),
       metodo: metodo && METODOS.has(metodo) ? metodo : null,
     };
   }

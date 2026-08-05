@@ -46,6 +46,27 @@ export class SupplierPaymentProofsController {
     return this.svc.runOcr(body?.file_base64 || '');
   }
 
+  @Post('match-pago')
+  @RequirePermissions(Permission.FINANCE_PAYMENTS_VER)
+  @ApiOperation({ summary: 'Ficha-first: busca el pago que corresponde al OCR (monto + fecha + concepto/factura).' })
+  matchPago(@Body() body: { monto?: number; fecha?: string; concepto?: string; limit?: number }) {
+    return this.svc.matchPaymentsByOcr({ monto: body?.monto, fecha: body?.fecha, concepto: body?.concepto, limit: body?.limit });
+  }
+
+  @Post(':id/bank-match')
+  @RequirePermissions(Permission.FINANCE_PAYMENTS_GESTIONAR)
+  @ApiOperation({ summary: 'Confirma que un cargo del estado de cuenta corresponde al pago (persiste en bank_recon_matches).' })
+  confirmBank(@Param('id') id: string, @Body() body: { bank_movement_id?: string }, @Req() req: AuthedRequest) {
+    return this.svc.confirmBank(id, body?.bank_movement_id || '', req?.user?.full_name || req?.user?.username);
+  }
+
+  @Post(':id/bank-unmatch')
+  @RequirePermissions(Permission.FINANCE_PAYMENTS_GESTIONAR)
+  @ApiOperation({ summary: 'Deshace la conciliación pago↔cargo.' })
+  unlinkBank(@Param('id') id: string, @Body() body: { bank_movement_id?: string }) {
+    return this.svc.unlinkBank(id, body?.bank_movement_id || '');
+  }
+
   @Post('upload')
   @RequirePermissions(Permission.FINANCE_PAYMENTS_VER)
   @ApiOperation({ summary: 'Sube el comprobante (imagen/PDF) a Cloudinary y devuelve su referencia.' })
