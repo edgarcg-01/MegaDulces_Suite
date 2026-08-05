@@ -19,6 +19,14 @@ export interface MovementsExportData {
   truncated: boolean;
 }
 
+/** DM.12 — datos del reporte de cuadre de traspasos (contable + matriz física + folios). */
+export interface CuadreExportData {
+  range: { from: string; to: string };
+  ledger: { totals: { entrada: number; salida: number; delta: number }; rows: any[]; by_sucursal: any[] };
+  matrix: { totals: any; rows: any[] };
+  check: { totals: { ok: number; diferencia: number; sin_recepcion: number; sin_origen: number }; rows: any[] };
+}
+
 const ESTADO_LABEL: Record<string, string> = {
   en_transito: 'En tránsito', completado: 'Completado', diferencia: 'Diferencia',
   ok: 'Recibido', sin_recepcion: 'Sin recepción', sin_origen: 'Sin origen',
@@ -334,8 +342,8 @@ export class MovementsExportService {
 
   // ─────────── PDF ───────────
 
-  async buildPdf(data: MovementsExportData): Promise<Buffer> {
-    const html = this.buildHtml(data);
+  /** Render genérico HTML → PDF (A4 landscape) con footer de página. */
+  private async renderPdf(html: string, footerLeft: string): Promise<Buffer> {
     const browser = await puppeteer.launch({
       headless: true,
       args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
@@ -352,7 +360,7 @@ export class MovementsExportService {
         headerTemplate: '<span></span>',
         footerTemplate: `
           <div style="width:100%;font-size:8px;color:#837A6C;padding:0 8mm;display:flex;justify-content:space-between;font-family:Helvetica,Arial,sans-serif;">
-            <span>Mega Dulces · Diario de movimientos · ${data.range.from} — ${data.range.to} · Uso interno</span>
+            <span>${footerLeft}</span>
             <span>Página <span class="pageNumber"></span> de <span class="totalPages"></span></span>
           </div>`,
         margin: { top: '9mm', right: '8mm', bottom: '14mm', left: '8mm' },
@@ -361,6 +369,131 @@ export class MovementsExportService {
     } finally {
       await browser.close();
     }
+  }
+
+  async buildPdf(data: MovementsExportData): Promise<Buffer> {
+    return this.renderPdf(this.buildHtml(data),
+      `Mega Dulces · Diario de movimientos · ${data.range.from} — ${data.range.to} · Uso interno`);
+  }
+
+  // ─────────── PDF · Cuadre de traspasos (DM.12) ───────────
+
+  cuadreFileName(range: { from: string; to: string }, ext: string): string {
+    return `Cuadre de traspasos ${range.from}_${range.to}.${ext}`;
+  }
+
+  /** Reporte mensual del cuadre de traspasos (contable mayor 515 + matriz física + folios). */
+  async buildCuadrePdf(data: CuadreExportData): Promise<Buffer> {
+    return this.renderPdf(this.buildCuadreHtml(data),
+      `Mega Dulces · Cuadre de traspasos · ${data.range.from} — ${data.range.to} · Uso interno`);
+  }
+
+  private buildCuadreHtml(data: CuadreExportData): string {
+    const esc = (s: any) => String(s ?? '').replace(/[&<>"]/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[m] as string));
+    const money = (n: any, dec = 0) => (Number(n) || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: dec, minimumFractionDigits: dec });
+    const signed = (n: any) => (Number(n) > 0 ? '+' : '') + money(n);
+    const num = (n: any) => (n == null || n === '' ? '—' : Number(n).toLocaleString('es-MX', { maximumFractionDigits: 0 }));
+    const dmy = (d: any) => { const s = this.fmtDate(d); return s ? `${s.slice(8, 10)}/${s.slice(5, 7)}/${s.slice(2, 4)}` : '—'; };
+    // cuadra si |Δ| < $1 o < 0.1% de las entradas
+    const ok = (delta: any, base: any) => { const d = Math.abs(Number(delta) || 0); return d < 1 || d < Math.abs(Number(base) || 0) * 0.001; };
+    const pct = (delta: any, base: any) => { const b = Math.abs(Number(base) || 0); return b ? ((Math.abs(Number(delta) || 0) / b) * 100).toLocaleString('es-MX', { maximumFractionDigits: 1 }) + '%' : '—'; };
+    const pill = (status: string) => `<span class="pill p-${ESTADO_SEV[status] || 'mut'}">${esc(ESTADO_LABEL[status] || status)}</span>`;
+
+    const lg = data.ledger, mx = data.matrix, ck = data.check;
+    // serie mensual con acumulado corriente
+    let acc = 0;
+    const monthRows = (lg.rows || []).map((m: any) => {
+      acc += Number(m.delta) || 0;
+      return `<tr><td class="mono">${esc(m.anio_mes)}</td>
+        <td class="num up">${money(m.entrada)}</td><td class="num dn">${money(m.salida)}</td>
+        <td class="num ${ok(m.delta, m.entrada) ? 'mut' : 'delta'}">${ok(m.delta, m.entrada) ? 'cuadra' : signed(m.delta)}</td>
+        <td class="num mut">${pct(m.delta, m.entrada)}</td>
+        <td class="num ${ok(acc, m.entrada) ? '' : 'delta'}">${signed(acc)}</td></tr>`;
+    }).join('');
+    const sucRows = (lg.by_sucursal || []).map((s: any) => `<tr><td class="mono">${esc(s.sucursal)}</td>
+      <td class="num up">${money(s.entrada)}</td><td class="num dn">${money(s.salida)}</td>
+      <td class="num ${ok(s.delta, s.entrada) ? 'mut' : 'delta'}">${ok(s.delta, s.entrada) ? 'cuadra' : signed(s.delta)}</td></tr>`).join('');
+    const mxRows = (mx.rows || []).map((r: any) => `<tr>
+      <td>${esc(r.origin_wh || '—')}</td><td>${esc(r.dest_wh || '(sin destino)')}</td>
+      <td class="num">${num(r.qty_sent)}</td><td class="num">${num(r.qty_received)}</td>
+      <td class="num ${Math.abs(Number(r.delta_qty) || 0) < 0.01 ? 'mut' : 'delta'}">${Math.abs(Number(r.delta_qty) || 0) < 0.01 ? 'cuadra' : (Number(r.delta_qty) > 0 ? '+' : '') + num(r.delta_qty)}</td>
+      <td class="num">${money(r.amount)}</td>
+      <td class="num mut">${num(r.n_ok)} / ${num(r.n_diferencia)} / ${num(r.n_sin_recepcion)}</td></tr>`).join('');
+    const unmatched = (ck.rows || []).filter((r: any) => r.status !== 'ok');
+    const ckRows = unmatched.map((r: any) => `<tr>
+      <td>${pill(r.status)}</td><td>${esc(r.origin_wh || '—')}</td><td class="mono">${esc(r.origin_folio || r.rcv_folio || '—')}</td>
+      <td>${esc(r.dest_wh || '—')}</td><td class="num">${num(r.qty_sent)}</td><td class="num">${num(r.qty_received)}</td>
+      <td class="num ${Number(r.delta) ? 'delta' : ''}">${Number(r.delta) ? (Number(r.delta) > 0 ? '+' : '') + num(r.delta) : '—'}</td>
+      <td>${dmy(r.ship_date || r.rcv_date)}</td></tr>`).join('');
+
+    const totOk = ok(lg.totals?.delta, lg.totals?.entrada);
+    return `<!doctype html><html><head><meta charset="utf-8"><meta name="color-scheme" content="light"><style>
+      * { box-sizing: border-box; }
+      html, body { background: #FFFFFF; }
+      body { font-family: Helvetica, 'Segoe UI', Arial, sans-serif; font-size: 9.5px; color: #241E18; margin: 0; }
+      .num { text-align: right; font-variant-numeric: tabular-nums; } td.num { font-size: 10.5px; }
+      .mono { font-family: Consolas, 'Liberation Mono', 'Courier New', monospace; font-size: 9.5px; }
+      .mut { color: #837A6C; } .up { color: #166534; } .dn { color: #991B1B; } .delta { color: #991B1B; font-weight: 700; }
+      .mast { display: flex; justify-content: space-between; align-items: flex-end; padding-bottom: 9px; border-bottom: 2px solid #1A1611; position: relative; }
+      .mast:after { content: ''; position: absolute; left: 0; bottom: -2px; width: 92px; height: 2px; background: #F05A28; }
+      .brand { font-size: 9px; font-weight: 700; letter-spacing: .18em; color: #837A6C; }
+      h1 { font-size: 19px; margin: 3px 0 0; letter-spacing: -.01em; color: #1A1611; }
+      .meta { text-align: right; color: #5E564B; font-size: 9px; line-height: 1.55; } .meta b { color: #1A1611; font-size: 11.5px; }
+      .kpis { display: flex; gap: 8px; margin: 11px 0 6px; }
+      .kpi { flex: 1; border: 1px solid #E8E2D7; border-radius: 5px; padding: 7px 11px; background: #FFFFFF; }
+      .kpi.big { border-width: 2px; } .kpi.ok { border-color: #BBF7D0; background: #F0FDF4; } .kpi.bad { border-color: #FECACA; background: #FEF2F2; }
+      .kpi-l { display: block; color: #837A6C; font-size: 7.5px; letter-spacing: .09em; text-transform: uppercase; font-weight: 700; }
+      .kpi-v { display: block; font-weight: 700; font-size: 17px; margin-top: 3px; font-variant-numeric: tabular-nums; color: #1A1611; }
+      .kpi.ok .kpi-v { color: #166534; } .kpi.bad .kpi-v { color: #991B1B; }
+      .pill { display: inline-block; border-radius: 999px; padding: 2px 8px; font-size: 8.5px; font-weight: 700; border: 1px solid transparent; }
+      .p-ok { background: #DCFCE7; color: #166534; border-color: #BBF7D0; } .p-warn { background: #FEF3C7; color: #92400E; border-color: #FDE68A; }
+      .p-bad { background: #FEE2E2; color: #991B1B; border-color: #FECACA; } .p-mut { background: #F5F1EA; color: #463F36; border-color: #E8E2D7; }
+      .sec { display: flex; justify-content: space-between; align-items: baseline; margin: 14px 0 5px; padding-left: 9px; border-left: 3px solid #F05A28; }
+      .sec h2 { font-size: 12.5px; margin: 0; color: #1A1611; } .sec .cnt { font-size: 9px; color: #837A6C; }
+      .lead { color: #5E564B; font-size: 9px; margin: 2px 0 0; }
+      .brk { page-break-before: always; }
+      table { border-collapse: collapse; width: 100%; } thead { display: table-header-group; }
+      th { background: #F5F1EA; color: #5E564B; padding: 5px 6px; text-align: left; font-size: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; border-bottom: 1.5px solid #1A1611; border-top: 1px solid #E8E2D7; }
+      th.num { text-align: right; }
+      td { border-bottom: 1px solid #EFEAE0; padding: 4px 6px; vertical-align: top; line-height: 1.3; } tr { page-break-inside: avoid; }
+      .cols { display: flex; gap: 14px; } .cols > div { flex: 1; }
+      .empty { color: #837A6C; font-style: italic; padding: 10px 6px; }
+    </style></head><body>
+      <div class="mast">
+        <div><div class="brand">MEGA DULCES</div><h1>Cuadre de traspasos</h1></div>
+        <div class="meta"><b>${esc(this.periodLabel(data.range.from, data.range.to))}</b><br>
+          Generado el ${esc(this.generatedAt())}<br>Mayor 515 · Ajuste traspasos internos</div>
+      </div>
+
+      <div class="kpis">
+        <div class="kpi big ${totOk ? 'ok' : 'bad'}"><span class="kpi-l">Descuadre acumulado</span><span class="kpi-v">${signed(lg.totals?.delta)}</span></div>
+        <div class="kpi"><span class="kpi-l">515-001 · Entrada</span><span class="kpi-v" style="color:#166534">${money(lg.totals?.entrada)}</span></div>
+        <div class="kpi"><span class="kpi-l">515-002 · Salida</span><span class="kpi-v" style="color:#991B1B">${money(lg.totals?.salida)}</span></div>
+        <div class="kpi"><span class="kpi-l">Traspasos sin cuadrar</span><span class="kpi-v">${num(ck.totals.diferencia + ck.totals.sin_recepcion + ck.totals.sin_origen)}</span></div>
+      </div>
+
+      <div class="sec"><h2>1 · Cuadre contable por mes</h2><span class="cnt">balanza Kepler, mayor 515</span></div>
+      <p class="lead">Cuenta puente: cada salida (515-002) debe tener su entrada (515-001) → el mayor debe netear $0. Δ ≠ 0 = traspasos sin cuadrar o en tránsito al corte.</p>
+      <div class="cols">
+        <div>
+          <table><thead><tr><th>Mes</th><th class="num">Entrada</th><th class="num">Salida</th><th class="num">Δ</th><th class="num">% desc.</th><th class="num">Acumulado</th></tr></thead>
+          <tbody>${monthRows || '<tr><td colspan="6" class="empty">Sin datos contables en el rango.</td></tr>'}</tbody></table>
+        </div>
+        <div>
+          <table><thead><tr><th>Sucursal</th><th class="num">Entrada</th><th class="num">Salida</th><th class="num">Δ descuadre</th></tr></thead>
+          <tbody>${sucRows || '<tr><td colspan="4" class="empty">—</td></tr>'}</tbody></table>
+        </div>
+      </div>
+
+      <div class="sec brk"><h2>2 · Flujo físico origen → destino</h2><span class="cnt">${num((mx.rows || []).length)} pares</span></div>
+      <p class="lead">Pareo de cada salida física con su recepción. Le pone cara (sucursales) al descuadre contable.</p>
+      <table><thead><tr><th>Origen</th><th>Destino</th><th class="num">Enviado</th><th class="num">Recibido</th><th class="num">Δ pzs</th><th class="num">Valor</th><th class="num">OK / dif / s.rec.</th></tr></thead>
+      <tbody>${mxRows || '<tr><td colspan="7" class="empty">Sin traspasos físicos en el rango.</td></tr>'}</tbody></table>
+
+      <div class="sec"><h2>3 · Traspasos sin cuadrar</h2><span class="cnt">${num(unmatched.length)} a revisar</span></div>
+      <table><thead><tr><th>Estado</th><th>Origen</th><th>Folio</th><th>Destino</th><th class="num">Enviado</th><th class="num">Recibido</th><th class="num">Δ pzs</th><th>Fecha</th></tr></thead>
+      <tbody>${ckRows || '<tr><td colspan="8" class="empty">No hay traspasos sin cuadrar en el rango.</td></tr>'}</tbody></table>
+    </body></html>`;
   }
 
   private buildHtml(data: MovementsExportData): string {

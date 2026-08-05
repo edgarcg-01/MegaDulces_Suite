@@ -202,4 +202,10 @@ export class AlmacenMovimientosService {
       params: this.params(f), responseType: 'blob', observe: 'response',
     });
   }
+  /** DM.12 — descarga el reporte mensual del Cuadre de traspasos en PDF. */
+  downloadCuadrePdf(f: MovementsFilters) {
+    return this.http.get(`${this.base}/transfers-cuadre.pdf`, {
+      params: this.params(f), responseType: 'blob', observe: 'response',
+    });
+  }
 }
