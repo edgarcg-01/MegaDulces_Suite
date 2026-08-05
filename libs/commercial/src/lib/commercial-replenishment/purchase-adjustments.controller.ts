@@ -46,6 +46,18 @@ export class PurchaseAdjustmentsController {
     return this.svc.list({ doctype, categoria, grupo, search, date_from, date_to, page: page ? Number(page) : undefined, pageSize: pageSize ? Number(pageSize) : undefined });
   }
 
+  @Get('for-entrada')
+  @RequirePermissions(Permission.COMPRAS_VER)
+  @ApiOperation({ summary: 'RE.2 — ajustes (X-D-40/55) que EXPLICAN el descuadre de una entrada: por entrada_folio exacto (cuando existe) o por proveedor + ventana de fecha (window_days, default 15). Params: proveedor_code, entrada_folio, date, window_days.' })
+  forEntrada(
+    @Query('proveedor_code') proveedor_code?: string,
+    @Query('entrada_folio') entrada_folio?: string,
+    @Query('date') date?: string,
+    @Query('window_days') window_days?: string,
+  ) {
+    return this.svc.forEntrada({ proveedor_code, entrada_folio, date, window_days: window_days ? Number(window_days) : undefined });
+  }
+
   @Get('duplicates')
   @RequirePermissions(Permission.COMPRAS_VER)
   @ApiOperation({ summary: 'RE.10 — posibles facturas DUPLICADAS: entradas del mismo proveedor con el MISMO monto exacto repetido dentro de N días (window_days, default 30). Control proactivo HITL sobre las entradas reales.' })
