@@ -113,7 +113,8 @@ Detalle verificado en memoria `reference_kepler_reception_flow`.
   - **Facturas duplicadas $6.74M** ⚠️ = error de captura, **NO descuento** → control aparte.
   - Sin motivo $4.0M (c24 en blanco → Haiku/manual) · operacional/otro ~$1.8M. El "otro" bajó de $9.18M a $924k.
 - **✅ Frontend (2026-08-05):** página `/compras/descuentos` (Operations: KPIs por grupo + filtros grupo/doctype/search + tabla + panel top proveedores) + ruta lazy + nav (`COMPRAS_VER`). Build view OK. → **vertical completo LOCAL: data → backend → frontend.**
-- **Falta (prod/next):** aplicar migración + `--apply` en Railway/LAN + redeploy api/view + **QA visual** · importar `c84` del pago · reconciliación notas vs `c84` (solapamiento) · Haiku para el tail sin-motivo · **detector de facturas duplicadas** ($6.7M → `finance.findings`).
+- **✅ Detector de duplicadas (2026-08-05):** endpoint `/duplicates` + vista "Posibles duplicados" en `/compras/descuentos` (mismo proveedor + monto exacto repetido ≤N días → posible captura doble; verificado **176 grupos / $4.3M** en riesgo, ventana 30d). Build api+view OK. Commit `df420698`.
+- **Falta (prod/next):** aplicar migración + `--apply` en Railway/LAN + redeploy api/view + **QA visual** · importar `c84` del pago · reconciliación notas vs `c84` (solapamiento) · Haiku para el tail sin-motivo · persistir duplicadas a `finance.findings` (bandeja + cron) · RE.2 auto-explain en `/compras/entradas`.
 - **Hallazgo:** **$6.74M/año de facturas duplicadas** revertidas por NC → detector de control (patrón Maat).
 - **Reuso:** `LlmExtractorService` (Haiku), detectores Maat, `erp_supplier_payments`.
 
