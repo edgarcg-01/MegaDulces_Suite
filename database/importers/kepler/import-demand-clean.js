@@ -26,6 +26,11 @@ const DST = process.env.DST_URL || process.env.DATABASE_URL_NEW || 'postgresql:/
 const APPLY = process.argv.includes('--apply');
 const di = process.argv.indexOf('--days');
 const DAYS = di !== -1 ? Number(process.argv[di + 1]) : 30;
+// RA-PRO.40 — piloto demanda MONEY-ANCHORED: para las marcas en scope, el precio-unidad
+// = cja_price/box_factor (precio de venta REAL de la unidad, ej. PAQ) en vez del MIN($/u),
+// que tomaba precios sub-unidad (indiv/glitch) e inflaba la demanda hasta ~8-16×. Fuera del
+// scope o sin cja_price → lógica MIN+piso previa intacta. Ampliar el LIKE tras validar por marca.
+const MONEY_BRAND_LIKE = process.env.MONEY_ANCHOR_BRAND_LIKE || '%rosa%';
 
 (async () => {
   const db = new Client({
@@ -55,25 +60,30 @@ const DAYS = di !== -1 ? Number(process.argv[di + 1]) : 30;
           FROM catalog.products WHERE tenant_id = $1
       ),
       pp AS (
-        -- RA-PRO.29.2 / RA-PRO.35 — PISO DE COSTO por PIEZA para no inflar boxed vendido suelto.
-        -- El MIN($/u) toma la unidad más granular; el piso protege contra glitches que dejan el
-        -- MIN por debajo del costo (cuenta sub-porciones). CLAVE (RA-PRO.35): cost_with_tax es
-        -- costo por CAJA (bruto), NO por pieza — para fs∈{12,20,24,…} cost_with_tax ≈ fs×costo-pieza.
-        -- Usar cost_with_tax CRUDO como piso por pieza lo eleva 10-40× y APLASTA la demanda real
-        -- (33027: rutas a $9.13/pz pero el piso forzaba $90 → demanda /9×). Fix: para un factor de
-        -- caja SANO (2..48) con costo-pieza implícito plausible (cwt/fs ≥ $1) el piso va por pieza
-        -- = cost_with_tax/factor_sale. Fuera de ese rango (factor basura tipo 84/100/16500, o
-        -- cwt/fs sub-$1 = granel) se conserva el piso CRUDO cwt para no explotar (÷fs≈0 → piezas
-        -- millonarias). Granel (fs<=1, kg/cubeta con SUF) queda intacto.
+        -- RA-PRO.40 (piloto): para marcas en scope con precio de caja, el precio-unidad =
+        -- cja_price/box_factor (precio de venta REAL de la unidad — PAQ), money-anchored. Corrige
+        -- que el MIN($/u) tomaba precios sub-unidad y ×8-16 la demanda (70056: 2103 vs ~120 PAQ/día
+        -- reales verificado en Kepler). Fuera de scope o sin cja_price → lógica MIN+piso previa:
+        -- RA-PRO.29.2/35 — PISO DE COSTO por PIEZA para no inflar boxed vendido suelto. cost_with_tax
+        -- es costo por CAJA (bruto); para fs∈{2..48} con cwt/fs ≥ $1 el piso va por pieza = cwt/fs,
+        -- fuera de ese rango (factor basura o granel) se conserva el piso CRUDO cwt. Granel intacto.
         SELECT wp.product_id,
-               CASE WHEN COALESCE(pf.fs, 1) > 1 AND COALESCE(pf.cwt, 0) > 0
-                    THEN CASE WHEN pf.fs <= 48 AND pf.cwt / pf.fs >= 1
-                              THEN GREATEST(min(wp.rev / wp.u), pf.cwt / pf.fs)
-                              ELSE GREATEST(min(wp.rev / wp.u), pf.cwt) END
-                    ELSE min(wp.rev / wp.u) END AS piece_price
-          FROM wp LEFT JOIN pf ON pf.product_id = wp.product_id
+               CASE
+                 WHEN b.nombre ILIKE '${MONEY_BRAND_LIKE}' AND bp.cja_price > 0 AND vbf.box_factor > 0
+                   THEN bp.cja_price / vbf.box_factor
+                 WHEN COALESCE(pf.fs, 1) > 1 AND COALESCE(pf.cwt, 0) > 0
+                   THEN CASE WHEN pf.fs <= 48 AND pf.cwt / pf.fs >= 1
+                             THEN GREATEST(min(wp.rev / wp.u), pf.cwt / pf.fs)
+                             ELSE GREATEST(min(wp.rev / wp.u), pf.cwt) END
+                 ELSE min(wp.rev / wp.u) END AS piece_price
+          FROM wp
+          LEFT JOIN pf ON pf.product_id = wp.product_id
+          LEFT JOIN catalog.products p3 ON p3.tenant_id = $1 AND p3.id = wp.product_id
+          LEFT JOIN catalog.brands   b  ON b.id = p3.brand_id
+          LEFT JOIN analytics.product_box_price   bp  ON bp.tenant_id = $1 AND bp.product_id = wp.product_id AND bp.cja_price > 0
+          LEFT JOIN analytics.v_product_box_factor vbf ON vbf.tenant_id = $1 AND vbf.product_id = wp.product_id
          WHERE wp.u >= 3 AND wp.rev >= 0.5
-         GROUP BY wp.product_id, pf.fs, pf.cwt
+         GROUP BY wp.product_id, pf.fs, pf.cwt, b.nombre, bp.cja_price, vbf.box_factor
       )`;
     const WHERE = `WHERE pp.piece_price > 0 AND wp.rev > 0`;
 
