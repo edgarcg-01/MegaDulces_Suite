@@ -644,9 +644,25 @@ export class ComercialSellOutComponent {
 
   private loadTrees() {
     this.svc.sellOutCanales().pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({ next: (t) => this.canalTree.set(t), error: () => {} });
+      .subscribe({ next: (t) => { this.canalTree.set(t); if (this.reportMode() === 'canal') this.pruneStaleCells(); }, error: () => {} });
     this.svc.sellOutVendors().pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({ next: (t) => this.vendorTree.set(t), error: () => {} });
+      .subscribe({ next: (t) => { this.vendorTree.set(t); if (this.reportMode() === 'vendedor') this.pruneStaleCells(); }, error: () => {} });
+  }
+
+  /**
+   * Poda celdas seleccionadas que YA NO existen en el árbol vigente (p.ej. una sucursal de
+   * Mayoreo guardada antes de que el slicer pasara a vendedores → token colgado que filtra
+   * a $0). Si algo cambió, re-genera. Conserva los comodines 'grupo|*'.
+   */
+  private pruneStaleCells() {
+    const cur = this.selectedCells();
+    if (!cur.size) return;
+    const tree = this.reportMode() === 'vendedor' ? this.vendorTree() : this.canalTree();
+    if (!tree.length) return;
+    const valid = new Set<string>();
+    for (const g of tree) for (const l of g.leaves) valid.add(this.leafToken(g, l));
+    const next = new Set([...cur].filter((t) => t.endsWith('|*') || valid.has(t)));
+    if (next.size !== cur.size) { this.selectedCells.set(next); this.generate(); }
   }
 
   setReportMode(m: string) {
