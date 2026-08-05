@@ -17,6 +17,7 @@ import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
 import { EntradasService, EntradaRow, EntradasReport, RemisionOcr, ProofFile, EntradaDetail, EntradaLinea } from '../entradas.service';
+import { ComprasService, AdjustmentForEntradaRow, AdjustmentGrupo } from '../compras.service';
 
 /**
  * CC (extensión) — "Comprobantes de Orden de Entrada" (proyecto Compras). Lista las
@@ -230,6 +231,35 @@ import { EntradasService, EntradaRow, EntradasReport, RemisionOcr, ProofFile, En
             @else { <p-tag [value]="'IVA/dif ' + money(lineasDiff(d))" severity="info" /> }</span>
         </div>
 
+        <!-- RE.2 — ajustes que EXPLICAN el descuadre (devoluciones / notas de crédito / descuentos del proveedor) -->
+        <div class="cb-explains">
+          <div class="cb-explains-head">
+            <span><i class="pi pi-search-plus" aria-hidden="true"></i> ¿Por qué no cuadra? — ajustes del proveedor</span>
+            @if (explains().length) { <span class="cb-explains-sum">{{ explains().length }} · {{ money(explainsTotal()) }}</span> }
+          </div>
+          @if (explainsLoading()) {
+            <p class="muted cb-explains-none"><i class="pi pi-spin pi-spinner" aria-hidden="true"></i> Buscando ajustes…</p>
+          } @else if (!explains().length) {
+            <p class="muted cb-explains-none">Sin devoluciones ni notas de crédito (X-D-40/55) de este proveedor cerca de la fecha. Si la factura no cuadra, la diferencia suele ser IVA o captura.</p>
+          } @else {
+            <p class="cb-explains-hint muted">Devoluciones y notas de crédito de <strong>{{ d.entrada.proveedor_nombre || d.entrada.proveedor_code }}</strong> ±15 días — explican por qué la factura difiere de lo recibido.</p>
+            <ul class="cb-explains-list">
+              @for (a of explains(); track a.doctype + a.folio) {
+                <li class="cb-explains-item">
+                  <p-tag [value]="adjDoctypeLabel(a.doctype)" [severity]="a.doctype === 'XD40' ? 'warn' : 'info'" />
+                  <span class="cb-explains-folio mono">{{ a.folio }}</span>
+                  <span class="cb-explains-fecha muted">{{ a.adjustment_date | date:'dd/MM/yy' }}</span>
+                  <span class="cb-explains-motivo" [title]="a.motivo || ''">{{ a.motivo || '—' }}</span>
+                  <p-tag [value]="adjGrupoLabel(a.grupo)" [severity]="adjGrupoSev(a.grupo)" />
+                  @if (a.match === 'exacto') { <span class="cb-explains-exact" title="Ligado por folio de entrada"><i class="pi pi-link" aria-hidden="true"></i> exacto</span> }
+                  @else { <span class="cb-explains-heur" title="Coincidencia por proveedor + fecha (Kepler no liga la nota a la entrada)">≈ prov+fecha</span> }
+                  <span class="cb-explains-monto strong">{{ money(a.monto) }}</span>
+                </li>
+              }
+            </ul>
+          }
+        </div>
+
         <div class="cb-view-attachments">
           <div class="cb-view-att-head">Remisión / factura adjunta</div>
           @if (!d.deposits.length) { <p class="muted cb-view-none">Aún sin remisión adjunta.</p> }
@@ -330,6 +360,21 @@ import { EntradasService, EntradaRow, EntradasReport, RemisionOcr, ProofFile, En
     .cb-preview-pdf-txt { display: flex; flex-direction: column; gap: .1rem; }
     .cb-preview-pdf-txt strong { font-size: .9rem; color: var(--text-main); }
     .cb-preview-pdf-txt span { font-size: .74rem; color: var(--text-muted); }
+    /* RE.2 — ajustes que explican el descuadre */
+    .cb-explains { margin-top: .9rem; padding-top: .8rem; border-top: 1px solid var(--border-color); display: flex; flex-direction: column; gap: .5rem; }
+    .cb-explains-head { display: flex; align-items: center; justify-content: space-between; gap: .6rem; font-size: .8rem; font-weight: 600; color: var(--text-main); }
+    .cb-explains-head > span:first-child { display: inline-flex; align-items: center; gap: .4rem; }
+    .cb-explains-sum { font-family: var(--font-mono); color: var(--action); font-weight: 600; }
+    .cb-explains-none { font-size: .82rem; margin: 0; display: inline-flex; align-items: center; gap: .4rem; }
+    .cb-explains-hint { font-size: .76rem; margin: 0; }
+    .cb-explains-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .35rem; }
+    .cb-explains-item { display: flex; align-items: center; gap: .55rem; padding: .4rem .55rem; border: 1px solid var(--border-color); border-radius: var(--r-sm, .4rem); background: var(--surface-sunken, var(--card-bg)); font-size: .82rem; }
+    .cb-explains-folio { color: var(--text-main); }
+    .cb-explains-fecha { font-size: .76rem; white-space: nowrap; }
+    .cb-explains-motivo { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-main); }
+    .cb-explains-exact { font-size: .72rem; color: var(--ok-fg); display: inline-flex; align-items: center; gap: .25rem; white-space: nowrap; }
+    .cb-explains-heur { font-size: .72rem; color: var(--text-muted); white-space: nowrap; }
+    .cb-explains-monto { font-family: var(--font-mono); white-space: nowrap; }
     /* remisión adjunta en el detalle */
     .cb-view-attachments { margin-top: .9rem; padding-top: .8rem; border-top: 1px solid var(--border-color); display: flex; flex-direction: column; gap: .6rem; }
     .cb-view-att-head { font-size: .8rem; font-weight: 600; color: var(--text-main); }
@@ -350,6 +395,7 @@ import { EntradasService, EntradaRow, EntradasReport, RemisionOcr, ProofFile, En
 })
 export class ComprasEntradasComponent {
   private readonly svc = inject(EntradasService);
+  private readonly compras = inject(ComprasService);
   private readonly auth = inject(AuthService);
   private readonly perms = inject(PermissionsService);
   private readonly toast = inject(MessageService);
@@ -392,6 +438,11 @@ export class ComprasEntradasComponent {
   readonly detailLoading = signal(false);
   readonly detailData = signal<EntradaDetail | null>(null);
   readonly detailTarget = signal<EntradaRow | null>(null);
+
+  // RE.2 — ajustes (X-D-40/55) que explican el descuadre de esta entrada
+  readonly explains = signal<AdjustmentForEntradaRow[]>([]);
+  readonly explainsLoading = signal(false);
+  readonly explainsTotal = signal(0);
 
   constructor() { this.load(); }
 
@@ -535,12 +586,35 @@ export class ComprasEntradasComponent {
     this.detailData.set(null);
     this.detailLoading.set(true);
     this.showDetail.set(true);
+    this.loadExplains(c);
     this.svc.detail(c.sucursal, c.folio).pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (d) => { this.detailData.set(d); this.detailLoading.set(false); },
         error: () => { this.detailLoading.set(false); this.showDetail.set(false); this.toast.add({ severity: 'error', summary: 'No se pudo cargar el detalle' }); },
       });
   }
+
+  /**
+   * RE.2 — busca los ajustes X-D-40/55 (devoluciones / notas de crédito / descuentos)
+   * del proveedor que pueden EXPLICAR por qué la factura no cuadra con la entrada.
+   * Link exacto por folio de entrada cuando existe; si no, proveedor + ventana ±15d.
+   */
+  private loadExplains(c: EntradaRow) {
+    this.explains.set([]);
+    this.explainsTotal.set(0);
+    if (!c.proveedor_code && !c.folio) return;
+    this.explainsLoading.set(true);
+    this.compras.adjustmentsForEntrada({ proveedor_code: c.proveedor_code, entrada_folio: c.folio, date: c.receipt_date, window_days: 15 })
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (r) => { this.explains.set(r.rows || []); this.explainsTotal.set(r.total_monto || 0); this.explainsLoading.set(false); },
+        error: () => { this.explainsLoading.set(false); },
+      });
+  }
+  adjDoctypeLabel(dt: string): string { return dt === 'XD40' ? 'Devolución' : 'Nota de crédito'; }
+  adjGrupoLabel(g: AdjustmentGrupo): string { return ({ comercial: 'Descuento/apoyo', operacional: 'Operativo', error: 'Error de captura', sin_clasificar: 'Sin clasificar' } as Record<string, string>)[g] || g; }
+  adjGrupoSev(g: AdjustmentGrupo): 'success' | 'warn' | 'danger' | 'secondary' { return ({ comercial: 'success', operacional: 'warn', error: 'danger', sin_clasificar: 'secondary' } as Record<string, 'success' | 'warn' | 'danger' | 'secondary'>)[g] || 'secondary'; }
+
   fromDetailToAttach() { const c = this.detailTarget(); this.showDetail.set(false); if (c) this.openAttach(c); }
   lineasTotal(lineas: EntradaLinea[]): number { return (lineas || []).reduce((s, l) => s + (Number(l.importe) || 0), 0); }
   lineasDiff(d: EntradaDetail): number { return Math.abs(this.lineasTotal(d.lineas) - (Number(d.entrada.monto) || 0)); }

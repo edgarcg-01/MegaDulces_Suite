@@ -578,6 +578,11 @@ export interface DuplicateGroup {
 }
 export interface DuplicatesResponse { window_days: number; groups: number; total_riesgo: number; rows: DuplicateGroup[]; }
 
+/** RE.2 — ajustes (X-D-40/55) que EXPLICAN el descuadre de una entrada. */
+export type AdjustmentMatch = 'exacto' | 'proveedor+fecha';
+export interface AdjustmentForEntradaRow extends AdjustmentRow { match: AdjustmentMatch; }
+export interface AdjustmentsForEntradaResponse { rows: AdjustmentForEntradaRow[]; total_monto: number; }
+
 @Injectable({ providedIn: 'root' })
 export class ComprasService {
   private readonly http = inject(HttpClient);
@@ -943,5 +948,18 @@ export class ComprasService {
   adjustmentsDuplicates(windowDays?: number): Observable<DuplicatesResponse> {
     const qs = windowDays ? `?window_days=${windowDays}` : '';
     return this.http.get<DuplicatesResponse>(`${this.adjBase}/duplicates${qs}`);
+  }
+  /**
+   * RE.2 — ajustes (X-D-40/55) que EXPLICAN el descuadre de una entrada: por
+   * `entrada_folio` exacto cuando existe, si no por proveedor + ventana de fecha.
+   */
+  adjustmentsForEntrada(p: { proveedor_code?: string | null; entrada_folio?: string | null; date?: string | null; window_days?: number }): Observable<AdjustmentsForEntradaResponse> {
+    const q = new URLSearchParams();
+    if (p.proveedor_code) q.set('proveedor_code', p.proveedor_code);
+    if (p.entrada_folio) q.set('entrada_folio', p.entrada_folio);
+    if (p.date) q.set('date', p.date);
+    if (p.window_days) q.set('window_days', String(p.window_days));
+    const qs = q.toString();
+    return this.http.get<AdjustmentsForEntradaResponse>(`${this.adjBase}/for-entrada${qs ? '?' + qs : ''}`);
   }
 }
