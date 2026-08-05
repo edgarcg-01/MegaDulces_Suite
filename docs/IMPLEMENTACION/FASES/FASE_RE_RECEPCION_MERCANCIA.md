@@ -108,7 +108,7 @@ Detalle verificado en memoria `reference_kepler_reception_flow`.
 
 ### RE.10 — Descuentos y apoyos (pronto pago / comercial / apoyo de marca) [nuevo · alto valor]
 - **Objetivo:** visibilizar y clasificar el descuento de proveedor — **$20.9M en notas `X-D-40/55` + $10.2M en pagos `c84`** (2026), hoy invisibles.
-- **✅ Base construida (2026-08-05):** migración `analytics.erp_purchase_adjustments` + importer `import-purchase-adjustments.js` con clasificador `c24`. Dry-run vs Kepler md_00: **1,286 ajustes / $20.9M**, breakdown verificado:
+- **✅ Base construida (2026-08-05):** migración `analytics.erp_purchase_adjustments` + importer `import-purchase-adjustments.js` con clasificador `c24` (**aplicada + poblada en newdb local, 1,286 filas, idempotente**) + **backend** `purchase-adjustments` (service+controller `summary`/`list`/`by-supplier`, `COMPRAS_VER`, en módulo Compras, build OK). `/summary by_grupo` = comercial $8.29M · error/duplicadas $6.94M · sin_clasificar $5.04M · operacional $645k. Dry-run vs Kepler md_00: **1,286 ajustes / $20.9M**, breakdown verificado:
   - **Comercial ≈ $8.2M** (descuento $6.4M + apoyo de marca $1.05M + pronto pago $718k).
   - **Facturas duplicadas $6.74M** ⚠️ = error de captura, **NO descuento** → control aparte.
   - Sin motivo $4.0M (c24 en blanco → Haiku/manual) · operacional/otro ~$1.8M. El "otro" bajó de $9.18M a $924k.
