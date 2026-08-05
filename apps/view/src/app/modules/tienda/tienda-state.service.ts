@@ -42,17 +42,22 @@ export class TiendaStateService {
   readonly activeBranches = computed(() => this.branches().filter((b) => b.tickets > 0).length);
 
   /**
-   * Sucursales SIN CONEXIÓN al POS: vendían y dejaron de reportar. Se listan solo cuando la
-   * red está operando (alguien vendió hace <15 min) para no alarmar de noche/cierre, y con
-   * ≥45 min de silencio. El snapshot incluye cajas activas los últimos 7d aunque hoy no
-   * vendan (con su last_ts real) → una caja caída aparece acá en vez de desaparecer.
+   * Sucursales SIN CONEXIÓN al POS: vendían HOY y dejaron de reportar. Condiciones:
+   *  - la red está operando (alguien vendió hace <15 min) → no alarma de noche/cierre;
+   *  - la sucursal VENDIÓ HOY (last_ts ≥ medianoche MX) → una tienda que aún no abre NO es
+   *    un POS caído (bug 2026-08-05: Yurécuaro marcada "caída" a las 08:09 cuando su última
+   *    venta era de ayer 19:43 y solo no había abierto todavía);
+   *  - ≥45 min de silencio desde su última venta de hoy.
+   * (Una caja rota ANTES de la 1ª venta del día es indistinguible de "cerrada/no abre" con
+   * solo datos de venta → no se alarma; el drop a media operación sí se caza.)
    */
   readonly disconnectedBranches = computed(() => {
     const bs = this.branches();
     const networkFresh = bs.some((b) => b.tickets > 0 && this.idleMin(b.last_ts) < 15);
     if (!networkFresh) return [];
+    const mxMid = this.mxMidnightMs();
     return bs
-      .filter((b) => this.idleMin(b.last_ts) >= 45)
+      .filter((b) => b.last_ts && new Date(b.last_ts).getTime() >= mxMid && this.idleMin(b.last_ts) >= 45)
       .map((b) => ({ code: b.warehouse_code, name: b.warehouse_name || b.warehouse_code, last_ts: b.last_ts, idle: this.idleMin(b.last_ts) }))
       .sort((a, b) => b.idle - a.idle);
   });
@@ -219,5 +224,7 @@ export class TiendaStateService {
 
   hora(ts: string): string { return ts.slice(11, 16); }
   idleMin(ts: string): number { return ts ? Math.floor((Date.now() - new Date(ts).getTime()) / 60000) : 9999; }
+  /** Epoch ms de la medianoche de HOY en hora MX (offset fijo -06, sin DST). */
+  private mxMidnightMs(): number { const h6 = 6 * 3600e3; return Math.floor((Date.now() - h6) / 86400e3) * 86400e3 + h6; }
   lastLabel(ts: string): string { const m = this.idleMin(ts); return m >= 9999 ? '—' : m <= 0 ? 'ahora' : `hace ${m} min`; }
 }
