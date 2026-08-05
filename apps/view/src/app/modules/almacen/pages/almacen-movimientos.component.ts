@@ -12,7 +12,7 @@ import { TagModule } from 'primeng/tag';
 import { InputTextModule } from 'primeng/inputtext';
 import {
   AlmacenMovimientosService, MovementsFilters, MovementsSummary,
-  AggregateRow, FolioRow, MovementsFilterOpts, DocumentResponse,
+  AggregateRow, FolioRow, MovementsFilterOpts, DocumentResponse, TransfersLedgerResponse,
 } from '../almacen-movimientos.service';
 import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
@@ -47,6 +47,7 @@ import { Permission } from '../../../core/constants/permissions';
               <span class="dm-strong">{{ money(s.totals.valor) }}</span> · {{ s.totals.documentos | number }} docs
             </div>
           }
+          <button pButton type="button" class="p-button-sm" [class.p-button-outlined]="!ledgerOpen()" (click)="toggleLedger()" title="Conciliación contable de traspasos (mayor 515): ¿cuadran las entradas con las salidas?"><span class="p-button-icon p-button-icon-left pi pi-book" aria-hidden="true"></span><span class="p-button-label">Cuadre contable</span></button>
           <button pButton type="button" class="p-button-sm p-button-outlined" [loading]="dlXlsx()" (click)="download('xlsx')" title="Documentos + validación de traspasos (filtros actuales)"><span class="p-button-icon p-button-icon-left pi pi-file-excel" aria-hidden="true"></span><span class="p-button-label">Excel</span></button>
           <button pButton type="button" class="p-button-sm p-button-outlined" [loading]="dlPdf()" (click)="download('pdf')" title="Documentos + validación de traspasos (filtros actuales)"><span class="p-button-icon p-button-icon-left pi pi-file-pdf" aria-hidden="true"></span><span class="p-button-label">PDF</span></button>
         </div>
@@ -85,6 +86,55 @@ import { Permission } from '../../../core/constants/permissions';
           <span>{{ error() }}</span>
           <button pButton type="button" class="p-button-sm p-button-text" (click)="reload()"><span class="p-button-label">Reintentar</span></button>
         </div>
+      }
+
+      <!-- DM.12 — Conciliación contable de traspasos (mayor 515) -->
+      @if (ledgerOpen()) {
+        <section class="dm-ledger">
+          @if (ledgerLoading()) { <div class="dm-empty">Cargando cuadre contable…</div> }
+          @else if (ledger(); as lg) {
+            <header class="dm-ledger-head">
+              <div>
+                <h2 class="dm-ledger-title"><i class="pi pi-book" aria-hidden="true"></i> Cuadre contable de traspasos <span class="dm-muted">· mayor 515</span></h2>
+                <p class="dm-ledger-sub">La cuenta puente debe netear <strong>$0</strong>: cada salida (515-002) tiene su entrada (515-001). Δ ≠ 0 = traspasos sin cuadrar o en tránsito al corte. Vista de red — ignora el filtro de almacén.</p>
+              </div>
+              <div class="dm-ledger-total" [class.ok]="ledgerOk(lg.totals.delta, lg.totals.entrada)" [class.bad]="!ledgerOk(lg.totals.delta, lg.totals.entrada)">
+                <span class="dm-ledger-total-lbl">Descuadre acumulado</span>
+                <span class="dm-ledger-total-val">{{ signed(lg.totals.delta) }}</span>
+              </div>
+            </header>
+            <div class="dm-ledger-grid">
+              <div>
+                <table class="dm-docs dm-ledger-tbl">
+                  <thead><tr><th>Mes</th><th class="dm-r">Entrada</th><th class="dm-r">Salida</th><th class="dm-r">Δ descuadre</th></tr></thead>
+                  <tbody>
+                    @for (m of lg.rows; track m.anio_mes) {
+                      <tr><td class="dm-strong">{{ m.anio_mes }}</td>
+                        <td class="dm-r up">{{ money(m.entrada) }}</td>
+                        <td class="dm-r down">{{ money(m.salida) }}</td>
+                        <td class="dm-r dm-delta" [class.ok]="ledgerOk(m.delta, m.entrada)" [class.bad]="!ledgerOk(m.delta, m.entrada)">{{ ledgerOk(m.delta, m.entrada) ? 'cuadra' : signed(m.delta) }}</td></tr>
+                    } @empty { <tr><td colspan="4" class="dm-empty">Sin datos contables de traspasos en el rango.</td></tr> }
+                  </tbody>
+                </table>
+              </div>
+              @if (lg.by_sucursal.length) {
+                <div>
+                  <table class="dm-docs dm-ledger-tbl">
+                    <thead><tr><th>Sucursal</th><th class="dm-r">Entrada</th><th class="dm-r">Salida</th><th class="dm-r">Δ descuadre</th></tr></thead>
+                    <tbody>
+                      @for (s of lg.by_sucursal; track s.sucursal) {
+                        <tr><td class="dm-strong">{{ s.sucursal }}</td>
+                          <td class="dm-r up">{{ money(s.entrada) }}</td>
+                          <td class="dm-r down">{{ money(s.salida) }}</td>
+                          <td class="dm-r dm-delta" [class.ok]="ledgerOk(s.delta, s.entrada)" [class.bad]="!ledgerOk(s.delta, s.entrada)">{{ ledgerOk(s.delta, s.entrada) ? 'cuadra' : signed(s.delta) }}</td></tr>
+                      }
+                    </tbody>
+                  </table>
+                </div>
+              }
+            </div>
+          } @else { <div class="dm-empty">Sin datos contables de traspasos en el rango.</div> }
+        </section>
       }
 
       <!-- Tabla por DÍA (expandible) -->
@@ -282,6 +332,22 @@ import { Permission } from '../../../core/constants/permissions';
     .dm-empty { color: var(--text-muted); padding: 1rem; text-align: center; }
     .dm-error { display: flex; align-items: center; gap: .5rem; font-size: .82rem; padding: .55rem .8rem; margin: .5rem 0; border-radius: var(--r-sm); background: var(--bad-soft-bg); color: var(--bad-soft-fg); border: 1px solid var(--bad-border); }
     .dm-error span { margin-right: auto; }
+    /* DM.12 — cuadre contable */
+    .dm-ledger { border: 1px solid var(--border-color); border-radius: var(--r-sm); background: var(--card-bg); padding: .75rem .9rem; margin: .25rem 0 .75rem; }
+    .dm-ledger-head { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: .75rem 1rem; margin-bottom: .6rem; }
+    .dm-ledger-title { margin: 0; font-size: .95rem; font-weight: 700; display: flex; align-items: center; gap: .4rem; }
+    .dm-ledger-sub { margin: .2rem 0 0; font-size: .76rem; color: var(--text-muted); max-width: 46rem; }
+    .dm-ledger-total { display: flex; flex-direction: column; align-items: flex-end; padding: .35rem .7rem; border-radius: var(--r-sm); border: 1px solid var(--border-color); white-space: nowrap; }
+    .dm-ledger-total.ok { background: var(--ok-soft-bg); border-color: var(--ok-border); color: var(--ok-soft-fg); }
+    .dm-ledger-total.bad { background: var(--bad-soft-bg); border-color: var(--bad-border); color: var(--bad-soft-fg); }
+    .dm-ledger-total-lbl { font-size: .68rem; text-transform: uppercase; letter-spacing: .03em; }
+    .dm-ledger-total-val { font-size: 1.05rem; font-weight: 800; font-variant-numeric: tabular-nums; }
+    .dm-ledger-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+    @media (max-width: 52rem) { .dm-ledger-grid { grid-template-columns: 1fr; } }
+    .dm-ledger-tbl { font-size: .8rem; }
+    .dm-delta { font-variant-numeric: tabular-nums; font-weight: 600; }
+    .dm-delta.ok { color: var(--text-muted); font-weight: 400; }
+    .dm-delta.bad { color: var(--bad-fg); }
     /* documentos dentro del día */
     .dm-exp { padding: 0 !important; background: var(--surface-alt-bg, var(--card-bg)); }
     .dm-docs { width: 100%; border-collapse: collapse; font-size: .82rem; }
@@ -383,6 +449,39 @@ export class AlmacenMovimientosComponent implements OnInit {
   dlXlsx = signal(false);
   dlPdf = signal(false);
 
+  // DM.12 — conciliación contable de traspasos (mayor 515)
+  ledgerOpen = signal(false);
+  ledgerLoading = signal(false);
+  ledger = signal<TransfersLedgerResponse | null>(null);
+
+  /** Abre/cierra el panel de cuadre contable; carga (o recarga) al abrir. */
+  toggleLedger(): void {
+    const open = !this.ledgerOpen();
+    this.ledgerOpen.set(open);
+    if (open) this.loadLedger();
+  }
+
+  private loadLedger(): void {
+    this.ledgerLoading.set(true);
+    this.api.transfersLedger(this.currentFilters())
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (r) => { this.ledger.set(r); this.ledgerLoading.set(false); },
+        error: () => { this.ledger.set(null); this.ledgerLoading.set(false); },
+      });
+  }
+
+  /** Cuadra si |Δ| es despreciable: < $1 absoluto o < 0.1% de las entradas del período. */
+  ledgerOk(delta: number, entrada: number): boolean {
+    const d = Math.abs(Number(delta) || 0);
+    return d < 1 || d < Math.abs(Number(entrada) || 0) * 0.001;
+  }
+  /** Δ con signo explícito (+/−) y formato moneda. */
+  signed(v: number | string): string {
+    const n = Number(v) || 0;
+    return (n > 0 ? '+' : '') + this.money(n);
+  }
+
   /** Descarga el reporte (Documentos + Validación de traspasos) con los filtros actuales. */
   download(format: 'xlsx' | 'pdf'): void {
     const flag = format === 'xlsx' ? this.dlXlsx : this.dlPdf;
@@ -439,6 +538,7 @@ export class AlmacenMovimientosComponent implements OnInit {
       error: () => { this.days.set([]); this.loading.set(false); this.error.set('No se pudieron cargar los movimientos. Revisá la conexión e intentá de nuevo.'); },
     });
     this.api.summary(this.currentFilters()).pipe(takeUntilDestroyed(this.destroyRef)).subscribe(s => this.summary.set(s));
+    if (this.ledgerOpen()) this.loadLedger();
   }
 
   /** Al expandir un día, carga sus documentos (lazy, cacheado). */
