@@ -571,6 +571,12 @@ export interface AdjustmentsQuery {
   doctype?: string; categoria?: string; grupo?: string; search?: string;
   date_from?: string; date_to?: string; page?: number; pageSize?: number;
 }
+export interface DuplicateGroup {
+  proveedor_code: string | null; proveedor_nombre: string | null; monto: number;
+  veces: number; copias_extra: number; monto_riesgo: number;
+  desde: string; hasta: string; span_dias: number; folios: string[]; sucursales: string[];
+}
+export interface DuplicatesResponse { window_days: number; groups: number; total_riesgo: number; rows: DuplicateGroup[]; }
 
 @Injectable({ providedIn: 'root' })
 export class ComprasService {
@@ -932,5 +938,10 @@ export class ComprasService {
   }
   adjustmentsBySupplier(q: AdjustmentsQuery = {}): Observable<AdjustmentsSupplierRow[]> {
     return this.http.get<AdjustmentsSupplierRow[]>(`${this.adjBase}/by-supplier${this.adjParams(q)}`);
+  }
+  /** RE.10 — posibles facturas duplicadas (mismo proveedor + monto exacto en ≤N días). */
+  adjustmentsDuplicates(windowDays?: number): Observable<DuplicatesResponse> {
+    const qs = windowDays ? `?window_days=${windowDays}` : '';
+    return this.http.get<DuplicatesResponse>(`${this.adjBase}/duplicates${qs}`);
   }
 }

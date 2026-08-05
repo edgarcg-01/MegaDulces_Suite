@@ -46,6 +46,13 @@ export class PurchaseAdjustmentsController {
     return this.svc.list({ doctype, categoria, grupo, search, date_from, date_to, page: page ? Number(page) : undefined, pageSize: pageSize ? Number(pageSize) : undefined });
   }
 
+  @Get('duplicates')
+  @RequirePermissions(Permission.COMPRAS_VER)
+  @ApiOperation({ summary: 'RE.10 — posibles facturas DUPLICADAS: entradas del mismo proveedor con el MISMO monto exacto repetido dentro de N días (window_days, default 30). Control proactivo HITL sobre las entradas reales.' })
+  duplicates(@Query('window_days') window_days?: string) {
+    return this.svc.potentialDuplicates(window_days ? Number(window_days) : undefined);
+  }
+
   @Get('by-supplier')
   @RequirePermissions(Permission.COMPRAS_VER)
   @ApiOperation({ summary: 'RE.10 — top proveedores por $ de ajustes (apoyos/descuentos/duplicadas). Mismos filtros que summary.' })
