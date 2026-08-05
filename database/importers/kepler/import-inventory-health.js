@@ -20,6 +20,11 @@ const { Client } = require('pg');
 const M = '00000000-0000-0000-0000-00000000d01c';
 const DST = process.env.DATABASE_URL_NEW || 'postgresql://postgres:superoot@localhost:5433/postgres_platform';
 const APPLY = process.argv.includes('--apply');
+// RA-PRO.40 — piloto: para las marcas en scope, la demanda diaria se ancla a REVENUE
+// (revenue_día × box_factor / cja_price = venta en la unidad REAL, ej. PAQ) en vez de sum(units),
+// que mezcla piezas (mostrador) + cajas (Wincaja) e infla ~8-16× (rompe la consistencia con el
+// stock, que está en PAQ). Fuera de scope o sin cja_price → sum(units) crudo intacto.
+const MONEY_BRAND_LIKE = process.env.MONEY_ANCHOR_BRAND_LIKE || '%rosa%';
 
 // UNIDAD CANÓNICA = PIEZAS (decidido 2026-07-27, verificado contra movimientos de COMPRA reales).
 // El motor de reabasto trabaja TODO en piezas porque las 3 señales de Kepler ya viven en piezas y
@@ -40,11 +45,18 @@ const APPLY = process.argv.includes('--apply');
 const SELECT_HEALTH = `
   WITH norm AS (
     SELECT sd.product_id, sd.warehouse_id, sd.sale_date::date AS d,
-           sum(sd.units) AS units_day                 -- PIEZAS crudas (unidad canónica)
+           -- RA-PRO.40: money-anchored para marcas en scope (unidad REAL vía cja_price), si no units crudas
+           CASE WHEN b.nombre ILIKE '${MONEY_BRAND_LIKE}' AND bp.cja_price > 0 AND vbf.box_factor > 0
+                     AND max(sd.unit_kind) IS DISTINCT FROM 'weight'
+                THEN sum(sd.revenue) * vbf.box_factor / bp.cja_price
+                ELSE sum(sd.units) END AS units_day
       FROM analytics.sales_daily sd
       JOIN catalog.products p ON p.tenant_id = sd.tenant_id AND p.id = sd.product_id
-     WHERE sd.tenant_id = $1 AND sd.sale_date >= current_date - 90 AND sd.units > 0
-     GROUP BY sd.product_id, sd.warehouse_id, sd.sale_date::date
+      LEFT JOIN catalog.brands b ON b.id = p.brand_id
+      LEFT JOIN analytics.product_box_price   bp  ON bp.tenant_id = sd.tenant_id AND bp.product_id = sd.product_id AND bp.cja_price > 0
+      LEFT JOIN analytics.v_product_box_factor vbf ON vbf.tenant_id = sd.tenant_id AND vbf.product_id = sd.product_id
+     WHERE sd.tenant_id = $1 AND sd.sale_date >= current_date - 90 AND (sd.units > 0 OR sd.revenue > 0)
+     GROUP BY sd.product_id, sd.warehouse_id, sd.sale_date::date, b.nombre, bp.cja_price, vbf.box_factor
   ), vel AS (
     SELECT product_id, warehouse_id,
            sum(units_day)            AS units_90d,
