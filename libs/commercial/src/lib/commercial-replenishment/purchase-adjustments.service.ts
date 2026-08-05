@@ -136,6 +136,38 @@ export class PurchaseAdjustmentsService {
     });
   }
 
+  /**
+   * RE.2 — ajustes que EXPLICAN el descuadre de una entrada. Link: `entrada_folio`
+   * exacto cuando existe (~12/132); si no, heurístico por proveedor + ventana de fecha
+   * (Kepler no liga la nota a la entrada estructuralmente — igual que el pago). Etiqueta
+   * cada match como 'exacto' | 'proveedor+fecha' para ser honestos con la precisión.
+   */
+  async forEntrada(p: { proveedor_code?: string; entrada_folio?: string; date?: string; window_days?: number }) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const win = Math.min(90, Math.max(0, Number(p.window_days) || 15));
+    if (!p.proveedor_code && !p.entrada_folio) return { rows: [], total_monto: 0 };
+    return this.tk.run(async (trx) => {
+      let b = trx('analytics.erp_purchase_adjustments').where('tenant_id', tenantId);
+      b = b.andWhere((w: any) => {
+        if (p.entrada_folio) w.orWhere('entrada_folio', p.entrada_folio);
+        if (p.proveedor_code && p.date) {
+          w.orWhere((ww: any) => ww.where('proveedor_code', p.proveedor_code)
+            .andWhereRaw(`adjustment_date BETWEEN ?::date - ?::int AND ?::date + ?::int`, [p.date, win, p.date, win]));
+        } else if (p.proveedor_code) {
+          w.orWhere('proveedor_code', p.proveedor_code);
+        }
+      });
+      const rows: any[] = await b
+        .select('doctype', 'folio', 'adjustment_date', 'proveedor_code', 'proveedor_nombre', 'factura_ref', 'entrada_folio', 'monto', 'iva', 'motivo', 'categoria')
+        .orderBy('adjustment_date', 'desc').limit(50);
+      const out = rows.map((r) => ({
+        ...r, grupo: grupoOf(r.categoria),
+        match: (p.entrada_folio && r.entrada_folio === p.entrada_folio) ? 'exacto' : 'proveedor+fecha',
+      }));
+      return { rows: out, total_monto: out.reduce((s, r) => s + Number(r.monto || 0), 0) };
+    });
+  }
+
   /** RE.10 — top proveedores por $ de ajustes (¿quién da más apoyos / quién duplica facturas?). */
   async bySupplier(q: AdjustmentsQuery = {}) {
     const tenantId = this.tenantCtx.requireTenantId();
