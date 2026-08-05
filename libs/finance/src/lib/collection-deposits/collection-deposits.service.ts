@@ -305,7 +305,10 @@ export class CollectionDepositsService {
           'comentarios', 'validated_by', 'validated_at', 'motivo_rechazo', 'created_by', 'created_at');
 
       // Referencia duplicada: ¿algún ref_norm de estas fichas aparece en OTRO cobro (viva)?
-      const refs = [...new Set(deposits.map((d: any) => d.ref_norm).filter(Boolean))];
+      // Dedup SIN `[...new Set()]`: webpack lo downlevela a `[Set]` en el bundle de
+      // la API (target ES2022 igual) → param inválido → 25P02. Usar filter+indexOf.
+      const refs = deposits.map((d: any) => d.ref_norm).filter(Boolean)
+        .filter((v: string, i: number, a: string[]) => a.indexOf(v) === i);
       const otrosPorRef: Record<string, string[]> = {};
       if (refs.length) {
         const otros = await trx('finance.collection_deposits')
