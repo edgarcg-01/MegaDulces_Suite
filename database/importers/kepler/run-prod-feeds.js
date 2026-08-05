@@ -22,11 +22,16 @@
  *   MEGA_DULCES_URL                  = postgresql://...@192.168.0.245:5432/Mega_Dulces  (solo catalog)
  */
 
-const { spawn } = require('node:child_process');
+const { spawn, spawnSync } = require('node:child_process');
 const path = require('node:path');
 
 const MODE = process.argv[2];
 const APPLY = process.argv.includes('--apply');
+// Timeout por importer. Un importer sano termina en minutos; un cuelgue (ECONNRESET a
+// prod sin timeout de socket) es INFINITO y trababa todo el batch → el scheduler lo
+// mataba a los 20min dejando node huérfanos que bloqueaban las corridas siguientes
+// (incidente 2026-08-05). Con esto, un paso colgado se mata y el batch sigue.
+const STEP_TIMEOUT_MIN = Number(process.env.FEED_STEP_TIMEOUT_MIN) || 10;
 const DIR = path.join('database', 'importers');
 const K = path.join(DIR, 'kepler');
 const SCRIPTS = path.join('database', 'scripts');
@@ -123,14 +128,60 @@ function usage() {
   process.exit(2);
 }
 
+let currentChild = null;
+
+// Mata un proceso y TODO su árbol (Windows: taskkill /T). SIGKILL solo no basta si el
+// importer dejó subprocesos; y un node colgado en un socket muerto ignora SIGTERM.
+function killTree(proc) {
+  try { proc.kill('SIGKILL'); } catch { /* ya murió */ }
+  if (process.platform === 'win32' && proc.pid) {
+    try { spawnSync('taskkill', ['/F', '/T', '/PID', String(proc.pid)], { stdio: 'ignore', timeout: 10000 }); } catch { /* */ }
+  }
+}
+
 function run(script) {
   return new Promise((resolve) => {
     const args = [script];
     if (APPLY) args.push('--apply');
     const proc = spawn('node', args, { stdio: 'inherit' });
-    proc.on('close', (code) => resolve(code ?? 1));
-    proc.on('error', (e) => { console.error(`No se pudo ejecutar ${script}: ${e.message}`); resolve(1); });
+    currentChild = proc;
+    let done = false;
+    const finish = (code) => {
+      if (done) return; done = true;
+      clearTimeout(timer);
+      if (currentChild === proc) currentChild = null;
+      resolve(code);
+    };
+    const timer = setTimeout(() => {
+      console.error(`⏱️  TIMEOUT ${STEP_TIMEOUT_MIN} min — ${script} colgado, matando y sigo`);
+      killTree(proc);
+      finish(124);
+    }, STEP_TIMEOUT_MIN * 60 * 1000);
+    proc.on('close', (code) => finish(code ?? 1));
+    proc.on('error', (e) => { console.error(`No se pudo ejecutar ${script}: ${e.message}`); finish(1); });
   });
+}
+
+// Barre node huérfanos de una corrida previa (scripts de ESTE modo, vivos > timeout+3min
+// → colgados). El umbral protege una corrida concurrente legítima de otro modo (joven).
+// Se apoya en kill-stale-feeds.ps1 (Windows) para evitar el infierno de comillas inline.
+function sweepStaleOrphans(steps) {
+  if (process.platform !== 'win32') return;
+  const ps1 = path.join(__dirname, 'kill-stale-feeds.ps1');
+  const names = [...new Set(steps.map((s) => path.basename(s)))].join(',');
+  try {
+    const r = spawnSync('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ps1,
+      '-Names', names, '-MaxAgeMin', String(STEP_TIMEOUT_MIN + 3), '-SelfPid', String(process.pid)],
+      { encoding: 'utf8', timeout: 30000 });
+    const out = (r.stdout || '').trim();
+    if (out) console.log('🧹 huérfanos previos:\n   ' + out.replace(/\n/g, '\n   '));
+  } catch (e) { console.error('sweep huérfanos (no fatal): ' + e.message.slice(0, 100)); }
+}
+
+// Si al orquestador lo terminan (Ctrl-C / scheduler), matar el hijo en curso — no
+// dejar huérfanos (best-effort; en Windows SIGTERM es limitado pero SIGINT funciona).
+for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
+  process.on(sig, () => { if (currentChild) killTree(currentChild); process.exit(1); });
 }
 
 (async () => {
@@ -154,6 +205,7 @@ function run(script) {
   if (LOCAL) console.log('  modo LOCAL: poblando DB de desarrollo (' + (dst || 'default localhost:5433/postgres_platform') + ')');
 
   console.log(`\n=== Runner prod feeds — modo "${MODE}" (${APPLY ? 'APPLY' : 'DRY-RUN'}) — ${steps.length} paso(s) ===`);
+  sweepStaleOrphans(steps); // limpia colgados de una corrida previa antes de arrancar
   let failed = 0;
   for (const s of steps) {
     console.log(`\n--- ${s} ---`);
