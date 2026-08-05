@@ -183,6 +183,7 @@ import { Permission } from '../../../core/constants/permissions';
             <p-datepicker [(ngModel)]="cFrom" dateFormat="yy-mm-dd" placeholder="Desde" [showIcon]="true" styleClass="dm-date" appendTo="body"></p-datepicker>
             <p-datepicker [(ngModel)]="cTo" dateFormat="yy-mm-dd" placeholder="Hasta" [showIcon]="true" styleClass="dm-date" appendTo="body"></p-datepicker>
             <button pButton type="button" class="p-button-sm" (click)="loadCuadre()" [loading]="cuadreLoading()"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span><span class="p-button-label">Actualizar</span></button>
+            <button pButton type="button" class="p-button-sm p-button-outlined" [loading]="dlCuadre()" (click)="downloadCuadre()" title="Reporte mensual del cuadre (contable + físico) en PDF"><span class="p-button-icon p-button-icon-left pi pi-file-pdf" aria-hidden="true"></span><span class="p-button-label">Reporte PDF</span></button>
             <span class="dm-muted dm-cuadre-note">Vista de red — ignora el filtro de almacén del Diario.</span>
           </div>
 
@@ -557,6 +558,7 @@ export class AlmacenMovimientosComponent implements OnInit {
   cTo: Date = new Date();
   cuadreLoaded = signal(false);
   cuadreLoading = signal(false);
+  dlCuadre = signal(false);                                    // descarga del reporte PDF
   ledger = signal<TransfersLedgerResponse | null>(null);       // contable (mayor 515)
   matrix = signal<TransfersMatrixResponse | null>(null);       // físico origen→destino
   check = signal<TransfersCheckResponse | null>(null);         // físico folio a folio
@@ -582,6 +584,24 @@ export class AlmacenMovimientosComponent implements OnInit {
         this.cuadreLoading.set(false); this.cuadreLoaded.set(true);
       },
       error: () => { this.cuadreLoading.set(false); this.cuadreLoaded.set(true); },
+    });
+  }
+
+  /** DM.12 — descarga el reporte mensual del cuadre en PDF (rango de la pestaña). */
+  downloadCuadre(): void {
+    const f: MovementsFilters = { from: this.iso(this.cFrom), to: this.iso(this.cTo) };
+    this.dlCuadre.set(true);
+    this.api.downloadCuadrePdf(f).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (resp) => {
+        this.dlCuadre.set(false);
+        const cd = resp.headers.get('content-disposition') || '';
+        const m = /filename\*=UTF-8''([^;]+)/i.exec(cd);
+        const name = m ? decodeURIComponent(m[1]) : 'Cuadre de traspasos.pdf';
+        const url = URL.createObjectURL(resp.body!);
+        const a = document.createElement('a'); a.href = url; a.download = name; a.click();
+        URL.revokeObjectURL(url);
+      },
+      error: () => this.dlCuadre.set(false),
     });
   }
 

@@ -748,6 +748,14 @@ export class CommercialMovementsService {
     });
   }
 
+  /** DM.12 — junta los 3 lentes del cuadre (contable + matriz física + folios) para el PDF. */
+  async exportCuadreData(q: MovementsQuery) {
+    const [ledger, matrix, check] = await Promise.all([
+      this.transfersLedger(q), this.transfersMatrix(q), this.transfersCheck(q),
+    ]);
+    return { range: this.range(q), ledger, matrix, check };
+  }
+
   /** DM.6 — junta todo lo que necesita el export (docs englobados + totales + traspasos). */
   async exportData(q: MovementsQuery) {
     const PAGE = 500, MAX_PAGES = 10; // cap 5,000 docs por export
