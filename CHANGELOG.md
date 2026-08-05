@@ -10,6 +10,18 @@
 
 ## [Unreleased]
 
+### Added — Diario de movimientos: pestaña "Cuadre de traspasos" + reporte PDF mensual (2026-08-05)
+- Nueva pestaña **Cuadre de traspasos** en `/almacen/movimientos` (`p-tabs`: Diario | Cuadre) con rango de fechas propio (vista de red). Concilia la **balanza Kepler mayor 515 «Ajuste traspasos internos»** (515-001 entrada / 515-002 salida): es cuenta puente → debe netear ≈ $0; Δ ≠ 0 = traspaso sin cuadrar o en tránsito al corte.
+- **4 desgloses**: por subcuenta (515-001/002 + Δ neto) · serie mensual + tendencia (Δ, % descuadre, **acumulado corriente**) · por sucursal · **matriz física origen→destino** (enviado/recibido/Δ/valor + conteo ok·dif·sin-recepción) · **drill de folios sin cuadrar** (clic abre el documento).
+- **Reporte mensual en PDF** (botón "Reporte PDF"): masthead + KPIs + las 3 secciones (contable + matriz + folios), mismo motor puppeteer/estilo DESIGN.md que el export del Diario.
+- Backend `commercial-movements` (todos `RequireAnyPermission COMMERCIAL_MOVEMENTS_VER|RECONCILIATION_VER`): `GET transfers-ledger` (contable, `analytics.ledger_monthly`), `GET transfers-matrix` (físico, mismo pareo LATERAL que `transfers-check` agregado por par de sucursales), `GET transfers-cuadre.pdf`. Sin migración.
+- **Verificado contable vs DB**: Δ acumulado ene–jul 2026 = **+$11.63M** (cuadre perfecto ene–feb, divergencia jun–jul). El feed físico local no trae traspasos → matriz/folios con empty-state honesto; se llenan en prod. Builds api+view verdes.
+- **Rollout**: redeploy api+view + re-login (endpoints nuevos usan permisos existentes; el guard lee el snapshot del JWT). Los datos físicos (matriz + folios) requieren el feed de `stock_movements` de prod.
+
+### Fixed — Diario de movimientos: permisos de la API alineados al guard de ruta + limpieza (2026-08-05)
+- La ruta `/almacen/movimientos` permitía `RECONCILIATION_VER`, pero **todos** los endpoints exigían solo `COMMERCIAL_MOVEMENTS_VER` → un usuario de conciliación abría la página y recibía 403 en cada llamada (pantalla en blanco). Los 8 endpoints de lectura pasan a `@RequireAnyPermission(COMMERCIAL_MOVEMENTS_VER, RECONCILIATION_VER)`; el `audit` (write) queda estricto con `GESTIONAR`.
+- Borrado el endpoint debug `_debug-dest` (dejado tras diagnosticar el bug de `[...new Set()]`). `aggregate()` cuenta por subquery en vez de materializar el resultset dos veces. La vista "día" ordena cronológico (`doc_date DESC`) para que el cap de pageSize no trunque días recientes de bajo monto en rangos grandes. Commit `d729d22d`.
+
 ### Added — Compras: permiso especial `COMPRAS_VALIDAR` para validar órdenes de entrada (2026-08-04)
 - La **validación/rechazo de la evidencia (remisión) de órdenes de entrada** (`/compras/entradas`) ahora exige un **permiso propio `COMPRAS_VALIDAR`**, separado de `COMPRAS_GESTIONAR`. Objetivo: **que no todos puedan validar** — quien solo gestiona (crea requisiciones, captura/adjunta) ya no valida.
 - **Restrictivo**: `COMPRAS_VALIDAR` NO va en el preset del rol Compras ni en ningún seed; se asigna explícitamente en `/admin/roles`. Admin/superadmin siguen validando por `manage:all`. El resto de `/compras` (aprobar/rechazar requisiciones, config, captura) queda igual en `GESTIONAR`.
