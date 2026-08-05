@@ -319,4 +319,51 @@ export class PurchaseAdjustmentsService {
       return { summary: { total_lost, suppliers: rowsOut.length }, rows: rowsOut };
     });
   }
+
+  /**
+   * CXP.3 — "Compras 360": el Excel de recepciones en una vista. Fila = orden de
+   * entrada / factura (`analytics.erp_goods_receipts`) con su OC (`oc_folio`), el ajuste
+   * LIGADO EXACTO por `entrada_folio` (devoluciones/notas confirmadas) y el neto. Los
+   * ajustes heurísticos (proveedor+fecha) NO se suman aquí para no inflar el neto — viven
+   * en el detalle (`forEntrada`). El join a.entrada_folio=c.folio es 1:0..1 (no infla).
+   * analytics.* sin RLS → filtro `tenant_id` explícito.
+   */
+  async compras360(q: { search?: string; sucursal?: string; date_from?: string; date_to?: string; con_ajuste?: boolean; page?: number; pageSize?: number; all?: boolean } = {}) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const page = Math.max(1, q.page || 1);
+    const pageSize = q.all ? 5000 : Math.min(200, Math.max(1, q.pageSize || 50));
+    return this.tk.run(async (trx) => {
+      const adj = trx('analytics.erp_purchase_adjustments')
+        .select('entrada_folio').sum({ ajuste: 'monto' }).count({ n_ajuste: '*' })
+        .where('tenant_id', tenantId).whereNotNull('entrada_folio')
+        .groupBy('entrada_folio').as('a');
+      const base = () => {
+        const b = trx('analytics.erp_goods_receipts as c').leftJoin(adj, 'a.entrada_folio', 'c.folio').where('c.tenant_id', tenantId);
+        if (q.sucursal) b.where('c.sucursal', q.sucursal);
+        if (q.date_from) b.where('c.receipt_date', '>=', q.date_from);
+        if (q.date_to) b.where('c.receipt_date', '<=', q.date_to);
+        if (q.search && q.search.trim()) {
+          const s = `%${q.search.trim()}%`;
+          b.where((w: any) => w.where('c.proveedor_nombre', 'ilike', s).orWhere('c.proveedor_code', 'ilike', s).orWhere('c.oc_folio', 'ilike', s).orWhere('c.folio', 'ilike', s));
+        }
+        if (q.con_ajuste) b.whereRaw('COALESCE(a.ajuste,0) <> 0');
+        return b;
+      };
+      const [{ count }]: any = await base().count({ count: '*' });
+      const [tot]: any = await base().sum({ factura: 'c.monto' }).select(trx.raw('COALESCE(sum(a.ajuste),0) AS ajuste'));
+      const rows: any[] = await base()
+        .select('c.sucursal', 'c.folio', 'c.receipt_date', 'c.proveedor_code', 'c.proveedor_nombre', 'c.oc_folio', 'c.vale_folio',
+          trx.raw('c.monto::numeric AS factura'),
+          trx.raw('COALESCE(a.ajuste,0)::numeric AS ajuste'),
+          trx.raw('COALESCE(a.n_ajuste,0)::int AS n_ajuste'))
+        .orderBy('c.receipt_date', 'desc').orderBy('c.monto', 'desc')
+        .limit(pageSize).offset(q.all ? 0 : (page - 1) * pageSize);
+      const factura = Number(tot?.factura) || 0, ajuste = Number(tot?.ajuste) || 0;
+      return {
+        total: Number(count), page, pageSize,
+        totals: { factura, ajuste, neto: factura - ajuste },
+        rows: rows.map((r) => ({ ...r, factura: Number(r.factura), ajuste: Number(r.ajuste), neto: Number(r.factura) - Number(r.ajuste) })),
+      };
+    });
+  }
 }

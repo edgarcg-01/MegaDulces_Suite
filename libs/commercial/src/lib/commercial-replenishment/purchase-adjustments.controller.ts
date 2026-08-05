@@ -94,6 +94,27 @@ export class PurchaseAdjustmentsController {
     return this.svc.discountLeakage({ search });
   }
 
+  @Get('compras-360')
+  @RequirePermissions(Permission.COMPRAS_VER)
+  @ApiOperation({ summary: 'CXP.3 — "Compras 360" (el Excel): fila = orden de entrada/factura + OC + ajuste ligado exacto + neto. Filtros: search, sucursal, date_from, date_to, con_ajuste, page, pageSize, all (export ≤5000).' })
+  compras360(
+    @Query('search') search?: string,
+    @Query('sucursal') sucursal?: string,
+    @Query('date_from') date_from?: string,
+    @Query('date_to') date_to?: string,
+    @Query('con_ajuste') con_ajuste?: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+    @Query('all') all?: string,
+  ) {
+    return this.svc.compras360({
+      search, sucursal, date_from, date_to,
+      con_ajuste: con_ajuste === 'true' || con_ajuste === '1',
+      page: page ? Number(page) : undefined, pageSize: pageSize ? Number(pageSize) : undefined,
+      all: all === 'true' || all === '1',
+    });
+  }
+
   @Get('by-supplier')
   @RequirePermissions(Permission.COMPRAS_VER)
   @ApiOperation({ summary: 'RE.10 — top proveedores por $ de ajustes (apoyos/descuentos/duplicadas). Mismos filtros que summary.' })

@@ -994,4 +994,23 @@ export class ComprasService {
     const qs = search ? `?search=${encodeURIComponent(search)}` : '';
     return this.http.get<DiscountLeakageResponse>(`${this.adjBase}/discount-leakage${qs}`);
   }
+
+  /** CXP.3 — "Compras 360" (el Excel): recepciones/facturas + OC + ajuste ligado exacto + neto. */
+  compras360(q: Compras360Query = {}): Observable<Compras360Response> {
+    const p = new URLSearchParams();
+    if (q.search) p.set('search', q.search);
+    if (q.sucursal) p.set('sucursal', q.sucursal);
+    if (q.date_from) p.set('date_from', q.date_from);
+    if (q.date_to) p.set('date_to', q.date_to);
+    if (q.con_ajuste) p.set('con_ajuste', '1');
+    if (q.page) p.set('page', String(q.page));
+    if (q.pageSize) p.set('pageSize', String(q.pageSize));
+    if (q.all) p.set('all', '1');
+    const qs = p.toString();
+    return this.http.get<Compras360Response>(`${this.adjBase}/compras-360${qs ? '?' + qs : ''}`);
+  }
 }
+
+export interface Compras360Query { search?: string; sucursal?: string; date_from?: string; date_to?: string; con_ajuste?: boolean; page?: number; pageSize?: number; all?: boolean }
+export interface Compras360Row { sucursal: string; folio: string; receipt_date: string; proveedor_code: string; proveedor_nombre: string; oc_folio: string | null; vale_folio: string | null; factura: number; ajuste: number; n_ajuste: number; neto: number }
+export interface Compras360Response { total: number; page: number; pageSize: number; totals: { factura: number; ajuste: number; neto: number }; rows: Compras360Row[] }
