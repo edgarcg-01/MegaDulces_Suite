@@ -7,6 +7,8 @@ import {
   FinanceFindingsSinkPort,
   FinanceFindingInput,
   FinanceRuleInput,
+  FINANCE_NOTIFIER_PORT,
+  FinanceNotifierPort,
 } from '@megadulces/contracts';
 import { PurchaseAdjustmentsService } from './purchase-adjustments.service';
 
@@ -39,6 +41,8 @@ export class PurchaseAdjustmentsFindingsBridgeService {
     private readonly adjustments: PurchaseAdjustmentsService,
     private readonly tenantCtx: TenantContextService,
     @Optional() @Inject(FINANCE_FINDINGS_SINK_PORT) private readonly sink?: FinanceFindingsSinkPort,
+    // Notificador proactivo (WS al bell del header). @Optional: si no hay binding, no-op.
+    @Optional() @Inject(FINANCE_NOTIFIER_PORT) private readonly notifier?: FinanceNotifierPort,
   ) {}
 
   /** Sync del tenant en contexto (endpoint manual). */
@@ -79,6 +83,11 @@ export class PurchaseAdjustmentsFindingsBridgeService {
     if (!findings.length) return { pushed: 0, inserted: 0, skipped: 0 };
     const res = await this.sink.pushFindings(tenantId, findings, rules);
     this.logger.log(`tenant ${tenantId}: ${dupFindings.length} duplicadas + ${leakFindings.length} descuento-no-capturado → Maat (${res.inserted} nuevas, ${res.skipped} omitidas).`);
+    // Solo si hubo NUEVAS: notifica los críticos al bell (WS). Evita re-spamear cada noche.
+    if (res.inserted > 0 && this.notifier) {
+      const criticos = findings.filter((f) => f.severity === 'critical').map((f) => ({ rule_key: f.rule_key, titulo: f.titulo, importe: Number(f.importe) || 0 }));
+      if (criticos.length) await this.notifier.notifyCritical(tenantId, criticos).catch((e) => this.logger.warn(`notifyCritical falló: ${e?.message || e}`));
+    }
     return { pushed: findings.length, ...res };
   }
 

@@ -26,6 +26,7 @@ import { HapticService } from '../../../core/services/haptic.service';
 import { CountFocusService } from '../../../core/services/count-focus.service';
 import { Permission } from '../../../core/constants/permissions';
 import { HealthAlertToastComponent } from './health-alert-toast.component';
+import { NotificationsBellComponent } from './notifications-bell.component';
 
 interface NavItem {
   label: string;
@@ -49,7 +50,7 @@ interface NavItem {
 @Component({
   selector: 'app-layout',
   standalone: true,
-  imports: [CommonModule, RouterModule, MenuModule, HealthAlertToastComponent],
+  imports: [CommonModule, RouterModule, MenuModule, HealthAlertToastComponent, NotificationsBellComponent],
   templateUrl: './layout.component.html',
   styleUrls: ['./layout.component.css'],
   changeDetection: ChangeDetectionStrategy.OnPush,
