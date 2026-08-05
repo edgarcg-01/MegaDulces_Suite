@@ -169,6 +169,13 @@ const CHANNEL_OPTS = [
             }
           </div>
         }
+
+        <div class="so-field so-reset-field">
+          <label>&nbsp;</label>
+          <button type="button" class="so-reset" (click)="resetFilters()" title="Restablecer todos los filtros a sus valores por defecto">
+            <i class="pi pi-filter-slash"></i><span>Limpiar filtros</span>
+          </button>
+        </div>
       </div>
 
       <!-- RS.4 — Slicer jerárquico Canal→Sucursal / Grupo→Vendedor -->
@@ -374,6 +381,10 @@ const CHANNEL_OPTS = [
     .so-link:hover { color:var(--text-main); }
     .so-apply { background:var(--action); color:#fff; border:none; border-radius:var(--r-xs,6px); font-size:.78rem;
       font-weight:600; cursor:pointer; padding:.28rem .7rem; }
+    .so-reset { display:inline-flex; align-items:center; gap:.4rem; background:none; color:var(--text-muted);
+      border:1px solid var(--border-color); border-radius:var(--r-xs,6px); font-size:.8rem; cursor:pointer;
+      padding:.4rem .7rem; white-space:nowrap; }
+    .so-reset:hover { color:var(--bad-fg); border-color:var(--bad-border,var(--bad-fg)); }
     .so-slicer-groups { display:flex; flex-wrap:wrap; gap:1.5rem; }
     .so-slicer-col { display:flex; flex-direction:column; gap:.35rem; min-width:11rem; }
     .so-slicer-group { display:flex; align-items:center; gap:.5rem; font-weight:700; font-size:.8rem;
@@ -667,6 +678,33 @@ export class ComercialSellOutComponent {
     this.selectedCells.set(s);
   }
   clearCells() { this.selectedCells.set(new Set()); this.generate(); }
+
+  /** Restablece TODOS los filtros a los defaults (empresa, periodo, medida, promos, celdas,
+   *  búsqueda, concentrado, vista, modo) y borra lo persistido. Luego regenera. */
+  resetFilters(): void {
+    this.brandId.set(null);
+    this.search.set('');
+    this.promo.set('sin');
+    this.concentrar.set('');
+    this.view.set('product');
+    this.reportMode.set('canal');
+    this.measure.set('ambas');
+    this.periodMode.set('month');
+    this.selectedCells.set(new Set());
+    this.channels = [];
+    this.warehouses = [];
+    this.byChannel = true;
+    this.includeZeros = false;
+    this.rangeDates = null;
+    // Periodo default = mes anterior cerrado (igual que el constructor).
+    const now = new Date();
+    this.monthDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    this.year = this.monthDate.getFullYear();
+    this.quarter = Math.floor(this.monthDate.getMonth() / 3) + 1;
+    try { localStorage.removeItem(ComercialSellOutComponent.FKEY); } catch { /* no-op */ }
+    this.syncPeriod();
+    this.generate();
+  }
   applyCells() { this.slicerOpen.set(false); this.generate(); }
 
   /** Autocomplete de producto (todas las empresas): al elegir uno, filtra por su SKU y regenera. */
