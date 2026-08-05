@@ -738,6 +738,24 @@ export interface FleetAuditUnit {
   sales_docs: number;
   sales_total: number;
   sales_units: number;
+  located_sales: LocatedSale[]; // ventas ubicadas por hora vs GPS (B/C)
+}
+
+export interface LocatedSale {
+  consecutivo: string;
+  source_branch: string;
+  ts: string | null;
+  hora: string | null;
+  total: number;
+  units: number;
+  cliente: string | null;
+  at_lat: number | null;
+  at_lng: number | null;
+  gps_gap_min: number | null;
+  near_store_id: string | null;
+  near_store_name: string | null;
+  located: boolean;
+  source: string;
 }
 
 export interface AdherenceDiagnostic {

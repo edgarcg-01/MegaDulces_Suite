@@ -48,6 +48,26 @@ export interface VehicleAuditDetail {
     near_store_name: string | null; // tienda más cercana a la posición del ticket
     located: boolean;
   }>;
+  // Ventas REALES del día ubicadas por hora (LTV.18b): cada documento de venta con
+  // hora se cruza contra el GPS → dónde estaba el camión al registrarla + tienda
+  // registrada más cercana. Hoy solo hay hora para Wincaja a bordo; el push de
+  // Kepler PH no emite hora → esas rutas devuelven [] (hasta que la emita = C).
+  located_sales: Array<{
+    consecutivo: string;
+    source_branch: string;
+    ts: string | null; // timestamp del registro (día + hora)
+    hora: string | null; // HH:MM
+    total: number;
+    units: number;
+    cliente: string | null;
+    at_lat: number | null;
+    at_lng: number | null;
+    gps_gap_min: number | null;
+    near_store_id: string | null; // tienda registrada donde se registró (si la hay)
+    near_store_name: string | null;
+    located: boolean;
+    source: 'wincaja';
+  }>;
 }
 
 /** Bundle geográfico por unidad para el mapa multi-ruta (batch). */
@@ -68,6 +88,7 @@ export interface FleetAuditUnitBundle {
   sales_docs: number; // # de documentos de venta (distinct consecutivo)
   sales_total: number; // $ vendido
   sales_units: number; // piezas
+  located_sales: VehicleAuditDetail['located_sales']; // ventas ubicadas por hora (B/C)
 }
 
 /** Número de ruta a partir de un código libre ("R-12", "RUTA 12", "12") → 12. */
@@ -210,6 +231,7 @@ export class RouteAdherenceService {
 
       // ── tickets del día de esa(s) ruta(s), ubicados por hora ──
       let tickets: VehicleAuditDetail['tickets'] = [];
+      let located_sales: VehicleAuditDetail['located_sales'] = [];
       if (routeNumbers.length) {
         const rawTickets = await trx('commercial.route_tickets')
           .whereRaw('tenant_id = public.current_tenant_id()')
@@ -261,6 +283,63 @@ export class RouteAdherenceService {
             };
           })
           .sort((a, b) => (a.ticket_time || '').localeCompare(b.ticket_time || ''));
+
+        // ── LTV.18b — VENTAS reales del día ubicadas por hora (Wincaja a bordo) ──
+        // Cada documento de venta (maestro_mov_almacen) trae hora → se cruza contra
+        // el GPS para saber dónde estaba el camión al registrarla, y se matchea a la
+        // tienda registrada más cercana. Kepler PH no emite hora → esas rutas [].
+        const branchStrs = routeNumbers.map((n) => String(n));
+        const nearestStoreFull = (lat: number, lng: number): { id: string | null; name: string | null } | null => {
+          let best: { id: string | null; name: string | null; d: number } | null = null;
+          for (const s of stops) {
+            const d = haversineMeters(lat, lng, s.lat, s.lng);
+            if (!best || d < best.d) best = { id: s.matched_store_id ?? null, name: s.store_name, d };
+          }
+          return best && best.d <= 200 ? { id: best.id, name: best.name } : null;
+        };
+        const saleRows = await trx('wincaja.maestro_mov_almacen as m')
+          .join('wincaja.detalles_mov_almacen as dt', (j) =>
+            j.on('dt.tenant_id', 'm.tenant_id').andOn('dt.source_branch', 'm.source_branch').andOn('dt.source_dataset', 'm.source_dataset').andOn('dt.consecutivo', 'm.consecutivo'))
+          .whereRaw('m.tenant_id = public.current_tenant_id()')
+          .whereIn('m.source_branch', branchStrs)
+          .where('m.source_dataset', 'actual')
+          .whereRaw('m.fecha::date = ?', [day])
+          .whereRaw('COALESCE(m.cancelado, false) = false')
+          .where('dt.tipo', 'V')
+          .whereNotNull('m.hora')
+          .groupBy('m.consecutivo', 'm.source_branch', 'm.hora', 'm.tercero')
+          .select('m.consecutivo', 'm.source_branch', 'm.hora', 'm.tercero as cliente')
+          .sum({ total: 'dt.valor_venta' })
+          .sum({ units: 'dt.cantidad_regular' });
+
+        located_sales = (saleRows as any[]).map((r) => {
+          // hora = '1899-12-30T08:01:46' (fecha dummy) → tomar solo la parte de tiempo.
+          const timePart = typeof r.hora === 'string' && r.hora.includes('T') ? r.hora.split('T')[1].slice(0, 8) : null;
+          let at_lat: number | null = null, at_lng: number | null = null, gap: number | null = null, ts: string | null = null;
+          let near: { id: string | null; name: string | null } | null = null;
+          if (timePart) {
+            const tsMs = new Date(`${day}T${timePart}-06:00`).getTime();
+            if (Number.isFinite(tsMs)) {
+              ts = new Date(tsMs).toISOString();
+              const n = nearestByTime(tsMs);
+              if (n) { at_lat = n.lat; at_lng = n.lng; gap = Math.round(n.gap / 60000); near = nearestStoreFull(n.lat, n.lng); }
+            }
+          }
+          return {
+            consecutivo: String(r.consecutivo),
+            source_branch: String(r.source_branch),
+            ts,
+            hora: timePart ? timePart.slice(0, 5) : null,
+            total: Number(r.total) || 0,
+            units: Number(r.units) || 0,
+            cliente: r.cliente ?? null,
+            at_lat, at_lng, gps_gap_min: gap,
+            near_store_id: near?.id ?? null,
+            near_store_name: near?.name ?? null,
+            located: at_lat != null,
+            source: 'wincaja' as const,
+          };
+        }).sort((a, b) => (a.hora || '').localeCompare(b.hora || ''));
       }
 
       return {
@@ -270,6 +349,7 @@ export class RouteAdherenceService {
         path: path.map(({ lat, lng, captured_at, speed_kmh }) => ({ lat, lng, captured_at, speed_kmh })),
         stops,
         tickets,
+        located_sales,
       };
     }
   }
@@ -345,6 +425,7 @@ export class RouteAdherenceService {
           sales_docs: sales.docs,
           sales_total: sales.total,
           sales_units: sales.units,
+          located_sales: geo.located_sales,
         });
       }
       return out.sort((a, b) => (a.route_number ?? 999) - (b.route_number ?? 999));
