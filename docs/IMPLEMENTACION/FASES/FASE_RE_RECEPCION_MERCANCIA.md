@@ -78,7 +78,8 @@ Detalle verificado en memoria `reference_kepler_reception_flow`.
 - **Objetivo:** automatizar el control G-vs-H (41% descuadre; typo $183M) **y explicar el porqué** desde el dato, no solo pintar rojo.
 - **Entregable:** (a) OCR factura → compara **factura vs entrada (`c16`) vs OC** → `discrepancy_amount`; (b) **auto-explicación**: jalar los `X-D-40`+`X-D-55` ligados a la entrada (por factura `c11`/proveedor) y clasificar `c24` → `discrepancy_kind` ∈ {faltante, no_solicitado, mal_estado, cambiada, descuento_comercial, pronto_pago, apoyo_marca, typo, iva}; (c) reglas para **typo** (Δ>70%) e **IVA** (Δ≤2% / ratio ≈1.16); chip/semáforo + motivo en UI.
 - **Clasificación `c24`:** keyword primero, **Haiku** para los tersos (~$13.2M "sin clasificar"); mismo patrón que Maat.
-- **Reuso:** OCR `extractRemision`, cuadre actual, `LlmExtractorService`.
+- **✅ Backend auto-explain (2026-08-05):** endpoint `/commercial/purchase-adjustments/for-entrada` — link exacto por `entrada_folio` (~12/132) o heurístico proveedor+ventana; cada match etiquetado `exacto`|`proveedor+fecha`. Verificado (Mondelez 2026-06-29 → "faltó 1 caja de…"). Commit `0cb4666c`. **Falta:** integrar en `/compras/entradas` (sección "ajustes que lo explican") + reglas typo(Δ>70%)/IVA(≤2%) + persistir `discrepancy_kind`.
+- **Reuso:** OCR `extractRemision`, cuadre actual, `LlmExtractorService`, espejo `erp_purchase_adjustments`.
 
 ### RE.3 — CxP / vencimientos (aging + worklist)
 - **Objetivo:** lo que el Excel tenía roto.
