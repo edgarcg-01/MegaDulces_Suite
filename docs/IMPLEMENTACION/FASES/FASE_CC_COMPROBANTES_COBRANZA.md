@@ -35,7 +35,12 @@ Un cliente a crédito paga con transferencia/depósito y manda la ficha. Hoy esa
 | CC.2 Frontend (`/finanzas/cobranza`) | ✅ commit `9a83bbd9` | build view OK; validación visual manual pendiente |
 | CC.3 Controles (cuenta propia + folio electrónico dedup) | ✅ 2026-08-04 | mig `20260804190000`; smoke 26/26; builds api+view OK |
 | CC.4 Three-way match (abono real en banco, CB) | ✅ 2026-08-04 | smoke 28/28; builds api+view OK; sin migración (read-only) |
+| CC.5 Persistir conciliación (bank_recon_matches) | ✅ 2026-08-04 | smoke 31/31; builds api+view OK; sin migración |
 | PROD migraciones | ✅ 2026-08-03 | Railway batch 154 (5 migs); tablas + RLS + 21 roles con VER verificados |
+
+### CC.5 — Persistir la conciliación (el cobro queda ligado a su abono, y CB lo ve)
+
+CC.4 solo **sugería**. CC.5 **cierra el lazo**: el revisor confirma cuál abono es y se persiste en `finance.bank_recon_matches` (la tabla de CB) con `kepler_doc_tipo='UA0501'`, `kepler_doc_folio=folio`, `kepler_cuenta='102'`, `kepler_amount=cobro_monto`, `match_type` (`exact` si cuadra ±$1, si no `manual`). El movimiento pasa a `recon_status='matched'`. Endpoints `POST /:id/bank-match` (confirmar) y `POST /:id/bank-unmatch` (deshacer, revierte a `pending` si el abono queda libre), permiso **GESTIONAR**. `detail()` lee las conciliaciones vía `linkedBankMovements()` y muestra "Conciliado con el banco" (verde, por quién/cuándo, con botón deshacer) en vez de los candidatos. Idempotente (`onConflict...merge`). Modelo a **nivel cobro**: un abono puede ligarse a N cobros (multi-folio), cada uno una fila. **Integra con CB**: el cobro conciliado desde Cobranza aparece como movimiento `matched` en la conciliación bancaria. **Pendiente prod CC.5:** redeploy api+view + re-login.
 
 ### CC.4 — Three-way match: ¿el dinero ENTRÓ al banco?
 

@@ -76,4 +76,18 @@ export class CollectionDepositsController {
   reject(@Param('id') id: string, @Body() body: { motivo?: string }, @Req() req: AuthedRequest) {
     return this.svc.reject(id, req?.user?.full_name || req?.user?.username, body?.motivo);
   }
+
+  @Post(':id/bank-match')
+  @RequirePermissions(Permission.FINANCE_COLLECTIONS_GESTIONAR)
+  @ApiOperation({ summary: 'Confirma que un abono del estado de cuenta corresponde al cobro (persiste en bank_recon_matches).' })
+  confirmBank(@Param('id') id: string, @Body() body: { bank_movement_id?: string }, @Req() req: AuthedRequest) {
+    return this.svc.confirmBank(id, body?.bank_movement_id || '', req?.user?.full_name || req?.user?.username);
+  }
+
+  @Post(':id/bank-unmatch')
+  @RequirePermissions(Permission.FINANCE_COLLECTIONS_GESTIONAR)
+  @ApiOperation({ summary: 'Deshace la conciliación cobro↔abono.' })
+  unlinkBank(@Param('id') id: string, @Body() body: { bank_movement_id?: string }) {
+    return this.svc.unlinkBank(id, body?.bank_movement_id || '');
+  }
 }

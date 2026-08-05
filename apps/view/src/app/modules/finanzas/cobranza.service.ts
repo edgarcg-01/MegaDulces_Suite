@@ -48,11 +48,20 @@ export interface DepositOcr {
 
 export interface DepositFile { role: string; url: string; public_id?: string; kind?: string; name?: string; }
 
-/** Un abono candidato del estado de cuenta (finance.bank_movements, fase CB). */
-export interface BankMovementMatch { id: string; movement_date: string; amount_in: number; concept: string | null; bank: string; account_label: string; categoria: string | null; }
+/** Un abono del estado de cuenta (finance.bank_movements, fase CB). */
+export interface BankMovementMatch {
+  id: string; movement_date: string; amount_in: number; concept: string | null;
+  bank: string; account_label: string; categoria: string | null;
+  match_type?: string; matched_by?: string | null; matched_at?: string; kepler_amount?: number | null;
+}
 
 /** Resultado del three-way match del depósito contra el banco. */
-export interface BankMatch { estado: 'confirmado' | 'multiple' | 'sin_match' | 'sin_dato'; movimientos: BankMovementMatch[]; }
+export interface BankMatch {
+  conciliado: boolean;                  // ya hay un cruce persistido en bank_recon_matches
+  estado: 'confirmado' | 'multiple' | 'sin_match' | 'sin_dato';
+  matched: BankMovementMatch[];         // abonos ya ligados a este cobro
+  candidatos: BankMovementMatch[];      // sugerencias (cuando aún no está conciliado)
+}
 
 /** Una evidencia adjunta (archivos + OCR + estado) — devuelta por detail(). */
 export interface ProofDeposit {
@@ -125,4 +134,8 @@ export class CobranzaService {
   }
   validate(id: string): Observable<any> { return this.http.post(`${this.base}/${id}/validate`, {}); }
   reject(id: string, motivo?: string): Observable<any> { return this.http.post(`${this.base}/${id}/reject`, { motivo }); }
+  /** Confirma que un abono del banco corresponde al cobro (persiste la conciliación). */
+  confirmBank(id: string, bank_movement_id: string): Observable<any> { return this.http.post(`${this.base}/${id}/bank-match`, { bank_movement_id }); }
+  /** Deshace la conciliación cobro↔abono. */
+  unlinkBank(id: string, bank_movement_id: string): Observable<any> { return this.http.post(`${this.base}/${id}/bank-unmatch`, { bank_movement_id }); }
 }
