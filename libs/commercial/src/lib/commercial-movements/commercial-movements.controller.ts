@@ -74,6 +74,11 @@ export class CommercialMovementsController {
   @ApiOperation({ summary: 'DM.12 — Matriz FÍSICA origen→destino de traspasos: enviado vs recibido + Δ + conteo por estado, agregado por par de sucursales. Honra rango de fechas; ignora filtro de almacén.' })
   transfersMatrix(@Query() raw: Record<string, string>) { return this.svc.transfersMatrix(this.q(raw)); }
 
+  @Get('transfers-ledger-detail')
+  @RequireAnyPermission(Permission.COMMERCIAL_MOVEMENTS_VER, Permission.RECONCILIATION_VER)
+  @ApiOperation({ summary: 'DM.12 — DETALLE del descuadre: pólizas de la cuenta 515 SIN contraparte (parea entrada 515-001 ↔ salida 515-002 por importe sobre analytics.gl_poliza_lines). Devuelve cada póliza con su referencia/localizador para encontrarla en Kepler. Honra rango; ignora filtro de almacén.' })
+  transfersLedgerDetail(@Query() raw: Record<string, string>) { return this.svc.transfersLedgerDetail(this.q(raw)); }
+
   @Get('transfers-cuadre.pdf')
   @RequireAnyPermission(Permission.COMMERCIAL_MOVEMENTS_VER, Permission.RECONCILIATION_VER)
   @ApiOperation({ summary: 'DM.12 — Reporte mensual del Cuadre de traspasos en PDF (contable mayor 515 + matriz física + folios sin cuadrar). Honra rango de fechas; ignora filtro de almacén.' })

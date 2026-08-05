@@ -748,12 +748,77 @@ export class CommercialMovementsService {
     });
   }
 
-  /** DM.12 — junta los 3 lentes del cuadre (contable + matriz física + folios) para el PDF. */
+  /**
+   * DM.12 — DETALLE por póliza del descuadre contable (mayor 515) sobre
+   * `analytics.gl_poliza_lines` (partida doble por póliza, source='kepler', ADR-041).
+   *
+   * Parea cada ENTRADA (515-001) con una SALIDA (515-002) por IMPORTE exacto (greedy,
+   * en toda la ventana). Lo que queda sin contraparte ES el descuadre → devuelve la lista
+   * de pólizas con su `referencia` (localizador: "TRAS DE CEDIS A ZAMORA T-7904"), sucursal
+   * e importe, para que el contador la encuentre en Kepler. `unpaired_entrada − unpaired_salida`
+   * = Δ de la ventana. Vista de red; honra rango. Cobertura = lo que traiga gl_poliza_lines.
+   */
+  async transfersLedgerDetail(q: MovementsQuery) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const { from, to } = this.range(q);
+    const fromYm = from.slice(0, 7), toYm = to.slice(0, 7);
+    const CAP = 500; // el detalle es para lectura/acción; se lista lo más grande primero
+    return this.tk.run(async (trx) => {
+      const rows: any[] = await trx('analytics.gl_poliza_lines')
+        .where('tenant_id', tenantId).andWhere('source', 'kepler')
+        .andWhereRaw(`cuenta LIKE '515-%'`)
+        .andWhere('anio_mes', '>=', fromYm).andWhere('anio_mes', '<=', toYm)
+        .andWhereRaw('COALESCE(importe,0) <> 0')
+        .select('anio_mes', 'sucursal', 'cuenta', 'importe', 'referencia', 'tipo_pol', 'folio', 'cargo_abono');
+
+      // Multiset por importe (a centavo) del lado SALIDA; cada entrada consume una salida igual.
+      const salByAmt = new Map<string, any[]>();
+      const entradas: any[] = [], salidas: any[] = [];
+      for (const r of rows) {
+        (String(r.cuenta).startsWith('515-001') ? entradas : salidas).push(r);
+      }
+      for (const s of salidas) {
+        const k = (Number(s.importe) || 0).toFixed(2);
+        (salByAmt.get(k) || salByAmt.set(k, []).get(k)!).push(s);
+      }
+      const unpaired: any[] = [];
+      let entTot = 0, salTot = 0, unpEntAmt = 0, unpSalAmt = 0;
+      for (const e of entradas) {
+        entTot += Number(e.importe) || 0;
+        const k = (Number(e.importe) || 0).toFixed(2);
+        const arr = salByAmt.get(k);
+        if (arr && arr.length) { arr.pop(); } // pareada → no es descuadre
+        else { unpaired.push({ ...e, kind: 'entrada' }); unpEntAmt += Number(e.importe) || 0; }
+      }
+      for (const s of salidas) salTot += Number(s.importe) || 0;
+      for (const arr of salByAmt.values()) for (const s of arr) { unpaired.push({ ...s, kind: 'salida' }); unpSalAmt += Number(s.importe) || 0; }
+
+      unpaired.sort((a, b) => (Number(b.importe) || 0) - (Number(a.importe) || 0));
+      const total = unpaired.length;
+      const rowsOut = unpaired.slice(0, CAP).map((r) => ({
+        anio_mes: r.anio_mes, kind: r.kind, cuenta: r.cuenta, sucursal: r.sucursal,
+        importe: Number(r.importe) || 0, referencia: r.referencia || null,
+        tipo_pol: r.tipo_pol || null, folio: r.folio || null,
+      }));
+      return {
+        range: { from: fromYm, to: toYm },
+        totals: {
+          entrada: entTot, salida: salTot, delta: entTot - salTot,
+          unpaired_entrada: unpEntAmt, unpaired_salida: unpSalAmt,
+          n_entrada: unpaired.filter((u) => u.kind === 'entrada').length,
+          n_salida: unpaired.filter((u) => u.kind === 'salida').length,
+        },
+        rows: rowsOut, total, truncated: total > CAP,
+      };
+    });
+  }
+
+  /** DM.12 — junta los lentes del cuadre (contable + matriz física + folios + detalle) para el PDF. */
   async exportCuadreData(q: MovementsQuery) {
-    const [ledger, matrix, check] = await Promise.all([
-      this.transfersLedger(q), this.transfersMatrix(q), this.transfersCheck(q),
+    const [ledger, matrix, check, detail] = await Promise.all([
+      this.transfersLedger(q), this.transfersMatrix(q), this.transfersCheck(q), this.transfersLedgerDetail(q),
     ]);
-    return { range: this.range(q), ledger, matrix, check };
+    return { range: this.range(q), ledger, matrix, check, detail };
   }
 
   /** DM.6 — junta todo lo que necesita el export (docs englobados + totales + traspasos). */

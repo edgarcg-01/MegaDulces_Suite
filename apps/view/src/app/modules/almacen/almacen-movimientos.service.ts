@@ -138,6 +138,20 @@ export interface TransfersMatrixResponse {
   rows: TransfersMatrixRow[];
 }
 
+/** DM.12 — detalle por póliza del descuadre (cuenta 515 sin contraparte, gl_poliza_lines). */
+export interface LedgerDetailRow {
+  anio_mes: string; kind: 'entrada' | 'salida'; cuenta: string; sucursal: string;
+  importe: number; referencia: string | null; tipo_pol: string | null; folio: string | null;
+}
+export interface TransfersLedgerDetailResponse {
+  range: { from: string; to: string };
+  totals: {
+    entrada: number; salida: number; delta: number;
+    unpaired_entrada: number; unpaired_salida: number; n_entrada: number; n_salida: number;
+  };
+  rows: LedgerDetailRow[]; total: number; truncated: boolean;
+}
+
 export interface MovementsFilterOpts {
   warehouses: { id: string; code: string; name: string }[];
   doc_types: { doc_code: string; movement_label: string; movement_kind: MovementKind }[];
@@ -189,6 +203,10 @@ export class AlmacenMovimientosService {
   /** DM.12 — matriz física origen→destino de traspasos. */
   transfersMatrix(f: MovementsFilters): Observable<TransfersMatrixResponse> {
     return this.http.get<TransfersMatrixResponse>(`${this.base}/transfers-matrix`, { params: this.params(f) });
+  }
+  /** DM.12 — pólizas 515 sin contraparte (el detalle del descuadre). */
+  transfersLedgerDetail(f: MovementsFilters): Observable<TransfersLedgerDetailResponse> {
+    return this.http.get<TransfersLedgerDetailResponse>(`${this.base}/transfers-ledger-detail`, { params: this.params(f) });
   }
   setAudit(dto: { warehouse_id: string; doc_code: string; doc_serie?: string | null; folio: string; audited: boolean; note?: string | null }): Observable<{ audited: boolean; audited_by?: string | null }> {
     return this.http.post<{ audited: boolean; audited_by?: string | null }>(`${this.base}/audit`, dto);
