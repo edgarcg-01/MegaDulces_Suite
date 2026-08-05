@@ -90,7 +90,7 @@ interface RouteEntry {
         <button type="button" class="rk-chip" [class.on]="showRecorrido()" [attr.aria-pressed]="showRecorrido()" (click)="showRecorrido.set(!showRecorrido())" pTooltip="Puede ser pesado con muchas rutas"><i class="rk-dash" aria-hidden="true"></i> Recorrido</button>
         <button type="button" class="rk-chip" [class.on]="showParadas()" [attr.aria-pressed]="showParadas()" (click)="showParadas.set(!showParadas())"><i class="rk-num" aria-hidden="true">③</i> Paradas</button>
         <button type="button" class="rk-chip" [class.on]="showTiendas()" [attr.aria-pressed]="showTiendas()" (click)="showTiendas.set(!showTiendas())"><i class="rk-dot-lg" style="background:var(--ok-fg)" aria-hidden="true"></i> Tiendas</button>
-        <button type="button" class="rk-chip" [class.on]="showTickets()" [attr.aria-pressed]="showTickets()" (click)="showTickets.set(!showTickets())"><i class="rk-dot-lg" style="background:var(--action)" aria-hidden="true"></i> Cierres</button>
+        <button type="button" class="rk-chip" [class.on]="showTickets()" [attr.aria-pressed]="showTickets()" (click)="showTickets.set(!showTickets())"><i class="rk-dot-lg" style="background:var(--action)" aria-hidden="true"></i> Ventas</button>
         @if (focusedRoute() != null) {
           <button type="button" class="rk-chip rk-chip-calles" [class.on]="porCalles()" [attr.aria-pressed]="porCalles()" [disabled]="snapLoading()" (click)="togglePorCalles()" pTooltip="Pega el recorrido de la ruta enfocada a las calles"><i class="pi" [class.pi-directions]="!snapLoading()" [class.pi-spinner]="snapLoading()" [class.pi-spin]="snapLoading()" aria-hidden="true"></i> Por calles</button>
         }
@@ -130,6 +130,11 @@ interface RouteEntry {
               <div class="rk-focus">
                 <h4>{{ focusedRoute() != null ? 'R-' + focusedRoute() : (u.vehicle_plate || 'Unidad') }}</h4>
                 <p class="rk-muted">{{ u.vehicle_plate || shortId(u.vehicle_id) }} · {{ u.stops.length }} parada{{ u.stops.length === 1 ? '' : 's' }} · {{ u.sales_docs }} venta{{ u.sales_docs === 1 ? '' : 's' }}@if (u.sales_total > 0) { · {{ money(u.sales_total) }} }</p>
+                @if (u.located_sales?.length) {
+                  <p class="rk-muted rk-locsales"><i class="pi pi-map-marker" aria-hidden="true"></i> {{ locatedCount(u) }} de {{ u.located_sales.length }} ventas ubicadas por hora</p>
+                } @else {
+                  <p class="rk-muted rk-locsales rk-dim">Sin hora de venta para ubicar (Kepler PH)</p>
+                }
                 <button pButton size="small" (click)="verHistorial()"><span class="p-button-icon p-button-icon-left pi pi-history" aria-hidden="true"></span><span class="p-button-label">Historial de visitas</span></button>
               </div>
             }
@@ -250,6 +255,8 @@ interface RouteEntry {
     .rk-focus { padding:.75rem; border-top:1px solid var(--c-divider); background:var(--c-surface-2); }
     .rk-focus h4 { margin:0 0 .1rem; font-size:var(--fs-h4,1rem); font-weight:var(--fw-bold); }
     .rk-focus p { margin:0 0 .6rem; font-size:var(--fs-micro); }
+    .rk-locsales { display:flex; align-items:center; gap:.3rem; margin-top:-.35rem; }
+    .rk-locsales .pi { font-size:.7rem; }
 
     .rk-table-panel { margin-top:.75rem; border:1px solid var(--border-color); border-radius:var(--r-md,8px); overflow:hidden; }
     .rk-table-toggle { width:100%; text-align:left; display:flex; align-items:center; gap:.4rem; padding:.55rem .75rem; border:0; background:var(--card-bg); font:inherit; font-size:var(--fs-sm); font-weight:var(--fw-medium); color:var(--c-text-1); cursor:pointer; }
@@ -393,10 +400,11 @@ export class LogisticaAuditoriaRutaComponent {
       if (markers.length) layers.push({ id: 'paradas', visible: true, markers });
     }
     if (this.showTickets()) {
+      // Ventas REALES ubicadas por hora vs GPS (cuando hay hora: Wincaja a bordo).
       const markers: MapMarker[] = units.flatMap((u) =>
-        u.tickets.filter((t) => t.at_lat != null && t.at_lng != null).map((t) => ({
-          lat: t.at_lat!, lng: t.at_lng!, kind: 'pin' as const, id: 't:' + t.id, color: 'var(--action)',
-          title: `R-${u.route_number} · ${this.ticketLabel(t.ticket_type)} ${this.fmtTime(t.ticket_time)}${t.total != null ? ' · ' + this.money(t.total) : ''}`,
+        (u.located_sales || []).filter((s) => s.at_lat != null && s.at_lng != null).map((s) => ({
+          lat: s.at_lat!, lng: s.at_lng!, kind: 'pin' as const, id: 'sale:' + u.vehicle_id + ':' + s.consecutivo, color: 'var(--action)',
+          title: `R-${u.route_number} · Venta ${s.consecutivo}${s.hora ? ' · ' + s.hora : ''} · ${this.money(s.total)}${s.near_store_name ? ' · ' + s.near_store_name : ''}`,
         })),
       );
       if (markers.length) layers.push({ id: 'tickets', visible: true, markers });
@@ -514,6 +522,7 @@ export class LogisticaAuditoriaRutaComponent {
 
   // ── helpers ────────────────────────────────────────────────────────────────
   shortId(id: string) { return id ? id.slice(0, 8) : '—'; }
+  locatedCount(u: FleetAuditUnit): number { return (u.located_sales || []).filter((s) => s.located).length; }
   routeColor(rn: number | null): string {
     if (rn == null) return 'var(--c-text-3)';
     const idx = this.routeOrder().indexOf(rn);
