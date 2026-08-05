@@ -68,9 +68,12 @@ OC maestro "Excel": erp_goods_receipts ⋈ líneas ⋈ ajustes ⋈ pago ─► /
 - Frontend `/compras/costo-neto` (Operations): tabla bruto→descuento→%→neto + KPIs + nota. Le dice al comprador que su costo real es ~rate% menor que la lista → **reabasto con el costo verdadero**. Nav "Costo neto". Smoke `test-newdb-landed-cost` 5/5 (313 prov / $427M compras / **5.91%** tasa efectiva / 6 anómalos).
 - Diferido (opt-in): reescribir el $ del sugerido de RA con `costo × (1−rate)` (cambio de math del motor — requiere aprobación).
 
-### #3 — Cruce del descuento con CB / ContPAQi — ⏸️ posición honesta
-- La **validación del descuento** (¿es real / no doble-contado?) YA se entrega con datos limpios: flag `ambos` en la reconciliación (proveedor usa pago+nota → posible solapamiento) + flag `anomalo` en costo neto (tasa>20%).
-- El cruce **a nivel banco (CB)** y **libros fiscales (ContPAQi)** requiere la reconciliación de EGRESOS banco↔pago↔póliza, que hoy es heurística/no existe limpia (solo hay `libros-vs-operacion` de INGRESOS, CP.4). Por "verificar antes de mostrar" NO se construye un join débil aquí — queda como fase siguiente real (CxP × CB × ContPAQi egresos).
+### CXP.5 — 🔀 Conciliación de pagos a proveedor (Kepler ↔ Banco) ✅ 2026-08-05
+- **Realidad verificada primero** (data local, "verificar antes de mostrar"): CB `bank_movements` y ContPAQi `contpaqi_bank_movements` **NO guardan el proveedor** en el movimiento (solo concepto/categoría) → el cruce **por-proveedor es un join débil → se descarta**. El **cuadre AGREGADO por mes SÍ es sólido**.
+- Backend `GET /finance/pagos/conciliacion?from_mes=&to_mes=`: por mes, **Kepler** (`erp_supplier_payments`) vs **Banco** (`bank_movements` egresos de categorías `group_key IN ('compra','factoraje')`) + Δ + estado (`cuadra` |Δ|≤10% · `revisar` · `sin_banco`/`sin_kepler` = falta ese feed el mes).
+- Frontend: sección en el tablero CxP con tabla mes×(Kepler/Banco/Δ/estado) + nota honesta (agregado, no por proveedor) + link a Bancos (donde vive el cuadre banco↔libros a nivel cuenta, CB/CP.2). Smoke `test-newdb-pagos-conciliacion` 5/5.
+- Honesto sobre cobertura: local Kepler mar-dic vs CB solo enero → mayoría `sin_banco` (el gap se muestra, no se oculta); prod completa el cuadre. La *validación del descuento* (doble-conteo/anómalo) ya está en flags `ambos`/`anomalo` (CXP.2/CXP.4).
+- Diferido real: ContPAQi egresos por proveedor (no hay llave), cuadre banco↔pago 1:1 por-transacción (sin llave estructural → CB.15.2 lo hace por tokens de nombre, contexto no 1:1).
 
 ---
 

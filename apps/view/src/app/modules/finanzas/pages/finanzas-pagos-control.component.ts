@@ -3,7 +3,7 @@ import { CommonModule } from '@angular/common';
 import { RouterModule } from '@angular/router';
 import { ButtonModule } from 'primeng/button';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
-import { PagosControlService, PagosControl } from '../pagos-control.service';
+import { PagosControlService, PagosControl, Conciliacion, ConciliacionRow } from '../pagos-control.service';
 
 /**
  * CXP.2 — Tablero maestro de Cuentas por Pagar / Tesorería. Answer-first: "¿qué
@@ -93,6 +93,31 @@ import { PagosControlService, PagosControl } from '../pagos-control.service';
           </section>
         </div>
 
+        @if (recon(); as rc) {
+          @if (rc.rows.length) {
+            <section class="card-premium card-flat pc-card pc-recon">
+              <h3 class="pc-card-title"><i class="pi pi-arrow-right-arrow-left" aria-hidden="true"></i> Conciliación de pagos a proveedor <span class="muted">Kepler vs Banco · mes a mes · {{ rc.cuadran }}/{{ rc.meses }} cuadran</span></h3>
+              <div class="pc-recon-tablewrap">
+                <table class="pc-recon-table">
+                  <thead><tr><th>Mes</th><th class="ta-r">Kepler pagó</th><th class="ta-r">Salió del banco</th><th class="ta-r">Δ</th><th>Estado</th></tr></thead>
+                  <tbody>
+                    @for (r of rc.rows; track r.mes) {
+                      <tr>
+                        <td class="pc-mono">{{ r.mes }}</td>
+                        <td class="ta-r pc-mono">{{ r.kepler ? money(r.kepler) : '—' }}</td>
+                        <td class="ta-r pc-mono">{{ r.banco ? money(r.banco) : '—' }}</td>
+                        <td class="ta-r pc-mono" [class.pc-neg]="r.delta < 0">{{ (r.estado === 'cuadra' || r.estado === 'revisar') ? money(r.delta) : '—' }}</td>
+                        <td><span class="pc-est" [class]="'est-' + r.estado">{{ estadoLabel(r.estado) }}</span></td>
+                      </tr>
+                    }
+                  </tbody>
+                </table>
+              </div>
+              <p class="pc-dt-note">Cuadre <b>agregado por mes</b> (no por proveedor: el banco no guarda el proveedor en el movimiento — atribuirlo sería un join débil). "Salió del banco" = egresos de compra/factoraje (CB). El cuadre banco↔libros a nivel cuenta vive en <a routerLink="/finanzas/bancos" class="pc-link">Bancos</a>.</p>
+            </section>
+          }
+        }
+
         <p class="pc-foot">Tablero para <b>Cuentas por Pagar / Tesorería</b>. {{ d.hallazgos_abiertos }} hallazgo(s) abierto(s) en el dominio pagos/compras. El motor detecta y propone; la acción real la ejecuta un humano en el ERP (co-piloto, ADR-013).</p>
       } @else if (!error()) {
         <p class="pc-empty" style="margin-top:1.2rem">Cargando tablero…</p>
@@ -119,11 +144,25 @@ import { PagosControlService, PagosControl } from '../pagos-control.service';
     .pc-link { display:inline-flex; align-items:center; gap:.35rem; margin-top:.7rem; font-size:.8rem; font-weight:600; color:var(--action); text-decoration:none; }
     .pc-link:hover { text-decoration:underline; }
     .pc-foot { margin-top:1.4rem; font-size:.76rem; color:var(--text-faint); line-height:1.5; }
+    /* conciliación mes a mes */
+    .pc-recon { margin-top:1rem; }
+    .pc-recon-tablewrap { overflow-x:auto; }
+    .pc-recon-table { width:100%; border-collapse:collapse; font-size:.82rem; }
+    .pc-recon-table thead th { text-align:left; font-size:.66rem; font-weight:600; text-transform:uppercase; letter-spacing:.05em; color:var(--text-muted); padding:.45rem .6rem; border-bottom:1px solid var(--border-color); white-space:nowrap; }
+    .pc-recon-table tbody td { padding:.45rem .6rem; border-bottom:1px solid var(--border-color); color:var(--text-main); }
+    .pc-recon-table tbody tr:last-child td { border-bottom:none; }
+    .pc-mono { font-family:var(--font-mono); font-variant-numeric:tabular-nums; white-space:nowrap; }
+    .pc-neg { color:var(--bad-fg); }
+    .pc-est { font-size:.66rem; font-weight:700; padding:.1rem .45rem; border-radius:4px; }
+    .est-cuadra { background:var(--ok-soft-bg,var(--bad-soft-bg)); color:var(--ok-fg); }
+    .est-revisar { background:var(--warn-soft-bg); color:var(--warn-fg); }
+    .est-sin_banco, .est-sin_kepler { background:var(--surface-hover-bg,transparent); color:var(--text-faint); border:1px solid var(--border-color); }
   `],
 })
 export class FinanzasPagosControlComponent implements OnInit {
   private readonly svc = inject(PagosControlService);
   readonly data = signal<PagosControl | null>(null);
+  readonly recon = signal<Conciliacion | null>(null);
   readonly loading = signal(false);
   readonly error = signal<string | null>(null);
 
@@ -135,6 +174,11 @@ export class FinanzasPagosControlComponent implements OnInit {
       next: (d) => { this.data.set(d); this.loading.set(false); },
       error: (e) => { this.error.set(e?.error?.message || e?.message || 'error'); this.loading.set(false); },
     });
+    this.svc.conciliacion().subscribe({ next: (r) => this.recon.set(r), error: () => this.recon.set(null) });
+  }
+
+  estadoLabel(e: string): string {
+    return e === 'cuadra' ? 'Cuadra' : e === 'revisar' ? 'Revisar' : e === 'sin_banco' ? 'Falta banco' : 'Falta Kepler';
   }
 
   kpiItems(d: PagosControl): MetricStripItem[] {
