@@ -32,8 +32,8 @@ del plan v1). Menos riesgo, menos datos, menos UI. La historia pre-sistema queda
 | # | Entrega | UI | Estado |
 |---|---|---|---|
 | **HVT.1** | `sales_monthly` rollup + guard fechas + wire nightly | no | ✅ 2026-08-05 (prod, 603k filas) |
-| **HVT.2** | `v_sales_demand_truth` + endpoint `demand-calibration` | no | ⬜ |
-| **HVT.3** | **Investigación La Rosa** (objetivo): demanda real vs eff_daily vs reorder_policy vs workbook | no | ⬜ |
+| **HVT.2** | `v_sales_demand_truth` (demanda money-anchored) | no | ✅ 2026-08-05 (prod, 37.5k filas) |
+| **HVT.3** | **Investigación La Rosa**: units infladas 3.9×; money-anchored 299 cajas vs 36.9k | no | ✅ 2026-08-05 |
 | **HVT.4** | `<sales-history-peek>` en el drill-down existente | mínima | ⬜ |
 | HVT.5 | (difer.) eje cliente + peek inline en pedido | mínima | ⬜ |
 
