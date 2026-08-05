@@ -314,6 +314,8 @@ const CHANNEL_ORDER: Record<string, number> = {
 // `TI*` = traspaso interno entre sucursales (logística, sale de CEDIS). NO es
 // venta a cliente → se excluye del sell-out (contarlo duplica + infla).
 const NON_SALE_CHANNEL = 'traspaso';
+// RS.12 — cota de tiempo para queries de sell-out (protege el pool del path en vivo pesado).
+const SELLOUT_STMT_TIMEOUT = '45s';
 // RS.2 — etiqueta corta de mes para las vistas por mes ('2026-01' → 'Ene 2026').
 const MONTH_ABBR_ES = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
 function sellOutMonthLabel(ym: string): string {
@@ -2198,6 +2200,10 @@ export class CommercialAnalyticsService {
     // Paso 1 y 2 — marca + agregación desde analytics.sales_daily (misma DB,
     // alimentada por el cron on-prem import-sales-fact.js). Tenant-scoped.
     const { brand, products, raw, retail, boxFactors, boxPrices, identMap } = await this.tk.run(async (trx) => {
+      // RS.12 — cota dura: el path EN VIVO (v_sales_lines) de un rango grande puede correr
+      // minutos y AGOTAR EL POOL (incidente 2026-08-05: 10 escaneos de 5min tumbaron prod).
+      // Con SET LOCAL, una query pesada se auto-aborta y LIBERA la conexión en vez de retenerla.
+      await trx.raw(`SET LOCAL statement_timeout = '${SELLOUT_STMT_TIMEOUT}'`);
       const b = brandId
         ? await trx('catalog.brands as b')
             .where('b.id', brandId)
@@ -2706,6 +2712,7 @@ export class CommercialAnalyticsService {
     const GROUP_ORD: Record<string, number> = { mayoreo: 0, ruta: 1, preventa: 2 };
 
     const { brand, raw, identMap } = await this.tk.run(async (trx) => {
+      await trx.raw(`SET LOCAL statement_timeout = '${SELLOUT_STMT_TIMEOUT}'`); // RS.12 — ver nota en sellOut()
       const b = brandId
         ? await trx('catalog.brands as b').where('b.id', brandId).whereNull('b.deleted_at').select('b.id', 'b.nombre', 'b.code').first()
         : { id: null, nombre: 'Todas las empresas', code: null };
