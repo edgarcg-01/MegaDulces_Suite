@@ -161,6 +161,8 @@ export class GoodsReceiptProofsService {
       // puede o no estar incluido según el producto — dulce a granel suele ser 0%).
       const near = (v: number | null) => v != null && Math.abs(v - receiptMonto) <= TOLERANCIA;
       const montoMatch = ocrTotal != null || ocrSubtotal != null ? (near(ocrTotal) || near(ocrSubtotal)) : null;
+      // RE.2 — clasifica y persiste el descuadre factura-vs-entrada (antes solo en vivo).
+      const disc = this.classifyDiscrepancy(receiptMonto, ocrTotal, ocrSubtotal, montoMatch);
 
       const [row] = await trx('finance.goods_receipt_proofs')
         .insert({
@@ -182,6 +184,8 @@ export class GoodsReceiptProofsService {
           ocr_raw: o ? JSON.stringify(o) : null,
           ocr_status: (o.ocr_status as string) || 'manual',
           monto_match: montoMatch,
+          discrepancy_kind: disc.kind,
+          discrepancy_amount: disc.amount,
           comentarios: (dto.comentarios || '').trim() || null,
           created_by: actor || null,
         })
@@ -216,7 +220,8 @@ export class GoodsReceiptProofsService {
         .orderBy('created_at', 'desc')
         .select('id', 'files', 'ocr_folio', 'ocr_fecha', 'ocr_proveedor', 'ocr_rfc',
           trx.raw('ocr_subtotal::numeric AS ocr_subtotal'), trx.raw('ocr_iva::numeric AS ocr_iva'),
-          trx.raw('ocr_monto::numeric AS ocr_monto'), 'ocr_status', 'monto_match', 'status',
+          trx.raw('ocr_monto::numeric AS ocr_monto'), 'ocr_status', 'monto_match',
+          'discrepancy_kind', trx.raw('discrepancy_amount::numeric AS discrepancy_amount'), 'status',
           'comentarios', 'validated_by', 'validated_at', 'motivo_rechazo', 'created_by', 'created_at');
       return { entrada: { ...entrada, monto: Number(entrada.monto) }, lineas, deposits };
     });
@@ -244,6 +249,28 @@ export class GoodsReceiptProofsService {
       if (!row) throw new BadRequestException('evidencia no encontrada o ya rechazada');
       return row;
     });
+  }
+
+  /**
+   * RE.2 — clasifica el descuadre factura/remisión vs valor de la entrada (Kepler),
+   * a partir de lo que hoy ya se calcula al adjuntar (no llama al auto-explain de
+   * ajustes, que es un paso aparte). Devuelve el `kind` + el monto de la diferencia:
+   *   - sin OCR (montoMatch null)     → sin clasificar (null/null)
+   *   - cuadra                        → 'cuadra', 0
+   *   - Δ ≈ 16% del valor             → 'iva'   (remisión con/ sin IVA vs entrada)
+   *   - Δ > 70% del valor             → 'typo'  (error de captura grueso)
+   *   - resto                         → 'otro'  (faltante/devolución/descuento → auto-explain)
+   */
+  private classifyDiscrepancy(receipt: number, ocrTotal: number | null, ocrSubtotal: number | null, montoMatch: boolean | null): { kind: string | null; amount: number | null } {
+    if (montoMatch === null) return { kind: null, amount: null };
+    if (montoMatch === true) return { kind: 'cuadra', amount: 0 };
+    const cands = [ocrTotal, ocrSubtotal].filter((v): v is number => v != null);
+    if (!cands.length) return { kind: null, amount: null };
+    const amount = Math.min(...cands.map((v) => Math.abs(v - receipt)));
+    const ratio = receipt > 0 ? amount / receipt : 0;
+    if (ratio >= 0.14 && ratio <= 0.175) return { kind: 'iva', amount };
+    if (ratio > 0.7) return { kind: 'typo', amount };
+    return { kind: 'otro', amount };
   }
 
   private parseDataUri(dataUri: string): { mediaType: 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif' | 'application/pdf'; base64: string } {

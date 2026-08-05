@@ -271,4 +271,52 @@ export class PurchaseAdjustmentsService {
       };
     });
   }
+
+  /**
+   * RE.10 — "Descuento NO capturado" por proveedor (pronto pago dejado en la mesa).
+   * Cruza pagos (`erp_supplier_payments`) contra la política (`supplier_discount_policy`,
+   * tasa esperada): los pagos con `descuento = 0` de un proveedor que SÍ da descuento son
+   * fuga = `tasa_esperada × monto`. Runner = trx app_runtime (request, RLS filtra policy)
+   * o KNEX_NEW_DB (cron, superuser); en ambos el filtro `tenant_id` va explícito.
+   */
+  async leakageGroups(runner: Knex, tenantId: string): Promise<any[]> {
+    const res: any = await runner.raw(
+      `SELECT p.proveedor_code, max(p.proveedor_nombre) AS proveedor_nombre,
+              pol.expected_discount_rate AS rate,
+              count(*)::int AS n_total,
+              count(*) FILTER (WHERE p.descuento > 0)::int AS n_captured,
+              count(*) FILTER (WHERE p.descuento = 0)::int AS n_uncaptured,
+              COALESCE(sum(p.monto) FILTER (WHERE p.descuento = 0), 0)::numeric AS monto_uncaptured,
+              round(pol.expected_discount_rate * COALESCE(sum(p.monto) FILTER (WHERE p.descuento = 0), 0), 2) AS lost
+         FROM analytics.erp_supplier_payments p
+         JOIN commercial.supplier_discount_policy pol
+           ON pol.tenant_id = p.tenant_id AND pol.proveedor_code = p.proveedor_code
+        WHERE p.tenant_id = ? AND pol.active AND pol.expected_discount_rate > 0
+        GROUP BY p.proveedor_code, pol.expected_discount_rate
+       HAVING count(*) FILTER (WHERE p.descuento = 0) > 0
+        ORDER BY lost DESC
+        LIMIT 300`,
+      [tenantId],
+    );
+    return res.rows || res;
+  }
+
+  async discountLeakage(q: { search?: string } = {}) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      let rows = await this.leakageGroups(trx as unknown as Knex, tenantId);
+      if (q.search && q.search.trim()) {
+        const s = q.search.trim().toLowerCase();
+        rows = rows.filter((r: any) => (r.proveedor_nombre || '').toLowerCase().includes(s) || (r.proveedor_code || '').toLowerCase().includes(s));
+      }
+      const rowsOut = rows.map((r: any) => ({
+        proveedor_code: r.proveedor_code, proveedor_nombre: r.proveedor_nombre,
+        rate: Number(r.rate) || 0,
+        n_total: Number(r.n_total) || 0, n_captured: Number(r.n_captured) || 0, n_uncaptured: Number(r.n_uncaptured) || 0,
+        monto_uncaptured: Number(r.monto_uncaptured) || 0, lost: Number(r.lost) || 0,
+      }));
+      const total_lost = rowsOut.reduce((s, r) => s + r.lost, 0);
+      return { summary: { total_lost, suppliers: rowsOut.length }, rows: rowsOut };
+    });
+  }
 }

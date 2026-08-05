@@ -87,6 +87,13 @@ export class PurchaseAdjustmentsController {
     return this.svc.discountReconciliation({ date_from, date_to, search });
   }
 
+  @Get('discount-leakage')
+  @RequirePermissions(Permission.COMPRAS_VER)
+  @ApiOperation({ summary: 'RE.10 — "descuento no capturado": proveedores que dan descuento (política) con pagos SIN descuento (c84=0) → fuga = tasa esperada × monto pagado completo. Ordenado por $ perdido. Filtro: search.' })
+  discountLeakage(@Query('search') search?: string) {
+    return this.svc.discountLeakage({ search });
+  }
+
   @Get('by-supplier')
   @RequirePermissions(Permission.COMPRAS_VER)
   @ApiOperation({ summary: 'RE.10 — top proveedores por $ de ajustes (apoyos/descuentos/duplicadas). Mismos filtros que summary.' })
