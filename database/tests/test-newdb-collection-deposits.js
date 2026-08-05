@@ -157,6 +157,33 @@ const matches = (ocr, cobro) => (ocr == null ? null : Math.abs(ocr - cobro) <= T
       const [ms2] = await trx('finance.bank_movements').where({ id: mov.id }).select('recon_status');
       ok(ms2.recon_status === 'pending', 'unlinkBank: al liberar el abono, recon_status vuelve a pending');
 
+      // ── 4d. Caso B: abono de cobranza sin cobro → candidato → ligar (bank-first) ──
+      const cat = await trx('finance.movement_categories').where({ tenant_id: T, code: 'cobranza' }).first('id');
+      ok(!!cat, 'existe la categoría cobranza (CB)');
+      const [movB] = await trx('finance.bank_movements').insert({
+        tenant_id: T, statement_id: st.id, bank_account_id: ba.id, category_id: cat.id,
+        movement_date: cobro.cobro_date, amount_in: cobroMonto, amount_out: 0,
+        concept: 'DEPOSITO COBRANZA', client_uuid: 'smoke-abono-casoB',
+      }).returning(['id']);
+      // Réplica de cobroCandidates: cobro con mismo monto (±$1), fecha cercana, sin ligar.
+      const cands = await trx('analytics.erp_collections as ec')
+        .where('ec.tenant_id', T).whereIn('ec.forma_pago', ['deposito', 'transferencia', 'tarjeta'])
+        .whereRaw('ec.monto BETWEEN ? AND ?', [cobroMonto - 1, cobroMonto + 1])
+        .whereRaw(`ec.cobro_date BETWEEN ?::date - INTERVAL '6 days' AND ?::date + INTERVAL '1 day'`, [cobro.cobro_date, cobro.cobro_date])
+        .whereNotExists((qb) => qb.select(1).from('finance.bank_recon_matches as r')
+          .whereRaw(`r.tenant_id = ec.tenant_id AND r.kepler_doc_tipo='UA0501' AND r.kepler_doc_folio = ec.folio`))
+        .select('ec.folio');
+      ok(cands.some((c) => c.folio === '0016926'), 'cobroCandidates: el abono $51,049.27 encuentra el cobro 0016926');
+      // linkBankToCobro → escribe el match → el abono deja de estar "sin ligar".
+      await trx('finance.bank_recon_matches').insert({
+        tenant_id: T, bank_movement_id: movB.id, kepler_sucursal: '00', kepler_doc_tipo: 'UA0501',
+        kepler_doc_folio: '0016926', kepler_cuenta: '102', kepler_amount: cobroMonto, match_type: 'exact', matched_by: 'smoke',
+      });
+      const stillUnmatched = await trx('finance.bank_movements as m')
+        .where('m.id', movB.id)
+        .whereNotExists((qb) => qb.select(1).from('finance.bank_recon_matches as r').whereRaw('r.bank_movement_id = m.id'));
+      ok(stillUnmatched.length === 0, 'linkBankToCobro: tras ligar, el abono sale de la bandeja de "sin cobro"');
+
       let checkBad = false;
       try {
         await trx('finance.collection_deposits').insert({ tenant_id: T, sucursal: '00', folio: 'ZZZ', status: 'foo' });

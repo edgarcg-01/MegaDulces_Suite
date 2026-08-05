@@ -35,6 +35,32 @@ export class CollectionDepositsController {
     return this.svc.listCobros(q);
   }
 
+  // ── Caso B: abonos en banco sin cobro (bank-first). Declarado ANTES de
+  //    :sucursal/:folio para que 'bank/...' no lo capture la ruta genérica. ──
+  @Get('bank/unmatched')
+  @RequirePermissions(Permission.FINANCE_COLLECTIONS_VER)
+  @ApiOperation({ summary: 'Abonos clasificados como cobranza que NO están ligados a ningún cobro (Caso B).' })
+  unmatchedBank(
+    @Query('from') from?: string, @Query('to') to?: string, @Query('search') search?: string,
+    @Query('solo_huerfanos') solo_huerfanos?: string, @Query('limit') limit?: string,
+  ) {
+    return this.svc.listUnmatchedBank({ from, to, search, solo_huerfanos, limit: limit ? Number(limit) : undefined });
+  }
+
+  @Get('bank/:movementId/candidates')
+  @RequirePermissions(Permission.FINANCE_COLLECTIONS_VER)
+  @ApiOperation({ summary: 'Cobros candidatos para un abono huérfano.' })
+  bankCandidates(@Param('movementId') movementId: string) {
+    return this.svc.cobroCandidates(movementId);
+  }
+
+  @Post('bank/:movementId/link')
+  @RequirePermissions(Permission.FINANCE_COLLECTIONS_GESTIONAR)
+  @ApiOperation({ summary: 'Liga (bank-first) un abono a un cobro elegido.' })
+  linkBank(@Param('movementId') movementId: string, @Body() body: { sucursal?: string; folio?: string }, @Req() req: AuthedRequest) {
+    return this.svc.linkBankToCobro(movementId, body?.sucursal || '', body?.folio || '', req?.user?.full_name || req?.user?.username);
+  }
+
   @Get(':sucursal/:folio')
   @RequirePermissions(Permission.FINANCE_COLLECTIONS_VER)
   @ApiOperation({ summary: 'Detalle del cobro + sus fichas adjuntas.' })
