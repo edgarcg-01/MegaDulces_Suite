@@ -24,6 +24,7 @@ const TESTS = [
   { file: 'test-newdb-ra-service-level.js', label: 'RA-PRO.1/2 safety stock por nivel de servicio + segmentación XYZ (σ/CV población 90d + Z×σ×√LT + piso + CHECK)', needsApi: false },
   { file: 'test-newdb-ra-network.js', label: 'RA-PRO.6 DRP multi-echelon (CEDIS por demanda dependiente: media Σ + σ=√Σσ² risk pooling + guard self-source)', needsApi: false },
   { file: 'test-newdb-purchase-chain.js', label: 'RA.15 cadena de compra (RQ→OC→OE recepción parcial mueve stock + fill rate + RQ→received + traspaso +dst/−src + folios)', needsApi: false },
+  { file: 'test-newdb-purchase-adjustments-findings.js', label: 'RE.10 bridge facturas duplicadas → finance.findings (duplicateGroups SQL + shape hallazgo + UPSERT idempotente por dedup_key + rule L2 + findings_total; skip-graceful sin feed)', needsApi: false },
   { file: 'test-newdb-contpaqi-ledger.js', label: 'CP.1 balanza ContPAQi (schema+PK+cuadre Σcargos≈Σabonos+neto+formato anio_mes+familias+aislamiento tenant; tolerante sin import)', needsApi: false },
   { file: 'test-newdb-contpaqi-bank.js', label: 'CP.2 ledger bancario ContPAQi (schema+PK id_movimiento+cuentas 102x+flujo deposito/retiro+depósitos≈retiros+formato+aislamiento; tolerante sin import)', needsApi: false },
   { file: 'test-newdb-contpaqi-bank-link.js', label: 'CP.2 crosswalk CB↔ContPAQi (col contpaqi_cuenta + match familia+número enlaza ≥8 cuentas + comparación por periodo con totales; tolerante sin data)', needsApi: false },

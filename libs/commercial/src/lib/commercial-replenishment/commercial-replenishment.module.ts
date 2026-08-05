@@ -7,6 +7,7 @@ import { CommercialPurchaseOrdersController } from './commercial-purchase-orders
 import { ReplenishmentExportService } from './replenishment-export.service';
 import { PurchaseAdjustmentsService } from './purchase-adjustments.service';
 import { PurchaseAdjustmentsController } from './purchase-adjustments.controller';
+import { PurchaseAdjustmentsFindingsBridgeService } from './purchase-adjustments-findings-bridge.service';
 
 /**
  * Proyecto Compras / Reabastecimiento (Fase RA — ADR-030).
@@ -17,7 +18,7 @@ import { PurchaseAdjustmentsController } from './purchase-adjustments.controller
  */
 @Module({
   controllers: [CommercialReplenishmentController, CommercialPurchaseOrdersController, PurchaseAdjustmentsController],
-  providers: [CommercialReplenishmentService, ReplenishmentScannerService, CommercialPurchaseOrdersService, ReplenishmentExportService, PurchaseAdjustmentsService],
+  providers: [CommercialReplenishmentService, ReplenishmentScannerService, CommercialPurchaseOrdersService, ReplenishmentExportService, PurchaseAdjustmentsService, PurchaseAdjustmentsFindingsBridgeService],
   exports: [CommercialReplenishmentService, CommercialPurchaseOrdersService, PurchaseAdjustmentsService],
 })
 export class CommercialReplenishmentModule {}
