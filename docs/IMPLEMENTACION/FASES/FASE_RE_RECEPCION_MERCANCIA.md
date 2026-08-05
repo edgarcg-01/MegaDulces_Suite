@@ -78,7 +78,8 @@ Detalle verificado en memoria `reference_kepler_reception_flow`.
 - **Objetivo:** automatizar el control G-vs-H (41% descuadre; typo $183M) **y explicar el porqué** desde el dato, no solo pintar rojo.
 - **Entregable:** (a) OCR factura → compara **factura vs entrada (`c16`) vs OC** → `discrepancy_amount`; (b) **auto-explicación**: jalar los `X-D-40`+`X-D-55` ligados a la entrada (por factura `c11`/proveedor) y clasificar `c24` → `discrepancy_kind` ∈ {faltante, no_solicitado, mal_estado, cambiada, descuento_comercial, pronto_pago, apoyo_marca, typo, iva}; (c) reglas para **typo** (Δ>70%) e **IVA** (Δ≤2% / ratio ≈1.16); chip/semáforo + motivo en UI.
 - **Clasificación `c24`:** keyword primero, **Haiku** para los tersos (~$13.2M "sin clasificar"); mismo patrón que Maat.
-- **✅ Backend auto-explain (2026-08-05):** endpoint `/commercial/purchase-adjustments/for-entrada` — link exacto por `entrada_folio` (~12/132) o heurístico proveedor+ventana; cada match etiquetado `exacto`|`proveedor+fecha`. Verificado (Mondelez 2026-06-29 → "faltó 1 caja de…"). Commit `0cb4666c`. **Falta:** integrar en `/compras/entradas` (sección "ajustes que lo explican") + reglas typo(Δ>70%)/IVA(≤2%) + persistir `discrepancy_kind`.
+- **✅ Backend auto-explain (2026-08-05):** endpoint `/commercial/purchase-adjustments/for-entrada` — link exacto por `entrada_folio` (~12/132) o heurístico proveedor+ventana; cada match etiquetado `exacto`|`proveedor+fecha`. Verificado (Mondelez 2026-06-29 → "faltó 1 caja de…"). Commit `0cb4666c`.
+- **✅ Integración UI (2026-08-05):** en el diálogo de detalle de `/compras/entradas` — sección **"¿Por qué no cuadra? — ajustes del proveedor"**: al abrir una entrada carga `adjustmentsForEntrada({ proveedor_code, entrada_folio, date, ±15d })` y lista devoluciones/notas de crédito con doctype + folio + motivo + grupo (Descuento-apoyo / Operativo / Error de captura) + badge `exacto`/`≈ prov+fecha` + monto. Empty-state honesto ("la diferencia suele ser IVA o captura"). Build view OK. Commit `e1dae914`. **Falta:** reglas typo(Δ>70%)/IVA(≤2%) sobre la remisión OCR + persistir `discrepancy_kind`; **QA visual** (Edgar).
 - **Reuso:** OCR `extractRemision`, cuadre actual, `LlmExtractorService`, espejo `erp_purchase_adjustments`.
 
 ### RE.3 — CxP / vencimientos (aging + worklist)
@@ -115,9 +116,18 @@ Detalle verificado en memoria `reference_kepler_reception_flow`.
   - Sin motivo $4.0M (c24 en blanco → Haiku/manual) · operacional/otro ~$1.8M. El "otro" bajó de $9.18M a $924k.
 - **✅ Frontend (2026-08-05):** página `/compras/descuentos` (Operations: KPIs por grupo + filtros grupo/doctype/search + tabla + panel top proveedores) + ruta lazy + nav (`COMPRAS_VER`). Build view OK. → **vertical completo LOCAL: data → backend → frontend.**
 - **✅ Detector de duplicadas (2026-08-05):** endpoint `/duplicates` + vista "Posibles duplicados" en `/compras/descuentos` (mismo proveedor + monto exacto repetido ≤N días → posible captura doble; verificado **176 grupos / $4.3M** en riesgo, ventana 30d). Build api+view OK. Commit `df420698`.
-- **Falta (prod/next):** aplicar migración + `--apply` en Railway/LAN + redeploy api/view + **QA visual** · importar `c84` del pago · reconciliación notas vs `c84` (solapamiento) · Haiku para el tail sin-motivo · persistir duplicadas a `finance.findings` (bandeja + cron) · RE.2 auto-explain en `/compras/entradas`.
+- **Falta (prod/next):** aplicar migración + importer en Railway/LAN + redeploy api/view + **QA visual** (`/compras/descuentos` + sección auto-explain en `/compras/entradas`) · importar `c84` del pago · reconciliación notas vs `c84` (solapamiento) · Haiku para el tail sin-motivo · persistir duplicadas a `finance.findings` (bandeja + cron) · reglas typo/IVA + persistir `discrepancy_kind`.
 - **Hallazgo:** **$6.74M/año de facturas duplicadas** revertidas por NC → detector de control (patrón Maat).
 - **Reuso:** `LlmExtractorService` (Haiku), detectores Maat, `erp_supplier_payments`.
+
+#### Runbook de despliegue RE.10 + RE.2 (prod) — track operacional (Edgar)
+
+> Sin permisos nuevos (RE.10/RE.2 reusan `COMPRAS_VER`) → **no requiere re-login**. Migración aditiva/idempotente.
+
+1. **Migración** (newdb Railway): aplicar `20260805120000_analytics_erp_purchase_adjustments.js` (`npm run migrate:new` con `DATABASE_URL_NEW=<prod>`). Solo `CREATE TABLE IF NOT ... + GRANT SELECT app_runtime`.
+2. **Importer** (desde LAN — Railway no alcanza Kepler): `DATABASE_URL_NEW=<prod> node database/importers/kepler/import-purchase-adjustments.js` (dry-run) → verificar 1,286/$20.9M → repetir con `--apply`. `ADJ_SRC` default = md_00 (`192.168.9.95`).
+3. **Redeploy** api + view (push de los commits locales `3e49be9a`·`93c6e55c`·`beb1b3ae`·`c15b64f6`·`df420698`·`0cb4666c`·`e1dae914` + docs).
+4. **QA visual**: `/compras/descuentos` (KPIs + toggle Duplicados) + `/compras/entradas` → abrir una entrada de un proveedor grande (Mondelez/Canel) → sección **"¿Por qué no cuadra?"** lista sus X-D-40/55.
 
 ## 6. Schema nuevo (consolidado)
 - `analytics.erp_goods_receipts`: `+ source, fecha_vence, condicion_pago, dias_credito, poliza, total_factura, total_compra`. Sucursal real (RE.0).
