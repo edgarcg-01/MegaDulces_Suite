@@ -48,7 +48,7 @@ export class ReplenishmentScannerService {
   async scanTenant(tenantId: string): Promise<number> {
     let count = 0;
     await this.knex.transaction(async (trx) => {
-      await trx.raw(`SET LOCAL app.tenant_id = ?`, [tenantId]);
+      await trx.raw(`SET LOCAL app.tenant_id = '${tenantId}'`); // Postgres NO acepta bind param en SET (42601); literal como los demás scanners
 
       const oh = '(COALESCE(s.quantity,0) - COALESCE(s.reserved_quantity,0))';
       const it = 'COALESCE(pit.qty_in_transit, 0)';
