@@ -71,6 +71,8 @@ export interface ReceiptDeposit {
   ocr_monto: number | null;
   ocr_status: string;
   monto_match: boolean | null;
+  discrepancy_kind: string | null;   // RE.2 — cuadra/iva/typo/otro (clasificación del descuadre)
+  discrepancy_amount: number | null; // RE.2 — |factura − entrada|
   status: ProofStatus;
   comentarios: string | null;
   validated_by: string | null;

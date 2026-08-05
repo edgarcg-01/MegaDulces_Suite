@@ -583,6 +583,24 @@ export type AdjustmentMatch = 'exacto' | 'proveedor+fecha';
 export interface AdjustmentForEntradaRow extends AdjustmentRow { match: AdjustmentMatch; }
 export interface AdjustmentsForEntradaResponse { rows: AdjustmentForEntradaRow[]; total_monto: number; }
 
+/** RE.10 — reconciliación de los 2 canales de descuento de proveedor (pago c84 vs nota X-D-55). */
+export type DiscountCanal = 'pago' | 'nota' | 'ambos';
+export interface DiscountReconRow {
+  proveedor_code: string | null; proveedor_nombre: string | null;
+  desc_pago: number; desc_nota: number; total_desc: number; compras: number;
+  pct_vs_compras: number | null; canal: DiscountCanal; n_pagos_desc: number; n_notas: number;
+}
+export interface DiscountReconResponse {
+  summary: { total_desc_pago: number; total_desc_nota: number; total_desc: number; suppliers: number; suppliers_ambos: number };
+  rows: DiscountReconRow[];
+}
+/** RE.10 — "descuento no capturado" (pronto pago dejado en la mesa). */
+export interface DiscountLeakageRow {
+  proveedor_code: string | null; proveedor_nombre: string | null;
+  rate: number; n_total: number; n_captured: number; n_uncaptured: number; monto_uncaptured: number; lost: number;
+}
+export interface DiscountLeakageResponse { summary: { total_lost: number; suppliers: number }; rows: DiscountLeakageRow[]; }
+
 @Injectable({ providedIn: 'root' })
 export class ComprasService {
   private readonly http = inject(HttpClient);
@@ -961,5 +979,19 @@ export class ComprasService {
     if (p.window_days) q.set('window_days', String(p.window_days));
     const qs = q.toString();
     return this.http.get<AdjustmentsForEntradaResponse>(`${this.adjBase}/for-entrada${qs ? '?' + qs : ''}`);
+  }
+  /** RE.10 — reconciliación descuento pago (c84) vs nota (X-D-55) por proveedor. */
+  adjustmentsDiscountReconciliation(q: { date_from?: string; date_to?: string; search?: string } = {}): Observable<DiscountReconResponse> {
+    const p = new URLSearchParams();
+    if (q.date_from) p.set('date_from', q.date_from);
+    if (q.date_to) p.set('date_to', q.date_to);
+    if (q.search) p.set('search', q.search);
+    const qs = p.toString();
+    return this.http.get<DiscountReconResponse>(`${this.adjBase}/discount-reconciliation${qs ? '?' + qs : ''}`);
+  }
+  /** RE.10 — descuento no capturado (pronto pago perdido) por proveedor. */
+  adjustmentsDiscountLeakage(search?: string): Observable<DiscountLeakageResponse> {
+    const qs = search ? `?search=${encodeURIComponent(search)}` : '';
+    return this.http.get<DiscountLeakageResponse>(`${this.adjBase}/discount-leakage${qs}`);
   }
 }
